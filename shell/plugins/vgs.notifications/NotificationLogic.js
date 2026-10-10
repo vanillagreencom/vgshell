@@ -7,6 +7,7 @@
 // copies an entry owns, what a restart restores, what a start after a reboot
 // clears, what the history keeps and for how long, what a panel shows,
 // which toast a full stack lets go, which actions a card offers, what opening it does and which window that raises, which
+// message of its sender a card opens, which
 // notifications the service keeps holding for the history, the paused and
 // running clocks of the toasts on screen, the per-application rules that
 // read a sender's workspace and people, the Slack token rows, photo and
@@ -171,6 +172,15 @@ var WORKSPACES_MAX = 16;
 // A workspace the list does not name, or names with no icon, is looked up
 // again on a later notification at most this often, in milliseconds.
 var WORKSPACE_RELOAD_GAP = 60000;
+// Slack's log of the notifications it posts (slackMessageLink) is read
+// from its last SLACK_LOG_TAIL bytes, so one read is bounded whatever the
+// log holds. Slack 4.52.171 sets a log aside near 5 MiB (browser1.log
+// 5242991 bytes, browser2.log 5245005), and its log of 2026-10-09 held
+// 787978 bytes for 7 h 12 min, a record 707 to 868 bytes (a python
+// reading of those three logs, host cachy, 2026-10-09). A card whose
+// record is older than the tail, or in a log Slack has set aside, opens
+// its sender's window alone.
+var SLACK_LOG_TAIL = 1048576;
 // The per-application rules that read who wrote and where from a sender's
 // own text. A rule matches a notification whose desktop entry or
 // application name, case folded, is one of its `names`, the sender's own
@@ -180,13 +190,17 @@ var WORKSPACE_RELOAD_GAP = 60000;
 // knows, which the card draws as it came. `workspaces`, when set, is where
 // the sender's own client keeps its workspace list and the icons it
 // downloaded, under XDG_CONFIG_HOME, and the reader of that list.
+// `messages` is the log the sender's own client keeps of the notifications
+// it posts, under XDG_CONFIG_HOME, how many of its last bytes are read, and
+// the reader that finds a card's message link in them.
 var ENRICHERS = [
     {
         id: "slack",
         names: ["slack", "com.slack.slack"],
         origins: ["app.slack.com"],
         read: readSlack,
-        workspaces: { index: "Slack/storage/root-state.json", cache: "Slack/Cache/Cache_Data", read: slackWorkspaces }
+        workspaces: { index: "Slack/storage/root-state.json", cache: "Slack/Cache/Cache_Data", read: slackWorkspaces },
+        messages: { log: "Slack/logs/default/browser.log", tail: SLACK_LOG_TAIL, link: slackMessageLink }
     }
 ];
 
@@ -1420,6 +1434,128 @@ function senderWindows(windows, entry) {
     var browsers = open.filter(function (win) { return isChromiumDerived(win.appClass, ""); });
     var site = browsers.filter(function (win) { return classOf(win).indexOf(host) !== -1; });
     return (site.length > 0 ? site : browsers).map(windowAddress);
+}
+
+// ------------------------------------------------------ message links
+
+// What a choice on a card needs to open its message in its sender:
+// { rule, arrival, team }, or null for a choice or a card that opens
+// none. The choice is the card's way in, `open` or the pill of its primary
+// action (primaryAction), and the card one its sender's own client sent:
+// a browser's copy has no record in the rule's `messages` log. `rule` is
+// the rule's id, `arrival` the card's timestamp and `team` its workspace's
+// team id (slackWorkspaceFor, slackTeamIdFor), "" when no list names it.
+// `workspaces` and `teams` are Slack's list and the photo teams.
+function messageRequest(choice, offered, entry, workspaces, teams) {
+    var c = String(choice || "");
+    if (c !== "open" && c !== "action:" + primaryAction(offered)) return null;
+    var read = enrich(entry.app, entry.desktopEntry, entry.appIcon, entry.summary, entry.body);
+    if (read === null || read.source !== "desktop") return null;
+    return { rule: read.rule, arrival: entry.timestamp, team: slackTeamIdFor(workspaces, teams, slackWorkspaceFor(read, workspaces, teams)) };
+}
+
+// Slack's main process writes each notification to its log before it posts
+// it: a line `[MM/DD/YY, HH:MM:SS:mmm] info: Store: NEW_NOTIFICATION ` in
+// local time, then one pretty-printed JSON object that ends at a line
+// holding only `}`, its text and its launch link redacted and its ids
+// kept: `teamId`, `channel`, `msg`, the message's time, and `thread_ts`
+// on a thread reply (Slack 4.52.171, read on 2026-10-09). The
+// notification itself carries no id and no link. This log stands in for
+// the notification's `default` action, the freedesktop way into the
+// message: Slack 4.52.171 on Electron 44.4.5 keeps no reference to a
+// notification it shows, so once that object is collected the action
+// reaches no click handler and Slack opens nothing. No Slack version is
+// known to keep the click, so nothing dates the end of this reading. The
+// format is Slack's own and may change with any Slack: a record this
+// reader does not know whole gives no link, and no link is built from a
+// part of one.
+//
+// Slack writes the record, then posts the notification, so a record's
+// stamp comes before its card's arrival. A record is the card's only up
+// to SLACK_STAMP_WINDOW milliseconds before the arrival, which came 1 to
+// 4 ms after the stamp for 90 of the 93 Slack notifications in the stored
+// history and 21, 35 and 107 ms after it for the other three; the window
+// is 4.7 times the largest (a python reading of the notifications'
+// state.json against Slack's browser.log, browser1.log and browser2.log,
+// host cachy, 2026-10-09).
+var SLACK_STAMP_WINDOW = 500;
+// Slack's ids: a team's and a channel's are capital letters and digits; a
+// message's time is seconds, a dot and a fraction. Slack also logs records
+// whose `msg` is a word, such as `jit-notification`, which name no
+// message: 2 of the 1988 records in those logs.
+var SLACK_ID = /^[A-Z0-9]+$/;
+var SLACK_MESSAGE_TIME = /^\d+\.\d+$/;
+
+function slackIdFits(value, shape) {
+    return typeof value === "string" && shape.test(value);
+}
+
+// The time a record line's stamp names, in milliseconds, or null for text
+// that is no stamp. `text` is the line up to its `info:`. A stamp in the
+// hour a clock change repeats names two times, so a card of that hour may
+// find no record.
+function slackStampTime(text) {
+    var found = /^\[(\d\d)\/(\d\d)\/(\d\d), (\d\d):(\d\d):(\d\d):(\d\d\d)\] $/.exec(text);
+    if (found === null) return null;
+    var n = found.slice(1).map(Number);
+    return new Date(2000 + n[2], n[0] - 1, n[1], n[3], n[4], n[5], n[6]).getTime();
+}
+
+// The record whose line ends at `from` in `log`: { teamId, link }, the
+// team it names and the link that opens its message in Slack. `link` is ""
+// for a record with an id that is not Slack's, and `teamId` too for one
+// whose team does not read: text that is no whole JSON object, as when the
+// read ends inside it, or a team id that is not Slack's. The link is the
+// one Slack's own client builds for a notification
+// (formatSlackUrlForMessage in its web client bundle); the `slack` scheme
+// belongs to Slack's desktop entry, which hands it to the running Slack.
+function slackLogRecord(log, from) {
+    var unread = { teamId: "", link: "" };
+    var read;
+    try {
+        // With no closing line the slice is empty, which is no JSON.
+        read = JSON.parse(log.slice(from, log.indexOf("\n}\n", from) + 2));
+    } catch (e) {
+        return unread;
+    }
+    if (!slackIdFits(read.teamId, SLACK_ID)) return unread;
+    var threaded = read.thread_ts !== undefined;
+    if (!slackIdFits(read.channel, SLACK_ID) || !slackIdFits(read.msg, SLACK_MESSAGE_TIME) || (threaded && !slackIdFits(read.thread_ts, SLACK_MESSAGE_TIME))) return { teamId: read.teamId, link: "" };
+    return { teamId: read.teamId, link: "slack://channel?id=" + read.channel + "&message=" + read.msg + "&team=" + read.teamId + (threaded ? "&thread_ts=" + read.thread_ts : "") };
+}
+
+// The link that opens a Slack card's message in Slack, as { link, found }:
+// `text` is the tail of Slack's log, `arrival` the card's timestamp and
+// `teamId` its workspace's team id. A card never opens another card's
+// message, so the link is given only when one record alone can be the
+// card's: `found` is `one` with the link, and with `link` "" it is
+// `no-team` for a card whose team is not known, `none` for no record,
+// `several` for more than one and `refused` for one this reader does not
+// know whole. A record can be the card's when its team is the card's and
+// its stamp is at most SLACK_STAMP_WINDOW before the arrival and not after
+// it. Slack redacts a record's title and text, so nothing else tells two
+// records of one team apart: of the 1988 records in the three logs named
+// above, 87 had another of their team at most 500 ms before them. A
+// record whose team does not read can be any team's, and a record line
+// whose stamp does not read can be of any time, as a read that begins
+// inside that line leaves it.
+function slackMessageLink(text, arrival, teamId) {
+    if (teamId === "") return { link: "", found: "no-team" };
+    var log = String(text);
+    var line = /^(.*)info: Store: NEW_NOTIFICATION *$/gm;
+    var matches = 0;
+    var link = "";
+    var found;
+    while ((found = line.exec(log)) !== null) {
+        var at = slackStampTime(found[1]);
+        if (at !== null && (at > arrival || at < arrival - SLACK_STAMP_WINDOW)) continue;
+        var record = slackLogRecord(log, line.lastIndex);
+        if (record.teamId !== "" && record.teamId !== teamId) continue;
+        matches++;
+        link = at === null ? "" : record.link;
+    }
+    if (matches !== 1) return { link: "", found: matches === 0 ? "none" : "several" };
+    return link === "" ? { link: "", found: "refused" } : { link: link, found: "one" };
 }
 
 // ------------------------------------------------------------- clocks

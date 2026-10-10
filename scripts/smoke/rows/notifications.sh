@@ -556,9 +556,10 @@ inbox_closed() {
 # a toast: the pointer resting on the card, left of its centre and clear of
 # the actions its hover shows, through point_item; a check that the other
 # window kept the focus under it; then a click there. On an inbox row: the
-# inbox opened again, then click_panel_item. act_on LABEL SUMMARY PILL: the
-# toast's steps on the card's pill PILL, once the hover shows the sender's
-# actions.
+# inbox opened again, then click_panel_item. act_on LABEL SUMMARY PILL
+# [PILLS]: the toast's steps on the card's pill PILL, once the hover shows
+# the sender's actions, PILLS as shown_pills reads them, the sender
+# window's by default.
 open_card() { # LABEL SUMMARY
   local at x y marker="${open_card_before_wait_marker:-}"
   if [[ -n $marker ]]; then
@@ -578,10 +579,10 @@ open_card() { # LABEL SUMMARY
   expect "$1: the pointer on the card leaves the focus where it was" "$other_focused" active_window
   click "$x" "$y" || fail "$1: the click failed"
 }
-act_on() { # LABEL SUMMARY PILL
-  local at x y
+act_on() { # LABEL SUMMARY PILL [PILLS]
+  local at x y pills='["Open", "Reply", "Dismiss"]'
   rest_on_card "$2" || { fail "$1: the pointer never rested on the card $2"; return; }
-  expect_poll "$1: the hover reveals the sender's actions" '["Open", "Reply", "Dismiss"]' shown_pills "$2"
+  expect_poll "$1: the hover reveals the sender's actions" "${4:-$pills}" shown_pills "$2"
   at="$(point_item vgs:layer vgs.notifications PillButton text "$3")" || { fail "$1: the pointer never rested on the $3 pill"; return; }
   read -r x y <<<"$at"
   expect "$1: the pointer on the card leaves the focus where it was" "$other_focused" active_window
@@ -785,6 +786,123 @@ else
   fail "the sender's window and another window map for the open rows"
 fi
 
+# View on a Slack card also opens its message in Slack. Slack 4.52.171 can
+# lose the click its default action delivers, and its notification carries
+# no link, so the service reads the record Slack writes to its log for the
+# notification and hands xdg-open Slack's own link to the message
+# (NotificationLogic.slackMessageLink). The notification is the one the
+# session bus carried for a message of a second workspace on 2026-10-09
+# (dbus-monitor, Slack 4.52.171, host cachy), with the synthetic Slack's
+# names: its application, actions, hints and timeout. Slack writes the
+# record 1 to 107 ms before the card arrives, and the row cannot post
+# within such a span of a write: it writes the record once the card shows,
+# stamped 3 ms before the arrival the service holds for the card, beside a
+# record of the other workspace in the same window. The service reads the
+# log at the View. xdg-open is the stand-in of scripts/smoke/devices.sh,
+# which records its argv and opens nothing.
+# The control: the same View on a card the log holds no record of
+# delivers the action and raises Slack's window, as every View did before,
+# and the stand-in's reading holds no link. Before either, a click on a
+# Slack card while Slack has no log reads none and opens nothing.
+# card_value SUMMARY NAME: the value NAME of the card SUMMARY on the first
+# screen that draws it, as JSON, or none.
+card_value() { ipc smoke layerItems vgs.notifications NotificationCard "summary,$2" | py_reply 'import json,sys; print(next((json.dumps(v[sys.argv[2]]) for s, r, v in json.load(sys.stdin) if v["summary"] == sys.argv[1]), "none"))' "$1" "$2"; }
+slack_log="$home/.config/Slack/logs/default/browser.log"
+slack_link="slack://channel?id=C0GLOBEXREVIEW&message=1791590000.000100&team=T0GLOBEX"
+slack_focused='["slack", "Slack window"]'
+slack_pills='["View", "Dismiss"]'
+# slack_note CONVERSATION: the recorded notification in globex's
+# CONVERSATION; prints its id.
+slack_note() { notify Slack 0 "[globex] in $1" "Grace: the review notes are up" '["default", "View"]' '{"desktop-entry": <"slack">, "urgency": <byte 1>, "sender-pid": <int64 4242>}' "int32 -1"; }
+# slack_arrival SUMMARY: when the card SUMMARY arrived, as the service
+# holds it, in milliseconds; none without the card.
+slack_arrival() { ipc smoke modelRows vgs.notifications rows summary,timestamp | py_reply 'import json,sys; print(next((int(t) for s, t in json.load(sys.stdin) if s == sys.argv[1]), "none"))' "$1"; }
+# slack_logged ARRIVAL TEAM CHANNEL MSG: one record appended to the
+# synthetic Slack's log as Slack 4.52.171 writes it, its keys in Slack's
+# order, its text redacted, stamped 3 ms before ARRIVAL in the local time
+# of the shell's environment.
+slack_logged() { # ARRIVAL TEAM CHANNEL MSG
+  mkdir -p -- "${slack_log%/*}" || return 1
+  "${shell_env[@]}" python3 - "$slack_log" "$@" <<'PY'
+import json, sys, time
+
+path, at, team, channel, msg = sys.argv[1], int(sys.argv[2]) - 3, sys.argv[3], sys.argv[4], sys.argv[5]
+hidden = "[REDACTED]"
+record = {"title": hidden, "subtitle": hidden, "content": hidden, "body": hidden, "authorName": hidden, "avatarImage": hidden,
+          "teamId": team, "userId": "U0GRACE", "msg": msg, "channel": channel, "channelName": hidden, "launchUri": hidden,
+          "silent": True, "hasReply": True, "groupWindowsNotifications": True, "trace_id": "0f0e0d0c0b0a0908", "id": "smoke-notification",
+          "sound": "none", "win32": {"workspaceName": "smoke", "useComActivation": False}, "mac": {"closeButtonOverride": False}}
+stamp = time.strftime("%m/%d/%y, %H:%M:%S", time.localtime(at // 1000)) + ":%03d" % (at % 1000)
+with open(path, "a") as out:
+    out.write("[%s] info: Store: NEW_NOTIFICATION \n%s\n" % (stamp, json.dumps(record, indent=2)))
+PY
+}
+# slack_open_count: how many calls the xdg-open stand-in recorded.
+# slack_opens BEFORE: the argv of each call after the first BEFORE, as
+# JSON.
+slack_open_count() { device_calls xdg-open | py_reply 'import json,sys; print(len(json.load(sys.stdin)))'; }
+slack_opens() { device_calls xdg-open | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)[int(sys.argv[1]):]))' "$1"; }
+slack_pid=""
+if open_toplevel "$sandbox/toplevel-slack.log" slack "Slack window" && slack_pid="$toplevel_pid" && open_other "$sandbox/toplevel-slack-other.log"; then
+  other_window="$(other_address)"
+  device_reply xdg-open 0 "" "$slack_link"
+  expect "the shell resolves xdg-open to the stand-in" "$shim/xdg-open" shell_resolves xdg-open
+  slack_opens_before="$(slack_open_count)" || fail "the xdg-open stand-in's calls are unreadable"
+  slack_opened_before="$(log_lines 'notifications: slack message: link=opened')" || fail "the instance log is unreadable before the Slack View"
+  # Before the synthetic Slack has a log, as where Slack has written none:
+  # a click on the card, the newest toast, reads no log and opens no link.
+  slack_unread_before="$(log_lines 'notifications: slack message: link=none log=unread exit=')" || fail "the instance log is unreadable before the click with no Slack log"
+  expect "the synthetic Slack has no log yet" False test_file "$slack_log"
+  slack_note launch-plan >/dev/null
+  expect_poll "a Slack toast shows before Slack has a log" True has_row live "[globex] in launch-plan"
+  expect "a click on that toast is allowed" ok notes invoke-latest
+  expect_log "with no Slack log the service says the log was not read" "$((slack_unread_before + 1))" 'notifications: slack message: link=none log=unread exit='
+  expect "with no Slack log the click hands xdg-open nothing" '[]' slack_opens "$slack_opens_before"
+  expect_poll "the toast clicked with no Slack log leaves" none key_of "[globex] in launch-plan"
+  left_into_history "the toast clicked with no Slack log stays in the history" "[globex] in launch-plan"
+  clear_entry "the entry of the toast clicked with no Slack log is cleared" "[globex] in launch-plan"
+  focus_other
+  slack_id="$(slack_note launch-review)"
+  expect_poll "the Slack toast shows" True has_row live "[globex] in launch-review"
+  expect_poll "the service knows the Slack card's workspace" true card_value "[globex] in launch-review" showsBadge
+  slack_at="$(slack_arrival "[globex] in launch-review")" && [[ $slack_at =~ ^[0-9]+$ ]] || fail "the Slack card's arrival is unreadable: $slack_at"
+  slack_logged "$slack_at" T0ACME C0ACMEDESIGN 1791590000.000200 || fail "writing the other workspace's record failed"
+  slack_logged "$slack_at" T0GLOBEX C0GLOBEXREVIEW 1791590000.000100 || fail "writing the Slack card's record failed"
+  act_on "View on the Slack toast" "[globex] in launch-review" View "$slack_pills"
+  expect_poll "View delivers Slack's default action once" 1 delivered "$slack_id" default
+  expect_poll "View hands xdg-open the link to the card's message, in its own workspace" "[[\"$slack_link\"]]" slack_opens "$slack_opens_before"
+  expect_poll "View raises Slack's window" "$slack_focused" active_window
+  expect_log "the service logs the opened link with no id" "$((slack_opened_before + 1))" 'notifications: slack message: link=opened'
+  expect_poll "the viewed Slack toast leaves" none key_of "[globex] in launch-review"
+  left_into_history "the viewed Slack toast stays in the history" "[globex] in launch-review"
+  clear_entry "the viewed Slack toast's entry is cleared" "[globex] in launch-review"
+
+  focus_other
+  slack_opens_before="$(slack_open_count)" || fail "the xdg-open stand-in's calls are unreadable before the control"
+  slack_none_before="$(log_lines 'notifications: slack message: link=none records=none')" || fail "the instance log is unreadable before the control"
+  bare_id="$(slack_note launch-notes)"
+  expect_poll "control: a Slack toast the log holds no record of shows" True has_row live "[globex] in launch-notes"
+  # The log still holds the first card's record, which is no record of
+  # this card once this card arrived more than 500 ms after its stamp.
+  bare_at="$(slack_arrival "[globex] in launch-notes")" && [[ $bare_at =~ ^[0-9]+$ ]] || fail "control: the Slack card's arrival is unreadable: $bare_at"
+  expect "control: the first card's record is older than this card's window" True python3 -c 'import sys; print(int(sys.argv[2]) - (int(sys.argv[1]) - 3) > 500)' "$slack_at" "$bare_at"
+  act_on "control: View on that toast" "[globex] in launch-notes" View "$slack_pills"
+  expect_poll "control: that View delivers Slack's default action once" 1 delivered "$bare_id" default
+  expect_poll "control: that View raises Slack's window" "$slack_focused" active_window
+  expect_log "control: the service read the log and found no record of that card" "$((slack_none_before + 1))" 'notifications: slack message: link=none records=none'
+  expect "control: a View that only raises Slack's window fails the link reading" '[]' slack_opens "$slack_opens_before"
+  expect_poll "control: that toast leaves" none key_of "[globex] in launch-notes"
+  left_into_history "control: that toast stays in the history" "[globex] in launch-notes"
+  clear_entry "control: that toast's entry is cleared" "[globex] in launch-notes"
+
+  device_reply_clear xdg-open
+  hover "$((mon_w - 5))" "$((mon_h - 5))" || fail "moving the pointer off the Slack toasts failed"
+  close_other "the other window's helper exits 0 on SIGTERM after the Slack View"
+  close_toplevel "$slack_pid" "the Slack window's helper exits 0 on SIGTERM"
+else
+  fail "Slack's window and another window map for the Slack View"
+fi
+
 # Images: a sender's file is copied for the stored entry; a missing one is
 # skipped and the card draws no image.
 python3 -c 'import base64,sys; open(sys.argv[1], "wb").write(base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="))' "$home/avatar.png"
@@ -812,7 +930,6 @@ expect_poll "the stored entry with a missing image keeps no image" '""' stored_i
 # A sender a NotificationLogic rule reads: Slack's titles, over the
 # synthetic Slack. Its workspace list names acme, whose icon its cache
 # holds, and globex, whose icon it does not.
-card_value() { ipc smoke layerItems vgs.notifications NotificationCard "summary,$2" | py_reply 'import json,sys; print(next((json.dumps(v[sys.argv[2]]) for s, r, v in json.load(sys.stdin) if v["summary"] == sys.argv[1]), "none"))' "$1" "$2"; }
 slack_icon="$home/.cache/vgshell/notifications/workspaces/slack/T0ACME-0"
 notify Slack 0 "[acme] from Ada Lovelace" "Did you see the notes?" '[]' '{"desktop-entry": <"slack">}' 30000 >/dev/null
 expect_poll "a Slack direct message draws its workspace's icon" true card_value "[acme] from Ada Lovelace" showsBadge

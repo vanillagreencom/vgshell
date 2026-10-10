@@ -7,8 +7,9 @@
 // which notifications stay held and which go into the history, the
 // sender's window, the paused and running clocks, the per-application
 // rules that read a sender's workspace, people and workspace icons, and
-// the VGS hints with what a click on a hinted card does, and how a card's
-// body text reads against its card. Every expected value is written out by hand.
+// the VGS hints with what a click on a hinted card does, how a card's
+// body text reads against its card, and which Slack message a card opens.
+// Every expected value is written out by hand.
 //
 // The controls at the end edit a copy of the logic, one rule at a time, and
 // require this suite to fail on each copy.
@@ -17,6 +18,10 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const { load } = require("../bin/lib/qml-library.js");
+
+// Slack stamps its log in local time, and the recorded stamp below was
+// written in this zone.
+process.env.TZ = "America/Los_Angeles";
 
 const file = path.join(__dirname, "..", "shell", "plugins", "vgs.notifications", "NotificationLogic.js");
 // The plugin's look, whose face tints the logic names.
@@ -165,7 +170,106 @@ const TOAST_MOTION = [
     [LONG_FADE, false, { fade: 400, drop: 250, close: 100, enter: 400, exit: 500 }]
 ];
 
+// Slack's log record of one notification, as Slack 4.52.171 wrote it for a
+// message in a second workspace on 2026-10-09 (browser.log, host cachy):
+// the header line, then the object with these keys in this order. The ids
+// are the synthetic Slack's and every other value a stand-in of the
+// recorded value's kind. `stamp` is the header's time; `ids` holds teamId,
+// channel, msg and, for a thread reply, thread_ts, and `store`, when set,
+// another event's name for the line.
+function slackLogged(stamp, ids) {
+    const hidden = "[REDACTED]";
+    const record = { title: hidden, subtitle: hidden, content: hidden, body: hidden, authorName: hidden, avatarImage: hidden,
+        teamId: ids.teamId, userId: "U0GRACE", msg: ids.msg, channel: ids.channel, channelName: hidden };
+    if (ids.thread_ts !== undefined) record.thread_ts = ids.thread_ts;
+    Object.assign(record, { launchUri: hidden, silent: true, hasReply: true, groupWindowsNotifications: true, trace_id: "0f0e0d0c0b0a0908", id: "smoke-notification",
+        sound: "none", win32: { workspaceName: "globex", useComActivation: false }, mac: { closeButtonOverride: false } });
+    return "[" + stamp + "] info: Store: " + (ids.store || "NEW_NOTIFICATION") + " \n" + JSON.stringify(record, null, 2) + "\n";
+}
+// The recorded stamp, and the same time in milliseconds: the session bus
+// carried that notification at 1791592528.584874 (dbus-monitor).
+const SLACK_STAMP = "10/09/26, 17:35:28:584";
+const SLACK_STAMP_MS = 1791592528584;
+const GLOBEX_MESSAGE = { teamId: "T0GLOBEX", channel: "C0GLOBEXREVIEW", msg: "1791590000.000100" };
+const GLOBEX_OTHER = { teamId: "T0GLOBEX", channel: "C0GLOBEXREVIEW", msg: "1791590000.000400" };
+const ACME_MESSAGE = { teamId: "T0ACME", channel: "C0ACMEDESIGN", msg: "1791590000.000200" };
+const GLOBEX_LINK = "slack://channel?id=C0GLOBEXREVIEW&message=1791590000.000100&team=T0GLOBEX";
+const ACME_LINK = "slack://channel?id=C0ACMEDESIGN&message=1791590000.000200&team=T0ACME";
+const SLACK_RECORDED = slackLogged(SLACK_STAMP, GLOBEX_MESSAGE);
+const globexWith = change => slackLogged(SLACK_STAMP, Object.assign({}, GLOBEX_MESSAGE, change));
+// A second record of the recorded message's team, 84 ms before it.
+const GLOBEX_BEFORE = slackLogged("10/09/26, 17:35:28:500", GLOBEX_OTHER);
+// A record line with no object under it, which names no team.
+const SLACK_NO_OBJECT = "[" + SLACK_STAMP + "] info: Store: NEW_NOTIFICATION \n{\n  redacted\n}\n";
+// A read by bytes that begins inside the line of a record of that team,
+// written hours earlier: the line keeps no whole stamp.
+const SLACK_CUT_LINE = slackLogged("10/09/26, 09:00:00:000", GLOBEX_OTHER).slice(10);
+const one = link => ({ link: link, found: "one" });
+const no = found => ({ link: "", found: found });
+// The message a Slack card opens: [label, the log's text, the card's
+// arrival in milliseconds after the recorded stamp, its team id, the
+// reading].
+const SLACK_LINKS = [
+    ["the recorded notification of a second workspace", "[10/09/26, 17:35:24:519] info: window.focus\n" + SLACK_RECORDED, 1, "T0GLOBEX", one(GLOBEX_LINK)],
+    ["a thread reply", globexWith({ thread_ts: "1791580000.000300" }), 1, "T0GLOBEX", one(GLOBEX_LINK + "&thread_ts=1791580000.000300")],
+    ["the card's team, beside another team's record in its window", slackLogged("10/09/26, 17:35:28:500", ACME_MESSAGE) + SLACK_RECORDED, 1, "T0GLOBEX", one(GLOBEX_LINK)],
+    ["the other team's card over the same log", slackLogged("10/09/26, 17:35:28:500", ACME_MESSAGE) + SLACK_RECORDED, 1, "T0ACME", one(ACME_LINK)],
+    ["no record of the card's team", slackLogged(SLACK_STAMP, ACME_MESSAGE), 1, "T0GLOBEX", no("none")],
+    ["a card whose team is not known", SLACK_RECORDED, 1, "", no("no-team")],
+    ["two records of one team in one window", GLOBEX_BEFORE + SLACK_RECORDED, 1, "T0GLOBEX", no("several")],
+    ["a stamp at the arrival", SLACK_RECORDED, 0, "T0GLOBEX", one(GLOBEX_LINK)],
+    ["a stamp 500 ms before the arrival", SLACK_RECORDED, 500, "T0GLOBEX", one(GLOBEX_LINK)],
+    ["a stamp 501 ms before the arrival", SLACK_RECORDED, 501, "T0GLOBEX", no("none")],
+    ["a stamp 1 ms after the arrival", SLACK_RECORDED, -1, "T0GLOBEX", no("none")],
+    // Slack 4.52.171 logs such a record for a notice of its own.
+    ["a message that is a word", globexWith({ msg: "jit-notification" }), 1, "T0GLOBEX", no("refused")],
+    ["a message time that is a number", globexWith({ msg: 1791590000.0001 }), 1, "T0GLOBEX", no("refused")],
+    ["a channel that carries a second parameter", globexWith({ channel: "C0GLOBEX&team=T0ACME" }), 1, "T0GLOBEX", no("refused")],
+    ["a thread time that is a word", globexWith({ thread_ts: "latest" }), 1, "T0GLOBEX", no("refused")],
+    ["a team id in small letters", globexWith({ teamId: "t0globex" }), 1, "T0GLOBEX", no("refused")],
+    ["a record line with no object under it", SLACK_NO_OBJECT, 1, "T0GLOBEX", no("refused")],
+    // The read can end inside the newest record, which then has no closing
+    // line.
+    ["a record the read cut short", SLACK_RECORDED.slice(0, -3), 1, "T0GLOBEX", no("refused")],
+    ["a refused record of the card's team beside its record", globexWith({ msg: "jit-notification" }) + SLACK_RECORDED, 1, "T0GLOBEX", no("several")],
+    ["a refused record of another team beside the card's record", slackLogged(SLACK_STAMP, Object.assign({}, ACME_MESSAGE, { msg: "jit-notification" })) + SLACK_RECORDED, 1, "T0GLOBEX", one(GLOBEX_LINK)],
+    ["a record of no team that reads beside the card's record", SLACK_NO_OBJECT + SLACK_RECORDED, 1, "T0GLOBEX", no("several")],
+    ["a read that begins inside the line of the only record", SLACK_CUT_LINE, 1, "T0GLOBEX", no("refused")],
+    ["a read that begins inside the line of a record of the card's team", SLACK_CUT_LINE + SLACK_RECORDED, 1, "T0GLOBEX", no("several")],
+    ["a read that begins inside the line of another team's record", SLACK_CUT_LINE + slackLogged(SLACK_STAMP, ACME_MESSAGE), 1, "T0ACME", one(ACME_LINK)],
+    ["a read that begins inside an older record's object", slackLogged("10/09/26, 09:00:00:000", GLOBEX_OTHER).slice(60) + SLACK_RECORDED, 1, "T0GLOBEX", one(GLOBEX_LINK)],
+    ["another line of the store", globexWith({ store: "CLICK_NOTIFICATION" }), 1, "T0GLOBEX", no("none")],
+    ["an empty log", "", 1, "T0GLOBEX", no("none")]
+];
+// What a choice on a card needs to open its message: [label, choice, the
+// actions offered, the card, Slack's list, the request]. The cards are the
+// recorded notification's, its names the synthetic Slack's.
+const SLACK_LIST = [
+    { id: "T0ACME", domain: "acme", name: "Acme Corp", names: ["acme", "Acme Corp"], urls: [] },
+    { id: "T0GLOBEX", domain: "globex", name: "Globex", names: ["globex", "Globex"], urls: [] }
+];
+const SLACK_CARD = { app: "Slack", desktopEntry: "slack", appIcon: "", summary: "[globex] in launch-review", body: "Grace: the review notes are up", timestamp: 1791592528585 };
+const SLACK_WEB_CARD = { app: "", desktopEntry: "", appIcon: "", summary: "New message in launch-review", body: "app.slack.com\n\nGrace: the review notes are up", timestamp: 1791592528585 };
+const GLOBEX_REQUEST = { rule: "slack", arrival: 1791592528585, team: "T0GLOBEX" };
+const MESSAGE_REQUESTS = [
+    ["a click on a Slack card", "open", ["default", "View"], SLACK_CARD, SLACK_LIST, GLOBEX_REQUEST],
+    ["a click on a Slack card with no live action", "open", [], SLACK_CARD, SLACK_LIST, GLOBEX_REQUEST],
+    ["the View pill, the default action", "action:default", ["default", "View"], SLACK_CARD, SLACK_LIST, GLOBEX_REQUEST],
+    ["the first action where no default is offered", "action:reply", ["reply"], SLACK_CARD, SLACK_LIST, GLOBEX_REQUEST],
+    ["another action's pill", "action:reply", ["default", "reply"], SLACK_CARD, SLACK_LIST, null],
+    ["a dismissal", "dismiss", ["default", "View"], SLACK_CARD, SLACK_LIST, null],
+    ["a click on a Slack card from a browser", "open", [], SLACK_WEB_CARD, SLACK_LIST, null],
+    ["a click on another sender's card", "open", ["default"], { app: "smoke-chat", desktopEntry: "", appIcon: "", summary: "Hello", body: "", timestamp: 1791592528585 }, SLACK_LIST, null],
+    ["a card of the only workspace signed in, which its title does not name", "open", ["default", "View"], Object.assign({}, SLACK_CARD, { summary: "New message in launch-review" }), SLACK_LIST.slice(1), GLOBEX_REQUEST],
+    ["a card of a workspace no list names", "open", ["default", "View"], Object.assign({}, SLACK_CARD, { summary: "[initech] in launch-review" }), SLACK_LIST, { rule: "slack", arrival: 1791592528585, team: "" }]
+];
+
 function verify(logic) {
+    for (const [label, text, after, team, want] of SLACK_LINKS)
+        same(logic.slackMessageLink(text, SLACK_STAMP_MS + after, team), want, "Slack message link: " + label);
+    for (const [label, choice, offered, card, list, want] of MESSAGE_REQUESTS)
+        same(logic.messageRequest(choice, offered, card, list, []), want, "message request: " + label);
+    assert.equal(logic.enricherById("slack").messages.link, logic.slackMessageLink, "the Slack rule's reader is the link reader");
     for (const [durations, glass, want] of TOAST_MOTION)
         same(logic.toastMotion(durations, glass), want, "toast motion " + (glass ? "with" : "without") + " glass over " + JSON.stringify(durations));
     for (const [label, body, app, want] of BODIES)
@@ -930,7 +1034,31 @@ const CONTROLS = [
     ["the state judge refuses a hint role that is no string", "if (typeof hint !== \"string\") return where + \".\" + HINT_ROLES[h] + \" want=string\";", "if (false) return \"\";"],
     ["the state judge refuses an open click with no file", "if (value.hintClick === \"open\" && !value.hintOpen) return where + \".hintClick open without hintOpen\";", "if (false) return \"\";"],
     ["a stored entry may leave its hint roles out", "if (hint === undefined) continue;", "if (hint === undefined) return where + \".\" + HINT_ROLES[h] + \" want=string\";"],
-    ["a stored entry reads back with every hint role", "if (out[HINT_ROLES[h]] === undefined) out[HINT_ROLES[h]] = \"\";", ""]
+    ["a stored entry reads back with every hint role", "if (out[HINT_ROLES[h]] === undefined) out[HINT_ROLES[h]] = \"\";", ""],
+    ["a card's message is its own team's", "record.teamId !== \"\" && record.teamId !== teamId", "false"],
+    ["a record of no team that reads can be any team's", "record.teamId !== \"\" && record.teamId !== teamId", "record.teamId !== teamId"],
+    ["a card of no known team has no link", "if (teamId === \"\") return { link: \"\", found: \"no-team\" };", ""],
+    ["two records of one team in one window give no link", "if (matches !== 1) return", "if (matches === 0) return"],
+    ["a refused record still counts", "matches++;", "if (record.link !== \"\") matches++;"],
+    ["a stamp at the arrival is in the window", "at > arrival || ", "at >= arrival || "],
+    ["a stamp after the arrival is no record of the card", "at > arrival || ", ""],
+    ["a stamp at the window's far edge is in it", " || at < arrival - SLACK_STAMP_WINDOW", " || at <= arrival - SLACK_STAMP_WINDOW"],
+    ["a stamp before the window is no record of the card", " || at < arrival - SLACK_STAMP_WINDOW", ""],
+    ["a stamp is local time", "new Date(2000 + n[2], n[0] - 1, n[1], n[3], n[4], n[5], n[6]).getTime()", "Date.UTC(2000 + n[2], n[0] - 1, n[1], n[3], n[4], n[5], n[6])"],
+    ["a record line with no stamp can be of any time", "at !== null && (at > arrival", "at === null || (at > arrival"],
+    ["a record line with no stamp gives no link", "link = at === null ? \"\" : record.link;", "link = record.link;"],
+    ["a record is a NEW_NOTIFICATION line", "info: Store: NEW_NOTIFICATION *$/gm", "info: Store: [A-Z_]+ *$/gm"],
+    ["a team id is a Slack id", "!slackIdFits(read.teamId, SLACK_ID)", "false"],
+    ["a channel is a Slack id", "!slackIdFits(read.channel, SLACK_ID)", "false"],
+    ["a message is a time", "!slackIdFits(read.msg, SLACK_MESSAGE_TIME)", "false"],
+    ["a thread is a time", "!slackIdFits(read.thread_ts, SLACK_MESSAGE_TIME)", "false"],
+    ["an id is text", "return typeof value === \"string\" && shape.test(value);", "return shape.test(value);"],
+    ["a thread reply's link names its thread", "(threaded ? \"&thread_ts=\" + read.thread_ts : \"\")", "\"\""],
+    ["text that is no object is a refused record", "    } catch (e) {\n        return unread;\n    }\n    if (!slackIdFits(read.teamId", "    } catch (e) {\n        throw e;\n    }\n    if (!slackIdFits(read.teamId"],
+    ["only a card's way in opens its message", "if (c !== \"open\" && c !== \"action:\" + primaryAction(offered)) return null;", ""],
+    ["the primary action's pill is a way in", "c !== \"open\" && c !== \"action:\" + primaryAction(offered)", "c !== \"open\""],
+    ["a browser's copy opens no message", " || read.source !== \"desktop\"", ""],
+    ["a card no rule reads opens no message", "if (read === null || read.source !== \"desktop\") return null;", "if (read === null) return { rule: \"\", arrival: 0, team: \"\" }; if (read.source !== \"desktop\") return null;"]
 ];
 
 const source = fs.readFileSync(file, "utf8");

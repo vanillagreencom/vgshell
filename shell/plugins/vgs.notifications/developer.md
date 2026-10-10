@@ -22,7 +22,7 @@ A normal toast stays for at least the Notification duration. A low priority toas
 
 The file-opening TUI records its refusal keys in `$XDG_STATE_HOME/vgshell/notifications/diagnostics.log`, or `~/.local/state/vgshell/notifications/diagnostics.log` when the variable is unset. The terminal shows a plain explanation. A run outside the presenter keeps its keyed refusal on stderr. Editor and `xdg-open` output passes through unchanged.
 
-Slack notifications from a browser open that browser. Slack does not provide a link to the message in its notifications, so an old Slack notification can bring Slack into view without opening the message.
+Slack notifications from a browser open that browser. A notification from the Slack app carries no link to its message, so View also opens the link VGS builds from Slack's own log: [Slack notifications](slack.md#developer-details).
 
 Notification action ownership and window selection: [D051](../../../docs/decisions/D051-notification-actions-reveal-the-sender.md).
 

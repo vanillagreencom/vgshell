@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell
 import Quickshell.Hyprland
+import Quickshell.Io
 import Quickshell.Services.Notifications
 import qs.Commons
 import qs.Ui
@@ -20,7 +21,8 @@ import "NotificationLogic.js" as Logic
 // primary action, the sender's default, else its first; a pill runs its
 // own. Each is delivered while the service still holds the notification,
 // brings the sender's window into view (NotificationLogic.choicePlan) and
-// closes the notification on the server; its history entry stays. Silence
+// closes the notification on the server; its history entry stays. Opening
+// a Slack card also opens its message in Slack (readMessage). Silence
 // keeps notifications off the screen and records them in the history, bar
 // a critical one from the bare command line, which shows. The service owns
 // the rows, their clocks, the notification objects it holds and the store;
@@ -742,7 +744,9 @@ Item {
     // (leaveChosen).
     // The sender's window comes into view through the core's reveal, which
     // after a delivered action first gives the sender the chance to raise
-    // it itself. Logs what the choice reached, with no content.
+    // it itself. Logs what the choice reached, with no content. A card
+    // whose rule keeps a message log then has its message opened in the
+    // sender (readMessage), which no choice waits for.
     function choose(key, choice) {
         const at = indexOf(key);
         const entry = at === -1 ? entryFor(key) : rowModel.get(at);
@@ -764,7 +768,8 @@ Item {
             leaveChosen(key, "dismiss");
             return true;
         }
-        const plan = Logic.choicePlan(choice, offered(key).map(a => a.identifier));
+        const offeredIds = offered(key).map(a => a.identifier);
+        const plan = Logic.choicePlan(choice, offeredIds);
         if (plan === null) {
             console.error("notifications: refused: choice=" + choice + " want=open|action:<id>|dismiss");
             return false;
@@ -772,6 +777,7 @@ Item {
         // Read before the delivery, after which the server may close the
         // notification and the toast start to leave.
         const senders = plan.raise ? Logic.senderWindows(windows(), entry) : [];
+        const message = Logic.messageRequest(choice, offeredIds, entry, slackPhotos.workspaces, slackPhotos.teams);
         let delivered = false;
         if (plan.deliver !== "") {
             try {
@@ -791,6 +797,7 @@ Item {
         }
         if (plan.raise) console.info("notifications: chose delivered=" + (delivered ? plan.deliver : "none") + " windows=" + senders.length);
         leaveChosen(key, plan.leave);
+        if (message !== null) readMessage(message);
         return true;
     }
 
@@ -808,6 +815,59 @@ Item {
         if (at === -1 && reason === "dismiss") store.dropHistory(key);
         if (Logic.hasOwn(held, key)) unlink(key, Logic.heldAfterLeave(reason, false));
         bumpPanel();
+    }
+
+    // ---------------------------------------------------- message links
+
+    readonly property string configHome: Quickshell.env("XDG_CONFIG_HOME") || (Quickshell.env("HOME") + "/.config")
+
+    // One read of the last bytes of a rule's message log, for one choice
+    // (NotificationLogic.messageRequest, SLACK_LOG_TAIL): the service owns
+    // the process and releases it when it ends (messageRead).
+    function readMessage(request) {
+        const source = Logic.enricherById(request.rule).messages;
+        const read = logRead.createObject(root, { request: request });
+        read.command = ["tail", "-c", String(source.tail), "--", configHome + "/" + source.log];
+        read.running = true;
+    }
+
+    // A read ended: COMPLETION is its exit, null when it did not start. The
+    // link the rule's reader finds in TEXT goes to xdg-open, which hands it
+    // to the sender's own client. A log that cannot be read, as on a
+    // machine without that client, or that does not name the card's
+    // message alone opens nothing more. Logs which, with no id and no
+    // content: the core's refusal would name the link, so it is not logged.
+    function messageRead(read, completion, text) {
+        const request = read.request;
+        const about = "notifications: " + request.rule + " message: ";
+        Qt.callLater(() => read.destroy());
+        if (completion === null || completion.code !== 0 || completion.status !== 0) {
+            console.info(about + "link=none log=unread exit=" + (completion === null ? "none" : completion.code));
+            return;
+        }
+        const found = Logic.enricherById(request.rule).messages.link(text, request.arrival, request.team);
+        if (found.link === "") console.info(about + "link=none records=" + found.found);
+        else if (shell.run.detached(["xdg-open", found.link]) === "ok") console.info(about + "link=opened");
+        else console.error(about + "link=unopened");
+    }
+
+    // A command that fails to start emits only runningChanged, so the end
+    // is read there: no exit recorded is a failed start.
+    Component {
+        id: logRead
+        Process {
+            id: read
+            property var request: null
+            property var completion: null
+            // tail needs the program path alone. Under clearEnvironment a
+            // null value passes the shell's own value through (Quickshell
+            // 0.3.1, Process.clearEnvironment).
+            clearEnvironment: true
+            environment: ({ PATH: null })
+            stdout: StdioCollector { id: logText }
+            onExited: (code, status) => { completion = { code: code, status: status }; }
+            onRunningChanged: if (!running) root.messageRead(read, completion, logText.text)
+        }
     }
 
     // ------------------------------------------------------------ panel

@@ -26,7 +26,8 @@
     "status",
     "tui",
     "secrets",
-    "sounds"
+    "sounds",
+    "run"
   ],
   "settings": {
     "duration": 8,
@@ -88,7 +89,8 @@
     "open": { "script": "tui/open.sh", "title": "Open notification file", "presentation": "plain" }
   },
   "requirements": [
-    { "command": "xdg-open", "packages": { "pacman": "xdg-utils", "apt": "xdg-utils", "dnf": "xdg-utils", "nix": "xdg-utils" }, "optional": false, "purpose": "Opens files from notifications." },
+    { "command": "xdg-open", "packages": { "pacman": "xdg-utils", "apt": "xdg-utils", "dnf": "xdg-utils", "nix": "xdg-utils" }, "optional": false, "purpose": "Opens files and Slack messages from notifications." },
+    { "command": "tail", "packages": { "pacman": "coreutils", "apt": "coreutils", "dnf": "coreutils", "xbps": "coreutils", "emerge": "sys-apps/coreutils", "nix": "coreutils" }, "optional": true, "purpose": "Finds the Slack message a notification opens." },
     { "command": "node", "packages": { "pacman": "nodejs", "apt": "nodejs", "dnf": "nodejs", "xbps": "nodejs", "emerge": "net-libs/nodejs", "nix": "nodejs" }, "optional": false, "purpose": "Shows Slack workspace icons, photos and custom emoji." },
     { "command": "curl", "packages": { "pacman": "curl", "apt": "curl", "dnf": "curl", "xbps": "curl", "emerge": "net-misc/curl", "nix": "curl" }, "optional": true, "purpose": "Downloads Slack photos and custom emoji." },
     { "command": "secret-tool", "packages": { "pacman": "libsecret", "apt": "libsecret-tools", "dnf": "libsecret", "xbps": "libsecret", "emerge": "app-crypt/libsecret", "nix": "libsecret" }, "optional": true, "purpose": "Reads saved Slack credentials for sender photos." },
