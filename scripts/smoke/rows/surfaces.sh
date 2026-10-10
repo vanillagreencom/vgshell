@@ -5,7 +5,7 @@
 # anchor. The background is drawn on every screen while enabled. Layer
 # geometry is read from the compositor's layer list, window geometry from
 # its client list, popup geometry from the built instance.
-# inputs: scripts/smoke/fixtures/plugins/acme.surfaces/* shell/Hosts/SummonHost.qml shell/Hosts/SummonLayer.qml shell/Ui/layout/SurfaceHeight.qml shell/Hosts/SummonPopup.qml shell/Hosts/PluginSlot.qml shell/Hosts/BackgroundHost.qml shell/Hosts/AppWindow.qml scripts/smoke/toplevel/* scripts/smoke/rows/sources.sh shell/Ui/foundation/FocusRing.qml shell/Ui/overlay/ModalDialog.qml shell/Ui/feedback/Dialog.qml shell/Ui/layout/Pane.qml shell/Commons/Tokens.js shell/Ui/foundation/KeyNavLogic.js
+# inputs: scripts/smoke/fixtures/plugins/acme.surfaces/* shell/Hosts/SummonHost.qml shell/Hosts/SummonLayer.qml shell/Ui/layout/SurfaceHeight.qml shell/Hosts/SummonPopup.qml shell/Commons/AnchorTracker.qml shell/Ui/BarWidget.qml shell/Ui/overlay/Menu.qml shell/Hosts/PluginSlot.qml shell/Hosts/BackgroundHost.qml shell/Hosts/AppWindow.qml scripts/smoke/toplevel/* scripts/smoke/rows/sources.sh shell/Ui/foundation/FocusRing.qml shell/Ui/overlay/ModalDialog.qml shell/Ui/feedback/Dialog.qml shell/Ui/layout/Pane.qml shell/Commons/Tokens.js shell/Ui/foundation/KeyNavLogic.js
 set -euo pipefail
 surf="$home/.config/vgshell/plugins/acme.surfaces"
 mkdir -p "$surf"
@@ -152,19 +152,29 @@ text = source.read_text()
 assert text.count("    grabFocus: true\n") == 1, "the SummonPopup grab must occur once"
 target.write_text(text.replace("    grabFocus: true\n", "    grabFocus: false\n"))
 PYEDIT
-python3 - "$repo/shell/Hosts/SummonPopup.qml" "$summon_no_commit" <<'PYEDIT'
+# The commit request lives in the popup's AnchorTracker, so the no-commit
+# copy holds a tracker copy beside it, which it sees through its directory.
+python3 - "$repo/shell/Commons/AnchorTracker.qml" "$repo/shell/Hosts/AnchorTrackerNoCommit.qml" <<'PYEDIT'
 import pathlib, sys
 source, target = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
 text = source.read_text()
 old = "        if (window !== null) window.update();\n"
-assert text.count(old) == 1, "the SummonPopup commit request must occur once"
-marker = "    property real motionProgress: 0\n"
-assert text.count(marker) == 1, "the SummonPopup motion state must occur once"
+assert text.count(old) == 1, "the AnchorTracker commit request must occur once"
+marker = "    property bool closeOnHide: true\n"
+assert text.count(marker) == 1, "the AnchorTracker hide switch must occur once"
 text = text.replace(marker, marker + "    property bool skipCommit: false\n", 1)
+target.write_text(text.replace(old, "        if (!skipCommit && window !== null) window.update();\n"))
+PYEDIT
+python3 - "$repo/shell/Hosts/SummonPopup.qml" "$summon_no_commit" <<'PYEDIT'
+import pathlib, sys
+source, target = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+text = source.read_text()
+old = "    readonly property AnchorTracker tracker: AnchorTracker {\n"
+assert text.count(old) == 1, "the SummonPopup tracker must occur once"
+text = text.replace(old, "    readonly property var tracker: AnchorTrackerNoCommit {\n")
 marker = "    function finishDismiss() {\n        visible = false;\n    }\n"
 assert text.count(marker) == 1, "the SummonPopup finishDismiss function must occur once"
-text = text.replace(marker, marker + "\n    function disableCommit() { skipCommit = true; }\n", 1)
-target.write_text(text.replace(old, "        if (!skipCommit && window !== null) window.update();\n"))
+target.write_text(text.replace(marker, marker + "\n    function disableCommit() { tracker.skipCommit = true; }\n", 1))
 PYEDIT
 python3 - "$repo/shell/Hosts/SummonPopup.qml" "$summon_input_copy" <<'PYEDIT'
 import pathlib, sys
@@ -403,20 +413,31 @@ else:
     print("[%d,%d,%d,%d]" % (min(xs), min(ys), max(xs) - min(xs) + 1, max(ys) - min(ys) + 1))
 '
 }
+# popup_marker_follows: `followed` when the marker the compositor draws
+# stands where the widget's on-screen position puts it: the popup centred
+# under the widget, slid inside the screen, and the marker at its offset in
+# the popup. Qt's own mapping of the popup is read only for that offset,
+# which no reposition changes, so a popup the compositor leaves behind
+# fails while Qt maps it at the widget.
 popup_marker_follows() {
-  local actual expected
+  local actual widget popup marker
   actual="$(popup_marker_box)" || return 1
-  expected="$(popup_marker_geometry panel)" || return 1
-  python3 - "$actual" "$expected" <<'PY'
+  widget="$(ipc smoke invokeInstance "bar:$screen_name" acme.surfaces geometry '')" || return 1
+  popup="$(popup_geometry panel)" || return 1
+  marker="$(popup_marker_geometry panel)" || return 1
+  python3 - "$actual" "$widget" "$popup" "$marker" "$mon_logical_w" <<'PY'
 import json, sys
 try:
-    actual = json.loads(sys.argv[1])
-    expected = json.loads(sys.argv[2])
+    actual, widget, popup, marker = (json.loads(v) for v in sys.argv[1:5])
+    ax, ay, aw, ah = widget
+    width = popup[2]
+    x = min(max(round(ax + aw / 2 - width / 2), 0), int(sys.argv[5]) - width)
+    expected = [x + marker[0] - popup[0], ay + ah + marker[1] - popup[1], marker[2], marker[3]]
 except Exception:
-    print("marker=%s expected=%s" % (sys.argv[1], sys.argv[2]))
+    print("marker=%s widget=%s popup=%s qt-marker=%s" % tuple(sys.argv[1:5]))
     sys.exit()
-same = len(actual) == 4 and len(expected) == 4 and all(abs(actual[i] - expected[i]) <= 1 for i in range(4))
-print("followed" if same else "marker=%s expected=%s" % (actual, expected))
+same = len(actual) == 4 and all(abs(actual[i] - expected[i]) <= 1 for i in range(4))
+print("followed" if same else "marker=%s expected=%s widget=%s" % (actual, expected, widget))
 PY
 }
 popup_motion_state() {
@@ -468,6 +489,16 @@ d["entryPoints"] = {"bar-widget": "Widget.qml"}
 d.pop("capabilities", None)
 p.write_text(json.dumps(d))
 PY
+  python3 - "$tail/Widget.qml" <<'PY'
+import pathlib, sys
+p = pathlib.Path(sys.argv[1])
+t = p.read_text()
+assert t.count("    implicitWidth: 30\n") == 1, "implicitWidth must occur once"
+# A Row sizes in its window's polish pass, as Traffic's speeds do, so the
+# growth moves its neighbours during the bar's polish.
+t = t.replace("    implicitWidth: 30\n", "    implicitWidth: smokeRow.implicitWidth\n    function grow(width) { smokeWide.width = Number(width) || 100; smokeWide.visible = true; return \"grown\"; }\n    Row {\n        id: smokeRow\n        Item { width: 30; height: 1 }\n        Item { id: smokeWide; visible: false; width: 100; height: 1 }\n    }\n", 1)
+p.write_text(t)
+PY
   rescan "the tail widget fixture is scanned for the flyout follow re-layout"
   expect "enabling the tail widget fixture is allowed" ok ipc shell setPluginEnabled acme.surfaces-tail true
 }
@@ -501,7 +532,20 @@ anchor_updates="$(log_lines 'summon popup: anchor updated for acme\.surfaces')" 
 install_tail_widget
 expect_log "the host updates the popup's anchor for the bar re-layout" "$((anchor_updates + 1))" 'summon popup: anchor updated for acme\.surfaces'
 flyout_follow_check
-remove_tail_widget
+# A neighbour that changes width moves the widget with no widget added or
+# removed, and the flyout, open and still, follows it.
+flyout_widget_x() { ipc smoke invokeInstance "bar:$screen_name" acme.surfaces geometry '' | py_reply 'import json,sys; print(json.load(sys.stdin)[0])'; }
+flyout_rest_x="$(flyout_widget_x)" || flyout_rest_x=unreadable
+# One render call holds the growth, so the bar frame the growth draws
+# counts and a flyout left behind fails rather than reading as a stalled
+# sandbox.
+flyout_grow_check() {
+  expect "the tail widget fixture grows while the flyout is open" grown ipc smoke invokeInstance "bar:$screen_name" acme.surfaces-tail grow ''
+  [[ $flyout_rest_x =~ ^-?[0-9]+$ ]] || fail "the widget's x before the growth is unreadable: $flyout_rest_x"
+  expect_poll "the tail widget's growth moves the widget left" "$((${flyout_rest_x//[!0-9-]/} - 100))" flyout_widget_x
+  expect_poll "the compositor flyout follows the widget after its neighbour grows" followed popup_marker_follows
+}
+render flyout_grow_check
 expect "the anchored panel received the widget's payload" '"{\"from\":\"widget\"}"' ipc smoke readInstance panel acme.surfaces lastPayload
 expect "the anchored panel uses no layer surface" 0 layer_count vgs:panel
 expect_poll "the anchored panel focuses initialFocus without a ring" '["Control", "Initial focus", false, false, true]' surface_focused panel
@@ -509,6 +553,82 @@ type_keys -k Tab || fail "sending Tab to the anchored panel failed"
 expect_poll "Tab shows the popup focus ring" '["Control", "Next", true, true, true]' surface_focused panel
 type_keys -k Escape || fail "sending Escape to the anchored panel failed"
 expect_poll "Escape closes an anchored panel the plugin leaves unaccepted" absent ipc smoke readInstance panel acme.surfaces opened
+
+# The widget's bar menu, an overlay its AnchorTracker keeps with the widget,
+# follows it the same way when the tail widget grows again. The menu is
+# what the screen draws below the bar that a frame taken before it opened
+# does not, and it stands at the widget's left edge, slid inside the
+# screen, the menu gap below the widget.
+surf_menu_ref="$sandbox/surfaces-menu-ref.ppm"
+surf_menu_grab() { local socket; socket="$(shot_socket "$rt_dir" "$nested_socket" "$host_socket")" && shot_grim "$socket" "$rt_dir" -o "$screen_name" -t ppm "$1"; }
+# surf_menu_still: `still` once a frame equals the one before it.
+surf_menu_still() {
+  surf_menu_grab "$surf_menu_ref.next" || return 1
+  if cmp -s "$surf_menu_ref" "$surf_menu_ref.next"; then echo still; else mv -- "$surf_menu_ref.next" "$surf_menu_ref"; echo moving; fi
+}
+surf_menu_box() {
+  surf_menu_grab "$surf_menu_ref.now" || return 1
+  python3 - "$surf_menu_ref.now" "$surf_menu_ref" "$bar_reserved" <<'PY'
+import sys
+def ppm(path):
+    head = open(path, "rb").read().split(b"\n", 3)
+    if len(head) != 4 or head[0] != b"P6" or head[2] != b"255":
+        return None
+    w, h = map(int, head[1].split())
+    return (w, h, head[3]) if len(head[3]) == w * h * 3 else None
+now, ref, top = ppm(sys.argv[1]), ppm(sys.argv[2]), int(sys.argv[3])
+if now is None or ref is None or now[:2] != ref[:2]:
+    print("unreadable")
+    sys.exit()
+w, h = now[:2]
+ys, xs = [], []
+for y in range(top, h):
+    a, b = now[2][y * w * 3:(y + 1) * w * 3], ref[2][y * w * 3:(y + 1) * w * 3]
+    if a == b:
+        continue
+    cols = [x for x in range(w) if a[3 * x:3 * x + 3] != b[3 * x:3 * x + 3]]
+    ys.append(y)
+    xs += [cols[0], cols[-1]]
+print("absent" if not ys else "[%d,%d,%d,%d]" % (min(xs), ys[0], max(xs) - min(xs) + 1, ys[-1] - ys[0] + 1))
+PY
+}
+surf_menu_follows() {
+  local box widget gap
+  box="$(surf_menu_box)" || return 1
+  widget="$(ipc smoke invokeInstance "bar:$screen_name" acme.surfaces geometry '')" || return 1
+  gap="$(ipc smoke themeValue menu.gap)" || return 1
+  python3 - "$box" "$widget" "$gap" "$mon_logical_w" <<'PY'
+import json, sys
+try:
+    box, widget, gap = json.loads(sys.argv[1]), json.loads(sys.argv[2]), float(sys.argv[3])
+    expected = [min(max(widget[0], 0), int(sys.argv[4]) - box[2]), widget[1] + widget[3] + gap]
+except Exception:
+    print("menu=%s widget=%s gap=%s" % tuple(sys.argv[1:4]))
+    sys.exit()
+same = all(abs(box[i] - expected[i]) <= 1 for i in range(2))
+print("followed" if same else "menu=%s expected-at=%s widget=%s" % (box, expected, widget))
+PY
+}
+surf_menu_grab "$surf_menu_ref" || fail "the frame before the bar menu opens is unreadable"
+render expect_poll "the screen is still before the bar menu opens" still surf_menu_still
+read -r surf_menu_x surf_menu_y < <(ipc smoke invokeInstance "bar:$screen_name" acme.surfaces geometry '' | py_reply 'import json,sys; x,y,w,h=json.load(sys.stdin); print(int(x+w/2), int(y+h/2))') || fail "the fixture widget has no box to right-click"
+hover "$((surf_menu_x + 1))" "$surf_menu_y" && right_click "$surf_menu_x" "$surf_menu_y" || fail "the right click on the fixture widget failed"
+expect_poll "a right click on the fixture widget opens its bar menu" true ipc smoke readInstance "bar:$screen_name" acme.surfaces frameMenuOpen
+render expect_poll "the compositor draws the bar menu under its widget" followed surf_menu_follows
+surf_menu_open_box="$(surf_menu_box)" || surf_menu_open_box=unreadable
+flyout_rest_x="$(flyout_widget_x)" || flyout_rest_x=unreadable
+surf_menu_grow_check() {
+  expect "the tail widget fixture grows again while the menu is open" grown ipc smoke invokeInstance "bar:$screen_name" acme.surfaces-tail grow 400
+  [[ $flyout_rest_x =~ ^-?[0-9]+$ ]] || fail "the widget's x before the second growth is unreadable: $flyout_rest_x"
+  expect_poll "the second growth moves the widget left" "$((${flyout_rest_x//[!0-9-]/} - 300))" flyout_widget_x
+  expect_poll "the compositor bar menu follows the widget after its neighbour grows" followed surf_menu_follows
+}
+render surf_menu_grow_check
+# The menu moved, so the check above read a move and not a menu at rest.
+expect "the bar menu left where it opened" True py_reply 'import json,sys; a=json.loads(sys.argv[1]); b=json.load(sys.stdin); print(a[0] != b[0])' "$surf_menu_open_box" < <(surf_menu_box)
+type_keys -k Escape || fail "sending Escape to the bar menu failed"
+expect_poll "Escape closes the bar menu" false ipc smoke readInstance "bar:$screen_name" acme.surfaces frameMenuOpen
+remove_tail_widget
 
 expect "the unanchored panel opens for a nested menu" ok ipc shell summon panel acme.surfaces '{}'
 expect_poll "the parent panel is mapped" 1 layer_count vgs:panel

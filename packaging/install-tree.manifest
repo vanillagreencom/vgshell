@@ -52,6 +52,7 @@ f share/vgshell/config/system/greeter/hyprland.lua
 f share/vgshell/config/system/greeter/vgs-greeter.pam
 f share/vgshell/config/system/udev/60-vgs-apple-displays.rules
 f share/vgshell/shell/Commons/AccountDirectories.js
+f share/vgshell/shell/Commons/AnchorTracker.qml
 f share/vgshell/shell/Commons/ClearingInset.qml
 f share/vgshell/shell/Commons/DesktopLaunch.js
 f share/vgshell/shell/Commons/Duration.js
@@ -216,7 +217,6 @@ f share/vgshell/shell/Ui/layout/TabPages.qml
 f share/vgshell/shell/Ui/layout/Tabs.qml
 f share/vgshell/shell/Ui/layout/TouchpadScroll.qml
 f share/vgshell/shell/Ui/layout/TouchpadScrollLogic.js
-f share/vgshell/shell/Ui/overlay/AnchorTracker.qml
 f share/vgshell/shell/Ui/overlay/DismissScope.qml
 f share/vgshell/shell/Ui/overlay/ListMask.qml
 f share/vgshell/shell/Ui/overlay/Menu.qml

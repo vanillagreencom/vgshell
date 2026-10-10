@@ -18,7 +18,7 @@
 # A popover and a dialog in the summoned panel's popup cap their height at
 # their share of the output; copies that find the output as the Qt window's
 # own `screen` cap at the fallback.
-# inputs: scripts/smoke/fixtures/plugins/acme.overlays/* shell/Ui/overlay/* shell/Ui/controls/Select.qml shell/Ui/controls/InputWidth.qml shell/Ui/feedback/Dialog.qml
+# inputs: scripts/smoke/fixtures/plugins/acme.overlays/* shell/Ui/overlay/* shell/Commons/AnchorTracker.qml shell/Ui/controls/Select.qml shell/Ui/controls/InputWidth.qml shell/Ui/feedback/Dialog.qml
 set -euo pipefail
 ov="$home/.config/vgshell/plugins/acme.overlays"
 mkdir -p "$ov"
@@ -186,7 +186,7 @@ expect_poll "a press outside closes the select list" false ovr selectOpen
 # first is built: the type loader keeps the listing of a directory it has
 # read and refuses a file written after it as a case mismatch. A copy is no member of qs.Ui and sees
 # the module's internal types only through their directories, so the
-# select's copy sits beside AnchorTracker in overlay/ and imports the
+# select's copy sits beside DismissScope in overlay/ and imports the
 # directories of ScrollBar and InputWidth, which its list and control use.
 declare -A nograb_copy=(
   [popover]="$repo/shell/Ui/overlay/Popover.qml|$repo/shell/Ui/overlay/PopoverNoGrab.qml"

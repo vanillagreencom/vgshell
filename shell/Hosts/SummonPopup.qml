@@ -1,6 +1,4 @@
 import QtQuick
-import QtQuick.Window
-import QtQml.Models
 import Quickshell
 import qs.Core
 import qs.Commons
@@ -130,38 +128,20 @@ PopupWindow {
         function onSurfaceChanged() { popup.keptHeight = Math.max(popup.keptHeight, sized.surface); }
     }
 
-    // The anchor is re-read on every move of the item or an ancestor, since
-    // a layout can move the item without changing its own x or y. The
+    // The anchor follows every move of the item or an ancestor. The
     // compositor learns the new anchor on the popup's next frame; the log
-    // line is the validation rows' readback until then.
-    function followAnchor() {
-        console.info("summon popup: anchor updated for " + pluginId);
-        anchor.updateAnchor();
-        const window = contentItem ? contentItem.Window.window : null;
-        // Quickshell sends xdg_popup.reposition during the popup's polish;
-        // Qt needs QQuickWindow.update() to commit a frame when only the
-        // anchor changed.
-        if (window !== null) window.update();
+    // line is the validation rows' readback until then. A hidden anchor
+    // closes the popup through its own close motion.
+    readonly property AnchorTracker tracker: AnchorTracker {
+        popup: hostWindow
+        anchor: hostWindow.anchorItem
+        closeOnHide: false
+        onFollowed: console.info("summon popup: anchor updated for " + hostWindow.pluginId)
+        onAnchorHidden: hostWindow.requestDismiss()
     }
-    readonly property var anchorChain: {
-        const chain = [];
-        for (let item = anchorItem; item; item = item.parent) chain.push(item);
-        return chain;
-    }
-    Instantiator {
-        model: popup.anchorChain
-        delegate: Connections {
-            required property var modelData
-            target: modelData
-            function onXChanged() { popup.followAnchor(); }
-            function onYChanged() { popup.followAnchor(); }
-            function onWidthChanged() { popup.followAnchor(); }
-            function onHeightChanged() { popup.followAnchor(); }
-            function onRotationChanged() { popup.followAnchor(); }
-            function onScaleChanged() { popup.followAnchor(); }
-            function onVisibleChanged() { if (!target.visible) popup.requestDismiss(); }
-        }
-    }
+    // The tracker's own `popup` property would shadow this window's id
+    // inside its block.
+    readonly property PopupWindow hostWindow: popup
 
     NumberAnimation {
         id: flyoutMotion

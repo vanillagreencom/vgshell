@@ -41,7 +41,7 @@
 # shared CPU pressure limit are unmeasured, including fast readings.
 # Restoring eager Tooltip window construction must exceed the same budget.
 # Hyprland consent wires the shortcuts before this row types its open key.
-# inputs: scripts/smoke/rows/hyprland-consent.sh shell/plugins/vgs.keyhints/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/plugins/vgs.themes/manifest.json shell/plugins/vgs.launcher/manifest.json shell/plugins/vgs.voice/manifest.json shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/Ui/controls/Field.qml shell/Ui/controls/FormRow.qml shell/Ui/overlay/Tooltip.qml shell/Ui/overlay/AnchorTracker.qml shell/Hosts/AppWindow.qml shell/Core/KeyCapture.qml shell/Core/HyprlandState.qml shell/Core/HyprlandState.js shell/Core/PluginLogic.js shell/Core/Registry.qml shell/Core/Plugins.qml shell/Core/HyprlandLayer.js bin/lib/qml-library.js
+# inputs: scripts/smoke/rows/hyprland-consent.sh shell/plugins/vgs.keyhints/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/plugins/vgs.themes/manifest.json shell/plugins/vgs.launcher/manifest.json shell/plugins/vgs.voice/manifest.json shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/Ui/controls/Field.qml shell/Ui/controls/FormRow.qml shell/Ui/overlay/Tooltip.qml shell/Commons/AnchorTracker.qml shell/Hosts/AppWindow.qml shell/Core/KeyCapture.qml shell/Core/HyprlandState.qml shell/Core/HyprlandState.js shell/Core/PluginLogic.js shell/Core/Registry.qml shell/Core/Plugins.qml shell/Core/HyprlandLayer.js bin/lib/qml-library.js
 set -euo pipefail
 
 cp -p -- "$home/.config/vgshell/shell.json" "$sandbox/keyhints-initial-config.json"
