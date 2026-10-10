@@ -632,16 +632,16 @@ Scope {
     }
 
     // dialogCard's items: the one Dialog under the instance and the
-    // MouseArea among the children of its card, the Rectangle it draws
-    // behind its content, or `absent`, `dialogs=<n>` or `no-card-area`.
+    // MouseArea its card holds, the GlassSurface it draws behind its
+    // content, or `absent`, `dialogs=<n>` or `no-card-area`.
     function dialogCardArea(hostKey, id) {
         const item = root.instance(hostKey, id);
         if (item === null) return "absent";
         const dialogs = root.descendants(item).filter(child => root.typeName(child) === "Dialog");
         if (dialogs.length !== 1) return "dialogs=" + dialogs.length;
         for (const card of dialogs[0].children) {
-            if (root.typeName(card) !== "QQuickRectangle") continue;
-            const area = card.children.find(child => root.typeName(child) === "QQuickMouseArea");
+            if (root.typeName(card) !== "GlassSurface") continue;
+            const area = root.descendants(card).find(child => root.typeName(child) === "QQuickMouseArea");
             if (area !== undefined) return { dialog: dialogs[0], area: area };
         }
         return "no-card-area";
