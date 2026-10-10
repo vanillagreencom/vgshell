@@ -501,6 +501,18 @@ const LOOK = {
     }
 };
 const LOOK_LIGHT = { card: { fill: "#efefefcc", text: "#2a2a2a" } };
+// A look that draws text: it holds the interface family and a title family
+// that reads it, so the user's interface font reaches both.
+const FONT_LOOK = Object.assign({}, LOOK, {
+    font: { family: { sans: { type: "family", value: "Inter Variable" } } },
+    card: Object.assign({}, LOOK.card, { title: { type: "family", value: "{font.family.sans}" } })
+});
+// The must-fail controls of the interface font check: a look that keeps a
+// fixed family of its own, beside or in place of the input.
+const FIXED_FAMILY_LOOKS = [
+    ["a fixed family in place of the input", Object.assign({}, LOOK, { font: { family: { type: "family", value: "Liberation Sans" } } })],
+    ["a fixed title family beside the input", Object.assign({}, FONT_LOOK, { card: Object.assign({}, LOOK.card, { title: { type: "family", value: "JetBrains Mono" } }) })]
+];
 const shellTheme = tokens => {
     const result = load(judgeFile).accept(TOKENS, document(tokens));
     assert.equal(result.ok, true, "shell document for an appearance row");
@@ -508,8 +520,8 @@ const shellTheme = tokens => {
 };
 const DARK_THEME = shellTheme({ palette: { accent: "#7aa2f7" } });
 const LIGHT_THEME = shellTheme({ scheme: { mode: "light" }, palette: { accent: "#a8330a" } });
-// Every shell token but the three inputs moves; the plugin's values stay.
-const UNRELATED_THEME = shellTheme({ palette: { accent: "#7aa2f7", foreground: "#ff00ff", background: "#00ff00" }, font: { size: 22, family: { mono: "Courier", sans: "Serif" } }, space: { unit: 7 }, radius: { md: 9 } });
+// Every shell token but the four inputs moves; the plugin's values stay.
+const UNRELATED_THEME = shellTheme({ palette: { accent: "#7aa2f7", foreground: "#ff00ff", background: "#00ff00" }, font: { size: 22, family: { mono: "Courier" } }, space: { unit: 7 }, radius: { md: 9 } });
 
 // Accepted appearance rows: [label, table, light, theme, want].
 const APPEARANCE_ACCEPTED = [
@@ -517,7 +529,8 @@ const APPEARANCE_ACCEPTED = [
     ["light mode applies the light overrides and the light accent", LOOK, LOOK_LIGHT, LIGHT_THEME, [["card.fill", "#efefefcc"], ["card.text", "#2a2a2aff"], ["card.edge", "#a8330a80"], ["card.radius", 18]]],
     ["unrelated shell tokens reach no plugin value", LOOK, LOOK_LIGHT, UNRELATED_THEME, [["card.fill", "#151515c7"], ["card.text", "#e8e8e8ff"], ["card.edge", "#7aa2f780"], ["card.radius", 18], ["motion.open", 200]]],
     ["the theme's motion scale reaches the plugin's durations", LOOK, LOOK_LIGHT, shellTheme({ motion: { scale: 0 } }), [["motion.open", 0], ["motion.scale", 0]]],
-    ["the scale doubles the plugin's durations", LOOK, LOOK_LIGHT, shellTheme({ motion: { scale: 2 } }), [["motion.open", 400]]]
+    ["the scale doubles the plugin's durations", LOOK, LOOK_LIGHT, shellTheme({ motion: { scale: 2 } }), [["motion.open", 400]]],
+    ["the theme's interface family reaches the plugin's text", FONT_LOOK, {}, shellTheme({ font: { family: { sans: "Serif" } } }), [["font.family.sans", "Serif"], ["card.title", "Serif"]]]
 ];
 
 // Refused appearance rows: [label, table, light, theme, reason, token].
@@ -530,9 +543,13 @@ const APPEARANCE_REFUSED = [
     ["light overrides naming no token of the table", LOOK, { card: { glow: "#fff" } }, DARK_THEME, "unknown-token", "card.glow"],
     ["light overrides setting the accent", LOOK, { palette: { accent: "#fff" } }, DARK_THEME, "appearance-input", "palette.accent"],
     ["light overrides setting the scale", LOOK, { motion: { scale: 0 } }, DARK_THEME, "appearance-input", "motion.scale"],
+    ["light overrides setting the interface family", FONT_LOOK, { font: { family: { sans: "Serif" } } }, DARK_THEME, "appearance-input", "font.family.sans"],
+    ["an interface family that is no family", Object.assign({}, LOOK, { font: { family: { sans: { type: "color", value: "#ffffff" } } } }), {}, DARK_THEME, "appearance-font", "font.family.sans"],
+    ["an interface family that is a group", Object.assign({}, LOOK, { font: { family: { sans: { text: { type: "family", value: "Serif" } } } } }), {}, DARK_THEME, "appearance-font", "font.family.sans"],
     ["a theme without a mode", LOOK, LOOK_LIGHT, {}, "appearance-theme", "scheme.mode"],
     ["a theme without an accent", LOOK, LOOK_LIGHT, { scheme: { mode: "dark" }, motion: { scale: 1 } }, "appearance-theme", "palette.accent"],
     ["a theme without a scale", LOOK, LOOK_LIGHT, { scheme: { mode: "dark" }, palette: { accent: "#000000ff" } }, "appearance-theme", "motion.scale"],
+    ["a theme without an interface family", LOOK, LOOK_LIGHT, { scheme: { mode: "dark" }, palette: { accent: "#000000ff" }, motion: { scale: 1 } }, "appearance-theme", "font.family.sans"],
     // A light value is judged only where it applies, but its path is
     // judged in both modes.
     ["a light value of the wrong type in light mode", LOOK, { card: { radius: "#fff" } }, LIGHT_THEME, "type", "card.radius"]
@@ -914,6 +931,17 @@ function verifyGlass(judge, glass = GLASS) {
     assert.equal(judge.acceptAppearance(wide, glass.LIGHT, shipped).reason, "range", "a blur size past 64 is refused");
 }
 
+// Every `family` token of a plugin-owned look, resolved against THEME,
+// is THEME's interface font, so the Fonts page reaches the look's text.
+function lookFollowsInterfaceFont(judge, table, light, theme) {
+    const result = judge.acceptAppearance(table, light, theme);
+    assert.equal(result.ok, true, result.ok ? "" : judge.refusalLine(result));
+    const families = judge.leaves(table).filter(entry => entry.leaf.type === "family");
+    assert.ok(families.length > 0, "the look draws text in a family");
+    for (const entry of families)
+        assert.equal(at(result.values, entry.path), at(theme, "font.family.sans"), entry.path + " follows the interface font");
+}
+
 // The user's Appearance values over the theme (D104). Each expected value
 // is the arithmetic its comment names, never read from the judge.
 function verifyAppearance(judge) {
@@ -987,6 +1015,12 @@ function verifyAppearance(judge) {
     assert.deepEqual([at(monoTheme.values, "text.bar.family"), at(monoTheme.values, "text.code.family")], ["Courier", "Courier"], "a theme's fixed-width family reaches the capitals");
     const overMono = over(monoTheme, { interfaceFont: "Noto Serif" }).values;
     assert.deepEqual([at(overMono, "text.body.family"), at(overMono, "text.bar.family"), at(overMono, "text.code.family")], ["Noto Serif", "Noto Serif", "Courier"], "a user's interface font wins over a theme's families");
+    // A plugin-owned look takes the resolved interface font (D023): the
+    // user's font over the shipped theme and over a theme's own families.
+    lookFollowsInterfaceFont(judge, FONT_LOOK, {}, fonts);
+    lookFollowsInterfaceFont(judge, FONT_LOOK, {}, overMono);
+    for (const [label, look] of FIXED_FAMILY_LOOKS)
+        assert.throws(() => lookFollowsInterfaceFont(judge, look, {}, fonts), /follows the interface font/, "control: " + label);
     const terminal = over(shipped, { terminalFont: "Fira Code" });
     assert.deepEqual(plain(terminal.values), plain(shipped.values), "the terminal font sets no token");
     assert.deepEqual([terminal.appearance.values.terminalFont, terminal.appearance.sources.terminalFont, Object.hasOwn(terminal.appearance.theme, "terminalFont")], ["Fira Code", "user", false], "and is the user's value, with none of the theme's to show");
@@ -1305,6 +1339,8 @@ const CONTROLS = [
     ["appearance palette", 'if (!isLeaf(accent) || accent.type !== "color" || Object.keys(palette).length !== 1)', "if (!isLeaf(accent))"],
     ["appearance light tree", "if (!isPlainObject(light))", "if (false)"],
     ["appearance light judged", "if (!stated.ok)\n        return stated;\n    for", "if (false)\n        return stated;\n    for"],
+    ["appearance font type", 'if (family !== undefined && family.type !== "family")', "if (false)"],
+    ["appearance interface family input", "var APPEARANCE_INPUTS = [\"palette.accent\", MOTION_SCALE, INTERFACE_FAMILY];", "var APPEARANCE_INPUTS = [\"palette.accent\", MOTION_SCALE];"],
     ["appearance input", "if (hasOwn(stated.overrides, APPEARANCE_INPUTS[i]))", "if (false)"],
     ["appearance mode", 'var overrides = mode === "light" ? stated.overrides : {};', "var overrides = stated.overrides;"],
     ["appearance theme mode", 'if (typeof mode !== "string")', "if (false)"],

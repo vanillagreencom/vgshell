@@ -42,8 +42,8 @@ Singleton {
     // already hold the resolved values.
     readonly property var appearanceState: source.appearance
     // VGlass, the one shared glass look (Glass.js), resolved as a plugin's
-    // own look is: it follows the theme's mode, accent and motion scale
-    // alone. GlassSurface of qs.Ui draws it.
+    // own look is: it follows the theme's four look inputs alone.
+    // GlassSurface of qs.Ui draws it.
     readonly property var glass: appearance(Glass.TOKENS, Glass.LIGHT)
 
     // Whether a surface whose own VGlass choice is OPTIN draws glass under
@@ -312,12 +312,13 @@ Singleton {
 
     // A plugin's own look, for a plugin whose manifest declares
     // `appearance`: its table resolved against the active theme's
-    // `scheme.mode`, `palette.accent` and `motion.scale` and nothing else
-    // of it, converted as the shell's groups are. A binding on it follows
-    // the theme and answers the same values for any theme with those three.
+    // `scheme.mode`, `palette.accent`, `motion.scale` and
+    // `font.family.sans`, the user's interface font, and nothing else of it,
+    // converted as the shell's groups are. A binding on it follows the
+    // theme and answers the same values for any theme with those four.
     // A refusal is logged and answers null, so the caller fails loudly
-    // instead of drawing a look the judge did not accept. A family is the
-    // plugin's own and is never substituted.
+    // instead of drawing a look the judge did not accept. A family is drawn
+    // as the judge resolved it and is never substituted.
     function appearance(table, light) {
         const accepted = ThemeLogic.acceptAppearance(table, light, source.values);
         if (!accepted.ok) {

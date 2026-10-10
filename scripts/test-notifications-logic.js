@@ -1114,7 +1114,7 @@ assert.deepEqual(serviceMismatches(manifestText, name => name === "slack-photos.
 const TEXT_FLOOR = 4.5;
 const WALLPAPERS = ["#000000", "#ffffff"];
 function lookIn(tokens, light, mode) {
-    const judged = themeLogic.acceptAppearance(tokens, light, { scheme: { mode: mode }, palette: { accent: "#ff5a36" }, motion: { scale: 1 } });
+    const judged = themeLogic.acceptAppearance(tokens, light, { scheme: { mode: mode }, palette: { accent: "#ff5a36" }, motion: { scale: 1 }, font: { family: { sans: "Inter" } } });
     assert.equal(judged.ok, true, "the look resolves in " + mode + " mode: " + JSON.stringify(judged));
     return judged.values;
 }

@@ -12,7 +12,7 @@ The component library `qs.Ui`, listed in `shell/Ui/qmldir`, is the only code tha
 
 Each input behaviour has one owner in `qs.Ui`. `PointerCursor` draws the pointing hand, `TouchpadScroll` moves a view under a touchpad swipe, `KeyNav` moves through a composite, `FocusRing` shows focus, `ListCursor` draws a list's selection and `Pane` owns a container's inset. The Keyboard, Motion and Layout rules below govern them.
 
-A plugin whose design must look the same under every theme owns its look through an `appearance` table. The same judge resolves it, fed only the theme's mode, accent and motion scale, except the standard surface `GlassSurface` draws while glass is off ([D023](../decisions/D023-plugin-owned-appearance.md)). A plugin's Settings page is drawn from its manifest schema ([D032](../decisions/D032-settings-plugin-and-manifest-settings-convention.md)). Text a user reads states the result and the action the user takes.
+A plugin whose design must look the same under every theme owns its look through an `appearance` table. The same judge resolves it, fed only the theme's mode, accent, motion scale and interface font, except the standard surface `GlassSurface` draws while glass is off ([D023](../decisions/D023-plugin-owned-appearance.md)). A plugin's Settings page is drawn from its manifest schema ([D032](../decisions/D032-settings-plugin-and-manifest-settings-convention.md)). Text a user reads states the result and the action the user takes.
 
 ## Why
 
@@ -136,7 +136,7 @@ A schema-built Settings page gives every plugin a full page with no UI code and 
 
 ## Revisit when
 
-A value a surface needs cannot be a token; a surface needs an input or keyboard model the shared owners cannot express; a plugin-owned look needs a third theme input, or a theme must restyle it after all; a Settings field needs a control the manifest schema cannot declare. A child must draw outside its container inset, a list needs several selection plates, runtime discovery outgrows the bounded choices list, or the owner changes the layout grid.
+A value a surface needs cannot be a token; a surface needs an input or keyboard model the shared owners cannot express; a plugin-owned look needs a fifth theme input, or a theme must restyle it after all; a Settings field needs a control the manifest schema cannot declare. A child must draw outside its container inset, a list needs several selection plates, runtime discovery outgrows the bounded choices list, or the owner changes the layout grid.
 
 ## Not governed
 

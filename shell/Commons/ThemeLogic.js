@@ -623,8 +623,10 @@ function accept(tokens, text) {
 // The tokens a plugin-owned appearance takes from the active theme, by the
 // path both tables hold them at, and nothing else of the theme. The accent
 // is the one colour; the scale is the motion control, so reduced motion
-// reaches the plugin's durations as it reaches the shell's.
-var APPEARANCE_INPUTS = ["palette.accent", MOTION_SCALE];
+// reaches the plugin's durations as it reaches the shell's; the family is
+// the interface font, so the user's Fonts choice reaches the plugin's text.
+var INTERFACE_FAMILY = "font.family.sans";
+var APPEARANCE_INPUTS = ["palette.accent", MOTION_SCALE, INTERFACE_FAMILY];
 
 // The token whose value picks the plugin's light overrides.
 var SCHEME_MODE = "scheme.mode";
@@ -634,9 +636,10 @@ var SCHEME_MODE = "scheme.mode";
 // the theme's `scheme.mode` is `light` and judged in both modes, so a defect
 // in it refuses in either. `theme` is the active theme's resolved values,
 // as accept answers them, so its mode is one the shell's own judge
-// accepted. The table's `palette` group holds `accent` alone and `light`
-// sets no input, so no other theme value reaches the plugin and the plugin
-// cannot shadow what the theme gives it. Answers { ok: true, values } or
+// accepted. The table's `palette` group holds `accent` alone, a
+// `font.family.sans` the table holds is a `family`, and `light` sets no
+// input, so no other theme value reaches the plugin and the plugin cannot
+// shadow what the theme gives it. Answers { ok: true, values } or
 // one refusal whose reason starts `appearance-` or is the resolver's own.
 function acceptAppearance(table, light, theme) {
     var defect = tableError(table);
@@ -646,6 +649,9 @@ function acceptAppearance(table, light, theme) {
     var accent = nodeAt(table, APPEARANCE_INPUTS[0]);
     if (!isLeaf(accent) || accent.type !== "color" || Object.keys(palette).length !== 1)
         return refusal("appearance-palette", "palette", "want=accent-colour-alone");
+    var family = nodeAt(table, INTERFACE_FAMILY);
+    if (family !== undefined && family.type !== "family")
+        return refusal("appearance-font", INTERFACE_FAMILY, "want=family");
     if (!isPlainObject(light))
         return refusal("appearance-light", "", "got=" + JSON.stringify(light));
     var stated = overridesOf(table, light);
