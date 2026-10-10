@@ -145,6 +145,9 @@ FocusScope {
         id: layout
         anchors.fill: parent
         container: "window"
+        // Memory cards and a long transcript scroll inside the console, so
+        // the window keeps its own height and stays clear of the bubble.
+        maximumHeight: root.implicitHeight
         // The transcript is the pane's body, so the pane's one divider
         // marks it scrolled under the title and over the composer.
         Component.onCompleted: scrollArea.keyboardScroll = true

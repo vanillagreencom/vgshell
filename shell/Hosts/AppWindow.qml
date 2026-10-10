@@ -11,7 +11,8 @@ import qs.Ui
 // floats it and centres it. It draws no border and no radius of its own, so
 // Hyprland's decoration is the frame. The window maps once the plugin is
 // built, at the larger of the plugin's request and its window Pane's
-// content height, bounded by the output's room. Quickshell sends a floating window
+// content height, capped at that Pane's maximumHeight when it sets one and
+// bounded by the output's room. Quickshell sends a floating window
 // no size change once it is shown, so that size is the first request only,
 // and the plugin fills whatever size Hyprland gives the window after. A
 // close through Hyprland, such as its killactive key, is `dismissed`, which
@@ -45,7 +46,7 @@ FloatingWindow {
     // counted once, including its title space and pinned footer.
     // https://quickshell.org/docs/v0.3.1/guide/size-position/
     function paneHeight(item) {
-        if (item instanceof Pane) return item.container === "window" && item.hasTitle ? item.uncappedHeight : 0;
+        if (item instanceof Pane) return item.container === "window" && item.hasTitle ? item.cappedHeight : 0;
         let height = 0;
         for (const child of item.children) {
             if (!child.visible) continue;
