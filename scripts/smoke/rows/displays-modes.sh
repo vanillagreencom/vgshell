@@ -10,9 +10,11 @@
 # backend takes any mode and integer scale. The nested headless output
 # takes no mirror rule, so the unit rows alone hold Mirror. Each poll reads
 # every 0.2 s for up to 5 s.
-# Control run on 2026-10-06, host cachy, through this row after the setup
-# rows: a guard copy that exits before restore leaves the trial scale in
-# place and the control reports the defect.
+# Control run on 2026-10-10, host cachy, through this row after the setup
+# rows: a guard copy that exits before restore leaves the trial's token
+# held and writes no log, and the control reports the defect; with the
+# shipped guard left in place the same check reads `token=claimed
+# log=written` and fails.
 # Control run on 2026-10-06, host cachy, through this row after the setup
 # rows: a rule that turns the main output off with no check, sent while it
 # is the only output, leaves it off, and the control reports the defect;
@@ -40,7 +42,6 @@ position_wait() {
   echo no
 }
 not_trial_scale() { [[ "$(scale_of "$1")" == "$trial_scale" ]] && echo no || echo yes; }
-not_base_scale() { [[ "$(scale_of "$1")" == 1 ]] && echo no || echo yes; }
 mode_of() { hypr -j monitors all | py_reply 'import json,sys; rows=[m for m in json.load(sys.stdin) if m["name"]==sys.argv[1]]; print("%dx%d" % (rows[0]["width"], rows[0]["height"]) if rows else "absent")' "$1"; }
 token_of() { read_displays trialState | py_reply 'import json,sys; print(json.load(sys.stdin).get("token",""))'; }
 trial_phase() { read_displays trialState | py_reply 'import json,sys; print(json.load(sys.stdin).get("phase",""))'; }
@@ -59,6 +60,11 @@ print("absent")
 PY
 }
 guard_running() { [[ "$(guard_pid_for "$1")" == absent ]] && echo no || echo yes; }
+# guard_left TOKEN: what a guard left of a trial. A guard that restores
+# first renames the token file, and every guard that reaches its deadline
+# writes TOKEN.log. A configuration reload also puts the scale back, so the
+# scale does not say whether a guard restored.
+guard_left() { echo "token=$([[ -e $1 ]] && echo held || echo claimed) log=$([[ -e $1.log ]] && echo written || echo none)"; }
 rule_json() {
   python3 - "$1" "$2" "$3" <<'PY'
 import json, sys
@@ -173,7 +179,7 @@ expect "the control display trial starts" ok invoke_displays trialRules "$rules"
 expect_poll "the control trial applies scale $trial_scale" "$trial_scale" scale_of "$output"
 token="$(token_of)"
 sleep 16
-expect "control: a guard that never restores leaves a non-restored scale" yes not_base_scale "$output"
+expect "control: a guard that never restores leaves the trial's token held and no guard log" "token=held log=none" guard_left "$token"
 mv -f -- "$repo/bin/vgshell-display-guard.good" "$repo/bin/vgshell-display-guard"
 release_mode "display modes control restores $output" "$output" "$base" 1
 

@@ -183,6 +183,11 @@ lc_reports_before="$(lc_reports)"
 expect_poll "the shell has run past Quickshell's restart floor" ran lc_ran
 lc_crashed_pid="$shell_qs_pid"
 lc_crashed_log="$instance_log"
+# Read before the signal: the crash check's stop reads this pid again, and
+# a read that comes before Quickshell has started again in it finds no
+# resident size, which would leave this shell unread for
+# rows/diagnostics.sh.
+shell_memory_note
 kill -SEGV -- "$shell_qs_pid" || fail "the planted crash signal was not sent"
 expect_poll "the planted crash leaves a crash report" "$((lc_reports_before + 1))" lc_reports
 expect_poll "the planted crash maps Quickshell's crash reporter window" 1 lc_strays

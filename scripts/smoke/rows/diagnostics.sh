@@ -59,5 +59,5 @@ expect "control: a resident size at the ceiling reads under" under rss_verdict "
 expect "control: no reading reads unread" unread rss_verdict 0 "$rss_ceiling_kib"
 expect "control: an earlier shell's reading over the ceiling stays the largest" "$((rss_ceiling_kib + 1)) earlier over" peak_after "$((rss_ceiling_kib + 1))" earlier 1 later
 expect "control: a later, larger reading replaces a smaller one" "2 later under" peak_after 1 earlier 2 later
-unread_after() { ( shell_pids_started+=("$1"); shells_unread ) } # PID
+unread_after() { ( shell_pids_started=("$1"); shell_pids_noted=(); shells_unread ) } # PID
 expect "control: a started shell no note read is named" 1 unread_after 1
