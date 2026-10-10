@@ -16,9 +16,12 @@ const ClaudeCode = require("./ClaudeCode.js");
 const Providers = require("./Providers.js");
 const CodexHarness = require("./CodexHarness.js");
 const CopilotHarness = require("./CopilotHarness.js");
+const Harness = require("./HarnessProgram.js");
 const PiHarness = require("./PiHarness.js");
 const PiRpc = require("./PiRpc.js");
 const MAX_ROWS = 32; // The core's presenceList and choices ceiling.
+// The sign-in programs whose own model list the Jarvis page offers.
+const MODEL_LISTS = { claude: ClaudeCode, codex: CodexHarness, copilot: CopilotHarness };
 const MAX_BYTES = 64 * 1024;
 const PROBE_TEXT = "Reply OK.";
 // Every Verify route's bound on a stalled provider or program, not a latency budget.
@@ -46,7 +49,7 @@ function printable(value, max) {
     return typeof value === "string" && value.length > 0 && value.length <= max && !/[\x00-\x1f\x7f]/.test(value);
 }
 function modelOf(value) {
-    if (!ClaudeCode.isModel(value)) fail("verify=model-invalid");
+    if (!Harness.isModel(value)) fail("verify=model-invalid");
     return value;
 }
 function provider(id) {
@@ -218,6 +221,7 @@ class Accounts {
         this.presence = { ...presence };
         this.secrets = new Secrets(stateDirectory, this.env);
         this.accounts = [];
+        this.offered = { kind: "none" };
         this.partial = "";
         this.epoch = 0;
         this.operation = 0;
@@ -432,6 +436,31 @@ class Accounts {
                         : /^jarvis: brain=pi-exited code=127 /.test(error.message) ? "command-missing" : key[1] };
                 }
             }));
+    }
+
+    /**
+     * The models the sign-in the saved Brain choice ID names offers, read by
+     * its own program from its own list, bounded, with no prompt sent:
+     * { kind: "read", offers }, Harness.offers' list, MAX_ROWS at most. A
+     * key, a local server and a Pi choice, which names its model itself,
+     * have no such list, and a signed-out or unavailable account is not
+     * asked: { kind: "none" }. A failed read is { kind: "failed", reason },
+     * its program's keyed cause; the sign-in then runs its program's own
+     * model.
+     */
+    async readOffers(id) {
+        this.offered = { kind: "none" };
+        const resolved = this.resolve(id);
+        if (resolved === null || resolved.source.kind !== "cli" || !Object.hasOwn(MODEL_LISTS, resolved.provider)) return;
+        const account = this.accounts.find(item => item.id === resolved.id);
+        if (account === undefined || account.state.kind === "unavailable" || signedOut(account.source, account.state.kind)) return;
+        try {
+            const offers = await MODEL_LISTS[resolved.provider].models({ directory: resolved.source.directory, env: this.env, runtime: this.runtime });
+            this.offered = { kind: "read", offers: offers.slice(0, MAX_ROWS) };
+        } catch (error) {
+            const key = /^jarvis: brain=([a-z0-9-]+)(?: |$)/.exec(error?.message ?? "");
+            this.offered = { kind: "failed", reason: key === null ? "models-failed" : key[1] };
+        }
     }
 
     // Secret Service labels/attributes only. CLI login items are not API keys.
@@ -793,7 +822,9 @@ class Accounts {
      * The page's account facts: each account's label, provider, presence and the
      * typed facts AccountStatus.js words its hint from, whether Sign in
      * serves it (a signed-out account of a provider with a sign-in),
-     * whether its Pi is older than the Pi brain's floor, the brain choices, and the search's found count and partial reason. No
+     * whether its Pi is older than the Pi brain's floor, the brain choices,
+     * readOffers' answer for the selected one as `models`, and the search's
+     * found count and partial reason. No
      * reason code leaves. A signed-out account reads signed-out. The brain
      * choices are the accounts accepted() takes, grouped by
      * provider and sorted by email: a harness with one account reads as its
@@ -836,7 +867,7 @@ class Accounts {
         const voiceAccounts = offered.filter(item => item.provider === "openai")
             .map(item => ({ value: item.id, label: ("OpenAI / " + item.label).slice(0, 60) }))
             .sort((left, right) => order(left.label, right.label) || order(left.value, right.value));
-        return { accounts, brains, voiceAccounts, search: { found: accounts.length, partial: this.partial } };
+        return { accounts, brains, voiceAccounts, models: this.offered, search: { found: accounts.length, partial: this.partial } };
     }
 }
 

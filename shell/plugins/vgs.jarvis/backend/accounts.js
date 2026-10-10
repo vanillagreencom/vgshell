@@ -1,5 +1,7 @@
 // accounts.js --tree ABSOLUTE_VGS_TREE VERB [ARGS...]
 // Public verbs expose metadata only. Explicit Verify uses the outbound door.
+// presence takes the key presence snapshot and the saved AI model choice,
+// whose own model list it reads.
 // table, accounts, providers and items print the setup terminal's rows for
 // a terminal WIDTH columns wide: table the CSV `gum table --print` draws,
 // the others AccountProviders.choiceLine lines.
@@ -58,14 +60,14 @@ async function main() {
     const label = id => provider(id).label;
     const args = process.argv.slice(4);
     const state = path.join(process.env.XDG_STATE_HOME || path.join(process.env.HOME, ".local/state"), "vgshell/jarvis");
-    const snapshot = args[0] === "presence" && args.length === 2 ? JSON.parse(args[1]) : undefined;
+    const snapshot = args[0] === "presence" && args.length === 3 ? JSON.parse(args[1]) : undefined;
     const judge = new Accounts(state, process.env, snapshot);
     let value, lines;
     switch (args[0]) {
     case "presence":
-        if (args.length !== 2) throw new Error("jarvis-accounts: arguments=presence");
+        if (args.length !== 3) throw new Error("jarvis-accounts: arguments=presence");
         judge.discover();
-        await Promise.all([judge.readEmails(), judge.readModels()]);
+        await Promise.all([judge.readEmails(), judge.readModels(), judge.readOffers(args[2])]);
         value = judge.status();
         break;
     case "list":

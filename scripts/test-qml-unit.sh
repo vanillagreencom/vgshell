@@ -1314,6 +1314,7 @@ mutations=(
   "the reset sends the unbind|../plugins/vgs.settings/KeyField.qml|onClicked: root.applyKey(undefined)|onClicked: root.applyKey(null)|tst_settings_edits.qml"
   "a plugin page draws a row per key|../plugins/vgs.settings/PluginPage.qml|values: page.row === null ? [] : page.row.binds|values: page.row === null ? [] : page.row.binds.concat(page.row.binds.map(b => Object.assign({}, b, { shortcut: b.shortcut + \"-2\" })))|tst_settings_edits.qml"
   "a builtin shares its schema group heading|../plugins/vgs.settings/PluginPage.qml|out.find(s => s.group === group)|out.find(s => s.group === group && s.builtin === null)|tst_settings_edits.qml"
+  "a hideEmpty field is drawn with nothing offered|../plugins/vgs.settings/PluginPage.qml|row.schema[key].type !== \"list\" && !hidden(key))|row.schema[key].type !== \"list\")|tst_settings_edits.qml"
   "the settings window ignores its page's content|../plugins/vgs.settings/Window.qml|implicitHeight: Math.min(maxHeight, Math.ceil(page === \"\" ? list.fitHeight : detail.fitHeight))|implicitHeight: maxHeight|tst_settings_window_height.qml"
   "the settings window passes its cap|../plugins/vgs.settings/Window.qml|Math.min(maxHeight, Math.ceil(|Math.min(Infinity, Math.ceil(|tst_settings_window_height.qml"
   "the settings window keeps the cap on the list|../plugins/vgs.settings/Window.qml|implicitHeight: Math.min(maxHeight, Math.ceil(page === \"\" ? list.fitHeight : detail.fitHeight))|implicitHeight: Math.min(maxHeight, Math.ceil(page === \"\" ? maxHeight : detail.fitHeight))|tst_settings_window_height.qml"

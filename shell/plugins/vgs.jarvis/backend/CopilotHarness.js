@@ -29,6 +29,10 @@ const COPILOT = Object.freeze({ command: "copilot", variable: "COPILOT_HOME", ag
         "--deny-tool", "shell", "write", "read", "url", "memory",
         "--allow-tool", Copilot.SERVER])
 });
+// The levels --reasoning-effort takes, as Copilot 1.0.91's --help lists its
+// possible values. ACP's model list names none, so each listed model offers
+// them all.
+const EFFORTS = Object.freeze(["none", "minimal", "low", "medium", "high", "xhigh", "max"]);
 // The plan's context bound in user turns, as the wire brains keep it.
 const TURNS = 40;
 // A program that never finishes its handshake is ended; the account's own
@@ -50,9 +54,14 @@ function fail(code) { throw new Error("jarvis: brain=copilot-" + code); }
 
 // The program under the shared harness shape, with its account directory
 // and an empty providers file so no custom provider replaces Copilot's own.
-function program({ program: p, directory, env, cwd, model, config }, listener) {
+// model and effort are each "" for the program's own; a judged value cannot
+// read as a flag.
+function program({ program: p, directory, env, cwd, model, effort, config }, listener) {
+    if (!Harness.isModel(model)) fail("model");
+    if (!Harness.isEffort(effort)) fail("effort");
     return Harness.program({ name: "copilot", argv: [p.command, ...p.args,
-        ...(config === null ? [] : ["--additional-mcp-config", "@" + config]), ...(model === "" ? [] : ["--model", model])],
+        ...(config === null ? [] : ["--additional-mcp-config", "@" + config]), ...(model === "" ? [] : ["--model", model]),
+        ...(effort === "" ? [] : ["--reasoning-effort", effort])],
         env, extra: { [p.variable]: directory, COPILOT_PROVIDERS_CONFIG: path.join(cwd, "no-providers", "providers.json") },
         cwd, accept: Copilot.accept, lineBytes: Copilot.LINE_BYTES,
         // ACP's auth_required: the program is not signed in, and Jarvis never signs it in.
@@ -63,9 +72,10 @@ function program({ program: p, directory, env, cwd, model, config }, listener) {
 /**
  * One session on one program, its agent judged before the first turn.
  * hooks: {event(event), request(id, request, session)} for the owner's turn
- * and permission handling, and ended(error).
+ * and permission handling, and ended(error). The session keeps session/new's
+ * result as `created`, which carries the program's model list.
  */
-async function open({ program: p, directory, env, runtime, model, bridge }, hooks) {
+async function open({ program: p, directory, env, runtime, model, effort, bridge }, hooks) {
     Private.directory(runtime);
     const cwd = fs.mkdtempSync(path.join(runtime, "copilot-"));
     // Copilot drops a stdio server sent in session/new (CopilotAcp.sessionNew),
@@ -74,7 +84,7 @@ async function open({ program: p, directory, env, runtime, model, bridge }, hook
     try { if (config !== null) Private.mcpConfig(config, Copilot.SERVER, bridge); }
     catch (error) { fs.rmSync(cwd, { recursive: true, force: true }); throw error; }
     let session = null;
-    const child = program({ program: p, directory, env, cwd, model, config }, value => {
+    const child = program({ program: p, directory, env, cwd, model, effort, config }, value => {
         if (value.kind === "notification") hooks.event(value.event);
         // Before the session exists a request is answered on the bare program.
         else if (value.kind === "request") hooks.request(value.id, value.request, session ?? { program: child, id: null, cwd });
@@ -84,8 +94,8 @@ async function open({ program: p, directory, env, runtime, model, bridge }, hook
     const timer = setTimeout(() => child.close(), HANDSHAKE_MS);
     try {
         Copilot.agent(await child.call(id => Copilot.initialize(id)), p);
-        const id = Copilot.sessionId(await child.call(n => Copilot.sessionNew(n, { cwd })));
-        session = { program: child, id, cwd };
+        const created = await child.call(n => Copilot.sessionNew(n, { cwd }));
+        session = { program: child, id: Copilot.sessionId(created), cwd, created };
         return session;
     } catch (error) {
         await child.close();
@@ -102,12 +112,12 @@ async function shut(session) {
 /**
  * The conversation's brain, behind the plan's interface: start, send as a
  * stream of text and done, cancel with an acknowledgement, and close. options
- * carries the engine's {provider, model, recipients} and the harness facts:
- * account (the agent's account directory), gen, and {bridge, gate, env,
- * runtime}. A harness turn yields no tool-call event: the program's tool
- * calls reach the router itself.
+ * carries the engine's {provider, model, effort, recipients} and the harness
+ * facts: account (the agent's account directory), gen, and {bridge, gate,
+ * env, runtime}. A harness turn yields no tool-call event: the program's
+ * tool calls reach the router itself.
  */
-function create({ provider, model, recipients, account, gen, harness }) {
+function create({ provider, model, effort, recipients, account, gen, harness }) {
     Policy.assertRecipients(recipients);
     if (provider?.id !== "copilot") fail("provider");
     const p = COPILOT;
@@ -141,7 +151,7 @@ function create({ provider, model, recipients, account, gen, harness }) {
             launch = await bridge.open({ gen, recipients });
             // A close during the open found no launch to end.
             if (closed) { launch.close(); fail("closed"); }
-            const opened = await open({ program: p, directory: account.directory, env, runtime: runtime(), model,
+            const opened = await open({ program: p, directory: account.directory, env, runtime: runtime(), model, effort,
                 bridge: launch }, { event, request, ended: error => { ended ??= error; active?.fault(error); } });
             if (closed) { await shut(opened); fail("closed"); }
             session = opened;
@@ -276,6 +286,11 @@ function create({ provider, model, recipients, account, gen, harness }) {
         } });
 }
 
+// A session that offers no tool admits no request.
+function refuse(id, value, current) {
+    current.program.write(Copilot.answer(id, value, value.kind === "permission" ? "reject" : "cancelled"));
+}
+
 /**
  * Account Verify's smallest real request: one prompt of text in a session
  * with no tools, through the vendor's own program. Resolves with the reply's
@@ -290,14 +305,13 @@ async function probe({ provider, directory, env, runtime, model, text }) {
     let failed = null;
     const hooks = {
         event(e) { if (session !== null && e.sessionId === session.id && e.kind === "text") reply += e.text; },
-        // A probe session offers no tool, so it admits no request.
-        request(id, value, current) { current.program.write(Copilot.answer(id, value, value.kind === "permission" ? "reject" : "cancelled")); },
+        request: refuse,
         ended(error) { failed ??= error; }
     };
     let timer;
     try {
         // The handshake keeps its own bound; the deadline covers the turn.
-        session = await open({ program: p, directory, env, runtime, model, bridge: null }, hooks);
+        session = await open({ program: p, directory, env, runtime, model, effort: "", bridge: null }, hooks);
         const deadline = new Promise((resolve, reject) => {
             timer = setTimeout(() => reject(new Error("jarvis: brain=copilot-probe-deadline")), PROBE_MS);
         });
@@ -313,4 +327,18 @@ async function probe({ provider, directory, env, runtime, model, text }) {
     }
 }
 
-module.exports = { create, probe };
+/**
+ * The models the account's own program offers, Harness.offers' list, from
+ * the session/new answer of one session with no tools. No prompt is sent.
+ * ACP has no list outside a session, so the read leaves one empty session
+ * in the account's history, as a conversation does. The handshake's bound
+ * is the read's.
+ */
+async function models({ directory, env, runtime }) {
+    const session = await open({ program: COPILOT, directory, env, runtime, model: "", effort: "", bridge: null },
+        { event() {}, request: refuse, ended() {} });
+    try { return Harness.offers(Copilot.models(session.created, EFFORTS)); }
+    finally { await shut(session); }
+}
+
+module.exports = { create, probe, models };

@@ -1,7 +1,9 @@
 // The one harness brain shape, shared by the Codex, Copilot and Pi brains:
 // the vendor program as a JSON-line child, the release of a turn's items and
 // one turn's stream of text and done. Each brain keeps its protocol judge,
-// its lockdown and its handshake.
+// its lockdown and its handshake. A brain that puts a model name or an
+// effort level in its program's argv, Claude Code's too, judges it here,
+// and each narrows its program's model list here.
 // Contract: docs/architecture/jarvis.md § Adapters.
 "use strict";
 const cp = require("node:child_process");
@@ -10,6 +12,43 @@ const { childEnvironment } = require("./Secrets.js");
 
 // After its stdin closes the program has this long to exit before KILL.
 const CLOSE_MS = 2000;
+
+/**
+ * The one judge of a model name: "" for the program's own default, or at
+ * most 120 printable characters. A leading "-" would read as a flag in argv.
+ */
+function isModel(value) {
+    return typeof value === "string" && value.length <= 120 && !/[\x00-\x1f\x7f]/.test(value) && !value.startsWith("-");
+}
+/**
+ * The one judge of an effort level: "" for the program's own, or one
+ * lower-case word, which cannot read as a flag in argv.
+ */
+function isEffort(value) {
+    return typeof value === "string" && /^[a-z]{0,16}$/.test(value);
+}
+
+/**
+ * A program's own model list as the Jarvis page offers it. entries are the
+ * list its protocol judge narrowed, each {value, label, efforts, effort,
+ * own}: value is what the program takes as its model, efforts the levels
+ * that model takes, effort the level the program names as that model's
+ * default or "", and own marks the model the program runs unasked, which
+ * comes first. A second entry of one value, an entry a choice cannot carry
+ * and a level that is no effort word are left out, not refused. Returns
+ * each as {value, label, efforts, effort}.
+ */
+function offers(entries) {
+    const kept = [];
+    for (const entry of entries) {
+        if (entry.value === "" || !isModel(entry.value) || !/^[^\x00-\x1f\x7f]{1,60}$/.test(entry.label)
+                || kept.some(offer => offer.value === entry.value)) continue;
+        const efforts = [...new Set(entry.efforts.filter(level => level !== "" && isEffort(level)))];
+        kept.push({ value: entry.value, label: entry.label, efforts, effort: efforts.includes(entry.effort) ? entry.effort : "", own: entry.own });
+    }
+    return [...kept.filter(offer => offer.own), ...kept.filter(offer => !offer.own)]
+        .map(offer => ({ value: offer.value, label: offer.label, efforts: offer.efforts, effort: offer.effort }));
+}
 
 /**
  * Start the program and own its JSON-line connection. name keys every
@@ -210,4 +249,4 @@ function stream({ run, interrupt, settled, detach }) {
     return { handle, events };
 }
 
-module.exports = { program, release, stream };
+module.exports = { program, release, stream, isModel, isEffort, offers };

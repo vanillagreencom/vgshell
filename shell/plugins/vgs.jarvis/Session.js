@@ -5,7 +5,7 @@
 // Cleanup acknowledgments and a running tool's outcome retain their original
 // identity across stop; content callbacks do not. A duplex engine owns one
 // speech session per conversation; its callbacks carry the session's gen/op.
-var SESSION_SETTINGS = ["mode", "voiceProvider", "voice", "language", "brain", "model", "customBaseUrl", "home", "policy", "cloudVision", "account", "voiceAccount"];
+var SESSION_SETTINGS = ["mode", "voiceProvider", "voice", "language", "brain", "model", "effort", "customBaseUrl", "home", "policy", "cloudVision", "account", "voiceAccount"];
 var RESPONSE_TIMEOUT_MS = 60000;
 var COLLECTION_TIMEOUT_MS = 60000;
 var PLAYBACK_TIMEOUT_MS = 300000;

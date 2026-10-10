@@ -58,7 +58,7 @@ function keyPresence(read) {
 }
 
 // The one rule for a row whose account the conversation engine can run as
-// its AI model: a sign-in program, which chooses its own model, or a row
+// its AI model: a sign-in program, whose model modelChoice picks, or a row
 // whose probe names the model the account judge hands the engine. The
 // account judge refuses any other as model-required (Accounts.js accepted).
 function modelProvider(row) {
@@ -69,6 +69,75 @@ function modelProvider(row) {
 // no AI model, so Add key and Use keyring item offer no other key row.
 function modelKeyProvider(row) {
     return row.kind === "key" && modelProvider(row);
+}
+
+// The models Jarvis prefers, first to last, each at PREFERRED_EFFORT (owner,
+// 2026-10-09): the first one the selected sign-in offers is its default. A
+// sign-in that offers none runs its program's own default model and effort.
+var PREFERRED_MODELS = ["claude-fable-5-1", "claude-opus-5-5"];
+var PREFERRED_EFFORT = "high";
+// The effort choice that hands the program no effort, where a model takes
+// levels and its program names no default among them. No program's level
+// has this name: Claude Code 2.1.289 lists low to max, Codex 0.160.0 low to
+// ultra and Copilot 1.0.91 none to max.
+var OWN_EFFORT = "default";
+var EFFORT_LABELS = { xhigh: "Extra high" };
+
+// Whether VALUE, a model as its program lists it, is the model ID. Claude
+// Code 2.1.289 appends the context size, "claude-opus-5-5[1m]"; Copilot
+// 1.0.91 writes a version with a dot, "claude-opus-5.5".
+function namesModel(value, id) {
+    return value.replace(/\[[^\]]*\]$/, "").replace(/\./g, "-") === id;
+}
+
+// The preferred model OFFERS holds, or null: the first of PREFERRED_MODELS
+// that an offer names.
+function preferredOffer(offers) {
+    for (var i = 0; i < PREFERRED_MODELS.length; i++) {
+        var found = offers.filter(function (offer) { return namesModel(offer.value, PREFERRED_MODELS[i]); })[0];
+        if (found !== undefined) return found;
+    }
+    return null;
+}
+
+// The effort levels the page offers for OFFER, the unset one first: the
+// preferred effort for a preferred model that takes it, else the level its
+// program names as its own, else OWN_EFFORT. A model that takes no level
+// offers none, so the page shows no effort field.
+function effortOffers(offer, preferred) {
+    if (offer.efforts.length === 0) return [];
+    var first = preferred && offer.efforts.indexOf(PREFERRED_EFFORT) !== -1 ? PREFERRED_EFFORT
+        : offer.efforts.indexOf(offer.effort) !== -1 ? offer.effort : OWN_EFFORT;
+    return [first].concat(offer.efforts.filter(function (level) { return level !== first; })).map(function (level) {
+        var label = level === OWN_EFFORT ? "Model default"
+            : Object.prototype.hasOwnProperty.call(EFFORT_LABELS, level) ? EFFORT_LABELS[level]
+            : level.charAt(0).toUpperCase() + level.slice(1);
+        return { label: label, value: level };
+    });
+}
+
+// The model and effort the selected sign-in runs for SETTINGS, the
+// plugin's, and what the page offers for both. OFFERS is the account
+// reader's list for that sign-in, each { value, label, efforts, effort },
+// its program's own default first; undefined while the reader has no
+// answer, and empty for a sign-in with no list of its own, an API key or a
+// Pi choice. `models` and `efforts` are the page's choices, each led by
+// what its unset setting runs (docs/architecture/design-system.md
+// § Settings pages). `model` and `effort` go to the daemon: the saved
+// choice while the sign-in offers it, else that first choice, and "" for
+// the program's own. A value the sign-in's own list does not hold never
+// reaches its program.
+function modelChoice(settings, offers) {
+    if (offers === undefined || offers.length === 0) return { model: "", effort: "", models: [], efforts: [] };
+    var preferred = preferredOffer(offers);
+    var ordered = preferred === null ? offers
+        : [preferred].concat(offers.filter(function (offer) { return offer !== preferred; }));
+    var chosen = ordered.filter(function (offer) { return offer.value === settings.model; })[0] || ordered[0];
+    var efforts = effortOffers(chosen, PREFERRED_MODELS.some(function (id) { return namesModel(chosen.value, id); }));
+    var effort = efforts.some(function (level) { return level.value === settings.effort; }) ? settings.effort
+        : efforts.length === 0 ? "" : efforts[0].value;
+    return { model: chosen.value, effort: effort === OWN_EFFORT ? "" : effort,
+        models: ordered.map(function (offer) { return { label: offer.label, value: offer.value }; }), efforts: efforts };
 }
 
 // The setup terminal's choice lines, LABEL<TAB>VALUE for
@@ -169,6 +238,6 @@ function probeFailure(completion, diagnostic) {
 }
 
 if (typeof module !== "undefined") module.exports = { PROVIDERS: PROVIDERS, runtimeDirectory: runtimeDirectory,
-    keyPresence: keyPresence, keyProvider: keyProvider, modelProvider: modelProvider, modelKeyProvider: modelKeyProvider, parseWidth: parseWidth, fitText: fitText, choiceLine: choiceLine,
+    keyPresence: keyPresence, keyProvider: keyProvider, modelProvider: modelProvider, modelKeyProvider: modelKeyProvider, modelChoice: modelChoice, parseWidth: parseWidth, fitText: fitText, choiceLine: choiceLine,
     providerChoices: providerChoices, FAILURE_KEYS: FAILURE_KEYS, feedDiagnostic: feedDiagnostic,
     helperFailure: helperFailure, probeFailure: probeFailure };

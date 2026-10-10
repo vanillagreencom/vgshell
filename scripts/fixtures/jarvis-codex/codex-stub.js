@@ -5,6 +5,7 @@
 // writes to $XDG_STATE_HOME/codex-scenario.json:
 //   { servers: {name: config}, thread: {overrides}, features: [extra feature rows],
 //     reply: "text" (Verify), turns: [[step, ...], ...], hang: bool, crash: "handshake",
+//     models: a model/list result in place of the recorded one,
 //     refuse: method (answered with a JSON-RPC error),
 //     interruptBarrier: path (completion waits for this fixture file) }
 // A step is {notify, params}, {request, params} (waits for the answer),
@@ -138,6 +139,9 @@ function handle(message) {
         respond({ ...value, ...(scenario.thread ?? {}) });
         return;
     }
+    case "model/list":
+        respond(scenario.models ?? reply("models", line => Array.isArray(line.result?.data)));
+        return;
     case "experimentalFeature/list": {
         const value = reply("features", line => Array.isArray(line.result?.data));
         value.data.push(...(scenario.features ?? []));

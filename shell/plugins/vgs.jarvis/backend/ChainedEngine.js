@@ -172,7 +172,12 @@ function selectBrain(settings, accounts) {
     const provider = Providers.select(account.provider);
     if (!Object.hasOwn(DRIVERS, provider.driver)) fail("driver");
     const target = Net.endpoint(provider.base);
-    return { kind: "ready", brain: { provider, model: account.model, account: account.source,
+    // A key, a local server and a Pi choice name their own model. Any other
+    // sign-in program runs the model and effort the service chose from that
+    // program's own list, each "" for the program's own.
+    const own = account.model !== "";
+    return { kind: "ready", brain: { provider, model: own ? account.model : settings.model, effort: own ? "" : settings.effort,
+        account: account.source,
         key: account.source.kind === "keyring" ? { secrets: judge.secrets, reference: account.source.reference } : null,
         recipient: { kind: "network", provider: provider.id, account: account.id, origin: target.origin },
         guidance: Guidance.compose("chained", target.loopback ? "local" : "text", LANGUAGE) } };
@@ -840,7 +845,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                     return;
                 }
                 c.brain = DRIVERS[c.plan.brain.provider.driver].create({ provider: c.plan.brain.provider,
-                    model: c.plan.brain.model, net: c.net, recipients: c.recipients, key: c.plan.brain.key,
+                    model: c.plan.brain.model, effort: c.plan.brain.effort, net: c.net, recipients: c.recipients, key: c.plan.brain.key,
                     account: c.plan.brain.account, gen: c.gen, harness });
                 c.brain.start({ instructions: c.guidance.instructions, tools: router.offer() });
                 c.owner = e.owner;

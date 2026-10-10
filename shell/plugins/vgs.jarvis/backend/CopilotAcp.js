@@ -2,7 +2,8 @@
 // `copilot --acp --stdio` and narrows every line Copilot writes back. No
 // other file parses this protocol. The pinned schema excerpt is
 // scripts/fixtures/jarvis-copilot/acp.schema.json, and the recording is the
-// offline Copilot 1.0.91 handshake with no account.
+// offline Copilot 1.0.91 handshake with no account and one signed-in
+// session/new answer.
 "use strict";
 
 // One JSON-RPC message per line. A tool call's diff can carry a whole file,
@@ -102,6 +103,25 @@ function agent(result, row) {
 function sessionId(result) {
     if (!plain(result) || !string(result.sessionId) || result.sessionId === "") fail("session");
     return result.sessionId;
+}
+
+/**
+ * A session/new result's models, for Harness.offers: the options of its
+ * model selector, the entry of configOptions whose category is "model"
+ * (ACP 1.7.0 SessionConfigOption). value is the id --model takes, and own
+ * marks the selector's current value. The selector names no effort level,
+ * so efforts is the caller's. Copilot 1.0.91 answered a flat selector with
+ * "auto" three times and current (a run on 2026-10-09, the recording's
+ * signed-in flow).
+ */
+function models(result, efforts) {
+    const selector = plain(result) && Array.isArray(result.configOptions)
+        ? result.configOptions.find(option => plain(option) && option.category === "model") : undefined;
+    if (selector === undefined || !string(selector.currentValue) || !Array.isArray(selector.options)) fail("model-list");
+    return selector.options.map(entry => {
+        if (!plain(entry) || !string(entry.value) || !string(entry.name)) fail("model-list");
+        return { value: entry.value, label: entry.name, efforts, effort: "", own: entry.value === selector.currentValue };
+    });
 }
 
 function stopReason(result) {
@@ -251,5 +271,5 @@ function bridged(call, tools) {
     return absent(call.rawInput) || (plain(call.rawInput) && Object.keys(call.rawInput).every(key => declared.includes(key)));
 }
 
-module.exports = { LINE_BYTES, SERVER, initialize, sessionNew, prompt, cancel, answer, agent, sessionId, stopReason,
+module.exports = { LINE_BYTES, SERVER, initialize, sessionNew, prompt, cancel, answer, agent, sessionId, models, stopReason,
     accept, proposal, bridged };

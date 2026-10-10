@@ -24,7 +24,8 @@ function isPlainObject(value) {
 // and `defaults`, the value of each of those fields a new item takes, which
 // SCHEMA_ERROR, PluginLogic's flat judge, judges as it judges a manifest's
 // schema and settings, so an item field is any flat entry and nothing more:
-// no `list` inside a list, and no field named `name`, which every item
+// no `list` inside a list, no `hideEmpty`, since an item draws every field,
+// and no field named `name`, which every item
 // holds as its unique NAME_PATTERN name. `defaults` names no other field.
 // Any other entry carries neither key.
 function listEntryError(entry, at, status, schemaError) {
@@ -40,6 +41,8 @@ function listEntryError(entry, at, status, schemaError) {
             return at + ".items.name is refused: every item holds its name";
         if (isPlainObject(entry.items[fields[i]]) && entry.items[fields[i]].type === "list")
             return at + ".items." + fields[i] + " must not be a list";
+        if (isPlainObject(entry.items[fields[i]]) && entry.items[fields[i]].hideEmpty !== undefined)
+            return at + ".items." + fields[i] + ".hideEmpty is refused: an item draws every field";
     }
     var extra = Object.keys(entry.defaults).filter(function (key) { return !hasOwn(entry.items, key); });
     if (extra.length > 0)

@@ -20,6 +20,8 @@ const TURNS = 40;
 const HANDSHAKE_MS = 30000;
 // One Verify turn: a bound on a stalled provider, not a latency budget.
 const PROBE_MS = 60000;
+// One model list read: a bound on a stalled program, not a latency budget.
+const MODELS_MS = 20000;
 const PROBE_INSTRUCTIONS = "Answer in one word.";
 
 function fail(code) { throw new Error("jarvis: brain=codex-" + code); }
@@ -36,7 +38,7 @@ function program({ directory, env, cwd }, listener) {
  * hooks: {event(event), request(id, request, session)} for the owner's
  * turn and approval handling, and ended(error).
  */
-async function open({ directory, env, runtime, model, instructions, bridge }, hooks) {
+async function open({ directory, env, runtime, model, effort, instructions, bridge }, hooks) {
     Private.directory(runtime);
     const cwd = fs.mkdtempSync(path.join(runtime, "codex-"));
     let session = null;
@@ -52,7 +54,7 @@ async function open({ directory, env, runtime, model, instructions, bridge }, ho
         await p.call(id => Codex.initialize(id));
         p.write(Codex.initialized());
         const foreign = Codex.servers(await p.call(id => Codex.configRead(id, cwd)));
-        const thread = Codex.thread(await p.call(id => Codex.threadStart(id, { cwd, model, instructions, foreign, bridge })));
+        const thread = Codex.thread(await p.call(id => Codex.threadStart(id, { cwd, model, effort, instructions, foreign, bridge })));
         Codex.features(await p.call(id => Codex.featureList(id, thread)));
         session = { program: p, thread, cwd };
         return session;
@@ -71,11 +73,11 @@ async function shut(session) {
 /**
  * The conversation's brain, behind the plan's interface: start, send as a
  * stream of text and done, cancel with an acknowledgement, and close. options
- * carries the engine's {model, recipients} and the harness facts: account (a
+ * carries the engine's {model, effort, recipients} and the harness facts: account (a
  * Codex directory), gen, and {bridge, gate, env, runtime}. A harness turn
  * yields no tool-call event: the program's tool calls reach the router itself.
  */
-function create({ model, recipients, account, gen, harness }) {
+function create({ model, effort, recipients, account, gen, harness }) {
     Policy.assertRecipients(recipients);
     if (!account || account.kind !== "cli" || typeof account.directory !== "string") fail("account");
     if (!harness) fail("unwired");
@@ -107,7 +109,7 @@ function create({ model, recipients, account, gen, harness }) {
             launch = await bridge.open({ gen, recipients });
             // A close during the open found no launch to end.
             if (closed) { launch.close(); fail("closed"); }
-            const opened = await open({ directory: account.directory, env, runtime: runtime(), model,
+            const opened = await open({ directory: account.directory, env, runtime: runtime(), model, effort,
                 instructions, bridge: launch }, { event, request, ended: error => { ended ??= error; active?.fault(error); } });
             if (closed) { await shut(opened); fail("closed"); }
             session = opened;
@@ -276,7 +278,7 @@ async function probe({ directory, env, runtime, model, text }) {
     };
     const timer = setTimeout(() => settle.reject(new Error("jarvis: brain=codex-probe-deadline")), PROBE_MS);
     try {
-        session = await open({ directory, env, runtime, model, instructions: PROBE_INSTRUCTIONS, bridge: null }, hooks);
+        session = await open({ directory, env, runtime, model, effort: "", instructions: PROBE_INSTRUCTIONS, bridge: null }, hooks);
         const id = Codex.turnId(await session.program.call(n => Codex.turnStart(n, session.thread, text)));
         turn ??= id;
         await done;
@@ -288,4 +290,28 @@ async function probe({ directory, env, runtime, model, text }) {
     }
 }
 
-module.exports = { create, probe };
+/**
+ * The models the account's own program offers, Harness.offers' list, from
+ * its model/list answer. No thread starts and no prompt is sent. Past
+ * MODELS_MS the program is ended and the read fails with its exit.
+ */
+async function models({ directory, env, runtime }) {
+    Private.directory(runtime);
+    const cwd = fs.mkdtempSync(path.join(runtime, "codex-"));
+    // No thread exists, so a request names none: each is declined.
+    const p = program({ directory, env, cwd }, value => {
+        if (value.kind === "request") p.write(Codex.answer(value.id, value.request, false));
+    });
+    const timer = setTimeout(() => p.close(), MODELS_MS);
+    try {
+        await p.call(id => Codex.initialize(id));
+        p.write(Codex.initialized());
+        return Harness.offers(Codex.models(await p.call(id => Codex.modelList(id))));
+    } finally {
+        clearTimeout(timer);
+        await p.close();
+        fs.rmSync(cwd, { recursive: true, force: true });
+    }
+}
+
+module.exports = { create, probe, models };

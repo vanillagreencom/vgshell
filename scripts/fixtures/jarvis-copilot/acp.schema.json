@@ -14,7 +14,8 @@
   "allOf is merged into the schema that holds it: properties and required are joined, so each union variant is one closed object. A lone allOf member is replaced by that member; const is rewritten as a one-member enum, and a oneOf of string consts as one enum.",
   "A property the adapter neither writes nor reads keeps its name with the empty schema {}, so its graph stays out.",
   "SessionUpdate keeps agent_message_chunk, agent_thought_chunk, tool_call, tool_call_update and available_commands_update; ContentBlock keeps text; ToolCallContent keeps content and diff; McpServer keeps stdio.",
-  "JSONRPCRequest, JSONRPCNotification, JSONRPCResponse and JSONRPCError are the JSON-RPC 2.0 envelopes ACP names as its base; the schema file types only their params and results."
+  "JSONRPCRequest, JSONRPCNotification, JSONRPCResponse and JSONRPCError are the JSON-RPC 2.0 envelopes ACP names as its base; the schema file types only their params and results.",
+  "SessionConfigOptionCategory is its open string member: any string is a category. NewSessionResponse also names models with {}: ACP 1.7.0 does not declare it, and Copilot 1.0.91 sends it."
  ],
  "omitted": [
   "ContentBlock.audio",
@@ -493,14 +494,23 @@
      "$ref": "#/schemas/SessionId"
     },
     "modes": {},
-    "configOptions": {},
+    "configOptions": {
+     "type": [
+      "array",
+      "null"
+     ],
+     "items": {
+      "$ref": "#/schemas/SessionConfigOption"
+     }
+    },
     "_meta": {
      "type": [
       "object",
       "null"
      ],
      "additionalProperties": true
-    }
+    },
+    "models": {}
    },
    "required": [
     "sessionId"
@@ -715,6 +725,158 @@
      ]
     }
    ]
+  },
+  "SessionConfigGroupId": {
+   "type": "string"
+  },
+  "SessionConfigId": {
+   "type": "string"
+  },
+  "SessionConfigOption": {
+   "oneOf": [
+    {
+     "type": "object",
+     "properties": {
+      "id": {
+       "$ref": "#/schemas/SessionConfigId"
+      },
+      "name": {
+       "type": "string"
+      },
+      "description": {},
+      "category": {
+       "anyOf": [
+        {
+         "$ref": "#/schemas/SessionConfigOptionCategory"
+        },
+        {
+         "type": "null"
+        }
+       ]
+      },
+      "_meta": {},
+      "type": {
+       "type": "string",
+       "enum": [
+        "select"
+       ]
+      },
+      "currentValue": {
+       "$ref": "#/schemas/SessionConfigValueId"
+      },
+      "options": {
+       "$ref": "#/schemas/SessionConfigSelectOptions"
+      }
+     },
+     "required": [
+      "id",
+      "name",
+      "type",
+      "currentValue",
+      "options"
+     ]
+    },
+    {
+     "type": "object",
+     "properties": {
+      "id": {
+       "$ref": "#/schemas/SessionConfigId"
+      },
+      "name": {
+       "type": "string"
+      },
+      "description": {},
+      "category": {
+       "anyOf": [
+        {
+         "$ref": "#/schemas/SessionConfigOptionCategory"
+        },
+        {
+         "type": "null"
+        }
+       ]
+      },
+      "_meta": {},
+      "type": {
+       "type": "string",
+       "enum": [
+        "boolean"
+       ]
+      },
+      "currentValue": {
+       "type": "boolean"
+      }
+     },
+     "required": [
+      "id",
+      "name",
+      "type",
+      "currentValue"
+     ]
+    }
+   ]
+  },
+  "SessionConfigOptionCategory": {
+   "type": "string"
+  },
+  "SessionConfigSelectGroup": {
+   "type": "object",
+   "properties": {
+    "group": {
+     "$ref": "#/schemas/SessionConfigGroupId"
+    },
+    "name": {
+     "type": "string"
+    },
+    "options": {
+     "type": "array",
+     "items": {
+      "$ref": "#/schemas/SessionConfigSelectOption"
+     }
+    },
+    "_meta": {}
+   },
+   "required": [
+    "group",
+    "name",
+    "options"
+   ]
+  },
+  "SessionConfigSelectOption": {
+   "type": "object",
+   "properties": {
+    "value": {
+     "$ref": "#/schemas/SessionConfigValueId"
+    },
+    "name": {
+     "type": "string"
+    },
+    "description": {},
+    "_meta": {}
+   },
+   "required": [
+    "value",
+    "name"
+   ]
+  },
+  "SessionConfigSelectOptions": {
+   "anyOf": [
+    {
+     "type": "array",
+     "items": {
+      "$ref": "#/schemas/SessionConfigSelectOption"
+     }
+    },
+    {
+     "type": "array",
+     "items": {
+      "$ref": "#/schemas/SessionConfigSelectGroup"
+     }
+    }
+   ]
+  },
+  "SessionConfigValueId": {
+   "type": "string"
   },
   "SessionId": {
    "type": "string"

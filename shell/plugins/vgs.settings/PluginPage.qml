@@ -91,12 +91,14 @@ FocusScope {
     // Built-in placement and same-named schema fields share one section.
     // Ungrouped fields follow built-ins, then each group in the order its
     // first entry appears. The manifest's key order is the schema's. A `list` entry
-    // has its own section, `lists`.
+    // has its own section, `lists`. A `hideEmpty` field has no place while
+    // its select model is empty: nothing is offered for it.
     readonly property var sections: {
         if (row === null) return [];
         const out = row.builtins.map(builtin => ({ group: builtin.name, keys: [], builtin: builtin }));
         out.push({ group: "", keys: [], builtin: null });
-        for (const key of Object.keys(row.schema).filter(key => row.schema[key].type !== "list")) {
+        const hidden = key => row.schema[key].hideEmpty === true && (row.settingChoices[key] || []).length === 0;
+        for (const key of Object.keys(row.schema).filter(key => row.schema[key].type !== "list" && !hidden(key))) {
             const group = row.schema[key].group === undefined ? "" : row.schema[key].group;
             let section = out.find(s => s.group === group);
             if (section === undefined) {

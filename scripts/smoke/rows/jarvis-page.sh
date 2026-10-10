@@ -8,7 +8,11 @@
 # Copilot Memory step and its link to GitHub. With the fixture's key stored,
 # the Setup section of the Settings tab draws the key list, a line per key
 # with its chip, and Details draws none; a manifest copy that groups the
-# list outside Setup fails both Setup readings. No latency budget.
+# list outside Setup fails both Setup readings. With a Claude Code account
+# chosen, and only then, the page offers that account's models and effort
+# levels, each led by what its unset setting runs, a choice is saved and
+# reaches the daemon, and a model that takes no effort draws no effort
+# field. No latency budget.
 # Poll once per nested IPC round trip. Only J09's process double and the
 # allow-listed TUI fixtures run here.
 # inputs: shell/plugins/vgs.jarvis/* bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js shell/plugins/vgs.settings/* shell/Ui/controls/Select.qml shell/Ui/controls/InputWidth.qml shell/Ui/overlay/* shell/Core/PluginLogic.js shell/Core/Capabilities.qml shell/Commons/Reply.js scripts/fixtures/jarvis/* scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml bin/vgshell-tui scripts/smoke/rows/jarvis.sh shell/Commons/AnchorTracker.qml
@@ -205,6 +209,95 @@ expect_poll "a click on the Copilot Memory link opens GitHub's Copilot settings"
 printf 'none\n' >"$sandbox/jarvis-world/account-mode"
 page_open accountSearch accounts "Jarvis accounts"
 expect_poll "without the Copilot account the row leaves the page" '[]' page_copilot
+
+# The model and effort of the chosen sign-in. The world's claude stand-in
+# lists Opus 5.5, its own default, Fable 5.1 and Haiku 4.5, which takes no
+# effort. The fields are read on the Settings tab, which the page opens on.
+page_choice() { ipc smoke invokeInstance window vgs.settings fieldChoice "{\"id\":\"vgs.jarvis\",\"key\":\"$1\"}"; }
+page_choice_state() { page_choice "$1" | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps([[m["label"] for m in d["model"]], d["text"], d["value"]]))'; }
+page_choose() { ipc smoke invokeInstance window vgs.settings chooseField "{\"id\":\"vgs.jarvis\",\"key\":\"$1\",\"index\":$2}"; }
+# The model and effort settings as the user file holds them.
+page_saved() { python3 -c 'import json,sys; row=next((r for r in json.load(open(sys.argv[1]))["plugins"] if r["id"]=="vgs.jarvis"), {}); print(json.dumps([row.get("model", ""), row.get("effort", "")]))' "$home/.config/vgshell/shell.json"; }
+# The model and effort the running daemon's Session holds.
+page_daemon_choice() { ipc smoke jarvisProcess | py_reply '
+import json,sys
+d=json.load(sys.stdin)
+detail=d.get("status",{}).get("detail") if isinstance(d,dict) else None
+print(json.dumps([detail["state"]["settings"]["model"], detail["state"]["settings"]["effort"]]) if isinstance(detail,dict) else "none")
+'; }
+page_choice_clear() {
+  python3 - "$home/.config/vgshell/shell.json" <<'PY'
+import json,sys
+from pathlib import Path
+p=Path(sys.argv[1]); value=json.loads(p.read_text())
+for row in value.get("plugins", []):
+    if row["id"] == "vgs.jarvis":
+        for key in ("brain", "model", "effort"): row.pop(key, None)
+p.write_text(json.dumps(value))
+PY
+  expect "the Jarvis AI model settings are put back" ok ipc shell reloadConfig
+}
+printf 'signed-in\n' >"$sandbox/jarvis-world/account-mode"
+page_open accountSearch accounts "Jarvis accounts"
+expect_poll "the signed-in Claude Code account is offered as the AI model" '[["Claude Code"], "", ""]' page_choice_state brain
+expect "with no sign-in chosen the page draws no model field" absent page_choice model
+expect "with no sign-in chosen the page draws no effort field" absent page_choice effort
+expect "choosing the Claude Code account is allowed" chosen page_choose brain 0
+expect_poll "the page offers the account's models, Fable 5.1 standing for the unset setting" \
+  '[["Fable 5.1", "Opus 5.5", "Haiku 4.5"], "Fable 5.1", ""]' page_choice_state model
+expect_poll "the page offers Fable 5.1's effort levels, High standing for the unset setting" \
+  '[["High", "Low", "Medium", "Extra high", "Max"], "High", ""]' page_choice_state effort
+expect_poll "with nothing chosen the daemon gets Fable 5.1 at high" '["claude-fable-5-1", "high"]' page_daemon_choice
+expect "nothing chosen saves no model and no effort" '["", ""]' page_saved
+expect "choosing Opus 5.5 is allowed" chosen page_choose model 1
+expect_poll "the file stores the chosen model as its program names it" '["claude-opus-5-5[1m]", ""]' page_saved
+expect_poll "the daemon gets the chosen model at its default effort" '["claude-opus-5-5[1m]", "high"]' page_daemon_choice
+expect "choosing the Max effort is allowed" chosen page_choose effort 4
+expect_poll "the file stores the chosen effort" '["claude-opus-5-5[1m]", "max"]' page_saved
+expect_poll "the daemon gets the chosen effort" '["claude-opus-5-5[1m]", "max"]' page_daemon_choice
+expect_poll "the model field shows the saved model" '[["Fable 5.1", "Opus 5.5", "Haiku 4.5"], "Opus 5.5", "claude-opus-5-5[1m]"]' page_choice_state model
+expect_poll "the effort field shows the saved effort" '[["High", "Low", "Medium", "Extra high", "Max"], "Max", "max"]' page_choice_state effort
+# A model that takes no effort: the effort field leaves the page and no
+# effort reaches the daemon, whatever is saved.
+expect "choosing Haiku 4.5 is allowed" chosen page_choose model 2
+expect_poll "a model that takes no effort draws no effort field" absent page_choice effort
+expect_poll "the daemon gets no effort for it" '["claude-haiku-4-5", ""]' page_daemon_choice
+expect "the saved effort stays in the file" '["claude-haiku-4-5", "max"]' page_saved
+# Without hideEmpty on the effort setting the page keeps the field, with
+# only the saved level, marked unavailable.
+python3 - "$page_manifest" <<'PY'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1])
+assert not p.is_symlink()
+s=p.read_text()
+needle='"optionsFrom": "efforts", "hideEmpty": true,'
+assert s.count(needle)==1
+p.write_text(s.replace(needle, '"optionsFrom": "efforts",'))
+PY
+jarvis_rescan
+expect_poll "the control's page keeps the effort field" '[["max (unavailable)"], "max (unavailable)", "max"]' page_choice_state effort
+page_effort_control() {
+  (failures=0 behaviour_failures=0
+   expect "a model that takes no effort draws no effort field" absent page_choice effort >"$sandbox/jarvis-page-effort-control.log"
+   echo "$failures")
+}
+expect "an effort field with nothing to offer breaks the hidden-field read" 1 page_effort_control
+cp -- "$sandbox/page-manifest-original" "$page_manifest"
+jarvis_rescan
+expect_poll "the restored page draws no effort field for Haiku 4.5" absent page_choice effort
+# The first choice of each field returns to the unset setting.
+expect "returning to Fable 5.1 is allowed" chosen page_choose model 0
+expect_poll "the unset model saves nothing and keeps the saved effort" '["", "max"]' page_saved
+expect_poll "the daemon gets Fable 5.1 at the saved effort" '["claude-fable-5-1", "max"]' page_daemon_choice
+expect_poll "the effort field is back with the saved level" '[["High", "Low", "Medium", "Extra high", "Max"], "Max", "max"]' page_choice_state effort
+expect "returning to High is allowed" chosen page_choose effort 0
+expect_poll "the unset effort saves nothing" '["", ""]' page_saved
+expect_poll "the daemon gets Fable 5.1 at high again" '["claude-fable-5-1", "high"]' page_daemon_choice
+page_choice_clear
+expect_poll "with the sign-in unchosen the model field leaves the page" absent page_choice model
+printf 'none\n' >"$sandbox/jarvis-world/account-mode"
+page_open accountSearch accounts "Jarvis accounts"
 settings_page_close vgs.jarvis
 
 cp -- "$sandbox/page-add-key-original" "$page_tuis/add-key.sh"

@@ -47,10 +47,11 @@ var EXCLUSIVE_CAPABILITIES = ["lock", "polkit", "bluetoothAgent", "panes"];
 // editor; `min`, `max` and `step` bound a number's control; `group` names
 // the section heading the entry is drawn under; `placeholder` is what an
 // `optionsFrom` select reads while its value is "", which then means
-// nothing is chosen; `link` makes part of the description open an https
-// address. Pads.js judges a `list`.
+// nothing is chosen; `hideEmpty` leaves an `optionsFrom` field off the page
+// while nothing is offered for it; `link` makes part of the description open
+// an https address. Pads.js judges a `list`.
 var SETTING_TYPES = ["string", "number", "boolean", "enum", "list"];
-var SCHEMA_ENTRY_KEYS = ["type", "label", "description", "hintFrom", "info", "link", "options", "optionsFrom", "presets", "allowCustom", "format", "unit", "min", "max", "step", "group", "items", "defaults", "placeholder"];
+var SCHEMA_ENTRY_KEYS = ["type", "label", "description", "hintFrom", "info", "link", "options", "optionsFrom", "presets", "allowCustom", "format", "unit", "min", "max", "step", "group", "items", "defaults", "placeholder", "hideEmpty"];
 var NUMBER_BOUND_KEYS = ["min", "max", "step"];
 var PRESET_KEYS = ["value", "label"];
 var PRESET_LABEL_MAX = 40;
@@ -503,6 +504,12 @@ function schemaError(schema, settings, status) {
                 return at + ".placeholder needs optionsFrom";
             if (!isPrintableLine(entry.placeholder, STATUS_LABEL_MAX))
                 return at + ".placeholder must be a printable line of 1 to " + STATUS_LABEL_MAX + " characters";
+        }
+        if (entry.hideEmpty !== undefined) {
+            if (entry.optionsFrom === undefined)
+                return at + ".hideEmpty needs optionsFrom";
+            if (typeof entry.hideEmpty !== "boolean")
+                return at + ".hideEmpty must be a boolean";
         }
         if (entry.presets !== undefined && entry.optionsFrom !== undefined)
             return at + " must not declare both presets and optionsFrom";
@@ -1213,6 +1220,8 @@ function statusDisplayable(entry) {
 // Each offer is listed once. The first offer stands for the unset value:
 // its entry carries "" unless its own id is configured. An entry that
 // declares `placeholder` has no unset offer: "" means nothing is chosen.
+// An entry that declares `hideEmpty` has an empty model while nothing is
+// offered, whatever is configured, and the page then draws no field.
 // Settings choices: docs/architecture/design-system.md § Settings pages.
 function settingChoices(manifest, values, settings) {
     var out = {};
@@ -1222,6 +1231,7 @@ function settingChoices(manifest, values, settings) {
             var unset = entry.placeholder === undefined && index === 0 && configured !== choice.value;
             return { label: choice.label, value: unset ? "" : choice.value };
         });
+        if (entry.hideEmpty === true && offered.length === 0) return model;
         if (configured !== "" && !offered.some(function (choice) { return choice.value === configured; }))
             model.push({ label: configured + " (unavailable)", value: configured });
         return model;

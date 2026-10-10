@@ -28,6 +28,31 @@ function standins(directory) {
     fs.mkdirSync(directory, { recursive: true });
     fs.writeFileSync(path.join(directory, "claude"), prefix + `
 record("cli-calls");
+// The model list read: one stream-json list_models request, answered with
+// ModelInfo entries as Claude Code 2.1.289 shapes them (a run on
+// 2026-10-09): its default, Opus 5.5, then Fable 5.1 and a model that takes
+// no effort. Any other input ends the stand-in: it holds no conversation.
+if(args.includes("--input-format")){
+    const levels=["low","medium","high","xhigh","max"];
+    const models=[{value:"default",resolvedModel:"claude-opus-5-5[1m]",displayName:"Default (recommended)",description:"d",supportsEffort:true,supportedEffortLevels:levels},
+        {value:"opus",resolvedModel:"claude-opus-5-5[1m]",displayName:"Opus 5.5",description:"d",supportsEffort:true,supportedEffortLevels:levels},
+        {value:"fable",resolvedModel:"claude-fable-5-1",displayName:"Fable 5.1",description:"d",supportsEffort:true,supportedEffortLevels:levels},
+        {value:"haiku",resolvedModel:"claude-haiku-4-5",displayName:"Haiku 4.5",description:"d"}];
+    let tail="";
+    process.stdin.setEncoding("utf8");
+    process.stdin.on("data",chunk=>{
+        tail+=chunk;
+        let at;
+        while((at=tail.indexOf("\\n"))>=0){
+            const message=JSON.parse(tail.slice(0,at));
+            tail=tail.slice(at+1);
+            if(message.type!=="control_request"||message.request.subtype!=="list_models") process.exit(9);
+            process.stdout.write(JSON.stringify({type:"control_response",response:{subtype:"success",request_id:message.request_id,response:{models}}})+"\\n");
+        }
+    });
+    process.stdin.on("end",()=>process.exit(0));
+    return;
+}
 if(JSON.stringify(args)!==JSON.stringify(["auth","status"])) process.exit(9);
 const selected=mode("claude-mode","signed-in");
 if(selected==="late-link" && process.env.CLAUDE_CONFIG_DIR.endsWith("/late-account")
@@ -257,7 +282,24 @@ if (require.main === module) {
         fs.rmSync(env.XDG_CONFIG_HOME, { recursive: true, force: true });
         fs.symlinkSync(target, env.XDG_CONFIG_HOME);
     }
-    const result = cp.spawnSync("node", [process.argv[2], "--tree", process.argv[4], "presence", process.argv[5]], {
-        env, stdio: "inherit" });
+    // A sign-in's id is a hash of its folder's path, and each run's world is
+    // a fresh folder, so the helper's ids differ from run to run. The shell
+    // must meet one id per sign-in, as on a real system: the helper takes
+    // the saved AI model choice by this run's id and its answer goes out
+    // with each id as "fixture:PROVIDER:FOLDER". A failed search names
+    // none. A --rev tree of scripts/sandbox-shots.sh whose reader takes no
+    // AI model choice hands this worker none, and its helper gets none.
+    const backend = path.dirname(process.argv[2]);
+    let ids = [];
+    try {
+        require(path.join(backend, "Core.js")).use(process.argv[4]);
+        const judge = new (require(path.join(backend, "Accounts.js")).Accounts)(directory, env);
+        ids = ["claude", "codex", "copilot"].flatMap(provider => judge.signInFolders(provider))
+            .map(folder => [folder.id, "fixture:" + folder.provider + ":" + path.relative(env.HOME, folder.directory)]);
+    } catch (error) { if (!/^jarvis-accounts: /.test(error?.message ?? "")) throw error; }
+    const choice = process.argv.length === 6 ? [] : [ids.find(([, alias]) => alias === process.argv[6])?.[0] ?? process.argv[6]];
+    const result = cp.spawnSync("node", [process.argv[2], "--tree", process.argv[4], "presence", process.argv[5], ...choice], {
+        env, stdio: ["inherit", "pipe", "inherit"], encoding: "utf8" });
+    process.stdout.write(ids.reduce((text, [id, alias]) => text.replaceAll(JSON.stringify(id), JSON.stringify(alias)), result.stdout ?? ""));
     process.exit(result.status ?? 1);
 }

@@ -7,6 +7,9 @@
 // unshare -rn copilot --acp --stdio` and initialize plus session/new on stdin. It speaks the ACP subset Jarvis uses on stdio and
 // replays a scenario the test writes to $XDG_STATE_HOME/copilot-scenario.json:
 //   { agent: {agentInfo overrides}, signedOut: bool, crash: "handshake",
+//     session: session/new result members beside the session id, or
+//     "recorded" for the recording's signed-in answer (Copilot 1.0.91 on
+//     2026-10-09, its session id replaced),
 //     refuse: method (answered with a JSON-RPC error), reply: "text" (Verify),
 //     turns: [[step, ...], ...] }
 // A step is {update} (one session/update), {request, params} (waits for the
@@ -149,7 +152,8 @@ function handle(message) {
         }
         cwd = message.params.cwd;
         for (const server of message.params.mcpServers) if (server.type !== "http" && server.type !== "sse") log("rejected", { server: server.name });
-        respond({ sessionId: SESSION });
+        respond(scenario.session === "recorded" ? structuredClone(recorded.find(entry => entry.flow === "signed-in").line.result)
+            : { sessionId: SESSION, ...(scenario.session ?? {}) });
         return;
     case "session/prompt": {
         if (scenario.hang === "prompt") { keepalive(); return; }

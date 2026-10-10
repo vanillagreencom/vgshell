@@ -28,6 +28,8 @@ const FEATURES_ENABLED = Object.freeze(["auth_elicitation", "browser_use_full_cd
     "tool_search_always_defer_mcp_tools", "tui_app_server", "unbounded_connection_retries", "unified_exec",
     "unified_exec_tty", "unified_exec_zsh_fork", "write_stdin_approval"]);
 const FEATURE_PAGE = 500;
+// One page of the model list; the page's choices hold fewer.
+const MODEL_PAGE = 100;
 const NAME = /^[A-Za-z0-9_-]{1,64}$/;
 
 function fail(code) { throw new Error("jarvis: brain=codex-" + code); }
@@ -53,10 +55,11 @@ function configRead(id, cwd) { return request(id, "config/read", { cwd, includeL
  * Start the conversation's ephemeral thread. foreign names the user's own MCP
  * servers, each switched off; bridge is the tool bridge's launch contract,
  * or null for a thread with no tools. The bridge token travels only here, on
- * the program's stdin, never in argv.
- * @param {{cwd: string, model: string, instructions: string, foreign: string[], bridge: Launch|null}} value
+ * the program's stdin, never in argv. model and effort are each "" for the
+ * program's own; effort is the `model_reasoning_effort` configuration key.
+ * @param {{cwd: string, model: string, effort: string, instructions: string, foreign: string[], bridge: Launch|null}} value
  */
-function threadStart(id, { cwd, model, instructions, foreign, bridge }) {
+function threadStart(id, { cwd, model, effort, instructions, foreign, bridge }) {
     if (foreign.includes(SERVER)) fail("mcp-name");
     const servers = Object.fromEntries(foreign.map(name => [name, { enabled: false }]));
     if (bridge !== null) servers[SERVER] = { command: bridge.command, args: [...bridge.args], env: { ...bridge.env } };
@@ -65,8 +68,12 @@ function threadStart(id, { cwd, model, instructions, foreign, bridge }) {
         config: { features: Object.fromEntries(FEATURES_OFF.map(name => [name, false])), web_search: "disabled",
             tools: { experimental_request_user_input: { enabled: false } }, mcp_servers: servers } };
     if (model !== "") params.model = model;
+    if (effort !== "") params.config.model_reasoning_effort = effort;
     return request(id, "thread/start", params);
 }
+
+/** List the models the account's picker offers, in one page. */
+function modelList(id) { return request(id, "model/list", { limit: MODEL_PAGE }); }
 
 /** List the started thread's effective features in one page. */
 function featureList(id, threadId) { return request(id, "experimentalFeature/list", { threadId, limit: FEATURE_PAGE }); }
@@ -123,6 +130,25 @@ function features(result) {
         if (feature.enabled && !FEATURES_ENABLED.includes(feature.name))
             fail("feature name=" + (NAME.test(feature.name) ? feature.name : "invalid"));
     }
+}
+
+/**
+ * A model/list result's models, for Harness.offers: value is the name
+ * thread/start takes, efforts the model's reasoning efforts, effort the one
+ * it names as its default, and own marks the program's default model. Codex
+ * 0.160.0 listed seven models, gpt-6.1-sol the default at effort low (a run
+ * on 2026-10-09).
+ */
+function models(result) {
+    if (!plain(result) || !Array.isArray(result.data)) fail("model-list");
+    return result.data.map(entry => {
+        if (!plain(entry) || !string(entry.model) || !string(entry.displayName) || typeof entry.isDefault !== "boolean"
+                || !string(entry.defaultReasoningEffort) || !Array.isArray(entry.supportedReasoningEfforts)
+                || !entry.supportedReasoningEfforts.every(option => plain(option) && string(option.reasoningEffort)))
+            fail("model-list");
+        return { value: entry.model, label: entry.displayName, effort: entry.defaultReasoningEffort,
+            efforts: entry.supportedReasoningEfforts.map(option => option.reasoningEffort), own: entry.isDefault };
+    });
 }
 
 function turnId(result) {
@@ -256,4 +282,4 @@ function proposal(value, announced) {
 }
 
 module.exports = { LINE_BYTES, SERVER, FEATURES_OFF, FEATURES_ENABLED, initialize, initialized, configRead,
-    threadStart, featureList, turnStart, turnInterrupt, answer, servers, thread, features, turnId, accept, proposal };
+    threadStart, modelList, featureList, turnStart, turnInterrupt, answer, servers, thread, features, models, turnId, accept, proposal };

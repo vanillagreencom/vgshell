@@ -115,7 +115,7 @@ world(async () => {
         }, clear: timer => { timer.cleared = true; clearTimeout(timer.handle); } };
         // The bridge stand-in forwards what the adapter opens with, so the real
         // bridge judges the session's generation and recipients.
-        const harness = ClaudeCode.create({ model: options.model ?? "", recipients,
+        const harness = ClaudeCode.create({ model: options.model ?? "", effort: options.effort ?? "", recipients,
             account: { kind: "cli", directory: a.directory }, gen: runner.state.gen,
             harness: { bridge: { open: async value => { opened = await bridge.open(value); return opened; } },
                 env: { ...process.env, ...PLANTED, ...(options.home === undefined ? {} : { FIXTURE_JARVIS_HOME: options.home }) },
@@ -535,7 +535,9 @@ world(async () => {
             owners.push(async () => engine.close());
             w.installEngine(engine);
             let answer;
-            assert.doesNotThrow(() => { answer = engine.configure({ brain: "claude-fixture" }); }, "the engine has a Claude Code driver");
+            // The model and effort the service chose for this sign-in.
+            assert.doesNotThrow(() => { answer = engine.configure({ brain: "claude-fixture", model: "claude-fable-5-1", effort: "high" }); },
+                "the engine has a Claude Code driver");
             assert.deepEqual(answer, { kind: "ready" });
             const { gen, turn: { op } } = w.runner.state;
             // The turn reports play when its speech starts, then its end.
@@ -553,6 +555,7 @@ world(async () => {
             assert.deepEqual(w.brain, [], "the bridge, not the brain port, answers a harness call");
             const [call] = w.account.calls();
             assert.equal(call.env.CLAUDE_CONFIG_DIR, w.account.directory, "the program keeps the account folder's login");
+            assert.deepEqual(call.args.slice(-4), ["--model", "claude-fable-5-1", "--effort", "high"], "the chosen model and effort reach the program");
             assert.deepEqual(leaked(call), [], "no planted key, token or pid reaches the program");
             const inputs = w.account.events().filter(event => event.kind === "input").map(event => event.value);
             assert.equal(inputs.at(-1).message.content.at(-1).text, "what is open", "the spoken turn reached the program");
@@ -639,6 +642,111 @@ world(async () => {
         assert.equal(verifyAccount.calls().length, calls);
     }]);
 
+    // The chosen model and effort reach argv as the program's own flags; an
+    // unset one passes no flag (the replay row's argv), and a value that
+    // would read as a flag starts nothing.
+    cases.push(["model-effort", async folder => {
+        const w = await make(folder, { turns: [[{ text: "Fixture." }]] }, { model: "claude-fable-5-1", effort: "high" });
+        assert.equal((await w.read(w.say("fixture"))).reason, "stop");
+        const [call] = w.account.calls();
+        const config = call.args[ARGV.indexOf("CONFIG")];
+        assert.deepEqual(call.args, [...ARGV.map(arg => arg === "CONFIG" ? config : arg), "--system-prompt", "Fixture guidance.",
+            "--model", "claude-fable-5-1", "--effort", "high"]);
+        await cleanup();
+        const only = await make(folder, { turns: [[{ text: "Fixture." }]] }, { model: "claude-opus-5-5[1m]" });
+        assert.equal((await only.read(only.say("fixture"))).reason, "stop");
+        assert.deepEqual(only.account.calls()[0].args.slice(ARGV.length + 2), ["--model", "claude-opus-5-5[1m]"], "an unset effort passes no flag");
+        for (const [options, reason] of [[{ effort: "--max" }, "effort"], [{ effort: "High" }, "effort"], [{ effort: "x".repeat(17) }, "effort"],
+            [{ model: "-opus" }, "model"]]) {
+            const before = fs.readdirSync(path.join(process.env.JARVIS_TEST_ROOT, "accounts")).length;
+            await assert.rejects(() => make(folder, { turns: [] }, options), new RegExp("^Error: jarvis: brain=" + reason + "$"));
+            const made = fs.readdirSync(path.join(process.env.JARVIS_TEST_ROOT, "accounts")).slice(before);
+            assert.deepEqual(made.flatMap(name => lines(path.join(process.env.JARVIS_TEST_ROOT, "accounts", name, "calls.jsonl"))), [],
+                "no program for a refused " + reason);
+        }
+    }]);
+
+    // The model list read: one list_models request to the account's own
+    // program, no prompt, tools off, and the list as the page offers it.
+    const LISTED = [
+        { value: "default", resolvedModel: "claude-opus-5-5[1m]", displayName: "Default (recommended)", description: "d",
+            supportsEffort: true, supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"] },
+        { value: "fable", resolvedModel: "claude-fable-5-1", displayName: "Fable 5.1", description: "d",
+            supportsEffort: true, supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"] },
+        { value: "opus", resolvedModel: "claude-opus-5-5[1m]", displayName: "Opus 5.5", description: "d",
+            supportsEffort: true, supportedEffortLevels: ["low", "medium", "high", "xhigh", "max"] },
+        // A second alias of one model, a model that takes no effort, an entry
+        // with no resolved name, a name argv would read as a flag and a label
+        // a choice cannot carry.
+        { value: "claude-opus-5-5[1m]", resolvedModel: "claude-opus-5-5[1m]", displayName: "Opus 5.5 again", description: "d" },
+        { value: "haiku", resolvedModel: "claude-haiku-4-5", displayName: "Haiku 4.5", description: "d",
+            supportsEffort: false, supportedEffortLevels: ["low"] },
+        { value: "claude-sonnet-5-5", displayName: "Sonnet 5.5", description: "d", supportsEffort: true, supportedEffortLevels: ["low", "high"] },
+        { value: "-flag", displayName: "Flag", description: "d" },
+        { value: "long-label", displayName: "x".repeat(61), description: "d" }
+    ];
+    const OFFERED = [
+        { value: "claude-opus-5-5[1m]", label: "Opus 5.5", efforts: ["low", "medium", "high", "xhigh", "max"], effort: "" },
+        { value: "claude-fable-5-1", label: "Fable 5.1", efforts: ["low", "medium", "high", "xhigh", "max"], effort: "" },
+        { value: "claude-haiku-4-5", label: "Haiku 4.5", efforts: [], effort: "" },
+        { value: "claude-sonnet-5-5", label: "Sonnet 5.5", efforts: ["low", "high"], effort: "" }
+    ];
+    cases.push(["models", async folder => {
+        const ClaudeCode = require(path.join(folder, "ClaudeCode.js"));
+        const parent = path.join(process.env.JARVIS_TEST_ROOT, "rm" + ++serial);
+        const timers = [];
+        const clock = { set: (fn, ms) => { const timer = { fn, ms }; timers.push(timer); return timer; }, clear: timer => { timer.cleared = true; } };
+        const listing = account({ models: LISTED });
+        // A read answers its list or its error's message, so a row compares both.
+        const read = account => ClaudeCode.models({ directory: account.directory, runtime: parent, env: { ...process.env, ...PLANTED }, clock })
+            .then(offers => offers, error => error.message);
+        assert.deepEqual(await bounded(read(listing), "model list"), OFFERED, "the program's default first, one offer per model");
+        const [call] = listing.calls();
+        const config = call.args[ARGV.indexOf("CONFIG")];
+        assert.deepEqual(call.args, ARGV.map(arg => arg === "CONFIG" ? config : arg), "the conversation's lockdown, no model and no prompt flag");
+        assert.deepEqual(JSON.parse(fs.existsSync(config) ? fs.readFileSync(config, "utf8") : '{"mcpServers":{}}'), { mcpServers: {} });
+        assert.deepEqual(Object.keys(call.env).filter(name => !["PWD", "SHLVL", "_"].includes(name)).sort(), ENVIRONMENT);
+        assert.deepEqual(leaked(call), [], "no planted key, token or pid reaches the program");
+        assert.equal(call.parent, process.pid);
+        assert.equal(call.deathsig, 9, "the program dies with the reader");
+        assert.deepEqual(listing.events().filter(event => event.kind === "input").map(event => event.value.request),
+            [{ subtype: "list_models" }], "one request and no prompt");
+        assert.equal(fs.existsSync(path.dirname(call.cwd)), false, "the read's working directory is removed");
+        assert.deepEqual(timers.map(timer => [timer.ms, timer.cleared]).slice(0, 1), [[20000, true]], "one bound on the read, cleared by its answer");
+        // A list that is no list refuses; a program that exits fails keyed.
+        for (const [script, reason] of [[{ models: "silent", rawModels: { models: "none" } }, "harness-models"],
+            [{ models: "silent", rawModels: { models: [{ value: 7, displayName: "Seven" }] } }, "harness-models"],
+            [{ models: [{ value: "bad" }] }, "harness-exit code=3"]])
+            assert.equal(await bounded(read(account(script)), "refused list"), "jarvis: brain=" + reason);
+        // A program that never answers: the bound ends the read and the program.
+        timers.length = 0;
+        const silent = account({ models: "silent" });
+        const stalled = read(silent);
+        for (let tries = 0; tries < 300 && !silent.events().some(event => event.kind === "input"); tries++)
+            await new Promise(resolve => setTimeout(resolve, 10));
+        timers[0].fn();
+        assert.equal(await bounded(stalled, "silent list"), "jarvis: brain=harness-exit signal=SIGKILL");
+        assert.equal(fs.existsSync(path.dirname(silent.calls()[0].cwd)), false, "a failed read's working directory is removed");
+        // The account judge reads the selected sign-in's list and no other's.
+        fs.writeFileSync(path.join(verifyAccount.directory, "script.json"), JSON.stringify({ tree, models: LISTED }));
+        fs.mkdirSync(state, { recursive: true });
+        const { Accounts } = require(path.join(folder, "Accounts.js"));
+        const judge = new Accounts(state, env, presence);
+        const chosen = judge.discover().find(row => row.source.kind === "cli" && row.source.directory === verifyAccount.directory);
+        assert.deepEqual(judge.status().models, { kind: "none" }, "no list before a read");
+        await bounded(judge.readOffers(chosen.id), "account offers");
+        assert.deepEqual(judge.status().models, { kind: "read", offers: OFFERED });
+        const before = verifyAccount.calls().length;
+        for (const id of ["", "unknown-choice"]) {
+            await judge.readOffers(id);
+            assert.deepEqual(judge.status().models, { kind: "none" }, "no sign-in, no list: " + JSON.stringify(id));
+        }
+        assert.equal(verifyAccount.calls().length, before, "no program starts for no sign-in");
+        fs.writeFileSync(path.join(verifyAccount.directory, "script.json"), JSON.stringify({ tree, models: [{ value: "bad" }] }));
+        await bounded(judge.readOffers(chosen.id), "failed account offers");
+        assert.deepEqual(judge.status().models, { kind: "failed", reason: "harness-exit" }, "a failed read names its cause and offers nothing");
+    }]);
+
     const byName = name => cases.find(row => row[0] === name)[1];
     // An Accounts mutant loads ../AccountProviders.js beside its folder.
     fs.copyFileSync(path.join(tree, "shell/plugins/vgs.jarvis/AccountProviders.js"),
@@ -714,7 +822,20 @@ world(async () => {
             ["close-again", "if (closing !== null) return closing;", "if (closing !== null) return Promise.resolve();", "verify"],
             ["close-workdir", "if (workdir !== null) fs.rmSync(workdir, { recursive: true, force: true });", "", "close"],
             ["verify-result", 'if (step.value.kind === "text") text += step.value.text;', 'if (step.value.kind === "text") return step.value.text;', "verify"],
-            ["model-flag", '&& !value.startsWith("-")', "", "verify"],
+            ["model-argv", 'if (model !== "") args.push("--model", model);', "", "model-effort"],
+            ["effort-argv", 'if (effort !== "") args.push("--effort", effort);', "", "model-effort"],
+            ["effort-unset", 'if (effort !== "") args.push("--effort", effort);', 'args.push("--effort", effort);', "model-effort"],
+            ["effort-judged", 'if (!Harness.isEffort(effort)) fail("effort");', "", "model-effort"],
+            ["models-request", 'request: { subtype: "list_models" }', 'request: { subtype: "initialize" }', "models"],
+            ["models-resolved", "value: entry.resolvedModel ?? entry.value,", "value: entry.value,", "models"],
+            ["models-own-first", "own: entry.value === own", "own: false", "models"],
+            ["models-own-entry", ".filter(entry => entry.alias !== OWN_DEFAULT)", "", "models"],
+            ["models-effortless", "entry.supportsEffort === true ? entry.supportedEffortLevels : []", "entry.supportedEffortLevels ?? []", "models"],
+            ["models-shape", 'if (!plain(body) || !Array.isArray(body.models)) fail("harness-models");', "if (!plain(body) || !Array.isArray(body.models)) return [];", "models"],
+            ["models-bound", "const timer = clock.set(end, MODELS_MS);", "const timer = clock.set(() => {}, MODELS_MS);", "models"],
+            ["models-bound-ms", "const MODELS_MS = 20000;", "const MODELS_MS = 20001;", "models"],
+            ["models-workdir", "await closed;\n        fs.rmSync(workdir, { recursive: true, force: true });", "await closed;", "models"],
+            ["models-prompt-free", 'child = program(argvOf({ config, instructions: "", model: "", effort: "" }),', 'child = program(argvOf({ config, instructions: "Fixture", model: "", effort: "" }),', "models"],
             ["verify-deadline", "const timer = clock.set(() => { expired = true; void brain.close(); }, deadline);",
                 "const timer = clock.set(() => { expired = true; }, deadline);", "verify"]
         ]) await control(harnessFile, name, needle, replacement, row);
@@ -725,7 +846,25 @@ world(async () => {
             ["verify-reason", "harness ? harness[1] : ", ""],
             ["verify-model", "const model = modelOf(requestedModel); // Refused", "const model = requestedModel; // Refused"]
         ]) await control(accountsFile, name, needle, replacement, "verify");
+        const sharedFile = path.join(backend, "HarnessProgram.js");
+        for (const [name, needle, replacement, row] of [
+            ["model-flag", '&& !value.startsWith("-")', "", "verify"],
+            ["effort-word", "/^[a-z]{0,16}$/.test(value)", "/^.{0,16}$/.test(value)", "model-effort"],
+            ["effort-size", "/^[a-z]{0,16}$/.test(value)", "/^[a-z]*$/.test(value)", "model-effort"],
+            ["offer-once", "|| kept.some(offer => offer.value === entry.value)) continue;", ") continue;", "models"],
+            ["offer-flag", 'if (entry.value === "" || !isModel(entry.value) || ', "if (", "models"],
+            ["offer-label", "!/^[^\\x00-\\x1f\\x7f]{1,60}$/.test(entry.label)", "false", "models"],
+            ["offer-own-first", "[...kept.filter(offer => offer.own), ...kept.filter(offer => !offer.own)]", "kept", "models"]
+        ]) await control(sharedFile, name, needle, replacement, row);
+        for (const [name, needle, replacement] of [
+            ["offers-selected", "if (resolved === null || resolved.source.kind !== \"cli\" || !Object.hasOwn(MODEL_LISTS, resolved.provider)) return;", "if (resolved === null) { this.offered = { kind: \"read\", offers: [] }; return; }"],
+            ["offers-failed", 'this.offered = { kind: "failed", reason: key === null ? "models-failed" : key[1] };', 'this.offered = { kind: "read", offers: [] };'],
+            ["offers-claude", "const MODEL_LISTS = { claude: ClaudeCode, ", "const MODEL_LISTS = { "]
+        ]) await control(accountsFile, name, needle, replacement, "models");
         await control(engineFile, "claude-driver", ', "claude-code": ClaudeCode });', " });", "engine");
+        await control(engineFile, "engine-model", "model: own ? account.model : settings.model,", "model: account.model,", "engine");
+        await control(engineFile, "engine-effort", 'effort: own ? "" : settings.effort,', 'effort: "",', "engine");
+        await control(engineFile, "engine-effort-handed", "model: c.plan.brain.model, effort: c.plan.brain.effort,", "model: c.plan.brain.model,", "engine");
         await mutant(path.join(backend, "ToolBridge.js"), "fresh-bridge-tools",
             'const offers = structuredClone(tools);', 'const offers = structuredClone(router.offer());',
             async (_module, folder) => { try { await cases.find(row => row[0] === "frozen-tools")[1](folder); }

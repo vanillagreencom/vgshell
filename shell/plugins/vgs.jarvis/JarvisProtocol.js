@@ -253,11 +253,14 @@ function accept(line, direction) {
     case "hello":
         if (direction !== "shell") fail("direction-hello");
         keys(message, ["v", "type", "gen", "settings", "directories", "revision", "locked", "keys"], "hello");
-        keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "home"], "settings");
+        keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "home"], "settings");
         if (!["local", "realtime"].includes(message.settings.voiceProvider) || typeof message.settings.voiceAccount !== "string"
                 || !/^[^\x00-\x1f\x7f]{0,200}$/.test(message.settings.voiceAccount)) fail("voice-settings");
         if (typeof message.settings.sounds !== "boolean") fail("sounds");
         if (typeof message.settings.brain !== "string") fail("shape-settings");
+        // The service's choice for the selected sign-in, each "" for its
+        // program's own. A harness brain judges both before its argv.
+        if (typeof message.settings.model !== "string" || typeof message.settings.effort !== "string") fail("shape-settings");
         if (["hold", "toggle", "always"].indexOf(message.settings.mode) === -1) fail("mode");
         if (TASK_TERMINALS.indexOf(message.settings.taskTerminal) === -1) fail("task-terminal");
         if (CLOUD_VISION.indexOf(message.settings.cloudVision) === -1) fail("cloud-vision");

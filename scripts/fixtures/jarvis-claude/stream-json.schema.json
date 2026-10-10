@@ -17,7 +17,7 @@
  "rule": [
   "Anthropic publishes the stream-json wire as TypeScript declarations, not JSON Schema. Each schema is transcribed by hand from the named declaration in sdk.d.ts.",
   "String literal unions become enum. A property the declaration marks optional is listed but not required, and only when a fixture writes it.",
-  "UserInput is SDKUserMessage; InterruptRequest is SDKControlRequest with SDKControlInterruptRequest; SystemInit is SDKSystemMessage; Assistant is SDKAssistantMessage; ResultSuccess and ResultError are SDKResultSuccess and SDKResultError; ControlResponse is SDKControlResponse with ControlResponse; ApiRetry is SDKAPIRetryMessage.",
+  "UserInput is SDKUserMessage; InterruptRequest is SDKControlRequest with SDKControlInterruptRequest; ListModelsRequest is SDKControlRequest with SDKControlListModelsRequest, and ListModelsResponse the SDKControlResponse a run of Claude Code 2.1.289 answered it with on 2026-10-09, its models ModelInfo; SystemInit is SDKSystemMessage; Assistant is SDKAssistantMessage; ResultSuccess and ResultError are SDKResultSuccess and SDKResultError; ControlResponse is SDKControlResponse with ControlResponse; ApiRetry is SDKAPIRetryMessage.",
   "Message, the content blocks and MessageParam come from @anthropic-ai/sdk BetaMessage and MessageParam, which sdk.d.ts imports; only the block types the adapter reads or a fixture writes are kept.",
   "usage, modelUsage and a tool input stay open objects: the adapter reads none of their fields.",
   "StreamEvent is SDKPartialAssistantMessage. Its event excerpts follow Anthropic MessageStreamEvent: message and content-block boundaries, text/thinking/signature deltas, and stop usage."
@@ -248,6 +248,120 @@
     "type",
     "request_id",
     "request"
+   ]
+  },
+  "ListModelsRequest": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "enum": [
+      "control_request"
+     ]
+    },
+    "request_id": {
+     "type": "string"
+    },
+    "request": {
+     "type": "object",
+     "properties": {
+      "subtype": {
+       "enum": [
+        "list_models"
+       ]
+      }
+     },
+     "required": [
+      "subtype"
+     ]
+    }
+   },
+   "required": [
+    "type",
+    "request_id",
+    "request"
+   ]
+  },
+  "ModelInfo": {
+   "type": "object",
+   "properties": {
+    "value": {
+     "type": "string"
+    },
+    "resolvedModel": {
+     "type": "string"
+    },
+    "displayName": {
+     "type": "string"
+    },
+    "description": {
+     "type": "string"
+    },
+    "supportsEffort": {
+     "type": "boolean"
+    },
+    "supportedEffortLevels": {
+     "type": "array",
+     "items": {
+      "enum": [
+       "low",
+       "medium",
+       "high",
+       "xhigh",
+       "max"
+      ]
+     }
+    }
+   },
+   "required": [
+    "value",
+    "displayName",
+    "description"
+   ]
+  },
+  "ListModelsResponse": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "enum": [
+      "control_response"
+     ]
+    },
+    "response": {
+     "type": "object",
+     "properties": {
+      "subtype": {
+       "enum": [
+        "success"
+       ]
+      },
+      "request_id": {
+       "type": "string"
+      },
+      "response": {
+       "type": "object",
+       "properties": {
+        "models": {
+         "type": "array",
+         "items": {
+          "$ref": "#/schemas/ModelInfo"
+         }
+        }
+       },
+       "required": [
+        "models"
+       ]
+      }
+     },
+     "required": [
+      "subtype",
+      "request_id",
+      "response"
+     ]
+    }
+   },
+   "required": [
+    "type",
+    "response"
    ]
   },
   "McpServer": {

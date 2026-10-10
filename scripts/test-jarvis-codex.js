@@ -118,7 +118,7 @@ world(async () => {
         const recipients = Policy.recipients({ conversation: "codex-" + serial, profile: "standard", cloudVision: "ask",
             brain: { kind: "network", provider: "codex", account: "fixture", origin: "https://chatgpt.com" },
             speech: [{ kind: "local", provider: "fixture-speech", account: "" }] });
-        const brain = Harness.create({ model: options.model ?? "", recipients, account: { kind: "cli", directory: account },
+        const brain = Harness.create({ model: options.model ?? "", effort: options.effort ?? "", recipients, account: { kind: "cli", directory: account },
             gen: runner.state.gen, harness: { bridge, gate, env, runtime: () => runtime } });
         brain.start({ instructions: "Be brief.", tools: [] });
         owners.push(() => { brain.close(); bridge.close(); gate.close(); audit.close(); });
@@ -563,6 +563,70 @@ world(async () => {
             assert.equal(path.dirname(program().cwd), path.join(env.XDG_RUNTIME_DIR, "vgshell/jarvis"),
                 "the helper hands over the daemon's runtime directory");
         },
+        // The chosen model and effort start the thread; an unset one leaves
+        // the program's own.
+        async chosen(folder) {
+            scenario({ turns: [[delta("Ok."), { complete: "completed" }]] });
+            const w = make(folder, { model: "gpt-6.1-sol", effort: "high" });
+            assert.deepEqual(await drain(w.say("hi")), [{ kind: "text", text: "Ok." }, { kind: "done", reason: "stop" }]);
+            const [start] = received("thread/start");
+            assert.deepEqual([start.params.model, start.params.config.model_reasoning_effort], ["gpt-6.1-sol", "high"]);
+            validWrites();
+            for (const owner of owners.splice(0)) owner();
+            scenario({ turns: [[delta("Ok."), { complete: "completed" }]] });
+            const own = make(folder);
+            await drain(own.say("hi"));
+            const [bare] = received("thread/start");
+            assert.deepEqual([Object.hasOwn(bare.params, "model"), Object.hasOwn(bare.params.config, "model_reasoning_effort")], [false, false],
+                "an unset choice names neither");
+        },
+        // The model list read: no thread, no turn, the account's own list.
+        async models(folder) {
+            const Harness = require(path.join(folder, "backend/CodexHarness.js"));
+            const runtime = path.join(process.env.JARVIS_TEST_ROOT, "models");
+            // A read answers its list or its error's message, so a row compares both.
+            const list = () => Harness.models({ directory: account, env, runtime }).then(offers => offers, error => error.message);
+            scenario({});
+            const offers = await list();
+            assert.deepEqual(offers[0], { value: "gpt-6.1-sol", label: "GPT-6.1-Sol", efforts: ["low", "medium", "high", "xhigh", "max", "ultra"], effort: "low" },
+                "the recorded default model, with the effort it names as its own");
+            assert.deepEqual(offers.map(offer => offer.value), ["gpt-6.1-sol", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"]);
+            assert.deepEqual(read("codex-log").filter(row => row.direction === "in").map(row => row.message.method), ["initialize", "initialized", "model/list"],
+                "no thread and no turn");
+            assert.equal(program().env.CODEX_HOME, account);
+            assert.equal(Object.hasOwn(program().env, "OPENAI_API_KEY"), false, "no key reaches the program");
+            assert.deepEqual(fs.readdirSync(runtime), [], "the read's working directory is removed");
+            validWrites();
+            // The default is not always listed first; an effort that is no word and a flag-like name are left out.
+            const entry = (model, patch = {}) => ({ id: model, model, displayName: model.toUpperCase(), description: "d", hidden: false, isDefault: false,
+                defaultReasoningEffort: "medium", supportedReasoningEfforts: ["low", "medium", "X-High"].map(reasoningEffort => ({ description: "d", reasoningEffort })), ...patch });
+            scenario({ models: { data: [entry("a"), entry("b", { isDefault: true }), entry("-c"), entry("a")] } });
+            assert.deepEqual(await list(), [{ value: "b", label: "B", efforts: ["low", "medium"], effort: "medium" },
+                { value: "a", label: "A", efforts: ["low", "medium"], effort: "medium" }]);
+            scenario({ models: { data: "none" } });
+            assert.equal(await list(), "jarvis: brain=codex-model-list");
+            scenario({ refuse: "model/list" });
+            assert.equal(await list(), "jarvis: brain=codex-refused method=model/list code=-32600");
+            scenario({ crash: "handshake" });
+            assert.equal(String(await list()).startsWith("jarvis: brain=codex-exited"), true, "a program that ends fails the read");
+            assert.deepEqual(fs.readdirSync(runtime), [], "a failed read's working directory is removed");
+            // The account judge reads the selected sign-in's list.
+            const { Accounts } = require(path.join(folder, "backend/Accounts.js"));
+            const directory = path.join(state, "vgshell/jarvis");
+            fs.mkdirSync(directory, { recursive: true });
+            const judge = new Accounts(directory, env, undefined, runtime);
+            const codex = judge.discover().find(item => item.provider === "codex" && item.source.directory === account);
+            scenario({});
+            await judge.readOffers(codex.id);
+            assert.deepEqual(judge.status().models, { kind: "read", offers });
+            scenario({ refuse: "model/list" });
+            await judge.readOffers(codex.id);
+            assert.deepEqual(judge.status().models, { kind: "failed", reason: "codex-refused" });
+            // The page's choices ceiling bounds a longer list.
+            scenario({ models: { data: Array.from({ length: 33 }, (_, index) => entry("m" + index)) } });
+            await judge.readOffers(codex.id);
+            assert.deepEqual(judge.status().models.offers.map(offer => offer.value), Array.from({ length: 32 }, (_, index) => "m" + index));
+        },
         // Account Verify's handoff: one turn on a thread with no tools.
         async probe(folder) {
             const Harness = require(path.join(folder, "backend/CodexHarness.js"));
@@ -660,6 +724,18 @@ world(async () => {
             ["gate-requests", "backend/HarnessGate.js", [["pending.set(id, entry);", "pending.clear();\n        pending.set(id, entry);"]], "held"],
             ["gate-held", "backend/HarnessGate.js", [["return router.route(", "entry.port.accept();\n        return router.route("]], "held"],
             ["handoff-route", "backend/Accounts.js", [['case "codex":', 'case "codex-removed":']], "verify"],
+            ["chosen-model", "backend/CodexHarness.js", [["Codex.threadStart(id, { cwd, model, effort,", 'Codex.threadStart(id, { cwd, model: "", effort,']], "chosen"],
+            ["chosen-effort", "backend/CodexHarness.js", [["Codex.threadStart(id, { cwd, model, effort,", 'Codex.threadStart(id, { cwd, model, effort: "",']], "chosen"],
+            ["effort-handed", "backend/CodexHarness.js", [["runtime: runtime(), model, effort,\n                instructions, bridge: launch }", 'runtime: runtime(), model, effort: "",\n                instructions, bridge: launch }']], "chosen"],
+            ["models-no-thread", "backend/CodexHarness.js", [["return Harness.offers(Codex.models(await p.call(id => Codex.modelList(id))));",
+                "await p.call(id => Codex.configRead(id, cwd));\n        return Harness.offers(Codex.models(await p.call(id => Codex.modelList(id))));"]], "models"],
+            ["models-offers", "backend/CodexHarness.js", [["return Harness.offers(Codex.models(await p.call(id => Codex.modelList(id))));",
+                "return Codex.models(await p.call(id => Codex.modelList(id)));"]], "models"],
+            ["models-directory", "backend/CodexHarness.js", [["        await p.close();\n        fs.rmSync(cwd, { recursive: true, force: true });\n    }\n}\n\nmodule.exports", "        await p.close();\n    }\n}\n\nmodule.exports"]], "models"],
+            ["offer-effort-word", "backend/HarnessProgram.js", [['entry.efforts.filter(level => level !== "" && isEffort(level))', "entry.efforts"]], "models"],
+            ["offer-own-effort", "backend/HarnessProgram.js", [['effort: efforts.includes(entry.effort) ? entry.effort : "", own', 'effort: "", own']], "models"],
+            ["offers-codex", "backend/Accounts.js", [["codex: CodexHarness, copilot: CopilotHarness };", "copilot: CopilotHarness };"]], "models"],
+            ["offers-rows", "backend/Accounts.js", [["offers: offers.slice(0, MAX_ROWS) };", "offers };"]], "models"],
             ["handoff-audit", "backend/Accounts.js", [["release.start(() => CodexHarness.probe(",
                 "(send => send())(() => CodexHarness.probe("]], "verify"],
             ["handoff-release", "backend/Accounts.js", [['const grants = [{ recipients: selected, labels: ["command"] }];', "const grants = [];"]], "verify"],

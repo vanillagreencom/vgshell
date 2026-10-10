@@ -9,6 +9,7 @@ const cp = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { StringDecoder } = require("node:string_decoder");
+const Harness = require("./HarnessProgram.js");
 const Policy = require("./Policy.js");
 const Private = require("./Private.js");
 const Tools = require("./Tools.js");
@@ -31,6 +32,11 @@ const TOOLS = 64;
 const TURNS = 40;
 // The plan's cancel bound: the turn holds in cancelling at most 2 s.
 const CANCEL_MS = 2000;
+// One model list read: a bound on a stalled program, not a latency budget.
+const MODELS_MS = 20000;
+const MODELS_REQUEST = "vgs-models";
+// Claude Code's own list entry that points at the model it runs unasked.
+const OWN_DEFAULT = "default";
 const IMAGE_TYPES = ["image/png", "image/jpeg"];
 const RESULT_ERRORS = ["error_during_execution", "error_max_turns", "error_max_budget_usd",
     "error_max_structured_output_retries"];
@@ -43,13 +49,6 @@ function fail(code) { throw new Error("jarvis: brain=" + code); }
 function plain(value) { return value !== null && typeof value === "object" && !Array.isArray(value); }
 // A vendor-supplied name enters a keyed error only in this spelling.
 function named(value) { return typeof value === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(value) ? value : "invalid"; }
-/**
- * The one judge of a model name: "" for the default, or at most 120
- * printable characters. A leading "-" would read as a flag in argv.
- */
-function isModel(value) {
-    return typeof value === "string" && value.length <= 120 && !/[\x00-\x1f\x7f]/.test(value) && !value.startsWith("-");
-}
 function textItem(item) {
     if (!item || typeof item.content !== "string") fail("item-text");
     return item;
@@ -128,11 +127,36 @@ function messageOf(line) {
     case "control_response":
         if (!plain(value.response) || typeof value.response.request_id !== "string"
                 || !["success", "error"].includes(value.response.subtype)) fail("harness-control");
-        return { kind: "control", id: value.response.request_id, subtype: value.response.subtype };
+        return { kind: "control", id: value.response.request_id, subtype: value.response.subtype,
+            body: value.response.response };
     // A request needs an answer only a permission host gives; none exists.
     case "control_request": return { kind: "control-request" };
     default: return { kind: "other" };
     }
+}
+
+/**
+ * The models a list_models answer lists, for Harness.offers. value is the
+ * full name an entry resolves to, which --model takes, so two aliases of
+ * one model are one offer; efforts are the levels --effort takes for it,
+ * none for a model that takes no effort; effort is "", since the list names
+ * no default level. The entry OWN_DEFAULT points at the model the program
+ * runs unasked. Claude Code 2.1.289 answered {models}, 13 entries of
+ * {value, resolvedModel, displayName, supportsEffort,
+ * supportedEffortLevels}, "default" resolving to "claude-opus-5-5[1m]" and
+ * "fable" to "claude-fable-5-1" (a run on 2026-10-09).
+ */
+function offersOf(body) {
+    if (!plain(body) || !Array.isArray(body.models)) fail("harness-models");
+    const entries = body.models.map(entry => {
+        if (!plain(entry) || typeof entry.value !== "string" || typeof entry.displayName !== "string"
+                || typeof (entry.resolvedModel ?? "") !== "string") fail("harness-models");
+        const efforts = entry.supportsEffort === true ? entry.supportedEffortLevels : [];
+        if (!Array.isArray(efforts) || !efforts.every(level => typeof level === "string")) fail("harness-models");
+        return { alias: entry.value, value: entry.resolvedModel ?? entry.value, label: entry.displayName, efforts, effort: "" };
+    });
+    const own = entries.find(entry => entry.alias === OWN_DEFAULT)?.value;
+    return Harness.offers(entries.filter(entry => entry.alias !== OWN_DEFAULT).map(entry => ({ ...entry, own: entry.value === own })));
 }
 
 /**
@@ -159,7 +183,7 @@ function environmentOf(environment, directory) {
  * and the account's own settings, CLAUDE.md, rules, skills and agents do not
  * load: only the project source remains, and the working directory is empty.
  */
-function argvOf({ config, instructions, model }) {
+function argvOf({ config, instructions, model, effort }) {
     // https://code.claude.com/docs/en/headless#stream-responses
     const args = ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages",
         "--tools", "", "--strict-mcp-config", "--mcp-config", config,
@@ -168,21 +192,39 @@ function argvOf({ config, instructions, model }) {
         "--disable-slash-commands", "--no-session-persistence"];
     if (instructions !== "") args.push("--system-prompt", instructions);
     if (model !== "") args.push("--model", model);
+    if (effort !== "") args.push("--effort", effort);
     return args;
+}
+
+// A program's private folder under parent, the runtime directory: mode
+// 0700, holding `cwd`, the empty working directory the program starts in.
+function privateFolder(parent) {
+    Private.directory(parent);
+    const workdir = fs.mkdtempSync(path.join(parent, "claude-"));
+    fs.chmodSync(workdir, 0o700);
+    fs.mkdirSync(path.join(workdir, "cwd"), { mode: 0o700 });
+    return workdir;
+}
+
+// setpriv execs the program under the spawned pid: the group signals still
+// reach it, and a daemon that dies outright takes it along.
+function program(args, options) {
+    return cp.spawn("setpriv", ["--pdeathsig", "KILL", "--", COMMAND, ...args], options);
 }
 
 /**
  * The one owner of a harness conversation, shared by the engine's brain and
  * Verify. directory is the Claude account directory (CLAUDE_CONFIG_DIR);
- * model is "" for the program's own default; recipients is the
+ * model and effort are each "" for the program's own default; recipients is the
  * conversation's frozen set; bridge is null or the tool bridge, whose session
  * opens with {gen, recipients}; parent is the private runtime directory the
  * working directory is made in; environment is the daemon's environment.
  */
-function conversation({ directory, model, recipients, bridge, gen, parent, environment, clock }) {
+function conversation({ directory, model, effort = "", recipients, bridge, gen, parent, environment, clock }) {
     if (typeof directory !== "string" || !path.isAbsolute(directory) || path.normalize(directory) !== directory)
         fail("harness-directory");
-    if (!isModel(model)) fail("model");
+    if (!Harness.isModel(model)) fail("model");
+    if (!Harness.isEffort(effort)) fail("effort");
     Policy.assertRecipients(recipients);
     if (bridge !== null && typeof bridge?.open !== "function") fail("harness-bridge");
     if (typeof parent !== "string" || !path.isAbsolute(parent)) fail("harness-runtime");
@@ -248,20 +290,14 @@ function conversation({ directory, model, recipients, bridge, gen, parent, envir
 
     async function spawn() {
         process_ = { kind: "starting" };
-        Private.directory(parent);
-        workdir = fs.mkdtempSync(path.join(parent, "claude-"));
-        fs.chmodSync(workdir, 0o700);
+        workdir = privateFolder(parent);
         const cwd = path.join(workdir, "cwd");
-        fs.mkdirSync(cwd, { mode: 0o700 });
         if (context.offered.size !== 0) launch = await bridge.open({ gen, recipients, tools: context.tools });
         // close() ran while the session opened; it could not close it then.
         if (closing !== null) { launch?.close(); fail("closed"); }
         const config = path.join(workdir, "mcp.json");
         Private.mcpConfig(config, SERVER, launch);
-        // setpriv execs the program under the spawned pid: the group signals
-        // still reach it, and a daemon that dies outright takes it along.
-        const child = cp.spawn("setpriv", ["--pdeathsig", "KILL", "--", COMMAND,
-            ...argvOf({ config, instructions: context.instructions, model })],
+        const child = program(argvOf({ config, instructions: context.instructions, model, effort }),
             { cwd, env: childEnvironment, stdio: ["pipe", "pipe", "pipe"], detached: true });
         const record = { kind: "running", child, initialized: false, consumer: null, cause: null,
             exited: null };
@@ -587,17 +623,17 @@ function conversation({ directory, model, recipients, bridge, gen, parent, envir
 /**
  * The conversation's brain behind the plan's interface, as CodexHarness's:
  * start, send as a stream of text and done, cancel and close. options
- * carries the engine's {model, recipients} and the harness facts: account
+ * carries the engine's {model, effort, recipients} and the harness facts: account
  * ({kind: "cli", directory}, a Claude account directory), gen, and
  * {bridge, env, runtime}, runtime answering the runtime directory. The gate
  * goes unused: built-in tools are off, so no approval request reaches it. A
  * harness turn yields no tool-call event: the program's calls reach the
  * router through the bridge.
  */
-function create({ model = "", recipients, account, gen, harness, clock = CLOCK }) {
+function create({ model = "", effort = "", recipients, account, gen, harness, clock = CLOCK }) {
     // An engine made without the daemon's harness facts cannot run a program.
     if (!plain(harness) || typeof harness.runtime !== "function") fail("harness-unwired");
-    const brain = conversation({ directory: account.directory, model, recipients, bridge: harness.bridge, gen,
+    const brain = conversation({ directory: account.directory, model, effort, recipients, bridge: harness.bridge, gen,
         parent: harness.runtime(), environment: harness.env, clock });
     return Object.freeze({ ...brain,
         /** A harness turn is never answered by tool results. */
@@ -636,4 +672,59 @@ async function verify({ directory, model, recipients, item, grants, parent, envi
     }
 }
 
-module.exports = { create, verify, isModel };
+/**
+ * The models the account's own program offers, offersOf's list, from its
+ * answer to one stream-json list_models request. No prompt is sent and no
+ * tool or MCP server is offered. directory is the account's, env the
+ * caller's environment and runtime the private runtime directory. Past
+ * MODELS_MS the program is ended and the read fails with its exit; its
+ * group is ended and its folder removed either way.
+ */
+async function models({ directory, env, runtime, clock = CLOCK }) {
+    const workdir = privateFolder(runtime);
+    const config = path.join(workdir, "mcp.json");
+    Private.mcpConfig(config, SERVER, null);
+    const child = program(argvOf({ config, instructions: "", model: "", effort: "" }),
+        { cwd: path.join(workdir, "cwd"), env: environmentOf(env, directory), stdio: ["pipe", "pipe", "ignore"], detached: true });
+    const closed = new Promise(resolve => child.once("close", resolve));
+    const end = () => {
+        if (child.pid === undefined) return; // The spawn failed; close follows its error.
+        try { process.kill(-child.pid, "SIGKILL"); } catch (error) { if (error.code !== "ESRCH") throw error; }
+    };
+    const timer = clock.set(end, MODELS_MS);
+    try {
+        return await new Promise((resolve, reject) => {
+            child.once("error", error => reject(new Error("jarvis: brain=harness-exit cause=" + named(error.code ?? "unknown"))));
+            child.once("close", (code, signalName) => reject(
+                new Error("jarvis: brain=harness-exit " + (signalName !== null ? "signal=" + signalName : "code=" + code))));
+            child.stdin.on("error", () => {});
+            child.stdout.setEncoding("utf8");
+            let tail = "";
+            child.stdout.on("data", chunk => {
+                try {
+                    tail += chunk;
+                    for (let at; (at = tail.indexOf("\n")) >= 0; tail = tail.slice(at + 1)) {
+                        const line = tail.slice(0, at);
+                        if (line.trim() === "") continue;
+                        const message = messageOf(line);
+                        if (message.kind !== "control" || message.id !== MODELS_REQUEST) continue;
+                        if (message.subtype !== "success") fail("harness-models");
+                        resolve(offersOf(message.body));
+                        return;
+                    }
+                    if (Buffer.byteLength(tail) > LINE_BYTES) fail("harness-line-limit");
+                } catch (error) { reject(error); }
+            });
+            // SDKControlListModelsRequest; the answer's `models` are ModelInfo
+            // (claude-agent-sdk 0.3.287 sdk.d.ts).
+            child.stdin.write(JSON.stringify({ type: "control_request", request_id: MODELS_REQUEST, request: { subtype: "list_models" } }) + "\n");
+        });
+    } finally {
+        clock.clear(timer);
+        end();
+        await closed;
+        fs.rmSync(workdir, { recursive: true, force: true });
+    }
+}
+
+module.exports = { create, verify, models };

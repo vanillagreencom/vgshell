@@ -502,6 +502,21 @@ function suite(ctx, check) {
     check("settingRefusal still requires a string", ctx.settingRefusal(m, "device", 1), "refused: setting=device want=string");
     const choiceSource = [{ label: "Original", value: "original" }];
     const choiceValues = ctx.statusWrite(m, {}, "devices", choiceSource).values;
+    // An entry that declares `hideEmpty` has an empty model while nothing is
+    // offered, even with a value configured, so the page draws no field.
+    const hidingJudged = ctx.validateManifest(Object.assign({}, raw, {
+        settings: { device: "", plain: "text", level: "" },
+        schema: Object.assign({ level: { type: "string", label: "Level", optionsFrom: "devices", hideEmpty: true } }, raw.schema)
+    }), "/p");
+    if (!hidingJudged.ok) throw new Error("the hideEmpty fixture manifest is refused: " + hidingJudged.error);
+    for (const [name, publishedChoices, configured, want] of [
+        ["nothing offered and nothing configured", {}, "", []],
+        ["nothing offered and a value configured", { devices: [] }, "gone", []],
+        ["offers and a removed configured value", { devices: offered }, "gone", [alphaUnset, beta, unavailable]],
+        ["offers and nothing configured", { devices: offered }, "", [alphaUnset, beta]]
+    ])
+        check("settingChoices with hideEmpty: " + name,
+            shape(ctx.settingChoices(hidingJudged.manifest, publishedChoices, { device: "", plain: "text", level: configured }).level, publishedChoices.devices || []), want);
     const choiceModels = ctx.settingChoices(m, choiceValues, { device: "" });
     choiceSource[0].label = "changed";
     check("choices and editor models isolate their writer", [choiceValues.devices[0].label, choiceModels.device[0].label], ["Original", "Original"]);
@@ -667,6 +682,7 @@ const CONTROLS = [
     ["each offer is listed once", "            return { label: choice.label, value: unset ? \"\" : choice.value };\n        });\n", "            return { label: choice.label, value: unset ? \"\" : choice.value };\n        });\n        if (offered.length > 0) model.unshift({ label: offered[0].label, value: \"\" });\n"],
     ["choices copies offered labels", "return { label: choice.label, value: unset", "return { label: choice.value, value: unset"],
     ["a placeholder entry has no unset offer", "var unset = entry.placeholder === undefined && index === 0", "var unset = index === 0"],
+    ["a hideEmpty entry with no offer has an empty model", "if (entry.hideEmpty === true && offered.length === 0) return model;", ""],
     ["a write needs a declared key", "if (typeof key !== \"string\" || !hasOwn(manifest.status, key))\n        return refused(\"undeclared\");", "if (false)\n        return refused(\"undeclared\");"],
     ["a write needs a value of its type", "if (!statusValueFits(manifest.status[key].type, value) ||", "if ("],
     ["a write fits the size ceiling", "if (bytes > STATUS_MAX_BYTES)", "if (false)"],

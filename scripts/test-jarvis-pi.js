@@ -392,19 +392,25 @@ world(async () => {
             const w = make(engineFolder);
             const engine = Engine.create({ session: Session, state: () => w.runner.state, audit: w.audit, router: w.router,
                 accounts: () => ({ secrets: null, choose: id => ({ kind: "accepted", account: { id, provider: "pi", label: "default",
-                    source: { kind: "cli", directory: account }, model: "" } }) }),
+                    source: { kind: "cli", directory: account }, model: "stub/stub-1" } }) }),
                 policy: () => ({ profile: "standard", cloudVision: "ask" }), fault: reason => assert.fail("fault " + reason),
                 captionLimit: 4096, dispatch: e => w.runner.dispatch(e), clock: { now: () => 0, set: () => ({}), clear() {} },
                 harness: { bridge: w.bridge, gate: null, env, runtime: () => w.runtime } });
             owners.unshift(() => engine.close());
             let plan;
-            assert.doesNotThrow(() => { plan = engine.configure({ brain: "pi-fixture" }); }, "the engine has the Pi driver");
+            assert.doesNotThrow(() => { // A Pi choice names its own model: a model and effort saved for
+            // another sign-in do not replace it.
+            plan = engine.configure({ brain: "pi-fixture", model: "claude-fable-5-1", effort: "high" }); }, "the engine has the Pi driver");
             assert.deepEqual(plan, { kind: "ready" });
             const { gen, turn: { op } } = w.runner.state;
-            const send = text => new Promise(resolve => engine.brain.send({ gen, op, owner: 1, text },
-                (verdict, detail) => resolve([verdict, detail])));
+            // A turn's verdict, or the error the engine threw starting it.
+            const send = text => new Promise(resolve => {
+                try { engine.brain.send({ gen, op, owner: 1, text }, (verdict, detail) => resolve([verdict, detail])); }
+                catch (error) { resolve(["threw", error.message]); }
+            });
             for (let turn = 0; turn < 40; turn++) assert.deepEqual(await send("turn " + turn), ["brain-done", undefined]);
             assert.deepEqual(await send("one more"), ["brain-ended", { reason: "brain=context-limit" }]);
+            assert.deepEqual(received("set_model").map(m => [m.provider, m.modelId]), [["stub", "stub-1"]], "the choice's own model");
             assert.equal(received("prompt").length, 40);
         },
         // Verify: no tools, no MCP, one prompt after the release record.
@@ -557,7 +563,7 @@ world(async () => {
             seen.push(await judge.verify(judge.accounts.find(item => item.provider === "pi").id, "user"));
             const helper = cp.spawnSync("node", [path.join(folder, "backend/accounts.js"), "--tree", tree, "presence",
                 JSON.stringify(Object.fromEntries(require(path.join(folder, "AccountProviders.js")).PROVIDERS
-                    .filter(row => row.variable).map(row => [row.variable, false])))],
+                    .filter(row => row.variable).map(row => [row.variable, false]))), ""],
             { env: { ...env, XDG_RUNTIME_DIR: path.dirname(path.dirname(runtime)) }, encoding: "utf8", timeout: 20000 });
             assert.equal(helper.status, 0, helper.stderr);
             assert.ok(JSON.parse(helper.stdout).brains.some(choice => choice.label === "Pi / stub/stub-1"), "the helper read the leaking Pi");
@@ -626,8 +632,8 @@ world(async () => {
             ["stderr-dropped", "backend/HarnessProgram.js", [["child.stderr.resume();", "child.stderr.on(\"data\", chunk => process.stderr.write(chunk));"]], "credential"],
             ["environment-scrub", "backend/HarnessProgram.js", [["env: { ...childEnvironment(env), ...extra }", "env: { ...env, ...extra }"]], "credential"],
             ["models-state", A, [['item.state = { kind: item.models.length === 0 ? "found" : "signed-in" };', ""]], "accounts"],
-            ["models-read", "backend/accounts.js", [["await Promise.all([judge.readEmails(), judge.readModels()]);\n        value = judge.status();",
-                "await judge.readEmails();\n        value = judge.status();"]], "credential"],
+            ["models-read", "backend/accounts.js", [["await Promise.all([judge.readEmails(), judge.readModels(), judge.readOffers(args[2])]);\n        value = judge.status();",
+                "await Promise.all([judge.readEmails(), judge.readOffers(args[2])]);\n        value = judge.status();"]], "credential"],
             ["choice-model", A, [['const model = candidate.provider === "pi" && id.startsWith(account + "/") ? piModel(id.slice(account.length + 1)) : "";',
                 'const model = "";']], "accounts"],
             ["choice-label", A, [['" / " + PiRpc.reference(model)).slice(0, 60)', '" / " + model.id).slice(0, 60)']], "accounts"],
@@ -642,7 +648,8 @@ world(async () => {
             ["version-scrub", H, [["{ env: childEnvironment(env),\n", "{ env,\n"]], "credential"],
             ["choice-floor", A, [["try { PiHarness.version(this.env, CHOOSE_STATUS_MS); } catch (error) {", "try { } catch (error) {"]], "floor"],
             ["choice-update", A, [["if (/^jarvis: brain=pi-update /.test(error.message)) return", "if (true) return"]], "floor"],
-            ["account-update", A, [['update: item.state.kind === "unavailable" && item.state.reason === "pi-update" }', "update: false }"]], "floor"]
+            ["account-update", A, [['update: item.state.kind === "unavailable" && item.state.reason === "pi-update" }', "update: false }"]], "floor"],
+            ["engine-own-model", "backend/ChainedEngine.js", [["model: own ? account.model : settings.model,", "model: settings.model,"]], "limit"]
         ]) {
             await variant(relative, edits, folder => CASES[row](folder));
             controls++;

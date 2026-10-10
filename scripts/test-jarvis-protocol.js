@@ -8,7 +8,7 @@ const { load } = require("../bin/lib/qml-library.js");
 const { freshSuite } = require("./fixtures/jarvis/prepare.js");
 const file = path.join(__dirname, "../shell/plugins/vgs.jarvis/JarvisProtocol.js");
 const Protocol = load(file);
-const hello = { v: 1, type: "hello", gen: 0, settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain: "", taskTerminal: "auto", voiceProvider: "local", voiceAccount: "",
+const hello = { v: 1, type: "hello", gen: 0, settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain: "", model: "", effort: "", taskTerminal: "auto", voiceProvider: "local", voiceAccount: "",
     cloudVision: "ask", privateWindows: "bitwarden, incognito" }, directories: {
     state: "/private/state", data: "/private/data", runtime: "/private/runtime"
 }, revision: "a".repeat(64), locked: false,
@@ -231,6 +231,8 @@ const cases = [
     ["home-type", changed(hello, { settings: { ...hello.settings, home: 7 } }), "shell", "home-setting"],
     ["home-control", changed(hello, { settings: { ...hello.settings, home: "~/Jarvis\n" } }), "shell", "home-setting"],
     ["home-size", changed(hello, { settings: { ...hello.settings, home: "x".repeat(4097) } }), "shell", "home-setting"],
+    ["model-type", changed(hello, { settings: { ...hello.settings, model: 7 } }), "shell", "shape-settings"],
+    ["effort-type", changed(hello, { settings: { ...hello.settings, effort: true } }), "shell", "shape-settings"],
     ["missing-cloud-vision", changed(hello, { settings: { ...hello.settings, cloudVision: undefined } }), "shell", "shape-settings"],
     ["private-windows-type", changed(hello, { settings: { ...hello.settings, privateWindows: ["bitwarden"] } }), "shell", "private-windows"],
     ["private-windows-control", changed(hello, { settings: { ...hello.settings, privateWindows: "bitwarden\nvault" } }), "shell", "private-windows"],
@@ -446,9 +448,11 @@ try {
         ["hello-direction", 'if (direction !== "shell") fail("direction-hello");', 'if (false) fail("direction-hello");', "hello-direction"],
         ["status-direction", 'if (direction !== "daemon") fail("direction-status");', 'if (false) fail("direction-status");', "status-direction"],
         ["shape", 'fail("shape-" + name);', ';', "hello-shape"],
-        ["settings-name", 'keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "home"], "settings");',
-            'if (false) keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "home"], "settings");', "extra-setting"],
+        ["settings-name", 'keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "home"], "settings");',
+            'if (false) keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "home"], "settings");', "extra-setting"],
         ["brain-type", 'typeof message.settings.brain !== "string"', 'false', "brain-setting"],
+        ["model-type", 'typeof message.settings.model !== "string" || ', '', "model-type"],
+        ["effort-type", ' || typeof message.settings.effort !== "string"', '', "effort-type"],
         ["sounds-type", 'if (typeof message.settings.sounds !== "boolean") fail("sounds");', 'void message;', "sounds-type"],
         ["directory", 'if (!directory(message.directories[name])) fail("directory-" + name);', 'if (false) fail("directory-" + name);', "directory"],
         ["lock", 'if (typeof message.locked !== "boolean") fail("lock");', 'if (false) fail("lock");', "lock"],
@@ -513,8 +517,8 @@ try {
     ];
     for (const [name, needle, replacement, example, matches] of guards)
         control(name, needle, replacement, logic => rejected(logic, cases.find(row => row[0] === example)), matches);
-    control("unsupported-echo", 'keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "home"], "settings");',
-        'if (false) keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "home"], "settings");',
+    control("unsupported-echo", 'keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "home"], "settings");',
+        'if (false) keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "home"], "settings");',
         logic => {
             for (const row of cases.filter(row => row[0].startsWith("echo-setting-"))) rejected(logic, row);
         });

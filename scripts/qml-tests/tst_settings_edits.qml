@@ -386,6 +386,30 @@ Item {
             releasePage(page, original);
         }
 
+        function test_a_hide_empty_field_has_no_place_while_nothing_is_offered() {
+            const original = root.pageRow;
+            const choices = { type: "string", optionsFrom: "items" };
+            root.pageRow = Object.assign({}, original, {
+                schema: {
+                    kept: Object.assign({ label: "Kept", group: "Choices" }, choices),
+                    hiding: Object.assign({ label: "Hiding", group: "Choices", hideEmpty: true }, choices),
+                    alone: Object.assign({ label: "Alone", group: "Lone", hideEmpty: true }, choices)
+                },
+                settings: { kept: "", hiding: "", alone: "" }, settingChoices: { kept: [], hiding: [], alone: [] }, binds: []
+            });
+            const page = createTemporaryObject(pluginPageComponent, root);
+            verify(page !== null);
+            const drawn = () => descendants(page).filter(item => item instanceof SettingField).map(item => item.key);
+            const headings = () => descendants(page).filter(item => item instanceof Section).map(item => item.title);
+            tryVerify(() => drawn().indexOf("kept") !== -1);
+            compare(drawn().filter(key => key === "hiding" || key === "alone"), [], "a hideEmpty field with nothing offered is not drawn");
+            compare(headings().indexOf("Lone"), -1, "a group whose every field is hidden draws no heading");
+            root.pageRow = Object.assign({}, root.pageRow, { settingChoices: { kept: [], hiding: [{ label: "One", value: "" }], alone: [{ label: "One", value: "" }] } });
+            tryVerify(() => drawn().indexOf("hiding") !== -1 && drawn().indexOf("alone") !== -1);
+            verify(headings().indexOf("Lone") !== -1, "an offer draws the field under its heading");
+            releasePage(page, original);
+        }
+
         function test_enter_writes_the_field_it_is_pressed_in() {
             editor(gap).forceActiveFocus(Qt.TabFocusReason);
             keyClick(Qt.Key_Return);

@@ -15,7 +15,7 @@ const { instrument: instrumentDesktop } = require("./fixtures/jarvis/desktop-dri
 const tree = path.resolve(__dirname, "..");
 const daemon = path.join(tree, "shell/plugins/vgs.jarvis/backend/jarvisd.js");
 const source = fs.readFileSync(daemon, "utf8");
-const hello = { v: 1, type: "hello", gen: 0, settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain: "", taskTerminal: "auto", voiceProvider: "local", voiceAccount: "",
+const hello = { v: 1, type: "hello", gen: 0, settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain: "", model: "", effort: "", taskTerminal: "auto", voiceProvider: "local", voiceAccount: "",
     cloudVision: "ask", privateWindows: "bitwarden" }, directories: {
     state: "/private/state", data: "/private/data", runtime: "/private/runtime"
 }, revision: "a".repeat(64), locked: false,

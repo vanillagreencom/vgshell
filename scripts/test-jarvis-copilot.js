@@ -128,7 +128,7 @@ world(async () => {
         const recipients = Policy.recipients({ conversation: "copilot-" + serial, profile: "standard", cloudVision: "ask",
             brain: { kind: "network", provider: "copilot", account: "fixture", origin: "https://api.githubcopilot.com" },
             speech: [{ kind: "local", provider: "fixture-speech", account: "" }] });
-        const create = (value = bridge) => Harness.create({ provider: Providers.select("copilot"), model: options.model ?? "",
+        const create = (value = bridge) => Harness.create({ provider: Providers.select("copilot"), model: options.model ?? "", effort: options.effort ?? "",
             recipients, account: { kind: "cli", directory: account }, gen: runner.state.gen,
             harness: { bridge: value, gate, env, runtime: () => runtime } });
         const brain = create();
@@ -238,12 +238,70 @@ world(async () => {
             assert.equal(read("copilot-calls").length, 1, "one program per conversation");
             validWrites();
         },
-        // A model chosen for the account reaches the program.
+        // A model and an effort chosen for the account reach the program as
+        // its own flags; an unset one passes no flag, and a value that would
+        // read as a flag starts no program.
         async model(folder) {
             scenario({ turns: [[{ stop: "end_turn" }]] });
-            const w = make(folder, { model: "claude-sonnet-5.5" });
+            const w = make(folder, { model: "claude-opus-5.5", effort: "high" });
             await drain(w.say("hi"));
-            assert.deepEqual(program().args.slice(-2), ["--model", "claude-sonnet-5.5"]);
+            assert.deepEqual(program().args.slice(-4), ["--model", "claude-opus-5.5", "--reasoning-effort", "high"]);
+            for (const owner of owners.splice(0)) owner();
+            scenario({ turns: [[{ stop: "end_turn" }]] });
+            const only = make(folder, { model: "claude-sonnet-5.5" });
+            await drain(only.say("hi"));
+            assert.deepEqual(program().args.slice(-2), ["--model", "claude-sonnet-5.5"], "an unset effort passes no flag");
+            for (const owner of owners.splice(0)) owner();
+            scenario({ turns: [[{ stop: "end_turn" }]] });
+            const own = make(folder);
+            await drain(own.say("hi"));
+            assert.deepEqual(program().args.filter(arg => arg === "--model" || arg === "--reasoning-effort"), [], "an unset choice passes neither flag");
+            for (const owner of owners.splice(0)) owner();
+            for (const [options, code] of [[{ effort: "--allow-all" }, "effort"], [{ effort: "High" }, "effort"], [{ model: "--allow-all" }, "model"]]) {
+                scenario({ turns: [[{ stop: "end_turn" }]] });
+                const refused = make(folder, options);
+                assert.deepEqual(await drain(refused.say("hi")).then(events => events, error => error.message), "jarvis: brain=copilot-" + code);
+                assert.deepEqual(read("copilot-calls"), [], "no program for a refused " + code);
+                for (const owner of owners.splice(0)) owner();
+            }
+        },
+        // The model list read: one session with no tools and no prompt.
+        async models(folder) {
+            const Harness = require(path.join(folder, "backend/CopilotHarness.js"));
+            const runtime = path.join(process.env.JARVIS_TEST_ROOT, "models");
+            const EFFORTS = ["none", "minimal", "low", "medium", "high", "xhigh", "max"];
+            // A read answers its list or its error's message, so a row compares both.
+            const list = () => Harness.models({ directory: account, env, runtime }).then(offers => offers, error => error.message);
+            scenario({ session: "recorded" });
+            assert.deepEqual(await list(), [{ value: "auto", label: "Auto", efforts: EFFORTS, effort: "" }], "the recorded selector's one model");
+            assert.deepEqual(read("copilot-log").filter(row => row.direction === "in").map(row => row.message.method), ["initialize", "session/new"],
+                "no prompt");
+            assert.deepEqual([program().config, program().args.includes("--additional-mcp-config"), program().args.includes("--model")],
+                [null, false, false], "a session with no tools and the program's own model");
+            assert.equal(program().env.COPILOT_HOME, account);
+            assert.deepEqual(fs.readdirSync(runtime), [], "the read's working directory is removed");
+            validWrites();
+            // The current model comes first, whatever its place in the list.
+            scenario({ session: { configOptions: [{ type: "select", id: "model", name: "Model", category: "model", currentValue: "auto",
+                options: [{ value: "claude-opus-5.5", name: "Claude Opus 5.5" }, { value: "auto", name: "Auto" }, { value: "--flag", name: "Flag" }] }] } });
+            assert.deepEqual((await list()).map(offer => offer.value), ["auto", "claude-opus-5.5"]);
+            scenario({});
+            assert.equal(await list(), "jarvis: brain=copilot-model-list", "an agent with no model selector");
+            scenario({ signedOut: true });
+            assert.equal(await list(), "jarvis: brain=copilot-signed-out");
+            assert.deepEqual(fs.readdirSync(runtime), [], "a failed read's working directory is removed");
+            // The account judge reads the selected sign-in's list.
+            const { Accounts } = require(path.join(folder, "backend/Accounts.js"));
+            const directory = path.join(state, "vgshell/jarvis");
+            fs.mkdirSync(directory, { recursive: true });
+            const judge = new Accounts(directory, env, undefined, runtime);
+            const copilot = judge.discover().find(item => item.provider === "copilot" && item.source.directory === account);
+            scenario({ session: "recorded" });
+            await judge.readOffers(copilot.id);
+            assert.deepEqual(judge.status().models, { kind: "read", offers: [{ value: "auto", label: "Auto", efforts: EFFORTS, effort: "" }] });
+            scenario({ signedOut: true });
+            await judge.readOffers(copilot.id);
+            assert.deepEqual(judge.status().models, { kind: "failed", reason: "copilot-signed-out" });
         },
         // Only released content reaches the program; a file needs a grant.
         async release(folder) {
@@ -496,7 +554,7 @@ world(async () => {
                 harness: { bridge: w.bridge, gate: w.gate, env, runtime: () => w.runtime } });
             owners.unshift(() => engine.close());
             let plan;
-            assert.doesNotThrow(() => { plan = engine.configure({ brain: "copilot-fixture" }); }, "the engine has the ACP driver");
+            assert.doesNotThrow(() => { plan = engine.configure({ brain: "copilot-fixture", model: "", effort: "" }); }, "the engine has the ACP driver");
             assert.deepEqual(plan, { kind: "ready" });
             const { gen, turn: { op } } = w.runner.state;
             const send = text => new Promise(resolve => engine.brain.send({ gen, op, owner: 1, text },
@@ -639,7 +697,17 @@ world(async () => {
             ["close-handshake", H, [["active?.cancel();", ""]], "closeHandshake"],
             ["unterminated-line", S, [['if (Buffer.byteLength(tail) >= lineBytes) fail("line-size");', ""]], "lineSize"],
             ["event-session", H, [["e.sessionId !== session.id || ", ""]], "foreignSession"],
-            ["bridge-launch", H, [["model,\n                bridge: launch }", "model,\n                bridge: null }"]], "bridge"],
+            ["bridge-launch", H, [["model, effort,\n                bridge: launch }", "model, effort,\n                bridge: null }"]], "bridge"],
+            ["effort-flag", H, [['...(effort === "" ? [] : ["--reasoning-effort", effort])', "...[]"]], "model"],
+            ["effort-unset", H, [['...(effort === "" ? [] : ["--reasoning-effort", effort])', '"--reasoning-effort", effort']], "model"],
+            ["effort-handed", H, [["runtime: runtime(), model, effort,\n                bridge: launch }", 'runtime: runtime(), model, effort: "",\n                bridge: launch }']], "model"],
+            ["effort-judged", H, [['if (!Harness.isEffort(effort)) fail("effort");', ""]], "model"],
+            ["model-judged", H, [['if (!Harness.isModel(model)) fail("model");', ""]], "model"],
+            ["models-efforts", H, [["Copilot.models(session.created, EFFORTS)", "Copilot.models(session.created, [])"]], "models"],
+            ["models-offers", H, [["return Harness.offers(Copilot.models(session.created, EFFORTS));", "return Copilot.models(session.created, EFFORTS);"]], "models"],
+            ["models-toolless", H, [['model: "", effort: "", bridge: null },\n', 'model: "", effort: "", bridge: { command: "x", args: [], env: {} } },\n']], "models"],
+            ["models-shut", H, [["finally { await shut(session); }", "finally { await session.program.close(); }"]], "models"],
+            ["offers-copilot", "backend/Accounts.js", [[", copilot: CopilotHarness };", " };"]], "models"],
             ["instructions-first", H, [["const texts = turns === 0 ? [instructions, text] : [text];", "const texts = [text];"]], "turn"],
             ["instructions-once", H, [["const texts = turns === 0 ? [instructions, text] : [text];", "const texts = [instructions, text];"]], "turn"],
             ["release", S, [["const decision = Policy.release(item, recipients, grants);",
@@ -666,7 +734,7 @@ world(async () => {
             ["opening-close", H, [['if (closed) { launch.close(); fail("closed"); }', 'if (closed) fail("closed");']], "opening"],
             ["probe-reply", H, [['if (reply.trim() === "") fail("no-reply");', ""]], "probe"],
             ["probe-stop", H, [['if (stop !== "end_turn") fail("stop-" + stop);', ""]], "probe"],
-            ["probe-tools", H, [["model, bridge: null }, hooks);", "model, bridge: { command: \"x\", args: [], env: {} } }, hooks);"]], "probe"],
+            ["probe-tools", H, [['model, effort: "", bridge: null }, hooks);', 'model, effort: "", bridge: { command: "x", args: [], env: {} } }, hooks);']], "probe"],
             ["probe-timer", H, [['timer = setTimeout(() => reject(new Error("jarvis: brain=copilot-probe-deadline")), PROBE_MS);', ""]], "probeHang"],
             ["probe-permission", H, [['value.kind === "permission" ? "reject" : "cancelled"', '"cancelled"']], "probePermission"],
             ["gate-outcome", H, [['outcome: status === "completed" ? "completed"', 'outcome: status === "unreachable" ? "completed"']], "allowed"],

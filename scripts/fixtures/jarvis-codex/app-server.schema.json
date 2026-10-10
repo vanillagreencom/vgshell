@@ -20,7 +20,8 @@
   "ThreadStartResponse also names activePermissionProfile, multiAgentMode and runtimeWorkspaceRoots with {}: only the --experimental bundle declares them, and 0.160.0 sends them to a client that did not opt in.",
   "JSONRPCNotification also names emittedAtMs, an integer only the --experimental ServerNotification union declares; 0.160.0 stamps every notification with it.",
   "McpServerElicitationRequestParams copies its shared serverName, threadId and turnId into each mode branch, since the checker closes each object it checks.",
-  "The checker closes every object; Codex's own JSON-RPC envelopes carry no jsonrpc member."
+  "The checker closes every object; Codex's own JSON-RPC envelopes carry no jsonrpc member.",
+  "Model pins model, displayName, isDefault, defaultReasoningEffort and supportedReasoningEfforts, the fields the adapter reads. ReasoningEffort drops minLength, a keyword the checker does not hold; the adapter leaves out a level that is no lower-case word."
  ],
  "omitted": [
   "ThreadItem.collabAgentToolCall",
@@ -1252,6 +1253,96 @@
    ],
    "type": "string"
   },
+  "Model": {
+   "properties": {
+    "additionalSpeedTiers": {},
+    "availabilityNux": {},
+    "availableAccessPrograms": {},
+    "defaultReasoningEffort": {
+     "$ref": "#/schemas/ReasoningEffort"
+    },
+    "defaultServiceTier": {},
+    "description": {},
+    "displayName": {
+     "type": "string"
+    },
+    "hidden": {},
+    "id": {},
+    "inputModalities": {},
+    "isDefault": {
+     "type": "boolean"
+    },
+    "model": {
+     "type": "string"
+    },
+    "modelSpecialty": {},
+    "multiAgentVersion": {},
+    "serviceTiers": {},
+    "supportedReasoningEfforts": {
+     "items": {
+      "$ref": "#/schemas/ReasoningEffortOption"
+     },
+     "type": "array"
+    },
+    "supportsPersonality": {},
+    "upgrade": {},
+    "upgradeInfo": {}
+   },
+   "required": [
+    "defaultReasoningEffort",
+    "description",
+    "displayName",
+    "hidden",
+    "id",
+    "isDefault",
+    "model",
+    "supportedReasoningEfforts"
+   ],
+   "type": "object"
+  },
+  "ModelListParams": {
+   "properties": {
+    "cursor": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "includeHidden": {
+     "type": [
+      "boolean",
+      "null"
+     ]
+    },
+    "limit": {
+     "type": [
+      "integer",
+      "null"
+     ]
+    }
+   },
+   "type": "object"
+  },
+  "ModelListResponse": {
+   "properties": {
+    "data": {
+     "items": {
+      "$ref": "#/schemas/Model"
+     },
+     "type": "array"
+    },
+    "nextCursor": {
+     "type": [
+      "string",
+      "null"
+     ]
+    }
+   },
+   "required": [
+    "data"
+   ],
+   "type": "object"
+  },
   "NetworkAccess": {
    "enum": [
     "restricted",
@@ -1407,6 +1498,24 @@
    },
    "required": [
     "permissions"
+   ],
+   "type": "object"
+  },
+  "ReasoningEffort": {
+   "type": "string"
+  },
+  "ReasoningEffortOption": {
+   "properties": {
+    "description": {
+     "type": "string"
+    },
+    "reasoningEffort": {
+     "$ref": "#/schemas/ReasoningEffort"
+    }
+   },
+   "required": [
+    "description",
+    "reasoningEffort"
    ],
    "type": "object"
   },

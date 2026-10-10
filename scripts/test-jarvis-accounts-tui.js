@@ -352,7 +352,7 @@ if(outcome==="failure-signed-in") process.exit(7);
             const account = accounts.find(item => item.source.directory === target);
             assert.equal(account.state.kind, vendor === "copilot" ? "unchecked" : "signed-in");
             const presence = Object.fromEntries(PROVIDERS.filter(row => row.variable).map(row => [row.variable, false]));
-            const shown = JSON.parse(cli(folder, "presence", JSON.stringify(presence)));
+            const shown = JSON.parse(cli(folder, "presence", JSON.stringify(presence), ""));
             assert.ok(shown.brains.some(item => item.value === account.id), "signed-in account offered as AI model");
           }
         }

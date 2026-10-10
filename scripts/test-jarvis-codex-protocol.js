@@ -48,7 +48,7 @@ world(() => {
         valid("ConfigReadParams", config.params, "config/read");
         assert.deepEqual(config, { id: 2, method: "config/read", params: { cwd, includeLayers: false } });
 
-        const start = logic.threadStart(3, { cwd, model: "", instructions: "Be brief.", foreign: ["userfs", "notes"], bridge });
+        const start = logic.threadStart(3, { cwd, model: "", effort: "", instructions: "Be brief.", foreign: ["userfs", "notes"], bridge });
         valid("JSONRPCRequest", start, "thread/start");
         valid("ThreadStartParams", start.params, "thread/start");
         const p = start.params;
@@ -56,6 +56,7 @@ world(() => {
         assert.deepEqual([p.approvalPolicy, p.approvalsReviewer, p.sandbox, p.ephemeral, p.cwd, p.baseInstructions],
             ["untrusted", "user", "read-only", true, cwd, "Be brief."]);
         assert.equal(Object.hasOwn(p, "model"), false, "an empty model leaves the account's default");
+        assert.equal(Object.hasOwn(p.config, "model_reasoning_effort"), false, "an empty effort leaves the model's default");
         assert.deepEqual(p.config.features, Object.fromEntries(OFF.map(name => [name, false])));
         assert.equal(p.config.web_search, "disabled");
         assert.deepEqual(p.config.tools, { experimental_request_user_input: { enabled: false } });
@@ -63,12 +64,18 @@ world(() => {
             vgs_jarvis: { command: bridge.command, args: bridge.args, env: bridge.env } });
         assert.deepEqual(Object.keys(p).sort(), ["approvalPolicy", "approvalsReviewer", "baseInstructions", "config",
             "cwd", "ephemeral", "sandbox"]);
-        const bare = logic.threadStart(4, { cwd, model: "gpt-fixture", instructions: "x", foreign: [], bridge: null });
+        const bare = logic.threadStart(4, { cwd, model: "gpt-fixture", effort: "high", instructions: "x", foreign: [], bridge: null });
         valid("ThreadStartParams", bare.params, "thread/start without tools");
         assert.equal(bare.params.model, "gpt-fixture");
+        assert.equal(bare.params.config.model_reasoning_effort, "high", "the chosen effort is the thread's configuration");
         assert.deepEqual(bare.params.config.mcp_servers, {}, "a probe thread has no MCP server");
-        refused(() => logic.threadStart(5, { cwd, model: "", instructions: "x", foreign: ["vgs_jarvis"], bridge }),
+        refused(() => logic.threadStart(5, { cwd, model: "", effort: "", instructions: "x", foreign: ["vgs_jarvis"], bridge }),
             "mcp-name", "a user server of the bridge's name");
+
+        const models = logic.modelList(9);
+        valid("JSONRPCRequest", models, "model/list");
+        valid("ModelListParams", models.params, "model/list");
+        assert.deepEqual(models, { id: 9, method: "model/list", params: { limit: 100 } });
 
         const list = logic.featureList(6, "thread-1");
         valid("ExperimentalFeatureListParams", list.params, "experimentalFeature/list");
@@ -138,6 +145,16 @@ world(() => {
             { kind: "elicitation", threadId: "01a0fbb2-d0aa-7b60-8cff-7618f0d4bf70", server: "jarvis", toolCall: true });
         assert.deepEqual(mcp.filter(v => v.kind === "notification" && v.event.kind === "item-completed" && v.event.item.kind === "mcp")
             .map(v => v.event.item), [{ kind: "mcp", id: "call_mcp", server: "jarvis", tool: "windows_list", status: "completed" }]);
+        // The recorded model/list answer of Codex 0.160.0 (2026-10-09): the
+        // account's default model is marked, each model with its efforts.
+        const modelReply = flows.models[0].line.result;
+        valid("ModelListResponse", modelReply, "recorded models");
+        const listed = logic.models(modelReply);
+        assert.deepEqual(listed.filter(entry => entry.own), [{ value: "gpt-6.1-sol", label: "GPT-6.1-Sol", effort: "low",
+            efforts: ["low", "medium", "high", "xhigh", "max", "ultra"], own: true }]);
+        assert.deepEqual(listed.map(entry => entry.value), modelReply.data.map(entry => entry.model));
+        assert.deepEqual(listed.find(entry => entry.value === "gpt-6-luna"), { value: "gpt-6-luna", label: "GPT-6-Luna", effort: "medium",
+            efforts: ["low", "medium", "high", "xhigh", "max"], own: false });
         const featureReply = flows.features.find(entry => Array.isArray(entry.line.result?.data));
         valid("ExperimentalFeatureListResponse", featureReply.line.result, "recorded features");
         assert.doesNotThrow(() => logic.features(featureReply.line.result), "every recorded enabled feature is judged");
@@ -148,7 +165,17 @@ world(() => {
 
     const threadReply = recorded.find(entry => entry.flow === "patch" && entry.line.id === 2).line.result;
     const featureReply = recorded.find(entry => Array.isArray(entry.line.result?.data)).line.result;
+    const model = { model: "m", displayName: "M", isDefault: false, defaultReasoningEffort: "low",
+        supportedReasoningEfforts: [{ description: "d", reasoningEffort: "low" }] };
     function refusals(logic) {
+        for (const [label, result] of [["no list", {}], ["a list that is no list", { data: {} }], ["a model that is no object", { data: ["m"] }],
+            ["a model without a name", { data: [{ ...model, model: 1 }] }], ["a model without a label", { data: [{ ...model, displayName: null }] }],
+            ["a model without a default mark", { data: [{ ...model, isDefault: "no" }] }],
+            ["a model without a default effort", { data: [{ ...model, defaultReasoningEffort: null }] }],
+            ["efforts that are no list", { data: [{ ...model, supportedReasoningEfforts: "low" }] }],
+            ["an effort that is no option", { data: [{ ...model, supportedReasoningEfforts: ["low"] }] }]])
+            refused(() => logic.models(result), "model-list", label);
+        assert.deepEqual(logic.models({ data: [model] }), [{ value: "m", label: "M", effort: "low", efforts: ["low"], own: false }]);
         for (const [label, change] of [["policy", { approvalPolicy: "never" }], ["reviewer", { approvalsReviewer: "auto_review" }],
             ["sandbox", { sandbox: { type: "dangerFullAccess" } }], ["network", { sandbox: { type: "readOnly", networkAccess: true } }]]) {
             const reply = { ...threadReply, ...change };
@@ -235,6 +262,16 @@ world(() => {
         ["sandbox", 'sandbox: "read-only",\n', 'sandbox: "workspace-write",\n'],
         ["ephemeral", "ephemeral: true, baseInstructions", "ephemeral: false, baseInstructions"],
         ["default-model", 'if (model !== "") params.model = model;', "params.model = model;"],
+        ["chosen-model", 'if (model !== "") params.model = model;', ""],
+        ["default-effort", 'if (effort !== "") params.config.model_reasoning_effort = effort;', "params.config.model_reasoning_effort = effort;"],
+        ["chosen-effort", 'if (effort !== "") params.config.model_reasoning_effort = effort;', ""],
+        ["model-page", '"model/list", { limit: MODEL_PAGE }', '"model/list", {}'],
+        ["model-own", "own: entry.isDefault };", "own: false };"],
+        ["model-name", "{ value: entry.model, label: entry.displayName,", "{ value: entry.id, label: entry.displayName,"],
+        ["model-default-effort", "effort: entry.defaultReasoningEffort,", 'effort: "",'],
+        ["model-efforts", "efforts: entry.supportedReasoningEfforts.map(option => option.reasoningEffort)", "efforts: []"],
+        ["model-list-shape", 'if (!plain(result) || !Array.isArray(result.data)) fail("model-list");', "if (!plain(result) || !Array.isArray(result.data)) return [];"],
+        ["model-entry-shape", "            fail(\"model-list\");\n        return { value: entry.model", "            void 0;\n        return { value: entry.model"],
         ["lockdown-policy", 'result.approvalPolicy !== "untrusted" || ', ""],
         ["lockdown-reviewer", 'result.approvalsReviewer !== "user"\n', "false\n"],
         ["lockdown-sandbox", 'result.sandbox.type !== "readOnly" || ', ""],

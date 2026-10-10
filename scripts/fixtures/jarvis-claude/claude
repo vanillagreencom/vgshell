@@ -53,7 +53,7 @@ function refuse(reason) {
 }
 // Each flag the stand-in reads takes one value; the rest are switches.
 const VALUED = new Set(["--input-format", "--output-format", "--tools", "--mcp-config", "--allowedTools",
-    "--permission-mode", "--settings", "--setting-sources", "--system-prompt", "--model"]);
+    "--permission-mode", "--settings", "--setting-sources", "--system-prompt", "--model", "--effort"]);
 const flags = new Map();
 for (let index = 0; index < args.length; index++) {
     const name = args[index];
@@ -328,6 +328,15 @@ process.stdin.on("data", chunk => {
         const value = JSON.parse(line);
         record("events.jsonl", { kind: "input", value });
         if (value.type === "control_request") {
+            // The model list is script.models, each entry a ModelInfo.
+            if (Check.errors(excerpt, "ListModelsRequest", value).length === 0) {
+                // rawModels is an answer outside the excerpt, for a refusal row.
+                if (script.rawModels !== undefined) process.stdout.write(JSON.stringify({ type: "control_response",
+                    response: { subtype: "success", request_id: value.request_id, response: script.rawModels } }) + "\n");
+                else if (script.models !== "silent") write("ListModelsResponse", { type: "control_response", response: { subtype: "success",
+                    request_id: value.request_id, response: { models: script.models } } });
+                continue;
+            }
             if (Check.errors(excerpt, "InterruptRequest", value).length !== 0) refuse("input=control");
             interrupt(value);
             continue;
