@@ -977,7 +977,7 @@ mutations=(
   "the tooltip never wraps|overlay/Tooltip.qml|readonly property int lineWrapMode: Text.Wrap|readonly property int lineWrapMode: Text.NoWrap|tst_overlays.qml"
   "the tooltip grows past its maximum width|overlay/Tooltip.qml|readonly property real paddedWidth: Math.min(content.implicitWidth + 2 * Theme.tooltip.paddingX, OverlayState.widthFor(root.anchorItem, Theme.tooltip.maxWidth + 2 * Theme.tooltip.paddingX))|readonly property real paddedWidth: Math.ceil(titleLabel.implicitWidth) + 2 * Theme.tooltip.paddingX|tst_overlays.qml"
   "a rounded tooltip keeps its pad|overlay/Tooltip.qml|x: sideInset.inset|x: Theme.tooltip.paddingX|tst_overlays.qml"
-  "a tooltip draws key caps|overlay/Tooltip.qml|Rectangle {|KeyCaps { shortcut: \"Super+M\" } Rectangle {|tst_overlays.qml"
+  "a tooltip draws key caps|overlay/Tooltip.qml|GlassSurface {|KeyCaps { shortcut: \"Super+M\" } GlassSurface {|tst_overlays.qml"
   "a tooltip detail uses the title role|overlay/Tooltip.qml|readonly property string detailRole: \"itemHint\"|readonly property string detailRole: \"tooltip\"|tst_overlays.qml"
   "a tooltip count value follows its label|overlay/Tooltip.qml|                                x: parent.width - width|                                x: countLabel.implicitWidth + Theme.tooltip.gap|tst_overlays.qml"
   "a tooltip shows zero count rows|overlay/Tooltip.qml|                            visible: !zeroRow|                            visible: true|tst_overlays.qml"
