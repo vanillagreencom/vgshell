@@ -5,11 +5,19 @@
 # reports through expect and expect_poll, and hold_mode through ok and
 # fail.
 
-# monitor_rule NAME MODE [SCALE]: the Lua monitor rule that gives output
-# NAME the mode MODE, such as 480x720, at SCALE, 1 by default, and the
-# layout's origin. The nested Wayland output takes any mode and an integer
-# scale; a headless output stays 0x0 in the sandbox.
-monitor_rule() { printf 'hl.monitor({ output = "%s", mode = "%s", position = "0x0", scale = %s })\n' "$1" "$2" "${3:-1}"; }
+# monitor_rule NAME MODE [SCALE [RIGHT]]: the Lua monitor rule that gives
+# output NAME the mode MODE, such as 480x720, at SCALE, 1 by default, and
+# the layout's origin, with RIGHT logical pixels reserved on its right edge
+# when given. Layer surfaces are arranged inside the output less its
+# reserved area (arrangeLayersForMonitor, Hyprland v0.56.2), so a bar
+# anchored left and right draws RIGHT narrower at the output's own mode.
+# The nested Wayland output takes any mode and an integer scale; a
+# headless output stays 0x0 in the sandbox.
+monitor_rule() {
+  local reserved=""
+  [[ -z ${4:-} ]] || reserved=", reserved = { right = $4 }"
+  printf 'hl.monitor({ output = "%s", mode = "%s", position = "0x0", scale = %s%s })\n' "$1" "$2" "${3:-1}" "$reserved"
+}
 # output_mode NAME MODE [SCALE]: the nested compositor applies
 # monitor_rule's rule now through `hyprctl eval`; the reply is hyprctl's.
 # A configuration reload drops the rule but leaves the output at its mode
@@ -133,9 +141,10 @@ mode_unavailable() {
   printf 'qml-smoke: status=not-measured nested-output=mode-unavailable output=%s want=[%s] %s\n' "$1" "$2" "$3"
   exit 77
 }
-# hold_mode LABEL NAME MODE [SCALE]: output NAME takes MODE at SCALE, 1 by
-# default, until release_mode restores the previous hold, or the caller's
-# mode when no outer hold exists. The first hold's WxH is kept as the
+# hold_mode LABEL NAME MODE [SCALE [RIGHT]]: output NAME takes MODE at
+# SCALE, 1 by default, with RIGHT logical pixels reserved on its right edge
+# when given (monitor_rule), until release_mode restores the previous hold,
+# or the caller's mode with no reserved area when no outer hold exists. The first hold's WxH is kept as the
 # host window's size (mode_hold_window) once the hold begins. The rule
 # goes into mode_hold_file, which every load of the configuration runs,
 # and take_mode reloads it now. The hold begins once the monitor reads
@@ -150,7 +159,7 @@ hold_mode() {
   fi
   if window="$(mode_scale_of "$output")"; then window="${window% scale=*}"; else window=""; fi
   if [[ ${#mode_hold[@]} -gt 0 && $output == "${mode_hold[0]}" ]]; then window="$mode_hold_window"; fi
-  if ! { [[ -z $previous_rule ]] || printf '%s\n' "$previous_rule"; monitor_rule "$output" "$3" "${4:-1}"; } >"$mode_hold_file.next" || ! mv -T -- "$mode_hold_file.next" "$mode_hold_file"; then
+  if ! { [[ -z $previous_rule ]] || printf '%s\n' "$previous_rule"; monitor_rule "$output" "$3" "${4:-1}" "${5:-}"; } >"$mode_hold_file.next" || ! mv -T -- "$mode_hold_file.next" "$mode_hold_file"; then
     fail "$label: the hold file $mode_hold_file is not written"
     rm -f -- "$mode_hold_file.next" || fail "$label: the partial hold file $mode_hold_file.next is not removed"
     return 0
@@ -197,7 +206,9 @@ hold_restore() {
 # window into a state event with the configure's size
 # (CWaylandOutput::CWaylandOutput in src/backend/Wayland.cpp, aquamarine
 # v0.15.1), and the host sends one whenever it resizes the window or
-# changes its state, focus and tiling included. For a Wayland-backend
+# changes its state, focus and tiling included, and whenever another
+# window on the nested window's host workspace unmaps (CWindow's unmap
+# path calls forceReportSizesToWindows, Hyprland v0.56.2). For a Wayland-backend
 # output, Hyprland's state listener applies the active rule again with
 # that size in place of the rule's mode, unless the two are equal
 # (CMonitor::onConnect in src/output/Monitor.cpp, Hyprland v0.56.2). The
@@ -237,8 +248,9 @@ held_mode_host_sized() {
   [[ ${state% scale=*} == "$mode_hold_window" ]]
 }
 # release_mode LABEL NAME MODE [SCALE]: end the inner hold and restore its
-# parent's rule, mode and scale. Without a parent, remove the hold file and
-# give NAME the caller's MODE at SCALE, 1 by default. Read both before the
+# parent's rule, mode, scale and reserved area. Without a parent, remove
+# the hold file and give NAME the caller's MODE at SCALE, 1 by default,
+# with no reserved area. Read both before the
 # rows go on, whether or not the inner hold took.
 release_mode() {
   local taken status=0

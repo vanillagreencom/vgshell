@@ -594,9 +594,11 @@ PY
   # section with every System Monitor reading on, over the default set,
   # which enables each of them. The sandbox's stand-ins draw narrower than
   # his live widgets, which run into the clock at his 2560 logical pixels,
-  # so the row holds 1600, where the stand-ins run into it too. System
-  # Monitor and Network Traffic hold One line, the widths the walks below
-  # count widgets by; their Stacked default draws narrower.
+  # so the row narrows the bar to 1600, where the stand-ins run into it
+  # too, with a reserved area at the monitor's own mode, which no host
+  # configure resets (held_mode_state). System Monitor and Network Traffic
+  # hold One line, the widths the walks below count widgets by; their
+  # Stacked default draws narrower.
   zone_right='["vgs.vpn","vgs.network","vgs.bluetooth","vgs.sound","vgs.displays","vgs.keyboard","vgs.settings","vgs.agent-warden","vgs.ai-usage","vgs.capture","vgs.jarvis","vgs.power","vgs.traffic","vgs.updates","vgs.voice","vgs.sysmon"]'
   # zone_plant [N]: the owner's layout in the user file, the first N of
   # his right widgets alone when N is given, the rest off the bar;
@@ -801,24 +803,15 @@ print(eval(sys.argv[1]))' "$1" <<<"$reading"
   # holds the keyboard only while a press holds a widget, so a held press
   # on the last widget, moved down and back to its own slot, gives the
   # bar the keyboard, and the first widget, hidden at rest, takes focus.
-  # A host configure that resets the held mode moves the bar under the
-  # press, so a press the reset spoiled is let go and made once more on
-  # the mode taken again.
   zone_focus() { # LABEL WANT
-    local first last attempt depth=1
+    local first last depth=1
     [[ $2 == True ]] || depth=0
-    for attempt in 1 2; do
-      [[ $(held_mode_state) == held ]] || hold_restore >/dev/null || true
-      first="$(zone_pick "d['right']['ids'][0]")" && last="$(zone_pick "d['right']['ids'][-1]")" || { fail "$1: the right zone is unreadable"; return; }
-      zone_hold_press "$last" 0 12 || { fail "$1: the held press on $last"; return; }
-      # The drag shows its preview gap once it starts, which the focus
-      # must follow.
-      [[ $(zone_ever_true 1 ipc smoke readInstance "$(bar_key)" "$last" frameDragging) == True ]] && zone_pick True >/dev/null
-      ipc smoke invokeInstanceArgs "$(bar_key)" "$first" forceActiveFocus '{"args":[]}' >/dev/null
-      [[ $attempt == 2 || $(zone_ever_true 1 ipc smoke readInstance "$(bar_key)" "$first" activeFocus) == True || $(held_mode_state) == held ]] && break
-      type_keys -k Escape || fail "$1: Escape ends the spoiled press"
-      zone_release || fail "$1: the spoiled press releases"
-    done
+    first="$(zone_pick "d['right']['ids'][0]")" && last="$(zone_pick "d['right']['ids'][-1]")" || { fail "$1: the right zone is unreadable"; return; }
+    zone_hold_press "$last" 0 12 || { fail "$1: the held press on $last"; return; }
+    # The drag shows its preview gap once it starts, which the focus must
+    # follow.
+    [[ $(zone_ever_true 1 ipc smoke readInstance "$(bar_key)" "$last" frameDragging) == True ]] && zone_pick True >/dev/null
+    ipc smoke invokeInstanceArgs "$(bar_key)" "$first" forceActiveFocus '{"args":[]}' >/dev/null
     expect_poll "$1: the first widget holds the keyboard" true ipc smoke readInstance "$(bar_key)" "$first" activeFocus
     geometry expect "$1" "$2" zone_ever "'$first' in d['right']['shown']" "$depth"
     type_keys -k Escape || fail "$1: Escape ends the held press"
@@ -829,7 +822,7 @@ print(eval(sys.argv[1]))' "$1" <<<"$reading"
   # left of it yet clear of the centre and of the start button once a
   # preview gap WIDTH wide widens the centre on the way.
   zone_pair() {
-    zone_pick "next(('%s %s %d' % (a, b, m) for (a, sa), (b, sb) in zip(zip(d['right']['ids'], d['right']['spans']), zip(d['right']['ids'][1:], d['right']['spans'][1:])) for m in [(sa[0]+sa[1]+sb[0])/2] if a in d['right']['shown'] and b in d['right']['shown'] and (m > 2*$mon_w/3 + 2 if '$1'=='past' else d['centre'][0] + d['centre'][1] + $2 / 2 + 2 * d['gap'] + d['right']['inset'] + 8 < m < 2*$mon_w/3 - 2)), 'none')"
+    zone_pick "next(('%s %s %d' % (a, b, m) for (a, sa), (b, sb) in zip(zip(d['right']['ids'], d['right']['spans']), zip(d['right']['ids'][1:], d['right']['spans'][1:])) for m in [(sa[0]+sa[1]+sb[0])/2] if a in d['right']['shown'] and b in d['right']['shown'] and (m > 2*$zone_bar_w/3 + 2 if '$1'=='past' else d['centre'][0] + d['centre'][1] + $2 / 2 + 2 * d['gap'] + d['right']['inset'] + 8 < m < 2*$zone_bar_w/3 - 2)), 'none')"
   }
   # zone_drop LABEL ID before|past [control]: a held press on ID, a
   # left-zone widget, moved to the point between two neighbours the right
@@ -900,17 +893,22 @@ print(eval(sys.argv[1]))' "$1" <<<"$reading"
   zone_monitor="$(first_name)" || fail "the monitor is unreadable"
   zone_state="$(base_mode_scale "$zone_monitor")" || fail "the monitor's mode is unreadable"
   zone_mode="${zone_state% scale=*}" zone_scale="${zone_state##*scale=}"
-  zone_saved_w="$mon_w" zone_saved_h="$mon_h"
-  # zone_width WIDTH: the monitor held WIDTH logical pixels wide at its
-  # own height and scale, the pointer helpers sized to it. At 1600 the
-  # owner's right section hides seven widgets, which the walks need; at
-  # 1900 it hides one, so two neighbours it shows stand left of the
-  # bar's last third, where the drops need them.
+  # The first bar's width in logical pixels.
+  zone_bar_width() { ipc smoke instanceGeometry "$(bar_key)" vgs.bar | py_reply 'import json,sys; print(round(json.load(sys.stdin)[2]))'; }
+  # zone_width WIDTH: the bar held WIDTH logical pixels wide, zone_bar_w,
+  # by a reserved area on the right of the monitor at the monitor's own
+  # mode and scale; the pointer helpers keep mapping over the whole
+  # output. At 1600 the owner's right section hides seven widgets, which
+  # the walks need; at 1700 the right section still shows two neighbours
+  # left of the bar's last third, clear of the centre, where the drops
+  # need them.
   zone_width() {
+    local logical="$((${zone_mode%x*} / zone_scale))"
+    ((logical >= $1)) || mode_unavailable "$zone_monitor" "$1 logical pixels of bar" "monitor=$logical"
     [[ ${#mode_hold[@]} -eq 0 ]] || release_mode "the nested compositor gives the monitor its own mode back" "$zone_monitor" "$zone_mode" "$zone_scale"
-    hold_mode "the nested compositor holds its monitor $1 logical pixels wide" "$zone_monitor" "$(($1 * zone_scale))x${zone_mode#*x}" "$zone_scale"
-    mon_w="$1" mon_h="$((${zone_mode#*x} / zone_scale))"
-    expect_poll "the monitor reads $1 logical pixels wide" "$1" first_width
+    hold_mode "the nested compositor reserves the monitor's right edge for a bar $1 logical pixels wide" "$zone_monitor" "$zone_mode" "$zone_scale" "$((logical - $1))"
+    zone_bar_w="$1"
+    expect_poll "the bar reads $1 logical pixels wide" "$1" zone_bar_width
   }
   # The view's middle, where the wheel turns.
   zone_middle() { read -r zone_wx zone_wy < <(zone_pick "'%d %d' % (d['right']['view'][0]+d['right']['view'][1]/2, $zone_bar_y)"); }
@@ -967,8 +965,8 @@ print(eval(sys.argv[1]))' "$1" <<<"$reading"
   geometry expect "wheel notches over the < button walk to the start past Sound" True py_reply 'import sys; r=sys.stdin.read().strip(); print(r.startswith("walked over=") and "vgs.sound" in r.split("=",1)[1].split(","))' <<<"$(zone_wheel_walk right)"
   wheel "$zone_wx" "$zone_wy" 20 || fail "the wheel over the right zone failed"
   geometry expect_poll "the zone returns to its end after the wheel walk" "$zone_rest" zone_shown right
-  zone_width 1900
-  geometry expect_poll "at 1900 the right zone clips and rests at its end" '[true, true, false, []]' zone_ends right
+  zone_width 1700
+  geometry expect_poll "at 1700 the right zone clips and rests at its end" '[true, true, false, []]' zone_ends right
   zone_middle
   # Drops land at the slot under the pointer in what the zone shows: past
   # the bar's last third, and left of it, where the thirds alone would
@@ -1033,7 +1031,7 @@ print(eval(sys.argv[1]))' "$1" <<<"$reading"
   if zone_control focus shell/plugins/vgs.bar/Bar.qml '        if (!clipped) return;' '        return;'; then
     zone_focus "control: a zone deaf to focus leaves the focused widget hidden" False
   fi
-  zone_width 1900
+  zone_width 1700
   if zone_control drop shell/Core/Plugins.qml 'const x = sectionPoint.x + restX(placed.slice(0, placed.indexOf(entry.widget)), container.spacing);' 'const x = restX(placed.slice(0, placed.indexOf(entry.widget)), container.spacing);'; then
     zone_drop "control: a drop that reads the section's own places" vgs.launcher past control
     geometry expect_poll "control: the drop lands elsewhere than under the pointer" True zone_layout_elsewhere vgs.launcher
@@ -1043,7 +1041,6 @@ print(eval(sys.argv[1]))' "$1" <<<"$reading"
     geometry expect_poll "control: the drop left of the last third leaves the right section" True zone_layout_elsewhere vgs.bar/left-workspaces
   fi
   release_mode "the nested compositor gives the monitor its own mode back" "$zone_monitor" "$zone_mode" "$zone_scale"
-  mon_w="$zone_saved_w" mon_h="$zone_saved_h"
   stop_shell
   kill -TERM "$fresh_tray_pid" 2>/dev/null || true
   wait "$fresh_tray_pid" 2>/dev/null || true

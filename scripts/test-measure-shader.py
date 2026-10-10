@@ -396,7 +396,8 @@ measure_held_scene 2 on "$HOME/scale-2-on"
             ("reset,held", "ok", 0, 0, 2, 1, [self.RESET % 1], self.MEASURED),
             ("reset", "ok", 0, 77, 3, 2, [self.RESET % 1, self.RESET % 2, self.RESET % 3,
                                           "qml-smoke: status=not-measured nested-output=mode-reset failed=1"],
-             "the nested output left a mode a row held: the host resized or refocused the nested window; "
+             "the nested output left a mode a row held: the host sent the nested window its size again, "
+             "as it does when it resizes or refocuses it or when another window on its host workspace closes; "
              "leave the nested window alone during the run, then run the smoke again"),
             ("reset", "failed", 0, 1, 1, 1, [self.RESET % 1, "hold-restore: not-held output=WAYLAND-1"],
              "shader-cost: failed output=not-restored scene=on scale=2"),

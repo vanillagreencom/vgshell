@@ -123,7 +123,7 @@ smoke_verdict() {
   fi
   if [[ $mode_resets -eq $failures ]]; then
     printf 'qml-smoke: status=not-measured nested-output=mode-reset failed=%s\n' "$failures"
-    echo "the nested output left a mode a row held: the host resized or refocused the nested window; leave the nested window alone during the run, then run the smoke again"
+    echo "the nested output left a mode a row held: the host sent the nested window its size again, as it does when it resizes or refocuses it or when another window on its host workspace closes; leave the nested window alone during the run, then run the smoke again"
     return 77
   fi
   if [[ $behaviour_failures -eq 0 && $stalled_render == true ]]; then
