@@ -321,6 +321,10 @@ harnesses = [
     "copilot",
 ]
 
+[skills.jarvis]
+source = "kendex"
+harnesses = ["codex"]
+
 [hooks.block-bare-cd]
 source = "kendex"
 enabled = true

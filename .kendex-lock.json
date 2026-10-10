@@ -6371,6 +6371,33 @@
         }
       ]
     },
+    "skill:jarvis:codex": {
+      "name": "jarvis",
+      "kind": "skill",
+      "harness": "codex",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "bfe9bf6d02dab62fcdd8938ad0ffe84681c0c7248c1e8a39228a531486791ee5",
+      "sourceCommit": "923383e3d98eadba8d7547c18a6ad0602f14b8ad",
+      "selector": {
+        "sourceRev": null,
+        "rev": null
+      },
+      "renderedHash": "7f056d835f6f7173054793aa74198f6443a21b738bd34802ca6178571c2c6662",
+      "enabled": true,
+      "emitted": {
+        "kind": "skill",
+        "name": "jarvis",
+        "paths": [
+          ".agents/skills/jarvis"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "requested"
+        }
+      ]
+    },
     "skill:linear:claude": {
       "name": "linear",
       "kind": "skill",
