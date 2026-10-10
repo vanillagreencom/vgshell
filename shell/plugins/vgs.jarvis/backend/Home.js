@@ -421,7 +421,8 @@ function lock(fd) {
 
 /**
  * Hand TEXT to the master session: append it to the mailbox as one lane-mail
- * directive from the owner, stamped NOW. Jarvis writes the row itself, in
+ * directive from the owner, stamped NOW, an unpaired surrogate in it
+ * replaced by U+FFFD. Jarvis writes the row itself, in
  * the record form lane-mail documents, because lane-mail's own `send` cannot
  * serve: VGS ships no copy of it, and the copy in the home is home text,
  * which Jarvis never runs (D105). The append holds lane-mail's lock, closes
@@ -439,8 +440,11 @@ function hand(home, text, now = Date.now()) {
     const seconds = Math.floor(now / 1000);
     // lane-mail's id form, <epoch>-<pid>-<random>, and its `at`, UTC to the second.
     const id = seconds + "-" + process.pid + "-" + crypto.randomInt(32768);
+    // JSON.stringify writes an unpaired surrogate as a \ud escape, which jq,
+    // lane-mail's parser, refuses: the reader would count the row and never
+    // hand it over.
     const row = Buffer.from(JSON.stringify({ id, kind: "directive",
-        at: new Date(seconds * 1000).toISOString().replace(".000Z", "Z"), from: "owner", text }) + "\n");
+        at: new Date(seconds * 1000).toISOString().replace(".000Z", "Z"), from: "owner", text: text.toWellFormed() }) + "\n");
     return within(home, MAILBOX, O_RDONLY | O_DIRECTORY, folder => {
         const kind = kindOf(folder, MAILBOX_FILE);
         if (kind === "link") fail(kind);

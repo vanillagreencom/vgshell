@@ -2,7 +2,9 @@
 // regular Markdown file per family, and the skills of the user's Jarvis home
 // folder and its memory notes, read through Home.js. Browser readiness adds
 // its provider to this same owner. As the one executor that holds the home,
-// it also hands a request to the master session's mailbox there.
+// it also hands a request to the master session's mailbox there. Its answer
+// states what was read back, the row in the mailbox: nothing here shows that
+// a session reads that mailbox now.
 "use strict";
 const fs = require("node:fs");
 const path = require("node:path");
@@ -62,8 +64,8 @@ function create(root = ROOT, browser = null, home = () => null) {
                     if (chosen === null) throw new Error("home-unchosen");
                     const row = Home.hand(chosen, call.args.text);
                     done(row.kind === "handed"
-                        ? { outcome: "completed", content: "Handed the request to the master session. Read back: row " + row.id + " is in its mailbox." }
-                        : { outcome: "unknown", content: "The request was written to the master session's mailbox, but row " + row.id + " did not read back." });
+                        ? { outcome: "completed", content: "Completed: the request is in the master session's mailbox as row " + row.id + ". The session acts on it when it next reads its mail." }
+                        : { outcome: "unknown", content: "Unknown: the request was written to the master session's mailbox, but row " + row.id + " did not read back." });
                     return;
                 }
                 const topic = call.args.topic;

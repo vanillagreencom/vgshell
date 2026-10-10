@@ -339,6 +339,14 @@ world(() => {
             const second = Home.hand(folder, "Second request", STAMP);
             assert.equal(fs.readFileSync(path.join(folder, MAIL), "utf8"), one + '{"id":"cut\n' + mailRow(second.id, '"Second request"'));
             assert.deepEqual(listing(folder), [...before, MAIL].sort());
+            // Half of a surrogate pair, which a model can send: the row holds
+            // U+FFFD in its place and no \ud escape, which lane-mail's parser
+            // refuses.
+            const third = Home.hand(folder, "Half \ud83d pair", STAMP);
+            assert.equal(third.kind, "handed");
+            const stored = fs.readFileSync(path.join(folder, MAIL), "utf8").split("\n").at(-2);
+            assert.equal(stored + "\n", mailRow(third.id, '"Half \ufffd pair"'));
+            assert.equal(stored.includes("\\ud"), false, "no surrogate escape");
         },
         // The append holds lane-mail's lock, flock on the mailbox file: while
         // another holder keeps it, and where flock cannot run, no row lands.
@@ -465,9 +473,10 @@ world(() => {
         ["note-folder", 'return read(home, "memory/" + entry, null).text;', "return read(home, entry, null).text;", "notes"],
         ["note-whole", 'return read(home, "memory/" + entry, null).text;', 'return read(home, "memory/" + entry, 16384).text;', "notes"],
         ["note-inbox", "(?!inbox/)", "", "notes", path.join(path.dirname(file), "Tools.js")],
-        ["hand-terminated", 'from: "owner", text }) + "\\n");', 'from: "owner", text }));', "hands"],
-        ["hand-sender", 'from: "owner", text })', 'from: "jarvis", text })', "hands"],
+        ["hand-terminated", 'text: text.toWellFormed() }) + "\\n");', "text: text.toWellFormed() }));", "hands"],
+        ["hand-sender", 'from: "owner", text: text', 'from: "jarvis", text: text', "hands"],
         ["hand-stamp", '.replace(".000Z", "Z")', "", "hands"],
+        ["hand-well-formed", "text: text.toWellFormed() })", "text })", "hands"],
         ["hand-clock", "const seconds = Math.floor(now / 1000);", "const seconds = Math.floor(Date.now() / 1000);", "hands"],
         ["hand-closes-line", 'open ? Buffer.concat([Buffer.from("\\n"), row]) : row', "row", "hands"],
         ["hand-appends", "O_RDWR | O_APPEND | O_CREAT | O_NOFOLLOW", "O_RDWR | fs.constants.O_TRUNC | O_CREAT | O_NOFOLLOW", "hands"],

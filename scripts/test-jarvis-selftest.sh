@@ -856,23 +856,25 @@ control cut_functions "a run whose exit status is not its record's mark" '  [[ $
 control cut_functions "a record written before the run's rules are read" '"$end" "$kept")"' '"$end" true)"'$'\n''  [[ $kept == true ]] || verdict=failed' finish_case "${finish_rows[6]}"
 
 echo "--- the mailbox"
-# hands BACKEND HOME TEXT: TEXT handed to the master session's mailbox in
-# HOME by the Home.js of the plugin backend BACKEND, as Jarvis hands a
-# request; prints the row's id.
-hands() { # BACKEND HOME TEXT
+# hands BACKEND HOME TEXT_JSON: the text TEXT_JSON spells as a JSON string,
+# which can hold half of a surrogate pair as a model's call can, handed to
+# the master session's mailbox in HOME by the Home.js of the plugin backend
+# BACKEND, as Jarvis hands a request; prints the row's id.
+hands() { # BACKEND HOME TEXT_JSON
   env -i PATH="$path" "$node_bin" - "$repo" "$@" <<'JS'
     const path = require("node:path");
     const [tree, backend, home, text] = process.argv.slice(2);
     require(path.join(backend, "Core.js")).use(tree);
-    const handed = require(path.join(backend, "Home.js")).hand(home, text);
+    const handed = require(path.join(backend, "Home.js")).hand(home, JSON.parse(text));
     if (handed.kind !== "handed") process.exit(1);
     console.log(handed.id);
 JS
 }
 # finish_mail BACKEND: a request the Home.js of BACKEND hands over between
 # the run's two mailbox reads is in the record with its id, as the master's
-# reader prints it. The mailbox is there before either read, as in a home
-# the master session works in.
+# reader prints it, the half of a surrogate pair in it as U+FFFD. The
+# mailbox is there before either read, as in a home the master session
+# works in.
 finish_mail() { # BACKEND
   local sum id
   planted_trace final
@@ -883,13 +885,13 @@ finish_mail() { # BACKEND
   mkdir -p "$finish_copy/tmp/lane-mail/overseer"
   : >"$tmp/auth.calls"
   call selftest_mailbox "$repo" "$finish_copy" >/dev/null || return 1
-  id="$(hands "$1" "$finish_copy" $'Rebase the lanes.\nThen report.')" || return 1
+  id="$(hands "$1" "$finish_copy" '"Rebase the lanes.\nThen report \ud83d."')" || return 1
   call selftest_finish ended=idle "$sum" "$tmp/auth.calls" 0 "$tmp/trace.json" "$tmp/audit" "$tmp/record.json" \
     idle "" type hello cli:b "$folder" local key "$repo" "$finish_copy" >"$tmp/out" 2>"$tmp/err" || return 1
   python3 - "$tmp/record.json" "$id" <<'PY'
 import json, re, sys
 rows = json.load(open(sys.argv[1]))["mailbox"]
-want = [{"id": sys.argv[2], "kind": "directive", "from": "owner", "text": "Rebase the lanes.\nThen report."}]
+want = [{"id": sys.argv[2], "kind": "directive", "from": "owner", "text": "Rebase the lanes.\nThen report \ufffd."}]
 got = [{key: row[key] for key in row if key != "at"} for row in rows]
 sys.exit(got != want or not re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", rows[0]["at"]))
 PY
@@ -898,17 +900,22 @@ backend="$repo/shell/plugins/vgs.jarvis/backend"
 holds "a request Jarvis's own writer hands over during the turn is in the record, as the master's reader prints it" finish_mail "$backend"
 control cut_functions "a verdict that reads no mailbox" '    mailbox="$(selftest_mailbox "$tree" "$home_copy")" || stopped mailbox-unread' '    :' finish_mail "$backend"
 control cut_functions "a reader of another lane's mailbox" 'inbox --item overseer' 'inbox --item other' finish_mail "$backend"
-# The reader is the instrument: a writer whose row ends on no newline writes
-# a line the master's reader does not hand over.
+# The reader is the instrument. writer_control LABEL OLD NEW: a Home.js with
+# its one OLD replaced by NEW writes a line the master's reader does not
+# hand over.
 mkdir "$tmp/backend-mutant"
 cp -- "$backend/Core.js" "$backend/Tools.js" "$tmp/backend-mutant/"
-if ! mutate "$backend/Home.js" 'from: "owner", text }) + "\n");' 'from: "owner", text }));' "$tmp/backend-mutant/Home.js"; then
-  fail "control: a writer whose row ends on no newline: its defect did not apply"
-elif finish_mail "$tmp/backend-mutant"; then
-  fail "control: a writer whose row ends on no newline stayed green"
-else
-  ok "control: a writer whose row ends on no newline"
-fi
+writer_control() {
+  if ! mutate "$backend/Home.js" "$2" "$3" "$tmp/backend-mutant/Home.js"; then
+    fail "control: $1: its defect did not apply"
+  elif finish_mail "$tmp/backend-mutant"; then
+    fail "control: $1 stayed green"
+  else
+    ok "control: $1"
+  fi
+}
+writer_control "a writer whose row ends on no newline" 'text: text.toWellFormed() }) + "\n");' 'text: text.toWellFormed() }));'
+writer_control "a writer that keeps half of a surrogate pair" 'text: text.toWellFormed() })' 'text })'
 
 if [[ $failures -gt 0 ]]; then
   printf 'test-jarvis-selftest: %d failure(s)\n' "$failures"

@@ -48,7 +48,7 @@ const TABLE = {
     // The master session runs the user's agent fleet and reads the home's
     // mailbox, where Home.js appends the request. once: the router admits
     // one a turn. A request starts work elsewhere, as a task does.
-    "master.request": { sentence: "Hand this request to the user's master session:\n{text}", effect: "exec", executor: "guidance", command: null, once: true, schema: { text: text } },
+    "master.request": { sentence: "Put this request in the mailbox of the user's master session:\n{text}", effect: "exec", executor: "guidance", command: null, once: true, schema: { text: text } },
     "windows.list": { sentence: "List windows", effect: "read", executor: "windows", command: "hyprctl", schema: {} },
     "windows.focus": { sentence: "Focus window {window}", effect: "reversible", executor: "compositor", command: "hyprctl", schema: { window: windowId } },
     "windows.reveal": { sentence: "Reveal window {window}", effect: "reversible", executor: "compositor", command: "hyprctl", schema: { window: windowId } },
