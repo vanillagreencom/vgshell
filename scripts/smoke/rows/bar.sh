@@ -849,8 +849,15 @@ print(eval(sys.argv[1]))' "$1" <<<"$reading"
   zone_gap_open_program() { # WIDTH
     echo "(lambda s, r: s['$zone_b'][0] - s['$zone_a'][0] - s['$zone_a'][1] >= $1 + 2 * d['gap'] - 1 and s['$zone_a'][0] + s['$zone_a'][1] + d['gap'] >= r[0] - 1 and s['$zone_b'][0] - d['gap'] <= r[1] + 1)(dict(zip(d['right']['ids'], d['right']['spans'])), d['right']['range'])"; }
   # zone_layout ID: ID with its right-section neighbours, or the right
-  # section when ID is not in it.
-  zone_layout() { ipc shell listShellConfig | py_reply 'import json,sys; ids=[e["id"] for e in json.load(sys.stdin)["bar"]["layout"]["right"]]; t=sys.argv[1]; i=ids.index(t) if t in ids else -1; print(json.dumps(ids[i-1:i+2] if i>0 else ids))' "$1"; }
+  # section when ID is not in it, among the widgets the right zone draws
+  # and ID. The sandbox draws no widget for some layout entries, such as
+  # Power, so a drop between two drawn widgets can stand between others in
+  # the configuration.
+  zone_layout() {
+    local drawn
+    drawn="$(zone_pick "json.dumps(d['right']['ids'])")" || return 1
+    ipc shell listShellConfig | py_reply 'import json,sys; t=sys.argv[1]; drawn=json.loads(sys.argv[2])+[t]; ids=[e["id"] for e in json.load(sys.stdin)["bar"]["layout"]["right"] if e["id"] in drawn]; i=ids.index(t) if t in ids else -1; print(json.dumps(ids[i-1:i+2] if i>0 else ids))' "$1" "$drawn"
+  }
   zone_layout_elsewhere() { zone_layout "$1" | py_reply 'import json,sys; got=json.load(sys.stdin); print(got!=json.loads(sys.argv[1]))' "[\"$zone_a\", \"$1\", \"$zone_b\"]"; }
   # The widgets the right zone clips away stand under the clock and draw
   # above it. A right click reaches every frame handler under it, so only
@@ -899,9 +906,10 @@ print(eval(sys.argv[1]))' "$1" <<<"$reading"
   # by a reserved area on the right of the monitor at the monitor's own
   # mode and scale; the pointer helpers keep mapping over the whole
   # output. At 1600 the owner's right section hides seven widgets, which
-  # the walks need; at 1700 the right section still shows two neighbours
-  # left of the bar's last third, clear of the centre, where the drops
-  # need them.
+  # the walks need. At 1700 two neighbours the zone shows stand left of the
+  # bar's last third, clear of the centre once a narrow widget's preview
+  # gap widens it; the wide workspaces widget drops past the last third,
+  # which needs no such room.
   zone_width() {
     local logical="$((${zone_mode%x*} / zone_scale))"
     ((logical >= $1)) || mode_unavailable "$zone_monitor" "$1 logical pixels of bar" "monitor=$logical"
@@ -968,14 +976,14 @@ print(eval(sys.argv[1]))' "$1" <<<"$reading"
   zone_width 1700
   geometry expect_poll "at 1700 the right zone clips and rests at its end" '[true, true, false, []]' zone_ends right
   zone_middle
-  # Drops land at the slot under the pointer in what the zone shows: past
-  # the bar's last third, and left of it, where the thirds alone would
-  # pick the centre section. Each drop shows the widget it lands.
-  zone_drop "a drop past the last third into the clipped right zone" vgs.launcher past
-  expect_poll "the drop past the last third lands the Launcher between the neighbours under the pointer" "[\"$zone_a\", \"vgs.launcher\", \"$zone_b\"]" zone_layout vgs.launcher
+  # Drops land at the slot under the pointer in what the zone shows: left
+  # of the bar's last third, where the thirds alone would pick the centre
+  # section, and past it. Each drop shows the widget it lands.
+  zone_drop "a drop left of the last third into the clipped right zone" vgs.launcher before
+  expect_poll "the drop left of the last third lands the Launcher in the right section between the neighbours under the pointer" "[\"$zone_a\", \"vgs.launcher\", \"$zone_b\"]" zone_layout vgs.launcher
   geometry expect_poll "the dropped Launcher shows and the zone still clips, over nothing" '[true, true, []]' zone_pick "json.dumps(['vgs.launcher' in d['right']['shown'], d['right']['clips'], d['right']['over']])"
-  zone_drop "a drop left of the last third into the clipped right zone" vgs.bar/left-workspaces before
-  expect_poll "the drop left of the last third lands the workspaces in the right section between the neighbours under the pointer" "[\"$zone_a\", \"vgs.bar/left-workspaces\", \"$zone_b\"]" zone_layout vgs.bar/left-workspaces
+  zone_drop "a drop past the last third into the clipped right zone" vgs.bar/left-workspaces past
+  expect_poll "the drop past the last third lands the workspaces between the neighbours under the pointer" "[\"$zone_a\", \"vgs.bar/left-workspaces\", \"$zone_b\"]" zone_layout vgs.bar/left-workspaces
   wheel "$zone_wx" "$zone_wy" 20 || fail "the wheel over the right zone failed"
   geometry expect_poll "the zone returns to its end after the drops" '[true, true, false, []]' zone_ends right
   # Last, since the widget keeps its focus for the next time the bar
@@ -989,6 +997,11 @@ print(eval(sys.argv[1]))' "$1" <<<"$reading"
     zone_plant
     copy_tree "zone-$1" && edit_tree "zone-$1" "$2" "$3" "$4" || return 1
     start_shell "$sandbox/tree-zone-$1" "$sandbox/bar-zone-$1.log" || { fail "the zone control $1 starts"; return 1; }
+    # The new bar maps under the resting pointer and loses the first press
+    # there, so the pointer leaves it; a control that lost the narrowing
+    # would read a bar that needs no zone.
+    rest_pointer || fail "control $1: resting the pointer failed"
+    expect_poll "control $1: the bar reads $zone_bar_w logical pixels wide" "$zone_bar_w" zone_bar_width
     expect_poll "control $1: the bar mounts the owner's right section" True zone_mounted
     geometry expect_poll "control $1: the right zone shows its < button" True zone_pick "d['right']['start']"
   }
@@ -1037,8 +1050,8 @@ print(eval(sys.argv[1]))' "$1" <<<"$reading"
     geometry expect_poll "control: the drop lands elsewhere than under the pointer" True zone_layout_elsewhere vgs.launcher
   fi
   if zone_control view shell/Core/PluginLogic.js 'x >= view.x && x < view.x + view.width) section = side;' 'false) section = side;'; then
-    zone_drop "control: a drop that the thirds alone place" vgs.bar/left-workspaces before control
-    geometry expect_poll "control: the drop left of the last third leaves the right section" True zone_layout_elsewhere vgs.bar/left-workspaces
+    zone_drop "control: a drop that the thirds alone place" vgs.launcher before control
+    geometry expect_poll "control: the drop left of the last third leaves the right section" True zone_layout_elsewhere vgs.launcher
   fi
   release_mode "the nested compositor gives the monitor its own mode back" "$zone_monitor" "$zone_mode" "$zone_scale"
   stop_shell

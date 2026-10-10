@@ -7,8 +7,8 @@
 
 # monitor_rule NAME MODE [SCALE [RIGHT]]: the Lua monitor rule that gives
 # output NAME the mode MODE, such as 480x720, at SCALE, 1 by default, and
-# the layout's origin, with RIGHT logical pixels reserved on its right edge
-# when given. Layer surfaces are arranged inside the output less its
+# the layout's origin, with RIGHT logical pixels reserved on its right
+# edge when given. Layer surfaces are arranged inside the output less its
 # reserved area (arrangeLayersForMonitor, Hyprland v0.56.2), so a bar
 # anchored left and right draws RIGHT narrower at the output's own mode.
 # The nested Wayland output takes any mode and an integer scale; a
@@ -142,14 +142,15 @@ mode_unavailable() {
   exit 77
 }
 # hold_mode LABEL NAME MODE [SCALE [RIGHT]]: output NAME takes MODE at
-# SCALE, 1 by default, with RIGHT logical pixels reserved on its right edge
-# when given (monitor_rule), until release_mode restores the previous hold,
-# or the caller's mode with no reserved area when no outer hold exists. The first hold's WxH is kept as the
-# host window's size (mode_hold_window) once the hold begins. The rule
-# goes into mode_hold_file, which every load of the configuration runs,
-# and take_mode reloads it now. The hold begins once the monitor reads
-# both. A readable output that never takes the mode stops the run as
-# not measured before any product fit check runs.
+# SCALE, 1 by default, with RIGHT logical pixels reserved on its right
+# edge when given (monitor_rule), until release_mode restores the previous
+# hold, or the caller's mode with no reserved area when no outer hold
+# exists. The first hold's WxH is kept as the host window's size
+# (mode_hold_window) once the hold begins. The rule goes into
+# mode_hold_file, which every load of the configuration runs, and
+# take_mode reloads it now. The hold begins once the monitor reads both. A
+# readable output that never takes the mode stops the run as not measured
+# before any product fit check runs.
 hold_mode() {
   local label="$1" output="$2" want="$3 scale=${4:-1}" taken window previous_rule="" status=0
   local row_class=hold
@@ -208,26 +209,26 @@ hold_restore() {
 # v0.15.1), and the host sends one whenever it resizes the window or
 # changes its state, focus and tiling included, and whenever another
 # window on the nested window's host workspace unmaps (CWindow's unmap
-# path calls forceReportSizesToWindows, Hyprland v0.56.2). For a Wayland-backend
-# output, Hyprland's state listener applies the active rule again with
-# that size in place of the rule's mode, unless the two are equal
-# (CMonitor::onConnect in src/output/Monitor.cpp, Hyprland v0.56.2). The
-# rule keeps its scale, and CMonitor::applyMonitorRule moves a scale that
-# leaves fractional logical pixels to the nearest one that does not: a
-# 1755x933 window under a 3510x1866 hold at scale 2 reads 1755x933 at
-# scale 1.5. A hold at the window's own size survives a configure of the
-# same size and no resize. Each applied rule, the host's size included,
-# becomes the active rule (CMonitor::applyMonitorRuleSoft, same file), so
-# after a resize away a configure back to the window's own size differs
-# from the active rule and gives the output that size again: a scale-1
-# hold at the window's own size comes back without its rule, and a
-# reading after both configures reads `held`. No host configure equals a
-# doubled mode, so a scale-2 hold comes back only through its rule
-# applied again (hold_restore), or a configuration reload, which the
-# shell runs when its Hyprland layer changes: a reload drops every rule
-# `hyprctl eval` added (src/config/lua/ConfigManager.cpp,
-# CConfigManager::reload, v0.56.2) and applies the rule mode_hold_file
-# names again. The shell writes no monitor rule of its own.
+# path calls forceReportSizesToWindows, Hyprland v0.56.2). For a
+# Wayland-backend output, Hyprland's state listener applies the active
+# rule again with that size in place of the rule's mode, unless the two
+# are equal (CMonitor::onConnect in src/output/Monitor.cpp, Hyprland
+# v0.56.2). The rule keeps its scale, and CMonitor::applyMonitorRule moves
+# a scale that leaves fractional logical pixels to the nearest one that
+# does not: a 1755x933 window under a 3510x1866 hold at scale 2 reads
+# 1755x933 at scale 1.5. A hold at the window's own size survives a
+# configure of the same size and no resize. Each applied rule, the host's
+# size included, becomes the active rule (CMonitor::applyMonitorRuleSoft,
+# same file), so after a resize away a configure back to the window's own
+# size differs from the active rule and gives the output that size again:
+# a scale-1 hold at the window's own size comes back without its rule, and
+# a reading after both configures reads `held`. No host configure equals a
+# doubled mode, so a scale-2 hold comes back only through its rule applied
+# again (hold_restore), or a configuration reload, which the shell runs
+# when its Hyprland layer changes: a reload drops every rule `hyprctl
+# eval` added (src/config/lua/ConfigManager.cpp, CConfigManager::reload,
+# v0.56.2) and applies the rule mode_hold_file names again. The shell
+# writes no monitor rule of its own.
 # `unreadable`: the monitor cannot be read, which excuses nothing.
 held_mode_state() {
   local state
@@ -250,8 +251,8 @@ held_mode_host_sized() {
 # release_mode LABEL NAME MODE [SCALE]: end the inner hold and restore its
 # parent's rule, mode, scale and reserved area. Without a parent, remove
 # the hold file and give NAME the caller's MODE at SCALE, 1 by default,
-# with no reserved area. Read both before the
-# rows go on, whether or not the inner hold took.
+# with no reserved area. Read both before the rows go on, whether or not
+# the inner hold took.
 release_mode() {
   local taken status=0
   if [[ ${#mode_hold_parents[@]} -gt 0 ]]; then
