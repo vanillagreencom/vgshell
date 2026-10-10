@@ -695,9 +695,11 @@ expect_poll "Escape closes an anchored panel the plugin leaves unaccepted" absen
 
 # The widget's bar menu, an overlay its AnchorTracker keeps with the widget,
 # follows it the same way when the tail widget grows again. The menu is
-# what the screen draws below the bar that a frame taken before it opened,
-# with the pointer already on the widget, does not, and it stands at the
-# widget's left edge, at the height it opened at.
+# what the screen draws below the bar that a frame taken before it opened
+# does not, and it stands at the widget's left edge, at the height it opened
+# at. Both frames hold the pointer parked in the output's bottom-left
+# corner: on the widget, its image reaches below the bar and changes shape
+# once the growth moves the widget from under it, which reads as menu.
 surf_menu_ref="$sandbox/surfaces-menu-ref.ppm"
 surf_menu_grab() { local socket; socket="$(shot_socket "$rt_dir" "$nested_socket" "$host_socket")" && shot_grim "$socket" "$rt_dir" -o "$screen_name" -t ppm "$1"; }
 # surf_menu_still: `still` once a frame equals the one before it.
@@ -747,11 +749,13 @@ print("followed" if same else "menu=%s widget=%s opened=%s" % (box, widget, open
 PY
 }
 read -r surf_menu_x surf_menu_y < <(ipc smoke invokeInstance "bar:$screen_name" acme.surfaces geometry '' | py_reply 'import json,sys; x,y,w,h=json.load(sys.stdin); print(int(x+w/2), int(y+h/2))') || fail "the fixture widget has no box to right-click"
-hover "$((surf_menu_x + 1))" "$surf_menu_y" || fail "the hover on the fixture widget failed"
+surf_menu_park() { hover 1 "$((mon_h - 1))"; }
+surf_menu_park || fail "parking the pointer before the bar menu opens failed"
 surf_menu_grab "$surf_menu_ref" || fail "the frame before the bar menu opens is unreadable"
 render expect_poll "the screen is still before the bar menu opens" still surf_menu_still
-right_click "$surf_menu_x" "$surf_menu_y" || fail "the right click on the fixture widget failed"
+hover "$((surf_menu_x + 1))" "$surf_menu_y" && right_click "$surf_menu_x" "$surf_menu_y" || fail "the right click on the fixture widget failed"
 expect_poll "a right click on the fixture widget opens its bar menu" true ipc smoke readInstance "bar:$screen_name" acme.surfaces frameMenuOpen
+surf_menu_park || fail "parking the pointer off the open bar menu failed"
 render expect_poll "the compositor draws the bar menu under its widget" followed surf_menu_follows
 surf_menu_open_box="$(surf_menu_box)" || surf_menu_open_box=unreadable
 flyout_rest_x="$(flyout_widget_x)" || flyout_rest_x=unreadable
