@@ -113,6 +113,8 @@ check "a directory at a copy path fails its target" test "$(target_state cpy)" =
 check "a directory at a link path fails its target" test "$(target_state occ)" == "failed unwritable"
 check "the directory at the copy path keeps its content" regular_with "$cfg/cpy/themes/vgs.toml/notes" $'mine\n'
 check "the directory at the link path keeps its content" regular_with "$cfg/occ/themes/vgs.toml/notes" $'mine\n'
+check "a failed link rename leaves no sibling beside the directory" names_in "$cfg/occ/themes" "vgs.toml vgs.toml/notes "
+check "a failed copy rename leaves no sibling beside the directory" names_in "$cfg/cpy/themes" "vgs.toml vgs.toml/notes "
 rm -r -- "$cfg/occ/themes"; printf 'mine\n' >"$cfg/occ/themes"
 apply_json "a file where the directory belongs" 3 nord "vgshell: refused: target=cpy reason=unwritable path=$cfg/cpy/themes/vgs.toml error=EISDIR"
 check "a file at the directory fails its target" test "$(target_state occ)" == "failed unwritable"
@@ -177,6 +179,10 @@ control rm-dir-file 'writing(dir, key, () => fs.mkdirSync(dir, { recursive: true
 rm -r -- "$cfg/occ/themes"; printf 'mine\n' >"$cfg/occ/themes"
 apply_json "the rm-dir-file mutant applies" 0 dusk
 check "the rm-dir-file mutant deletes the file where the directory belongs" test -d "$cfg/occ/themes"
+tree_control keep-sibling bin/lib/judge-files.js '    const tmp = link + ".vgshell-" + process.pid;' '    const tmp = link + ".vgshell-" + process.pid; const rm = fs.rmSync; fs.rmSync = (p, o) => p === tmp ? undefined : rm(p, o);'; fresh keep-sibling
+rm -- "$cfg/occ/themes/vgs.toml"; mkdir -- "$cfg/occ/themes/vgs.toml"; printf 'mine\n' >"$cfg/occ/themes/vgs.toml/notes"
+apply_json "the keep-sibling mutant applies" 3 dusk "vgshell: refused: target=occ reason=unwritable path=$cfg/occ/themes/vgs.toml error=EISDIR"
+check "the keep-sibling mutant leaves its link beside the directory" test -n "$(compgen -G "$cfg/occ/themes/vgs.toml.vgshell-*")"
 control never-rmdir 'if (target.wiring.owned) writing(dir, key, () => {' 'if (false) writing(dir, key, () => {'
 apply_json "the never-rmdir mutant applies" 0 dusk
 disable '"ext"'
