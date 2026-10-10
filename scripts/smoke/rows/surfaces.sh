@@ -42,11 +42,13 @@ text = text.replace(marker, '    Button {\n        id: smokeButton\n        text
 marker = "    function close() {\n"
 assert text.count(marker) == 1, "close function must occur once"
 text = text.replace(marker, marker + "        smokeCloseMarks += 1;\n", 1)
-marker = "    T.Control {\n"
+# The marker sits on the 200x120 card, left of the centred control and
+# above the edge marker: a probe copy's popup window is the card's size.
+marker = "    FocusScope {\n"
 insert = '''    Rectangle {
         id: smokeMarker
         x: 4
-        y: 84
+        y: 60
         width: 24
         height: 24
         color: "#ff00ff"
@@ -57,11 +59,10 @@ insert = '''    Rectangle {
         }
     }
 '''
-assert text.count(marker) == 1, "focus control must occur once"
+assert text.count(marker) == 1, "the initial focus scope must occur once"
 text = text.replace(marker, insert + marker, 1)
 # The edge marker sits on the card's bottom edge, the band a slide offset
-# leaves outside a mask that follows the card's Translate. smokeMarker
-# hangs below the card.
+# leaves outside a mask that follows the card's Translate.
 marker = "    Item {\n        id: container\n"
 insert = '''    Rectangle {
         id: smokeEdge
@@ -673,6 +674,7 @@ flyout_follow_check
 # removed, and the flyout, open and still, follows it.
 flyout_widget_x() { ipc smoke invokeInstance "bar:$screen_name" acme.surfaces geometry '' | py_reply 'import json,sys; print(json.load(sys.stdin)[0])'; }
 flyout_rest_x="$(flyout_widget_x)" || flyout_rest_x=unreadable
+flyout_first_rest_x="$flyout_rest_x"
 # One render call holds the growth, so the bar frame the growth draws
 # counts and a flyout left behind fails rather than reading as a stalled
 # sandbox.
@@ -952,7 +954,17 @@ expect "the no-commit copy's panel takes a payload" '' ipc smoke invokeInstance 
 expect_poll "the no-commit copy is shown" true ipc smoke popupRead summon-no-commit visible
 expect "the no-commit copy disables its forced commit after the first frame" ok ipc smoke popupCall summon-no-commit disableCommit
 install_tail_widget
-flyout_follow_control() { (failures=0 behaviour_failures=0; flyout_follow_check >"$sandbox/flyout-follow-control.log"; echo "$failures"); }
+expect_poll "the re-added tail widget puts the widget back at its rest x" "$flyout_first_rest_x" flyout_widget_x
+flyout_rest_x="$flyout_first_rest_x"
+# The control runs the neighbour-grows check, the case the commit request
+# after the bar's polish exists for. A copy whose marker the screen does
+# not show fails that check too, so an absent marker is not the failure
+# the control wants.
+flyout_follow_control() {
+  local failed
+  failed="$(failures=0 behaviour_failures=0; flyout_grow_check >"$sandbox/flyout-follow-control.log"; echo "$failures")"
+  if grep -q 'after its neighbour grows: got marker=absent ' "$sandbox/flyout-follow-control.log"; then echo marker-absent; else echo "$failed"; fi
+}
 expect "control: a popup without the forced commit fails the same compositor follow assertion" 1 flyout_follow_control
 sed 's/^/  CONTROL  /' "$sandbox/flyout-follow-control.log"
 remove_tail_widget
