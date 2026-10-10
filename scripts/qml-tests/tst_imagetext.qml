@@ -8,9 +8,10 @@ import qs.Ui
 // with images cut short ends at a whole word or image with one ellipsis,
 // draws no image past the cut and none on a line it does not sit on; an
 // image that fails draws its alt text; and ImagePool shares one image per
-// URL and size between holders and lets it go with the last. Pixels are
-// read off grabs; the red of the fixture image is never a colour of the
-// text.
+// URL and size between holders, keeps it for the next holder after the
+// last lets it go, up to its ceiling of idle images, and keeps no image
+// whose load failed. Pixels are read off grabs; the red of the fixture
+// image is never a colour of the text.
 Item {
     id: root
     width: 420
@@ -174,7 +175,7 @@ Item {
             compare(drawn(item).text, "");
         }
 
-        function test_the_pool_shares_an_image_and_lets_it_go_with_its_last_holder() {
+        function test_the_pool_shares_an_image_and_keeps_it_after_its_last_holder() {
             const segments = [{ image: root.red, alt: ":red:" }];
             const first = make(segments, 1);
             const size = first.deviceSize;
@@ -182,10 +183,70 @@ Item {
             compare(held().holders, 1);
             const second = make(segments, 1);
             compare(held().holders, 2, "two holders share one entry");
+            const image = held().image;
+            tryCompare(image, "status", Image.Ready, 3000);
             second.segments = [{ markup: "none" }];
             compare(held().holders, 1, "a holder that stops naming the image releases it");
-            first.destroy();
-            tryVerify(() => held() === undefined, 1000, "the last release lets the image go");
+            first.segments = [{ markup: "none" }];
+            verify(held() !== undefined, "the last release keeps the entry");
+            compare(held().holders, 0);
+            verify(held().image === image, "the kept entry keeps its image");
+            const third = make(segments, 1);
+            verify(held().image === image, "a new holder reuses the kept image");
+            compare(held().holders, 1);
+            compare(image.status, Image.Ready, "the reused image does not load again");
+
+            // Past the ceiling the oldest idle image goes; a held one never.
+            const ceiling = ImagePool.idleCeiling;
+            const keys = [];
+            const images = [];
+            for (let i = 0; i <= ceiling; i++) {
+                const url = root.red + "?v=" + i;
+                keys.push(size + "@" + url);
+                images.push(ImagePool.acquire(url, size));
+            }
+            tryVerify(() => images.every(each => each.status === Image.Ready), 5000, "every image loads");
+            for (const each of images) ImagePool.release(each);
+            compare(ImagePool.entries[keys[0]], undefined, "the oldest idle image goes past the ceiling");
+            for (let i = 1; i <= ceiling; i++) {
+                const entry = ImagePool.entries[keys[i]];
+                verify(entry !== undefined && entry.image === images[i] && entry.holders === 0, "idle image " + i + " is kept");
+            }
+            verify(held() !== undefined && held().image === image && held().holders === 1, "the held image is not evicted");
+        }
+
+        // expected-log: Cannot open: -- the missing fixture image fails to load on purpose
+        function test_the_pool_keeps_no_failed_image() {
+            const item = make([{ image: root.missing, alt: ":gone:" }], 1);
+            const key = item.deviceSize + "@" + root.missing;
+            tryCompare(ImagePool.entries[key].image, "status", Image.Error, 3000);
+            item.segments = [{ markup: "none" }];
+            compare(ImagePool.entries[key], undefined, "a failed image is not kept once released");
+        }
+
+        // expected-log: release of an image no holder holds -- the second release is refused on purpose
+        function test_the_pool_refuses_a_release_no_holder_holds() {
+            const url = root.red + "?twice";
+            const image = ImagePool.acquire(url, 16);
+            tryCompare(image, "status", Image.Ready, 3000);
+            ImagePool.release(image);
+            ImagePool.release(image);
+            compare(ImagePool.entries["16@" + url].holders, 0, "a release of an idle image is refused");
+        }
+
+        // An image released while it loads and failing after is loaded
+        // again by its next holder.
+        // expected-log: Cannot open: -- the missing fixture image fails to load on purpose
+        function test_the_pool_loads_again_an_image_that_failed_while_idle() {
+            const url = root.missing + "?idle";
+            const image = ImagePool.acquire(url, 16);
+            compare(image.status, Image.Loading, "the release comes while the image loads");
+            ImagePool.release(image);
+            tryCompare(image, "status", Image.Error, 3000);
+            const again = ImagePool.acquire(url, 16);
+            verify(again !== image, "the next holder gets a new load");
+            tryCompare(again, "status", Image.Error, 3000);
+            ImagePool.release(again);
         }
     }
 }

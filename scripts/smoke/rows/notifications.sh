@@ -1507,7 +1507,9 @@ expect_poll "no card is left before the emoji latencies" 0 note_status onScreen
 # panel's image texts, so it does not move the forty row objects through
 # IPC on each poll. Each reader is one smoke IPC round trip a poll, the
 # cost the budgets were measured with: the budgets and their runs are in
-# scripts/qml-smoke.sh's header.
+# scripts/qml-smoke.sh's header. Each reading is judged with its CPU
+# pressure by harness.sh's latency_pressure_check: a reading taken above
+# its pressure limit is unmeasured, not a pass or a miss.
 emoji_body="ada: :smoke-party: ship :smoke-party: it :smoke-party: now :smoke-party: team, and a tail long enough to run onto a second line :smoke-party: here"
 toast_images() { ipc smoke layerTextsWithin vgs.notifications NotificationCard summary "[acme] in latency" '<img src='; }
 inbox_images() { ipc smoke itemImageTextCount panel vgs.notifications Panel; }
@@ -1629,14 +1631,15 @@ latency_traceback_control() { (failures=0 behaviour_failures=0; latency_since "t
 expect "control: a latency reader that raises fails once and reads -1" "1 -1" latency_traceback_control
 expect "control: the failed latency reading names the reader's traceback" 1 grep -c -F -- "the planted latency reader: the reader raised a Python traceback" "$sandbox/latency-traceback-control.log"
 notify_now() { "${shell_env[@]}" gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications --method org.freedesktop.Notifications.Notify Slack 0 "" "$1" "$emoji_body" '[]' '{"desktop-entry": <"slack">}' 0 >/dev/null; }
-within_budget() { python3 -c 'import sys; print(0 <= int(sys.argv[1]) <= int(sys.argv[2]))' "$1" "$2"; }
 cpu_start="$(cpu_some_us)"
 start="$(date +%s%3N)"
 notify_now "[acme] in latency"
 latency_since "the emoji toast latency reader" "$start" "$monitors" toast_images
 emoji_toast_ms="$latency_ms"
-printf '        latency_emoji_toast_ms=%s budget_ms=%s cpu_some_pct=%s\n' "$emoji_toast_ms" "$emoji_toast_budget_ms" "$(cpu_some_pct "$cpu_start" "$(cpu_some_us)" "$(( $(date +%s%3N) - start ))")"
-expect "a toast with custom emoji names its images within its budget" True within_budget "$emoji_toast_ms" "$emoji_toast_budget_ms"
+emoji_toast_pressure="$(cpu_some_pct "$cpu_start" "$(cpu_some_us)" "$(( $(date +%s%3N) - start ))")"
+latency_pressure_check notifications emoji_toast "$emoji_toast_ms" "$emoji_toast_pressure" "$emoji_toast_budget_ms"
+expect "control: the emoji toast budget rejects a low-pressure miss" over latency_pressure_verdict "$((emoji_toast_budget_ms + 1))" 0.0 "$emoji_toast_budget_ms"
+expect "control: the emoji toast budget excludes a fast busy reading" unmeasured latency_pressure_verdict "$emoji_toast_budget_ms" 2.9 "$emoji_toast_budget_ms"
 expect "dismissing the latency toast is allowed" ok notes dismiss-all
 expect "Silence turns on for the inbox latency" on notes silence on
 expect "clearing the history before the inbox latency is allowed" ok notes clear-history
@@ -1647,8 +1650,8 @@ start="$(date +%s%3N)"
 notes history >/dev/null
 latency_since "the emoji inbox latency reader" "$start" 40 inbox_images
 emoji_inbox_ms="$latency_ms"
-printf '        latency_emoji_inbox_ms=%s budget_ms=%s cpu_some_pct=%s\n' "$emoji_inbox_ms" "$emoji_inbox_budget_ms" "$(cpu_some_pct "$cpu_start" "$(cpu_some_us)" "$(( $(date +%s%3N) - start ))")"
-expect "an inbox of forty cards appears within its budget" True within_budget "$emoji_inbox_ms" "$emoji_inbox_budget_ms"
+emoji_inbox_pressure="$(cpu_some_pct "$cpu_start" "$(cpu_some_us)" "$(( $(date +%s%3N) - start ))")"
+latency_pressure_check notifications emoji_inbox "$emoji_inbox_ms" "$emoji_inbox_pressure" "$emoji_inbox_budget_ms"
 expect "the probe counts exactly the forty visible emoji inbox rows" 40 inbox_images
 # The history's slim scroll bar shows while forty cards overflow the
 # screen and hides on a history that fits. The control for its rule is the
@@ -1668,8 +1671,8 @@ start="$(date +%s%3N)"
 notes history >/dev/null
 latency_since "the full history latency reader" "$start" 100 inbox_images
 full_history_ms="$latency_ms"
-printf '        latency_full_history_ms=%s budget_ms=%s cpu_some_pct=%s\n' "$full_history_ms" "$emoji_inbox_budget_ms" "$(cpu_some_pct "$cpu_start" "$(cpu_some_us)" "$(( $(date +%s%3N) - start ))")"
-expect "a history of a hundred cards appears within the forty-card budget" True within_budget "$full_history_ms" "$emoji_inbox_budget_ms"
+full_history_pressure="$(cpu_some_pct "$cpu_start" "$(cpu_some_us)" "$(( $(date +%s%3N) - start ))")"
+latency_pressure_check notifications full_history "$full_history_ms" "$full_history_pressure" "$emoji_inbox_budget_ms"
 expect "the probe counts every one of the hundred emoji history rows" 100 inbox_images
 expect "the emoji inbox closes" ok notes close
 expect_poll "the emoji inbox closed" '""' read_notes panelMode
