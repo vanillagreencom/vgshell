@@ -2,7 +2,7 @@
  "source": {
   "schema": "realtime.schema.json",
   "fetched": "2026-10-09",
-  "kind": "A recorded Realtime session made by hand from the documented event shapes. No account data and no provider recording. Old-reply PCM is 0x11 bytes, new-reply PCM 0x22."
+  "kind": "A Realtime session made by hand from the documented event shapes. No account data and no provider recording. Old-reply PCM is 0x11 bytes, new-reply PCM 0x22."
  },
  "scripts": {
   "created": [
@@ -360,6 +360,171 @@
     "call_id": "call_fixture",
     "name": "files_delete",
     "arguments": "{\"path\":\"/home/fixture/file\"}"
+   }
+  ],
+  "unread": [
+   {
+    "type": "conversation.created",
+    "event_id": "evt_unread_0",
+    "conversation": {
+     "id": "conv_fixture",
+     "object": "realtime.conversation"
+    }
+   },
+   {
+    "type": "input_audio_buffer.speech_stopped",
+    "event_id": "evt_unread_1",
+    "item_id": "item_user_1",
+    "audio_end_ms": 3100
+   },
+   {
+    "type": "input_audio_buffer.committed",
+    "event_id": "evt_unread_2",
+    "item_id": "item_user_1",
+    "previous_item_id": null
+   },
+   {
+    "type": "conversation.item.created",
+    "event_id": "evt_unread_3",
+    "item": {
+     "id": "item_user_1",
+     "object": "realtime.item",
+     "type": "message",
+     "status": "completed",
+     "role": "user",
+     "content": [
+      {
+       "type": "input_audio"
+      }
+     ]
+    },
+    "previous_item_id": null
+   },
+   {
+    "type": "conversation.item.added",
+    "event_id": "evt_unread_4",
+    "item": {
+     "id": "item_user_1",
+     "object": "realtime.item",
+     "type": "message",
+     "status": "completed",
+     "role": "user",
+     "content": [
+      {
+       "type": "input_audio"
+      }
+     ]
+    },
+    "previous_item_id": null
+   },
+   {
+    "type": "conversation.item.done",
+    "event_id": "evt_unread_5",
+    "item": {
+     "id": "item_user_1",
+     "object": "realtime.item",
+     "type": "message",
+     "status": "completed",
+     "role": "user",
+     "content": [
+      {
+       "type": "input_audio"
+      }
+     ]
+    },
+    "previous_item_id": null
+   },
+   {
+    "type": "response.output_item.added",
+    "event_id": "evt_unread_6",
+    "response_id": "resp_old",
+    "output_index": 0,
+    "item": {
+     "id": "item_resp_old",
+     "object": "realtime.item",
+     "type": "message",
+     "status": "in_progress",
+     "role": "assistant",
+     "content": []
+    }
+   },
+   {
+    "type": "response.content_part.added",
+    "event_id": "evt_unread_7",
+    "response_id": "resp_old",
+    "item_id": "item_resp_old",
+    "output_index": 0,
+    "content_index": 0,
+    "part": {
+     "type": "audio",
+     "transcript": ""
+    }
+   },
+   {
+    "type": "response.output_audio.done",
+    "event_id": "evt_unread_8",
+    "response_id": "resp_old",
+    "item_id": "item_resp_old",
+    "output_index": 0,
+    "content_index": 0
+   },
+   {
+    "type": "response.output_audio_transcript.done",
+    "event_id": "evt_unread_9",
+    "response_id": "resp_old",
+    "item_id": "item_resp_old",
+    "output_index": 0,
+    "content_index": 0,
+    "transcript": "It is noon."
+   },
+   {
+    "type": "response.content_part.done",
+    "event_id": "evt_unread_10",
+    "response_id": "resp_old",
+    "item_id": "item_resp_old",
+    "output_index": 0,
+    "content_index": 0,
+    "part": {
+     "type": "audio",
+     "transcript": "It is noon."
+    }
+   },
+   {
+    "type": "response.output_item.done",
+    "event_id": "evt_unread_11",
+    "response_id": "resp_old",
+    "output_index": 0,
+    "item": {
+     "id": "item_resp_old",
+     "object": "realtime.item",
+     "type": "message",
+     "status": "completed",
+     "role": "assistant",
+     "content": [
+      {
+       "type": "output_audio",
+       "transcript": "It is noon."
+      }
+     ]
+    }
+   },
+   {
+    "type": "rate_limits.updated",
+    "event_id": "evt_unread_12",
+    "rate_limits": [
+     {
+      "name": "requests",
+      "limit": 1000,
+      "remaining": 999,
+      "reset_seconds": 0.06
+     },
+     {
+      "name": "tokens",
+      "limit": 40000,
+      "remaining": 39500,
+      "reset_seconds": 0.75
+     }
+    ]
    }
   ],
   "error": [

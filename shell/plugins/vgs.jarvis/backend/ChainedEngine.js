@@ -745,7 +745,15 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
     }
 
     function heard(c, turn, text) {
-        c.heard = { labels: [...turn.labels], text };
+        c.heard = { turn, labels: [...turn.labels], text };
+    }
+    // A Realtime reply's heard account for an interruption, or null when the
+    // interruption cuts nothing: the session answers another request, or the
+    // turn ended and all its words played out.
+    function cut(c, turn) {
+        if (!c || c.live === null || !turn) return null;
+        const account = c.live.heard(turn.delegation);
+        return account === null || turn.phase === "done" && !account.pending ? null : account;
     }
     function heardItem(value) {
         return Policy.item(value.text === ""
@@ -888,6 +896,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                         turn.relay.done = true;
                         if (turn.relay.ask !== null) c.relay = turn.relay.ask;
                     }
+                    if (conversation === c) c?.live?.played(e.source);
                     done(...result);
                 }, failed);
             },
@@ -897,7 +906,13 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                 const c = conversation;
                 const turn = c?.last;
                 const speaking = turn?.speaking === true;
+                // A Realtime reply's account is read here: the speech port's
+                // flush follows this effect and drops it. Until Audio
+                // reports, the reply at the speaker counts as unheard.
+                const account = cut(c, turn);
+                if (account !== null) heard(c, turn, account.text(null));
                 return port.flush(e, report => {
+                    if (account !== null && conversation === c && c.last === turn) heard(c, turn, account.text(report));
                     const own = speaking && c.live === null && conversation === c && c.last === turn && (report === null || report.source === turn.op);
                     if (own && turn.relay === null) heard(c, turn, report === null ? "" : report.heardText);
                     else if (own) unheard(c, turn);
@@ -1018,7 +1033,15 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         speech: {
             open(e, events) { current(e.gen).live.port.open(e, events); },
             close(e) { conversation?.live?.port.close(e); },
-            flush(e) { conversation?.live?.port.flush(e); },
+            flush(e) {
+                const c = conversation;
+                if (c === null || c.live === null) return;
+                // With no reply at the speaker no playback flush read the
+                // account: the words this interruption drops went unheard.
+                const account = c.heard?.turn === c.last ? null : cut(c, c.last);
+                c.live.port.flush(e);
+                if (account !== null) heard(c, c.last, account.text(null));
+            },
             release() { conversation?.live?.port.release(); }
         },
         close() {

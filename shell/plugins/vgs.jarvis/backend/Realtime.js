@@ -1,6 +1,8 @@
 // The Realtime duplex speech engine: one provider session per conversation.
 // It streams the microphone, hands each transcribed user turn to the brain as
 // a delegation and has the voice read the brain's released sentences aloud.
+// It keeps which of those responses the user heard to their end, for the
+// brain's account of an interruption.
 // The voice has no tools and never answers on its own. Session owns the
 // lifetime through the speech port; Audio owns devices and calls captureSink
 // and playbackSource. Protocol: OpenAI's Realtime guides and the event types
@@ -97,7 +99,13 @@ function eventOf(data) {
     case "response.done": {
         const response = plain(value.response) ? value.response : {};
         const id = identity(response.id);
-        if (response.status !== "completed") fail("response status=" + token(response.status));
+        if (response.status !== "completed") {
+            // The provider's cause: a failed response's error, an incomplete one's reason.
+            const details = plain(response.status_details) ? response.status_details : {};
+            fail("response status=" + token(response.status)
+                + (plain(details.error) ? " type=" + token(details.error.type) + " code=" + token(details.error.code) : "")
+                + (details.reason === undefined ? "" : " reason=" + token(details.reason)));
+        }
         return { kind: "spoken", id };
     }
     case "error": {
@@ -120,7 +128,7 @@ function eventOf(data) {
 
 /**
  * create({provider, clock, conversation, captionLimit, log}) returns
- * {port, captureSink, playbackSource, commentary}. provider is the Providers.select
+ * {port, captureSink, playbackSource, played, commentary, heard}. provider is the Providers.select
  * "openai-realtime" row. conversation(e) answers {net, key, language, transfer, grants} for a
  * speech-open effect: the session's net owner, null or {secrets, reference},
  * the speech language, audited transfer and current release grants. captionLimit
@@ -148,6 +156,8 @@ function create({ provider, clock, conversation, captionLimit, log }) {
         session.pending = [];
         session.speech = { queue: [], chars: 0, active: null };
         session.delegation = null;
+        session.said = [];
+        session.taken = null;
         // Closing a connecting channel can emit close synchronously. The
         // released session must refuse that callback before it closes.
         session.state = { kind: "ended" };
@@ -217,6 +227,9 @@ function create({ provider, clock, conversation, captionLimit, log }) {
             // reply's close each restart this wait.
             if (session.playing !== null || session.next !== null || !quiet(session)) return;
             session.events.idle();
+            // Session leaves a turn in flight to its own deadline and keeps
+            // this session open; the wait then runs again.
+            activity(session);
         }, IDLE_MS);
     }
     function quiet(session) { return session.speech.active === null && session.speech.queue.length === 0; }
@@ -241,7 +254,7 @@ function create({ provider, clock, conversation, captionLimit, log }) {
             return true;
         const words = speech.queue.shift();
         speech.chars -= words.text.length;
-        speech.active = { id: null, discarded: false, said: false };
+        speech.active = { id: null, discarded: false, said: false, text: words.text, request: session.delegation, reply: null };
         clear(session, "gap");
         // A response that never ends would hold every later word.
         session.timers.words = clock.set(() => failed(session, "live=response-timeout"), RESPONSE_WAIT_MS);
@@ -259,14 +272,16 @@ function create({ provider, clock, conversation, captionLimit, log }) {
         if (active === null || (created ? active.id !== null : active.id !== id)) fail("event-order");
         return active;
     }
-    function output(session, pcm) {
+    function output(session, active, pcm) {
         if (pcm.length === 0) return;
         let reply = session.playing !== null && session.playing.kind === "open" ? session.playing : session.next;
         if (reply === null) {
-            reply = { kind: "open", stream: new Readable({ highWaterMark: REPLY_BYTES, read() {} }) };
+            reply = { kind: "open", stream: new Readable({ highWaterMark: REPLY_BYTES, read() {} }), bytes: 0, marks: [] };
             session.next = reply;
             session.events.speak();
         }
+        active.reply = reply;
+        reply.bytes += pcm.length;
         // A response cannot be paused: a full queue faults, never drops speech.
         if (!reply.stream.push(pcm)) failed(session, "live=output-overflow");
     }
@@ -279,10 +294,9 @@ function create({ provider, clock, conversation, captionLimit, log }) {
     function caption(session, role, source, delta) {
         let text = clean(delta);
         let segment = session.segments[role];
-        if (segment !== null && segment.source !== source) {
-            conclude(session, role);
-            segment = null;
-        }
+        // Another user item's partial text takes the open caption over. The
+        // item it leaves gets its caption from its completed transcript.
+        if (segment !== null && segment.source !== source) segment = session.segments[role] = null;
         if (segment === null && text.trim() === "") return;
         while (text !== "") {
             if (segment !== null && segment.text.length === captionLimit) {
@@ -339,25 +353,35 @@ function create({ provider, clock, conversation, captionLimit, log }) {
                 break;
             case "activity": activity(session); break;
             case "hearing":
+                activity(session);
                 conclude(session, "assistant");
                 caption(session, "user", event.item, event.text);
                 break;
             case "heard":
+                activity(session);
                 conclude(session, "assistant");
-                if (session.segments.user === null || session.segments.user.source !== event.item)
-                    caption(session, "user", event.item, event.text);
-                conclude(session, "user");
+                // The open caption closes on its own item's transcript. An item
+                // with none open gets its caption whole, and another item's stays open.
+                if (session.segments.user !== null && session.segments.user.source === event.item) conclude(session, "user");
+                else for (let text = clean(event.text); text.trim() !== ""; text = text.slice(captionLimit))
+                    emit(session, "user", text.slice(0, captionLimit), "final");
                 if (event.text.trim() === "") break;
                 // Words still waiting answer the request this one replaces.
                 session.speech.queue = [];
                 session.speech.chars = 0;
+                // A playing reply with no words left to wait for ends after its gap.
+                settle(session);
+                // Heard responses are kept for the request in hand only.
+                session.said = [];
                 session.delegation = event.item;
                 session.events.delegation({ id: event.item, text: clean(event.text) });
                 break;
             case "speaking": asked(session, event.id, true).id = event.id; break;
-            case "audio":
-                if (!asked(session, event.id, false).discarded) output(session, event.pcm);
+            case "audio": {
+                const active = asked(session, event.id, false);
+                if (!active.discarded) output(session, active, event.pcm);
                 break;
+            }
             case "said": {
                 const active = asked(session, event.id, false);
                 if (active.discarded) break;
@@ -365,13 +389,17 @@ function create({ provider, clock, conversation, captionLimit, log }) {
                 active.said = true;
                 break;
             }
-            case "spoken":
-                asked(session, event.id, false);
+            case "spoken": {
+                const active = asked(session, event.id, false);
+                // A whole response marks where its audio ends in the reply that carries it.
+                if (!active.discarded && active.reply !== null)
+                    active.reply.marks.push({ request: active.request, end: active.reply.bytes, text: active.text });
                 session.speech.active = null;
                 clear(session, "words");
                 activity(session);
                 if (speak(session)) settle(session);
                 break;
+            }
             case "ignored": break;
             default: throw new Error("jarvis: live=event-kind");
             }
@@ -411,7 +439,7 @@ function create({ provider, clock, conversation, captionLimit, log }) {
             const session = { op: e.op, events, state: { kind: "connecting" }, channel: null, update: null, reader: "",
                 timers: { start: null, silence: null, idle: null, gap: null, words: null },
                 pending: [], pendingBytes: 0, inputAt: clock.now(), capture: null, playing: null, next: null,
-                speech: { queue: [], chars: 0, active: null }, delegation: null,
+                speech: { queue: [], chars: 0, active: null }, delegation: null, said: [], taken: null,
                 segments: { user: null, assistant: null }, rev: 0, language: "" };
             live = session;
             session.timers.start = clock.set(() => failed(session, "live=start-timeout"), START_WAIT_MS);
@@ -441,6 +469,7 @@ function create({ provider, clock, conversation, captionLimit, log }) {
             session.next = null;
             // Audio's flush releases the reply it holds.
             session.playing = null;
+            session.taken = null;
             activity(session);
         }
     };
@@ -491,6 +520,7 @@ function create({ provider, clock, conversation, captionLimit, log }) {
         const reply = session.next;
         session.next = null;
         session.playing = reply;
+        session.taken = reply;
         reply.stream.once("close", () => {
             if (session.playing !== reply) return;
             session.playing = null;
@@ -501,7 +531,39 @@ function create({ provider, clock, conversation, captionLimit, log }) {
         return reply.stream;
     }
 
-    return Object.freeze({ port: Object.freeze(port), captureSink, playbackSource, commentary });
+    // Audio played the reply it took to its end, so the user heard every
+    // response in it. The reply's stream closes earlier, once Audio has read it.
+    function played(source) {
+        const session = live;
+        if (session === null || session.op !== source || session.taken === null) return;
+        session.said.push(...session.taken.marks);
+        session.taken = null;
+    }
+
+    /**
+     * What the user heard of one request's reply, read before the flush of
+     * an interruption drops it: null when the session answers another
+     * request. pending says words or audio are still unplayed. text(report)
+     * joins the responses heard to their end: those of every reply Audio
+     * played out, and those that end within the frames Audio's flush report
+     * credits to the reply at the speaker, none of them without a report.
+     */
+    function heard(id) {
+        const session = live;
+        if (session === null || session.delegation !== id) return null;
+        const { said, taken, op } = session;
+        return Object.freeze({
+            pending: !quiet(session) || session.next !== null || taken !== null,
+            text(report) {
+                const bytes = report !== null && report.source === op ? report.heardFrames * 2 : 0;
+                return [...said, ...(taken === null ? [] : taken.marks.filter(mark => mark.end <= bytes))]
+                    .filter(mark => mark.request === id)
+                    .reduce((all, mark) => all + (all === "" || all.endsWith(" ") ? "" : " ") + mark.text, "").trimEnd();
+            }
+        });
+    }
+
+    return Object.freeze({ port: Object.freeze(port), captureSink, playbackSource, played, commentary, heard });
 }
 
 module.exports = { create };

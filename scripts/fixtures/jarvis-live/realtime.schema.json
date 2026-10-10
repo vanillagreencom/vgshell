@@ -16,11 +16,12 @@
   "Each schema transcribes the interface of the same name in the types file to the checker's keyword set. String literals become enums; optional members stay optional.",
   "RealtimeSessionCreateRequest keeps its realtime branch. tools items, noise_reduction and a tracing object stay open, since the engine sends an empty tools list and a null tracing value.",
   "RealtimeResponse and RealtimeResponseCreateParams keep the members a spoken out-of-band response carries. output items, usage and audio stay open.",
+  "ConversationItem keeps its user message and assistant message branches, the items a spoken turn and a spoken response make.",
   "The checker closes every other object."
  ],
  "omitted": [
   "Client events the duplex engine does not send: input_audio_buffer.commit and clear, conversation.item.create, retrieve, truncate and delete, response.cancel, output_audio_buffer.clear.",
-  "Server events the engine does not read, and the events only a tool, a text reply, an MCP server, SIP or WebRTC produce. The function call arguments event is kept for the refusal it proves.",
+  "Server events this session does not cause: those only a tool, a text reply, an MCP server, SIP or WebRTC produce. The function call arguments event is kept for the refusal it proves.",
   "The transcription session branch, the G.711 formats, custom voices, prompt references and reasoning settings."
  ],
  "schemas": {
@@ -920,6 +921,552 @@
     "type",
     "event_id",
     "error"
+   ]
+  },
+  "RealtimeConversationItemUserMessage": {
+   "type": "object",
+   "properties": {
+    "content": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "properties": {
+       "audio": {
+        "type": "string"
+       },
+       "detail": {
+        "type": "string",
+        "enum": [
+         "auto",
+         "low",
+         "high"
+        ]
+       },
+       "image_url": {
+        "type": "string"
+       },
+       "text": {
+        "type": "string"
+       },
+       "transcript": {
+        "type": "string"
+       },
+       "type": {
+        "type": "string",
+        "enum": [
+         "input_text",
+         "input_audio",
+         "input_image"
+        ]
+       }
+      }
+     }
+    },
+    "role": {
+     "type": "string",
+     "enum": [
+      "user"
+     ]
+    },
+    "type": {
+     "type": "string",
+     "enum": [
+      "message"
+     ]
+    },
+    "id": {
+     "type": "string"
+    },
+    "object": {
+     "type": "string",
+     "enum": [
+      "realtime.item"
+     ]
+    },
+    "status": {
+     "type": "string",
+     "enum": [
+      "completed",
+      "incomplete",
+      "in_progress"
+     ]
+    }
+   },
+   "required": [
+    "content",
+    "role",
+    "type"
+   ]
+  },
+  "RealtimeConversationItemAssistantMessage": {
+   "type": "object",
+   "properties": {
+    "content": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "properties": {
+       "audio": {
+        "type": "string"
+       },
+       "text": {
+        "type": "string"
+       },
+       "transcript": {
+        "type": "string"
+       },
+       "type": {
+        "type": "string",
+        "enum": [
+         "output_text",
+         "output_audio"
+        ]
+       }
+      }
+     }
+    },
+    "role": {
+     "type": "string",
+     "enum": [
+      "assistant"
+     ]
+    },
+    "type": {
+     "type": "string",
+     "enum": [
+      "message"
+     ]
+    },
+    "id": {
+     "type": "string"
+    },
+    "object": {
+     "type": "string",
+     "enum": [
+      "realtime.item"
+     ]
+    },
+    "status": {
+     "type": "string",
+     "enum": [
+      "completed",
+      "incomplete",
+      "in_progress"
+     ]
+    }
+   },
+   "required": [
+    "content",
+    "role",
+    "type"
+   ]
+  },
+  "ConversationItem": {
+   "oneOf": [
+    {
+     "$ref": "#/schemas/RealtimeConversationItemUserMessage"
+    },
+    {
+     "$ref": "#/schemas/RealtimeConversationItemAssistantMessage"
+    }
+   ]
+  },
+  "ConversationCreatedEvent": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "type": "string",
+     "enum": [
+      "conversation.created"
+     ]
+    },
+    "event_id": {
+     "type": "string"
+    },
+    "conversation": {
+     "type": "object",
+     "properties": {
+      "id": {
+       "type": "string"
+      },
+      "object": {
+       "type": "string",
+       "enum": [
+        "realtime.conversation"
+       ]
+      }
+     }
+    }
+   },
+   "required": [
+    "type",
+    "conversation",
+    "event_id"
+   ]
+  },
+  "ConversationItemCreatedEvent": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "type": "string",
+     "enum": [
+      "conversation.item.created"
+     ]
+    },
+    "event_id": {
+     "type": "string"
+    },
+    "item": {
+     "$ref": "#/schemas/ConversationItem"
+    },
+    "previous_item_id": {
+     "type": "string",
+     "nullable": true
+    }
+   },
+   "required": [
+    "type",
+    "event_id",
+    "item"
+   ]
+  },
+  "ConversationItemAdded": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "type": "string",
+     "enum": [
+      "conversation.item.added"
+     ]
+    },
+    "event_id": {
+     "type": "string"
+    },
+    "item": {
+     "$ref": "#/schemas/ConversationItem"
+    },
+    "previous_item_id": {
+     "type": "string",
+     "nullable": true
+    }
+   },
+   "required": [
+    "type",
+    "event_id",
+    "item"
+   ]
+  },
+  "ConversationItemDone": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "type": "string",
+     "enum": [
+      "conversation.item.done"
+     ]
+    },
+    "event_id": {
+     "type": "string"
+    },
+    "item": {
+     "$ref": "#/schemas/ConversationItem"
+    },
+    "previous_item_id": {
+     "type": "string",
+     "nullable": true
+    }
+   },
+   "required": [
+    "type",
+    "event_id",
+    "item"
+   ]
+  },
+  "ResponseOutputItemAddedEvent": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "type": "string",
+     "enum": [
+      "response.output_item.added"
+     ]
+    },
+    "event_id": {
+     "type": "string"
+    },
+    "item": {
+     "$ref": "#/schemas/ConversationItem"
+    },
+    "output_index": {
+     "type": "integer"
+    },
+    "response_id": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "type",
+    "event_id",
+    "item",
+    "output_index",
+    "response_id"
+   ]
+  },
+  "ResponseOutputItemDoneEvent": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "type": "string",
+     "enum": [
+      "response.output_item.done"
+     ]
+    },
+    "event_id": {
+     "type": "string"
+    },
+    "item": {
+     "$ref": "#/schemas/ConversationItem"
+    },
+    "output_index": {
+     "type": "integer"
+    },
+    "response_id": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "type",
+    "event_id",
+    "item",
+    "output_index",
+    "response_id"
+   ]
+  },
+  "ResponseContentPartAddedEvent": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "type": "string",
+     "enum": [
+      "response.content_part.added"
+     ]
+    },
+    "content_index": {
+     "type": "integer"
+    },
+    "event_id": {
+     "type": "string"
+    },
+    "item_id": {
+     "type": "string"
+    },
+    "output_index": {
+     "type": "integer"
+    },
+    "part": {
+     "type": "object",
+     "properties": {
+      "audio": {
+       "type": "string"
+      },
+      "text": {
+       "type": "string"
+      },
+      "transcript": {
+       "type": "string"
+      },
+      "type": {
+       "type": "string",
+       "enum": [
+        "text",
+        "audio"
+       ]
+      }
+     }
+    },
+    "response_id": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "type",
+    "content_index",
+    "event_id",
+    "item_id",
+    "output_index",
+    "part",
+    "response_id"
+   ]
+  },
+  "ResponseContentPartDoneEvent": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "type": "string",
+     "enum": [
+      "response.content_part.done"
+     ]
+    },
+    "content_index": {
+     "type": "integer"
+    },
+    "event_id": {
+     "type": "string"
+    },
+    "item_id": {
+     "type": "string"
+    },
+    "output_index": {
+     "type": "integer"
+    },
+    "part": {
+     "type": "object",
+     "properties": {
+      "audio": {
+       "type": "string"
+      },
+      "text": {
+       "type": "string"
+      },
+      "transcript": {
+       "type": "string"
+      },
+      "type": {
+       "type": "string",
+       "enum": [
+        "text",
+        "audio"
+       ]
+      }
+     }
+    },
+    "response_id": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "type",
+    "content_index",
+    "event_id",
+    "item_id",
+    "output_index",
+    "part",
+    "response_id"
+   ]
+  },
+  "ResponseAudioDoneEvent": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "type": "string",
+     "enum": [
+      "response.output_audio.done"
+     ]
+    },
+    "content_index": {
+     "type": "integer"
+    },
+    "event_id": {
+     "type": "string"
+    },
+    "item_id": {
+     "type": "string"
+    },
+    "output_index": {
+     "type": "integer"
+    },
+    "response_id": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "type",
+    "content_index",
+    "event_id",
+    "item_id",
+    "output_index",
+    "response_id"
+   ]
+  },
+  "ResponseAudioTranscriptDoneEvent": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "type": "string",
+     "enum": [
+      "response.output_audio_transcript.done"
+     ]
+    },
+    "content_index": {
+     "type": "integer"
+    },
+    "event_id": {
+     "type": "string"
+    },
+    "item_id": {
+     "type": "string"
+    },
+    "output_index": {
+     "type": "integer"
+    },
+    "response_id": {
+     "type": "string"
+    },
+    "transcript": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "type",
+    "content_index",
+    "event_id",
+    "item_id",
+    "output_index",
+    "response_id",
+    "transcript"
+   ]
+  },
+  "RateLimitsUpdatedEvent": {
+   "type": "object",
+   "properties": {
+    "type": {
+     "type": "string",
+     "enum": [
+      "rate_limits.updated"
+     ]
+    },
+    "event_id": {
+     "type": "string"
+    },
+    "rate_limits": {
+     "type": "array",
+     "items": {
+      "type": "object",
+      "properties": {
+       "limit": {
+        "type": "number"
+       },
+       "name": {
+        "type": "string",
+        "enum": [
+         "requests",
+         "tokens"
+        ]
+       },
+       "remaining": {
+        "type": "number"
+       },
+       "reset_seconds": {
+        "type": "number"
+       }
+      }
+     }
+    }
+   },
+   "required": [
+    "type",
+    "event_id",
+    "rate_limits"
    ]
   }
  }

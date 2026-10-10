@@ -318,8 +318,8 @@ function interrupt(s, effects, at) {
     s.conversation = { kind: "interrupted" };
     cancelTurn(s, effects, at);
     flushPlayback(s, effects);
-    // The provider has no truncate event: the engine drops its queue and the
-    // rest of the interrupted reply. The server's interruption handling stands.
+    // A duplex engine drops its waiting words and the rest of the interrupted
+    // reply. The brain's next turn carries the part Audio reports as heard.
     if (s.speech.kind === "open") {
         effect(s, effects, "speech-flush", { gen: s.speech.gen, target: s.speech.op });
         s.speech.reply = { kind: "none" };
@@ -730,6 +730,11 @@ function reduce(state, e) {
         break;
     case "speech-idle":
         if (!live(s, e, "speech", ["open"])) { stale(s); break; }
+        // A turn in flight ends by its own deadline, with its own fault or
+        // reason: thinking, a held approval, or an action inside its limit.
+        // The engine's idle wait runs again.
+        if (s.turn.kind === "thinking" || s.approval.kind === "held"
+                || s.action.kind === "running" && s.action.limit.kind === "pending") break;
         end(s, effects, e.at, "idle", false);
         break;
     case "speech-failed":

@@ -1160,6 +1160,29 @@ table.push(["duplex-delegation", logic => {
     assert.deepEqual([r.state.conversation.kind, r.state.speech.kind, r.state.capture.kind], ["ended", "closed", "closing"]);
     assert.ok(r.state.gen > s.gen);
     assert.equal((r.effects.find(e => e.kind === "speech-close") ?? {}).mode, "graceful");
+}], ["duplex-idle-in-flight", logic => {
+    // The engine's idle report changes nothing while a turn is in flight.
+    const listening = duplexListening(logic);
+    const thinking = step(logic, listening, callback("delegation", listening.speech, 30, { id: "request", text: "context" })).state;
+    const proposal = { id: "held", digest: "a".repeat(64), physical: true, text: "Delete the fixture", tool: "fixture",
+        timeoutMs: 100, cancellable: true };
+    // A held approval and a running action can each outlive their turn.
+    let held = step(logic, thinking, callback("approval", thinking.turn, 40, proposal)).state;
+    held = step(logic, held, callback("brain-done", held.turn, 41)).state;
+    let acting = step(logic, thinking, callback("tool", thinking.turn, 40, proposal)).state;
+    acting = step(logic, acting, callback("brain-done", acting.turn, 41)).state;
+    for (const [name, s, flight] of [["a thinking turn", thinking, ["thinking", "none", "none"]],
+        ["a held approval", held, ["none", "held", "none"]], ["a running action", acting, ["none", "none", "running"]]]) {
+        assert.deepEqual([s.turn.kind, s.approval.kind, s.action.kind], flight, name + " alone is in flight");
+        const r = step(logic, s, callback("speech-idle", s.speech, 50));
+        assert.deepEqual([r.state.conversation.kind, r.state.speech.kind, r.state.gen, r.effects], ["active", "open", s.gen, []],
+            name + " keeps the conversation past the engine's idle wait");
+    }
+    const expired = step(logic, acting, callback("deadline", acting.action, acting.action.limit.deadline)).state;
+    assert.deepEqual([expired.action.kind, expired.action.limit.kind], ["running", "expired"]);
+    const r = step(logic, expired, callback("speech-idle", expired.speech, 200));
+    assert.deepEqual([r.state.conversation.kind, r.state.speech.kind], ["ended", "closed"],
+        "an action past its limit no longer holds the conversation");
 }], ["duplex-failed", logic => {
     const s = duplexListening(logic);
     const r = step(logic, s, callback("speech-failed", s.speech, 40, { reason: "live=fixture" }));
@@ -1795,6 +1818,14 @@ try {
         ["speech-close", 'closeSpeech(s, effects, reason === "lease" ? "abort" : "graceful");', "", "duplex-close"],
         ["speech-abort", '"abort" : "graceful"', '"graceful" : "graceful"', "duplex-close"],
         ["speech-idle", 'end(s, effects, e.at, "idle", false);', "", "duplex-idle"],
+        ["idle-thinking", 'if (s.turn.kind === "thinking" || s.approval.kind === "held"\n', 'if (s.approval.kind === "held"\n',
+            "duplex-idle-in-flight", "a thinking turn keeps"],
+        ["idle-approval", 'if (s.turn.kind === "thinking" || s.approval.kind === "held"\n', 'if (s.turn.kind === "thinking"\n',
+            "duplex-idle-in-flight", "a held approval keeps"],
+        ["idle-action", '\n                || s.action.kind === "running" && s.action.limit.kind === "pending") break;', ") break;",
+            "duplex-idle-in-flight", "a running action keeps"],
+        ["idle-action-limit", ' && s.action.limit.kind === "pending") break;', ") break;",
+            "duplex-idle-in-flight", "past its limit"],
         ["speech-fault", 's.fault = { kind: "error", reason: e.reason, retry: 0 };\n        end(s, effects, e.at, "speech-failed", false);',
             'end(s, effects, e.at, "speech-failed", false);', "duplex-failed"],
         ["speech-stale", 'if (!live(s, e, "speech", ["open"])) { stale(s); break; }\n        // New output', "// New output", "duplex-stale"],

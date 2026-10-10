@@ -24,7 +24,7 @@ const ROWS = Object.freeze({
     // The duplex voice engine. base is its WebSocket endpoint; a key stored for
     // the openai row's origin serves it, since both handshake at that origin.
     // The address pins the model, which session.update cannot change; this is
-    // its one place in VGS. It is the model Talk's session uses:
+    // the one place the shell names it. It is the model Talk's session uses:
     // ~/dev/talk/docs/talk-api.md:58. noStore keeps the session out of
     // OpenAI's Traces dashboard.
     "openai-realtime": { driver: "openai-realtime", base: "wss://api.openai.com/v1/realtime?model=gpt-realtime-2.1", key: "required", images: false,
