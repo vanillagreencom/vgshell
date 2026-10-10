@@ -850,7 +850,8 @@ async function cases(kit, server, only = null) {
     // text that outgrew its bound since the setup answer fails that turn
     // with its cause, and no request leaves without the whole persona.
     const homeFolder = fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "home-"));
-    for (const set of ["base", "own"]) fs.mkdirSync(path.join(homeFolder, "skills", set), { recursive: true });
+    for (const set of ["base/jarvis", "own"]) fs.mkdirSync(path.join(homeFolder, "skills", set), { recursive: true });
+    fs.writeFileSync(path.join(homeFolder, "skills/base/jarvis/persona.md"), "# Persona\n");
     fs.writeFileSync(path.join(homeFolder, "skills/own/alpha.md"), "# Alpha skill\n");
     fs.writeFileSync(path.join(homeFolder, "AGENTS.md"), "HOME-MARKER-ONE\n");
     await run("home-text", async w => {
@@ -1807,7 +1808,8 @@ function selection(Engine) {
     // first; no home, or a home that reads whole, adds none.
     const homes = fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "homes-"));
     const homeAt = (name, agents) => {
-        for (const set of ["base", "own"]) fs.mkdirSync(path.join(homes, name, "skills", set), { recursive: true });
+        for (const set of ["base/jarvis", "own"]) fs.mkdirSync(path.join(homes, name, "skills", set), { recursive: true });
+        fs.writeFileSync(path.join(homes, name, "skills/base/jarvis/persona.md"), "# Persona\n");
         fs.writeFileSync(path.join(homes, name, "AGENTS.md"), agents);
         return { kind: "ready", path: path.join(homes, name) };
     };

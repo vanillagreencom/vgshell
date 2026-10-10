@@ -76,6 +76,8 @@ function freshSuite(tree, suite, root, timeoutMs = 180000) {
         { recursive: true });
     fs.copyFileSync(path.join(tree, "shell/plugins/vgs.jarvis/AccountProviders.js"),
         path.join(clone, "shell/plugins/vgs.jarvis/AccountProviders.js"));
+    // The base package a home layout copies (backend/Core.js basePackage).
+    fs.cpSync(path.join(tree, ".agents/skills/jarvis"), path.join(clone, ".agents/skills/jarvis"), { recursive: true });
     const file = path.join(clone, relative);
     const run = () => cp.spawnSync(process.execPath, [file, "--fresh"], {
         cwd: clone, env: { PATH: "/usr/bin:/bin", HOME: clone, LC_ALL: "C",

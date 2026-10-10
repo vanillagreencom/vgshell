@@ -196,6 +196,7 @@ check "a failing git enumerator creates no DESTDIR file" test ! -e "$enum_dest"
 archive_source="$tmp/archive-source"
 mkdir -p -- "$archive_source"
 cp -R -- "$repo/bin" "$repo/shell" "$repo/config" "$repo/themes" "$repo/packaging" "$archive_source/"
+mkdir -p -- "$archive_source/.agents/skills" && cp -R -- "$repo/.agents/skills/jarvis" "$archive_source/.agents/skills/"
 cp -- "$repo/VERSION" "$repo/LICENSE" "$repo/README.md" "$archive_source/"
 mkdir -p -- "$archive_source/shell/unreadable"
 chmod 000 -- "$archive_source/shell/unreadable"
@@ -209,6 +210,7 @@ check "a failing archive enumerator creates no DESTDIR file" test ! -e "$tmp/arc
 readonly_source="$tmp/readonly-source"
 mkdir -p -- "$readonly_source"
 cp -R -- "$repo/bin" "$repo/shell" "$repo/config" "$repo/themes" "$repo/packaging" "$readonly_source/"
+mkdir -p -- "$readonly_source/.agents/skills" && cp -R -- "$repo/.agents/skills/jarvis" "$readonly_source/.agents/skills/"
 cp -- "$repo/VERSION" "$repo/LICENSE" "$repo/README.md" "$readonly_source/"
 chmod -R a-w -- "$readonly_source"
 run_capture "$tmp/readonly-source.out" "$tmp/readonly-source.err" status env DESTDIR="$tmp/readonly-source-install" PREFIX=/usr "$readonly_source/packaging/install-system.sh"
@@ -250,6 +252,7 @@ check "--write reports the manifest path" grep_out "install-tree=manifest-update
 source_copy="$tmp/source"
 mkdir -p -- "$source_copy"
 cp -R -- "$repo/bin" "$repo/shell" "$repo/config" "$repo/themes" "$repo/packaging" "$source_copy/"
+mkdir -p -- "$source_copy/.agents/skills" && cp -R -- "$repo/.agents/skills/jarvis" "$source_copy/.agents/skills/"
 cp -- "$repo/VERSION" "$repo/LICENSE" "$repo/README.md" "$source_copy/"
 python3 - "$source_copy/packaging/install-system.sh" <<'PY'
 import pathlib
