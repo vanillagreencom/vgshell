@@ -32,20 +32,25 @@ assert text.count(marker) == 1, "lastPayload must occur once"
 text = text.replace(marker, marker + "    property int smokePressMarks: 0\n", 1)
 marker = "    property int smokePressMarks: 0\n"
 assert text.count(marker) == 1, "smokePressMarks must occur once"
-text = text.replace(marker, marker + "    property int smokeCloseMarks: 0\n", 1)
+text = text.replace(marker, marker + "    property int smokeCloseMarks: 0\n    property int smokeButtonMarks: 0\n", 1)
 marker = "    function geometry() { const p = mapToGlobal(0, 0); return JSON.stringify([p.x, p.y, width, height]); }\n"
 assert text.count(marker) == 1, "geometry must occur once"
-text = text.replace(marker, marker + "    function smokeMarkerGeometry() { const p = smokeMarker.mapToGlobal(0, 0); return JSON.stringify([p.x, p.y, smokeMarker.width, smokeMarker.height]); }\n", 1)
+text = text.replace(marker, marker + "    function smokeMarkerGeometry() { const p = smokeMarker.mapToGlobal(0, 0); return JSON.stringify([p.x, p.y, smokeMarker.width, smokeMarker.height]); }\n    function smokeButtonGeometry() { const p = smokeButton.mapToGlobal(0, 0); return JSON.stringify([p.x, p.y, smokeButton.width, smokeButton.height]); }\n", 1)
+marker = '    Button {\n        text: "Next"\n'
+assert text.count(marker) == 1, "the Next button must occur once"
+text = text.replace(marker, '    Button {\n        id: smokeButton\n        text: "Next"\n        onPressed: root.smokeButtonMarks += 1\n', 1)
 marker = "    function close() {\n"
 assert text.count(marker) == 1, "close function must occur once"
 text = text.replace(marker, marker + "        smokeCloseMarks += 1;\n", 1)
-marker = "    T.Control {\n"
+# The marker sits on the card's bottom edge, the band a slide offset
+# leaves outside a mask that follows the card's Translate.
+marker = "    Item {\n        id: container\n"
 insert = '''    Rectangle {
         id: smokeMarker
         x: 4
-        y: 84
+        y: parent.height - 18
         width: 24
-        height: 24
+        height: 16
         color: "#ff00ff"
         MouseArea {
             anchors.fill: parent
@@ -54,7 +59,7 @@ insert = '''    Rectangle {
         }
     }
 '''
-assert text.count(marker) == 1, "focus control must occur once"
+assert text.count(marker) == 1, "the menu anchor container must occur once"
 text = text.replace(marker, insert + marker, 1)
 path.write_text(text)
 PYEDIT
@@ -140,6 +145,7 @@ summon_noescape="$repo/shell/Hosts/SummonPopupNoEscape.qml"
 summon_copy="$repo/shell/Hosts/SummonPopupNoGrab.qml"
 summon_no_commit="$repo/shell/Hosts/SummonPopupNoCommit.qml"
 summon_input_copy="$repo/shell/Hosts/SummonPopupInputEnabled.qml"
+summon_mask_copy="$repo/shell/Hosts/SummonPopupItemMask.qml"
 layer_copy="$repo/shell/Hosts/SummonLayerNoCatch.qml"
 python3 - "$repo/shell/Hosts/SummonPopup.qml" "$summon_noescape" <<'PYEDIT'
 import pathlib, sys
@@ -186,9 +192,18 @@ python3 - "$repo/shell/Hosts/SummonPopup.qml" "$summon_input_copy" <<'PYEDIT'
 import pathlib, sys
 source, target = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
 text = source.read_text()
-old = "        enabled: !popup.closing\n"
-assert text.count(old) == 1, "the SummonPopup closing input guard must occur once"
-target.write_text(text.replace(old, ""))
+for old, new in (("            visible: popup.closing\n", "            visible: false\n"), ("            focus: !popup.closing\n", "            focus: true\n")):
+    assert text.count(old) == 1, "the SummonPopup closing input guard must occur once: " + old
+    text = text.replace(old, new)
+target.write_text(text)
+PYEDIT
+python3 - "$repo/shell/Hosts/SummonPopup.qml" "$summon_mask_copy" <<'PYEDIT'
+import pathlib, sys
+source, target = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+text = source.read_text()
+old = "    mask: Region { x: sized.x; y: sized.y; width: sized.width; height: sized.height }\n"
+assert text.count(old) == 1, "the SummonPopup card mask must occur once"
+target.write_text(text.replace(old, "    mask: Region { item: sized }\n"))
 PYEDIT
 python3 - "$repo/shell/Hosts/SummonLayer.qml" "$layer_copy" <<'PYEDIT'
 import pathlib, sys
@@ -249,6 +264,13 @@ layer_press() {
 layer_copy_state() { printf '%s %s\n' "$(ipc smoke summonLayerDismissals "$1")" "$(layer_count vgs:panel)"; }
 smoke_marks() { ipc smoke readInstance panel acme.surfaces smokePressMarks; }
 smoke_close_marks() { ipc smoke readInstance panel acme.surfaces smokeCloseMarks; }
+# plugin_focus: `held` while an item of the panel instance has active focus,
+# else the probe's `no-focus` or `absent`.
+plugin_focus() {
+  local focused
+  focused="$(ipc smoke focused panel acme.surfaces)" || return 1
+  case $focused in no-focus | absent) echo "$focused" ;; *) echo held ;; esac
+}
 smoke_marker_press() {
   local box layer x y
   box="$(ipc smoke invokeInstance panel acme.surfaces smokeMarkerGeometry '')" || return 1
@@ -257,9 +279,12 @@ smoke_marker_press() {
   read -r x y < <(python3 -c 'import json,sys; b=json.loads(sys.argv[1]); l=json.loads(sys.argv[2]); print(int(l[0] + b[0] + b[2] / 2), int(l[1] + b[1] + b[3] / 2))' "$box" "$layer") || return 1
   click "$x" "$y" >/dev/null && echo ok
 }
+smoke_button_marks() { ipc smoke readInstance panel acme.surfaces smokeButtonMarks; }
+# popup_marker_press [GEOMETRY]: presses the centre of the box the panel
+# instance's GEOMETRY function names, the marker by default.
 popup_marker_press() {
   local box x y
-  box="$(ipc smoke invokeInstance panel acme.surfaces smokeMarkerGeometry '')" || return 1
+  box="$(ipc smoke invokeInstance panel acme.surfaces "${1:-smokeMarkerGeometry}" '')" || return 1
   [[ $box == \[* ]] || { echo "$box"; return 1; }
   read -r x y < <(python3 -c 'import json,sys; b=json.loads(sys.argv[1]); print(int(b[0] + b[2] / 2), int(b[1] + b[3] / 2))' "$box") || return 1
   click "$x" "$y" >/dev/null && echo ok
@@ -712,11 +737,26 @@ expect "the motion copy's panel takes a payload" '' ipc smoke invokeInstance pan
 expect_poll "the motion copy is shown before its motion is read" true ipc smoke popupRead summon-motion visible
 expect "the motion copy opens with a fade and slide in progress" moving popup_fade_slide_state summon-motion
 expect_poll "the motion copy reaches rest after opening" rest popup_motion_state summon-motion
+expect_poll "the open motion copy's plugin holds the keyboard focus" held plugin_focus
 expect "the motion copy marker starts untouched" 0 smoke_marks
+expect "the open card's bottom-edge marker press is sent" ok popup_marker_press
+expect "a plugin MouseArea on the open card's bottom edge takes the press" 1 smoke_marks
+expect "a press on the open card's bottom edge leaves it shown" true ipc smoke popupRead summon-motion visible
+expect "the open card's Templates button press is sent" ok popup_marker_press smokeButtonGeometry
+expect "a Templates control on the open card takes the press" 1 smoke_button_marks
 expect "the motion copy starts closing" ok ipc smoke popupCall summon-motion requestDismiss
-expect "pressing the closing motion copy marker sends no plugin input" ok popup_marker_press
-expect "the closing motion copy marker remains untouched" 0 smoke_marks
-expect_poll "the motion copy closes with a fade and slide in progress" moving popup_fade_slide_state summon-motion
+expect "the motion copy closes with a fade and slide in progress" moving popup_fade_slide_state summon-motion
+expect "the closing card's plugin holds no keyboard focus" no-focus plugin_focus
+expect "pressing the closing motion copy marker is sent" ok popup_marker_press
+expect "the closing card's plugin MouseArea takes no press" 1 smoke_marks
+expect "the marker press landed while the card was closing" moving popup_motion_state summon-motion
+expect "a reopen during the close is allowed" ok ipc smoke popupCall summon-motion reopenFromHost
+expect_poll "the reopened card's plugin takes its keyboard focus back" held plugin_focus
+expect_poll "the reopened motion copy reaches rest" rest popup_motion_state summon-motion
+expect "the motion copy starts closing again" ok ipc smoke popupCall summon-motion requestDismiss
+expect "pressing the closing card's Templates button is sent" ok popup_marker_press smokeButtonGeometry
+expect "the closing card's Templates control takes no press" 1 smoke_button_marks
+expect "the button press landed while the card was closing" moving popup_motion_state summon-motion
 expect_poll "the motion copy releases its popup after closing" false ipc smoke popupRead summon-motion visible
 expect "the probe drops the motion copy" ok ipc smoke popupDrop summon-motion
 expect_poll "the motion copy's panel leaves the build records" absent ipc smoke readInstance panel acme.surfaces opened
@@ -724,10 +764,19 @@ expect "the probe builds the input-control popup copy" ok ipc smoke popupLoad su
 expect "the input-control copy's panel takes a payload" '' ipc smoke invokeInstance panel acme.surfaces open '{}'
 expect_poll "the input-control copy is shown" true ipc smoke popupRead summon-input-control visible
 expect "the input-control copy starts closing" ok ipc smoke popupCall summon-input-control requestDismiss
+expect "control: without the key guard the closing card's plugin keeps the keyboard focus" held plugin_focus
 expect "control: without the input guard the closing marker press reaches the plugin" ok popup_marker_press
 expect "control: the unguarded closing marker press increments the marker" 1 smoke_marks
+expect "control: the unguarded press landed while the card was closing" moving popup_motion_state summon-input-control
 expect "the probe drops the input-control copy" ok ipc smoke popupDrop summon-input-control
 expect_poll "the input-control copy's panel leaves the build records" absent ipc smoke readInstance panel acme.surfaces opened
+expect "the probe builds the item-mask popup copy" ok ipc smoke popupLoad summon-mask-control "$summon_mask_copy" "bar:$screen_name" acme.surfaces '{"pluginId":"acme.surfaces","kind":"panel","request":{"anchor":"@instance","anchored":true,"payloadJson":"{}"}}'
+expect "the item-mask copy's panel takes a payload" '' ipc smoke invokeInstance panel acme.surfaces open '{}'
+expect_poll "the item-mask copy reaches rest" rest popup_motion_state summon-mask-control
+expect "the item-mask copy's bottom-edge marker press is sent" ok popup_marker_press
+expect_poll "control: a mask mapped through the slide dismisses the card on a bottom-edge press" false ipc smoke popupRead summon-mask-control visible
+expect "the probe drops the item-mask copy" ok ipc smoke popupDrop summon-mask-control
+expect_poll "the item-mask copy's panel leaves the build records" absent ipc smoke readInstance panel acme.surfaces opened
 printf '%s\n' '{"schemaVersion":1,"name":"surface-motion-off","tokens":{"motion":{"scale":0}}}' >"$surface_motion_theme.tmp"
 mv -T -- "$surface_motion_theme.tmp" "$surface_motion_theme"
 expect_poll "motion scale 0 stills the flyout duration" 0 ipc smoke themeValue motion.flyout.travel.duration

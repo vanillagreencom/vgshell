@@ -47,7 +47,12 @@ PopupWindow {
     color: "transparent"
     // Input reaches only the drawn card: a press on the room below it lands
     // on what lies under the popup, outside the grab, which dismisses it.
-    mask: Region { item: sized }
+    // The card's resting box, not `item: sized`: Quickshell's Region maps
+    // its item through the slide's Translate but rebuilds only on the
+    // item's x, y, width or height, so it kept the open motion's first
+    // frame and left the card's bottom `motion.flyout.slide` outside
+    // (surfaces row, the mask control).
+    mask: Region { x: sized.x; y: sized.y; width: sized.width; height: sized.height }
     Component.onCompleted: Qt.callLater(() => setMotion(1, false))
     // Quickshell PopupWindow::onClosed sets the wanted visibility false
     // after the compositor closes the xdg_popup, so that path cannot commit
@@ -156,7 +161,6 @@ PopupWindow {
         id: sized
         room: Math.min(popup.roomBelow(), popup.room.height)
         target: slot.instance ? Math.max(1, Math.min(slot.instance.implicitHeight, sized.room > 0 ? sized.room : popup.room.height)) : 1
-        enabled: !popup.closing
         opacity: popup.motionProgress
         transform: Translate {
             id: cardOffset
@@ -172,13 +176,31 @@ PopupWindow {
             screen: popup.screen
             closeOnUnload: true
             anchors.fill: parent
-            focus: true
+            // A closing card hears no key: the slot gives up focus, and a
+            // reopen takes it back with the focus the plugin had inside it.
+            focus: !popup.closing
             Keys.onEscapePressed: popup.requestDismiss()
             onBuilt: instance => {
                 popup.built(instance);
                 slot.focusInitial();
             }
             onBuildFailed: key => popup.requestDismiss()
+        }
+
+        // A closing card takes no press or wheel, and stays enabled: every
+        // qs.Ui control draws its disabled look from `enabled`. A pointer
+        // handler under this area is still offered the press. Hidden, it
+        // still makes Qt skip the card's children for a press outside the
+        // card: Qt 6.11 QQuickItemPrivate::effectivelyClipsEventHandlingChildren
+        // reads a child's accepted buttons, not its visibility, and keeps
+        // the last child's answer. Outside the card is outside the mask.
+        // keyboard-path: none, as this blocks input and takes no action
+        // pointer-cursor-exempt: it covers a closing card, not a control
+        MouseArea {
+            anchors.fill: parent
+            visible: popup.closing
+            acceptedButtons: Qt.AllButtons
+            onWheel: wheel => wheel.accepted = true
         }
     }
 }
