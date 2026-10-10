@@ -80,14 +80,17 @@ function resolve(file, follow = true) {
  * Build one protected-root snapshot from trusted XDG/installation roots.
  * accountRoots holds the explicit and hand-added account roots
  * (Accounts.js::accountRoots); the account name rule protects the rest.
- * homeRoots holds the knowledge paths of the user's Jarvis home folder
- * (Home.js::protectedPaths), none while no home is chosen: a model changes
- * what Jarvis knows through no file tool, shell command or harness approval.
+ * jarvisHome is the user's Jarvis home folder as Home.js::guard answers it,
+ * {root, open}, or null while none is chosen. Every path in root is
+ * protected but its entry named open and what lies below that: a model
+ * changes what Jarvis knows through no file tool, shell command or harness
+ * approval, and adds no file to the folder beside it.
  * Each consumer rebuilds this snapshot immediately before it acts.
  */
-function create({ home, config, data, state, runtime, install, accountRoots, homeRoots }) {
+function create({ home, config, data, state, runtime, install, accountRoots, jarvisHome }) {
     if (!Array.isArray(accountRoots)) throw new Error("jarvis: paths=account-roots");
-    if (!Array.isArray(homeRoots)) throw new Error("jarvis: paths=home-roots");
+    if (jarvisHome !== null && (typeof jarvisHome?.root !== "string" || typeof jarvisHome.open !== "string"))
+        throw new Error("jarvis: paths=jarvis-home");
     const realHome = resolve(home);
     if (!realHome.exists || !fs.statSync(realHome.path).isDirectory()) throw new Error("jarvis: paths=home");
     // The account name rule counts depth below each physical base.
@@ -127,7 +130,7 @@ function create({ home, config, data, state, runtime, install, accountRoots, hom
     const protectedPaths = credential.concat([
         path.join(config, "vgshell"), path.join(data, "vgshell"), path.join(state, "vgshell"),
         path.join(runtime, "vgshell"), install
-    ], homeRoots);
+    ]);
     const execution = [
         [home, ".profile"], [home, ".bash_profile"], [home, ".bash_login"], [home, ".bashrc"],
         [home, ".zprofile"], [home, ".zshrc"], [home, ".zshenv"], [home, ".xprofile"],
@@ -137,6 +140,27 @@ function create({ home, config, data, state, runtime, install, accountRoots, hom
     const roots = files => files.flatMap(file => [file, resolve(file).path]);
     const protectedRoots = roots(protectedPaths);
     const executionRoots = roots(execution);
+    // The Jarvis home under its name and its physical path. One rule holds
+    // it: a path in the folder is protected unless it lies in the open
+    // entry, and a role that takes a whole tree is refused the folder and
+    // every folder above it.
+    const jarvisHomes = jarvisHome === null ? [] : [...new Set(roots([jarvisHome.root]))]
+        .map(root => ({ root, open: path.join(root, jarvisHome.open) }));
+    const inJarvisHome = (file, tree) => jarvisHomes.some(({ root, open }) =>
+        (tree && within(root, file)) || (within(file, root) && !within(file, open)));
+    // A mask on the home's root would hide the open entry too, so each
+    // entry present beside it is masked by its own path, read by name. A
+    // file the setting names in a folder's place is masked whole.
+    const jarvisHomeMasks = () => jarvisHomes.flatMap(({ root, open }) => {
+        let names;
+        try { names = fs.readdirSync(root); }
+        catch (error) {
+            if (error.code === "ENOENT") return [];
+            if (error.code === "ENOTDIR") return [root];
+            throw error;
+        }
+        return names.map(name => path.join(root, name)).filter(file => file !== open);
+    });
     let masks = null;
     // The resolved targets of rule-named links directly in each base, read
     // once per snapshot on its first judgment: a dotfile manager's
@@ -178,7 +202,7 @@ function create({ home, config, data, state, runtime, install, accountRoots, hom
         const changes = ["write", "move", "remove", "workspace"].includes(role);
         const ancestor = changes || role === "tree-read";
         if (target.trail.concat(target.path).some(named) || protectedRoots.some(root => within(target.path, root)
-                || (ancestor && within(root, target.path))))
+                || (ancestor && within(root, target.path))) || inJarvisHome(target.path, ancestor))
             return { kind: "refuse", reason: "protected-path" };
         try {
             if (accountLinkTargets().some(link => within(target.path, link) || (ancestor && within(link, target.path))))
@@ -196,15 +220,16 @@ function create({ home, config, data, state, runtime, install, accountRoots, hom
          * J23 consumes this list for its filesystem masks. It must not
          * rebuild a second credential inventory or treat absent roots as
          * safe. The masks need concrete paths, so the first read adds the
-         * rule-named entries present then, found by names alone. A dangling
-         * or looping one is masked by its own path. Judgments never read it.
+         * rule-named entries present then, found by names alone, and the
+         * Jarvis home's entries beside its open one. A dangling or looping
+         * one is masked by its own path. Judgments never read it.
          */
         get masks() {
             if (masks === null) {
                 const accounts = bases.flatMap(base => present(base, 1, [], true)).flatMap(file => {
                     try { return [file, resolve(file).path]; } catch { return [file]; }
                 });
-                masks = Object.freeze([...new Set(protectedRoots.concat(accounts))]);
+                masks = Object.freeze([...new Set(protectedRoots.concat(accounts, jarvisHomeMasks()))]);
             }
             return masks;
         },

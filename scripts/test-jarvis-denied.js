@@ -289,40 +289,53 @@ world(() => {
         mutant(file, name, needle, replacement, check);
         controls++;
     }
-    // The Jarvis home folder (D105): no path role reaches what Jarvis knows,
-    // its folder is no workspace and no tree to delete, and state/ stays
-    // the model's to write. Two levels below HOME, so the account name rule
-    // names none of its entries.
+    // The Jarvis home folder (D105): the whole folder is protected, a file
+    // its layout does not name included, it is no workspace and no tree to
+    // delete, and only state/ stays the model's. Two levels below HOME, so
+    // the account name rule names none of its entries.
     const jarvis = path.join(home, "work/jarvis");
     for (const name of ["skills/own", "memory/inbox", "state", ".claude", ".codex"]) fs.mkdirSync(path.join(jarvis, name), { recursive: true });
-    for (const name of ["AGENTS.md", "CLAUDE.md", "memory/MEMORY.md", ".claude/settings.json", ".codex/config.toml", "state/handoff.md"])
+    for (const name of ["AGENTS.md", "CLAUDE.md", "README.md", "memory/MEMORY.md", ".claude/settings.json", ".codex/config.toml", "state/handoff.md"])
         fs.writeFileSync(path.join(jarvis, name), "synthetic\n");
-    const homeRoots = require(path.join(tree, "shell/plugins/vgs.jarvis/backend/Home.js")).protectedPaths(jarvis);
-    const homeOptions = { ...options, homeRoots };
+    const jarvisHome = require(path.join(tree, "shell/plugins/vgs.jarvis/backend/Home.js")).guard(jarvis);
+    const homeOptions = { ...options, jarvisHome };
     fs.symlinkSync(jarvis, path.join(project, "jarvis-alias"));
+    const roles = ["read", "tree-read", "write", "move", "remove", "workspace"];
     function homeGuard(judge) {
+        // The layout's entries, then what a harness session in the folder
+        // would read, a folder of the user's own and two names beside state.
         for (const name of ["AGENTS.md", "CLAUDE.md", "skills", "skills/own/new.md", "memory", "memory/MEMORY.md", "memory/inbox/note.md",
-            ".claude", ".claude/settings.json", ".codex", ".codex/config.toml"])
-            for (const role of ["read", "tree-read", "write", "move", "remove", "workspace"])
-                refused(judge, path.join(jarvis, name), role, "protected-path");
-        for (const role of ["tree-read", "write", "move", "remove", "workspace"]) refused(judge, jarvis, role, "protected-path");
-        refused(judge, path.join(project, "jarvis-alias/AGENTS.md"), "write", "protected-path");
+            ".claude", ".claude/settings.json", ".codex", ".codex/config.toml",
+            ".mcp.json", "AGENTS.override.md", "README.md", "notes/plan.md", "state.md", "state-2/log.md"])
+            for (const role of roles) refused(judge, path.join(jarvis, name), role, "protected-path");
+        for (const role of roles) refused(judge, jarvis, role, "protected-path");
+        for (const role of roles.filter(role => role !== "read")) refused(judge, path.dirname(jarvis), role, "protected-path");
+        allowed(judge, path.dirname(jarvis), "read");
+        refused(judge, path.join(project, "jarvis-alias/.mcp.json"), "write", "protected-path");
         const handoff = path.join(jarvis, "state/handoff.md");
         for (const role of ["read", "write", "move", "remove"]) allowed(judge, handoff, role);
+        allowed(judge, path.join(project, "jarvis-alias/state/handoff.md"), "write", handoff);
         allowed(judge, path.join(jarvis, "state/new.md"), "write", path.join(jarvis, "state/new.md"), false);
         allowed(judge, path.join(jarvis, "state"), "workspace");
-        allowed(judge, jarvis, "read");
-        assert.equal(judge.inspectPaths([[handoff, "move"], [path.join(jarvis, "AGENTS.md"), "write"]]).reason, "protected-path");
+        assert.equal(judge.inspectPaths([[handoff, "move"], [path.join(jarvis, ".mcp.json"), "write"]]).reason, "protected-path");
         assert.equal(judge.inspectPaths([[handoff, "move"], [path.join(jarvis, "state/kept.md"), "write"]]).kind, "paths");
-        for (const root of homeRoots) assert.equal(judge.masks.includes(root), true, root + " is masked from a sandboxed command");
+        for (const name of ["AGENTS.md", "CLAUDE.md", "README.md", "skills", "memory", ".claude", ".codex"])
+            assert.equal(judge.masks.includes(path.join(jarvis, name)), true, name + " is masked from a sandboxed command");
         assert.equal(judge.masks.some(root => root === path.join(jarvis, "state") || root === jarvis), false, "state stays in a command's reach");
     }
     homeGuard(Denied.create(homeOptions));
-    allowed(denied, path.join(jarvis, "AGENTS.md"), "write");
-    assert.throws(() => Denied.create({ ...options, homeRoots: undefined }), { message: "jarvis: paths=home-roots" });
-    control("home-roots", "    ], homeRoots);", "    ], []);", logic => homeGuard(logic.create(homeOptions)));
-    control("home-list", "if (!Array.isArray(homeRoots))", "if (false && !Array.isArray(homeRoots))",
-        logic => assert.throws(() => logic.create({ ...options, homeRoots: undefined }), { message: "jarvis: paths=home-roots" }));
+    for (const name of [".mcp.json", "README.md"]) allowed(denied, path.join(jarvis, name), "write", path.join(jarvis, name), name === "README.md");
+    // A file the setting names where a folder belongs is masked whole.
+    assert.equal(Denied.create({ ...options, jarvisHome: { ...jarvisHome, root: path.join(jarvis, "README.md") } }).masks
+        .includes(path.join(jarvis, "README.md")), true);
+    const unnamed = logic => assert.throws(() => logic.create({ ...options, jarvisHome: undefined }), { message: "jarvis: paths=jarvis-home" });
+    unnamed(Denied);
+    control("home-whole", " || inJarvisHome(target.path, ancestor))", ")", logic => homeGuard(logic.create(homeOptions)));
+    control("home-open", "(within(file, root) && !within(file, open))", "within(file, root)", logic => homeGuard(logic.create(homeOptions)));
+    control("home-tree", "(tree && within(root, file)) || ", "", logic => homeGuard(logic.create(homeOptions)));
+    control("home-masks", "protectedRoots.concat(accounts, jarvisHomeMasks())", "protectedRoots.concat(accounts)", logic => homeGuard(logic.create(homeOptions)));
+    control("home-open-masked", ".filter(file => file !== open)", "", logic => homeGuard(logic.create(homeOptions)));
+    control("home-option", 'if (jarvisHome !== null && (typeof jarvisHome?.root !== "string"', 'if (false && (typeof jarvisHome?.root !== "string"', unnamed);
     control("descendants", 'within(target.path, root)\n', 'false\n',
         logic => refused(logic.create(options), path.join(ssh, "sentinel"), "read", "protected-path"));
     control("ancestors", '(ancestor && within(root, target.path))',
@@ -338,7 +351,7 @@ world(() => {
         logic => refused(logic.create(options), path.join(alias, "sentinel"), "read", "protected-path"));
     control("root-alias", 'files.flatMap(file => [file, resolve(file).path])', 'files.flatMap(file => [file])',
         logic => refused(logic.create({ ...roots, accountRoots: [accountAlias] }), path.join(realAccount, "absent"), "read", "protected-path"));
-    control("sandbox-masks", "masks = Object.freeze([...new Set(protectedRoots.concat(accounts))]);", "masks = Object.freeze(accounts);",
+    control("sandbox-masks", "masks = Object.freeze([...new Set(protectedRoots.concat(accounts, jarvisHomeMasks()))]);", "masks = Object.freeze(accounts);",
         logic => assert.equal(logic.create(options).masks.includes(account), true));
     control("account-roots", '}).concat(accountRoots);', '}).concat([]);',
         logic => refused(logic.create(options), account, "read", "protected-path"));
@@ -399,7 +412,7 @@ world(() => {
             try { refused(judge, fresh, "remove", "protected-path"); }
             finally { fs.rmSync(fresh, { recursive: true }); }
         });
-    control("account-masks", "masks = Object.freeze([...new Set(protectedRoots.concat(accounts))]);",
+    control("account-masks", "masks = Object.freeze([...new Set(protectedRoots.concat(accounts, jarvisHomeMasks()))]);",
         "masks = Object.freeze([...new Set(protectedRoots)]);",
         logic => assert.equal(logic.create(options).masks.includes(namedAccount), true));
     control("account-mask-links", "else if (depth < ACCOUNT_DEPTH && entry.isDirectory())",

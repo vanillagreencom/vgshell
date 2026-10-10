@@ -205,6 +205,8 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
     let daemonSpeech = null;
     let speechState = { kind: "new" };
     const homePath = () => { const judged = home(); return judged.kind === "ready" ? judged.path : null; };
+    // Whether the home folder's own cause holds the plan.
+    let homeHeld = false;
 
     function configuration() {
         if (plan.kind !== "ready") return plan;
@@ -968,7 +970,9 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         /** Select setup admission; healthy loading can accept bounded capture. */
         configure(settings) {
             plan = select(settings, accounts, directories);
+            const selected = plan;
             plan = heldByHome(plan, home());
+            homeHeld = plan !== selected;
             if (plan.kind === "ready" && plan.speech.lifetime === "daemon") {
                 // A completed setup publication can repair an initial
                 // refusal. Ordinary hellos leave that runtime unloaded.
@@ -977,6 +981,12 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             }
             return configuration();
         },
+        /**
+         * Whether the last configure left the home folder holding the plan.
+         * No hello follows an edit inside the folder, so the daemon judges
+         * it again at the user's next request.
+         */
+        homeHeld: () => homeHeld,
         observe(s) {
             if (conversation !== null && (s.gen !== conversation.gen || s.conversation.kind === "ended")) end();
             if (s.playback.kind === "feedback") {

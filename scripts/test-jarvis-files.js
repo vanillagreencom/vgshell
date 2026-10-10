@@ -235,17 +235,18 @@ world(async () => {
         assert.equal(read(row[1]), "beta protected secret\n", row[0] + " untouched");
     }
     // The Jarvis home folder (D105): the write, move and delete tools refuse
-    // what Jarvis knows and leave every byte, a new knowledge file is not
-    // made, and state/ takes all three.
+    // every path in it and leave every byte, no new file is made in it, one
+    // a harness session there would read among them, and state/ takes all
+    // three.
     const jarvis = path.join(home, "work/jarvis");
     const knowledge = ["AGENTS.md", "CLAUDE.md", "skills/own/alpha.md", "memory/MEMORY.md", "memory/inbox/note.md", ".claude/settings.json", ".codex/config.toml"];
-    const homeRoots = require(path.join(backend, "Home.js")).protectedPaths(jarvis);
+    const jarvisHome = require(path.join(backend, "Home.js")).guard(jarvis);
     const homeGate = async (Files, judge = Denied) => {
         for (const name of [...knowledge, "state/handoff.md"]) {
             fs.mkdirSync(path.dirname(path.join(jarvis, name)), { recursive: true });
             fs.writeFileSync(path.join(jarvis, name), "home knowledge\n");
         }
-        const gated = () => make(Files, () => judge.create({ ...options, homeRoots }));
+        const gated = () => make(Files, () => judge.create({ ...options, jarvisHome }));
         const handoff = path.join(jarvis, "state/handoff.md");
         for (const name of knowledge) {
             const target = path.join(jarvis, name);
@@ -256,9 +257,13 @@ world(async () => {
         }
         for (const folder of ["skills", "memory", ".claude", ".codex", "."])
             await expectRun("home-folder-" + folder, gated(), "files.delete", { path: path.join(jarvis, folder) }, "failed", /^Refused: protected-path for /);
-        await expectRun("home-new-skill", gated(), "files.write", { path: path.join(jarvis, "skills/own/planted.md"), text: "model text" },
-            "failed", /^Refused: protected-path for /);
-        assert.equal(fs.existsSync(path.join(jarvis, "skills/own/planted.md")), false);
+        for (const name of ["skills/own/planted.md", ".mcp.json", "AGENTS.override.md", "notes/plan.md"]) {
+            await expectRun("home-new-" + name, gated(), "files.write", { path: path.join(jarvis, name), text: "model text" },
+                "failed", /^Refused: protected-path for /);
+            await expectRun("home-moved-in-" + name, gated(), "files.move", { from: handoff, to: path.join(jarvis, name) },
+                "failed", /^Refused: protected-path for /);
+            assert.equal(fs.existsSync(path.join(jarvis, name)), false, name + " is not made");
+        }
         await expectRun("home-state-write", gated(), "files.write", { path: path.join(jarvis, "state/log.md"), text: "progress" }, "completed");
         assert.equal(read(path.join(jarvis, "state/log.md")), "progress");
         await expectRun("home-state-move", gated(), "files.move", { from: path.join(jarvis, "state/log.md"), to: path.join(jarvis, "state/log-2.md") }, "completed");
@@ -811,7 +816,7 @@ world(async () => {
         brokenSnapshot);
     await control("move-landing", [["if (landsNamed(source.path, destination.path))", "if (false && landsNamed(source.path, destination.path))"]],
         (Files, folder) => landing(Files, require(path.join(folder, "Denied.js"))), path.join(backend, "Denied.js"));
-    await control("home-knowledge", [["    ], homeRoots);", "    ], []);"]],
+    await control("home-whole", [[" || inJarvisHome(target.path, ancestor))", ")"]],
         (Files, folder) => homeGate(Files, require(path.join(folder, "Denied.js"))), path.join(backend, "Denied.js"));
     await control("dotfile-link-target", [["if (accountLinkTargets().some(", "if (false && accountLinkTargets().some("]],
         (Files, folder) => dotfileTarget(Files, require(path.join(folder, "Denied.js"))), path.join(backend, "Denied.js"));
@@ -900,10 +905,25 @@ world(async () => {
         fs.mkdirSync(folder);
         fs.writeFileSync(path.join(folder, "notes"), "beta protected secret\n");
     }
+    // The Jarvis home folder the hello names, with a skill and a note in
+    // state/. The engine holds the gate over a folder it refuses, so no call
+    // reaches the judge then: the refused run's engine copy leaves the gate
+    // up, to read what the producer hands the judge for that folder.
+    const daemonHome = path.join(home, "daemon-home"), daemonLinked = path.join(home, "daemon-linked");
+    for (const [folder, name, text] of [[daemonHome, "AGENTS.md", "home knowledge\n"], [daemonHome, "state/handoff.md", "handoff\n"],
+        [daemonHome, "skills/own/alpha.md", "# Alpha\nDAEMON-SKILL-BODY\n"], [daemonLinked, "AGENTS.md", "home knowledge\n"],
+        [daemonLinked, "state/handoff.md", "handoff\n"]]) {
+        fs.mkdirSync(path.dirname(path.join(folder, name)), { recursive: true });
+        fs.writeFileSync(path.join(folder, name), text);
+    }
+    fs.symlinkSync(daemonHome, path.join(daemonLinked, "skills"));
+    const UNHELD = ["ChainedEngine.js", "            plan = heldByHome(plan, home());\n", ""];
     // The daemon's install root is the plugin directory it runs from: a
     // disposable copy beside HOME, so a read inside it is outside HOME
-    // unless the producer protects it.
-    async function daemon(name, edit) {
+    // unless the producer protects it. EDITS are [backend file, needle,
+    // replacement]; HOME_SETTING is the hello's home and REFUSED the cause
+    // the daemon logs for it.
+    async function daemon(name, edits = [], homeSetting = "~/daemon-home", refused = null) {
         const folder = path.join(process.env.JARVIS_TEST_ROOT, "plugin-" + name);
         fs.mkdirSync(folder);
         fs.writeFileSync(path.join(folder, "VERSION"), "beta protected secret\n");
@@ -911,10 +931,11 @@ world(async () => {
             fs.copyFileSync(path.join(plugin, entry), path.join(folder, entry));
         fs.cpSync(backend, path.join(folder, "backend"), { recursive: true });
         const daemonFile = path.join(folder, "backend/jarvisd.js");
-        if (edit !== undefined) {
-            const source = fs.readFileSync(daemonFile, "utf8");
-            assert.equal(source.split(edit[0]).length - 1, 1, name + " daemon edit match");
-            fs.writeFileSync(daemonFile, source.replace(edit[0], edit[1]));
+        for (const [target, needle, replacement] of edits) {
+            const edited = path.join(folder, "backend", target);
+            const source = fs.readFileSync(edited, "utf8");
+            assert.equal(source.split(needle).length - 1, 1, name + " " + target + " edit match");
+            fs.writeFileSync(edited, source.replace(needle, replacement));
         }
         const gates = path.join(folder, "gates");
         const driver = path.join(folder, "driver");
@@ -935,18 +956,21 @@ world(async () => {
         // Bounds a daemon that never answers, not a latency budget.
         const timeout = setTimeout(() => child.kill("SIGKILL"), 20000);
         const outcomes = {};
-        const reads = [["ordinary", path.join(t, "notes.txt")], ["account", path.join(home, ".claude-team", "notes")],
+        const named = path.join(home, homeSetting.slice(2));
+        const calls = [["ordinary", path.join(t, "notes.txt")], ["account", path.join(home, ".claude-team", "notes")],
             ["explicit", path.join(daemonExplicit, "notes")], ["hand", path.join(daemonHand, "notes")],
-            ["config", path.join(roots.config, "vgshell", "shell.json")], ["install", path.join(folder, "VERSION")]];
+            ["config", path.join(roots.config, "vgshell", "shell.json")], ["install", path.join(folder, "VERSION")],
+            ["home-agents", path.join(named, "AGENTS.md")], ["home-state", path.join(named, "state/handoff.md")]]
+            .map(([id, target]) => [id, "files.read", { path: target }]).concat([["home-skill", "help", { topic: "own/alpha" }]]);
         try {
             child.stdin.write(JSON.stringify({ v: 1, type: "hello", gen: 0, revision: "a".repeat(64), locked: false,
-                settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain: "", taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", cloudVision: "ask", privateWindows: "" },
+                settings: { home: homeSetting, sounds: false, mode: "hold", microphone: "", speaker: "", brain: "", taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", cloudVision: "ask", privateWindows: "" },
                 directories: { state, data: path.join(process.env.JARVIS_TEST_ROOT, name + "-data"),
                     runtime: path.join(process.env.JARVIS_TEST_ROOT, name + "-run") },
                 keys: { talk: "SUPER+code:108", mute: "SUPER+SHIFT+code:108", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y", console: "SUPER+ALT+C" } }) + "\n");
-            for (const [id, target] of reads) {
+            for (const [id, tool, args] of calls) {
                 fs.mkdirSync(driver, { recursive: true });
-                fs.writeFileSync(path.join(driver, "call.next"), JSON.stringify({ id, tool: "files.read", arguments: { path: target } }));
+                fs.writeFileSync(path.join(driver, "call.next"), JSON.stringify({ id, tool, arguments: args }));
                 fs.renameSync(path.join(driver, "call.next"), path.join(driver, "call.json"));
                 for (let wait = 0; outcomes[id] === undefined; wait++) {
                     assert.ok(wait < 1000 && child.exitCode === null, name + " " + id + " answers: " + stderr);
@@ -960,7 +984,7 @@ world(async () => {
             child.stdin.end();
             const [code] = await closed;
             assert.equal(code, 0, stderr);
-            assert.equal(stderr, "");
+            assert.equal(stderr, refused === null ? "" : "jarvis: " + refused + "\n");
         } finally {
             clearTimeout(timeout);
             if (child.exitCode === null) { child.kill("SIGKILL"); await closed; }
@@ -973,24 +997,48 @@ world(async () => {
     };
     const production = await daemon("production");
     assert.deepEqual([production.ordinary.outcome, production.ordinary.content], ["completed", "alpha\nBeta line\n"]);
-    for (const id of ["account", "explicit", "hand", "config", "install"]) refusal(production[id], "protected-path");
+    for (const id of ["account", "explicit", "hand", "config", "install", "home-agents"]) refusal(production[id], "protected-path");
+    assert.deepEqual([production["home-state"].outcome, production["home-state"].content], ["completed", "handoff\n"], "state/ stays in the model's reach");
+    const skillRead = outcome => assert.deepEqual([outcome.outcome, outcome.content], ["completed", "# Alpha\nDAEMON-SKILL-BODY"], "help reads the home's skill");
+    skillRead(production["home-skill"]);
+    cases++;
+    // A folder the daemon refuses stays guarded while the setting names it.
+    const refusedHome = await daemon("refused-home", [UNHELD], "~/daemon-linked", "home=link");
+    refusal(refusedHome["home-agents"], "protected-path");
+    assert.equal(refusedHome["home-state"].outcome, "completed");
     cases++;
     // Each control breaks one root of the producer; the row that root
     // protects answers otherwise.
-    const noProducer = await daemon("no-producer", ["get denied() { return deniedOrNull(); } }),", "denied: null }),"]);
+    const noProducer = await daemon("no-producer", [["jarvisd.js", "get denied() { return deniedOrNull(); } }),", "denied: null }),"]]);
     refusal(noProducer.ordinary, "path-context");
     controls++;
     const noAccountRoots = await daemon("no-account-roots",
-        ["accountRoots: accountRoots(context.directories.state, process.env) };", "accountRoots: [] };"]);
+        [["jarvisd.js", "accountRoots: accountRoots(context.directories.state, process.env) };", "accountRoots: [] };"]]);
     for (const id of ["explicit", "hand"]) assert.equal(noAccountRoots[id].outcome, "completed", id + " control turns red");
     controls++;
     const defaultConfig = await daemon("default-config",
-        ["config: process.env.XDG_CONFIG_HOME || path.join(home, \".config\"),", "config: path.join(home, \".config\"),"]);
+        [["jarvisd.js", "config: process.env.XDG_CONFIG_HOME || path.join(home, \".config\"),", "config: path.join(home, \".config\"),"]]);
     refusal(defaultConfig.config, "outside-home");
     controls++;
-    const noInstall = await daemon("no-install", ["install: path.dirname(__dirname),", "install: path.join(home, \"absent-install\"),"]);
+    const noInstall = await daemon("no-install", [["jarvisd.js", "install: path.dirname(__dirname),", "install: path.join(home, \"absent-install\"),"]]);
     refusal(noInstall.install, "outside-home");
     controls++;
+    const GUARD = "jarvisHome: homeFolder.path === null ? null : Home.guard(homeFolder.path),";
+    const noHomeGuard = await daemon("no-home-guard", [["jarvisd.js", GUARD, "jarvisHome: null,"]]);
+    assert.equal(noHomeGuard["home-agents"].outcome, "completed", "home-agents control turns red");
+    controls++;
+    const unguardedRefusal = await daemon("unguarded-refusal", [UNHELD,
+        ["jarvisd.js", 'return { path: folder, state: { kind: "refused", cause } };', 'return { path: null, state: { kind: "refused", cause } };']], "~/daemon-linked", "home=link");
+    assert.equal(unguardedRefusal["home-agents"].outcome, "completed", "refused home-agents control turns red");
+    controls++;
+    // Each control drops the home on one line of its way to the help tool.
+    for (const [control, edit] of [
+        ["help-home-daemon", ["jarvisd.js", 'home: () => homeFolder.state.kind === "ready" ? homeFolder.state.path : null });', "home: () => null });"]],
+        ["help-home-browser", ["Browser.js", "        } }, home);\n", "        } });\n"]]]) {
+        const dropped = await daemon(control, [edit]);
+        assert.throws(() => skillRead(dropped["home-skill"]), assert.AssertionError, control + " control turns red");
+        controls++;
+    }
 
     console.log("test-jarvis-files: ok cases=" + cases + " controls=" + controls);
 });

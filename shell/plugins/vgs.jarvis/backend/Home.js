@@ -25,9 +25,10 @@ const LAYOUT = Object.freeze([
     [".claude", null], [".claude/settings.json", "{\"autoMemoryEnabled\": false}\n"],
     [".codex", null], [".codex/config.toml", "[features]\nmemories = false\n\n[memories]\ngenerate_memories = false\nuse_memories = false\n"]
 ]);
-// What a model may never change through the gate. state/ is left out: it is
-// the one part Jarvis writes through files.write.
-const KNOWLEDGE = Object.freeze(["AGENTS.md", "CLAUDE.md", "skills", "memory", ".claude", ".codex"]);
+// The one entry of the home the gate leaves a model: Jarvis writes it
+// through files.write. Every other path in the folder, an entry this layout
+// does not name among them, is the user's and VGS's alone.
+const OPEN = "state";
 const SETS = Object.freeze(["base", "own"]);
 // Entries read from one skill set before the listing answers incomplete.
 const SET_ENTRIES = 256;
@@ -37,6 +38,9 @@ const HEAD_BYTES = 4096;
 const LINE_CHARS = 160;
 // Linux PATH_MAX, the anchored walk's own bound.
 const PATH_BYTES = 4096;
+// A YAML block scalar's header: > or |, then an optional chomping mark and
+// indent digit in either order. Its text is on the lines below it.
+const BLOCK_SCALAR = /^[>|][-+1-9]{0,2}$/;
 
 function fail(code) { throw new Error("jarvis: home=" + code); }
 
@@ -56,8 +60,11 @@ function resolve(setting, userHome) {
     return file;
 }
 
-/** The paths of HOME the gate refuses every model write to. */
-function protectedPaths(home) { return KNOWLEDGE.map(name => path.join(home, name)); }
+/**
+ * HOME as the gate guards it (Denied.js jarvisHome): every path in root is
+ * refused but the entry named open and what lies below it.
+ */
+function guard(home) { return { root: home, open: OPEN }; }
 
 // Hold the home folder itself open. The folders above it are the user's own
 // path and resolve as the system gives them; the home is never a link.
@@ -194,7 +201,7 @@ function indexLine(text) {
         const front = lines.slice(1, end === -1 ? lines.length : end);
         const described = front.map(line => /^description:\s*(.*)$/.exec(line)).find(match => match !== null);
         const value = described ? described[1].trim().replace(/^(["'])(.*)\1$/, "$2") : "";
-        if (value !== "" && value !== ">" && value !== "|") return value.slice(0, LINE_CHARS);
+        if (value !== "" && !BLOCK_SCALAR.test(value)) return value.slice(0, LINE_CHARS);
         lines = end === -1 ? [] : lines.slice(end + 1);
     }
     const first = lines.find(line => line.trim() !== "") ?? "";
@@ -260,4 +267,4 @@ function skill(home, topic, limit) {
     }
 }
 
-module.exports = { resolve, layout, protectedPaths, read, skills, skill };
+module.exports = { resolve, layout, guard, read, skills, skill };

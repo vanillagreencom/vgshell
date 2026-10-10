@@ -188,41 +188,63 @@ async function inside() {
         await assert.rejects(() => check(copy), assert.AssertionError, name + " must turn red");
         controls++;
     }
-    // The home folder a hello names: the daemon makes what it lacks, and a
-    // folder it refuses, or whose text is over its bound, leads the status
-    // causes with its own keyed cause.
+    // The home folder each hello names, on one daemon: it makes what a new
+    // folder lacks, and a folder it refuses, or whose text is over its
+    // bound, leads the status causes with its own keyed cause. No hello
+    // follows an edit inside the folder, so a request made while the folder
+    // holds the engine judges it again; any other request sends no status.
     async function homeStatus(file) {
         const base = fs.realpathSync(process.env.HOME);
-        const answer = async setting => {
-            const child = cp.spawn("node", [file, "--tree", tree], { env: {
-                PATH: process.env.PATH, HOME: process.env.HOME, XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR,
-                XDG_DATA_HOME: process.env.XDG_DATA_HOME
-            }, stdio: ["pipe", "pipe", "pipe"] });
-            let out = "", err = "";
-            child.stdout.on("data", data => { out += data; });
-            child.stderr.on("data", data => { err += data; });
-            const closed = once(child, "close");
-            const timeout = setTimeout(() => child.kill("SIGKILL"), 3000);
-            try {
-                child.stdin.end(JSON.stringify({ ...hello, settings: { ...hello.settings, home: setting } }) + "\n");
-                assert.deepEqual(await closed, [0, null], err);
-            } finally { clearTimeout(timeout); if (child.exitCode === null) child.kill("SIGKILL"); }
-            const status = out.trim().split("\n").map(line => JSON.parse(line)).filter(frame => frame.type === "status");
-            assert.equal(status.length, 1);
-            return [status[0].causes, err.trim()];
-        };
+        const made = path.join(base, "home-made"), linked = path.join(base, "home-linked");
+        for (const folder of [made, linked]) fs.rmSync(folder, { recursive: true, force: true });
+        fs.mkdirSync(linked);
+        fs.symlinkSync(base, path.join(linked, "skills"));
+        const child = cp.spawn("node", [file, "--tree", tree], { env: {
+            PATH: process.env.PATH, HOME: process.env.HOME, XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR,
+            XDG_DATA_HOME: process.env.XDG_DATA_HOME
+        }, stdio: ["pipe", "pipe", "pipe"] });
+        let out = "", err = "";
+        child.stdout.on("data", data => { out += data; });
+        child.stderr.on("data", data => { err += data; });
+        const closed = once(child, "close");
+        const statuses = () => out.split("\n").slice(0, -1).map(line => JSON.parse(line)).filter(frame => frame.type === "status").map(frame => frame.causes);
+        const send = message => child.stdin.write(JSON.stringify(message) + "\n");
+        const named = setting => ({ ...hello, settings: { ...hello.settings, home: setting } });
         const others = reply(false, 0).causes;
-        fs.rmSync(path.join(base, "home-made"), { recursive: true, force: true });
-        assert.deepEqual(await answer("~/home-made"), [others, ""], "a new home holds nothing back");
-        assert.deepEqual(["AGENTS.md", "CLAUDE.md", "skills/base", "skills/own", "memory/MEMORY.md", "memory/inbox", "state",
-            ".claude/settings.json", ".codex/config.toml"].filter(name => !fs.existsSync(path.join(base, "home-made", name))), [], "the layout is made");
-        fs.writeFileSync(path.join(base, "home-made/AGENTS.md"), "x".repeat(8193));
-        assert.deepEqual(await answer("~/home-made"), [["guidance=home-too-large", ...others], ""]);
-        fs.rmSync(path.join(base, "home-linked"), { recursive: true, force: true });
-        fs.mkdirSync(path.join(base, "home-linked"));
-        fs.symlinkSync(path.join(base, "home-made"), path.join(base, "home-linked/skills"));
-        assert.deepEqual(await answer("~/home-linked"), [["home=link", ...others], "jarvis: home=link"]);
-        assert.deepEqual(await answer("/etc/vgs-jarvis-home"), [["home=path", ...others], "jarvis: home=path"]);
+        const seen = [];
+        // Send LINES, the last a hello, and read every status so far once
+        // that hello is answered: WANT is what the lines add. The home cause
+        // of the hello's own answer also ends the wait, so a daemon that
+        // sent fewer statuses is read at once. The bound detects a daemon
+        // that never answers and is no latency budget.
+        const step = async (lines, want) => {
+            for (const line of lines) send(line);
+            seen.push(...want);
+            const last = want.at(-1);
+            const met = list => list.length >= seen.length || (last.length > others.length && list.some(causes => causes[0] === last[0]));
+            for (let wait = 0; !met(statuses()); wait++) {
+                assert.ok(wait < 500 && child.exitCode === null, "the daemon answers the hello: " + err);
+                await new Promise(resolve => setTimeout(resolve, 10)); // Polls the daemon's output.
+            }
+            assert.deepEqual(statuses(), seen);
+        };
+        try {
+            await step([hello], [others]);
+            await step([intent("talk-down"), named("~/home-made")], [others]);
+            assert.deepEqual(["AGENTS.md", "CLAUDE.md", "skills/base", "skills/own", "memory/MEMORY.md", "memory/inbox", "state",
+                ".claude/settings.json", ".codex/config.toml"].filter(name => !fs.existsSync(path.join(made, name))), [], "the second hello makes the layout");
+            fs.writeFileSync(path.join(made, "AGENTS.md"), "x".repeat(8193));
+            await step([named("~/home-made")], [["guidance=home-too-large", ...others]]);
+            fs.writeFileSync(path.join(made, "AGENTS.md"), "Short again.\n");
+            await step([intent("talk-down"), named("~/home-linked")], [others, ["home=link", ...others]]);
+            fs.rmSync(path.join(linked, "skills"));
+            await step([{ ...intent("say"), text: "fixture request" }, named("/etc/vgs-jarvis-home")], [others, ["home=path", ...others]]);
+            child.stdin.end();
+            assert.deepEqual(await closed, [0, null], err);
+        } finally { if (child.exitCode === null) child.kill("SIGKILL"); }
+        assert.deepEqual(statuses(), seen, "one status a hello, and one for each request made over a folder that held the engine");
+        assert.equal(err, "jarvis: home=link\njarvis: home=path\n");
+        assert.equal(fs.existsSync(path.join(linked, "skills/own")), true, "the repaired folder got its layout");
         assert.equal(fs.existsSync("/etc/vgs-jarvis-home"), false);
         cases++;
     }
@@ -230,6 +252,9 @@ async function inside() {
     await control("home-layout", "            Home.layout(folder);\n", "", homeStatus);
     await control("home-refusal", 'return { path: folder, state: { kind: "refused", cause } };', 'return { path: folder, state: { kind: "none" } };', homeStatus);
     await control("home-engine", "directories: context.directories, home: () => homeFolder.state });", "directories: context.directories });", homeStatus);
+    await control("home-each-hello", "                judgeSetup();\n", "                if (first) judgeSetup(); else configured(engine.configure(context.settings));\n", homeStatus);
+    await control("home-rejudged", " && engine.homeHeld()) judgeSetup();", " && engine.homeHeld()) void judgeSetup;", homeStatus);
+    await control("home-rejudged-held", ' && engine.homeHeld()) judgeSetup();', ') judgeSetup();', homeStatus);
     await control("reply-wire", "requests.reply(message);", "void message;", unknownReply);
     await control("hyprctl-environment", 'const environment = { PATH: process.env.PATH || "/usr/bin:/bin", LANG: "C.UTF-8" };',
         'const environment = { ...process.env, LANG: "C.UTF-8" };', probe);

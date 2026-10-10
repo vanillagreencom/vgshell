@@ -83,7 +83,7 @@ function rig(kit, server, options = {}) {
     const router = Router.create({ session: Session, state: () => runner.state, dispatch: e => runner.dispatch(e), audit,
         context: () => ({ profile: "standard", locked: false, denied: options.actionApproval ? Denied.create({
             home: process.env.HOME, config: process.env.XDG_CONFIG_HOME, data: process.env.XDG_DATA_HOME,
-            state: process.env.XDG_STATE_HOME, runtime: process.env.XDG_RUNTIME_DIR, install: kit.folder, accountRoots: [], homeRoots: []
+            state: process.env.XDG_STATE_HOME, runtime: process.env.XDG_RUNTIME_DIR, install: kit.folder, accountRoots: [], jarvisHome: null
         }) : null }),
         result: value => runner.ports.brain.outcome(value) });
     Object.assign(ports, router.ports);

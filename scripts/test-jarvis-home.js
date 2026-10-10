@@ -13,7 +13,6 @@ const file = path.join(tree, "shell/plugins/vgs.jarvis/backend/Home.js");
 // with what it must say, and each folder.
 const FILES = ["AGENTS.md", "CLAUDE.md", "memory/MEMORY.md", ".claude/settings.json", ".codex/config.toml"];
 const FOLDERS = ["skills", "skills/base", "skills/own", "memory", "memory/inbox", "state", ".claude", ".codex"];
-const KNOWLEDGE = ["AGENTS.md", "CLAUDE.md", "skills", "memory", ".claude", ".codex"];
 
 // The tables and keys of a TOML file of plain `key = value` lines.
 function toml(text) {
@@ -119,7 +118,7 @@ world(() => {
                 keyed(() => Home.resolve(setting, home), "path", JSON.stringify(setting.slice(0, 40)));
             for (const [setting, base] of [[7, home], ["~/Jarvis", "relative"], ["~/Jarvis", undefined]])
                 keyed(() => Home.resolve(setting, base), "path", "types");
-            assert.deepEqual(Home.protectedPaths("/h/Jarvis"), KNOWLEDGE.map(name => "/h/Jarvis/" + name));
+            assert.deepEqual(Home.guard("/h/Jarvis"), { root: "/h/Jarvis", open: "state" });
         },
         // A file's text whole within its bound, or too-large; never a cut
         // text, a link's target or bytes that are no UTF-8.
@@ -157,6 +156,8 @@ world(() => {
             write("own/beta/SKILL.md", "---\nname: beta\ndescription: \"Load for beta work.\"\n---\n# Beta\n");
             write("base/gamma.md", "---\nname: gamma\ndescription: >\n  folded\n---\n\nGamma first line\n");
             write("own/delta.md", "");
+            write("own/epsilon.md", "---\ndescription: >-\n  folded and stripped\n---\nEpsilon first line\n");
+            write("own/eta.md", "---\ndescription: |+2\n    kept\n---\nEta first line\n");
             write("own/notes.txt", "no skill\n");
             write("own/plain", "no skill\n");
             write("own/.hidden.md", "no skill\n");
@@ -173,7 +174,9 @@ world(() => {
                 { topic: "base/gamma", file: "skills/base/gamma.md", line: "Gamma first line" },
                 { topic: "own/alpha", file: "skills/own/alpha.md", line: "Alpha skill" },
                 { topic: "own/beta", file: "skills/own/beta/SKILL.md", line: "Load for beta work." },
-                { topic: "own/delta", file: "skills/own/delta.md", line: "" }] });
+                { topic: "own/delta", file: "skills/own/delta.md", line: "" },
+                { topic: "own/epsilon", file: "skills/own/epsilon.md", line: "Epsilon first line" },
+                { topic: "own/eta", file: "skills/own/eta.md", line: "Eta first line" }] });
             assert.deepEqual(Home.skill(folder, "own/alpha", 64), { kind: "text", text: "\n# Alpha skill\nbody\n" });
             assert.equal(Home.skill(folder, "own/beta", 128).text.includes("# Beta"), true, "a folder's SKILL.md is its body");
             assert.deepEqual(Home.skill(folder, "own/alpha", 8), { kind: "too-large" });
@@ -206,8 +209,7 @@ world(() => {
         ["inside-home", '!file.startsWith(base === "/" ? "/" : base + "/")', "false", "resolves"],
         ["path-bound", " || Buffer.byteLength(file) > PATH_BYTES", "", "resolves"],
         ["control-characters", ' || /[\\x00-\\x1f\\x7f]/.test(named)', "", "resolves"],
-        ["knowledge-paths", 'const KNOWLEDGE = Object.freeze(["AGENTS.md", "CLAUDE.md", "skills", "memory", ".claude", ".codex"]);',
-            'const KNOWLEDGE = Object.freeze(["AGENTS.md", "CLAUDE.md", "skills", "memory", ".claude", ".codex", "state"]);', "resolves"],
+        ["open-entry", 'const OPEN = "state";', 'const OPEN = "skills";', "resolves"],
         ["read-bound", 'if (content.length > limit) return { kind: "too-large" };', "", "reads"],
         ["read-utf8", '{ kind: "text", text: new TextDecoder("utf-8", { fatal: true })', '{ kind: "text", text: new TextDecoder("utf-8", { fatal: false })', "reads"],
         ["read-kind", 'if (!fs.fstatSync(fd).isFile()) fail("kind");', "", "reads"],
@@ -215,8 +217,9 @@ world(() => {
             ["(last ? flags : O_RDONLY | O_DIRECTORY) | O_NOFOLLOW", "(last ? flags : O_RDONLY | O_DIRECTORY)"]], null, "reads"],
         ["skill-name", "if (Tools.homeTopic(topic) === null) continue;", "", "skills"],
         ["skill-kind", "if (!flat && !entry.isDirectory()) continue;", "", "skills"],
-        ["skill-description", 'if (value !== "" && value !== ">" && value !== "|") return value.slice(0, LINE_CHARS);', "", "skills"],
-        ["skill-folded", ' && value !== ">" && value !== "|"', "", "skills"],
+        ["skill-description", 'if (value !== "" && !BLOCK_SCALAR.test(value)) return value.slice(0, LINE_CHARS);', "", "skills"],
+        ["skill-folded", " && !BLOCK_SCALAR.test(value)", "", "skills"],
+        ["skill-folded-marks", "const BLOCK_SCALAR = /^[>|][-+1-9]{0,2}$/;", "const BLOCK_SCALAR = /^[>|]$/;", "skills"],
         ["skill-heading", '.replace(/^#+\\s*/, "")', "", "skills"],
         ["set-bound", "if (entries.length === SET_ENTRIES) { complete = false; break; }", "", "skills"]
     ]) {

@@ -38,7 +38,7 @@ function seed() {
     const roots = {
         home, config: process.env.XDG_CONFIG_HOME, data: process.env.XDG_DATA_HOME,
         state: process.env.XDG_STATE_HOME, runtime: process.env.XDG_RUNTIME_DIR,
-        install: path.join(process.env.JARVIS_TEST_ROOT, "installation"), accountRoots: [], homeRoots: []
+        install: path.join(process.env.JARVIS_TEST_ROOT, "installation"), accountRoots: [], jarvisHome: null
     };
     fs.mkdirSync(roots.install);
     return { home, project, roots };

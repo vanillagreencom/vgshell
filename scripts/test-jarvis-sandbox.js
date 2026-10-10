@@ -15,7 +15,7 @@ function seed() {
     const home = fs.realpathSync(process.env.HOME);
     const roots = { home, config: home + "/.config", data: home + "/.local/share",
         state: home + "/.local/state", runtime: process.env.XDG_RUNTIME_DIR,
-        install: home + "/installation", accountRoots: [home + "/selected-account"], homeRoots: [] };
+        install: home + "/installation", accountRoots: [home + "/selected-account"], jarvisHome: null };
     const project = home + "/project";
     fs.mkdirSync(project);
     for (const key of ["config", "data", "state", "install"]) fs.mkdirSync(roots[key], { recursive: true });

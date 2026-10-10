@@ -74,13 +74,13 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
     let voice = null;
     let bridge = null;
     let gate = null;
-    // The user's home folder as the last hello judged it: path is the folder
-    // the setting names, or null, and state what the engine and help read.
+    // The user's home folder as it was last judged: path is the folder the
+    // setting names, or null, and state what the engine and help read.
     let homeFolder = { path: null, state: { kind: "none" } };
 
-    // Each hello names the folder again and creates what it lacks; a refused
-    // folder holds the engine with its keyed cause, and its knowledge paths
-    // stay protected while the setting names it.
+    // Each judgement names the folder again and creates what it lacks; a
+    // refused folder holds the engine with its keyed cause, and the gate
+    // guards it while the setting names it.
     function judgeHome(setting) {
         let folder = null;
         try {
@@ -106,6 +106,13 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
         // Session still owns lock, mute, fault and indicator admission.
         runner.dispatch({ type: "snapshot", locked: context.locked, engine: engine.engine(),
             configured: configuration.kind === "ready" || configuration.kind === "loading", settings: context.settings });
+    }
+
+    // Judge the home and the engine again; the status carries each failing
+    // setup step's cause for the shell's setup view.
+    function judgeSetup() {
+        homeFolder = judgeHome(context.settings.home);
+        configured(engine.configure(context.settings));
     }
 
     function teardown() {
@@ -171,7 +178,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
             data: process.env.XDG_DATA_HOME || path.join(home, ".local/share"),
             state: process.env.XDG_STATE_HOME || path.join(home, ".local/state"),
             runtime: process.env.XDG_RUNTIME_DIR, install: path.dirname(__dirname),
-            homeRoots: homeFolder.path === null ? [] : Home.protectedPaths(homeFolder.path),
+            jarvisHome: homeFolder.path === null ? null : Home.guard(homeFolder.path),
             accountRoots: accountRoots(context.directories.state, process.env) };
     }
 
@@ -360,6 +367,10 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                         runner.dispatch({ type: message.intent === "cancel" ? "approval-cancel" : "confirm",
                             gen: message.gen, id: message.id, digest: message.digest, source: message.source });
                     } else {
+                        // No hello follows an edit inside the home folder. A
+                        // request made while the folder holds the engine judges
+                        // it again first, so a repaired folder takes the request.
+                        if ((message.intent === "talk-down" || message.intent === "say") && engine.homeHeld()) judgeSetup();
                         const dispatch = () => {
                             runner.dispatch(message.intent === "mute" ? { type: "mute-toggle" }
                                 : message.intent === "say" ? { type: "say", text: message.text }
@@ -508,11 +519,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                     audio.playbackSource = engine.playbackSource;
                 }
                 if (first && readMute()) runner.dispatch({ type: "mute" });
-                // Every hello judges the home and the engine again; the status
-                // carries each failing setup step's cause for the shell's setup view.
-                homeFolder = judgeHome(context.settings.home);
-                const configuration = engine.configure(context.settings);
-                configured(configuration);
+                judgeSetup();
                 if (first) void audio.discover().catch(error => {
                     if (!ending) audio.fault(error.message);
                 });
