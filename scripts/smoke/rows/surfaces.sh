@@ -192,7 +192,7 @@ python3 - "$repo/shell/Hosts/SummonPopup.qml" "$summon_input_copy" <<'PYEDIT'
 import pathlib, sys
 source, target = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
 text = source.read_text()
-for old, new in (("            visible: popup.closing\n", "            visible: false\n"), ("            focus: !popup.closing\n", "            focus: true\n")):
+for old, new in (("            visible: popup.closing\n", "            visible: false\n"), ("            focus: popup.closing\n", "            focus: false\n")):
     assert text.count(old) == 1, "the SummonPopup closing input guard must occur once: " + old
     text = text.replace(old, new)
 target.write_text(text)
@@ -201,7 +201,7 @@ python3 - "$repo/shell/Hosts/SummonPopup.qml" "$summon_mask_copy" <<'PYEDIT'
 import pathlib, sys
 source, target = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
 text = source.read_text()
-old = "    mask: Region { x: sized.x; y: sized.y; width: sized.width; height: sized.height }\n"
+old = "    mask: Region { x: sized.x; y: sized.y; width: Math.ceil(sized.width); height: Math.ceil(sized.height) }\n"
 assert text.count(old) == 1, "the SummonPopup card mask must occur once"
 target.write_text(text.replace(old, "    mask: Region { item: sized }\n"))
 PYEDIT
@@ -747,6 +747,8 @@ expect "a Templates control on the open card takes the press" 1 smoke_button_mar
 expect "the motion copy starts closing" ok ipc smoke popupCall summon-motion requestDismiss
 expect "the motion copy closes with a fade and slide in progress" moving popup_fade_slide_state summon-motion
 expect "the closing card's plugin holds no keyboard focus" no-focus plugin_focus
+type_keys -k Tab || fail "sending Tab to the closing card failed"
+expect "a Tab during the close focuses nothing in the plugin" no-focus plugin_focus
 expect "pressing the closing motion copy marker is sent" ok popup_marker_press
 expect "the closing card's plugin MouseArea takes no press" 1 smoke_marks
 expect "the marker press landed while the card was closing" moving popup_motion_state summon-motion
@@ -764,7 +766,8 @@ expect "the probe builds the input-control popup copy" ok ipc smoke popupLoad su
 expect "the input-control copy's panel takes a payload" '' ipc smoke invokeInstance panel acme.surfaces open '{}'
 expect_poll "the input-control copy is shown" true ipc smoke popupRead summon-input-control visible
 expect "the input-control copy starts closing" ok ipc smoke popupCall summon-input-control requestDismiss
-expect "control: without the key guard the closing card's plugin keeps the keyboard focus" held plugin_focus
+type_keys -k Tab || fail "sending Tab to the unguarded closing card failed"
+expect "control: without the key sink a Tab during the close focuses the plugin" held plugin_focus
 expect "control: without the input guard the closing marker press reaches the plugin" ok popup_marker_press
 expect "control: the unguarded closing marker press increments the marker" 1 smoke_marks
 expect "control: the unguarded press landed while the card was closing" moving popup_motion_state summon-input-control

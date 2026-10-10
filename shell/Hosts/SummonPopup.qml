@@ -52,7 +52,8 @@ PopupWindow {
     // item's x, y, width or height, so it kept the open motion's first
     // frame and left the card's bottom `motion.flyout.slide` outside
     // (surfaces row, the mask control).
-    mask: Region { x: sized.x; y: sized.y; width: sized.width; height: sized.height }
+    // Region's box is whole pixels; the card's height is fractional.
+    mask: Region { x: sized.x; y: sized.y; width: Math.ceil(sized.width); height: Math.ceil(sized.height) }
     Component.onCompleted: Qt.callLater(() => setMotion(1, false))
     // Quickshell PopupWindow::onClosed sets the wanted visibility false
     // after the compositor closes the xdg_popup, so that path cannot commit
@@ -176,8 +177,9 @@ PopupWindow {
             screen: popup.screen
             closeOnUnload: true
             anchors.fill: parent
-            // A closing card hears no key: the slot gives up focus, and a
-            // reopen takes it back with the focus the plugin had inside it.
+            // The slot gives its focus to the key sink below while the card
+            // closes, and a reopen takes it back with the focus the plugin
+            // had inside it.
             focus: !popup.closing
             Keys.onEscapePressed: popup.requestDismiss()
             onBuilt: instance => {
@@ -185,6 +187,14 @@ PopupWindow {
                 slot.focusInitial();
             }
             onBuildFailed: key => popup.requestDismiss()
+        }
+
+        // A closing card takes no key: the sink holds the focus and accepts
+        // every key. Without it Tab would focus a control in the card, since
+        // Qt's tab chain enters any enabled item and the card stays enabled.
+        Item {
+            focus: popup.closing
+            Keys.onPressed: event => event.accepted = true
         }
 
         // A closing card takes no press or wheel, and stays enabled: every
