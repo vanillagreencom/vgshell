@@ -42,8 +42,8 @@
 # with a sound, so its Ping row is the first whatever else is enabled; the
 # keyboard on that row's picker with no ring; Down choosing the next sound,
 # which is saved and played while the picker keeps the keyboard; a click on
-# that row's Test playing it again; no Test for the off event and none for
-# the plugin's own sound, whose picker offers Off and that sound alone;
+# that row's Test playing it again; Test shown on that row's line at
+# Chime and hidden once the row is turned off; no Test for the plugin's own sound, whose picker offers Off and that sound alone;
 # the held event's row with the stated value, the holder's line in the
 # warning tone, and a picker that takes no choice while the value is
 # unread.
@@ -104,6 +104,13 @@ sfx_offers() { sfx_read events | py_reply 'import json,sys; o=[r for r in json.l
 sfx_row() { ipc smoke readMatchingDescendant window vgs.sounds FormRow label "$1" "$2"; }
 sfx_row_offers() { sfx_row "$1" modelData | py_reply 'import json,sys; print(json.dumps([[o["value"], o["label"]] for o in json.load(sys.stdin)["offers"]]))'; }
 # A row's line under its value and the tone it is drawn in.
+# Whether a row draws its Test, which is the row's action: `shown` or
+# `hidden`.
+sfx_row_test() {
+  local room below
+  room="$(sfx_row "$1" actionRoom)" && below="$(sfx_row "$1" actionBelow)" || return
+  if [[ $room != 0 || $below == true ]]; then echo shown; else echo hidden; fi
+}
 sfx_row_note() { printf '[%s,%s]\n' "$(sfx_row "$1" warning)" "$(sfx_row "$1" warningTone)"; }
 # The section's picker that has no choice: whether it shows its
 # placeholder and whether it takes a choice, or `absent` while every
@@ -227,6 +234,12 @@ expect_poll "opening the section has the holder read once more" "$((sfx_reads + 
 expect_poll "the section lists the fixture's events under its name, first" '"Acme sounds"' ipc smoke readDescendant window vgs.sounds SectionHeader text
 expect_poll "the Ping row shows the manifest's default, after Off" 1 sfx_row Ping chosen
 expect "the Quiet row shows Off" 0 sfx_row Quiet chosen
+expect "the Ping row at Chime shows Test" shown sfx_row_test Ping
+expect "the Ping row is turned off" ok sfx_choose '{"id":"acme.sounds","event":"ping","value":""}'
+expect_poll "the Ping row shows Off" 0 sfx_row Ping chosen
+expect "the Ping row at Off hides Test" hidden sfx_row_test Ping
+expect "the Ping row is back at its default" ok sfx_choose '{"id":"acme.sounds","event":"ping","value":"chime"}'
+expect_poll "the Ping row shows Chime again" 1 sfx_row Ping chosen
 expect "the plugin's own sound offers Off and that sound alone" '[["", "Off"], ["own", "Acme tone"]]' sfx_row_offers Tone
 expect "the held event's row shows the stated value, Off" 0 sfx_row Relay chosen
 expect "the held event's row shows the holder's line in the warning tone" '["The relay is stuck.","warning"]' sfx_row_note Relay
@@ -249,7 +262,7 @@ expect "the choice hands the player the chosen sound" '["--media-role", "Notific
 expect "the picker keeps the keyboard after the choice" '["Select",""]' sfx_focus
 expect_poll "the choice's run ends" '[]' sfx_playing
 # The held event's picker, by the keyboard: Tab passes the Ping row's Test,
-# the Quiet row's picker, whose Test takes no press, and the Tone row's
+# the Quiet row's picker, which draws no Test, and the Tone row's
 # picker; Up on the Relay row's picker chooses Off, which the page hands
 # to the holder.
 expect "the holder answers its next choice with ok" ok ipc smoke invokeInstance service acme.sounds answer ok

@@ -5,8 +5,9 @@ import qs.Ui
 
 // Sounds pane: every sound event the enabled plugins declare, under its
 // plugin's name, each with a picker of the values the event takes, Off
-// first, and Test where one of them is a sound of the core's. A choice is
-// saved as it is made and plays once, so the user picks by ear. An event
+// first, and Test on the row's line while the choice is a sound of the
+// core's. A choice is saved as it is made and plays once, so the user picks
+// by ear. An event
 // its plugin sounds itself offers Off and that plugin's own sound. An event
 // whose value another program holds shows what its plugin read there, and
 // that plugin's line when the value is unread or a choice did not take
@@ -104,45 +105,36 @@ FocusScope {
                         warning: modelData.problem !== "" ? modelData.problem : modelData.description
                         warningTone: modelData.problem !== "" ? "warning" : "muted"
 
-                        // Every picker fills the value column less the
-                        // room of Test, drawn or not, so the pickers of a
-                        // page share one width and each offer shows whole.
-                        Row {
-                            id: line
+                        // A value its plugin could not read is no offer:
+                        // the picker says so and takes no choice, and the
+                        // row's line gives the reason.
+                        Select {
+                            id: picker
                             width: parent.width
-                            spacing: Theme.stack.inline
-
-                            // A value its plugin could not read is no
-                            // offer: the picker says so and takes no
-                            // choice, and the row's line gives the reason.
-                            Select {
-                                id: picker
-                                width: line.width - testAction.width - line.spacing
-                                model: eventRow.modelData.offers
-                                textRole: "label"
-                                currentIndex: eventRow.chosen
-                                placeholderText: "Not available"
-                                enabled: eventRow.chosen !== -1
-                                Accessible.name: eventRow.label
-                                // The binding comes back after a choice,
-                                // so the saved value is what shows.
-                                onActivated: index => {
-                                    const offer = eventRow.modelData.offers[index];
-                                    currentIndex = Qt.binding(() => eventRow.chosen);
-                                    root.choose(eventRow.modelData, offer);
-                                }
-                                Component.onCompleted: if (section.index === 0 && eventRow.index === 0) root.firstPicker = picker
+                            model: eventRow.modelData.offers
+                            textRole: "label"
+                            currentIndex: eventRow.chosen
+                            placeholderText: "Not available"
+                            enabled: eventRow.chosen !== -1
+                            Accessible.name: eventRow.label
+                            // The binding comes back after a choice, so
+                            // the saved value is what shows.
+                            onActivated: index => {
+                                const offer = eventRow.modelData.offers[index];
+                                currentIndex = Qt.binding(() => eventRow.chosen);
+                                root.choose(eventRow.modelData, offer);
                             }
+                            Component.onCompleted: if (section.index === 0 && eventRow.index === 0) root.firstPicker = picker
+                        }
 
-                            RowAction {
-                                id: testAction
-                                anchors.verticalCenter: parent.verticalCenter
-                                visible: eventRow.modelData.testable
-                                enabled: eventRow.chosen !== -1 && eventRow.modelData.offers[eventRow.chosen].playable
-                                text: "Test"
-                                Accessible.name: "Test " + eventRow.label
-                                onClicked: root.test(eventRow.modelData.value)
-                            }
+                        // Test draws on the row's line, so every picker
+                        // fills the value column, and only while the
+                        // choice plays a sound.
+                        action: RowAction {
+                            visible: eventRow.modelData.testable && eventRow.chosen !== -1 && eventRow.modelData.offers[eventRow.chosen].playable
+                            text: "Test"
+                            Accessible.name: "Test " + eventRow.label
+                            onClicked: root.test(eventRow.modelData.value)
                         }
                     }
                 }
