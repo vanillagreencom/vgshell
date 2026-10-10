@@ -63,7 +63,7 @@ jobs:
           pacman -Syu --noconfirm --needed \
             git base-devel nodejs python python-dbus python-numpy jq \
             qt6-declarative quickshell util-linux bubblewrap lua gnupg \
-            libsecret sudo tmux fd fzf file glib2 xdg-utils imagemagick ffmpeg \
+            libsecret sudo tmux fd fzf gum file glib2 xdg-utils imagemagick ffmpeg \
             qt6-shadertools pipewire pipewire-audio ttf-dejavu \
             xorg-server-xvfb xorg-xauth
           useradd --create-home ci
