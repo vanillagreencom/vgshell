@@ -57,10 +57,11 @@ var BORDERS = [
 // bin/vgshell-tui reads from here under node, and the layer writes one window
 // rule per class, named `rule`, that floats the window, centres it and
 // sizes it by one rule (tuiWindowLines): `widthShare` by `heightShare` of
-// its output, never under `columns` by `rows` terminal cells, never past
-// the output's margins. A class holds no pixel size, so a window is the
-// same part of a large output and of a small one and fills a small one
-// before it loses a cell. `default`'s cells are what btop asks of its
+// its output, never under `columns` by `rows` terminal cells, inside the
+// output's gutters where those cells fit there and never past its bar. A
+// class holds no pixel size, so a window is the same part of a large
+// output and of a small one, and takes a small one's gutters before it
+// loses a cell. `default`'s cells are what btop asks of its
 // terminal, in the words of its own refusal: "Needed for current config:
 // Width = 80 Height = 36" (btop in the System Monitor's window on the
 // owner's desktop, 2026-10-10). `wide` is 11/8 as wide and 6/5 as tall,
@@ -609,17 +610,24 @@ function tuiCell(cell, name) {
 // One axis of a floating TUI's size, a Hyprland expression: SHARE of the
 // output's length along AXIS, `monitor_w` or `monitor_h`, never under
 // CELLS cells of CELL logical pixels each, rounded up to a whole pixel,
-// and never over the output less MARGIN, which wins where the two
-// disagree, so a small output gets the window nearly whole. Hyprland
-// v0.56.2 evaluates the text with muParser (Math::CExpression,
-// src/helpers/math/Expression.cpp), whose `min`, `max` and `*` this
-// uses: libmuparser 2.3.5 answered 820 for
-// `min(max(monitor_w*0.4,820),monitor_w-20)` with monitor_w 1366 and 1536
-// with 3840 (a C++ run against the installed library, 2026-10-10). A share
-// is seldom a whole number of pixels, and Hyprland keeps the fraction
-// (DefaultFloatingAlgorithm.cpp takes the computed size as it is).
-function tuiLength(axis, share, cells, cell, margin) {
-    return "\"min(max(" + axis + "*" + luaNumber(share) + "," + luaNumber(Math.ceil(cells * cell)) + ")," + axis + "-" + margin + ")\"";
+// and never over the output less MARGIN while those cells fit there.
+// Where they do not, the axis gives up as much of MARGIN as the cells
+// need and never more than leaves HARD, the part of MARGIN it keeps. A
+// 1366x768 output leaves 716 px under a 28 px bar and inside a 12 px
+// gutter a side, and a terminal with 20 px rows opened there with 35 of
+// them where btop asks 36 (the `default` and `wide` classes in the nested
+// sandbox, 2026-10-10). Hyprland v0.56.2 evaluates the text with muParser
+// (Math::CExpression, src/helpers/math/Expression.cpp), whose `min`,
+// `max` and `*` this uses, one inside another: libmuparser 2.3.5 answered
+// 814, 738 and 1080 for
+// `min(max(monitor_h*0.5,814),max(monitor_h-50,min(814,monitor_h-30)))`
+// with monitor_h 1000, 768 and 2160 (a C++ run against the installed
+// library, 2026-10-10). A share is seldom a whole number of pixels, and
+// Hyprland keeps the fraction (DefaultFloatingAlgorithm.cpp takes the
+// computed size as it is).
+function tuiLength(axis, share, cells, cell, margin, hard) {
+    var floor = luaNumber(Math.ceil(cells * cell));
+    return "\"min(max(" + axis + "*" + luaNumber(share) + "," + floor + "),max(" + axis + "-" + margin + ",min(" + floor + "," + axis + "-" + hard + ")))\"";
 }
 
 // MARGINS is { bar, gutter }: Theme.bar.height and size.window.gutter. CELL
@@ -628,17 +636,20 @@ function tuiLength(axis, share, cells, cell, margin) {
 // evaluates against the monitor's logical size when the window maps: the
 // class's share of the output, never under its cells with TUI_PADDING's,
 // never wider than the output less `gutter` a side, nor taller than the
-// output less the bar and `gutter` a side. Hyprland offers no
-// reserved-area variable, so the bar's height is taken whether or not a
-// bar is up, and a screen with no bar leaves a clamped TUI that many
-// pixels short.
+// output less the bar and `gutter` a side, while its cells fit there. A
+// class whose cells do not fit there takes the gutters on that axis as far
+// as they need: the whole width at most, and never the bar's height.
+// Hyprland offers no reserved-area variable, so the bar's height is taken
+// whether or not a bar is up, and a screen with no bar leaves a clamped
+// TUI that many pixels short.
 function tuiWindowLines(margins, cell) {
     var across = luaNumber(2 * tuiMargin(margins, "gutter"));
+    var bar = luaNumber(tuiMargin(margins, "bar"));
     var down = luaNumber(tuiMargin(margins, "bar") + 2 * tuiMargin(margins, "gutter"));
-    return ["-- Floating TUIs: each size class's app-id floats, centred, at its share of its output, never under its cells nor past the output's margins."].concat(Object.keys(TUI_WINDOWS).map(function (size) {
+    return ["-- Floating TUIs: each size class's app-id floats, centred, at its share of its output or its cells, inside the gutters where its cells fit there, never past the bar."].concat(Object.keys(TUI_WINDOWS).map(function (size) {
         var row = TUI_WINDOWS[size];
-        var width = tuiLength("monitor_w", row.widthShare, row.columns + TUI_PADDING.columns, tuiCell(cell, "width"), across);
-        var height = tuiLength("monitor_h", row.heightShare, row.rows + TUI_PADDING.rows, tuiCell(cell, "height"), down);
+        var width = tuiLength("monitor_w", row.widthShare, row.columns + TUI_PADDING.columns, tuiCell(cell, "width"), across, "0");
+        var height = tuiLength("monitor_h", row.heightShare, row.rows + TUI_PADDING.rows, tuiCell(cell, "height"), down, bar);
         return "hl.window_rule({ name = \"" + row.rule + "\", match = { class = " + classLiteral(row.appId) + " }, float = true, center = true, size = { " + width + ", " + height + " } })";
     }));
 }
@@ -1349,8 +1360,8 @@ function appliedLines(values, paths) {
 // wrote, the same namespace and effects, is written once. THEME gives the
 // theme's colours and Hyprland tokens, `glass`, the window glass values
 // (Theme.glass.window), `groups`, whether each of
-// APPLIED_GROUPS is written, `tuiMargins`, the margins
-// tuiWindowLines keeps the floating TUIs from the output's edges, and
+// APPLIED_GROUPS is written, `tuiMargins`, the bar and the gutter
+// tuiWindowLines keeps the floating TUIs inside, and
 // `tuiCell`, the terminal cell it counts their smallest size in. After
 // the header comes appliedLines: the APPLIED_GROUPS the theme writes, in
 // order, then each section's `hl.config` options line under its heading.
