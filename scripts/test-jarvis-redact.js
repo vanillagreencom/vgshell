@@ -35,6 +35,17 @@ world(() => {
     assert.deepEqual(Redact.argumentsFor("action", "files.write", {}), {});
     const cycle = {}; cycle.text = cycle;
     assert.deepEqual(Redact.argumentsFor("action", "files.write", cycle), { text: "[redacted]" });
+    const secrets = [
+        "sk-proj-synthetic-private-credential", "sk-ant-synthetic-private-credential",
+        "github_pat_synthetic_private_credential_12345", "ghp_syntheticPrivateCredential12345",
+        "xoxb-1234567890-private", "AKIA1234567890ABCDEF", "AIzaSySyntheticPrivateCredential",
+        "-----BEGIN " + "PRIVATE KEY-----\nsecret\n-----END " + "PRIVATE KEY-----",
+        "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMifQ.signature",
+        "https://user:pass@example.test/path"
+    ];
+    for (const value of secrets) assert.equal(Redact.secret(value), true, value);
+    for (const value of ["sketch", "github path", "https://example.test/path", "ordinary memory note"])
+        assert.equal(Redact.secret(value), false, value);
     const args = { path: "/private", text: "z".repeat(1024 * 1024) };
     Object.defineProperty(args, "text", { get() { throw new Error("argument contents opened"); } });
     assert.deepEqual(Redact.argumentsFor("action", "files.write", args), { path: "[redacted]", text: "[redacted]" });
@@ -42,5 +53,7 @@ world(() => {
         logic => check(logic, ...cases[0]));
     mutant(file, "unknown property names", "const result = {};", "const result = { ...args };",
         logic => check(logic, ...cases[0]));
-    console.log("jarvis-redact: planted-keys=absent controls=values,unknown-fields");
+    mutant(file, "secret detector", ".some(pattern => pattern.test(text));", ".some(pattern => false && pattern.test(text));",
+        logic => assert.equal(logic.secret("sk-ant-synthetic-private-credential"), true));
+    console.log("jarvis-redact: planted-keys=absent controls=values,unknown-fields,secret-detector");
 });

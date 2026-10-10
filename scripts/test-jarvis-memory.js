@@ -3,11 +3,13 @@
 // reads notes only through Home.js, and returns Policy labels from note
 // sources. The scratch world is under JARVIS_TEST_ROOT.
 "use strict";
+const crypto = require("node:crypto");
 const { assert, fs, path, tree, world, seed, mutant } = require("./fixtures/jarvis/policy.js");
 const { load } = require("../bin/lib/qml-library.js");
 const backend = path.join(tree, "shell/plugins/vgs.jarvis/backend");
 const memoryFile = path.join(backend, "Memory.js");
 const homeFile = path.join(backend, "Home.js");
+const routerFile = path.join(backend, "ToolRouter.js");
 
 world(() => {
     const Memory = require(memoryFile);
@@ -28,9 +30,9 @@ world(() => {
         const installed = logic.install({ router, directory: path.join(state, "memory"), home: () => folder,
             log: line => logs.push(line), ...options });
         assert.equal(installed.kind, "installed");
-        const call = (id, args) => {
+        const call = (id, args, origin) => {
             let answer;
-            router.record.start({ id, args }, value => { answer = value; });
+            router.record.start({ id, args }, value => { answer = value; }, undefined, origin);
             return answer;
         };
         const search = args => {
@@ -42,8 +44,10 @@ world(() => {
             const answer = call("memory.read", { ids });
             return { answer, body: answer.content.startsWith("{") ? JSON.parse(answer.content) : null };
         };
-        return { installed, search, read, logs };
+        const writeCall = (id, args, origin = { labels: ["home"], tainted: false }) => call(id, args, origin);
+        return { installed, search, read, writeCall, logs };
     }
+    const sha = text => crypto.createHash("sha256").update(text).digest("hex");
 
     function make(logic = Memory) {
         const root = path.join(process.env.JARVIS_TEST_ROOT, "memory-" + ++serial);
@@ -85,6 +89,7 @@ world(() => {
     assert.deepEqual(w.search({ query: "alpha", since: "2027-01-01" }).body.results, []);
     assert.deepEqual(w.search({ query: "needle-inbox" }).body.results, [], "inbox text is absent from the index");
     assert.deepEqual(w.read(["facts/title.md"]).body.notes[0].links, ["facts/body.md"]);
+    assert.equal(typeof w.read(["facts/title.md"]).body.notes[0].hash, "string", "read carries the current hash");
     assert.deepEqual(w.read(["facts/body.md"]).body.notes[0].backlinks, ["facts/title.md"]);
     assert.equal(w.read(["inbox/pending.md"]).answer.outcome, "failed", "inbox is not read");
     const mixed = w.read(["facts/title.md", "facts/empty.md", "facts/missing.md"]);
@@ -117,6 +122,65 @@ world(() => {
     late.installed.reconcileStart();
     assert.deepEqual(late.search({ query: "fresh-down" }).body.results.map(row => row.id), ["facts/body.md"], "start reconcile runs after a home appears");
 
+    const writes = make();
+    let proposed = writes.writeCall("memory.propose", { id: "facts/proposed.md", text: "# Proposed\nclean-proposed\n" });
+    assert.equal(proposed.outcome, "completed");
+    assert.deepEqual(JSON.parse(proposed.content), { status: "written", id: "facts/proposed.md", kind: "propose" });
+    assert.equal(writes.search({ query: "clean-proposed" }).body.results[0].id, "facts/proposed.md");
+    writes.installed.close();
+    Object.assign(writes, attach(Memory, writes.folder, writes.state));
+    assert.equal(writes.search({ query: "clean-proposed" }).body.results[0].id, "facts/proposed.md", "proposed note survives restart");
+    const readProposed = writes.read(["facts/proposed.md"]).body.notes[0];
+    assert.equal(readProposed.hash, sha(readProposed.text));
+    const replaced = writes.writeCall("memory.replace", { id: "facts/proposed.md", text: "# Proposed\nreplacement-token\n", hash: readProposed.hash });
+    assert.equal(replaced.outcome, "completed");
+    assert.equal(writes.search({ query: "replacement-token" }).body.results[0].id, "facts/proposed.md");
+    const beforeConflict = writes.read(["facts/proposed.md"]).body.notes[0];
+    fs.writeFileSync(path.join(writes.folder, "memory/facts/proposed.md"), "# Proposed\nuser bytes\n");
+    const conflict = writes.writeCall("memory.replace", { id: "facts/proposed.md", text: "# Proposed\nlost bytes\n", hash: beforeConflict.hash });
+    assert.deepEqual([conflict.outcome, conflict.content], ["failed", "memory-replace:conflict"]);
+    assert.equal(fs.readFileSync(path.join(writes.folder, "memory/facts/proposed.md"), "utf8"), "# Proposed\nuser bytes\n");
+    assert.equal(writes.read(["facts/proposed.md"]).body.notes[0].edited, true, "receipt no longer vouches for hand-edited bytes");
+
+    const tainted = make();
+    const pending = tainted.writeCall("memory.propose", { id: "facts/web.md", text: "# Web\nweb-pending-token\n" },
+        { labels: ["home", "web"], tainted: true });
+    assert.equal(pending.outcome, "completed");
+    assert.deepEqual(tainted.search({ query: "web-pending-token" }).body.results, [], "pending text is not searched");
+    assert.equal(tainted.read(["facts/web.md"]).answer.outcome, "failed", "pending target is not read");
+    const waiting = tainted.installed.pending();
+    assert.equal(waiting.length, 1);
+    assert.deepEqual([waiting[0].target, waiting[0].kind, waiting[0].labels], ["facts/web.md", "propose", ["home", "web"]]);
+    assert.throws(() => tainted.installed.confirm(waiting[0].id, "0".repeat(64)), { message: "jarvis: memory=hash" });
+    assert.equal(tainted.installed.pending().length, 1, "hash mismatch keeps the inbox entry");
+    assert.deepEqual(tainted.installed.confirm(waiting[0].id, waiting[0].hash), { kind: "confirmed", target: "facts/web.md" });
+    assert.equal(tainted.search({ query: "web-pending-token" }).body.results[0].id, "facts/web.md");
+    assert.deepEqual(tainted.read(["facts/web.md"]).body.notes[0].sources, ["home", "web"], "confirmed note keeps host origin label");
+    const confirmedNote = tainted.read(["facts/web.md"]).body.notes[0];
+    tainted.writeCall("memory.replace", { id: "facts/web.md", text: "# Web\nconfirmed-replace-token\n", hash: confirmedNote.hash },
+        { labels: ["home", "web"], tainted: true });
+    const replaceWait = tainted.installed.pending()[0];
+    fs.writeFileSync(path.join(tainted.folder, "memory/facts/web.md"), "# Web\nuser conflict\n");
+    assert.throws(() => tainted.installed.confirm(replaceWait.id, replaceWait.hash), { message: "jarvis: memory=conflict" });
+    assert.equal(fs.readFileSync(path.join(tainted.folder, "memory/facts/web.md"), "utf8"), "# Web\nuser conflict\n");
+
+    const discarded = make();
+    discarded.writeCall("memory.propose", { id: "facts/no.md", text: "discard-token" }, { labels: ["home", "web"], tainted: true });
+    const waitingDiscard = discarded.installed.pending()[0];
+    assert.deepEqual(discarded.installed.discard(waitingDiscard.id, waitingDiscard.hash), { kind: "discarded", target: "facts/no.md" });
+    assert.deepEqual(discarded.search({ query: "discard-token" }).body.results, []);
+
+    const guarded = make();
+    const outside = path.join(guarded.root, "outside.md");
+    fs.writeFileSync(outside, "outside-safe\n");
+    fs.symlinkSync(outside, path.join(guarded.folder, "memory/link.md"));
+    const refusedLink = guarded.writeCall("memory.propose", { id: "link.md", text: "outside changed\n" });
+    assert.deepEqual([refusedLink.outcome, refusedLink.content], ["failed", "memory-propose:link"]);
+    assert.equal(fs.readFileSync(outside, "utf8"), "outside-safe\n");
+    const secret = guarded.writeCall("memory.propose", { id: "facts/secret.md", text: "token sk-ant-synthetic-secret-token-value" });
+    assert.deepEqual([secret.outcome, secret.content], ["failed", "memory-propose:secret"]);
+    assert.equal(fs.existsSync(path.join(guarded.folder, "memory/facts/secret.md")), false);
+
     for (const loader of [() => { throw new Error("missing"); }, () => ({ DatabaseSync: class {
         exec(sql) { if (String(sql).includes("fts5")) throw new Error("no fts"); }
         close() {}
@@ -132,7 +196,7 @@ world(() => {
     assert.deepEqual(good.body.results.map(row => row.id), ["facts/good.md"], "one bad note does not stop the index");
     assert.equal(bad.logs.some(line => /^jarvis: memory=note-text id=latin1\.md$/.test(line)), true, "bad note is logged by id");
 
-    function routerWorld() {
+    function routerWorld(RouterImpl = Router) {
         let transcript, at = 0;
         const audit = Audit.create({ state: path.join(process.env.JARVIS_TEST_ROOT, "audit-" + ++serial), now: () => Date.UTC(2026, 9, 1) });
         const ports = { ...unavailable(), mute: { store() {} }, transcript() {},
@@ -140,7 +204,7 @@ world(() => {
             brain: { send() {}, cancel: (e, done) => done(), close() {}, outcome: value => results.push(value) } };
         const runner = new SessionRunner(Session, ports, { now: () => at, set: fn => ({ fn }), clear() {} }, () => {});
         const results = [];
-        const router = Router.create({ session: Session, state: () => runner.state, dispatch: e => runner.dispatch(e),
+        const router = RouterImpl.create({ session: Session, state: () => runner.state, dispatch: e => runner.dispatch(e),
             audit, context: () => ({ profile: "standard", locked: false, denied: Denied.create(fixtures.roots) }),
             result: value => results.push(value) });
         Object.assign(ports, router.ports);
@@ -153,7 +217,7 @@ world(() => {
         const m = make();
         m.write("facts/web.md", "---\ntitle: Web memory\nsources: [web]\n---\n# Web memory\nweb-taint\n");
         let offeredHome = null;
-        Memory.install({ router, directory: path.join(m.state, "router-memory"), home: () => offeredHome, log() {} });
+        const memoryInstall = Memory.install({ router, directory: path.join(m.state, "router-memory"), home: () => offeredHome, log() {} });
         assert.equal(router.offer().some(row => row.id.startsWith("memory.")), false, "no home means no memory row");
         offeredHome = m.folder;
         assert.equal(router.offer().some(row => row.id === "memory.read"), true, "a chosen home offers memory read");
@@ -167,6 +231,14 @@ world(() => {
         assert.equal(router.route({ kind: "tool-call", id: "write", tool: "files.write",
             arguments: { path: path.join(fixtures.project, "new"), text: "x" } }, turn()).kind, "held", "web-labelled memory taints the turn");
         assert.equal(item.content.includes("web-taint"), true);
+        runner.dispatch({ type: "cancel" });
+        runner.dispatch({ type: "talk-down" }); transcript("final", "fixture user");
+        router.observe(turn(), ["web"]);
+        router.route({ kind: "tool-call", id: "remember", tool: "memory.propose",
+            arguments: { id: "facts/routed.md", text: "# Routed\nrouter-origin-token\n" } }, turn());
+        assert.deepEqual(memoryInstall.pending().map(row => [row.target, row.labels]),
+            [["facts/routed.md", ["home", "web"]]], "router passes host origin labels to memory writes");
+        assert.deepEqual(m.search({ query: "router-origin-token" }).body.results, [], "tainted router write is quarantined");
         router.register("windows", { commands: ["hyprctl"], timeoutMs: 1000, cancellable: false,
             start(call, done) { done({ outcome: "completed", content: "bad labels", labels: ["web"] }); } });
         runner.dispatch({ type: "cancel" });
@@ -224,6 +296,59 @@ world(() => {
         assert.equal(router.offer().some(row => row.id.startsWith("memory.")), false);
         audit.close();
     });
+    controls++;
+    mutant(memoryFile, "memory-quarantine-taint", "if (origin?.tainted === true) {", "if (false && origin?.tainted === true) {", logic => {
+        const x = make(logic);
+        x.writeCall("memory.propose", { id: "facts/web.md", text: "# Web\nweb-pending-token\n" },
+            { labels: ["home", "web"], tainted: true });
+        assert.deepEqual(x.search({ query: "web-pending-token" }).body.results, [], "tainted proposal must wait outside the index");
+    });
+    controls++;
+    mutant(memoryFile, "memory-replace-conflict", "if (hashText(current) !== expectedHash) throw new Error(\"jarvis: memory=conflict\");",
+        "if (false && hashText(current) !== expectedHash) throw new Error(\"jarvis: memory=conflict\");", logic => {
+            const x = make(logic);
+            x.writeCall("memory.propose", { id: "facts/a.md", text: "# A\nold\n" });
+            const note = x.read(["facts/a.md"]).body.notes[0];
+            fs.writeFileSync(path.join(x.folder, "memory/facts/a.md"), "# A\nuser\n");
+            const answer = x.writeCall("memory.replace", { id: "facts/a.md", text: "# A\nmodel\n", hash: note.hash });
+            assert.deepEqual([answer.outcome, answer.content], ["failed", "memory-replace:conflict"]);
+        });
+    controls++;
+    mutant(memoryFile, "memory-secret-refusal", [
+        ['if (Redact.secret(text)) throw new Error("jarvis: memory=secret");', 'if (false && Redact.secret(text)) throw new Error("jarvis: memory=secret");'],
+        ['if (Redact.secret(args.text)) throw new Error("jarvis: memory=secret");', 'if (false && Redact.secret(args.text)) throw new Error("jarvis: memory=secret");']
+    ], null, logic => {
+        const x = make(logic);
+        const answer = x.writeCall("memory.propose", { id: "facts/secret.md", text: "token sk-ant-synthetic-secret-token-value" });
+        assert.deepEqual([answer.outcome, answer.content], ["failed", "memory-propose:secret"]);
+    });
+    controls++;
+    mutant(memoryFile, "memory-symlink-target", [
+        ['if (entryKind(parent, name) === "link") throw new Error("jarvis: memory=link");',
+            'if (false && entryKind(parent, name) === "link") throw new Error("jarvis: memory=link");'],
+        ['if (!replace && currentKind !== "absent") throw new Error(currentKind === "link" ? "jarvis: memory=link" : "jarvis: memory=exists");',
+            'if (!replace && currentKind !== "absent" && currentKind !== "link") throw new Error(currentKind === "link" ? "jarvis: memory=link" : "jarvis: memory=exists");']
+    ], null, logic => {
+        const x = make(logic);
+        const outside = path.join(x.root, "outside.md");
+        fs.writeFileSync(outside, "safe\n");
+        fs.symlinkSync(outside, path.join(x.folder, "memory/link.md"));
+        const answer = x.writeCall("memory.propose", { id: "link.md", text: "changed\n" });
+        assert.deepEqual([answer.outcome, answer.content], ["failed", "memory-propose:link"]);
+        assert.equal(fs.readFileSync(outside, "utf8"), "safe\n");
+    });
+    controls++;
+    mutant(memoryFile, "memory-edited-receipt", "return record !== null && record.note === id && record.approvedHash !== hashText(text);",
+        "return false;", logic => {
+            const x = make(logic);
+            x.writeCall("memory.propose", { id: "facts/a.md", text: "# A\nold\n" });
+            fs.writeFileSync(path.join(x.folder, "memory/facts/a.md"), "# A\nuser\n");
+            assert.equal(x.read(["facts/a.md"]).body.notes[0].edited, true);
+        });
+    controls++;
+    mutant(routerFile, "memory-origin-labels",
+        "for (const label of labels) {\n            taint = Policy.observe(taint, label);\n            originLabels.add(label);\n        }",
+        "for (const label of labels) {\n            taint = Policy.observe(taint, label);\n        }", routerWorld);
     controls++;
     console.log("test-jarvis-memory: ok controls=" + controls);
 });

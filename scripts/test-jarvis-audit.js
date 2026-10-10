@@ -64,8 +64,12 @@ world(() => {
         const root = state();
         withWriter(logic, { state: root }, writer => {
             assert.deepEqual(writer.record(event), { kind: "recorded" });
+            assert.deepEqual(writer.record({ ...event, tool: "memory.propose",
+                args: { id: "facts/private.md", text: "planted-memory-note-text" },
+                effect: "reversible" }), { kind: "recorded" });
             const content = fs.readFileSync(path.join(root, "audit", "2026-09-30.jsonl"), "utf8");
             assert.equal(content.includes("planted-arbitrary-credential"), false, "planted key absent on disk");
+            assert.equal(content.includes("planted-memory-note-text"), false, "memory note text absent on disk");
         });
     }
     function checkModes(logic) {

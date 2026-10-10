@@ -304,6 +304,7 @@ world(async () => {
             const w = make(implementation);
             assert.equal(w.call("confirm_last").reason, "unknown-tool");
             assert.equal(w.call("confirm", {}).reason, "unknown-tool");
+            assert.equal(w.call("memory.confirm", { id: "facts/a.md" }).reason, "unknown-tool");
             assert.equal(Object.hasOwn(w.router, "confirm"), false);
             assert.equal(w.starts.length, 0);
         }],
@@ -760,14 +761,15 @@ world(async () => {
                 'void written.cause;', "audit-refusal"],
             ["turn-identity", "s.gen !== turn.gen || s.turn.kind !== \"thinking\" || s.turn.gen !== turn.gen || s.turn.op !== turn.op",
                 "false", "stale-turn"],
-            ["observe", "if (s.gen === value.turn.gen && s.turn.kind === \"thinking\" && s.turn.op === value.turn.op)\n            for (const label of labels) taint = Policy.observe(taint, label);",
+            ["observe", "if (s.gen === value.turn.gen && s.turn.kind === \"thinking\" && s.turn.op === value.turn.op)\n            for (const label of labels) {\n                taint = Policy.observe(taint, label);\n                originLabels.add(label);\n            }",
                 "if (false) void labels;", "taint"],
-            ["history-observe", "if (s.gen !== turn.gen || s.turn.kind !== \"thinking\" || s.turn.op !== turn.op) return;\n        for (const label of labels) taint = Policy.observe(taint, label);",
+            ["history-observe", "if (s.gen !== turn.gen || s.turn.kind !== \"thinking\" || s.turn.op !== turn.op) return;\n        for (const label of labels) {\n            taint = Policy.observe(taint, label);\n            originLabels.add(label);\n        }",
                 "if (s.gen !== turn.gen || s.turn.kind !== \"thinking\" || s.turn.op !== turn.op) return;\n        void labels;", "history-taint"],
             ["history-turn", "if (s.gen !== turn.gen || s.turn.kind !== \"thinking\" || s.turn.op !== turn.op) return;\n        for (const label",
                 "for (const label", "history-taint"],
             ["interrupted-outcome", "outcome: progress }", "outcome: \"unknown\" }", "interrupted-answers"],
-            ["reset-turn", 'taint = { kind: "clean" };\n        }', 'void turnOp;\n        }', "taint"],
+            ["reset-turn", 'taint = { kind: "clean" };\n            originLabels = new Set(["home"]);\n        }',
+                'void turnOp;\n        }', "taint"],
             ["outcomes", "record(value, value.decision.kind, e.outcome)", 'record(value, value.decision.kind, "unknown")', "outcome-lifetime"],
             ["grants", "grants.add(prior.scope);", "void prior.scope;", "grants"],
             ["grant-bound", "grants.size >= GRANT_SCOPES", "(false && grants.size >= GRANT_SCOPES)", "grant-bound"],

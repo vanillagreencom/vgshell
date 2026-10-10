@@ -108,7 +108,8 @@ async function daemonLease(ending, removeClose = false) {
                     conversation: { kind: "ended" }, input: { kind: "released" }, indicator: { kind: "gone" },
                     duplex: { kind: "half" }, toggleAt: null,
                     engine: { kind: "chained" }, speech: { kind: "closed" }
-                }, phase: "down" }
+                }, phase: "down" },
+                { v: 1, type: "memory-inbox", gen: 1, revision: hello.revision, entries: [] }
             ]);
         }
         const session = calls().find(row => row.args.includes("--session"));

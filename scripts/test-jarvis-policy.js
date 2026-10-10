@@ -358,8 +358,8 @@ world(() => {
         logic => assert.equal(logic.decide(effects.input, { ...context,
             input: { target: { kind: "application", id: "org.example.Other" }, text: { effective: [] } },
             grants: ["application:org.example.Editor"] }).kind, "confirm"));
-    control("taint-upgrade", 'if (context.taint.kind === "tainted" &&',
-        'if (false && context.taint.kind === "tainted" &&',
+    control("taint-upgrade", 'if (context.taint.kind === "tainted" && ["persistent", "exec", "input", "external"].includes(effect))',
+        'if (false && context.taint.kind === "tainted" && ["persistent", "exec", "input", "external"].includes(effect))',
         logic => assert.deepEqual(logic.decide(effects.persistent, { ...context, taint: { kind: "tainted" } }), expected("persistent", "confirm")));
     // External already confirms in every profile. Removing only its taint
     // entry cannot change a decision; the profile matrix pins that guarantee.

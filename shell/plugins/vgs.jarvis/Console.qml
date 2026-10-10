@@ -23,6 +23,7 @@ FocusScope {
     readonly property bool ready: shell !== null && state !== null && refusal === null
     readonly property string stopKey: shell === null || shell.shortcut.keys.stop === undefined || shell.shortcut.keys.stop === null ? "" : shell.shortcut.keys.stop
     readonly property var conversation: Array.isArray(values.conversation) ? values.conversation : []
+    readonly property var memoryInbox: Array.isArray(values.memoryInbox) ? values.memoryInbox : []
     readonly property string livePartial: state !== null && state.turn.kind === "collecting" ? state.turn.partial : ""
     readonly property var transcriptRows: rows()
     readonly property string hint: problem !== "" ? problem : refusalText(refusal)
@@ -91,6 +92,18 @@ FocusScope {
             problem = "Jarvis did not stop";
             console.warn("jarvis console: " + reply);
         }
+
+        function answerMemory(kind, entry) {
+            if (shell === null) return;
+            const reply = shell.ipc.call(kind === "confirm" ? "memory-confirm" : "memory-discard",
+                JSON.stringify({ id: entry.id, hash: entry.hash }));
+            if (reply === "ok") {
+                problem = "";
+                return;
+            }
+            problem = kind === "confirm" ? "Memory note not confirmed" : "Memory note not discarded";
+            console.warn("jarvis console: " + reply);
+        }
     }
 
     function followEnd() {
@@ -129,6 +142,57 @@ FocusScope {
         Column {
             width: layout.contentWidth
             spacing: Theme.stack.row
+
+            Repeater {
+                model: root.memoryInbox
+                Surface {
+                    required property var modelData
+                    width: layout.contentWidth
+                    height: card.implicitHeight + 2 * Theme.stack.group
+                    level: "raised"
+
+                    Column {
+                        id: card
+                        anchors.centerIn: parent
+                        width: parent.width - 2 * Theme.stack.group
+                        spacing: Theme.stack.inline
+                        Label {
+                            width: parent.width
+                            role: "label"
+                            text: "Memory note waiting"
+                            color: Theme.color.textMuted
+                        }
+                        Label {
+                            width: parent.width
+                            role: "bodyStrong"
+                            text: String(modelData.title)
+                            wrapMode: Text.Wrap
+                        }
+                        Label {
+                            width: parent.width
+                            role: "body"
+                            text: String(modelData.text)
+                            wrapMode: Text.Wrap
+                            maximumLineCount: 6
+                            elide: Text.ElideRight
+                        }
+                        Row {
+                            spacing: Theme.control.gap
+                            Button {
+                                text: "Confirm"
+                                iconName: "check"
+                                onClicked: root.answerMemory("confirm", modelData)
+                            }
+                            Button {
+                                text: "Discard"
+                                iconName: "trash-2"
+                                variant: "danger"
+                                onClicked: root.answerMemory("discard", modelData)
+                            }
+                        }
+                    }
+                }
+            }
 
             // Conversation rows are read-only transcript entries. They
             // take no selection, so this list has no ListCursor.

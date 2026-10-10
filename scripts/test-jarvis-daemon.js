@@ -56,7 +56,9 @@ async function inside() {
             assert.deepEqual(shell, expected.length || (typeof reason === "string" && reason.startsWith("jarvis: mute=")) ? [{ v: 1, type: "shell-status", gen: hello.gen,
                 revision: hello.revision, availability: { kind: "checking" } }] : []);
             const keepMemory = expected.some(frame => frame.type === "memory");
-            assert.deepEqual(frames.filter(frame => frame.type !== "shell-status" && (keepMemory || frame.type !== "memory")), expected);
+            const keepMemoryInbox = expected.some(frame => frame.type === "memory-inbox");
+            assert.deepEqual(frames.filter(frame => frame.type !== "shell-status"
+                && (keepMemory || frame.type !== "memory") && (keepMemoryInbox || frame.type !== "memory-inbox")), expected);
             cases++;
         } finally { clearTimeout(timeout); if (child.exitCode === null) child.kill("SIGKILL"); }
     }

@@ -121,6 +121,7 @@
     "level": { "type": "data", "label": "Audio levels" },
     "transcript": { "type": "data", "label": "Transcript" },
     "conversation": { "type": "data", "label": "Conversation" },
+    "memoryInbox": { "type": "data", "label": "Memory inbox" },
     "audio": { "type": "state", "label": "Audio", "hint": "Half duplex closes capture during speech. Echo cancellation is not supported." },
     "browserDriver": { "type": "state", "label": "Browser driver", "hint": "Jarvis drives its private browser with agent-browser.",
       "action": { "label": "Install", "install": ["agent-browser"] } },

@@ -59,6 +59,7 @@ function create({ session, state, dispatch, context, audit, result }) {
     let generation = null;
     let turnOp = null;
     let taint = { kind: "clean" };
+    let originLabels = new Set(["home"]);
     // The rows marked once that may have acted, each as "gen:op:tool".
     const spent = new Set();
     let closed = false;
@@ -72,6 +73,7 @@ function create({ session, state, dispatch, context, audit, result }) {
             turnOp = s.turn.op;
             spent.clear();
             taint = { kind: "clean" };
+            originLabels = new Set(["home"]);
         }
     }
 
@@ -98,7 +100,10 @@ function create({ session, state, dispatch, context, audit, result }) {
     function deliver(value, outcome, content, labels = [], final = true, image = undefined) {
         const s = state();
         if (s.gen === value.turn.gen && s.turn.kind === "thinking" && s.turn.op === value.turn.op)
-            for (const label of labels) taint = Policy.observe(taint, label);
+            for (const label of labels) {
+                taint = Policy.observe(taint, label);
+                originLabels.add(label);
+            }
         const item = answer(content, labels);
         result({ gen: value.turn.gen, op: value.turn.op, outcome, final, kind: "tool-results",
             results: [{ id: value.request, item, ...(image === undefined ? {}
@@ -112,7 +117,10 @@ function create({ session, state, dispatch, context, audit, result }) {
     function observe(turn, labels) {
         const s = state();
         if (s.gen !== turn.gen || s.turn.kind !== "thinking" || s.turn.op !== turn.op) return;
-        for (const label of labels) taint = Policy.observe(taint, label);
+        for (const label of labels) {
+            taint = Policy.observe(taint, label);
+            originLabels.add(label);
+        }
     }
 
     /**
@@ -315,6 +323,9 @@ function create({ session, state, dispatch, context, audit, result }) {
             confirmed: value.confirmed, outcome: "pending" }, () => {
             if (accepted && prior.scope !== undefined) grants.add(prior.scope);
             try {
+                const origin = Tools.TABLE[value.call.id].origin === true
+                    ? Object.freeze({ labels: Policy.labels([...originLabels]), tainted: taint.kind === "tainted" })
+                    : undefined;
                 value.executor.start(value.call, answer => {
                     if (closed) return;
                     if (!answer || !["completed", "failed", "unknown"].includes(answer.outcome) || typeof answer.content !== "string"
@@ -328,7 +339,7 @@ function create({ session, state, dispatch, context, audit, result }) {
                     const answer = authorize(value, e, decide(value, input));
                     if (answer.kind === "refuse") value.refusal = answer.reason;
                     return answer;
-                });
+                }, origin);
             } catch (error) {
                 value.answer = { outcome: "failed", content: "executor-failed" };
                 done("failed");

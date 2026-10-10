@@ -14,6 +14,8 @@ world(() => {
         ["help", { topic: "files" }, "read"],
         ["memory.search", { query: "team" }, "read", "home"],
         ["memory.read", { ids: ["facts/My team.md"] }, "read", "home"],
+        ["memory.propose", { id: "facts/new.md", text: "Remember this." }, "reversible"],
+        ["memory.replace", { id: "facts/new.md", text: "Remember this.", hash: "a".repeat(64) }, "persistent"],
         ["master.request", { text: "Rebase the lanes.\nThen report." }, "exec"],
         ["windows.list", {}, "read"], ["windows.focus", { window }, "reversible"],
         ["windows.reveal", { window }, "reversible"],
@@ -101,7 +103,9 @@ world(() => {
         ["browser", { command: "read", args: [] }],
         ["memory.search", { query: "team", since: "2026-1-01" }],
         ["memory.read", { ids: [] }],
-        ["memory.read", { ids: ["facts/a.md", "facts/b.md", "facts/c.md", "facts/d.md", "facts/e.md", "facts/f.md"] }]
+        ["memory.read", { ids: ["facts/a.md", "facts/b.md", "facts/c.md", "facts/d.md", "facts/e.md", "facts/f.md"] }],
+        ["memory.propose", { id: "facts/new.md", text: "x".repeat(16 * 1024 + 1) }],
+        ["memory.replace", { id: "facts/new.md", text: "Remember this.", hash: "A".repeat(64) }]
     ];
     for (const [id, args] of badArgs) bad(Tools, { id, args }, "argument-shape");
     bad(Tools, { id: "files.read", args: Object.create({ path: target }) }, "call-shape");
@@ -266,6 +270,8 @@ world(() => {
     for (const [name, path, change] of noteRules)
         control("memory-note-" + name, noteLine, change(noteLine), logic => bad(logic, { id: "memory.read", args: { ids: [path] } }, "argument-shape"));
     control("memory-note-judge", "new RegExp(notePath.pattern).test(value)", "true", logic => assert.equal(logic.memoryNote("inbox/pending.md"), false));
+    control("memory-text-bound", "if (rule.maxBytes !== undefined && Buffer.byteLength(value) > rule.maxBytes) return false;", "",
+        logic => bad(logic, { id: "memory.propose", args: { id: "facts/new.md", text: "x".repeat(16 * 1024 + 1) } }, "argument-shape"));
     const referenceLine = toolsSource.split("\n").find(line => line.startsWith("const reference ="));
     control("browser-reference", referenceLine, referenceLine.replace(/pattern: "(?:\\.|[^"])*"/, 'pattern: ".*"'),
         logic => bad(logic, { id: "browser", args: { command: "click", args: { ref: "--cdp" } } }, "browser-arguments"));

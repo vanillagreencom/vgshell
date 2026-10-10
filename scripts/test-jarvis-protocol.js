@@ -22,6 +22,10 @@ const indicator = { v: 1, type: "indicator", gen: 0, revision: hello.revision, s
 const status = { v: 1, type: "status", gen: 0, revision: hello.revision, daemon: "ready", causes: [] };
 const shellStatus = { v: 1, type: "shell-status", gen: 0, revision: hello.revision, availability: { kind: "available" } };
 const memory = { v: 1, type: "memory", gen: 0, revision: hello.revision, cause: "memory=sqlite" };
+const memoryEntry = { id, target: "facts/new.md", kind: "propose", title: "New memory", labels: ["home", "web"], text: "Remember this.", hash: "b".repeat(64) };
+const memoryInbox = { v: 1, type: "memory-inbox", gen: 0, revision: hello.revision, entries: [memoryEntry] };
+const memoryConfirm = { ...intent, intent: "memory-confirm", id, hash: memoryEntry.hash };
+const memoryDiscard = { ...intent, intent: "memory-discard", id, hash: memoryEntry.hash };
 const state = { v: 1, type: "state", gen: 0, revision: hello.revision, seq: 1,
     state: JSON.parse(JSON.stringify(Protocol.Session.initial())), phase: "down" };
 const manifest = JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8"));
@@ -118,6 +122,17 @@ const cases = [
     ["memory-direction", JSON.stringify(memory), "shell", "direction-memory"],
     ["memory-shape", changed(memory, { extra: true }), "daemon", "shape-memory"],
     ["memory-cause", changed(memory, { cause: "sqlite" }), "daemon", "memory-cause"],
+    ["memory-inbox-direction", JSON.stringify(memoryInbox), "shell", "direction-memory-inbox"],
+    ["memory-inbox-shape", changed(memoryInbox, { extra: true }), "daemon", "shape-memory-inbox"],
+    ["memory-inbox-list", changed(memoryInbox, { entries: {} }), "daemon", "memory-inbox"],
+    ["memory-inbox-bound", changed(memoryInbox, { entries: Array(65).fill(memoryEntry) }), "daemon", "memory-inbox"],
+    ["memory-entry-shape", changed(memoryInbox, { entries: [{ ...memoryEntry, extra: true }] }), "daemon", "shape-memory-entry"],
+    ["memory-entry-id", changed(memoryInbox, { entries: [{ ...memoryEntry, id: "bad" }] }), "daemon", "memory-entry"],
+    ["memory-entry-target", changed(memoryInbox, { entries: [{ ...memoryEntry, target: "inbox/pending.md" }] }), "daemon", "memory-entry"],
+    ["memory-entry-kind", changed(memoryInbox, { entries: [{ ...memoryEntry, kind: "edit" }] }), "daemon", "memory-entry"],
+    ["memory-entry-labels", changed(memoryInbox, { entries: [{ ...memoryEntry, labels: ["home", "home"] }] }), "daemon", "memory-entry"],
+    ["memory-entry-text", changed(memoryInbox, { entries: [{ ...memoryEntry, text: "x".repeat(16 * 1024 + 1) }] }), "daemon", "memory-entry"],
+    ["memory-entry-hash", changed(memoryInbox, { entries: [{ ...memoryEntry, hash: "B".repeat(64) }] }), "daemon", "memory-entry"],
     ["audio-fault-direction", JSON.stringify(audioFault), "shell", "direction-audio-fault"],
     ["audio-fault", changed(audioFault, { reason: "" }), "daemon", "audio-fault"],
     ["device-setting", changed(hello, { settings: { ...hello.settings, microphone: 1 } }), "shell", "device-setting"],
@@ -164,6 +179,9 @@ const cases = [
     ["confirm-voice", changed(confirm, { source: "voice" }), "shell", "approval-source"],
     ["confirm-model", changed(confirm, { source: "model" }), "shell", "approval-source"],
     ["cancel-shape", changed(cancel, { digest: confirm.digest }), "shell", "shape-cancel"],
+    ["memory-confirm-shape", changed(memoryConfirm, { extra: true }), "shell", "shape-memory-intent"],
+    ["memory-confirm-id", changed(memoryConfirm, { id: "bad" }), "shell", "memory-intent"],
+    ["memory-confirm-hash", changed(memoryConfirm, { hash: "B".repeat(64) }), "shell", "memory-intent"],
     ["shown-direction", JSON.stringify(shown), "daemon", "direction-shown"],
     ["shown-shape", changed(shown, { source: "button" }), "shell", "shape-shown"],
     ["shown-id", changed(shown, { id: "" }), "shell", "approval-id"],
@@ -280,7 +298,7 @@ assert.equal(JSON.stringify(Protocol.accept(JSON.stringify(state), "daemon")), J
 for (const name of ["talk-down", "talk-up", "mute", "stop"])
     assert.equal(Protocol.accept(changed(intent, { intent: name }), "shell").intent, name);
 assert.equal(JSON.stringify(Protocol.accept(JSON.stringify(say), "shell")), JSON.stringify(say));
-for (const message of [confirm, { ...confirm, source: "button" }, cancel, shown])
+for (const message of [confirm, { ...confirm, source: "button" }, cancel, memoryConfirm, memoryDiscard, shown])
     assert.equal(JSON.stringify(Protocol.accept(JSON.stringify(message), "shell")), JSON.stringify(message));
 for (const shown of [false, true])
     assert.equal(Protocol.accept(changed(indicator, { shown }), "shell").shown, shown);
@@ -288,7 +306,8 @@ assert.equal(Protocol.accept(changed(hello, { settings: { ...hello.settings, mod
     keys: { talk: null, mute: null, stop: null, confirm: null, console: null } }), "shell").settings.mode, "toggle");
 assert.equal(Protocol.accept(changed(hello, { settings: { ...hello.settings, mode: "always" },
     keys: { talk: null, mute: null, stop: null, confirm: null, console: null } }), "shell").settings.mode, "always");
-for (const message of [devices, level, audioFault, memory, taskRequest, tasks, taskAnswer, taskPrompts, taskResponse, { ...tasks, count: 0 },
+for (const message of [devices, level, audioFault, memory, memoryInbox, { ...memoryInbox, entries: [{ ...memoryEntry, kind: "replace" }] },
+    taskRequest, tasks, taskAnswer, taskPrompts, taskResponse, { ...tasks, count: 0 },
     transcript, { ...transcript, role: "assistant", stage: "final", text: "a".repeat(4096), rev: 2 },
     shellStatus, { ...shellStatus, availability: { kind: "checking" } },
     { ...shellStatus, availability: { kind: "unavailable", reason: "bwrap-missing" } }])
@@ -406,6 +425,19 @@ try {
             'if (false) keys(message, [], "memory");', "memory-shape"],
         ["memory-cause", 'if (message.cause !== "memory=sqlite") fail("memory-cause");',
             'if (false) fail("memory-cause");', "memory-cause"],
+        ["memory-inbox-direction", 'if (direction !== "daemon") fail("direction-memory-inbox");',
+            'if (false) fail("direction-memory-inbox");', "memory-inbox-direction"],
+        ["memory-inbox-shape", 'keys(message, ["v", "type", "gen", "revision", "entries"], "memory-inbox");',
+            'if (false) keys(message, [], "memory-inbox");', "memory-inbox-shape"],
+        ["memory-inbox-bound", 'message.entries.length > MEMORY_INBOX_MAX', 'false', "memory-inbox-bound"],
+        ["memory-entry-shape", 'keys(value, ["id", "target", "kind", "title", "labels", "text", "hash"], "memory-entry");',
+            'if (false) keys(value, [], "memory-entry");', "memory-entry-shape"],
+        ["memory-entry-target", '!memoryTarget(value.target)', 'false', "memory-entry-target"],
+        ["memory-entry-text", '!memoryText(value.text)', 'false', "memory-entry-text"],
+        ["memory-entry-labels", '!memoryLabels(value.labels)', 'false', "memory-entry-labels"],
+        ["memory-intent-shape", 'keys(message, fields.concat(["id", "hash"]), "memory-intent");',
+            'if (false) keys(message, [], "memory-intent");', "memory-confirm-shape"],
+        ["memory-intent-hash", '!hash(message.hash)', 'false', "memory-confirm-hash"],
         ["approval-id", 'if (!approvalId(message.id)) fail("approval-id");',
             'if (false) fail("approval-id");', "confirm-id", 3],
         ["approval-digest", 'if (typeof message.digest !== "string" || !/^[0-9a-f]{64}$/.test(message.digest)) fail("approval-digest");',

@@ -19,4 +19,19 @@ function argumentsFor(kind, tool, args) {
     return result;
 }
 
-module.exports = { argumentsFor };
+function secret(text) {
+    if (typeof text !== "string") return false;
+    return [
+        /\bsk-(?:ant-)?[A-Za-z0-9_-]{16,}\b/,
+        /\bgithub_pat_[A-Za-z0-9_]{20,}\b/,
+        /\bgh[pousr]_[A-Za-z0-9_]{20,}\b/,
+        /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/,
+        /\bAKIA[0-9A-Z]{16}\b/,
+        /\bAIza[0-9A-Za-z_-]{20,}\b/,
+        /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
+        /\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/,
+        /[a-z][a-z0-9+.-]*:\/\/[^\/\s:@]+:[^\/\s:@]+@/i
+    ].some(pattern => pattern.test(text));
+}
+
+module.exports = { argumentsFor, secret };

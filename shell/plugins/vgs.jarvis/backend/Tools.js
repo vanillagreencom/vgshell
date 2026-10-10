@@ -41,6 +41,9 @@ const helpTopic = { type: "string", pattern: "^(?:" + HELP_TOPICS.join("|") + "|
 const MEMORY_NOTE = "(?!inbox/)(?=[^\\u0000-\\u001f\\u007f]{1,255}$)(?:[^./][^/]*/)*[^./][^/]*\\.md";
 const notePath = { type: "string", pattern: "^" + MEMORY_NOTE + "$(?![\\s\\S])" };
 const MEMORY_BATCH = 5;
+const MEMORY_TEXT_BYTES = 16 * 1024;
+const memoryText = { ...text, minLength: 0, maxBytes: MEMORY_TEXT_BYTES };
+const sha256 = { type: "string", pattern: "^[0-9a-f]{64}$(?![\\s\\S])" };
 
 // Each row owns its argument shape, effect, executor, requirement and output
 // source. Executors may add a row only with a test and a real consumer.
@@ -48,6 +51,8 @@ const TABLE = {
     "help": { sentence: "Read help for {topic}", effect: "read", executor: "guidance", command: null, schema: { topic: helpTopic } },
     "memory.search": { sentence: "Search memory notes for {query}", effect: "read", executor: "memory", command: null, schema: { query: text, title: text, alias: text, since: date, until: date }, optional: ["title", "alias", "since", "until"], source: "home", labelled: true },
     "memory.read": { sentence: "Read memory notes {ids}", effect: "read", executor: "memory", command: null, schema: { ids: { type: "array", minItems: 1, maxItems: MEMORY_BATCH, items: notePath } }, source: "home", labelled: true },
+    "memory.propose": { sentence: "Add memory note {id}", effect: "reversible", executor: "memory", command: null, schema: { id: notePath, text: memoryText }, origin: true },
+    "memory.replace": { sentence: "Replace memory note {id}", effect: "persistent", executor: "memory", command: null, schema: { id: notePath, text: memoryText, hash: sha256 }, origin: true },
     // The master session runs the user's agent fleet and reads the home's
     // mailbox, where Home.js appends the request. once: the router admits
     // one a turn. A request starts work elsewhere, as a task does.
@@ -136,6 +141,7 @@ function valid(value, rule) {
     case "string":
         if (typeof value !== "string") return false;
         if (rule.minLength !== undefined && value.length < rule.minLength) return false;
+        if (rule.maxBytes !== undefined && Buffer.byteLength(value) > rule.maxBytes) return false;
         if (rule.pattern !== undefined && !new RegExp(rule.pattern).test(value)) return false;
         if (rule.enum !== undefined && !rule.enum.includes(value)) return false;
         if (rule.format === "uri") {

@@ -296,6 +296,12 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
         }
         if (!process.stdout.write(wire + "\n")) process.stdin.pause();
     }
+
+    function writeMemoryInbox(entries = null) {
+        if (!ending && context !== null && memory !== null)
+            write({ v: 1, type: "memory-inbox", gen: runner.state.gen, revision: context.revision,
+                entries: entries === null ? memory.pending() : entries });
+    }
     const audio = new Audio({
         session: Session, environment: process.env, clock: {
             now: () => performance.now(), set: (fn, ms) => setTimeout(fn, ms), clear: timer => clearTimeout(timer)
@@ -344,6 +350,19 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                         if (!ending) write({ v: 1, type: "task-answer", gen: runner.state.gen,
                             revision: context.revision, task, answer });
                     });
+                    continue;
+                }
+                if (message.type === "intent" && (message.intent === "memory-confirm" || message.intent === "memory-discard")) {
+                    intentIdentity(message);
+                    try {
+                        if (memory === null) throw new Error("jarvis: memory=unavailable");
+                        if (message.intent === "memory-confirm") memory.confirm(message.id, message.hash);
+                        else memory.discard(message.id, message.hash);
+                    } catch (error) {
+                        const cause = /^jarvis: memory=([a-z-]+)$/.exec(error.message)?.[1] ?? "intent";
+                        process.stderr.write("jarvis: memory=" + cause + "\n");
+                    }
+                    writeMemoryInbox();
                     continue;
                 }
                 if (message.type === "intent" && message.intent === "task-respond") {
@@ -473,7 +492,8 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                     files = Files.install({ router, denied, clock });
                     memory = Memory.install({ router, directory: path.join(context.directories.state, "memory"),
                         home: () => homeFolder.state.kind === "ready" ? homeFolder.state.path : null,
-                        log: line => process.stderr.write(line + "\n") });
+                        log: line => process.stderr.write(line + "\n"),
+                        notify: entries => writeMemoryInbox(entries) });
                     if (memory.kind === "refused") {
                         process.stderr.write("jarvis: " + memory.cause + "\n");
                         write({ v: 1, type: "memory", gen: runner.state.gen, revision: context.revision, cause: memory.cause });
@@ -550,6 +570,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                 }
                 if (first && readMute()) runner.dispatch({ type: "mute" });
                 judgeSetup();
+                if (memory !== null) writeMemoryInbox();
                 if (first) void audio.discover().catch(error => {
                     if (!ending) audio.fault(error.message);
                 });

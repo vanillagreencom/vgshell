@@ -64,6 +64,8 @@ Item {
             shell.ipc.handle("mute", () => { intent("mute"); return "ok"; });
             shell.ipc.handle("say", text => say(text));
             shell.ipc.handle("stop", () => { intent("stop"); return "ok"; });
+            shell.ipc.handle("memory-confirm", text => memoryIntent("memory-confirm", text));
+            shell.ipc.handle("memory-discard", text => memoryIntent("memory-discard", text));
             // The console's Stop button and `vgshell ipc call vgs.jarvis
             // stop-task <id>` stop one coding task. The Stop key does not.
             shell.ipc.handle("stop-task", task => stopTask(task));
@@ -167,6 +169,8 @@ Item {
         if (idle !== "ok") throw new Error("jarvis: " + idle);
         const memory = shell.status.set("memory", { hidden: true });
         if (memory !== "ok") throw new Error("jarvis: " + memory);
+        const inbox = shell.status.set("memoryInbox", []);
+        if (inbox !== "ok") throw new Error("jarvis: " + inbox);
         const silent = shell.status.set("transcript", null);
         if (silent !== "ok") throw new Error("jarvis: " + silent);
         conversationLog = Conversation.start();
@@ -268,6 +272,20 @@ Item {
 
     function sendIntent(name) {
         send({ type: "intent", intent: name });
+    }
+
+    function memoryIntent(name, text) {
+        if (shell === null || lifetime.kind !== "ready" || cause !== "" || !child.running)
+            return "refused: jarvis=not-ready";
+        let request;
+        try { request = JSON.parse(text); } catch (error) { return "refused: memory=json"; }
+        if (request === null || typeof request !== "object") return "refused: memory=shape";
+        const fields = { type: "intent", intent: name, id: request.id, hash: request.hash };
+        try {
+            Protocol.accept(JSON.stringify(Object.assign({ v: 1, gen: 0, revision: shell.manifest.__revision }, fields)), "shell");
+        } catch (error) { return "refused: " + error.message; }
+        send(fields);
+        return "ok";
     }
 
     function summonConsole() {
@@ -521,6 +539,11 @@ Item {
                 if (message.type === "memory") {
                     const reply = shell.status.set("memory", { tone: "warning", text: "Off",
                         hint: "jarvis: memory=sqlite. Memory search needs Node 22.13 or later with SQLite. Jarvis still answers without it." });
+                    if (reply !== "ok") throw new Error("jarvis: " + reply);
+                    continue;
+                }
+                if (message.type === "memory-inbox") {
+                    const reply = shell.status.set("memoryInbox", message.entries);
                     if (reply !== "ok") throw new Error("jarvis: " + reply);
                     continue;
                 }

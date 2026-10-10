@@ -44,6 +44,9 @@ var ARGV_MAX = 64;
 var ANSWER_MAX = 300;
 var FIELD_MAX = 128;
 var ENTRIES_MAX = 512;
+var MEMORY_INBOX_MAX = 64;
+var MEMORY_TEXT_MAX = 16 * 1024;
+var MEMORY_LABELS = ["speech", "desktop", "home", "clipboard", "file", "screen", "web", "command", "agent"];
 // Desktop entries stop here, so a list reply stays far below MAX_LINE_BYTES.
 var ENTRIES_BYTES = 192 * 1024;
 
@@ -219,6 +222,35 @@ function approvalId(value) {
     return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value);
 }
 
+function hash(value) {
+    return typeof value === "string" && /^[0-9a-f]{64}$/.test(value);
+}
+
+function memoryInboxId(value) {
+    return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value);
+}
+
+function memoryTarget(value) {
+    return typeof value === "string" && /^(?!inbox\/)(?=[^\u0000-\u001f\u007f]{1,255}$)(?:[^./][^/]*\/)*[^./][^/]*\.md$/.test(value);
+}
+
+function memoryText(value) {
+    return typeof value === "string" && bytes(value) <= MEMORY_TEXT_MAX && value.indexOf("\u0000") === -1;
+}
+
+function memoryLabels(value) {
+    return Array.isArray(value) && value.length >= 1 && value.length <= MEMORY_LABELS.length
+        && value.every(function (label) { return MEMORY_LABELS.indexOf(label) !== -1; })
+        && value.filter(function (label, index) { return value.indexOf(label) === index; }).length === value.length;
+}
+
+function memoryEntry(value) {
+    keys(value, ["id", "target", "kind", "title", "labels", "text", "hash"], "memory-entry");
+    if (!memoryInboxId(value.id) || !memoryTarget(value.target) || ["propose", "replace"].indexOf(value.kind) === -1
+            || !printable(value.title, 1, FIELD_MAX) || !memoryLabels(value.labels) || !memoryText(value.text)
+            || !hash(value.hash)) fail("memory-entry");
+}
+
 // The engine's failing setup steps (ChainedEngine select): at most one keyed
 // cause per step, the home folder, then speech, then brain; none while the
 // engine is ready. The home step's cause is the folder's own, `home=`, or
@@ -300,6 +332,9 @@ function accept(line, direction) {
         } else if (message.intent === "cancel") {
             keys(message, fields.concat(["id"]), "cancel");
             if (!approvalId(message.id)) fail("approval-id");
+        } else if (message.intent === "memory-confirm" || message.intent === "memory-discard") {
+            keys(message, fields.concat(["id", "hash"]), "memory-intent");
+            if (!memoryInboxId(message.id) || !hash(message.hash)) fail("memory-intent");
         } else if (message.intent === "task-respond") {
             keys(message, fields.concat(["task", "prompt", "answer"]), "task-respond");
             if (!taskId(message.task) || !approvalId(message.prompt)) fail("task-prompt-id");
@@ -376,6 +411,12 @@ function accept(line, direction) {
         if (direction !== "daemon") fail("direction-memory");
         keys(message, ["v", "type", "gen", "revision", "cause"], "memory");
         if (message.cause !== "memory=sqlite") fail("memory-cause");
+        break;
+    case "memory-inbox":
+        if (direction !== "daemon") fail("direction-memory-inbox");
+        keys(message, ["v", "type", "gen", "revision", "entries"], "memory-inbox");
+        if (!Array.isArray(message.entries) || message.entries.length > MEMORY_INBOX_MAX) fail("memory-inbox");
+        for (var entry of message.entries) memoryEntry(entry);
         break;
     case "task-prompts":
         if (direction !== "daemon") fail("direction-task-prompts");
