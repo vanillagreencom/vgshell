@@ -35,23 +35,41 @@ assert text.count(marker) == 1, "smokePressMarks must occur once"
 text = text.replace(marker, marker + "    property int smokeCloseMarks: 0\n    property int smokeButtonMarks: 0\n", 1)
 marker = "    function geometry() { const p = mapToGlobal(0, 0); return JSON.stringify([p.x, p.y, width, height]); }\n"
 assert text.count(marker) == 1, "geometry must occur once"
-text = text.replace(marker, marker + "    function smokeMarkerGeometry() { const p = smokeMarker.mapToGlobal(0, 0); return JSON.stringify([p.x, p.y, smokeMarker.width, smokeMarker.height]); }\n    function smokeButtonGeometry() { const p = smokeButton.mapToGlobal(0, 0); return JSON.stringify([p.x, p.y, smokeButton.width, smokeButton.height]); }\n", 1)
+text = text.replace(marker, marker + "    function smokeMarkerGeometry() { const p = smokeMarker.mapToGlobal(0, 0); return JSON.stringify([p.x, p.y, smokeMarker.width, smokeMarker.height]); }\n    function smokeEdgeGeometry() { const p = smokeEdge.mapToGlobal(0, 0); return JSON.stringify([p.x, p.y, smokeEdge.width, smokeEdge.height]); }\n    function smokeButtonGeometry() { const p = smokeButton.mapToGlobal(0, 0); return JSON.stringify([p.x, p.y, smokeButton.width, smokeButton.height]); }\n", 1)
 marker = '    Button {\n        text: "Next"\n'
 assert text.count(marker) == 1, "the Next button must occur once"
 text = text.replace(marker, '    Button {\n        id: smokeButton\n        text: "Next"\n        onPressed: root.smokeButtonMarks += 1\n', 1)
 marker = "    function close() {\n"
 assert text.count(marker) == 1, "close function must occur once"
 text = text.replace(marker, marker + "        smokeCloseMarks += 1;\n", 1)
-# The marker sits on the card's bottom edge, the band a slide offset
-# leaves outside a mask that follows the card's Translate.
-marker = "    Item {\n        id: container\n"
+marker = "    T.Control {\n"
 insert = '''    Rectangle {
         id: smokeMarker
+        x: 4
+        y: 84
+        width: 24
+        height: 24
+        color: "#ff00ff"
+        MouseArea {
+            anchors.fill: parent
+            acceptedButtons: Qt.AllButtons
+            onPressed: root.smokePressMarks += 1
+        }
+    }
+'''
+assert text.count(marker) == 1, "focus control must occur once"
+text = text.replace(marker, insert + marker, 1)
+# The edge marker sits on the card's bottom edge, the band a slide offset
+# leaves outside a mask that follows the card's Translate. smokeMarker
+# hangs below the card.
+marker = "    Item {\n        id: container\n"
+insert = '''    Rectangle {
+        id: smokeEdge
         x: 4
         y: parent.height - 18
         width: 24
         height: 16
-        color: "#ff00ff"
+        color: "#00ffff"
         MouseArea {
             anchors.fill: parent
             acceptedButtons: Qt.AllButtons
@@ -281,10 +299,10 @@ smoke_marker_press() {
 }
 smoke_button_marks() { ipc smoke readInstance panel acme.surfaces smokeButtonMarks; }
 # popup_marker_press [GEOMETRY]: presses the centre of the box the panel
-# instance's GEOMETRY function names, the marker by default.
+# instance's GEOMETRY function names, the edge marker by default.
 popup_marker_press() {
   local box x y
-  box="$(ipc smoke invokeInstance panel acme.surfaces "${1:-smokeMarkerGeometry}" '')" || return 1
+  box="$(ipc smoke invokeInstance panel acme.surfaces "${1:-smokeEdgeGeometry}" '')" || return 1
   [[ $box == \[* ]] || { echo "$box"; return 1; }
   read -r x y < <(python3 -c 'import json,sys; b=json.loads(sys.argv[1]); print(int(b[0] + b[2] / 2), int(b[1] + b[3] / 2))' "$box") || return 1
   click "$x" "$y" >/dev/null && echo ok
