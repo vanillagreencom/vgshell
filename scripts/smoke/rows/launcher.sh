@@ -751,6 +751,7 @@ expect "the accent leaves the glass" '"#c7151515"' look_at card.fill
 write_theme '{ "schemaVersion": 1, "name": "bright", "tokens": { "scheme": { "mode": "light" }, "palette": { "accent": "#a8330a" } } }'
 expect_poll "light mode applies the light glass" '"#ccefefef"' look_at card.fill
 expect "light mode applies the light text" '"#ff2a2a2a"' look_at text.foreground
+expect "light mode lights the edge white, brighter than the fill" '"#ffffffff"' look_at edge.neutral
 expect "light mode keeps the theme's accent" '"#ffa8330a"' look_at palette.accent
 write_theme '{ "schemaVersion": 1, "name": "still", "tokens": { "motion": { "scale": 0 } } }'
 expect_poll "reduced motion stills the launcher's durations" 0 look_at motion.duration.medium4

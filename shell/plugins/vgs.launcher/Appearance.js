@@ -259,8 +259,7 @@ var TOKENS = {
     }
 };
 
-// Light mode: the hook's light glass fill and neutral, and the reference's light
-// alphas. The grey is 0.1647 * 1.08 = 0.1779 of white, #2d2d2d.
+// Light mode: the hook's light glass fill, and the reference's light alphas.
 var LIGHT = {
     text: {
         foreground: "#2a2a2a",
@@ -284,7 +283,10 @@ var LIGHT = {
     highlight: {
         plate: "alpha({text.foreground}, 0.08)"
     },
+    // The edge light is white, brighter than the card's #efefef fill, so the
+    // edge catches light as it does in dark mode. The reference's grey for
+    // light mode, #2d2d2d, draws dark streaks that read as dirt on the card.
     edge: {
-        neutral: "#2d2d2d"
+        neutral: "#ffffff"
     }
 };
