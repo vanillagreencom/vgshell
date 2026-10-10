@@ -7,8 +7,9 @@ Each tool writes `<tool>-pid-<pid>` before it runs, so a check can read
 whether that process is still alive. A failing tool fails after `failAfter`
 seconds. hyprpicker writes `hyprpicker-mapped-<pid>` once it holds the
 freeze; while hyprpicker is a stand-in, `hyprctl -j layers` lists one output
-with the layers of the live mapped stand-ins. Every other hyprctl call goes
-to the real `hyprctl` the config names, unlogged, so the shell keeps its own.
+with a layer for each live stand-in, at alpha 1 once mapped and 0 before, as
+Hyprland lists a layer it has not mapped. Every other hyprctl call goes to
+the real `hyprctl` the config names, unlogged, so the shell keeps its own.
 slurp reads stdin to EOF when it is not a terminal, as the real slurp does.
 The recorder logs its start and output name, then writes `finalized`, or
 copies the fixture's `video`, only after SIGINT, never on a hard stop.
@@ -50,13 +51,13 @@ def nested():
 if tool == "hyprctl":
     if sys.argv[1:] == ["-j", "layers"] and "hyprpicker" not in config.get("real", {}):
         layers = []
-        for marker in root.glob("hyprpicker-mapped-*"):
-            pid = int(marker.name.removeprefix("hyprpicker-mapped-"))
+        for marker in root.glob("hyprpicker-pid-*"):
+            pid = int(marker.name.removeprefix("hyprpicker-pid-"))
             try:
                 os.kill(pid, 0)
             except ProcessLookupError:
                 continue
-            layers.append({"namespace": "hyprpicker", "pid": pid})
+            layers.append({"namespace": "hyprpicker", "pid": pid, "alpha": int((root / f"hyprpicker-mapped-{pid}").exists())})
         print(json.dumps({"NESTED": {"levels": {"3": layers}}}))
         sys.exit(0)
     if "hyprctl" not in config:

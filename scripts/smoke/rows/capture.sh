@@ -19,10 +19,8 @@ capture_real_slurp="$(command -v slurp)" || { fail "capture: slurp is unavailabl
 capture_real_picker="$(command -v hyprpicker)" || { fail "capture: hyprpicker is unavailable"; return 0; }
 cp -- "$home/.config/vgshell/shell.json" "$capture_saved"
 mkdir -p "$capture_state/saved-shims"
-# The shell runs hyprctl through its shim all the row, so each stand-in
-# replaces a saved shim by rename, never leaving a gap.
-for capture_tool in grim slurp hyprpicker hyprctl tesseract wl-copy gpu-screen-recorder ffmpeg pw-dump; do
-  if [[ -e $shim/$capture_tool ]]; then cp -P -- "$shim/$capture_tool" "$capture_state/saved-shims/$capture_tool"; fi
+for capture_tool in grim slurp hyprpicker tesseract wl-copy gpu-screen-recorder ffmpeg pw-dump; do
+  if [[ -e $shim/$capture_tool ]]; then mv -- "$shim/$capture_tool" "$capture_state/saved-shims/$capture_tool"; fi
 done
 python3 - "$source_repo/scripts/test-capture.py" "$capture_state" "$shim" "$capture_real_grim" "$nested_socket" "$rt_dir" <<'PY'
 import importlib.util, json, os, sys
@@ -30,11 +28,12 @@ source, state, shim, grim, display, runtime = sys.argv[1:]
 spec = importlib.util.spec_from_file_location("capture_test", source)
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
-module.plant(module.Path(state), {"real": {"grim": grim}, "hyprctl": os.path.join(state, "saved-shims", "hyprctl"), "display": display, "runtime": runtime, "clipboardHold": True})
+module.plant(module.Path(state), {"real": {"grim": grim}, "hyprctl": os.path.join(shim, "hyprctl.real"), "display": display, "runtime": runtime, "clipboardHold": True})
 for tool in module.TOOLS:
-    os.symlink(os.path.join(state, "bin", tool), os.path.join(shim, tool + ".next"))
-    os.replace(os.path.join(shim, tool + ".next"), os.path.join(shim, tool))
+    # The shell runs hyprctl all the row: shim_hyprctl swaps it whole.
+    os.symlink(os.path.join(state, "bin", tool), os.path.join(shim, "hyprctl.capture" if tool == "hyprctl" else tool))
 PY
+shim_hyprctl capture
 capture_read() { ipc smoke readInstance service vgs.capture "$1"; }
 capture_phase() { capture_read phase | py_reply 'import json,sys; print(json.load(sys.stdin))'; }
 capture_outputs() { capture_read outputs | py_reply 'import json,sys; rows=json.load(sys.stdin); print(rows is not None and any(r["name"] == sys.argv[1] and not r["disabled"] for r in rows))' "$capture_output"; }
@@ -124,12 +123,14 @@ print(bool(providers) and all((root / p.name.replace("clipboard-ready-", "clipbo
 PY
 }
 capture_config() { python3 - "$capture_state/config.json" "$1" "$2" <<'PY'
-import json, sys
+import json, os, sys
 path, key, value = sys.argv[1:]
 doc = json.load(open(path))
 doc[key] = json.loads(value)
-with open(path, "w") as output:
+# Replaced whole: the shell's hyprctl stand-in reads it at any time.
+with open(path + ".next", "w") as output:
     json.dump(doc, output)
+os.replace(path + ".next", path)
 PY
 }
 capture_png() { python3 - "$capture_state" "$capture_output" "$capture_width" "$capture_height" "$(capture_path)" <<'PY'
@@ -1527,7 +1528,7 @@ expect "capture closes its panel after its choices" ok ipc vgs.capture invoke to
 expect_poll "the choices panel unmaps" absent capture_panel
 # A camera plugged in while the panel is closed shows when it opens again.
 capture_plugged() { python3 - "$capture_state/config.json" "$1" <<'PY'
-import json, sys
+import json, os, sys
 path, plugged = sys.argv[1], sys.argv[2] == "in"
 doc = json.load(open(path))
 doc.pop("nodes", None)
@@ -1538,8 +1539,9 @@ if plugged:
         {"id": 42, "type": "PipeWire:Interface:Node", "info": {"props": {"media.class": "Video/Source", "node.name": "fixture-camera", "node.description": "Fixture camera", "api.v4l2.path": "/dev/video7"}}},
         {"id": 44, "type": "PipeWire:Interface:Node", "info": {"props": {"media.class": "Video/Source", "node.name": "plugged-camera", "node.description": "Plugged camera", "api.v4l2.path": "/dev/video8"}}},
     ]
-with open(path, "w") as output:
+with open(path + ".next", "w") as output:
     json.dump(doc, output)
+os.replace(path + ".next", path)
 PY
 }
 capture_cameras() { capture_choices | py_reply 'import json,sys; print(json.dumps([c["value"] for c in json.load(sys.stdin)[1]]))'; }
@@ -1666,9 +1668,12 @@ expect_poll "disabled capture releases its service" False record_exists vgs.capt
 expect_poll "disabling capture ends a held selection's selector and freeze" 0 capture_left
 expect_poll "disabled capture releases its status" null capture_status
 expect_poll "disabling capture releases all owned clipboard providers" True capture_released
-for capture_tool in grim slurp hyprpicker hyprctl tesseract wl-copy gpu-screen-recorder ffmpeg pw-dump; do
-  if [[ -e $capture_state/saved-shims/$capture_tool ]]; then mv -fT -- "$capture_state/saved-shims/$capture_tool" "${shim:?}/$capture_tool"; else rm -f -- "${shim:?}/$capture_tool"; fi
+for capture_tool in grim slurp hyprpicker tesseract wl-copy gpu-screen-recorder ffmpeg pw-dump; do
+  rm -f -- "${shim:?}/$capture_tool"
+  if [[ -e $capture_state/saved-shims/$capture_tool ]]; then mv -- "$capture_state/saved-shims/$capture_tool" "$shim/$capture_tool"; fi
 done
+shim_hyprctl real
+rm -f -- "${shim:?}/hyprctl.capture"
 cp -- "$capture_saved" "$home/.config/vgshell/shell.json.next" && mv -T -- "$home/.config/vgshell/shell.json.next" "$home/.config/vgshell/shell.json"
 rescan "the capture fixture cleanup is rescanned"
 expect_poll "the notifications service is as the row found it" "$capture_notes_found" record_exists vgs.notifications

@@ -221,20 +221,23 @@ class Capture:
         after the freeze to stay on top and receive input. hyprpicker maps
         within 4 ms (hyprctl layers poll, host cachy, 2026-10-04), but a
         loaded machine can delay both its map and its failure, so only
-        Hyprland's layer list or hyprpicker's exit decides.
+        Hyprland's layer list or hyprpicker's exit decides. Hyprland 0.56.2
+        lists a layer from its creation, before hyprpicker's screencopy can
+        still fail; its `alpha`, the fade's goal, is 0 until the layer maps
+        (HyprCtl.cpp layersRequest, LayerSurface.cpp onMap).
         """
         deadline = time.monotonic() + FREEZE_TIMEOUT
-        while True:
-            outputs = json.loads(self.run(["hyprctl", "-j", "layers"], timeout=FREEZE_TIMEOUT, stdout=subprocess.PIPE, stderr=subprocess.PIPE))
+        while (left := deadline - time.monotonic()) > 0:
+            outputs = json.loads(self.run(["hyprctl", "-j", "layers"], timeout=left, stdout=subprocess.PIPE, stderr=subprocess.PIPE))
             # Read after the layers, so a freeze that mapped and then exited
             # is a failure.
             if freeze.poll() is not None:
                 raise RuntimeError(f"hyprpicker exited {freeze.returncode}: {freeze.communicate()[1].decode(errors='replace').strip()}")
-            if outputs and all(any(layer["pid"] == freeze.pid for layers in output["levels"].values() for layer in layers) for output in outputs.values()):
+            if outputs and all(any(layer["pid"] == freeze.pid and layer["alpha"] > 0 for layers in output["levels"].values() for layer in layers)
+                               for output in outputs.values()):
                 return
-            if time.monotonic() >= deadline:
-                raise CaptureFailure("timeout", "hyprpicker did not freeze the screen")
-            time.sleep(0.01)
+            time.sleep(0.05)
+        raise CaptureFailure("timeout", "hyprpicker did not freeze the screen")
 
     def pick(self, argv, boxes=None, notify=True):
         if boxes is None:

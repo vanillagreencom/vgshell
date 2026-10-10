@@ -1433,6 +1433,8 @@ def main():
             # The fixed wait this judge replaced.
             ("slept-freeze", "            self.frozen(freeze)\n", "            time.sleep(0.1)\n            if freeze.poll() is not None:\n                raise RuntimeError('hyprpicker exited')\n",
              late_freeze_failure_holds, {"fail": "hyprpicker", "failAfter": 0.5}),
+            # A listed layer that never mapped read as the freeze.
+            ("listed-freeze", ' and layer["alpha"] > 0', "", late_freeze_failure_holds, {"fail": "hyprpicker", "failAfter": 0.5}),
         ]:
             assert source.count(before) == 1, name
             changed = source.replace(before, after)
@@ -1487,7 +1489,7 @@ def main():
         assert not killed_owner_holds(root, request(root, "record"), config, helper), "control did not fail: unowned child"
     if unmeasured is None:
         recording_controls += ",no-trim"
-    controls = ("undrawn-windows,drawn-window-delegate,model-windows,raw-ocr-error,no-output,no-clipboard,hard-stop,inherited-stdin,kept-freeze,slept-freeze,unowned-child,invalid-delay-accepted,invalid-timeout-accepted,invalid-processing-accepted,empty-selection-accepted,empty-displays-accepted,smart-snap,window-boxes,display-boxes,all-bounds,no-scale,no-rotation,no-cursor,copy-saves,save-copies,no-delay,delay-ignores-cancel,no-timeout,settle-ignores-cancel,written-ignores-cancel,selector-ignores-cancel,geometry-over-cancel,late-answer-error,no-selection-end," + recording_controls + "," + notification_controls)
+    controls = ("undrawn-windows,drawn-window-delegate,model-windows,raw-ocr-error,no-output,no-clipboard,hard-stop,inherited-stdin,kept-freeze,slept-freeze,listed-freeze,unowned-child,invalid-delay-accepted,invalid-timeout-accepted,invalid-processing-accepted,empty-selection-accepted,empty-displays-accepted,smart-snap,window-boxes,display-boxes,all-bounds,no-scale,no-rotation,no-cursor,copy-saves,save-copies,no-delay,delay-ignores-cancel,no-timeout,settle-ignores-cancel,written-ignores-cancel,selector-ignores-cancel,geometry-over-cancel,late-answer-error,no-selection-end," + recording_controls + "," + notification_controls)
     if unmeasured is not None:
         # The rest passed, but the real post-process could not run: not a pass.
         print(f"test-capture: status=not-measured cause={unmeasured}; controls={controls}")
