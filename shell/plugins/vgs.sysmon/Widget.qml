@@ -14,13 +14,16 @@ BarWidget {
     property string leaseId: ""
     implicitWidth: row.implicitWidth
     implicitHeight: row.implicitHeight
-    readonly property bool captions: setting("labelStyle", "icons") === "text"
+    readonly property bool captions: setting("labelStyle") === "text"
     readonly property bool stacked: setting("layout") === "Stacked"
     readonly property var gpuTemperature: gpu && gpu.state !== "asleep" ? gpu.temperature : null
-    visible: setting("showCpu", true) || setting("showMemory", true) || (setting("showGpu", true) && gpu !== null)
+    // The manifest holds each default. The core hands `settings` only after
+    // the widget is built, so each switch compares with true: a bool property
+    // refuses the undefined first read.
+    visible: setting("showCpu") === true || setting("showMemory") === true || (setting("showGpu") === true && gpu !== null)
 
     function percent(value) { return typeof value === "number" ? Math.round(value) + "%" : "--"; }
-    function degrees(value) { return Logic.degrees(value, setting("temperatureUnit", "Celsius")); }
+    function degrees(value) { return Logic.degrees(value, setting("temperatureUnit")); }
     // The widest form of each reading, which its BarItem holds.
     readonly property string percentSample: percent(100)
     readonly property string degreesSample: degrees(100)
@@ -45,14 +48,14 @@ BarWidget {
         id: row
         spacing: Theme.bar.gap
         BarItem {
-            visible: root.setting("showCpu", true)
+            visible: root.setting("showCpu") === true
             label: "CPU"
             iconName: root.captions ? "" : "cpu"
             countIconName: root.captions ? "" : "thermometer"
             caption: root.captions ? "CPU" : ""
             countCaption: root.captions ? "TMP" : ""
             text: root.percent(root.cpu.use)
-            count: root.setting("cpuTemperature", false) ? root.degrees(root.cpu.temperature) : ""
+            count: root.setting("cpuTemperature") ? root.degrees(root.cpu.temperature) : ""
             textSample: root.percentSample
             countSample: root.degreesSample
             separator: "/"
@@ -63,16 +66,16 @@ BarWidget {
             onClicked: root.toggle()
         }
         BarItem {
-            visible: root.setting("showMemory", true)
+            visible: root.setting("showMemory") === true
             label: "Memory"
             iconName: root.captions ? "" : "memory-stick"
             countIconName: root.captions ? "" : "hard-drive"
             caption: root.captions ? "RAM" : ""
             countCaption: root.captions ? "SWP" : ""
-            text: root.setting("memoryUnit", "percent") === "used" ? root.gb(root.memory.used) : root.percent(root.memory.use)
-            count: root.setting("showSwap", false) ? root.percent(root.memory.swapUse) : ""
+            text: root.setting("memoryUnit") === "used" ? root.gb(root.memory.used) : root.percent(root.memory.use)
+            count: root.setting("showSwap") ? root.percent(root.memory.swapUse) : ""
             // Used memory never exceeds the total.
-            textSample: root.setting("memoryUnit", "percent") === "used" ? root.gb(root.memory.total) : root.percentSample
+            textSample: root.setting("memoryUnit") === "used" ? root.gb(root.memory.total) : root.percentSample
             countSample: root.percentSample
             separator: "/"
             stacked: root.stacked
@@ -81,14 +84,14 @@ BarWidget {
             onClicked: root.toggle()
         }
         BarItem {
-            visible: root.setting("showGpu", true) && root.gpu !== null
+            visible: root.setting("showGpu") === true && root.gpu !== null
             label: "GPU"
             iconName: root.captions ? "" : "gpu"
             countIconName: root.captions ? "" : "thermometer"
             caption: root.captions ? "GPU" : ""
             countCaption: root.captions ? "TMP" : ""
             text: root.percent(root.gpu && root.gpu.state === "asleep" ? null : root.gpu ? root.gpu.use : null)
-            count: root.setting("gpuTemperature", false) ? root.degrees(root.gpuTemperature) : ""
+            count: root.setting("gpuTemperature") ? root.degrees(root.gpuTemperature) : ""
             textSample: root.percentSample
             countSample: root.degreesSample
             separator: "/"

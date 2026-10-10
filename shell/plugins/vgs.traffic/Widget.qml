@@ -6,14 +6,17 @@ import "TrafficLogic.js" as Logic
 BarWidget {
     id: root
     readonly property var traffic: shell === null ? ({}) : shell.status.values.traffic || ({})
-    readonly property string showMode: setting("show", "both")
+    // The manifest holds each default. The core hands `settings` only after
+    // the widget is built, so a typed int or string property would refuse the
+    // undefined first read; var keeps it until the values arrive.
+    readonly property var showMode: setting("show")
     // Stacked draws upload over download on BarItem's two short lines;
     // one shown speed stays one line.
     readonly property bool stacked: setting("layout") === "Stacked" && showMode === "both"
     // Text labels name each speed, UPL and DNL, in place of its arrow.
     readonly property bool captions: setting("labelStyle") === "text"
-    readonly property int kbDigits: setting("kbDecimals", 0)
-    readonly property int mbDigits: setting("mbDecimals", 1)
+    readonly property var kbDigits: setting("kbDecimals")
+    readonly property var mbDigits: setting("mbDecimals")
     function rate(value) { return Logic.formatRate(value, kbDigits, mbDigits); }
     readonly property string rateSample: Logic.rateSample(kbDigits, mbDigits)
 
