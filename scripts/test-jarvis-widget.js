@@ -105,6 +105,8 @@ const CASES = [
         ["a harness exit", "brain=harness-exit", "brain"], ["a network refusal", "net=timeout", "brain"],
         ["local speech", "speech=local-not-ready", "voice"], ["a capture start", "audio-start: device-busy", "audio"],
         ["a device probe", "device-probe: pw-dump-exit", "audio"], ["a busy player", "playback-busy", "audio"],
+        ["a home text over its bound", "guidance=home-too-large", "home"], ["a home skill list over its bound", "guidance=home-skills-too-large", "home"],
+        ["a link in the home folder", "home=link", "home"],
         ["an unexpected engine failure", "engine=unexpected", "other"]].map(([label, reason, kind]) =>
         [label, up({ fault: { kind: "error", reason, retry: 0 } }), ["problem", "circle-alert", "danger", WITH(fault(kind), MUTE)]]),
     ["muted", up(MUTED), ["muted", "mic-off", "neutral", "Jarvis is muted" + UNMUTE]],
@@ -213,7 +215,7 @@ function verify(view) {
         if (typeof got !== "string") assert.equal(/[a-z-]+=[a-z0-9-]/.test(got[3]), false, label + ": no keyed cause on screen");
     }
     // Each kind and step the suite names has its own words.
-    for (const kind of ["slow", "device", "brain", "voice", "audio", "other"])
+    for (const kind of ["slow", "device", "home", "brain", "voice", "audio", "other"])
         assert.equal(typeof view.FAULT_TEXT[kind].title === "string" && typeof view.FAULT_TEXT[kind].action === "string", true, kind);
     const words = [view.GATE_TEXT.unconfigured, ...view.SETUP_TEXT.map(([, line]) => line)];
     assert.equal(new Set(words).size, words.length, "each remaining step says its own sentence");
@@ -276,6 +278,8 @@ const CONTROLS = [
     ["a fault shows its keyed reason", 'return look("problem", text.title + ". " + text.action, muteOn);',
         'return look("problem", "Problem: " + state.fault.reason, muteOn);'],
     ["a brain fault reads as another", '[/^(brain|net)=/, "brain"],', ""],
+    ["a home folder fault reads as another", '[/^(home=|guidance=home-)/, "home"],', ""],
+    ["a home text fault reads as another", '[/^(home=|guidance=home-)/, "home"],', '[/^home=/, "home"],'],
     ["a slow answer reads as another", '[/^thinking-timeout$/, "slow"],', ""],
     ["a retry asks for a restart", 'fault.kind === "retrying" ? RETRYING : FAULT_TEXT[kind]', "FAULT_TEXT[kind]"],
     ["an audio problem shows its text", 'look("problem", AUDIO_TEXT, muteOn)', 'look("problem", "Audio problem: " + audio.text, muteOn)'],

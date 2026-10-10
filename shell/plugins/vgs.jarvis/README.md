@@ -14,7 +14,7 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 - Mute stays on across restarts and blocks talk input.
 - A listening bubble whose orb and text let clicks reach the application below.
 - Always talk mode: say Hey Jarvis to start a request. The word is heard by the local voice on this computer; nothing reaches the AI model until you speak after it. While Jarvis waits for the word its bubble shows a still orb.
-- A home folder you choose for what Jarvis knows: your instructions, skills, memory and state. Every AI model uses them the same way, and no AI model can change your instructions, skills or memory.
+- A home folder you choose for what Jarvis knows: your instructions, skills, memory and state. Every AI model uses them the same way, and no AI model can change anything in the folder but its `state/` part.
 - An AI model from an API key you added, or from an app you are signed in to, such as Claude Code, Codex, GitHub Copilot or Pi with its own providers.
 - Local voice: speech to text and spoken replies on your computer, with no network access, after Set up local voice.
 - Realtime voice with a saved OpenAI key. OpenAI hears you and speaks the reply. The selected AI model answers each request through Jarvis's action and release checks.
@@ -46,9 +46,9 @@ Setup actions are buttons on the Jarvis page in Plugins or rows in the launcher'
 
 The shell's requirement notice installs a missing tool in one click.
 
-Home folder shows in Setup only when Jarvis cannot use the folder you chose, and says what to change.
+Home folder shows in Setup only when Jarvis cannot use the folder you chose, and says what to change. Jarvis checks the folder again when you press Talk.
 
-With a GitHub Copilot account, Setup shows Copilot Memory. GitHub keeps that memory in your account, so only you can turn it off: open [GitHub Copilot settings](https://github.com/settings/copilot/features) and set Copilot Memory to Disabled. Jarvis keeps what it learns in your home folder.
+With a GitHub Copilot account, Setup shows Copilot Memory. GitHub keeps that memory in your account, so only you can turn it off: open [GitHub Copilot settings](https://github.com/settings/copilot/features) and set Copilot Memory to Disabled.
 
 ## Settings
 
@@ -75,9 +75,9 @@ Choose a folder under Home folder. Jarvis adds the entries the folder lacks and 
 | `AGENTS.md` | Your instructions for Jarvis: who it is and how it talks. Every AI model gets this text at the start of a conversation. Keep it under 8 KB. |
 | `CLAUDE.md` | One line that points Claude Code at `AGENTS.md`, for your own Claude Code session in this folder. |
 | `skills/base/` | The place for the skills VGS provides. |
-| `skills/own/` | Your own skills. A skill is a Markdown file, or a folder with a `SKILL.md` file. Every AI model gets each skill's name and first line, or its `description`, and reads the skill itself when it needs it. Keep each under 16 KB. |
+| `skills/own/` | Your own skills. A skill is a Markdown file, or a folder with a `SKILL.md` file. Its name is the file name without `.md`, or the folder name: it starts with a letter or a digit and has only letters, digits, `_` and `-`, at most 48 characters. Jarvis skips a skill with any other name. Every AI model gets each skill's name and first line, or its `description`, and reads the skill itself when it needs it. Keep each under 16 KB. |
 | `memory/` | The place for memory notes: `MEMORY.md` and `inbox/`. Jarvis does not read them yet. |
-| `state/` | Work in progress. This is the one part of the folder that Jarvis's file tools can change. |
+| `state/` | Work in progress. This is the one part of the folder that Jarvis's file tools can read or change. They refuse every other path in the folder, a file of your own that this table does not name included. |
 | `.claude/settings.json`, `.codex/config.toml` | Settings that turn off Claude Code's and Codex's own memory for your own session in this folder. |
 
 The folder gives Jarvis knowledge, never permission. A skill that says an action needs no question changes nothing: Jarvis still asks before it deletes a file, runs a command or sends something.

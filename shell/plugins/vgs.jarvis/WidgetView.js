@@ -56,22 +56,27 @@ var SETUP_TEXT = [
 // pattern that matches wins. Examples are the producers' own reasons:
 // Session's thinking-timeout and device-lost, the engine's keyed brain and
 // speech causes (ChainedEngine keyed: brain=stream-error, net=timeout,
-// speech=local-not-ready) and Audio's capture and playback failures
-// (audio-start: ..., device-probe: ..., playback-busy).
+// speech=local-not-ready), the home folder causes of a conversation's
+// first turn (home=link, guidance=home-too-large) and Audio's capture and
+// playback failures (audio-start: ..., device-probe: ..., playback-busy).
 var FAULT_KINDS = [
     [/^thinking-timeout$/, "slow"],
     [/^device-lost$/, "device"],
+    [/^(home=|guidance=home-)/, "home"],
     [/^(brain|net)=/, "brain"],
     [/^speech=/, "voice"],
     [/^(audio-start|device-probe|capture|playback)/, "audio"]
 ];
 // What the bar and the bubble say of each kind: what went wrong, then what
 // to do. Only a changed device setting or a restart clears a fault, so a
-// device fault asks for a device and every other for a restart.
+// device fault asks for a device and every other for a restart. A home
+// folder fault asks for the folder: Jarvis reads it again at the next
+// request.
 var RESTART = "Turn Jarvis off and on again in Settings > Jarvis.";
 var FAULT_TEXT = {
     "slow": { title: "The AI model took too long to answer", action: RESTART },
     "device": { title: "The microphone or speaker is gone", action: "Connect it again, or choose another in Settings > Jarvis." },
+    "home": { title: "Jarvis cannot use the home folder", action: "Check AGENTS.md and the skills in the folder, or choose another folder in Settings > Jarvis." },
     "brain": { title: "The AI model did not answer", action: RESTART },
     "voice": { title: "Local voice stopped working", action: RESTART },
     "audio": { title: "The microphone or speaker stopped working", action: RESTART },

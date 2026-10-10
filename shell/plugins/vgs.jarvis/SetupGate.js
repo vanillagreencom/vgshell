@@ -54,14 +54,17 @@ var STEP_TODO = { brain: "The chosen AI model cannot be used. Add a key or sign 
 // The home folder step shows only while the daemon refuses the folder the
 // user chose, with what to change, by its cause; any other cause of the
 // folder or its text takes HOME_STEP_TODO. Its entry declares no action:
-// the user changes the folder or the setting.
+// the user changes the folder or the setting. A changed setting reaches
+// the daemon at once; a change inside the folder does at the next request
+// (jarvisd.js judgeSetup), which HOME_AGAIN says.
+var HOME_AGAIN = " Jarvis checks the folder again when you press Talk.";
 var HOME_TODO = {
-    "home=link": "The home folder has a link where Jarvis keeps a file or a folder. Remove the link, or choose another folder in Settings > Home.",
+    "home=link": "The home folder has a link where Jarvis keeps a file or a folder. Remove the link, or choose another folder in Settings > Home." + HOME_AGAIN,
     "home=path": "Jarvis cannot use this folder. Choose a folder inside your own home directory in Settings > Home.",
-    "guidance=home-too-large": "AGENTS.md in the home folder is too long. Make it shorter than 8 KB.",
-    "guidance=home-skills-too-large": "The home folder has more skills than Jarvis can list. Remove the skills you do not use."
+    "guidance=home-too-large": "AGENTS.md in the home folder is too long. Make it shorter than 8 KB." + HOME_AGAIN,
+    "guidance=home-skills-too-large": "The home folder has more skills than Jarvis can list. Remove the skills you do not use." + HOME_AGAIN
 };
-var HOME_STEP_TODO = "Jarvis cannot use the home folder. Check that you can open and change it, or choose another folder in Settings > Home.";
+var HOME_STEP_TODO = "Jarvis cannot use the home folder. Check that you can open and change it, or choose another folder in Settings > Home." + HOME_AGAIN;
 var HOME_READY = { hidden: true };
 var DONE = { tone: "ok", text: "Done", action: false };
 var CHECKING = { tone: "info", text: "Checking", action: false };

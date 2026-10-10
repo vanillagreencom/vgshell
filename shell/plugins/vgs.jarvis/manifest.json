@@ -131,7 +131,7 @@
     "setupBrowser": { "type": "state", "label": "Browser", "group": "Setup", "hint": "Set up the browser so Jarvis can use websites for you.", "action": { "label": "Set up browser", "tui": "setup-browser" } },
     "setupInput": { "type": "state", "label": "Input", "group": "Setup", "hint": "Check input so Jarvis can type and click for you.", "action": { "label": "Check input", "tui": "setup-input" } },
     "copilotMemory": { "type": "state", "label": "Copilot Memory", "group": "Setup",
-      "hint": "Open GitHub Copilot settings and set Copilot Memory to Disabled. Jarvis keeps what it learns in your home folder, and Copilot also keeps memories in your GitHub account.",
+      "hint": "Open GitHub Copilot settings and set Copilot Memory to Disabled. GitHub keeps this memory in your account, where only you can turn it off.",
       "link": { "text": "GitHub Copilot settings", "url": "https://github.com/settings/copilot/features" } }
   },
   "tui": {
