@@ -45,6 +45,7 @@ var ANSWER_MAX = 300;
 var FIELD_MAX = 128;
 var ENTRIES_MAX = 512;
 var MEMORY_INBOX_MAX = 64;
+var MEMORY_INBOX_BYTES = 128 * 1024;
 var MEMORY_TEXT_MAX = 16 * 1024;
 var MEMORY_LABELS = ["speech", "desktop", "home", "clipboard", "file", "screen", "web", "command", "agent"];
 // Desktop entries stop here, so a list reply stays far below MAX_LINE_BYTES.
@@ -248,7 +249,28 @@ function memoryEntry(value) {
     keys(value, ["id", "target", "kind", "title", "labels", "text", "hash", "problem"], "memory-entry");
     if (!memoryInboxId(value.id) || !memoryTarget(value.target) || ["propose", "replace"].indexOf(value.kind) === -1
             || !printable(value.title, 1, FIELD_MAX) || !memoryLabels(value.labels) || !memoryText(value.text)
-            || !hash(value.hash) || !/^(|exists|conflict|link|secret|hash|bootstrap)$/.test(value.problem)) fail("memory-entry");
+            || !hash(value.hash) || !/^(|exists|conflict|link|secret|hash|bootstrap|write)$/.test(value.problem)) fail("memory-entry");
+}
+
+function memoryEntryAccepted(value) {
+    try {
+        memoryEntry(value);
+        return true;
+    } catch (error) { return false; }
+}
+
+function memoryInboxEntries(values) {
+    if (!Array.isArray(values)) return [];
+    var kept = [];
+    var size = 0;
+    for (var entry of values) {
+        if (!memoryEntryAccepted(entry)) continue;
+        var next = bytes(JSON.stringify(entry)) + 1;
+        if (kept.length === MEMORY_INBOX_MAX || size + next > MEMORY_INBOX_BYTES) break;
+        kept.push(entry);
+        size += next;
+    }
+    return kept;
 }
 
 // The engine's failing setup steps (ChainedEngine select): at most one keyed
@@ -415,7 +437,8 @@ function accept(line, direction) {
     case "memory-inbox":
         if (direction !== "daemon") fail("direction-memory-inbox");
         keys(message, ["v", "type", "gen", "revision", "entries"], "memory-inbox");
-        if (!Array.isArray(message.entries) || message.entries.length > MEMORY_INBOX_MAX) fail("memory-inbox");
+        if (!Array.isArray(message.entries) || message.entries.length > MEMORY_INBOX_MAX
+                || bytes(JSON.stringify(message.entries)) > MEMORY_INBOX_BYTES) fail("memory-inbox");
         for (var entry of message.entries) memoryEntry(entry);
         break;
     case "task-prompts":

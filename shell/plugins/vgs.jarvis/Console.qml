@@ -127,6 +127,7 @@ FocusScope {
         if (problem === "secret") return "Not saved. The note contains a secret.";
         if (problem === "hash") return "Not saved. The pending note changed.";
         if (problem === "bootstrap") return "Not saved. Jarvis cannot rewrite MEMORY.md.";
+        if (problem === "write") return "Not saved. Jarvis could not write the note.";
         return "";
     }
 

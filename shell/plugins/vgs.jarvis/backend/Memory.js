@@ -15,7 +15,6 @@ const VERSION = 1;
 const LIMIT = 8;
 const SOURCES = new Set(Policy.SOURCES);
 const TEXT_BYTES = 16 * 1024;
-const WIRE_BYTES = 240 * 1024;
 const { O_RDONLY, O_WRONLY, O_CREAT, O_EXCL, O_DIRECTORY, O_NOFOLLOW, O_NONBLOCK } = fs.constants;
 
 function json(value) { return JSON.stringify(value); }
@@ -404,8 +403,7 @@ function install({ router, directory, home, sqlite = () => require("node:sqlite"
                         const text = fs.readFileSync(Core.anchored().child(parent, name), "utf8");
                         const record = JSON.parse(text);
                         if (record.v !== 1 || record.id !== name.slice(0, -5) || !Tools.memoryNote(record.target)
-                                || !["propose", "replace"].includes(record.kind) || typeof record.text !== "string"
-                                || Buffer.byteLength(record.text) > TEXT_BYTES) continue;
+                                || !["propose", "replace"].includes(record.kind) || typeof record.text !== "string") continue;
                         const labels = Policy.labels(record.labels);
                         const title = clipText(printable(parseNote(record.target, record.text).title, path.basename(record.target, ".md")), 128);
                         entries.push({ id: record.id, target: record.target, kind: record.kind, title, labels,
@@ -413,16 +411,11 @@ function install({ router, directory, home, sqlite = () => require("node:sqlite"
                             hash: hashText(text), problem: printable(record.problem, ""), time: record.time ?? "" });
                     } catch { /* one bad inbox file must not hide the others */ }
                 }
-                const kept = [];
-                let bytes = 0;
-                for (const entry of entries.sort((left, right) => left.time < right.time ? -1 : left.time > right.time ? 1 : 0)) {
-                    const { time: _time, ...wire } = entry;
-                    const size = Buffer.byteLength(JSON.stringify(wire)) + 1;
-                    if (kept.length === 64 || bytes + size > WIRE_BYTES) break;
-                    kept.push(wire);
-                    bytes += size;
-                }
-                return kept;
+                return entries.sort((left, right) => left.time < right.time ? -1 : left.time > right.time ? 1 : 0)
+                    .map(entry => {
+                        const { time: _time, ...wire } = entry;
+                        return wire;
+                    });
             });
         } catch { return []; }
     }
@@ -546,7 +539,8 @@ function install({ router, directory, home, sqlite = () => require("node:sqlite"
         try { writeNote(record.target, record.text, record.labels, record.expectedHash, record.kind === "replace"); }
         catch (error) {
             const cause = /^jarvis: memory=([a-z-]+)$/.exec(error.message)?.[1] ?? "write";
-            setInboxProblem(id, cause);
+            const problem = ["exists", "conflict", "link", "secret", "hash", "bootstrap"].includes(cause) ? cause : "write";
+            setInboxProblem(id, problem);
             throw error;
         }
         removeInbox(id);

@@ -134,6 +134,7 @@ const cases = [
     ["memory-entry-text", changed(memoryInbox, { entries: [{ ...memoryEntry, text: "x".repeat(16 * 1024 + 1) }] }), "daemon", "memory-entry"],
     ["memory-entry-hash", changed(memoryInbox, { entries: [{ ...memoryEntry, hash: "B".repeat(64) }] }), "daemon", "memory-entry"],
     ["memory-entry-problem", changed(memoryInbox, { entries: [{ ...memoryEntry, problem: "other" }] }), "daemon", "memory-entry"],
+    ["memory-inbox-byte-bound", changed(memoryInbox, { entries: Array(9).fill({ ...memoryEntry, text: "x".repeat(16 * 1024) }) }), "daemon", "memory-inbox"],
     ["audio-fault-direction", JSON.stringify(audioFault), "shell", "direction-audio-fault"],
     ["audio-fault", changed(audioFault, { reason: "" }), "daemon", "audio-fault"],
     ["device-setting", changed(hello, { settings: { ...hello.settings, microphone: 1 } }), "shell", "device-setting"],
@@ -308,6 +309,7 @@ assert.equal(Protocol.accept(changed(hello, { settings: { ...hello.settings, mod
 assert.equal(Protocol.accept(changed(hello, { settings: { ...hello.settings, mode: "always" },
     keys: { talk: null, mute: null, stop: null, confirm: null, console: null } }), "shell").settings.mode, "always");
 for (const message of [devices, level, audioFault, memory, memoryInbox, { ...memoryInbox, entries: [{ ...memoryEntry, kind: "replace" }] },
+    { ...memoryInbox, entries: [{ ...memoryEntry, problem: "write" }] },
     taskRequest, tasks, taskAnswer, taskPrompts, taskResponse, { ...tasks, count: 0 },
     transcript, { ...transcript, role: "assistant", stage: "final", text: "a".repeat(4096), rev: 2 },
     shellStatus, { ...shellStatus, availability: { kind: "checking" } },
@@ -323,6 +325,9 @@ for (const privateWindows of ["", "a".repeat(1024), manifest.settings.privateWin
 for (const taskTerminal of ["auto", "tmux", "floating"])
     assert.equal(Protocol.accept(changed(hello, { settings: { ...hello.settings, taskTerminal } }), "shell").settings.taskTerminal, taskTerminal);
 assert.equal(Protocol.MAX_PENDING_REQUESTS, 16);
+assert.equal(Protocol.MEMORY_INBOX_BYTES, 128 * 1024);
+assert.equal(Protocol.memoryInboxEntries([{ ...memoryEntry, problem: "other" }, memoryEntry]).length, 1);
+assert.equal(Protocol.memoryInboxEntries(Array(9).fill({ ...memoryEntry, text: "x".repeat(16 * 1024) })).length, 7);
 assert.equal(Protocol.accept(JSON.stringify(inputReady), "daemon").commands.length, 2);
 for (const value of [0, 1])
     assert.equal(Protocol.accept(changed(level, { level: { capture: value, playback: value } }), "daemon").level.capture, value);
@@ -431,12 +436,13 @@ try {
         ["memory-inbox-shape", 'keys(message, ["v", "type", "gen", "revision", "entries"], "memory-inbox");',
             'if (false) keys(message, [], "memory-inbox");', "memory-inbox-shape"],
         ["memory-inbox-bound", 'message.entries.length > MEMORY_INBOX_MAX', 'false', "memory-inbox-bound"],
+        ["memory-inbox-byte-bound", 'bytes(JSON.stringify(message.entries)) > MEMORY_INBOX_BYTES', 'false', "memory-inbox-byte-bound"],
         ["memory-entry-shape", 'keys(value, ["id", "target", "kind", "title", "labels", "text", "hash", "problem"], "memory-entry");',
             'if (false) keys(value, [], "memory-entry");', "memory-entry-shape"],
         ["memory-entry-target", '!memoryTarget(value.target)', 'false', "memory-entry-target"],
         ["memory-entry-text", '!memoryText(value.text)', 'false', "memory-entry-text"],
         ["memory-entry-labels", '!memoryLabels(value.labels)', 'false', "memory-entry-labels"],
-        ["memory-entry-problem", '!/^(|exists|conflict|link|secret|hash|bootstrap)$/.test(value.problem)', 'false', "memory-entry-problem"],
+        ["memory-entry-problem", '!/^(|exists|conflict|link|secret|hash|bootstrap|write)$/.test(value.problem)', 'false', "memory-entry-problem"],
         ["memory-intent-shape", 'keys(message, fields.concat(["id", "hash"]), "memory-intent");',
             'if (false) keys(message, [], "memory-intent");', "memory-confirm-shape"],
         ["memory-intent-hash", '!hash(message.hash)', 'false', "memory-confirm-hash"],
@@ -560,6 +566,10 @@ try {
     ];
     for (const [name, needle, replacement, example, matches] of guards)
         control(name, needle, replacement, logic => rejected(logic, cases.find(row => row[0] === example)), matches);
+    control("memory-inbox-filter-bound", "size + next > MEMORY_INBOX_BYTES", "false", logic =>
+        assert.equal(logic.memoryInboxEntries(Array(9).fill({ ...memoryEntry, text: "x".repeat(16 * 1024) })).length, 7));
+    control("memory-inbox-filter-invalid", "if (!memoryEntryAccepted(entry)) continue;", "", logic =>
+        assert.equal(logic.memoryInboxEntries([{ ...memoryEntry, problem: "other" }, memoryEntry]).length, 1));
     control("unsupported-echo", 'keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "home"], "settings");',
         'if (false) keys(message.settings, ["mode", "sounds", "microphone", "speaker", "brain", "model", "effort", "taskTerminal", "cloudVision", "privateWindows", "voiceProvider", "voiceAccount", "home"], "settings");',
         logic => {

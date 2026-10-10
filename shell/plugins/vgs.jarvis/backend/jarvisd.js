@@ -298,15 +298,8 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
     }
 
     function memoryInboxMessage(entries = null) {
-        const kept = [];
-        let bytes = 0;
-        for (const entry of (entries === null ? memory.pending() : entries)) {
-            const size = Buffer.byteLength(JSON.stringify(entry)) + 1;
-            if (kept.length === Protocol.MEMORY_INBOX_MAX || bytes + size > Protocol.MAX_LINE_BYTES - 4096) break;
-            kept.push(entry);
-            bytes += size;
-        }
-        return { v: 1, type: "memory-inbox", gen: runner.state.gen, revision: context.revision, entries: kept };
+        return { v: 1, type: "memory-inbox", gen: runner.state.gen, revision: context.revision,
+            entries: Protocol.memoryInboxEntries(entries === null ? memory.pending() : entries) };
     }
 
     function writeMemoryInbox(entries = null) {

@@ -185,6 +185,15 @@ world(() => {
     assert.throws(() => tainted.installed.confirm(replaceWait.id, replaceWait.hash), { message: "jarvis: memory=conflict" });
     assert.equal(tainted.installed.pending()[0].problem, "conflict");
     assert.equal(fs.readFileSync(path.join(tainted.folder, "memory/facts/web.md"), "utf8"), "# Web\nuser conflict\n");
+    const sizeFail = make();
+    sizeFail.writeCall("memory.propose", { id: "facts/too-big.md", text: "small" }, { labels: ["home", "web"], tainted: true });
+    const sizeEntry = sizeFail.installed.pending()[0];
+    const sizeFile = path.join(sizeFail.folder, "memory/inbox", sizeEntry.id + ".json");
+    const sizeRecord = JSON.parse(fs.readFileSync(sizeFile, "utf8"));
+    sizeRecord.text = "x".repeat(16 * 1024 + 1);
+    fs.writeFileSync(sizeFile, JSON.stringify(sizeRecord, null, 2) + "\n");
+    assert.throws(() => sizeFail.installed.confirm(sizeEntry.id, sha(fs.readFileSync(sizeFile, "utf8"))), { message: "jarvis: memory=size" });
+    assert.equal(sizeFail.installed.pending()[0].problem, "write");
 
     const discarded = make();
     discarded.writeCall("memory.propose", { id: "facts/no.md", text: "discard-token" }, { labels: ["home", "web"], tainted: true });
@@ -202,10 +211,13 @@ world(() => {
         inboxBound.writeCall("memory.propose", { id: "many/note-" + n + ".md", text: "# Note " + n + "\n" + "x".repeat(200) },
             { labels: ["home", "web"], tainted: true });
     const inboxEntries = inboxBound.installed.pending();
-    assert.equal(inboxEntries.length, 64, "wire inbox is capped by count");
+    const cappedInboxEntries = Protocol.memoryInboxEntries(inboxEntries);
+    assert.equal(cappedInboxEntries.length, 64, "wire inbox is capped by count");
     assert.ok(inboxEntries.some(entry => entry.target === "facts/long-title.md" && entry.title.length <= 128));
+    const byteBound = Protocol.memoryInboxEntries(Array(9).fill({ ...inboxEntries[0], text: "x".repeat(16 * 1024) }));
+    assert.equal(byteBound.length, 7, "wire inbox is capped by encoded bytes");
     assert.doesNotThrow(() => Protocol.accept(JSON.stringify({ v: 1, type: "memory-inbox", gen: 1,
-        revision: "a".repeat(64), entries: inboxEntries }), "daemon"));
+        revision: "a".repeat(64), entries: cappedInboxEntries }), "daemon"));
 
     const inherited = make();
     inherited.write("facts/labelled.md", "---\nsources: [web]\n---\n# Labelled\noriginal-label\n");
@@ -444,12 +456,19 @@ world(() => {
         assert.equal(x.writeCall("memory.propose", { id: "MEMORY.md", text: "bootstrap" }).content, "memory-propose:bootstrap");
     });
     controls++;
-    mutant(memoryFile, "memory-pending-count-bound", "kept.length === 64", "false", logic => {
-        const x = make(logic);
-        for (let n = 0; n < 70; n++)
-            x.writeCall("memory.propose", { id: "many/note-" + n + ".md", text: "x" }, { labels: ["home", "web"], tainted: true });
-        assert.equal(x.installed.pending().length, 64);
-    });
+    mutant(memoryFile, "memory-confirm-problem-maps-write",
+        'const problem = ["exists", "conflict", "link", "secret", "hash", "bootstrap"].includes(cause) ? cause : "write";',
+        "const problem = cause;", logic => {
+            const x = make(logic);
+            x.writeCall("memory.propose", { id: "facts/a.md", text: "small" }, { labels: ["home", "web"], tainted: true });
+            const entry = x.installed.pending()[0];
+            const file = path.join(x.folder, "memory/inbox", entry.id + ".json");
+            const record = JSON.parse(fs.readFileSync(file, "utf8"));
+            record.text = "x".repeat(16 * 1024 + 1);
+            fs.writeFileSync(file, JSON.stringify(record, null, 2) + "\n");
+            assert.throws(() => x.installed.confirm(entry.id, sha(fs.readFileSync(file, "utf8"))), { message: "jarvis: memory=size" });
+            assert.equal(x.installed.pending()[0].problem, "write");
+        });
     controls++;
     mutant(memoryFile, "memory-pending-result-hidden", 'done({ outcome: "completed", content: JSON.stringify({ status: "pending", id: args.id, kind }) });',
         'done({ outcome: "completed", content: JSON.stringify({ status: "pending", id: args.id, kind, inbox: "leaked" }) });',
