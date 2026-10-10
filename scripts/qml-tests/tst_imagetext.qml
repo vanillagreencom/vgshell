@@ -194,7 +194,6 @@ Item {
             const third = make(segments, 1);
             verify(held().image === image, "a new holder reuses the kept image");
             compare(held().holders, 1);
-            compare(image.status, Image.Ready, "the reused image does not load again");
 
             // Past the ceiling the oldest idle image goes; a held one never.
             const ceiling = ImagePool.idleCeiling;

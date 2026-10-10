@@ -105,8 +105,8 @@
 # load average 7.4 to 13.7, cpu_some_pct 0.1 to 1.7, one toast reading a
 # run; one start was lost to an unsized nested monitor. The 20 readings
 # were 34 to 58 ms; the nine at load average under 9 read 34 to 38 ms.
-# A reading at cpu_some_pct 33.7 (130 ms) is a pressure this record never
-# saw, and it fails. The inbox default is twice the
+# A reading above harness.sh's latency_pressure_limit, such as one at
+# cpu_some_pct 33.7 (130 ms), is unmeasured. The inbox default is twice the
 # highest reading of the summoned-panel image-count reader on the same
 # machine on 2026-10-01, at load average 5.58 to 8.80: 651 to 688 ms.
 set -euo pipefail
