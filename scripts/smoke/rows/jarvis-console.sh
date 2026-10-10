@@ -203,7 +203,7 @@ cp -- "$sandbox/jarvis-console-service-before" "$jarvis_console_service"
 cp -- "$sandbox/jarvis-console-qml-before" "$jarvis_console_qml"
 rm -f -- "${jarvis_console_plugin:?}/backend/scripted-fixture.js" "${home:?}/.local/state/vgshell/jarvis/mute.json"
 jarvis_rescan
-cp -- "$sandbox/jarvis-console-config-before.json" "$jarvis_console_config"
+cp -- "$sandbox/jarvis-console-config-before.json" "$jarvis_console_config.next" && mv -T -- "$jarvis_console_config.next" "$jarvis_console_config"
 cp -- "$sandbox/jarvis-console-lua-before" "$jarvis_console_lua"
 expect "restore the Jarvis console shell configuration" ok ipc shell reloadConfig
 expect "restore the Jarvis console keyboard configuration" ok hypr reload config-only
