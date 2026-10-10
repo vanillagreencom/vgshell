@@ -100,6 +100,9 @@ print(row["count"] >= row["threshold"])' <<<"$sample"
 # leaves out a line matching one of them.
 expected_errors=()
 ok() { printf '  ok    %s\n' "$*"; }
+# control_output LOG copies a must-fail control's log into the run log with
+# each line marked, so a reader never takes a planted FAIL for a real one.
+control_output() { sed 's/^/  CONTROL  /' -- "$1"; }
 error_pattern=' ERROR |WARN qml: |WARN scene:|WARN quickshell\.hyprland|TypeError|ReferenceError|is not defined|Cannot read|Cannot assign'
 unexpected_log_errors() { # LOG
   python3 - "$1" "$error_pattern" "${expected_errors[@]}" <<'PY'

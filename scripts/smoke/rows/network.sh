@@ -715,7 +715,7 @@ expect_poll "control: a closed QR view stays retained" true ipc smoke networkRem
 expect "control: the retained QR owner fails the zero-owner reading" 1 net_qr_owner_count
 net_qr_retained_control() { (failures=0 behaviour_failures=0; net_qr_released retained >"$net_qr_dir/retained-control.log"; echo "$failures"); }
 expect "control: the retained QR owner fails the same release check" 1 net_qr_retained_control
-cat -- "$net_qr_dir/retained-control.log"
+control_output "$net_qr_dir/retained-control.log"
 expect "the retained QR control closes its flyout" ok ipc shell hide panel vgs.network
 rm -rf -- "${net_copy:?}"
 rescan "the shipped plugin is restored"

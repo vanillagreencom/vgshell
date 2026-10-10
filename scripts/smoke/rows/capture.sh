@@ -1296,7 +1296,7 @@ expect_poll "the recorder holds its picker" True capture_marker picker-ready
 expect "the pending picker has one owned recorder and one VGS recording action" '{"recorders": 1, "recordingActions": 1}' capture_recording_counts
 capture_open_control() { (failures=0 behaviour_failures=0; capture_recording_released held-picker >"$capture_state/held-picker-control.log"; echo "$failures"); }
 expect "control: the held recorder picker fails the same release check" 1 capture_open_control
-cat -- "$capture_state/held-picker-control.log"
+control_output "$capture_state/held-picker-control.log"
 expect "a second press closes the pending recorder picker" ok ipc vgs.capture invoke record-portal ''
 capture_recording_released closed-recorder-picker
 capture_config picker false
