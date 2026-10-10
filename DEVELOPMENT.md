@@ -24,6 +24,10 @@ scripts/validate package                     # the Arch recipes in a rootless po
 
 Exit 77 means a check could not run and is not a pass. The `qml` area is the nested sandbox and needs `WAYLAND_DISPLAY` and `XDG_RUNTIME_DIR`; `scripts/qml-smoke.sh` runs it alone. A new check is a row in `scripts/validate` with its must-fail control beside it.
 
+A run that must outlive a tool call starts detached with HUP, INT and QUIT at their defaults and records its own pid: `setsid env --default-signal=HUP,INT,QUIT bash -c 'echo $$ >tmp/run.pid; exec scripts/validate offline' </dev/null >tmp/run.log 2>&1 &`. Under `nohup` or a bare `&` those signals start ignored, and the signal rows of `scripts/test-gpu-fence.sh` and `scripts/test-vgshell-tui.sh` fail. Wait with `tail --pid=PID -f /dev/null` on the recorded pid, never on `$!`, which `setsid` can leave at once, and never on a `pgrep -f` hit, which can match the caller's own shell.
+
+Keep temporary scripts under `tmp/`: an untracked file under `scripts/` is an unmapped input and selects the full area. A copy of `scripts/sandbox-shots.sh` under `tmp/` pins its `repo=` line to the checkout, since the script finds the checkout from its own path.
+
 Two GitHub workflows run on `main`, never on a push or a pull request. `.github/workflows/nightly.yml` runs `scripts/validate --full` on a schedule while the repository variable `NIGHTLY` is `on`, and reports only. `.github/workflows/kendex-refresh.yml` takes kendex package updates on each kendex release, every 6 hours and by hand: it opens the `kendex/refresh` pull request, which merges at once because `main` has no merge requirements. Kendex owns that file's bytes; it changes only through kendex's `refresh/adopt-refresh.sh`, which refuses a hand edit.
 
 ## Debug
@@ -33,6 +37,23 @@ bin/vgshell log                              # the running shell's log, through 
 scripts/qml-smoke.sh --keep --rows <row>     # keep the sandbox after the row; the shell's log is under its runtime dir
 scripts/sample-shell-memory.sh               # sample the live shell's memory until interrupted, read-only
 ```
+
+Quickshell links jemalloc, so glibc's `MALLOC_PERTURB_` does nothing. Start a shell with `MALLOC_CONF=junk:free`, as the smoke harness does, to make a use-after-free crash at its reader, and symbolize the crash with `gdb -iex 'set debuginfod enabled on'`.
+
+## Smoke rows and shots
+
+- Run a row through `scripts/validate qml --changed <base>`, which adds the core rows `bar`, `hyprland-consent`, `session`, `start-order` and `auth-sentinel`. `scripts/qml-smoke.sh --rows` runs only the rows it names: without `hyprland-consent` the first-start notice keeps the keyboard, and without `bar` the device fakes never start and `share-picker` waits on `pw-dump` with no bound.
+- Rows run in one bash shell. Give a new row's helpers a prefix no other row uses.
+- Enabling `vgs.jarvis` raises the requirement notice, which takes the keyboard, because the sandbox hides `tesseract`. A Jarvis row that reads focus or pixels calls `jarvis_setup_requirements` from `scripts/smoke/rows/jarvis.sh` before it enables the plugin.
+- `diagnostics` reads the log of the last shell a row started, and `jarvis-input` and `hyprland` restart the shell before it in a full run. A warning an earlier row logs can fail a scoped run and never a full one; compare the instance-log paths the rows print.
+- A scripted edit of a row or of `scripts/smoke/harness.sh` goes in a file run with `python3 FILE`. An inline here-document ends at the row's own `PY` line, and bash runs the rest as commands.
+- Never edit a script while a run is reading it: bash reads a script as it runs.
+- Name the before tree of `sandbox-shots.sh --rev` by the change's parent, `<change>^`. `origin/main` becomes the after tree once the change lands.
+- Two runs of one tree differ in a few dozen glyph-edge pixels. A pixel-for-pixel proof reports a same-tree run's count beside the base-to-HEAD count: `magick A B -compose difference -composite -colorspace gray -threshold 0 -format '%[fx:round(mean*w*h)]' info:`.
+- A grim capture can trail a probe reading by a frame or two. Take a motion frame from its own pixels, or the last frame after a settled reading that equals the frame before it.
+- The fixture `acme.probe` draws an empty 10 px widget. Shoot a real plugin's widget.
+- `bin/vgshell-system` reads the device fakes' tree in the sandbox, so a system step that probes a host file finds it absent. The scene plants that file under `$devices_system_root` before it enables the plugin.
+- The stand-in terminal starts no terminal. A floating TUI shot starts `kitty` with the presenter's argv in its scene, one theme per run, and copies in only the `gum` target: the `kitty` target's reload signals every kitty the user runs.
 
 ## Regenerate
 
