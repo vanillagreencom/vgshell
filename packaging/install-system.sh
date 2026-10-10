@@ -10,7 +10,8 @@
 # and LICENSE land under share/doc/vgshell and share/licenses/vgshell.
 # The installed shell tree drops developer Markdown under shell/.
 # Jarvis's backend/skills Markdown is runtime guidance and ships, and so
-# are the Updates review's instructions, vgs.updates/review/*.md.
+# are the Updates review's instructions, vgs.updates/review/*.md, and
+# .agents/skills/jarvis, the base package Jarvis copies into each home.
 # SYSCONFDIR, set by a system package alone, also installs the browser
 # theme writer, a copy of bin/vgshell-browser-policy at
 # $DESTDIR$PREFIX/bin/vgshell-browser-policy, 0755, and the sudoers rule it
@@ -33,7 +34,7 @@ prefix="${PREFIX:-/usr/local}"
 sysconfdir="${SYSCONFDIR-}"
 
 usage() {
-  sed -n '2,23{s/^# \{0,1\}//;p}' "$self"
+  sed -n '2,24{s/^# \{0,1\}//;p}' "$self"
 }
 
 case "${1:-}" in
@@ -58,7 +59,7 @@ esac
   exit 2
 }
 
-for required in bin shell config themes VERSION LICENSE README.md; do
+for required in bin shell config themes .agents/skills/jarvis VERSION LICENSE README.md; do
   [[ -e $source_root/$required ]] || {
     printf 'install-system: refused: source=missing path=%s\n' "$source_root/$required" >&2
     exit 1
@@ -97,7 +98,7 @@ directory_nonempty() { # DIR
 enumerate_tree() {
   local top
   if top="$(git -C "$source_root" rev-parse --show-toplevel 2>/dev/null)" && [[ $top == "$source_root" ]]; then
-    git -C "$source_root" ls-files -- bin shell config themes VERSION
+    git -C "$source_root" ls-files -- bin shell config themes .agents/skills/jarvis VERSION
   else
     python3 - "$source_root" <<'PY'
 import os
@@ -108,7 +109,7 @@ root = pathlib.Path(sys.argv[1])
 errors = []
 def onerror(error):
     errors.append(f"{error.filename}: {error.strerror}")
-for base in ("bin", "shell", "config", "themes"):
+for base in ("bin", "shell", "config", "themes", ".agents/skills/jarvis"):
     start = root / base
     for current, dirs, files in os.walk(start, followlinks=False, onerror=onerror):
         dirs[:] = sorted(dirs)

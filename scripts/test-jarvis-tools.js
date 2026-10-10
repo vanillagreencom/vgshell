@@ -209,15 +209,18 @@ world(() => {
         control("descriptor-" + name, line, replacement, logic => bad(logic, call, "argument-shape"));
     }
     // help: a file VGS ships keeps the default label; a skill of the user's
-    // home folder, "<set>/<name>" under a plain name, carries home; any
+    // home folder, "<set>/<name>" or "<set>/<name>/<reference>" under plain
+    // names, carries home; any
     // other topic is refused before an executor sees it.
     const homeHelp = ["help", { topic: "own/fleet-ops_2" }, "read", "home"];
     check(Tools, homeHelp);
     check(Tools, ["help", { topic: "base/" + "a".repeat(48) }, "read", "home"]);
-    const badTopics = ["own/", "own/a/b", "own/../secret", "other/a", "own/.hidden", "own/a b", "own/-a", "own/" + "a".repeat(49), "unknown", "inputs", "own/a\n", ""];
+    check(Tools, ["help", { topic: "base/jarvis/" + "a".repeat(48) }, "read", "home"]);
+    const badTopics = ["own/", "own/a/", "own/a/b/c", "own/a/../b", "own/a/.b", "own/a/" + "b".repeat(49), "own/../secret", "other/a", "own/.hidden", "own/a b", "own/-a", "own/" + "a".repeat(49), "unknown", "inputs", "own/a\n", ""];
     for (const topic of badTopics) bad(Tools, { id: "help", args: { topic } }, "argument-shape");
     assert.deepEqual([Tools.homeTopic("own/fleet"), Tools.homeTopic("input"), Tools.homeTopic("own/a\n"), Tools.homeTopic(7)],
-        [{ set: "own", name: "fleet" }, null, null, null]);
+        [{ set: "own", name: "fleet", reference: null }, null, null, null]);
+    assert.deepEqual(Tools.homeTopic("base/jarvis/decisions"), { set: "base", name: "jarvis", reference: "decisions" });
     control("help-home-label", 'if (call.id === "help" && homeTopic(call.args.topic) !== null) refined = { ...row, source: "home" };', "",
         logic => check(logic, homeHelp));
     control("help-shipped-label", 'if (call.id === "help" && homeTopic(call.args.topic) !== null) refined', 'if (call.id === "help") refined',
@@ -226,7 +229,8 @@ world(() => {
     for (const [name, replacement, topic] of [
         ["name", 'const HOME_TOPIC = "(base|own)/(.*)";', "own/../secret"],
         ["set", topicLine.replace("(base|own)", "(base|own|other)"), "other/a"],
-        ["length", topicLine.replace("{0,47}", "{0,48}"), "own/" + "a".repeat(49)]])
+        ["length", topicLine.replace("{0,47}", "{0,48}"), "own/" + "a".repeat(49)],
+        ["reference", topicLine.replace("(/[A-Za-z0-9][A-Za-z0-9_-]{0,47})?", "(/.*)?"), "own/a/../b"]])
         control("help-topic-" + name, topicLine, replacement, logic => bad(logic, { id: "help", args: { topic } }, "argument-shape"));
     const referenceLine = toolsSource.split("\n").find(line => line.startsWith("const reference ="));
     control("browser-reference", referenceLine, referenceLine.replace(/pattern: "(?:\\.|[^"])*"/, 'pattern: ".*"'),

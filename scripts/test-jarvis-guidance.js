@@ -84,20 +84,23 @@ world("jg", root => {
                 { message: "jarvis: guidance=layer file=core.md cause=" + cause });
         }); controls++;
     }
-    // The user's home folder: a brain gets its AGENTS.md after the shipped
-    // layers and the index of its skills, the voice model gets none, and a
+    // The user's home folder: a brain gets the base package's persona and
+    // then its AGENTS.md after the shipped layers, and the index of its skills, the voice model gets none, and a
     // text over its bound refuses whole. The folder is made by hand, as a
     // user's is.
     const tree = path.resolve(backend, "../../../..");
-    const home = (name, agents, skills = {}) => {
+    const home = (name, agents, skills = {}, persona = "# Persona\nPERSONA-MARKER\n") => {
         const folder = path.join(root, "home-" + name);
-        for (const set of ["base", "own"]) fs.mkdirSync(path.join(folder, "skills", set), { recursive: true });
+        for (const set of ["base/jarvis", "own"]) fs.mkdirSync(path.join(folder, "skills", set), { recursive: true });
         fs.writeFileSync(path.join(folder, "AGENTS.md"), agents);
+        fs.writeFileSync(path.join(folder, "skills/base/jarvis/persona.md"), persona);
         for (const [file, text] of Object.entries(skills)) fs.writeFileSync(path.join(folder, "skills", file), text);
         return folder;
     };
     const full = home("full", "\nHOME-MARKER persona\n", { "own/alpha.md": "# Alpha skill\nALPHA-BODY\n", "base/gamma.md": "Gamma line\n" });
-    const bare = home("bare", "  \n");
+    const bare = home("bare", "  \n", {}, "\n");
+    const personaEdge = home("persona-edge", "", {}, "p".repeat(3072));
+    const personaOver = home("persona-over", "", {}, "p".repeat(3073));
     const edge = home("edge", "x".repeat(8192));
     const oversize = home("oversize", "x".repeat(8193));
     const crowded = home("crowded", "persona", Object.fromEntries(Array.from({ length: 60 }, (_, index) => ["own/s" + index + ".md", "y".repeat(200) + "\n"])));
@@ -118,10 +121,12 @@ world("jg", root => {
             assert.equal(value.instructions.startsWith(plain.instructions + "\n\n"), true, "the shipped layers lead, unchanged");
             const added = value.instructions.slice(plain.instructions.length);
             assert.equal(added.includes("HOME-MARKER persona"), true, row.class + ": the home's AGENTS.md");
+            assert.equal(added.indexOf("PERSONA-MARKER") > -1 && added.indexOf("PERSONA-MARKER") < added.indexOf("HOME-MARKER"), true,
+                row.class + ": the package's persona, before the user's AGENTS.md");
             assert.deepEqual(["- base/gamma: Gamma line", "- own/alpha: Alpha skill"].map(line => added.split("\n").includes(line)), [true, true],
                 row.class + ": the skill index, name and first line");
             assert.equal(added.includes("ALPHA-BODY"), false, "a skill body is read on demand, never composed");
-            assert.deepEqual(value.layers, [...row.layers, "home/AGENTS.md", "home/skills"]);
+            assert.deepEqual(value.layers, [...row.layers, "home/persona", "home/AGENTS.md", "home/skills"]);
             assert.equal(value.afterToolResult, plain.afterToolResult, "the home text is not repeated after a tool result");
             assert.equal(plain.withHome(full).instructions, value.instructions, "a composed guidance reads the home again");
             assert.equal(logic.compose(row.engine, row.class, row.language, bare).instructions, plain.instructions, "an empty home adds nothing");
@@ -129,6 +134,8 @@ world("jg", root => {
         }
         assert.equal(logic.compose("chained", "text", "en", edge).instructions.endsWith("x".repeat(8192)), true, "a persona of exactly the bound is whole");
         assert.throws(() => logic.compose("chained", "text", "en", oversize), { message: "jarvis: guidance=home-too-large" });
+        assert.equal(logic.compose("chained", "text", "en", personaEdge).instructions.endsWith("p".repeat(3072)), true, "a persona of exactly its bound is whole");
+        assert.throws(() => logic.compose("chained", "text", "en", personaOver), { message: "jarvis: guidance=home-persona-too-large" });
         for (const folder of [crowded, many])
             assert.throws(() => logic.compose("chained", "local", "en", folder), { message: "jarvis: guidance=home-skills-too-large" });
         assert.throws(() => logic.compose("chained", "text", "en", linked), { message: "jarvis: home=link" });
@@ -139,6 +146,9 @@ world("jg", root => {
         ["home-layer", "        content.push(text);\n", ""],
         ["home-order", "        content.push(text);\n", "        content.unshift(text);\n"],
         ["home-empty", 'if (agents.text.trim() !== "")', "if (true)"],
+        ["persona-bound", 'if (persona.kind !== "text") throw new Error("jarvis: guidance=home-persona-too-large");', ""],
+        ["persona-layer", 'if (persona.text.trim() !== "") out.push(["home/persona", persona.text.trim()]);', ""],
+        ["persona-empty", 'if (persona.text.trim() !== "")', "if (true)"],
         ["voice-home", 'if (home !== null && brainClass === "duplex") throw new Error("jarvis: guidance=consumer");', ""],
         ["skills-bound", "if (!listed.complete || Buffer.byteLength(index) > MAX_LAYER_BYTES)", "if (!listed.complete)"],
         ["skills-complete", "if (!listed.complete || Buffer.byteLength(index) > MAX_LAYER_BYTES)", "if (Buffer.byteLength(index) > MAX_LAYER_BYTES)"],

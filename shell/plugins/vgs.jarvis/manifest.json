@@ -34,7 +34,7 @@
     "home": { "type": "string", "label": "Home folder", "group": "Home",
       "presets": [{ "value": "", "label": "None" }, { "value": "~/Jarvis", "label": "~/Jarvis" }], "allowCustom": true,
       "description": "One folder for what Jarvis knows: your instructions in AGENTS.md, skills, memory and state. Every AI model uses them.",
-      "info": "Jarvis adds the files the folder lacks and changes none it finds. Changing the folder ends the conversation." },
+      "info": "Jarvis adds the files the folder lacks and changes none it finds, but for skills/base, which holds the Jarvis skill VGS provides. Changing the folder ends the conversation." },
     "taskTerminal": { "type": "enum", "label": "Task terminal", "group": "Tasks",
       "options": ["auto", "tmux", "floating"],
       "description": "Where a coding task's terminal opens. Auto uses tmux when it is installed, which runs several tasks at once; the floating terminal shows one task at a time." },

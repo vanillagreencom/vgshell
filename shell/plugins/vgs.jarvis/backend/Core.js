@@ -1,5 +1,6 @@
 // The core files the Jarvis backend reads: the account rule, the account
-// discovery, the anchored walk and the Codex account reader. Plugin files
+// discovery, the anchored walk, the Codex account reader and the base
+// package of every Jarvis home. Plugin files
 // run from a published snapshot (D014), so no path relative to this file
 // reaches the core; each entry point hands use() the VGS tree it is given
 // as --tree before it loads Accounts.js, Denied.js or Files.js, and those
@@ -37,6 +38,11 @@ function accounts() { return core().accounts; }
 function folders() { return core().folders; }
 /** bin/lib/anchored.js: child and directory. */
 function anchored() { return core().anchored; }
+/** The base package VGS ships for every Jarvis home: the kendex jarvis skill. */
+function basePackage() {
+    if (tree === null) throw new Error("jarvis: tree=unset");
+    return path.join(tree, ".agents/skills/jarvis");
+}
 /**
  * bin/lib/codex-account.js: account and read, loaded on first use, so only
  * a Codex account read loads it.
@@ -46,4 +52,4 @@ function codexAccount() {
     return require(path.join(tree, "bin/lib/codex-account.js"));
 }
 
-module.exports = { use, accounts, folders, anchored, codexAccount };
+module.exports = { use, accounts, folders, anchored, basePackage, codexAccount };

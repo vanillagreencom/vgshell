@@ -3,9 +3,9 @@
 // afterToolResult, withHome }. Engines are "chained" or "duplex"; classes are "duplex"
 // (the voice model), "text" or "local" (a brain). The local chained consumer
 // appends afterToolResult as instructions after EACH tool result. home is
-// the user's Jarvis home folder or null: a brain gets its AGENTS.md after the
-// shipped layers and the index of its skills, each read on demand through the
-// help tool. The voice model only reads the brain's words aloud and gets no
+// the user's Jarvis home folder or null: a brain gets the base package's
+// persona and the home's AGENTS.md after the shipped layers, then the index of
+// its skills, each read on demand through the help tool. The voice model only reads the brain's words aloud and gets no
 // home text (D105).
 // Read failures and bounds throw keyed errors. No cache or session store.
 "use strict";
@@ -15,6 +15,8 @@ const { languageCode } = require("./SpeechLanguage.js");
 const Home = require("./Home.js");
 const MAX_LAYER_BYTES = 8192;
 const MAX_COMPOSE_BYTES = 32768;
+// The persona's bound, the one its kendex package sets.
+const MAX_PERSONA_BYTES = 3072;
 const ROOT = path.join(__dirname, "skills/voice");
 
 function layer(name) {
@@ -40,11 +42,15 @@ function layer(name) {
     }
 }
 
-// The home's layers as [name, text] pairs. An AGENTS.md or a skill index
-// over the layer bound refuses whole: a cut persona would read as the
-// user's own words.
+// The home's layers as [name, text] pairs: the persona, then the user's
+// AGENTS.md, which may refine it. A persona, an AGENTS.md or a skill index
+// over its bound refuses whole: a cut persona would read as the user's own
+// words.
 function homeLayers(home) {
     const out = [];
+    const persona = Home.read(home, "skills/base/" + Home.PACKAGE + "/persona.md", MAX_PERSONA_BYTES);
+    if (persona.kind !== "text") throw new Error("jarvis: guidance=home-persona-too-large");
+    if (persona.text.trim() !== "") out.push(["home/persona", persona.text.trim()]);
     const agents = Home.read(home, "AGENTS.md", MAX_LAYER_BYTES);
     if (agents.kind !== "text") throw new Error("jarvis: guidance=home-too-large");
     if (agents.text.trim() !== "")

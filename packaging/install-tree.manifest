@@ -1,5 +1,17 @@
 f share/doc/vgshell/README.md
 f share/licenses/vgshell/LICENSE
+f share/vgshell/.agents/skills/jarvis/README.md
+f share/vgshell/.agents/skills/jarvis/SKILL.md
+f share/vgshell/.agents/skills/jarvis/persona.md
+f share/vgshell/.agents/skills/jarvis/references/accounts-and-secrets.md
+f share/vgshell/.agents/skills/jarvis/references/browser.md
+f share/vgshell/.agents/skills/jarvis/references/communication.md
+f share/vgshell/.agents/skills/jarvis/references/computer-use.md
+f share/vgshell/.agents/skills/jarvis/references/decisions.md
+f share/vgshell/.agents/skills/jarvis/references/long-session.md
+f share/vgshell/.agents/skills/jarvis/references/memory.md
+f share/vgshell/.agents/skills/jarvis/references/research.md
+f share/vgshell/.agents/skills/jarvis/references/verification.md
 f share/vgshell/VERSION
 f share/vgshell/bin/lib/account-folders.js
 f share/vgshell/bin/lib/anchored.js

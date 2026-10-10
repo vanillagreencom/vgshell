@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 // The Jarvis home folder owner, backend/Home.js, on real folders in J09's
-// scratch HOME: the layout an empty folder gets, what a folder that already
-// holds files keeps, the refusal of a link at the home and at every layout
-// path, the folder a setting names, the bounded read of its text and the
-// skill index. Each control edits a copy of Home.js, one rule at a time, and
+// scratch HOME: the layout an empty folder gets with the base package VGS
+// ships, what a folder that already holds files keeps, a home that holds an
+// older package, the refusal of a link at the home, at every layout path and
+// inside skills/base, the folder a setting names, the bounded read of its
+// text and the skill index. Each control edits a copy of Home.js, one rule at a time, and
 // must turn a case red.
 "use strict";
 const { assert, fs, path, tree, world, seed, mutant } = require("./fixtures/jarvis/policy.js");
@@ -13,6 +14,11 @@ const file = path.join(tree, "shell/plugins/vgs.jarvis/backend/Home.js");
 // with what it must say, and each folder.
 const FILES = ["AGENTS.md", "CLAUDE.md", "memory/MEMORY.md", ".claude/settings.json", ".codex/config.toml"];
 const FOLDERS = ["skills", "skills/base", "skills/own", "memory", "memory/inbox", "state", ".claude", ".codex"];
+// The shipped base package, read here from the checkout: every entry a home
+// gets in skills/base, and the help topics they list.
+const SHIPPED = path.join(tree, ".agents/skills/jarvis");
+const PACKAGE = ["skills/base/jarvis", ...fs.readdirSync(SHIPPED, { recursive: true }).map(name => "skills/base/jarvis/" + name)];
+const REFERENCES = fs.readdirSync(path.join(SHIPPED, "references")).map(name => "base/jarvis/" + name.slice(0, -3));
 
 // The tables and keys of a TOML file of plain `key = value` lines.
 function toml(text) {
@@ -30,6 +36,13 @@ function toml(text) {
 function listing(folder) {
     return fs.readdirSync(folder, { recursive: true }).map(name => String(name)).sort();
 }
+// skills/base holds the shipped package and nothing else, byte for byte.
+function shipped(folder) {
+    assert.equal(fs.lstatSync(path.join(folder, "skills/base"), { throwIfNoEntry: false })?.isDirectory(), true, "skills/base");
+    assert.deepEqual(listing(path.join(folder, "skills/base")), PACKAGE.map(name => name.slice("skills/base/".length)).sort());
+    for (const name of PACKAGE.filter(entry => fs.lstatSync(path.join(tree, ".agents/skills", entry.slice(12))).isFile()))
+        assert.deepEqual(fs.readFileSync(path.join(folder, name)), fs.readFileSync(path.join(tree, ".agents/skills", name.slice(12))), name);
+}
 const keyed = (run, cause, label) => assert.throws(run, { message: "jarvis: home=" + cause }, label);
 
 world(() => {
@@ -39,20 +52,24 @@ world(() => {
 
     const CASES = {
         // An empty folder, and one that does not exist yet, get every entry
-        // and nothing else.
+        // and the base package, and nothing else; the help topics list the
+        // package's skill and each of its references.
         empty(Home) {
             for (const made of [false, true]) {
                 const folder = fresh();
                 if (made) fs.mkdirSync(folder, { recursive: true });
                 assert.doesNotThrow(() => Home.layout(folder));
-                assert.deepEqual(listing(folder), [...FILES, ...FOLDERS].sort(), "the layout and no scratch file");
+                assert.deepEqual(listing(folder), [...FILES, ...FOLDERS, ...PACKAGE].sort(), "the layout, the package and no scratch file");
                 for (const name of FOLDERS) assert.equal(fs.lstatSync(path.join(folder, name)).isDirectory(), true, name);
                 for (const name of FILES) assert.equal(fs.lstatSync(path.join(folder, name)).isFile(), true, name);
                 assert.equal(fs.readFileSync(path.join(folder, "CLAUDE.md"), "utf8").trim(), "@AGENTS.md", "Claude Code imports the one instruction file");
                 assert.deepEqual(JSON.parse(fs.readFileSync(path.join(folder, ".claude/settings.json"), "utf8")), { autoMemoryEnabled: false });
                 assert.deepEqual(toml(fs.readFileSync(path.join(folder, ".codex/config.toml"), "utf8")),
                     { features: { memories: false }, memories: { generate_memories: false, use_memories: false } });
-                assert.deepEqual(fs.readdirSync(path.join(folder, "skills/base")), [], "the base package is not this owner's");
+                shipped(folder);
+                assert.equal(fs.readFileSync(path.join(folder, "skills/base/jarvis/persona.md")).length <= 3072, true, "the persona's bound");
+                assert.deepEqual(Home.skills(folder).skills.map(skill => skill.topic), ["base/jarvis", ...REFERENCES]);
+                assert.match(Home.skill(folder, REFERENCES[0], 16384).text, /^# /, "a reference reads by its topic");
             }
         },
         // A folder that already holds files keeps every byte of them, a
@@ -66,14 +83,48 @@ world(() => {
                 fs.mkdirSync(path.dirname(path.join(folder, name)), { recursive: true });
                 fs.writeFileSync(path.join(folder, name), text);
             }
-            const stamps = () => Object.keys(kept).map(name => fs.statSync(path.join(folder, name), { bigint: true }).mtimeNs);
-            const before = stamps();
+            const stamps = names => names.map(name => fs.statSync(path.join(folder, name), { bigint: true })).map(stat => stat.ino + ":" + stat.mtimeNs);
+            const before = stamps(Object.keys(kept));
+            let package_;
             for (let round = 0; round < 2; round++) {
                 assert.doesNotThrow(() => Home.layout(folder));
                 for (const [name, text] of Object.entries(kept)) assert.equal(fs.readFileSync(path.join(folder, name), "utf8"), text, name + " keeps every byte");
-                assert.deepEqual(stamps(), before, "no kept file is written again");
-                assert.deepEqual(listing(folder), [...new Set([...FILES, ...FOLDERS, ...Object.keys(kept), ".git"])].sort());
+                assert.deepEqual(stamps(Object.keys(kept)), before, "no kept file is written again");
+                assert.deepEqual(listing(folder), [...new Set([...FILES, ...FOLDERS, ...PACKAGE, ...Object.keys(kept), ".git"])].sort());
+                if (round === 0) package_ = stamps(PACKAGE);
+                else assert.deepEqual(stamps(PACKAGE), package_, "a package the home already holds is not copied again");
             }
+        },
+        // A home that holds an older package, what a VGS update with a
+        // changed package finds: skills/base becomes the shipped package byte
+        // for byte, and the user's own skill and AGENTS.md keep every byte.
+        update(Home) {
+            const folder = fresh();
+            const base = path.join(folder, "skills/base");
+            const own = { "AGENTS.md": "# Mine\nMARKER\n", "skills/own/mine.md": "# Mine\n" };
+            for (const [name, text] of Object.entries(own)) {
+                fs.mkdirSync(path.dirname(path.join(folder, name)), { recursive: true });
+                fs.writeFileSync(path.join(folder, name), text);
+            }
+            // The older package changed text under the same names.
+            fs.cpSync(SHIPPED, path.join(base, "jarvis"), { recursive: true });
+            fs.writeFileSync(path.join(base, "jarvis/SKILL.md"), "older\n");
+            fs.appendFileSync(path.join(base, "jarvis/persona.md"), "older line\n");
+            const stamps = () => Object.keys(own).map(name => fs.statSync(path.join(folder, name), { bigint: true }).mtimeNs);
+            const before = stamps();
+            assert.doesNotThrow(() => Home.layout(folder));
+            shipped(folder);
+            // Then it changed names too.
+            fs.writeFileSync(path.join(base, "jarvis/SKILL.md"), "older\n");
+            fs.rmSync(path.join(base, "jarvis/references", fs.readdirSync(path.join(base, "jarvis/references"))[0]));
+            fs.writeFileSync(path.join(base, "jarvis/references/retired.md"), "# Retired\n");
+            fs.mkdirSync(path.join(base, "jarvis/assets"));
+            fs.writeFileSync(path.join(base, "stray.md"), "# Stray\n");
+            assert.doesNotThrow(() => Home.layout(folder));
+            shipped(folder);
+            for (const [name, text] of Object.entries(own)) assert.equal(fs.readFileSync(path.join(folder, name), "utf8"), text, name + " keeps every byte");
+            assert.deepEqual(stamps(), before, "the update writes no file of the user's");
+            assert.deepEqual(listing(folder), [...FILES, ...FOLDERS, ...PACKAGE, "skills/own/mine.md"].sort(), "no scratch folder is left");
         },
         // A link at the home, or at any layout path, is refused and never
         // followed: what it points at stays as it was.
@@ -95,6 +146,27 @@ world(() => {
                     else if (directory) assert.deepEqual(fs.readdirSync(outside), [], entry + ": nothing is made in the linked folder");
                     else assert.equal(fs.readFileSync(outside, "utf8"), "outside\n", entry + ": the linked file keeps its bytes");
                 }
+            }
+        },
+        // A link at skills/base, or anywhere inside it, is refused and never
+        // followed: the link stays and what it points at keeps its bytes.
+        packageLinks(Home) {
+            for (const entry of ["jarvis", "jarvis/SKILL.md", "jarvis/persona.md", "jarvis/references", "jarvis/references/memory.md", "stray.md"]) {
+                const folder = fresh();
+                Home.layout(folder);
+                const outside = path.join(path.dirname(folder), "outside");
+                const directory = !entry.endsWith(".md");
+                if (directory) {
+                    fs.mkdirSync(outside);
+                    fs.writeFileSync(path.join(outside, "SKILL.md"), "OUTSIDE\n");
+                } else fs.writeFileSync(outside, "OUTSIDE\n");
+                const at = path.join(folder, "skills/base", entry);
+                fs.rmSync(at, { recursive: true, force: true });
+                fs.symlinkSync(outside, at);
+                keyed(() => Home.layout(folder), "link", entry);
+                assert.equal(fs.lstatSync(at).isSymbolicLink(), true, entry + ": the link is left as it is");
+                if (directory) assert.deepEqual([fs.readdirSync(outside), fs.readFileSync(path.join(outside, "SKILL.md"), "utf8")], [["SKILL.md"], "OUTSIDE\n"], entry);
+                else assert.equal(fs.readFileSync(outside, "utf8"), "OUTSIDE\n", entry + ": the linked file keeps its bytes");
             }
         },
         // An entry of the other kind is refused by its own cause.
@@ -148,6 +220,7 @@ world(() => {
         skills(Home) {
             const folder = fresh();
             Home.layout(folder);
+            fs.rmSync(path.join(folder, "skills/base/jarvis"), { recursive: true });
             const write = (name, text) => {
                 fs.mkdirSync(path.dirname(path.join(folder, "skills", name)), { recursive: true });
                 fs.writeFileSync(path.join(folder, "skills", name), text);
@@ -163,6 +236,11 @@ world(() => {
             write("own/.hidden.md", "no skill\n");
             write("own/bad name.md", "no skill\n");
             write("own/empty-folder/readme.md", "no skill\n");
+            write("own/bad dir/SKILL.md", "no skill\n");
+            write("own/beta/references/one.md", "# One reference\nONE-BODY\n");
+            write("own/beta/references/bad name.md", "no skill\n");
+            write("own/beta/references/notes.txt", "no skill\n");
+            write("own/empty-folder/references/orphan.md", "no skill\n");
             const outside = path.join(path.dirname(folder), "outside-skill.md");
             fs.writeFileSync(outside, "OUTSIDE-SECRET\n");
             fs.symlinkSync(outside, path.join(folder, "skills/own/linked.md"));
@@ -174,14 +252,16 @@ world(() => {
                 { topic: "base/gamma", file: "skills/base/gamma.md", line: "Gamma first line" },
                 { topic: "own/alpha", file: "skills/own/alpha.md", line: "Alpha skill" },
                 { topic: "own/beta", file: "skills/own/beta/SKILL.md", line: "Load for beta work." },
+                { topic: "own/beta/one", file: "skills/own/beta/references/one.md", line: "One reference" },
                 { topic: "own/delta", file: "skills/own/delta.md", line: "" },
                 { topic: "own/epsilon", file: "skills/own/epsilon.md", line: "Epsilon first line" },
                 { topic: "own/eta", file: "skills/own/eta.md", line: "Eta first line" }] });
             assert.deepEqual(Home.skill(folder, "own/alpha", 64), { kind: "text", text: "\n# Alpha skill\nbody\n" });
             assert.equal(Home.skill(folder, "own/beta", 128).text.includes("# Beta"), true, "a folder's SKILL.md is its body");
+            assert.deepEqual(Home.skill(folder, "own/beta/one", 64), { kind: "text", text: "# One reference\nONE-BODY\n" });
             assert.deepEqual(Home.skill(folder, "own/alpha", 8), { kind: "too-large" });
             for (const [topic, cause] of [["own/missing", "absent"], ["own/../../secret", "absent"], ["other/alpha", "absent"],
-                ["own/linked", "link"], ["own/linked-folder", "link"]])
+                ["own/linked", "link"], ["own/linked-folder", "link"], ["own/beta/two", "absent"]])
                 keyed(() => Home.skill(folder, topic, 64), cause, topic);
             // A set past its entry bound answers incomplete, never a part as the whole.
             for (let index = 0; index < 257; index++) write("base/s" + index + ".md", "x\n");
@@ -197,6 +277,14 @@ world(() => {
     let controls = 0;
     for (const [name, needle, replacement, row] of [
         ["layout-entry", '    ["state", null],\n', "", "empty"],
+        ["extra-file", '    ["state", null],\n', '    ["state", null], ["extra.md", ""],\n', "empty"],
+        ["base-copy", '        base(held.get("skills/base"));\n', "", "empty"],
+        ["base-again", "found.every(([name, content], index) =>", "false && found.every(([name, content], index) =>", "keeps"],
+        ["base-compare", "content.equals(shipped[index][1])", "true", "update"],
+        ["base-stray", "        if (name !== PACKAGE) fs.rmSync(child(fd, name), { recursive: true, force: true });\n", "        ;\n", "update"],
+        ["base-own", 'base(held.get("skills/base"));', 'base(held.get("skills/own"));', "update"],
+        ["base-home", 'base(held.get("skills/base"));', 'base(held.get("."));', "update"],
+        ["base-link", 'fail(kind === "link" ? "link" : "kind")', 'fail("kind")', "packageLinks"],
         ["claude-import", '["CLAUDE.md", "@AGENTS.md\\n"]', '["CLAUDE.md", ""]', "empty"],
         ["claude-memory", '"{\\"autoMemoryEnabled\\": false}\\n"', '"{}\\n"', "empty"],
         ["codex-memory", "generate_memories = false\\n", "", "empty"],
@@ -215,13 +303,16 @@ world(() => {
         ["read-kind", 'if (!fs.fstatSync(fd).isFile()) fail("kind");', "", "reads"],
         ["read-link", [['if (kind === "absent" || kind === "link") fail(kind);', 'if (kind === "absent") fail(kind);'],
             ["(last ? flags : O_RDONLY | O_DIRECTORY) | O_NOFOLLOW", "(last ? flags : O_RDONLY | O_DIRECTORY)"]], null, "reads"],
-        ["skill-name", "if (Tools.homeTopic(topic) === null) continue;", "", "skills"],
-        ["skill-kind", "if (!flat && !entry.isDirectory()) continue;", "", "skills"],
+        ["skill-name", " && Tools.homeTopic(topic) !== null)", ")", "skills"],
+        ["folder-name", " || Tools.homeTopic(topic) === null) continue;", ") continue;", "skills"],
+        ["skill-kind", "!entry.isDirectory() || ", "", "skills"],
+        ["reference-topics", '            flat(references, topic + "/", inside);\n', "", "empty"],
+        ["reference-read", 'if (named.reference !== null) return read(home, base + "/references/" + named.reference + ".md", limit);', "", "skills"],
         ["skill-description", 'if (value !== "" && !BLOCK_SCALAR.test(value)) return value.slice(0, LINE_CHARS);', "", "skills"],
         ["skill-folded", " && !BLOCK_SCALAR.test(value)", "", "skills"],
         ["skill-folded-marks", "const BLOCK_SCALAR = /^[>|][-+1-9]{0,2}$/;", "const BLOCK_SCALAR = /^[>|]$/;", "skills"],
         ["skill-heading", '.replace(/^#+\\s*/, "")', "", "skills"],
-        ["set-bound", "if (entries.length === SET_ENTRIES) { complete = false; break; }", "", "skills"]
+        ["set-bound", "if (entries.length === SET_ENTRIES) return { entries, complete: false };", "", "skills"]
     ]) {
         const result = mutant(file, name, needle, replacement, logic => CASES[row](logic));
         assert.equal(result, undefined);

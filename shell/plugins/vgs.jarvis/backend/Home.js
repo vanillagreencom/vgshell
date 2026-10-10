@@ -1,9 +1,9 @@
 // The Jarvis home folder: the one folder the user picks, whose AGENTS.md,
 // skills, memory and state every brain uses the same way. This owner creates
-// the folder's missing entries and reads its text; it never follows a link
-// at the home or below it, since a link there could hand another file to
-// every brain. Home text gives knowledge, never permission: the gate stays
-// the only source of that.
+// the folder's missing entries, keeps skills/base a copy of the base package
+// VGS ships, and reads its text; it never follows a link at the home or below
+// it, since a link there could hand another file to every brain. Home text
+// gives knowledge, never permission: the gate stays the only source of that.
 // Contract: docs/decisions/D105-jarvis-home-folder.md.
 "use strict";
 const fs = require("node:fs");
@@ -25,6 +25,9 @@ const LAYOUT = Object.freeze([
     [".claude", null], [".claude/settings.json", "{\"autoMemoryEnabled\": false}\n"],
     [".codex", null], [".codex/config.toml", "[features]\nmemories = false\n\n[memories]\ngenerate_memories = false\nuse_memories = false\n"]
 ]);
+// skills/base holds this one folder, a copy of the shipped base package
+// (Core.basePackage); the persona is its persona.md.
+const PACKAGE = "jarvis";
 // The one entry of the home the gate leaves a model: Jarvis writes it
 // through files.write. Every other path in the folder, an entry this layout
 // does not name among them, is the user's and VGS's alone.
@@ -110,11 +113,72 @@ function createFile(parent, name, content) {
     } finally { fs.unlinkSync(scratch); }
 }
 
+// Every entry below the held folder FD as [path, bytes], a folder's path
+// ending in "/" with no bytes, in no order. A link throws home=link and is
+// never followed; any entry but a folder or a regular file throws home=kind.
+// A file reads whole for a null LIMIT, else as at most LIMIT + 1 bytes.
+function entries(fd, limit, prefix = "", out = []) {
+    const child = Core.anchored().child;
+    const directory = fs.opendirSync("/proc/self/fd/" + fd);
+    try {
+        for (let entry = directory.readSync(); entry !== null; entry = directory.readSync()) {
+            const kind = kindOf(fd, entry.name);
+            if (kind !== "directory" && kind !== "file") fail(kind === "link" ? "link" : "kind");
+            const directoryKind = kind === "directory";
+            const held = fs.openSync(child(fd, entry.name), (directoryKind ? O_RDONLY | O_DIRECTORY : O_RDONLY | O_NONBLOCK) | O_NOFOLLOW);
+            try {
+                if (directoryKind) {
+                    out.push([prefix + entry.name + "/", Buffer.alloc(0)]);
+                    entries(held, limit, prefix + entry.name + "/", out);
+                } else out.push([prefix + entry.name, limit === null ? fs.readFileSync(held) : bytes(held, limit)]);
+            } finally { fs.closeSync(held); }
+        }
+    } finally { directory.closeSync(); }
+    return out;
+}
+
+// Make skills/base, held as FD, hold exactly the shipped package: unchanged
+// when it already does, else a fresh copy swapped in for PACKAGE by one
+// rename and every other entry removed. A shipped package that cannot be
+// read throws home=package.
+function base(fd) {
+    let shipped;
+    try {
+        const root = fs.openSync(Core.basePackage(), O_RDONLY | O_DIRECTORY);
+        try { shipped = entries(root, null, PACKAGE + "/", [[PACKAGE + "/", Buffer.alloc(0)]]); }
+        finally { fs.closeSync(root); }
+    } catch { fail("package"); }
+    const order = list => list.sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0);
+    order(shipped);
+    // A home file past the largest shipped one differs whatever it holds.
+    const found = order(entries(fd, Math.max(...shipped.map(([, content]) => content.length))));
+    if (found.length === shipped.length && found.every(([name, content], index) =>
+        name === shipped[index][0] && content.equals(shipped[index][1]))) return;
+    const child = Core.anchored().child;
+    const fresh = "." + PACKAGE + "." + process.pid + ".new";
+    const old = "." + PACKAGE + "." + process.pid + ".old";
+    for (const name of [fresh, old]) fs.rmSync(child(fd, name), { recursive: true, force: true });
+    for (const [name, content] of shipped) {
+        const at = child(fd, fresh + name.slice(PACKAGE.length));
+        if (name.endsWith("/")) fs.mkdirSync(at);
+        else {
+            const file = fs.openSync(at, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o644);
+            try { fs.writeFileSync(file, content); } finally { fs.closeSync(file); }
+        }
+    }
+    if (kindOf(fd, PACKAGE) !== "absent") fs.renameSync(child(fd, PACKAGE), child(fd, old));
+    fs.renameSync(child(fd, fresh), child(fd, PACKAGE));
+    for (const name of fs.readdirSync("/proc/self/fd/" + fd))
+        if (name !== PACKAGE) fs.rmSync(child(fd, name), { recursive: true, force: true });
+}
+
 /**
- * Create the entries of LAYOUT the home lacks, and the home itself. An entry
- * already there is kept byte for byte. A link at the home or at any layout
- * path throws jarvis: home=link and is never followed; an entry of the other
- * kind throws home=kind, and a failed write home=unwritable.
+ * Create the entries of LAYOUT the home lacks, and the home itself, and make
+ * skills/base hold exactly the shipped base package. Any other entry already
+ * there is kept byte for byte. A link at the home, at any layout path or
+ * inside skills/base throws jarvis: home=link and is never followed; an
+ * entry of the other kind throws home=kind, a shipped package that cannot
+ * be read home=package, and a failed write home=unwritable.
  */
 function layout(home) {
     const held = new Map([[".", hold(home, true)]]);
@@ -131,6 +195,7 @@ function layout(home) {
             } else if (kind === "absent") createFile(parent, name, content);
             else if (kind !== "file") fail("kind");
         }
+        base(held.get("skills/base"));
     } catch (error) {
         if (/^jarvis: home=/.test(error.message)) throw error;
         fail("unwritable");
@@ -208,44 +273,76 @@ function indexLine(text) {
     return first.trim().replace(/^#+\s*/, "").replace(/[\x00-\x1f\x7f]/g, " ").slice(0, LINE_CHARS);
 }
 
+// The entries of FOLDER, a path of plain names in the home, at most
+// SET_ENTRIES of them: {entries, complete}.
+function listing(home, folder) {
+    return within(home, folder, O_RDONLY | O_DIRECTORY, fd => {
+        // The descriptor's own /proc path: the folder held, not a name looked up again.
+        const directory = fs.opendirSync("/proc/self/fd/" + fd);
+        try {
+            const entries = [];
+            for (let entry = directory.readSync(); entry !== null; entry = directory.readSync()) {
+                if (entries.length === SET_ENTRIES) return { entries, complete: false };
+                entries.push(entry);
+            }
+            return { entries, complete: true };
+        } finally { directory.closeSync(); }
+    });
+}
+
+// The index entry of FILE under TOPIC, or, where OPTIONAL, null for a file
+// that is absent, a link or no regular file.
+function indexed(home, topic, file, optional) {
+    let head;
+    try { head = within(home, file, O_RDONLY | O_NONBLOCK, fd => bytes(fd, HEAD_BYTES - 1)); }
+    catch (error) {
+        if (optional && /^jarvis: home=(?:absent|link|kind)$/.test(error.message)) return null;
+        throw error;
+    }
+    return { topic, file, line: indexLine(new TextDecoder("utf-8").decode(head)) };
+}
+
 /**
  * The home's skills in topic order: {skills: [{topic, file, line}], complete}.
  * A skill is `<name>.md` or `<name>/SKILL.md` directly in skills/base or
- * skills/own, a regular file under a name Tools.homeTopic admits; any other
- * entry, a link among them, is no skill. topic is "<set>/<name>", file its
- * path in the home and line its index line. complete is false once a set
- * holds more than SET_ENTRIES entries.
+ * skills/own, a regular file under a name Tools.homeTopic admits; a folder
+ * skill's `references/<reference>.md` is a skill of its own under
+ * "<set>/<name>/<reference>". Any other entry, a link among them, is no
+ * skill. topic is "<set>/<name>", file its path in the home and line its
+ * index line. complete is false once a folder holds more than SET_ENTRIES
+ * entries.
  */
 function skills(home) {
     const found = [];
     let complete = true;
+    // Each regular `<name>.md` file of FOLDER, under PREFIX + name.
+    function flat(folder, prefix, listed) {
+        complete &&= listed.complete;
+        for (const entry of listed.entries) {
+            const topic = prefix + entry.name.slice(0, -3);
+            if (entry.isFile() && entry.name.endsWith(".md") && Tools.homeTopic(topic) !== null)
+                found.push(indexed(home, topic, folder + "/" + entry.name, false));
+        }
+    }
     for (const set of SETS) {
-        const names = within(home, "skills/" + set, O_RDONLY | O_DIRECTORY, fd => {
-            // The descriptor's own /proc path: the folder held, not a name looked up again.
-            const directory = fs.opendirSync("/proc/self/fd/" + fd);
-            try {
-                const entries = [];
-                for (let entry = directory.readSync(); entry !== null; entry = directory.readSync()) {
-                    if (entries.length === SET_ENTRIES) { complete = false; break; }
-                    entries.push(entry);
-                }
-                return entries;
-            } finally { directory.closeSync(); }
-        });
-        for (const entry of names) {
-            const flat = entry.isFile() && entry.name.endsWith(".md");
-            if (!flat && !entry.isDirectory()) continue;
-            const topic = set + "/" + (flat ? entry.name.slice(0, -3) : entry.name);
-            if (Tools.homeTopic(topic) === null) continue;
-            const file = "skills/" + set + "/" + (flat ? entry.name : entry.name + "/SKILL.md");
-            let head;
-            try { head = within(home, file, O_RDONLY | O_NONBLOCK, fd => bytes(fd, HEAD_BYTES - 1)); }
+        const folder = "skills/" + set;
+        const listed = listing(home, folder);
+        flat(folder, set + "/", listed);
+        for (const entry of listed.entries) {
+            const topic = set + "/" + entry.name;
+            if (!entry.isDirectory() || Tools.homeTopic(topic) === null) continue;
+            // A folder without SKILL.md, or with a link in its place, is no skill.
+            const skill = indexed(home, topic, folder + "/" + entry.name + "/SKILL.md", true);
+            if (skill === null) continue;
+            found.push(skill);
+            const references = folder + "/" + entry.name + "/references";
+            let inside;
+            try { inside = listing(home, references); }
             catch (error) {
-                // A folder without SKILL.md, or with a link in its place, is no skill.
-                if (!flat && /^jarvis: home=(?:absent|link|kind)$/.test(error.message)) continue;
+                if (/^jarvis: home=(?:absent|link|kind)$/.test(error.message)) continue;
                 throw error;
             }
-            found.push({ topic, file, line: indexLine(new TextDecoder("utf-8").decode(head)) });
+            flat(references, topic + "/", inside);
         }
     }
     found.sort((left, right) => left.topic < right.topic ? -1 : left.topic > right.topic ? 1 : 0);
@@ -260,6 +357,7 @@ function skill(home, topic, limit) {
     const named = Tools.homeTopic(topic);
     if (named === null) fail("absent");
     const base = "skills/" + named.set + "/" + named.name;
+    if (named.reference !== null) return read(home, base + "/references/" + named.reference + ".md", limit);
     try { return read(home, base + ".md", limit); }
     catch (error) {
         if (error.message !== "jarvis: home=absent") throw error;
@@ -267,4 +365,4 @@ function skill(home, topic, limit) {
     }
 }
 
-module.exports = { resolve, layout, guard, read, skills, skill };
+module.exports = { PACKAGE, resolve, layout, guard, read, skills, skill };

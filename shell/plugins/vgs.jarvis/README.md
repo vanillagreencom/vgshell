@@ -68,14 +68,14 @@ The keys are under Keys on the same page. Show in bar puts the bar icon back aft
 
 ## Home folder
 
-Choose a folder under Home folder. Jarvis adds the entries the folder lacks and changes no file it finds. It never follows a link in the folder, and it does not start with a folder that has a link in place of an entry below.
+Choose a folder under Home folder. Jarvis adds the entries the folder lacks and changes no file it finds outside `skills/base/`. It never follows a link in the folder, and it does not start with a folder that has a link in place of an entry below or anywhere in `skills/base/`.
 
 | Entry | What it holds |
 | --- | --- |
 | `AGENTS.md` | Your instructions for Jarvis: who it is and how it talks. Every AI model gets this text at the start of a conversation. Keep it under 8 KB. |
 | `CLAUDE.md` | One line that points Claude Code at `AGENTS.md`, for your own Claude Code session in this folder. |
-| `skills/base/` | The place for the skills VGS provides. |
-| `skills/own/` | Your own skills. A skill is a Markdown file, or a folder with a `SKILL.md` file. Its name is the file name without `.md`, or the folder name: it starts with a letter or a digit and has only letters, digits, `_` and `-`, at most 48 characters. Jarvis skips a skill with any other name. Every AI model gets each skill's name and first line, or its `description`, and reads the skill itself when it needs it. Keep each under 16 KB. |
+| `skills/base/jarvis/` | The Jarvis skill VGS provides: `SKILL.md`, `persona.md`, `README.md` and `references/` with `accounts-and-secrets.md`, `browser.md`, `communication.md`, `computer-use.md`, `decisions.md`, `long-session.md`, `memory.md`, `research.md` and `verification.md`. Every AI model gets `persona.md` before `AGENTS.md`, and reads the skill and each reference when it needs it. When this folder differs from the copy VGS installed, after an update or an edit, Jarvis replaces `skills/base/` with that copy and removes anything else in it. Keep your changes in `AGENTS.md` and `skills/own/`. |
+| `skills/own/` | Your own skills. A skill is a Markdown file, or a folder with a `SKILL.md` file. Its name is the file name without `.md`, or the folder name: it starts with a letter or a digit and has only letters, digits, `_` and `-`, at most 48 characters. Jarvis skips a skill with any other name. A folder skill's `references/` holds more Markdown files, each a skill named `<skill>/<file name without .md>` by the same rule. Every AI model gets each skill's name and first line, or its `description`, and reads the skill itself when it needs it. Keep each under 16 KB. |
 | `memory/` | The place for memory notes: `MEMORY.md` and `inbox/`. Jarvis does not read them yet. |
 | `state/` | Work in progress. This is the one part of the folder that Jarvis's file tools can read or change. They refuse every other path in the folder, a file of your own that this table does not name included. |
 | `.claude/settings.json`, `.codex/config.toml` | Settings that turn off Claude Code's and Codex's own memory for your own session in this folder. |
