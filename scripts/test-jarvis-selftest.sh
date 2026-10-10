@@ -700,7 +700,7 @@ import json, sys
 def caption(at, role, text, stage): return {"kind": "caption", "at": at, "value": {"gen": 1, "role": role, "text": text, "stage": stage, "rev": at}}
 events = [{"kind": "widget", "at": 900, "value": "ready"}, {"kind": "phase", "at": 900, "value": "idle"},
           caption(950, "user", "an earlier turn", "final"), caption(960, "assistant", "An earlier answer.", "final"),
-          {"kind": "mark", "at": 1000, "value": "input"}, {"kind": "widget", "at": 1040, "value": "live"},
+          {"kind": "mark", "at": 1000, "value": "input"}, {"kind": "widget", "at": 1040, "value": "listening"},
           caption(1100, "user", "what time", "partial")]
 if sys.argv[2] == "final":
     events.append(caption(1200, "user", "What time is it?", "final"))
@@ -737,7 +737,7 @@ want = {"input": {"kind": "wav", "value": "/voice.wav"}, "brain": "cli:b", "home
         "sentences": [{"ms": 1000, "text": "It is noon."}, {"ms": 1500, "text": "Anything else?"}, {"ms": 2000, "text": "It is noon."}],
         "tools": [{"tool": "shell.argv", "decision": "confirm", "confirmed": "none", "outcome": "pending"},
                   {"tool": "shell.argv", "decision": "confirm", "confirmed": "physical", "outcome": "completed"}],
-        "widget": [{"ms": -100, "state": "ready"}, {"ms": 40, "state": "live"}, {"ms": 250, "state": "working"}, {"ms": 2100, "state": "ready"}],
+        "widget": [{"ms": -100, "state": "ready"}, {"ms": 40, "state": "listening"}, {"ms": 250, "state": "working"}, {"ms": 2100, "state": "ready"}],
         "end": {"kind": "completed", "phase": "idle", "fault": None}, "passed": True}
 got = json.load(open(sys.argv[1]))
 if got != want:

@@ -4,18 +4,34 @@ import qs.Ui
 import "WidgetView.js" as View
 
 // The Jarvis icon in the bar. It draws the status the service publishes
-// and runs nothing itself: one icon and tone for live, problem, off,
-// muted, working and ready (WidgetView.view decides), and a tooltip that
-// names the state and what a click does. A click, Space (which the button
-// turns into a click), Return and keypad Enter call the service's `mute`
-// IPC handler, the intent the Mute key sends. It is one BarItem.
+// and runs nothing itself: one closed state table decides off, loading,
+// ready, listening, working, speaking, muted and problem. The tooltip
+// names what happens, the next action and the mute action. A click, Space
+// (which the button turns into a click), Return and keypad Enter call the
+// service's `mute` IPC handler, the intent the Mute key sends. It is one
+// BarItem.
 BarWidget {
     id: root
 
-    readonly property var view: View.view(shell === null ? ({}) : shell.status.values)
+    // Core/Plugins.qml createWidget assigns shell.settings to this bar-widget.
+    // Session settings arrive only after daemon hello, so the widget reads the
+    // truthful talk mode from shell.settings.
+    readonly property string talkMode: shell === null ? "hold" : String(shell.settings.mode)
+    readonly property var spelledKeys: ({
+        talk: spellKey("talk"),
+        mute: spellKey("mute"),
+        stop: spellKey("stop"),
+        confirm: spellKey("confirm")
+    })
+    readonly property var view: View.view(shell === null ? ({}) : shell.status.values, spelledKeys, talkMode)
 
     implicitWidth: item.implicitWidth
     implicitHeight: barSize
+
+    function spellKey(name) {
+        if (shell === null || shell.shortcut === undefined || (shell.shortcut.keys[name] === undefined || shell.shortcut.keys[name] === null)) return null;
+        return KeyNavLogic.keyCaps(shell.shortcut.keys[name]).join("+");
+    }
 
     function toneColor(tone) {
         switch (tone) {

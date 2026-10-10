@@ -24,6 +24,8 @@ Item {
     function shellWith(values) {
         return {
             status: { values: values },
+            settings: { mode: "hold" },
+            shortcut: { keys: { talk: "SUPER+code:108", mute: "SUPER+SHIFT+code:108", stop: "SUPER+ALT+PERIOD", confirm: "SUPER+ALT+Y" } },
             ipc: { call: (name, arg) => { root.calls = root.calls.concat([[name, arg]]); return root.reply; } }
         };
     }
@@ -61,12 +63,13 @@ Item {
 
         function test_states_draw_their_icon_tone_and_tooltip() {
             const rows = [
-                [{ daemon: { tone: "info", text: "Starting" }, detail: null }, "power-off", Theme.badge.tone.neutral.foreground, "Jarvis: Starting\nClick to mute"],
-                [root.ready({}), "mic", Theme.bar.foreground, "Jarvis is ready\nClick to mute"],
-                [root.ready({ capture: { kind: "open", gen: 1, op: 2, mode: "hold" } }), "audio-lines", Theme.badge.tone.accent.foreground, "Jarvis is using the microphone\nClick to mute"],
-                [root.ready({ turn: { kind: "thinking", gen: 1, op: 3, deadline: 70 } }), "loader", Theme.badge.tone.info.foreground, "Jarvis is thinking\nClick to mute"],
-                [root.ready({ mute: { kind: "on" } }), "mic-off", Theme.badge.tone.neutral.foreground, "Jarvis is muted\nClick to unmute"],
-                [{ daemon: { tone: "danger", text: "Problem: jarvis: node=21.0.0 need=22" }, detail: null }, "circle-alert", Theme.badge.tone.danger.foreground, "Problem: jarvis: node=21.0.0 need=22\nClick to mute"]
+                [{ daemon: { tone: "info", text: "Starting" }, detail: null }, "loader", Theme.badge.tone.info.foreground, "Jarvis is starting\nWait for Jarvis to start.\nClick or press Super+Shift+Right Alt to mute."],
+                [root.ready({}), "mic", Theme.bar.foreground, "Jarvis is ready\nHold Super+Right Alt and speak.\nClick or press Super+Shift+Right Alt to mute."],
+                [root.ready({ capture: { kind: "open", gen: 1, op: 2, mode: "hold" } }), "audio-lines", Theme.badge.tone.accent.foreground, "Jarvis is listening\nSpeak now.\nClick or press Super+Shift+Right Alt to mute."],
+                [root.ready({ turn: { kind: "thinking", gen: 1, op: 3, deadline: 70 } }), "brain", Theme.badge.tone.info.foreground, "Jarvis is thinking\nPress Super+Alt+Period to stop.\nClick or press Super+Shift+Right Alt to mute."],
+                [root.ready({ playback: { kind: "playing", gen: 1, op: 5, source: 4, interruptible: true, admission: { kind: "started" }, deadline: null } }), "volume-2", Theme.badge.tone.accent.foreground, "Jarvis is speaking\nPress Super+Alt+Period to stop.\nClick or press Super+Shift+Right Alt to mute."],
+                [root.ready({ mute: { kind: "on" } }), "mic-off", Theme.badge.tone.neutral.foreground, "Jarvis is muted\nClick or press Super+Shift+Right Alt to unmute."],
+                [{ daemon: { tone: "danger", text: "Problem: jarvis: node=21.0.0 need=22" }, detail: null }, "circle-alert", Theme.badge.tone.danger.foreground, "Jarvis stopped after a problem\nTurn Jarvis off and on again in Settings > Jarvis.\nClick or press Super+Shift+Right Alt to mute."]
             ];
             for (const [values, name, colour, text] of rows) {
                 const tip = text.split("\n");
@@ -75,7 +78,7 @@ Item {
                 compare(String(icon().color), String(Qt.color(colour)), name + " colour");
                 compare(button().label, "Jarvis");
                 compare(tooltip().text, tip[0]);
-                compare(JSON.stringify(tooltip().details), JSON.stringify([tip[1]]));
+                compare(JSON.stringify(tooltip().details), JSON.stringify(tip.slice(1)));
             }
         }
 

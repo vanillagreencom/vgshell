@@ -623,7 +623,7 @@ if [[ $input_kind == type ]]; then
   [[ $reply == ok ]] || stopped say-refused "$reply"
 else
   ipc smoke invokeInstance service vgs.jarvis intent talk-down >/dev/null || stopped talk-not-sent
-  selftest_wait 30 live traced widget || stopped microphone-not-open "widget=$reading"
+  selftest_wait 30 listening traced widget || stopped microphone-not-open "widget=$reading"
   selftest_wait 30 listening traced phase || stopped microphone-not-open "phase=$reading"
   selftest_wait 10 ready devices_voice_feed_state || stopped no-voice-feed "$reading"
   [[ $(ipc smoke markJarvisTrace input) == ok ]] || stopped trace-not-marked

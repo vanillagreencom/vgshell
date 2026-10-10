@@ -4,7 +4,7 @@
 # network runs; no PAM, polkit, keyring or TUI is reached. No latency
 # ceiling is measured. Widget and state reads poll once per nested IPC
 # round trip; fixture callback gates poll at 10 ms.
-# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* scripts/smoke/keyboard/* scripts/smoke/rows/jarvis.sh scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/hold-shortcuts.sh scripts/smoke/rows/hyprland-consent.sh shell/Core/Notifier.qml shell/plugins/vgs.notifications/* bin/lib/qml-library.js
+# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.jarvis/* shell/Ui/foundation/KeyNavLogic.js scripts/fixtures/jarvis/* scripts/smoke/keyboard/* scripts/smoke/rows/jarvis.sh scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/hold-shortcuts.sh scripts/smoke/rows/hyprland-consent.sh shell/Core/Notifier.qml shell/plugins/vgs.notifications/* bin/lib/qml-library.js
 set -euo pipefail
 
 jarvis_widget_config="$home/.config/vgshell/shell.json"
@@ -54,9 +54,9 @@ if detail_lines:
 print(json.dumps([json.loads(icon), names[0] if len(names) == 1 else "colour=" + colour, tip_text]))
 PY
 }
-jarvis_widget_ready='["mic", "calm", "Jarvis is ready\nClick to mute"]'
-jarvis_widget_live='["audio-lines", "accent", "Jarvis is using the microphone\nClick to mute"]'
-jarvis_widget_muted='["mic-off", "neutral", "Jarvis is muted\nClick to unmute"]'
+jarvis_widget_ready='["mic", "calm", "Jarvis is ready\nHold Super+Right Alt and speak.\nClick or press Super+Shift+Right Alt to mute."]'
+jarvis_widget_listening='["audio-lines", "accent", "Jarvis is listening\nSpeak now.\nClick or press Super+Shift+Right Alt to mute."]'
+jarvis_widget_muted='["mic-off", "neutral", "Jarvis is muted\nClick or press Super+Shift+Right Alt to unmute."]'
 jarvis_widget_click() { click_centre "$jarvis_widget_key" vgs.jarvis || fail "the click on the Jarvis widget failed"; }
 jarvis_widget_click_mutes() { expect_poll "a click on the widget mutes Jarvis" "$jarvis_widget_muted" jarvis_widget; }
 jarvis_widget_click_control() { # LABEL
@@ -64,7 +64,7 @@ jarvis_widget_click_control() { # LABEL
    jarvis_widget_click_mutes >"$sandbox/jarvis-widget-click-$1-control.log"
    echo "$failures")
 }
-jarvis_widget_closing() { expect_poll "the widget reads live while muting closes capture" '["audio-lines", "accent", "Jarvis is using the microphone\nClick to unmute"]' jarvis_widget; }
+jarvis_widget_closing() { expect_poll "the widget reads listening while muting closes capture" '["audio-lines", "accent", "Jarvis is listening\nSpeak now.\nClick or press Super+Shift+Right Alt to unmute."]' jarvis_widget; }
 jarvis_widget_closing_control() {
   (failures=0 behaviour_failures=0
    jarvis_widget_closing >"$sandbox/jarvis-widget-closing-control.log"
@@ -108,7 +108,7 @@ p.write_text(s)
 PY
   jarvis_rescan
 }
-# The widget during the retry wait: `restarting` for the off look while
+# The widget during the retry wait: `restarting` for the loading look while
 # the service waits to retry and its daemon row warns, otherwise the
 # reading itself.
 jarvis_widget_restarting() {
@@ -119,7 +119,7 @@ import json, sys
 t, p = sys.argv[1], sys.argv[2]
 r = None if t == "absent" else json.loads(t)
 d = None if p in ("absent", "missing") else json.loads(p)
-ok = (r is not None and d is not None and r[:2] == ["power-off", "neutral"]
+ok = (r is not None and d is not None and r[:2] == ["loader", "info"]
       and d["lifetime"]["kind"] == "retry" and d["status"]["daemon"]["tone"] == "warning")
 print("restarting" if ok else t)
 PY
@@ -145,10 +145,10 @@ PY
 jarvis_widget_voice_line() {
   "$node_bin" -e 'const { load } = require(process.argv[1]);
 const view = load(process.argv[2]);
-process.stdout.write(JSON.stringify(["power-off", "neutral", view.SETUP_TEXT.find(row => row[0] === "setupVoice")[1], true]));' \
+process.stdout.write(JSON.stringify(["power-off", "neutral", view.SETUP_TEXT.find(row => row[0] === "setupVoice")[1].title, true]));' \
     "$repo/bin/lib/qml-library.js" "$repo/shell/plugins/vgs.jarvis/WidgetView.js"
 }
-jarvis_widget_restart_assertion() { expect_poll "the widget reads off with the Restarting text after the daemon ends" restarting jarvis_widget_restarting; }
+jarvis_widget_restart_assertion() { expect_poll "the widget reads loading after the daemon ends" restarting jarvis_widget_restarting; }
 jarvis_widget_restart_control() {
   (failures=0 behaviour_failures=0
    jarvis_widget_restart_assertion >"$sandbox/jarvis-widget-restart-control.log"
@@ -178,7 +178,7 @@ rm -f -- "$jarvis_gate" "$jarvis_seen"
 expect "the gated widget service enables" ok ipc shell setPluginEnabled vgs.jarvis true
 expect_poll "enabling places the widget in the bar's right section" right jarvis_widget_section
 expect_poll "the startup daemon consumes hello" seen jarvis_seen_hello
-expect_poll "the widget reads off before the first state" '["power-off", "neutral", "Jarvis: Starting\nClick to mute"]' jarvis_widget
+expect_poll "the widget reads loading before the first state" '["loader", "info", "Jarvis is starting\nWait for Jarvis to start.\nClick or press Super+Shift+Right Alt to mute."]' jarvis_widget
 : >"$jarvis_gate"
 expect "the gated daemon answers hello" ready jarvis_wait_ready
 expect_poll "the widget reads ready" "$jarvis_widget_ready" jarvis_widget
@@ -186,13 +186,13 @@ jarvis_key_mode hold
 
 jarvis_key_talk_down
 expect_poll "talk down opens capture" listening jarvis_key_state phase
-expect_poll "the widget reads live while Jarvis listens" "$jarvis_widget_live" jarvis_widget
+expect_poll "the widget reads listening while Jarvis listens" "$jarvis_widget_listening" jarvis_widget
 jarvis_key_talk_up
 expect_poll "release commits the scripted utterance" thinking jarvis_key_state phase
-expect_poll "the widget reads working while Jarvis thinks" '["loader", "info", "Jarvis is thinking\nClick to mute"]' jarvis_widget
+expect_poll "the widget reads working while Jarvis thinks" '["brain", "info", "Jarvis is thinking\nPress Super+Alt+Period to stop.\nClick or press Super+Shift+Right Alt to mute."]' jarvis_widget
 jarvis_widget_gate brain
 expect_poll "the scripted brain speaks" speaking jarvis_key_state phase
-expect_poll "the widget reads working while Jarvis speaks" '["loader", "info", "Jarvis is speaking\nClick to mute"]' jarvis_widget
+expect_poll "the widget reads speaking during playback" '["volume-2", "accent", "Jarvis is speaking\nPress Super+Alt+Period to stop.\nClick or press Super+Shift+Right Alt to mute."]' jarvis_widget
 jarvis_widget_gate played
 expect_poll "scripted playback returns to idle" idle jarvis_key_state phase
 expect_poll "the widget reads ready after the answer" "$jarvis_widget_ready" jarvis_widget

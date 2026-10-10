@@ -9,6 +9,20 @@ Screenshot made with `scripts/readme-shots.sh` in the nested sandbox, with the d
 ## Features
 
 - A bar icon that shows whether Jarvis is off, ready, listening, working, muted or has a problem. A click toggles mute.
+
+Bar icon states:
+
+| State | Icon | When | What the tooltip tells you |
+| --- | --- | --- | --- |
+| Off | `power-off` | Jarvis needs setup, a requirement, or an unlocked screen. | What setting or action turns Jarvis on. |
+| Loading | `loader` | Jarvis starts, checks setup or loads local voice. | What is loading and to wait. |
+| Ready | `mic` | Jarvis can listen. | How to talk: hold Talk, press Talk, or say Hey Jarvis. |
+| Listening | `audio-lines` | The microphone is open. | Speak now, or say Hey Jarvis in Always mode. |
+| Working | `brain` | Jarvis is thinking, waiting for confirmation or using a tool. | What Jarvis is doing and the Stop or Confirm key to use. |
+| Speaking | `volume-2` | Jarvis plays its answer. | That Jarvis is speaking and the Stop key to use. |
+| Muted | `mic-off` | Privacy mute is on. | Click or press the Mute key to unmute. |
+| Problem | `circle-alert` | Jarvis or audio stopped with a fault. | What failed and what action to take. |
+
 - Talk, Mute, Stop and Console keys. Talk is Super with Right Alt, Mute is Super with Shift and Right Alt, Stop is Super with Alt and Period, and Console is Super with Alt and C.
 - The Console window lets you type a message to Jarvis, review the conversation, and stop the current turn without using the microphone.
 - Mute stays on across restarts and blocks talk input.
