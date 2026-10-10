@@ -64,7 +64,7 @@ const READINESS = [
 const DONE_ACTION = { setupVoice: false, setupModel: undefined };
 // The home folder's causes: Home.js's and Guidance.js's. One without a hint
 // of its own takes the step's.
-const HOME_CAUSES = ["home=link", "home=path", "home=unwritable", "guidance=home-too-large", "guidance=home-skills-too-large"];
+const HOME_CAUSES = ["home=link", "home=path", "home=unwritable", "guidance=home-too-large", "guidance=home-skills-too-large", "guidance=home-memory-too-large"];
 // Each brain cause asks for its own action.
 const BRAIN_CAUSES = ["brain=unselected", "brain=account-unavailable", "brain=model-required", "brain=accounts-unreadable", "brain=signed-out",
     "brain=pi-update"];

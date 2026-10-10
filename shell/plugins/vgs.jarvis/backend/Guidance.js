@@ -5,7 +5,9 @@
 // appends afterToolResult as instructions after EACH tool result. home is
 // the user's Jarvis home folder or null: a brain gets the base package's
 // persona and the home's AGENTS.md after the shipped layers, then the index of
-// its skills, each read on demand through the help tool. The voice model only reads the brain's words aloud and gets no
+// its skills, each read on demand through the help tool, then memory/MEMORY.md,
+// the index of its memory notes, each read on demand through the memory.read
+// tool. The voice model only reads the brain's words aloud and gets no
 // home text (D105).
 // Read failures and bounds throw keyed errors. No cache or session store.
 "use strict";
@@ -17,6 +19,10 @@ const MAX_LAYER_BYTES = 8192;
 const MAX_COMPOSE_BYTES = 32768;
 // The persona's bound, the one its kendex package sets.
 const MAX_PERSONA_BYTES = 3072;
+// MEMORY.md's bound, about 1,000 tokens: a synthetic index of 62 lines and
+// 4,018 bytes counted 1,023 tokens under tiktoken 0.14.0's o200k_base
+// encoding (VGS-1256, 2026-10-10).
+const MAX_MEMORY_BYTES = 4096;
 const ROOT = path.join(__dirname, "skills/voice");
 
 function layer(name) {
@@ -43,9 +49,9 @@ function layer(name) {
 }
 
 // The home's layers as [name, text] pairs: the persona, then the user's
-// AGENTS.md, which may refine it. A persona, an AGENTS.md or a skill index
-// over its bound refuses whole: a cut persona would read as the user's own
-// words.
+// AGENTS.md, which may refine it, the skill index and the memory index. A
+// text over its bound refuses whole: a cut persona would read as the user's
+// own words, and a cut memory index would hide the notes below the cut.
 function homeLayers(home) {
     const out = [];
     const persona = Home.read(home, "skills/base/" + Home.PACKAGE + "/persona.md", MAX_PERSONA_BYTES);
@@ -60,6 +66,10 @@ function homeLayers(home) {
     if (!listed.complete || Buffer.byteLength(index) > MAX_LAYER_BYTES) throw new Error("jarvis: guidance=home-skills-too-large");
     if (index !== "")
         out.push(["home/skills", "Skills in the user's Jarvis home folder. Read a skill with the help tool, by its topic, before you use it:\n\n" + index]);
+    const memory = Home.read(home, "memory/MEMORY.md", MAX_MEMORY_BYTES);
+    if (memory.kind !== "text") throw new Error("jarvis: guidance=home-memory-too-large");
+    if (memory.text.trim() !== "")
+        out.push(["home/MEMORY.md", "The user's memory notes. Before each answer from a note, read the note with the memory read tool, by its path below memory/, because a note can change between turns, and say which note the answer came from. The index of the notes, memory/MEMORY.md in the user's Jarvis home folder:\n\n" + memory.text.trim()]);
     return out;
 }
 

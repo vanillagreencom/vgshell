@@ -85,20 +85,26 @@ world("jg", root => {
         }); controls++;
     }
     // The user's home folder: a brain gets the base package's persona and
-    // then its AGENTS.md after the shipped layers, and the index of its skills, the voice model gets none, and a
-    // text over its bound refuses whole. The folder is made by hand, as a
-    // user's is.
+    // then its AGENTS.md after the shipped layers, the index of its skills and
+    // memory/MEMORY.md, the index of its memory notes; the voice model gets
+    // none, and a text over its bound refuses whole. The folder is made by
+    // hand, as a user's is.
     const tree = path.resolve(backend, "../../../..");
-    const home = (name, agents, skills = {}, persona = "# Persona\nPERSONA-MARKER\n") => {
+    const home = (name, agents, skills = {}, persona = "# Persona\nPERSONA-MARKER\n", memory = "") => {
         const folder = path.join(root, "home-" + name);
         for (const set of ["base/jarvis", "own"]) fs.mkdirSync(path.join(folder, "skills", set), { recursive: true });
+        fs.mkdirSync(path.join(folder, "memory"));
+        fs.writeFileSync(path.join(folder, "memory/MEMORY.md"), memory);
         fs.writeFileSync(path.join(folder, "AGENTS.md"), agents);
         fs.writeFileSync(path.join(folder, "skills/base/jarvis/persona.md"), persona);
         for (const [file, text] of Object.entries(skills)) fs.writeFileSync(path.join(folder, "skills", file), text);
         return folder;
     };
-    const full = home("full", "\nHOME-MARKER persona\n", { "own/alpha.md": "# Alpha skill\nALPHA-BODY\n", "base/gamma.md": "Gamma line\n" });
-    const bare = home("bare", "  \n", {}, "\n");
+    const full = home("full", "\nHOME-MARKER persona\n", { "own/alpha.md": "# Alpha skill\nALPHA-BODY\n", "base/gamma.md": "Gamma line\n" },
+        undefined, "\n- [Team](facts/team.md): MEMORY-MARKER\n");
+    const bare = home("bare", "  \n", {}, "\n", " \n");
+    const memoryEdge = home("memory-edge", "", {}, "\n", "m".repeat(4096));
+    const memoryOver = home("memory-over", "", {}, "\n", "m".repeat(4097));
     const personaEdge = home("persona-edge", "", {}, "p".repeat(3072));
     const personaOver = home("persona-over", "", {}, "p".repeat(3073));
     const edge = home("edge", "x".repeat(8192));
@@ -126,7 +132,8 @@ world("jg", root => {
             assert.deepEqual(["- base/gamma: Gamma line", "- own/alpha: Alpha skill"].map(line => added.split("\n").includes(line)), [true, true],
                 row.class + ": the skill index, name and first line");
             assert.equal(added.includes("ALPHA-BODY"), false, "a skill body is read on demand, never composed");
-            assert.deepEqual(value.layers, [...row.layers, "home/persona", "home/AGENTS.md", "home/skills"]);
+            assert.equal(added.endsWith("\n\n- [Team](facts/team.md): MEMORY-MARKER"), true, row.class + ": the memory index, each line whole");
+            assert.deepEqual(value.layers, [...row.layers, "home/persona", "home/AGENTS.md", "home/skills", "home/MEMORY.md"]);
             assert.equal(value.afterToolResult, plain.afterToolResult, "the home text is not repeated after a tool result");
             assert.equal(plain.withHome(full).instructions, value.instructions, "a composed guidance reads the home again");
             assert.equal(logic.compose(row.engine, row.class, row.language, bare).instructions, plain.instructions, "an empty home adds nothing");
@@ -136,6 +143,10 @@ world("jg", root => {
         assert.throws(() => logic.compose("chained", "text", "en", oversize), { message: "jarvis: guidance=home-too-large" });
         assert.equal(logic.compose("chained", "text", "en", personaEdge).instructions.endsWith("p".repeat(3072)), true, "a persona of exactly its bound is whole");
         assert.throws(() => logic.compose("chained", "text", "en", personaOver), { message: "jarvis: guidance=home-persona-too-large" });
+        let edged;
+        assert.doesNotThrow(() => { edged = logic.compose("chained", "text", "en", memoryEdge); }, "a memory index of exactly its bound composes");
+        assert.equal(edged.instructions.endsWith("m".repeat(4096)), true, "and is whole");
+        assert.throws(() => logic.compose("chained", "text", "en", memoryOver), { message: "jarvis: guidance=home-memory-too-large" });
         for (const folder of [crowded, many])
             assert.throws(() => logic.compose("chained", "local", "en", folder), { message: "jarvis: guidance=home-skills-too-large" });
         assert.throws(() => logic.compose("chained", "text", "en", linked), { message: "jarvis: home=link" });
@@ -150,6 +161,12 @@ world("jg", root => {
         ["persona-layer", 'if (persona.text.trim() !== "") out.push(["home/persona", persona.text.trim()]);', ""],
         ["persona-empty", 'if (persona.text.trim() !== "")', "if (true)"],
         ["voice-home", 'if (home !== null && brainClass === "duplex") throw new Error("jarvis: guidance=consumer");', ""],
+        ["memory-bound", 'if (memory.kind !== "text") throw new Error("jarvis: guidance=home-memory-too-large");', ""],
+        ["memory-cap-high", "const MAX_MEMORY_BYTES = 4096;", "const MAX_MEMORY_BYTES = 4097;"],
+        ["memory-cap-low", "const MAX_MEMORY_BYTES = 4096;", "const MAX_MEMORY_BYTES = 4095;"],
+        ["memory-cut", '" + memory.text.trim()]);', '" + memory.text.trim().slice(0, 4095)]);'],
+        ["memory-empty", 'if (memory.text.trim() !== "")', "if (true)"],
+        ["memory-file", 'Home.read(home, "memory/MEMORY.md", MAX_MEMORY_BYTES)', 'Home.read(home, "AGENTS.md", MAX_MEMORY_BYTES)'],
         ["skills-bound", "if (!listed.complete || Buffer.byteLength(index) > MAX_LAYER_BYTES)", "if (!listed.complete)"],
         ["skills-complete", "if (!listed.complete || Buffer.byteLength(index) > MAX_LAYER_BYTES)", "if (Buffer.byteLength(index) > MAX_LAYER_BYTES)"],
         ["skill-line", '(skill.line === "" ? "" : ": " + skill.line)', '""'],

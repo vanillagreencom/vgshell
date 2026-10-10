@@ -372,4 +372,14 @@ function skill(home, topic) {
     }
 }
 
-module.exports = { PACKAGE, resolve, layout, guard, read, skills, skill };
+/**
+ * The memory note PATH names below memory/, as read() answers it. Throws
+ * jarvis: home=absent for a path Tools.memoryNote refuses, a note under
+ * memory/inbox/ among them.
+ */
+function note(home, entry, limit) {
+    if (!Tools.memoryNote(entry)) fail("absent");
+    return read(home, "memory/" + entry, limit);
+}
+
+module.exports = { PACKAGE, resolve, layout, guard, read, skills, skill, note };

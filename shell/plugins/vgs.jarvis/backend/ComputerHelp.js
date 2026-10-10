@@ -1,7 +1,7 @@
 // One on-demand owner for help: the computer-family files VGS installs, one
 // regular Markdown file per family, and the skills of the user's Jarvis home
-// folder, read through Home.js. Browser readiness adds its provider to this
-// same owner.
+// folder and its memory notes, read through Home.js. Browser readiness adds
+// its provider to this same owner.
 "use strict";
 const fs = require("node:fs");
 const path = require("node:path");
@@ -9,6 +9,9 @@ const Tools = require("./Tools.js");
 const Home = require("./Home.js");
 const ROOT = path.join(__dirname, "skills/computer");
 const LIMIT = 8192;
+// A memory note's bound. The model chooses the path, so one read holds at
+// most what the router gives any other result (ToolRouter RESULT_BYTES).
+const NOTE_LIMIT = 16 * 1024;
 /**
  * create(root, browser, home) builds the guidance executor. home() answers
  * the home folder's path, or null while none is usable.
@@ -39,6 +42,15 @@ function create(root = ROOT, browser = null, home = () => null) {
         start(call, done) {
             let fd;
             try {
+                if (call.id === "memory.read") {
+                    const folder = home();
+                    if (folder === null) throw new Error("home-unchosen");
+                    const note = Home.note(folder, call.args.path, NOTE_LIMIT);
+                    if (note.kind !== "text") throw new Error("note-too-large");
+                    if (note.text.trim() === "") throw new Error("note-empty");
+                    done({ outcome: "completed", content: note.text.trim() });
+                    return;
+                }
                 const topic = call.args.topic;
                 if (Tools.homeTopic(topic) !== null) {
                     const folder = home();
@@ -58,7 +70,7 @@ function create(root = ROOT, browser = null, home = () => null) {
                 const content = new TextDecoder("utf-8", { fatal: true }).decode(buffer.subarray(0, size)).trim();
                 if (content === "") throw new Error("help-file-empty");
                 done({ outcome: "completed", content });
-            } catch (error) { done({ outcome: "failed", content: "help-read:" + (error.code || error.message) }); }
+            } catch (error) { done({ outcome: "failed", content: (call.id === "memory.read" ? "memory-read:" : "help-read:") + (error.code || error.message) }); }
             finally { if (fd !== undefined) fs.closeSync(fd); }
         } };
 }

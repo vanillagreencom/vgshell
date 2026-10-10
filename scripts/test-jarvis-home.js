@@ -4,7 +4,8 @@
 // ships, what a folder that already holds files keeps, a home that holds an
 // older package, the refusal of a link at the home, at every layout path and
 // inside skills/base, the folder a setting names, the bounded read of its
-// text and the skill index. Each control edits a copy of Home.js, one rule at a time, and
+// text, the skill index and a memory note read by its path. Each control edits
+// a copy of Home.js, or of the Tools.js rule it asks, one rule at a time, and
 // must turn a case red.
 "use strict";
 const { assert, fs, path, tree, world, seed, mutant } = require("./fixtures/jarvis/policy.js");
@@ -274,6 +275,38 @@ world(() => {
             // A set past its entry bound answers incomplete, never a part as the whole.
             for (let index = 0; index < 257; index++) write("base/s" + index + ".md", "x\n");
             assert.equal(Home.skills(folder).complete, false);
+        },
+        // A memory note by its path below memory/, as MEMORY.md routes to
+        // it: whole within its bound, or too-large. Each refused path names
+        // a file that is there, so the path rule refuses it, not its absence:
+        // nothing under memory/inbox/, outside memory/ or behind a link is
+        // read.
+        notes(Home) {
+            const folder = fresh();
+            Home.layout(folder);
+            const write = (name, text) => {
+                fs.mkdirSync(path.dirname(path.join(folder, name)), { recursive: true });
+                fs.writeFileSync(path.join(folder, name), text);
+            };
+            write("memory/facts/My team.md", "TEAM-NOTE\n");
+            write("facts/My team.md", "HOME-ROOT\n");
+            write("memory/inbox/pending.md", "PENDING-NOTE\n");
+            write("memory/.hidden.md", "HIDDEN-NOTE\n");
+            write("memory/facts/team.txt", "NO-MARKDOWN\n");
+            write("AGENTS.md", "OUTSIDE-MEMORY\n");
+            assert.deepEqual(Home.note(folder, "facts/My team.md", 10), { kind: "text", text: "TEAM-NOTE\n" }, "exactly the bound");
+            assert.deepEqual(Home.note(folder, "facts/My team.md", 9), { kind: "too-large" }, "one byte over");
+            keyed(() => Home.note(folder, "facts/absent.md", 64), "absent");
+            for (const entry of ["inbox/pending.md", "../AGENTS.md", "facts/../../AGENTS.md", "facts/../inbox/pending.md", ".hidden.md",
+                "facts/team.txt", path.join(folder, "memory/facts/My team.md"), 7])
+                keyed(() => Home.note(folder, entry, 64), "absent", String(entry));
+            const secret = path.join(path.dirname(folder), "secret.md");
+            fs.writeFileSync(secret, "OUTSIDE-SECRET\n");
+            fs.symlinkSync(secret, path.join(folder, "memory/linked.md"));
+            fs.symlinkSync(path.dirname(secret), path.join(folder, "memory/linked-folder"));
+            fs.symlinkSync("inbox", path.join(folder, "memory/waiting"));
+            for (const entry of ["linked.md", "linked-folder/secret.md", "waiting/pending.md"])
+                keyed(() => Home.note(folder, entry, 64), "link", entry);
         }
     };
 
@@ -283,7 +316,7 @@ world(() => {
         console.log("case=" + name + " passed");
     }
     let controls = 0;
-    for (const [name, needle, replacement, row] of [
+    for (const [name, needle, replacement, row, source = file] of [
         ["layout-entry", '    ["state", null],\n', "", "empty"],
         ["extra-file", '    ["state", null],\n', '    ["state", null], ["extra.md", ""],\n', "empty"],
         ["base-copy", '        base(held.get("skills/base"));\n', "", "empty"],
@@ -321,9 +354,12 @@ world(() => {
         ["skill-folded-marks", "const BLOCK_SCALAR = /^[>|][-+1-9]{0,2}$/;", "const BLOCK_SCALAR = /^[>|]$/;", "skills"],
         ["skill-heading", '.replace(/^#+\\s*/, "")', "", "skills"],
         ["folder-kind", ' && (!last || flags & O_DIRECTORY)) fail("kind");', ' && !last) fail("kind");', "skills"],
-        ["set-bound", "if (entries.length === SET_ENTRIES) return { entries, complete: false };", "", "skills"]
+        ["set-bound", "if (entries.length === SET_ENTRIES) return { entries, complete: false };", "", "skills"],
+        ["note-rule", '    if (!Tools.memoryNote(entry)) fail("absent");\n', "", "notes"],
+        ["note-folder", 'return read(home, "memory/" + entry, limit);', "return read(home, entry, limit);", "notes"],
+        ["note-inbox", "(?!inbox/)", "", "notes", path.join(path.dirname(file), "Tools.js")]
     ]) {
-        const result = mutant(file, name, needle, replacement, logic => CASES[row](logic));
+        const result = mutant(source, name, needle, replacement, logic => CASES[row](logic), "Home.js");
         assert.equal(result, undefined);
         controls++;
         console.log("control=" + name + " detected");

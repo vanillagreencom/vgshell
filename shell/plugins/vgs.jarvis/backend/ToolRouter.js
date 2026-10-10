@@ -81,8 +81,9 @@ function create({ session, state, dispatch, context, audit, result }) {
     }
 
     // One result item shape for every answer a brain receives for a call. A
-    // home skill passes whole: the user wrote it for the brain to read, and
-    // only the help row on a home topic carries that source (Tools.refine).
+    // home skill passes whole: the user wrote it for the brain to read. Only
+    // the help row on a home topic (Tools.refine) and the memory.read row,
+    // whose reader bounds a note itself, carry that source.
     function answer(content, source) {
         const bytes = Buffer.from(content);
         const bounded = source === "home" || bytes.length <= RESULT_BYTES ? content

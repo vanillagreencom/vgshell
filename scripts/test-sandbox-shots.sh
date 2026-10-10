@@ -797,11 +797,12 @@ else
   fail "control: a fixed Gallery title could not be planted"
 fi
 
-# A current revision exports its runtime helpers in bin/lib and its
-# installer files. The harness copies this revision's product files and
-# this checkout's smoke scripts, without starting a compositor.
+# A current revision exports its runtime helpers in bin/lib, its Jarvis base
+# package and its installer files. The harness copies this revision's product
+# files and this checkout's smoke scripts, without starting a compositor.
 helper_repo="$tmp/helper-repo"
-mkdir -p "$helper_repo/bin/lib" "$helper_repo/shell" "$helper_repo/config" "$helper_repo/themes"
+mkdir -p "$helper_repo/bin/lib" "$helper_repo/shell" "$helper_repo/config" "$helper_repo/themes" "$helper_repo/.agents/skills/jarvis"
+printf 'revision persona\n' >"$helper_repo/.agents/skills/jarvis/persona.md"
 printf 'module.exports = { where: "bin/lib" };\n' >"$helper_repo/bin/lib/qml-library.js"
 printf 'process.stdout.write(require(require("path").join(__dirname, "lib", "qml-library.js")).where);\n' >"$helper_repo/bin/judge"
 : >"$helper_repo/shell/shell.qml"; : >"$helper_repo/config/shell.json"; : >"$helper_repo/themes/.keep"
@@ -823,6 +824,7 @@ harness_copy_case() { # LIB
     [[ -e "$target/packaging/install-system.sh" ]] || { echo "packaging missing"; exit 1; }
     [[ -e "$target/scripts/qml-smoke.sh" ]] || { echo "scripts missing"; exit 1; }
     [[ $(node "$target/bin/judge") == bin/lib ]] || { echo "runtime helper missing"; exit 1; }
+    cmp -s -- "$helper_repo/.agents/skills/jarvis/persona.md" "$target/.agents/skills/jarvis/persona.md" || { echo "revision base package missing"; exit 1; }
     for file in VERSION LICENSE README.md; do
       cmp -s -- "$helper_repo/$file" "$target/$file" || { echo "revision file missing: $file"; exit 1; }
     done
@@ -848,6 +850,21 @@ then
 else
   fail "control: wrong revision installer files could not be planted"
 fi
+# A control exports no base package, and one copies the checkout's.
+package_controls=(
+  'a revision exported without its base package|package=(.agents/skills/jarvis)|package=()'
+  'the checkout base package|shutil.copytree(tree / package, target / package)|shutil.copytree(source / package, target / package)'
+)
+for spec in "${package_controls[@]}"; do
+  IFS='|' read -r label needle replacement <<<"$spec"
+  if ! mutate "$repo/scripts/smoke/tree.sh" "$needle" "$replacement" "$copy_mutant"; then
+    fail "control: $label could not be planted"
+  elif harness_copy_case "$copy_mutant" >/dev/null; then
+    fail "control: $label stayed green"
+  else
+    ok "control: $label fails"
+  fi
+done
 
 # With --rev, a shot's catalog package is the revision's: preview_package
 # and set_mode read the sandbox copy the harness made, which outlives the

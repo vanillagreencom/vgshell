@@ -33,11 +33,18 @@ const anyText = { type: "string", minLength: 0, pattern: "^[^\\u0000]*$" };
 const HELP_TOPICS = Object.freeze(["windows", "apps", "input", "clipboard", "media", "notify", "files", "shell", "vision", "browser"]);
 const HOME_TOPIC = "(base|own)/([A-Za-z0-9][A-Za-z0-9_-]{0,47})(/[A-Za-z0-9][A-Za-z0-9_-]{0,47})?";
 const helpTopic = { type: "string", pattern: "^(?:" + HELP_TOPICS.join("|") + "|" + HOME_TOPIC.replace(/\(/g, "(?:") + ")$(?![\\s\\S])" };
+// A memory note as the home's memory/MEMORY.md routes to it: a path below
+// memory/ of at most 255 characters, each name starting with no dot, ending
+// in ".md". It names no note under inbox/, which holds what the user has not
+// confirmed (Home.js reads the note).
+const MEMORY_NOTE = "(?!inbox/)(?=[^\\u0000-\\u001f\\u007f]{1,255}$)(?:[^./][^/]*/)*[^./][^/]*\\.md";
+const notePath = { type: "string", pattern: "^" + MEMORY_NOTE + "$(?![\\s\\S])" };
 
 // Each row owns its argument shape, effect, executor, requirement and output
 // source. Executors may add a row only with a test and a real consumer.
 const TABLE = {
     "help": { sentence: "Read help for {topic}", effect: "read", executor: "guidance", command: null, schema: { topic: helpTopic } },
+    "memory.read": { sentence: "Read memory note {path}", effect: "read", executor: "guidance", command: null, schema: { path: notePath }, source: "home" },
     "windows.list": { sentence: "List windows", effect: "read", executor: "windows", command: "hyprctl", schema: {} },
     "windows.focus": { sentence: "Focus window {window}", effect: "reversible", executor: "compositor", command: "hyprctl", schema: { window: windowId } },
     "windows.reveal": { sentence: "Reveal window {window}", effect: "reversible", executor: "compositor", command: "hyprctl", schema: { window: windowId } },
@@ -194,6 +201,11 @@ function homeTopic(value) {
     return match === null ? null : { set: match[1], name: match[2], reference: match[3] === undefined ? null : match[3].slice(1) };
 }
 
+/** Whether VALUE is a memory note path the memory.read row admits. */
+function memoryNote(value) {
+    return typeof value === "string" && new RegExp(notePath.pattern).test(value);
+}
+
 // The one model-facing spelling of a tool id, shared by the wire brains and
 // the MCP bridge: dots become underscores, and providers accept only letters,
 // digits, underscores and dashes, at most 64 of them.
@@ -229,4 +241,4 @@ for (const row of Object.values(TABLE)) {
 }
 freeze(TABLE);
 freeze(BROWSER);
-module.exports = { TABLE, BROWSER, HELP_TOPICS, refine, wireNames, homeTopic };
+module.exports = { TABLE, BROWSER, HELP_TOPICS, refine, wireNames, homeTopic, memoryNote };

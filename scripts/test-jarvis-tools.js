@@ -12,6 +12,7 @@ world(() => {
     const toolsSource = fs.readFileSync(file, "utf8");
     const cases = [
         ["help", { topic: "files" }, "read"],
+        ["memory.read", { path: "facts/My team.md" }, "read", "home"],
         ["windows.list", {}, "read"], ["windows.focus", { window }, "reversible"],
         ["windows.reveal", { window }, "reversible"],
         ["windows.move", { window, x: 0, y: -1 }, "reversible"],
@@ -237,6 +238,27 @@ world(() => {
         ["length", topicLine.replace("{0,47}", "{0,48}"), "own/" + "a".repeat(49)],
         ["reference", topicLine.replace("(/[A-Za-z0-9][A-Za-z0-9_-]{0,47})?", "(/.*)?"), "own/a/../b"]])
         control("help-topic-" + name, topicLine, replacement, logic => bad(logic, { id: "help", args: { topic } }, "argument-shape"));
+    // memory.read: a note below the home's memory/ by its path, at most 255
+    // characters; a path that leaves memory/, names a dot entry or no
+    // Markdown file, or lies under inbox/, is refused before an executor
+    // sees it. Each control drops one rule and admits that rule's path.
+    const noteLine = toolsSource.split("\n").find(line => line.startsWith("const MEMORY_NOTE ="));
+    const noteRules = [
+        ["inbox", "inbox/pending.md", line => line.replace("(?!inbox/)", "")],
+        ["dot-entry", "../AGENTS.md", line => line.replaceAll("[^./]", "[^/]")],
+        ["absolute", "/etc/passwd.md", line => line.replaceAll("[^./]", "[^.]")],
+        ["control-character", "facts/a\n.md", line => line.replace("[^\\\\u0000-\\\\u001f\\\\u007f]", "[\\\\s\\\\S]")],
+        ["bound", "a".repeat(253) + ".md", line => line.replace("{1,255}", "{1,256}")],
+        ["markdown", "facts/team.txt", line => line.replace('\\\\.md"', '"')]
+    ];
+    check(Tools, ["memory.read", { path: "a".repeat(252) + ".md" }, "read", "home"]);
+    for (const path of [...noteRules.map(rule => rule[1]), "facts/../../AGENTS.md", "./a.md", "facts/.hidden.md", "facts//a.md", "facts/", "a.md\n", ""])
+        bad(Tools, { id: "memory.read", args: { path } }, "argument-shape");
+    assert.deepEqual(["facts/team.md", "inbox.md", "notes/inbox/a.md", "inbox/pending.md", "../a.md", 7].map(value => Tools.memoryNote(value)),
+        [true, true, true, false, false, false]);
+    for (const [name, path, change] of noteRules)
+        control("memory-note-" + name, noteLine, change(noteLine), logic => bad(logic, { id: "memory.read", args: { path } }, "argument-shape"));
+    control("memory-note-judge", "new RegExp(notePath.pattern).test(value)", "true", logic => assert.equal(logic.memoryNote("inbox/pending.md"), false));
     const referenceLine = toolsSource.split("\n").find(line => line.startsWith("const reference ="));
     control("browser-reference", referenceLine, referenceLine.replace(/pattern: "(?:\\.|[^"])*"/, 'pattern: ".*"'),
         logic => bad(logic, { id: "browser", args: { command: "click", args: { ref: "--cdp" } } }, "browser-arguments"));

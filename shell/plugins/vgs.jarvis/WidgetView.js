@@ -75,7 +75,7 @@ var RESTART = "Turn Jarvis off and on again in Settings > Jarvis.";
 var FAULT_TEXT = {
     "slow": { title: "The AI model took too long to answer", action: RESTART },
     "device": { title: "The microphone or speaker is gone", action: "Connect it again, or choose another in Settings > Jarvis." },
-    "home": { title: "Jarvis cannot use the home folder", action: "Check AGENTS.md and the skills in the folder, or choose another folder in Settings > Jarvis." },
+    "home": { title: "Jarvis cannot use the home folder", action: "Check AGENTS.md, MEMORY.md and the skills in the folder, or choose another folder in Settings > Jarvis." },
     "brain": { title: "The AI model did not answer", action: RESTART },
     "voice": { title: "Local voice stopped working", action: RESTART },
     "audio": { title: "The microphone or speaker stopped working", action: RESTART },
