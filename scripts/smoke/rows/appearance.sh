@@ -257,7 +257,7 @@ app_surface_rule_name='^[[:space:]]*hl\.layer_rule\(\{ name = "vgs:glass", '
 app_bar_rule_name='^[[:space:]]*hl\.layer_rule\(\{ name = "vgs:glass-bar", '
 app_surface_rule='^[[:space:]]*hl\.layer_rule\(\{ name = "vgs:glass", match = \{ namespace = "[^"]+" \}, blur = true, blur_popups = true, ignore_alpha = 0\.7 \}\)$'
 app_bar_rule='^[[:space:]]*hl\.layer_rule\(\{ name = "vgs:glass-bar", match = \{ namespace = "\^vgs:bar\$" \}, blur_popups = true, ignore_alpha = 0\.7 \}\)$'
-app_popups_was="$(hypr_int decoration:blur:popups)" || fail "Hyprland's popup blur is unreadable"
+app_popups_was="$(hypr_bool decoration:blur:popups)" || fail "Hyprland's popup blur is unreadable"
 app_opacity_was="$(hypr_float decoration:active_opacity)" || fail "Hyprland's active opacity is unreadable"
 app_inactive_was="$(hypr_float decoration:inactive_opacity)" || fail "Hyprland's inactive opacity is unreadable"
 expect "the layer writes no window glass before a choice" no app_layer_has "$app_glass_line"
@@ -269,7 +269,7 @@ expect_poll "Hyprland's active opacity is the glass 0.92" 0.92 hypr_float decora
 expect_poll "Hyprland's inactive opacity is the glass 0.86" 0.86 hypr_float decoration:inactive_opacity
 expect "the windows' own glass blurs no shell layer" no app_layer_has "$app_surface_rule_name"
 expect "the windows' own glass blurs no bar popup" no app_layer_has "$app_bar_rule_name"
-expect "the windows' own glass leaves Hyprland's popup blur" "$app_popups_was" hypr_int decoration:blur:popups
+expect "the windows' own glass leaves Hyprland's popup blur" "$app_popups_was" hypr_bool decoration:blur:popups
 expect "glass off for every glass surface is written" ok app_set '{"key":"glass","value":"off"}'
 expect_poll "glass off leaves window glass unwritten" no app_layer_has "$app_glass_line"
 expect_poll "Hyprland's active opacity is as before" "$app_opacity_was" hypr_float decoration:active_opacity
@@ -282,15 +282,16 @@ expect_poll "glass on writes window glass with no window choice" yes app_layer_h
 expect_poll "Hyprland's active opacity is the glass 0.92 again" 0.92 hypr_float decoration:active_opacity
 expect_poll "glass on blurs the shell's own layers and their popups" yes app_layer_has "$app_surface_rule"
 expect_poll "glass on blurs the bar's popups and not the bar" yes app_layer_has "$app_bar_rule"
-expect_poll "glass on blurs popups in Hyprland" 1 hypr_int decoration:blur:popups
+expect_poll "glass on blurs popups in Hyprland" true hypr_bool decoration:blur:popups
 expect_poll "Hyprland's popup blur ignores pixels at or under 0.7" 0.7 hypr_float decoration:blur:popups_ignorealpha
+expect "Hyprland takes the layers' popup blur with no configuration error" '[]' hypr_reload_errors
 expect "the glass choice is unset again" ok app_unset glass
 expect "the user file holds no Appearance value after the glass choice" null app_saved
 expect_poll "the layer writes no window glass again" no app_layer_has "$app_glass_line"
 expect_poll "the layer blurs no shell layer again" no app_layer_has "$app_surface_rule_name"
 expect_poll "the layer blurs no bar popup again" no app_layer_has "$app_bar_rule_name"
 expect_poll "Hyprland's active opacity is as before again" "$app_opacity_was" hypr_float decoration:active_opacity
-expect_poll "Hyprland's popup blur is as before" "$app_popups_was" hypr_int decoration:blur:popups
+expect_poll "Hyprland's popup blur is as before" "$app_popups_was" hypr_bool decoration:blur:popups
 # Window glow: while window glass is written, the windows' glow choice
 # writes Hyprland's glow from the hyprland.glow tokens; unset, the layer
 # writes no glow and Hyprland's own switch is back.
