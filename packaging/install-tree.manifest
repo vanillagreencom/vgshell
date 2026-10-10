@@ -617,6 +617,7 @@ f share/vgshell/shell/plugins/vgs.themes/SetupLogic.js
 f share/vgshell/shell/plugins/vgs.themes/ThemeCard.qml
 f share/vgshell/shell/plugins/vgs.themes/ThemePaletteStrip.qml
 f share/vgshell/shell/plugins/vgs.themes/ThemeRow.qml
+f share/vgshell/shell/plugins/vgs.themes/ThemeSwatch.qml
 f share/vgshell/shell/plugins/vgs.themes/ThemeView.qml
 f share/vgshell/shell/plugins/vgs.themes/ThemesPanel.qml
 f share/vgshell/shell/plugins/vgs.themes/WallpaperCard.qml

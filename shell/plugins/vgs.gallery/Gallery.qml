@@ -69,11 +69,12 @@ Item {
                     Repeater {
                         model: ["base", "raised", "sunken"]
                         Surface {
+                            id: sample
                             required property string modelData
                             level: modelData
                             width: Theme.size.panel.sm / 2
                             height: Theme.size.panel.sm / 4
-                            Label { role: "label"; text: parent.modelData; anchors.centerIn: parent }
+                            Label { role: "label"; text: sample.modelData; anchors.centerIn: parent }
                         }
                     }
                 }
