@@ -2396,6 +2396,22 @@ row "control: a validate without the rule runs the unset prepared row" "$d" 77 "
 test_area=offline
 test_args=()
 
+# No two scratch holders of one run get one path. The rows run side by side
+# and share $$, so a name drawn from RANDOM and made without exclusive
+# creation can go to two of them. The file BASH_ENV names makes RANDOM a
+# plain variable, so every draw in validate and its rows is one number. The
+# control is a copy that draws its name: its run directory is handed the
+# path its changed-paths file holds.
+printf 'unset RANDOM\nRANDOM=7\n' >"$tmp/one-draw"
+d="$tmp/scratch-own-path"; fresh "$d"
+fresh "$d-control"
+plant "$d-control/scripts/validate" '  mktemp "$@" -- "$root/validate-$$-XXXXXXXX"' \
+  '  local path="$root/validate-$$-$RANDOM"; if [[ $# -gt 0 ]]; then mkdir -- "$path"; else : >"$path"; fi && printf "%s\n" "$path"'
+commit "$d-control" drawn-name
+test_area=repo
+row "each scratch holder of one run gets a path of its own" "$d" 0 "BASH_ENV=$tmp/one-draw" "validate: ok"
+row "control: a drawn scratch name goes to two holders" "$d-control" 1 "BASH_ENV=$tmp/one-draw" "validate: run-dir=scratch-failed"
+
 # Rows run side by side. jobs_fixture DIR SCRIPT ROW...: a fixture whose
 # table holds only the ROWs, each a whole quoted table entry, beside
 # scripts/SCRIPT, read from stdin.

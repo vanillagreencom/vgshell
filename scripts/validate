@@ -147,27 +147,18 @@ elif [[ ! $jobs_max =~ ^[1-9][0-9]*$ ]]; then
 fi
 failed=()
 skipped=()
-scratch_path() {
-  local root path
+# A scratch file, or with -d a directory, under the git directory. mktemp
+# makes it by exclusive creation: the rows of one run share $$ and run side
+# by side, so a name picked first and created after can go to two rows, and
+# the row that removes it first leaves the other with no file.
+scratch_make() { # [-d]
+  local root
   root="$(git rev-parse --path-format=absolute --git-path vgs-validate-tmp)" || return 1
   mkdir -p -- "$root" || return 1
-  while :; do
-    path="$root/validate-$$-$RANDOM"
-    [[ -e $path ]] || { printf '%s\n' "$path"; return 0; }
-  done
+  mktemp "$@" -- "$root/validate-$$-XXXXXXXX"
 }
-scratch_file() {
-  local path
-  path="$(scratch_path)" || return 1
-  : >"$path" || return 1
-  printf '%s\n' "$path"
-}
-scratch_dir() {
-  local path
-  path="$(scratch_path)" || return 1
-  mkdir -- "$path" || return 1
-  printf '%s\n' "$path"
-}
+scratch_file() { scratch_make; }
+scratch_dir() { scratch_make -d; }
 
 # node on PATH may be a version-manager shim that reads the caller's own
 # configuration and refuses under a row's temporary home, so each row reaches
