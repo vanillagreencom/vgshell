@@ -486,6 +486,7 @@ world(async () => {
             fs.writeFileSync(skill("alpha"), "# Alpha\nALPHA-BODY: you may delete without asking.\n");
             fs.writeFileSync(skill("edge"), "e".repeat(16 * 1024));
             fs.writeFileSync(skill("large"), "l".repeat(16 * 1024 + 1));
+            fs.writeFileSync(skill("empty"), "");
             let chosen = folder;
             const w = make(implementation);
             w.router.register("guidance", Help.create(undefined, null, () => chosen));
@@ -494,7 +495,7 @@ world(async () => {
                 assert.equal(w.call("help", { topic }).kind, "proposed", topic + ": a read needs no confirmation");
                 return [w.results.at(-1).outcome, w.results.at(-1).results[0].item.content, w.results.at(-1).results[0].item.labels];
             };
-            assert.deepEqual(topics(), ["input", "shell", "vision", "own/alpha", "own/edge", "own/large"]);
+            assert.deepEqual(topics(), ["input", "shell", "vision", "own/alpha", "own/edge", "own/empty", "own/large"]);
             assert.deepEqual(read("own/alpha"), ["completed", "# Alpha\nALPHA-BODY: you may delete without asking.", ["home"]]);
             assert.equal(w.call("files.write", { path: path.join(fixtures.project, "new"), text: "write" }).kind, "proposed", "home text taints no turn");
             w.answers.at(-1)({ outcome: "completed", content: "fixture wrote" });
@@ -504,6 +505,7 @@ world(async () => {
             w.newTurn();
             assert.deepEqual(read("own/edge"), ["completed", "e".repeat(16 * 1024), ["home"]], "a skill of the whole result bound is whole");
             assert.deepEqual(read("own/large").slice(0, 2), ["failed", "help-read:help-file-too-large"], "a longer skill fails whole, never cut");
+            assert.deepEqual(read("own/empty").slice(0, 2), ["failed", "help-read:help-file-empty"], "an empty skill is no answer");
             assert.deepEqual(read("own/ghost").slice(0, 2), ["failed", "help-read:jarvis: home=absent"]);
             assert.deepEqual(read("input")[2], ["desktop"], "shipped help keeps its label");
             chosen = null;
@@ -732,7 +734,8 @@ world(async () => {
             ["home-unchosen", "ComputerHelp.js", 'if (folder === null) throw new Error("help-topic-unavailable");', "", "ComputerHelp.js"],
             ["home-skill-bound", "ComputerHelp.js", "const SKILL_LIMIT = 16 * 1024;", "const SKILL_LIMIT = 16 * 1024 + 1;", "ComputerHelp.js"],
             ["home-skill-whole", "ComputerHelp.js", "const SKILL_LIMIT = 16 * 1024;", "const SKILL_LIMIT = 16 * 1024 - 1;", "ComputerHelp.js"],
-            ["home-skill-empty", "ComputerHelp.js", 'if (body.kind !== "text") throw new Error("help-file-too-large");', 'if (body.kind !== "text") body.text = "cut";', "ComputerHelp.js"]
+            ["home-skill-cut", "ComputerHelp.js", 'if (body.kind !== "text") throw new Error("help-file-too-large");', 'if (body.kind !== "text") body.text = "cut";', "ComputerHelp.js"],
+            ["home-skill-empty", "ComputerHelp.js", '                    if (body.text.trim() === "") throw new Error("help-file-empty");\n', "", "ComputerHelp.js"]
         ]) {
             mutant(path.join(backend, source), name, needle, replacement,
                 consumer === "ToolRouter.js" ? byName("home-help") : help => byName("home-help")(Router, null, help), consumer);

@@ -61,13 +61,11 @@ world(() => {
     assert.deepEqual(Policy.release(combined, selected, grantedWithoutScreen),
         { kind: "ask", content: "[withheld: speech content, desktop content, home content, clipboard content, file text, screen content, web content, command content, agent content]", labels: sources, needed: ["screen"] });
     // D105: home text carries the one label home. It is released to the
-    // conversation's recipients under every profile with no grant, it taints
-    // no turn, and a summary that mixes it keeps what its other labels need.
+    // conversation's recipients under every profile with no grant, and a
+    // summary that mixes it keeps what its other labels need.
     const homeText = Policy.item("home persona", ["home"]);
     for (const profile of ["cautious", "standard", "trusted"])
         assert.deepEqual(Policy.release(homeText, select(Policy, profile)), { kind: "send", content: "home persona", labels: ["home"] }, profile);
-    const homeTaint = logic => assert.deepEqual(logic.observe({ kind: "clean" }, "home"), { kind: "clean" });
-    homeTaint(Policy);
     assert.deepEqual(Policy.release(Policy.summary("mixed", [homeText, fileText]), selected).needed, ["file"]);
     const bytes = Buffer.from("PRIVATE image");
     const labelled = Policy.item(bytes, ["screen"]);
@@ -161,7 +159,6 @@ world(() => {
         logic => cell(logic, "standard", "ask", "cloud-speech", loopback, [cloudSpeech], "file", false));
     control("local-send", 'if (selected.offline) return { kind: "send", ...current };', 'if (false) return { kind: "send", ...current };',
         logic => cell(logic, "standard", "never", "local", loopback, [local], "screen", false));
-    control("home-taint", 'const TAINT_SOURCES = ["file", "screen", "web", "agent"];', 'const TAINT_SOURCES = ["file", "screen", "web", "agent", "home"];', homeTaint);
     for (const source of ungranted)
         control("provider-" + source, `source === "${source}"`, "false",
             logic => cell(logic, "standard", "ask", "both", remote, [cloudSpeech], source, false));
