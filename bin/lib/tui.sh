@@ -318,10 +318,12 @@ vgs_tui_refuse() { # FILE STATUS KEY_LINE SENTENCE...
 }
 
 # stty prints 0 columns for a terminal nobody gave a size, such as a
-# pseudo-terminal a test opens.
+# pseudo-terminal a test opens. Without a terminal the open of /dev/tty
+# fails, and bash reports a redirection it cannot make on the stderr in
+# force then, so stderr is silenced first.
 vgs_tui_columns() {
   local size
-  size="$(stty size </dev/tty 2>/dev/null)" || size=""
+  size="$(stty size 2>/dev/null </dev/tty)" || size=""
   size="${size##* }"
   [[ $size =~ ^[123456789][0123456789]*$ ]] || size=80
   printf '%s\n' "$size"

@@ -95,6 +95,7 @@ check "an error without a theme is ANSI red" test "$(cat "$tmp/err")" == "${esc}
 run 'vgs_tui_header "-Title" "a line"'
 check "a header is one bordered gum style" test "$(cat "$tmp/gum")" == "$(printf '%s\n' style --border normal --padding "1 2" -- -Title "a line")"
 check "a header starts with one blank line" starts_one_blank "$tmp/out"
+check "a header with no terminal writes nothing on stderr" test ! -s "$tmp/err"
 
 # Questions need the terminal; unattended, confirm answers yes and asks nothing.
 rm -f -- "$tmp/gum"
@@ -463,6 +464,9 @@ run 'vgs_tui_header "-Title" "a line"'
 check "the no-header-blank mutant fails the header blank row" test "$(starts_one_blank "$tmp/out" && echo green || echo red)" == red
 control no-header-width '"${width[@]}" -- "$@"' '-- "$@"'
 check "the no-header-width mutant breaks the border at 60 columns" test "$(header_row 60 FILLS && echo green || echo red)" == red
+control columns-loud-without-terminal 'size="$(stty size 2>/dev/null </dev/tty)"' 'size="$(stty size </dev/tty 2>/dev/null)"'
+run 'vgs_tui_header "-Title" "a line"'
+check "the columns-loud-without-terminal mutant fails the quiet header row" test -s "$tmp/err"
 control header-always-fills '(( ${#line} + 6 > columns ))' 'true'
 check "the header-always-fills mutant fails the fitting header row" test "$(header_row 100 FITS && echo green || echo red)" == red
 control no-prompt-blank "_vgs_tui_prompt_gap() { printf '\\n' >&2; }" "_vgs_tui_prompt_gap() { :; }"
