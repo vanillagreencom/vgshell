@@ -549,10 +549,14 @@ cc -Wall -Wextra -Werror "$share_fixture/consume.c" -o "$share_world/consume" $(
 mkdir -p -- "$home/.config/xdg-desktop-portal"
 printf '[preferred]\ndefault=hyprland\n' >"$home/.config/xdg-desktop-portal/portals.conf"
 printf 'screencopy {\n custom_picker_binary = %s\n force_shm = 1\n}\n' "$repo/bin/vgshell-share-picker" >"$home/.config/hypr/xdph.conf"
-share_portal_env=("${shell_env[@]}" PATH="$shell_start_path" XDG_CURRENT_DESKTOP=Hyprland PIPEWIRE_RUNTIME_DIR="$rt_dir" PIPEWIRE_REMOTE=pipewire-0 PIPEWIRE_CONFIG_DIR="$share_fixture")
+# The row's PipeWire has a runtime directory of its own: the device fakes'
+# PipeWire, which an earlier row can leave running, holds $rt_dir/pipewire-0.
+share_pipewire_dir="$rt_dir/share-pipewire"
+mkdir -m 700 -- "$share_pipewire_dir"
+share_portal_env=("${shell_env[@]}" PATH="$shell_start_path" XDG_CURRENT_DESKTOP=Hyprland PIPEWIRE_RUNTIME_DIR="$share_pipewire_dir" PIPEWIRE_REMOTE=pipewire-0 PIPEWIRE_CONFIG_DIR="$share_fixture")
 spawn "$share_world/pipewire.log" "${share_portal_env[@]}" pipewire -c "$share_fixture/pipewire.conf"
 share_pipewire_pid="$spawn_pid"
-share_pipewire_ready() { [[ -S $rt_dir/pipewire-0 ]] && echo ready || echo pending; }
+share_pipewire_ready() { [[ -S $share_pipewire_dir/pipewire-0 && -S $share_pipewire_dir/pipewire-0-manager ]] && echo ready || echo pending; }
 expect_poll "isolated PipeWire owns its socket" ready share_pipewire_ready
 spawn "$share_world/permission-store.log" "${share_portal_env[@]}" /usr/lib/xdg-permission-store
 share_permissions_pid="$spawn_pid"
@@ -570,11 +574,35 @@ share_app_start() {
   share_app_pid="$spawn_pid"
 }
 # Isolated PipeWire has no device discovery. These are the portal's video
-# source nodes, not Hyprland's retained managed screenshare sessions.
-share_stream_count() { "${share_portal_env[@]}" pw-dump | py_reply 'import json,sys; rows=json.load(sys.stdin); print(sum(r.get("type")=="PipeWire:Interface:Node" and (r.get("info") or {}).get("props",{}).get("media.class")=="Video/Source" for r in rows))'; }
+# source nodes, not Hyprland's retained managed screenshare sessions. Each
+# pw-dump has share_dump_secs to answer; one that does not fails the check
+# it serves at once, so the poll ends within its bound.
+share_dump_secs=5
+share_stream_count() {
+  local dump status=0
+  dump="$("${share_portal_env[@]}" timeout -k 1 "$share_dump_secs" pw-dump)" || status=$?
+  case $status in
+    0) py_reply 'import json,sys; rows=json.load(sys.stdin); print(sum(r.get("type")=="PipeWire:Interface:Node" and (r.get("info") or {}).get("props",{}).get("media.class")=="Video/Source" for r in rows))' <<<"$dump" ;;
+    124|137) echo "pw-dump=no-answer secs=$share_dump_secs"; return 1 ;;
+    *) echo "pw-dump=failed status=$status"; return 1 ;;
+  esac
+}
+# share_stream_poll LABEL WANT: as expect_poll over share_stream_count, but
+# a pw-dump that fails or gives no answer fails LABEL at once. The last
+# reading is left in share_stream_last.
+share_stream_last=""
+share_stream_poll() { # LABEL WANT
+  smoke_poll_tries 200
+  for _ in $(seq 1 "$smoke_poll_n"); do
+    if ! share_stream_last="$(share_stream_count)"; then fail "$1: $share_stream_last"; return 0; fi
+    if [[ $share_stream_last == "$2" ]]; then ok "$1"; return 0; fi
+    sleep 0.2
+  done
+  fail "$1: got $share_stream_last want $2"
+}
 share_stream_released() {
-  expect_poll "$1: the portal releases its video-source nodes" 0 share_stream_count
-  printf 'portal-lifetime: case=%s videoSourceNodes=%s\n' "$1" "$(share_stream_count)"
+  share_stream_poll "$1: the portal releases its video-source nodes" 0
+  printf 'portal-lifetime: case=%s videoSourceNodes=%s\n' "$1" "$share_stream_last"
 }
 share_app_source() { python3 - "$share_world/app-$1.json" "$2" "$3" "$4" <<'PY'
 import json,pathlib,sys
@@ -641,7 +669,7 @@ if [[ $(share_has_token) == True ]]; then
   expect_poll "the app reuses the remembered screen" complete share_app_phase restore
   share_picker_count() { hypr -j clients | py_reply 'import json,sys; print(sum(c["mapped"] and c["title"]=="Capture" for c in json.load(sys.stdin)))'; }
   expect "the remembered source opens no picker" 0 share_picker_count
-  expect_poll "the remembered share releases its portal video source" 0 share_stream_count
+  share_stream_poll "the remembered share releases its portal video source" 0
 fi
 # A held application keeps the real portal session open after its frame.
 # The same zero-count reading must detect this planted lifetime defect.
@@ -649,10 +677,25 @@ share_app_start quit --hold
 expect_poll "the quit test opens a fresh picker" True share_new_request "$share_previous"
 share_click Button Share
 expect_poll "the application holds its screen-share session" sharing share_app_phase quit
-expect_poll "control: an open portal session retains its video source" 1 share_stream_count
+share_stream_poll "control: an open portal session retains its video source" 1
 share_held_stream_control() { (failures=0 behaviour_failures=0; share_stream_released held-app >"$share_world/held-stream-control.log"; echo "$failures"); }
 expect "control: the held app fails the same video-source release check" 1 share_held_stream_control
 sed 's/^/  CONTROL  /' "$share_world/held-stream-control.log"
+# A planted pw-dump that never answers fails the same check by name, within
+# one pw-dump bound and a second for the kill.
+mkdir -p -- "$share_world/hung-bin"
+printf '#!/bin/sh\nexec sleep 600\n' >"$share_world/hung-bin/pw-dump"
+chmod +x -- "$share_world/hung-bin/pw-dump"
+share_hung_dump_control() {
+  (failures=0 behaviour_failures=0 share_start=$SECONDS share_named=False share_bounded=False
+  share_portal_env+=(PATH="$share_world/hung-bin:$shell_start_path")
+  share_stream_released hung-dump >"$share_world/hung-dump-control.log"
+  ! grep -q -F -- "FAIL  hung-dump: the portal releases its video-source nodes: pw-dump=no-answer" "$share_world/hung-dump-control.log" || share_named=True
+  ((SECONDS - share_start > share_dump_secs + 2)) || share_bounded=True
+  echo "failures=$failures named=$share_named bounded=$share_bounded")
+}
+expect "control: a pw-dump that never answers fails the release check within its bound" "failures=1 named=True bounded=True" share_hung_dump_control
+sed 's/^/  CONTROL  /' "$share_world/hung-dump-control.log"
 share_owner_released selected-before-app-quit
 kill -TERM -- -"$share_app_pid"
 wait "$share_app_pid" 2>/dev/null || true
