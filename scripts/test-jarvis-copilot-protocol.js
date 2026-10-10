@@ -25,8 +25,6 @@ function line(value) { return JSON.stringify({ jsonrpc: "2.0", ...value }); }
 
 world(() => {
     const Copilot = require(file);
-    const bridge = { command: "/usr/bin/node", args: ["/plugin/backend/mcp-shim"],
-        env: { VGS_JARVIS_TOOLS_SOCKET: "/run/vgs/jarvis/tools.sock", VGS_JARVIS_TOOLS_TOKEN: "f".repeat(64) } };
     const cwd = "/run/vgs/jarvis/acp-cwd";
 
     function builders(logic) {
@@ -35,15 +33,10 @@ world(() => {
         valid(PARAMS.initialize, init.params, "initialize");
         assert.deepEqual(init.params, { protocolVersion: 1, clientCapabilities: { fs: { readTextFile: false, writeTextFile: false },
             terminal: false }, clientInfo: { name: "vgs-jarvis", title: "VGS Jarvis", version: "1" } });
-        const open = logic.sessionNew(2, { cwd, bridge });
+        const open = logic.sessionNew(2, { cwd });
         valid("JSONRPCRequest", open, "session/new");
         valid(PARAMS["session/new"], open.params, "session/new");
-        assert.deepEqual(open.params, { cwd, mcpServers: [{ name: "vgs_jarvis", command: bridge.command, args: bridge.args,
-            env: [{ name: "VGS_JARVIS_TOOLS_SOCKET", value: bridge.env.VGS_JARVIS_TOOLS_SOCKET },
-                { name: "VGS_JARVIS_TOOLS_TOKEN", value: bridge.env.VGS_JARVIS_TOOLS_TOKEN }] }] });
-        const bare = logic.sessionNew(3, { cwd, bridge: null });
-        valid(PARAMS["session/new"], bare.params, "session/new without tools");
-        assert.deepEqual(bare.params.mcpServers, [], "a probe session has no MCP server");
+        assert.deepEqual(open.params, { cwd, mcpServers: [] }, "Copilot drops a stdio server sent here");
         const prompt = logic.prompt(4, "s", ["Be brief.", "hello"]);
         valid("JSONRPCRequest", prompt, "session/prompt");
         valid(PARAMS["session/prompt"], prompt.params, "session/prompt");
@@ -192,8 +185,7 @@ world(() => {
     for (const [name, needle, replacement] of [
         ["fs-capability", "fs: { readTextFile: false, writeTextFile: false }", "fs: { readTextFile: true, writeTextFile: false }"],
         ["terminal-capability", "}, terminal: false }, clientInfo", "}, terminal: true }, clientInfo"],
-        ["bridge-env", "env: Object.entries(bridge.env).map(([name, value]) => ({ name, value }))", "env: []"],
-        ["server-name", 'const SERVER = "vgs_jarvis";', 'const SERVER = "jarvis";'],
+        ["session-servers", '{ cwd, mcpServers: [] }', '{ cwd, mcpServers: [{ name: SERVER }] }'],
         ["protocol-version", "result.protocolVersion !== VERSION", "false"],
         ["agent-name", "info.name !== row.agent || ", ""],
         ["version-floor", 'if (part < floor[i]) fail("agent-version");', ""],

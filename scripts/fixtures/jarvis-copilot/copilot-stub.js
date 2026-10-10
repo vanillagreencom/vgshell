@@ -10,12 +10,14 @@
 //     refuse: method (answered with a JSON-RPC error), reply: "text" (Verify),
 //     turns: [[step, ...], ...] }
 // A step is {update} (one session/update), {request, params} (waits for the
-// answer), {mcp: {tool, arguments}} (a tools/call through the session's
-// bridge server, tools/list first), {cancel: true} (waits for session/cancel)
+// answer), {mcp: {tool, arguments}} (a tools/call through the bridge server
+// of the --additional-mcp-config file, tools/list first), {cancel: true} (waits for session/cancel)
 // or {stop: reason}, which answers the prompt. "$SESSION" and "$CWD" are
 // substituted. Every message is appended to $XDG_STATE_HOME/copilot-log as
 // {direction, message}, with the count of Jarvis's audit lines when a prompt
-// arrives; argv, environment and cwd to copilot-calls.
+// arrives; argv, environment, cwd and the config file with its mode to
+// copilot-calls. As Copilot 1.0.91 does (its log: `Rejecting non-http/sse MCP
+// server "vgs_jarvis" from client`), a stdio server in session/new is dropped.
 "use strict";
 const fs = require("node:fs");
 const path = require("node:path");
@@ -32,14 +34,18 @@ if (process.env[DEATHSIG] === undefined)
         "os.execv(sys.argv[1], sys.argv[1:])"].join("\n"), process.execPath, __filename, ...args]);
 const deathsig = Number(process.env[DEATHSIG]);
 delete process.env[DEATHSIG];
-fs.appendFileSync(path.join(state, "copilot-calls"), JSON.stringify({ args, env: process.env, cwd: process.cwd(), pid: process.pid, parent: process.ppid, deathsig }) + "\n");
+const configAt = args.indexOf("--additional-mcp-config");
+const configFile = configAt < 0 ? null : args[configAt + 1].replace(/^@/, "");
+const config = configFile === null ? null : { body: JSON.parse(fs.readFileSync(configFile, "utf8")), mode: fs.statSync(configFile).mode & 0o777 };
+fs.appendFileSync(path.join(state, "copilot-calls"), JSON.stringify({ args, env: process.env, cwd: process.cwd(), pid: process.pid, parent: process.ppid, deathsig, config }) + "\n");
 if (args[0] !== "--acp") process.exit(9);
 const scenario = JSON.parse(fs.readFileSync(path.join(state, "copilot-scenario.json"), "utf8"));
 const recorded = fs.readFileSync(path.join(state, "copilot-recorded.ndjson"), "utf8").trim().split("\n").map(line => JSON.parse(line));
 const log = (direction, message) => fs.appendFileSync(path.join(state, "copilot-log"), JSON.stringify({ direction, message }) + "\n");
 const keepalive = () => setInterval(() => {}, 1000);
 const SESSION = "6f1c0a52-3c1e-4d7a-9a0e-5b8f2f1d7c11";
-let cwd = null, servers = [], prompts = 0, agentId = 0;
+const servers = Object.entries(config?.body.mcpServers ?? {}).map(([name, server]) => ({ name, ...server }));
+let cwd = null, prompts = 0, agentId = 0;
 const answers = new Map();
 // A cancel can arrive before the turn reaches its cancel step.
 let cancelled = null, cancelSeen = false;
@@ -63,11 +69,11 @@ function ask(method, params) {
     return new Promise(resolve => { answers.set(id, resolve); write({ jsonrpc: "2.0", id, method, params }); });
 }
 
-// A minimal MCP client of the session's bridge server, as the agent starts it.
+// A minimal MCP client of the configured bridge server, as the agent starts it.
 async function mcp(call) {
-    const server = servers.find(entry => entry.name === "vgs_jarvis");
-    const env = Object.fromEntries(server.env.map(entry => [entry.name, entry.value]));
-    const child = cp.spawn(server.command, server.args, { env: { ...process.env, ...env }, stdio: ["pipe", "pipe", "inherit"] });
+    const server = servers.find(entry => entry.name === "vgs_jarvis" && entry.type === "stdio");
+    if (server === undefined) { log("mcp", { tools: null, result: null }); return; }
+    const child = cp.spawn(server.command, server.args, { env: { ...process.env, ...server.env }, stdio: ["pipe", "pipe", "inherit"] });
     let tail = "";
     const waiting = new Map();
     child.stdout.setEncoding("utf8");
@@ -142,7 +148,7 @@ function handle(message) {
             return;
         }
         cwd = message.params.cwd;
-        servers = message.params.mcpServers;
+        for (const server of message.params.mcpServers) if (server.type !== "http" && server.type !== "sse") log("rejected", { server: server.name });
         respond({ sessionId: SESSION });
         return;
     case "session/prompt": {

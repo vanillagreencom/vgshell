@@ -24,8 +24,6 @@ function string(value) { return typeof value === "string"; }
 function absent(value) { return value === undefined || value === null; }
 function validId(id) { return string(id) || Number.isSafeInteger(id); }
 
-/** @typedef {{command: string, args: readonly string[], env: Readonly<Record<string, string>>}} Launch */
-
 function request(id, method, params) { return { jsonrpc: "2.0", id, method, params }; }
 
 /**
@@ -38,15 +36,14 @@ function initialize(id) {
 }
 
 /**
- * The conversation's session. bridge is the tool bridge's launch contract, or
- * null for a session with no tools. Its token travels only here, on the
- * agent's stdin, never in argv.
- * @param {{cwd: string, bridge: Launch|null}} value
+ * The conversation's session, with no MCP server. Copilot 1.0.91 advertises
+ * mcpCapabilities {http, sse} and drops a stdio server sent here, logging
+ * `Rejecting non-http/sse MCP server "vgs_jarvis" from client`; the bridge
+ * reaches it through CopilotHarness's private config file instead.
+ * @param {{cwd: string}} value
  */
-function sessionNew(id, { cwd, bridge }) {
-    const servers = bridge === null ? [] : [{ name: SERVER, command: bridge.command, args: [...bridge.args],
-        env: Object.entries(bridge.env).map(([name, value]) => ({ name, value })) }];
-    return request(id, "session/new", { cwd, mcpServers: servers });
+function sessionNew(id, { cwd }) {
+    return request(id, "session/new", { cwd, mcpServers: [] });
 }
 
 /** One user turn: each string is one text block, in order. */
@@ -240,5 +237,11 @@ function proposal(value, announced, cwd) {
     }
 }
 
+/**
+ * Whether a narrowed call is one of the bridge's: Copilot 1.0.91 titles an MCP
+ * call `<server>-<tool>`, as in `vgs_jarvis-files_list`.
+ */
+function bridged(call) { return string(call.title) && call.title.startsWith(SERVER + "-"); }
+
 module.exports = { LINE_BYTES, SERVER, initialize, sessionNew, prompt, cancel, answer, agent, sessionId, stopReason,
-    accept, proposal };
+    accept, proposal, bridged };

@@ -14,15 +14,16 @@ const Copilot = require("./CopilotAcp.js");
 const Harness = require("./HarnessProgram.js");
 const Policy = require("./Policy.js");
 const Private = require("./Private.js");
+const ToolBridge = require("./ToolBridge.js");
 
-// Copilot 1.0.91 documents ACP over stdio. Its shipped changelog.json says
-// `server/tool` and `server/*` filters match MCP tool names with slashes;
-// copilot-sdk/types.d.ts and toolSet.d.ts say availableTools is
-// source-qualified and makes only matching tools available; GitHub's page
+// Copilot 1.0.91 documents ACP over stdio. GitHub's page
 // https://docs.github.com/en/copilot/how-tos/copilot-cli/use-copilot-cli/allowing-tools
 // says --available-tools disables every other tool and wins over
-// --excluded-tools. The bridge uses vgs_jarvis/*, so a wrong filter form hides
-// the bridge and fails closed before a turn can act.
+// --excluded-tools. A recorded 1.0.91 ACP turn (VGS-1242) with the bridge and
+// a second server loaded from --additional-mcp-config offered only
+// vgs_jarvis-help under vgs_jarvis/* and listed the other server's tool as
+// disabled; the SDK's source-qualified mcp:vgs_jarvis-* is refused by the
+// flag. A wrong filter form hides the bridge and fails closed.
 const COPILOT = Object.freeze({ command: "copilot", variable: "COPILOT_HOME", agent: "Copilot", floor: "1.0.60",
     args: Object.freeze(["--acp", "--stdio", "--no-auto-update", "--no-custom-instructions", "--no-ask-user",
         "--disable-builtin-mcps", "--disallow-temp-dir",
@@ -39,8 +40,10 @@ const HANDSHAKE_MS = 30000;
 const PROBE_MS = 60000;
 const PROBE_INSTRUCTIONS = "Answer in one word.";
 // Tool kinds that name a built-in operation on the machine or the network.
-// A call of one of them that runs must have asked the gate first. An MCP
-// call reports "other"; a server other than the bridge asks too.
+// A call of one of them that runs must have asked the gate first. Copilot
+// 1.0.91 also gives a bridge call with a path argument kind "read" (recorded
+// for vgs_jarvis-files_list); the router gates bridge calls, so they pass.
+// A server other than the bridge asks.
 const BUILTIN = Object.freeze(["read", "edit", "delete", "move", "search", "execute", "fetch", "switch_mode"]);
 const RAN = Object.freeze(["in_progress", "completed", "failed"]);
 
@@ -48,8 +51,9 @@ function fail(code) { throw new Error("jarvis: brain=copilot-" + code); }
 
 // The program under the shared harness shape, with its account directory
 // and an empty providers file so no custom provider replaces Copilot's own.
-function program({ program: p, directory, env, cwd, model }, listener) {
-    return Harness.program({ name: "copilot", argv: [p.command, ...p.args, ...(model === "" ? [] : ["--model", model])],
+function program({ program: p, directory, env, cwd, model, config }, listener) {
+    return Harness.program({ name: "copilot", argv: [p.command, ...p.args,
+        ...(config === null ? [] : ["--additional-mcp-config", "@" + config]), ...(model === "" ? [] : ["--model", model])],
         env, extra: { [p.variable]: directory, COPILOT_PROVIDERS_CONFIG: path.join(cwd, "no-providers", "providers.json") },
         cwd, accept: Copilot.accept, lineBytes: Copilot.LINE_BYTES,
         // ACP's auth_required: the program is not signed in, and Jarvis never signs it in.
@@ -65,8 +69,12 @@ function program({ program: p, directory, env, cwd, model }, listener) {
 async function open({ program: p, directory, env, runtime, model, bridge }, hooks) {
     Private.directory(runtime);
     const cwd = fs.mkdtempSync(path.join(runtime, "copilot-"));
+    // Copilot drops a stdio server sent in session/new (CopilotAcp.sessionNew),
+    // so the bridge goes in a config file.
+    const config = bridge === null ? null : path.join(cwd, "mcp.json");
+    if (config !== null) ToolBridge.config(config, Copilot.SERVER, bridge);
     let session = null;
-    const child = program({ program: p, directory, env, cwd, model }, value => {
+    const child = program({ program: p, directory, env, cwd, model, config }, value => {
         if (value.kind === "notification") hooks.event(value.event);
         // Before the session exists a request is answered on the bare program.
         else if (value.kind === "request") hooks.request(value.id, value.request, session ?? { program: child, id: null, cwd });
@@ -76,7 +84,7 @@ async function open({ program: p, directory, env, runtime, model, bridge }, hook
     const timer = setTimeout(() => child.close(), HANDSHAKE_MS);
     try {
         Copilot.agent(await child.call(id => Copilot.initialize(id)), p);
-        const id = Copilot.sessionId(await child.call(n => Copilot.sessionNew(n, { cwd, bridge })));
+        const id = Copilot.sessionId(await child.call(n => Copilot.sessionNew(n, { cwd })));
         session = { program: child, id, cwd };
         return session;
     } catch (error) {
@@ -149,7 +157,7 @@ function create({ provider, model, recipients, account, gen, harness }) {
         const merged = { ...announced, ...Object.fromEntries(Object.entries(call).filter(([, v]) => v !== null)) };
         turn.calls.set(call.id, merged);
         // An agent announces a call as pending before it asks; it runs once it reports progress.
-        if (!BUILTIN.includes(merged.kind) || turn.asked.has(call.id) || !RAN.includes(merged.status)) return;
+        if (!BUILTIN.includes(merged.kind) || Copilot.bridged(merged) || turn.asked.has(call.id) || !RAN.includes(merged.status)) return;
         const error = new Error("jarvis: brain=copilot-builtin kind=" + merged.kind);
         ended ??= error;
         session.program.abort(error);

@@ -264,4 +264,15 @@ function create({ router, state, audit, directory, release, clock = { set: setTi
     });
 }
 
-module.exports = { create };
+/**
+ * Write a harness's MCP config file naming launch as its one stdio server
+ * under name, or no server for a null launch. The file is private (0600) and
+ * newly created, so the token rides in it and never in argv.
+ */
+function config(file, name, launch) {
+    const servers = launch === null ? {} : { [name]: { type: "stdio", command: launch.command,
+        args: [...launch.args], env: { ...launch.env } } };
+    fs.writeFileSync(file, JSON.stringify({ mcpServers: servers }), { mode: 0o600, flag: "wx" });
+}
+
+module.exports = { create, config };

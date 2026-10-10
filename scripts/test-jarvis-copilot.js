@@ -196,7 +196,8 @@ world(async () => {
 
     const CASES = {
         // The lockdown argv, the scrubbed environment, the bridge as the only
-        // MCP server and the instructions leading the first prompt only.
+        // configured MCP server in a private file, none in session/new, and
+        // the instructions leading the first prompt only.
         async turn(folder) {
             scenario({ turns: [[chunk("Hel"), chunk("lo."), { stop: "end_turn" }], [chunk("Again."), { stop: "end_turn" }]] });
             const w = make(folder);
@@ -206,7 +207,8 @@ world(async () => {
                 "only the bridge tool namespace is visible");
             assert.equal(call.args.includes("--excluded-tools"), false, "deny lists are not used with the allow-list");
             assert.deepEqual(call.args.slice(call.args.indexOf("--deny-tool") + 1, call.args.indexOf("--allow-tool")), DENIED);
-            assert.deepEqual(call.args.slice(call.args.indexOf("--allow-tool")), ["--allow-tool", "vgs_jarvis"], "only the bridge runs unprompted");
+            const configAt = call.args.indexOf("--additional-mcp-config");
+            assert.deepEqual(call.args.slice(call.args.indexOf("--allow-tool"), configAt), ["--allow-tool", "vgs_jarvis"], "only the bridge runs unprompted");
             for (const flag of ["--acp", "--stdio", "--no-custom-instructions", "--disable-builtin-mcps", "--disallow-temp-dir", "--no-ask-user", "--no-auto-update"])
                 assert.ok(call.args.includes(flag), flag);
             assert.equal(call.args.some(arg => /allow-all|yolo|autopilot/.test(arg)), false, "no standing grant");
@@ -221,10 +223,15 @@ world(async () => {
             assert.equal(path.dirname(call.cwd), w.runtime, "a private working directory");
             const [open] = received("session/new");
             assert.equal(open.params.cwd, call.cwd);
-            assert.deepEqual(open.params.mcpServers.map(server => server.name), ["vgs_jarvis"]);
-            const token = open.params.mcpServers[0].env.find(entry => entry.name === "VGS_JARVIS_TOOLS_TOKEN").value;
+            assert.deepEqual(open.params.mcpServers, [], "Copilot drops a stdio server sent in session/new");
+            assert.deepEqual(Object.keys(call.config.body.mcpServers), ["vgs_jarvis"]);
+            const server = call.config.body.mcpServers.vgs_jarvis;
+            assert.equal(server.type, "stdio");
+            const token = server.env.VGS_JARVIS_TOOLS_TOKEN;
             assert.match(token, /^[0-9a-f]{64}$/);
             assert.equal(JSON.stringify(call.args).includes(token), false, "the token stays out of argv");
+            assert.equal(call.config.mode, 0o600, "the config file is private");
+            assert.deepEqual(call.args.slice(configAt, configAt + 2), ["--additional-mcp-config", "@" + path.join(call.cwd, "mcp.json")]);
             assert.deepEqual(await drain(w.say("more")), [{ kind: "text", text: "Again." }, { kind: "done", reason: "stop" }]);
             assert.deepEqual(received("session/prompt").map(m => m.params.prompt.map(block => block.text)),
                 [["Be brief.", "hi"], ["more"]], "instructions lead the first prompt alone");
@@ -311,10 +318,13 @@ world(async () => {
             assert.deepEqual(outcomes("session/request_permission"), [1, 2].map(() => ({ outcome: "selected", optionId: "reject-once" })));
             assert.deepEqual(w.rows().filter(row => row.kind === "action"), []);
         },
-        // The bridge's own tool calls run through the real shim and router;
-        // a file system or terminal request is refused, as none was offered.
+        // The bridge's own tool calls run through the real shim and router,
+        // reported as Copilot 1.0.91 reports a bridge call with a path
+        // argument (kind read); a file system or terminal request is refused,
+        // as none was offered.
         async bridge(folder) {
-            scenario({ turns: [[announce("other", { title: "windows_list" }), { mcp: { tool: "windows_list", arguments: {} } },
+            scenario({ turns: [[announce("read", { title: "vgs_jarvis-windows_list", locations: [{ path: existing }] }),
+                { mcp: { tool: "windows_list", arguments: {} } }, progress("in_progress"),
                 { request: "fs/read_text_file", params: { sessionId: "$SESSION", path: existing } },
                 { request: "terminal/create", params: { sessionId: "$SESSION", command: "sh" } },
                 progress("completed"), { stop: "end_turn" }]] });
@@ -346,6 +356,12 @@ world(async () => {
                 assert.deepEqual(w.rows().filter(row => row.kind === "action"), []);
                 for (const owner of owners.splice(0)) owner();
             }
+        },
+        // Another server whose name only starts with the bridge's is not the bridge.
+        async foreignTitle(folder) {
+            scenario({ turns: [[announce("read", { title: "vgs_jarvisx-files_list" }), progress("completed"), { stop: "end_turn" }]] });
+            const w = make(folder);
+            await assert.rejects(drain(w.say("read")), { message: "jarvis: brain=copilot-builtin kind=read" });
         },
         // The program's handshake must name the agent at its floor, signed in.
         async handshake(folder) {
@@ -528,7 +544,7 @@ world(async () => {
             const probe = () => Harness.probe({ provider: "copilot", directory: account, env, runtime, model: "", text: "Reply OK." });
             scenario({ reply: "OK" });
             assert.equal(await probe(), "OK");
-            assert.deepEqual(received("session/new")[0].params.mcpServers, [], "a probe session has no tools");
+            assert.deepEqual([program().config, program().args.includes("--additional-mcp-config")], [null, false], "a probe session has no tools");
             assert.deepEqual(fs.readdirSync(runtime), []);
             scenario({ reply: " " });
             await assert.rejects(probe(), { message: "jarvis: brain=copilot-no-reply" });
@@ -593,6 +609,14 @@ world(async () => {
             ["environment-scrub", S, [["env: { ...childEnvironment(env), ...extra }", "env: { ...env, ...extra }"]], "turn"],
             ["account-home", H, [["[p.variable]: directory", "[p.variable]: env.HOME"]], "turn"],
             ["available-tools", H, [['"--available-tools", Copilot.SERVER + "/*",', ""]], "turn"],
+            ["bridge-config", H, [['...(config === null ? [] : ["--additional-mcp-config", "@" + config]), ', ""]], "bridge"],
+            // The bridge sent in session/new: Copilot drops it, so no bridge call arrives.
+            ["bridge-session-new", H, [['const config = bridge === null ? null : path.join(cwd, "mcp.json");', "const config = null;"],
+                ["Copilot.sessionNew(n, { cwd })", "({ ...Copilot.sessionNew(n, { cwd }), params: { cwd, mcpServers: [{ name: Copilot.SERVER, "
+                    + "command: bridge.command, args: [...bridge.args], env: Object.entries(bridge.env).map(([name, value]) => ({ name, value })) }] } })"]], "bridge"],
+            ["token-argv", H, [['path.join(cwd, "mcp.json");', 'path.join(cwd, "mcp.json#" + bridge.env.VGS_JARVIS_TOOLS_TOKEN);']], "turn"],
+            ["server-name", "backend/CopilotAcp.js", [['const SERVER = "vgs_jarvis";', 'const SERVER = "jarvis";']], "turn"],
+            ["config-mode", "backend/ToolBridge.js", [["{ mode: 0o600, flag: \"wx\" });", "{ mode: 0o600, flag: \"wx\" }); fs.chmodSync(file, 0o644);"]], "turn"],
             ["providers-config", H, [[', COPILOT_PROVIDERS_CONFIG: path.join(cwd, "no-providers", "providers.json")', ""]], "turn"],
             ["parent-death", S, [['"--pdeathsig", "KILL"', '"--pdeathsig", "clear"']], "turn"],
             ["denied-kind", H, [['"--deny-tool", "shell", "write", "read",', '"--deny-tool", "shell", "write",']], "turn"],
@@ -616,7 +640,9 @@ world(async () => {
             ["gate-routing", H, [["gate.ask(gen, Copilot.proposal(", "({ ask: (gen, proposal, port) => port.accept() }).ask(gen, Copilot.proposal("]], "allowed"],
             ["session-binding", H, [[" || value.sessionId !== current.id || value.allow === null)", " || value.allow === null)"]], "stale"],
             ["allow-option", H, [[" || value.allow === null)", ")"]], "stale"],
-            ["builtin-tripwire", H, [["if (!BUILTIN.includes(merged.kind) || turn.asked.has(call.id) || !RAN.includes(merged.status)) return;", "return;"]], "builtin"],
+            ["builtin-tripwire", H, [["if (!BUILTIN.includes(merged.kind) || Copilot.bridged(merged) || turn.asked.has(call.id) || !RAN.includes(merged.status)) return;", "return;"]], "builtin"],
+            ["bridge-call", H, [["|| Copilot.bridged(merged) ", ""]], "bridge"],
+            ["bridge-title", "backend/CopilotAcp.js", [['call.title.startsWith(SERVER + "-")', "call.title.startsWith(SERVER)"]], "foreignTitle"],
             ["builtin-kind", H, [['"execute", ', ""]], "builtin"],
             ["builtin-asked", H, [["turn.asked.has(call.id) || !RAN", "!RAN"]], "refused"],
             ["builtin-pending", H, [[" || !RAN.includes(merged.status)) return;", ") return;"]], "allowed"],

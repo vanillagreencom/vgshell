@@ -11,6 +11,7 @@ const path = require("node:path");
 const { StringDecoder } = require("node:string_decoder");
 const Policy = require("./Policy.js");
 const Private = require("./Private.js");
+const ToolBridge = require("./ToolBridge.js");
 const Tools = require("./Tools.js");
 
 const COMMAND = "claude";
@@ -256,11 +257,8 @@ function conversation({ directory, model, recipients, bridge, gen, parent, envir
         if (context.offered.size !== 0) launch = await bridge.open({ gen, recipients, tools: context.tools });
         // close() ran while the session opened; it could not close it then.
         if (closing !== null) { launch?.close(); fail("closed"); }
-        // The token stays out of argv: the config is a private file.
-        const servers = launch === null ? {} : { [SERVER]: { type: "stdio", command: launch.command,
-            args: [...launch.args], env: { ...launch.env } } };
         const config = path.join(workdir, "mcp.json");
-        fs.writeFileSync(config, JSON.stringify({ mcpServers: servers }), { mode: 0o600, flag: "wx" });
+        ToolBridge.config(config, SERVER, launch);
         // setpriv execs the program under the spawned pid: the group signals
         // still reach it, and a daemon that dies outright takes it along.
         const child = cp.spawn("setpriv", ["--pdeathsig", "KILL", "--", COMMAND,
