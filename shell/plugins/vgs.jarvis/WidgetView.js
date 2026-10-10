@@ -108,13 +108,15 @@ function report(name, value, tones) {
 
 // KEYS, shell.shortcut.keys or null, as people read each key a tooltip
 // names; CAPS is KeyNavLogic.keyCaps, which the callers' qs.Ui import holds.
-// An undeclared name stays undefined, which shortcutKeys refuses.
+// A name absent from the map is no key in effect: the nested smoke
+// (jarvis-bubble row, 2026-10-10) read an empty map while the plugin is
+// enabled or disabled, before the registry holds its binds.
 function spelledKeys(keys, caps) {
     var out = {};
     var names = ["talk", "mute", "stop", "confirm"];
     for (var i = 0; i < names.length; i++) {
         var key = keys === null ? null : keys[names[i]];
-        out[names[i]] = key === null || key === undefined ? key : caps(key).join("+");
+        out[names[i]] = key === null || key === undefined ? null : caps(key).join("+");
     }
     return out;
 }
