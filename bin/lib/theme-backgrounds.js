@@ -21,7 +21,7 @@
 "use strict";
 const fs = require("fs");
 const path = require("path");
-const { refuse, readJson, writing, replaceFile } = require(path.join(__dirname, "judge-files.js"));
+const { refuse, readJson, writing, replaceFile, linkByRename } = require(path.join(__dirname, "judge-files.js"));
 
 const DIR = "backgrounds";
 const STATE_FILE = "backgrounds.json";
@@ -223,16 +223,7 @@ function land(stateDir, after, before, key) {
             fs.rmSync(link, { force: true });
             return;
         }
-        if (named === current) return;
-        const tmp = link + ".vgshell-" + process.pid;
-        fs.rmSync(tmp, { force: true });
-        fs.symlinkSync(current, tmp);
-        try {
-            fs.renameSync(tmp, link);
-        } catch (e) {
-            fs.rmSync(tmp, { force: true });
-            throw e;
-        }
+        if (named !== current) linkByRename(current, link);
     });
     const doc = JSON.stringify(document(after));
     if (doc !== JSON.stringify(document(before))) {

@@ -138,6 +138,22 @@ function replaceFile(file, data, key, mode, current) {
     if (changed) refuseChanged(file, key);
 }
 
+// Make LINK a symlink naming TO by renaming one made beside it over it, so
+// a reader never finds LINK absent. The rename replaces a file or symlink
+// at LINK and fails on a directory, which stays. Throws the fs error, for
+// the caller's `writing`, and leaves no sibling behind.
+function linkByRename(to, link) {
+    const tmp = link + ".vgshell-" + process.pid;
+    fs.rmSync(tmp, { force: true });
+    fs.symlinkSync(to, tmp);
+    try {
+        fs.renameSync(tmp, link);
+    } catch (e) {
+        fs.rmSync(tmp, { force: true });
+        throw e;
+    }
+}
+
 // Whether FILE holds exactly the bytes BYTES; an absent file holds none.
 function holds(file, bytes) {
     try {
@@ -286,4 +302,4 @@ function shellWord(word) {
     return "'" + word.replace(/'/g, "'\\''") + "'";
 }
 
-module.exports = { Refusal, refuse, main, readJson, readConfig, writing, replaceFile, lockFile, editFile, commandFile, onPath, refuseOutsideTerminal, shellWord };
+module.exports = { Refusal, refuse, main, readJson, readConfig, writing, replaceFile, linkByRename, lockFile, editFile, commandFile, onPath, refuseOutsideTerminal, shellWord };

@@ -33,9 +33,9 @@
 //       whose reload is due runs its hook last.
 //   vgshell-theme-judge follow <text|json> <config-dir> <state-dir> <held|busy|failed> [<name>]
 //       apply again the package <state-dir>/applied.json records when its
-//       content or the user's terminal font changed and the theme file
-//       still holds the bytes that apply wrote, under the same lock
-//       verdict; with NAME, only when the record names that package.
+//       content or the user's terminal font changed, over whatever the
+//       theme file holds, under the same lock verdict; with NAME, only when
+//       the record names that package.
 //   vgshell-theme-judge reload <text|json> <config-dir> <state-dir> <held|busy|failed>
 //       run the hook of every target <state-dir>/reload-pending.json lists
 //       again, under the same lock verdict.
@@ -166,7 +166,7 @@ const tokens = load(path.join(repo, "shell", "Commons", "Tokens.js")).TOKENS;
 const pluginLogic = load(path.join(repo, "shell", "Core", "PluginLogic.js"));
 const accountRule = load(path.join(repo, "shell", "Commons", "AccountDirectories.js"));
 const { spawnSync } = require("child_process");
-const { Refusal, refuse, main, readJson, readConfig, writing, replaceFile, editFile, onPath } = require(path.join(__dirname, "lib", "judge-files.js"));
+const { Refusal, refuse, main, readJson, readConfig, writing, replaceFile, linkByRename, editFile, onPath } = require(path.join(__dirname, "lib", "judge-files.js"));
 const render = require(path.join(__dirname, "lib", "theme-render.js"));
 const backgrounds = require(path.join(__dirname, "lib", "theme-backgrounds.js"));
 const select = require(path.join(__dirname, "lib", "theme-select.js"));
@@ -973,11 +973,10 @@ function planTarget(dir, row, slots, font, disabled, configHome, live) {
         const planned = reading(name, dir, () => {
             const dirs = entryDirs(target, configHome, roots);
             if (dirs.length === 0) return "wiring-file-absent";
-            const plan = planEntries(target, dirs, live, rendered.files);
-            return entryOccupied(plan) === null ? plan : "entry-occupied";
+            return planEntries(target, dirs, live, rendered.files);
         }, failed);
         if (!planned.ok) return planned.entry;
-        if (planned.value === "wiring-file-absent" || planned.value === "entry-occupied") return skipped(planned.value);
+        if (planned.value === "wiring-file-absent") return skipped(planned.value);
         entryPlan = planned.value;
     }
     if (render.wiringForm(target.wiring) === "extension") {
@@ -1308,32 +1307,26 @@ function entryDirsFailure(key, e) {
     return { reason: "unreadable", failure: key + "=unreadable path=" + e.path + " error=" + e.code };
 }
 
-// The entry items of TARGET with the bytes they are allowed to manage. A
-// copy may replace a file whose bytes equal the render the plan saw before
-// the swap, or the render this apply is landing.
+// The entry items of TARGET with the render this apply is landing.
 function planEntries(target, dirs, live, files) {
     const bytes = new Map(files.map(file => [file.destination, file.bytes]));
     const items = render.entryItems(target, live).map(item => {
         const next = bytes.get(item.destination);
         if (next === undefined) throw new Error("vgshell-theme-judge: planEntries: target " + target.name + " has no bytes for " + item.destination);
-        return Object.assign({}, item, { oldBytes: readIfPresent(item.to), newBytes: next });
+        return Object.assign({}, item, { newBytes: next });
     });
     return { dirs, items };
 }
 
 function currentEntries(target, dirs, live) {
-    const items = render.entryItems(target, live).map(item => {
-        const oldBytes = readIfPresent(item.to);
-        return Object.assign({}, item, { oldBytes, newBytes: oldBytes });
-    });
+    const items = render.entryItems(target, live).map(item => Object.assign({}, item, { newBytes: readIfPresent(item.to) }));
     return { dirs, items };
 }
 
 // What stands at FILE for an entry ITEM: `absent`, `managed`, or
 // `occupied`. A link is managed only when it is a symlink whose target is
-// exactly ITEM.to. A copy is managed only when it is a regular file whose
-// bytes equal either the old bytes the plan saw or the
-// new bytes this apply is landing.
+// exactly ITEM.to. A copy is managed only when it is a regular file holding
+// ITEM.newBytes.
 function entryState(file, item) {
     const stat = fs.lstatSync(file, { throwIfNoEntry: false });
     if (stat === undefined) return "absent";
@@ -1344,43 +1337,20 @@ function entryState(file, item) {
         if (!stat.isFile()) return "occupied";
         {
             const bytes = fs.readFileSync(file);
-            if ((item.oldBytes !== undefined && bytes.equals(item.oldBytes)) || (item.newBytes !== undefined && bytes.equals(item.newBytes))) return "managed";
-            return "occupied";
+            return item.newBytes !== undefined && bytes.equals(item.newBytes) ? "managed" : "occupied";
         }
     default:
         throw new Error("vgshell-theme-judge: entryState: entry kind " + item.kind + " is neither link nor copy");
     }
 }
 
-function copyNeedsWrite(file, item) {
-    const stat = fs.lstatSync(file, { throwIfNoEntry: false });
-    if (stat === undefined) return true;
-    if (!stat.isFile()) return false;
-    return !fs.readFileSync(file).equals(item.newBytes);
-}
-
-// The first path that stops an entry plan from keeping its entries in place,
-// or null: a directory of entryDirs that is no directory, or an entry's path
-// something other than its managed form holds. A symlinked directory counts
-// as the directory it names, so a dotfile manager's link serves. Throws the
-// fs error of a path that cannot be read.
-function entryOccupied(plan) {
-    for (const dir of plan.dirs) {
-        const stat = fs.statSync(dir, { throwIfNoEntry: false });
-        if (stat === undefined) continue;
-        if (!stat.isDirectory()) return dir;
-        const occupied = plan.items.find(item => entryState(path.join(dir, item.name), item) === "occupied");
-        if (occupied !== undefined) return path.join(dir, occupied.name);
-    }
-    return null;
-}
-
 // Keep entry TARGET's entries in each of its directories, each created with
-// its parents when absent. A managed link is left as it is. A managed copy is
-// replaced by rename only when its bytes differ.
-// Answers null, or the failure's { reason, failure } for target NAME:
-// `entry-occupied` when a path came to be taken after the plan judged it
-// free, else what the read or write met.
+// its parents when absent, whatever the user had at an entry's path: VGS
+// themes replace the application's own. A managed entry is left as it is;
+// anything else at the path, a symlink at a copy's included, is replaced by
+// rename. A directory at the path fails the rename and stays, and so does a
+// file where an entry directory belongs.
+// Answers null, or the failure's { reason, failure } for target NAME.
 function keepEntries(name, target, configHome, live, plan) {
     const key = "target=" + name + " reason";
     try {
@@ -1389,11 +1359,9 @@ function keepEntries(name, target, configHome, live, plan) {
             writing(dir, key, () => fs.mkdirSync(dir, { recursive: true }));
             for (const item of plan.items) {
                 const file = path.join(dir, item.name);
-                const state = entryState(file, item);
-                if (state === "occupied") return { reason: "entry-occupied", failure: key + "=entry-occupied path=" + file };
-                if (item.kind === "link" && state === "absent") writing(file, key, () => fs.symlinkSync(item.to, file));
-                else if (item.kind === "copy" && (state === "absent" || copyNeedsWrite(file, item))) replaceFile(file, item.newBytes, key, 0o644);
-                else if (item.kind !== "link" && item.kind !== "copy") throw new Error("vgshell-theme-judge: keepEntries: entry kind " + item.kind + " is neither link nor copy");
+                if (entryState(file, item) === "managed") continue;
+                if (item.kind === "link") writing(file, key, () => linkByRename(item.to, file));
+                else replaceFile(file, item.newBytes, key, 0o644);
             }
         }
     } catch (e) {
@@ -1678,11 +1646,9 @@ function apply(format, configDir, stateDir, lock, name) {
 // --- follow
 
 // Apply again the package applied.json records once its content or the
-// user's terminal font changed, while the theme file still holds the bytes
-// that apply wrote. RESULT's
+// user's terminal font changed, over whatever the theme file holds. RESULT's
 // `follow` is `none` with no record, or with ONLY, a name, when the record
-// names another package; `edited` when the theme file is absent or holds
-// other bytes, a hand edit the follow leaves; `unavailable` when the name
+// names another package; `unavailable` when the name
 // no longer resolves to an accepted package; `current` when the package's
 // digest and the terminal font are the recorded ones; `reapplied` once
 // applyTo runs for it, whose result RESULT then carries. A package that did
@@ -1697,14 +1663,6 @@ function followTo(result, failures, configDir, stateDir, lock, only) {
     };
     if (applied === null || (only !== undefined && applied.name !== only)) return settled("none");
     result.theme = applied.name;
-    const themePath = path.join(configDir, "theme.json");
-    let bytes;
-    try {
-        bytes = readIfPresent(themePath);
-    } catch (e) {
-        refuse(key + "=unreadable path=" + themePath + " error=" + e.code, "unreadable");
-    }
-    if (bytes === undefined || sha256(bytes) !== applied.file) return settled("edited");
     const row = packageSet(configDir, key).resolved.get(applied.name);
     if (row === undefined || row.state !== "ok") return settled("unavailable");
     const samePackage = packageDigest(row, key) === applied.package;

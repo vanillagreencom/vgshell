@@ -145,8 +145,8 @@
 # ${XDG_STATE_HOME:-~/.local/state}/vgshell/applied.json. `theme follow` holds
 # the same lock, first waiting up to 10 s for another theme command's hold,
 # and applies the recorded package again when its content or that font
-# changed while the theme file still holds those bytes; a hand-edited file
-# stays. `theme list` reports that unedited file unmodified.
+# changed, over whatever the theme file holds. `theme list` reports a theme
+# file still holding those bytes unmodified.
 # Apply also makes the package's remembered background image, else its
 # first, the current one: the ${XDG_STATE_HOME:-~/.local/state}/vgshell/background
 # symlink and backgrounds.json beside it, and clears every output's own
