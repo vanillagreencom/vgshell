@@ -16,7 +16,7 @@
 # tree whose Registry names the revision before its scan, run as the
 # guarded shell, lets rescan read the last scan's state. That copy stops
 # the row's shell and the row starts the sandbox's tree again after it.
-# inputs: shell/Core/PluginLogic.js scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/fixtures/plugins/acme.tick/* shell/plugins/vgs.bar/* shell/shell.qml shell/Core/Plugins.qml shell/Core/Registry.qml shell/Core/Capabilities.qml shell/Hosts/ServiceHost.qml bin/vgshell bin/vgshell-scan bin/vgshell-plugin-judge
+# inputs: shell/Core/PluginLogic.js scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/fixtures/plugins/acme.tick/* shell/plugins/vgs.bar/* shell/shell.qml shell/Core/Plugins.qml shell/Core/Registry.qml shell/Core/Capabilities.qml shell/Hosts/ServiceHost.qml shell/Hosts/PluginSlot.qml bin/vgshell bin/vgshell-scan bin/vgshell-plugin-judge
 set -euo pipefail
 fixture="$sandbox/src/acme.probe"
 mkdir -p "$fixture"
@@ -81,6 +81,24 @@ all_caps='"compositor,configure,idle,ipc,lock,manifest,notifications,notify,polk
 expect "the fixture widget's shell holds exactly what it named" "$all_caps" read_widget shellKeys
 expect "the fixture service's shell holds exactly what it named" "$all_caps" read_service shellKeys
 expect_poll "a plugin naming no capability receives none" '"manifest,settings"' ipc smoke readInstance service acme.bare shellKeys
+# A service disabled and enabled again before the event loop turns, while
+# Quickshell has not yet deleted the dropped host entry, runs as one
+# instance (VGS-1288).
+expect "a service disabled and enabled in one turn runs one instance" 1 ipc smoke reenablePlugin acme.bare service
+expect_poll "a service disabled and enabled in one turn keeps one instance" 1 ipc smoke pluginInstances service acme.bare
+# Its control is the shell started from a copy whose host never lets its
+# slot go, so the dropped slot follows its plugin's key and builds the
+# second instance.
+if copy_tree unlatched-services \
+  && edit_tree unlatched-services shell/Hosts/ServiceHost.qml 'listed: host.ids.indexOf(modelData) !== -1' 'listed: true'; then
+  stop_shell
+  start_shell "$sandbox/tree-unlatched-services" "$sandbox/unlatched-services.log" || fail "the unlatched service host shell starts"
+  expect_poll "control: the unlatched service host builds the bare service" 1 ipc smoke pluginInstances service acme.bare
+  expect "control: on a host that never lets its slot go, a service disabled and enabled in one turn runs two instances" 2 ipc smoke reenablePlugin acme.bare service
+  stop_shell
+  start_shell "$repo" "$sandbox/unlatched-services-restored.log" || fail "the shell starts after the unlatched service host control"
+  expect_poll "the restored shell builds the bare service once" 1 ipc smoke pluginInstances service acme.bare
+fi
 expect "the fixture service reads the manifest default" '"probe"' read_service label
 expect "a placed widget reads its layout entry" '"ddd d MMM  HH:mm"' read_tick format
 expect "the built-in clock reads the bar's clock format" '"ddd d MMM  HH:mm"' read_clock format

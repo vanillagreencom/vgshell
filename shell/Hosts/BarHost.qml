@@ -29,6 +29,7 @@ Item {
     property string brokenKey: ""
 
     Loader {
+        id: surface
         // Quickshell.screens drops a removed screen before Qt moves its
         // windows to another screen, and a window still built then gets a
         // layer surface there, reserving space twice until it goes.
@@ -49,6 +50,7 @@ Item {
 
             PluginSlot {
                 id: slot
+                listed: surface.active
                 kind: "bar"
                 pluginId: Registry.activeBarId
                 hostKey: host.hostKey

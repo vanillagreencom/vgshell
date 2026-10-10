@@ -100,6 +100,8 @@ PanelWindow {
 
         PluginSlot {
             id: slot
+            // SummonHost hands a dropped entry's surface no request again.
+            listed: win.request !== undefined
             kind: win.kind
             pluginId: win.pluginId
             hostKey: win.kind

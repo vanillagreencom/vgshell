@@ -130,6 +130,22 @@ expect_poll "enabling the hosts fixture is allowed" ok ipc shell setPluginEnable
 expect_poll "the background host draws one surface per screen" "$monitors" layer_count vgs:background
 expect "the background sits on the bottom layer" True py_reply 'import json,subprocess,sys; print(any(l["namespace"]=="vgs:background" and l["pid"]!=-1 for m in json.loads(sys.stdin.read()).values() for l in m["levels"]["0"]))' < <(hypr -j layers)
 expect "the background receives its screen" "\"$screen_name\"" ipc smoke readInstance "background:$screen_name" acme.surfaces screenName
+# A background disabled and enabled again before the event loop turns, while
+# Quickshell has not yet deleted the dropped surface and its slot, runs as
+# one instance on the screen (VGS-1288). Its control is the shell started
+# from a copy whose host never lets its slot go.
+expect "a background disabled and enabled in one turn runs one instance" 1 ipc smoke reenablePlugin acme.surfaces "background:$screen_name"
+expect_poll "a background disabled and enabled in one turn keeps one instance" 1 ipc smoke pluginInstances "background:$screen_name" acme.surfaces
+if copy_tree unlatched-background \
+  && edit_tree unlatched-background shell/Hosts/BackgroundHost.qml 'listed: surface.active && host.ids.indexOf(modelData) !== -1' 'listed: true'; then
+  stop_shell
+  start_shell "$sandbox/tree-unlatched-background" "$sandbox/unlatched-background.log" || fail "the unlatched background host shell starts"
+  expect_poll "control: the unlatched background host builds the background" 1 ipc smoke pluginInstances "background:$screen_name" acme.surfaces
+  expect "control: on a host that never lets its slot go, a background disabled and enabled in one turn runs two instances" 2 ipc smoke reenablePlugin acme.surfaces "background:$screen_name"
+  stop_shell
+  start_shell "$repo" "$sandbox/unlatched-background-restored.log" || fail "the shell starts after the unlatched background host control"
+  expect_poll "the restored shell draws one background surface per screen" "$monitors" layer_count vgs:background
+fi
 
 expect "a panel summons over IPC" ok ipc shell summon panel acme.surfaces '{"n":1}'
 expect "the panel received its payload" '"{\"n\":1}"' ipc smoke readInstance panel acme.surfaces lastPayload

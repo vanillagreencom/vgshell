@@ -9,11 +9,16 @@ import qs.Core
 // service builds before ServiceGate releases them, once the first bars
 // have presented a frame (D047).
 Scope {
+    id: host
+
+    readonly property var ids: ServiceGate.release !== "" ? Registry.enabledOfKind("service") : []
+
     Variants {
-        model: ServiceGate.release !== "" ? Registry.enabledOfKind("service") : []
+        model: host.ids
 
         PluginSlot {
             required property string modelData
+            listed: host.ids.indexOf(modelData) !== -1
             kind: "service"
             pluginId: modelData
             hostKey: "service"

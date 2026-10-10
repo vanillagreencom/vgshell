@@ -182,6 +182,8 @@ PopupWindow {
 
             PluginSlot {
                 id: slot
+                // SummonHost hands a dropped entry's surface no request again.
+                listed: popup.request !== undefined
                 kind: popup.kind
                 pluginId: popup.pluginId
                 hostKey: popup.kind

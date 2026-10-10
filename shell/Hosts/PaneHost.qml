@@ -20,6 +20,9 @@ Scope {
             required property string payloadJson
             required property string holderHostKey
             property bool sawInstance: false
+            // False once the host lets the mount go; destroy() deletes it
+            // on a later turn (PluginSlot.listed).
+            property bool held: true
 
             // The item fills the holder's container and takes the pane's
             // implicit size as its own, so a holder can size a scrolling
@@ -44,6 +47,7 @@ Scope {
             PluginSlot {
                 id: slot
                 kind: "pane"
+                listed: mounted.held
                 pluginId: mounted.pluginId
                 hostKey: mounted.holderHostKey
                 closeOnUnload: true
@@ -70,6 +74,7 @@ Scope {
     function drop(item) {
         if (mountItem !== item) return;
         mountItem = null;
+        item.held = false;
         item.destroy();
     }
 
@@ -77,6 +82,7 @@ Scope {
         if (mountItem === null) return;
         const item = mountItem;
         mountItem = null;
+        item.held = false;
         item.destroy();
     }
 

@@ -152,8 +152,8 @@ fi
 # The service host with no gate: services build in the scan's turn, before
 # any bar frame.
 if copy_tree ungated && edit_tree ungated shell/Hosts/ServiceHost.qml \
-    'model: ServiceGate.release !== "" ? Registry.enabledOfKind("service") : []' \
-    'model: Registry.enabledOfKind("service")' \
+    'readonly property var ids: ServiceGate.release !== "" ? Registry.enabledOfKind("service") : []' \
+    'readonly property var ids: Registry.enabledOfKind("service")' \
   && restart_over "$sandbox/tree-ungated" "$sandbox/start-order-ungated-qs.log"; then
   expect "control: with no gate a service is built before the first bar frame" services-first services_order
 fi

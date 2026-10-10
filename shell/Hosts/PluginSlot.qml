@@ -31,6 +31,23 @@ FocusScope {
     // host sets it, so a plugin closed by hide or by being disabled hears it.
     property bool closeOnUnload: false
     property bool closeCalled: false
+    // Whether the host still holds this slot. Every host deletes a slot it
+    // let go of on a later turn of the event loop: a Variants entry its
+    // model dropped (Variants::updateVariants calls deleteLater,
+    // src/core/variants.cpp), a Loader's inactive item (QQuickLoaderPrivate
+    // ::clear calls deleteLater, src/quick/items/qquickloader.cpp) and an
+    // object given destroy() (QObjectMethod::method_destroy calls
+    // deleteLater, src/qml/jsruntime/qv4qobjectwrapper.cpp). Until then
+    // the slot still follows its plugin's key, so a key that leaves and
+    // returns in that turn, as a disable and enable of the plugin does,
+    // would build an instance beside the new slot's (read in the plugins
+    // and surfaces smoke rows, on a slot without the latch). Once false the
+    // slot builds nothing again; it keeps the instance it holds until it is
+    // destroyed. A host binds it from an input that does not read
+    // `dropped`, so the latch updates no binding inside its own update.
+    property bool listed: true
+    property bool dropped: false
+    onListedChanged: if (!listed) dropped = true
     property var releaseInputSurface: null
     readonly property var inputWindow: slot.Window.window
     onInputWindowChanged: {
@@ -110,7 +127,7 @@ FocusScope {
     function reload() {
         if (key === loadedKey) return;
         unload();
-        if (key === "") return;
+        if (key === "" || dropped) return;
         // Lending changes take a refused key away, then restore it when the
         // capability becomes available. Settings alone do not trigger retries.
         loadedKey = key;

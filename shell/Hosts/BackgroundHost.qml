@@ -43,6 +43,7 @@ Item {
     })
 
     Loader {
+        id: surface
         // Quickshell.screens drops a removed screen before Qt moves its
         // windows to another screen, and a window still built then gets a
         // layer surface there, a second background until it goes.
@@ -68,6 +69,7 @@ Item {
                     parent: win.contentItem
                     anchors.fill: parent
                     z: host.ids.indexOf(modelData)
+                    listed: surface.active && host.ids.indexOf(modelData) !== -1
                     kind: host.kind
                     pluginId: modelData
                     hostKey: host.hostKey

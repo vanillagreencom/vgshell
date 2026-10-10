@@ -659,6 +659,11 @@ Scope {
         return String(item).split("(")[0].replace(/(_QML(TYPE)?_\d+)+$/, "");
     }
 
+    // How many instances of plugin `id` the core records under `hostKey`.
+    function instancesUnder(hostKey, id) {
+        return (Plugins.built[hostKey] || []).filter(row => row.id === id).length;
+    }
+
     function read(hostKey, id, property) {
         const item = instance(hostKey, id);
         if (item === null) return "absent";
@@ -1458,6 +1463,17 @@ Scope {
         function themeRevision(): int { return Theme.revision; }
         function fontAvailable(family: string): bool { return Qt.fontFamilies().indexOf(family) !== -1; }
         function buildCount(): int { return root.builds; }
+        // Disable and enable plugin `id` inside this one call, so no turn
+        // of the event loop runs between them, and answer how many
+        // instances of `id` the core records under `hostKey` once both
+        // returned, or both replies when either refused.
+        function reenablePlugin(id: string, hostKey: string): string {
+            const off = Plugins.setEnabled(id, false);
+            const on = Plugins.setEnabled(id, true);
+            if (!off.startsWith("ok") || on !== "ok") return root.json([off, on]);
+            return String(root.instancesUnder(hostKey, id));
+        }
+        function pluginInstances(hostKey: string, id: string): int { return root.instancesUnder(hostKey, id); }
         function frames(): int { return root.frames; }
         function holdMarkerCount(): int { return root.holdMarkers; }
         function holdMarkerStart(): string {
