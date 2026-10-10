@@ -81,9 +81,9 @@ function create({ session, state, dispatch, context, audit, result }) {
     }
 
     // One result item shape for every answer a brain receives for a call. A
-    // home skill passes whole: the user wrote it for the brain to read. Only
-    // the help row on a home topic (Tools.refine) and the memory.read row,
-    // whose reader bounds a note itself, carry that source.
+    // home skill or memory note passes whole: the user wrote it for the brain
+    // to read. Only the help row on a home topic (Tools.refine) and the
+    // memory.read row carry that source.
     function answer(content, source) {
         const bytes = Buffer.from(content);
         const bounded = source === "home" || bytes.length <= RESULT_BYTES ? content
@@ -150,7 +150,8 @@ function create({ session, state, dispatch, context, audit, result }) {
      * immediately before delivery. Other executors need no preparation callback.
      * Optional available() must return literal true at offer, route and start.
      * The guidance executor's optional topics() lists the help topics it can
-     * read now, each one the help row's own rule admits.
+     * read now, each one the help row's own rule admits, and its optional
+     * notes() must return literal true at offer for the memory.read row.
      */
     function register(id, executor) {
         if (closed || registry.has(id) || !Object.values(Tools.TABLE).some(row => row.executor === id)
@@ -172,9 +173,13 @@ function create({ session, state, dispatch, context, audit, result }) {
     }
 
     // A harness program proposes its own actions; no brain is offered them.
+    // Nor the memory.read row while the guidance executor can read no note:
+    // with no home folder chosen, a call to it could only fail.
     function offer() {
         if (closed) return [];
-        return Object.entries(Tools.TABLE).filter(([, row]) => row.proposer === undefined && available(row) !== null)
+        const notes = registry.get("guidance")?.notes;
+        return Object.entries(Tools.TABLE).filter(([id, row]) => row.proposer === undefined && available(row) !== null
+                && (id !== "memory.read" || notes === undefined || notes() === true))
             .map(([id, row]) => {
                 const parameters = structuredClone(row.schema);
                 if (id === "help" && registry.get("guidance").topics !== undefined) {

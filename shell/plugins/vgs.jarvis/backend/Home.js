@@ -373,13 +373,14 @@ function skill(home, topic) {
 }
 
 /**
- * The memory note PATH names below memory/, as read() answers it. Throws
- * jarvis: home=absent for a path Tools.memoryNote refuses, a note under
+ * The whole text of the memory note PATH names below memory/. A note is read
+ * on demand, as a skill is, so no size bound applies. Throws as read() does,
+ * and jarvis: home=absent for a path Tools.memoryNote refuses, a note under
  * memory/inbox/ among them.
  */
-function note(home, entry, limit) {
+function note(home, entry) {
     if (!Tools.memoryNote(entry)) fail("absent");
-    return read(home, "memory/" + entry, limit);
+    return read(home, "memory/" + entry, null).text;
 }
 
 module.exports = { PACKAGE, resolve, layout, guard, read, skills, skill, note };

@@ -277,10 +277,9 @@ world(() => {
             assert.equal(Home.skills(folder).complete, false);
         },
         // A memory note by its path below memory/, as MEMORY.md routes to
-        // it: whole within its bound, or too-large. Each refused path names
-        // a file that is there, so the path rule refuses it, not its absence:
-        // nothing under memory/inbox/, outside memory/ or behind a link is
-        // read.
+        // it. Each refused path names a file that is there, so the path rule
+        // refuses it, not its absence: nothing under memory/inbox/, outside
+        // memory/ or behind a link is read.
         notes(Home) {
             const folder = fresh();
             Home.layout(folder);
@@ -294,19 +293,20 @@ world(() => {
             write("memory/.hidden.md", "HIDDEN-NOTE\n");
             write("memory/facts/team.txt", "NO-MARKDOWN\n");
             write("AGENTS.md", "OUTSIDE-MEMORY\n");
-            assert.deepEqual(Home.note(folder, "facts/My team.md", 10), { kind: "text", text: "TEAM-NOTE\n" }, "exactly the bound");
-            assert.deepEqual(Home.note(folder, "facts/My team.md", 9), { kind: "too-large" }, "one byte over");
-            keyed(() => Home.note(folder, "facts/absent.md", 64), "absent");
+            assert.equal(Home.note(folder, "facts/My team.md"), "TEAM-NOTE\n");
+            write("memory/facts/long.md", "l".repeat(40 * 1024));
+            assert.equal(Home.note(folder, "facts/long.md"), "l".repeat(40 * 1024), "a 40 KB note reads whole");
+            keyed(() => Home.note(folder, "facts/absent.md"), "absent");
             for (const entry of ["inbox/pending.md", "../AGENTS.md", "facts/../../AGENTS.md", "facts/../inbox/pending.md", ".hidden.md",
                 "facts/team.txt", path.join(folder, "memory/facts/My team.md"), 7])
-                keyed(() => Home.note(folder, entry, 64), "absent", String(entry));
+                keyed(() => Home.note(folder, entry), "absent", String(entry));
             const secret = path.join(path.dirname(folder), "secret.md");
             fs.writeFileSync(secret, "OUTSIDE-SECRET\n");
             fs.symlinkSync(secret, path.join(folder, "memory/linked.md"));
             fs.symlinkSync(path.dirname(secret), path.join(folder, "memory/linked-folder"));
             fs.symlinkSync("inbox", path.join(folder, "memory/waiting"));
             for (const entry of ["linked.md", "linked-folder/secret.md", "waiting/pending.md"])
-                keyed(() => Home.note(folder, entry, 64), "link", entry);
+                keyed(() => Home.note(folder, entry), "link", entry);
         }
     };
 
@@ -356,7 +356,8 @@ world(() => {
         ["folder-kind", ' && (!last || flags & O_DIRECTORY)) fail("kind");', ' && !last) fail("kind");', "skills"],
         ["set-bound", "if (entries.length === SET_ENTRIES) return { entries, complete: false };", "", "skills"],
         ["note-rule", '    if (!Tools.memoryNote(entry)) fail("absent");\n', "", "notes"],
-        ["note-folder", 'return read(home, "memory/" + entry, limit);', "return read(home, entry, limit);", "notes"],
+        ["note-folder", 'return read(home, "memory/" + entry, null).text;', "return read(home, entry, null).text;", "notes"],
+        ["note-whole", 'return read(home, "memory/" + entry, null).text;', 'return read(home, "memory/" + entry, 16384).text;', "notes"],
         ["note-inbox", "(?!inbox/)", "", "notes", path.join(path.dirname(file), "Tools.js")]
     ]) {
         const result = mutant(source, name, needle, replacement, logic => CASES[row](logic), "Home.js");

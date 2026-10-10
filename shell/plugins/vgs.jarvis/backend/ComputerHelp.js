@@ -9,9 +9,6 @@ const Tools = require("./Tools.js");
 const Home = require("./Home.js");
 const ROOT = path.join(__dirname, "skills/computer");
 const LIMIT = 8192;
-// A memory note's bound. The model chooses the path, so one read holds at
-// most what the router gives any other result (ToolRouter RESULT_BYTES).
-const NOTE_LIMIT = 16 * 1024;
 /**
  * create(root, browser, home) builds the guidance executor. home() answers
  * the home folder's path, or null while none is usable.
@@ -34,6 +31,8 @@ function create(root = ROOT, browser = null, home = () => null) {
     return { commands: [], timeoutMs: browser === null ? 2000 : browser.timeoutMs, cancellable: false,
         // Read at each offer: the user adds a skill without a restart.
         topics: () => shipped.concat(skills(home())),
+        // Read at each offer too: a note is read only from a chosen home.
+        notes: () => home() !== null,
         // Verified readiness extends the offer once.
         enableBrowser() {
             if (browser === null) throw new Error("help-browser-unavailable");
@@ -45,10 +44,9 @@ function create(root = ROOT, browser = null, home = () => null) {
                 if (call.id === "memory.read") {
                     const folder = home();
                     if (folder === null) throw new Error("home-unchosen");
-                    const note = Home.note(folder, call.args.path, NOTE_LIMIT);
-                    if (note.kind !== "text") throw new Error("note-too-large");
-                    if (note.text.trim() === "") throw new Error("note-empty");
-                    done({ outcome: "completed", content: note.text.trim() });
+                    const text = Home.note(folder, call.args.path).trim();
+                    if (text === "") throw new Error("note-empty");
+                    done({ outcome: "completed", content: text });
                     return;
                 }
                 const topic = call.args.topic;
