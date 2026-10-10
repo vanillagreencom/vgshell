@@ -24,6 +24,12 @@ function strength(value) {
     return Number.isFinite(value) ? Math.round(Math.max(0, Math.min(1, value)) * 100) : 0;
 }
 
+// The Wi-Fi glyph for a strength percentage, in even quarters: under 25
+// draws no arc, 25 to 49 one, 50 to 74 two, 75 and over all three.
+function wifiIcon(percent) {
+    return percent >= 75 ? "wifi" : percent >= 50 ? "wifi-high" : percent >= 25 ? "wifi-low" : "wifi-zero";
+}
+
 function securityLabel(security) {
     const labels = {
         Wpa3SuiteB192: "WPA3 Enterprise", Sae: "WPA3", Wpa2Eap: "WPA2 Enterprise",

@@ -1,15 +1,16 @@
 import QtQuick
 import qs.Commons
 import qs.Ui
+import "NetworkLogic.js" as Logic
 
-// The network icon in the bar: Wi-Fi while a Wi-Fi network is joined,
+// The network icon in the bar: the joined Wi-Fi network's strength,
 // Ethernet while a wired device is connected, otherwise disconnected. A
 // click opens or closes the dropdown under it.
 BarWidget {
     id: root
     readonly property var network: shell === null ? ({}) : shell.status.values.network || ({})
     readonly property var joined: (network.wifi || []).find(row => row.connected) || null
-    readonly property string icon: joined !== null ? "wifi" : (network.ethernet || []).some(row => row.connected) ? "ethernet-port" : "wifi-off"
+    readonly property string icon: joined !== null ? Logic.wifiIcon(joined.strength) : (network.ethernet || []).some(row => row.connected) ? "ethernet-port" : "wifi-off"
     visible: setting("showDisconnected", true) || root.joined !== null || (network.ethernet || []).some(row => row.connected)
     implicitWidth: button.implicitWidth
     implicitHeight: button.implicitHeight

@@ -97,6 +97,10 @@ function suite(logic) {
         ["forget", false, false, false, false, "complete"], ["forget", false, true, false, false, "pending"]
     ]) assert.equal(logic.operationResult(kind, connected, known, changing, observed), want);
     for (const [raw, want] of [[0, 0], [0.82, 82], [1, 100], [-1, 0], [2, 100], [NaN, 0], [undefined, 0]]) assert.equal(logic.strength(raw), want);
+    for (const [percent, want] of [
+        [0, "wifi-zero"], [10, "wifi-zero"], [24, "wifi-zero"], [25, "wifi-low"], [37, "wifi-low"], [49, "wifi-low"],
+        [50, "wifi-high"], [62, "wifi-high"], [74, "wifi-high"], [75, "wifi"], [82, "wifi"], [100, "wifi"]
+    ]) assert.equal(logic.wifiIcon(percent), want, "wifiIcon(" + percent + ")");
     const rows = [
         { key: "z", name: "Z", connected: false, known: false, strength: 90 },
         { key: "saved", name: "Saved", connected: false, known: true, strength: 10 },
@@ -176,6 +180,9 @@ try {
         ["join endpoint release", 'if (joinOwner === owner) joinOwner = null;', 'joinOwner = owner;'],
         ["enterprise security routing", 'return security === "WpaEap" || security === "Wpa2Eap";', 'return false;'],
         ["strength uses the upstream share", " * 100)", ")"],
+        ["the full Wi-Fi glyph starts at 75", "percent >= 75", "percent >= 76"],
+        ["the two-arc Wi-Fi glyph starts at 50", "percent >= 50", "percent >= 51"],
+        ["the one-arc Wi-Fi glyph starts at 25", "percent >= 25", "percent > 25"],
         ["connected ordering", "Number(b.connected) - Number(a.connected)", "0"],
         ["security label", 'Wpa2Psk: "WPA2"', 'Wpa2Psk: "Open"'],
         ["saved credential reprompt", '(known && (reason === "WifiAuthTimeout" || reason === "WifiClientFailed"))', 'false'],

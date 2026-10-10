@@ -330,7 +330,7 @@ FocusScope {
                             required property var modelData
                             width: wifiList.width
                             text: modelData.name === "" ? "Hidden network" : modelData.name
-                            iconName: modelData.connected ? "wifi" : "wifi-low"
+                            iconName: Logic.wifiIcon(modelData.strength)
                             secondary: modelData.changing ? "Connecting…" : (modelData.connected ? "Connected · " : modelData.known ? "Saved · " : "") + Logic.securityLabel(modelData.security)
                             badge: modelData.strength + "%"
                             cursor: networkCursor
