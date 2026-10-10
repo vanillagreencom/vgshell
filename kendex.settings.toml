@@ -162,6 +162,10 @@ REVIEW_MAX_CYCLES = "1"
 DEV_VALIDATE_CMD = "scripts/validate"
 DEV_VALIDATE_RANGE_CMD = "scripts/validate"
 
+# Read by a dev round that changes a view, which builds to this doc, and by
+# the `needs-ui-review` pass, which judges that round's screenshots against it.
+QA_UI_DESIGN_DOC = "docs/architecture/design-system.md"
+
 # Optional extra verification command for GitHub-side checks; empty means
 # none beyond the guard chain.
 GH_VERIFY_CMD = ""
