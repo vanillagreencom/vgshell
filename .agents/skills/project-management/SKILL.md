@@ -96,7 +96,6 @@ Priority rule: `ci-infra` implies Urgent unless the issue deliberately records w
 | `blocked` | External blocker only (vendor/license/access/manual dependency). For issue dependencies, use blocking relations instead. |
 | `owner-gated` | Needs an owner decision or owner-only action to proceed. |
 | `hardware-blocked` | Blocked on physical hardware or device/OS access — a second monitor, a fingerprint reader, an Apple display — rather than on a decision or another issue. |
-| `re-triage` | Request one triage-janitor pass (Linear Loop 2) over an issue whose labels, project, or priority look wrong. The automation REMOVES it when the pass completes, so it is a trigger, not a state — an issue carrying it long-term means the loop did not run. Expect zero issues to carry it at rest. |
 
 `ci-nightly` marks CI-failure mirrors; the taxonomy above does not apply to mirrored issues — do not retitle or relabel them to satisfy it. Note there is no automated ingest: mirroring GitHub intake into Linear is manual, per the tracker policy in the linear skill instructions.
 
