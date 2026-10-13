@@ -15,13 +15,15 @@
 | Decision request | The choice the user must make, in the [persona's conduct format](../persona.md#conduct) | A decision blocks an action under [decisions.md](decisions.md#authority) |
 | Critical notice | The failure, its effect and the action the user must take | Work stops, data or money is at risk, or timely user action is required |
 | Input-device notice | Which mouse or keyboard action you need and when | Before taking control; wait for the user's agreement |
-| Progress report | Landed, running, blocked and waiting on you | At the cadence the user sets and before a session handoff |
+| Progress report | Landed, running, blocked and waiting on you | At the cadence the user sets. Before a session handoff only when the user set no rule for it |
 | Reply | The answer to the user's message | The user asks or gives information that needs an answer |
 
 ## Delivery
 
 - In a progress report, list completed work only after its acceptance check passes. For merged work, confirm the merge in the source service.
+- List under landed only merges you read from the source service in this session. An agent's notice that it is merging, or an approval, is not a landing.
 - Give each block its cause and next action. Link each unanswered decision under waiting on you.
+- Build waiting on you when you write the report, from live sources: open requests and the user's replies since the last report. Do not copy it from the handoff. Keep a step on it only when no tool you have can do that step.
 - Put text the user must send in a code block. Name the recipient above it.
 - Apply [verification.md](verification.md#sources) to each claim before sending the message.
 - Send messages only for the types above. Omit acknowledgements and past events that do not affect the user's action.

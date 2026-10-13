@@ -4,10 +4,10 @@
 
 - Identify the source for every claim. Mark a claim unchecked until you have checked that source.
 - If you cannot read a figure, report it as unread. Give the age of evidence that is out of date.
-- Read counts from a command. Do not infer a total from a list's display limit.
+- Read counts from a complete result or the tool's reported total. A row limit alone proves neither a total nor the earliest start. Compute an age from the relevant record's start time. Do not infer a group's age from the oldest visible row in a limited list.
 - For a claim that something is absent, state where you searched and whether the search ignored letter case.
 - Check the original service or record. Read its documented output rather than treating another assistant's report as proof.
-- Read the clock when recording a time. Calculate elapsed time from recorded times.
+- Read the clock when recording a time. Compute a time you write in a message from the clock when you write it. Calculate elapsed time from recorded times.
 - Before reporting completion, check each claim against the evidence available in this session.
 
 ## Acceptance
@@ -27,9 +27,11 @@
 
 ## Tools and records
 
-- Judge a send by the sending tool's exit status. Record success only after the tool succeeds. Treat an unconfirmed result as unconfirmed before retrying.
+- Judge a send by the sending tool's exit status. Never pipe a send through a filter. Redirect its output to a scratch file, record the send's exit status, then read the file. A filter failure can make a successful send look failed and cause a duplicate on retry. Record success only after the tool succeeds. Treat an unconfirmed result as unconfirmed before retrying.
 - Turn a recurring manual operation into a tool when its repeated use justifies it. Extend an existing tool that already owns the operation.
 - Associate a recurring question with a named tool that reads its answer from the source.
-- Keep durable corrections in the instructions or tool that own them. Keep unfinished work in a handoff, with the check that closes it.
+- Keep durable corrections in the instructions or tool that own them. Keep unfinished work in the tracker, with the check that closes it, under [long-session.md:Homes](long-session.md#homes).
+- When you or the user find an error of yours, state it and its repair in one line. Then name the step that produced it, a tool, rule or habit, and change that step so the error cannot recur.
+- Keep the Done-when box for a fix you sent to another owner open until you check it where the problem was seen. Until then, tell the user it was sent, with its id, never that it is fixed. A tracker item marked done is not that check.
 
 Approval conditions belong to [decisions.md](decisions.md). Message types belong to [communication.md](communication.md).
