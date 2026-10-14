@@ -1,6 +1,42 @@
 {
   "version": 11,
   "entries": {
+    "agent:auditor:claude": {
+      "name": "auditor",
+      "kind": "agent",
+      "harness": "claude",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "9d3f0ef6dc3f716644e56423e7c46b56dd25752189641fde505919515e966a64",
+      "sourceCommit": "e74642aa45ca2d7bdfd6de38fb34835a92e3d7cc",
+      "selector": {
+        "sourceRev": null,
+        "rev": null
+      },
+      "renderedHash": "eabb05ed43666a34159aa2a08aa2af747cb03a9db7b0d9779f85667ebd2e5a63",
+      "enabled": true,
+      "upstreamSkills": [
+        "jarvis"
+      ],
+      "emitted": {
+        "kind": "agent",
+        "name": "auditor",
+        "paths": [
+          ".claude/agents/auditor.md"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "jarvis",
+            "harness": "claude"
+          }
+        }
+      ]
+    },
     "agent:auditor:codex": {
       "name": "auditor",
       "kind": "agent",
@@ -37,6 +73,114 @@
         }
       ]
     },
+    "agent:auditor:copilot": {
+      "name": "auditor",
+      "kind": "agent",
+      "harness": "copilot",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "9d3f0ef6dc3f716644e56423e7c46b56dd25752189641fde505919515e966a64",
+      "sourceCommit": "e74642aa45ca2d7bdfd6de38fb34835a92e3d7cc",
+      "selector": {
+        "sourceRev": null,
+        "rev": null
+      },
+      "renderedHash": "85ec88594c127fcce34b51b0e99f23b36221fb0e6ba196cf28250c3c3facb09a",
+      "enabled": true,
+      "upstreamSkills": [
+        "jarvis"
+      ],
+      "emitted": {
+        "kind": "agent",
+        "name": "auditor",
+        "paths": [
+          ".github/agents/auditor.agent.md"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "jarvis",
+            "harness": "copilot"
+          }
+        }
+      ]
+    },
+    "agent:auditor:pi": {
+      "name": "auditor",
+      "kind": "agent",
+      "harness": "pi",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "9d3f0ef6dc3f716644e56423e7c46b56dd25752189641fde505919515e966a64",
+      "sourceCommit": "e74642aa45ca2d7bdfd6de38fb34835a92e3d7cc",
+      "selector": {
+        "sourceRev": null,
+        "rev": null
+      },
+      "renderedHash": "0949298311b26334f6313e800f287beaff18a2ae113430da33cd5cc6e7fa7fe2",
+      "enabled": true,
+      "upstreamSkills": [
+        "jarvis"
+      ],
+      "emitted": {
+        "kind": "agent",
+        "name": "auditor",
+        "paths": [
+          ".pi/agents/auditor.md"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "jarvis",
+            "harness": "pi"
+          }
+        }
+      ]
+    },
+    "agent:cpa:claude": {
+      "name": "cpa",
+      "kind": "agent",
+      "harness": "claude",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "2d4d0a5c1ab8753f92ca590f10d294e4c1aac9724f88a1683c64247ad0eea594",
+      "sourceCommit": "e74642aa45ca2d7bdfd6de38fb34835a92e3d7cc",
+      "selector": {
+        "sourceRev": null,
+        "rev": null
+      },
+      "renderedHash": "75d296690fcb4c3799d042a2fb7bbc7c1c29d12142304e1e22fa8ad318d703d9",
+      "enabled": true,
+      "upstreamSkills": [
+        "jarvis"
+      ],
+      "emitted": {
+        "kind": "agent",
+        "name": "cpa",
+        "paths": [
+          ".claude/agents/cpa.md"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "jarvis",
+            "harness": "claude"
+          }
+        }
+      ]
+    },
     "agent:cpa:codex": {
       "name": "cpa",
       "kind": "agent",
@@ -69,6 +213,78 @@
             "kind": "skill",
             "name": "jarvis",
             "harness": "codex"
+          }
+        }
+      ]
+    },
+    "agent:cpa:copilot": {
+      "name": "cpa",
+      "kind": "agent",
+      "harness": "copilot",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "2d4d0a5c1ab8753f92ca590f10d294e4c1aac9724f88a1683c64247ad0eea594",
+      "sourceCommit": "e74642aa45ca2d7bdfd6de38fb34835a92e3d7cc",
+      "selector": {
+        "sourceRev": null,
+        "rev": null
+      },
+      "renderedHash": "140cb6cb53d53b25aec7693e6cca169f2c49aa880948077c80ef95e0a8ade6d6",
+      "enabled": true,
+      "upstreamSkills": [
+        "jarvis"
+      ],
+      "emitted": {
+        "kind": "agent",
+        "name": "cpa",
+        "paths": [
+          ".github/agents/cpa.agent.md"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "jarvis",
+            "harness": "copilot"
+          }
+        }
+      ]
+    },
+    "agent:cpa:pi": {
+      "name": "cpa",
+      "kind": "agent",
+      "harness": "pi",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "2d4d0a5c1ab8753f92ca590f10d294e4c1aac9724f88a1683c64247ad0eea594",
+      "sourceCommit": "e74642aa45ca2d7bdfd6de38fb34835a92e3d7cc",
+      "selector": {
+        "sourceRev": null,
+        "rev": null
+      },
+      "renderedHash": "0ef449aa4aa196de779ba6293cd67ab6aeec0d45c4362bd8086450ed5b2e4296",
+      "enabled": true,
+      "upstreamSkills": [
+        "jarvis"
+      ],
+      "emitted": {
+        "kind": "agent",
+        "name": "cpa",
+        "paths": [
+          ".pi/agents/cpa.md"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "jarvis",
+            "harness": "pi"
           }
         }
       ]
@@ -213,6 +429,42 @@
         }
       ]
     },
+    "agent:legal:claude": {
+      "name": "legal",
+      "kind": "agent",
+      "harness": "claude",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "40f6a10a53351797a321f3b280f985aada2448e196ce64a05bec599afdd173c6",
+      "sourceCommit": "e74642aa45ca2d7bdfd6de38fb34835a92e3d7cc",
+      "selector": {
+        "sourceRev": null,
+        "rev": null
+      },
+      "renderedHash": "4bda5c1dbf842b9b2a1ed2c3ca6e122155da8668f595d2a9b8259ef7e29a3dc4",
+      "enabled": true,
+      "upstreamSkills": [
+        "jarvis"
+      ],
+      "emitted": {
+        "kind": "agent",
+        "name": "legal",
+        "paths": [
+          ".claude/agents/legal.md"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "jarvis",
+            "harness": "claude"
+          }
+        }
+      ]
+    },
     "agent:legal:codex": {
       "name": "legal",
       "kind": "agent",
@@ -245,6 +497,78 @@
             "kind": "skill",
             "name": "jarvis",
             "harness": "codex"
+          }
+        }
+      ]
+    },
+    "agent:legal:copilot": {
+      "name": "legal",
+      "kind": "agent",
+      "harness": "copilot",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "40f6a10a53351797a321f3b280f985aada2448e196ce64a05bec599afdd173c6",
+      "sourceCommit": "e74642aa45ca2d7bdfd6de38fb34835a92e3d7cc",
+      "selector": {
+        "sourceRev": null,
+        "rev": null
+      },
+      "renderedHash": "589d13ef13b355fc20f3e141c66d71262f5241119b94290a12a464689051da2e",
+      "enabled": true,
+      "upstreamSkills": [
+        "jarvis"
+      ],
+      "emitted": {
+        "kind": "agent",
+        "name": "legal",
+        "paths": [
+          ".github/agents/legal.agent.md"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "jarvis",
+            "harness": "copilot"
+          }
+        }
+      ]
+    },
+    "agent:legal:pi": {
+      "name": "legal",
+      "kind": "agent",
+      "harness": "pi",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "40f6a10a53351797a321f3b280f985aada2448e196ce64a05bec599afdd173c6",
+      "sourceCommit": "e74642aa45ca2d7bdfd6de38fb34835a92e3d7cc",
+      "selector": {
+        "sourceRev": null,
+        "rev": null
+      },
+      "renderedHash": "f11aa6481b9774d0158e3c48f6e72b29bf5756c2c8196a05daf14b206e49a4d6",
+      "enabled": true,
+      "upstreamSkills": [
+        "jarvis"
+      ],
+      "emitted": {
+        "kind": "agent",
+        "name": "legal",
+        "paths": [
+          ".pi/agents/legal.md"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "jarvis",
+            "harness": "pi"
           }
         }
       ]
@@ -397,6 +721,42 @@
         }
       ]
     },
+    "agent:operator:claude": {
+      "name": "operator",
+      "kind": "agent",
+      "harness": "claude",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "63ffa3c1b4b6beb002732886beb92f2f73052f80653af43528519c4997bf5657",
+      "sourceCommit": "e74642aa45ca2d7bdfd6de38fb34835a92e3d7cc",
+      "selector": {
+        "sourceRev": null,
+        "rev": null
+      },
+      "renderedHash": "a50d5ee1f7e0fdf62873649c6d08de813d7c3f325563c52b687e6f35cee504ed",
+      "enabled": true,
+      "upstreamSkills": [
+        "jarvis"
+      ],
+      "emitted": {
+        "kind": "agent",
+        "name": "operator",
+        "paths": [
+          ".claude/agents/operator.md"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "jarvis",
+            "harness": "claude"
+          }
+        }
+      ]
+    },
     "agent:operator:codex": {
       "name": "operator",
       "kind": "agent",
@@ -429,6 +789,78 @@
             "kind": "skill",
             "name": "jarvis",
             "harness": "codex"
+          }
+        }
+      ]
+    },
+    "agent:operator:copilot": {
+      "name": "operator",
+      "kind": "agent",
+      "harness": "copilot",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "63ffa3c1b4b6beb002732886beb92f2f73052f80653af43528519c4997bf5657",
+      "sourceCommit": "e74642aa45ca2d7bdfd6de38fb34835a92e3d7cc",
+      "selector": {
+        "sourceRev": null,
+        "rev": null
+      },
+      "renderedHash": "ccc6888583291ffabd3808a1955b53769f8501de59f39d2dc1b587bf68528cf6",
+      "enabled": true,
+      "upstreamSkills": [
+        "jarvis"
+      ],
+      "emitted": {
+        "kind": "agent",
+        "name": "operator",
+        "paths": [
+          ".github/agents/operator.agent.md"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "jarvis",
+            "harness": "copilot"
+          }
+        }
+      ]
+    },
+    "agent:operator:pi": {
+      "name": "operator",
+      "kind": "agent",
+      "harness": "pi",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "63ffa3c1b4b6beb002732886beb92f2f73052f80653af43528519c4997bf5657",
+      "sourceCommit": "e74642aa45ca2d7bdfd6de38fb34835a92e3d7cc",
+      "selector": {
+        "sourceRev": null,
+        "rev": null
+      },
+      "renderedHash": "77d31a80801d10b7261481b7fc82db83f14e5456d2ac036654c8e7a09a74cb8a",
+      "enabled": true,
+      "upstreamSkills": [
+        "jarvis"
+      ],
+      "emitted": {
+        "kind": "agent",
+        "name": "operator",
+        "paths": [
+          ".pi/agents/operator.md"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "jarvis",
+            "harness": "pi"
           }
         }
       ]
@@ -557,6 +989,44 @@
         }
       ]
     },
+    "agent:publicist:claude": {
+      "name": "publicist",
+      "kind": "agent",
+      "harness": "claude",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "52c9840ece17ddfb5e1c57bdd7d01843520b08f5bb47e4154620c8c7edb1c7e4",
+      "sourceCommit": "e74642aa45ca2d7bdfd6de38fb34835a92e3d7cc",
+      "selector": {
+        "sourceRev": null,
+        "rev": null
+      },
+      "renderedHash": "2b90c2981fc8024c434121e408ad431466d9c4d0b4834ea3f914f114fc17c1bd",
+      "enabled": true,
+      "upstreamSkills": [
+        "jarvis",
+        "social-media-content-calendar",
+        "youtube-publish"
+      ],
+      "emitted": {
+        "kind": "agent",
+        "name": "publicist",
+        "paths": [
+          ".claude/agents/publicist.md"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "jarvis",
+            "harness": "claude"
+          }
+        }
+      ]
+    },
     "agent:publicist:codex": {
       "name": "publicist",
       "kind": "agent",
@@ -595,6 +1065,82 @@
         }
       ]
     },
+    "agent:publicist:copilot": {
+      "name": "publicist",
+      "kind": "agent",
+      "harness": "copilot",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "52c9840ece17ddfb5e1c57bdd7d01843520b08f5bb47e4154620c8c7edb1c7e4",
+      "sourceCommit": "e74642aa45ca2d7bdfd6de38fb34835a92e3d7cc",
+      "selector": {
+        "sourceRev": null,
+        "rev": null
+      },
+      "renderedHash": "8815c87e8bd97dad32f2600e684493368dae83098089565602f47fbb07daa414",
+      "enabled": true,
+      "upstreamSkills": [
+        "jarvis",
+        "social-media-content-calendar",
+        "youtube-publish"
+      ],
+      "emitted": {
+        "kind": "agent",
+        "name": "publicist",
+        "paths": [
+          ".github/agents/publicist.agent.md"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "jarvis",
+            "harness": "copilot"
+          }
+        }
+      ]
+    },
+    "agent:publicist:pi": {
+      "name": "publicist",
+      "kind": "agent",
+      "harness": "pi",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "52c9840ece17ddfb5e1c57bdd7d01843520b08f5bb47e4154620c8c7edb1c7e4",
+      "sourceCommit": "e74642aa45ca2d7bdfd6de38fb34835a92e3d7cc",
+      "selector": {
+        "sourceRev": null,
+        "rev": null
+      },
+      "renderedHash": "c1c8c84689d1c6c98798cec17cb0bdf298e2aab13bfbddad84e5fe0fbc231fba",
+      "enabled": true,
+      "upstreamSkills": [
+        "jarvis",
+        "social-media-content-calendar",
+        "youtube-publish"
+      ],
+      "emitted": {
+        "kind": "agent",
+        "name": "publicist",
+        "paths": [
+          ".pi/agents/publicist.md"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "jarvis",
+            "harness": "pi"
+          }
+        }
+      ]
+    },
     "agent:researcher:claude": {
       "name": "researcher",
       "kind": "agent",
@@ -625,6 +1171,15 @@
       "reasons": [
         {
           "reason": "requested"
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "jarvis",
+            "harness": "claude"
+          }
         }
       ]
     },
@@ -700,6 +1255,15 @@
       "reasons": [
         {
           "reason": "requested"
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "jarvis",
+            "harness": "copilot"
+          }
         }
       ]
     },
@@ -733,6 +1297,15 @@
       "reasons": [
         {
           "reason": "requested"
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "jarvis",
+            "harness": "pi"
+          }
         }
       ]
     },
@@ -763,6 +1336,15 @@
       "reasons": [
         {
           "reason": "requested"
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "jarvis",
+            "harness": "claude"
+          }
         }
       ]
     },
@@ -832,6 +1414,15 @@
       "reasons": [
         {
           "reason": "requested"
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "jarvis",
+            "harness": "copilot"
+          }
         }
       ]
     },
@@ -862,6 +1453,15 @@
       "reasons": [
         {
           "reason": "requested"
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "jarvis",
+            "harness": "pi"
+          }
         }
       ]
     },
@@ -1993,6 +2593,15 @@
       "reasons": [
         {
           "reason": "requested"
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "jarvis",
+            "harness": "claude"
+          }
         }
       ]
     },
@@ -2064,6 +2673,15 @@
       "reasons": [
         {
           "reason": "requested"
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "jarvis",
+            "harness": "copilot"
+          }
         }
       ]
     },
@@ -2095,6 +2713,15 @@
       "reasons": [
         {
           "reason": "requested"
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "jarvis",
+            "harness": "pi"
+          }
         }
       ]
     },
@@ -6563,10 +7190,92 @@
         }
       ]
     },
+    "skill:jarvis:claude": {
+      "name": "jarvis",
+      "kind": "skill",
+      "harness": "claude",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "0560fbc50e7611395647c78ff3ff940a7819cbf3a48c24c9eb7e17cc3cf01878",
+      "sourceCommit": "e74642aa45ca2d7bdfd6de38fb34835a92e3d7cc",
+      "selector": {
+        "sourceRev": null,
+        "rev": null
+      },
+      "renderedHash": "a12f3dfc075bf055702ea8419b70d55045ba4e361ebb81a15c2ee24d1f861fdb",
+      "enabled": true,
+      "emitted": {
+        "kind": "skill",
+        "name": "jarvis",
+        "paths": [
+          ".agents/skills/jarvis",
+          ".claude/skills/jarvis"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "requested"
+        }
+      ]
+    },
     "skill:jarvis:codex": {
       "name": "jarvis",
       "kind": "skill",
       "harness": "codex",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "0560fbc50e7611395647c78ff3ff940a7819cbf3a48c24c9eb7e17cc3cf01878",
+      "sourceCommit": "e74642aa45ca2d7bdfd6de38fb34835a92e3d7cc",
+      "selector": {
+        "sourceRev": null,
+        "rev": null
+      },
+      "renderedHash": "a12f3dfc075bf055702ea8419b70d55045ba4e361ebb81a15c2ee24d1f861fdb",
+      "enabled": true,
+      "emitted": {
+        "kind": "skill",
+        "name": "jarvis",
+        "paths": [
+          ".agents/skills/jarvis"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "requested"
+        }
+      ]
+    },
+    "skill:jarvis:copilot": {
+      "name": "jarvis",
+      "kind": "skill",
+      "harness": "copilot",
+      "source": "kendex",
+      "sourceRepo": "vanillagreencom/kendex",
+      "sourceHash": "0560fbc50e7611395647c78ff3ff940a7819cbf3a48c24c9eb7e17cc3cf01878",
+      "sourceCommit": "e74642aa45ca2d7bdfd6de38fb34835a92e3d7cc",
+      "selector": {
+        "sourceRev": null,
+        "rev": null
+      },
+      "renderedHash": "a12f3dfc075bf055702ea8419b70d55045ba4e361ebb81a15c2ee24d1f861fdb",
+      "enabled": true,
+      "emitted": {
+        "kind": "skill",
+        "name": "jarvis",
+        "paths": [
+          ".agents/skills/jarvis"
+        ]
+      },
+      "reasons": [
+        {
+          "reason": "requested"
+        }
+      ]
+    },
+    "skill:jarvis:pi": {
+      "name": "jarvis",
+      "kind": "skill",
+      "harness": "pi",
       "source": "kendex",
       "sourceRepo": "vanillagreencom/kendex",
       "sourceHash": "0560fbc50e7611395647c78ff3ff940a7819cbf3a48c24c9eb7e17cc3cf01878",
@@ -6763,6 +7472,15 @@
           "by": {
             "source": "kendex",
             "kind": "skill",
+            "name": "jarvis",
+            "harness": "claude"
+          }
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
             "name": "orch",
             "harness": "claude"
           }
@@ -6856,6 +7574,15 @@
           "by": {
             "source": "kendex",
             "kind": "skill",
+            "name": "jarvis",
+            "harness": "copilot"
+          }
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
             "name": "orch",
             "harness": "copilot"
           }
@@ -6893,6 +7620,15 @@
         ]
       },
       "reasons": [
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "jarvis",
+            "harness": "pi"
+          }
+        },
         {
           "reason": "required-by",
           "by": {
@@ -6954,6 +7690,15 @@
             "source": "kendex",
             "kind": "skill",
             "name": "harness-ci",
+            "harness": "claude"
+          }
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "jarvis",
             "harness": "claude"
           }
         },
@@ -7115,6 +7860,15 @@
           "by": {
             "source": "kendex",
             "kind": "skill",
+            "name": "jarvis",
+            "harness": "copilot"
+          }
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
             "name": "project-management",
             "harness": "copilot"
           }
@@ -7179,6 +7933,15 @@
             "source": "kendex",
             "kind": "skill",
             "name": "harness-ci",
+            "harness": "pi"
+          }
+        },
+        {
+          "reason": "required-by",
+          "by": {
+            "source": "kendex",
+            "kind": "skill",
+            "name": "jarvis",
             "harness": "pi"
           }
         },
