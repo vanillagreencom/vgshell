@@ -69,7 +69,13 @@ Label creation rule: if a label listed here is missing from live Linear inventor
 | `component` | Reusable widget/control work, especially primitives in `shell/Ui/`. |
 | `releases` | Cutting a release, versioning, and publishing to the distribution channels. |
 
-Priority rule: `ci-infra` implies Urgent unless the issue deliberately records why it is lower. Everything VGS uses to decide whether a change is safe to merge lives in that category, so a defect there invalidates the evidence behind every other issue's "verified" claim.
+### Work priority
+
+Priority rule: performance, optimization, efficiency, scalability, maintainability, architecture and CI issues precede product/features. Run CI first, then Verifying items. Exceptions require the owner's word on a named item, a production outage, a security or data-loss defect, or a hard deadline. Target at least 10 lanes while accounts have headroom. Keep the existing eligibility and ownership gates. Select eligible work. Never invent tasks to fill slots.
+
+`ci-infra` implies Urgent unless the issue deliberately records why it is lower. Everything VGS uses to decide whether a change is safe to merge lives in that category, so a defect there invalidates the evidence behind every other issue's "verified" claim.
+
+Source: Jarvis delegate note 1792036738-329613-10972 quotes owner Slack 1792036693 on 2026-10-15 and extends the 2026-10-11 instruction.
 
 ### Classification labels (non-exclusive; additive)
 

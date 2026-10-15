@@ -31,6 +31,7 @@ Kendex workflow policy VGS keeps (KEN-3470):
 
 ## VGS orchestration policy (KEN-3470)
 
+- Before selecting work or setting the lane target, follow `.agents/skills/project-management/SKILL.md` § Work priority.
 - Use the configured owner communication routes. Send a decision request or critical notice to Slack and chat. Keep a voice reply on its call. Send progress reports to open text media, not the phone. Reply in the owner message thread. Route questions from an unattended lane through lane-mail. (ORCH-D22)
 - Owner reports link each item to its live tracker issue URL, taken from the tracker response for the VGS workspace. Do not build a URL from another workspace or show an unlinked issue identifier. (ORCH-D25)
 - The vanillagreen-overseer GitHub App supplies organization approval and security-alert access separately from lane credentials. The fleet worker supplies the overseer credential on the overseer host. Keep its token in a private mode-600 file outside lane roots and replace it atomically before expiry. ORCH_SECURITY_ALERT_TOKEN_FILE names the security-alert token file. Never put the token value in tracked settings or reports. (ORCH-D27)
