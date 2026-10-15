@@ -339,6 +339,7 @@ snd_page_close
 # Shared facts reach the pane, flyout and selection action.
 expect_poll "the subscriber starts" alive snd_subscriber_alive
 snd_pid="$(snd_subscriber)"
+expect "the original subscriber capture has a live PID" alive snd_pid_alive "$snd_pid"
 expect_poll "unknown route facts finish" '"ready"' snd_routes state
 expect "System opens for input choices" ok ipc shell summon window vgs.system '{"pane":"vgs.sound"}'
 expect_poll "unknown digital route stays selectable in Settings" '[["vgs-smoke-microphone", "Digital Microphone"], ["vgs-smoke-voice", "Smoke Voice"]]' snd_input_offers window
@@ -611,6 +612,7 @@ snd_plugin_copy \
   Audio.qml '        root.inputNodes = all.filter(n => !n.isStream && !n.isSink).map(root.row);' '        root.inputNodes = all.filter(n => !n.isStream && !n.isSink).map(root.row);
         root.apps = root.appRows();'
 snd_reload_pid="$(snd_subscriber)"
+expect "the subscriber captured before source reload has a live PID" alive snd_pid_alive "$snd_reload_pid"
 rescan "rescan picks the Sound copy"
 expect_poll "source reload ends its previous subscriber" gone snd_pid_alive "$snd_reload_pid"
 expect_poll "the copy's widget is placed" True snd_placed
