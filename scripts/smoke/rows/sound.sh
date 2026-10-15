@@ -92,7 +92,65 @@ snd_routes() { ipc smoke statusValues vgs.sound | py_reply 'import json,sys; pri
 snd_input_property() { ipc smoke readMatchingDescendant "$1" vgs.sound Select objectName soundInputSelect "$2"; }
 snd_input_offers() { snd_input_property "$1" model | py_reply 'import json,sys; print(json.dumps(sorted([[r["name"],r["label"]] for r in json.load(sys.stdin)])))'; }
 snd_event() { python3 -c 'import json,os,sys; fd=os.open(sys.argv[1], os.O_WRONLY | os.O_NONBLOCK); os.write(fd, (json.dumps({"event":"change", "on":sys.argv[2], "index":45}) + "\n").encode()); os.close(fd)' "$devices_dir/pactl.events" "$1"; }
-snd_subscriber() { [[ -s $devices_dir/pactl.subscriber ]] && cat "$devices_dir/pactl.subscriber" || echo absent; }
+snd_subscriber() {
+  python3 - "$devices_dir" "$devices_fixtures/stand-in.py" <<'PYSUB'
+import errno, os, re, sys
+directory, fixture = sys.argv[1:]
+marker = os.path.join(directory, "pactl.subscriber")
+expected = [os.fsencode(fixture), b"pactl", os.fsencode(directory), b"--format=json", b"subscribe"]
+
+def snapshot():
+    try:
+        with open(marker, "rb") as source:
+            value = source.read()
+            stat = os.fstat(source.fileno())
+            return stat.st_ino, stat.st_mtime_ns, stat.st_ctime_ns, value
+    except FileNotFoundError:
+        return None
+
+def subscriber(pid):
+    try:
+        # An open /proc/PID directory cannot follow PID reuse. Linux documents
+        # ESRCH after exit: https://docs.kernel.org/filesystems/proc.html
+        process = os.open("/proc/" + pid, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            def read(name):
+                with os.fdopen(os.open(name, os.O_RDONLY, dir_fd=process), "rb") as source:
+                    return source.read()
+            argv = read("cmdline").split(b"\0")
+            state = read("stat").rsplit(b") ", 1)[1].split()[0]
+            if state in (b"Z", b"X", b"x"):
+                return "absent"
+            if argv == [b""]:
+                return "unreadable"
+            return pid if argv[1:] == expected + [b""] else "absent"
+        finally:
+            os.close(process)
+    except OSError as error:
+        return "absent" if error.errno in (errno.ENOENT, errno.ESRCH) else "unreadable"
+    except (IndexError, ValueError):
+        return "unreadable"
+
+try:
+    before = snapshot()
+    if before is None:
+        result = "absent"
+    elif not re.fullmatch(rb"[1-9][0-9]*", before[-1]):
+        result = "malformed"
+    else:
+        result = subscriber(before[-1].decode("ascii"))
+    # Fixture cleanup and a replacement subscriber can both change the marker
+    # while /proc is read. Neither permits absence based on the old marker.
+    print(result if snapshot() == before else "changed")
+except OSError:
+    print("unreadable")
+PYSUB
+}
+snd_subscriber_alive() {
+  local pid
+  pid="$(snd_subscriber)" || return
+  if [[ $pid =~ ^[1-9][0-9]*$ ]]; then echo alive; else printf '%s\n' "$pid"; fi
+}
 snd_pid_alive() { [[ -d /proc/$1 ]] && echo alive || echo gone; }
 snd_route_reply() { # availability, optional read-barrier marker
   local sources
@@ -279,7 +337,7 @@ snd_page_check
 snd_page_close
 
 # Shared facts reach the pane, flyout and selection action.
-expect_poll "the subscriber starts" true bash -c '[[ -s $1 ]] && echo true || echo false' _ "$devices_dir/pactl.subscriber"
+expect_poll "the subscriber starts" alive snd_subscriber_alive
 snd_pid="$(snd_subscriber)"
 expect_poll "unknown route facts finish" '"ready"' snd_routes state
 expect "System opens for input choices" ok ipc shell summon window vgs.system '{"pane":"vgs.sound"}'
@@ -333,9 +391,9 @@ expect "a removed source name is rejected" 'unknown: removed-source' ipc vgs.sou
 expect "System hides after route controls" ok ipc shell hide window vgs.system
 expect "Sound disables for collector lifetime check" ok ipc shell setPluginEnabled vgs.sound false
 expect_poll "disable ends the owned subscriber" gone snd_pid_alive "$snd_pid"
-expect_poll "disable releases its subscriber marker" absent snd_subscriber
+expect_poll "disable leaves no live subscriber" absent snd_subscriber
 expect "Sound starts again after lifetime check" ok ipc shell setPluginEnabled vgs.sound true
-expect_poll "enable starts a new owned subscriber" true bash -c '[[ -s $1 ]] && echo true || echo false' _ "$devices_dir/pactl.subscriber"
+expect_poll "enable starts a new owned subscriber" alive snd_subscriber_alive
 expect_poll "the Sound widget is placed in the bar" True snd_placed
 snd_all_binds='[["XF86AUDIOLOWERVOLUME", "vgs.sound:volume-down"], ["XF86AUDIOMICMUTE", "vgs.sound:mic-mute"], ["XF86AUDIOMUTE", "vgs.sound:mute"], ["XF86AUDIORAISEVOLUME", "vgs.sound:volume-up"]]'
 expect_poll "the Hyprland layer binds the four audio keys to the Sound shortcuts" "$snd_all_binds" snd_binds
@@ -641,7 +699,7 @@ expect_poll "the restored shell reads the speakers" true snd_tooltip_names 'Smok
 kill -- "-$devices_player_pid" 2>/dev/null || true
 for snd_name in "${snd_recorded[@]}"; do rm -f -- "${shim:?}/$snd_name"; done
 expect "Sound disables before fixture cleanup" ok ipc shell setPluginEnabled vgs.sound false
-expect_poll "the final subscriber releases its marker" absent snd_subscriber
+expect_poll "the final subscriber has ended" absent snd_subscriber
 rm -f -- "${devices_dir:?}/pactl.events" "${devices_dir:?}"/sound-{old-cards,new-sources}{,.waiting}
 device_reply_clear pactl
 user_config_restore "$snd_saved"
