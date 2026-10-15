@@ -1069,6 +1069,7 @@ surf_reset_action() {
   [[ $reply == ok ]] || return 1
   expect_poll "the reset proof changes the nested output before delivery" reset held_mode_state || return $?
   [[ $(held_mode_state) == reset ]] || return 1
+  surf_reset_induced=true
   right_click "$x" "$y" || return $?
   surf_reset_dependent=true
 }
@@ -1078,11 +1079,11 @@ surf_reset_proof() {
     failures=0 behaviour_failures=0 mode_resets=0
     not_measured_rows=()
     row_class=behaviour
-    local surf_reset_dependent=false before_pointer="$pointer_at" status=0
+    local surf_reset_induced=false surf_reset_dependent=false before_pointer="$pointer_at" status=0
     fail "control: independent failure before the coordinate reset"
     coordinate_observation surfaces-coordinate-reset surf_reset_action
     fail "control: independent failure after the coordinate reset"
-    [[ $surf_reset_dependent == false && $pointer_at == "$before_pointer" && ${#not_measured_rows[@]} == 1 ]] || return 1
+    [[ $surf_reset_induced == true && $surf_reset_dependent == false && $pointer_at == "$before_pointer" && ${#not_measured_rows[@]} == 1 ]] || return 1
     [[ $failures == 2 && $behaviour_failures == 2 && $mode_resets == 0 ]] || return 1
     smoke_verdict "$failures" "$behaviour_failures" "$stalled_render" "$mode_resets" /dev/null || status=$?
     [[ $status == 1 ]] || return 1

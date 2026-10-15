@@ -82,7 +82,7 @@ click_mutant="$tmp/click-mutant.sh"
 python3 - "$click_helper" "$click_mutant" <<'PY'
 import pathlib, sys
 text = pathlib.Path(sys.argv[1]).read_text()
-needle = '  hover "$((x + 1))" "$y" || return 1\n'
+needle = '  hover "$((x + 1))" "$y" || return $?\n'
 assert text.count(needle) == 1
 pathlib.Path(sys.argv[2]).write_text(text.replace(needle, ""))
 PY
