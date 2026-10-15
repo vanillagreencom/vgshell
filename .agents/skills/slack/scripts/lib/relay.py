@@ -1,0 +1,1494 @@
+"""The listener: one process, every bound root on one machine, over one
+Socket Mode connection.
+
+Slack sends each Events API envelope to one of an app's open connections,
+with no pattern to which, so one relay holds its app's one connection for
+every root on its machine and routes each message event by its channel. The
+relay opens the connection with SLACK_APP_TOKEN, acknowledges each envelope
+by its envelope_id as soon as its loop reads it, before the delivery, then
+routes a message event to the root bound to its channel: a top-level
+message, or an owner reply in any thread. One reader owns socket sends and
+queues acknowledged envelopes. The worker owns journal, API and mailbox
+calls, so their waits cannot block acknowledgements or pong replies.
+
+An event moves no position. It writes no `seen` or `thread` line; the
+catch-up writes both, and a start with no seeds writes the `seen` line of
+the binding moment. The catch-up runs on the first poll after every connect
+and reconnect, and on the next poll after an event whose delivery was
+refused. Each root keeps refused live events in memory and retries them on
+every poll, independently of the history lookback, until delivery succeeds
+or Slack reports that their parent no longer exists.
+It reads the
+channel's history from the journal's position after initial discovery within
+SLACK_THREAD_DAYS, delivers the top-level messages past the position, and
+reads every open ask and every recently active thread, including parents
+older than the history lookback. A refused thread read does not block the
+other threads or outbound mail; a temporary refusal leaves catch-up due
+on the next poll. So a message sent while the relay was disconnected, one whose
+envelope never arrived, and one acknowledged before a stop cut its delivery
+off land on a catch-up within that lookback, and lane-mail's delivery id judges any repeat.
+The connection opens before the catch-up reads, so no message falls between
+them. A rate limit ends a catch-up, which the first poll past Slack's
+Retry-After resumes, newest thread first, past the threads it read.
+
+Each poll, every SLACK_POLL_SECONDS, per root: re-resolve the owners when
+the setting moved, retry previously unmarked deliveries, run the catch-up
+when one is due, swap the receipt mark of every directive and answer the
+overseer has read since, then read the mailbox's events and
+post every owner-bound envelope not yet carried.
+
+An owner message delivered as a directive or an answer carries a receipt
+mark, a reaction and never a message: SEEN once it lands in the mailbox,
+READ once the overseer's to-lane.cursor passes it. The journal judges each
+mark on delivery and later polls, so a stop between the delivery and its
+mark leaves the mark to the next poll. Each delivery attempts eyes once,
+without retrying a new refusal later in the same poll.
+
+A start whose journal holds no `start` line seeds both positions before it
+reads anything: Slack from the binding moment, so a channel's earlier history is never delivered,
+and the mailbox from its newest envelope, so notices and answers already
+there are never re-posted. Open asks are posted whatever their age inside
+SLACK_THREAD_DAYS, since they still want an answer. A reserved ask, which no
+default closes, is posted once more in its thread, naming the owner, on the
+first poll past its deadline while it stays open; the journal's `overdue`
+line keeps that post from ever repeating.
+
+Each root checks its presence pair at every poll through the settings reader
+when its settings files change. Other settings need slack setup or a restart.
+While SLACK_JARVIS_SESSION_FILE is younger than SLACK_JARVIS_SESSION_MAX_AGE a Jarvis session
+answers the overseer, and the relay holds mailbox posts except replies to
+messages the owner typed in the channel, which still post in their threads.
+Reading the channel goes on. A reload that renames the file keeps the
+replaced one: the hold stands while either is fresh, and the replaced file
+is dropped once the new one is fresh or the replaced one stale. An emptied
+setting ends the hold. When the file goes stale or
+absent the relay resumes. The Jarvis session's watch writes its last mailbox read
+count as one bare integer in tmp/lane-mail/overseer/to-overseer.seen. A resume
+skips notices and asks, including closed asks, on lines at or below that count, with no post and
+no mention, and journals their ids; later ones post. A missing or unreadable
+seen file skips nothing. The count is clamped to the lines listed. Held answers
+still post; closure records update thread state independently of post age.
+`slack post --mention` checks the root's OS hold lock, including a renamed
+file's hold. Its current presence file also holds a post between polls.
+
+A relay imports its modules once, so a package update reaches a running relay
+only through a new image. The relay fingerprints its code at start and again
+on every poll. A reading that differs from the start one and matches the poll
+before it is an update whose writer has finished: the poll completes, the
+connection closes, the envelopes already acknowledged are delivered, and the
+relay re-executes its launcher in the same process, which reads the settings
+again as a fresh start does. A half-written update changes between two polls
+and is never loaded. The reload waits while the relay reconnects, since the
+new image's start would be refused in an outage, and while a refused live
+delivery is held, since Slack resends no acknowledged envelope and the new
+image's catch-up misses a reply under a thread past its lookback.
+"""
+
+from __future__ import annotations
+
+import datetime
+import hashlib
+import json
+import os
+import queue
+import re
+import subprocess
+import sys
+import threading
+import time
+from pathlib import Path
+from typing import Callable, Dict, Iterable, List, NoReturn, Optional, Set, Tuple, Union
+
+from api import RETRIES, Slack
+from mailbox import LANE_MAIL_TIMEOUT_SECONDS, MAILBOX_READ_FILES, LaneMail
+from markup import Verbatim, outbound, plain
+from refusals import LockRefusal, Refusal, keyed, notice, print_refusal
+from secret import check as secret_check
+from secret import checked_file
+from settings import CALLER_ENV, JARVIS_SESSION, RENAMED_SETTINGS, Presence, Settings, load_presence
+from store import (
+    READ,
+    SEEN,
+    Binding,
+    Journal,
+    RelayLock,
+    LOCK,
+    JARVIS_LOCK,
+    State,
+    Thread,
+
+    compact,
+    format_at,
+    parse_at,
+    read_binding,
+    read_journal,
+    read_status,
+    save_file,
+    write_binding,
+    write_status,
+)
+from websocket import Closed, WebSocket
+
+ROUTED_SUBTYPES = {None, "file_share", "thread_broadcast"}
+# The package's code: the launcher and the modules it loads.
+SCRIPTS = Path(__file__).resolve().parents[1]
+LAUNCHER = SCRIPTS / "slack"
+WORKFLOW_STATE = Path(".agents/skills/orch/scripts/workflow-state")
+# Seconds the relay waits for Slack's `hello` on a new connection.
+HELLO_SECONDS = 10
+# Seconds of silence on the connection before it pings, and as many again
+# before it reads itself as dropped: `WebSocket.recv` judges both.
+IDLE_SECONDS = 30
+# The wait before a failed connect is tried again, doubled per failure up to
+# the second figure; a drop is answered with a connect at once.
+RETRY_FIRST_SECONDS = 1
+RETRY_MAX_SECONDS = 60
+# Seconds a relay may stay reconnecting before `listen --status` reads it as
+# failing: two of the longest waits between connects.
+RECONNECT_BOUND_SECONDS = 2 * RETRY_MAX_SECONDS
+NOT_OWNER = "Only the channel's owners steer this session; this message is not routed."
+NO_TEXT = "Only text and files are routed; this message has neither."
+
+# Slack's answer when the reaction is already as the call would leave it, or
+# its message is gone: nothing is left to mark.
+MARK_SETTLED = {"already_reacted", "no_reaction", "message_not_found"}
+
+# A thread read: the `oldest` it was read from, None for the whole thread,
+# and the messages it returned.
+Page = Tuple[Optional[str], List[Dict]]
+
+
+def listen(roots: List[Path], settings: Settings, api: Slack, once: bool) -> int:
+    """Own the worker's deadline even while startup or DNS cannot return."""
+    bound = settings.poll_seconds + RECONNECT_BOUND_SECONDS
+    condition = threading.Condition()
+    stage, completed = "startup", time.monotonic()
+    outcome: list = []
+
+    def progress(current: str, done: bool = False) -> None:
+        nonlocal stage, completed
+        with condition:
+            stage = current
+            if done:
+                completed = time.monotonic()
+            condition.notify()
+
+    def work() -> None:
+        try:
+            api.progress = progress
+            relay = Relay(roots, settings, api)
+            relay.progress = progress
+            result = relay.run(once)
+        except BaseException as err:
+            result = err
+        with condition:
+            outcome.append(result)
+            condition.notify()
+
+    threading.Thread(target=work, daemon=True).start()
+    with condition:
+        while not outcome:
+            age = time.monotonic() - completed
+            remaining = bound - age
+            if remaining <= 0:
+                # A stuck worker cannot run cleanup. A normal exit can also
+                # wait on its children, so end the whole process here.
+                print(keyed("worker-stalled", f"{stage} age={age:.3f}s bound={bound}s"), file=sys.stderr, flush=True)
+                os._exit(2)
+            condition.wait(remaining)
+    if isinstance(outcome[0], BaseException):
+        raise outcome[0]
+    return outcome[0]
+
+
+def at_epoch(at: str) -> float:
+    """An envelope's `at` as epoch seconds; lane-mail wrote it."""
+    try:
+        return parse_at(at)
+    except ValueError as err:
+        raise Refusal("lane-mail-failed", f"envelope at={at}") from err
+
+
+def resolve_owner_ids(api: Slack, owners: List[str]) -> Dict[str, str]:
+    ids = {}
+    for email in owners:
+        try:
+            answer = api.get("users.lookupByEmail", email=email)
+        except Refusal as err:
+            if err.key == "slack-api-failed" and err.error == "users_not_found":
+                raise Refusal("slack-owner-unknown", f"{email} fix=set SLACK_OWNERS to addresses this workspace knows") from err
+            raise
+        ids[email] = str(answer["user"]["id"])
+    return ids
+
+
+def newest(events: List[Dict]) -> Tuple[str, List[str]]:
+    """The mailbox's newest `at` and the ids stamped in that second: `at` is a
+    whole second, so one written later in that second is named apart."""
+    at_newest = ""
+    ids: List[str] = []
+    for envelope in events:
+        at = str(envelope["at"])
+        if at_newest == "" or at_epoch(at) > at_epoch(at_newest):
+            at_newest, ids = at, [str(envelope["id"])]
+        elif at == at_newest:
+            ids.append(str(envelope["id"]))
+    return at_newest, ids
+
+
+def before(floor_at: str, floor_ids: Set[str], at: float, env_id: str) -> bool:
+    """Whether an envelope stamped `at` is at or before the `start` floor."""
+    if not floor_at:
+        return False
+    floor = at_epoch(floor_at)
+    return at < floor or at == floor and env_id in floor_ids
+
+
+
+def local_time(at: str) -> str:
+    """An `at`-shaped stamp as Slack's date token, which each reader's Slack
+    shows in that reader's own time zone and clock format; the stamp is the
+    fallback a client that cannot render the token shows."""
+    return f"<!date^{int(at_epoch(at))}^{{date_short_pretty}} at {{time}}|{at}>"
+
+
+def fingerprint() -> str:
+    """Which code a relay runs: 12 hex characters of one sha256 over the
+    launcher, every lib/*.py and the installed mailbox reader definitions."""
+    digest = hashlib.sha256()
+    path = SCRIPTS / "lib"
+    try:
+        for path in [LAUNCHER, *sorted(p for p in (SCRIPTS / "lib").iterdir() if p.suffix == ".py")]:
+            digest.update(path.read_bytes())
+        for path in MAILBOX_READ_FILES:
+            digest.update(path.read_bytes())
+    except OSError as err:
+        raise Refusal("code-unreadable", f"{path} ({err.strerror})") from err
+    return digest.hexdigest()[:12]
+
+
+def overdue_id(ask_id: str) -> str:
+    """The journal id of a reserved ask's one post past its deadline."""
+    return f"{ask_id}:overdue"
+
+
+def touched_at(path: str) -> Optional[float]:
+    """A presence file's mtime; None for an empty setting or an absent
+    file, which is no Jarvis session."""
+    if not path:
+        return None
+    try:
+        return os.stat(path).st_mtime
+    except FileNotFoundError:
+        return None
+    except OSError as err:
+        raise Refusal("jarvis-session-file-unreadable", f"{path} ({err.strerror})") from err
+
+
+def presence_fresh(touched: Optional[float], presence: Presence, now: float) -> bool:
+    """Whether a presence file touched at `touched` holds posts at `now`."""
+    return touched is not None and now - touched < presence.jarvis_session_max_age
+
+
+def jarvis_session_held(root: Path, presence: Presence, now: float) -> bool:
+    """The relay's OS lock retains a renamed file's hold. The current
+    file can also start a hold between polls."""
+    if RelayLock(root, JARVIS_LOCK).held():
+        return True
+    return presence_fresh(touched_at(presence.jarvis_session_file), presence, now)
+
+
+def mention(binding: Binding) -> str:
+    return " ".join(f"<@{binding.owner_ids[o]}>" for o in binding.owners if o in binding.owner_ids)
+
+
+def author_of(message: Dict, owner_ids: Iterable[str], bot_user: str = "") -> Optional[str]:
+    """`app` for a bot's message, `owner` for an owner's, None for anyone
+    else: the relay routes no other person's words."""
+    if message.get("bot_id") or bot_user and message.get("user") == bot_user:
+        return "app"
+    return "owner" if message.get("user") in owner_ids else None
+
+
+def reader_generation(root: Path) -> int:
+    """The generation the root's registered overseer record names, read as
+    lane-mail's own overseer check reads that record: from the root, in the
+    relay's environment. A record from before generations reads as 0. A
+    failed read refuses as a refused lane-mail write does, so the message is
+    read again on the next poll."""
+    command = "workflow-state get oversee .overseer.generation"
+    try:
+        proc = subprocess.run([str(root / WORKFLOW_STATE), "get", "oversee", ".overseer.generation // 0"], cwd=str(root),
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=LANE_MAIL_TIMEOUT_SECONDS)
+    except (OSError, subprocess.TimeoutExpired) as err:
+        raise Refusal("lane-mail-failed", f"{command} ({err})") from err
+    generation = proc.stdout.strip()
+    if proc.returncode != 0 or not generation.isdigit():
+        raise Refusal("lane-mail-failed", f"{command} {(proc.stderr.strip().splitlines() or [generation])[0]}")
+    return int(generation)
+
+
+class RootRelay:
+    def __init__(self, path: Path, settings: Settings, presence: Presence, api: Slack, clock: Callable[[], float]) -> None:
+        self.path = path
+        self.settings = settings
+        self.presence = presence
+        self.presence_files = self.presence_stamp()
+        # The presence file a reload renamed away from, which still holds
+        # until the new file is fresh or the replaced one is stale: a delegate
+        # writes the new file only after the rename.
+        self.replaced_session_file = ""
+        self.api = api
+        self.clock = clock
+        self._mail: Optional[LaneMail] = None
+        self.binding = read_binding(path)
+        self.state: State = read_journal(path)
+        self.journal = Journal(path, self.state)
+        self.lock = RelayLock(path)
+        self.hold_lock = RelayLock(path, JARVIS_LOCK)
+        self.skipped: set = set()
+        self.last_ok: Optional[float] = None
+        self.post_failed: Optional[Refusal] = None
+        self.names: Dict[str, str] = {}
+        # Socket Mode acknowledges before delivery. History cannot recover
+        # an old-thread reply, so its root retains the event until handled.
+        self.pending_live: Dict[str, Dict] = {}
+        # The threads the due catch-up has read; None once one has read the
+        # channel since the last connect or the last refused event delivery.
+        self.due: Optional[Set[str]] = set()
+        self.catch_up_at = 0.0  # Slack's Retry-After, waited across polls
+        self.discovered = False
+        # The status record carries the compaction day across restarts; the
+        # journal holds deliveries and positions alone.
+        record = read_status(path) or {}
+        self.compacted_day: str = str(record.get("compacted_day", ""))
+
+
+    def presence_stamp(self, names: Tuple[str, ...] = ()) -> tuple:
+        stamps = []
+        for name in names or ("kendex.settings.toml", ".kendex/settings.toml", self.presence.private_file):
+            try:
+                stat = (self.path / name).stat()
+                stamps.append((stat.st_mtime_ns, stat.st_size))
+            except FileNotFoundError:
+                stamps.append(None)
+            except OSError as err:
+                raise Refusal("setting-invalid", f"root={self.path} settings-file={name} ({err})") from err
+        return tuple(stamps)
+
+    @property
+    def channel(self) -> str:
+        return self.binding.channel
+
+    @property
+    def mail(self) -> LaneMail:
+        if self._mail is None:
+            self._mail = LaneMail(self.path)
+        return self._mail
+
+    def owners_current(self) -> None:
+        """The setting is the authority: a binding resolved from another
+        owners list is re-resolved before anything more is delivered."""
+        if self.binding.owners != self.settings.owners:
+            ids = resolve_owner_ids(self.api, self.settings.owners)
+            self.binding = Binding(
+                self.channel, self.binding.channel_name, self.binding.bound_at, list(self.settings.owners), ids
+            )
+            write_binding(self.path, self.binding)
+
+    def seed(self) -> None:
+        """The positions a start with no seeds begins from, journaled so a
+        restart keeps them: Slack's history past the binding moment, and the
+        mailbox past its newest envelope. `start` goes last, so a stop
+        between the two lines seeds again."""
+        self.journal.append(t="seen", ts=self.binding.bound_at)
+        at, ids = newest(self.mail.events())
+        self.journal.append(t="start", at=at, ids=ids)
+
+    # -- inbound: Slack to the mailbox --------------------------------------
+
+    def ready(self) -> None:
+        """What every delivery needs first: the owners as the setting names
+        them, and the seeds of a start whose journal holds none: a journal
+        of connection lines alone, which a connect writes before the first
+        poll, is not seeded."""
+        self.owners_current()
+        if not self.state.seeded:
+            self.seed()
+
+    def poll(self, bot_user: str) -> None:
+        self.post_failed = None
+        self.prepare_hold()
+        self.ready()
+        self.mark_seen(self.state.delivered)
+        for message in list(self.pending_live.values()):
+            try:
+                self.on_message(message, bot_user)
+            except Refusal as err:
+                if err.key != "slack-api-failed" or err.error != "thread_not_found":
+                    raise
+                self.thread_refused(err, str(message.get("thread_ts") or message["ts"]))
+                self.pending_live.pop(str(message["ts"]))
+        if self.due is not None and self.clock() >= self.catch_up_at:
+            try:
+                self.catch_up(bot_user, self.due)
+            except Refusal as err:
+                if err.key != "slack-rate-limited":
+                    raise
+                print_refusal(err)
+                self.catch_up_at = self.clock() + err.retry_after
+        self.mark_read()
+        if self.post_failed is not None:
+            raise self.post_failed
+        touched = self.refresh_hold()
+        now = self.clock()
+        if presence_fresh(touched, self.presence, now):
+            if not self.state.held:
+                self.journal.append(t="hold", at=format_at(touched))
+            self.post_events([routed for routed in self.routes(self.mail.events()) if routed[1] == "reply"])
+        else:
+            events = self.mail.events()
+            if self.state.held:
+                self.resume(events)
+            else:
+                self.post_events(self.routes(events))
+        if self.post_failed is not None:
+            raise self.post_failed
+        self.last_ok = self.clock()
+
+    def prepare_hold(self) -> None:
+        # Presence failures stop outbound posts. Inbound owner messages still
+        # need delivery, so the post step reports a refusal from this read.
+        try:
+            self.refresh_hold()
+        except Refusal as err:
+            self.post_failed = err
+
+    def refresh_hold(self) -> Optional[float]:
+        """Publish the current or retained presence hold before Slack can wait.
+        Status age reports health; OS ownership carries this hold until release."""
+        stamp = self.presence_stamp()
+        if stamp != self.presence_files:
+            presence = load_presence(self.path)
+            changed_private = presence.private_file != self.presence.private_file
+            if presence.jarvis_session_file != self.presence.jarvis_session_file:
+                # An emptied setting ends the hold; a renamed one keeps the old file.
+                self.replaced_session_file = self.presence.jarvis_session_file if presence.jarvis_session_file else ""
+            self.presence = presence
+            self.presence_files = stamp[:2] + self.presence_stamp((presence.private_file,)) if changed_private else stamp
+        touched = self.jarvis_session_touched()
+        if presence_fresh(touched, self.presence, self.clock()):
+            if self.hold_lock.handle is None:
+                self.hold_lock.acquire()
+        else:
+            self.hold_lock.release()
+        return touched
+
+    def live(self, thread: Thread) -> bool:
+        """Whether catch-up re-reads a known thread within its lookback."""
+        return not thread.missing and (thread.open or max(float(thread.ts), thread.active) >= self.settings.horizon(self.clock()))
+
+    def parent_context(self, thread_ts: str, message: Optional[Dict] = None, retries: int = RETRIES) -> Dict:
+        """Read a parent's small context once, persisting it across restarts."""
+        thread = self.state.threads.get(thread_ts)
+        parent = thread.parent if thread is not None else None
+        if message is None and (parent is None or self.state.pending_files and not parent.get("envelope")):
+            messages = self.api.get("conversations.replies", retries=retries, channel=self.channel, ts=thread_ts, limit=1)["messages"]
+            if not messages or str(messages[0]["ts"]) != thread_ts:
+                raise Refusal("slack-api-failed", f"conversations.replies parent={thread_ts} missing", error="thread_not_found")
+            message = messages[0]
+        if message is not None:
+            self.bind_file_share(message)
+            thread = self.state.threads.get(thread_ts)
+            parent = thread.parent if thread is not None else None
+        envelope = thread.envelope if thread is not None and thread.kind in {"ask", "notice"} else ""
+        if parent is None:
+            assert message is not None, "an uncached parent needs its Slack message"
+            parent = self.parent_of(message, "bot" if message.get("bot_id") else "owner", envelope)
+        elif envelope and parent.get("envelope") != envelope:
+            parent = dict(parent, envelope=envelope)
+        else:
+            return parent
+        self.journal.append(t="parent", ts=thread_ts, parent=parent)
+        return parent
+
+    def parent_of(self, message: Dict, author: str, envelope: str = "") -> Dict:
+        """The bounded parent pointer an owner directive carries."""
+        parent = {"ts": str(message["ts"]), "author": author,
+                  "excerpt": " ".join(str(message.get("text") or "")[:300].splitlines())}
+        if envelope:
+            parent["envelope"] = envelope
+        return parent
+
+    def thread_context(self, thread_ts: str, ts: str, generation: int, bot_user: str, retries: int,
+                       page: Optional[Page] = None) -> Dict:
+        """The parent pointer of the reply at `ts`, its `thread` every message
+        up to that reply, both sides, which `generation` has not been
+        delivered, oldest first. Individually delivered answers do not mark
+        earlier context as received. One read supplies both, a catch-up's own `page` where it
+        reaches back to the mark; the text is never journaled."""
+        thread = self.state.threads.get(thread_ts)
+        mark = thread.reads.get(generation) if thread is not None else None
+        answers = thread.answers.get(generation, set()) if thread is not None else set()
+        if page is not None and (page[0] is None or mark is not None and float(mark) >= float(page[0])):
+            messages = page[1]
+        else:
+            # With no parent recorded, the whole thread supplies it in the same read.
+            since = mark if thread is not None and thread.parent is not None else None
+            messages = list(self.api.paged("conversations.replies", "messages", retries=retries, channel=self.channel,
+                                           ts=thread_ts, oldest=since))
+        messages = sorted(messages, key=lambda m: float(m["ts"]))
+        root = next((m for m in messages if str(m["ts"]) == thread_ts), None)
+        unseen = []
+        for message in messages:
+            author = author_of(message, self.binding.owner_ids.values(), bot_user)
+            if author is not None and float(mark or 0) < float(message["ts"]) <= float(ts) and str(message["ts"]) not in answers:
+                unseen.append({"ts": str(message["ts"]), "author": author,
+                               "text": plain(str(message.get("text") or ""), self.user_name)})
+        return dict(self.parent_context(thread_ts, root, retries), thread=unseen)
+
+    def catch_up(self, bot_user: str, due: Set[str]) -> None:
+        """Discover parents once; retained eligible parents supply old-thread
+        discovery on reconnect without repeating the channel lookback."""
+        horizon = self.settings.horizon(self.clock())
+        position = self.state.seen_ts
+        oldest = position if self.discovered or float(position) <= horizon else f"{horizon:.6f}"
+        messages = list(self.api.paged("conversations.history", "messages", retries=0, channel=self.channel, oldest=oldest))
+        messages.sort(key=lambda m: float(m["ts"]))
+        new = [m for m in messages if float(m["ts"]) > float(position)]
+        for message in new:
+            self.bind_file_share(message)
+            self.handle(message, bot_user)
+        # A first reply can arrive after history advances past its parent.
+        parents = {str(m["ts"]): m for m in messages if float(m["ts"]) >= horizon or m.get("latest_reply")}
+        replied = {str(m["ts"]): float(m.get("latest_reply") or 0) for m in messages}
+        complete = True
+        for thread_ts in sorted({*parents, *self.state.threads} - due, key=float, reverse=True):
+            if thread_ts not in self.state.threads:
+                try:
+                    self.parent_context(thread_ts, parents[thread_ts])
+                except Refusal as err:
+                    complete = self.thread_refused(err, thread_ts) and complete
+                    continue
+            thread = self.state.threads[thread_ts]
+            if self.live(thread) and (
+                thread.open or thread.ts not in replied or replied[thread.ts] > float(thread.seen)
+            ):
+                if self.read_replies(thread, bot_user):
+                    due.add(thread_ts)
+                else:
+                    complete = False
+        if new:
+            self.journal.append(t="seen", ts=new[-1]["ts"])
+        self.due = None if complete else due
+        self.discovered = self.discovered or complete
+
+    def thread_refused(self, err: Refusal, thread_ts: str) -> bool:
+        """Report one thread's refusal without stopping the root. Slack's
+        thread_not_found closes only the journal's ask, not lane-mail's ask.
+        Authentication failure still stops the relay, and a rate limit the
+        catch-up, not just one thread. Returns whether the refusal needs no
+        later catch-up retry."""
+        if err.key in ("slack-auth-failed", "slack-rate-limited"):
+            raise err
+        thread = self.state.threads.get(thread_ts)
+        envelope = thread.envelope if thread is not None else ""
+        notice("thread-read-failed", f"ts={thread_ts} id={envelope} reason={err.key} {err.value}")
+        missing = err.key == "slack-api-failed" and err.error == "thread_not_found"
+        if missing and thread is not None and thread.open:
+            self.journal.append(t="resolved", id=thread.envelope, reason="thread_not_found")
+        return missing
+
+    def on_message(self, message: Dict, bot_user: str, active: bool = True) -> None:
+        """One live message event, without a thread-age or parent-origin gate."""
+        ts = str(message["ts"])
+        thread_ts = str(message.get("thread_ts") or ts)
+        if active and thread_ts == ts:
+            self.bind_file_share(message)
+        self.handle(message, bot_user, path="live", active=active)
+        if active:
+            self.pending_live.pop(ts, None)
+
+    def bind_file_share(self, message: Dict) -> None:
+        for item in message.get("files") or []:
+            file_id = str(item.get("id", ""))
+            if file_id in self.state.pending_files:
+                envelope = self.state.pending_files[file_id]
+                self.journal.append(t="bound", file=file_id, id=envelope, ts=message["ts"],
+                                    parent=self.parent_of(message, "bot", envelope))
+
+    def read_replies(self, thread: Thread, bot_user: str) -> bool:
+        """Read one thread; return whether catch-up can finish without retry."""
+        # Binding owns the lower boundary; thread.seen owns delivery progress.
+        oldest = max(thread.seen, self.binding.bound_at, key=float)
+        # With no parent recorded, the whole page records it. Otherwise the
+        # page reaches back to the reader generation's mark, so each reply it
+        # delivers carries its thread context with no second read.
+        mark = thread.reads.get(reader_generation(self.path))
+        since = min(oldest, mark, key=float) if thread.parent and mark is not None else None
+        try:
+            replies = list(
+                self.api.paged("conversations.replies", "messages", retries=0, channel=self.channel, ts=thread.ts, oldest=since)
+            )
+        except Refusal as err:
+            return self.thread_refused(err, thread.ts)
+        page = (since, list(replies))
+        for parent in [r for r in replies if r["ts"] == thread.ts and thread.parent is None]:
+            self.parent_context(thread.ts, parent)
+        replies = [r for r in replies if r["ts"] != thread.ts and float(r["ts"]) > float(oldest)]
+        replies.sort(key=lambda m: float(m["ts"]))
+        for reply in replies:
+            self.handle(reply, bot_user, page=page)
+        if replies:
+            self.journal.append(t="thread", ts=thread.ts, seen=replies[-1]["ts"])
+        return True
+
+    def handle(self, message: Dict, bot_user: str, path: str = "catch-up", page: Optional[Page] = None,
+               active: bool = True) -> None:
+        ts = str(message["ts"])
+        # The journal skips a stamp it already carried; lane-mail's locked
+        # check judges any stamp the journal lost, the crash between the
+        # append and the mark, and answers it with the envelope that landed.
+        if ts in self.state.delivered or ts in self.state.ignored:
+            return
+        if message.get("bot_id") or message.get("user") == bot_user:
+            return
+        if message.get("subtype") not in ROUTED_SUBTYPES:
+            return
+        thread_ts = str(message.get("thread_ts") or ts)
+        if path == "live":
+            self.pending_live[ts] = message
+            if not active:
+                return
+            self.ready()
+        user = str(message.get("user", ""))
+        if user not in self.binding.owner_ids.values():
+            self.api.post("chat.postMessage", channel=self.channel, thread_ts=thread_ts, text=NOT_OWNER)
+            self.journal.append(t="in", channel=self.channel, ts=ts, kind="ignored", reason="not-owner")
+            return
+        text = plain((message.get("text") or "").strip(), self.user_name)
+        lines = ([text] if text else []) + self.fetch_files(message)
+        if not lines:
+            self.api.post("chat.postMessage", channel=self.channel, thread_ts=thread_ts, text=NO_TEXT)
+            self.journal.append(t="in", channel=self.channel, ts=ts, kind="ignored", reason="no-text")
+            return
+        text = "\n".join(lines)
+        delivery = f"{self.channel}:{ts}"
+        thread = self.state.threads.get(thread_ts) if thread_ts != ts else None
+        generation = reader_generation(self.path)
+        # The mailbox judges whether an ask is still open; the journal's own
+        # flag only decides how often the thread is read.
+        if thread is not None and thread.kind == "ask":
+            outcome, answer_id = self.mail.answer(thread.envelope, text, delivery)
+            if outcome == "answered":
+                self.journal.append(t="in", channel=self.channel, ts=ts, kind="answer", id=answer_id, thread=thread_ts,
+                                    generation=generation)
+                notice("delivered", f"ts={ts} id={answer_id} path={path}")
+                self.mark_seen([ts])
+                return
+        # A directive's `in` line marks the thread up to it as delivered to
+        # this reader generation. An answer marks only its own timestamp,
+        # so earlier unseen messages still reach a later directive.
+        parent = None
+        if thread_ts != ts:
+            parent = self.thread_context(thread_ts, ts, generation, bot_user,
+                                         retries=0 if path == "catch-up" else RETRIES, page=page)
+        envelope = self.mail.send_directive(text, delivery, parent)
+        self.journal.append(t="in", channel=self.channel, ts=ts, kind="directive", id=envelope, thread=thread_ts,
+                            generation=generation)
+        notice("delivered", f"ts={ts} id={envelope} path={path}")
+        self.mark_seen([ts])
+
+    def react(self, method: str, ts: str, name: str) -> bool:
+        """One reaction on the message at `ts`; False when Slack refused it,
+        the refusal printed and the mark left to the next poll. A mark is a
+        courtesy: its failure fails no poll and holds no delivery back, and a
+        dead token still stops the relay."""
+        try:
+            self.api.post(method, channel=self.channel, timestamp=ts, name=name)
+        except Refusal as err:
+            if err.key == "slack-auth-failed":
+                raise
+            if method == "reactions.add" and name == SEEN and err.error != "already_reacted" or err.error not in MARK_SETTLED:
+                print_refusal(err)
+                return False
+        return True
+
+    def mark_seen(self, timestamps: Iterable[str]) -> None:
+        """Attempt SEEN for these delivered messages without a journal mark.
+        Delivery supplies its own timestamp; poll retries the retained set
+        before new deliveries. Slack's already_reacted settles a stop after
+        the reaction but before its journal line."""
+        for ts in sorted(set(timestamps) & (self.state.delivered.keys() - self.state.marks.keys()), key=float):
+            if self.react("reactions.add", ts, SEEN):
+                self.journal.append(t="mark", ts=ts, name=SEEN)
+
+    def mark_read(self) -> None:
+        """Swap SEEN for READ on every directive and answer the overseer has
+        read: its to-lane line at or below the cursor, or a directive the
+        receipts rows list as read. A swap Slack refused, or a receipts read
+        lane-mail refused, is made again on the next poll."""
+        seen = [ts for ts, name in self.state.marks.items() if name == SEEN]
+        if not seen:
+            return
+        try:
+            cursor, read = self.mail.read_receipts()
+            events = self.mail.events()
+        except Refusal as err:
+            print_refusal(err)
+            return
+        read |= {e["id"] for e in events if e["box"] == "to-lane" and e["line"] is not None and e["line"] <= cursor}
+        for ts in seen:
+            if self.state.delivered.get(ts) not in read:
+                continue
+            if self.react("reactions.remove", ts, SEEN) and self.react("reactions.add", ts, READ):
+                self.journal.append(t="mark", ts=ts, name=READ)
+
+    def user_name(self, user_id: str) -> str:
+        """The name Slack shows for a user a message mentions, asked once
+        per relay; the id itself when Slack refuses to say."""
+        if user_id not in self.names:
+            try:
+                user = self.api.get("users.info", user=user_id)["user"]
+            except Refusal as err:
+                if err.key == "slack-auth-failed":
+                    raise
+                print_refusal(err)
+                return user_id
+            profile = user.get("profile") or {}
+            self.names[user_id] = str(profile.get("display_name") or profile.get("real_name") or user.get("name") or user_id)
+        return self.names[user_id]
+
+    def fetch_files(self, message: Dict) -> List[str]:
+        """One line per file of an owner's message: the path it was saved
+        to, or `file <id> not fetched: <why>`, so the message lands whether
+        or not its files do."""
+        lines = []
+        for item in message.get("files") or []:
+            file_id = str(item.get("id", ""))
+            # Slack sends a file hidden by the plan's limit, or deleted, with
+            # no download url.
+            url = str(item.get("url_private_download") or "")
+            if not url:
+                lines.append(f"file {file_id} not fetched: no download url")
+                continue
+            given = item.get("size")
+            size = given if isinstance(given, int) else None
+            try:
+                saved = save_file(
+                    self.path, file_id, str(item.get("name") or ""), lambda out: self.api.download(url, size, out)
+                )
+            except Refusal as err:
+                lines.append(f"file {file_id} not fetched: {err.value}")
+                continue
+            except OSError as err:
+                lines.append(f"file {file_id} not fetched: {err.strerror or err}")
+                continue
+            lines.append(str(saved))
+        return lines
+
+    # -- outbound: the mailbox to Slack --------------------------------------
+
+    def jarvis_session_touched(self) -> Optional[float]:
+        """SLACK_JARVIS_SESSION_FILE's mtime, or the replaced file's while it
+        is fresh and the new one is not. Drop the replaced file when the
+        new file is fresh or the replaced file is stale."""
+        touched = touched_at(self.presence.jarvis_session_file)
+        now = self.clock()
+        if self.replaced_session_file and not presence_fresh(touched, self.presence, now):
+            replaced = touched_at(self.replaced_session_file)
+            if presence_fresh(replaced, self.presence, now):
+                return replaced
+        self.replaced_session_file = ""
+        return touched
+
+    def jarvis_session_read(self, events: List[Dict]) -> Optional[int]:
+        """The Jarvis session's seen line count, clamped to this mailbox snapshot;
+        None when absent, unreadable or not a bare nonnegative integer."""
+        assert self.mail.box is not None, "mailbox events must resolve the mailbox before its read marker"
+        path = self.mail.box / "to-overseer.seen"
+        try:
+            text = path.read_text().strip()
+            if not text.isascii() or not text.isdecimal():
+                return None
+            count = int(text)
+        except (OSError, UnicodeError, ValueError):
+            return None
+        counts = [e["count"] for e in events if e["box"] == "to-overseer"]
+        if None in counts:
+            return None
+        lines = max(counts, default=0)
+        return min(count, lines)
+
+    def resume(self, events: List[Dict]) -> None:
+        """End a hold, post unread notices and asks, then journal the seen
+        count, skipped notice and ask ids and asks whose posts landed."""
+        seen = self.jarvis_session_read(events)
+        routed = self.routes(events, seen or 0)
+        skipped = [str(envelope["id"]) for envelope, route, _ in routed if route == "seen"]
+        asks: List[str] = []
+        # Stamp the resume now, not when presence expired: skipped notices
+        # can be newer, and must stay carried until their age bars a post.
+        at = format_at(self.clock())
+        # A dead token can stop before a read notice; suppression is complete
+        # before any post, while asks records only the posts that landed.
+        try:
+            self.post_events(routed, asks)
+        finally:
+            self.journal.append(
+                t="resume", from_at=self.state.hold_at, at=at,
+                seen=seen if seen is not None else "none", skipped=skipped, asks=asks
+            )
+
+    def routes(self, events: List[Dict], seen: int = 0) -> List[Tuple[Dict, str, Dict]]:
+        """Each envelope not yet carried and what it takes: `ask`, `notice`, `reply`,
+        `answer`, `resolution`, `seen` for a notice or an ask the Jarvis session read on resume,
+        `overdue` for a reserved ask with a posted thread or unresolved post
+        open past its deadline, or `skip`
+        for another that never posts; answers carry their ask's record."""
+        closures = {str(e["id"]): e for e in events
+                    if e.get("box") == "to-lane" and e.get("mail_class") == "close"}
+        closed = {e.get("re") for e in closures.values()}
+        # An owner answer leaves its ask open until the overseer closes it,
+        # but the owner is no longer the one it waits on.
+        answered = {e.get("re") for e in events
+                    if e.get("box") == "to-lane" and e.get("mail_class") == "resolution"}
+        by_id = {str(e["id"]): e for e in events}
+        horizon = self.settings.horizon(self.clock())
+        state = self.state
+
+        routed = []
+        for envelope in events:
+            env_id = str(envelope["id"])
+            if env_id in closures:
+                thread_ts = state.by_envelope.get(str(envelope.get("re", "")))
+                if thread_ts in state.threads and env_id not in state.resolutions:
+                    routed.append((envelope, "resolution", {}))
+                if envelope["kind"] == "resolution":
+                    continue
+            # A resume carries skipped asks without a post. A reminder needs
+            # a posted thread or a post whose response remains unknown.
+            if (envelope.get("reserved") is True and env_id in state.carried and env_id not in closed
+                    and (env_id in state.by_envelope or env_id in state.unknown)
+                    and env_id not in answered and overdue_id(env_id) not in state.carried
+                    and at_epoch(str(envelope["deadline"])) <= self.clock()):
+                routed.append((envelope, "overdue", {}))
+            if env_id in state.carried or env_id in self.skipped:
+                continue
+            at = at_epoch(str(envelope["at"]))
+            box = envelope.get("box")
+            kind = envelope.get("kind")
+            owner = box == "to-overseer" and envelope.get("to") == "owner"
+            # `store.compact` drops an `out` line by this same age, so an
+            # envelope whose line it may drop must never post again.
+            if owner and kind in ("notice", "ask") and envelope["line"] is not None and envelope["line"] <= seen:
+                route = "seen"
+            elif at < horizon:
+                route = "skip"
+            elif owner and kind == "ask":
+                route = "skip" if env_id in closed else "ask"
+            elif before(state.start_at, state.start_ids, at, env_id):
+                route = "skip"
+            elif owner and kind == "notice":
+                ref = envelope.get("ref")
+                reference = by_id.get(ref, {})
+                # send_directive writes Slack's channel:ts and thread pointer.
+                # Owner asks originate here, so their rulings still post.
+                slack_reply = reference.get("thread_ts") or re.fullmatch(
+                    r"[CDG][A-Z0-9]+:[0-9]+\.[0-9]+", str(reference.get("delivery_id", ""))
+                )
+                owner_ask = reference.get("kind") == "ask" and reference.get("to") == "owner"
+                route = "reply" if slack_reply else "notice" if not ref or owner_ask else "skip"
+            elif box == "to-lane" and kind == "answer":
+                route = "answer"
+            else:
+                route = "skip"
+            ask = by_id.get(str(envelope.get("re", "")), {}) if route == "answer" else {}
+            routed.append((envelope, route, ask))
+        return routed
+
+    def post_events(
+        self, routed: List[Tuple[Dict, str, Dict]], landed: Optional[List[str]] = None
+    ) -> None:
+        """Posts what `routes` gives each envelope; `landed`, when given,
+        collects the ids of the asks whose post landed."""
+        for envelope, route, ask in routed:
+            if route == "ask":
+                if self.post_ask(envelope) and landed is not None:
+                    landed.append(str(envelope["id"]))
+            elif route == "overdue":
+                self.post_overdue(envelope)
+            elif route in ("notice", "reply"):
+                self.post_notice(envelope)
+            elif route == "answer":
+                self.post_answer(envelope, ask)
+            elif route == "resolution":
+                self.journal.append(t="resolved", id=str(envelope["re"]), source=str(envelope["id"]))
+            elif route in ("skip", "seen"):
+                self.skipped.add(str(envelope["id"]))
+            else:
+                raise AssertionError(f"route={route}")
+
+    def _out(self, envelope: Dict, kind: str, state: str, **fields: object) -> None:
+        """One `out` line. Each carries the envelope's `at`, the age
+        `store.compact` judges the line by."""
+        self.journal.append(
+            t="out", channel=self.channel, id=str(envelope["id"]), kind=kind, state=state, at=str(envelope["at"]), **fields
+        )
+
+    def post_refused(self, err: Refusal, envelope: Dict, kind: str) -> None:
+        """Slack's refusal of one post, by key: a lost response is journaled
+        unknown and never repeated; a dead token stops the relay; anything
+        else journals retry, fails this poll and leaves the envelope for the next."""
+        if err.key == "slack-response-lost":
+            self._out(envelope, kind, "unknown")
+            print_refusal(err)
+            return
+        self._out(envelope, kind, "retry", reason=err.key)
+        if err.key == "slack-auth-failed":
+            raise err
+        if self.post_failed is None:
+            self.post_failed = Refusal(err.key, f"{err.value} id={envelope['id']}")
+
+    def _send(self, envelope: Dict, kind: str, text: Union[str, List[Union[str, Verbatim]]], thread_ts: Optional[str],
+              attach: str = "") -> Optional[str]:
+        """The one outbound rule: the text and any attached file pass the
+        secret-value check, a refusal there journaled refused and printed;
+        then an in-flight line is synced before the file is uploaded with
+        the text as its comment, or the text posted as standard Markdown.
+        Slack's refusal goes to `post_refused`. A
+        text past the `markdown_text` cap goes as `text`, Slack's mrkdwn,
+        its Markdown marks shown literally: an ask or an answer the owner
+        never sees would stand at its deadline unread. A `Verbatim` block
+        mrkdwn cannot show as typed is refused like a secret. Returns the
+        message ts or the upload's file id; None when nothing landed."""
+        env_id = str(envelope["id"])
+        try:
+            text, body_arg = outbound(self.path, text, file_comment=bool(attach))
+            secret_check(text.encode(), f"id={env_id}")
+            data = checked_file(attach, f"id={env_id} file={attach}") if attach else None
+        except Refusal as err:
+            self._out(envelope, kind, "refused", reason=err.key)
+            print_refusal(err)
+            return None
+        self._out(envelope, kind, "inflight")
+        try:
+            if data is not None:
+                return self.api.upload(Path(attach).name, data, self.channel, text, thread_ts)
+            return str(self.api.post("chat.postMessage", channel=self.channel, thread_ts=thread_ts,
+                                     **{body_arg: text})["ts"])
+        except Refusal as err:
+            self.post_refused(err, envelope, kind)
+            return None
+
+    def ask_pieces(self, envelope: Dict, header: str) -> List[Union[str, Verbatim]]:
+        """The whole question under `header`: its text, any draft, and its
+        options, recommendation and deadline, a blank line between each."""
+        if envelope.get("tracker_posted") is True:
+            # Outbound markup resolves the issue identifier to its tracker link.
+            question = envelope.get("text", "").split("\n", 1)[0]
+            return [f"{question} {envelope['issue']}"]
+        options = ", ".join(envelope.get("options") or [])
+        lines = [header, envelope.get("text", "")]
+        draft = envelope.get("draft")
+        if draft:
+            # The owner approves this exact text, so it is posted whole and
+            # as typed: a Markdown link would hide its URL.
+            lines += [f"Draft to {draft['recipient']} by {draft['medium']}:",
+                      Verbatim(draft["text"], f"id={envelope['id']} draft")]
+        tail = []
+        if options:
+            tail.append(f"Options: {options}.")
+        if envelope.get("recommend"):
+            tail.append(f"Recommended: {envelope['recommend']}.")
+        if envelope.get("reserved") is True:
+            tail.append(f"No default: this decision waits for your reply in this thread, due {local_time(str(envelope['deadline']))}.")
+        elif envelope.get("deadline"):
+            tail.append(f"It stands at {local_time(str(envelope['deadline']))} unless you reply in this thread.")
+        if tail:
+            lines.append(" ".join(tail))
+        pieces: List[Union[str, Verbatim]] = []
+        for line in lines:
+            if pieces:
+                pieces.append("\n\n")
+            pieces.append(line)
+        return pieces
+
+    def post_ask(self, envelope: Dict) -> bool:
+        """Whether the ask landed and its `open` line was journaled."""
+        pieces = self.ask_pieces(envelope, f"{mention(self.binding)} Question from {envelope.get('from', 'overseer')}:")
+        ts = self._send(envelope, "ask", pieces, None)
+        if ts is None:
+            return False
+        excerpt = "".join(piece if isinstance(piece, str) else piece.text for piece in pieces)
+        self._out(envelope, "ask", "open", thread=ts,
+                  parent=self.parent_of({"ts": ts, "text": excerpt}, "bot", str(envelope["id"])))
+        # A reserved ask first posted past its deadline is its own reminder.
+        if envelope.get("reserved") is True and at_epoch(str(envelope["deadline"])) <= self.clock():
+            self._out(dict(envelope, id=overdue_id(str(envelope["id"]))), "overdue", "resolved", thread=ts)
+        return True
+
+    def post_overdue(self, envelope: Dict) -> None:
+        """A reserved ask past its deadline, posted again in its thread once,
+        under its own journal id so no later poll posts it again. With no
+        thread to post in, one whose post response was lost or one Slack
+        deleted, the reminder's own thread becomes the ask's, so a reply
+        there answers the ask."""
+        ask_id = str(envelope["id"])
+        reminder = dict(envelope, id=overdue_id(ask_id))
+        thread_ts = self.state.post_thread(ask_id)
+        header = f"{mention(self.binding)} Overdue, no default"
+        # A new thread may be the owner's first sight of the question, so it
+        # carries the whole question; the original thread already shows it.
+        pieces: List[Union[str, Verbatim]] = (
+            [f"{header}: {envelope.get('text', '')}"] if thread_ts is not None
+            else self.ask_pieces(envelope, f"{header}. Question from {envelope.get('from', 'overseer')}:"))
+        landed = self._send(reminder, "overdue", pieces, thread_ts)
+        if landed is None:
+            return
+        if thread_ts is None:
+            excerpt = "".join(piece if isinstance(piece, str) else piece.text for piece in pieces)
+            self._out(envelope, "ask", "open", thread=landed,
+                      parent=self.parent_of({"ts": landed, "text": excerpt}, "bot", ask_id))
+        self._out(reminder, "overdue", "resolved", thread=thread_ts or landed)
+
+    def post_notice(self, envelope: Dict) -> None:
+        ref = envelope.get("ref")
+        thread_ts = self.state.post_thread(str(ref)) if ref else None
+        attach = str(envelope.get("attach") or "")
+        landed = self._send(envelope, "notice", envelope.get("text", ""), thread_ts, attach)
+        if landed is None:
+            return
+        if attach:
+            self._out(envelope, "notice", "file", file=landed)
+        else:
+            fields = {} if thread_ts else {"parent": self.parent_of(
+                {"ts": landed, "text": envelope.get("text", "")}, "bot", str(envelope["id"]))}
+            self._out(envelope, "notice", "resolved", thread=thread_ts or landed, **fields)
+
+    def post_answer(self, envelope: Dict, ask: Dict) -> None:
+        ask_id = str(envelope.get("re", ""))
+        if ask_id not in self.state.by_envelope:
+            self.skipped.add(str(envelope["id"]))
+            return
+        thread_ts = self.state.post_thread(ask_id)
+        if envelope.get("by") == "default":
+            text = f"No answer by the deadline: {envelope.get('text', '')} stands."
+        elif envelope.get("delivery_id"):
+            # The writer's record belongs in lane-mail; the ask owns the choices.
+            option = next((line for line in envelope.get("text", "").splitlines()
+                           if line in ask.get("options", [])), None)
+            text = f"Answered: {option}." if option is not None else "Answered outside the chat."
+        else:
+            text = f"Answered in the chat: {envelope.get('text', '')}"
+        landed = self._send(envelope, "answer", text, thread_ts)
+        if landed is not None:
+            fields = {} if thread_ts else {"parent": self.parent_of(
+                {"ts": landed, "text": text}, "bot", str(envelope["id"]))}
+            self._out(envelope, "answer", "resolved", thread=thread_ts or landed, **fields)
+
+
+    # -- the record --status reads --------------------------------------------
+
+    def compact_daily(self, today: str) -> None:
+        """Once a day, on the first poll of a new UTC day; the first start
+        only records the day, so `slack compact` is what compacts sooner."""
+        if self.compacted_day == today:
+            return
+        if self.compacted_day:
+            compact(self.path, self.settings.horizon(self.clock()))
+            self.state = read_journal(self.path)
+            self.journal = Journal(self.path, self.state)
+        self.compacted_day = today
+
+    def record_status(self, ok: bool, error: str, code: str, connection: str, since: str, connection_error: str) -> None:
+        delivered = max(self.state.delivered, key=float, default="")
+        write_status(
+            self.path,
+            {
+                "pid": os.getpid(),
+                "code": code,
+                "compacted_day": self.compacted_day,
+                "channel": self.channel,
+                "poll_seconds": self.settings.poll_seconds,
+                "last_poll": self.clock(),
+                "last_poll_ok": ok,
+                "last_error": error,
+                "last_delivered_ts": delivered,
+                "seen_ts": self.state.seen_ts,
+                "unknown": sorted(self.state.unknown),
+                "refused": sorted(self.state.refused),
+                "open_asks": sorted(t.envelope for t in self.state.threads.values() if t.open),
+                "calls_last_minute": self.api.calls_last_minute(),
+                "connection": connection,
+                "connection_since": since,
+                "connection_error": connection_error,
+                "held_by": JARVIS_SESSION if self.state.held else "",
+
+            },
+        )
+
+
+class Relay:
+    def __init__(
+        self,
+        roots: List[Path],
+        settings: Settings,
+        api: Slack,
+        clock: Callable[[], float] = time.time,
+        sleep: Callable[[float], None] = time.sleep,
+    ) -> None:
+        # The code this image runs, read before anything else so that the
+        # window between the imports and the reading stays short; `reading`
+        # is the last poll's reading of the code on disk.
+        self.code = fingerprint()
+        self.reading = self.code
+        self.settled = False
+        self.settings = settings
+        self.api = api
+        self.clock = clock
+        self.sleep = sleep
+        self.progress: Callable = lambda stage, done=False: None
+        self.paths = roots
+        self.roots: List[RootRelay] = []
+        self.by_channel: Dict[str, RootRelay] = {}
+        self.root_errors: Dict[Path, str] = {}
+        self.channels: Dict[Path, str] = {}
+        # Two roots on one channel would each deliver every owner message
+        # into their own mailbox and both post there.
+        for path in roots:
+            self.claim_channel(path, read_binding(path).channel)
+        self.bot_user = str(api.get("auth.test")["user_id"])
+        self.socket: Optional[WebSocket] = None
+        # `connected`, `reconnecting` while the relay tries to open a
+        # connection, or `disconnected` for a run that opens none; `since`
+        # is the UTC second the state began.
+        self.connection = "disconnected"
+        self.since = format_at(clock())
+        # The last refused connect or drop while the relay reconnects; empty
+        # once a connection opens.
+        self.connection_error = ""
+        self.opened = False
+        self.incoming: queue.Queue = queue.Queue()
+        self.stop_reader = threading.Event()
+        self.reader: Optional[threading.Thread] = None
+        for path in self.paths:
+            self.start_root(path)
+
+    def claim_channel(self, path: Path, channel: str) -> None:
+        for other, bound in self.channels.items():
+            if bound == channel and other != path:
+                raise Refusal(
+                    "channel-shared", f"{channel} roots={other},{path} fix=run `slack setup --name NAME` in one of them"
+                )
+        self.channels[path] = channel
+
+    def start_root(self, path: Path) -> bool:
+        root = None
+        try:
+            previous = self.by_channel.get(self.channels[path])
+            root = RootRelay(path, self.settings, load_presence(path), self.api, self.clock)
+            if previous is not None:
+                root.pending_live = previous.pending_live
+            self.claim_channel(path, root.channel)
+            # Keep event acceptance and held deliveries at their root even
+            # when its mailbox command is absent during an install update.
+            self.by_channel[root.channel] = root
+            root._mail = LaneMail(path)
+            root.lock.acquire()
+            root.prepare_hold()
+            if self.socket is not None:
+                root.journal.append(t="connect", at=self.since)
+        except Refusal as err:
+            if root is not None:
+                root.hold_lock.release()
+                root.lock.release()
+            self.root_failed(path, err)
+            return False
+        self.roots.append(root)
+        self.by_channel[root.channel] = root
+        return True
+
+    def poll_once(self) -> bool:
+        """One poll of every root; False when any root's poll was refused
+        or the code on disk could not be read."""
+        code_error = self.read_code()
+        clean = code_error == ""
+        today = datetime.datetime.fromtimestamp(self.clock(), datetime.timezone.utc).date().isoformat()
+        active = {root.path for root in self.roots}
+        for path in self.paths:
+            if path not in active and not self.start_root(path):
+                clean = False
+        for root in self.roots:
+            try:
+                root.compact_daily(today)
+                root.poll(self.bot_user)
+                root.record_status(code_error == "", code_error, self.code, self.connection, self.since, self.connection_error)
+                self.root_errors.pop(root.path, None)
+            except Exception as err:
+                self.root_failed(root, err)
+                clean = False
+        return clean
+
+    def read_code(self) -> str:
+        """One reading of the code on disk; `settled` once it differs from
+        the running code and matches the last poll's reading. An unreadable
+        file keeps the running code and returns its keyed refusal for the
+        status record."""
+        try:
+            reading = fingerprint()
+        except Refusal as err:
+            print_refusal(err)
+            return f"{err.key}={err.value}"
+        self.settled = reading != self.code and reading == self.reading
+        self.reading = reading
+        return ""
+
+    def root_failed(self, root: Union[Path, RootRelay], err: Exception) -> None:
+        """Record one root's failure without letting its status write stop
+        other roots. A dead token still stops the shared relay."""
+        if isinstance(err, Refusal) and (
+            err.key in ("slack-auth-failed", "root-unbound", "binding-invalid", "channel-shared")
+            or isinstance(err, LockRefusal) and err.lock_name == LOCK
+        ):
+            raise err
+        path = root if isinstance(root, Path) else root.path
+        error = f"{err.key}={err.value}" if isinstance(err, Refusal) else f"{type(err).__name__}: {err}"
+        status_error = ""
+        try:
+            if isinstance(root, RootRelay):
+                root.record_status(False, error, self.code, self.connection, self.since, self.connection_error)
+        except Exception as status_err:
+            # A broken root can also refuse its status write. Keep the
+            # primary diagnostic and continue serving the other roots.
+            status_error = f" status={type(status_err).__name__}: {status_err}"
+        if self.root_errors.get(path) != error:
+            failure = Refusal(err.key, f"{err.value} root={path}{status_error}") if isinstance(err, Refusal) else Refusal(
+                "root-poll-failed", f"{path} cause={error}{status_error}"
+            )
+            print(keyed(failure.key, failure.value), file=sys.stderr, flush=True)
+            self.root_errors[path] = error
+
+    def run(self, once: bool) -> int:
+        """`--once` is one poll of every root with no connection, its
+        catch-up included; otherwise the connection loop, which a dead token
+        or a settled code update alone ends."""
+        print(keyed("listening", f"{len(self.paths)} poll_seconds={self.settings.poll_seconds}"), flush=True)
+        if once:
+            self.progress("poll")
+            result = 0 if self.poll_once() else 1
+            self.progress("poll", True)
+            return result
+        app_api = Slack(self.settings.app_token, self.settings.api_url, token_name="SLACK_APP_TOKEN", scope="connections:write",
+                        progress=self.progress)
+        next_poll = retry_at = self.clock()
+        delay = RETRY_FIRST_SECONDS
+        try:
+            self.run_connected(app_api, next_poll, retry_at, delay)
+        finally:
+            self.progress("reader-stop")
+            self.stop_reader.set()
+            if self.reader is not None:
+                self.reader.join()
+        self.progress("reload")
+        self.reexec()
+
+    def reexec(self) -> NoReturn:
+        """This image replaced by the launcher on the code on disk: the same
+        process id and arguments, and the caller's own environment, so the
+        launcher reads the settings again from the layers a fresh start
+        reads. The lock file closes with this image and the new one takes
+        it again; its connect runs the catch-up for the gap."""
+        notice("reloading", f"{self.reading} running={self.code}")
+        sys.stderr.flush()
+        try:
+            os.execve(str(LAUNCHER), [str(LAUNCHER), *sys.argv[1:]], {
+                **CALLER_ENV, "_KENDEX_SLACK_RENAMED_SETTINGS": json.dumps(sorted(RENAMED_SETTINGS)),
+            })
+        except OSError as err:
+            raise Refusal("reexec-failed", f"{LAUNCHER} ({err.strerror})") from err
+
+    def run_connected(self, app_api: Slack, next_poll: float, retry_at: float, delay: float) -> None:
+        """Worker loop; all persistent state and API calls stay here. It
+        returns after the poll that finds a settled code update the relay
+        can reload onto."""
+        while True:
+            if self.socket is None and self.clock() >= retry_at:
+                self.progress("connect")
+                opened = self.open(app_api)
+                self.progress("connect", True)
+                if opened:
+                    delay = RETRY_FIRST_SECONDS
+                    next_poll = self.clock()
+                else:
+                    retry_at = self.clock() + delay
+                    delay = min(2 * delay, RETRY_MAX_SECONDS)
+            if self.clock() >= next_poll:
+                self.progress("poll")
+                self.poll_once()
+                self.progress("poll", True)
+                if self.settled and self.close_for_reload():
+                    return
+                next_poll = self.clock() + self.settings.poll_seconds
+            if self.socket is None:
+                self.progress("reconnect-wait")
+                self.sleep(max(0.0, min(next_poll, retry_at) - self.clock()))
+                continue
+            self.progress("socket-wait")
+            self.listen_until(next_poll)
+            if self.socket is None:
+                retry_at = self.clock()
+
+    def close_for_reload(self) -> bool:
+        """Whether the connection closed with nothing acknowledged left
+        undelivered, so the relay can re-execute. A relay reconnecting or
+        holding a refused live delivery keeps its connection state and
+        waits for a later poll. The reader stops before the queue is
+        delivered, so nothing is acknowledged after; a delivery refused then
+        leaves the connection closed for the loop to open again."""
+        if self.socket is None or any(root.pending_live for root in self.by_channel.values()):
+            return False
+        assert self.reader is not None, "an open connection has a reader"
+        self.stop_reader.set()
+        self.reader.join()
+        closed: Optional[Closed] = None
+        while not self.incoming.empty():
+            envelope = self.incoming.get_nowait()
+            if isinstance(envelope, Closed):
+                closed = envelope
+            else:
+                self.deliver(envelope)
+        if closed is not None:
+            self.drop(str(closed))
+            return False
+        self.socket = None
+        self.set_connection("reconnecting")
+        for root in self.roots:
+            root.journal.append(t="disconnect", at=self.since, reason="reload")
+        return not any(root.pending_live for root in self.by_channel.values())
+
+    def set_connection(self, connection: str) -> None:
+        """The connection state as the next status record shows it; `since`
+        moves only when the state changes."""
+        if connection != self.connection:
+            self.connection = connection
+            self.since = format_at(self.clock())
+
+    def refused(self, err: Refusal) -> None:
+        """A connect refused or a connection dropped: printed, and carried
+        as the connection error while the relay reconnects."""
+        print_refusal(err)
+        self.connection_error = f"{err.key}={err.value}"
+        self.set_connection("reconnecting")
+
+    def open(self, app_api: Slack) -> bool:
+        """A new connection, ready once Slack's `hello` arrives: journaled
+        `connect` the first time and `reconnect` after, every root's
+        catch-up then due. False, with the refusal printed, when Slack or
+        the network refused it; a token no retry mends stops the relay."""
+        try:
+            url = str(app_api.post("apps.connections.open")["url"])
+            self.progress("connect")
+            socket = WebSocket.connect(url, IDLE_SECONDS)
+        except Refusal as err:
+            if err.key == "slack-auth-failed":
+                raise
+            self.refused(err)
+            return False
+        except Closed as err:
+            self.refused(Refusal("socket-lost", str(err)))
+            return False
+        try:
+            hello = json.loads(socket.recv(HELLO_SECONDS) or "{}")
+            if not isinstance(hello, dict) or hello.get("type") != "hello":
+                raise Closed("no hello")
+        except (Closed, ValueError) as err:
+            socket.close()
+            self.refused(Refusal("socket-lost", f"hello ({err})"))
+            return False
+        self.socket = socket
+        self.stop_reader.clear()
+        self.reader = threading.Thread(target=self.read_socket, args=(socket,), daemon=True)
+        self.reader.start()
+        self.set_connection("connected")
+        self.connection_error = ""
+        kind = "reconnect" if self.opened else "connect"
+        self.opened = True
+        for root in self.roots:
+            root.journal.append(t=kind, at=self.since)
+            root.due = set()
+        notice(kind + "ed", self.since)
+        return True
+
+    def drop(self, reason: str) -> None:
+        """The connection closed, journaled `disconnect` with `reason`."""
+        assert self.socket is not None, "drop needs an open connection"
+        assert self.reader is not None, "drop needs a reader"
+        self.reader.join()
+        self.socket = None
+        self.set_connection("reconnecting")
+        for root in self.roots:
+            root.journal.append(t="disconnect", at=self.since, reason=reason)
+        self.refused(Refusal("socket-lost", reason))
+
+    def listen_until(self, deadline: float) -> None:
+        """Envelopes off the connection until `deadline` or a drop, the
+        silent drop `WebSocket.recv` finds among them."""
+        assert self.socket is not None, "listen needs an open connection"
+        while self.clock() < deadline:
+            try:
+                envelope = self.incoming.get(timeout=max(0.0, deadline - self.clock()))
+            except queue.Empty:
+                return
+            if isinstance(envelope, Closed):
+                self.progress("reader-stop")
+                self.drop(str(envelope))
+                return
+            self.progress("delivery")
+            self.deliver(envelope)
+            self.progress("socket-wait")
+
+    def read_socket(self, socket: WebSocket) -> None:
+        """The single reader owns sends and closes; it never calls the worker."""
+        try:
+            while not self.stop_reader.is_set():
+                text = socket.recv(1.0)
+                if text is not None:
+                    self.envelope(socket, text)
+        except Exception as err:
+            self.incoming.put(Closed(str(err)))
+        finally:
+            socket.close()
+
+    def envelope(self, socket: WebSocket, text: str) -> None:
+        """One envelope: acknowledged by its envelope_id before anything
+        else, since the catch-up covers a stop after the acknowledgement
+        within its lookback, and the journal skips an envelope Slack
+        sent again. A `disconnect` drops the connection for a
+        new one; other envelopes enter the worker queue without any API,
+        journal or mailbox call."""
+        try:
+            envelope = json.loads(text)
+        except ValueError as err:
+            raise Closed("envelope not JSON") from err
+        if not isinstance(envelope, dict):
+            raise Closed("envelope not an object")
+        if envelope.get("envelope_id"):
+            socket.send_text(json.dumps({"envelope_id": envelope["envelope_id"]}))
+        if envelope.get("type") == "disconnect":
+            raise Closed(f"slack-{envelope.get('reason', 'unknown')}")
+        self.incoming.put(envelope)
+
+    def deliver(self, envelope: Dict) -> None:
+        """Route an acknowledged envelope on the worker."""
+        if envelope.get("type") != "events_api":
+            return
+        event = (envelope.get("payload") or {}).get("event") or {}
+        root = self.by_channel.get(str(event.get("channel", "")))
+        if event.get("type") != "message" or root is None:
+            return
+        try:
+            root.on_message(event, self.bot_user, active=root in self.roots)
+        except Refusal as err:
+            self.root_failed(root, err)
+            root.due = set()
