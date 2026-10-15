@@ -271,7 +271,7 @@ cases=(
   "a hold the host resets once is applied again and held|hold|ok|1755x933 scale=1.5,take|status=0 failures=0 resets=0 held=[WAYLAND-1 3510x1866 scale=2] window=[1755x933] state=held file=present|2"
   "a refused rule fails at once|hold|error|take|status=0 failures=1 resets=0 held=[] window=[] state=none file=absent|0"
   "a restore after a reset takes the held mode and scale|restore|ok|1755x933 scale=1.5,take|status=0 failures=0 resets=0 held=[WAYLAND-1 3510x1866 scale=2] window=[] state=held file=present|2"
-  "a restore the host always resets fails after the bound|restore|ok|1755x933 scale=1.5|status=1 failures=0 resets=0 held=[WAYLAND-1 3510x1866 scale=2] window=[] state=reset file=present|3"
+  "a restore the host always resets fails after the bound|restore|ok|1755x933 scale=1.5|status=77 failures=0 resets=0 held=[WAYLAND-1 3510x1866 scale=2] window=[] state=reset file=present|3"
   "a release empties the recorded window size|hold-release|ok|take|status=0 failures=0 resets=0 held=[] window=[] state=none file=absent|2"
   "a restore with no hold is refused|restore-none|ok|take|status=1 failures=0 resets=0 held=[] window=[] state=none file=absent|0"
   "nested holds restore each parent and its scale|nested|ok|take|status=0 failures=0 resets=0 held=[] window=[] state=none file=absent|6"
@@ -453,6 +453,197 @@ for i in "${!controls[@]}"; do
   if [[ -z $row ]]; then fail "control: $label names no case: $target"; continue; fi
   if "$runner" "$mutant" "$row" >/dev/null 2>&1; then fail "control: $label left '$target' green"; else ok "control: $label"; fi
 done
+
+# Execute extracted harness and Surfaces operations. Only the compositor
+# and pointer executable are stand-ins. Their file state survives the
+# real helpers' command substitutions.
+coordinate_case() {
+  local mode_file="$1" harness_file="$2" surface_file="$3" phase action path expected_status attempts skipped sampled expected_args dir out status=0
+  IFS='|' read -r phase action path expected_status attempts skipped sampled expected_args <<<"$4"
+  dir="$(mktemp -d "$tmp/coordinate.XXXXXX")" || return 1
+  python3 - "$harness_file" "$surface_file" "$dir/operations.sh" <<'PYEXTRACT' || return 1
+import pathlib,sys
+harness,surfaces,out=map(pathlib.Path,sys.argv[1:])
+def extract(path,names):
+    text=path.read_text()
+    result=[]
+    for name in names:
+        start=text.index(name+"() {")
+        line=text[start:text.index("\n",start)]
+        end=start+len(line)+1 if line.endswith("}") else text.index("\n}\n",start)+3
+        result.append(text[start:end])
+    return result
+parts=extract(harness,("coordinate_observation","pointer_dispatch","click","hover","right_click","middle_click","drag","wheel","swipe","point_item","click_item","expect","expect_poll","reader_stderr","smoke_poll_tries","geometry","render"))
+parts+=extract(surfaces,("layout_size","layout_click","surf_menu_point","flyout_widget_x","flyout_grow_check"))
+out.write_text("\n".join(parts)+"\n")
+PYEXTRACT
+  out="$(env -i PATH="$PATH" "$BASH" -c '
+set -euo pipefail
+source "$1/scripts/smoke/verdict.sh"
+source "$2"
+source "$3/operations.sh"
+stub_dir="$3" stub_phase="$4" stub_action="$5" stub_path="$6"
+sandbox="$stub_dir" mode_hold_file="$stub_dir/hold.lua"
+mon_w=1755 mon_h=933 screen_name=WAYLAND-1
+shell_env=()
+mode_hold=(WAYLAND-1 "3510x1866 scale=2")
+mode_hold_window=1250x720
+# A temporary hold also must not excuse a failed operation.
+mode_hold_run_base=false
+smoke_poll_bound_ms=400 smoke_control_poll_bound_ms=400
+pointer_at=before dependent=false continued=false
+: >"$stub_dir/cleanup-owned"
+ok() { :; }
+sleep() { :; }
+py_reply() { python3 -c "$@"; }
+held_json='\''[{"name":"WAYLAND-1","width":3510,"height":1866,"scale":2,"x":0,"y":0},{"name":"FAR","width":800,"height":600,"scale":1,"x":1755,"y":0}]'\''
+reset_json='\''[{"name":"WAYLAND-1","width":1250,"height":720,"scale":1,"x":0,"y":0}]'\''
+printf "%s\n" "$held_json" >"$stub_dir/monitors"
+case "$stub_phase" in recover|unavailable|reload-error|rule-missing) printf "%s\n" "$reset_json" >"$stub_dir/monitors" ;; unreadable) echo "[]" >"$stub_dir/monitors" ;; esac
+monitor_rule WAYLAND-1 3510x1866 2 >"$mode_hold_file"
+[[ $stub_phase != rule-missing ]] || rm -- "${mode_hold_file:?}"
+hypr() {
+  if [[ $1 == --batch ]]; then
+    echo reload >>"$stub_dir/reloads"
+    if [[ $stub_phase == reload-error ]]; then printf "error\n\n\n[]\n"; return; fi
+    [[ $stub_phase == unavailable ]] || printf "%s\n" "$held_json" >"$stub_dir/monitors"
+    printf "ok\n\n\n[]\n"
+  else cat "$stub_dir/monitors"; fi
+}
+# Record attempted delivery even when the executable returns an error.
+cat >"$sandbox/click" <<'\''POINTER'\''
+#!/usr/bin/env bash
+printf "%s\n" "$*" >>"${0%/*}/sent"
+[[ ! -e ${0%/*}/helper-error ]] || exit 1
+[[ ! -e ${0%/*}/helper-unavailable ]] || exit 77
+POINTER
+chmod +x "$sandbox/click"
+[[ $stub_phase != helper-error ]] || : >"$stub_dir/helper-error"
+[[ $stub_phase != helper-unavailable ]] || : >"$stub_dir/helper-unavailable"
+control_box() { echo "[100, 200, 2, 4]"; }
+control_hovered() { echo true; }
+ipc() {
+  case "$*" in
+    *acme.surfaces-tail*grow*) : >"$stub_dir/grown"; echo grown ;;
+    *geometry*)
+      mode_scale_of WAYLAND-1 >"$stub_dir/sample" || return 1
+      if [[ -e $stub_dir/grown ]]; then echo "[0, 200, 2, 4]"; else echo "[100, 200, 2, 4]"; fi ;;
+    *) echo 1 ;;
+  esac
+}
+# The no-commit fixture leaves a marker behind. Its intended failure must
+# not gain a position failure from a baseline in an earlier layout.
+popup_marker_follows() { echo left-behind; }
+flyout_rest_x=900
+deliver() {
+  case "$stub_action" in
+    drag) drag "$sample_x" "$sample_y" 301 302 ;;
+    wheel|swipe) "$stub_action" "$sample_x" "$sample_y" 3 ;;
+    click_item) click_item bar id Control text ;;
+    *) "$stub_action" "$sample_x" "$sample_y" ;;
+  esac || return $?
+  echo delivered
+}
+observe() {
+  local point sample_x sample_y
+  point="$(surf_menu_point)" || return $?
+  read -r sample_x sample_y <<<"$point" || return 1
+  case "$stub_phase" in
+    reset) printf "%s\n" "$reset_json" >"$stub_dir/monitors" ;;
+    reset-unreadable) echo "[]" >"$stub_dir/monitors" ;;
+  esac
+  case "$stub_path" in
+    expect) expect delivery delivered deliver || return $? ;;
+    poll) expect_poll delivery delivered deliver || return $? ;;
+    substitution) local result; result="$(deliver)" || return $?; [[ $result == delivered ]] || return 1 ;;
+    chain) deliver >/dev/null && : || return $? ;;
+    *) deliver >/dev/null || return $? ;;
+  esac
+  dependent=true
+}
+coordinate_observation coordinates observe && continued=true || exit 1
+rm -- "${stub_dir:?}/cleanup-owned"
+[[ $continued == true && ${coordinate_scope:-false} == false && ! -e $stub_dir/cleanup-owned ]] || exit 1
+sampled=0 sent=0 skipped=${#not_measured_rows[@]} status=0
+if [[ -e $stub_dir/sample ]]; then
+  sampled=1
+  [[ $(cat "$stub_dir/sample") == "3510x1866 scale=2" ]] || exit 1
+fi
+if [[ -e $stub_dir/sent ]]; then sent="$(wc -l <"$stub_dir/sent")"; fi
+[[ $sent == "$8" && $skipped == "$9" && $sampled == "${10}" ]] || exit 1
+[[ -z ${11} || $(cat "$stub_dir/sent") == "${11}" ]] || exit 1
+if [[ $stub_action == flyout_grow_check ]]; then
+  [[ $dependent == true && $failures == 1 && $behaviour_failures == 1 && $mode_resets == 0 && $pointer_at == before && -e $stub_dir/grown ]] || exit 1
+elif [[ $7 == 0 ]]; then
+  [[ $dependent == true && $failures == 0 && $pointer_at != before ]] || exit 1
+  if [[ $stub_action == layout_click ]]; then
+    [[ $(cat "$stub_dir/sent") == "101 202 2555 933" && $pointer_at == "101 202" ]] || exit 1
+  fi
+else
+  [[ $dependent == false && $pointer_at == before ]] || exit 1
+  if [[ $7 == 77 ]]; then [[ $failures == 0 ]]; else [[ $failures == 1 && $behaviour_failures == 1 && $mode_resets == 0 ]]; fi || exit 1
+fi
+smoke_verdict "$failures" "$behaviour_failures" "$stalled_render" "$mode_resets" /dev/null || status=$?
+[[ $status == "$7" ]]
+' _ "$repo" "$mode_file" "$dir" "$phase" "$action" "$path" "$expected_status" "$attempts" "$skipped" "$sampled" "$expected_args" 2>&1)" || status=$?
+  if [[ $status == 0 ]]; then return 0; fi
+  printf '        coordinate %s: %s\n' "$4" "$out"
+  return 1
+}
+# One table covers each mode state, action and shell status path.
+coordinate_cases=(
+  'held|click|direct|0|1|0|1|101 202 1755 933'
+  'held|hover|direct|0|1|0|1|101 202 1755 933 move'
+  'held|right_click|direct|0|1|0|1|101 202 1755 933 right'
+  'held|middle_click|direct|0|1|0|1|101 202 1755 933 middle'
+  'held|drag|direct|0|1|0|1|101 202 1755 933 drag 301 302'
+  'held|wheel|direct|0|1|0|1|101 202 1755 933 wheel 3'
+  'held|swipe|direct|0|1|0|1|101 202 1755 933 swipe 3'
+  'held|layout_click|direct|0|1|0|1|101 202 2555 933'
+  'recover|click|direct|0|1|0|1'
+  'recover|flyout_grow_check|direct|1|0|0|1'
+  'unavailable|click|direct|77|0|1|0'
+  'unreadable|click|direct|1|0|0|0'
+  'reload-error|click|direct|1|0|0|0'
+  'rule-missing|click|direct|1|0|0|0'
+  'helper-error|click|direct|1|1|0|1'
+  'helper-unavailable|click|direct|1|1|0|1'
+  'helper-error|click|expect|1|1|0|1'
+  'helper-error|click|poll|1|1|0|1'
+  'reset-unreadable|click|direct|1|0|0|1'
+  'reset|click|direct|77|0|1|1'
+  'reset|hover|direct|77|0|1|1'
+  'reset|right_click|direct|77|0|1|1'
+  'reset|middle_click|direct|77|0|1|1'
+  'reset|drag|direct|77|0|1|1'
+  'reset|wheel|direct|77|0|1|1'
+  'reset|swipe|direct|77|0|1|1'
+  'reset|layout_click|direct|77|0|1|1'
+  'reset|click|expect|77|0|1|1'
+  'reset|click|poll|77|0|1|1'
+  'reset|click|substitution|77|0|1|1'
+  'reset|click|chain|77|0|1|1'
+  'reset|click_item|expect|77|0|1|1'
+)
+for row in "${coordinate_cases[@]}"; do
+  if coordinate_case "$subject" "$repo/scripts/smoke/harness.sh" "$repo/scripts/smoke/rows/surfaces.sh" "$row"; then ok "coordinate $row"; else fail "coordinate $row"; fi
+done
+# Keep delivery intact while removing the actual final check in scratch.
+python3 - "$repo/scripts/smoke/harness.sh" "$tmp/unguarded-harness.sh" <<'PYMUTATE'
+import pathlib,sys
+source,out=map(pathlib.Path,sys.argv[1:])
+text=source.read_text()
+old='  coordinate_mode_check || return $?\n'
+assert text.count(old)==1
+changed=text.replace(old,'')
+assert changed!=text and '"$sandbox/click" "$@"' in changed
+out.write_text(changed)
+PYMUTATE
+if coordinate_case "$subject" "$tmp/unguarded-harness.sh" "$repo/scripts/smoke/rows/surfaces.sh" 'reset|click|direct|77|0|1|1' >/dev/null; then
+  fail 'control: removing the final mode check permits a forbidden action'
+else
+  ok 'control: removing the final mode check permits a forbidden action'
+fi
 
 if [[ $failures -gt 0 ]]; then
   echo "test-mode-hold: failed=$failures"

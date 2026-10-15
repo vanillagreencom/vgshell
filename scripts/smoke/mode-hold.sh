@@ -188,17 +188,42 @@ hold_mode() {
 # output reads them. Otherwise prints `hold-restore: not-held
 # output=<name> want=[<state>] <take_mode's reading>`, or
 # `hold-restore: refused hold=none` when no row holds a mode, and returns
-# 1. It writes no hold file: the file already holds the rule.
+# 77 for a readable output that cannot take the mode, or 1 for an
+# operation error. It writes no hold file: the file already holds the rule.
 hold_restore() {
-  local taken
+  local taken status
   if [[ ${#mode_hold[@]} -eq 0 ]]; then
     echo 'hold-restore: refused hold=none'
     return 1
   fi
-  if ! taken="$(take_mode "${mode_hold[0]}" "${mode_hold[1]% scale=*}" "${mode_hold[1]##*scale=}")"; then
+  if taken="$(take_mode "${mode_hold[0]}" "${mode_hold[1]% scale=*}" "${mode_hold[1]##*scale=}")"; then
+    return 0
+  else
+    status=$?
     printf 'hold-restore: not-held output=%s want=[%s] %s\n' "${mode_hold[0]}" "${mode_hold[1]}" "$taken"
-    return 1
+    return "$status"
   fi
+}
+# coordinate_mode_check: check only, because coordinates already sampled
+# under another layout must never be sent after a late restore. A host
+# configure can reset the mode between preparation and pointer delivery.
+# Status 77 means a readable reset; a failed monitor read remains 1.
+coordinate_mode_check() {
+  [[ ${#mode_hold[@]} -gt 0 ]] || return 0
+  case "$(held_mode_state)" in
+    held) return 0 ;;
+    reset) return 77 ;;
+    *) printf 'coordinate-mode: unreadable output=%s\n' "${mode_hold[0]}" >&2; return 1 ;;
+  esac
+}
+# coordinate_mode_prepare: recover before the observation reads geometry.
+# take_mode owns the existing bounded recovery and distinguishes a readable
+# unavailable mode from rule, reload and monitor read failures.
+coordinate_mode_prepare() {
+  local status
+  if coordinate_mode_check; then return 0; else status=$?; fi
+  [[ $status == 77 ]] || return "$status"
+  hold_restore
 }
 # held_mode_state: what became of the held mode, as one word. `held`: the
 # output reads its mode and scale. `reset`: the output reads another mode

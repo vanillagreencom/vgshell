@@ -480,12 +480,13 @@ layout_size() { hypr -j monitors | py_reply 'import json,sys; ms=json.load(sys.s
 layout_click() {
   local w h
   read -r w h < <(layout_size) || return 1
-  "${shell_env[@]}" "$sandbox/click" "$1" "$2" "$w" "$h" ${3:+"$3"} >/dev/null && pointer_at="$1 $2"
+  pointer_dispatch "$1" "$2" "$w" "$h" ${3:+"$3"} || return $?
+  pointer_at="$1 $2"
 }
 # near_focus: the pointer and the monitor focus on the first monitor's
 # desktop, where an IPC summon or a probe copy opens.
 near_focus() {
-  layout_click 40 "$((mon_h - 40))" move || return 1
+  layout_click 40 "$((mon_h - 40))" move || return $?
   hypr dispatch "hl.dsp.focus({ monitor = \"$screen_name\" })"
 }
 # far_box: the far monitor as `x y w h`, or `absent`.
@@ -507,7 +508,7 @@ far_press() {
   local x y w h _
   read -r x y w h < <(far_box) || return 1
   for _ in 1 2 3 4 5; do
-    layout_click "$((x + w / 2))" "$((y + h / 2))" || return 1
+    layout_click "$((x + w / 2))" "$((y + h / 2))" || return $?
     for _ in 1 2 3 4 5; do
       [[ $(layer_count "$1") == 0 ]] && { echo closed; return 0; }
       sleep 0.2
@@ -932,28 +933,31 @@ PY
 }
 panel_origin() { layers_of vgs:panel | py_reply 'import json,sys; l=json.load(sys.stdin)[0]; print(l[0], l[1])'; }
 expect "the widget summons its panel under itself" ok ipc smoke invokeInstance "bar:$screen_name" acme.surfaces summonHere ''
-geometry expect_poll "the popup panel sits under its widget" placed placed_below panel "bar:$screen_name" geometry
-render expect_poll "the compositor shows the panel marker where Qt maps it" followed popup_marker_mapped
+surf_flyout_mapped() {
+  geometry expect_poll "the popup panel sits under its widget" placed placed_below panel "bar:$screen_name" geometry || return $?
+  render expect_poll "the compositor shows the panel marker where Qt maps it" followed popup_marker_mapped
+}
+coordinate_observation surfaces-flyout-mapped surf_flyout_mapped
 flyout_follow_check() { render expect_poll "the compositor flyout follows the widget after another right-section widget is added" followed popup_marker_follows; }
 anchor_updates="$(log_lines 'summon popup: anchor updated for acme\.surfaces')" || fail "instance log unreadable: $instance_log"
 install_tail_widget
 expect_log "the host updates the popup's anchor for the bar re-layout" "$((anchor_updates + 1))" 'summon popup: anchor updated for acme\.surfaces'
-flyout_follow_check
+coordinate_observation surfaces-flyout-follow flyout_follow_check
 # A neighbour that changes width moves the widget with no widget added or
 # removed, and the flyout, open and still, follows it.
 flyout_widget_x() { ipc smoke invokeInstance "bar:$screen_name" acme.surfaces geometry '' | py_reply 'import json,sys; print(json.load(sys.stdin)[0])'; }
-flyout_rest_x="$(flyout_widget_x)" || flyout_rest_x=unreadable
-flyout_first_rest_x="$flyout_rest_x"
 # One render call holds the growth, so the bar frame the growth draws
 # counts and a flyout left behind fails rather than reading as a stalled
 # sandbox.
 flyout_grow_check() {
-  expect "the tail widget fixture grows while the flyout is open" grown ipc smoke invokeInstance "bar:$screen_name" acme.surfaces-tail grow ''
-  [[ $flyout_rest_x =~ ^-?[0-9]+$ ]] || fail "the widget's x before the growth is unreadable: $flyout_rest_x"
-  expect_poll "the tail widget's growth moves the widget left" "$((${flyout_rest_x//[!0-9-]/} - 100))" flyout_widget_x
+  local flyout_rest_x
+  flyout_rest_x="$(flyout_widget_x)" || return $?
+  [[ $flyout_rest_x =~ ^-?[0-9]+$ ]] || return 1
+  expect "the tail widget fixture grows while the flyout is open" grown ipc smoke invokeInstance "bar:$screen_name" acme.surfaces-tail grow '' || return $?
+  expect_poll "the tail widget's growth moves the widget left" "$((flyout_rest_x - 100))" flyout_widget_x || return $?
   expect_poll "the compositor flyout follows the widget after its neighbour grows" followed popup_marker_follows
 }
-render flyout_grow_check
+coordinate_observation surfaces-flyout-growth render flyout_grow_check
 expect "the anchored panel received the widget's payload" '"{\"from\":\"widget\"}"' ipc smoke readInstance panel acme.surfaces lastPayload
 expect "the anchored panel uses no layer surface" 0 layer_count vgs:panel
 expect_poll "the anchored panel focuses initialFocus without a ring" '["Control", "Initial focus", false, false, true]' surface_focused panel
@@ -1020,29 +1024,77 @@ except Exception:
 print("followed" if same else "menu=%s widget=%s opened=%s" % (box, widget, opened))
 PY
 }
-read -r surf_menu_x surf_menu_y < <(ipc smoke invokeInstance "bar:$screen_name" acme.surfaces geometry '' | py_reply 'import json,sys; x,y,w,h=json.load(sys.stdin); print(int(x+w/2), int(y+h/2))') || fail "the fixture widget has no box to right-click"
 surf_menu_park() { hover 1 "$((mon_h - 1))"; }
-surf_menu_park || fail "parking the pointer before the bar menu opens failed"
-surf_menu_grab "$surf_menu_ref" || fail "the frame before the bar menu opens is unreadable"
-render expect_poll "the screen is still before the bar menu opens" still surf_menu_still
-hover "$((surf_menu_x + 1))" "$surf_menu_y" && right_click "$surf_menu_x" "$surf_menu_y" || fail "the right click on the fixture widget failed"
-expect_poll "a right click on the fixture widget opens its bar menu" true ipc smoke readInstance "bar:$screen_name" acme.surfaces frameMenuOpen
-surf_menu_park || fail "parking the pointer off the open bar menu failed"
-render expect_poll "the compositor draws the bar menu under its widget" followed surf_menu_follows
-surf_menu_open_box="$(surf_menu_box)" || surf_menu_open_box=unreadable
-flyout_rest_x="$(flyout_widget_x)" || flyout_rest_x=unreadable
+surf_menu_point() {
+  ipc smoke invokeInstance "bar:$screen_name" acme.surfaces geometry '' | py_reply 'import json,sys; x,y,w,h=json.load(sys.stdin); print(int(x+w/2), int(y+h/2))'
+}
 surf_menu_grow_check() {
-  expect "the tail widget fixture grows again while the menu is open" grown ipc smoke invokeInstance "bar:$screen_name" acme.surfaces-tail grow 200
-  [[ $flyout_rest_x =~ ^-?[0-9]+$ ]] || fail "the widget's x before the second growth is unreadable: $flyout_rest_x"
-  expect_poll "the second growth moves the widget left" "$((${flyout_rest_x//[!0-9-]/} - 100))" flyout_widget_x
+  local flyout_rest_x
+  flyout_rest_x="$(flyout_widget_x)" || return $?
+  [[ $flyout_rest_x =~ ^-?[0-9]+$ ]] || return 1
+  expect "the tail widget fixture grows again while the menu is open" grown ipc smoke invokeInstance "bar:$screen_name" acme.surfaces-tail grow 200 || return $?
+  expect_poll "the second growth moves the widget left" "$((flyout_rest_x - 100))" flyout_widget_x || return $?
   expect_poll "the compositor bar menu follows the widget after its neighbour grows" followed surf_menu_follows "$surf_menu_open_box"
 }
-render surf_menu_grow_check
-# The menu moved, so the check above read a move and not a menu at rest.
-expect "the bar menu left where it opened" True py_reply 'import json,sys; a=json.loads(sys.argv[1]); b=json.load(sys.stdin); print(a[0] != b[0])' "$surf_menu_open_box" < <(surf_menu_box)
+surf_menu_observe() {
+  local point surf_menu_x surf_menu_y surf_menu_open_box
+  point="$(surf_menu_point)" || return $?
+  read -r surf_menu_x surf_menu_y <<<"$point" || return 1
+  surf_menu_park || return $?
+  surf_menu_grab "$surf_menu_ref" || return $?
+  render expect_poll "the screen is still before the bar menu opens" still surf_menu_still || return $?
+  hover "$((surf_menu_x + 1))" "$surf_menu_y" || return $?
+  right_click "$surf_menu_x" "$surf_menu_y" || return $?
+  expect_poll "a right click on the fixture widget opens its bar menu" true ipc smoke readInstance "bar:$screen_name" acme.surfaces frameMenuOpen || return $?
+  surf_menu_park || return $?
+  render expect_poll "the compositor draws the bar menu under its widget" followed surf_menu_follows || return $?
+  surf_menu_open_box="$(surf_menu_box)" || return $?
+  render surf_menu_grow_check || return $?
+  # The menu moved, so the check reads a move and not a menu at rest.
+  expect "the bar menu left where it opened" True py_reply 'import json,sys; a=json.loads(sys.argv[1]); b=json.load(sys.stdin); print(a[0] != b[0])' "$surf_menu_open_box" < <(surf_menu_box)
+}
+coordinate_observation surfaces-bar-menu surf_menu_observe
 type_keys -k Escape || fail "sending Escape to the bar menu failed"
 expect_poll "Escape closes the bar menu" false ipc smoke readInstance "bar:$screen_name" acme.surfaces frameMenuOpen
 remove_tail_widget
+
+# surfaces-coordinate-reset: the nested compositor resets after fresh
+# sampling. The same observation owner must refuse before delivery, skip
+# its dependent marker, and keep ordinary failures on both sides visible.
+surf_reset_action() {
+  local point x y device="${mode_hold[1]% scale=*}" reply
+  point="$(surf_menu_point)" || return $?
+  read -r x y <<<"$point" || return 1
+  reply="$(output_mode "${mode_hold[0]}" "$(( ${device%x*} - 100 ))x${device#*x}" 1)" || return 1
+  [[ $reply == ok ]] || return 1
+  expect_poll "the reset proof changes the nested output before delivery" reset held_mode_state || return $?
+  [[ $(held_mode_state) == reset ]] || return 1
+  right_click "$x" "$y" || return $?
+  surf_reset_dependent=true
+}
+surf_reset_proof() {
+  local result=0
+  (
+    failures=0 behaviour_failures=0 mode_resets=0
+    not_measured_rows=()
+    row_class=behaviour
+    local surf_reset_dependent=false before_pointer="$pointer_at" status=0
+    fail "control: independent failure before the coordinate reset"
+    coordinate_observation surfaces-coordinate-reset surf_reset_action
+    fail "control: independent failure after the coordinate reset"
+    [[ $surf_reset_dependent == false && $pointer_at == "$before_pointer" && ${#not_measured_rows[@]} == 1 ]] || return 1
+    [[ $failures == 2 && $behaviour_failures == 2 && $mode_resets == 0 ]] || return 1
+    smoke_verdict "$failures" "$behaviour_failures" "$stalled_render" "$mode_resets" /dev/null || status=$?
+    [[ $status == 1 ]] || return 1
+  ) >"$sandbox/surfaces-coordinate-reset-control.log" || result=$?
+  [[ $result == 0 ]] || return "$result"
+  echo reset-proof=refused-independent-failures-retained
+}
+expect "surfaces-coordinate-reset: invalid coordinates stop and independent failures remain" reset-proof=refused-independent-failures-retained surf_reset_proof
+sed 's/^/  CONTROL  /' "$sandbox/surfaces-coordinate-reset-control.log"
+# The proof's subshell changed the compositor, not the parent hold. Restore
+# through its existing owner before any later observation samples geometry.
+hold_restore || fail "the coordinate reset proof restores its held mode"
 
 expect "the unanchored panel opens for a nested menu" ok ipc shell summon panel acme.surfaces '{}'
 expect_poll "the parent panel is mapped" 1 layer_count vgs:panel
@@ -1230,27 +1282,32 @@ expect_poll "the panel is open before the outside click" 1 ipc smoke readInstanc
 click "$((mon_w / 2))" "$((mon_h / 2))" || fail "the click outside the panel failed"
 expect_poll "the outside click closes an anchored panel too" absent ipc smoke readInstance panel acme.surfaces opened
 
-expect "the probe builds the SummonPopup copy without the forced commit" ok ipc smoke popupLoad summon-no-commit "$summon_no_commit" "bar:$screen_name" acme.surfaces '{"pluginId":"acme.surfaces","kind":"panel","request":{"anchor":"@instance","anchored":true,"payloadJson":"{}"}}'
-expect "the no-commit copy's panel takes a payload" '' ipc smoke invokeInstance panel acme.surfaces open '{}'
-expect_poll "the no-commit copy is shown" true ipc smoke popupRead summon-no-commit visible
-expect "the no-commit copy disables its forced commit after the first frame" ok ipc smoke popupCall summon-no-commit disableCommit
+# Establish this control's baseline after mode preparation. A rest position
+# from the earlier popup can belong to a different output layout.
 install_tail_widget
-expect_poll "the re-added tail widget puts the widget back at its rest x" "$flyout_first_rest_x" flyout_widget_x
-flyout_rest_x="$flyout_first_rest_x"
-# The control runs the neighbour-grows check, the case the commit request
-# after the bar's polish exists for. A copy whose marker the screen does
-# not show fails that check too, so an absent marker is not the failure
-# the control wants.
 flyout_follow_control() {
   local failed
-  failed="$(failures=0 behaviour_failures=0; flyout_grow_check >"$sandbox/flyout-follow-control.log"; echo "$failures")"
+  failed="$(failures=0 behaviour_failures=0; flyout_grow_check >"$sandbox/flyout-follow-control.log" || exit $?; echo "$failures")" || return $?
   if grep -q 'after its neighbour grows: got marker=absent ' "$sandbox/flyout-follow-control.log"; then echo marker-absent; else echo "$failed"; fi
 }
-expect "control: a popup without the forced commit fails the same compositor follow assertion" 1 flyout_follow_control
-sed 's/^/  CONTROL  /' "$sandbox/flyout-follow-control.log"
+surf_no_commit_loaded=false
+surf_no_commit_observe() {
+  expect "the probe builds the SummonPopup copy without the forced commit" ok ipc smoke popupLoad summon-no-commit "$summon_no_commit" "bar:$screen_name" acme.surfaces '{"pluginId":"acme.surfaces","kind":"panel","request":{"anchor":"@instance","anchored":true,"payloadJson":"{}"}}' || return $?
+  surf_no_commit_loaded=true
+  expect "the no-commit copy's panel takes a payload" '' ipc smoke invokeInstance panel acme.surfaces open '{}' || return $?
+  expect_poll "the no-commit copy is shown" true ipc smoke popupRead summon-no-commit visible || return $?
+  render expect_poll "the no-commit copy establishes its drawn baseline" followed popup_marker_mapped || return $?
+  expect "the no-commit copy disables its forced commit after the first frame" ok ipc smoke popupCall summon-no-commit disableCommit || return $?
+  # An absent marker is a missing baseline, never the intended follow defect.
+  expect "control: a popup without the forced commit fails the same compositor follow assertion" 1 flyout_follow_control
+}
+coordinate_observation surfaces-flyout-no-commit surf_no_commit_observe
+[[ ! -f $sandbox/flyout-follow-control.log ]] || sed 's/^/  CONTROL  /' "$sandbox/flyout-follow-control.log"
 remove_tail_widget
-expect "the probe drops the no-commit copy" ok ipc smoke popupDrop summon-no-commit
-expect_poll "the no-commit copy's panel leaves the build records" absent ipc smoke readInstance panel acme.surfaces opened
+if [[ $surf_no_commit_loaded == true ]]; then
+  expect "the probe drops the no-commit copy" ok ipc smoke popupDrop summon-no-commit
+  expect_poll "the no-commit copy's panel leaves the build records" absent ipc smoke readInstance panel acme.surfaces opened
+fi
 
 # Replacing an open plugin runs open() on the replacement. A refusal must
 # remove its surface just as a refusal during the first summon does.

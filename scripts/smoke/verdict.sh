@@ -58,8 +58,10 @@ mode_reset() {
   printf '  SKIP  %s: not measured: %s\n' "$message" "$reason"
 }
 # fail MESSAGE: one failed row, counted by its class and printed.
+# The operation class records a failed helper or prerequisite, which a
+# mode reset cannot excuse.
 fail() {
-  if [[ ${#mode_hold[@]} -gt 0 ]] &&
+  if [[ $row_class != operation && ${#mode_hold[@]} -gt 0 ]] &&
     [[ $mode_hold_run_base == false || ${#mode_hold_parents[@]} -gt 0 || $row_class == geometry || $row_class == render ]] &&
     { [[ $row_class != hold && $(held_mode_state) == reset ]] || held_mode_host_sized; }; then
     mode_reset "$*" "${mode_hold[0]} left the held mode ${mode_hold[1]}"

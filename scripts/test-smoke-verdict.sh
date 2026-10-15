@@ -211,6 +211,82 @@ for row in "${counts[@]}"; do
   if run_count "$verdict" "$row"; then ok "${row%%|*}"; else fail "${row%%|*}"; fi
 done
 
+# Drive the real scope and action through command substitution. The
+# compositor resets after preparation. The startup base keeps independent
+# failures visible before and after the refusal; the row still cleans up.
+run_observation() {
+  local file="$1" label position want_count dir out status=0
+  IFS='|' read -r label position want_count <<<"$2"
+  dir="$(mktemp -d "$tmp/observation.XXXXXX")" || return 1
+  python3 - "$repo/scripts/smoke/harness.sh" "$dir/operations.sh" <<'PYEXTRACT' || return 1
+import pathlib,sys
+source,out=map(pathlib.Path,sys.argv[1:])
+text=source.read_text()
+parts=[]
+for name in ('coordinate_observation','pointer_dispatch','hover'):
+    start=text.index(name+'() {')
+    line=text[start:text.index('\n',start)]
+    end=start+len(line)+1 if line.endswith('}') else text.index('\n}\n',start)+3
+    parts.append(text[start:end])
+out.write_text('\n'.join(parts)+'\n')
+PYEXTRACT
+  out="$(env -i PATH="$PATH" "$BASH" -c '
+set -euo pipefail
+source "$1"
+source "$2/scripts/smoke/mode-hold.sh"
+source "$3/operations.sh"
+sandbox="$3" stub_position="$4"
+mode_hold=(WAYLAND-1 "3510x1866 scale=2")
+mode_hold_window=1250x720 mode_hold_run_base=true
+mon_w=1755 mon_h=933 shell_env=()
+pointer_at=before dependent=false cleaned=false
+: >"$sandbox/cleanup-owned"
+hypr() {
+  if [[ -e $sandbox/reset ]]; then
+    echo '\''[{"name":"WAYLAND-1","width":1250,"height":720,"scale":1}]'\''
+  else
+    echo '\''[{"name":"WAYLAND-1","width":3510,"height":1866,"scale":2}]'\''
+  fi
+}
+cat >"$sandbox/click" <<'\''POINTER'\''
+#!/usr/bin/env bash
+echo sent >"${0%/*}/sent"
+POINTER
+chmod +x "$sandbox/click"
+observe() {
+  local result
+  : >"$sandbox/reset"
+  if [[ $stub_position == before || $stub_position == both ]]; then fail independent-before; fi
+  result="$(hover 20 30)" || return $?
+  dependent=true
+}
+coordinate_observation coordinates observe && cleaned=true || exit 1
+rm -- "${sandbox:?}/cleanup-owned"
+[[ ! -e $sandbox/cleanup-owned ]] || exit 1
+if [[ $stub_position == after || $stub_position == both ]]; then fail independent-after; fi
+[[ $cleaned == true && $dependent == false && $pointer_at == before && ! -e $sandbox/sent ]] || exit 1
+[[ $failures == "$5" && $behaviour_failures == "$5" && $mode_resets == 0 && ${#not_measured_rows[@]} == 1 ]] || exit 1
+status=0
+smoke_verdict "$failures" "$behaviour_failures" "$stalled_render" "$mode_resets" /dev/null || status=$?
+[[ $status == 1 ]] || exit 1
+echo observation=continued
+' _ "$file" "$repo" "$dir" "$position" "$want_count")" || status=$?
+  # scripts/main-run.sh consumes the FAIL prefix, not the prose after it.
+  local visible=0 line
+  while IFS= read -r line; do [[ $line != '  FAIL  '* ]] || visible=$((visible + 1)); done <<<"$out"
+  [[ $status == 0 && $visible == "$want_count" && $out == *observation=continued ]] && return 0
+  printf '        %s: status=%s visible=%s wanted=%s output=[%s]\n' "$label" "$status" "$visible" "$want_count" "$out"
+  return 1
+}
+observations=(
+  'an independent failure before a refused action remains a failure|before|1'
+  'an independent failure after a refused action remains a failure|after|1'
+  'independent failures before and after a refused action remain failures|both|2'
+)
+for row in "${observations[@]}"; do
+  if run_observation "$verdict" "$row"; then ok "${row%%|*}"; else fail "${row%%|*}"; fi
+done
+
 # mutate OLD NEW OUT: a copy of the verdict with OLD, which must occur once,
 # replaced by NEW.
 mutate() {
@@ -230,6 +306,7 @@ mutate() {
 # Rows: label | text | replacement | the case label that must go red. A
 # field holds no `|`, the separator.
 controls=(
+  "a reset suppresses independent failures|fail() {|fail() { if [[ \$(held_mode_state) == reset ]]; then return 0; fi|independent failures before and after a refused action remain failures"
   "the run base excuses behaviour|\$mode_hold_run_base == false|true|a behaviour row under the run base stays behaviour at host size"
   "fail counts no mode reset|  mode_resets=\$((mode_resets + 1))|  mode_resets=\$((mode_resets + 0))|a row failing after the held mode's reset is a mode reset"
   "fail also counts a mode reset as behaviour|left the held mode \${mode_hold[1]}\"|left the held mode \${mode_hold[1]}\"; behaviour_failures=\$((behaviour_failures + 1))|a row failing after the held mode's reset is a mode reset"
@@ -261,6 +338,7 @@ for i in "${!controls[@]}"; do
   for candidate in "${tallies[@]}"; do [[ ${candidate%%|*} == "$target" ]] && { row="$candidate"; runner=run_tally; }; done
   for candidate in "${skips[@]}"; do [[ ${candidate%%|*} == "$target" ]] && { row="$candidate"; runner=run_skip; }; done
   for candidate in "${counts[@]}"; do [[ ${candidate%%|*} == "$target" ]] && { row="$candidate"; runner=run_count; }; done
+  for candidate in "${observations[@]}"; do [[ ${candidate%%|*} == "$target" ]] && { row="$candidate"; runner=run_observation; }; done
   if [[ -z $row ]]; then fail "control: $label names no case: $target"; continue; fi
   if "$runner" "$mutant" "$row" >/dev/null; then fail "control: $label left '$target' green"; else ok "control: $label"; fi
 done

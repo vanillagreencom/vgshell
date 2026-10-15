@@ -46,14 +46,15 @@ source_repo="$repo"
 pgids=()
 # geometry and hold_check run a row under that class (row_class in
 # scripts/smoke/verdict.sh).
-geometry() { local previous="$row_class"; row_class=geometry; "$@"; row_class="$previous"; }
+geometry() { local row_class=geometry; "$@"; }
 hold_check() { local previous="$row_class"; row_class=hold; "$@"; row_class="$previous"; }
 # A render row that fails while the bar windows swapped no frame measured
 # the sandbox, not the shell.
 render() {
-  local previous="$row_class" before after failed_before="$failures"
+  local row_class=render before after failed_before="$failures" status=0
   before="$(ipc smoke frames)" || before=""
-  row_class=render; "$@"; row_class="$previous"
+  "$@" || status=$?
+  [[ $status == 0 ]] || return "$status"
   [[ $failures -eq $failed_before ]] && return
   after="$(ipc smoke frames)" || after=""
   if [[ -z $before || -z $after || $before == "$after" ]]; then
@@ -1175,13 +1176,39 @@ latency_busy_reason() {
 # the mode taken again does not move the pointer back; a caller puts it
 # back from here (settle_hold in scripts/sandbox-shots.sh).
 pointer_at=""
-click() { "${shell_env[@]}" "$sandbox/click" "$1" "$2" "$mon_w" "$mon_h" >/dev/null && pointer_at="$1 $2"; }
-hover() { "${shell_env[@]}" "$sandbox/click" "$1" "$2" "$mon_w" "$mon_h" move >/dev/null && pointer_at="$1 $2"; }
-right_click() { "${shell_env[@]}" "$sandbox/click" "$1" "$2" "$mon_w" "$mon_h" right >/dev/null && pointer_at="$1 $2"; }
-middle_click() { "${shell_env[@]}" "$sandbox/click" "$1" "$2" "$mon_w" "$mon_h" middle >/dev/null && pointer_at="$1 $2"; }
-drag() { "${shell_env[@]}" "$sandbox/click" "$1" "$2" "$mon_w" "$mon_h" drag "$3" "$4" >/dev/null && pointer_at="$3 $4"; }
-wheel() { "${shell_env[@]}" "$sandbox/click" "$1" "$2" "$mon_w" "$mon_h" wheel "$3" >/dev/null && pointer_at="$1 $2"; }
-swipe() { "${shell_env[@]}" "$sandbox/click" "$1" "$2" "$mon_w" "$mon_h" swipe "$3" >/dev/null && pointer_at="$1 $2"; }
+# coordinate_observation LABEL CALLBACK...: prepare before fresh sampling,
+# then run only dependent actions and checks in the row shell. The callback
+# must return each action's status explicitly: Bash disables errexit when
+# it is called in a condition. Cleanup belongs after this scope.
+coordinate_observation() {
+  local label="$1" status=0 coordinate_scope=true
+  shift
+  if coordinate_mode_prepare; then
+    "$@" || status=$?
+  else
+    status=$?
+  fi
+  case "$status" in
+    0) ;;
+    77) not_measured "$label" "held-mode-unavailable" ;;
+    *) local row_class=operation; fail "$label: coordinate operation failed status=$status" ;;
+  esac
+  return 0
+}
+# pointer_dispatch X Y WIDTH HEIGHT [ACTION...]: one shared delivery owner.
+# The final check never restores a mode after a caller sampled coordinates.
+# Unscoped callers receive the refusal too; their own failure handling stays.
+pointer_dispatch() {
+  coordinate_mode_check || return $?
+  "${shell_env[@]}" "$sandbox/click" "$@" >/dev/null || return 1
+}
+click() { pointer_dispatch "$1" "$2" "$mon_w" "$mon_h" || return $?; pointer_at="$1 $2"; }
+hover() { pointer_dispatch "$1" "$2" "$mon_w" "$mon_h" move || return $?; pointer_at="$1 $2"; }
+right_click() { pointer_dispatch "$1" "$2" "$mon_w" "$mon_h" right || return $?; pointer_at="$1 $2"; }
+middle_click() { pointer_dispatch "$1" "$2" "$mon_w" "$mon_h" middle || return $?; pointer_at="$1 $2"; }
+drag() { pointer_dispatch "$1" "$2" "$mon_w" "$mon_h" drag "$3" "$4" || return $?; pointer_at="$3 $4"; }
+wheel() { pointer_dispatch "$1" "$2" "$mon_w" "$mon_h" wheel "$3" || return $?; pointer_at="$1 $2"; }
+swipe() { pointer_dispatch "$1" "$2" "$mon_w" "$mon_h" swipe "$3" || return $?; pointer_at="$1 $2"; }
 type_keys() { "${shell_env[@]}" wtype "$@"; }
 # compositor_logs_on: the nested compositor logs from here to the end of
 # the run. The configuration turns its logs on once the flag file exists,
@@ -1293,7 +1320,7 @@ point_item() { # LOOKUP [DX DY]
       read -r x y < <(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); dx,dy=sys.argv[2:]; print(int(x + (w / 2 if dx == "-" else float(dx))), int(y + (h / 2 if dy == "-" else float(dy))))' "$rect" "${1:--}" "${2:--}") || return 1
     fi
     px=$((x + i % 2))
-    hover "$px" "$y" || return 1
+    hover "$px" "$y" || return $?
     hovered="$(control_hovered "${lookup[@]}")" || return 1
     if [[ $hovered == true ]]; then held=$((held + 1)); else held=0; fi
     if [[ $held -ge 2 && $(control_box "${lookup[@]}") == "$seen" ]]; then printf '%s %s\n' "$px" "$y"; return; fi
@@ -1308,7 +1335,7 @@ point_item() { # LOOKUP [DX DY]
 # Reply pill, a card's default action, Mark read and Clear history).
 click_item() { # LOOKUP [DX DY]
   local at x y
-  at="$(point_item "$@")" || return 1
+  at="$(point_item "$@")" || return $?
   read -r x y <<<"$at" || return 1
   click "$x" "$y"
 }
@@ -2054,6 +2081,8 @@ reader_stderr() { # LABEL ERR_FILE
   # file stays for the next read to truncate.
   [[ -s $err ]] || return 0
   if grep -q -F -e 'Traceback (most recent call last):' -- "$err"; then
+    local row_class="$row_class"
+    [[ ${coordinate_scope:-false} != true ]] || row_class=operation
     fail "$label: the reader raised a Python traceback"
     sed 's/^/        /' -- "$err"
     status=1
@@ -2071,6 +2100,7 @@ expect() {
   shift 2
   got="$("$@" 2>"$err")" || status=$?
   reader_stderr "$label" "$err" || return 0
+  if [[ $status -ne 0 && ${coordinate_scope:-false} == true ]]; then return "$status"; fi
   if [[ $status -ne 0 ]]; then
     if [[ -n $got ]]; then fail "$label: command failed: $*: got $got"; else fail "$label: command failed: $*"; fi
     return
@@ -2082,13 +2112,15 @@ expect() {
 # state that follows a write through the watcher, the merge and a rebuild.
 # A failed read is retried; a traceback fails the row at once.
 expect_poll() { # LABEL WANT CMD...
-  local label="$1" want="$2" got="" matched err="$sandbox/reader-$BASHPID.stderr"
+  local label="$1" want="$2" got="" matched status err="$sandbox/reader-$BASHPID.stderr"
   shift 2
   smoke_poll_tries 200
   for _ in $(seq 1 "$smoke_poll_n"); do
-    matched=false
-    if got="$("$@" 2>"$err")" && [[ $got == "$want" ]]; then matched=true; fi
+    matched=false status=0
+    got="$("$@" 2>"$err")" || status=$?
+    [[ $status != 0 || $got != "$want" ]] || matched=true
     reader_stderr "$label" "$err" || return 0
+    if [[ $status -ne 0 && ${coordinate_scope:-false} == true ]]; then return "$status"; fi
     if [[ $matched == true ]]; then ok "$label"; return; fi
     sleep 0.2
   done
@@ -2404,7 +2436,7 @@ click_in() {
   rect="$(ipc smoke windowGeometry "$2" "$3" "$4" "$5")" || return 1
   [[ $rect == \[* ]] || { echo "click_in: no $4 $5: $rect" >&2; return 1; }
   read -r x y < <(at_centre "$1" "$rect") || return 1
-  hover "$((x + 1))" "$y" || return 1
+  hover "$((x + 1))" "$y" || return $?
   click "$x" "$y"
 }
 # view_at_rest HOST_KEY ID TEXT: the probe's viewHolding reading of the
@@ -2630,7 +2662,7 @@ click_scoped_in() {
   rect="$(ipc smoke scopedWindowGeometry "$2" "$3" "$4" "$5" "$6" "$7")" || return 1
   [[ $rect == \[* ]] || { echo "click_scoped_in: no $6 $7 in $4 $5: $rect" >&2; return 1; }
   read -r x y < <(at_centre "$1" "$rect") || return 1
-  hover "$((x + 1))" "$y" || return 1
+  hover "$((x + 1))" "$y" || return $?
   click "$x" "$y"
 }
 
