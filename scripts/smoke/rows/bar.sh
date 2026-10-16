@@ -1397,6 +1397,82 @@ mv -T -- "$home/.config/vgshell/shell.json.tmp" "$home/.config/vgshell/shell.jso
 start_shell "$repo" "$sandbox/bar-participation-restored.log" || fail "the shell returns after participation controls"
 expect_widgets "participation restores the original mounted fixture" '["acme.tick"]'
 
+# Hide and reveal change only the bar's current visibility, on every
+# screen: shell.json keeps its bytes, a bar the saved `hidden` setting hides
+# stays hidden after reveal, and a restart ends the hide. A second monitor
+# makes every screen two bars. bar_hide_mapped reads the window of each
+# bar the core built (the harness's bar_screens) from the shell, which
+# follows `shown` in the same event as the call, and the compositor's
+# mapped bar layers beside it: `<mapped>/<bars> <layers>`.
+bar_hide_mapped() {
+  local screens name snapshot mapped=0 bars=0 layers
+  screens="$(bar_screens)" || return 1
+  for name in $screens; do
+    snapshot="$(ipc smoke barParticipationGeometry "bar:$name")" || return 1
+    bars=$((bars + 1))
+    if [[ $(py_reply 'import json,sys; print(json.load(sys.stdin)["windowVisible"])' <<<"$snapshot") == True ]]; then mapped=$((mapped + 1)); fi
+  done
+  layers="$(bar_count)" || return 1
+  printf '%s/%s %s\n' "$mapped" "$bars" "$layers"
+}
+bar_hide_json="$home/.config/vgshell/shell.json"
+bar_hide_saved="$sandbox/bar-hide-saved.json"
+bar_hide_unchanged() { if cmp -s -- "$bar_hide_json" "$bar_hide_saved"; then echo unchanged; else echo changed; fi; }
+# A started shell registers its services' IPC functions only after its bars
+# present or a deadline passes, and a bar on the sizeless headless screen
+# never presents (`services released reason=deadline`).
+bar_hide_ipc() { ipc shell lent | py_reply 'import json,sys; print("vgs.bar" in json.load(sys.stdin)["ipcTargets"])'; }
+bar_hide_output=SMOKE-BAR-HIDE
+bar_hide_screens=$((monitors + 1))
+bar_hide_shown="$bar_hide_screens/$bar_hide_screens $bar_hide_screens"
+bar_hide_hidden="0/$bar_hide_screens 0"
+expect "the nested compositor adds a second screen for hide and reveal" ok hypr output create headless "$bar_hide_output"
+expect_poll "every screen maps a bar before hide" "$bar_hide_shown" bar_hide_mapped
+cp -- "$bar_hide_json" "$bar_hide_saved"
+expect "hide answers ok" ok ipc vgs.bar invoke hide ''
+expect_poll "hide unmaps the bar on every screen" "$bar_hide_hidden" bar_hide_mapped
+expect "hide leaves shell.json byte-identical" unchanged bar_hide_unchanged
+expect "reveal answers ok" ok ipc vgs.bar invoke reveal ''
+expect_poll "reveal maps the bar on every screen again" "$bar_hide_shown" bar_hide_mapped
+expect "reveal leaves shell.json byte-identical" unchanged bar_hide_unchanged
+expect "the saved setting hides the bar through toggle" ok ipc vgs.bar invoke toggle ''
+expect_poll "the saved setting unmaps the bar on every screen" "$bar_hide_hidden" bar_hide_mapped
+cp -- "$bar_hide_json" "$bar_hide_saved"
+expect "hide answers ok over the saved setting" ok ipc vgs.bar invoke hide ''
+expect "reveal answers ok over the saved setting" ok ipc vgs.bar invoke reveal ''
+expect "hide then reveal leaves a bar the saved setting hides hidden" "$bar_hide_hidden" bar_hide_mapped
+expect "hide then reveal over the saved setting leaves shell.json byte-identical" unchanged bar_hide_unchanged
+expect "toggle shows the bar again" ok ipc vgs.bar invoke toggle ''
+expect_poll "the saved setting off maps the bar on every screen" "$bar_hide_shown" bar_hide_mapped
+cp -- "$bar_hide_json" "$bar_hide_saved"
+expect "a hide in force for the restart answers ok" ok ipc vgs.bar invoke hide ''
+expect_poll "the hide before the restart unmaps every bar" "$bar_hide_hidden" bar_hide_mapped
+stop_shell
+# A hide that writes through configure must fail the byte reader.
+if copy_tree bar-hide-configure \
+  && edit_tree bar-hide-configure shell/plugins/vgs.bar/Service.qml 'const reply = shell.status.set("hiddenUntilReveal", hidden);' 'const reply = shell.configure.set("hidden", hidden);'; then
+  start_shell "$sandbox/tree-bar-hide-configure" "$sandbox/bar-hide-configure.log" || fail "the configure-hide control starts"
+  expect_poll "control: the copy maps the bar on every screen" "$bar_hide_shown" bar_hide_mapped
+  expect_poll "control: the copy's bar service registers its IPC functions" True bar_hide_ipc
+  expect "control: the copy's hide answers ok" ok ipc vgs.bar invoke hide ''
+  expect_poll "control: a hide that writes through configure fails the byte reader" changed bar_hide_unchanged
+  stop_shell
+fi
+cp -- "$bar_hide_saved" "$bar_hide_json.tmp"
+mv -T -- "$bar_hide_json.tmp" "$bar_hide_json"
+start_shell "$repo" "$sandbox/bar-hide-restarted.log" || fail "the shell returns after the hide controls"
+expect_poll "a restart ends the hide on every screen" "$bar_hide_shown" bar_hide_mapped
+expect "the nested compositor removes the second screen" ok hypr output remove "$bar_hide_output"
+expect_poll "one bar per monitor after the second screen goes" "$monitors/$monitors $monitors" bar_hide_mapped
+# The second screen's add and remove can move the nested output off the
+# mode the harness holds, and every later pointer dispatch refuses a reset
+# hold (coordinate_mode_check), so the hold is taken again here.
+if [[ ${#mode_hold[@]} -gt 0 ]]; then
+  printf '  bar_hide_mode state=%s\n' "$(held_mode_state)"
+  if [[ $(held_mode_state) != held ]]; then hold_restore || fail "the held mode returns after the second screen"; fi
+  expect "the held mode stands after the second screen" held held_mode_state
+fi
+
 # Row owns a read-only implicitWidth (QQuickImplicitSizeItem, Qt 6.11).
 # This disposable control binds its writable width so the bar builds.
 # Its transitions must then fail the same cold vertical-alignment reader.

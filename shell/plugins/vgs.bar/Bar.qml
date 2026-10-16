@@ -17,8 +17,10 @@ Item {
     readonly property int barSize: Theme.bar.height
 
     // The host maps this screen's bar only while it is shown; the `hidden`
-    // setting, which the service's toggle writes, hides it everywhere.
-    readonly property bool shown: shell === null || shell.settings.hidden !== true
+    // setting, which the service's toggle writes, and the service's
+    // `hiddenUntilReveal` status, which its hide and reveal write, each hide
+    // it everywhere.
+    readonly property bool shown: shell === null || (shell.settings.hidden !== true && shell.status.values.hiddenUntilReveal !== true)
 
     readonly property Item leftSection: leftZone.content
     readonly property Item centerSection: center

@@ -3,7 +3,7 @@ import Quickshell
 import Quickshell.Io
 import qs.Commons
 
-// The bar's service: the global shortcut and the IPC function that hide or
+// The bar's service: the global shortcut and the IPC functions that hide or
 // show the bar on every screen, and the one reader of the browser profiles
 // the Open with setting offers. It draws nothing; each registration's
 // disposer is the core's, so a bar that stops being the active one releases
@@ -13,8 +13,13 @@ import qs.Commons
 //                                            the launcher's Style row runs
 //                                            it too (README)
 //   vgshell ipc call vgs.bar invoke toggle ''  the same toggle
+//   vgshell ipc call vgs.bar invoke hide ''    hide until reveal
+//   vgshell ipc call vgs.bar invoke reveal ''  end that hide
 // The toggle flips the `hidden` setting through `configure`, so it holds
-// across a restart; Bar.qml reads it as `shown`, which the bar host follows.
+// across a restart. Hide and reveal write only the `hiddenUntilReveal`
+// status, the in-memory record every screen's bar reads (D037), so they
+// leave shell.json alone and a restart ends the hide. Bar.qml reads both as
+// `shown`, which the bar host follows.
 //
 // The profiles are read once when the service starts and again each time
 // the Settings page opens the Open with select, never on a poll: the
@@ -45,6 +50,8 @@ Item {
         registeredWith = shell;
         shell.shortcut.register("toggle", "Hide or show the top bar", () => root.toggle());
         shell.ipc.handle("toggle", () => root.toggle());
+        shell.ipc.handle("hide", () => root.hideUntilReveal(true));
+        shell.ipc.handle("reveal", () => root.hideUntilReveal(false));
         const reply = shell.status.handleRefresh("browserProfiles", () => root.readProfiles());
         if (reply !== "ok") console.warn("vgs.bar: profiles refresh " + reply);
         readProfiles();
@@ -121,6 +128,13 @@ Item {
     function toggle() {
         const reply = shell.configure.set("hidden", shell.settings.hidden !== true);
         if (reply !== "ok") console.warn("vgs.bar: toggle " + reply);
+        return reply;
+    }
+
+    // The status capability's reply: `ok`, or its refusal.
+    function hideUntilReveal(hidden) {
+        const reply = shell.status.set("hiddenUntilReveal", hidden);
+        if (reply !== "ok") console.warn("vgs.bar: " + (hidden ? "hide " : "reveal ") + reply);
         return reply;
     }
 }

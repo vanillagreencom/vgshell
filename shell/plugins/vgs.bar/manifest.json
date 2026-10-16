@@ -87,11 +87,12 @@
     }
   },
   "status": {
-    "browserProfiles": { "type": "choices", "label": "Browser profiles", "hidden": true }
+    "browserProfiles": { "type": "choices", "label": "Browser profiles", "hidden": true },
+    "hiddenUntilReveal": { "type": "data", "label": "Hidden until reveal" }
   },
   "hyprland": {
     "binds": [
-      { "shortcut": "toggle", "key": "SUPER+SHIFT+SPACE", "info": "Hides the top bar, or shows it again when it is hidden." }
+      { "shortcut": "toggle", "key": "SUPER+SHIFT+SPACE", "info": "Turns the Hide top bar setting on or off. A bar that another program hides for a short time, for example a zoom mode, shows again when that program shows it, or when the shell starts again." }
     ]
   },
   "menu": {

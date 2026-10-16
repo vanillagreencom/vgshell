@@ -14,8 +14,9 @@ The bar shows workspaces, the clock and plugin buttons at the top of each screen
 - A side section never draws over the clock. When its buttons do not fit, it shows the buttons nearest its screen edge, with a < or > button and a slight fade at each end that has more. Click < or >, or turn the mouse wheel over the section, to show more.
 - Right-click an empty part of the bar and choose Add separator or Add gap to put a thin line or a little empty room where you clicked. Drag either to move it; right-click it and choose Remove separator or Remove gap to take it away.
 - Colours, the font and every size follow the theme.
-- Hide top bar, in the launcher's Style menu, hides the bar on every screen and gives its space to windows. The row then reads Show top bar.
-- `SUPER+SHIFT+SPACE` hides or shows the bar the same way. The Keys row on the plugin's Settings page changes it.
+- Hide top bar, in the launcher's Style menu, turns on the Hide top bar setting: the bar hides on every screen and gives its space to windows. The row then reads Show top bar, which turns the setting off again.
+- `SUPER+SHIFT+SPACE` turns the Hide top bar setting on or off the same way. The Keys row on the plugin's Settings page changes the key.
+- Another program can hide the bar for a short time, for example a zoom mode. The Hide top bar setting does not show a bar that program hides. The bar shows again when that program shows it, or when the shell starts again.
 - Only one bar is active at a time. Disabling it hides every plugin button until a bar is enabled again.
 
 ## Settings

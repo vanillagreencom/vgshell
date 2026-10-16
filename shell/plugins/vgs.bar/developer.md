@@ -16,8 +16,15 @@ The clock ticks once a minute, or once a second when the format shows seconds.
 
 The bar takes no keyboard focus. Keyboard access to a workspace uses the user's own Hyprland workspace binds.
 
-The bar's service registers the shortcut `vgs.bar:toggle` and the IPC function `toggle` while the bar is the active one. The IPC call is the same toggle as the shortcut:
+The bar's service registers the shortcut `vgs.bar:toggle` and the IPC functions `toggle`, `hide` and `reveal` while the bar is the active one. The IPC call `toggle` is the same toggle as the shortcut:
 
 ```text
 vgshell ipc call vgs.bar invoke toggle ''
+```
+
+`hide` hides the bar on every screen until `reveal`, and `reveal` ends that hide. Neither writes `hidden` or anything else in `shell.json`: the hide is the in-memory status `hiddenUntilReveal`, and a restart ends it. The bar shows while `hidden` is off and no hide is in force, so a bar that `hidden` hides stays hidden after `reveal`. `toggle` still flips `hidden` while a hide is in force. Each call answers `ok`:
+
+```text
+vgshell ipc call vgs.bar invoke hide ''
+vgshell ipc call vgs.bar invoke reveal ''
 ```
