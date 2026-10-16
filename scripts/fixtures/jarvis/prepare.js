@@ -2,6 +2,7 @@
 "use strict";
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
+const crypto = require("node:crypto");
 const path = require("node:path");
 const cp = require("node:child_process");
 const { runBounded } = require("./bounded.js");
@@ -16,9 +17,12 @@ const libraries = ["shell/Core/Dispatch.js", "shell/Commons/DesktopLaunch.js", "
 // Synthetic Tasks.js records from the Jarvis plan, 2026-09-30: working
 // events FROM through COUNT, after any events the folder already holds.
 function seedTaskEvents(folder, count, from = 1) {
-    for (let seq = from; seq <= count; seq++)
-        fs.writeFileSync(path.join(folder, String(seq).padStart(4, "0") + ".json"),
-            JSON.stringify({ v: 1, seq, at: seq, kind: "working", data: {} }) + "\n", { mode: 0o600 });
+    for (let seq = from; seq <= count; seq++) {
+        const temporary = path.join(folder, "." + crypto.randomUUID() + ".tmp");
+        fs.writeFileSync(temporary,
+            JSON.stringify({ v: 1, seq, at: seq, kind: "working", data: {} }) + "\n", { flag: "wx", mode: 0o600 });
+        fs.renameSync(temporary, path.join(folder, String(seq).padStart(4, "0") + ".json"));
+    }
 }
 
 // Copy each of ENTRIES under TREE to CLONE with the libraries its imports
