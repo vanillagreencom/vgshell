@@ -169,10 +169,10 @@ LITERAL_CODE = re.compile(r"`([^`\n]+)(?:`|$)")
 FENCE = re.compile(r"^([ \t]*)(```+|~~~+)[ \t]*([A-Za-z0-9_+-]*)[^\n]*\n(.*?)^\1\2[ \t]*$", re.M | re.S)
 DETAILS = re.compile(r"<details>\s*<summary>\s*Show command\s*</summary>.*?</details>", re.S | re.I)
 # The properties whose text a component draws: a Label's and a Button's
-# text, a Field's hint and error, a TextField's placeholder, a notice's
-# title and message and those of shell.notify.send, a row's label and
-# description.
-DRAWN = ("text", "hint", "error", "description", "placeholderText", "title", "message", "label", "secondary", "body", "summary")
+# text, a Field's hint, info and error, a TextField's placeholder, a
+# notice's title and message and those of shell.notify.send, a row's label
+# and description.
+DRAWN = ("text", "hint", "info", "error", "description", "placeholderText", "title", "message", "label", "secondary", "body", "summary")
 DRAWN_BEFORE = re.compile(r"\b(?:" + "|".join(DRAWN) + r")\s*:")
 STRING = re.compile(r'"(?:[^"\\\n]|\\.)*"|\'(?:[^\'\\\n]|\\.)*\'')
 # A quoted literal or a template literal, the quoted ones first, so a
