@@ -567,8 +567,6 @@ expect "the second backup model is removed" clicked ipc smoke invokeInstance win
 expect_poll "the page draws no backup model" '[]' page_backups
 
 # The Microphone field keeps the feedback-tones link in its info dialog.
-# The existing Settings reader observes that dialog; Tab from Close reaches
-# its page link (Dialog.qml's documented focus cycle), then Return opens it.
 # The System window starts disabled and is restored after this reading.
 page_system_was="$(plugin_enabled vgs.system)" || fail "vgs.system's enabled state is unreadable"
 expect "enabling the System window is allowed" ok ipc shell setPluginEnabled vgs.system true
@@ -576,8 +574,8 @@ page_info_text="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])
   fail "the Microphone info is unreadable"
 expect_poll "no pane is mounted before the Sounds link's click" '[]' window_panes
 settings_press --type InfoButton "About Microphone" SettingField Microphone || fail "the Microphone info did not open"
-expect_poll "the Microphone info shows its page link" shown info_link_shown
-type_keys -k Tab -k Return || fail "the Sounds page link did not activate"
+expect_poll "the Microphone info shows its page link" shown info_link_shown "$page_info_text"
+info_link_click "$page_info_text" || fail "the Sounds page link did not activate"
 expect_poll "the Microphone info link opens the Sounds page" '["vgs.sounds"]' window_panes
 expect "the System window hides after the Sounds link" ok ipc shell hide window vgs.system
 expect_poll "the System window is gone after the Sounds link" 0 window_count 'System Settings'
