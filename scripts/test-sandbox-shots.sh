@@ -364,17 +364,244 @@ controls=(
 )
 run_controls "$helper" cases controls
 
+# Execute the Probe's actual JavaScript methods with a captured console and
+# owner-data fixtures. This does not exercise QML bindings or signal wiring;
+# the normal nested pair owns that evidence.
+cat >"$tmp/probe-display-control.cjs" <<'JS'
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+try {
+    const source = fs.readFileSync(process.argv[2], 'utf8');
+    function method(name, indent) {
+        const pattern = new RegExp('^' + ' '.repeat(indent) + 'function ' + name
+            + '\\([^\\n]*\\)(?:: string)? \\{[\\s\\S]*?^' + ' '.repeat(indent) + '\\}', 'gm');
+        const matches = [...source.matchAll(pattern)];
+        if (matches.length !== 1) throw new Error('Probe method extraction: ' + name);
+        // Remove only QML's type annotations from the IPC signature.
+        return matches[0][0].replace(/^([^\n]*?)\(reason: string\): string/m, '$1(reason)');
+    }
+    const methods = ['encodeDisplayEvent', 'displayEventEnvelope', 'emitDisplayEvent',
+        'endDisplayEvents', 'detachDisplayEvents', 'armDisplayEvents', 'displayEventMonitorFacts',
+        'displayEventQueueFacts', 'displayEventLayerFacts', 'displayEventReloaderFacts'].map(name => method(name, 4));
+    methods.push(method('displayEventStop', 8));
+    const capacities = {};
+    for (const name of ['displayEventCapacityEvents', 'displayEventCapacityChars', 'displayEventTerminalReserve']) {
+        const matches = [...source.matchAll(new RegExp('^    readonly property int ' + name + ': (\\d+)$', 'gm'))];
+        if (matches.length !== 1) throw new Error('Probe capacity extraction: ' + name);
+        capacities[name] = Number(matches[0][1]);
+    }
+    function fixture(status = 'armed') {
+        const lines = [];
+        let clock = 1000;
+        const state = Object.assign({}, capacities, {
+            displayEventInstance: 'fixture/instance', displayEventStatus: status,
+            displayEventReason: '', displayEventSequence: 0, displayEventChars: 0,
+            displayEventPriming: false,
+            console: { log: line => lines.push(line) }, Date: { now: () => clock++ }
+        });
+        for (const name of ['Monitors', 'Compositor', 'Loader', 'Layer', 'Reloader', 'Hyprland', 'Quickshell'])
+            state['displayEvent' + name] = { fixture: name };
+        state.root = state;
+        vm.createContext(state);
+        vm.runInContext(methods.join('\n'), state);
+        return { state, lines };
+    }
+    function record(f, expectedInstance = 'fixture/instance') {
+        const prefix = 'VGS_DISPLAY_EVENT ';
+        const events = f.lines.map(line => {
+            assert.ok(line.startsWith(prefix), 'machine prefix');
+            return JSON.parse(line.slice(prefix.length));
+        });
+        assert.ok(events.length <= f.state.displayEventCapacityEvents, 'finite event count');
+        let chars = 0;
+        for (const [index, event] of events.entries()) {
+            assert.equal(event.sequence, index + 1, 'contiguous emitted sequence');
+            assert.equal(event.instance, expectedInstance, 'instance survives delivery');
+            assert.equal(event.schema, 'VGS-1714.display-event.v1', 'event schema');
+            assert.equal(typeof event.realtimeMs, 'number', 'clock field');
+            chars += f.lines[index].length - prefix.length;
+        }
+        assert.equal(chars, f.state.displayEventChars, 'aggregate JSON accounting');
+        assert.ok(chars <= f.state.displayEventCapacityChars, 'finite JSON characters');
+        return events;
+    }
+    function detached(f) {
+        for (const name of ['Monitors', 'Compositor', 'Loader', 'Layer', 'Reloader', 'Hyprland', 'Quickshell'])
+            assert.equal(f.state['displayEvent' + name], null, 'release ' + name);
+        const count = f.lines.length;
+        assert.equal(f.state.emitDisplayEvent('boundary', 'fixture', {}), false, 'terminal blocks later events');
+        f.state.endDisplayEvents('interrupted', 'later');
+        assert.equal(f.lines.length, count, 'terminal is emitted once');
+    }
+    if (process.argv[3] !== undefined && process.argv[3] !== '--packets')
+        throw new Error('unknown Probe control mode');
+    if (process.argv[3] === '--packets') {
+        // The collector consumes actual Probe output. Fixture owner values
+        // drive the real arm/facts methods and notification handler bodies;
+        // this does not simulate QML property binding or signal delivery.
+        const f = fixture('absent');
+        const state = f.state;
+        Object.assign(state, { displayEventInstance: '73/100',
+            LazyLoader: class {}, HyprlandLayer: class {}, Process: class {} });
+        const monitors = { active: false, ownerId: '', outputs: [],
+            trialState: { phase: 'idle', token: '', deadline: 0, failure: '' },
+            tokenPath: '', trialLua: '', restoreLua: '', restoreRules: {}, keptRules: {} };
+        const compositor = { queue: [], pending: null, pendingJudged: false, completion: null, reply: '' };
+        const reloader = Object.assign(new state.Process(), {
+            running: false, command: ['hyprctl', 'reload', 'config-only'], completion: null });
+        const layer = Object.assign(new state.HyprlandLayer(), { children: [reloader],
+            highestMonitorScale: 1, rendered: { text: 'fixture layer' }, machine: { phase: 'idle' } });
+        Object.assign(state, {
+            hyprland: Object.assign(new state.LazyLoader(), { active: true, item: layer }),
+            Capabilities: { monitors }, Compositor: compositor, Hyprland: {}, Quickshell: {},
+            displayEventGeometry: { screens: [], monitors: [] }
+        });
+        assert.equal(state.armDisplayEvents('collector-payloads'), 'ok', 'packet arm');
+        function notify(owner, signal, field, value, args = []) {
+            if (field !== null) state['displayEvent' + owner][field] = value;
+            const matches = [...source.matchAll(new RegExp('^    Connections \\{\\n'
+                + '        target: root\\.displayEvent' + owner + '\\n([\\s\\S]*?)^    \\}', 'gm'))];
+            if (matches.length !== 1 || !matches[0][1].includes('function ' + signal + '('))
+                throw new Error('Probe notification extraction: ' + owner + '.' + signal);
+            state.fixtureSignalArguments = args;
+            vm.runInContext('(function() {\n' + matches[0][1] + '\n' + signal
+                + '(...fixtureSignalArguments);\n})()', state);
+        }
+        const trialLua = 'hl.monitor({ output = "WAYLAND-1", scale = 2 })';
+        const restoreLua = 'hl.monitor({ output = "WAYLAND-1", scale = 1 })';
+        const argv = ['hyprctl', 'eval', trialLua];
+        for (const [signal, field, value] of [
+            ['onActiveChanged', 'active', true],
+            ['onOwnerIdChanged', 'ownerId', 'fixture.owner'],
+            ['onTokenPathChanged', 'tokenPath', '/fixture/trial.token'],
+            ['onTrialLuaChanged', 'trialLua', trialLua],
+            ['onRestoreLuaChanged', 'restoreLua', restoreLua],
+            ['onRestoreRulesChanged', 'restoreRules', { 'WAYLAND-1': { scale: 1 } }],
+            ['onKeptRulesChanged', 'keptRules', { 'WAYLAND-1': { scale: 2 } }],
+            ['onTrialStateChanged', 'trialState', { phase: 'arming', token: '/fixture/trial.token', deadline: 15, failure: '' }],
+            ['onOutputsChanged', 'outputs', [{ name: 'WAYLAND-1', scale: 2 }]],
+            ['onOutputsChanged', 'outputs', null]
+        ]) notify('Monitors', signal, field, value);
+        notify('Compositor', 'onQueueChanged', 'queue', [{ argv, judged: true }]);
+        compositor.queue = [];
+        notify('Compositor', 'onPendingChanged', 'pending', argv);
+        notify('Compositor', 'onPendingJudgedChanged', 'pendingJudged', true);
+        notify('Compositor', 'onReplyChanged', 'reply', 'ok');
+        notify('Compositor', 'onCompletionChanged', 'completion', { code: 0, status: 0 });
+        notify('Compositor', 'onCompletionChanged', 'completion', null);
+        notify('Compositor', 'onPendingChanged', 'pending', null);
+        notify('Layer', 'onHighestMonitorScaleChanged', 'highestMonitorScale', 2);
+        notify('Layer', 'onRenderedChanged', 'rendered', { text: 'fixture scaled layer' });
+        notify('Layer', 'onMachineChanged', 'machine', { phase: 'reloading', reloadOwner: 'layer' });
+        state.displayEventGeometry = { screens: [{ name: 'WAYLAND-1', width: 1440, height: 900,
+            x: 0, y: 0, devicePixelRatio: 2 }], monitors: [{ id: 0, name: 'WAYLAND-1',
+            width: 2880, height: 1800, x: 0, y: 0, scale: 2, lastIpcObject: { scale: 2 } }] };
+        const geometry = [...source.matchAll(/^    onDisplayEventGeometryChanged: \{\n([\s\S]*?)^    \}/gm)];
+        if (geometry.length !== 1) throw new Error('Probe geometry notification extraction');
+        vm.runInContext('(function() {\n' + geometry[0][1] + '\n})()', state);
+        notify('Reloader', 'onRunningChanged', 'running', true);
+        notify('Reloader', 'onCompletionChanged', 'completion', { code: 0, status: 0 });
+        notify('Reloader', 'onExited', null, null, [0, 0]);
+        notify('Reloader', 'onCompletionChanged', 'completion', null);
+        notify('Reloader', 'onRunningChanged', 'running', false);
+        notify('Reloader', 'onCommandChanged', 'command', ['hyprctl', 'reload', 'config-only']);
+        notify('Compositor', 'onPendingJudgedChanged', 'pendingJudged', false);
+        notify('Monitors', 'onActiveChanged', 'active', false);
+        assert.equal(state.displayEventStop('fixture-end'), 'ok', 'packet stop');
+        const packets = record(f, '73/100');
+        assert.equal(packets[0].kind, 'arm', 'packet arm first');
+        assert.equal(packets.at(-1).kind, 'stopped', 'packet stop last');
+        detached(f);
+        process.stdout.write(f.lines.join('\n') + '\n');
+    } else {
+    {
+        const f = fixture();
+        for (let i = 0; i < f.state.displayEventCapacityEvents; i++)
+            f.state.emitDisplayEvent('boundary', 'fixture', { label: 'event ceiling' });
+        const events = record(f);
+        assert.equal(f.state.displayEventStatus, 'overflow', 'event ceiling stops capture');
+        assert.equal(events.at(-1).kind, 'overflow', 'event ceiling retains terminal');
+        assert.equal(events.at(-1).data.reason, 'capacity-events', 'event ceiling reason');
+        detached(f);
+    }
+    {
+        const f = fixture();
+        const payload = 'x'.repeat(Math.ceil(f.state.displayEventCapacityChars / 16));
+        // Enough payloads exceed the character budget before the event cap.
+        for (let i = 0; i < 17 && f.state.displayEventStatus === 'armed'; i++)
+            f.state.emitDisplayEvent('outputsChanged', 'MonitorState', { fixture: payload });
+        const events = record(f);
+        assert.equal(f.state.displayEventStatus, 'overflow', 'character ceiling stops capture');
+        assert.equal(events.at(-1).data.reason, 'capacity-chars', 'character ceiling reason');
+        detached(f);
+    }
+    for (const [initial, status, reason] of [
+        ['armed', 'stopped', 'row-end'], ['armed', 'interrupted', 'probe-destroyed'],
+        ['absent', 'missing', 'reloader-identity']
+    ]) {
+        const f = fixture(initial);
+        if (status === 'stopped') assert.equal(f.state.displayEventStop(reason), 'ok', 'IPC stop');
+        else f.state.endDisplayEvents(status, reason);
+        const events = record(f);
+        assert.equal(events.length, 1, 'terminal-only fixture');
+        assert.equal(events[0].kind, status, 'terminal kind');
+        assert.equal(events[0].data.reason, reason, 'terminal reason');
+        assert.equal(f.state.displayEventStatus, status, 'terminal state');
+        detached(f);
+    }
+    {
+        const f = fixture();
+        assert.equal(f.state.displayEventStop('x'.repeat(f.state.displayEventTerminalReserve)),
+            'refused: display-events=overflow', 'long stop reason refuses');
+        const events = record(f);
+        assert.equal(events.at(-1).data.reason, 'capacity-stop-reason', 'long reason terminal');
+        detached(f);
+    }
+    console.log('probe-display-control: pass');
+    }
+} catch (error) {
+    if (error.code === 'ERR_ASSERTION') {
+        console.error('probe-display-control: assertion-failed ' + error.message);
+        process.exitCode = 1;
+    } else {
+        console.error('probe-display-control: unavailable ' + error.message);
+        process.exitCode = 2;
+    }
+}
+JS
+
 # Exercise the actual embedded collector against owned original logs and public
 # socket-shaped fixtures. This proves recording and failure states, not
 # Hyprland delivery or QML notification wiring, which the smoke observes.
 source "$repo/scripts/smoke/host-window.sh"
 display_record_program >"$tmp/display-record.py"
-if python3 - "$tmp/display-record.py" "$tmp" "$repo/scripts/smoke/harness.sh" <<'PY'
+if node "$tmp/probe-display-control.cjs" "$repo/scripts/smoke/Probe.qml" --packets >"$tmp/probe-display-packets.jsonl" &&
+   python3 - "$tmp/display-record.py" "$tmp" "$repo/scripts/smoke/harness.sh" "$tmp/probe-display-packets.jsonl" <<'PY'
 import contextlib, json, os, pathlib, re, runpy, signal, socket, subprocess, sys
 
-program, root, harness = map(pathlib.Path, sys.argv[1:])
+program, root, harness, packet_path = map(pathlib.Path, sys.argv[1:])
 text, harness_text = program.read_text(), harness.read_text()
 fixture_directories = {}
+packet_bytes = packet_path.read_bytes()
+assert packet_bytes and packet_bytes.endswith(b'\n'), 'probe-source-packets-present'
+packet_lines = packet_bytes.splitlines(keepends=True)
+assert all(line.startswith(b'VGS_DISPLAY_EVENT ') for line in packet_lines), 'probe-source-packet-prefix'
+source_packets = [json.loads(line[len(b'VGS_DISPLAY_EVENT '):]) for line in packet_lines]
+assert [p['sequence'] for p in source_packets] == list(range(1, len(source_packets) + 1)), 'probe-source-packet-sequence'
+assert source_packets[0]['kind'] == 'arm' and source_packets[-1]['kind'] == 'stopped', 'probe-source-packet-boundaries'
+
+def payloads(producer, kind):
+    return [p['data'] for p in source_packets if (p['producer'], p['kind']) == (producer, kind)]
+
+assert payloads('MonitorState', 'tokenPathChanged') == ['/fixture/trial.token'], 'probe-source-string-present'
+assert payloads('MonitorState', 'activeChanged') == [True, False], 'probe-source-booleans-present'
+assert all(type(p) is bool for p in payloads('MonitorState', 'activeChanged')), 'probe-source-boolean-types'
+assert payloads('HyprlandLayer', 'highestMonitorScaleChanged') == [2], 'probe-source-number-present'
+assert type(payloads('HyprlandLayer', 'highestMonitorScaleChanged')[0]) is int, 'probe-source-number-type'
+assert payloads('MonitorState', 'outputsChanged') == [[dict(name='WAYLAND-1', scale=2)], None], 'probe-source-array-null-present'
+assert [p['completion'] for p in payloads('Compositor', 'completionChanged')] == [dict(code=0, status=0), None], 'probe-source-completion-reset-present'
+assert payloads('HyprlandLayer.reloader', 'exited') == [dict(code=0, status=0)], 'probe-source-exit-present'
 
 def fixture_directory(name):
     # Confined scratch prefixes are long. AF_UNIX names include this path.
@@ -657,7 +884,7 @@ with subprocess.Popen(['sleep', '60'], stdout=subprocess.DEVNULL) as child:
     child.terminate(); child.wait()
 assert 'launch:expected-registration-refused' in finish(record)['problems'], 'refusal-stays-incomplete'
 
-def complete_case(name, source=text, omission=None, changed=False, context=False):
+def complete_case(name, source=text, omission=None, changed=False, context=False, packets=None, mixed=False):
     with server(name, source) as (directory, recorder, child, request):
         request('scope', 'shader-context' if context else 'display-smoke', 'fixture', '0', *([] if context else ['displays-modes']))
         connections = []
@@ -686,12 +913,15 @@ def complete_case(name, source=text, omission=None, changed=False, context=False
                     notifications = [('Probe', 'arm', {})]
                     notifications += [(owner, 'initial-sample', {}) for owner in ('MonitorState', 'Compositor', 'HyprlandLayer', 'HyprlandLayer.reloader', 'Quickshell/Hyprland')]
                     if changed:
-                        notifications += [('MonitorState', 'trialStateChanged', dict(phase='arming', token='fixture', deadline=100)), ('Compositor', 'completionChanged', dict(completion=dict(code=1))), ('HyprlandLayer.reloader', 'exited', dict(code=1, status=0))]
+                        notifications += [('MonitorState', 'trialStateChanged', dict(phase='arming', token='fixture', deadline=100, failure='')), ('Compositor', 'completionChanged', dict(completion=dict(code=1, status=0))), ('HyprlandLayer.reloader', 'exited', dict(code=1, status=0))]
                     notifications += [('Probe', 'stopped', {})]
-                    for sequence, (owner, kind, data) in enumerate(notifications, 1):
-                        if omission == kind or omission == owner: continue
-                        value = dict(schema='VGS-1714.display-event.v1', instance='73/100', sequence=sequence, realtimeMs=100, producer=owner, kind=kind, data=data)
-                        writer.write(b'VGS_DISPLAY_EVENT ' + json.dumps(value).encode() + b'\n')
+                    if packets is not None:
+                        writer.write(packets)
+                    else:
+                        for sequence, (owner, kind, data) in enumerate(notifications, 1):
+                            if omission == kind or omission == owner: continue
+                            value = dict(schema='VGS-1714.display-event.v1', instance='73/100', sequence=sequence, realtimeMs=100, producer=owner, kind=kind, data=data)
+                            writer.write(b'VGS_DISPLAY_EVENT ' + json.dumps(value).encode() + b'\n')
                     request('read')
                     context_key = request('owner-context', str(producer.pid))
                     producer.terminate(); producer.wait(); request('owner-end', context_key, str(producer.pid))
@@ -704,6 +934,11 @@ def complete_case(name, source=text, omission=None, changed=False, context=False
         child.wait(timeout=10)
         for connection in connections: connection.close()
         result, rows = terminal(directory), events(directory)
+        if mixed:
+            # JSON text comparison preserves booleans versus numbers, nulls,
+            # nested arrays, every metadata field and the producer clock.
+            observed = [e['data'] for e in rows if e['kind'] == 'probe-observation']
+            assert json.dumps(observed, sort_keys=True) == json.dumps(source_packets, sort_keys=True), 'probe-mixed-payloads-preserved'
         if omission != 'overflow':
             assert len([e for e in rows if e['kind'] == 'window-end']) == 1, ('window-end-first-fact', name, result)
             assert next(e for e in rows if e['kind'] == 'window-end')['data']['originalStatus'] == '1', 'window-end-original-status'
@@ -715,7 +950,11 @@ def complete_case(name, source=text, omission=None, changed=False, context=False
             else:
                 assert facts['queue-completion']['status'] == ('observed' if changed else 'not-observed'), 'samples-are-not-history'
                 assert result['displayOutcome'] == ('facts-observed' if changed else 'not-established'), 'fact-availability-separate'
-                if changed: assert any(e['kind'] == 'probe-observation' and e['data']['data'].get('code') == 1 for e in rows), 'failed-reload-exit-retained'
+                if changed and not mixed:
+                    assert any(e['kind'] == 'probe-observation' and isinstance(e['data']['data'], dict) and e['data']['data'].get('code') == 1 for e in rows), 'failed-reload-exit-retained'
+                if mixed:
+                    assert all(facts[key]['observationCount'] == 1 for key in ('phase-token-deadline', 'trial-acceptance-publication', 'queue-completion', 'actual-layer-reload')), 'probe-event-specific-facts'
+                    assert not any('probe-unparsed' in p or 'sequence-gap' in p for p in result['problems']), 'probe-valid-payload-continuity'
             cost = result['observationCost']
             prefix = (directory / 'events.jsonl').read_bytes().splitlines(keepends=True)[:-1]
             assert cost['prefixRecordEvents'] == len(prefix) and cost['prefixRecordBytes'] == sum(map(len, prefix)), 'cost-prefix-exact'
@@ -724,6 +963,7 @@ def complete_case(name, source=text, omission=None, changed=False, context=False
 
 complete_case('complete-zero')
 complete_case('complete-changes', changed=True)
+complete_case('source-mixed', changed=True, packets=packet_bytes, mixed=True)
 complete_case('context-no-probe', context=True)
 for omission in ('arm-boundary', 'arm', 'MonitorState', 'stopped', 'partial', 'line', 'interrupted'):
     complete_case('missing-' + omission, omission=omission)
@@ -749,6 +989,57 @@ def mutant(name, needle, replacement, check, assertion):
         assert str(error) == assertion, ('wrong-mutation-assertion', name, error)
         print('  CONTROL display collector: ' + name + ' fails ' + assertion)
     else: raise AssertionError(name + ' mutation survived')
+
+# Every packet in this positive case came from actual Probe source. A global
+# object-only filter must fail preservation, not an incidental runtime error.
+mutant('object-only-payload', 'or not isinstance(value["kind"], str) or not value["kind"] or "data" not in value):',
+       'or not isinstance(value["kind"], str) or not value["kind"] or "data" not in value or not isinstance(value["data"], dict)):',
+       lambda source: complete_case('mut-object-only', source, changed=True, packets=packet_bytes, mixed=True), 'probe-mixed-payloads-preserved')
+
+# Disposable envelope/fact mutations use the source-encoded positive packets.
+# Invalid envelopes, sequence history, launch binding and event-specific fact
+# errors have separate retained reasons. They never become no-change success.
+def encode_packets(values):
+    return b''.join(b'VGS_DISPLAY_EVENT ' + json.dumps(value).encode() + b'\n' for value in values)
+
+def packet_variant():
+    return json.loads(json.dumps(source_packets))
+
+for name, field, value in (('schema', 'schema', 'wrong'), ('sequence-bool', 'sequence', True),
+                           ('clock-bool', 'realtimeMs', True), ('clock-string', 'realtimeMs', '1000'),
+                           ('clock-nan', 'realtimeMs', float('nan')), ('clock-inf', 'realtimeMs', float('inf'))):
+    values = packet_variant(); values[0][field] = value
+    result = complete_case('invalid-' + name, packets=encode_packets(values), omission='invalid-probe')
+    assert any('probe-unparsed' in p for p in result['problems']), 'malformed-envelope-rejected'
+values = packet_variant(); del values[0]['data']
+assert any('probe-unparsed' in p for p in complete_case('invalid-data-absent', packets=encode_packets(values), omission='invalid-probe')['problems']), 'missing-payload-rejected'
+values = packet_variant(); values[0]['realtimeMs'] = 1.0
+huge = encode_packets(values).replace(b'"realtimeMs": 1.0', b'"realtimeMs": 1e9999', 1)
+assert any('probe-unparsed' in p for p in complete_case('invalid-number-overflow', packets=huge, omission='invalid-probe')['problems']), 'nonfinite-json-number-rejected'
+values = packet_variant(); del values[1]
+assert any('probe:sequence-gap:' in p for p in complete_case('invalid-sequence-gap', packets=encode_packets(values), omission='invalid-probe')['problems']), 'probe-sequence-gap-rejected'
+values = packet_variant()
+for value in values: value['instance'] = '74/100'
+assert any('probe:launch-unbound:' in p for p in complete_case('invalid-instance-binding', packets=encode_packets(values), omission='invalid-probe')['problems']), 'probe-instance-binding-rejected'
+
+for producer, kind, fact, field, invalid in (
+        ('MonitorState', 'trialStateChanged', 'phase-token-deadline', 'deadline', True),
+        ('Compositor', 'completionChanged', 'queue-completion', 'completion', dict(code=True, status=0)),
+        ('HyprlandLayer.reloader', 'exited', 'actual-layer-reload', 'status', '0')):
+    for variant in ('wrong-type', 'missing-field', 'scalar'):
+        values = packet_variant()
+        target = next(p for p in values if (p['producer'], p['kind']) == (producer, kind))
+        if variant == 'scalar': target['data'] = None
+        elif variant == 'missing-field': del target['data'][field]
+        else: target['data'][field] = invalid
+        name = 'invalid-fact-' + producer + '-' + variant
+        result = complete_case(name, packets=encode_packets(values), omission='invalid-probe')
+        assert any('probe-fact-payload-invalid:' + producer + ':' + kind in p for p in result['problems']), 'invalid-fact-distinguished'
+        assert not any('probe-unparsed' in p or 'sequence-gap' in p for p in result['problems']), 'valid-envelope-keeps-continuity'
+        assert result['factAvailability'][fact]['status'] == 'not-observed', 'invalid-fact-not-observed'
+        observed = [e['data'] for e in events(fixture_directories[name]) if e['kind'] == 'probe-observation']
+        assert json.dumps(observed, sort_keys=True) == json.dumps(values, sort_keys=True), 'invalid-fact-raw-retained'
+print('  CONTROL display collector: source-encoded mixed payloads and distinct invalid envelope/fact/history/binding cases pass')
 
 mutant('retirement', 'if not registration["required"]:', 'if False:', lambda source: many_stops('mut-retirement', source), 'completed-resource-retired')
 mutant('required-before-events', 'if not registration["required"]:', 'if True:', lambda s: complete_case('mut-required', s), 'required-reader-retained')
@@ -2003,129 +2294,6 @@ for ((i=0; i<${#capture_controls[@]}; i+=3)); do
   fi
 done
 
-# Execute the Probe's actual JavaScript methods with a captured console and
-# owner-data fixtures. This does not exercise QML bindings or signal wiring;
-# the normal nested pair owns that evidence.
-cat >"$tmp/probe-display-control.cjs" <<'JS'
-const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const vm = require('node:vm');
-try {
-    const source = fs.readFileSync(process.argv[2], 'utf8');
-    function method(name, indent) {
-        const pattern = new RegExp('^' + ' '.repeat(indent) + 'function ' + name
-            + '\\([^\\n]*\\)(?:: string)? \\{[\\s\\S]*?^' + ' '.repeat(indent) + '\\}', 'gm');
-        const matches = [...source.matchAll(pattern)];
-        if (matches.length !== 1) throw new Error('Probe method extraction: ' + name);
-        // Remove only QML's type annotations from the IPC signature.
-        return matches[0][0].replace(/^([^\n]*?)\(reason: string\): string/m, '$1(reason)');
-    }
-    const methods = ['encodeDisplayEvent', 'displayEventEnvelope', 'emitDisplayEvent',
-        'endDisplayEvents', 'detachDisplayEvents'].map(name => method(name, 4));
-    methods.push(method('displayEventStop', 8));
-    const capacities = {};
-    for (const name of ['displayEventCapacityEvents', 'displayEventCapacityChars', 'displayEventTerminalReserve']) {
-        const matches = [...source.matchAll(new RegExp('^    readonly property int ' + name + ': (\\d+)$', 'gm'))];
-        if (matches.length !== 1) throw new Error('Probe capacity extraction: ' + name);
-        capacities[name] = Number(matches[0][1]);
-    }
-    function fixture(status = 'armed') {
-        const lines = [];
-        let clock = 1000;
-        const state = Object.assign({}, capacities, {
-            displayEventInstance: 'fixture/instance', displayEventStatus: status,
-            displayEventReason: '', displayEventSequence: 0, displayEventChars: 0,
-            displayEventPriming: false,
-            console: { log: line => lines.push(line) }, Date: { now: () => clock++ }
-        });
-        for (const name of ['Monitors', 'Compositor', 'Loader', 'Layer', 'Reloader', 'Hyprland', 'Quickshell'])
-            state['displayEvent' + name] = { fixture: name };
-        state.root = state;
-        vm.createContext(state);
-        vm.runInContext(methods.join('\n'), state);
-        return { state, lines };
-    }
-    function record(f) {
-        const prefix = 'VGS_DISPLAY_EVENT ';
-        const events = f.lines.map(line => {
-            assert.ok(line.startsWith(prefix), 'machine prefix');
-            return JSON.parse(line.slice(prefix.length));
-        });
-        assert.ok(events.length <= f.state.displayEventCapacityEvents, 'finite event count');
-        let chars = 0;
-        for (const [index, event] of events.entries()) {
-            assert.equal(event.sequence, index + 1, 'contiguous emitted sequence');
-            assert.equal(event.instance, 'fixture/instance', 'instance survives delivery');
-            assert.equal(event.schema, 'VGS-1714.display-event.v1', 'event schema');
-            assert.equal(typeof event.realtimeMs, 'number', 'clock field');
-            chars += f.lines[index].length - prefix.length;
-        }
-        assert.equal(chars, f.state.displayEventChars, 'aggregate JSON accounting');
-        assert.ok(chars <= f.state.displayEventCapacityChars, 'finite JSON characters');
-        return events;
-    }
-    function detached(f) {
-        for (const name of ['Monitors', 'Compositor', 'Loader', 'Layer', 'Reloader', 'Hyprland', 'Quickshell'])
-            assert.equal(f.state['displayEvent' + name], null, 'release ' + name);
-        const count = f.lines.length;
-        assert.equal(f.state.emitDisplayEvent('boundary', 'fixture', {}), false, 'terminal blocks later events');
-        f.state.endDisplayEvents('interrupted', 'later');
-        assert.equal(f.lines.length, count, 'terminal is emitted once');
-    }
-    {
-        const f = fixture();
-        for (let i = 0; i < f.state.displayEventCapacityEvents; i++)
-            f.state.emitDisplayEvent('boundary', 'fixture', { label: 'event ceiling' });
-        const events = record(f);
-        assert.equal(f.state.displayEventStatus, 'overflow', 'event ceiling stops capture');
-        assert.equal(events.at(-1).kind, 'overflow', 'event ceiling retains terminal');
-        assert.equal(events.at(-1).data.reason, 'capacity-events', 'event ceiling reason');
-        detached(f);
-    }
-    {
-        const f = fixture();
-        const payload = 'x'.repeat(Math.ceil(f.state.displayEventCapacityChars / 16));
-        // Enough payloads exceed the character budget before the event cap.
-        for (let i = 0; i < 17 && f.state.displayEventStatus === 'armed'; i++)
-            f.state.emitDisplayEvent('outputsChanged', 'MonitorState', { fixture: payload });
-        const events = record(f);
-        assert.equal(f.state.displayEventStatus, 'overflow', 'character ceiling stops capture');
-        assert.equal(events.at(-1).data.reason, 'capacity-chars', 'character ceiling reason');
-        detached(f);
-    }
-    for (const [initial, status, reason] of [
-        ['armed', 'stopped', 'row-end'], ['armed', 'interrupted', 'probe-destroyed'],
-        ['absent', 'missing', 'reloader-identity']
-    ]) {
-        const f = fixture(initial);
-        if (status === 'stopped') assert.equal(f.state.displayEventStop(reason), 'ok', 'IPC stop');
-        else f.state.endDisplayEvents(status, reason);
-        const events = record(f);
-        assert.equal(events.length, 1, 'terminal-only fixture');
-        assert.equal(events[0].kind, status, 'terminal kind');
-        assert.equal(events[0].data.reason, reason, 'terminal reason');
-        assert.equal(f.state.displayEventStatus, status, 'terminal state');
-        detached(f);
-    }
-    {
-        const f = fixture();
-        assert.equal(f.state.displayEventStop('x'.repeat(f.state.displayEventTerminalReserve)),
-            'refused: display-events=overflow', 'long stop reason refuses');
-        const events = record(f);
-        assert.equal(events.at(-1).data.reason, 'capacity-stop-reason', 'long reason terminal');
-        detached(f);
-    }
-    console.log('probe-display-control: pass');
-} catch (error) {
-    if (error.code === 'ERR_ASSERTION') {
-        console.error('probe-display-control: assertion-failed ' + error.message);
-        process.exitCode = 1;
-    } else {
-        console.error('probe-display-control: unavailable ' + error.message);
-        process.exitCode = 2;
-    }
-}
-JS
 if node "$tmp/probe-display-control.cjs" "$repo/scripts/smoke/Probe.qml"; then
   ok "Probe source methods retain finite events, JSON characters and terminal states"
 else

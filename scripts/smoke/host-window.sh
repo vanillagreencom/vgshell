@@ -77,6 +77,7 @@ import array
 import ctypes
 import fcntl
 import json
+import math
 import os
 import pathlib
 import re
@@ -118,6 +119,22 @@ def checked(value):
         error = ctypes.get_errno()
         raise OSError(error, os.strerror(error))
     return value
+
+def finite_number(value):
+    return type(value) in (int, float) and (type(value) is int or math.isfinite(value))
+
+def probe_float(text):
+    value = float(text)
+    if not math.isfinite(value):
+        raise ValueError("non-finite Probe number")
+    return value
+
+def probe_constant(text):
+    raise ValueError("non-JSON Probe constant: " + text)
+
+def process_completion(value):
+    return (isinstance(value, dict) and type(value.get("code")) is int
+            and type(value.get("status")) is int)
 
 def process_binding(pid):
     # Identity snapshots, never event history. Linux starttime is field22
@@ -659,13 +676,19 @@ class Record:
             if at < 0:
                 return
             try:
-                value = json.loads(line[at + len(PREFIX):])
-                if (value["schema"] != "VGS-1714.display-event.v1" or not isinstance(value["instance"], str)
-                        or not isinstance(value["sequence"], int) or value["sequence"] < 1
-                        or not isinstance(value["producer"], str) or not isinstance(value["kind"], str)
-                        or not isinstance(value["data"], dict)):
+                # Probe's encoder emits every JSON data type. Envelope
+                # metadata is separate from event-specific fact fields.
+                # https://docs.python.org/3.14/library/json.html#json.loads
+                value = json.loads(line[at + len(PREFIX):], parse_float=probe_float,
+                                   parse_constant=probe_constant)
+                if (not isinstance(value, dict) or value["schema"] != "VGS-1714.display-event.v1"
+                        or not isinstance(value["instance"], str) or not value["instance"]
+                        or type(value["sequence"]) is not int or value["sequence"] < 1
+                        or not finite_number(value["realtimeMs"])
+                        or not isinstance(value["producer"], str) or not value["producer"]
+                        or not isinstance(value["kind"], str) or not value["kind"] or "data" not in value):
                     raise ValueError("invalid Probe envelope")
-            except (KeyError, TypeError, ValueError):
+            except (KeyError, TypeError, ValueError, RecursionError):
                 self.problems.add(source + ":probe-unparsed")
                 self.emit(source, "unparsed", line.decode(errors="replace"))
                 return
@@ -686,10 +709,27 @@ class Record:
             self.observations.add((registration, instance, value["producer"], value["kind"]))
             self.fact_counts[(registration, value["producer"], value["kind"])] += 1
             data = value["data"]
-            if value["producer"] == "MonitorState" and value["kind"] == "trialStateChanged" and data.get("phase") == "arming":
-                self.fact_counts[(registration, "fact", "accepted-state-publication")] += 1
-            if value["producer"] == "Compositor" and value["kind"] == "completionChanged" and data.get("completion") is not None:
-                self.fact_counts[(registration, "fact", "queue-process-completion")] += 1
+            target = (value["producer"], value["kind"])
+            valid_fact = True
+            if target == ("MonitorState", "trialStateChanged"):
+                valid_fact = (isinstance(data, dict) and isinstance(data.get("phase"), str)
+                              and isinstance(data.get("token"), str) and finite_number(data.get("deadline"))
+                              and isinstance(data.get("failure"), str))
+                if valid_fact:
+                    self.fact_counts[(registration, "fact", "trial-state-publication")] += 1
+                    if data["phase"] == "arming":
+                        self.fact_counts[(registration, "fact", "accepted-state-publication")] += 1
+            elif target == ("Compositor", "completionChanged"):
+                valid_fact = (isinstance(data, dict) and "completion" in data
+                              and (data["completion"] is None or process_completion(data["completion"])))
+                if valid_fact and data["completion"] is not None:
+                    self.fact_counts[(registration, "fact", "queue-process-completion")] += 1
+            elif target == ("HyprlandLayer.reloader", "exited"):
+                valid_fact = process_completion(data)
+                if valid_fact:
+                    self.fact_counts[(registration, "fact", "reloader-exit")] += 1
+            if not valid_fact:
+                self.problems.add(source + ":probe-fact-payload-invalid:" + ":".join(target))
             self.emit(source, "probe-observation", value)
         elif kind == "wayland":
             # Preserve the actual diagnostic text and direction. Requests
@@ -846,10 +886,10 @@ class Record:
             # Occurrence is not collection integrity. Public producers can
             # report zero changes after a refusal or an unchanged input.
             facts = {}
-            for label, producer, kind in (("phase-token-deadline", "MonitorState", "trialStateChanged"),
+            for label, producer, kind in (("phase-token-deadline", "fact", "trial-state-publication"),
                                            ("trial-acceptance-publication", "fact", "accepted-state-publication"),
                                            ("queue-completion", "fact", "queue-process-completion"),
-                                           ("actual-layer-reload", "HyprlandLayer.reloader", "exited")):
+                                           ("actual-layer-reload", "fact", "reloader-exit")):
                 observed = self.fact_counts[(self.display_registration, producer, kind)]
                 facts[label] = dict(status="scope-unavailable" if self.scope is None else "not-requested" if not expected else "observed" if observed else "not-observed",
                                     observationCount=observed,
