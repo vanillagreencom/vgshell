@@ -56,7 +56,8 @@
 # header switch under the pointer and under keyboard focus, the switch's
 # unlock mark under keyboard focus, and Sign in under the pointer over a
 # signed-out tailnet; power is its flyout over the sandbox's fake
-# battery and power profile daemon; keyhints is the
+# battery and power profile daemon, then over the daemon with no battery;
+# keyhints is the
 # Key Hints window over the Launcher's, Settings' and Themes' shortcuts and
 # its own; ai-usage is AI Usage's dropdown opened from its bar widget over
 # three signed-in accounts, two Claude Code and one Codex, at rest and
@@ -5609,12 +5610,22 @@ scene_power() { # MODE
   expect_poll "Power sends its critical battery notice" 1 notes_on_screen
   take "power-$1-notice-critical"
   notes_off "Power notice shots"
+  power_no_battery
+  expect_poll "Power's service reads no battery" False power_shot_battery
+  click_centre "$(bar_key)" vgs.power || fail "opening Power with no battery failed"
+  expect_poll "Power opens its panel with no battery" shown power_shot_panel
+  park_pointer
+  take "power-$1-panel-no-battery"
+  expect "Power's panel with no battery hides" ok ipc shell hide panel vgs.power
+  power_discharging 64.0 7200
+  expect_poll "Power's service reads the battery again" 64 power_shot_level
   expect "Power's widget is unplaced after its shot" ok ipc shell setPluginPlaced vgs.power false
   expect "Power disables after its shot" ok ipc shell setPluginEnabled vgs.power false
   power_stop_mocks
 }
 power_shot_panel() { [[ $(ipc smoke instanceGeometry panel vgs.power) != absent ]] && echo shown || echo hidden; }
 power_shot_level() { ipc smoke statusValues vgs.power | py_reply 'import json,sys; print(json.load(sys.stdin)["power"]["battery"]["level"])'; }
+power_shot_battery() { ipc smoke statusValues vgs.power | py_reply 'import json,sys; print(json.load(sys.stdin)["power"]["battery"]["present"])'; }
 
 # The core's requirement notice, raised by enabling the acme.needs
 # fixture, which misses a command it needs; Escape closes it, and the

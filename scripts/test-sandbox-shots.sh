@@ -1232,6 +1232,7 @@ power_scene_case() {
     power_add_battery() { echo /org/freedesktop/UPower/devices/mock_BAT0; }
     notice_shown() { echo null; }
     power_discharging() { :; }
+    power_no_battery() { :; }
     park_pointer() { :; }
     click_centre() { :; }
     bar_key() { echo bar; }
@@ -1243,9 +1244,9 @@ power_scene_case() {
     take() { printf "%s\n" "$1"; }
     scene_power dark
   ' _ "$1" >"$tmp/power-scene.out" &&
-    [[ $(<"$tmp/power-scene.out") == $'power-dark-bar\npower-dark-panel\npower-dark-notice-low\npower-dark-notice-critical' ]]
+    [[ $(<"$tmp/power-scene.out") == $'power-dark-bar\npower-dark-panel\npower-dark-notice-low\npower-dark-notice-critical\npower-dark-panel-no-battery' ]]
 }
-if power_scene_case "$power_scene"; then ok "Power scans its fake daemon before enable and captures both notices"; else fail "Power scene order or captures failed"; fi
+if power_scene_case "$power_scene"; then ok "Power scans its fake daemon before enable and captures both notices and its panel with no battery"; else fail "Power scene order or captures failed"; fi
 power_mutant="$tmp/power-scene-mutant.sh"
 for defect in no-scan late-daemon; do
   python3 - "$power_scene" "$power_mutant" "$defect" <<'PYCONTROL'

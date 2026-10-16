@@ -38,8 +38,10 @@
 # it draws the charging icon; one discharge sends one low and one critical
 # alert through `notify`, each with its icon and tone, no repeats below the same
 # thresholds; the panel draws the battery level, state and time left in
-# one Field, lists the profiles the daemon offers with the active one
-# marked, and follows the daemon to a shorter list; keyboard selection in
+# one Field, lists the profiles the daemon offers as icon tiles with the
+# active one marked, and follows the daemon to a shorter list; a reader of
+# the SegmentedControl the panel once drew finds nothing, the control on
+# the TileGroup reader; keyboard selection in
 # the panel chooses Performance and writes the current source setting; a
 # plug change applies the remembered charger profile; removing the display
 # battery hides the widget's battery part again; and a profile service
@@ -146,7 +148,8 @@ print(json.dumps(sorted({a for run in runs if run[:1] == ["monitor"] or "org.fre
 power_reads() { [[ -s $power_gdbus_calls ]] && py_reply 'import json,sys; print(sum("org.freedesktop.DBus.Properties.GetAll" in json.loads(line) for line in sys.stdin))' <"$power_gdbus_calls" || echo 0; }
 power_has_read() { local n; n="$(power_reads)" || return; [[ $n -gt 0 ]] && echo yes || echo no; }
 power_status_active() { power_status | py_reply 'import json,sys; print(json.load(sys.stdin)["profile"]["active"])'; }
-power_profile_list() { ipc smoke itemValues panel vgs.power SegmentedControl model,currentIndex | py_reply 'import json,sys; print(json.dumps([[r["model"], r["currentIndex"]] for r in json.load(sys.stdin)]))'; }
+power_profile_list() { ipc smoke itemValues panel vgs.power TileGroup model,currentIndex | py_reply 'import json,sys; print(json.dumps([[[m["text"] for m in r["model"]], r["currentIndex"]] for r in json.load(sys.stdin)]))'; }
+power_profile_icons() { ipc smoke itemValues panel vgs.power TileGroup model | py_reply 'import json,sys; print(json.dumps([[m["icon"] for m in r["model"]] for r in json.load(sys.stdin)]))'; }
 power_profiles_set_mock() { power_call --dest org.freedesktop.UPower.PowerProfiles --object-path /org/freedesktop/UPower/PowerProfiles --method org.freedesktop.DBus.Properties.Set org.freedesktop.UPower.PowerProfiles Profiles "<[$1]>" >/dev/null; }
 # power_battery_field: the texts of the panel Field that draws the battery, sorted.
 power_battery_field() { ipc smoke itemTexts panel vgs.power Field | py_reply 'import json,sys; print(json.dumps(sorted(next((row for row in json.load(sys.stdin) if "Battery" in row), []))))'; }
@@ -275,6 +278,8 @@ EOF_STAND
   expect_poll "the Power panel focuses the profile control" true ipc smoke activeFocusIn panel vgs.power
   expect_poll "the panel draws the level, the state and the time left in the Battery field" '["17 min left", "8%", "Battery", "On battery"]' power_battery_field
   expect_poll "the panel lists the daemon's profiles with the active one marked" '[[["Power saver", "Balanced", "Performance"], 1]]' power_profile_list
+  expect "the panel draws each profile's icon on its tile" '[["leaf", "gauge", "zap"]]' power_profile_icons
+  expect "control: the SegmentedControl reader finds no profile control" '[]' ipc smoke itemValues panel vgs.power SegmentedControl model,currentIndex
   power_profiles_set_mock "{'Profile': <'power-saver'>, 'Driver': <'dbusmock'>}, {'Profile': <'balanced'>, 'Driver': <'dbusmock'>}"
   expect_poll "the panel follows the daemon to a list without Performance" '[[["Power saver", "Balanced"], 1]]' power_profile_list
   power_profiles_set_mock "{'Profile': <'power-saver'>, 'Driver': <'dbusmock'>}, {'Profile': <'balanced'>, 'Driver': <'dbusmock'>}, {'Profile': <'performance'>, 'Driver': <'dbusmock'>}"

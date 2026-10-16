@@ -4,8 +4,8 @@ import qs.Ui
 import "PowerLogic.js" as Logic
 
 // The Power flyout under the bar widget. It shows the service's published
-// battery view and one SegmentedControl in the value column that lists the
-// profiles the daemon offers, with the active one marked.
+// battery view and one full-width TileGroup that lists the profiles the
+// daemon offers, with the active one marked.
 // A user choice goes to the service through IPC, which owns the profile
 // write and the remembered profile for this power source.
 FocusScope {
@@ -15,19 +15,11 @@ FocusScope {
     readonly property var power: shell === null || shell.status.values.power === undefined ? null : shell.status.values.power
     readonly property var battery: power && power.battery ? power.battery : { present: false, level: 0, charging: false, state: "absent", secondsToEmpty: 0, secondsToFull: 0 }
     readonly property var profile: power && power.profile ? power.profile : { available: false, active: "balanced", choices: [] }
-    readonly property var profileLabels: profile.choices.map(p => Logic.profileLabel(p))
+    readonly property var profileTiles: profile.choices.map(p => ({ text: Logic.profileLabel(p), icon: Logic.profileIcon(p), available: true }))
     readonly property int activeIndex: Math.max(0, profile.choices.indexOf(profile.active))
     property string problem: ""
     property Item initialFocus: profileControl.visible ? profileControl : null
     focus: true
-    Keys.onRightPressed: event => {
-        event.accepted = true;
-        chooseProfile(Math.min(profile.choices.length - 1, activeIndex + 1));
-    }
-    Keys.onLeftPressed: event => {
-        event.accepted = true;
-        chooseProfile(Math.max(0, activeIndex - 1));
-    }
 
     function open(payloadJson) {
         problem = "";
@@ -46,10 +38,7 @@ FocusScope {
         return reply;
     }
 
-    // `panel.md`, or wider where the profile control would pass the end of
-    // the value column. The pane's padding stands for its content inset,
-    // which settles from the width and would loop through this binding.
-    implicitWidth: Math.max(Theme.size.panel.md, Math.ceil(2 * layout.padding + profileField.valueX + profileControl.implicitWidth))
+    implicitWidth: Theme.size.panel.md
     implicitHeight: layout.implicitHeight
 
     Surface { anchors.fill: parent }
@@ -88,19 +77,26 @@ FocusScope {
                 }
             }
 
-            Field {
-                id: profileField
-                width: parent.width
+            Column {
                 visible: root.profile.available
-                inline: true
-                label: "Power profile"
-                error: root.problem
-                SegmentedControl {
+                width: parent.width
+                spacing: Theme.stack.row
+
+                TileGroup {
                     id: profileControl
-                    visible: root.profile.available && root.profile.choices.length > 0
-                    model: root.profileLabels
+                    width: parent.width
+                    visible: root.profile.choices.length > 0
+                    model: root.profileTiles
                     currentIndex: root.activeIndex
                     onActivated: index => root.chooseProfile(index)
+                }
+                Label {
+                    width: parent.width
+                    visible: text !== ""
+                    role: "hint"
+                    color: Theme.color.danger
+                    text: root.problem
+                    wrapMode: Text.Wrap
                 }
             }
             Label {
