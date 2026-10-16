@@ -33,6 +33,9 @@ Item {
     // and its last answer.
     property int presses: 0
     property bool pressing: false
+    // Presses finished, whatever each did; the windows-group-lock smoke row
+    // waits on it before it changes a group itself.
+    property int finished: 0
 
     readonly property var notices: ({
         locked: { title: "Group locked", message: "No window can join or leave this group.", icon: "lock", transient: true },
@@ -60,6 +63,7 @@ Item {
         }
         // The core logged its refusal, a classic session's among them; the
         // presses waiting would meet the same refusal.
+        finished += 1 + presses;
         presses = 0;
     }
 
@@ -87,6 +91,7 @@ Item {
     }
 
     function finish() {
+        finished += 1;
         pressing = false;
         next();
     }
