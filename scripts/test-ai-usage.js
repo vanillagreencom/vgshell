@@ -341,7 +341,10 @@ async function main() {
     // HOME's for the default folder, the folder's own for any other. The
     // profiles are padded past the credential ceiling, as a real one is. An
     // absent or linked profile leaves the email empty and the read ok. No
-    // account carries a plan.
+    // account carries a plan or its folder's name. A folder with no Claude
+    // sign-in, empty or holding only other tools' tokens beside a profile,
+    // reads signed out with no email, and the Hidden accounts choices offer
+    // only the signed-in accounts, each by provider and email alone.
     const emailHome = path.join(root, "email-home");
     const profile = (directory, email) => write(path.join(directory, ".claude.json"), JSON.stringify({
         oauthAccount: { emailAddress: email, accountUuid: "planted" }, projects: { padding: "x".repeat(150 * 1024) } }));
@@ -353,22 +356,34 @@ async function main() {
     claudeAccount(path.join(emailHome, ".2claude"), HOUR, Date.now());
     claudeAccount(path.join(emailHome, ".3claude"), HOUR, Date.now());
     fs.symlinkSync(path.join(emailHome, ".zclaude/.claude.json"), path.join(emailHome, ".3claude/.claude.json"));
+    fs.mkdirSync(path.join(emailHome, ".claude-shared"));
+    write(path.join(emailHome, ".claude-work/.credentials.json"), JSON.stringify({ mcpOAuth: { planted: { accessToken: TOKEN } } }));
+    profile(path.join(emailHome, ".claude-work"), "work@example.invalid");
     const emails = async folder => {
         mode("ok");
         const result = await usageIn(folder).read(tree, { PATH, HOME: emailHome, LANG: "C.UTF-8" }, { origin });
-        assert.deepEqual(result.accounts.map(row => [row.label, row.state, row.email]).sort(), [
-            ["2", "ok", ""], ["3", "ok", ""], ["default", "ok", "home@example.invalid"], ["z", "ok", "z@example.invalid"]]);
-        for (const row of result.accounts) assert.equal("plan" in row, false, row.label + " carries no plan");
+        assert.deepEqual(result.accounts.map(row => [row.state, row.email]).sort(), [
+            ["ok", ""], ["ok", ""], ["ok", "home@example.invalid"], ["ok", "z@example.invalid"], ["signed-out", ""], ["signed-out", ""]]);
+        for (const row of result.accounts)
+            assert.deepEqual(Object.keys(row).sort(), ["credits", "details", "email", "id", "provider", "state", "windows"], row.id + " carries only these fields");
+        assert.deepEqual(viewIn(folder).accountChoices(viewIn(folder).merge(null, result, NOW)).map(choice => choice.label).sort(),
+            ["Claude Code", "Claude Code", "Claude Code · home@example.invalid", "Claude Code · z@example.invalid"]);
         mode("error");
         const failing = await usageIn(folder).read(tree, { PATH, HOME: emailHome, LANG: "C.UTF-8" }, { origin });
-        assert.deepEqual(failing.accounts.map(row => [row.label, row.state, row.email]).sort(), [
-            ["2", "failed", ""], ["3", "failed", ""], ["default", "failed", "home@example.invalid"], ["z", "failed", "z@example.invalid"]],
+        assert.deepEqual(failing.accounts.map(row => [row.state, row.email]).sort(), [
+            ["failed", ""], ["failed", ""], ["failed", "home@example.invalid"], ["failed", "z@example.invalid"], ["signed-out", ""], ["signed-out", ""]],
         "a failed read keeps the email");
     };
     await emails(plugin);
     cases++;
     await control("default-profile-in-folder", "backend/usage.js", 'profile: folder.source === "default" ? home : folder.directory',
         "profile: folder.directory", emails);
+    await control("folder-label-published", "backend/usage.js", "return { id, provider: folder.provider, email: result.email || \"\",",
+        "return { id, provider: folder.provider, label: folder.label.slice(0, 60), email: result.email || \"\",", emails);
+    await control("choice-label-fallback", "UsageView.js", 'var text = email === "" ? name : name + " · " + email;',
+        'var text = name + " · " + cleanLine(row.email, cleanLine(row.label, row.id));', emails);
+    await control("choice-signed-out-offered", "UsageView.js", "    return signedIn(usage).map(function (row) {",
+        "    return (usage === null || usage === undefined ? [] : usage.accounts).map(function (row) {", emails);
     await control("profile-email-dropped", "backend/usage.js",
         'return plain(account) && printable(account.emailAddress, 120) ? account.emailAddress : "";', 'return "";', emails);
     await control("profile-credential-ceiling", "backend/usage.js",
@@ -670,9 +685,9 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
             const status = JSON.stringify([usage, View.signIn(usage, "claude"), View.signIn(usage, "codex"), View.signIn(usage, "copilot")]);
             for (const [where, text] of [["stdout", result.stdout], ["stderr", result.stderr], ["status", status]])
                 assert.equal(text.includes(TOKEN), false, "the token reaches " + where + " for " + word);
-            const states = Object.fromEntries(reading.accounts.map(row => [row.provider + "/" + row.label, row.state]));
-            assert.deepEqual(states, { "claude/default": word === "ok" ? "ok" : word === "throttled" ? "limited" : "failed", "claude/work": "expired",
-                "codex/default": "ok", "copilot/default": "failed" }, result.stderr);
+            assert.deepEqual(reading.accounts.map(row => [row.provider, row.state]).sort(), [
+                ["claude", word === "ok" ? "ok" : word === "throttled" ? "limited" : "failed"], ["claude", "expired"],
+                ["codex", "ok"], ["copilot", "failed"]].sort(), result.stderr);
         }
         assert.deepEqual(credentials(world), worldBefore, "no credential file changed");
     };
@@ -700,8 +715,8 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
             const result = cp.spawnSync(process.execPath, [path.join(plugin, "backend/usage.js"), "--tree", tree], { env, encoding: "utf8", timeout: 30000 });
             assert.equal(result.status, 0, result.stderr);
             const line = JSON.parse(result.stdout);
-            assert.deepEqual([line.partial, line.accounts.map(row => [row.provider, row.label, row.state])],
-                ["", [["claude", "default", "expired"], ["codex", "default", "ok"], ["copilot", "default", "signed-out"], ["claude", "work", "expired"]]]);
+            assert.deepEqual([line.partial, line.accounts.map(row => [row.provider, row.state])],
+                ["", [["claude", "expired"], ["codex", "ok"], ["copilot", "signed-out"], ["claude", "expired"]]]);
             assert.equal(result.stdout.includes(TOKEN) || result.stderr.includes(TOKEN), false);
             const refused = cp.spawnSync(process.execPath, [path.join(plugin, "backend/usage.js")], { env, encoding: "utf8" });
             assert.deepEqual([refused.status, refused.stdout, refused.stderr], [2, "", "ai-usage: arguments=expected-tree\n"]);
@@ -741,8 +756,8 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
     // rows and the panel's cards: provider titles, account lines, notes,
     // limits and reset times, and grouped whole credits.
     const reading = (state, windows) => ({ accounts: [
-        { id: "claude-a", provider: "claude", label: "default", email: "", state, windows },
-        { id: "codex-b", provider: "codex", label: "work", email: "person@example.invalid", state: "ok",
+        { id: "claude-a", provider: "claude", email: "", state, windows },
+        { id: "codex-b", provider: "codex", email: "person@example.invalid", state: "ok",
             windows: [{ name: "five_hour", usedPercent: 79, resetsAt: NOW + 61 * 60000 }] }], partial: "" });
     const views = folder => {
         const View = viewIn(folder);
@@ -751,7 +766,7 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
         const first = View.merge(null, reading("ok", [{ name: "seven_day", usedPercent: 80, resetsAt: NOW + 26 * HOUR }]), NOW);
         assert.deepEqual(shown(first), [true, 80, "warning"]);
         const failedRead = View.merge(first, reading("failed", []), NOW + 1);
-        assert.deepEqual(plainOf(failedRead.accounts[0]), { id: "claude-a", provider: "claude", label: "default", email: "",
+        assert.deepEqual(plainOf(failedRead.accounts[0]), { id: "claude-a", provider: "claude", email: "",
             state: "stale", windows: [{ name: "seven_day", usedPercent: 80, resetsAt: NOW + 26 * HOUR }], credits: null, details: {}, readAt: NOW },
         "a failed read keeps its last figures and when they were read");
         assert.equal(failedRead.readAt, NOW + 1);
@@ -767,7 +782,7 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
         // as old. With none, the account reads limited with no figures.
         assert.deepEqual(plainOf(first.accounts.map(row => row.readAt)), [NOW, NOW], "an ok read sets its read time");
         const limitedRead = View.merge(first, reading("limited", []), NOW + 5 * 60000);
-        const keptClaude = { id: "claude-a", provider: "claude", label: "default", email: "",
+        const keptClaude = { id: "claude-a", provider: "claude", email: "",
             state: "limited", windows: [{ name: "seven_day", usedPercent: 80, resetsAt: NOW + 26 * HOUR }], credits: null, details: {}, readAt: NOW };
         assert.deepEqual(plainOf(limitedRead.accounts[0]), keptClaude, "a limited read keeps the last figures, marked limited");
         assert.equal(limitedRead.readAt, NOW + 5 * 60000, "a limited run still answered");
@@ -830,7 +845,7 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
             "a failed read shows no share");
         const below = View.merge(null, reading("ok", [{ name: "five_hour", usedPercent: 12, resetsAt: null }]), NOW);
         assert.deepEqual(shown(below), [true, 79, "normal"], "the highest share across accounts");
-        const only = state => View.merge(null, { accounts: [{ id: "c", provider: "codex", label: "x", email: "", state,
+        const only = state => View.merge(null, { accounts: [{ id: "c", provider: "codex", email: "", state,
             windows: [] }], partial: "" }, NOW);
         for (const usage of [null, { accounts: [], readAt: NOW }, only("signed-out")])
             assert.equal(View.widget(usage, null, NOW).shown, false, "no sign-in hides the widget");
@@ -841,10 +856,10 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
         // what the bar drew before the settings: the most used, in the
         // warning tone.
         const bar = View.merge(null, { accounts: [
-            { id: "a", provider: "claude", label: "a", email: "", state: "ok", windows: [
+            { id: "a", provider: "claude", email: "", state: "ok", windows: [
                 { name: "five_hour", usedPercent: 10, resetsAt: NOW + HOUR }, { name: "seven_day", usedPercent: 80, resetsAt: NOW + 26 * HOUR }] },
-            { id: "b", provider: "codex", label: "b", email: "", state: "ok", windows: [{ name: "five_hour", usedPercent: 20, resetsAt: NOW + HOUR }] },
-            { id: "c", provider: "claude", label: "c", email: "", state: "ok", windows: [] }], partial: "" }, NOW);
+            { id: "b", provider: "codex", email: "", state: "ok", windows: [{ name: "five_hour", usedPercent: 20, resetsAt: NOW + HOUR }] },
+            { id: "c", provider: "claude", email: "", state: "ok", windows: [] }], partial: "" }, NOW);
         const barOf = settings => { const w = View.widget(bar, settings, NOW); return [w.used, w.percent, w.text, w.tone]; };
         for (const [settings, want] of [
             [null, [80, 80, "80%", "warning"]],
@@ -867,12 +882,12 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
         assert.deepEqual(row(View.merge(null, reading("limited", []), NOW), "claude"), ["ok", false], "a limited account stays signed in");
         assert.equal(View.signIn(View.merge(null, reading("expired", []), NOW), "claude").text, View.EXPIRED.claude);
 
-        // A card's title is the provider's name alone, never the folder's
-        // label; its account line is the email the helper read.
-        assert.deepEqual(plainOf(View.panel(first, NOW).map(r => [r.id, r.title, r.label, r.email, r.state,
+        // A card's title is the provider's name alone; its account line is
+        // the email the helper read.
+        assert.deepEqual(plainOf(View.panel(first, NOW).map(r => [r.id, r.title, r.email, r.state,
             r.windows.map(w => [w.name, w.percent, w.tone, w.resetIn])])), [
-            ["claude-a", View.NAMES.claude, "default", "", "ok", [["seven_day", 80, "danger", { kind: "in", days: 1, hours: 2, minutes: 0 }]]],
-            ["codex-b", View.NAMES.codex, "work", "person@example.invalid", "ok", [["five_hour", 79, "warning", { kind: "in", days: 0, hours: 1, minutes: 1 }]]]]);
+            ["claude-a", View.NAMES.claude, "", "ok", [["seven_day", 80, "danger", { kind: "in", days: 1, hours: 2, minutes: 0 }]]],
+            ["codex-b", View.NAMES.codex, "person@example.invalid", "ok", [["five_hour", 79, "warning", { kind: "in", days: 0, hours: 1, minutes: 1 }]]]]);
         for (const r of View.panel(first, NOW)) assert.equal("plan" in r, false, r.id + " carries no plan");
         // The reset reads as the time left alone.
         for (const [resetAt, text] of [[null, ""], [NOW, "now"], [NOW + 59000, "1m"], [NOW + 61 * 60000, "1h 1m"], [NOW + 4 * 24 * HOUR, "4d 0h"]])
@@ -882,10 +897,10 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
         // the normal tone and no limit rows. A window with no use and no
         // reset time beside one in use reads not started.
         const fresh = View.merge(null, { accounts: [
-            { id: "claude-n", provider: "claude", label: "n", email: "n@example.invalid", state: "ok", windows: [
+            { id: "claude-n", provider: "claude", email: "n@example.invalid", state: "ok", windows: [
                 { name: "five_hour", usedPercent: 0, resetsAt: null }, { name: "seven_day", usedPercent: 0, resetsAt: NOW + 26 * HOUR },
                 { name: "seven_day_fable", usedPercent: 0, resetsAt: NOW + 26 * HOUR }] },
-            { id: "claude-m", provider: "claude", label: "m", email: "", state: "ok", windows: [
+            { id: "claude-m", provider: "claude", email: "", state: "ok", windows: [
                 { name: "five_hour", usedPercent: 0, resetsAt: null }, { name: "seven_day", usedPercent: 40, resetsAt: NOW + 26 * HOUR }] }],
         partial: "" }, NOW);
         const [idle, half] = View.panel(fresh, NOW);
@@ -895,7 +910,7 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
         assert.equal(half.windows[1].text, "40%");
         assert.deepEqual([half.note, half.noteTone], ["", "normal"]);
         assert.deepEqual(shown(fresh), [true, 40, "normal"], "the bar keeps the used account's share");
-        const pool = View.panel(View.merge(null, { accounts: [{ id: "copilot-p", provider: "copilot", label: "default", email: "octo-user",
+        const pool = View.panel(View.merge(null, { accounts: [{ id: "copilot-p", provider: "copilot", email: "octo-user",
             state: "ok", credits: { unit: "requests", used: 0, granted: 300, monthUsed: 0 }, details: {},
             windows: [{ name: "credits", usedPercent: 0, resetsAt: Date.parse("2026-11-01T00:00:00Z") }] }], partial: "" }, NOW), NOW)[0];
         assert.deepEqual(plainOf([pool.note, pool.windows.map(w => [w.name, w.text, w.started])]), ["", [["credits", "0 of 300", true]]],
@@ -903,24 +918,24 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
 
         // The account line is only the reported email or login.
         const nameless = View.merge(null, { accounts: [
-            { id: "claude-n", provider: "claude", label: "n", email: "", state: "expired", windows: [] },
-            { id: "claude-d", provider: "claude", label: "default", email: "", state: "expired", windows: [] },
-            { id: "copilot-w", provider: "copilot", label: "work", email: "octo-user", state: "failed", windows: [] },
-            { id: "gateway-x", provider: "gateway", label: "AI Gateway", email: "", state: "failed", windows: [] }], partial: "" }, NOW);
+            { id: "claude-n", provider: "claude", email: "", state: "expired", windows: [] },
+            { id: "claude-d", provider: "claude", email: "", state: "expired", windows: [] },
+            { id: "copilot-w", provider: "copilot", email: "octo-user", state: "failed", windows: [] },
+            { id: "gateway-x", provider: "gateway", email: "", state: "failed", windows: [] }], partial: "" }, NOW);
         assert.deepEqual(View.panel(nameless, NOW).map(r => [r.id, r.account]),
             [["claude-n", ""], ["claude-d", ""], ["copilot-w", "octo-user"], ["gateway-x", ""]]);
 
-        const copilot = View.merge(null, { accounts: [{ id: "copilot-a", provider: "copilot", label: "work", email: "octo-user",
+        const copilot = View.merge(null, { accounts: [{ id: "copilot-a", provider: "copilot", email: "octo-user",
             state: "ok", credits: { unit: "credits", used: 45225, granted: 1000000, monthUsed: 362327 },
             details: { copilotMonthUsed: 362327, copilotRenewsAt: Date.parse("2026-11-01T00:00:00Z") },
             windows: [{ name: "credits", usedPercent: 4.5225, resetsAt: Date.parse("2026-11-01T00:00:00Z") }] },
-        { id: "copilot-b", provider: "copilot", label: "zero", email: "zero-user", state: "ok",
+        { id: "copilot-b", provider: "copilot", email: "zero-user", state: "ok",
             credits: { unit: "requests", granted: 0 }, details: {}, windows: [] },
-        { id: "claude-enterprise", provider: "claude", label: "enterprise", email: "", state: "ok",
+        { id: "claude-enterprise", provider: "claude", email: "", state: "ok",
             credits: null, details: {}, windows: [] },
-        { id: "codex-c", provider: "codex", label: "c", email: "c@example.invalid", state: "ok", credits: null,
+        { id: "codex-c", provider: "codex", email: "c@example.invalid", state: "ok", credits: null,
             details: { codexCredits: { balance: "59295.2328000000" } }, windows: [{ name: "five_hour", usedPercent: 3, resetsAt: NOW + HOUR }] },
-        { id: "gateway-a", provider: "gateway", label: "AI Gateway", email: "", state: "ok", credits: null,
+        { id: "gateway-a", provider: "gateway", email: "", state: "ok", credits: null,
             details: { gateway: { balance: 10.5, totalUsed: 5.25 } }, windows: [{ name: "credits", usedPercent: 33.3333333333, resetsAt: null }] }], partial: "" }, NOW);
         assert.deepEqual(plainOf(View.panel(copilot, NOW).map(r => [r.id, r.title, r.email, r.detail, r.note,
             r.windows.map(w => [w.label, w.text, w.percent, w.started]), r.details.map(d => [d.label, d.value])])), [
@@ -934,17 +949,15 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
         assert.deepEqual(shown(copilot, { showCopilot: false }), [true, 33.3333333333, "normal"], "provider filters remove Copilot from the widget");
         assert.deepEqual(View.panel(copilot, NOW, { showCopilot: false }).map(r => r.provider), ["claude", "codex", "gateway"]);
         assert.deepEqual(View.panel(copilot, NOW, { hidden: [{ account: "" }] }).map(r => r.id), ["claude-enterprise", "codex-c", "copilot-b", "gateway-a"], "empty hidden account means the first offer");
-        assert.deepEqual(View.accountChoices(copilot).map(r => r.value), ["copilot-a", "copilot-b", "claude-enterprise", "codex-c", "gateway-a"]);
+        assert.deepEqual(plainOf(View.accountChoices(copilot).map(r => [r.value, r.label])), [["copilot-a", "Copilot · octo-user"],
+            ["copilot-b", "Copilot · zero-user"], ["claude-enterprise", "Claude Code"], ["codex-c", "Codex · c@example.invalid"], ["gateway-a", "AI Gateway"]]);
         assert.equal(View.panel(copilot, NOW, { aiGateway: false }).some(r => r.provider === "gateway"), false);
         assert.equal(View.panel(copilot, NOW, { aiGateway: true }).some(r => r.provider === "gateway"), true);
         assert.deepEqual(plainOf(View.gatewayKey("present")), [{ label: "AI Gateway", value: "present", secret: "ai-gateway" }]);
-        const failedCreditless = View.merge(copilot, { accounts: [{ id: "copilot-b", provider: "copilot", label: "zero",
-            email: "", state: "failed", windows: [], credits: null }], partial: "" }, NOW + 1);
-        assert.deepEqual(plainOf(failedCreditless.accounts[0]), { id: "copilot-b", provider: "copilot", label: "zero",
-            email: "zero-user", state: "stale", windows: [], credits: { unit: "requests", granted: 0 }, details: {}, readAt: NOW },
+        const failedCreditless = View.merge(copilot, { accounts: [{ id: "copilot-b", provider: "copilot", email: "", state: "failed", windows: [], credits: null }], partial: "" }, NOW + 1);
+        assert.deepEqual(plainOf(failedCreditless.accounts[0]), { id: "copilot-b", provider: "copilot", email: "zero-user", state: "stale", windows: [], credits: { unit: "requests", granted: 0 }, details: {}, readAt: NOW },
         "a failed read keeps credit data that has no meter");
-        const expiredCard = View.panel(View.merge(null, { accounts: [{ id: "copilot-expired", provider: "copilot", label: "default",
-            email: "", state: "expired", windows: [], credits: null }], partial: "" }, NOW), NOW)[0];
+        const expiredCard = View.panel(View.merge(null, { accounts: [{ id: "copilot-expired", provider: "copilot", email: "", state: "expired", windows: [], credits: null }], partial: "" }, NOW), NOW)[0];
         assert.deepEqual([expiredCard.note, expiredCard.noteTone], [View.EXPIRED.copilot, "warning"]);
         assert.deepEqual(["950", "1.04k", "45.2k", "362k", "1M"].map(function (want, i) {
             return [View.compact([950, 1043, 45225, 362327, 1000000][i]), want];
@@ -959,14 +972,14 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
     const cardChanges = folder => {
         const View = viewIn(folder);
         const usage = View.merge(null, { accounts: [
-            { id: "copilot-z", provider: "copilot", label: "work", email: "z@example.invalid", state: "ok", windows: [
+            { id: "copilot-z", provider: "copilot", email: "z@example.invalid", state: "ok", windows: [
                 { name: "credits", usedPercent: 10, resetsAt: NOW + HOUR }] },
-            { id: "codex-b", provider: "codex", label: "default", email: "B@example.invalid", state: "ok", windows: [
+            { id: "codex-b", provider: "codex", email: "B@example.invalid", state: "ok", windows: [
                 { name: "five_hour", usedPercent: 20, resetsAt: NOW + HOUR }, { name: "seven_day", usedPercent: 90, resetsAt: NOW + HOUR }] },
-            { id: "claude-a", provider: "claude", label: "work", email: "a@example.invalid", state: "limited", windows: [
+            { id: "claude-a", provider: "claude", email: "a@example.invalid", state: "limited", windows: [
                 { name: "five_hour", usedPercent: 50, resetsAt: NOW + HOUR }] },
-            { id: "codex-api", provider: "codex", label: "api", email: "", state: "no-plan", windows: [] },
-            { id: "gateway-api", provider: "gateway", label: "AI Gateway", email: "", state: "ok", windows: [
+            { id: "codex-api", provider: "codex", email: "", state: "no-plan", windows: [] },
+            { id: "gateway-api", provider: "gateway", email: "", state: "ok", windows: [
                 { name: "credits", usedPercent: 30, resetsAt: null }] }
         ] }, NOW);
         for (const [sort, ids] of [
@@ -1057,11 +1070,11 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
         '    return "Resets in " + Commons.Duration.format(seconds, seconds < 3600 ? 1 : 2);', views);
     await control("no-reset-drawn", "UsageView.js", 'if (left.kind === "none") return "";', 'if (left.kind === "none") return "No reset time";', views);
     await control("title-labelled", "UsageView.js", "title: NAMES[row.provider] || row.provider,",
-        'title: (NAMES[row.provider] || row.provider) + (row.label === "default" ? "" : " · " + row.label),', views);
+        'title: (NAMES[row.provider] || row.provider) + " · " + row.id,', views);
     await control("unused-limits-drawn", "UsageView.js", "windows: idle ? [] : row.windows.map(", "windows: row.windows.map(", views);
     await control("not-started-percent", "UsageView.js", 'return item.name === "credits" || item.usedPercent > 0 || ', "return true || ", views);
     await control("pool-unused", "UsageView.js", 'return item.name !== "credits" && item.usedPercent === 0;', "return item.usedPercent === 0;", views);
-    await control("account-folder-fallback", "UsageView.js", "    return row.email;", "    return row.email || row.label;", views);
+    await control("account-folder-fallback", "UsageView.js", "    return row.email;", "    return row.email || row.id;", views);
     await control("credits-raw", "UsageView.js", '    return (whole < 0 ? "-" : "") + grouped(String(Math.abs(whole)));', "    return String(n);", views);
 
     // The sign-in TUIs run each tool's own login, through the presentation

@@ -101,7 +101,7 @@ function previousOf(previous, id) {
 }
 
 function accountCopy(row, extra) {
-    return Object.assign({ id: row.id, provider: row.provider, label: row.label, email: row.email || "",
+    return Object.assign({ id: row.id, provider: row.provider, email: row.email || "",
         state: row.state, windows: copyWindows(row.windows || []), credits: copyCredits(row.credits), details: copyDetails(row.details) }, extra || {});
 }
 
@@ -157,12 +157,14 @@ function cleanLine(value, fallback) {
     return text === "" ? fallback : text;
 }
 
+// The Hidden accounts choices: each signed-in account as its provider's
+// name and the email or login the helper read, or the name alone with
+// none. A folder's name or the id is no identity a user knows.
 function accountChoices(usage) {
-    if (usage === null || usage === undefined) return [];
-    return usage.accounts.map(function (row) {
+    return signedIn(usage).map(function (row) {
         var name = NAMES[row.provider] || row.provider;
-        var label = cleanLine(row.email, cleanLine(row.label, row.id));
-        var text = name + " · " + label;
+        var email = cleanLine(row.email, "");
+        var text = email === "" ? name : name + " · " + email;
         return { label: text.length <= LABEL_MAX ? text : text.slice(0, LABEL_MAX - 1) + "…", value: row.id };
     });
 }
@@ -458,7 +460,7 @@ function panel(usage, now, settings) {
             : idle ? "No usage yet."
             : row.state === "no-plan" ? NO_PLAN
             : row.state === "ok" && !hasFigures(row) ? "This plan reports no usage limits." : "";
-        return { id: row.id, provider: row.provider, label: row.label, email: row.email, account: accountLine(row), state: row.state,
+        return { id: row.id, provider: row.provider, email: row.email, account: accountLine(row), state: row.state,
             title: NAMES[row.provider] || row.provider, api: row.state === "no-plan" || row.provider === "gateway", detail: row.provider === "copilot" ? creditLine(row.credits) : "",
             note: note, noteTone: warning !== "" ? "warning" : "normal", details: detailRows(row),
             windows: idle ? [] : row.windows.map(function (item) { return windowRow(row, item, now); }) };

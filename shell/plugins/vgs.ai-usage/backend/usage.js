@@ -3,8 +3,8 @@
 // Reads the plan limits of every Claude Code, Codex and Copilot account the
 // core's account discovery finds, and optionally Vercel AI Gateway credits
 // from the keyring, through each provider's own sign-in or secret, and
-// prints one JSON line on stdout: { accounts: [{ id, provider, label, email,
-// state, windows: [{ name, usedPercent, resetsAt }], credits, details }],
+// prints one JSON line on stdout: { accounts: [{ id, provider, email, state,
+// windows: [{ name, usedPercent, resetsAt }], credits, details }],
 // partial, gatewayKey }. email is the account's email address, or the login
 // where the provider gives no email (Copilot), else "".
 // state is ok, expired, signed-out, no-plan for a sign-in that has no plan
@@ -479,7 +479,7 @@ async function readGateway({ origin = GATEWAY_ORIGIN, secretTool = "secret-tool"
         authorization: "Bearer " + secret.token, accept: "application/json", "user-agent": "vgs-ai-usage"
     }, deadlineMs);
     const id = "gateway-" + crypto.createHash("sha256").update(GATEWAY_ACCOUNT).digest("hex").slice(0, 12);
-    const base = { id, provider: "gateway", label: "AI Gateway", email: "", windows: [], credits: null, details: {} };
+    const base = { id, provider: "gateway", email: "", windows: [], credits: null, details: {} };
     if (reply.error) return { key: "present", account: { ...base, state: "failed", reason: reply.error } };
     if (reply.status === 401 || reply.status === 403) return { key: "present", account: { ...base, state: "expired" } };
     if (reply.status !== 200) return { key: "present", account: { ...base, state: "failed", reason: "http-" + reply.status } };
@@ -527,7 +527,7 @@ async function read(tree, env, { origin = ORIGIN, copilotOrigin = COPILOT_ORIGIN
         const id = folder.provider + "-" + crypto.createHash("sha256").update(folder.directory).digest("hex").slice(0, 12);
         if (result.state === "failed") process.stderr.write("ai-usage: account=" + id + " failed=" + result.reason + "\n");
         if (result.state === "limited") process.stderr.write("ai-usage: account=" + id + " limited=http-429\n");
-        return { id, provider: folder.provider, label: folder.label.slice(0, 60), email: result.email || "",
+        return { id, provider: folder.provider, email: result.email || "",
             state: result.state, windows: result.windows || [], credits: result.credits || null, details: result.details || {} };
     }));
     let gatewayKey = null;
