@@ -758,7 +758,8 @@ esac
         # The confirmation double records each question and answers CONFIRM.
         library = self.root / "tui-lib.sh"
         questions = self.root / "questions"
-        library.write_text('vgs_tui_header() { :; }\nvgs_tui_error() { :; }\n'
+        library.write_text('source "' + str(REPO / "bin/lib/tui.sh") + '"\n'
+                           'vgs_tui_header() { :; }\nvgs_tui_error() { :; }\n'
                            'vgs_tui_confirm() { printf "%s\\n" "$1" >>"$QUESTIONS"; return "$CONFIRM"; }\n')
         env = dict(self.env, VGS_TUI_LIB=str(library), VGS_PLUGIN_DIR=str(self.plugin),
                    QUESTIONS=str(questions), CONFIRM="0")
@@ -770,6 +771,11 @@ esac
         result = run()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.ready()
+        # The terminal hides diagnostic keys; the setup log keeps them.
+        self.assertFalse(any(line.startswith("jarvis-setup:") for line in result.stdout.splitlines()))
+        logged = (self.state / "setup-local.log").read_text()
+        for key in ("step=runtime", "step=model", "step=probe", "ready=small"):
+            self.assertIn("jarvis-setup: " + key, logged)
         # The page's choice reaches the installer.
         self.config["tier"] = "medium"
         self.write_config()
@@ -800,7 +806,7 @@ esac
         (self.commands / "uv").unlink()
         self.assertEqual(run().returncode, 77)
         source = script.read_text()
-        needle = 'exec python3 -I "$VGS_PLUGIN_DIR/setup-local" install "$@"'
+        needle = 'vgs_tui_split "$log" jarvis-setup vgs_tui_logged "$log" python3 -I "$VGS_PLUGIN_DIR/setup-local" install "$@"'
         self.assertEqual(source.count(needle), 1)
         changed = source.replace(needle, ': python3 -I "$VGS_PLUGIN_DIR/setup-local" install "$@"')
         self.assertNotEqual(changed, source)

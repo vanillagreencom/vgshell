@@ -4,6 +4,7 @@
 # Jarvis page's Local voice choice passes another tier, which setup-local
 # judges.
 set -euo pipefail
+umask 077
 source "$VGS_TUI_LIB"
 [[ $# -le 1 ]] || { printf 'jarvis-setup: arguments=at-most-one\n' >&2; exit 2; }
 for tool in gum uv curl unshare python3; do
@@ -14,10 +15,10 @@ for tool in gum uv curl unshare python3; do
   }
 done
 if [[ $# == 0 ]]; then
-  vgs_tui_header "Set up local voice" "Downloads the local voice model that runs best on this computer and a private Python runtime." \
+  vgs_tui_header "Set up local voice" "Downloads the local voice model that runs best on this computer and the tools it needs." \
     "You can choose another model under Local voice on the Jarvis page." "No microphone, speaker or system settings are opened."
 else
-  vgs_tui_header "Set up local voice" "Downloads the local voice model you chose on the Jarvis page and a private Python runtime." \
+  vgs_tui_header "Set up local voice" "Downloads the local voice model you chose on the Jarvis page and the tools it needs." \
     "No microphone, speaker or system settings are opened."
 fi
 # Install removes the ready tier before it downloads, so replacing one asks
@@ -36,4 +37,11 @@ if [[ -n $question ]] && ! vgs_tui_confirm "$question"; then
   printf 'The ready local voice model stays.\n'
   exit 130
 fi
-exec python3 -I "$VGS_PLUGIN_DIR/setup-local" install "$@"
+log="${XDG_STATE_HOME:-$HOME/.local/state}/vgshell/jarvis/setup-local.log"
+vgs_tui_step "Setting up local voice"
+status=0
+vgs_tui_split "$log" jarvis-setup vgs_tui_logged "$log" python3 -I "$VGS_PLUGIN_DIR/setup-local" install "$@" || status=$?
+if [[ $status != 0 ]]; then
+  vgs_tui_failed "$log" "Local voice setup did not finish."
+fi
+exit "$status"

@@ -428,6 +428,7 @@ def install(judge, state, data, tier, reading):
             python = data / "venv/bin/python"
             abi = value["runtimes"]["sherpa-onnx"]["cudaWheel"]["python"]
             print("jarvis-setup: step=runtime", flush=True)
+            print("Preparing the tools for local voice", flush=True)
             command(["uv", "--no-config", "venv", "--managed-python", "--python", abi,
                      str(data / "venv")], data)
             if provider == "cpu":
@@ -442,8 +443,10 @@ def install(judge, state, data, tier, reading):
             for artifact in artifacts:
                 if artifact["id"] in verified:
                     print(f"jarvis-setup: step=model id={artifact['id']} reused", flush=True)
+                    print("Using the downloaded model for " + value["tiers"][tier]["name"], flush=True)
                     continue
                 print(f"jarvis-setup: step=model id={artifact['id']}", flush=True)
+                print("Downloading the model for " + value["tiers"][tier]["name"], flush=True)
                 target = models / Path(urlparse(artifact["url"]).path).name
                 download(artifact["url"], target, artifact["sha256"], judge, data)
                 if artifact["directory"] != ".":
@@ -451,6 +454,7 @@ def install(judge, state, data, tier, reading):
             judge.verify(value, models, artifacts)
             ready = identity(judge, tier, data)
             print("jarvis-setup: step=probe", flush=True)
+            print("Checking local voice on this computer", flush=True)
             # The owner reads the plain line; the engine's own lines go to the log.
             log = state / "local-setup.log"
             with log.open("w") as output, tempfile.TemporaryFile(mode="w+") as reading:
@@ -480,6 +484,7 @@ def install(judge, state, data, tier, reading):
                   "the next setup reuses them.", file=sys.stderr)
             raise
         print("jarvis-setup: ready=" + tier, flush=True)
+        print(value["tiers"][tier]["name"] + " is ready", flush=True)
 
 
 def migrated(judge, saved, data):
