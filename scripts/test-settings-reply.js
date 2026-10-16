@@ -242,7 +242,7 @@ function verifyPageRoutes(logic, source) {
         if (route === "pane") assert.equal(ctx.replyOf(id), logic.line(reply));
     }
     const jarvis = JSON.parse(fs.readFileSync(path.join(dir, "..", "vgs.jarvis", "manifest.json"), "utf8"));
-    const reference = load(path.join(core, "..", "Commons", "PageReference.js")).parse(jarvis.schema.microphone.description);
+    const reference = load(path.join(core, "..", "Commons", "PageReference.js")).parse(jarvis.schema.microphone.info);
     assert.equal(jarvis.schema.microphone.link, undefined);
     assert.equal(reference.page, "vgs.sounds");
     assert.equal(reference.tab, "");
