@@ -1553,7 +1553,7 @@ spacer_remove() {
 spacer_none='{"left": [], "center": [], "right": []}'
 expect "the smoke profile starts with no spacer" "$spacer_none" spacer_layout
 for spacer_section in left center right; do
-  for spacer_kind in separator gap; do spacer_add "$spacer_section" "$spacer_kind"; done
+  for spacer_kind in separator gap; do spacer_add "$spacer_section" "$spacer_kind" || fail "adding a $spacer_kind to the $spacer_section section failed"; done
 done
 # Left appends at its end; centre and right insert before their first
 # widget, so the later gap stands before the earlier separator.
@@ -1609,7 +1609,7 @@ expect_poll "a drag moves a separator and a gap into other sections" "$spacer_mo
 expect "the user file holds the moved spacers" "$spacer_moved" spacer_user
 geometry expect_poll "the moved spacers draw in their new sections" True spacer_drawn "$spacer_moved"
 for spacer_id in vgs.bar/separator-1 vgs.bar/gap-2 vgs.bar/separator-2 vgs.bar/gap-1 vgs.bar/separator-3 vgs.bar/gap-3; do
-  spacer_remove "$spacer_id"
+  spacer_remove "$spacer_id" || fail "removing $spacer_id failed"
   expect_poll "the frame menu's first entry removes $spacer_id" False spacer_holds "$spacer_id"
 done
 expect_poll "removing every spacer leaves none in the layout" "$spacer_none" spacer_layout
@@ -1619,7 +1619,7 @@ stop_shell
 if copy_tree bar-spacer-control \
   && edit_tree bar-spacer-control shell/Core/Plugins.qml 'return bar.builtinNames.concat(Logic.placedFamilyNames(Config.effective, row.id, families));' 'return bar.builtinNames;'; then
   start_shell "$sandbox/tree-bar-spacer-control" "$sandbox/bar-spacer-control.log" || fail "the spacer control shell starts"
-  spacer_add left separator
+  spacer_add left separator || fail "control: adding a separator failed"
   expect_poll "control: Add separator still writes its entry" '{"left": ["vgs.bar/separator-1"], "center": [], "right": []}' spacer_layout
   # The real bar draws an added entry within the reconcile its write
   # starts; the control's must stay undrawn across the harness's polls.
@@ -1639,7 +1639,7 @@ if copy_tree bar-separator-control \
   && edit_tree bar-separator-control shell/plugins/vgs.bar/Builtin.qml 'color: Commons.Theme.bar.spacer.line' 'color: Commons.Theme.color.borderControl'; then
   start_shell "$sandbox/tree-bar-separator-control" "$sandbox/bar-separator-control.log" || fail "the separator control shell starts"
   # The first control leaves its separator in the user file.
-  [[ "$(spacer_holds vgs.bar/separator-1)" == True ]] || spacer_add left separator
+  [[ "$(spacer_holds vgs.bar/separator-1)" == True ]] || spacer_add left separator || fail "control: adding the separator again failed"
   geometry expect_poll "control: the drawn reader names a separator off the bar's centre and in another colour" '["centre", "colour"]' spacer_faults vgs.bar/separator-1
   stop_shell
 fi
