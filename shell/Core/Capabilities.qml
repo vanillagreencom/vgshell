@@ -124,6 +124,7 @@ Singleton {
             out.padWorkspace = name => Dispatch.padWorkspace(name);
             out.onScreen = (window, monitors) => Dispatch.onScreen(window, monitors);
             out.togglePad = (name, screen, done) => Compositor.togglePad(name, screen, typeof done !== "function" ? null : answer => { if (ctx.active) done(answer); });
+            out.readGroupLock = done => ctx.active ? Compositor.readGroupLock(answer => { if (ctx.active) done(answer); }) : "refused: group-lock=released";
             out.observeInput = (point, done) => {
                 if (!ctx.active) return;
                 Compositor.observeInput(point, value => { if (ctx.active) done(value); });

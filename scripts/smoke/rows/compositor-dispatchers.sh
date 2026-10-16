@@ -8,7 +8,10 @@
 # absolute layout coordinates and size, respectively.
 # Repeated sets wait for a distinct pointer move queued behind them before
 # reading the already-matching state. A toggle control uses that same read.
-# inputs: scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/Compositor.qml shell/Core/Dispatch.js scripts/smoke/toplevel/* scripts/smoke/rows/capabilities.sh
+# Hyprland reports a group's lock only to Lua, so the fixture's group lock
+# read reads each lock effect; it waits in the dispatch queue behind the
+# request before it, and the harness's own Lua read agrees with it once.
+# inputs: scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/Compositor.qml shell/Core/Dispatch.js shell/Core/Capabilities.qml scripts/smoke/toplevel/* scripts/smoke/rows/capabilities.sh
 set -euo pipefail
 
 dispatch_client() { # ADDRESS FIELD
@@ -141,6 +144,44 @@ dispatch_toggle_control() { # NAME SET_REQUEST WANT FIELD
   expect_poll "the restored $name state is read back" "$want" dispatch_client "$dispatch_target" "$field"
 }
 
+# The fixture's group lock read, asked once: the state its callback took,
+# the refusal it took, or what the ask returned when it was refused. The
+# callback is polled at the 200 ms expect_poll interval.
+dispatch_group_lock() {
+  local before answer
+  before="$(probe group-lock-state | py_reply 'import json,sys; print(json.load(sys.stdin)["reads"])')" || return
+  answer="$(probe group-lock-read)" || return
+  [[ $answer == ok ]] || { printf '%s\n' "$answer"; return 0; }
+  smoke_poll_tries 200 1
+  for _ in $(seq 1 "$smoke_poll_n"); do
+    answer="$(probe group-lock-state | py_reply 'import json,sys
+r = json.load(sys.stdin)
+if r["reads"] <= int(sys.argv[1]): print("unanswered")
+elif r["answer"]["ok"]: print(r["answer"]["state"])
+else: print(r["answer"]["error"])' "$before")" || return
+    [[ $answer == unanswered ]] || { printf '%s\n' "$answer"; return 0; }
+    sleep 0.2
+  done
+  echo unanswered
+}
+
+# A toggle in place of the repeated set must fail the locked read once;
+# a set then restores the lock.
+dispatch_group_lock_toggle_control() {
+  local log="$sandbox/dispatch-repeat-group-lock-control.log" count
+  (
+    failures=0
+    row_class=behaviour
+    expect "control: a toggle in place of the repeated group lock set is accepted" ok probe dispatch "lockActiveGroup toggle"
+    expect "a repeated group lock set keeps the group locked" locked dispatch_group_lock
+    printf 'control-failures=%s\n' "$failures"
+  ) >"$log"
+  count="$(sed -n 's/^control-failures=//p' "$log")"
+  expect "control: toggling a repeated group lock set fails its read once" 1 printf '%s' "$count"
+  expect "the group lock is restored after the toggle control" ok probe dispatch "lockActiveGroup set"
+  expect "the restored group lock is read back" locked dispatch_group_lock
+}
+
 if open_toplevel "$sandbox/dispatch-target.log" smoke.dispatch target; then
   dispatch_target_pid="$toplevel_pid"
   dispatch_target="$(toplevel_address "$dispatch_target_pid")"
@@ -196,6 +237,31 @@ if open_toplevel "$sandbox/dispatch-target.log" smoke.dispatch target; then
     expect "maximized unset is accepted" ok probe dispatch "fullscreenWindow maximized unset"
     expect_poll "maximized unset restores the window" 0 dispatch_client "$dispatch_target" fullscreen
     expect "fullscreen leaves the other window unchanged" 0 dispatch_client "$dispatch_other" fullscreen
+
+    expect "the target is focused for the group lock" ok probe dispatch "focusWindow $dispatch_target"
+    expect_poll "the target has the focus for the group lock" '["smoke.dispatch", "target"]' active_window
+    expect "the plugin reads the target in no group" ungrouped dispatch_group_lock
+    expect "the harness groups the target" ok hypr dispatch 'hl.dsp.group.toggle()'
+    expect_poll "the target's new group starts unlocked" unlocked dispatch_group_lock
+    dispatch_noop_control "lockActiveGroup set" locked dispatch_group_lock
+    expect "group lock set is accepted" ok probe dispatch "lockActiveGroup set"
+    expect "group lock set locks the focused group" locked dispatch_group_lock
+    expect "a repeated group lock set is accepted" ok probe dispatch "lockActiveGroup set"
+    expect "a repeated group lock set keeps the group locked" locked dispatch_group_lock
+    dispatch_group_lock_toggle_control
+    expect "group lock unset is accepted" ok probe dispatch "lockActiveGroup unset"
+    expect "group lock unset unlocks the group" unlocked dispatch_group_lock
+    expect "a repeated group lock unset is accepted" ok probe dispatch "lockActiveGroup unset"
+    expect "a repeated group lock unset keeps the group unlocked" unlocked dispatch_group_lock
+    expect "group lock toggle is accepted" ok probe dispatch "lockActiveGroup toggle"
+    expect "group lock toggle locks the group" locked dispatch_group_lock
+    expect "a second group lock toggle is accepted" ok probe dispatch "lockActiveGroup toggle"
+    expect "a second group lock toggle unlocks the group" unlocked dispatch_group_lock
+    expected_errors+=('ERROR qml: compositor: refused: dispatcher=lockActiveGroup argument=0 value="lock"')
+    expect "Hyprland's own lock word, which toggles, is refused" 'refused: dispatcher=lockActiveGroup argument=0 value="lock"' probe dispatch "lockActiveGroup lock"
+    expect "the harness's own Lua read agrees the group is unlocked" false hypr repl 'return tostring(hl.get_active_window().group.locked)'
+    expect "the harness ungroups the target" ok hypr dispatch 'hl.dsp.group.toggle()'
+    expect_poll "the plugin reads the target in no group again" ungrouped dispatch_group_lock
 
     expect "the pointer gets a known starting position" ok probe dispatch "moveCursor $dispatch_cursor_start_x $dispatch_cursor_start_y"
     geometry expect_poll "the starting pointer position is read back" "[$dispatch_cursor_start_x, $dispatch_cursor_start_y]" dispatch_cursor

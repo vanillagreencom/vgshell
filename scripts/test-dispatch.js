@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // Table-driven checks for shell/Core/Dispatch.js, loaded under node through
 // bin/lib/qml-library.js: every dispatcher in both syntaxes, one refusal
-// per argument class, the keyboard layout switch's argv and refusals, and a
-// control per rule. The compositor-dispatchers
+// per argument class, the keyboard layout switch's argv and refusals, the
+// group lock read's argv and the answers it takes, and a control per rule.
+// The compositor-dispatchers
 // smoke row also reads the new effects back from nested Hyprland.
 "use strict";
 const path = require("path");
@@ -31,6 +32,9 @@ const formRows = [
     ["floatWindow", ["0xabc", "toggle"], 'hl.dsp.window.float({ action = "toggle", window = "address:0xabc" })', "togglefloating address:0xabc"],
     ["floatWindow", ["0xabc", "set"], 'hl.dsp.window.float({ action = "enable", window = "address:0xabc" })', "setfloating address:0xabc"],
     ["floatWindow", ["0xabc", "unset"], 'hl.dsp.window.float({ action = "disable", window = "address:0xabc" })', "settiled address:0xabc"],
+    ["lockActiveGroup", ["set"], 'hl.dsp.group.lock_active({ action = "enable" })', "lockactivegroup lock"],
+    ["lockActiveGroup", ["unset"], 'hl.dsp.group.lock_active({ action = "disable" })', "lockactivegroup unlock"],
+    ["lockActiveGroup", ["toggle"], 'hl.dsp.group.lock_active({ action = "toggle" })', "lockactivegroup toggle"],
     ["moveWindow", ["0xabc", -40, 0], 'hl.dsp.window.move({ x = -40, y = 0, relative = false, window = "address:0xabc" })', "movewindowpixel exact -40 0,address:0xabc"],
     ["resizeWindow", ["0xabc", 640, "480"], 'hl.dsp.window.resize({ x = 640, y = 480, relative = false, window = "address:0xabc" })', "resizewindowpixel exact 640 480,address:0xabc"],
     ["resizeWindow", ["0xABC", 1, 2147483647], 'hl.dsp.window.resize({ x = 1, y = 2147483647, relative = false, window = "address:0xABC" })', "resizewindowpixel exact 1 2147483647,address:0xABC"],
@@ -61,6 +65,12 @@ const refusalRows = [
     ["fullscreen cannot take an address", "fullscreenWindow", ["fullscreen", "set", "0xabc"], "refused: dispatcher=fullscreenWindow arguments=3 want=2"],
     ["float address is checked", "floatWindow", ["0xabc,0xdef", "set"], 'refused: dispatcher=floatWindow argument=0 value="0xabc,0xdef"'],
     ["float action is an enum", "floatWindow", ["0xabc", true], "refused: dispatcher=floatWindow argument=1 value=true"],
+    ["group lock takes no Hyprland word, which toggles", "lockActiveGroup", ["lock"], 'refused: dispatcher=lockActiveGroup argument=0 value="lock"'],
+    ["group lock action is an enum", "lockActiveGroup", ["bogus"], 'refused: dispatcher=lockActiveGroup argument=0 value="bogus"'],
+    ["empty group lock action is refused", "lockActiveGroup", [""], 'refused: dispatcher=lockActiveGroup argument=0 value=""'],
+    ["group lock action cannot add a classic argument", "lockActiveGroup", ["set toggle"], 'refused: dispatcher=lockActiveGroup argument=0 value="set toggle"'],
+    ["group lock action cannot end the Lua string", "lockActiveGroup", ['set" })'], 'refused: dispatcher=lockActiveGroup argument=0 value="set\\" })"'],
+    ["group lock names no window", "lockActiveGroup", ["0xabc", "set"], "refused: dispatcher=lockActiveGroup arguments=2 want=1"],
     ["move address is checked", "moveWindow", ["active", 0, 0], 'refused: dispatcher=moveWindow argument=0 value="active"'],
     ["move x cannot carry Lua", "moveWindow", ["0xabc", "0;hl.dsp.exit()", 0], 'refused: dispatcher=moveWindow argument=1 value="0;hl.dsp.exit()"'],
     ["move y must be an integer", "moveWindow", ["0xabc", 0, 1.5], 'refused: dispatcher=moveWindow argument=2 value=1.5'],
@@ -102,7 +112,7 @@ function verifyDispatch(lib, report, forms = formRows) {
     for (const name of lib.PLUGIN_DISPATCHERS)
         row("plugin dispatcher " + name + " has a form row", forms.some(r => r[0] === name), true);
     row("the provider exposes every supported operation", lib.PLUGIN_DISPATCHERS.slice().sort(),
-        ["closeWindow", "floatWindow", "focusMonitor", "focusWindow", "focusWorkspace", "fullscreenWindow", "moveCursor", "moveWindow", "moveWindowToWorkspace", "resizeWindow", "sendShortcut", "toggleSpecialWorkspace"]);
+        ["closeWindow", "floatWindow", "focusMonitor", "focusWindow", "focusWorkspace", "fullscreenWindow", "lockActiveGroup", "moveCursor", "moveWindow", "moveWindowToWorkspace", "resizeWindow", "sendShortcut", "toggleSpecialWorkspace"]);
     for (const [name, dispatcher, args, want] of refusalRows) {
         for (const lua of [true, false]) {
             const r = lib.request(dispatcher, args, lua);
@@ -130,6 +140,37 @@ function verifyMonitorEval(lib, report) {
     return bad;
 }
 failures += verifyMonitorEval(ctx, true);
+
+// The group lock read: its argv, which runs the core's own Lua chunk, the
+// classic refusal, and the queue answers it takes as a state or refuses.
+function verifyGroupLock(lib, report) {
+    let bad = 0;
+    const row = (name, got, want) => {
+        if (JSON.stringify(got) !== JSON.stringify(want)) bad += 1;
+        if (report) check(name, got, want);
+    };
+    row("group lock: the read runs the core's chunk through repl", lib.groupLockReadRequest(true), { ok: true, argv: ["hyprctl", "repl",
+        'local w = hl.get_active_window() if w == nil then return "none" end if w.group == nil then return "ungrouped" end'
+        + ' if w.group.locked == true then return "locked" end if w.group.locked == false then return "unlocked" end'
+        + ' return "locked=" .. tostring(w.group.locked)'] });
+    row("group lock: a classic session is refused", lib.groupLockReadRequest(false), { ok: false, error: "refused: group-lock=session=classic" });
+    // rows: [name, queue answer, want]
+    const answers = [
+        ["a locked group", "locked", { ok: true, state: "locked" }],
+        ["an unlocked group", "unlocked", { ok: true, state: "unlocked" }],
+        ["a window in no group", "ungrouped", { ok: true, state: "ungrouped" }],
+        ["no focused window", "none", { ok: true, state: "none" }],
+        ["a bare boolean", "true", { ok: false, error: 'refused: group-lock="true"' }],
+        ["a nil result", "nil", { ok: false, error: 'refused: group-lock="nil"' }],
+        ["a lock field that is no boolean", "locked=nil", { ok: false, error: 'refused: group-lock="locked=nil"' }],
+        ["a Lua error", 'exit=7 reply="error: [string \\"local w\\"]:1: attempt to index a nil value"', { ok: false, error: 'refused: group-lock="exit=7 reply=\\"error: [string \\\\\\"local w\\\\\\"]:1: attempt to index a nil value\\""' }],
+        ["an empty answer", "", { ok: false, error: 'refused: group-lock=""' }],
+        ["a transport that did not start", "dispatch-start=failed", { ok: false, error: 'refused: group-lock="dispatch-start=failed"' }]
+    ];
+    for (const [name, answer, want] of answers) row("group lock state: " + name, lib.groupLockState(answer), want);
+    return bad;
+}
+failures += verifyGroupLock(ctx, true);
 
 // Bringing a window into view: the request's judge, what a Hyprland event
 // means to a waiting reveal and which window a reveal focuses. Every value
@@ -381,7 +422,7 @@ try {
     }
     // One dropped effect per new dispatcher, in each dialect. Mutate the
     // table in a separately loaded copy, never the live judge or its file.
-    for (const name of ["fullscreenWindow", "floatWindow", "moveWindow", "resizeWindow", "focusMonitor", "moveCursor", "sendShortcut"]) {
+    for (const name of ["fullscreenWindow", "floatWindow", "lockActiveGroup", "moveWindow", "resizeWindow", "focusMonitor", "moveCursor", "sendShortcut"]) {
         for (const dialect of ["lua", "classic"]) {
             const mutant = path.join(scratch, "Dispatch.js");
             fs.writeFileSync(mutant, source);
@@ -422,6 +463,25 @@ try {
         try { bad = verifyMonitorEval(require("../bin/lib/qml-library.js").load(mutant), false); }
         catch (e) { bad = 1; }
         check("control monitor eval " + name + " fails the rows", bad > 0, true);
+    }
+    const groupLockControls = [
+        ["a classic session is refused", "if (usingLua !== true)\n        return { ok: false, error: \"refused: group-lock=session=classic\" };", "if (false)\n        return { ok: false, error: \"refused: group-lock=session=classic\" };"],
+        ["the read is sent through repl", 'argv: ["hyprctl", "repl", GROUP_LOCK_READ]', 'argv: ["hyprctl", "eval", GROUP_LOCK_READ]'],
+        ["a lock field that is no boolean is not unlocked", '" if w.group.locked == false then return \\"unlocked\\" end"', '""'],
+        ["only the four states are read", "if (GROUP_LOCK_STATES.indexOf(answer) === -1)", "if (answer === \"\")"],
+        ["the state is the answer", "return { ok: true, state: answer };", "return { ok: true, state: \"unlocked\" };"]
+    ];
+    for (const [name, needle, replacement] of groupLockControls) {
+        if (source.split(needle).length !== 2) { failures += 1; console.log("  FAIL  control group lock " + name + ": the text to replace must occur once"); continue; }
+        const mutant = path.join(scratch, "Dispatch.js");
+        fs.writeFileSync(mutant, source.replace(needle, () => replacement));
+        // Loaded outside the try, so a copy that does not evaluate fails the
+        // suite instead of passing for a control.
+        const lib = require("../bin/lib/qml-library.js").load(mutant);
+        let bad;
+        try { bad = verifyGroupLock(lib, false); }
+        catch (e) { bad = 1; }
+        check("control group lock " + name + " fails the rows", bad > 0, true);
     }
     const passthroughControls = [
         ["the verb is judged", "if (typeof verb !== \"string\" || !Object.prototype.hasOwnProperty.call(passthrough.verbs, verb))", "if (typeof verb !== \"string\")"],

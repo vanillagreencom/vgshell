@@ -77,6 +77,16 @@ var DISPATCHERS = {
         lua: function (a) { return "hl.dsp.window.float({ action = \"" + (a[1] === "set" ? "enable" : a[1] === "unset" ? "disable" : "toggle") + "\", window = \"address:" + a[0] + "\" })"; },
         classic: function (a) { return (a[1] === "set" ? "setfloating" : a[1] === "unset" ? "settiled" : "togglefloating") + " address:" + a[0]; }
     },
+    // The focused window's group lock; neither form names a window. Lua
+    // lock_active acts as named only for `enable`, `disable` and `toggle`:
+    // every other word, `lock` and `unlock` included, toggles the lock and
+    // answers `ok` (nested Hyprland 0.56.2, each word sent twice from a
+    // known state, 2026-10-16). A window in no group answers a warning.
+    lockActiveGroup: {
+        args: [ACTION],
+        lua: function (a) { return "hl.dsp.group.lock_active({ action = \"" + (a[0] === "set" ? "enable" : a[0] === "unset" ? "disable" : "toggle") + "\" })"; },
+        classic: function (a) { return "lockactivegroup " + (a[0] === "set" ? "lock" : a[0] === "unset" ? "unlock" : "toggle"); }
+    },
     moveWindow: {
         args: [ADDRESS, INTEGER, INTEGER],
         lua: function (a) { return "hl.dsp.window.move({ x = " + a[1] + ", y = " + a[2] + ", relative = false, window = \"address:" + a[0] + "\" })"; },
@@ -157,6 +167,44 @@ function padRequest(name, screen, usingLua) {
 // window rule maps it to and a plugin reads Hyprland's events by.
 function padWorkspace(name) {
     return HyprlandLayer.PADS.workspace + name;
+}
+
+// ----------------------------------------------------------- group lock
+
+// The focused window's group lock, which Compositor.readGroupLock reads.
+// Hyprland 0.56.2 shows it only to Lua: j/activewindow and j/clients carry
+// no lock field, socket2's `lockgroups` covers only the global lock, and
+// `hyprctl eval` answers `ok` with no value. `hyprctl repl` runs one chunk
+// and prints its return value through tostring(), and exits 7 on a Lua
+// error; a window's `group` is nil out of a group and its `locked` a
+// boolean (nested Hyprland 0.56.2, 2026-10-16):
+// https://github.com/hyprwm/hyprland-wiki/blob/main/content/configuring/core/advanced-configuration/using-hyprctl.md
+// https://github.com/hyprwm/hyprland-wiki/blob/main/content/configuring/core/advanced-configuration/lua-utilities.md
+// The chunk is constant, so no argument reaches Lua, and a `locked` that is
+// no boolean answers a word groupLockState refuses, never `unlocked`.
+var GROUP_LOCK_READ = "local w = hl.get_active_window() if w == nil then return \"none\" end"
+    + " if w.group == nil then return \"ungrouped\" end"
+    + " if w.group.locked == true then return \"locked\" end"
+    + " if w.group.locked == false then return \"unlocked\" end"
+    + " return \"locked=\" .. tostring(w.group.locked)";
+var GROUP_LOCK_STATES = ["locked", "unlocked", "ungrouped", "none"];
+
+// The read's argv, { ok: true, argv }, or { ok: false, error } with a keyed
+// line: a classic session has no Lua to read it with.
+function groupLockReadRequest(usingLua) {
+    if (usingLua !== true)
+        return { ok: false, error: "refused: group-lock=session=classic" };
+    return { ok: true, argv: ["hyprctl", "repl", GROUP_LOCK_READ] };
+}
+
+// The queue's answer to the read: { ok: true, state }, one of
+// GROUP_LOCK_STATES, `none` when no window has the focus, or { ok: false,
+// error } naming any other answer, a Lua error's `exit=7 reply=...` among
+// them.
+function groupLockState(answer) {
+    if (GROUP_LOCK_STATES.indexOf(answer) === -1)
+        return { ok: false, error: "refused: group-lock=" + JSON.stringify(answer) };
+    return { ok: true, state: answer };
 }
 
 // ------------------------------------------------------------- reveal

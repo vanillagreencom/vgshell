@@ -168,6 +168,21 @@ Singleton {
         return enqueue(r.argv, done, typeof done === "function");
     }
 
+    // Read the focused window's group lock (Dispatch.groupLockReadRequest).
+    // Returns `ok` once the read is queued, or the keyed refusal; after an
+    // `ok` alone, DONE takes Dispatch.groupLockState's answer once the read
+    // ran. The read waits in the dispatch queue, the one serial owner of
+    // hyprctl requests, so a read asked after `lockActiveGroup` runs after
+    // that dispatch's reply and reads its effect.
+    function readGroupLock(done) {
+        const r = Dispatch.groupLockReadRequest(Hyprland.usingLua);
+        if (!r.ok) {
+            console.error("compositor: " + r.error);
+            return r.error;
+        }
+        return enqueue(r.argv, answer => done(Dispatch.groupLockState(answer)), true);
+    }
+
     function enqueue(argv, done, judged) {
         if (queue.length >= Dispatch.QUEUE_LIMIT) {
             const error = "refused: dispatch-queue=full limit=" + Dispatch.QUEUE_LIMIT + " request=" + JSON.stringify(argv);

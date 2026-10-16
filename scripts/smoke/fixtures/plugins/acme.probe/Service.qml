@@ -26,6 +26,10 @@ Item {
     // images and set callbacks last received, by verb, and how many times
     // it ran: verb -> { count, result }.
     property var themeAnswers: ({})
+    // What the compositor's group lock read last handed its callback, and
+    // how many times the callback ran.
+    property var groupLock: null
+    property int groupLockReads: 0
     readonly property bool lockSecure: shell !== null && shell.lock.secure
     // Each idle state the idle watch reported, in order, and its disposer.
     property var idleChanges: []
@@ -89,6 +93,11 @@ Item {
         // Several dispatches in one call, separated by ";", so they reach
         // the queue back to back; answers every reply joined by ",".
         shell.ipc.handle("batch", arg => arg.split(";").map(one => { const a = one.split(" "); return root.shell.compositor[a[0]].apply(null, a.slice(1)); }).join(","));
+        // group-lock-read answers what the compositor's group lock read
+        // returned, and its callback keeps the answer in groupLock;
+        // group-lock-state answers { reads, answer } as JSON.
+        shell.ipc.handle("group-lock-read", () => root.shell.compositor.readGroupLock(answer => { root.groupLock = answer; root.groupLockReads += 1; }));
+        shell.ipc.handle("group-lock-state", () => JSON.stringify({ reads: root.groupLockReads, answer: root.groupLock }));
         // N dispatches of one request in one call; answers the last reply.
         shell.ipc.handle("flood", arg => { const a = arg.split(" "); let last = ""; for (let i = 0; i < Number(a[0]); i++) last = root.shell.compositor[a[1]].apply(null, a.slice(2)); return last; });
         shell.notifications.subscribe(n => { root.notified += 1; root.lastSummary = n.summary; });
