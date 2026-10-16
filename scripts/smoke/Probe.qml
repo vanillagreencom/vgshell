@@ -27,7 +27,261 @@ Scope {
         barEmptyRecord = null;
         barEmptyTapCount = 0;
     }
-    Component.onDestruction: endBarEmptyObservation()
+    Component.onDestruction: {
+        endBarEmptyObservation();
+        root.endDisplayEvents("interrupted", "probe-destroyed");
+        root.detachDisplayEvents();
+    }
+
+    // These are storage limits, not measured performance budgets. The
+    // final event has reserved space. No event history stays in QML.
+    readonly property int displayEventCapacityEvents: 4096
+    readonly property int displayEventCapacityChars: 16777216
+    readonly property int displayEventTerminalReserve: 4096
+    // processId identifies this shell process; the epoch separates Probe
+    // instances on a reload. The harness binds these to its owned launch.
+    // https://quickshell.org/docs/v0.3.1/types/Quickshell/Quickshell/
+    readonly property string displayEventInstance: String(Quickshell.processId) + "/" + String(Date.now())
+    property string displayEventStatus: "absent"
+    property string displayEventReason: ""
+    property real displayEventSequence: 0
+    property int displayEventChars: 0
+    property bool displayEventPriming: false
+    property var displayEventMonitors: null
+    property var displayEventCompositor: null
+    property var displayEventLoader: null
+    property var displayEventLayer: null
+    property var displayEventReloader: null
+    property var displayEventHyprland: null
+    property var displayEventQuickshell: null
+
+    function detachDisplayEvents() {
+        displayEventPriming = false;
+        displayEventMonitors = null;
+        displayEventCompositor = null;
+        displayEventLoader = null;
+        displayEventLayer = null;
+        displayEventReloader = null;
+        displayEventHyprland = null;
+        displayEventQuickshell = null;
+    }
+
+    // Copy plain owner data without making an unbounded serialized value.
+    // A value over the remaining budget ends capture; it is never cut.
+    function encodeDisplayEvent(value, limit) {
+        const full = {};
+        let left = limit;
+        function take(text) {
+            if (text.length > left) throw full;
+            left -= text.length;
+            return text;
+        }
+        function string(text) {
+            if (text.length > left) throw full;
+            return take(JSON.stringify(text));
+        }
+        function encode(v) {
+            if (v === null) return take("null");
+            if (v === undefined) return take('{"unavailable":"undefined"}');
+            if (typeof v === "string") return string(v);
+            if (typeof v === "boolean" || typeof v === "number") return take(JSON.stringify(v));
+            const array = Array.isArray(v);
+            const parts = [take(array ? "[" : "{")];
+            let first = true;
+            if (array) {
+                for (let i = 0; i < v.length; i++) {
+                    if (!first) parts.push(take(","));
+                    first = false;
+                    parts.push(encode(v[i]));
+                }
+            } else {
+                for (const key in v) {
+                    if (!Object.prototype.hasOwnProperty.call(v, key)) continue;
+                    if (!first) parts.push(take(","));
+                    first = false;
+                    parts.push(string(key), take(":"), encode(v[key]));
+                }
+            }
+            parts.push(take(array ? "]" : "}"));
+            return parts.join("");
+        }
+        try { return encode(value); }
+        catch (error) { if (error === full) return null; throw error; }
+    }
+
+    function displayEventEnvelope(kind, producer, data) {
+        return { schema: "VGS-1714.display-event.v1", instance: displayEventInstance,
+            sequence: displayEventSequence + 1, realtimeMs: Date.now(), kind: kind, producer: producer, data: data };
+    }
+
+    function endDisplayEvents(status, reason) {
+        if (displayEventStatus !== "armed" && !(displayEventStatus === "absent" && status === "missing")) return;
+        displayEventStatus = status;
+        displayEventReason = reason;
+        const text = JSON.stringify(displayEventEnvelope(status, "Probe", { reason: reason }));
+        displayEventSequence += 1;
+        displayEventChars += text.length;
+        console.log("VGS_DISPLAY_EVENT " + text);
+        root.detachDisplayEvents();
+    }
+
+    function emitDisplayEvent(kind, producer, data) {
+        if (displayEventStatus !== "armed") return false;
+        if (displayEventSequence >= displayEventCapacityEvents - 1) {
+            root.endDisplayEvents("overflow", "capacity-events");
+            return false;
+        }
+        const text = root.encodeDisplayEvent(root.displayEventEnvelope(kind, producer, data),
+            displayEventCapacityChars - displayEventTerminalReserve - displayEventChars);
+        if (text === null) {
+            root.endDisplayEvents("overflow", "capacity-chars");
+            return false;
+        }
+        displayEventSequence += 1;
+        displayEventChars += text.length;
+        console.log("VGS_DISPLAY_EVENT " + text);
+        return true;
+    }
+
+    function displayEventMonitorFacts() {
+        const m = displayEventMonitors;
+        return { active: m.active, ownerId: m.ownerId, trialState: m.trialState, outputs: m.outputs,
+            tokenPath: m.tokenPath, trialLua: m.trialLua, restoreLua: m.restoreLua,
+            restoreRules: m.restoreRules, keptRules: m.keptRules };
+    }
+    function displayEventQueueFacts() {
+        const c = displayEventCompositor;
+        return { queue: c.queue.map(request => ({ argv: request.argv, judged: request.judged })),
+            pending: c.pending, pendingJudged: c.pendingJudged, completion: c.completion, reply: c.reply };
+    }
+    function displayEventLayerFacts() {
+        const layer = displayEventLayer;
+        return { highestMonitorScale: layer.highestMonitorScale, machine: layer.machine,
+            renderedText: layer.rendered === null ? null : layer.rendered.text };
+    }
+    function displayEventReloaderFacts() {
+        const process = displayEventReloader;
+        return { running: process.running, command: Array.from(process.command), completion: process.completion };
+    }
+
+    // This binding samples existing publications when their properties
+    // notify. It is not protocol configure history or an atomic snapshot.
+    // API names retain their original units; no pixel conversion is inferred.
+    // https://quickshell.org/docs/v0.3.1/types/Quickshell/ShellScreen/
+    // https://quickshell.org/docs/v0.3.1/types/Quickshell.Hyprland/HyprlandMonitor/
+    // https://quickshell.org/docs/v0.3.1/types/Quickshell/ObjectModel/
+    readonly property var displayEventGeometry: displayEventStatus !== "armed" ? null : ({
+        screens: Array.from(displayEventQuickshell.screens).map(screen => ({ name: screen.name,
+            width: screen.width, height: screen.height, x: screen.x, y: screen.y, devicePixelRatio: screen.devicePixelRatio })),
+        monitors: displayEventHyprland.monitors.values.map(monitor => ({ id: monitor.id, name: monitor.name,
+            width: monitor.width, height: monitor.height, x: monitor.x, y: monitor.y, scale: monitor.scale,
+            lastIpcObject: monitor.lastIpcObject }))
+    })
+    onDisplayEventGeometryChanged: {
+        if (displayEventStatus === "armed" && !displayEventPriming && displayEventGeometry !== null)
+            root.emitDisplayEvent("sample-on-property-notification", "Quickshell/Hyprland", displayEventGeometry);
+    }
+
+    // A null Connections target attaches to no object.
+    // https://doc.qt.io/qt-6/qml-qtqml-connections.html#target-prop
+    Connections {
+        target: root.displayEventMonitors
+        // MonitorState.trial assigns arming after its acceptance checks.
+        // This records that publication, not the caller's return value.
+        function onTrialStateChanged() { root.emitDisplayEvent("trialStateChanged", "MonitorState", root.displayEventMonitors.trialState); }
+        function onOutputsChanged() { root.emitDisplayEvent("outputsChanged", "MonitorState", root.displayEventMonitors.outputs); }
+        function onActiveChanged() { root.emitDisplayEvent("activeChanged", "MonitorState", root.displayEventMonitors.active); }
+        function onOwnerIdChanged() { root.emitDisplayEvent("ownerIdChanged", "MonitorState", root.displayEventMonitors.ownerId); }
+        function onTokenPathChanged() { root.emitDisplayEvent("tokenPathChanged", "MonitorState", root.displayEventMonitors.tokenPath); }
+        function onTrialLuaChanged() { root.emitDisplayEvent("trialLuaChanged", "MonitorState", root.displayEventMonitors.trialLua); }
+        function onRestoreLuaChanged() { root.emitDisplayEvent("restoreLuaChanged", "MonitorState", root.displayEventMonitors.restoreLua); }
+        function onRestoreRulesChanged() { root.emitDisplayEvent("restoreRulesChanged", "MonitorState", root.displayEventMonitors.restoreRules); }
+        function onKeptRulesChanged() { root.emitDisplayEvent("keptRulesChanged", "MonitorState", root.displayEventMonitors.keptRules); }
+    }
+    Connections {
+        target: root.displayEventCompositor
+        // Compositor clears pending before its callback and next drain.
+        // Copy the existing completion/reply with that notification.
+        function onPendingChanged() { root.emitDisplayEvent("pendingChanged", "Compositor", root.displayEventQueueFacts()); }
+        function onQueueChanged() { root.emitDisplayEvent("queueChanged", "Compositor", root.displayEventQueueFacts()); }
+        function onCompletionChanged() { root.emitDisplayEvent("completionChanged", "Compositor", root.displayEventQueueFacts()); }
+        function onReplyChanged() { root.emitDisplayEvent("replyChanged", "Compositor", root.displayEventQueueFacts()); }
+        function onPendingJudgedChanged() { root.emitDisplayEvent("pendingJudgedChanged", "Compositor", root.displayEventCompositor.pendingJudged); }
+    }
+    Connections {
+        target: root.displayEventLoader
+        function onActiveChanged() {
+            if (root.displayEventStatus === "armed" && !root.displayEventLoader.active)
+                root.endDisplayEvents("interrupted", "layer-loader-inactive");
+        }
+    }
+    Connections {
+        target: root.displayEventLayer
+        function onHighestMonitorScaleChanged() { root.emitDisplayEvent("highestMonitorScaleChanged", "HyprlandLayer", root.displayEventLayer.highestMonitorScale); }
+        function onRenderedChanged() { root.emitDisplayEvent("renderedChanged", "HyprlandLayer", root.displayEventLayerFacts()); }
+        function onMachineChanged() { root.emitDisplayEvent("machineChanged", "HyprlandLayer", root.displayEventLayer.machine); }
+    }
+    Connections {
+        target: root.displayEventReloader
+        function onRunningChanged() { root.emitDisplayEvent("runningChanged", "HyprlandLayer.reloader", root.displayEventReloaderFacts()); }
+        function onCompletionChanged() { root.emitDisplayEvent("completionChanged", "HyprlandLayer.reloader", root.displayEventReloaderFacts()); }
+        function onCommandChanged() { root.emitDisplayEvent("commandChanged", "HyprlandLayer.reloader", root.displayEventReloaderFacts()); }
+        // Observe the existing Process. Do not replace its output parser
+        // or handlers. Completion may already be reset by its owner.
+        // https://quickshell.org/docs/v0.3.1/types/Quickshell.Io/Process/
+        function onExited(code, status) { root.emitDisplayEvent("exited", "HyprlandLayer.reloader", { code: code, status: status }); }
+    }
+
+    function armDisplayEvents(label) {
+        if (displayEventStatus !== "absent") return "refused: display-events=" + displayEventStatus;
+        let missing = "";
+        let layer = null;
+        let reloaders = [];
+        // tree_smoke_observer places Probe in shell.qml's component context.
+        // Access item only after active proves the loader is fully loaded.
+        // https://doc.qt.io/qt-6/qtqml-documents-scope.html#component-instance-hierarchy
+        // https://quickshell.org/docs/v0.3.1/types/Quickshell/LazyLoader/
+        if (typeof hyprland === "undefined" || !(hyprland instanceof LazyLoader) || !hyprland.active)
+            missing = "layer-loader-unavailable";
+        else {
+            layer = hyprland.item;
+            if (layer === null || !(layer instanceof HyprlandLayer)) missing = "layer-unavailable";
+            else {
+                // Scope.children exposes its direct objects. The unique
+                // Process command is the existing HyprlandLayer reloader.
+                // https://quickshell.org/docs/v0.3.1/types/Quickshell/Scope/
+                reloaders = Array.from(layer.children).filter(child => child instanceof Process
+                    && JSON.stringify(Array.from(child.command)) === '["hyprctl","reload","config-only"]');
+                if (reloaders.length !== 1) missing = "reloader-identity";
+            }
+        }
+        if (missing !== "") {
+            root.endDisplayEvents("missing", missing);
+            return "refused: display-events=" + missing;
+        }
+        displayEventMonitors = Capabilities.monitors;
+        displayEventCompositor = Compositor;
+        displayEventLoader = hyprland;
+        displayEventLayer = layer;
+        displayEventReloader = reloaders[0];
+        displayEventHyprland = Hyprland;
+        displayEventQuickshell = Quickshell;
+        displayEventPriming = true;
+        displayEventStatus = "armed";
+        root.emitDisplayEvent("arm", "Probe", { label: label,
+            capacityEvents: displayEventCapacityEvents, capacityJsonChars: displayEventCapacityChars,
+            terminalReserveJsonChars: displayEventTerminalReserve,
+            order: "Probe handler-entry and IPC marker order only",
+            clock: "Date.now wall-clock milliseconds; adjustments can reverse time",
+            delivery: "console output can buffer; collector receipt order is not producer causal order" });
+        if (displayEventStatus === "armed") root.emitDisplayEvent("initial-sample", "MonitorState", root.displayEventMonitorFacts());
+        if (displayEventStatus === "armed") root.emitDisplayEvent("initial-sample", "Compositor", root.displayEventQueueFacts());
+        if (displayEventStatus === "armed") root.emitDisplayEvent("initial-sample", "HyprlandLayer", root.displayEventLayerFacts());
+        if (displayEventStatus === "armed") root.emitDisplayEvent("initial-sample", "HyprlandLayer.reloader", root.displayEventReloaderFacts());
+        if (displayEventStatus === "armed") root.emitDisplayEvent("initial-sample", "Quickshell/Hyprland", displayEventGeometry);
+        displayEventPriming = false;
+        return displayEventStatus === "armed" ? "ok" : "refused: display-events=" + displayEventStatus;
+    }
     // Observe the existing handler's release point without another grab.
     // https://doc.qt.io/qt-6/qml-qtquick-taphandler.html#tapped-signal
     Connections {
@@ -1137,6 +1391,26 @@ Scope {
 
     IpcHandler {
         target: "smoke"
+        function displayEventArm(label: string): string { return root.armDisplayEvents(label); }
+        function displayEventBoundary(label: string): string {
+            if (root.displayEventStatus !== "armed") return "refused: display-events=" + root.displayEventStatus;
+            return root.emitDisplayEvent("boundary", "smoke IPC", { label: label })
+                ? "ok" : "refused: display-events=" + root.displayEventStatus;
+        }
+        function displayEventStop(reason: string): string {
+            if (root.displayEventStatus !== "armed") return "refused: display-events=" + root.displayEventStatus;
+            if (root.encodeDisplayEvent(reason, root.displayEventTerminalReserve / 4) === null) {
+                root.endDisplayEvents("overflow", "capacity-stop-reason");
+                return "refused: display-events=overflow";
+            }
+            root.endDisplayEvents("stopped", reason);
+            return "ok";
+        }
+        function displayEventState(): string {
+            return JSON.stringify({ schema: "VGS-1714.display-state.v1", instance: root.displayEventInstance,
+                status: root.displayEventStatus, reason: root.displayEventReason,
+                sequence: root.displayEventSequence, jsonChars: root.displayEventChars });
+        }
         function beginRunTrace(key: string): string {
             root.runTraceEvents = [];
             root.runTraceKey = key;

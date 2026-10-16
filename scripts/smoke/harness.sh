@@ -551,11 +551,22 @@ in_harness_tree() { # PID
 # a caller's first read would find no file (rows/webapps.sh checks it).
 spawn_pid=""
 spawn() { # LOG CMD...
-  local log="$1"; shift
-  : >"$log"
-  setsid "$@" >"$log" 2>&1 &
+  local log="$1" stream="${display_stream_kind:-}" registration=refused log_fd; shift
+  display_stream_kind=""
+  spawn_pid=""
+  # One output destination, acquired before observation. The recorder has
+  # no writer and its refusal cannot change or prevent this launch.
+  exec {log_fd}>"$log" || return 1
+  if [[ -n $stream ]]; then
+    registration="$(display_record_call log "$stream" "$log" "/proc/$BASHPID/fd/$log_fd")" || registration=refused
+  fi
+  setsid "$@" >&"$log_fd" 2>&1 {log_fd}>&- &
   spawn_pid=$!
   pgids+=("$spawn_pid")
+  exec {log_fd}>&-
+  if [[ -n $stream ]]; then
+    display_record_call launched "$stream" "$registration" "$spawn_pid" "$log" >/dev/null || true
+  fi
 }
 
 # Two private D-Bus daemons stand in for the session and system buses, with
@@ -582,6 +593,77 @@ for _ in $(seq 1 50); do [[ -S $rt_dir/bus && -S $rt_dir/system-bus ]] && break;
 if [[ ! -S $rt_dir/bus || ! -S $rt_dir/system-bus ]]; then
   printf 'qml-smoke: status=not-measured missing=sandbox-bus\n'; exit 77
 fi
+
+# One receipt stream for this owned nested instance. Its evidence directory
+# outlives scratch removal. The ready pipe acknowledges a bound control
+# socket without a file watcher or a second deadline owner.
+mkdir -p "$source_repo/tmp"
+display_record_call() {
+  if python3 "$display_record_dir/recorder.py" request "$display_record_dir/control" "$@"; then return 0; fi
+  # A refused/lost client request must survive even if no collector saw it.
+  printf '%s\n' "$1" >>"$display_record_dir/request-failed"
+  return 1
+}
+display_record_close() { # ORIGINAL_STATUS ORIGIN, before producer TERM
+  display_record_call close "$1" "$2" >/dev/null
+}
+
+display_record_finish() { # ORIGINAL_EXIT, after the producer groups end
+  local original_exit="$1" recorder_exit=0 finalizer_errors=0 reason=normal group
+  [[ $original_exit == 0 || $original_exit == 1 || $original_exit == 77 ]] || reason="interrupted:$original_exit"
+  for group in "${pgids[@]}"; do
+    [[ $group == "$display_record_pid" ]] || wait "$group" 2>/dev/null || true
+  done
+  display_record_call mark original-result "$original_exit" "${failures:-unreported}" "${behaviour_failures:-unreported}" >/dev/null || finalizer_errors=1
+  if ! display_record_call stop "$reason" >/dev/null; then
+    finalizer_errors=1
+    kill -TERM -- "-$display_record_pid" 2>/dev/null || true
+  fi
+  wait "$display_record_pid" || recorder_exit=$?
+  [[ $recorder_exit == 0 ]] || finalizer_errors=1
+  printf 'original_exit=%s\nrecorder_exit=%s\nproducer_groups=terminated-before-recorder-drain\n' "$original_exit" "$recorder_exit" >"$display_record_dir/teardown"
+  python3 "$display_record_dir/recorder.py" retain "$display_record_dir" "$sandbox" "$rt_dir" "$home" || finalizer_errors=1
+  if ! python3 "$display_record_dir/recorder.py" complete "$display_record_dir" "$finalizer_errors"; then
+    printf 'qml-smoke: display-record=finalization-unavailable path=%s\n' "$display_record_dir" >&2
+    printf '{"localRecord":"incomplete","problems":["finalizer:receipt-unavailable"]}\n' >"$display_record_dir/completeness.json"
+    finalizer_errors=1
+  fi
+  printf 'qml-smoke: display-record-retained=%s original_exit=%s recorder_exit=%s\n' "$display_record_dir" "$original_exit" "$recorder_exit"
+  return "$finalizer_errors"
+}
+display_record_dir="$(mktemp -d "$source_repo/tmp/display-record.XXXXXX")"
+display_record_program >"$display_record_dir/recorder.py"
+mkfifo -m 600 "$display_record_dir/ready"
+spawn "$display_record_dir/recorder.log" "${sandbox_env[@]}" python3 -u "$display_record_dir/recorder.py" serve "$display_record_dir"
+display_record_pid="$spawn_pid"
+IFS= read -r display_record_ready <"$display_record_dir/ready"
+[[ $display_record_ready == ready ]] || { printf 'qml-smoke: display-record=arm-failed\n'; exit 77; }
+display_record_scope() {
+  display_scope=unknown
+  display_rows=()
+  case "$self" in
+    "$source_repo/scripts/qml-smoke.sh")
+      if [[ -n ${first_bar_runs:-} ]]; then
+        display_scope=first-bar-context
+      else
+        display_scope=smoke-context
+        for display_row_name in "${qml_smoke_rows[@]}"; do
+          if qml_smoke_wanted "$display_row_name"; then display_rows+=("$display_row_name"); fi
+        done
+        for display_row_name in "${display_rows[@]}"; do
+          [[ $display_row_name != displays-modes ]] || display_scope=display-smoke
+        done
+      fi ;;
+    "$source_repo/scripts/measure-shader.sh") display_scope=shader-context ;;
+    "$source_repo/scripts/sandbox-shots.sh") display_scope=screenshot-context ;;
+  esac
+  display_record_call scope "$display_scope" "$self" "${#argv[@]}" "${argv[@]}" "${display_rows[@]}" >/dev/null || true
+}
+display_record_scope
+display_record_call host "${XDG_RUNTIME_DIR}/hypr/${HYPRLAND_INSTANCE_SIGNATURE:-missing}/.socket2.sock" >/dev/null || true
+display_record_call mark run-inputs "${argv[*]:-}" "${sandbox_env[@]}" "${shell_start_words[@]}" >/dev/null || true
+cp -- "$home/.config/hypr/hyprland.lua" "$display_record_dir/hyprland.lua"
+printf 'qml-smoke: display-record=%s\n' "$display_record_dir/events.jsonl"
 # The nested compositor carries the words start_shell gives a shell and
 # the sandbox's buses, so a shell `vgshell restart` relaunches through its
 # dispatch finds the same stand-ins and reaches no bus of the user's
@@ -590,10 +672,12 @@ fi
 # The fence uses a private pid namespace, so the host window for this run
 # is the aquamarine stableId that appears after the compositor starts.
 host_windows_before="$(host_nested_windows)" || host_windows_before=unreadable
+display_stream_kind=wayland
 spawn "$sandbox/hyprland.log" "${sandbox_env[@]}" "${shell_start_words[@]}" \
   DBUS_SESSION_BUS_ADDRESS="unix:path=$rt_dir/bus" DBUS_SYSTEM_BUS_ADDRESS="unix:path=$rt_dir/system-bus" \
-  WAYLAND_DISPLAY="$host_socket" Hyprland --config "$home/.config/hypr/hyprland.lua"
+  WAYLAND_DEBUG=client WAYLAND_DISPLAY="$host_socket" Hyprland --config "$home/.config/hypr/hyprland.lua"
 compositor_pid="$spawn_pid"
+display_record_call mark compositor-launch "$compositor_pid" >/dev/null || true
 compositor_started_ns="$(date +%s%N)"
 
 nested_socket=""
@@ -611,10 +695,18 @@ if [[ -z $nested_socket ]]; then
   exit 77
 fi
 signature=""
-for d in "$rt_dir"/hypr/*/; do [[ -d $d ]] && signature="$(basename "$d")"; done
+display_signatures=()
+for d in "$rt_dir"/hypr/*/; do
+  if [[ -d $d ]]; then
+    display_signature_candidate="${d%/}"
+    display_signatures+=("${display_signature_candidate##*/}")
+  fi
+done
+if [[ ${#display_signatures[@]} == 1 ]]; then signature="${display_signatures[0]}"; fi
 if [[ -z $signature ]]; then
   printf 'qml-smoke: status=not-measured missing=nested-instance-signature\n'; exit 77
 fi
+display_record_call bind "$signature" "$rt_dir/hypr/$signature/.socket2.sock" "$compositor_pid" "$rt_dir/$nested_socket" >/dev/null || true
 ok "nested compositor up: socket=$nested_socket"
 
 shell_env=("${sandbox_env[@]}" WAYLAND_DISPLAY="$nested_socket" HYPRLAND_INSTANCE_SIGNATURE="$signature"
@@ -632,6 +724,7 @@ if [[ $failures -gt 0 ]]; then
 fi
 local status=0
 smoke_verdict "$failures" "$behaviour_failures" "$stalled_render" "$mode_resets" "$rt_dir"/hypr/*/hyprland.log || status=$?
+display_record_close "$status" smoke_finish || true
 [[ $status -eq 0 ]] || exit "$status"
 }
 source "$repo/scripts/smoke/hypr-call.sh"
@@ -1763,8 +1856,15 @@ start_shell() { # TREE LOG [BAR [NAME=VALUE...]]
   shell_log="$log"
   start_cpu_some_us="$(cpu_some_us)"
   start_ms="$(now_ms)"
-  spawn "$log" "${shell_env[@]}" "${shell_start_words[@]}" "$@" "$tree/bin/vgshell" run
+  display_record_call mark shell-launch "$tree" "$log" "${shell_env[@]}" "${shell_start_words[@]}" "$@" >/dev/null || true
+  display_stream_kind=probe
+  shell_pid=""
+  if ! spawn "$log" "${shell_env[@]}" "${shell_start_words[@]}" "$@" "$tree/bin/vgshell" run; then
+    fail "start_shell: launch=failed log=$log"
+    return 1
+  fi
   shell_pid="$spawn_pid"
+  display_record_call mark shell-runner "$shell_pid" "$log" >/dev/null || true
   first_bar_ms=""
   first_bar_cpu_some_pct=unmeasured
   if [[ $bar == bar ]]; then
@@ -1804,6 +1904,7 @@ shell_answers() { # TREE LOG
     return 1
   fi
   shell_qs_pid="$qs_pid"
+  display_record_call mark shell-identity "$shell_pid" "$shell_qs_pid" "$tree" "$log" >/dev/null || true
   shell_pids_started+=("$qs_pid")
   for _ in $(seq 1 50); do
     if instance_id="$(qs_list --all | py_reply 'import json,sys; print(next((i["id"] for i in json.load(sys.stdin) if i["pid"] == int(sys.argv[1])), "unlisted"))' "$shell_qs_pid")" \
@@ -1994,7 +2095,10 @@ rss_verdict() { # PEAK CEILING
 # shell_memory_note says.
 stop_lock_wait_s=10
 stop_shell() {
-  local lock="$rt_dir/vgshell.lock"
+  local lock="$rt_dir/vgshell.lock" observation_owner="" stopped_pid="$shell_pid"
+  if [[ -n $stopped_pid ]]; then
+    observation_owner="$(display_record_call owner-context "$stopped_pid")" || observation_owner=""
+  fi
   shell_memory_note
   [[ -z $shell_pid ]] || kill -TERM "$shell_pid" 2>/dev/null || true
   if ! flock -w "$stop_lock_wait_s" "$lock" true; then
@@ -2003,6 +2107,9 @@ stop_shell() {
     return 1
   fi
   [[ -z $shell_pid ]] || wait "$shell_pid" 2>/dev/null || true
+  if [[ -n $observation_owner ]]; then
+    display_record_call owner-end "$observation_owner" "$stopped_pid" >/dev/null || true
+  fi
   shell_pid=""
 }
 # lock_holders LOCK: one line per process with a descriptor open on LOCK,

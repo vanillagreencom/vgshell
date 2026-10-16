@@ -29,7 +29,16 @@ hypr_layer="$home/.local/state/vgshell/hypr/vgs.lua"
 cp -- "$user_config" "$sandbox/shell-before-displays-modes.json"
 
 read_displays() { ipc smoke readInstance service vgs.displays "$1"; }
-invoke_displays() { ipc smoke invokeInstance service vgs.displays "$1" "$2"; }
+invoke_displays() {
+  local reply status=0
+  display_record_call mark display-request "$1" "$2" >/dev/null || true
+  ipc smoke displayEventBoundary "before:$1" >/dev/null || true
+  reply="$(ipc smoke invokeInstance service vgs.displays "$1" "$2")" || status=$?
+  display_record_call mark display-reply "$1" "$status" "$reply" >/dev/null || true
+  ipc smoke displayEventBoundary "after:$1" >/dev/null || true
+  printf '%s\n' "$reply"
+  return "$status"
+}
 outputs_state() { read_displays outputs | py_reply 'import json,sys; value=json.load(sys.stdin); print("present" if isinstance(value, list) and value else "absent")'; }
 output_present() { read_displays outputs | py_reply 'import json,sys; value=json.load(sys.stdin); print("present" if any(row.get("name") == sys.argv[1] for row in value) else "absent")' "$1"; }
 scale_of() { hypr -j monitors all | py_reply 'import json,sys; rows=[m for m in json.load(sys.stdin) if m["name"]==sys.argv[1]]; print(rows[0]["scale"] if rows else "absent")' "$1"; }
@@ -110,6 +119,10 @@ PY
 expect "enabling vgs.displays for display modes is allowed" ok ipc shell setPluginEnabled vgs.displays true
 expect_poll "vgs.displays is built for display modes" True record_exists vgs.displays
 expect_poll "vgs.displays has outputs" present outputs_state
+display_record_call mark displays-row-start >/dev/null || true
+display_record_call require-display "$shell_pid" "$shell_qs_pid" >/dev/null || true
+display_observer_arm="$(ipc smoke displayEventArm displays-modes)" || display_observer_arm=unavailable
+display_record_call mark display-observer-arm "$display_observer_arm" >/dev/null || true
 
 output="$(first_name)"
 base="$(unscaled_mode_of "$output")"
@@ -287,3 +300,6 @@ release_mode "display modes restores $output after the colour rule" "$output" "$
 
 cp -- "$sandbox/shell-before-displays-modes.json" "$user_config.next" && mv -T -- "$user_config.next" "$user_config"
 expect "disabling vgs.displays after display modes is allowed" ok ipc shell setPluginEnabled vgs.displays false
+display_observer_stop="$(ipc smoke displayEventStop displays-modes-end)" || display_observer_stop=unavailable
+display_observer_state="$(ipc smoke displayEventState)" || display_observer_state=unavailable
+display_record_call mark displays-row-end "$display_observer_stop" "$display_observer_state" >/dev/null || true

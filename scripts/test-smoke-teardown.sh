@@ -46,6 +46,12 @@ fail() { failures=$((failures + 1)); printf '  FAIL  %s\n' "$*"; }
 # marker the second-signal cases wait for.
 cat >"$tmp/group.sh" <<'SH'
 trap ': >"$1"; exit 0' TERM
+[[ -z ${2:-} ]] || printf 'ready\n' >"$2"
+while :; do sleep 0.1; done
+SH
+cat >"$tmp/recorder.sh" <<'SH'
+trap ': >"$1/recorder-termed"; exit 0' TERM
+printf 'ready\n' >"$1/recorder-ready"
 while :; do sleep 0.1; done
 SH
 
@@ -70,12 +76,57 @@ printf '#!/bin/sh\n' >"$readonly_dest/usr/bin/vgshell"
 chmod 755 -- "$readonly_dest/usr/bin/vgshell"
 echo 'Item {}' >"$readonly_dest/usr/share/vgshell/shell/Core/Config.qml"
 echo '{}' >"$readonly_dest/usr/share/vgshell/themes/targets/kitty/target.json"
-setsid bash "$group_script" "$case_dir/group-termed" &
+group_ready=""
+if [[ $mode == recorder* ]]; then
+  group_ready="$case_dir/group-ready"
+  mkfifo "$group_ready"
+fi
+setsid bash "$group_script" "$case_dir/group-termed" "$group_ready" &
 pgids+=("$!")
 printf '%s\n' "$!" >"$case_dir/group"
+[[ -z $group_ready ]] || IFS= read -r ready <"$group_ready"
 chmod -R a-w -- "$readonly_dest/usr"
+if [[ $mode == recorder* ]]; then
+  mkfifo "$case_dir/recorder-ready"
+  setsid "$BASH" "$case_dir/../recorder.sh" "$case_dir" &
+  display_record_pid=$!
+  pgids+=("$display_record_pid")
+  printf '%s\n' "$display_record_pid" >"$case_dir/recorder"
+  IFS= read -r ready <"$case_dir/recorder-ready"
+  display_record_dir="$case_dir"
+  display_record_close() {
+    local original_status="$1"
+    if [[ $original_status != 1 || -e $case_dir/group-termed || -e $case_dir/recorder-termed ]]; then
+      printf 'wrong-order\n' >"$case_dir/close-receipt"
+      return 1
+    fi
+    if [[ $mode == recorder-close-failed ]]; then
+      printf 'failed\n' >"$case_dir/close-receipt"
+      return 1
+    fi
+    printf 'closed-before-TERM\n' >"$case_dir/close-receipt"
+  }
+  display_record_finish() {
+    local original_status="$1" producer
+    producer="$(<"$case_dir/group")" || return 1
+    wait "$producer" 2>/dev/null || true
+    if [[ $original_status != 1 || ! -d $sandbox || ! -d $rt_dir || -e $case_dir/recorder-termed || ! -e $case_dir/group-termed ]]; then
+      printf 'incomplete\n' >"$case_dir/recorder-receipt"
+      kill -TERM -- "-$display_record_pid" 2>/dev/null || true
+      wait "$display_record_pid" || true
+      return 1
+    fi
+    kill -TERM -- "-$display_record_pid"
+    wait "$display_record_pid" || true
+    if [[ $mode == recorder-failed || $mode == recorder-close-failed ]]; then
+      printf 'incomplete\n' >"$case_dir/recorder-receipt"
+      return 1
+    fi
+    printf 'finished original_status=%s\n' "$original_status" >"$case_dir/recorder-receipt"
+  }
+fi
 case $mode in
-  abort|keep) false ;;
+  abort|keep|recorder|recorder-failed|recorder-close-failed) false ;;
   wait) : >"$case_dir/ready"; while :; do sleep 0.1; done ;;
 esac
 SH
@@ -154,6 +205,27 @@ run_case() {
     problems+=("recorded-group=unrecorded")
   fi
   [[ ! -e $case_dir/export ]] || problems+=("export=left")
+  if [[ -f $case_dir/recorder ]]; then
+    recorded="$(<"$case_dir/recorder")"
+    groups+=("$recorded")
+    if ! gone "-$recorded" 100; then
+      problems+=("recorder-group=alive")
+      kill -KILL -- "-$recorded" 2>/dev/null || true
+    fi
+  fi
+  if [[ $mode == recorder ]]; then
+    [[ -f $case_dir/recorder-receipt && $(<"$case_dir/recorder-receipt") == 'finished original_status=1' ]] || problems+=("recorder-evidence=missing")
+    [[ -e $case_dir/recorder-termed ]] || problems+=("recorder-cleanup=missing")
+    [[ -f $case_dir/close-receipt && $(<"$case_dir/close-receipt") == closed-before-TERM ]] || problems+=("recorder-close-order=wrong")
+  elif [[ $mode == recorder-failed ]]; then
+    [[ -f $case_dir/recorder-receipt && $(<"$case_dir/recorder-receipt") == incomplete ]] || problems+=("recorder-error=missing")
+    [[ $keyed_err == "qml-smoke: cleanup=recorder-finalization-failed path=$case_dir" ]] || problems+=("recorder-diagnostic=missing")
+    keyed_err=""
+  elif [[ $mode == recorder-close-failed ]]; then
+    [[ -f $case_dir/recorder-receipt && $(<"$case_dir/recorder-receipt") == incomplete ]] || problems+=("recorder-error=missing")
+    [[ $keyed_err == "qml-smoke: cleanup=recorder-close-failed path=$case_dir" ]] || problems+=("recorder-close-diagnostic=missing")
+    keyed_err=""
+  fi
   case $want_sandbox in
     gone)
       [[ ! -e $case_dir/sandbox ]] || problems+=("sandbox=left")
@@ -180,6 +252,9 @@ cases_table=(
   "a second TERM during the teardown does not cut it|wait|TERM TERM|143|gone"
   "a HUP after a TERM does not cut the teardown|wait|TERM HUP|143|gone"
   "a kept sandbox is removable with plain rm -rf|keep||1|kept"
+  "recorder finalization follows producers and retains evidence before removal|recorder||1|gone"
+  "recorder failure retains incomplete evidence without changing original exit|recorder-failed||1|gone"
+  "failed close retains an explicit error and original exit|recorder-close-failed||1|gone"
 )
 for row in "${cases_table[@]}"; do
   if run_case "$teardown" "$row"; then ok "${row%%|*}"; else fail "${row%%|*}: ${problems[*]}"; fi
@@ -208,6 +283,8 @@ mutate() {
 controls=(
   "the owner bits are not restored|chmod -R u+rwX -- \"\$sandbox\"|true|a set -e failure after the chmod removes the sandbox|sandbox=left|qml-smoke: cleanup=rm-failed path=CASE/sandbox"
   "the signals are not ignored|trap '' TERM INT HUP|:|a second TERM during the teardown does not cut it|sandbox=left|"
+  "the recorder finalizer is skipped|if ! display_record_finish \"\$original_status\"; then|if ! true; then|recorder finalization follows producers and retains evidence before removal|recorder-evidence=missing|"
+  "the recorder closes after producer TERM|if ! display_record_close \"\$original_status\" cleanup; then|if ! true; then|recorder finalization follows producers and retains evidence before removal|recorder-close-order=wrong|"
 )
 for i in "${!controls[@]}"; do
   IFS='|' read -r label old new target want want_err <<<"${controls[i]}"

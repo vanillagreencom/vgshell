@@ -364,6 +364,606 @@ controls=(
 )
 run_controls "$helper" cases controls
 
+# Exercise the actual embedded collector against owned original logs and public
+# socket-shaped fixtures. This proves recording and failure states, not
+# Hyprland delivery or QML notification wiring, which the smoke observes.
+source "$repo/scripts/smoke/host-window.sh"
+display_record_program >"$tmp/display-record.py"
+if python3 - "$tmp/display-record.py" "$tmp" "$repo/scripts/smoke/harness.sh" <<'PY'
+import contextlib, json, os, pathlib, re, runpy, signal, socket, subprocess, sys
+
+program, root, harness = map(pathlib.Path, sys.argv[1:])
+text, harness_text = program.read_text(), harness.read_text()
+fixture_directories = {}
+
+def fixture_directory(name):
+    # Confined scratch prefixes are long. AF_UNIX names include this path.
+    directory = root / ("r" + str(len(fixture_directories)))
+    directory.mkdir()
+    fixture_directories[name] = directory
+    (directory / "fixture-name").write_text(name + "\n")
+    return directory
+
+def extract(source, name):
+    match = re.search(r'^' + name + r'\(\) \{.*?^\}', source, re.M | re.S)
+    assert match, 'source-extraction-' + name
+    return match.group()
+
+@contextlib.contextmanager
+def server(name, source=text):
+    directory = fixture_directory(name)
+    recorder = directory / 'recorder.py'
+    recorder.write_text(source)
+    os.mkfifo(directory / 'ready')
+    def expired(*_):
+        raise TimeoutError('collector fixture: ' + (directory / 'stderr').read_text())
+    signal.signal(signal.SIGALRM, expired)
+    signal.alarm(30)
+    with (directory / 'stderr').open('wb') as err:
+        child = subprocess.Popen([sys.executable, '-u', str(recorder), 'serve', str(directory)],
+                                 env={}, stdout=subprocess.DEVNULL, stderr=err)
+        try:
+            with (directory / 'ready').open() as ready:
+                assert ready.readline() == 'ready\n', 'collector-ready'
+            def request(command, *args, error=None):
+                with socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET) as client:
+                    client.settimeout(10)
+                    client.connect(str(directory / 'control'))
+                    client.sendall(json.dumps([command, *args]).encode())
+                    reply = json.loads(client.recv(1048576))
+                if error is not None:
+                    assert not reply['ok'] and reply['error'] == error, ('expected-refusal', reply)
+                    return
+                assert reply['ok'], ('collector-runtime', reply)
+                return reply['value']
+            yield directory, recorder, child, request
+        finally:
+            if child.poll() is None:
+                child.kill()
+                child.wait()
+            signal.alarm(0)
+
+def events(directory):
+    return [json.loads(line) for line in (directory / 'events.jsonl').read_text().splitlines()]
+
+def terminal(directory):
+    rows = events(directory)
+    assert rows[-1]['kind'] == 'terminal', 'terminal-retained'
+    return rows[-1]['data']
+
+# Actual shared launch/stop. Every signalled child belongs to this fixture.
+def boundary(directory, recorder, mode='registered', source=harness_text):
+    helper = directory / ('boundary-' + mode + '.sh')
+    helper.write_text('\n'.join(extract(source, n) for n in ('spawn', 'stop_shell', 'shell_answers', 'py_reply')) + r'''
+set -u
+recorder=$1 fixture=$2 mode=$3
+control=$fixture/control
+pgids=()
+trap 'for pid in $(jobs -pr); do kill -TERM "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; done' EXIT
+rt_dir=$fixture
+stop_lock_wait_s=1
+shell_memory_note() { :; }
+fail() { printf '%s\n' "$*" >&2; }
+lock_holders() { :; }
+display_record_call() { python3 "$recorder" request "$control" "$@"; }
+display_stream_kind=probe
+[[ $mode != generic ]] || display_stream_kind=''
+mkfifo "$fixture/ready-child"
+spawn_pid=stale
+spawn "$fixture/child.log" sh -c 'printf "stdout\n"; printf "stderr\n" >&2; printf "ready\n" >"$1"; exec sleep 60' _ "$fixture/ready-child"
+IFS= read -r ready <"$fixture/ready-child"
+shell_pid=$spawn_pid
+printf '%s\n' "$shell_pid" "${pgids[-1]:-missing}" >"$fixture/pids"
+if [[ $mode == adopted || $mode == direct-restart ]]; then
+  kill -TERM "$shell_pid"
+  wait "$shell_pid" 2>/dev/null || true
+  setsid sh -c 'exec sleep 60' >"$fixture/adopted.log" 2>&1 &
+  shell_pid=$!
+  pgids+=("$shell_pid")
+fi
+shell_log=$fixture/child.log
+if [[ $mode == supervised ]]; then
+  shell_env=() shell_pids_started=()
+  timeout_s=1 instance_log=''
+  ok() { :; }
+  ipc() { printf 'ok\n'; }
+  qs_list() { printf '[{"id":"fixture","pid":%s}]\n' "$(<"$fixture/qs-pid")"; }
+  mkdir -p "$fixture/bin" "$rt_dir/quickshell/by-id/fixture"
+  : >"$rt_dir/quickshell/by-id/fixture/log.log"
+  printf '#!/bin/sh\ncat "${0%%/bin/vgshell}/qs-pid"\n' >"$fixture/bin/vgshell"
+  chmod +x "$fixture/bin/vgshell"
+  cp -- "$(command -v sleep)" "$fixture/qs"
+  for generation in 1 2; do
+    "$fixture/qs" 60 &
+    qs_child=$!
+    printf '%s\n' "$qs_child" >"$fixture/qs-pid"
+    for _ in $(seq 1 50); do
+      [[ $(cat "/proc/$qs_child/comm") != qs ]] || break
+    done
+    shell_answers "$fixture" "$shell_log" || exit 2
+    kill -TERM "$qs_child"
+    wait "$qs_child" 2>/dev/null || true
+  done
+fi
+if [[ $mode == already-reaped || $mode == clear-direct-reap ]]; then
+  kill -TERM "$shell_pid"
+  wait "$shell_pid" 2>/dev/null || true
+  [[ $mode != clear-direct-reap ]] || shell_pid=''
+fi
+status=0
+stop_shell || status=$?
+printf '%s\n' "$status" "$shell_pid" >>"$fixture/pids"
+stop_shell || true
+for pid in "${pgids[@]}"; do wait "$pid" 2>/dev/null || true; done
+''')
+    if mode == 'many':
+        body = helper.read_text().replace('spawn_pid=stale', 'for iteration in $(seq 1 130); do\ndisplay_stream_kind=probe\nspawn_pid=stale')
+        body = body.replace('stop_shell || true\nfor pid', 'stop_shell || true\ndone\nfor pid')
+        helper.write_text(body)
+    result = subprocess.run(['bash', str(helper), str(recorder), str(directory), mode],
+                            env={'PATH': os.getenv('PATH')}, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=25)
+    assert result.returncode == 0, ('boundary-runtime', result.stderr)
+    receipt = (directory / 'pids').read_text().splitlines()
+    assert receipt[0].isdigit() and receipt[0] == receipt[1], 'original-launch-preserved'
+    assert receipt[2:] == ['0', ''], 'stop-clears-ended-owner'
+    assert (directory / 'child.log').read_bytes() == b'stdout\nstderr\n', 'original-output-preserved'
+
+for mode in ('registered', 'generic', 'adopted', 'direct-restart', 'already-reaped', 'clear-direct-reap', 'supervised'):
+    with server('boundary-' + mode) as (directory, recorder, child, request):
+        boundary(directory, recorder, mode)
+        current, rows = request('read'), events(directory)
+        if mode in ('registered', 'already-reaped', 'supervised'):
+            assert current['activeStreams'] == 0, 'typed-stop-retires'
+            assert len([e for e in rows if e['kind'] == 'local-owner-end']) == 1, 'typed-stop-once'
+            if mode == 'supervised':
+                identities = [e['data']['registration'] for e in rows if e['kind'] == 'shell-observation-context']
+                assert len(identities) == 2 and len(set(identities)) == 1, 'relaunch-keeps-acquired-generation'
+        elif mode != 'clear-direct-reap':
+            assert any(e['kind'] == 'unobserved-adoption-end' for e in rows), 'adoption-is-context'
+            assert not any(e['kind'] == 'local-owner-end' for e in rows), 'adoption-cannot-end-registration'
+            assert not current['problems'], 'adoption-no-false-missing'
+        else:
+            assert current['activeStreams'] == 1, 'direct-reap-retained-until-cleanup'
+        request('close', '1', 'fixture-cleanup'); request('stop', 'normal'); child.wait(timeout=10)
+
+# Capacity refusal executes the same real stop boundary and cannot stop
+# the original spawn. Pending registrations are intentionally incomplete.
+with server('full-original-launch') as (directory, recorder, child, request):
+    with contextlib.ExitStack() as stack:
+        for index in range(128):
+            writer = stack.enter_context((directory / ('pending-' + str(index))).open('wb'))
+            request('log', 'probe', str(writer.name), f'/proc/{os.getpid()}/fd/{writer.fileno()}')
+        boundary(directory, recorder)
+        assert 'launch:expected-registration-refused' in request('read')['problems'], 'full-launch-explicit-refusal'
+        request('close', '1', 'cleanup'); request('stop', 'normal'); child.wait(timeout=10)
+        assert terminal(directory)['localRecord'] == 'incomplete', 'full-launch-record-incomplete'
+
+# Actual methods isolate generation rules. These flags are fixture context,
+# not proof of a public subscription or a complete end-to-end record.
+module = runpy.run_path(str(program))
+def local(name, source=text):
+    path = root / (name + '.py'); path.write_text(source)
+    api = runpy.run_path(str(path))
+    directory = fixture_directory(name)
+    record = api['Record'](directory)
+    record.bound = True
+    record.set_scope('shader-context', 'fixture', '0')
+    return record, api
+
+def finish(record):
+    record.close_window('1', 'fixture')
+    record.stop_reason, record.stopping = 'normal', True
+    record.run()
+    return terminal(record.directory)
+
+@contextlib.contextmanager
+def acquired(record, index, bind=True, path=None):
+    path = path or record.directory / ('log-' + str(index))
+    with path.open('wb', buffering=0) as writer:
+        key = record.watch_log('probe', str(path), f'/proc/{os.getpid()}/fd/{writer.fileno()}')
+        child = subprocess.Popen(['sleep', '60'], stdout=writer, stderr=writer) if bind else None
+        try:
+            if child: record.launched('probe', key, str(child.pid), str(path))
+            yield path, writer, key, child
+        finally:
+            if child is not None:
+                if child.poll() is None: child.terminate()
+                child.wait()
+
+def end(record, child):
+    context = record.owner_context(str(child.pid))
+    child.terminate(); child.wait()
+    record.end_owner(context, str(child.pid))
+
+def many_stops(name, source=text):
+    with server(name, source) as (directory, recorder, child, request):
+        boundary(directory, recorder, 'many')
+        assert request('read')['activeStreams'] == 0, 'completed-resource-retired'
+        rows = events(directory)
+        bindings = [e['data']['source'] for e in rows if e['kind'] == 'log-binding']
+        assert len(bindings) == 130 and len(set(bindings)) == 130, 'unique-registration-generation'
+        assert len([e for e in rows if e['kind'] == 'local-owner-end']) == 130, 'every-stop-owned-generation'
+        request('close', '1', 'cleanup'); request('stop', 'normal'); child.wait(timeout=10)
+many_stops('retire-many')
+record, _ = local('reader-close')
+with acquired(record, 1) as (path, writer, key, child):
+    writer.write(b'irrelevant\n'); record.drain()
+    with path.open('rb') as reader: assert reader.read() == b'irrelevant\n'
+    with path.open('ab'): pass
+    record.drain()
+    assert len(record.streams) == 1, 'reader-close-does-not-retire'
+    assert not record.problems, 'ordinary-reader-preserved'
+    end(record, child)
+finish(record)
+
+record, _ = local('capacity')
+with contextlib.ExitStack() as stack:
+    active = stack.enter_context(acquired(record, 0))
+    for index in range(1, 128): stack.enter_context(acquired(record, index, bind=False))
+    with (record.directory / 'refused.log').open('wb') as writer:
+        try: record.watch_log('probe', str(writer.name), f'/proc/{os.getpid()}/fd/{writer.fileno()}')
+        except ValueError as error: assert str(error) == 'capacity-streams', 'capacity-refusal'
+        else: raise AssertionError('capacity-refusal')
+    end(record, active[3])
+    stack.enter_context(acquired(record, 129, bind=False))
+    assert len(record.streams) == 128, 'capacity-reacquired'
+finish(record)
+
+for mode in ('reuse', 'truncate', 'replace', 'wrong-owner', 'duplicate-end', 'required-no-event', 'missing-launch'):
+    record, _ = local('identity-' + mode)
+    with acquired(record, 1, bind=mode != 'missing-launch') as (path, writer, key, child):
+        if mode == 'reuse':
+            alias = path.with_name('alias'); os.link(path, alias)
+            try: record.watch_log('probe', str(alias), f'/proc/{os.getpid()}/fd/{writer.fileno()}')
+            except ValueError as error: assert str(error) == 'log-inode-overlap-or-unproved-reuse', 'overlap-refused'
+            else: raise AssertionError('overlap-refused')
+            end(record, child)
+            with acquired(record, 2, path=path) as (_, _, second, new_child):
+                assert key != second, 'reuse-new-generation'
+                end(record, new_child)
+        elif mode in ('truncate', 'replace'):
+            writer.write(b'x\n'); record.drain()
+            if mode == 'truncate':
+                os.ftruncate(writer.fileno(), 0); expected = ':truncated-history'
+            else:
+                path.rename(path.with_name('old')); path.write_bytes(b''); expected = ':replacement-or-watch-lost'
+            record.drain()
+            assert any(expected in p for p in record.problems), 'lost-history-rejected'
+        elif mode in ('wrong-owner', 'duplicate-end'):
+            context = record.owner_context(str(child.pid))
+            if mode == 'wrong-owner':
+                try: record.end_owner(context, str(os.getpid()))
+                except ValueError as error: assert str(error) == 'owner-end-wrong-pid', 'wrong-owner-rejected'
+                else: raise AssertionError('wrong-owner-rejected')
+            child.terminate(); child.wait(); record.end_owner(context, str(child.pid))
+            try: record.end_owner(context, str(child.pid))
+            except ValueError as error: assert str(error) == 'owner-context-missing-or-ended', 'duplicate-end-rejected'
+            else: raise AssertionError('duplicate-end-rejected')
+        elif mode == 'required-no-event':
+            record.scope = dict(role='display-smoke', displayRequired=True)
+            record.shell_pids['fixture-qs'] = key
+            record.require_display(str(child.pid), 'fixture-qs'); end(record, child)
+            assert record.registrations[key]['fd'] is not None, 'required-reader-retained-before-event'
+    result = finish(record)
+    if mode == 'required-no-event': assert 'probe:missing' in result['problems'], 'missing-required-producer-rejected'
+    if mode == 'missing-launch': assert any('registration:launch-missing:' in p for p in result['problems']), 'missing-expected-launch-rejected'
+
+record, api = local('refused-and-unverified')
+with subprocess.Popen(['sleep', '60'], stdout=subprocess.DEVNULL) as child:
+    record.launched('probe', 'refused', str(child.pid), 'refused.log')
+    assert record.resolve_owner(str(child.pid))['tag'] == 'expected-refused', 'refusal-is-expected'
+    record.launches[0]['identity'] = dict(status='unavailable')
+    assert record.resolve_owner(str(child.pid))['tag'] == 'expected-unverified', 'unknown-is-not-adoption'
+    child.terminate(); child.wait()
+assert 'launch:expected-registration-refused' in finish(record)['problems'], 'refusal-stays-incomplete'
+
+def complete_case(name, source=text, omission=None, changed=False, context=False):
+    with server(name, source) as (directory, recorder, child, request):
+        request('scope', 'shader-context' if context else 'display-smoke', 'fixture', '0', *([] if context else ['displays-modes']))
+        connections = []
+        for owner in ('host', 'nested'):
+            listener = socket.socket(socket.AF_UNIX)
+            listener.bind(str(directory / owner)); listener.listen()
+            request('host', str(directory / owner)) if owner == 'host' else request('bind', 'fixture', str(directory / owner), '71', 'wayland')
+            peer, _ = listener.accept(); peer.sendall(b'monitoradded>>FIXTURE\n')
+            connections.extend((peer, listener))
+        with (directory / 'wayland.log').open('wb', buffering=0) as writer:
+            key = request('log', 'wayland', str(writer.name), f'/proc/{os.getpid()}/fd/{writer.fileno()}')
+            request('launched', 'wayland', key, str(os.getpid()), str(writer.name))
+            writer.write(b'[100] xdg_toplevel@8.configure(100, 200, array[0])\n')
+            if omission == 'partial': writer.write(b'partial')
+            if omission == 'line': writer.write(b'x' * 1048577 + b'\n')
+        if not context and omission != 'arm-boundary':
+            with (directory / 'probe.log').open('wb', buffering=0) as writer:
+                key = request('log', 'probe', str(writer.name), f'/proc/{os.getpid()}/fd/{writer.fileno()}')
+                producer = subprocess.Popen(['sleep', '60'], stdout=writer, stderr=writer)
+                try:
+                    request('launched', 'probe', key, str(producer.pid), str(writer.name))
+                    request('mark', 'shell-identity', str(producer.pid), '73', 'fixture', str(writer.name))
+                    request('require-display', str(producer.pid), '73')
+                    request('mark', 'display-request', 'trialRules', '{}')
+                    request('mark', 'display-reply', 'trialRules', '0', 'ok' if changed else 'refused: fixture')
+                    notifications = [('Probe', 'arm', {})]
+                    notifications += [(owner, 'initial-sample', {}) for owner in ('MonitorState', 'Compositor', 'HyprlandLayer', 'HyprlandLayer.reloader', 'Quickshell/Hyprland')]
+                    if changed:
+                        notifications += [('MonitorState', 'trialStateChanged', dict(phase='arming', token='fixture', deadline=100)), ('Compositor', 'completionChanged', dict(completion=dict(code=1))), ('HyprlandLayer.reloader', 'exited', dict(code=1, status=0))]
+                    notifications += [('Probe', 'stopped', {})]
+                    for sequence, (owner, kind, data) in enumerate(notifications, 1):
+                        if omission == kind or omission == owner: continue
+                        value = dict(schema='VGS-1714.display-event.v1', instance='73/100', sequence=sequence, realtimeMs=100, producer=owner, kind=kind, data=data)
+                        writer.write(b'VGS_DISPLAY_EVENT ' + json.dumps(value).encode() + b'\n')
+                    request('read')
+                    context_key = request('owner-context', str(producer.pid))
+                    producer.terminate(); producer.wait(); request('owner-end', context_key, str(producer.pid))
+                    assert any(s['required'] for s in request('read')['streams']), 'required-reader-retained'
+                finally:
+                    if producer.poll() is None: producer.terminate(); producer.wait()
+        request('close', '1', 'explicit'); request('close', '0', 'cleanup')
+        if omission == 'interrupted': child.terminate()
+        else: request('stop', 'normal')
+        child.wait(timeout=10)
+        for connection in connections: connection.close()
+        result, rows = terminal(directory), events(directory)
+        if omission != 'overflow':
+            assert len([e for e in rows if e['kind'] == 'window-end']) == 1, ('window-end-first-fact', name, result)
+            assert next(e for e in rows if e['kind'] == 'window-end')['data']['originalStatus'] == '1', 'window-end-original-status'
+        if omission: assert result['localRecord'] == 'incomplete', 'missing-or-lost-input-rejected'
+        else:
+            assert result['localRecord'] == 'complete', 'armed-zero-events-valid-collection'
+            facts = result['factAvailability']
+            if context: assert facts['queue-completion']['status'] == 'not-requested', 'context-facts-not-requested'
+            else:
+                assert facts['queue-completion']['status'] == ('observed' if changed else 'not-observed'), 'samples-are-not-history'
+                assert result['displayOutcome'] == ('facts-observed' if changed else 'not-established'), 'fact-availability-separate'
+                if changed: assert any(e['kind'] == 'probe-observation' and e['data']['data'].get('code') == 1 for e in rows), 'failed-reload-exit-retained'
+            cost = result['observationCost']
+            prefix = (directory / 'events.jsonl').read_bytes().splitlines(keepends=True)[:-1]
+            assert cost['prefixRecordEvents'] == len(prefix) and cost['prefixRecordBytes'] == sum(map(len, prefix)), 'cost-prefix-exact'
+            assert cost['readBytes']['files'] > 0 and cost['userCpuSeconds'] >= 0 and cost['systemCpuSeconds'] >= 0 and cost['peakResidentKiB'] > 0, 'collector-cost-retained'
+        return result
+
+complete_case('complete-zero')
+complete_case('complete-changes', changed=True)
+complete_case('context-no-probe', context=True)
+for omission in ('arm-boundary', 'arm', 'MonitorState', 'stopped', 'partial', 'line', 'interrupted'):
+    complete_case('missing-' + omission, omission=omission)
+complete_case('event-overflow', text.replace('CAP_EVENTS = 65536', 'CAP_EVENTS = 3'), omission='overflow')
+
+record, api = local('socket-eof')
+left, right = socket.socketpair(); left.setblocking(False)
+record.streams[left] = dict(source='nested-ipc', buffer=b'', kind='ipc', log=None, clipped=False, ended=False)
+record.selector.register(left, api['selectors'].EVENT_READ, ('stream', left))
+right.close(); record.read(left)
+record.close_window('1', 'cleanup'); record.close_window('0', 'later')
+assert 'nested-ipc:unexpected-eof' in finish(record)['problems'], 'preclose-eof-sticky'
+record, api = local('notification-overflow')
+record.notification(-1, api['IN_Q_OVERFLOW'], 0)
+assert 'notification:overflow' in finish(record)['problems'], 'notification-overflow-rejected'
+record, _ = local('missing-scope'); record.scope = None
+assert 'scope:missing' in finish(record)['problems'], 'unknown-scope-incomplete'
+
+def mutant(name, needle, replacement, check, assertion):
+    assert text.count(needle) == 1, ('mutation-source', name)
+    try: check(text.replace(needle, replacement))
+    except AssertionError as error:
+        assert str(error) == assertion, ('wrong-mutation-assertion', name, error)
+        print('  CONTROL display collector: ' + name + ' fails ' + assertion)
+    else: raise AssertionError(name + ' mutation survived')
+
+mutant('retirement', 'if not registration["required"]:', 'if False:', lambda source: many_stops('mut-retirement', source), 'completed-resource-retired')
+mutant('required-before-events', 'if not registration["required"]:', 'if True:', lambda s: complete_case('mut-required', s), 'required-reader-retained')
+mutant('snapshots-not-history', 'observed = self.fact_counts[(self.display_registration, producer, kind)]', 'observed = 1', lambda s: complete_case('mut-snapshot', s), 'samples-are-not-history')
+mutant('scope-required', 'expected = self.scope is not None and self.scope["displayRequired"]', 'expected = False', lambda s: complete_case('mut-scope', s, omission='arm-boundary'), 'missing-or-lost-input-rejected')
+mutant('event-cap', 'if not terminal and (self.events >= CAP_EVENTS or self.bytes + len(text) > CAP_BYTES):', 'if False:', lambda s: complete_case('mut-cap', s.replace('CAP_EVENTS = 65536', 'CAP_EVENTS = 3'), omission='overflow'), 'missing-or-lost-input-rejected')
+
+# Mutations at the shared stop authority cover every caller using it.
+def stop_mutation():
+    needle = 'display_record_call owner-end "$observation_owner" "$stopped_pid" >/dev/null || true'
+    assert harness_text.count(needle) == 1, 'owner-end-mutation-source'
+    with server('mut-stop') as (directory, recorder, child, request):
+        boundary(directory, recorder, source=harness_text.replace(needle, ':'))
+        assert request('read')['activeStreams'] == 0, 'typed-stop-retires'
+try:
+    stop_mutation()
+except AssertionError as error:
+    assert str(error) == 'typed-stop-retires', ('wrong-stop-mutation', error)
+    print('  CONTROL display collector: stop authority fails typed-stop-retires')
+else:
+    raise AssertionError('stop mutation survived')
+
+# The actual spawn on recorder refusal preserves output, status and fresh
+# PID. A failed original open clears stale identity before returning.
+def spawn_failure(source, name):
+    directory = root / name; directory.mkdir()
+    helper = directory / 'launch.sh'
+    helper.write_text(extract(source, 'spawn') + r'''
+set -u
+fixture=$1
+pgids=()
+display_record_call() { return 1; }
+spawn_pid=stale
+display_stream_kind=probe
+status=0
+spawn "$fixture/original.log" sh -c 'printf "stdout\n"; printf "stderr\n" >&2; exit 23' || status=$?
+printf '%s\n' "$status" "$spawn_pid" "${pgids[0]:-missing}" >"$fixture/receipt"
+if [[ $spawn_pid =~ ^[0-9]+$ ]]; then
+  status=0
+  wait "$spawn_pid" || status=$?
+  printf '%s\n' "$status" >>"$fixture/receipt"
+fi
+spawn_pid=stale
+display_stream_kind=probe
+status=0
+spawn "$fixture/absent/log" true || status=$?
+printf '%s\n' "$status" "$spawn_pid" >>"$fixture/receipt"
+''')
+    result = subprocess.run(['bash', str(helper), str(directory)], env={'PATH': os.getenv('PATH')},
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10)
+    assert result.returncode == 0, ('spawn-fixture-runtime', result.stderr)
+    receipt = (directory / 'receipt').read_text().splitlines()
+    assert receipt[0] == '0' and receipt[1].isdigit() and receipt[1] == receipt[2], 'refusal-launch-preserved'
+    assert receipt[3:] == ['23', '1', ''], 'refusal-status-and-stale-pid'
+    assert (directory / 'original.log').read_bytes() == b'stdout\nstderr\n', 'refusal-output-preserved'
+spawn_failure(harness_text, 'spawn-refused')
+needle = '|| registration=refused'
+assert harness_text.count(needle) == 1, 'spawn-refusal-mutation-source'
+try:
+    spawn_failure(harness_text.replace(needle, '|| return 1'), 'mut-spawn-refused')
+except AssertionError as error:
+    assert str(error) == 'refusal-launch-preserved', ('wrong-spawn-mutation', error)
+    print('  CONTROL display collector: refusal fails refusal-launch-preserved')
+else:
+    raise AssertionError('refusal mutation survived')
+
+# Execute actual caller scope logic before producer launch. Selection is
+# supplied by the caller's existing judge, not rebuilt from notifications.
+scope_helper = root / 'scope.sh'
+scope_helper.write_text(extract(harness_text, 'display_record_scope') + r'''
+set -u
+source_repo=/fixture
+self=$1
+first_bar_runs=$2
+qml_smoke_only=$3
+qml_smoke_rows=(start displays-modes finish)
+argv=(--rows "$qml_smoke_only")
+qml_smoke_wanted() { [[ -z $qml_smoke_only || $qml_smoke_only == *",$1,"* ]]; }
+display_record_call() { printf '%s\n' "$@" >&2; }
+display_record_scope
+''')
+for caller, first, selected, role in (
+    ('qml-smoke.sh', '', '', 'display-smoke'),
+    ('qml-smoke.sh', '', ',start,', 'smoke-context'),
+    ('qml-smoke.sh', '1', '', 'first-bar-context'),
+    ('measure-shader.sh', '', '', 'shader-context'),
+    ('sandbox-shots.sh', '', '', 'screenshot-context'),
+    ('unknown.sh', '', '', 'unknown')):
+    output = subprocess.run(['bash', str(scope_helper), '/fixture/scripts/' + caller, first, selected],
+                            env={'PATH': os.getenv('PATH')}, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10)
+    assert output.stderr.decode().splitlines()[:2] == ['scope', role], 'declared-scope-before-events'
+assert harness_text.index('display_record_close()') < harness_text.index('display_record_pid="$spawn_pid"'), 'partial-bootstrap-close-defined'
+assert harness_text.index('display_record_finish()') < harness_text.index('display_record_pid="$spawn_pid"'), 'partial-bootstrap-finish-defined'
+
+# Execute the actual client-failure receipt without a listening collector.
+client_directory = fixture_directory('missing-control-client')
+(client_directory / 'recorder.py').write_text(text)
+client_helper = root / 'client-failure.sh'
+client_helper.write_text(extract(harness_text, 'display_record_call') + r'''
+set -u
+display_record_dir=$1
+display_record_call close 1 cleanup
+''')
+client_result = subprocess.run(['bash', str(client_helper), str(client_directory)],
+                               env={'PATH': os.getenv('PATH')}, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10)
+assert client_result.returncode == 1 and (client_directory / 'request-failed').read_text() == 'close\n', 'actual-client-failure-receipt'
+
+for name, first, again, refusal in (
+    ('unknown', None, ['unknown', 'fixture', '0'], 'scope-unknown'),
+    ('repeated', ['shader-context', 'fixture', '0'], ['shader-context', 'fixture', '0'], 'scope-repeated'),
+    ('mismatch', None, ['display-smoke', 'fixture', '0'], 'scope-selection-mismatch')):
+    with server('scope-' + name) as (directory, recorder, child, request):
+        if first: request('scope', *first)
+        request('scope', *again, error=refusal)
+        request('close', '1', 'cleanup'); request('stop', 'normal'); child.wait(timeout=10)
+        assert 'control:' + refusal in terminal(directory)['problems'], 'invalid-scope-incomplete'
+record, _ = local('missing-close')
+record.stopping, record.stop_reason = True, 'normal'
+record.run()
+assert 'window-end:missing' in terminal(record.directory)['problems'], 'missing-close-incomplete'
+
+# A newly adopted runner never inherits a missing expected registration.
+def adoption_check(source):
+    with server('mut-adoption', source) as (directory, recorder, child, request):
+        boundary(directory, recorder, 'adopted')
+        assert not request('read')['problems'], 'adoption-no-false-missing'
+        request('close', '1', 'cleanup'); request('stop', 'normal'); child.wait(timeout=10)
+mutant('adoption-type', 'return dict(tag="unobserved-adoption", pid=pid, snapshot=snapshot,',
+       'return dict(tag="expected-unverified", pid=pid, snapshot=snapshot,', adoption_check, 'adoption-no-false-missing')
+
+def failed_start(name, source):
+    directory = fixture_directory(name)
+    helper = directory / 'start.sh'
+    helper.write_text('\n'.join(extract(source, n) for n in ('spawn', 'start_shell')) + r'''
+set -u
+fixture=$1
+pgids=() shell_env=() shell_start_words=()
+cpu_some_us() { echo 0; }
+now_ms() { echo 0; }
+fail() { :; }
+shell_answers() { :; }
+display_record_call() { printf '%s\n' "$1 $2" >>"$fixture/marks"; }
+spawn_pid=stale shell_pid=stale
+status=0
+start_shell "$fixture" "$fixture/absent/log" no-bar || status=$?
+printf '%s\n' "$status" "$spawn_pid" "$shell_pid" >"$fixture/receipt"
+''')
+    result = subprocess.run(['bash', str(helper), str(directory)], env={'PATH': os.getenv('PATH')},
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10)
+    assert result.returncode == 0, ('start-fixture-runtime', result.stderr)
+    assert (directory / 'receipt').read_text().splitlines() == ['1', '', ''], 'failed-start-clears-identities'
+    assert 'mark shell-runner' not in (directory / 'marks').read_text(), 'failed-start-no-runner-binding'
+failed_start('failed-start', harness_text)
+needle = '    fail "start_shell: launch=failed log=$log"\n    return 1'
+assert harness_text.count(needle) == 1, 'failed-start-mutation-source'
+try:
+    failed_start('mut-start', harness_text.replace(needle, needle.replace('return 1', ':')))
+except AssertionError as error:
+    assert str(error) == 'failed-start-clears-identities', ('wrong-start-mutation', error)
+    print('  CONTROL display collector: failed start fails failed-start-clears-identities')
+else:
+    raise AssertionError('failed-start mutation survived')
+
+# A missing stdout descriptor is not proof that a process disappeared.
+def missing_stdout(source, name):
+    source_file = root / (name + '.py'); source_file.write_text(source)
+    api = runpy.run_path(str(source_file))
+    with subprocess.Popen(['sh', '-c', 'exec 1>&-; printf "ready\\n" >&2; exec sleep 60'],
+                          stderr=subprocess.PIPE) as process:
+        assert process.stderr.readline() == b'ready\n', 'closed-stdout-ready'
+        try:
+            assert api['process_binding'](str(process.pid))['status'] == 'unavailable', 'missing-stdout-is-unavailable'
+        finally:
+            process.terminate(); process.wait()
+missing_stdout(text, 'closed-stdout')
+mutant('closed-stdout-identity',
+       'return dict(status="gone") if not path.exists() else dict(status="unavailable", error="identity-component-missing")',
+       'return dict(status="gone")', lambda source: missing_stdout(source, 'mut-closed-stdout'), 'missing-stdout-is-unavailable')
+record, _ = local('missing-wayland-producer')
+assert 'wayland-producer:missing' in finish(record)['problems'], 'missing-wayland-producer-incomplete'
+
+def terminal_reserve(source, name):
+    record, api = local(name, source)
+    record.scope['argv'] = ['x' * api['CAP_LINE']]
+    result = finish(record)
+    assert 'terminal:overflow' in result['problems'], 'terminal-reserve-incomplete'
+    assert len((record.directory / 'events.jsonl').read_bytes().splitlines()[-1]) < api['CAP_LINE'], 'terminal-reserve-bounded'
+terminal_reserve(text, 'terminal-reserve')
+mutant('terminal-reserve', 'if terminal and len(text) > CAP_LINE:', 'if False:',
+       lambda source: terminal_reserve(source, 'mut-terminal-reserve'), 'terminal-reserve-incomplete')
+mutant('cost-prefix', 'prefixRecordEvents=self.events, prefixRecordBytes=self.bytes,',
+       'prefixRecordEvents=self.events + 1, prefixRecordBytes=self.bytes,',
+       lambda source: complete_case('mut-cost-prefix', source), 'cost-prefix-exact')
+
+# Finalization preserves failed control requests and partial final output.
+retained = fixture_directories['complete-zero']
+for name in ('scratch', 'runtime', 'home'): (root / ('retain-' + name)).mkdir()
+scratch = root / 'retain-scratch'
+(scratch / 'original.log').write_bytes(b'original bytes without newline')
+(scratch / 'alias.log').symlink_to(scratch / 'original.log')
+module['retain_record'](str(retained), str(scratch), str(root / 'retain-runtime'), str(root / 'retain-home'))
+assert (retained / 'logs/sandbox/original.log').read_bytes() == b'original bytes without newline'
+assert not (retained / 'logs/sandbox/alias.log').exists()
+for errors, expected in (('0', 'complete'), ('1', 'incomplete')):
+    module['complete_record'](str(retained), errors)
+    assert json.loads((retained / 'completeness.json').read_text())['localRecord'] == expected, 'finalizer-failure-incomplete'
+(retained / 'request-failed').write_text('close\n')
+module['complete_record'](str(retained), '0')
+assert 'control:client-request-failed' in json.loads((retained / 'completeness.json').read_text())['problems'], 'lost-client-receipt-incomplete'
+for name, data, problem in (('partial', b'{"kind":', 'record:partial-final-record'), ('missing', b'{}\n', 'record:terminal-missing'), ('malformed', b'invalid\n', 'record:unreadable')):
+    path = root / ('bad-' + name); path.write_bytes(data)
+    assert problem in module['read_record'](path)['problems'], 'partial-terminal-incomplete'
+PY
+then ok "display collector preserves streams and rejects missing, interrupted, partial, truncated and overflow records"; else fail "display collector contract"; fi
+
 # The host window reader, scripts/smoke/host-window.sh, against the stub
 # hyprctl's host world. Cases and controls have the shape of the capture
 # helper's above.
@@ -1402,6 +2002,340 @@ for ((i=0; i<${#capture_controls[@]}; i+=3)); do
     ok "control: $label fails the capture state contract"
   fi
 done
+
+# Execute the Probe's actual JavaScript methods with a captured console and
+# owner-data fixtures. This does not exercise QML bindings or signal wiring;
+# the normal nested pair owns that evidence.
+cat >"$tmp/probe-display-control.cjs" <<'JS'
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+try {
+    const source = fs.readFileSync(process.argv[2], 'utf8');
+    function method(name, indent) {
+        const pattern = new RegExp('^' + ' '.repeat(indent) + 'function ' + name
+            + '\\([^\\n]*\\)(?:: string)? \\{[\\s\\S]*?^' + ' '.repeat(indent) + '\\}', 'gm');
+        const matches = [...source.matchAll(pattern)];
+        if (matches.length !== 1) throw new Error('Probe method extraction: ' + name);
+        // Remove only QML's type annotations from the IPC signature.
+        return matches[0][0].replace(/^([^\n]*?)\(reason: string\): string/m, '$1(reason)');
+    }
+    const methods = ['encodeDisplayEvent', 'displayEventEnvelope', 'emitDisplayEvent',
+        'endDisplayEvents', 'detachDisplayEvents'].map(name => method(name, 4));
+    methods.push(method('displayEventStop', 8));
+    const capacities = {};
+    for (const name of ['displayEventCapacityEvents', 'displayEventCapacityChars', 'displayEventTerminalReserve']) {
+        const matches = [...source.matchAll(new RegExp('^    readonly property int ' + name + ': (\\d+)$', 'gm'))];
+        if (matches.length !== 1) throw new Error('Probe capacity extraction: ' + name);
+        capacities[name] = Number(matches[0][1]);
+    }
+    function fixture(status = 'armed') {
+        const lines = [];
+        let clock = 1000;
+        const state = Object.assign({}, capacities, {
+            displayEventInstance: 'fixture/instance', displayEventStatus: status,
+            displayEventReason: '', displayEventSequence: 0, displayEventChars: 0,
+            displayEventPriming: false,
+            console: { log: line => lines.push(line) }, Date: { now: () => clock++ }
+        });
+        for (const name of ['Monitors', 'Compositor', 'Loader', 'Layer', 'Reloader', 'Hyprland', 'Quickshell'])
+            state['displayEvent' + name] = { fixture: name };
+        state.root = state;
+        vm.createContext(state);
+        vm.runInContext(methods.join('\n'), state);
+        return { state, lines };
+    }
+    function record(f) {
+        const prefix = 'VGS_DISPLAY_EVENT ';
+        const events = f.lines.map(line => {
+            assert.ok(line.startsWith(prefix), 'machine prefix');
+            return JSON.parse(line.slice(prefix.length));
+        });
+        assert.ok(events.length <= f.state.displayEventCapacityEvents, 'finite event count');
+        let chars = 0;
+        for (const [index, event] of events.entries()) {
+            assert.equal(event.sequence, index + 1, 'contiguous emitted sequence');
+            assert.equal(event.instance, 'fixture/instance', 'instance survives delivery');
+            assert.equal(event.schema, 'VGS-1714.display-event.v1', 'event schema');
+            assert.equal(typeof event.realtimeMs, 'number', 'clock field');
+            chars += f.lines[index].length - prefix.length;
+        }
+        assert.equal(chars, f.state.displayEventChars, 'aggregate JSON accounting');
+        assert.ok(chars <= f.state.displayEventCapacityChars, 'finite JSON characters');
+        return events;
+    }
+    function detached(f) {
+        for (const name of ['Monitors', 'Compositor', 'Loader', 'Layer', 'Reloader', 'Hyprland', 'Quickshell'])
+            assert.equal(f.state['displayEvent' + name], null, 'release ' + name);
+        const count = f.lines.length;
+        assert.equal(f.state.emitDisplayEvent('boundary', 'fixture', {}), false, 'terminal blocks later events');
+        f.state.endDisplayEvents('interrupted', 'later');
+        assert.equal(f.lines.length, count, 'terminal is emitted once');
+    }
+    {
+        const f = fixture();
+        for (let i = 0; i < f.state.displayEventCapacityEvents; i++)
+            f.state.emitDisplayEvent('boundary', 'fixture', { label: 'event ceiling' });
+        const events = record(f);
+        assert.equal(f.state.displayEventStatus, 'overflow', 'event ceiling stops capture');
+        assert.equal(events.at(-1).kind, 'overflow', 'event ceiling retains terminal');
+        assert.equal(events.at(-1).data.reason, 'capacity-events', 'event ceiling reason');
+        detached(f);
+    }
+    {
+        const f = fixture();
+        const payload = 'x'.repeat(Math.ceil(f.state.displayEventCapacityChars / 16));
+        // Enough payloads exceed the character budget before the event cap.
+        for (let i = 0; i < 17 && f.state.displayEventStatus === 'armed'; i++)
+            f.state.emitDisplayEvent('outputsChanged', 'MonitorState', { fixture: payload });
+        const events = record(f);
+        assert.equal(f.state.displayEventStatus, 'overflow', 'character ceiling stops capture');
+        assert.equal(events.at(-1).data.reason, 'capacity-chars', 'character ceiling reason');
+        detached(f);
+    }
+    for (const [initial, status, reason] of [
+        ['armed', 'stopped', 'row-end'], ['armed', 'interrupted', 'probe-destroyed'],
+        ['absent', 'missing', 'reloader-identity']
+    ]) {
+        const f = fixture(initial);
+        if (status === 'stopped') assert.equal(f.state.displayEventStop(reason), 'ok', 'IPC stop');
+        else f.state.endDisplayEvents(status, reason);
+        const events = record(f);
+        assert.equal(events.length, 1, 'terminal-only fixture');
+        assert.equal(events[0].kind, status, 'terminal kind');
+        assert.equal(events[0].data.reason, reason, 'terminal reason');
+        assert.equal(f.state.displayEventStatus, status, 'terminal state');
+        detached(f);
+    }
+    {
+        const f = fixture();
+        assert.equal(f.state.displayEventStop('x'.repeat(f.state.displayEventTerminalReserve)),
+            'refused: display-events=overflow', 'long stop reason refuses');
+        const events = record(f);
+        assert.equal(events.at(-1).data.reason, 'capacity-stop-reason', 'long reason terminal');
+        detached(f);
+    }
+    console.log('probe-display-control: pass');
+} catch (error) {
+    if (error.code === 'ERR_ASSERTION') {
+        console.error('probe-display-control: assertion-failed ' + error.message);
+        process.exitCode = 1;
+    } else {
+        console.error('probe-display-control: unavailable ' + error.message);
+        process.exitCode = 2;
+    }
+}
+JS
+if node "$tmp/probe-display-control.cjs" "$repo/scripts/smoke/Probe.qml"; then
+  ok "Probe source methods retain finite events, JSON characters and terminal states"
+else
+  fail "Probe source methods violate their bounded output contract"
+fi
+probe_controls=(
+  "event ceiling" 'if (displayEventSequence >= displayEventCapacityEvents - 1)' 'if (false && displayEventSequence >= displayEventCapacityEvents - 1)'
+  "aggregate character ceiling" 'displayEventCapacityChars - displayEventTerminalReserve - displayEventChars' 'displayEventCapacityChars - displayEventTerminalReserve'
+)
+for ((i=0; i<${#probe_controls[@]}; i+=3)); do
+  probe_mutant="$tmp/probe-display-mutant.qml"
+  if ! mutate "$repo/scripts/smoke/Probe.qml" "${probe_controls[i+1]}" "${probe_controls[i+2]}" "$probe_mutant"; then
+    fail "control: Probe ${probe_controls[i]} could not be planted"
+    continue
+  fi
+  probe_status=0
+  node "$tmp/probe-display-control.cjs" "$probe_mutant" >"$tmp/probe-display-control.log" 2>&1 || probe_status=$?
+  if [[ $probe_status -eq 1 ]]; then
+    ok "control: bypassing the Probe ${probe_controls[i]} fails its source-method assertions"
+  else
+    fail "control: bypassing the Probe ${probe_controls[i]} did not produce an assertion failure (exit $probe_status)"
+    cat -- "$tmp/probe-display-control.log"
+  fi
+done
+
+# These source fixtures explain why connected owners can publish no actual
+# trial, completion or reload event. They do not judge record completeness
+# or turn an initial owner sample into event history.
+cat >"$tmp/display-expected-facts.cjs" <<'JS'
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
+try {
+    const repo = process.argv[2], scratch = process.argv[3];
+    const { load } = require(path.join(repo, 'bin/lib/qml-library.js'));
+    const core = path.join(repo, 'shell/Core');
+    const monitors = load(path.join(core, 'MonitorLogic.js'));
+    const dispatch = load(path.join(core, 'Dispatch.js'));
+    const files = { monitor: path.join(core, 'MonitorState.qml'),
+        compositor: path.join(core, 'Compositor.qml'), layer: path.join(core, 'HyprlandLayer.js') };
+    const sources = Object.fromEntries(Object.entries(files).map(([key, file]) => [key, fs.readFileSync(file, 'utf8')]));
+
+    function sourceMethod(source, name, indent) {
+        const pad = ' '.repeat(indent);
+        const matches = [...source.matchAll(new RegExp('^' + pad + 'function ' + name
+            + '\\([^\\n]*\\) \\{[\\s\\S]*?^' + pad + '\\}', 'gm'))];
+        if (matches.length !== 1) throw new Error('expected-facts extraction: ' + name);
+        return matches[0][0];
+    }
+    function context(source, names, indent, state) {
+        state.root = state;
+        vm.createContext(state);
+        vm.runInContext(names.map(name => sourceMethod(source, name, indent)).join('\n'), state);
+        return state;
+    }
+    function check(name, value, expected) {
+        try { assert.equal(value, expected, name); }
+        catch (error) { error.expectedFact = name; throw error; }
+    }
+    const parsed = monitors.parseOutputs(JSON.stringify([{
+        id: 0, name: 'WAYLAND-1', description: '', make: '', model: '', serial: '',
+        width: 1440, height: 900, refreshRate: 60, x: 0, y: 0, scale: 1, transform: 0,
+        vrr: false, disabled: false, mirrorOf: 'none', availableModes: [],
+        currentFormat: 'XRGB8888', colorManagementPreset: 'srgb', sdrBrightness: 1, sdrSaturation: 1
+    }]));
+    if (!parsed.ok) throw new Error('expected-facts monitor fixture rejected');
+
+    const cases = [
+        { id: 'trial-wrong-owner', owner: 'monitor', method: 'trial', caller: 'other' },
+        { id: 'trial-unread-outputs', owner: 'monitor', method: 'trial', unread: true },
+        { id: 'trial-active', owner: 'monitor', method: 'trial', phase: 'holding' },
+        { id: 'trial-plan-rejected', owner: 'monitor', method: 'trial', rules: { UNKNOWN: { scale: 1 } } },
+        { id: 'keep-wrong-token', owner: 'monitor', method: 'keep', phase: 'holding' },
+        { id: 'revert-wrong-token', owner: 'monitor', method: 'revert', phase: 'holding' },
+        { id: 'queue-invalid-request', owner: 'compositor', operation: 'invalid' },
+        { id: 'queue-full', owner: 'compositor', operation: 'full' },
+        { id: 'queue-empty', owner: 'compositor', operation: 'empty' },
+        { id: 'layer-unchanged', owner: 'layer', operation: 'begin' },
+        { id: 'layer-missing-input', owner: 'layer', operation: 'missing' },
+        { id: 'layer-busy', owner: 'layer', operation: 'busy' },
+        { id: 'layer-prepare-refused', owner: 'layer', operation: 'prepare' },
+        { id: 'layer-save-refused', owner: 'layer', operation: 'save' }
+    ];
+    function runCase(row, source) {
+        if (row.owner === 'monitor') {
+            let trialState = { phase: row.phase || 'idle', token: 'existing-token', deadline: 0, failure: '' };
+            let publications = 0;
+            const state = { ownerId: 'owner', outputs: row.unread ? null : parsed.outputs,
+                support: {}, Monitors: monitors };
+            Object.defineProperty(state, 'trialState', { configurable: true,
+                get: () => trialState, set: value => { trialState = value; publications++; } });
+            context(source, ['mustOwn', 'trial', 'keep', 'revert'], 4, state);
+            const answer = row.method === 'trial'
+                ? state.trial(row.caller || 'owner', row.rules || { 'WAYLAND-1': { scale: 1 } }, {})
+                : state[row.method]('owner', 'wrong-token');
+            check(row.id + ':no-trial-publication', publications, 0);
+            check(row.id + ':refused', typeof answer === 'string' && answer.startsWith('refused:'), true);
+            return;
+        }
+        if (row.owner === 'compositor') {
+            let starts = 0, completions = 0, completion = null;
+            const proc = {};
+            Object.defineProperty(proc, 'running', { set: value => { if (value === true) starts++; } });
+            const state = { Dispatch: dispatch, Hyprland: { usingLua: true }, proc,
+                console: { error: () => {} }, pending: null, pendingDone: null, pendingJudged: false, reply: '',
+                queue: row.operation === 'full' ? Array.from({ length: dispatch.QUEUE_LIMIT }, () =>
+                    ({ argv: ['hyprctl', 'fixture'], done: null, judged: false })) : [] };
+            Object.defineProperty(state, 'completion', { configurable: true,
+                get: () => completion, set: value => { completion = value; if (value !== null) completions++; } });
+            context(source, ['monitorEval', 'enqueue', 'drain'], 4, state);
+            let answer;
+            if (row.operation === 'invalid') answer = state.monitorEval('not-monitor-lua', null);
+            else if (row.operation === 'full') answer = state.enqueue(['hyprctl', 'fixture'], null, false);
+            else state.drain();
+            check(row.id + ':no-completion-publication', completions, 0);
+            check(row.id + ':no-process-start', starts, 0);
+            if (row.operation !== 'empty')
+                check(row.id + ':refused', typeof answer === 'string' && answer.startsWith('refused:'), true);
+            return;
+        }
+        const layer = context(source, ['initialState', 'withChanges', 'expectPhase', 'consentChanges',
+            'begin', 'written', 'idleDecision', 'step'], 0, {});
+        const state = layer.withChanges(layer.initialState(), {
+            phase: row.operation === 'busy' || row.operation === 'save' ? 'writing'
+                : row.operation === 'prepare' ? 'preparing' : 'idle',
+            onDisk: 'existing-layer', pending: 'changed-layer',
+            consent: { phase: 'settled', queued: '', failure: '' }
+        });
+        let result;
+        if (row.operation === 'begin') result = layer.begin(state, 'existing-layer');
+        else if (row.operation === 'missing') result = layer.begin(state, null);
+        else if (row.operation === 'busy') result = layer.step(state, { type: 'render' }, 'changed-layer');
+        else result = layer.step(state, {
+            type: row.operation === 'prepare' ? 'mkdirDone' : 'saveFailed', failure: 'fixture-refusal'
+        }, 'changed-layer');
+        check(row.id + ':no-reload-action', result.action === 'reload', false);
+        check(row.id + ':next-action', result.action, row.operation === 'save' ? 'read' : 'none');
+    }
+    for (const row of cases) runCase(row, sources[row.owner]);
+
+    // Each mutation introduces the forbidden fact at the actual return
+    // boundary. It keeps the refusal/control text, so an unrelated parse
+    // failure cannot count as the intended assertion's rejection.
+    const publish = 'trialState = { phase: "arming" }; ';
+    const ownerReturn = 'if (ownership !== "") return ownership;';
+    const tokenReturn = 'return "refused: monitors-token=unknown";';
+    const mutations = [
+        ['trial-wrong-owner', 'trial', ownerReturn, 'if (ownership !== "") { ' + publish + 'return ownership; }', 'no-trial-publication'],
+        ['trial-unread-outputs', 'trial', 'if (outputs === null) return "refused: monitors=unread";',
+            'if (outputs === null) { ' + publish + 'return "refused: monitors=unread"; }', 'no-trial-publication'],
+        ['trial-active', 'trial', 'if (trialState.phase !== "idle") return "refused: monitors-trial=active";',
+            'if (trialState.phase !== "idle") { ' + publish + 'return "refused: monitors-trial=active"; }', 'no-trial-publication'],
+        ['trial-plan-rejected', 'trial', 'if (!trial.ok) return trial.error;',
+            'if (!trial.ok) { ' + publish + 'return trial.error; }', 'no-trial-publication'],
+        ['keep-wrong-token', 'keep', tokenReturn, '{ ' + publish + tokenReturn + ' }', 'no-trial-publication'],
+        ['revert-wrong-token', 'revert', tokenReturn, '{ ' + publish + tokenReturn + ' }', 'no-trial-publication'],
+        ['queue-invalid-request', 'monitorEval', 'return r.error;',
+            'root.completion = { code: 0, status: 0 }; return r.error;', 'no-completion-publication'],
+        ['queue-full', 'enqueue', 'return error;', 'proc.running = true; return error;', 'no-process-start'],
+        ['queue-empty', 'drain', 'if (pending !== null || queue.length === 0) return;',
+            'if (pending !== null || queue.length === 0) { proc.running = true; return; }', 'no-process-start'],
+        ['layer-unchanged', 'begin', 'return { state: withChanges(state, { forcing: false }), action: "none" };',
+            'return { state: withChanges(state, { forcing: false }), action: "reload" };', 'no-reload-action'],
+        ['layer-missing-input', 'begin', 'return { state: withChanges(state, { forcing: false }), action: "none" };',
+            'return { state: withChanges(state, { forcing: false }), action: "reload" };', 'no-reload-action'],
+        ['layer-busy', 'step', 'return state.phase === "idle" ? begin(state, text) : { state: state, action: "none" };',
+            'return state.phase === "idle" ? begin(state, text) : { state: state, action: "reload" };', 'no-reload-action'],
+        ['layer-prepare-refused', 'step',
+            'if (event.failure !== "") return idleDecision(withChanges(state, { failedText: state.pending }), event.failure, text, true);',
+            'if (event.failure !== "") return written(state);', 'no-reload-action'],
+        ['layer-save-refused', 'step',
+            'return idleDecision(withChanges(state, { stale: true, failedText: state.pending }), event.failure, text, true);',
+            'return written(state);', 'no-reload-action']
+    ];
+    for (const [id, method, needle, replacement, intended] of mutations) {
+        const row = cases.find(candidate => candidate.id === id);
+        const source = sources[row.owner];
+        const body = sourceMethod(source, method, row.owner === 'layer' ? 0 : 4);
+        if (body.split(needle).length !== 2) throw new Error('expected-facts mutation match: ' + id);
+        const changed = body.replace(needle, replacement);
+        if (changed === body) throw new Error('expected-facts mutation unchanged: ' + id);
+        const mutant = path.join(scratch, 'expected-facts-' + id + path.extname(files[row.owner]));
+        fs.writeFileSync(mutant, source.replace(body, changed), { flag: 'wx' });
+        let killed = false;
+        try { runCase(row, fs.readFileSync(mutant, 'utf8')); }
+        catch (error) {
+            if (error.code !== 'ERR_ASSERTION' || error.expectedFact !== id + ':' + intended)
+                throw new Error('expected-facts mutation failed outside intended assertion: ' + id + ': ' + error.message);
+            killed = true;
+        }
+        check(id + ':mutation-rejected', killed, true);
+        console.log('display-expected-facts: mutation-rejected=' + id + ' assertion=' + intended);
+    }
+    console.log('display-expected-facts: pass');
+} catch (error) {
+    if (error.code === 'ERR_ASSERTION') {
+        console.error('display-expected-facts: assertion-failed=' + error.expectedFact + ' ' + error.message);
+        process.exitCode = 1;
+    } else {
+        console.error('display-expected-facts: unavailable ' + error.message);
+        process.exitCode = 2;
+    }
+}
+JS
+if node "$tmp/display-expected-facts.cjs" "$repo" "$tmp"; then
+  ok "actual refusal and no-change paths do not imply trial, completion or reload history"
+else
+  fail "actual source expected-fact controls did not pass"
+fi
 
 if [[ $failures -gt 0 ]]; then
   echo "test-sandbox-shots: failed=$failures"

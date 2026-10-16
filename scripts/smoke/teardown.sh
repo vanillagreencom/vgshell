@@ -26,11 +26,26 @@ teardown_step() {
 }
 
 cleanup() {
+  local original_status=$?
   trap '' TERM INT HUP
   local pg path
-  for pg in "${pgids[@]}"; do kill -TERM -- "-$pg" 2>/dev/null || true; done
+  if [[ -n ${display_record_pid:-} ]]; then
+    if ! display_record_close "$original_status" cleanup; then
+      printf 'qml-smoke: cleanup=recorder-close-failed path=%s\n' "${display_record_dir:-unavailable}" >&2
+    fi
+  fi
+  for pg in "${pgids[@]}"; do
+    [[ $pg == "${display_record_pid:-}" ]] || kill -TERM -- "-$pg" 2>/dev/null || true
+  done
   sleep 0.5
-  for pg in "${pgids[@]}"; do kill -KILL -- "-$pg" 2>/dev/null || true; done
+  for pg in "${pgids[@]}"; do
+    [[ $pg == "${display_record_pid:-}" ]] || kill -KILL -- "-$pg" 2>/dev/null || true
+  done
+  if [[ -n ${display_record_pid:-} ]]; then
+    if ! display_record_finish "$original_status"; then
+      printf 'qml-smoke: cleanup=recorder-finalization-failed path=%s\n' "${display_record_dir:-unavailable}" >&2
+    fi
+  fi
   # The read-only prefix row takes the write bits off part of the sandbox
   # and gives them back only at its end, and rm -rf cannot empty a directory
   # without them. A kept sandbox gets them back too, so plain rm -rf
