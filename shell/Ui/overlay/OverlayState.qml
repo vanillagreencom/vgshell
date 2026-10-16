@@ -9,15 +9,23 @@ import qs.Commons
 // open overlay never raises one. Overlays register on open and leave on
 // close, and a bar widget held in a drag registers for the drag; the count
 // is what a tooltip reads.
+// `grabs` counts the popups that hold the keyboard grab, for the layer
+// host, which keeps a passive layer mapped while one is open (LayerHost):
+// every overlay `open` counts, and a summoned popup, which registers only
+// here so a tooltip inside it still opens. A drag hold counts too, and only
+// delays a layer's unmap.
 QtObject {
     id: state
 
     property int open: 0
+    property int grabs: 0
     // Typed Item references clear when their item is destroyed (reasontip unit).
     property Item coveredReason: null
 
-    function opened() { open += 1; }
-    function closed() { if (open > 0) open -= 1; }
+    function opened() { open += 1; grabs += 1; }
+    function closed() { if (open > 0) open -= 1; if (grabs > 0) grabs -= 1; }
+    function grabStarted() { grabs += 1; }
+    function grabEnded() { if (grabs > 0) grabs -= 1; }
 
     // The output `item` draws on, or null while it has none yet. The Qt
     // window an item reports is Quickshell's backing window, which has no

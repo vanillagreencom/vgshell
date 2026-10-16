@@ -18,6 +18,7 @@ PopupWindow {
     readonly property Item returnFocusItem: request && request.returnFocus ? request.returnFocus : null
     readonly property bool returnFocusWasVisual: !!(request && request.returnFocusWasVisual)
     property bool closing: false
+    property bool grabCounted: false
     property real motionProgress: 0
     readonly property real cardOpacity: card.opacity
     readonly property real cardTranslateY: cardOffset.y
@@ -55,10 +56,12 @@ PopupWindow {
     // Region's box is whole pixels; the card's height is fractional.
     mask: Region { x: sized.x; y: sized.y; width: Math.ceil(sized.width); height: Math.ceil(sized.height) }
     Component.onCompleted: Qt.callLater(() => setMotion(1, false))
+    Component.onDestruction: shareGrab(false)
     // Quickshell PopupWindow::onClosed sets the wanted visibility false
     // after the compositor closes the xdg_popup, so that path cannot commit
     // a closing frame.
     onVisibleChanged: {
+        shareGrab(visible);
         if (!visible) {
             if (returnFocusWasVisual && returnFocusItem !== null && returnFocusItem.forceActiveFocus !== undefined) {
                 const target = returnFocusItem;
@@ -74,6 +77,13 @@ PopupWindow {
 
     function focusInitial() {
         slot.focusInitial();
+    }
+
+    // The grab, not `open`: a tooltip inside the popup still opens.
+    function shareGrab(open) {
+        if (open === grabCounted) return;
+        grabCounted = open;
+        if (open) OverlayState.grabStarted(); else OverlayState.grabEnded();
     }
 
     function setMotion(target, dismissAfter) {
