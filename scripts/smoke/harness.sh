@@ -1167,7 +1167,8 @@ latency_busy_reason() {
 # fingers swiped a touchpad there, a vertical axis length of LENGTH,
 # positive down, then lifted. type_keys ARGS...:
 # keys typed on the nested seat through wtype, so a row can reach a
-# focused input; wtype's own arguments, such as -k Escape, pass through.
+# focused input; wtype's own arguments, such as -k Escape, pass through;
+# it refuses an environment that names another display (below).
 # Each prints nothing on success; a row reads its status.
 # pointer_at: `X Y`, the layout position where the last click, hover,
 # right_click, middle_click, drag, wheel or swipe that succeeded left the
@@ -1209,7 +1210,33 @@ middle_click() { pointer_dispatch "$1" "$2" "$mon_w" "$mon_h" middle || return $
 drag() { pointer_dispatch "$1" "$2" "$mon_w" "$mon_h" drag "$3" "$4" || return $?; pointer_at="$3 $4"; }
 wheel() { pointer_dispatch "$1" "$2" "$mon_w" "$mon_h" wheel "$3" || return $?; pointer_at="$1 $2"; }
 swipe() { pointer_dispatch "$1" "$2" "$mon_w" "$mon_h" swipe "$3" || return $?; pointer_at="$1 $2"; }
-type_keys() { "${shell_env[@]}" wtype "$@"; }
+# wtype types on whatever display its environment names, and the harness's
+# own process carries the user's live one, so type_keys refuses unless
+# shell_env starts from an empty environment (env -i, so no inherited
+# WAYLAND_SOCKET or XDG_RUNTIME_DIR decides it) and its last WAYLAND_DISPLAY
+# and XDG_RUNTIME_DIR words, which env applies, name the socket the
+# harness started. A name alone is not enough: the host's socket can carry
+# the same name in another runtime directory.
+type_keys() {
+  local word display="" runtime="" socket=none
+  if [[ ${shell_env[0]:-} == env && ${shell_env[1]:-} == -i ]]; then
+    for word in "${shell_env[@]:2}"; do
+      case $word in
+        WAYLAND_DISPLAY=*) display="${word#*=}" ;;
+        XDG_RUNTIME_DIR=*) runtime="${word#*=}" ;;
+        *=*) ;;
+        *) break ;;
+      esac
+    done
+    if [[ $display == /* ]]; then socket="$display"; elif [[ -n $display ]]; then socket="$runtime/$display"; fi
+  fi
+  if [[ -z ${nested_socket:-} || -z ${rt_dir:-} || $socket != "$rt_dir/$nested_socket" ]]; then
+    local row_class=operation
+    fail "type_keys: refused socket=$socket nested=${rt_dir:-}/${nested_socket:-}"
+    return 1
+  fi
+  "${shell_env[@]}" wtype "$@"
+}
 # compositor_logs_on: the nested compositor logs from here to the end of
 # the run. The configuration turns its logs on once the flag file exists,
 # and a reload reads it again; `hyprctl eval` would set the option without
