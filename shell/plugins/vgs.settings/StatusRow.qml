@@ -18,8 +18,9 @@ import "Steps.js" as Steps
 // an entry the plugin has not published, or published while disabled, as
 // "Not reported". A presence
 // list draws its label and hint alone, "None detected" while the list is
-// empty, then one line per item: the item's label beside a Badge of its
-// presence, its hint, and, for an item that is a secret's presence, Add key
+// empty, then one line per item: the item's label, with the info icon of
+// its own `info` when it carries one, beside a Badge of its presence, its
+// hint, and, for an item that is a secret's presence, Add key
 // in the chip's place while nothing is stored, or Replace and Remove after
 // the chip (Steps.itemView). Each line is one group of the row's GroupList,
 // divided from the next as the rows of a section are. No row takes an edit
@@ -86,6 +87,7 @@ GroupList {
             readonly property var presence: Steps.itemView(modelData, row.setup)
             width: row.width
             label: modelData.label
+            info: modelData.info
             hint: row.setup && presence.reason !== "" ? presence.reason + (modelData.hint === "" ? "" : ": " + modelData.hint) : modelData.hint
             onHintPageActivated: (page, tab) => row.openPage(page, tab)
             tone: presence.tone

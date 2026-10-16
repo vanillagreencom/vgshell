@@ -201,10 +201,11 @@ var STATUS_STATE_TONES = { ok: "success", info: "info", warning: "warning", dang
 var STATUS_STATE_KEYS = ["tone", "text", "lines", "hint", "action", "aside"];
 // A `presenceList` value is a list of at most STATUS_LIST_MAX items, each
 // carrying these keys: a printable `label` and a `presence` value, with an
-// optional printable `hint` and an optional `secret`, the account of the
-// plugin's declared `secrets` the item is the presence of.
+// optional printable `hint`, an optional `info`, the item's own explanation,
+// judged as an entry's (infoError), and an optional `secret`, the account of
+// the plugin's declared `secrets` the item is the presence of.
 var STATUS_LIST_MAX = 64;
-var STATUS_LIST_ITEM_KEYS = ["label", "value", "hint", "secret"];
+var STATUS_LIST_ITEM_KEYS = ["label", "value", "hint", "info", "secret"];
 // Choice values are stable ids, not their display labels. Empty string is
 // reserved for a setting that follows the first offered value.
 var STATUS_CHOICE_KEYS = ["label", "value"];
@@ -1153,8 +1154,8 @@ function statusStateHidden(value) {
 // Whether `item` is one item of a `presenceList` value: plain JSON holding
 // only STATUS_LIST_ITEM_KEYS, a printable `label` of at most
 // STATUS_LABEL_MAX characters, a `value` of STATUS_PRESENCE_TONES, and when
-// present a printable `hint` of at most STATUS_HINT_MAX and a `secret` of
-// SECRET_ACCOUNT_PATTERN.
+// present a printable `hint` of at most STATUS_HINT_MAX, an `info` infoError
+// admits and a `secret` of SECRET_ACCOUNT_PATTERN.
 function statusListItemFits(item) {
     if (!isPlainObject(item) || !isPlainJson(item)) return false;
     var keys = Object.keys(item);
@@ -1163,6 +1164,7 @@ function statusListItemFits(item) {
     return isPrintableLine(item.label, STATUS_LABEL_MAX)
         && typeof item.value === "string" && hasOwn(STATUS_PRESENCE_TONES, item.value)
         && (item.hint === undefined || isPrintableLine(item.hint, STATUS_HINT_MAX))
+        && infoError(item.info, "") === ""
         && (item.secret === undefined || (typeof item.secret === "string" && SECRET_ACCOUNT_PATTERN.test(item.secret)));
 }
 
@@ -1300,10 +1302,10 @@ function statusTone(type, value) {
 }
 
 // A reported value as a Status row carries it: a `presenceList`'s items
-// each as { label, value, hint, tone, secret, access }, `hint` and `secret`
-// "" when the item omits them, `tone` its presence's, and `access` what the
-// page offers for its secret, SECRET_ACCESS by its presence, "" for an item
-// without one; any other value as published.
+// each as { label, value, hint, info, tone, secret, access }, `hint`, `info`
+// and `secret` "" when the item omits them, `tone` its presence's, and
+// `access` what the page offers for its secret, SECRET_ACCESS by its
+// presence, "" for an item without one; any other value as published.
 function statusRowValue(type, value) {
     if (type !== "presenceList") return value;
     return value.map(function (item) {
@@ -1311,6 +1313,7 @@ function statusRowValue(type, value) {
             label: item.label,
             value: item.value,
             hint: item.hint === undefined ? "" : item.hint,
+            info: item.info === undefined ? "" : item.info,
             tone: STATUS_PRESENCE_TONES[item.value],
             secret: item.secret === undefined ? "" : item.secret,
             access: item.secret === undefined ? "" : SECRET_ACCESS[item.value]

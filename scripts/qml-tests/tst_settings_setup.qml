@@ -45,6 +45,10 @@ Item {
         requirements: PluginLogic.normalRequirements([{ command: "required-a", purpose: "Basic work" }, { command: "required-b", purpose: "Basic work" }]),
         tui: {}, status: {}
     })
+    // What one key of acme.explained explains in its own info and hint;
+    // the other key carries neither.
+    readonly property string idInfo: "Make a Desktop app client in your Google Cloud project to get it."
+    readonly property string idHint: "Ends in .apps.googleusercontent.com"
     readonly property var keyed: ({ requirements: [], tui: {}, secrets: { service: "acme-unit", label: "Key" },
         status: { connection: { type: "state", label: "Connection", setup: true }, credentials: { type: "presenceList", label: "Credentials", step: "connection" } } })
     // A choice whose own screen is listed beside it.
@@ -82,6 +86,7 @@ Item {
             pluginRow("acme.required", requiredTools, {}, ["required-a", "required-b"], {}),
             pluginRow("acme.present", requiredTools, {}, [], {}),
             pluginRow("acme.keys", keyed, { connection: ready, credentials: [{ label: "Client ID", value: "present", secret: "acme:id" }, { label: "Client secret", value: "absent", secret: "acme:secret" }] }, [], {}),
+            pluginRow("acme.explained", keyed, { connection: ready, credentials: [{ label: "Client ID", value: "present", hint: root.idHint, info: root.idInfo, secret: "acme:id" }, { label: "Client secret", value: "absent", secret: "acme:secret" }] }, [], {}),
             pluginRow("acme.plain", { requirements: [], status: {}, tui: {} }, {}, [], {}),
             pluginRow("acme.tasks", { requirements: [], status: {}, tui: {} }, {}, [], listed(false)),
             pluginRow("acme.held", { requirements: [], status: {}, tui: {} }, {}, [], Object.assign(listed(false), { enabled: false })),
@@ -281,6 +286,29 @@ Item {
             tryVerify(() => onTab(window, TextField).length > 0);
             compare(onTab(window, Button).length, 0, "the masked editor keeps Setup actions as links");
             compare(descendants(onTab(window, TextField)[0].parent).filter(item => item instanceof RowAction && item.visible).length, 2, "the masked editor draws its two action links");
+        }
+        // A key's info draws its own icon beside the key's label, which opens
+        // the explanation in a dialog; a key without info draws none. The
+        // key's hint stays under its value.
+        function test_a_key_with_info_draws_its_own_icon_and_dialog() {
+            const window = opened(); window.openPlugin("acme.explained", Qt.OtherFocusReason, "Setup");
+            const line = label => onTab(window, StatusLine).find(item => item.label === label);
+            const marks = item => descendants(item).filter(child => child instanceof InfoButton && child.visible);
+            compare(marks(line("Client secret")).length, 0, "a key without info draws no info icon");
+            const mark = marks(line("Client ID"));
+            compare(mark.length, 1, "a key with info draws its own info icon");
+            compare(mark[0].info, root.idInfo);
+            // The list page hides once the page has slid in, where the
+            // pointer reaches the icon.
+            tryVerify(() => !descendants(window).find(item => item instanceof ListPage).visible);
+            mouseClick(mark[0]);
+            tryVerify(() => mark[0].infoOpen, 1000, "the key's info icon opens its dialog");
+            mark[0].closeInfo();
+            tryVerify(() => !mark[0].infoOpen);
+            const chip = descendants(line("Client ID")).find(item => item instanceof Badge && item.visible);
+            const hint = descendants(line("Client ID")).find(item => item instanceof LinkText && item.visible && item.text === root.idHint);
+            verify(hint !== undefined, "the key's hint draws");
+            verify(hint.mapToItem(null, 0, 0).y >= chip.mapToItem(null, 0, chip.height).y, "the key's hint sits under its value");
         }
         function test_list_click_and_keyboard_open_required_setup() {
             const window = opened(); mouseClick(listRow(window, "acme.todo"));

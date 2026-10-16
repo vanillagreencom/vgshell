@@ -255,6 +255,11 @@ function suite(ctx, check) {
         ["a presence list item label with a newline", "tokens", [{ label: "A\nB", value: "present" }], "refused: status=tokens reason=type"],
         ["a presence list item hint of 201 characters", "tokens", [{ label: "A", value: "present", hint: "x".repeat(201) }], "refused: status=tokens reason=type"],
         ["a presence list item with an empty hint", "tokens", [{ label: "A", value: "present", hint: "" }], "refused: status=tokens reason=type"],
+        ["a presence list item info of 400 characters", "tokens", [{ label: "A", value: "present", info: "x".repeat(400) }], "ok"],
+        ["a presence list item info of 401 characters", "tokens", [{ label: "A", value: "present", info: "x".repeat(401) }], "refused: status=tokens reason=type"],
+        ["a presence list item info with a newline", "tokens", [{ label: "A", value: "present", info: "A\nB" }], "refused: status=tokens reason=type"],
+        ["a presence list item with an empty info", "tokens", [{ label: "A", value: "present", info: "" }], "refused: status=tokens reason=type"],
+        ["a presence list item info that is no string", "tokens", [{ label: "A", value: "present", info: 7 }], "refused: status=tokens reason=type"],
         ["a presence list item with a key of its own", "tokens", [{ label: "A", value: "present", tone: "success" }], "refused: status=tokens reason=type"],
         ["a presence list item holding a function", "tokens", [{ label: "A", value: "present", hint: function () {} }], "refused: status=tokens reason=type"],
         ["a presence list item that is a class instance", "tokens", [new (class Item { constructor() { this.label = "A"; this.value = "present"; } })()], "refused: status=tokens reason=type"],
@@ -381,16 +386,16 @@ function suite(ctx, check) {
     check("statusRows: a state that says no offers none", actionsOffered(ctx.statusWrite(m, {}, "check", { tone: "warning", text: "t", action: false }).values)[1], ["check", false]);
     check("statusRows: a state that says nothing offers none", actionsOffered(ctx.statusWrite(m, {}, "check", { tone: "warning", text: "t" }).values)[1], ["check", false]);
     // A presence list's row carries each item with its own tone, an omitted
-    // hint as "", and no tone of its own.
-    const listed = ctx.statusRows(m, ctx.statusWrite(m, {}, "tokens", [{ label: "Acme (acme)", value: "present", secret: "acme:T1" }, { label: "Globex", value: "locked", hint: "Served elsewhere", secret: "acme:T2" }, { label: "Initech", value: "absent", secret: "acme:T3" }, { label: "Hooli", value: "unavailable", secret: "acme:T4" }, { label: "Umbrella", value: "unsafe", secret: "acme:T5" }, { label: "Oscorp", value: "signed-out", secret: "acme:T6" }, { label: "Plain", value: "absent" }]).values)[1];
+    // hint or info as "", and no tone of its own.
+    const listed = ctx.statusRows(m, ctx.statusWrite(m, {}, "tokens", [{ label: "Acme (acme)", value: "present", secret: "acme:T1" }, { label: "Globex", value: "locked", hint: "Served elsewhere", info: "Globex keeps its key on its own server.", secret: "acme:T2" }, { label: "Initech", value: "absent", secret: "acme:T3" }, { label: "Hooli", value: "unavailable", secret: "acme:T4" }, { label: "Umbrella", value: "unsafe", secret: "acme:T5" }, { label: "Oscorp", value: "signed-out", secret: "acme:T6" }, { label: "Plain", value: "absent" }]).values)[1];
     check("statusRows: a presence list carries each item with its tone and its secret's access", [listed.report, listed.tone, listed.value], ["reported", "", [
-        { label: "Acme (acme)", value: "present", hint: "", tone: "success", secret: "acme:T1", access: "disconnect" },
-        { label: "Globex", value: "locked", hint: "Served elsewhere", tone: "info", secret: "acme:T2", access: "disconnect" },
-        { label: "Initech", value: "absent", hint: "", tone: "warning", secret: "acme:T3", access: "connect" },
-        { label: "Hooli", value: "unavailable", hint: "", tone: "neutral", secret: "acme:T4", access: "" },
-        { label: "Umbrella", value: "unsafe", hint: "", tone: "danger", secret: "acme:T5", access: "disconnect" },
-        { label: "Oscorp", value: "signed-out", hint: "", tone: "warning", secret: "acme:T6", access: "connect" },
-        { label: "Plain", value: "absent", hint: "", tone: "warning", secret: "", access: "" }
+        { label: "Acme (acme)", value: "present", hint: "", info: "", tone: "success", secret: "acme:T1", access: "disconnect" },
+        { label: "Globex", value: "locked", hint: "Served elsewhere", info: "Globex keeps its key on its own server.", tone: "info", secret: "acme:T2", access: "disconnect" },
+        { label: "Initech", value: "absent", hint: "", info: "", tone: "warning", secret: "acme:T3", access: "connect" },
+        { label: "Hooli", value: "unavailable", hint: "", info: "", tone: "neutral", secret: "acme:T4", access: "" },
+        { label: "Umbrella", value: "unsafe", hint: "", info: "", tone: "danger", secret: "acme:T5", access: "disconnect" },
+        { label: "Oscorp", value: "signed-out", hint: "", info: "", tone: "warning", secret: "acme:T6", access: "connect" },
+        { label: "Plain", value: "absent", hint: "", info: "", tone: "warning", secret: "", access: "" }
     ]]);
     check("statusRows: an empty presence list is reported empty", ctx.statusRows(m, ctx.statusWrite(m, {}, "tokens", []).values)[1].value, []);
     // The entry that lists the stored keys is the presence list of a
@@ -728,6 +733,9 @@ const CONTROLS = [
     ["a presence list item hint is a printable line", "(item.hint === undefined || isPrintableLine(item.hint, STATUS_HINT_MAX))", "true"],
     ["a presence list row item has its tone", "tone: STATUS_PRESENCE_TONES[item.value]", "tone: \"neutral\""],
     ["a presence list row item omits no hint", "hint: item.hint === undefined ? \"\" : item.hint,", "hint: item.hint,"],
+    ["a presence list item info is judged", "        && infoError(item.info, \"\") === \"\"\n", ""],
+    ["a presence list row item carries its info", "info: item.info === undefined ? \"\" : item.info,", "info: \"\","],
+    ["a presence list row item omits no info", "info: item.info === undefined ? \"\" : item.info,", "info: item.info,"],
     ["a presence list row carries its items", "value: reported ? statusRowValue(entry.type, value) : null,", "value: reported ? value : null,"],
     ["a state tone is one of the set", "typeof value.tone === \"string\" && hasOwn(STATUS_STATE_TONES, value.tone) &&", ""],
     ["a state has only its keys", "if (STATUS_STATE_KEYS.indexOf(keys[i]) === -1) return false;", ""],

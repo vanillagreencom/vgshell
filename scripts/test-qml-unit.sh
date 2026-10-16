@@ -1631,6 +1631,7 @@ mutations=(
   "a field's screen leaves its row|../plugins/vgs.settings/Steps.js|var screens = screenButtons(row.tuis, field.screens, plugin);|var screens = [];|tst_settings_setup.qml"
   "a field's row grows an Actions row|../plugins/vgs.settings/PluginPage.qml|            onChoicesWanted: choiceField.choicesWanted()|            onChoicesWanted: choiceField.choicesWanted() } Field { label: \"Actions\"; inline: true; width: parent.width|tst_settings_setup.qml"
   "an own state draws its entry's label|../plugins/vgs.settings/PluginPage.qml|label: entryLine.line === null ? \"\" : entryLine.line.label|label: entry === null ? \"\" : entry.label|tst_settings_setup.qml"
+  "a key draws no info of its own|../plugins/vgs.settings/StatusRow.qml|            info: modelData.info|            info: \"\"|tst_settings_setup.qml"
   "Turn on asks for nothing|../plugins/vgs.settings/PluginPage.qml|case \"enable\": return panel.setEnabled(row.id, true);|case \"enable\": return \"ok\";|tst_settings_setup.qml"
   "a plugin that is off offers no Turn on|../plugins/vgs.settings/Steps.js|if (!plugin.enabled) return open ? turnOn(plugin.name) : null;|if (!plugin.enabled) return null;|tst_settings_setup.qml"
   "a field reference scrolls nowhere|../plugins/vgs.settings/PluginPage.qml|layout.scrollArea.reveal(found[i]);|void found[i];|tst_settings_setup.qml"
