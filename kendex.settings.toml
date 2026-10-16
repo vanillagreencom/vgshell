@@ -162,6 +162,7 @@ REVIEW_MAX_CYCLES = "1"
 # Diff-scoped local checks, including the isolated smoke only when affected.
 DEV_VALIDATE_CMD = "scripts/validate"
 DEV_VALIDATE_RANGE_CMD = "scripts/validate"
+DEV_VALIDATE_TIMEOUT_SECS = "7200"
 
 # Read by a dev round that changes a view, which builds to this doc, and by
 # the `needs-ui-review` pass, which judges that round's screenshots against it.
