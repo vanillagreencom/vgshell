@@ -22,9 +22,10 @@
 # route, by the pointer and by Return, into a stand-in that records it.
 # A page reference in a description opens the page and tab it names; a
 # Settings copy whose window opens no page for one is the control.
-# A page reference in a setting's info dialog closes the dialog and opens
-# the page and tab it names, and a summon that names a tab opens the page
-# on that tab; a Settings copy that drops both is the control.
+# A page reference after prose in a setting's info dialog closes the
+# dialog and opens Sounds in the System window. A summon that names a tab
+# opens the plugin page on that tab. A Settings copy that drops both is
+# the control.
 # The Bar's Open with select reads the browser profiles when it opens, and
 # a calendar day opens in the profile chosen.
 # The disabled Jarvis page's Home folder field, fed by the homes Jarvis
@@ -38,7 +39,7 @@
 # area under the bar, which the box the room gave without the reserved
 # area, the control, does not; the list fills that room, so the check
 # judges a window the room bounds.
-# inputs: shell/Ui/overlay/OverlayState.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/plugins/vgs.settings/* shell/Ui/layout/ScrollArea.qml shell/Ui/layout/TouchpadScroll.qml shell/Ui/layout/TouchpadScrollLogic.js shell/Commons/Reply.js shell/plugins/vgs.notifications/* scripts/smoke/fixtures/plugins/acme.status/* scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* shell/Core/Dispatch.js shell/Core/Compositor.qml shell/Core/Config.qml shell/Core/PluginStatus.qml bin/vgshell-scan shell/Core/TuiRunner.qml shell/Commons/SettingValues.js shell/Core/Capabilities.qml shell/Core/Registry.qml shell/Core/Plugins.qml shell/Hosts/SummonHost.qml shell/Hosts/SummonLayer.qml shell/Hosts/AppWindow.qml shell/plugins/vgs.bar/manifest.json shell/plugins/vgs.jarvis/manifest.json shell/plugins/vgs.gallery/manifest.json shell/plugins/vgs.themes/manifest.json shell/plugins/vgs.devtools/manifest.json shell/Core/Notices.qml bin/lib/qml-library.js scripts/smoke/rows/manager.sh scripts/smoke/rows/status.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh bin/vgshell-tui shell/Ui/layout/TabPages.qml shell/Ui/layout/Tabs.qml shell/Ui/foundation/KeyNav.qml shell/Ui/controls/RowAction.qml shell/Ui/controls/Field.qml shell/Ui/controls/FormRow.qml shell/Ui/controls/InfoButton.qml shell/Ui/feedback/Dialog.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Commons/DesktopLaunch.js shell/Ui/layout/SurfaceHeight.qml shell/plugins/vgs.bar/* shell/Commons/Paths.qml shell/Ui/controls/Select.qml scripts/smoke/fixtures/browsers/* scripts/smoke/rows/bar.sh shell/plugins/*/manifest.json shell/Ui/layout/SectionHeader.qml shell/Ui/layout/Section.qml
+# inputs: shell/Ui/overlay/OverlayState.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/plugins/vgs.settings/* shell/Ui/layout/ScrollArea.qml shell/Ui/layout/TouchpadScroll.qml shell/Ui/layout/TouchpadScrollLogic.js shell/Commons/Reply.js shell/plugins/vgs.notifications/* scripts/smoke/fixtures/plugins/acme.status/* scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* shell/Core/Dispatch.js shell/Core/Compositor.qml shell/Core/Config.qml shell/Core/PluginStatus.qml bin/vgshell-scan shell/Core/TuiRunner.qml shell/Commons/SettingValues.js shell/Core/Capabilities.qml shell/Core/Registry.qml shell/Core/Plugins.qml shell/Hosts/SummonHost.qml shell/Hosts/SummonLayer.qml shell/Hosts/AppWindow.qml shell/plugins/vgs.bar/manifest.json shell/plugins/vgs.jarvis/manifest.json shell/plugins/vgs.gallery/manifest.json shell/plugins/vgs.themes/manifest.json shell/plugins/vgs.devtools/manifest.json shell/Core/Notices.qml bin/lib/qml-library.js scripts/smoke/rows/manager.sh scripts/smoke/rows/status.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh bin/vgshell-tui shell/Ui/layout/TabPages.qml shell/Ui/layout/Tabs.qml shell/Ui/foundation/KeyNav.qml shell/Ui/controls/RowAction.qml shell/Ui/controls/Field.qml shell/Ui/controls/FormRow.qml shell/Ui/controls/InfoButton.qml shell/Ui/feedback/Dialog.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Commons/DesktopLaunch.js shell/Ui/layout/SurfaceHeight.qml shell/plugins/vgs.bar/* shell/Commons/Paths.qml shell/Ui/controls/Select.qml scripts/smoke/fixtures/browsers/* scripts/smoke/rows/bar.sh shell/plugins/*/manifest.json shell/Ui/layout/SectionHeader.qml shell/Ui/layout/Section.qml shell/plugins/vgs.sounds/* shell/plugins/vgs.system/* shell/Hosts/PaneHost.qml shell/Hosts/PluginSlot.qml shell/shell.qml scripts/smoke/Probe.qml
 set -euo pipefail
 click_centre "$(bar_key)" vgs.settings || fail "the click on the gear failed"
 expect_poll "the gear's click opens the Settings window" open settings_open
@@ -170,7 +171,7 @@ expect_poll "Return on a description link opens its address" '["open https://exa
 # the link, a motion the window takes after the click.
 page_link_fixture="$home/.config/vgshell/plugins/acme.page-link"
 page_link_text='[Bare page](page:acme.bare/Details) holds the rest'
-page_info_text='The cue is set on the [Sounds page](page:vgs.sounds/Settings).'
+page_info_text='The cue is set on the [Sounds page](page:vgs.sounds).'
 page_link_add() {
   mkdir -- "$page_link_fixture" || return 1
   cp -- "$repo/scripts/smoke/fixtures/plugins/acme.bare/Service.qml" "$page_link_fixture/Service.qml" || return 1
@@ -192,10 +193,11 @@ link_click "$page_link_text" || fail "the click on the page reference failed"
 expect_poll "a click on a page reference opens the page it names" '"acme.bare"' settings_page
 expect_poll "a page reference opens the tab it names" Details settings_tab_text
 
-# A page reference in a setting's info dialog opens the page it names on
-# the tab it names, and the dialog closes. The fixture's field carries one
-# after prose, to Sounds Settings. The control, at the
-# row's end, is the Settings copy whose field drops the dialog's link.
+# A page reference after prose in a setting's info dialog opens the Sounds
+# pane in the System window, and the dialog closes. Settings keeps the
+# fixture page. The control, at the row's end, is the Settings copy whose
+# field drops the dialog's link. The System holder starts disabled in the
+# sandbox, so both proofs enable it and restore its state afterwards.
 # settings_shown: the window's shownPage, the page and its tab.
 settings_shown() { ipc smoke readInstance window vgs.settings shownPage; }
 # info_link_shown TEXT [SCOPE_TYPE SCOPE_TEXT]: whether the actual popup
@@ -232,13 +234,25 @@ info_link_click() {
   [[ $failures -eq $failed_before ]] || return 1
   click "$x" "$y"
 }
+settings_info_system_was="$(plugin_enabled vgs.system)" || { fail "the info link fixture's System enabled state is unreadable"; return 1; }
+[[ $settings_info_system_was == True || $settings_info_system_was == False ]] || { fail "the info link fixture's System enabled state is not boolean"; return 1; }
+expect "enabling the System window for the info link is allowed" ok ipc shell setPluginEnabled vgs.system true
+expect_poll "the System window is enabled for the info link" True plugin_enabled vgs.system
 expect "the window opens the page link fixture for its info dialog" ok ipc smoke invokeInstance window vgs.settings openPlugin acme.page-link
 expect_poll "the page link fixture's page shows for its info dialog" '"acme.page-link/Settings"' settings_shown
 settings_press --type InfoButton "About On" SettingField On || fail "the click on the On field's info icon failed"
 expect_poll "the On field's info dialog draws its page reference after prose" shown info_link_shown "$page_info_text"
+expect_poll "no pane is mounted before the info dialog's Sounds link click" '[]' window_panes
 info_link_click "$page_info_text" || fail "the click on the info dialog's page reference failed"
 expect_poll "a page reference in an info dialog closes the dialog" absent info_link_shown "$page_info_text"
-expect_poll "a page reference in an info dialog opens the page and tab it names" '"vgs.sounds/Settings"' settings_shown
+expect_poll "a page reference in an info dialog opens the Sounds pane" '["vgs.sounds"]' window_panes
+expect "opening the Sounds pane keeps the fixture's Settings page" '"acme.page-link/Settings"' settings_shown
+expect "the System window hides after the info dialog's Sounds link" ok ipc shell hide window vgs.system
+expect_poll "the System window is gone after the info dialog's Sounds link" 0 window_count 'System Settings'
+expect_poll "no pane remains after hiding the info dialog's Sounds destination" '[]' window_panes
+if [[ $settings_info_system_was == True ]]; then settings_info_system_want=true; else settings_info_system_want=false; fi
+expect "the info link restores the System window's enablement" ok ipc shell setPluginEnabled vgs.system "$settings_info_system_want"
+expect_poll "the System window's enablement is as the info link found it" "$settings_info_system_was" plugin_enabled vgs.system
 
 # A summon that names a tab opens the page on that tab, and on Settings
 # when the page has no such tab; a summon of the page shown switches its
@@ -1324,6 +1338,10 @@ for path, old, new, count in ((sys.argv[1], "Qt.OtherFocusReason, payload.tab);\
 PYCOPY
 then ok "the tab control drops the summon's tab and the info dialog's page reference"; else fail "the tab control could not be written"; fi
 rescan "a rescan picks the tab control"
+settings_info_system_was="$(plugin_enabled vgs.system)" || { fail "the info link control's System enabled state is unreadable"; return 1; }
+[[ $settings_info_system_was == True || $settings_info_system_was == False ]] || { fail "the info link control's System enabled state is not boolean"; return 1; }
+expect "control: enabling the System window for the info link is allowed" ok ipc shell setPluginEnabled vgs.system true
+expect_poll "control: the System window is enabled for the info link" True plugin_enabled vgs.system
 settings_page_open acme.page-link
 expect "control: the copy takes a summon that names a tab" ok ipc shell summon window vgs.settings '{"plugin":"acme.probe","tab":"Details"}'
 expect_poll "control: an open() that drops the tab shows Settings" '"acme.probe/Settings"' settings_shown
@@ -1331,9 +1349,16 @@ expect "control: the copy opens the page link fixture for its info dialog" ok ip
 expect_poll "control: the copy shows the page link fixture's page" '"acme.page-link/Settings"' settings_shown
 settings_press --type InfoButton "About On" SettingField On || fail "control: the click on the On field's info icon failed"
 expect_poll "control: the copy's info dialog draws its page reference after prose" shown info_link_shown "$page_info_text"
+expect_poll "control: no pane is mounted before the info dialog's Sounds link click" '[]' window_panes
+expect "control: no System window is open before the info dialog's Sounds link click" 0 window_count 'System Settings'
 info_link_click "$page_info_text" || fail "control: the click on the info dialog's page reference failed"
 expect_poll "control: the page reference closes the copy's info dialog" absent info_link_shown "$page_info_text"
+expect "control: a field that drops the info dialog's page reference opens no pane" '[]' window_panes
+expect "control: a field that drops the info dialog's page reference opens no System window" 0 window_count 'System Settings'
 expect "control: a field that drops the info dialog's page reference keeps its page" '"acme.page-link/Settings"' settings_shown
+if [[ $settings_info_system_was == True ]]; then settings_info_system_want=true; else settings_info_system_want=false; fi
+expect "control: the info link restores the System window's enablement" ok ipc shell setPluginEnabled vgs.system "$settings_info_system_want"
+expect_poll "control: the System window's enablement is as the info link found it" "$settings_info_system_was" plugin_enabled vgs.system
 settings_page_close acme.page-link
 rm -rf -- "${page_copy:?}"
 rm -rf -- "${page_link_fixture:?}"
