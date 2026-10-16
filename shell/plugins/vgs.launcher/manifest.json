@@ -45,7 +45,7 @@
       "type": "boolean",
       "label": "VGlass",
       "description": "Draw the launcher as frosted glass with its moving edge light",
-      "info": "VGlass in Appearance, Windows can turn glass on or off for every glass surface. This switch then has no effect."
+      "info": "Turn on VGlass to draw the launcher as frosted glass. This switch works only while [VGlass in Appearance > Windows](page:vgs.windows) is set to Each surface decides. Its other choices turn glass on or off for every glass surface."
     }
   },
   "defaultSection": "left",

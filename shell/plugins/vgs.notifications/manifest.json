@@ -38,7 +38,7 @@
     "glass": true
   },
   "schema": {
-    "glass": {"type": "boolean", "label": "VGlass", "description": "Draw notifications as frosted glass with a moving edge light", "info": "VGlass in Appearance, Windows can turn glass on or off for every glass surface. This switch then has no effect."},
+    "glass": {"type": "boolean", "label": "VGlass", "description": "Draw notifications as frosted glass with a moving edge light", "info": "Turn on VGlass to draw notifications as frosted glass. This switch works only while [VGlass in Appearance > Windows](page:vgs.windows) is set to Each surface decides. Its other choices turn glass on or off for every glass surface."},
     "slackPhotos": {"type": "boolean", "label": "Slack photos", "group": "Slack", "description": "Show sender photos from your Slack workspace", "info": "Select Set up Slack photos. VGS fills app details. Sign in if asked. Choose your workspace. Review permissions. Create and install the app. Allow access. Copy the User OAuth Token. Sign in to your workspace in Slack desktop app. In [Settings](page:vgs.notifications/Settings), select Add key beside the workspace and paste it into the masked field. This adds photos, workspace icons and custom emoji."},
     "duration": {"type": "number", "label": "Notification duration", "description": "Set the minimum time for normal notifications", "min": 2, "max": 30, "step": 1, "unit": "seconds"},
     "position": {"type": "enum", "label": "Position", "options": [{"value": "top-left", "label": "Top left"}, {"value": "top-center", "label": "Top center"}, {"value": "top-right", "label": "Top right"}, {"value": "bottom-left", "label": "Bottom left"}, {"value": "bottom-center", "label": "Bottom center"}, {"value": "bottom-right", "label": "Bottom right"}]},
