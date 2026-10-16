@@ -14,6 +14,7 @@ import "../../shell/plugins/vgs.settings/Steps.js" as Steps
 // step offers Turn on and Tools still installs. A field's screen draws in
 // its own row, never in a row labelled Actions. The unit model rebuilds delegates;
 // keyed movement and editor retention run in the actual settings smoke.
+// A page link in a status entry's info, or in one key's, opens that page.
 // Production-source controls live in
 // test-qml-unit.sh. The window's capabilities record each requested action.
 Item {
@@ -51,6 +52,11 @@ Item {
     readonly property string idHint: "Ends in .apps.googleusercontent.com"
     readonly property var keyed: ({ requirements: [], tui: {}, secrets: { service: "acme-unit", label: "Key" },
         status: { connection: { type: "state", label: "Connection", setup: true }, credentials: { type: "presenceList", label: "Credentials", step: "connection" } } })
+    // keyed, its Credentials entry's info and its Client ID's each linking
+    // another plugin's page.
+    readonly property var pagedKeys: ({ requirements: [], tui: {}, secrets: { service: "acme-unit", label: "Key" },
+        status: { connection: { type: "state", label: "Connection", setup: true },
+            credentials: { type: "presenceList", label: "Credentials", step: "connection", info: "Keys are listed on the [Done page](page:acme.done/Details)." } } })
     // A choice whose own screen is listed beside it.
     readonly property var screened: ({ requirements: [], status: {},
         tui: { open: { requires: [], entry: { label: "Open feature", icon: "wrench", group: "Acme", setting: "feature" } } } })
@@ -87,6 +93,7 @@ Item {
             pluginRow("acme.present", requiredTools, {}, [], {}),
             pluginRow("acme.keys", keyed, { connection: ready, credentials: [{ label: "Client ID", value: "present", secret: "acme:id" }, { label: "Client secret", value: "absent", secret: "acme:secret" }] }, [], {}),
             pluginRow("acme.explained", keyed, { connection: ready, credentials: [{ label: "Client ID", value: "present", hint: root.idHint, info: root.idInfo, secret: "acme:id" }, { label: "Client secret", value: "absent", secret: "acme:secret" }] }, [], {}),
+            pluginRow("acme.paged", pagedKeys, { connection: ready, credentials: [{ label: "Client ID", value: "present", info: "Make one on the [Plain page](page:acme.plain).", secret: "acme:id" }] }, [], {}),
             pluginRow("acme.plain", { requirements: [], status: {}, tui: {} }, {}, [], {}),
             pluginRow("acme.tasks", { requirements: [], status: {}, tui: {} }, {}, [], listed(false)),
             pluginRow("acme.held", { requirements: [], status: {}, tui: {} }, {}, [], Object.assign(listed(false), { enabled: false })),
@@ -309,6 +316,27 @@ Item {
             const hint = descendants(line("Client ID")).find(item => item instanceof LinkText && item.visible && item.text === root.idHint);
             verify(hint !== undefined, "the key's hint draws");
             verify(hint.mapToItem(null, 0, 0).y >= chip.mapToItem(null, 0, chip.height).y, "the key's hint sits under its value");
+        }
+        // A page link in the info of a status entry, or of one of its keys,
+        // closes the dialog and opens the page it names, on its tab.
+        function test_an_info_page_link_opens_its_page_data() {
+            return [{ tag: "entry info", label: "Credentials", page: "acme.done", tab: "Details" },
+                { tag: "key info", label: "Client ID", page: "acme.plain", tab: "Settings" }];
+        }
+        function test_an_info_page_link_opens_its_page(data) {
+            const window = opened(); window.openPlugin("acme.paged", Qt.OtherFocusReason, "Setup");
+            const line = onTab(window, StatusLine).find(item => item.label === data.label);
+            verify(line !== undefined, "the line draws");
+            const mark = descendants(line).filter(child => child instanceof InfoButton && child.visible);
+            compare(mark.length, 1, "the line draws its info icon");
+            tryVerify(() => !descendants(window).find(item => item instanceof ListPage).visible);
+            mouseClick(mark[0]);
+            tryVerify(() => mark[0].infoOpen, 1000, "the icon opens its dialog");
+            const link = descendants(mark[0].popup.tracker.popup.contentItem).find(item => item instanceof LinkText && item.visible && item.linked);
+            verify(link !== undefined, "the dialog draws the page reference as a link");
+            link.clicked();
+            tryVerify(() => pageOf(window).row !== null && pageOf(window).row.id === data.page, 2000, "the link opens the page it names");
+            compare(pageOf(window).tab, data.tab);
         }
         function test_list_click_and_keyboard_open_required_setup() {
             const window = opened(); mouseClick(listRow(window, "acme.todo"));

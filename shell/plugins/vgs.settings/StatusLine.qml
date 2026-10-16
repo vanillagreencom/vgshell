@@ -7,7 +7,8 @@ import qs.Ui
 // under it where the two do not fit one line, and `hint` under them, the
 // words of it `hintLink` names drawn as a link that emits
 // `hintLinkActivated`, or a page reference in it (LinkText) as a link
-// that emits `hintPageActivated`. The value is a
+// that emits `hintPageActivated`; a page reference in the label's `info`
+// emits `infoPageActivated`. The value is a
 // Badge reading `text` in `tone`, with one more Badge of that tone under it for each of `lines`,
 // each no wider than the value column, eliding a text too long for it; with
 // `tone` "", `text` as one line in the value role, the label's pair,
@@ -69,6 +70,7 @@ Column {
     signal moreStep(int index)
     signal hintLinkActivated()
     signal hintPageActivated(string page, string tab)
+    signal infoPageActivated(string page, string tab)
     signal storeSecret(string value)
     signal clearSecret()
 
@@ -97,6 +99,7 @@ Column {
         width: line.width
         label: line.label
         info: line.info
+        onInfoPageActivated: (page, tab) => line.infoPageActivated(page, tab)
         inline: true
         hint: line.valued ? line.hint : ""
         hintLink: line.hintLink
