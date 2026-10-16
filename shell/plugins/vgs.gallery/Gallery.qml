@@ -883,7 +883,7 @@ Item {
                             model: 12
                             // The column, not `parent`, which is null while
                             // the repeater tears the row down.
-                            ListItem { required property int index; text: "Row " + (index + 1); iconName: "list"; width: scrolledRows.width }
+                            ListItem { required property int index; text: "Row " + (index + 1); iconName: "list"; clickable: false; width: scrolledRows.width }
                         }
                     }
                 }
@@ -905,7 +905,7 @@ Item {
                             width: slimList.width
                             Repeater {
                                 model: 12
-                                ListItem { required property int index; text: "Slim " + (index + 1); iconName: "list"; width: slimRows.width }
+                                ListItem { required property int index; text: "Slim " + (index + 1); iconName: "list"; clickable: false; width: slimRows.width }
                             }
                         }
                     }
@@ -944,10 +944,10 @@ Item {
                 }
                 Column {
                     width: parent.width
-                    ListItem { text: "Plugin updates"; secondary: "1 update available"; iconName: "package"; width: parent.width; trailing: [ Badge { text: "new"; tone: "accent" } ] }
+                    ListItem { text: "Plugin updates"; secondary: "1 update available"; iconName: "package"; clickable: false; width: parent.width; trailing: [ Badge { text: "new"; tone: "accent" } ] }
                     Divider { width: parent.width }
-                    ListItem { text: "Workspaces"; secondary: "up to date"; iconName: "layout-grid"; highlighted: true; width: parent.width }
-                    ListItem { text: "Clock"; iconName: "clock"; width: parent.width; trailing: [ Switch { size: "sm"; checked: true } ] }
+                    ListItem { text: "Workspaces"; secondary: "up to date"; iconName: "layout-grid"; clickable: false; highlighted: true; width: parent.width }
+                    ListItem { text: "Clock"; iconName: "clock"; clickable: false; width: parent.width; trailing: [ Switch { size: "sm"; checked: true } ] }
                     Disclosure {
                         width: parent.width
                         text: "System"

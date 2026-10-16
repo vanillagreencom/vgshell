@@ -7,13 +7,15 @@ import qs.Unit
 // ScrollArea, Tabs, ListItem, SectionHeader, Surface and Divider: the
 // scroll area's content height follows its children and its bar shows on
 // overflow, a click opens a tab, a list item highlights and clicks and
-// draws its lines as plain text, a section header draws its eyebrow inside
+// draws its lines as plain text, a list item that takes no click draws no
+// hover or press and shows no hand while its trailing action keeps its
+// own, a section header draws its eyebrow inside
 // its padding, a surface draws its level and logs an unknown one, and a
 // divider is one hairline thick.
 Item {
     id: root
     width: 400
-    height: 664
+    height: 720
 
     ScrollArea { id: scroll; width: 100; height: 50; Column { Repeater { model: 10; Rectangle { width: 80; height: 20; color: "transparent" } } } }
     Tabs { id: tabs; model: ["Installed", "Available"]; y: 60 }
@@ -22,6 +24,7 @@ Item {
     KeyHints { id: hints; y: 90; hints: [{ key: "Left/Right", text: "Move" }, { key: "Ctrl+Tab", text: "Tabs" }] }
     ListItem { id: row; text: "Plugin updates"; secondary: "1 update available"; iconName: "package"; width: 300; y: 100 }
     ListItem { id: bare; text: "Plugin updates"; secondary: "1 update available"; iconName: "package"; y: 300 }
+    ListItem { id: still; text: "Started"; clickable: false; width: 300; y: 668; trailing: [ RowAction { id: stillAction; text: "Remove" } ] }
     SectionHeader { id: header; text: "Listed since"; description: "Sep 24"; width: 300; y: 150 }
     SectionHeader { id: inset; text: "Plugins"; description: "Every plugin the shell found"; leftPadding: Theme.row.paddingX; rightPadding: Theme.row.paddingX; width: 300; y: 330 }
     Column {
@@ -51,13 +54,14 @@ Item {
     Surface { id: surface; level: "raised"; width: 100; height: 40; y: 220 }
     Divider { id: divider; width: 100; y: 270 }
     SignalSpy { id: clicks; target: row; signalName: "clicked" }
+    SignalSpy { id: actionClicks; target: stillAction; signalName: "clicked" }
     Component { id: centredTabs; Tabs { y: 60 } }
 
     TestCase {
         name: "layout"
         when: windowShown
 
-        function init() { UnitTheme.reset(); tabs.currentIndex = 0; row.highlighted = false; clicks.clear(); }
+        function init() { UnitTheme.reset(); tabs.currentIndex = 0; row.highlighted = false; clicks.clear(); actionClicks.clear(); }
 
         function tabLabel(tab) { return findChild(tab.contentItem, "tabLabel"); }
 
@@ -223,6 +227,40 @@ Item {
             verify(row.height >= Theme.listItem.height);
             // A row without a width prefers the width of its text.
             verify(bare.implicitWidth > 100, "a populated row without a width is " + bare.implicitWidth + " wide");
+        }
+
+        // Qt takes the cursor over an item from a handler of the item that
+        // sets a cursor shape and is hovered; with none, the arrow shows.
+        function showsHand(item) {
+            mouseMove(item, item.width / 2, item.height / 2);
+            return item.data.some(child => child instanceof HoverHandler && child.cursorShape === Qt.PointingHandCursor && child.hovered);
+        }
+
+        // Motion is stilled, so a fill the row would draw lands at once.
+        function test_list_item_that_takes_no_click_draws_no_hover_or_press() {
+            compare(UnitTheme.override({ motion: { scale: 0 } }), "ok");
+            verify(showsHand(row), "a row that takes a click shows the hand");
+            tryCompare(row.background, "color", Qt.color(Theme.rowFill(Theme.listItem.hover, false)));
+            const at = still.textStart + 1;
+            mouseMove(still, at, still.height / 2);
+            tryCompare(still, "hovered", true);
+            compare(String(still.background.color), "#00000000", "a row that takes no click draws no hover");
+            compare(showsHand(still), false, "a row that takes no click shows no hand");
+            mousePress(still, at, still.height / 2);
+            compare(still.down, false, "a row that takes no click draws no press");
+            compare(String(still.background.color), "#00000000");
+            mouseRelease(still, at, still.height / 2);
+        }
+
+        function test_list_item_that_takes_no_click_keeps_its_trailing_action() {
+            verify(showsHand(stillAction), "the trailing action shows the hand");
+            tryCompare(stillAction, "hovered", true);
+            mouseClick(stillAction);
+            compare(actionClicks.count, 1);
+            stillAction.forceActiveFocus();
+            compare(stillAction.activeFocus, true);
+            keyClick(Qt.Key_Return);
+            compare(actionClicks.count, 2);
         }
 
         function test_key_hints_draw_alternative_keys_as_separate_caps() {

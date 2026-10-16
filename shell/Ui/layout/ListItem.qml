@@ -29,6 +29,11 @@ import qs.Ui
 // lines up under the text. `secondaryTone` "danger" draws the secondary
 // line in the danger colour, for a state that is a failure, such as a
 // stopped printer; "" draws it in its role's colour.
+// A row a click cannot change, such as a detail line, sets `clickable`
+// false: it draws no hover or press fill and shows no pointing hand, and
+// a trailing control keeps its own hover, pointer, focus and click.
+// `hoverEnabled` stays on, since a control hands its value to each child
+// control that sets none, which would take a trailing RowAction's hover.
 // keyboard-path: a composite list owns keys and writes highlighted; a plain row is not a tab stop
 T.ItemDelegate {
     id: root
@@ -39,6 +44,7 @@ T.ItemDelegate {
     property alias trailing: trailingRow.data
     property ListCursor cursor: null
     property bool active: false
+    property bool clickable: true
     property bool enters: cursor !== null
     readonly property real textStart: leftPadding + (iconName !== "" ? Theme.icon.size.md + Theme.listItem.iconGap : 0)
 
@@ -50,7 +56,8 @@ T.ItemDelegate {
     rightPadding: leftPadding
     spacing: Theme.listItem.gap
     hoverEnabled: true
-    PointerCursor {}
+    down: clickable && pressed
+    PointerCursor { enabled: root.clickable }
     opacity: (enabled ? 1 : Theme.opacity.disabled) * entrance.progress
     Accessible.name: text
 
@@ -112,7 +119,7 @@ T.ItemDelegate {
 
     background: Rectangle {
         radius: Theme.listItem.radius
-        color: root.cursor !== null ? "transparent" : root.highlighted ? (root.down ? Theme.listItem.selectedPressed : Theme.listItem.selected) : root.down ? Theme.rowFill(Theme.listItem.pressed, true) : root.hovered ? Theme.rowFill(Theme.listItem.hover, false) : "transparent"
+        color: root.cursor !== null ? "transparent" : root.highlighted ? (root.down ? Theme.listItem.selectedPressed : Theme.listItem.selected) : root.down ? Theme.rowFill(Theme.listItem.pressed, true) : root.hovered && root.clickable ? Theme.rowFill(Theme.listItem.hover, false) : "transparent"
         Behavior on color { ColorAnimation { duration: Theme.motion.duration.fast; easing.type: Theme.motion.easing.standard } }
         FocusRing { target: root }
     }

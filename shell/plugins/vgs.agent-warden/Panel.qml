@@ -133,7 +133,7 @@ Item {
                     width: itemList.width
                     leftPadding: 0
                     rightPadding: 0
-                    hoverEnabled: false
+                    clickable: false
                     iconName: row.icon
                     text: row.text
                     secondary: row.secondary
