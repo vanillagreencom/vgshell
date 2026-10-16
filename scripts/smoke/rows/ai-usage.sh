@@ -59,7 +59,7 @@ expect "the shell finds no host codex" none shell_resolves codex
 # Readers: the service's published usage, the widget's state and the
 # panel's rows, each from the running instance.
 usage_read() { ipc smoke readInstance service vgs.ai-usage usage; }
-usage_states() { usage_read | py_reply 'import json,sys; u=json.load(sys.stdin); print("none" if u is None else json.dumps([[a["provider"], a["label"], a["state"]] for a in u["accounts"]]))'; }
+usage_states() { usage_read | py_reply 'import json,sys; u=json.load(sys.stdin); print("none" if u is None else json.dumps([[a["provider"], a["state"]] for a in u["accounts"]]))'; }
 usage_windows() { # PROVIDER
   usage_read | py_reply 'import json,sys; u=json.load(sys.stdin); print(json.dumps([[a["state"], [[w["name"], w["usedPercent"]] for w in a["windows"]]] for a in (u or {"accounts": []})["accounts"] if a["provider"] == sys.argv[1]]))' "$1"
 }
@@ -163,9 +163,9 @@ usage_check_now_click() { local box; box="$(ipc smoke itemGeometry panel vgs.ai-
 usage_settings_page() { ipc smoke readInstance window vgs.settings page; }
 # Each card's state, whether it holds no note and the note's tone.
 usage_panel_notes() { usage_panel | py_reply 'import json,sys; print(json.dumps([[r["provider"], r["state"], r["note"] == "", r["noteTone"]] for r in json.load(sys.stdin)]))'; }
-usage_panel_rows() { usage_panel | py_reply 'import json,sys; print(json.dumps([[r["provider"], r["label"], r["email"], [[w["name"], w["percent"], w["tone"]] for w in r["windows"]]] for r in json.load(sys.stdin)]))'; }
+usage_panel_rows() { usage_panel | py_reply 'import json,sys; print(json.dumps([[r["provider"], r["email"], [[w["name"], w["percent"], w["tone"]] for w in r["windows"]]] for r in json.load(sys.stdin)]))'; }
 
-usage_panel_details() { usage_panel | py_reply 'import json,sys; print(json.dumps([[r["provider"], r["label"], [[d["label"], d["value"]] for d in r["details"]]] for r in json.load(sys.stdin)]))'; }
+usage_panel_details() { usage_panel | py_reply 'import json,sys; print(json.dumps([[r["provider"], [[d["label"], d["value"]] for d in r["details"]]] for r in json.load(sys.stdin)]))'; }
 usage_panel_view() { ipc smoke readInstance panel vgs.ai-usage fullView; }
 usage_panel_checked() {
   local age button
@@ -351,7 +351,7 @@ printf '{"OPENAI_API_KEY": null, "tokens": {"access_token": "smoke-access"}}\n' 
 printf 'relative\n' >"$home/.codex/stand-in-mode"
 usage_credentials_before="$(usage_credentials)"
 usage_refresh "the planted accounts"
-expect_poll "both accounts read as signed in" '[["claude", "default", "ok"], ["codex", "default", "ok"]]' usage_states
+expect_poll "both accounts read as signed in" '[["claude", "ok"], ["codex", "ok"]]' usage_states
 expect "Claude Code's windows are the endpoint's" '[["ok", [["five_hour", 42], ["seven_day", 83], ["seven_day_fable", 12]]]]' usage_windows claude
 expect "Codex's windows are the program's" '[["ok", [["five_hour", 27], ["seven_day", 64]]]]' usage_windows codex
 expect_poll "the widget shows the highest share in the warning tone" '[true, true, 83, "warning"]' usage_widget_state
@@ -361,10 +361,10 @@ usage_before_panel="$(usage_read_at)" || usage_before_panel=0
 usage_sent_before_panel="$(usage_requests)"
 usage_notes_ok='[["claude", "ok", true, "normal"], ["codex", "ok", true, "normal"]]'
 click_centre "$(bar_key)" vgs.ai-usage || fail "opening AI Usage from its widget failed"
-expect_poll "the widget opens its panel" '[["claude", "default", "", [["five_hour", 42, "success"], ["seven_day", 83, "danger"], ["seven_day_fable", 12, "success"]]], ["codex", "default", "person@example.invalid", [["five_hour", 27, "success"], ["seven_day", 64, "warning"]]]]' usage_panel_rows
+expect_poll "the widget opens its panel" '[["claude", "", [["five_hour", 42, "success"], ["seven_day", 83, "danger"], ["seven_day_fable", 12, "success"]]], ["codex", "person@example.invalid", [["five_hour", 27, "success"], ["seven_day", 64, "warning"]]]]' usage_panel_rows
 expect_poll "the panel's reset times are the stand-ins'" matched usage_panel_resets
 expect "the full panel is selected by default" true usage_panel_view
-expect "the full panel carries provider details" '[["claude", "default", [["Extra usage", "$123.45 of $500.00"]]], ["codex", "default", [["Codex credits", "12,345 available"]]]]' usage_panel_details
+expect "the full panel carries provider details" '[["claude", [["Extra usage", "$123.45 of $500.00"]]], ["codex", [["Codex credits", "12,345 available"]]]]' usage_panel_details
 summon_drawn panel vgs.ai-usage || fail "the panel never drew a frame"
 expect_poll "every listed provider card loads its theme-colour mark" matched usage_panel_marks
 expect_poll "one shared check age sits beside Check now in small text" matched usage_panel_checked
@@ -422,17 +422,17 @@ expect_poll "the reading-panel copy is gone" absent usage_panel
 cp -- "$usage_dir/Panel.qml.original" "$usage_panel_qml"
 rescan "the panel restored after the reading control is scanned"
 expect "the Settings window is summoned for AI Usage settings edits" ok ipc shell summon window vgs.settings '{}'
-expect "the account choices list all read accounts" '["Claude Code \u00b7 default", "Codex \u00b7 person@example.invalid"]' usage_choices
+expect "the account choices list each signed-in account by provider and email" '["Claude Code", "Codex \u00b7 person@example.invalid"]' usage_choices
 expect "choosing compact view is allowed" ok usage_apply_setting view '"compact"'
 click_centre "$(bar_key)" vgs.ai-usage || fail "opening AI Usage for compact view failed"
 expect_poll "the compact panel is selected" false usage_panel_view
-expect_poll "the compact panel still shows every limit" '[["claude", "default", "", [["five_hour", 42, "success"], ["seven_day", 83, "danger"], ["seven_day_fable", 12, "success"]]], ["codex", "default", "person@example.invalid", [["five_hour", 27, "success"], ["seven_day", 64, "warning"]]]]' usage_panel_rows
+expect_poll "the compact panel still shows every limit" '[["claude", "", [["five_hour", 42, "success"], ["seven_day", 83, "danger"], ["seven_day_fable", 12, "success"]]], ["codex", "person@example.invalid", [["five_hour", 27, "success"], ["seven_day", 64, "warning"]]]]' usage_panel_rows
 expect "the compact panel hides" ok ipc shell hide panel vgs.ai-usage
 expect_poll "the compact panel is gone" absent usage_panel
 expect "hiding Codex by provider is allowed" ok usage_apply_setting showCodex false
 expect_poll "the widget recomputes without Codex" '[true, true, 83, "warning"]' usage_widget_state
 click_centre "$(bar_key)" vgs.ai-usage || fail "opening AI Usage with Codex filtered failed"
-expect_poll "the provider filter leaves Claude only" '[["claude", "default", "", [["five_hour", 42, "success"], ["seven_day", 83, "danger"], ["seven_day_fable", 12, "success"]]]]' usage_panel_rows
+expect_poll "the provider filter leaves Claude only" '[["claude", "", [["five_hour", 42, "success"], ["seven_day", 83, "danger"], ["seven_day_fable", 12, "success"]]]]' usage_panel_rows
 expect "the filtered panel hides" ok ipc shell hide panel vgs.ai-usage
 expect_poll "the filtered panel is gone" absent usage_panel
 expect "hiding the first offered account is allowed" ok usage_apply_setting hidden '[{"name":"item-1","account":""}]'
@@ -594,7 +594,7 @@ usage_mode relative
 # A gateway-shaped published reading is API billing. Plant it in the
 # disposable helper so the real service, merge and panel draw its card,
 # without a live keyring or Vercel request.
-usage_edit "$usage_helper" '    return { accounts, partial, gatewayKey };' '    accounts.push({ id: "gateway-planted", provider: "gateway", label: "AI Gateway", email: "", state: "ok", windows: [{ name: "credits", usedPercent: 25, resetsAt: null }], credits: null, details: { gateway: { balance: 75, totalUsed: 25 } } });
+usage_edit "$usage_helper" '    return { accounts, partial, gatewayKey };' '    accounts.push({ id: "gateway-planted", provider: "gateway", email: "", state: "ok", windows: [{ name: "credits", usedPercent: 25, resetsAt: null }], credits: null, details: { gateway: { balance: 75, totalUsed: 25 } } });
     return { accounts, partial, gatewayKey };' || fail "planting the gateway API reading failed"
 rescan "the gateway API reading is scanned"
 expect "Settings opens for the AI Gateway switch" ok ipc shell summon window vgs.settings '{"plugin":"vgs.ai-usage"}'
