@@ -1,6 +1,6 @@
 # Jarvis
 
-Jarvis is a voice assistant for your desktop. You talk to it, and it answers with the AI model you choose. It can work with your windows, files, clipboard, media and screen, and with a private browser. It asks you before it does something you cannot undo.
+Jarvis is a voice assistant for your desktop. You talk to it, and it answers with the AI model you choose. It can work with your windows, files, clipboard, media and screen, and with a private browser. It asks you before it does something you cannot undo. [How it works](#how-it-works) shows it in one picture.
 
 ![The Jarvis page in Settings](../../../docs/images/plugins/vgs.jarvis-page.webp)
 
@@ -31,6 +31,35 @@ Jarvis is a voice assistant for your desktop. You talk to it, and it answers wit
 - Provider keys kept in your desktop keyring.
 
 ## How it works
+
+```mermaid
+flowchart TD
+    you(["You"])
+    voice["Talk and the voice<br/>hear your words and speak the answer"]
+    home["Your Jarvis home folder, read at the start of each conversation<br/>persona · AGENTS.md · skill list · memory index MEMORY.md"]
+    model["The AI model you chose: the brain"]
+    check{"Jarvis checks each action"}
+    subgraph own["What Jarvis does itself"]
+        desktop["Desktop<br/>windows, apps, clipboard, media, screen"]
+        files["Your files"]
+        shell["Commands in a sandbox"]
+        memory["Memory<br/>search and read your other notes"]
+    end
+    session["Your Jarvis session<br/>does bigger work from its mail"]
+
+    you <-- "you talk, Jarvis speaks" --> voice
+    voice <-- "your words and its answer, as text" --> model
+    home --> model
+    model -- "asks for an action" --> check
+    check --> desktop & files & shell & memory
+    check -- "mail request, after you confirm" --> session
+```
+
+At the start of each conversation, Jarvis gives the AI model four texts from your home folder: the persona, which says who Jarvis is; your instructions in `AGENTS.md`; the list of your skills, with each skill's name and first line; and `MEMORY.md`, the index of your memory notes. The AI model reads a whole skill only when it needs it. It searches your other memory notes and reads the ones it needs. The voice gets none of this text.
+
+Jarvis does a request itself when its [tools](#tools) can do it: the desktop, your files, commands in a sandbox, your memory notes, the private browser and coding tasks. A short command, such as "turn the volume up", goes to the check with no AI model call.
+
+A request for your agent fleet goes to your Jarvis session: your chosen app, running in your home folder. Jarvis shows you the request and puts it in the session's mailbox only after you confirm, at most one each time you ask. The session does the work when it next reads its mail. [Agent fleet requests](#agent-fleet-requests) says more.
 
 1. You press Talk, or say Hey Jarvis in Always talk mode.
 2. The voice turns your words into text. The local voice does this on your computer. The Realtime voice sends your voice to OpenAI, and the Gemini Live voice sends it to Google.
