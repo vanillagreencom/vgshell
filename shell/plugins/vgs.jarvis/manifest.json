@@ -98,7 +98,7 @@
   ],
   "status": {
     "shell": {"type": "state", "label": "Shell tools", "hint": "Jarvis runs shell commands only when it can protect your files", "info": "Jarvis checks that the system can keep commands in a sandbox and protect private files. Shell commands stay off if this check fails."},
-    "daemon": {"type": "state", "label": "Daemon", "hint": "The service starts no audio capture"},
+    "daemon": {"type": "state", "label": "Jarvis readiness", "hint": "Starting Jarvis does not turn on your microphone"},
     "detail": {"type": "data", "label": "Session"},
     "keys": {"type": "presenceList", "label": "Provider keys", "hint": "This check never reads a key or unlocks the keyring", "setting": "brain"},
     "keyStore": {"type": "state", "label": "API keys", "group": "AI model", "hint": "Stores provider keys in your keyring", "action": {"label": "Add key", "tui": "add-key"}, "aside": {"label": "Remove key", "tui": "remove-key", "tone": "danger"}, "setting": "brain"},

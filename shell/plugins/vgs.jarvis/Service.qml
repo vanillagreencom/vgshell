@@ -271,7 +271,7 @@ Item {
         shellStatus({ kind: "checking" });
         child.completion = null;
         child.stdinEnabled = true;
-        publish("info", "Starting");
+        publish("info", "Jarvis is starting");
         child.running = true;
     }
 
@@ -332,7 +332,7 @@ Item {
             if (lifetime.pendingMute !== "none") return;
             if (lifetime.kind !== "ready" || sessionState === null || cause !== "" || !child.running) {
                 lifetime = { kind: lifetime.kind, pendingMute: "waiting" };
-                publish("warning", "Mute pending; disabling Jarvis cancels the request");
+                publish("warning", "Jarvis will mute when it is ready; turning Jarvis off cancels this request");
                 notice({ title: "Jarvis mute pending",
                     message: "Waiting for daemon; disabling Jarvis cancels this request.",
                     tone: "warning", icon: "mic", transient: true });
@@ -948,7 +948,7 @@ Item {
                 if (message.daemon !== (lockObservation() ? "locked" : "ready")) continue;
                 lifetime = { kind: "ready", pendingMute: lifetime.pendingMute };
                 helloDeadline.stop();
-                publish("info", message.daemon === "locked" ? "Locked; no capture" : "Ready; no capture");
+                publish("info", message.daemon === "locked" ? "Jarvis is locked; microphone is off" : "Jarvis is ready; microphone is off");
                 publishSetup({ kind: "answered", causes: message.causes });
                 sendTuiState();
                 Qt.callLater(() => sendIndicator(indicatorPresented));

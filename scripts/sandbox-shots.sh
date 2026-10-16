@@ -1239,8 +1239,8 @@ page_status_rows() { # ID
 # probe reads it (jarvisProcess in scripts/smoke/Probe.qml); a restart
 # never counts.
 jarvis_started() { ipc smoke jarvisProcess | py_reply 'import json,sys; d=json.load(sys.stdin); print("ready" if d["retries"] == 0 and d["lifetime"]["kind"] == "ready" else "retries=%d kind=%s" % (d["retries"], d["lifetime"]["kind"]))'; }
-# Whether the Jarvis page's Status rows draw its Daemon row as ready.
-jarvis_page_ready() { ipc smoke itemTexts "$settings_kind" vgs.settings StatusRow | py_reply 'import json,sys; print(any("Daemon" in r and "Ready; no capture" in r for r in json.load(sys.stdin)))'; }
+# Whether the Jarvis page's Status rows draw its readiness row as ready.
+jarvis_page_ready() { ipc smoke itemTexts "$settings_kind" vgs.settings StatusRow | py_reply 'import json,sys; print(any("Jarvis readiness" in r and "Jarvis is ready; microphone is off" in r for r in json.load(sys.stdin)))'; }
 jarvis_shot_requirement_standins=()
 jarvis_setup_requirements() {
   local commands command
@@ -3291,7 +3291,7 @@ function literal(source, pattern, label) {
 const gate = lib(path.join(repo, "shell/plugins/vgs.jarvis/SetupGate.js"));
 const session = lib(path.join(repo, "shell/plugins/vgs.jarvis/Session.js"));
 const service = fs.readFileSync(path.join(repo, "shell/plugins/vgs.jarvis/Service.qml"), "utf8");
-const readyText = literal(service, /publish\("info", message\.daemon === "locked" \? "Locked; no capture" : "([^"]+)"\)/, "ready literal");
+const readyText = literal(service, /publish\("info", message\.daemon === "locked" \? "Jarvis is locked; microphone is off" : "([^"]+)"\)/, "ready literal");
 const audioReady = literal(service, /shell\.status\.set\("audio", \{ tone: "ok", text: "([^"]+)" \}\)/, "audio literal");
 const rows = [["audio", { tone: "ok", text: audioReady }], ["setupHome", { hidden: true }]];
 function detail(gate) {

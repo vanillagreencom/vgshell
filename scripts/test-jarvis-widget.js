@@ -49,7 +49,7 @@ const CLOSING = { capture: { kind: "closing", gen: 1, op: 3 } };
 const FOLLOW_UP = { capture: { kind: "open", gen: 1, op: 2, mode: "follow-up" } };
 const THINKING = { turn: { kind: "thinking", gen: 1, op: 4, deadline: 70 } };
 const MUTED = { mute: { kind: "on" } };
-const READY = { tone: "info", text: "Ready; no capture" };
+const READY = { tone: "info", text: "Jarvis is ready; microphone is off" };
 const DEVICES = { tone: "ok", text: "Device list ready" };
 const FLOOR = { tone: "danger", text: "Stopped after a problem. Turn Jarvis off and on again." };
 const HELLO_EXPECTED = { title: "Jarvis did not answer in time", action: "Turn Jarvis off and on again in [Settings > Jarvis](page:vgs.jarvis/Settings)." };
@@ -98,11 +98,11 @@ const MODEL_DONE = { tone: "ok", text: "Done" };
 // [label, status values, [state, icon, tone, [tooltip title, detail lines]]].
 const CASES = [
     ["nothing published yet", {}, ["loading", "loader", "info", tip("Jarvis is starting", ["Wait for Jarvis to start.", MUTE])]],
-    ["starting before the first state", { daemon: { tone: "info", text: "Starting" }, detail: null, audio: { tone: "info", text: "Reading devices" } },
+    ["starting before the first state", { daemon: { tone: "info", text: "Jarvis is starting" }, detail: null, audio: { tone: "info", text: "Reading devices" } },
         ["loading", "loader", "info", tip("Jarvis is starting", ["Wait for Jarvis to start.", MUTE])]],
     ["restarting", { daemon: DAEMON_HELLO, detail: null },
         ["problem", "circle-alert", "danger", tip(HELLO_EXPECTED.title, ["Jarvis is trying again by itself.", MUTE])]],
-    ["mute pending", { daemon: { tone: "warning", text: "Mute pending; disabling Jarvis cancels the request" }, detail: null },
+    ["mute pending", { daemon: { tone: "warning", text: "Jarvis will mute when it is ready; turning Jarvis off cancels this request" }, detail: null },
         ["loading", "loader", "info", tip("Jarvis is starting", ["Wait for Jarvis to start.", MUTE])]],
     ["ready", up({}), ["ready", "mic", "calm", tip("Jarvis is ready", [HOLD, MUTE])]],
     ["listening", up(OPEN), ["listening", "audio-lines", "accent", tip("Jarvis is listening", ["Speak now.", MUTE])]],
@@ -140,7 +140,7 @@ const CASES = [
     ["Session retrying a lost device", up({ fault: { kind: "retrying", reason: "device-lost", retry: 1 } }),
         ["problem", "circle-alert", "danger", WITH(retrying, [MUTE])]],
     ["audio fault", up({}, { audio: OVERFLOW }), ["problem", "circle-alert", "danger", WITH(audioText, [MUTE])]],
-    ["audio fault before the first state", { daemon: { tone: "info", text: "Starting" }, detail: null, audio: OVERFLOW },
+    ["audio fault before the first state", { daemon: { tone: "info", text: "Jarvis is starting" }, detail: null, audio: OVERFLOW },
         ["problem", "circle-alert", "danger", WITH(audioText, [MUTE])]],
     ["problem over mute", up(MUTED, { audio: OVERFLOW }), ["problem", "circle-alert", "danger", WITH(audioText, [UNMUTE])]],
     ["Session error while muted", up({ ...MUTED, fault: { kind: "error", reason: "thinking-timeout", retry: 0 } }),

@@ -2516,7 +2516,7 @@ function verifyOneReadiness(gate) {
 function verifyWordedText(gate) {
     const keys = { talk: "Super+Right Alt", mute: "Super+Shift+Right Alt", stop: "Super+Alt+Period", confirm: "Super+Alt+Y" };
     const state = Object.assign(plain(session.initial()), { gate: { kind: "down", reason: "unconfigured" } });
-    const up = { daemon: { tone: "info", text: "Ready; no capture" }, audio: { tone: "ok", text: "Device list ready" },
+    const up = { daemon: { tone: "info", text: "Jarvis is ready; microphone is off" }, audio: { tone: "ok", text: "Device list ready" },
         detail: { phase: session.phaseOf(state), seq: 1, state } };
     for (const [label, answer] of READINESS) {
         const status = plain(gate.readiness(answer));

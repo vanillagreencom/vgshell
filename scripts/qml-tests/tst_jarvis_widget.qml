@@ -32,7 +32,7 @@ Item {
     // Status values over Session's initial record with REGIONS set.
     function ready(regions) {
         const s = Object.assign(JSON.parse(JSON.stringify(Session.initial())), { gate: { kind: "up" } }, regions);
-        return { daemon: { tone: "info", text: "Ready; no capture" }, audio: { tone: "ok", text: "Device list ready" },
+        return { daemon: { tone: "info", text: "Jarvis is ready; microphone is off" }, audio: { tone: "ok", text: "Device list ready" },
             detail: { phase: Session.phaseOf(s), seq: 1, state: s } };
     }
 
