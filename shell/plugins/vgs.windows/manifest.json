@@ -7,8 +7,13 @@
   "description": "Set the corners and borders of windows and flyouts, and VGlass.",
   "license": "MIT",
   "icon": "app-window",
-  "kinds": ["pane"],
-  "entryPoints": { "pane": "Pane.qml" },
-  "capabilities": ["appearance", "hyprland", "tui"],
-  "pane": { "group": "Appearance", "order": 20 }
+  "kinds": ["pane", "service"],
+  "entryPoints": { "pane": "Pane.qml", "service": "Service.qml" },
+  "capabilities": ["appearance", "compositor", "hyprland", "notify", "shortcut", "tui"],
+  "pane": { "group": "Appearance", "order": 20 },
+  "hyprland": {
+    "binds": [
+      { "shortcut": "group-lock", "key": "SUPER+CTRL+G", "info": "Locks the group of the focused window, or unlocks it, and shows a notification that tells you which. A window in no group stays as it is." }
+    ]
+  }
 }

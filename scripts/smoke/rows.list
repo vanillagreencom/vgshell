@@ -24,6 +24,9 @@ settings
 placement
 windows
 compositor-dispatchers
+# After compositor-dispatchers, beside the group lock it reads, and after
+# hyprland-consent, whose wired layer holds the key it types.
+windows-group-lock
 compositor-reveal
 agent-warden
 capability-release
