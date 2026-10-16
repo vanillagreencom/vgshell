@@ -2486,6 +2486,14 @@ Scope {
             const found = root.popupItem(hostKey, id, scopeType, scopeText, type, text);
             return found === null ? "absent" : String(found.hovered === true);
         }
+        // Read the actual popup item, rather than a registered disposable
+        // copy. LinkText.linkBox is local to that item; its paragraph box
+        // stays separate in popupItemGeometry. hoveredLink reports whether
+        // the pointer reaches the rendered words, independently of focus.
+        function popupItemRead(hostKey: string, id: string, scopeType: string, scopeText: string, type: string, text: string, property: string): string {
+            const found = root.popupItem(hostKey, id, scopeType, scopeText, type, text);
+            return found === null ? "absent" : root.json(found[property]);
+        }
         // The focused item inside an instance's open overlay as [type,
         // text, visualFocus], "no-focus" when an overlay is open and none
         // of its items holds the focus, or "absent".
