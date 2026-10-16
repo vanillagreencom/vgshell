@@ -4,7 +4,10 @@
 # overlay layer, clear of reserved space, taking no keyboard focus; pointer
 # input reaches the content only where it says; a screen added or removed
 # gains or loses its surface; the disposer and a disable release every one.
-# inputs: scripts/smoke/fixtures/plugins/acme.layers/* shell/Core/Layers.qml shell/Hosts/OverlaySurface.qml shell/Hosts/LayerHost.qml scripts/smoke/toplevel/* scripts/smoke/rows/capabilities.sh
+# Content that stops showing while a popup holds the keyboard grab, the
+# Gallery's Select list or the bar's calendar, keeps its surface mapped,
+# undrawn, until the popup closes, so the popup's keys stay in it.
+# inputs: scripts/smoke/fixtures/plugins/acme.layers/* shell/Core/Layers.qml shell/Hosts/OverlaySurface.qml shell/Hosts/LayerHost.qml scripts/smoke/toplevel/* scripts/smoke/rows/capabilities.sh shell/Ui/overlay/OverlayState.qml shell/Ui/overlay/DismissScope.qml shell/Ui/controls/Select.qml shell/plugins/vgs.gallery/* shell/Hosts/AppWindow.qml shell/Hosts/SummonPopup.qml shell/Hosts/SummonHost.qml shell/plugins/vgs.bar/*
 set -euo pipefail
 layers_dir="$home/.config/vgshell/plugins/acme.layers"
 mkdir -p "$layers_dir"
@@ -35,6 +38,106 @@ expect "every surface takes no keyboard, sits on the overlay layer and clears re
 geometry read_bar_settled "the bar set has settled before the row reads the bar's reserved height"
 read -r mon_logical_w mon_logical_h < <(monitor_logical_size) || { fail "the monitor's logical size is readable for the layer geometry"; exit 1; }
 geometry expect_poll "the surface covers the logical screen below the bar's reserved space" "[[0, $bar_reserved, $mon_logical_w, $((mon_logical_h - bar_reserved))]]" layers_of vgs:layer
+
+# A passive layer that unmaps while a popup holds the keyboard grab moves
+# the keyboard to the popup's parent window (Hyprland 0.56.2
+# CLayerSurface::onUnmap; LayerHost). The fixture's own `shown` drops while
+# the Gallery's Select list is open, and again while the bar's calendar, a
+# summoned popup, is open; the surface must stay mapped, drawing nothing,
+# until the popup closes, and the popup's keys must reach it. The first
+# grab begins with the layer mapped, the second maps it during the grab.
+# A hidden copy reads no pad: the probe's layer lookup skips an item that
+# does not draw. With no pads the layer takes no pointer focus, which would
+# send Hyprland down its other unmap path. The list opens from the keyboard
+# with the pointer resting off the Gallery, as the Sound row's list does:
+# with the pointer over the list's parent window, the motion Hyprland
+# simulates after the unmap hands the keyboard back to the popup
+# (InputManager.cpp mouseMoveUnified, rawSurfaceFocus), and the defect does
+# not show. Once a grab ends, Hyprland gives the keyboard to what lies under
+# the pointer (follow_mouse 1; SeatManager.cpp setGrab), so the pointer goes
+# back over the Gallery before the key that must reach it.
+gallery_select() { ipc smoke readMatchingDescendant window vgs.gallery Select model 'Default,Ocean,Forest' "$1"; }
+layer_presented() { ipc smoke layerWindows acme.layers | py_reply 'import json,sys; print(json.dumps(sorted({r["presented"] for r in json.load(sys.stdin)})))'; }
+layer_pad() { local box; box="$(ipc smoke layerItemGeometry acme.layers QQuickRectangle width 80)" || return 1; [[ $box == \[* ]] && echo drawn || echo "$box"; }
+gallery_off_pointer() { windows_of "VGS Components" | py_reply 'import json,sys; x,y,w,h=json.load(sys.stdin)[0]; px,py=map(int, sys.argv[1].split()); print(not (x<=px<x+w and y<=py<y+h))' "$pointer_at"; }
+calendar_title() { ipc smoke readMatchingDescendant panel vgs.bar Label objectName calendarTitle text; }
+calendar_open() { local title; title="$(calendar_title)" || return 1; [[ $title == \"* ]] && echo open || echo "$title"; }
+calendar_moved() { local title; title="$(calendar_title)" || return 1; [[ $title != "$calendar_month" && $title != absent ]] && echo moved || echo "still $title"; }
+clock_point() { ipc smoke descendantGeometry "$(bar_key)" vgs.bar/center-clock | py_reply 'import json,sys; x,y,w,h=next(r["box"] for r in json.load(sys.stdin) if r["type"] == "BarItem"); print(int(x + w / 2), int(y + h / 2))'; }
+gallery_focused="[\"$shell_class\", \"VGS Components\"]"
+expect "the content removes its input items for the grab rows" ok layered pads 0
+expect_poll "the shown layer draws its pads" drawn layer_pad
+expect "the gallery summons for the grab rows" ok ipc shell summon window vgs.gallery '{}'
+expect_poll "the gallery maps one window" 1 window_count "VGS Components"
+expect_poll "the gallery has the keyboard" "$gallery_focused" active_window
+ipc smoke revealText window vgs.gallery Select Default >/dev/null || fail "revealing the Gallery's Select failed"
+if read -r select_x select_y < <(at_centre "window:VGS Components" "$(ipc smoke shownWindowGeometry window vgs.gallery Select Default)"); then
+  hover "$select_x" "$select_y" || fail "hovering the Gallery's Select failed"
+  click "$select_x" "$select_y" || fail "clicking the Gallery's Select failed"
+else
+  fail "the Gallery's Select has no box"
+fi
+expect_poll "the click opens the Select's list" true gallery_select listOpen
+type_keys -k Escape || fail "Escape in the clicked list failed"
+expect_poll "Escape closes the clicked list" false gallery_select listOpen
+rest_pointer || fail "moving the pointer off the Gallery failed"
+expect "the resting pointer is off the Gallery window" True gallery_off_pointer
+expect_poll "the Gallery keeps the keyboard with the pointer off it" "$gallery_focused" active_window
+type_keys -k space || fail "Space on the Gallery's Select failed"
+expect_poll "Space opens the Select's list" true gallery_select listOpen
+expect "the content stops showing while the list grabs" ok layered shown 0
+expect_poll "the hidden content draws no pad" absent layer_pad
+expect "the hidden content reads unpresented" '[false]' layer_presented
+expect "the hidden layer stays mapped while the list holds the grab" "$monitors" layer_count vgs:layer
+type_keys -k Down || fail "Down in the Select's list failed"
+type_keys -k Return || fail "Enter in the Select's list failed"
+expect_poll "Down and Enter in the list choose the next entry" '"Ocean"' gallery_select currentText
+expect_poll "Enter closes the list" false gallery_select listOpen
+expect_poll "the held layer unmaps once the list closes" 0 layer_count vgs:layer
+hover "$select_x" "$select_y" || fail "moving the pointer back over the Gallery failed"
+expect_poll "the Gallery has the keyboard after the list closed" "$gallery_focused" active_window
+rest_pointer || fail "moving the pointer off the Gallery again failed"
+type_keys -k space || fail "Space on the Gallery's Select after Enter failed"
+expect_poll "the key after the list closed reaches the Select and opens its list" true gallery_select listOpen
+expect "the content shows during the second grab" ok layered shown 1
+expect_poll "the layer maps during the grab" "$monitors" layer_count vgs:layer
+expect_poll "the layer shown during the grab draws its pads" drawn layer_pad
+expect "the content stops showing during the second grab" ok layered shown 0
+expect_poll "the content hidden again draws no pad" absent layer_pad
+expect "the content hidden again reads unpresented" '[false]' layer_presented
+expect "the layer mapped during the grab stays mapped while hidden" "$monitors" layer_count vgs:layer
+type_keys -k Escape || fail "Escape in the Select's list failed"
+expect_poll "Escape closes the list after the layer's time ended" false gallery_select listOpen
+expect_poll "the held layer unmaps once Escape closed the list" 0 layer_count vgs:layer
+expect "Escape left the Gallery window open" 1 window_count "VGS Components"
+hover "$select_x" "$select_y" || fail "moving the pointer back over the Gallery after Escape failed"
+expect_poll "the Gallery has the keyboard back" "$gallery_focused" active_window
+type_keys -k space || fail "Space on the Gallery's Select after Escape failed"
+expect_poll "the key after Escape reaches the Select" true gallery_select listOpen
+type_keys -k Escape || fail "Escape in the reopened list failed"
+expect_poll "Escape closes the reopened list" false gallery_select listOpen
+expect "hiding the gallery after the grab rows is allowed" ok ipc shell hide window vgs.gallery
+expect_poll "the gallery's window is gone" 0 window_count "VGS Components"
+expect "the content shows before the calendar's grab" ok layered shown 1
+expect_poll "the layer maps before the calendar's grab" "$monitors" layer_count vgs:layer
+if read -r clock_x clock_y < <(clock_point); then
+  click "$clock_x" "$clock_y" || fail "clicking the bar's clock failed"
+else
+  fail "the bar's clock has no box"
+fi
+expect_poll "the clock opens the calendar" open calendar_open
+calendar_month="$(calendar_title)"
+expect "the content stops showing while the calendar grabs" ok layered shown 0
+expect_poll "the content hidden under the calendar draws no pad" absent layer_pad
+expect "the hidden layer stays mapped while the calendar holds the grab" "$monitors" layer_count vgs:layer
+type_keys -k Right || fail "Right in the calendar failed"
+expect_poll "Right reaches the calendar after the layer's time ended" moved calendar_moved
+type_keys -k Escape || fail "Escape in the calendar failed"
+expect_poll "Escape closes the calendar" absent calendar_title
+expect_poll "the held layer unmaps once the calendar closes" 0 layer_count vgs:layer
+expect "the content shows again after the grab rows" ok layered shown 1
+expect "the content restores both pads after the grab rows" ok layered pads 2
+expect_poll "the layer maps again after the grab rows" "$monitors" layer_count vgs:layer
 
 layer_hidden_assertion() {
   (failures=0 behaviour_failures=0
