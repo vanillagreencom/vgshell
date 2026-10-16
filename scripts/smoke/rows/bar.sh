@@ -1540,8 +1540,15 @@ spacer_faults() {
 spacer_drawn() {
   spacer_rendered | py_reply 'import json,sys; d=json.load(sys.stdin); print(d["drawn"]==json.loads(sys.argv[1]) and not d["errors"])' "$1"
 }
-# spacer_centre ID: the centre of ID's box on the first bar.
-spacer_centre() { ipc smoke instanceGeometry "$(bar_key)" "$1" | py_reply 'import json,sys; x,y,w,h=json.load(sys.stdin); print("%d %d" % (x+w/2,y+h/2))'; }
+# spacer_centre ID: the centre of ID's box on the first bar, and nothing
+# when ID has no box: py_reply passes a state word such as `absent`
+# through, and a caller's $(( )) on it ends the run under set -u.
+spacer_centre() {
+  local centre
+  centre="$(ipc smoke instanceGeometry "$(bar_key)" "$1" | py_reply 'import json,sys; x,y,w,h=json.load(sys.stdin); print("%d %d" % (x+w/2,y+h/2))')" \
+    && [[ $centre =~ ^-?[0-9]+\ -?[0-9]+$ ]] || return 1
+  printf '%s\n' "$centre"
+}
 spacer_holds() { spacer_layout | py_reply 'import json,sys; print(any(sys.argv[1] in ids for ids in json.load(sys.stdin).values()))' "$1"; }
 spacer_remove() {
   local x y
