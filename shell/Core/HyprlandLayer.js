@@ -32,7 +32,10 @@ function consentView(consent) {
 }
 
 // The border colours: [Hyprland table path, theme colour name]. `colours`
-// holds each name as Theme publishes a colour, `#aarrggbb`.
+// holds each name as Theme publishes a colour, `#aarrggbb`. A locked group
+// looks like an unlocked one, so each locked key takes its unlocked twin's
+// colour; it is still written, because Hyprland gives an unwritten locked
+// key its own default colour.
 var BORDERS = [
     [["general", "col", "active_border"], "accent"],
     [["general", "col", "inactive_border"], "border"],
@@ -40,15 +43,15 @@ var BORDERS = [
     [["general", "col", "nogroup_border"], "borderSubtle"],
     [["group", "col", "border_active"], "accent"],
     [["group", "col", "border_inactive"], "border"],
-    [["group", "col", "border_locked_active"], "warning"],
+    [["group", "col", "border_locked_active"], "accent"],
     [["group", "col", "border_locked_inactive"], "border"],
     [["group", "groupbar", "col", "active"], "accent"],
     [["group", "groupbar", "col", "inactive"], "surfaceRaised"],
-    [["group", "groupbar", "col", "locked_active"], "warning"],
+    [["group", "groupbar", "col", "locked_active"], "accent"],
     [["group", "groupbar", "col", "locked_inactive"], "surfaceRaised"],
     [["group", "groupbar", "text_color"], "onAccent"],
     [["group", "groupbar", "text_color_inactive"], "text"],
-    [["group", "groupbar", "text_color_locked_active"], "onWarning"],
+    [["group", "groupbar", "text_color_locked_active"], "onAccent"],
     [["group", "groupbar", "text_color_locked_inactive"], "text"]
 ];
 

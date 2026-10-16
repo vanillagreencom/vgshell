@@ -30,7 +30,25 @@ const service = { schemaVersion: 1, id: "acme.keys", name: "K", version: "1.0.0"
 const overlayRule = { namespace: "^vgs:overlay$", blur: true, ignoreAlpha: 0.6 };
 const toggle = { shortcut: "toggle", key: "SUPER+SPACE" };
 // The border colours as Theme publishes them, `#aarrggbb`.
-const colours = { accent: "#ff5a3659", border: "#80112233", borderSubtle: "#ff222222", warning: "#ffffaa00", surfaceRaised: "#ff333333", onAccent: "#ff000000", text: "#ffeeeeee", onWarning: "#ff010101" };
+const colours = { accent: "#ff5a3659", border: "#80112233", borderSubtle: "#ff222222", surfaceRaised: "#ff333333", onAccent: "#ff000000", text: "#ffeeeeee" };
+// Each locked group key and the unlocked key whose colour it writes.
+const LOCKED_TWINS = { border_locked_active: "border_active", border_locked_inactive: "border_inactive", locked_active: "active", locked_inactive: "inactive", text_color_locked_active: "text_color", text_color_locked_inactive: "text_color_inactive" };
+// A locked group looks like an unlocked one: the layer writes every locked
+// key it writes, named in LOCKED_TWINS, with its twin's colour.
+function assertLockedTwins(applied, label) {
+    const written = {};
+    for (const line of applied) {
+        const match = /^\s+(\w+) = "(rgba\([0-9a-f]{8}\))",$/.exec(line);
+        if (match !== null)
+            written[match[1]] = (written[match[1]] || []).concat([match[2]]);
+    }
+    same(Object.keys(written).filter(key => key.includes("locked")).sort(), Object.keys(LOCKED_TWINS).sort(), `${label}: the layer writes each locked group key`);
+    for (const [locked, twin] of Object.entries(LOCKED_TWINS)) {
+        assert.equal(written[locked].length, 1, `${label}: ${locked} is written once`);
+        assert.equal((written[twin] || []).length, 1, `${label}: ${twin} is written once`);
+        assert.equal(written[locked][0], written[twin][0], `${label}: ${locked} has ${twin}'s colour`);
+    }
+}
 // `groups` as Theme.appearanceState.hyprland gives it with no Appearance
 // value: borders and radius written, motion, window glass and window glow
 // left to the user. `glass` is Theme.glass.window, with its colour
@@ -933,7 +951,10 @@ function verify(logic, configLogic, layer, shellText) {
     assert.ok(applied(bare).includes("-- Theme vgs: window, group and group bar borders."), "the border block names its theme");
     assert.ok(applied(bare).includes("            active_border = \"rgba(5a3659ff)\","), "a #aarrggbb accent is written rgba(rrggbbaa)");
     assert.ok(applied(bare).includes("            inactive_border = \"rgba(11223380)\","), "the border keeps its alpha last");
-    assert.ok(applied(bare).includes("            text_color_locked_active = \"rgba(010101ff)\","), "the group bar's text colour is written");
+    assert.ok(applied(bare).includes("            text_color_locked_active = \"rgba(000000ff)\","), "the group bar's text colour is written");
+    assertLockedTwins(applied(bare), "fixture");
+    const lockedCaption = "            text_color_locked_active = \"rgba(000000ff)\",";
+    assert.throws(() => assertLockedTwins(applied(bare).map(line => line === lockedCaption ? line.replace("000000ff", "010101ff") : line), "control"), { code: "ERR_ASSERTION" });
     assert.ok(applied(bare).includes("        border_size = 4,"), "the border block writes the theme's border size");
     assert.ok(applied(bare).includes("            color = \"rgba(00008899)\","), "the border block writes the theme's shadow colour");
     assert.ok(applied(bare).includes("        rounding = 8,"), "the radius block writes the theme's window radius");
@@ -1348,7 +1369,7 @@ const SEQUENCES = [
 const shellText = fs.readFileSync(shellFile, "utf8");
 verify(load(logicFile), load(configFile), load(layerFile), shellText);
 
-// HyprlandLayer.qml supplies the locked group's fill and caption to the
+// HyprlandLayer.qml supplies the group bar's fill and caption to the
 // Lua renderer. Catalog themes can lift the fill above or below its palette.
 const themeJudge = load(path.join(__dirname, "..", "shell", "Commons", "ThemeLogic.js"));
 const tokens = load(path.join(__dirname, "..", "shell", "Commons", "Tokens.js")).TOKENS;
@@ -1391,8 +1412,9 @@ function verifyStatusAppearance(source, layer = load(layerFile)) {
         same(appearance.tuiCell, { width: 10, height: 22 }, `${entry.name}: the floating TUIs' cell is whole pixels`);
         const lines = layer.borderLines(appearance, entry.name).join("\n");
         assert.match(lines, /^\s+gradients = true,$/m);
-        const fills = [...lines.matchAll(/^\s+locked_active = "rgba\(([0-9a-f]{8})\)",$/gm)];
-        const captions = [...lines.matchAll(/^\s+text_color_locked_active = "rgba\(([0-9a-f]{8})\)",$/gm)];
+        assertLockedTwins(lines.split("\n"), entry.name);
+        const fills = [...lines.matchAll(/^\s+active = "rgba\(([0-9a-f]{8})\)",$/gm)];
+        const captions = [...lines.matchAll(/^\s+text_color = "rgba\(([0-9a-f]{8})\)",$/gm)];
         assert.equal(fills.length, 1);
         assert.equal(captions.length, 1);
         const fill = themeJudge.parseColor("#" + fills[0][1]);
@@ -1400,7 +1422,7 @@ function verifyStatusAppearance(source, layer = load(layerFile)) {
         assert.notEqual(fill, null);
         assert.notEqual(caption, null);
         const ratio = themeJudge.contrastRatio(caption, fill);
-        assert.ok(ratio >= themeJudge.READABILITY_FLOOR, `${entry.name} locked group caption: ${ratio}`);
+        assert.ok(ratio >= themeJudge.READABILITY_FLOOR, `${entry.name} group bar caption: ${ratio}`);
     }
 }
 const appearanceSource = fs.readFileSync(path.join(__dirname, "..", "shell", "Core", "HyprlandLayer.qml"), "utf8");
@@ -1431,14 +1453,14 @@ const VGS_APPLIED = [
     "        col = {",
     "            border_active = \"rgba(ff5a36ff)\",",
     "            border_inactive = \"rgba(292929ff)\",",
-    "            border_locked_active = \"rgba(ffb000ff)\",",
+    "            border_locked_active = \"rgba(ff5a36ff)\",",
     "            border_locked_inactive = \"rgba(292929ff)\",",
     "        },",
     "        groupbar = {",
     "            col = {",
     "                active = \"rgba(ff5a36ff)\",",
     "                inactive = \"rgba(101010ff)\",",
-    "                locked_active = \"rgba(ffb000ff)\",",
+    "                locked_active = \"rgba(ff5a36ff)\",",
     "                locked_inactive = \"rgba(101010ff)\",",
     "            },",
     "            text_color = \"rgba(000000ff)\",",
@@ -1496,6 +1518,7 @@ function verifyAppearanceLayer(layer) {
     const recorder = out => out.text.split("\n")[APPLIED_AT + 4];
     const shippedOut = render();
     same(block(shippedOut), VGS_APPLIED, "with no Appearance value the applied block is today's, byte for byte");
+    assertLockedTwins(block(shippedOut), "vgs");
     same(recorder(shippedOut), "    for _, path in ipairs({ \"general.border_size\", \"decoration.rounding\" }) do options.start[path] = hl.get_config(path) end", "the recorder reads exactly the two written groups' options");
     assert.ok(shippedOut.text.split("\n").includes(UNWRITTEN.motion), "with no Appearance value the user's own animations stay");
     same(render({}).text, shippedOut.text, "an empty appearance key renders as none");
@@ -1572,9 +1595,10 @@ function verifyAppearanceLayer(layer) {
 verifyAppearanceLayer(load(layerFile));
 for (const [member, row] of Object.entries(themeJudge.APPEARANCE).filter(([, row]) => row.hyprland !== undefined))
     same(load(layerFile).APPEARANCE_PATHS[row.hyprland].member, member, "the layer names the member ThemeLogic gives group " + row.hyprland);
-const statusNeedle = "warning: Theme.color.warning,";
-assert.equal(appearanceSource.split(statusNeedle).length, 2);
-assert.throws(() => verifyStatusAppearance(appearanceSource.replace(statusNeedle, "warning: Theme.palette.warning,")), { code: "ERR_ASSERTION" });
+// Control: a caption drawn in its fill's own colour.
+const captionNeedle = "onAccent: Theme.color.onAccent,";
+assert.equal(appearanceSource.split(captionNeedle).length, 2);
+assert.throws(() => verifyStatusAppearance(appearanceSource.replace(captionNeedle, "onAccent: Theme.palette.accent,")), { code: "ERR_ASSERTION" });
 
 // Each control removes one rule from a copy of one file and keeps the text
 // around it. The suite must fail on every copy.

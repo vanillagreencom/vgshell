@@ -66,13 +66,11 @@ Scope {
     readonly property var themeAppearance: ({
         colours: {
             accent: Theme.palette.accent,
-            warning: Theme.color.warning,
             border: Theme.color.border,
             borderSubtle: Theme.color.borderSubtle,
             surfaceRaised: Theme.color.surfaceRaised,
             onAccent: Theme.color.onAccent,
-            text: Theme.color.text,
-            onWarning: Theme.color.onWarning
+            text: Theme.color.text
         },
         hyprland: Theme.hyprland,
         glass: Theme.glass.window,

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- A locked Hyprland window group shows the same border and tab colours as an unlocked one. Before, a locked group's border and active tab switched to the theme's warning colour.
 - The notice that offers missing packages counts only the packages it shows as needed, Missing or Outdated: a missing optional package reads Optional in the information colour and is not in the title's count, such as voxtype in the Jarvis notice. After an install that leaves an optional package missing, the notice says it is optional and was not installed, not that it is still missing. A package a later step offers is named once, under its own name with its package manager. Before, the notice named it a second time in its message. The voxtype line under Jarvis now reads Turns what you say into text for the local voice.
 - A floating terminal that opens with the VGS logo leaves one blank row between the logo and its first box, such as Remove recording and Set up local voice. Before, it left two.
 - Set up screen sharing accepts a link on the way to your Hyprland config folder that leads to a folder only the system can write, such as /home on Fedora Atomic. When setup cannot use the folder, it says why in one sentence that names the folder once, and says what you can do: replace it with a folder you own. Before, setup refused a link to any folder the system owns, and showed its refusal with an internal prefix at the window's left edge.
