@@ -1,4 +1,4 @@
-# inputs: shell/plugins/vgs.launcher/* shell/plugins/vgs.tray/* scripts/smoke/fixtures/tray/* scripts/smoke/fixtures/devices/hid-world.json scripts/smoke/fixtures/devices/hid-fake.py config/shell.json shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/plugins/vgs.sound/* shell/plugins/vgs.network/* shell/plugins/vgs.bluetooth/* shell/plugins/vgs.displays/* shell/plugins/vgs.keyboard/* shell/plugins/vgs.vpn/* shell/plugins/vgs.sudo/* shell/plugins/vgs.mouse/* shell/plugins/vgs.bar/* scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/fixtures/plugins/acme.idle/* shell/Hosts/BarHost.qml shell/Ui/controls/BarItem.qml shell/Ui/BarWidget.qml shell/Core/Plugins.qml shell/Core/Config.qml shell/Commons/Workspaces.qml shell/Commons/Time.qml shell/plugins/*/manifest.json shell/Core/Capabilities.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Commons/Tokens.js shell/plugins/vgs.settings/* shell/plugins/vgs.agent-warden/* shell/plugins/vgs.ai-usage/* shell/plugins/vgs.capture/* shell/plugins/vgs.jarvis/* shell/plugins/vgs.power/* shell/plugins/vgs.traffic/* shell/plugins/vgs.updates/* shell/plugins/vgs.voice/* shell/plugins/vgs.sysmon/* shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/SummonPopup.qml shell/Commons/DesktopLaunch.js shell/Commons/AnchorTracker.qml scripts/smoke/fixtures/plugins/acme.tiplink/* shell/Ui/overlay/Tooltip.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Hosts/NoticeHost.qml shell/Core/KeyCapture.qml
+# inputs: shell/plugins/vgs.launcher/* shell/plugins/vgs.tray/* scripts/smoke/fixtures/tray/* scripts/smoke/fixtures/devices/hid-world.json scripts/smoke/fixtures/devices/hid-fake.py config/shell.json shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/plugins/vgs.sound/* shell/plugins/vgs.network/* shell/plugins/vgs.bluetooth/* shell/plugins/vgs.displays/* shell/plugins/vgs.keyboard/* shell/plugins/vgs.vpn/* shell/plugins/vgs.sudo/* shell/plugins/vgs.mouse/* shell/plugins/vgs.bar/* scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/fixtures/plugins/acme.idle/* shell/Hosts/BarHost.qml shell/Ui/controls/BarItem.qml shell/Ui/BarWidget.qml shell/Core/Plugins.qml shell/Core/Config.qml shell/Commons/Workspaces.qml shell/Commons/Time.qml shell/plugins/*/manifest.json shell/Core/Capabilities.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Commons/Tokens.js shell/plugins/vgs.settings/* shell/plugins/vgs.agent-warden/* shell/plugins/vgs.ai-usage/* shell/plugins/vgs.capture/* shell/plugins/vgs.jarvis/* shell/plugins/vgs.power/* shell/plugins/vgs.traffic/* shell/plugins/vgs.updates/* shell/plugins/vgs.voice/* shell/plugins/vgs.sysmon/* shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/SummonPopup.qml shell/Commons/DesktopLaunch.js shell/Commons/AnchorTracker.qml scripts/smoke/fixtures/plugins/acme.tiplink/* shell/Ui/overlay/Tooltip.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Hosts/NoticeHost.qml shell/Core/KeyCapture.qml shell/Core/HyprlandLayer.qml
 set -euo pipefail
 expect "instance guard accepts the runner's shell" true ipc shell guarded
 
@@ -1020,7 +1020,10 @@ except (ValueError,KeyError,TypeError,StopIteration): print("unreadable")' "$@"
     printf 'bar-empty-observation: want=%s screen=%s,%s facts=%s\n' "$2" "$x" "$zone_bar_y" "$reading"
     geometry expect "$1: the delivered point meets the clipped-child premise" '[]' zone_empty_premise "$x" "$zone_bar_y" "$2" <<<"$reading"
     geometry expect "$1" "$2" zone_ever_true "$depth" ipc smoke readInstance "$(bar_key)" vgs.bar spacerMenuOpen
-    type_keys -k Escape || fail "$1: Escape closes the menu"
+    # With no menu open, Escape reaches the welcome (bar_welcome_answers).
+    if [[ $(ipc smoke readInstance "$(bar_key)" vgs.bar spacerMenuOpen) == true ]]; then
+      type_keys -k Escape || fail "$1: Escape closes the menu"
+    fi
   }
   # A right click on the shown < button steps the zone, and the widget it
   # covers opens no menu. A step lands a widget beside the fade, so the
@@ -1176,7 +1179,14 @@ except (ValueError,KeyError,TypeError,StopIteration): print("unreadable")' "$@"
   fi
   if zone_control empty shell/plugins/vgs.bar/Bar.qml 'section.parent.contains(section.parent.mapFromItem(bar, x, y)) && ' ''; then
     zone_under_clock empty
+    # This shell maps no window, so its welcome holds the keyboard once it
+    # maps, and a key the control sends with no menu open answers it. The
+    # answer is read live: a shell stopped before its marker writes end
+    # leaves no marker for the end of the row to read.
+    expect_poll "control empty: the welcome holds the keyboard before the right click" true ipc smoke noticeFocused
     zone_empty_menu "control: a bar that counts clipped widgets as drawn keeps its add menu shut" False
+    zone_answered() { ipc shell lent | py_reply 'import json,sys; s=json.load(sys.stdin)["notices"].get("consentState") or {}; print("true" if s.get("phase") not in (None, "asking") or s.get("queued") else "false")'; }
+    expect "control empty: the right click and its keys leave the welcome's question unanswered" False zone_ever_true 0 zone_answered
   fi
   if zone_control buttons shell/plugins/vgs.bar/Bar.qml 'readonly property bool moreAfter: clipped && before < travel - 0.5' 'readonly property bool moreAfter: clipped'; then
     geometry expect_poll "control: a > button shown at the end fails the resting read" '[true, true, true, []]' zone_ends right
@@ -1727,13 +1737,22 @@ PY
 # Click inside the fixture, outside the notice card, then prove a key
 # reaches that client. An activewindow reading alone can hide a layer grab.
 tiplink_notice_released() {
-  local layer card fixture x y keys load
+  local load
   read -r load _ </proc/loadavg
   printf '  notice_retake_load_avg=%s\n' "$load"
   expect_poll "$1the retaken notice layer returns to on-demand keyboard mode" on-demand ipc smoke noticeKeyboardMode
   # Mapping a client can take focus. Return it to the notice before the
   # click, so mapping cannot satisfy the fixture's keyboard-enter check.
   open_other "$sandbox/bar-notice-other.log" || { fail "$1the fixture window below the notice maps"; return; }
+  # The fixture closes whatever the click found: left mapped, its window
+  # holds the focus every later row reads.
+  tiplink_fixture_click "$1"
+  close_other "$1the fixture below the notice exits after the click"
+  tiplink_notice_click || fail "$1the notice title click failed"
+  expect_poll "$1the notice holds the keyboard before the next press" true ipc smoke noticeFocused
+}
+tiplink_fixture_click() { # LABEL
+  local layer card fixture x y keys
   tiplink_notice_click || fail "$1the notice title click before the fixture check failed"
   expect_poll "$1the notice holds the keyboard before the fixture click" true ipc smoke noticeFocused
   layer="$(surface_box vgs:notice)" && card="$(ipc smoke noticeWindowGeometry card)" \
@@ -1756,9 +1775,6 @@ PY
   keys="$(other_events '^key ')" || { fail "$1the fixture key log is unreadable"; return; }
   type_keys -k F8 || fail "$1typing into the fixture failed"
   expect_poll "$1the clicked fixture receives the key" "$((keys + 2))" other_events '^key '
-  close_other "$1the fixture below the notice exits after the click"
-  tiplink_notice_click || fail "$1the notice title click failed"
-  expect_poll "$1the notice holds the keyboard before the next press" true ipc smoke noticeFocused
 }
 # tiplink_press_grab LABEL WANT [far]: after a drag of the copy and its
 # release, where the keyboard is, read after the release and again with the
@@ -1772,7 +1788,10 @@ tiplink_press_grab() {
   expect_poll "$1the drag of the copy began its grab and ended it" ended tiplink_drag_ended "$since"
   if [[ ${3:-} == far ]]; then
     expect_poll "$1the far release asks to remove the copy" true tiplink_read acme.tiplink frameDialogOpen
-    type_keys -k Escape || fail "$1Escape on the remove question failed"
+    # With no question open, Escape reaches the welcome (bar_welcome_answers).
+    if [[ $(tiplink_read acme.tiplink frameDialogOpen) == true ]]; then
+      type_keys -k Escape || fail "$1Escape on the remove question failed"
+    fi
     expect_poll "$1Escape closes the remove question" false tiplink_read acme.tiplink frameDialogOpen
   fi
   expect "$1after a widget's press grab ends the keyboard is: $2" "$2" tiplink_keyboard "$depth"
@@ -1947,4 +1966,28 @@ for calendar_case in left top; do
   geometry expect_poll "control: numbers drawn from the square's $calendar_case edge read off centre" True calendar_off_axis "$calendar_axis"
   stop_shell
 done
+# Every shell this row starts holds up the first-start welcome, which
+# takes the keyboard, and hyprland-consent reads it unanswered next. A key
+# meant for a menu or question that is not open answers it instead:
+# Escape is Not now, which writes the welcome-seen and decline markers,
+# and Return on Connect wires hyprland.lua. The row fails that, and takes
+# the answer back so consent and the rows after it start from the first
+# start rather than waiting out their polls.
+bar_welcome_seen="$home/.local/state/vgshell/welcome-seen"
+bar_consent_declined="$rt_dir/vgshell/hypr/consent-declined"
+bar_welcome_answers() {
+  local found=()
+  [[ ! -e $bar_welcome_seen ]] || found+=(seen)
+  [[ ! -e $bar_consent_declined ]] || found+=(declined)
+  cmp -s -- "$home/.config/hypr/hyprland.lua" "$sandbox/hyprland-harness.lua" || found+=(wired)
+  if ((${#found[@]})); then echo "${found[*]}"; else echo unanswered; fi
+}
+expect "the bar row leaves the welcome unanswered" unanswered bar_welcome_answers
+if [[ $(bar_welcome_answers) != unanswered ]]; then
+  rm -f -- "${bar_welcome_seen:?}" "${bar_consent_declined:?}"
+  if ! cmp -s -- "$home/.config/hypr/hyprland.lua" "$sandbox/hyprland-harness.lua"; then
+    cp -- "$sandbox/hyprland-harness.lua" "$home/.config/hypr/hyprland.lua"
+    expect "the nested instance reloads the harness's own hyprland.lua" ok hypr reload config-only
+  fi
+fi
 start_shell "$repo" "$sandbox/calendar-restored.log" || fail "the shell returns after the calendar control"
