@@ -3,9 +3,10 @@
 # scratch checkout holds a copy of the script, of the table's judge
 # scripts/check-readme-images.py and of scripts/smoke/shot.sh, a table of
 # its own, and under its tmp/ a run as scripts/sandbox-shots.sh writes one:
-# shots.tsv, items.tsv and 2560x1600 PNGs made with ImageMagick over a flat
-# desktop with a 56-row bar band, a clock in the band and a parked pointer
-# in the bottom-right corner. Its scripts/sandbox-shots.sh is a stand-in that
+# shots.tsv, items.tsv, desktop.tsv and 2560x1600 PNGs made with
+# ImageMagick over a flat desktop with a 56-row bar band, a clock in the
+# band and a parked pointer in the bottom-right corner; one scene draws
+# its shots on a black desktop, as a scene that sets its own does. Its scripts/sandbox-shots.sh is a stand-in that
 # starts no compositor: it records its arguments, copies that run into its
 # --out directory, as a real run leaves its shots there whether it passes
 # or fails, and exits with the status its case sets. The --from cases pin
@@ -70,7 +71,13 @@ cp -- "$run_dir/centre.png" "$run_dir/bad.png"
 magick -size 2560x1600 xc:'#050505' -fill '#222222' -draw 'rectangle 1000,600 1399,899' -fill white -draw 'rectangle 2555,1596 2559,1599' "$run_dir/dim.png"
 magick -size 2560x1600 xc:'#050505' -fill white -draw 'rectangle 2555,1596 2559,1599' "$run_dir/dim-empty.png"
 printf 'item\t1000\t600\t400\t300\nbad\t1000\t600\t0\t300\n' >"$run_dir/items.tsv"
-for name in 00-desktop panel centre edge clock small item bad dim dim-empty; do printf '%s\tsha\tprev\tsettled\thidden\tclean\n' "$name"; done >"$run_dir/shots.tsv"
+# black-panel: the panel's box on the black desktop scene `black` sets
+# after 00-desktop.png is taken. desktop.tsv records each scene's sample;
+# `split` records two that disagree and `nodesk` none.
+magick -size 2560x1600 xc:'#000000' -fill '#eeeeee' -draw 'rectangle 1200,20 1239,35' -fill white -draw 'rectangle 2555,1596 2559,1599' -fill '#222222' -draw 'rectangle 2000,60 2399,459' "$run_dir/black-panel.png"
+for scene in scene panels bar settings capture; do printf '%s\tdark\tsrc\t100\t100\t111111\n' "$scene"; done >"$run_dir/desktop.tsv"
+printf 'black\tdark\tsrc\t100\t100\t000000\nsplit\tdark\tsrc\t100\t100\t111111\nsplit\tlight\tsrc\t100\t100\t000000\n' >>"$run_dir/desktop.tsv"
+for name in 00-desktop panel centre edge clock small item bad dim dim-empty black-panel; do printf '%s\tsha\tprev\tsettled\thidden\tclean\n' "$name"; done >"$run_dir/shots.tsv"
 printf 'shown\tsha\tprev\tsettled\tshown\tclean\n' >>"$run_dir/shots.tsv"
 printf 'tooltip\tsha\tprev\tsettled\thidden\ttooltip\n' >>"$run_dir/shots.tsv"
 printf 'absent-window\tsha\tprev\tsettled\tabsent\tclean\n' >>"$run_dir/shots.tsv"
@@ -149,6 +156,14 @@ absent_case() {
   run_tool "$1" "$(table "p.absent.webp absent-window full")" --from "$run_dir" --out "$out_dir"
   [[ $status -eq 0 && $(sizes_in "$out_dir") == "p.absent.webp 2560x1600" ]]
 }
+# desktop_case SCRIPT: whether SCRIPT cuts a content crop on a scene's own
+# black desktop at the panel's size, as on the run's first desktop.
+desktop_case() {
+  local out_dir="$checkout/tmp/out-desktop-$RANDOM$RANDOM"
+  run_tool "$1" "$(table "p.black.webp black-panel content black")" --from "$run_dir" --out "$out_dir"
+  [[ $status -eq 0 && $(sizes_in "$out_dir") == "p.black.webp 464x492" ]]
+}
+if desktop_case "$repo/scripts/readme-shots.sh"; then ok "a content crop reads the scene's own desktop"; else fail "a content crop reads the scene's own desktop: exit=$status first stderr line: $err_line sizes: $(sizes_in "$checkout"/tmp/out-desktop-* | tr '\n' ' ')"; fi
 if absent_case "$repo/scripts/readme-shots.sh"; then ok "a shot recorded with an absent host window is cut"; else fail "a shot recorded with an absent host window is cut: exit=$status first stderr line: $err_line"; fi
 
 # Refusal cases, four fields each: label, table rows (;-separated), the
@@ -166,6 +181,8 @@ cases=(
   "a shot of another size is refused" "p.a.webp small full" "--from $run_dir --out $out_ok" 1 "readme-shots: refused: shot-size=small"
   "a desktop with no bar band is refused" "p.a.webp centre full" "--from $flat_dir --out $out_ok" 1 "readme-shots: refused: bar=$flat_dir/00-desktop.png"
   "a content crop with nothing below the band is refused" "p.a.webp clock content" "--from $run_dir --out $out_ok" 1 "readme-shots: refused: crop-empty=clock"
+  "a content crop of a scene with no desktop sample is refused" "p.a.webp centre content nodesk" "--from $run_dir --out $out_ok" 1 "readme-shots: refused: desktop=nodesk"
+  "a content crop of a scene with two desktop samples is refused" "p.a.webp centre content split" "--from $run_dir --out $out_ok" 1 "readme-shots: refused: desktop=split"
   "a backdrop crop with nothing on the backdrop is refused" "p.a.webp dim-empty backdrop" "--from $run_dir --out $out_ok" 1 "readme-shots: refused: crop-empty=dim-empty"
   "a crop that leaves the recorded item under half the image is refused" "p.a.webp item full" "--from $run_dir --out $out_ok" 1 "readme-shots: refused: crop-sparse=item"
   "an item crop of a shot with no recorded box is refused" "p.a.webp centre item" "--from $run_dir --out $out_ok" 1 "readme-shots: refused: item-missing=centre"
@@ -356,6 +373,12 @@ controls=(
   "a missing shot stops a partial run"
   'if [[ $status -eq 77 && ! -f $from/$shot.png ]]; then' 'if false; then'
   partial
+  "a content crop is read against 00-desktop.png"
+  'colour="$(scene_desktop "$scene")" || exit 1' 'colour="$background"'
+  desktop
+  "a scene's first desktop sample is taken when two disagree"
+  '[[ $samples =~ ^[0-9a-f]{6}$ ]]' 'samples="$(head -n 1 <<<"$samples")"; [[ $samples =~ ^[0-9a-f]{6}$ ]]'
+  "a content crop of a scene with two desktop samples is refused"
   "a scene two rows share reaches the sandbox twice"
   '[[ " ${scenes[*]} " == *" $scene "* ]] || scenes+=("$scene")' '[[ " ${scenes[*]} " == *" $scene "* ]] || true; scenes+=("$scene")'
   sandbox-0
@@ -376,7 +399,7 @@ open(dst, "w").write(text.replace(needle, replacement))' "$repo/scripts/readme-s
     if sandbox_case "$mutant" "${target#sandbox-}" >/dev/null; then fail "control: $label still gave '$target'"; else ok "control: $label"; fi
     continue
   fi
-  if [[ $target == partial || $target == selection || $target == unknown || $target == empty ]]; then
+  if [[ $target == partial || $target == selection || $target == unknown || $target == empty || $target == desktop ]]; then
     if "${target}_case" "$mutant" >/dev/null; then fail "control: $label stayed green"; else ok "control: $label"; fi
     continue
   fi

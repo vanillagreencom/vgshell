@@ -7,15 +7,18 @@
 # Each table row names an image under docs/images/plugins/, the
 # scripts/sandbox-shots.sh scene and shot it is cut from, and its crop.
 # scripts/check-readme-images.py --table judges the table and hands this
-# script its rows. Each crop is measured on the shot at its device pixels,
-# against 00-desktop.png, the bare desktop the run takes first, whose
-# bottom-left pixel is the desktop's colour:
+# script its rows. Each crop is measured on the shot at its device pixels.
+# The bar band is measured on 00-desktop.png, the bare desktop the run
+# takes first, whose bottom-left pixel is that desktop's colour:
 #   full     the whole output.
 #   bar      the bar band at full width: from the top through the last row
 #            of the first run of rows of 00-desktop.png that differ from the
 #            desktop's colour.
 #   content  the box of the pixels below the bar band that differ from
-#            00-desktop.png, grown by MARGIN_PX on every side and clamped
+#            the scene's desktop colour, the one sample DIR/desktop.tsv
+#            records for the row's scene: each scene sets its own desktop
+#            after 00-desktop.png is taken. The box is grown by MARGIN_PX
+#            on every side and clamped
 #            to the output, and taken from the top edge when the grown box
 #            reaches the bar band, so a panel that drops from the bar shows
 #            the bar above it. Below the band, the ticking clock never
@@ -32,7 +35,7 @@
 #            the pointer's square left out as content leaves it out. It
 #            serves a surface drawn over the whole output on a flat colour,
 #            a lock screen or a scrim, where every pixel differs from
-#            00-desktop.png.
+#            the scene's desktop.
 # A crop that finds no bar band or no content is refused, never widened to
 # the whole output. A shot items.tsv records is refused under any crop
 # that leaves its item box under half the image's area, so a README image
@@ -49,6 +52,8 @@
 # chrome and with host window state hidden or absent, and OUTPUT_SIZE.
 # DIR/items.tsv, when present, holds one line per recorded shot:
 # name, x, y, width and height, tab-separated, in device pixels.
+# DIR/desktop.tsv holds each scene's desktop sample, which a content crop
+# reads.
 # --out DIR
 # writes the images there in place of docs/images/plugins/; it must lie
 # under this checkout's tmp/ (shot_dir_under in scripts/smoke/shot.sh).
@@ -97,6 +102,7 @@ stop() {
     shot-chrome) message="the run's shots.tsv does not list this shot with clean chrome: use a rest shot, not a posed hover, tooltip, menu or focus shot" ;;
     shot-size) message="every shot must be $OUTPUT_SIZE: run scripts/sandbox-shots.sh with ${SHOTS_ARGS[*]}" ;;
     bar) message="00-desktop.png has no row at its top that differs from the desktop's colour" ;;
+    desktop) message="the content crop needs one desktop colour for the scene in the run's desktop.tsv" ;;
     crop-empty) message="no pixel below the bar band differs from the crop's reference" ;;
     crop-sparse) message="the crop leaves the shot's recorded item under half the image: use the item crop" ;;
     item-missing) message="the item crop needs the shot's box in the run's items.tsv" ;;
@@ -202,6 +208,19 @@ item_of() {
   printf '%s\n' "$box"
 }
 
+# scene_desktop SCENE: `#RRGGBB`, the one desktop sample DIR/desktop.tsv
+# records for SCENE across its modes. Its caller runs it in a subshell, as
+# shot_png's.
+scene_desktop() {
+  local samples
+  [[ -f $from/desktop.tsv ]] || stop desktop "$1" "desktop.tsv is absent"
+  if ! samples="$(awk -F '\t' -v scene="$1" '$1 == scene { print $6 }' "$from/desktop.tsv" | sort -u)"; then
+    stop from "$from" "desktop.tsv is unreadable"
+  fi
+  [[ $samples =~ ^[0-9a-f]{6}$ ]] || stop desktop "$1" "samples=$(tr '\n' ' ' <<<"$samples")"
+  printf '#%s\n' "$samples"
+}
+
 # mask_rows reads a binary 8-bit PGM of a mask on stdin, 0 where a pixel
 # holds nothing, and prints its bar band or its content box. `band` prints
 # the row after the first run of rows holding a set pixel, or `none`.
@@ -279,11 +298,11 @@ for row in "${table_rows[@]}"; do
     bar) geometry="${width}x${band}+0+0" ;;
     content|backdrop)
       if [[ $crop == content ]]; then
-        box="$(changed_box "$png" "$desktop" -alpha off)" || stop measure "$shot"
+        colour="$(scene_desktop "$scene")" || exit 1
       else
         colour="$(magick "$png" -format '%[pixel:p{0,%[fx:h-1]}]' info:)" || stop measure "$shot"
-        box="$(changed_box "$png" -alpha off \( +clone -fill "$colour" -colorize 100 \))" || stop measure "$shot"
       fi
+      box="$(changed_box "$png" -alpha off \( +clone -fill "$colour" -colorize 100 \))" || stop measure "$shot"
       [[ $box != none ]] || stop crop-empty "$shot"
       read -r x y w h <<<"$box"
       floor=0
