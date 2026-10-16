@@ -1275,6 +1275,32 @@ function caseBothChangedLocalNewer(runner) {
     assert.equal(Object.prototype.hasOwnProperty.call(found, "storedPath"), false);
 }
 
+// A both-changed file gone from both sides leaves the pair record at the
+// next run, unless the record holds a kept copy, the only version left.
+function caseBothChangedGoneBothSides(runner) {
+    const w = world();
+    addPair(w, runner);
+    drive(w, "no-copy.txt", "base\n", 1700000000);
+    drive(w, "kept.txt", "Drive version\n", 1700000000);
+    runOk(w, runner);
+    drive(w, "no-copy.txt", "drive older\n", 1700000500);
+    write(path.join(w.mirror, "no-copy.txt"), "local newer\n");
+    fs.utimesSync(path.join(w.mirror, "no-copy.txt"), 1700001000, 1700001000);
+    write(path.join(w.mirror, "kept.txt"), "edited here, longer than before\n");
+    fs.utimesSync(path.join(w.mirror, "kept.txt"), 1700000500, 1700000500);
+    drive(w, "kept.txt", "Drive version changed\n", 1700001000);
+    runOk(w, runner);
+    const records = () => JSON.parse(read(path.join(w.state, "pairs", "docs", "state.json"))).records
+        .map(r => [r.kind, r.path, typeof r.stored === "string"]).sort();
+    assert.deepEqual(records(), [["both-changed", "kept.txt", true], ["both-changed", "no-copy.txt", false]]);
+    for (const rel of ["no-copy.txt", "kept.txt"]) {
+        fs.unlinkSync(path.join(w.drive, "Docs", rel));
+        fs.unlinkSync(path.join(w.mirror, rel));
+    }
+    runOk(w, runner);
+    assert.deepEqual(records(), [["both-changed", "kept.txt", true]]);
+}
+
 // An export of a Google-native document (the stand-in lists it at Size
 // -1) comes down and never goes up, edited here or not, and a name with
 // rclone filter characters is excluded as itself.
@@ -1753,6 +1779,7 @@ async function controls() {
     await mustFail("removed-locally", mutant("removed-locally", "addRecord(records, { kind: \"removed-locally\", path: rel });", ""), caseRemovedLocally);
     await mustFail("removed-on-drive", mutant("removed-on-drive", "addRecord(records, { kind: to === null ? \"removed-on-drive\" : \"renamed\", path: rel, to: to });", ""), caseRemovedOnDriveReturns);
     await mustFail("local-newer both-changed", mutant("local-newer both-changed", "if (local.mtimeMs > driveTime) addRecord(records, { kind: \"both-changed\", path: rel });", ""), caseBothChangedLocalNewer);
+    await mustFail("both-changed gone from both sides", mutant("both-changed gone from both sides", "\n            || record.kind === \"both-changed\" && typeof record.stored !== \"string\")", ")"), caseBothChangedGoneBothSides);
     await mustFail("export no upload", mutant("export no upload", "if (excludes !== null) uploadArgs.push(\"--exclude-from\", excludes);", ""), caseExportNoUpload);
     await mustFail("prune conflict storage", mutant("prune conflict storage", "const cutoff = Date.now() - KEEP_MS;", "const cutoff = 0;"), casePruneConflictStorage);
     await mustFail("credential migration", mutant("credential migration", "migrateCredentialsIfNeeded();\n    const read = readPairs();", "const read = readPairs();"), caseCredentialMigration);
@@ -1839,6 +1866,7 @@ async function main() {
     caseRemovedLocally();
     caseRemovedOnDriveReturns();
     caseBothChangedLocalNewer();
+    caseBothChangedGoneBothSides();
     caseExportNoUpload();
     casePruneConflictStorage();
     caseForbiddenRcloneArgv();

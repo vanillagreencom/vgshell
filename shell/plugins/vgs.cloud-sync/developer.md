@@ -8,6 +8,7 @@
 - A local file that a download replaces is kept under the pair's records, unless it is the copy Cloud Sync made at the last sync. A file that an upload replaces stays in Drive as an earlier revision, under Drive's own retention.
 - A Google-native document downloads as an export. A local file at an export's name is never uploaded.
 - Cloud Sync removes kept copies and review records after 30 days.
+- A sync removes a review record whose file is on neither Drive nor this computer, unless the record holds a kept copy of the file.
 
 ## Conflicts
 

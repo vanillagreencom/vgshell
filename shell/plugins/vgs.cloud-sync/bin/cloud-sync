@@ -889,10 +889,14 @@ function classifyBeforeCopy(pair, listing, inventory, records) {
             if (local.mtimeMs > driveTime) addRecord(records, { kind: "both-changed", path: rel });
         }
     }
+    // A both-changed record with a kept copy outlives its file: that copy is
+    // the only version left. pruneConflictStorage has already dropped a
+    // record whose kept copy is gone.
     return records.filter(record => {
         const item = byPath[record.path];
         const localGone = !fs.existsSync(path.join(pair.local, record.path));
-        if ((record.kind === "removed-locally" || record.kind === "removed-on-drive" || record.kind === "renamed")
+        if ((record.kind === "removed-locally" || record.kind === "removed-on-drive" || record.kind === "renamed"
+            || record.kind === "both-changed" && typeof record.stored !== "string")
             && item === undefined && localGone) return false;
         return true;
     });
