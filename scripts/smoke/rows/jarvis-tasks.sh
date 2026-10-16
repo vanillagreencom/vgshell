@@ -181,7 +181,7 @@ task_scenario() {
   task_record "$task_id" lost '{"seq":0}'
   expect "the stop-task IPC handle answers" ok ipc vgs.jarvis invoke stop-task "$task_id"
   expect_poll "the daemon receives the task-stop intent" "\"$task_id\"" task_last task-stops.jsonl
-  expect_poll "a failed stop sends its notification" 1 plugin_card_count Jarvis "Coding task not stopped" "Task $task_id: not-alive"
+  expect_poll "a failed stop sends its notification" 1 plugin_card_count Jarvis "Coding task not stopped" "Jarvis could not find a running program for this coding task."
   expect_poll "the stop's observation clears the count" 0 task_count
   expect "the stop-task IPC handle refuses a malformed id" "refused: jarvis: protocol=task-id" \
     ipc vgs.jarvis invoke stop-task "../$task_id"

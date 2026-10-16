@@ -121,7 +121,7 @@ var TODO = {
     "speech=live-account-unreadable": "Jarvis could not read your voice key: use [Accounts beside Account](page:vgs.jarvis/Settings) to check it",
     "speech=live-key-required": "[Choose a key under Voice key](page:vgs.jarvis/Settings): OpenAI for Realtime, Gemini for Gemini Live or ElevenLabs for ElevenLabs; Add key beside Account stores a new key",
     "speech=elevenlabs-voice": ELEVENLABS_UNREAD,
-    "speech=local-not-ready": "Local voice did not start. Set it up again.",
+    "speech=local-not-ready": "Set up the local voice again",
     "speech=local-ready-timeout": "Local voice timed out: [turn Jarvis off and on again, or set it up again](page:vgs.jarvis/Setup)",
     "speech=always-local-voice": "Always talk mode needs Local: [choose Local as Voice provider](page:vgs.jarvis/Settings), or Hold or Toggle as Talk mode"
 };
@@ -142,8 +142,8 @@ var CAUTION = {
 // core's dictation setup copies voxtype's defaults and downloads its model;
 // the user stops another voxtype, or chooses voxtype's microphone, in Voice.
 var DICTATION = {
-    "speech=dictation-absent": { tone: "warning", text: "To do", hint: "The local voice hears your words through dictation. Set up dictation gets it ready.", action: "dictation" },
-    "speech=dictation-failed": { tone: "warning", text: "To do", hint: "Dictation did not start. Set up dictation gets it ready.", action: "dictation" },
+    "speech=dictation-absent": { tone: "warning", text: "To do", hint: "Set up dictation so the local voice can hear you", action: "dictation" },
+    "speech=dictation-failed": { tone: "warning", text: "To do", hint: "Set up dictation again", action: "dictation" },
     "speech=dictation-elsewhere": { tone: "warning", text: "Another voxtype runs", hint: "Stop the other voxtype under [Other dictation service in Settings > Voice](page:vgs.voice/Settings)" },
     "speech=dictation-device": { tone: "warning", text: "Dictation uses another microphone", hint: "The local voice hears the system default microphone: choose it with [Configure in Settings > Voice](page:vgs.voice/Settings)" }
 };
@@ -158,14 +158,13 @@ var STEP_TODO = { brain: "Add a key or sign in, then [choose an AI model](page:v
 // folder or its text takes HOME_STEP_TODO. Its entry declares no action:
 // the user changes the folder or the setting. A changed setting reaches
 // the daemon at once; a change inside the folder does at the next request
-// (jarvisd.js judgeSetup), which HOME_AGAIN says.
-var HOME_AGAIN = " Jarvis checks the folder again when you press Talk.";
+// (jarvisd.js judgeSetup), which the row's info explains.
 var HOME_TODO = {
     "home=link": "Remove the link from the home folder, or [choose another Home folder](page:vgs.jarvis/Settings): Jarvis checks again when you press Talk",
     "home=path": "Jarvis cannot use this folder: [choose a Home folder](page:vgs.jarvis/Settings) inside your own home directory",
-    "guidance=home-too-large": "AGENTS.md in the home folder is too long. Make it shorter than 8 KB." + HOME_AGAIN,
-    "guidance=home-skills-too-large": "The home folder has more skills than Jarvis can list. Remove the skills you do not use." + HOME_AGAIN,
-    "guidance=home-memory-too-large": "memory/MEMORY.md in the home folder is too long. Make it shorter than 4 KB." + HOME_AGAIN
+    "guidance=home-too-large": "Shorten AGENTS.md in the home folder to less than 8 KB",
+    "guidance=home-skills-too-large": "Remove unused skills from the home folder so Jarvis can list them",
+    "guidance=home-memory-too-large": "Shorten memory/MEMORY.md in the home folder to less than 4 KB"
 };
 var HOME_STEP_TODO = "Check that you can open and change the folder, or [choose another Home folder](page:vgs.jarvis/Settings): Jarvis checks again when you press Talk";
 var HOME_READY = { tone: "ok", text: "Done" };
@@ -195,7 +194,6 @@ var LOADING = { tone: "info", text: "Loading", action: false };
 // judge refuses an action key on an entry without one.
 var CHECKING_SUMMARY = { tone: "info", text: "Checking" };
 var LOADING_SUMMARY = { tone: "info", text: "Loading" };
-var STATUS_TEXT_MAX = 200;
 // A hint of one sentence ends with no full stop, and each sentence of a
 // longer one ends with one (docs/architecture/design-system.md § Copy). TEXT, such a hint,
 // as one sentence of a longer text or of a notice: ending with a full stop.
@@ -209,33 +207,28 @@ function joinedHint(hints) {
 }
 var START_RESTART = "Turn Jarvis off and on again in [Settings > Jarvis](page:vgs.jarvis/Settings)";
 var START_CAUSES = [
-    [/^jarvis: hello=timeout$/, { kind: "hello-timeout", title: "Jarvis did not answer in time", action: START_RESTART }],
-    [/^jarvis: node=[^ ]+ need=22$/, { kind: "node-too-old", title: "Jarvis needs Node 22 or later", action: "Update Node to version 22 or later, then turn Jarvis off and on again in [Settings > Jarvis](page:vgs.jarvis/Settings)" }],
-    [/^jarvis: daemon=exit code=78 status=/, { kind: "node-too-old", title: "Jarvis needs Node 22 or later", action: "Update Node to version 22 or later, then turn Jarvis off and on again in [Settings > Jarvis](page:vgs.jarvis/Settings)" }],
-    [/^jarvis: daemon=(exit|ended)/, { kind: "daemon-exit", title: "Jarvis daemon stopped", action: START_RESTART }],
-    [/^jarvis: protocol=/, { kind: "wire-defect", title: "Jarvis message error", action: START_RESTART }]
+    [/^jarvis: hello=timeout$/, { kind: "hello-timeout", title: "Jarvis did not answer in time", detail: "Jarvis could not finish starting.", action: START_RESTART }],
+    [/^jarvis: node=[^ ]+ need=22$/, { kind: "node-too-old", title: "Jarvis needs Node 22 or later", detail: "The installed Node version cannot run Jarvis.", action: "Update Node to version 22 or later, then turn Jarvis off and on again in [Settings > Jarvis](page:vgs.jarvis/Settings)" }],
+    [/^jarvis: daemon=exit code=78 status=/, { kind: "node-too-old", title: "Jarvis needs Node 22 or later", detail: "The installed Node version cannot run Jarvis.", action: "Update Node to version 22 or later, then turn Jarvis off and on again in [Settings > Jarvis](page:vgs.jarvis/Settings)" }],
+    [/^jarvis: daemon=(exit|ended)/, { kind: "daemon-exit", title: "Jarvis daemon stopped", detail: "Jarvis stopped after a problem.", action: START_RESTART }],
+    [/^jarvis: protocol=/, { kind: "wire-defect", title: "Jarvis message error", detail: "Jarvis could not read a message from its service.", action: START_RESTART }]
 ];
-var DAEMON_EXIT = { kind: "daemon-exit", title: "Jarvis daemon stopped", action: START_RESTART };
+var DAEMON_EXIT = { kind: "daemon-exit", title: "Jarvis daemon stopped", detail: "Jarvis stopped after a problem.", action: START_RESTART };
 var RETRYING_START = "Jarvis is trying again by itself";
 
-function statusCauseLine(cause) {
-    return String(cause).replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, " ").slice(0, STATUS_TEXT_MAX);
-}
-
 function startCause(cause) {
-    var line = statusCauseLine(cause);
     for (var i = 0; i < START_CAUSES.length; i++) {
         if (START_CAUSES[i][0].test(cause)) {
             var words = START_CAUSES[i][1];
-            return { kind: words.kind, title: words.title, action: words.action, lines: [line] };
+            return { kind: words.kind, title: words.title, action: words.action, lines: [words.detail] };
         }
     }
-    return { kind: DAEMON_EXIT.kind, title: DAEMON_EXIT.title, action: DAEMON_EXIT.action, lines: [line] };
+    return { kind: DAEMON_EXIT.kind, title: DAEMON_EXIT.title, action: DAEMON_EXIT.action, lines: [DAEMON_EXIT.detail] };
 }
 
 // The `daemon` value after a failed start, RETRYING or stopped for good:
-// the bar words it from its title and hint; the keyed cause is only its
-// line, which the Daemon row keeps for diagnostics.
+// the bar words it from its title and hint. Its detail line uses plain
+// words; the service keeps the keyed cause in the log.
 function startStatus(cause, retrying) {
     var problem = startCause(cause);
     return { tone: retrying ? "warning" : "danger", text: problem.title,
@@ -308,14 +301,14 @@ function modelStep(value, keys, access) {
 // while the daemon has not answered, { kind: "stopped" } once it stopped
 // for good, { kind: "problem", cause } after a failed start, or
 // { kind: "answered", causes } from its status, as { setup, setupHome,
-// setupVoice, setupModel }. No value holds a keyed cause: the log and the
-// Daemon row keep it.
+// setupVoice, setupModel }. No value holds a keyed cause: the service
+// log keeps it.
 function readiness(answer) {
     switch (answer.kind) {
     case "checking":
         return { setup: CHECKING_SUMMARY, setupHome: HOME_UNCHECKED, setupVoice: CHECKING, setupModel: noAction(CHECKING) };
     case "stopped":
-        return { setup: { tone: "danger", text: "Not ready", hint: "Jarvis stopped after a problem. Turn Jarvis off and on again." },
+        return { setup: { tone: "danger", text: "Not ready", hint: "Turn Jarvis off and on again" },
             setupHome: HOME_UNCHECKED, setupVoice: UNCHECKED, setupModel: noAction(UNCHECKED) };
     case "problem":
         var problem = startCause(answer.cause);
@@ -529,7 +522,7 @@ function elevenLabsStep(facts) {
 // field's hintFrom names) for SETTING, the provider the user chose: what
 // leaves the computer, to whom, and with which key.
 var VOICE_ROUTES = {
-    auto: { text: "Auto", hint: "Auto runs Realtime, sending your voice to OpenAI, while your Voice key is an OpenAI key; else Local, which keeps speech on this computer" },
+    auto: { text: "Auto", hint: "Auto chooses between Realtime and Local" },
     local: { text: "Local", hint: "Local keeps your voice and the replies on this computer, and answers fastest" },
     realtime: { text: "Realtime", hint: "Realtime sends your voice and the replies Jarvis lets out to OpenAI, with your OpenAI key" },
     gemini: { text: "Gemini Live", hint: "Gemini Live sends your voice and the replies Jarvis lets out to Google, with your Gemini key" },
@@ -598,15 +591,15 @@ var SESSION_ROWS = {
     "stopped stopped": { wanted: true },
     "stopped ended": { wanted: true },
     "starting launching": { tone: "info", text: "Starting", hint: "Jarvis is starting in your selected home folder" },
-    "running new-no-record": { tone: "ok", text: "Running", hint: "No previous Jarvis session was saved. Started a new session." },
-    "running new-history-gone": { tone: "ok", text: "Running", hint: "The saved conversation is unavailable. A new session continued your saved work." },
+    "running new-no-record": { tone: "ok", text: "Running", hint: "Jarvis started a new session because none was saved" },
+    "running new-history-gone": { tone: "ok", text: "Running", hint: "A new session continued your saved work because the saved conversation is unavailable" },
     "running new-selection-changed": { tone: "ok", text: "Running", hint: "A new session continued your saved work on the selected account" },
     "running resumed": { tone: "ok", text: "Running", names: true },
     "running new-requested": { tone: "ok", text: "Running", names: true },
     "running existing": { tone: "ok", text: "Running", names: true },
     "handing-over succession": { tone: "info", text: "Handing over", hint: "Jarvis is moving its saved work to a new session" },
     "stopping stop-requested": { tone: "info", text: "Stopping", hint: "Jarvis is saving its state and stopping" },
-    "blocked name-conflict": { tone: "warning", text: "Cannot start", hint: "A different session uses the Jarvis terminal. Close it or select the home it belongs to." },
+    "blocked name-conflict": { tone: "warning", text: "Cannot start", hint: "Close the other session in the Jarvis terminal or choose its home folder" },
     "blocked record-unreadable": { tone: "warning", text: "Cannot start", hint: "Jarvis cannot read its saved session record" },
     "blocked sign-in-required": { tone: "warning", text: "Cannot start", detail: true },
     "blocked selection-conflict": { tone: "warning", text: "Cannot start", hint: "Changing the home or account restarts Jarvis after the new selection is checked" },
@@ -635,7 +628,7 @@ function sessionStart(wanted, result) {
     if (row === undefined) return failure;
     var value;
     if (row.wanted) value = wanted ? { tone: "info", text: "Starts at the next boot", hint: SESSION_BOOT, action: "start" }
-        : { tone: "info", text: "Not started", hint: "Start Jarvis to continue your work. Automatic start is off.", action: "start" };
+        : { tone: "info", text: "Not started", hint: "Start Jarvis to continue your work", action: "start" };
     else {
         var hint = row.detail ? (result.detail !== "" ? result.detail : SESSION_FAILED)
             : row.names ? (result.names === null ? "" : "Jarvis runs in " + result.names.home + " with " + result.names.account) : row.hint;

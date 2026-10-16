@@ -275,8 +275,8 @@ print("problem" if ok else "not-problem")
 ' <<<"$answer"
 }
 
-# The Daemon row keeps the keyed cause; the bar tooltip and the Setup
-# summary say the state and what to do.
+# The Daemon row, bar tooltip and Setup summary use plain words.
+# The service log keeps the keyed cause.
 jarvis_start_problem_words() {
   local process widget
   process="$(ipc smoke jarvisProcess)" || return
@@ -290,7 +290,7 @@ setup = d["status"].get("setup", {})
 action = "Turn Jarvis off and on again in [Settings > Jarvis](page:vgs.jarvis/Settings)"
 ok = d["lifetime"]["kind"] == "problem" and d["pid"] is None
 ok = ok and daemon.get("tone") == "danger" and daemon.get("text") == "Jarvis did not answer in time"
-ok = ok and daemon.get("lines") == ["jarvis: hello=timeout"] and daemon.get("hint") == action
+ok = ok and daemon.get("lines") == ["Jarvis could not finish starting."] and daemon.get("hint") == action
 ok = ok and setup.get("text") == "Jarvis did not answer in time"
 ok = ok and setup.get("hint") == action and "lines" not in setup
 ok = ok and widget.get("tooltip") == "Jarvis did not answer in time" and widget.get("tooltipDetails", [])[:1] == [action + "."]
@@ -307,7 +307,7 @@ daemon = d["status"].get("daemon", {})
 setup = d["status"].get("setup", {})
 ok = d["lifetime"]["kind"] == "retry"
 ok = ok and daemon.get("tone") == "warning" and daemon.get("text") == "Jarvis did not answer in time"
-ok = ok and daemon.get("lines") == ["jarvis: hello=timeout"] and daemon.get("hint") == "Jarvis is trying again by itself"
+ok = ok and daemon.get("lines") == ["Jarvis could not finish starting."] and daemon.get("hint") == "Jarvis is trying again by itself"
 ok = ok and setup.get("text") == "Jarvis did not answer in time"
 ok = ok and setup.get("hint") == "Jarvis is trying again by itself"
 ok = ok and "lines" not in setup
@@ -824,7 +824,7 @@ jarvis_shell_status() {
   ipc smoke jarvisProcess | py_reply '
 import json,sys
 want = {"ready": {"tone":"ok", "text":"Ready"},
-        "missing": {"tone":"warning", "text":"Unavailable: bwrap-missing"}}[sys.argv[1]]
+        "missing": {"tone":"warning", "text":"Unavailable", "hint":"[Review all missing or outdated tools on Setup](page:vgs.jarvis/Setup) to enable shell commands"}}[sys.argv[1]]
 print("matched" if json.load(sys.stdin)["status"].get("shell") == want else "pending")
 ' "$1"
 }

@@ -583,7 +583,13 @@ Item {
         if (message.answer === "stopped") return;
         console.warn("jarvis: task-stop=" + message.answer + " task=" + message.task);
         notice({ title: "Coding task not stopped",
-            message: "Task " + message.task + ": " + message.answer, tone: "danger", icon: "mic" });
+            message: message.answer === "stop-in-flight" ? "This coding task is already stopping."
+                : message.answer === "already-ended" ? "This coding task has already ended."
+                : message.answer === "not-alive" ? "Jarvis could not find a running program for this coding task."
+                : message.answer === "task-unknown" ? "Jarvis could not find this coding task."
+                : message.answer === "identity-mismatch" ? "Jarvis could not confirm which programs belong to this coding task."
+                : message.answer === "daemon-ending" ? "Jarvis is stopping. Try again after you turn Jarvis on."
+                : "Jarvis could not stop this coding task. Open its terminal to check it.", tone: "danger", icon: "mic" });
     }
 
     // One system notification; the core sends it and no other path draws it.
@@ -594,8 +600,11 @@ Item {
 
     function shellStatus(availability) {
         const value = availability.kind === "available" ? { tone: "ok", text: "Ready" }
-            : availability.kind === "checking" ? { tone: "info", text: "Checking confinement" }
-            : { tone: "warning", text: "Unavailable: " + availability.reason };
+            : availability.kind === "checking" ? { tone: "info", text: "Checking" }
+            : { tone: "warning", text: "Unavailable", hint: availability.reason === "bwrap-missing"
+                ? "[Review all missing or outdated tools on Setup](page:vgs.jarvis/Setup) to enable shell commands"
+                : availability.reason === "public-runtime" ? "Jarvis could not prepare shell commands: turn Jarvis off and on again"
+                : "This system cannot run protected shell commands" };
         const result = shell.status.set("shell", value);
         if (result !== "ok") throw new Error("jarvis: " + result);
     }

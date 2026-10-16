@@ -7,8 +7,8 @@
 # terminal lacks. With a Copilot account, and only then, Settings shows the
 # Copilot Memory step and its link to GitHub. The AI model status hint
 # draws a link that opens Settings; plain words fail the link reading.
-# A click on the Microphone
-# field's link opens the Sounds page. With the fixture's key stored,
+# The Microphone field's info dialog
+# links to the Sounds page. With the fixture's key stored,
 # Settings draws the key list beside Account, a line per key with its
 # chip. Setup and Details draw none. A manifest copy without the Settings
 # field fails the Settings reading. Local servers appear beside
@@ -29,7 +29,7 @@
 # No latency budget.
 # Poll once per nested IPC round trip. Only J09's process double and the
 # allow-listed TUI fixtures run here.
-# inputs: shell/plugins/vgs.jarvis/* shell/plugins/vgs.jarvis/backend/Home.js shell/plugins/vgs.jarvis/backend/jarvisd.js shell/Ui/layout/GroupList.qml bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js shell/plugins/vgs.settings/* shell/Ui/controls/Select.qml shell/Ui/controls/InputWidth.qml shell/Ui/overlay/* shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Capabilities.qml shell/Core/PluginStatus.qml shell/Commons/Reply.js scripts/fixtures/jarvis/* scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml bin/vgshell-tui scripts/smoke/rows/jarvis.sh shell/Commons/AnchorTracker.qml shell/plugins/vgs.sounds/* shell/plugins/vgs.system/* shell/Hosts/PaneHost.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js
+# inputs: shell/plugins/vgs.jarvis/* shell/plugins/vgs.jarvis/backend/Home.js shell/plugins/vgs.jarvis/backend/jarvisd.js shell/Ui/layout/GroupList.qml bin/lib/account-folders.js bin/lib/codex-account.js bin/lib/anchored.js shell/Commons/AccountDirectories.js shell/plugins/vgs.settings/* shell/Ui/controls/Select.qml shell/Ui/controls/InputWidth.qml shell/Ui/overlay/* shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Capabilities.qml shell/Core/PluginStatus.qml shell/Commons/Reply.js scripts/fixtures/jarvis/* scripts/smoke/fixtures/tui/vgs.jarvis/* shell/Core/TuiRunner.qml bin/vgshell-tui scripts/smoke/rows/jarvis.sh scripts/smoke/rows/settings.sh shell/Commons/AnchorTracker.qml shell/plugins/vgs.sounds/* shell/plugins/vgs.system/* shell/Hosts/PaneHost.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js
 set -euo pipefail
 # Jarvis holds `dictation`, and the shell finds no voxtype: the core's
 # probe does not start at each enable.
@@ -566,22 +566,17 @@ expect_poll "the page draws one backup model" '["2"]' page_backups
 expect "the second backup model is removed" clicked ipc smoke invokeInstance window vgs.settings listRemove '{"id":"vgs.jarvis","key":"fallbacks","name":"2"}'
 expect_poll "the page draws no backup model" '[]' page_backups
 
-# The Microphone field's description names where the feedback tones are
-# set, and a click on its link opens the Sounds page in the System window,
-# the panes holder, through the same pointer steps. The sandbox starts with
-# the System window disabled, so the step enables it and puts it back. The
-# Copilot Memory step closed the requirement notice, which would take the
-# pointer over the revealed field too.
+# The Microphone field keeps the feedback-tones link in its info dialog.
+# The System window starts disabled and is restored after this reading.
 page_system_was="$(plugin_enabled vgs.system)" || fail "vgs.system's enabled state is unreadable"
 expect "enabling the System window is allowed" ok ipc shell setPluginEnabled vgs.system true
-# The Microphone setting's description as the manifest gives it.
-page_hint="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["schema"]["microphone"]["description"])' "$repo/shell/plugins/vgs.jarvis/manifest.json")" ||
-  fail "the Microphone description is unreadable"
-page_link="Appearance → Sounds"
-ipc smoke revealText window vgs.settings LinkText "$page_hint" >/dev/null || fail "the Microphone description is not on the page"
+page_info_text="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["schema"]["microphone"]["info"])' "$repo/shell/plugins/vgs.jarvis/manifest.json")" ||
+  fail "the Microphone info is unreadable"
 expect_poll "no pane is mounted before the Sounds link's click" '[]' window_panes
-page_link_click || fail "the click on the Sounds link failed"
-expect_poll "a click on the Sounds link opens the Sounds page" '["vgs.sounds"]' window_panes
+settings_press --type InfoButton "About Microphone" SettingField Microphone || fail "the Microphone info did not open"
+expect_poll "the Microphone info shows its page link" shown info_link_shown "$page_info_text"
+info_link_click "$page_info_text" || fail "the Sounds page link did not activate"
+expect_poll "the Microphone info link opens the Sounds page" '["vgs.sounds"]' window_panes
 expect "the System window hides after the Sounds link" ok ipc shell hide window vgs.system
 expect_poll "the System window is gone after the Sounds link" 0 window_count 'System Settings'
 [[ $page_system_was == True ]] && page_system_want=true || page_system_want=false

@@ -1120,7 +1120,7 @@ function verifyReadiness(gate) {
     }
     const lines = BRAIN_CAUSES.map(cause => plain(gate.readiness({ kind: "answered", causes: [cause] })).setupModel.hint);
     const localNotReady = plain(gate.readiness({ kind: "answered", causes: ["speech=local-not-ready"] })).setupVoice;
-    assert.equal(localNotReady.hint, "Local voice did not start. Set it up again.", "local voice setup-broken words");
+    assert.equal(localNotReady.hint, "Set up the local voice again", "local voice setup-broken words");
     const localReadyTimeout = plain(gate.readiness({ kind: "answered", causes: ["speech=local-ready-timeout"] })).setupVoice;
     assert.deepEqual([localReadyTimeout.text, localReadyTimeout.hint], ["Timed out",
         "Local voice timed out: [turn Jarvis off and on again, or set it up again](page:vgs.jarvis/Setup)"], "local voice timeout words");
@@ -1654,7 +1654,7 @@ function verify(gate) {
         assert.equal(words.kind, kind, label + ": classified");
         assert.equal(typeof words.title, "string", label + ": title");
         assert.equal(typeof words.action, "string", label + ": action");
-        assert.deepEqual(JSON.parse(JSON.stringify(words.lines)), [cause], label + ": detail line");
+        assert.equal(words.lines.length, 1, label + ": detail line");
         const setup = gate.readiness({ kind: "problem", cause }).setup;
         assert.deepEqual([setup.text, setup.hint], [words.title, words.action], label + ": the start failure summary says its state and hint");
         assert.deepEqual([setup.lines, keyedCauses(setup, ["text", "hint"])], [undefined, []], label + ": the start failure summary draws no keyed cause");
@@ -1681,9 +1681,9 @@ console.log("test-jarvis-setup-gate: consumer=Setup hint=Choose an AI model in [
 // Each control removes one rule from a copy and keeps the text around it:
 // [label, needle, replacement].
 const CONTROLS = [
-    ["a failed start's tooltip draws its keyed cause", 'hint: retrying ? RETRYING_START : problem.action,', 'hint: retrying ? RETRYING_START : problem.lines[0],', "the bar tooltip draws no keyed cause"],
-    ["the stopped notice draws its keyed cause", 'message: sentence(problem.action), tone: "danger"', 'message: sentence(problem.lines[0]), tone: "danger"', "the stopped notice draws no keyed cause"],
-    ["the mute notice draws its keyed cause", '"Mute request could not be saved: " + startCause(cause).title', '"Mute request could not be saved: " + statusCauseLine(cause)', "the mute refused notice draws no keyed cause"],
+    ["a failed start's tooltip draws its keyed cause", 'hint: retrying ? RETRYING_START : problem.action,', 'hint: retrying ? RETRYING_START : "jarvis: hello=timeout",', "the bar tooltip draws no keyed cause"],
+    ["the stopped notice draws its keyed cause", 'message: sentence(problem.action), tone: "danger"', 'message: sentence(cause), tone: "danger"', "the stopped notice draws no keyed cause"],
+    ["the mute notice draws its keyed cause", '"Mute request could not be saved: " + startCause(cause).title', '"Mute request could not be saved: " + String(cause)', "the mute refused notice draws no keyed cause"],
     ["the Daemon row loses its cause", 'hint: retrying ? RETRYING_START : problem.action, lines: problem.lines };', 'hint: retrying ? RETRYING_START : problem.action };', "the Daemon row keeps the cause"],
     ["check failure hidden", 'if (check.kind === "failed") return', 'if (false) return'],
     ["microphone check hides a setup cause", 'value.tone !== "ok" || ', "", "voice setup cause survives microphone check"],
@@ -1730,8 +1730,8 @@ const CONTROLS = [
         '"speech=dictation-elsewhere": { action: "dictation", tone:', "another voxtype"],
     ["the holder omits a missing engine name", 'if (!setup.compiled) lines.push(', 'if (false) lines.push(', "the holder names"],
     ["the holder omits a missing model name", 'if (!setup.installed) lines.push(', 'if (false) lines.push(', "the holder names"],
-    ["a failed daemon offers no setup", '"speech=dictation-failed": { tone: "warning", text: "To do", hint: "Dictation did not start. Set up dictation gets it ready.", action: "dictation" },',
-        '"speech=dictation-failed": { tone: "warning", text: "To do", hint: "Dictation did not start. Set up dictation gets it ready." },', "the Voice step"],
+    ["a failed daemon offers no setup", '"speech=dictation-failed": { tone: "warning", text: "To do", hint: "Set up dictation again", action: "dictation" },',
+        '"speech=dictation-failed": { tone: "warning", text: "To do", hint: "Set up dictation again" },', "the Voice step"],
     ["the voxtype row shows for any voice", 'return hearsLocally(provider) ? requirementValue("voxtype", missing) : { hidden: true };', 'return requirementValue("voxtype", missing);', "Realtime voice"],
     ["the ElevenLabs voices row never shows", 'if (facts.provider !== "elevenlabs") return { hidden: true };', "return { hidden: true };", "the ElevenLabs voices row"],
     ["a stored ElevenLabs key still reads as the user's step", 'if (!chosen) return { tone: "info", text: "Your step" };', 'return { tone: "info", text: "Your step" };', "the ElevenLabs voices row"],
@@ -1827,24 +1827,23 @@ const CONTROLS = [
     ["an unknown cause has no hint", "var hint = Object.prototype.hasOwnProperty.call(TODO, cause) ? TODO[cause] : STEP_TODO[step];", "var hint = TODO[cause];"],
     ["local voice repeats its action as its hint", "var STEP_TODO = { brain:", 'var STEP_TODO = { speech: "fixture repeat", brain:'],
     ["the timed-out Voice step draws its cause", ': { tone: "warning", text: text, hint: hint, action: action };',
-        ': cause === "speech=local-ready-timeout" ? { tone: "warning", text: text, hint: hint, action: action, lines: [statusCauseLine(cause)] } : { tone: "warning", text: text, hint: hint, action: action };',
+        ': cause === "speech=local-ready-timeout" ? { tone: "warning", text: text, hint: hint, action: action, lines: [String(cause)] } : { tone: "warning", text: text, hint: hint, action: action };',
         "voice setup cause survives microphone check"],
     ["the timed-out Voice step reads to do", 'var text = cause === "speech=local-ready-timeout" ? TIMED_OUT : "To do";', 'var text = "To do";', "voice setup cause survives microphone check"],
     ["a start failure summary draws its cause", "hint: answer.action || problem.action },", "hint: answer.action || problem.action, lines: problem.lines },",
         "hello timeout: the start failure summary draws no keyed cause"],
-    ["a stopped summary draws its reason as a line", 'hint: "Jarvis stopped after a problem. Turn Jarvis off and on again." }', 'lines: ["Jarvis stopped after a problem. Turn Jarvis off and on again."] }'],
-    ["the not-ready summary draws its causes", ': { tone: "warning", text: "Not ready" },', ': { tone: "warning", text: "Not ready", lines: answer.causes.map(statusCauseLine) },', "nothing set up: the summary draws no keyed cause"],
-    ["a caution summary draws its cause", 'return CAUTION[cause]; })) }', 'return CAUTION[cause]; })), lines: answer.causes.map(statusCauseLine) }', "probe timeout: the summary draws no keyed cause"],
+    ["a stopped summary draws its reason as a line", 'hint: "Turn Jarvis off and on again" }', 'lines: ["Turn Jarvis off and on again"] }'],
+    ["the not-ready summary draws its causes", ': { tone: "warning", text: "Not ready" },', ': { tone: "warning", text: "Not ready", lines: answer.causes.map(String) },', "nothing set up: the summary draws no keyed cause"],
+    ["a caution summary draws its cause", 'return CAUTION[cause]; })) }', 'return CAUTION[cause]; })), lines: answer.causes.map(String) }', "probe timeout: the summary draws no keyed cause"],
     ["causes leave the summary ready", 'setup: answer.causes.length === 0 ? { tone: "ok", text: "Ready" }', 'setup: true ? { tone: "ok", text: "Ready" }'],
     ["checking reads done", 'return { setup: CHECKING_SUMMARY, setupHome: HOME_UNCHECKED, setupVoice: CHECKING, setupModel: noAction(CHECKING) };', 'return { setup: CHECKING_SUMMARY, setupHome: HOME_UNCHECKED, setupVoice: DONE, setupModel: noAction(DONE) };'],
     ["an optional step reads open when ok", 'return value.tone === "ok" ? value :', "return false ? value :", "done under Local: the browser and input read optional"],
     ["an optional step drops its action", 'Object.assign({}, value, { tone: "info" })', 'Object.assign({}, value, { tone: "info", action: false })', "partial under Local: the rows that offer"],
     ["the checking summary offers a step", "return { setup: CHECKING_SUMMARY,", "return { setup: CHECKING,"],
-    ["a stopped daemon's steps read checking", 'case "stopped":\n        return { setup: { tone: "danger", text: "Not ready", hint: "Jarvis stopped after a problem. Turn Jarvis off and on again." },\n            setupHome: HOME_UNCHECKED, setupVoice: UNCHECKED, setupModel: noAction(UNCHECKED) };',
-        'case "stopped":\n        return { setup: { tone: "danger", text: "Not ready", hint: "Jarvis stopped after a problem. Turn Jarvis off and on again." },\n            setupHome: HOME_UNCHECKED, setupVoice: CHECKING, setupModel: noAction(CHECKING) };'],
-    ["a keyed start cause has no words", '[/^jarvis: hello=timeout$/, { kind: "hello-timeout", title: "Jarvis did not answer in time", action: START_RESTART }],', ""],
-    ["a status cause line is not bounded", ".slice(0, STATUS_TEXT_MAX)", ""],
-    ["an arbitrary stderr line has no words", "return { kind: DAEMON_EXIT.kind, title: DAEMON_EXIT.title, action: DAEMON_EXIT.action, lines: [line] };", 'throw new Error("jarvis-setup: start-cause=" + cause + " has no words");'],
+    ["a stopped daemon's steps read checking", 'case "stopped":\n        return { setup: { tone: "danger", text: "Not ready", hint: "Turn Jarvis off and on again" },\n            setupHome: HOME_UNCHECKED, setupVoice: UNCHECKED, setupModel: noAction(UNCHECKED) };',
+        'case "stopped":\n        return { setup: { tone: "danger", text: "Not ready", hint: "Turn Jarvis off and on again" },\n            setupHome: HOME_UNCHECKED, setupVoice: CHECKING, setupModel: noAction(CHECKING) };'],
+    ["a keyed start cause has no words", '[/^jarvis: hello=timeout$/, { kind: "hello-timeout", title: "Jarvis did not answer in time", detail: "Jarvis could not finish starting.", action: START_RESTART }],', ""],
+    ["an arbitrary stderr line has no words", "return { kind: DAEMON_EXIT.kind, title: DAEMON_EXIT.title, action: DAEMON_EXIT.action, lines: [DAEMON_EXIT.detail] };", 'throw new Error("jarvis-setup: start-cause=" + cause + " has no words");'],
     ["a cause naming no step is taken", 'if (!Object.prototype.hasOwnProperty.call(REQUIRED, step)) throw new Error("jarvis-setup: cause=" + cause + " names no step");', ""],
     ["auto names no tier of its own", 'return wanted === "auto" ? pick : wanted;', "return wanted;"],
     ["a ready wanted tier downloads again", "if (wantedTier(wanted, pick) === ready) return null;\n    return wanted", "return wanted"],
@@ -2513,7 +2512,7 @@ function verifyOneReadiness(gate) {
 
 // The class check: every text a user reads after a READINESS case or a
 // failed start (the bar tooltip, the desktop notices and the Setup values)
-// words its state; the keyed cause stays on the Daemon row's line.
+// words its state; the service log keeps the keyed cause.
 function verifyWordedText(gate) {
     const keys = { talk: "Super+Right Alt", mute: "Super+Shift+Right Alt", stop: "Super+Alt+Period", confirm: "Super+Alt+Y" };
     const state = Object.assign(plain(session.initial()), { gate: { kind: "down", reason: "unconfigured" } });
