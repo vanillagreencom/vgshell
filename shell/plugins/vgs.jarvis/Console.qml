@@ -132,7 +132,7 @@ FocusScope {
         if (key === "speaking") return "Wait for Jarvis to finish speaking, or press Stop";
         if (key === "busy") return "Wait, or press Stop";
         if (key === "held") return "Confirm or cancel the request first";
-        if (key === "duplex") return "This voice mode owns the turn";
+        if (key === "duplex") return "Typing is unavailable with this voice provider: speak to Jarvis instead";
         if (key === "say-text") return "Message too long or has unsupported characters";
         return "Jarvis is not ready";
     }

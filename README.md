@@ -76,7 +76,7 @@ VGS starts with Hyprland and draws the bar, panels and windows on each screen. E
 | [Fonts](shell/plugins/vgs.fonts/README.md) | Set the font of the shell and of your terminals. |
 | [VGS Components](shell/plugins/vgs.gallery/README.md) | Preview VGS controls in the current theme. |
 | [Login screen](shell/plugins/vgs.greeter/README.md) | Log in on a screen in your VGS theme. |
-| [Jarvis](shell/plugins/vgs.jarvis/README.md) | Talk to a voice assistant. Turn Jarvis on or off. Turning it off stops its session and prevents automatic starts. |
+| [Jarvis](shell/plugins/vgs.jarvis/README.md) | Talk to a voice assistant. Turning Jarvis off ends the session and prevents automatic starts. |
 | [Keyboard](shell/plugins/vgs.keyboard/README.md) | Choose input sources and key repeat. |
 | [Key Hints](shell/plugins/vgs.keyhints/README.md) | See and change every shortcut VGS adds. |
 | [Launcher](shell/plugins/vgs.launcher/README.md) | Find and open apps, files and system actions. |

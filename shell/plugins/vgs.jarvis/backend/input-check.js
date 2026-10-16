@@ -18,11 +18,12 @@ if (process.argv.length !== 2 || tree === null) {
     void owner.ready().then(record => {
         const keys = record.commands.includes("wtype");
         const pointer = record.commands.find(command => command !== "wtype") || "unavailable";
-        process.stdout.write("jarvis-input: keys=" + (keys ? "ready" : "unavailable") + " pointer=" + pointer + "\n");
+        process.stdout.write((keys ? "Typing is ready." : "Typing is unavailable.") + "\n"
+            + (pointer !== "unavailable" ? "Clicking and scrolling are ready." : "Clicking and scrolling are unavailable.") + "\n");
         if (!keys || pointer === "unavailable") {
-            process.stdout.write("Open Jarvis requirements to install missing input tools. A pointer fallback needs an already running input service.\n");
+            process.stdout.write("Use Review all missing or outdated tools beside Desktop input to install missing tools. If clicking is still unavailable, check that your input service is running.\n");
             process.exitCode = 69;
         }
         owner.close();
-    }, error => { owner.close(); process.stderr.write("jarvis-input: check=" + error.message + "\n"); process.exitCode = 1; });
+    }, error => { owner.close(); process.stderr.write("Jarvis could not check desktop input. Press Check input to try again.\n"); process.exitCode = 1; });
 }
