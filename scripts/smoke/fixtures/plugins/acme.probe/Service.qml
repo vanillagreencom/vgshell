@@ -30,6 +30,7 @@ Item {
     // how many times the callback ran.
     property var groupLock: null
     property int groupLockReads: 0
+    function keepGroupLock(answer) { groupLock = answer; groupLockReads += 1; }
     readonly property bool lockSecure: shell !== null && shell.lock.secure
     // Each idle state the idle watch reported, in order, and its disposer.
     property var idleChanges: []
@@ -96,7 +97,15 @@ Item {
         // group-lock-read answers what the compositor's group lock read
         // returned, and its callback keeps the answer in groupLock;
         // group-lock-state answers { reads, answer } as JSON.
-        shell.ipc.handle("group-lock-read", () => root.shell.compositor.readGroupLock(answer => { root.groupLock = answer; root.groupLockReads += 1; }));
+        // group-lock-after <action> locks and then reads in one turn, as a
+        // plugin acting on its own lock does; group-lock-throws <action>
+        // queues a read whose callback throws and then the lock; both
+        // answer the two returns joined by ",". group-lock-no-callback
+        // answers the refusal a read without a callback throws.
+        shell.ipc.handle("group-lock-read", () => root.shell.compositor.readGroupLock(root.keepGroupLock));
+        shell.ipc.handle("group-lock-after", action => [root.shell.compositor.lockActiveGroup(action), root.shell.compositor.readGroupLock(root.keepGroupLock)].join(","));
+        shell.ipc.handle("group-lock-throws", action => [root.shell.compositor.readGroupLock(() => { throw new Error("planted"); }), root.shell.compositor.lockActiveGroup(action)].join(","));
+        shell.ipc.handle("group-lock-no-callback", () => { try { return root.shell.compositor.readGroupLock(); } catch (e) { return e.message; } });
         shell.ipc.handle("group-lock-state", () => JSON.stringify({ reads: root.groupLockReads, answer: root.groupLock }));
         // N dispatches of one request in one call; answers the last reply.
         shell.ipc.handle("flood", arg => { const a = arg.split(" "); let last = ""; for (let i = 0; i < Number(a[0]); i++) last = root.shell.compositor[a[1]].apply(null, a.slice(2)); return last; });

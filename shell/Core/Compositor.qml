@@ -97,7 +97,7 @@ Singleton {
             const waiting = root.windowsWaiting;
             root.windowsWaiting = [];
             const state = failure === "" ? Dispatch.windowState(text) : { ok: false, error: "refused: windows=read-failed " + failure };
-            for (const done of waiting) done(state);
+            for (const done of waiting) root.deliver(done, state, "windows");
         }
     }
 
@@ -175,12 +175,24 @@ Singleton {
     // hyprctl requests, so a read asked after `lockActiveGroup` runs after
     // that dispatch's reply and reads its effect.
     function readGroupLock(done) {
+        if (typeof done !== "function") throw new Error("refused: group-lock=callback");
         const r = Dispatch.groupLockReadRequest(Hyprland.usingLua);
         if (!r.ok) {
             console.error("compositor: " + r.error);
             return r.error;
         }
         return enqueue(r.argv, answer => done(Dispatch.groupLockState(answer)), true);
+    }
+
+    // Hand a caller's callback its answer. A callback that throws, a
+    // plugin's among them, is logged here and stops nothing else, so the
+    // owner that runs it goes on serving the requests after it.
+    function deliver(done, value, what) {
+        try {
+            done(value);
+        } catch (e) {
+            console.error("compositor: callback=threw for=" + what + " error=" + e);
+        }
     }
 
     function enqueue(argv, done, judged) {
@@ -424,11 +436,12 @@ Singleton {
             if (root.completion === null)
                 console.error("compositor: dispatch-start=failed request=" + JSON.stringify(root.pending));
             const done = root.pendingDone;
+            const argv = root.pending;
             const answer = root.completion === null ? "dispatch-start=failed" : root.completion.code !== 0 ? "exit=" + root.completion.code + (root.reply === "" ? "" : " reply=" + JSON.stringify(root.reply)) : root.reply;
             root.pending = null;
             root.pendingDone = null;
             root.pendingJudged = false;
-            if (done !== null) done(answer);
+            if (done !== null) root.deliver(done, answer, JSON.stringify(argv));
             root.drain();
         }
     }

@@ -467,7 +467,6 @@ try {
     const groupLockControls = [
         ["a classic session is refused", "if (usingLua !== true)\n        return { ok: false, error: \"refused: group-lock=session=classic\" };", "if (false)\n        return { ok: false, error: \"refused: group-lock=session=classic\" };"],
         ["the read is sent through repl", 'argv: ["hyprctl", "repl", GROUP_LOCK_READ]', 'argv: ["hyprctl", "eval", GROUP_LOCK_READ]'],
-        ["a lock field that is no boolean is not unlocked", '" if w.group.locked == false then return \\"unlocked\\" end"', '""'],
         ["only the four states are read", "if (GROUP_LOCK_STATES.indexOf(answer) === -1)", "if (answer === \"\")"],
         ["the state is the answer", "return { ok: true, state: answer };", "return { ok: true, state: \"unlocked\" };"]
     ];

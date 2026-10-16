@@ -11,6 +11,8 @@
 # Hyprland reports a group's lock only to Lua, so the fixture's group lock
 # read reads each lock effect; it waits in the dispatch queue behind the
 # request before it, and the harness's own Lua read agrees with it once.
+# A shim that holds each dispatch for a second shows that a read asked in
+# the lock's own turn waits for it.
 # inputs: scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/Compositor.qml shell/Core/Dispatch.js shell/Core/Capabilities.qml scripts/smoke/toplevel/* scripts/smoke/rows/capabilities.sh
 set -euo pipefail
 
@@ -144,21 +146,36 @@ dispatch_toggle_control() { # NAME SET_REQUEST WANT FIELD
   expect_poll "the restored $name state is read back" "$want" dispatch_client "$dispatch_target" "$field"
 }
 
+# How many times the fixture's group lock callback has run.
+dispatch_group_lock_reads() { probe group-lock-state | py_reply 'import json,sys; print(json.load(sys.stdin)["reads"])'; }
 # The fixture's group lock read, asked once: the state its callback took,
-# the refusal it took, or what the ask returned when it was refused. The
-# callback is polled at the 200 ms expect_poll interval.
+# the refusal it took, or what the ask returned when it was refused.
 dispatch_group_lock() {
   local before answer
-  before="$(probe group-lock-state | py_reply 'import json,sys; print(json.load(sys.stdin)["reads"])')" || return
+  before="$(dispatch_group_lock_reads)" || return
   answer="$(probe group-lock-read)" || return
   [[ $answer == ok ]] || { printf '%s\n' "$answer"; return 0; }
+  dispatch_group_lock_answer "$before"
+}
+# The same read asked in the turn of a lockActiveGroup ACTION, after it.
+dispatch_group_lock_after() { # ACTION
+  local before answer
+  before="$(dispatch_group_lock_reads)" || return
+  answer="$(probe group-lock-after "$1")" || return
+  [[ $answer == ok,ok ]] || { printf '%s\n' "$answer"; return 0; }
+  dispatch_group_lock_answer "$before"
+}
+# What the callback took once it has run more than BEFORE times, polled
+# at the 200 ms expect_poll interval.
+dispatch_group_lock_answer() { # BEFORE
+  local answer
   smoke_poll_tries 200 1
   for _ in $(seq 1 "$smoke_poll_n"); do
     answer="$(probe group-lock-state | py_reply 'import json,sys
 r = json.load(sys.stdin)
 if r["reads"] <= int(sys.argv[1]): print("unanswered")
 elif r["answer"]["ok"]: print(r["answer"]["state"])
-else: print(r["answer"]["error"])' "$before")" || return
+else: print(r["answer"]["error"])' "$1")" || return
     [[ $answer == unanswered ]] || { printf '%s\n' "$answer"; return 0; }
     sleep 0.2
   done
@@ -169,10 +186,10 @@ else: print(r["answer"]["error"])' "$before")" || return
 # a set then restores the lock.
 dispatch_group_lock_toggle_control() {
   local log="$sandbox/dispatch-repeat-group-lock-control.log" count
+  expect "control: a toggle in place of the repeated group lock set is accepted" ok probe dispatch "lockActiveGroup toggle"
   (
     failures=0
     row_class=behaviour
-    expect "control: a toggle in place of the repeated group lock set is accepted" ok probe dispatch "lockActiveGroup toggle"
     expect "a repeated group lock set keeps the group locked" locked dispatch_group_lock
     printf 'control-failures=%s\n' "$failures"
   ) >"$log"
@@ -181,6 +198,16 @@ dispatch_group_lock_toggle_control() {
   expect "the group lock is restored after the toggle control" ok probe dispatch "lockActiveGroup set"
   expect "the restored group lock is read back" locked dispatch_group_lock
 }
+
+# Each dispatch is held one second before it reaches Hyprland, so a read
+# that ran beside the queue rather than behind the dispatch would answer
+# the state before it.
+cat >"$shim/hyprctl.dispatch-slow" <<EOF
+#!/usr/bin/env bash
+[[ \${1:-} != dispatch ]] || sleep 1
+exec "$hyprctl_bin" "\$@"
+EOF
+chmod 755 "$shim/hyprctl.dispatch-slow"
 
 if open_toplevel "$sandbox/dispatch-target.log" smoke.dispatch target; then
   dispatch_target_pid="$toplevel_pid"
@@ -257,6 +284,13 @@ if open_toplevel "$sandbox/dispatch-target.log" smoke.dispatch target; then
     expect "group lock toggle locks the group" locked dispatch_group_lock
     expect "a second group lock toggle is accepted" ok probe dispatch "lockActiveGroup toggle"
     expect "a second group lock toggle unlocks the group" unlocked dispatch_group_lock
+    shim_hyprctl dispatch-slow
+    expect "a read asked in the lock's own turn reads the held lock's effect" locked dispatch_group_lock_after set
+    shim_hyprctl real
+    expected_errors+=('ERROR qml: compositor: callback=threw for=\["hyprctl","repl",.* error=Error: planted')
+    expect "a read whose callback throws and a lock queued behind it are accepted" ok,ok probe group-lock-throws unset
+    expect_poll "the lock queued behind the throwing callback still lands" false hypr repl 'return tostring(hl.get_active_window().group.locked)'
+    expect "a read without a callback is refused" "refused: group-lock=callback" probe group-lock-no-callback
     expected_errors+=('ERROR qml: compositor: refused: dispatcher=lockActiveGroup argument=0 value="lock"')
     expect "Hyprland's own lock word, which toggles, is refused" 'refused: dispatcher=lockActiveGroup argument=0 value="lock"' probe dispatch "lockActiveGroup lock"
     expect "the harness's own Lua read agrees the group is unlocked" false hypr repl 'return tostring(hl.get_active_window().group.locked)'
@@ -298,4 +332,4 @@ else
   fail "the target dispatch window maps"
 fi
 expect "the dispatch row returns to workspace 1" ok probe dispatch "focusWorkspace 1"
-rm -f -- "${shim:?}/hyprctl.dispatch-noop"
+rm -f -- "${shim:?}/hyprctl.dispatch-noop" "${shim:?}/hyprctl.dispatch-slow"
