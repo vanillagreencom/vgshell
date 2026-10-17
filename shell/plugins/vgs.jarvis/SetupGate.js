@@ -317,15 +317,6 @@ function accountAccess(accounts) {
     return { kind: accounts.some(function (account) { return account.signIn === true; }) ? "signed-out" : "absent" };
 }
 
-// The selected account already covers sign-in, including a key or local
-// server that needs no app sign-in. The account reader owns these offers.
-function signInStep(brain, brains) {
-    if (brains === null) return Object.assign({}, CHECKING, { hint: "Jarvis is checking your accounts" });
-    if (brains.some(function (choice) { return choice.value === brain; }))
-        return Object.assign({}, DONE, { hint: "The selected Account is available" });
-    return { tone: "info", text: "Optional", action: true };
-}
-
 // The model row keeps Sign in for a signed-out cause. Otherwise it offers
 // a step only after both readers find no key or signed-in app: Sign in
 // while an app is found signed out, else Add key. Missing reader output
@@ -407,11 +398,12 @@ function readiness(answer) {
 
 // The Copilot Memory row for ACCOUNTS, the account list's items: shown
 // while a GitHub Copilot account is found signed in or unchecked. GitHub
-// keeps Copilot Memory in the account, where only the user can turn it off;
-// its entry's hint and link say where (D075).
+// keeps Copilot Memory in the account, where only the user can turn it off
+// and Jarvis cannot read it, so the row states where it is kept; its
+// entry's hint and link say where to turn it off (D075).
 function copilotMemory(accounts) {
     return accounts.some(function (account) { return account.provider === "copilot" && account.value === "present"; })
-        ? { tone: "info", text: "Your step" } : { hidden: true };
+        ? { tone: "info", text: "Kept by GitHub" } : { hidden: true };
 }
 
 // The voice the daemon runs for SETTINGS, the plugin's: the provider the
@@ -519,7 +511,7 @@ var VOICE_KEY_HINTS = {
 // AI model on Details, where this row is drawn too, and the Voice key field
 // on Settings chooses it. A link to that field would take the ElevenLabs
 // hint past the status hint ceiling.
-var VOICE_KEY_CHANGE = "; to use another key, press Add key on the API keys line under AI model, then choose it in Voice key";
+var VOICE_KEY_CHANGE = "; Add key on the API keys line under AI model stores another key for the Voice key setting";
 var VOICE_KEY_STORED = {
     openai: "Jarvis can use the Realtime voice with your OpenAI key" + VOICE_KEY_CHANGE,
     gemini: "Jarvis can use the Gemini Live voice with your Gemini key" + VOICE_KEY_CHANGE,
@@ -540,21 +532,22 @@ function voiceKey(offered, settings) {
 // account reader's stored cloud voice keys, undefined before its answer;
 // `account`, the Voice key setting; `answer`, the daemon's setup answer
 // (readiness's ANSWER); `voices`, how many voices the daemon offers. No row
-// under another voice. With no ElevenLabs key chosen the row is the user's
-// own step, which its declared hint words (D075). With one, it follows the
+// under another voice. With no ElevenLabs key chosen, or a chosen key no
+// longer stored, the row states that, and its declared hint says where to
+// get, store and choose a key (D075). With one, it follows the
 // key's voice list: offered, failed (the Voice step's cause), being read,
 // or waiting while another cause holds the Voice step. Only the hints
 // that send the user to ElevenLabs API keys name it, the declared one and
 // the failed read's, so the row's link draws in those two states alone.
 var ELEVENLABS_READY = "[Choose one in the Voice list](page:vgs.jarvis/Settings/voice)";
 var ELEVENLABS_READING = "Jarvis is reading the voices of your ElevenLabs key";
-var ELEVENLABS_WAITING = "Jarvis reads the voices of your ElevenLabs key when the [Voice step on Setup](page:vgs.jarvis/Setup) is done";
+var ELEVENLABS_WAITING = "Jarvis reads the voices of your ElevenLabs key once voice setup is done";
 function elevenLabsStep(facts) {
     if (facts.provider !== "elevenlabs") return { hidden: true };
     var named = facts.account;
     var chosen = named !== "" && (facts.keys === undefined
         || facts.keys.some(function (key) { return key.provider === "elevenlabs" && key.value === named; }));
-    if (!chosen) return { tone: "info", text: "Your step" };
+    if (!chosen) return { tone: "info", text: named === "" ? "No key chosen" : "Key not stored" };
     if (facts.voices > 0) return { tone: "ok", text: facts.voices === 1 ? "1 voice" : facts.voices + " voices", hint: ELEVENLABS_READY };
     var causes = facts.answer.kind === "answered" ? facts.answer.causes : [];
     if (causes.indexOf("speech=elevenlabs-voice") !== -1) return { tone: "warning", text: "Could not read voices", hint: ELEVENLABS_UNREAD };
@@ -716,47 +709,55 @@ function optionalStep(value) {
 
 // The Local voice row from VALUE, setup-local's reading, under PROVIDER,
 // the voice the daemon runs (voiceProvider), beside VOICE, the Voice step's
-// published value (voiceCheck). One task, setting up the local voice, takes
-// one open step. While the Voice step offers Set up local voice, whatever
-// the voice, this row is a state of that step: never open and offering no
-// setup. A reading that would offer setup itself, with no hint of its own,
-// says where that setup is; a setup that runs, or a failed check whose hint
-// already names the action, says nothing more. Else,
-// under a voice that hears the user on this computer, the row is the
-// required step itself and offers setup as its reading does. Under a voice
-// that hears the user elsewhere it is optional.
-var VOICE_STEP_SETS_UP = "Press Set up local voice on the Voice step to set it up.";
+// published value (voiceCheck). The row is a Details reading and offers no
+// action: setting up the local voice is the Voice step's Set up local voice
+// alone, or a change of the Local voice model setting (LocalTier.qml), so
+// the reading's own offer, `action`, never reaches the row. While the Voice
+// step offers that setup, whatever the voice, the row is a state of that
+// step and never open; a reading that would offer setup, with no hint of
+// its own, states why the step asks for it. Else, under a voice that hears
+// the user on this computer, the row keeps its reading's tone, and under a
+// voice that hears the user elsewhere it is optional.
+var LOCAL_VOICE_NEEDED = "The selected voice provider needs the local voice";
 function localVoiceStep(value, provider, voice) {
+    var reading = noAction(value);
     if (voice.action === "setup") {
-        if (value.tone === "ok") return Object.assign({}, value, { action: false });
-        var row = { tone: "info", text: value.text, action: false };
-        var lines = (value.lines || []).concat(value.action === true && value.hint === undefined ? [VOICE_STEP_SETS_UP] : []);
+        if (value.tone === "ok") return reading;
+        var row = { tone: "info", text: value.text };
+        var lines = (value.lines || []).concat(value.action === true && value.hint === undefined ? [LOCAL_VOICE_NEEDED] : []);
         if (lines.length > 0) row.lines = lines;
         if (value.hint !== undefined) row.hint = value.hint;
         return row;
     }
-    return hearsLocally(provider) ? value : optionalStep(value);
+    return hearsLocally(provider) ? reading : optionalStep(reading);
 }
 
 // The value a setup reader publishes when its check gives no answer, by
 // KIND: "failed" for a check that ended in error, "unreadable" for an
 // answer that is no status, "timeout" for a check past its deadline.
-// ENTRY is the reader's manifest status entry, whose setup action the hint
-// names: its one action, or its named setup action. A timeout is no step
+// ENTRY is the reader's manifest status entry. An entry with a setup
+// action, its one action or its named setup action, offers it, and the
+// hint names it; an entry without one, a reading such as Local voice,
+// states the failure alone. A timeout is no step
 // to do: the daemon judges setup without the check, so the row is not
 // open under a Ready summary and offers no setup. It says what holds under
 // any summary, while the Ready summary's caution (CAUTION) says Jarvis
 // answers. It draws no keyed cause, which the reader logs (LocalRuntime.qml).
 var CHECK_FAILURES = {
-    failed: { text: "Setup check failed", reason: "Jarvis could not check this setup." },
-    unreadable: { text: "Setup check returned invalid status", reason: "Jarvis could not read the answer of the setup check." }
+    failed: { text: "Setup check failed", reason: "Jarvis could not check this setup" },
+    unreadable: { text: "Setup check returned invalid status", reason: "Jarvis could not read the answer of the setup check" }
 };
 function checkFailure(kind, entry) {
-    if (kind === "timeout") return { tone: "info", text: "Check did not finish", hint: "Jarvis does not need this check to answer and runs it again after the next setup", action: false };
+    var setup = entry.action !== undefined ? entry.action : entry.actions !== undefined ? entry.actions.setup : undefined;
+    if (kind === "timeout") {
+        var unfinished = { tone: "info", text: "Check did not finish", hint: "Jarvis does not need this check to answer and runs it again after the next setup" };
+        return setup === undefined ? unfinished : Object.assign(unfinished, { action: false });
+    }
     if (!Object.prototype.hasOwnProperty.call(CHECK_FAILURES, kind)) throw new Error("jarvis-setup: check-failure=" + kind + " unexpected");
-    var label = entry.action !== undefined ? entry.action.label : entry.actions.setup.label;
-    return { tone: "warning", text: CHECK_FAILURES[kind].text,
-        hint: CHECK_FAILURES[kind].reason + " Press " + label + " to set it up and check it again.", action: true };
+    var failure = CHECK_FAILURES[kind];
+    if (setup === undefined) return { tone: "warning", text: failure.text, hint: failure.reason };
+    return { tone: "warning", text: failure.text,
+        hint: sentence(failure.reason) + " Press " + setup.label + " to set it up and check it again.", action: true };
 }
 
 // The Local voice setting (`localTier`) and its downloads. WANTED is the

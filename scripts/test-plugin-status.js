@@ -67,7 +67,7 @@ function suite(ctx, check) {
     const jarvis = ctx.validateManifest(jarvisRaw, "/jarvis").manifest;
     const jarvisService = fs.readFileSync(path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "Service.qml"), "utf8");
     const jarvisNone = /const offers = \[\{ label: "None", value: "([^"]*)" \}\]\.concat\(homes\);/.exec(jarvisService)?.[1] ?? null;
-    const voiceValues = { localRuntime: { tone: "warning", text: "Setup needed", action: true } };
+    const voiceValues = { setupVoice: { tone: "warning", text: "To do", action: "setup" } };
     const scratchRoot = path.join(__dirname, "..", "tmp");
     fs.mkdirSync(scratchRoot, { recursive: true });
     const commands = fs.mkdtempSync(path.join(scratchRoot, "settings-tui-path-"));
@@ -87,8 +87,8 @@ function suite(ctx, check) {
             check("Settings routes local voice to install while " + absent + " is absent",
                 ctx.tuiRunFor(jarvis, true, "/sources", { launcher: "present", busy: [], run: "test" }, "setup-local", missing),
                 { ok: true, kind: "install", commands: [absent] });
-            check("Settings offers local voice while " + absent + " is absent, as its press asks for it",
-                ctx.statusRows(jarvis, voiceValues).find(row => row.key === "localRuntime").action,
+            check("the Voice step offers local voice while " + absent + " is absent, as its press asks for it",
+                ctx.statusRows(jarvis, voiceValues).find(row => row.key === "setupVoice").action,
                 { label: "Set up local voice", tone: "", offered: true, tui: "setup-local" });
             fs.writeFileSync(file, "#!/bin/sh\nexit 99\n", { mode: 0o700 });
         }

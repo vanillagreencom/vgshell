@@ -118,7 +118,7 @@ You can change the keys under Keys on the Jarvis page.
 
 ## Setup
 
-The Setup tab of the Jarvis page lists the required Home folder, AI model, Voice and Tools steps. Each reads Done or To do and keeps its row after completion. A pending step explains what to change and offers its action as a text link. Settings holds the choices, such as Account and the local voice model. Details holds overall readiness, Memory search and the optional tools, and the sign-in, provider key, Browser, Desktop input, Agent fleet and Cloned voice readings, each beside its action.
+The Setup tab of the Jarvis page lists the required Home folder, AI model, Voice and Tools steps. Each reads Done or To do and keeps its row after completion. A pending step explains what to change and offers its action as a text link. Settings holds the choices, such as Account and the local voice model. Details holds the readings, each in the section of its feature: AI model for provider keys, accounts and Copilot Memory; Voice; Local voice for the local voice and Cloned voice; Home for Personality, the Jarvis session and Memory search; and Access for Browser, Desktop input and Agent fleet. Each optional action sits beside its reading, and the optional tools are under Tools. The Local voice reading offers no action: Set up local voice is on the Voice step, and choosing another Local voice model downloads that model.
 
 The buttons are also rows in the launcher's Jarvis group. Each opens a floating terminal.
 
@@ -137,7 +137,7 @@ When a tool that Jarvis needs is missing, the VGS requirement notice installs it
 
 Home folder shows in Setup only when Jarvis cannot use the folder you chose, and says what to change. Jarvis checks the folder again when you press Talk.
 
-With the ElevenLabs voice, the Details tab shows ElevenLabs voices. Until you choose a key it is your step; then it says how many voices Jarvis read, that it is reading them, or that it could not read them. While it is your step, and when Jarvis could not read the voices, it links ElevenLabs API keys, where you make a key and see what the key may read. You design or clone a voice on ElevenLabs's site, under Voices; Voice then lists it.
+With the ElevenLabs voice, the Details tab shows ElevenLabs voices. Until you choose a stored key it reads No key chosen or Key not stored; then it says how many voices Jarvis read, that it is reading them, or that it could not read them. While no stored key is chosen, and when Jarvis could not read the voices, it links ElevenLabs API keys, where you make a key and see what the key may read. You design or clone a voice on ElevenLabs's site, under Voices; Voice then lists it.
 
 With a GitHub Copilot account, the Details tab shows Copilot Memory. GitHub keeps that memory in your account, so only you can turn it off: open [GitHub Copilot settings](https://github.com/settings/copilot/features) and set Copilot Memory to Disabled.
 
@@ -166,7 +166,7 @@ The settings are in Settings → Plugins → Jarvis. A change to Voice provider,
 | Screen to cloud | Whether a screenshot, or its text, goes to an AI or a voice outside your computer. Ask withholds it unless you allow it for the conversation. Allow sends it. Never withholds it. When the AI model and the voice both run on your computer, they always get it. |
 | Private windows | Words, with commas between them. Jarvis paints a window black before a screenshot leaves Jarvis when its class or title contains one of the words. A title cannot always show private browsing. |
 
-Personality, on Details, shows how Jarvis talks: the text under the heading `## Personality` in `AGENTS.md` of the home folder. Edit opens it. Every AI model reads it.
+Personality, under Home on Details, shows how Jarvis talks: the text under the heading `## Personality` in `AGENTS.md` of the home folder. Edit opens it. Every AI model reads it.
 
 Mute closes only the microphone. Show in bar puts the bar icon back after Hide.
 

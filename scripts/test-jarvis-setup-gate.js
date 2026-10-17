@@ -162,7 +162,6 @@ const manifest = judge.validateManifest(JSON.parse(fs.readFileSync(path.join(pat
         ["accountSearch", "Accounts"],
         ["voicePreview", "Preview"],
         ["voiceKey", "Add key"],
-        ["localRuntime", "Set up local voice"],
         ["input", "Check input"]
     ];
     const values = Object.fromEntries(MOVED.map(([key]) => [key, { tone: "warning", text: "To do", action: true }]));
@@ -182,14 +181,44 @@ const manifest = judge.validateManifest(JSON.parse(fs.readFileSync(path.join(pat
     assert.deepEqual(Array.from(lackingStatus).filter(entry => INSTALLED.includes(entry.key) && entry.action !== null).map(entry => String(entry.key)), [],
         "tool facts declare no install action");
 }
+
+// Settings draws no Jarvis status: Jarvis declares no `secrets`, so no
+// entry may name a Settings field. The Setup summary draws on no tab, the
+// Setup tab's warning mark carries it, and Sign in is the AI model step's
+// action alone. Local voice is a Details reading: its setup is the Voice
+// step's Set up local voice, so Set up local voice opens from Setup alone.
+function localSetupManifest() {
+    const raw = JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8"));
+    raw.status.localRuntime.action = { label: "Set up local voice", tui: "setup-local" };
+    const judged = judge.validateManifest(raw, path.dirname(file));
+    assert.equal(judged.ok, true, "the control's manifest passes the judge");
+    return judged.manifest;
+}
+function verifyPlacement(gate, manifest) {
+    assert.equal(manifest.secrets, undefined, "Jarvis declares no stored keys");
+    assert.deepEqual(Object.keys(manifest.status).filter(key => manifest.status[key].setting !== undefined), [],
+        "no Jarvis status entry names a Settings field");
+    assert.equal(Object.prototype.hasOwnProperty.call(manifest.status, "setupSignIn"), false, "no Sign in row beside the AI model step");
+    assert.equal(manifest.status.localRuntime.action === undefined && manifest.status.localRuntime.actions === undefined, true,
+        "the Local voice reading declares no action");
+    const values = { setup: { tone: "warning", text: "Not ready", hint: "Complete AI model" },
+        setupVoice: { tone: "warning", text: "To do", action: "setup" },
+        localRuntime: plain(gate.localVoiceStep({ tone: "warning", text: "Not set up", action: true }, "local", { tone: "ok", text: "Done" })) };
+    const status = judge.statusRows(manifest, values);
+    assert.equal(status.some(row => row.key === "setup"), false, "the Setup summary draws on no tab");
+    const setup = settingsRows(settings.setupSections(judge.listedTuis(manifest), status));
+    const opening = setup.concat(detailActionRows(status)).filter(item => item.button !== null && item.button.name === "setup-local");
+    assert.deepEqual(opening.map(item => String(item.key)), ["setupVoice"], "Set up local voice opens from the Voice step alone");
+}
 const ABSENT = { tone: "warning", text: "Browser needs setup", action: true };
 const READY = { tone: "ok", text: "Private browser ready", action: false };
 const INPUT_ABSENT = { tone: "warning", text: "Input tools unavailable", action: true };
 const INPUT_READY = { tone: "ok", text: "Keys ready; pointer ready", action: true };
 const LOCAL_ABSENT = { tone: "warning", text: "Not set up", action: true };
 const LOCAL_READY = { tone: "ok", text: "Ready: small", action: false };
-// Required Setup and optional Settings actions from the published status:
-// local voice, browser and input each offer their action once while it applies.
+// Required Setup and optional Details actions from the published status:
+// browser and input each offer their action once while it applies, and
+// local voice only on the Voice step while that step offers it.
 // Provider key actions belong beside their Account fields. [label, the voice the daemon runs, the daemon's causes, the local
 // voice, browser and input readings, the rows of the tab that offer those
 // three screens, the Local voice row's chip tone].
@@ -197,12 +226,12 @@ const ONCE = [
     ["partial under Local", "local", ["brain=unselected", "speech=local-not-set-up"], LOCAL_ABSENT, ABSENT, INPUT_ABSENT,
         { "setup-local": ["setupVoice"], "setup-browser": ["browser"], "setup-input": ["input"] }, "info"],
     ["local voice open under Local beside a done Voice step", "local", ["brain=unselected"], LOCAL_ABSENT, ABSENT, INPUT_ABSENT,
-        { "setup-local": ["localRuntime"], "setup-browser": ["browser"], "setup-input": ["input"] }, "warning"],
+        { "setup-local": [], "setup-browser": ["browser"], "setup-input": ["input"] }, "warning"],
     ["dictation setup leaves local voice maintenance available", "local", ["speech=dictation-absent"], LOCAL_ABSENT, ABSENT, INPUT_ABSENT,
-        { "setup-local": ["localRuntime"], "setup-browser": ["browser"], "setup-input": ["input"] }, "warning"],
+        { "setup-local": [], "setup-browser": ["browser"], "setup-input": ["input"] }, "warning"],
     ["done under Local", "local", [], LOCAL_READY, READY, INPUT_READY, { "setup-local": [], "setup-browser": [], "setup-input": ["input"] }, "success"],
     ["partial under Realtime", "realtime", ["brain=unselected"], LOCAL_ABSENT, ABSENT, INPUT_ABSENT,
-        { "setup-local": ["localRuntime"], "setup-browser": ["browser"], "setup-input": ["input"] }, "info"]
+        { "setup-local": [], "setup-browser": ["browser"], "setup-input": ["input"] }, "info"]
 ];
 // One task, setting up the local voice, takes one open step of the Setup
 // tab (VGS-1508). Every pair of a Voice step and a Local voice reading under
@@ -894,32 +923,6 @@ function accountsPublication(source) {
     return "(function() { with(root) { root.publishVoice = (" + voice[0] + "); return (" + publish[0] + ").call(root); } })()";
 }
 
-function verifySignIn(gate, accountsSource) {
-    for (const [label, brain, brains, code, tone, offered] of [
-        ["no account selected", "", [], 0, "info", true],
-        ["selected app", "app", [{ value: "app", label: "App" }], 0, "ok", false],
-        ["selected key", "key", [{ value: "key", label: "Key" }], 0, "ok", false],
-        ["selected local server", "local", [{ value: "local", label: "Local" }], 0, "ok", false],
-        ["another account available", "missing", [{ value: "app", label: "App" }], 0, "info", true],
-        ["account read failed", "app", [{ value: "app", label: "App" }], 1, "info", false]
-    ]) {
-        const values = {};
-        const root = { shell: { settings: { ...plain(manifest.settings), brain }, status: { values, set: (key, value) => {
-            assert.equal(judge.statusWrite(manifest, values, key, value).ok, true, label + ": accepted " + key);
-            values[key] = value;
-            return "ok";
-        } } }, pending: false, removedFrom: undefined, completion: { kind: "exited", code },
-            diagnostic: { kind: "collected", text: "" }, output: JSON.stringify({ accounts: [], brains, voiceAccounts: [], providers: {}, search: { found: brains.length, partial: "" } }),
-            refreshed: () => {} };
-        vm.runInNewContext(accountsPublication(accountsSource), { root, Gate: gate, Words: words,
-            Providers: { probeFailure: () => "jarvis-accounts: process=failed" }, console: { warn: () => {} } });
-        assert.deepEqual([values.setupSignIn.tone, values.setupSignIn.action], [tone, offered], label + ": sign-in follows the selected account");
-        const row = judge.statusRows(manifest, values).find(item => item.key === "setupSignIn");
-        assert.equal(row.action.offered, offered, label + ": sign-in action");
-        assert.equal(settingsRows(settings.setupSections([], judge.statusRows(manifest, values))).some(item => item.key === "setupSignIn"), false,
-            label + ": sign-in stays off Setup");
-    }
-}
 // The model and effort the daemon gets with no list read.
 function verifyUnlisted(gate, providers, serviceSource) {
     const manifest = judge.validateManifest(JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8")), path.dirname(file)).manifest;
@@ -1198,9 +1201,10 @@ function verifyReadiness(gate) {
     const piHint = gate.readiness({ kind: "answered", causes: ["brain=pi-update"] }).setupModel.hint;
     assert.equal(piHint.includes(piFloor), true, "Pi recovery names the required version");
     // An optional step reads its reader's state, in the info tone while it
-    // is not ok. The Local voice row is a state of the Voice step while
-    // that step offers Set up local voice, else required under a voice that
-    // hears the user on this computer and optional under another: [label,
+    // is not ok. The Local voice row offers no action: it is a state of the
+    // Voice step while that step offers Set up local voice, else keeps its
+    // reading's tone under a voice that hears the user on this computer and
+    // reads optional under another: [label,
     // entry, the reader's value, the voice the daemon runs or null for an
     // optional step, the Voice step's value, the published [tone, text,
     // action]].
@@ -1212,21 +1216,22 @@ function verifyReadiness(gate) {
         ["browser withheld", "browser", { tone: "warning", text: "Needs agent-browser", action: false }, null, null, ["info", "Needs agent-browser", false]],
         ["input ready", "input", INPUT_READY, null, null, ["ok", "Keys ready; pointer ready", true]],
         ["input missing", "input", INPUT_ABSENT, null, null, ["info", "Input tools unavailable", true]],
-        ["local voice to set up under Local, beside a Voice step to do", "localRuntime", LOCAL_ABSENT, "local", voiceTodo, ["info", "Not set up", false]],
-        ["local voice to set up under Local, beside a done Voice step", "localRuntime", LOCAL_ABSENT, "local", voiceDone, ["warning", "Not set up", true]],
-        ["local voice ready under Local", "localRuntime", LOCAL_READY, "local", voiceTodo, ["ok", "Ready: small", false]],
-        ["local voice to set up under Realtime", "localRuntime", LOCAL_ABSENT, "realtime", voiceDone, ["info", "Not set up", true]],
-        ["local voice to set up under Gemini Live", "localRuntime", LOCAL_ABSENT, "gemini", voiceDone, ["info", "Not set up", true]],
-        ["local voice to set up under ElevenLabs, beside a Voice step to do", "localRuntime", LOCAL_ABSENT, "elevenlabs", voiceTodo, ["info", "Not set up", false]],
-        ["local voice to set up under ElevenLabs, which hears through it", "localRuntime", LOCAL_ABSENT, "elevenlabs", voiceDone, ["warning", "Not set up", true]]]) {
+        ["local voice to set up under Local, beside a Voice step to do", "localRuntime", LOCAL_ABSENT, "local", voiceTodo, ["info", "Not set up", undefined]],
+        ["local voice to set up under Local, beside a done Voice step", "localRuntime", LOCAL_ABSENT, "local", voiceDone, ["warning", "Not set up", undefined]],
+        ["local voice ready under Local", "localRuntime", LOCAL_READY, "local", voiceTodo, ["ok", "Ready: small", undefined]],
+        ["local voice ready under Local, beside a done Voice step", "localRuntime", LOCAL_READY, "local", voiceDone, ["ok", "Ready: small", undefined]],
+        ["local voice to set up under Realtime", "localRuntime", LOCAL_ABSENT, "realtime", voiceDone, ["info", "Not set up", undefined]],
+        ["local voice to set up under Gemini Live", "localRuntime", LOCAL_ABSENT, "gemini", voiceDone, ["info", "Not set up", undefined]],
+        ["local voice to set up under ElevenLabs, beside a Voice step to do", "localRuntime", LOCAL_ABSENT, "elevenlabs", voiceTodo, ["info", "Not set up", undefined]],
+        ["local voice to set up under ElevenLabs, which hears through it", "localRuntime", LOCAL_ABSENT, "elevenlabs", voiceDone, ["warning", "Not set up", undefined]]]) {
         const got = plain(provider === null ? gate.optionalStep(value) : gate.localVoiceStep(value, provider, voice));
         assert.deepEqual([got.tone, got.text, got.action], want, label);
         assert.equal(judge.statusWrite(manifest, {}, key, got).ok, true, label + ": the manifest judge accepts " + key);
     }
     // Beside a Voice step that offers Set up local voice, a Local voice
-    // reading that would offer that setup itself takes one line saying where
-    // it is; a setup that runs, or a failed check whose hint names the
-    // action, takes none: [label, the reading, the row's line count].
+    // reading that would offer that setup itself takes one line saying why
+    // the step asks for it; a setup that runs, or a failed check whose hint
+    // says why, takes none: [label, the reading, the row's line count].
     for (const [label, value, lines] of [
         ["not set up", LOCAL_ABSENT, 1],
         ["needs verification", { tone: "warning", text: "Setup needs verification", action: true }, 1],
@@ -1237,12 +1242,12 @@ function verifyReadiness(gate) {
         assert.equal((got.lines ?? []).length, lines, "beside a Voice step to do, " + label + ": its line count");
     }
     // After a failed start the Voice step reads Not checked and offers no
-    // action, so the Local voice row names no setup there and offers its own.
+    // action, so the Local voice row adds no line and offers none either.
     for (const [label, cause] of FAILED_STARTS) {
         const voice = plain(gate.voiceCheck(gate.readiness({ kind: "problem", cause }).setupVoice, null));
         const got = plain(gate.localVoiceStep(LOCAL_ABSENT, "local", voice));
         assert.equal(voice.action, undefined, label + ": the Voice step offers no action");
-        assert.deepEqual([got.lines, got.action], [undefined, true], label + ": the Local voice row names no Voice step setup");
+        assert.deepEqual([got.lines, got.action], [undefined, undefined], label + ": the Local voice row adds no line and offers no setup");
     }
     // Every value the service publishes is one the manifest judge accepts
     // for its entry, so a refused write cannot stop the service's start.
@@ -1392,13 +1397,13 @@ function serviceCall(serviceSource, name, root, gate) {
 // The ElevenLabs voices row through the shipped service's publication, one
 // state per fact: [label, facts, the row's tone and text, or "hidden"].
 // With a key chosen the row never asks for one. The row's link draws
-// where its hint holds the link's words: while the key is the user's step
-// and after a failed read, the two states that send the user to that page.
+// where its hint holds the link's words: while no stored key is chosen
+// and after a failed read, the states that send the user to that page.
 const ELEVEN_KEY_STORED = [{ value: "eleven-1", label: "ElevenLabs / personal", provider: "elevenlabs" }];
 const ELEVEN_ROWS = [
     ["another voice", { provider: "local", keys: ELEVEN_KEY_STORED, account: "eleven-1", answer: { kind: "answered", causes: [] }, voices: 3 }, "hidden"],
-    ["no key chosen", { provider: "elevenlabs", keys: [], account: "", answer: { kind: "answered", causes: ["speech=live-account-unselected"] }, voices: 0 }, ["info", "Your step"]],
-    ["a chosen key no longer stored", { provider: "elevenlabs", keys: [], account: "eleven-1", answer: { kind: "answered", causes: ["speech=live-key-required"] }, voices: 0 }, ["info", "Your step"]],
+    ["no key chosen", { provider: "elevenlabs", keys: [], account: "", answer: { kind: "answered", causes: ["speech=live-account-unselected"] }, voices: 0 }, ["info", "No key chosen"]],
+    ["a chosen key no longer stored", { provider: "elevenlabs", keys: [], account: "eleven-1", answer: { kind: "answered", causes: ["speech=live-key-required"] }, voices: 0 }, ["info", "Key not stored"]],
     ["the voices being read", { provider: "elevenlabs", keys: ELEVEN_KEY_STORED, account: "eleven-1", answer: { kind: "answered", causes: ["speech=elevenlabs-voices-reading"] }, voices: 0 }, ["info", "Reading voices"]],
     ["before the daemon answers", { provider: "elevenlabs", keys: undefined, account: "eleven-1", answer: { kind: "checking" }, voices: 0 }, ["info", "Reading voices"]],
     ["a failed read", { provider: "elevenlabs", keys: ELEVEN_KEY_STORED, account: "eleven-1", answer: { kind: "answered", causes: ["speech=elevenlabs-voice"] }, voices: 0 }, ["warning", "Could not read voices"]],
@@ -1426,7 +1431,7 @@ function verifyElevenLabsRow(gate, serviceSource) {
         assert.deepEqual([row.tone, values.elevenLabs.text, row.action], [{ info: "info", ok: "success", warning: "warning" }[want[0]], want[1], null],
             label + ": the ElevenLabs voices row");
         assert.equal(new URL(row.link.url).hostname, "elevenlabs.io", label + ": the ElevenLabs voices row links ElevenLabs");
-        assert.equal(row.hint.includes(row.link.text), want[1] === "Your step" || want[1] === "Could not read voices",
+        assert.equal(row.hint.includes(row.link.text), ["No key chosen", "Key not stored", "Could not read voices"].includes(want[1]),
             label + ": the ElevenLabs voices row draws its link only where the user needs the key page");
         assert.equal(oneSentence(row.hint), true, label + ": the ElevenLabs voices row's hint is one sentence");
         assert.equal(facts.account !== "" && facts.keys?.length !== 0 && /Get a key/.test(row.hint), false,
@@ -1622,7 +1627,10 @@ function verify(gate) {
     verifyChipTitles(gate);
     verifyTiers(gate);
     verifyModelConsumers(gate, fs.readFileSync(serviceFile, "utf8"), fs.readFileSync(accountsFile, "utf8"));
-    verifySignIn(gate, fs.readFileSync(accountsFile, "utf8"));
+    verifyPlacement(gate, manifest);
+    // Its control: a Local voice entry that declares its own setup again.
+    assert.throws(() => verifyPlacement(gate, localSetupManifest()), assert.AssertionError, "a Local voice setup action turns the check red");
+    console.log("test-jarvis-setup-gate: control=local-voice-setup-action rejected=true");
     verifyVoice(gate, fs.readFileSync(serviceFile, "utf8"), fs.readFileSync(accountsFile, "utf8"));
     verifyModelChoice(require(providersFile));
     verifyUnlisted(gate, require(providersFile), fs.readFileSync(serviceFile, "utf8"));
@@ -1743,24 +1751,28 @@ const CONTROLS = [
     ["checking account discovery offers Add key", 'access.kind === "absent"', 'access.kind !== "present"'],
     ["memory guidance is a badge", "out.setupVoice = MEMORY[cause];", "out.setupVoice = Object.assign({}, MEMORY[cause], { lines: [MEMORY[cause].hint], hint: undefined });"],
     ["an optional reading keeps its open tone", 'value.tone === "ok" ? value : Object.assign({}, value, { tone: "info" })', "value", "the browser and input read optional"],
-    ["Local voice offers setup beside the Voice step", 'if (voice.action === "setup") {', "if (false) {", "partial under Local: each screen once"],
-    ["Local voice is required under a cloud voice", "return hearsLocally(provider) ? value : optionalStep(value);", "return true ? value : optionalStep(value);", "partial under Realtime: "],
-    ["Local voice stays open beside the Voice step", 'var row = { tone: "info", text: value.text,', "var row = { tone: value.tone, text: value.text,", "partial under Local: the browser and input read optional"],
-    ["Local voice does not say where its setup is", "value.action === true && value.hint === undefined ? [VOICE_STEP_SETS_UP] : []", "[]", "not set up: its line count"],
-    ["Local voice says where its setup is while it runs", "value.action === true && value.hint === undefined ? [VOICE_STEP_SETS_UP] : []", "[VOICE_STEP_SETS_UP]", "setting up: its line count"],
-    ["a Voice step with any action takes the local setup", 'if (voice.action === "setup") {', "if (voice.action) {", "dictation setup leaves local voice maintenance available: the rows that offer"],
-    ["a timed-out check gets warning severity", 'if (kind === "timeout") return { tone: "info",', 'if (kind === "timeout") return { tone: "warning",', "timeout: the check remains informational"],
-    ["a timed-out check offers setup", 'runs it again after the next setup", action: false };', 'runs it again after the next setup", action: true };',
+    ["Local voice reads open beside the Voice step", 'if (voice.action === "setup") {', "if (false) {", "partial under Local: the browser and input read optional"],
+    ["Local voice is required under a cloud voice", "return hearsLocally(provider) ? reading : optionalStep(reading);", "return true ? reading : optionalStep(reading);", "partial under Realtime: "],
+    ["Local voice stays open beside the Voice step", 'var row = { tone: "info", text: value.text };', "var row = { tone: value.tone, text: value.text };", "partial under Local: the browser and input read optional"],
+    ["Local voice does not say why the Voice step asks for it", "value.action === true && value.hint === undefined ? [LOCAL_VOICE_NEEDED] : []", "[]", "not set up: its line count"],
+    ["Local voice says why the Voice step asks for it while it runs", "value.action === true && value.hint === undefined ? [LOCAL_VOICE_NEEDED] : []", "[LOCAL_VOICE_NEEDED]", "setting up: its line count"],
+    ["Local voice offers its reading's setup", "var reading = noAction(value);", "var reading = value;", "local voice to set up under Local, beside a done Voice step"],
+    ["a Voice step with any action takes the local setup", 'if (voice.action === "setup") {', "if (voice.action) {", "dictation setup leaves local voice maintenance available: the browser and input read optional"],
+    ["a timed-out check gets warning severity", 'var unfinished = { tone: "info",', 'var unfinished = { tone: "warning",', "timeout: the check remains informational"],
+    ["a timed-out check offers setup", "Object.assign(unfinished, { action: false })", "Object.assign(unfinished, { action: true })",
         "the row offers its setup only while setup mends it"],
-    ["a timed-out check draws its keyed cause", 'hint: "Jarvis does not need this check to answer and runs it again after the next setup", action: false };', 'hint: "setup=probe-timeout", action: false };',
+    ["a timed-out check draws its keyed cause", 'hint: "Jarvis does not need this check to answer and runs it again after the next setup" };', 'hint: "setup=probe-timeout" };',
         "timeout: the row draws no keyed cause"],
-    ["the Local voice row names a setup the Voice step does not offer", 'if (voice.action === "setup") {', 'if (voice.action === "setup" || voice.tone === "warning") {',
-        "dictation setup leaves local voice maintenance available: the rows that offer"],
+    ["the Local voice row reads as a setup the Voice step does not offer", 'if (voice.action === "setup") {', 'if (voice.action === "setup" || voice.tone === "warning") {',
+        "dictation setup leaves local voice maintenance available: the browser and input read optional"],
     ["a home hint names a path with no page", '"home=path": "Jarvis cannot use this folder: [choose a Home folder](page:vgs.jarvis/Settings) inside your own home directory"',
         '"home=path": "Jarvis cannot use this folder. Choose a folder inside your own home directory in Settings > Home."', "the Settings path has the one form"],
     ["the voices hint names the Voice field in plain words", 'var ELEVENLABS_READY = "[Choose one in the Voice list](page:vgs.jarvis/Settings/voice)";', 'var ELEVENLABS_READY = "Choose one in the Voice list";',
         "the voices hint links the Voice field"],
-    ["a failed check names another reader's action", "var label = entry.action !== undefined ? entry.action.label : entry.actions.setup.label;", 'var label = "Set up local voice";', "the hint names"],
+    ["a failed check names another reader's action", '" Press " + setup.label + " to set it up', '" Press Set up local voice to set it up', "the hint names"],
+    ["a failed reading names a setup it does not offer", 'if (setup === undefined) return { tone: "warning", text: failure.text, hint: failure.reason };',
+        'if (setup === undefined) return { tone: "warning", text: failure.text, hint: sentence(failure.reason) + " Press Set up local voice to set it up." };',
+        "a reading states the failure and offers nothing"],
     ["memory refusal offers reinstall", 'if (Object.prototype.hasOwnProperty.call(MEMORY, cause)) {', 'if (false) {'],
     ["loading is initial checking", "out.setupVoice = LOADING;", "out.setupVoice = CHECKING;"],
     ["loading offers setup", 'if (cause === "speech=local-loading" || cause === "speech=dictation-starting" || cause === "speech=elevenlabs-voices-reading") {', 'if (cause === "speech=dictation-starting" || cause === "speech=elevenlabs-voices-reading") {'],
@@ -1776,7 +1788,7 @@ const CONTROLS = [
         '"speech=dictation-failed": { tone: "warning", text: "To do", hint: "Set up dictation again" },', "the Voice step"],
     ["the voxtype row shows for any voice", 'return hearsLocally(provider) ? requirementValue("voxtype", missing) : { hidden: true };', 'return requirementValue("voxtype", missing);', "Realtime voice"],
     ["the ElevenLabs voices row never shows", 'if (facts.provider !== "elevenlabs") return { hidden: true };', "return { hidden: true };", "the ElevenLabs voices row"],
-    ["a stored ElevenLabs key still reads as the user's step", 'if (!chosen) return { tone: "info", text: "Your step" };', 'return { tone: "info", text: "Your step" };', "the ElevenLabs voices row"],
+    ["a stored ElevenLabs key still reads as not chosen", 'if (!chosen) return { tone: "info", text: named === "" ? "No key chosen" : "Key not stored" };', 'return { tone: "info", text: "No key chosen" };', "the ElevenLabs voices row"],
     ["a failed voice read reads as being read", 'if (causes.indexOf("speech=elevenlabs-voice") !== -1) return', "if (false) return", "the ElevenLabs voices row"],
     ["listed voices still link the key page", 'var ELEVENLABS_READY = "[Choose one in the Voice list](page:vgs.jarvis/Settings/voice)";', 'var ELEVENLABS_READY = "[Choose one in the Voice list](page:vgs.jarvis/Settings/voice), or open ElevenLabs API keys";',
         "draws its link only where the user needs the key page"],
@@ -1809,10 +1821,10 @@ const CONTROLS = [
     ["a stored key still offers Add key", 'hint: VOICE_KEY_STORED[voiceKeyProvider(settings)], action: false }', 'hint: VOICE_KEY_STORED[voiceKeyProvider(settings)], action: true }'],
     ["a stored key's row says to get a key", 'hint: VOICE_KEY_STORED[voiceKeyProvider(settings)], action: false }', 'hint: hint, action: false }'],
     ["a stored key's row names one voice", 'hint: VOICE_KEY_STORED[voiceKeyProvider(settings)], action: false }', 'hint: VOICE_KEY_STORED.openai, action: false }'],
-    ["a stored key's row names no field", 'then choose it in Voice key"', 'then choose it"',
+    ["a stored key's row names no field", 'another key for the Voice key setting"', 'another key"',
         "names where another key goes in and where it is chosen"],
-    ["a stored key's row links the tab it is drawn on", 'then choose it in Voice key"',
-        'then choose it in [Voice key](page:vgs.jarvis/Settings)"', "names where another key goes in and where it is chosen"],
+    ["a stored key's row links the tab it is drawn on", 'another key for the Voice key setting"',
+        'another key for the [Voice key](page:vgs.jarvis/Settings) setting"', "names where another key goes in and where it is chosen"],
     ["a failed key read offers no Add key", 'text: "Could not check", hint: hint, action: true }', 'text: "Could not check", hint: hint, action: false }'],
     ["the Realtime voice offers clone setup", 'var reason = provider !== "local" ? CLONE_WITHHELD.provider : ', "var reason = ", "the Realtime voice withholds setup"],
     ["a tier off the graphics card offers clone setup", 'value.tierReady === false ? CLONE_WITHHELD.tier : null', "null", "a tier off the graphics card withholds setup"],
@@ -1831,8 +1843,6 @@ const CONTROLS = [
     ["the fleet row shows with no home", "if (home === null)", "if (false)", "no home chosen: the row shows"],
     ["the fleet row hides once the tool is found", "if (tool !== null) return DONE;", "if (tool !== null) return { hidden: true };", "a home with the mail tool: the row shows"],
     ["the fleet row offers no setup", 'if (tool !== null) return DONE;\n    return { tone: "info", text: "Optional", action: true };', 'if (tool !== null) return DONE;\n    return { tone: "info", text: "Optional", action: false };'],
-    ["a selected account still offers sign-in", 'if (brains.some(function (choice) { return choice.value === brain; }))', 'if (false)', "sign-in follows the selected account"],
-    ["an unread account offers sign-in", 'if (brains === null) return Object.assign({}, CHECKING, { hint: "Jarvis is checking your accounts" });', 'if (brains === null) return { tone: "info", text: "Optional", action: true };', "sign-in follows the selected account"],
     ["a missing command does not withhold setup", "return missing.indexOf(command) !== -1; });", "return false; });"],
     ["the withheld step keeps its action", 'else if (typeof value.action !== "string") withheld.action = false;', 'else withheld.action = value.action;'],
     ["a withheld named action reads false", 'if (value.action === "dictation") withheld.action = "dictation";\n    else if (typeof value.action !== "string") withheld.action = false;', 'withheld.action = false;', "accepted status setupVoice"],
@@ -1852,8 +1862,8 @@ const CONTROLS = [
     ["an over-budget text holds its step", 'var causes = answer.causes.filter(function (cause) { return !Object.prototype.hasOwnProperty.call(OVER_BUDGET, cause); });',
         "var causes = answer.causes;", "over its budget reads Ready"],
     ["the AGENTS.md line is dropped", 'return Object.assign({}, value, { tone: "info", lines: [AGENTS_OVER] });', "return value;", "a section of an AGENTS.md over its budget"],
-    ["the timed-out Local voice row asks for a restart", 'hint: "Jarvis does not need this check to answer and runs it again after the next setup", action: false };',
-        "hint: START_RESTART, action: false };", "probe timeout: the Local voice row asks for no restart beside Ready"],
+    ["the timed-out Local voice row asks for a restart", 'hint: "Jarvis does not need this check to answer and runs it again after the next setup" };',
+        "hint: START_RESTART };", "probe timeout: the Local voice row asks for no restart beside Ready"],
     ["the probe timeout caution asks for a restart", '"setup=probe-timeout": "Jarvis answers, but its check of the local voice did not finish"',
         '"setup=probe-timeout": "Turn Jarvis off and on again in [Settings > Jarvis](page:vgs.jarvis/Settings)"', "probe timeout: the caution asks for no restart beside Ready"],
     ["a wire-defect title overflows the chip", 'title: "Jarvis message error"', 'title: "Jarvis and its daemon could not understand each other"', "fits the Setup status chip"],
@@ -2304,7 +2314,7 @@ try {
     fs.rmSync(temp, { recursive: true, force: true });
 }
 console.log(`test-jarvis-setup-gate: ok cases=${SETUP.length + REQUIREMENT.length + READINESS.length + MODEL.length + VOICE.length + VOICE_KEY.length + START_CAUSES.length + CHOICE.length + UNLISTED.length + FLEET.length + DICTATION.length
-    + LOCAL_VOICE_TASK.voice.length * LOCAL_VOICE_TASK.local.length * LOCAL_VOICE_TASK.providers.length} controls=${CONTROLS.length + 12 + 59 + manifestControlCount - 10 + 2}`);
+    + LOCAL_VOICE_TASK.voice.length * LOCAL_VOICE_TASK.local.length * LOCAL_VOICE_TASK.providers.length} controls=${CONTROLS.length + 12 + 59 + manifestControlCount - 10 + 3}`);
 // The fleet setup terminal opens from the Agent fleet row alone: in
 // MANIFEST, a judged manifest, the launcher lists no fleet TUI and the
 // Details tab draws none while the row is hidden, and the offered row
@@ -2357,17 +2367,17 @@ function verifyScreensOnce(gate) {
             label + ": the browser and input read optional, Local voice required under Local while it holds its own setup");
     }
     // Its control: the Voice step's and the Local voice row's setup both
-    // offered, as the two entries published before VGS-1486.
+    // offered, as a Local voice entry that declares its own setup would.
     const both = plain(gate.readiness({ kind: "answered", causes: ["speech=local-not-set-up"] }));
     both.setupVoice = gate.voiceCheck(both.setupVoice, null);
     both.localRuntime = LOCAL_ABSENT;
-    const bothStatus = judge.statusRows(manifest, both);
+    const bothStatus = judge.statusRows(localSetupManifest(), both);
     assert.deepEqual(drawnTwice(settingsRows(settings.setupSections(tuis, bothStatus)).concat(detailActionRows(bothStatus))), ["setup-local"],
         "two rows that offer Set up local voice turn the check red");
 }
-// Across required Voice setup and optional Local voice maintenance, the
-// shared judge projects each offered setup action once. Failed checks
-// retain their recovery guidance on the Settings state.
+// Across required Voice setup and the Local voice reading on Details, the
+// Voice step alone offers local voice setup. Failed checks keep their
+// reason on the reading.
 function verifyOneLocalVoiceTask(gate, step) {
     const tuis = judge.listedTuis(manifest);
     for (const [voiceLabel, answer] of LOCAL_VOICE_TASK.voice)
@@ -2386,33 +2396,38 @@ function verifyOneLocalVoiceTask(gate, step) {
                 const rows = required.concat(attached);
                 const offering = rows.filter(item => item.button !== null && item.button.name === "setup-local").map(item => String(item.key));
                 assert.equal(offering.length <= 1, true, label + ": one action for local voice setup, not " + JSON.stringify(offering));
-                const expected = values.setupVoice.action === "setup" || values.localRuntime.action === true;
-                assert.equal(offering.length, expected ? 1 : 0, label + ": the published action draws in its declared place");
+                assert.equal(values.localRuntime.action, undefined, label + ": the Local voice reading offers no action");
+                assert.deepEqual(offering, values.setupVoice.action === "setup" ? ["setupVoice"] : [], label + ": the Voice step alone offers local voice setup");
                 if (typeof reading === "string") assert.equal(typeof values.localRuntime.hint, "string", label + ": the failed check says why");
             }
 }
 // A failed, unreadable or timed-out check of each setup reader that shares
 // LocalRuntime.qml: each published value fits its entry, and a failed or
 // unreadable one names the action that sets it up again, read from the
-// manifest by its own path: [status key, the path of its setup action's
-// label, the reader's shape]. A timed-out one is no open step, offers no
+// manifest by its own path, or for a reading with no action states the
+// failure alone: [status key, the path of its setup action's label or
+// null, the reader's shape]. A timed-out one is no open step, offers no
 // setup and draws no keyed cause, so the Ready summary a probe timeout
 // keeps stands over no open step.
 function verifyCheckFailures(gate) {
     const raw = JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8"));
     const voiceDone = gate.voiceCheck(gate.DONE, null);
     for (const [key, labelPath, shape] of [
-        ["localRuntime", ["action", "label"], value => gate.localVoiceStep(value, "local", voiceDone)],
+        ["localRuntime", null, value => gate.localVoiceStep(value, "local", voiceDone)],
         ["browser", ["action", "label"], value => gate.optionalStep(value)],
         ["setupFleet", ["action", "label"], value => value],
         ["clonedVoiceSetup", ["actions", "setup", "label"], value => gate.clonedVoiceStep(value, "local")]]) {
-        const label = labelPath.reduce((at, name) => at[name], raw.status[key]);
+        const label = labelPath === null ? null : labelPath.reduce((at, name) => at[name], raw.status[key]);
         for (const kind of ["failed", "unreadable", "timeout"]) {
             const value = plain(shape(gate.setupValue(gate.checkFailure(kind, manifest.status[key]), [], [])));
             assert.equal(judge.statusWrite(manifest, {}, key, value).ok, true, key + " " + kind + ": the manifest judge accepts the value");
             assert.equal(typeof value.hint, "string", key + " " + kind + ": the row says why");
-            if (kind !== "timeout") assert.equal(value.hint.includes(label), true, key + " " + kind + ": the hint names " + label);
             const row = judge.statusRows(manifest, { [key]: value }).find(entry => entry.key === key);
+            if (label === null) {
+                assert.deepEqual([oneSentence(value.hint), value.action, row.action], [true, undefined, null], key + " " + kind + ": a reading states the failure and offers nothing");
+                continue;
+            }
+            if (kind !== "timeout") assert.equal(value.hint.includes(label), true, key + " " + kind + ": the hint names " + label);
             assert.equal(row.action.offered, kind !== "timeout", key + " " + kind + ": the row offers its setup only while setup mends it");
             if (kind !== "timeout") continue;
             assert.equal(value.tone, "info", key + " timeout: the check remains informational");

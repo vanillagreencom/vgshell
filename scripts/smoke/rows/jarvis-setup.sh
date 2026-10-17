@@ -67,29 +67,28 @@ jarvis_enable
 settings_page_open vgs.jarvis
 settings_setup
 
-# The Local voice row by its reading: [tone, text and action, whether a
-# hint naming its setup action says why, its line count]. While the Voice
-# step offers Set up local voice the row is a state of it, in the info
-# tone with one line saying where its setup is (`-under-voice`); beside a
-# Voice step that offers none it is its own open step (`-open`).
+# The Local voice reading on Details by its value: [tone and text, whether
+# a hint says why, its line count]. It never offers an action: the Voice
+# step's Set up local voice sets it up. While the Voice step offers that
+# setup the row is a state of it, in the info tone with one line saying why
+# the step asks for it (`-under-voice`); beside a Voice step that offers
+# none it keeps its reading's tone (`-open`).
 local_value() {
   status_row vgs.jarvis localRuntime | py_reply '
 import json,sys
 r=json.load(sys.stdin)
-with open(sys.argv[2]) as stream:
-    label=json.load(stream)["status"]["localRuntime"]["action"]["label"]
-expected={"absent-under-voice":({"tone":"info","text":"Not set up","action":False},False,1),
-          "absent-open":({"tone":"warning","text":"Not set up","action":True},False,0),
-          "optional":({"tone":"info","text":"Not set up","action":True},False,0),
-          "ready":({"tone":"ok","text":"Ready: small","action":False},False,0),
-          "failed-open":({"tone":"warning","text":"Setup check failed","action":True},True,0),
-          "invalid-open":({"tone":"warning","text":"Setup check returned invalid status","action":True},True,0)}[sys.argv[1]]
+expected={"absent-under-voice":({"tone":"info","text":"Not set up"},False,1),
+          "absent-open":({"tone":"warning","text":"Not set up"},False,0),
+          "optional":({"tone":"info","text":"Not set up"},False,0),
+          "ready":({"tone":"ok","text":"Ready: small"},False,0),
+          "failed-open":({"tone":"warning","text":"Setup check failed"},True,0),
+          "invalid-open":({"tone":"warning","text":"Setup check returned invalid status"},True,0)}[sys.argv[1]]
 v=r["value"]
 fields,reasoned,lines=expected
 ok=isinstance(v,dict) and set(v)<=set(fields)|{"hint","lines"} and {k:v.get(k) for k in fields}==fields
-ok=ok and ("hint" in v)==reasoned and (not reasoned or label in v["hint"]) and len(v.get("lines",[]))==lines
-print("matched" if ok and r["action"]["offered"]==fields["action"] else "pending")
-' "$1" "$repo/shell/plugins/vgs.jarvis/manifest.json"
+ok=ok and ("hint" in v)==reasoned and len(v.get("lines",[]))==lines
+print("matched" if ok and r["action"] is None else "pending")
+' "$1"
 }
 local_control_count() {
   local output
@@ -129,7 +128,7 @@ setup_once() {
   ipc smoke setupRows window vgs.settings | py_reply '
 import json,sys
 rows=json.load(sys.stdin)
-forbidden={"setup", "setupSignIn", "clonedVoiceSetup", "browser", "input", "localRuntime", "keys", "copilotMemory", "setupFleet"}
+forbidden={"setup", "clonedVoiceSetup", "browser", "input", "localRuntime", "keys", "copilotMemory", "setupFleet"}
 violations=[r["key"] for r in rows if r["key"] in forbidden or r["chips"] not in ([["To do","warning"]], [["Done","success"]])]
 if sum(b["text"] == "Set up local voice" for r in rows for b in r["buttons"]) > 1: violations.append("setup-local-repeated")
 print(json.dumps(violations) if rows else "absent")
@@ -208,16 +207,9 @@ setup_accounts_end() {
   expect "the launcher opens the accounts screen" ok ipc shell openTui vgs.jarvis/accounts
   expect_run_end "the fixture accounts terminal ends" vgs.jarvis/accounts
 }
-setup_sign_in_value() {
-  status_row vgs.jarvis setupSignIn | py_reply '
-import json,sys
-r=json.load(sys.stdin)
-print(json.dumps([r["value"]["tone"], r["action"]["offered"], r["action"]["tui"]]))
-'
-}
 setup_sign_in_end() {
   forget_record
-  expect "Settings starts the declared vendor sign-in terminal" ok settings_act vgs.jarvis setupSignIn
+  expect "the launcher opens the declared vendor sign-in terminal" ok ipc shell openTui vgs.jarvis/sign-in
   expect_poll "sign-in uses the core floating terminal and declared script" \
     '["vgs.jarvis/sign-in", "tui/sign-in.sh"]' recorded_tail
   expect_run_end "the fixture sign-in terminal ends without authentication" vgs.jarvis/sign-in
@@ -367,8 +359,6 @@ expect_poll "the Setup fixture retains its present key" matched jarvis_key_value
 expect_poll "the Setup fixture retains its signed-in app" matched jarvis_account_hint signed-in
 expect_poll "a fresh profile's Setup section reads the AI model and local voice to do" "$setup_fresh" setup_rows
 expect_poll "a fresh profile's Setup tab holds only required steps with Done or To do chips" '[]' setup_once
-expect_poll "Settings offers its declared Sign in action beside Add key" \
-  '["info", true, "sign-in"]' setup_sign_in_value
 setup_sign_in_end
 # An AI model the engine takes: a hand-added Codex folder, by the id the
 # account helper lists. Chosen while its account is not there, it stays
@@ -670,14 +660,14 @@ expect_poll "the plugin page shows Settings" Settings settings_tab_text
 expect_poll "the Settings tab's Local voice section draws the Cloned voice setting" true setup_tab_section "Local voice" "$setup_clone_setting_label"
 expect_poll "Settings draws no Cloned voice step" rows=0 setup_clone_drawn
 settings_details
-expect_poll "Details draws Cloned voice in its Status section" true setup_tab_section Status "$setup_clone_step"
+expect_poll "Details draws Cloned voice in its Local voice section" true setup_tab_section "Local voice" "$setup_clone_step"
 forget_record
 settings_press --type RowAction "$setup_clone_press" || fail "the click on $setup_clone_press failed"
 expect_poll "the step's button opens the clone setup in the core floating terminal" '["vgs.jarvis/clone-voice", "tui/clone-voice.sh"]' recorded_tail
 expect_run_end "the clone setup terminal ends" vgs.jarvis/clone-voice
 setup_provider realtime
 expect_poll "with Realtime chosen the setup row offers nothing" '[false, ""]' setup_clone_row
-expect_poll "with Realtime chosen Local voice reads optional and offers its setup" matched local_value optional
+expect_poll "with Realtime chosen Local voice reads optional and offers no setup" matched local_value optional
 setup_provider ""
 expect_poll "the default voice, Local, hands Local voice setup to the Voice step again" matched local_value absent-under-voice
 expect_poll "the default voice, Local, offers the clone setup again" '[true, "clone-voice"]' setup_clone_row

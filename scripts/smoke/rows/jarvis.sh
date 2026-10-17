@@ -329,7 +329,7 @@ voice = status.get("setupVoice", {})
 # The row is no open step under the ready summary: it offers no setup and
 # draws no keyed cause, which the log keeps.
 ok = row.get("tone") == "info" and row.get("text") == "Check did not finish"
-ok = ok and row.get("action") is False and "lines" not in row
+ok = ok and "action" not in row and "lines" not in row
 # The daemon never reads the probe timeout: the bar and the Setup status
 # state the readiness of the daemon's own causes, the summary draws no
 # keyed line, a ready bar shows it as a caution, and no step claims it.
