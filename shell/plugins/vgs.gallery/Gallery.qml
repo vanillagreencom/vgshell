@@ -89,9 +89,9 @@ Item {
                 Column {
                     width: parent.width
                     spacing: Theme.stack.row
-                    Field { label: "Agents running"; inline: true; info: "Counts agent lanes that vsys reports as running. It shows Not reported until vsys reports a count."; width: parent.width; Label { role: "value"; text: "3"; width: parent.width; elide: Text.ElideRight } }
-                    Field { label: "Last check"; inline: true; info: "The time comes from the last status that vsys wrote. If it stops changing, Agent Warden reports stopped checking."; width: parent.width; Label { role: "value"; text: "9/30/26 3:57 PM"; width: parent.width; elide: Text.ElideRight } }
-                    Field { label: "Warden"; inline: true; info: "Shows whether the vsys warden is set up, checking agents and reporting problems."; width: parent.width; Badge { text: "Within limits"; tone: "success" } }
+                    Field { label: "Agents running"; inline: true; info: "How many AI agents run now."; width: parent.width; Label { role: "value"; text: "3"; width: parent.width; elide: Text.ElideRight } }
+                    Field { label: "Last check"; inline: true; info: "When Agent Warden last checked your agents. If it stops changing, open the Agent Warden panel and choose Start checks."; width: parent.width; Label { role: "value"; text: "9/30/26 3:57 PM"; width: parent.width; elide: Text.ElideRight } }
+                    Field { label: "Warden"; inline: true; info: "Shows whether Agent Warden is watching your AI agents and whether any of them needs your attention."; width: parent.width; Badge { text: "Within limits"; tone: "success" } }
                 }
                 ImageText {
                     width: parent.width
@@ -491,7 +491,7 @@ Item {
                 Dialog {
                     modal: false
                     title: "Warden"
-                    message: "Shows whether the vsys warden is set up, checking agents and reporting problems."
+                    message: "Shows whether Agent Warden is watching your AI agents and whether any of them needs your attention."
                     actions: [{ label: "Close", role: "cancel", focused: true }]
                 }
                 Dialog {
