@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # Pins nested_input_check in scripts/smoke/harness.sh, the one display
 # check every smoke and shot input helper runs before its tool, and each
-# helper's call to it. The rule: the check passes only when shell_env
+# helper's call to it, including display clients. The check passes when shell_env
 # starts from an empty environment and names the socket the harness
 # started; any other shell_env gets the keyed refusal
 # `nested-input: refused tool=TOOL ...` and no tool runs.
 #
+# Display-client controls name the host runtime directory in shell_env.
+# The terminal control inherits it, then builds the final client environment
+# from those inherited display values. The outer test has no live names.
 # Each case runs code extracted from the real file in a clean bash whose
 # environment carries no WAYLAND_DISPLAY, DISPLAY or HYPRLAND_INSTANCE_
 # SIGNATURE, with recording stubs first on PATH (wtype, wl-copy) and at
@@ -43,6 +46,7 @@ fail() { failures=$((failures + 1)); printf '  FAIL  %s\n' "$*"; }
 # that starts with PREFIX to the `fi` at its indent; case:LINE is a case
 # arm from that exact line to its first line ending `;;`, wrapped in a case
 # that selects it.
+# line:LINE extracts exactly that call, including a call in a planted row.
 # The unit's anchor occurs once in FILE and the unit holds NEEDLE, the
 # tool call the guard stands before.
 extract() {
@@ -54,7 +58,7 @@ lines = Path(path).read_text().split("\n")
 kind, _, name = spec.partition(":")
 if kind == "fn":
     hits = [i for i, l in enumerate(lines) if re.match(r"\s*" + re.escape(name) + r"\(\) \{", l)]
-elif kind == "block":
+elif kind in ("block", "statement", "heredoc"):
     hits = [i for i, l in enumerate(lines) if l.startswith(name)]
 else:
     hits = [i for i, l in enumerate(lines) if l == name]
@@ -63,11 +67,27 @@ if len(hits) != 1:
 start = hits[0]
 indent = lines[start][: len(lines[start]) - len(lines[start].lstrip())]
 end = None
-if kind == "fn" and lines[start].rstrip().endswith("}"):
+if kind == "statement":
+    end = start
+    while lines[end].endswith("\\"):
+        end += 1
+elif kind == "heredoc":
+    marker = lines[start].split("<<", 1)[1].strip("'\"")
+    end = next(i for i in range(start + 1, len(lines)) if lines[i] == marker)
+elif kind == "line" or (kind == "fn" and lines[start].rstrip().endswith("}")):
     end = start
 else:
     close = {"fn": indent + "}", "block": indent + "fi"}.get(kind)
+    heredoc = None
     for i in range(start + 1, len(lines)):
+        if heredoc is not None:
+            if lines[i] == heredoc:
+                heredoc = None
+            continue
+        marker = re.search(r"<<-?['\"]?(\w+)['\"]?", lines[i])
+        if marker:
+            heredoc = marker.group(1)
+            continue
         if (close is not None and lines[i] == close) or (kind == "case" and lines[i].endswith(";;")):
             end = i
             break
@@ -87,19 +107,25 @@ mkdir -p -- "$units"
 harness="$repo/scripts/smoke/harness.sh"
 extract "$harness" fn:nested_input_check 'fail "nested-input: refused tool=$1 ' "$units/check.sh" || exit 1
 extract "$harness" fn:type_keys '"${shell_env[@]}" wtype "$@"' "$units/type-keys.sh" || exit 1
+extract "$harness" fn:spawn_display 'spawn "$1" "${shell_env[@]}" "${@:2}"' "$units/spawn-display.sh" || exit 1
+extract "$harness" fn:spawn 'setsid "$@"' "$units/spawn.sh" || exit 1
+extract "$harness" fn:write_display_client 'exec "${shell_env[@]}" "$@"' "$units/display-client.sh" || exit 1
 
 # make_world DIR: DIR/bin and DIR/sandbox, each tool a stub that records
 # its name, arguments and display in DIR/calls.
 make_world() {
   local dir="$1" tool
   mkdir -p -- "$dir/bin" "$dir/sandbox" "$dir/rt" "$dir/host"
-  for tool in bin/wtype bin/wl-copy sandbox/click sandbox/keyboard sandbox/keyboard-silent; do
+  for tool in bin/wtype bin/wl-copy sandbox/click sandbox/keyboard sandbox/keyboard-silent sandbox/toplevel sandbox/lock-client sandbox/other; do
     printf '#!%s\nprintf %q "${0##*/}" "$*" "${WAYLAND_DISPLAY:-}" "${XDG_RUNTIME_DIR:-}" >>%q\n' \
       "$BASH" 'tool=%s args=%s display=%s runtime=%s\n' "$dir/calls" >"$dir/$tool"
     chmod 755 "$dir/$tool"
   done
   printf '#!%s\nexit 0\n' "$BASH" >"$dir/bin/wl-paste"
   chmod 755 "$dir/bin/wl-paste"
+  printf '#!%s\nfor ((i=0; i<100; i++)); do [[ ! -e %q ]] || exit 0; sleep 0.01; done\nexit 1\n' \
+    "$BASH" "$dir/calls" >"$dir/bin/vgshell-tui"
+  chmod 755 "$dir/bin/vgshell-tui"
 }
 
 # run_world DIR CHECK UNIT WORDS CALL: CALL in a clean bash that has
@@ -108,7 +134,7 @@ make_world() {
 run_world() {
   local dir="$1" status=0
   env -i PATH="$dir/bin:$PATH" HOME="$dir" LC_ALL=C TMPDIR="$dir" \
-    CASE_WORDS="$4" CASE_CALL="$5" CASE_DIR="$dir" "$BASH" -c '
+    CASE_WORDS="$4" CASE_CALL="$5" CASE_DIR="$dir" timeout 15 "$BASH" -c '
     set -euo pipefail
     # A held drag runs its tool in a coproc, which can outlive a helper
     # that returns early; the world waits for it, so its call is recorded
@@ -117,15 +143,24 @@ run_world() {
     fail() { printf "%s\n" "$*" >>"$CASE_DIR/fails"; }
     # It reads its input first, so a reader before it in a pipe ends whole.
     command_not_found_handle() { cat >/dev/null; echo 10 20; }
-    # The harness spawn starts a session leader; here the call runs in the
-    # foreground, so it is recorded before the case reads the calls.
-    spawn() { local log="$1"; shift; "$@" >"$log" 2>&1 </dev/null || :; spawn_pid=0; }
+    # Exercise the real session spawn. The exit trap reaps it before the
+    # outer case reads the stub record. Only controls use the bypass.
+    pgids=()
+    source "$3"
+    source "$4"
+    unguarded_display_spawn() { local log="$1"; shift; spawn "$log" "${shell_env[@]}" "$@"; }
     nested_socket=wayland-1 rt_dir="$CASE_DIR/rt" sandbox="$CASE_DIR/sandbox" home="$CASE_DIR"
     mon_w=100 mon_h=100 pointer_at="" failures=0
+    share_world="$sandbox" traffic_dir="$sandbox" lc_class=smoke.leak shell_reporter_class=smoke.reporter
+    tui_record="$sandbox/terminal.calls" tui_refused="$sandbox/refused" tui_fixtures="$sandbox/fixtures"
+    tui_terminal="$sandbox/terminal" tui_terminal_written="$sandbox/terminal-written"
+    wa_dir="$sandbox" wa_launches="$sandbox/browser.calls" jd_entry="$sandbox/app.desktop"
     read -r -a shell_env <<<"$CASE_WORDS"
     source "$1"
+    source "$5"
+    write_display_client
     source "$2"
-    eval "$CASE_CALL"' _ "$2" "$3" </dev/null >/dev/null 2>&1 || status=$?
+    eval "$CASE_CALL"' _ "$2" "$3" "$units/spawn.sh" "$units/spawn-display.sh" "$units/display-client.sh" </dev/null >/dev/null 2>&1 || status=$?
   printf '%s\n' "$status"
 }
 
@@ -172,7 +207,7 @@ rule_case() {
   local dir status count other problems=()
   dir="$(mktemp -d "$tmp/rule.XXXXXX")" || { echo "scratch=mktemp-failed"; return; }
   make_world "$dir"
-  if ! status="$(run_world "$dir" "$1" "$units/type-keys.sh" "$(expand "$dir" "$3")" 'type_keys -k Escape')"; then echo "run_world-failed"; return; fi
+  if ! status="$(run_world "$dir" "$1" "${4:-$units/type-keys.sh}" "$(expand "$dir" "$3")" "$(expand "$dir" "${5:-type_keys -k Escape}")")"; then echo "run_world-failed"; return; fi
   read -r count other < <(refusals "$dir" wtype)
   case $2 in
     accepted)
@@ -202,12 +237,36 @@ for row in "${rule_cases[@]}"; do
   fi
 done
 
+# The display boundary also starts its real session on the nested socket.
+for row in "${rule_cases[@]}"; do
+  IFS='|' read -r name want words <<<"$row"
+  if found="$(rule_case "$units/check.sh" "$want" "$words" "$units/spawn-display.sh" 'spawn_display @sandbox/display.log wtype -k Escape')" && [[ -z $found ]]; then
+    ok "display rule: $want: $name"
+  else
+    fail "display rule: $want: $name: ${found:-rule_case-failed}"
+  fi
+done
+
 # Helper cases: NAME|FILE|UNIT (extract's SPEC)|NEEDLE, the tool call the
 # guard stands before|CALL|TOOL the refusal names|STATUS wanted: nonzero,
-# or any for a block its refusal skips. Each runs with the host-socket
+# or any for a block its refusal skips|GUARD changed by its control, default
+# nested_input_check. Each runs with the host-socket
 # shell_env below.
 host_words="env -i PATH=@bin XDG_RUNTIME_DIR=@host WAYLAND_DISPLAY=wayland-1"
 helpers=(
+  'display spawn boundary|scripts/smoke/harness.sh|fn:spawn_display|spawn "$1" "${shell_env[@]}"|spawn_display @sandbox/display.log @sandbox/toplevel smoke.boundary|@sandbox/toplevel|nonzero|nested_input_check'
+  'lock client|scripts/smoke/rows/lock.sh|fn:start_lock_client|spawn_display|start_lock_client probe|@sandbox/lock-client|nonzero|spawn_display'
+  'application window|scripts/smoke/app-window.sh|fn:open_toplevel|spawn_display|open_toplevel @sandbox/app.log smoke.app App|@sandbox/toplevel|nonzero|spawn_display'
+  'Hyprland window|scripts/smoke/rows/hyprland.sh|fn:open_tui|spawn_display|open_tui smoke.hyprland|@sandbox/toplevel|nonzero|spawn_display'
+  'leak client|scripts/smoke/rows/leak-check.sh|line:spawn_display "$sandbox/leak-plant-toplevel.log" "$sandbox/toplevel" "$lc_class"|spawn_display|:|@sandbox/toplevel|nonzero|spawn_display'
+  'leak reporter|scripts/smoke/rows/leak-check.sh|line:  spawn_display "$sandbox/leak-plant-reporter.log" "$sandbox/toplevel" "$shell_reporter_class"|spawn_display|:|@sandbox/toplevel|nonzero|spawn_display'
+  'traffic window|scripts/smoke/rows/traffic.sh|line:spawn_display "$traffic_dir/other.log" "$sandbox/toplevel" org.example.traffic Traffic-other|spawn_display|:|@sandbox/toplevel|nonzero|spawn_display'
+  'TUI other window|scripts/smoke/rows/tui.sh|line:spawn_display "$sandbox/toplevel-other.log" "$sandbox/toplevel" org.example.other Other|spawn_display|:|@sandbox/toplevel|nonzero|spawn_display'
+  'share target|scripts/smoke/rows/share-picker.sh|line:spawn_display "$share_world/other.log" "$share_world/other" smoke.share-other "Other share target"|spawn_display|:|@sandbox/other|nonzero|spawn_display'
+  'inherited display boundary|scripts/smoke/harness.sh|fn:write_display_client|exec "${shell_env[@]}" "$@"|write_display_client; env XDG_RUNTIME_DIR=@host WAYLAND_DISPLAY=wayland-1 "$sandbox/display-client" "$sandbox/toplevel" 2>"$CASE_DIR/fails"|@sandbox/toplevel|nonzero|nested_input_check "$1"'
+  'terminal window|scripts/smoke/harness.sh|fn:terminal_stand_in|"$display_client" "$toplevel"|terminal_stand_in; env XDG_RUNTIME_DIR=@host WAYLAND_DISPLAY=wayland-1 "$tui_terminal" --app-id=smoke.terminal --title=Terminal -- @bin/vgshell-tui present -- true 2>"$CASE_DIR/fails"|@sandbox/toplevel|nonzero|"$display_client" '
+  'webapps browser|scripts/smoke/rows/webapps.sh|heredoc:cat >"$wa_dir/chromium" <<EOF|"$sandbox/display-client"|env XDG_RUNTIME_DIR=@host WAYLAND_DISPLAY=wayland-1 "$BASH" "$wa_dir/chromium" --app=https://example.com 2>"$CASE_DIR/fails"|@sandbox/toplevel|nonzero|$(printf '\''%q'\'' "$sandbox/display-client") '
+  'Jarvis application|scripts/smoke/rows/jarvis-desktop.sh|statement:printf '\''[Desktop Entry]|"$sandbox/display-client"|read -r -a desktop_exec <<<"$(sed -n '\''s/^Exec=//p'\'' "$jd_entry")"; env XDG_RUNTIME_DIR=@host WAYLAND_DISPLAY=wayland-1 "${desktop_exec[@]}" 2>"$CASE_DIR/fails"|@sandbox/toplevel|nonzero|"$sandbox/display-client" '
   'type_keys|scripts/smoke/harness.sh|fn:type_keys|"${shell_env[@]}" wtype|type_keys -k Escape|wtype|nonzero'
   'pointer_dispatch|scripts/smoke/harness.sh|fn:pointer_dispatch|"$sandbox/click" "$@"|pointer_dispatch 10 20 100 100|@sandbox/click|nonzero'
   'hold_start_keyboard keyboard|scripts/smoke/rows/hold-shortcuts.sh|fn:hold_start_keyboard|spawn "$hold_keyboard_log" "${shell_env[@]}" "$2"|hold_start_keyboard probe @sandbox/keyboard us ""|@sandbox/keyboard|nonzero'
@@ -249,7 +308,7 @@ helper_case() {
 
 helper_unit() { printf '%s/helper-%s.sh\n' "$units" "$1"; }
 for i in "${!helpers[@]}"; do
-  IFS='|' read -r name file spec needle call tool want <<<"${helpers[i]}"
+  IFS='|' read -r name file spec needle call tool want guard <<<"${helpers[i]}"
   if ! extract "$repo/$file" "$spec" "$needle" "$(helper_unit "$i")"; then
     fail "helper: $name: extract failed"
     continue
@@ -293,15 +352,24 @@ for i in "${!rule_controls[@]}"; do
   if found="$(rule_case "$mutant" "$want" "$words")" && [[ $found == *calls=\[tool=wtype* ]]; then ok "control: $name turns \"$target\" red: $found"; else fail "control: $name leaves \"$target\" green"; fi
 done
 
-# Helper controls: in a copy of each helper's unit, its one
-# nested_input_check call made `:`, which passes whatever the display, and
-# the helper's case must go red with a call on its tool's stub.
+# Helper controls bypass the guard in each disposable unit. Display callers
+# restore the old unguarded spawn with host shell_env. The generated terminal
+# bypasses the shared check in its script body.
 for i in "${!helpers[@]}"; do
-  IFS='|' read -r name _ _ _ call tool want <<<"${helpers[i]}"
+  IFS='|' read -r name _ _ _ call tool want guard <<<"${helpers[i]}"
   mutant="$tmp/helper-mutant-$i.sh"
   [[ -e $(helper_unit "$i") ]] || { fail "control: $name: no unit was extracted"; continue; }
-  plant "$(helper_unit "$i")" nested_input_check : "$mutant" || { fail "control: $name: the defect could not be planted"; continue; }
+  replacement=:
+  [[ ${guard:-nested_input_check} != spawn_display ]] || replacement=unguarded_display_spawn
+  case $name in
+    'terminal window'|'webapps browser') replacement="" ;;
+    'Jarvis application') replacement='"" ' ;;
+  esac
+  plant "$(helper_unit "$i")" "${guard:-nested_input_check}" "$replacement" "$mutant" || { fail "control: $name: the defect could not be planted"; continue; }
   if found="$(helper_case "$mutant" "$call" "$tool" "$want")" && [[ $found == *"calls=[tool=${tool##*/} "* ]]; then ok "control: $name without its guard goes red: $found"; else fail "control: $name without its guard stays green"; fi
+  if [[ -n $guard && $found != *"display=wayland-1 runtime="*"/host"* ]]; then
+    fail "control: $name did not reach the host display fixture"
+  fi
 done
 
 if [[ $failures -gt 0 ]]; then echo "test-smoke-input-guard: failures=$failures"; exit 1; fi

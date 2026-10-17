@@ -163,7 +163,7 @@ printf '%s\n' "\$*" >>$(printf '%q' "$wa_launches")
 url=""
 for word in "\$@"; do [[ \$word == --app=* ]] && url="\${word#--app=}"; done
 class="\$(python3 -c 'import sys, urllib.parse; u = urllib.parse.urlsplit(sys.argv[1]); print("chrome-" + u.hostname + "_" + (u.path or "/").replace("/", "_") + "-Default")' "\$url")"
-exec $(printf '%q' "$sandbox/toplevel") "\$class" "Web app"
+exec $(printf '%q' "$sandbox/display-client") $(printf '%q' "$sandbox/toplevel") "\$class" "Web app"
 EOF
 chmod 755 "$wa_dir/chromium"
 wa_mime_before=absent

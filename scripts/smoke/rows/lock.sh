@@ -333,7 +333,7 @@ settle() { # WANT CMD...
 }
 # spawn truncates the client's log, so each start reads its own lines.
 start_lock_client() { # LABEL
-  spawn "$sandbox/lock-client.log" "${shell_env[@]}" "$sandbox/lock-client"
+  spawn_display "$sandbox/lock-client.log" "$sandbox/lock-client" || return 1
   client_pid="$spawn_pid"
   expect_poll "$1: the second lock client holds the session" locked client_said "$sandbox/lock-client.log" locked
   expect "$1: the session is locked by the other client" locked session_lock

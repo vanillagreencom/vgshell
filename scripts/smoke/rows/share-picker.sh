@@ -152,7 +152,7 @@ assert text.count(old)==1
 pathlib.Path(sys.argv[2]).write_text(text.replace(old,'pixels[i] = 0xff993366;',1))
 PY
 cc -Wall -Wextra -Werror "$share_world/other.c" "$sandbox/xdg-shell-protocol.c" -I"$sandbox" -o "$share_world/other" $(pkg-config --cflags --libs wayland-client)
-spawn "$share_world/other.log" "${shell_env[@]}" "$share_world/other" smoke.share-other "Other share target"
+spawn_display "$share_world/other.log" "$share_world/other" smoke.share-other "Other share target"
 share_other_pid="$spawn_pid"
 share_other_mapped() { hypr -j clients | py_reply 'import json,sys; print(any(c["class"]=="smoke.share-other" and c["mapped"] for c in json.load(sys.stdin)))'; }
 expect_poll "the other preview source is live at the same time" True share_other_mapped

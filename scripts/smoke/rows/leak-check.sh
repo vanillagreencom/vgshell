@@ -92,7 +92,7 @@ expect "a window rule keeps the planted toplevel unfocused on map" ok hypr eval 
 lc_focus_before="$(active_window)" || fail "the active window is unreadable before the controls"
 
 cat >"$lc_plants/leak-plant-clients.sh" <<'SH'
-spawn "$sandbox/leak-plant-toplevel.log" "${shell_env[@]}" "$sandbox/toplevel" "$lc_class"
+spawn_display "$sandbox/leak-plant-toplevel.log" "$sandbox/toplevel" "$lc_class"
 printf '%s\n' "$spawn_pid" >"$lc_plants/toplevel.pid"
 expect_poll "the planted toplevel maps" 1 grep -c -x -F -- "mapped $lc_class" "$sandbox/leak-plant-toplevel.log"
 expect_poll "the planted toplevel is a client" 1 lc_quiet_count
@@ -233,7 +233,7 @@ lc_report_copy="$sandbox/leak-plant-report.txt"
 lc_empty_named() { grep -c -E -- "^crash=empty-instance-record report=.*/crashes/report\\.txt\$" "$lc_empty_crashes" || true; }
 lc_report="$(shell_crash_reports | head -n 1)"
 if [[ -n $lc_report ]] && cp -- "$lc_report" "$lc_report_copy" && cp -- "$lc_report_copy" "$lc_empty"; then
-  spawn "$sandbox/leak-plant-reporter.log" "${shell_env[@]}" "$sandbox/toplevel" "$shell_reporter_class"
+  spawn_display "$sandbox/leak-plant-reporter.log" "$sandbox/toplevel" "$shell_reporter_class"
   lc_reporter="$spawn_pid"
   expect_poll "the planted reporter window maps" 1 lc_strays
   if shell_crash_check "$lc_empty_crashes"; then fail "control: the crash check read no crash from an empty-record report"; fi

@@ -12,7 +12,7 @@
 # stopped, LABEL passing when it exits 0 on SIGTERM.
 toplevel_pid=""
 open_toplevel() { # LOG APP_ID TITLE
-  spawn "$1" "${shell_env[@]}" "$sandbox/toplevel" "$2" "$3"
+  spawn_display "$1" "$sandbox/toplevel" "$2" "$3" || return 1
   toplevel_pid="$spawn_pid"
   for _ in $(seq 1 25); do
     grep -qxF -- "mapped $2" "$1" && return 0

@@ -50,8 +50,8 @@ if [[ \${1:-} == dispatch ]]; then echo ok; else exec "$hyprctl_bin" "\$@"; fi
 EOF
 chmod 755 "$shim/hyprctl.jarvis-noop"
 mkdir -p -- "$home/.local/share/applications"
-printf '[Desktop Entry]\nType=Application\nName=Smoke Jarvis App\nExec=%s smoke.jarvis-app JarvisApp\nStartupWMClass=smoke.jarvis-app\n' \
-  "$sandbox/toplevel" >"$jd_entry"
+printf '[Desktop Entry]\nType=Application\nName=Smoke Jarvis App\nExec=%s %s smoke.jarvis-app JarvisApp\nStartupWMClass=smoke.jarvis-app\n' \
+  "$sandbox/display-client" "$sandbox/toplevel" >"$jd_entry"
 
 "$node_bin" "$source_repo/scripts/fixtures/jarvis/scripted.js" "$jd_backend" "$jd_gates"
 "$node_bin" "$source_repo/scripts/fixtures/jarvis/desktop-driver.js" "$jd_backend" "$jd_driver"

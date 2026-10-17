@@ -550,6 +550,13 @@ in_harness_tree() { # PID
   echo no
 }
 
+# Display clients receive only shell_env. Checking here prevents row copies
+# from opening the host display before spawn starts the process.
+spawn_display() { # LOG CLIENT ARGS...
+  spawn_pid=""
+  nested_input_check "$2" || return 1
+  spawn "$1" "${shell_env[@]}" "${@:2}"
+}
 # Start a command in its own session and process group; the pid doubles as
 # the pgid for teardown and is left in spawn_pid. Not a command substitution,
 # because a subshell could not append to pgids. LOG is made here, before the
@@ -1373,7 +1380,8 @@ swipe() { pointer_dispatch "$1" "$2" "$mon_w" "$mon_h" swipe "$3" || return $?; 
 # or a scene runs under shell_env: wtype (type_keys), $sandbox/click
 # (pointer_dispatch and the held drags), $sandbox/keyboard and its copies,
 # and wl-copy. Each caller runs it before its tool and runs no tool when it
-# returns 1. An input tool acts on whatever display its environment names,
+# returns 1. spawn_display and the generated terminal use the same check
+# before a display client. Each acts on the display its environment names,
 # and the harness's own process carries the user's live one, so the check
 # passes only when shell_env starts from an empty environment (env -i, so
 # no inherited WAYLAND_SOCKET or XDG_RUNTIME_DIR decides it) and its last
@@ -1406,6 +1414,23 @@ type_keys() {
   nested_input_check wtype || return 1
   "${shell_env[@]}" wtype "$@"
 }
+# Shell-launched fixtures cannot call a harness function. Give them the
+# same check and only the display values they actually inherited.
+write_display_client() {
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf 'rt_dir=%q nested_socket=%q\n' "$rt_dir" "$nested_socket"
+    declare -f nested_input_check
+    cat <<'EOF'
+fail() { printf '%s\n' "$*" >&2; }
+shell_env=(env -i "XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-}" "WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-}")
+nested_input_check "$1" || exit 1
+exec "${shell_env[@]}" "$@"
+EOF
+  } >"$sandbox/display-client" || return 1
+  chmod 755 "$sandbox/display-client"
+}
+write_display_client
 # compositor_logs_on: the nested compositor logs from here to the end of
 # the run. The configuration turns its logs on once the flag file exists,
 # and a reload reads it again; `hyprctl eval` would set the option without
@@ -3160,8 +3185,8 @@ terminal_stand_in() { # [windowless]
   esac
   {
     printf '#!/usr/bin/env bash\n'
-    printf 'record=%q refused=%q fixtures=%q hold=%q toplevel=%q window=%q\n' \
-      "$tui_record" "$tui_refused" "$tui_fixtures" "$sandbox/run-hold" "$sandbox/toplevel" "$window"
+    printf 'record=%q refused=%q fixtures=%q hold=%q toplevel=%q window=%q display_client=%q\n' \
+      "$tui_record" "$tui_refused" "$tui_fixtures" "$sandbox/run-hold" "$sandbox/toplevel" "$window" "$sandbox/display-client"
     cat <<'EOF'
 : >"$record.next"
 for a; do printf '%s\n' "$a" >>"$record.next"; done
@@ -3213,7 +3238,7 @@ else
   fi
 fi
 if [[ $window == yes ]]; then
-  "$toplevel" "$app_id" "$title" >/dev/null 2>&1 &
+  "$display_client" "$toplevel" "$app_id" "$title" >/dev/null &
   shown=$!
 fi
 "${run[@]}" </dev/null >/dev/null 2>&1

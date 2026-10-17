@@ -212,7 +212,7 @@ expect_poll "the run's record reaches the fixture's state" '[true, null, false]'
 expect_poll "the launcher ends once the presenter holds the key" '[]' lent tui.launching
 expect "no done fires while the run is open" '[]' tui_done
 expect_poll "the stand-in terminal maps the run's window" 1 wait_window
-spawn "$sandbox/toplevel-other.log" "${shell_env[@]}" "$sandbox/toplevel" org.example.other Other
+spawn_display "$sandbox/toplevel-other.log" "$sandbox/toplevel" org.example.other Other
 other_pid="$spawn_pid"
 expect_poll "another window takes the focus" '"org.example.other"' active_class
 expect "a second run of the live key is refused busy" "refused: tui=wait reason=busy" tui run-done "wait|$tui_gate|3"
