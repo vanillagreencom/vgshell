@@ -247,7 +247,6 @@ function suite(logic) {
         ["off, step unknown", down, false, "unknown", unavailable("warning")],
         ["off, step absent", down, false, "absent", unavailable("warning")],
         ["off, step ready", down, false, "ready", unavailable("warning")],
-        ["off, step unread", down, false, "", unavailable("warning")],
         ["failed", failed, false, "needed", unavailable("danger")]
     ]) {
         const value = plain(logic.printingView(reading, missing, step));
@@ -255,6 +254,10 @@ function suite(logic) {
         if (value.available === false) assert.ok(typeof value.hint === "string" && value.hint !== "", name + " says why");
     }
     assert.throws(() => logic.printingView({ state: "other" }, false, ""), /reading state "other"/);
+    // Before the core's first probe the step has no reading (""): printing
+    // that is off publishes nothing, so Setup reads Checking, never the
+    // failed check's Not available.
+    assert.equal(logic.printingView(down, false, ""), null, "off with no step reading publishes nothing");
 
     const rows = logic.printerRows(logic.withDefault(logic.lpstatReading(0, busy), "Lab").printers);
     assert.deepEqual(plain(rows.map(r => [r.key, r.secondary, r.iconName, r.badge])), [
@@ -300,6 +303,7 @@ try {
         ["another scheme passes the field", 'if (scheme !== "ipp" && scheme !== "ipps") return { ok: false, problem: "scheme" };', ""],
         ["an address keeps no default path", 'if (path === "" || path === "/") path = DEFAULT_PATH;', ""],
         ["Turn on printing offered while the step is ready", 'if (step === "needed" || step === "nixos") return', "if (true) return"],
+        ["a step with no reading reads as a failed check", '        if (step === "") return null;\n', ""],
         ["a view's end closes another lease", "leases.splice(at, 1);", "leases.splice(0, 1);"],
         ["a view's end of an unknown lease closes one", "if (at === -1) return { state: state, known: false };", "if (at === -1) at = 0;"],
         ["a stopped printer's state draws in the plain tone", 'secondaryTone: p.state === "stopped" ? "danger" : "",', 'secondaryTone: "",'],

@@ -972,6 +972,7 @@ FocusScope {
                                         readonly property var buttons: entry === null ? ({ action: null, aside: null }) : Steps.detailButtons(entry, page.plugin)
                                         width: statusRows.width
                                         entry: page.statusEntry(modelData)
+                                        plugin: page.plugin
                                         action: detailRow.buttons.action
                                         asideAction: detailRow.buttons.aside
                                         actionReply: [detailRow.action, detailRow.asideAction].map(button => page.replyFor(button, detailRow.entry)).find(reply => reply !== "") || ""

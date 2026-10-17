@@ -164,6 +164,16 @@ function verify(logic, producer) {
     same([logic.stepReading(rows({}).find(entry => entry.key === "home"), on), waiting.tone, waiting.lines.length, typeof waiting.lines[0]], ["todo", "warning", 1, "string"],
         "on, unreported: the step stays To do and names the wait on one line");
     same(logic.stepView(rows({}).find(entry => entry.key === "home"), String, off).lines, [], "off: an unreported step names no wait");
+    // A Details reading that offers a core system step waits on the core's
+    // first probe, whose end the plugin publishes, so while the plugin is on
+    // and started it reads Checking. Any other unpublished reading reads Not
+    // reported, since a plugin may leave it unpublished for good.
+    const probe = { status: { access: { type: "state", label: "Access", action: { label: "Allow", system: "i2c-dev" } }, note: { type: "text", label: "Note" } } };
+    const probeTexts = (values, plugin) => producer.statusRows(probe, values).map(entry => logic.statusView(entry, String, plugin).text);
+    const notStarted = Object.assign({}, on, { error: "This plugin could not start.", failed: true });
+    same([probeTexts({}, on), probeTexts({}, off), probeTexts({}, notStarted), probeTexts({}, undefined), probeTexts({ access: ready }, on)],
+        [[logic.CHECKING_LINE, "Not reported"], ["Not reported", "Not reported"], ["Not reported", "Not reported"], ["Not reported", "Not reported"], ["Ready", "Not reported"]],
+        "Details: an unpublished system step's reading checks while its plugin runs");
 
     // The neutral reading: a required step the user cannot act on, by its
     // value, or because the plugin, on, could not start, a failed build or
@@ -420,9 +430,13 @@ const controls = [
     ["an unreported step names no wait", 'if (entry.report !== "reported" && plugin.enabled)', 'if (false)', "on, unreported: the step stays To do and names the wait"],
     ["a start error reads as a wait", 'plugin.error !== "" ? plugin.error : ', '', "Not available after a failed build: the step draws the plain line alone"],
     ["a step that could not start keeps the declaration's hint", 'if (entry.report !== "reported" && reading === "unavailable") {', 'if (false) {', "Not available after a failed build: the step draws the plain line alone"],
+    ["every unpublished reading checks", 'entry.report !== "reported" && entry.systemStep && plugin', 'entry.report !== "reported" && plugin', "Details: an unpublished system step's reading checks"],
+    ["a plugin that could not start checks", 'plugin.enabled && !plugin.failed;', 'plugin.enabled;', "Details: an unpublished system step's reading checks"],
+    ["a system step's reading reads not reported", 'text: checking ? CHECKING_LINE : "Not reported"', 'text: "Not reported"', "Details: an unpublished system step's reading checks"],
 ];
 // Each producer control edits PluginLogic, whose rows the page draws.
 const producerControls = [
+    ["no entry is a system step's", "            systemStep: statusEntryActions(entry).some(", "            systemStep: false && statusEntryActions(entry).some(", "Details: an unpublished system step's reading checks"],
     ["a step whose screen needs an optional tool is withheld", "            action: statusRowAction(entry, value),",
         "            action: statusRowAction(entry, statusEntryActions(entry).some(function (a) { return a.action.tui !== undefined && (manifest.tui[a.action.tui].requires || []).some(function (name) { return manifest.requirements.some(function (r) { return r.optional && r.name === name; }); }); }) ? null : value),",
         "on: a step whose screen lacks an optional tool offers its own action"],

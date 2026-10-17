@@ -457,9 +457,11 @@ function addressDevice(text) {
 // The status `printing`, the Setup step, from READING, lpstatReading's
 // answer or { state: "unread" }, CUPSMISSING, whether the scan found a
 // command of CUPS_COMMANDS missing, and STEP, the service-cups system
-// step's state or "". Printing that is not installed reads To do with a
-// hint that links the Details tab, whose Tools section installs the
-// optional CUPS commands. Printing that is off offers Turn on printing
+// step's state, or "" while it has no reading, before the core's first
+// probe ends. Printing that is off with no step reading is null, which
+// clears the entry, so Setup reads Checking. Printing that is not
+// installed reads To do with a hint that links the Details tab, whose
+// Tools section installs the optional CUPS commands. Printing that is off offers Turn on printing
 // (`action`) while the step applies. Where the user cannot act, the value
 // is `available: false` with a hint that says why: an administrator
 // masked cups.service (step denied), the step could not be checked, or
@@ -469,6 +471,7 @@ function printingView(reading, cupsMissing, step) {
     switch (reading.state) {
     case "unread": return { tone: "info", text: "Reading printers" };
     case "down":
+        if (step === "") return null;
         if (step === "needed" || step === "nixos") return { tone: "warning", text: "Printing is off.", action: true };
         if (step === "denied") return { tone: "warning", text: "Turned off", available: false,
             hint: "An administrator turned printing off on this computer. It stays off until they turn it back on." };

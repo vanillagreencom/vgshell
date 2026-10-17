@@ -188,12 +188,20 @@ function commandLines(api) {
         assert.equal(api.commandLine(text), expected);
 }
 test("connection-states-and-command-lines", api => { connectionStates(api); commandLines(api); });
+// Before the core's first probe the step has no reading: the service
+// publishes nothing, so the entry is unreported, never "could not be
+// checked"; a probe that answered unknown still reads that.
+function captureUnread(api) {
+    assert.deepEqual([api.capture(undefined), api.capture(null)], [null, null], "a step with no reading publishes nothing");
+    assert.equal(api.capture({ state: "unknown", reason: "probe-failed" }).text, "Capture access could not be checked");
+}
 test("capture-state-actions", api => {
     // The Setup tone rule (design-system.md, Steps.js stepOpen): the
     // optional capture step reads info in every state but done.
     for (const [state, tone, action] of [["ready","ok",false], ["needed","info",true], ["nixos","info",true], ["absent","info",false], ["denied","info",false], ["unknown","info",false]]) {
         const result = api.capture({ state }); assert.equal(result.tone, tone); assert.equal(result.action, action);
     }
+    captureUnread(api);
 });
 const controls = [
     ["bytes-sent", 'const down = /\\bbytes_received:(\\d+)/.exec(line), up = /\\bbytes_acked:(\\d+)/.exec(line);', 'const down = /\\bbytes_received:(\\d+)/.exec(line), up = /\\bbytes_sent:(\\d+)/.exec(line);', acked],
@@ -228,7 +236,8 @@ const controls = [
     ["ipv6-loopback-counted", 'host === "::1"', 'host === "::2"', api => assert.equal(Object.keys(api.parseSockets(socketBefore)).includes("14"), false)],
     ["unknown-as-zero", 'return "--";', 'return "0 B/s";', api => assert.equal(api.formatRate(null), "--")],
     ["capture-optional-tone", 'tone: state === "ready" ? "ok" : "info",', 'tone: state === "ready" ? "ok" : state === "absent" ? "info" : "warning",', api => assert.equal(api.capture({ state: "needed" }).tone, "info")],
-    ["capture-action", 'action: state === "needed" || state === "nixos"', 'action: false', api => assert.equal(api.capture({ state: "needed" }).action, true)]
+    ["capture-action", 'action: state === "needed" || state === "nixos"', 'action: false', api => assert.equal(api.capture({ state: "needed" }).action, true)],
+    ["capture-unread-unknown", '    if (!step) return null;\n    const state = step.state;', '    const state = step ? step.state : "unknown";', captureUnread]
 ];
 for (const [name, old, replacement, verify] of controls) {
     assert(source.includes(old), "control match: " + name);

@@ -203,9 +203,12 @@ function commandLine(text) {
 }
 
 // The capture step: See all is optional, so a step not done reads info,
-// with its action while one is offered, and ok once it is.
+// with its action while one is offered, and ok once it is. null, which
+// clears the entry, while the step has no reading, before the core's first
+// probe ends.
 function capture(step) {
-    const state = step ? step.state : "unknown";
+    if (!step) return null;
+    const state = step.state;
     const text = { ready: "Ready", needed: "Access needed", nixos: "Access needed", absent: "bandwhich is not installed",
         denied: "Installed tool is not trusted", unknown: "Capture access could not be checked" };
     return { tone: state === "ready" ? "ok" : "info",

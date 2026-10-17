@@ -164,8 +164,7 @@ function suite(logic, service = serviceSource, readme = readmeSource) {
         [{ missing: false, state: "running", service: "ready", operator: "denied" }, "", "info"],
         [{ missing: false, state: "running", service: "ready", operator: "unknown" }, "", "info"],
         [{ missing: false, state: "stopped", service: "ready", operator: "unknown" }, "", "info"],
-        [{ missing: false, state: "running", service: "ready", operator: "ready" }, "", "ok"],
-        [{ missing: false, state: "running", service: "", operator: "" }, "", "ok"]
+        [{ missing: false, state: "running", service: "ready", operator: "ready" }, "", "ok"]
     ];
     for (const [context, action, tone] of SETUP_ROWS) {
         const shown = logic.setup(context);
@@ -181,6 +180,16 @@ function suite(logic, service = serviceSource, readme = readmeSource) {
     // The line draws in the Tailscale service row on Details, above the
     // Tools section's Review action, so it links no page.
     assert.equal(PageReference.parse(logic.setup({ missing: true }).hint).page, "", "the Details line links no page");
+    // Before the core's first probe a step has no reading (""): the setup
+    // line is null, so its entry is unreported, never Ready or Not checked.
+    // A missing command needs no step reading and still reads Not installed.
+    for (const context of [
+        { missing: false, state: "running", service: "", operator: "" },
+        { missing: false, state: "running", service: "ready", operator: "" },
+        { missing: false, state: "service-off", service: "", operator: "" }
+    ]) assert.equal(logic.setup(context), null, "no step reading, no setup line: " + JSON.stringify(context));
+    assert.deepEqual([logic.setup({ missing: true, state: "checking", service: "", operator: "" }).tone], ["info"], "a missing command needs no step reading");
+    assert.deepEqual(plain(logic.statusWrites({ tone: "ok", text: "" }, null, logic.unread(), logic.emptyProfiles())[1]), ["setup", null], "a null line clears the setup entry");
     const unoffered = ["absent", "denied", "unknown"].map(service => logic.setup({ missing: false, state: "service-off", service: service, operator: "unknown" }).hint);
     assert.equal(new Set(unoffered).size, unoffered.length, "each service state that offers no step names its own why");
 
@@ -199,6 +208,7 @@ function suite(logic, service = serviceSource, readme = readmeSource) {
     const shown = plain(logic.published(false, running, ready, live));
     assert.deepEqual([shown.state, shown.tone, shown.writable], ["running", "ok", true]);
     assert.equal(logic.published(false, running, denied, live).writable, false);
+    assert.equal(logic.published(false, running, null, live).writable, true, "no step reading locks nothing, as a step that could not be checked");
     assert.equal(logic.published(true, running, logic.setup({ missing: true, state: "running", service: "ready", operator: "ready" }), live).writable, false,
         "a missing command takes no change, though it offers no step");
     // Each locked value says why in one sentence, names the step the core
@@ -388,7 +398,8 @@ function suite(logic, service = serviceSource, readme = readmeSource) {
         [bigVpn, Object.assign({}, logic.emptyProfiles(), { action: "", problem: "" }), ready],
         [shown, bigProfiles, denied], [bigVpn, bigProfiles, ready],
         [bigVpn, Object.assign({}, unicodeProfiles, { action: unicodeProfiles.rows[0].id, problem: "" }), denied],
-        [shown, Object.assign({}, profiles, { action: "", problem: "" }), ready]
+        [shown, Object.assign({}, profiles, { action: "", problem: "" }), ready],
+        [shown, Object.assign({}, profiles, { action: "", problem: "" }), null]
     ]) {
         const original = JSON.stringify([vpn, profileList]);
         publish(shell, { tone: vpn.tone, text: vpn.text }, setupLine, vpn, profileList, logic);
@@ -406,7 +417,8 @@ function suite(logic, service = serviceSource, readme = readmeSource) {
         }
         assert.deepEqual(values.vpn.exitNodes.filter(row => row.active), vpn.exitNodes.filter(row => row.active));
         for (const row of values.vpn.exitNodes) assert.deepEqual(row, vpn.exitNodes.find(input => input.id === row.id));
-        assert.deepEqual(Object.keys(values), ["connection", "setup", "vpn", "profiles"]);
+        // A null setup line clears its entry; the judge keeps the others in order.
+        assert.deepEqual(Object.keys(values), setupLine === null ? ["connection", "vpn", "profiles"] : ["connection", "setup", "vpn", "profiles"]);
     }
 }
 
@@ -427,7 +439,7 @@ try {
         ["ambiguous profile commands refuse", 'if (row.ambiguous)', 'if (false)'],
         ["active profiles survive list limits", 'const activeCount = rows.filter(row => row.active).length;', 'const activeCount = rows.slice(0, PROFILE_MAX).filter(row => row.active).length;'],
         ["inactive Tailscale does not hide an active VPN", 'if (profiles.activeCount > 0)', 'if (vpn.state === "missing" && profiles.activeCount > 0)'],
-        ["a missing command takes no change", 'writable: !missing && setupLine.action === "",', 'writable: setupLine.action === "",'],
+        ["a missing command takes no change", 'writable: !missing && (setupLine === null || setupLine.action === ""),', 'writable: (setupLine === null || setupLine.action === ""),'],
         ["a writable value gives no reason", 'if (vpn.writable) return "";', ''],
         ["a service that is off is told apart", 'vpn.state === "service-off" ? "The', 'false ? "The'],
         ["the reason names the step", 'return step === "" ? cause +', 'return true ? cause +'],
@@ -454,6 +466,8 @@ try {
         ["the chip holds no sentence", '"Another account", "Another account controls', '"Another account controls Tailscale.", "Another account controls'],
         ["the published setup value keeps its hint", 'if (setupLine.hint !== "") setupValue.hint = setupLine.hint;', ''],
         ["an unread operator is not Ready", 'context.operator === "unknown" && REACHED', 'context.operator === "unread" && REACHED'],
+        ["an operator with no reading reads Ready", '    if (context.operator === "") return null;\n', ''],
+        ["a service with no reading reads Not checked", '        if (context.service === "") return null;\n', ''],
         ["an exit node goes by its target", '"--exit-node=" + node.target]', '"--exit-node=" + node.id]'],
         ["the exit nodes are bounded", "var rows = all.slice(0, EXIT_MAX);", "var rows = all.slice(0);"],
         ["the node in use survives the bound", "rows[rows.length - 1] = active;", ""],

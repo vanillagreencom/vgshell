@@ -1617,7 +1617,7 @@ function statusActionIcon(action) {
 // statusDisplayable admits whose `state` value is not hidden (statusStateHidden),
 // in manifest key order, as { key, type, label,
 // group, setup, setting, step, settings, icon, hint, info, link, secrets,
-// declaredTuis, action, aside, report, value, tone }. `group`, `hint`,
+// declaredTuis, systemStep, action, aside, report, value, tone }. `group`, `hint`,
 // `info` and `icon` are "" when the manifest omits them; a reported
 // `state` value's own `hint` and `info` stand in the entry's.
 // `link`, the words of the declared hint that open an https address, is
@@ -1625,7 +1625,10 @@ function statusActionIcon(action) {
 // (pagePlacementError). `secrets` holds for the entry that lists the plugin's stored keys,
 // a `presenceList` of a manifest that declares `secrets`, which a page
 // draws with its setup. `declaredTuis` is each TUI the entry's actions may
-// open, in declaration order. `action` is
+// open, in declaration order. `systemStep` holds for an entry an action of
+// which runs or undoes a core system step: its plugin reads the step
+// through capability `system`, which lends it no reading until the core's
+// first probe ends, so its wait while unreported ends. `action` is
 // statusRowAction's: null for an entry without one, else { label, tone, offered, tui },
 // `offered` false while unreported, and `aside` statusRowAside's. `report` is `reported` with the published `value`
 // (statusRowValue) and its `tone`, or `unreported` with `value` null and
@@ -1657,6 +1660,7 @@ function statusRows(manifest, values) {
             link: entry.link === undefined ? null : { text: entry.link.text, url: entry.link.url },
             secrets: entry.type === "presenceList" && manifest.secrets !== undefined,
             declaredTuis: statusDeclaredTuis(entry),
+            systemStep: statusEntryActions(entry).some(function (declared) { return declared.action.system !== undefined || declared.action.undo !== undefined; }),
             action: statusRowAction(entry, value),
             aside: statusRowAside(entry, value),
             report: reported ? "reported" : "unreported",

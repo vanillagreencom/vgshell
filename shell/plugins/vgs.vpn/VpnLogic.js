@@ -276,10 +276,13 @@ function stepOffered(step) { return step === "needed" || step === "nixos"; }
 // do, "" for none, and `action` the one step that applies now, `enable` or
 // `allow`, or "" for none. CONTEXT is { missing, state, service, operator }:
 // whether the `tailscale` command is absent, the snapshot's state and the
-// two system steps' states. A missing command offers no step: the Review
-// action of the page's Details Tools section installs it, and the
-// requirement is optional, so the line reads info. A step Tailscale needs reads warning while its
-// action is offered; a state the user cannot change here reads info.
+// two system steps' states, each "" while it has no reading, before the
+// core's first probe ends. The line is null, which clears the entry, while
+// a step it reads has no reading. A missing command offers no step: the
+// Review action of the page's Details Tools section installs it, and the
+// requirement is optional, so the line reads info. A step Tailscale needs
+// reads warning while its action is offered; a state the user cannot
+// change here reads info.
 var SERVICE_UNOFFERED = {
     absent: { text: "Unavailable", hint: "This computer has no Tailscale service." },
     denied: { text: "Off", hint: "The system turned the Tailscale service off, and VGS leaves it off." }
@@ -288,11 +291,13 @@ function setupState(tone, text, hint, action) { return { tone: tone, text: text,
 function setup(context) {
     if (context.missing) return setupState("info", "Not installed", "Tailscale is optional. Choose Review all missing or outdated tools to use it.", "");
     if (context.state === "service-off") {
+        if (context.service === "") return null;
         if (stepOffered(context.service)) return setupState("warning", "Off", "The Tailscale service is off. Enable turns it on.", "enable");
         var unoffered = Object.prototype.hasOwnProperty.call(SERVICE_UNOFFERED, context.service) ? SERVICE_UNOFFERED[context.service]
             : { text: "Not checked", hint: "VGS could not check the Tailscale service." };
         return setupState("info", unoffered.text, unoffered.hint, "");
     }
+    if (context.operator === "") return null;
     if (stepOffered(context.operator)) return setupState("warning", "Access needed", "The administrator holds Tailscale. After this step, VGS connects and disconnects for you without a password.", "allow");
     if (context.operator === "denied") return setupState("info", "Another account", "Another account controls Tailscale. Only that account can change it.", "");
     // The core's probe could not read the operator, so Ready would be a guess.
@@ -321,11 +326,13 @@ function connection(missing, snap) {
 
 // The `vpn` value the service publishes and the views draw: the snapshot
 // under the connection line, with `writable`, false while the command is
-// MISSING or the Allow step or another setup step must run first, and LIVE { accounts, action,
+// MISSING or the Allow step or another setup step must run first, and
+// true while SETUPLINE is null, before the steps' first reading, as for a
+// step that could not be checked, and LIVE { accounts, action,
 // login, problem }, what the service holds beside the snapshot.
 function published(missing, snap, setupLine, live) {
     var shown = connection(missing, snap);
-    return Object.assign({}, snap, { state: shown.state, tone: shown.tone, text: shown.text, writable: !missing && setupLine.action === "",
+    return Object.assign({}, snap, { state: shown.state, tone: shown.tone, text: shown.text, writable: !missing && (setupLine === null || setupLine.action === ""),
         accounts: live.accounts, action: live.action, login: live.login, problem: live.problem });
 }
 
@@ -366,9 +373,12 @@ function barView(vpn, profiles) {
 var STATUS_DATA_BYTES = 32000;
 
 function statusWrites(connectionLine, setupLine, vpnValue, profileValue) {
-    var setupValue = { tone: setupLine.tone, text: setupLine.text };
-    if (setupLine.hint !== "") setupValue.hint = setupLine.hint;
-    if (setupLine.action !== "") setupValue.action = setupLine.action;
+    var setupValue = null;
+    if (setupLine !== null) {
+        setupValue = { tone: setupLine.tone, text: setupLine.text };
+        if (setupLine.hint !== "") setupValue.hint = setupLine.hint;
+        if (setupLine.action !== "") setupValue.action = setupLine.action;
+    }
     var vpn = Object.assign({}, vpnValue, { exitNodes: vpnValue.exitNodes.slice(), peers: vpnValue.peers.slice(), accounts: vpnValue.accounts.slice() });
     var profiles = Object.assign({}, profileValue, { rows: profileValue.rows.slice() });
     while (Commons.SettingValues.utf8Bytes(JSON.stringify(vpn)) > STATUS_DATA_BYTES) {

@@ -267,10 +267,17 @@ function rowsView(entry, plugin) {
 // text, `lines` a state's
 // further lines and `items` a presence list's items with the `key` each
 // keeps across writes (itemsKeyed). TIME_TEXT spells a `time` value for
-// people. An entry the plugin has not published reads "Not reported".
-function statusView(entry, timeText) {
+// people. An entry the plugin has not published reads "Not reported", save
+// one that offers a core system step (`systemStep`) while PLUGIN, { enabled,
+// failed }, is on and started: the plugin publishes it once the core's
+// first probe ends, so it reads that it is checking. Any other
+// unpublished entry, or any without PLUGIN, reads "Not reported": a plugin
+// may leave such an entry unpublished for good, so the page cannot tell
+// its first publish apart from none.
+function statusView(entry, timeText, plugin) {
     if (entry === null) return { label: "", hint: "", info: "", link: null, tone: "", text: "", lines: [], muted: true, items: [] };
-    var out = { label: entry.label, hint: entry.hint, info: entry.info, link: entry.link, tone: "", text: "Not reported", lines: [], muted: true, items: [] };
+    var checking = entry.report !== "reported" && entry.systemStep && plugin !== undefined && plugin.enabled && !plugin.failed;
+    var out = { label: entry.label, hint: entry.hint, info: entry.info, link: entry.link, tone: "", text: checking ? CHECKING_LINE : "Not reported", lines: [], muted: true, items: [] };
     if (entry.report !== "reported") return out;
     out.muted = false;
     out.tone = entry.tone;

@@ -354,7 +354,7 @@ function suite(ctx, check) {
     const values = ctx.statusWrite(m, ctx.statusWrite(m, ctx.statusWrite(m, {}, "token", "locked").values, "check", { tone: "ok", text: "Up to date" }).values, "pending", 0).values;
     const rows = ctx.statusRows(m, values);
     check("statusRows: one row per displayable entry, in manifest order", rows.map(r => r.key), ["token", "tokens", "check", "note", "pending", "lastCheck", "health"]);
-    check("statusRows: a reported presence carries its tone and the declaration", rows[0], { key: "token", type: "presence", label: "Token", group: "Keys", setup: true, setting: "", step: "", settings: false, icon: "", hint: "Needed", info: "Explains this status", link: null, secrets: false, declaredTuis: ["setup"], action: { label: "Set up token", icon: "", tone: "", offered: false, tui: "" }, aside: null, report: "reported", value: "locked", tone: "info" });
+    check("statusRows: a reported presence carries its tone and the declaration", rows[0], { key: "token", type: "presence", label: "Token", group: "Keys", setup: true, setting: "", step: "", settings: false, icon: "", hint: "Needed", info: "Explains this status", link: null, secrets: false, declaredTuis: ["setup"], systemStep: false, action: { label: "Set up token", icon: "", tone: "", offered: false, tui: "" }, aside: null, report: "reported", value: "locked", tone: "info" });
     check("statusRows: a declaration carries info", rows[0].info, "Explains this status");
     check("statusRows: a declaration carries its hint's link", rows[6].link, { text: "vendor page", url: "https://vendor.example/health" });
     check("statusRows: a reported state carries its tone", [rows[2].report, rows[2].value, rows[2].tone], ["reported", { tone: "ok", text: "Up to date" }, "success"]);
@@ -364,7 +364,7 @@ function suite(ctx, check) {
     check("statusRows: state guidance reaches the plain hint", [guidanceRow.hint, guidanceRow.value.lines], ["Try again.", undefined]);
     check("statusRows: an unreported state retains declaration help", ctx.statusRows(m, {}).find(r => r.key === "check").hint, "Check information");
     check("statusRows: clearing state guidance restores declaration help", ctx.statusRows(m, ctx.statusWrite(m, guidance, "check", null).values).find(r => r.key === "check").hint, "Check information");
-    check("statusRows: an unreported entry has no value and no tone", rows[3], { key: "note", type: "text", label: "Note", group: "", setup: false, setting: "", step: "", settings: false, icon: "", hint: "", info: "", link: null, secrets: false, declaredTuis: [], action: null, aside: null, report: "unreported", value: null, tone: "" });
+    check("statusRows: an unreported entry has no value and no tone", rows[3], { key: "note", type: "text", label: "Note", group: "", setup: false, setting: "", step: "", settings: false, icon: "", hint: "", info: "", link: null, secrets: false, declaredTuis: [], systemStep: false, action: null, aside: null, report: "unreported", value: null, tone: "" });
     check("statusRows: a reported count of 0 is reported, drawn without a tone", [rows[4].report, rows[4].value, rows[4].tone], ["reported", 0, ""]);
     // A state its writer publishes hidden leaves the page until it shows one.
     const hiddenHealth = ctx.statusWrite(m, values, "health", { hidden: true }).values;
@@ -613,6 +613,13 @@ function suite(ctx, check) {
         [asideRow(true), asideRow(false), asideRow(false), asideRow(false)]);
     check("statusRows: an entry without an aside carries none", ctx.statusRows(mAside, {})[1].aside, null);
     check("statusRows: an aside's screen is one the entry declares", ctx.statusRows(mAside, {})[0].declaredTuis, ["add", "remove"]);
+    const mUndoOnly = ctx.validateManifest({ schemaVersion: 1, id: "acme.notice", name: "N", version: "1", author: "a", description: "d", kinds: ["service"], entryPoints: { service: "S.qml" }, capabilities: ["status", "system"], systemSteps: ["reboot-notice"], status: { notice: { type: "state", label: "Reboot notice", setup: true, action: { label: "Turn on", undo: "reboot-notice" } } } }, "/p");
+    check("an undo action alone is a valid entry", mUndoOnly.ok, true);
+    // An entry whose action runs or undoes a core system step waits on the
+    // core's first probe while unreported; a TUI action alone does not.
+    check("statusRows: an entry is a system step's by its system or undo action",
+        [ctx.statusRows(mSystem, {})[0].systemStep, ctx.statusRows(mUndoOnly.manifest, {})[0].systemStep, ctx.statusRows(mNamed, {}).map(row => [row.key, row.systemStep]), ctx.statusRows(mAside, {})[0].systemStep],
+        [true, true, [["agent", true], ["plain", false]], false]);
     check("statusActionRequest: a named TUI action opens it", ctx.statusActionRequest(mNamed, "acme.agent", true, namedValues("remove"), "agent"), { ok: true, kind: "tui", name: "remove" });
     check("statusActionRequest: a named system action applies its step", ctx.statusActionRequest(mNamed, "acme.agent", true, namedValues("get"), "agent"), { ok: true, kind: "system", args: ["apply", "i2c-dev"] });
     check("statusActionRequest: named actions none of which applies are refused", ctx.statusActionRequest(mNamed, "acme.agent", true, namedValues(null), "agent"), { ok: false, answer: "refused: action=agent reason=not-offered" });
@@ -687,6 +694,8 @@ const CONTROLS = [
     ["required steps cannot hide", 'if (entry.setup === true && statusStateHidden(value)) return false;', 'if (false) return false;'],
     ["a status row drops its link", "link: entry.link === undefined ? null : { text: entry.link.text, url: entry.link.url },", "link: null,"],
     ["a status row drops its declared TUI names", "declaredTuis: statusDeclaredTuis(entry),", "declaredTuis: [],"],
+    ["a system step's entry is not marked", "return declared.action.system !== undefined || declared.action.undo !== undefined; }),", "return false; }),"],
+    ["an undo step's entry is not marked", "return declared.action.system !== undefined || declared.action.undo !== undefined; }),", "return declared.action.system !== undefined; }),"],
     ["a setup ignores optional commands", "return !row.optional;\n    }).map", "return true;\n    }).map"],
     ["a setup installs only missing declared requirements", "return needed.filter(function (name) { return missing.indexOf(name) !== -1; });", "return needed;"],
     ["a script's requires decides what it needs", "var needed = requires !== null ? requires : manifest", "var needed = false ? requires : manifest"],
