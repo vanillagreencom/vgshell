@@ -276,8 +276,9 @@ Item {
         }
 
         // The mark alone: the trash mark in the danger colour with no text
-        // or underline, centred across a square as tall as a text action's
-        // box, and level with the mark a text action leads with.
+        // or underline, in a square as tall as a text action's box, its
+        // ink on the control's edge and level with the mark a text action
+        // leads with, so it keeps the value column the other actions share.
         function test_an_action_that_removes_its_item_draws_the_trash_mark_alone() {
             compare(mark(alone).visible, true);
             compare(mark(alone).name, "trash");
@@ -287,8 +288,8 @@ Item {
             compare(alone.height, danger.height, "as tall as a text action's box");
             compare(alone.width, alone.height, "as wide as it is tall");
             verify(alone.width < label(alone).implicitWidth, "the box holds the mark, not the text");
-            const centre = mark(alone).x + mark(alone).width / 2;
-            verify(Math.abs(centre - alone.width / 2) <= 0.5, "the mark is " + (centre - alone.width / 2) + " px off the box's centre");
+            compare(mark(alone).mapToItem(alone, 0, 0).x, mark(danger).mapToItem(danger, 0, 0).x, "the mark starts where a leading mark does");
+            compare(mark(alone).x, 0, "on the control's edge");
             compare(mark(alone).y, mark(danger).y, "level with a text action's mark");
             compare(alone.Accessible.name, alone.text);
             compare(alone.inkAbove(), mark(alone).y);
