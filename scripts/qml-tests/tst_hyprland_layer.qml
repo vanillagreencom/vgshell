@@ -8,7 +8,8 @@ import qs.Unit
 // The Hyprland layer's writer against the stand-in FileView and Process,
 // whose reads and commands the test finishes by hand: one theme change
 // renders the layer once, and the bytes it writes are the render of the
-// settled inputs.
+// settled inputs; while a display trial runs it writes nothing, and the
+// trial's end writes once, with an input moved in the same turn.
 Item {
     id: root
 
@@ -22,6 +23,11 @@ Item {
         radius: { md: 9 },
         bar: { height: 40 }
     })
+
+    // Two more theme documents, each moving the layer's colours.
+    readonly property var heldTokens: ({ palette: { accent: "#286983" } })
+    readonly property var keptTokens: ({ palette: { accent: "#907aa9" } })
+    readonly property var idleTrial: ({ phase: "idle", token: "", deadline: 0, failure: "" })
 
     HyprlandLayer { id: layer }
 
@@ -87,6 +93,27 @@ Item {
             compare(written, LayerLogic.render.apply(null, layer.renderInputs).text);
             compare(layer.machine.phase, "idle");
             compare(renders.count, 1);
+        }
+
+        function test_a_trial_holds_the_write_until_it_ends() {
+            const before = layerFile().written;
+            Capabilities.monitors.trialState = { phase: "holding", token: "t", deadline: 0, failure: "" };
+            compare(layer.machine.trialHeld, true);
+            renders.clear();
+            compare(UnitTheme.override(root.heldTokens), "ok");
+            tryVerify(() => renders.count === 1, 1000, "the theme change renders while the trial runs");
+            compare(layer.machine.phase, "idle", "a render while the trial runs starts no write");
+            compare(layerFile().written, before);
+            // Keep: the trial ends and its outputs write moves an input in
+            // the same turn; the one write carries that input.
+            Capabilities.monitors.trialState = root.idleTrial;
+            compare(UnitTheme.override(root.keptTokens), "ok");
+            tryVerify(() => layer.machine.phase !== "idle", 1000, "the trial's end starts a write");
+            finishWrite();
+            compare(layerFile().written, LayerLogic.render.apply(null, layer.renderInputs).text);
+            compare(layer.machine.phase, "idle");
+            compare(layer.machine.trialHeld, false);
+            compare(renders.count, 2);
         }
     }
 }

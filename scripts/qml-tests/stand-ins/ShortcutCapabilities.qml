@@ -16,6 +16,7 @@ QtObject {
     }
     readonly property QtObject monitors: QtObject {
         property string ownerId: ""
+        property var trialState: ({ phase: "idle", token: "", deadline: 0, failure: "" })
     }
 
     function checkName(kind, name) {}
