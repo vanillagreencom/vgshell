@@ -550,7 +550,7 @@ cases=(
   "voice-start-service|shell/plugins/vgs.voice/Service.qml|logic|node scripts/test-voice-logic.js"
   "voice-microphone|shell/plugins/vgs.voice/Widget.qml|logic|node scripts/test-voice-logic.js"
   "screensaver-manifest|shell/plugins/vgs.screensaver/manifest.json|logic|node scripts/test-plugin-logic.js"$'\nnode scripts/test-screensaver-logic.js'
-  "duration-shared|shell/Commons/Duration.js|logic|node scripts/test-duration.js"$'\nnode scripts/test-timestamp.js\nnode scripts/test-updates-logic.js\nnode scripts/test-automations-logic.js\nnode scripts/test-automations-view-logic.js\nnode scripts/test-agent-warden-view.js\nnode scripts/test-agent-warden-notices.js\nnode scripts/test-cloud-sync-logic.js'
+  "duration-shared|shell/Commons/Duration.js|logic|node scripts/test-duration.js"$'\nnode scripts/test-timestamp.js\nnode scripts/test-updates-logic.js\nnode scripts/test-automations-logic.js\nnode scripts/test-automations-view-logic.js\nnode scripts/test-agent-warden-view.js\nnode scripts/test-agent-warden-notices.js\nnode scripts/test-google-drive-logic.js'
   "nmcli-shared|shell/Commons/Nmcli.js|logic|node scripts/test-network-logic.js"$'\nnode scripts/test-vpn-logic.js'
   "vpn-import|shell/plugins/vgs.vpn/tui/import-wireguard.sh|cli|scripts/test-vpn-import.sh"$'\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"$'\nscripts/test-tui-gum-colours.sh'
   "network-logic|shell/plugins/vgs.network/NetworkLogic.js|logic|node scripts/test-network-logic.js"
@@ -761,7 +761,7 @@ cases=(
   "share-picker-consumer|scripts/fixtures/share-picker/xdph-selection.cpp|cli|python3 scripts/test-share-picker.py"
   "jarvis-key-smoke|scripts/smoke/rows/jarvis-keys.sh|all|node scripts/check-jarvis-words.js"$'\n'"node scripts/test-jarvis-daemon.js"$'\n'"${smoke_plan/smoke_reads_named/$'smoke_reads_named\npython3 scripts/test-smoke-user-config.py'}"
   "mode-startup-entry|scripts/qml-smoke.sh|tools|scripts/test-mode-hold.sh"$'\nsmoke_reads_named\nscripts/test-gpu-fence.sh\nscripts/test-validate.sh'
-  "mode-capture-entry|scripts/sandbox-shots.sh|tools|scripts/test-mode-hold.sh"$'\nscripts/test-smoke-input-guard.sh\nscripts/test-sandbox-shots.sh\nnode scripts/test-cloud-sync-scene.js\nscripts/test-gpu-fence.sh'
+  "mode-capture-entry|scripts/sandbox-shots.sh|tools|scripts/test-mode-hold.sh"$'\nscripts/test-smoke-input-guard.sh\nscripts/test-sandbox-shots.sh\nnode scripts/test-google-drive-scene.js\nscripts/test-gpu-fence.sh'
   "compositor-reveal-barrier-suite|scripts/test-compositor-reveal.py|tools|python3 scripts/test-compositor-reveal.py"
   "smoke-configuration-restore-suite|scripts/test-smoke-user-config.py|tools|python3 scripts/test-smoke-user-config.py"
   "jarvis-poll-harness|scripts/smoke/harness.sh|all|node scripts/test-jarvis-daemon.js"$'\nscripts/test-smoke-verdict.sh\nscripts/test-mode-hold.sh\npython3 scripts/check-smoke-readers.py\npython3 scripts/test-smoke-dumps.py\npython3 scripts/test-check-smoke-readers.py\npython3 scripts/test-compositor-reveal.py\nscripts/test-secret-tool-stand-in.sh\nscripts/test-smoke-input-guard.sh\nscripts/test-smoke-xwayland.sh\nsmoke_reads_named\nscripts/test-smoke-teardown.sh\nscripts/test-smoke-display-record.sh\npython3 scripts/test-smoke-user-config.py\nscripts/test-sandbox-shots.sh\nscripts/test-gpu-fence.sh\nnode scripts/test-jarvis-env.js\nscripts/test-jarvis-selftest.sh\n'"$repo_plan"$'\nscripts/qml-smoke.sh\nscripts/measure-shader.sh'

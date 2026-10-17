@@ -4,11 +4,11 @@
 set -euo pipefail
 # shellcheck source=/dev/null
 source "$VGS_TUI_LIB"
-log="${XDG_STATE_HOME:-$HOME/.local/state}/vgshell/cloud-sync/setup.log"
-runner="$VGS_PLUGIN_DIR/bin/cloud-sync"
+log="${XDG_STATE_HOME:-$HOME/.local/state}/vgshell/google-drive/setup.log"
+runner="$VGS_PLUGIN_DIR/bin/google-drive"
 mkdir -p -- "${log%/*}"
-[[ $# == 0 ]] || vgs_tui_refuse "$log" 2 "cloud-sync: refused: arguments=none" "Select Sign out on the Cloud Sync page in Settings." || exit
-vgs_tui_header "Sign out of Google Drive" "Cloud Sync stops syncing until you connect again." \
+[[ $# == 0 ]] || vgs_tui_refuse "$log" 2 "google-drive: refused: arguments=none" "Select Sign out on the Google Drive page in Settings." || exit
+vgs_tui_header "Sign out of Google Drive" "VGS stops syncing until you connect again." \
   "Your files stay on this computer and on Google Drive."
 status=0
 vgs_tui_confirm "Sign out of Google Drive?" || status=$?
@@ -22,7 +22,7 @@ if vgs_tui_logged "$log" "$runner" sign-out >>"$log"; then
   vgs_tui_success "Google Drive is signed out."
   exit 0
 fi
-refusal="$(tail -c "+$((logged + 1))" -- "$log" | grep '^cloud-sync: refused: ' | tail -n 1)" || refusal=""
+refusal="$(tail -c "+$((logged + 1))" -- "$log" | grep '^google-drive: refused: ' | tail -n 1)" || refusal=""
 case "$refusal" in
   *credential=locked*) vgs_tui_failed "$log" "Your keyring is locked. Unlock it, then try again." ;;
   *) vgs_tui_failed "$log" "VGS could not sign out of Google Drive." ;;

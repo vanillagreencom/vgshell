@@ -1,7 +1,7 @@
 import QtQuick
 import Quickshell.Io
 
-// The service's one door to bin/cloud-sync: one subprocess at a time, in
+// The service's one door to bin/google-drive: one subprocess at a time, in
 // call order. A call equal to one still waiting joins it, so the runner
 // runs once and every caller hears the answer. The runner owns the pair
 // list, the pause record, the units and the status record; this owner only
@@ -9,7 +9,7 @@ import Quickshell.Io
 Item {
     id: root
 
-    readonly property string runner: String(Qt.resolvedUrl("bin/cloud-sync")).replace(/^file:\/\//, "")
+    readonly property string runner: String(Qt.resolvedUrl("bin/google-drive")).replace(/^file:\/\//, "")
     property var queue: []
     property var active: null
 
@@ -33,11 +33,11 @@ Item {
         cli.running = true;
     }
 
-    // The runner's refusal line, `cloud-sync: refused: ...`, or its first
+    // The runner's refusal line, `google-drive: refused: ...`, or its first
     // line: a log line the caller keeps in the shell's log.
     function firstError(text) {
         const lines = String(text || "").split("\n").filter(line => line.trim() !== "");
-        const refused = lines.find(line => line.startsWith("cloud-sync: refused: "));
+        const refused = lines.find(line => line.startsWith("google-drive: refused: "));
         return refused !== undefined ? refused : lines.length > 0 ? lines[0] : "";
     }
 

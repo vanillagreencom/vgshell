@@ -2,14 +2,14 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import qs.Commons
-import "CloudSyncLogic.js" as Logic
+import "GoogleDriveLogic.js" as Logic
 
-// Owns vgs.cloud-sync's runtime side: the one runner door (RunnerClient),
+// Owns vgs.google-drive's runtime side: the one runner door (RunnerClient),
 // the one watch of the runner's status record, the presence probe of the
-// Google Drive keys, the notification when Cloud Sync needs the user, IPC
+// Google Drive keys, the notification when the sync needs the user, IPC
 // and every status write. The widget and the window read status only.
 // The plugin never runs rclone: Sync now asks systemd for the same service
-// the hourly timer and the command line start (bin/cloud-sync start), and
+// the hourly timer and the command line start (bin/google-drive start), and
 // that run writes the status record this service watches.
 //
 // The record is read again whenever the runner writes it: a run's start
@@ -23,13 +23,13 @@ import "CloudSyncLogic.js" as Logic
 // `status` IPC answer returns with every published value; never the bar,
 // the window or a log line.
 //
-//   vgshell ipc call vgs.cloud-sync invoke <name> ""   with <name>:
+//   vgshell ipc call vgs.google-drive invoke <name> ""   with <name>:
 //     status    the published values, JSON
 //     sync      Sync now: starts the service through systemd; `ok`
 //     pause     pauses every pair; `ok`
 //     resume    resumes every pair; `ok`
 //     refresh   renders the record and probes the keys again; `ok`
-//     open      opens the Cloud Sync window; shell.surfaces.summon's reply
+//     open      opens the Google Drive window; shell.surfaces.summon's reply
 // A request that fails is logged and shown in the window as `problem`.
 Item {
     id: root
@@ -51,7 +51,7 @@ Item {
     // The first `status` answered: the record exists, so its directory
     // does, which the watch needs.
     property bool statusReady: false
-    readonly property string statusFile: Paths.stateDir + "/cloud-sync/status.json"
+    readonly property string statusFile: Paths.stateDir + "/google-drive/status.json"
     readonly property int secretRevision: shell === null ? 0 : shell.secrets.revision
     // The end of each setup TUI's last run, whoever opened it: Settings,
     // the window or the launcher.
@@ -83,7 +83,7 @@ Item {
     }
 
     function failed(operation, line) {
-        console.warn("cloud-sync: " + line);
+        console.warn("google-drive: " + line);
         problem = operation;
         problemLine = line;
         publish();
@@ -137,7 +137,7 @@ Item {
     function accept(content) {
         const judged = Logic.parseStatus(content);
         if (!judged.ok) {
-            console.warn("cloud-sync: status record refused: " + judged.error);
+            console.warn("google-drive: status record refused: " + judged.error);
             return;
         }
         record = judged.record;
@@ -158,7 +158,7 @@ Item {
         for (const key of Logic.changedKeys(reported, values)) {
             const value = values[key] === undefined ? null : values[key];
             const reply = shell.status.set(key, value);
-            if (reply !== "ok") console.error("cloud-sync: " + reply);
+            if (reply !== "ok") console.error("google-drive: " + reply);
             else next[key] = value;
         }
         reported = next;
@@ -180,10 +180,10 @@ Item {
         const message = Logic.notification(record);
         if (message !== null) {
             const reply = shell.notify.send({ title: message.title, message: message.message, tone: message.tone, icon: "cloud-alert" });
-            if (reply !== "ok") console.warn("cloud-sync: notify " + reply);
+            if (reply !== "ok") console.warn("google-drive: notify " + reply);
         }
         client.request(["attention-seen", key], (ok, out, line) => {
-            if (!ok) console.warn("cloud-sync: " + line);
+            if (!ok) console.warn("google-drive: " + line);
         });
     }
 
@@ -209,7 +209,7 @@ Item {
             path: root.statusFile
             onChanged: read()
             onLoaded: content => root.accept(content)
-            onLoadFailed: error => console.warn("cloud-sync: status record unreadable: " + FileViewError.toString(error))
+            onLoadFailed: error => console.warn("google-drive: status record unreadable: " + FileViewError.toString(error))
         }
     }
 

@@ -8,7 +8,9 @@ import qs.Core
 // beside the change that ran the handler, the write that returns the file
 // to its earlier bytes included. An object here reads a value of
 // `Config.effective` as a plugin's settings do and writes from its change
-// handler, building on `Config.user` as the core's edits do.
+// handler, building on `Config.user` as the core's edits do. A rename map
+// the scan hands Config renames a former plugin id in the loaded file with
+// one write, and in a file read after it before anything is published.
 Item {
     id: root
 
@@ -73,6 +75,16 @@ Item {
         }
     }
 
+    // Every value of `Config.effective.disabledPlugins` a reader is told.
+    Component {
+        id: disabledSeenComponent
+        QtObject {
+            property var seen: []
+            readonly property var disabled: Config.effective.disabledPlugins
+            onDisabledChanged: seen.push(disabled === undefined ? null : disabled.slice())
+        }
+    }
+
     // Records how far the writer got when the event loop next ran a timer.
     Timer {
         id: turn
@@ -122,6 +134,47 @@ Item {
             finishNextRead(Config.userPath, root.baseText);
             compare(Config.user, { version: 2 });
             compare(Config.effective, { version: 2 });
+        }
+
+        // No case's rename map reaches the next case's reads.
+        function cleanup() {
+            Config.adoptRenames({});
+        }
+
+        function test_a_rename_after_load_writes_once() {
+            finishNextRead(Config.userPath, "{\"version\": 2, \"disabledPlugins\": [\"acme.old\"], \"bar\": {\"layout\": {\"right\": [{\"id\": \"acme.old\"}]}}}\n");
+            compare(Config.effective.disabledPlugins, ["acme.old"]);
+            let saves = 0;
+            const counted = () => { saves += 1; };
+            watched(Config.userPath).saved.connect(counted);
+            Config.adoptRenames({ "acme.old": "acme.new" });
+            Config.adoptRenames({ "acme.old": "acme.new" });
+            watched(Config.userPath).saved.disconnect(counted);
+            compare(saves, 1);
+            const renamed = { version: 2, disabledPlugins: ["acme.new"], bar: { layout: { right: [{ id: "acme.new" }] } } };
+            fileHolds(renamed);
+            compare(Config.user, renamed);
+            compare(Config.effective, renamed);
+        }
+
+        function test_a_load_after_adopt_renames_publishes_the_new_id_first() {
+            const disabled = createTemporaryObject(disabledSeenComponent, root);
+            Config.adoptRenames({ "acme.old": "acme.new" });
+            finishNextRead(Config.userPath, "{\"version\": 2, \"disabledPlugins\": [\"acme.old\"]}\n");
+            compare(disabled.seen, [["acme.new"]]);
+            fileHolds({ version: 2, disabledPlugins: ["acme.new"] });
+            compare(Config.effective, { version: 2, disabledPlugins: ["acme.new"] });
+        }
+
+        // expected-log: config: user file not written at -- the planted write failure
+        // expected-log: config: user file plugins renamed in memory, not written -- the rename the disk refused
+        function test_a_rename_the_disk_refuses_is_renamed_in_memory() {
+            finishNextRead(Config.userPath, "{\"version\": 2, \"disabledPlugins\": [\"acme.old\"]}\n");
+            view(Config.userPath).failNextWrite = 28;
+            Config.adoptRenames({ "acme.old": "acme.new" });
+            verify(Config.saveError !== "", "saveError=" + Config.saveError);
+            compare(Config.user, { version: 2, disabledPlugins: ["acme.new"] });
+            compare(Config.effective, { version: 2, disabledPlugins: ["acme.new"] });
         }
 
         function test_write_from_a_write_handler_keeps_both() {

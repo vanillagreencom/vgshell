@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The vgs.cloud-sync floating TUIs, shell/plugins/vgs.cloud-sync/tui/,
+# The vgs.google-drive floating TUIs, shell/plugins/vgs.google-drive/tui/,
 # against a stand-in runner that logs its argv and a stand-in gum that
 # answers each question from a list. It proves that Set up hourly sync runs
 # the runner's install; that Sign in for Download and Sign in for Upload
@@ -25,14 +25,14 @@ set -euo pipefail
 
 self="$(readlink -f -- "${BASH_SOURCE[0]}")"
 repo="$(cd -- "$(dirname -- "$self")/.." && pwd)"
-plugin_src="$repo/shell/plugins/vgs.cloud-sync"
-TMP_ROOT="$(mktemp -d)" || { echo "test-cloud-sync-tui: scratch=mktemp-failed" >&2; exit 1; }
-[[ -d $TMP_ROOT && ! -L $TMP_ROOT ]] || { echo "test-cloud-sync-tui: scratch=not-a-directory value=[$TMP_ROOT]" >&2; exit 1; }
-TMP_ROOT="$(cd -- "$TMP_ROOT" && pwd -P)" || { echo "test-cloud-sync-tui: scratch=resolve-failed" >&2; exit 1; }
+plugin_src="$repo/shell/plugins/vgs.google-drive"
+TMP_ROOT="$(mktemp -d)" || { echo "test-google-drive-tui: scratch=mktemp-failed" >&2; exit 1; }
+[[ -d $TMP_ROOT && ! -L $TMP_ROOT ]] || { echo "test-google-drive-tui: scratch=not-a-directory value=[$TMP_ROOT]" >&2; exit 1; }
+TMP_ROOT="$(cd -- "$TMP_ROOT" && pwd -P)" || { echo "test-google-drive-tui: scratch=resolve-failed" >&2; exit 1; }
 trap 'rm -rf -- "${TMP_ROOT:?}"' EXIT
 for tool in script python3 stat tail grep dirname mkdir cat stty; do
   if ! command -v "$tool" >/dev/null 2>&1; then
-    printf 'test-cloud-sync-tui: status=not-measured missing=%s\n' "$tool"
+    printf 'test-google-drive-tui: status=not-measured missing=%s\n' "$tool"
     exit 77
   fi
 done
@@ -44,7 +44,7 @@ fail() { failures=$((failures + 1)); printf '  FAIL  %s\n' "$*"; }
 tools="$TMP_ROOT/tools"
 plugin="$TMP_ROOT/plugin"
 home="$TMP_ROOT/home"
-log="$home/.local/state/vgshell/cloud-sync/setup.log"
+log="$home/.local/state/vgshell/google-drive/setup.log"
 mkdir -p "$tools" "$plugin/bin" "$plugin/tui" "$home"
 for tool in bash sh script stat tail grep dirname mkdir cat stty; do ln -s -- "$(command -v "$tool")" "$tools/$tool"; done
 # gum: `input` and `choose` print the next answer, `confirm` answers yes
@@ -66,7 +66,7 @@ esac
 SH
 # The runner: logs its argv as one JSON line, then answers from the mode
 # file, `fail <line>` for a refusal with that line and no other.
-cat >"$plugin/bin/cloud-sync" <<SH
+cat >"$plugin/bin/google-drive" <<SH
 #!$(command -v bash)
 $(command -v python3) -c 'import json,sys; print(json.dumps(sys.argv[1:]))' "\$@" >>"$TMP_ROOT/calls"
 mode=""
@@ -76,7 +76,7 @@ if [[ \$mode == fail* ]]; then
   exit 1
 fi
 case "\$1" in
-  install) echo "installed=vgs-cloud-sync.timer changed=2" ;;
+  install) echo "installed=vgs-google-drive.timer changed=2" ;;
   authorize) echo "authorized=\$2" ;;
   pairs) printf 'docs\tDocuments\ninbox\tAgent uploads\n' ;;
   pairs-reset) echo "reset=pairs.json.damaged-20261011T091349Z" ;;
@@ -85,7 +85,7 @@ case "\$1" in
   sign-out) echo "signed-out=\$2" ;;
 esac
 SH
-chmod 755 "$tools/gum" "$plugin/bin/cloud-sync"
+chmod 755 "$tools/gum" "$plugin/bin/google-drive"
 
 # tui SCRIPT MODE ANSWERS [ARGS...]: runs SCRIPT, a file under the plugin
 # copy's tui/, with the runner in MODE and gum answering ANSWERS, one a
@@ -100,9 +100,9 @@ tui() {
   : >"$TMP_ROOT/calls"
   command="$(printf '%q ' bash "$file" "$@")"
   status=0
-  env -i PATH="$tools" HOME="$home" TERM=dumb VGS_TUI_LIB="$repo/bin/lib/tui.sh" VGS_PLUGIN_ID=vgs.cloud-sync VGS_PLUGIN_DIR="$plugin" \
+  env -i PATH="$tools" HOME="$home" TERM=dumb VGS_TUI_LIB="$repo/bin/lib/tui.sh" VGS_PLUGIN_ID=vgs.google-drive VGS_PLUGIN_DIR="$plugin" \
     script -qec "$command" /dev/null </dev/null >"$TMP_ROOT/screen" 2>&1 || status=$?
-  screen="$(tr -d '\r' <"$TMP_ROOT/screen")"
+  if ! screen="$(tr -d '\r' <"$TMP_ROOT/screen")"; then fail "${file##*/}: the screen capture is unreadable"; exit 1; fi
   calls="$(python3 -c 'import json,sys; print(json.dumps([json.loads(l) for l in open(sys.argv[1]) if l.strip()]))' "$TMP_ROOT/calls")"
 }
 shows() { [[ $screen == *"$1"* ]]; }
@@ -123,10 +123,10 @@ copy_scripts() { cp -- "$plugin_src"/tui/*.sh "$plugin/tui/"; }
 # the plugin copy's script it runs, which a control replaces.
 case_setup_installs() {
   tui "$1" "" ""
-  [[ $status == 0 && $calls == '[["install"]]' ]] && shows "Cloud Sync runs every hour while you are logged in."
+  [[ $status == 0 && $calls == '[["install"]]' ]] && shows "Google Drive syncs every hour while you are logged in."
 }
 case_setup_failure_reads_plainly() {
-  tui "$1" "fail cloud-sync: refused: systemctl=failed args=daemon-reload exit=1" ""
+  tui "$1" "fail google-drive: refused: systemctl=failed args=daemon-reload exit=1" ""
   [[ $status == 1 ]] && shows "VGS could not set up the hourly sync." && ! shows "systemctl=failed" && grep -q -F "systemctl=failed" -- "$log"
 }
 case_connect_runs_its_direction() {
@@ -134,7 +134,7 @@ case_connect_runs_its_direction() {
   [[ $status == 0 && $calls == '[["authorize"]]' ]]
 }
 case_connect_reads_this_runs_refusal() {
-  tui "$1" "fail cloud-sync: refused: credential=absent account=client-secret" ""
+  tui "$1" "fail google-drive: refused: credential=absent account=client-secret" ""
   [[ $status == 1 ]] && shows "Add the client ID and the client secret" || return 1
   # An earlier run's refusal stays in the log; this run's failure has none.
   tui "$1" "fail" ""
@@ -146,11 +146,11 @@ case_add_pair_defines_the_answers() {
   [[ $(defined) == "$(python3 -c 'import json,sys; print(json.dumps({"id": "my-docs-2026", "label": "My \"Docs\" \\ 2026", "remote": "Docs/Taxes", "local": sys.argv[1] + "/gdrive"}, sort_keys=True))' "$home")" ]]
 }
 case_add_pair_refusal_reads_plainly() {
-  tui "$1" "fail cloud-sync: refused: pair=docs rule=local-overlap" "$(printf '%s\n' Docs Inbox "$home/inbox")"
+  tui "$1" "fail google-drive: refused: pair=docs rule=local-overlap" "$(printf '%s\n' Docs Inbox "$home/inbox")"
   [[ $status == 1 ]] && shows "This folder overlaps a folder of another folder pair." && ! shows "rule=local-overlap"
 }
 case_add_pair_pairs_invalid_refusal_reads_plainly() {
-  tui "$1" "fail cloud-sync: refused: pairs=invalid pair=docs rule=local-overlap" "$(printf '%s\n' Docs Inbox "$home/inbox")"
+  tui "$1" "fail google-drive: refused: pairs=invalid pair=docs rule=local-overlap" "$(printf '%s\n' Docs Inbox "$home/inbox")"
   [[ $status == 1 && $(defined) != calls=* ]] && shows "Start the folder pair list again" && ! shows "pairs=invalid" && ! shows "rule=local-overlap"
 }
 case_remove_pair_removes_the_chosen_after_yes() {
@@ -165,7 +165,7 @@ case_remove_pair_removes_the_named_after_yes() {
   tui "$1" "" no docs
   [[ $status == 0 && $calls == '[["pairs", "--lines"]]' ]] || return 1
   tui "$1" "" yes nope
-  [[ $status == 1 && $calls == '[["pairs", "--lines"]]' ]] && grep -q -x -F "cloud-sync: refused: pair=unknown id=nope" -- "$log"
+  [[ $status == 1 && $calls == '[["pairs", "--lines"]]' ]] && grep -q -x -F "google-drive: refused: pair=unknown id=nope" -- "$log"
 }
 case_reset_pairs_runs_after_yes() {
   tui "$1" "" yes
@@ -174,7 +174,7 @@ case_reset_pairs_runs_after_yes() {
   [[ $status == 0 && $calls == '[]' ]]
 }
 case_reset_pairs_reads_this_runs_refusal() {
-  tui "$1" "fail cloud-sync: refused: pairs=valid" yes
+  tui "$1" "fail google-drive: refused: pairs=valid" yes
   [[ $status == 0 ]] && ! shows "pairs=valid" || return 1
   tui "$1" "fail" yes
   [[ $status == 1 ]] && shows "The details are in" && ! shows "pairs=valid"
@@ -186,7 +186,7 @@ case_sign_out_runs_its_direction_after_yes() {
   [[ $status == 0 && $calls == '[]' ]]
 }
 case_sign_out_reads_this_runs_refusal() {
-  tui "$1" "fail cloud-sync: refused: credential=locked account=token" yes
+  tui "$1" "fail google-drive: refused: credential=locked account=token" yes
   [[ $status == 1 ]] && shows "Your keyring is locked. Unlock it, then try again." && ! shows "credential=locked" || return 1
   tui "$1" "fail" yes
   [[ $status == 1 ]] && shows "VGS could not sign out of Google Drive." && ! shows "keyring is locked"
@@ -244,7 +244,7 @@ PY2
 done
 
 if [[ $failures -gt 0 ]]; then
-  printf 'test-cloud-sync-tui: failures=%d\n' "$failures"
+  printf 'test-google-drive-tui: failures=%d\n' "$failures"
   exit 1
 fi
-printf 'test-cloud-sync-tui: ok cases=%d controls=%d\n' "${#CASES[@]}" "${#CONTROL_CASES[@]}"
+printf 'test-google-drive-tui: ok cases=%d controls=%d\n' "${#CASES[@]}" "${#CONTROL_CASES[@]}"

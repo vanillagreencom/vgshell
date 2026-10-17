@@ -1026,7 +1026,7 @@ done
 expect "dropping the controls restores the Settings source revision" "$choice_revision_before" choice_source_revision
 # Required work alone marks the list. Required tools retain their Setup
 # step after installation. Optional tools give the list no warning icon.
-for setup_id in vgs.jarvis vgs.cloud-sync vgs.voice; do
+for setup_id in vgs.jarvis vgs.google-drive vgs.voice; do
   expect "the window opens $setup_id's page for its tabs" ok ipc smoke invokeInstance window vgs.settings openPlugin "$setup_id"
   expect_poll "$setup_id has its required Setup tab" '["Settings", "Setup", "Details"]' page_tabs
 done

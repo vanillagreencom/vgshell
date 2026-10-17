@@ -1,0 +1,2 @@
+{ "schemaVersion": 1, "id": "vgs.fixture-renamed", "formerIds": ["vgs.fixture-formerly"], "name": "Renamed", "version": "0.1.0", "author": "acme", "description": "smoke fixture for a first-party plugin installed under a new id",
+  "kinds": ["background", "bar-widget"], "entryPoints": { "background": "Background.qml", "bar-widget": "Widget.qml" }, "defaultSection": "right" }

@@ -16,7 +16,7 @@ import "../../shell/plugins/vgs.settings"
 // descender ends its ink at the glyphs, not the font's descent. A hidden
 // group takes neither, a group list inside another divides its own groups
 // alike, and a theme moves both. A heading over a group list of files,
-// as a Cloud Sync folder pair, stands as far in drawn rows from the file
+// as a Google Drive folder pair, stands as far in drawn rows from the file
 // above it as one file from the next. The groups are the Settings page's own Status lines
 // and Requirements rows, so the page's rhythm is read where it is drawn:
 // a line's own lines, its value and its hint sit `field.gap` apart, less
@@ -116,7 +116,7 @@ Item {
     // Groups that are a Row of an icon and its lines, on a solid surface.
     // The icon is centred on the name's capitals and taller than them, so
     // it starts above the text, and under a single line with no descender it
-    // ends below it. The last group's folder wraps, as Cloud Sync's does,
+    // ends below it. The last group's folder wraps, as Google Drive's does,
     // and its last line, a timestamp path, draws no descender.
     Rectangle {
         id: iconInkFrame
@@ -194,7 +194,7 @@ Item {
     }
 
     // A group that ends in a wrapped label whose last line has no
-    // descender, as Cloud Sync's folder line, or with `descent` the same
+    // descender, as Google Drive's folder line, or with `descent` the same
     // label read by a descender's ink, as Label.inkBelow() read every
     // wrapped label by the font's descent: the control the centring must
     // refuse. Built after the theme sets its size, so the list lays out

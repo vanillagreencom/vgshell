@@ -287,6 +287,11 @@ Singleton {
         if (JSON.stringify(nextMissing) !== JSON.stringify(root.missingCommands)) root.missingCommands = nextMissing;
         if (JSON.stringify(nextCore) !== JSON.stringify(root.coreRequirements)) root.coreRequirements = nextCore;
         if (JSON.stringify(nextCoreMissing) !== JSON.stringify(root.coreMissing)) root.coreMissing = nextCoreMissing;
+        // The user file names each renamed plugin by its new id before the
+        // map and `scanned` change: a slot key, the build and first
+        // presence read them, and would build a plugin its user disabled
+        // under a former id, or place a second widget for it.
+        if (isChanged) Config.adoptRenames(Logic.formerIdClaims(next));
         if (isChanged) root.manifests = next;
         // `scanned` gates every slot key, so it moves after the map.
         root.scanned = true;
