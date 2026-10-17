@@ -97,9 +97,11 @@ const EXTENSION_VERSION = "1.0.0";
 const ENTRY_BASES = ["config", "home", "cache"];
 const ACCOUNT_BASE = "account";
 const RELOAD_KEYS = ["command", "timeoutMs"];
-// The one optional reload key: `true` makes the hook due on every apply that
-// lands the target, for a hook that asserts a setting no file carries.
-const ALWAYS_KEY = "always";
+// The optional reload keys, each a boolean. `always` true makes the hook due
+// on every apply that lands the target, for a hook that asserts a setting no
+// file carries. `last` true runs the hook after every due hook without it,
+// for a setting an application lets a later toolkit change override.
+const RELOAD_OPTIONAL_KEYS = ["always", "last"];
 
 // A target name holds no dot, so a destination named `<target>.<ext>` names
 // its target by the text before its first dot and no two targets can write
@@ -439,17 +441,18 @@ function reloadNamesWiring(target) {
 
 // The first defect of `reload`, or "": null, or an argv whose placeholders
 // are admitted for TARGET, a timeout in whole milliseconds and, when
-// present, a boolean `always`.
+// present, a boolean `always` and a boolean `last`.
 function reloadError(logic, reload, target) {
     if (reload === null) return "";
     if (!logic.isPlainObject(reload) || !RELOAD_KEYS.every(key => logic.hasOwn(reload, key)) ||
-        !Object.keys(reload).every(key => RELOAD_KEYS.includes(key) || key === ALWAYS_KEY)) return "key=reload";
+        !Object.keys(reload).every(key => RELOAD_KEYS.includes(key) || RELOAD_OPTIONAL_KEYS.includes(key))) return "key=reload";
     if (!Array.isArray(reload.command) || reload.command.length === 0 || !reload.command.every(isLine)) return "key=reload.command";
     const names = reload.command.map(placeholderNames);
     const allowed = reloadPlaceholders(logic, target);
     if (names.some(list => list === null || list.some(name => !allowed.includes(name)))) return "key=reload.command";
     if (!Number.isInteger(reload.timeoutMs) || reload.timeoutMs <= 0) return "key=reload.timeoutMs";
-    if (logic.hasOwn(reload, ALWAYS_KEY) && typeof reload.always !== "boolean") return "key=reload.always";
+    const flag = RELOAD_OPTIONAL_KEYS.find(key => logic.hasOwn(reload, key) && typeof reload[key] !== "boolean");
+    if (flag !== undefined) return "key=reload." + flag;
     return "";
 }
 
@@ -1011,6 +1014,12 @@ function reloadAlways(target) {
     return target.reload !== null && target.reload.always === true;
 }
 
+// Whether an accepted TARGET's hook runs after every due hook whose target
+// does not declare `last`.
+function reloadLast(target) {
+    return target.reload !== null && target.reload.last === true;
+}
+
 // The profile directories a Mozilla profiles.ini holding TEXT lists, in its
 // order: each `[Profile<N>]` section's `Path`, as { path, relative }.
 // `relative` is true when the section's `IsRelative` is `1`, and `path` is
@@ -1295,4 +1304,4 @@ function unwiredText(text, line, section) {
     return next === text ? null : next;
 }
 
-module.exports = { colorDeltaE, colorDifference, TARGET_FILE, EDITOR_BASE, extensionOf, extensionFolder, manifestThemes, extensionFolderId, registeredText, unregisteredText, unobsoletedText, acceptTarget, placeholderNames, detected, setupDone, curatedTaken, renderTarget, terminalSource, refusalLine, wiringForm, wiringLine, entryItems, profileDirs, vaultDirs, reloadNamesWiring, reloadCommand, reloadAlways, selectKeys, selectValue, wiredText, unwiredText, isSectionHeader, opensSection, assignedKey };
+module.exports = { colorDeltaE, colorDifference, TARGET_FILE, EDITOR_BASE, extensionOf, extensionFolder, manifestThemes, extensionFolderId, registeredText, unregisteredText, unobsoletedText, acceptTarget, placeholderNames, detected, setupDone, curatedTaken, renderTarget, terminalSource, refusalLine, wiringForm, wiringLine, entryItems, profileDirs, vaultDirs, reloadNamesWiring, reloadCommand, reloadAlways, reloadLast, selectKeys, selectValue, wiredText, unwiredText, isSectionHeader, opensSection, assignedKey };

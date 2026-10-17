@@ -207,6 +207,25 @@ unset THEME_BIN
 rm -r -- "$tree/themes/targets/every"
 tinst "every is gone again" "$cfg" "$rt_empty" 0 "$any_out" "" theme apply dusk
 
+# A hook whose reload declares `last` runs after every other due hook, in an
+# apply and in a reload, though its name sorts first: the colour-scheme hook
+# relies on it (themes/targets/color-scheme/target.json).
+target_dir aaa-late "$(target_json aaa-late hex6 '[]' 'include=@{state}/aaa-late.conf' true '{ "command": ["vgs-hook", "aaa-late"], "timeoutMs": 3000, "last": true }')" 'l=@{palette.accent}'
+hook_order() { cut -d ' ' -f 1 -- "$runs" | paste -sd ' '; }
+fresh
+tinst "an apply runs a last hook" "$cfg" "$rt_empty" 0 "$any_out" "" theme apply nord
+check "the apply ran the last hook after the other" test "$(hook_order)" == "alpha aaa-late"
+printf '{"schemaVersion":1,"targets":["aaa-late","alpha"]}\n' >"$pending"; fresh
+tinst "a reload runs a pending last hook" "$cfg" "$rt_empty" 0 '{"state":"reloaded","targets":[{"name":"aaa-late","state":"reloaded","reason":null},{"name":"alpha","state":"reloaded","reason":null}],"reason":null}' "" theme reload --json
+check "the reload ran the last hook after the other" test "$(hook_order)" == "alpha aaa-late"
+judge_control name-order 'if (last(entry) === late) rows[i] = run(entry, i);' 'if (!late) rows[i] = run(entry, i);'
+fresh
+tinst "the name-order mutant applies changed bytes" "$cfg" "$rt_empty" 0 "$any_out" "" theme apply dusk
+check "the name-order mutant runs the last hook first" test "$(hook_order)" == "aaa-late alpha"
+unset THEME_BIN
+rm -r -- "${tree:?}/themes/targets/aaa-late"
+tinst "aaa-late is gone again" "$cfg" "$rt_empty" 0 "$any_out" "" theme apply dusk
+
 # Must-fail controls, each on a judge copy, one per rule. Each starts from
 # alpha landed with dusk, nothing pending. A copy without the descriptor
 # 9 slot alone stays green here: node marks its inherited descriptors 0 to

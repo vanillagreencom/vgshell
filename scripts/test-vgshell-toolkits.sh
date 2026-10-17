@@ -35,7 +35,7 @@ done
 # gsettings answers `get SCHEMA KEY` with $gs/KEY, `range SCHEMA KEY` with
 # $gs/range-KEY, failing as gsettings does on a key the schema lacks when
 # that file is absent, and appends each `set`'s arguments, one line per
-# call, to $gs/sets-KEY. Detection never runs it.
+# call, to $gs/sets-KEY and its KEY to $gs/set-order. Detection never runs it.
 gs="$tmp/gsettings"; mkdir -p "$gs"
 gs_current="$gs/icon-theme"; gs_sets="$gs/sets-icon-theme"
 cs_current="$gs/color-scheme"; cs_sets="$gs/sets-color-scheme"
@@ -50,7 +50,7 @@ cat >"$stubs/gsettings" <<EOF
 #!/bin/sh
 case "\$1" in
   get) cat -- "$gs/\$3" ;;
-  set) printf '%s\n' "\$*" >>"$gs/sets-\$3" ;;
+  set) printf '%s\n' "\$*" >>"$gs/sets-\$3"; printf '%s\n' "\$3" >>"$gs/set-order" ;;
   range) [ -e "$gs/range-\$3" ] || exit 1; cat -- "$gs/range-\$3" ;;
   *) : >"$tmp/ran-gsettings"; exit 1 ;;
 esac
@@ -241,13 +241,21 @@ light_line="set org.gnome.desktop.interface color-scheme prefer-light"
 scheme_sets_are() { [[ "$(cat -- "$cs_sets" 2>/dev/null)" == "$1" ]]; }
 gtk_sets_are() { [[ "$(cat -- "$gt_sets" 2>/dev/null)" == "$1" ]]; }
 accent_sets_are() { [[ "$(cat -- "$ac_sets" 2>/dev/null)" == "$1" ]]; }
+# The colour scheme is the last of these keys set
+# (docs/architecture/themes.md § Applying).
+scheme_set_last() {
+  local order
+  if ! order="$(paste -sd ' ' -- "$gs/set-order")"; then return 1; fi
+  [[ $order == *gtk-theme* && $order == *icon-theme* && $order == *" color-scheme" ]]
+}
 : >"$cs_sets"; : >"$gt_sets"; printf "'Adwaita-dark'\n" >"$gt_current"
 THEME_PATH="$with_stubs" tinst "a dark package" "$cfg" "$rt_empty" 0 "$any_out" "" theme apply --json dusk
 check "a dark package sets prefer-dark" scheme_sets_are "$dark_line"
 check "the dark package's mode file is prefer-dark" file_is "$live/color-scheme.mode" $'prefer-dark\n'
 check "a GTK theme already set is not set again" gtk_sets_are ""
-: >"$cs_sets"; : >"$ac_sets"; : >"$gs_sets"; printf "'slate'\n" >"$ac_current"
+: >"$cs_sets"; : >"$ac_sets"; : >"$gs_sets"; : >"$gs/set-order"; printf "'slate'\n" >"$ac_current"
 THEME_PATH="$with_stubs" tinst "a light package" "$cfg" "$rt_empty" 0 "$any_out" "" theme apply --json flexoki-light
+check "a light package sets the colour scheme after the GTK and icon themes" scheme_set_last
 check "a light package's mode is written" test "$(states)" == "accent-color=written color-scheme=written gtk-theme=written icons=written kcolorscheme=written qt5ct=written qt6ct=written"
 check "a light package sets prefer-light" scheme_sets_are "$light_line"
 check "a light package sets Adwaita" gtk_sets_are "set org.gnome.desktop.interface gtk-theme Adwaita"
@@ -355,6 +363,11 @@ THEME_PATH="$with_stubs" tinst "the changed-only colour scheme mutant lands flex
 printf "'prefer-dark'\n" >"$cs_current"; : >"$cs_sets"
 THEME_PATH="$with_stubs" tinst "the changed-only colour scheme mutant applies unchanged bytes" "$cfg" "$rt_empty" 0 "$any_out" "" theme apply flexoki-light
 check "the changed-only colour scheme mutant never asserts the colour scheme again" scheme_sets_are ""
+tree_control color-scheme-last themes/targets/color-scheme/target.json ', "last": true' ''
+control_cfg color-scheme-last
+printf "'default'\n" >"$cs_current"; printf "'Adwaita-dark'\n" >"$gt_current"; printf "'Adwaita'\n" >"$gs_current"; : >"$gs/set-order"
+THEME_PATH="$with_stubs" tinst "the name-order colour scheme mutant applies" "$cfg" "$rt_empty" 0 "$any_out" "" theme apply flexoki-light
+check "the name-order colour scheme mutant sets a toolkit theme after the colour scheme" test "$(scheme_set_last; echo $?)" == 1
 unset THEME_BIN
 
 rows_done test-vgshell-toolkits

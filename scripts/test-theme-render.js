@@ -98,6 +98,8 @@ const ACCEPTED_TARGETS = [
     ["probe", targetText({ wiring: null })],
     ["probe", targetText({ reload: { command: ["probe", "--file=@{state}/probe.conf", "@@{x}"], timeoutMs: 2000, always: true } })],
     ["probe", targetText({ reload: { command: ["probe"], timeoutMs: 2000, always: false } })],
+    ["probe", targetText({ reload: { command: ["probe"], timeoutMs: 2000, always: true, last: true } })],
+    ["probe", targetText({ reload: { command: ["probe"], timeoutMs: 2000, last: false } })],
     ["probe", targetText({ wiring: null, reload: { command: ["probe", "@{target}/shipped", "@{state}"], timeoutMs: 2000 } })],
     ["probe", entryText({ base: "cache", dir: "wal" })],
     ["probe", targetText({ wiring: Object.assign({}, wiring, { file: "chrome/userChrome.css", profiles: [".zen/profiles.ini", ".config/zen/profiles.ini"] }) })],
@@ -213,6 +215,7 @@ const REFUSED_TARGETS = [
     ["probe", targetText({ reload: { command: ["probe"], always: true } }), "target-schema", "key=reload"],
     ["probe", targetText({ reload: { command: ["probe"], timeoutMs: 2000, often: true } }), "target-schema", "key=reload"],
     ["probe", targetText({ reload: { command: ["probe"], timeoutMs: 2000, always: "yes" } }), "target-schema", "key=reload.always"],
+    ["probe", targetText({ reload: { command: ["probe"], timeoutMs: 2000, last: 1 } }), "target-schema", "key=reload.last"],
     ["probe", targetText({ reload: { command: ["probe", "@{palette.accent}"], timeoutMs: 2000 } }), "target-schema", "key=reload.command"],
     ["probe", targetText({ reload: { command: ["probe", "@{state"], timeoutMs: 2000 } }), "target-schema", "key=reload.command"],
     ["probe", targetText({ wiring: Object.assign({}, wiring, { profiles: ["profiles.ini"] }), reload: { command: ["probe", "@{wiring}"], timeoutMs: 2000 } }), "target-schema", "key=reload.command"],
@@ -781,9 +784,16 @@ function verify(render) {
     assert.equal(render.reloadAlways(hooked), true);
     assert.equal(render.reloadAlways(target("hex6")), false);
     assert.equal(render.reloadAlways(accepted("probe", targetText({ reload: { command: ["probe"], timeoutMs: 2000, always: false } }))), false);
+    // `last` alone orders a hook after the others.
+    const late = accepted("probe", targetText({ reload: { command: ["probe"], timeoutMs: 2000, always: true, last: true } }));
+    assert.equal(render.reloadLast(late), true);
+    assert.equal(render.reloadAlways(late), true);
+    assert.equal(render.reloadLast(hooked), false);
+    assert.equal(render.reloadLast(accepted("probe", targetText({ reload: { command: ["probe"], timeoutMs: 2000, last: false } }))), false);
     const hookless = accepted("probe", targetText({ reload: null }));
     assert.equal(render.reloadNamesWiring(hookless), false);
     assert.equal(render.reloadAlways(hookless), false);
+    assert.equal(render.reloadLast(hookless), false);
     assert.throws(() => render.reloadCommand(hookless, "/s", "/t/probe"), /has no reload/);
 
     // A setup command is met by PATH alone; a target naming none always is.
@@ -2911,9 +2921,10 @@ const CONTROLS = [
     ["wiring line is one line", "if (!isLine(wiring.line)) return", "if (typeof wiring.line !== \"string\") return"],
     ["wiring create", "if (typeof wiring.create !== \"boolean\") return", "if (false) return"],
     ["reload required keys", "!RELOAD_KEYS.every(key => logic.hasOwn(reload, key)) ||", "false ||"],
-    ["reload unknown key", "!Object.keys(reload).every(key => RELOAD_KEYS.includes(key) || key === ALWAYS_KEY)", "false"],
-    ["reload always admitted", "RELOAD_KEYS.includes(key) || key === ALWAYS_KEY)", "RELOAD_KEYS.includes(key))"],
-    ["reload always boolean", "typeof reload.always !== \"boolean\"", "false"],
+    ["reload unknown key", "!Object.keys(reload).every(key => RELOAD_KEYS.includes(key) || RELOAD_OPTIONAL_KEYS.includes(key))", "false"],
+    ["reload always admitted", 'const RELOAD_OPTIONAL_KEYS = ["always", "last"];', 'const RELOAD_OPTIONAL_KEYS = ["last"];'],
+    ["reload last admitted", 'const RELOAD_OPTIONAL_KEYS = ["always", "last"];', 'const RELOAD_OPTIONAL_KEYS = ["always"];'],
+    ["reload optional keys boolean", "typeof reload[key] !== \"boolean\"", "false"],
     ["reload argument placeholder", "!allowed.includes(name)", "false"],
     ["reload target placeholder", "const names = [STATE_PLACEHOLDER, TARGET_PLACEHOLDER];", "const names = [STATE_PLACEHOLDER];"],
     ["reload target written", "const values = { [STATE_PLACEHOLDER]: state, [TARGET_PLACEHOLDER]: dir };", "const values = { [STATE_PLACEHOLDER]: state, [TARGET_PLACEHOLDER]: state };"],
@@ -2922,6 +2933,7 @@ const CONTROLS = [
     ["reload names wiring", "return names !== null && names.includes(WIRING_PLACEHOLDER);", "return false;"],
     ["reload argument state", "target.reload.command.map(arg => withValues(arg, values,", "target.reload.command.map(arg => String(arg,"],
     ["reload always read", "target.reload.always === true", "target.reload.always !== undefined"],
+    ["reload last read", "target.reload.last === true", "target.reload.last !== undefined"],
     ["setup admitted", "![SELECT_KEY, SETUP_KEY, ACCOUNTS_KEY, EDITORS_KEY].includes(key)", "![SELECT_KEY, ACCOUNTS_KEY, EDITORS_KEY].includes(key)"],
     ["setup is a command name", "!logic.isPackageName(document.setup)", "false"],
     ["setup read", "target.setup === undefined || onPath(target.setup)", "true"],
