@@ -265,9 +265,9 @@ Item {
     }
 
     // A column of bare key/value rows, as the Displays, Capture and Sound
-    // panes draw them: a select, a level slider, a level meter, a slider, a
-    // segmented control, switches, one with a message, and a text value,
-    // `spacing` apart by their boxes.
+    // panes draw them: a select, a level slider, a level meter, a slider
+    // with its reading, a slider, a segmented control, switches, one with a
+    // message, and a text value, `spacing` apart by their boxes.
     Component {
         id: coveredBare
         Rectangle {
@@ -283,6 +283,7 @@ Item {
                 FormRow { label: "Display"; width: parent.width; Select { width: parent.width; model: ["Built-in", "External"] } }
                 FormRow { label: "Volume"; width: parent.width; LevelSlider { width: parent.width; iconName: "volume-2"; buttonLabel: "Mute output"; value: 0.5 } }
                 FormRow { label: "Level"; width: parent.width; ProgressBar { width: parent.width; value: 0.4 } }
+                FormRow { label: "Radius"; width: parent.width; SavedSlider { width: parent.width; from: 0; to: 32; shown: 12; formatValue: value => Math.round(value) + " px" } }
                 FormRow { label: "Scale"; width: parent.width; Slider { width: parent.width; from: 0; to: 100; value: 40 } }
                 FormRow { label: "Mode"; width: parent.width; SegmentedControl { width: parent.width; model: ["Extend", "Mirror"] } }
                 FormRow { label: "Mute"; width: parent.width; Switch { size: "sm"; checked: true } }
@@ -883,7 +884,7 @@ Item {
             verify(cover !== null);
             verify(waitForRendering(cover));
             const rows = cover.rows.children.filter(item => item.objectName === "fieldRow");
-            compare(rows.length, 9);
+            compare(rows.length, 10);
             for (const row of rows) compare(row.boxHeight, Theme.row.height, row.label + " keeps the row box");
             const img = grabImage(root);
             const gaps = rows.slice(1).map((row, i) => ({ pair: rows[i].label + "/" + row.label, gap: gapBetween(img, rows[i], row, cover.rows.width) }));

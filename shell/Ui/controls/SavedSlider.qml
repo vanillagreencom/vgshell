@@ -38,6 +38,11 @@ Item {
     implicitWidth: minimumWidth
     implicitHeight: Math.max(bar.implicitHeight, reading.implicitHeight)
 
+    // The slider's and the reading's drawn top and bottom, so a key/value
+    // row above or below reads them as drawn, not this box (FormRow `inkTop`).
+    function inkAbove() { return Math.min(bar.y + bar.inkAbove(), reading.y + reading.inkAbove()); }
+    function inkBelow() { return height - Math.max(bar.y + bar.height - bar.inkBelow(), reading.y + reading.height - reading.inkBelow()); }
+
     function commit() {
         const wanted = bar.value;
         bar.value = Qt.binding(() => root.shown);

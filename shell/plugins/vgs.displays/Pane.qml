@@ -487,6 +487,10 @@ FocusScope {
                         id: levelItem
                         width: parent.width
                         implicitHeight: Math.max(levelSlider.implicitHeight, levelValue.implicitHeight)
+                        // The slider's and the reading's drawn top and bottom, so a key/value
+                        // row above or below reads them as drawn, not this box (FormRow `inkTop`).
+                        function inkAbove() { return Math.min(levelSlider.y + levelSlider.inkAbove(), levelValue.y + levelValue.inkAbove()); }
+                        function inkBelow() { return height - Math.max(levelSlider.y + levelSlider.height - levelSlider.inkBelow(), levelValue.y + levelValue.height - levelValue.inkBelow()); }
 
                         // The binding comes back after a change, so the
                         // draft is what shows.
