@@ -20,7 +20,8 @@ const stub = path.join(tree, "scripts/fixtures/jarvis-claude/claude");
 // The argv contract, pinned here and not derived from the adapter: built-in
 // tools off, only the bridge, its tools unprompted, no hooks, no user setting
 // source, slash commands or session files. CONFIG and the trailing prompt
-// flags vary per case.
+// flags vary per case. The start text travels in a 0600 file beside the
+// MCP configuration, never in argv.
 const ARGV = ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages",
     "--tools", "", "--strict-mcp-config", "--mcp-config", "CONFIG",
     "--allowedTools", "mcp__vgs-jarvis", "--permission-mode", "dontAsk",
@@ -117,7 +118,7 @@ world(async () => {
                 env: { ...process.env, ...PLANTED, ...(options.home === undefined ? {} : { FIXTURE_JARVIS_HOME: options.home }) },
                 runtime: () => runtime }, clock });
         owners.push(async () => { await harness.close(); bridge.close(); audit.close(); for (const timer of timers) clearTimeout(timer.handle); });
-        harness.start({ instructions: "Fixture guidance.", tools: options.tools ?? router.offer() });
+        harness.start({ instructions: options.instructions ?? "Fixture guidance.", tools: options.tools ?? router.offer() });
         const w = { runner, router, bridge, audit, rows, starts, answers, brain, timers, harness, Policy, recipients, runtime, account: a,
             opened: () => opened, lock: value => { locked = value; }, time: value => { at = value; },
             advance: () => { for (const timer of timers) if (!timer.cleared && !timer.fired) { timer.fired = true; timer.fn(); } },
@@ -199,6 +200,17 @@ world(async () => {
                 assert.deepEqual(result.texts.map(text => Buffer.byteLength(text)), bytes);
             }
         }],
+        // A start text larger than Linux takes in one argument (MAX_ARG_STRLEN,
+        // 128 KiB): a home folder's text has no bound, and the turn still
+        // reaches the program, which reads the whole text.
+        ["start-text-file", async folder => {
+            const instructions = "Fixture guidance line.\n".repeat(9000);
+            assert.equal(Buffer.byteLength(instructions) > 128 * 1024, true, "the text is over one argument's bound");
+            const w = await make(folder, { turns: [[{ text: "Fixture." }]] }, { instructions });
+            assert.deepEqual(await w.read(w.say("fixture")), { texts: ["Fixture."], reason: "stop" });
+            assert.deepEqual(w.account.events().filter(event => event.kind === "system-prompt").map(event => event.text === instructions), [true],
+                "the program reads the whole start text");
+        }],
         ["frozen-tools", async folder => {
             const w = await make(folder, { turns: [[{ text: "Fixture." }]] });
             w.router.register("clipboard", { commands: ["wl-paste", "wl-copy"], timeoutMs: 1000, cancellable: true,
@@ -220,8 +232,11 @@ world(async () => {
             assert.equal(calls.length, 1, "one program serves the conversation");
             const call = calls[0];
             const config = call.args[ARGV.indexOf("CONFIG")];
+            const prompt = path.join(path.dirname(config), "instructions.md");
             assert.deepEqual(call.args, [...ARGV.map(arg => arg === "CONFIG" ? config : arg),
-                "--system-prompt", "Fixture guidance."], "built-in tools off; only the bridge");
+                "--system-prompt-file", prompt], "built-in tools off; only the bridge");
+            assert.deepEqual(w.account.events().filter(event => event.kind === "system-prompt"), [{ kind: "system-prompt", text: "Fixture guidance.", mode: 0o600 }],
+                "the program reads the start text from a private file");
             assert.deepEqual(Object.keys(call.env).filter(name => !["PWD", "SHLVL", "_"].includes(name)).sort(), ENVIRONMENT);
             assert.equal(call.env.CLAUDE_CONFIG_DIR, w.account.directory);
             assert.equal(call.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC, "1");
@@ -592,7 +607,8 @@ world(async () => {
         assert.deepEqual(result, { kind: "verified" });
         const call = verifyAccount.calls().slice(before).find(value => value.args[0] === "-p");
         const config = call.args[ARGV.indexOf("CONFIG")];
-        assert.deepEqual(call.args, [...ARGV.map(arg => arg === "CONFIG" ? config : arg), "--system-prompt", "Answer in one word."]);
+        assert.deepEqual(call.args, [...ARGV.map(arg => arg === "CONFIG" ? config : arg), "--system-prompt-file", path.join(path.dirname(config), "instructions.md")]);
+        assert.deepEqual(verifyAccount.events().filter(event => event.kind === "system-prompt").at(-1), { kind: "system-prompt", text: "Answer in one word.", mode: 0o600 });
         assert.deepEqual(Object.keys(call.env).filter(name => !["PWD", "SHLVL", "_", ...ENVIRONMENT].includes(name)), []);
         assert.deepEqual(leaked(call), [], "no planted key, token or pid reaches the Verify program");
         const audit = verifyAccount.events().find(event => event.kind === "audit").last;
@@ -655,7 +671,7 @@ world(async () => {
         assert.equal((await w.read(w.say("fixture"))).reason, "stop");
         const [call] = w.account.calls();
         const config = call.args[ARGV.indexOf("CONFIG")];
-        assert.deepEqual(call.args, [...ARGV.map(arg => arg === "CONFIG" ? config : arg), "--system-prompt", "Fixture guidance.",
+        assert.deepEqual(call.args, [...ARGV.map(arg => arg === "CONFIG" ? config : arg), "--system-prompt-file", path.join(path.dirname(config), "instructions.md"),
             "--model", "claude-fable-5-1", "--effort", "high"]);
         await cleanup();
         const only = await make(folder, { turns: [[{ text: "Fixture." }]] }, { model: "claude-opus-5-5[1m]" });
@@ -663,9 +679,10 @@ world(async () => {
         assert.deepEqual(only.account.calls()[0].args.slice(ARGV.length + 2), ["--model", "claude-opus-5-5[1m]"], "an unset effort passes no flag");
         for (const [options, reason] of [[{ effort: "--max" }, "effort"], [{ effort: "High" }, "effort"], [{ effort: "x".repeat(17) }, "effort"],
             [{ model: "-opus" }, "model"]]) {
-            const before = fs.readdirSync(path.join(process.env.JARVIS_TEST_ROOT, "accounts")).length;
+            // The folders this make adds, by name: a1..aN do not list in the order they were made.
+            const before = new Set(fs.readdirSync(path.join(process.env.JARVIS_TEST_ROOT, "accounts")));
             await assert.rejects(() => make(folder, { turns: [] }, options), new RegExp("^Error: jarvis: brain=" + reason + "$"));
-            const made = fs.readdirSync(path.join(process.env.JARVIS_TEST_ROOT, "accounts")).slice(before);
+            const made = fs.readdirSync(path.join(process.env.JARVIS_TEST_ROOT, "accounts")).filter(name => !before.has(name));
             assert.deepEqual(made.flatMap(name => lines(path.join(process.env.JARVIS_TEST_ROOT, "accounts", name, "calls.jsonl"))), [],
                 "no program for a refused " + reason);
         }
@@ -851,7 +868,9 @@ world(async () => {
             ["models-shape", 'if (!plain(body) || !Array.isArray(body.models)) fail("harness-models");', "if (!plain(body) || !Array.isArray(body.models)) return [];", "models"],
             ["models-bound", 'const timer = clock.set(() => signal(child, "SIGKILL"), Harness.MODELS_MS);', "const timer = clock.set(() => {}, Harness.MODELS_MS);", "models"],
             ["models-workdir", "await closed;\n        fs.rmSync(workdir, { recursive: true, force: true });", "await closed;", "models"],
-            ["models-prompt-free", 'child = program(argvOf({ config, instructions: "", model: "", effort: "" }),', 'child = program(argvOf({ config, instructions: "Fixture", model: "", effort: "" }),', "models"],
+            ["models-prompt-free", 'child = program(argvOf({ config, prompt: null, model: "", effort: "" }),', 'child = program(argvOf({ config, prompt: config, model: "", effort: "" }),', "models"],
+            ["prompt-argv", 'if (prompt !== null) args.push("--system-prompt-file", prompt);', 'if (prompt !== null) args.push("--system-prompt", fs.readFileSync(prompt, "utf8"));', "start-text-file"],
+            ["prompt-mode", 'fs.writeFileSync(prompt, context.instructions, { flag: "wx", mode: 0o600 });', 'fs.writeFileSync(prompt, context.instructions, { flag: "wx" }); fs.chmodSync(prompt, 0o644);', "replay"],
             ["verify-deadline", "const timer = clock.set(() => { expired = true; void brain.close(); }, deadline);",
                 "const timer = clock.set(() => { expired = true; }, deadline);", "verify"]
         ]) await control(harnessFile, name, needle, replacement, row);

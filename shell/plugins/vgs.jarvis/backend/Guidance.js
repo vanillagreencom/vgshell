@@ -135,8 +135,9 @@ function compose(engine, brainClass, language, home = null) {
         content.push(text);
     }
     const instructions = content.join("\n\n");
-    // A start text over the model's context window is the model's refusal
-    // of the turn, which fails that turn alone.
+    // A start text larger than a model can take fails that turn alone: the
+    // model or its app refuses it, or a wire brain's request bound does
+    // (WireBrain REQUEST_BYTES). No brain passes it in an argument.
     const overBudget = Buffer.byteLength(instructions) > START_BUDGET ? [...read.over, "guidance=start-over-budget"] : read.over;
     // The same core rule reaches the model again, not a second spelling of it.
     const afterToolResult = engine === "chained" && brainClass === "local" ? content[0] + "\n\n" + content[4] : null;

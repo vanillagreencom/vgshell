@@ -185,15 +185,19 @@ function environmentOf(environment, directory) {
  * the router is the gate. Hooks, slash commands and session files are off,
  * and the account's own settings, CLAUDE.md, rules, skills and agents do not
  * load: only the project source remains, and the working directory is empty.
+ * prompt is the path of the file holding the start text, or null for none.
  */
-function argvOf({ config, instructions, model, effort }) {
+function argvOf({ config, prompt, model, effort }) {
     // https://code.claude.com/docs/en/headless#stream-responses
     const args = ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages",
         "--tools", "", "--strict-mcp-config", "--mcp-config", config,
         "--allowedTools", "mcp__" + SERVER, "--permission-mode", "dontAsk",
         "--settings", JSON.stringify({ disableAllHooks: true }), "--setting-sources", "project",
         "--disable-slash-commands", "--no-session-persistence"];
-    if (instructions !== "") args.push("--system-prompt", instructions);
+    // https://code.claude.com/docs/en/cli-reference, --system-prompt-file:
+    // "Load system prompt from a file, replacing the default prompt". The
+    // claude 2.1.289 --help names it beside --system-prompt.
+    if (prompt !== null) args.push("--system-prompt-file", prompt);
     if (model !== "") args.push("--model", model);
     if (effort !== "") args.push("--effort", effort);
     return args;
@@ -327,7 +331,12 @@ function conversation({ directory, model, effort = "", recipients, bridge, gen, 
         if (closing !== null) { launch?.close(); fail("closed"); }
         const config = path.join(workdir, "mcp.json");
         Private.mcpConfig(config, SERVER, launch);
-        const child = program(argvOf({ config, instructions: context.instructions, model, effort }),
+        // The start text goes in a file, never in argv: Linux refuses one
+        // argument over 128 KiB (MAX_ARG_STRLEN), and the home folder's text
+        // has no bound (Guidance homeLayers).
+        const prompt = context.instructions === "" ? null : path.join(workdir, "instructions.md");
+        if (prompt !== null) fs.writeFileSync(prompt, context.instructions, { flag: "wx", mode: 0o600 });
+        const child = program(argvOf({ config, prompt, model, effort }),
             { cwd, env: childEnvironment, stdio: ["pipe", "pipe", "pipe"], detached: true });
         const record = { kind: "running", child, initialized: false, consumer: null, cause: null,
             exited: null };
@@ -700,7 +709,7 @@ async function models({ directory, env, runtime, clock = CLOCK }) {
     const workdir = privateFolder(runtime);
     const config = path.join(workdir, "mcp.json");
     Private.mcpConfig(config, SERVER, null);
-    const child = program(argvOf({ config, instructions: "", model: "", effort: "" }),
+    const child = program(argvOf({ config, prompt: null, model: "", effort: "" }),
         { cwd: path.join(workdir, "cwd"), env: environmentOf(env, directory), stdio: ["pipe", "pipe", "ignore"], detached: true });
     const closed = new Promise(resolve => child.once("close", resolve));
     const timer = clock.set(() => signal(child, "SIGKILL"), Harness.MODELS_MS);
