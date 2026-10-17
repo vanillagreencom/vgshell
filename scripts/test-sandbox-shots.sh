@@ -2436,7 +2436,7 @@ try {
             return;
         }
         const layer = context(source, ['initialState', 'withChanges', 'expectPhase', 'consentChanges',
-            'begin', 'written', 'idleDecision', 'step'], 0, {});
+            'begin', 'written', 'reload', 'idleDecision', 'step'], 0, {});
         const state = layer.withChanges(layer.initialState(), {
             phase: row.operation === 'busy' || row.operation === 'save' ? 'writing'
                 : row.operation === 'prepare' ? 'preparing' : 'idle',
