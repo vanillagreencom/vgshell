@@ -3044,7 +3044,7 @@ accesses = {"present": "disconnect", "absent": "connect", "locked": "disconnect"
 rows, drawn = [], ["Slack tokens", hint]
 for item in items.split(";"):
     account, state = item.split(",")
-    rows.append({"label": labels[account], "value": state, "hint": "", "tone": tones[state], "secret": account, "access": accesses[state]})
+    rows.append({"label": labels[account], "value": state, "hint": "", "info": "", "tone": tones[state], "secret": account, "access": accesses[state]})
     drawn += [labels[account]] + steps[state]
 print(json.dumps([["Slack tokens", "reported", "", rows]]) if what == "rows" else json.dumps([drawn]))
 PY
