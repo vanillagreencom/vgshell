@@ -40,10 +40,14 @@ var CHECKING_LINE = "Checking…";
 // failed }: its chip (stepReading), and under it the published state's own
 // text, or, while the plugin is on and has published nothing for the step,
 // why: ERROR, the plain line of why it was not built or could not start,
-// else that it is checking.
+// else that it is checking. A step that reads Not available because its
+// plugin could not start draws no hint: the declaration's hint, which
+// PluginLogic.statusRows gives an unreported entry, names the action the
+// step usually offers, and the row offers none.
 function stepView(entry, timeText, plugin) {
     var view = statusView(entry, timeText);
-    var chip = STEP_CHIPS[stepReading(entry, plugin)];
+    var reading = stepReading(entry, plugin);
+    var chip = STEP_CHIPS[reading];
     view.text = chip.text;
     view.tone = chip.tone;
     // The published state explains the work beneath the chip.
@@ -51,6 +55,10 @@ function stepView(entry, timeText, plugin) {
         view.lines = [entry.value.text].concat(view.lines);
     if (entry.report !== "reported" && plugin.enabled)
         view.lines = [plugin.error !== "" ? plugin.error : CHECKING_LINE];
+    if (entry.report !== "reported" && reading === "unavailable") {
+        view.hint = "";
+        view.link = null;
+    }
     return view;
 }
 function detailEntries(status) {

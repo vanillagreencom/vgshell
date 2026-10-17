@@ -189,8 +189,10 @@ function verify(logic, producer) {
     }
     const neutral = logic.stepView(rows(Object.assign({}, allDone, { home: unavailable })).find(entry => entry.key === "home"), String, on);
     same([neutral.hint, neutral.lines], [unavailable.hint, [unavailable.text]], "Not available by its value: the step says why and what changes it");
-    for (const [name, plugin] of [["after a failed build", failed], ["while refused", refused]])
-        same(logic.stepView(rows({}).find(entry => entry.key === "home"), String, plugin).lines, [plugin.error], "Not available " + name + ": the step draws the plain line");
+    for (const [name, plugin] of [["after a failed build", failed], ["while refused", refused]]) {
+        const view = logic.stepView(rows({}).find(entry => entry.key === "home"), String, plugin);
+        same([view.lines, view.hint, view.link], [[plugin.error], "", null], "Not available " + name + ": the step draws the plain line alone");
+    }
     same(items(logic.setupSections(screens, rows({}), requirements([]), failed)).filter(item => !item.keys && item.tools !== true)
         .map(item => logic.lineAction(logic.stepButton(item.entry, requirements([])), logic.stepOpen(item.entry), failed)), [null, null, null, null], "after a failed build no step draws an action");
     // Setup needed, as the Plugins list, the row's tab and the Setup tab
@@ -353,7 +355,8 @@ const controls = [
     ["Details Tools offers no Review", 'return requirements.some(requirementApplies) ? reviewButton() : null;', 'return null;', "Details Tools: a missing optional tool"],
     ["Details Tools offers Review with every optional tool present", 'return requirements.some(requirementApplies) ? reviewButton() : null;', 'return reviewButton();', "Details Tools: a missing required tool alone"],
     ["an unreported step names no wait", 'if (entry.report !== "reported" && plugin.enabled)', 'if (false)', "on, unreported: the step stays To do and names the wait"],
-    ["a start error reads as a wait", 'plugin.error !== "" ? plugin.error : ', '', "Not available after a failed build: the step draws the plain line"],
+    ["a start error reads as a wait", 'plugin.error !== "" ? plugin.error : ', '', "Not available after a failed build: the step draws the plain line alone"],
+    ["a step that could not start keeps the declaration's hint", 'if (entry.report !== "reported" && reading === "unavailable") {', 'if (false) {', "Not available after a failed build: the step draws the plain line alone"],
 ];
 // Each producer control edits PluginLogic, whose rows the page draws.
 const producerControls = [
