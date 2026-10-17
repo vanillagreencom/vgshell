@@ -6975,7 +6975,7 @@ for scene in "${scenes[@]}"; do
     theme-previews) need_setup launcher; need_setup panels; need_setup bar; need_setup ai-usage ;;
     tooltips) need_setup launcher; need_setup panels; need_setup bar; need_setup tooltips ;;
     jarvis-causes) need_setup bar; need_setup settings; need_setup jarvis-causes ;;
-    ai-usage-states) need_setup ai-usage; need_setup ai-usage-states ;;
+    ai-usage-states) need_setup ai-usage ;;
     focus) need_setup settings ;;
     focus-open) need_setup focus-open ;;
     flyout-titles) need_setup panels ;;
@@ -7076,6 +7076,17 @@ PY2
       # keyring or a live Vercel request, in this sandbox copy alone.
       python3 "$checkout/scripts/smoke/fixtures/ai-usage/edit.py" "$repo/shell/plugins/vgs.ai-usage/backend/usage.js" '    return { accounts, partial, gatewayKey };' '    accounts.push({ id: "gateway-shots", provider: "gateway", label: "AI Gateway", email: "", state: "ok", windows: [{ name: "credits", usedPercent: 64, resetsAt: null }], credits: null, details: { gateway: { balance: 36, totalUsed: 64 } } });
     return { accounts, partial, gatewayKey };' || fail "planting the API gateway reading failed"
+      usage_shot_want='["no-plan", "ok", "ok", "ok", "ok"]'
+      if [[ " ${scenes[*]} " == *" ai-usage-states "* ]]; then
+        # For ai-usage-states, two Claude Code readings ahead of the others:
+        # one at its full weekly limit, and one whose first read Claude
+        # turned away, so it holds no figures. The ai-usage scene, named
+        # beside it, draws them too.
+        python3 "$checkout/scripts/smoke/fixtures/ai-usage/edit.py" "$repo/shell/plugins/vgs.ai-usage/backend/usage.js" '    return { accounts, partial, gatewayKey };' '    accounts.unshift({ id: "claude-full", provider: "claude", label: "Claude Code", email: "full@example.invalid", state: "ok", windows: [{ name: "five_hour", usedPercent: 42, resetsAt: Date.now() + 19800000 }, { name: "seven_day", usedPercent: 100, resetsAt: Date.now() + 280800000 }, { name: "seven_day_fable", usedPercent: 12, resetsAt: Date.now() + 280800000 }], credits: null, details: {} },
+          { id: "claude-limited", provider: "claude", label: "Claude Code", email: "limited@example.invalid", state: "limited", windows: [], credits: null, details: {} });
+    return { accounts, partial, gatewayKey };' || fail "planting the AI Usage states failed"
+        usage_shot_want='["limited", "no-plan", "ok", "ok", "ok", "ok", "ok"]'
+      fi
       python3 - "$home" <<'PY' || fail "planting the AI Usage sign-ins failed"
 import json, os, sys, time
 home = sys.argv[1]
@@ -7096,19 +7107,8 @@ PY
       expect "AI Usage's widget is placed" ok ipc shell setPluginPlaced vgs.ai-usage true
       expect_poll "AI Usage's service is built" True record_exists vgs.ai-usage
       usage_shot_states() { ipc smoke readInstance service vgs.ai-usage usage | py_reply 'import json,sys; u=json.load(sys.stdin); print("none" if u is None else json.dumps(sorted(a["state"] for a in u["accounts"])))'; }
-      expect_poll "every planted account reads as signed in" '["no-plan", "ok", "ok", "ok", "ok"]' usage_shot_states
+      expect_poll "every planted account reads" "$usage_shot_want" usage_shot_states
       expect_poll "AI Usage's widget shows" true ipc smoke readInstance "$(bar_key)" vgs.ai-usage visible ;;
-    ai-usage-states)
-      # Two Claude Code readings ahead of the ai-usage accounts, in this
-      # sandbox copy alone: one at its full weekly limit, and one whose
-      # first read Claude turned away, so it holds no figures.
-      python3 "$checkout/scripts/smoke/fixtures/ai-usage/edit.py" "$repo/shell/plugins/vgs.ai-usage/backend/usage.js" '    return { accounts, partial, gatewayKey };' '    accounts.unshift({ id: "claude-full", provider: "claude", label: "Claude Code", email: "full@example.invalid", state: "ok", windows: [{ name: "five_hour", usedPercent: 42, resetsAt: Date.now() + 19800000 }, { name: "seven_day", usedPercent: 100, resetsAt: Date.now() + 280800000 }, { name: "seven_day_fable", usedPercent: 12, resetsAt: Date.now() + 280800000 }], credits: null, details: {} },
-        { id: "claude-limited", provider: "claude", label: "Claude Code", email: "limited@example.invalid", state: "limited", windows: [], credits: null, details: {} });
-    return { accounts, partial, gatewayKey };' || fail "planting the AI Usage states failed"
-      # The service runs the helper anew at each check; one asked for while
-      # a check runs follows it.
-      expect "AI Usage takes a check over the planted states" ok ipc vgs.ai-usage invoke refresh ''
-      expect_poll "the planted states are read" '["limited", "no-plan", "ok", "ok", "ok", "ok", "ok"]' usage_shot_states ;;
     keyhints)
       for id in vgs.launcher vgs.keyhints; do
         expect "enabling $id for the Key Hints image is allowed" ok ipc shell setPluginEnabled "$id" true
