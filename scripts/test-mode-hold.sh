@@ -523,7 +523,7 @@ def extract(path,names):
     return result
 parts=extract(harness,("coordinate_observation","pointer_dispatch","nested_input_check","click","hover","right_click","middle_click","drag","wheel","swipe","rest_pointer","point_item","click_item","expect","expect_poll","reader_stderr","smoke_poll_tries","geometry","render"))
 parts+=extract(surfaces,("layout_size","layout_click","surf_menu_point","flyout_widget_x","flyout_grow_check"))
-parts+=extract(row,("jarvis_widget_link_hover","jarvis_widget_link_click"))
+parts+=extract(row,("jarvis_widget_link_box","jarvis_widget_link_drawn","jarvis_widget_link_hover","jarvis_widget_link_click_once","jarvis_widget_link_click"))
 # point_item reads its restore bound from a global the harness sets.
 bound=[line for line in harness.read_text().splitlines() if line.startswith("point_item_restores=")]
 assert len(bound)==1
@@ -560,6 +560,9 @@ monitor_rule WAYLAND-1 3510x1866 2 >"$mode_hold_file"
 hypr() {
   if [[ $1 == --batch ]]; then
     echo reload >>"$stub_dir/reloads"
+    # On the jarvis path a restore leaves the pointer off the widget, and
+    # the tooltip closes until a hover on the widget opens it again.
+    [[ $stub_path != jarvis ]] || : >"$stub_dir/tooltip-closed"
     if [[ $stub_phase == reload-error ]]; then printf "error\n\n\n[]\n"; return; fi
     [[ $stub_phase == unavailable ]] || printf "%s\n" "$held_json" >"$stub_dir/monitors"
     printf "ok\n\n\n[]\n"
@@ -579,10 +582,20 @@ chmod +x "$sandbox/click"
 # the box, so each restore the reload made is undone before the step.
 control_box() {
   [[ $stub_phase != reset-again ]] || printf "%s\n" "$reset_json" >"$stub_dir/monitors"
+  [[ $1 != popup:* || ! -e $stub_dir/tooltip-closed ]] || { echo absent; return; }
   echo "[100, 200, 2, 4]"
 }
-control_hovered() { echo true; }
+control_hovered() {
+  [[ $1 == popup:* ]] || rm -f -- "${stub_dir:?}/tooltip-closed"
+  echo true
+}
 ipc() {
+  if [[ -e $stub_dir/tooltip-closed ]]; then
+    case "$*" in
+      *Tooltip\ shown*) echo false; return ;;
+      *popupItem*) echo absent; return ;;
+    esac
+  fi
   case "$*" in
     *acme.surfaces-tail*grow*) : >"$stub_dir/grown"; echo grown ;;
     *underlined*) echo "[{\"line\": 0, \"left\": 10, \"right\": 30}]" ;;
@@ -642,7 +655,8 @@ if [[ $stub_path == unscoped ]]; then
 fi
 # The jarvis path runs the link hover and the link click of the Jarvis
 # widget row with the output reset before each step, outside every
-# coordinate_observation, as the row runs them.
+# coordinate_observation, as the row runs them. The restore in the click
+# step closes the tooltip, so the click opens it again before it clicks.
 if [[ $stub_path == jarvis ]]; then
   jarvis_widget_key=bar
   jarvis_widget_link_text="Set it up in [Settings > Jarvis](page:vgs.jarvis/Setup)."
