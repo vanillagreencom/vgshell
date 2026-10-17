@@ -627,7 +627,7 @@ function suite(ctx, configLogic, check) {
         const r = ctx.validateManifest(raw, "/p");
         check("hyprland.options: " + name, r.ok ? null : r.error.slice(0, want === null ? 0 : want.length), want);
     }
-    check("hyprland.options needs the hyprland capability", ctx.validateManifest(Object.assign({}, svc, { settings: optionSettings, schema: optionSchema, hyprland: { options: { sensitivity: "input.sensitivity" } } }), "/p").error, "hyprland.options needs capability hyprland");
+    check("hyprland.options needs no hyprland capability", ctx.validateManifest(Object.assign({}, svc, { settings: optionSettings, schema: optionSchema, hyprland: { options: { sensitivity: "input.sensitivity" } } }), "/p").ok, true);
     check("hyprland.options setting names are schema setting names", ctx.validateManifest(Object.assign({}, svc, { capabilities: ["hyprland"], settings: Object.assign({}, optionSettings, { "bad\nos.exit()": "us" }), schema: Object.assign({}, optionSchema, { "bad\nos.exit()": { type: "string", label: "Bad", presets: [{ value: "us" }] } }), hyprland: { options: { "bad\nos.exit()": "input.kb_layout" } } }), "/p").error, "hyprland.options.bad\nos.exit() must be a setting name");
     const monitorManifest = Object.assign({}, svc, { capabilities: ["monitors"], settings: { outputs: {} }, hyprland: { monitors: "outputs" } });
     check("hyprland.monitors is judged", ctx.validateManifest(monitorManifest, "/p").ok, true);
@@ -2150,7 +2150,6 @@ const CONTROLS = [
     ["hyprland monitors setting must exist", "if (!hasOwn(settings, raw.hyprland.monitors))\n                return { ok: false, error: \"hyprland.monitors names no settings key \" + JSON.stringify(raw.hyprland.monitors) };", "if (false)\n                return { ok: false, error: \"hyprland.monitors names no settings key \" + JSON.stringify(raw.hyprland.monitors) };"],
     ["hyprland monitors has no schema row", "if (hasOwn(schema, raw.hyprland.monitors))\n                return { ok: false, error: \"hyprland.monitors must not name a schema entry\" };", "if (false)\n                return { ok: false, error: \"hyprland.monitors must not name a schema entry\" };"],
     ["a second monitor owner is refused", "return owner !== \"\" && id !== owner && monitorRuleOwners(manifests, enabledIds).indexOf(id) !== -1 ? \"refused: hyprland.monitors=\" + id + \" held-by=\" + owner : \"\";", "return \"\";"],
-    ["hyprland options need the capability", "if (options !== undefined && capabilities.indexOf(\"hyprland\") === -1)\n        return \"hyprland.options needs capability hyprland\";", "if (false)\n        return \"hyprland.options needs capability hyprland\";"],
     ["hyprland option names are setting names", "if (!STATUS_KEY_PATTERN.test(name))\n            return at + \" must be a setting name\";", "if (false)\n            return at + \" must be a setting name\";"],
     ["optionsFrom names a status key", "if (typeof entry.optionsFrom !== \"string\" || !STATUS_KEY_PATTERN.test(entry.optionsFrom))", "if (false)"],
     ["optionsFrom names its own choices entry", "if (!hasOwn(status, entry.optionsFrom) || status[entry.optionsFrom].type !== \"choices\")", "if (false)"],

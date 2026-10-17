@@ -1707,10 +1707,11 @@ function keyRowValue(value) {
 // which the manifest must name, so a plugin binds only its own shortcuts. A
 // rule matches `^vgs:<name>$` and sets blur, ignoreAlpha from 0 to 1, or
 // both. Appearance needs the `theme` capability because those switches change
-// how the theme reaches Hyprland. Options need the `hyprland` capability
-// because the same plugin must read the compositor state back. Monitors
-// need the `monitors` capability and name a plugin settings key without a
-// schema row, so the Settings page does not draw it.
+// how the theme reaches Hyprland. Options need no capability: the core
+// writes them from the manifest, and a plugin names `hyprland` only to read
+// Hyprland's values back. Monitors need the `monitors` capability and name a
+// plugin settings key without a schema row, so the Settings page does not
+// draw it.
 // Neither a shortcut, a key nor a namespace appears twice.
 function hyprlandError(hyprland, capabilities, schema) {
     if (!isPlainObject(hyprland))
@@ -1819,8 +1820,6 @@ function hyprlandError(hyprland, capabilities, schema) {
     var padsBad = Pads.manifestError(hyprland.pads, capabilities, schema);
     if (padsBad !== "")
         return padsBad;
-    if (options !== undefined && capabilities.indexOf("hyprland") === -1)
-        return "hyprland.options needs capability hyprland";
     if (options !== undefined)
         return hyprlandOptionsError(options, schema);
     if (monitors !== undefined && capabilities.indexOf("monitors") === -1)
