@@ -1548,9 +1548,12 @@ function render(sections, theme, themeName, highestScale, touchpads, touchpadFai
 // A display trial's rules live in Hyprland only until its next reload, which
 // loads the saved rule or the user's later `hl.monitor` line in their place,
 // and the trial's own scale change renders the layer again. So while a trial
-// runs (`trialHeld`) the machine starts no cycle; a step already running
-// ends as it would. The trial's end starts the one cycle every held render
-// and force asked for, from the text rendered then.
+// runs (`trialHeld`) the machine starts no write and no reload: a cycle under
+// way stops before its next one, and a write that landed leaves its reload
+// owed (`reloadOwed`, the owner that reload would have had). A reload
+// already sent ends as it would. The trial's end runs the owed reload, then
+// the one cycle every held render and force asked for, from the text
+// rendered then.
 //
 // State: phase (`reading`, `idle`, `preparing`, `writing`, `reloading`,
 // `probing`, `checkingDecline`, `declining`, `wiring`);
@@ -1561,7 +1564,8 @@ function render(sections, theme, themeName, highestScale, touchpads, touchpadFai
 // completes; reloadOwner, `layer` for the layer writer and `wire` for a
 // Connect reload; reloaded, whether this run has asked Hyprland to reload,
 // failed reloads included, set by the first reload of either owner and
-// never cleared; trialHeld; consent, a tagged
+// never cleared; trialHeld; reloadOwed, "" or the owner of the reload a
+// trial held; consent, a tagged
 // state for the Hyprland wiring question.
 // Actions: `none`, `read`, `mkdir`, `write` (state.pending), `reload`,
 // `probe`, `checkDecline`, `ask`, `decline` and `wire`.
@@ -1578,6 +1582,7 @@ function initialState() {
         reloadOwner: "",
         reloaded: false,
         trialHeld: false,
+        reloadOwed: "",
         consent: { phase: "pending", queued: "", failure: "" }
     };
 }
@@ -1601,6 +1606,7 @@ function consentChanges(state, changes) {
 // An idle writer: start the next cycle, or rest.
 function begin(state, text) {
     if (state.trialHeld) return { state: state, action: "none" };
+    if (state.reloadOwed !== "") return reload(withChanges(state, { reloadOwed: "" }), state.reloadOwed);
     if (state.queuedForce || state.stale)
         return { state: withChanges(state, { phase: "reading", forcing: state.forcing || state.queuedForce, queuedForce: false, stale: false }), action: "read" };
     if (text !== null && (state.forcing || (text !== state.onDisk && text !== state.failedText)))
@@ -1627,8 +1633,13 @@ function begin(state, text) {
 
 // The bytes are on disk: reload the layer after every write.
 function written(state) {
-    var next = withChanges(state, { onDisk: state.pending, failedText: null });
-    return { state: withChanges(next, { phase: "reloading", reloadOwner: "layer", reloaded: true }), action: "reload" };
+    return reload(withChanges(state, { onDisk: state.pending, failedText: null }), "layer");
+}
+
+// Reload Hyprland for OWNER, or owe that reload while a trial runs.
+function reload(state, owner) {
+    if (state.trialHeld) return { state: withChanges(state, { phase: "idle", reloadOwed: owner }), action: "none" };
+    return { state: withChanges(state, { phase: "reloading", reloadOwner: owner, reloaded: true }), action: "reload" };
 }
 
 function idleDecision(state, failure, text, clearForcing) {
@@ -1664,6 +1675,7 @@ function step(state, event, text) {
         if (event.failure !== "") return idleDecision(withChanges(state, { failedText: state.pending }), event.failure, text, true);
         // FileView skips the bytes it holds already, and reports nothing.
         if (state.pending === state.onDisk) return written(withChanges(state, { phase: "writing" }));
+        if (state.trialHeld) return { state: withChanges(state, { phase: "idle" }), action: "none" };
         return { state: withChanges(state, { phase: "writing" }), action: "write" };
     case "saved":
         expectPhase(state, event, "writing");
@@ -1721,7 +1733,7 @@ function step(state, event, text) {
         expectPhase(state, event, "wiring");
         if (event.failure !== "")
             return idleDecision(consentChanges(state, { phase: "asking", queued: "", failure: event.failure }), event.failure, text);
-        return { state: withChanges(consentChanges(state, { phase: "asking", queued: "connect", failure: "" }), { phase: "reloading", reloadOwner: "wire", reloaded: true }), action: "reload" };
+        return reload(consentChanges(state, { phase: "asking", queued: "connect", failure: "" }), "wire");
     }
     throw new Error("HyprlandLayer.step: unknown event " + JSON.stringify(event.type));
 }

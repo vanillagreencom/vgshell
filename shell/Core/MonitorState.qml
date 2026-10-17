@@ -252,8 +252,13 @@ Scope {
             root.trialState = { phase: "holding", token: root.trialState.token, deadline: root.trialState.deadline, failure: "" };
             deadline.interval = Math.max(1, root.trialState.deadline - Math.floor(Date.now() / 1000)) * 1000;
             deadline.restart();
+            // The answer can come after Keep or Revert ended this trial;
+            // its failure then belongs to no trial.
+            const token = root.trialState.token;
             Compositor.monitorEval(root.trialLua, answer => {
-                if (answer !== "ok") root.trialState = { phase: "holding", token: root.trialState.token, deadline: root.trialState.deadline, failure: answer };
+                if (answer !== "ok" && root.trialState.phase === "holding" && root.trialState.token === token)
+                    root.trialState = { phase: "holding", token: token, deadline: root.trialState.deadline, failure: answer };
+                else if (answer !== "ok") console.warn("monitors: trial eval " + answer + " after its trial ended");
                 root.readOutputs();
             });
         }

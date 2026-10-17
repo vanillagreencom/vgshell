@@ -104,7 +104,12 @@ PY
 }
 layer_scale_of() { grep -o -E "hl\.monitor\(\{ output = \"$1\"[^}]*scale = [0-9.]+" "$hypr_layer" | grep -o -E '[0-9.]+$' | tail -n 1 || echo none; }
 scale_and_phase() { echo "$(scale_of "$1") $(trial_phase)"; }
-pane_says_file() { ipc smoke itemTexts window vgs.displays LinkText | py_reply 'import json,sys; print("yes" if any("Your Hyprland file now sets this display differently." in t for t in json.load(sys.stdin)) else "no")'; }
+# The pane's LinkText texts as drawn: rich text whose link words may carry
+# no-break gaps (LinkText.qml `drawn`), read here as plain words.
+pane_says_file() { ipc smoke itemTexts window vgs.displays LinkText | py_reply '
+import html, json, re, sys
+texts = [" ".join(html.unescape(re.sub(r"<[^>]+>", "", t)).split()) for item in json.load(sys.stdin) for t in item]
+print("yes" if "Your Hyprland file now sets this display differently." in texts else "no: " + json.dumps(texts)[:300])'; }
 layer_has_rule() { grep -q -E 'hl\.monitor[[:space:]]*\(' "$hypr_layer" && echo yes || echo no; }
 hold_file_state() { [[ -e $mode_hold_file ]] && echo present || echo absent; }
 disabled_of() { hypr -j monitors all | py_reply 'import json,sys; rows=[m for m in json.load(sys.stdin) if m["name"]==sys.argv[1]]; print(str(rows[0]["disabled"]).lower() if rows else "absent")' "$1"; }
