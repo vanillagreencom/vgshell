@@ -55,8 +55,9 @@ restore_theme_core_config() {
   expect "the shell reads the restored configuration" ok ipc shell reloadConfig
   expect_poll "the shell has read the restored configuration" true ipc smoke configSettled
 }
-theme_core_previous_error_trap="$(trap -p ERR)"
-trap 'restore_theme_core_config' ERR
+# A failed command ends the row before the restore below; smoke_row then
+# runs it, so the rows after this one read the preserved configuration.
+smoke_row_abandon=(restore_theme_core_config)
 expect "enabling the fixture for the theme rows is allowed" ok ipc shell setPluginEnabled acme.probe true
 expect_poll "the fixture service is back for the theme rows" True service_built
 expect_poll "the rebuilt fixture has applied nothing" 0 applies
@@ -293,8 +294,7 @@ expect "the vgs apply after the follow rows ends" idle theme_idle
 expect "disabling the fixture after the theme rows is allowed" ok ipc shell setPluginEnabled acme.probe false
 restore_theme_core_config
 expect_poll "the browser service restores before its panel rows" false ipc smoke readInstance service vgs.themes setupPending
-trap - ERR
-if [[ -n $theme_core_previous_error_trap ]]; then eval "$theme_core_previous_error_trap"; fi
+smoke_row_abandon=()
 
 # ---- vgs.themes: the themes panel ----------------------------------------
 # The first-party themes plugin: its shortcut opens an unanchored panel,

@@ -452,6 +452,48 @@ expect "control: the same reader answering a state word fails nothing" 0 planted
 expect "control: a planted row that hides its end marker fails once at the bound" 1 planted_row updates-undrained
 expect "control: the undrained row's failure names it" 1 grep -c -F -- "FAIL  updates-undrained: its output did not drain within 1s" "$sandbox/row-plant-updates-undrained.log"
 
+# Controls for smoke_row's failed-command rule: a planted row whose bare
+# call returns 77, as a pointer step refused under a held-mode reset
+# does, and one whose failure sits in a function body two calls down,
+# inside a subshell, each fail their row once, run nothing after the
+# failure and still end with the row's time line, while the failures the
+# row handles itself, in an `||` list, a condition, a command
+# substitution or under set +e, fail nothing. Each runs in a background
+# subshell, never under expect: errexit and the ERR trap hold only where
+# no condition or `||` list encloses the row, and expect runs its
+# command inside one. A run that ends the subshell writes no count, and
+# its expect fails.
+cat >"$row_plants/updates-bare-refused.sh" <<'SH'
+updates_bare_refused() { return 77; }
+updates_bare_refused || echo "updates-bare-refused: handled after ||"
+if updates_bare_refused; then :; fi
+echo "updates-bare-refused: handled $(false; echo in a substitution)"
+set +e
+updates_bare_refused
+set -e
+echo "updates-bare-refused: handled under set +e"
+updates_bare_refused
+echo "updates-bare-refused: went on after the failed call"
+SH
+cat >"$row_plants/updates-bare-nested.sh" <<'SH'
+updates_bare_inner() { false; echo "updates-bare-nested: went on in the inner body"; }
+updates_bare_outer() { (updates_bare_inner; echo "updates-bare-nested: went on in the subshell"); echo "updates-bare-nested: went on in the outer body"; }
+updates_bare_outer
+echo "updates-bare-nested: went on after the failed call"
+SH
+planted_bare_row() { # NAME
+  (failures=0 behaviour_failures=0 smoke_row_drain_s=1; smoke_row "$1" "$row_plants" >"$sandbox/row-plant-$1.log" 2>&1; echo "$failures" >"$sandbox/row-plant-$1.failures") &
+  wait "$!" || :
+}
+for planted in updates-bare-refused:77 updates-bare-nested:1; do
+  planted_bare_row "${planted%:*}"
+  expect "control: ${planted%:*} fails its row once and the run goes on" 1 cat "$sandbox/row-plant-${planted%:*}.failures"
+  expect "control: ${planted%:*}'s failure names the row and status=${planted#*:}" 1 grep -c -E -- "^  FAIL  ${planted%:*}: .*status=${planted#*:}," "$sandbox/row-plant-${planted%:*}.log"
+  expect "control: ${planted%:*} runs nothing after its failed call" 0 awk 'index($0, "went on") { n++ } END { print n + 0 }' "$sandbox/row-plant-${planted%:*}.log"
+  expect "control: ${planted%:*} still prints its row time" 1 grep -c -E -- "^qml-smoke: row-secs row=${planted%:*} secs=[0-9]+$" "$sandbox/row-plant-${planted%:*}.log"
+done
+expect "control: the failures the row handles fail nothing" 3 grep -c -E -- "^updates-bare-refused: handled (after \|\||in a substitution|under set \+e)$" "$sandbox/row-plant-updates-bare-refused.log"
+
 # Pending, from the last real check.
 expect_poll "a pending check draws the accent count" '["pending", "refresh-cw", "accent", "7", "accent"]' widget_view
 expect "the widget draws the icon in the accent colour with the count" '["refresh-cw", "accent", "7"]' widget_drawn

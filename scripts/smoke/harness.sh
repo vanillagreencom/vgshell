@@ -1292,8 +1292,13 @@ coordinate_observation() {
 # pointer_dispatch X Y WIDTH HEIGHT [ACTION...]: one shared delivery owner.
 # The final check never restores a mode after a caller sampled coordinates.
 # Unscoped callers receive the refusal too; their own failure handling stays.
+# The reset refusal is said here, once per refused step, and not in
+# coordinate_mode_check, whose reset coordinate_mode_prepare then restores.
 pointer_dispatch() {
-  coordinate_mode_check || return $?
+  local status=0
+  coordinate_mode_check || status=$?
+  [[ $status != 77 ]] || printf 'coordinate-mode: reset output=%s want=[%s] pointer-step=refused\n' "${mode_hold[0]}" "${mode_hold[1]}" >&2
+  [[ $status == 0 ]] || return "$status"
   "${shell_env[@]}" "$sandbox/click" "$@" >/dev/null || return 1
 }
 click() { pointer_dispatch "$1" "$2" "$mon_w" "$mon_h" || return $?; pointer_at="$1 $2"; }
@@ -3352,13 +3357,36 @@ source "$repo/scripts/smoke/leaks.sh"
 # never prints the marker, and passes every later line on until its input
 # closes. The harness polls for that count, for smoke_row_drain_s at most.
 # The locals carry a prefix, since the row runs in their scope.
-# rows/updates.sh holds the controls. A row that returns prints
+# A command that fails where errexit holds ends the row, not the run:
+# the row fails once with its status, and the harness goes on to its
+# checks and the next row. errexit alone ends the whole run with every
+# later row unreported, and an `||` after the source turns errexit off
+# for every command in the row. So errtrace carries an ERR trap into the
+# row's functions, and it acts only where errexit is on. Above
+# smoke_row's frame it returns the failed status, one frame at a time up
+# to the row's source, and a return from an ERR trap skips errexit's
+# exit; in a subshell the return ends the subshell with that status, as
+# errexit would; at smoke_row's frame it records the status and turns
+# errexit off for the end marker (bash 5.3.20, measured with stub rows
+# on 2026-10-17). A command substitution, which bash runs with errexit
+# off, and a condition or `||` list, where neither errexit nor the trap
+# fires, go on as before. An unbound variable under set -u reaches no
+# ERR trap and still ends the run. The ERR trap, errexit and errtrace in
+# force before the row come back after it. A row that must undo its
+# state when it ends early names the command in smoke_row_abandon, which
+# runs only then. The filter runs by exec: under an inherited ERR trap a
+# process substitution keeps its shell, which holds the caller's output
+# open while the filter waits for its input to close, and a row run in a
+# command substitution, as rows/leak-check.sh runs its plants, then never
+# returns.
+# rows/updates.sh holds the controls. A row prints
 # `qml-smoke: row-secs row=NAME secs=<whole seconds>`, its harness steps
 # included, the reading scripts/smoke/rows.secs is refreshed from.
 smoke_row_drain_s=5
 smoke_row() { # NAME [DIR]
   local smoke_row_name="$1" smoke_row_dir="${2:-$repo/scripts/smoke/rows}" smoke_row_marker smoke_row_count="" smoke_row_line smoke_row_pong
   local smoke_row_out="$sandbox/rows/$1.out" smoke_row_result="$sandbox/rows/$1.result" smoke_row_started=$EPOCHSECONDS
+  local smoke_row_flags smoke_row_trap smoke_row_err=0 smoke_row_status=0 smoke_row_abandon=()
   smoke_row_marker="qml-smoke: row-end $1 $$ $SRANDOM"
   mkdir -p -- "$sandbox/rows"
   if ! devices_check "$smoke_row_name"; then
@@ -3376,21 +3404,34 @@ smoke_row() { # NAME [DIR]
   [[ ${#leak_starts[@]} -gt 0 ]] || rest_pointer || fail "$smoke_row_name: the pointer is not put at rest before the row"
   leak_row_start
   rm -f -- "$smoke_row_out" "$smoke_row_result"
+  smoke_row_flags=$-
+  smoke_row_trap="$(trap -p ERR)"
+  set -E
+  trap "smoke_row_err=\$?; if [[ \$- == *e* ]]; then if (( \${#FUNCNAME[@]} > ${#FUNCNAME[@]} )); then return \"\$smoke_row_err\"; fi; smoke_row_status=\$smoke_row_err; set +e; fi" ERR
   {
     # The row reads no argument, as when qml-smoke.sh sourced it.
     set --
     source "$smoke_row_dir/$smoke_row_name.sh"
+    if [[ $smoke_row_status != 0 && ${#smoke_row_abandon[@]} -gt 0 ]]; then "${smoke_row_abandon[@]}"; fi
     printf '%s\n' "$smoke_row_marker"
-  } > >(awk -v marker="$smoke_row_marker" -v out="$smoke_row_out" -v result="$smoke_row_result" '
+  } > >(exec awk -v marker="$smoke_row_marker" -v out="$smoke_row_out" -v result="$smoke_row_result" '
     $0 == marker && !ended { printf "%d\n", tracebacks > result; close(result); ended = 1; next }
     { print; fflush(); print > out; fflush(out) }
     !ended && index($0, "Traceback (most recent call last):") { tracebacks++ }
   ') 2>&1
+  trap - ERR
+  [[ -z $smoke_row_trap ]] || eval "$smoke_row_trap"
+  [[ $smoke_row_flags == *E* ]] || set +E
+  if [[ $smoke_row_flags == *e* ]]; then set -e; else set +e; fi
   for _ in $(seq 1 $((smoke_row_drain_s * 10))); do
     if [[ -f $smoke_row_result ]] && read -r smoke_row_count <"$smoke_row_result" && [[ $smoke_row_count =~ ^[0-9]+$ ]]; then break; fi
     smoke_row_count=""
     sleep 0.1
   done
+  # After the drain, so the failure follows the row's own lines. Under a
+  # held-mode reset it is an operation failure, never a reset the verdict
+  # excuses: every check after the failed command is lost.
+  [[ $smoke_row_status == 0 ]] || row_class=operation fail "$smoke_row_name: a command outside every check failed status=$smoke_row_status, and the row's later checks did not run"
   if [[ -z $smoke_row_count ]]; then
     fail "$smoke_row_name: its output did not drain within ${smoke_row_drain_s}s: $smoke_row_out"
   elif [[ $smoke_row_count -gt 0 ]]; then

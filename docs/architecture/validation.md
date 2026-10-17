@@ -16,7 +16,7 @@ Only selection cuts the time a fix round costs. A row that runs when it cannot p
 
 The sandbox shares the host's files, devices, PAM, polkit, faillock and sudo timestamp. Namespaces do not confine them. A check that reaches one changes the owner's machine, and a capture through the host socket records the owner's desktop.
 
-Rows share one sandbox. A row that leaves state changes what a later row reads, so a scoped run and a full run disagree. A wait on time passes on a fast machine and fails on a loaded one. A reader that raises ends the run with every later row unreported.
+Rows share one sandbox. A row that leaves state changes what a later row reads, so a scoped run and a full run disagree. A wait on time passes on a fast machine and fails on a loaded one. A command that fails outside every check loses every later check in its row, and an unbound variable ends the run with every later row unreported.
 
 A broken environment that reads as a pass hides the regression the check exists to catch. A ceiling without its measurement cannot be judged when it fails, and a reading without its CPU pressure cannot be compared with another run.
 
@@ -57,6 +57,7 @@ A broken environment that reads as a pass hides the regression the check exists 
 - Do wait on a state the shell or the compositor reports, never on time. Review holds it.
 - Never let a reader raise; answer a state word for absent, partial, missing or empty input. `scripts/check-smoke-readers.py` refuses a reader outside `py_reply`, and the harness fails a row on any Python traceback.
 - Do name every error line a row provokes in `expected_errors`; the harness fails every other.
+- Do let a failed command outside every check end only its row. `smoke_row` in `scripts/smoke/harness.sh` fails the row with the status and runs the next row, and `scripts/smoke/rows/updates.sh` holds it. Gap: an unbound variable under `set -u` reaches no ERR trap and still ends the run.
 - Do hand the next row the state the row found. The leak check in `scripts/smoke/leaks.sh` fails a row that leaves compositor, harness or stand-in state it does not declare, and `scripts/smoke/rows/leak-check.sh` holds it. Gap: no check compares a plugin's files, its enablement or a key binding before and after a row.
 - Do write a disposable QML control in a fresh directory, never in one the shell already read: Qt caches a directory listing, so a control written there fails to load. Review holds it.
 

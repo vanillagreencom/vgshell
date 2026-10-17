@@ -561,7 +561,12 @@ observe() {
   esac
   dependent=true
 }
-coordinate_observation coordinates observe && continued=true || exit 1
+coordinate_observation coordinates observe 2>"$stub_dir/stderr" && continued=true || exit 1
+cat -- "$stub_dir/stderr" >&2
+# A step refused under a reset says so on stderr, once; a reset the
+# preparation restores, and every other refusal, says nothing of a reset.
+refusals="$(grep -c -E "^coordinate-mode: reset output=WAYLAND-1 want=\[3510x1866 scale=2\] " -- "$stub_dir/stderr" || :)"
+if [[ $stub_phase == reset ]]; then [[ $refusals == 1 ]]; else [[ $refusals == 0 ]]; fi || exit 1
 rm -- "${stub_dir:?}/cleanup-owned"
 [[ $continued == true && ${coordinate_scope:-false} == false && ! -e $stub_dir/cleanup-owned ]] || exit 1
 sampled=0 sent=0 skipped=${#not_measured_rows[@]} status=0
@@ -633,7 +638,7 @@ python3 - "$repo/scripts/smoke/harness.sh" "$tmp/unguarded-harness.sh" <<'PYMUTA
 import pathlib,sys
 source,out=map(pathlib.Path,sys.argv[1:])
 text=source.read_text()
-old='  coordinate_mode_check || return $?\n'
+old='  coordinate_mode_check || status=$?\n'
 assert text.count(old)==1
 changed=text.replace(old,'')
 assert changed!=text and '"$sandbox/click" "$@"' in changed
@@ -643,6 +648,22 @@ if coordinate_case "$subject" "$tmp/unguarded-harness.sh" "$repo/scripts/smoke/r
   fail 'control: removing the final mode check permits a forbidden action'
 else
   ok 'control: removing the final mode check permits a forbidden action'
+fi
+# Keep the refusal itself while removing only its stderr reason in scratch.
+python3 - "$repo/scripts/smoke/harness.sh" "$tmp/silent-harness.sh" <<'PYMUTATE'
+import pathlib,sys
+source,out=map(pathlib.Path,sys.argv[1:])
+text=source.read_text()
+old="  [[ $status != 77 ]] || printf 'coordinate-mode: reset "
+assert text.count(old)==1
+changed=text.replace(old,"  [[ $status != 77 ]] || : printf 'coordinate-mode: reset ")
+assert changed!=text and '[[ $status == 0 ]] || return "$status"' in changed
+out.write_text(changed)
+PYMUTATE
+if coordinate_case "$subject" "$tmp/silent-harness.sh" "$repo/scripts/smoke/rows/surfaces.sh" 'reset|click|direct|77|0|1|1' >/dev/null; then
+  fail 'control: a reset refusal with no stderr reason'
+else
+  ok 'control: a reset refusal with no stderr reason'
 fi
 
 if [[ $failures -gt 0 ]]; then
