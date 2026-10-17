@@ -34,7 +34,8 @@ Item {
     // Hyprland's answer, or `starting` while the app it started maps no
     // window. Plain data, read by no binding.
     property var tracked: ({})
-    // Pad name -> the disposer of its shortcut.
+    // Pad name -> { dispose, description }: its shortcut's disposer and the
+    // description that shortcut holds, which the Keys row shows.
     property var registered: ({})
     // Monitor name -> the name of the pad it shows.
     property var shownOn: ({})
@@ -81,23 +82,38 @@ Item {
         return tracked[name];
     }
 
+    // The Keys row's text for PAD: the word its Settings list item shows
+    // for its App, the preset's label or the command typed under Custom….
+    // The pad's name is a storage key the Settings page never shows.
+    function describe(pad) {
+        const preset = shell.manifest.schema.pads.items.command.presets.find(p => p.value === pad.command);
+        return "Show or hide " + (preset === undefined ? pad.command : preset.label);
+    }
+
     // Register a shortcut for each listed pad and dispose of a removed
     // pad's, and start a new preloaded pad's app. The layer moves a removed
-    // pad's window to the focused workspace as it loads.
+    // pad's window to the focused workspace as it loads. A shortcut holds
+    // the description it registered with (GlobalShortcut.description
+    // "cannot change at runtime", Quickshell 0.3.1 reference), so a pad
+    // whose App changed is disposed and registered again under its name;
+    // its window and its press state stay.
     function sync() {
         if (shell === null || !started) return;
-        const names = pads.map(pad => pad.name);
+        const relabeled = [];
         for (const name of Object.keys(registered)) {
-            if (names.indexOf(name) !== -1) continue;
-            registered[name]();
+            const pad = padOf(name);
+            if (pad !== undefined && registered[name].description === describe(pad)) continue;
+            registered[name].dispose();
             delete registered[name];
-            delete tracked[name];
+            if (pad === undefined) delete tracked[name];
+            else relabeled.push(name);
         }
         for (const pad of pads) {
             if (registered[pad.name] !== undefined) continue;
             const name = pad.name;
-            registered[name] = shell.shortcut.register("pad-" + name, "Show or hide pad " + name, () => root.press(name));
-            if (preloaded) preload(pad);
+            const description = describe(pad);
+            registered[name] = { dispose: shell.shortcut.register("pad-" + name, description, () => root.press(name)), description: description };
+            if (preloaded && relabeled.indexOf(name) === -1) preload(pad);
         }
         armDeadline();
     }
