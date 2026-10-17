@@ -1137,6 +1137,8 @@ f share/vgshell/themes/targets/accent-color/accent-color.name
 f share/vgshell/themes/targets/accent-color/target.json
 f share/vgshell/themes/targets/alacritty/alacritty.toml
 f share/vgshell/themes/targets/alacritty/target.json
+f share/vgshell/themes/targets/bat/bat.tmTheme
+f share/vgshell/themes/targets/bat/target.json
 f share/vgshell/themes/targets/btop/btop.theme
 f share/vgshell/themes/targets/btop/target.json
 f share/vgshell/themes/targets/chromium/chromium.color
@@ -1151,6 +1153,8 @@ f share/vgshell/themes/targets/emacs/emacs.el
 f share/vgshell/themes/targets/emacs/target.json
 f share/vgshell/themes/targets/equibop/equibop.css
 f share/vgshell/themes/targets/equibop/target.json
+f share/vgshell/themes/targets/fastfetch/fastfetch.jsonc
+f share/vgshell/themes/targets/fastfetch/target.json
 f share/vgshell/themes/targets/foot/foot.ini
 f share/vgshell/themes/targets/foot/target.json
 f share/vgshell/themes/targets/gemini/gemini.json
@@ -3972,6 +3976,10 @@ f share/vgshell/themes/targets/qt5ct/qt5ct.conf
 f share/vgshell/themes/targets/qt5ct/target.json
 f share/vgshell/themes/targets/qt6ct/qt6ct.conf
 f share/vgshell/themes/targets/qt6ct/target.json
+f share/vgshell/themes/targets/starship/starship.toml
+f share/vgshell/themes/targets/starship/target.json
+f share/vgshell/themes/targets/television/target.json
+f share/vgshell/themes/targets/television/television.toml
 f share/vgshell/themes/targets/tmux/target.json
 f share/vgshell/themes/targets/tmux/tmux.conf
 f share/vgshell/themes/targets/vencord/target.json
@@ -3983,6 +3991,10 @@ f share/vgshell/themes/targets/vscode/target.json
 f share/vgshell/themes/targets/vscode/vscode.json
 f share/vgshell/themes/targets/wezterm/target.json
 f share/vgshell/themes/targets/wezterm/wezterm.lua
+f share/vgshell/themes/targets/yazi/LICENSE
+f share/vgshell/themes/targets/yazi/target.json
+f share/vgshell/themes/targets/yazi/yazi.tmTheme
+f share/vgshell/themes/targets/yazi/yazi.toml
 f share/vgshell/themes/targets/zed/target.json
 f share/vgshell/themes/targets/zed/zed.json
 f share/vgshell/themes/targets/zen/target.json

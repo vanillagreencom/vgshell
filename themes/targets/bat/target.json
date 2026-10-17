@@ -1,0 +1,38 @@
+{
+  "app": "bat",
+  "runsCode": false,
+  "encoder": "hex6",
+  "files": [
+    {
+      "template": "bat.tmTheme",
+      "destination": "bat.tmTheme"
+    }
+  ],
+  "detect": [
+    "bat"
+  ],
+  "wiring": {
+    "base": "config",
+    "dir": "bat/themes",
+    "owned": false,
+    "links": {
+      "vgs.tmTheme": "bat.tmTheme"
+    }
+  },
+  "select": {
+    "base": "config",
+    "file": "bat/config",
+    "format": "bat",
+    "values": {
+      "theme": "vgs"
+    }
+  },
+  "reload": {
+    "command": [
+      "bat",
+      "cache",
+      "--build"
+    ],
+    "timeoutMs": 5000
+  }
+}

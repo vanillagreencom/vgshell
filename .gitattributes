@@ -18,3 +18,8 @@ scripts/fixtures/pkg/** -whitespace
 scripts/smoke/user-config.sh text eol=lf
 *.webp binary
 scripts/smoke/fixtures/sysmon/*.json text eol=lf
+themes/targets/starship/* text eol=lf
+themes/targets/yazi/* text eol=lf
+themes/targets/bat/* text eol=lf
+themes/targets/fastfetch/* text eol=lf
+themes/targets/television/* text eol=lf

@@ -330,7 +330,7 @@ check "the vault links come back" links_to "$notes_theme/theme.css" "$live/obsid
 # that pins it turns.
 fresh_vaults() { rm -rf -- "$notes_theme" "$work_theme" "$vaults/gone" "$cfg/.obsidian"; }
 fresh_vaults
-judge_control vaults-ignored 'if (wiring.vaults === undefined) return [path.join(base, wiring.dir)];' 'return [path.join(base, wiring.dir)];'
+judge_control vaults-ignored 'if (wiring.vaults === undefined) return (Array.isArray(wiring.dir) ? wiring.dir : [wiring.dir]).map(dir => path.join(base, dir));' 'return (Array.isArray(wiring.dir) ? wiring.dir : [wiring.dir]).map(dir => path.join(base, dir));'
 apply_json "the vaults-ignoring mutant applies" 0 nord
 check "the vaults-ignoring mutant links under the configuration home, not the vault" test -L "$cfg/.obsidian/themes/vgs/theme.css" -a ! -e "$notes_theme"
 fresh_vaults

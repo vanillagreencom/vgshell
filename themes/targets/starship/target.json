@@ -1,0 +1,43 @@
+{
+  "app": "Starship",
+  "runsCode": false,
+  "encoder": "hex6",
+  "files": [
+    {
+      "template": "starship.toml",
+      "destination": "starship.toml"
+    }
+  ],
+  "detect": [
+    "starship"
+  ],
+  "wiring": null,
+  "select": {
+    "base": "config",
+    "file": "starship.toml",
+    "format": "starship",
+    "values": {
+      "fg": "#@{color.text}",
+      "bg": "#@{color.background}",
+      "black": "#@{color.textMuted}",
+      "bright-black": "#@{color.textFaint}",
+      "red": "#@{terminal.color1}",
+      "bright-red": "#@{terminal.color9}",
+      "green": "#@{terminal.color2}",
+      "bright-green": "#@{terminal.color10}",
+      "yellow": "#@{terminal.color3}",
+      "bright-yellow": "#@{terminal.color11}",
+      "blue": "#@{terminal.color4}",
+      "bright-blue": "#@{terminal.color12}",
+      "purple": "#@{terminal.color5}",
+      "bright-purple": "#@{terminal.color13}",
+      "cyan": "#@{terminal.color6}",
+      "bright-cyan": "#@{terminal.color14}",
+      "white": "#@{color.text}",
+      "bright-white": "#@{color.textHeading}",
+      "magenta": "#@{terminal.color5}",
+      "bright-magenta": "#@{terminal.color13}"
+    }
+  },
+  "reload": null
+}

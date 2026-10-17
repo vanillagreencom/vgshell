@@ -1,0 +1,49 @@
+{
+  "app": "Television",
+  "runsCode": false,
+  "encoder": "hex6",
+  "files": [
+    {
+      "template": "television.toml",
+      "destination": "television.toml"
+    }
+  ],
+  "detect": [
+    "tv"
+  ],
+  "wiring": {
+    "base": "config",
+    "dir": "television/themes",
+    "owned": false,
+    "links": {
+      "vgs.toml": "television.toml"
+    }
+  },
+  "select": {
+    "base": "config",
+    "file": "television/config.toml",
+    "format": "television",
+    "values": {
+      "background": "#@{color.background}",
+      "border_fg": "#@{color.borderControl}",
+      "text_fg": "#@{color.text}",
+      "dimmed_text_fg": "#@{color.textMuted}",
+      "input_text_fg": "#@{color.text}",
+      "result_count_fg": "#@{color.accent}",
+      "result_name_fg": "#@{color.text}",
+      "result_line_number_fg": "#@{color.textMuted}",
+      "result_value_fg": "#@{color.text}",
+      "selection_bg": "#@{mix({color.background}, {color.text}, 0.13)}",
+      "selection_fg": "#@{contrast(mix({color.background}, {color.text}, 0.13))}",
+      "match_fg": "#@{color.accent}",
+      "preview_title_fg": "#@{color.accent}",
+      "channel_mode_bg": "#@{color.accent}",
+      "channel_mode_fg": "#@{contrast({color.accent})}",
+      "remote_control_mode_bg": "#@{color.success}",
+      "remote_control_mode_fg": "#@{contrast({color.success})}",
+      "action_picker_mode_bg": "#@{color.info}",
+      "action_picker_mode_fg": "#@{contrast({color.info})}"
+    }
+  },
+  "reload": null
+}

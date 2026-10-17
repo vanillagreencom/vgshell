@@ -3074,6 +3074,123 @@ const CONTROLS = [
     ["unwiring a sole string to the bracket", "[array.elements[0].start, array.close]", "[array.elements[0].start, array.elements[0].end]"]
 ];
 
+// Parse the native files, then measure the pairs the apps consume. This
+// checks rendered bytes rather than the token names written in a template.
+const TERMINAL_APPS = ["starship", "yazi", "bat", "fastfetch", "television"];
+function terminalAppDocuments(change = (text => text)) {
+    const records = [];
+    for (const { pkg, shipped } of selectionPackages) {
+        for (const app of TERMINAL_APPS) {
+            const dir = path.join(repo, "themes", "targets", app);
+            const accepted = selectionRender.acceptTarget(logic, app, fs.readFileSync(path.join(dir, "target.json"), "utf8"));
+            assert.equal(accepted.ok, true, app);
+            const target = accepted.target;
+            const input = { values: pkg.values, slots: selectionRender.terminalSource(pkg, selectionDefaults).terminal, curated: new Map(), installed: !shipped };
+            const rendered = selectionRender.renderTarget(logic, TOKENS, target,
+                new Map(target.files.map(file => [file.template, change(fs.readFileSync(path.join(dir, file.template), "utf8"), app, file.template)])), input);
+            assert.equal(rendered.ok, true, app);
+            const selected = selectionRender.selectValues(logic, TOKENS, target, input);
+            assert.equal(selected.ok, true, app);
+            for (const file of rendered.files) records.push({ app, name: pkg.name, file: file.destination, text: file.bytes.toString("utf8"), selected: selected.values });
+        }
+    }
+    const parsed = spawnSync("python3", ["-c", [
+        "import json,sys,tomllib,plistlib",
+        "rows=json.load(sys.stdin)",
+        "for r in rows:",
+        " r['document']=plistlib.loads(r.pop('text').encode()) if r['file'].endswith(('.tmTheme','.xml')) else json.loads(r.pop('text')) if r['file'].endswith('.jsonc') else tomllib.loads(r.pop('text'))",
+        "json.dump(rows,sys.stdout)"
+    ].join("\n")], { input: JSON.stringify(records), encoding: "utf8", maxBuffer: 32 * 1024 * 1024,
+        env: { PATH: process.env.PATH, LANG: "C.UTF-8", VGS_TEST_RUN: "1" } });
+    assert.ifError(parsed.error);
+    assert.equal(parsed.status, 0, parsed.stderr);
+    return JSON.parse(parsed.stdout);
+}
+function verifyTerminalApps(documents) {
+    const pairs = [];
+    const seen = new Set();
+    for (const row of documents) {
+        seen.add(row.app);
+        const { pkg } = selectionPackages.find(entry => entry.pkg.name === row.name);
+        const page = pkg.values.color.background;
+        const pair = (role, fg, bg = page, floor = 4.5) => {
+            const ink = logic.parseColor(fg), fill = logic.parseColor(bg);
+            assert.notEqual(ink, null, `${row.app} ${role} foreground`);
+            assert.notEqual(fill, null, `${row.app} ${role} background`);
+            const ratio = logic.contrastRatio(ink, fill);
+            assert.ok(ratio >= floor, JSON.stringify({ kind: "terminal-app-contrast", app: row.app, package: row.name, role, fg, bg, ratio, floor }));
+            pairs.push({ app: row.app, package: row.name, role, fg, bg, ratio, floor });
+        };
+        const doc = row.document;
+        if (row.file.endsWith(".tmTheme")) {
+            assert.equal(doc.name, "vgs");
+            const base = doc.settings.find(style => !style.scope).settings;
+            pair("foreground", base.foreground, base.background);
+            pair("gutter", base.gutterForeground, base.gutter);
+            pair("invisibles", base.invisibles, base.background);
+            assert.ok(doc.settings.some(style => style.scope?.includes("comment")));
+            assert.ok(doc.settings.some(style => style.scope?.includes("string")));
+            for (const style of doc.settings.filter(style => style.scope)) pair(style.scope, style.settings.foreground, style.settings.background || base.background);
+        } else if (row.app === "starship") {
+            assert.equal(doc.palette, "vgs");
+            for (const name of ["red", "green", "blue", "purple", "bright-black"]) assert.ok(Object.hasOwn(doc.palettes.vgs, name));
+            for (const [name, color] of Object.entries(doc.palettes.vgs)) {
+                pair(name, color);
+                assert.equal(color, row.selected[name], name);
+            }
+            assert.equal(doc.palettes.vgs["bright-black"], pkg.values.color.textFaint.slice(0, 7));
+        } else if (row.app === "yazi") {
+            assert.ok(doc.icon.dirs.some(icon => icon.name === "Desktop" && icon.text.length > 0));
+            assert.ok(doc.icon.files.some(icon => icon.name === ".gitignore"));
+            assert.ok(doc.icon.exts.some(icon => icon.name === "rs"));
+            assert.ok(doc.filetype.rules.some(rule => rule.url === "*/"));
+            const visit = (value, key) => {
+                if (value === null || typeof value !== "object") return;
+                if (Object.hasOwn(value, "fg")) {
+                    // Native marker bars carry no text. Their colour reads
+                    // against the page, not against their identical fill.
+                    const marker = /^mgr\.marker_/.test(key);
+                    pair(key, value.fg, marker ? page : value.bg || doc.app.overall.bg, marker || /border/.test(key) ? 3 : 4.5);
+                    const nativeKey = key.replace(/\.\d+(?=\.|$)/g, "");
+                    if (Object.hasOwn(row.selected, nativeKey + ".fg")) assert.equal(value.fg, row.selected[nativeKey + ".fg"]);
+                }
+                for (const [name, child] of Object.entries(value)) visit(child, key ? key + "." + name : name);
+            };
+            visit(doc, "");
+        } else if (row.app === "fastfetch") {
+            const slots = selectionRender.terminalSource(pkg, selectionDefaults).terminal;
+            const nativeColor = value => value === "blue" ? slots.color4 : value;
+            for (const [role, value] of Object.entries(doc.display.color)) {
+                pair(role, nativeColor(value));
+                assert.equal(value, row.selected[role]);
+            }
+            pair("logo", nativeColor(doc.logo.color["1"]));
+        } else if (row.app === "television") {
+            assert.ok(Object.hasOwn(doc, "selection_fg"));
+            assert.ok(Object.hasOwn(doc, "action_picker_mode_bg"));
+            for (const [name, value] of Object.entries(doc)) {
+                if (name.endsWith("_fg")) {
+                    const fill = name === "selection_fg" ? doc.selection_bg : name.endsWith("_mode_fg") ? doc[name.replace(/_fg$/, "_bg")] : doc.background;
+                    pair(name, value, fill, name === "border_fg" ? 3 : 4.5);
+                }
+                assert.equal(value, row.selected[name], name);
+            }
+        }
+    }
+    assert.deepEqual([...seen].sort(), TERMINAL_APPS.slice().sort());
+    return pairs;
+}
+const terminalDocuments = terminalAppDocuments();
+const terminalPairs = verifyTerminalApps(terminalDocuments);
+for (const app of TERMINAL_APPS) {
+    // A missing target must fail this same render contract.
+    assert.throws(() => verifyTerminalApps(terminalDocuments.filter(row => row.app !== app)), { code: "ERR_ASSERTION" });
+    const needle = app === "bat" ? "#@{color.textFaint}" : app === "fastfetch" ? '"blue"' : app === "starship" ? "#@{color.textFaint}" : "#@{color.text}";
+    const file = app === "bat" ? "bat.tmTheme" : app === "yazi" ? "yazi.toml" : app === "starship" ? "starship.toml" : app === "fastfetch" ? "fastfetch.jsonc" : "television.toml";
+    assert.throws(() => verifyTerminalApps(terminalAppDocuments((text, name, template) => name === app && template === file ? text.replace(needle, app === "fastfetch" ? '"#@{color.background}"' : "#@{color.background}") : text)), error => error.code === "ERR_ASSERTION" && error.message.includes('"kind":"terminal-app-contrast"'));
+}
+console.log(`test-theme-render: terminal-apps packages=${selectionPackages.length} pairs=${terminalPairs.length} controls=missing-target,unreadable-text`);
+
 const source = fs.readFileSync(rendererFile, "utf8");
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), "theme-render-control-"));
 try {

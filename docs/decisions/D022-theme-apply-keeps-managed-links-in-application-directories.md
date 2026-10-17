@@ -1,4 +1,4 @@
-# D022: A theme apply proves ownership of application entries and edits only theme selection keys
+# D022: A theme apply proves ownership and edits only declared theme fields
 
 [← Decision Index](INDEX.md)
 
@@ -6,13 +6,13 @@
 
 **Status**: Active
 
-**Research**: [VGS-468](https://linear.app/vanillagreen/issue/VGS-468), [VGS-471](https://linear.app/vanillagreen/issue/VGS-471), [VGS-492](https://linear.app/vanillagreen/issue/VGS-492)
+**Research**: [VGS-468](https://linear.app/vanillagreen/issue/VGS-468), [VGS-471](https://linear.app/vanillagreen/issue/VGS-471), [VGS-492](https://linear.app/vanillagreen/issue/VGS-492), [VGS-1812](https://linear.app/vanillagreen/issue/VGS-1812)
 
 **Refines**: [D021](D021-theme-apply-writes-beside-each-destination.md)
 
-**Decision**: An application target declares each entry as a link or a copy. A link proves ownership by its exact destination in the state `theme/` directory. A copy lands by rename in the application's watched directory and proves ownership by bytes equal to the render in `theme/`. Apply replaces whatever stands at an entry path with its managed form by rename and fails the target on a directory there; disable removes only managed entries and an owned directory only when empty. The owner ruled on 2026-10-10: "Vgs themes, when applied, should always replace whatever themes a user is using on the apps VGS supports. Same as however omarchy does it. Users dont need to 'confirm' things like that." A target may also declare theme selection keys in an existing settings file. Every apply repairs those keys, preserves every other byte, refuses an ambiguous edit and never creates an absent file. Disable leaves the keys in place.
+**Decision**: An application target declares each entry as a link or a copy. A link proves ownership by its exact destination in the state `theme/` directory. A copy lands by rename in the application's watched directory and proves ownership by bytes equal to the render in `theme/`. Apply replaces whatever stands at an entry path with its managed form by rename and fails the target on a directory there; disable removes only managed entries and an owned directory only when empty. The owner ruled on 2026-10-10: "Vgs themes, when applied, should always replace whatever themes a user is using on the apps VGS supports. Same as however omarchy does it. Users dont need to 'confirm' things like that." A target may also declare theme selection and colour fields in an existing settings file. Every apply repairs those fields, preserves unrelated bytes and credentials, and refuses an ambiguous edit. An absent settings file stays absent except for an app that never writes its own settings file or an editor before its first setting change. That exception creates only the managed selection, and only while the app's command is on PATH. Disable leaves selection and colour fields in place.
 
-**Why**: Each managed form proves itself without a marker file. Links follow the whole `theme/` swap, but an application's watcher may miss a changed link target. A renamed copy lets that watcher read the new bytes, and byte equality keeps disable from removing a file the user put there since. A theme selection key makes the application read the managed theme again after its picker changes the selection. Settings files can hold credentials, so the edit must stay confined to the declared keys.
+**Why**: Each managed form proves itself without a marker file. Links follow the whole `theme/` swap, but an application's watcher may miss a changed link target. A renamed copy lets that watcher read the new bytes, and byte equality keeps disable from removing a file the user put there since. Theme selection makes the application read the managed theme again after its picker changes the selection. Local colour overrides can take priority over that theme, so those fields need colour-only edits. Settings files can hold credentials, so the edit must stay confined to the declared theme fields. An app that leaves no settings file would otherwise never select its managed theme.
 
 **Rejected**: Copies without an ownership check, marker files that need a second file kept in step, and touching a link to make a watcher reload. Skipping a path the user's own file holds leaves the application on its old theme with no notice. Leaving selection to the user lets a picker disconnect the managed theme. Parsing and reserialising the whole settings file loses comments, order and quoting.
 

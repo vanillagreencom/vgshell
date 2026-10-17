@@ -1,0 +1,15 @@
+{
+  "display": {
+    "color": {
+      "keys": "blue",
+      "title": "blue",
+      "output": "#@{color.text}",
+      "separator": "blue"
+    }
+  },
+  "logo": {
+    "color": {
+      "1": "blue"
+    }
+  }
+}

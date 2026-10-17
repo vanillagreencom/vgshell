@@ -1,0 +1,29 @@
+{
+  "app": "fastfetch",
+  "runsCode": false,
+  "encoder": "hex6",
+  "files": [
+    {
+      "template": "fastfetch.jsonc",
+      "destination": "fastfetch.jsonc"
+    }
+  ],
+  "detect": [
+    "fastfetch"
+  ],
+  "wiring": null,
+  "select": {
+    "base": "config",
+    "file": "fastfetch/config.jsonc",
+    "format": "fastfetch",
+    "values": {
+      "keys": "blue",
+      "title": "blue",
+      "output": "#@{color.text}",
+      "separator": "blue",
+      "logo": "blue",
+      "bg": "#@{color.background}"
+    }
+  },
+  "reload": null
+}
