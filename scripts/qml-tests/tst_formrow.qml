@@ -24,8 +24,9 @@ import qs.Unit
 // than the label column's width; without a label
 // column the control takes the full width at its own height; the smoke's
 // `fieldRow` hook names the row. A row with a message is followed by a group
-// space, `stack.group`, unless it is the last row of its column; the rows
-// of the first column sit 0 apart, so each with a message there grows by
+// space, `stack.group`, before the next item of its column that is no
+// key/value row, unless it is the last; the rows of the first column sit
+// 0 apart, so each with a message there grows by
 // the group space under its message. A page reference in the message or in
 // the info dialog's text asks for its page and tab through
 // `warningPageActivated` or `infoPageActivated`. A label's explainer
@@ -40,7 +41,10 @@ Item {
     width: 480
     height: 1300
 
-    Column {
+    // A Flow, which no key/value row stands in by ink, so each row's box
+    // starts at the row's top: rows of a Column stand `stack.page` apart
+    // by ink (FormRow `inkTop`), which tst_settingfield.qml reads.
+    Flow {
         width: 420
         FormRow { id: plain; width: parent.width; label: "Clock"; Switch { id: toggle; size: "sm" } }
         FormRow { id: filled; width: parent.width; label: "Format"; Select { id: choice; width: parent.width; model: ["HH:mm", "hh:mm ap"] } }
@@ -61,10 +65,12 @@ Item {
         y: 640
         width: 420
         spacing: Theme.stack.row
-        FormRow { id: warnedFirst; width: parent.width; label: "Speed"; warning: "Overridden"; Switch { size: "sm" } }
-        FormRow { id: afterWarning; width: parent.width; label: "Scroll"; Switch { size: "sm" } }
-        FormRow { id: plainNext; width: parent.width; label: "Tap"; Switch { size: "sm" } }
-        FormRow { id: warnedLast; width: parent.width; label: "Click"; warning: "Overridden"; Switch { size: "sm" } }
+        // Rows with no label column are no key/value rows, so they keep the
+        // column's spacing and a message's group space.
+        FormRow { id: warnedFirst; width: parent.width; labelColumn: false; warning: "Overridden"; Rectangle { width: 40; height: Theme.row.height; color: "transparent" } }
+        FormRow { id: afterWarning; width: parent.width; labelColumn: false; Rectangle { width: 40; height: Theme.row.height; color: "transparent" } }
+        FormRow { id: plainNext; width: parent.width; labelColumn: false; Rectangle { width: 40; height: Theme.row.height; color: "transparent" } }
+        FormRow { id: warnedLast; width: parent.width; labelColumn: false; warning: "Overridden"; Rectangle { width: 40; height: Theme.row.height; color: "transparent" } }
     }
 
     FormRow { id: roled; y: 840; width: 420; label: "Speed"; warning: "Overridden"; warningRole: "tooltip"; Switch { size: "sm" } }

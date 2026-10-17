@@ -264,6 +264,32 @@ Item {
         }
     }
 
+    // A column of bare key/value rows, as the Displays, Capture and Sound
+    // panes draw them: a select, a slider, a segmented control, switches,
+    // one with a message, and a text value, `spacing` apart by their boxes.
+    Component {
+        id: coveredBare
+        Rectangle {
+            property alias rows: bareRows
+            property real spacing: 0
+            anchors.fill: parent
+            z: 1
+            color: Theme.color.surface
+            Column {
+                id: bareRows
+                width: 420
+                spacing: parent.spacing
+                FormRow { label: "Display"; width: parent.width; Select { width: parent.width; model: ["Built-in", "External"] } }
+                FormRow { label: "Scale"; width: parent.width; Slider { width: parent.width; from: 0; to: 100; value: 40 } }
+                FormRow { label: "Mode"; width: parent.width; SegmentedControl { width: parent.width; model: ["Extend", "Mirror"] } }
+                FormRow { label: "Mute"; width: parent.width; Switch { size: "sm"; checked: true } }
+                FormRow { label: "Speed"; warning: "Overridden by policy"; width: parent.width; Switch { size: "sm" } }
+                FormRow { label: "Device"; width: parent.width; Label { role: "value"; text: "Analog stereo output" } }
+                FormRow { label: "Linked"; width: parent.width; Switch { checked: false } }
+            }
+        }
+    }
+
     TestCase {
         name: "settingfield"
         when: windowShown
@@ -754,6 +780,22 @@ Item {
             return bottom - top + 1;
         }
 
+        // The blank pixel rows of the band between UPPER's lowest text line
+        // and LOWER's highest: the band that holds the row halfway between
+        // them, 0 when ink crosses it. A column whose spacing exceeds the
+        // space can put LOWER's own edge inside its ink.
+        function gapBetween(img, upper, lower, width) {
+            const bottom = upper.mapToItem(root, 0, upper.height - upper.lineBelow()).y;
+            const top = lower.mapToItem(root, 0, lower.lineAbove()).y;
+            const middle = Math.floor((bottom + top) / 2);
+            if (rowInked(img, middle, width)) return 0;
+            let from = middle;
+            let to = middle;
+            while (from > 0 && !rowInked(img, from - 1, width)) from--;
+            while (to < img.height - 1 && !rowInked(img, to + 1, width)) to++;
+            return to - from + 1;
+        }
+
         // Every key/value row of a Settings page leaves the same drawn
         // space, `stack.page`, between its lowest drawn pixel and the next
         // row's highest, whatever control either holds: rows of no group
@@ -786,6 +828,36 @@ Item {
             const read = gaps.map(entry => entry.pair + " " + entry.gap).join(", ");
             for (const entry of gaps)
                 verify(Math.abs(entry.gap - want) <= 1, "every row stands " + want + " blank rows under the one above: " + read);
+        }
+
+        // A column of bare FormRows leaves the same drawn space between its
+        // rows as a column of Fields, `stack.page`, by the one rule a Field
+        // stands by (FormRow `inkTop`), whatever the column's spacing, and
+        // each row box stays `row.height`. Spaced by their boxes, the
+        // control in scripts/test-qml-unit.sh, the rows stand apart by the
+        // column's spacing and what each control leaves blank in its box.
+        function test_bare_rows_stand_one_step_apart_by_ink_data() {
+            return [
+                { tag: "row spacing", spacing: "row", step: 0 },
+                { tag: "group spacing", spacing: "group", step: 0 },
+                { tag: "a theme's step", spacing: "group", step: 20 }
+            ];
+        }
+
+        function test_bare_rows_stand_one_step_apart_by_ink(data) {
+            if (data.step > 0) compare(UnitTheme.override({ stack: { page: data.step } }), "ok");
+            const cover = createTemporaryObject(coveredBare, root, { spacing: Theme.stack[data.spacing] });
+            verify(cover !== null);
+            verify(waitForRendering(cover));
+            const rows = cover.rows.children.filter(item => item.objectName === "fieldRow");
+            compare(rows.length, 7);
+            for (const row of rows) compare(row.boxHeight, Theme.row.height, row.label + " keeps the row box");
+            const img = grabImage(root);
+            const gaps = rows.slice(1).map((row, i) => ({ pair: rows[i].label + "/" + row.label, gap: gapBetween(img, rows[i], row, cover.rows.width) }));
+            const want = Theme.stack.page;
+            const read = gaps.map(entry => entry.pair + " " + entry.gap).join(", ");
+            for (const entry of gaps)
+                verify(Math.abs(entry.gap - want) <= 1, "every bare row stands " + want + " blank rows under the one above: " + read);
         }
 
         // The first row of ink in LABEL's box.

@@ -62,8 +62,9 @@ import qs.Ui
 // Where that would leave the message less than `field.labelWidth`, as in a
 // narrow flyout, the action goes on a line of its own, `field.gap` under
 // the message, from the value column's start. While the row has a message
-// it takes room under it, so the next row of its column starts
-// `stack.group` below the message (Theme.subTextRoom).
+// it takes room under it, so the next item of its column that is no
+// key/value row starts `stack.group` below the message
+// (Theme.subTextRoom); a key/value row stands by ink.
 // A hidden action takes no room. While
 // `labelColumn` is false the row draws no label and keeps
 // no row height: the control takes the full width at its own height, as a
@@ -79,7 +80,23 @@ import qs.Ui
 // `lineAbove()` and `lineBelow()` read the same, but a text line, the
 // label, a Label in the slot or the message, by its font rather than the
 // glyphs it holds (`fontAbove()`, `fontBelow()`), so key/value rows of one
-// role keep one pitch whatever they read (Field).
+// role keep one pitch whatever they read.
+// A row with a label beside its control is a key/value row
+// (`keyValueRow`), and one under another key/value row of its column
+// (`rowAbove`) stands `stack.page` under that row's drawn ink, from its
+// lowest drawn part (`lineBelow()`) to this row's highest (`lineAbove()`),
+// whatever either control draws in its row box: `inkTop` is that space
+// less the room the columns already put there, negative where that room
+// exceeds it. The row is the one place that measures it, for a bare row
+// and for a Field, so both stand by one rule: every key/value row is a
+// FormRow, while a Field has no message, tone or action to build a bare
+// row's on. `placed` is the item its
+// column places: the row itself, which then takes `inkTop` above its row
+// box (`shift`) and draws its label, control and message that far down,
+// or a Field that holds it, which takes `inkTop` as its top padding. The
+// row box stays `row.height` either way, and a row under anything that is
+// no key/value row, such as a section's heading, keeps that item's
+// spacing.
 Item {
     id: root
 
@@ -92,7 +109,61 @@ Item {
     property string labelTooltip: ""
     property bool labelColumn: true
     property bool textBelow: false
+    property Item placed: root
     default property alias control: slot.data
+    readonly property bool keyValueRow: labelColumn
+    // The key/value row the placed item stands under, and the room the
+    // columns already put between the two: the spacing of the column that
+    // holds both and the top padding of each column the placed item is the
+    // first shown item of. The first group of a GroupList stands at the
+    // list's top, so the search goes on above the list; a later group keeps
+    // the list's gap and hairline. null for a row with no label beside its
+    // control, under anything that is no key/value row, or under nothing. A
+    // Column lays out only its shown, sized children
+    // (https://doc.qt.io/qt-6/qml-qtquick-column.html). Gap: a Repeater
+    // that moves its rows reorders its parent's children with no change of
+    // `children`, so a moved row keeps the row above it had until a value
+    // the search reads changes. Reading each row's place (`y` or
+    // `Positioner.index`) runs the search again, but Qt 6.11.2 keeps a
+    // binding's trigger on a row's height or place it read before the move,
+    // so a row moved above a row it measured logs a binding loop for
+    // `rowAbove` and `inkTop` as the rows re-space.
+    readonly property var rowAbove: {
+        if (!labelColumn || label === "") return null;
+        let room = 0;
+        for (let at = placed; at.parent !== null; ) {
+            const holder = at.parent;
+            const list = holder.parent instanceof GroupList ? holder.parent : null;
+            if (!(holder instanceof Column) && list === null) return null;
+            const siblings = holder.children;
+            let below = true;
+            for (let i = siblings.length - 1; i >= 0; i--) {
+                const item = siblings[i];
+                if (item === at) below = false;
+                else if (!below && item.visible && item.width > 0 && item.height > 0)
+                    return list === null && item.keyValueRow === true ? { item: item, room: room + holder.spacing } : null;
+            }
+            if (list === null) room += holder.topPadding;
+            at = list === null ? holder : list;
+        }
+        return null;
+    }
+    // The row above must still read as shown when this reads it. QML
+    // marks an item and its QObject children deleted as it starts to destroy
+    // them, before the item leaves its parent
+    // (QQmlPrivate::qdeclarativeelement_destructor, Qt 6.11 qqmlengine.cpp).
+    // The mark emits no change, so rowAbove still names the item, and a
+    // marked item reads every property as undefined, `visible` and
+    // `children` included (QObjectWrapper::getQmlProperty), while
+    // `instanceof` still holds: run under scripts/qml-unit.sh on Qt 6.11.2
+    // by tst_field_row_above_teardown.qml. Ink is drawn in whole pixel rows
+    // on whole-pixel item edges, as Section measures it, so this counts
+    // whole rows. It reads the row box's own top, not `lineAbove()`, which
+    // counts `shift`.
+    readonly property real inkTop: rowAbove === null || !rowAbove.item.visible ? 0 : Theme.stack.page - rowAbove.room - Math.floor(lineBelowOf(rowAbove.item)) - Math.floor(drawnAbove(true))
+    // The part of `inkTop` the row takes above its row box: all of it for a
+    // row its column places, none for one a Field places.
+    readonly property real shift: placed === root ? inkTop : 0
     property alias action: actionSlot.data
     readonly property Item actionItem: actionSlot.visibleChildren.length > 0 ? actionSlot.visibleChildren[0] : null
     readonly property bool actionBelow: actionItem !== null && valueRoom - actionItem.width - Theme.stack.inline < Theme.field.labelWidth
@@ -100,7 +171,7 @@ Item {
     readonly property real messageLine: actionBelow ? message.height + Theme.field.gap + actionItem.height : message.height
     readonly property real valueX: labelColumn ? Theme.field.labelWidth + Theme.field.labelGap : 0
     readonly property real valueRoom: Math.max(0, width - valueX)
-    readonly property real valueBottom: slot.y + slot.height
+    readonly property real valueBottom: shift + slotTop + slot.height
     readonly property real messageRoom: warning === "" ? 0 : Theme.field.gap + messageLine
     readonly property real controlEnd: {
         let end = 0;
@@ -113,12 +184,14 @@ Item {
     readonly property real besideWrap: Math.min(Theme.tooltip.maxWidth, width - besideX - 2 * Theme.tooltip.paddingX)
     readonly property real besideHeight: besideMeasure.implicitHeight + 2 * Theme.tooltip.paddingY
     // Where the first line under the value starts, -1 with no such line.
-    readonly property real underText: textBelow ? valueBottom + Theme.field.gap : warning !== "" ? boxHeight + Theme.field.gap : -1
+    // In the row box's frame, as are the label's and the control's tops
+    // and the places that read them.
+    readonly property real underText: textBelow ? slotTop + slot.height + Theme.field.gap : warning !== "" ? boxHeight + Theme.field.gap : -1
     // Whether the explainer, centred on the label's box, ends above that line.
     readonly property bool besideClear: underText < 0 ? true : (labelBox + besideHeight) / 2 <= underText
     readonly property bool explainBeside: besideWrap > 0 && besideHeight <= labelBox + 2 * Theme.stack.row && besideClear
     // Where the label's focus ring ends: it draws outside the label's box.
-    readonly property real ringBottom: labelText.y + labelText.height + labelRing.extent
+    readonly property real ringBottom: labelTop + labelText.height + labelRing.extent
     // Whether that ring reaches the first line under the value.
     readonly property bool ringAtUnderText: underText >= 0 && ringBottom + Theme.tooltip.gap > underText
     // Where the explainer starts under the row, clear of that ring.
@@ -143,9 +216,14 @@ Item {
     readonly property string tipText: explainInDialog ? "" : labelTooltip
     readonly property string dialogText: !explainInDialog ? info : info === "" ? labelTooltip : labelTooltip + "\n\n" + info
     readonly property real subTextRoom: Theme.subTextRoom(warning !== "", Positioner.index, Positioner.isLastItem, parent)
-    // Where the message's line ends, above the room under it.
-    readonly property real messageBottom: height - subTextRoom
-    readonly property real boxHeight: messageBottom - messageRoom
+    // The row box, the message's line under it and the room under that,
+    // each from the row box's top, so the space above it reads none of them.
+    readonly property real boxHeight: labelColumn ? Math.max(Theme.row.height, labelText.implicitHeight, slot.childrenRect.height) : slot.childrenRect.height
+    readonly property real messageBottom: boxHeight + messageRoom
+    readonly property real ownHeight: boxHeight + messageRoom + subTextRoom
+    // Where the label and the control start in the row box.
+    readonly property real labelTop: labelText.lineCount > 1 ? Math.round((boxHeight - labelText.implicitHeight) / 2) : labelText.topForCapCenter(labelBox)
+    readonly property real slotTop: labelColumn ? Math.round((boxHeight - slot.height) / 2) : 0
     // The box a one-line label and its info button centre on.
     readonly property real labelBox: labelText.lineCount > 1 || controlFirstLine === 0 ? boxHeight : controlFirstLine
     // The first line of a control that wraps into lines, 0 beside a control of one box.
@@ -160,9 +238,25 @@ Item {
     signal infoPageActivated(string page, string tab)
 
     function inkBelow() { return drawnBelow(false); }
-    function inkAbove() { return drawnAbove(false); }
+    function inkAbove() { return shift + drawnAbove(false); }
     function lineBelow() { return drawnBelow(true); }
-    function lineAbove() { return drawnAbove(true); }
+    function lineAbove() { return shift + drawnAbove(true); }
+
+    // How far above ITEM's bottom edge the row it ends with stops, read by
+    // lineBelow() as Theme.inkBelow reads ink: a row or a field by its own,
+    // a Column by its last shown child above its bottom padding, a
+    // GroupList by its last shown group, a Loader by its item, and anything
+    // else as drawn.
+    function lineBelowOf(item) {
+        if (typeof item.lineBelow === "function") return item.lineBelow();
+        if (item instanceof Loader) return item.item instanceof Item ? item.height - item.item.height + lineBelowOf(item.item) : 0;
+        const list = item instanceof GroupList;
+        if (!list && !(item instanceof Column)) return Theme.inkBelow(item);
+        const shown = (list ? Array.from(item.groups) : Array.from(item.children)).filter(child => child instanceof Item && child.visible && child.width > 0 && child.height > 0);
+        if (shown.length === 0) return Theme.inkBelow(item);
+        const last = shown[shown.length - 1];
+        return (list ? item.height - last.y - last.height : item.bottomPadding) + lineBelowOf(last);
+    }
 
     // A text line's top and bottom by its font, not the glyphs it holds:
     // the capital top, and the last baseline plus the font's descent, or
@@ -198,14 +292,14 @@ Item {
         return height - bottom;
     }
 
-    // How far below its top edge the row's highest drawn part starts, read
-    // as drawnBelow reads.
+    // How far below the row box's top the row's highest drawn part starts,
+    // read as drawnBelow reads.
     function drawnAbove(byFont) {
-        let top = labelColumn && label !== "" ? labelText.y + (byFont ? fontAbove(labelText) : labelText.inkAbove()) : height;
+        let top = labelColumn && label !== "" ? labelTop + (byFont ? fontAbove(labelText) : labelText.inkAbove()) : ownHeight;
         for (const child of slot.children) {
-            if (child.visible) top = Math.min(top, slot.y + child.y + (byFont && child instanceof Label ? fontAbove(child) : Theme.inkAbove(child)));
+            if (child.visible) top = Math.min(top, slotTop + child.y + (byFont && child instanceof Label ? fontAbove(child) : Theme.inkAbove(child)));
         }
-        return Math.min(top, height);
+        return Math.min(top, ownHeight);
     }
 
     function toneColor(name) {
@@ -220,7 +314,7 @@ Item {
     // height without depending on the private tree shape.
     objectName: "fieldRow"
     implicitWidth: slot.x + Math.max(Theme.field.minWidth, Math.min(Theme.control.maxWidth, slot.childrenRect.width))
-    implicitHeight: (labelColumn ? Math.max(Theme.row.height, labelText.implicitHeight, slot.childrenRect.height) : slot.childrenRect.height) + messageRoom + subTextRoom
+    implicitHeight: shift + ownHeight
 
     Label {
         id: labelText
@@ -235,7 +329,7 @@ Item {
                 text: root.tipText
                 side: root.explainBeside ? "right" : "belowStart"
                 // The side's gap from this box's end puts the tooltip at `besideX`.
-                box: root.explainBeside ? Qt.rect(0, -labelText.y, root.besideX - Theme.tooltip.gap, root.labelBox) : Qt.rect(root.underX, -labelText.y, root.width - root.underX, root.underText - Theme.tooltip.gap)
+                box: root.explainBeside ? Qt.rect(0, -root.labelTop, root.besideX - Theme.tooltip.gap, root.labelBox) : Qt.rect(root.underX, -root.labelTop, root.width - root.underX, root.underText - Theme.tooltip.gap)
                 maxWidth: root.explainBeside ? root.besideWrap : root.width - root.underX - 2 * Theme.tooltip.paddingX
                 minWidth: root.explainBeside ? 0 : root.width - root.underX
             }
@@ -246,14 +340,14 @@ Item {
         visible: root.labelColumn
         width: Theme.field.labelWidth - (infoButton.active ? infoButton.width + Theme.space.xs : 0)
         wrapMode: Text.Wrap
-        y: lineCount > 1 ? Math.round((root.boxHeight - implicitHeight) / 2) : topForCapCenter(root.labelBox)
+        y: root.shift + root.labelTop
     }
 
     Loader {
         id: infoButton
         active: root.dialogText !== "" && root.labelColumn
         x: Theme.field.labelWidth - width
-        y: labelText.lineCount > 2 ? labelText.y + labelText.topForLeadingIcon(implicitHeight) : Math.round((root.labelBox - implicitHeight) / 2)
+        y: labelText.lineCount > 2 ? labelText.y + labelText.topForLeadingIcon(implicitHeight) : Math.round((root.labelBox - implicitHeight) / 2) + root.shift
         sourceComponent: InfoButton {
             title: root.label
             info: root.dialogText
@@ -268,7 +362,7 @@ Item {
         x: root.valueX
         width: Math.min(root.valueRoom, Theme.control.maxWidth)
         height: childrenRect.height
-        y: root.labelColumn ? Math.round((root.boxHeight - height) / 2) : 0
+        y: root.shift + root.slotTop
     }
 
     LinkText {
@@ -279,7 +373,7 @@ Item {
         color: root.toneColor(root.warningTone)
         visible: root.warning !== ""
         x: slot.x
-        y: root.boxHeight + Theme.field.gap
+        y: root.boxHeight + Theme.field.gap + root.shift
         width: root.valueRoom - root.actionRoom
         wrapMode: Text.Wrap
         onActivated: root.warningLinkActivated()
@@ -290,7 +384,7 @@ Item {
         id: actionSlot
         visible: message.visible
         x: root.actionBelow ? slot.x : root.width - width
-        y: root.actionBelow ? root.messageBottom - height : root.messageBottom - root.messageLine + Math.round((root.messageLine - height) / 2)
+        y: root.shift + (root.actionBelow ? root.messageBottom - height : root.messageBottom - root.messageLine + Math.round((root.messageLine - height) / 2))
         width: root.actionItem === null ? 0 : root.actionItem.width
         height: root.actionItem === null ? 0 : root.actionItem.height
     }

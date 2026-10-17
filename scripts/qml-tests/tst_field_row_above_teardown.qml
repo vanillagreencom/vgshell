@@ -17,7 +17,9 @@ import "../../shell/plugins/vgs.settings"
 // `Field.qml:163: TypeError: Value is undefined and could not be converted
 // to an object` (the control in scripts/test-qml-unit.sh). A group list
 // that ends a live row and is marked the same way is left out of the row's
-// measure, as a hidden group is.
+// measure, as a hidden group is. A bare FormRow measures the space above it
+// by the same search (FormRow `rowAbove`, `inkTop`), so under a marked
+// setting or a marked bare row it too stands under no row.
 Item {
     id: root
     width: 600
@@ -34,8 +36,15 @@ Item {
         function forget() {
             if (below === null) return;
             UnitTheme.override({ stack: { page: Theme.stack.page + 7 } });
-            seen = { item: below.rowAbove === null ? null : below.rowAbove.item, top: below.topPadding };
+            const row = root.rowOf(below);
+            seen = { item: row.rowAbove === null ? null : row.rowAbove.item, top: row.inkTop };
         }
+    }
+
+    // The FormRow that measures ITEM's space above it: the item, or a
+    // Field's row.
+    function rowOf(item) {
+        return item.objectName === "fieldRow" ? item : item.children.find(child => child.objectName === "fieldRow");
     }
 
     // Owns the rows the test marks, apart from the column that draws them,
@@ -50,6 +59,7 @@ Item {
         }
     }
     Component { id: groups; GroupList { Rectangle { width: 100; height: 20 } } }
+    Component { id: bareRow; FormRow { label: "Bare"; width: parent === null ? 0 : parent.width; Label { role: "item"; text: "Ready" } } }
     Component { id: field; Field { label: "Below"; inline: true; width: parent === null ? 0 : parent.width; Label { role: "item"; text: "Ready" } } }
 
     Rectangle {
@@ -80,13 +90,13 @@ Item {
             row.parent = host;
             row.width = host.width;
             const below = createTemporaryObject(field, host);
-            tryVerify(() => below.rowAbove !== null && below.rowAbove.item === row, 2000, "the setting is the field's row above");
+            tryVerify(() => root.rowOf(below).rowAbove !== null && root.rowOf(below).rowAbove.item === row, 2000, "the setting is the field's row above");
             edits.below = below;
             doomed.destroy();
             tryVerify(() => edits.seen !== null, 2000, "the leaving setting tells the edits");
             verify(edits.seen.item === row, "the marked setting is still the row above while the page step moves");
             compare(edits.seen.top, 0, "a field under a marked row stands under no row");
-            tryCompare(below, "rowAbove", null, 2000);
+            tryCompare(root.rowOf(below), "rowAbove", null, 2000);
             compare(below.topPadding, 0);
         }
 
@@ -97,13 +107,37 @@ Item {
             const list = groups.createObject(doomed);
             list.parent = row;
             const below = createTemporaryObject(field, host);
-            tryVerify(() => below.rowAbove !== null && below.rowAbove.item === row, 2000, "the row is the field's row above");
+            tryVerify(() => root.rowOf(below).rowAbove !== null && root.rowOf(below).rowAbove.item === row, 2000, "the row is the field's row above");
             edits.below = below;
             doomed.destroy();
             tryVerify(() => edits.seen !== null, 2000, "the leaving setting tells the edits");
             verify(edits.seen.item === row);
             tryVerify(() => row.children.length === 1, 2000, "the list leaves the row");
             compare(edits.seen.top, below.topPadding, "the marked list is measured as gone");
+        }
+
+        // A bare FormRow under a marked setting, whose children read as
+        // undefined, or under a marked bare row, whose lines read as none.
+        function test_c_a_marked_row_above_a_bare_row_is_no_row_data() {
+            return [{ tag: "setting", above: setting }, { tag: "bare row", above: bareRow }];
+        }
+
+        function test_c_a_marked_row_above_a_bare_row_is_no_row(data) {
+            const doomed = owner.createObject(root);
+            setting.createObject(doomed, { edits: edits });
+            const row = data.above.createObject(doomed, data.above === setting ? { edits: null } : {});
+            row.parent = host;
+            row.width = host.width;
+            const below = createTemporaryObject(bareRow, host);
+            tryVerify(() => below.rowAbove !== null && below.rowAbove.item === row, 2000, "the row is the bare row's row above");
+            verify(below.inkTop !== 0, "the bare row stands by ink under a live row");
+            edits.below = below;
+            doomed.destroy();
+            tryVerify(() => edits.seen !== null, 2000, "the leaving setting tells the edits");
+            verify(edits.seen.item === row, "the marked row is still the row above while the page step moves");
+            compare(edits.seen.top, 0, "a bare row under a marked row stands under no row");
+            tryCompare(below, "rowAbove", null, 2000);
+            compare(below.shift, 0);
         }
     }
 }

@@ -73,7 +73,7 @@ Item {
         Field { id: hintedRow; label: "Interval"; hint: "How often it checks"; inline: true; width: parent.width; Switch { size: "sm" } }
         Field { id: afterHint; label: "View"; inline: true; width: parent.width; Switch { size: "sm" } }
         // A stacked field, no key/value row, keeps the column's spacing
-        // under a row rather than standing by ink (Field.rowAbove).
+        // under a row rather than standing by ink (FormRow.rowAbove).
         Field { id: plainRow; label: "Plain"; inline: false; width: parent.width; Switch { size: "sm" } }
         Field { id: lastHinted; label: "Last"; hint: "Ends the column"; inline: true; width: parent.width; Switch { size: "sm" } }
     }

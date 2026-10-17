@@ -31,18 +31,19 @@ import qs.Ui
 // (Theme.subTextRoom). An inline field with a label is a key/value row,
 // and one under another key/value row of its column (`keyValueRow`) stands
 // `stack.page` under that row's drawn ink, from its lowest drawn part to
-// this row's highest, whatever either control draws in its row box. A
-// text line, the label, a Label value, the lines and the hint, counts from
-// its capital top to its font's descent line, or its baseline in a role
-// drawn in capitals, not by the glyphs it holds, so rows of one role keep
-// one pitch whatever they read (FormRow.lineAbove, `lineBelow()`); a
-// control counts as drawn (Theme.inkAbove, Theme.inkBelow). Its top padding takes out of that space
-// the column's spacing and both blanks, and goes negative where those
-// exceed it, so the row boxes overlap where the controls draw less than
-// the box. Ink is drawn in whole pixel rows on whole-pixel item edges, as
-// Section measures it, so the padding counts whole rows. A field that is
-// the first item of a column, such as the editor of a SettingField, reads
-// the row above that column. A set
+// this row's highest, whatever either control draws in its row box, by
+// the rule a bare FormRow stands by: its FormRow searches for the row
+// above and measures the space (FormRow `rowAbove`, `inkTop`), and the
+// field takes it as its top padding. A text line, the label, a Label
+// value, the lines and the hint, counts from its capital top to its
+// font's descent line, or its baseline in a role drawn in capitals, not by
+// the glyphs it holds, so rows of one role keep one pitch whatever they
+// read (FormRow.lineAbove, `lineBelow()`); a control counts as drawn
+// (Theme.inkAbove, Theme.inkBelow). The top padding takes out of that
+// space the column's spacing and both blanks, and goes negative where
+// those exceed it, so the row boxes overlap where the controls draw less
+// than the box. A field that is the first item of a column, such as the
+// editor of a SettingField, reads the row above that column. A set
 // `disabledReason` goes to the control that takes one (DisabledReason); a
 // reason no control takes is logged.
 Column {
@@ -73,36 +74,6 @@ Column {
     // A row a key/value row under it is spaced from by ink; a column that
     // holds rows of one setting, such as a SettingField, declares it too.
     readonly property bool keyValueRow: inline
-    // The key/value row this one stands under, and the room the columns
-    // already put between the two: the spacing of the column that holds
-    // both and the top padding of each column this field is the first
-    // shown item of. The first group of a GroupList stands at the list's
-    // top, so the search goes on above the list; a later group keeps the
-    // list's gap and hairline. null for a field with no label beside its
-    // control, under anything that is no key/value row, such as a
-    // section's heading, or under nothing. A Column lays out only its
-    // shown, sized children
-    // (https://doc.qt.io/qt-6/qml-qtquick-column.html).
-    readonly property var rowAbove: {
-        if (!inline || label === "") return null;
-        let room = 0;
-        for (let at = root; at.parent !== null; ) {
-            const holder = at.parent;
-            const list = holder.parent instanceof GroupList ? holder.parent : null;
-            if (!(holder instanceof Column) && list === null) return null;
-            const siblings = holder.children;
-            let below = true;
-            for (let i = siblings.length - 1; i >= 0; i--) {
-                const item = siblings[i];
-                if (item === at) below = false;
-                else if (!below && item.visible && item.width > 0 && item.height > 0)
-                    return list === null && item.keyValueRow === true ? { item: item, room: room + holder.spacing } : null;
-            }
-            if (list === null) room += holder.topPadding;
-            at = list === null ? holder : list;
-        }
-        return null;
-    }
     signal hintLinkActivated()
     signal hintPageActivated(string page, string tab)
     signal infoPageActivated(string page, string tab)
@@ -120,16 +91,9 @@ Column {
     onDisabledReasonChanged: judgeReason()
     Component.onCompleted: judgeReason()
 
-    // The row above must still read as shown when the padding reads it. QML
-    // marks an item and its QObject children deleted as it starts to destroy
-    // them, before the item leaves its parent
-    // (QQmlPrivate::qdeclarativeelement_destructor, Qt 6.11 qqmlengine.cpp).
-    // The mark emits no change, so rowAbove still names the item, and a
-    // marked item reads every property as undefined, `visible` and
-    // `children` included (QObjectWrapper::getQmlProperty), while
-    // `instanceof` still holds: run under scripts/qml-unit.sh on Qt 6.11.2
-    // by tst_field_row_above_teardown.qml.
-    topPadding: rowAbove === null || !rowAbove.item.visible ? 0 : Theme.stack.page - rowAbove.room - Math.floor(lineBelowOf(rowAbove.item)) - Math.floor(controlRow.lineAbove())
+    // The space above a key/value row, which its row measures (FormRow
+    // `inkTop`), so a Field and a bare FormRow stand by one rule.
+    topPadding: controlRow.inkTop
     leftPadding: Theme.field.paddingX
     rightPadding: Theme.field.paddingX
     bottomPadding: Theme.subTextRoom(subText, Positioner.index, Positioner.isLastItem, parent)
@@ -157,22 +121,6 @@ Column {
         if (!subText) return below;
         const slotTop = bottomPadding + room - spacing;
         return Math.min(below, slotTop - hintSlot.textBottom + hintSlot.textLineBelow());
-    }
-
-    // How far above ITEM's bottom edge the row it ends with stops, read by
-    // lineBelow() as Theme.inkBelow reads ink: a field by its own, a
-    // Column by its last shown child above its bottom padding, a GroupList
-    // by its last shown group, a Loader by its item, and anything else as
-    // drawn.
-    function lineBelowOf(item) {
-        if (typeof item.lineBelow === "function") return item.lineBelow();
-        if (item instanceof Loader) return item.item instanceof Item ? item.height - item.item.height + lineBelowOf(item.item) : 0;
-        const list = item instanceof GroupList;
-        if (!list && !(item instanceof Column)) return Theme.inkBelow(item);
-        const shown = (list ? Array.from(item.groups) : Array.from(item.children)).filter(child => child instanceof Item && child.visible && child.width > 0 && child.height > 0);
-        if (shown.length === 0) return Theme.inkBelow(item);
-        const last = shown[shown.length - 1];
-        return (list ? item.height - last.y - last.height : item.bottomPadding) + lineBelowOf(last);
     }
 
     Item {
@@ -212,6 +160,7 @@ Column {
         labelTooltip: root.labelTooltip
         labelColumn: root.inline
         textBelow: root.inline && root.subText
+        placed: root
         Component.onCompleted: infoPageActivated.connect(root.infoPageActivated)
     }
 
