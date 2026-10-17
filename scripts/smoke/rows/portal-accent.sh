@@ -6,9 +6,16 @@
 # every bus variable in a hook environment; the row tests portal routing,
 # which reads GSettings through the same API whatever backend stores it.
 # The sandbox tree ships no theme targets, so this row copies only the real
-# accent-color and color-scheme targets into that tree. It then runs the real
-# `vgshell theme apply` under the test-run hook guard, which exercises the target hook.
-# inputs: packaging/xdg-desktop-portal/hyprland-portals.conf themes/targets/accent-color/* themes/targets/color-scheme/* bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/catalog/gruvbox/* themes/catalog/flexoki-light/* shell/Commons/ThemeLogic.js shell/Commons/Tokens.js bin/lib/qml-library.js
+# accent-color, color-scheme and gtk-theme targets into that tree. It then runs
+# the real `vgshell theme apply` under the test-run hook guard, which exercises
+# the target hooks. A light apply sets its colour scheme after every toolkit
+# theme write, and the portal's last colour scheme signal is prefer-light
+# (docs/architecture/themes.md § Applying). The hooks' gsettings logs each key
+# it sets, the write order; a recorder logs every Settings SettingChanged
+# signal the portal sends. The keyfile backend's file monitor can hand two
+# close writes to a portal backend as one change, whose keys it signals in
+# any order, so the write order comes from the log, not the signals.
+# inputs: packaging/xdg-desktop-portal/hyprland-portals.conf themes/targets/accent-color/* themes/targets/color-scheme/* themes/targets/gtk-theme/* bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/catalog/gruvbox/* themes/catalog/flexoki-light/* shell/Commons/ThemeLogic.js shell/Commons/Tokens.js bin/lib/qml-library.js
 set -euo pipefail
 
 portal_bin=/usr/lib/xdg-desktop-portal
@@ -43,16 +50,22 @@ else
   not_measured portal-accent missing=gnome.portal
   return 0
 fi
-# The tools bin/vgshell, its judge and the two hooks call, as
+# The tools bin/vgshell, its judge and the three hooks call, as
 # scripts/vgshell-rows.sh theme_tree links them for the offline theme rows.
-for tool in sh bash cat readlink dirname mkdir flock awk git mktemp mv rm gsettings; do
+for tool in sh bash cat readlink dirname mkdir ln flock awk git mktemp mv rm; do
   ln -s -- "$(command -v "$tool")" "$portal_root/bin/$tool"
 done
+printf '#!/bin/sh\n[ "$1" = set ] && printf "%%s\\n" "$3" >>"%s"\nexec "%s" "$@"\n' \
+  "$portal_root/writes.log" "$(command -v gsettings)" >"$portal_root/bin/gsettings"
+chmod +x "$portal_root/bin/gsettings"
+: >"$portal_root/writes.log"
 ln -s -- "$node_bin" "$portal_root/bin/node"
 
-mkdir -p -- "$repo/themes/targets/accent-color" "$repo/themes/targets/color-scheme"
-cp -R -- "$source_repo/themes/targets/accent-color/." "$repo/themes/targets/accent-color/"
-cp -R -- "$source_repo/themes/targets/color-scheme/." "$repo/themes/targets/color-scheme/"
+portal_targets=(accent-color color-scheme gtk-theme)
+for target in "${portal_targets[@]}"; do
+  mkdir -p -- "$repo/themes/targets/$target"
+  cp -R -- "$source_repo/themes/targets/$target/." "$repo/themes/targets/$target/"
+done
 installed_themes="$home/.config/vgshell/themes"
 mkdir -p -- "$installed_themes"
 cp -R -- "$repo/themes/catalog/gruvbox" "$installed_themes/gruvbox"
@@ -151,20 +164,53 @@ apply_theme() { # NAME
   python3 -c 'import json, sys
 row = json.loads(sys.argv[1].splitlines()[-1])
 targets = {t["name"]: t["state"] for t in row["targets"]}
-ok = row["state"] == "applied" and all(targets.get(name) in ("written", "unchanged") for name in ("accent-color", "color-scheme"))
-print("state=%s accent-color=%s color-scheme=%s" % (row["state"], targets.get("accent-color"), targets.get("color-scheme")))
+names = ("accent-color", "color-scheme", "gtk-theme")
+ok = row["state"] == "applied" and all(targets.get(name) in ("written", "unchanged") for name in names)
+print(" ".join(["state=" + row["state"]] + ["%s=%s" % (name, targets.get(name)) for name in names]))
 raise SystemExit(0 if ok else 1)' "$out"
 }
 apply_vgs_default() {
   "${shell_env[@]}" "$repo/bin/vgshell" theme apply vgs | tail -n 1
 }
-expect "the gruvbox apply runs the real target hooks" "state=applied accent-color=written color-scheme=written" apply_theme gruvbox
+# A light apply's colour scheme order: the GTK theme the portal signalled
+# from line SIGNALS of the recorder log on, the last appearance colour scheme
+# it signalled, and every toolkit theme key set after the last colour scheme
+# from line WRITES of the write log on.
+portal_scheme_order() { # SIGNALS WRITES
+  python3 -c 'import re, sys
+gtk, scheme = "none", "none"
+for line in open(sys.argv[1]).readlines()[int(sys.argv[2]) - 1:]:
+    m = re.search(r"SettingChanged \(\x27([^\x27]*)\x27, \x27([^\x27]*)\x27, <(?:uint32 )?\x27?([^\x27>]*)\x27?>\)", line)
+    if not m:
+        continue
+    namespace, key, value = m.groups()
+    if namespace == "org.freedesktop.appearance" and key == "color-scheme":
+        scheme = value
+    elif namespace == "org.gnome.desktop.interface" and key == "gtk-theme":
+        gtk = value
+after = []
+for key in open(sys.argv[3]).read().split()[int(sys.argv[4]) - 1:]:
+    if key == "color-scheme":
+        after = []
+    elif key in ("gtk-theme", "icon-theme"):
+        after.append(key)
+print("gtk-theme=%s last-color-scheme=%s toolkit-after=%s" % (gtk, scheme, ",".join(after) or "none"))' \
+    "$portal_root/signals.log" "$1" "$portal_root/writes.log" "$2"
+}
+spawn "$portal_root/signals.log" "${portal_env[@]}" gdbus monitor --session --dest org.freedesktop.portal.Desktop --object-path /org/freedesktop/portal/desktop
+portal_stack_pids+=("$spawn_pid")
+expect_poll "the Settings signal recorder watches the portal" "owned" python3 -c 'import sys
+print("owned" if "is owned by" in open(sys.argv[1]).read() else "waiting")' "$portal_root/signals.log"
+expect "the gruvbox apply runs the real target hooks" "state=applied accent-color=written color-scheme=written gtk-theme=written" apply_theme gruvbox
 expect_poll "the sandbox dark theme sets gruvbox through the real accent target" "#3a944a" portal_rgb
 expect_poll "the merged Settings portal reads gruvbox as prefer-dark" "1" portal_color_scheme
-expect "the flexoki-light apply runs the real target hooks" "state=applied accent-color=written color-scheme=written" apply_theme flexoki-light
+signals_from=$(($(wc -l <"$portal_root/signals.log") + 1))
+writes_from=$(($(wc -l <"$portal_root/writes.log") + 1))
+expect "the flexoki-light apply runs the real target hooks" "state=applied accent-color=written color-scheme=written gtk-theme=written" apply_theme flexoki-light
 expect_poll "the sandbox light theme sets flexoki-light through the real accent target" "#3584e4" portal_rgb
 expect_poll "the merged Settings portal reads flexoki-light as prefer-light" "2" portal_color_scheme
-rm -rf -- "${repo:?}/themes/targets/accent-color" "${repo:?}/themes/targets/color-scheme"
+expect_poll "the light apply sets its colour scheme after every toolkit theme and the portal signals prefer-light last" "gtk-theme=Adwaita last-color-scheme=2 toolkit-after=none" portal_scheme_order "$signals_from" "$writes_from"
+for target in "${portal_targets[@]}"; do rm -rf -- "${repo:?}/themes/targets/$target"; done
 rm -rf -- "${installed_themes:?}/gruvbox" "${installed_themes:?}/flexoki-light"
 expect "the portal accent row restores vgs before later rows" "ok theme=vgs state=applied shell=applied" apply_vgs_default
 stop_portal_stack

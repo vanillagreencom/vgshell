@@ -66,6 +66,7 @@ A wallpaper another program draws must not be covered by a bare background colou
 - Never create a file through a dangling symlink. `scripts/test-vgshell.sh` pins it.
 - Do refuse the whole apply when a configuration layer is refused. `scripts/test-vgshell.sh` pins it.
 - Do record every due target as pending before the swap, so `vgshell theme reload` can retry it. `scripts/test-vgshell-reload.sh` pins it.
+- Do run due hooks in target name order, with every hook whose reload declares `last` after the rest, in an apply and in a reload. The colour-scheme target declares it. Chromium through M152, which Slack 4.52 runs, has two writers of the colour scheme it gives web content, the portal's `color-scheme` and the GTK theme's background colour, and the later one wins (Chromium commits 2c9938b8f5b5 and 81e85eb2603a). A GTK or icon theme change after the colour scheme turns such an app dark again after a light apply. `scripts/test-vgshell-reload.sh`, `scripts/test-vgshell-toolkits.sh` and `scripts/smoke/rows/portal-accent.sh` pin it.
 - Do follow a changed package or terminal font whatever the theme file holds, and write nothing when neither changed. `scripts/test-vgshell-follow.sh` pins it.
 - Do keep the background state through a follow that renders an unchanged package again, as for a new terminal font. `scripts/test-vgshell-backgrounds.sh` pins it.
 

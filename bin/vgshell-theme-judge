@@ -30,7 +30,8 @@
 //       runs when the verdict is `held`. <config-dir> is the vgs directory
 //       of the configuration home, whose parent a target's wiring file is
 //       relative to unless its wiring names a profiles.ini. Each target
-//       whose reload is due runs its hook last.
+//       whose reload is due runs its hook last, in target name order with
+//       every hook whose reload declares `last` after the rest.
 //   vgshell-theme-judge follow <text|json> <config-dir> <state-dir> <held|busy|failed> [<name>]
 //       apply again the package <state-dir>/applied.json records when its
 //       content or the user's terminal font changed, over whatever the
@@ -1688,9 +1689,10 @@ function applyTo(result, failures, configDir, stateDir, lock, name, keepBackgrou
     if (font !== null) record.terminalFont = font;
     replaceFile(path.join(stateDir, APPLIED_FILE), JSON.stringify(record) + "\n", key);
     // Last, so each application re-reads files that are all in place.
-    result.targets = droppedRows.concat(landed.map((entry, i) => entry.state !== "failed" && due.includes(entry.name)
-        ? reloadRow(entry.name, entry.target, configHome, live, result.targets[droppedRows.length + i], failures)
-        : result.targets[droppedRows.length + i]));
+    result.targets = droppedRows.concat(inHookOrder(landed, entry => entry.target !== undefined && render.reloadLast(entry.target),
+        (entry, i) => entry.state !== "failed" && due.includes(entry.name)
+            ? reloadRow(entry.name, entry.target, configHome, live, result.targets[droppedRows.length + i], failures)
+            : result.targets[droppedRows.length + i]));
     writePending(stateDir, stillPending(result.targets, due), due, key);
     result.state = applyState(result.shell, result.targets);
     if (shortfalls !== null) {
@@ -2065,14 +2067,26 @@ function reloadRow(name, target, configHome, live, row, failures) {
     return Object.assign({}, row, { state: "reload-pending", reason });
 }
 
-// One pending target of a reload: `skipped` and dropped when it is no
-// longer shipped, enabled or given a hook; `failed` and kept when its
-// target.json cannot be read or judged; else its hook's row, `reloaded`.
-function reloadTarget(name, shipped, disabled, configHome, live, failures) {
-    const skipped = reason => ({ name, state: "skipped", reason });
+// RUN on each of ENTRIES, every entry LAST holds for after all the others,
+// each group in the order of ENTRIES; the results keep that order.
+function inHookOrder(entries, last, run) {
+    const rows = new Array(entries.length);
+    for (const late of [false, true])
+        entries.forEach((entry, i) => {
+            if (last(entry) === late) rows[i] = run(entry, i);
+        });
+    return rows;
+}
+
+// One pending target of a reload, as { row, target }: `skipped` and dropped
+// when it is no longer shipped, enabled or given a hook; `failed` and kept
+// when its target.json cannot be read or judged; else `reloaded`, with the
+// judged target whose hook runs.
+function reloadTarget(name, shipped, disabled, failures) {
+    const skipped = reason => ({ row: { name, state: "skipped", reason } });
     const failed = (reason, failure) => {
         failures.push(failure);
-        return { name, state: "failed", reason };
+        return { row: { name, state: "failed", reason } };
     };
     if (!shipped.includes(name)) return skipped("not-shipped");
     if (disabled.includes(name)) return skipped("disabled");
@@ -2088,11 +2102,12 @@ function reloadTarget(name, shipped, disabled, configHome, live, failures) {
     if (!setup.ok) return setup.entry;
     if (!setup.value) return skipped("setup-absent");
     if (verdict.target.reload === null) return skipped("no-reload");
-    return reloadRow(name, verdict.target, configHome, live, { name, state: "reloaded", reason: null }, failures);
+    return { row: { name, state: "reloaded", reason: null }, target: verdict.target };
 }
 
-// Run every pending reload hook again, in name order, and keep pending the
-// targets whose hook fails. Nothing is rendered, staged or wired.
+// Run every pending reload hook again, in name order with each `last` hook
+// after the rest, and keep pending the targets whose hook fails. Nothing is
+// rendered, staged or wired.
 function reloadAll(result, failures, configDir, stateDir, lock) {
     const key = "reload=pending reason";
     themeLock(key, lock, configDir);
@@ -2111,7 +2126,9 @@ function reloadAll(result, failures, configDir, stateDir, lock) {
     }
     const configHome = path.dirname(configDir);
     const live = path.join(stateDir, "theme");
-    result.targets = before.map(name => reloadTarget(name, shipped, disabled, configHome, live, failures));
+    const pending = before.map(name => reloadTarget(name, shipped, disabled, failures));
+    result.targets = inHookOrder(pending, entry => entry.target !== undefined && render.reloadLast(entry.target),
+        entry => entry.target === undefined ? entry.row : reloadRow(entry.row.name, entry.target, configHome, live, entry.row, failures));
     writePending(stateDir, stillPending(result.targets, before), before, key);
     result.state = stillPending(result.targets, before).length > 0 ? "partial" : "reloaded";
 }
