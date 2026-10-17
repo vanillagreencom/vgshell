@@ -35,9 +35,14 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // shows, where the row names what goes: it draws the trash mark alone, in
 // the danger colour whatever `tone` holds, with no underline. Its mark
 // keeps the control's edge, as a leading mark does, so it stands on the
-// value column the other actions share, and the square box as tall as the
-// text's box extends to its right, so its hit target is no smaller than a
-// text action's; the focus ring draws around that box.
+// value column the other actions share, and the control is a square as
+// tall as the text's box, so its hit target is no smaller than a text
+// action's. The focus ring draws around the mark's column, as tall as that
+// box, so it stands as clear of the mark on its right as on its left; a
+// ring on the square would leave its right part empty. The hit target
+// cannot be a `containmentMask` centred on the mark: on Qt 6.11.2 a press,
+// click or hover inside a mask but outside the item's bounds reaches
+// nothing (a qml-unit probe, 2026-10-17).
 // Its text stays its accessible name and shows in the shared tooltip on
 // hover and keyboard focus, as an IconButton's label does, and a set
 // `disabledReason` shows in the tooltip's place.
@@ -142,7 +147,12 @@ T.Button {
     }
 
     background: Item {
-        FocusRing { target: root; outside: true }
+        Item {
+            x: root.removesItem ? root.contentItem.x + mark.x : 0
+            width: root.removesItem ? mark.width : parent.width
+            height: parent.height
+            FocusRing { target: root; outside: true }
+        }
     }
 
     DisabledReason { id: lockState; control: root }

@@ -13,7 +13,8 @@ import qs.Unit
 // text's x-height, or with the mark its `markName` names, and an accent action
 // never does; an action that removes its row's item draws the trash mark
 // alone in the danger colour, in a box no smaller than a text action's,
-// its text its accessible name and its tooltip, a set reason shown in the
+// under a ring as clear of the mark on its right as on its left, its text
+// its accessible name and its tooltip, a set reason shown in the
 // tooltip's place; RowActions sets side-by-side actions `rowAction.gap`
 // apart, top-aligned on one line as tall as the tallest, and gives no room
 // to a hidden action or to the Repeater that makes its actions; given less
@@ -93,7 +94,7 @@ Item {
         function mark(control) { return control.contentItem.children[0]; }
         function label(control) { return control.contentItem.children[1]; }
         function underline(control) { return control.contentItem.children[2]; }
-        function ring(control) { return control.background.children[0]; }
+        function ring(control) { return control.background.children[0].children[0]; }
         function colour(value) { return String(Qt.color(value)); }
         function reasonTip(control) { return control.lock.children.map(child => child.item).find(item => item && item.objectName === "disabledReasonTip") || null; }
         function markTip(control) { return control.children.map(child => child.item).find(item => item && item.objectName === "removesItemTip") || null; }
@@ -309,12 +310,21 @@ Item {
             compare(aloneClicks.count, 2);
         }
 
-        function test_the_mark_alone_rings_its_box() {
+        // The ring holds the mark's column, as tall as the box, so it
+        // stands as far from the trash's ink on the right as on the left;
+        // a ring on the square box stands further on the right.
+        function test_the_mark_alone_rings_its_mark() {
             alone.forceActiveFocus(Qt.TabFocusReason);
             tryCompare(ring(alone), "visible", true);
             const out = Theme.focusRing.offset + Theme.focusRing.width;
             const box = ring(alone).mapToItem(alone, 0, 0);
-            compare([box.x, box.y, ring(alone).width, ring(alone).height], [-out, -out, alone.width + 2 * out, alone.height + 2 * out]);
+            const at = mark(alone).mapToItem(alone, 0, 0);
+            compare([box.x, box.y, ring(alone).width, ring(alone).height], [at.x - out, -out, mark(alone).width + 2 * out, alone.height + 2 * out]);
+            const left = at.x + mark(alone).painted[0] - box.x;
+            const right = box.x + ring(alone).width - (at.x + mark(alone).painted[2]);
+            verify(left > out, "the ring stands clear of the ink");
+            fuzzyCompare(left, right, 0.01, "the ring stands " + left + " px from the ink on the left and " + right + " px on the right");
+            verify(alone.width > ring(alone).width - 2 * out, "the hit target stays the square, wider than the ring");
         }
 
         // Its text shows in the shared tooltip on hover and on keyboard
