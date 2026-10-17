@@ -20,6 +20,9 @@ const logic = load(path.join(__dirname, "..", "shell", "Core", "PluginLogic.js")
 const judged = logic.validateManifest(JSON.parse(fs.readFileSync(path.join(plugin, "manifest.json"), "utf8")), plugin);
 assert.equal(judged.ok, true, "the plugin's manifest is valid");
 const same = (got, want, message) => assert.deepEqual(JSON.parse(JSON.stringify(got)), JSON.parse(JSON.stringify(want)), message || "");
+// Uninstall and Stop run without polkit: a required tool the scan misses
+// would otherwise turn either step into the install notice.
+for (const name of ["uninstall", "stop"]) same(logic.tuiMissingRequirements(judged.manifest, name, ["pkexec"]), [], `the ${name} step needs no polkit`);
 
 // A flow as the agent holds one while PAM waits for a password, with
 // FIELDS over it.
@@ -132,30 +135,50 @@ function verify(model) {
     ];
     for (const [label, code, stdout, want] of CHECKS) same(model.readCheck(code, stdout), want, `readCheck: ${label}`);
 
-    const line = name => "Another app is showing password prompts: " + name + ".";
+    // Each state's kind, never its words: tone, the row's action, whether it
+    // reads Not available with a hint of its own, and the agents it names,
+    // one line each; null for no state.
     const many = Array.from({ length: 40 }, (_, n) => ({ name: "agent-" + n, removable: true }));
+    const ready = { tone: "ok" };
+    const notAvailable = { tone: "warning", available: false };
     const STATES = [
-        ["a registered agent", true, null, false, { tone: "ok", text: "Ready to show password prompts" }],
-        ["a registered agent whatever the last check held", true, found(shared), true, { tone: "ok", text: "Ready to show password prompts" }],
+        ["a registered agent", true, null, false, ready],
+        ["a registered agent whatever the last check held", true, found(shared), true, ready],
         ["an unregistered agent before its check", false, null, true, null],
-        ["another agent the package manager removes", false, found(acme), false, { tone: "warning", text: line("acme-polkit"), action: "uninstall" }],
-        ["another agent whose package another requires", false, found(shared), false, { tone: "warning", text: line("shared-polkit"), action: "stop" }],
-        ["two agents, one line each, one of them required", false, found(acme, shared), false, { tone: "warning", text: line("acme-polkit"), action: "stop", lines: [line("shared-polkit")] }],
-        ["two removable agents", false, found(acme, { name: "other-polkit", removable: true }), false, { tone: "warning", text: line("acme-polkit"), action: "uninstall", lines: [line("other-polkit")] }],
-        ["another agent while polkit is missing too", false, found(acme), true, { tone: "warning", text: line("acme-polkit"), action: "uninstall" }],
-        ["no other agent and no polkit", false, found(), true, { tone: "warning", text: "Polkit is not installed." }],
-        ["no other agent with polkit", false, found(), false, { tone: "warning", text: "Password prompts are unavailable. No other app is showing them." }],
-        ["a check that gave no answer", false, { ok: false }, true, { tone: "warning", text: "Password prompts are unavailable. VGS could not look for another app." }]
+        ["another agent the package manager removes", false, found(acme), false, { tone: "warning", action: "uninstall", names: ["acme-polkit"] }],
+        ["another agent whose package another requires", false, found(shared), false, { tone: "warning", action: "stop", names: ["shared-polkit"] }],
+        ["two agents, one line each, one of them required", false, found(acme, shared), false, { tone: "warning", action: "stop", names: ["acme-polkit", "shared-polkit"] }],
+        ["two removable agents", false, found(acme, { name: "other-polkit", removable: true }), false, { tone: "warning", action: "uninstall", names: ["acme-polkit", "other-polkit"] }],
+        ["another agent while polkit is missing too", false, found(acme), true, { tone: "warning", action: "uninstall", names: ["acme-polkit"] }],
+        ["no other agent and no polkit", false, found(), true, { tone: "warning", action: "tools" }],
+        ["no other agent with polkit", false, found(), false, notAvailable],
+        ["a check that gave no answer", false, { ok: false }, true, notAvailable],
+        ["a check that gave no answer with polkit", false, { ok: false }, false, notAvailable]
     ];
     for (const [label, registered, check, missing, want] of STATES) {
         const state = model.agentStatus(registered, check, missing);
-        same(state, want, `agentStatus: ${label}`);
-        if (state !== null) assert.equal(logic.statusWrite(judged.manifest, {}, "agent", state).ok, true, `${label}: the core admits the value under the plugin's manifest`);
+        if (want === null) {
+            assert.equal(state, null, `agentStatus: ${label}`);
+            continue;
+        }
+        assert.equal(state.tone, want.tone, `agentStatus: ${label}: tone`);
+        assert.equal(state.action, want.action, `agentStatus: ${label}: action`);
+        assert.equal(state.available, want.available, `agentStatus: ${label}: available`);
+        assert.equal(typeof state.text === "string" && state.text !== "", true, `agentStatus: ${label}: text`);
+        if (want.available === false) assert.equal(typeof state.hint === "string" && state.hint !== "", true, `agentStatus: ${label}: a Not available state says what to try`);
+        else assert.equal(state.hint, undefined, `agentStatus: ${label}: the declared hint applies`);
+        const shown = [state.text].concat(state.lines === undefined ? [] : state.lines);
+        if (want.names === undefined) assert.equal(state.lines, undefined, `agentStatus: ${label}: one line`);
+        else {
+            assert.equal(shown.length, want.names.length, `agentStatus: ${label}: one line per agent`);
+            want.names.forEach((name, n) => assert.equal(shown[n].includes(name), true, `agentStatus: ${label}: line ${n} names ${name}`));
+        }
+        assert.equal(logic.statusWrite(judged.manifest, {}, "agent", state).ok, true, `${label}: the core admits the value under the plugin's manifest`);
+        assert.equal(shown.some(text => /may be/.test(text)), false, `${label}: no state guesses`);
     }
     const crowded = model.agentStatus(false, found(...many), false);
     assert.equal(crowded.lines.length, 32, "a crowd of agents keeps the lines a state value may carry");
     assert.equal(logic.statusWrite(judged.manifest, {}, "agent", crowded).ok, true, "the core admits the crowded value");
-    for (const value of STATES.map(row => row[4]).filter(value => value !== null)) assert.equal(/may be/.test(value.text), false, "no state guesses");
 
     const tuiState = (uninstall, stop) => ({ uninstall: { running: false, code: 0, endedAt: uninstall }, stop: { running: false, code: 0, endedAt: stop } });
     assert.equal(model.stepEnds(tuiState(null, null)), model.stepEnds(tuiState(null, null)), "stepEnds: no run, no change");
@@ -198,7 +221,9 @@ const CONTROLS = [
     ["each agent has its line", "if (lines.length > 1) value.lines = lines.slice(1);", ""],
     ["the lines keep the status ceiling", "check.agents.slice(0, LINES_MAX + 1)", "check.agents"],
     ["another agent comes before a missing polkit", "    if (check.agents.length > 0) {", "    if (check.agents.length > 0 && polkitMissing !== true) {"],
-    ["a missing polkit says so", 'if (polkitMissing === true) return { tone: "warning", text: "Polkit is not installed." };', ""],
+    ["a missing polkit offers the install", ', action: "tools" };', " };"],
+    ["a failed check offers no step", 'hint: "Turn Polkit off and on to check again.", available: false };', "};"],
+    ["no other agent with polkit offers no step", 'hint: "Turn Polkit off and on. If this stays, restart the computer.", available: false };', "};"],
     ["a stop's end is a step's end", 'return ["uninstall", "stop"].map(', 'return ["uninstall"].map('],
     ["no state is never published", "    if (next === null) return false;\n", ""],
     ["an unregistered agent warns", 'if (registered === true) return { tone: "ok"', 'if (true) return { tone: "ok"']

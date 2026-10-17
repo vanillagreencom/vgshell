@@ -60,7 +60,7 @@ polkit_status() { ipc smoke statusValues vgs.polkit | py_reply 'import json,sys;
 polkit_named() { ipc smoke itemTexts window vgs.settings Field | py_reply 'import json,sys; print(json.dumps([t for field in json.load(sys.stdin) for t in field if t.startswith("Another app is showing password prompts: ")]))'; }
 # The summon a request would make, with no request live: the host's answer.
 flowless_summon() { ipc shell summon overlay vgs.polkit '{}'; }
-unregistered='["warning", "Password prompts are unavailable. No other app is showing them.", []]'
+unregistered='["warning", "Password prompts are not working.", []]'
 ready='["ok", "Ready to show password prompts", []]'
 other='["warning", "Another app is showing password prompts: acme-polkit.", []]'
 # With the second agent, which starts first and so is the first the scan

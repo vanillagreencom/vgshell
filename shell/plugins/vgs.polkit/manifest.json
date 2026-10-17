@@ -24,11 +24,11 @@
   ],
   "settings": {},
   "requirements": [
-    { "command": "pkexec", "packages": { "pacman": "polkit", "apt": "pkexec", "dnf": "polkit", "nix": "polkit" }, "optional": true, "purpose": "Lets applications ask for administrator access" }
+    { "command": "pkexec", "packages": { "pacman": "polkit", "apt": "pkexec", "dnf": "polkit", "nix": "polkit" }, "optional": false, "install": "on-request", "purpose": "Lets applications ask for administrator access" }
   ],
   "tui": {
-    "uninstall": { "script": "tui/uninstall.sh", "title": "Uninstall password prompt app" },
-    "stop": { "script": "tui/stop.sh", "title": "Stop password prompt app" }
+    "uninstall": { "script": "tui/uninstall.sh", "title": "Uninstall password prompt app", "requires": [] },
+    "stop": { "script": "tui/stop.sh", "title": "Stop password prompt app", "requires": [] }
   },
   "status": {
     "agent": {"type": "state", "label": "Password prompts", "hint": "Only one app at a time can show password prompts", "actions": {"uninstall": {"label": "Uninstall", "tui": "uninstall"}, "stop": {"label": "Stop", "tui": "stop"}}, "setup": true}

@@ -139,21 +139,23 @@ var LINES_MAX = 32;
 // the requirement scan found no polkit. The value names each other agent,
 // one line each, and offers the step that makes room: `uninstall` when the
 // package manager removes every one of them alone, else `stop`, so the row
-// never offers to remove a package another installed package requires;
-// with no other agent and no polkit, no step: the page's Requirements
-// section installs it.
+// never offers to remove a package another installed package requires.
+// With no other agent and no polkit it offers `tools`, the page's Review of
+// the plugin's missing tools. A failed check, or no other agent with
+// polkit present, leaves the user no step on the row: the value reads Not
+// available (`available: false`) and its `hint` says what to try.
 function agentStatus(registered, check, polkitMissing) {
     if (registered === true) return { tone: "ok", text: READY };
     if (check === null) return null;
-    if (!check.ok) return { tone: "warning", text: "Password prompts are unavailable. VGS could not look for another app." };
+    if (!check.ok) return { tone: "warning", text: "VGS could not check for another password app.", hint: "Turn Polkit off and on to check again.", available: false };
     if (check.agents.length > 0) {
         var lines = check.agents.slice(0, LINES_MAX + 1).map(function (agent) { return "Another app is showing password prompts: " + agent.name + "."; });
         var value = { tone: "warning", text: lines[0], action: check.agents.every(function (agent) { return agent.removable; }) ? "uninstall" : "stop" };
         if (lines.length > 1) value.lines = lines.slice(1);
         return value;
     }
-    if (polkitMissing === true) return { tone: "warning", text: "Polkit is not installed." };
-    return { tone: "warning", text: "Password prompts are unavailable. No other app is showing them." };
+    if (polkitMissing === true) return { tone: "warning", text: "Install Polkit so apps can ask for your password.", action: "tools" };
+    return { tone: "warning", text: "Password prompts are not working.", hint: "Turn Polkit off and on. If this stays, restart the computer.", available: false };
 }
 
 // Whether NEXT, an agentStatus value or null, differs from PREVIOUS, the
