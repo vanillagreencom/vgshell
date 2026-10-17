@@ -27,7 +27,8 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // A danger action leads with a trash mark `rowAction.icon` wide,
 // `rowAction.iconGap` before its text, so it reads apart from an accent
 // action beside it by more than colour; the mark then sits on the
-// control's edge.
+// control's edge, centred where the text's leading icon centres
+// (Label.topForLeadingIcon).
 // The control's box is centred on the text's capital centre, so a row that
 // centres it beside a chip sets the text level with the chip's; the box
 // holds the thicker hover underline, so a hover moves nothing.
@@ -92,7 +93,7 @@ T.Button {
             name: "trash"
             size: Theme.rowAction.icon
             color: root.foreground
-            y: Math.round(parent.half - height / 2)
+            y: label.y + label.topForLeadingIcon(height, label.y)
         }
         Label {
             id: label

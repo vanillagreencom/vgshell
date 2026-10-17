@@ -9,8 +9,8 @@ import qs.Unit
 // disabled each drawn apart from rest from their own tokens; Space, Return
 // and Enter activate it; the danger tone draws its own colour, an unknown
 // tone is logged and drawn as accent; a narrow action elides its text; a
-// danger action leads with its trash mark in every theme, and an accent
-// action never does; RowActions sets side-by-side actions `rowAction.gap`
+// danger action leads with its trash mark in every theme, centred on the
+// text's x-height, and an accent action never does; RowActions sets side-by-side actions `rowAction.gap`
 // apart, top-aligned on one line as tall as the tallest, and gives no room
 // to a hidden action or to the Repeater that makes its actions; given less
 // width than its actions, it continues them on a new line once the next
@@ -234,6 +234,20 @@ Item {
             tryVerify(() => colour(mark(danger).color) === colour("#b64339"));
             compare(mark(danger).visible, true, "the mark stays where danger and accent differ");
             compare(mark(action).visible, false);
+        }
+
+        // The mark centres on the text's x-height centre, read from the
+        // drawn text's baseline and the font's x-height, within half a
+        // pixel and on a whole pixel; the same reading rejects the capital
+        // centre the box keeps.
+        function test_the_danger_mark_centres_on_the_x_height() {
+            const xCentre = label(danger).y + label(danger).baselineOffset - body.xHeight / 2;
+            const capCentre = label(danger).y + label(danger).baselineOffset - body.capitalHeight / 2;
+            const off = (top, centre) => Math.abs(top + mark(danger).height / 2 - centre);
+            verify(off(mark(danger).y, xCentre) <= 0.5, "the mark is " + off(mark(danger).y, xCentre) + " px off the x-height centre");
+            compare(mark(danger).y, Math.round(mark(danger).y), "the mark sits on a whole pixel");
+            fuzzyCompare(capCentre, danger.height / 2, 0.01);
+            verify(off(Math.round(danger.height / 2 - mark(danger).height / 2), xCentre) > 0.5, "control: the capital centre reads as level");
         }
 
         function test_side_by_side_actions_stand_a_gap_apart() {

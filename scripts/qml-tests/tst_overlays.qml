@@ -281,17 +281,17 @@ Item {
         // A short menu is as wide as its longest entry: that entry's text
         // ends as far from the right edge as it starts from the left. Only a
         // menu of one short word takes the minimum width. An entry's icon is
-        // as tall as its text's capitals and centred on them, and the
-        // capitals start a side padding below the entry's top and end as far
-        // above its bottom.
-        function test_entry_glyphs_centre_on_the_capitals_data() {
+        // as tall as its text's capitals and centred on its x-height, and
+        // the capitals start a side padding below the entry's top and end as
+        // far above its bottom.
+        function test_entry_glyphs_centre_on_the_x_height_data() {
             return [{ tag: "1x", scale: 1 }, { tag: "2x", scale: 2 }];
         }
 
         // An entry's icon, check mark and submenu chevron centre their ink
-        // on the text's capitals within half a device pixel, each on a
-        // whole device pixel, at 1x and at 2x.
-        function test_entry_glyphs_centre_on_the_capitals(data) {
+        // on the text's x-height centre within half a device pixel, each on
+        // a whole device pixel, at 1x and at 2x.
+        function test_entry_glyphs_centre_on_the_x_height(data) {
             const screen = Qt.application.screens[data.scale - 1];
             const window = scaledWindow.createObject(null, { screen: screen, x: screen.virtualX + 10, y: screen.virtualY + 10 });
             window.visible = true;
@@ -307,17 +307,17 @@ Item {
             const found = [];
             for (const [name, entry, glyph] of rows) {
                 const title = entry.contentItem.children[1];
-                const capitals = title.mapToItem(window.contentItem, 0, title.capCentre).y;
+                const xHeight = title.mapToItem(window.contentItem, 0, title.xCentre).y;
                 const top = glyph.mapToItem(window.contentItem, 0, 0).y;
                 const ink = top + (glyph.painted[1] + glyph.painted[3]) / 2;
-                found.push([name, ratio, Math.abs(ink - capitals) * ratio <= 0.5, Math.abs(top * ratio - Math.round(top * ratio)) < 0.01, ink, capitals, top]);
+                found.push([name, ratio, Math.abs(ink - xHeight) * ratio <= 0.5, Math.abs(top * ratio - Math.round(top * ratio)) < 0.01, ink, xHeight, top]);
             }
             submenu.destroy();
             ticked.destroy();
             window.destroy();
-            for (const [name, at, centred, whole, ink, capitals, top] of found) {
+            for (const [name, at, centred, whole, ink, xHeight, top] of found) {
                 compare(at, data.scale, "the window draws at its screen's scale");
-                verify(centred, name + "'s ink centre " + ink + " lies within half a device pixel of the capitals' centre " + capitals);
+                verify(centred, name + "'s ink centre " + ink + " lies within half a device pixel of the x-height centre " + xHeight);
                 verify(whole, name + "'s top " + top + " is on a whole device pixel");
             }
         }
@@ -349,7 +349,8 @@ Item {
             const below = longest.height - baseline;
             verify(Math.abs(below - capTop) <= 1, "the baseline stands " + below + " above the entry's bottom, the capitals " + capTop + " below its top");
             const inkCentre = longest.contentItem.y + icon.y + (icon.painted[1] + icon.painted[3]) / 2;
-            verify(Math.abs(inkCentre - (baseline - capitals / 2)) <= 1, "the icon's ink centre " + inkCentre + " is within a pixel of the capitals' centre " + (baseline - capitals / 2));
+            const xHeight = itemMetrics.xHeight;
+            verify(Math.abs(inkCentre - (baseline - xHeight / 2)) <= 1, "the icon's ink centre " + inkCentre + " is within a pixel of the x-height centre " + (baseline - xHeight / 2));
             barMenu.close();
             oneWord.open("key");
             verify(oneWord.items()[0].implicitWidth + 2 * Theme.border.thin < Theme.menu.minWidth, "the one word is narrower than the minimum");

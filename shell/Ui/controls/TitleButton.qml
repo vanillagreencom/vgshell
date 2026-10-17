@@ -5,8 +5,8 @@ import qs.Commons
 import qs.Ui
 
 // A title that names the current choice and opens a menu of the others:
-// its text in `role` with a down caret after it, centred on the text's
-// capital centre on a whole pixel. A click, Space, Enter or Down toggles
+// its text in `role` with a down caret after it, centred where the text's
+// leading icon centres (Label.topForLeadingIcon). A click, Space, Enter or Down toggles
 // `menu`, naming its opener (KeyNavLogic.opener), a Menu the author declares inside the button, so the menu opens
 // under the title. The text and the caret take `titleButton.hover` while
 // hovered or open, a change of colour alone; the underline under the text

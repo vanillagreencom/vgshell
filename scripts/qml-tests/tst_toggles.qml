@@ -193,14 +193,14 @@ Item {
             one.checked = true;
         }
 
-        // Each indicator centres on its label's capital centre on a whole
+        // Each indicator centres on its label's x-height centre on a whole
         // pixel, and a compact control keeps a `size.control.sm` input area.
         function test_indicators_centre_on_the_label_and_keep_an_input_area() {
             for (const control of [sw, box, one]) {
                 const label = control.contentItem;
                 const centre = control.indicator.y + control.indicator.height / 2;
                 compare(control.indicator.y, Math.round(control.indicator.y), control.text + " indicator y");
-                verify(Math.abs(centre - (label.lineTop + label.capCentre)) <= 0.5, control.text + ": indicator centre " + centre + ", capital centre " + (label.lineTop + label.capCentre));
+                verify(Math.abs(centre - (label.lineTop + label.xCentre)) <= 0.5, control.text + ": indicator centre " + centre + ", x-height centre " + (label.lineTop + label.xCentre));
                 compare(label.role, "item");
             }
             compare(small.height, Theme.size.control.sm);

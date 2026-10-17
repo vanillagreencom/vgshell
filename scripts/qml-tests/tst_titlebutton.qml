@@ -81,7 +81,7 @@ Item {
         // At rest the caret alone marks the menu. Hover and an open menu
         // change the colour alone; the underline shows only while the
         // button holds keyboard focus. The caret centres on the text's
-        // capital centre on a whole pixel.
+        // x-height centre on a whole pixel.
         function test_the_underline_marks_keyboard_focus_alone_and_the_caret_centres() {
             compare(underline(title).visible, false);
             menu.open("key");
@@ -104,7 +104,7 @@ Item {
             tryCompare(narrow, "activeFocus", true);
             compare(underline(title).visible, false);
             compare(caret(title).y, Math.round(caret(title).y));
-            verify(Math.abs(caret(title).y + caret(title).height / 2 - label(title).capCentre) <= 0.5, "caret centre " + (caret(title).y + caret(title).height / 2) + ", capital centre " + label(title).capCentre);
+            verify(Math.abs(caret(title).y + caret(title).height / 2 - label(title).xCentre) <= 0.5, "caret centre " + (caret(title).y + caret(title).height / 2) + ", x-height centre " + label(title).xCentre);
         }
 
         // The button reports its title's capital centre from its own top,

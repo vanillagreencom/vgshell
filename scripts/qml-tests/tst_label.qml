@@ -14,9 +14,11 @@ import qs.Unit
 // key/value row's label and its value draw in the pair of roles whose
 // capitals are within a pixel of one height, and on the row they share a
 // baseline within a pixel. An absent family draws the bundled family its
-// token's default names. An icon that leads a line stands with its centre
-// within a pixel of the line's capital centre, which the line box's
-// centre is not.
+// token's default names. An icon that leads a line of mixed case stands
+// with its centre within half a device pixel of the line's x-height
+// centre, on a whole device pixel, at 1x and at 2x; one that leads a line
+// in capitals or figures stands on the capital centre. The capital centre
+// and the line box's centre do not read as level with mixed case.
 Item {
     id: root
     width: 300
@@ -35,13 +37,24 @@ Item {
     }
     Label { id: bar; role: "bar"; text: "10"; y: 170 }
     FontMetrics { id: barMetrics; font: bar.font }
-    Row {
-        id: led
-        y: 150
-        Icon { id: ledMark; y: ledText.topForLeadingIcon(height); name: "circle-alert" }
-        Label { id: ledText; text: "The catalog is unavailable." }
+    Component {
+        id: ledScene
+        Window {
+            width: 400
+            height: 60
+            color: "black"
+            property alias mark: ledMark
+            property alias text: ledText
+            Row {
+                x: 8
+                y: 8
+                Icon { id: ledMark; y: ledText.topForLeadingIcon(height); name: "circle-alert" }
+                Label { id: ledText }
+            }
+            FontMetrics { id: ledMetrics; font: ledText.font }
+            property alias metrics: ledMetrics
+        }
     }
-    FontMetrics { id: ledMetrics; font: ledText.font }
     Field { id: pair; label: "Agents running"; inline: true; width: 300; y: 190; Label { id: pairValue; role: "value"; text: "3" } }
 
     TestCase {
@@ -186,15 +199,47 @@ Item {
             fuzzyCompare(bodyTwo.implicitHeight, 2 * lineBox, 1);
         }
 
-        // The capital centre here is read from the drawn text's own
-        // baseline (Text.baselineOffset) and the font's capital height,
-        // not from the label's reading of it.
-        function test_a_leading_icon_centres_on_the_capitals() {
-            const capCentre = ledText.baselineOffset - ledMetrics.capitalHeight / 2;
-            const off = top => Math.abs(top + ledMark.height / 2 - capCentre);
-            verify(off(ledMark.y) <= 1, "the mark is " + off(ledMark.y) + " px off the capital centre");
-            // The same reading must reject the line-box placement.
-            verify(off(Math.round((ledText.lineBox - ledMark.height) / 2)) > 1, "control: the line-box centre reads as level");
+        function test_a_leading_icon_centres_on_its_line_data() {
+            const rows = [];
+            for (const scale of [1, 2]) {
+                const at = " at " + scale + "x";
+                rows.push({ tag: "mixed case" + at, scale: scale, role: "body", text: "The catalog is unavailable.", capitals: false });
+                rows.push({ tag: "an uppercase role" + at, scale: scale, role: "eyebrow", text: "Community registry", capitals: true });
+                rows.push({ tag: "figures" + at, scale: scale, role: "body", text: "42%", capitals: true });
+            }
+            return rows;
+        }
+
+        // The centres here are read from the drawn text's own baseline
+        // (Text.baselineOffset) and the font's x-height and capital height,
+        // not from the label's reading of them. Each placement is judged in
+        // device pixels, and the same reading must reject the other
+        // centre and, for mixed case, the line box's centre.
+        function test_a_leading_icon_centres_on_its_line(data) {
+            const screen = Qt.application.screens[data.scale - 1];
+            const scene = ledScene.createObject(null, { screen: screen, x: screen.virtualX + 10, y: screen.virtualY + 10 });
+            scene.visible = true;
+            scene.text.role = data.role;
+            scene.text.text = data.text;
+            const ratio = scene.text.Screen.devicePixelRatio;
+            const mark = scene.mark;
+            const label = scene.text;
+            const xCentre = label.baselineOffset - scene.metrics.xHeight / 2;
+            const capCentre = label.baselineOffset - scene.metrics.capitalHeight / 2;
+            const wanted = data.capitals ? capCentre : xCentre;
+            const other = data.capitals ? xCentre : capCentre;
+            const off = (top, centre) => Math.abs(top + mark.height / 2 - centre) * ratio;
+            const top = mark.mapToItem(scene.contentItem, 0, 0).y;
+            const found = [ratio, off(mark.y, wanted), Math.abs(top * ratio - Math.round(top * ratio)),
+                off(Math.round((other - mark.height / 2) * ratio) / ratio, wanted), off(Math.round((label.lineBox - mark.height) / 2), wanted)];
+            scene.destroy();
+            compare(found[0], data.scale, "the window draws at its screen's scale");
+            verify(found[1] <= 0.5, "the mark is " + found[1] + " device px off the " + (data.capitals ? "capital" : "x-height") + " centre");
+            verify(found[2] < 0.01, "the mark's top " + top + " is on a whole device pixel");
+            verify(found[3] > 0.5, "control: the " + (data.capitals ? "x-height" : "capital") + " centre reads as level");
+            // A capitals role sets one line in its font's own height, so
+            // its line box centres near its capitals.
+            if (!data.capitals) verify(found[4] > 0.5, "control: the line-box centre reads as level");
         }
 
         function test_measurements_read_back() {

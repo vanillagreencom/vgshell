@@ -14,10 +14,16 @@ import qs.Commons
 // glyph. `topForCapCenter()` gives the top that puts the capital centre on
 // a box centre with the baseline on a whole device pixel of the label's own
 // screen, since a whole pixel spans two device pixels on a 2x screen.
-// `topForLeadingIcon()` gives the top, from the label top, that puts an
-// icon leading the first line on that capital centre: the line box holds
-// the descent too, so its centre is under the capitals the eye levels
-// the icon with.
+// `xCentre` is the first line's x-height centre from the label top.
+// `capitalsLine` is whether that line reads in capitals and figures: drawn
+// in capitals, or text with no lowercase letter, such as "CPU" or "42%".
+// `topForLeadingIcon(iconHeight, origin)` gives the top, from the label
+// top, that puts an icon leading the first line on the centre the eye
+// levels it with: the x-height centre for mixed case, whose ink sits
+// mostly between the baseline and the x-height, and the capital centre
+// for a capitals line. The icon's top lands on a device pixel of the
+// frame the label top sits `origin` into (default 0, a label top on a
+// whole pixel).
 // `capTop()` is how far below the label top the first line's capitals
 // start, `inkAbove()` how far below it the first line's ink starts, its
 // glyphs' highest ink for a one-line label and the capital top for a
@@ -44,6 +50,8 @@ Text {
     readonly property real lineBox: Math.max(Math.round(typography.size * typography.lineHeight), Math.ceil(fontHeight))
     readonly property real halfLeading: Math.max(0, (lineBox - fontHeight) / 2)
     readonly property real capCentre: metrics.ascent - metrics.capitalHeight / 2
+    readonly property real xCentre: metrics.ascent - metrics.xHeight / 2
+    readonly property bool capitalsLine: font.capitalization === Font.AllUppercase || text.toUpperCase() === text
     readonly property real underlineOffset: Inset.underlineTop(metrics.descent)
     readonly property real opticalWidth: Math.max(0, implicitWidth - (text === "" ? 0 : font.letterSpacing))
 
@@ -105,8 +113,10 @@ Text {
         return Math.round((boxHeight / 2 + metrics.capitalHeight / 2) * Screen.devicePixelRatio) / Screen.devicePixelRatio - metrics.ascent;
     }
 
-    function topForLeadingIcon(iconHeight) {
-        return Math.round(capCentre - iconHeight / 2);
+    function topForLeadingIcon(iconHeight, origin) {
+        const at = origin === undefined ? 0 : origin;
+        const centre = capitalsLine ? capCentre : xCentre;
+        return Math.round((at + centre - iconHeight / 2) * Screen.devicePixelRatio) / Screen.devicePixelRatio - at;
     }
 
     FontMetrics {

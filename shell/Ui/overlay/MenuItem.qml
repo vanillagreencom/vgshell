@@ -50,13 +50,15 @@ T.MenuItem {
     spacing: Theme.menu.item.gap
 
     // The top, in the entry's coordinates, that puts `glyph`'s ink centre
-    // on the text's capital centre, on a whole device pixel: the text
-    // centres its capitals on the entry (Label.topForCapCenter), and the
-    // icon, the check mark and the chevron centre their ink on them, so
-    // no size takes an offset of its own.
+    // where the text's leading icon centres (Label.topForLeadingIcon), on a
+    // whole device pixel: the text centres its capitals on the entry
+    // (Label.topForCapCenter), and the icon, the check mark and the chevron
+    // centre their ink on the text, so no size takes an offset of its own.
+    // A box as tall as the ink's top and bottom together centres on the
+    // ink's centre.
     function inkTop(glyph) {
-        const centre = contentItem.y + title.y + title.capCentre - (glyph.painted[1] + glyph.painted[3]) / 2;
-        return Math.round(centre * Screen.devicePixelRatio) / Screen.devicePixelRatio;
+        const origin = contentItem.y + title.y;
+        return origin + title.topForLeadingIcon(glyph.painted[1] + glyph.painted[3], origin);
     }
     hoverEnabled: true
     focusPolicy: Qt.NoFocus

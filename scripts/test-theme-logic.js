@@ -1717,7 +1717,7 @@ for (const view of ["ThemeView.qml", "WallpaperView.qml"]) {
     assert.match(viewSource, SEARCH_HINT, `${view} rests its search hint on the plate`);
     assert.doesNotMatch(viewSource.replace("color: Theme.carousel.searchHint\n", ""), SEARCH_HINT, `control: ${view} with the hint in its role's colour must fail the check`);
     assert.doesNotMatch(viewSource.replaceAll("color: Theme.carousel.failurePlate", "color: Theme.carousel.backdrop"), SEARCH_HINT, `control: ${view} with the hint on the scrim must fail the check`);
-    assert.match(viewSource, FAILURE_MARK_TOP, `${view} centres the mark on its line's capitals`);
+    assert.match(viewSource, FAILURE_MARK_TOP, `${view} centres the mark on its line's leading icon centre`);
     assert.doesNotMatch(viewSource.replace("failureText.topForLeadingIcon(height)", "Math.round((failureText.lineBox - height) / 2)"), FAILURE_MARK_TOP, `control: ${view} with the mark on the line box must fail the check`);
 }
 
@@ -1732,6 +1732,16 @@ const LED_LINES = [
         file: "shell/Ui/controls/FormRow.qml", item: "Loader", icon: "id: infoButton",
         binding: "y: labelText.lineCount > 2 ? labelText.y + labelText.topForLeadingIcon(implicitHeight) : Math.round((root.labelBox - implicitHeight) / 2)",
         centred: "y: Math.round((root.labelBox - implicitHeight) / 2)"
+    },
+    {
+        file: "shell/Ui/controls/RowAction.qml", icon: "id: mark\n",
+        binding: "y: label.y + label.topForLeadingIcon(height, label.y)",
+        centred: "y: Math.round(parent.half - height / 2)"
+    },
+    {
+        file: "shell/Ui/overlay/MenuItem.qml", icon: "id: icon\n",
+        binding: "y: root.inkTop(icon) - parent.y",
+        centred: "anchors.verticalCenter: parent.verticalCenter"
     },
     {
         file: "shell/plugins/vgs.notifications/NotificationCard.qml", item: "MediaSlot", icon: "id: mediaSlot",
@@ -1749,7 +1759,7 @@ for (const site of LED_LINES) {
     const ledIcon = source => (source.match(new RegExp(`\\b${site.item || "Icon"} \\{[^{}]*`, "g")) || []).filter(block => block.includes(site.icon));
     const levelled = source => ledIcon(source).length === 1 && ledIcon(source)[0].includes(binding) && !/anchors\.(?:centerIn|verticalCenter):/.test(ledIcon(source)[0]);
     const siteSource = fs.readFileSync(path.join(repo, site.file), "utf8");
-    assert.equal(levelled(siteSource), true, `${site.file} centres its leading icon on its line's capitals`);
+    assert.equal(levelled(siteSource), true, `${site.file} centres its leading icon on its line's leading icon centre`);
     const targetBlock = ledIcon(siteSource)[0];
     const centredBlock = site.binding ? targetBlock.replace(binding, site.centred)
         : targetBlock.replace(new RegExp(`y: [^\\n;{}]*${binding.replace(/[.()]/g, "\\$&")}`), "anchors.verticalCenter: parent.verticalCenter");
@@ -1758,6 +1768,14 @@ for (const site of LED_LINES) {
     assert.notEqual(centred, siteSource, `control: ${site.file} holds the call to replace`);
     assert.equal(levelled(centred), false, `control: ${site.file} with the icon on the row centre must fail the check`);
 }
+
+// A menu entry's icon, check mark and chevron take their top from inkTop,
+// which centres each glyph's ink through the title's placement.
+const menuItemSource = fs.readFileSync(path.join(repo, "shell/Ui/overlay/MenuItem.qml"), "utf8");
+const MENU_INK_TOP = /function inkTop\(glyph\) \{\s*const origin = contentItem\.y \+ title\.y;\s*return origin \+ title\.topForLeadingIcon\(glyph\.painted\[1\] \+ glyph\.painted\[3\], origin\);/;
+assert.match(menuItemSource, MENU_INK_TOP, "menu entry glyphs use the shared label placement");
+assert.doesNotMatch(menuItemSource.replace("title.topForLeadingIcon(glyph.painted[1] + glyph.painted[3], origin)", "title.capCentre - (glyph.painted[1] + glyph.painted[3]) / 2"), MENU_INK_TOP,
+    "control: menu entry glyphs placed on the capital centre must fail the check");
 
 const rowMeasureSource = fs.readFileSync(path.join(repo, "shell/plugins/vgs.notifications/RowMeasure.qml"), "utf8");
 const SUMMARY_ICON_TOP = /function topForLeadingIcon\(iconHeight\) \{\s*return \(rowCard\.summary\.length > 0 \? summaryRow\.y \+ titleText\.y : bodyText\.y\) \+ titleText\.topForLeadingIcon\(iconHeight\);/;
