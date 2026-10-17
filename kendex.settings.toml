@@ -168,6 +168,10 @@ DEV_VALIDATE_TIMEOUT_SECS = "7200"
 # the `needs-ui-review` pass, which judges that round's screenshots against it.
 QA_UI_DESIGN_DOC = "docs/architecture/design-system.md"
 
+# View sources: a change to one makes the dev round capture its screenshot
+# set and adds `needs-ui-review` to a review round, where one runs.
+QA_UI_PATHS = "shell/*.qml shell/**/*.qml"
+
 # Optional extra verification command for GitHub-side checks; empty means
 # none beyond the guard chain.
 GH_VERIFY_CMD = ""
