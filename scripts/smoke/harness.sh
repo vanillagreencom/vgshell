@@ -219,6 +219,12 @@ hl.config({
     -- lose its wakeup and stop the compositor; the rows read every error
     -- through `hyprctl configerrors`, which lists them with the overlay off.
     debug = { disable_logs = logs == nil, suppress_errors = true },
+    -- No row runs an X11 client. The GPU fence kills the nested compositor
+    -- and its Xwayland at the end of every run (scripts/smoke/gpu-fence.sh,
+    -- scripts/smoke/teardown.sh), so an Xwayland never removes its
+    -- /tmp/.X11-unix/X<n> socket and /tmp/.X<n>-lock file from the host's
+    -- /tmp. nested_xwayland_check below fails a run that reads it on.
+    xwayland = { enabled = false },
 })
 -- Empty workspaces the compositor keeps alive, so the bar draws more than
 -- one workspace pill and one whose label is wider than the pill's floor.
@@ -881,6 +887,32 @@ elif [[ -n $monitors_seen ]]; then
 else
   printf 'qml-smoke: status=not-measured missing=nested-monitor secs=%s bound_secs=%d\n' "$nested_monitor_ready_secs" "$nested_monitor_wait_secs"; exit 77
 fi
+# nested_xwayland_check: ok when the nested compositor reads xwayland:enabled
+# off, which the hyprland.lua above sets, and a keyed failure for on, for a
+# failed call and for a reply that holds no bool. Hyprland 0.56.2 answers
+# `{"option": "xwayland:enabled", "bool": false, "set": true }`, read from
+# a nested instance of `scripts/qml-smoke.sh --rows windows` on 2026-10-17.
+nested_xwayland_check() {
+  local reply enabled
+  if ! reply="$(hypr -j getoption xwayland:enabled)"; then
+    enabled=unreadable
+  elif ! enabled="$(python3 -c '
+import json, sys
+try:
+    print(int(json.loads(sys.argv[1])["bool"]))
+except (ValueError, KeyError, TypeError):
+    print("unreadable")
+' "$reply")"; then
+    enabled=unreadable
+  fi
+  if [[ $enabled == 0 ]]; then
+    ok "nested compositor reports xwayland:enabled 0"
+  else
+    fail "nested-xwayland: enabled=$enabled want=0"
+    echo "        an Xwayland the fence kills leaves its /tmp/.X11-unix socket and /tmp/.X<n>-lock file on the host"
+  fi
+}
+nested_xwayland_check
 # hl.device takes a name no device carries without an error, so the run
 # reads that the device it detaches is the compositor's one mouse before
 # the pointer helper adds its own; the backend adds it once the host's
