@@ -409,10 +409,8 @@ FocusScope {
                 iconName: !root.loaded ? "" : root.filterText === "" ? "palette" : "search-x"
                 text: !root.loaded ? "" : root.filterText === "" ? "No theme is installed" : "No theme matches " + JSON.stringify(root.filterText)
                 actionText: root.loaded && root.filterText !== "" ? "Clear filter" : ""
-                onActivated: {
-                    root.editFilter({ kind: "clear" });
-                    Qt.callLater(root.focusRail);
-                }
+                // Clear filter takes no focus, so the rail keeps the keyboard.
+                onActivated: root.editFilter({ kind: "clear" })
             }
         }
 
@@ -436,48 +434,34 @@ FocusScope {
                 }
 
                 // The search line, the hint while no filter is typed and the
-                // typed filter in its place, rests on a solid plate of the
-                // theme's surface, as a failure does: no one colour reads
-                // 4.5:1 on the scrim over both a light and a dark wallpaper.
-                // The plate is as tall for either line, so typing moves
-                // nothing above it.
-                BrowserPlate {
-                    id: searchPlate
+                // typed filter in its place, sits on the scrim as the tabs
+                // do: the hint in `carousel.hint` and the filter in
+                // `carousel.hintActive`, as the name above it. The line is
+                // as tall for either, so typing moves nothing above it.
+                BrowserSlot {
+                    id: searchLine
                     anchors.horizontalCenter: parent.horizontalCenter
-                    width: (root.filterText === "" ? hintLine.width : typed.width) + 2 * searchInset.inset
-                    height: Math.max(hintLine.height, typed.height) + 2 * Theme.surface.padding
-                    radius: Theme.surface.radius
-                    color: Theme.carousel.failurePlate
+                    width: root.filterText === "" ? hintLine.width : typed.width
+                    height: Math.max(hintLine.height, typed.height)
 
                     Label {
                         id: typed
-                        x: searchInset.inset
-                        y: BrowserLogic.inkCentredTop(searchPlate.height, capTop(), lastBaseline())
+                        y: BrowserLogic.inkCentredTop(searchLine.height, capTop(), lastBaseline())
                         visible: root.filterText !== ""
                         role: "h3"
-                        width: Math.min(implicitWidth, caption.width - 2 * searchInset.inset)
+                        width: Math.min(implicitWidth, caption.width)
                         elide: Text.ElideMiddle
-                        color: Theme.carousel.typed
+                        color: Theme.carousel.hintActive
                         text: root.filterText
                     }
                     // The wallpaper view's hint without its source line.
                     Label {
                         id: hintLine
-                        x: searchInset.inset
-                        y: BrowserLogic.inkCentredTop(searchPlate.height, capTop(), lastBaseline())
+                        y: BrowserLogic.inkCentredTop(searchLine.height, capTop(), lastBaseline())
                         visible: root.filterText === ""
                         role: "itemHint"
                         text: "Type a theme name to search"
-                        color: Theme.carousel.searchHint
-                    }
-
-                    ClearingInset {
-                        id: searchInset
-                        pad: Theme.surface.padding
-                        radius: searchPlate.radius
-                        width: caption.width
-                        height: searchPlate.height
-                        top: Theme.surface.padding
+                        color: Theme.carousel.hint
                     }
                 }
             }

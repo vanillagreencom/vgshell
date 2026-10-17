@@ -2,33 +2,63 @@ import QtQuick
 import qs.Commons
 import qs.Ui
 
-// A solid plate keeps an empty browser readable over every wallpaper,
-// as the search and failure lines do. The inset keeps the recovery
-// button and its focus ring inside the plate, including rounded corners.
-BrowserPlate {
+// What an empty rail shows: an icon, one line and, for a filter no card
+// matches, Clear filter, each `stack.group` from the next. They sit on the
+// scrim in the rail's text colours, as the tabs and the search line do.
+// Clear filter is a word like Show all: brighter and underlined under the
+// pointer, since `carousel.hint` and `carousel.hintActive` are near one
+// black or white there.
+BrowserSlot {
     id: root
 
-    property alias iconName: state.iconName
-    property alias text: state.text
-    property alias actionText: state.actionText
+    property string iconName: ""
+    property string text: ""
+    property string actionText: ""
     signal activated()
 
-    implicitHeight: state.implicitHeight + 2 * Theme.surface.padding
+    implicitHeight: column.implicitHeight
 
-    EmptyState {
-        id: state
-        x: plateInset.inset
-        y: Theme.surface.padding
-        width: Math.max(0, root.width - 2 * plateInset.inset)
-        onActivated: root.activated()
-    }
-
-    ClearingInset {
-        id: plateInset
-        pad: Theme.surface.padding
-        radius: root.radius
+    Column {
+        id: column
         width: root.width
-        height: root.height
-        top: Theme.surface.padding
+        spacing: Theme.stack.group
+
+        Icon {
+            x: Math.round((parent.width - width) / 2)
+            visible: root.iconName !== ""
+            name: root.iconName
+            size: Theme.icon.size.xl
+            color: Theme.carousel.hint
+        }
+        Label {
+            role: "itemHint"
+            width: parent.width
+            horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.Wrap
+            color: Theme.carousel.hint
+            text: root.text
+        }
+        // A MouseArea takes no focus, so the view keeps the keyboard.
+        // keyboard-path: Escape and Ctrl+U clear the filter as a click does
+        MouseArea {
+            id: action
+            x: Math.round((parent.width - width) / 2)
+            width: Math.ceil(actionLabel.implicitWidth)
+            height: actionLabel.implicitHeight
+            visible: root.actionText !== ""
+            hoverEnabled: true
+            Accessible.role: Accessible.Button
+            Accessible.name: root.actionText
+            onClicked: root.activated()
+            PointerCursor {}
+
+            Label {
+                id: actionLabel
+                role: "itemHint"
+                text: root.actionText
+                color: action.containsMouse ? Theme.carousel.hintActive : Theme.carousel.hint
+                font.underline: action.containsMouse
+            }
+        }
     }
 }

@@ -556,6 +556,8 @@ mutations=(
   "a list item trailing row stops before the edge|layout/ListItem.qml|x: parent.width - width|x: parent.width - width - Theme.listItem.gap|tst_disclosure.qml"
   "a selected card without a wallpaper names no theme|../plugins/vgs.themes/ThemeCard.qml|root.expanded && root.backdrop) && !(root.expanded && picture.visible)|false) && !(root.expanded && picture.visible)|tst_themecard.qml"
   "a selected card names its theme over its wallpaper|../plugins/vgs.themes/ThemeCard.qml|root.backdrop) && !(root.expanded && picture.visible)|root.backdrop)|tst_themecard.qml"
+  "a wallpaper name centres its line box|../plugins/vgs.themes/WallpaperCard.qml|y: Math.round(nameBox.pad - capTop())|anchors.verticalCenter: parent.verticalCenter|tst_wallpapercard.qml"
+  "a wallpaper name box ignores the control radius|../plugins/vgs.themes/WallpaperCard.qml|radius: Theme.button.radius|radius: 0|tst_wallpapercard.qml"
   "the launcher walks an order its apps menu swap replaced|../plugins/vgs.launcher/Launcher.qml|const next = MenuModel.swapAppMenus(root.items, root.itemOrder, root.providersLoaded, root.desktopApps());|for (const id of root.itemOrder) if (root.items[id].provider === \"apps\" && root.providersLoaded[id]) root.mergeAppRows(id); const next = { items: root.items };|tst_launcher_apps.qml"
   "the Jarvis widget drops a click|../plugins/vgs.jarvis/Widget.qml|onClicked: root.toggleMute()|onClicked: {}|tst_jarvis_widget.qml"
   "the Jarvis widget calls another handler|../plugins/vgs.jarvis/Widget.qml|shell.ipc.call(\"mute\", \"\")|shell.ipc.call(\"stop\", \"\")|tst_jarvis_widget.qml"

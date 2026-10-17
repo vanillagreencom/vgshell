@@ -10,9 +10,9 @@
 # user's focus bind, steps the rail as holding Right does; a layer whose
 # captured focus bind does not repeat is its control. akane's card draws its
 # package preview. A typed filter, in either view, takes its hint's place
-# on one plate of one height, and a failed apply shows its line under the
-# pane; neither moves the rail. A copy of the theme view whose plate takes
-# the height of the line it shows is the filter's control, and one whose
+# on one line of one height, and a failed apply shows its line under the
+# pane; neither moves the rail. A copy of the theme view whose line takes
+# the height of the text it shows is the filter's control, and one whose
 # caption grows with the failures the failure's. A typed wallpaper filter
 # leaves the divider and Show all on their rest rows; a copy of the
 # wallpaper view whose source line centres on its Row is that control.
@@ -36,15 +36,12 @@
 # plugin disabled, and rows/theme-browse.sh leaves vgs applied with Black
 # current and nord not installed; this file enables the plugin and leaves
 # all four so.
-# Empty states in both views read at the text floor on their drawn solid
-# plate in vgs and flexoki-light. A shared component copy drawing only the
-# scrim fails that same contrast check in both themes. The recovery button
-# remains eligible for Tab and its focus ring stays within the plate.
 # A source without images keeps its no-wallpapers state under a filter;
 # a logic copy that always treats a filter as the cause is its control.
-# Every search and empty plate starts on whole screen rows and columns;
-# a plate copy shifted by a fractional row is that check's control.
-# inputs: shell/plugins/vgs.themes/* themes/catalog/* themes/vgs/* shell/Core/HyprlandLayer.js shell/Core/ThemeRunner.qml bin/vgshell bin/lib/theme-* bin/lib/qml-library.js shell/Commons/ThemeLogic.js shell/Ui/layout/CardCarousel.qml shell/Ui/layout/AngledCard.qml shell/Ui/layout/Tabs.qml shell/Ui/layout/Pane.qml shell/Ui/layout/ScrollArea.qml shell/Commons/ClearingInset.qml shell/Commons/Inset.js shell/Ui/feedback/Dialog.qml shell/Ui/feedback/EmptyState.qml shell/Ui/controls/Button.qml shell/Ui/foundation/FocusRing.qml bin/vgshell-theme-judge shell/Core/ShortcutRegistry.qml shell/Core/Plugins.qml scripts/smoke/rows/themes.sh scripts/smoke/rows/theme-browse.sh scripts/smoke/rows/hyprland-consent.sh scripts/smoke/fixtures/theme-image.jpg
+# Every search line and empty state starts on whole screen rows and
+# columns, in vgs and flexoki-light; a slot copy shifted by a fractional
+# row is that check's control.
+# inputs: shell/plugins/vgs.themes/* themes/catalog/* themes/vgs/* shell/Core/HyprlandLayer.js shell/Core/ThemeRunner.qml bin/vgshell bin/lib/theme-* bin/lib/qml-library.js shell/Commons/ThemeLogic.js shell/Ui/layout/CardCarousel.qml shell/Ui/layout/AngledCard.qml shell/Ui/layout/Tabs.qml shell/Ui/layout/Pane.qml shell/Ui/layout/ScrollArea.qml shell/Commons/ClearingInset.qml shell/Commons/Inset.js shell/Ui/feedback/Dialog.qml shell/Ui/controls/Button.qml shell/Ui/foundation/FocusRing.qml bin/vgshell-theme-judge shell/Core/ShortcutRegistry.qml shell/Core/Plugins.qml scripts/smoke/rows/themes.sh scripts/smoke/rows/theme-browse.sh scripts/smoke/rows/hyprland-consent.sh scripts/smoke/fixtures/theme-image.jpg
 set -euo pipefail
 view_value() { ipc smoke readDescendant overlay vgs.themes ThemeView "$1"; }
 view_names() { view_value shownCards | py_reply 'import json,sys; print(json.dumps([c["name"] for c in json.load(sys.stdin)]))'; }
@@ -62,7 +59,7 @@ offer_name() { view_value offer | py_reply 'import json,sys; o=json.load(sys.std
 # sorted and once each; rest_has TEXT: whether TEXT is one of them. At rest
 # the theme view draws the selected name and its search hint, and
 # the wallpaper view that hint beside its divider and source line and, with two
-# screens, its scope words. A typed filter shows in place of the hint.
+# screens, its scope line. A typed filter shows in place of the hint.
 rest_texts() {
   ipc smoke descendantGeometry overlay vgs.themes | py_reply '
 import json, sys
@@ -87,20 +84,20 @@ rail_held() { # TOP
   now="$(rail_top)" || return
   if [[ $now == "$1" ]]; then echo held; else echo "moved from=$1 to=$now"; fi
 }
-# text_plate TEXT: the top and the height of the plate the drawn text TEXT
-# rests on, its nearest Rectangle ancestor, to a hundredth of a pixel.
-text_plate() {
+# text_line TEXT: the top and the height of the search line the drawn text
+# TEXT sits in, its nearest BrowserSlot ancestor, to a hundredth of a pixel.
+text_line() {
   ipc smoke descendantGeometry overlay vgs.themes | py_reply '
 import json, sys
 rows = json.load(sys.stdin)
-def plate(j):
+def line(j):
     j = rows[j]["parent"]
-    while j != -1 and not rows[j]["type"].endswith("Rectangle"):
+    while j != -1 and rows[j]["type"] != "BrowserSlot":
         j = rows[j]["parent"]
     return j
-found = [plate(i) for i, r in enumerate(rows) if r.get("text") == sys.argv[1] and r["visible"] and r["box"][2] > 0 and r["box"][3] > 0]
+found = [line(i) for i, r in enumerate(rows) if r.get("text") == sys.argv[1] and r["visible"] and r["box"][2] > 0 and r["box"][3] > 0]
 found = [j for j in found if j != -1]
-print("%.2f %.2f" % (rows[found[0]]["box"][1], rows[found[0]]["box"][3]) if len(found) == 1 else "plates=%d" % len(found))' "$1"
+print("%.2f %.2f" % (rows[found[0]]["box"][1], rows[found[0]]["box"][3]) if len(found) == 1 else "lines=%d" % len(found))' "$1"
 }
 # text_top TEXT: the top of the one drawn text TEXT on the output, to a
 # hundredth of a pixel; no line and a failure while not exactly one shows.
@@ -172,9 +169,9 @@ show_all_against() {
   now="$(show_all_pixels)" || return 1
   pixels_near "$now" "$1"
 }
-# pointer_off_plate: the pointer moved to the overlay's left edge, half way
-# down, off the search plate, so Show all draws no hover in its reading.
-pointer_off_plate() {
+# pointer_off_line: the pointer moved to the overlay's left edge, half way
+# down, off the search line, so Show all draws no hover in its reading.
+pointer_off_line() {
   local surface x y
   surface="$(surface_box vgs:overlay)" || return 1
   read -r x y < <(python3 -c 'import json,sys; l=json.loads(sys.argv[1]); print(int(l[0]) + 8, int(l[1] + l[3] / 2))' "$surface") || return 1
@@ -714,9 +711,9 @@ type_keys -M ctrl -k Page_Up -m ctrl || fail "sending Ctrl+PageUp failed"
 expect_poll "Ctrl+PageUp switches back to the theme view" '"themes"' ipc smoke readInstance overlay vgs.themes view
 
 # The filter and the scope. The typed filter takes the hint's place on its
-# plate, so the rail keeps its place while it shows.
+# line, so the rail keeps its place while it shows.
 filter_rail="$(rail_top)" || fail "the rail's top before the filter is unreadable"
-hint_plate="$(text_plate "Type a theme name to search")" || fail "the theme hint's plate is unreadable"
+hint_line="$(text_line "Type a theme name to search")" || fail "the theme hint's line is unreadable"
 type_keys "nor" || fail "typing the filter failed"
 expect_poll "typing reaches the filter" '"nor"' view_value filterText
 type_keys -M ctrl -k u -m ctrl || fail "sending Ctrl+U failed"
@@ -733,7 +730,7 @@ expect_poll "BackSpace erases a character" '"no"' view_value filterText
 type_keys "rd" || fail "typing the rest of the filter failed"
 expect_poll "the filter leaves nord alone" '["nord"]' view_names
 expect_poll "the footer shows the typed filter in place of the hint" '["Nord", "nord"]' rest_texts
-expect "the typed filter rests on the hint's plate, at its top and height" "$hint_plate" text_plate nord
+expect "the typed filter sits on the hint's line, at its top and height" "$hint_line" text_line nord
 expect "a typed filter leaves the rail where it was" held rail_held "$filter_rail"
 expect "the selection moves to the one match" '"nord"' view_value selectedName
 # Control: scripts/test-qml-unit.sh deletes CardCarousel's modelData rebind and tst_carousel.qml fails.
@@ -789,7 +786,7 @@ expect "Escape with a filter keeps the browser open" 1 layer_count vgs:overlay
 type_keys -k Escape || fail "sending Escape again failed"
 expect_poll "Escape with no filter closes the browser" 0 layer_count vgs:overlay
 # A filter no card matches shows the empty state; its Clear filter clears
-# the filter and hands the keyboard back to the rail, so Right steps and
+# the filter and leaves the keyboard on the rail, so Right steps and
 # Escape closes.
 clear_filter() { # LABEL
   press_themes || { fail "$1: typing SUPER+SHIFT+T failed"; return 1; }
@@ -802,11 +799,11 @@ clear_filter() { # LABEL
   expect "$1: the footer shows the filter no card matches" True rest_has zzqx
   expect "$1: the footer hides the hint while the filter shows" False rest_has "Type a theme name to search"
   expect "$1: a filter no card matches leaves the rail where it was" held rail_held "$rail"
-  click_in vgs:overlay overlay vgs.themes Button "Clear filter" || { fail "$1: the click on Clear filter failed"; return 1; }
+  click_in vgs:overlay overlay vgs.themes Label "Clear filter" || { fail "$1: the click on Clear filter failed"; return 1; }
 }
 clear_filter "Clear filter"
 expect_poll "Clear filter clears the filter" '""' view_value filterText
-expect_poll "Clear filter hands the keyboard back to the rail" true rail_focused
+expect_poll "Clear filter leaves the keyboard on the rail" true rail_focused
 cleared_on="$(selected_card)" || cleared_on="unreadable"
 [[ $cleared_on == card=* ]] || fail "the card selected after Clear filter is unreadable: $cleared_on"
 type_keys -k Right || fail "sending Right after Clear filter failed"
@@ -1047,23 +1044,16 @@ type_keys -k Escape || fail "closing the preview precedence control browser fail
 expect_poll "the preview precedence control browser closes" 0 layer_count vgs:overlay
 plugin_restore ThemeCard.qml "preview precedence"
 
-# Controls for the recovery flows and the band: a copy of the theme view
-# whose Clear filter clears nothing, one that leaves the keyboard off the
-# rail, and one whose rail band takes the press.
-plugin_control ThemeView.qml "clear filter" 'root.editFilter({ kind: "clear" });' ''
+# Controls for the recovery flow and the band: a copy of the theme view
+# whose Clear filter clears nothing, and one whose rail band takes the
+# press.
+plugin_control ThemeView.qml "clear filter" 'onActivated: root.editFilter({ kind: "clear" })' 'onActivated: {}'
 clear_filter "control: the clear filter copy"
 expect "control: a Clear filter that clears nothing keeps the filter" '"zzqx"' view_value filterText
 type_keys -k Escape || fail "clearing the clear filter control's filter failed"
 type_keys -k Escape || fail "closing the clear filter control failed"
 expect_poll "the clear filter control browser closes" 0 layer_count vgs:overlay
 plugin_restore ThemeView.qml "clear filter"
-plugin_control ThemeView.qml "clear filter focus" 'Qt.callLater(root.focusRail);' ''
-clear_filter "control: the clear filter focus copy"
-expect_poll "the clear filter focus control clears the filter" '""' view_value filterText
-expect "control: a Clear filter that keeps the keyboard leaves the rail unfocused" false rail_focused
-expect "the clear filter focus control browser hides" ok ipc shell hide overlay vgs.themes
-expect_poll "the clear filter focus control browser closes" 0 layer_count vgs:overlay
-plugin_restore ThemeView.qml "clear filter focus"
 plugin_control ThemeView.qml "rail band" '            // No card to show: the list loading, no theme at all, or a' $'            MouseArea { anchors.fill: parent }\n            // No card to show: the list loading, no theme at all, or a'
 band_click "control: a rail band that takes the press" || fail "the rail band control's click failed"
 expect "control: a band that takes the press leaves the browser open" 1 layer_count vgs:overlay
@@ -1071,21 +1061,21 @@ expect "the rail band control browser hides" ok ipc shell hide overlay vgs.theme
 expect_poll "the rail band control browser closes" 0 layer_count vgs:overlay
 plugin_restore ThemeView.qml "rail band"
 # Control for the rail's place under a typed filter: a copy of the theme
-# view whose search plate takes the height of the line it shows, so the
-# filter's taller line grows the centred pane and the plate.
-plugin_control ThemeView.qml "growing plate" 'height: Math.max(hintLine.height, typed.height) + 2 * Theme.surface.padding' 'height: (root.filterText === "" ? hintLine.height : typed.height) + 2 * Theme.surface.padding'
-press_themes || fail "typing SUPER+SHIFT+T for the growing plate control failed"
-expect_poll "SUPER+SHIFT+T opens the growing plate control browser" 1 layer_count vgs:overlay
-expect_poll "the growing plate control read its cards" true view_value loaded
-grown_rail="$(rail_top)" || fail "the rail's top before the growing plate control's filter is unreadable"
-grown_plate="$(text_plate "Type a theme name to search")" || fail "the growing plate control's hint plate is unreadable"
-type_keys "nord" || fail "typing nord for the growing plate control failed"
-expect_poll "the growing plate control's filter selects nord" '"nord"' view_value selectedName
-expect "control: a plate that grows with the typed filter moves the rail" moved bash -c 'echo "${1%% *}"' _ "$(rail_held "$grown_rail")"
-expect "control: a plate that grows with the typed filter is not the hint's" True bash -c '[[ $1 != "$2" && $1 != plates=* ]] && echo True' _ "$(text_plate nord)" "$grown_plate"
-expect "the growing plate control browser hides" ok ipc shell hide overlay vgs.themes
-expect_poll "the growing plate control browser closes" 0 layer_count vgs:overlay
-plugin_restore ThemeView.qml "growing plate"
+# view whose search line takes the height of the text it shows, so the
+# filter's taller text grows the centred pane and the line.
+plugin_control ThemeView.qml "growing line" 'height: Math.max(hintLine.height, typed.height)' 'height: root.filterText === "" ? hintLine.height : typed.height'
+press_themes || fail "typing SUPER+SHIFT+T for the growing line control failed"
+expect_poll "SUPER+SHIFT+T opens the growing line control browser" 1 layer_count vgs:overlay
+expect_poll "the growing line control read its cards" true view_value loaded
+grown_rail="$(rail_top)" || fail "the rail's top before the growing line control's filter is unreadable"
+grown_line="$(text_line "Type a theme name to search")" || fail "the growing line control's hint line is unreadable"
+type_keys "nord" || fail "typing nord for the growing line control failed"
+expect_poll "the growing line control's filter selects nord" '"nord"' view_value selectedName
+expect "control: a line that grows with the typed filter moves the rail" moved bash -c 'echo "${1%% *}"' _ "$(rail_held "$grown_rail")"
+expect "control: a line that grows with the typed filter is not the hint's" True bash -c '[[ $1 != "$2" && $1 != lines=* ]] && echo True' _ "$(text_line nord)" "$grown_line"
+expect "the growing line control browser hides" ok ipc shell hide overlay vgs.themes
+expect_poll "the growing line control browser closes" 0 layer_count vgs:overlay
+plugin_restore ThemeView.qml "growing line"
 # Control for the rail's place under a failure: a copy of the theme view
 # whose caption grows with the failures, as a failure line in the pane's
 # footer grew it. akane's apply answers busy once more, and the centred
@@ -1190,17 +1180,17 @@ expect "the view starts on every monitor" '"every"' wall_value scope
 expect "two screens show the scope control" true wall_value scoped
 expect_poll "the selection starts on the image every screen shows" "$nord_a" wall_selected
 expect "the wallpaper card decodes at card size times screen scale" True card_source_size_matches "$nord_a"
-expect_poll "the resting wallpaper view draws its hint line and scope words alone" '["All monitors", "Show all", "This monitor", "Type a wallpaper or image file name to search", "|"]' rest_texts
+expect_poll "the resting wallpaper view draws its hint line and scope line alone" '["/", "All monitors", "Apply to:", "Show all", "This monitor", "Type a wallpaper or image file name to search", "|"]' rest_texts
 expect "the wallpaper view draws no search field" absent search_field
 
 # The wallpaper filter: text reaches the filter, filters the rail, Space
 # stays text, Ctrl+U clears, Clear filter works from the empty state, and
 # Escape clears before it closes.
 wall_rail="$(rail_top)" || fail "the wallpaper rail's top before the filter is unreadable"
-wall_plate="$(text_plate "Type a wallpaper or image file name to search")" || fail "the wallpaper hint's plate is unreadable"
+wall_line="$(text_line "Type a wallpaper or image file name to search")" || fail "the wallpaper hint's line is unreadable"
 wall_show_all="$(text_top "Show all")" || fail "the resting Show all's top is unreadable"
 wall_divider="$(text_top "|")" || fail "the resting divider's top is unreadable"
-pointer_off_plate || fail "moving the pointer off the wallpaper search plate failed"
+pointer_off_line || fail "moving the pointer off the wallpaper search line failed"
 wall_show_all_px="$(settled_show_all_pixels)" || fail "the resting Show all's pixels are unreadable"
 for wall_typed in a gyp Nord; do
   type_keys "$wall_typed" || fail "typing $wall_typed for Show all's pixels failed"
@@ -1213,8 +1203,8 @@ type_keys "b." || fail "typing the wallpaper filter failed"
 expect_poll "typing reaches the wallpaper filter" '"b."' wall_value filterText
 expect_poll "the wallpaper filter keeps b.jpg alone" "[\"$nord_b\"]" wall_keys
 # The divider before Show all belongs to the source line and stays.
-expect_poll "the wallpaper footer shows the typed filter in place of the hint" '["All monitors", "Show all", "This monitor", "b.", "|"]' rest_texts
-expect "the typed wallpaper filter rests on the hint's plate, at its top and height" "$wall_plate" text_plate b.
+expect_poll "the wallpaper footer shows the typed filter in place of the hint" '["/", "All monitors", "Apply to:", "Show all", "This monitor", "b.", "|"]' rest_texts
+expect "the typed wallpaper filter sits on the hint's line, at its top and height" "$wall_line" text_line b.
 expect "a typed wallpaper filter leaves Show all on its rest row" "$wall_show_all" text_top "Show all"
 expect "a typed wallpaper filter leaves the divider on its rest row" "$wall_divider" text_top "|"
 expect "a typed wallpaper filter leaves the rail where it was" held rail_held "$wall_rail"
@@ -1226,7 +1216,7 @@ type_keys "zzqx" || fail "typing the empty wallpaper filter failed"
 expect_poll "a wallpaper filter no card matches empties the rail" 0 wall_count
 expect "the wallpaper footer shows the filter no card matches" True rest_has zzqx
 expect "a wallpaper filter no card matches leaves the rail where it was" held rail_held "$wall_rail"
-click_in vgs:overlay overlay vgs.themes Button "Clear filter" || fail "the wallpaper Clear filter click failed"
+click_in vgs:overlay overlay vgs.themes Label "Clear filter" || fail "the wallpaper Clear filter click failed"
 expect_poll "Clear filter clears the wallpaper filter" '""' wall_value filterText
 expect_poll "Clear filter puts the wallpaper hint back" True rest_has "Type a wallpaper or image file name to search"
 type_keys "b." || fail "typing the wallpaper filter before Escape failed"
@@ -1238,7 +1228,7 @@ type_keys -k Escape || fail "sending Escape after clearing the wallpaper filter 
 expect_poll "Escape with no wallpaper filter closes the browser" 0 layer_count vgs:overlay
 # Control: a wallpaper view whose source line centres on its Row, which
 # the taller typed filter grows, so typing moves Show all.
-plugin_control WallpaperView.qml "row-centred source line" 'y: BrowserLogic.inkCentredTop(searchPlate.height, sourceText.y + sourceText.capTop(), sourceText.y + sourceText.lastBaseline())' 'anchors.verticalCenter: parent.verticalCenter'
+plugin_control WallpaperView.qml "row-centred source line" 'y: BrowserLogic.inkCentredTop(searchSlot.height, sourceText.y + sourceText.capTop(), sourceText.y + sourceText.lastBaseline())' 'anchors.verticalCenter: parent.verticalCenter'
 press_wallpapers || fail "typing SUPER+SHIFT+W for the row-centred source line control failed"
 expect_poll "SUPER+SHIFT+W opens the row-centred source line control browser" 1 layer_count vgs:overlay
 expect_poll "the row-centred source line control view read its lists" true wall_value loaded
@@ -1257,7 +1247,7 @@ plugin_control WallpaperView.qml "fractional filter width" 'width: Math.ceil(Mat
 press_wallpapers || fail "typing SUPER+SHIFT+W for the fractional filter width control failed"
 expect_poll "SUPER+SHIFT+W opens the fractional filter width control browser" 1 layer_count vgs:overlay
 expect_poll "the fractional filter width control view read its lists" true wall_value loaded
-pointer_off_plate || fail "moving the pointer off the fractional filter width control's plate failed"
+pointer_off_line || fail "moving the pointer off the fractional filter width control's line failed"
 fractional_rest="$(settled_show_all_pixels)" || fail "the fractional filter width control's resting Show all is unreadable"
 fractional_moved=0
 for wall_typed in a gyp Nord; do
@@ -1485,148 +1475,76 @@ expect "the follow after the wallpaper rows ends" idle theme_idle
 expect "vgs applies after the wallpaper rows" "ok theme=vgs state=applied shell=applied" vgshell_theme apply vgs
 expect_poll "the shell follows vgs after the wallpaper rows" vgs ipc smoke themeName
 
-# Read the actual EmptyState label and its enclosing plate, rather than
-# theme declarations. ThemeLogic owns the contrast calculation. A scrim
-# control is judged over black and white wallpaper and must miss the floor.
-empty_plate_contrast() {
-  local text ink fill rows
-  text="$(ipc smoke readDescendant overlay vgs.themes EmptyState text | py_reply 'import json,sys; print(json.load(sys.stdin))')" || return
-  ink="$(ipc smoke readMatchingDescendant overlay vgs.themes Label text "$text" color)" || return
-  fill="$(ipc smoke readDescendant overlay vgs.themes BrowserEmptyState color)" || return
-  rows="$(ipc smoke descendantGeometry overlay vgs.themes)" || return
-  node - "$repo" "$ink" "$fill" "$rows" "$text" <<'JS'
-const { load } = require(process.argv[2] + "/bin/lib/qml-library.js");
-const logic = load(process.argv[2] + "/shell/Commons/ThemeLogic.js");
-const ink = JSON.parse(process.argv[3]), fill = JSON.parse(process.argv[4]);
-const rows = JSON.parse(process.argv[5]), text = process.argv[6];
-const plates = rows.map((r, i) => [r, i]).filter(([r]) => r.type === "QQuickRectangle" && r.visible && r.parent !== -1 && rows[r.parent].type === "BrowserEmptyState");
-const labels = rows.map((r, i) => [r, i]).filter(([r]) => r.type === "Label" && r.visible && r.text === text && r.box[2] > 0 && r.box[3] > 0);
-if (plates.length !== 1 || labels.length !== 1) { console.log("unreadable-geometry"); process.exit(); }
-let at = labels[0][1];
-while (at !== -1 && at !== plates[0][1]) at = rows[at].parent;
-const [x, y, w, h] = labels[0][0].box, [px, py, pw, ph] = plates[0][0].box;
-if (at === -1 || x < px || y < py || x + w > px + pw || y + h > py + ph) {
-    console.log("ink-outside-plate"); process.exit();
-}
-if (![ink, fill].every(c => c && ["r", "g", "b", "a"].every(k => typeof c[k] === "number"))) {
-    console.log("unreadable-colour"); process.exit();
-}
-const ratio = Math.min(...["#000000", "#ffffff"].map(w => {
-    const backdrop = logic.overlay(fill, logic.parseColor(w));
-    return logic.contrastRatio(logic.overlay(ink, backdrop), backdrop);
-}));
-console.error("theme-browser: empty-state ratio=" + ratio.toFixed(2) + " plate-alpha=" + fill.a);
-console.log(ratio >= 4.5 && fill.a === 1 ? "readable" : "unreadable");
-JS
-}
-empty_plate_recovery() {
-  local action tab
-  action="$(ipc smoke readDescendant overlay vgs.themes EmptyState actionText | py_reply 'import json,sys; print(json.load(sys.stdin))')" || return
-  tab="$(ipc smoke readMatchingDescendant overlay vgs.themes Button text "$action" activeFocusOnTab)" || return
-  ipc smoke descendantGeometry overlay vgs.themes | py_reply '
-import json,sys
-rows, tab = json.load(sys.stdin), sys.argv[1]
-plates = [i for i,r in enumerate(rows) if r["type"] == "QQuickRectangle" and r["visible"] and r["parent"] != -1 and rows[r["parent"]]["type"] == "BrowserEmptyState"]
-def under(i, plate):
-    while i != -1:
-        if i == plate: return True
-        i = rows[i]["parent"]
-    return False
-def inside(box, plate):
-    x,y,w,h = box; px,py,pw,ph = plate
-    return w > 0 and h > 0 and x >= px and y >= py and x+w <= px+pw and y+h <= py+ph
-if len(plates) != 1: print("plates=%d" % len(plates)); sys.exit()
-p = plates[0]
-buttons = [i for i,r in enumerate(rows) if r["type"] == "Button" and r["visible"] and under(i,p)]
-rings = [r for i,r in enumerate(rows) if r["type"] == "FocusRing" and any(under(i,b) for b in buttons)]
-print("contained" if tab == "true" and len(buttons) == 1 and rings and all(inside(r["box"],rows[p]["box"]) for r in rings) else "recovery-outside-or-not-tab")' "$tab"
-}
-browser_plate_origins() {
+browser_slot_origins() {
   ipc smoke descendantGeometry overlay vgs.themes | py_reply '
 import json,sys
 rows = json.load(sys.stdin)
-plates = [r for r in rows if r["type"] == "QQuickRectangle" and r["visible"] and r["box"][2] > 0 and r["box"][3] > 0 and r["parent"] != -1 and rows[r["parent"]]["type"] in ("BrowserPlate", "BrowserEmptyState")]
-search = any(rows[r["parent"]]["type"] == "BrowserPlate" for r in plates)
-print("whole" if search and all(abs(v-round(v)) < 0.0001 for r in plates for v in r["box"][:2]) else "fractional-or-no-search-plate")'
+slots = [r for r in rows if r["type"] == "QQuickItem" and r["visible"] and r["box"][2] > 0 and r["box"][3] > 0 and r["parent"] != -1 and rows[r["parent"]]["type"] in ("BrowserSlot", "BrowserEmptyState")]
+search = any(rows[r["parent"]]["type"] == "BrowserSlot" for r in slots)
+print("whole" if search and all(abs(v-round(v)) < 0.0001 for r in slots for v in r["box"][:2]) else "fractional-or-no-search-line")'
 }
 plant_flexoki_light "$installed" || fail "the empty-state light package could not be installed"
-for empty_mode in plate scrim; do
-  if [[ $empty_mode == scrim ]]; then
-    plugin_control BrowserPlate.qml "scrim-only empty state" 'color: Theme.carousel.failurePlate' 'color: Theme.color.scrim'
+for empty_theme in vgs flexoki-light; do
+  if [[ $empty_theme != vgs ]]; then
+    expect "the empty-state check applies $empty_theme" "ok theme=$empty_theme state=applied shell=applied" vgshell_theme apply "$empty_theme"
   fi
-  for empty_theme in vgs flexoki-light; do
-    if [[ $empty_mode != plate || $empty_theme != vgs ]]; then
-      expect "the empty-state $empty_mode check applies $empty_theme" "ok theme=$empty_theme state=applied shell=applied" vgshell_theme apply "$empty_theme"
+  expect_poll "the empty-state check follows $empty_theme" "$empty_theme" ipc smoke themeName
+  for empty_view in themes wallpapers; do
+    "press_$empty_view" || fail "opening the $empty_theme $empty_view empty-state check failed"
+    expect_poll "the $empty_theme $empty_view empty-state check opens" 1 layer_count vgs:overlay
+    empty_value=view_value; [[ $empty_view == wallpapers ]] && empty_value=wall_value
+    expect_poll "the $empty_theme $empty_view empty-state check read its lists" true "$empty_value" loaded
+    geometry expect "the $empty_theme $empty_view resting lines start on whole rows and columns" whole browser_slot_origins
+    if [[ $empty_theme == flexoki-light && $empty_view == wallpapers ]]; then
+      expect_poll "the no-wallpaper state has no cards" 0 wall_count
+      empty_unfiltered="$(ipc smoke readDescendant overlay vgs.themes BrowserEmptyState text)" || fail "reading the no-wallpapers line failed"
     fi
-    expect_poll "the empty-state $empty_mode check follows $empty_theme" "$empty_theme" ipc smoke themeName
-    for empty_view in themes wallpapers; do
-      "press_$empty_view" || fail "opening the $empty_theme $empty_view empty-state $empty_mode check failed"
-      expect_poll "the $empty_theme $empty_view empty-state $empty_mode check opens" 1 layer_count vgs:overlay
-      empty_value=view_value; [[ $empty_view == wallpapers ]] && empty_value=wall_value
-      expect_poll "the $empty_theme $empty_view empty-state $empty_mode check read its lists" true "$empty_value" loaded
-      geometry expect "the $empty_theme $empty_view resting plates start on whole rows and columns" whole browser_plate_origins
-      if [[ $empty_theme == flexoki-light && $empty_view == wallpapers ]]; then
-        expect_poll "the no-wallpaper $empty_mode state has no cards" 0 wall_count
-        empty_unfiltered="$(ipc smoke readDescendant overlay vgs.themes EmptyState text)" || fail "reading the no-wallpapers line failed"
-        empty_result=readable; [[ $empty_mode == scrim ]] && empty_result=unreadable
-        expect "the no-wallpaper $empty_mode state is judged on its drawn background" "$empty_result" empty_plate_contrast
-      fi
-      for empty_filter in a gyp Nord; do
-        type_keys "$empty_filter" || fail "typing $empty_filter for the plate-origin check failed"
-        expect_poll "the $empty_theme $empty_view plate-origin filter reads $empty_filter" "\"$empty_filter\"" "$empty_value" filterText
-        geometry expect "the $empty_theme $empty_view $empty_filter plates start on whole rows and columns" whole browser_plate_origins
-        type_keys -M ctrl -k u -m ctrl || fail "clearing the plate-origin filter failed"
-        expect_poll "the plate-origin filter clears" '""' "$empty_value" filterText
-      done
-      type_keys zzqx || fail "typing the $empty_theme $empty_view empty-state filter failed"
-      expect_poll "the $empty_theme $empty_view empty-state filter is set" '"zzqx"' "$empty_value" filterText
-      geometry expect "the $empty_theme $empty_view filtered plates start on whole rows and columns" whole browser_plate_origins
-      if [[ $empty_theme == flexoki-light && $empty_view == wallpapers ]]; then
-        expect "the no-wallpapers line stays under the $empty_mode filter" "$empty_unfiltered" ipc smoke readDescendant overlay vgs.themes EmptyState text
-        expect "the no-wallpapers $empty_mode state offers no filter action" '""' ipc smoke readDescendant overlay vgs.themes EmptyState actionText
-      fi
-      if [[ $empty_mode == plate ]]; then
-        expect "the $empty_theme $empty_view empty-state ink reads on its solid plate" readable empty_plate_contrast
-        if [[ $empty_view == themes || $empty_theme == vgs ]]; then
-          geometry expect "the $empty_theme $empty_view recovery Tab stop and ring stay inside the plate" contained empty_plate_recovery
-        fi
-      else
-        expect "control: the $empty_theme $empty_view scrim-only empty state fails contrast" unreadable empty_plate_contrast
-      fi
-      expect "the $empty_theme $empty_view empty-state $empty_mode check hides" ok ipc shell hide overlay vgs.themes
-      expect_poll "the $empty_theme $empty_view empty-state $empty_mode check closes" 0 layer_count vgs:overlay
+    for empty_filter in a gyp Nord; do
+      type_keys "$empty_filter" || fail "typing $empty_filter for the line-origin check failed"
+      expect_poll "the $empty_theme $empty_view line-origin filter reads $empty_filter" "\"$empty_filter\"" "$empty_value" filterText
+      geometry expect "the $empty_theme $empty_view $empty_filter lines start on whole rows and columns" whole browser_slot_origins
+      type_keys -M ctrl -k u -m ctrl || fail "clearing the line-origin filter failed"
+      expect_poll "the line-origin filter clears" '""' "$empty_value" filterText
     done
+    type_keys zzqx || fail "typing the $empty_theme $empty_view empty-state filter failed"
+    expect_poll "the $empty_theme $empty_view empty-state filter is set" '"zzqx"' "$empty_value" filterText
+    geometry expect "the $empty_theme $empty_view filtered lines start on whole rows and columns" whole browser_slot_origins
+    if [[ $empty_theme == flexoki-light && $empty_view == wallpapers ]]; then
+      expect "the no-wallpapers line stays under the filter" "$empty_unfiltered" ipc smoke readDescendant overlay vgs.themes BrowserEmptyState text
+      expect "the no-wallpapers state offers no filter action" '""' ipc smoke readDescendant overlay vgs.themes BrowserEmptyState actionText
+    fi
+    expect "the $empty_theme $empty_view empty-state check hides" ok ipc shell hide overlay vgs.themes
+    expect_poll "the $empty_theme $empty_view empty-state check closes" 0 layer_count vgs:overlay
   done
 done
-plugin_restore BrowserPlate.qml "scrim-only empty state"
 # The current text-choice control treats any typed filter as the cause,
 # even on an image-free source. It must fail the same state comparison.
 plugin_control BrowserLogic.js "current empty-state text choice" 'filter !== "" && cards.some(function (card) { return card.kind === "image"; })' 'filter !== ""'
 press_wallpapers || fail "opening the empty-state text-choice control failed"
 expect_poll "the empty-state text-choice control opens" 1 layer_count vgs:overlay
 expect_poll "the empty-state text-choice control read its lists" true wall_value loaded
-empty_unfiltered="$(ipc smoke readDescendant overlay vgs.themes EmptyState text)" || fail "reading the text-choice control line failed"
+empty_unfiltered="$(ipc smoke readDescendant overlay vgs.themes BrowserEmptyState text)" || fail "reading the text-choice control line failed"
 type_keys zzqx || fail "typing the text-choice control filter failed"
 expect_poll "the text-choice control filter is set" '"zzqx"' wall_value filterText
 empty_line_held() {
   local now
-  now="$(ipc smoke readDescendant overlay vgs.themes EmptyState text)" || return
+  now="$(ipc smoke readDescendant overlay vgs.themes BrowserEmptyState text)" || return
   [[ $now == "$empty_unfiltered" ]] && echo held || echo changed
 }
 expect "control: the current text choice changes the no-wallpapers line under a filter" changed empty_line_held
 expect "the empty-state text-choice control hides" ok ipc shell hide overlay vgs.themes
 expect_poll "the empty-state text-choice control closes" 0 layer_count vgs:overlay
 plugin_restore BrowserLogic.js "current empty-state text choice"
-# The origin control preserves the plate and its text but shifts them a
+# The origin control keeps the slot and its text but shifts them a
 # quarter row, so the whole-coordinate assertion must reject it.
-plugin_control BrowserPlate.qml "fractional plate row" 'y: Math.round(origin.y) - origin.y' 'y: Math.round(origin.y) - origin.y + 0.25'
-press_wallpapers || fail "opening the fractional plate row control failed"
-expect_poll "the fractional plate row control opens" 1 layer_count vgs:overlay
-expect_poll "the fractional plate row control read its lists" true wall_value loaded
-geometry expect "control: a fractionally shifted plate fails the whole-row check" fractional-or-no-search-plate browser_plate_origins
-expect "the fractional plate row control hides" ok ipc shell hide overlay vgs.themes
-expect_poll "the fractional plate row control closes" 0 layer_count vgs:overlay
-plugin_restore BrowserPlate.qml "fractional plate row"
+plugin_control BrowserSlot.qml "fractional slot row" 'y: Math.round(origin.y) - origin.y' 'y: Math.round(origin.y) - origin.y + 0.25'
+press_wallpapers || fail "opening the fractional slot row control failed"
+expect_poll "the fractional slot row control opens" 1 layer_count vgs:overlay
+expect_poll "the fractional slot row control read its lists" true wall_value loaded
+geometry expect "control: a fractionally shifted slot fails the whole-row check" fractional-or-no-search-line browser_slot_origins
+expect "the fractional slot row control hides" ok ipc shell hide overlay vgs.themes
+expect_poll "the fractional slot row control closes" 0 layer_count vgs:overlay
+plugin_restore BrowserSlot.qml "fractional slot row"
 expect "vgs applies after the empty-state checks" "ok theme=vgs state=applied shell=applied" vgshell_theme apply vgs
 expect_poll "the shell follows vgs after the empty-state checks" vgs ipc smoke themeName
 rm -r -- "$installed/flexoki-light"

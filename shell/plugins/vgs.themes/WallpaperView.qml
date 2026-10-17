@@ -362,42 +362,68 @@ FocusScope {
                     onCurrentIndexChanged: if (currentIndex !== 1) root.switchRequested(-1)
                 }
 
-                // The scope words side by side, the chosen one brighter. A
-                // MouseArea takes no focus, so the view keeps the keyboard.
+                // The scope line: Apply to: and the scope words with a slash
+                // between them, the chosen word brighter. The label and the
+                // slash take no pointer and draw at `scopeLabelOpacity`, the
+                // words at `scopeOpacity`. A MouseArea takes no focus, so the
+                // view keeps the keyboard.
                 Row {
                     anchors.horizontalCenter: parent.horizontalCenter
                     visible: root.scoped
-                    spacing: Theme.stack.group
+                    spacing: Theme.stack.inline
+
+                    Label {
+                        role: "itemHint"
+                        text: "Apply to:"
+                        color: Theme.carousel.hint
+                        opacity: Theme.carousel.scopeLabelOpacity
+                    }
 
                     Repeater {
                         model: BrowserLogic.SCREEN_SCOPES
-                        // keyboard-path: Alt+M flips the scope as a click does
-                        MouseArea {
-                            id: scopeWord
+
+                        Row {
+                            id: scopeEntry
                             required property var modelData
                             required property int index
-                            width: scopeText.implicitWidth
-                            height: scopeText.implicitHeight
-                            Accessible.role: Accessible.RadioButton
-                            Accessible.name: modelData.label
-                            Accessible.checked: index === root.scopeIndex
-                            hoverEnabled: true
-                            onClicked: root.chooseScope(index)
-                            PointerCursor {}
+                            spacing: Theme.stack.inline
 
-                            // The chosen word also draws at bodyStrong's weight, and
-                            // the other word under the pointer underlined: hintActive
-                            // and hint are both near the same black or white.
                             Label {
-                                id: scopeText
-                                readonly property bool chosen: scopeWord.index === root.scopeIndex
-                                readonly property int weight: chosen ? Theme.text.bodyStrong.weight : typography.weight
+                                visible: scopeEntry.index > 0
                                 role: "itemHint"
-                                text: scopeWord.modelData.label
-                                color: chosen ? Theme.carousel.hintActive : Theme.carousel.hint
-                                font.weight: weight
-                                font.variableAxes: ({ wght: weight })
-                                font.underline: scopeWord.containsMouse && !chosen
+                                text: "/"
+                                color: Theme.carousel.hint
+                                opacity: Theme.carousel.scopeLabelOpacity
+                                Accessible.ignored: true
+                            }
+
+                            // keyboard-path: Alt+M flips the scope as a click does
+                            MouseArea {
+                                id: scopeWord
+                                width: scopeText.implicitWidth
+                                height: scopeText.implicitHeight
+                                opacity: Theme.carousel.scopeOpacity
+                                Accessible.role: Accessible.RadioButton
+                                Accessible.name: scopeEntry.modelData.label
+                                Accessible.checked: scopeEntry.index === root.scopeIndex
+                                hoverEnabled: true
+                                onClicked: root.chooseScope(scopeEntry.index)
+                                PointerCursor {}
+
+                                // The chosen word also draws at bodyStrong's weight, and
+                                // the other word under the pointer underlined: hintActive
+                                // and hint are both near the same black or white.
+                                Label {
+                                    id: scopeText
+                                    readonly property bool chosen: scopeEntry.index === root.scopeIndex
+                                    readonly property int weight: chosen ? Theme.text.bodyStrong.weight : typography.weight
+                                    role: "itemHint"
+                                    text: scopeEntry.modelData.label
+                                    color: chosen ? Theme.carousel.hintActive : Theme.carousel.hint
+                                    font.weight: weight
+                                    font.variableAxes: ({ wght: weight })
+                                    font.underline: scopeWord.containsMouse && !chosen
+                                }
                             }
                         }
                     }
@@ -441,10 +467,8 @@ FocusScope {
                 iconName: root.emptyState.iconName
                 text: root.emptyState.text
                 actionText: root.emptyState.actionText
-                onActivated: {
-                    root.editFilter({ kind: "clear" });
-                    Qt.callLater(root.takeKeys);
-                }
+                // Clear filter takes no focus, so the view keeps the keyboard.
+                onActivated: root.editFilter({ kind: "clear" })
             }
         }
 
@@ -456,59 +480,56 @@ FocusScope {
                 spacing: Theme.stack.group
 
                 // The search line, the hint while no filter is typed and the
-                // typed filter in its place, rests on a solid plate of the
-                // theme's surface, as a failure does: no one colour reads
-                // 4.5:1 on the scrim over both a light and a dark wallpaper.
-                // The plate is as tall for either line, so typing moves
-                // nothing above it. The plate and each item of its line
-                // start on a whole pixel, every width whole: a text at a
-                // fractional x spreads each stem over two columns, so Show
-                // all would read fainter for some typed filters than others.
-                BrowserPlate {
-                    id: searchPlate
+                // typed filter in its place, sits on the scrim as the tabs
+                // and the scope words do: the filter in `carousel.hintActive`
+                // and the rest in `carousel.hint`. The line is as tall for
+                // either, so typing moves nothing above it. The line and
+                // each of its items start on a whole pixel, every width
+                // whole: a text at a fractional x spreads each stem over
+                // two columns, so Show all would read fainter for some typed
+                // filters than others.
+                BrowserSlot {
+                    id: searchSlot
                     x: Math.round((parent.width - width) / 2)
-                    width: searchLine.width + 2 * searchInset.inset
-                    height: Math.max(searchText.height, typed.height, sourceLine.height) + 2 * Theme.surface.padding
-                    radius: Theme.surface.radius
-                    color: Theme.carousel.failurePlate
+                    width: searchLine.width
+                    height: Math.max(searchText.height, typed.height, sourceLine.height)
 
-                    // Each item of the line centres its own ink on the plate,
+                    // Each item of the line centres its own ink on the slot,
                     // never on the Row, whose height follows the taller typed
                     // filter: typing moves neither the divider nor Show all. A
                     // Row sets its children's x alone, so each sets its own y.
                     Row {
                         id: searchLine
-                        x: searchInset.inset
                         spacing: Theme.stack.inline
 
                         Label {
                             id: typed
-                            y: BrowserLogic.inkCentredTop(searchPlate.height, capTop(), lastBaseline())
+                            y: BrowserLogic.inkCentredTop(searchSlot.height, capTop(), lastBaseline())
                             visible: root.filterText !== ""
                             role: "h3"
-                            width: Math.ceil(Math.min(implicitWidth, caption.width - 2 * searchInset.inset - searchDivider.width - sourceLine.width - 2 * searchLine.spacing))
+                            width: Math.ceil(Math.min(implicitWidth, caption.width - searchDivider.width - sourceLine.width - 2 * searchLine.spacing))
                             elide: Text.ElideMiddle
-                            color: Theme.carousel.typed
+                            color: Theme.carousel.hintActive
                             text: root.filterText
                         }
                         Label {
                             id: searchText
-                            y: BrowserLogic.inkCentredTop(searchPlate.height, capTop(), lastBaseline())
+                            y: BrowserLogic.inkCentredTop(searchSlot.height, capTop(), lastBaseline())
                             width: Math.ceil(implicitWidth)
                             visible: root.filterText === ""
                             role: "itemHint"
                             text: "Type a wallpaper or image file name to search"
-                            color: Theme.carousel.searchHint
+                            color: Theme.carousel.hint
                         }
                         // The divider belongs to the source line: it stays
                         // between the typed filter and Show all too.
                         Label {
                             id: searchDivider
-                            y: BrowserLogic.inkCentredTop(searchPlate.height, capTop(), lastBaseline())
+                            y: BrowserLogic.inkCentredTop(searchSlot.height, capTop(), lastBaseline())
                             width: Math.ceil(implicitWidth)
                             role: "itemHint"
                             text: "|"
-                            color: Theme.carousel.searchHint
+                            color: Theme.carousel.hint
                         }
 
                         // The source line names the source a click shows, its eye
@@ -518,7 +539,7 @@ FocusScope {
                         // keyboard-path: Alt+S flips the source as a click does
                         MouseArea {
                             id: sourceLine
-                            y: BrowserLogic.inkCentredTop(searchPlate.height, sourceText.y + sourceText.capTop(), sourceText.y + sourceText.lastBaseline())
+                            y: BrowserLogic.inkCentredTop(searchSlot.height, sourceText.y + sourceText.capTop(), sourceText.y + sourceText.lastBaseline())
                             width: Math.ceil(sourceRow.implicitWidth)
                             height: sourceRow.implicitHeight
                             hoverEnabled: true
@@ -542,20 +563,11 @@ FocusScope {
                                     anchors.verticalCenter: parent.verticalCenter
                                     role: "itemHint"
                                     text: BrowserLogic.WALLPAPER_SOURCES[root.sourceIndex].switchLabel
-                                    color: sourceLine.containsMouse ? Theme.carousel.typed : Theme.carousel.searchHint
+                                    color: sourceLine.containsMouse ? Theme.carousel.hintActive : Theme.carousel.hint
                                     font.underline: sourceLine.containsMouse
                                 }
                             }
                         }
-                    }
-
-                    ClearingInset {
-                        id: searchInset
-                        pad: Theme.surface.padding
-                        radius: searchPlate.radius
-                        width: caption.width
-                        height: searchPlate.height
-                        top: Theme.surface.padding
                     }
                 }
 

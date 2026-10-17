@@ -1,17 +1,15 @@
 import QtQuick
-import qs.Commons
 
-// The layout slot keeps its size and position while the solid plate and
-// its contents move together onto whole screen rows and columns.
+// The layout slot keeps its size and position while its contents move
+// together onto whole screen rows and columns: a text at a fractional
+// position spreads each stem over two pixels and reads fainter.
 Item {
     id: root
 
-    default property alias content: plate.data
-    property alias color: plate.color
-    property alias radius: plate.radius
+    default property alias content: snapped.data
 
-    data: Rectangle {
-        id: plate
+    data: Item {
+        id: snapped
         // Item x/y are relative to the parent (Qt 6 Item documentation).
         // The browser's ancestors, including SummonLayer's host slot, have
         // translation only. Reading each position here keeps the origin
@@ -29,7 +27,5 @@ Item {
         y: Math.round(origin.y) - origin.y
         width: root.width
         height: root.height
-        radius: Theme.surface.radius
-        color: Theme.carousel.failurePlate
     }
 }

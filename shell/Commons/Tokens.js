@@ -994,17 +994,17 @@ var TOKENS = {
     // no wallpaper reaches it. Its words and its leading danger mark draw
     // `hintDanger`: the theme's danger where it reads 4.5:1 on the plate,
     // as in every catalog theme, 4.68:1 or more (the same reading), and the
-    // theme's text colour where it does not. The filter a user typed
-    // rests on a plate of that surface too, since no one colour reads
-    // 4.5:1 on the scrim over both a white and a black wallpaper: nord's
-    // `hintActive` reads 3.91:1 over white (the same reading). It draws
-    // `typed`: the theme's heading colour where it reads 4.5:1 on the
-    // plate, and the theme's text colour where it does not. The search
-    // hint under the rail rests on that plate as well and draws
-    // `searchHint`: the theme's faint text where it reads 4.5:1 there, and
-    // the theme's text colour where it does not. The open tab's
+    // theme's text colour where it does not. The search line, the empty
+    // rail's line and the scope words sit on the scrim with the tabs, by
+    // the owner's choice (Slack 1792263064), though no one colour reads
+    // 4.5:1 there over both a white and a black wallpaper: nord's
+    // `hintActive` reads 3.91:1 over white (the same reading). The scope
+    // line's Apply to: label and its slash draw `hint` at
+    // `scopeLabelOpacity`, and its words at `scopeOpacity`. The open tab's
     // indicator draws `tabIndicator`: the theme's accent where it reads
-    // 3:1 on that backdrop, and `hintActive` where it does not.
+    // 3:1 on that backdrop, and `hintActive` where it does not. A
+    // wallpaper card's name sits `namePadding` from its box's edges, the
+    // owner's 5 px, on `card.background` at `nameFillOpacity`.
     carousel: {
         expandedWidth: length(768),
         expandedHeight: length(476),
@@ -1023,9 +1023,11 @@ var TOKENS = {
         hintActive: color("contrast({carousel.backdrop})"),
         failurePlate: color("alpha({color.surface}, 1)"),
         hintDanger: color("readable({color.danger}, {carousel.failurePlate}, {color.text})"),
-        typed: color("readable({color.textHeading}, {carousel.failurePlate}, {color.text})"),
-        searchHint: color("readable({color.textFaint}, {carousel.failurePlate}, {color.text})"),
         tabIndicator: color("discernible({color.accent}, {carousel.backdrop}, {carousel.hintActive})"),
+        scopeLabelOpacity: share(0.5),
+        scopeOpacity: share(0.75),
+        namePadding: length(5),
+        nameFillOpacity: share(0.5),
         sliceName: {
             role: textRole("h2"),
             inset: length("{space.xxl}"),

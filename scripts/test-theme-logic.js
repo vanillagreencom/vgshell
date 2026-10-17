@@ -370,11 +370,6 @@ const DEFAULTS = [
     ["carousel.hintActive", "#ffffffff"],
     ["carousel.failurePlate", "#0b0b0bff"],
     ["carousel.hintDanger", "#f43f5eff"],
-    // The typed filter rests there too, in the heading colour #ededee.
-    ["carousel.typed", "#ededeeff"],
-    // The search hint rests there in the faint text, mix(#d7d7d9, #000000,
-    // 0.40): 215 * 0.60 = 129, 217 * 0.60 = 130.2.
-    ["carousel.searchHint", "#818182ff"],
     // The accent #ff5a36, luminance 0.288, reads 6.76:1 on black.
     ["carousel.tabIndicator", "#ff5a36ff"],
     // A slice's name: h2, space.xxl 24 up the slice from its bottom edge,
@@ -716,7 +711,7 @@ function verifyReadabilityNotice(judge) {
     const keys = new Set(judge.READABILITY_TEXT_ROLES.concat(judge.READABILITY_SURFACES, judge.BOUNDARY_ROLES,
         judge.RAIL_TEXT_ROLES, judge.RAIL_MARK_ROLES, judge.TOOLTIP_TEXT_ROLES,
         [judge.MODAL_BORDER, judge.MODAL_FILL, judge.MODAL_SCRIM, judge.RAIL_WALLPAPER,
-            judge.FAILURE_LINE, judge.FAILURE_PLATE, judge.TYPED_FILTER, judge.SEARCH_HINT, judge.TOOLTIP_FILL, judge.GLASS_SOLID]));
+            judge.FAILURE_LINE, judge.FAILURE_PLATE, judge.TOOLTIP_FILL, judge.GLASS_SOLID]));
     for (const pair of pairs) for (const key of pair) keys.add(key);
     assert.ok(keys.has("color.textFaint") && keys.has("glass.fill solid"), "label coverage reaches text and glass");
     for (const key of keys) {
@@ -728,7 +723,7 @@ function verifyReadabilityNotice(judge) {
     }
     const roles = Array.from(new Set(judge.READABILITY_TEXT_ROLES.concat(judge.BOUNDARY_ROLES,
         pairs.map(pair => pair[0]), judge.RAIL_TEXT_ROLES, judge.RAIL_MARK_ROLES, judge.TOOLTIP_TEXT_ROLES,
-        [judge.MODAL_BORDER, judge.MODAL_FILL, judge.FAILURE_LINE, judge.TYPED_FILTER, judge.SEARCH_HINT])));
+        [judge.MODAL_BORDER, judge.MODAL_FILL, judge.FAILURE_LINE])));
     const crowded = judge.readabilityNotice(roles.map(text => ({ text, surface: "color.scrim over color.surfaceRaised", ratio: 1.25, floor: 4.5 })));
     assert.ok(crowded.length <= 600, "one notice stays within the notifier's message limit");
     const omitted = /^(\d+)\b/.exec(crowded.split("\n").slice(-1)[0]);
@@ -829,9 +824,7 @@ function verify(judge) {
     // A failure line beside the rail is judged on its plate alone, never
     // on the scrim: latte's danger #f43f5e, forced onto the line, reads
     // 2.94:1 drawn on its surface #e7e9ee and falls under the floor there, and a
-    // translucent plate has no ratio. The typed filter and the search hint
-    // rest on the same plate, where that danger forced onto either reads
-    // the same 2.94:1.
+    // translucent plate has no ratio.
     const plateRows = tokens => {
         const accepted = judge.accept(TOKENS, document(tokens));
         assert.equal(accepted.ok, true, accepted.ok ? "" : judge.refusalLine(accepted));
@@ -840,14 +833,8 @@ function verify(judge) {
     assert.deepEqual(plateRows(LATTE), []);
     assert.deepEqual(plateRows(Object.assign({}, LATTE, { carousel: { hintDanger: "{color.danger}" } })).map(row => [row.text, row.surface, truncateRatio(row.ratio), row.floor]),
         [["carousel.hintDanger", "carousel.failurePlate", 2.94, 4.5]]);
-    assert.deepEqual(plateRows(Object.assign({}, LATTE, { carousel: { typed: "{color.danger}" } })).map(row => [row.text, row.surface, truncateRatio(row.ratio), row.floor]),
-        [["carousel.typed", "carousel.failurePlate", 2.94, 4.5]]);
-    assert.deepEqual(plateRows(Object.assign({}, LATTE, { carousel: { searchHint: "{color.danger}" } })).map(row => [row.text, row.surface, truncateRatio(row.ratio), row.floor]),
-        [["carousel.searchHint", "carousel.failurePlate", 2.94, 4.5]]);
-    assert.deepEqual(plateRows({ carousel: { hintDanger: "{color.danger}", typed: "{color.text}", searchHint: "{color.textFaint}", failurePlate: "alpha({color.surface}, 0.5)" } }), [
-        { text: "carousel.hintDanger", surface: "carousel.failurePlate", ratio: null, floor: 4.5 },
-        { text: "carousel.typed", surface: "carousel.failurePlate", ratio: null, floor: 4.5 },
-        { text: "carousel.searchHint", surface: "carousel.failurePlate", ratio: null, floor: 4.5 }
+    assert.deepEqual(plateRows({ carousel: { hintDanger: "{color.danger}", failurePlate: "alpha({color.surface}, 0.5)" } }), [
+        { text: "carousel.hintDanger", surface: "carousel.failurePlate", ratio: null, floor: 4.5 }
     ]);
     // The open tab's indicator on that backdrop is a mark at 3:1: the
     // theme's accent forced onto it falls under the floor in latte.
@@ -1657,8 +1644,6 @@ function verifyFailureLine(table) {
         const plate = judge.parseColor(at(result.values, "carousel.failurePlate"));
         assert.equal(plate.a, 1, `${name} carousel.failurePlate is solid`);
         assert.ok(judge.contrastRatio(judge.parseColor(at(result.values, "carousel.hintDanger")), plate) >= 4.5, `${name} carousel.hintDanger reads on its plate`);
-        assert.ok(judge.contrastRatio(judge.parseColor(at(result.values, "carousel.typed")), plate) >= 4.5, `${name} carousel.typed reads on its plate`);
-        assert.ok(judge.contrastRatio(judge.parseColor(at(result.values, "carousel.searchHint")), plate) >= 4.5, `${name} carousel.searchHint reads on its plate`);
     }
     const latte = danger => {
         const accepted = judge.accept(table, document({ scheme: { mode: "light" }, palette: { background: "#eff1f5", foreground: "#4c4f69", danger: "#d20f39" }, color: { danger: danger } }));
@@ -1666,8 +1651,6 @@ function verifyFailureLine(table) {
         return accepted.values.carousel.hintDanger;
     };
     assert.equal(judge.defaults(table).values.carousel.hintDanger, "#f43f5eff", "a dark theme whose danger reads keeps it");
-    assert.equal(judge.defaults(table).values.carousel.typed, judge.defaults(table).values.color.textHeading, "a typed filter whose heading colour reads keeps it");
-    assert.equal(judge.defaults(table).values.carousel.searchHint, judge.defaults(table).values.color.textFaint, "a search hint whose faint text reads keeps it");
     assert.equal(latte("{palette.danger}"), "#4c4f69ff", "a danger under the floor on the plate draws the theme's text");
     assert.equal(latte("mix({palette.danger}, contrast({palette.background}), 0.03)"), "#cc0f37ff", "a light theme whose danger reads keeps it");
 }
@@ -1695,28 +1678,17 @@ verifyTabIndicator(TOKENS);
 // theme sheets' to show. The controls are the same source without the
 // plate's fill and without the mark. The mark takes its top from its
 // line's label, whose placement `scripts/qml-tests/tst_label.qml` holds;
-// the control is the line-box placement. The typed filter rests on a
-// plate of the same fill in `carousel.typed`; its control is the same
-// source with the line in its role's own colour. The search hint, which
-// the filter takes the place of, rests on that plate in
-// `carousel.searchHint`, with the same control.
+// the control is the line-box placement.
 const FAILURE_LINE = /Rectangle \{[^{}]*color: Theme\.carousel\.failurePlate[^{}]*Row \{[^{}]*Icon \{[^{}]*name: "circle-alert"[^{}]*\}\s*Label \{[^{}]*color: Theme\.carousel\.hintDanger/;
 const FAILURE_MARK = /Icon \{[^{}]*name: "circle-alert"[^{}]*\}/;
 const FAILURE_MARK_TOP = /Icon \{[^{}]*y: failureText\.topForLeadingIcon\(height\)[^{}]*name: "circle-alert"/;
-const TYPED_FILTER = /BrowserPlate \{[^{}]*color: Theme\.carousel\.failurePlate[^{}]*(?:Row \{[^{}]*)?Label \{[^{}]*color: Theme\.carousel\.typed[^{}]*text: root\.filterText/;
-const SEARCH_HINT = /BrowserPlate \{[^{}]*color: Theme\.carousel\.failurePlate[^{}]*(?:Row \{[^{}]*)?(?:Label \{[^{}]*\}[^{}]*)?Label \{[^{}]*text: "Type a [^"]* to search[^"]*"[^{}]*color: Theme\.carousel\.searchHint/;
 for (const view of ["ThemeView.qml", "WallpaperView.qml"]) {
     const viewSource = fs.readFileSync(path.join(repo, "shell/plugins/vgs.themes", view), "utf8");
     assert.equal(viewSource.split("Theme.carousel.hintDanger").length, 2, `${view} draws one failure line`);
     assert.match(viewSource, FAILURE_LINE, `${view} leads its failure line with the danger mark`);
     assert.doesNotMatch(viewSource.replace(FAILURE_MARK, ""), FAILURE_LINE, `control: ${view} without the mark must fail the check`);
-    assert.equal(viewSource.split("color: Theme.carousel.failurePlate").length, 3, `${view} fills its search line's plate and its failure plate`);
+    assert.equal(viewSource.split("color: Theme.carousel.failurePlate").length, 2, `${view} fills its failure plate`);
     assert.doesNotMatch(viewSource.replaceAll("color: Theme.carousel.failurePlate", "color: Theme.carousel.backdrop"), FAILURE_LINE, `control: ${view} without the plate's fill must fail the check`);
-    assert.match(viewSource, TYPED_FILTER, `${view} rests its typed filter on the plate`);
-    assert.doesNotMatch(viewSource.replace("color: Theme.carousel.typed\n", ""), TYPED_FILTER, `control: ${view} with the filter in its role's colour must fail the check`);
-    assert.match(viewSource, SEARCH_HINT, `${view} rests its search hint on the plate`);
-    assert.doesNotMatch(viewSource.replace("color: Theme.carousel.searchHint\n", ""), SEARCH_HINT, `control: ${view} with the hint in its role's colour must fail the check`);
-    assert.doesNotMatch(viewSource.replaceAll("color: Theme.carousel.failurePlate", "color: Theme.carousel.backdrop"), SEARCH_HINT, `control: ${view} with the hint on the scrim must fail the check`);
     assert.match(viewSource, FAILURE_MARK_TOP, `${view} centres the mark on its line's leading icon centre`);
     assert.doesNotMatch(viewSource.replace("failureText.topForLeadingIcon(height)", "Math.round((failureText.lineBox - height) / 2)"), FAILURE_MARK_TOP, `control: ${view} with the mark on the line box must fail the check`);
 }
@@ -1841,8 +1813,6 @@ const TOKEN_CONTROLS = [
     ["failure plate on the rail backdrop", 'failurePlate: color("alpha({color.surface}, 1)")', 'failurePlate: color("{carousel.backdrop}")', verifyFailureLine],
     ["open tab indicator forced to the accent", 'tabIndicator: color("discernible({color.accent}, {carousel.backdrop}, {carousel.hintActive})")', 'tabIndicator: color("{color.accent}")', verifyTabIndicator],
     ["open tab indicator without its accent", 'tabIndicator: color("discernible({color.accent}, {carousel.backdrop}, {carousel.hintActive})")', 'tabIndicator: color("{carousel.hintActive}")', verifyTabIndicator],
-    ["typed filter in the rail's colour", 'typed: color("readable({color.textHeading}, {carousel.failurePlate}, {color.text})")', 'typed: color("{carousel.backdrop}")', verifyFailureLine],
-    ["search hint in the rail's hint colour", 'searchHint: color("readable({color.textFaint}, {carousel.failurePlate}, {color.text})")', 'searchHint: color("{carousel.hint}")', verifyFailureLine],
     ["failure line without its danger", 'hintDanger: color("readable({color.danger}, {carousel.failurePlate}, {color.text})")', 'hintDanger: color("{color.text}")', verifyFailureLine]
 ];
 fs.mkdirSync(path.join(repo, "tmp"), { recursive: true });
@@ -2228,6 +2198,7 @@ const GRID_EXCEPTIONS = [
     [/^(space\.xxs|segmented\.padding|segmented\.gap|toggle\.inset|focusRing\.offset|scrollArea\.barInset|titleButton\.underlineGap|rowAction\.underlineGap|carousel\.sliceName\.shadowOffset)$/, "2 px steps inside one component"],
     [/^textField\.paddingX$/, "optical insets inside one component"],
     [/^(space\.sm|badge\.size\.sm\.paddingX|kbd\.paddingX|tooltip\.paddingY)$/, "6 px padding inside a chip, a key cap or a tooltip"],
+    [/^carousel\.namePadding$/, "the owner's 5 px wallpaper name padding"],
     [/^bar\.spacer\.(gap|inset)$/, "the owner's bar gap and separator room"],
     [/^motion\./, "motion distances"],
     [/\.blur$/, "blur radii"]

@@ -197,7 +197,7 @@ function railKey(key, generation) {
     return JSON.stringify([generation, key]);
 }
 
-// The top, from a plate's top, of a line whose ink is centred on a plate
+// The top, from a box's top, of a line whose ink is centred in that box,
 // BOX high: its ink runs from the first line's capital top, CAPTOP under
 // the line's top, to the last line's baseline, BASELINE under it. A line
 // box holds the descent too, so its own centre is under the capitals.

@@ -730,7 +730,7 @@ f share/vgshell/shell/plugins/vgs.themes/Browser.qml
 f share/vgshell/shell/plugins/vgs.themes/BrowserData.qml
 f share/vgshell/shell/plugins/vgs.themes/BrowserEmptyState.qml
 f share/vgshell/shell/plugins/vgs.themes/BrowserLogic.js
-f share/vgshell/shell/plugins/vgs.themes/BrowserPlate.qml
+f share/vgshell/shell/plugins/vgs.themes/BrowserSlot.qml
 f share/vgshell/shell/plugins/vgs.themes/Files.js
 f share/vgshell/shell/plugins/vgs.themes/Service.qml
 f share/vgshell/shell/plugins/vgs.themes/SetupLogic.js

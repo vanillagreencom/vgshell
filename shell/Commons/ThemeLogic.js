@@ -274,8 +274,6 @@ function readabilityWeights(values) {
         "carousel.hint": ["text.itemHint.weight", "text.h3.weight"],
         "carousel.hintActive": ["text.itemHint.weight", "text.h3.weight", "text.display.weight", "text.bodyStrong.weight"],
         "carousel.hintDanger": ["text.body.weight"],
-        "carousel.typed": ["text.h3.weight", "text.itemHint.weight"],
-        "carousel.searchHint": ["text.itemHint.weight"],
         "tooltip.foreground": ["text.tooltip.weight"],
         "tooltip.detail": ["text.itemHint.weight"]
     };
@@ -340,10 +338,6 @@ var RAIL_WALLPAPER = "#000000";
 // plate alone, which must be solid.
 var FAILURE_LINE = "carousel.hintDanger";
 var FAILURE_PLATE = "carousel.failurePlate";
-// The filter a user typed and the search hint rest on plates of the same
-// fill, judged there.
-var TYPED_FILTER = "carousel.typed";
-var SEARCH_HINT = "carousel.searchHint";
 // A tooltip's title and detail lines, on its fill without glass and on
 // the fill solid glass draws under it (Theme.glassSolid), which VGlass
 // lifts toward white: that lifted fill is named GLASS_SOLID.
@@ -371,7 +365,6 @@ var READABILITY_NAMES = {
     "dialog.background": "Dialog background", "color.scrim": "the dimmed background",
     "carousel.hint": "Theme browser hints", "carousel.hintActive": "Selected theme text",
     "carousel.tabIndicator": "Theme browser tab mark", "carousel.hintDanger": "Theme browser errors",
-    "carousel.typed": "Theme search text", "carousel.searchHint": "Theme search hint",
     "carousel.failurePlate": "the theme browser message background", "tooltip.foreground": "Tooltip text",
     "tooltip.detail": "Tooltip details", "tooltip.background": "tooltip backgrounds",
     "glass.fill solid": "glass panel backgrounds", "#000000": "black wallpaper"
@@ -468,8 +461,6 @@ function readabilityShortfalls(values, glass) {
     for (var x = 0; x < RAIL_MARK_ROLES.length; x++)
         pairs.push([RAIL_MARK_ROLES[x], MODAL_SCRIM, BOUNDARY_FLOOR, RAIL_WALLPAPER]);
     pairs.push([FAILURE_LINE, FAILURE_PLATE, READABILITY_FLOOR]);
-    pairs.push([TYPED_FILTER, FAILURE_PLATE, READABILITY_FLOOR]);
-    pairs.push([SEARCH_HINT, FAILURE_PLATE, READABILITY_FLOOR]);
     for (var t = 0; t < TOOLTIP_TEXT_ROLES.length; t++) {
         pairs.push([TOOLTIP_TEXT_ROLES[t], TOOLTIP_FILL, READABILITY_FLOOR]);
         pairs.push([TOOLTIP_TEXT_ROLES[t], GLASS_SOLID, READABILITY_FLOOR]);

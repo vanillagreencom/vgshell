@@ -114,22 +114,37 @@ Item {
         onStatusChanged: if (status === Image.Error) console.warn("themes: wallpaper card image unreadable path=" + root.modelData.path)
     }
 
-    Rectangle {
+    // The image's name in a box `carousel.namePadding` from its ink on every
+    // side. The box is the capitals' height plus that padding above and
+    // below, and the capitals start that padding under its top: the
+    // label's line box holds leading above the capitals and the descent
+    // below them, so centring the line box would set the name low. The
+    // box fills with the card background at `carousel.nameFillOpacity`,
+    // has no border, and rounds its corners by the Corner radius a user
+    // sets for controls on the UI page (APPEARANCE.controlRadius in
+    // ThemeLogic sets `button.radius`), square at 0.
+    Item {
+        id: nameBox
+        readonly property real pad: Theme.carousel.namePadding
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
         anchors.bottomMargin: Theme.card.padding
-        width: Math.min(parent.width - 2 * Theme.angledCard.skew, nameLabel.implicitWidth + 2 * Theme.card.padding)
-        height: nameLabel.implicitHeight + 2 * Theme.card.padding
+        width: Math.min(parent.width - 2 * Theme.angledCard.skew, Math.ceil(nameLabel.implicitWidth) + 2 * pad)
+        height: Math.round(nameLabel.lastBaseline() - nameLabel.capTop()) + 2 * pad
         visible: root.named
-        color: Theme.card.background
-        border.color: Theme.card.border
-        border.width: Theme.card.borderWidth
-        radius: Theme.card.radius
+
+        Rectangle {
+            anchors.fill: parent
+            color: Theme.card.background
+            opacity: Theme.carousel.nameFillOpacity
+            radius: Theme.button.radius
+        }
 
         Label {
             id: nameLabel
-            anchors.centerIn: parent
-            width: parent.width - 2 * Theme.card.padding
+            x: nameBox.pad
+            y: Math.round(nameBox.pad - capTop())
+            width: parent.width - 2 * nameBox.pad
             role: "bodyStrong"
             horizontalAlignment: Text.AlignHCenter
             elide: Text.ElideRight
