@@ -21,7 +21,7 @@
   ],
   "systemSteps": ["service-cups"],
   "status": {
-    "printing": {"type": "state", "label": "Printing", "hint": "Starts the printing service through the system setup", "action": {"label": "Turn on printing", "system": "service-cups"}, "setup": true},
+    "printing": {"type": "state", "label": "Printing", "hint": "Printing must be on to use printers", "action": {"label": "Turn on printing", "system": "service-cups"}, "setup": true},
     "printers": {"type": "data", "label": "Printers"}
   }
 }

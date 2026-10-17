@@ -454,20 +454,28 @@ function addressDevice(text) {
 
 // --- what the screens draw ----------------------------------------------
 
-// The status `printing`, the Settings page's line, from READING,
-// lpstatReading's answer or { state: "unread" }, CUPSMISSING, whether the
-// scan found a command of CUPS_COMMANDS missing, and STEP, the service-cups
-// system step's state or "": { tone, text }, with `action` true while the
-// entry's Turn on printing applies. Printing that is not installed offers
-// no step: the page's Requirements section installs it.
+// The status `printing`, the Setup step, from READING, lpstatReading's
+// answer or { state: "unread" }, CUPSMISSING, whether the scan found a
+// command of CUPS_COMMANDS missing, and STEP, the service-cups system
+// step's state or "". Printing that is not installed reads To do with a
+// hint that links the Details tab, whose Tools section installs the
+// optional CUPS commands. Printing that is off offers Turn on printing
+// (`action`) while the step applies. Where the user cannot act, the value
+// is `available: false` with a hint that says why: an administrator
+// masked cups.service (step denied), the step could not be checked, or
+// the printers could not be read.
 function printingView(reading, cupsMissing, step) {
-    if (cupsMissing) return { tone: "warning", text: "Printing is not installed." };
+    if (cupsMissing) return { tone: "warning", text: "Printing is not installed.", hint: "[Install printing](page:vgs.printers/Details) to use printers" };
     switch (reading.state) {
     case "unread": return { tone: "info", text: "Reading printers" };
     case "down":
         if (step === "needed" || step === "nixos") return { tone: "warning", text: "Printing is off.", action: true };
-        return { tone: "warning", text: "Printing is off." };
-    case "failed": return { tone: "danger", text: "VGS could not read the printers." };
+        if (step === "denied") return { tone: "warning", text: "Turned off", available: false,
+            hint: "An administrator turned printing off on this computer. It stays off until they turn it back on." };
+        return { tone: "warning", text: "Printing is off.", available: false,
+            hint: "VGS could not check printing. Turn Printers off and on to check again." };
+    case "failed": return { tone: "danger", text: "Reading printers failed.", available: false,
+        hint: "VGS could not read your printers. Turn Printers off and on to try again." };
     case "read":
         var count = reading.printers.length;
         return { tone: "ok", text: count === 0 ? "No printers" : count === 1 ? "1 printer" : count + " printers" };

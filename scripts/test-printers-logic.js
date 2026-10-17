@@ -214,21 +214,46 @@ function suite(logic) {
         ["printer.local/a\tb", { ok: false, problem: "address" }]
     ]) assert.deepEqual(plain(logic.addressDevice(text)), want, JSON.stringify(text));
 
-    // The Settings page's line: the step's action only while printing is
-    // off and the step applies.
+    // The Setup step `printing`: To do with Turn on printing while the step
+    // applies, To do with a link to the Details tab's install while CUPS is
+    // missing, Not available (`available: false`) wherever the user cannot
+    // act, each with its own hint, which the status judge requires
+    // (PluginLogic.statusDeclarationFits).
     const read = n => ({ state: "read", printers: Array.from({ length: n }, (_, i) => ({ name: "P" + i })) });
+    for (const [name, reading, step, want] of [
+        ["no printer", read(0), "ready", { tone: "ok", text: "No printers" }],
+        ["one printer", read(1), "ready", { tone: "ok", text: "1 printer" }],
+        ["two printers", read(2), "ready", { tone: "ok", text: "2 printers" }]
+    ]) assert.deepEqual(plain(logic.printingView(reading, false, step)), want, name);
+    const INSTALL = "page:vgs.printers/Details";
+    const shape = value => ({
+        available: value.available !== false,
+        tone: value.tone,
+        action: value.action === undefined ? "none" : value.action === true ? "declared" : "other",
+        link: (/\]\((page:[^)]*)\)/.exec(value.hint ?? "") ?? [null, null])[1]
+    });
+    const todo = (tone, action, link) => ({ available: true, tone, action, link });
+    const unavailable = tone => ({ available: false, tone, action: "none", link: null });
+    const down = { state: "down" };
+    const failed = { state: "failed", reason: "line" };
     for (const [name, reading, missing, step, want] of [
-        ["unread", { state: "unread" }, false, "", { tone: "info", text: "Reading printers" }],
-        ["no printer", read(0), false, "ready", { tone: "ok", text: "No printers" }],
-        ["one printer", read(1), false, "ready", { tone: "ok", text: "1 printer" }],
-        ["two printers", read(2), false, "ready", { tone: "ok", text: "2 printers" }],
-        ["off, step needed", { state: "down" }, false, "needed", { tone: "warning", text: "Printing is off.", action: true }],
-        ["off, on NixOS", { state: "down" }, false, "nixos", { tone: "warning", text: "Printing is off.", action: true }],
-        ["off, step ready", { state: "down" }, false, "ready", { tone: "warning", text: "Printing is off." }],
-        ["off, step denied", { state: "down" }, false, "denied", { tone: "warning", text: "Printing is off." }],
-        ["failed", { state: "failed", reason: "line" }, false, "needed", { tone: "danger", text: "VGS could not read the printers." }],
-        ["not installed offers no step", { state: "unread" }, true, "needed", { tone: "warning", text: "Printing is not installed." }]
-    ]) assert.deepEqual(plain(logic.printingView(reading, missing, step)), want, name);
+        ["unread", { state: "unread" }, false, "", todo("info", "none", null)],
+        ["read", read(1), false, "ready", todo("ok", "none", null)],
+        ["not installed links the install", { state: "unread" }, true, "needed", todo("warning", "none", INSTALL)],
+        ["not installed, printing off", down, true, "denied", todo("warning", "none", INSTALL)],
+        ["off, step needed", down, false, "needed", todo("warning", "declared", null)],
+        ["off, on NixOS", down, false, "nixos", todo("warning", "declared", null)],
+        ["off, step denied", down, false, "denied", unavailable("warning")],
+        ["off, step unknown", down, false, "unknown", unavailable("warning")],
+        ["off, step absent", down, false, "absent", unavailable("warning")],
+        ["off, step ready", down, false, "ready", unavailable("warning")],
+        ["off, step unread", down, false, "", unavailable("warning")],
+        ["failed", failed, false, "needed", unavailable("danger")]
+    ]) {
+        const value = plain(logic.printingView(reading, missing, step));
+        assert.deepEqual(shape(value), want, name);
+        if (value.available === false) assert.ok(typeof value.hint === "string" && value.hint !== "", name + " says why");
+    }
     assert.throws(() => logic.printingView({ state: "other" }, false, ""), /reading state "other"/);
 
     const rows = logic.printerRows(logic.withDefault(logic.lpstatReading(0, busy), "Lab").printers);
@@ -262,7 +287,9 @@ try {
         ["the default marks no printer", "isDefault: p.name === name,", "isDefault: false,"],
         ["a refusal past PrinterAdd says nothing changed", 'next.problem = op.kind === "add" && op.index > 0 ? "added-stopped" : reply.problem;', "next.problem = reply.problem;"],
         ["a found device a printer uses is shown", "return devices.filter(function (d) { return !printers.some(function (p) { return p.uri === d.uri; }); });", "return devices;"],
-        ["printing that is not installed reads as such", 'if (cupsMissing) return { tone: "warning", text: "Printing is not installed." };', ""],
+        ["printing that is not installed reads as such", "    if (cupsMissing) return", "    if (false) return"],
+        ["printing an administrator turned off reads To do", 'text: "Turned off", available: false,', 'text: "Turned off",'],
+        ["a step that is not available gives no reason", 'available: false,\n        hint: "VGS could not read your printers. Turn Printers off and on to try again." };', "available: false };"],
         ["a refused prompt reads as a plain failure", '{ kind: "refused", pattern:', '{ kind: "failed", pattern:'],
         ["a string argument goes unquoted", "function quoted(s) { return \"'\" +", "function quoted(s) { return \"\" + String(s); return \"'\" +"],
         ["a new queue is left stopped", '        helperArgv("PrinterSetEnabled", [quoted(name), "true"]),\n', ""],
