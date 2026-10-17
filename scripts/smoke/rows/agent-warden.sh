@@ -361,7 +361,7 @@ rm -- "${info_control_dir:?}/InfoButtonControl.qml" "${info_control_dir:?}/InfoB
 settings_setup
 expect_poll "Tools reads Done when every required tool is installed" '[[["Done", "success"]], ["Every required tool is installed"], []]' warden_tools_drawn
 expect "the healthy page draws no Show command anywhere" true no_show_command
-expected_errors+=('settings: vgs\.agent-warden refused: requirements=vgs\.agent-warden reason=satisfied')
+expected_errors+=('settings: vgs\.agent-warden/action:tools refused: requirements=vgs\.agent-warden reason=satisfied')
 expect "the manager refuses Install all missing with nothing missing" "refused: requirements=vgs.agent-warden reason=satisfied" ipc smoke invokeInstance window vgs.settings installRequirements vgs.agent-warden
 expect "the refused Install all missing raised no notice" null notice_shown
 settings_page_close vgs.agent-warden
