@@ -120,7 +120,8 @@ try {
     const mutant = source.replace(needle, "");
     assert.notEqual(mutant, source);
     fs.writeFileSync(judge, mutant);
-    assert.throws(() => assert.deepEqual(readBtopWiring(), []), { name: "AssertionError" });
+    const mutantRows = readBtopWiring();
+    assert.throws(() => assert.deepEqual(mutantRows, []), { name: "AssertionError" });
 } finally {
     fs.rmSync(btopScratch, { recursive: true, force: true });
 }

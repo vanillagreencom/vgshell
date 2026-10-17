@@ -75,14 +75,15 @@ all_state() { # WANT: every tool target's state and reason, one "name state reas
 all_written="btop written None;equibop written None;obsidian written None;oh-my-posh written None;tmux written None;vencord written None;vesktop written None;"
 
 # The configuration home holds the user's own files beside each wiring:
-# btop.conf, which apply never edits, a theme of the user's in Equibop's
+# btop.conf, whose selection alone apply edits, a theme of the user's in Equibop's
 # themes directory, a tmux.conf, and an Obsidian registry listing a vault
 # with .obsidian, a second one, a vault that is gone, one never opened,
 # which has no .obsidian, and a relative path.
 cfg="$tmp/cfg-tools"; vaults="$tmp/vaults"
 mkdir -p "$cfg/vgshell" "$cfg/btop" "$cfg/equibop/themes" "$cfg/tmux" "$cfg/obsidian" \
   "$vaults/notes/.obsidian/themes" "$vaults/work/.obsidian" "$vaults/fresh"
-printf 'color_theme = "vgs"\nupdate_ms = 1000\n' >"$cfg/btop/btop.conf"
+printf '# owner settings\ncolor_theme = "Default" # choice\nupdate_ms = 1000\n' >"$cfg/btop/btop.conf"
+printf '# owner settings\ncolor_theme = "vgs" # choice\nupdate_ms = 1000\n' >"$tmp/btop-selected.conf"
 printf '/** @name mine */\n' >"$cfg/equibop/themes/mine.css"
 printf 'set -g mouse on\n' >"$cfg/tmux/tmux.conf"
 registry() { # VAULT_PATH...: an obsidian.json listing each
@@ -91,7 +92,6 @@ registry() { # VAULT_PATH...: an obsidian.json listing each
   printf '{"vaults":{%s}}\n' "$body" >"$cfg/obsidian/obsidian.json"
 }
 registry "$vaults/notes" "$vaults/work" "$vaults/gone" "$vaults/fresh" "Notes"
-cp -R -- "$cfg/btop" "$tmp/"
 notes_theme="$vaults/notes/.obsidian/themes/vgs"; work_theme="$vaults/work/.obsidian/themes/vgs"
 
 : >"$signals"; : >"$tmux_calls"
@@ -132,7 +132,7 @@ check "Equibop's theme link stands beside the user's theme" links_to "$cfg/equib
 check "the user's Equibop theme stays" test "$(cat "$cfg/equibop/themes/mine.css")" == '/** @name mine */'
 check "Vencord's theme link stands in its themes directory" links_to "$cfg/Vencord/themes/vgs.css" "$live/vencord.css"
 check "btop's theme link stands in its themes directory" links_to "$cfg/btop/themes/vgs.theme" "$live/btop.theme"
-check "btop.conf is left byte for byte" cmp -s "$tmp/btop/btop.conf" "$cfg/btop/btop.conf"
+check "btop selects vgs and keeps every other byte" cmp -s "$tmp/btop-selected.conf" "$cfg/btop/btop.conf"
 check "Oh My Posh's config link stands in its directory" links_to "$cfg/oh-my-posh/vgs.omp.json" "$live/oh-my-posh.json"
 check "tmux.conf takes the source-file line last and keeps its own text" test "$(cat "$cfg/tmux/tmux.conf")" == $'set -g mouse on\n'"source-file -q '$live/tmux.conf'"
 check "each opened vault takes the theme's two links" test "$(links_to "$notes_theme/theme.css" "$live/obsidian.css" && links_to "$notes_theme/manifest.json" "$live/obsidian.manifest.json" && links_to "$work_theme/theme.css" "$live/obsidian.css" && echo yes)" == yes
@@ -146,7 +146,8 @@ check "with no tmux server the hook only probes" calls_are "$tmux_calls" "list-s
 
 # Changed bytes touch the three Discord links, which their clients' watch of
 # the themes directory sees, and source the theme into a running tmux
-# server; unchanged bytes touch, signal and source nothing.
+# server. A selection-only btop repair still reloads its settings; unchanged
+# Discord and tmux files need no reload.
 discord_links=("$cfg/vesktop/themes/vgs.css" "$cfg/equibop/themes/vgs.css" "$cfg/Vencord/themes/vgs.css")
 touch -h -d @1000 -- "${discord_links[@]}"
 : >"$signals"; : >"$tmux_calls"; : >"$tmp/tmux-server"
@@ -158,9 +159,12 @@ check "a changed theme signals btop again" calls_are "$signals" "-USR2 -x -u $ui
 check "a running tmux server sources the theme file" calls_are "$tmux_calls" "list-sessions"$'\n'"source-file -q $live/tmux.conf"
 touch -h -d @1000 -- "${discord_links[@]}"
 : >"$signals"; : >"$tmux_calls"
-apply_json "an unchanged theme reloads nothing" 0 nord
+printf '# owner settings\ncolor_theme = "Default" # choice\nupdate_ms = 1000\n' >"$cfg/btop/btop.conf"
+apply_json "an unchanged theme repairs btop's selection and reloads it" 0 nord
+check "a selection-only repair keeps every other btop setting" cmp -s "$tmp/btop-selected.conf" "$cfg/btop/btop.conf"
 check "unchanged bytes touch no Discord link" test "$(link_time "${discord_links[@]}")" == "1000 1000 1000 "
-check "unchanged bytes signal and source nothing" test ! -s "$signals" -a ! -s "$tmux_calls"
+check "a selection-only repair signals btop" calls_are "$signals" "-USR2 -x -u $uid btop"
+check "unchanged bytes source nothing in tmux" test ! -s "$tmux_calls"
 
 # A source-file that fails leaves tmux pending, and `vgshell theme reload`
 # sources it again.
