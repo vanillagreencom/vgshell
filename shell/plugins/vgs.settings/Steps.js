@@ -172,12 +172,15 @@ var PRESENCE_WORDS = { present: "Present", absent: "Absent", locked: "Locked", u
 // label and the row's, as its tooltip and accessible name name the row.
 // ADD is the line action under the list (lineAction): while the plugin is
 // on, the entry's action on the whole list, such as Add, once the list is
-// reported; while it is off, Turn on for a list the user changes through
-// an action, since the core keeps no list of a plugin that is off. TEXT is
+// reported; while it is off, Turn on for a Details list the user changes
+// through an action, since the core keeps no list of a plugin that is off.
+// A Settings list offers none: the tab's Enabled switch and its hint are
+// the one Turn on there, as every other Settings row of a plugin that is
+// off adds none of its own. TEXT is
 // "<name> is off" while the plugin is off, "Not reported" while the list
 // is not reported, "None yet" while it is empty, else "".
 function rowsView(entry, plugin) {
-    var add = lineAction(stepButton(entry), entry.action !== null || entry.declaredTuis.length > 0, plugin);
+    var add = lineAction(stepButton(entry), !entry.settings && (entry.action !== null || entry.declaredTuis.length > 0), plugin);
     if (!plugin.enabled) return { rows: [], add: add, text: plugin.name + " is off" };
     if (entry.report !== "reported") return { rows: [], add: add, text: "Not reported" };
     return {

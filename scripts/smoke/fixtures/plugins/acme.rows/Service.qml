@@ -2,6 +2,7 @@ import QtQuick
 // Publishes the fixture's folder pairs as soon as it starts: one that needs
 // the user and two that are up to date, each offering Remove.
 //   invoke set <json>  publishes `pairs` as the list given; answers the reply
+//   invoke clear       publishes `pairs` as an empty list; answers the reply
 Item {
     id: root
     property var shell: null
@@ -17,5 +18,6 @@ Item {
         registered = true;
         shell.status.set("pairs", pairs);
         shell.ipc.handle("set", arg => root.shell.status.set("pairs", JSON.parse(arg)));
+        shell.ipc.handle("clear", () => root.shell.status.set("pairs", []));
     }
 }

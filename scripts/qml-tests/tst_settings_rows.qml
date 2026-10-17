@@ -16,7 +16,8 @@ import "../../shell/plugins/vgs.settings"
 // its own hover, hand, keyboard focus and click, which hands the manager
 // the entry, the row's id and the row action. Add stands under the list
 // and acts on the entry alone. The reply of the list's last press reads
-// under it. While the plugin is off the list says so and offers Turn on.
+// under it. While the plugin is off the list says so, and on Details it
+// offers Turn on.
 // The window's capabilities record each act.
 Item {
     id: root
@@ -30,6 +31,9 @@ Item {
         action: { label: "Add a folder pair", tui: "add" },
         rowActions: { remove: { label: "Remove", tui: "remove", tone: "danger" } } })
     readonly property var factsEntry: ({ type: "rows", label: "Folder pairs", icon: "folder-sync" })
+    // acme.rows's entry with its actions, placed on Details.
+    readonly property var detailsEntry: ({ type: "rows", label: "Folder pairs", icon: "folder-sync",
+        action: { label: "Add a folder pair", tui: "add" }, rowActions: { remove: { label: "Remove", tui: "remove", tone: "danger" } } })
     readonly property var pairs: [
         { id: "documents", label: "Documents", secondary: "Drive/Documents ⇄ ~/Drive/Documents", state: { tone: "warning", text: "1 to review" }, actions: ["remove"] },
         { id: "uploads", label: "Agent uploads", secondary: "Drive/VGS/Uploads ⇄ ~/agents/uploads", state: { tone: "ok", text: "Up to date" }, actions: ["remove"] },
@@ -52,6 +56,7 @@ Item {
             pluginRow("acme.empty", pairsEntry, { pairs: [] }, {}),
             pluginRow("acme.waiting", pairsEntry, {}, {}),
             pluginRow("acme.off", pairsEntry, {}, { enabled: false }),
+            pluginRow("acme.detailsoff", detailsEntry, {}, { enabled: false }),
             pluginRow("acme.facts", factsEntry, { pairs: pairs.map(pair => ({ id: pair.id, label: pair.label, secondary: pair.secondary })) }, {})
         ];
     }
@@ -193,19 +198,23 @@ Item {
         }
 
         function test_an_empty_unreported_or_off_list_says_so_data() {
-            return [{ tag: "empty", id: "acme.empty", text: "None yet", action: "Add a folder pair" },
-                { tag: "unreported", id: "acme.waiting", text: "Not reported", action: "" },
-                { tag: "off", id: "acme.off", text: "acme.off is off", action: "Turn on acme.off" }];
+            // On Settings the Enabled switch is the one Turn on of a plugin
+            // that is off; a Details list offers its own.
+            return [{ tag: "empty", id: "acme.empty", tab: "Settings", text: "None yet", action: "Add a folder pair" },
+                { tag: "unreported", id: "acme.waiting", tab: "Settings", text: "Not reported", action: "" },
+                { tag: "off on Settings", id: "acme.off", tab: "Settings", text: "acme.off is off", action: "" },
+                { tag: "off on Details", id: "acme.detailsoff", tab: "Details", text: "acme.detailsoff is off", action: "Turn on acme.detailsoff" }];
         }
         function test_an_empty_unreported_or_off_list_says_so(data) {
-            const window = opened(data.id, "Settings");
+            const window = opened(data.id, data.tab);
+            compare(pageOf(window).tab, data.tab);
             compare(lines(window).length, 0);
             verify(descendants(listOf(window)).some(item => item instanceof Label && item.visible && item.text === data.text), "the list reads " + data.text);
             const under = descendants(listOf(window)).filter(item => item instanceof RowAction && item.visible).map(action => action.text);
             compare(under, data.action === "" ? [] : [data.action]);
-            if (data.tag !== "off") return;
+            if (data.action.indexOf("Turn on") !== 0) return;
             mouseClick(descendants(listOf(window)).find(item => item instanceof RowAction && item.visible));
-            compare(fakeManager.enables, [["acme.off", true]], "Turn on turns the plugin on");
+            compare(fakeManager.enables, [[data.id, true]], "Turn on turns the plugin on");
         }
 
         function test_a_list_of_facts_stands_on_details() {
