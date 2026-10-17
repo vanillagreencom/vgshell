@@ -574,7 +574,7 @@ mutations=(
   "the Jarvis widget draws an unknown tone|../plugins/vgs.jarvis/Widget.qml|default: throw new Error(\"jarvis widget: tone \"|default: return Theme.bar.foreground; throw new Error(\"jarvis widget: tone \"|tst_jarvis_widget.qml"
   "the Jarvis daemon loses the Wayland display|../plugins/vgs.jarvis/Service.qml|            WAYLAND_DISPLAY: Quickshell.env(\"WAYLAND_DISPLAY\"),||tst_jarvis_service.qml"
   "the Jarvis daemon loses the Hyprland session|../plugins/vgs.jarvis/Service.qml|            HYPRLAND_INSTANCE_SIGNATURE: Quickshell.env(\"HYPRLAND_INSTANCE_SIGNATURE\"),||tst_jarvis_service.qml"
-  "a retired Jarvis setup reader throws on its refused write|../plugins/vgs.jarvis/LocalRuntime.qml|written.endsWith(\" reason=retired\")) return;|false) return;|tst_jarvis_local_runtime.qml"
+  "a retired Jarvis setup reader throws on its refused write|../plugins/vgs.jarvis/LocalRuntime.qml|if (written.endsWith(\" reason=retired\")) return false;||tst_jarvis_local_runtime.qml"
   "the body's room ignores the footer|layout/Pane.qml| - headerHeight - footerHeight - | - headerHeight - |tst_pane.qml"
   "an overlay pane takes the panel inset|layout/Pane.qml|case \"overlay\": return Theme.inset.overlay;|case \"overlay\": return Theme.surface.padding;|tst_pane.qml"
   "an overlay pane clears a corner it does not draw|layout/Pane.qml|case \"overlay\": return 0;|case \"overlay\": return Theme.surface.radius;|tst_pane.qml"

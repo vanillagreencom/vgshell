@@ -7,8 +7,8 @@ import "SetupGate.js" as Gate
 // triggers a fresh check. While the last scan misses a command of `requires`,
 // the published value withholds the setup step (SetupGate.setupValue). A
 // reader's `shape` turns that value into the one it publishes. Each
-// published check emits `refreshed`; `republish` shapes the last check again
-// and emits nothing.
+// published check of a live reader emits `refreshed`; `republish` shapes
+// the last check again and emits nothing.
 Item {
     id: root
     property var shell: null
@@ -58,24 +58,28 @@ Item {
             return Gate.checkFailure("unreadable", entry);
         }
     }
+    // A retired reader emits no `refreshed`: its handlers would write
+    // status for an instance the core already refuses.
     function publish() {
         reading = Gate.setupValue(checked(), requires, shell.requirements.missing);
-        republish();
-        refreshed();
+        if (republish()) refreshed();
     }
     // Publishes the last check through `shape`, also for a shape whose
     // other input changed; it emits no `refreshed`. A value the status
     // judge refuses is published as an unreadable check. A probe can end
     // after a disable or a rescan retired this instance; the core is about
     // to destroy it and refuses its write (PluginStatus.set), so the write
-    // ends there. The fallback runs in the same call, so it is never retired.
+    // ends there and the call returns false. Otherwise it returns true. The
+    // fallback runs in the same call, so it is never retired.
     function republish() {
-        if (reading === null) return;
+        if (reading === null) return true;
         const written = shell.status.set(statusKey, shape(reading));
-        if (written === "ok" || written.endsWith(" reason=retired")) return;
+        if (written.endsWith(" reason=retired")) return false;
+        if (written === "ok") return true;
         reading = Gate.setupValue(Gate.checkFailure("unreadable", shell.manifest.status[statusKey]), requires, shell.requirements.missing);
         const reply = shell.status.set(statusKey, shape(reading));
         if (reply !== "ok") throw new Error("jarvis-setup: " + reply);
+        return true;
     }
     Process {
         id: probe

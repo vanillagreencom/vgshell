@@ -9,7 +9,8 @@ import "../../shell/plugins/vgs.jarvis/SetupGate.js" as Gate
 // The core refuses every write of an instance a disable or a rescan
 // retired (PluginStatus.set), and a probe that ends after that retirement
 // still publishes. Each case calls `publish`, the function the probe's end
-// calls, so a thrown error reaches the case instead of the shell log.
+// calls, so a thrown error reaches the case instead of the shell log, and
+// counts `refreshed`, whose handlers in Service.qml write status again.
 Item {
     id: top
 
@@ -21,6 +22,7 @@ Item {
 
             property var replies: []
             property var writes: []
+            property int refreshes: 0
 
             statusKey: "setupFleet"
             tuiName: "setup-fleet"
@@ -37,6 +39,8 @@ Item {
                 replies = replies.slice(1);
                 return reply;
             }
+
+            onRefreshed: refreshes += 1
         }
     }
 
@@ -44,17 +48,18 @@ Item {
         name: "jarvisLocalRuntime"
 
         // Each row: the replies the core gives in order, the check
-        // failure kind of each value the reader writes, and the key of the
-        // error it throws, or "" for none. The probe stand-in runs nothing,
-        // so every check reads as `failed`.
+        // failure kind of each value the reader writes, the key of the
+        // error it throws, or "" for none, and whether it emits
+        // `refreshed`. The probe stand-in runs nothing, so every check
+        // reads as `failed`.
         function test_publish_data() {
             const retired = PluginLogic.statusRefusal("setupFleet", "retired");
             const typeRefused = PluginLogic.statusRefusal("setupFleet", "type");
             return [
-                { tag: "accepted", replies: ["ok"], written: ["failed"], thrown: "" },
-                { tag: "retired instance", replies: [retired], written: ["failed"], thrown: "" },
-                { tag: "refused value falls back", replies: [typeRefused, "ok"], written: ["failed", "unreadable"], thrown: "" },
-                { tag: "refused fallback", replies: [typeRefused, typeRefused], written: ["failed", "unreadable"], thrown: "jarvis-setup: " + typeRefused }
+                { tag: "accepted", replies: ["ok"], written: ["failed"], thrown: "", refreshes: 1 },
+                { tag: "retired instance", replies: [retired], written: ["failed"], thrown: "", refreshes: 0 },
+                { tag: "refused value falls back", replies: [typeRefused, "ok"], written: ["failed", "unreadable"], thrown: "", refreshes: 1 },
+                { tag: "refused fallback", replies: [typeRefused, typeRefused], written: ["failed", "unreadable"], thrown: "jarvis-setup: " + typeRefused, refreshes: 0 }
             ];
         }
 
@@ -71,6 +76,7 @@ Item {
             compare(runtime.writes.map(row => row.key), data.written.map(() => "setupFleet"));
             compare(runtime.writes.map(row => row.value), data.written.map(kind => Gate.checkFailure(kind, runtime.entry)));
             compare(runtime.replies.length, 0, "every queued reply was read");
+            compare(runtime.refreshes, data.refreshes, "refreshed emitted");
         }
     }
 }
