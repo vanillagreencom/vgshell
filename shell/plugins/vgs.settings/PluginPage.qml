@@ -144,15 +144,16 @@ FocusScope {
         }
         throw new Error("settings: action kind " + JSON.stringify(button.kind) + " has no route");
     }
-    // The last refusal of BUTTON's press for ENTRY's line, "" for none: a
-    // screen's and an entry's own are kept by their step key; a Turn on's
-    // and the notice's under the plugin's id, which the page head reads
-    // too, so the pressed line reads it beside its button.
+    // The last refusal of BUTTON's press for ENTRY's line, "" for none,
+    // each read under its action's own step key: a screen's, an entry's,
+    // Turn on's and the notice's. Every Turn on asks the one thing, to turn
+    // the plugin on, so each line offering it reads its refusal, as each
+    // Review reads the notice's; the page head reads those two as well.
     function replyFor(button, entry) {
         if (row === null || panel === null) return "";
         if (button === null) return entry === null ? "" : panel.replyOf(row.id, entry.key);
         if (button.kind === "tui") return panel.replyOf(row.id, panel.tuiKey(button.name));
-        if (button.kind === "enable" || button.kind === "tools") return panel.replyOf(row.id);
+        if (button.kind === "enable" || button.kind === "tools") return panel.replyOf(row.id, panel.actionKey(button.kind));
         return button.kind === "status" && entry !== null ? panel.replyOf(row.id, entry.key) : "";
     }
 
@@ -424,7 +425,7 @@ FocusScope {
 
             Label {
                 role: "hint"
-                text: page.row === null ? "" : page.panel.replyOf(page.row.id)
+                text: page.row === null ? "" : page.panel.headReplies(page.row.id).join("\n")
                 visible: text !== ""
                 color: Theme.color.danger
                 width: parent.width

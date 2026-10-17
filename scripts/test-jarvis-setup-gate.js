@@ -1869,6 +1869,9 @@ const CONTROLS = [
         "keeps the summary and its caution"],
     ["the session's fault runs on from the summary's caution", 'hint: setup.hint === undefined ? fault : joinedHint([setup.hint, fault])', 'hint: setup.hint === undefined ? fault : setup.hint + " " + fault', "keeps the summary and its caution"],
     ["a summary that is not ready names the session", 'if (setup.tone !== "ok" || !', "if (!", "the summary is readiness's own"],
+    ["the session warning links Settings", "cannot start: see [Jarvis session under Home on the Details tab](page:vgs.jarvis/Details)",
+        "cannot start: see [Jarvis session under Home on the Details tab](page:vgs.jarvis/Settings)", "the session hint links Details"],
+    ["the missing tmux hint links Settings", 'under Tools](page:vgs.jarvis/Details)" }', 'under Tools](page:vgs.jarvis/Settings)" }', "the session hint links Details"],
     ["a one-sentence hint ends with a full stop", 'hint: "A preview of the Realtime voice may cost money", action: true }', 'hint: "A preview of the Realtime voice may cost money.", action: true }',
         "ends as the copy rule says"],
     ["a longer hint leaves its last full stop off", 'Open Accounts to check them."', 'Open Accounts to check them"',
@@ -2577,7 +2580,15 @@ function verifyPathForm(gate) {
         assert.deepEqual([reference.page, reference.tab], [page, tab], cause + ": the converted hint links its tab");
         assert.ok(hint.length <= judge.STATUS_HINT_MAX && oneSentence(hint), cause + ": a converted hint fits as one sentence");
     }
-    const hint = gate.readiness({ kind: "answered", causes: ["brain=unselected"] }).setupModel.hint;
+    // The session hints link the Jarvis session row and the Tools section,
+    // both on Details.
+    for (const [name, sessionHint] of [
+        ...["warning", "danger"].map(tone => ["summary " + tone, gate.sessionSummary({ tone: "ok", text: "Ready" }, { tone }).hint]),
+        ["blocked tmux-missing", gate.sessionStart(true, { kind: "answer", state: "blocked", reason: "tmux-missing", detail: "", names: null }).hint]]) {
+        const reference = pageReference.parse(sessionHint);
+        assert.deepEqual([reference.page, reference.tab], ["vgs.jarvis", "Details"], name + ": the session hint links Details");
+    }
+    const hint =gate.readiness({ kind: "answered", causes: ["brain=unselected"] }).setupModel.hint;
     assert.equal(hint, "Choose an AI model in [Settings > Jarvis > AI model](page:vgs.jarvis/Settings)", "Setup AI model hint links the field's tab");
     const source = fs.readFileSync(path.join(path.dirname(file), "SessionStart.qml"), "utf8");
     const publish = source.match(/^    function publish\(\) \{\n[\s\S]*?^    \}/m);

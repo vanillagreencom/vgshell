@@ -53,6 +53,7 @@ Item {
         function leave(next) { next(); }
         function replyOf() { return ""; }
         function tuiKey(name) { return "tui:" + name; }
+        function headReplies() { return []; }
     }
 
     Component {

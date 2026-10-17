@@ -100,6 +100,7 @@ Item {
         function openTui() { return "ok"; }
         function act() { return "ok"; }
         function replyOf() { return ""; }
+        function headReplies() { return []; }
     }
 
     Column {

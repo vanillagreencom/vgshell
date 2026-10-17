@@ -108,10 +108,12 @@ Item {
         property var enables: []
         property var acts: []
         property string actionReply: "ok"
+        property string enableReply: "ok"
+        property string installReply: "ok"
         function rescan() { return "ok"; }
-        function setEnabled(id, enabled) { enables = enables.concat([[id, enabled]]); return "ok"; }
+        function setEnabled(id, enabled) { enables = enables.concat([[id, enabled]]); return enableReply; }
         function viewPage(id) {}
-        function installRequirements(id) { installs = installs.concat([id]); return "ok"; }
+        function installRequirements(id) { installs = installs.concat([id]); return installReply; }
         function update(id) { updates = updates.concat([id]); return "ok"; }
         function openTui(id, name) { opens = opens.concat([[id, name]]); return "ok"; }
         function act(id, key) { acts = acts.concat([[id, key]]); return actionReply; }
@@ -134,7 +136,7 @@ Item {
             for (let i = 0; i < found.length; i++) for (const child of found[i].children || []) found.push(child);
             return found;
         }
-        function init() { fakeManager.plugins = root.rows(); fakeManager.installs = []; fakeManager.updates = []; fakeManager.opens = []; fakeManager.enables = []; fakeManager.acts = []; fakeManager.actionReply = "ok"; }
+        function init() { fakeManager.plugins = root.rows(); fakeManager.installs = []; fakeManager.updates = []; fakeManager.opens = []; fakeManager.enables = []; fakeManager.acts = []; fakeManager.actionReply = "ok"; fakeManager.enableReply = "ok"; fakeManager.installReply = "ok"; }
         function opened() {
             const window = createTemporaryObject(windowComponent, root);
             verify(window !== null, "the window builds");
@@ -250,13 +252,28 @@ Item {
             compare(review.mapToItem(null, 0, 0).x, chip.mapToItem(null, 0, 0).x, "Review starts the value column, under the tools' chips");
             mouseClick(review);
             compare(fakeManager.installs, ["acme.optional"]);
-            // A refused install reads beside Review, not only in the page head.
-            const failure = "refused: requirements=none-missing";
-            ignoreWarning("settings: acme.optional " + failure);
-            window.keep(window.stepKey("acme.optional"), failure);
             const field = onTab(window, Field).find(item => descendants(item).includes(review));
-            compare(field.error, window.replyOf("acme.optional"), "the refusal reads under Review");
-            verify(field.error !== "");
+            compare(field.error, "", "an install the manager opened leaves Review clear");
+            // A refusal another action keeps under the plugin, such as a
+            // refused update or setting write, or a refused Turn on, never
+            // reads beside Review; the page head shows each once.
+            const pageFailure = "refused: update=not-installed";
+            const enableFailure = "refused: enable=conflict";
+            const installFailure = "refused: requirements=none-missing";
+            ignoreWarning("settings: acme.optional " + pageFailure);
+            window.keep("acme.optional", pageFailure);
+            fakeManager.enableReply = enableFailure;
+            ignoreWarning(new RegExp("^settings: acme\\.optional/\\S+ " + enableFailure + "$"));
+            window.setEnabled("acme.optional", true);
+            compare(field.error, "", "another action's refusal stays off Review");
+            // A refused install reads beside Review, not only in the page head.
+            fakeManager.installReply = installFailure;
+            ignoreWarning(new RegExp("^settings: acme\\.optional/\\S+ " + installFailure + "$"));
+            mouseClick(review);
+            verify(field.error !== "", "the install's refusal reads under Review");
+            const head = descendants(pageOf(window)).filter(item => item instanceof Label && item.visible && item.text !== "" && Qt.colorEqual(item.color, Theme.color.danger) && !descendants(tabsOf(window)).includes(item));
+            compare(head.length, 1, "the page head draws one refusal line");
+            compare(head[0].text.split("\n").filter(line => line !== "").length, 3, "the page head shows each of the three refusals once");
         }
         // While the plugin is off, a Details fact that declares an action
         // offers Turn on in its place.

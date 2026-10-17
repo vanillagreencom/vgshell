@@ -394,11 +394,12 @@ FocusScope {
     }
 
     // Turn plugin `id` on or off, ENABLED, as its Enabled switch and a
-    // line's Turn on ask; answers the manager's reply. Turn on asks for
-    // true, so a second press before the page updates keeps it on.
+    // line's Turn on ask; answers the manager's reply, kept under its own
+    // step key so a line beside another action never reads it. Turn on
+    // asks for true, so a second press before the page updates keeps it on.
     function setEnabled(id, enabled) {
         if (rowOf(id) === null) return "unknown: " + id;
-        return keep(id, shell.manager.setEnabled(id, enabled));
+        return keep(stepKey(id, actionKey("enable")), shell.manager.setEnabled(id, enabled));
     }
 
     // Show plugin `id`'s widget in the bar, or hide it, the opposite of its
@@ -428,13 +429,14 @@ FocusScope {
 
     // Open the update of installed plugin `id` or its removal in a floating
     // terminal, or the requirement notice for its missing commands, through
-    // the manager; each answers the manager's reply. The terminal is a newer
+    // the manager; each answers the manager's reply, the notice's kept under
+    // its own step key, which Review reads. The terminal is a newer
     // window, which Hyprland focuses and stacks over this one, and the
     // notice sits on a layer over every window, so this window stays open
     // behind them and its rows show the command's result once it ends.
     function updatePlugin(id) { return keep(id, shell.manager.update(id)); }
     function removePlugin(id) { return keep(id, shell.manager.remove(id)); }
-    function installRequirements(id) { return keep(id, shell.manager.installRequirements(id)); }
+    function installRequirements(id) { return keep(stepKey(id, actionKey("tools")), shell.manager.installRequirements(id)); }
 
     // Run the action of plugin `id`'s status entry `key` through the
     // manager: its floating TUI, which Hyprland focuses over this window,
@@ -448,6 +450,19 @@ FocusScope {
     // one name keep their replies apart.
     function tuiKey(name) {
         return "tui:" + name;
+    }
+
+    // The step key of a page action that is neither a screen nor a status
+    // entry's: "enable", Turn on and the Enabled switch, or "tools", the
+    // requirement notice. The colon keeps it apart from a status key.
+    function actionKey(kind) {
+        return "action:" + kind;
+    }
+
+    // Every refusal the page head shows once: the plugin's own, kept under
+    // its id, then Turn on's and the notice's.
+    function headReplies(id) {
+        return [replyOf(id), replyOf(id, actionKey("enable")), replyOf(id, actionKey("tools"))].filter(reply => reply !== "");
     }
 
     // Open plugin `id`'s setup screen `name`, a TUI its manifest lists,

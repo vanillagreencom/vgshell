@@ -2,7 +2,8 @@
 # and Accounts under the account list are offered and each opens its
 # terminal, every text that names one of them has it offered, with nothing
 # found and in a partial search whose row names Accounts, and the AI model
-# setting reads its empty text, closed, beside Add key; without a command
+# setting reads its empty text, closed, while Add key stays offered on the
+# API keys row; without a command
 # only Accounts needs, both stay offered, since a press asks for what its
 # terminal lacks. With a Copilot account, and only then, Details shows the
 # Copilot Memory step and its link to GitHub. The AI model status hint
@@ -158,7 +159,7 @@ expect_poll "the restored search finds nothing and offers Accounts" '["Accounts"
 page_field() { ipc smoke invokeInstance window vgs.settings fieldChoice '{"id":"vgs.jarvis","key":"brain"}'; }
 page_field_state() { page_field | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps([d["model"], d["value"], d["list"]["open"], d["list"]["empty"] != "" and d["shown"] == d["list"]["empty"]]))'; }
 expect_poll "with nothing found the closed AI model setting reads its empty text" '[[], "", false, true]' page_field_state
-expect "Add key is offered beside it" '["Add key", true, "info"]' page_offered keyStore
+expect "Add key is still offered on the API keys row" '["Add key", true, "info"]' page_offered keyStore
 
 # A step stays offered whatever command its own terminal lacks: its press
 # asks for that command first. Every sandbox shell lacks tesseract, which
