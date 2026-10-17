@@ -497,8 +497,8 @@ function isKeyPrefix(a, b) {
 // entry bases, or under each editor's user directory for an editors target,
 // one name per segment, its format, the key path the theme is
 // named at, or a list of two or more such paths none of which is another or
-// lies on another's path, and one line of value whose only placeholder is
-// `@{state}`.
+// lies on another's path, and one line of value whose only placeholders are
+// `@{state}` and, on an editors target, `@{extension.stamp}`.
 function selectError(logic, select, hasAccounts, hasEditors) {
     if (!hasExactKeys(logic, select, SELECT_KEYS)) return "key=select";
     if (!entryBaseAccepted(select.base, hasAccounts) && !(hasEditors && select.base === EDITOR_BASE)) return "key=select.base";
@@ -511,7 +511,7 @@ function selectError(logic, select, hasAccounts, hasEditors) {
     }
     if (!isLine(select.value) || CONTROL_CHARACTER.test(select.value)) return "key=select.value";
     const names = placeholderNames(select.value);
-    if (names === null || names.some(name => name !== STATE_PLACEHOLDER)) return "key=select.value";
+    if (names === null || names.some(name => name !== STATE_PLACEHOLDER && !(hasEditors && name === STAMP_PLACEHOLDER))) return "key=select.value";
     return "";
 }
 
@@ -893,7 +893,7 @@ function editorHighlightTemplate(logic, input, text) {
 // refuses the target.
 // Answers { ok: true, files: [{ destination, bytes, curated }], dropped,
 // extension } in the target's order, `extension` the generated extension's
-// { id, version } on an extension target and undefined on any other, or
+// extensionOf on an extension target and undefined on any other, or
 // one refusal.
 function renderTarget(logic, tokens, target, templates, input) {
     if (input.slots === null || typeof input.slots !== "object")
@@ -950,8 +950,7 @@ function renderTarget(logic, tokens, target, templates, input) {
         rendered.set(file.destination, { destination: file.destination, bytes, curated });
     }
     const destinations = target.files.map(file => file.destination);
-    const extension = stampFrom === undefined ? undefined
-        : { id: target.wiring.extension + "-" + extensionValues.get(STAMP_PLACEHOLDER), version: EXTENSION_VERSION };
+    const extension = stampFrom === undefined ? undefined : extensionOf(target, rendered.get(stampFrom).bytes);
     return { ok: true, files: destinations.map(destination => rendered.get(destination)), dropped: destinations.filter(destination => dropped.includes(destination)), extension };
 }
 
@@ -959,6 +958,13 @@ function renderTarget(logic, tokens, target, templates, input) {
 // bits of the bytes' sha256 in decimal, so new bytes make a new id.
 function extensionStamp(bytes) {
     return String(parseInt(crypto.createHash("sha256").update(bytes).digest("hex").slice(0, 8), 16));
+}
+
+// The generated extension of an accepted editors TARGET whose `stamp` file
+// holds BYTES: its { id, version, stamp }.
+function extensionOf(target, bytes) {
+    const stamp = extensionStamp(bytes);
+    return { id: target.wiring.extension + "-" + stamp, version: EXTENSION_VERSION, stamp };
 }
 
 // The include line an accepted TARGET keeps in its application's
@@ -982,10 +988,14 @@ function reloadCommand(target, state, dir, wiring) {
 }
 
 // The value an accepted TARGET's `select` names its theme with, `@{state}`
-// written as STATE, the state directory's `theme/` path.
-function selectValue(target, state) {
+// written as STATE, the state directory's `theme/` path, and on an editors
+// target `@{extension.stamp}` as the stamp of EXTENSION, its extensionOf, so
+// the selection names the theme that one extension contributes.
+function selectValue(target, state, extension) {
     if (target.select === undefined) throw new Error("theme-render: selectValue: target " + target.name + " has no select");
-    return withValues(target.select.value, { [STATE_PLACEHOLDER]: state }, "selectValue: the selection value of target " + target.name);
+    const values = { [STATE_PLACEHOLDER]: state };
+    if (extension !== undefined) values[STAMP_PLACEHOLDER] = extension.stamp;
+    return withValues(target.select.value, values, "selectValue: the selection value of target " + target.name);
 }
 
 // The key paths an accepted TARGET's `select` sets, in its order: its one
@@ -1061,12 +1071,14 @@ function isStampedId(id, base) {
     return id === base || (id.startsWith(base + "-") && /^[0-9]+$/.test(id.slice(base.length + 1)));
 }
 
-// Whether NAME is a folder extensionFolder gives any id isStampedId admits
-// for BASE, at any version: what an apply removes once its own extension
-// is registered.
-function isExtensionFolder(name, base) {
+// The id NAME is the folder of, when extensionFolder gives NAME for an id
+// isStampedId admits for BASE at any version, else null: the folders an
+// apply removes but those it keeps.
+function extensionFolderId(name, base) {
     const version = /-([0-9]+\.[0-9]+\.[0-9]+)$/.exec(name);
-    return version !== null && isStampedId(name.slice(0, version.index), base);
+    if (version === null) return null;
+    const id = name.slice(0, version.index);
+    return isStampedId(id, base) ? id : null;
 }
 
 // TEXT parsed as JSON when it is a value CHECK admits, else undefined.
@@ -1102,7 +1114,7 @@ function registeredText(logic, text, id, version, dir) {
 }
 
 // The text an editor's extensions.json holding TEXT takes once it registers
-// no id isStampedId admits for BASE but KEEP, which may be null: null when it
+// no id isStampedId admits for BASE but those in the list KEEP: null when it
 // registers none or is absent, or the refusal `registry-refused` for a file
 // that is no JSON array.
 function unregisteredText(logic, text, base, keep) {
@@ -1111,20 +1123,33 @@ function unregisteredText(logic, text, base, keep) {
     if (entries === undefined) return refused("registry-refused", "file=extensions.json");
     const kept = entries.filter(entry => {
         const id = registeredId(logic, entry);
-        return id === null || id === keep || !isStampedId(id, base);
+        return id === null || keep.includes(id) || !isStampedId(id, base);
     });
     return kept.length === entries.length ? null : JSON.stringify(kept);
 }
 
+// The extension a VS Code-family manifest, package.json, holding TEXT
+// declares: its lower-case `<publisher>.<name>` id, and the settings id of
+// each theme it contributes, its `id`, else its `label`, the name an editor's
+// workbench.colorTheme selects it by. Null for text that is no manifest.
+function manifestThemes(logic, text) {
+    const manifest = parsedJson(text, logic.isPlainObject);
+    if (manifest === undefined || typeof manifest.publisher !== "string" || typeof manifest.name !== "string") return null;
+    const contributes = logic.isPlainObject(manifest.contributes) ? manifest.contributes : {};
+    const themes = Array.isArray(contributes.themes) ? contributes.themes.filter(logic.isPlainObject) : [];
+    return { id: (manifest.publisher + "." + manifest.name).toLowerCase(),
+        settingsIds: themes.map(theme => theme.id || theme.label).filter(id => typeof id === "string" && id !== "") };
+}
+
 // The text an editor's `.obsolete` holding TEXT takes once it marks no
-// folder isExtensionFolder admits for BASE obsolete, since a marked folder is
+// folder extensionFolderId admits for BASE obsolete, since a marked folder is
 // one the editor skips and deletes: null when it marks none or is absent, or
 // the refusal `registry-refused` for a file that is no JSON object.
 function unobsoletedText(logic, text, base) {
     if (text === undefined) return null;
     const marks = parsedJson(text, logic.isPlainObject);
     if (marks === undefined) return refused("registry-refused", "file=.obsolete");
-    const kept = Object.keys(marks).filter(name => !isExtensionFolder(name, base));
+    const kept = Object.keys(marks).filter(name => extensionFolderId(name, base) === null);
     return kept.length === Object.keys(marks).length ? null : JSON.stringify(Object.fromEntries(kept.map(name => [name, marks[name]])));
 }
 
@@ -1270,4 +1295,4 @@ function unwiredText(text, line, section) {
     return next === text ? null : next;
 }
 
-module.exports = { colorDeltaE, colorDifference, TARGET_FILE, EDITOR_BASE, extensionFolder, isExtensionFolder, registeredText, unregisteredText, unobsoletedText, acceptTarget, placeholderNames, detected, setupDone, curatedTaken, renderTarget, terminalSource, refusalLine, wiringForm, wiringLine, entryItems, profileDirs, vaultDirs, reloadNamesWiring, reloadCommand, reloadAlways, selectKeys, selectValue, wiredText, unwiredText, isSectionHeader, opensSection, assignedKey };
+module.exports = { colorDeltaE, colorDifference, TARGET_FILE, EDITOR_BASE, extensionOf, extensionFolder, manifestThemes, extensionFolderId, registeredText, unregisteredText, unobsoletedText, acceptTarget, placeholderNames, detected, setupDone, curatedTaken, renderTarget, terminalSource, refusalLine, wiringForm, wiringLine, entryItems, profileDirs, vaultDirs, reloadNamesWiring, reloadCommand, reloadAlways, selectKeys, selectValue, wiredText, unwiredText, isSectionHeader, opensSection, assignedKey };

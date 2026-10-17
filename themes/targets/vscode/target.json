@@ -14,6 +14,6 @@
     { "detect": "cursor", "extensions": ".cursor/extensions", "user": "Cursor/User" }
   ],
   "wiring": { "extension": "local.vgs-theme", "stamp": "vscode.json", "copies": { "package.json": "vscode.package.json", "vgs-color-theme.json": "vscode.json" } },
-  "select": { "base": "editor", "file": "settings.json", "format": "jsonc", "key": ["workbench.colorTheme"], "value": "vgs" },
+  "select": { "base": "editor", "file": "settings.json", "format": "jsonc", "key": ["workbench.colorTheme"], "value": "vgs-@{extension.stamp}" },
   "reload": null
 }

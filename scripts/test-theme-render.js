@@ -66,7 +66,7 @@ const copyEntryText = (fields = {}) => targetText({ files: twoFiles, wiring: Obj
 // settings.
 const editors = [{ detect: "probe", extensions: ".probe/extensions", user: "Probe - Beta/User" }];
 const extension = { extension: "local.probe-theme", stamp: "probe.conf", copies: { "package.json": "probe.pkg.json", "theme.json": "probe.conf" } };
-const editorSelect = { base: "editor", file: "settings.json", format: "jsonc", key: ["workbench.colorTheme"], value: "vgs" };
+const editorSelect = { base: "editor", file: "settings.json", format: "jsonc", key: ["workbench.colorTheme"], value: "vgs-@{extension.stamp}" };
 const extensionText = (fields = {}) => targetText(Object.assign({ files: twoFiles, detect: [], editors, wiring: extension, select: editorSelect, reload: null }, fields));
 const extensionWith = fields => Object.assign({}, extension, fields);
 const editorWith = fields => [Object.assign({}, editors[0], fields)];
@@ -248,6 +248,8 @@ const REFUSED_TARGETS = [
     ["probe", extensionText({ wiring: extensionWith({ copies: { "../theme.json": "probe.conf" } }) }), "target-schema", "key=wiring.copies.../theme.json"],
     ["probe", extensionText({ wiring: extensionWith({ links: { "theme.json": "probe.conf" } }) }), "target-schema", "key=wiring"],
     ["probe", targetText({ select: editorSelect }), "target-schema", "key=select.base"],
+    ["probe", targetText({ select: Object.assign({}, editorSelect, { base: "config" }) }), "target-schema", "key=select.value"],
+    ["probe", extensionText({ select: Object.assign({}, editorSelect, { value: "@{extension.version}" }) }), "target-schema", "key=select.value"],
     ["probe", targetText({ wiring: accountEntry, select: editorSelect, accounts: "claude" }), "target-schema", "key=select.base"]
 ];
 
@@ -498,7 +500,10 @@ function verifyExtension(render, accepted) {
     const result = renderWith(first, "c=@{palette.accent}", "s=@{extension.stamp} v=@{extension.version}");
     assert.equal(result.ok, true);
     const stamp = stampOf("c=123456");
-    assert.deepEqual(result.extension, { id: id + "-" + stamp, version: "1.0.0" });
+    assert.deepEqual(result.extension, { id: id + "-" + stamp, version: "1.0.0", stamp });
+    // The selection names the theme of that one extension.
+    assert.equal(render.selectValue(first, "/s/theme", result.extension), "vgs-" + stamp);
+    assert.deepEqual(render.extensionOf(first, Buffer.from("c=123456")), result.extension);
     assert.deepEqual(result.files.map(file => [file.destination, file.bytes.toString("utf8")]), [["probe.conf", "c=123456"], ["probe.pkg.json", "s=" + stamp + " v=1.0.0"]]);
     assert.notEqual(renderWith(first, "c=@{palette.accent} ", "v").extension.id, result.extension.id);
     // The stamp file may come last in `files`; it renders first all the same.
@@ -519,10 +524,23 @@ function verifyExtension(render, accepted) {
     assert.equal(renderWith(plain, "a", "b").extension, undefined);
 
     assert.equal(render.extensionFolder(id + "-7", "1.0.0"), "local.probe-theme-7-1.0.0");
-    for (const [name, want] of [["local.probe-theme-7-1.0.0", true], ["local.probe-theme-123456-12.0.1", true], ["local.probe-theme-1.0.7", true],
-        ["local.probe-theme", false], ["local.probe-theme-7", false], ["local.probe-theme-1.0", false], ["local.probe-theme-7-1.0.0-x", false],
-        ["local.probe-theme-extra-1.0.7", false], ["local.probe-theme-7x-1.0.0", false], ["other.probe-theme-7-1.0.0", false]])
-        assert.equal(render.isExtensionFolder(name, id), want, name);
+    for (const [name, want] of [["local.probe-theme-7-1.0.0", id + "-7"], ["local.probe-theme-123456-12.0.1", id + "-123456"], ["local.probe-theme-1.0.7", id],
+        ["local.probe-theme", null], ["local.probe-theme-7", null], ["local.probe-theme-1.0", null], ["local.probe-theme-7-1.0.0-x", null],
+        ["local.probe-theme-extra-1.0.7", null], ["local.probe-theme-7x-1.0.0", null], ["other.probe-theme-7-1.0.0", null]])
+        assert.equal(render.extensionFolderId(name, id), want, name);
+
+    // A theme is selected by its id, else its label; the manifest's id is
+    // lower case, as the editors compare it.
+    const manifest = themes => JSON.stringify({ publisher: "Local", name: "Probe-Theme-7", contributes: { themes } });
+    for (const [text, want] of [
+        [manifest([{ id: "vgs-7", label: "vgs" }]), { id: id + "-7", settingsIds: ["vgs-7"] }],
+        [manifest([{ label: "vgs" }, { id: "", label: "other" }, "x"]), { id: id + "-7", settingsIds: ["vgs", "other"] }],
+        [JSON.stringify({ publisher: "local", name: "probe-theme" }), { id, settingsIds: [] }],
+        [JSON.stringify({ name: "probe-theme" }), null],
+        ["[]", null],
+        ["{", null]
+    ])
+        assert.deepEqual(render.manifestThemes(logic, text), want, text);
 
     const entryOf = version => ({ identifier: { id }, version, location: { $mid: 1, path: "/h/.probe/extensions/local.probe-theme-" + version, scheme: "file" },
         relativeLocation: "local.probe-theme-" + version, metadata: { source: "vsix" } });
@@ -546,13 +564,13 @@ function verifyExtension(render, accepted) {
     // another publisher's id and an id that only starts like one stay.
     const stamped = (stampedId, version) => Object.assign(entryOf(version), { identifier: { id: stampedId } });
     const lookalike = stamped("local.probe-theme-x", "1.0.0");
-    const unregistered = (text, keep = null) => render.unregisteredText(logic, text, id, keep);
+    const unregistered = (text, keep = []) => render.unregisteredText(logic, text, id, keep);
     assert.equal(unregistered(undefined), null);
     assert.equal(unregistered(JSON.stringify([other, lookalike])), null);
     assert.deepEqual(JSON.parse(unregistered(JSON.stringify([entryOf("1.0.3"), other, stamped("LOCAL.Probe-Theme-5", "1.0.0")]))), [other]);
-    assert.deepEqual(JSON.parse(unregistered(JSON.stringify([entryOf("1.0.3"), stamped(id + "-5", "1.0.0"), stamped(id + "-9", "1.0.0"), lookalike]), id + "-9")),
-        [stamped(id + "-9", "1.0.0"), lookalike]);
-    assert.equal(unregistered(JSON.stringify([stamped(id + "-9", "1.0.0")]), id + "-9"), null);
+    assert.deepEqual(JSON.parse(unregistered(JSON.stringify([entryOf("1.0.3"), stamped(id + "-5", "1.0.0"), stamped(id + "-9", "1.0.0"), lookalike]), [id + "-9", id])),
+        [entryOf("1.0.3"), stamped(id + "-9", "1.0.0"), lookalike]);
+    assert.equal(unregistered(JSON.stringify([stamped(id + "-9", "1.0.0")]), [id + "-9"]), null);
     assert.deepEqual(unregistered("{}"), { ok: false, reason: "registry-refused", detail: "file=extensions.json" });
 
     const unobsoleted = text => render.unobsoletedText(logic, text, id);
@@ -2113,7 +2131,8 @@ function verifyEditorNoHeadroom(render, report = false) {
     assert.equal(theme.colors["textLink.foreground"], pkg.values.color.accent);
     assert.equal(result.extension.id, target.wiring.extension + "-" + stampOf(bytes.toString("utf8")));
     const extension = JSON.parse(result.files.find(file => file.destination === "vscode.package.json").bytes.toString("utf8"));
-    assert.deepEqual({ id: extension.publisher + "." + extension.name, version: extension.version }, result.extension);
+    assert.deepEqual({ id: extension.publisher + "." + extension.name, version: extension.version }, { id: result.extension.id, version: result.extension.version });
+    assert.equal(extension.contributes.themes[0].id, render.selectValue(target, "/s/theme", result.extension));
     if (report) console.log("test-theme-render: editor-limit " + JSON.stringify({ ...observed,
         fills: fills.map(({ key, color }) => ({ key, color })), ordinaryThemeRetained: true, extension: result.extension.id }));
 }
@@ -2796,15 +2815,19 @@ const CONTROLS = [
     ["stamp from the final bytes", "if (file.destination === stampFrom) extensionValues.set(STAMP_PLACEHOLDER, extensionStamp(bytes));", 'if (file.destination === stampFrom) extensionValues.set(STAMP_PLACEHOLDER, extensionStamp(Buffer.from(out, "utf8")));'],
     ["stamp written", "const value = part.name === STAMP_PLACEHOLDER || part.name === VERSION_PLACEHOLDER ? extensionValues.get(part.name)", "const value = part.name === STAMP_PLACEHOLDER || part.name === VERSION_PLACEHOLDER ? \"7\""],
     ["stamp from the sha256", '.digest("hex").slice(0, 8), 16));', '.digest("hex").slice(0, 2), 16));'],
-    ["stamp in the id", '{ id: target.wiring.extension + "-" + extensionValues.get(STAMP_PLACEHOLDER), version: EXTENSION_VERSION }', "{ id: target.wiring.extension, version: EXTENSION_VERSION }"],
+    ["stamp in the id", 'return { id: target.wiring.extension + "-" + stamp, version: EXTENSION_VERSION, stamp };', "return { id: target.wiring.extension, version: EXTENSION_VERSION, stamp };"],
+    ["stamp in the selection", "if (extension !== undefined) values[STAMP_PLACEHOLDER] = extension.stamp;", ""],
+    ["selection stamp on editors only", "!(hasEditors && name === STAMP_PLACEHOLDER)", "!(name === STAMP_PLACEHOLDER)"],
+    ["theme settings id before label", "settingsIds: themes.map(theme => theme.id || theme.label)", "settingsIds: themes.map(theme => theme.label)"],
+    ["manifest id lower case", 'return { id: (manifest.publisher + "." + manifest.name).toLowerCase(),', 'return { id: (manifest.publisher + "." + manifest.name),'],
     ["registry keeps a held entry", "if (own.length === 1 && own[0].version === version && own[0].relativeLocation === folder) return null;", ""],
     ["registry one version", "return JSON.stringify(entries.filter(entry => registeredId(logic, entry) !== id).concat({", "return JSON.stringify(entries.concat({"],
     ["registry id case", "? entry.identifier.id.toLowerCase() : null;", "? entry.identifier.id : null;"],
     ["registry an array", "const entries = text === undefined ? [] : parsedJson(text, Array.isArray);", "const entries = text === undefined ? [] : parsedJson(text, () => true);"],
-    ["extension folders versioned", "const version = /-([0-9]+\\.[0-9]+\\.[0-9]+)$/.exec(name);", "const version = /-(.+)$/.exec(name);"],
+    ["extension folders versioned", "const version = /-([0-9]+\\.[0-9]+\\.[0-9]+)$/.exec(name);", "const version = /-([^-]+)$/.exec(name);"],
     ["stamped ids only", 'return id === base || (id.startsWith(base + "-") && /^[0-9]+$/.test(id.slice(base.length + 1)));', 'return id.startsWith(base);'],
     ["the bare id is stamped", 'return id === base || (id.startsWith(base + "-")', 'return (id.startsWith(base + "-")'],
-    ["unregister keeps the kept id", "return id === null || id === keep || !isStampedId(id, base);", "return id === null || !isStampedId(id, base);"],
+    ["unregister keeps the kept ids", "return id === null || keep.includes(id) || !isStampedId(id, base);", "return id === null || keep[0] === id || !isStampedId(id, base);"],
     ["tmux derivation never changes terminal", 'if (target.name === "tmux") input = { ...input, slots: tmuxSlots(logic, input) };', 'if (target.name === "tmux" || target.name === "ghostty") input = { ...input, slots: tmuxSlots(logic, input) };', verifyAppStyles],
     ["tmux old inactive values", 'if (target.name === "tmux") input = { ...input, slots: tmuxSlots(logic, input) };', "", verifyAppStyles],
     ["tmux readability", 'const readable = color => color.a === 1 && logic.contrastRatio(color, background) >= logic.READABILITY_FLOOR;', 'const readable = color => true;', verifyAppStyles],

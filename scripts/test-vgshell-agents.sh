@@ -393,7 +393,7 @@ disable ''
 # The must-fail control: a judge copy that never keeps the selection leaves
 # a hand-edited key.
 printf '%s' "${claude_selected/custom:vgs/dark}" >"$claude_settings"
-judge_control selection-skipped 'if (failure === null && entry.target.select !== undefined) {' 'if (false) {'
+judge_control selection-skipped 'if (failure === null && entry.target.select !== undefined && !isEditorTarget(entry.target)) {' 'if (false) {'
 apply_json "the selection-skipping mutant applies" 0 dusk
 check "the selection-skipping mutant leaves the hand-edited key" has_text "$claude_settings" "${claude_selected/custom:vgs/dark}"
 unset THEME_BIN
