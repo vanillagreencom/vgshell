@@ -6,7 +6,8 @@ import qs.Ui
 // The editor of one `list` schema entry (Pads.js): one group per item, each
 // of its fields drawn by SettingField as the page draws a flat entry, with
 // its Remove, the trash mark alone (RowAction's `removesItem`), right after
-// the first field's value, and an Add action, which appends an item of the
+// the first field's value, its ink ending where the page's other values
+// end, and an Add action, which appends an item of the
 // entry's `defaults` under the lowest whole number no item names. That
 // number is the item's storage key and names nothing the user chose, so no
 // row draws it.
@@ -80,9 +81,19 @@ Column {
                 id: itemGroup
                 required property var modelData
                 required property int index
-                // Every field leaves room for Remove on its right, so the
-                // item's values end on one edge.
-                readonly property real fieldWidth: Math.max(0, width - remove.width - Theme.stack.inline)
+                // Where the page's other values end in the item: the
+                // value column's end inside the field's padding, at most
+                // `valueEnd`. The trash ink ends there, not Remove's square,
+                // whose hit target and focus ring reach past it on the right.
+                readonly property real controlEnd: Math.min(width - Theme.field.paddingX, root.valueEnd)
+                // Where the trash mark's ink ends, from Remove's left edge.
+                readonly property real inkEnd: {
+                    const mark = Array.from(remove.contentItem.children).find(child => child instanceof Icon);
+                    return mark === undefined ? remove.width : mark.x + mark.painted[2];
+                }
+                // Every field's value ends `stack.inline` before Remove, so
+                // the item's values end on one edge.
+                readonly property real fieldWidth: Math.max(0, controlEnd - inkEnd - Theme.stack.inline + Theme.field.paddingX)
                 width: groups.width
                 implicitHeight: itemFields.height
 
@@ -117,7 +128,7 @@ Column {
                 // starts `stack.inline` after where that field's value ends.
                 RowAction {
                     id: remove
-                    x: Math.min(itemGroup.fieldWidth - Theme.field.paddingX, root.valueEnd) + Theme.stack.inline
+                    x: itemGroup.controlEnd - itemGroup.inkEnd
                     y: Math.round((Theme.row.height - height) / 2)
                     text: "Remove"
                     removesItem: true

@@ -9,8 +9,9 @@ import "../../shell/plugins/vgs.settings"
 // and its Remove, the trash mark alone, and never its storage key, the
 // `name` the field writes for it. Remove sends the list without that item,
 // stands `stack.inline` after the first field's value and centres on it,
-// whether that value fills the value column or stops at its widest. Add
-// still keys a new item by the lowest whole number no item names.
+// and its trash ink ends where a flat setting's select beside the list
+// ends, whether that value fills the value column or stops at its widest.
+// Add still keys a new item by the lowest whole number no item names.
 Item {
     id: root
     width: 1100
@@ -34,6 +35,17 @@ Item {
         })
         value: [{ name: "7", kind: "a", wide: false }, { name: "9", kind: "b", wide: true }]
         onApply: v => { root.writes = root.writes.concat([v]); }
+    }
+
+    // A flat setting as wide as the list, as the page draws one beside it:
+    // its select ends on the page's control edge.
+    SettingField {
+        id: flat
+        y: 600
+        width: list.width
+        key: "sort"
+        spec: ({ type: "string", label: "Sort", presets: [{ value: "a", label: "Alpha" }] })
+        value: "a"
     }
 
     TestCase {
@@ -63,6 +75,7 @@ Item {
         }
         function removes(group) { return descendants(group).filter(child => child instanceof RowAction && child.removesItem && shown(child)); }
         function fields(group) { return descendants(group).filter(child => child instanceof SettingField && shown(child)); }
+        function select(item) { return descendants(item).find(child => child instanceof Select && shown(child)); }
         function box(item) {
             const at = item.mapToItem(root, 0, 0);
             return { x: at.x, y: at.y, right: at.x + item.width, centre: at.y + item.height / 2 };
@@ -95,13 +108,16 @@ Item {
             list.width = data.width;
             tryCompare(groups(), "length", 2);
             for (const group of groups()) {
-                const value = descendants(fields(group)[0]).find(child => child instanceof Select && shown(child));
+                const value = select(fields(group)[0]);
                 verify(value !== undefined, "the first field draws its select");
                 const remove = removes(group)[0];
                 tryVerify(() => Math.abs(box(remove).x - (box(value).right + Theme.stack.inline)) < 0.5, 1000,
                           "Remove starts at " + box(remove).x + ", the value ends at " + box(value).right);
                 verify(Math.abs(box(remove).centre - box(value).centre) <= 1, "Remove centres at " + box(remove).centre + ", the value at " + box(value).centre);
-                verify(box(remove).right <= box(list).right + 0.5, "Remove ends inside the list");
+                const mark = descendants(remove).find(child => child instanceof Icon && shown(child));
+                const inkEnd = box(mark).x + mark.painted[2];
+                const edge = box(select(flat)).right;
+                verify(Math.abs(inkEnd - edge) < 0.5, "the trash ink ends at " + inkEnd + ", a flat select at " + edge);
             }
         }
 
