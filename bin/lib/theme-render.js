@@ -70,21 +70,27 @@ const CURATED_KEYS_KEY = "curatedKeys";
 // directory is relative to. Exactly one of `links` or `copies` tells which
 // entry kind it writes. An extension wiring, an editors target's only form,
 // keeps one generated extension in each wired editor's extensions directory:
-// `extension` is its `<publisher>.<name>` id, `version` the destination
-// whose final bytes make its version, and `copies` its files, each a copy of
-// one of the target's files. A null wiring keeps nothing: the target's hook
+// `extension` is the `<publisher>.<name>` id its id starts with, `stamp` the
+// destination whose final bytes make the rest of its id, and `copies` its
+// files, each a copy of one of the target's files. A null wiring keeps nothing: the target's hook
 // asserts the setting that makes its application read the files.
 const WIRING_KEYS = ["file", "line", "create"];
 const INCLUDE_OPTIONAL_KEYS = ["section", "profiles", "fallbacks"];
 const ENTRY_BASE_KEYS = ["base", "dir", "owned"];
 const ENTRY_ITEM_KEYS = ["links", "copies"];
 const ENTRY_OPTIONAL_KEYS = ["vaults"];
-const EXTENSION_KEYS = ["extension", "version", "copies"];
+const EXTENSION_KEYS = ["extension", "stamp", "copies"];
 // An extension id, `<publisher>.<name>`, as the editors' own manifests
 // spell one, in lower case so it is the folder name the editors compare.
 const EXTENSION_ID_PATTERN = /^[a-z0-9][a-z0-9-]*\.[a-z0-9][a-z0-9-]*$/;
-// The placeholder a file of an extension target writes its version with.
+// The placeholders a file of an extension target writes its stamp and its
+// version with.
+const STAMP_PLACEHOLDER = "extension.stamp";
 const VERSION_PLACEHOLDER = "extension.version";
+// The version every generated extension carries. Its id changes with its
+// theme's bytes instead: a running editor window adds no extension whose id
+// it already holds, so only a new id reaches it without a reload.
+const EXTENSION_VERSION = "1.0.0";
 // The directories an entry's `dir` and a selection's `file` are relative
 // to: the user's configuration home, ${XDG_CONFIG_HOME:-~/.config}, the home
 // directory, or the user's cache home, ${XDG_CACHE_HOME:-~/.cache}.
@@ -367,14 +373,14 @@ function entryError(logic, wiring, destinations, hasAccounts) {
     return "";
 }
 
-// The first defect of an extension `wiring`, or "": its id, the destination
-// its version is made from, and its copies, each a package file name mapped
-// to one of DESTINATIONS. The version destination itself cannot name the
-// version, which renderTarget refuses.
+// The first defect of an extension `wiring`, or "": the id its ids start
+// with, the destination its stamp is made from, and its copies, each a
+// package file name mapped to one of DESTINATIONS. The stamp destination
+// itself cannot name the stamp, which renderTarget refuses.
 function extensionError(logic, wiring, destinations) {
     if (!hasExactKeys(logic, wiring, EXTENSION_KEYS)) return "key=wiring";
     if (typeof wiring.extension !== "string" || !EXTENSION_ID_PATTERN.test(wiring.extension)) return "key=wiring.extension";
-    if (!destinations.has(wiring.version)) return "key=wiring.version";
+    if (!destinations.has(wiring.stamp)) return "key=wiring.stamp";
     if (!logic.isPlainObject(wiring.copies) || Object.keys(wiring.copies).length === 0) return "key=wiring.copies";
     for (const [name, destination] of Object.entries(wiring.copies))
         if (!logic.isPackageName(name) || !destinations.has(destination)) return "key=wiring.copies." + name;
@@ -880,12 +886,15 @@ function editorHighlightTemplate(logic, input, text) {
 // font, which is then left out whole. On a `runsCode` target an installed package's
 // curated file is dropped, never judged, and its destination listed in
 // `dropped`; any other curated file curatedTaken admits is taken verbatim.
-// An extension target renders its `version` destination first and writes
-// its extensionVersion wherever another file names `@{extension.version}`;
-// any other file naming it refuses the target.
+// An extension target renders its `stamp` destination first and writes its
+// extensionStamp wherever another file names `@{extension.stamp}`, and
+// EXTENSION_VERSION wherever a file names `@{extension.version}`; the stamp
+// file naming the stamp, or a file of any other target naming either,
+// refuses the target.
 // Answers { ok: true, files: [{ destination, bytes, curated }], dropped,
-// version } in the target's order, `version` undefined but on an extension
-// target, or one refusal.
+// extension } in the target's order, `extension` the generated extension's
+// { id, version } on an extension target and undefined on any other, or
+// one refusal.
 function renderTarget(logic, tokens, target, templates, input) {
     if (input.slots === null || typeof input.slots !== "object")
         throw new Error("theme-render: renderTarget: target " + target.name + " rendered without terminal slots");
@@ -896,9 +905,10 @@ function renderTarget(logic, tokens, target, templates, input) {
     const encode = hex => ENCODERS[target.encoder](hex, input.values.color.background);
     const rendered = new Map();
     const dropped = [];
-    const versionFrom = target.wiring !== null && wiringForm(target.wiring) === "extension" ? target.wiring.version : undefined;
-    const order = target.files.filter(file => file.destination === versionFrom).concat(target.files.filter(file => file.destination !== versionFrom));
-    let version;
+    const stampFrom = target.wiring !== null && wiringForm(target.wiring) === "extension" ? target.wiring.stamp : undefined;
+    const order = target.files.filter(file => file.destination === stampFrom).concat(target.files.filter(file => file.destination !== stampFrom));
+    // The extension placeholders' values, the stamp once its file rendered.
+    const extensionValues = new Map(stampFrom === undefined ? [] : [[VERSION_PLACEHOLDER, EXTENSION_VERSION]]);
     for (const file of order) {
         let text = templates.get(file.template);
         if (typeof text !== "string")
@@ -924,7 +934,8 @@ function renderTarget(logic, tokens, target, templates, input) {
                 }
                 continue;
             }
-            const value = part.name === VERSION_PLACEHOLDER ? version : placeholderText(logic, tokens, input, part.name, encode);
+            const value = part.name === STAMP_PLACEHOLDER || part.name === VERSION_PLACEHOLDER ? extensionValues.get(part.name)
+                : placeholderText(logic, tokens, input, part.name, encode);
             if (value === undefined) return refused("placeholder", "template=" + file.template + " placeholder=" + JSON.stringify(part.name));
             if (dropFrom === -1 && terminalFont(input) === null && part.name.split(CASE_SEPARATOR)[0] === TERMINAL_FONT) dropFrom = out.lastIndexOf("\n") + 1;
             out += value;
@@ -935,18 +946,19 @@ function renderTarget(logic, tokens, target, templates, input) {
         if (drop) dropped.push(file.destination);
         const curated = present && !drop && curatedTaken(logic, file, input.curated.get(file.destination));
         const bytes = curated ? input.curated.get(file.destination) : Buffer.from(out, "utf8");
-        if (file.destination === versionFrom) version = extensionVersion(bytes);
+        if (file.destination === stampFrom) extensionValues.set(STAMP_PLACEHOLDER, extensionStamp(bytes));
         rendered.set(file.destination, { destination: file.destination, bytes, curated });
     }
     const destinations = target.files.map(file => file.destination);
-    return { ok: true, files: destinations.map(destination => rendered.get(destination)), dropped: destinations.filter(destination => dropped.includes(destination)), version };
+    const extension = stampFrom === undefined ? undefined
+        : { id: target.wiring.extension + "-" + extensionValues.get(STAMP_PLACEHOLDER), version: EXTENSION_VERSION };
+    return { ok: true, files: destinations.map(destination => rendered.get(destination)), dropped: destinations.filter(destination => dropped.includes(destination)), extension };
 }
 
-// The version an extension whose `version` file holds BYTES carries:
-// `1.0.<n>`, n the first 32 bits of the bytes' sha256, so new bytes make a
-// new version and the editors replace the theme they cached for the old one.
-function extensionVersion(bytes) {
-    return "1.0." + parseInt(crypto.createHash("sha256").update(bytes).digest("hex").slice(0, 8), 16);
+// The stamp of an extension whose `stamp` file holds BYTES: the first 32
+// bits of the bytes' sha256 in decimal, so new bytes make a new id.
+function extensionStamp(bytes) {
+    return String(parseInt(crypto.createHash("sha256").update(bytes).digest("hex").slice(0, 8), 16));
 }
 
 // The include line an accepted TARGET keeps in its application's
@@ -1042,10 +1054,19 @@ function extensionFolder(id, version) {
     return id + "-" + version;
 }
 
-// Whether NAME is a folder extensionFolder gives extension ID at any
-// version: what an apply removes once another version is registered.
-function isExtensionFolder(name, id) {
-    return name.startsWith(id + "-") && /^[0-9]+\.[0-9]+\.[0-9]+$/.test(name.slice(id.length + 1));
+// Whether ID is an extension id an extension target whose ids start with
+// BASE renders: BASE and a stamp. BASE alone is the id a release before
+// stamped ids registered, so the next apply or disable removes it too.
+function isStampedId(id, base) {
+    return id === base || (id.startsWith(base + "-") && /^[0-9]+$/.test(id.slice(base.length + 1)));
+}
+
+// Whether NAME is a folder extensionFolder gives any id isStampedId admits
+// for BASE, at any version: what an apply removes once its own extension
+// is registered.
+function isExtensionFolder(name, base) {
+    const version = /-([0-9]+\.[0-9]+\.[0-9]+)$/.exec(name);
+    return version !== null && isStampedId(name.slice(0, version.index), base);
 }
 
 // TEXT parsed as JSON when it is a value CHECK admits, else undefined.
@@ -1081,25 +1102,29 @@ function registeredText(logic, text, id, version, dir) {
 }
 
 // The text an editor's extensions.json holding TEXT takes once it registers
-// no version of extension ID: null when it registers none or is absent, or
-// the refusal `registry-refused` for a file that is no JSON array.
-function unregisteredText(logic, text, id) {
+// no id isStampedId admits for BASE but KEEP, which may be null: null when it
+// registers none or is absent, or the refusal `registry-refused` for a file
+// that is no JSON array.
+function unregisteredText(logic, text, base, keep) {
     if (text === undefined) return null;
     const entries = parsedJson(text, Array.isArray);
     if (entries === undefined) return refused("registry-refused", "file=extensions.json");
-    const kept = entries.filter(entry => registeredId(logic, entry) !== id);
+    const kept = entries.filter(entry => {
+        const id = registeredId(logic, entry);
+        return id === null || id === keep || !isStampedId(id, base);
+    });
     return kept.length === entries.length ? null : JSON.stringify(kept);
 }
 
 // The text an editor's `.obsolete` holding TEXT takes once it marks no
-// folder of extension ID obsolete, since a marked folder is one the editor
-// skips and deletes: null when it marks none or is absent, or the refusal
-// `registry-refused` for a file that is no JSON object.
-function unobsoletedText(logic, text, id) {
+// folder isExtensionFolder admits for BASE obsolete, since a marked folder is
+// one the editor skips and deletes: null when it marks none or is absent, or
+// the refusal `registry-refused` for a file that is no JSON object.
+function unobsoletedText(logic, text, base) {
     if (text === undefined) return null;
     const marks = parsedJson(text, logic.isPlainObject);
     if (marks === undefined) return refused("registry-refused", "file=.obsolete");
-    const kept = Object.keys(marks).filter(name => !isExtensionFolder(name, id));
+    const kept = Object.keys(marks).filter(name => !isExtensionFolder(name, base));
     return kept.length === Object.keys(marks).length ? null : JSON.stringify(Object.fromEntries(kept.map(name => [name, marks[name]])));
 }
 
@@ -1245,4 +1270,4 @@ function unwiredText(text, line, section) {
     return next === text ? null : next;
 }
 
-module.exports = { colorDeltaE, colorDifference, TARGET_FILE, EDITOR_BASE, extensionVersion, extensionFolder, isExtensionFolder, registeredText, unregisteredText, unobsoletedText, acceptTarget, placeholderNames, detected, setupDone, curatedTaken, renderTarget, terminalSource, refusalLine, wiringForm, wiringLine, entryItems, profileDirs, vaultDirs, reloadNamesWiring, reloadCommand, reloadAlways, selectKeys, selectValue, wiredText, unwiredText, isSectionHeader, opensSection, assignedKey };
+module.exports = { colorDeltaE, colorDifference, TARGET_FILE, EDITOR_BASE, extensionFolder, isExtensionFolder, registeredText, unregisteredText, unobsoletedText, acceptTarget, placeholderNames, detected, setupDone, curatedTaken, renderTarget, terminalSource, refusalLine, wiringForm, wiringLine, entryItems, profileDirs, vaultDirs, reloadNamesWiring, reloadCommand, reloadAlways, selectKeys, selectValue, wiredText, unwiredText, isSectionHeader, opensSection, assignedKey };

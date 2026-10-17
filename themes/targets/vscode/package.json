@@ -1,5 +1,5 @@
 {
-  "name": "vgs-theme",
+  "name": "vgs-theme-@{extension.stamp}",
   "displayName": "vgs",
   "description": "The vgs desktop theme, kept by vgshell theme apply.",
   "publisher": "local",

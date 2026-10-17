@@ -65,7 +65,7 @@ const copyEntryText = (fields = {}) => targetText({ files: twoFiles, wiring: Obj
 // version made from probe.conf, and the theme selected in each editor's
 // settings.
 const editors = [{ detect: "probe", extensions: ".probe/extensions", user: "Probe - Beta/User" }];
-const extension = { extension: "local.probe-theme", version: "probe.conf", copies: { "package.json": "probe.pkg.json", "theme.json": "probe.conf" } };
+const extension = { extension: "local.probe-theme", stamp: "probe.conf", copies: { "package.json": "probe.pkg.json", "theme.json": "probe.conf" } };
 const editorSelect = { base: "editor", file: "settings.json", format: "jsonc", key: ["workbench.colorTheme"], value: "vgs" };
 const extensionText = (fields = {}) => targetText(Object.assign({ files: twoFiles, detect: [], editors, wiring: extension, select: editorSelect, reload: null }, fields));
 const extensionWith = fields => Object.assign({}, extension, fields);
@@ -111,7 +111,7 @@ const ACCEPTED_TARGETS = [
     ["probe", extensionText()],
     ["probe", extensionText({ select: undefined })],
     ["probe", extensionText({ editors: editors.concat({ detect: "probe-oss", extensions: ".probe-oss/extensions", user: "ProbeOSS/User" }) })],
-    ["probe", extensionText({ wiring: extensionWith({ version: "probe.pkg.json" }) })]
+    ["probe", extensionText({ wiring: extensionWith({ stamp: "probe.pkg.json" }) })]
 ];
 
 // Refused targets: the name, the document text, the reason, the detail.
@@ -242,7 +242,7 @@ const REFUSED_TARGETS = [
     ["probe", extensionText({ wiring: extensionWith({ extension: "Local.Probe" }) }), "target-schema", "key=wiring.extension"],
     ["probe", extensionText({ wiring: extensionWith({ extension: "probe-theme" }) }), "target-schema", "key=wiring.extension"],
     ["probe", extensionText({ wiring: extensionWith({ extension: "local.probe.theme" }) }), "target-schema", "key=wiring.extension"],
-    ["probe", extensionText({ wiring: extensionWith({ version: "other.conf" }) }), "target-schema", "key=wiring.version"],
+    ["probe", extensionText({ wiring: extensionWith({ stamp: "other.conf" }) }), "target-schema", "key=wiring.stamp"],
     ["probe", extensionText({ wiring: extensionWith({ copies: {} }) }), "target-schema", "key=wiring.copies"],
     ["probe", extensionText({ wiring: extensionWith({ copies: { "theme.json": "other.conf" } }) }), "target-schema", "key=wiring.copies.theme.json"],
     ["probe", extensionText({ wiring: extensionWith({ copies: { "../theme.json": "probe.conf" } }) }), "target-schema", "key=wiring.copies.../theme.json"],
@@ -482,42 +482,46 @@ const DETECTED = [
     [["c", ["a", "b"]], ["b", "c"], true]
 ];
 
-// The version an extension whose version file holds TEXT carries, written
-// from the rule: `1.0.` and the first 32 bits of the sha256, in decimal.
-const versionOf = text => "1.0." + BigInt("0x" + require("node:crypto").createHash("sha256").update(text).digest("hex").slice(0, 8)).toString();
+// The stamp an extension whose stamp file holds TEXT carries, written from
+// the rule: the first 32 bits of the sha256, in decimal.
+const stampOf = text => BigInt("0x" + require("node:crypto").createHash("sha256").update(text).digest("hex").slice(0, 8)).toString();
 
-// An editors target renders its version file first, writes the version
-// wherever another file names it, and keeps the files in its order; the
-// registry edits register exactly one version of the id.
+// An editors target renders its stamp file first, writes the stamp wherever
+// another file names it, and keeps the files in its order; its extension's
+// id is the wiring's id and the stamp. The registry edits register exactly
+// one version of an id, and remove every stamped id but the one kept.
 function verifyExtension(render, accepted) {
     const id = "local.probe-theme";
     const renderWith = (target, a, b, curated = new Map()) => render.renderTarget(logic, TOKENS, target, new Map([["a.conf", a], ["b.json", b]]),
         { values: probe.values, slots: defaults.terminal, curated, installed: false });
     const first = accepted("probe", extensionText());
-    const result = renderWith(first, "c=@{palette.accent}", "v=@{extension.version}");
+    const result = renderWith(first, "c=@{palette.accent}", "s=@{extension.stamp} v=@{extension.version}");
     assert.equal(result.ok, true);
-    assert.equal(result.version, versionOf("c=123456"));
-    assert.deepEqual(result.files.map(file => [file.destination, file.bytes.toString("utf8")]), [["probe.conf", "c=123456"], ["probe.pkg.json", "v=" + versionOf("c=123456")]]);
-    assert.notEqual(renderWith(first, "c=@{palette.accent} ", "v").version, result.version);
-    // The version file may come last in `files`; it renders first all the same.
-    const last = accepted("probe", extensionText({ wiring: extensionWith({ version: "probe.pkg.json" }) }));
-    const lastResult = renderWith(last, "v=@{extension.version}", "b=@{palette.accent}");
+    const stamp = stampOf("c=123456");
+    assert.deepEqual(result.extension, { id: id + "-" + stamp, version: "1.0.0" });
+    assert.deepEqual(result.files.map(file => [file.destination, file.bytes.toString("utf8")]), [["probe.conf", "c=123456"], ["probe.pkg.json", "s=" + stamp + " v=1.0.0"]]);
+    assert.notEqual(renderWith(first, "c=@{palette.accent} ", "v").extension.id, result.extension.id);
+    // The stamp file may come last in `files`; it renders first all the same.
+    const last = accepted("probe", extensionText({ wiring: extensionWith({ stamp: "probe.pkg.json" }) }));
+    const lastResult = renderWith(last, "s=@{extension.stamp}", "b=@{palette.accent}");
     assert.equal(lastResult.ok, true);
-    assert.deepEqual(lastResult.files.map(file => [file.destination, file.bytes.toString("utf8")]), [["probe.conf", "v=" + versionOf("b=123456")], ["probe.pkg.json", "b=123456"]]);
-    // A curated version file stands in, and the version is made from it.
-    const curated = renderWith(first, "c=@{palette.accent}", "v=@{extension.version}", new Map([["probe.conf", Buffer.from("mine")]]));
-    assert.equal(curated.version, versionOf("mine"));
-    assert.equal(curated.files[1].bytes.toString("utf8"), "v=" + versionOf("mine"));
-    // The version file cannot name its own version, nor can any file of a
-    // target that is no editors target.
-    assert.deepEqual(renderWith(first, "v=@{extension.version}", "b"), { ok: false, reason: "placeholder", detail: 'template=a.conf placeholder="extension.version"' });
+    assert.deepEqual(lastResult.files.map(file => [file.destination, file.bytes.toString("utf8")]), [["probe.conf", "s=" + stampOf("b=123456")], ["probe.pkg.json", "b=123456"]]);
+    // A curated stamp file stands in, and the stamp is made from it.
+    const curated = renderWith(first, "c=@{palette.accent}", "s=@{extension.stamp}", new Map([["probe.conf", Buffer.from("mine")]]));
+    assert.equal(curated.extension.id, id + "-" + stampOf("mine"));
+    assert.equal(curated.files[1].bytes.toString("utf8"), "s=" + stampOf("mine"));
+    // The stamp file cannot name its own stamp, nor can any file of a target
+    // that is no editors target name the stamp or the version.
+    assert.deepEqual(renderWith(first, "s=@{extension.stamp}", "b"), { ok: false, reason: "placeholder", detail: 'template=a.conf placeholder="extension.stamp"' });
     const plain = accepted("probe", targetText({ files: twoFiles, wiring: entry }));
-    assert.deepEqual(renderWith(plain, "a", "v=@{extension.version}"), { ok: false, reason: "placeholder", detail: 'template=b.json placeholder="extension.version"' });
-    assert.equal(renderWith(plain, "a", "b").version, undefined);
+    for (const name of ["extension.stamp", "extension.version"])
+        assert.deepEqual(renderWith(plain, "a", "v=@{" + name + "}"), { ok: false, reason: "placeholder", detail: 'template=b.json placeholder="' + name + '"' });
+    assert.equal(renderWith(plain, "a", "b").extension, undefined);
 
-    assert.equal(render.extensionFolder(id, "1.0.7"), "local.probe-theme-1.0.7");
-    for (const [name, want] of [["local.probe-theme-1.0.7", true], ["local.probe-theme-12.0.123456", true], ["local.probe-theme", false],
-        ["local.probe-theme-1.0", false], ["local.probe-theme-1.0.7-x", false], ["local.probe-theme-extra-1.0.7", false], ["other.probe-theme-1.0.7", false]])
+    assert.equal(render.extensionFolder(id + "-7", "1.0.0"), "local.probe-theme-7-1.0.0");
+    for (const [name, want] of [["local.probe-theme-7-1.0.0", true], ["local.probe-theme-123456-12.0.1", true], ["local.probe-theme-1.0.7", true],
+        ["local.probe-theme", false], ["local.probe-theme-7", false], ["local.probe-theme-1.0", false], ["local.probe-theme-7-1.0.0-x", false],
+        ["local.probe-theme-extra-1.0.7", false], ["local.probe-theme-7x-1.0.0", false], ["other.probe-theme-7-1.0.0", false]])
         assert.equal(render.isExtensionFolder(name, id), want, name);
 
     const entryOf = version => ({ identifier: { id }, version, location: { $mid: 1, path: "/h/.probe/extensions/local.probe-theme-" + version, scheme: "file" },
@@ -538,16 +542,23 @@ function verifyExtension(render, accepted) {
     for (const text of ["{}", "", "[", "null"])
         assert.deepEqual(registered(text), { ok: false, reason: "registry-refused", detail: "file=extensions.json" }, text);
 
-    const unregistered = text => render.unregisteredText(logic, text, id);
+    // The bare id, a stamped id and its upper-case spelling go; the kept id,
+    // another publisher's id and an id that only starts like one stay.
+    const stamped = (stampedId, version) => Object.assign(entryOf(version), { identifier: { id: stampedId } });
+    const lookalike = stamped("local.probe-theme-x", "1.0.0");
+    const unregistered = (text, keep = null) => render.unregisteredText(logic, text, id, keep);
     assert.equal(unregistered(undefined), null);
-    assert.equal(unregistered(JSON.stringify([other])), null);
-    assert.deepEqual(JSON.parse(unregistered(JSON.stringify([entryOf("1.0.3"), other]))), [other]);
+    assert.equal(unregistered(JSON.stringify([other, lookalike])), null);
+    assert.deepEqual(JSON.parse(unregistered(JSON.stringify([entryOf("1.0.3"), other, stamped("LOCAL.Probe-Theme-5", "1.0.0")]))), [other]);
+    assert.deepEqual(JSON.parse(unregistered(JSON.stringify([entryOf("1.0.3"), stamped(id + "-5", "1.0.0"), stamped(id + "-9", "1.0.0"), lookalike]), id + "-9")),
+        [stamped(id + "-9", "1.0.0"), lookalike]);
+    assert.equal(unregistered(JSON.stringify([stamped(id + "-9", "1.0.0")]), id + "-9"), null);
     assert.deepEqual(unregistered("{}"), { ok: false, reason: "registry-refused", detail: "file=extensions.json" });
 
     const unobsoleted = text => render.unobsoletedText(logic, text, id);
     assert.equal(unobsoleted(undefined), null);
     assert.equal(unobsoleted('{"pub.other-2.0.0":true}'), null);
-    assert.deepEqual(JSON.parse(unobsoleted('{"local.probe-theme-1.0.3":true,"pub.other-2.0.0":true,"local.probe-theme-1.0.9":true}')), { "pub.other-2.0.0": true });
+    assert.deepEqual(JSON.parse(unobsoleted('{"local.probe-theme-1.0.3":true,"pub.other-2.0.0":true,"local.probe-theme-5-1.0.0":true}')), { "pub.other-2.0.0": true });
     assert.equal(unobsoleted('{"local.probe-theme-x":true}'), null);
     for (const text of ["[]", "", "null"])
         assert.deepEqual(unobsoleted(text), { ok: false, reason: "registry-refused", detail: "file=.obsolete" }, text);
@@ -1990,7 +2001,7 @@ function verifyEditorCaps(render, report = false) {
         const result = render.renderTarget(logic, TOKENS, target, templates, input);
         assert.equal(result.ok, true);
         const bytes = result.files.find(file => file.destination === "vscode.json").bytes;
-        assert.equal(result.version, render.extensionVersion(bytes));
+        assert.equal(result.extension.id, target.wiring.extension + "-" + stampOf(bytes));
         const colors = JSON.parse(bytes.toString()).colors;
         const line = parseInt(colors["diffEditor.insertedLineBackground"].slice(-2), 16);
         const word = parseInt(colors["diffEditor.insertedTextBackground"].slice(-2), 16);
@@ -2100,11 +2111,11 @@ function verifyEditorNoHeadroom(render, report = false) {
     assert.deepEqual(withoutFills(theme), withoutFills(ordinary));
     assert.equal(theme.type, "dark");
     assert.equal(theme.colors["textLink.foreground"], pkg.values.color.accent);
-    assert.equal(result.version, versionOf(bytes.toString("utf8")));
+    assert.equal(result.extension.id, target.wiring.extension + "-" + stampOf(bytes.toString("utf8")));
     const extension = JSON.parse(result.files.find(file => file.destination === "vscode.package.json").bytes.toString("utf8"));
-    assert.equal(extension.version, result.version);
+    assert.deepEqual({ id: extension.publisher + "." + extension.name, version: extension.version }, result.extension);
     if (report) console.log("test-theme-render: editor-limit " + JSON.stringify({ ...observed,
-        fills: fills.map(({ key, color }) => ({ key, color })), ordinaryThemeRetained: true, version: result.version }));
+        fills: fills.map(({ key, color }) => ({ key, color })), ordinaryThemeRetained: true, extension: result.extension.id }));
 }
 verifyEditorNoHeadroom(require(rendererFile), true);
 
@@ -2779,17 +2790,21 @@ const CONTROLS = [
     ["editors distinct", "if (seen.has(value)) return key;", ""],
     ["editor select base", "!(hasEditors && select.base === EDITOR_BASE)", "!(select.base === EDITOR_BASE)"],
     ["extension id", "const EXTENSION_ID_PATTERN = /^[a-z0-9][a-z0-9-]*\\.[a-z0-9][a-z0-9-]*$/;", "const EXTENSION_ID_PATTERN = /./;"],
-    ["extension version a destination", 'if (!destinations.has(wiring.version)) return "key=wiring.version";', ""],
+    ["extension stamp a destination", 'if (!destinations.has(wiring.stamp)) return "key=wiring.stamp";', ""],
     ["extension copies named", 'if (!logic.isPackageName(name) || !destinations.has(destination)) return "key=wiring.copies." + name;', ""],
-    ["version file first", "const order = target.files.filter(file => file.destination === versionFrom).concat(target.files.filter(file => file.destination !== versionFrom));", "const order = target.files;"],
-    ["version from the final bytes", "if (file.destination === versionFrom) version = extensionVersion(bytes);", 'if (file.destination === versionFrom) version = extensionVersion(Buffer.from(out, "utf8"));'],
-    ["version written", "const value = part.name === VERSION_PLACEHOLDER ? version : placeholderText(", "const value = part.name === VERSION_PLACEHOLDER ? \"1.0.0\" : placeholderText("],
-    ["version from the sha256", '.digest("hex").slice(0, 8), 16);', '.digest("hex").slice(0, 2), 16);'],
+    ["stamp file first", "const order = target.files.filter(file => file.destination === stampFrom).concat(target.files.filter(file => file.destination !== stampFrom));", "const order = target.files;"],
+    ["stamp from the final bytes", "if (file.destination === stampFrom) extensionValues.set(STAMP_PLACEHOLDER, extensionStamp(bytes));", 'if (file.destination === stampFrom) extensionValues.set(STAMP_PLACEHOLDER, extensionStamp(Buffer.from(out, "utf8")));'],
+    ["stamp written", "const value = part.name === STAMP_PLACEHOLDER || part.name === VERSION_PLACEHOLDER ? extensionValues.get(part.name)", "const value = part.name === STAMP_PLACEHOLDER || part.name === VERSION_PLACEHOLDER ? \"7\""],
+    ["stamp from the sha256", '.digest("hex").slice(0, 8), 16));', '.digest("hex").slice(0, 2), 16));'],
+    ["stamp in the id", '{ id: target.wiring.extension + "-" + extensionValues.get(STAMP_PLACEHOLDER), version: EXTENSION_VERSION }', "{ id: target.wiring.extension, version: EXTENSION_VERSION }"],
     ["registry keeps a held entry", "if (own.length === 1 && own[0].version === version && own[0].relativeLocation === folder) return null;", ""],
     ["registry one version", "return JSON.stringify(entries.filter(entry => registeredId(logic, entry) !== id).concat({", "return JSON.stringify(entries.concat({"],
     ["registry id case", "? entry.identifier.id.toLowerCase() : null;", "? entry.identifier.id : null;"],
     ["registry an array", "const entries = text === undefined ? [] : parsedJson(text, Array.isArray);", "const entries = text === undefined ? [] : parsedJson(text, () => true);"],
-    ["obsolete versions only", '/^[0-9]+\\.[0-9]+\\.[0-9]+$/.test(name.slice(id.length + 1))', "true"],
+    ["extension folders versioned", "const version = /-([0-9]+\\.[0-9]+\\.[0-9]+)$/.exec(name);", "const version = /-(.+)$/.exec(name);"],
+    ["stamped ids only", 'return id === base || (id.startsWith(base + "-") && /^[0-9]+$/.test(id.slice(base.length + 1)));', 'return id.startsWith(base);'],
+    ["the bare id is stamped", 'return id === base || (id.startsWith(base + "-")', 'return (id.startsWith(base + "-")'],
+    ["unregister keeps the kept id", "return id === null || id === keep || !isStampedId(id, base);", "return id === null || !isStampedId(id, base);"],
     ["tmux derivation never changes terminal", 'if (target.name === "tmux") input = { ...input, slots: tmuxSlots(logic, input) };', 'if (target.name === "tmux" || target.name === "ghostty") input = { ...input, slots: tmuxSlots(logic, input) };', verifyAppStyles],
     ["tmux old inactive values", 'if (target.name === "tmux") input = { ...input, slots: tmuxSlots(logic, input) };', "", verifyAppStyles],
     ["tmux readability", 'const readable = color => color.a === 1 && logic.contrastRatio(color, background) >= logic.READABILITY_FLOOR;', 'const readable = color => true;', verifyAppStyles],

@@ -13,7 +13,7 @@
     { "detect": "codium", "extensions": ".vscode-oss/extensions", "user": "VSCodium/User" },
     { "detect": "cursor", "extensions": ".cursor/extensions", "user": "Cursor/User" }
   ],
-  "wiring": { "extension": "local.vgs-theme", "version": "vscode.json", "copies": { "package.json": "vscode.package.json", "vgs-color-theme.json": "vscode.json" } },
+  "wiring": { "extension": "local.vgs-theme", "stamp": "vscode.json", "copies": { "package.json": "vscode.package.json", "vgs-color-theme.json": "vscode.json" } },
   "select": { "base": "editor", "file": "settings.json", "format": "jsonc", "key": ["workbench.colorTheme"], "value": "vgs" },
   "reload": null
 }

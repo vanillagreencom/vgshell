@@ -1008,7 +1008,7 @@ function planTarget(dir, row, slots, font, disabled, configHome, live) {
     if (render.wiringForm(target.wiring) === "extension") {
         const registries = reading(name, dir, () => {
             for (const editor of editors) {
-                const verdicts = [render.registeredText(logic, utf8(readIfPresent(path.join(editor.extensions, REGISTRY_FILE))), target.wiring.extension, rendered.version, editor.extensions),
+                const verdicts = [render.registeredText(logic, utf8(readIfPresent(path.join(editor.extensions, REGISTRY_FILE))), rendered.extension.id, rendered.extension.version, editor.extensions),
                     render.unobsoletedText(logic, utf8(readIfPresent(path.join(editor.extensions, OBSOLETE_FILE))), target.wiring.extension)];
                 const refusal = verdicts.find(verdict => verdict !== null && typeof verdict !== "string");
                 if (refusal !== undefined) return refusal.reason;
@@ -1018,7 +1018,7 @@ function planTarget(dir, row, slots, font, disabled, configHome, live) {
         if (!registries.ok) return registries.entry;
         if (registries.value !== null) return skipped(registries.value);
     }
-    return { name, state: "pending", reason: null, target, files: rendered.files, dropped, entryPlan, roots, editors, version: rendered.version };
+    return { name, state: "pending", reason: null, target, files: rendered.files, dropped, entryPlan, roots, editors, extension: rendered.extension };
 }
 
 // Every shipped target under themes/targets/, planned by planTarget, in
@@ -1179,9 +1179,9 @@ function utf8Edit(edit) {
     };
 }
 
-// The folders of extension ID in DIR other than KEEP, an absent DIR
-// holding none.
-function otherVersions(dir, id, keep) {
+// The folders in DIR of every extension editors TARGET renders, other
+// than KEEP, an absent DIR holding none.
+function extensionFolders(dir, target, keep) {
     let names;
     try {
         names = fs.readdirSync(dir);
@@ -1190,19 +1190,19 @@ function otherVersions(dir, id, keep) {
         e.path = dir;
         throw e;
     }
-    return names.filter(name => name !== keep && render.isExtensionFolder(name, id)).sort().map(name => path.join(dir, name));
+    return names.filter(name => name !== keep && render.isExtensionFolder(name, target.wiring.extension)).sort().map(name => path.join(dir, name));
 }
 
-// Keep extension TARGET's generated extension in each of EDITORS: its
-// files, FILES' bytes, copied into the folder of VERSION, which `.obsolete`
-// then stops marking and extensions.json registers, and only then every
-// other version's folder removed, so the editor never registers a folder
-// that is gone or that it deletes as obsolete. Answers null, or the failure's { reason, failure }
-// for target NAME.
-function keepExtension(name, target, files, version, editors) {
+// Keep extension TARGET's generated EXTENSION, its { id, version }, in each
+// of EDITORS: its files, FILES' bytes, copied into its folder, which
+// `.obsolete` then stops marking and extensions.json registers beside any
+// extension an earlier apply registered, so the editor never registers a
+// folder that is gone or that it deletes as obsolete. dropExtension removes
+// the earlier ones once the selection names the theme. Answers null, or the
+// failure's { reason, failure } for target NAME.
+function keepExtension(name, target, files, extension, editors) {
     const key = "target=" + name + " reason";
-    const id = target.wiring.extension;
-    const folder = render.extensionFolder(id, version);
+    const folder = render.extensionFolder(extension.id, extension.version);
     const bytes = new Map(files.map(file => [file.destination, file.bytes]));
     try {
         for (const editor of editors) {
@@ -1211,11 +1211,10 @@ function keepExtension(name, target, files, version, editors) {
                 const held = readIfPresent(at);
                 if (held === undefined || !held.equals(bytes.get(destination))) replaceFile(at, bytes.get(destination), key, 0o644);
             }
-            const failure = editFile(key, path.join(editor.extensions, OBSOLETE_FILE), false, utf8Edit(text => render.unobsoletedText(logic, text, id))) ||
+            const failure = editFile(key, path.join(editor.extensions, OBSOLETE_FILE), false, utf8Edit(text => render.unobsoletedText(logic, text, target.wiring.extension))) ||
                 editFile(key, path.join(editor.extensions, REGISTRY_FILE), true,
-                    utf8Edit(text => render.registeredText(logic, text, id, version, editor.extensions)));
+                    utf8Edit(text => render.registeredText(logic, text, extension.id, extension.version, editor.extensions)));
             if (failure !== null) return failure;
-            for (const old of otherVersions(editor.extensions, id, folder)) writing(old, key, () => fs.rmSync(old, { recursive: true, force: true }));
         }
     } catch (e) {
         if (e instanceof Refusal) return { reason: e.reason, failure: e.first };
@@ -1225,17 +1224,19 @@ function keepExtension(name, target, files, version, editors) {
     return null;
 }
 
-// Remove extension TARGET's registration and folders from every editor it
-// names, detected or not. Answers null, or the failure's { reason, failure }
-// for target NAME.
-function dropExtension(name, target, configHome) {
+// Remove every extension editors TARGET renders but KEEP, its kept
+// { id, version } or null for none, from each of EDITORS: first its
+// registration, so a running editor drops it, then its folder. Answers
+// null, or the failure's { reason, failure } for target NAME.
+function dropExtension(name, target, editors, keep) {
     const key = "target=" + name + " reason";
-    const id = target.wiring.extension;
+    const folder = keep === null ? null : render.extensionFolder(keep.id, keep.version);
     try {
-        for (const editor of detectedEditors(target, configHome, true)) {
-            const failure = editFile(key, path.join(editor.extensions, REGISTRY_FILE), false, utf8Edit(text => render.unregisteredText(logic, text, id)));
+        for (const editor of editors) {
+            const failure = editFile(key, path.join(editor.extensions, REGISTRY_FILE), false,
+                utf8Edit(text => render.unregisteredText(logic, text, target.wiring.extension, keep === null ? null : keep.id)));
             if (failure !== null) return failure;
-            for (const old of otherVersions(editor.extensions, id, null)) writing(old, key, () => fs.rmSync(old, { recursive: true, force: true }));
+            for (const old of extensionFolders(editor.extensions, target, folder)) writing(old, key, () => fs.rmSync(old, { recursive: true, force: true }));
         }
     } catch (e) {
         if (e instanceof Refusal) return { reason: e.reason, failure: e.first };
@@ -1455,15 +1456,17 @@ function selectionEdits(target, configHome, live, roots) {
 }
 
 // Keep a landed ENTRY's wiring: its include line in its configuration file,
-// or its links in its application's directory, and then its selection in
-// its application's settings file, which is never created. Answers ENTRY,
+// its links in its application's directory, or its generated extension, and
+// then its selection in its application's settings file, which is never
+// created but for an editor's, and last remove an editors target's earlier
+// extensions. Answers ENTRY,
 // or its failed entry, which keeps the files it landed and so its `dropped`.
 function wire(entry, configHome, live) {
     let failure;
     switch (render.wiringForm(entry.target.wiring)) {
     case "include": failure = editWiring(entry.name, entry.target, configHome, live, render.wiredText); break;
     case "entry": failure = keepEntries(entry.name, entry.target, configHome, live, entry.entryPlan); break;
-    case "extension": failure = keepExtension(entry.name, entry.target, entry.files, entry.version, entry.editors); break;
+    case "extension": failure = keepExtension(entry.name, entry.target, entry.files, entry.extension, entry.editors); break;
     case "none": failure = null; break;
     default: throw new Error("vgshell-theme-judge: wire: target " + entry.name + " has no known wiring form");
     }
@@ -1473,6 +1476,11 @@ function wire(entry, configHome, live) {
             if (failure !== null) break;
         }
     }
+    // The earlier extensions go last: a running editor re-applies its
+    // selected theme when its theme list changes, so the new extension is
+    // registered and selected before an old one leaves that list.
+    if (failure === null && render.wiringForm(entry.target.wiring) === "extension")
+        failure = dropExtension(entry.name, entry.target, entry.editors, entry.extension);
     return failure === null ? entry : Object.assign({ name: entry.name, state: "failed", dropped: entry.dropped }, failure);
 }
 
@@ -1483,7 +1491,7 @@ function unwire(name, target, configHome, live) {
     switch (render.wiringForm(target.wiring)) {
     case "include": return editWiring(name, target, configHome, live, render.unwiredText);
     case "entry": return dropEntries(name, target, configHome, live);
-    case "extension": return dropExtension(name, target, configHome);
+    case "extension": return dropExtension(name, target, detectedEditors(target, configHome, true), null);
     case "none": return null;
     default: throw new Error("vgshell-theme-judge: unwire: target " + name + " has no known wiring form");
     }
@@ -3002,7 +3010,7 @@ function setupTargetRows(name, target, configHome, live) {
     case "extension":
         for (const editor of detectedEditors(target, configHome)) {
             try {
-                for (const folder of otherVersions(editor.extensions, target.wiring.extension, null))
+                for (const folder of extensionFolders(editor.extensions, target, null))
                     rows.push({ name, app: target.app, file: folder, line: null, state: "wired" });
             } catch (e) {
                 if (typeof e.code !== "string") throw e;
