@@ -15,7 +15,7 @@ import "HyprlandLayer.js" as Layer
 // touchpads Capabilities.hyprland reads, and this writes the text to
 // `<stateDir>/hypr/vgs.lua`, only when its bytes change, then runs
 // `hyprctl reload config-only`, which it also runs once at a start that
-// wrote nothing. The radius group gets the highest monitor
+// wrote nothing, when hyprland.lua is wired. The radius group gets the highest monitor
 // scale here, so grouped-window tab rounding can match scaled window corners.
 // It renders again whenever the plugin set, the configuration or the theme
 // changes, which covers enable, disable, rescan, a shell.json

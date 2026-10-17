@@ -1553,8 +1553,9 @@ function render(sections, theme, themeName, highestScale, touchpads, touchpadFai
 // writes and reloads whatever the bytes; pending, the text being written;
 // failedText; failure, the last step's keyed failure, "" once a cycle
 // completes; reloadOwner, `layer` for the layer writer and `wire` for a
-// Connect reload; reloaded, whether this run has reloaded Hyprland, set by
-// the first reload of either owner and never cleared; consent, a tagged
+// Connect reload; reloaded, whether this run has asked Hyprland to reload,
+// failed reloads included, set by the first reload of either owner and
+// never cleared; consent, a tagged
 // state for the Hyprland wiring question.
 // Actions: `none`, `read`, `mkdir`, `write` (state.pending), `reload`,
 // `probe`, `checkDecline`, `ask`, `decline` and `wire`.
@@ -1606,8 +1607,12 @@ function begin(state, text) {
         return { state: withChanges(state, { phase: "checkingDecline" }), action: "checkDecline" };
     // A shell stopped between a write's rename and its reload left bytes
     // Hyprland never loaded, and this run found them equal to its render, so
-    // nothing above reloads: reload once per run.
-    if (text !== null && text === state.onDisk && !state.reloaded)
+    // nothing above reloads: reload once per run. Only a wired hyprland.lua
+    // loads the layer, so any other consent gains nothing and reruns the
+    // user's own reload hooks. A worked reload ends with failure "", and this
+    // one completes no write, so it waits while an earlier step's failure is
+    // the one reported.
+    if (state.consent.phase === "wired" && state.failure === "" && text !== null && text === state.onDisk && !state.reloaded)
         return { state: withChanges(state, { phase: "reloading", reloadOwner: "layer", reloaded: true }), action: "reload" };
     return { state: withChanges(state, { forcing: false }), action: "none" };
 }
