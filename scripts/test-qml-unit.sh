@@ -833,6 +833,7 @@ mutations=(
   "the launcher's flyout hands no fill|../plugins/vgs.launcher/ContextMenu.qml|        fill: menu.look.card.fill|        property color unhanded: menu.look.card.fill|tst_launcher_menu.qml"
   "the launcher's flyout hands a radius|../plugins/vgs.launcher/ContextMenu.qml|        fill: menu.look.card.fill|        fill: menu.look.card.fill; radius: menu.look.radius.md|tst_launcher_menu.qml"
   "the launcher's flyout icon centres on its entry|../plugins/vgs.launcher/ContextMenu.qml|y: entryText.y + entryReading.topForLeadingIcon(height, entryText.y)|anchors.verticalCenter: parent.verticalCenter|tst_launcher_menu.qml"
+  "the launcher's search glyph centres on its header row|../plugins/vgs.launcher/Launcher.qml|y: headerText.y + headerReading.topForLeadingIcon(height, headerText.y)|anchors.verticalCenter: parent.verticalCenter|tst_launcher_menu.qml"
   "glass over content takes its standard corner|foundation/GlassSurface.qml|readonly property real corner: on ?|readonly property real corner: drawn ?|tst_glasssurface.qml"
   "glass over content draws its standard border|foundation/GlassSurface.qml|border.color: glass.on ?|border.color: glass.drawn ?|tst_glasssurface.qml"
   "the user's glass choice leaves a surface's own|foundation/GlassSurface.qml|readonly property bool on: Theme.glassOn(optIn)|readonly property bool on: optIn|tst_glasssurface.qml"

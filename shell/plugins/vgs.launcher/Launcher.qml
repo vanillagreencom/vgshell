@@ -1029,7 +1029,7 @@ Item {
                     look: root.look
                     anchors.left: parent.left
                     anchors.leftMargin: root.look.header.glyphInset
-                    anchors.verticalCenter: parent.verticalCenter
+                    y: headerText.y + headerReading.topForLeadingIcon(height, headerText.y)
                     opacity: root.searching ? root.look.search.active : root.look.search.idle
                     Behavior on opacity {
                         Anim { duration: root.look.motion.duration.short4; curve: root.look.motion.curve.standard }
@@ -1054,6 +1054,19 @@ Item {
                     style: Text.Raised
                     styleColor: root.look.text.shadow
                     elide: Text.ElideLeft
+                }
+
+                // The header line's leading icon reading, which the glyph
+                // takes its top from. It reads the header line, not the
+                // query, so the glyph stays still while the user types; an
+                // empty line reads as mixed case. It draws nothing, and its
+                // font binding replaces Label's role font whole, as
+                // ContextMenu.qml's entryReading does.
+                Ui.Label {
+                    id: headerReading
+                    visible: false
+                    text: headerText.text
+                    font: headerText.font
                 }
 
                 // The search: Qt's own text input, so paste, copy, selection

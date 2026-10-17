@@ -1750,6 +1750,11 @@ const LED_LINES = [
         centred: "anchors.verticalCenter: parent.verticalCenter"
     },
     {
+        file: "shell/plugins/vgs.launcher/Launcher.qml", item: "SearchGlyph", icon: "id: searchGlyph",
+        binding: "y: headerText.y + headerReading.topForLeadingIcon(height, headerText.y)",
+        centred: "anchors.verticalCenter: parent.verticalCenter"
+    },
+    {
         file: "shell/Ui/controls/FormRow.qml", item: "Loader", icon: "id: infoButton",
         binding: "y: labelText.lineCount > 2 ? labelText.y + labelText.topForLeadingIcon(implicitHeight) : Math.round((root.labelBox - implicitHeight) / 2)",
         centred: "y: Math.round((root.labelBox - implicitHeight) / 2)"
