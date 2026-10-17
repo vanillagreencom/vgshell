@@ -164,12 +164,18 @@ Scope {
         const lua = restoreLua;
         deadline.stop();
         trialState = { phase: "reverting", token: token, deadline: 0, failure: "" };
-        Compositor.monitorEval(lua, answer => {
-            root.trialState = { phase: "idle", token: "", deadline: 0, failure: answer === "ok" ? "" : answer };
-            root.keptRules = {};
-            root.readOutputs();
-        });
+        // A refused eval runs no callback, and the trial must still end,
+        // since the Hyprland layer holds its writes while one runs. The
+        // refusal is the trial's failure.
+        const queued = Compositor.monitorEval(lua, answer => endRevert(answer));
+        if (queued !== "ok") endRevert(queued);
         return "ok";
+    }
+
+    function endRevert(answer) {
+        trialState = { phase: "idle", token: "", deadline: 0, failure: answer === "ok" ? "" : answer };
+        keptRules = {};
+        readOutputs();
     }
 
     Connections {
