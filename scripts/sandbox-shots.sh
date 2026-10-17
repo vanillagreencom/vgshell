@@ -21,7 +21,7 @@
 # SCENE is gallery, settings, wide-settings, focus, focus-open, flyout-titles, plugin-pages, manager, launcher,
 # notifications, bar, panels, devtools, system, network, vpn, vpn-locked, bluetooth, power, dialog, by-hand, reset, lock, polkit,
 # greeter, narrow, theme-browser, wallpaper-browser, automations, cloudsync, tooltips, capture,
-# keyhints, clipboard, voice, voice-setup, voice-elsewhere, dictation-setup, jarvis-console, jarvis-audit, jarvis-setup, elevenlabs-voices, jarvis-fleet, outdated, jarvis-causes, plugin-messages, page-links, tooltip-link, traffic, ai-usage, ai-usage-states, sysmon, tui-edges, appearance, sounds, setup-tab, updates, clone-voice or theme-previews. settings takes the
+# keyhints, clipboard, voice, voice-setup, voice-elsewhere, dictation-setup, jarvis-console, jarvis-audit, jarvis-setup, elevenlabs-voices, jarvis-fleet, outdated, jarvis-causes, plugin-messages, page-links, tooltip-link, traffic, ai-usage, ai-usage-states, sysmon, tui-edges, appearance, sounds, setup-tab, updates, clone-voice, displays-override or theme-previews. settings takes the
 # automations', the Jarvis, the AI Usage and the Tray pages among the plugin pages,
 # each when the tree ships its plugin. plugin-pages, taken only when named, opens every
 # plugin the Settings window lists, in that window's order, or with --pages
@@ -394,7 +394,7 @@ while [[ $# -gt 0 ]]; do
     --title-inventory) title_inventory=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
 
-    sysmon|tui-edges|gallery|settings|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|voice-keys|jarvis-console|jarvis-audit|jarvis-setup|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes|plugin-messages|page-links|tooltip-link|traffic|ai-usage|ai-usage-states|devtools|system|appearance|sounds|network|vpn|vpn-locked|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|cloudsync|tooltips|screensaver|theme-previews|setup-tab|updates|clone-voice) scenes+=("$1"); shift ;;
+    sysmon|tui-edges|gallery|settings|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|voice-keys|jarvis-console|jarvis-audit|jarvis-setup|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes|plugin-messages|page-links|tooltip-link|traffic|ai-usage|ai-usage-states|devtools|system|appearance|sounds|network|vpn|vpn-locked|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|cloudsync|tooltips|screensaver|theme-previews|setup-tab|updates|clone-voice|displays-override) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -561,6 +561,7 @@ scene_ships() {
     traffic) ships_plugin vgs.traffic vgs.settings ;;
     devtools) ships_plugin vgs.devtools ;;
     system) ships_plugin vgs.system ;;
+    displays-override) ships_plugin vgs.system vgs.displays ;;
     appearance) ships_plugin vgs.system vgs.motion vgs.windows vgs.ui ;;
     sounds) ships_plugin vgs.system vgs.sounds vgs.notifications vgs.voice vgs.jarvis ;;
     network) ships_plugin vgs.system vgs.network ;;
@@ -2109,6 +2110,46 @@ scene_updates() { # MODE
     rm -f -- "${shim:?}/$command"
   done
   tree_rescan "the Updates requirement stand-ins are removed"
+}
+
+# displays-override, taken only when named: System → Displays after Keep
+# saved a rule at scale 2 that a monitor line the user's hyprland.lua loads
+# after the layer replaces, holding the output at the mode it read, so the
+# pane says the Hyprland file sets the display, with its link.
+displays_trial() { ipc smoke readInstance service vgs.displays trialState | py_reply 'import json,sys; print(json.load(sys.stdin).get(sys.argv[1], ""))' "$1"; }
+scene_displays-override() { # MODE
+  local id output held rules
+  local -A was=()
+  for id in vgs.displays vgs.system; do
+    was[$id]="$(plugin_enabled "$id")" || { fail "the override shot cannot read whether $id is enabled"; return; }
+    expect "enabling $id for the override shot is allowed" ok ipc shell setPluginEnabled "$id" true
+    expect_poll "$id is built for the override shot" True record_exists "$id"
+  done
+  output="$(first_name)" && held="$(mode_scale_of "$output")" || { fail "the override shot's output is unreadable"; return; }
+  rules="$(python3 - "$output" "$(hidpi_mode_of "$output")" <<'PY'
+import json, sys
+w, h = map(int, sys.argv[2].split("x"))
+print(json.dumps({sys.argv[1]: {"mode": {"width": w, "height": h, "refresh": 60}, "position": {"x": 0, "y": 0}, "scale": 2, "transform": 0}}))
+PY
+)" || { fail "the override shot's rule is not built"; return; }
+  hypr_lua_save displays-override
+  monitor_rule "$output" "${held% scale=*}" "${held##*scale=}" >>"$home/.config/hypr/hyprland.lua"
+  expect "hyprland.lua loads the override shot's monitor line" ok hypr reload config-only
+  expect "the override shot's trial starts" ok ipc smoke invokeInstance service vgs.displays trialRules "$rules"
+  expect_poll "the override shot's trial holds" holding displays_trial phase
+  expect "Keep saves the override shot's rule" ok ipc smoke invokeInstance service vgs.displays keepTrial "{\"token\":\"$(displays_trial token)\",\"rules\":$rules}"
+  expect_poll "the user's line holds $output at $held after Keep" "$held" mode_scale_of "$output"
+  expect "System → Displays summons for the override shot" ok ipc shell summon window vgs.system '{"pane":"vgs.displays"}'
+  expect_poll "System → Displays is shown for the override shot" '["vgs.displays"]' window_panes
+  park_pointer
+  take "displays-override-$1"
+  expect "the System window hides after the override shot" ok ipc shell hide window vgs.system
+  expect "clearing the override shot's rule is allowed" ok ipc smoke invokeInstance service vgs.displays clearRules ""
+  hypr_lua_restore displays-override || fail "hyprland.lua is put back after the override shot"
+  expect "the nested instance reloads without the override shot's line" ok hypr reload config-only
+  for id in vgs.system vgs.displays; do
+    [[ ${was[$id]} == True ]] || expect "disabling $id after the override shot is allowed" ok ipc shell setPluginEnabled "$id" false
+  done
 }
 
 scene_focus() { # MODE
