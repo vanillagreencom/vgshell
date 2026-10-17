@@ -159,16 +159,20 @@ Scope {
         const ownership = mustOwn(id);
         if (ownership !== "") return ownership;
         if (token !== trialState.token || trialState.phase === "idle") return "refused: monitors-token=unknown";
-        reverter.command = ["bash", "-c", "mv -- \"$1\" \"$1.revert\" && rm -f -- \"$1.revert\"", "vgs-display-revert", token];
-        reverter.running = true;
         const lua = restoreLua;
         deadline.stop();
         trialState = { phase: "reverting", token: token, deadline: 0, failure: "" };
         // A refused eval runs no callback, and the trial must still end,
-        // since the Hyprland layer holds its writes while one runs. The
-        // refusal is the trial's failure.
+        // since the Hyprland layer holds its writes while one runs. Its
+        // token stays unclaimed, so the detached guard restores at the
+        // deadline; only a queued restore claims it.
         const queued = Compositor.monitorEval(lua, answer => endRevert(answer));
-        if (queued !== "ok") endRevert(queued);
+        if (queued !== "ok") {
+            endRevert(queued);
+            return queued;
+        }
+        reverter.command = ["bash", "-c", "mv -- \"$1\" \"$1.revert\" && rm -f -- \"$1.revert\"", "vgs-display-revert", token];
+        reverter.running = true;
         return "ok";
     }
 

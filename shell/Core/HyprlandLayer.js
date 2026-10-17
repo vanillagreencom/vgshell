@@ -1551,9 +1551,10 @@ function render(sections, theme, themeName, highestScale, touchpads, touchpadFai
 // runs (`trialHeld`) the machine starts no write and no reload: a cycle under
 // way stops before its next one, and a write that landed leaves its reload
 // owed (`reloadOwed`, the owner that reload would have had). A reload
-// already sent ends as it would. The trial's end runs the owed reload, then
-// the one cycle every held render and force asked for, from the text
-// rendered then.
+// already sent ends as it would. The trial's end starts the one cycle every
+// held render and force asked for, from the text rendered then, whose
+// reload stands for the owed one; with nothing to write, it runs the owed
+// reload alone.
 //
 // State: phase (`reading`, `idle`, `preparing`, `writing`, `reloading`,
 // `probing`, `checkingDecline`, `declining`, `wiring`);
@@ -1606,11 +1607,11 @@ function consentChanges(state, changes) {
 // An idle writer: start the next cycle, or rest.
 function begin(state, text) {
     if (state.trialHeld) return { state: state, action: "none" };
-    if (state.reloadOwed !== "") return reload(withChanges(state, { reloadOwed: "" }), state.reloadOwed);
     if (state.queuedForce || state.stale)
         return { state: withChanges(state, { phase: "reading", forcing: state.forcing || state.queuedForce, queuedForce: false, stale: false }), action: "read" };
     if (text !== null && (state.forcing || (text !== state.onDisk && text !== state.failedText)))
         return { state: withChanges(state, { phase: "preparing", pending: text }), action: "mkdir" };
+    if (state.reloadOwed !== "") return reload(withChanges(state, { reloadOwed: "" }), state.reloadOwed);
     if (state.consent.phase === "asking" && state.consent.queued === "connect")
         return { state: withChanges(state, { phase: "wiring" }), action: "wire" };
     if (state.consent.phase === "asking" && state.consent.queued === "decline")
@@ -1632,8 +1633,9 @@ function begin(state, text) {
 }
 
 // The bytes are on disk: reload the layer after every write.
+// The reload after a write stands for one a trial left owed, with its owner.
 function written(state) {
-    return reload(withChanges(state, { onDisk: state.pending, failedText: null }), "layer");
+    return reload(withChanges(state, { onDisk: state.pending, failedText: null, reloadOwed: "" }), state.reloadOwed || "layer");
 }
 
 // Reload Hyprland for OWNER, or owe that reload while a trial runs.
