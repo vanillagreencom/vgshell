@@ -117,9 +117,10 @@ Item {
                 name: "user"
                 size: Theme.icon.size.sm
                 color: Theme.color.textMuted
-                anchors.verticalCenter: parent.verticalCenter
+                y: identityText.y + identityText.topForLeadingIcon(height, identityText.y)
             }
             Label {
+                id: identityText
                 role: "hint"
                 text: root.view === null ? "" : root.view.identity
                 anchors.verticalCenter: parent.verticalCenter

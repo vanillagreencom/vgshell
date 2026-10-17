@@ -12,7 +12,8 @@ import "../../shell/plugins/vgs.launcher"
 // are worked by hand from the launcher's Appearance.js and Glass.js: the
 // card fill #151515 lifted by 0.05, 21 + 234 * 0.05 = 32.7, #212121; in
 // light mode #efefef lifted by 0.1, 239 + 16 * 0.1 = 240.6, #f1f1f1; the
-// glass corner 16.
+// glass corner 16. An entry's icon centres on its text's x-height within
+// half a device pixel, on a whole device pixel, at 1x and at 2x.
 Item {
     id: root
     width: 800
@@ -21,6 +22,23 @@ Item {
     Launcher {
         id: launcher
         anchors.fill: parent
+    }
+
+    Component {
+        id: ledScene
+        Window {
+            width: 400
+            height: 300
+            color: "black"
+            property alias menu: ledMenu
+            property alias metrics: ledMetrics
+            ContextMenu {
+                id: ledMenu
+                look: launcher.look
+                motion: launcher.listMotion
+            }
+            FontMetrics { id: ledMetrics }
+        }
     }
 
     TestCase {
@@ -46,6 +64,67 @@ Item {
             for (const child of menu.children)
                 if (child.glassSurface === true) return child;
             fail("the flyout holds no glass surface");
+        }
+
+        // The entries of MENU that draw an icon, each as its icon box and
+        // its drawn text.
+        function ledEntries(menu) {
+            const found = [];
+            const walk = item => {
+                if (item.hasIcon === true) {
+                    const box = item.children.find(child => child.width === menu.look.flyout.iconSize && child.children.length > 0);
+                    const text = item.children.find(child => child.text === item.modelData.label && child.visible);
+                    found.push({ box: box, text: text });
+                }
+                for (const child of item.children) walk(child);
+            };
+            walk(menu);
+            return found;
+        }
+
+        function test_an_entry_icon_centres_on_its_text_data() {
+            return [{ tag: "1x", scale: 1 }, { tag: "2x", scale: 2 }];
+        }
+
+        // The x-height centre is read from the drawn text's own baseline and
+        // the font's x-height, not from a label's reading of it, in device
+        // pixels; the same reading must reject the entry's centre the box
+        // stood on before, and the capital centre.
+        function test_an_entry_icon_centres_on_its_text(data) {
+            const screen = Qt.application.screens[data.scale - 1];
+            const scene = ledScene.createObject(null, { screen: screen, x: screen.virtualX + 10, y: screen.virtualY + 10 });
+            scene.visible = true;
+            const menu = scene.menu;
+            menu.items = [{ id: "reveal", label: "Show in folder", glyph: "folder-open" }, { id: "copy", label: "Copy path", glyph: "copy" }];
+            menu.openAt(40, 40);
+            const surface = surfaceOf(menu);
+            tryCompare(surface, "scale", 1);
+            const entries = ledEntries(menu);
+            const found = [scene.contentItem.Screen.devicePixelRatio, entries.length];
+            for (const entry of entries) {
+                const box = entry.box, text = entry.text, row = box.parent;
+                scene.metrics.font = text.font;
+                const ratio = found[0];
+                const baseline = text.y + text.baselineOffset;
+                const xCentre = baseline - scene.metrics.xHeight / 2;
+                const capCentre = baseline - scene.metrics.capitalHeight / 2;
+                const off = (top, centre) => Math.abs(top + box.height / 2 - centre) * ratio;
+                const top = box.mapToItem(scene.contentItem, 0, 0).y;
+                found.push([text.text, off(box.y, xCentre), Math.abs(top * ratio - Math.round(top * ratio)),
+                    off((row.height - box.height) / 2, xCentre), off(Math.round((capCentre - box.height / 2) * ratio) / ratio, xCentre)]);
+            }
+            menu.close();
+            scene.destroy();
+            compare(found[0], data.scale, "the window draws at its screen's scale");
+            compare(found[1], 2, "both entries draw an icon");
+            for (const entry of found.slice(2)) {
+                verify(entry[1] <= 0.5, entry[0] + ": the icon is " + entry[1] + " device px off the x-height centre");
+                verify(entry[2] < 0.01, entry[0] + ": the icon's top is on a whole device pixel");
+                // At 1x the entry's centre and its text's x-height centre
+                // round to one pixel; at 2x they are a device pixel apart.
+                if (data.scale === 2) verify(entry[3] > 0.5, entry[0] + ": control: the entry's centre reads as level");
+                verify(entry[4] > 0.5, entry[0] + ": control: the capital centre reads as level");
+            }
         }
 
         function test_the_flyout_draws_the_card_fill_solid_at_the_glass_corner() {

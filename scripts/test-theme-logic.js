@@ -1728,6 +1728,27 @@ const LED_LINES = [
     { file: "shell/Ui/feedback/SaveBar.qml", label: "savedText", icon: 'name: "check"' },
     { file: "shell/plugins/vgs.sysmon/Reading.qml", label: "titleLabel", icon: "name: root.iconName" },
     { file: "shell/plugins/vgs.themes/WallpaperView.qml", label: "sourceText", icon: "color: sourceText.color" },
+    { file: "shell/plugins/vgs.themes/ThemeRow.qml", label: "nameText", icon: "name: row.iconName" },
+    {
+        file: "shell/plugins/vgs.system/Window.qml", icon: "id: icon\n",
+        binding: "y: title.y + title.topForLeadingIcon(height, title.y)",
+        centred: "anchors.verticalCenter: parent.verticalCenter"
+    },
+    {
+        file: "shell/plugins/vgs.polkit/Prompt.qml", icon: 'name: "user"',
+        binding: "y: identityText.y + identityText.topForLeadingIcon(height, identityText.y)",
+        centred: "anchors.verticalCenter: parent.verticalCenter"
+    },
+    {
+        file: "shell/Ui/controls/TextField.qml", icon: "name: root.leadingIcon",
+        binding: "y: placeholder.y + placeholder.topForLeadingIcon(height, placeholder.y)",
+        centred: "anchors.verticalCenter: parent.verticalCenter"
+    },
+    {
+        file: "shell/plugins/vgs.launcher/ContextMenu.qml", item: "Item", icon: "id: iconBox",
+        binding: "y: entryText.y + entryReading.topForLeadingIcon(height, entryText.y)",
+        centred: "anchors.verticalCenter: parent.verticalCenter"
+    },
     {
         file: "shell/Ui/controls/FormRow.qml", item: "Loader", icon: "id: infoButton",
         binding: "y: labelText.lineCount > 2 ? labelText.y + labelText.topForLeadingIcon(implicitHeight) : Math.round((root.labelBox - implicitHeight) / 2)",
@@ -1776,6 +1797,15 @@ const MENU_INK_TOP = /function inkTop\(glyph\) \{\s*const origin = contentItem\.
 assert.match(menuItemSource, MENU_INK_TOP, "menu entry glyphs use the shared label placement");
 assert.doesNotMatch(menuItemSource.replace("title.topForLeadingIcon(glyph.painted[1] + glyph.painted[3], origin)", "title.capCentre - (glyph.painted[1] + glyph.painted[3]) / 2"), MENU_INK_TOP,
     "control: menu entry glyphs placed on the capital centre must fail the check");
+
+// The launcher flyout's icon box reads its entry text through a Label that
+// draws nothing and takes the entry text's own font and text, so the
+// reading is the launcher look's font, not a text role's.
+const contextMenuSource = fs.readFileSync(path.join(repo, "shell/plugins/vgs.launcher/ContextMenu.qml"), "utf8");
+const FLYOUT_READING = /Label \{\s*id: entryReading\s*visible: false\s*text: entryText\.text\s*font: entryText\.font\s*\}/;
+assert.match(contextMenuSource, FLYOUT_READING, "the launcher flyout reads its entry text in the entry's own font");
+assert.doesNotMatch(contextMenuSource.replace("font: entryText.font", "role: \"item\""), FLYOUT_READING,
+    "control: a flyout reading in a text role's font must fail the check");
 
 const rowMeasureSource = fs.readFileSync(path.join(repo, "shell/plugins/vgs.notifications/RowMeasure.qml"), "utf8");
 const SUMMARY_ICON_TOP = /function topForLeadingIcon\(iconHeight\) \{\s*return \(rowCard\.summary\.length > 0 \? summaryRow\.y \+ titleText\.y : bodyText\.y\) \+ titleText\.topForLeadingIcon\(iconHeight\);/;

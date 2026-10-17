@@ -14,6 +14,8 @@ import qs.Ui
 // focus ring of a field in error draws in the error colour, so the cue
 // stays while the user edits. Its icons are the `md` control's; under a
 // rounded theme the side padding grows until the text clears the corner.
+// The leading icon takes its top from the placeholder's leading icon
+// reading (Label.topForLeadingIcon), whose role the typed text shares.
 T.TextField {
     id: root
 
@@ -76,10 +78,11 @@ T.TextField {
             color: Theme.textField.icon
             anchors.left: parent.left
             anchors.leftMargin: root.sidePadding
-            anchors.verticalCenter: parent.verticalCenter
+            y: placeholder.y + placeholder.topForLeadingIcon(height, placeholder.y)
         }
 
         Label {
+            id: placeholder
             role: "item"
             text: root.placeholderText
             color: Theme.textField.placeholder

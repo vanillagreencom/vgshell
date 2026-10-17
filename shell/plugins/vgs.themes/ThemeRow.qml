@@ -85,6 +85,7 @@ Column {
             implicitHeight: body.implicitHeight
             Icon {
                 name: row.iconName
+                y: nameText.topForLeadingIcon(height)
                 size: Theme.icon.size.md
                 color: row.highlighted ? Theme.listItem.selectedForeground : Theme.color.textMuted
             }
@@ -98,6 +99,7 @@ Column {
                     width: parent.width
                     spacing: Theme.row.lineGap
                     Label {
+                        id: nameText
                         role: "item"
                         text: root.name
                         textFormat: Text.PlainText

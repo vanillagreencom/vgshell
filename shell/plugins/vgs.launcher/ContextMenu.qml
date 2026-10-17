@@ -177,7 +177,7 @@ Item {
                             visible: entry.hasIcon
                             anchors.left: parent.left
                             anchors.leftMargin: menu.look.flyout.iconInset
-                            anchors.verticalCenter: parent.verticalCenter
+                            y: entryText.y + entryReading.topForLeadingIcon(height, entryText.y)
                             width: menu.look.flyout.iconSize
                             height: menu.look.flyout.iconSize
 
@@ -200,6 +200,7 @@ Item {
                         }
 
                         Text {
+                            id: entryText
                             visible: !entry.separator
                             anchors.left: iconBox.visible ? iconBox.right : parent.left
                             anchors.leftMargin: iconBox.visible ? menu.look.flyout.iconGap : menu.look.flyout.textInset
@@ -212,6 +213,19 @@ Item {
                             elide: Text.ElideRight
                             font.family: menu.look.font.family.sans
                             font.pixelSize: menu.look.text.flyout.size
+                        }
+
+                        // The entry text's leading icon reading, which the
+                        // icon box takes its top from. It draws nothing. Its
+                        // font binding replaces Label's role font whole (a
+                        // qmltestrunner 6.11.2 run read the source's family,
+                        // size and weight back), so it reads the launcher's
+                        // own font.
+                        Label {
+                            id: entryReading
+                            visible: false
+                            text: entryText.text
+                            font: entryText.font
                         }
 
                         Text {

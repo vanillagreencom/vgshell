@@ -6,8 +6,10 @@ import qs.Unit
 
 // TextField and Field: typing reaches `text`, the placeholder shows only
 // while empty, the outline follows hover, focus and error, a leading icon
-// moves the text in, action buttons sit at the end, a validator refuses,
-// and Field lays out label, hint and error around a control.
+// moves the text in and centres on the placeholder's x-height within half
+// a device pixel, on a whole device pixel, at 1x and at 2x, action buttons
+// sit at the end, a validator refuses, and Field lays out label, hint and
+// error around a control.
 Item {
     id: root
     width: 400
@@ -45,6 +47,19 @@ Item {
         Field { id: longLabel; label: "Workspace token state"; inline: true; width: parent.width; Label { role: "item"; text: "Present" } }
         Field { id: buttonField; label: "Button"; inline: true; width: parent.width; Button { id: inlineButton; text: "Open"; size: "sm"; variant: "secondary" } }
         Field { id: selectField; label: "Select"; hint: "Shown below the value."; inline: true; width: parent.width; Select { id: inlineSelect; width: parent.width; model: ["Default", "Ocean"] } }
+    }
+
+    Component {
+        id: ledScene
+        Window {
+            width: 260
+            height: 60
+            color: "black"
+            property alias field: ledField
+            property alias metrics: ledMetrics
+            TextField { id: ledField; x: 8; y: 8; width: 200; leadingIcon: "search"; placeholderText: "Search plugins" }
+            FontMetrics { id: ledMetrics }
+        }
     }
 
     TestCase {
@@ -132,6 +147,41 @@ Item {
             tryCompare(plain, "hovered", true);
             compare(String(plain.outline), String(Qt.color(Theme.textField.hover)));
             mouseMove(root, root.width - 1, root.height - 1);
+        }
+
+        function test_the_leading_icon_centres_on_the_x_height_data() {
+            return [{ tag: "1x", scale: 1 }, { tag: "2x", scale: 2 }];
+        }
+
+        // The x-height centre is read from the drawn placeholder's own
+        // baseline and the font's x-height, not from the label's reading of
+        // it, in device pixels; the same reading must reject the field's
+        // centre the icon stood on before, and the capital centre.
+        function test_the_leading_icon_centres_on_the_x_height(data) {
+            const screen = Qt.application.screens[data.scale - 1];
+            const scene = ledScene.createObject(null, { screen: screen, x: screen.virtualX + 10, y: screen.virtualY + 10 });
+            scene.visible = true;
+            const field = scene.field;
+            const mark = field.background.children[0];
+            const label = field.background.children[1];
+            scene.metrics.font = label.font;
+            const ratio = label.Screen.devicePixelRatio;
+            const baseline = label.y + label.baselineOffset;
+            const xCentre = baseline - scene.metrics.xHeight / 2;
+            const capCentre = baseline - scene.metrics.capitalHeight / 2;
+            const off = (top, centre) => Math.abs(top + mark.height / 2 - centre) * ratio;
+            const top = mark.mapToItem(scene.contentItem, 0, 0).y;
+            const found = [ratio, label.text, off(mark.y, xCentre), Math.abs(top * ratio - Math.round(top * ratio)),
+                off((field.background.height - mark.height) / 2, xCentre), off(Math.round((capCentre - mark.height / 2) * ratio) / ratio, xCentre)];
+            scene.destroy();
+            compare(found[0], data.scale, "the window draws at its screen's scale");
+            compare(found[1], "Search plugins");
+            verify(found[2] <= 0.5, "the icon is " + found[2] + " device px off the x-height centre");
+            verify(found[3] < 0.01, "the icon's top " + top + " is on a whole device pixel");
+            // At 1x the default field's centre and its x-height centre
+            // round to one pixel; at 2x they are a device pixel apart.
+            if (data.scale === 2) verify(found[4] > 0.5, "control: the field's centre reads as level");
+            verify(found[5] > 0.5, "control: the capital centre reads as level");
         }
 
         function test_leading_icon_and_actions() {

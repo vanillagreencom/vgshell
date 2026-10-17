@@ -218,7 +218,7 @@ FocusScope {
                         name: root.row === null ? "" : root.row.icon
                         size: Theme.icon.size.lg
                         color: Theme.color.text
-                        anchors.verticalCenter: parent.verticalCenter
+                        y: title.y + title.topForLeadingIcon(height, title.y)
                     }
                     Label {
                         id: title
