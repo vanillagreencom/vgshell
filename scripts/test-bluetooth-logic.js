@@ -115,24 +115,24 @@ function verifyServiceRow(logic) {
     assert.notEqual(bluez, undefined, "bluez is declared as the system bus name org.bluez");
     assert.equal(bluez.optional, false, "bluez is a required tool, so the service step may offer Review");
     const TONES = { todo: "warning", unavailable: "neutral", done: "success" };
-    // [label, step, reason, adapters, reading, action kind, hint kind, Setup needed]
+    // [label, step, reason, adapters, reading, action kind, hint kind, Setup needed, reported]
     const rows = [
-        ["an adapter means the service runs before the step reports", "unknown", "unprobed", 1, "done", "none", "declared", false],
-        ["ready with no adapter is running", "ready", "active", 0, "done", "none", "declared", false],
-        ["needed with no adapter is an open setup step", "needed", "inactive", 0, "todo", "status", "declared", true],
-        ["nixos with no adapter is an open setup step", "nixos", "unit-missing", 0, "todo", "status", "declared", true],
-        ["absent with no adapter offers the tools install", "absent", "unit-missing", 0, "todo", "tools", "own", true],
-        ["denied with no adapter is not available", "denied", "unit-masked", 0, "unavailable", "none", "own", false],
-        ["unprobed reads as a step not reported yet", "unknown", "unprobed", 0, "todo", "none", "declared", true],
-        ["probe-failed is not available until a check again", "unknown", "probe-failed", 0, "unavailable", "none", "recheck", false],
-        ["systemctl-failed is not available until a check again", "unknown", "systemctl-failed", 0, "unavailable", "none", "recheck", false],
-        ["systemctl-missing is not available for good", "unknown", "systemctl-missing", 0, "unavailable", "none", "lasting", false],
-        ["load-state is not available for good", "unknown", "load-state", 0, "unavailable", "none", "lasting", false],
-        ["system-undetected is not available for good", "unknown", "system-undetected", 0, "unavailable", "none", "lasting", false],
-        ["an adapter wins over a stopped step", "needed", "inactive", 2, "done", "none", "declared", false],
+        ["an adapter means the service runs before the step reports", "unknown", "unprobed", 1, "done", "none", "declared", false, true],
+        ["ready with no adapter is running", "ready", "active", 0, "done", "none", "declared", false, true],
+        ["needed with no adapter is an open setup step", "needed", "inactive", 0, "todo", "status", "declared", true, true],
+        ["nixos with no adapter is an open setup step", "nixos", "unit-missing", 0, "todo", "status", "declared", true, true],
+        ["absent with no adapter offers the tools install", "absent", "unit-missing", 0, "todo", "tools", "own", true, true],
+        ["denied with no adapter is not available", "denied", "unit-masked", 0, "unavailable", "none", "own", false, true],
+        ["unprobed reads as a step not reported yet", "unknown", "unprobed", 0, "todo", "none", "declared", true, false],
+        ["probe-failed is not available until a check again", "unknown", "probe-failed", 0, "unavailable", "none", "recheck", false, true],
+        ["systemctl-failed is not available until a check again", "unknown", "systemctl-failed", 0, "unavailable", "none", "recheck", false, true],
+        ["systemctl-missing is not available for good", "unknown", "systemctl-missing", 0, "unavailable", "none", "lasting", false, true],
+        ["load-state is not available for good", "unknown", "load-state", 0, "unavailable", "none", "lasting", false, true],
+        ["system-undetected is not available for good", "unknown", "system-undetected", 0, "unavailable", "none", "lasting", false, true],
+        ["an adapter wins over a stopped step", "needed", "inactive", 2, "done", "none", "declared", false, true],
     ];
     const plugin = { enabled: true, name: "Bluetooth", error: "", failed: false };
-    for (const [label, step, reason, adapters, reading, action, hint, needsOpen] of rows) {
+    for (const [label, step, reason, adapters, reading, action, hint, needsOpen, reported] of rows) {
         const written = producer.statusWrite(checked, {}, "service", logic.serviceRow(step, reason, adapters));
         assert.equal(written.ok, true, "service row: " + label + " is admitted: " + (written.error || ""));
         const status = producer.statusRows(checked, written.values);
@@ -140,7 +140,8 @@ function verifyServiceRow(logic) {
         assert.equal(steps.stepReading(entry, plugin), reading, "service row: " + label);
         const view = steps.stepView(entry, () => "", plugin);
         assert.equal(view.tone, TONES[reading], "service row: " + label + " chip tone");
-        if (entry.report !== "reported") same(view.lines, [steps.CHECKING_LINE], "service row: " + label + " reads Checking");
+        assert.equal(entry.report === "reported", reported, "service row: " + label + " reported");
+        if (!reported) same(view.lines, [steps.CHECKING_LINE], "service row: " + label + " reads Checking");
         const hintKind = entry.hint === checked.status.service.hint ? "declared" : entry.hint === logic.RECHECK_HINT ? "recheck" : step === "unknown" ? "lasting" : "own";
         assert.equal(hintKind, hint, "service row: " + label + " hint");
         const requirements = checked.requirements.map(row => Object.assign({}, row, { state: row === bluez && step === "absent" ? "missing" : "present" }));

@@ -42,7 +42,11 @@
 # running, its section reads the service off, a click on Turn on the
 # service hands the stand-in terminal `vgshell system apply service-bluetooth`
 # through `status.act`, and before the click the terminal holds no record.
-# The stand-in terminal runs no system step. Every poll is
+# Over that copy a LoadState systemctl cannot read, then one it does not
+# know, leave the step unknown with only its reason changed, and the
+# published service value follows the reason alone; a third copy without
+# that republish keeps the old value. The stand-in terminal runs no
+# system step. The shell's log over the row holds no unexpected error. Every poll is
 # expect_poll's: 25 reads 0.2 s apart. The row leaves vgs.bluetooth and
 # vgs.system enabled or disabled as it found them, discovery confirming,
 # the follow off and no planted systemctl answer, whichever step it
@@ -395,6 +399,46 @@ bt_service_action() { ipc smoke readInstance window "${bt_id:-vgs.bluetooth}" se
 # bt_status KEY: the status value the service published under KEY.
 bt_status() { ipc smoke statusValues "${bt_id:-vgs.bluetooth}" | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin).get(sys.argv[1])))' "$1"; }
 bt_window_closed() { [[ $(window_count "System Settings") == 0 ]] && echo closed || echo open; }
+# bt_status_field KEY FIELD: FIELD of the status value under KEY, as JSON.
+bt_status_field() { bt_status "$1" | py_reply 'import json,sys; v=json.load(sys.stdin); print(json.dumps(None if v is None else v.get(sys.argv[1])))' "$2"; }
+# The core's reading of service-bluetooth, and the service's, "STATE REASON".
+bt_core_step() { ipc shell lent | py_reply 'import json,sys; s=json.load(sys.stdin)["system"]["steps"]["service-bluetooth"]; print(s["state"] + " " + s["reason"])'; }
+bt_service_step() { bt_service stepEntry | py_reply 'import json,sys; s=json.load(sys.stdin); print(s["state"] + " " + s["reason"])'; }
+# bt_load_state STATUS STDOUT REASON: plant systemctl's LoadState answer,
+# probe again, and wait until the core and then the service read the step
+# unknown with REASON.
+bt_load_state() {
+  device_reply systemctl "$1" "$2" show --property=LoadState --value bluetooth.service
+  rescan "rescan to probe the LoadState for $3 answers ok"
+  expect_poll "the core reads the step unknown, reason $3" "unknown $3" bt_core_step
+  expect_poll "the service reads the step unknown, reason $3" "unknown $3" bt_service_step
+}
+# bt_followed BEFORE: whether the service value moved off BEFORE.
+bt_followed() { [[ $(bt_status service) != "$1" ]] && echo followed || echo stale; }
+# bt_bare_copy ID [OLD NEW]: a copy of the plugin as ID whose service lists
+# no adapter, with OLD replaced by NEW in its Service.qml once.
+bt_bare_copy() {
+  local dir="$home/.config/vgshell/plugins/$1"
+  rm -rf -- "${dir:?}"
+  cp -R -- "$repo/shell/plugins/vgs.bluetooth" "$dir"
+  python3 - "$dir" "$1" "${2:-}" "${3:-}" <<'PY'
+import json, os, sys
+root, plugin, old, new = sys.argv[1:]
+path = os.path.join(root, "manifest.json")
+doc = json.load(open(path))
+doc["id"], doc["name"] = plugin, "Bluetooth " + plugin.rsplit("-", 1)[-1].capitalize()
+json.dump(doc, open(path, "w"))
+file = os.path.join(root, "Service.qml")
+text = open(file).read()
+edits = [("readonly property var adapters: Bluetooth.adapters.values", "readonly property var adapters: []")]
+if old:
+    edits.append((old, new))
+for a, b in edits:
+    assert text.count(a) == 1, a
+    text = text.replace(a, b)
+open(file, "w").write(text)
+PY
+}
 # The transcript of an agent that registers, takes the default role, then
 # prints PROMPT and runs the steps of REST, a JSON list's inside, before
 # its release.
@@ -639,21 +683,7 @@ PY
   # bluetooth.service that is loaded and not running. Its section offers
   # the step, and the click runs it through status.act.
   local bare_dir="$home/.config/vgshell/plugins/acme.bluetooth-bare"
-  rm -rf -- "${bare_dir:?}"
-  cp -R -- "$repo/shell/plugins/vgs.bluetooth" "$bare_dir"
-  python3 - "$bare_dir" <<'PY'
-import json, os, sys
-root = sys.argv[1]
-path = os.path.join(root, "manifest.json")
-doc = json.load(open(path))
-doc["id"], doc["name"] = "acme.bluetooth-bare", "Bluetooth Bare"
-json.dump(doc, open(path, "w"))
-file = os.path.join(root, "Service.qml")
-text = open(file).read()
-old = "readonly property var adapters: Bluetooth.adapters.values"
-assert text.count(old) == 1, old
-open(file, "w").write(text.replace(old, "readonly property var adapters: []"))
-PY
+  bt_bare_copy acme.bluetooth-bare
   device_reply systemctl 3 "" is-active --quiet bluetooth.service
   device_reply systemctl 0 loaded show --property=LoadState --value bluetooth.service
   terminal_stand_in
@@ -677,13 +707,40 @@ PY
   forget_record
   expect "hiding the System window after the stopped service is allowed" ok ipc shell hide window vgs.system
   expect_poll "the System window is closed after the stopped service" closed bt_window_closed
+
+  # The reason alone: the step reads unknown twice, and only its reason
+  # changes, so only the service's republish on its step's report moves
+  # the published value.
+  local bt_before
+  bt_load_state 1 "" systemctl-failed
+  expect_poll "a LoadState systemctl cannot read reads the step not available" false bt_status_field service available
+  bt_before="$(bt_status service)"
+  bt_load_state 0 bad-setting load-state
+  expect "the published service value follows the reason alone" followed bt_followed "$bt_before"
+  expect "a LoadState systemd cannot load reads the step not available" false bt_status_field service available
   unset bt_id
   expect "disabling the bare copy is allowed" ok ipc shell setPluginEnabled acme.bluetooth-bare false
   rm -rf -- "${bare_dir:?}"
+  # The control: a copy with no republish on its step's report keeps the
+  # value it published when only the reason changes.
+  local stale_dir="$home/.config/vgshell/plugins/acme.bluetooth-stale"
+  bt_bare_copy acme.bluetooth-stale "    onStepEntryChanged: publish()
+" ""
+  rescan "rescan after adding the stale control copy answers ok"
+  expect_poll "the stale control copy lands enabled" True plugin_enabled acme.bluetooth-stale
+  bt_id=acme.bluetooth-stale
+  expect_poll "the stale control reads the step unknown, reason load-state" "unknown load-state" bt_service_step
+  bt_before="$(bt_status service)"
+  bt_load_state 1 "" systemctl-failed
+  expect "control: a service with no republish on its step's report keeps the old value" stale bt_followed "$bt_before"
+  unset bt_id
+  expect "disabling the stale control copy is allowed" ok ipc shell setPluginEnabled acme.bluetooth-stale false
+  rm -rf -- "${stale_dir:?}"
   device_reply_clear systemctl
   device_reply systemctl 0 "" is-active --quiet bluetooth.service
   rescan "rescan after removing the bare copy answers ok"
   expect_poll "the bare copy is gone" absent plugin_enabled acme.bluetooth-bare
+  expect_poll "the stale control copy is gone" absent plugin_enabled acme.bluetooth-stale
 
   expect "enabling vgs.bluetooth after the controls is allowed" ok ipc shell setPluginEnabled vgs.bluetooth true
   expect_poll "vgs.bluetooth reads on again" on bt_view
@@ -748,6 +805,8 @@ PY
 
 bt_was_system=""
 bt_was_bluetooth=""
+# The shell's log from here on is the row's.
+bt_log_from="$(stat -c %s -- "$instance_log")" || { fail "bluetooth: the shell's log is unreadable: $instance_log"; bt_log_from=0; }
 bt_main
 unset bt_id
 # vgs.bluetooth as the row found it, whichever step the row returned from:
@@ -764,3 +823,5 @@ esac
 bluez_follow off
 device_reply_clear systemctl
 rm -f -- "${devices_dir:?}/bt-display-seen" "${devices_dir:?}/bt-pin-typed"
+tail -c "+$((bt_log_from + 1))" -- "$instance_log" >"$sandbox/bluetooth-row.log"
+check_unexpected_log "the shell's log over the Bluetooth row" "$sandbox/bluetooth-row.log"
