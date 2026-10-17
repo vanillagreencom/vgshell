@@ -17,8 +17,9 @@ import qs.Unit
 // token's default names. An icon that leads a line of mixed case stands
 // with its centre within half a device pixel of the line's x-height
 // centre, on a whole device pixel, at 1x and at 2x; one that leads a line
-// in capitals or figures stands on the capital centre. The capital centre
-// and the line box's centre do not read as level with mixed case.
+// in capitals or figures stands on the capital centre. An empty line
+// reads as mixed case, unless its role draws in capitals. The capital
+// centre and the line box's centre do not read as level with mixed case.
 Item {
     id: root
     width: 300
@@ -206,6 +207,8 @@ Item {
                 rows.push({ tag: "mixed case" + at, scale: scale, role: "body", text: "The catalog is unavailable.", capitals: false });
                 rows.push({ tag: "an uppercase role" + at, scale: scale, role: "eyebrow", text: "Community registry", capitals: true });
                 rows.push({ tag: "figures" + at, scale: scale, role: "body", text: "42%", capitals: true });
+                rows.push({ tag: "empty text" + at, scale: scale, role: "body", text: "", capitals: false });
+                rows.push({ tag: "empty text in an uppercase role" + at, scale: scale, role: "eyebrow", text: "", capitals: true });
             }
             return rows;
         }

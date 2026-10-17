@@ -17,6 +17,8 @@ import qs.Commons
 // `xCentre` is the first line's x-height centre from the label top.
 // `capitalsLine` is whether that line reads in capitals and figures: drawn
 // in capitals, or text with no lowercase letter, such as "CPU" or "42%".
+// Empty text reads as mixed case unless the role draws in capitals, so an
+// empty field's icon stands where its typed text will read.
 // `topForLeadingIcon(iconHeight, origin)` gives the top, from the label
 // top, that puts an icon leading the first line on the centre the eye
 // levels it with: the x-height centre for mixed case, whose ink sits
@@ -51,7 +53,7 @@ Text {
     readonly property real halfLeading: Math.max(0, (lineBox - fontHeight) / 2)
     readonly property real capCentre: metrics.ascent - metrics.capitalHeight / 2
     readonly property real xCentre: metrics.ascent - metrics.xHeight / 2
-    readonly property bool capitalsLine: font.capitalization === Font.AllUppercase || text.toUpperCase() === text
+    readonly property bool capitalsLine: font.capitalization === Font.AllUppercase || (text !== "" && text.toUpperCase() === text)
     readonly property real underlineOffset: Inset.underlineTop(metrics.descent)
     readonly property real opticalWidth: Math.max(0, implicitWidth - (text === "" ? 0 : font.letterSpacing))
 

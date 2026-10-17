@@ -323,6 +323,8 @@ mutations=(
   "the label drops its fixed-height branch|foundation/Label.qml|lineHeightMode: lineBox > fontHeight ? Text.FixedHeight : Text.ProportionalHeight|lineHeightMode: Text.ProportionalHeight|tst_label.qml"
   "a leading icon centres on the line box|foundation/Label.qml|return Math.round((at + centre - iconHeight / 2) * Screen.devicePixelRatio) / Screen.devicePixelRatio - at;|return Math.round((lineBox - iconHeight) / 2);|tst_label.qml"
   "a leading icon centres on mixed case's capitals|foundation/Label.qml|const centre = capitalsLine ? capCentre : xCentre;|const centre = capCentre;|tst_label.qml"
+  "empty text reads as capitals|foundation/Label.qml|(text !== \"\" && text.toUpperCase() === text)|text.toUpperCase() === text|tst_label.qml"
+  "a text field with no placeholder centres its icon on the capitals|foundation/Label.qml|(text !== \"\" && text.toUpperCase() === text)|text.toUpperCase() === text|tst_textfield.qml"
   "the label line box is not whole-pixel floored|foundation/Label.qml|readonly property real lineBox: Math.max(Math.round(typography.size * typography.lineHeight), Math.ceil(fontHeight))|readonly property real lineBox: Math.max(Math.round(typography.size * typography.lineHeight), fontHeight)|tst_label.qml"
   "the icon's stroke scales with its size|foundation/Icon.qml|strokeWidth: root.stroke / root.factor|strokeWidth: root.stroke|tst_icon.qml"
   "the icon's path is not scaled|foundation/Icon.qml|transform: Scale { xScale: root.factor; yScale: root.factor }|transform: Scale { xScale: 1; yScale: 1 }|tst_icon.qml"

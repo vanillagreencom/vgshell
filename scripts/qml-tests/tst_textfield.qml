@@ -7,7 +7,8 @@ import qs.Unit
 // TextField and Field: typing reaches `text`, the placeholder shows only
 // while empty, the outline follows hover, focus and error, a leading icon
 // moves the text in and centres on the placeholder's x-height within half
-// a device pixel, on a whole device pixel, at 1x and at 2x, action buttons
+// a device pixel, on a whole device pixel, at 1x and at 2x, with or
+// without placeholder text, action buttons
 // sit at the end, a validator refuses, and Field lays out label, hint and
 // error around a control.
 Item {
@@ -150,7 +151,12 @@ Item {
         }
 
         function test_the_leading_icon_centres_on_the_x_height_data() {
-            return [{ tag: "1x", scale: 1 }, { tag: "2x", scale: 2 }];
+            const rows = [];
+            for (const scale of [1, 2]) {
+                rows.push({ tag: "placeholder at " + scale + "x", scale: scale, placeholder: "Search plugins" });
+                rows.push({ tag: "no placeholder at " + scale + "x", scale: scale, placeholder: "" });
+            }
+            return rows;
         }
 
         // The x-height centre is read from the drawn placeholder's own
@@ -162,6 +168,7 @@ Item {
             const scene = ledScene.createObject(null, { screen: screen, x: screen.virtualX + 10, y: screen.virtualY + 10 });
             scene.visible = true;
             const field = scene.field;
+            field.placeholderText = data.placeholder;
             const mark = field.background.children[0];
             const label = field.background.children[1];
             scene.metrics.font = label.font;
@@ -175,7 +182,7 @@ Item {
                 off((field.background.height - mark.height) / 2, xCentre), off(Math.round((capCentre - mark.height / 2) * ratio) / ratio, xCentre)];
             scene.destroy();
             compare(found[0], data.scale, "the window draws at its screen's scale");
-            compare(found[1], "Search plugins");
+            compare(found[1], data.placeholder);
             verify(found[2] <= 0.5, "the icon is " + found[2] + " device px off the x-height centre");
             verify(found[3] < 0.01, "the icon's top " + top + " is on a whole device pixel");
             // At 1x the default field's centre and its x-height centre
