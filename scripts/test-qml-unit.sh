@@ -622,6 +622,7 @@ mutations=(
   "a row action pads its text|controls/RowAction.qml|    padding: 0|    padding: Theme.space.md|tst_rowaction.qml"
   "a disabled row action does not fade|controls/RowAction.qml|opacity: enabled ? 1 : Theme.opacity.disabled|opacity: 1|tst_rowaction.qml"
   "a row action's ring draws on its text|controls/RowAction.qml|FocusRing { target: root; outside: true }|FocusRing { target: root }|tst_rowaction.qml"
+  "a row action's ring holds the room over its text|controls/RowAction.qml|y: root.removesItem ? 0 : Math.floor(root.inkAbove())|y: 0|tst_formrow.qml"
   "Return activates no row action|controls/RowAction.qml|Keys.onReturnPressed: KeyNavLogic.activate(root)|Keys.onReturnPressed: {}|tst_rowaction.qml"
   "a row action ignores its tone|controls/RowAction.qml|const found = Theme.rowAction.tone[name];|const found = Theme.rowAction.tone.accent;|tst_rowaction.qml"
   "a row action's text overflows a narrow control|controls/RowAction.qml|width: Math.min(implicitWidth, root.availableWidth - x)|width: implicitWidth|tst_rowaction.qml"

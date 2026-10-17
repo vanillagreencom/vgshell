@@ -22,7 +22,8 @@ import qs.Unit
 // it, only while the row has a message and the action shows, at the
 // message's height so it moves no row below it, and goes on a
 // line of its own under the message where it would leave the message less
-// than the label column's width; without a label
+// than the label column's width, and its focus ring crosses no drawn row
+// of the control above; without a label
 // column the control takes the full width at its own height; the smoke's
 // `fieldRow` hook names the row. A row with a message is followed by a group
 // space, `stack.group`, before the next item of its column that is no
@@ -219,6 +220,34 @@ Item {
                 FormRow { label: "Animations"; width: parent.width; warning: "Set by theme"; warningRole: "tooltip"; warningTone: "muted"; Switch { size: "sm"; checked: true } }
                 FormRow { label: "Speed"; width: parent.width; warning: "Set by theme"; warningRole: "tooltip"; warningTone: "muted"; Slider { width: parent.width; from: 0; to: 1; value: 0.5 } }
                 FormRow { label: "Curve"; width: parent.width; warning: "Set by theme"; warningRole: "tooltip"; warningTone: "muted"; SegmentedControl { model: ["Linear", "Smooth", "Snappy"] } }
+            }
+        }
+    }
+
+    // Rows whose message carries a RowAction, as a value's source draws
+    // them in Settings, under a slider with a reading and a switch, over the
+    // rest of the window, so the image holds only their ink.
+    Component {
+        id: actedMessages
+        Rectangle {
+            property alias rows: actedRows
+            anchors.fill: parent
+            z: 1
+            color: Theme.color.surface
+            Column {
+                id: actedRows
+                width: 420
+                spacing: Theme.stack.group
+                FormRow {
+                    label: "Gaps"; width: parent.width; warning: "Set by you"; warningRole: "tooltip"; warningTone: "muted"
+                    action: RowActions { RowAction { text: "Use theme value" } }
+                    SavedSlider { width: parent.width; from: 0; to: 32; shown: 20; formatValue: value => Math.round(value) + " px" }
+                }
+                FormRow {
+                    label: "Animations"; width: parent.width; warning: "Set by you"; warningRole: "tooltip"; warningTone: "muted"
+                    action: RowActions { RowAction { text: "Use theme value" } }
+                    Switch { size: "sm"; checked: true }
+                }
             }
         }
     }
@@ -593,6 +622,63 @@ Item {
             const text = read.map(entry => entry.label + " " + entry.gap).join(", ");
             for (const entry of read)
                 compare(entry.gap, Theme.field.gap + entry.above, "every message stands the field gap under its control's ink: " + text);
+        }
+
+        function changed(a, b, x, y) {
+            return Math.abs(a.red(x, y) - b.red(x, y)) > 8 || Math.abs(a.green(x, y) - b.green(x, y)) > 8 || Math.abs(a.blue(x, y) - b.blue(x, y)) > 8;
+        }
+
+        // A message's action centres on the message's line and is taller
+        // than it, so its box rises toward the control; its focus ring
+        // stands clear of what the action draws and crosses no drawn row of
+        // the control. Read from the image: the control's lowest inked row
+        // with the action hidden, and the ring's highest, the first row the
+        // ring changes, beside a slider with its reading and a switch.
+        function test_a_message_actions_ring_crosses_no_part_of_its_control() {
+            const cover = createTemporaryObject(actedMessages, root);
+            verify(cover !== null);
+            const rows = cover.rows.children.filter(item => item.objectName === "fieldRow");
+            compare(rows.length, 2);
+            const read = rows.map(row => {
+                const actions = row.actionItem;
+                verify(actions !== null, "the row draws no action: " + row.label);
+                const action = actions.shown[0];
+                const message = row.children.find(child => child instanceof LinkText);
+                const from = Math.round(row.mapToItem(root, row.valueX, 0).x);
+                const to = Math.round(row.mapToItem(root, row.width, 0).x);
+
+                actions.visible = false;
+                verify(waitForRendering(cover));
+                const bare = grabImage(root);
+                const box = Math.round(message.mapToItem(root, 0, 0).y);
+                let glyphs = box;
+                while (glyphs < box + message.height && !rowInked(bare, glyphs, from, to)) glyphs++;
+                verify(glyphs < box + message.height, "the message draws no ink: " + row.label);
+                let control = glyphs;
+                while (control > 0 && !rowInked(bare, control - 1, from, to)) control--;
+                control--;
+
+                actions.visible = true;
+                verify(waitForRendering(cover));
+                const resting = grabImage(root);
+                action.focusPreview = true;
+                verify(waitForRendering(cover));
+                const ringed = grabImage(root);
+                const ring = action.background.children[0].children[0];
+                verify(ring.visible, "the action draws no ring: " + row.label);
+                action.focusPreview = false;
+                const left = Math.max(0, Math.floor(ring.mapToItem(root, 0, 0).x));
+                const right = Math.min(root.width, Math.ceil(ring.mapToItem(root, ring.width, 0).x));
+                let top = -1;
+                for (let y = 0; y < root.height && top < 0; y++)
+                    for (let x = left; x < right && top < 0; x++)
+                        if (changed(resting, ringed, x, y)) top = y;
+                verify(top >= 0, "the ring changes no pixel: " + row.label);
+                return { label: row.label, ring: top, control: control };
+            });
+            const text = read.map(entry => entry.label + ": ring top " + entry.ring + ", control's lowest ink " + entry.control).join("; ");
+            for (const entry of read)
+                verify(entry.ring > entry.control, "the action's ring crosses its control's ink: " + text);
         }
 
         function test_a_message_takes_no_room_from_the_control() {

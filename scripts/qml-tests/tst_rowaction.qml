@@ -183,7 +183,9 @@ Item {
         }
 
         // The ring shows for keyboard focus alone and stands outside the
-        // text, so it runs through no glyph.
+        // text, so it runs through no glyph: from the text's highest ink,
+        // on the pixel row it draws on, to the box's bottom, which holds
+        // the hover underline, and past its sides.
         function test_keyboard_focus_rings_the_text_from_outside() {
             action.forceActiveFocus(Qt.MouseFocusReason);
             compare(action.activeFocus, true);
@@ -192,8 +194,10 @@ Item {
             action.forceActiveFocus(Qt.TabFocusReason);
             tryCompare(ring(action), "visible", true);
             const out = Theme.focusRing.offset + Theme.focusRing.width;
+            const ink = Math.floor(action.inkAbove());
+            verify(ink > 0, "the text's ink starts on the box's top");
             const box = ring(action).mapToItem(action, 0, 0);
-            compare([box.x, box.y, ring(action).width, ring(action).height], [-out, -out, action.width + 2 * out, action.height + 2 * out]);
+            compare([box.x, box.y, ring(action).width, ring(action).height], [-out, ink - out, action.width + 2 * out, action.height - ink + 2 * out]);
             action.focus = false;
             tryCompare(ring(action), "visible", false);
             action.focusPreview = true;

@@ -16,10 +16,12 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // colour and the underline grows from `rowAction.underline` to
 // `rowAction.underlineHover`, and pressed it takes the tone's pressed
 // colour. A disabled action fades once on the whole control. The focus
-// ring draws outside the text, since
-// a ring on its edge would run through the glyphs. The template supplies
-// press, hover, focus and Space activation; Return and Enter activate it
-// as they do a Button. Given less width than its text, the text elides.
+// ring draws outside the text, since a ring on its edge would run through
+// the glyphs, `focusRing.offset` clear of its highest ink and of the box's
+// bottom, which holds the hover underline, and of its sides. The template
+// supplies press, hover, focus and Space activation; Return and Enter
+// activate it as they do a Button. Given less width than its text, the
+// text elides.
 // A set `disabledReason` disables the action: it stays a Tab stop, takes
 // no click or key, draws its text, mark and underline faded with no hover
 // or press, and shows the reason on hover and keyboard focus
@@ -152,10 +154,17 @@ T.Button {
     }
 
     background: Item {
+        // A text action's ring starts at its highest ink, the text's or its
+        // mark's, on the pixel row that ink draws on, as a link's does
+        // (LinkText `wordsBox`), and ends at the box's bottom, which holds
+        // the hover underline. The box rises past that ink to centre on the
+        // capitals, and a ring round the whole box would cross a control
+        // above it, such as a FormRow's beside its message.
         Item {
             x: root.removesItem ? root.contentItem.x + mark.x : 0
+            y: root.removesItem ? 0 : Math.floor(root.inkAbove())
             width: root.removesItem ? mark.width : parent.width
-            height: parent.height
+            height: parent.height - y
             FocusRing { target: root; outside: true }
         }
     }
