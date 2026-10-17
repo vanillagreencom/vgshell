@@ -11,7 +11,11 @@
 # takes no mirror rule, so the unit rows alone hold Mirror. Around each
 # rule that turns the main output off the row waits for the shell's bar on
 # it to go and to come back, so no rule turns off an output the shell has
-# not bound. Each poll reads every 0.2 s for up to 5 s.
+# not bound. Each poll reads every 0.2 s for up to 5 s. The row takes the
+# run's held rule out of the configuration while it tests monitor rules
+# and puts it back at its end (suspend_run_base in mode-hold.sh): that rule
+# loads after the generated layer, so each reload would give the output
+# the held mode again and replace the rule Keep saved.
 # Control run on 2026-10-10, host cachy, through this row after the setup
 # rows: a guard copy that exits before restore leaves the trial's token
 # held and writes no log, and the control reports the defect; with the
@@ -92,6 +96,7 @@ print(json.dumps({name: {"position": {"x": x, "y": y}}}))
 PY
 }
 layer_has_rule() { grep -q -E 'hl\.monitor[[:space:]]*\(' "$hypr_layer" && echo yes || echo no; }
+hold_file_state() { [[ -e $mode_hold_file ]] && echo present || echo absent; }
 disabled_of() { hypr -j monitors all | py_reply 'import json,sys; rows=[m for m in json.load(sys.stdin) if m["name"]==sys.argv[1]]; print(str(rows[0]["disabled"]).lower() if rows else "absent")' "$1"; }
 layer_turns_off() { grep -q -F -x -- "    local vgs_monitors_off = { \"$1\" }" "$hypr_layer" && echo yes || echo no; }
 off_rule_json() {
@@ -134,6 +139,7 @@ position_x=128
 position_y=0
 position_rules="$(position_rule_json "$output" "$position_x" "$position_y")"
 extra_output=SMOKE-DISPLAYS-MODES
+suspend_run_base "display modes"
 
 expect "the display starts at scale 1" 1 scale_of "$output"
 expect "the nested compositor adds a monitor for display positions" ok hypr output create headless "$extra_output"
@@ -168,6 +174,9 @@ expect_poll "the second trial applies scale $trial_scale" "$trial_scale" scale_o
 token="$(token_of)"
 expect "Keep saves the rule" ok invoke_displays keepTrial "{\"token\":\"$token\",\"rules\":$rules}"
 expect_poll "the layer holds the saved monitor rule" yes layer_has_rule
+if [[ ${#mode_hold_suspended[@]} -gt 0 ]]; then
+  expect "the run's held rule is out of the configuration when the kept rule reloads" absent hold_file_state
+fi
 expect "reload keeps the saved rule" ok hypr reload config-only
 expect_poll "the kept rule survives reload" "$trial_scale" scale_of "$output"
 expect "clearing saved display rules is allowed" ok invoke_displays clearRules ""
@@ -297,6 +306,7 @@ expect "clearing the sRGB rule is allowed" ok invoke_displays clearRules ""
 expect_poll "the layer drops the sRGB rule" no layer_has_rule
 expect "reload drops the sRGB rule" ok hypr reload config-only
 release_mode "display modes restores $output after the colour rule" "$output" "$base" 1
+resume_run_base "display modes"
 
 cp -- "$sandbox/shell-before-displays-modes.json" "$user_config.next" && mv -T -- "$user_config.next" "$user_config"
 expect "disabling vgs.displays after display modes is allowed" ok ipc shell setPluginEnabled vgs.displays false

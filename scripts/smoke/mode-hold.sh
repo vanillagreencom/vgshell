@@ -3,7 +3,9 @@
 # harness.sh defines, and writes mode_hold, mode_hold_window and
 # mode_hold_file, which verdict.sh and harness.sh declare. release_mode
 # reports through expect and expect_poll, and hold_mode through ok and
-# fail.
+# fail. suspend_run_base and resume_run_base also write
+# mode_hold_run_base and the smoke_row_abandon of the row that calls them,
+# a local of smoke_row in harness.sh.
 
 # monitor_rule NAME MODE [SCALE [RIGHT]]: the Lua monitor rule that gives
 # output NAME the mode MODE, such as 480x720, at SCALE, 1 by default, and
@@ -310,4 +312,54 @@ release_mode() {
     rm -f -- "$mode_hold_file" || fail "$1: the hold file $mode_hold_file is not removed"
   fi
   return 0
+}
+# The run base suspend_run_base took out of the configuration, as (OUTPUT
+# STATE WINDOW) in mode_hold's and mode_hold_window's forms, empty when
+# none is suspended; suspend_run_base and resume_run_base alone write it.
+mode_hold_suspended=()
+# suspend_run_base LABEL: take the run base out of the configuration for a
+# row that tests monitor rules. Every load of the configuration runs the
+# hold file after the shell's generated layer, so the held rule replaces a
+# rule the layer keeps, and every reload the shell runs gives the output
+# the held mode again. With the base suspended, release_mode gives the
+# output the caller's mode and removes the hold file, as with no outer
+# hold. Removing the file takes no reload of its own: Hyprland runs the
+# file only when it loads the configuration, so every later reload, the
+# shell's or the row's, loads no held rule, and until then the output
+# keeps the base's mode. The row's smoke_row_abandon then names
+# resume_run_base, so a row that ends early still gives the next row the
+# base. With no run base, as in a capture run, it suspends nothing. A run
+# base under a stacked hold, or with no hold, fails
+# `LABEL: suspend-run-base: refused parents=<n> held=[<hold>]` and
+# suspends nothing, since the stacked rules would leave with the base.
+suspend_run_base() {
+  [[ $mode_hold_run_base == true ]] || return 0
+  if [[ ${#mode_hold_parents[@]} -ne 0 || ${#mode_hold[@]} -eq 0 ]]; then
+    fail "$1: suspend-run-base: refused parents=$((${#mode_hold_parents[@]} / 4)) held=[${mode_hold[*]:-}]"
+    return 0
+  fi
+  if ! rm -f -- "$mode_hold_file"; then
+    fail "$1: suspend-run-base: the run base's hold file $mode_hold_file is not removed"
+    return 0
+  fi
+  mode_hold_suspended=("${mode_hold[0]}" "${mode_hold[1]}" "$mode_hold_window")
+  mode_hold=() mode_hold_window="" mode_hold_run_base=false
+  smoke_row_abandon=(resume_run_base "$1")
+}
+# resume_run_base LABEL: the run base suspend_run_base took out, held again
+# through hold_mode and marked as the run base with the host window's size
+# it recorded; then the row's smoke_row_abandon is emptied. A readable
+# output that does not take the base stops the run as not measured in
+# hold_mode; any other base that does not take fails there and is not
+# marked. With no base suspended it does nothing.
+resume_run_base() {
+  [[ ${#mode_hold_suspended[@]} -gt 0 ]] || return 0
+  local output="${mode_hold_suspended[0]}" want="${mode_hold_suspended[1]}" base_window="${mode_hold_suspended[2]}"
+  hold_mode "$1: the run base is held again" "$output" "${want% scale=*}" "${want##*scale=}"
+  if [[ ${#mode_hold[@]} -gt 0 ]]; then
+    mode_hold_run_base=true
+    mode_hold_window="$base_window"
+  fi
+  mode_hold_suspended=()
+  smoke_row_abandon=()
 }

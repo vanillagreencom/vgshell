@@ -11,6 +11,8 @@
 # window size the hold records, the rules applied and the typed
 # not-measured diagnostic. Startup and capture cases execute their source
 # operations and require a checked monitor before the shell stand-in runs.
+# Run-base cases suspend that startup hold for a row and put it back, at
+# the row's end and through the row's early-end command.
 # A second table runs
 # whole_scale_mode, the mode and scale a hold above scale 1 takes, and
 # pins its output and exit status. A third runs held_mode_host_sized, whether
@@ -169,6 +171,42 @@ case "$stub_call" in
     check_base
     release_mode "final protected release" WAYLAND-1 1250x720
     check_base ;;
+  run-base-suspend|run-base-abandon)
+    # smoke_row declares the row'\''s smoke_row_abandon empty and runs it
+    # only when the row ends early.
+    smoke_row_abandon=()
+    startup 2
+    cp -- "$mode_hold_file" "$stub_dir/base.lua"
+    suspend_run_base "the displays row"
+    [[ ! -e $mode_hold_file && ${#mode_hold[@]} -eq 0 && -z $mode_hold_window && $mode_hold_run_base == false ]] || failures=$((failures + 1))
+    if [[ $stub_call == run-base-suspend ]]; then
+      [[ ${smoke_row_abandon[*]} == "resume_run_base the displays row" ]] || failures=$((failures + 1))
+      release_mode "the row release" WAYLAND-1 1755x933
+      [[ ! -e $mode_hold_file && $(mode_scale_of WAYLAND-1) == "1755x933 scale=1" ]] || failures=$((failures + 1))
+      resume_run_base "the displays row"
+    elif [[ ${#smoke_row_abandon[@]} -gt 0 ]]; then
+      "${smoke_row_abandon[@]}"
+    fi
+    check_base
+    [[ $mode_hold_run_base == true && ${#smoke_row_abandon[@]} -eq 0 ]] || failures=$((failures + 1)) ;;
+  run-base-stacked)
+    smoke_row_abandon=()
+    startup 2
+    hold_mode "a stacked hold" WAYLAND-1 1440x900
+    cp -- "$mode_hold_file" "$stub_dir/stacked.lua"
+    suspend_run_base "the displays row"
+    cmp -s -- "$mode_hold_file" "$stub_dir/stacked.lua" || failures=$((failures + 1))
+    [[ ${mode_hold[*]} == "WAYLAND-1 1440x900 scale=1" && ${#mode_hold_parents[@]} -eq 4 && $mode_hold_run_base == true && ${#smoke_row_abandon[@]} -eq 0 ]] || failures=$((failures + 1))
+    release_mode "the stacked release" WAYLAND-1 1250x720 ;;
+  suspend-no-base)
+    smoke_row_abandon=()
+    hold_mode "a temporary hold" WAYLAND-1 3510x1866 2
+    cp -- "$mode_hold_file" "$stub_dir/temporary.lua"
+    suspend_run_base "the displays row"
+    resume_run_base "the displays row"
+    cmp -s -- "$mode_hold_file" "$stub_dir/temporary.lua" || failures=$((failures + 1))
+    [[ ${mode_hold[*]} == "WAYLAND-1 3510x1866 scale=2" && $mode_hold_window == 1755x933 && $mode_hold_run_base == false && ${#smoke_row_abandon[@]} -eq 0 ]] || failures=$((failures + 1))
+    release_mode "the temporary release" WAYLAND-1 1755x933 ;;
   capture-1|capture-2|capture-size-1|capture-size-2)
     # Capture has no validation size assignment. Run the same density block.
     startup "${stub_call##*-}"
@@ -285,6 +323,10 @@ cases=(
   "run base and complete reserved parents survive nested release|run-base|ok|take|status=0 failures=0 resets=0 held=[WAYLAND-1 3510x1866 scale=2] window=[1250x720] state=held file=present|7"
   "nested acquisition recovers a delayed host reset and restores reserved parents|run-base|ok|take,take,take,1250x720 scale=1,take|status=0 failures=0 resets=0 held=[WAYLAND-1 3510x1866 scale=2] window=[1250x720] state=held file=present|8"
   "failed nested acquisition restores the reserved parent without a phantom stack entry|run-base-error|ok|take|status=0 failures=1 resets=0 held=[WAYLAND-1 3510x1866 scale=2] window=[1250x720] state=held file=present|6"
+  "a suspended run base leaves the configuration and comes back marked|run-base-suspend|ok|take|status=0 failures=0 resets=0 held=[WAYLAND-1 3510x1866 scale=2] window=[1250x720] state=held file=present|3"
+  "a row that ends early puts the suspended run base back|run-base-abandon|ok|take|status=0 failures=0 resets=0 held=[WAYLAND-1 3510x1866 scale=2] window=[1250x720] state=held file=present|2"
+  "a run base under a stacked hold is not suspended|run-base-stacked|ok|take|status=0 failures=1 resets=0 held=[WAYLAND-1 3510x1866 scale=2] window=[1250x720] state=held file=present|3"
+  "with no run base suspend and resume change nothing|suspend-no-base|ok|take|status=0 failures=0 resets=0 held=[] window=[] state=none file=absent|2"
   "capture density 1 keeps the host layout without a run base|capture-1|ok|take|status=0 failures=0 resets=0 held=[] window=[] state=none file=absent|0"
   "capture density 2 releases its ordinary hold|capture-2|ok|take|status=0 failures=0 resets=0 held=[] window=[] state=none file=absent|2"
   "capture explicit size at density 1 keeps ordinary release|capture-size-1|ok|take|status=0 failures=0 resets=0 held=[] window=[] state=none file=absent|2"
@@ -440,6 +482,12 @@ controls=(
   "whole_scale_mode takes the first scale tried|trim < best_trim))|trim < -1))|a mode no scale divides is trimmed by the fewest pixels"
   "whole_scale_mode reads a mode inside other text|=~ ^([1-9][0-9]*)x([1-9][0-9]*)\$ ]]|=~ ([1-9][0-9]*)x([1-9][0-9]*) ]]|a mode with trailing text is refused"
   "whole_scale_mode keeps a side trimmed to nothing|((tw == 0 |((tw == -1 |a mode a scale trims to nothing is refused"
+  "suspend_run_base registers no restore for an early end|  smoke_row_abandon=(resume_run_base \"\$1\")|  smoke_row_abandon=()|a row that ends early puts the suspended run base back"
+  "resume_run_base does not mark the run base|    mode_hold_run_base=true|    :|a suspended run base leaves the configuration and comes back marked"
+  "resume_run_base keeps the window size hold_mode read|    mode_hold_window=\"\$base_window\"|    :|a suspended run base leaves the configuration and comes back marked"
+  "suspend_run_base leaves the hold file in place|  if ! rm -f -- \"\$mode_hold_file\"; then|  if false; then|a suspended run base leaves the configuration and comes back marked"
+  "suspend_run_base takes a run base under a stacked hold|\${#mode_hold_parents[@]} -ne 0|\${#mode_hold_parents[@]} -lt 0|a run base under a stacked hold is not suspended"
+  "suspend_run_base takes a temporary hold|[[ \$mode_hold_run_base == true ]]|true|with no run base suspend and resume change nothing"
 )
 for i in "${!controls[@]}"; do
   IFS='|' read -r label old new target <<<"${controls[i]}"

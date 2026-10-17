@@ -20,9 +20,10 @@ row_class=behaviour
 # A mode a row holds on a nested output, as (OUTPUT STATE), STATE its mode
 # and scale as mode_scale_of in mode-hold.sh reads them, empty when no row
 # holds one, and mode_hold_window, the output's own WxH before the hold,
-# the host window's size, empty when no row holds one; hold_mode and
-# release_mode alone write them. A row that fails after the output left
-# the held mode counts in mode_resets and never as behaviour, unless it
+# the host window's size, empty when no row holds one; hold_mode,
+# release_mode, suspend_run_base and resume_run_base alone write them. A
+# row that fails after the output left the held mode counts in
+# mode_resets and never as behaviour, unless it
 # runs under `hold`: it measured an output the sandbox reset
 # (held_mode_state in mode-hold.sh). A row that fails while the output
 # reads the host window's own size in place of a held mode of another
@@ -33,7 +34,9 @@ row_class=behaviour
 mode_hold=()
 mode_hold_window=""
 # The mode owner keeps complete parents here. The harness marks its
-# acquired bottom hold for the sandbox lifetime without copying its state.
+# acquired bottom hold for the sandbox lifetime without copying its state;
+# a row that tests monitor rules suspends it and holds it again at its end
+# (suspend_run_base in mode-hold.sh).
 mode_hold_parents=()
 mode_hold_run_base=false
 mode_resets=0
