@@ -19,6 +19,8 @@ Item {
     function publish() {
         if (systemState === null) return;
         const step = systemState["apple-displays"];
+        // No reading before the first probe ends: publish nothing.
+        if (step === undefined) return;
         lastReply = shell.status.set("apple", {
             tone: step.state === "ready" ? "ok" : "warning",
             text: step.state + " " + step.reason,

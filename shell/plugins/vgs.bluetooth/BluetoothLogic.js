@@ -173,18 +173,19 @@ var LASTING_HINTS = {
     "system-undetected": "VGS could not tell which package manager this computer uses, so it cannot start Bluetooth"
 };
 
-// The Settings setup step for the Bluetooth service from the
-// service-bluetooth system step, its STEP state and REASON, and the
-// ADAPTERS Quickshell lists, or null while the first probe has not ended
-// (reason `unprobed`, SystemSteps), which Settings reads as a step the
-// plugin has not reported: To do with Checking under it. The step reads
-// absent when bluez is not installed, which the manifest's required
+// The Settings setup step for the Bluetooth service from STEP, the
+// service-bluetooth system step's { state, reason }, or null before its
+// first report, and the ADAPTERS Quickshell lists. A listed adapter means
+// the service runs, whatever the step reads. With none, a step with no
+// report publishes nothing, so Settings reads it as Checking. The step
+// reads absent when bluez is not installed, which the manifest's required
 // org.bluez requirement installs through the Tools Review
 // (`action: "tools"`), and denied when the unit is masked, which only an
 // administrator changes.
-function serviceRow(step, reason, adapters) {
-    if (adapters > 0 || step === "ready") return { tone: "ok", text: "Running" };
-    switch (step) {
+function serviceRow(step, adapters) {
+    if (adapters > 0 || (step !== null && step.state === "ready")) return { tone: "ok", text: "Running" };
+    if (step === null) return null;
+    switch (step.state) {
     case "needed":
     case "nixos":
         return { tone: "warning", text: "Off", action: true };
@@ -194,12 +195,11 @@ function serviceRow(step, reason, adapters) {
         return { tone: "info", text: "Turned off", available: false,
             hint: "An administrator turned Bluetooth off on this computer. It stays off until they turn it back on." };
     case "unknown":
-        if (reason === "unprobed") return null;
-        if (RECHECK_REASONS.indexOf(reason) !== -1) return { tone: "info", text: "Unknown", available: false, hint: RECHECK_HINT };
-        if (Object.prototype.hasOwnProperty.call(LASTING_HINTS, reason)) return { tone: "info", text: "Unknown", available: false, hint: LASTING_HINTS[reason] };
-        throw new Error("bluetooth: service step unknown reason " + JSON.stringify(reason) + " is not one of unprobed, " + RECHECK_REASONS.concat(Object.keys(LASTING_HINTS)).join(", "));
+        if (RECHECK_REASONS.indexOf(step.reason) !== -1) return { tone: "info", text: "Unknown", available: false, hint: RECHECK_HINT };
+        if (Object.prototype.hasOwnProperty.call(LASTING_HINTS, step.reason)) return { tone: "info", text: "Unknown", available: false, hint: LASTING_HINTS[step.reason] };
+        throw new Error("bluetooth: service step unknown reason " + JSON.stringify(step.reason) + " is not one of " + RECHECK_REASONS.concat(Object.keys(LASTING_HINTS)).join(", "));
     }
-    throw new Error("bluetooth: service step " + JSON.stringify(step) + " is not one of ready, needed, denied, absent, unknown or nixos");
+    throw new Error("bluetooth: service step " + JSON.stringify(step.state) + " is not one of ready, needed, denied, absent, unknown or nixos");
 }
 
 // The lines under a power switch for VIEW and PROBLEM, the refusal the last

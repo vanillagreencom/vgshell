@@ -43,14 +43,13 @@ Item {
     readonly property bool rfkillMissing: shell !== null && shell.requirements.missing.indexOf("rfkill") !== -1
     readonly property int scans: shell === null ? 0 : shell.requirements.revision
     // The service-bluetooth system step, { state, reason }, read once so
-    // the two always come from one report. Before the plugin's shell or
-    // the step's first report it reads not checked yet, as SystemSteps'
-    // own first reading does.
+    // the two always come from one report; null before the plugin's shell
+    // or the step's first report.
     readonly property var stepEntry: {
         const found = shell === null ? undefined : shell.system.state["service-bluetooth"];
-        return found === undefined ? { state: "unknown", reason: "unprobed" } : found;
+        return found === undefined ? null : found;
     }
-    readonly property string step: stepEntry.state
+    readonly property string step: stepEntry === null ? "" : stepEntry.state
 
     // rfkill's last reading: { state: "unread" }, or rfkillReading's answer.
     property var rfkill: ({ state: "unread" })
@@ -101,9 +100,8 @@ Item {
         if (reply !== "ok") console.error("bluetooth: status power " + reply);
         // `adapters` is an input of `view` too, so onViewChanged publishes
         // again whenever it changes, and onStepEntryChanged whenever the
-        // step's report does. null clears the value until the first probe
-        // ends.
-        const service = shell.status.set("service", Logic.serviceRow(stepEntry.state, stepEntry.reason, adapters.length));
+        // step's report does.
+        const service = shell.status.set("service", Logic.serviceRow(stepEntry, adapters.length));
         if (service !== "ok") console.error("bluetooth: status service " + service);
         const data = shell.status.set("bluetooth", { power: view });
         if (data !== "ok") console.error("bluetooth: status bluetooth " + data);

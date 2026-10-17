@@ -10,16 +10,17 @@ import "PluginLogic.js" as Logic
 // after every plugin scan, which ends each requirement install;
 // a request while a probe runs starts one more after it, never two at a
 // time. PluginLogic.systemReport judges each report, and a run that gives
-// none reads every step unknown. `revision` rises when a report changes a
-// step's state or reason, so a plugin binds to it.
+// none reads every step unknown. Until the first run ends no step has a
+// reading, so a plugin's `state` holds none of its steps. `revision` rises
+// when a report changes a step's state or reason, so a plugin binds to it.
 Scope {
     id: root
 
     // Whether any plugin holds `system`; Capabilities binds it.
     property bool active: false
     // Every step of PluginLogic.SYSTEM_STEPS as { state, reason }, replaced
-    // whole when a report changes it.
-    property var steps: Logic.systemUnknown("unprobed")
+    // whole when a report changes it; null until the first run ends.
+    property var steps: null
     property int revision: 0
     property int probes: 0
     property bool again: false
@@ -38,12 +39,12 @@ Scope {
     }
 
     // `state`: the calling plugin's declared steps, each { state, reason },
-    // one frozen copy per read; `revision`: the count of changed reports.
-    // Both are bindable.
+    // one frozen copy per read, and none before the first report;
+    // `revision`: the count of changed reports. Both are bindable.
     function provider(ctx) {
         return {
             get state() {
-                const out = Logic.systemStateOf(root.steps, ctx.manifest.systemSteps);
+                const out = root.steps === null ? {} : Logic.systemStateOf(root.steps, ctx.manifest.systemSteps);
                 for (const step of Object.keys(out)) Object.freeze(out[step]);
                 return Object.freeze(out);
             },
@@ -60,7 +61,8 @@ Scope {
         prober.running = true;
     }
 
-    // The probe state and the steps, for the lending record.
+    // The probe state and the steps, null before the first report, for
+    // the lending record.
     function record() {
         return { probing: prober.running, probes: probes, revision: revision, steps: steps };
     }
@@ -79,7 +81,7 @@ Scope {
             const report = Logic.systemReport(prober.completion, probeOutput.text, probeErrors.text);
             if (report.line !== "") console.error(report.line);
             root.probes += 1;
-            if (!Logic.systemStepsEqual(root.steps, report.steps)) {
+            if (root.steps === null || !Logic.systemStepsEqual(root.steps, report.steps)) {
                 root.steps = report.steps;
                 root.revision += 1;
             }

@@ -10,6 +10,8 @@ Item {
     function publish() {
         if (systemState === null) return;
         const step = systemState["bandwhich-capture"];
+        // No reading before the first probe ends: publish nothing.
+        if (step === undefined) return;
         shell.status.set("capture", {
             tone: step.state === "ready" ? "ok" : "warning",
             text: step.state + " " + step.reason,

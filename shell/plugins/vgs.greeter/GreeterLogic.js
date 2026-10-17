@@ -436,8 +436,10 @@ function promptAnswer(responseRequired, echoResponse, pending) {
 }
 
 // The `greeter` status: the step's reading as the Settings row shows it,
-// { tone, text, action, available?, hint? }, `text` the short state under
-// the step's chip and `hint` the sentence under it. A step that reads
+// { tone, text, action, available?, hint? }, or null, which clears the
+// entry, while the step has no reading, so the row reads Checking. `text`
+// is the short state under the step's chip and `hint` the sentence under
+// it. A step that reads
 // ready is done, in the ok tone. Set up is offered while it reads needed
 // or nixos, in the warning tone of an open step. Every reading but nixos
 // carries its own hint, which replaces the manifest's, so the manifest's
@@ -471,8 +473,9 @@ var NOT_AVAILABLE = {
 var NOT_CHECKED = ["Not checked", "VGS could not check the login screen. [Turn Login screen off and on](page:vgs.greeter/Settings) to check again."];
 function notAvailable(pair) { return { tone: "info", text: pair[0], action: false, available: false, hint: pair[1] }; }
 function stepState(step) {
-    var state = step === null || step === undefined ? "unknown" : step.state;
-    var reason = step === null || step === undefined ? "" : step.reason;
+    if (step === null || step === undefined) return null;
+    var state = step.state;
+    var reason = step.reason;
     switch (state) {
     case "ready": return { tone: "ok", text: "Ready", action: false, hint: "The VGS login screen starts at boot" };
     case "needed": return { tone: "warning", text: "Not set up", action: true, hint: "Set up asks for your password once. The login screen shows at the next boot." };

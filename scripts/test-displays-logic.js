@@ -531,11 +531,29 @@ function verify(logic) {
     ["unknown", { tone: "warning", text: "Access could not be checked", action: false }]
   ];
   for (const [state, want] of stepStates) same(logic.stepState({ state: state, reason: "r" }, texts), want, "stepState: " + state);
-  same(logic.stepState(null, texts), stepStates[5][1], "an unprobed step reads unknown");
+  same([logic.stepState(null, texts), logic.stepState(undefined, texts)], [null, null], "a step with no reading publishes nothing");
   assert.throws(() => logic.stepState({ state: "maybe" }, texts), /step state "maybe"/);
   const unread = logic.statusValues(null, null, logic.emptyRuns(), null, ["brightnessctl"], "refused: assignments=unparsed", "failed");
-  same([unread.displays, unread.assignments.error, unread.appleAccess.text, unread.backlightTool], [{ state: "failed", items: [] }, "refused: assignments=unparsed",
-    "Access could not be checked", { tone: "info", text: "Not needed" }]);
+  same([unread.displays, unread.assignments.error, unread.appleAccess, unread.ddcAccess, unread.backlightTool], [{ state: "failed", items: [] }, "refused: assignments=unparsed",
+    null, null, { tone: "info", text: "Not needed" }]);
+  // Before the first probe the core lends no step, so the access entries
+  // stay unreported on the page and the pane, never "could not be checked";
+  // a probe that answered unknown still reads as one.
+  const judged = pluginLogic.validateManifest(manifest, "/plugins/vgs.displays");
+  assert.equal(judged.ok, true, JSON.stringify(judged));
+  const accessReport = steps => {
+    let published = {};
+    for (const write of logic.statusWrites({}, logic.statusValues(resolved, listed.backends, logic.emptyRuns(), steps, [], null, "ready"))) {
+      const result = pluginLogic.statusWrite(judged.manifest, published, write.key, write.value);
+      assert.equal(result.ok, true, write.key + ": " + result.error);
+      published = result.values;
+    }
+    return pluginLogic.statusRows(judged.manifest, published).filter(row => row.key === "appleAccess" || row.key === "ddcAccess")
+      .map(row => [row.key, row.report, row.tone]);
+  };
+  same(accessReport({}), [["appleAccess", "unreported", ""], ["ddcAccess", "unreported", ""]], "the access entries before the first probe");
+  const probedUnknown = { "apple-displays": { state: "unknown", reason: "probe-failed" }, "i2c-dev": { state: "unknown", reason: "probe-failed" } };
+  same(accessReport(probedUnknown), [["appleAccess", "reported", "warning"], ["ddcAccess", "reported", "warning"]], "the access entries after a probe that could not answer");
   same(logic.statusWrites({ displays: values.displays, ddcTool: { tone: "ok", text: "Installed" } }, values).map(w => w.key),
     ["assignments", "appleAccess", "ddcAccess", "ddcTool", "backlightTool"], "only changed values are written");
   const needed = [["ok", false], ["info", false], ["warning", true], ["danger", true]];
@@ -626,7 +644,8 @@ const CONTROLS = [
   ["a level set while dimmed is brought back over", "return ids.indexOf(k.id) === -1;", "return true;"],
   ["a display gone is brought back", "return display !== null && display.state === \"ready\";", "return display === null || display.state === \"ready\";"],
   ["a display no longer ready is brought back", "return display !== null && display.state === \"ready\";", "return display !== null;"],
-  ["a custom value has no choice", "if (!choices.some(function (c) { return c.value === value; }))", "if (false)"]
+  ["a custom value has no choice", "if (!choices.some(function (c) { return c.value === value; }))", "if (false)"],
+  ["a step with no reading reads unknown", "    if (step === null || step === undefined) return null;\n    var state = step.state;", "    var state = step === null || step === undefined ? \"unknown\" : step.state;"]
   ,["mode choices do not group sizes", "if (seen[key]) return;", ""],
   ["scale choices allow fractional logical pixels", "if (!scaleFits(mode, scale)) return;", ""],
   ["a draft loses the current position", "merged.position = { x: current.position.x, y: current.position.y };", "merged.position = { x: 0, y: 0 };"],

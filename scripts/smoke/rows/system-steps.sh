@@ -78,7 +78,7 @@ expect "the tree's sudo is the harness's sentinel" sentinel sentinel_of "$system
 system_dir="$home/.config/vgshell/plugins/acme.system"
 mkdir -p "$system_dir"
 cp -R "$repo/scripts/smoke/fixtures/plugins/acme.system/." "$system_dir/"
-system_core() { ipc shell lent | py_reply 'import json,sys; s=json.load(sys.stdin)["system"]["steps"]["apple-displays"]; print(s["state"] + " " + s["reason"])'; }
+system_core() { ipc shell lent | py_reply 'import json,sys; s=json.load(sys.stdin)["system"]["steps"]; print("unreported" if s is None else s["apple-displays"]["state"] + " " + s["apple-displays"]["reason"])'; }
 system_holders() { ipc shell lent | py_reply 'import json,sys; print(json.dumps([p for p in json.load(sys.stdin)["holders"].get("system", []) if p == "acme.system"]))'; }
 system_lent() { ipc smoke readInstance service acme.system systemState | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin), sort_keys=True))'; }
 system_status() { ipc smoke readInstance service acme.system statusValues 2>/dev/null | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)))'; }
@@ -172,7 +172,7 @@ mkdir -p "$system_capture_dir"
 cp -R "$repo/scripts/smoke/fixtures/plugins/acme.capture/." "$system_capture_dir/"
 cp -- "$repo/scripts/smoke/fixtures/system/capture/"* "$system_bin/"
 chmod 0755 "$system_bin/bandwhich" "$system_bin/getcap" "$system_bin/setcap"
-system_capture_core() { ipc shell lent | py_reply 'import json,sys; s=json.load(sys.stdin)["system"]["steps"]["bandwhich-capture"]; print(s["state"] + " " + s["reason"])'; }
+system_capture_core() { ipc shell lent | py_reply 'import json,sys; s=json.load(sys.stdin)["system"]["steps"]; print("unreported" if s is None else s["bandwhich-capture"]["state"] + " " + s["bandwhich-capture"]["reason"])'; }
 system_capture_lent() { ipc smoke readInstance service acme.capture systemState | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin), sort_keys=True))'; }
 system_capture_status() { ipc smoke readInstance service acme.capture statusValues | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)))'; }
 system_capture_act() { ipc smoke invokeInstance service acme.capture statusAct "$1"; }

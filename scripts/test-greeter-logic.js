@@ -222,8 +222,7 @@ function verify(logic) {
         ["another account's setup", { state: "denied", reason: "other-account" }, "unavailable", "info", []],
         ["an unnamed absent reason", { state: "absent", reason: "other" }, "unavailable", "info", ["off-and-on"]],
         ["an unnamed denied reason", { state: "denied", reason: "other" }, "unavailable", "info", ["off-and-on"]],
-        ["unknown", { state: "unknown", reason: "probe-failed" }, "unavailable", "info", ["off-and-on"]],
-        ["no reading yet", null, "unavailable", "info", ["off-and-on"]]
+        ["unknown", { state: "unknown", reason: "probe-failed" }, "unavailable", "info", ["off-and-on"]]
     ];
     for (const [label, step, wantReading, wantTone, wantKinds] of STEPS) {
         const shown = logic.stepState(step);
@@ -232,7 +231,7 @@ function verify(logic) {
         if (wantReading === "unavailable") assert.ok(typeof shown.hint === "string" && shown.hint !== "", "a Not available step says why: " + label);
         // A value's hint replaces the manifest's, which reads true in every
         // state; every reading but nixos says what its own state means.
-        if (step === null || step.state !== "nixos") assert.ok(typeof shown.hint === "string" && shown.hint !== "", "the reading carries its own hint: " + label);
+        if (step.state !== "nixos") assert.ok(typeof shown.hint === "string" && shown.hint !== "", "the reading carries its own hint: " + label);
         // The tools review installs only the plugin's required tools, so a
         // step names it only for a missing command the manifest declares
         // required.
@@ -243,7 +242,7 @@ function verify(logic) {
     }
     // The step draws on Setup, so no hint of it links to the tab it is on.
     for (const [label, step] of STEPS) assert.doesNotMatch(logic.stepState(step).hint || "", /\(page:vgs\.greeter\/Setup\)/, "a step hint links to no Setup tab: " + label);
-    const named = STEPS.filter(([label, step]) => step !== null && step.state !== "unknown" && step.reason !== "other");
+    const named = STEPS.filter(([label, step]) => step.state !== "unknown" && step.reason !== "other");
     const hints = named.map(([label, step]) => logic.stepState(step).hint).filter(hint => hint !== undefined);
     assert.equal(new Set(hints).size, hints.length, "each reason names its own why");
     // Done when of VGS-1734: no reading says it is for information only or
@@ -253,6 +252,15 @@ function verify(logic) {
     assert.doesNotMatch(declared.hint, STALE, "the entry's hint keeps no replaced copy");
     assert.doesNotMatch(fs.readFileSync(path.join(path.dirname(file), "README.md"), "utf8"), STALE, "the README keeps no replaced copy");
     assert.throws(() => logic.stepState({ state: "odd", reason: "x" }), /step state "odd"/, "an unknown state throws");
+    // Before the first probe the core lends no step: the service publishes
+    // nothing, so the entry is unreported, which the Setup tab reads as To
+    // do with Checking under it (scripts/test-settings-steps.js), never the
+    // failed check's Not available.
+    same([logic.stepState(null), logic.stepState(undefined)], [null, null], "a step with no reading publishes nothing");
+    const cleared = judge.statusWrite(manifest, {}, "greeter", logic.stepState(undefined));
+    assert.equal(cleared.ok, true, "the judge takes the cleared step: " + cleared.error);
+    same(judge.statusRows(manifest, cleared.values).filter(row => row.key === "greeter").map(row => [row.report, row.value]),
+        [["unreported", null]], "the step before the first probe is unreported");
     // The service's copy: nothing until the step reads ready, then the
     // theme file, the background link and the step's directory, in that
     // order.
@@ -315,7 +323,8 @@ const CONTROLS = [
     ["an unnamed reason reads as not checked", "? NOT_AVAILABLE[reason] : NOT_CHECKED);", '? NOT_AVAILABLE[reason] : NOT_AVAILABLE["other-account"]);'],
     ["a failed check offers Turn off and on", "[Turn Login screen off and on](page:vgs.greeter/Settings)", "Turn Login screen off and on"],
     ["no hint says it is for information only", "Only that account can change it.", "Only that account can change it. This is for information only."],
-    ["a needed step offers Set up", 'case "needed": return { tone: "warning", text: "Not set up", action: true,', 'case "needed": return { tone: "warning", text: "Not set up", action: false,']
+    ["a needed step offers Set up", 'case "needed": return { tone: "warning", text: "Not set up", action: true,', 'case "needed": return { tone: "warning", text: "Not set up", action: false,'],
+    ["a step with no reading reads as a failed check", "    if (step === null || step === undefined) return null;\n    var state = step.state;\n    var reason = step.reason;", '    var state = step === null || step === undefined ? "unknown" : step.state;\n    var reason = step === null || step === undefined ? "" : step.reason;']
 ];
 const scratch = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "test-greeter-logic-")));
 try {

@@ -107,7 +107,8 @@ function verifyView(logic) {
 // Setup order and the Setup needed mark follow. bluez, the manifest's
 // org.bluez requirement, is missing exactly while the probe reads absent.
 // An unknown step's hint is the recheck hint only for a reason a check
-// again can change; before the first probe the step is unreported.
+// again can change. Before the step's first report the core lends no step
+// (null here), and the row is unreported, so Settings reads Checking.
 function verifyServiceRow(logic) {
     const checked = manifest(manifestFile);
     assert.equal(checked.status.service.action.system, "service-bluetooth", "the service step's action is its system step");
@@ -117,13 +118,13 @@ function verifyServiceRow(logic) {
     const TONES = { todo: "warning", unavailable: "neutral", done: "success" };
     // [label, step, reason, adapters, reading, action kind, hint kind, Setup needed, reported]
     const rows = [
-        ["an adapter means the service runs before the step reports", "unknown", "unprobed", 1, "done", "none", "declared", false, true],
+        ["an adapter means the service runs before the step reports", null, "", 1, "done", "none", "declared", false, true],
         ["ready with no adapter is running", "ready", "active", 0, "done", "none", "declared", false, true],
         ["needed with no adapter is an open setup step", "needed", "inactive", 0, "todo", "status", "declared", true, true],
         ["nixos with no adapter is an open setup step", "nixos", "unit-missing", 0, "todo", "status", "declared", true, true],
         ["absent with no adapter offers the tools install", "absent", "unit-missing", 0, "todo", "tools", "own", true, true],
         ["denied with no adapter is not available", "denied", "unit-masked", 0, "unavailable", "none", "own", false, true],
-        ["unprobed reads as a step not reported yet", "unknown", "unprobed", 0, "todo", "none", "declared", true, false],
+        ["a step with no report reads as not reported yet", null, "", 0, "todo", "none", "declared", true, false],
         ["probe-failed is not available until a check again", "unknown", "probe-failed", 0, "unavailable", "none", "recheck", false, true],
         ["systemctl-failed is not available until a check again", "unknown", "systemctl-failed", 0, "unavailable", "none", "recheck", false, true],
         ["systemctl-missing is not available for good", "unknown", "systemctl-missing", 0, "unavailable", "none", "lasting", false, true],
@@ -133,7 +134,7 @@ function verifyServiceRow(logic) {
     ];
     const plugin = { enabled: true, name: "Bluetooth", error: "", failed: false };
     for (const [label, step, reason, adapters, reading, action, hint, needsOpen, reported] of rows) {
-        const written = producer.statusWrite(checked, {}, "service", logic.serviceRow(step, reason, adapters));
+        const written = producer.statusWrite(checked, {}, "service", logic.serviceRow(step === null ? null : { state: step, reason: reason }, adapters));
         assert.equal(written.ok, true, "service row: " + label + " is admitted: " + (written.error || ""));
         const status = producer.statusRows(checked, written.values);
         const entry = status.find(row => row.key === "service");
@@ -152,8 +153,8 @@ function verifyServiceRow(logic) {
         assert.equal(item.button === null ? "none" : item.button.kind, action, "service row: " + label + " action");
         assert.equal(steps.setupNeeds(status, requirements, true).open, needsOpen, "service row: " + label + " Setup needed");
     }
-    assert.throws(() => logic.serviceRow("future", "", 0), /service step/, "an unknown service step is refused");
-    assert.throws(() => logic.serviceRow("unknown", "future", 0), /unknown reason/, "an unlisted unknown reason is refused");
+    assert.throws(() => logic.serviceRow({ state: "future", reason: "" }, 0), /service step/, "an unknown service step is refused");
+    assert.throws(() => logic.serviceRow({ state: "unknown", reason: "future" }, 0), /unknown reason/, "an unlisted unknown reason is refused");
     // Every unknown reason its producers write for this step has a reading:
     // probe_service and probe_all in bin/vgshell-system, and the
     // systemUnknown reasons of the core's SystemSteps owner.
@@ -165,10 +166,10 @@ function verifyServiceRow(logic) {
         ...[...body("probe_all").matchAll(/reason_of\[\$step\]=([a-z-]+)/g)].map(m => m[1]),
         ...[...core.matchAll(/systemUnknown\("([a-z-]+)"\)/g)].map(m => m[1]),
     ]);
-    for (const floor of ["systemctl-missing", "system-undetected", "unprobed", "probe-failed"])
+    for (const floor of ["systemctl-missing", "system-undetected", "probe-failed"])
         assert.equal(reasons.has(floor), true, "the reason inventory finds " + floor);
     for (const reason of reasons)
-        assert.doesNotThrow(() => logic.serviceRow("unknown", reason, 0), "service row: the unknown reason " + reason + " has a reading");
+        assert.doesNotThrow(() => logic.serviceRow({ state: "unknown", reason: reason }, 0), "service row: the unknown reason " + reason + " has a reading");
 }
 
 // Run a power scenario: each step is [kind, arg, seen]; answers the trail of
@@ -727,7 +728,7 @@ function verifyPlacement(logic, source) {
     for (const [label, step, adapters, powerKey, buttonOpen, needsOpen] of rows) {
         const power = logic.powerView(powerInput({ adapters, powered: adapters > 0, step }));
         assert.equal(power.key, powerKey, "power key: " + label);
-        const status = producer.statusRows(checked, { power: { tone: power.tone, text: power.text }, service: logic.serviceRow(step, "systemctl-failed", adapters), bluetooth: { power } });
+        const status = producer.statusRows(checked, { power: { tone: power.tone, text: power.text }, service: logic.serviceRow({ state: step, reason: "systemctl-failed" }, adapters), bluetooth: { power } });
         same(steps.detailEntries(status).map(entry => entry.key), ["power"], "Details keeps the power reading: " + label);
         // The reading offers no press of its own, on or off: turning the
         // service on is the Setup step's alone.
@@ -773,12 +774,12 @@ const controls = [
     ["a refused press writes nothing", "if (!current.canToggle) return", "if (false) return", "power refuses a hard block"],
     ["a soft block reads off", "    if (read && rfkill.soft) return view(\"off\", {});\n", "", "view: a soft block reads off"],
     ["no adapter offers the service step", 'input.step === "needed" || input.step === "nixos" ? "service-needed" : "no-adapter"', '"no-adapter"', "view: no adapter with the service step needed"],
-    ["a done service step offers Turn on", 'if (adapters > 0 || step === "ready") return { tone: "ok", text: "Running" };', 'if (adapters > 0 || step === "ready") return { tone: "ok", text: "Running", action: true };', "service row: an adapter means the service runs before the step reports"],
+    ["a done service step offers Turn on", 'return { tone: "ok", text: "Running" };', 'return { tone: "ok", text: "Running", action: true };', "service row: an adapter means the service runs before the step reports"],
     ["a missing bluez offers no Review", 'action: "tools", hint:', "hint:", "service row: absent with no adapter offers the tools install"],
     ["a masked unit waits on the user", 'available: false,\n            hint: "An administrator', 'hint: "An administrator', "service row: denied with no adapter is not available"],
     ["an unchecked service waits on the user", 'return { tone: "info", text: "Unknown", available: false, hint: RECHECK_HINT };', 'return { tone: "info", text: "Unknown", hint: RECHECK_HINT };', "service row: probe-failed is not available until a check again"],
-    ["an unprobed step reads as checked", 'if (reason === "unprobed") return null;', 'if (reason === "unprobed") return { tone: "info", text: "Unknown", available: false, hint: RECHECK_HINT };', "service row: unprobed reads as a step not reported yet"],
-    ["a lasting reason promises a check again", 'available: false, hint: LASTING_HINTS[reason] };', 'available: false, hint: RECHECK_HINT };', "service row: systemctl-missing is not available for good hint"],
+    ["a step with no report reads as checked", "    if (step === null) return null;\n", "    if (step === null) return { tone: \"info\", text: \"Unknown\", available: false, hint: RECHECK_HINT };\n", "service row: a step with no report reads as not reported yet"],
+    ["a lasting reason promises a check again", 'available: false, hint: LASTING_HINTS[step.reason] };', 'available: false, hint: RECHECK_HINT };', "service row: systemctl-missing is not available for good hint"],
     ["an open service step loses Turn on", 'return { tone: "warning", text: "Off", action: true };', 'return { tone: "warning", text: "Off" };', "service row: needed with no adapter is an open setup step"],
     ["the power reading carries Turn on again", "var out = { key: key, on: base.on, canToggle: base.canToggle, tone: base.tone, text: base.text, shows: base.shows };", "var out = { key: key, on: base.on, canToggle: base.canToggle, tone: base.tone, text: base.text, action: true, shows: base.shows };", "view: unblocked and powered reads on"],
     ["a hint line shows its text", 'hint: current.shows === "hint" ? current.text : "",', 'hint: "",', "powerLine: a hard block is a hint"],

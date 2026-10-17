@@ -1068,8 +1068,11 @@ function displaysValue(resolved, runs) {
 
 // A system step's reading as the `state` value of its access entry: TEXTS
 // names the sentence for `absent` and `denied`, which differ per step.
+// null, which clears the entry, while the step has no reading: Settings
+// reads an entry with no value as not checked yet.
 function stepState(step, texts) {
-    var state = step === null || step === undefined ? "unknown" : step.state;
+    if (step === null || step === undefined) return null;
+    var state = step.state;
     switch (state) {
     case "ready": return { tone: "ok", text: "Allowed", action: false };
     case "needed": return { tone: "warning", text: "Needs your permission", action: true };
@@ -1115,7 +1118,8 @@ function formWarningTone(tone) {
 // Every status value the service publishes. RESOLVED is the helper's last
 // list with the assignments applied, null before the first list or while
 // the outputs are unread; BACKENDS its backend states; RUNS the helper's
-// runs; STEPS the system steps' states, null before the first probe;
+// runs; STEPS the system steps' states, null before the service has its
+// shell and without a step before that step's first probe;
 // MISSING the plugin's commands the last scan did not find;
 // ASSIGNMENTSERROR the assignments file's keyed refusal or null; and
 // LISTSTATE `pending`, `ready` or `failed`, the last list's outcome.
