@@ -230,6 +230,9 @@ function verify(logic) {
         same([reading(shown), shown.tone, kinds(shown)], [wantReading, wantTone, wantKinds], label);
         if (wantReading === "todo") assert.ok(kinds(shown).some(kind => kind === "set-up" || kind === "tools"), "a To do step offers an action: " + label);
         if (wantReading === "unavailable") assert.ok(typeof shown.hint === "string" && shown.hint !== "", "a Not available step says why: " + label);
+        // A value's hint replaces the manifest's, which reads true in every
+        // state; every reading but nixos says what its own state means.
+        if (step === null || step.state !== "nixos") assert.ok(typeof shown.hint === "string" && shown.hint !== "", "the reading carries its own hint: " + label);
         // The tools review installs only the plugin's required tools, so a
         // step names it only for a missing command the manifest declares
         // required.
@@ -304,13 +307,15 @@ const CONTROLS = [
     ["ready reads Done", 'case "ready": return { tone: "ok"', 'case "ready": return { tone: "info"'],
     ["a Not available reading is info", 'return { tone: "info", text: pair[0]', 'return { tone: "warning", text: pair[0]'],
     ["install-untrusted reads Not available", "action: false, available: false, hint: pair[1] }; }", 'action: false, available: pair === NOT_AVAILABLE["install-untrusted"] ? undefined : false, hint: pair[1] }; }'],
-    ["install-untrusted cites the install link", "Switch to one installed for all users, or install VGS for all users.", "Switch to one installed for all users."],
+    ["install-untrusted cites the install link", "This VGS runs from a folder your account owns. To set it up, install VGS for all users.", "This VGS runs from a folder your account owns."],
+    ["ready carries its own hint", ', action: false, hint: "The VGS login screen starts at boot" };', ", action: false };"],
+    ["needed carries its own hint", ', action: true, hint: "Set up asks for your password once.', ', action: true, unused: "Set up asks for your password once.'],
     ["a missing greetd offers the tools review", 'action: "tools", hint: "Install greetd', 'action: false, hint: "Install greetd'],
     ["a missing Hyprland offers no tools review", "if (reason === GREETD_MISSING) return", 'if (reason === GREETD_MISSING || reason === "hyprland-missing") return'],
     ["an unnamed reason reads as not checked", "? NOT_AVAILABLE[reason] : NOT_CHECKED);", '? NOT_AVAILABLE[reason] : NOT_AVAILABLE["other-account"]);'],
     ["a failed check offers Turn off and on", "[Turn Login screen off and on](page:vgs.greeter/Settings)", "Turn Login screen off and on"],
     ["no hint says it is for information only", "Only that account can change it.", "Only that account can change it. This is for information only."],
-    ["a needed step offers Set up", 'case "needed": return { tone: "warning", text: "Not set up", action: true };', 'case "needed": return { tone: "warning", text: "Not set up", action: false };']
+    ["a needed step offers Set up", 'case "needed": return { tone: "warning", text: "Not set up", action: true,', 'case "needed": return { tone: "warning", text: "Not set up", action: false,']
 ];
 const scratch = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "test-greeter-logic-")));
 try {

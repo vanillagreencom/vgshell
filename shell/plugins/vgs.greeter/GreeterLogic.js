@@ -439,7 +439,10 @@ function promptAnswer(responseRequired, echoResponse, pending) {
 // { tone, text, action, available?, hint? }, `text` the short state under
 // the step's chip and `hint` the sentence under it. A step that reads
 // ready is done, in the ok tone. Set up is offered while it reads needed
-// or nixos, in the warning tone of an open step. While greetd is missing
+// or nixos, in the warning tone of an open step. Every reading but nixos
+// carries its own hint, which replaces the manifest's, so the manifest's
+// hint, true in every state, shows only while the step is unreported and
+// beside the NixOS snippet. While greetd is missing
 // the step names the `tools` action, which the Setup tab draws as Review
 // all missing or outdated tools: the manifest declares greetd a required
 // tool, so that review installs it. Every other reading offers the user no
@@ -457,10 +460,10 @@ var STEP_STATES = ["ready", "needed", "nixos", "absent", "denied", "unknown"];
 var GREETD_MISSING = "greetd-missing";
 // [text, hint] per reason that reads Not available.
 var NOT_AVAILABLE = {
-    "hyprland-missing": ["Needs Hyprland", "Install Hyprland to use the login screen."],
+    "hyprland-missing": ["Needs Hyprland", "Install Hyprland to use the login screen"],
     "greeter-user-missing": ["No login-screen account", "This computer has no login-screen account. Reinstalling greetd adds it."],
     "other-display-manager": ["Another login screen is on", "Another login screen is turned on now. To use the VGS login screen, turn the other one off. Until then, choose Hyprland (uwsm-managed) on it."],
-    "install-untrusted": ["Runs from your own folder", "The login screen handles every password, so it runs only a VGS installed for all users. This VGS is in a folder your account owns. Switch to one installed for all users, or install VGS for all users."],
+    "install-untrusted": ["Runs from your own folder", "The login screen handles every password, so it runs only a VGS installed for all users. This VGS runs from a folder your account owns. To set it up, install VGS for all users."],
     "install-path-unsupported": ["Folder name not supported", "VGS is in a folder whose name has a space or a sign the login screen cannot use. To set it up, install VGS for all users."],
     "other-account": ["Set up by another account", "Another account set up the login screen. Only that account can change it."],
     "unit-masked": ["Turned off by an administrator", "An administrator turned the login screen off on this computer. It stays off until they turn it back on."]
@@ -471,12 +474,12 @@ function stepState(step) {
     var state = step === null || step === undefined ? "unknown" : step.state;
     var reason = step === null || step === undefined ? "" : step.reason;
     switch (state) {
-    case "ready": return { tone: "ok", text: "Ready", action: false };
-    case "needed": return { tone: "warning", text: "Not set up", action: true };
+    case "ready": return { tone: "ok", text: "Ready", action: false, hint: "The VGS login screen starts at boot" };
+    case "needed": return { tone: "warning", text: "Not set up", action: true, hint: "Set up asks for your password once. The login screen shows at the next boot." };
     case "nixos": return { tone: "warning", text: "Needs your NixOS configuration", action: true };
     case "absent":
     case "denied":
-        if (reason === GREETD_MISSING) return { tone: "warning", text: "Needs greetd", action: "tools", hint: "Install greetd to use the login screen." };
+        if (reason === GREETD_MISSING) return { tone: "warning", text: "Needs greetd", action: "tools", hint: "Install greetd to use the login screen" };
         return notAvailable(Object.prototype.hasOwnProperty.call(NOT_AVAILABLE, reason) ? NOT_AVAILABLE[reason] : NOT_CHECKED);
     case "unknown": return notAvailable(NOT_CHECKED);
     }
