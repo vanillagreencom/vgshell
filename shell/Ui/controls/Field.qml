@@ -74,10 +74,6 @@ Column {
     // A row a key/value row under it is spaced from by ink; a column that
     // holds rows of one setting, such as a SettingField, declares it too.
     readonly property bool keyValueRow: controlRow.keyValueRow
-    // Whether the field's column lays it out, and lineBelow(), as values a
-    // key/value row under it reads (FormRow `rowAbove`).
-    readonly property bool rowShown: visible && width > 0 && height > 0
-    readonly property real belowLine: lineBelow()
     signal hintLinkActivated()
     signal hintPageActivated(string page, string tab)
     signal infoPageActivated(string page, string tab)
@@ -184,12 +180,10 @@ Column {
         function textInkBelow() { return hintLine.text !== "" ? hintLine.inkBelow() : Theme.inkBelow(subLines); }
         // The same by the text's font (FormRow.fontBelow): the hint's role
         // through a probe line of it, a link's underline still counted.
-        // `belowLine` reads this whenever the field changes, also while the
-        // lines' Repeater holds no Label for `lines`: then no line draws.
         function textLineBelow() {
             if (hintLine.text === "") {
                 const lines = Array.from(subLines.children).filter(child => child instanceof Label);
-                return lines.length === 0 ? Theme.inkBelow(subLines) : controlRow.fontBelow(lines[lines.length - 1]);
+                return controlRow.fontBelow(lines[lines.length - 1]);
             }
             const line = controlRow.fontBelow(hintProbe);
             return hintLine.linked ? Math.min(line, hintLine.inkBelow()) : line;

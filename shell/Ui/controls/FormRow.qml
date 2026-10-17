@@ -124,12 +124,13 @@ Item {
     // moves its rows reorders its parent's children with no change of
     // `children`, so the search reads the place in its column of each item
     // it climbs from and of the item it stops at (`Positioner.index`),
-    // which the Column sets as it lays the moved rows out. Of another
-    // key/value row it reads only values that row's own bindings compute
-    // (`rowShown`, `belowLine`): Qt 6.11.2 keeps a binding's trigger on an
-    // item's height or place it read before, so a row that read another
-    // row's geometry and then moved above it would run again inside that
-    // row's change and log a binding loop.
+    // which the Column sets as it lays the moved rows out. Of another bare
+    // row it reads only values that row's own bindings compute (`rowShown`,
+    // `belowLine`): Qt 6.11.2 keeps a binding's trigger on an item's height
+    // or place it read before, so a row that read another row's geometry
+    // and then moved above it would run again inside that row's change
+    // and log a binding loop. A Field takes its space as top padding, which
+    // moves none of the parts its lineBelow() reads, so it is read as is.
     readonly property var rowAbove: {
         if (!labelColumn || label === "") return null;
         let room = 0;
