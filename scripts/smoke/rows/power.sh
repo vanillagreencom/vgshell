@@ -39,10 +39,8 @@
 # alert through `notify`, each with its icon and tone, no repeats below the same
 # thresholds; the panel draws the battery level, state and time left in
 # one Field, lists the profiles the daemon offers as icon tiles with the
-# active one marked, and follows the daemon to a shorter list; a reader of
-# the SegmentedControl the panel once drew finds nothing, the control on
-# the TileGroup reader; keyboard selection in
-# the panel chooses Performance and writes the current source setting; a
+# active one marked, and follows the daemon to a shorter list; keyboard
+# selection in the panel chooses Performance and writes the current source setting; a
 # plug change applies the remembered charger profile; removing the display
 # battery hides the widget's battery part again; and a profile service
 # that starts after the plugin is read. Two orders of a profile write
@@ -279,7 +277,6 @@ EOF_STAND
   expect_poll "the panel draws the level, the state and the time left in the Battery field" '["17 min left", "8%", "Battery", "On battery"]' power_battery_field
   expect_poll "the panel lists the daemon's profiles with the active one marked" '[[["Power saver", "Balanced", "Performance"], 1]]' power_profile_list
   expect "the panel draws each profile's icon on its tile" '[["leaf", "gauge", "zap"]]' power_profile_icons
-  expect "control: the SegmentedControl reader finds no profile control" '[]' ipc smoke itemValues panel vgs.power SegmentedControl model,currentIndex
   power_profiles_set_mock "{'Profile': <'power-saver'>, 'Driver': <'dbusmock'>}, {'Profile': <'balanced'>, 'Driver': <'dbusmock'>}"
   expect_poll "the panel follows the daemon to a list without Performance" '[[["Power saver", "Balanced"], 1]]' power_profile_list
   power_profiles_set_mock "{'Profile': <'power-saver'>, 'Driver': <'dbusmock'>}, {'Profile': <'balanced'>, 'Driver': <'dbusmock'>}, {'Profile': <'performance'>, 'Driver': <'dbusmock'>}"

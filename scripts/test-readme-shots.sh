@@ -96,22 +96,26 @@ table() { # ROW...
   for row; do IFS=' ' read -r image shot crop scene <<<"$row"; printf '%s\t%s\t%s\t%s\n' "$image" "${scene:-scene}" "$shot" "$crop"; done
 }
 pass_rows=(
+  "p.absent.webp absent-window full"
   "p.full.webp centre full"
   "p.bar.webp clock bar"
+  "p.black.webp black-panel content black"
   "p.panel.webp panel content"
   "p.centre.webp centre content"
   "p.edge.webp edge content"
   "p.item.webp item item"
   "p.backdrop.webp dim backdrop"
 )
-# Expected sizes: the band is 56 rows, the margin 32 px. The panel's box
-# starts 4 rows under the band, within the margin, so it runs from the top
-# edge; the centre's box, the item's recorded box and the box on dim's
-# backdrop grow by 32 a side; the edge's box is clamped on the right and
-# the bottom.
+# Expected sizes: the band is 56 rows, the margin 32 px. The panel's box,
+# and black-panel's on its own black desktop, start within the margin under
+# the band, so they run from the top edge; the centre's box, the item's
+# recorded box and the box on dim's backdrop grow by 32 a side; the edge's
+# box is clamped on the right and the bottom.
 # In the order the directory's glob lists them.
-pass_sizes="p.backdrop.webp 464x364
+pass_sizes="p.absent.webp 2560x1600
+p.backdrop.webp 464x364
 p.bar.webp 2560x56
+p.black.webp 464x492
 p.centre.webp 464x364
 p.edge.webp 192x232
 p.full.webp 2560x1600
@@ -150,21 +154,6 @@ pass_case() {
   return 1
 }
 if pass_case "$repo/scripts/readme-shots.sh"; then ok "every crop is cut at its size and written as WebP"; else fail "every crop is cut at its size and written as WebP"; fi
-
-absent_case() {
-  local out_dir="$checkout/tmp/out-absent-$RANDOM$RANDOM"
-  run_tool "$1" "$(table "p.absent.webp absent-window full")" --from "$run_dir" --out "$out_dir"
-  [[ $status -eq 0 && $(sizes_in "$out_dir") == "p.absent.webp 2560x1600" ]]
-}
-# desktop_case SCRIPT: whether SCRIPT cuts a content crop on a scene's own
-# black desktop at the panel's size, as on the run's first desktop.
-desktop_case() {
-  local out_dir="$checkout/tmp/out-desktop-$RANDOM$RANDOM"
-  run_tool "$1" "$(table "p.black.webp black-panel content black")" --from "$run_dir" --out "$out_dir"
-  [[ $status -eq 0 && $(sizes_in "$out_dir") == "p.black.webp 464x492" ]]
-}
-if desktop_case "$repo/scripts/readme-shots.sh"; then ok "a content crop reads the scene's own desktop"; else fail "a content crop reads the scene's own desktop: exit=$status first stderr line: $err_line sizes: $(sizes_in "$checkout"/tmp/out-desktop-* | tr '\n' ' ')"; fi
-if absent_case "$repo/scripts/readme-shots.sh"; then ok "a shot recorded with an absent host window is cut"; else fail "a shot recorded with an absent host window is cut: exit=$status first stderr line: $err_line"; fi
 
 # Refusal cases, four fields each: label, table rows (;-separated), the
 # arguments, the exit status and the first stderr line. OUT is a fresh
@@ -227,6 +216,7 @@ chmod +x "$checkout/scripts/sandbox-shots.sh"
 # The table without --from: two rows share each of the scenes panels and
 # bar, so each scene must reach the sandbox once, in the table's order.
 sandbox_rows=(
+  "p.absent.webp absent-window full panels"
   "p.full.webp centre full panels"
   "p.bar.webp clock bar bar"
   "p.panel.webp panel content panels"
@@ -234,10 +224,12 @@ sandbox_rows=(
   "p.edge.webp edge content bar"
   "p.item.webp item item settings"
   "p.backdrop.webp dim backdrop bar"
+  "p.black.webp black-panel content black"
 )
 sandbox_scenes="panels
 bar
-settings"
+settings
+black"
 sandbox_head="--scale
 2
 --modes
@@ -375,7 +367,7 @@ controls=(
   partial
   "a content crop is read against 00-desktop.png"
   'colour="$(scene_desktop "$scene")" || exit 1' 'colour="$background"'
-  desktop
+  pass
   "a scene's first desktop sample is taken when two disagree"
   '[[ $samples =~ ^[0-9a-f]{6}$ ]]' 'samples="$(head -n 1 <<<"$samples")"; [[ $samples =~ ^[0-9a-f]{6}$ ]]'
   "a content crop of a scene with two desktop samples is refused"
@@ -399,7 +391,7 @@ open(dst, "w").write(text.replace(needle, replacement))' "$repo/scripts/readme-s
     if sandbox_case "$mutant" "${target#sandbox-}" >/dev/null; then fail "control: $label still gave '$target'"; else ok "control: $label"; fi
     continue
   fi
-  if [[ $target == partial || $target == selection || $target == unknown || $target == empty || $target == desktop ]]; then
+  if [[ $target == partial || $target == selection || $target == unknown || $target == empty ]]; then
     if "${target}_case" "$mutant" >/dev/null; then fail "control: $label stayed green"; else ok "control: $label"; fi
     continue
   fi
