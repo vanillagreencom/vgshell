@@ -175,7 +175,7 @@ const manifest = judge.validateManifest(JSON.parse(fs.readFileSync(path.join(pat
         assert.equal(rows[0].button.label, label, key + ": its action stays beside that fact");
         assert.equal(setup.some(item => item.key === key), false, key + ": no optional row on Setup");
     }
-    const INSTALLED = ["shell", "voxtype", "claude", "codex", "browserDriver"];
+    const INSTALLED = ["shell", "browserDriver"];
     const lacking = Object.fromEntries(INSTALLED.map(key => [key, { tone: "warning", text: "Not installed", action: true }]));
     const lackingStatus = judge.statusRows(manifest, lacking);
     assert.deepEqual(Array.from(lackingStatus).filter(entry => INSTALLED.includes(entry.key) && entry.action !== null).map(entry => String(entry.key)), [],
@@ -187,6 +187,13 @@ const manifest = judge.validateManifest(JSON.parse(fs.readFileSync(path.join(pat
 // Setup tab's warning mark carries it, and Sign in is the AI model step's
 // action alone. Local voice is a Details reading: its setup is the Voice
 // step's Set up local voice, so Set up local voice opens from Setup alone.
+// The Settings fields a status hint links, each one the manifest declares.
+function settingLinks(hint) {
+    const fields = [...hint.matchAll(/\(page:vgs\.jarvis\/Settings\/(\w+)\)/g)].map(match => match[1]);
+    const declared = JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8")).settings;
+    assert.deepEqual(fields.filter(field => !Object.prototype.hasOwnProperty.call(declared, field)), [], "a hint links only declared settings");
+    return fields;
+}
 function localSetupManifest() {
     const raw = JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8"));
     raw.status.localRuntime.action = { label: "Set up local voice", tui: "setup-local" };
@@ -366,6 +373,8 @@ function verifyClonedVoice(gate, judged) {
     assert.notEqual(gate.CLONE_READY_HINT, judged.status.clonedVoiceSetup.hint, "the done hint is not the declared setup instruction");
     assert.equal(oneSentence(gate.CLONE_READY_HINT), true, "the ready hint is one sentence");
     assert.equal(oneSentence(judged.status.clonedVoiceSetup.hint), true, "the declared setup hint is one sentence");
+    for (const [reason, field] of [["provider", "voiceProvider"], ["tier", "localTier"]])
+        assert.deepEqual(settingLinks(gate.CLONE_WITHHELD[reason].hint), [field], "a withheld cloned voice links the setting it needs: " + reason);
     assert.equal(judged.tui["clone-voice"].requires.includes("pw-record"), true, "the setup TUI needs its recorder");
 }
 
@@ -376,12 +385,6 @@ const FLOORED = [
     ["found at its floor", ["bwrap"], ["pi"], { tone: "ok", text: "Installed" }],
     ["missing", ["agent-browser"], [], { tone: "warning", text: "Not installed" }],
     ["below its floor", [], ["pi", "agent-browser"], { tone: "warning", text: "Needs an update" }]
-];
-// [label, command, missing, expected value].
-const REQUIREMENT = [
-    ["found", "agent-browser", [], { tone: "ok", text: "Installed" }],
-    ["another command missing", "agent-browser", ["bwrap"], { tone: "ok", text: "Installed" }],
-    ["missing", "agent-browser", ["bwrap", "agent-browser"], { tone: "warning", text: "Not installed" }]
 ];
 
 // The Setup section from the daemon's answer: [label, answer, the summary's
@@ -1599,6 +1602,7 @@ function verifyOverBudget(gate, serviceSource) {
         const row = plain(values.personality);
         assert.deepEqual([row.tone, row.text, row.lines?.length], want, label);
         if (shown.kind === "section") assert.equal(row.hint, "Calm.", label + ": the section shows");
+        if (shown.kind === "none") assert.deepEqual(settingLinks(row.hint), ["home"], label + ": the row links the Home folder setting");
     }
 }
 
@@ -1635,7 +1639,7 @@ function verify(gate) {
     verifyModelChoice(require(providersFile));
     verifyUnlisted(gate, require(providersFile), fs.readFileSync(serviceFile, "utf8"));
     verifyListRead(require(providersFile), fs.readFileSync(accountsFile, "utf8"));
-    verifyDictation(gate, fs.readFileSync(serviceFile, "utf8"), fs.readFileSync(accountsFile, "utf8"));
+    verifyDictation(gate, fs.readFileSync(serviceFile, "utf8"));
     verifyElevenLabsRow(gate, fs.readFileSync(serviceFile, "utf8"));
     verifyVoiceRoute(gate, fs.readFileSync(serviceFile, "utf8"));
     for (const [label, value, requires, missing, names] of SETUP) {
@@ -1651,9 +1655,6 @@ function verify(gate) {
         const at = names.map(command => got.text.indexOf(command));
         assert.deepEqual(at, [...at].sort((x, y) => x - y), label + ": the missing commands in declaration order");
     }
-    for (const [label, command, missing, want] of REQUIREMENT)
-        // The library's objects come from its own context; compare a copy.
-        assert.deepEqual(JSON.parse(JSON.stringify(gate.requirementValue(command, missing))), want, label);
     for (const [label, missing, outdated, want] of FLOORED)
         assert.deepEqual(plain(gate.flooredValue("agent-browser", missing, outdated)), want, "a command with a floor: " + label);
     // The manifest gives both programs Jarvis holds to a version their
@@ -1786,7 +1787,6 @@ const CONTROLS = [
     ["the holder omits a missing model name", 'if (!setup.installed) lines.push(', 'if (false) lines.push(', "the holder names"],
     ["a failed daemon offers no setup", '"speech=dictation-failed": { tone: "warning", text: "To do", hint: "Set up dictation again", action: "dictation" },',
         '"speech=dictation-failed": { tone: "warning", text: "To do", hint: "Set up dictation again" },', "the Voice step"],
-    ["the voxtype row shows for any voice", 'return hearsLocally(provider) ? requirementValue("voxtype", missing) : { hidden: true };', 'return requirementValue("voxtype", missing);', "Realtime voice"],
     ["the ElevenLabs voices row never shows", 'if (facts.provider !== "elevenlabs") return { hidden: true };', "return { hidden: true };", "the ElevenLabs voices row"],
     ["a stored ElevenLabs key still reads as not chosen", 'if (!chosen) return { tone: "info", text: named === "" ? "No key chosen" : "Key not stored" };', 'return { tone: "info", text: "No key chosen" };', "the ElevenLabs voices row"],
     ["a failed voice read reads as being read", 'if (causes.indexOf("speech=elevenlabs-voice") !== -1) return', "if (false) return", "the ElevenLabs voices row"],
@@ -1848,8 +1848,6 @@ const CONTROLS = [
     ["a withheld named action reads false", 'if (value.action === "dictation") withheld.action = "dictation";\n    else if (typeof value.action !== "string") withheld.action = false;', 'withheld.action = false;', "accepted status setupVoice"],
     ["any missing command withholds setup", "var lacking = requires.filter(", "var lacking = missing.filter("],
     ["the withheld text names every required command", 'lacking.join(" and ")', 'requires.join(" and ")'],
-    ["a missing requirement offers no install", 'if (missing.indexOf(command) === -1) return { tone: "ok"', 'if (true) return { tone: "ok"'],
-    ["a found requirement offers its install", 'if (missing.indexOf(command) === -1) return { tone: "ok"', 'if (false) return { tone: "ok"'],
     ["the Realtime voice offers the local install action", 'return cause.indexOf("speech=live-") !== 0 && ', 'return true && '],
     ["Always mode offers the local install action", ' && cause !== "speech=always-local-voice";', ";"],
     ["Always mode has no hint of its own", '    "speech=always-local-voice": ', '    "speech=always-local-voice-unused": '],
@@ -1986,21 +1984,13 @@ try {
         console.log("test-jarvis-setup-gate: control=" + label + " rejected=true");
     }
     {
-        const accountsSource = fs.readFileSync(accountsFile, "utf8");
         const needle = '        values.setupVoice = Gate.dictationSetup(values.setupVoice, dictationState);\n';
         assert.equal(serviceSource.split(needle).length, 2, "the configured-part publication control text occurs once");
         const copy = path.join(temp, "dictation-setup-unpublished-Service.qml");
         fs.writeFileSync(copy, serviceSource.replace(needle, ""));
-        assert.throws(() => verifyDictation(load(file), fs.readFileSync(copy, "utf8"), accountsSource), assert.AssertionError,
+        assert.throws(() => verifyDictation(load(file), fs.readFileSync(copy, "utf8")), assert.AssertionError,
             "control: bypassing core setup publication must omit the configured names");
         console.log("test-jarvis-setup-gate: control=dictation-setup-unpublished rejected=true");
-        for (const [name, needle] of [["voxtype-row-unpublished",
-            '        if (shell.status.set("voxtype", Gate.voxtypeValue(voiceProvider, missing)) !== "ok")\n            throw new Error("jarvis-accounts: status=refused");\n']]) {
-            assert.equal(accountsSource.split(needle).length, 2, name + ": the control's text occurs once");
-            assert.throws(() => verifyDictation(load(file), serviceSource, accountsSource.replace(needle, "")), assert.AssertionError,
-                name + " must turn red");
-            console.log("test-jarvis-setup-gate: control=" + name + " rejected=true");
-        }
     }
     // The service publishes each row from its own facts.
     for (const [label, needle, replacement, check] of [
@@ -2313,8 +2303,8 @@ try {
 } finally {
     fs.rmSync(temp, { recursive: true, force: true });
 }
-console.log(`test-jarvis-setup-gate: ok cases=${SETUP.length + REQUIREMENT.length + READINESS.length + MODEL.length + VOICE.length + VOICE_KEY.length + START_CAUSES.length + CHOICE.length + UNLISTED.length + FLEET.length + DICTATION.length
-    + LOCAL_VOICE_TASK.voice.length * LOCAL_VOICE_TASK.local.length * LOCAL_VOICE_TASK.providers.length} controls=${CONTROLS.length + 12 + 59 + manifestControlCount - 10 + 3}`);
+console.log(`test-jarvis-setup-gate: ok cases=${SETUP.length + READINESS.length + MODEL.length + VOICE.length + VOICE_KEY.length + START_CAUSES.length + CHOICE.length + UNLISTED.length + FLEET.length + DICTATION.length
+    + LOCAL_VOICE_TASK.voice.length * LOCAL_VOICE_TASK.local.length * LOCAL_VOICE_TASK.providers.length} controls=${CONTROLS.length + 11 + 59 + manifestControlCount - 10 + 3}`);
 // The fleet setup terminal opens from the Agent fleet row alone: in
 // MANIFEST, a judged manifest, the launcher lists no fleet TUI and the
 // Details tab draws none while the row is hidden, and the offered row
@@ -2459,11 +2449,10 @@ function verifyCheckFailures(gate) {
 // Each DICTATION row through the shipped service's setup publication: the
 // cause the daemon publishes is the summary's line, the Voice step names
 // Set up dictation only where it is offered, and its press opens the core's
-// dictation setup. The voxtype row offers its install while it is missing.
-function verifyDictation(gate, serviceSource, accountsSource) {
+// dictation setup.
+function verifyDictation(gate, serviceSource) {
     const publishSetup = serviceSource.match(/^    function publishSetup\(answer\) \{\n[\s\S]*?^    \}/m);
-    const publishRequirements = accountsSource.match(/^    function publishRequirements\(\) \{\n[\s\S]*?^    \}/m);
-    assert.ok(publishSetup && publishRequirements);
+    assert.ok(publishSetup);
     for (const [label, voice, state, missing, cause, expect, offered, names] of DICTATION) {
         assert.equal(gate.dictationCause(voice, state), cause, label + ": the cause");
         const values = {};
@@ -2489,13 +2478,6 @@ function verifyDictation(gate, serviceSource, accountsSource) {
         if (offered)
             assert.deepEqual(plain(judge.statusActionRequest(manifest, "vgs.jarvis", true, values, "setupVoice")),
                 { ok: true, kind: "core", name: "dictation-setup" }, label + ": the press opens the core's setup");
-        // The voxtype row, the account reader's, shows for the local voice,
-        // with no step: the page's Requirements section installs it.
-        vm.runInNewContext("(function() { with(root) { return (" + publishRequirements[0] + ").call(root); } })()",
-            { root: { shell, missing, voiceProvider: voice }, Gate: gate });
-        const voxtype = judge.statusRows(manifest, values).find(item => item.key === "voxtype");
-        assert.deepEqual(voxtype === undefined ? "hidden" : [voxtype.action, voxtype.tone],
-            !["local", "elevenlabs"].includes(voice) ? "hidden" : [null, missing.includes("voxtype") ? "warning" : "success"], label + ": the voxtype row");
         assert.equal(gate.dictationRefusal(state ?? { daemon: "absent", device: "" }), cause === "speech=dictation-device" ? "refused: dictation=device" : "",
             label + ": the start the service refuses itself");
     }

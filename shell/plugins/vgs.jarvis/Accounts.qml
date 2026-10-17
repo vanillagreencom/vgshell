@@ -54,12 +54,8 @@ Item {
     // read that end starts has published; undefined otherwise.
     property var removedFrom: undefined
     readonly property var signInEndedAt: signInState === null || signInState === undefined ? null : signInState.endedAt
-    readonly property var missing: shell === null ? [] : shell.requirements.missing
-    onMissingChanged: publishRequirements()
-    // The voice the daemon runs: the voxtype row shows for a voice that hears
-    // the user on this computer.
+    // The voice the daemon runs.
     readonly property string voiceProvider: shell === null ? "" : Gate.voiceProvider(shell.settings, voiceKeys)
-    onVoiceProviderChanged: publishRequirements()
     // The Voice key choices are the keys of the selected cloud voice's
     // provider, so a change of Voice provider publishes them again from the
     // last read. configure.set replaces `shell`, which this binding reads,
@@ -78,15 +74,6 @@ Item {
     onSignInEndedAtChanged: if (signInEndedAt !== null) refresh()
     // Emitted once each check has published, whatever it read.
     signal refreshed()
-
-    function publishRequirements() {
-        if (shell === null) return;
-        for (const command of ["claude", "codex"])
-            if (shell.status.set(command, Gate.requirementValue(command, missing)) !== "ok")
-                throw new Error("jarvis-accounts: status=refused");
-        if (shell.status.set("voxtype", Gate.voxtypeValue(voiceProvider, missing)) !== "ok")
-            throw new Error("jarvis-accounts: status=refused");
-    }
 
     // Write the model and effort the page's state asks for. A model belongs
     // to its sign-in's list: a sign-in changed on the page drops the saved
@@ -142,7 +129,6 @@ Item {
 
     function refresh() {
         if (shell === null) return;
-        publishRequirements();
         if (probe.running) { pending = true; return; }
         pending = false;
         completion = { kind: "starting" };

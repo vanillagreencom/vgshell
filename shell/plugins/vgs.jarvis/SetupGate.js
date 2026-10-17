@@ -68,20 +68,6 @@ function dictationSetup(value, state) {
     return lines.length === 0 ? value : Object.assign({}, value, { hint: lines.join(" ") });
 }
 
-// The value of COMMAND's own status row: whether the last scan found it. The
-// row offers no action: the page's Requirements section installs it.
-function requirementValue(command, missing) {
-    if (missing.indexOf(command) === -1) return { tone: "ok", text: "Installed" };
-    return { tone: "warning", text: "Not installed" };
-}
-
-// The voxtype row's value: its state for a voice that hears the user on
-// this computer, whose words voxtype records (dictationCause), and no row
-// for another voice.
-function voxtypeValue(provider, missing) {
-    return hearsLocally(provider) ? requirementValue("voxtype", missing) : { hidden: true };
-}
-
 // The value of the status row of COMMAND, one the manifest gives a floor:
 // missing, below its floor or installed. OUTDATED is the requirements
 // capability's list of the plugin's commands the core's last scan read
@@ -190,10 +176,10 @@ function personalityRow(shown, causes) {
     var cut = joined.length > 200 || shown.more === true;
     var value = shown.kind === "section" ? { tone: "ok", text: "Set", hint: cut ? joined.slice(0, 199).trimEnd() + "…" : joined, action: true }
         : shown.kind === "none" ? { tone: "info", text: "No home folder",
-            hint: "Choose a home folder first in [Home folder](page:vgs.jarvis/Settings/home)" }
+            hint: "Jarvis reads its personality from AGENTS.md in the folder that [Home folder](page:vgs.jarvis/Settings/home) sets" }
         : shown.kind === "missing" ? { tone: "info", text: "No Personality section", action: true,
             hint: "Edit opens AGENTS.md. Add the heading ## Personality on its own line and say how Jarvis talks under it." }
-        : { tone: "warning", text: "AGENTS.md cannot be read", hint: "Check the home folder in [Home folder](page:vgs.jarvis/Settings/home)" };
+        : { tone: "warning", text: "AGENTS.md cannot be read", hint: "AGENTS.md is in the folder that [Home folder](page:vgs.jarvis/Settings/home) sets" };
     if ((shown.kind === "section" || shown.kind === "missing") && causes.indexOf("guidance=agents-over-budget") !== -1)
         return Object.assign({}, value, { tone: "info", lines: [AGENTS_OVER] });
     return value;
@@ -473,8 +459,8 @@ function voiceChoice(keys, settings) {
 // ready reads info, so it never makes Jarvis read Setup needed nor takes the
 // page's primary action from a required step (Steps.js stepOpen).
 var CLONE_WITHHELD = {
-    provider: { text: "Needs the Local voice", hint: "Choose Local as the Voice provider to use a cloned voice" },
-    tier: { text: "Needs the Large model", hint: "Set up the Large local voice model, which needs an NVIDIA graphics card" }
+    provider: { text: "Needs the Local voice", hint: "The cloned voice speaks only through Local in [Voice provider](page:vgs.jarvis/Settings/voiceProvider)" },
+    tier: { text: "Needs the Large model", hint: "The cloned voice needs Large in [Local voice model](page:vgs.jarvis/Settings/localTier), which runs only on an NVIDIA graphics card" }
 };
 // The hint of a ready row: what the recording gives now. The declared hint
 // says how to set the step up, which a done step no longer asks.
