@@ -71,6 +71,10 @@ Column {
                 id: pointerSpeedRow
                 width: parent.width
                 implicitHeight: Math.max(pointerSpeed.implicitHeight, pointerSpeedValue.implicitHeight)
+                // The slider's and the reading's drawn top and bottom, so a key/value
+                // row above or below reads them as drawn, not this box (FormRow `inkTop`).
+                function inkAbove() { return Math.min(pointerSpeed.y + pointerSpeed.inkAbove(), pointerSpeedValue.y + pointerSpeedValue.inkAbove()); }
+                function inkBelow() { return height - Math.max(pointerSpeed.y + pointerSpeed.height - pointerSpeed.inkBelow(), pointerSpeedValue.y + pointerSpeedValue.height - pointerSpeedValue.inkBelow()); }
 
                 // The rebound slider holds the shown value within its range,
                 // as Slider clamps value, so a press that moved nothing saves
@@ -159,6 +163,10 @@ Column {
                 id: scrollSpeedRow
                 width: parent.width
                 implicitHeight: Math.max(scrollSpeed.implicitHeight, scrollSpeedValue.implicitHeight)
+                // The slider's and the reading's drawn top and bottom, so a key/value
+                // row above or below reads them as drawn, not this box (FormRow `inkTop`).
+                function inkAbove() { return Math.min(scrollSpeed.y + scrollSpeed.inkAbove(), scrollSpeedValue.y + scrollSpeedValue.inkAbove()); }
+                function inkBelow() { return height - Math.max(scrollSpeed.y + scrollSpeed.height - scrollSpeed.inkBelow(), scrollSpeedValue.y + scrollSpeedValue.height - scrollSpeedValue.inkBelow()); }
 
                 function commit() {
                     const wanted = scrollSpeed.value;
@@ -313,6 +321,10 @@ Column {
                 id: touchpadScrollSpeedRow
                 width: parent.width
                 implicitHeight: Math.max(touchpadScrollSpeed.implicitHeight, touchpadScrollSpeedValue.implicitHeight)
+                // The slider's and the reading's drawn top and bottom, so a key/value
+                // row above or below reads them as drawn, not this box (FormRow `inkTop`).
+                function inkAbove() { return Math.min(touchpadScrollSpeed.y + touchpadScrollSpeed.inkAbove(), touchpadScrollSpeedValue.y + touchpadScrollSpeedValue.inkAbove()); }
+                function inkBelow() { return height - Math.max(touchpadScrollSpeed.y + touchpadScrollSpeed.height - touchpadScrollSpeed.inkBelow(), touchpadScrollSpeedValue.y + touchpadScrollSpeedValue.height - touchpadScrollSpeedValue.inkBelow()); }
 
                 function commit() {
                     const wanted = touchpadScrollSpeed.value;

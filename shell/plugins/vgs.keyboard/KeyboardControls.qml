@@ -197,6 +197,10 @@ Column {
                 Item {
                     width: parent.width
                     implicitHeight: repeatSlider.implicitHeight
+                    // The slider's and the reading's drawn top and bottom, so a key/value
+                    // row above or below reads them as drawn, not this box (FormRow `inkTop`).
+                    function inkAbove() { return Math.min(repeatSlider.y + repeatSlider.inkAbove(), repeatValue.y + repeatValue.inkAbove()); }
+                    function inkBelow() { return height - Math.max(repeatSlider.y + repeatSlider.height - repeatSlider.inkBelow(), repeatValue.y + repeatValue.height - repeatValue.inkBelow()); }
                     function commit() {
                         const wanted = Math.round(repeatSlider.value);
                         repeatSlider.value = Qt.binding(() => root.shell === null ? 0 : repeatRow.shownValue);

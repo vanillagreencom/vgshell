@@ -43,6 +43,17 @@ Item {
     signal moved(real value)
     signal buttonClicked()
 
+    // How far below its top edge and above its bottom edge the drawn parts
+    // start and end, the button's glyph (Icon `painted`), the slider's
+    // track or handle and the readout's line, so a key/value row of a
+    // column reads the slider as drawn, not its box (FormRow `inkTop`).
+    function inkAbove() {
+        return Math.min(button.y + button.contentItem.y + button.contentItem.painted[1], bar.y + bar.inkAbove(), readout.y + readout.inkAbove());
+    }
+    function inkBelow() {
+        return height - Math.max(button.y + button.contentItem.y + button.contentItem.painted[3], bar.y + bar.height - bar.inkBelow(), readout.y + readout.height - readout.inkBelow());
+    }
+
     implicitWidth: minimumWidth
     implicitHeight: Math.max(button.implicitHeight, bar.implicitHeight, readout.height)
 

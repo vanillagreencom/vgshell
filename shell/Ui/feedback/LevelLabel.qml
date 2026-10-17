@@ -17,6 +17,11 @@ Item {
     readonly property real lineBox: label.lineBox
     readonly property bool truncated: label.truncated
 
+    // The reading's drawn top and bottom, as its Label reads them, for a
+    // LevelSlider's ink.
+    function inkAbove() { return label.y + label.inkAbove(); }
+    function inkBelow() { return height - label.y - label.height + label.inkBelow(); }
+
     width: Math.min(maxWidth, Math.max(label.implicitWidth, widest.implicitWidth))
     implicitHeight: label.lineBox
 

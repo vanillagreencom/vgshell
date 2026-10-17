@@ -54,6 +54,35 @@ Item {
         }
     }
 
+    // Two rows with sliders in a column of `stack.row` spacing: the lower
+    // stands by ink under the upper, so its box starts above its own top.
+    Column {
+        id: spacedRows
+        y: 260
+        width: 600
+        spacing: Theme.stack.row
+
+        ValueSourceRow {
+            id: upper
+            width: parent.width
+            label: "Border width"
+            path: "general.border_size"
+            source: "user"
+            userValue: 2
+            Slider { width: parent.width; from: 0; to: 10; value: 2 }
+        }
+
+        ValueSourceRow {
+            id: lower
+            width: parent.width
+            label: "Inner gaps"
+            path: "general.gaps_in"
+            source: "user"
+            userValue: 4
+            Slider { id: lowerSlider; width: parent.width; from: 0; to: 20; value: 4 }
+        }
+    }
+
     SignalSpy { id: hyprlandUses; target: row; signalName: "useHyprlandValue" }
     SignalSpy { id: themeUses; target: row; signalName: "useThemeValue" }
     SignalSpy { id: opens; target: row; signalName: "openHyprlandConfig" }
@@ -68,13 +97,15 @@ Item {
             row.source = "theme";
             row.themeOffered = true;
             plain.hyprland = null;
+            upper.hyprland = null;
+            lower.hyprland = null;
             hyprlandUses.clear();
             themeUses.clear();
             opens.clear();
         }
 
-        function action(name) {
-            const found = [row];
+        function action(name, target) {
+            const found = [target === undefined ? row : target];
             for (let i = 0; i < found.length; i++) {
                 if (found[i].objectName === name) return found[i];
                 for (const child of found[i].children) found.push(child);
@@ -175,6 +206,22 @@ Item {
             keyClick(Qt.Key_Space);
             compare(themeUses.count, 1);
             compare(control.activeFocus, true, "past the link and the other action");
+        }
+
+        // A row that stands under another key/value row with less room
+        // than the column's spacing and the message's starts its box above
+        // its own top, and its message's link and actions then start above
+        // the box's height from that top: the keys still go to the slider.
+        function test_an_action_on_a_row_under_another_hands_the_keys_to_its_control() {
+            const configured = lent({}, [{ path: "general.border_size", value: 3 }, { path: "general.gaps_in", value: 6 }], []);
+            upper.hyprland = configured;
+            lower.hyprland = configured;
+            tryVerify(() => lower.shift < -Theme.field.gap, 2000, "the lower row's box starts above its top: " + lower.shift);
+            const use = action("useHyprlandValue", lower);
+            verify(use !== null && use.visible, "the row offers Use my Hyprland value");
+            use.forceActiveFocus(Qt.TabFocusReason);
+            keyClick(Qt.Key_Space);
+            compare(lowerSlider.activeFocus, true, "the keys go back to the row's slider");
         }
 
         // The capability builds `values`, `userValues` and `overridden`

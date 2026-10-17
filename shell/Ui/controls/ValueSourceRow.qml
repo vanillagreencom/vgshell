@@ -83,11 +83,13 @@ FormRow {
 
     // The item before FROM in the focus chain that sits in the row's box,
     // the row's control, past the message's link and the other actions.
+    // The box starts `shift` down the row (FormRow), so a place is read
+    // from the box's top.
     function focusControl(from) {
         for (let item = from.nextItemInFocusChain(false); item !== null && item !== from; item = item.nextItemInFocusChain(false)) {
             let at = item;
             while (at !== null && at !== root) at = at.parent;
-            if (at === root && item.mapToItem(root, 0, 0).y < root.boxHeight) {
+            if (at === root && item.mapToItem(root, 0, 0).y - root.shift < root.boxHeight) {
                 item.forceActiveFocus(from.focusReason);
                 return;
             }

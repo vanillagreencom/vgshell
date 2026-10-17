@@ -265,8 +265,9 @@ Item {
     }
 
     // A column of bare key/value rows, as the Displays, Capture and Sound
-    // panes draw them: a select, a slider, a segmented control, switches,
-    // one with a message, and a text value, `spacing` apart by their boxes.
+    // panes draw them: a select, a level slider, a level meter, a slider, a
+    // segmented control, switches, one with a message, and a text value,
+    // `spacing` apart by their boxes.
     Component {
         id: coveredBare
         Rectangle {
@@ -280,12 +281,42 @@ Item {
                 width: 420
                 spacing: parent.spacing
                 FormRow { label: "Display"; width: parent.width; Select { width: parent.width; model: ["Built-in", "External"] } }
+                FormRow { label: "Volume"; width: parent.width; LevelSlider { width: parent.width; iconName: "volume-2"; buttonLabel: "Mute output"; value: 0.5 } }
+                FormRow { label: "Level"; width: parent.width; ProgressBar { width: parent.width; value: 0.4 } }
                 FormRow { label: "Scale"; width: parent.width; Slider { width: parent.width; from: 0; to: 100; value: 40 } }
                 FormRow { label: "Mode"; width: parent.width; SegmentedControl { width: parent.width; model: ["Extend", "Mirror"] } }
                 FormRow { label: "Mute"; width: parent.width; Switch { size: "sm"; checked: true } }
                 FormRow { label: "Speed"; warning: "Overridden by policy"; width: parent.width; Switch { size: "sm" } }
                 FormRow { label: "Device"; width: parent.width; Label { role: "value"; text: "Analog stereo output" } }
                 FormRow { label: "Linked"; width: parent.width; Switch { checked: false } }
+            }
+        }
+    }
+
+    // Rows a Repeater draws from a model a test reorders, as Sound's Apps
+    // rows follow a ScriptModel: bare rows, and fields.
+    ListModel { id: order }
+    Component {
+        id: reorderedBare
+        Column {
+            x: 480
+            width: 420
+            spacing: Theme.stack.row
+            Repeater {
+                model: order
+                FormRow { required property string name; label: name; width: parent === null ? 0 : parent.width; Switch { size: "sm" } }
+            }
+        }
+    }
+    Component {
+        id: reorderedFields
+        Column {
+            x: 480
+            width: 420
+            spacing: Theme.stack.row
+            Repeater {
+                model: order
+                Field { required property string name; label: name; inline: true; width: parent === null ? 0 : parent.width; Switch { size: "sm" } }
             }
         }
     }
@@ -840,17 +871,19 @@ Item {
             return [
                 { tag: "row spacing", spacing: "row", step: 0 },
                 { tag: "group spacing", spacing: "group", step: 0 },
-                { tag: "a theme's step", spacing: "group", step: 20 }
+                { tag: "a theme's step", spacing: "group", step: 20 },
+                { tag: "a reading taller than the level slider's glyph", spacing: "row", step: 0, label: 24 }
             ];
         }
 
         function test_bare_rows_stand_one_step_apart_by_ink(data) {
             if (data.step > 0) compare(UnitTheme.override({ stack: { page: data.step } }), "ok");
+            if (data.label !== undefined) compare(UnitTheme.override({ text: { label: { size: data.label } } }), "ok");
             const cover = createTemporaryObject(coveredBare, root, { spacing: Theme.stack[data.spacing] });
             verify(cover !== null);
             verify(waitForRendering(cover));
             const rows = cover.rows.children.filter(item => item.objectName === "fieldRow");
-            compare(rows.length, 7);
+            compare(rows.length, 9);
             for (const row of rows) compare(row.boxHeight, Theme.row.height, row.label + " keeps the row box");
             const img = grabImage(root);
             const gaps = rows.slice(1).map((row, i) => ({ pair: rows[i].label + "/" + row.label, gap: gapBetween(img, rows[i], row, cover.rows.width) }));
@@ -858,6 +891,75 @@ Item {
             const read = gaps.map(entry => entry.pair + " " + entry.gap).join(", ");
             for (const entry of gaps)
                 verify(Math.abs(entry.gap - want) <= 1, "every bare row stands " + want + " blank rows under the one above: " + read);
+        }
+
+        // Each shown key/value row of COLUMN, in its children's order, the
+        // FormRow that measures it, and whether each stands under the one
+        // before it.
+        function orderedRows(column) {
+            return column.children.filter(child => child.keyValueRow === true && child.visible);
+        }
+        function formRowOf(item) {
+            return item.objectName === "fieldRow" ? item : item.children.find(child => child.objectName === "fieldRow");
+        }
+        function eachUnderTheOneBefore(column) {
+            const rows = orderedRows(column);
+            return rows.every((row, i) => {
+                const above = formRowOf(row).rowAbove;
+                return i === 0 ? above === null : above !== null && above.item === rows[i - 1];
+            });
+        }
+        function readOrder(column) {
+            return orderedRows(column).map(row => {
+                const above = formRowOf(row).rowAbove;
+                return row.label + "<" + (above === null ? "none" : above.item.label);
+            }).join(", ");
+        }
+        function labelsOf(column) { return orderedRows(column).map(row => row.label).join(""); }
+
+        function reorder_data() {
+            return [{ tag: "bare rows", rows: reorderedBare }, { tag: "fields", rows: reorderedFields }];
+        }
+
+        // A Repeater that moves its rows changes no `children` of their
+        // column: each row still stands under the row now above it, a row
+        // under two that swap and a row that had no row above alike, and
+        // the run logs no binding loop, which fails the file.
+        function test_rows_follow_a_reorder_of_their_column_data() { return reorder_data(); }
+        function test_rows_follow_a_reorder_of_their_column(data) {
+            order.clear();
+            for (const name of ["A", "B", "C"]) order.append({ name: name });
+            const column = createTemporaryObject(data.rows, root);
+            tryVerify(() => eachUnderTheOneBefore(column), 2000, "each row stands under the one before it: " + readOrder(column));
+            const placed = orderedRows(column)[2].y;
+            order.move(0, 1, 1);
+            tryVerify(() => labelsOf(column) === "BAC", 2000, "the Repeater reorders its rows");
+            tryVerify(() => eachUnderTheOneBefore(column), 2000, "a row under two that swap stands under the one now above it: " + readOrder(column));
+            compare(orderedRows(column)[2].y, placed, "the row under the two that swap keeps its place");
+            order.move(2, 0, 1);
+            tryVerify(() => labelsOf(column) === "CBA", 2000, "the Repeater reorders its rows");
+            tryVerify(() => eachUnderTheOneBefore(column), 2000, "a row that had no row above stands under the one moved above it: " + readOrder(column));
+        }
+
+        // A move, then a change the rows read: the first row takes a line
+        // under it, which re-spaces the rows under it in their new order.
+        function test_a_change_after_a_reorder_respaces_the_rows_data() { return reorder_data(); }
+        function test_a_change_after_a_reorder_respaces_the_rows(data) {
+            order.clear();
+            for (const name of ["P", "X", "Y"]) order.append({ name: name });
+            const column = createTemporaryObject(data.rows, root);
+            tryVerify(() => eachUnderTheOneBefore(column), 2000, "each row stands under the one before it: " + readOrder(column));
+            order.move(2, 1, 1);
+            tryVerify(() => labelsOf(column) === "PYX", 2000, "the Repeater reorders its rows");
+            tryVerify(() => eachUnderTheOneBefore(column), 2000, "each row stands under the one now above it: " + readOrder(column));
+            const rows = orderedRows(column);
+            const first = rows[0];
+            const next = formRowOf(rows[1]);
+            if (first.objectName === "fieldRow") first.warning = "Overridden by policy";
+            else first.hint = "Overridden by policy";
+            tryVerify(() => eachUnderTheOneBefore(column), 2000, "each row stands under the one before it: " + readOrder(column));
+            const gap = () => next.mapToItem(column, 0, next.lineAbove()).y - first.mapToItem(column, 0, first.height - first.lineBelow()).y;
+            tryVerify(() => Math.abs(gap() - Theme.stack.page) <= 1, 2000, "the row stands one step under the line: " + gap());
         }
 
         // The first row of ink in LABEL's box.

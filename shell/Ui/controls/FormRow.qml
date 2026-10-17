@@ -120,18 +120,21 @@ Item {
     // the list's gap and hairline. null for a row with no label beside its
     // control, under anything that is no key/value row, or under nothing. A
     // Column lays out only its shown, sized children
-    // (https://doc.qt.io/qt-6/qml-qtquick-column.html). Gap: a Repeater
-    // that moves its rows reorders its parent's children with no change of
-    // `children`, so a moved row keeps the row above it had until a value
-    // the search reads changes. Reading each row's place (`y` or
-    // `Positioner.index`) runs the search again, but Qt 6.11.2 keeps a
-    // binding's trigger on a row's height or place it read before the move,
-    // so a row moved above a row it measured logs a binding loop for
-    // `rowAbove` and `inkTop` as the rows re-space.
+    // (https://doc.qt.io/qt-6/qml-qtquick-column.html). A Repeater that
+    // moves its rows reorders its parent's children with no change of
+    // `children`, so the search reads the place in its column of each item
+    // it climbs from and of the item it stops at (`Positioner.index`),
+    // which the Column sets as it lays the moved rows out. Of another
+    // key/value row it reads only values that row's own bindings compute
+    // (`rowShown`, `belowLine`): Qt 6.11.2 keeps a binding's trigger on an
+    // item's height or place it read before, so a row that read another
+    // row's geometry and then moved above it would run again inside that
+    // row's change and log a binding loop.
     readonly property var rowAbove: {
         if (!labelColumn || label === "") return null;
         let room = 0;
         for (let at = placed; at.parent !== null; ) {
+            void at.Positioner.index;
             const holder = at.parent;
             const list = holder.parent instanceof GroupList ? holder.parent : null;
             if (!(holder instanceof Column) && list === null) return null;
@@ -140,8 +143,10 @@ Item {
             for (let i = siblings.length - 1; i >= 0; i--) {
                 const item = siblings[i];
                 if (item === at) below = false;
-                else if (!below && item.visible && item.width > 0 && item.height > 0)
+                else if (!below && (item.rowShown ?? (item.visible && item.width > 0 && item.height > 0))) {
+                    void item.Positioner.index;
                     return list === null && item.keyValueRow === true ? { item: item, room: room + holder.spacing } : null;
+                }
             }
             if (list === null) room += holder.topPadding;
             at = list === null ? holder : list;
@@ -161,6 +166,10 @@ Item {
     // whole rows. It reads the row box's own top, not `lineAbove()`, which
     // counts `shift`.
     readonly property real inkTop: rowAbove === null || !rowAbove.item.visible ? 0 : Theme.stack.page - rowAbove.room - Math.floor(lineBelowOf(rowAbove.item)) - Math.floor(drawnAbove(true))
+    // Whether the row's column lays it out, and lineBelow(), as values a
+    // row under it reads.
+    readonly property bool rowShown: visible && width > 0 && height > 0
+    readonly property real belowLine: lineBelow()
     // The part of `inkTop` the row takes above its row box: all of it for a
     // row its column places, none for one a Field places.
     readonly property real shift: placed === root ? inkTop : 0
@@ -248,6 +257,7 @@ Item {
     // GroupList by its last shown group, a Loader by its item, and anything
     // else as drawn.
     function lineBelowOf(item) {
+        if (typeof item.belowLine === "number") return item.belowLine;
         if (typeof item.lineBelow === "function") return item.lineBelow();
         if (item instanceof Loader) return item.item instanceof Item ? item.height - item.item.height + lineBelowOf(item.item) : 0;
         const list = item instanceof GroupList;
