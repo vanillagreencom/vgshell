@@ -31,7 +31,7 @@ function detailRequirements(requirements) { return requirements.filter(function 
 // tool, the one install action of Setup's Tools step and of Details' Tools
 // section.
 var REVIEW_LABEL = "Review all missing or outdated tools";
-function reviewButton() { return { kind: "tools", key: "tools", name: "", label: REVIEW_LABEL, tone: "", enabled: true, reason: "" }; }
+function reviewButton() { return { kind: "tools", key: "tools", name: "", label: REVIEW_LABEL, tone: "", icon: "", enabled: true, reason: "" }; }
 // The Review action Details' Tools section offers for REQUIREMENTS, its
 // optional tools, while one is missing or outdated, else null.
 function toolsReview(requirements) { return requirements.some(requirementApplies) ? reviewButton() : null; }
@@ -77,22 +77,24 @@ function setupNeeds(status, requirements, enabled) {
 }
 function setupTab(sections, requirements) { return sections.length > 0 || requirements.some(function (row) { return !row.optional; }); }
 // The action ENTRY's line offers while the plugin is on: { kind, key,
-// name, label, tone, enabled, reason }. A primary status action always
+// name, label, tone, icon, enabled, reason }, `icon` the name of the mark a
+// danger action leads with, "" for the trash mark (RowAction's
+// `markName`). A primary status action always
 // uses the status route, including when it opens a TUI, so its refusal
 // and the successful retry belong to the same entry. Null while none is
 // offered.
 function stepButton(entry) {
     if (entry.action === null || !entry.action.offered) return null;
     return { kind: "status", key: entry.key + " " + entry.action.label, name: entry.action.tui,
-        label: entry.action.label, tone: entry.action.tone, enabled: true, reason: "" };
+        label: entry.action.label, tone: entry.action.tone, icon: entry.action.icon, enabled: true, reason: "" };
 }
 function asideButton(entry) {
     if (entry.aside === null || !entry.aside.offered) return null;
-    return { kind: "tui", key: entry.key + " " + entry.aside.label, name: entry.aside.tui, label: entry.aside.label, tone: entry.aside.tone, enabled: true, reason: "" };
+    return { kind: "tui", key: entry.key + " " + entry.aside.label, name: entry.aside.tui, label: entry.aside.label, tone: entry.aside.tone, icon: entry.aside.icon, enabled: true, reason: "" };
 }
 // The one action a page offers for a plugin that is off, which turns it on
 // through the Enabled switch's route, and why its screens take no press.
-function turnOn(name) { return { kind: "enable", key: "enable", name: "", label: "Turn on " + name, tone: "", enabled: true, reason: "" }; }
+function turnOn(name) { return { kind: "enable", key: "enable", name: "", label: "Turn on " + name, tone: "", icon: "", enabled: true, reason: "" }; }
 function offReason(name) { return "Turn on " + name + " first"; }
 // The action a line draws for PLUGIN, { enabled, name }: BUTTON, the one
 // its entry offers, while the plugin is on; while it is off, Turn on for a
@@ -107,7 +109,7 @@ function lineAction(button, open, plugin) {
 // PLUGIN is off, with the reason.
 function screenButtons(tuis, names, plugin) {
     return tuis.filter(function (tui) { return names.indexOf(tui.name) !== -1; }).map(function (tui) {
-        return { kind: "tui", key: tui.name + " " + tui.label + " " + plugin.enabled, name: tui.name, label: tui.label, tone: "", enabled: plugin.enabled, reason: plugin.enabled ? "" : offReason(plugin.name) };
+        return { kind: "tui", key: tui.name + " " + tui.label + " " + plugin.enabled, name: tui.name, label: tui.label, tone: "", icon: "", enabled: plugin.enabled, reason: plugin.enabled ? "" : offReason(plugin.name) };
     });
 }
 // The listed screens a page draws apart from its status entries: PLACE

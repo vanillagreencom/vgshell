@@ -89,7 +89,7 @@ function suite(ctx, check) {
                 { ok: true, kind: "install", commands: [absent] });
             check("the Voice step offers local voice while " + absent + " is absent, as its press asks for it",
                 ctx.statusRows(jarvis, voiceValues).find(row => row.key === "setupVoice").action,
-                { label: "Set up local voice", tone: "", offered: true, tui: "setup-local" });
+                { label: "Set up local voice", icon: "", tone: "", offered: true, tui: "setup-local" });
             fs.writeFileSync(file, "#!/bin/sh\nexit 99\n", { mode: 0o700 });
         }
     } finally {
@@ -172,7 +172,7 @@ function suite(ctx, check) {
         const texts = [].concat(...rows.map(row => [row.hint, row.value.text].concat(row.value.lines || [])));
         return ["Add key", "Accounts"].filter(step => !offered.includes(step) && texts.some(text => text.includes(step)));
     };
-    check("Jarvis offers Add key and Accounts", pageRows.map(row => row.action), [{ label: "Add key", tone: "", offered: true, tui: "add-key" }, { label: "Accounts", tone: "", offered: true, tui: "accounts" }]);
+    check("Jarvis offers Add key and Accounts", pageRows.map(row => row.action), [{ label: "Add key", icon: "", tone: "", offered: true, tui: "add-key" }, { label: "Accounts", icon: "", tone: "", offered: true, tui: "accounts" }]);
     check("Jarvis opens add-key while only tesseract is missing",
         ctx.tuiRunFor(jarvis, true, "/sources", runner, "add-key", ["tesseract"]).key, "vgs.jarvis/add-key");
     check("Jarvis's Add key asks for secret-tool alone while it and tesseract are missing",
@@ -185,7 +185,7 @@ function suite(ctx, check) {
         ctx.statusRows(m, {})[0].action.offered, false);
     check("a step that opens no TUI is offered while its value says so",
         ctx.statusRows(m, { check: { tone: "warning", text: "Missing", action: true } })[2].action,
-        { label: "Allow sync", tone: "", offered: true, tui: "" });
+        { label: "Allow sync", icon: "", tone: "", offered: true, tui: "" });
 
     // statusWrite: [name, key, value, want], `want` the error line or "ok".
     const writeRows = [
@@ -354,7 +354,7 @@ function suite(ctx, check) {
     const values = ctx.statusWrite(m, ctx.statusWrite(m, ctx.statusWrite(m, {}, "token", "locked").values, "check", { tone: "ok", text: "Up to date" }).values, "pending", 0).values;
     const rows = ctx.statusRows(m, values);
     check("statusRows: one row per displayable entry, in manifest order", rows.map(r => r.key), ["token", "tokens", "check", "note", "pending", "lastCheck", "health"]);
-    check("statusRows: a reported presence carries its tone and the declaration", rows[0], { key: "token", type: "presence", label: "Token", group: "Keys", setup: true, setting: "", step: "", hint: "Needed", info: "Explains this status", link: null, secrets: false, declaredTuis: ["setup"], action: { label: "Set up token", tone: "", offered: false, tui: "" }, aside: null, report: "reported", value: "locked", tone: "info" });
+    check("statusRows: a reported presence carries its tone and the declaration", rows[0], { key: "token", type: "presence", label: "Token", group: "Keys", setup: true, setting: "", step: "", hint: "Needed", info: "Explains this status", link: null, secrets: false, declaredTuis: ["setup"], action: { label: "Set up token", icon: "", tone: "", offered: false, tui: "" }, aside: null, report: "reported", value: "locked", tone: "info" });
     check("statusRows: a declaration carries info", rows[0].info, "Explains this status");
     check("statusRows: a declaration carries its hint's link", rows[6].link, { text: "vendor page", url: "https://vendor.example/health" });
     check("statusRows: a reported state carries its tone", [rows[2].report, rows[2].value, rows[2].tone], ["reported", { tone: "ok", text: "Up to date" }, "success"]);
@@ -578,21 +578,25 @@ function suite(ctx, check) {
     ]) check("statusWrite: " + name, named(key, value), want);
     const namedValues = action => ctx.statusWrite(mNamed, {}, "agent", action === null ? { tone: "ok", text: "t" } : { tone: "warning", text: "t", action }).values;
     const agentAction = values => ctx.statusRows(mNamed, values)[0].action;
-    check("statusRows: a named action carries its own label", [agentAction(namedValues("remove")), agentAction(namedValues("get"))], [{ label: "Uninstall", tone: "", offered: true, tui: "remove" }, { label: "Allow", tone: "", offered: true, tui: "" }]);
-    check("statusRows: named actions none of which applies offer nothing", [agentAction(namedValues(null)), agentAction({})], [{ label: "", tone: "", offered: false, tui: "" }, { label: "", tone: "", offered: false, tui: "" }]);
-    // A danger action carries its tone to the row, offered or not.
+    check("statusRows: a named action carries its own label", [agentAction(namedValues("remove")), agentAction(namedValues("get"))], [{ label: "Uninstall", icon: "", tone: "", offered: true, tui: "remove" }, { label: "Allow", icon: "", tone: "", offered: true, tui: "" }]);
+    check("statusRows: named actions none of which applies offer nothing", [agentAction(namedValues(null)), agentAction({})], [{ label: "", icon: "", tone: "", offered: false, tui: "" }, { label: "", icon: "", tone: "", offered: false, tui: "" }]);
+    // A danger action carries its tone and its mark to the row, offered or not.
     const mTone = ctx.validateManifest({ schemaVersion: 1, id: "acme.drive", name: "D", version: "1", author: "a", description: "d", kinds: ["service"], entryPoints: { service: "S.qml" }, capabilities: ["status", "tui"], tui: { connect: { script: "tui/connect.sh", title: "Sign in" }, out: { script: "tui/out.sh", title: "Sign out" } }, requirements: [{ command: "acme-sync", purpose: "p" }],
-        status: { drive: { type: "state", label: "Sign-in", setup: true, actions: { signIn: { label: "Sign in", tui: "connect" }, signOut: { label: "Sign out", tui: "out", tone: "danger" } } }, plain: { type: "state", label: "Plain", setup: true, action: { label: "Sign out", tui: "out", tone: "danger" } } } }, "/p").manifest;
+        status: { drive: { type: "state", label: "Sign-in", setup: true, actions: { signIn: { label: "Sign in", tui: "connect" }, signOut: { label: "Sign out", tui: "out", tone: "danger", icon: "log-out" } } }, plain: { type: "state", label: "Plain", setup: true, action: { label: "Sign out", tui: "out", tone: "danger", icon: "log-out" } } } }, "/p").manifest;
     const toneOf = (key, value) => ctx.statusRows(mTone, ctx.statusWrite(mTone, {}, key, value).values)[key === "drive" ? 0 : 1].action.tone;
     check("statusRows: a danger action carries its tone, a plain one none",
         [toneOf("drive", { tone: "ok", text: "t", action: "signOut" }), toneOf("drive", { tone: "warning", text: "t", action: "signIn" }), toneOf("plain", { tone: "ok", text: "t" })],
         ["danger", "", "danger"]);
+    const iconOf = (key, value) => ctx.statusRows(mTone, ctx.statusWrite(mTone, {}, key, value).values)[key === "drive" ? 0 : 1].action.icon;
+    check("statusRows: a danger action carries its mark, one that names none no mark",
+        [iconOf("drive", { tone: "ok", text: "t", action: "signOut" }), iconOf("drive", { tone: "warning", text: "t", action: "signIn" }), iconOf("plain", { tone: "ok", text: "t" })],
+        ["log-out", "", "log-out"]);
     // An aside: one more listed screen a state step's row draws beside its
     // step while its value carries `aside: true` (Jarvis's Remove key).
     const mAside = ctx.validateManifest({ schemaVersion: 1, id: "acme.keys", name: "K", version: "1", author: "a", description: "d", kinds: ["service"], entryPoints: { service: "S.qml" }, capabilities: ["status", "tui"],
         requirements: [{ command: "acme-sync", purpose: "p" }, { command: "acme-vault", purpose: "p" }],
         tui: { add: { script: "tui/add.sh", title: "Add", requires: ["acme-sync"] }, remove: { script: "tui/remove.sh", title: "Remove", requires: ["acme-vault"], entry: { label: "Remove key", icon: "trash", group: "Acme" } } },
-        status: { keys: { type: "state", label: "Keys", setup: true, action: { label: "Add key", tui: "add" }, aside: { label: "Remove key", tui: "remove", tone: "danger" } }, plain: { type: "state", label: "Plain", setup: true, action: { label: "Add key", tui: "add" } } } }, "/p").manifest;
+        status: { keys: { type: "state", label: "Keys", setup: true, action: { label: "Add key", tui: "add" }, aside: { label: "Remove key", tui: "remove", tone: "danger", icon: "key" } }, plain: { type: "state", label: "Plain", setup: true, action: { label: "Add key", tui: "add" } } } }, "/p").manifest;
     const asideWrite = (key, value) => { const r = ctx.statusWrite(mAside, {}, key, value); return r.ok ? "ok" : r.error; };
     for (const [name, key, value, want] of [
         ["an aside the entry declares", "keys", { tone: "ok", text: "t", action: true, aside: true }, "ok"],
@@ -602,7 +606,7 @@ function suite(ctx, check) {
         ["no aside for an entry that declares none", "plain", { tone: "ok", text: "t", action: true }, "ok"],
     ]) check("statusWrite: " + name, asideWrite(key, value), want);
     const asideOf = value => ctx.statusRows(mAside, value === null ? {} : ctx.statusWrite(mAside, {}, "keys", value).values)[0].aside;
-    const asideRow = offered => ({ label: "Remove key", tone: "danger", tui: "remove", offered: offered });
+    const asideRow = offered => ({ label: "Remove key", icon: "key", tone: "danger", tui: "remove", offered: offered });
     check("statusRows: an aside is offered while its value says so, and not while unreported or while it says no",
         [asideOf({ tone: "ok", text: "t", action: true, aside: true }), asideOf(null), asideOf({ tone: "ok", text: "t", action: true, aside: false }),
             asideOf({ tone: "ok", text: "t", action: true })],
@@ -784,7 +788,7 @@ const CONTROLS = [
     ["a state offers its action while it says so", "return value.action === true ? entry.action : null;", "return entry.action;"],
     ["a state offers the one of its actions it names", "return typeof value.action === \"string\" ? entry.actions[value.action] : null;", "return entry.actions[Object.keys(entry.actions)[0]];"],
     ["an unreported row offers nothing", "var offered = value === null ? null : statusActionOffered(entry, value);", "var offered = value === null ? entry.action || null : statusActionOffered(entry, value);"],
-    ["a row whose action does not apply is not offered", "    if (offered !== null) return { label: offered.label, tone: statusActionTone(offered),", "    if (offered === null && entry.action !== undefined) offered = entry.action;\n    if (offered !== null) return { label: offered.label, tone: statusActionTone(offered),"],
+    ["a row whose action does not apply is not offered", "    if (offered !== null) return { label: offered.label, icon: statusActionIcon(offered), tone: statusActionTone(offered),", "    if (offered === null && entry.action !== undefined) offered = entry.action;\n    if (offered !== null) return { label: offered.label, icon: statusActionIcon(offered), tone: statusActionTone(offered),"],
     ["an act needs a declared action", "if (typeof key !== \"string\" || !hasOwn(manifest.status, key) || statusEntryActions(manifest.status[key]).length === 0)\n        return { ok: false, answer: statusActionRefusal(key, \"undeclared\") };", ""],
     ["an act needs an enabled plugin", "if (!enabled)\n        return { ok: false, answer: statusActionRefusal(key, \"disabled\") };", ""],
     ["an act needs its offer", "if (action === null)\n        return { ok: false, answer: statusActionRefusal(key, \"not-offered\") };", "if (action === null) action = statusEntryActions(manifest.status[key])[0].action;"],

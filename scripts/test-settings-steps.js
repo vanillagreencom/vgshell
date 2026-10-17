@@ -146,6 +146,9 @@ function verify(logic, producer) {
     const signInButton = logic.stepButton(signIn);
     same([signInButton === null ? null : [signInButton.label, signInButton.enabled, signInButton.kind], signIn.hint.includes(REVIEW)],
         [["Sign in", true, "status"], false], "on: a step whose screen lacks an optional tool offers its own action");
+    // A danger action's mark reaches the button the line draws (RowAction's `markName`).
+    const signOut = { key: "account", action: { label: "Sign out", icon: "log-out", tone: "danger", offered: true, tui: "out" }, aside: { label: "Remove key", icon: "key", tone: "danger", offered: true, tui: "remove" } };
+    same([logic.stepButton(signOut).icon, logic.asideButton(signOut).icon], ["log-out", "key"], "on: a step's action and aside carry their marks");
     const byHand = rows(Object.assign({}, allDone, { home: blocked })).find(entry => entry.key === "home");
     same([logic.stepButton(byHand), logic.stepView(byHand, String, on).hint], [null, status.home.hint], "on: a by-hand step draws its explanation");
     const waiting = logic.stepView(rows({}).find(entry => entry.key === "home"), String, on);

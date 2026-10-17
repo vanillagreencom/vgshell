@@ -10,7 +10,11 @@ import qs.Unit
 // and Enter activate it; the danger tone draws its own colour, an unknown
 // tone is logged and drawn as accent; a narrow action elides its text; a
 // danger action leads with its trash mark in every theme, centred on the
-// text's x-height, and an accent action never does; RowActions sets side-by-side actions `rowAction.gap`
+// text's x-height, or with the mark its `markName` names, and an accent action
+// never does; an action that removes its row's item draws the trash mark
+// alone in the danger colour, in a box no smaller than a text action's,
+// its text its accessible name and its tooltip, a set reason shown in the
+// tooltip's place; RowActions sets side-by-side actions `rowAction.gap`
 // apart, top-aligned on one line as tall as the tallest, and gives no room
 // to a hidden action or to the Repeater that makes its actions; given less
 // width than its actions, it continues them on a new line once the next
@@ -60,6 +64,9 @@ Item {
         }
     }
     RowAction { id: locked; x: 40; y: 310; text: "Add account"; disabledReason: root.reason }
+    RowAction { id: signOut; x: 200; y: 120; text: "Sign out"; tone: "danger"; markName: "log-out" }
+    RowAction { id: alone; x: 200; y: 170; text: "Remove Documents"; removesItem: true }
+    SignalSpy { id: aloneClicks; target: alone; signalName: "clicked" }
     SignalSpy { id: clicks; target: action; signalName: "clicked" }
     SignalSpy { id: lockedClicks; target: locked; signalName: "clicked" }
     FontMetrics { id: body; font: action.contentItem.children[1].font }
@@ -72,6 +79,9 @@ Item {
             UnitTheme.reset();
             clicks.clear();
             lockedClicks.clear();
+            aloneClicks.clear();
+            alone.disabledReason = "";
+            alone.focus = false;
             locked.disabledReason = Qt.binding(() => root.reason);
             locked.focus = false;
             action.focus = false;
@@ -86,6 +96,7 @@ Item {
         function ring(control) { return control.background.children[0]; }
         function colour(value) { return String(Qt.color(value)); }
         function reasonTip(control) { return control.lock.children.map(child => child.item).find(item => item && item.objectName === "disabledReasonTip") || null; }
+        function markTip(control) { return control.children.map(child => child.item).find(item => item && item.objectName === "removesItemTip") || null; }
 
         // The opacity an item draws at: its own times every ancestor's.
         function drawnOpacity(item) {
@@ -248,6 +259,95 @@ Item {
             compare(mark(danger).y, Math.round(mark(danger).y), "the mark sits on a whole pixel");
             fuzzyCompare(capCentre, danger.height / 2, 0.01);
             verify(off(Math.round(danger.height / 2 - mark(danger).height / 2), xCentre) > 0.5, "control: the capital centre reads as level");
+        }
+
+        // A danger action that removes nothing leads with the mark its
+        // icon names, in the place and colour of the trash mark.
+        function test_a_danger_action_leads_with_its_own_mark() {
+            compare(mark(signOut).visible, true);
+            compare(mark(signOut).name, "log-out");
+            compare(mark(danger).name, "trash", "a danger action with no icon keeps the trash mark");
+            compare([mark(signOut).x, mark(signOut).y], [mark(danger).x, mark(danger).y]);
+            compare(label(signOut).visible, true);
+            compare(label(signOut).text, "Sign out");
+            compare(label(signOut).x, mark(signOut).width + Theme.rowAction.iconGap);
+            compare(underline(signOut).visible, true);
+            compare(colour(mark(signOut).color), colour(Theme.rowAction.tone.danger.foreground));
+        }
+
+        // The mark alone: the trash mark in the danger colour with no text
+        // or underline, centred across a square as tall as a text action's
+        // box, and level with the mark a text action leads with.
+        function test_an_action_that_removes_its_item_draws_the_trash_mark_alone() {
+            compare(mark(alone).visible, true);
+            compare(mark(alone).name, "trash");
+            compare(label(alone).visible, false, "the text does not draw");
+            compare(underline(alone).visible, false, "the underline does not draw");
+            compare(colour(mark(alone).color), colour(Theme.rowAction.tone.danger.foreground));
+            compare(alone.height, danger.height, "as tall as a text action's box");
+            compare(alone.width, alone.height, "as wide as it is tall");
+            verify(alone.width < label(alone).implicitWidth, "the box holds the mark, not the text");
+            const centre = mark(alone).x + mark(alone).width / 2;
+            verify(Math.abs(centre - alone.width / 2) <= 0.5, "the mark is " + (centre - alone.width / 2) + " px off the box's centre");
+            compare(mark(alone).y, mark(danger).y, "level with a text action's mark");
+            compare(alone.Accessible.name, alone.text);
+            compare(alone.inkAbove(), mark(alone).y);
+            compare(alone.inkBelow(), alone.height - mark(alone).y - mark(alone).height);
+        }
+
+        function test_the_mark_alone_takes_the_danger_hover_and_press() {
+            mouseMove(alone, alone.width / 2, alone.height / 2);
+            tryCompare(alone, "hovered", true);
+            compare(colour(mark(alone).color), colour(Theme.rowAction.tone.danger.hover));
+            mousePress(alone, alone.width / 2, alone.height / 2);
+            tryCompare(mark(alone), "color", Qt.color(Theme.rowAction.tone.danger.pressed));
+            mouseRelease(alone, alone.width / 2, alone.height / 2);
+            compare(aloneClicks.count, 1);
+            // The box's corner, off the mark's ink, takes the click too.
+            mouseClick(alone, 1, 1);
+            compare(aloneClicks.count, 2);
+        }
+
+        function test_the_mark_alone_rings_its_box() {
+            alone.forceActiveFocus(Qt.TabFocusReason);
+            tryCompare(ring(alone), "visible", true);
+            const out = Theme.focusRing.offset + Theme.focusRing.width;
+            const box = ring(alone).mapToItem(alone, 0, 0);
+            compare([box.x, box.y, ring(alone).width, ring(alone).height], [-out, -out, alone.width + 2 * out, alone.height + 2 * out]);
+        }
+
+        // Its text shows in the shared tooltip on hover and on keyboard
+        // focus; a text action builds none.
+        function test_the_mark_alone_names_itself_in_the_tooltip() {
+            compare(UnitTheme.override({ tooltip: { delay: 200 } }), "ok");
+            compare(markTip(danger), null, "a text action shows its text");
+            const tip = markTip(alone);
+            verify(tip !== null, "the mark alone holds its tooltip");
+            compare(tip.text, alone.text);
+            mouseMove(alone, alone.width / 2, alone.height / 2);
+            tryCompare(tip, "opened", true);
+            mouseMove(root, 0, root.height - 1);
+            tryCompare(tip, "opened", false);
+            alone.forceActiveFocus(Qt.TabFocusReason);
+            tryCompare(tip, "opened", true);
+            alone.focus = false;
+            tryCompare(tip, "opened", false);
+        }
+
+        function test_a_locked_mark_alone_shows_its_reason_in_the_tooltips_place() {
+            compare(UnitTheme.override({ tooltip: { delay: 200 } }), "ok");
+            alone.disabledReason = root.reason;
+            compare(markTip(alone).text, "", "the text's tooltip stands down");
+            const tip = reasonTip(alone);
+            verify(tip !== null);
+            mouseMove(alone, alone.width / 2, alone.height / 2);
+            tryCompare(tip, "opened", true);
+            compare(tip.text, root.reason);
+            compare(markTip(alone).opened, false, "one tooltip shows");
+            mouseClick(alone);
+            compare(aloneClicks.count, 0, "a locked mark takes no click");
+            mouseMove(root, 0, root.height - 1);
+            tryCompare(tip, "opened", false);
         }
 
         function test_side_by_side_actions_stand_a_gap_apart() {

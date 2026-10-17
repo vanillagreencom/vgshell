@@ -231,13 +231,15 @@ var LAUNCHER_ROW_KEYS = ["id", "label", "icon", "description", "aliases", "menu"
 // instead: two or more such steps by name, a STATUS_KEY_PATTERN
 // identifier, of which a value names at most one. An action that removes
 // what the user set up, such as a sign-out, carries `tone`, one of
-// STATUS_ACTION_TONES, and a page draws it in the danger style. A `state`
+// STATUS_ACTION_TONES, and a page draws it in the danger style, led by the
+// trash mark, or by the mark its `icon` names, a name of the shipped Lucide
+// set, for one that removes no item, such as a sign-out's `log-out`. A `state`
 // entry with a step may declare `aside`, one more action its row draws
 // beside the step, such as Remove key beside Add key: an action of route
 // `tui` whose script has an `entry`, since the page opens it as a listed
 // screen, offered while its value carries `aside: true`.
 var STATUS_ACTION_ROUTES = ["tui", "system", "undo", "dictation"];
-var STATUS_ACTION_KEYS = ["label", "tone"].concat(STATUS_ACTION_ROUTES);
+var STATUS_ACTION_KEYS = ["label", "tone", "icon"].concat(STATUS_ACTION_ROUTES);
 var STATUS_ACTION_TONES = ["danger"];
 var STATUS_ACTION_TYPES = ["presence", "state"];
 // The refusal reasons of the `manager` capability's `act`.
@@ -752,7 +754,9 @@ function statusAsideError(entry, at, tui, system, capabilities) {
 // The first defect of ACTION, one action of a status entry of type TYPE,
 // AT its path, or "": an object of STATUS_ACTION_KEYS on an entry whose
 // type is in STATUS_ACTION_TYPES, a printable `label` of at most STATUS_LABEL_MAX
-// characters, an optional `tone` of STATUS_ACTION_TONES, and exactly one
+// characters, an optional `tone` of STATUS_ACTION_TONES, an optional
+// `icon` on a danger action, the name of its mark in the shipped Lucide set,
+// since only a danger action draws one, and exactly one
 // of STATUS_ACTION_ROUTES: `tui`, a name the
 // manifest's TUI key declares; `system` or `undo`, a step the manifest's
 // SYSTEM, its `systemSteps`, declares; or `dictation`. An unknown key names
@@ -771,6 +775,10 @@ function statusActionError(type, action, at, tui, system, capabilities) {
         return at + ".label must be a printable line of 1 to " + STATUS_LABEL_MAX + " characters";
     if (action.tone !== undefined && STATUS_ACTION_TONES.indexOf(action.tone) === -1)
         return at + ".tone must be one of " + STATUS_ACTION_TONES.join(", ") + ", got " + JSON.stringify(action.tone);
+    if (action.icon !== undefined && action.tone !== "danger")
+        return at + ".icon needs tone danger; only a danger action draws a mark";
+    if (action.icon !== undefined && (typeof action.icon !== "string" || !hasOwn(Lucide.ICONS, action.icon)))
+        return at + ".icon must name an icon of the shipped set, shell/Ui/icons/Lucide.js, got " + JSON.stringify(action.icon);
     if (STATUS_ACTION_ROUTES.filter(function (route) { return action[route] !== undefined; }).length !== 1)
         return at + " must name exactly one of " + STATUS_ACTION_ROUTES.join(", ");
     if (action.dictation !== undefined) {
@@ -1342,20 +1350,22 @@ function statusActionOffered(entry, value) {
 
 // What a Status row carries of ENTRY's step for its published VALUE, null
 // while unreported: null for an entry that declares none, else { label,
-// offered, tui, tone }, the label of the action that applies, or of the
+// icon, offered, tui, tone }, the label of the action that applies, or of the
 // entry's one `action` while none does, "" for `actions` none of which
 // applies, `offered` false while none applies, `tui` the plugin's own TUI
 // the offered action opens, "" while none is offered or it opens none, so a
 // page can draw that TUI's button as the step, and `tone` the labelled
-// action's, "" or one of STATUS_ACTION_TONES. An offered action whose
+// action's, "" or one of STATUS_ACTION_TONES, and `icon` its mark's name,
+// "" for none (statusActionIcon). An offered action whose
 // script lacks a command stays offered: its press raises the requirement
 // notice for that script's commands and starts it once they are found
 // (tuiRunFor).
 function statusRowAction(entry, value) {
     if (entry.action === undefined && entry.actions === undefined) return null;
     var offered = value === null ? null : statusActionOffered(entry, value);
-    if (offered !== null) return { label: offered.label, tone: statusActionTone(offered), offered: true, tui: offered.tui === undefined ? "" : offered.tui };
-    return { label: entry.action === undefined ? "" : entry.action.label, tone: entry.action === undefined ? "" : statusActionTone(entry.action), offered: false, tui: "" };
+    if (offered !== null) return { label: offered.label, icon: statusActionIcon(offered), tone: statusActionTone(offered), offered: true, tui: offered.tui === undefined ? "" : offered.tui };
+    return { label: entry.action === undefined ? "" : entry.action.label, icon: entry.action === undefined ? "" : statusActionIcon(entry.action),
+        tone: entry.action === undefined ? "" : statusActionTone(entry.action), offered: false, tui: "" };
 }
 
 // The declared TUI screens a status entry may open, its `aside`'s last, in
@@ -1377,16 +1387,22 @@ function statusDeclaredTuis(entry) {
 
 // What a Status row carries of ENTRY's `aside` for its published VALUE, null
 // while unreported: null for an entry that declares none, else { label,
-// tone, tui, offered }, `offered` while VALUE carries `aside: true`, as an
+// icon, tone, tui, offered }, `offered` while VALUE carries `aside: true`, as an
 // action is offered whatever its script lacks (statusRowAction).
 function statusRowAside(entry, value) {
     if (entry.aside === undefined) return null;
-    return { label: entry.aside.label, tone: statusActionTone(entry.aside), tui: entry.aside.tui, offered: value !== null && value.aside === true };
+    return { label: entry.aside.label, icon: statusActionIcon(entry.aside), tone: statusActionTone(entry.aside), tui: entry.aside.tui, offered: value !== null && value.aside === true };
 }
 
 // The tone a page draws declared ACTION in: its `tone`, else "".
 function statusActionTone(action) {
     return action.tone === undefined ? "" : action.tone;
+}
+
+// The mark a page leads declared danger ACTION with: its `icon`, else "",
+// which draws the trash mark.
+function statusActionIcon(action) {
+    return action.icon === undefined ? "" : action.icon;
 }
 
 // The Status rows the plugin manager shows for a plugin: one per entry

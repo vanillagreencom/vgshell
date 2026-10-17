@@ -459,6 +459,14 @@ function suite(ctx, configLogic, check) {
         ["an action beside named actions", { capabilities: ["status", "tui"], tui: { setup: { script: "tui/setup.sh", title: "Set up" } }, status: { a: { type: "state", label: "A", setup: true, action: { label: "Fix", tui: "setup" }, actions: { fix: { label: "Fix", tui: "setup" }, get: { label: "Redo", tui: "setup" } } } } }, "status.a declares both action and actions"],
         ["a danger action", { capabilities: ["status", "tui"], tui: { setup: { script: "tui/setup.sh", title: "Set up" } }, status: { a: { type: "state", label: "A", setup: true, action: { label: "Sign out", tui: "setup", tone: "danger" } } } }, null],
         ["a named danger action", { capabilities: ["status", "tui"], tui: { setup: { script: "tui/setup.sh", title: "Set up" } }, requirements: [{ command: "gum", purpose: "q" }], status: { a: { type: "state", label: "A", setup: true, actions: { fix: { label: "Fix", tui: "setup" }, out: { label: "Sign out", tui: "setup", tone: "danger" } } } } }, null],
+        // A danger action that removes nothing names its own mark from
+        // the shipped icon set; only a danger action draws one.
+        ["a danger action naming its mark", { capabilities: ["status", "tui"], tui: { setup: { script: "tui/setup.sh", title: "Set up" } }, status: { a: { type: "state", label: "A", setup: true, action: { label: "Sign out", tui: "setup", tone: "danger", icon: "log-out" } } } }, null],
+        ["a danger action naming an icon the set lacks", { capabilities: ["status", "tui"], tui: { setup: { script: "tui/setup.sh", title: "Set up" } }, status: { a: { type: "state", label: "A", setup: true, action: { label: "Sign out", tui: "setup", tone: "danger", icon: "door-exit" } } } }, "status.a.action.icon must name an icon of the shipped set, shell/Ui/icons/Lucide.js, got \"door-exit\""],
+        ["a danger action naming an inherited icon name", { capabilities: ["status", "tui"], tui: { setup: { script: "tui/setup.sh", title: "Set up" } }, status: { a: { type: "state", label: "A", setup: true, action: { label: "Sign out", tui: "setup", tone: "danger", icon: "constructor" } } } }, "status.a.action.icon must name an icon of the shipped set"],
+        ["a danger action naming an icon that is not a string", { capabilities: ["status", "tui"], tui: { setup: { script: "tui/setup.sh", title: "Set up" } }, status: { a: { type: "state", label: "A", setup: true, action: { label: "Sign out", tui: "setup", tone: "danger", icon: ["log-out"] } } } }, "status.a.action.icon must name an icon of the shipped set"],
+        ["an accent action naming a mark", { capabilities: ["status", "tui"], tui: { setup: { script: "tui/setup.sh", title: "Set up" } }, status: { a: { type: "state", label: "A", setup: true, action: { label: "Sign in", tui: "setup", icon: "log-in" } } } }, "status.a.action.icon needs tone danger"],
+        ["an aside naming a mark the set lacks", { capabilities: ["status", "tui"], tui: { add: { script: "tui/add.sh", title: "Add" }, remove: { script: "tui/remove.sh", title: "Remove", entry: { label: "Remove", icon: "trash", group: "Acme" } } }, status: { a: { type: "state", label: "A", setup: true, action: { label: "Add", tui: "add" }, aside: { label: "Remove", tui: "remove", tone: "danger", icon: "bin" } } } }, "status.a.aside.icon must name an icon of the shipped set"],
         ["an action of another tone", { capabilities: ["status", "tui"], tui: { setup: { script: "tui/setup.sh", title: "Set up" } }, status: { a: { type: "state", label: "A", setup: true, action: { label: "Fix", tui: "setup", tone: "warning" } } } }, "status.a.action.tone must be one of danger, got \"warning\""],
         ["an action of an empty tone", { capabilities: ["status", "tui"], tui: { setup: { script: "tui/setup.sh", title: "Set up" } }, status: { a: { type: "state", label: "A", setup: true, action: { label: "Fix", tui: "setup", tone: "" } } } }, "status.a.action.tone must be one of danger"],
         ["a named action of another tone", { capabilities: ["status", "tui"], tui: { setup: { script: "tui/setup.sh", title: "Set up" } }, status: { a: { type: "state", label: "A", setup: true, actions: { fix: { label: "Fix", tui: "setup", tone: "accent" }, get: { label: "Redo", tui: "setup" } } } } }, "status.a.actions.fix.tone must be one of danger"],
@@ -560,7 +568,7 @@ function suite(ctx, configLogic, check) {
     const installAction = ctx.validateManifest(Object.assign(JSON.parse(JSON.stringify(bar)), { capabilities: ["status"], requirements: [{ command: "x", purpose: "p" }],
         status: { a: { type: "state", label: "A", setup: true, action: { label: "Install", install: ["x"] } } } }), "/p");
     check("validateManifest: an install action is refused", [installAction.ok, installAction.error],
-        [false, "status.a.action has unknown key \"install\"; an action takes label, tone, tui, system, undo, dictation"]);
+        [false, "status.a.action has unknown key \"install\"; an action takes label, tone, icon, tui, system, undo, dictation"]);
     // hyprland.options rows over a service whose schema holds one entry of
     // each kind an option path takes: [name, options, schema patch, want].
     const optionSettings = { sensitivity: 0, rate: 25, tap: true, natural: false, layouts: "us", profile: "flat" };
@@ -2176,8 +2184,11 @@ const CONTROLS = [
     ["an entry declares an action or named actions", "if (entry.action !== undefined && entry.actions !== undefined)", "if (false)"],
     ["named actions are two or more", "if (!isPlainObject(entry.actions) || Object.keys(entry.actions).length < 2)", "if (!isPlainObject(entry.actions))"],
     ["a named action's name is an identifier", "if (declared[a].name !== null && !STATUS_KEY_PATTERN.test(declared[a].name))", "if (false)"],
-    ["an action may carry a tone", 'var STATUS_ACTION_KEYS = ["label", "tone"].concat(STATUS_ACTION_ROUTES);', 'var STATUS_ACTION_KEYS = ["label"].concat(STATUS_ACTION_ROUTES);'],
+    ["an action may carry a tone", 'var STATUS_ACTION_KEYS = ["label", "tone", "icon"].concat(STATUS_ACTION_ROUTES);', 'var STATUS_ACTION_KEYS = ["label", "icon"].concat(STATUS_ACTION_ROUTES);'],
+    ["an action may carry a mark", 'var STATUS_ACTION_KEYS = ["label", "tone", "icon"].concat(STATUS_ACTION_ROUTES);', 'var STATUS_ACTION_KEYS = ["label", "tone"].concat(STATUS_ACTION_ROUTES);'],
     ["an action's tone is danger alone", "if (action.tone !== undefined && STATUS_ACTION_TONES.indexOf(action.tone) === -1)", "if (false)"],
+    ["an action's mark goes unjudged against the icon set", "if (action.icon !== undefined && (typeof action.icon !== \"string\" || !hasOwn(Lucide.ICONS, action.icon)))", "if (false)"],
+    ["an accent action names a mark", "if (action.icon !== undefined && action.tone !== \"danger\")", "if (false)"],
     ["an action is an object", "if (!isPlainObject(action))\n        return at + \" must be an object\";", "if (false)\n        return at + \" must be an object\";"],
     ["an action has only its keys", "if (STATUS_ACTION_KEYS.indexOf(keys[i]) === -1)", "if (false)"],
     ["an action label is a printable line", "if (!isPrintableLine(action.label, STATUS_LABEL_MAX))\n        return at + \".label", "if (false)\n        return at + \".label"],

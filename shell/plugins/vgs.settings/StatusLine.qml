@@ -17,9 +17,10 @@ import qs.Ui
 // group never leaves its value column empty. Its lines sit `field.gap` apart: one group of the row's GroupList.
 //
 // The step is one of: `actionLabel` while `actionOffered`, an action in
-// `actionTone` that emits `act`, with `asideLabel` while `asideOffered`
-// after it, which emits `aside`; or, for a line that is the presence of a
-// secret, by `access`: `connect`, an Add key action, and `disconnect`, a
+// `actionTone`, a danger one led by the mark `actionIcon` names or by the
+// trash mark, that emits `act`, with `asideLabel` while `asideOffered`
+// after it, in `asideTone` with `asideIcon`, which emits `aside`; or, for
+// a line that is the presence of a secret, by `access`: `connect`, an Add key action, and `disconnect`, a
 // Replace action before a Remove action in the danger tone that emits
 // `clearSecret`. Add key and Replace open a masked field under the line
 // whose Save, or Enter, emits `storeSecret` with what was typed and closes
@@ -45,10 +46,14 @@ Column {
     property bool actionOffered: false
     // "" or "danger", the declared action's tone (PluginLogic.statusRowAction).
     property string actionTone: ""
+    // The mark a danger action leads with, "" for the trash mark
+    // (PluginLogic.statusActionIcon).
+    property string actionIcon: ""
     property string access: ""
     property string asideLabel: ""
     property bool asideOffered: false
     property string asideTone: ""
+    property string asideIcon: ""
     property bool busy: false
     property string error: ""
     // What the masked field asks for: the plugin's `secrets` label.
@@ -172,6 +177,7 @@ Column {
                         enabled: !line.busy
                         text: line.actionLabel
                         tone: line.actionTone === "danger" ? "danger" : "accent"
+                        markName: line.actionIcon
                         onClicked: line.act()
                     }
                     RowAction {
@@ -179,6 +185,7 @@ Column {
                         enabled: !line.busy
                         text: line.asideLabel
                         tone: line.asideTone === "danger" ? "danger" : "accent"
+                        markName: line.asideIcon
                         onClicked: line.aside()
                     }
                     RowAction {

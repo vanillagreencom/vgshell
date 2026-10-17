@@ -192,10 +192,12 @@ FocusScope {
         actionOffered: action !== null
         actionLabel: action === null ? "" : action.label
         actionTone: action === null ? "" : action.tone
+        actionIcon: action === null ? "" : action.icon
         onAct: page.press(action, entry)
         asideOffered: asideAction !== null
         asideLabel: asideAction === null ? "" : asideAction.label
         asideTone: asideAction === null ? "" : asideAction.tone
+        asideIcon: asideAction === null ? "" : asideAction.icon
         onAside: page.press(asideAction, entry)
     }
 

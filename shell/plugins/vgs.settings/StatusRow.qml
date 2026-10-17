@@ -86,10 +86,12 @@ GroupList {
         actionOffered: row.action !== null
         actionLabel: row.action === null ? "" : row.action.label
         actionTone: row.action === null ? "" : row.action.tone
+        actionIcon: row.action === null ? "" : row.action.icon
         onAct: row.actionPressed(row.action)
         asideOffered: row.asideAction !== null
         asideLabel: row.asideAction === null ? "" : row.asideAction.label
         asideTone: row.asideAction === null ? "" : row.asideAction.tone
+        asideIcon: row.asideAction === null ? "" : row.asideAction.icon
         onAside: row.actionPressed(row.asideAction)
     }
 

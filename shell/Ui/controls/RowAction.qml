@@ -5,8 +5,8 @@ import qs.Ui
 import "../foundation/KeyNavLogic.js" as KeyNavLogic
 
 // The action of one key/value row, such as a setup step beside its chip:
-// its text in the body role, sentence case, drawn as a link with no icon,
-// no fill, no box and no side padding, so the text starts on the
+// its text in the body role, sentence case, drawn as a link with no
+// fill, no box and no side padding, so the text starts on the
 // control's own edge and a row puts it on its value column. `tone` names a
 // group of `Theme.rowAction.tone`, `accent` or `danger`; an unknown name is
 // logged and drawn as `accent`. The text carries an underline at rest, so
@@ -24,17 +24,28 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // no click or key, draws its text, mark and underline faded with no hover
 // or press, and shows the reason on hover and keyboard focus
 // (DisabledReason).
-// A danger action leads with a trash mark `rowAction.icon` wide,
+// A danger action leads with its mark `rowAction.icon` wide,
 // `rowAction.iconGap` before its text, so it reads apart from an accent
-// action beside it by more than colour; the mark then sits on the
-// control's edge, centred where the text's leading icon centres
-// (Label.topForLeadingIcon).
+// action beside it by more than colour: the trash mark, or, for one that
+// removes no item, the Lucide mark `markName` names, such as `log-out` for
+// a sign-out; an accent action draws no mark, whatever `markName` holds. The
+// mark sits on the control's edge, centred where the text's leading icon
+// centres (Label.topForLeadingIcon).
+// `removesItem` is for an action that removes the one item its row
+// shows, where the row names what goes: it draws the trash mark alone, in
+// the danger colour whatever `tone` holds, with no underline, centred
+// across a square box as tall as the text's box, so its hit target is no
+// smaller than a text action's, and the focus ring draws around that box.
+// Its text stays its accessible name and shows in the shared tooltip on
+// hover and keyboard focus, as an IconButton's label does, and a set
+// `disabledReason` shows in the tooltip's place.
 // The control's box is centred on the text's capital centre, so a row that
 // centres it beside a chip sets the text level with the chip's; the box
 // holds the thicker hover underline, so a hover moves nothing.
 // `inkAbove()` is where its text's ink, or the danger mark, starts below
 // that box's top, and `inkBelow()` how far above the box's bottom the
-// resting underline ends, or the mark where it ends lower, so a heading
+// resting underline ends, or the mark where it ends lower or draws alone,
+// so a heading
 // under the action stands `stack.heading` under what it draws at rest.
 T.Button {
     id: root
@@ -42,11 +53,16 @@ T.Button {
     property string tone: "accent"
     property bool focusPreview: false
     property string disabledReason: ""
+    // The Lucide name of a danger action's mark, "" for the trash mark. It
+    // is not `icon`: AbstractButton's is FINAL, and a RowAction declaring
+    // one fails to load (a qml-unit run, 2026-10-17).
+    property string markName: ""
+    property bool removesItem: false
     readonly property DisabledReason lock: lockState
-    readonly property var tokens: toneOf(tone)
+    readonly property var tokens: toneOf(removesItem ? "danger" : tone)
     readonly property color foreground: down ? tokens.pressed : hovered ? tokens.hover : tokens.foreground
-    // Whether the danger mark leads the text.
-    readonly property bool marked: tone === "danger"
+    // Whether the danger mark draws: before the text, or alone.
+    readonly property bool marked: removesItem || tone === "danger"
 
     function toneOf(name) {
         const found = Theme.rowAction.tone[name];
@@ -57,12 +73,14 @@ T.Button {
 
     function inkAbove() {
         const text = label.y + label.inkAbove();
-        return contentItem.y + (mark.visible ? Math.min(mark.y, text) : text);
+        const top = !mark.visible ? text : label.visible ? Math.min(mark.y, text) : mark.y;
+        return contentItem.y + top;
     }
 
     function inkBelow() {
         const foot = underline.y + Theme.rowAction.underline;
-        const lowest = mark.visible ? Math.max(mark.y + mark.height - Theme.inkBelow(mark), foot) : foot;
+        const markFoot = mark.y + mark.height - Theme.inkBelow(mark);
+        const lowest = !mark.visible ? foot : underline.visible ? Math.max(markFoot, foot) : markFoot;
         return height - contentItem.y - lowest;
     }
 
@@ -83,20 +101,26 @@ T.Button {
         // Half the box: from the capital centre up to the label's top, or
         // down to the hover underline's foot, whichever is further.
         readonly property real half: Math.max(label.capCentre, label.baselineOffset + drop + Theme.rowAction.underlineHover - label.capCentre)
-        implicitWidth: label.x + label.implicitWidth
+        // Alone, the mark takes a square as tall as the text's box.
+        implicitWidth: root.removesItem ? implicitHeight : label.x + label.implicitWidth
         implicitHeight: 2 * half
         opacity: lockState.fade
 
         Icon {
             id: mark
             visible: root.marked
-            name: "trash"
+            name: root.removesItem || root.markName === "" ? "trash" : root.markName
             size: Theme.rowAction.icon
             color: root.foreground
+            x: root.removesItem ? Math.round((parent.width - width) / 2) : 0
+            // Alone, it centres where it would lead the text, so it stands
+            // level with the danger marks of the rows beside it; the label
+            // stays laid out, unseen, to give that centre.
             y: label.y + label.topForLeadingIcon(height, label.y)
         }
         Label {
             id: label
+            visible: !root.removesItem
             x: root.marked ? mark.width + Theme.rowAction.iconGap : 0
             y: parent.half - capCentre
             role: "body"
@@ -107,6 +131,7 @@ T.Button {
         }
         Rectangle {
             id: underline
+            visible: label.visible
             x: label.x
             y: label.y + label.baselineOffset + parent.drop
             width: label.width
@@ -120,4 +145,15 @@ T.Button {
     }
 
     DisabledReason { id: lockState; control: root }
+
+    // The shared tooltip, wired as IconButton's is, built only for a mark
+    // drawn alone, since every other action shows its text.
+    Loader {
+        active: root.removesItem
+        sourceComponent: Tooltip {
+            objectName: "removesItemTip"
+            anchorItem: root
+            text: lockState.locked ? "" : root.text
+        }
+    }
 }
