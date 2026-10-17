@@ -2824,15 +2824,48 @@ scene_ai-usage() { # MODE
   expect_poll "AI Usage's panel is gone" absent ipc smoke readInstance panel vgs.ai-usage rows
 }
 
-# AI Usage's dropdown with a Claude Code account at its full weekly limit
-# and one with no figures at its top.
-scene_ai-usage-states() { # MODE
-  click_centre "$(bar_key)" vgs.ai-usage || fail "opening AI Usage for its states failed"
-  expect_poll "the widget opens its panel over the planted states" True usage_shot_rows
+# AI Usage's Hidden accounts set to IDS, a JSON list of account ids.
+usage_shot_hidden() { # IDS
+  python3 - "$home/.config/vgshell/shell.json" "$1" <<'PY2' || return 1
+import json, os, sys
+path, ids = sys.argv[1:]
+config = json.load(open(path))
+rows = config.setdefault("plugins", [])
+row = next((r for r in rows if r["id"] == "vgs.ai-usage"), None)
+if row is None:
+    row = {"id": "vgs.ai-usage"}
+    rows.append(row)
+row["hidden"] = [{"account": i} for i in json.loads(ids)]
+with open(path + ".tmp", "w") as out:
+    json.dump(config, out)
+os.replace(path + ".tmp", path)
+PY2
+  expect "AI Usage's hidden accounts reload" ok ipc shell reloadConfig
+}
+usage_shot_open() { # LABEL
+  click_centre "$(bar_key)" vgs.ai-usage || fail "opening AI Usage $1 failed"
+  expect_poll "the widget opens its panel $1" True usage_shot_rows
   park_pointer
+}
+usage_shot_close() { # LABEL
+  expect "AI Usage's panel $1 hides" ok ipc shell hide panel vgs.ai-usage
+  expect_poll "AI Usage's panel $1 is gone" absent ipc smoke readInstance panel vgs.ai-usage rows
+}
+# AI Usage's dropdown over every account, then with the planted Claude
+# Code accounts, one at its full weekly limit and one with no figures, as
+# its only Claude Code cards.
+scene_ai-usage-states() { # MODE
+  local others
+  usage_shot_open "over every account"
+  take "ai-usage-states-$1-order"
+  usage_shot_close "over every account"
+  others="$(ipc smoke readInstance service vgs.ai-usage usage | py_reply 'import json,sys; print(json.dumps([a["id"] for a in json.load(sys.stdin)["accounts"] if a["provider"] == "claude" and a["id"] not in ("claude-full", "claude-limited")]))')" \
+    || fail "the other Claude Code accounts could not be read"
+  usage_shot_hidden "$others"
+  usage_shot_open "over the planted states"
   take "ai-usage-states-$1-panel"
-  expect "AI Usage's states panel hides" ok ipc shell hide panel vgs.ai-usage
-  expect_poll "AI Usage's states panel is gone" absent ipc smoke readInstance panel vgs.ai-usage rows
+  usage_shot_close "over the planted states"
+  usage_shot_hidden '[]'
 }
 
 # The production traffic views over a fixture service in the sandbox copy.
