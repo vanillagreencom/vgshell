@@ -203,8 +203,9 @@ function noticePayload(notice) {
 // The setting a bar pick of a profile writes, so the next change of the
 // power source applies that pick again: the current source's profile
 // while a battery is present, and "" with no battery. Without a battery
-// the source never changes, so neither setting would ever act, and the
-// Settings page draws neither field (the manifest's shownWhen).
+// a source change applies no profile (sourceObserved), so neither
+// setting would ever act, and the Settings page draws neither field (the
+// manifest's shownWhen).
 function rememberedSetting(batteryPresent, onBattery) {
     if (batteryPresent !== true) return "";
     return onBattery === true ? "batteryProfile" : "chargerProfile";
@@ -226,10 +227,16 @@ function profileForSource(onBattery, settings, choices) {
     return availableProfile(wanted, choices);
 }
 
-function sourceObserved(previous, ready, onBattery) {
+// Whether a power source reading applies the new source's profile. The
+// first ready reading only records the source. A later change applies
+// only while a laptop battery is present: UPower also changes OnBattery
+// when a UPS is the display device (upower's up-daemon.c), and with no
+// battery Settings draws neither source field and a bar pick remembers
+// neither, so the bar pick stands.
+function sourceObserved(previous, ready, onBattery, batteryPresent) {
     var state = previous && typeof previous === "object" ? previous : { ready: false, onBattery: false };
     if (ready !== true) return { state: state, apply: false };
     if (state.ready !== true) return { state: { ready: true, onBattery: onBattery === true }, apply: false };
     if (state.onBattery === (onBattery === true)) return { state: state, apply: false };
-    return { state: { ready: true, onBattery: onBattery === true }, apply: true };
+    return { state: { ready: true, onBattery: onBattery === true }, apply: batteryPresent === true };
 }

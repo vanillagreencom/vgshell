@@ -45,8 +45,9 @@
 # battery hides the widget's battery part again; Power's Settings tab draws
 # its four battery fields with a battery, none with no battery and all
 # four again once the display battery is back; with no battery a bar pick
-# sets the profile and remembers no setting, and with one it remembers
-# the current source's; and a profile service that starts after the
+# sets the profile and remembers no setting, a source change keeps that
+# pick, and with a battery a pick remembers the current source's; and a
+# profile service that starts after the
 # plugin is read. Two orders of a profile write
 # are held with the barrier: a profile asked for while a write runs is
 # written next, and after a write the daemon refuses the mark returns to
@@ -68,7 +69,7 @@
 # directory, stops the mock process groups it spawned, and restarts the
 # shell because Quickshell keeps that singleton in the process after the
 # plugin is disabled.
-# inputs: shell/plugins/vgs.power/* shell/plugins/vgs.settings/* shell/Core/Registry.qml shell/Core/Capabilities.qml shell/Core/PluginStatus.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Notices.qml shell/Core/Notifier.qml shell/Hosts/NoticeHost.qml shell/Hosts/SummonHost.qml bin/vgshell-scan scripts/smoke/rows/device-fakes.sh scripts/smoke/power-fakes.sh
+# inputs: shell/plugins/vgs.power/* shell/plugins/vgs.settings/* shell/Commons/SettingValues.js shell/Core/Registry.qml shell/Core/Capabilities.qml shell/Core/PluginStatus.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Notices.qml shell/Core/Notifier.qml shell/Hosts/NoticeHost.qml shell/Hosts/SummonHost.qml bin/vgshell-scan scripts/smoke/rows/device-fakes.sh scripts/smoke/power-fakes.sh
 set -euo pipefail
 source "$repo/scripts/smoke/power-fakes.sh"
 
@@ -162,14 +163,19 @@ runs = [json.loads(line) for line in sys.stdin]
 print(json.dumps([run[-1][2:-2] for run in runs if "org.freedesktop.DBus.Properties.Set" in run]))' <"$power_gdbus_calls" || echo '[]'; }
 power_exists() { [[ -e $1 ]] && echo yes || echo no; }
 # power_battery_fields: which of the four battery settings Power's Settings
-# tab draws, as the sorted schema keys whose label a SettingField of the
-# Settings window shows. The keys are listed here, not read from the
-# manifest's shownWhen, so a field that loses its condition still counts.
+# tab draws, as the sorted schema keys whose label a Field of the Settings
+# window shows. The keys are listed here, not read from the manifest's
+# shownWhen, so a field that loses its condition still counts. The same
+# read must hold the tab's own Show in bar row (SettingValues.PAGE_LABELS
+# showInBar), drawn for Power with or without a battery, else it prints
+# page-absent: an empty list then means a drawn Settings tab without the
+# battery fields, not a blank page or another tab.
 power_battery_keys='["batteryProfile", "chargerProfile", "criticalThreshold", "lowThreshold"]'
-power_battery_fields() { ipc smoke itemTexts window vgs.settings SettingField | py_reply 'import json,sys
+power_battery_fields() { ipc smoke itemTexts window vgs.settings Field | py_reply 'import json,re,sys
 schema = json.load(open(sys.argv[1]))["schema"]
+anchor = re.search(r"showInBar: \"([^\"]+)\"", open(sys.argv[3]).read()).group(1).lower()
 drawn = {t.lower() for row in json.load(sys.stdin) for t in row}
-print(json.dumps(sorted(k for k in json.loads(sys.argv[2]) if schema[k]["label"].lower() in drawn)))' "$repo/shell/plugins/vgs.power/manifest.json" "$power_battery_keys"; }
+print(json.dumps(sorted(k for k in json.loads(sys.argv[2]) if schema[k]["label"].lower() in drawn)) if anchor in drawn else "page-absent")' "$repo/shell/plugins/vgs.power/manifest.json" "$power_battery_keys" "$repo/shell/Commons/SettingValues.js"; }
 power_battery_presence() { ipc smoke statusValues vgs.power | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin).get("battery")))'; }
 power_hold_next_set() {
   power_unlink "$power_set_held"
@@ -332,6 +338,11 @@ EOF_STAND
   expect_poll "with no battery the daemon holds the bar pick" power-saver power_profile_get
   power_discharging 64.0 7200
   expect_poll "with the battery back the service publishes it present" '"present"' power_battery_presence
+  # power_discharging set OnBattery before the display battery came back,
+  # as a UPS display device does with no laptop battery; the service marks
+  # an applied profile at once, so by this read the remembered battery
+  # profile, Performance, would show in place of the bar pick.
+  expect "a source change with no battery keeps the bar pick" power-saver power_status_active
   expect_poll "with the battery back Settings draws Power's four battery fields again" "$power_battery_keys" power_battery_fields
   # Writes to the configuration land in order, so once this pick is stored
   # a store of the no-battery pick would be too.

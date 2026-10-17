@@ -164,9 +164,10 @@ function verify(logic) {
     same([critical.tone, critical.icon, critical.urgency], ["danger", "battery-warning", "critical"], "noticePayload: the critical notice is danger");
     assert.ok(typeof low.title === "string" && low.title !== "", "noticePayload: the low notice has a title");
     assert.notEqual(low.title, critical.title, "noticePayload: each state has its own title");
-    same(logic.sourceObserved({ ready: false, onBattery: false }, false, false), { state: { ready: false, onBattery: false }, apply: false }, "sourceObserved: waits for a ready reading");
-    same(logic.sourceObserved({ ready: false, onBattery: false }, true, true), { state: { ready: true, onBattery: true }, apply: false }, "sourceObserved: seeds the first ready reading without applying");
-    same(logic.sourceObserved({ ready: true, onBattery: true }, true, false), { state: { ready: true, onBattery: false }, apply: true }, "sourceObserved: later source changes apply");
+    same(logic.sourceObserved({ ready: false, onBattery: false }, false, false, true), { state: { ready: false, onBattery: false }, apply: false }, "sourceObserved: waits for a ready reading");
+    same(logic.sourceObserved({ ready: false, onBattery: false }, true, true, true), { state: { ready: true, onBattery: true }, apply: false }, "sourceObserved: seeds the first ready reading without applying");
+    same(logic.sourceObserved({ ready: true, onBattery: true }, true, false, true), { state: { ready: true, onBattery: false }, apply: true }, "sourceObserved: later source changes apply");
+    same(logic.sourceObserved({ ready: true, onBattery: false }, true, true, false), { state: { ready: true, onBattery: true }, apply: false }, "sourceObserved: a source change with no battery (a UPS) records the source and keeps the bar pick");
 }
 
 verify(load(file));
@@ -185,6 +186,7 @@ const CONTROLS = [
     ["each notice state has its own title", "title: critical ? \"Battery critical\" : \"Battery low\",", "title: \"Battery low\","],
     ["a bar pick with no battery remembers nothing", "if (batteryPresent !== true) return \"\";", "if (false) return \"\";"],
     ["a bar pick remembers the current source's profile", "return onBattery === true ? \"batteryProfile\" : \"chargerProfile\";\n}", "return \"chargerProfile\";\n}"],
+    ["a source change with no battery applies nothing", "return { state: { ready: true, onBattery: onBattery === true }, apply: batteryPresent === true };", "return { state: { ready: true, onBattery: onBattery === true }, apply: true };"],
     ["first ready source reading does not apply", "if (state.ready !== true) return { state: { ready: true, onBattery: onBattery === true }, apply: false };", "if (state.ready !== true) return { state: { ready: true, onBattery: onBattery === true }, apply: true };"]
 ];
 

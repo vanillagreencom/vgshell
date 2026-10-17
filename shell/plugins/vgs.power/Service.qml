@@ -135,7 +135,7 @@ Item {
     }
 
     function observeSource() {
-        const result = Logic.sourceObserved(sourceState, upowerReady, UPower.onBattery);
+        const result = Logic.sourceObserved(sourceState, upowerReady, UPower.onBattery, battery.present);
         sourceState = result.state;
         if (result.apply) applySourceProfile();
     }
