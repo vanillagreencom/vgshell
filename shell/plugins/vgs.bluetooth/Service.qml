@@ -47,6 +47,11 @@ Item {
         const found = shell.system.state["service-bluetooth"];
         return found === undefined ? "" : found.state;
     }
+    readonly property string stepReason: {
+        if (shell === null) return "";
+        const found = shell.system.state["service-bluetooth"];
+        return found === undefined ? "" : found.reason;
+    }
 
     // rfkill's last reading: { state: "unread" }, or rfkillReading's answer.
     property var rfkill: ({ state: "unread" })
@@ -77,6 +82,8 @@ Item {
         publish();
     }
     onViewChanged: publish()
+    // The reason is no input of `view`; a probe can change it alone.
+    onStepReasonChanged: publish()
     onAdapterStatesChanged: readRfkill()
     onScansChanged: readRfkill()
     onPoweredChanged: runPower(Logic.powerEvent(op, { type: "observed" }, seen()))
@@ -94,8 +101,10 @@ Item {
         const reply = shell.status.set("power", { tone: view.tone, text: view.text });
         if (reply !== "ok") console.error("bluetooth: status power " + reply);
         // `step` and `adapters` are inputs of `view` too, so onViewChanged
-        // publishes again whenever this value can change.
-        const service = shell.status.set("service", Logic.serviceRow(step, adapters.length));
+        // publishes again whenever they change, and onStepReasonChanged
+        // when the reason does. null clears the value until the first
+        // probe ends.
+        const service = shell.status.set("service", Logic.serviceRow(step, stepReason, adapters.length));
         if (service !== "ok") console.error("bluetooth: status service " + service);
         const data = shell.status.set("bluetooth", { power: view });
         if (data !== "ok") console.error("bluetooth: status bluetooth " + data);

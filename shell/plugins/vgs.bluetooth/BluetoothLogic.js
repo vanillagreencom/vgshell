@@ -156,15 +156,33 @@ function view(key, changes) {
     return out;
 }
 
+// The unknown reasons of the service-bluetooth step that checking again
+// can change: a system probe run that gave no report
+// (PluginLogic.systemReport) and a systemctl call that failed
+// (bin/vgshell-system probe_service). Settings probes again on each open:
+// its open() rescans, and SystemSteps probes after each scan. Turning
+// Bluetooth off and on probes nothing.
+var RECHECK_REASONS = ["probe-failed", "systemctl-failed"];
+var RECHECK_HINT = "VGS could not check Bluetooth. Close and open Settings to check again.";
+// The hint of each unknown reason no check changes: no systemctl
+// (probe_service), a unit systemd cannot load (probe_service's other
+// LoadState) and a package manager detector that failed (probe_all).
+var LASTING_HINTS = {
+    "systemctl-missing": "VGS starts Bluetooth through systemd, and this computer does not use systemd",
+    "load-state": "The Bluetooth service on this computer has an error. It stays off until an administrator repairs it.",
+    "system-undetected": "VGS could not tell which package manager this computer uses, so it cannot start Bluetooth"
+};
+
 // The Settings setup step for the Bluetooth service from the
-// service-bluetooth system step and the adapters Quickshell lists. The
-// step reads absent when bluez is not installed, which the manifest's
-// required org.bluez requirement installs through the Tools Review
+// service-bluetooth system step, its STEP state and REASON, and the
+// ADAPTERS Quickshell lists, or null while the first probe has not ended
+// (reason `unprobed`, SystemSteps), which Settings reads as a step the
+// plugin has not reported: To do with Checking under it. The step reads
+// absent when bluez is not installed, which the manifest's required
+// org.bluez requirement installs through the Tools Review
 // (`action: "tools"`), and denied when the unit is masked, which only an
-// administrator changes. An unknown step is probed again on each open of
-// the Settings window (its open() rescans, and SystemSteps probes after
-// each scan); turning Bluetooth off and on probes nothing.
-function serviceRow(step, adapters) {
+// administrator changes.
+function serviceRow(step, reason, adapters) {
     if (adapters > 0 || step === "ready") return { tone: "ok", text: "Running" };
     switch (step) {
     case "needed":
@@ -176,11 +194,12 @@ function serviceRow(step, adapters) {
         return { tone: "info", text: "Turned off", available: false,
             hint: "An administrator turned Bluetooth off on this computer. It stays off until they turn it back on." };
     case "unknown":
-    case "":
-        return { tone: "info", text: "Unknown", available: false,
-            hint: "VGS could not check Bluetooth. Close and open Settings to check again." };
+        if (reason === "unprobed") return null;
+        if (RECHECK_REASONS.indexOf(reason) !== -1) return { tone: "info", text: "Unknown", available: false, hint: RECHECK_HINT };
+        if (Object.prototype.hasOwnProperty.call(LASTING_HINTS, reason)) return { tone: "info", text: "Unknown", available: false, hint: LASTING_HINTS[reason] };
+        throw new Error("bluetooth: service step unknown reason " + JSON.stringify(reason) + " is not one of unprobed, " + RECHECK_REASONS.concat(Object.keys(LASTING_HINTS)).join(", "));
     }
-    throw new Error("bluetooth: service step " + JSON.stringify(step) + " is not one of ready, needed, denied, absent, unknown, nixos or empty");
+    throw new Error("bluetooth: service step " + JSON.stringify(step) + " is not one of ready, needed, denied, absent, unknown or nixos");
 }
 
 // The lines under a power switch for VIEW and PROBLEM, the refusal the last

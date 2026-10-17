@@ -60,7 +60,9 @@
 #   denied    the probe reads it missing, and apply cannot grant it
 #   absent    the step has nothing to act on: no such device, unit or command
 #   unknown   the probe could not answer; never read as ready
-#   nixos     needed, on NixOS, where the configuration grants it
+#   nixos     on NixOS, where the configuration grants it: needed, or a
+#             service step's absent with reason unit-missing, whose
+#             configuration snippet installs and enables the unit
 #
 # Probes read real access, never a file's presence: the hidraw node of each
 # Apple display, 05ac:1114 or 05ac:9243 by the HID_ID of its sysfs device,
@@ -145,11 +147,13 @@
 # must be root's and writable by no one else.
 #
 # On NixOS, detected through the package-manager table when a step reads
-# needed and whenever the greeter is probed, `needed` reads `nixos`, `apply` prints `ok system=<step>
+# needed or a service unit is missing and whenever the greeter is probed, `needed`
+# and a service step's `absent` with reason `unit-missing` read `nixos`, `apply` prints `ok system=<step>
 # skipped=nixos-config` and the configuration snippet, and `undo` prints
 # `ok system=<step> skipped=nixos-config`; neither writes or runs sudo. A
-# detection that fails reads such a step `unknown`, reason
-# `system-undetected`, and refuses apply and undo as `system=undetected`.
+# detection that fails reads a needed step `unknown`, reason
+# `system-undetected`, leaves a missing unit `absent`, and refuses apply and
+# undo as `system=undetected`, or apply of a missing unit as `state=absent`.
 #
 # Every refusal prints one keyed line first: `vgs-system: refused:
 # <key>=<value>`. It runs as the caller only and refuses root. Every system
@@ -1332,25 +1336,33 @@ json_status() {
   printf '{"steps":{%s}}\n' "$out"
 }
 
-# Probes every step into state_of and reason_of, reading needed as nixos
-# on NixOS and as unknown when the system cannot be told.
+# Whether STEP's last probe, probe_state and probe_reason, reads what a
+# NixOS configuration grants: a needed step, or a service step whose unit
+# is missing, which its configuration snippet installs and enables
+# (nixos_snippet).
+nixos_grants() { # STEP
+  [[ $probe_state == needed ]] || [[ $1 == service-* && $probe_state == absent && $probe_reason == unit-missing ]]
+}
+
+# Probes every step into state_of and reason_of, reading each step
+# nixos_grants admits as nixos on NixOS, and a needed one as unknown when
+# the system cannot be told.
 probe_all() {
-  local step needed=0
+  local step
+  local -a granted=()
   declare -gA state_of=() reason_of=()
   for step in "${steps[@]}"; do
     probe "$step"
     state_of[$step]="$probe_state" reason_of[$step]="$probe_reason"
-    [[ $probe_state != needed ]] || needed=1
+    if nixos_grants "$step"; then granted+=("$step"); fi
   done
-  ((needed == 1)) || return 0
+  ((${#granted[@]} > 0)) || return 0
   if ! detect_system; then
-    for step in "${steps[@]}"; do
+    for step in "${granted[@]}"; do
       [[ ${state_of[$step]} != needed ]] || state_of[$step]=unknown reason_of[$step]=system-undetected
     done
   elif [[ $detected_system == nix ]]; then
-    for step in "${steps[@]}"; do
-      [[ ${state_of[$step]} != needed ]] || state_of[$step]=nixos
-    done
+    for step in "${granted[@]}"; do state_of[$step]=nixos; done
   fi
 }
 
@@ -1369,7 +1381,12 @@ verb_apply() { # STEP
   case "$probe_state" in
     ready) printf 'ok system=%s state=ready\n' "$step"; return ;;
     needed) ;;
-    denied|absent|unknown) refuse 1 "state=$probe_state reason=$probe_reason step=$step${probe_fix:+ fix=$probe_fix}" ${probe_hint[@]+"${probe_hint[@]}"} ;;
+    absent)
+      # A missing service unit is one the NixOS configuration installs.
+      nixos_grants "$step" && detect_system && [[ $detected_system == nix ]] ||
+        refuse 1 "state=$probe_state reason=$probe_reason step=$step${probe_fix:+ fix=$probe_fix}" ${probe_hint[@]+"${probe_hint[@]}"}
+      ;;
+    denied|unknown) refuse 1 "state=$probe_state reason=$probe_reason step=$step${probe_fix:+ fix=$probe_fix}" ${probe_hint[@]+"${probe_hint[@]}"} ;;
     *) refuse 1 "internal=state value=$probe_state" ;;
   esac
   detect_or_refuse

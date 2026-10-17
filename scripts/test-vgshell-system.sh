@@ -1196,7 +1196,7 @@ check "root is refused" caller_root
 # written and no sudo runs.
 fresh
 run_nixos "nixos status" 0 "" "$nixos_path:$caller:/usr/bin:/bin" status --json
-check "nixos reads each needed step as nixos" out_is "$(state_json nixos hidraw-denied nixos module-not-loaded nixos inactive absent unit-missing nixos inactive nixos operator-unset nixos not-set-up)"
+check "nixos reads each needed step and the missing tailscaled.service as nixos" out_is "$(state_json nixos hidraw-denied nixos module-not-loaded nixos inactive nixos unit-missing nixos inactive nixos operator-unset nixos not-set-up)"
 check "nixos status writes nothing" untouched
 run_nixos "nixos apply prints the configuration" 0 "" "$nixos_path:$caller:/usr/bin:/bin" apply apple-displays
 check "nixos apply reports the skip first" test "$(head -n 1 "$tmp/out")" == "ok system=apple-displays skipped=nixos-config"
@@ -1225,6 +1225,22 @@ mkdir -p "$greeter_dir/theme/vgshell" "$greeter_dir/state"; printf '958 %s\n' "$
 check "nixos greetd with the snippet's directories reads ready" test "$(greeter_nixos_state "nixos greetd with the directories")" == "ready granted"
 printf '958 %s\n1234 %s\n' "$greeter_dir/state" "$greeter_dir/theme/vgshell" >"$tmp/owners"
 check "nixos greetd with another account's theme copy directory reads nixos" test "$(greeter_nixos_state "nixos greetd with another account's directory")" == "nixos not-set-up"
+# A missing service unit is one the configuration snippet installs and
+# enables, so it reads nixos and apply prints that snippet.
+nixos_step_state() { python3 -c 'import json,sys; s=json.load(open(sys.argv[1]))["steps"][sys.argv[2]]; print(s["state"] + " " + s["reason"])' "$tmp/out" "$1"; }
+while IFS='|' read -r step unit snippet; do
+  fresh; touch "$tmp/units/$unit.missing"
+  run_nixos "nixos status with $unit missing" 0 "" "$nixos_path:$caller:/usr/bin:/bin" status --json
+  check "nixos reads a missing $unit as nixos" test "$(nixos_step_state "$step")" == "nixos unit-missing"
+  run_nixos "nixos apply of $step with $unit missing" 0 "" "$nixos_path:$caller:/usr/bin:/bin" apply "$step"
+  check "nixos apply of a missing $unit reports the skip first" test "$(head -n 1 "$tmp/out")" == "ok system=$step skipped=nixos-config"
+  check "nixos apply of a missing $unit prints its snippet" test "$(tail -n 1 "$tmp/out")" == "$snippet"
+  check "nixos apply of a missing $unit writes nothing" untouched
+done <<'ROWS'
+service-bluetooth|bluetooth.service|hardware.bluetooth.enable = true;
+service-tailscaled|tailscaled.service|services.tailscale.enable = true;
+service-cups|cups.service|services.printing.enable = true;
+ROWS
 fresh
 run_nixos "nixos undo" 0 "" "$nixos_path:$caller:/usr/bin:/bin" undo service-bluetooth
 check "nixos undo reports the skip" test "$(head -n 1 "$tmp/out")" == "ok system=service-bluetooth skipped=nixos-config"
@@ -1270,6 +1286,10 @@ check "the cups-socket-blind mutant reads printing the socket serves needed" tes
 control cups-masked-blind '  [[ $probe_state == needed ]] || return 0' '  true || return 0'
 touch "$tmp/units/cups.socket.active" "$tmp/units/cups.service.masked"
 check "the cups-masked-blind mutant reads a masked cups.service ready" test "$(step_state service-cups)" == "ready socket-active"
+control nixos-unit-blind '  [[ $probe_state == needed ]] || [[ $1 == service-* && $probe_state == absent && $probe_reason == unit-missing ]]' '  [[ $probe_state == needed ]]'
+touch "$tmp/units/bluetooth.service.missing"
+run_nixos "the nixos-unit-blind mutant's status" 0 "" "$nixos_path:$caller:/usr/bin:/bin" status --json
+check "the nixos-unit-blind mutant reads a missing bluetooth.service absent" test "$(nixos_step_state service-bluetooth)" == "absent unit-missing"
 control disable-blind '  [[ -z ${record[enabled]+set} ]] || cmd "$systemctl" disable "$unit"' '  cmd "$systemctl" disable "$unit"'
 touch "$tmp/units/bluetooth.service.enabled"
 run_tty "the disable-blind mutant applies" 0 apply service-bluetooth
