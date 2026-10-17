@@ -3256,10 +3256,10 @@ jarvis_anchor_shot() {
 jarvis_input_label() {
   python3 -c 'import json,sys; s=json.load(open(sys.argv[1]))["status"]; print(s.get("setupInput", s["input"])["label"])' "$repo/shell/plugins/vgs.jarvis/manifest.json"
 }
-# Whether the Setup tab draws its steps: four rows with their chips, the
-# input step among them, where the clone-voice shots anchor. The Accounts
-# action draws in the AI model section, which setupRows does not read.
-jarvis_setup_drawn() { ipc smoke setupRows "$settings_kind" vgs.settings | py_reply 'import json,sys; t=sys.stdin.read(); r=json.loads(t) if t.startswith("[") else []; print(sum(1 for x in r if x["chips"]) >= 4 and any(x["label"] == sys.argv[1] for x in r))' "$(jarvis_input_label)"; }
+# Whether the Setup tab draws its steps: the required AI model and Voice
+# rows by manifest key, once each with a chip, the set
+# scripts/smoke/rows/jarvis-setup.sh's setup_rows reads.
+jarvis_setup_drawn() { ipc smoke setupRows "$settings_kind" vgs.settings | py_reply 'import json,sys; t=sys.stdin.read(); r=json.loads(t) if t.startswith("[") else []; print(all([x["key"] for x in r if x["chips"]].count(k) == 1 for k in ("setupModel", "setupVoice")))'; }
 jarvis_ships_backups() { grep -q '"fallbacks"' "$repo/shell/plugins/vgs.jarvis/manifest.json"; }
 jarvis_backups_drawn() { ipc smoke invokeInstance "$settings_kind" vgs.settings listItems '{"id":"vgs.jarvis","key":"fallbacks"}' | py_reply 'import json,sys; t=sys.stdin.read(); print(t!="absent" and len(json.loads(t)) == 2)'; }
 jarvis_brain_choice_ids() {
@@ -3396,12 +3396,13 @@ scene_jarvis-setup() { # MODE
 # it: the local speech stand-in, the marker of the tree's first declared
 # tier and the world's local-mode at ready, with Jarvis's required tools
 # stood in. First voxtype missing, then the smoke's voxtype stand-in on the
-# shell's PATH, then a microphone check the stand-in source wakes. The
+# shell's PATH with its dictation model installed, then a microphone check
+# the stand-in source wakes. The
 # Local voice field lists the tree's own setup-local choices for a machine
 # that runs every tier and picks small: its `choices` over that reading,
 # in place of the two rows scripts/fixtures/jarvis/prepare.js plants.
-jarvis_dictates() { tree_has shell/plugins/vgs.jarvis/SetupGate.js '"speech=dictation-absent"'; }
-jarvis_voice_step() { ipc smoke setupRows "$settings_kind" vgs.settings | py_reply 'import json,sys; t=sys.stdin.read(); r=json.loads(t) if t.startswith("[") else []; v=next((x for x in r if x["label"]=="Voice"),None); print("absent" if v is None else " / ".join(c[0] for c in v["chips"]))'; }
+# The Voice step's chips, then its offered actions, as setup_rows reads them.
+jarvis_voice_step() { ipc smoke setupRows "$settings_kind" vgs.settings | py_reply 'import json,sys; t=sys.stdin.read(); r=json.loads(t) if t.startswith("[") else []; v=next((x for x in r if x["key"]=="setupVoice"),None); print("absent" if v is None else " / ".join([c[0] for c in v["chips"]] + [b["text"] for b in v["buttons"]]))'; }
 jarvis_check_state() { ipc smoke jarvisProcess | py_reply 'import json,sys; d=json.load(sys.stdin)["status"].get("detail"); print(d["state"]["check"]["kind"] if d else "pending")'; }
 jarvis_tier_list_open() { ipc smoke readMatchingDescendant "$settings_kind" vgs.settings Select currentText "$1" listOpen; }
 jarvis_real_tiers() { # TIERS READY
@@ -3434,8 +3435,7 @@ jarvis_voice_page() { # LABEL
 }
 jarvis_voice_states() { # MODE
   local state="$home/.local/state/vgshell/jarvis" data="$home/.local/share/vgshell/jarvis" world="$sandbox/jarvis-world"
-  local tier auto field x y missing="Needs voxtype"
-  jarvis_dictates || missing="Not checked"
+  local tier auto field x y
   jarvis_setup_requirements || fail "the Jarvis requirement stand-ins are not written"
   tree_rescan "the Jarvis requirement stand-ins are scanned for the voice states"
   mkdir -p -- "$state" "$data/local/venv/bin"
@@ -3452,21 +3452,22 @@ print(tier)' "$repo/shell/plugins/vgs.jarvis/artifacts.json" "$data/local" "$sta
   auto="$(jarvis_real_tiers "$world/local-tiers.json" "$tier")" || fail "setup-local's choices are not read"
   # voxtype missing.
   jarvis_voice_page "with voxtype missing"
-  expect_poll "the Voice step reads $missing with voxtype missing" "$missing" jarvis_voice_step
+  expect_poll "the Voice step offers Set up dictation with voxtype missing" "To do / Set up dictation" jarvis_voice_step
   jarvis_anchor_shot "jarvis-setup-$1-voxtype-missing" SectionHeader Setup
   settings_close
   expect "disabling vgs.jarvis is allowed" ok ipc shell setPluginEnabled vgs.jarvis false
   expect_poll "vgs.jarvis is gone" absent ipc smoke jarvisProcess
   # voxtype ready.
   voice_stand_ins
+  : >"$voice_model_installed"
   rescan "the voxtype stand-in is scanned for the voice states"
   jarvis_voice_page "with voxtype ready"
-  expect_poll "the Voice step reads Not checked with voxtype ready" "Not checked" jarvis_voice_step
+  expect_poll "the Voice step offers Check microphone with voxtype ready" "To do / Check microphone" jarvis_voice_step
   jarvis_anchor_shot "jarvis-setup-$1-voxtype-ready" SectionHeader Setup
   # The local voice ready: the check the stand-in source wakes.
   expect_poll "the local voice can be checked" ready jarvis_check_state
   expect "Check microphone asks the daemon to start" ok ipc vgs.jarvis invoke check-microphone ''
-  expect_poll "the Voice step reads Ready after the check" Ready jarvis_voice_step
+  expect_poll "the Voice step reads Done after the check" "Done / Check microphone" jarvis_voice_step
   jarvis_anchor_shot "jarvis-setup-$1-local-voice-ready" SectionHeader Setup
   settings_tab_click Settings || fail "the click on the Settings tab failed"
   expect_poll "the Jarvis page shows Settings" 0 settings_tab
