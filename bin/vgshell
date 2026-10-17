@@ -506,8 +506,8 @@ EOF_HELP
     edit) cat <<'EOF_HELP'
 Usage: vgshell edit <path> [line]
 
-Open a file under the user configuration directory in $EDITOR, or xdg-open.
-The path is relative to ${XDG_CONFIG_HOME:-$HOME/.config}.
+Open a file in $EDITOR, or an editor you choose. The path is absolute, or
+relative to the configuration directory, ${XDG_CONFIG_HOME:-$HOME/.config}.
 EOF_HELP
       ;;
     pkg) cat <<'EOF_HELP'
@@ -634,10 +634,15 @@ refuse_edit() { # STATUS KEYED_LINE [ENGLISH...]
   exit "$status"
 }
 
-edit_path_valid() { # PATH
+# The control characters U+0001-U+001F and U+007F, listed one by one: the
+# members of [:cntrl:] and of a range depend on the locale, and an argument
+# cannot hold U+0000.
+edit_controls=$'\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f\x7f'
+
+edit_path_valid() { # PATH: absolute, or relative to the configuration directory
   local path="$1" part rest
   [[ -n $path ]] || return 1
-  [[ $path != /* ]] || return 2
+  [[ $path != *["$edit_controls"]* ]] || return 2
   rest="$path"
   while [[ $rest == */* ]]; do
     part="${rest%%/*}"
@@ -649,7 +654,7 @@ edit_path_valid() { # PATH
 }
 
 vgs_edit() {
-  local rel="${1:-}" line="${2:-}" file path_status
+  local path="${1:-}" line="${2:-}" file path_status
   # shellcheck source=lib/tui.sh
   source "${VGS_TUI_LIB:-$root/bin/lib/tui.sh}"
   if [[ -n ${VGS_TUI_LIB:-} ]]; then
@@ -657,19 +662,23 @@ vgs_edit() {
   fi
   if [[ $# -eq 0 ]]; then refuse_edit 2 "edit=path reason=missing"; fi
   if [[ $# -gt 2 ]]; then refuse_edit 2 "argument=${3:-}"; fi
-  edit_path_valid "$rel" || path_status=$?
+  edit_path_valid "$path" || path_status=$?
   if [[ ${path_status:-0} != 0 ]]; then
+    # A control character could forge a line of the refusal, so that
+    # refusal names no path.
     case "$path_status" in
       1) refuse_edit 2 "edit=path reason=empty" ;;
-      2) refuse_edit 2 "edit=$rel reason=absolute" ;;
-      3) refuse_edit 2 "edit=$rel reason=parent" ;;
-      *) refuse_edit 2 "edit=$rel reason=malformed" ;;
+      2) refuse_edit 2 "edit=path reason=control" ;;
+      3) refuse_edit 2 "edit=$path reason=parent" ;;
+      *) refuse_edit 2 "edit=path reason=malformed status=$path_status" ;;
     esac
   fi
   if [[ -n $line && ! $line =~ ^[1-9][0-9]*$ ]]; then
     refuse_edit 2 "line=$line reason=positive-integer"
   fi
-  file="$config_home/$rel"
+  if [[ $path == /* ]]; then file="$path"; else file="$config_home/$path"; fi
+  # -f refuses a folder: a folder opens through the shell's desktop opener,
+  # never an editor.
   [[ -f $file && -r $file ]] || refuse_edit 1 "file=unreadable path=$file" "The file is missing or cannot be read."
   vgs_tui_edit "$file" "$line"
 }
