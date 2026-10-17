@@ -35,7 +35,7 @@
       "nix": "uwsm"
     },
     "optional": true,
-    "purpose": "Starts the Hyprland (uwsm-managed) session"
+    "purpose": "Starts the Hyprland session you choose on the login screen"
   },
   {
     "command": "startx",
@@ -46,7 +46,7 @@
       "nix": "xorg.xinit"
     },
     "optional": true,
-    "purpose": "Starts an X11 session"
+    "purpose": "Starts an X11 session you choose on the login screen"
   },
   {
     "command": "getent",

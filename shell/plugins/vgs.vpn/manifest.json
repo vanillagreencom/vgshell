@@ -52,7 +52,7 @@
   ],
   "status": {
     "connection": {"type": "state", "label": "Connection"},
-    "setup": {"type": "state", "label": "Tailscale service", "actions": {"enable": {"label": "Enable", "system": "service-tailscaled"}, "allow": {"label": "Let my login control Tailscale", "system": "tailscale-operator"}}},
+    "setup": {"type": "state", "label": "Tailscale service", "group": "Tailscale", "actions": {"enable": {"label": "Enable", "system": "service-tailscaled"}, "allow": {"label": "Let my login control Tailscale", "system": "tailscale-operator"}}},
     "vpn": {"type": "data", "label": "VPN"},
     "profiles": {"type": "data", "label": "VPN profiles"}
   },

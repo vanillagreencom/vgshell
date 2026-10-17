@@ -17,7 +17,7 @@
     {"command": "dbus-monitor", "packages": {"pacman": "dbus", "apt": "dbus-bin", "dnf": "dbus-tools", "nix": "dbus"}, "purpose": "Receives the printer changes the printing service reports"},
     {"command": "gdbus", "packages": {"pacman": "glib2", "apt": "libglib2.0-bin", "dnf": "glib2", "nix": "glib"}, "purpose": "Sends printer changes to the printer helper"},
     {"dbus": {"bus": "system", "name": "org.opensuse.CupsPkHelper.Mechanism", "label": "Printer helper"}, "packages": {"pacman": "cups-pk-helper", "apt": "cups-pk-helper", "dnf": "cups-pk-helper", "nix": "cups-pk-helper"}, "optional": true, "purpose": "The printer helper, which adds, removes and sets the default printer after you give permission"},
-    {"command": "system-config-printer", "packages": {"pacman": "system-config-printer", "apt": "system-config-printer", "dnf": "system-config-printer", "nix": "system-config-printer"}, "optional": true, "purpose": "Print Settings, for drivers, paper size, two-sided printing and quality"}
+    {"command": "system-config-printer", "packages": {"pacman": "system-config-printer", "apt": "system-config-printer", "dnf": "system-config-printer", "nix": "system-config-printer"}, "optional": true, "purpose": "Opens Print Settings, for drivers, paper size, two-sided printing and quality"}
   ],
   "systemSteps": ["service-cups"],
   "status": {

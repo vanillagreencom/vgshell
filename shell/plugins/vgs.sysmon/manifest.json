@@ -47,7 +47,7 @@
   "status": {
     "readings": {"type": "data", "label": "Readings"},
     "gpus": {"type": "choices", "label": "Graphics cards"},
-    "graphics": {"type": "state", "label": "Graphics card", "group": "GPU"},
+    "graphics": {"type": "state", "label": "Graphics card", "group": "GPU", "hint": "The graphics card the GPU readings come from"},
     "cpuSensors": {"type": "choices", "label": "CPU temperature sensors"}
   },
   "schema": {
@@ -74,7 +74,7 @@
       "btop"
     ],
     "entry": {
-      "label": "See all",
+      "label": "See all processes",
       "icon": "list",
       "group": "System Monitor"
     }

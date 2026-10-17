@@ -29,7 +29,7 @@
   "defaultSection": "right",
   "requirements": [
     {"command": "ss", "packages": {"pacman": "iproute2", "apt": "iproute2", "dnf": "iproute", "nix": "iproute2"}, "optional": false, "purpose": "Reads TCP traffic for your apps"},
-    {"command": "bandwhich", "packages": {"pacman": "bandwhich", "apt": "bandwhich", "nix": "bandwhich"}, "optional": true, "purpose": "See all shows traffic for every app and protocol"},
+    {"command": "bandwhich", "packages": {"pacman": "bandwhich", "apt": "bandwhich", "nix": "bandwhich"}, "optional": true, "purpose": "Shows the traffic of every app and protocol in See all"},
     {"command": "readlink", "packages": {"pacman": "coreutils", "apt": "coreutils", "dnf": "coreutils", "nix": "coreutils"}, "optional": false, "purpose": "Finds physical network interfaces so traffic is counted once"},
     {"command": "getcap", "packages": {"pacman": "libcap", "apt": "libcap2-bin", "dnf": "libcap", "nix": "libcap"}, "optional": true, "purpose": "Checks whether See all has traffic capture access"},
     {"command": "setcap", "packages": {"pacman": "libcap", "apt": "libcap2-bin", "dnf": "libcap", "nix": "libcap"}, "optional": true, "purpose": "Grants See all traffic its capture access"},
@@ -53,7 +53,7 @@
   },
   "status": {
     "traffic": {"type": "data", "label": "Traffic"},
-    "capture": {"type": "state", "label": "Traffic capture", "hint": "See all shows every app and protocol", "info": "See all shows every app and protocol. Allowing it lets every account on this computer see network traffic through bandwhich.", "action": {"label": "Allow traffic capture", "system": "bandwhich-capture"}}
+    "capture": {"type": "state", "label": "Traffic capture", "group": "See all traffic", "hint": "Let See all show the traffic of every app and protocol", "info": "See all shows every app and protocol. Allowing it lets every account on this computer see network traffic through bandwhich.", "action": {"label": "Allow traffic capture", "system": "bandwhich-capture"}}
   },
   "systemSteps": [
     "bandwhich-capture"

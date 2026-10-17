@@ -40,7 +40,7 @@
     "noWindowGaps": {"type": "boolean", "label": "No window gaps", "description": "Remove the space around and between tiled windows on every workspace", "group": "Hyprland"}
   },
   "status": {
-    "browserTheming": {"type": "state", "label": "Browser theming", "hint": "Apply theme colours to Chromium, Chrome, Edge and Brave after setup", "action": {"label": "Install browser theming", "tui": "browser-policy"}},
+    "browserTheming": {"type": "state", "label": "Browser theming", "group": "Browsers", "hint": "Let the selected theme change the colours of Chromium, Chrome, Edge and Brave", "action": {"label": "Install browser theming", "tui": "browser-policy"}},
     "themeWiring": {"type": "presenceList", "label": "Theme files", "hint": "The file and line VGS added for each app"}
   },
   "tui": {

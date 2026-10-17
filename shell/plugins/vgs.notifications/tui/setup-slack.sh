@@ -17,7 +17,7 @@ printf '%s\n' \
   'Copy the User OAuth Token.' \
   'Sign in to this workspace in the Slack desktop app.' \
   'Return to Notifications in Settings. Turn on Slack photos.' \
-  'Under Setup, select Add key beside that workspace. Paste the token into the masked field.' \
+  'Under Slack photos, select Add key for that workspace. Paste the token into the masked field.' \
   'If your workspace requires approval, ask its administrator to approve the app.'
 while :; do
   slack_action="$(gum choose 'Close' 'Show details')"

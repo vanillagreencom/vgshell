@@ -31,7 +31,7 @@
     "showClaude": {"type": "boolean", "label": "Claude Code", "group": "Providers"},
     "showCodex": {"type": "boolean", "label": "Codex", "group": "Providers"},
     "showCopilot": {"type": "boolean", "label": "Copilot", "group": "Providers"},
-    "aiGateway": {"type": "boolean", "label": "AI Gateway credits", "group": "Providers", "description": "Show credit figures from your AI Gateway key", "info": "Select Get AI Gateway key to open Vercel. In the dashboard, open AI Gateway, then API keys, then Create key. Under [Settings](page:vgs.ai-usage/Settings), select Add key and paste the key into the masked field. The key unlocks AI Gateway credit figures."},
+    "aiGateway": {"type": "boolean", "label": "AI Gateway credits", "group": "Providers", "description": "Show credit figures from your AI Gateway key, which you create in the Vercel dashboard", "link": {"text": "Vercel dashboard", "url": "https://vercel.com/dashboard"}, "info": "In the Vercel dashboard, open AI Gateway, then API keys, then Create key. Turn on AI Gateway credits. Then select Add key under it and paste the key into the masked field. The key unlocks AI Gateway credit figures."},
     "hidden": {"type": "list", "label": "Hidden accounts", "items": {"account": {"type": "string", "label": "Account", "optionsFrom": "accounts", "placeholder": "Choose an account"}}, "defaults": {"account": ""}}
   },
   "tui": {
@@ -42,8 +42,8 @@
   "status": {
     "usage": {"type": "data", "label": "Usage"},
     "accounts": {"type": "choices", "label": "Accounts", "hidden": true},
-    "claude": {"type": "state", "label": "Claude Code", "group": "Sign-in", "action": {"label": "Sign in", "tui": "sign-in-claude"}},
-    "codex": {"type": "state", "label": "Codex", "group": "Sign-in", "action": {"label": "Sign in", "tui": "sign-in-codex"}},
+    "claude": {"type": "state", "label": "Claude Code", "group": "Sign-in", "hint": "Sign in to show your Claude Code plan limits", "action": {"label": "Sign in", "tui": "sign-in-claude"}},
+    "codex": {"type": "state", "label": "Codex", "group": "Sign-in", "hint": "Sign in to show your Codex plan limits", "action": {"label": "Sign in", "tui": "sign-in-codex"}},
     "gatewayKey": {"type": "presenceList", "label": "AI Gateway key", "hint": "This key shows your AI Gateway credits", "info": "In Vercel, open AI Gateway, then API keys, then Create key. Add the key here to show AI Gateway credit figures. VGS stores the key in your keyring.", "setting": "aiGateway"}
   },
   "secrets": { "service": "vgs-ai-usage", "label": "VGS AI Usage AI Gateway key" }

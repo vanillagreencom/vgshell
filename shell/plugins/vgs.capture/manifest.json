@@ -61,12 +61,12 @@
     { "shortcut": "text", "key": "SUPER+CTRL+PRINT", "info": "Lets you drag over an area, reads the text in it and copies that text." }
   ] },
   "status": {
-    "sharing": {"type": "state", "label": "Screen sharing", "hint": "Applies the VGS picker to the screen sharing portal. A running screen share stops.", "action": {"label": "Set up screen sharing", "tui": "setup-sharing"}},
+    "sharing": {"type": "state", "label": "VGS picker", "group": "Screen sharing", "hint": "Use the VGS picker to choose what you share. Its setup stops a running screen share.", "action": {"label": "Set up screen sharing", "tui": "setup-sharing"}},
     "capture": {"type": "data", "label": "Capture state"},
     "recording": {"type": "state", "label": "Recording"},
     "audioSources": {"type": "choices", "label": "Audio sources"},
     "cameras": {"type": "choices", "label": "Cameras"},
-    "languages": {"type": "state", "label": "Text languages", "hint": "English is installed with Capture. Other chosen languages need their language data.", "action": {"label": "Install languages", "tui": "install-languages"}}
+    "languages": {"type": "state", "label": "Language data", "group": "Text", "hint": "Capture reads text in the [languages you choose](page:vgs.capture/Settings/ocrLanguages). English comes with Capture. Other languages need their language data.", "action": {"label": "Install languages", "tui": "install-languages"}}
   },
   "tui": {
     "setup-sharing": { "script": "tui/setup-sharing.sh", "title": "Set up screen sharing", "requires": ["systemctl", "busctl"] },

@@ -39,14 +39,14 @@
   },
   "schema": {
     "glass": {"type": "boolean", "label": "VGlass", "description": "Draw notifications as frosted glass with a moving edge light", "info": "Turn on VGlass to draw notifications as frosted glass. This switch works only while [VGlass in Appearance > Windows](page:vgs.windows) is set to Each surface decides. Its other choices turn glass on or off for every glass surface."},
-    "slackPhotos": {"type": "boolean", "label": "Slack photos", "group": "Slack", "description": "Show sender photos from your Slack workspace", "info": "Select Set up Slack photos. VGS fills app details. Sign in if asked. Choose your workspace. Review permissions. Create and install the app. Allow access. Copy the User OAuth Token. Sign in to your workspace in Slack desktop app. In [Settings](page:vgs.notifications/Settings), select Add key beside the workspace and paste it into the masked field. This adds photos, workspace icons and custom emoji."},
+    "slackPhotos": {"type": "boolean", "label": "Slack photos", "group": "Slack", "description": "Show sender photos from your Slack workspace", "info": "Select [Set up Slack photos on the Details tab](page:vgs.notifications/Details). VGS fills app details. Sign in if asked. Choose your workspace. Review permissions. Create and install the app. Allow access. Copy the User OAuth Token. Sign in to the workspace in the Slack desktop app. Under Slack photos, select Add key for it and paste the token. This adds photos, workspace icons and custom emoji."},
     "duration": {"type": "number", "label": "Notification duration", "description": "Set the minimum time for normal notifications", "min": 2, "max": 30, "step": 1, "unit": "seconds"},
     "position": {"type": "enum", "label": "Position", "options": [{"value": "top-left", "label": "Top left"}, {"value": "top-center", "label": "Top center"}, {"value": "top-right", "label": "Top right"}, {"value": "bottom-left", "label": "Bottom left"}, {"value": "bottom-center", "label": "Bottom center"}, {"value": "bottom-right", "label": "Bottom right"}]},
     "customEmoji": {"type": "boolean", "label": "Slack custom emoji", "description": "Show custom emoji in Slack notifications", "group": "Slack"}
   },
   "status": {
     "panelRevision": {"type": "count", "label": "Panel revision", "hidden": true},
-    "slackTokens": {"type": "presenceList", "label": "Slack tokens", "hint": "Connect each workspace to show sender photos", "info": "Select Set up Slack photos to open Slack app creation with the app details filled. Complete the workspace and access steps. Then connect each workspace with its User OAuth Token. VGS stores the token in your keyring. The token adds sender photos, workspace icons and custom emoji.", "setting": "slackPhotos"}
+    "slackTokens": {"type": "presenceList", "label": "Slack tokens", "hint": "Connect each workspace to show sender photos", "info": "Select [Set up Slack photos on the Details tab](page:vgs.notifications/Details) to open Slack app creation with the app details filled. Complete the workspace and access steps. Then add the User OAuth Token of each workspace here. VGS stores the token in your keyring. The token adds sender photos, workspace icons and custom emoji.", "setting": "slackPhotos"}
   },
   "secrets": {
     "service": "vgs-notifications",
@@ -58,10 +58,10 @@
   },
   "requirements": [
     {"command": "pw-cli", "packages": {"pacman": "pipewire", "apt": "pipewire-bin", "dnf": "pipewire-utils", "nix": "pipewire"}, "optional": true, "purpose": "Mutes an app's own notification sound while Sound is off or Do Not Disturb is on"},
-    {"command": "pw-dump", "packages": {"pacman": "pipewire", "apt": "pipewire-bin", "dnf": "pipewire-utils", "nix": "pipewire"}, "optional": true, "purpose": "Finds an app sound that a stopped shell left muted, and whether the sound rule runs"},
-    {"command": "pw-metadata", "packages": {"pacman": "pipewire", "apt": "pipewire-bin", "dnf": "pipewire-utils", "nix": "pipewire"}, "optional": true, "purpose": "Tells the sound rule which apps to keep silent while Sound is off or Do Not Disturb is on"},
-    {"command": "systemctl", "packages": {"pacman": "systemd", "apt": "systemd", "dnf": "systemd", "nix": "systemd"}, "optional": true, "purpose": "Restarts WirePlumber once so it loads the sound rule"},
-    {"command": "setpriv", "packages": {"pacman": "util-linux", "apt": "util-linux", "dnf": "util-linux", "nix": "util-linux"}, "optional": true, "purpose": "Ends the sound rule's hold when the shell stops"},
+    {"command": "pw-dump", "packages": {"pacman": "pipewire", "apt": "pipewire-bin", "dnf": "pipewire-utils", "nix": "pipewire"}, "optional": true, "purpose": "Finds app sounds a stopped shell left muted, and checks that notification sound muting runs"},
+    {"command": "pw-metadata", "packages": {"pacman": "pipewire", "apt": "pipewire-bin", "dnf": "pipewire-utils", "nix": "pipewire"}, "optional": true, "purpose": "Tells WirePlumber which apps to keep silent while Sound is off or Do Not Disturb is on"},
+    {"command": "systemctl", "packages": {"pacman": "systemd", "apt": "systemd", "dnf": "systemd", "nix": "systemd"}, "optional": true, "purpose": "Restarts WirePlumber once so it can mute app notification sounds"},
+    {"command": "setpriv", "packages": {"pacman": "util-linux", "apt": "util-linux", "dnf": "util-linux", "nix": "util-linux"}, "optional": true, "purpose": "Stops muting app notification sounds when the shell stops"},
     {"command": "xdg-open", "packages": {"pacman": "xdg-utils", "apt": "xdg-utils", "dnf": "xdg-utils", "nix": "xdg-utils"}, "optional": false, "purpose": "Opens files and Slack messages from notifications"},
     {"command": "tail", "packages": {"pacman": "coreutils", "apt": "coreutils", "dnf": "coreutils", "nix": "coreutils"}, "optional": true, "purpose": "Finds the Slack message a notification opens"},
     {"command": "node", "packages": {"pacman": "nodejs", "apt": "nodejs", "dnf": "nodejs", "nix": "nodejs"}, "optional": true, "purpose": "Shows Slack workspace icons, photos and custom emoji"},

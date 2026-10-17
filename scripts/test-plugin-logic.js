@@ -122,13 +122,21 @@ function suite(ctx, configLogic, check) {
     for (const [name, id, plant, refusal] of [
         ["AI Usage with its gateway key list twice beside its field", "vgs.ai-usage", m => { m.status.gatewayKeyAgain = Object.assign({}, m.status.gatewayKey); }, "status.gatewayKeyAgain page-row=duplicate-label"],
         ["Jarvis with its provider key line beside the AI model field", "vgs.jarvis", m => { m.status.keys.setting = "brain"; }, "status.keys.setting needs a stored key list"],
-        ["Printers with its helper listed by its bus name", "vgs.printers", m => { delete m.requirements.find(r => r.dbus !== undefined).dbus.label; }, "requirements.4.dbus.label must"]
+        ["Printers with its helper listed by its bus name", "vgs.printers", m => { delete m.requirements.find(r => r.dbus !== undefined).dbus.label; }, "requirements.4.dbus.label must"],
+        ["Voice with its speech model a Settings action field again", "vgs.voice", m => { m.schema.speechModel = { type: "action", label: "Speech model", description: "Choose the model that hears your dictation" }; }, "schema.speechModel.type must be one of"]
     ]) {
         const raw = firstParty(id);
         check("pageRows: shipped " + id + " is judged ok", ctx.validateManifest(raw, "/p").ok, true);
         plant(raw);
         const judged = ctx.validateManifest(raw, "/p");
         check("pageRows: " + name, judged.ok ? "" : refusal === "" ? judged.error : judged.error.slice(0, refusal.length), refusal);
+    }
+    // The pages whose optional actions left Settings for Details: each
+    // shipped manifest is judged as it stands.
+    for (const id of ["vgs.ai-usage", "vgs.automations", "vgs.bar", "vgs.capture", "vgs.displays", "vgs.greeter", "vgs.notifications", "vgs.printers",
+        "vgs.scratchpads", "vgs.sysmon", "vgs.themes", "vgs.traffic", "vgs.updates", "vgs.voice", "vgs.vpn"]) {
+        const judged = ctx.validateManifest(firstParty(id), "/p");
+        check("bundled manifest: shipped " + id + " is judged ok", judged.ok ? "" : judged.error, "");
     }
     const dictationRaw = { schemaVersion: 1, id: "acme.dictation", name: "D", version: "1", author: "a", description: "d", kinds: ["service"], entryPoints: { service: "Service.qml" }, capabilities: ["dictation", "status"], status: { setup: { type: "presence", label: "Setup", setup: true, action: { label: "Set up", dictation: "setup" } } } };
     for (const [capability, value, accepted] of [[true, "setup", true], [false, "setup", false], [true, "restart", false], [true, null, false], [true, 1, false]]) {
