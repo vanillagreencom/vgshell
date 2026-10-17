@@ -43,14 +43,14 @@ FocusScope {
     // while it is on, why it was not built, its first failed build or the
     // capability another plugin holds, in the shell's words (Reply.line),
     // which a step it never reported reads in place of Checking, and
-    // `failed`, whether that is a failed build, which reads such a step Not
+    // `failed`, whether such a line applies, which reads such a step Not
     // available (Steps.stepView). A binding that reads it with the row
     // calls pluginOf(row), so a new row reaches it in one evaluation and
     // never beside the plugin of the row before.
     function pluginOf(row) {
         if (row === null) return { enabled: false, name: "", error: "", failed: false };
         const line = Steps.startError(row.errors);
-        return { enabled: row.enabled, name: row.name, error: Reply.line(line || "ok"), failed: Steps.buildFailed(row.errors) };
+        return { enabled: row.enabled, name: row.name, error: Reply.line(line || "ok"), failed: line !== "" };
     }
     readonly property var plugin: pluginOf(row)
 
@@ -107,7 +107,7 @@ FocusScope {
     readonly property var setupSections: row === null ? [] : Steps.setupSections(row.tuis, row.status, row.requirements, pluginOf(row))
     // Required declarations keep their tab after completion.
     readonly property bool hasSetup: row !== null && Steps.setupTab(setupSections, row.requirements)
-    readonly property bool setupNeeded: row !== null && Steps.setupNeeds(row.status, row.requirements, row.enabled, Steps.buildFailed(row.errors)).open
+    readonly property bool setupNeeded: row !== null && Steps.setupNeeds(row.status, row.requirements, row.enabled, Steps.startFailed(row.errors)).open
     readonly property var moreSettings: row === null ? [] : Steps.freeScreens(row.tuis, row.status, "Settings", plugin)
     // The listed screens Details draws in its Actions row: those that are
     // no setup screens and that no status entry declares.

@@ -89,6 +89,7 @@ Item {
             pluginRow("acme.unknown", stepped, {}, [], {}),
             pluginRow("acme.neutral", stepped, homeUnavailable, [], {}),
             pluginRow("acme.failed", stepped, {}, [], { errors: ["build failed: service: file:///fixture/Service.qml:12: No such type"] }),
+            pluginRow("acme.refused", stepped, {}, [], { errors: ["refused: capability=acme.audio held-by=acme.other"] }),
             pluginRow("acme.toolstep", toolStepped, homeBlocked, ["required-a"], {}),
             pluginRow("acme.off", stepped, todo, [], { enabled: false }),
             pluginRow("acme.optional", optional, { featureState: { tone: "warning", text: "Not configured", action: true }, health: ready }, ["optional-tool"],
@@ -191,6 +192,7 @@ Item {
                 { tag: "unreported", id: "acme.unknown", warning: true },
                 { tag: "not available", id: "acme.neutral", warning: false },
                 { tag: "not available after a failed build", id: "acme.failed", warning: false },
+                { tag: "not available while refused", id: "acme.refused", warning: false },
                 { tag: "blocked by a missing tool", id: "acme.toolstep", warning: true },
                 { tag: "missing required tools", id: "acme.required", warning: true },
                 { tag: "tools present", id: "acme.present", warning: false },
@@ -240,6 +242,7 @@ Item {
         function test_setup_draws_the_neutral_reading_and_the_tools_action_data() {
             return [{ tag: "not available by its value", id: "acme.neutral", tones: ["neutral", "success"], labels: ["Home", "Model"], acting: [] },
                 { tag: "not available after a failed build", id: "acme.failed", tones: ["neutral", "neutral"], labels: ["Model", "Home"], acting: [] },
+                { tag: "not available while refused", id: "acme.refused", tones: ["neutral", "neutral"], labels: ["Model", "Home"], acting: [] },
                 { tag: "blocked by a missing tool", id: "acme.toolstep", tones: ["warning", "warning", "success"], labels: ["Home", "Tools", "Model"], acting: ["Home", "Tools"] }];
         }
         function test_setup_draws_the_neutral_reading_and_the_tools_action(data) {
@@ -426,6 +429,7 @@ Item {
                 { tag: "required row", id: "acme.todo", row: true, asked: "", tab: "Setup" },
                 { tag: "done row", id: "acme.done", row: true, asked: "", tab: "Settings" },
                 { tag: "failed build row", id: "acme.failed", row: true, asked: "", tab: "Settings" },
+                { tag: "refused row", id: "acme.refused", row: true, asked: "", tab: "Settings" },
                 { tag: "optional row", id: "acme.optional", row: true, asked: "", tab: "Settings" },
                 { tag: "requested Setup", id: "acme.done", row: false, asked: "Setup", tab: "Setup" },
                 { tag: "missing Setup", id: "acme.plain", row: false, asked: "Setup", tab: "Settings" }

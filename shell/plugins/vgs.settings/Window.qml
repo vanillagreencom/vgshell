@@ -384,7 +384,7 @@ FocusScope {
     function openRow(id, reason) {
         const row = rowOf(id);
         if (row === null) return "unknown: " + id;
-        return openPlugin(id, reason, Steps.setupNeeds(row.status, row.requirements, row.enabled, Steps.buildFailed(row.errors)).open ? "Setup" : "Settings");
+        return openPlugin(id, reason, Steps.setupNeeds(row.status, row.requirements, row.enabled, Steps.startFailed(row.errors)).open ? "Setup" : "Settings");
     }
 
     // Pop the plugin page to the list; answers `ok`, or `refused:

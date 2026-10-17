@@ -200,8 +200,8 @@ var STATUS_STATE_TONES = { ok: "success", info: "info", warning: "warning", dang
 // then offers Review all missing or outdated tools on the step's row.
 // `available: false` says a required step that is not done offers the
 // user no action and does not wait on the user, so its page reads it Not
-// available and raises no Setup needed; its `hint` says why and what will
-// change that.
+// available and raises no Setup needed; its `hint`, which it must carry,
+// says why and what will change that.
 // `lines` is the further printable lines a state that names several things
 // draws under `text`, at most STATUS_LIST_MAX. `hint` is bounded plain
 // guidance for this state; without it, the declaration's hint applies.
@@ -1354,7 +1354,8 @@ function statusWrite(manifest, values, key, value) {
 // `actions` hold it, STATUS_TOOLS_ACTION only for a required step of a
 // manifest that declares a required tool, `aside` only for an entry that
 // declares one and `available: false` only for a required step that is
-// not done and offers no action or aside, a
+// not done, offers no action or aside, and carries its own `hint`, since
+// the declaration's hint names the action the step offers elsewhere, a
 // `presenceList` item carries `secret` only for a manifest that declares
 // `secrets`, and a `rows` row names in `actions` only the entry's
 // `rowActions`.
@@ -1362,7 +1363,8 @@ function statusDeclarationFits(manifest, entry, value) {
     if (entry.type === "state") {
         if (entry.setup === true && statusStateHidden(value)) return false;
         if (value.aside !== undefined && entry.aside === undefined) return false;
-        if (value.available === false && (entry.setup !== true || value.tone === "ok" || (value.action !== undefined && value.action !== false) || value.aside === true)) return false;
+        if (value.available === false && (entry.setup !== true || value.tone === "ok" || (value.action !== undefined && value.action !== false) || value.aside === true
+            || value.hint === undefined)) return false;
         if (value.action === STATUS_TOOLS_ACTION) return entry.setup === true && manifest.requirements.some(function (row) { return !row.optional; });
         if (value.action === undefined) return true;
         if (typeof value.action === "string") return entry.actions !== undefined && hasOwn(entry.actions, value.action);

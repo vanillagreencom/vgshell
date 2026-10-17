@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Exercises the production page judge with PluginLogic manager rows.
 // Required work alone creates Setup. Unknown and blocked required work
-// stays open; a step the user cannot act on, by its value or a failed
-// build, reads neutral after the open steps and raises no Setup needed; a
+// stays open; a step the user cannot act on, by its value or because its
+// plugin could not start, reads neutral after the open steps and raises no Setup needed; a
 // step a missing required tool blocks offers the one install action on its
 // own row. Settings draws only values and their stored key lists, and
 // optional work, its action and its tools belong on Details. Required
@@ -163,16 +163,14 @@ function verify(logic, producer) {
     const waiting = logic.stepView(rows({}).find(entry => entry.key === "home"), String, on);
     same([logic.stepReading(rows({}).find(entry => entry.key === "home"), on), waiting.tone, waiting.lines.length, typeof waiting.lines[0]], ["todo", "warning", 1, "string"],
         "on, unreported: the step stays To do and names the wait on one line");
-    const refused = Object.assign({}, on, { error: "Another plugin uses this feature." });
-    same([logic.stepView(rows({}).find(entry => entry.key === "home"), String, refused).tone, logic.stepView(rows({}).find(entry => entry.key === "home"), String, refused).lines],
-        ["warning", [refused.error]], "on, unreported while refused: the step stays To do and draws the plain line");
     same(logic.stepView(rows({}).find(entry => entry.key === "home"), String, off).lines, [], "off: an unreported step names no wait");
 
     // The neutral reading: a required step the user cannot act on, by its
-    // value, or by a build that failed while the plugin is on, which
-    // turning it off and on does not mend. [name, values, missing tools,
+    // value, or because the plugin, on, could not start, a failed build or
+    // a refusal, which turning it off and on does not mend. [name, values, missing tools,
     // the plugin, Home's reading and chip tone, the step order].
     const failed = Object.assign({}, on, { error: "This plugin could not start.", failed: true });
+    const refused = Object.assign({}, on, { error: "Another plugin uses this feature.", failed: true });
     const accountOpen = { tone: "warning", text: "Signed out", action: "signIn" };
     for (const [name, values, missing, plugin, reading, order] of [
         ["by its value, between To do and Done", Object.assign({}, allDone, { model: { tone: "warning", text: "Needs a key", action: true }, account: accountOpen, home: unavailable }), [], on,
@@ -181,8 +179,8 @@ function verify(logic, producer) {
             ["unavailable", "neutral"], ["account", "required-tools", "home", "model", "connection", "connectionKeys"]],
         ["after a failed build", {}, ["required-a"], failed,
             ["unavailable", "neutral"], ["required-tools", "model", "home", "account", "connection", "connectionKeys"]],
-        ["refused, not built", {}, [], refused,
-            ["todo", "warning"], ["model", "home", "account", "connection", "connectionKeys", "required-tools"]]
+        ["while refused", {}, ["required-a"], refused,
+            ["unavailable", "neutral"], ["required-tools", "model", "home", "account", "connection", "connectionKeys"]]
     ]) {
         const status = rows(values), home = status.find(entry => entry.key === "home");
         same([logic.stepReading(home, plugin), logic.stepView(home, String, plugin).tone], reading, "Not available " + name + ": the chip");
@@ -191,7 +189,8 @@ function verify(logic, producer) {
     }
     const neutral = logic.stepView(rows(Object.assign({}, allDone, { home: unavailable })).find(entry => entry.key === "home"), String, on);
     same([neutral.hint, neutral.lines], [unavailable.hint, [unavailable.text]], "Not available by its value: the step says why and what changes it");
-    same(logic.stepView(rows({}).find(entry => entry.key === "home"), String, failed).lines, [failed.error], "Not available after a failed build: the step draws the plain line");
+    for (const [name, plugin] of [["after a failed build", failed], ["while refused", refused]])
+        same(logic.stepView(rows({}).find(entry => entry.key === "home"), String, plugin).lines, [plugin.error], "Not available " + name + ": the step draws the plain line");
     same(items(logic.setupSections(screens, rows({}), requirements([]), failed)).filter(item => !item.keys && item.tools !== true)
         .map(item => logic.lineAction(logic.stepButton(item.entry, requirements([])), logic.stepOpen(item.entry), failed)), [null, null, null, null], "after a failed build no step draws an action");
     // Setup needed, as the Plugins list, the row's tab and the Setup tab
@@ -203,8 +202,8 @@ function verify(logic, producer) {
         ["after a failed build", [buildLine], [], false],
         ["after a failed build, a required tool missing", [buildLine], ["required-a"], true],
         ["built", [], [], true],
-        ["refused, a stale failed build after it", [refusalLine, buildLine], [], true]
-    ]) same(logic.setupNeeds(rows(homeUnreported), requirements(missing), true, logic.buildFailed(errors)).open, needed, "Setup needed " + name);
+        ["refused", [refusalLine], [], false]
+    ]) same(logic.setupNeeds(rows(homeUnreported), requirements(missing), true, logic.startFailed(errors)).open, needed, "Setup needed " + name);
 
     // A step a missing or outdated required tool blocks: [name, missing
     // tools, the action kind on Home's own row, Setup needed]. The step
@@ -256,7 +255,8 @@ function verify(logic, producer) {
         ["Not available on a done step", manifest, "home", Object.assign({}, unavailable, { tone: "ok" }), false],
         ["Not available with an action", manifest, "model", Object.assign({}, unavailable, { action: true }), false],
         ["Not available with tools", manifest, "home", Object.assign({}, unavailable, { action: "tools" }), false],
-        ["available true", manifest, "home", Object.assign({}, unavailable, { available: true }), false]
+        ["available true", manifest, "home", Object.assign({}, unavailable, { available: true }), false],
+        ["Not available with no hint", manifest, "home", (({ hint, ...value }) => value)(unavailable), false]
     ]) same(producer.statusWrite(judged, {}, key, value).ok, admitted, "judge: " + name);
     // A `tools` value adds no second install route: the entry's own act
     // offers nothing for it, whether it declares one action or several.
@@ -323,8 +323,7 @@ const controls = [
     ["Not available reads To do", 'unavailable: { text: "Not available", tone: "neutral" }', 'unavailable: { text: "Not available", tone: "warning" }', "Not available by its value, between To do and Done: the chip"],
     ["a failed build reads To do", 'if (entry.report !== "reported" && plugin !== undefined && plugin.enabled && plugin.failed) return "unavailable";', '', "Not available after a failed build: the chip"],
     ["Setup needed ignores a failed build", 'var plugin = { enabled: enabled, failed: failed === true };', 'var plugin = { enabled: enabled, failed: false };', "Setup needed after a failed build"],
-    ["a refusal before a failed build reads Not available", 'return line.startsWith("build failed: ") || line.startsWith("refused: ");', 'return line.startsWith("build failed: ");', "Setup needed refused, a stale failed build after it"],
-    ["a refusal reads Not available", 'plugin.enabled && plugin.failed) return', 'plugin.enabled && (plugin.failed || plugin.error)) return', "on, unreported while refused: the step stays To do"],
+    ["a refusal reads To do", 'return line.startsWith("build failed: ") || line.startsWith("refused: ");', 'return line.startsWith("build failed: ");', "Setup needed refused"],
     ["a tools step offers nothing", 'return requiredLacking(requirements).length > 0 ? reviewButton() : null;', 'return null;', "tools: a missing required tool"],
     ["a tools step offers Review with no required tool lacking", 'return requiredLacking(requirements).length > 0 ? reviewButton() : null;', 'return reviewButton();', "tools: a missing optional tool alone"],
     ["optional tool creates Setup", 'requirements.some(function (row) { return !row.optional; })', 'requirements.length > 0', "optional tools never create Setup"],
@@ -354,7 +353,7 @@ const controls = [
     ["Details Tools offers no Review", 'return requirements.some(requirementApplies) ? reviewButton() : null;', 'return null;', "Details Tools: a missing optional tool"],
     ["Details Tools offers Review with every optional tool present", 'return requirements.some(requirementApplies) ? reviewButton() : null;', 'return reviewButton();', "Details Tools: a missing required tool alone"],
     ["an unreported step names no wait", 'if (entry.report !== "reported" && plugin.enabled)', 'if (false)', "on, unreported: the step stays To do and names the wait"],
-    ["a refusal reads as a wait", 'plugin.error !== "" ? plugin.error : ', '', "on, unreported while refused: the step stays To do and draws the plain line"],
+    ["a start error reads as a wait", 'plugin.error !== "" ? plugin.error : ', '', "Not available after a failed build: the step draws the plain line"],
 ];
 // Each producer control edits PluginLogic, whose rows the page draws.
 const producerControls = [
@@ -367,6 +366,7 @@ const producerControls = [
         "judge: tools on a Details fact"],
     ["Not available on a Details fact passes", 'value.available === false && (entry.setup !== true || ', 'value.available === false && (false || ', "judge: Not available on a Details fact"],
     ["Not available with an action passes", ' || (value.action !== undefined && value.action !== false) || ', ' || ', "judge: Not available with an action"],
+    ["Not available with no hint passes", ' || value.aside === true\n            || value.hint === undefined))', ' || value.aside === true))', "judge: Not available with no hint"],
     ["available true passes", '&& (value.available === undefined || value.available === false);', ';', "judge: available true"],
     ["a tools value offers a declared action", '        if (value.action === STATUS_TOOLS_ACTION) return null;\n', '', "act on a tools value: account"]
 ];

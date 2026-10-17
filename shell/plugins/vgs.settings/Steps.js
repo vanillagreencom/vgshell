@@ -9,11 +9,13 @@ function declaresStep(entry) { return entry.setup === true; }
 // on it (`available: false`, PluginLogic.statusDeclarationFits).
 function stepOpen(entry) { return entry.report !== "reported" || (entry.tone !== "success" && entry.value.available !== false); }
 // What required step ENTRY reads for PLUGIN, { enabled, failed }, `failed`
-// true while its build failed: "todo" while it waits on the user, "done",
-// or "unavailable" while the user cannot act on it, because its value says
-// so or because the plugin, on, could not start, which turning it off and
-// on does not change (Plugins.failedBuilds keeps a failure per source
-// revision). PLUGIN is omitted where no build failure applies.
+// true while it could not start (startFailed): "todo" while it waits on
+// the user, "done", or "unavailable" while the user cannot act on it,
+// because its value says so or because the plugin, on, could not start,
+// which turning it off and on does not change: a failed build stays failed
+// per source revision (Plugins.failedBuilds), and a refusal lasts while
+// another plugin holds what it needs. PLUGIN is omitted where no start
+// error applies.
 function stepReading(entry, plugin) {
     if (entry.report === "reported" && entry.tone === "success") return "done";
     if (entry.report !== "reported" && plugin !== undefined && plugin.enabled && plugin.failed) return "unavailable";
@@ -26,8 +28,9 @@ var STEP_RANKS = { todo: 0, unavailable: 1, done: 2 };
 function startError(errors) {
     return errors.find(function (line) { return line.startsWith("build failed: ") || line.startsWith("refused: "); }) || "";
 }
-// Whether that line is a failed build, the `failed` stepReading takes.
-function buildFailed(errors) { return startError(errors).startsWith("build failed: "); }
+// Whether a plugin of ERRORS could not start, the `failed` stepReading
+// takes.
+function startFailed(errors) { return startError(errors) !== ""; }
 // The chip of each reading, its word and its tone. The words are declared
 // here alone (docs/architecture/design-system.md § Settings pages).
 var STEP_CHIPS = { todo: { text: "To do", tone: "warning" }, done: { text: "Done", tone: "success" }, unavailable: { text: "Not available", tone: "neutral" } };
@@ -119,9 +122,9 @@ function setupSections(tuis, status, requirements, plugin) {
 // Whether a plugin, on while ENABLED, needs setup, the one reading of the
 // Plugins list's Setup needed and the Setup tab's mark: a required step of
 // STATUS reads To do, or a required tool of REQUIREMENTS is missing or
-// outdated. FAILED, buildFailed of the plugin's errors, is true while its
-// build failed. A step that reads Not available, by its value or after a
-// failed build, raises neither (stepReading).
+// outdated. FAILED, startFailed of the plugin's errors, is true while it
+// could not start. A step that reads Not available, by its value or while
+// the plugin could not start, raises neither (stepReading).
 function setupNeeds(status, requirements, enabled, failed) {
     var plugin = { enabled: enabled, failed: failed === true };
     return { open: enabled && (status.some(function (entry) { return declaresStep(entry) && stepReading(entry, plugin) === "todo"; })
