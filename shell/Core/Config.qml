@@ -24,7 +24,7 @@ import "ConfigLogic.js" as ConfigLogic
 // write answers. A user file of the previous format version is rewritten as
 // this one when it is read (ConfigLogic.migrateConfig), through the same
 // judge, and written once; one the judge refuses is never overwritten.
-// A plugin id an installed plugin declares as a former id is renamed in the
+// A former plugin id the scan maps to a scanned plugin is renamed in the
 // user file the same way (ConfigLogic.renamePlugins), by the map the scan
 // hands adoptRenames.
 Singleton {
@@ -40,8 +40,9 @@ Singleton {
     property var user: null
     property var shippedText: null
     property var userText: null
-    // Each former plugin id an installed plugin declares, to that plugin's
-    // id (PluginLogic.formerIdClaims), set by adoptRenames alone.
+    // Each former plugin id the scan's rename map holds, to the id of the
+    // plugin whose claim it keeps (PluginLogic.formerIdClaims), set by
+    // adoptRenames alone.
     property var renames: ({})
     // "pending" until the first answer, then "loaded", "unparseable",
     // "unreadable" or "malformed" (parsed, refused by configError); the user

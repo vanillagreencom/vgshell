@@ -971,19 +971,41 @@ function suite(ctx, configLogic, check) {
         check("migrateConfig result judged: " + name, configLogic.configError(got.config), verdict);
     }
 
-    // formerIdClaims rows: [name, manifests in scan order, the rename map].
-    // Each former id maps to the first manifest in scan order that declares
-    // it; the map refuses nothing.
-    const declaring = (id, formerIds) => ctx.validateManifest({ schemaVersion: 1, id: id, name: "N", version: "1", author: "a", description: "d", kinds: ["service"], entryPoints: { service: "S.qml" }, formerIds: formerIds }, "/p").manifest;
-    const plain = ctx.validateManifest({ schemaVersion: 1, id: "acme.plain", name: "N", version: "1", author: "a", description: "d", kinds: ["service"], entryPoints: { service: "S.qml" } }, "/p").manifest;
+    // formerIdClaims rows: [name, manifests in scan order, { renames,
+    // ignored }]. A manifest whose directory is under /bundled/ is bundled,
+    // any other installed. A claim of a scanned plugin's id is left out; a
+    // bundled claim wins over an installed one in any scan order, and within
+    // one source the first claim in scan order wins. No claim refuses its
+    // manifest.
+    const declaring = (id, formerIds, dir) => ctx.validateManifest({ schemaVersion: 1, id: id, name: "N", version: "1", author: "a", description: "d", kinds: ["service"], entryPoints: { service: "S.qml" }, formerIds: formerIds }, dir === undefined ? "/user/" + id : dir).manifest;
+    const bundledDeclaring = (id, formerIds) => declaring(id, formerIds, "/bundled/" + id);
+    const plainAt = (id, dir) => ctx.validateManifest({ schemaVersion: 1, id: id, name: "N", version: "1", author: "a", description: "d", kinds: ["service"], entryPoints: { service: "S.qml" } }, dir).manifest;
+    const plain = plainAt("acme.plain", "/user/acme.plain");
     const scanOrder = list => { const map = Object.create(null); list.forEach(m => { map[m.id] = m; }); return map; };
+    const claimSource = m => m.__sourceDir.indexOf("/bundled/") === 0 ? "bundled" : "installed";
     for (const [name, manifests, want] of [
-        ["each former id maps to its declaring plugin", [declaring("acme.new", ["acme.old", "acme.older"]), plain], { "acme.old": "acme.new", "acme.older": "acme.new" }],
-        ["the first claim of a former id in scan order wins", [declaring("acme.user", ["acme.old"]), declaring("acme.bundled", ["acme.old", "acme.other"])], { "acme.old": "acme.user", "acme.other": "acme.bundled" }],
-        ["a scan with no declaration renames nothing", [plain], {}],
-        ["an empty scan renames nothing", [], {}],
+        ["each former id maps to its declaring plugin", [declaring("acme.new", ["acme.old", "acme.older"]), plain], { renames: { "acme.old": "acme.new", "acme.older": "acme.new" }, ignored: [] }],
+        ["the first installed claim of a former id in scan order wins", [declaring("acme.first", ["acme.old"]), declaring("acme.second", ["acme.old", "acme.other"])],
+            { renames: { "acme.old": "acme.first", "acme.other": "acme.second" }, ignored: ["acme.second: former id acme.old goes to acme.first"] }],
+        ["the first bundled claim of a former id in scan order wins", [bundledDeclaring("acme.first", ["acme.old"]), bundledDeclaring("acme.second", ["acme.old"])],
+            { renames: { "acme.old": "acme.first" }, ignored: ["acme.second: former id acme.old goes to acme.first"] }],
+        ["a bundled claim wins over an installed claim scanned before it", [declaring("acme.user", ["acme.old"]), bundledDeclaring("acme.bundled", ["acme.old", "acme.other"])],
+            { renames: { "acme.old": "acme.bundled", "acme.other": "acme.bundled" }, ignored: ["acme.user: former id acme.old goes to acme.bundled"] }],
+        ["an installed claim of a bundled plugin's live id is left out", [declaring("acme.thief", ["acme.new", "acme.gone"]), bundledDeclaring("acme.new", ["acme.old"])],
+            { renames: { "acme.old": "acme.new", "acme.gone": "acme.thief" }, ignored: ["acme.thief: former id acme.new is a scanned plugin's id"] }],
+        ["a bundled claim of an installed plugin's live id is left out", [plain, bundledDeclaring("acme.new", ["acme.plain", "acme.old"])],
+            { renames: { "acme.old": "acme.new" }, ignored: ["acme.new: former id acme.plain is a scanned plugin's id"] }],
+        ["a scan with no declaration renames nothing", [plain, plainAt("acme.shipped", "/bundled/acme.shipped")], { renames: {}, ignored: [] }],
+        ["an empty scan renames nothing", [], { renames: {}, ignored: [] }],
     ])
-        check("formerIdClaims: " + name, ctx.formerIdClaims(scanOrder(manifests)), want);
+        check("formerIdClaims: " + name, ctx.formerIdClaims(scanOrder(manifests), claimSource), want);
+    let unknownSource = "";
+    try {
+        ctx.formerIdClaims(scanOrder([plain]), () => "elsewhere");
+    } catch (e) {
+        unknownSource = e.message;
+    }
+    check("formerIdClaims: a source outside bundled and installed is refused", unknownSource, 'formerIdClaims: plugin source "elsewhere" is not one of bundled, installed');
 
     // renamePlugins rows: [name, user file, rename map, want file, want
     // renamed]. A plugins[] row, a disabledPlugins entry and a layout entry
@@ -2203,7 +2225,17 @@ suite(load(LOGIC), load(CONFIG), report);
     const layout = right => ({ id: "vgs.bar", layout: { left: [], center: [], right: right } });
     const user = { version: 2, bar: layout([{ id: "c.d" }, { id: "vgs.cloud-sync" }]), plugins: [{ id: "vgs.cloud-sync", x: 1 }], disabledPlugins: ["c.d", "vgs.cloud-sync"] };
     const want = { version: 2, bar: layout([{ id: "c.d" }, { id: "vgs.google-drive" }]), plugins: [{ id: "vgs.google-drive", x: 1 }], disabledPlugins: ["c.d", "vgs.google-drive"] };
-    report("renamePlugins: the bundled manifests rename vgs.cloud-sync to vgs.google-drive", configLogic.renamePlugins(user, logic.formerIdClaims(bundled)), { config: want, renamed: true });
+    const sourceOf = m => m.__sourceDir.indexOf(PLUGINS_DIR + "/") === 0 ? "bundled" : "installed";
+    const claims = logic.formerIdClaims(bundled, sourceOf);
+    report("renamePlugins: the bundled manifests rename vgs.cloud-sync to vgs.google-drive", configLogic.renamePlugins(user, claims.renames), { config: want, renamed: true });
+    // An installed plugin scanned before the bundled ones that claims the
+    // bundled former id and the bundled live id takes neither.
+    const thief = logic.validateManifest({ schemaVersion: 1, id: "acme.drive", name: "N", version: "1", author: "a", description: "d", kinds: ["service"], entryPoints: { service: "S.qml" }, formerIds: ["vgs.cloud-sync", "vgs.google-drive"] }, "/home/u/.config/vgshell/plugins/acme.drive").manifest;
+    const scan = Object.assign(Object.create(null), { "acme.drive": thief }, bundled);
+    const thiefClaims = logic.formerIdClaims(scan, sourceOf);
+    report("formerIdClaims: an installed claim leaves the bundled rename of vgs.cloud-sync", configLogic.renamePlugins(user, thiefClaims.renames), { config: want, renamed: true });
+    report("formerIdClaims: an installed claim of vgs.cloud-sync and vgs.google-drive is logged", thiefClaims.ignored,
+        ["acme.drive: former id vgs.cloud-sync goes to vgs.google-drive", "acme.drive: former id vgs.google-drive is a scanned plugin's id"]);
 }
 
 // Each control removes one rule from a copy of a judge and keeps the text
@@ -2694,7 +2726,11 @@ const CONTROLS = [
     ["PluginLogic keeps no copy of a moved name", "var KINDS = [", "var SECTIONS = [\"left\", \"center\", \"right\"];\nvar KINDS = ["],
     ["PluginLogic keeps no alias of ConfigLogic", "var KINDS = [", "var judgeConfig = ConfigLogic.configError;\nvar KINDS = ["],
     ["formerIds may not hold the plugin's own id", "if (former === raw.id)", "if (false)"],
-    ["the first claim of a former id wins", "if (!hasOwn(renames, former)) renames[former] = id;", "renames[former] = id;"],
+    ["the first claim of a former id wins", "else if (hasOwn(renames, former))", "else if (false)"],
+    ["a claim of a scanned plugin's id is left out", "if (hasOwn(manifests, former))", "if (false)"],
+    ["a bundled claim wins over an installed one", "bundled.concat(installed).forEach(", "Object.keys(manifests).forEach("],
+    ["an installed source is read", '        else if (source === "installed") installed.push(id);\n', ""],
+    ["a source outside bundled and installed is refused", 'else throw new Error("formerIdClaims', 'else if (false) throw new Error("formerIdClaims'],
     ["PluginLogic reads the sections through ConfigLogic", "    ConfigLogic.SECTIONS.forEach(function (section) {\n        sectionEntries(config, section)", "    [\"left\", \"center\", \"right\"].forEach(function (section) {\n        sectionEntries(config, section)"],
 ];
 

@@ -14,9 +14,10 @@
 // `hyprland.pads`, since the Hyprland layer holds one pads table and writes
 // a later plugin's pads as a comment (docs/architecture/hyprland.md), each
 // former id in `formerIds` has one claimant and is no checked plugin's id,
-// since the shell renames a user file by the first claim in scan order
-// (PluginLogic.formerIdClaims, D108) and a second claimant or a live id
-// would lose its settings to it, and every `tui` script a regular
+// since the shell renames a user file by the first bundled claim in scan
+// order and leaves out a claim of a live id (PluginLogic.formerIdClaims,
+// D108), so a second claimant would lose its settings and a live id's
+// claimant its rename, and every `tui` script a regular
 // file with its owner's execute bit, reached through no symbolic link, since
 // bin/vgshell-scan follows links and would publish whatever one points at.
 // A bar widget that offers `layout` keeps the settings order bar widgets

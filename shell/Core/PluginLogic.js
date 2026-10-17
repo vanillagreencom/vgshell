@@ -3976,22 +3976,42 @@ function instanceCapabilities(manifest, kind) {
 }
 
 // The rename map of a scan, MANIFESTS being its id to manifest map in
-// scan order: each former id an accepted manifest declares in `formerIds`,
-// to that manifest's id. The first claim of a former id in scan order
-// wins. The map refuses nothing: bin/lib/check-manifests.js holds the
-// shipped manifests to one claimant per former id and no former id that a
-// shipped plugin holds. Registry hands it to Config.adoptRenames, which
-// renames the user file by it (ConfigLogic.renamePlugins).
-function formerIdClaims(manifests) {
-    var renames = {};
+// scan order and SOURCE_OF naming where a manifest was found, `bundled` or
+// `installed` as Registry.sourceOf names it. Returns { renames, ignored }:
+// RENAMES maps each former id an accepted manifest declares in `formerIds`
+// to that manifest's id, and IGNORED holds one line for each claim the map
+// leaves out. A claim of a former id that a scanned plugin holds is left
+// out, since the user file's row, disable and placement under that id are
+// that plugin's. A bundled claim wins over an installed one whatever the
+// scan order, so a plugin the user installs cannot take a first-party
+// plugin's settings; within one source the first claim in scan order wins.
+// A left-out claim does not refuse its manifest. bin/lib/check-manifests.js
+// holds the shipped manifests to one claimant per former id and no former
+// id that a shipped plugin holds. Registry logs IGNORED and hands RENAMES
+// to Config.adoptRenames, which renames the user file by it
+// (ConfigLogic.renamePlugins).
+function formerIdClaims(manifests, sourceOf) {
+    var bundled = [], installed = [];
     Object.keys(manifests).forEach(function (id) {
+        var source = sourceOf(manifests[id]);
+        if (source === "bundled") bundled.push(id);
+        else if (source === "installed") installed.push(id);
+        else throw new Error("formerIdClaims: plugin source " + JSON.stringify(source) + " is not one of bundled, installed");
+    });
+    var renames = {}, ignored = [];
+    bundled.concat(installed).forEach(function (id) {
         var formerIds = manifests[id].formerIds;
         if (!Array.isArray(formerIds)) return;
         formerIds.forEach(function (former) {
-            if (!hasOwn(renames, former)) renames[former] = id;
+            if (hasOwn(manifests, former))
+                ignored.push(id + ": former id " + former + " is a scanned plugin's id");
+            else if (hasOwn(renames, former))
+                ignored.push(id + ": former id " + former + " goes to " + renames[former]);
+            else
+                renames[former] = id;
         });
     });
-    return renames;
+    return { renames: renames, ignored: ignored };
 }
 
 // Validate one manifest object. Returns { ok: true, manifest } with the

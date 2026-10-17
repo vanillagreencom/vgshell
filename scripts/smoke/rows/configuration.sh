@@ -183,8 +183,8 @@ fi
 config_renamed_restore
 
 if copy_tree configuration-renames-late && edit_tree configuration-renames-late shell/Core/Registry.qml \
-    $'        if (isChanged) Config.adoptRenames(Logic.formerIdClaims(next));\n        if (isChanged) root.manifests = next;\n        // `scanned` gates every slot key, so it moves after the map.\n        root.scanned = true;\n' \
-    $'        if (isChanged) root.manifests = next;\n        // `scanned` gates every slot key, so it moves after the map.\n        root.scanned = true;\n        if (isChanged) Config.adoptRenames(Logic.formerIdClaims(next));\n'; then
+    $'        if (isChanged) renameUserFile(next);\n        if (isChanged) root.manifests = next;\n        // `scanned` gates every slot key, so it moves after the map.\n        root.scanned = true;\n' \
+    $'        if (isChanged) root.manifests = next;\n        // `scanned` gates every slot key, so it moves after the map.\n        root.scanned = true;\n        if (isChanged) renameUserFile(next);\n'; then
   stop_shell || :
   config_plant_renamed || fail "control: planting the renamed plugin and its user file failed"
   if start_shell "$sandbox/tree-configuration-renames-late" "$sandbox/configuration-renames-late-qs.log"; then

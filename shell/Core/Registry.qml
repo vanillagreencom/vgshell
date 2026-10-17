@@ -291,7 +291,7 @@ Singleton {
         // map and `scanned` change: a slot key, the build and first
         // presence read them, and would build a plugin its user disabled
         // under a former id, or place a second widget for it.
-        if (isChanged) Config.adoptRenames(Logic.formerIdClaims(next));
+        if (isChanged) renameUserFile(next);
         if (isChanged) root.manifests = next;
         // `scanned` gates every slot key, so it moves after the map.
         root.scanned = true;
@@ -300,6 +300,15 @@ Singleton {
         // changed nothing and so leaves no other trace.
         console.info("plugins: scan complete changed=" + isChanged);
         if (mapChanged && holdMap) console.info("plugins: scan held reason=core-changed");
+    }
+
+    // Hands the rename map of scan NEXT to Config.adoptRenames, and logs
+    // each former id claim the map leaves out (PluginLogic.formerIdClaims)
+    // as the scan logs a collision.
+    function renameUserFile(next) {
+        const claims = Logic.formerIdClaims(next, m => root.sourceOf(m));
+        for (const line of claims.ignored) console.warn("plugins: former id claim ignored: " + line);
+        Config.adoptRenames(claims.renames);
     }
 
     function applyCoreRevision(line) {
