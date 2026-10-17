@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import qs.Commons
 import "PluginLogic.js" as Logic
 
 // Owns the `tui` capability's provider, the list of floating TUIs it
@@ -26,11 +27,11 @@ Scope {
     // Launches whose run has no record yet and whose launcher did not fail,
     // each { key, run }: the key stays busy until the record appears.
     property var pending: []
-    // Each plugin script's key -> the arguments of the latest run this
-    // shell started for it, so a request for a live key with other
-    // arguments is told apart from a second press of the same one
-    // (PluginLogic.tuiOwnShownAnswer). One entry per declared script, each
-    // replaced by the next start. Replaced whole.
+    // Each plugin script's key, and each plugin's file action editor key,
+    // -> the arguments of the latest run this shell started for it, so a
+    // request for a live key with other arguments is told apart from a
+    // second press of the same one (PluginLogic.tuiOwnShownAnswer). One
+    // entry per such key, each replaced by the next start. Replaced whole.
     property var startedArgs: ({})
     // One of PluginLogic.TUI_LAUNCHER_STATES: the first probe answers it,
     // and every later probe and launch moves it.
@@ -161,12 +162,32 @@ Scope {
         return start(Logic.tuiCore(Logic.CORE_TUIS, coreBin, runner(), name, args), null, done);
     }
 
-    // edit: one file under the user's configuration directory, through the
-    // core editor TUI. It answers as open does, so a live editor is raised.
+    // edit: the one route that opens a cited file or folder, a file
+    // reference's (PageReference), a notice's link or `shell.tui.edit`'s,
+    // as PluginLogic.editRoute decides: a file through the core editor TUI,
+    // answered as open answers, so a live editor is raised, and a folder in
+    // the default file manager.
     function edit(path, line) {
-        const judged = Logic.editArgs(path, line);
-        if (!judged.ok) return judged.answer;
-        return Logic.tuiShownAnswer("core/edit", openCore("edit", judged.args));
+        const route = Logic.editRoute(path, line, Paths.home, Paths.configHome);
+        if (!route.ok) return route.answer;
+        if (route.kind === "folder") return Capabilities.runDetached(DesktopLaunch.open(route.path));
+        return Logic.tuiShownAnswer("core/edit", openCore("edit", route.args));
+    }
+
+    // editFor: plugin ID's file action (PluginLogic.statusActionRequest),
+    // PATH opened by edit's route, its editor run keyed as the plugin's
+    // own, `<id>/edit`, so the plugin reads its end in its `state`
+    // (PluginLogic.tuiStateNames) as it reads its own script's. A second
+    // press for the same file raises the live editor; one for another file
+    // while it is open answers `reason=busy-other`, as runFor does.
+    function editFor(id, path) {
+        const route = Logic.editRoute(path, undefined, Paths.home, Paths.configHome);
+        if (!route.ok) return route.answer;
+        if (route.kind === "folder") return Capabilities.runDetached(DesktopLaunch.open(route.path));
+        const launch = Logic.tuiCore(Logic.CORE_TUIS, coreBin, runner(), "edit", route.args, id);
+        const answer = start(launch, null, undefined);
+        if (launch.ok) startedArgs = Object.assign({}, startedArgs, { [launch.key]: route.args.slice() });
+        return Logic.tuiOwnShownAnswer(id, Logic.STATUS_FILE_TUI, answer, route.args, startedArgs);
     }
 
     // The state a request is judged against, with the id a launch gets:
@@ -189,9 +210,10 @@ Scope {
         return Object.prototype.hasOwnProperty.call(keys, key) && keys[key].ended !== null ? keys[key].ended.run : "";
     }
 
-    // The calling plugin's own TUIs' state, one frozen copy per read.
+    // The calling plugin's own TUIs' state, one frozen copy per read: its
+    // scripts' and its file actions' editor runs (PluginLogic.tuiStateNames).
     function stateOf(ctx) {
-        return frozen(Logic.tuiState(recordStore.runs, ctx.id, Object.keys(ctx.manifest.tui)));
+        return frozen(Logic.tuiState(recordStore.runs, ctx.id, Logic.tuiStateNames(ctx.manifest)));
     }
 
     function start(launch, ctx, done) {

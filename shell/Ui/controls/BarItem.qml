@@ -40,8 +40,8 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // padding and what it draws, and reserves no room after it. The item is
 // never narrower than it is tall, and an item that draws an icon alone is
 // square, its icon centred. The tooltip reads `tooltip` as its title and
-// `tooltipDetails` as its quieter detail lines. A page reference in either
-// draws as a link, which the pointer and the keyboard reach (Tooltip.qml),
+// `tooltipDetails` as its quieter detail lines. A page or file reference
+// in either (PageReference) draws as a link, which the pointer and the keyboard reach (Tooltip.qml),
 // and activating it emits `tooltipPageActivated` with its page and tab,
 // which a bar widget hands to `frame.openPage`. `active` fills it with
 // `bar.active`, as the focused workspace; otherwise a press fills it with

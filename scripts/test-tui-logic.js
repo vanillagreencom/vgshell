@@ -279,13 +279,46 @@ function suite(ctx, check) {
     const editArgRows = [
         ["relative path", "hypr/hyprland.lua", undefined, { ok: true, args: ["hypr/hyprland.lua"] }],
         ["relative path with line", "hypr/hyprland.lua", 12, { ok: true, args: ["hypr/hyprland.lua", "12"] }],
-        ["absolute path refused", "/home/me/.config/hypr/hyprland.lua", undefined, { ok: false, answer: "refused: edit=/home/me/.config/hypr/hyprland.lua reason=absolute" }],
+        ["absolute path", "/home/me/.local/share/vgs/AGENTS.md", undefined, { ok: true, args: ["/home/me/.local/share/vgs/AGENTS.md"] }],
+        ["absolute path with line", "/etc/pacman.d/hooks/vgs.hook", "3", { ok: true, args: ["/etc/pacman.d/hooks/vgs.hook", "3"] }],
         ["parent path refused", "hypr/../secret", undefined, { ok: false, answer: "refused: edit=hypr/../secret reason=parent" }],
+        ["absolute parent path refused", "/home/me/../other/file", undefined, { ok: false, answer: "refused: edit=/home/me/../other/file reason=parent" }],
+        ["newline refused, no path echoed", "hypr/a\nrefused: forged", undefined, { ok: false, answer: "refused: edit=path reason=control" }],
+        ["NUL refused", "/tmp/a\u0000b", undefined, { ok: false, answer: "refused: edit=path reason=control" }],
+        ["unit separator refused", "a\u001fb", undefined, { ok: false, answer: "refused: edit=path reason=control" }],
+        ["delete refused", "/tmp/a\u007fb", undefined, { ok: false, answer: "refused: edit=path reason=control" }],
+        ["a control character before a parent segment names no path", "../a\tb", undefined, { ok: false, answer: "refused: edit=path reason=control" }],
         ["empty path refused", "", undefined, { ok: false, answer: "refused: edit=path reason=empty" }],
         ["bad line refused", "hypr/hyprland.lua", "0", { ok: false, answer: "refused: line=0 reason=positive-integer" }],
     ];
     for (const [name, file, line, want] of editArgRows)
         check("editArgs: " + name, ctx.editArgs(file, line), want);
+    // editRoute: how the core opens a cited path, the home folder /home/me
+    // and the configuration directory /home/me/.config.
+    const editRouteRows = [
+        ["a relative file opens in the editor", "hypr/hyprland.lua", 7, { ok: true, kind: "file", args: ["hypr/hyprland.lua", "7"] }],
+        ["an absolute file opens in the editor", "/etc/pacman.d/hooks/vgs.hook", undefined, { ok: true, kind: "file", args: ["/etc/pacman.d/hooks/vgs.hook"] }],
+        ["a home file opens as an absolute path", "~/.local/share/vgs/AGENTS.md", undefined, { ok: true, kind: "file", args: ["/home/me/.local/share/vgs/AGENTS.md"] }],
+        ["a home folder opens in the file manager", "~/.local/share/vgs/skills/", undefined, { ok: true, kind: "folder", path: "/home/me/.local/share/vgs/skills/" }],
+        ["an absolute folder opens in the file manager", "/etc/pacman.d/hooks/", undefined, { ok: true, kind: "folder", path: "/etc/pacman.d/hooks/" }],
+        ["a relative folder opens under the configuration directory", "hypr/", undefined, { ok: true, kind: "folder", path: "/home/me/.config/hypr/" }],
+        ["a folder takes no line", "hypr/", 3, { ok: false, answer: "refused: line=3 reason=folder" }],
+        ["a tilde not before a slash stays relative", "~notes.md", undefined, { ok: true, kind: "file", args: ["~notes.md"] }],
+        ["a home path that climbs out is refused", "~/../other/AGENTS.md", undefined, { ok: false, answer: "refused: edit=/home/me/../other/AGENTS.md reason=parent" }],
+        ["a home path with a control character is refused", "~/a\nb", undefined, { ok: false, answer: "refused: edit=path reason=control" }],
+        ["an empty path is refused", "", undefined, { ok: false, answer: "refused: edit=path reason=empty" }],
+    ];
+    for (const [name, file, line, want] of editRouteRows)
+        check("editRoute: " + name, ctx.editRoute(file, line, "/home/me", "/home/me/.config"), want);
+    let homeless = "returned";
+    try { ctx.editRoute("~/a", undefined, "", "/c"); } catch (e) { homeless = e.message.startsWith("editRoute: home ") ? "threw" : e.message; }
+    check("editRoute: a home that is no absolute path is an invariant failure", homeless, "threw");
+    // A plugin's file action runs the core editor as the plugin's own run.
+    const owned = ctx.tuiCore(core, "/core/bin", runner("present", []), "quiet", ["a"], "acme.tui");
+    check("tuiCore keys an owned launch by <plugin id>/<name>", [owned.key, owned.argv.slice(owned.argv.indexOf("--record"), owned.argv.indexOf("--record") + 2)], ["acme.tui/quiet", ["--record", "acme.tui/quiet"]]);
+    check("tuiCore: an owned launch carries no plugin snapshot", owned.argv.indexOf("--plugin"), -1);
+    check("tuiCore: an owned busy key is refused by its name", [ctx.tuiCore(core, "/core/bin", runner("present", ["acme.tui/quiet"]), "quiet", ["a"], "acme.tui").answer], ["refused: tui=quiet reason=busy"]);
+    check("tuiCore: a core busy key does not hold an owned one", ctx.tuiCore(core, "/core/bin", runner("present", ["core/quiet"]), "quiet", ["a"], "acme.tui").ok, true);
     check("tuiEntries: the core's and every enabled plugin's listed TUIs, by key", ctx.tuiEntries(manifests, ["acme.tui"], core), [
         { key: "acme.tui/update", plugin: "acme.tui", name: "update", title: "Update", label: "Update the system", icon: "terminal", group: "System" },
         { key: "core/doctor", plugin: "core", name: "doctor", title: "Doctor", label: "Check the system", icon: "stethoscope", group: "System" },
@@ -532,6 +565,13 @@ function suite(ctx, check) {
         never: { running: false, code: null, endedAt: null },
     });
     check("tuiState: another plugin's keys stay its own", ctx.tuiState(runs, "acme.other", ["hello"]), { hello: { running: false, code: null, endedAt: null } });
+    // tuiStateNames: a plugin's file action adds the editor's name.
+    const filing = (tui, action) => Object.assign(manifestWith(tui), { capabilities: ["tui", "status"], status: { notes: { type: "state", label: "Notes", action: action } } });
+    check("tuiStateNames: the scripts alone without a file action", ctx.tuiStateNames(ctx.validateManifest(filing({ hello: hello }, { label: "Say hello", tui: "hello" }), "/p").manifest), ["hello"]);
+    check("tuiStateNames: a file action adds the editor's name", ctx.tuiStateNames(ctx.validateManifest(filing({ hello: hello }, { label: "Open notes", file: "~/notes.md" }), "/p").manifest), ["hello", ctx.STATUS_FILE_TUI]);
+    check("tuiStateNames: a file action on a manifest with no tui", ctx.tuiStateNames(ctx.validateManifest(filing(undefined, { label: "Open notes", file: "~/notes.md" }), "/p").manifest), ["edit"]);
+    const editRuns = ctx.tuiRuns([rec("acme.tui/edit", "7-1", "ended", 0, "07", "08")]);
+    check("tuiState: a file action's editor run ends in the plugin's state", ctx.tuiState(editRuns, "acme.tui", ["edit"]), { edit: { running: false, code: 0, endedAt: at("08") } });
     check("tuiRunDone: an ended run answers its code", ctx.tuiRunDone(runs, "1-1"), { code: 0, reason: null });
     check("tuiRunDone: a failed run answers its code", ctx.tuiRunDone(runs, "5-1"), { code: 1, reason: null });
     check("tuiRunDone: a reaped run vanished", ctx.tuiRunDone(runs, "3-1"), { code: null, reason: "vanished" });
@@ -1038,7 +1078,6 @@ const CONTROLS = [
     ["an argument is not empty", "typeof arg === \"string\" && arg.length > 0 && ", "typeof arg === \"string\" && "],
     ["an argument is at most 256 characters", "Array.from(arg).length <= TUI_ARG_MAX && ", ""],
     ["an argument holds no control character", " && !CONTROL_CHARACTER.test(arg);", ";"],
-    ["edit refuses an absolute path", "if (path.charAt(0) === \"/\")", "if (false)"],
     ["edit refuses a parent path", "if (path.split(\"/\").indexOf(\"..\") !== -1)", "if (false)"],
     ["edit refuses a bad line", "if (!/^[1-9][0-9]*$/.test(text))", "if (false)"],
     ["run opens only a declared script", "if (typeof name !== \"string\" || !hasOwn(manifest.tui, name))", "if (false)"],
@@ -1067,7 +1106,7 @@ const CONTROLS = [
     ["a runner refusal names its key", "    refusal.key = key;\n", ""],
     ["a launcher state outside the table throws", "if (TUI_LAUNCHER_STATES.indexOf(runner.launcher) === -1)", "if (false)"],
     ["run consults the runner after the judge", "    var refusal = tuiRunnerRefusal(runner, name, key);\n    if (refusal !== null)\n        return refusal;\n", ""],
-    ["open consults the runner for a core TUI", "    var refusal = tuiRunnerRefusal(runner, key, key);\n    if (refusal !== null)\n        return refusal;\n    var row = core[name];", "    var row = core[name];"],
+    ["open consults the runner for a core TUI", "    var refusal = tuiRunnerRefusal(runner, label, key);\n    if (refusal !== null)\n        return refusal;\n    var row = core[name];", "    var row = core[name];"],
     ["open consults the runner for a plugin TUI", "    if (pluginRefusal !== null)\n        return pluginRefusal;\n", ""],
     ["a launch carries its record key and run", "    argv.push(\"--record\", key, \"--run\", run);\n", ""],
     ["a launcher that saw the record waits for the run", "if (completion !== null && completion.status === 0 && completion.code === 0)\n        return null;", "if (false)\n        return null;"],
@@ -1124,7 +1163,16 @@ const CONTROLS = [
     ["the manager's open answers unknown for no plugin", "if (manifest === null)\n        return { ok: false, answer: \"unknown: \" + tuiLabel(id) };\n    if (!listedTuis(manifest)", "if (manifest === null)\n        return { ok: false, answer: \"unknown\" };\n    if (!listedTuis(manifest)"],
     ["the manager's open refuses a name the row does not list", "if (!listedTuis(manifest).some(function (tui) { return tui.name === name; }))", "if (false)"],
     ["the manager's open asks for the named TUI", "return { ok: true, kind: \"tui\", name: name };", "return { ok: true, kind: \"tui\", name: id };"],
-    ["a core request's arguments are judged", "    if (!tuiArgsValid(args))\n        return tuiRefusal(key, \"args\");\n    var refusal = tuiRunnerRefusal(runner, key, key);", "    var refusal = tuiRunnerRefusal(runner, key, key);"],
+    ["a core request's arguments are judged", "    if (!tuiArgsValid(args))\n        return tuiRefusal(label, \"args\");\n    var refusal = tuiRunnerRefusal(runner, label, key);", "    var refusal = tuiRunnerRefusal(runner, label, key);"],
+    ["the old absolute refusal", "    if (EDIT_CONTROL.test(path))", "    if (path.charAt(0) === \"/\")\n        return { ok: false, answer: \"refused: edit=\" + tuiLabel(path) + \" reason=absolute\" };\n    if (EDIT_CONTROL.test(path))"],
+    ["a path holds no control character", "    if (EDIT_CONTROL.test(path))\n        return { ok: false, answer: \"refused: edit=path reason=control\" };\n", ""],
+    ["a control refusal names no path", "answer: \"refused: edit=path reason=control\"", "answer: \"refused: edit=\" + path + \" reason=control\""],
+    ["a home path expands", "path.indexOf(\"~/\") === 0 ? home + path.slice(1) : path", "path"],
+    ["a folder opens in the file manager", "if (expanded.charAt(expanded.length - 1) !== \"/\")", "if (true)"],
+    ["a relative folder sits under the configuration directory", ": configHome + \"/\" + expanded };", ": expanded };"],
+    ["a folder takes no line", "    if (judged.args.length > 1)\n        return { ok: false, answer: \"refused: line=\" + judged.args[1] + \" reason=folder\" };\n", ""],
+    ["an owned launch is keyed by its owner", "var key = (owner === undefined ? \"core\" : owner) + \"/\" + name;", "var key = \"core/\" + name;"],
+    ["a file action names the editor in the plugin's state", "return files ? names.concat([STATUS_FILE_TUI]) : names;", "return names;"],
     ["a core request's arguments follow its argv", "row.argv.slice(1), args === undefined ? [] : args)", "row.argv.slice(1))"],
     ["a launcher that never started is logged", "if (completion === null)\n        return \"tui: launcher=unstarted", "if (false)\n        return \"tui: launcher=unstarted"],
 ];

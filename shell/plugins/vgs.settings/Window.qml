@@ -488,11 +488,19 @@ FocusScope {
         return keep(id, shell.run.detached(DesktopLaunch.open(link.url)));
     }
 
-    // Open the page a hint's page reference names (LinkText): plugin
-    // `id`'s page on `tab`, Settings for "", as openPlugin does; answers
-    // its reply. A pane plugin opens in the panes holder over this window.
-    // A reference to a plugin that is not listed opens nothing.
+    // Open what a hint's or an info's reference names (LinkText): a file
+    // reference's path (PageReference.file) through the core edit route,
+    // `shell.tui.edit`, else plugin `id`'s page on `tab`, Settings for "",
+    // as openPlugin does; answers its reply. A pane plugin opens in the
+    // panes holder over this window. A reference to a plugin that is not
+    // listed opens nothing.
     function openPage(id, tab) {
+        const file = PageReference.file(id);
+        if (file !== "") {
+            const answer = shell.tui.edit(file);
+            if (answer !== "ok") console.warn("settings: file link " + answer);
+            return answer;
+        }
         const row = rowOf(id);
         if (row !== null && row.kinds.indexOf("pane") !== -1) return openPane(id);
         const reply = openPlugin(id, Qt.OtherFocusReason, tab === "" ? undefined : tab);

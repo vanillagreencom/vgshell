@@ -1241,11 +1241,13 @@ function lifetimeFor(urgency, expireTimeout, normal) {
 //   x-vgs-click  open (a click opens x-vgs-open) or none (a click only
 //                dismisses); without it a click runs the sender's default
 //                action or shows its window
-//   x-vgs-page   one page reference, `[words](page:<plugin id>[/<tab>])`
+//   x-vgs-page   one page reference, `[words](page:<plugin id>[/<tab>])`,
+//                or file reference, `[words](file:<path>)`
 //                (Commons.PageReference): the card draws the words in its
-//                body as a link and a click opens that Settings page, ahead
-//                of x-vgs-click. The core adds it from a reference in a
-//                plugin notice's message.
+//                body as a link and a click opens that Settings page, or
+//                the file through the core's reference route
+//                (shell.surfaces.openPage), ahead of x-vgs-click. The core
+//                adds it from a reference in a plugin notice's message.
 // The core adds a fifth, x-vgs-plugin, the sending plugin's id, which
 // bypassesSilence reads and no card keeps.
 // A hint of another shape is refused whole: its role stays "" and the
@@ -1267,7 +1269,8 @@ var HINT_ICON_MAX = 64;
 // every path the judge accepts; a page reference keeps the same bound.
 var HINT_OPEN_MAX = 256;
 
-// Whether VALUE is one whole page reference that names a page.
+// Whether VALUE is one whole page or file reference that names a page or
+// a file.
 function pageReferenceFits(value) {
     if (value.length > HINT_OPEN_MAX || /[\u0000-\u001f\u007f]/.test(value)) return false;
     var reference = Commons.PageReference.parse(value);

@@ -270,6 +270,39 @@ function verify(logic, producer) {
         same(rows(values).find(entry => entry.key === key).action.offered, false, "act on a tools value: " + key + ": its declared action is not offered");
     }
 
+    // A file action and a value's own info. A Setup step that declares a
+    // file action offers it as its status action, and the act opens its
+    // path as the plugin's own edit run; a state value's `info` stands in
+    // the entry's while present, judged as an entry's.
+    const filedStatus = Object.assign({}, status, { notes: { type: "state", label: "Notes", setup: true, info: "Notes hold what the fixture reads",
+        action: { label: "Open notes", file: "~/.local/share/fixture/notes.md" } } });
+    const filed = Object.assign({}, manifest, { status: filedStatus });
+    const tooLong = { tone: "warning", text: "Notes are too long", action: true, info: "The fixture reads the first 4 KB of the notes, so the rest never reaches it" };
+    same(producer.statusError(filedStatus, ["status", "tui"], tui, undefined), "", "file action: a file action is admitted");
+    for (const [name, path, scripts] of [
+        ["a path that climbs out", "~/../notes.md", tui],
+        ["a path with a control character", "notes\n.md", tui],
+        ["an empty path", "", tui],
+        ["a path that is no string", 3, tui],
+        ["a manifest whose script is named edit", "~/notes.md", Object.assign({ edit: { entry: null, requires: [] } }, tui)]
+    ]) {
+        const bad = Object.assign({}, filedStatus, { notes: Object.assign({}, filedStatus.notes, { action: { label: "Open notes", file: path } }) });
+        assert.ok(producer.statusError(bad, ["status", "tui"], scripts, undefined).startsWith("status.notes.action.file "), "file action: " + name + " is refused at its path");
+    }
+    same(producer.statusActionRequest(filed, "fixture", true, { notes: tooLong }, "notes"), { ok: true, kind: "file", path: "~/.local/share/fixture/notes.md" }, "file action: the act opens the declared path");
+    same(producer.statusActionRequest(filed, "fixture", true, { notes: ready }, "notes"), { ok: false, answer: producer.statusActionRefusal("notes", "not-offered") }, "file action: a done step offers no file");
+    const filedRows = values => producer.statusRows(filed, values);
+    const notesStep = values => items(logic.setupSections(screens, filedRows(values), manifest.requirements, on)).find(item => item.key === "notes");
+    same(((b) => [b.kind, b.label, b.enabled])(notesStep({ notes: tooLong }).button), ["status", "Open notes", true], "file action: a Setup step offers Open file on the status route");
+    same(notesStep({ notes: ready }).button, null, "file action: a done step offers no file");
+    same(producer.statusWrite(filed, {}, "notes", tooLong).ok, true, "value info: a value with its own info is admitted");
+    for (const [name, info] of [["empty", ""], ["past the bound", "x".repeat(producer.INFO_MAX + 1)], ["two lines", "a\nb"], ["no string", 4]])
+        same(producer.statusWrite(filed, {}, "notes", Object.assign({}, tooLong, { info: info })).ok, false, "value info: an info " + name + " is refused");
+    same(filedRows({ notes: tooLong }).find(row => row.key === "notes").info, tooLong.info, "value info: a value's info stands in the entry's");
+    same(filedRows({ notes: ready }).find(row => row.key === "notes").info, "Notes hold what the fixture reads", "value info: without its own info the entry's applies");
+    same(filedRows({}).find(row => row.key === "notes").info, "Notes hold what the fixture reads", "value info: an unreported step reads the entry's info");
+    same(logic.stepView(notesStep({ notes: tooLong }).entry, String, on).info, tooLong.info, "value info: the Setup step draws the value's info");
+
     // Details facts: [name, entry, published values, the plugin, what the
     // fact offers]. A former Settings entry keeps its action beside its
     // fact: a fact that holds work offers a press, Turn on while the
@@ -371,7 +404,14 @@ const producerControls = [
     ["Not available with an action passes", ' || (value.action !== undefined && value.action !== false) || ', ' || ', "judge: Not available with an action"],
     ["Not available with no hint passes", ' || value.aside === true\n            || value.hint === undefined))', ' || value.aside === true))', "judge: Not available with no hint"],
     ["available true passes", '&& (value.available === undefined || value.available === false);', ';', "judge: available true"],
-    ["a tools value offers a declared action", '        if (value.action === STATUS_TOOLS_ACTION) return null;\n', '', "act on a tools value: account"]
+    ["a tools value offers a declared action", '        if (value.action === STATUS_TOOLS_ACTION) return null;\n', '', "act on a tools value: account"],
+    ["no info key in a state value", '"available", "info"];', '"available"];', "value info: a value with its own info is admitted"],
+    ["a value's info is not judged", '            && infoError(value.info, "") === ""\n', '', "value info: an info empty is refused"],
+    ["the entry's info stands over the value's", '        var info = entry.type === "state" && value !== null && value.info !== undefined\n            ? value.info : entry.info', '        var info = false\n            ? value.info : entry.info', "value info: a value's info stands in the entry's"],
+    ["no file route", 'var STATUS_ACTION_ROUTES = ["tui", "system", "undo", "dictation", "file"];', 'var STATUS_ACTION_ROUTES = ["tui", "system", "undo", "dictation"];', "file action: a file action is admitted"],
+    ["a file act opens a script", '    if (action.file !== undefined)\n        return { ok: true, kind: "file", path: action.file };\n', '', "file action: the act opens the declared path"],
+    ["a file path is not judged", '        if (typeof action.file !== "string" || !editArgs(action.file).ok)', '        if (typeof action.file !== "string")', "file action: a path that climbs out is refused at its path"],
+    ["a file action beside a script named edit", '        if (isPlainObject(tui) && hasOwn(tui, STATUS_FILE_TUI))', '        if (false)', "file action: a manifest whose script is named edit is refused at its path"]
 ];
 const temp = fs.mkdtempSync(path.join("/tmp", "settings-steps-control-"));
 function mustFail(label, run, message) {

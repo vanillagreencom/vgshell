@@ -34,7 +34,10 @@ import qs.Ui
 // the dialog sits in its centre. The scrim, `color.scrim`, fills the window
 // under the dialog and dims what lies behind it. The dialog alone takes
 // pointer input, so a click on the scrim reaches what is under it, and no
-// notice is modal for the pointer.
+// notice is modal for the pointer. A reference in the message or a
+// consent line (PageReference), a page's or a file's, opens through the
+// core's one reference route, Plugins.openReference: a file through the
+// core edit route.
 Scope {
     id: host
 
@@ -44,6 +47,13 @@ Scope {
     readonly property Item dialog: loader.item === null ? null : loader.item.dialog
     // The scrim under it, for a validation row that reads where it is drawn.
     readonly property Item scrim: loader.item === null ? null : loader.item.scrim
+
+    // Open what an activated reference names; a refused one logs its
+    // reply, and its words stay words.
+    function openReference(page, tab) {
+        const answer = Plugins.openReference(page, tab);
+        if (answer !== "ok") console.warn("notices: reference " + answer);
+    }
 
     // The label of the step the notice runs, PluginLogic.noticeView's
     // `run`, "" when no manager here runs one.
@@ -160,6 +170,7 @@ Scope {
                     else Notices.answerConsent("accept");
                 }
                 onRejected: Notices.dismiss()
+                onMessagePageActivated: (page, tab) => host.openReference(page, tab)
 
                 function tabStops() {
                     const links = consentLines.visible ? consentLines.visibleChildren.filter(item => item.linked === true) : [];
@@ -183,6 +194,7 @@ Scope {
                             text: modelData
                             link: win.consent.link === null || win.consent.link === undefined ? "" : win.consent.link.text
                             onActivated: Notices.openConsentLink()
+                            onPageActivated: (page, tab) => host.openReference(page, tab)
                         }
                     }
                 }

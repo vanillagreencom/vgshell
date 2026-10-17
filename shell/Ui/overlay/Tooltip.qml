@@ -24,10 +24,12 @@ import qs.Ui
 // is a band of help under a form row: it draws `band`, a neutral plate
 // with no outline, since an input shows by its outline and a band with
 // one read as an empty input. A title or a plain detail line that holds a
-// page reference (PageReference.js) draws the reference's words alone.
-// With `pageLinks` set, such a line whose reference names a page draws as
-// a link (LinkText), and a click on it, or Enter, Return or Space on it,
-// emits `pageActivated` with that page and tab and closes the tooltip.
+// page or file reference (PageReference.js) draws the reference's words
+// alone. With `pageLinks` set, such a line whose reference names a page
+// or a file draws as a link (LinkText), and a click on it, or Enter,
+// Return or Space on it, emits `pageActivated` with that page and tab, a
+// file reference's being `file:<path>` and "", and closes the tooltip;
+// the owner opens it through the core's reference route.
 // The pointer reaches a link across the gap: when it leaves the item, a
 // tooltip with a link stays for `tooltip.delay`, stays while the pointer
 // is on it, and closes that long after the pointer left it too. The

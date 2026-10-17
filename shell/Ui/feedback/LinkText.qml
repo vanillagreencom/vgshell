@@ -13,12 +13,16 @@ import qs.Ui
 // occurrence reaches that line and the underline ends lower. Use it where a consumer
 // surface cites a file that the core can open through `vgshell edit`.
 // A page reference in the text, `[words](page:<plugin id>)` or
-// `[words](page:<plugin id>/<tab>)`, which PageReference.js reads, draws
-// its words alone, as a link while the text holds no `link` words and the reference names a page, so an
-// owner's fixed `link` gives way in a text that does not cite it, and activating it emits
-// `pageActivated` with that page and tab, "" for no tab, in place of
-// `activated`. The owner opens the page; a reference to no page, as
-// `[words](page:)`, reads as its words.
+// `[words](page:<plugin id>/<tab>)`, or a file reference,
+// `[words](file:<path>)`, which PageReference.js reads, draws its words
+// alone, as a link while the text holds no `link` words and the reference
+// names a page or a file, so an owner's fixed `link` gives way in a text
+// that does not cite it, and activating it emits `pageActivated` with that
+// page and tab, "" for no tab, in place of `activated`: a file
+// reference's page is `file:<path>`. The owner hands it on to the core's
+// one reference route, which opens a page in Settings and a file or folder
+// through the core edit route (`shell.tui.edit`); a reference to no page,
+// as `[words](page:)`, reads as its words.
 // The focus ring goes round the first occurrence's words, `linkBox`, not
 // the whole text, so a ring on a line of prose shows which words act.
 // The box holds the words and the punctuation against their end, since a
