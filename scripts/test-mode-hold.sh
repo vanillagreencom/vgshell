@@ -475,6 +475,10 @@ def extract(path,names):
     return result
 parts=extract(harness,("coordinate_observation","pointer_dispatch","click","hover","right_click","middle_click","drag","wheel","swipe","point_item","click_item","expect","expect_poll","reader_stderr","smoke_poll_tries","geometry","render"))
 parts+=extract(surfaces,("layout_size","layout_click","surf_menu_point","flyout_widget_x","flyout_grow_check"))
+# point_item reads its restore bound from a global the harness sets.
+bound=[line for line in harness.read_text().splitlines() if line.startswith("point_item_restores=")]
+assert len(bound)==1
+parts+=bound
 out.write_text("\n".join(parts)+"\n")
 PYEXTRACT
   out="$(env -i PATH="$PATH" "$BASH" -c '
@@ -520,7 +524,12 @@ POINTER
 chmod +x "$sandbox/click"
 [[ $stub_phase != helper-error ]] || : >"$stub_dir/helper-error"
 [[ $stub_phase != helper-unavailable ]] || : >"$stub_dir/helper-unavailable"
-control_box() { echo "[100, 200, 2, 4]"; }
+# reset-again: the host configures the window again before every read of
+# the box, so each restore the reload made is undone before the step.
+control_box() {
+  [[ $stub_phase != reset-again ]] || printf "%s\n" "$reset_json" >"$stub_dir/monitors"
+  echo "[100, 200, 2, 4]"
+}
 control_hovered() { echo true; }
 ipc() {
   case "$*" in
@@ -561,6 +570,22 @@ observe() {
   esac
   dependent=true
 }
+# The unscoped path runs click_item outside every coordinate_observation,
+# where point_item restores the hold itself. Its row pins the status, the
+# clicks sent, the reloads, and the stderr lines that pair each refused
+# step with its restore.
+if [[ $stub_path == unscoped ]]; then
+  status=0 clicks=0 reloads=0
+  click_item bar id Control text 2>"$stub_dir/stderr" || status=$?
+  cat -- "$stub_dir/stderr" >&2
+  [[ ! -e $stub_dir/sent ]] || clicks="$(grep -c -x -E "[0-9]+ [0-9]+ 1755 933" -- "$stub_dir/sent" || :)"
+  [[ ! -e $stub_dir/reloads ]] || reloads="$(wc -l <"$stub_dir/reloads")"
+  restored="$(grep -c -x -E "coordinate-mode: restored output=WAYLAND-1 want=\[3510x1866 scale=2\] by=point_item restores=[0-9]+" -- "$stub_dir/stderr" || :)"
+  refused="$(grep -c -x -E "coordinate-mode: reset output=WAYLAND-1 want=\[3510x1866 scale=2\] pointer-step=refused" -- "$stub_dir/stderr" || :)"
+  got="status=$status clicks=$clicks reloads=$reloads restored=$restored refused=$refused"
+  [[ $got == "status=$7 clicks=$8 reloads=$9 restored=${10} refused=${11}" ]] || { echo "got $got"; exit 1; }
+  exit 0
+fi
 coordinate_observation coordinates observe 2>"$stub_dir/stderr" && continued=true || exit 1
 cat -- "$stub_dir/stderr" >&2
 # A step refused under a reset says so on stderr, once; a reset the
@@ -632,6 +657,20 @@ coordinate_cases=(
 )
 for row in "${coordinate_cases[@]}"; do
   if coordinate_case "$subject" "$repo/scripts/smoke/harness.sh" "$repo/scripts/smoke/rows/surfaces.sh" "$row"; then ok "coordinate $row"; else fail "coordinate $row"; fi
+done
+# point_item outside a coordinate_observation, with the output reset
+# before the first step. Rows: phase | click_item | unscoped | status |
+# clicks sent | reloads | restored lines | refused lines. A reset the
+# reload restores sends one click; a reload error returns the restore's
+# status; a host that resets the output after every restore ends the call
+# with 77 after point_item_restores reloads.
+restore_cases=(
+  'recover|click_item|unscoped|0|1|1|1|1'
+  'reload-error|click_item|unscoped|1|0|1|0|1'
+  'reset-again|click_item|unscoped|77|0|2|2|3'
+)
+for row in "${restore_cases[@]}"; do
+  if coordinate_case "$subject" "$repo/scripts/smoke/harness.sh" "$repo/scripts/smoke/rows/surfaces.sh" "$row"; then ok "restore $row"; else fail "restore $row"; fi
 done
 # Keep delivery intact while removing the actual final check in scratch.
 python3 - "$repo/scripts/smoke/harness.sh" "$tmp/unguarded-harness.sh" <<'PYMUTATE'

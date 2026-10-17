@@ -1488,7 +1488,10 @@ control_hovered() {
 # restores the hold through coordinate_mode_prepare, its existing owner,
 # and reads the box again, as for a box that moved, at most
 # point_item_restores times a call; it returns 77 past that, and the
-# restore's status when the hold cannot be restored (VGS-1711). Inside a
+# restore's status when the hold cannot be restored (VGS-1711). Each
+# restore that holds prints `coordinate-mode: restored output=<name>
+# want=[<state>] by=point_item restores=<n>` on stderr, so the log pairs
+# the refused step pointer_dispatch reports with its restore. Inside a
 # coordinate_observation it restores nothing and returns the 77: the
 # observation sampled other points under the old layout, and it records
 # the step not measured.
@@ -1525,6 +1528,7 @@ point_item() { # LOOKUP [DX DY]
       restores=$((restores + 1))
       # The caller reads X Y from stdout, so the restore speaks on stderr.
       coordinate_mode_prepare >&2 || return $?
+      printf 'coordinate-mode: restored output=%s want=[%s] by=point_item restores=%s\n' "${mode_hold[0]}" "${mode_hold[1]}" "$restores" >&2
       held=0; seen=""; continue
     fi
     [[ $status == 0 ]] || return "$status"

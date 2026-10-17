@@ -642,30 +642,7 @@ print(json.dumps([r[0]["field"], [c[1] for c in r[0]["chips"]], [[b["text"],b["e
 m=json.load(open(sys.argv[1])); row=m["status"]["clonedVoiceSetup"]
 print(m["schema"]["clonedVoice"]["label"]); print(row["label"]); print(row["actions"]["setup"]["label"]); print(row["actions"]["remove"]["label"])' "$repo/shell/plugins/vgs.jarvis/manifest.json") ||
   fail "the manifest names no Cloned voice setting, setup row or Set up action"
-# A host configure of the nested window moves the output off the mode the
-# run holds (held_mode_state in scripts/smoke/mode-hold.sh). Batch
-# 20261016T005704Z met one before this section's first tab click, and the
-# clicks after it failed (VGS-1711). The output leaves the hold here as the
-# host moves it, and the Details click restores the hold before it reads
-# the tab again (point_item in scripts/smoke/harness.sh); the control keeps
-# the reset mode, and its click must fail.
-setup_mode_reset() {
-  [[ ${#mode_hold[@]} -gt 0 ]] || { echo "hold=none"; return 1; }
-  local device="${mode_hold[1]% scale=*}"
-  output_mode "${mode_hold[0]}" "$((${device%x*} - 100))x${device#*x}" 1
-}
-setup_reset_click_control() {
-  (failures=0 behaviour_failures=0
-   coordinate_mode_prepare() { return 0; }
-   settings_tab_click Details || fail "control: the Details tab click under the reset mode failed"
-   echo "$failures")
-}
-expect "the nested output leaves the held mode as a host configure moves it" ok setup_mode_reset
-expect_poll "the nested output reads a mode other than the held one" reset held_mode_state
-expect "a tab click that keeps the reset mode fails" 1 local_control_count setup_reset_click_control
-expect "the control left the output off the held mode" reset held_mode_state
 settings_details
-expect "the Details click restored the held mode" held held_mode_state
 setup_clone_answer false
 rescan "a rescan reads the clone status beside no large tier"
 expect_poll "beside no large tier the setup row offers nothing" '[false, ""]' setup_clone_row
