@@ -71,8 +71,10 @@ async function inside() {
             const keepMemory = expected.some(frame => frame.type === "memory");
             const keepMemoryInbox = expected.some(frame => frame.type === "memory-inbox");
             const keepHomes = expected.some(frame => frame.type === "homes");
-            // The Voice offers and the Personality row each judgement sends.
-            const keepShown = expected.some(frame => frame.type === "voices" || frame.type === "personality");
+            // The Voice offers, the Personality row and the start text's size
+            // each judgement sends.
+            const shownTypes = ["voices", "personality", "start-text"];
+            const keepShown = expected.some(frame => shownTypes.includes(frame.type));
             const publicFrames = frames.filter(frame => ["task-list", "audit-failures"].includes(frame.type));
             if (observations !== null) assert.deepEqual(publicFrames, observations, "startup publishes both bounded lists");
             for (const frame of publicFrames) {
@@ -88,7 +90,7 @@ async function inside() {
                 && frame.type !== "task-list" && frame.type !== "audit-failures"
                 && (keepMemory || frame.type !== "memory") && (keepMemoryInbox || frame.type !== "memory-inbox")
                 && (keepHomes || frame.type !== "homes")
-                && (keepShown || (frame.type !== "voices" && frame.type !== "personality"))), expected);
+                && (keepShown || !shownTypes.includes(frame.type))), expected);
             cases++;
             return frames;
         } finally { clearTimeout(timeout); if (child.exitCode === null) child.kill("SIGKILL"); }
@@ -262,6 +264,14 @@ async function inside() {
         // The Personality row each judgement of the folder sends.
         const shown = () => out.split("\n").slice(0, -1).map(line => JSON.parse(line)).filter(frame => frame.type === "personality").map(frame => frame.personality);
         const personality = () => shown().at(-1);
+        // The start text's size each judgement sends: the home layers it
+        // names, or unreadable.
+        const sizes = () => out.split("\n").slice(0, -1).map(line => JSON.parse(line)).filter(frame => frame.type === "start-text").map(frame => frame.size);
+        const sizeLayers = () => {
+            const size = sizes().at(-1);
+            assert.ok(size !== undefined, "a judgement sends the start text's size");
+            return size.kind === "read" ? size.layers.map(entry => entry.layer) : size.kind;
+        };
         // The Voice offers, sent when they change: with no local setup the
         // local provider offers none, however many hellos follow.
         const offered = () => out.split("\n").slice(0, -1).map(line => JSON.parse(line)).filter(frame => frame.type === "voices").map(frame => frame.voices);
@@ -288,21 +298,28 @@ async function inside() {
         try {
             await step([hello], [others]);
             assert.deepEqual(personality(), { kind: "none" }, "no home, no Personality section");
+            assert.deepEqual(sizeLayers(), [], "no home, no home layer in the start text");
+            assert.ok(sizes().at(-1).tokens > 0, "the shipped guidance alone has a size");
             assert.deepEqual(offered(), [[]], "a provider whose voices cannot be read offers none");
             await step([intent("talk-down"), named("~/home-made")], [others]);
             assert.deepEqual(personality(), { kind: "missing" }, "a new AGENTS.md has no Personality section");
+            const bare = sizes().at(-1);
             assert.deepEqual(["AGENTS.md", "skills/own", "memory/MEMORY.md", "memory/inbox", "state",
                 ".claude/settings.json", ".codex/config.toml", ".agents/skills/jarvis/SKILL.md", ".agents/skills/jarvis/persona.md"].filter(name => !fs.existsSync(path.join(made, name))), [], "the second hello makes the layout");
             fs.writeFileSync(path.join(made, "AGENTS.md"), "x".repeat(8193) + "\n## Personality\nCalm.\n");
             await step([named("~/home-made")], [others]);
             assert.deepEqual([cautions().at(-1), personality()], [["guidance=agents-over-budget"], { kind: "section", lines: ["Calm."], more: false }],
                 "an AGENTS.md over its budget is a caution of a ready folder, and shows its section");
+            // 8,193 bytes and more at the recorded ratio: over 2,000 tokens.
+            assert.ok(sizes().at(-1).layers.find(entry => entry.layer === "home/AGENTS.md").tokens > 2000, "an AGENTS.md over its budget is counted whole");
+            assert.ok(sizes().at(-1).tokens > bare.tokens + 2000, "and the whole start text grows with it");
             fs.writeFileSync(path.join(made, "AGENTS.md"), "# Short again\n\n## Personality\nCalm\u2028and brief.\n");
             await step([intent("talk-down"), named("~/home-made")], [others]);
             assert.deepEqual(cautions().at(-1), [], "a text back within its budget is no caution");
             await step([named("~/home-linked")], [["home=link", ...others]]);
             assert.deepEqual(shown().slice(-2), [{ kind: "section", lines: ["Calm and brief."], more: false }, { kind: "unreadable" }],
                 "each judgement reads the section again, a pasted line separator as a space, and a refused folder shows none");
+            assert.equal(sizeLayers(), "unreadable", "a refused folder has no size");
             fs.rmSync(path.join(linked, "skills"));
             await step([{ ...intent("say"), text: "fixture request" }, named("/etc/vgs-jarvis-home")], [others, ["home=path", ...others]]);
             child.stdin.end();
@@ -336,6 +353,7 @@ async function inside() {
     await control("voices-change-only", "if (signature === publishedVoices) return;", "", homeStatus);
     await control("personality-section", 'personality = section.kind === "section" ? Protocol.personalitySection(section.text) : section;',
         "void section;", homeStatus);
+    await control("start-text-each-judgement", "        publishStartText();\n        configured(", "        configured(", homeStatus);
     await control("home-refusal", 'return { path: folder, state: { kind: "refused", cause } };', 'return { path: folder, state: { kind: "none" } };', homeStatus);
     await control("home-engine", "directories: context.directories, home: () => homeFolder.state, rejudge: judgeSetup });", "directories: context.directories, rejudge: judgeSetup });", homeStatus);
     await control("home-each-hello", "                judgeSetup();\n", "                if (first) judgeSetup(); else configured(engine.configure(context.settings));\n", homeStatus);

@@ -154,6 +154,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
         rememberHome();
         publishHomes();
         publishPersonality();
+        publishStartText();
         configured(engine.configure(context.settings));
         scheduleMemoryReconcile();
     }
@@ -394,6 +395,25 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
             }
         }
         write({ v: 1, type: "personality", gen: runner.state.gen, revision: context.revision, personality });
+    }
+
+    // About how many tokens each home layer and the whole start text cost,
+    // read again at each judgement. The guidance is the local brain's, the
+    // largest, whose budgets the Setup cautions judge (ChainedEngine
+    // heldByHome), so the total and its caution agree. A home the daemon
+    // refused, or whose text cannot be read, has no reading.
+    function publishStartText() {
+        let size = { kind: "unreadable" };
+        if (homeFolder.state.kind !== "refused") {
+            try {
+                const read = Guidance.compose("chained", "local", "", homeFolder.state.kind === "ready" ? homeFolder.state.path : null).size;
+                size = { kind: "read", tokens: Guidance.tokens(read.start),
+                    layers: read.home.map(layer => ({ layer: layer.layer, tokens: Guidance.tokens(layer.bytes) })) };
+            } catch (error) {
+                if (!/^jarvis: (home=[a-z-]{1,60}|guidance=home-[a-z-]{1,50})$/.test(error.message)) throw error;
+            }
+        }
+        write({ v: 1, type: "start-text", gen: runner.state.gen, revision: context.revision, size });
     }
 
     function fault(reason) {

@@ -25,6 +25,12 @@ for (const [engine, brain, language, cause] of invalid)
     assert.throws(() => Guidance.compose(engine, brain, language),
         { message: cause.startsWith("speech") ? "jarvis: " + cause : "jarvis: guidance=" + cause });
 
+// The Jarvis page's estimate: the ratio Guidance records, 4,018 bytes
+// counted 1,023 o200k_base tokens, rounded to ten.
+function tokenEstimate(logic) {
+    assert.deepEqual([0, 4018, 40180, 200].map(logic.tokens), [0, 1020, 10230, 50]);
+}
+tokenEstimate(Guidance);
 let controls = 0;
 // The words a brain reads, the one consumer of these files: every brain is
 // told to state one step before a tool call and to speak only its result, and
@@ -71,7 +77,8 @@ world("jg", root => {
         ["class", '!["duplex", "text", "local"].includes(brainClass)', 'false',
             logic => assert.throws(() => logic.compose("chained", "other", "en"), { message: "jarvis: guidance=class" })],
         ["consumer", 'engine === "chained" && brainClass === "duplex"', 'false',
-            logic => assert.throws(() => logic.compose("chained", "duplex", "en"), { message: "jarvis: guidance=consumer" })]
+            logic => assert.throws(() => logic.compose("chained", "duplex", "en"), { message: "jarvis: guidance=consumer" })],
+        ["token-ratio", "const MEASURED_TOKENS = 1023;", "const MEASURED_TOKENS = 1000;", tokenEstimate]
     ];
     for (const [name, needle, replacement, check] of rows) {
         control(root, name, "Guidance.js", needle, replacement, check); controls++;
@@ -107,9 +114,9 @@ world("jg", root => {
         startOver(require(path.join(large, "Guidance.js")), large);
     }
     for (const [name, needle, replacement] of [
-        ["start-budget", "Buffer.byteLength(instructions) > START_BUDGET", "false"],
-        ["start-refuses", "    const overBudget = Buffer.byteLength(instructions) > START_BUDGET",
-            '    if (Buffer.byteLength(instructions) > START_BUDGET) throw new Error("jarvis: guidance=compose-too-large");\n    const overBudget = Buffer.byteLength(instructions) > START_BUDGET']
+        ["start-budget", "start > START_BUDGET", "false"],
+        ["start-refuses", "    const overBudget = start > START_BUDGET",
+            '    if (start > START_BUDGET) throw new Error("jarvis: guidance=compose-too-large");\n    const overBudget = start > START_BUDGET']
     ]) {
         control(root, name, "Guidance.js", needle, replacement, logic => startOver(logic, path.join(root, name))); controls++;
     }
@@ -141,8 +148,10 @@ world("jg", root => {
         for (const [file, text] of Object.entries(skills)) fs.writeFileSync(path.join(folder, "skills", file), text);
         return folder;
     };
+    // Its persona holds a character of two bytes, so a size in characters
+    // differs from one in bytes.
     const full = home("full", "\nHOME-MARKER persona\n", { "own/alpha.md": "# Alpha skill\nALPHA-BODY\n" },
-        undefined, "\n- [Team](facts/team.md): MEMORY-MARKER\n");
+        "# Persona\nPERSONA-MARKER caf\u00e9\n", "\n- [Team](facts/team.md): MEMORY-MARKER\n");
     // A persona left where VGS copied the package before kendex's layout is
     // no persona of the home: the one the brain gets is the render's.
     fs.mkdirSync(path.join(full, "skills/base/jarvis"), { recursive: true });
@@ -167,10 +176,22 @@ world("jg", root => {
         assert.equal(instructions.slice(cut + 2).includes(path.join(folder, "state") + "."), true, what + ": the last layer names <folder>/state");
         return instructions.slice(0, cut);
     };
+    // The size the Jarvis page shows: each home layer's bytes in order,
+    // and the whole start text's, which the shipped files, those layers and
+    // the blank line between each two add up to.
+    const sized = (value, row, copy, homeLayers, what) => {
+        assert.deepEqual(value.size.home.map(entry => entry.layer), homeLayers, what + ": a size for each home layer, in order");
+        assert.equal(value.size.start, Buffer.byteLength(value.instructions), what + ": the whole start text's bytes");
+        const counted = [...row.layers.map(name => Buffer.byteLength(fs.readFileSync(path.join(copy, "skills/voice", name), "utf8").trim())),
+            ...value.size.home.map(entry => entry.bytes)];
+        assert.equal(counted.reduce((sum, bytes) => sum + bytes, 0) + 2 * (counted.length - 1), value.size.start,
+            what + ": the layers and the blank lines between them are the whole start text");
+    };
     function homeText(logic, copy = backend) {
         require(path.join(copy, "Core.js")).use(tree);
         for (const row of fixtures) {
             const plain = logic.compose(row.engine, row.class, row.language);
+            sized(plain, row, copy, [], row.engine + " " + row.class + " with no home");
             if (row.class === "duplex") {
                 assert.throws(() => logic.compose(row.engine, row.class, row.language, full), { message: "jarvis: guidance=consumer" },
                     "the voice that reads the brain's words aloud takes no home text");
@@ -188,6 +209,8 @@ world("jg", root => {
             assert.equal(added.includes("ALPHA-BODY"), false, "a skill body is read on demand, never composed");
             assert.equal(stateLast(added, full, row.class).endsWith("\n\n- [Team](facts/team.md): MEMORY-MARKER"), true, row.class + ": the memory index, each line whole");
             assert.deepEqual(value.layers, [...row.layers, "home/persona", "home/AGENTS.md", "home/skills", "home/MEMORY.md", "home/state"]);
+            sized(value, row, copy, ["home/persona", "home/AGENTS.md", "home/skills", "home/MEMORY.md", "home/state"], row.class + " full home");
+            assert.equal(value.size.home[0].bytes, Buffer.byteLength("# Persona\nPERSONA-MARKER caf\u00e9"), "the persona's size in bytes");
             assert.deepEqual(value.overBudget, [], row.class + ": a home within its budgets names none");
             assert.equal(value.afterToolResult, plain.afterToolResult, "the home text is not repeated after a tool result");
             assert.equal(plain.withHome(full).instructions, value.instructions, "a composed guidance reads the home again");
@@ -197,6 +220,7 @@ world("jg", root => {
             assert.equal(bareAdded.startsWith(plain.instructions + "\n\n"), true, "an empty home keeps the shipped layers");
             assert.equal(bareAdded.slice(plain.instructions.length).split("\n").includes("- base/jarvis: Jarvis package"), true, "the package's skill");
             assert.deepEqual(empty.layers, [...row.layers, "home/skills", "home/state"], "an empty home adds only the package's skill and its state folder");
+            sized(empty, row, copy, ["home/skills", "home/state"], row.class + " empty home");
         }
         // Each text at and over its budget: the layer is whole where the
         // blank lines around it hold it alone, or it ends the text before
@@ -244,7 +268,11 @@ world("jg", root => {
         ["skill-line", '(skill.line === "" ? "" : ": " + skill.line)', '""'],
         ["read-again", "withHome: folder => compose(engine, brainClass, language, folder)", "withHome: () => compose(engine, brainClass, language)"],
         ["state-root", "path.join(home, Home.guard(home).open)", "home"],
-        ["state-layer", 'out.push(["home/state", ', 'if (false) out.push(["home/state", ']
+        ["state-layer", 'out.push(["home/state", ', 'if (false) out.push(["home/state", '],
+        ["size-layer", "        homeSize.push(", '        if (name !== "home/skills") homeSize.push('],
+        ["size-bytes", "homeSize.push(Object.freeze({ layer: name, bytes: Buffer.byteLength(text) }));",
+            "homeSize.push(Object.freeze({ layer: name, bytes: text.length }));"],
+        ["size-start", "const start = Buffer.byteLength(instructions);", "const start = instructions.length;"]
     ]) {
         control(root, name, "Guidance.js", needle, replacement, logic => homeText(logic, path.join(root, name))); controls++;
     }

@@ -60,6 +60,11 @@ const homes = { v: 1, type: "homes", gen: 0, revision: hello.revision,
     homes: [{ id: "h012345abcdef", label: "~/Jarvis", value: "~/Jarvis" }], current: "~/Jarvis" };
 const voices = { v: 1, type: "voices", gen: 0, revision: hello.revision, voices: [{ label: "Heart, American English, female", value: "af_heart" }] };
 const personality = { v: 1, type: "personality", gen: 0, revision: hello.revision, personality: { kind: "section", lines: ["Calm."], more: false } };
+// The start text's estimate: two home layers of the five, as an empty home
+// sends them.
+const startText = { v: 1, type: "start-text", gen: 0, revision: hello.revision,
+    size: { kind: "read", tokens: 1430, layers: [{ layer: "home/skills", tokens: 20 }, { layer: "home/state", tokens: 60 }] } };
+const startLayers = layers => changed(startText, { size: { ...startText.size, layers } });
 const level = { v: 1, type: "level", gen: 0, revision: hello.revision, level: { capture: 0.5, playback: 0 } };
 const audioFault = { v: 1, type: "audio-fault", gen: 0, revision: hello.revision, reason: "discovery-exit" };
 const request = { v: 1, type: "request", gen: 0, revision: hello.revision, id: 1, kind: "compositor.moveWindow", args: ["0xa1", -10, 20] };
@@ -202,6 +207,20 @@ const cases = [
     ["personality-empty-lines", changed(personality, { personality: { kind: "section", lines: [], more: false } }), "daemon", "personality-lines"],
     ["personality-empty-line", changed(personality, { personality: { kind: "section", lines: [""], more: false } }), "daemon", "personality-lines"],
     ["personality-more", changed(personality, { personality: { kind: "section", lines: ["Calm."], more: "yes" } }), "daemon", "personality-lines"],
+    ["start-text-direction", JSON.stringify(startText), "shell", "direction-start-text"],
+    ["start-text-shape", changed(startText, { bytes: 5720 }), "daemon", "shape-start-text"],
+    ["start-text-size-shape", changed(startText, { size: { ...startText.size, bytes: 5720 } }), "daemon", "shape-start-text"],
+    ["start-text-unreadable-shape", changed(startText, { size: { kind: "unreadable", tokens: 0 } }), "daemon", "shape-start-text"],
+    ["start-text-kind", changed(startText, { size: { kind: "none" } }), "daemon", "start-text-kind"],
+    ["start-text-size", changed(startText, { size: null }), "daemon", "start-text"],
+    ["start-text-total", changed(startText, { size: { ...startText.size, tokens: -10 } }), "daemon", "start-text-tokens"],
+    ["start-text-fraction", changed(startText, { size: { ...startText.size, tokens: 1.5 } }), "daemon", "start-text-tokens"],
+    ["start-text-layers", changed(startText, { size: { ...startText.size, layers: {} } }), "daemon", "start-text-tokens"],
+    ["start-text-layer-name", startLayers([{ layer: "home/other", tokens: 20 }]), "daemon", "start-text-tokens"],
+    ["start-text-layer-order", startLayers([{ layer: "home/state", tokens: 60 }, { layer: "home/skills", tokens: 20 }]), "daemon", "start-text-tokens"],
+    ["start-text-layer-twice", startLayers([{ layer: "home/state", tokens: 60 }, { layer: "home/state", tokens: 60 }]), "daemon", "start-text-tokens"],
+    ["start-text-layer-tokens", startLayers([{ layer: "home/state", tokens: -1 }]), "daemon", "start-text-tokens"],
+    ["start-text-layer-shape", startLayers([{ layer: "home/state", tokens: 60, bytes: 240 }]), "daemon", "start-text-tokens"],
     ["voices-separator", changed(voices, { voices: [{ label: "Heart\u2029", value: "af_heart" }] }), "daemon", "voice"],
     ["homes-current-path", changed(homes, { current: "/user/One" }), "daemon", "home-current"],
     ["homes-id", changed(homes, { homes: [{ ...homes.homes[0], id: "../../outside" }] }), "daemon", "home-id"],
@@ -417,7 +436,9 @@ rejected(Protocol, ["state-speech-reply", JSON.stringify({ ...dueState, state: {
 for (const name of ["talk-down", "talk-up", "mute", "stop", "voice-check", "preview"])
     assert.equal(Protocol.accept(changed(intent, { intent: name }), "shell").intent, name);
 assert.equal(JSON.stringify(Protocol.accept(JSON.stringify(say), "shell")), JSON.stringify(say));
-for (const shown of [personality, { ...personality, personality: { kind: "none" } }, { ...personality, personality: { kind: "missing" } }, voices, { ...voices, voices: [] }])
+for (const shown of [personality, { ...personality, personality: { kind: "none" } }, { ...personality, personality: { kind: "missing" } }, voices, { ...voices, voices: [] },
+    startText, { ...startText, size: { kind: "unreadable" } }, { ...startText, size: { kind: "read", tokens: 1350, layers: [] } },
+    { ...startText, size: { kind: "read", tokens: 9000, layers: ["home/persona", "home/AGENTS.md", "home/skills", "home/MEMORY.md", "home/state"].map(layer => ({ layer, tokens: 100 })) } }])
     assert.equal(JSON.stringify(Protocol.accept(JSON.stringify(shown), "daemon")), JSON.stringify(shown));
 // The section's text as the wire carries it: blank lines dropped, a long
 // line cut at a space into pieces of 200, tabs as spaces, 24 pieces at most.
@@ -772,7 +793,16 @@ try {
         ["task-answer-value", 'fail("task-answer");', ';', "task-answer-value"],
         ["dictation-text-max", "message.data.text.length > TEXT_MAX", "message.data.text.length > TEXT_MAX + 1", "dictation-text-long"],
         ["dictation-text-shape", 'keys(message.data, ["text"], "dictation-text");', "", "dictation-text-extra"],
-        ["dictation-text-nul", 'message.data.text.indexOf("\\u0000") !== -1) fail("dictation-text");', 'false) fail("dictation-text");', "dictation-text-nul"]
+        ["dictation-text-nul", 'message.data.text.indexOf("\\u0000") !== -1) fail("dictation-text");', 'false) fail("dictation-text");', "dictation-text-nul"],
+        ["start-text-direction", 'if (direction !== "daemon") fail("direction-start-text");', "", "start-text-direction"],
+        ["start-text-shape", 'keys(message, ["v", "type", "gen", "revision", "size"], "start-text");', "", "start-text-shape"],
+        ["start-text-size-shape", 'keys(size, ["kind", "tokens", "layers"], "start-text");', "", "start-text-size-shape"],
+        ["start-text-kind", 'if (size.kind !== "unreadable") fail("start-text-kind");', "", "start-text-kind"],
+        ["start-text-total", "size.tokens < 0 || ", "", "start-text-total"],
+        ["start-text-layer-order", "if (at <= last || ", "if (at < last || ", "start-text-layer-twice"],
+        ["start-text-layer-name", "if (at <= last || ", "if (", "start-text-layer-name"],
+        ["start-text-layer-tokens", " || layers[i].tokens < 0) return false;", ") return false;", "start-text-layer-tokens"],
+        ["start-text-layer-shape", '|| Object.keys(layers[i]).sort().join(",") !== "layer,tokens"', "", "start-text-layer-shape"]
     ];
     for (const [name, needle, replacement, example, matches] of guards)
         control(name, needle, replacement, logic => rejected(logic, cases.find(row => row[0] === example)), matches);

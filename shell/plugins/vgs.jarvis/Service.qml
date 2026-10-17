@@ -30,6 +30,9 @@ Item {
     // The daemon's last personality message, null before one: its row
     // follows the status after it too (SetupGate.personalityRow).
     property var personalityShown: null
+    // The daemon's last start-text message's size, null before one: its row
+    // follows the status after it too.
+    property var startTextShown: null
     // The Voice step's last published value, which shapes the Local voice
     // row (SetupGate.localVoiceStep).
     property var voiceStep: Gate.readiness({ kind: "checking" }).setupVoice
@@ -238,6 +241,7 @@ Item {
         lastDiagnostic = "";
         setupAnswer = { kind: "checking" };
         personalityShown = null;
+        startTextShown = null;
         voiceOffers = 0;
         audioHealth = { kind: "reading" };
         sessionState = null;
@@ -257,7 +261,7 @@ Item {
         taskResponse = null;
         const idle = shell.status.set("tasks", 0);
         if (idle !== "ok") throw new Error("jarvis: " + idle);
-        for (const key of ["voicePreview", "personality"]) {
+        for (const key of ["voicePreview", "personality", "startText"]) {
             const unread = shell.status.set(key, { hidden: true });
             if (unread !== "ok") throw new Error("jarvis: " + unread);
         }
@@ -502,6 +506,31 @@ Item {
         if (personalityShown === null) return;
         const reply = shell.status.set("personality",
             Gate.personalityRow(personalityShown, setupAnswer.kind === "answered" ? setupAnswer.causes : []));
+        if (reply !== "ok") throw new Error("jarvis: " + reply);
+    }
+
+    // The Start text size row from the last start-text message, each home
+    // layer a line, and the last status's cautions, which name each text
+    // over its budget.
+    readonly property var startTextNames: ({ "home/persona": "persona.md", "home/AGENTS.md": "AGENTS.md", "home/skills": "Skill list",
+        "home/MEMORY.md": "memory/MEMORY.md", "home/state": "State folder path" })
+    readonly property var startTextOver: ({ "guidance=persona-over-budget": "home/persona", "guidance=agents-over-budget": "home/AGENTS.md",
+        "guidance=skills-over-budget": "home/skills", "guidance=memory-over-budget": "home/MEMORY.md", "guidance=start-over-budget": "start" })
+    function publishStartText() {
+        if (startTextShown === null) return;
+        const causes = setupAnswer.kind === "answered" ? setupAnswer.causes : [];
+        const over = causes.filter(cause => startTextOver.hasOwnProperty(cause)).map(cause => startTextOver[cause]);
+        // The copy is English, so its numbers group as English does.
+        const count = (tokens, name) => tokens.toLocaleString(Qt.locale("en_US"), "f", 0) + " tokens"
+            + (over.indexOf(name) === -1 ? "" : ", over its budget");
+        const size = startTextShown;
+        const value = size.kind === "unreadable" ? { tone: "warning", text: "Cannot be read",
+                hint: "Check the home folder in [Home folder](page:vgs.jarvis/Settings/home)" }
+            : size.layers.length === 0 ? { tone: "info", text: "About " + count(size.tokens, "start"),
+                hint: "Only Jarvis's own guidance, since no home folder is chosen" }
+            : { tone: "info", text: "About " + count(size.tokens, "start"),
+                lines: size.layers.map(layer => startTextNames[layer.layer] + ": about " + count(layer.tokens, layer.layer)) };
+        const reply = shell.status.set("startText", value);
         if (reply !== "ok") throw new Error("jarvis: " + reply);
     }
 
@@ -841,6 +870,11 @@ Item {
                     publishPersonality();
                     continue;
                 }
+                if (message.type === "start-text") {
+                    startTextShown = message.size;
+                    publishStartText();
+                    continue;
+                }
                 if (message.type === "request") {
                     serve(message);
                     continue;
@@ -946,6 +980,7 @@ Item {
                 // A home text over its budget is a caution of the home step.
                 publishSetup({ kind: "answered", causes: message.cautions.concat(message.causes) });
                 publishPersonality();
+                publishStartText();
                 sendTuiState();
                 Qt.callLater(() => sendIndicator(indicatorPresented));
                 refreshShell();

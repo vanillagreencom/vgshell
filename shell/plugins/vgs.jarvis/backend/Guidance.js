@@ -1,10 +1,12 @@
 // Session guidance for the J33 chained engine and J37 duplex delegation.
 // compose(engine, brainClass, language, home) returns { instructions, layers,
-// afterToolResult, overBudget, withHome }. Engines are "chained" or "duplex";
+// afterToolResult, overBudget, size, withHome }. Engines are "chained" or "duplex";
 // classes are "duplex" (the voice model), "text" or "local" (a brain). The
 // local chained consumer appends afterToolResult as instructions after EACH
 // tool result. overBudget holds the causes of the texts over their budget,
-// which the Setup page names. home is
+// which the Setup page names. size is { home, start }: home each home
+// layer's { layer, bytes } in layer order, start the bytes of the whole
+// instructions, which the Jarvis page shows as tokens(). home is
 // the user's Jarvis home folder or null: a brain gets the base package's
 // persona and the home's AGENTS.md after the shipped layers, then the index of
 // its skills, each read on demand through the help tool, then memory/MEMORY.md,
@@ -31,6 +33,8 @@ const SKILLS_BUDGET = 8192;
 // bytes counted 1,023 tokens under tiktoken 0.14.0's o200k_base encoding
 // (VGS-1256, 2026-10-10).
 const MEMORY_BUDGET = 4096;
+const MEASURED_BYTES = 4018;
+const MEASURED_TOKENS = 1023;
 // The whole start text's: the shipped layers and the home's together.
 const START_BUDGET = 32768;
 const ROOT = path.join(__dirname, "skills/voice");
@@ -112,6 +116,15 @@ function personality(home) {
     return text === "" ? { kind: "missing" } : { kind: "section", text };
 }
 
+/**
+ * About how many tokens BYTES of start text cost, at the ratio measured
+ * above and rounded to ten, since no tokenizer runs here and each model
+ * counts its own way: an estimate, never a count.
+ */
+function tokens(bytes) {
+    return Math.round(bytes * MEASURED_TOKENS / MEASURED_BYTES / 10) * 10;
+}
+
 /** Compose only the layers assigned to this consumer by the voice contract. */
 function compose(engine, brainClass, language, home = null) {
     if (engine !== "chained" && engine !== "duplex") throw new Error("jarvis: guidance=engine");
@@ -130,20 +143,24 @@ function compose(engine, brainClass, language, home = null) {
     }
     const content = names.map(layer);
     const read = home === null ? { layers: [], over: [] } : homeLayers(home);
+    const homeSize = [];
     for (const [name, text] of read.layers) {
         names.push(name);
         content.push(text);
+        homeSize.push(Object.freeze({ layer: name, bytes: Buffer.byteLength(text) }));
     }
     const instructions = content.join("\n\n");
     // A start text larger than a model can take fails that turn alone: the
     // model or its app refuses it, or a wire brain's request bound does
     // (WireBrain REQUEST_BYTES). No brain passes it in an argument.
-    const overBudget = Buffer.byteLength(instructions) > START_BUDGET ? [...read.over, "guidance=start-over-budget"] : read.over;
+    const start = Buffer.byteLength(instructions);
+    const overBudget = start > START_BUDGET ? [...read.over, "guidance=start-over-budget"] : read.over;
     // The same core rule reaches the model again, not a second spelling of it.
     const afterToolResult = engine === "chained" && brainClass === "local" ? content[0] + "\n\n" + content[4] : null;
     return Object.freeze({ instructions, layers: Object.freeze(names), afterToolResult, overBudget: Object.freeze(overBudget),
+        size: Object.freeze({ home: Object.freeze(homeSize), start }),
         /** This consumer's guidance with the text of the home FOLDER as it reads now. */
         withHome: folder => compose(engine, brainClass, language, folder) });
 }
 
-module.exports = { compose, personality };
+module.exports = { compose, personality, tokens };

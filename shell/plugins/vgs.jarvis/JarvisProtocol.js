@@ -2,7 +2,7 @@
 .import "Session.js" as Session
 
 // Shell produces hello, intent, indicator, shown, requirements-scan, tui-state and reply. Voice confirmation
-// is daemon-internal. Daemon produces status/state/devices/homes/voices/personality/level/audio-fault,
+// is daemon-internal. Daemon produces status/state/devices/homes/voices/personality/start-text/level/audio-fault,
 // request, tasks, task-answer and transcript. A line excludes its LF.
 // A transcript is one speaker's caption segment: partial text grows under
 // a rising rev; final closes the segment.
@@ -325,6 +325,22 @@ function setupCautions(cautions) {
     for (var i = 0; i < cautions.length; i++) {
         var at = SETUP_CAUTIONS.indexOf(cautions[i]);
         if (at <= last) return false;
+        last = at;
+    }
+    return true;
+}
+
+// The home layers Guidance.compose adds after the shipped ones, in its order;
+// the `start-text` message's layers name each at most once, in this order,
+// with its estimated tokens.
+var HOME_LAYERS = ["home/persona", "home/AGENTS.md", "home/skills", "home/MEMORY.md", "home/state"];
+function homeLayerTokens(layers) {
+    if (!Array.isArray(layers)) return false;
+    var last = -1;
+    for (var i = 0; i < layers.length; i++) {
+        if (!object(layers[i]) || Object.keys(layers[i]).sort().join(",") !== "layer,tokens") return false;
+        var at = HOME_LAYERS.indexOf(layers[i].layer);
+        if (at <= last || !Number.isSafeInteger(layers[i].tokens) || layers[i].tokens < 0) return false;
         last = at;
     }
     return true;
@@ -661,6 +677,19 @@ function accept(line, direction) {
         } else {
             keys(shown, ["kind"], "personality");
             if (["none", "missing", "unreadable"].indexOf(shown.kind) === -1) fail("personality-kind");
+        }
+        break;
+    case "start-text":
+        if (direction !== "daemon") fail("direction-start-text");
+        keys(message, ["v", "type", "gen", "revision", "size"], "start-text");
+        var size = message.size;
+        if (!object(size)) fail("start-text");
+        if (size.kind === "read") {
+            keys(size, ["kind", "tokens", "layers"], "start-text");
+            if (!Number.isSafeInteger(size.tokens) || size.tokens < 0 || !homeLayerTokens(size.layers)) fail("start-text-tokens");
+        } else {
+            keys(size, ["kind"], "start-text");
+            if (size.kind !== "unreadable") fail("start-text-kind");
         }
         break;
     case "level":
