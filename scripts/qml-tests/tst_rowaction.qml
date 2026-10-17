@@ -295,6 +295,10 @@ Item {
             compare(alone.Accessible.name, alone.text);
             compare(alone.inkAbove(), mark(alone).y);
             compare(alone.inkBelow(), alone.height - mark(alone).y - mark(alone).height);
+            const inkEnd = mark(alone).mapToItem(alone, 0, 0).x + mark(alone).painted[2];
+            compare(alone.glyphEnd, alone.width - inkEnd, "glyphEnd reaches the lone mark's ink from the right edge");
+            verify(alone.glyphEnd > 0, "the square reaches past the mark's ink");
+            compare(danger.glyphEnd, 0, "an action with text reports 0");
         }
 
         function test_the_mark_alone_takes_the_danger_hover_and_press() {

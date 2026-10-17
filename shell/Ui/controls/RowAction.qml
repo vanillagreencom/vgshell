@@ -43,6 +43,10 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // cannot be a `containmentMask` centred on the mark: on Qt 6.11.2 a press,
 // click or hover inside a mask but outside the item's bounds reaches
 // nothing (a qml-unit probe, 2026-10-17).
+// `glyphEnd` is, as IconButton's is, the distance from the control's right
+// edge to the lone mark's painted ink: a row that puts the ink, not the
+// square, on its control edge shifts the action by it. An action with
+// text reports 0.
 // Its text stays its accessible name and shows in the shared tooltip on
 // hover and keyboard focus, as an IconButton's label does, and a set
 // `disabledReason` shows in the tooltip's place.
@@ -70,6 +74,7 @@ T.Button {
     readonly property color foreground: down ? tokens.pressed : hovered ? tokens.hover : tokens.foreground
     // Whether the danger mark draws: before the text, or alone.
     readonly property bool marked: removesItem || tone === "danger"
+    readonly property real glyphEnd: removesItem ? width - contentItem.x - mark.x - mark.painted[2] : 0
 
     function toneOf(name) {
         const found = Theme.rowAction.tone[name];

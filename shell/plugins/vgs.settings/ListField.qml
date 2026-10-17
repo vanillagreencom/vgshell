@@ -87,10 +87,7 @@ Column {
                 // whose hit target and focus ring reach past it on the right.
                 readonly property real controlEnd: Math.min(width - Theme.field.paddingX, root.valueEnd)
                 // Where the trash mark's ink ends, from Remove's left edge.
-                readonly property real inkEnd: {
-                    const mark = Array.from(remove.contentItem.children).find(child => child instanceof Icon);
-                    return mark === undefined ? remove.width : mark.x + mark.painted[2];
-                }
+                readonly property real inkEnd: remove.width - remove.glyphEnd
                 // Every field's value ends `stack.inline` before Remove, so
                 // the item's values end on one edge.
                 readonly property real fieldWidth: Math.max(0, controlEnd - inkEnd - Theme.stack.inline + Theme.field.paddingX)
