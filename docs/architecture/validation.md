@@ -64,6 +64,7 @@ A broken environment that reads as a pass hides the regression the check exists 
 ### Faults
 
 - Do report a sandbox fault as not measured, and let it excuse only a row that reads geometry or a drawn frame; every other failure is behaviour. `scripts/smoke/verdict.sh` holds the verdict and `scripts/test-smoke-verdict.sh` its controls.
+- Do restore a held mode a host configure reset before a pointer step reads its target again, and fail the step when the restore cannot hold it; only a `coordinate_observation` records such a step not measured. `point_item` in `scripts/smoke/harness.sh` restores it through `coordinate_mode_prepare`, and `scripts/smoke/rows/jarvis-setup.sh` holds it.
 - Never excuse a run on a log line that names no output; passing runs log it too. `scripts/test-smoke-verdict.sh` holds it.
 - Do run a not-measured check again, and report a second sighting. Review holds it.
 

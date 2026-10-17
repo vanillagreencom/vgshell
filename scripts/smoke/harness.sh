@@ -1481,11 +1481,25 @@ control_hovered() {
 # starts the count again. Returns 1 when the control is absent at the
 # first reading or never reports the pointer; a control absent at a later
 # reading is being laid out again, and the count starts again.
+# A move that pointer_dispatch refuses with 77 sent nothing: the output
+# left the mode the run holds, which a host configure of the nested
+# window does while its size differs from the hold (held_mode_state in
+# mode-hold.sh), and the box was read under that other layout. The helper
+# restores the hold through coordinate_mode_prepare, its existing owner,
+# and reads the box again, as for a box that moved, at most
+# point_item_restores times a call; it returns 77 past that, and the
+# restore's status when the hold cannot be restored (VGS-1711). Inside a
+# coordinate_observation it restores nothing and returns the 77: the
+# observation sampled other points under the old layout, and it records
+# the step not measured.
 # notifications.sh rests the pointer through it on the cards whose hover
 # pauses a clock or shows actions: the held toast, the actionable toast,
 # the hover geometry card and the restored toast.
+# Each restore is a configuration reload, which take_mode bounds; two
+# resets in one call already mean the host keeps moving the window.
+point_item_restores=2
 point_item() { # LOOKUP [DX DY]
-  local n=4 lookup rect seen="" x="" y="" px hovered held=0 i
+  local n=4 lookup rect seen="" x="" y="" px hovered held=0 i status restores=0
   [[ $1 == vgs:* || $1 == window:* ]] && n=5
   [[ $1 == popup:* ]] && n=6
   [[ $1 == scoped:* ]] && n=7
@@ -1504,7 +1518,16 @@ point_item() { # LOOKUP [DX DY]
       read -r x y < <(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); dx,dy=sys.argv[2:]; print(int(x + (w / 2 if dx == "-" else float(dx))), int(y + (h / 2 if dy == "-" else float(dy))))' "$rect" "${1:--}" "${2:--}") || return 1
     fi
     px=$((x + i % 2))
-    hover "$px" "$y" || return $?
+    status=0
+    hover "$px" "$y" || status=$?
+    if [[ $status == 77 && ${coordinate_scope:-false} != true ]]; then
+      (( restores < point_item_restores )) || return 77
+      restores=$((restores + 1))
+      # The caller reads X Y from stdout, so the restore speaks on stderr.
+      coordinate_mode_prepare >&2 || return $?
+      held=0; seen=""; continue
+    fi
+    [[ $status == 0 ]] || return "$status"
     hovered="$(control_hovered "${lookup[@]}")" || return 1
     if [[ $hovered == true ]]; then held=$((held + 1)); else held=0; fi
     if [[ $held -ge 2 && $(control_box "${lookup[@]}") == "$seen" ]]; then printf '%s %s\n' "$px" "$y"; return; fi
