@@ -5440,8 +5440,18 @@ PYKEYBOARD
     park_pointer
     take "system-$1-keyboard-repeat"
     keyboard_shot_reveal "Modifier Options"
-    park_pointer
-    take "system-$1-keyboard-modifiers"
+    # At the scene's default size the pane fits its view, so the Key Repeat
+    # reveal already shows Modifier Options and this reveal moves nothing;
+    # the shot opens the section's Modifier keys list, a frame the previous
+    # shot never drew.
+    if keyboard_shot_modifier_list; then
+      expect_poll "the Modifier keys list is open for its shot" true keyboard_shot_modifier_open
+      take_posed "system-$1-keyboard-modifiers"
+      type_keys -k Escape || fail "closing the Modifier keys list failed"
+      expect_poll "the Modifier keys list is closed after its shot" false keyboard_shot_modifier_open
+    else
+      fail "opening the Modifier keys list failed"
+    fi
     expect "System hides after the keyboard pane shot" ok ipc shell hide window vgs.system
     expect_poll "System is gone before the keyboard widget shot" hidden system_shown
     park_pointer
@@ -5475,6 +5485,13 @@ keyboard_shot_right_click() {
   read -r x y < <(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); print(int(x+w/2), int(y+h/2))' "$box") || return 1
   hover "$((x - 1))" "$y" && right_click "$x" "$y"
 }
+keyboard_shot_modifier_list() {
+  local box x y
+  box="$(ipc smoke scopedWindowGeometry window vgs.keyboard KeyboardRow "Modifier keys" Select Default)" || return 1
+  read -r x y < <(at_centre "window:System Settings" "$box") || return 1
+  hover "$((x - 1))" "$y" && click "$x" "$y"
+}
+keyboard_shot_modifier_open() { ipc smoke readMatchingDescendant window vgs.keyboard Select objectName modifierPicker listOpen; }
 keyboard_shot_panel_sources() { ipc smoke readDescendant panel vgs.keyboard KeyboardControls sources | py_reply 'import json,sys; print(json.dumps([[r["code"], r["variant"]] for r in json.load(sys.stdin)]))'; }
 keyboard_shot_source_menu() { ipc smoke menus panel vgs.keyboard | py_reply 'import json,sys; menus=json.load(sys.stdin); print(any(m["opened"] and m["entries"] == ["Move down", "Remove"] for m in menus))'; }
 keyboard_shot_reveal() {
