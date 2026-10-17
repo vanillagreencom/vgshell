@@ -145,6 +145,7 @@ placement_drag_widget() {
 }
 placement_drag_escape() {
   local id="$1" x2="$2" y2="$3" expected="$4" x y line done_line out_fd in_fd pid status=0
+  nested_input_check "$sandbox/click" || return 1
   read -r x y < <(placement_point "$id") || return 1
   hover "$((x + 1))" "$y" || return 1
   coproc placement_hold { "${shell_env[@]}" "$sandbox/click" "$x" "$y" "$mon_w" "$mon_h" drag "$x2" "$y2" hold; }
@@ -236,6 +237,7 @@ placement_capture_released() { ipc smoke keyCaptureState | py_reply 'import json
 # each point and releases at the last.
 placement_drag_path() {
   local id="$1" x y
+  nested_input_check "$sandbox/click" || return 1
   shift
   read -r x y < <(placement_point "$id") || return 1
   hover "$((x + 1))" "$y" || return 1
@@ -264,6 +266,7 @@ i=d["item"]; print(json.dumps({"inside": i[1] >= 0 and i[1]+i[3] <= b[3], "atPoi
 }
 placement_held_far() {
   local label="$1" want="$2" x y far_x far_y line out_fd in_fd pid
+  nested_input_check "$sandbox/click" || return 1
   read -r x y < <(placement_point acme.probe) || return 1
   read -r far_x far_y < <(placement_bar_far_left) || return 1
   hover "$((x + 1))" "$y" || return 1
@@ -449,6 +452,7 @@ cp -- "$sandbox/shell-placement-clock-contract.json" "$placement_file.tmp" && mv
 # every other check's name.
 placement_held_builtin() { # PATH WANT SLOT LABEL
   local path="$1" want="$2" slot="$3" label="$4" x y tx ty px barrier out_fd in_fd hold_pid
+  nested_input_check "$sandbox/click" || return 1
   read -r x y < <(placement_point vgs.bar/left-workspaces) || return 1
   # One pixel left of the tick's left edge: a slot comes from the
   # neighbours' shifted boxes (Plugins.dragMove), and whether the preview
@@ -540,6 +544,7 @@ expect_poll "the fixture is back in the right section after move tests" "$placem
 # configuration writer publishes no change for this exact same slot.
 placement_same_slot() {
   local x y tx ty barrier out_fd in_fd hold_pid last original_box
+  nested_input_check "$sandbox/click" || return 1
   last="$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1]))["bar"]["layout"]["right"])-1)' "$placement_file")" || return 1
   expect "the unchanged-drop fixture moves after every right entry" ok ipc shell movePluginWidget acme.probe right "$last"
   read -r x y < <(placement_point acme.probe) || return 1
@@ -583,6 +588,7 @@ print(json.dumps({"section":state["section"], "index":state["index"], "slid":abs
 }
 placement_held_preview() {
   local motion="$1" x y tx ty before_x barrier out_fd in_fd hold_pid reading sample motion_seen samples=()
+  nested_input_check "$sandbox/click" || return 1
   read -r x y < <(placement_point acme.probe) || return 1
   read -r tx ty < <(placement_before acme.tick acme.probe) || return 1
   before_x="$(ipc smoke instanceGeometry "$(bar_key)" acme.tick | py_reply 'import json,sys; print(json.load(sys.stdin)[0])')" || return 1
@@ -1112,6 +1118,7 @@ placement_edge_tip_note() { printf '  placement-tips seen=[%s] label=%s\n' "$(so
 # the clock at its press, in ms, placement_edge_pressed.
 placement_edge_hold() {
   local x y mx line
+  nested_input_check "$sandbox/click" || return 1
   read -r x y < <(placement_point acme.probe) && read -r mx _ < <(placement_edge_point middle) || return 1
   hover "$((x + 1))" "$y" || return 1
   : >"$placement_edge_tip_file"

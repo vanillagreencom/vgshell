@@ -215,7 +215,9 @@ expect_poll "Escape clears the search, then closes" 0 layer_count vgs:overlay
 # block leaves both selections empty and the pointer where it found it.
 launcher_field() { ipc smoke readShownDescendant overlay vgs.launcher QQuickTextInput "$1"; }
 clip_text() { "${shell_env[@]}" wl-paste --no-newline "$@"; }
-if command -v wl-copy >/dev/null && command -v wl-paste >/dev/null; then
+if ! command -v wl-copy >/dev/null || ! command -v wl-paste >/dev/null; then
+  fail "launcher: wl-copy or wl-paste is unavailable"
+elif nested_input_check wl-copy; then
   pointer_before="${pointer_at:-10 $((mon_h - 10))}"
   expect "the launcher summons for paste" ok ipc shell summon overlay vgs.launcher '{}'
   focused "the launcher holds the keyboard for paste"
@@ -249,8 +251,6 @@ if command -v wl-copy >/dev/null && command -v wl-paste >/dev/null; then
   "${shell_env[@]}" wl-copy --primary --clear >/dev/null 2>&1 </dev/null || fail "clearing the primary selection failed"
   read -r field_x field_y <<<"$pointer_before"
   hover "$field_x" "$field_y" || fail "putting the pointer back after paste failed"
-else
-  fail "launcher: wl-copy or wl-paste is unavailable"
 fi
 
 # TUI rows open their TUI through the tui capability. The argv reaches the

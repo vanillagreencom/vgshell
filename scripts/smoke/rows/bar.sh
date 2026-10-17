@@ -879,6 +879,7 @@ print(eval(sys.argv[1]))' "$1" <<<"$reading"
   # its pipes in zone_out and zone_in and its pid in zone_pid.
   zone_hold_press() {
     local box x y line
+    nested_input_check "$sandbox/click" || return 1
     box="$(ipc smoke instanceGeometry "$(bar_key)" "$1")" || return 1
     read -r x y < <(py_reply 'import json,sys; b=json.load(sys.stdin); print(int(b[0]+b[2]/2), int(b[1]+b[3]/2))' <<<"$box") || return 1
     zone_to="$((x + $2)) $((y + $3))"
@@ -1776,6 +1777,7 @@ tiplink_bar_corner() { ipc smoke instanceGeometry "$(bar_key)" vgs.bar | py_repl
 # (Plugins.dragEnd).
 tiplink_drag() {
   local x y to_x to_y
+  nested_input_check "$sandbox/click" || return 1
   read -r x y < <(tiplink_at "$1" itemGeometry) && [[ $x =~ ^[0-9]+$ && $y =~ ^[0-9]+$ ]] || return 1
   to_x="$x" to_y="$y"
   if [[ ${2:-} == far ]]; then

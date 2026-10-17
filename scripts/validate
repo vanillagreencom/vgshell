@@ -473,7 +473,7 @@ rows=(
   "tools|smoke row reader controls|python3 scripts/test-check-smoke-readers.py|scripts/check-smoke-readers.py scripts/smoke/rows/* scripts/smoke/*.sh bin/lib/ipc-reply.sh scripts/smoke/rows.list"
   "tools|compositor reveal barrier controls|python3 scripts/test-compositor-reveal.py|scripts/test-compositor-reveal.py scripts/smoke/rows/compositor-reveal.sh scripts/smoke/harness.sh"
   "tools|secret-tool stand-in stdin order controls|scripts/test-secret-tool-stand-in.sh|scripts/test-secret-tool-stand-in.sh scripts/smoke/harness.sh"
-  "tools|smoke key tool display guard controls|scripts/test-smoke-type-keys.sh|scripts/test-smoke-type-keys.sh scripts/smoke/harness.sh"
+  "tools|smoke input tool display guard controls|scripts/test-smoke-input-guard.sh|scripts/test-smoke-input-guard.sh scripts/smoke/harness.sh scripts/smoke/rows/hold-shortcuts.sh scripts/smoke/rows/reset.sh scripts/smoke/rows/voice.sh scripts/smoke/rows/bar.sh scripts/smoke/rows/placement.sh scripts/smoke/rows/notifications.sh scripts/smoke/rows/clipboard.sh scripts/smoke/rows/launcher.sh scripts/sandbox-shots.sh"
   "tools|smoke Xwayland off controls|scripts/test-smoke-xwayland.sh|scripts/test-smoke-xwayland.sh scripts/smoke/harness.sh scripts/smoke/hypr-call.sh"
   "tools|smoke stand-in terminal writers|python3 scripts/check-smoke-terminal.py|scripts/smoke/rows/*"
   "tools|smoke stand-in terminal writer controls|python3 scripts/test-check-smoke-terminal.py|scripts/check-smoke-terminal.py scripts/smoke/rows/*"

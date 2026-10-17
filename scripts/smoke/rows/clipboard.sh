@@ -88,9 +88,9 @@ expect "the row's image is larger than the largest pipe" True python3 -c 'import
 
 # clip_copy ARGS...: wl-copy on the nested clipboard. Its provider keeps no
 # stream of the row's, so no reader waits on it.
-clip_copy() { "${shell_env[@]}" wl-copy "$@" >/dev/null 2>&1 </dev/null; }
-clip_copy_file() { "${shell_env[@]}" wl-copy --type "$1" >/dev/null 2>&1 <"$2"; }
-clip_copy_secret() { printf '%s' "$1" | "${shell_env[@]}" wl-copy --sensitive >/dev/null 2>&1; }
+clip_copy() { nested_input_check wl-copy || return 1; "${shell_env[@]}" wl-copy "$@" >/dev/null 2>&1 </dev/null; }
+clip_copy_file() { nested_input_check wl-copy || return 1; "${shell_env[@]}" wl-copy --type "$1" >/dev/null 2>&1 <"$2"; }
+clip_copy_secret() { nested_input_check wl-copy || return 1; printf '%s' "$1" | "${shell_env[@]}" wl-copy --sensitive >/dev/null 2>&1; }
 # clip_holds: the nested clipboard's text. clip_holds_image: `same` when its
 # PNG bytes are the fixture's.
 clip_holds() { "${shell_env[@]}" wl-paste --no-newline; }

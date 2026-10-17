@@ -520,6 +520,7 @@ voice_ensure_hypr_wired() {
   hypr_consent_connect "Voice row answers Hyprland consent"
 }
 voice_start_keyboard() {
+  nested_input_check "$sandbox/keyboard" || return 1
   voice_keyboard_log="$sandbox/voice-keyboard.log"
   voice_fifo="$sandbox/voice-keyboard.fifo"
   mkfifo "$voice_fifo"

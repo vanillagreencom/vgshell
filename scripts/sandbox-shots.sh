@@ -6996,6 +6996,7 @@ for scene in "${setups[@]}"; do
       # Copies on the nested instance's own clipboard: wl-copy runs with
       # the nested socket alone and keeps no stream of this run's.
       command -v wl-copy >/dev/null && command -v wl-paste >/dev/null || fail "the clipboard image needs wl-copy and wl-paste"
+      nested_input_check wl-copy || exit 1
       clipboard_total() { ipc vgs.clipboard invoke rows '' | py_reply 'import json,sys; print(json.load(sys.stdin)["total"])'; }
       clipboard_copy() { "${shell_env[@]}" wl-copy "$@" >/dev/null 2>&1 </dev/null; }
       solid_png "$sandbox/shots-clipboard.png" 320 200 86 130 150 || fail "drawing the clipboard image's picture failed"

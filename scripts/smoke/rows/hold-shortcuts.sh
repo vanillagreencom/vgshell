@@ -35,6 +35,7 @@ hold_reset() { expect "clear the hold fixture's edge record" ok ipc acme.hold in
 hold_client_events() { log_lines "$1" "$hold_client_log"; }
 hold_native() { hypr globalshortcuts | count_lines "${1:-acme.hold:}"; }
 hold_start_keyboard() { # LABEL EXECUTABLE LAYOUT OPTIONS
+  nested_input_check "$2" || return 1
   hold_keyboard_log="$sandbox/hold-keyboard-$1.log"
   hold_fifo="$sandbox/hold-keyboard-$1.fifo"
   mkfifo "$hold_fifo"

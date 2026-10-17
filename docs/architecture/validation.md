@@ -47,7 +47,7 @@ A broken environment that reads as a pass hides the regression the check exists 
 - Do start a device row behind the guard in `scripts/smoke/devices.sh`, which records the row not measured when it reads a leak to the host. `scripts/smoke/rows/device-fakes.sh` holds the guard.
 - Do capture the sandbox only through `scripts/smoke/shot.sh`, which refuses the host socket and an output outside `tmp/`. `scripts/test-sandbox-shots.sh` holds it.
 - Never dispatch to the host compositor, change its focus or open one of its workspaces from a run; read it only. Review holds it.
-- Do type keys only through `type_keys` in `scripts/smoke/harness.sh`. It refuses, with no `wtype` call, an environment that does not name the socket the harness started. `scripts/test-smoke-type-keys.sh` holds it.
+- Do run every input tool, `wtype`, `$sandbox/click`, `$sandbox/keyboard` and `wl-copy`, only after `nested_input_check` in `scripts/smoke/harness.sh`. It refuses, with no tool call, an environment that does not name the socket the harness started. `scripts/test-smoke-input-guard.sh` holds it for each helper that runs one.
 - Never return a secret, or data derived from one, from a sandbox reader; a reader returns state and geometry. Review holds it.
 - Never hold the shared sandbox slot gate above its load limit with a lane's own stress load. A proof under load runs once, with the smallest load that reproduces the failure, inside the lane's own slot run, and a Done-when never asks for repeated load runs. Review holds it.
 

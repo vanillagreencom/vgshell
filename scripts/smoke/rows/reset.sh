@@ -80,6 +80,7 @@ reset_file() { [[ -e $1 ]] && echo present || echo absent; }
 # answers nothing under any keymap. Returns 1, with the row failed, when it
 # does not connect.
 reset_keyboard_start() {
+  nested_input_check "$sandbox/keyboard" || return 1
   mkfifo -- "$reset_keyboard_fifo"
   exec {reset_keyboard_fd}<>"$reset_keyboard_fifo"
   spawn "$reset_keyboard_log" "${shell_env[@]}" "$sandbox/keyboard" "$reset_keyboard_fifo" us ""

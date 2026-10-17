@@ -1319,9 +1319,10 @@ latency_busy_reason() {
 # fingers swiped a touchpad there, a vertical axis length of LENGTH,
 # positive down, then lifted. type_keys ARGS...:
 # keys typed on the nested seat through wtype, so a row can reach a
-# focused input; wtype's own arguments, such as -k Escape, pass through;
-# it refuses an environment that names another display (below).
-# Each prints nothing on success; a row reads its status.
+# focused input; wtype's own arguments, such as -k Escape, pass through.
+# Each runs nested_input_check (below) before its tool and refuses an
+# environment that names another display. Each prints nothing on success;
+# a row reads its status.
 # pointer_at: `X Y`, the layout position where the last click, hover,
 # right_click, middle_click, drag, wheel or swipe that succeeded left the
 # pointer, empty before any.
@@ -1358,6 +1359,7 @@ pointer_dispatch() {
   coordinate_mode_check || status=$?
   [[ $status != 77 ]] || printf 'coordinate-mode: reset output=%s want=[%s] pointer-step=refused\n' "${mode_hold[0]}" "${mode_hold[1]}" >&2
   [[ $status == 0 ]] || return "$status"
+  nested_input_check "$sandbox/click" || return 1
   "${shell_env[@]}" "$sandbox/click" "$@" >/dev/null || return 1
 }
 click() { pointer_dispatch "$1" "$2" "$mon_w" "$mon_h" || return $?; pointer_at="$1 $2"; }
@@ -1367,14 +1369,21 @@ middle_click() { pointer_dispatch "$1" "$2" "$mon_w" "$mon_h" middle || return $
 drag() { pointer_dispatch "$1" "$2" "$mon_w" "$mon_h" drag "$3" "$4" || return $?; pointer_at="$3 $4"; }
 wheel() { pointer_dispatch "$1" "$2" "$mon_w" "$mon_h" wheel "$3" || return $?; pointer_at="$1 $2"; }
 swipe() { pointer_dispatch "$1" "$2" "$mon_w" "$mon_h" swipe "$3" || return $?; pointer_at="$1 $2"; }
-# wtype types on whatever display its environment names, and the harness's
-# own process carries the user's live one, so type_keys refuses unless
-# shell_env starts from an empty environment (env -i, so no inherited
-# WAYLAND_SOCKET or XDG_RUNTIME_DIR decides it) and its last WAYLAND_DISPLAY
-# and XDG_RUNTIME_DIR words, which env applies, name the socket the
-# harness started. A name alone is not enough: the host's socket can carry
-# the same name in another runtime directory.
-type_keys() {
+# nested_input_check TOOL: the one display check of every input tool a row
+# or a scene runs under shell_env: wtype (type_keys), $sandbox/click
+# (pointer_dispatch and the held drags), $sandbox/keyboard and its copies,
+# and wl-copy. Each caller runs it before its tool and runs no tool when it
+# returns 1. An input tool acts on whatever display its environment names,
+# and the harness's own process carries the user's live one, so the check
+# passes only when shell_env starts from an empty environment (env -i, so
+# no inherited WAYLAND_SOCKET or XDG_RUNTIME_DIR decides it) and its last
+# WAYLAND_DISPLAY and XDG_RUNTIME_DIR words, which env applies, name the
+# socket the harness started. A name alone is not enough: the host's
+# socket can carry the same name in another runtime directory. A refusal
+# fails the row under the operation class with the line
+# `nested-input: refused tool=TOOL socket=... nested=...`. A caller runs
+# the check outside its tool's redirections, which would hide that line.
+nested_input_check() {
   local word display="" runtime="" socket=none
   if [[ ${shell_env[0]:-} == env && ${shell_env[1]:-} == -i ]]; then
     for word in "${shell_env[@]:2}"; do
@@ -1389,9 +1398,12 @@ type_keys() {
   fi
   if [[ -z ${nested_socket:-} || -z ${rt_dir:-} || $socket != "$rt_dir/$nested_socket" ]]; then
     local row_class=operation
-    fail "type_keys: refused socket=$socket nested=${rt_dir:-}/${nested_socket:-}"
+    fail "nested-input: refused tool=$1 socket=$socket nested=${rt_dir:-}/${nested_socket:-}"
     return 1
   fi
+}
+type_keys() {
+  nested_input_check wtype || return 1
   "${shell_env[@]}" wtype "$@"
 }
 # compositor_logs_on: the nested compositor logs from here to the end of

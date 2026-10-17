@@ -4103,6 +4103,8 @@ a=json.load(sys.stdin);print(a["label"]+(" (Delete)" if a["id"]=="dismiss" else 
 # Native release removes the row, so later setup reads service inventory anew.
 fade_pressed_card_pair() { # PREFIX SUMMARY EDGE
   local x y line out_fd in_fd pid sample status=0 prior_failures="$failures"
+  # Its stdout is the sample its caller reads, so the refusal goes to stderr.
+  nested_input_check "$sandbox/click" >&2 || return 1
   read -r x y < <(fade_active_point) || return 1
   coproc fade_press { "${shell_env[@]}" "$sandbox/click" "$x" "$y" "$mon_w" "$mon_h" drag "$x" "$y" hold; }
   out_fd="${fade_press[0]}";in_fd="${fade_press[1]}";pid="$fade_press_PID"

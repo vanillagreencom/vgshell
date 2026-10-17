@@ -521,7 +521,7 @@ def extract(path,names):
         end=start+len(line)+1 if line.endswith("}") else text.index("\n}\n",start)+3
         result.append(text[start:end])
     return result
-parts=extract(harness,("coordinate_observation","pointer_dispatch","click","hover","right_click","middle_click","drag","wheel","swipe","point_item","click_item","expect","expect_poll","reader_stderr","smoke_poll_tries","geometry","render"))
+parts=extract(harness,("coordinate_observation","pointer_dispatch","nested_input_check","click","hover","right_click","middle_click","drag","wheel","swipe","point_item","click_item","expect","expect_poll","reader_stderr","smoke_poll_tries","geometry","render"))
 parts+=extract(surfaces,("layout_size","layout_click","surf_menu_point","flyout_widget_x","flyout_grow_check"))
 # point_item reads its restore bound from a global the harness sets.
 bound=[line for line in harness.read_text().splitlines() if line.startswith("point_item_restores=")]
@@ -537,7 +537,9 @@ source "$3/operations.sh"
 stub_dir="$3" stub_phase="$4" stub_action="$5" stub_path="$6"
 sandbox="$stub_dir" mode_hold_file="$stub_dir/hold.lua"
 mon_w=1755 mon_h=933 screen_name=WAYLAND-1
-shell_env=()
+# The nested display nested_input_check passes, so each step reaches the stub.
+nested_socket=wayland-1 rt_dir="$stub_dir"
+shell_env=(env -i PATH="$PATH" WAYLAND_DISPLAY="$stub_dir/wayland-1")
 mode_hold=(WAYLAND-1 "3510x1866 scale=2")
 mode_hold_window=1250x720
 # A temporary hold also must not excuse a failed operation.
