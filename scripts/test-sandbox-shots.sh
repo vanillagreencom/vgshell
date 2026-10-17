@@ -1216,8 +1216,10 @@ else:
 def missing_stdout(source, name):
     source_file = root / (name + '.py'); source_file.write_text(source)
     api = runpy.run_path(str(source_file))
-    with subprocess.Popen(['sh', '-c', 'exec 1>&-; printf "ready\\n" >&2; exec sleep 60'],
-                          stderr=subprocess.PIPE) as process:
+    # The child closes stdout itself and never execs again: while an exec is
+    # in flight, /proc/PID/fd reads EACCES, which also reads as unavailable.
+    child = 'import os, sys, time; os.close(1); sys.stderr.write("ready\\n"); sys.stderr.flush(); time.sleep(60)'
+    with subprocess.Popen([sys.executable, '-c', child], stderr=subprocess.PIPE) as process:
         assert process.stderr.readline() == b'ready\n', 'closed-stdout-ready'
         try:
             assert api['process_binding'](str(process.pid))['status'] == 'unavailable', 'missing-stdout-is-unavailable'
