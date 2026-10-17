@@ -12,8 +12,9 @@ import qs.Ui
 // below the padding, so the padding counts whole rows and leaves exactly
 // `stack.heading` blank rows between them. The first item takes no top
 // padding. Rows inside the section
-// are spaced by `rowSpacing`, `stack.row`; a section of blocks, such as a
-// line of buttons and a code line, sets it to `stack.group`. The heading
+// are spaced by `rowSpacing`, `stack.row`, and a key/value row under
+// another stands by drawn ink instead (Field); a section of blocks, such
+// as a line of buttons and a code line, sets it to `stack.group`. The heading
 // sits on the content edge, as docs/architecture/design-system.md § Layout puts unboxed text; `headerInset`
 // indents it for a surface whose rows inset their text.
 Column {

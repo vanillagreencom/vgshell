@@ -205,6 +205,42 @@ Item {
         onApply: wanted => { root.applied.push(wanted); if (acceptWrites) value = wanted; }
     }
 
+    // A Settings page over the rest of the window, so its image holds only
+    // its own ink on the surface colour.
+    Item {
+        id: fakePanel
+        property var shell: null
+        property var plugins: []
+        property var capture: null
+        function writeKey() { return "ok"; }
+        function writeSetting() { return "ok"; }
+        function writePlacement() { return "ok"; }
+        function setEnabled() { return "ok"; }
+        function openTui() { return "ok"; }
+        function refreshChoices() {}
+        function openLink() {}
+        function openPage() {}
+        function leave(next) { next(); }
+        function replyOf() { return ""; }
+        function tuiKey(name) { return "tui:" + name; }
+        function headReplies() { return []; }
+    }
+    Component {
+        id: coveredPage
+        Rectangle {
+            property alias page: shown
+            anchors.fill: parent
+            z: 1
+            color: Theme.color.surface
+            PluginPage {
+                id: shown
+                width: 520
+                height: parent.height
+                panel: fakePanel
+            }
+        }
+    }
+
     TestCase {
         name: "settingfield"
         when: windowShown
@@ -599,7 +635,9 @@ Item {
             const label = labelOf(longLabel);
             verify(label.lineCount > 2, "the label wraps past two lines");
             compare(label.truncated, false, "the label elides");
-            verify(longLabel.height >= label.implicitHeight, "the row holds every line");
+            // The row box, which a row stood under another by ink may
+            // overlap, holds the label.
+            verify(label.parent.objectName === "fieldRow" && label.parent.height >= label.implicitHeight, "the row holds every line");
         }
 
         // The manifest judge's characters a line, with and without an info
@@ -640,6 +678,91 @@ Item {
             probe.spec = spec;
             const characters = data.info === true ? PluginLogic.INFO_LABEL_LINE_CHARACTERS : PluginLogic.LABEL_LINE_CHARACTERS;
             tryCompare(labelOf(probe), "lineCount", PluginLogic.labelLines(data.label, characters), 2000);
+        }
+
+        // A plugin's row whose settings hold each control a Settings row
+        // draws, in GROUP ("" for none): a slider, a segmented control, a
+        // select, a switch, a select with a description and two switches,
+        // the first with its stored key's line under it. A group follows its bar widget's Show on the bar switch, a
+        // SettingField of its own.
+        function controlRow(group) {
+            const at = spec => group === "" ? spec : Object.assign({ group: group }, spec);
+            const four = [{ value: "a", label: "Alpha" }, { value: "b", label: "Beta" }, { value: "c", label: "Gamma" }, { value: "d", label: "Delta" }];
+            const schema = {
+                interval: at({ type: "number", label: "Interval", min: 1, max: 60 }),
+                view: at({ type: "enum", label: "View", options: [{ value: "compact", label: "Compact" }, { value: "full", label: "Full" }] }),
+                sort: at({ type: "enum", label: "Sort", options: four }),
+                colour: at({ type: "boolean", label: "Colour" }),
+                number: at({ type: "enum", label: "Number", description: "How the bar picks one number", options: four }),
+                after: at({ type: "boolean", label: "After" }),
+                last: at({ type: "boolean", label: "Last" })
+            };
+            const status = { afterKeys: { type: "presenceList", label: "After keys", setting: "after" } };
+            return {
+                id: "acme.rows", name: "Rows", version: "1.0.0", description: "", author: "", license: "", icon: "package",
+                source: "bundled", enabled: true, alwaysOn: false, placed: true, kinds: ["service"], capabilities: [],
+                builtins: group === "" ? [] : [{ id: "acme.rows.bar", name: group, placed: true }],
+                schema: schema, settings: { interval: 15, view: "full", sort: "a", colour: true, number: "b", after: false, last: true },
+                settingChoices: ({}), status: PluginLogic.statusRows({ status: status, secrets: { service: "acme-unit", label: "Key" } }, { afterKeys: [] }),
+                secretLabel: "Key", tuis: [], opens: "", paneHolder: "", binds: [], requirements: [],
+                errors: [], fieldRows: PluginLogic.fieldRows(schema, status)
+            };
+        }
+
+        function inked(img, x, y) {
+            const bg = Qt.color(Theme.color.surface);
+            return Math.abs(img.red(x, y) - Math.round(bg.r * 255)) > 8 || Math.abs(img.green(x, y) - Math.round(bg.g * 255)) > 8
+                || Math.abs(img.blue(x, y) - Math.round(bg.b * 255)) > 8;
+        }
+        function rowInked(img, y, width) {
+            for (let x = 0; x < width; x++) if (inked(img, x, y)) return true;
+            return false;
+        }
+        // The blank pixel rows of the band that holds the top edge of
+        // LOWER's row box: the drawn space between the row above it and
+        // LOWER, 0 when ink crosses that edge.
+        function gapOver(img, lower, width) {
+            const edge = Math.floor(lower.mapToItem(root, 0, 0).y);
+            if (rowInked(img, edge, width)) return 0;
+            let top = edge;
+            let bottom = edge;
+            while (top > 0 && !rowInked(img, top - 1, width)) top--;
+            while (bottom < img.height - 1 && !rowInked(img, bottom + 1, width)) bottom++;
+            return bottom - top + 1;
+        }
+
+        // Every key/value row of a Settings page leaves the same drawn
+        // space, `stack.page`, between its lowest drawn pixel and the next
+        // row's highest, whatever control either holds: rows of no group
+        // under the Enabled switch, and rows of one section, whose first
+        // row stands under its heading instead. A theme's step moves it.
+        // Spaced by their boxes, `stack.row` apart, the same rows stand 8
+        // (select over select), 16 (select over switch) and 24 (switch over
+        // switch) blank rows apart: the control in scripts/test-qml-unit.sh.
+        function test_rows_stand_one_step_apart_by_ink_data() {
+            const all = ["Enabled", "Interval", "View", "Sort", "Colour", "Number", "After", "After keys", "Last"];
+            return [
+                { tag: "no group", group: "", labels: all, step: 0 },
+                { tag: "one section", group: "Bar", labels: [SettingValues.PAGE_LABELS.showOnBar].concat(all.slice(1)), step: 0 },
+                { tag: "a theme's step", group: "", labels: all, step: 20 }
+            ];
+        }
+
+        function test_rows_stand_one_step_apart_by_ink(data) {
+            if (data.step > 0) compare(UnitTheme.override({ stack: { page: data.step } }), "ok");
+            const cover = createTemporaryObject(coveredPage, root);
+            verify(cover !== null);
+            cover.page.row = controlRow(data.group);
+            const rows = () => descendants(cover.page).filter(item => item.objectName === "fieldRow" && item.visible && item.height > 0);
+            const byLabel = label => rows().find(item => item.label === label);
+            tryVerify(() => data.labels.every(label => byLabel(label) !== undefined), 2000, "the page draws every row");
+            verify(waitForRendering(cover));
+            const img = grabImage(root);
+            const gaps = data.labels.slice(1).map((label, i) => ({ pair: data.labels[i] + "/" + label, gap: gapOver(img, byLabel(label), cover.page.width) }));
+            const want = Theme.stack.page;
+            const read = gaps.map(entry => entry.pair + " " + entry.gap).join(", ");
+            for (const entry of gaps)
+                verify(Math.abs(entry.gap - want) <= 1, "every row stands " + want + " blank rows under the one above: " + read);
         }
 
         function test_a_status_choice_without_custom_reads_unavailable() {

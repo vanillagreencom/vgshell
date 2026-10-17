@@ -273,7 +273,7 @@ Item {
                 compare(row.children[1].height, Theme.row.height);
             const pairs = [[switchField, inlineSwitch], [labelField, inlineLabel], [badgeField, inlineBadge], [textFieldRow, inlineText], [buttonField, inlineButton], [selectField, inlineSelect]];
             for (const pair of pairs)
-                fuzzyCompare(pair[1].mapToItem(pair[0], 0, pair[1].height / 2).y, Theme.row.height / 2, 1);
+                fuzzyCompare(pair[1].mapToItem(pair[0].children[1], 0, pair[1].height / 2).y, Theme.row.height / 2, 1);
             const hint = selectField.children[2].children[0];
             compare(hint.x, Theme.field.labelWidth + Theme.field.labelGap);
         }

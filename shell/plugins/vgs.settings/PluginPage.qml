@@ -210,6 +210,8 @@ FocusScope {
         property alias choices: editor.choices
         property alias editable: editor.editable
         property alias edits: editor.edits
+        // A key/value row: the row under it stands by ink (Field).
+        readonly property bool keyValueRow: true
         // Whether the row's last shown line ends in sub-text, which takes
         // the room under the row a Field takes (Theme.subTextRoom).
         readonly property bool subText: {
@@ -467,8 +469,8 @@ FocusScope {
                     onPositioningComplete: if (page.revealing !== "") Qt.callLater(page.revealField)
 
                     // The switches, then the fields of no group, rows of
-                    // one list, so a row with a hint leaves `stack.group`
-                    // before the next (Theme.subTextRoom).
+                    // one list, each `stack.page` under the drawn ink of
+                    // the row above (Field).
                     Column {
                         id: switches
                         width: parent.width

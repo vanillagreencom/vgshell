@@ -72,7 +72,9 @@ Item {
         spacing: Theme.stack.row
         Field { id: hintedRow; label: "Interval"; hint: "How often it checks"; inline: true; width: parent.width; Switch { size: "sm" } }
         Field { id: afterHint; label: "View"; inline: true; width: parent.width; Switch { size: "sm" } }
-        Field { id: plainRow; label: "Plain"; inline: true; width: parent.width; Switch { size: "sm" } }
+        // A stacked field, no key/value row, keeps the column's spacing
+        // under a row rather than standing by ink (Field.rowAbove).
+        Field { id: plainRow; label: "Plain"; inline: false; width: parent.width; Switch { size: "sm" } }
         Field { id: lastHinted; label: "Last"; hint: "Ends the column"; inline: true; width: parent.width; Switch { size: "sm" } }
     }
     GroupList {
@@ -278,13 +280,15 @@ Item {
         function topIn(row, item) { return row.mapToItem(item, 0, 0).y; }
 
         // A row with a hint or error line under it is followed by a group
-        // space; a row without one keeps the column's spacing; the last
+        // space; an item under a row without one keeps the column's
+        // spacing from the row's box; the last
         // row and a row outside a positioner end at their line, so the
         // space after a section or a page stays its own; a group list's
         // gap already is a group space.
         function test_a_group_space_follows_a_row_with_sub_text() {
             same(() => topIn(afterHint, fieldRows) - lineBottom(hintedRow, fieldRows), Theme.stack.group, "the row after a hint");
-            same(() => topIn(plainRow, fieldRows) - topIn(afterHint, fieldRows), Theme.row.height + Theme.stack.row, "the row after a row without sub-text");
+            const rowBox = afterHint.children[1];
+            same(() => topIn(plainRow, fieldRows) - rowBox.mapToItem(fieldRows, 0, rowBox.height).y, Theme.stack.row, "the item after a row without sub-text");
             afterHint.error = "Refused";
             same(() => topIn(plainRow, fieldRows) - lineBottom(afterHint, fieldRows), Theme.stack.group, "the row after an error");
             afterHint.error = "";

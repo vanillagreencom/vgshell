@@ -68,6 +68,8 @@ Column {
     // Whether the field ends in a description or an error line, which
     // takes the room under it a Field takes (Theme.subTextRoom).
     readonly property bool subText: (customVisible ? customField : primary).subText
+    // A key/value row: the row under it stands by ink (Field).
+    readonly property bool keyValueRow: true
     signal apply(var value)
     signal openLink(var link)
     signal openPage(string page, string tab)
@@ -432,8 +434,10 @@ Column {
             implicitHeight: Math.max(bar.implicitHeight, shown.implicitHeight)
 
             // The slider and its value centre in the row: the lower of
-            // their drawn bottoms ends it (Theme.inkBelow).
+            // their drawn bottoms ends it (Theme.inkBelow), the higher of
+            // their drawn tops starts it (Theme.inkAbove).
             function inkBelow() { return height - Math.max(bar.y + bar.height - bar.inkBelow(), shown.y + shown.height - shown.inkBelow()); }
+            function inkAbove() { return Math.min(bar.y + bar.inkAbove(), shown.y + shown.inkAbove()); }
 
             function commit() {
                 const wanted = bar.value;

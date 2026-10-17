@@ -26,8 +26,19 @@ import qs.Ui
 // container's content edge and its control ends on that edge. `valueX` is
 // where the value column starts, for content that belongs under it.
 // `subText` holds while the lines, the hint or the error line show; the
-// field then takes room under them so the next row of its column starts
-// `stack.group` below the last line (Theme.subTextRoom). A set
+// field then takes room under them so the next item of its column that is
+// no key/value row starts `stack.group` below the last line
+// (Theme.subTextRoom). An inline field with a label is a key/value row,
+// and one under another key/value row of its column (`keyValueRow`) stands
+// `stack.page` under that row's drawn ink, from its lowest drawn pixel to
+// this row's highest (Theme.inkBelow, Theme.inkAbove), whatever either
+// control draws in its row box: its top padding takes out of that space
+// the column's spacing and both blanks, and goes negative where those
+// exceed it, so the row boxes overlap where the controls draw less than
+// the box. Ink is drawn in whole pixel rows on whole-pixel item edges, as
+// Section measures it, so the padding counts whole rows. A field that is
+// the first item of a column, such as the editor of a SettingField, reads
+// the row above that column. A set
 // `disabledReason` goes to the control that takes one (DisabledReason); a
 // reason no control takes is logged.
 Column {
@@ -55,6 +66,39 @@ Column {
     readonly property real bodyWidth: width - leftPadding - rightPadding
     readonly property real valueX: leftPadding + controlRow.valueX
     readonly property bool subText: lines.length > 0 || hintLine.text !== ""
+    // A row a key/value row under it is spaced from by ink; a column that
+    // holds rows of one setting, such as a SettingField, declares it too.
+    readonly property bool keyValueRow: inline
+    // The key/value row this one stands under, and the room the columns
+    // already put between the two: the spacing of the column that holds
+    // both and the top padding of each column this field is the first
+    // shown item of. The first group of a GroupList stands at the list's
+    // top, so the search goes on above the list; a later group keeps the
+    // list's gap and hairline. null for a field with no label beside its
+    // control, under anything that is no key/value row, such as a
+    // section's heading, or under nothing. A Column lays out only its
+    // shown, sized children
+    // (https://doc.qt.io/qt-6/qml-qtquick-column.html).
+    readonly property var rowAbove: {
+        if (!inline || label === "") return null;
+        let room = 0;
+        for (let at = root; at.parent !== null; ) {
+            const holder = at.parent;
+            const list = holder.parent instanceof GroupList ? holder.parent : null;
+            if (!(holder instanceof Column) && list === null) return null;
+            const siblings = holder.children;
+            let below = true;
+            for (let i = siblings.length - 1; i >= 0; i--) {
+                const item = siblings[i];
+                if (item === at) below = false;
+                else if (!below && item.visible && item.width > 0 && item.height > 0)
+                    return list === null && item.keyValueRow === true ? { item: item, room: room + holder.spacing } : null;
+            }
+            if (list === null) room += holder.topPadding;
+            at = list === null ? holder : list;
+        }
+        return null;
+    }
     signal hintLinkActivated()
     signal hintPageActivated(string page, string tab)
     signal infoPageActivated(string page, string tab)
@@ -72,6 +116,7 @@ Column {
     onDisabledReasonChanged: judgeReason()
     Component.onCompleted: judgeReason()
 
+    topPadding: rowAbove === null ? 0 : Theme.stack.page - rowAbove.room - Math.floor(Theme.inkBelow(rowAbove.item)) - Math.floor(controlRow.inkAbove())
     leftPadding: Theme.field.paddingX
     rightPadding: Theme.field.paddingX
     bottomPadding: Theme.subTextRoom(subText, Positioner.index, Positioner.isLastItem, parent)
