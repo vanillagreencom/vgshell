@@ -13,10 +13,11 @@ import qs.Unit
 // the first line, where they sit in a one-line row, and that line's
 // actions sit where a one-line row's do, while beside a control that is
 // one taller box they centre on the box; a message draws as hint text
-// under the value column, `field.gap` below the row box and wrapped to the
-// column, in its tone's colour, or in the role `warningRole` names, grows
-// the row by the gap and its own
-// height, and moves neither the label nor the control; an action draws on
+// under the value column, `field.gap` below its control's drawn ink, the
+// same blank rows under a switch, a slider and a segmented control, and
+// wrapped to the column, in its tone's colour, or in the role `warningRole`
+// names, ends the row with the lower of the row box and itself, and moves
+// neither the label nor the control; an action draws on
 // the message's line, on the row's end edge, the message wrapping before
 // it, only while the row has a message and the action shows, at the
 // message's height so it moves no row below it, and goes on a
@@ -50,13 +51,13 @@ Item {
         FormRow { id: filled; width: parent.width; label: "Format"; Select { id: choice; width: parent.width; model: ["HH:mm", "hh:mm ap"] } }
         FormRow { id: tall; width: parent.width; label: "Preview"; Rectangle { id: block; width: 40; height: Theme.row.height + 24; color: "transparent" } }
         FormRow { id: warned; width: parent.width; label: "Speed"; warning: "Overridden"; Slider { id: speed; width: parent.width; from: 0; to: 1; value: 0.5 } }
-        FormRow { id: wrapped; width: parent.width; label: "Scroll"; warning: "A message too long for one line of the value column wraps inside it and never runs under the label column"; Switch { size: "sm" } }
+        FormRow { id: wrapped; width: parent.width; label: "Scroll"; warning: "A message too long for one line of the value column wraps inside it and never runs under the label column"; Switch { id: wrappedToggle; size: "sm" } }
         FormRow { id: bare; width: parent.width; label: "Hidden"; labelColumn: false; Rectangle { id: thin; width: parent.width; height: 8; color: "transparent" } }
         FormRow { id: bareWarned; width: parent.width; labelColumn: false; warning: "Refused"; Rectangle { id: thinWarned; width: parent.width; height: 8; color: "transparent" } }
         FormRow { id: acted; width: parent.width; label: "Speed"; warning: "Set elsewhere"; action: Rectangle { id: undo; width: 90; height: 30; color: "transparent" } Switch { id: actedToggle; size: "sm" } }
         FormRow { id: actedQuiet; width: parent.width; label: "Speed"; action: Rectangle { id: quietUndo; width: 90; height: 30; color: "transparent" } Switch { size: "sm" } }
-        FormRow { id: cramped; width: 2 * Theme.field.labelWidth + Theme.field.labelGap + Theme.stack.inline + crampedUndo.width - 1; label: "Speed"; warning: "Set elsewhere"; action: Rectangle { id: crampedUndo; width: 90; height: 30; color: "transparent" } Switch { size: "sm" } }
-        FormRow { id: roomy; width: cramped.width + 1; label: "Speed"; warning: "Set elsewhere"; action: Rectangle { id: roomyUndo; width: 90; height: 30; color: "transparent" } Switch { size: "sm" } }
+        FormRow { id: cramped; width: 2 * Theme.field.labelWidth + Theme.field.labelGap + Theme.stack.inline + crampedUndo.width - 1; label: "Speed"; warning: "Set elsewhere"; action: Rectangle { id: crampedUndo; width: 90; height: 30; color: "transparent" } Switch { id: crampedToggle; size: "sm" } }
+        FormRow { id: roomy; width: cramped.width + 1; label: "Speed"; warning: "Set elsewhere"; action: Rectangle { id: roomyUndo; width: 90; height: 30; color: "transparent" } Switch { id: roomyToggle; size: "sm" } }
         Badge { id: chip; text: "Chip" }
     }
 
@@ -201,6 +202,27 @@ Item {
     SignalSpy { id: warningPages; target: paged; signalName: "warningPageActivated" }
     SignalSpy { id: infoPages; target: paged; signalName: "infoPageActivated" }
 
+    // Rows with the message a value's source draws in Settings, under a
+    // switch, a slider and a segmented control, over the rest of the
+    // window, so the image holds only their ink on the surface colour.
+    Component {
+        id: coveredMessages
+        Rectangle {
+            property alias rows: messageRows
+            anchors.fill: parent
+            z: 1
+            color: Theme.color.surface
+            Column {
+                id: messageRows
+                width: 420
+                spacing: Theme.stack.group
+                FormRow { label: "Animations"; width: parent.width; warning: "Set by theme"; warningRole: "tooltip"; warningTone: "muted"; Switch { size: "sm"; checked: true } }
+                FormRow { label: "Speed"; width: parent.width; warning: "Set by theme"; warningRole: "tooltip"; warningTone: "muted"; Slider { width: parent.width; from: 0; to: 1; value: 0.5 } }
+                FormRow { label: "Curve"; width: parent.width; warning: "Set by theme"; warningRole: "tooltip"; warningTone: "muted"; SegmentedControl { model: ["Linear", "Smooth", "Snappy"] } }
+            }
+        }
+    }
+
     Component {
         id: ledLabelRow
         FormRow { width: 420; info: "Details"; Switch { size: "sm" } }
@@ -248,6 +270,10 @@ Item {
         // The room a row with a message takes under it in the first
         // column, whose spacing is 0.
         function room() { return Theme.stack.group; }
+        // Where CONTROL's drawn ink ends in ROW, on a whole pixel row, and
+        // where the row's message starts: `field.gap` under it.
+        function inkEnd(control, row) { return Math.ceil(control.mapToItem(row, 0, control.height).y - Theme.inkBelow(control)); }
+        function messageTop(control, row) { return inkEnd(control, row) + Theme.field.gap; }
         function messageBottom(row, item) {
             const message = messageOf(row);
             return message.mapToItem(item, 0, message.height).y;
@@ -520,12 +546,53 @@ Item {
             compare(message.role, "hint");
             compare(xIn(message, warned), warned.valueX);
             compare(xIn(message, warned) + message.width, warned.width);
-            compare(message.y, Theme.row.height + Theme.field.gap, "the message starts the field gap below the row box");
+            compare(message.y, messageTop(speed, warned), "the message starts the field gap below the slider's ink");
+            verify(message.y < Theme.row.height, "the message waits for the row box's end under a slider that draws less than its box");
             verify(message.height > 0);
-            compare(warned.implicitHeight, Theme.row.height + Theme.field.gap + message.height + room());
+            compare(warned.implicitHeight, message.y + message.height + room(), "the row ends with its message");
             compare(warned.height, warned.implicitHeight);
             compare(typesUnder(chip)[0], "Badge", "the reader names no chip");
             verify(typesUnder(warned).indexOf("Badge") === -1, "the row draws a chip");
+        }
+
+        function inked(img, x, y) {
+            const bg = Qt.color(Theme.color.surface);
+            return Math.abs(img.red(x, y) - Math.round(bg.r * 255)) > 8 || Math.abs(img.green(x, y) - Math.round(bg.g * 255)) > 8
+                || Math.abs(img.blue(x, y) - Math.round(bg.b * 255)) > 8;
+        }
+        function rowInked(img, y, from, to) {
+            for (let x = from; x < to; x++) if (inked(img, x, y)) return true;
+            return false;
+        }
+
+        // A message stands `field.gap` under its control's drawn ink, so
+        // the blank pixel rows between a control's lowest inked row and its
+        // message's highest, read across the value column, are the same
+        // under a switch, a slider and a segmented control: the gap plus
+        // the message's own blank rows above its glyphs, 7 in this run. Placed
+        // `field.gap` under the row box, the messages read 17, 18 and 9.
+        function test_a_message_stands_the_field_gap_under_every_controls_ink() {
+            const cover = createTemporaryObject(coveredMessages, root);
+            verify(cover !== null);
+            verify(waitForRendering(cover));
+            const img = grabImage(root);
+            const read = cover.rows.children.filter(item => item.objectName === "fieldRow").map(row => {
+                const message = row.children.find(child => child instanceof LinkText);
+                verify(message.visible, "the row draws no message");
+                const from = Math.round(row.mapToItem(root, row.valueX, 0).x);
+                const to = Math.round(row.mapToItem(root, row.width, 0).x);
+                const box = Math.round(message.mapToItem(root, 0, 0).y);
+                let glyphs = box;
+                while (glyphs < box + message.height && !rowInked(img, glyphs, from, to)) glyphs++;
+                verify(glyphs < box + message.height, "the message draws no ink: " + row.label);
+                let blank = glyphs;
+                while (blank > 0 && !rowInked(img, blank - 1, from, to)) blank--;
+                return { label: row.label, gap: glyphs - blank, above: glyphs - box };
+            });
+            compare(read.length, 3);
+            const text = read.map(entry => entry.label + " " + entry.gap).join(", ");
+            for (const entry of read)
+                compare(entry.gap, Theme.field.gap + entry.above, "every message stands the field gap under its control's ink: " + text);
         }
 
         function test_a_message_takes_no_room_from_the_control() {
@@ -550,8 +617,8 @@ Item {
             compare(undo.mapToItem(acted, 0, 0).x + undo.width, acted.width, "the action ends on the row's end edge");
             compare(xIn(message, acted), acted.valueX);
             compare(message.width, acted.width - acted.valueX - undo.width - Theme.stack.inline, "the message runs under the action");
-            compare(acted.height, Theme.row.height + Theme.field.gap + message.height + room(), "the row grows for a taller action");
-            compare(message.y, Theme.row.height + Theme.field.gap);
+            compare(message.y, messageTop(actedToggle, acted));
+            compare(acted.height, message.y + message.height + room(), "the row grows for a taller action");
             fuzzyCompare(centreIn(message, acted), centreIn(undo, acted), 1, "the message leaves the action's line");
             fuzzyCompare(centreIn(actedToggle, acted), Theme.row.height / 2, 1, "the control leaves the row box's centre");
         }
@@ -561,21 +628,22 @@ Item {
         function test_an_action_with_no_room_beside_the_message_goes_under_it() {
             const message = messageOf(cramped);
             compare(message.width, cramped.width - cramped.valueX, "the message gives room to an action that left its line");
-            compare(message.y, Theme.row.height + Theme.field.gap);
+            compare(message.y, messageTop(crampedToggle, cramped));
             compare(xIn(crampedUndo, cramped), cramped.valueX, "the action leaves the value column's start");
             compare(crampedUndo.mapToItem(cramped, 0, 0).y, message.y + message.height + Theme.field.gap, "the action is not the field gap under the message");
-            compare(cramped.height, Theme.row.height + 2 * Theme.field.gap + message.height + crampedUndo.height + room());
+            compare(cramped.height, message.y + message.height + Theme.field.gap + crampedUndo.height + room());
             const beside = messageOf(roomy);
             compare(beside.width, Theme.field.labelWidth, "one more pixel keeps the action beside the message");
             compare(roomyUndo.mapToItem(roomy, 0, 0).x + roomyUndo.width, roomy.width);
-            compare(roomy.height, Theme.row.height + Theme.field.gap + beside.height + room());
+            compare(beside.y, messageTop(roomyToggle, roomy));
+            compare(roomy.height, beside.y + beside.height + room());
         }
 
         function test_a_hidden_action_takes_no_room() {
             const message = messageOf(acted);
             undo.visible = false;
             compare(message.width, acted.width - acted.valueX);
-            compare(acted.height, Theme.row.height + Theme.field.gap + message.height + room());
+            compare(acted.height, messageTop(actedToggle, acted) + message.height + room());
             undo.visible = true;
             compare(message.width, acted.width - acted.valueX - undo.width - Theme.stack.inline);
         }
@@ -607,7 +675,8 @@ Item {
             compare(xIn(message, wrapped), wrapped.valueX);
             compare(message.width, wrapped.width - wrapped.valueX);
             verify(message.height > messageOf(warned).height);
-            compare(wrapped.height, Theme.row.height + Theme.field.gap + message.height + room());
+            compare(message.y, messageTop(wrappedToggle, wrapped));
+            compare(wrapped.height, message.y + message.height + room());
         }
 
         // expected-log: FormRow: no warningTone named "loud" -- the test names an unknown tone on purpose
@@ -641,7 +710,7 @@ Item {
             compare(choice.width, filled.width - 85);
             compare(plain.height, 44);
             compare(xIn(messageOf(warned), warned), 85);
-            compare(messageOf(warned).y, 44 + 9);
+            compare(messageOf(warned).y, inkEnd(speed, warned) + 9);
         }
 
         // A message, a sub-text line, is followed by a group space; a row

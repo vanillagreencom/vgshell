@@ -41,18 +41,21 @@ import qs.Ui
 // tooltip: under it lies the next row's label, and past it its own row's
 // control. `warning` is the row's message:
 // text in the role `warningRole` names, `hint` unless set, under the value
-// column, `field.gap` below the row box and
+// column, `field.gap` below its control's drawn ink, the measure key/value
+// rows stand by (Theme.inkBelow, a Label in the slot by its font), and
 // wrapped to the column, in the colour `warningTone` names, `warning`,
 // `danger` or `muted`. `warningLink`, when set, names the substring of
 // `warning` that opens a cited file through `warningLinkActivated`. A page
 // reference in `warning` (LinkText) is its link, activated through
 // `warningPageActivated`, and one in the `info` dialog's text through
 // `infoPageActivated`, each with the page and tab. The
-// row grows by the gap and the message's height, and the label and the
+// row ends with the lower of its box and its message. The label and the
 // control stay centred on the row box, so a message takes no room from its
-// control. Light feedback in a form is this line, plain sentence-case text
-// in a muted or status colour. A chip, a fill or capitals are for a state
-// the user must act on now, with the action beside it. `action` is one
+// control, and the message's box may overlap the row box where the control
+// draws less than its box. Light feedback in a form is this line, plain
+// sentence-case text in a muted or status colour. A chip, a fill or
+// capitals are for a state the user must act on now, with the action beside
+// it. `action` is one
 // control for the message, such as a RowAction that undoes what the message
 // names: it draws on the message's line, on the row's end edge, only while
 // the row has a message, and the message wraps `stack.inline` before it.
@@ -182,7 +185,20 @@ Item {
     readonly property real valueX: labelColumn ? Theme.field.labelWidth + Theme.field.labelGap : 0
     readonly property real valueRoom: Math.max(0, width - valueX)
     readonly property real valueBottom: shift + slotTop + slot.height
-    readonly property real messageRoom: warning === "" ? 0 : Theme.field.gap + messageLine
+    // Where the control's drawn ink ends in the slot, read as lineBelow()
+    // reads the slot: a Label by its font, any other control as drawn. An
+    // empty slot ends at its box. Ink is drawn in whole pixel rows, so a
+    // part of a row counts as the whole row.
+    readonly property real controlInk: {
+        let bottom = -Infinity;
+        for (const child of slot.children) {
+            if (child.visible) bottom = Math.max(bottom, child.y + child.height - (child instanceof Label ? fontBelow(child) : Theme.inkBelow(child)));
+        }
+        return bottom === -Infinity ? slot.height : Math.ceil(bottom);
+    }
+    // Where the control's ink ends, and the message starts, in the row box.
+    readonly property real controlBottom: slotTop + controlInk
+    readonly property real messageTop: controlBottom + Theme.field.gap
     readonly property real controlEnd: {
         let end = 0;
         for (const child of slot.children) {
@@ -196,7 +212,7 @@ Item {
     // Where the first line under the value starts, -1 with no such line.
     // In the row box's frame, as are the label's and the control's tops
     // and the places that read them.
-    readonly property real underText: textBelow ? slotTop + slot.height + Theme.field.gap : warning !== "" ? boxHeight + Theme.field.gap : -1
+    readonly property real underText: textBelow ? slotTop + slot.height + Theme.field.gap : warning !== "" ? messageTop : -1
     // Whether the explainer, centred on the label's box, ends above that line.
     readonly property bool besideClear: underText < 0 ? true : (labelBox + besideHeight) / 2 <= underText
     readonly property bool explainBeside: besideWrap > 0 && besideHeight <= labelBox + 2 * Theme.stack.row && besideClear
@@ -212,8 +228,11 @@ Item {
     readonly property bool underLine: textBelow || warning !== ""
     // Whether the explainer has room past the control beside a label of any
     // line count, and ends above a line under the value: less a pixel, which
-    // the control's rounded centre can take.
-    readonly property bool besideRoom: besideWrap > 0 && besideHeight <= oneLineBox + 2 * Theme.stack.row && (!underLine || besideHeight <= slot.childrenRect.height + 2 * Theme.field.gap - 1)
+    // the control's rounded centre can take. Centred on the slot, it ends
+    // above that line while half its height fits between the slot's centre
+    // and the line's start, `field.gap` under the slot's box for the
+    // owner's text and under the control's ink for the message.
+    readonly property bool besideRoom: besideWrap > 0 && besideHeight <= oneLineBox + 2 * Theme.stack.row && (!underLine || besideHeight <= 2 * ((textBelow ? slot.height : controlInk) + Theme.field.gap) - slot.childrenRect.height - 1)
     // Whether the band over that line holds the explainer on one line of the
     // value column, the room it has beside a label ring that reaches the line.
     // A wrapped Text's implicitWidth is its width on one line.
@@ -226,11 +245,12 @@ Item {
     readonly property string tipText: explainInDialog ? "" : labelTooltip
     readonly property string dialogText: !explainInDialog ? info : info === "" ? labelTooltip : labelTooltip + "\n\n" + info
     readonly property real subTextRoom: Theme.subTextRoom(warning !== "", Positioner.index, Positioner.isLastItem, parent)
-    // The row box, the message's line under it and the room under that,
-    // each from the row box's top, so the space above it reads none of them.
+    // The row box, the end of the message's line and the room under the
+    // lower of the two, each from the row box's top, so the space above it
+    // reads none of them.
     readonly property real boxHeight: labelColumn ? Math.max(Theme.row.height, labelText.implicitHeight, slot.childrenRect.height) : slot.childrenRect.height
-    readonly property real messageBottom: boxHeight + messageRoom
-    readonly property real ownHeight: boxHeight + messageRoom + subTextRoom
+    readonly property real messageBottom: warning === "" ? boxHeight : messageTop + messageLine
+    readonly property real ownHeight: Math.max(boxHeight, messageBottom) + subTextRoom
     // Where the label and the control start in the row box.
     readonly property real labelTop: labelText.lineCount > 1 ? Math.round((boxHeight - labelText.implicitHeight) / 2) : labelText.topForCapCenter(labelBox)
     readonly property real slotTop: labelColumn ? Math.round((boxHeight - slot.height) / 2) : 0
@@ -246,6 +266,15 @@ Item {
     signal warningLinkActivated()
     signal warningPageActivated(string page, string tab)
     signal infoPageActivated(string page, string tab)
+
+    // Whether ITEM is the row's control or inside it, not its label, its
+    // message or its action.
+    function holdsControl(item) {
+        for (let at = item; at !== null && at !== root; at = at.parent) {
+            if (at === slot) return true;
+        }
+        return false;
+    }
 
     function inkBelow() { return drawnBelow(false); }
     function inkAbove() { return shift + drawnAbove(false); }
@@ -384,7 +413,7 @@ Item {
         color: root.toneColor(root.warningTone)
         visible: root.warning !== ""
         x: slot.x
-        y: root.boxHeight + Theme.field.gap + root.shift
+        y: root.shift + root.messageTop
         width: root.valueRoom - root.actionRoom
         wrapMode: Text.Wrap
         onActivated: root.warningLinkActivated()
