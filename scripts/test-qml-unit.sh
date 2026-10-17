@@ -1132,6 +1132,7 @@ mutations=(
   "a select keeps the hovered entry when the pointer leaves|layout/ListCursor.qml|if (back !== null && over !== null && state.target === over && back.parent !== over) back.pointed();|if (false) back.pointed();|tst_overlays.qml"
   "a reopened menu's cursor travels from the dismissed entry|overlay/Menu.qml|        plate.snap();|        Qt.callLater(plate.snap);|tst_overlays.qml"
   "a reopened select list's cursor travels from the dismissed entry|controls/Select.qml|        plate.snap();|        Qt.callLater(plate.snap);|tst_overlays.qml"
+  "a list item draws its storage key as a Name row|../plugins/vgs.settings/ListField.qml|                    spacing: Theme.stack.row|                    spacing: Theme.stack.row; Field { width: itemGroup.fieldWidth; label: \"Name\"; inline: true; Label { role: \"value\"; text: itemGroup.modelData.name } }|tst_listfield.qml"
   "an open preset list keeps its highlight across a clock tick|../plugins/vgs.settings/SettingField.qml|loader.item.listOpen !== true))|true)|tst_settingfield.qml"
   "a setting's description takes no group space after it|../plugins/vgs.settings/SettingField.qml|    bottomPadding: Theme.subTextRoom(subText, Positioner.index, Positioner.isLastItem, parent)|    bottomPadding: 0|tst_settingfield.qml"
   "a custom setting's description takes no group space after it|../plugins/vgs.settings/SettingField.qml|(customVisible ? customField : primary).subText|primary.subText|tst_settingfield.qml"
