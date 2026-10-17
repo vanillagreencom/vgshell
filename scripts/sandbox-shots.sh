@@ -6,6 +6,7 @@
 #                                 [--theme-card NAME] [--hidden]
 #                                 [--preview-themes LIST] [--preview-wallpaper NAME=PATH]...
 #                                 [--dotfiles DIR] [--pages LIST] [--enable LIST] [--disable LIST]
+#                                 [--info LIST] [--click PANE]
 #                                 [--timeout SECONDS] [--keep] [SCENE...]
 #                                 [--title-inventory]
 #       scripts/sandbox-shots.sh --check-desktop-pair BEFORE_DIR AFTER_DIR
@@ -21,14 +22,16 @@
 # SCENE is gallery, settings, wide-settings, focus, focus-open, flyout-titles, plugin-pages, manager, launcher,
 # notifications, bar, panels, devtools, system, network, vpn, vpn-locked, bluetooth, power, dialog, by-hand, reset, lock, polkit,
 # greeter, narrow, theme-browser, wallpaper-browser, automations, cloudsync, tooltips, capture,
-# keyhints, clipboard, voice, voice-setup, voice-elsewhere, dictation-setup, jarvis-console, jarvis-audit, jarvis-setup, elevenlabs-voices, jarvis-fleet, outdated, jarvis-causes, plugin-messages, page-links, tooltip-link, traffic, ai-usage, ai-usage-states, sysmon, tui-edges, appearance, sounds, setup-tab, updates, clone-voice, displays-override or theme-previews. settings takes the
+# info-dialog, keyhints, clipboard, voice, voice-setup, voice-elsewhere, dictation-setup, jarvis-console, jarvis-audit, jarvis-setup, elevenlabs-voices, jarvis-fleet, outdated, jarvis-causes, plugin-messages, page-links, tooltip-link, traffic, ai-usage, ai-usage-states, sysmon, tui-edges, appearance, sounds, setup-tab, updates, clone-voice, displays-override or theme-previews. settings takes the
 # automations', the Jarvis, the AI Usage and the Tray pages among the plugin pages,
 # each when the tree ships its plugin. plugin-pages, taken only when named, opens every
 # plugin the Settings window lists, in that window's order, or with --pages
 # the comma-separated ids it names. `ID:settings`, `ID:setup` and
 # `ID:details` select a tab. A missing Setup tab is captured on Settings,
 # with its tab strip in view. pages.tsv records the requested and shown
-# tabs beside each shot. It captures
+# tabs beside each shot. Printers also captures missing printing software,
+# printing off, and cups.service masked, with each state read before capture.
+# It captures
 # every screen of an overflowing page. bar is the bar with every
 # first-party widget and each widget's tooltip or
 # hover; tooltips, taken only when named, enables and places every
@@ -146,6 +149,10 @@
 # printer, two printers with the default, a busy printer and a stopped
 # one, then the add flow with the devices CUPS finds and a refused
 # address, and printing not installed, taken only when named;
+# info-dialog opens each manifest field or status info dialog named by
+# --info ID:KEY[,ID:KEY...]. --click PANE follows its page link in light
+# mode and checks the System pane. The Updates Reboot notice field gets
+# a CachyOS hook in the fake system tree so its choices are shown.
 # plugin-messages is a plugin's message to the
 # user as the tree draws it, a core toast where the tree ships
 # shell/Core/Toasts.qml and else its card in vgs.notifications with
@@ -369,6 +376,8 @@ preview_themes=()
 declare -A preview_wallpaper=()
 preview_dotfiles=""
 page_ids=()
+info_entries=()
+click_pane=""
 enable_ids=()
 disable_ids=()
 require_window=""
@@ -386,6 +395,8 @@ while [[ $# -gt 0 ]]; do
     --preview-wallpaper) preview_wallpaper["${2%%=*}"]="${2#*=}"; shift 2 ;;
     --dotfiles) preview_dotfiles="$2"; shift 2 ;;
     --pages) IFS=, read -r -a page_ids <<<"$2"; shift 2 ;;
+    --info) IFS=, read -r -a info_entries <<<"$2"; shift 2 ;;
+    --click) click_pane="$2"; shift 2 ;;
     --enable) enable_arg="$2"; shift 2 ;;
     --disable) disable_arg="$2"; shift 2 ;;
     --hidden) require_window=hidden; shift ;;
@@ -394,7 +405,7 @@ while [[ $# -gt 0 ]]; do
     --title-inventory) title_inventory=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
 
-    sysmon|tui-edges|gallery|settings|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|voice-keys|jarvis-console|jarvis-audit|jarvis-setup|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes|plugin-messages|page-links|tooltip-link|traffic|ai-usage|ai-usage-states|devtools|system|appearance|sounds|network|vpn|vpn-locked|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|cloudsync|tooltips|screensaver|theme-previews|setup-tab|updates|clone-voice|displays-override) scenes+=("$1"); shift ;;
+    sysmon|tui-edges|gallery|settings|info-dialog|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|voice-keys|jarvis-console|jarvis-audit|jarvis-setup|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes|plugin-messages|page-links|tooltip-link|traffic|ai-usage|ai-usage-states|devtools|system|appearance|sounds|network|vpn|vpn-locked|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|cloudsync|tooltips|screensaver|theme-previews|setup-tab|updates|clone-voice|displays-override) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -481,14 +492,11 @@ tree_has shell/plugins/vgs.settings/ListPage.qml '"Clear search"' && has_clear_s
 has_tab_pages=false
 tree_has shell/plugins/vgs.settings/PluginPage.qml "TabPages {" && has_tab_pages=true
 page_details() { ! "$has_tab_pages" || settings_details; }
-# A tree whose plugin page draws a plugin's stored keys in the Setup section
-# of its Settings tab offers Add key there; an older tree draws them on
-# Details, in the entry's own section, with Connect. page_keys moves the
-# open page to the tab that draws them.
-has_setup_keys=false
-tree_has shell/plugins/vgs.settings/Steps.js "function keyEntries(" && has_setup_keys=true
+# The line that owns secret entry also owns its action's label.
+has_add_key=false
+tree_has shell/plugins/vgs.settings/StatusLine.qml 'text: "Add key"' && has_add_key=true
 keys_action=Connect
-! "$has_setup_keys" || keys_action="Add key"
+! "$has_add_key" || keys_action="Add key"
 # A tree whose plugin page has a Setup tab draws a plugin's setup steps,
 # stored keys, setup screens and, beside them, its Requirements there; an
 # older tree draws the first three on Settings. page_setup moves the open
@@ -500,7 +508,20 @@ page_setup() {
   settings_tab_click Settings || fail "the click on the Settings tab failed"
   expect_poll "the plugin page shows Settings" 0 settings_tab
 }
-page_keys() { if "$has_setup_tab"; then settings_setup; else "$has_setup_keys" || page_details; fi; }
+# The published status row names its placement. Optional actions can stay
+# on Details even when required tools give the plugin a Setup tab.
+page_status() { # ID KEY
+  local tab
+  tab="$(status_row "$1" "$2" | py_reply 'import json,sys; r=json.load(sys.stdin); print("Settings" if r.get("setting") else "Setup" if r.get("setup") or r.get("step") else "Details")')" || return 1
+  case $tab in
+    Settings) settings_tab_click Settings || return 1
+      expect_poll "the status setting page shows Settings" Settings settings_tab_text ;;
+    Setup) page_setup ;;
+    Details) page_details ;;
+    *) printf 'sandbox-shots: refused: status-page=%s/%s value=%s\n' "$1" "$2" "$tab" >&2; return 1 ;;
+  esac
+}
+page_keys() { page_status vgs.notifications slackTokens; }
 # A tree whose plugin page holds a save bar keeps a typed value until it is
 # saved and asks before a page with one is left.
 has_save_bar=false
@@ -528,7 +549,7 @@ scene_ships() {
     sysmon) ships_plugin vgs.sysmon vgs.settings ;;
     tui-edges) ships_plugin vgs.sysmon ;;
     settings|manager) [[ $1 == "$manager_scene" ]] ;;
-    plugin-pages) [[ $manager_scene == settings ]] ;;
+    plugin-pages|info-dialog) [[ $manager_scene == settings ]] ;;
     setup-tab) [[ $manager_scene == settings && $has_setup_tab == true ]] ;;
     wide-settings) ships_plugin vgs.system vgs.displays vgs.mouse vgs.sound ;;
     gallery) ships_plugin vgs.gallery ;;
@@ -592,6 +613,9 @@ if [[ ${#scenes[@]} -eq 0 ]]; then
   fi
 fi
 for scene in "${scenes[@]}"; do
+  if [[ $scene == info-dialog && ${#info_entries[@]} -eq 0 ]]; then
+    printf 'sandbox-shots: refused: info=empty\n' >&2; exit 2
+  fi
   if ! scene_ships "$scene"; then
     printf 'sandbox-shots: refused: scene=%s tree=%s\n' "$scene" "${rev:-checkout}" >&2
     exit 2
@@ -609,6 +633,11 @@ for scene in "${scenes[@]}"; do
     exit 2
   fi
 done
+for pair in "${info_entries[@]}"; do
+  [[ $pair =~ ^$plugin_id:[a-zA-Z][a-zA-Z0-9-]*$ ]] || { printf 'sandbox-shots: refused: info=%s\n' "$pair" >&2; exit 2; }
+  ships_plugin "${pair%:*}" || { printf 'sandbox-shots: refused: info=%s reason=plugin-missing\n' "$pair" >&2; exit 2; }
+done
+[[ -z $click_pane || $click_pane =~ ^$plugin_id$ ]] || { printf 'sandbox-shots: refused: click=%s\n' "$click_pane" >&2; exit 2; }
 for mode in "${mode_list[@]}"; do
   [[ $mode != catalog-* || -f $tree/themes/catalog/${mode#catalog-}/theme.json ]] || { printf 'sandbox-shots: refused: mode=%s\n' "$mode" >&2; exit 2; }
 done
@@ -1282,8 +1311,15 @@ jarvis_notice_close() {
 # slack_section: the section that draws the Slack tokens, through Globex's
 # action that takes one.
 slack_section() {
-  local heading=Slack
-  ! "$has_setup_keys" || heading=Setup
+  local heading
+  # A stored key list attached to a setting draws in that field's group.
+  heading="$(status_row vgs.notifications slackTokens | py_reply 'import json,sys
+row=json.load(sys.stdin)
+if row.get("setting"):
+    manifest=json.load(open(sys.argv[1]))
+    print(manifest["schema"][row["setting"]].get("group", ""))
+else:
+    print("Setup" if row.get("setup") or row.get("step") else row.get("group") or "Status")' "$tree/shell/plugins/vgs.notifications/manifest.json")" || return 1
   settings_section "$heading" StatusLine "Globex" RowAction "$keys_action"
 }
 # The setup steps of D061 on the open Settings window: Globex's Add key with
@@ -1296,7 +1332,7 @@ slack_section() {
 # its status entry KEY.
 step_offered() { status_row "$1" "$2" | py_reply 'import json,sys; r=json.load(sys.stdin); print(str(bool(r["action"] and r["action"]["offered"])).lower())'; }
 # step_shot MODE ID KEY LABEL NAME: plugin ID's page, on the tab that draws
-# its setup steps, with the action LABEL of its entry KEY scrolled into
+# its entry KEY, with that entry's action LABEL scrolled into
 # view, as setup-MODE-NAME. A host where the step is not offered, such as
 # one whose scene stood in the command the button installs, skips the shot
 # and says so.
@@ -1304,7 +1340,7 @@ step_shot() {
   local shown offered=false control _
   expect "the window opens the $2 page" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin "$2"
   expect_poll "the $2 page is shown" "\"$2\"" settings_page
-  page_setup
+  page_status "$2" "$3"
   # expect_poll's own window, 5 s at 0.2 s.
   for _ in $(seq 1 25); do
     [[ $(step_offered "$2" "$3") == true ]] && { offered=true; break; }
@@ -1435,7 +1471,7 @@ scene_settings() { # MODE
   # The page opened again grows its card toward its content, and the card
   # holds its bar hidden until it lands (Pane.cardGrowing), so the thumb is
   # dragged once the page reads as overflowing with its bar shown.
-  expect_poll "the probe's page overflows its view with its bar shown" overflows settings_page_fit
+  expect_poll "the probe's page fit settles" settled settings_page_settled
   if [[ $(settings_page_fit) == overflows ]] && settings_drag_page_down "the probe's page"; then
     take "settings-$1-page-scrolled"
     # Two captures of the page, each taken right after a scroll restarts
@@ -1452,6 +1488,8 @@ scene_settings() { # MODE
     else
       fail "the scrolled probe's page bar is unreadable: ${area:-} ${bar:-}"
     fi
+  elif [[ $(settings_page_fit) == fits ]]; then
+    ok "the probe's page fits its view: no scrolled probe shots"
   fi
   park_pointer
   # The probe's Label preset select, scrolled into view and opened by a click on
@@ -1532,9 +1570,8 @@ EOF
     expect_poll "vgs.ai-usage is built" True record_exists vgs.ai-usage
     expect "the window opens the AI Usage page" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin vgs.ai-usage
     expect_poll "the AI Usage page is shown" '"vgs.ai-usage"' settings_page
-    # Sign-in's entries each declare a step, which the page draws on the tab
-    # that holds its setup.
-    page_setup
+    # The manifest places the Sign-in entries on the page's Details tab.
+    page_status vgs.ai-usage claude
     expect_poll "the AI Usage sign-in rows are reported" True page_reported vgs.ai-usage
     # The Sign-in section's heading at the top.
     if section="$(settings_section Sign-in SectionHeader Sign-in)"; then
@@ -1875,6 +1912,70 @@ plugin_page_shots() {
   done
 }
 
+# Each state uses the device fixture's systemctl and CUPS world. The
+# Settings setup's permissive systemctl is restored before another page.
+plugin_printers_shots() { # MODE REQUESTED_TAB_SUFFIX
+  local mode="$1" tab="${2#:}" shot_tab state enabled copy="$home/.config/vgshell/plugins/vgs.printers"
+  [[ -n $tab ]] || tab=settings
+  devices_ready printers-page-shot || return
+  devices_system_tree >/dev/null || { fail "the Printers page system tree is unreadable"; return; }
+  enabled="$(plugin_enabled vgs.printers)" || return
+  [[ $enabled == True || $enabled == False ]] || { fail "the Printers page enablement is unreadable"; return; }
+  cp -- "$shim/systemctl" "$sandbox/shots-printers-systemctl"
+  cp -- "$sandbox/shots-device-systemctl" "$shim/systemctl"
+  for state in ready missing off masked; do
+    expect "Printers stops before $state" ok ipc shell setPluginEnabled vgs.printers false
+    expect_poll "Printers service is gone before $state" False record_exists vgs.printers
+    if [[ $state == missing ]]; then
+      expect "the missing-CUPS page fixture is written" copy=written cups_uninstalled_copy "$copy"
+    elif [[ -d $copy ]]; then
+      rm -rf -- "${copy:?}"
+    fi
+    case $state in
+      ready|missing)
+        device_reply systemctl 0 "" is-active --quiet cups.service
+        expect "the Printers page scheduler runs for $state" world=set cups_world '{"down": false}' ;;
+      off|masked)
+        device_reply systemctl 3 "" is-active --quiet cups.service
+        device_reply systemctl 3 "" is-active --quiet cups.socket
+        if [[ $state == masked ]]; then
+          device_reply systemctl 0 masked show --property=LoadState --value cups.service
+        else
+          device_reply systemctl 0 loaded show --property=LoadState --value cups.service
+        fi
+        expect "the Printers page scheduler is down for $state" world=set cups_world '{"down": true}' ;;
+    esac
+    tree_rescan "the Printers $state page fixture is scanned"
+    expect "Printers enables for its $state page" ok ipc shell setPluginEnabled vgs.printers true
+    expect_poll "Printers service builds for its $state page" True record_exists vgs.printers
+    expect "Settings opens Printers for its $state reading" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin vgs.printers
+    case $state in
+      ready) expect_poll "Printers reads its running scheduler" '"read"' printers_cups ;;
+      missing) expect_poll "Printers reads its missing CUPS" '"missing"' printers_cups ;;
+      off|masked) expect_poll "Printers reads its stopped scheduler" '"down"' printers_cups ;;
+    esac
+    case $state in
+      off) expect_poll "the Printers service can be enabled" '"needed"' ipc smoke readInstance service vgs.printers step ;;
+      masked) expect_poll "the Printers service is masked" '"denied"' ipc smoke readInstance service vgs.printers step ;;
+    esac
+    expect_poll "the Printers $state printing row is reported" reported plugin_printers_report
+    close_notices
+    shot_tab="$tab"
+    [[ $state == ready ]] || shot_tab=setup
+    plugin_page_shots "$mode" vgs.printers "plugin-pages-$mode-vgs.printers-$shot_tab-$state" "$shot_tab"
+  done
+  expect "Printers stops after its page states" ok ipc shell setPluginEnabled vgs.printers false
+  expect_poll "Printers service is gone after its page states" False record_exists vgs.printers
+  expect "the Printers page scheduler runs again" world=set cups_world '{"down": false}'
+  device_reply_clear systemctl
+  cp -- "$sandbox/shots-printers-systemctl" "$shim/systemctl"
+  tree_rescan "the Printers page fixtures are removed"
+  if [[ $enabled == True ]]; then
+    expect "Printers enables as its page found it" ok ipc shell setPluginEnabled vgs.printers true
+  fi
+}
+plugin_printers_report() { status_row vgs.printers printing | py_reply 'import json,sys; row=json.load(sys.stdin); print(row["report"])'; }
+
 scene_plugin-pages() { # MODE
   local id ids=()
   expect "the Settings window opens for all plugin pages" ok ipc shell summon "$settings_kind" vgs.settings '{}'
@@ -1888,10 +1989,63 @@ scene_plugin-pages() { # MODE
     fail "the Settings window listed no plugins for plugin page screenshots"
   fi
   for id in "${ids[@]}"; do
+    if [[ ${id%:*} == vgs.printers ]]; then
+      plugin_printers_shots "$1" "${id#vgs.printers}"; continue
+    fi
     case "$id" in
       *:settings|*:setup|*:details) plugin_page_shots "$1" "${id%:*}" "plugin-pages-$1-${id%:*}-${id##*:}" "${id##*:}" ;;
       *) plugin_page_shots "$1" "$id" ;;
     esac
+  done
+  settings_close
+}
+
+
+info_entry() { # ID KEY
+  python3 - "$tree/shell/plugins/$1/manifest.json" "$2" <<'PYINFO'
+import json, sys
+manifest = json.load(open(sys.argv[1]))
+key = sys.argv[2]
+for section in ("schema", "status"):
+    entry = manifest.get(section, {}).get(key, {})
+    if "info" not in entry:
+        continue
+    print("\t".join((section, entry["label"], entry["info"])))
+    break
+else:
+    sys.exit("sandbox-shots: refused: info=%s reason=info-missing" % key)
+PYINFO
+}
+scene_info-dialog() { # MODE
+  local pair id key section tab scope label text entry
+  expect "Settings opens for info dialogs" ok ipc shell summon "$settings_kind" vgs.settings '{}'
+  expect_poll "Settings maps for info dialogs" 1 settings_count
+  for pair in "${info_entries[@]}"; do
+    id="${pair%:*}" key="${pair##*:}"
+    entry="$(info_entry "$id" "$key")" || { fail "the $pair info entry is unreadable"; continue; }
+    IFS=$'\t' read -r section label text <<<"$entry"
+    expect "Settings opens $pair" ok ipc shell summon "$settings_kind" vgs.settings "{\"plugin\":\"$id\"}"
+    expect_poll "Settings shows $pair" "\"$id\"" settings_page
+    scope=SettingField
+    if [[ $section == status ]]; then
+      page_status "$id" "$key"
+      scope=Field
+    fi
+    tab="$(settings_tab_text)" || { fail "the $pair tab is unreadable"; continue; }
+    expect_poll "Settings shows $pair on $tab" "\"$id/$tab\"" ipc smoke readInstance "$settings_kind" vgs.settings shownPage
+    settings_press --type InfoButton "About $label" "$scope" "$label" || { fail "the click on $pair info failed"; continue; }
+    expect_poll "$pair info opens" shown info_link_shown "$text"
+    park_pointer
+    take "info-$1-$id-$key"
+    info_close_click "$label" || fail "the $pair info Close failed"
+    expect_poll "$pair info closes" absent info_link_shown "$text"
+    [[ -n $click_pane && $1 == light ]] || continue
+    settings_press --type InfoButton "About $label" "$scope" "$label" || { fail "the second click on $pair info failed"; continue; }
+    expect_poll "$pair info opens for its link" shown info_link_shown "$text"
+    info_link_click "$text" || fail "the click on $pair info link failed"
+    expect_poll "$pair info link opens its pane" "[\"$click_pane\"]" window_panes
+    expect "System hides after the info link" ok ipc shell hide window vgs.system
+    expect_poll "the info link leaves no pane" '[]' window_panes
   done
   settings_close
 }
@@ -7081,6 +7235,7 @@ for scene in "${scenes[@]}"; do
     jarvis-causes) need_setup bar; need_setup settings; need_setup jarvis-causes ;;
     ai-usage-states) need_setup ai-usage ;;
     focus) need_setup settings ;;
+    info-dialog) need_setup info-dialog ;;
     focus-open) need_setup focus-open ;;
     flyout-titles) need_setup panels ;;
     narrow) for s in launcher panels bar devtools dialog notifications gallery; do need_setup "$s"; done
@@ -7094,6 +7249,24 @@ shots_vsys_line='vsys found one warning on this computer.'
 for scene in "${setups[@]}"; do
   case $scene in
     gallery|manager|polkit|greeter|theme-browser|wallpaper-browser|setup-tab) ;;
+    info-dialog)
+      # Use the existing popup readers and pointer helpers from their rows.
+      eval "$(sed -n '/^info_link_shown() {/p; /^info_link_click() {/,/^}/p' "$checkout/scripts/smoke/rows/settings.sh")"
+      eval "$(sed -n '/^info_close_click() {/,/^}/p' "$checkout/scripts/smoke/rows/agent-warden.sh")"
+      for pair in "${info_entries[@]}"; do
+        if [[ $pair == vgs.updates:rebootNotice ]]; then
+          devices_ready info-dialog-shot || exit 77
+          devices_system_tree >/dev/null || exit 1
+          mkdir -p -- "$devices_system_root/usr/share/libalpm/hooks"
+          : >"$devices_system_root/usr/share/libalpm/hooks/cachyos-reboot-required.hook"
+          updates_snapshot_plant
+          expect "Updates enables for its Reboot notice info" ok ipc shell setPluginEnabled vgs.updates true
+          expect_poll "Updates reports its planted snapshot" 6 updates_pending
+        fi
+      done
+      if [[ -n $click_pane ]]; then
+        expect "System enables for the info dialog link" ok ipc shell setPluginEnabled vgs.system true
+      fi ;;
     capture)
       expect "enabling Capture for its image is allowed" ok ipc shell setPluginEnabled vgs.capture true
       expect "Capture is hidden from the baseline image" ok ipc shell setPluginPlaced vgs.capture false
@@ -7420,6 +7593,7 @@ PY
         # and no writer offers its install.
         mkdir -p "$home/.config/vgshell/plugins/acme.status"
         cp -R -- "$fixtures/acme.status/." "$home/.config/vgshell/plugins/acme.status/"
+        [[ -f $sandbox/shots-device-systemctl ]] || cp -- "$shim/systemctl" "$sandbox/shots-device-systemctl"
         printf '#!/usr/bin/env bash\nexit 0\n' >"$shim/systemctl"
         chmod 755 "$shim/systemctl"
         cp -R -- "$checkout/themes/targets/chromium" "$repo/themes/targets/chromium"
