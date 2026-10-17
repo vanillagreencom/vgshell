@@ -6381,6 +6381,13 @@ scene_plugin-messages() { # MODE
     settings_close
   fi
   messages_clear vgs.clipboard
+  expect_poll "the clipboard history's store is ready for the file reference" '"ready"' ipc smoke readInstance service vgs.clipboard store
+  expect "the clipboard's message with a file reference is sent" "" ipc smoke invokeInstanceArgs service vgs.clipboard notice \
+    '{"args": ["Clipboard history is off", "Its setting is saved in [the shell settings file](file:vgshell/shell.json).", false]}'
+  expect_poll "the file reference message shows" 1 messages_shown
+  park_pointer
+  take "plugin-messages-$1-file-reference"
+  messages_clear vgs.clipboard
   probe="$(plugin_enabled acme.probe)" || probe=unreadable
   [[ $probe != True ]] || expect "disabling the probe fixture, which holds lock, is allowed" ok ipc shell setPluginEnabled acme.probe false
   expect "enabling vgs.lock is allowed" ok ipc shell setPluginEnabled vgs.lock true

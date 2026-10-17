@@ -210,8 +210,12 @@ var STATUS_STATE_TONES = { ok: "success", info: "info", warning: "warning", dang
 // writer's too: true when the entry's declared `aside` applies to this
 // value. `info` is this state's own explanation, judged as an entry's
 // (infoError), such as why a limit holds for the cause its writer found;
-// while present it stands in the entry's info (statusRows).
-var STATUS_STATE_KEYS = ["tone", "text", "lines", "hint", "action", "aside", "available", "info"];
+// while present it stands in the entry's info (statusRows). `file` is the
+// path a file action declared `file: true` opens, a path editArgs admits,
+// carried exactly while the value offers such an action
+// (statusDeclarationFits): the writer, not the manifest, knows a path the
+// user chose, such as a folder picked in Settings.
+var STATUS_STATE_KEYS = ["tone", "text", "lines", "hint", "action", "aside", "available", "info", "file"];
 // The `action` a required step's value names for the one install action,
 // which no entry declares: it names that action over a declared action of
 // the same name.
@@ -255,7 +259,9 @@ var LAUNCHER_ROW_KEYS = ["id", "label", "icon", "description", "aliases", "menu"
 // path the core opens as a cited file is opened (editRoute): a file in the
 // core editor TUI, whose run is the plugin's own, read in its
 // `shell.tui.state` under STATUS_FILE_TUI, and a folder, ending in `/`, in
-// the default file manager, which no run tracks. No route
+// the default file manager, which no run tracks. A `state` entry's file
+// action may declare `file: true` instead of a path: the value that offers
+// it supplies the path in its own `file`. No route
 // installs a requirement: Review all missing or outdated tools, which opens
 // the requirement notice, is the one install action, offered by Setup's
 // Tools step, by Details' Tools section and by a required step whose value
@@ -851,7 +857,8 @@ function statusAsideError(entry, at, tui, system, capabilities) {
 // manifest's TUI key declares; `system` or `undo`, a step the manifest's
 // SYSTEM, its `systemSteps`, declares; `dictation`; or `file`, a path
 // editArgs admits, absolute, under `~/` or relative to the configuration
-// directory, on a manifest whose TUI names no script STATUS_FILE_TUI. An
+// directory, or, on a `state` entry, `true`, a path its value supplies,
+// on a manifest whose TUI names no script STATUS_FILE_TUI. An
 // unknown key names the keys an action takes, so an `install` list reads
 // as no route.
 function statusActionError(type, action, at, tui, system, capabilities) {
@@ -882,8 +889,11 @@ function statusActionError(type, action, at, tui, system, capabilities) {
         return "";
     }
     if (action.file !== undefined) {
-        if (typeof action.file !== "string" || !editArgs(action.file).ok)
-            return at + ".file must be a path with no control character and no .. segment, got " + JSON.stringify(action.file);
+        if (action.file === true) {
+            if (type !== "state")
+                return at + ".file true needs type state, whose value supplies the path";
+        } else if (typeof action.file !== "string" || !editArgs(action.file).ok)
+            return at + ".file must be true or a path with no control character and no .. segment, got " + JSON.stringify(action.file);
         if (isPlainObject(tui) && hasOwn(tui, STATUS_FILE_TUI))
             return at + ".file needs no tui script named " + STATUS_FILE_TUI + "; a file action's run reads under that name";
         return "";
@@ -1238,6 +1248,7 @@ function statusValueFits(type, value) {
                 && value.lines.every(function (line) { return isPrintableLine(line, STATUS_TEXT_MAX); })))
             && (value.hint === undefined || isPrintableLine(value.hint, STATUS_HINT_MAX))
             && infoError(value.info, "") === ""
+            && (value.file === undefined || (typeof value.file === "string" && editArgs(value.file).ok))
             && (value.action === undefined || typeof value.action === "boolean" || typeof value.action === "string")
             && (value.aside === undefined || typeof value.aside === "boolean")
             && (value.available === undefined || value.available === false);
@@ -1380,13 +1391,15 @@ function statusWrite(manifest, values, key, value) {
 // the declaration's hint names the action the step offers elsewhere, a
 // `presenceList` item carries `secret` only for a manifest that declares
 // `secrets`, and a `rows` row names in `actions` only the entry's
-// `rowActions`.
+// `rowActions`. A `state` value carries `file` exactly while the action it
+// offers is a file action declared `file: true`, whose path it is.
 function statusDeclarationFits(manifest, entry, value) {
     if (entry.type === "state") {
         if (entry.setup === true && statusStateHidden(value)) return false;
         if (value.aside !== undefined && entry.aside === undefined) return false;
         if (value.available === false && (entry.setup !== true || value.tone === "ok" || (value.action !== undefined && value.action !== false) || value.aside === true
             || value.hint === undefined)) return false;
+        if ((value.file !== undefined) !== statusValueOffersFile(entry, value)) return false;
         if (value.action === STATUS_TOOLS_ACTION) return entry.setup === true && manifest.requirements.some(function (row) { return !row.optional; });
         if (value.action === undefined) return true;
         if (typeof value.action === "string") return entry.actions !== undefined && hasOwn(entry.actions, value.action);
@@ -1397,6 +1410,15 @@ function statusDeclarationFits(manifest, entry, value) {
         return row.actions === undefined || row.actions.every(function (name) { return entry.rowActions !== undefined && hasOwn(entry.rowActions, name); });
     });
     return true;
+}
+
+// Whether `state` VALUE offers a file action of ENTRY declared `file:
+// true`, whose path the value must then carry: `action: true` with such
+// an `action`, or the name of such one of its `actions`.
+function statusValueOffersFile(entry, value) {
+    var offered = value.action === true ? entry.action
+        : typeof value.action === "string" && entry.actions !== undefined && hasOwn(entry.actions, value.action) ? entry.actions[value.action] : undefined;
+    return offered !== undefined && offered.file === true;
 }
 
 // Whether the Settings window draws status entry `entry`: every type but
@@ -1674,8 +1696,9 @@ function tuiRunFor(manifest, enabled, sourceDir, runner, name, missing, args) {
 // ENABLED and VALUES its published values: { ok: true, kind: "tui", name } to open the plugin's own
 // TUI NAME, { ok: true, kind: "system", args } to open the core TUI
 // `core/system` with ARGS, `apply` or `undo` and its declared step,
-// { ok: true, kind: "file", path } to open its declared PATH (editRoute)
-// as the plugin's own run, or { ok: false,
+// { ok: true, kind: "file", path } to open PATH (editRoute) as the
+// plugin's own run, the action's declared path or, for `file: true`, the
+// published value's `file`, or { ok: false,
 // answer } with `unknown: <id>` or statusActionRefusal's line: `undeclared`
 // for an entry without an action, `disabled` for a disabled plugin and
 // `not-offered` while the published value does not call for it. With ROW,
@@ -1714,7 +1737,7 @@ function statusActionRequest(manifest, id, enabled, values, key, row, rowAction)
     if (action.undo !== undefined)
         return { ok: true, kind: "system", args: ["undo", action.undo] };
     if (action.file !== undefined)
-        return { ok: true, kind: "file", path: action.file };
+        return { ok: true, kind: "file", path: action.file === true ? values[key].file : action.file };
     return { ok: true, kind: "tui", name: action.tui };
 }
 
