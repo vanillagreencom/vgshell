@@ -3037,6 +3037,23 @@ scene_ai-usage() { # MODE
   expect_poll "the widget opens its panel over its accounts" True usage_shot_rows
   park_pointer
   take "ai-usage-$1-panel"
+  # The reset calendar, opened and closed again by a click on its button,
+  # which draws no text and is found by its label.
+  usage_shot_calendar() { ipc smoke readInstance panel vgs.ai-usage calendar | py_reply 'import json,sys; d=json.load(sys.stdin); print(isinstance(d,list) and len(d) > 0 and all(len(day["accounts"]) > 0 for day in d))'; }
+  usage_shot_calendar_click() {
+    local at x y
+    at="$(centre_of "$(ipc smoke labelledGeometry panel vgs.ai-usage IconButton "Reset calendar")")" && [[ $at != none ]] || return 1
+    read -r x y <<<"$at"
+    hover "$((x + 1))" "$y" && click "$x" "$y"
+  }
+  usage_shot_calendar_click || fail "the click that opens the reset calendar failed"
+  expect_poll "the reset calendar opens" true ipc smoke readInstance panel vgs.ai-usage calendarOpen
+  expect_poll "the reset calendar lists its days" True usage_shot_calendar
+  park_pointer
+  take "ai-usage-$1-calendar"
+  usage_shot_calendar_click || fail "the click that closes the reset calendar failed"
+  expect_poll "the reset calendar closes" false ipc smoke readInstance panel vgs.ai-usage calendarOpen
+  park_pointer
   at="$(ipc smoke scrollTo panel vgs.ai-usage 0)" || at=""
   if y="$(python3 -c 'import json,sys; _, content, view = json.loads(sys.argv[1]); print(int(content - view)) if content - view > 2 else sys.exit(1)' "$at" 2>/dev/null)"; then
     ipc smoke scrollTo panel vgs.ai-usage "$y" >/dev/null || fail "the AI Usage panel did not scroll"
