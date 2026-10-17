@@ -677,7 +677,7 @@ function rebootPackages(hook, changes, kernel, mounted) {
 // `both`.
 function rebootNoticeValue(step) {
     var state = step ? step.state : "unknown";
-    if (state === "absent" || (state === "unknown" && step && step.reason === "unprobed")) return { hidden: true };
+    if (!step || state === "absent") return { hidden: true };
     switch (state) {
     case "needed": return { tone: "info", text: "CachyOS and VGS", action: "vgsOnly" };
     case "ready": return { tone: "ok", text: "VGS only", action: "both" };

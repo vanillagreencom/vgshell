@@ -451,13 +451,13 @@ function verifyView(logic) {
   // [the reboot-notice step, the rebootNotice status value]
   const noticeRows = [
     [{ state: "absent", reason: "hook-missing" }, { hidden: true }],
-    [{ state: "unknown", reason: "unprobed" }, { hidden: true }],
+    [undefined, { hidden: true }],
     [{ state: "needed", reason: "notice-on" }, { tone: "info", text: "CachyOS and VGS", action: "vgsOnly" }],
     [{ state: "ready", reason: "notice-off" }, { tone: "ok", text: "VGS only", action: "both" }],
     [{ state: "denied", reason: "foreign-file" }, null],
     [{ state: "denied", reason: "foreign-link" }, null],
     [{ state: "unknown", reason: "probe-failed" }, null],
-    [null, null]
+    [null, { hidden: true }]
   ];
   for (const [step, want] of noticeRows) {
     const value = logic.rebootNoticeValue(step);
@@ -578,8 +578,8 @@ const controls = [
   ["a glob \\ quotes", 'if (c === "\\\\" && i + 1 < pattern.length) { i++; out += pattern.charAt(i)', 'if (false) { i++; out += pattern.charAt(i)'],
   ["a glob matches a literal literally", 'out += c.replace(/[\\\\^$.*+?()[\\]{}|\\/-]/g, "\\\\$&");\n    }', "out += c;\n    }"],
   ["the kernel is read from /proc/version", 'return m === null ? "" : m[1];', 'return "";'],
-  ["an absent hook hides the reboot notice", 'if (state === "absent" || (state === "unknown"', 'if ((state === "unknown"'],
-  ["an unprobed step hides the reboot notice", '(state === "unknown" && step && step.reason === "unprobed")', "false"],
+  ["an absent hook hides the reboot notice", 'if (!step || state === "absent") return { hidden: true };', 'if (!step) return { hidden: true };'],
+  ["a step with no reading hides the reboot notice", 'if (!step || state === "absent") return { hidden: true };', 'if (state === "absent") return { hidden: true };'],
   ["the CachyOS notice on offers VGS only", 'case "needed": return { tone: "info", text: "CachyOS and VGS", action: "vgsOnly" };', 'case "needed": return { tone: "info", text: "CachyOS and VGS" };'],
   ["a file or link VGS did not make offers nothing", 'case "denied": return { tone: "warning", text: "Set by another file",', 'case "denied": return { tone: "warning", text: "Set by another file", action: "both",'],
   ["VGS only offers both", 'case "ready": return { tone: "ok", text: "VGS only", action: "both" };', 'case "ready": return { tone: "ok", text: "VGS only", action: "vgsOnly" };'],
