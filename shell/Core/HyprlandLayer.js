@@ -1553,7 +1553,9 @@ function render(sections, theme, themeName, highestScale, touchpads, touchpadFai
 // writes and reloads whatever the bytes; pending, the text being written;
 // failedText; failure, the last step's keyed failure, "" once a cycle
 // completes; reloadOwner, `layer` for the layer writer and `wire` for a
-// Connect reload; consent, a tagged state for the Hyprland wiring question.
+// Connect reload; reloaded, whether this run has reloaded Hyprland, set by
+// the first reload of either owner and never cleared; consent, a tagged
+// state for the Hyprland wiring question.
 // Actions: `none`, `read`, `mkdir`, `write` (state.pending), `reload`,
 // `probe`, `checkDecline`, `ask`, `decline` and `wire`.
 function initialState() {
@@ -1567,6 +1569,7 @@ function initialState() {
         failedText: null,
         failure: "",
         reloadOwner: "",
+        reloaded: false,
         consent: { phase: "pending", queued: "", failure: "" }
     };
 }
@@ -1601,13 +1604,18 @@ function begin(state, text) {
         return { state: withChanges(state, { phase: "probing" }), action: "probe" };
     if (state.consent.phase === "unwired")
         return { state: withChanges(state, { phase: "checkingDecline" }), action: "checkDecline" };
+    // A shell stopped between a write's rename and its reload left bytes
+    // Hyprland never loaded, and this run found them equal to its render, so
+    // nothing above reloads: reload once per run.
+    if (text !== null && text === state.onDisk && !state.reloaded)
+        return { state: withChanges(state, { phase: "reloading", reloadOwner: "layer", reloaded: true }), action: "reload" };
     return { state: withChanges(state, { forcing: false }), action: "none" };
 }
 
 // The bytes are on disk: reload the layer after every write.
 function written(state) {
     var next = withChanges(state, { onDisk: state.pending, failedText: null });
-    return { state: withChanges(next, { phase: "reloading", reloadOwner: "layer" }), action: "reload" };
+    return { state: withChanges(next, { phase: "reloading", reloadOwner: "layer", reloaded: true }), action: "reload" };
 }
 
 function idleDecision(state, failure, text, clearForcing) {
@@ -1696,7 +1704,7 @@ function step(state, event, text) {
         expectPhase(state, event, "wiring");
         if (event.failure !== "")
             return idleDecision(consentChanges(state, { phase: "asking", queued: "", failure: event.failure }), event.failure, text);
-        return { state: withChanges(consentChanges(state, { phase: "asking", queued: "connect", failure: "" }), { phase: "reloading", reloadOwner: "wire" }), action: "reload" };
+        return { state: withChanges(consentChanges(state, { phase: "asking", queued: "connect", failure: "" }), { phase: "reloading", reloadOwner: "wire", reloaded: true }), action: "reload" };
     }
     throw new Error("HyprlandLayer.step: unknown event " + JSON.stringify(event.type));
 }

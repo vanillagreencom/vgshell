@@ -10,14 +10,17 @@
 # whose stop follows the second toggle's answer at once, and three tree
 # copies are the controls of that restart: one whose bar host maps a hidden
 # bar, one whose service gate waits on a hidden bar, and one whose write
-# comes after its answer, which loses the edit at the stop.
+# comes after its answer, which loses the edit at the stop. A shell stopped
+# between the layer's rename and its reload leaves a rule Hyprland never
+# loaded, and the next shell's start reload loads it; a copy that withholds
+# that reload is the control.
 # Disabling vgs.themes takes the Style category and the bar's row under it
 # away. Each label the launcher draws follows its setting. A user menu file
 # that relabels a plugin row is the control of the row list. It runs in the
 # tail, since it restarts the shell, and leaves the launcher disabled,
 # vgs.themes enabled only when it found it so, the gaps and the bar as they
 # were and hyprland.lua as it found it.
-# inputs: shell/plugins/vgs.themes/manifest.json shell/plugins/vgs.themes/Service.qml shell/plugins/vgs.bar/* shell/plugins/vgs.launcher/* shell/Core/ShortcutRegistry.qml shell/Core/Registry.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/HyprlandLayer.js shell/Core/ServiceGate.qml shell/Core/Config.qml shell/Commons/WatchedFile.qml shell/Hosts/BarHost.qml scripts/smoke/toplevel/* scripts/smoke/rows/launcher.sh scripts/smoke/rows/hyprland.sh scripts/smoke/rows/themes.sh themes/catalog/flexoki-light/*
+# inputs: shell/plugins/vgs.themes/manifest.json shell/plugins/vgs.themes/Service.qml shell/plugins/vgs.bar/* shell/plugins/vgs.launcher/* shell/Core/ShortcutRegistry.qml shell/Core/Registry.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/HyprlandLayer.js shell/Core/HyprlandLayer.qml shell/Core/ServiceGate.qml shell/Core/Config.qml shell/Commons/WatchedFile.qml shell/Hosts/BarHost.qml scripts/smoke/toplevel/* scripts/smoke/rows/launcher.sh scripts/smoke/rows/hyprland.sh scripts/smoke/rows/themes.sh themes/catalog/flexoki-light/*
 set -euo pipefail
 user_config="$home/.config/vgshell/shell.json"
 # The value of setting KEY in plugin ID's `plugins` row of the user file,
@@ -210,6 +213,41 @@ expect_poll "the restarted shell keeps the bar hidden" 0 bar_count
 expect_poll "the restarted shell reserves no bar space" 0 reserved_total
 expect_poll "the restarted shell releases its services with no bar to wait for" no-bar services_released
 expect_poll "the restarted shell writes the zero-gap rule again" '[[0, 0, 0, 0], [0, 0, 0, 0]]' gap_rule
+# A stop between the layer's rename and its reload, made certain: in the
+# style-no-reload copy the layer's reload runs `echo ok`, not hyprctl, so
+# that shell writes the file and never reloads Hyprland, and every stop of
+# it lands after the rename and before the reload. Its gaps toggle writes
+# the file without the rule, the row reloads Hyprland so it drops the rule,
+# and the toggle writes the rule again, which Hyprland never loads. The
+# next shell finds the bytes equal to its render and must reload once at
+# its start. The style-no-start-reload copy is the control: its start
+# reload logs that it is withheld and does nothing, the code before
+# VGS-1782, and the row reads Hyprland after that line.
+layer_gap_rule() { grep -cF 'hl.workspace_rule({ workspace = "", gaps_in = 0, gaps_out = 0 })' -- "$home/.local/state/vgshell/hypr/vgs.lua" || true; }
+stopped_write() { # LABEL
+  restart_hidden "$sandbox/tree-style-no-reload" "$1"
+  expect "$1: the copy's gaps toggle turns gaps on" ok ipc vgs.themes invoke gaps ''
+  expect_poll "$1: the copy writes the layer without the zero-gap rule" 0 layer_gap_rule
+  expect "$1: the nested instance reloads the layer without the rule" ok hypr reload config-only
+  expect_poll "$1: Hyprland drops the zero-gap rule" none gap_rule
+  expect "$1: the copy's gaps toggle turns gaps off" ok ipc vgs.themes invoke gaps ''
+  expect_poll "$1: the copy writes the zero-gap rule to the layer" 1 layer_gap_rule
+  expect "$1: Hyprland never loads the rule the copy wrote" none gap_rule
+  stop_shell || :
+}
+copy_tree style-no-reload
+if edit_tree style-no-reload shell/Core/HyprlandLayer.qml 'command: ["hyprctl", "reload", "config-only"]' 'command: ["echo", "ok"]'; then
+  stopped_write stopped-write
+  restart_hidden "$repo" after-stopped-write
+  expect_poll "a shell started after a stop between the rename and the reload loads the zero-gap rule" '[[0, 0, 0, 0], [0, 0, 0, 0]]' gap_rule
+  copy_tree style-no-start-reload
+  if edit_tree style-no-start-reload shell/Core/HyprlandLayer.js 'return { state: withChanges(state, { phase: "reloading", reloadOwner: "layer", reloaded: true }), action: "reload" };' '{ console.info("hyprland: control: start reload withheld"); return { state: withChanges(state, { forcing: false, reloaded: true }), action: "none" }; }'; then
+    stopped_write control-stopped-write
+    restart_hidden "$sandbox/tree-style-no-start-reload" control-no-start-reload
+    expect_log "control: the copy withholds its start reload" 1 'hyprland: control: start reload withheld'
+    expect "control: a shell with no start reload leaves the written rule out of Hyprland" none gap_rule
+  fi
+fi
 copy_tree style-bar-host
 if edit_tree style-bar-host shell/Hosts/BarHost.qml '            visible: host.screenPresent && PluginLogic.barShown(slot.instance)
 ' '            visible: host.screenPresent

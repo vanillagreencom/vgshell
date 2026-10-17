@@ -2441,6 +2441,8 @@ try {
             phase: row.operation === 'busy' || row.operation === 'save' ? 'writing'
                 : row.operation === 'prepare' ? 'preparing' : 'idle',
             onDisk: 'existing-layer', pending: 'changed-layer',
+            // A run whose one start reload (HyprlandLayer.begin) is done.
+            reloaded: true,
             consent: { phase: 'settled', queued: '', failure: '' }
         });
         let result;
