@@ -502,16 +502,16 @@ for i in "${!controls[@]}"; do
   if "$runner" "$mutant" "$row" >/dev/null 2>&1; then fail "control: $label left '$target' green"; else ok "control: $label"; fi
 done
 
-# Execute extracted harness and Surfaces operations. Only the compositor
-# and pointer executable are stand-ins. Their file state survives the
-# real helpers' command substitutions.
+# Execute extracted harness, Surfaces and Jarvis widget operations. Only
+# the compositor and pointer executable are stand-ins. Their file state
+# survives the real helpers' command substitutions.
 coordinate_case() {
-  local mode_file="$1" harness_file="$2" surface_file="$3" phase action path expected_status attempts skipped sampled expected_args dir out status=0
+  local mode_file="$1" harness_file="$2" surface_file="$3" row_file="${5:-$repo/scripts/smoke/rows/jarvis-widget.sh}" phase action path expected_status attempts skipped sampled expected_args dir out status=0
   IFS='|' read -r phase action path expected_status attempts skipped sampled expected_args <<<"$4"
   dir="$(mktemp -d "$tmp/coordinate.XXXXXX")" || return 1
-  python3 - "$harness_file" "$surface_file" "$dir/operations.sh" <<'PYEXTRACT' || return 1
+  python3 - "$harness_file" "$surface_file" "$row_file" "$dir/operations.sh" <<'PYEXTRACT' || return 1
 import pathlib,sys
-harness,surfaces,out=map(pathlib.Path,sys.argv[1:])
+harness,surfaces,row,out=map(pathlib.Path,sys.argv[1:])
 def extract(path,names):
     text=path.read_text()
     result=[]
@@ -521,8 +521,9 @@ def extract(path,names):
         end=start+len(line)+1 if line.endswith("}") else text.index("\n}\n",start)+3
         result.append(text[start:end])
     return result
-parts=extract(harness,("coordinate_observation","pointer_dispatch","nested_input_check","click","hover","right_click","middle_click","drag","wheel","swipe","point_item","click_item","expect","expect_poll","reader_stderr","smoke_poll_tries","geometry","render"))
+parts=extract(harness,("coordinate_observation","pointer_dispatch","nested_input_check","click","hover","right_click","middle_click","drag","wheel","swipe","rest_pointer","point_item","click_item","expect","expect_poll","reader_stderr","smoke_poll_tries","geometry","render"))
 parts+=extract(surfaces,("layout_size","layout_click","surf_menu_point","flyout_widget_x","flyout_grow_check"))
+parts+=extract(row,("jarvis_widget_link_hover","jarvis_widget_link_click"))
 # point_item reads its restore bound from a global the harness sets.
 bound=[line for line in harness.read_text().splitlines() if line.startswith("point_item_restores=")]
 assert len(bound)==1
@@ -584,6 +585,9 @@ control_hovered() { echo true; }
 ipc() {
   case "$*" in
     *acme.surfaces-tail*grow*) : >"$stub_dir/grown"; echo grown ;;
+    *underlined*) echo "[{\"line\": 0, \"left\": 10, \"right\": 30}]" ;;
+    *linePitch*) echo 16 ;;
+    *Tooltip\ shown*) echo true ;;
     *geometry*)
       mode_scale_of WAYLAND-1 >"$stub_dir/sample" || return 1
       if [[ -e $stub_dir/grown ]]; then echo "[0, 200, 2, 4]"; else echo "[100, 200, 2, 4]"; fi ;;
@@ -634,6 +638,29 @@ if [[ $stub_path == unscoped ]]; then
   refused="$(grep -c -x -E "coordinate-mode: reset output=WAYLAND-1 want=\[3510x1866 scale=2\] pointer-step=refused" -- "$stub_dir/stderr" || :)"
   got="status=$status clicks=$clicks reloads=$reloads restored=$restored refused=$refused"
   [[ $got == "status=$7 clicks=$8 reloads=$9 restored=${10} refused=${11}" ]] || { echo "got $got"; exit 1; }
+  exit 0
+fi
+# The jarvis path runs the link hover and the link click of the Jarvis
+# widget row with the output reset before each step, outside every
+# coordinate_observation, as the row runs them.
+if [[ $stub_path == jarvis ]]; then
+  jarvis_widget_key=bar
+  jarvis_widget_link_text="Set it up in [Settings > Jarvis](page:vgs.jarvis/Setup)."
+  jarvis_steps() {
+    printf "%s\n" "$reset_json" >"$stub_dir/monitors"
+    jarvis_widget_link_hover || return $?
+    printf "%s\n" "$reset_json" >"$stub_dir/monitors"
+    jarvis_widget_link_click
+  }
+  status=0 clicks=0 reloads=0
+  jarvis_steps 2>"$stub_dir/stderr" || status=$?
+  cat -- "$stub_dir/stderr" >&2
+  [[ ! -e $stub_dir/sent ]] || clicks="$(grep -c -x -E "[0-9]+ [0-9]+ 1755 933" -- "$stub_dir/sent" || :)"
+  [[ ! -e $stub_dir/reloads ]] || reloads="$(wc -l <"$stub_dir/reloads")"
+  restored="$(grep -c -x -E "coordinate-mode: restored output=WAYLAND-1 want=\[3510x1866 scale=2\] by=point_item restores=[0-9]+" -- "$stub_dir/stderr" || :)"
+  refused="$(grep -c -x -E "coordinate-mode: reset output=WAYLAND-1 want=\[3510x1866 scale=2\] pointer-step=refused" -- "$stub_dir/stderr" || :)"
+  got="status=$status clicks=$clicks reloads=$reloads restored=$restored refused=$refused failures=$failures"
+  [[ $got == "status=$7 clicks=$8 reloads=$9 restored=${10} refused=${11} failures=0" ]] || { echo "got $got"; exit 1; }
   exit 0
 fi
 coordinate_observation coordinates observe 2>"$stub_dir/stderr" && continued=true || exit 1
@@ -721,6 +748,16 @@ restore_cases=(
 )
 for row in "${restore_cases[@]}"; do
   if coordinate_case "$subject" "$repo/scripts/smoke/harness.sh" "$repo/scripts/smoke/rows/surfaces.sh" "$row"; then ok "restore $row"; else fail "restore $row"; fi
+done
+# The Jarvis widget row's link hover and link click. Rows: phase | action |
+# path | status | clicks sent | reloads | restored lines | refused lines.
+# A reset before each step is restored by its point_item, and the steps
+# send one click.
+jarvis_cases=(
+  'held|jarvis|jarvis|0|1|2|2|2'
+)
+for row in "${jarvis_cases[@]}"; do
+  if coordinate_case "$subject" "$repo/scripts/smoke/harness.sh" "$repo/scripts/smoke/rows/surfaces.sh" "$row"; then ok "jarvis $row"; else fail "jarvis $row"; fi
 done
 # Keep delivery intact while removing the actual final check in scratch.
 python3 - "$repo/scripts/smoke/harness.sh" "$tmp/unguarded-harness.sh" <<'PYMUTATE'

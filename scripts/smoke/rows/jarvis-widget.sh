@@ -6,7 +6,7 @@
 # network runs; no PAM, polkit, keyring or TUI is reached. No latency
 # ceiling is measured. Widget and state reads poll once per nested IPC
 # round trip; fixture callback gates poll at 10 ms.
-# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.jarvis/* shell/Ui/foundation/KeyNavLogic.js scripts/fixtures/jarvis/* scripts/smoke/keyboard/* scripts/smoke/rows/jarvis.sh scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/hold-shortcuts.sh scripts/smoke/rows/hyprland-consent.sh shell/Core/Notifier.qml shell/plugins/vgs.notifications/* bin/lib/qml-library.js shell/Ui/overlay/Tooltip.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/plugins/vgs.settings/*
+# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.jarvis/* shell/Ui/foundation/KeyNavLogic.js scripts/fixtures/jarvis/* scripts/smoke/keyboard/* scripts/smoke/rows/jarvis.sh scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/hold-shortcuts.sh scripts/smoke/rows/hyprland-consent.sh shell/Core/Notifier.qml shell/plugins/vgs.notifications/* bin/lib/qml-library.js shell/Ui/overlay/Tooltip.qml shell/Ui/controls/BarItem.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/plugins/vgs.settings/*
 set -euo pipefail
 # Jarvis holds `dictation`, and the shell finds no voxtype: the core's
 # probe does not start at each enable.
@@ -291,8 +291,9 @@ expect_poll "the restored stock daemon remains unconfigured" session jarvis_sess
 jarvis_widget_voice_expected="$(jarvis_widget_voice_line)" || fail "WidgetView.js's local voice line is unreadable"
 expect_poll "the widget names the remaining setup step for the unconfigured daemon" "$jarvis_widget_voice_expected" jarvis_widget_setup
 
-# Tooltip links live in the popup, so read their screen box there. Clicking
-# along the first line finds the underlined words without a font estimate.
+# Tooltip links live in the popup, so read their screen box there. The
+# click rests on the first underlined span through click_item, which waits
+# for the link to report the pointer and restores a reset hold.
 jarvis_widget_link_text='Set it up in [Settings > Jarvis](page:vgs.jarvis/Setup).'
 jarvis_widget_link_box() { ipc smoke popupItemGeometry "$jarvis_widget_key" vgs.jarvis "" "" LinkText "$jarvis_widget_link_text"; }
 jarvis_widget_link_drawn() {
@@ -301,23 +302,21 @@ jarvis_widget_link_drawn() {
   [[ $box == \[* ]] && echo drawn || echo absent
 }
 jarvis_widget_link_assertion() { expect "the unconfigured tooltip draws its page link" drawn jarvis_widget_link_drawn; }
+# Before each call the pointer sits in the hidden Settings window or on the
+# destroyed tooltip, never on the widget, so point_item's moves enter it.
 jarvis_widget_link_hover() {
-  local x y
-  rest_pointer || return
-  read -r x y < <(ipc smoke instanceGeometry "$jarvis_widget_key" vgs.jarvis | py_reply 'import json,sys; x,y,w,h=json.load(sys.stdin); print(int(x+w/2), int(y+h/2))')
-  hover "$x" "$y" || return
+  point_item "$jarvis_widget_key" vgs.jarvis BarItem "" >/dev/null || return
   expect_poll "the unconfigured widget opens its tooltip" true ipc smoke readDescendant "$jarvis_widget_key" vgs.jarvis Tooltip shown
 }
 jarvis_widget_link_click() {
-  local box x y width step
-  box="$(jarvis_widget_link_box)" || return
-  [[ $box == \[* ]] || return 1
-  read -r x y width < <(python3 -c 'import json,sys; r=json.loads(sys.argv[1]); print(round(r[0]), round(r[1]+r[3]/2), int(r[2]))' "$box")
-  for step in $(seq 4 8 "$width"); do
-    click "$((x + step))" "$y" || return
-    [[ "$(ipc smoke readInstance window vgs.settings shownPage)" == '"vgs.jarvis/Setup"' ]] && return 0
-  done
-  return 1
+  local spans pitch offset dx dy
+  spans="$(ipc smoke popupItemRead "$jarvis_widget_key" vgs.jarvis "" "" LinkText "$jarvis_widget_link_text" underlined)" || return
+  pitch="$(ipc smoke popupItemRead "$jarvis_widget_key" vgs.jarvis "" "" LinkText "$jarvis_widget_link_text" linePitch)" || return
+  # An absent link or one with no underlined span has no point to click.
+  [[ $spans == \[\{* && $pitch =~ ^[0-9]+(\.[0-9]+)?$ ]] || return 1
+  offset="$(python3 -c 'import json,sys; s=json.loads(sys.argv[1])[0]; p=float(sys.argv[2]); print((s["left"]+s["right"])/2, s["line"]*p+p/2)' "$spans" "$pitch")" || return
+  read -r dx dy <<<"$offset" || return 1
+  click_item popup:"$jarvis_widget_key" vgs.jarvis "" "" LinkText "$jarvis_widget_link_text" "$dx" "$dy"
 }
 jarvis_notice_close
 settings_page_open vgs.jarvis

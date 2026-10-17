@@ -2744,13 +2744,14 @@ Scope {
         // box in its window's coordinates, or "absent".
         // popupItem's box in screen coordinates, so a row clicks an entry
         // of an open menu or a control in an open popover, and whether it
-        // reports the pointer over it: "true", "false", or "absent".
+        // reports the pointer over it: "true", "false", or "absent"; a
+        // LinkText also answers whether the pointer is on its link words.
         function popupItemGeometry(hostKey: string, id: string, scopeType: string, scopeText: string, type: string, text: string): string {
             return root.geometry(root.popupItem(hostKey, id, scopeType, scopeText, type, text));
         }
         function popupItemHovered(hostKey: string, id: string, scopeType: string, scopeText: string, type: string, text: string): string {
             const found = root.popupItem(hostKey, id, scopeType, scopeText, type, text);
-            return found === null ? "absent" : String(found.hovered === true);
+            return found === null ? "absent" : String(found.hovered === true || found.hoveredLink === true);
         }
         // Read the actual popup item, rather than a registered disposable
         // copy. LinkText.linkBox is local to that item; its paragraph box
