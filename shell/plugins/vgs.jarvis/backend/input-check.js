@@ -21,7 +21,7 @@ if (process.argv.length !== 2 || tree === null) {
         process.stdout.write((keys ? "Typing is ready." : "Typing is unavailable.") + "\n"
             + (pointer !== "unavailable" ? "Clicking and scrolling are ready." : "Clicking and scrolling are unavailable.") + "\n");
         if (!keys || pointer === "unavailable") {
-            process.stdout.write("Use Review all missing or outdated tools beside Desktop input to install missing tools. If clicking is still unavailable, check that your input service is running.\n");
+            process.stdout.write("Use Review all missing or outdated tools under Tools in Jarvis Details to install missing tools. If clicking is still unavailable, check that your input service is running.\n");
             process.exitCode = 69;
         }
         owner.close();

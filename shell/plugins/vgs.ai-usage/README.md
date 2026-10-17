@@ -53,7 +53,7 @@ codex login
 
 Turn on AI Gateway credits in Settings. Select Get AI Gateway key on the Details tab to open Vercel. In the dashboard, open AI Gateway, then API keys, then Create key. The key unlocks AI Gateway credit figures.
 
-Under Setup, select Add key beside AI Gateway. Paste the key into the masked field. VGS stores it in your keyring. Replace beside a stored key replaces it, and Remove removes it. A key or a switch change checks the figures at once. With the switch off, VGS reads no AI Gateway key and calls no AI Gateway API.
+In Settings, beside AI Gateway credits, select Add key. Paste the key into the masked field. VGS stores it in your keyring. Replace beside a stored key replaces it, and Remove removes it. A key or a switch change checks the figures at once. With the switch off, VGS reads no AI Gateway key and calls no AI Gateway API.
 
 ## Credits
 

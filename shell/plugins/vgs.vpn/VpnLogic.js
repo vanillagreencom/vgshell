@@ -342,9 +342,9 @@ function unread() {
 // service is off, or the administrator holds Tailscale.
 function lockReason(vpn, step) {
     if (vpn.writable) return "";
-    if (vpn.state === "missing") return "Tailscale is not installed, so choose Review all missing or outdated tools beside [Tailscale in Settings](page:vgs.vpn/Settings) to use it.";
+    if (vpn.state === "missing") return "Tailscale is not installed, so choose Review all missing or outdated tools under [Tools in VPN Details](page:vgs.vpn/Details) to use it.";
     var cause = vpn.state === "service-off" ? "The Tailscale service is off" : "The administrator holds Tailscale";
-    return step === "" ? cause + "; review [Tailscale in Settings](page:vgs.vpn/Settings)." : cause + " until you choose " + step + " beside [Tailscale in Settings](page:vgs.vpn/Settings).";
+    return step === "" ? cause + "; review [Tailscale service in VPN Details](page:vgs.vpn/Details)." : cause + " until you choose " + step + " beside [Tailscale service in VPN Details](page:vgs.vpn/Details).";
 }
 
 // The bar icon for the published `vpn` value, null before the first

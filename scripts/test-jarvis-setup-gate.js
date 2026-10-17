@@ -1020,8 +1020,8 @@ function verifyVoice(gate, serviceSource, accountsSource) {
         const worded = [field.description, manifest.schema.voice.description, row.hint, eleven.hint];
         assert.deepEqual(worded.map(oneSentence), [true, true, true, true], "each voice hint is one sentence");
         const keyGuide = pageReference.parse(field.info === undefined ? "" : field.info);
-        assert.deepEqual([keyGuide.page, keyGuide.tab, keyGuide.words.includes(manifest.schema.brain.label)], ["vgs.jarvis", "Settings", true],
-            "the Voice key help links provider keys beside Account on Settings");
+        assert.deepEqual([keyGuide.page, keyGuide.tab, keyGuide.words.includes(manifest.status.keyStore.label)], ["vgs.jarvis", "Details", true],
+            "the Voice key help links provider keys beside API keys on Details");
         assert.deepEqual([field, manifest.schema.voice, row, eleven].map(entry => typeof entry.info === "string" && entry.info !== ""),
             [true, true, true, true], "each voice entry keeps its longer help behind the info button");
         // The key row is a fact on Details, beside its own Add key.
@@ -1037,10 +1037,9 @@ function verifyVoice(gate, serviceSource, accountsSource) {
         assert.deepEqual([stored.local.hint === stored.realtime.hint, new Set(kept.map(item => item.hint)).size], [true, 3],
             "a stored key's row names the voice its key runs");
         const adds = manifest.status.keyStore;
-        // The API keys line sits under Account and the Voice key field is the
-        // row this line is drawn in, both on the Settings tab, so the hint
-        // names them and links no page.
-        assert.deepEqual(kept.map(item => [[adds.label, adds.action.label, manifest.schema.brain.label, field.label].map(words => item.hint.includes(words)), pageReference.parse(item.hint).page]),
+        // The API keys line sits under AI model on Details, the tab this
+        // line is drawn on, and the hint names it and the Voice key field.
+        assert.deepEqual(kept.map(item => [[adds.label, adds.action.label, adds.group, field.label].map(words => item.hint.includes(words)), pageReference.parse(item.hint).page]),
             kept.map(() => [[true, true, true, true], ""]),
             "a stored key's row names where another key goes in and where it is chosen");
         assert.deepEqual([adds.action.tui, plain(words.keysValue({ kind: "listed", rows: [{ label: "OpenAI", value: "present" }] })).action],
@@ -1714,8 +1713,8 @@ const CONTROLS = [
         "dictation setup leaves local voice maintenance available: the rows that offer"],
     ["a home hint names a path with no page", '"home=path": "Jarvis cannot use this folder: [choose a Home folder](page:vgs.jarvis/Settings) inside your own home directory"',
         '"home=path": "Jarvis cannot use this folder. Choose a folder inside your own home directory in Settings > Home."', "the Settings path has the one form"],
-    ["the voices hint links the tab it is drawn on", 'var ELEVENLABS_READY = "Choose one in the Voice list";', 'var ELEVENLABS_READY = "Choose one in [Settings > Jarvis > Voice](page:vgs.jarvis/Settings)";',
-        "the voices hint links no page"],
+    ["the voices hint names the Voice field in plain words", 'var ELEVENLABS_READY = "[Choose one in the Voice list](page:vgs.jarvis/Settings/voice)";', 'var ELEVENLABS_READY = "Choose one in the Voice list";',
+        "the voices hint links the Voice field"],
     ["a failed check names another reader's action", "var label = entry.action !== undefined ? entry.action.label : entry.actions.setup.label;", 'var label = "Set up local voice";', "the hint names"],
     ["memory refusal offers reinstall", 'if (Object.prototype.hasOwnProperty.call(MEMORY, cause)) {', 'if (false) {'],
     ["loading is initial checking", "out.setupVoice = LOADING;", "out.setupVoice = CHECKING;"],
@@ -1734,7 +1733,7 @@ const CONTROLS = [
     ["the ElevenLabs voices row never shows", 'if (facts.provider !== "elevenlabs") return { hidden: true };', "return { hidden: true };", "the ElevenLabs voices row"],
     ["a stored ElevenLabs key still reads as the user's step", 'if (!chosen) return { tone: "info", text: "Your step" };', 'return { tone: "info", text: "Your step" };', "the ElevenLabs voices row"],
     ["a failed voice read reads as being read", 'if (causes.indexOf("speech=elevenlabs-voice") !== -1) return', "if (false) return", "the ElevenLabs voices row"],
-    ["listed voices still link the key page", 'var ELEVENLABS_READY = "Choose one in the Voice list";', 'var ELEVENLABS_READY = "Choose one in the Voice list, or open ElevenLabs API keys";',
+    ["listed voices still link the key page", 'var ELEVENLABS_READY = "[Choose one in the Voice list](page:vgs.jarvis/Settings/voice)";', 'var ELEVENLABS_READY = "[Choose one in the Voice list](page:vgs.jarvis/Settings/voice), or open ElevenLabs API keys";',
         "draws its link only where the user needs the key page"],
     ["a failed voice read names no key page", "check under ElevenLabs API keys that it may read voices", "check that it may read voices",
         "draws its link only where the user needs the key page"],
@@ -2036,7 +2035,7 @@ try {
         ["key-description-sentences", raw => { raw.schema.voiceAccount.description += ". Another sentence."; }],
         ["key-settings-path", raw => {
             const info = raw.schema.voiceAccount.info;
-            const reference = "(page:vgs.jarvis/Settings)";
+            const reference = "(page:vgs.jarvis/Details)";
             assert.equal(info.split(reference).length, 2);
             raw.schema.voiceAccount.info = info.replace(reference, "(page:vgs.jarvis/Setup)");
         }],
@@ -2552,21 +2551,23 @@ function verifyPathForm(gate) {
     assert.equal(paths.length >= 10, true, "the gate's Settings paths are read");
     for (const found of paths)
         assert.match(found, /^Settings > (Voice$|Jarvis( > [A-Z][A-Za-z ]*)?)/, JSON.stringify(found) + ": the Settings path has the one form");
-    // The voices line is drawn under the Voice field on Settings: it names
-    // that field and links no page.
-    assert.deepEqual([gate.ELEVENLABS_READY.includes(manifest.schema.voice.label), pageReference.parse(gate.ELEVENLABS_READY).page], [true, ""], "the voices hint links no page");
+    // The voices line is drawn on Details: it names the Voice field and
+    // links it on Settings.
+    const voices = pageReference.parse(gate.ELEVENLABS_READY);
+    assert.deepEqual([voices.words.includes(manifest.schema.voice.label), voices.page, voices.tab], [true, "vgs.jarvis", "Settings/voice"], "the voices hint links the Voice field");
     for (const text of texts)
         assert.ok((text.match(/\]\(page:/g) ?? []).length <= 1, JSON.stringify(text) + ": at most one reference per drawn text");
     for (const [cause, page, tab] of [
-        ...["unselected", "account-unavailable", "model-required", "models-unavailable", "model-unavailable", "signed-out"]
+        ...["unselected", "model-required", "models-unavailable", "model-unavailable", "signed-out"]
             .map(name => ["brain=" + name, "vgs.jarvis", "Settings"]),
-        ["brain=pi-update", "vgs.jarvis", "Settings"],
-        ["speech=live-account-unselected", "vgs.jarvis", "Settings"],
-        ["speech=live-account-unreadable", "vgs.jarvis", "Settings"],
+        ["brain=account-unavailable", "vgs.jarvis", "Details"],
+        ["brain=pi-update", "vgs.jarvis", "Details"],
+        ["speech=live-account-unselected", "vgs.jarvis", "Details"],
+        ["speech=live-account-unreadable", "vgs.jarvis", "Details"],
         ["speech=live-key-required", "vgs.jarvis", "Settings"],
         ["speech=local-ready-timeout", "vgs.jarvis", "Setup"],
         ["speech=always-local-voice", "vgs.jarvis", "Settings"],
-        ["speech=dictation-elsewhere", "vgs.voice", "Settings"],
+        ["speech=dictation-elsewhere", "vgs.voice", "Details"],
         ["speech=dictation-device", "vgs.voice", "Settings"],
         ["home=link", "vgs.jarvis", "Settings"],
         ["home=path", "vgs.jarvis", "Settings"]]) {

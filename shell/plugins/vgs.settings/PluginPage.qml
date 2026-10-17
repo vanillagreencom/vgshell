@@ -956,10 +956,17 @@ FocusScope {
                             model: toolsSection.tools
                             RequirementRow { required property var modelData; width: toolsSection.width; requirement: modelData }
                         }
-                        RowAction {
-                            visible: toolsSection.review !== null
-                            text: toolsSection.review === null ? "" : toolsSection.review.label
-                            onClicked: page.press(toolsSection.review, null)
+                        // Review sits in the value column under the chips,
+                        // with its refusal beside it: the page head's line
+                        // has scrolled away at the foot of a long tab.
+                        Field {
+                            width: toolsSection.width
+                            visible: toolsSection.review !== null; inline: true
+                            error: toolsSection.review === null ? "" : page.replyFor(toolsSection.review, null)
+                            RowAction {
+                                text: toolsSection.review === null ? "" : toolsSection.review.label
+                                onClicked: page.press(toolsSection.review, null)
+                            }
                         }
                     }
                 }

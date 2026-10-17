@@ -4,14 +4,13 @@
 # found and in a partial search whose row names Accounts, and the AI model
 # setting reads its empty text, closed, beside Add key; without a command
 # only Accounts needs, both stay offered, since a press asks for what its
-# terminal lacks. With a Copilot account, and only then, Settings shows the
+# terminal lacks. With a Copilot account, and only then, Details shows the
 # Copilot Memory step and its link to GitHub. The AI model status hint
 # draws a link that opens Settings; plain words fail the link reading.
 # The Microphone field's info dialog
 # links to the Sounds page. With the fixture's key stored,
-# Settings draws the key list beside Account, a line per key with its
-# chip. Setup and Details draw none. A manifest copy without the Settings
-# field fails the Settings reading. Local servers appear beside
+# Details draws the key list, a line per key with its chip; Settings and
+# Setup draw none. Local servers appear beside
 # the signed-in Claude Code account. With that account chosen, and only
 # then, the page offers that account's models and effort
 # levels and saves the list's default, a choice is saved and reaches the

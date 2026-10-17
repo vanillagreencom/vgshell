@@ -1332,8 +1332,8 @@ world(async () => {
         const reference = require("node:vm").createContext({});
         require("node:vm").runInContext(fs.readFileSync(path.join(tree, "shell", "Commons", "PageReference.js"), "utf8").replace(/^\.pragma.*$/m, ""), reference);
         const target = reference.parse(update);
-        // The line is drawn in the Account row on Settings, beside that row's
-        // tools line, whose action it names: it links no page.
+        // The line is drawn in the Accounts row on Details, above the Tools
+        // section whose action it names: it links no page.
         assert.deepEqual([target.page, update.includes("Review all missing or outdated tools")], ["", true], "the account tool correction names its row's Review action");
         assert.ok(update.length <= 200 && !update.endsWith("."));
         assert.equal(signedOut(false), "", "a signed-out row has no hint");

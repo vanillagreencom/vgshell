@@ -677,6 +677,10 @@ function verifyPlacement(logic, source) {
         assert.equal(power.key, powerKey, "power key: " + label);
         const status = producer.statusRows(checked, { power: { tone: power.tone, text: power.text }, service: logic.serviceRow(step, adapters), bluetooth: { power } });
         same(steps.detailEntries(status).map(entry => entry.key), ["power"], "Details keeps the power reading: " + label);
+        // The reading offers no press of its own, on or off: turning the
+        // service on is the Setup step's alone.
+        same([true, false].map(enabled => steps.detailButtons(steps.detailEntries(status)[0], { enabled, name: "Bluetooth" }).action), [null, null],
+            "the power reading offers no action: " + label);
         const section = steps.setupSections([], status).find(row => row.title === "Setup");
         assert.notEqual(section, undefined, "Setup section exists: " + label);
         const service = section.items.find(item => item.key === "service");

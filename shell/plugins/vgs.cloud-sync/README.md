@@ -20,13 +20,13 @@ Cloud Sync keeps Google Drive folders on this computer and in Google Drive. It r
 
 ## Setup
 
-Open the Cloud Sync page in Settings and select Setup. The Setup section and the Google Drive group hold every step.
+Open the Cloud Sync page in Settings and select Setup. Setup holds the Google Drive connection and the first folder pair. Hourly sync and the later folder pairs are on the Details tab.
 
-1. Under Hourly sync, select Set up hourly sync. A setup window starts the hourly sync. Cloud Sync runs every hour while you are logged in.
+1. On the Details tab, under Hourly sync, select Set up hourly sync. A setup window starts the hourly sync. Cloud Sync runs every hour while you are logged in.
 2. Get the Google Drive keys from [Google Cloud credentials](https://console.cloud.google.com/apis/credentials). Create one OAuth client ID of type Desktop app.
-3. In the Google Drive group, select Add key beside Client ID and Client secret, and paste each into the masked field. VGS stores every key in your keyring.
-4. Under Google Drive, select Connect. Google opens in your browser. Sign in and allow access. VGS stores the connection in your keyring, and the Google Drive line shows the Google account.
-5. Under Folder pairs, select Add a folder pair. A setup window asks for a name, the Google Drive folder and the folder on this computer. A folder pair cannot be your home folder, a folder that holds a Git repository, a folder of VGS or your system services, or the whole Drive, and two pairs cannot overlap.
+3. Under Google Drive connection, select Add key beside Client ID and Client secret, and paste each into the masked field. VGS stores every key in your keyring.
+4. Under Google Drive connection, select Connect. Google opens in your browser. Sign in and allow access. VGS stores the connection in your keyring, and the Google Drive line on the Details tab shows the Google account.
+5. Under First folder pair, select Add a folder pair. A setup window asks for a name, the Google Drive folder and the folder on this computer. A folder pair cannot be your home folder, a folder that holds a Git repository, a folder of VGS or your system services, or the whole Drive, and two pairs cannot overlap.
 
 Remove a folder pair, on the Details tab or beside the pair in the Cloud Sync window, stops the sync of a pair. Its files stay on this computer and on Drive.
 

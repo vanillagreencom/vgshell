@@ -239,7 +239,12 @@ function verifyPlacement(logic, source) {
     for (const [label, detail, missing, buttonOpen, needsOpen] of rows) {
         const values = logic.published(detail, missing);
         const status = producer.statusRows(checked, values);
-        assert.equal(steps.detailEntries(status).some(entry => entry.key === "warden"), true, "Details keeps the warden reading: " + label);
+        const warden = steps.detailEntries(status).find(entry => entry.key === "warden");
+        assert.notEqual(warden, undefined, "Details keeps the warden reading: " + label);
+        // The reading offers no press of its own, on or off: Set up is the
+        // Setup step's alone.
+        same([true, false].map(enabled => steps.detailButtons(warden, { enabled, name: "Agent Warden" }).action), [null, null],
+            "the warden reading offers no action: " + label);
         const section = steps.setupSections(producer.listedTuis(checked), status).find(row => row.title === "Setup");
         assert.notEqual(section, undefined, "Setup section exists: " + label);
         const setup = section.items.find(item => item.key === "setup");

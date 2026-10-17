@@ -645,7 +645,7 @@ function notification(record) {
     if (reasons.indexOf("conflicts") !== -1)
         return { title: "Cloud Sync kept files for review", message: reviewLine(record.conflicts.length) + ". Open Cloud Sync to see them.", tone: "warning" };
     if (reasons.indexOf("units-stale") !== -1)
-        return { title: "Cloud Sync needs setup", message: "[Select Set up hourly sync in Cloud Sync Settings](page:vgs.cloud-sync/Settings).", tone: "warning" };
+        return { title: "Cloud Sync needs setup", message: "[Select Set up hourly sync in Cloud Sync Details](page:vgs.cloud-sync/Details).", tone: "warning" };
     return null;
 }
 

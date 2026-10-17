@@ -109,17 +109,17 @@ var ELEVENLABS_UNREAD = "Jarvis could not read the voices of your ElevenLabs key
 // the step gives, since its action already says to set it up.
 var TODO = {
     "brain=unselected": "Choose an AI model in [Settings > Jarvis > AI model](page:vgs.jarvis/Settings)",
-    "brain=account-unavailable": "The selected account or its key is unavailable: [add a provider key or sign in beside Account](page:vgs.jarvis/Settings)",
+    "brain=account-unavailable": "The selected account or its key is unavailable: [add a provider key or sign in on the Details tab](page:vgs.jarvis/Details)",
     "brain=model-required": "Choose a model in [Settings > Jarvis > AI model](page:vgs.jarvis/Settings)",
     "brain=models-reading": "Jarvis is reading the local server model list",
     "brain=models-unavailable": "Check the local server, then [choose a model](page:vgs.jarvis/Settings) under AI model and press Talk to try again",
     "brain=model-unavailable": "The local server does not offer this model: [choose another model](page:vgs.jarvis/Settings) under AI model",
     "brain=signed-out": "Sign in to the chosen AI app, then [choose it under AI model](page:vgs.jarvis/Settings)",
-    "brain=pi-update": "Jarvis needs Pi 1.1.0 or later: [review all missing or outdated tools](page:vgs.jarvis/Settings), or choose another app under AI model",
+    "brain=pi-update": "Jarvis needs Pi 1.1.0 or later: [review all missing or outdated tools under Tools on the Details tab](page:vgs.jarvis/Details), or choose another app under AI model",
     "brain=accounts-unreadable": "Jarvis could not read your accounts. Open Accounts to check them.",
-    "speech=live-account-unselected": "[Add a provider key beside Account](page:vgs.jarvis/Settings): OpenAI for Realtime, Gemini for Gemini Live or ElevenLabs for ElevenLabs",
-    "speech=live-account-unreadable": "Jarvis could not read your voice key: use [Accounts beside Account](page:vgs.jarvis/Settings) to check it",
-    "speech=live-key-required": "[Choose a key under Voice key](page:vgs.jarvis/Settings): OpenAI for Realtime, Gemini for Gemini Live or ElevenLabs for ElevenLabs; Add key beside Account stores a new key",
+    "speech=live-account-unselected": "[Add a provider key beside API keys on the Details tab](page:vgs.jarvis/Details): OpenAI for Realtime, Gemini for Gemini Live or ElevenLabs for ElevenLabs",
+    "speech=live-account-unreadable": "Jarvis could not read your voice key: use [Accounts beside Account search on the Details tab](page:vgs.jarvis/Details) to check it",
+    "speech=live-key-required": "[Choose a key under Voice key](page:vgs.jarvis/Settings): OpenAI for Realtime, Gemini for Gemini Live or ElevenLabs for ElevenLabs; Add key beside API keys stores a new key",
     "speech=elevenlabs-voice": ELEVENLABS_UNREAD,
     "speech=local-not-ready": "Set up the local voice again",
     "speech=local-ready-timeout": "Local voice timed out: [turn Jarvis off and on again, or set it up again](page:vgs.jarvis/Setup)",
@@ -144,7 +144,7 @@ var CAUTION = {
 var DICTATION = {
     "speech=dictation-absent": { tone: "warning", text: "To do", hint: "Set up dictation so the local voice can hear you", action: "dictation" },
     "speech=dictation-failed": { tone: "warning", text: "To do", hint: "Set up dictation again", action: "dictation" },
-    "speech=dictation-elsewhere": { tone: "warning", text: "Another voxtype runs", hint: "Stop the other voxtype under [Other dictation service in Settings > Voice](page:vgs.voice/Settings)" },
+    "speech=dictation-elsewhere": { tone: "warning", text: "Another voxtype runs", hint: "Stop the other voxtype beside [Other dictation service in Voice Details](page:vgs.voice/Details)" },
     "speech=dictation-device": { tone: "warning", text: "Dictation uses another microphone", hint: "The local voice hears the system default microphone: choose it with [Configure in Settings > Voice](page:vgs.voice/Settings)" }
 };
 // Causes whose step the voice setup action cannot complete: the user
@@ -472,8 +472,10 @@ var VOICE_KEY_HINTS = {
 // stores its keys itself, several for one provider, each under a name, so
 // the row is no line of a key the core stores and takes no Replace or
 // Remove: a new key goes in through Add key on the API keys line under
-// Account, and the Voice key field on Settings chooses it.
-var VOICE_KEY_CHANGE = "; to use another key, press Add key on the API keys line under Account, then choose it in Voice key";
+// AI model on Details, where this row is drawn too, and the Voice key field
+// on Settings chooses it. A link to that field would take the ElevenLabs
+// hint past the status hint ceiling.
+var VOICE_KEY_CHANGE = "; to use another key, press Add key on the API keys line under AI model, then choose it in Voice key";
 var VOICE_KEY_STORED = {
     openai: "Jarvis can use the Realtime voice with your OpenAI key" + VOICE_KEY_CHANGE,
     gemini: "Jarvis can use the Gemini Live voice with your Gemini key" + VOICE_KEY_CHANGE,
@@ -500,7 +502,7 @@ function voiceKey(offered, settings) {
 // or waiting while another cause holds the Voice step. Only the hints
 // that send the user to ElevenLabs API keys name it, the declared one and
 // the failed read's, so the row's link draws in those two states alone.
-var ELEVENLABS_READY = "Choose one in the Voice list";
+var ELEVENLABS_READY = "[Choose one in the Voice list](page:vgs.jarvis/Settings/voice)";
 var ELEVENLABS_READING = "Jarvis is reading the voices of your ElevenLabs key";
 var ELEVENLABS_WAITING = "Jarvis reads the voices of your ElevenLabs key when the [Voice step on Setup](page:vgs.jarvis/Setup) is done";
 function elevenLabsStep(facts) {
@@ -601,7 +603,7 @@ var SESSION_ROWS = {
     "blocked record-unreadable": { tone: "warning", text: "Cannot start", hint: "Jarvis cannot read its saved session record" },
     "blocked sign-in-required": { tone: "warning", text: "Cannot start", detail: true },
     "blocked selection-conflict": { tone: "warning", text: "Cannot start", hint: "Changing the home or account restarts Jarvis after the new selection is checked" },
-    "blocked tmux-missing": { tone: "warning", text: "Cannot start", hint: "No session can start without tmux: [review all missing or outdated tools beside Start Jarvis at boot](page:vgs.jarvis/Settings)" },
+    "blocked tmux-missing": { tone: "warning", text: "Cannot start", hint: "No session can start without tmux: [review all missing or outdated tools under Tools](page:vgs.jarvis/Details)" },
     "blocked app-missing": { tone: "warning", text: "Cannot start", hint: "No session can start, because the app of the selected account is not installed" },
     "failed launch-failed": { tone: "danger", text: "Not started", detail: true, action: "retry" },
     "failed handover-failed": { tone: "danger", text: "Not started", detail: true, action: "retry" }
@@ -646,8 +648,8 @@ function sessionStart(wanted, result) {
 // ready, but a Ready summary names a session the user must fix: the page
 // gives one judgement.
 var SESSION_FAULTS = {
-    warning: "The Jarvis session cannot start: see [Jarvis session under Home](page:vgs.jarvis/Settings)",
-    danger: "The Jarvis session did not start: see [Jarvis session under Home](page:vgs.jarvis/Settings)"
+    warning: "The Jarvis session cannot start: see [Jarvis session under Home on the Details tab](page:vgs.jarvis/Details)",
+    danger: "The Jarvis session did not start: see [Jarvis session under Home on the Details tab](page:vgs.jarvis/Details)"
 };
 function sessionSummary(setup, session) {
     if (setup.tone !== "ok" || !Object.prototype.hasOwnProperty.call(SESSION_FAULTS, session.tone)) return setup;

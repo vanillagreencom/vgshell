@@ -246,8 +246,17 @@ Item {
             compare(onTab(window, RequirementRow).map(row => row.requirement.name), ["optional-tool"], "Details lists the optional tool");
             const review = onTab(window, RowAction).find(item => item.text === "Review all missing or outdated tools");
             verify(review !== undefined, "Details offers the install of the missing optional tool");
+            const chip = descendants(onTab(window, RequirementRow)[0]).find(item => item instanceof Badge);
+            compare(review.mapToItem(null, 0, 0).x, chip.mapToItem(null, 0, 0).x, "Review starts the value column, under the tools' chips");
             mouseClick(review);
             compare(fakeManager.installs, ["acme.optional"]);
+            // A refused install reads beside Review, not only in the page head.
+            const failure = "refused: requirements=none-missing";
+            ignoreWarning("settings: acme.optional " + failure);
+            window.keep(window.stepKey("acme.optional"), failure);
+            const field = onTab(window, Field).find(item => descendants(item).includes(review));
+            compare(field.error, window.replyOf("acme.optional"), "the refusal reads under Review");
+            verify(field.error !== "");
         }
         // While the plugin is off, a Details fact that declares an action
         // offers Turn on in its place.

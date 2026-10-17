@@ -1637,6 +1637,8 @@ mutations=(
   "a Details fact offers no Turn on while its plugin is off|../plugins/vgs.settings/Steps.js|action: lineAction(stepButton(entry), entry.action !== null, plugin)|action: lineAction(stepButton(entry), false, plugin)|tst_settings_setup.qml"
   "Details Tools offers no install|../plugins/vgs.settings/PluginPage.qml|visible: toolsSection.review !== null|visible: false|tst_settings_setup.qml"
   "Details Tools install asks for nothing|../plugins/vgs.settings/PluginPage.qml|onClicked: page.press(toolsSection.review, null)|onClicked: {}|tst_settings_setup.qml"
+  "Details Review leaves the value column|../plugins/vgs.settings/PluginPage.qml|visible: toolsSection.review !== null; inline: true|visible: toolsSection.review !== null; inline: false|tst_settings_setup.qml"
+  "a refused Details install reads only in the page head|../plugins/vgs.settings/PluginPage.qml|error: toolsSection.review === null ? \"\" : page.replyFor(toolsSection.review, null)|error: \"\"|tst_settings_setup.qml"
   "a key draws no info of its own|../plugins/vgs.settings/StatusRow.qml|            info: modelData.info|            info: \"\"|tst_settings_setup.qml"
   "a status line's info page reference emits nothing|../plugins/vgs.settings/StatusLine.qml|        onInfoPageActivated: (page, tab) => line.infoPageActivated(page, tab)|        onInfoPageActivated: (page, tab) => {}|tst_settings_setup.qml"
   "a key's info page reference opens nothing|../plugins/vgs.settings/StatusRow.qml|            onInfoPageActivated: (page, tab) => row.openPage(page, tab)|            onInfoPageActivated: (page, tab) => {}|tst_settings_setup.qml"

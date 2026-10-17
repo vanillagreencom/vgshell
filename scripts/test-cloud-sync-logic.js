@@ -411,7 +411,7 @@ function verify(L) {
     same(L.notification(good.record), { title: "Cloud Sync needs Connect", message: "Google Drive did not accept Connect. [Select Connect again on the Cloud Sync page](page:vgs.cloud-sync/Setup).", tone: "danger" });
     same(L.notification(record({ attention: { reasons: ["conflicts"], key: "k", notified: false } })), { title: "Cloud Sync kept files for review", message: "4 files to review. Open Cloud Sync to see them.", tone: "warning" });
     same(L.notification(record({ lastError: { kind: "offline" }, attention: { reasons: ["error"], key: "k", notified: false } })).tone, "danger");
-    same(L.notification(record({ attention: { reasons: ["units-stale"], key: "k", notified: false } })), { title: "Cloud Sync needs setup", message: "[Select Set up hourly sync in Cloud Sync Settings](page:vgs.cloud-sync/Settings).", tone: "warning" });
+    same(L.notification(record({ attention: { reasons: ["units-stale"], key: "k", notified: false } })), { title: "Cloud Sync needs setup", message: "[Select Set up hourly sync in Cloud Sync Details](page:vgs.cloud-sync/Details).", tone: "warning" });
     assert.equal(L.notification(record({ attention: null })), null);
     same(L.notification(record({ lastError: Object.assign({ pair: "docs" }, signedOut) })).message, SIGNED_OUT, "a missing token is a connection");
     assert.equal(L.errorText({ kind: "credential-absent", account: "token" }), "Google Drive is not connected. [Select Connect on the Cloud Sync page](page:vgs.cloud-sync/Setup).");
