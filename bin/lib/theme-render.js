@@ -50,7 +50,8 @@ const SELECT_KEYS = ["base", "file", "format", "key", "value"];
 const COLOR_SELECT_KEYS = ["base", "file", "format", "values"];
 const COLOR_SELECT_FORMATS = ["starship", "yazi", "bat", "fastfetch", "television"];
 // `jsonc` is JSON with comments and trailing commas, as VS Code-family
-// editors read their settings.
+// editors read their settings. The line-exact `toml` edit also handles
+// btop.conf's quoted root assignment without parsing unrelated settings.
 const SELECT_FORMATS = ["json", "jsonc", "toml", "yaml"];
 // The longest `key` a line-exact format takes: a root key, or a key in one
 // table or top-level mapping. JSON takes any depth.

@@ -14,6 +14,8 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const os = require("node:os");
+const { spawnSync } = require("node:child_process");
 const { load } = require("../bin/lib/qml-library.js");
 
 const dir = path.join(__dirname, "..", "shell", "plugins", "vgs.themes");
@@ -77,6 +79,51 @@ function verifyWiring(logic) {
 }
 
 verifyWiring(load(file));
+
+// Exercise the shipped setup reader against a managed btop link and an
+// unrelated selection. No application or reload hook runs in this fixture.
+const setupRepo = path.join(__dirname, "..");
+const btopScratch = fs.mkdtempSync(path.join(os.tmpdir(), "btop-setup-"));
+try {
+    const tree = path.join(btopScratch, "tree");
+    const home = path.join(btopScratch, "home");
+    const config = path.join(home, ".config");
+    const state = path.join(home, ".local/state/vgshell");
+    for (const name of ["bin", "shell/Commons", "themes/targets/btop"])
+        fs.cpSync(path.join(setupRepo, name), path.join(tree, name), { recursive: true });
+    fs.mkdirSync(path.join(config, "btop/themes"), { recursive: true });
+    fs.mkdirSync(path.join(state, "theme"), { recursive: true });
+    fs.writeFileSync(path.join(state, "theme/btop.theme"), "theme[main_bg]=\"#000000\"\n");
+    fs.symlinkSync(path.join(state, "theme/btop.theme"), path.join(config, "btop/themes/vgs.theme"));
+    const settings = path.join(config, "btop/btop.conf");
+    const judge = path.join(tree, "bin/vgshell-theme-judge");
+    const env = { HOME: home, PATH: path.dirname(process.execPath), XDG_CONFIG_HOME: config,
+        XDG_STATE_HOME: path.join(home, ".local/state"), VGS_TEST_RUN: "1" };
+    function readBtopWiring() {
+        const result = spawnSync(process.execPath, [judge, "setup", "json", path.join(config, "vgshell"), state], { env, encoding: "utf8", timeout: 10000 });
+        assert.equal(result.status, 0, result.stderr);
+        return JSON.parse(result.stdout).wiring.filter(row => row.name === "btop" && row.state === "wired");
+    }
+    for (const selection of ['color_theme = "Default"\n', '# owner\n', null, 'color_theme = "vgs"\n']) {
+        if (selection === null) fs.unlinkSync(settings);
+        else fs.writeFileSync(settings, selection);
+        const rows = readBtopWiring();
+        if (selection === 'color_theme = "vgs"\n') {
+            assert.ok(rows.some(row => row.file === settings));
+            assert.ok(rows.some(row => row.file === path.join(config, "btop/themes/vgs.theme")));
+        } else assert.deepEqual(rows, []);
+    }
+    fs.writeFileSync(settings, 'color_theme = "Default"\n');
+    const source = fs.readFileSync(judge, "utf8");
+    const needle = 'if (target.select !== undefined && selectionEdits(target, configHome, live)\n                .some(selection => selection.edit(latin1(readIfPresent(selection.file))) !== null)) return [];';
+    assert.equal(source.split(needle).length, 2);
+    const mutant = source.replace(needle, "");
+    assert.notEqual(mutant, source);
+    fs.writeFileSync(judge, mutant);
+    assert.throws(() => assert.deepEqual(readBtopWiring(), []), { name: "AssertionError" });
+} finally {
+    fs.rmSync(btopScratch, { recursive: true, force: true });
+}
 
 // Every value fits the manifest's `browserTheming` entry, whose action the
 // core offers only while the value says so.

@@ -839,6 +839,46 @@ function verify(render) {
 }
 verify(require(rendererFile));
 
+// btop's root string assignment uses the existing line-exact TOML edit.
+// SIGUSR2 reads it back into a running btop before save-on-exit can write
+// the previous selection. It is due even when the theme bytes did not change.
+const btopFile = path.join(repo, "themes", "targets", "btop", "target.json");
+const btopSource = fs.readFileSync(btopFile, "utf8");
+const btopSelect = require("../bin/lib/theme-select.js");
+function verifyBtopSelection(source) {
+    const render = require(rendererFile);
+    const result = render.acceptTarget(logic, "btop", source);
+    assert.equal(result.ok, true);
+    const target = result.target;
+    assert.ok(target.select);
+    assert.equal(target.select.base, "config");
+    assert.equal(target.select.file, "btop/btop.conf");
+    for (const [before, after] of [
+        ['# owner\ncolor_theme = "Default" # choice\nupdate_ms = 1500\n', '# owner\ncolor_theme = "vgs" # choice\nupdate_ms = 1500\n'],
+        ['# owner\nupdate_ms = 1500\n', 'color_theme = "vgs"\n# owner\nupdate_ms = 1500\n'],
+        ['color_theme = "vgs"\n', null]
+    ]) {
+        assert.equal(btopSelect.selectedText(target.select.format, before, render.selectKeys(target), render.selectValue(target, "/s/theme")), after);
+    }
+    assert.equal(render.reloadAlways(target), true);
+    const command = render.reloadCommand(target, "/s/theme", path.dirname(btopFile));
+    assert.deepEqual(command, ["sh", "-c", 'pkill -USR2 -x -u "$(id -u)" btop; [ "$?" -le 1 ]']);
+}
+verifyBtopSelection(btopSource);
+const btopControl = fs.mkdtempSync(path.join(os.tmpdir(), "btop-select-control-"));
+try {
+    for (const field of ["select", "always"]) {
+        const mutant = JSON.parse(btopSource);
+        if (field === "select") delete mutant.select;
+        else delete mutant.reload.always;
+        const file = path.join(btopControl, "target.json");
+        fs.writeFileSync(file, JSON.stringify(mutant));
+        assert.throws(() => verifyBtopSelection(fs.readFileSync(file, "utf8")), { name: "AssertionError" });
+    }
+} finally {
+    fs.rmSync(btopControl, { recursive: true, force: true });
+}
+
 // Status text must use the judged roles even when a package's raw palette
 // and ANSI slots are unreadable. These are the fields shipped apps consume.
 const STATUS_RESTING_SURFACES = ["background", "surface", "surfaceRaised", "surfaceSunken"];

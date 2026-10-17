@@ -3125,6 +3125,10 @@ function setupTargetRows(name, target, configHome, live) {
     case "entry": {
         let plan;
         try {
+            // A theme file alone does not connect an application whose
+            // settings still select another theme, as btop can do.
+            if (target.select !== undefined && selectionEdits(target, configHome, live)
+                .some(selection => selection.edit(latin1(readIfPresent(selection.file))) !== null)) return [];
             plan = currentEntries(target, entryDirs(target, configHome), live);
         } catch (e) {
             if (typeof e.code !== "string") throw e;
