@@ -24,10 +24,11 @@ import "../../shell/plugins/vgs.settings"
 // reset sends undefined. A refused key returns to the row's text entry
 // whether the field or a caller sent it, and a refused removal or list
 // opens none. A field that declares `shownWhen` is drawn only while its
-// presence entry reads present. The owner here stands in for the page: it
-// records each write and takes it or refuses it; the page's capture names
-// keys with the core's judge and says a user bind holds Right Ctrl when
-// asked.
+// presence entry reads present, and a plugin whose fields only wait keeps
+// its Turn on hint while it is off. The owner here stands in for the
+// page: it records each write and takes it or refuses it; the page's
+// capture names keys with the core's judge and says a user bind holds
+// Right Ctrl when asked.
 Item {
     id: root
     width: 480
@@ -538,6 +539,20 @@ Item {
             root.pageRow = Object.assign({}, root.pageRow, { withheldFields: PluginLogic.withheldFields(manifest, { battery: "present" }) });
             tryVerify(() => drawn().indexOf("low") !== -1 && drawn().indexOf("charging") !== -1);
             verify(headings().indexOf("Battery") !== -1, "a present entry draws its fields under their heading");
+            // Off, the plugin has published nothing, so every field waits;
+            // its page still has settings to offer once it is on.
+            const waiting = { low: schema.low, charging: schema.charging };
+            root.pageRow = Object.assign({}, root.pageRow, {
+                enabled: false,
+                schema: waiting,
+                settings: { low: true, charging: true },
+                withheldFields: PluginLogic.withheldFields({ schema: waiting, status: status }, {}),
+                fieldRows: PluginLogic.fieldRows(waiting, status)
+            });
+            tryVerify(() => drawn().length === 0);
+            verify(!page.bare, "a plugin whose fields only wait is not bare");
+            const enabled = descendants(page).find(item => item instanceof Field && item.label === SettingValues.PAGE_LABELS.enabled);
+            verify(enabled !== undefined && enabled.hint !== "", "the Enabled switch keeps its Turn on hint");
             releasePage(page, original);
         }
 

@@ -30,8 +30,12 @@ FocusScope {
     // The manager row of the panes holder that shows this plugin's page,
     // or null.
     readonly property var paneHolder: row === null || row.paneHolder === "" ? null : panel.plugins.find(p => p.id === row.paneHolder) || null
-    // Whether the Settings page holds nothing below its switches.
-    readonly property bool bare: row !== null && row.builtins.length === 0 && fields.length === 0 && sections.length === 0 && lists.length === 0 && row.binds.length === 0 && paneHolder === null
+    // Whether the plugin declares nothing for the Settings page below its
+    // switches. It reads the schema's rows before placed(), so a plugin
+    // whose fields only wait, on a `shownWhen` entry or a `hideEmpty`
+    // offer, keeps the Turn on hint while it is off and never reads as
+    // having no settings.
+    readonly property bool bare: row !== null && row.builtins.length === 0 && row.fieldRows.length === 0 && row.binds.length === 0 && paneHolder === null
     // Whether a field of the page holds an unsaved edit.
     readonly property bool dirty: unsaved.edited
 
