@@ -32,7 +32,7 @@
     "showCodex": {"type": "boolean", "label": "Codex", "group": "Providers"},
     "showCopilot": {"type": "boolean", "label": "Copilot", "group": "Providers"},
     "aiGateway": {"type": "boolean", "label": "AI Gateway credits", "group": "Providers", "description": "Show credit figures from your AI Gateway key", "info": "Select Get AI Gateway key to open Vercel. In the dashboard, open AI Gateway, then API keys, then Create key. Under [Settings](page:vgs.ai-usage/Settings), select Add key and paste the key into the masked field. The key unlocks AI Gateway credit figures."},
-    "hidden": {"type": "list", "label": "Hidden accounts", "items": {"account": {"type": "string", "label": "Account", "optionsFrom": "accounts"}}, "defaults": {"account": ""}}
+    "hidden": {"type": "list", "label": "Hidden accounts", "items": {"account": {"type": "string", "label": "Account", "optionsFrom": "accounts", "placeholder": "Choose an account"}}, "defaults": {"account": ""}}
   },
   "tui": {
     "sign-in-claude": {"script": "tui/sign-in-claude.sh", "title": "Sign in to Claude Code", "requires": ["claude", "gum"]},

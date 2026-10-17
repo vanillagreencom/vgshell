@@ -7,7 +7,8 @@
 # and a claude the row plants. Both stand-ins answer reset times relative
 # to each request. It reads the Settings page's Sign in per tool, offered
 # whether that tool is installed or not, whose TUI the stand-in terminal records; the
-# widget's share, tone and hidden state; the panel's rows, notes, figure
+# widget's share, tone and hidden state, under a Hidden accounts item
+# naming the Claude Code id and one at its placeholder; the panel's rows, notes, figure
 # shared check age, reset times and height cap, half its output's logical height; that
 # opening the panel publishes no read and sends the endpoint no request;
 # the panel's Settings gear, which always-on Plugins gives every panel,
@@ -251,6 +252,8 @@ want = m["height"] / m["scale"] / 2
 print("matched" if abs(cap - want) < 0.5 else "cap=%g want=%g" % (cap, want))' "$cap" "$screen"
 }
 usage_choices() { ipc smoke statusValues vgs.ai-usage | py_reply 'import json,sys; v=json.load(sys.stdin); print(json.dumps([c["label"] for c in v["accounts"]]))'; }
+# The id of the account whose label is $1 among the published choices.
+usage_choice_id() { ipc smoke statusValues vgs.ai-usage | py_reply 'import json,sys; v=json.load(sys.stdin); print(next(c["value"] for c in v["accounts"] if c["label"] == sys.argv[1]))' "$1"; }
 usage_apply_setting() { ipc smoke invokeInstance window vgs.settings applySetting "{\"id\":\"vgs.ai-usage\",\"key\":\"$1\",\"value\":$2}"; }
 # The time left on each window the panel shows, against the stand-ins'
 # answer of 5 h 30 min and 3 d 6 h after the request: `matched` while every
@@ -435,8 +438,11 @@ click_centre "$(bar_key)" vgs.ai-usage || fail "opening AI Usage with Codex filt
 expect_poll "the provider filter leaves Claude only" '[["claude", "", [["five_hour", 42, "success"], ["seven_day", 83, "danger"], ["seven_day_fable", 12, "success"]]]]' usage_panel_rows
 expect "the filtered panel hides" ok ipc shell hide panel vgs.ai-usage
 expect_poll "the filtered panel is gone" absent usage_panel
-expect "hiding the first offered account is allowed" ok usage_apply_setting hidden '[{"name":"item-1","account":""}]'
+usage_claude_id="$(usage_choice_id "Claude Code")" || fail "the Claude Code choice has no id"
+expect "hiding Claude Code by its id is allowed" ok usage_apply_setting hidden "[{\"name\":\"item-1\",\"account\":\"$usage_claude_id\"}]"
 expect_poll "the widget hides when all visible accounts are filtered" '[false, false, null, "normal"]' usage_widget_state
+expect "an item back at its placeholder is allowed" ok usage_apply_setting hidden '[{"name":"item-1","account":""}]'
+expect_poll "an item at its placeholder hides no account" '[true, true, 83, "warning"]' usage_widget_state
 expect "restoring hidden accounts is allowed" ok usage_apply_setting hidden '[]'
 expect "restoring Codex provider is allowed" ok usage_apply_setting showCodex true
 expect "restoring full view is allowed" ok usage_apply_setting view '"full"'

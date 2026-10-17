@@ -35,7 +35,7 @@ AI Usage shows how much of your Claude Code, Codex and Copilot plan limits you h
 | Bar shows | Used shows the share used. Left shows the share that is left. |
 | Colour by usage | Shows the bar number in the warning colour from 80 % used, whichever share it shows. |
 | Providers | Show or hide Claude Code, Codex and Copilot in the panel and bar total. |
-| Hidden accounts | Hide selected accounts from the panel and bar total. The choices are the signed-in accounts, each shown as its provider and email, or the GitHub login for Copilot. An account that has neither shows the provider alone. A hidden account that is later signed out stays in the list and shows as unavailable. |
+| Hidden accounts | Hide selected accounts from the panel and bar total. The choices are the signed-in accounts, each shown as its provider and email, or the GitHub login for Copilot. An account that has neither shows the provider alone. A new item reads Choose an account and hides nothing until you choose one. A hidden account that is later signed out stays in the list and shows as unavailable. |
 | Sign-in | One row per tool. While no account of a tool is signed in, its row offers Sign in, which opens the tool's own sign-in in a terminal window. |
 
 When a Claude Code or Copilot sign-in has expired, open that tool once to refresh it.

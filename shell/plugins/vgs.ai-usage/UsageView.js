@@ -169,21 +169,21 @@ function accountChoices(usage) {
     });
 }
 
-function hiddenIds(settings, usage) {
+// The account ids the Hidden accounts items name. An item still at its
+// placeholder, "", names none: the offers change as accounts sign out, so
+// a first-offer reading would move to another account.
+function hiddenIds(settings) {
     var list = settings !== null && settings !== undefined && Array.isArray(settings.hidden) ? settings.hidden : [];
-    var offers = accountChoices(usage);
-    var first = offers.length === 0 ? "" : offers[0].value;
     var ids = [];
     for (var i = 0; i < list.length; i++) {
         var id = list[i] !== null && typeof list[i] === "object" && typeof list[i].account === "string" ? list[i].account : "";
-        if (id === "") id = first;
         if (id !== "" && ids.indexOf(id) === -1) ids.push(id);
     }
     return ids;
 }
 
 function visibleAccounts(usage, settings) {
-    var hidden = hiddenIds(settings, usage);
+    var hidden = hiddenIds(settings);
     return signedIn(usage).filter(function (row) { return shownProvider(row.provider, settings) && hidden.indexOf(row.id) === -1; });
 }
 

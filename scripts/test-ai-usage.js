@@ -948,7 +948,14 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
             [View.wholeNumber([0, "999.4", 999.5, "59295.2328000000", 1234567.8, "credits"][i]), want]).filter(r => r[0] !== r[1]), []);
         assert.deepEqual(shown(copilot, { showCopilot: false }), [true, 33.3333333333, "normal"], "provider filters remove Copilot from the widget");
         assert.deepEqual(View.panel(copilot, NOW, { showCopilot: false }).map(r => r.provider), ["claude", "codex", "gateway"]);
-        assert.deepEqual(View.panel(copilot, NOW, { hidden: [{ account: "" }] }).map(r => r.id), ["claude-enterprise", "codex-c", "copilot-b", "gateway-a"], "empty hidden account means the first offer");
+        // A Hidden accounts item hides the account it names through a
+        // sign-out of another, and one still at its placeholder hides none.
+        const pair = state => View.merge(null, { accounts: [
+            { id: "claude-a", provider: "claude", email: "a@example.invalid", state: state, windows: [] },
+            { id: "claude-b", provider: "claude", email: "b@example.invalid", state: "ok", windows: [] }], partial: "" }, NOW);
+        assert.deepEqual([["ok", ""], ["signed-out", ""], ["ok", "claude-b"], ["signed-out", "claude-b"], ["ok", "claude-a"]].map(([state, account]) =>
+            View.panel(pair(state), NOW, { hidden: [{ account: account }] }).map(r => r.id)),
+            [["claude-a", "claude-b"], ["claude-b"], ["claude-a"], [], ["claude-b"]]);
         assert.deepEqual(plainOf(View.accountChoices(copilot).map(r => [r.value, r.label])), [["copilot-a", "Copilot · octo-user"],
             ["copilot-b", "Copilot · zero-user"], ["claude-enterprise", "Claude Code"], ["codex-c", "Codex · c@example.invalid"], ["gateway-a", "AI Gateway"]]);
         assert.equal(View.panel(copilot, NOW, { aiGateway: false }).some(r => r.provider === "gateway"), false);
@@ -1063,7 +1070,9 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
     await control("api-account-hidden", "UsageView.js", 'return row.state !== "signed-out";', 'return row.state !== "signed-out" && row.state !== "no-plan";', views);
     await control("gateway-switch-ignored", "UsageView.js", 'if (provider === "gateway") return settings.aiGateway !== false;', 'if (provider === "gateway") return true;', views);
     await control("provider-filter-ignored", "UsageView.js", 'if (provider === "copilot") return settings.showCopilot !== false;', 'if (provider === "copilot") return true;', views);
-    await control("hidden-first-ignored", "UsageView.js", 'if (id === "") id = first;', 'if (id === "") id = "";', views);
+    await control("hidden-first-offer", "UsageView.js", "    var hidden = hiddenIds(settings);",
+        "    var hidden = hiddenIds(settings).concat(accountChoices(usage).slice(0, 1).map(function (choice) { return choice.value; }));", views);
+    await control("hidden-ignored", "UsageView.js", "        if (id !== \"\" && ids.indexOf(id) === -1) ids.push(id);\n", "", views);
     await control("details-dropped", "UsageView.js", 'if (d.gateway !== undefined) {', 'if (false) {', views);
     await control("reset-rounded-down", "UsageView.js", "var minutes = Math.ceil((resetsAt - now) / 60000);", "var minutes = Math.floor((resetsAt - now) / 60000);", views);
     await control("reset-prefixed", "UsageView.js", "    return Commons.Duration.format(seconds, seconds < 3600 ? 1 : 2);",
