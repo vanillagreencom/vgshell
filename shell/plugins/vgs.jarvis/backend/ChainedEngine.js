@@ -876,6 +876,8 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
 
     function say(c, turn, sentence, labels = [...turn.labels]) {
         if (turn.stopped) return;
+        // A call's fixed line is said once a turn: the brain's echo is dropped.
+        if (turn.fixed?.has(normalizedLine(sentence))) return;
         // The answer drops every line that has not started; one that plays
         // finishes first, as Session holds the reply behind it.
         turn.pendingLine = null;
@@ -1347,6 +1349,17 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         }
         fixedLine(c, turn, FAST_LINES[outcome]);
     }
+    // A brain's call whose result Jarvis states in fixed words as it
+    // arrives, whatever the brain then says; any other result is the
+    // brain's to state.
+    const CALL_LINES = { "fleet.request": { completed: "Asking Jarvis's session." } };
+    function callLine(c, turn, text) {
+        quiet(turn);
+        const speakable = Speakable.create(LANGUAGE);
+        const sentences = [...speakable.push(text), ...speakable.finish()];
+        for (const sentence of sentences) say(c, turn, sentence, ["desktop"]);
+        turn.fixed = new Set(sentences.map(normalizedLine));
+    }
     // Jarvis's own words as the whole turn: spoken, captioned and done.
     function fixedLine(c, turn, text) {
         try {
@@ -1517,7 +1530,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                 feedbackTimer: null, relay: null,
                 phase: "queued", calls: [], answers: new Map(), routing: null, caption: "", resendText: e.text, owner: e.owner,
                 routed: false, replyStarted: false, progressTimer: null, progressDue: false, step: null, lines: new Set(),
-                linePrefix: "", lineStream: null, pendingLine: null, waitingLine: null };
+                linePrefix: "", lineStream: null, pendingLine: null, waitingLine: null, fixed: null };
             if (e.text.trim() === "") {
                 done("brain-done");
                 return;
@@ -1598,7 +1611,15 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             if (turn !== null && turn.op === value.op && turn.phase === "routing" && turn.routing?.id === id) {
                 // A result's image stays with its text for the tool-results turn.
                 turn.answers.set(id, image === undefined ? { item } : { item, image });
+                const fixed = CALL_LINES[turn.routing?.tool]?.[value.outcome];
                 turn.routing = null;
+                if (fixed !== undefined) {
+                    try { callLine(c, turn, fixed); }
+                    catch (error) {
+                        failed(c, turn, error);
+                        return;
+                    }
+                }
                 next(c, turn);
                 return;
             }

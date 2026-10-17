@@ -113,6 +113,13 @@ function rig(kit, server, options = {}) {
         executions.push(call);
         done({ outcome: "completed", content: "fixture deleted" });
     } });
+    // The guidance stand-in hands no request anywhere: fleet.request ends
+    // with the case's result.
+    if (options.fleet) router.register("guidance", { commands: [], timeoutMs: 30000, cancellable: false, fleet: () => true,
+        start(call, done) {
+            executions.push(call);
+            done(options.fleet);
+        } });
     // The action approval case uses an inert executor, with no process.
     if (options.actionApproval) router.register("sandbox", { commands: ["bwrap"], timeoutMs: 30000,
         cancellable: false, start(call, done) {
@@ -1572,6 +1579,38 @@ async function cases(kit, server, only = null) {
         "a tool round's acknowledgement and reply are captioned once, at their end");
         assert.deepEqual(w.faults, []);
     });
+
+    // A request handed to the Jarvis session's mailbox: a completed one is
+    // Jarvis's fixed line, captioned and spoken once whatever the brain
+    // says after it; any other result leaves the words to the brain.
+    const ASKING = "Asking Jarvis's session.";
+    for (const [name, result, reply, spoken] of [
+        ["completed-echo", { outcome: "completed", content: "Completed: the request is in the Jarvis session's mailbox as row 1792200000001." },
+            "Asking Jarvis's session. It reads its mail next.", [ASKING, "It reads its mail next."]],
+        ["completed-silent", { outcome: "completed", content: "Completed: the request is in the Jarvis session's mailbox as row 1792200000002." },
+            "", [ASKING]],
+        ["failed", { outcome: "failed", content: "fleet-request:mail-tool-absent" },
+            "The mail tool is missing.", ["The mail tool is missing."]],
+        ["unknown", { outcome: "unknown", content: "Unknown: lane-mail ended without a receipt." },
+            "I could not confirm the request.", ["I could not confirm the request."]]
+    ]) await run("fleet-request-" + name, async w => {
+        const first = await say(w, utterance("Ask my fleet to update the docs."));
+        server.replies.push(calls({ id: "call_fleet", name: "fleet_request", arguments: { text: "Update the docs." } }), text(reply));
+        await until(() => w.s().approval.kind === "held", "the request for the Jarvis session waits for the user");
+        const h = w.s().approval;
+        w.runner.dispatch({ type: "shown", gen: h.gen, op: h.op, id: h.id });
+        w.advanceRunner(1000);
+        w.runner.dispatch({ type: "confirm", gen: h.gen, id: h.id, digest: h.digest, source: "button" });
+        const body = await requested(w, first + 2, "the result reaches the brain");
+        assert.deepEqual(w.executions.map(call => [call.id, call.args]), [["fleet.request", { text: "Update the docs." }]]);
+        assert.equal(body.messages.find(message => message.role === "tool").content, result.content, "the row id stays in the result");
+        await until(() => w.s().turn.kind === "none", "the turn completes");
+        await playOut(w);
+        assert.deepEqual(withoutAcks(control.spoken), spoken);
+        const said = withoutAcks(assistantCaptions(w).filter(row => row[2] === "final").at(-1)[4].split(/(?<=\.) /u));
+        assert.deepEqual(said, spoken, "the transcript shows what was spoken");
+        assert.deepEqual(w.faults, []);
+    }, { fleet: result });
 
     // A short command takes the local fast path: one call through the real
     // router and audit, no brain request, a fixed spoken line, and an
@@ -3375,6 +3414,8 @@ async function groupPlants(root, server) {
         ["interrupted-answers", "if (routing && c.brain !== null) c.brain.record(", "if (false) c.brain.record(", "stale-outcome"],
         ["not-started", 'return router.interrupted(call, "not-started");', 'return router.interrupted(call, "running");', "stale-outcome"],
         ["late-result", "c.results.push(lateItem(late.call, value.outcome, item));", "void lateItem;", "stale-outcome"],
+        ["fleet-line-absent", '{ "fleet.request": { completed: "Asking Jarvis\'s session." } }', "{}", "fleet-request-completed-silent"],
+        ["fleet-line-repeated", "        if (turn.fixed?.has(normalizedLine(sentence))) return;\n", "", "fleet-request-completed-echo"],
         ["fast-match", "? null : Tools.match(e.text);", "? null : null;", "fast-path"],
         ["fast-account", "c.results.push(fastAccount(turn.fast.e.text, call, outcome, item));", "", "fast-path"],
         ["fast-fallthrough", "if (!Object.hasOwn(FAST_LINES, outcome)) {", "if (false) {", "fast-path-refused"],
