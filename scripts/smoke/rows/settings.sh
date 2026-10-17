@@ -1461,6 +1461,9 @@ settings_page_close acme.status
 expect "the fixture resets before the old-binding control loads" ok ipc smoke settingsCredentialPublish "$credential_initial"
 [[ ! -e $page_copy ]] || fail "the credential source-control directory already exists"
 cp -R -- "$repo/shell/plugins/vgs.settings" "$page_copy"
+# Qt 6.12 updates the old modelData.entry binding when the key list moves.
+# Assign its initial entry at completion to remove that binding and retain
+# the stale snapshot the original defect drew, while the row still moves.
 python3 - "$page_copy/PluginPage.qml" <<'PYCREDENTIAL'
 import sys
 from pathlib import Path
@@ -1468,7 +1471,8 @@ path=Path(sys.argv[1])
 assert not path.is_symlink()
 source=path.read_text()
 old="entry: page.statusEntry(requiredEntry.modelData.key)"
-new="entry: requiredEntry.modelData.entry"
+new=("entry: requiredEntry.modelData.entry\n"
+     "                                            Component.onCompleted: entry = requiredEntry.modelData.entry")
 assert source.count(old) == 1
 mutant=source.replace(old,new)
 assert mutant != source
