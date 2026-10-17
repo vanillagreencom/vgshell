@@ -3993,10 +3993,7 @@ function instanceCapabilities(manifest, kind) {
 function formerIdClaims(manifests, sourceOf) {
     var bundled = [], installed = [];
     Object.keys(manifests).forEach(function (id) {
-        var source = sourceOf(manifests[id]);
-        if (source === "bundled") bundled.push(id);
-        else if (source === "installed") installed.push(id);
-        else throw new Error("formerIdClaims: plugin source " + JSON.stringify(source) + " is not one of bundled, installed");
+        (sourceOf(manifests[id]) === "bundled" ? bundled : installed).push(id);
     });
     var renames = {}, ignored = [];
     bundled.concat(installed).forEach(function (id) {

@@ -999,13 +999,6 @@ function suite(ctx, configLogic, check) {
         ["an empty scan renames nothing", [], { renames: {}, ignored: [] }],
     ])
         check("formerIdClaims: " + name, ctx.formerIdClaims(scanOrder(manifests), claimSource), want);
-    let unknownSource = "";
-    try {
-        ctx.formerIdClaims(scanOrder([plain]), () => "elsewhere");
-    } catch (e) {
-        unknownSource = e.message;
-    }
-    check("formerIdClaims: a source outside bundled and installed is refused", unknownSource, 'formerIdClaims: plugin source "elsewhere" is not one of bundled, installed');
 
     // renamePlugins rows: [name, user file, rename map, want file, want
     // renamed]. A plugins[] row, a disabledPlugins entry and a layout entry
@@ -2729,8 +2722,7 @@ const CONTROLS = [
     ["the first claim of a former id wins", "else if (hasOwn(renames, former))", "else if (false)"],
     ["a claim of a scanned plugin's id is left out", "if (hasOwn(manifests, former))", "if (false)"],
     ["a bundled claim wins over an installed one", "bundled.concat(installed).forEach(", "Object.keys(manifests).forEach("],
-    ["an installed source is read", '        else if (source === "installed") installed.push(id);\n', ""],
-    ["a source outside bundled and installed is refused", 'else throw new Error("formerIdClaims', 'else if (false) throw new Error("formerIdClaims'],
+    ["an installed claim is read", "bundled.concat(installed).forEach(", "bundled.forEach("],
     ["PluginLogic reads the sections through ConfigLogic", "    ConfigLogic.SECTIONS.forEach(function (section) {\n        sectionEntries(config, section)", "    [\"left\", \"center\", \"right\"].forEach(function (section) {\n        sectionEntries(config, section)"],
 ];
 
