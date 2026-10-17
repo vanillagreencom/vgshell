@@ -2382,6 +2382,9 @@ scene_wallpaper-browser() { # MODE
   # the Theme source ends on the download card.
   rm -rf -- "${theme_dir:?}"
   sandbox_vgshell theme install "$name" >/dev/null || fail "$name installs for the wallpaper browser shot"
+  # The name makes the centre card draw its name box for the sheets.
+  python3 -c 'import json,sys; p=sys.argv[1]; t=json.load(open(p)); t["backgrounds"]={"a.jpg": "Ember Forest"}; json.dump(t, open(p, "w"), indent=2)' "$theme_dir/theme.json" \
+    || fail "$name's theme.json takes a.jpg's name for the wallpaper browser shot"
   mkdir -p -- "$theme_dir/backgrounds"
   cp -- "$checkout/scripts/smoke/fixtures/theme-image.jpg" "$theme_dir/backgrounds/a.jpg"
   cp -- "$checkout/scripts/smoke/fixtures/theme-image.jpg" "$theme_dir/backgrounds/b.jpg"
