@@ -21,7 +21,7 @@
 # SCENE is gallery, settings, wide-settings, focus, focus-open, flyout-titles, plugin-pages, manager, launcher,
 # notifications, bar, panels, devtools, system, network, vpn, vpn-locked, bluetooth, power, dialog, by-hand, reset, lock, polkit,
 # greeter, narrow, theme-browser, wallpaper-browser, automations, cloudsync, tooltips, capture,
-# keyhints, clipboard, voice, voice-setup, voice-elsewhere, dictation-setup, jarvis-console, jarvis-audit, jarvis-setup, elevenlabs-voices, jarvis-fleet, outdated, jarvis-causes, plugin-messages, page-links, tooltip-link, traffic, ai-usage, sysmon, tui-edges, appearance, sounds, setup-tab, updates, clone-voice or theme-previews. settings takes the
+# keyhints, clipboard, voice, voice-setup, voice-elsewhere, dictation-setup, jarvis-console, jarvis-audit, jarvis-setup, elevenlabs-voices, jarvis-fleet, outdated, jarvis-causes, plugin-messages, page-links, tooltip-link, traffic, ai-usage, ai-usage-states, sysmon, tui-edges, appearance, sounds, setup-tab, updates, clone-voice or theme-previews. settings takes the
 # automations', the Jarvis, the AI Usage and the Tray pages among the plugin pages,
 # each when the tree ships its plugin. plugin-pages, taken only when named, opens every
 # plugin the Settings window lists, in that window's order, or with --pages
@@ -65,7 +65,9 @@
 # as scripts/smoke/rows/ai-usage.sh reads them: the endpoint stand-in
 # scripts/fixtures/ai-usage/endpoint.js on 127.0.0.1, the Codex stand-in
 # beside it and planted sign-ins, with no host claude or codex on the
-# shell's PATH; jarvis-console is the Jarvis console window over the
+# shell's PATH; ai-usage-states, taken only when named, is that dropdown
+# with a Claude Code account at its full weekly limit and one with no
+# figures at its top; jarvis-console is the Jarvis console window over the
 # scripted daemon fixture in each conversation state, taken only when
 # named; jarvis-audit draws the Audit tab over three entries from that
 # fixture, at the default and narrow window sizes, and checks that an
@@ -391,7 +393,7 @@ while [[ $# -gt 0 ]]; do
     --title-inventory) title_inventory=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
 
-    sysmon|tui-edges|gallery|settings|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|voice-keys|jarvis-console|jarvis-audit|jarvis-setup|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes|plugin-messages|page-links|tooltip-link|traffic|ai-usage|devtools|system|appearance|sounds|network|vpn|vpn-locked|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|cloudsync|tooltips|screensaver|theme-previews|setup-tab|updates|clone-voice) scenes+=("$1"); shift ;;
+    sysmon|tui-edges|gallery|settings|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|voice-keys|jarvis-console|jarvis-audit|jarvis-setup|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes|plugin-messages|page-links|tooltip-link|traffic|ai-usage|ai-usage-states|devtools|system|appearance|sounds|network|vpn|vpn-locked|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|cloudsync|tooltips|screensaver|theme-previews|setup-tab|updates|clone-voice) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -554,7 +556,7 @@ scene_ships() {
     jarvis-setup|jarvis-fleet|outdated|jarvis-causes) [[ $manager_scene == settings && $has_tab_pages == true ]] && ships_plugin vgs.jarvis ;;
     clone-voice) [[ $manager_scene == settings && $has_setup_tab == true ]] && ships_plugin vgs.jarvis ;;
     updates) [[ $manager_scene == settings ]] && ships_plugin vgs.updates && tree_has shell/plugins/vgs.settings/PluginPage.qml "detailScreens" ;;
-    ai-usage) ships_plugin vgs.ai-usage ;;
+    ai-usage|ai-usage-states) ships_plugin vgs.ai-usage ;;
     traffic) ships_plugin vgs.traffic vgs.settings ;;
     devtools) ships_plugin vgs.devtools ;;
     system) ships_plugin vgs.system ;;
@@ -640,7 +642,7 @@ if [[ " ${scenes[*]} " == *" by-hand "* ]]; then
 fi
 # AI Usage reads the sign-ins through stand-ins alone, so the shell finds no
 # host claude or codex.
-if [[ " ${scenes[*]} " == *" ai-usage "* ]]; then
+if [[ " ${scenes[*]} " == *" ai-usage "* || " ${scenes[*]} " == *" ai-usage-states "* ]]; then
   shell_hidden_commands+=(claude codex)
 fi
 if [[ " ${scenes[*]} " == *" traffic "* ]]; then
@@ -2820,6 +2822,17 @@ scene_ai-usage() { # MODE
   fi
   expect "AI Usage's panel hides" ok ipc shell hide panel vgs.ai-usage
   expect_poll "AI Usage's panel is gone" absent ipc smoke readInstance panel vgs.ai-usage rows
+}
+
+# AI Usage's dropdown with a Claude Code account at its full weekly limit
+# and one with no figures at its top.
+scene_ai-usage-states() { # MODE
+  click_centre "$(bar_key)" vgs.ai-usage || fail "opening AI Usage for its states failed"
+  expect_poll "the widget opens its panel over the planted states" True usage_shot_rows
+  park_pointer
+  take "ai-usage-states-$1-panel"
+  expect "AI Usage's states panel hides" ok ipc shell hide panel vgs.ai-usage
+  expect_poll "AI Usage's states panel is gone" absent ipc smoke readInstance panel vgs.ai-usage rows
 }
 
 # The production traffic views over a fixture service in the sandbox copy.
@@ -6962,6 +6975,7 @@ for scene in "${scenes[@]}"; do
     theme-previews) need_setup launcher; need_setup panels; need_setup bar; need_setup ai-usage ;;
     tooltips) need_setup launcher; need_setup panels; need_setup bar; need_setup tooltips ;;
     jarvis-causes) need_setup bar; need_setup settings; need_setup jarvis-causes ;;
+    ai-usage-states) need_setup ai-usage; need_setup ai-usage-states ;;
     focus) need_setup settings ;;
     focus-open) need_setup focus-open ;;
     flyout-titles) need_setup panels ;;
@@ -7084,6 +7098,17 @@ PY
       usage_shot_states() { ipc smoke readInstance service vgs.ai-usage usage | py_reply 'import json,sys; u=json.load(sys.stdin); print("none" if u is None else json.dumps(sorted(a["state"] for a in u["accounts"])))'; }
       expect_poll "every planted account reads as signed in" '["no-plan", "ok", "ok", "ok", "ok"]' usage_shot_states
       expect_poll "AI Usage's widget shows" true ipc smoke readInstance "$(bar_key)" vgs.ai-usage visible ;;
+    ai-usage-states)
+      # Two Claude Code readings ahead of the ai-usage accounts, in this
+      # sandbox copy alone: one at its full weekly limit, and one whose
+      # first read Claude turned away, so it holds no figures.
+      python3 "$checkout/scripts/smoke/fixtures/ai-usage/edit.py" "$repo/shell/plugins/vgs.ai-usage/backend/usage.js" '    return { accounts, partial, gatewayKey };' '    accounts.unshift({ id: "claude-full", provider: "claude", label: "Claude Code", email: "full@example.invalid", state: "ok", windows: [{ name: "five_hour", usedPercent: 42, resetsAt: Date.now() + 19800000 }, { name: "seven_day", usedPercent: 100, resetsAt: Date.now() + 280800000 }, { name: "seven_day_fable", usedPercent: 12, resetsAt: Date.now() + 280800000 }], credits: null, details: {} },
+        { id: "claude-limited", provider: "claude", label: "Claude Code", email: "limited@example.invalid", state: "limited", windows: [], credits: null, details: {} });
+    return { accounts, partial, gatewayKey };' || fail "planting the AI Usage states failed"
+      # The service runs the helper anew at each check; one asked for while
+      # a check runs follows it.
+      expect "AI Usage takes a check over the planted states" ok ipc vgs.ai-usage invoke refresh ''
+      expect_poll "the planted states are read" '["limited", "no-plan", "ok", "ok", "ok", "ok", "ok"]' usage_shot_states ;;
     keyhints)
       for id in vgs.launcher vgs.keyhints; do
         expect "enabling $id for the Key Hints image is allowed" ok ipc shell setPluginEnabled "$id" true
