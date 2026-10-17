@@ -19,8 +19,12 @@
 // same way, must show no variable and no RGB.
 //
 // Each server runs on its own socket under a scratch TMUX_TMPDIR and HOME,
-// with -f /dev/null, and is killed before the scratch root is removed. With
-// no tmux or script on PATH the test exits 77, not measured.
+// with -f /dev/null, and is killed before the scratch root is removed. A
+// server daemonizes out of this process group, so a signal to the group never
+// reaches it: its one waiting pane exits when this process ends, however it
+// ends, and SIGINT, SIGTERM or SIGHUP kills every server and removes the root
+// before exiting 128+signo. With no tmux or script on PATH the test exits 77,
+// not measured.
 "use strict";
 const assert = require("node:assert/strict");
 const { spawn, spawnSync } = require("node:child_process");
@@ -89,6 +93,27 @@ const env = {
 const sockets = [];
 const children = [];
 
+// Kills every server and signals every script child; repeatable, since a
+// signal can land while the normal stop runs.
+const stopServers = () => {
+    for (const socket of sockets)
+        spawnSync("tmux", ["-L", socket, "kill-server"], { env, timeout: DEADLINE_MS });
+    for (const { child } of children) {
+        if (child.exitCode === null && child.signalCode === null) {
+            child.stdin.end();
+            child.kill("SIGTERM");
+        }
+    }
+};
+const removeRoot = () => fs.rmSync(root, { recursive: true, force: true });
+for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
+    process.once(signal, () => {
+        stopServers();
+        removeRoot();
+        process.exit(128 + os.constants.signals[signal]);
+    });
+}
+
 const tmux = (socket, ...args) => {
     const run = spawnSync("tmux", ["-L", socket, "-f", "/dev/null", ...args], { encoding: "utf8", env, timeout: DEADLINE_MS });
     assert.equal(run.error, undefined, `tmux ${args[0]}: ${run.error}`);
@@ -96,13 +121,15 @@ const tmux = (socket, ...args) => {
     return run.stdout;
 };
 
-// A server on its own socket, NAME, holding one session whose pane waits,
-// that has sourced TEXT rendered.
+// A server on its own socket, NAME, holding one session whose pane waits
+// until this process ends, that has sourced TEXT rendered. The session's end
+// ends the server, and with it any client attached.
 const server = (name, text) => {
     const include = path.join(root, `${name}.conf`);
     fs.writeFileSync(include, rendered(text));
     sockets.push(name);
-    tmux(name, "new-session", "-d", "-s", "t", "-x", "80", "-y", "24", "exec sleep 600");
+    tmux(name, "new-session", "-d", "-s", "t", "-x", "80", "-y", "24",
+        `exec tail --pid=${process.pid} -f /dev/null`);
     tmux(name, "source-file", include);
     return name;
 };
@@ -124,7 +151,7 @@ const clientFeatures = (name, text) => {
     tmux(socket, "set-hook", "-g", "client-attached", "wait-for -S attached");
     const child = spawn("script", ["-q", "-e", "-c", `exec tmux -L ${socket} attach-session -t t`, "/dev/null"],
         { env, stdio: ["pipe", "ignore", "ignore"] });
-    children.push(child);
+    children.push({ child, exited: new Promise(resolve => child.once("exit", resolve)) });
     tmux(socket, "wait-for", "attached");
     const lines = tmux(socket, "list-clients", "-F", "#{client_termname} #{client_termfeatures}").trim().split("\n");
     assert.equal(lines.length, 1, lines.join("\n"));
@@ -134,17 +161,9 @@ const clientFeatures = (name, text) => {
 };
 
 const stop = async () => {
-    for (const socket of sockets)
-        spawnSync("tmux", ["-L", socket, "kill-server"], { env, timeout: DEADLINE_MS });
-    for (const child of children) {
-        if (child.exitCode === null && child.signalCode === null) {
-            const exited = new Promise(resolve => child.once("exit", resolve));
-            child.stdin.end();
-            child.kill("SIGTERM");
-            await exited;
-        }
-    }
-    fs.rmSync(root, { recursive: true, force: true });
+    stopServers();
+    await Promise.all(children.map(({ exited }) => exited));
+    removeRoot();
 };
 
 (async () => {
