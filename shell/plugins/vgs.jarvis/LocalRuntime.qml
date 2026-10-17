@@ -65,9 +65,14 @@ Item {
     }
     // Publishes the last check through `shape`, also for a shape whose
     // other input changed; it emits no `refreshed`. A value the status
-    // judge refuses is published as an unreadable check.
+    // judge refuses is published as an unreadable check. A probe can end
+    // after a disable or a rescan retired this instance; the core is about
+    // to destroy it and refuses its write (PluginStatus.set), so the write
+    // ends there. The fallback runs in the same call, so it is never retired.
     function republish() {
-        if (reading === null || shell.status.set(statusKey, shape(reading)) === "ok") return;
+        if (reading === null) return;
+        const written = shell.status.set(statusKey, shape(reading));
+        if (written === "ok" || written.endsWith(" reason=retired")) return;
         reading = Gate.setupValue(Gate.checkFailure("unreadable", shell.manifest.status[statusKey]), requires, shell.requirements.missing);
         const reply = shell.status.set(statusKey, shape(reading));
         if (reply !== "ok") throw new Error("jarvis-setup: " + reply);
