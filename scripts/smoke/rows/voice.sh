@@ -1202,7 +1202,7 @@ expect_poll "without voxtype Voice's row draws Setup needed and no optional icon
 settings_page_close vgs.voice
 settings_page_open vgs.voice
 settings_setup
-expect_poll "Setup keeps dictation pending without its required tools" '{"chips": [["To do", "warning"]], "buttons": []}' voice_setup_section
+expect_poll "Setup keeps dictation pending without its required tools and offers Review on its row" '{"chips": [["To do", "warning"]], "buttons": [["Review all missing or outdated tools", "accent", true]]}' voice_setup_section
 expect_poll "Setup groups missing required tools in one pending step" '[[["To do", "warning"]], ["Review all missing or outdated tools"]]' voice_tools_step
 settings_tab_click Settings || fail "the click on Voice Settings failed"
 expect_poll "Settings draws Configure alone, taking a press without voxtype" "drawn enabled, absent absent" voice_screens

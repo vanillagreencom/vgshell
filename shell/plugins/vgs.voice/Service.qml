@@ -159,11 +159,7 @@ Item {
     // The required step stays visible. The other service's Stop action
     // belongs beside its fact on Details.
     function publishSetup() {
-        const value = setupValue.hidden ? { tone: "warning", text: "Dictation tool missing" } : { tone: setupValue.tone, text: setupValue.text };
-        if (setupValue.lines !== undefined && setupValue.lines.length > 0) value.lines = setupValue.lines;
-        value.action = setupValue.action === "setup";
-        if (setupValue.action === "stop") value.hint = "Choose Stop the other voxtype under [Other dictation service](page:vgs.voice/Details)";
-        publish("setup", value);
+        publish("setup", VoiceLogic.setupPublished(setupValue));
         publish("otherService", setupValue.action === "stop"
             ? { tone: "warning", text: "Another voxtype runs", action: true }
             : { tone: "ok", text: "No other service to stop", action: false });

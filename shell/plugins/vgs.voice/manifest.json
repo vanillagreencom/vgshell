@@ -65,7 +65,7 @@
     {"command": "systemctl", "packages": {"pacman": "systemd", "apt": "systemd", "dnf": "systemd", "nix": "systemd"}, "optional": true, "purpose": "Stops another voxtype service so VGS can run its own"}
   ],
   "status": {
-    "setup": {"type": "state", "label": "Setup", "hint": "Checks the speech engine and model, then asks before installing missing parts", "setup": true, "action": {"label": "Set up", "dictation": "setup"}},
+    "setup": {"type": "state", "label": "Setup", "hint": "Set up dictation to type with your voice", "setup": true, "action": {"label": "Set up", "dictation": "setup"}},
     "model": {"type": "data", "label": "Model"},
     "dictation": {"type": "state", "label": "Dictation", "hidden": true},
     "otherService": {"type": "state", "label": "Other dictation service", "group": "Dictation", "hint": "Stop another dictation service so VGS can use its own", "action": {"label": "Stop the other voxtype", "tui": "stop-other"}}

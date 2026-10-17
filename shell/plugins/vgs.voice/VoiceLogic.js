@@ -39,24 +39,24 @@ function versionOf(text) {
 // capability's `daemon` word, "" for one that needs no line: `starting`
 // and `ready`.
 var DAEMON_LINES = {
-    absent: "voxtype is not running.",
+    absent: "Dictation is not running. Select Set up to start it.",
     starting: "",
     ready: "",
     elsewhere: "Another voxtype is already running. Stop the other voxtype so VGS can start its own.",
-    failed: "voxtype did not start."
+    failed: "Dictation is not running. Select Set up to start it."
 };
 
 // Set up's state from READS, the core's typed setup readings, with
 // null while the core reads setup or when that read failed, `present`
 // false while voxtype is not found, and DAEMON, the capability's
 // `daemon` word: { tone, text, lines, action, engine, model }, or
-// { hidden, lines, action, engine, model } without voxtype, whose missing
-// state the page's Requirements section states once and installs. Ready
-// reads the version and the model; otherwise each line names one thing
-// that is missing. `action` names the manifest's step that applies: `stop`
-// while another voxtype holds the daemon's place, whatever else is
-// missing, since the core's setup cannot free it, `setup` while another
-// line stands, "" once ready and without voxtype.
+// { hidden, lines, action, engine, model } without voxtype, which
+// setupPublished states as a step the Review action on its own row
+// installs. Ready reads the version and the model; otherwise each line
+// names one thing that is missing. `action` names the manifest's step
+// that applies: `stop` while another voxtype holds the daemon's place,
+// whatever else is missing, since the core's setup cannot free it,
+// `setup` while another line stands, "" once ready and without voxtype.
 function setupState(reads, daemon) {
     if (reads !== null && reads.present === false)
         return { hidden: true, lines: [], action: "", engine: DEFAULT_ENGINE, model: DEFAULT_MODEL };
@@ -71,7 +71,8 @@ function setupState(reads, daemon) {
     var engine = reads.engine || DEFAULT_ENGINE;
     var model = reads.model || DEFAULT_MODEL;
     var lines = [];
-    if (!reads.compiled) lines.push("The active build cannot use " + engine + ".");
+    // Set up is offered on every path but `stop`, whose row offers no action.
+    if (!reads.compiled) lines.push("The installed dictation tool cannot use this speech engine." + (daemon === "elsewhere" ? "" : " Select Set up to fix it."));
     if (!reads.installed) lines.push("The " + model + " speech model is not installed.");
     if (DAEMON_LINES[daemon] !== "" && (daemon !== "absent" || lines.length === 0)) lines.push(DAEMON_LINES[daemon]);
     if (lines.length > 0) return { tone: "warning", text: "To do", lines: lines, action: daemon === "elsewhere" ? "stop" : "setup", engine: engine, model: model };
@@ -79,6 +80,21 @@ function setupState(reads, daemon) {
     var version = versionOf(reads.version || "");
     var summary = (version === "" ? "voxtype" : "voxtype " + version) + " \u00b7 " + model;
     return { tone: "ok", text: "Ready", lines: [summary], action: "", engine: engine, model: model };
+}
+
+// The `setup` entry's value from STATE, setupState's. Without voxtype the
+// step waits on the one install action, PluginLogic.STATUS_TOOLS_ACTION,
+// which the page offers as Review on the step's row. While another voxtype
+// holds the daemon's place the step offers no action: its hint points at
+// Stop the other voxtype beside its fact on Details. Otherwise the step
+// offers Set up while setupState names it.
+function setupPublished(state) {
+    if (state.hidden) return { tone: "warning", text: "Not installed", hint: "Install the dictation tool to use Voice", action: "tools" };
+    var value = { tone: state.tone, text: state.text };
+    if (state.lines !== undefined && state.lines.length > 0) value.lines = state.lines;
+    value.action = state.action === "setup";
+    if (state.action === "stop") value.hint = "Choose Stop the other voxtype under [Other dictation service](page:vgs.voice/Details)";
+    return value;
 }
 
 // The on-screen display's level from one voxtype-audio-bridge frame, as the

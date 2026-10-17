@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- On the Setup tab of the Voice page, without the dictation tool, the Setup step reads Not installed and offers Review to install it. Its lines say in plain words what to do, such as Select Set up to start dictation. Before, it read Dictation tool missing with nothing to press, and the lines for a speech engine the tool cannot use and for dictation that is not running named voxtype and the engine build.
 - On the Polkit page under Setup, the Password prompts step offers Review when Polkit is not installed, and Polkit is a required tool of the Tools step. When VGS could not check for another password app, or prompts do not work with no other app in the way, the step reads Not available and says what to try: turn Polkit off and on, then restart the computer if prompts still do not work. Before, these states read To do with nothing to press.
 - With no home folder chosen, the Home section of the Jarvis page's Details tab says so once, on Personality. Conversation start text and Jarvis session link Home folder, which opens the field. Before, three rows said that no home folder was chosen, and Jarvis session linked a Settings path that wrapped onto a second line.
 - The Details tab of the Jarvis page shows Claude Code, Codex and voxtype once, under Tools. Before, Claude Code and Codex also showed under AI model, and voxtype under Voice read Not installed where Tools read Optional. Cloned voice and Personality now state what they need and link the setting: Voice provider, Local voice model or Home folder.

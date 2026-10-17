@@ -12,6 +12,9 @@ const serviceSource = fs.readFileSync(path.join(path.dirname(file), "Service.qml
 const widgetSource = fs.readFileSync(path.join(path.dirname(file), "Widget.qml"), "utf8");
 const pluginLogic = load(path.join(repo, "shell", "Core", "PluginLogic.js"));
 const pageReference = load(path.join(repo, "shell", "Commons", "PageReference.js"));
+const steps = load(path.join(repo, "shell", "plugins", "vgs.settings", "Steps.js"));
+const voiceJudged = pluginLogic.validateManifest(JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8")), path.dirname(file));
+assert.ok(voiceJudged.ok, `the Voice manifest is accepted: ${voiceJudged.error}`);
 const same = (got, want, message) => assert.deepEqual(JSON.parse(JSON.stringify(got)), want, message);
 
 // Typed setup readings published by the core, after its single probe chain.
@@ -182,13 +185,45 @@ function verify(logic) {
     const state = logic.setupState(Object.assign({}, readsReady, missing), "absent");
     same([state.tone, state.action], ["warning", "setup"], "an absent daemon keeps setup offered for each missing prerequisite");
   }
-  // Without voxtype the reading offers no setup action. The publisher
-  // keeps the required step pending, and the Tools step offers installation.
+  // The stop path's row offers no Set up, so its engine line drops the
+  // instruction the Set up paths' line ends with.
+  {
+    const offered = logic.setupState(Object.assign({}, readsReady, { compiled: false }), "absent").lines[0];
+    const stopped = logic.setupState(Object.assign({}, readsReady, { compiled: false }), "elsewhere").lines[0];
+    assert.ok(stopped !== offered && offered.startsWith(stopped), "setupState: the stop path's engine line names no action its row lacks");
+  }
+  // Without voxtype the reading offers no setup action of its own.
   for (const daemon of ["failed", ""])
     same(logic.setupState({ present: false }, daemon), { hidden: true, lines: [], action: "", engine: "parakeet", model: "parakeet-tdt-0.6b-v3" }, `setupState: voxtype not found, daemon ${JSON.stringify(daemon)}, hides the entry`);
-  // Each daemon word that is not ready has a line of its own.
+  // The published step without voxtype, for each daemon word: To do, with
+  // a hint, offering Review, the one install action, on its own row while
+  // voxtype is missing. The real status judge admits it for the shipped
+  // manifest's step.
+  const voxtypeMissing = pluginLogic.requirementRows(voiceJudged.manifest, ["voxtype", "voxtype-audio-bridge"], {});
+  for (const daemon of Object.keys(logic.DAEMON_LINES)) {
+    const label = `setupPublished: voxtype not found, daemon ${daemon}`;
+    const value = logic.setupPublished(logic.setupState({ present: false }, daemon));
+    same([value.tone, value.action, typeof value.hint, Object.hasOwn(value, "available")], ["warning", pluginLogic.STATUS_TOOLS_ACTION, "string", false], label + ": a To do step that names the install action");
+    assert.equal(pluginLogic.hintFits(value.hint), true, label + ": the hint keeps the copy rule");
+    assert.equal(pluginLogic.statusWrite(voiceJudged.manifest, {}, "setup", value).ok, true, label + ": the status judge admits the value");
+    const row = pluginLogic.statusRows(voiceJudged.manifest, { setup: value }).find(entry => entry.key === "setup");
+    assert.equal(steps.stepReading(row), "todo", label + ": the step reads To do");
+    same((steps.stepButton(row, voxtypeMissing) || {}).kind, "tools", label + ": the step's row offers Review");
+  }
+  // Another voxtype in the daemon's place: the step offers no action of
+  // its own, and its hint opens Details, where Stop the other voxtype is.
+  const stop = logic.setupPublished(logic.setupState(readsMissing, "elsewhere"));
+  same([Object.keys(stop), stop.tone, stop.action], [["tone", "text", "lines", "action", "hint"], "warning", false], "setupPublished: another voxtype offers no Setup action");
+  const stopTarget = pageReference.parse(stop.hint);
+  same([stopTarget.page, stopTarget.tab], ["vgs.voice", "Details"], "setupPublished: another voxtype's hint opens Details");
+  for (const [name, reads, daemon, action] of [["a missing model offers Set up", readsMissing, "ready", true], ["ready offers nothing", readsReady, "ready", false]]) {
+    const value = logic.setupPublished(logic.setupState(reads, daemon));
+    same([value.action, Object.hasOwn(value, "hint")], [action, false], `setupPublished: ${name}`);
+    assert.equal(pluginLogic.statusWrite(voiceJudged.manifest, {}, "setup", value).ok, true, `setupPublished: ${name}: the status judge admits the value`);
+  }
+  // Absent and failed ask for the same Set up; another voxtype has its own line.
   const daemonLines = ["absent", "elsewhere", "failed"].map(daemon => logic.setupState(readsReady, daemon).lines[0]);
-  assert.equal(new Set(daemonLines).size, 3, "absent, elsewhere and failed each read their own line");
+  same([daemonLines[0] === daemonLines[2], daemonLines[1] !== daemonLines[0]], [true, true], "absent and failed read one line, elsewhere its own");
   assert.throws(() => logic.setupState(readsReady, "paused"), "a daemon word the capability does not have is refused");
   assert.equal(logic.versionOf("voxtype 1.1.0\n"), "1.1.0", "the version is read from --version");
   assert.equal(logic.versionOf("voxtype\n"), "", "no version reads empty");
@@ -318,11 +353,15 @@ const controls = [
   ["engine compiled ignored", "if (!reads.compiled)", "if (false)"],
   ["setup never offers action", "if (lines.length > 0) return { tone: \"warning\", text: \"To do\", lines: lines, action: daemon === \"elsewhere\" ? \"stop\" : \"setup\",", "if (lines.length > 0) return { tone: \"warning\", text: \"To do\", lines: lines, action: \"\","],
   ["a daemon that is not ready reads ready", "    if (DAEMON_LINES[daemon] !== \"\" && (daemon !== \"absent\" || lines.length === 0)) lines.push(", "    if (false) lines.push("],
-  ["a daemon the shell did not start reads as one that failed", "    elsewhere: \"Another voxtype is already running. Stop the other voxtype so VGS can start its own.\",", "    elsewhere: \"voxtype did not start.\","],
+  ["a daemon the shell did not start reads as one that failed", "    elsewhere: \"Another voxtype is already running. Stop the other voxtype so VGS can start its own.\",", "    elsewhere: \"Dictation is not running. Select Set up to start it.\","],
   ["a daemon the shell did not start offers Set up", "action: daemon === \"elsewhere\" ? \"stop\" : \"setup\",", "action: \"setup\","],
   ["any line offers Stop the other voxtype", "action: daemon === \"elsewhere\" ? \"stop\" : \"setup\",", "action: \"stop\","],
   ["an unknown daemon word reads ready", "    if (DAEMON_LINES[daemon] === undefined)\n", "    if (false)\n"],
   ["voxtype absent offers Set up", "return { hidden: true, lines: [], action: \"\",", "return { hidden: true, lines: [], action: \"setup\","],
+  ["voxtype absent offers no install action", ", action: \"tools\" };", ", action: false };"],
+  ["voxtype absent reads Done", "if (state.hidden) return { tone: \"warning\",", "if (state.hidden) return { tone: \"ok\","],
+  ["another voxtype loses its hint", "if (state.action === \"stop\") value.hint", "if (false) value.hint"],
+  ["pending setup publishes empty lines", "if (state.lines !== undefined && state.lines.length > 0) value.lines = state.lines;", "value.lines = state.lines;"],
   ["voxtype absent draws its own line", "return { hidden: true, lines: [], action: \"\",", "return { tone: \"warning\", text: \"To do\", lines: [\"voxtype is not installed.\"], action: \"\","],
   ["the version is not read", "return found === null ? \"\" : found[1];", "return \"\";"],
   ["bridge frame shape ignored", "if (!amplitude(frame.peak) || !amplitude(frame.rms)) return { ok: false, reason: \"frame\" };", ""],
@@ -368,11 +407,6 @@ try {
   fs.writeFileSync(copy, serviceSource.replace(needle, "        if (dictationState.setup === null) return;\n" + needle));
   assert.throws(() => verifyRefreshSetup(load(file), fs.readFileSync(copy, "utf8")), assert.AssertionError,
     "control: retaining old setup while readings are null must fail publication");
-  const lines = "        if (setupValue.lines !== undefined && setupValue.lines.length > 0) value.lines = setupValue.lines;";
-  assert.equal(serviceSource.split(lines).length, 2, "the empty-lines control text occurs once");
-  fs.writeFileSync(copy, serviceSource.replace(lines, "        value.lines = setupValue.lines;"));
-  assert.throws(() => verifyRefreshSetup(load(file), fs.readFileSync(copy, "utf8")), assert.AssertionError,
-    "control: publishing empty pending lines must fail the real status judge");
 } finally {
   fs.rmSync(temp, { recursive: true, force: true });
 }
@@ -386,6 +420,7 @@ assert.ok(publishSetupSource, "the service declares its status publication");
 function publishedSetup(state) {
   const values = {};
   const publish = vm.runInNewContext("(" + publishSetupSource[0] + ")", {
+    VoiceLogic: logic,
     setupValue: state,
     publish: (key, value) => { values[key] = value; },
     publishModel: () => {}
@@ -493,4 +528,4 @@ delete stored.sounds.feedback.held;
 stored.sounds.feedback.default = "own";
 assert.throws(() => verifyFeedback(stored), "control stored: a manifest copy whose dictation event the core stores passed");
 
-console.log(`test-voice-logic: ok controls=${controls.length + startControls.length + VOXTYPE_TUIS.length + 2 + manifestControls.length + 1}`);
+console.log(`test-voice-logic: ok controls=${controls.length + startControls.length + VOXTYPE_TUIS.length + 1 + manifestControls.length + 1}`);
