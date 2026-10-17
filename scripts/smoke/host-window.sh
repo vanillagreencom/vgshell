@@ -734,7 +734,7 @@ class Record:
         elif kind == "wayland":
             # Preserve the actual diagnostic text and direction. Requests
             # prove only a client request, never acceptance or presentation.
-            if not re.search(rb"(?:xdg_(?:wm_base|toplevel|surface)|wl_(?:compositor|surface|output|display)).*(?:configure|ack_configure|get_xdg_surface|get_toplevel|create_surface|enter\(|leave\(|delete_id|destroy\()", line):
+            if not re.search(rb"(?:xdg_(?:wm_base|toplevel|surface)|wl_(?:compositor|surface|output)).*(?:configure|ack_configure|get_xdg_surface|get_toplevel|create_surface|enter\(|leave\(|destroy\()", line):
                 return
             if b"xdg_toplevel" in line and b".configure(" in line and b" -> " not in line:
                 self.configure_seen = True

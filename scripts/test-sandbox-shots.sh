@@ -898,6 +898,7 @@ def complete_case(name, source=text, omission=None, changed=False, context=False
             key = request('log', 'wayland', str(writer.name), f'/proc/{os.getpid()}/fd/{writer.fileno()}')
             request('launched', 'wayland', key, str(os.getpid()), str(writer.name))
             writer.write(b'[100] xdg_toplevel@8.configure(100, 200, array[0])\n')
+            writer.write(b'[100] wl_display#1.delete_id(26)\n')
             if omission == 'partial': writer.write(b'partial')
             if omission == 'line': writer.write(b'x' * 1048577 + b'\n')
         if not context and omission != 'arm-boundary':
@@ -942,6 +943,9 @@ def complete_case(name, source=text, omission=None, changed=False, context=False
         if omission != 'overflow':
             assert len([e for e in rows if e['kind'] == 'window-end']) == 1, ('window-end-first-fact', name, result)
             assert next(e for e in rows if e['kind'] == 'window-end')['data']['originalStatus'] == '1', 'window-end-original-status'
+        if not omission:
+            wayland = [e['data'] for e in rows if e['source'].startswith('wayland:')]
+            assert any('xdg_toplevel@8.configure(' in d for d in wayland) and not any('delete_id' in d for d in wayland), 'wayland-bookkeeping-not-recorded'
         if omission: assert result['localRecord'] == 'incomplete', 'missing-or-lost-input-rejected'
         else:
             assert result['localRecord'] == 'complete', 'armed-zero-events-valid-collection'
@@ -995,6 +999,11 @@ def mutant(name, needle, replacement, check, assertion):
 mutant('object-only-payload', 'or not isinstance(value["kind"], str) or not value["kind"] or "data" not in value):',
        'or not isinstance(value["kind"], str) or not value["kind"] or "data" not in value or not isinstance(value["data"], dict)):',
        lambda source: complete_case('mut-object-only', source, changed=True, packets=packet_bytes, mixed=True), 'probe-mixed-payloads-preserved')
+
+# Object-id release events outnumber the window facts in a full run and,
+# recorded, fill the event cap before the facts arrive.
+mutant('display-bookkeeping', 'wl_(?:compositor|surface|output)).*(?:configure|ack_configure|get_xdg_surface|get_toplevel|create_surface|enter\\(|leave\\(|destroy\\()', 'wl_(?:compositor|surface|output|display)).*(?:configure|ack_configure|get_xdg_surface|get_toplevel|create_surface|enter\\(|leave\\(|delete_id|destroy\\()',
+       lambda source: complete_case('mut-bookkeeping', source), 'wayland-bookkeeping-not-recorded')
 
 # Disposable envelope/fact mutations use the source-encoded positive packets.
 # Invalid envelopes, sequence history, launch binding and event-specific fact
