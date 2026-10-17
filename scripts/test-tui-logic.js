@@ -700,7 +700,7 @@ function requestSuite(source, logic, check) {
         let missing = [];
         let busy = [];
         const sandbox = vm.createContext({
-            Logic: logic, JSON: JSON, Error: Error, Object: Object, ctx: ctx, gone: gone, done: done, captured: null,
+            Logic: logic, JSON: JSON, Error: Error, Object: Object, ctx: ctx, gone: gone, done: done, captured: null, startedArgs: {},
             console: { error: text => seen.ends.push("logged: " + text) },
             Registry: { isEnabled: () => true, sourceDir: "/run/src", manifests: { [id]: plugins[id].registered } },
             Notices: {
@@ -747,6 +747,22 @@ function requestSuite(source, logic, check) {
         ["runFor of a status action with no argument starts the script alone", "acme.req",
             [[[], [], "runFor(\"acme.req\", \"sync\", undefined)"]],
             { answers: ["ok"], notices: [], started: [{ dir: "/run/src/r9", script: ["tui/sync.sh"], done: false }], ends: [] }],
+        // A run is keyed by its script whatever its arguments: a second
+        // row's press while the first row's window is open shows that
+        // window and answers a refusal, never `ok`; the same row's press
+        // again answers `ok`.
+        ["runFor of another row while the first row's run is live answers busy-other", "acme.req",
+            [[[], [], "runFor(\"acme.req\", \"sync\", [\"/a\"])"], [[], ["acme.req/sync"], "runFor(\"acme.req\", \"sync\", [\"/b\"])"]],
+            { answers: ["ok", "refused: tui=sync reason=busy-other"], notices: [], started: [{ dir: "/run/src/r9", script: ["tui/sync.sh", "/a"], done: false }], ends: [] }],
+        ["runFor of the same row while its run is live shows that window", "acme.req",
+            [[[], [], "runFor(\"acme.req\", \"sync\", [\"/a\"])"], [[], ["acme.req/sync"], "runFor(\"acme.req\", \"sync\", [\"/a\"])"]],
+            { answers: ["ok", "ok"], notices: [], started: [{ dir: "/run/src/r9", script: ["tui/sync.sh", "/a"], done: false }], ends: [] }],
+        ["runFor with no argument of a live run this shell did not start shows its window", "acme.req",
+            [[[], ["acme.req/sync"], "runFor(\"acme.req\", \"sync\", undefined)"]],
+            { answers: ["ok"], notices: [], started: [], ends: [] }],
+        ["runFor of a row while a run this shell did not start is live answers busy-other", "acme.req",
+            [[[], ["acme.req/sync"], "runFor(\"acme.req\", \"sync\", [\"/a\"])"]],
+            { answers: ["refused: tui=sync reason=busy-other"], notices: [], started: [], ends: [] }],
         ["runFor of a row id tuiArgsValid refuses starts nothing", "acme.req",
             [[[], [], "runFor(\"acme.req\", \"sync\", [\"\"])"]],
             { answers: ["refused: tui=sync reason=args"], notices: [], started: [], ends: [] }],
@@ -761,10 +777,10 @@ function requestSuite(source, logic, check) {
             { answers: ["ok"], notices: [], started: [sync("r9", false)], ends: [] }],
         ["resume whose start is refused ends its done as unstarted, frozen", "acme.req",
             [[[], ["acme.req/sync"], "resume(\"acme.req\", " + held("ctx") + ")"]],
-            { answers: ["ok"], notices: [], started: [], ends: [unstarted] }],
+            { answers: ["refused: tui=sync reason=busy-other"], notices: [], started: [], ends: [unstarted] }],
         ["resume of a gone instance's request whose start is refused ends nothing", "acme.req",
             [[[], ["acme.req/sync"], "resume(\"acme.req\", " + held("gone") + ")"]],
-            { answers: ["ok"], notices: [], started: [], ends: [] }],
+            { answers: ["refused: tui=sync reason=busy-other"], notices: [], started: [], ends: [] }],
         ["a done that throws on unstarted is logged, not passed to the caller", "acme.req",
             [[[], ["acme.req/sync"], "resume(\"acme.req\", { name: \"sync\", args: [], ctx: ctx, done: () => { throw new Error(\"boom\"); } })"]],
             { answers: ["ok"], notices: [], started: [], ends: ["logged: capabilities: tui done of acme.req threw: boom"] }],
@@ -794,6 +810,22 @@ requestSuite(RUNNER, load(LOGIC), report);
         red += 1;
     }
     report("control: the request rows fail when run skips the requirement judge", red > 0, true);
+}
+// Each control drops one part of the busy-other rule from a copy of
+// TuiRunner: runFor reading a busy key as `ok` whatever its arguments, and
+// request recording no arguments of the run it starts.
+for (const [label, needle, replacement] of [
+    ["runFor reads every busy key as its own window", "return Logic.tuiOwnShownAnswer(id, name, answer, args, startedArgs);", "return Logic.tuiShownAnswer(name, answer);"],
+    ["request records no started arguments", "        if (launch.ok) startedArgs = Object.assign({}, startedArgs, { [launch.key]: held.args === undefined ? [] : held.args.slice() });\n", ""]
+]) {
+    report("control: " + label + ": the text to replace occurs once", RUNNER.split(needle).length - 1, 1);
+    let red = 0;
+    try {
+        requestSuite(RUNNER.replace(needle, () => replacement), load(LOGIC), (name, got, want) => { if (JSON.stringify(got) !== JSON.stringify(want)) red += 1; });
+    } catch (e) {
+        red += 1;
+    }
+    report("control: the request rows fail when " + label, red > 0, true);
 }
 
 // Notices holds a plugin's script request while the notice for its lacking
@@ -848,6 +880,12 @@ function noticesSuite(source, logic, check) {
         ["a later request replaces the held one, which ends unstarted", { resumes: { "acme.req": first }, queue: ["acme.req"], missing: ["acme-sync"], admit: "ok" },
             "hold(\"acme.req\", second)",
             outcome(null, [], { "acme.req": ["/b"] }, [["/a"]], [])],
+        ["a request for the held script with other arguments is refused and the held one stays", { resumes: { "acme.req": first }, queue: ["acme.req"], missing: ["acme-sync"], admit: "ok" },
+            "raiseHeld(\"acme.req\", [\"acme-sync\"], second)",
+            outcome("refused: tui=sync reason=busy-other", [], { "acme.req": ["/a"] }, [], [])],
+        ["a request for the held script with its arguments again stays held", { resumes: { "acme.req": first }, queue: ["acme.req"], missing: ["acme-sync"], admit: "ok" },
+            "raiseHeld(\"acme.req\", [\"acme-sync\"], { name: \"sync\", args: [\"/a\"], ctx: null, done: undefined })",
+            outcome("ok", [["acme.req", "offered", "ok", ["acme-sync"], ["acme-sync"]]], { "acme.req": ["/a"] }, [["/a"]], [])],
         ["Not now drops the held request, which ends unstarted", { resumes: { "acme.req": first }, queue: ["acme.req"], missing: ["acme-sync"], admit: "ok" },
             "hold(\"acme.req\", null)",
             outcome(null, [], {}, [["/a"]], [])],
@@ -877,6 +915,57 @@ noticesSuite(NOTICES, load(LOGIC), report);
         red += 1;
     }
     report("control: the held-request rows fail when hold drops a request without ending it", red > 0, true);
+}
+{
+    const conflict = "        if (conflict !== \"\") return conflict;\n";
+    report("control: Notices' raiseHeld refuses a conflicting request once", NOTICES.split(conflict).length - 1, 1);
+    let red = 0;
+    try {
+        noticesSuite(NOTICES.replace(conflict, () => ""), load(LOGIC), (name, got, want) => { if (JSON.stringify(got) !== JSON.stringify(want)) red += 1; });
+    } catch (e) {
+        red += 1;
+    }
+    report("control: the held-request rows fail when another row's request replaces the held one", red > 0, true);
+}
+
+// The manager's act on a row runs as Capabilities.qml holds managerSubject,
+// managerAct and managerStep, with the judge above, against stand-ins for
+// Registry, PluginStatus and the runner: the row's id reaches runFor as its
+// one argument, and an entry's own action reaches it with none.
+const CAPABILITIES = fs.readFileSync(path.join(CORE, "Capabilities.qml"), "utf8");
+function managerSuite(source, logic, check) {
+    const raw = JSON.parse(fs.readFileSync(path.join(__dirname, "smoke/fixtures/plugins/acme.rows/manifest.json"), "utf8"));
+    const manifest = logic.validateManifest(raw, "/q").manifest;
+    const values = logic.statusWrite(manifest, {}, "pairs", [{ id: "documents", label: "Documents", actions: ["remove"] }]).values;
+    const functions = ["managerSubject(id)", "managerAct(id, key, row, rowAction)", "managerStep(id, request)"].map(header => runnerFunction(source, header)).join("");
+    const act = call => {
+        const runs = [];
+        const sandbox = vm.createContext({
+            Logic: logic, Error: Error, JSON: JSON,
+            Registry: { has: id => id === "acme.rows", manifests: { "acme.rows": manifest }, isEnabled: () => true },
+            PluginStatus: { valuesOf: () => values },
+            tuis: { runFor: (id, name, args) => { runs.push([id, name, args === undefined ? "absent" : args]); return "ok"; } },
+        });
+        sandbox.root = sandbox;
+        vm.runInContext(functions, sandbox);
+        return { answer: vm.runInContext(call, sandbox), runs: runs };
+    };
+    check("manager act: a row's Remove runs its TUI with the row's id", act("managerAct(\"acme.rows\", \"pairs\", \"documents\", \"remove\")"),
+        { answer: "ok", runs: [["acme.rows", "remove", ["documents"]]] });
+    check("manager act: the list's Add runs its TUI with no argument", act("managerAct(\"acme.rows\", \"pairs\")"),
+        { answer: "ok", runs: [["acme.rows", "add", "absent"]] });
+}
+managerSuite(CAPABILITIES, load(LOGIC), report);
+{
+    const hop = "        case \"tui\": return tuis.runFor(id, request.name, request.args);\n";
+    report("control: managerStep hands runFor the request once", CAPABILITIES.split(hop).length - 1, 1);
+    let red = 0;
+    try {
+        managerSuite(CAPABILITIES.replace(hop, () => "        case \"tui\": return tuis.runFor(id, request.name);\n"), load(LOGIC), (name, got, want) => { if (JSON.stringify(got) !== JSON.stringify(want)) red += 1; });
+    } catch (e) {
+        red += 1;
+    }
+    report("control: the manager rows fail when managerStep drops the request's arguments", red > 0, true);
 }
 
 // Each control removes one rule from a copy of the judge and keeps the text

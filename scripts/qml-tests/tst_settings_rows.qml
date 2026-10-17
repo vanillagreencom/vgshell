@@ -15,8 +15,9 @@ import "../../shell/plugins/vgs.settings"
 // alone, its text naming the row as its tooltip and accessible name, with
 // its own hover, hand, keyboard focus and click, which hands the manager
 // the entry, the row's id and the row action. Add stands under the list
-// and acts on the entry alone. A row action's refusal reads under the
-// list. The window's capabilities record each act.
+// and acts on the entry alone. The reply of the list's last press reads
+// under it. While the plugin is off the list says so and offers Turn on.
+// The window's capabilities record each act.
 Item {
     id: root
     width: 1200
@@ -50,6 +51,7 @@ Item {
             pluginRow("acme.rows", pairsEntry, { pairs: pairs }, {}),
             pluginRow("acme.empty", pairsEntry, { pairs: [] }, {}),
             pluginRow("acme.waiting", pairsEntry, {}, {}),
+            pluginRow("acme.off", pairsEntry, {}, { enabled: false }),
             pluginRow("acme.facts", factsEntry, { pairs: pairs.map(pair => ({ id: pair.id, label: pair.label, secondary: pair.secondary })) }, {})
         ];
     }
@@ -57,9 +59,11 @@ Item {
         id: fakeManager
         property var plugins: root.rows()
         property var acts: []
+        property var enables: []
         property string actionReply: "ok"
         function rescan() { return "ok"; }
         function viewPage(id) {}
+        function setEnabled(id, enabled) { enables = enables.concat([[id, enabled]]); return "ok"; }
         function act(id, key, row, rowAction) { acts = acts.concat([[id, key, row, rowAction]]); return actionReply; }
     }
     QtObject { id: fakeCompositor; function readWindows(done) {} }
@@ -80,7 +84,7 @@ Item {
             for (let i = 0; i < found.length; i++) for (const child of found[i].children || []) found.push(child);
             return found;
         }
-        function init() { fakeManager.plugins = root.rows(); fakeManager.acts = []; fakeManager.actionReply = "ok"; }
+        function init() { fakeManager.plugins = root.rows(); fakeManager.acts = []; fakeManager.enables = []; fakeManager.actionReply = "ok"; }
         // The theme loads with the first window; a test that stilled motion
         // puts it back.
         function cleanup() { if (UnitTheme.source !== null) UnitTheme.reset(); }
@@ -165,24 +169,43 @@ Item {
             compare(fakeManager.acts, [["acme.rows", "pairs", "documents", "remove"]], "Space runs Remove on its row");
         }
 
-        function test_a_refused_row_action_reads_under_the_list() {
-            fakeManager.actionReply = "refused: action=pairs reason=not-offered";
+        // The list reads the reply of its last press: a row whose row
+        // changed reads the row's words, never an older refusal of Add,
+        // and a later press that opens its window clears it.
+        function test_the_list_reads_the_reply_of_its_last_press() {
             const window = opened("acme.rows", "Settings");
+            const shown = () => descendants(listOf(window)).filter(item => item instanceof Label && item.visible && item.color === Qt.color(Theme.color.danger)).map(label => label.text);
+            fakeManager.actionReply = "refused: tui=add reason=launcher-missing";
+            ignoreWarning("settings: acme.rows/pairs " + fakeManager.actionReply);
+            mouseClick(addOf(window));
+            tryCompare(listOf(window), "reply", Reply.line(fakeManager.actionReply));
+            fakeManager.actionReply = "refused: action=pairs reason=row-changed";
+            const changed = Reply.line(fakeManager.actionReply);
+            verify(changed !== Reply.line("refused: action=pairs reason=not-offered"), "a changed row reads its own words, not a setup step's");
             ignoreWarning("settings: acme.rows/pairs/taxes " + fakeManager.actionReply);
             mouseClick(actionsOf(lines(window)[2])[0]);
-            const reply = Reply.line(fakeManager.actionReply);
-            tryVerify(() => onTab(window, Label).some(label => label.text === reply && label.color === Qt.color(Theme.color.danger)), 2000, "the refusal reads in the error colour");
+            tryCompare(listOf(window), "reply", changed);
+            compare(shown(), [changed], "the row's words read alone, in the error colour");
+            fakeManager.actionReply = "ok";
+            mouseClick(actionsOf(lines(window)[1])[0]);
+            tryCompare(listOf(window), "reply", "");
+            compare(shown(), [], "an opened window leaves no refusal");
         }
 
-        function test_an_empty_or_unreported_list_says_so_data() {
-            return [{ tag: "empty", id: "acme.empty", text: "None yet", add: true },
-                { tag: "unreported", id: "acme.waiting", text: "Not reported", add: false }];
+        function test_an_empty_unreported_or_off_list_says_so_data() {
+            return [{ tag: "empty", id: "acme.empty", text: "None yet", action: "Add a folder pair" },
+                { tag: "unreported", id: "acme.waiting", text: "Not reported", action: "" },
+                { tag: "off", id: "acme.off", text: "acme.off is off", action: "Turn on acme.off" }];
         }
-        function test_an_empty_or_unreported_list_says_so(data) {
+        function test_an_empty_unreported_or_off_list_says_so(data) {
             const window = opened(data.id, "Settings");
             compare(lines(window).length, 0);
             verify(descendants(listOf(window)).some(item => item instanceof Label && item.visible && item.text === data.text), "the list reads " + data.text);
-            compare(addOf(window) !== undefined, data.add, "Add stands while the list is reported");
+            const under = descendants(listOf(window)).filter(item => item instanceof RowAction && item.visible).map(action => action.text);
+            compare(under, data.action === "" ? [] : [data.action]);
+            if (data.tag !== "off") return;
+            mouseClick(descendants(listOf(window)).find(item => item instanceof RowAction && item.visible));
+            compare(fakeManager.enables, [["acme.off", true]], "Turn on turns the plugin on");
         }
 
         function test_a_list_of_facts_stands_on_details() {

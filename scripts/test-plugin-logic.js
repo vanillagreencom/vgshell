@@ -229,9 +229,9 @@ function suite(ctx, configLogic, check) {
         ["a row action the entry does not declare", true, published, "b", "open", { ok: false, answer: "refused: action=pairs reason=undeclared" }],
         ["a row action with no name", true, published, "b", undefined, { ok: false, answer: "refused: action=pairs reason=undeclared" }],
         ["a row action of a disabled plugin", false, published, "b", "remove", { ok: false, answer: "refused: action=pairs reason=disabled" }],
-        ["a row action on a row the list does not hold", true, published, "gone", "remove", { ok: false, answer: "refused: action=pairs reason=not-offered" }],
-        ["a row action the row does not offer", true, published, "c", "remove", { ok: false, answer: "refused: action=pairs reason=not-offered" }],
-        ["a row action before the list is reported", true, {}, "b", "remove", { ok: false, answer: "refused: action=pairs reason=not-offered" }]
+        ["a row action on a row the list does not hold", true, published, "gone", "remove", { ok: false, answer: "refused: action=pairs reason=row-changed" }],
+        ["a row action the row does not offer", true, published, "c", "remove", { ok: false, answer: "refused: action=pairs reason=row-changed" }],
+        ["a row action before the list is reported", true, {}, "b", "remove", { ok: false, answer: "refused: action=pairs reason=row-changed" }]
     ])
         check("rows act: " + name, ctx.statusActionRequest(rowsManifest, "acme.rows", enabled, values, "pairs", row, rowAction), want);
     const bar = { schemaVersion: 1, id: "vgs.bar", name: "Bar", version: "0.1.0", author: "VGS", description: "d", kinds: ["bar"], entryPoints: { bar: "Bar.qml" } };

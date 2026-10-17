@@ -261,8 +261,9 @@ var STATUS_ACTION_ROUTES = ["tui", "system", "undo", "dictation"];
 var STATUS_ACTION_KEYS = ["label", "tone", "icon"].concat(STATUS_ACTION_ROUTES);
 var STATUS_ACTION_TONES = ["danger"];
 var STATUS_ACTION_TYPES = ["presence", "state", "rows"];
-// The refusal reasons of the `manager` capability's `act`.
-var STATUS_ACTION_REASONS = ["undeclared", "disabled", "not-offered"];
+// The refusal reasons of the `manager` capability's `act`: `row-changed`
+// for a row action whose row no longer offers it.
+var STATUS_ACTION_REASONS = ["undeclared", "disabled", "not-offered", "row-changed"];
 
 // The system steps (D081): the closed table bin/vgshell-system holds, which a
 // manifest's `systemSteps` names from, in the order `vgshell-system status`
@@ -1632,7 +1633,7 @@ function tuiRunFor(manifest, enabled, sourceDir, runner, name, missing, args) {
 // the act is ROW_ACTION, a name of the `rows` entry's `rowActions`, on the
 // published row whose `id` is ROW: { ok: true, kind: "tui", name, args },
 // ARGS [ROW], the row's id as the script's one argument, `undeclared` for
-// a name the entry's `rowActions` lack, and `not-offered` while no
+// a name the entry's `rowActions` lack, and `row-changed` while no
 // published row of that id names it.
 function statusActionRequest(manifest, id, enabled, values, key, row, rowAction) {
     if (manifest === null)
@@ -1647,7 +1648,7 @@ function statusActionRequest(manifest, id, enabled, values, key, row, rowAction)
             return published.id === row && published.actions !== undefined && published.actions.indexOf(rowAction) !== -1;
         });
         if (!offering)
-            return { ok: false, answer: statusActionRefusal(key, "not-offered") };
+            return { ok: false, answer: statusActionRefusal(key, "row-changed") };
         return { ok: true, kind: "tui", name: rowsEntry.rowActions[rowAction].tui, args: [row] };
     }
     if (typeof key !== "string" || !hasOwn(manifest.status, key) || statusEntryActions(manifest.status[key]).length === 0)
@@ -2914,6 +2915,42 @@ function managerTui(action, id, source) {
     throw new Error("manager: plugin source " + JSON.stringify(source) + " is not one of bundled, installed");
 }
 
+// The launch key of plugin ID's own TUI NAME, `<plugin id>/<name>`, whatever
+// its arguments, so one run of a script is live at a time.
+function tuiOwnKey(id, name) {
+    return id + "/" + name;
+}
+
+// Whether two argument lists of a TUI request are the same, an absent list
+// being none.
+function tuiArgsSame(a, b) {
+    return JSON.stringify(a === undefined ? [] : a) === JSON.stringify(b === undefined ? [] : b);
+}
+
+// What a request no plugin instance made for plugin ID's own TUI NAME with
+// ARGS answers, ANSWER being start's: tuiShownAnswer's, but for a busy key
+// whose live run the shell started with other arguments, which answers
+// `refused: tui=<name> reason=busy-other` while the runner still shows that
+// run's window, so a press on one row's action never answers with another
+// row's window. STARTED maps each key to the arguments of the latest run
+// the shell started for it; a key it lacks, a run that outlived an earlier
+// shell, counts as a run with none.
+function tuiOwnShownAnswer(id, name, answer, args, started) {
+    if (answer !== tuiRefusal(name, "busy").answer) return answer;
+    var key = tuiOwnKey(id, name);
+    return tuiArgsSame(hasOwn(started, key) ? started[key] : [], args) ? "ok" : tuiRefusal(name, "busy-other").answer;
+}
+
+// Why HELD, a request for a plugin's own script made while a command it
+// needs is missing, may not take the place of BEFORE, the request that
+// plugin's notice holds, null for none: `refused: tui=<name>
+// reason=busy-other` while BEFORE is a request for the same script with
+// other arguments, so a press on a second row never drops the first row's
+// request in silence; "" otherwise.
+function tuiHeldRefusal(before, held) {
+    return before !== null && before.name === held.name && !tuiArgsSame(before.args, held.args) ? tuiRefusal(held.name, "busy-other").answer : "";
+}
+
 // The one judgement of whether TUI KEY is on screen for ANSWER: `ok` when
 // the launcher started, and when that key was busy, since the runner then
 // asks the compositor to focus the live run's window. TuiRunner.open and
@@ -3217,7 +3254,7 @@ function tuiRun(manifest, enabled, sourceDir, runner, name, args) {
         return tuiRefusal(name, "disabled");
     if (!tuiArgsValid(args))
         return tuiRefusal(name, "args");
-    var key = manifest.id + "/" + name;
+    var key = tuiOwnKey(manifest.id, name);
     var refusal = tuiRunnerRefusal(runner, name, key);
     if (refusal !== null)
         return refusal;

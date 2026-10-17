@@ -33,6 +33,8 @@ var MESSAGES = [
     [/^refused: placed=\S+ reason=no-bar-widget$/, "This plugin has no bar item."],
     [/^refused: action=\S+ reason=undeclared$|^refused: tui=\S+ reason=(?:undeclared|args)$/, "This action is no longer available. Close Plugins and open it again."],
     [/^refused: action=\S+ reason=not-offered$/, "This setup step is not needed now."],
+    [/^refused: action=\S+ reason=row-changed$/, "This row has changed. Check the list and try again."],
+    [/^refused: tui=\S+ reason=busy-other$/, "Finish the open window first, then try again."],
     [/^refused: requirements=\S+ reason=satisfied$/, "All tools are installed."],
     [/^refused: notices=full limit=\d+$/, "Close an open setup notice and try again."],
     [/^refused: tui=\S+ reason=launcher-missing$/, "The setup window could not open. VGS is missing its terminal launcher, xdg-terminal-exec. Reinstall VGS to restore it."],

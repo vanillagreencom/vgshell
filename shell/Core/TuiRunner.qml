@@ -26,6 +26,12 @@ Scope {
     // Launches whose run has no record yet and whose launcher did not fail,
     // each { key, run }: the key stays busy until the record appears.
     property var pending: []
+    // Each plugin script's key -> the arguments of the latest run this
+    // shell started for it, so a request for a live key with other
+    // arguments is told apart from a second press of the same one
+    // (PluginLogic.tuiOwnShownAnswer). One entry per declared script, each
+    // replaced by the next start. Replaced whole.
+    property var startedArgs: ({})
     // One of PluginLogic.TUI_LAUNCHER_STATES: the first probe answers it,
     // and every later probe and launch moves it.
     property string launcher: "unknown"
@@ -90,11 +96,13 @@ Scope {
     // Judged by request, as run is, so a disabled plugin's or an undeclared
     // script, or arguments tuiArgsValid refuses, are refused and one that lacks a required command raises the
     // requirement notice for those commands, for both steps. Answers `ok`
-    // when the request starts the TUI or focuses its live window, as
-    // PluginLogic.tuiShownAnswer decides. The plugin reads the run's end
+    // when the request starts the TUI or focuses its live window of the same
+    // arguments, and `reason=busy-other` when that window is another row's,
+    // as PluginLogic.tuiOwnShownAnswer decides. The plugin reads the run's end
     // from its `state`.
     function runFor(id, name, args) {
-        return Logic.tuiShownAnswer(name, request(id, Registry.manifests[id], { name: name, args: args, ctx: null, done: undefined }));
+        const answer = request(id, Registry.manifests[id], { name: name, args: args, ctx: null, done: undefined });
+        return Logic.tuiOwnShownAnswer(id, name, answer, args, startedArgs);
     }
 
     // The one judge of a plugin's own script request, run's and runFor's:
@@ -106,7 +114,9 @@ Scope {
     function request(id, manifest, held) {
         const launch = Logic.tuiRunFor(manifest, Registry.isEnabled(id), Registry.sourceDir, runner(), held.name, Notices.missingOf(id), held.args);
         if (launch.kind === "install") return Notices.raiseHeld(id, launch.commands, held);
-        return start(launch, held.ctx, held.done);
+        const answer = start(launch, held.ctx, held.done);
+        if (launch.ok) startedArgs = Object.assign({}, startedArgs, { [launch.key]: held.args === undefined ? [] : held.args.slice() });
+        return answer;
     }
 
     // resume: plugin ID's HELD request, once its requirement notice closed
@@ -121,7 +131,7 @@ Scope {
             ? request(id, held.ctx.manifest, held)
             : request(id, Registry.manifests[id], { name: held.name, args: held.args, ctx: null, done: undefined });
         if (answer !== "ok") unstarted(held);
-        return Logic.tuiShownAnswer(held.name, answer);
+        return Logic.tuiOwnShownAnswer(id, held.name, answer, held.args, startedArgs);
     }
 
     // The end a held request's `done` receives when it never starts, so a

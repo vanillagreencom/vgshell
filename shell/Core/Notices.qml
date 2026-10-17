@@ -299,10 +299,14 @@ Singleton {
     // done }, made while COMMANDS, the lacking requirements its script needs,
     // are missing: the notice for COMMANDS alone (PluginLogic.noticeHeld),
     // raised as a press, which no rest holds back, holds HELD until it closes
-    // (resume).
+    // (resume). A request for the script the notice already holds with other
+    // arguments is refused (PluginLogic.tuiHeldRefusal) and the held one
+    // stays.
     function raiseHeld(id, commands, held) {
         const owners = Registry.requirementOwners;
         if (!Logic.hasOwn(owners, id)) return "unknown: " + id;
+        const conflict = Logic.tuiHeldRefusal(Logic.hasOwn(resumes, id) ? resumes[id] : null, held);
+        if (conflict !== "") return conflict;
         const answer = admit(id, "offered", Logic.noticeHeld(owners[id], missingOf(id), Registry.commandVersions, commands));
         if (answer === "ok") hold(id, held);
         return answer;

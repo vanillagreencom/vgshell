@@ -170,12 +170,16 @@ var PRESENCE_WORDS = { present: "Present", absent: "Absent", locked: "Locked", u
 // REMOVES_ITEM for a danger action with no mark of its own, which removes
 // the row it stands on and so draws the trash mark alone, its TEXT its
 // label and the row's, as its tooltip and accessible name name the row.
-// ADD is the entry's action on the whole list, such as Add, while the
-// plugin is on and the list is reported (lineAction), else null. TEXT is
-// "Not reported" while the list is not reported, "None yet" while it is
-// empty, else "".
+// ADD is the line action under the list (lineAction): while the plugin is
+// on, the entry's action on the whole list, such as Add, once the list is
+// reported; while it is off, Turn on for a list the user changes through
+// an action, since the core keeps no list of a plugin that is off. TEXT is
+// "<name> is off" while the plugin is off, "Not reported" while the list
+// is not reported, "None yet" while it is empty, else "".
 function rowsView(entry, plugin) {
-    if (entry.report !== "reported") return { rows: [], add: null, text: "Not reported" };
+    var add = lineAction(stepButton(entry), entry.action !== null || entry.declaredTuis.length > 0, plugin);
+    if (!plugin.enabled) return { rows: [], add: add, text: plugin.name + " is off" };
+    if (entry.report !== "reported") return { rows: [], add: add, text: "Not reported" };
     return {
         rows: entry.value.map(function (row) {
             return Object.assign({ key: row.id, buttons: row.actions.map(function (action) {
@@ -184,7 +188,7 @@ function rowsView(entry, plugin) {
                     text: removes ? action.label + " " + row.label : action.label, tone: action.tone, icon: action.icon, removesItem: removes };
             }) }, row);
         }),
-        add: lineAction(stepButton(entry), false, plugin),
+        add: add,
         text: entry.value.length === 0 ? "None yet" : ""
     };
 }

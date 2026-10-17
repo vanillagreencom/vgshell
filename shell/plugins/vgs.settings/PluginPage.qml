@@ -158,7 +158,7 @@ FocusScope {
     }
     // The last refusal of BUTTON's press for ENTRY's line, "" for none,
     // each read under its action's own step key: a screen's, an entry's,
-    // Turn on's and the notice's. Every Turn on asks the one thing, to turn
+    // a row action's, under its row's id, Turn on's and the notice's. Every Turn on asks the one thing, to turn
     // the plugin on, so each line offering it reads its refusal, as each
     // Review reads the notice's; the page head reads those two as well.
     function replyFor(button, entry) {
@@ -166,6 +166,7 @@ FocusScope {
         if (button === null) return entry === null ? "" : panel.replyOf(row.id, entry.key);
         if (button.kind === "tui") return panel.replyOf(row.id, panel.tuiKey(button.name));
         if (button.kind === "enable" || button.kind === "tools") return panel.replyOf(row.id, panel.actionKey(button.kind));
+        if (button.kind === "row") return entry === null ? "" : panel.replyOf(row.id, entry.key, button.row);
         return button.kind === "status" && entry !== null ? panel.replyOf(row.id, entry.key) : "";
     }
 
@@ -680,8 +681,7 @@ FocusScope {
                             width: body.width
                             entry: page.statusEntry(modelData)
                             plugin: page.plugin
-                            panel: page.panel
-                            pluginId: page.row === null ? "" : page.row.id
+                            reply: lastPress === null ? "" : page.replyFor(lastPress, entry)
                             onPressed: button => page.press(button, entry)
                             onOpenLink: link => { if (page !== null && page.row !== null) page.panel.openLink(page.row.id, link); }
                             onPageActivated: (id, tab) => { if (page !== null && page.panel !== null) page.panel.openPage(id, tab); }
@@ -990,8 +990,7 @@ FocusScope {
                             width: body.width
                             entry: page.statusEntry(modelData)
                             plugin: page.plugin
-                            panel: page.panel
-                            pluginId: page.row === null ? "" : page.row.id
+                            reply: lastPress === null ? "" : page.replyFor(lastPress, entry)
                             onPressed: button => page.press(button, entry)
                             onOpenLink: link => { if (page !== null && page.row !== null) page.panel.openLink(page.row.id, link); }
                             onPageActivated: (id, tab) => { if (page !== null && page.panel !== null) page.panel.openPage(id, tab); }

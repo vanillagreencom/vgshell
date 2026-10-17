@@ -18,10 +18,11 @@ import "Steps.js" as Steps
 // "None yet" or "Not reported" while it shows no row, the entry's action on
 // the whole list, such as Add, its hint, whose `link` words open an address
 // through `openLink` and whose page reference opens a page through the
-// section's `pageActivated`, and the last refusal of the list's actions
-// in the error colour. A press emits `pressed` with its line action
-// (Steps.rowsView), which the page routes; the replies are read from
-// `panel` under the entry's key and each row's id.
+// section's `pageActivated`, and `reply`, the refusal of the last press
+// on the list, in the error colour. While the plugin is off the list reads
+// so, with Turn on under it (Steps.rowsView). A press records its line
+// action in `lastPress` and emits `pressed` with it, which the page routes
+// and whose reply it hands back.
 Section {
     id: root
 
@@ -30,19 +31,20 @@ Section {
     required property var entry
     // The plugin the page shows, { enabled, name } (PluginPage.plugin).
     required property var plugin
-    // The Settings panel, whose `replyOf` holds each press's last reply,
-    // and the plugin's id.
-    required property Item panel
-    required property string pluginId
+    // The line action of the last press on the list, null before one, and
+    // the page's reply to it, "" for none.
+    property var lastPress: null
+    property string reply: ""
 
     signal pressed(var button)
     signal openLink(var link)
 
-    readonly property var view: entry === null ? ({ rows: [], add: null, text: "" }) : Steps.rowsView(entry, plugin)
-    readonly property string reply: {
-        if (panel === null || entry === null) return "";
-        return [panel.replyOf(pluginId, entry.key)].concat(view.rows.map(row => panel.replyOf(pluginId, entry.key, row.id))).find(line => line !== "") || "";
+    function press(button) {
+        lastPress = button;
+        pressed(button);
     }
+
+    readonly property var view: entry === null ? ({ rows: [], add: null, text: "" }) : Steps.rowsView(entry, plugin)
 
     visible: entry !== null
     title: entry === null ? "" : entry.label
@@ -90,15 +92,9 @@ Section {
                     RowActions {
                         id: actions
                         // How far the last action's square reaches past
-                        // its ink: the trash mark drawn alone sits on its
-                        // square's left edge; any other action ends on
-                        // its own.
-                        readonly property real overhang: {
-                            const last = shown.length === 0 ? null : shown[shown.length - 1];
-                            if (last === null || !last.removesItem) return 0;
-                            const mark = Array.from(last.contentItem.children).find(child => child instanceof Icon);
-                            return mark === undefined ? 0 : Math.max(0, last.width - mark.x - mark.painted[2]);
-                        }
+                        // its ink, RowAction's `glyphEnd`: 0 for any
+                        // action but a trash mark drawn alone.
+                        readonly property real overhang: shown.length === 0 ? 0 : shown[shown.length - 1].glyphEnd
                         anchors.verticalCenter: parent.verticalCenter
                         Repeater {
                             // Keyed, so a status write elsewhere, which hands
@@ -111,7 +107,7 @@ Section {
                                 tone: modelData.tone === "" ? "accent" : modelData.tone
                                 markName: modelData.icon
                                 removesItem: modelData.removesItem
-                                onClicked: root.pressed(modelData)
+                                onClicked: root.press(modelData)
                             }
                         }
                     }
@@ -132,7 +128,7 @@ Section {
         text: root.view.add === null ? "" : root.view.add.label
         tone: root.view.add === null || root.view.add.tone === "" ? "accent" : root.view.add.tone
         markName: root.view.add === null ? "" : root.view.add.icon
-        onClicked: root.pressed(root.view.add)
+        onClicked: root.press(root.view.add)
     }
 
     LinkText {

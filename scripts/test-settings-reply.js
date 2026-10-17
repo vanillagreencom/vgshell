@@ -43,6 +43,8 @@ const CASES = [
     ["refused: placed=acme.example reason=no-bar-widget", /no bar item/],
     ...["refused: action=example reason=undeclared", "refused: tui=example reason=undeclared", "refused: tui=example reason=args"].map(raw => [raw, /action is no longer available/]),
     ["refused: action=example reason=not-offered", /setup step is not needed/],
+    ["refused: action=example reason=row-changed", /row has changed/],
+    ["refused: tui=remove reason=busy-other", /Finish the open window first/],
     ["refused: requirements=acme.example reason=satisfied", /All tools are installed/],
     ["refused: notices=full limit=8", /Close an open setup notice/],
     ["refused: tui=core/plugin-add reason=launcher-missing", /missing its terminal launcher, xdg-terminal-exec/],
