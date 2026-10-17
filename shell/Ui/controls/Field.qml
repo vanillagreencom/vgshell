@@ -120,7 +120,16 @@ Column {
     onDisabledReasonChanged: judgeReason()
     Component.onCompleted: judgeReason()
 
-    topPadding: rowAbove === null ? 0 : Theme.stack.page - rowAbove.room - Math.floor(lineBelowOf(rowAbove.item)) - Math.floor(controlRow.lineAbove())
+    // The row above must still read as shown when the padding reads it. QML
+    // marks an item and its QObject children deleted as it starts to destroy
+    // them, before the item leaves its parent
+    // (QQmlPrivate::qdeclarativeelement_destructor, Qt 6.11 qqmlengine.cpp).
+    // The mark emits no change, so rowAbove still names the item, and a
+    // marked item reads every property as undefined, `visible` and
+    // `children` included (QObjectWrapper::getQmlProperty), while
+    // `instanceof` still holds: run under scripts/qml-unit.sh on Qt 6.11.2
+    // by tst_field_row_above_teardown.qml.
+    topPadding: rowAbove === null || !rowAbove.item.visible ? 0 : Theme.stack.page - rowAbove.room - Math.floor(lineBelowOf(rowAbove.item)) - Math.floor(controlRow.lineAbove())
     leftPadding: Theme.field.paddingX
     rightPadding: Theme.field.paddingX
     bottomPadding: Theme.subTextRoom(subText, Positioner.index, Positioner.isLastItem, parent)
