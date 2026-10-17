@@ -26,8 +26,8 @@
   ],
   "defaultSection": "right",
   "requirements": [
-    {"command": "btop", "packages": {"pacman": "btop", "apt": "btop", "dnf": "btop", "nix": "btop"}, "optional": true, "purpose": "Shows all processes and system readings", "setting": "allProcesses"},
-    {"command": "nvidia-smi", "packages": {"pacman": "nvidia-utils"}, "optional": true, "purpose": "Reads NVIDIA graphics card use and temperature", "setting": "showGpu"}
+    {"command": "btop", "packages": {"pacman": "btop", "apt": "btop", "dnf": "btop", "nix": "btop"}, "optional": true, "purpose": "Shows all processes and system readings"},
+    {"command": "nvidia-smi", "packages": {"pacman": "nvidia-utils"}, "optional": true, "purpose": "Reads NVIDIA graphics card use and temperature"}
   ],
   "settings": {
     "layout": "Stacked",
@@ -61,10 +61,9 @@
     "showMemory": {"type": "boolean", "label": "Memory", "group": "Memory"},
     "showSwap": {"type": "boolean", "label": "Swap use", "group": "Memory"},
     "memoryUnit": {"type": "enum", "label": "Memory unit", "group": "Memory", "options": [{"value": "percent", "label": "Percent"}, {"value": "used", "label": "Used"}]},
-    "showGpu": {"type": "boolean", "label": "GPU", "group": "GPU", "hintFrom": "graphics"},
+    "showGpu": {"type": "boolean", "label": "GPU", "group": "GPU"},
     "gpuTemperature": {"type": "boolean", "label": "GPU temperature", "group": "GPU"},
-    "gpu": {"type": "string", "label": "Graphics card", "optionsFrom": "gpus", "group": "GPU"},
-    "allProcesses": {"type": "action", "label": "All processes", "description": "See every process and system reading in the process list", "group": "Processes"}
+    "gpu": {"type": "string", "label": "Graphics card", "optionsFrom": "gpus", "group": "GPU"}
   },
   "tui": {
   "btop": {
@@ -77,8 +76,7 @@
     "entry": {
       "label": "See all",
       "icon": "list",
-      "group": "System Monitor",
-      "setting": "allProcesses"
+      "group": "System Monitor"
     }
   }
 }

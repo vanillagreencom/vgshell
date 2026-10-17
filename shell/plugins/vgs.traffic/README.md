@@ -16,7 +16,7 @@ See download and upload speeds in the bar. Click the widget to see traffic per a
 
 Open Settings > Plugins > Network Traffic to change the layout, the labels, the refresh interval, the speeds shown, and the decimals each speed shows. By default, the speeds are stacked, KB/s shows no decimals and MB/s shows one. Apps show TCP traffic from your account. Other traffic includes UDP, system services, and other accounts.
 
-The optional bandwhich requirement enables See all. In Settings, select Review all missing or outdated tools beside See all traffic. The same field has Allow when capture access is needed. Allowing it lets every account on this computer see network traffic through bandwhich.
+The optional bandwhich requirement enables See all. On the Details tab, select Review all missing or outdated tools under Tools. The Traffic capture row there has Allow when capture access is needed. Allowing it lets every account on this computer see network traffic through bandwhich.
 
 A package update can remove capture access. Close Settings, then open Settings > Plugins > Network Traffic to check access again. The Traffic capture row shows Allow if access is needed.
 

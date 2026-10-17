@@ -18,10 +18,7 @@ import qs.Ui
 //
 // The step is one of: `actionLabel` while `actionOffered`, an action in
 // `actionTone` that emits `act`, with `asideLabel` while `asideOffered`
-// after it, which emits `aside`, and one more action for each of
-// `moreSteps`, { label, tone, enabled, reason }, which emits `moreStep`
-// with its index, its `reason` on hover while it takes no press; or, for a
-// line that is the presence of a
+// after it, which emits `aside`; or, for a line that is the presence of a
 // secret, by `access`: `connect`, an Add key action, and `disconnect`, a
 // Replace action before a Remove action in the danger tone that emits
 // `clearSecret`. Add key and Replace open a masked field under the line
@@ -52,7 +49,6 @@ Column {
     property string asideLabel: ""
     property bool asideOffered: false
     property string asideTone: ""
-    property var moreSteps: []
     property bool busy: false
     property string error: ""
     // What the masked field asks for: the plugin's `secrets` label.
@@ -62,12 +58,11 @@ Column {
     // What the line offers for its secret: Add key, or Replace and Remove.
     readonly property bool adds: access === "connect"
     readonly property bool stored: access === "disconnect"
-    readonly property bool stepShown: (actionLabel !== "" && actionOffered) || asideOffered || moreSteps.length > 0 || adds || stored
+    readonly property bool stepShown: (actionLabel !== "" && actionOffered) || asideOffered || adds || stored
     readonly property bool subText: field.subText
 
     signal act()
     signal aside()
-    signal moreStep(int index)
     signal hintLinkActivated()
     signal hintPageActivated(string page, string tab)
     signal infoPageActivated(string page, string tab)
@@ -185,19 +180,6 @@ Column {
                         text: line.asideLabel
                         tone: line.asideTone === "danger" ? "danger" : "accent"
                         onClicked: line.aside()
-                    }
-                    Repeater {
-                        model: line.moreSteps
-                        RowAction {
-                            id: moreAction
-                            required property var modelData
-                            required property int index
-                            enabled: !line.busy && modelData.enabled
-                            text: modelData.label
-                            tone: modelData.tone === "danger" ? "danger" : "accent"
-                            onClicked: line.moreStep(index)
-                            Tooltip { text: moreAction.modelData.reason }
-                        }
                     }
                     RowAction {
                         visible: line.adds

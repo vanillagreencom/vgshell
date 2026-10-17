@@ -13,8 +13,8 @@
   "defaultSection": "right",
   "pane": { "group": "Hardware", "order": 20 },
   "requirements": [
-    {"command": "ddcutil", "packages": {"pacman": "ddcutil", "apt": "ddcutil", "dnf": "ddcutil", "nix": "ddcutil"}, "optional": true, "purpose": "Sets the brightness of external displays", "setting": "externalAccess"},
-    {"command": "brightnessctl", "packages": {"pacman": "brightnessctl", "apt": "brightnessctl", "dnf": "brightnessctl", "nix": "brightnessctl"}, "optional": true, "purpose": "Sets the brightness of a laptop's built-in display", "setting": "brightnessStep"}
+    {"command": "ddcutil", "packages": {"pacman": "ddcutil", "apt": "ddcutil", "dnf": "ddcutil", "nix": "ddcutil"}, "optional": true, "purpose": "Sets the brightness of external displays"},
+    {"command": "brightnessctl", "packages": {"pacman": "brightnessctl", "apt": "brightnessctl", "dnf": "brightnessctl", "nix": "brightnessctl"}, "optional": true, "purpose": "Sets the brightness of a laptop's built-in display"}
   ],
   "systemSteps": ["apple-displays", "i2c-dev"],
   "settings": {
@@ -32,9 +32,7 @@
     "keysTarget": {"type": "enum", "label": "Brightness keys change", "description": "The display the brightness keys change", "options": [{"value": "focused", "label": "Focused display"}, {"value": "all", "label": "All displays"}], "group": "Brightness"},
     "linked": {"type": "boolean", "label": "Link displays", "description": "Change every display by the same amount", "group": "Brightness"},
     "dimAfterSeconds": {"type": "number", "label": "Dim when inactive", "description": "Time without input before the displays dim. Any input brings each display back to its level.", "min": 0, "max": 3600, "step": 10, "unit": "seconds", "allowCustom": true, "presets": [{"value": 0, "label": "Never"}, {"value": 60}, {"value": 120}, {"value": 300}, {"value": 600}], "group": "Dimming"},
-    "dimPercent": {"type": "number", "label": "Dimmed brightness", "description": "The level the displays dim to. A display already darker keeps its level.", "min": 1, "max": 90, "step": 1, "unit": "%", "allowCustom": true, "presets": [{"value": 10}, {"value": 20}, {"value": 30}, {"value": 40}, {"value": 50}], "group": "Dimming"},
-    "appleAccess": {"type": "action", "label": "Apple display access", "group": "Brightness", "description": "Allow brightness control for Apple displays"},
-    "externalAccess": {"type": "action", "label": "External display access", "group": "Brightness", "description": "Allow brightness control for external displays"}
+    "dimPercent": {"type": "number", "label": "Dimmed brightness", "description": "The level the displays dim to. A display already darker keeps its level.", "min": 1, "max": 90, "step": 1, "unit": "%", "allowCustom": true, "presets": [{"value": 10}, {"value": 20}, {"value": 30}, {"value": 40}, {"value": 50}], "group": "Dimming"}
   },
   "hyprland": {
     "options": { "vrr": "misc.vrr" },
@@ -47,8 +45,8 @@
   "status": {
     "displays": {"type": "data", "label": "Displays"},
     "assignments": {"type": "data", "label": "Display choices"},
-    "appleAccess": {"type": "state", "label": "Apple displays", "group": "Access", "action": {"label": "Allow", "system": "apple-displays"}, "setting": "appleAccess"},
-    "ddcAccess": {"type": "state", "label": "External displays", "group": "Access", "action": {"label": "Allow", "system": "i2c-dev"}, "setting": "externalAccess"},
+    "appleAccess": {"type": "state", "label": "Apple displays", "group": "Access", "action": {"label": "Allow", "system": "apple-displays"}},
+    "ddcAccess": {"type": "state", "label": "External displays", "group": "Access", "action": {"label": "Allow", "system": "i2c-dev"}},
     "ddcTool": {"type": "state", "label": "External display support", "group": "Access"},
     "backlightTool": {"type": "state", "label": "Built-in display support", "group": "Access"}
   }

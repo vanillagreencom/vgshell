@@ -431,8 +431,6 @@ main(() => {
         const manifest = pluginOf(registryOf(readScan()), id).manifest;
         const settings = logic.settingsFor(configLogic.effectiveConfig(shipped, user), manifest);
         for (const key of Object.keys(manifest.schema)) {
-            // An action field has no stored value to validate.
-            if (manifest.schema[key].type === "action") continue;
             const refusal = logic.settingRefusal(manifest, key, settings[key]);
             if (refusal !== "") refuse(refusal.slice("refused: ".length) + " id=" + id);
         }

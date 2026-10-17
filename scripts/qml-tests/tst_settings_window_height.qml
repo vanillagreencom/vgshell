@@ -64,7 +64,7 @@ Item {
             requirements: [],
             errors: []
         }, fields);
-        row.fieldRows = PluginLogic.fieldRows(row.schema, {}, [], {});
+        row.fieldRows = PluginLogic.fieldRows(row.schema, {});
         return row;
     }
 

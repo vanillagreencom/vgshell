@@ -181,19 +181,19 @@ mv -- "$sandbox/page-ss" "$page_ss"
 rescan "the page rescans with ss back"
 expect_poll "with ss back the partial search offers Accounts" '["Accounts", true, "warning"]' page_offered accountSearch
 # Copilot Memory lives in the GitHub account, where only the user can turn
-# it off: Settings shows that state beside Account, with its GitHub link and no
-# action of its own, only while a Copilot account is found. The accounts
-# screen's end reads the accounts again.
+# it off: Details shows that state, with its GitHub link and no action of
+# its own, only while a Copilot account is found. The accounts screen's
+# end reads the accounts again.
 page_copilot() { status_rows vgs.jarvis | py_reply '
 import json,sys
 rows=[r for r in json.load(sys.stdin) if r["key"] == "copilotMemory"]
-print(json.dumps([[r["setting"], r["report"], r["tone"], r["link"]["url"], r["link"]["text"] in r["hint"], r["action"]] for r in rows]))
+print(json.dumps([[r["report"], r["tone"], r["link"]["url"], r["link"]["text"] in r["hint"], r["action"]] for r in rows]))
 '; }
 expect_poll "with no Copilot account the page draws no Copilot Memory row" '[]' page_copilot
 jarvis_notice_close
 printf 'copilot\n' >"$sandbox/jarvis-world/account-mode"
 page_open accountSearch accounts "Jarvis accounts"
-expect_poll "with a Copilot account Settings shows Copilot Memory beside Account" '[["brain", "reported", "info", "https://github.com/settings/copilot/features", true, null]]' page_copilot
+expect_poll "with a Copilot account the page shows Copilot Memory" '[["reported", "info", "https://github.com/settings/copilot/features", true, null]]' page_copilot
 # A click on the row's link opens GitHub's page through the desktop open
 # route. `gio open` reaches the device fakes' stand-in, which records its
 # argv, so no browser starts. The page is scrolled first so the hint line
@@ -239,7 +239,7 @@ page_link_click() {
   echo "page_link_click: the pointer found no link words in line=$rect box=$box" >&2
   return 1
 }
-settings_tab_click Settings || fail "the click on Settings for Copilot Memory failed"
+settings_details
 page_link_click || fail "the click on the Copilot Memory link failed"
 expect_poll "a click on the Copilot Memory link opens GitHub's Copilot settings" '["open https://github.com/settings/copilot/features"]' page_link_opens
 settings_tab_click Settings || fail "the click back to the Settings tab after the link failed"
@@ -472,39 +472,18 @@ printf 'present\n' >"$sandbox/jarvis-world/key-mode"
 jarvis_rescan
 expect_poll "the restored world publishes its fixture key" matched jarvis_key_value present
 
-# The provider key list belongs beside Account on Settings. Setup and
-# Details draw no list. Moving the list to Details must fail this reading.
+# The provider key list is a Details reading: Jarvis stores its keys
+# itself, so no masked field of the core's holds them and Settings and
+# Setup draw no list. The Details reading proves the read sees the list.
 page_keys_want="$(python3 -c 'import json,sys; e=json.load(open(sys.argv[1]))["status"]["keys"]; print(json.dumps([e["label"], e["hint"], "fixture / test", "Present"]))' "$page_manifest")"
 page_keys_drawn() { ipc smoke itemTexts window vgs.settings StatusRow | py_reply 'import json,sys; label=json.load(open(sys.argv[1]))["status"]["keys"]["label"]; r=[r for r in json.load(sys.stdin) if r and r[0] == label]; print(json.dumps(r[0]) if len(r) == 1 else "rows=%d" % len(r))' "$page_manifest"; }
 settings_page_open vgs.jarvis
-expect_poll "the page opens Settings with the provider key list" "$page_keys_want" page_keys_drawn
+expect_poll "the page opens Settings with no provider key list" rows=0 page_keys_drawn
 settings_setup
 expect "Setup draws no provider key list" rows=0 page_keys_drawn
 settings_details
-expect "Details draws no provider key list" rows=0 page_keys_drawn
-python3 - "$page_manifest" <<'PY_KEYS'
-from pathlib import Path
-import json,sys
-p=Path(sys.argv[1]); assert not p.is_symlink()
-s=p.read_text(); manifest=json.loads(s)
-assert manifest["status"]["keys"]["setting"] == "brain"
-del manifest["status"]["keys"]["setting"]
-changed=json.dumps(manifest, indent=2)+"\n"
-assert changed != s
-p.write_text(changed)
-PY_KEYS
-jarvis_rescan
-expect_poll "control: a key list with no Settings field draws on Details" "$page_keys_want" page_keys_drawn
-settings_tab_click Settings || fail "the click on Settings for the key list control failed"
-page_keys_control() {
-  (failures=0 behaviour_failures=0
-   expect "Settings draws the provider key list" "$page_keys_want" page_keys_drawn >"$sandbox/jarvis-page-keys-control.log"
-   echo "$failures")
-}
-expect "a key list with no Settings field breaks its Settings reading" 1 page_keys_control
-cp -- "$sandbox/page-manifest-original" "$page_manifest"
-jarvis_rescan
-expect_poll "the restored Settings page draws the provider key list again" "$page_keys_want" page_keys_drawn
+expect_poll "Details draws the provider key list" "$page_keys_want" page_keys_drawn
+settings_tab_click Settings || fail "the click back to Settings after the key list failed"
 expect_poll "the page shows Settings for the backup models" 0 settings_tab
 
 # Two backup models, added through the list's Add action, sit

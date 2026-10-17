@@ -24,8 +24,7 @@ cfg="$tmp/cfg"
 probe="$cfg/vgshell/plugins/acme.probe"
 mkdir -p "$probe"
 manifest acme.probe 0.1.0 ', "settings": { "mode": "fast", "count": 2, "trust": false },
-  "schema": { "mode": { "type": "enum", "label": "Mode", "options": [{ "value": "fast", "label": "Fast" }, { "value": "slow", "label": "Slow" }] }, "count": { "type": "number", "label": "Count", "min": 1, "max": 9 }, "trust": { "type": "boolean", "label": "Trust" }, "tools": { "type": "action", "label": "Tools" } },
-  "requirements": [{ "command": "acme-tool", "optional": true, "purpose": "Runs the tools", "setting": "tools" }]' >"$probe/manifest.json"
+  "schema": { "mode": { "type": "enum", "label": "Mode", "options": [{ "value": "fast", "label": "Fast" }, { "value": "slow", "label": "Slow" }] }, "count": { "type": "number", "label": "Count", "min": 1, "max": 9 }, "trust": { "type": "boolean", "label": "Trust" } }' >"$probe/manifest.json"
 printf 'import QtQuick\nItem { property var shell: null }\n' >"$probe/Service.qml"
 user_file() { printf '%s\n' "$1" >"$cfg/vgshell/shell.json"; } # JSON
 
@@ -44,7 +43,6 @@ settings_of() {
 # Rows: name | user shell.json, `-` for none | id | exit | stdout | first stderr line
 rows=(
   "the manifest's defaults with no user file|-|acme.probe|0|{\"mode\":\"fast\",\"count\":2,\"trust\":false}|"
-  "an action field adds no stored value|{ \"plugins\": [{ \"id\": \"acme.probe\", \"tools\": true }] }|acme.probe|0|{\"mode\":\"fast\",\"count\":2,\"trust\":false}|"
   "the user's plugins row over the defaults|{ \"plugins\": [{ \"id\": \"acme.probe\", \"count\": 5, \"trust\": true }] }|acme.probe|0|{\"mode\":\"fast\",\"count\":5,\"trust\":true}|"
   "a version 1 file's layout entry setting, read as migrated into the row|{ \"version\": 1, \"bar\": { \"layout\": { \"right\": [{ \"id\": \"acme.probe\", \"count\": 7 }] } }, \"plugins\": [{ \"id\": \"acme.probe\", \"trust\": true }] }|acme.probe|0|{\"mode\":\"fast\",\"count\":7,\"trust\":true}|"
   "a value the schema refuses|{ \"plugins\": [{ \"id\": \"acme.probe\", \"trust\": \"yes\" }] }|acme.probe|1||vgshell: refused: setting=trust want=boolean id=acme.probe"
@@ -98,6 +96,5 @@ control() { # NAME FILE NEEDLE REPLACEMENT
 control ignores-user bin/vgshell-plugin-judge 'settingsFor(configLogic.effectiveConfig(shipped, user)' 'settingsFor(configLogic.effectiveConfig(shipped, null)'
 control skips-schema bin/vgshell-plugin-judge 'if (refusal !== "") refuse(refusal.slice(' 'if (false) refuse(refusal.slice('
 control unmigrated bin/lib/judge-files.js 'logic.migrateConfig(config).config' 'config'
-control action-as-value bin/vgshell-plugin-judge 'if (manifest.schema[key].type === "action") continue;' ''
 
 rows_done test-vgshell-plugin-settings

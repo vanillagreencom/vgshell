@@ -157,12 +157,12 @@ Item {
     }
 
     // The required step stays visible. The other service's Stop action
-    // belongs beside its Settings field.
+    // belongs beside its fact on Details.
     function publishSetup() {
         const value = setupValue.hidden ? { tone: "warning", text: "Dictation tool missing" } : { tone: setupValue.tone, text: setupValue.text };
         if (setupValue.lines !== undefined && setupValue.lines.length > 0) value.lines = setupValue.lines;
         value.action = setupValue.action === "setup";
-        if (setupValue.action === "stop") value.hint = "Choose Stop the other voxtype under [Other dictation service](page:vgs.voice/Settings/otherService)";
+        if (setupValue.action === "stop") value.hint = "Choose Stop the other voxtype under [Other dictation service](page:vgs.voice/Details)";
         publish("setup", value);
         publish("otherService", setupValue.action === "stop"
             ? { tone: "warning", text: "Another voxtype runs", action: true }
@@ -283,7 +283,7 @@ Item {
         if (answer !== "ok") console.warn("voice: start " + answer);
         if (answer === "refused: dictation=daemon-failed" || answer === "refused: dictation=daemon-absent" || answer === "refused: dictation=daemon-elsewhere" || answer === "refused: dictation=daemon-starting") {
             refreshSetup();
-            shell.surfaces.openPage(VoiceLogic.HOLDER, setupValue.action === "stop" ? "Settings/otherService" : "Setup");
+            shell.surfaces.openPage(VoiceLogic.HOLDER, setupValue.action === "stop" ? "Details" : "Setup");
         }
         return answer;
     }

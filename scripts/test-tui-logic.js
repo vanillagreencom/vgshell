@@ -296,8 +296,8 @@ function suite(ctx, check) {
     // listedTuis: the manager row's listed screens, in manifest order.
     const ordered = ctx.validateManifest(manifestWith({ zeta: listed, hello: hello, alpha: Object.assign({}, listed, { entry: { label: "First things", icon: "wrench", group: "Tools", settings: true } }) }), "/p").manifest;
     check("listedTuis: each script with an entry, in manifest order, a settings screen marked", ctx.listedTuis(ordered), [
-        { name: "zeta", label: "Update the system", icon: "terminal", setting: "", settings: false },
-        { name: "alpha", label: "First things", icon: "wrench", setting: "", settings: true },
+        { name: "zeta", label: "Update the system", icon: "terminal", settings: false },
+        { name: "alpha", label: "First things", icon: "wrench", settings: true },
     ]);
     check("listedTuis: a manifest with no tui key lists none", ctx.listedTuis(ctx.validateManifest(manifestWith(undefined), "/p").manifest), []);
     // listedTuiRequest: [name, manifest, id, TUI name, the request or the

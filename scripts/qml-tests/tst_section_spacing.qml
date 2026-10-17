@@ -310,29 +310,30 @@ Item {
             verify(Math.abs(gap - list) <= root.tolerance, "VGlass sits " + gap + " px under the Enabled switch, not " + list + " as rows of a list");
         }
 
-        // A field's own state line that ends in a hint leaves the group
-        // space before the next field, as a hinted row of a list does: the
-        // line, its field's lines and the field each take the room under
-        // their last sub-text (StatusLine.subText, ChoiceField.subText).
-        function test_a_hinted_own_line_keeps_the_group_space() {
+        // A field's stored key list whose line ends in a hint leaves the
+        // group space before the next field, as a hinted row of a list
+        // does: the line, its field's lines and the field each take the
+        // room under their last sub-text (StatusLine.subText,
+        // ChoiceField.subText).
+        function test_a_hinted_key_line_keeps_the_group_space() {
             hintedRows.visible = true;
             verify(waitForRendering(hintedRows));
             const list = gapBetween(grabImage(root), hintedRows.children[0], hintedRows.children[1]);
             hintedRows.visible = false;
             const schema = { alpha: { type: "boolean", label: "Alpha" }, beta: { type: "boolean", label: "Beta" } };
-            const status = { alphaState: { type: "state", label: "Alpha state", setting: "alpha", hint: "Alpha is ready to use" } };
+            const status = { alphaKeys: { type: "presenceList", label: "Alpha keys", setting: "alpha", hint: "Alpha is ready to use" } };
             const row = rowOf("vgs.notifications");
-            Object.assign(row, { schema: schema, settings: { alpha: true, beta: false }, status: PluginLogic.statusRows({ status: status }, { alphaState: { tone: "ok", text: "Ready" } }),
-                fieldRows: PluginLogic.fieldRows(schema, status, [], {}) });
+            Object.assign(row, { schema: schema, settings: { alpha: true, beta: false }, status: PluginLogic.statusRows({ status: status, secrets: { service: "acme-unit", label: "Key" } }, { alphaKeys: [] }),
+                fieldRows: PluginLogic.fieldRows(schema, status) });
             const page = createTemporaryObject(pageComponent, root);
             verify(page !== null);
             page.row = row;
             const own = () => descendants(page).find(item => item instanceof StatusLine && item.visible && item.hint === "Alpha is ready to use");
             const beta = () => descendants(page).find(item => item instanceof SettingField && item.key === "beta");
-            tryVerify(() => own() !== undefined && beta() !== undefined && beta().height > 0, 2000, "the page draws Alpha's own line and Beta");
+            tryVerify(() => own() !== undefined && beta() !== undefined && beta().height > 0, 2000, "the page draws Alpha's key line and Beta");
             verify(waitForRendering(page));
             const gap = gapBetween(grabImage(root), own(), beta());
-            verify(Math.abs(gap - list) <= root.tolerance, "Beta sits " + gap + " px under Alpha's hinted line, not " + list + " as under a hinted row of a list");
+            verify(Math.abs(gap - list) <= root.tolerance, "Beta sits " + gap + " px under Alpha's hinted key line, not " + list + " as under a hinted row of a list");
         }
 
         function test_heading_space_on_plugin_pages_data() {

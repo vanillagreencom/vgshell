@@ -30,139 +30,98 @@ function report(name, got, want) {
     console.log("  FAIL  " + name + "\n        got  " + g + "\n        want " + w);
 }
 
-// The page's own row judge, which the shipped manifests' rows run through.
-const STEPS = path.join(__dirname, "..", "shell", "plugins", "vgs.settings", "Steps.js");
-
-// Every shipped manifest's Settings rows as the page draws them
-// (Steps.featureRow, STEPS) from the rows CTX judged, with the plugin on,
-// in two states. Work: each state entry reads a warning and offers its
-// action, a presence is absent and every optional tool is missing; then
-// every action row offers a press. Set up: each state reads ready and
-// offers nothing, a presence is present and every tool is there; then no
-// row draws an action of its entries or one that takes no press.
-function featureRowsHold(ctx, steps, check) {
-    const on = { enabled: true, name: "Fixture", error: "" };
-    const base = path.join(__dirname, "..", "shell", "plugins");
-    for (const id of fs.readdirSync(base).sort()) {
-        const file = path.join(base, id, "manifest.json");
-        if (!fs.existsSync(file)) continue;
-        const judged = ctx.validateManifest(JSON.parse(fs.readFileSync(file, "utf8")), path.join(base, id));
-        if (!judged.ok) continue;
-        const m = judged.manifest;
-        const valueOf = (entry, work) => {
-            switch (entry.type) {
-            case "state": return work ? { tone: "warning", text: "To do", action: entry.actions !== undefined ? Object.keys(entry.actions)[0] : entry.action !== undefined } : { tone: "ok", text: "Ready" };
-            case "presence": return work ? "absent" : "present";
-            case "presenceList": return [];
-            case "count": return 1;
-            case "time": return 0;
-            default: return "Fixture";
-            }
-        };
-        const page = work => ({ schema: m.schema, tuis: ctx.listedTuis(m),
-            status: ctx.statusRows(m, Object.fromEntries(Object.keys(m.status).map(key => [key, valueOf(m.status[key], work)]))),
-            requirements: ctx.requirementRows(m, work ? m.requirements.filter(row => row.optional).map(row => row.name) : [], {}) });
-        const buttons = line => [line.action, line.aside].concat(line.more).filter(button => button !== null);
-        const working = page(true), setUp = page(false);
-        check("featureRow: " + id + ": every action row offers a press while its feature has work to do",
-            m.fieldRows.filter(field => m.schema[field.key].type === "action")
-                .filter(field => !steps.featureRow(field, working, on).some(line => buttons(line).some(button => button.enabled))).map(field => field.key), []);
-        check("featureRow: " + id + ": a row whose feature is set up draws no dead action and none of its entries'",
-            m.fieldRows.filter(field => steps.featureRow(field, setUp, on).some(line => buttons(line).some(button => !button.enabled)
-                || ((line.kind === "own" || line.kind === "entry") && (line.action !== null || line.aside !== null)))).map(field => field.key), []);
-    }
-}
-
 // Every row against one loaded judge, `ctx`, and the configuration judge it
 // imports, `configLogic`, each result handed to `check`.
 function suite(ctx, configLogic, check) {
-    const actionSchema = { feature: { type: "action", label: "Feature" } };
+    // Where each status entry draws (pagePlacementError): [name, status,
+    // whether the plugin declares secrets, accepted]. Settings takes only
+    // a stored key list; every other entry, its action with it, is a
+    // Details fact.
+    const modeSchema = { mode: { type: "boolean", label: "Mode" } };
     const requiredStatus = { ready: { type: "state", label: "Ready", setup: true } };
     const pagePlacementRows = [
-        ["required state", requiredStatus, [], {}, actionSchema, true],
-        ["optional action beside a choice", { optional: { type: "state", label: "Optional", setting: "feature", action: { label: "Fix", tui: "fix" } } }, [], {}, actionSchema, true],
-        ["status field reference", { optional: { type: "state", label: "Optional", setting: "missing" } }, [], {}, actionSchema, false],
-        ["hidden optional field", { optional: { type: "state", label: "Optional", hidden: true, setting: "feature" } }, [], {}, actionSchema, false],
-        ["undrawn optional field", { optional: { type: "data", label: "Optional", setting: "feature" } }, [], {}, actionSchema, false],
-        ["required setup flag type", { ready: { type: "state", label: "Ready", setup: "yes" } }, [], {}, actionSchema, false],
-        ["hidden required step", { ready: { type: "state", label: "Ready", hidden: true, setup: true } }, [], {}, actionSchema, false],
-        ["required step value type", { ready: { type: "count", label: "Ready", setup: true } }, [], {}, actionSchema, false],
-        ["connection keys", { ...requiredStatus, keys: { type: "presenceList", label: "Keys", step: "ready" } }, [], {}, actionSchema, true],
-        ["key step reference", { keys: { type: "presenceList", label: "Keys", step: "missing" } }, [], {}, actionSchema, false],
-        ["key step refers to required work", { ready: { type: "state", label: "Ready" }, keys: { type: "presenceList", label: "Keys", step: "ready" } }, [], {}, actionSchema, false],
-        ["key association value type", { ...requiredStatus, keys: { type: "text", label: "Keys", step: "ready" } }, [], {}, actionSchema, false],
-        ["one status place", { ready: { type: "state", label: "Ready", setup: true, setting: "feature" } }, [], {}, actionSchema, false],
-        ["hidden plugin-owned action needs no manager row", { optional: { type: "state", label: "Optional", hidden: true, action: { label: "Fix", tui: "fix" } } }, [], {}, actionSchema, true],
-        ["action has a user path", { optional: { type: "state", label: "Optional", action: { label: "Fix", tui: "fix" } } }, [], {}, actionSchema, false],
-        ["optional feature tool", {}, [{ optional: true, setting: "feature" }], {}, actionSchema, true],
-        ["tool field reference", {}, [{ optional: true, setting: "missing" }], {}, actionSchema, false],
-        ["required tools stay on Setup", {}, [{ optional: false, setting: "feature" }], {}, actionSchema, false],
-        ["screen field reference", {}, [], { fix: { entry: { setting: "missing" } } }, actionSchema, false],
-        ["one screen place", {}, [], { fix: { entry: { setting: "feature", settings: true } } }, actionSchema, false],
-        ["screen beside feature", {}, [], { fix: { entry: { setting: "feature" } } }, actionSchema, true]
+        ["required state", requiredStatus, false, true],
+        ["a stored key list beside its field", { keys: { type: "presenceList", label: "Keys", setting: "mode" } }, true, true],
+        ["a state beside a field", { optional: { type: "state", label: "Optional", setting: "mode", action: { label: "Fix", tui: "fix" } } }, true, false],
+        ["a key list of a plugin that stores no key beside a field", { keys: { type: "presenceList", label: "Keys", setting: "mode" } }, false, false],
+        ["a stored key list beside no field", { keys: { type: "presenceList", label: "Keys", setting: "missing" } }, true, false],
+        ["a hidden stored key list beside a field", { keys: { type: "presenceList", label: "Keys", hidden: true, setting: "mode" } }, true, false],
+        ["required setup flag type", { ready: { type: "state", label: "Ready", setup: "yes" } }, false, false],
+        ["hidden required step", { ready: { type: "state", label: "Ready", hidden: true, setup: true } }, false, false],
+        ["required step value type", { ready: { type: "count", label: "Ready", setup: true } }, false, false],
+        ["connection keys", { ...requiredStatus, keys: { type: "presenceList", label: "Keys", step: "ready" } }, true, true],
+        ["key step reference", { keys: { type: "presenceList", label: "Keys", step: "missing" } }, true, false],
+        ["key step refers to required work", { ready: { type: "state", label: "Ready" }, keys: { type: "presenceList", label: "Keys", step: "ready" } }, true, false],
+        ["key association value type", { ...requiredStatus, keys: { type: "text", label: "Keys", step: "ready" } }, true, false],
+        ["one status place", { ...requiredStatus, keys: { type: "presenceList", label: "Keys", step: "ready", setting: "mode" } }, true, false],
+        ["hidden plugin-owned action needs no manager row", { optional: { type: "state", label: "Optional", hidden: true, action: { label: "Fix", tui: "fix" } } }, false, true],
+        ["an optional feature's action beside its fact on Details", { optional: { type: "state", label: "Optional", action: { label: "Fix", tui: "fix" } } }, false, true]
     ];
-    for (const [name, status, requirements, tui, schema, accepted] of pagePlacementRows)
-        check("pagePlacement: " + name, ctx.pagePlacementError(status, requirements, tui, schema) === "", accepted);
-    // An action field acts through the tool beside it.
-    const actionRaw = { schemaVersion: 1, id: "acme.action", name: "A", version: "1", author: "A", description: "A", kinds: ["service"], entryPoints: { service: "Service.qml" }, schema: actionSchema,
-        requirements: [{ command: "acme-tool", purpose: "Feature", optional: true, setting: "feature" }] };
-    check("action field has no stored default", ctx.validateManifest(actionRaw, "/p").ok, true);
-    check("action field refuses a stored default", ctx.validateManifest({ ...actionRaw, settings: { feature: false } }, "/p").ok, false);
+    for (const [name, status, secrets, accepted] of pagePlacementRows)
+        check("pagePlacement: " + name, ctx.pagePlacementError(status, modeSchema, secrets) === "", accepted);
+    // Every non-value Settings placement key a manifest may carry is
+    // refused at its path, naming the key: [name, a change to a plain
+    // service with a `mode` switch, a `fix` screen and a stored `keys`
+    // list, the refusal's start, "" for none].
+    const fix = { script: "tui/fix.sh", title: "Fix" };
+    const placementBase = () => ({ schemaVersion: 1, id: "acme.placed", name: "Placed", version: "1", author: "A", description: "A", kinds: ["service"], entryPoints: { service: "Service.qml" },
+        capabilities: ["secrets", "status", "tui"], secrets: { service: "acme-placed", label: "Acme key" },
+        schema: { mode: { type: "boolean", label: "Mode" } }, settings: { mode: false },
+        tui: { fix: Object.assign({ entry: { label: "Fix", icon: "wrench", group: "Acme" } }, fix) },
+        status: { keys: { type: "presenceList", label: "Keys", setting: "mode" }, health: { type: "state", label: "Health", action: { label: "Fix", tui: "fix" } } },
+        requirements: [{ command: "acme-tool", purpose: "Feature", optional: true }] });
+    for (const [name, plant, refusal] of [
+        ["the stored key list beside its field and the action on Details", m => m, ""],
+        ["a status entry beside a field", m => { m.status.health.setting = "mode"; }, "status.health.setting needs a stored key list"],
+        ["a schema field of type action", m => { m.schema.feature = { type: "action", label: "Feature" }; }, "schema.feature.type must be one of string, number, boolean, enum, list, got \"action\""],
+        ["a requirement beside a field", m => { m.requirements[0].setting = "mode"; }, "requirements.0 has unknown key \"setting\""],
+        ["a listed screen beside a field", m => { m.tui.fix.entry.setting = "mode"; }, "tui.fix.entry has unknown key \"setting\""],
+        ["a field's hint read from a status entry", m => { m.schema.mode.hintFrom = "health"; }, "schema.mode has unknown key \"hintFrom\""]
+    ]) {
+        const raw = placementBase();
+        plant(raw);
+        const judged = ctx.validateManifest(raw, "/p");
+        check("placement: " + name, judged.ok ? "" : judged.error.slice(0, refusal.length || judged.error.length), refusal);
+    }
     // The rows a Settings page draws (fieldRows) and the judge of them
     // (pageRowsError). Each row: [name, the manifest's keys over a plain
-    // service with a `feature` action field and a `mode` switch, the
+    // service with a `mode` switch and a stored key list beside it, the
     // refusal's path and rule, "" for none].
-    const fix = { script: "tui/fix.sh", title: "Fix" };
-    const fixEntry = { label: "Fix", icon: "wrench", group: "Acme", setting: "feature" };
-    const rowsBase = { schemaVersion: 1, id: "acme.rows", name: "Rows", version: "1", author: "A", description: "A", kinds: ["service"], entryPoints: { service: "Service.qml" }, capabilities: ["status", "tui"],
-        schema: { feature: { type: "action", label: "Feature" }, mode: { type: "boolean", label: "Mode", group: "Main" } }, settings: { mode: false },
-        tui: { fix: fix }, status: { note: { type: "text", label: "Note" } } };
+    const rowsBase = { schemaVersion: 1, id: "acme.rows", name: "Rows", version: "1", author: "A", description: "A", kinds: ["service"], entryPoints: { service: "Service.qml" }, capabilities: ["secrets", "status", "tui"],
+        secrets: { service: "acme-rows", label: "Acme key" },
+        schema: { mode: { type: "boolean", label: "Mode", group: "Main" } }, settings: { mode: false },
+        tui: { fix: fix }, status: { keys: { type: "presenceList", label: "Keys", setting: "mode" } } };
     const withPageRows = keys => Object.assign({}, rowsBase, keys, { schema: Object.assign({}, rowsBase.schema, keys.schema || {}),
-        tui: Object.assign({}, rowsBase.tui, keys.tui || {}), status: Object.assign({}, rowsBase.status, keys.status || {}) });
-    const ownAction = { fixing: { type: "state", label: "Fixing", setting: "feature", action: { label: "Fix", tui: "fix" } } };
+        tui: Object.assign({}, rowsBase.tui, keys.tui || {}), status: Object.assign({}, rowsBase.status, keys.status || {}), settings: Object.assign({}, rowsBase.settings, keys.settings || {}) });
     for (const [name, keys, refusal] of [
-        ["an action field with nothing to act on", {}, "schema.feature page-row=no-action"],
-        ["an action field whose one entry declares no action", { status: { fixing: { type: "state", label: "Fixing", setting: "feature" } } }, "schema.feature page-row=no-action"],
-        ["an action field acting through its entry", { tui: { fix: fix }, status: ownAction }, ""],
-        ["an action field acting through its screen", { tui: { fix: Object.assign({ entry: fixEntry }, fix) } }, ""],
-        ["an action field acting through its tool", { requirements: [{ command: "acme-tool", purpose: "Feature", optional: true, setting: "feature" }] }, ""],
-        ["an action field with two lines", { tui: { fix: fix }, status: Object.assign({ other: { type: "state", label: "Other", setting: "feature" } }, ownAction) }, "schema.feature page-row=two-states"],
-        ["two lines beside a switch", { tui: { fix: fix }, status: Object.assign({ one: { type: "state", label: "One", setting: "mode" }, two: { type: "state", label: "Two", setting: "mode" } }, ownAction) }, ""],
-        ["one label for two fields of one section", { tui: { fix: fix }, status: ownAction, schema: { again: { type: "boolean", label: "mode", group: "Main" } }, settings: { mode: false, again: false } }, "schema.again page-row=duplicate-label"],
-        ["one label in two sections", { tui: { fix: fix }, status: ownAction, schema: { again: { type: "boolean", label: "Mode", group: "Other" } }, settings: { mode: false, again: false } }, ""],
-        ["a key list labelled like its field", { tui: { fix: fix }, status: Object.assign({ keys: { type: "presenceList", label: "Mode", setting: "mode" } }, ownAction) }, "status.keys page-row=duplicate-label"],
-        ["an entry labelled like a field of its section", { tui: { fix: fix }, status: Object.assign({ one: { type: "state", label: "One", setting: "mode" }, two: { type: "state", label: "Mode", setting: "mode" } }, ownAction) }, "status.two page-row=duplicate-label"],
-        ["an own entry labelled like its field", { tui: { fix: fix }, status: Object.assign({ one: { type: "state", label: "Mode", setting: "mode" } }, ownAction) }, ""],
-        ["a field labelled as the page labels its own row", { tui: { fix: fix }, status: ownAction, schema: { again: { type: "boolean", label: "More settings" } }, settings: { mode: false, again: false } }, "schema.again page-row=page-label"],
-        ["a field's hint from its own entry", { tui: { fix: fix }, status: Object.assign({ one: { type: "state", label: "One", setting: "mode" } }, ownAction), schema: { mode: { type: "boolean", label: "Mode", group: "Main", hintFrom: "one" } } }, "schema.mode page-row=own-hint"],
-        ["a field's hint from another field's entry", { tui: { fix: fix }, status: Object.assign({ one: { type: "state", label: "One", setting: "mode" } }, ownAction), schema: { again: { type: "boolean", label: "Again", hintFrom: "one" } }, settings: { mode: false, again: false } }, ""],
-        ["an action field's hint from a state", { tui: { fix: fix }, status: Object.assign({ one: { type: "state", label: "One" } }, ownAction), schema: { feature: { type: "action", label: "Feature", hintFrom: "one" } } }, "schema.feature page-row=action-hint"],
-        ["one configuration screen", { tui: { fix: fix, configure: Object.assign({ entry: { label: "Configure", icon: "wrench", group: "Acme", settings: true } }, fix) }, status: ownAction }, ""],
-        ["two configuration screens, each a More settings row", { tui: { fix: fix, configure: Object.assign({ entry: { label: "Configure", icon: "wrench", group: "Acme", settings: true } }, fix), tune: Object.assign({ entry: { label: "Tune", icon: "wrench", group: "Acme", settings: true } }, fix) }, status: ownAction }, "tui.tune.entry page-row=duplicate-label"],
-        ["a configuration screen a status entry opens beside another", { tui: { fix: fix, configure: Object.assign({ entry: { label: "Configure", icon: "wrench", group: "Acme", settings: true } }, fix), tune: Object.assign({ entry: { label: "Tune", icon: "wrench", group: "Acme", settings: true } }, fix) },
-            status: { fixing: { type: "state", label: "Fixing", setting: "feature", action: { label: "Tune", tui: "tune" } } } }, ""],
-        ["each page label the page draws itself", { tui: { fix: fix }, status: ownAction, schema: { again: { type: "boolean", label: "Show on the bar", group: "Other" } }, settings: { mode: false, again: false } }, "schema.again page-row=page-label"]
+        ["one label for two fields of one section", { schema: { again: { type: "boolean", label: "mode", group: "Main" } }, settings: { again: false } }, "schema.again page-row=duplicate-label"],
+        ["one label in two sections", { schema: { again: { type: "boolean", label: "Mode", group: "Other" } }, settings: { again: false } }, ""],
+        ["a key list labelled like its field", { status: { keys: { type: "presenceList", label: "Mode", setting: "mode" } } }, "status.keys page-row=duplicate-label"],
+        ["a field labelled like a key list of its section", { schema: { again: { type: "boolean", label: "Again", group: "Main" } }, settings: { again: false }, status: { keys: { type: "presenceList", label: "again", setting: "mode" } } }, "schema.again page-row=duplicate-label"],
+        ["a field labelled as the page labels its own row", { schema: { again: { type: "boolean", label: "More settings" } }, settings: { again: false } }, "schema.again page-row=page-label"],
+        ["one configuration screen", { tui: { configure: Object.assign({ entry: { label: "Configure", icon: "wrench", group: "Acme", settings: true } }, fix) } }, ""],
+        ["two configuration screens, each a More settings row", { tui: { configure: Object.assign({ entry: { label: "Configure", icon: "wrench", group: "Acme", settings: true } }, fix), tune: Object.assign({ entry: { label: "Tune", icon: "wrench", group: "Acme", settings: true } }, fix) } }, "tui.tune.entry page-row=duplicate-label"],
+        ["a configuration screen a status entry opens beside another", { tui: { configure: Object.assign({ entry: { label: "Configure", icon: "wrench", group: "Acme", settings: true } }, fix), tune: Object.assign({ entry: { label: "Tune", icon: "wrench", group: "Acme", settings: true } }, fix) },
+            status: { fixing: { type: "state", label: "Fixing", action: { label: "Tune", tui: "tune" } } } }, ""],
+        ["each page label the page draws itself", { schema: { again: { type: "boolean", label: "Show on the bar", group: "Other" } }, settings: { again: false } }, "schema.again page-row=page-label"]
     ]) {
         const judged = ctx.validateManifest(withPageRows(keys), "/p");
         check("pageRows: " + name, judged.ok ? "" : refusal === "" ? judged.error : judged.error.slice(0, refusal.length), refusal);
     }
     const drawn = ctx.validateManifest(withPageRows({
-        tui: { fix: fix, task: Object.assign({ entry: fixEntry }, fix), declared: Object.assign({ entry: fixEntry }, fix) },
-        status: Object.assign({ aside: { type: "state", label: "Aside", setting: "mode", action: { label: "Open", tui: "declared" } }, keys: { type: "presenceList", label: "Keys", setting: "mode" }, gone: { type: "data", label: "Data" } }, ownAction),
-        requirements: [{ command: "acme-tool", purpose: "Feature", optional: true, setting: "feature" }, { command: "acme-base", purpose: "Base" }]
+        schema: { other: { type: "boolean", label: "Other" } }, settings: { other: true },
+        status: { fact: { type: "state", label: "Fact", action: { label: "Fix", tui: "fix" } }, gone: { type: "data", label: "Data" } }
     }), "/p");
-    check("fieldRows: each field's own entry, key lists, tools and undeclared screens, in schema order", drawn.ok ? drawn.manifest.fieldRows : drawn.error, [
-        { key: "feature", section: "", list: false, own: "fixing", entries: [], keyLists: [], tools: ["acme-tool"], screens: ["task"] },
-        { key: "mode", section: "Main", list: false, own: "aside", entries: [], keyLists: ["keys"], tools: [], screens: [] }]);
+    check("fieldRows: each field's stored key lists, in schema order", drawn.ok ? drawn.manifest.fieldRows : drawn.error, [
+        { key: "mode", section: "Main", list: false, keyLists: ["keys"] },
+        { key: "other", section: "", list: false, keyLists: [] }]);
     // The defects first-party manifests held before their rows were judged,
     // planted again in the shipped manifest: each is refused at its path by
     // its rule.
-    featureRowsHold(ctx, load(STEPS), check);
     const firstParty = id => JSON.parse(fs.readFileSync(path.join(__dirname, "../shell/plugins/" + id + "/manifest.json"), "utf8"));
     for (const [name, id, plant, refusal] of [
-        ["AI Usage with Codex's state twice beside its switch", "vgs.ai-usage", m => { m.status.codexAgain = { type: "state", label: "Codex", setting: "showCodex" }; }, "status.codex page-row=duplicate-label"],
-        ["VPN with an Import WireGuard row of no action", "vgs.vpn", m => { m.schema.wireguardImport = { type: "action", label: "Import WireGuard", description: "Add a WireGuard configuration file" }; }, "schema.wireguardImport page-row=no-action"],
-        ["Jarvis with the Voice provider hint read from its own line", "vgs.jarvis", m => { m.schema.voiceProvider.hintFrom = "voiceRoute"; }, "schema.voiceProvider page-row=own-hint"],
+        ["AI Usage with its gateway key list twice beside its field", "vgs.ai-usage", m => { m.status.gatewayKeyAgain = Object.assign({}, m.status.gatewayKey); }, "status.gatewayKeyAgain page-row=duplicate-label"],
+        ["Jarvis with its provider key line beside the AI model field", "vgs.jarvis", m => { m.status.keys.setting = "brain"; }, "status.keys.setting needs a stored key list"],
         ["Printers with its helper listed by its bus name", "vgs.printers", m => { delete m.requirements.find(r => r.dbus !== undefined).dbus.label; }, "requirements.4.dbus.label must"]
     ]) {
         const raw = firstParty(id);
@@ -171,8 +130,6 @@ function suite(ctx, configLogic, check) {
         const judged = ctx.validateManifest(raw, "/p");
         check("pageRows: " + name, judged.ok ? "" : refusal === "" ? judged.error : judged.error.slice(0, refusal.length), refusal);
     }
-    check("action field refuses configuration writes", ctx.settingError(actionSchema.feature, false) !== "", true);
-    check("manifest invokes page association judge", ctx.validateManifest({ ...actionRaw, requirements: actionRaw.requirements.concat([{ command: "acme-other", purpose: "Feature", optional: true, setting: "missing" }]) }, "/p").ok, false);
     const dictationRaw = { schemaVersion: 1, id: "acme.dictation", name: "D", version: "1", author: "a", description: "d", kinds: ["service"], entryPoints: { service: "Service.qml" }, capabilities: ["dictation", "status"], status: { setup: { type: "presence", label: "Setup", setup: true, action: { label: "Set up", dictation: "setup" } } } };
     for (const [capability, value, accepted] of [[true, "setup", true], [false, "setup", false], [true, "restart", false], [true, null, false], [true, 1, false]]) {
         const raw = JSON.parse(JSON.stringify(dictationRaw));
@@ -345,14 +302,6 @@ function suite(ctx, configLogic, check) {
         ["a two-sentence description whose last sentence lacks its full stop is refused", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", description: "Shows the clock. A press opens the calendar" } } }, "schema.a.description must end with no full stop"],
         ["a two-sentence description with both full stops", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", description: "Shows the clock. A press opens the calendar." } } }, null],
         ["a list item's description is judged", { settings: { a: [] }, schema: { a: { type: "list", label: "A", items: { enabled: { type: "boolean", label: "Enabled", description: "Uses this item." } }, defaults: { enabled: true } } } }, "schema.a.items: schema.enabled.description must end with no full stop"],
-        ["a field reads a live state hint", { capabilities: ["status"], status: { health: { type: "state", label: "Health" } }, settings: { a: true }, schema: { a: { type: "boolean", label: "A", hintFrom: "health" } } }, null],
-        ["hintFrom is a status key", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", hintFrom: 3 } } }, "schema.a.hintFrom must name a status key"],
-        ["hintFrom rejects malformed keys", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", hintFrom: "a b" } } }, "schema.a.hintFrom must name a status key"],
-        ["hintFrom needs a declared state", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", hintFrom: "health" } } }, "schema.a.hintFrom must name a displayed state status entry"],
-        ["hintFrom rejects another status type", { capabilities: ["status"], status: { health: { type: "choices", label: "Health" } }, settings: { a: true }, schema: { a: { type: "boolean", label: "A", hintFrom: "health" } } }, "schema.a.hintFrom must name a displayed state status entry"],
-        ["hintFrom needs a displayed state", { capabilities: ["status"], status: { health: { type: "state", label: "Health", hidden: true } }, settings: { a: true }, schema: { a: { type: "boolean", label: "A", hintFrom: "health" } } }, "schema.a.hintFrom must name a displayed state status entry"],
-        ["hintFrom has no fixed description", { capabilities: ["status"], status: { health: { type: "state", label: "Health" } }, settings: { a: true }, schema: { a: { type: "boolean", label: "A", hintFrom: "health", description: "Fixed" } } }, "schema.a must not declare both description and hintFrom"],
-        ["hintFrom belongs to a flat field", { capabilities: ["status"], status: { health: { type: "state", label: "Health" } }, settings: { a: [] }, schema: { a: { type: "list", label: "A", hintFrom: "health", items: { enabled: { type: "boolean", label: "Enabled" } }, defaults: { enabled: true } } } }, "schema.a.hintFrom needs a flat setting"],
         ["a description link to an https address", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", description: "Get a key at OpenAI", link: { text: "OpenAI", url: "https://platform.openai.com/api-keys" } } } }, null],
         ["a description link to an https address with a port, query and fragment", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", description: "Get a key at OpenAI", link: { text: "OpenAI", url: "https://example.org:8443/keys?tab=new#create" } } } }, null],
         ["a description link that is not an object", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", description: "Get a key at OpenAI", link: "https://platform.openai.com/api-keys" } } }, "schema.a.link must be an object"],
@@ -659,7 +608,7 @@ function suite(ctx, configLogic, check) {
     }
     const required = ctx.validateManifest(Object.assign({}, bar, { requirements: [{ command: "gum", purpose: "Dialogs" }, { command: "checkupdates", packages: { pacman: "pacman-contrib" }, optional: true, purpose: "Counts updates" }, { dbus: { bus: "system", name: "org.freedesktop.UPower.PowerProfiles", label: "Power profiles service" }, packages: { dnf: "ppd-service" }, purpose: "Switches the power profile" }] }), "/p").manifest;
     check("validateManifest gives every requirement its packages and optional", required.requirements,
-        [{ name: "gum", title: "gum", bus: null, packages: {}, optional: false, purpose: "Dialogs", floor: null, onRequest: false, setting: "" }, { name: "checkupdates", title: "checkupdates", bus: null, packages: { pacman: "pacman-contrib" }, optional: true, purpose: "Counts updates", floor: null, onRequest: false, setting: "" }, { name: "org.freedesktop.UPower.PowerProfiles", title: "Power profiles service", bus: "system", packages: { dnf: "ppd-service" }, optional: false, purpose: "Switches the power profile", floor: null, onRequest: false, setting: "" }]);
+        [{ name: "gum", title: "gum", bus: null, packages: {}, optional: false, purpose: "Dialogs", floor: null, onRequest: false }, { name: "checkupdates", title: "checkupdates", bus: null, packages: { pacman: "pacman-contrib" }, optional: true, purpose: "Counts updates", floor: null, onRequest: false }, { name: "org.freedesktop.UPower.PowerProfiles", title: "Power profiles service", bus: "system", packages: { dnf: "ppd-service" }, optional: false, purpose: "Switches the power profile", floor: null, onRequest: false }]);
     check("validateManifest carries an on-request install as a required entry", ctx.validateManifest(Object.assign({}, bar, { requirements: [{ command: "gum", packages: { aur: "gum-bin" }, install: "on-request", purpose: "Dialogs" }] }), "/p").manifest.requirements.map(r => [r.name, r.optional, r.onRequest]), [["gum", false, true]]);
     check("requirementRows: a command the scan did not find is missing, every other present", ctx.requirementRows(required, ["checkupdates", "vsys"], {}).map(r => [r.name, r.bus, r.state]), [["gum", null, "present"], ["checkupdates", null, "missing"], ["org.freedesktop.UPower.PowerProfiles", "system", "present"]]);
     check("requirementRows: a bus name the scan did not find is missing", ctx.requirementRows(required, ["org.freedesktop.UPower.PowerProfiles"], {}).map(r => [r.name, r.state]), [["gum", "present"], ["checkupdates", "present"], ["org.freedesktop.UPower.PowerProfiles", "missing"]]);
@@ -2022,57 +1971,33 @@ function suite(ctx, configLogic, check) {
 
 suite(load(LOGIC), load(CONFIG), report);
 
-// Its control: a copy of the page judge that draws a set-up row's declared
-// action, not offered, as a dead one; the shipped manifests' rows must fail.
-{
-    const stepsTemp = fs.mkdtempSync(path.join(os.tmpdir(), "plugin-logic-steps-control-"));
-    try {
-        const source = fs.readFileSync(STEPS, "utf8");
-        const needle = "action: lineAction(stepButton(entry), head, plugin)";
-        report("control: the dead-action Steps.js text occurs once", source.split(needle).length - 1, 1);
-        const copy = path.join(stepsTemp, "Steps.js");
-        fs.writeFileSync(copy, source.replace(needle, 'action: lineAction(stepButton(entry) || (entry.action === null ? null : { kind: "status", key: "dead", name: "", label: entry.action.label, tone: "", enabled: false, reason: "" }), head, plugin)'));
-        let red = 0;
-        featureRowsHold(load(LOGIC), load(copy), (name, got, want) => { if (JSON.stringify(got) !== JSON.stringify(want)) red += 1; });
-        report("control: a page judge that draws dead actions fails the shipped rows", red > 0, true);
-    } finally {
-        fs.rmSync(stepsTemp, { recursive: true, force: true });
-    }
-}
-
 // Each control removes one rule from a copy of a judge and keeps the text
 // around it; the suite must fail on every copy. The copy sits at the
 // judge's own place in a temporary tree, beside the other judge, the icon
 // set, the package-manager table and the Hyprland layer's table they import.
 const CONTROLS = [
     ["joined presets refuse a combined atom", "preset.value.indexOf(entry.separator) !== -1", "false"],
-    ["action field refuses stored values", 'if (hasOwn(settings, key)) return at + " is an action field and stores no value";', 'if (false) return at + " is an action field and stores no value";'],
-    ["action field refuses writes", 'if (entry.type === "action") return "want=action-no-value";', 'if (entry.type === "action") return "";'],
     ["manifest invokes page judge", 'if (badPlacement !== "") return { ok: false, error: badPlacement };', 'if (false) return { ok: false, error: badPlacement };'],
     ["manifest drops its page rows' judge", 'if (badRows !== "") return { ok: false, error: badRows };', 'if (false) return { ok: false, error: badRows };'],
-    ["an action field with nothing to act on is drawn", "if (!acts && row.screens.length === 0 && row.tools.length === 0)", "if (false)"],
-    ["an action field draws two lines", "if (row.entries.length > 1)", "if (false)"],
-    ["a field repeats its own entry's hint", "if (spec.hintFrom !== undefined && status[spec.hintFrom].setting === row.key)", "if (false)"],
     ["the page's own labels go unjudged", "if (own.indexOf(label) !== -1)", "if (false)"],
     ["a repeated label goes unjudged", "if (drawn[scope].indexOf(label) !== -1)", "if (false)"],
     ["labels are judged across sections", 'var scope = row.list ? "list " + row.key : "section " + row.section;', 'var scope = "page";'],
     ["labels are judged with their case", "var label = String(labels[l][1]).toLowerCase();", "var label = String(labels[l][1]);"],
-    ["a field's one entry is drawn as one of many", 'own: lines.length === 1 ? lines[0] : "",', 'own: "",'],
-    ["a declared screen is drawn in its field too", "entry.setting === key && declared.indexOf(name) === -1; })", "entry.setting === key; })"],
     ["a declared configuration screen counts as a More settings row", "entry.settings === true && declared.indexOf(name) === -1; })", "entry.settings === true; })"],
     ["a D-Bus requirement needs no label", "if (!isPrintableLine(requirement.dbus.label, REQUIREMENT_LABEL_MAX))", "if (false)"],
-    ["an action field reads a hint it draws nowhere", 'if (spec.type === "action" && spec.hintFrom !== undefined)', "if (false)"],
     ["two configuration screens draw two More settings rows", "if (configuring.length > 1)", "if (false)"],
-    ["association names a real field", 'typeof value !== "string" || !hasOwn(schema, value)', 'false'],
+    ["a status entry that is no stored key list is drawn on Settings", 'if (entry.type !== "presenceList" || !secrets) return at + ".setting needs a stored key list', 'if (false) return at + ".setting needs a stored key list'],
+    ["a stored key list names a real field", 'typeof entry.setting !== "string" || !hasOwn(schema, entry.setting)', 'false'],
+    ["a stored key list on Settings is displayed", 'if (entry.hidden === true) return at + ".setting needs a displayed status";', 'if (false) return at + ".setting needs a displayed status";'],
     ["setup declaration is boolean", 'entry.setup !== undefined && typeof entry.setup !== "boolean"', 'false'],
     ["required step is displayed", 'entry.hidden === true || ["state", "presence"].indexOf(entry.type) === -1', 'false'],
-    ["optional status is displayed", 'entry.hidden === true || ["data", "choices", "launcherRows"].indexOf(entry.type) !== -1', 'false'],
     ["keys name a required step", 'typeof entry.step !== "string" || !hasOwn(status, entry.step) || status[entry.step].setup !== true', 'false'],
     ["key association holds keys", 'if (entry.type !== "presenceList") return at + ".step needs a key list";', 'if (false) return at + ".step needs a key list";'],
     ["status has one place", '(entry.setup === true ? 1 : 0) + (entry.setting !== undefined ? 1 : 0) + (entry.step !== undefined ? 1 : 0) > 1', 'false'],
-    ["action needs a user path", 'entry.hidden !== true && (entry.action !== undefined || entry.actions !== undefined) && entry.setup !== true && entry.setting === undefined', 'false'],
-    ["required tool is not optional setup", 'if (requirements[r].optional !== true)', 'if (false)'],
-    ["screen has one place", 'if (screen.settings === true) return "tui." + names[t] + ".entry declares two Settings placements";', 'if (false) return "tui." + names[t] + ".entry declares two Settings placements";'],
+    ["a schema field may be an action", 'var SETTING_TYPES = ["string", "number", "boolean", "enum", "list"];', 'var SETTING_TYPES = ["string", "number", "boolean", "enum", "list", "action"];'],
+    ["a requirement may sit beside a field", '"floor", "install"];', '"floor", "install", "setting"];'],
+    ["a listed screen may sit beside a field", 'var TUI_ENTRY_KEYS = ["label", "icon", "group", "settings"];', 'var TUI_ENTRY_KEYS = ["label", "icon", "group", "setting", "settings"];'],
+    ["a field may read its hint from a status entry", 'var SCHEMA_ENTRY_KEYS = ["type", "label", "description", "info",', 'var SCHEMA_ENTRY_KEYS = ["type", "label", "description", "hintFrom", "info",'],
 
     ["a hint's sentences end where a mark meets a space", "var parts = text.split(/([.?!]) +/);", "var parts = [text];"],
     ["a one-sentence hint ends with no full stop", "return !/\\.$/.test(text);", "return true;"],
@@ -2102,10 +2027,6 @@ const CONTROLS = [
     ["builtin placement needs an enabled owner", 'isEnabled(config, bar, defaultBarId)', 'true'],
     ["builtin registration appears once", 'if (seenBuiltins.indexOf(entry.id) !== -1) return false;', ''],
     ["builtin and plugin entries keep declared order", '}).map(clone);\n    });\n    return out;\n}\n\n// Enabled bar widgets', '}).map(clone).reverse();\n    });\n    return out;\n}\n\n// Enabled bar widgets'],
-    ["a live hint reference is a status key", 'if (typeof entry.hintFrom !== "string" || !STATUS_KEY_PATTERN.test(entry.hintFrom))', 'if (false)'],
-    ["a live hint references a displayed state", 'if (!hasOwn(status, entry.hintFrom) || status[entry.hintFrom].type !== "state" || status[entry.hintFrom].hidden === true)', 'if (false)'],
-    ["a live hint has no fixed description", 'if (entry.description !== undefined)\n                return at + " must not declare both description and hintFrom";', 'if (false)\n                return at + " must not declare both description and hintFrom";'],
-    ["a live hint belongs to a flat field", 'if (entry.type === "list")\n                return at + ".hintFrom needs a flat setting";', 'if (false)\n                return at + ".hintFrom needs a flat setting";'],
     ["a schema entry may declare a link", '"tooltip", "link", "options"', '"tooltip", "options"'],
     ["a status entry may declare a link", 'var STATUS_ENTRY_KEYS = ["type", "label", "group", "hint", "info", "link",', 'var STATUS_ENTRY_KEYS = ["type", "label", "group", "hint", "info",'],
     ["a status hint link is judged", 'var statusLink = linkError(entry, at, "hint");', 'var statusLink = "";'],
@@ -2343,8 +2264,8 @@ const CONTROLS = [
     ["a floor is three dotted numbers", "!REQUIREMENT_FLOOR.test(requirement.floor)", "false"],
     ["a floor is a string", "typeof requirement.floor !== \"string\" || ", ""],
     ["a floor needs a command", "if (requirement.floor !== undefined && requirement.command === undefined)", "if (false)"],
-    ["floor is a requirement key", "\"optional\", \"purpose\", \"floor\", \"install\", \"setting\"];", "\"optional\", \"purpose\", \"install\", \"setting\"];"],
-    ["install is a requirement key", "\"floor\", \"install\", \"setting\"];", "\"floor\", \"setting\"];"],
+    ["floor is a requirement key", "\"optional\", \"purpose\", \"floor\", \"install\"];", "\"optional\", \"purpose\", \"install\"];"],
+    ["install is a requirement key", "\"floor\", \"install\"];", "\"floor\"];"],
     ["any install value is accepted", "if (requirement.install !== REQUIREMENT_ON_REQUEST)\n", "if (false)\n"],
     ["an optional requirement may be installed on request", "if (requirement.optional === true)\n                return at + \".install needs a required entry", "if (false)\n                return at + \".install needs a required entry"],
     ["an on-request requirement needs no packages", "if (requirement.packages === undefined)\n                return at + \".install needs packages", "if (false)\n                return at + \".install needs packages"],
@@ -2399,7 +2320,7 @@ const CONTROLS = [
     ["a bar being built maps its surface", "return instance === null || instance.shown !== false;", "return instance !== null && instance.shown !== false;"],
     ["a list entry's keys are judged", "var listBad = Pads.listEntryError(entry, at, status, schemaError);", "var listBad = \"\";"],
     ["a list value is judged", "if (entry.type === \"list\") return Pads.listValueError(entry, value, settingError, ConfigLogic.NAME_PATTERN);", "if (entry.type === \"list\") return \"\";"],
-    ["list is a setting type", "\"enum\", \"list\", \"action\"];", "\"enum\", \"action\"];"],
+    ["list is a setting type", "\"enum\", \"list\"];", "\"enum\"];"],
     ["items and defaults are schema entry keys", ", \"items\", \"defaults\", \"placeholder\", \"hideEmpty\"];", ", \"placeholder\", \"hideEmpty\"];"],
     ["placeholder is a schema entry key", ", \"defaults\", \"placeholder\", \"hideEmpty\"];", ", \"defaults\", \"hideEmpty\"];"],
     ["tooltip is a schema entry key", "\"info\", \"tooltip\", \"link\"", "\"info\", \"link\""],

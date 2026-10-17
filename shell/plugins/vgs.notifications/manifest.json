@@ -42,9 +42,7 @@
     "slackPhotos": {"type": "boolean", "label": "Slack photos", "group": "Slack", "description": "Show sender photos from your Slack workspace", "info": "Select Set up Slack photos. VGS fills app details. Sign in if asked. Choose your workspace. Review permissions. Create and install the app. Allow access. Copy the User OAuth Token. Sign in to your workspace in Slack desktop app. In [Settings](page:vgs.notifications/Settings), select Add key beside the workspace and paste it into the masked field. This adds photos, workspace icons and custom emoji."},
     "duration": {"type": "number", "label": "Notification duration", "description": "Set the minimum time for normal notifications", "min": 2, "max": 30, "step": 1, "unit": "seconds"},
     "position": {"type": "enum", "label": "Position", "options": [{"value": "top-left", "label": "Top left"}, {"value": "top-center", "label": "Top center"}, {"value": "top-right", "label": "Top right"}, {"value": "bottom-left", "label": "Bottom left"}, {"value": "bottom-center", "label": "Bottom center"}, {"value": "bottom-right", "label": "Bottom right"}]},
-    "customEmoji": {"type": "boolean", "label": "Slack custom emoji", "description": "Show custom emoji in Slack notifications", "group": "Slack"},
-    "soundControls": {"type": "action", "label": "Notification sound", "description": "Mutes app sounds while Sound is off or Do Not Disturb is on"},
-    "slackMessages": {"type": "action", "label": "Slack messages", "group": "Slack", "description": "Open the matching Slack message from a notification"}
+    "customEmoji": {"type": "boolean", "label": "Slack custom emoji", "description": "Show custom emoji in Slack notifications", "group": "Slack"}
   },
   "status": {
     "panelRevision": {"type": "count", "label": "Panel revision", "hidden": true},
@@ -55,22 +53,22 @@
     "label": "VGS notifications Slack token"
   },
   "tui": {
-    "setup-slack": {"script": "tui/setup-slack.sh", "title": "Set up Slack photos", "requires": ["xdg-open", "node", "gum"], "entry": {"label": "Set up Slack photos", "icon": "external-link", "group": "Slack", "setting": "slackPhotos"}},
+    "setup-slack": {"script": "tui/setup-slack.sh", "title": "Set up Slack photos", "requires": ["xdg-open", "node", "gum"], "entry": {"label": "Set up Slack photos", "icon": "external-link", "group": "Slack"}},
     "open": { "script": "tui/open.sh", "title": "Open notification file", "presentation": "plain", "requires": ["xdg-open", "gum"] }
   },
   "requirements": [
-    {"command": "pw-cli", "packages": {"pacman": "pipewire", "apt": "pipewire-bin", "dnf": "pipewire-utils", "nix": "pipewire"}, "optional": true, "purpose": "Mutes an app's own notification sound while Sound is off or Do Not Disturb is on", "setting": "soundControls"},
-    {"command": "pw-dump", "packages": {"pacman": "pipewire", "apt": "pipewire-bin", "dnf": "pipewire-utils", "nix": "pipewire"}, "optional": true, "purpose": "Finds an app sound that a stopped shell left muted, and whether the sound rule runs", "setting": "soundControls"},
-    {"command": "pw-metadata", "packages": {"pacman": "pipewire", "apt": "pipewire-bin", "dnf": "pipewire-utils", "nix": "pipewire"}, "optional": true, "purpose": "Tells the sound rule which apps to keep silent while Sound is off or Do Not Disturb is on", "setting": "soundControls"},
-    {"command": "systemctl", "packages": {"pacman": "systemd", "apt": "systemd", "dnf": "systemd", "nix": "systemd"}, "optional": true, "purpose": "Restarts WirePlumber once so it loads the sound rule", "setting": "soundControls"},
-    {"command": "setpriv", "packages": {"pacman": "util-linux", "apt": "util-linux", "dnf": "util-linux", "nix": "util-linux"}, "optional": true, "purpose": "Ends the sound rule's hold when the shell stops", "setting": "soundControls"},
+    {"command": "pw-cli", "packages": {"pacman": "pipewire", "apt": "pipewire-bin", "dnf": "pipewire-utils", "nix": "pipewire"}, "optional": true, "purpose": "Mutes an app's own notification sound while Sound is off or Do Not Disturb is on"},
+    {"command": "pw-dump", "packages": {"pacman": "pipewire", "apt": "pipewire-bin", "dnf": "pipewire-utils", "nix": "pipewire"}, "optional": true, "purpose": "Finds an app sound that a stopped shell left muted, and whether the sound rule runs"},
+    {"command": "pw-metadata", "packages": {"pacman": "pipewire", "apt": "pipewire-bin", "dnf": "pipewire-utils", "nix": "pipewire"}, "optional": true, "purpose": "Tells the sound rule which apps to keep silent while Sound is off or Do Not Disturb is on"},
+    {"command": "systemctl", "packages": {"pacman": "systemd", "apt": "systemd", "dnf": "systemd", "nix": "systemd"}, "optional": true, "purpose": "Restarts WirePlumber once so it loads the sound rule"},
+    {"command": "setpriv", "packages": {"pacman": "util-linux", "apt": "util-linux", "dnf": "util-linux", "nix": "util-linux"}, "optional": true, "purpose": "Ends the sound rule's hold when the shell stops"},
     {"command": "xdg-open", "packages": {"pacman": "xdg-utils", "apt": "xdg-utils", "dnf": "xdg-utils", "nix": "xdg-utils"}, "optional": false, "purpose": "Opens files and Slack messages from notifications"},
-    {"command": "tail", "packages": {"pacman": "coreutils", "apt": "coreutils", "dnf": "coreutils", "nix": "coreutils"}, "optional": true, "purpose": "Finds the Slack message a notification opens", "setting": "slackMessages"},
-    {"command": "node", "packages": {"pacman": "nodejs", "apt": "nodejs", "dnf": "nodejs", "nix": "nodejs"}, "optional": true, "purpose": "Shows Slack workspace icons, photos and custom emoji", "setting": "slackPhotos"},
-    {"command": "curl", "packages": {"pacman": "curl", "apt": "curl", "dnf": "curl", "nix": "curl"}, "optional": true, "purpose": "Downloads Slack photos and custom emoji", "setting": "slackPhotos"},
-    {"command": "secret-tool", "packages": {"pacman": "libsecret", "apt": "libsecret-tools", "dnf": "libsecret", "nix": "libsecret"}, "optional": true, "purpose": "Reads saved Slack credentials for sender photos", "setting": "slackPhotos"},
-    {"command": "convert", "packages": {"pacman": "imagemagick", "apt": "imagemagick", "dnf": "ImageMagick", "nix": "imagemagick"}, "optional": true, "purpose": "Prepares Slack emoji and photos for display", "setting": "slackPhotos"},
-    {"command": "gum", "packages": {"pacman": "gum", "apt": "gum", "dnf": "gum", "nix": "gum"}, "optional": true, "purpose": "Shows the Slack photo setup steps", "setting": "slackPhotos"}
+    {"command": "tail", "packages": {"pacman": "coreutils", "apt": "coreutils", "dnf": "coreutils", "nix": "coreutils"}, "optional": true, "purpose": "Finds the Slack message a notification opens"},
+    {"command": "node", "packages": {"pacman": "nodejs", "apt": "nodejs", "dnf": "nodejs", "nix": "nodejs"}, "optional": true, "purpose": "Shows Slack workspace icons, photos and custom emoji"},
+    {"command": "curl", "packages": {"pacman": "curl", "apt": "curl", "dnf": "curl", "nix": "curl"}, "optional": true, "purpose": "Downloads Slack photos and custom emoji"},
+    {"command": "secret-tool", "packages": {"pacman": "libsecret", "apt": "libsecret-tools", "dnf": "libsecret", "nix": "libsecret"}, "optional": true, "purpose": "Reads saved Slack credentials for sender photos"},
+    {"command": "convert", "packages": {"pacman": "imagemagick", "apt": "imagemagick", "dnf": "ImageMagick", "nix": "imagemagick"}, "optional": true, "purpose": "Prepares Slack emoji and photos for display"},
+    {"command": "gum", "packages": {"pacman": "gum", "apt": "gum", "dnf": "gum", "nix": "gum"}, "optional": true, "purpose": "Shows the Slack photo setup steps"}
   ],
   "sounds": {
     "notification": { "label": "New notification", "description": "Plays when a notification shows on screen. Sound off and Do Not Disturb also mute an app's own notification sound, not its calls or media.", "default": "" }

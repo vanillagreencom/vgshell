@@ -38,8 +38,8 @@ function verifyStartCorrection(source, manifest) {
     ["failed setup read", "failed", null, "refused: dictation=daemon-failed", "Setup", "setup"],
     ["missing model", "absent", readsMissing, "refused: dictation=daemon-absent", "Setup", "setup"],
     ["absent daemon", "absent", readsReady, "refused: dictation=daemon-absent", "Setup", "setup"],
-    ["foreign daemon", "elsewhere", readsReady, "refused: dictation=daemon-elsewhere", "Settings/otherService", "stop"],
-    ["foreign daemon before setup", "elsewhere", readsMissing, "refused: dictation=daemon-elsewhere", "Settings/otherService", "stop"],
+    ["foreign daemon", "elsewhere", readsReady, "refused: dictation=daemon-elsewhere", "Details", "stop"],
+    ["foreign daemon before setup", "elsewhere", readsMissing, "refused: dictation=daemon-elsewhere", "Details", "stop"],
     ["ready daemon", "ready", readsReady, "ok", "", ""],
     ["another holder", "ready", readsReady, "refused: dictation=busy holder=acme.dictation", "", ""],
     ["transcribing", "ready", readsReady, "refused: dictation=engine-busy state=transcribing", "", ""],
@@ -441,7 +441,7 @@ const startControls = [
   ["the pending correction is not opened", ' || answer === "refused: dictation=daemon-starting"', ""],
   ["the correction is not opened", "            shell.surfaces.openPage(", "            if (false) shell.surfaces.openPage("],
   ["the correction uses stale Ready", "            refreshSetup();\n            shell.surfaces.openPage(", "            if (false) refreshSetup();\n            shell.surfaces.openPage("],
-  ["the foreign daemon opens Setup", 'setupValue.action === "stop" ? "Settings/otherService" : "Setup"', 'setupValue.action === "stop" ? "Setup" : "Setup"']
+  ["the foreign daemon opens Setup", 'setupValue.action === "stop" ? "Details" : "Setup"', 'setupValue.action === "stop" ? "Setup" : "Setup"']
 ];
 const startTemp = fs.mkdtempSync(path.join(require("node:os").tmpdir(), "voice-start-control-"));
 try {

@@ -455,8 +455,9 @@ browser_text() { status_row vgs.themes browserTheming | py_reply 'import json,sy
 themes_source_dir() { ipc shell listPlugins | py_reply 'import json,sys; print(next((p["dir"] for p in json.load(sys.stdin)["plugins"] if p["id"] == "vgs.themes"), "absent"))'; }
 expected_errors+=('settings: vgs\.themes/browserTheming refused: action=browserTheming reason=not-offered')
 settings_page_open vgs.themes
-browser_theming_location() { ipc smoke settingRows window vgs.settings | py_reply 'import json,sys; print(json.dumps([[row["key"], row["setting"]] for row in json.load(sys.stdin) if row["key"]=="browserTheming"]))'; }
-expect_poll "browser theming is beside its Settings field" '[["browserTheming", "browserTheming"]]' browser_theming_location
+settings_details
+browser_theming_location() { ipc smoke settingRows window vgs.settings | py_reply 'import json,sys; print(json.dumps([[row["key"], row["field"]] for row in json.load(sys.stdin) if row["key"]=="browserTheming"]))'; }
+expect_poll "browser theming is a reading on Details" '[["browserTheming", ""]]' browser_theming_location
 expect_poll "a tree that ships no target reads browser theming not shipped" '"This version of VGS does not support browser themes"' browser_text
 expect "the manager refuses the install while no target ships" "refused: action=browserTheming reason=not-offered" settings_act vgs.themes browserTheming
 expect "chromium resolves to the device stand-in on the shell's PATH" "$shim/chromium" shell_resolves chromium

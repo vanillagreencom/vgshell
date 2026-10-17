@@ -1081,9 +1081,10 @@ print(json.dumps({"action": v["action"] or "none", "lines": len(want), "drawn": 
 voice_setup_value_changed() { ipc smoke readInstance service vgs.voice setupValue | py_reply 'import json,sys; v=json.load(sys.stdin); v["lines"][-1] += " (changed)"; print(json.dumps(v))'; }
 voice_setup_needed='{"chips": [["To do", "warning"]], "buttons": [["Set up", "accent", true]]}'
 voice_setup_ready='{"chips": [["Done", "success"]], "buttons": []}'
-# Settings' Configure and Choose model, each as whether it is
-# drawn, then whether it takes a press.
-voice_settings_screen() { # TEXT
+# The shown tab's Configure and Choose model, each as whether it is
+# drawn, then whether it takes a press. Configure is a More settings
+# screen on Settings; Choose model is a Details action.
+voice_screen() { # TEXT
   local any on
   any="$(ipc smoke shownWindowGeometry window vgs.settings RowAction "$1")" || return
   on="$(ipc smoke windowGeometry window vgs.settings RowAction "$1")" || return
@@ -1091,7 +1092,7 @@ voice_settings_screen() { # TEXT
   [[ $on == \[* ]] && on=enabled
   printf '%s %s\n' "$any" "$on"
 }
-voice_settings_screens() { printf '%s, %s\n' "$(voice_settings_screen Configure)" "$(voice_settings_screen "Choose model")"; }
+voice_screens() { printf '%s, %s\n' "$(voice_screen Configure)" "$(voice_screen "Choose model")"; }
 voice_engine_installed() {
   cp -- "$sandbox/voice-voxtype.stub" "$voice_stub" && cp -- "$repo/scripts/smoke/fixtures/voxtype/wtype" "$voice_wtype" && cp -- "$sandbox/voice-bridge.stub" "$voice_bridge_stub" && chmod 755 "$voice_stub" "$voice_wtype" "$voice_bridge_stub"
 }
@@ -1109,8 +1110,9 @@ voice_enabled_notice() { # LABEL
   expect_poll "$1: enabling Voice without voxtype raises the notice for voxtype and its bridge" "$voice_asked" notice_shown
   voice_notice_escape "$1"
 }
-# Settings holds the action for another dictation service.
-voice_other_service() { ipc smoke settingRows window vgs.settings | py_reply 'import json,sys; rows=[r for r in json.load(sys.stdin) if r["key"]=="otherService"]; print(json.dumps([rows[0]["setting"], rows[0]["field"], [[b["text"],b["enabled"]] for b in rows[0]["buttons"]]]) if len(rows)==1 else "rows=%d" % len(rows))'; }
+# Details holds the action for another dictation service, beside its
+# reading and on no Settings field.
+voice_other_service() { ipc smoke settingRows window vgs.settings | py_reply 'import json,sys; rows=[r for r in json.load(sys.stdin) if r["key"]=="otherService"]; print(json.dumps([rows[0]["field"], [[b["text"],b["enabled"]] for b in rows[0]["buttons"]]]) if len(rows)==1 else "rows=%d" % len(rows))'; }
 voice_offered_actions() { offered_actions vgs.voice | py_reply 'import json,sys; print(json.dumps([row for row in json.load(sys.stdin) if row[2]]))'; }
 # The Voice row of the Plugins list: its required Setup mark and the
 # absence of the removed optional-tool icon.
@@ -1203,7 +1205,9 @@ settings_setup
 expect_poll "Setup keeps dictation pending without its required tools" '{"chips": [["To do", "warning"]], "buttons": []}' voice_setup_section
 expect_poll "Setup groups missing required tools in one pending step" '[[["To do", "warning"]], ["Review all missing or outdated tools"]]' voice_tools_step
 settings_tab_click Settings || fail "the click on Voice Settings failed"
-expect_poll "Settings draws Configure and Choose model taking a press without voxtype" "drawn enabled, drawn enabled" voice_settings_screens
+expect_poll "Settings draws Configure alone, taking a press without voxtype" "drawn enabled, absent absent" voice_screens
+settings_tab_click Details || fail "the click on Voice Details failed"
+expect_poll "Details draws Choose model alone, taking a press without voxtype" "absent absent, drawn enabled" voice_screens
 settings_setup
 expect_poll "the Voice page offers no dictation action without voxtype" '[]' voice_offered_actions
 expect_poll "the Tools step still offers its install text link" '[[["To do", "warning"]], ["Review all missing or outdated tools"]]' voice_tools_step
@@ -1287,7 +1291,9 @@ expect_poll "Set up is withheld once the model is in place and the daemon runs" 
 expect_poll "the Setup section reads Ready and draws no step and no screen" "$voice_setup_ready" voice_setup_section
 expect "the Setup section draws the service's one Ready line" '{"action": "none", "lines": 1, "drawn": true}' voice_setup_lines
 settings_tab_click Settings || fail "the click on Voice Settings after installation failed"
-expect_poll "Settings draws Configure and Choose model active with voxtype" "drawn enabled, drawn enabled" voice_settings_screens
+expect_poll "Settings draws Configure alone, active with voxtype" "drawn enabled, absent absent" voice_screens
+settings_tab_click Details || fail "the click on Voice Details after installation failed"
+expect_poll "Details draws Choose model alone, active with voxtype" "absent absent, drawn enabled" voice_screens
 settings_setup
 # Control: the core's daemon ended by the row, the stand-in whose pid its
 # own lock names, turns the same reading red: Setup needed, and Set up
@@ -1446,8 +1452,8 @@ voice_stop_other() { # LABEL
   settings_page_close vgs.voice
   expect "$1: a start beside the other daemon is refused" "refused: dictation=daemon-elsewhere" voice_toggle
   expect_poll "$1: the foreign daemon refusal opens the correction window" 1 window_count Plugins
-  expect_poll "$1: the foreign daemon refusal opens Voice Settings" '"vgs.voice/Settings"' ipc smoke readInstance window vgs.settings shownPage
-  expect_poll "$1: Settings offers Stop beside Other dictation service" '["otherService", "otherService", [["Stop the other voxtype", true]]]' voice_other_service
+  expect_poll "$1: the foreign daemon refusal opens Voice Details" '"vgs.voice/Details"' ipc smoke readInstance window vgs.settings shownPage
+  expect_poll "$1: Details offers Stop beside Other dictation service" '["", [["Stop the other voxtype", true]]]' voice_other_service
   voice_stop_other_before="$(voice_stop_other_end)" || voice_stop_other_before=unread
   forget_record
   hold_runs

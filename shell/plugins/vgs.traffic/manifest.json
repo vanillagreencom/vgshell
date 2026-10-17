@@ -29,10 +29,10 @@
   "defaultSection": "right",
   "requirements": [
     {"command": "ss", "packages": {"pacman": "iproute2", "apt": "iproute2", "dnf": "iproute", "nix": "iproute2"}, "optional": false, "purpose": "Reads TCP traffic for your apps"},
-    {"command": "bandwhich", "packages": {"pacman": "bandwhich", "apt": "bandwhich", "nix": "bandwhich"}, "optional": true, "purpose": "See all shows traffic for every app and protocol", "setting": "allTraffic"},
+    {"command": "bandwhich", "packages": {"pacman": "bandwhich", "apt": "bandwhich", "nix": "bandwhich"}, "optional": true, "purpose": "See all shows traffic for every app and protocol"},
     {"command": "readlink", "packages": {"pacman": "coreutils", "apt": "coreutils", "dnf": "coreutils", "nix": "coreutils"}, "optional": false, "purpose": "Finds physical network interfaces so traffic is counted once"},
-    {"command": "getcap", "packages": {"pacman": "libcap", "apt": "libcap2-bin", "dnf": "libcap", "nix": "libcap"}, "optional": true, "purpose": "Checks whether See all has traffic capture access", "setting": "allTraffic"},
-    {"command": "setcap", "packages": {"pacman": "libcap", "apt": "libcap2-bin", "dnf": "libcap", "nix": "libcap"}, "optional": true, "purpose": "Grants See all traffic its capture access", "setting": "allTraffic"},
+    {"command": "getcap", "packages": {"pacman": "libcap", "apt": "libcap2-bin", "dnf": "libcap", "nix": "libcap"}, "optional": true, "purpose": "Checks whether See all has traffic capture access"},
+    {"command": "setcap", "packages": {"pacman": "libcap", "apt": "libcap2-bin", "dnf": "libcap", "nix": "libcap"}, "optional": true, "purpose": "Grants See all traffic its capture access"},
     {"command": "kill", "packages": {"pacman": "util-linux", "apt": "procps", "dnf": "util-linux-core", "nix": "util-linux"}, "optional": false, "purpose": "Ends an app you choose to kill"}
   ],
   "settings": {
@@ -49,12 +49,11 @@
     "refreshSeconds": {"type": "number", "label": "Refresh interval", "min": 1, "max": 10, "step": 1, "unit": "seconds", "group": "Readings"},
     "show": {"type": "enum", "label": "Speeds shown", "options": [{"value": "both", "label": "Both"}, {"value": "download", "label": "Download"}, {"value": "upload", "label": "Upload"}], "group": "Display"},
     "kbDecimals": {"type": "number", "label": "KB/s decimals", "description": "Digits after the decimal point for speeds in KB/s", "min": 0, "max": 2, "step": 1, "group": "Display"},
-    "mbDecimals": {"type": "number", "label": "MB/s decimals", "description": "Digits after the decimal point for speeds in MB/s and GB/s", "min": 0, "max": 2, "step": 1, "group": "Display"},
-    "allTraffic": {"type": "action", "label": "See all traffic", "description": "Let Traffic show every app and protocol", "group": "Apps"}
+    "mbDecimals": {"type": "number", "label": "MB/s decimals", "description": "Digits after the decimal point for speeds in MB/s and GB/s", "min": 0, "max": 2, "step": 1, "group": "Display"}
   },
   "status": {
     "traffic": {"type": "data", "label": "Traffic"},
-    "capture": {"type": "state", "label": "Traffic capture", "hint": "See all shows every app and protocol", "info": "See all shows every app and protocol. Allowing it lets every account on this computer see network traffic through bandwhich.", "action": {"label": "Allow traffic capture", "system": "bandwhich-capture"}, "setting": "allTraffic"}
+    "capture": {"type": "state", "label": "Traffic capture", "hint": "See all shows every app and protocol", "info": "See all shows every app and protocol. Allowing it lets every account on this computer see network traffic through bandwhich.", "action": {"label": "Allow traffic capture", "system": "bandwhich-capture"}}
   },
   "systemSteps": [
     "bandwhich-capture"

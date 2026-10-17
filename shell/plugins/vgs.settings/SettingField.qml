@@ -2,7 +2,6 @@ import QtQuick
 import QtQuick.Templates as T
 import qs.Commons
 import qs.Ui
-import "Steps.js" as Steps
 
 // Draw the least-effort editor for one schema entry. Booleans use Switch.
 // Enums of at most three options use SegmentedControl because each choice
@@ -40,7 +39,6 @@ Column {
     property var spec: ({})
     property var value
     property var choices: []
-    property var status: []
     property bool editable: true
     property var edits: null
     property bool customChosen: false
@@ -60,7 +58,7 @@ Column {
     readonly property int selectedOfferIndex: offerIndex(value)
     readonly property bool customVisible: allowCustom && (customChosen || (multiple ? !knownSelection : selectedOfferIndex < 0 && !(statusFed && value === "")))
     readonly property string labelText: spec.label !== undefined ? String(spec.label) : key
-    readonly property string hintText: Steps.settingHint(spec, status)
+    readonly property string hintText: spec.description !== undefined ? String(spec.description) : ""
     readonly property string infoText: spec.info !== undefined ? String(spec.info) : ""
     readonly property string tooltipText: spec.tooltip !== undefined ? String(spec.tooltip) : ""
     readonly property string linkText: spec.link !== undefined ? spec.link.text : ""
@@ -199,7 +197,7 @@ Column {
         Loader {
             id: loader
             width: parent.width
-            sourceComponent: root.spec.type === "action" ? null : root.spec.type === "boolean" ? toggle
+            sourceComponent: root.spec.type === "boolean" ? toggle
                 : root.spec.type === "enum" && root.spec.options.length <= root.segmentedLimit ? segmented
                 : root.spec.type === "enum" || root.spec.optionsFrom !== undefined ? choice
                 : root.multiple ? multipleChoice

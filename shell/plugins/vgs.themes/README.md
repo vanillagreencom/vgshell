@@ -14,7 +14,7 @@ Themes changes your desktop colours and wallpaper. Select a theme to apply it to
 - A Modified badge on the applied theme when its file no longer matches the theme. Applying the theme again reverts the edit.
 - Style in the launcher opens the theme browser, the wallpaper browser and the No window gaps switch.
 - `SUPER+SHIFT+BACKSPACE` removes the space around and between tiled windows, or gives it back.
-- Chromium, Google Chrome, Microsoft Edge and Brave take the theme's background colour. The Arch and Fedora packages set this up for every user. On a home install, Install browser theming on the plugin's Settings page opens a terminal where sudo asks for your password.
+- Chromium, Google Chrome, Microsoft Edge and Brave take the theme's background colour. The Arch and Fedora packages set this up for every user. On a home install, Install browser theming on the plugin's Details tab opens a terminal where sudo asks for your password.
 - Each shortcut changes under Keys on the plugin's Settings page.
 
 <details><summary>Show command</summary>

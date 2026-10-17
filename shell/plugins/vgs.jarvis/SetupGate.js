@@ -472,8 +472,7 @@ var VOICE_KEY_HINTS = {
 // stores its keys itself, several for one provider, each under a name, so
 // the row is no line of a key the core stores and takes no Replace or
 // Remove: a new key goes in through Add key on the API keys line under
-// Account, and the Voice key field, whose own line this is, chooses it,
-// both on the Settings tab this line is drawn on, so the hint links none.
+// Account, and the Voice key field on Settings chooses it.
 var VOICE_KEY_CHANGE = "; to use another key, press Add key on the API keys line under Account, then choose it in Voice key";
 var VOICE_KEY_STORED = {
     openai: "Jarvis can use the Realtime voice with your OpenAI key" + VOICE_KEY_CHANGE,
@@ -518,9 +517,8 @@ function elevenLabsStep(facts) {
     return { tone: "info", text: "Waiting for setup", hint: ELEVENLABS_WAITING };
 }
 
-// The Voice provider field's hint (the manifest's voiceRoute, which the
-// field's hintFrom names) for SETTING, the provider the user chose: what
-// leaves the computer, to whom, and with which key.
+// The voiceRoute reading on Details for SETTING, the Voice provider the
+// user chose: what leaves the computer, to whom, and with which key.
 var VOICE_ROUTES = {
     auto: { text: "Auto", hint: "Auto chooses between Realtime and Local" },
     local: { text: "Local", hint: "Local keeps your voice and the replies on this computer, and answers fastest" },

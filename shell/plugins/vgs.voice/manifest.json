@@ -31,9 +31,7 @@
     "osd": "plasma"
   },
   "schema": {
-    "osd": {"type": "enum", "label": "On-screen display", "description": "Shown at the bottom of the focused screen while you dictate", "options": [{"value": "plasma", "label": "Plasma"}, {"value": "ring", "label": "Ring"}, {"value": "off", "label": "Off"}], "group": "Display"},
-    "speechModel": {"type": "action", "label": "Speech model", "description": "Choose the model that hears your dictation"},
-    "otherService": {"type": "action", "label": "Other dictation service", "description": "Stop another dictation service so VGS can use its own"}
+    "osd": {"type": "enum", "label": "On-screen display", "description": "Shown at the bottom of the focused screen while you dictate", "options": [{"value": "plasma", "label": "Plasma"}, {"value": "ring", "label": "Ring"}, {"value": "off", "label": "Off"}], "group": "Display"}
   },
   "hyprland": {
     "binds": [
@@ -64,17 +62,17 @@
     {"command": "voxtype-audio-bridge", "packages": {"aur": "voxtype-bin", "nix": "voxtype"}, "optional": false, "install": "on-request", "purpose": "Reads voice levels for the on-screen display"},
     {"command": "wtype", "packages": {"pacman": "wtype", "apt": "wtype", "dnf": "wtype", "nix": "wtype"}, "optional": false, "purpose": "Types text and key chords through the Wayland virtual keyboard"},
     {"command": "wl-copy", "packages": {"pacman": "wl-clipboard", "apt": "wl-clipboard", "dnf": "wl-clipboard", "nix": "wl-clipboard"}, "optional": false, "purpose": "Copies dictated text to the clipboard when paste mode needs it"},
-    {"command": "systemctl", "packages": {"pacman": "systemd", "apt": "systemd", "dnf": "systemd", "nix": "systemd"}, "optional": true, "purpose": "Stops another voxtype service so VGS can run its own", "setting": "otherService"}
+    {"command": "systemctl", "packages": {"pacman": "systemd", "apt": "systemd", "dnf": "systemd", "nix": "systemd"}, "optional": true, "purpose": "Stops another voxtype service so VGS can run its own"}
   ],
   "status": {
     "setup": {"type": "state", "label": "Setup", "hint": "Checks the speech engine and model, then asks before installing missing parts", "setup": true, "action": {"label": "Set up", "dictation": "setup"}},
     "model": {"type": "data", "label": "Model"},
     "dictation": {"type": "state", "label": "Dictation", "hidden": true},
-    "otherService": {"type": "state", "label": "Other dictation service", "setting": "otherService", "action": {"label": "Stop the other voxtype", "tui": "stop-other"}}
+    "otherService": {"type": "state", "label": "Other dictation service", "action": {"label": "Stop the other voxtype", "tui": "stop-other"}}
   },
   "tui": {
     "configure": {"script": "tui/configure.sh", "title": "Configure Voice", "requires": ["voxtype"], "entry": {"label": "Configure", "icon": "sliders-horizontal", "group": "Voice", "settings": true}},
-    "model": {"script": "tui/model.sh", "title": "Choose Voice model", "requires": ["voxtype"], "entry": {"label": "Choose model", "icon": "brain", "group": "Voice", "setting": "speechModel"}},
+    "model": {"script": "tui/model.sh", "title": "Choose Voice model", "requires": ["voxtype"], "entry": {"label": "Choose model", "icon": "brain", "group": "Voice"}},
     "stop-other": {"script": "tui/stop-other.sh", "title": "Stop the other voxtype", "requires": ["systemctl", "voxtype"]}
   },
   "sounds": {

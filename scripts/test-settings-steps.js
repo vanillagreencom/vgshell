@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 // Exercises the production page judge with PluginLogic manager rows.
 // Required work alone creates Setup. Unknown and blocked required work
-// stays open; optional work belongs beside its Settings field or in
-// Details. Required tools form one persistent step. Every To do step and
-// every Settings line that holds work draws an action that takes a press,
-// with the plugin on and off; a line whose feature is set up draws none.
+// stays open; Settings draws only values and their stored key lists, and
+// optional work, its action and its tools belong on Details. Required
+// tools form one persistent step. Every To do step and every Details fact
+// that holds work draws an action that takes a press, with the plugin on
+// and off; a fact whose feature is set up draws none.
 // Expected placements and actions are independent data. The source check
 // reaches the actual Setup body: it proves that body declares no boxed
 // Button, not rendered behavior. Each control edits production source and
@@ -23,28 +24,25 @@ const REVIEW = "Review all missing or outdated tools";
 const TURN_ON = "Turn on Fixture";
 const schema = {
     feature: { type: "boolean", label: "Feature", description: "Turns the feature on" },
-    owned: { type: "action", label: "Owned", description: "Acts through its state" },
-    screened: { type: "action", label: "Screened", description: "Opens its screen" },
-    tooled: { type: "action", label: "Tooled", description: "Uses its tools" }
+    mode: { type: "boolean", label: "Mode", description: "Changes the mode" }
 };
 const entry = (label, more) => Object.assign({ label: label, icon: "wrench", group: "Fixture" }, more);
 const tui = {
     required: { entry: entry("Set model"), requires: ["required-a"] },
-    feature: { entry: entry("Configure feature", { setting: "feature" }), requires: [] },
+    feature: { entry: entry("Configure feature"), requires: [] },
     configure: { entry: entry("Configure", { settings: true }), requires: [] },
     task: { entry: entry("Sign in"), requires: ["optional-tool"] },
     chore: { entry: entry("Run chore"), requires: [] },
-    extra: { entry: entry("Feature action", { setting: "feature" }), requires: [] },
-    opener: { entry: entry("Open screen", { setting: "screened" }), requires: [] },
+    extra: { entry: entry("Feature action"), requires: [] },
     fixing: { entry: null, requires: [] }
 };
 const status = {
     model: { type: "state", label: "Model", setup: true, action: { label: "Set model", tui: "required" } },
     home: { type: "state", label: "Home", setup: true, hint: "Choose a home folder first" },
     account: { type: "state", label: "Account", setup: true, actions: { signIn: { label: "Sign in", tui: "task" }, key: { label: "Add key", tui: "required" } } },
-    optional: { type: "state", label: "Feature state", setting: "feature", action: { label: "Configure feature", tui: "feature" } },
+    optional: { type: "state", label: "Feature state", action: { label: "Configure feature", tui: "feature" } },
     keys: { type: "presenceList", label: "Provider keys", setting: "feature" },
-    ownedState: { type: "state", label: "Owned state", setting: "owned", action: { label: "Fix owned", tui: "fixing" } },
+    ownedState: { type: "state", label: "Owned state", action: { label: "Fix owned", tui: "fixing" } },
     connection: { type: "state", label: "Connection", setup: true },
     connectionKeys: { type: "presenceList", label: "Connection keys", step: "connection" },
     fact: { type: "state", label: "Automatic work" }
@@ -57,8 +55,9 @@ const homeUnreported = Object.fromEntries(Object.entries(allDone).filter(([key])
 const on = { enabled: true, name: "Fixture", error: "" };
 const off = { enabled: false, name: "Fixture", error: "" };
 const items = sections => sections.flatMap(section => section.items);
-// What LINES offer to press: [label, takes a press] per action, in order.
-const offers = lines => lines.flatMap(line => [line.action, line.aside].concat(line.more).filter(button => button !== null).map(button => [button.label, button.enabled]));
+// What BUTTONS, Steps.detailButtons', offer to press: [label, takes a
+// press] per action, in order.
+const offers = buttons => [buttons.action, buttons.aside].filter(button => button !== null).map(button => [button.label, button.enabled]);
 
 function verify(logic, producer) {
     const manifest = {
@@ -66,28 +65,37 @@ function verify(logic, producer) {
         requirements: producer.normalRequirements([
             { command: "required-a", purpose: "Basic work" },
             { command: "required-b", purpose: "Basic work" },
-            { command: "optional-tool", optional: true, purpose: "Optional feature", setting: "feature" },
-            { dbus: { bus: "system", name: "org.example.Tool", label: "Tool service" }, optional: true, purpose: "Its own feature", setting: "tooled" },
+            { command: "optional-tool", optional: true, purpose: "Optional feature" },
+            { dbus: { bus: "system", name: "org.example.Tool", label: "Tool service" }, optional: true, purpose: "Its own feature" },
             { command: "automatic-tool", optional: true, purpose: "Automatic alternative" }
         ])
     };
-    const fields = producer.fieldRows(schema, status, manifest.requirements, tui);
+    const fields = producer.fieldRows(schema, status);
     const screens = producer.listedTuis(manifest);
     const rows = values => producer.statusRows(manifest, values);
     const requirements = missing => producer.requirementRows(manifest, missing, {});
     const page = (values, missing) => ({ schema: schema, status: rows(values), tuis: screens, requirements: requirements(missing) });
-    const lines = (key, values, missing, plugin) => logic.featureRow(fields.find(field => field.key === key), page(values, missing), plugin);
+    const lines = (values, missing) => fields.flatMap(field => logic.featureRow(field, page(values, missing)).map(line => [field.key, line.kind, line.key]));
+    const buttonsOf = (key, values, plugin) => logic.detailButtons(rows(values).find(entry => entry.key === key), plugin);
 
     const status0 = rows(allDone), sections = logic.setupSections(screens, status0);
     same(items(sections).map(item => item.key), ["model", "home", "account", "connection", "connectionKeys"], "optional entries never draw on Setup");
-    same(lines("feature", allDone, [], on).map(line => [line.kind, line.key]), [["own", "optional"], ["keys", "keys"], ["screens", ""], ["tools", ""]], "optional actions and keys stay beside the Settings choice");
-    same(logic.detailEntries(status0).map(entry => entry.key), ["fact"], "Details excludes Setup and Settings entries");
+    same(lines(allDone, ["optional-tool"]), [["feature", "keys", "keys"]], "a Settings field draws its stored key list alone: no state, tools or screens line");
+    same(logic.detailEntries(status0).map(entry => entry.key), ["optional", "ownedState", "fact"], "Details lists each former Settings entry and excludes Setup steps and Settings key lists");
     same(logic.setupTab(sections, []), true, "completed required steps keep Setup");
     same(logic.setupTab([], requirements([])), true, "present required tools keep Setup");
     const optionalOnly = requirements(["optional-tool"]).filter(row => row.optional);
     same(logic.setupTab([], optionalOnly), false, "optional tools never create Setup");
     same(logic.requirementStep(optionalOnly), null, "optional tools never create the Tools step");
-    same(logic.detailRequirements(requirements([])).map(row => row.name), ["automatic-tool"], "automatic alternatives are Details facts");
+    same(logic.detailRequirements(requirements([])).map(row => row.name), ["optional-tool", "org.example.Tool", "automatic-tool"], "every optional tool is on Details");
+    for (const [label, missing, want] of [
+        ["a missing optional tool", ["optional-tool"], REVIEW],
+        ["a missing required tool alone", ["required-a"], null],
+        ["every tool present", [], null]
+    ]) {
+        const review = logic.toolsReview(logic.detailRequirements(requirements(missing)));
+        same(review === null ? null : review.label, want, "Details Tools: " + label);
+    }
     for (const [label, values, missing, enabled, expected] of [
         ["all required work ready", allDone, [], true, false],
         ["only Home blocked", Object.assign({}, allDone, { home: blocked }), [], true, true],
@@ -167,34 +175,21 @@ function verify(logic, producer) {
         same(button === null ? null : [button.kind, button.enabled], want, "step action owner: " + name);
     }
 
-    // Settings lines: [name, field, published values, missing tools, the
-    // plugin, what its lines offer]. A line that holds work offers a press;
-    // one whose feature is set up offers none (the owner's reading of an
-    // action row whose feature is set up: it reads its state alone).
-    for (const [name, key, values, missing, plugin, want] of [
-        ["off: an action row with its own state", "owned", {}, [], off, [[TURN_ON, true]]],
-        ["off: an action row with only a screen", "screened", {}, [], off, [[TURN_ON, true]]],
-        ["off: an action row with only tools, one missing", "tooled", {}, ["org.example.Tool"], off, [[TURN_ON, true], [REVIEW, true]]],
-        ["off: an action row with only tools, all present", "tooled", {}, [], off, [[TURN_ON, true]]],
-        ["off: a choice's screen takes no press and its tools still install", "feature", {}, ["optional-tool"], off, [["Feature action", false], [REVIEW, true]]],
-        ["on: an action row offers its state's action", "owned", Object.assign({}, allDone, { ownedState: { tone: "warning", text: "Broken", action: true } }), [], on, [["Fix owned", true]]],
-        ["on: an action row whose feature is set up offers nothing", "owned", allDone, [], on, []],
-        ["on: an action row not reported yet offers nothing", "owned", {}, [], on, []],
-        ["on: an action row with only a screen offers it", "screened", allDone, [], on, [["Open screen", true]]],
-        ["on: an action row with a missing tool offers Review", "tooled", allDone, ["org.example.Tool"], on, [[REVIEW, true]]],
-        ["on: an action row whose tools are present offers nothing", "tooled", allDone, [], on, []],
-        ["on: a choice offers its action, its screen and Review", "feature", allDone, ["optional-tool"], on, [["Configure feature", true], ["Feature action", true], [REVIEW, true]]],
-        ["on: a choice that is set up offers its screen alone", "feature", Object.assign({}, allDone, { optional: ready }), [], on, [["Feature action", true]]]
-    ]) same(offers(lines(key, values, missing, plugin)), want, "Settings: " + name);
-    same(lines("feature", allDone, [], on).find(line => line.kind === "own").label, "", "an own state draws no label of its own");
-    same(lines("owned", allDone, [], on).map(line => [line.kind, line.label]), [["own", "Owned"]], "an action row's own state is its head, under the field's label");
-    same(lines("feature", allDone, [], on).find(line => line.kind === "screens").more.map(button => button.name), ["extra"], "a screen stays in its field's row");
-    same(lines("tooled", allDone, ["org.example.Tool"], on).map(line => [line.label, line.hint.includes("Tool service"), line.hint.includes("org.example.Tool"), line.lines]),
-        [[schema.tooled.label, true, false, [schema.tooled.description]]], "a tools row names its tools by title under the field's label");
-    const offScreens = lines("feature", {}, [], off).find(line => line.kind === "screens");
-    same([offScreens.more[0].reason, offScreens.hint], [logic.offReason(off.name), logic.offReason(off.name)], "off: a screen that takes no press names why");
+    // Details facts: [name, entry, published values, the plugin, what the
+    // fact offers]. A former Settings entry keeps its action beside its
+    // fact: a fact that holds work offers a press, Turn on while the
+    // plugin is off, and one whose feature is set up offers none.
+    for (const [name, key, values, plugin, want] of [
+        ["off: a former Settings entry offers Turn on", "optional", {}, off, [[TURN_ON, true]]],
+        ["off: a fact that declares no action offers nothing", "fact", {}, off, []],
+        ["on: a former Settings entry offers its action", "optional", allDone, on, [["Configure feature", true]]],
+        ["on: a fact whose feature is set up offers nothing", "optional", Object.assign({}, allDone, { optional: ready }), on, []],
+        ["on: a fact not reported yet offers nothing", "ownedState", {}, on, []],
+        ["on: a fact that declares no action offers nothing", "fact", allDone, on, []]
+    ]) same(offers(buttonsOf(key, values, plugin)), want, "Details: " + name);
+    same(buttonsOf("optional", allDone, on).action.kind, "status", "Details: a fact's action takes the status route its entry's replies are kept under");
     same(logic.freeScreens(screens, status0, "Settings", on).map(screen => screen.name), ["configure"], "settings screens stay in More settings");
-    same(logic.freeScreens(screens, status0, "Details", on).map(screen => [screen.name, screen.enabled]), [["chore", true]], "task screens alone stay in Details");
+    same(logic.freeScreens(screens, status0, "Details", on).map(screen => [screen.name, screen.enabled]), [["chore", true], ["extra", true]], "task screens alone stay in Details");
     for (const place of ["Settings", "Details"]) {
         const held = logic.freeScreens(screens, status0, place, off);
         same([held.every(screen => !screen.enabled && screen.reason === logic.offReason(off.name)), logic.withheldHint(held)], [true, logic.offReason(off.name)], "off: " + place + " screens take no press and name why");
@@ -226,7 +221,7 @@ verify(load(file), load(producerFile));
 verifyPage(fs.readFileSync(pageFile, "utf8"));
 const controls = [
     ["optional-on-Setup", 'return entry.setup === true;', 'return entry.setup === true || entry.setting !== "";', "optional entries never draw on Setup"],
-    ["Details duplicates required step", '!declaresStep(entry) && ', '', "Details excludes Setup and Settings entries"],
+    ["Details duplicates required step", '!declaresStep(entry) && ', '', "Details lists each former Settings entry"],
     ["blocked required work marked done", 'entry.report !== "reported" || entry.tone !== "success"', 'entry.report !== "reported"', "only Home blocked"],
     ["unknown required work marked done", 'entry.report !== "reported" || entry.tone !== "success"', 'entry.report === "reported" && entry.tone !== "success"', "Home not reported"],
     ["optional tool creates Setup", 'requirements.some(function (row) { return !row.optional; })', 'requirements.length > 0', "optional tools never create Setup"],
@@ -242,21 +237,21 @@ const controls = [
     ["keys leave their required step", 'keyList.step === entry.key', 'false', "optional entries never draw on Setup"],
     ["unoffered action is drawn", 'entry.action === null || !entry.action.offered', 'entry.action === null', "unoffered required action draws nowhere"],
     ["a primary status action uses a separate screen reply", 'return { kind: "status", key: entry.key', 'return { kind: "tui", key: entry.key', "on: a step whose screen lacks an optional tool offers its own action"],
-    ["a set-up row draws its declared action dead", 'action: lineAction(stepButton(entry), head, plugin)', 'action: lineAction(stepButton(entry) || (entry.action === null ? null : { kind: "status", key: "dead", name: "", label: entry.action.label, tone: "", enabled: false, reason: "" }), head, plugin)', "Settings: on: an action row whose feature is set up offers nothing"],
     ["More settings leaves Settings", 'place === "Settings" ? tui.settings', 'place === "Settings" ? false', "settings screens stay in More settings"],
     ["required keys keep ordinary chips", 'if (setup) {', 'if (false) {', "required stored key uses Done"],
     ["a plugin that is off offers nothing", 'if (!plugin.enabled) return open ? turnOn(plugin.name) : null;', 'if (!plugin.enabled) return null;', "off: every To do step offers Turn on Fixture"],
-    ["an action row's head offers no Turn on", 'action: lineAction(stepButton(entry), head, plugin)', 'action: lineAction(stepButton(entry), false, plugin)', "Settings: off: an action row with its own state"],
-    ["a tools row offers no Turn on", 'var enable = head && !plugin.enabled;', 'var enable = false;', "Settings: off: an action row with only tools, one missing"],
-    ["Review takes no press while the plugin is off", 'var review = tools.some(requirementApplies) ? reviewButton() : null;', 'var review = tools.some(requirementApplies) ? Object.assign(reviewButton(), { enabled: plugin.enabled }) : null;', "Settings: off: an action row with only tools, one missing"],
-    ["Review draws while every tool is present", 'var review = tools.some(requirementApplies) ? reviewButton() : null;', 'var review = reviewButton();', "Settings: off: an action row with only tools, all present"],
-    ["an own state takes its entry's label", 'entryLine("own", field.own, acting ? spec.label : "");', 'entryLine("own", field.own, entryOf(field.own).label);', "an own state draws no label of its own"],
-    ["a field's screens leave its row", 'var screens = screenButtons(row.tuis, field.screens, plugin);', 'var screens = [];', "optional actions and keys stay beside the Settings choice"],
-    ["a screen that is off names no reason", 'reason: plugin.enabled ? "" : offReason(plugin.name)', 'reason: ""', "off: a screen that takes no press names why"],
-    ["a screen takes a press while the plugin is off", 'enabled: plugin.enabled, reason:', 'enabled: true, reason:', "Settings: off: a choice's screen takes no press and its tools still install"],
+    ["a screen that is off names no reason", 'reason: plugin.enabled ? "" : offReason(plugin.name)', 'reason: ""', "off: Settings screens take no press and name why"],
+    ["a screen takes a press while the plugin is off", 'enabled: plugin.enabled, reason:', 'enabled: true, reason:', "off: Settings screens take no press and name why"],
+    ["a Settings field draws a line that is no key list", 'lines.push({ slot: "keys " + key, kind: "keys", key: key });', 'lines.push({ slot: "keys " + key, kind: "state", key: key });', "a Settings field draws its stored key list alone"],
+    ["Details drops a fact with an action", 'return !declaresStep(entry) && entry.setting === "" && entry.step === "";', 'return !declaresStep(entry) && entry.setting === "" && entry.step === "" && entry.action === null;', "Details lists each former Settings entry"],
+    ["a Details fact offers no action", 'action: lineAction(stepButton(entry), entry.action !== null, plugin)', 'action: lineAction(null, entry.action !== null, plugin)', "Details: on: a former Settings entry offers its action"],
+    ["a Details fact offers no Turn on while the plugin is off", 'action: lineAction(stepButton(entry), entry.action !== null, plugin)', 'action: lineAction(stepButton(entry), false, plugin)', "Details: off: a former Settings entry offers Turn on"],
+    ["a Details fact draws its declared action dead", 'action: lineAction(stepButton(entry), entry.action !== null, plugin)', 'action: lineAction(stepButton(entry) || (entry.action === null ? null : { kind: "status", key: "dead", name: "", label: entry.action.label, tone: "", enabled: false, reason: "" }), entry.action !== null, plugin)', "Details: on: a fact whose feature is set up offers nothing"],
+    ["optional tools leave Details", 'return requirements.filter(function (entry) { return entry.optional; });', 'return requirements.filter(function (entry) { return entry.optional && entry.name === "automatic-tool"; });', "every optional tool is on Details"],
+    ["Details Tools offers no Review", 'return requirements.some(requirementApplies) ? reviewButton() : null;', 'return null;', "Details Tools: a missing optional tool"],
+    ["Details Tools offers Review with every optional tool present", 'return requirements.some(requirementApplies) ? reviewButton() : null;', 'return reviewButton();', "Details Tools: a missing required tool alone"],
     ["an unreported step names no wait", 'if (entry.report !== "reported" && plugin.enabled)', 'if (false)', "on, unreported: the step names the wait"],
     ["a failed build reads as a wait", 'plugin.error !== "" ? plugin.error : ', '', "on, unreported after a failed build: the step names the failure"],
-    ["tools read by their names", 'return row.title + (row.state', 'return row.name + (row.state', "a tools row names its tools by title under the field's label"]
 ];
 // Each producer control edits PluginLogic, whose rows the page draws.
 const producerControls = [

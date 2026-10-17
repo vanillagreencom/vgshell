@@ -297,16 +297,17 @@ expect "the linger IPC opens its TUI" ok ipc vgs.automations invoke linger ""
 expect_poll "the terminal is handed the linger TUI" "$(words vgs.automations/linger tui/linger.sh)" recorded_tail
 expect_run_end "the linger IPC's run ends" vgs.automations/linger
 
-# Enable while logged out, D061: while lingering reads off, the Settings
-# page offers the declared action beside While logged out on Settings.
-# Its text link opens the linger TUI.
+# Enable while logged out, D061: while lingering reads off, the Details
+# tab offers the declared action beside the linger reading, on no Settings
+# field. Its text link opens the linger TUI.
 # The run's end lists again, whoever opened it, and a loginctl that now
 # answers yes withdraws the action. The control: the manager refuses the
 # act once lingering is on, and starts nothing.
 expected_errors+=('settings: vgs\.automations/linger refused: action=linger reason=not-offered')
 settings_page_open vgs.automations
-automation_linger_location() { ipc smoke settingRows window vgs.settings | py_reply 'import json,sys; print(json.dumps([[row["key"], row["setting"]] for row in json.load(sys.stdin) if row["key"]=="linger"]))'; }
-expect_poll "the linger action is beside While logged out on Settings" '[["linger", "whileLoggedOut"]]' automation_linger_location
+settings_details
+automation_linger_location() { ipc smoke settingRows window vgs.settings | py_reply 'import json,sys; print(json.dumps([[row["key"], row["field"], [b["text"] for b in row["buttons"]]] for row in json.load(sys.stdin) if row["key"]=="linger"]))'; }
+expect_poll "the linger action is beside its reading on Details" '[["linger", "", ["Enable while logged out"]]]' automation_linger_location
 expect_poll "lingering off offers Enable while logged out" '[["linger", "Enable while logged out", true]]' offered_actions vgs.automations
 forget_record
 # The stand-in terminal runs no linger TUI, so the row itself turns

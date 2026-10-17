@@ -483,7 +483,7 @@ function statusValues(record, presence, problem, now) {
         values.firstPair = pairListValid(cloud) && cloud.pairs.length > 0
             ? { tone: "ok", text: "A folder pair is ready", action: false }
             : { tone: "warning", text: "Add your first folder pair", action: pairListValid(cloud) };
-        if (!pairListValid(cloud)) values.firstPair.hint = "Choose Start the folder pair list again under [Folder pairs](page:vgs.cloud-sync/Settings/folderPairs)";
+        if (!pairListValid(cloud)) values.firstPair.hint = "Choose Start the folder pair list again under [Folder pairs](page:vgs.cloud-sync/Details)";
         values.cloud = cloud;
         values.lastSync = cloud.lastSuccess;
     }
@@ -492,7 +492,7 @@ function statusValues(record, presence, problem, now) {
         values.account = signInValue(presence, record);
         values.connection = Object.assign({}, values.account, { action: values.account.action === "signIn" || values.account.action === "reconnect" });
         // Connecting belongs to the required step. This row keeps account
-        // maintenance beside its Settings field.
+        // maintenance beside its fact on Details.
         if (values.account.action === "signIn") delete values.account.action;
     }
     return values;

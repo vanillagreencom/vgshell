@@ -276,9 +276,9 @@ function stepOffered(step) { return step === "needed" || step === "nixos"; }
 // do, "" for none, and `action` the one step that applies now, `enable` or
 // `allow`, or "" for none. CONTEXT is { missing, state, service, operator }:
 // whether the `tailscale` command is absent, the snapshot's state and the
-// two system steps' states. A missing command offers no step: the page's
-// Settings field's tool action installs it, and the requirement is optional, so
-// the line reads info. A step Tailscale needs reads warning while its
+// two system steps' states. A missing command offers no step: the Review
+// action of the page's Details Tools section installs it, and the
+// requirement is optional, so the line reads info. A step Tailscale needs reads warning while its
 // action is offered; a state the user cannot change here reads info.
 var SERVICE_UNOFFERED = {
     absent: { text: "Unavailable", hint: "This computer has no Tailscale service." },

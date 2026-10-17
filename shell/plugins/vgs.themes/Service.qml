@@ -12,8 +12,8 @@ import "SetupLogic.js" as SetupLogic
 // them. The row asks `vgshell theme setup --json` at start, after each plugin
 // requirements scan, after each theme apply result and after each run of the
 // `browser-policy` TUI, whoever opened it. It publishes
-// SetupLogic.browserTheming's answer and the wired theme files; the Settings
-// page offers Install browser theming, that TUI, while the browser row says
+// SetupLogic.browserTheming's answer and the wired theme files; the Details
+// tab offers Install browser theming, that TUI, while the browser row says
 // so (D061). Settings asks for a scan each time it opens, so the row also
 // reads a setup run from a terminal or a package installed while the shell
 // ran. The theme browser closes on the publish of an apply it ran, before

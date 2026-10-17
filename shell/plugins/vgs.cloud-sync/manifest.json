@@ -15,12 +15,12 @@
     {"command": "node", "packages": {"pacman": "nodejs", "apt": "nodejs", "dnf": "nodejs", "nix": "nodejs"}, "optional": false, "purpose": "Runs the sync and reads its status"},
     {"command": "rclone", "packages": {"pacman": "rclone", "dnf": "rclone", "nix": "rclone"}, "optional": false, "purpose": "Copies the files to and from Google Drive"},
     {"command": "flock", "packages": {"pacman": "util-linux", "apt": "util-linux", "dnf": "util-linux", "nix": "util-linux"}, "optional": false, "purpose": "Lets only one sync of a folder pair run at a time"},
-    {"command": "systemctl", "packages": {"pacman": "systemd", "apt": "systemd", "dnf": "systemd", "nix": "systemd"}, "optional": true, "purpose": "Runs the sync every hour while you are logged in", "setting": "hourlySync"},
+    {"command": "systemctl", "packages": {"pacman": "systemd", "apt": "systemd", "dnf": "systemd", "nix": "systemd"}, "optional": true, "purpose": "Runs the sync every hour while you are logged in"},
     {"command": "secret-tool", "packages": {"pacman": "libsecret", "apt": "libsecret-tools", "dnf": "libsecret", "nix": "libsecret"}, "optional": false, "purpose": "Reads the Google Drive keys from the keyring"},
     {"command": "notify-send", "packages": {"pacman": "libnotify", "apt": "libnotify-bin", "dnf": "libnotify", "nix": "libnotify"}, "optional": false, "purpose": "Tells you when Cloud Sync needs you"},
     {"command": "curl", "packages": {"pacman": "curl", "apt": "curl", "dnf": "curl", "nix": "curl"}, "optional": false, "purpose": "Reads the name of the Google account you sign in with"},
     {"command": "gum", "packages": {"pacman": "gum", "apt": "gum", "dnf": "gum", "nix": "gum"}, "optional": false, "purpose": "Asks the setup questions in the setup window"},
-    {"command": "xdg-open", "packages": {"pacman": "xdg-utils", "apt": "xdg-utils", "dnf": "xdg-utils", "nix": "xdg-utils"}, "optional": true, "purpose": "Opens the Google sign-in page and the folders to review", "setting": "googleDrive"}
+    {"command": "xdg-open", "packages": {"pacman": "xdg-utils", "apt": "xdg-utils", "dnf": "xdg-utils", "nix": "xdg-utils"}, "optional": true, "purpose": "Opens the Google sign-in page and the folders to review"}
   ],
   "tui": {
     "setup": { "script": "tui/setup.sh", "title": "Set up hourly sync", "requires": ["node", "systemctl"] },
@@ -33,15 +33,14 @@
   "settings": {},
   "status": {
     "sync": {"type": "state", "label": "Cloud Sync", "info": "Cloud Sync copies each folder pair both ways. Newer files win. It never deletes a file. Older copies on this computer stay in Cloud Sync records for 30 days. Older copies on Google Drive stay in the file version history for 30 days, up to 100 versions."},
-    "schedule": {"type": "state", "label": "Hourly sync", "action": {"label": "Set up hourly sync", "tui": "setup"}, "setting": "hourlySync"},
-    "pairs": {"type": "state", "label": "Folder pairs", "actions": {"add": {"label": "Add a folder pair", "tui": "add-pair"}, "remove": {"label": "Remove a folder pair", "tui": "remove-pair", "tone": "danger"}, "reset": {"label": "Start the folder pair list again", "tui": "reset-pairs"}}, "setting": "folderPairs"},
+    "schedule": {"type": "state", "label": "Hourly sync", "action": {"label": "Set up hourly sync", "tui": "setup"}},
+    "pairs": {"type": "state", "label": "Folder pairs", "actions": {"add": {"label": "Add a folder pair", "tui": "add-pair"}, "remove": {"label": "Remove a folder pair", "tui": "remove-pair", "tone": "danger"}, "reset": {"label": "Start the folder pair list again", "tui": "reset-pairs"}}},
     "keys": {"type": "presenceList", "label": "Keys", "group": "Google Drive", "hint": "Get one OAuth client ID of type Desktop app from Google Cloud credentials", "link": {"text": "Google Cloud credentials", "url": "https://console.cloud.google.com/apis/credentials"}, "info": "Add the client ID and secret. Then select Connect. VGS stores every key in your keyring.", "step": "connection"},
-    "account": {"type": "state", "label": "Google Drive", "group": "Google Drive", "info": "Connect lets Cloud Sync read and change files in your Google Drive. It copies only your folder pairs and never deletes a file.", "actions": {"reconnect": {"label": "Connect again", "tui": "connect"}, "signOut": {"label": "Sign out", "tui": "sign-out", "tone": "danger"}}, "setting": "googleDrive"},
+    "account": {"type": "state", "label": "Google Drive", "group": "Google Drive", "info": "Connect lets Cloud Sync read and change files in your Google Drive. It copies only your folder pairs and never deletes a file.", "actions": {"reconnect": {"label": "Connect again", "tui": "connect"}, "signOut": {"label": "Sign out", "tui": "sign-out", "tone": "danger"}}},
     "lastSync": {"type": "time", "label": "Last sync"},
     "cloud": {"type": "data", "label": "Cloud Sync status"},
     "connection": {"type": "state", "label": "Google Drive connection", "setup": true, "hint": "Connects Cloud Sync to Google Drive with the keys below", "action": {"label": "Connect", "tui": "connect"}, "info": "Connect lets Cloud Sync read and change files in your Google Drive. It copies only your folder pairs and never deletes a file."},
     "firstPair": {"type": "state", "label": "First folder pair", "setup": true, "hint": "Choose the first folders to keep on this computer and in Google Drive", "action": {"label": "Add a folder pair", "tui": "add-pair"}}
   },
-  "secrets": { "service": "vgs-cloud-sync", "label": "VGS Cloud Sync" },
-  "schema": {"hourlySync": {"type": "action", "label": "Hourly sync", "description": "Run your folder pairs every hour"}, "folderPairs": {"type": "action", "label": "Folder pairs", "description": "Add or remove folders to keep in Google Drive"}, "googleDrive": {"type": "action", "label": "Google Drive", "description": "Connect again or sign out of your Google account"}}
+  "secrets": { "service": "vgs-cloud-sync", "label": "VGS Cloud Sync" }
 }

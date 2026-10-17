@@ -28,7 +28,7 @@ Open the Cloud Sync page in Settings and select Setup. The Setup section and the
 4. Under Google Drive, select Connect. Google opens in your browser. Sign in and allow access. VGS stores the connection in your keyring, and the Google Drive line shows the Google account.
 5. Under Folder pairs, select Add a folder pair. A setup window asks for a name, the Google Drive folder and the folder on this computer. A folder pair cannot be your home folder, a folder that holds a Git repository, a folder of VGS or your system services, or the whole Drive, and two pairs cannot overlap.
 
-Remove a folder pair, on the Settings page or beside the pair in the Cloud Sync window, stops the sync of a pair. Its files stay on this computer and on Drive.
+Remove a folder pair, on the Details tab or beside the pair in the Cloud Sync window, stops the sync of a pair. Its files stay on this computer and on Drive.
 
 If the folder pair list cannot be read, select Start the folder pair list again. VGS keeps the damaged list beside a new empty list.
 

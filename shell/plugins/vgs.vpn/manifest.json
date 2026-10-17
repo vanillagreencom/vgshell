@@ -38,15 +38,13 @@
     "pollSeconds": 30
   },
   "schema": {
-    "pollSeconds": {"type": "number", "label": "Check every", "description": "How often VGS reads Tailscale while its views are closed", "unit": "seconds", "presets": [{"value": 10}, {"value": 30}, {"value": 60}], "group": "Updates"},
-    "tailscale": {"type": "action", "label": "Tailscale", "description": "Use Tailscale as a VPN provider"},
-    "savedProfiles": {"type": "action", "label": "Saved VPN profiles", "description": "Use saved VPN and WireGuard profiles"}
+    "pollSeconds": {"type": "number", "label": "Check every", "description": "How often VGS reads Tailscale while its views are closed", "unit": "seconds", "presets": [{"value": 10}, {"value": 30}, {"value": 60}], "group": "Updates"}
   },
   "requirements": [
-    {"command": "tailscale", "packages": {"pacman": "tailscale", "dnf": "tailscale", "nix": "tailscale"}, "optional": true, "purpose": "Reads and controls your Tailscale connection", "setting": "tailscale"},
-    {"command": "xdg-open", "packages": {"pacman": "xdg-utils", "apt": "xdg-utils", "dnf": "xdg-utils", "nix": "xdg-utils"}, "optional": true, "purpose": "Opens the Tailscale sign-in page in your browser", "setting": "tailscale"},
-    {"command": "nmcli", "packages": {"pacman": "networkmanager", "apt": "network-manager", "dnf": "NetworkManager", "nix": "networkmanager"}, "optional": true, "purpose": "Reads and controls saved VPN and WireGuard profiles", "setting": "savedProfiles"},
-    {"command": "gum", "packages": {"pacman": "gum", "apt": "gum", "dnf": "gum", "nix": "gum"}, "optional": true, "purpose": "Chooses a WireGuard configuration file", "setting": "savedProfiles"}
+    {"command": "tailscale", "packages": {"pacman": "tailscale", "dnf": "tailscale", "nix": "tailscale"}, "optional": true, "purpose": "Reads and controls your Tailscale connection"},
+    {"command": "xdg-open", "packages": {"pacman": "xdg-utils", "apt": "xdg-utils", "dnf": "xdg-utils", "nix": "xdg-utils"}, "optional": true, "purpose": "Opens the Tailscale sign-in page in your browser"},
+    {"command": "nmcli", "packages": {"pacman": "networkmanager", "apt": "network-manager", "dnf": "NetworkManager", "nix": "networkmanager"}, "optional": true, "purpose": "Reads and controls saved VPN and WireGuard profiles"},
+    {"command": "gum", "packages": {"pacman": "gum", "apt": "gum", "dnf": "gum", "nix": "gum"}, "optional": true, "purpose": "Chooses a WireGuard configuration file"}
   ],
   "systemSteps": [
     "service-tailscaled",
@@ -54,7 +52,7 @@
   ],
   "status": {
     "connection": {"type": "state", "label": "Connection"},
-    "setup": {"type": "state", "label": "Tailscale service", "actions": {"enable": {"label": "Enable", "system": "service-tailscaled"}, "allow": {"label": "Let my login control Tailscale", "system": "tailscale-operator"}}, "setting": "tailscale"},
+    "setup": {"type": "state", "label": "Tailscale service", "actions": {"enable": {"label": "Enable", "system": "service-tailscaled"}, "allow": {"label": "Let my login control Tailscale", "system": "tailscale-operator"}}},
     "vpn": {"type": "data", "label": "VPN"},
     "profiles": {"type": "data", "label": "VPN profiles"}
   },
@@ -62,7 +60,7 @@
     "import-wireguard": {
       "script": "tui/import-wireguard.sh",
       "title": "Import WireGuard",
-      "entry": {"label": "Import WireGuard", "icon": "file-input", "group": "VPN", "setting": "savedProfiles"},
+      "entry": {"label": "Import WireGuard", "icon": "file-input", "group": "VPN"},
       "requires": [
         "nmcli",
         "gum"

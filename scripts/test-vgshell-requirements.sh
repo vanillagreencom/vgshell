@@ -213,7 +213,7 @@ row_requirements() {
 row_requirements_json() {
   req "$1" plain "" "$2" "$rt_empty" -- plugin add --yes "$tmp/src/needs.git"
   req "$1" plain "" "$2" "$rt_empty" -- plugin requirements --json acme.needs
-  [[ $status == 0 ]] && json_is "$tmp/out" 'd[0] == {"name": "vgs-need-one", "title": "vgs-need-one", "bus": None, "packages": {"pacman": "need-one", "apt": "need-one-deb"}, "optional": False, "purpose": "First", "floor": None, "onRequest": False, "setting": "", "state": "missing", "badge": {"text": "Missing", "tone": "danger"}, "package": {"manager": "pacman", "name": "need-one"}} and d[1]["package"] == {"manager": "aur", "name": "need-two"} and d[2]["package"] is None and d[4]["state"] == "present" and len(d) == 7'
+  [[ $status == 0 ]] && json_is "$tmp/out" 'd[0] == {"name": "vgs-need-one", "title": "vgs-need-one", "bus": None, "packages": {"pacman": "need-one", "apt": "need-one-deb"}, "optional": False, "purpose": "First", "floor": None, "onRequest": False, "state": "missing", "badge": {"text": "Missing", "tone": "danger"}, "package": {"manager": "pacman", "name": "need-one"}} and d[1]["package"] == {"manager": "aur", "name": "need-two"} and d[2]["package"] is None and d[4]["state"] == "present" and len(d) == 7'
 }
 # A plugin add lands disabled is left out; enabled, it is reported beside
 # the core, whose commands this PATH lacks apart from node and python3.

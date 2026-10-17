@@ -57,8 +57,8 @@ var EXCLUSIVE_CAPABILITIES = ["lock", "polkit", "bluetoothAgent", "panes"];
 // page; `tooltip` is the few words a label that is not plain needs, shown
 // on hover and keyboard focus of the label. Pads.js judges a
 // `list`.
-var SETTING_TYPES = ["string", "number", "boolean", "enum", "list", "action"];
-var SCHEMA_ENTRY_KEYS = ["type", "label", "description", "hintFrom", "info", "tooltip", "link", "options", "optionsFrom", "presets", "separator", "allowCustom", "format", "unit", "min", "max", "step", "group", "items", "defaults", "placeholder", "hideEmpty"];
+var SETTING_TYPES = ["string", "number", "boolean", "enum", "list"];
+var SCHEMA_ENTRY_KEYS = ["type", "label", "description", "info", "tooltip", "link", "options", "optionsFrom", "presets", "separator", "allowCustom", "format", "unit", "min", "max", "step", "group", "items", "defaults", "placeholder", "hideEmpty"];
 var NUMBER_BOUND_KEYS = ["min", "max", "step"];
 var PRESET_KEYS = ["value", "label"];
 var OPTION_KEYS = ["value", "label"];
@@ -126,7 +126,7 @@ var MANIFEST_KEYS = ["schemaVersion", "id", "name", "version", "author", "descri
 // saying what it is for, for a command the `floor`, the lowest version
 // the plugin works with, and `install`, how the package recipes carry its
 // package. The states a probed requirement is reported in.
-var REQUIREMENT_KEYS = ["command", "dbus", "packages", "optional", "purpose", "floor", "install", "setting"];
+var REQUIREMENT_KEYS = ["command", "dbus", "packages", "optional", "purpose", "floor", "install"];
 // The one `install` value: the requirement stays required, and its package
 // is an optional dependency of every recipe, which its plugin's
 // Requirements section installs (scripts/check-packaging.js).
@@ -344,7 +344,6 @@ function settingError(entry, value) {
     if (entry.type === "boolean") return typeof value === "boolean" ? "" : "want=boolean";
     if (entry.type === "enum") return optionValues(entry).indexOf(value) !== -1 ? "" : "want=one-of:" + optionValues(entry).join("|");
     if (entry.type === "list") return Pads.listValueError(entry, value, settingError, ConfigLogic.NAME_PATTERN);
-    if (entry.type === "action") return "want=action-no-value";
     throw new Error("settingError: schema entry type " + JSON.stringify(entry.type) + " passed validation but has no rule");
 }
 
@@ -384,18 +383,6 @@ function schemaError(schema, settings, status) {
             return at + ".description must be a string when present";
         if (entry.description !== undefined && !hintFits(entry.description))
             return at + ".description" + HINT_RULE;
-        // A field reads the existing manager status row's live hint (D037).
-        // An unreported state has no hint; a fixed description cannot mask it.
-        if (entry.hintFrom !== undefined) {
-            if (typeof entry.hintFrom !== "string" || !STATUS_KEY_PATTERN.test(entry.hintFrom))
-                return at + ".hintFrom must name a status key";
-            if (!hasOwn(status, entry.hintFrom) || status[entry.hintFrom].type !== "state" || status[entry.hintFrom].hidden === true)
-                return at + ".hintFrom must name a displayed state status entry";
-            if (entry.description !== undefined)
-                return at + " must not declare both description and hintFrom";
-            if (entry.type === "list")
-                return at + ".hintFrom needs a flat setting";
-        }
         var schemaInfo = infoError(entry.info, at);
         if (schemaInfo !== "")
             return schemaInfo;
@@ -542,10 +529,6 @@ function schemaError(schema, settings, status) {
             return at + ".step must be positive";
         if (entry.group !== undefined && (typeof entry.group !== "string" || entry.group.length === 0))
             return at + ".group must be a non-empty string when present";
-        if (entry.type === "action") {
-            if (hasOwn(settings, key)) return at + " is an action field and stores no value";
-            continue;
-        }
         if (!hasOwn(settings, key))
             return at + " has no default in settings";
         var bad = settingError(entry, settings[key]);
@@ -1982,11 +1965,11 @@ function requirementsError(requirements) {
 
 // A `requirements` list requirementsError accepted, each entry with every
 // key: `name`, `title`, the command or the D-Bus `label` a page lists it
-// by, `bus`, `packages` {}, `optional` false, `floor` null, `onRequest`
-// false and `setting` "" when absent.
+// by, `bus`, `packages` {}, `optional` false, `floor` null and `onRequest`
+// false when absent.
 function normalRequirements(requirements) {
     return requirements.map(function (entry) {
-        return { name: requirementName(entry), title: entry.dbus === undefined ? entry.command : entry.dbus.label, bus: entry.dbus === undefined ? null : entry.dbus.bus, packages: entry.packages === undefined ? {} : clone(entry.packages), optional: entry.optional === true, purpose: entry.purpose, floor: entry.floor === undefined ? null : entry.floor, onRequest: entry.install === REQUIREMENT_ON_REQUEST, setting: entry.setting === undefined ? "" : entry.setting };
+        return { name: requirementName(entry), title: entry.dbus === undefined ? entry.command : entry.dbus.label, bus: entry.dbus === undefined ? null : entry.dbus.bus, packages: entry.packages === undefined ? {} : clone(entry.packages), optional: entry.optional === true, purpose: entry.purpose, floor: entry.floor === undefined ? null : entry.floor, onRequest: entry.install === REQUIREMENT_ON_REQUEST };
     });
 }
 
@@ -2556,10 +2539,10 @@ function welcomeStep(welcomeState, event) {
 // hidden. The sizes are the size classes of HyprlandLayer.TUI_WINDOWS, the
 // table the layer's window rules and the launcher's app-ids come from, and
 // the presentations are bin/vgshell-tui's. A title, a label and a group are one
-// printable line of at most TUI_TEXT_MAX characters. A `setting` names the
-// field beside a screen; `settings` marks a bottom More settings link.
+// printable line of at most TUI_TEXT_MAX characters. `settings` marks a
+// configuration screen, the bottom More settings link of Settings.
 var TUI_KEYS = ["script", "title", "size", "presentation", "entry", "requires"];
-var TUI_ENTRY_KEYS = ["label", "icon", "group", "setting", "settings"];
+var TUI_ENTRY_KEYS = ["label", "icon", "group", "settings"];
 var TUI_SIZES = Object.keys(HyprlandLayer.TUI_WINDOWS);
 var TUI_PRESENTATIONS = ["full", "plain"];
 var TUI_TEXT_MAX = 60;
@@ -3132,11 +3115,11 @@ function tuiEntries(manifests, enabledIds, core) {
 }
 
 // The listed screens of plugin MANIFEST, for its manager row: each `tui`
-// script with an `entry`, in manifest order, as { name, label, icon, setting, settings }.
-// Its declared field or bottom Settings link owns configuration screens.
+// script with an `entry`, in manifest order, as { name, label, icon, settings }.
+// The bottom Settings link owns configuration screens.
 function listedTuis(manifest) {
     return Object.keys(manifest.tui).filter(function (name) { return manifest.tui[name].entry !== null; }).map(function (name) {
-        return { name: name, label: manifest.tui[name].entry.label, icon: manifest.tui[name].entry.icon, setting: manifest.tui[name].entry.setting || "", settings: manifest.tui[name].entry.settings === true };
+        return { name: name, label: manifest.tui[name].entry.label, icon: manifest.tui[name].entry.icon, settings: manifest.tui[name].entry.settings === true };
     });
 }
 
@@ -3871,7 +3854,7 @@ function validateManifest(raw, sourceDir) {
     } else if (capabilities.indexOf("sounds") !== -1) {
         return { ok: false, error: "capability sounds needs a sounds declaration" };
     }
-    var badPlacement = pagePlacementError(raw.status || {}, requirements, raw.tui || {}, schema);
+    var badPlacement = pagePlacementError(raw.status || {}, schema, raw.secrets !== undefined);
     if (badPlacement !== "") return { ok: false, error: badPlacement };
     var manifest = clone(raw);
     manifest.capabilities = capabilities.slice();
@@ -3884,7 +3867,7 @@ function validateManifest(raw, sourceDir) {
     manifest.sounds = raw.sounds === undefined ? {} : clone(raw.sounds);
     if (raw.pane !== undefined) manifest.pane = clone(raw.pane);
     manifest.systemSteps = raw.systemSteps === undefined ? [] : raw.systemSteps.slice();
-    manifest.fieldRows = fieldRows(manifest.schema, manifest.status, manifest.requirements, manifest.tui);
+    manifest.fieldRows = fieldRows(manifest.schema, manifest.status);
     var badRows = pageRowsError(manifest.fieldRows, manifest.schema, manifest.status, manifest.tui);
     if (badRows !== "") return { ok: false, error: badRows };
     if (raw.hyprland !== undefined) {
@@ -5010,75 +4993,46 @@ function idleWatchRefusal(seconds, onChange) {
     return "";
 }
 
-// Page references stay inside the declaring plugin. Setup names required
-// state/presence steps; optional work names the field beside it on Settings.
-function pagePlacementError(status, requirements, tui, schema) {
-    function field(value, at) {
-        if (typeof value !== "string" || !hasOwn(schema, value)) return at + " must name a schema field";
-        return "";
-    }
+// The first defect of where STATUS's entries draw on a plugin page, or ""
+// (docs/architecture/design-system.md § Settings pages). `setup` makes a
+// displayed state or presence a required step of Setup, and `step` puts a
+// key list beside its step there. Settings holds only values the user
+// changes, so `setting` takes only a stored key list, the presenceList of
+// a manifest that declares `secrets` (SECRETS), whose masked field is one,
+// beside a field of SCHEMA. Every other entry, with its action, is a fact
+// of Details.
+function pagePlacementError(status, schema, secrets) {
     var keys = Object.keys(status);
     for (var i = 0; i < keys.length; i++) {
         var entry = status[keys[i]], at = "status." + keys[i];
         if (entry.setup !== undefined && typeof entry.setup !== "boolean") return at + ".setup must be a boolean";
         if (entry.setup === true && (entry.hidden === true || ["state", "presence"].indexOf(entry.type) === -1)) return at + ".setup needs a displayed state or presence";
         if (entry.setting !== undefined) {
-            var badField = field(entry.setting, at + ".setting");
-            if (badField !== "") return badField;
-            if (entry.hidden === true || ["data", "choices", "launcherRows"].indexOf(entry.type) !== -1) return at + ".setting needs a displayed status";
+            if (entry.type !== "presenceList" || !secrets) return at + ".setting needs a stored key list; Settings draws only values the user changes";
+            if (typeof entry.setting !== "string" || !hasOwn(schema, entry.setting)) return at + ".setting must name a schema field";
+            if (entry.hidden === true) return at + ".setting needs a displayed status";
         }
         if (entry.step !== undefined) {
             if (typeof entry.step !== "string" || !hasOwn(status, entry.step) || status[entry.step].setup !== true) return at + ".step must name a required Setup step";
             if (entry.type !== "presenceList") return at + ".step needs a key list";
         }
         if ((entry.setup === true ? 1 : 0) + (entry.setting !== undefined ? 1 : 0) + (entry.step !== undefined ? 1 : 0) > 1) return at + " declares more than one page placement";
-        if (entry.hidden !== true && (entry.action !== undefined || entry.actions !== undefined) && entry.setup !== true && entry.setting === undefined) return at + " action needs a Setup step or Settings field";
-    }
-    for (var r = 0; r < requirements.length; r++) {
-        if (requirements[r].setting === undefined) continue;
-        var badRequirement = field(requirements[r].setting, "requirements." + r + ".setting");
-        if (badRequirement !== "") return badRequirement;
-        if (requirements[r].optional !== true) return "requirements." + r + ".setting needs an optional tool";
-    }
-    var names = Object.keys(tui);
-    for (var t = 0; t < names.length; t++) {
-        var screen = tui[names[t]].entry;
-        if (screen === undefined) continue;
-        if (screen.setting !== undefined) {
-            var badScreen = field(screen.setting, "tui." + names[t] + ".entry.setting");
-            if (badScreen !== "") return badScreen;
-            if (screen.settings === true) return "tui." + names[t] + ".entry declares two Settings placements";
-        }
     }
     return "";
 }
 
 // The rows a plugin's Settings page draws for SCHEMA, one per field in
-// schema order, from the normalized STATUS, REQUIREMENTS and TUI:
-// { key, section, list, own, entries, keyLists, tools, screens }.
-// `section` is the field's group, "" for none, and `list` whether it is a
-// list, which draws as a section of its own. `own` is the key of the one
-// attached state, presence, text, count or time entry, "" while there is
-// none or more than one, which the row draws with no label of its own;
-// `entries` holds them, each with its label, while there are two or more.
-// `keyLists` are the attached presence lists, `tools` the names of the
-// optional requirements that declare the field, and `screens` the listed
-// TUIs that declare it and that no status entry opens.
-function fieldRows(schema, status, requirements, tui) {
-    var declared = [];
-    Object.keys(status).forEach(function (key) { declared = declared.concat(statusDeclaredTuis(status[key])); });
+// schema order, from the normalized STATUS: { key, section, list,
+// keyLists }. `section` is the field's group, "" for none, and `list`
+// whether it is a list, which draws as a section of its own. `keyLists`
+// are the stored key lists placed beside the field (pagePlacementError).
+function fieldRows(schema, status) {
     return Object.keys(schema).map(function (key) {
-        var attached = Object.keys(status).filter(function (name) { return status[name].setting === key && statusDisplayable(status[name]); });
-        var lines = attached.filter(function (name) { return status[name].type !== "presenceList"; });
         return {
             key: key,
             section: schema[key].group === undefined ? "" : schema[key].group,
             list: schema[key].type === "list",
-            own: lines.length === 1 ? lines[0] : "",
-            entries: lines.length === 1 ? [] : lines,
-            keyLists: attached.filter(function (name) { return status[name].type === "presenceList"; }),
-            tools: requirements.filter(function (row) { return row.optional && row.setting === key; }).map(function (row) { return row.name; }),
-            screens: Object.keys(tui).filter(function (name) { return tui[name].entry !== null && tui[name].entry.setting === key && declared.indexOf(name) === -1; })
+            keyLists: Object.keys(status).filter(function (name) { return status[name].setting === key; })
         };
     });
 }
@@ -5086,17 +5040,11 @@ function fieldRows(schema, status, requirements, tui) {
 // The first row a Settings page could not draw truly, of ROWS, fieldRows'
 // over SCHEMA and STATUS, and of the More settings rows of TUI, or "":
 // `schema.<key> page-row=<rule>`, `status.<key> page-row=<rule>` or
-// `tui.<name>.entry page-row=<rule>`, then why. `no-action`, an action
-// field, which has no control, with nothing to act on: no own entry that
-// declares an action, no screen and no tool. `two-states`, an action field
-// with more than one attached line, whose one line has room for one.
-// `action-hint`, a `hintFrom` on an action field, which draws no control to
-// read it under. `duplicate-label`, a label drawn twice in one section, a
-// list's own included, ignoring case, or a second configuration screen,
-// whose More settings row would repeat the first's. `page-label`, a label
-// of the rows the page draws itself (SettingValues.PAGE_LABELS). `own-hint`,
-// a `hintFrom` naming the field's own entry, whose hint its row draws
-// already.
+// `tui.<name>.entry page-row=<rule>`, then why. `duplicate-label`, a label
+// drawn twice in one section, a list's own included, ignoring case, or a
+// second configuration screen, whose More settings row would repeat the
+// first's. `page-label`, a label of the rows the page draws itself
+// (SettingValues.PAGE_LABELS).
 function pageRowsError(rows, schema, status, tui) {
     var own = Object.keys(SettingValues.PAGE_LABELS).map(function (name) { return SettingValues.PAGE_LABELS[name].toLowerCase(); });
     var declared = [];
@@ -5107,20 +5055,9 @@ function pageRowsError(rows, schema, status, tui) {
     var drawn = Object.create(null);
     for (var i = 0; i < rows.length; i++) {
         var row = rows[i], spec = schema[row.key], at = "schema." + row.key;
-        if (spec.type === "action" && spec.hintFrom !== undefined)
-            return at + " page-row=action-hint: an action field draws no control for " + spec.hintFrom + "'s hint to read under";
-        if (spec.type === "action") {
-            if (row.entries.length > 1)
-                return at + " page-row=two-states: an action field draws one status line; attach the others to another field";
-            var acts = row.own !== "" && statusEntryActions(status[row.own]).length > 0;
-            if (!acts && row.screens.length === 0 && row.tools.length === 0)
-                return at + " page-row=no-action: an action field needs an own status entry with an action, a screen or a tool";
-        }
-        if (spec.hintFrom !== undefined && status[spec.hintFrom].setting === row.key)
-            return at + " page-row=own-hint: " + spec.hintFrom + " is drawn in this row with its hint already";
         var scope = row.list ? "list " + row.key : "section " + row.section;
         if (drawn[scope] === undefined) drawn[scope] = [];
-        var labels = (row.list ? [] : [[at, spec.label]]).concat(row.entries.concat(row.keyLists).map(function (key) { return ["status." + key, status[key].label]; }));
+        var labels = (row.list ? [] : [[at, spec.label]]).concat(row.keyLists.map(function (key) { return ["status." + key, status[key].label]; }));
         for (var l = 0; l < labels.length; l++) {
             var label = String(labels[l][1]).toLowerCase();
             if (own.indexOf(label) !== -1)

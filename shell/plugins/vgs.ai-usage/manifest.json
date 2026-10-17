@@ -15,10 +15,10 @@
     {"command": "node", "packages": {"pacman": "nodejs", "apt": "nodejs", "dnf": "nodejs", "nix": "nodejs"}, "optional": false, "purpose": "Reads the plan limits of each signed-in account"},
     {"command": "setpriv", "packages": {"pacman": "util-linux", "apt": "util-linux", "dnf": "util-linux", "nix": "util-linux"}, "optional": false, "purpose": "Stops the Codex program when a usage check ends"},
     {"command": "gum", "packages": {"pacman": "gum", "apt": "gum", "dnf": "gum", "nix": "gum"}, "optional": false, "purpose": "Draws the header of the sign-in terminal"},
-    {"command": "claude", "packages": {}, "optional": true, "purpose": "Signs in to Claude Code", "setting": "showClaude"},
-    {"command": "codex", "packages": {}, "optional": true, "purpose": "Signs in to Codex and reports its plan limits", "setting": "showCodex"},
-    {"command": "secret-tool", "packages": {"pacman": "libsecret", "apt": "libsecret-tools", "dnf": "libsecret", "nix": "libsecret"}, "optional": true, "purpose": "Reads the Copilot sign-in from the keyring", "setting": "showCopilot"},
-    {"command": "xdg-open", "packages": {"pacman": "xdg-utils", "apt": "xdg-utils", "dnf": "xdg-utils", "nix": "xdg-utils"}, "optional": true, "purpose": "Opens Vercel to create an AI Gateway key", "setting": "aiGateway"}
+    {"command": "claude", "packages": {}, "optional": true, "purpose": "Signs in to Claude Code"},
+    {"command": "codex", "packages": {}, "optional": true, "purpose": "Signs in to Codex and reports its plan limits"},
+    {"command": "secret-tool", "packages": {"pacman": "libsecret", "apt": "libsecret-tools", "dnf": "libsecret", "nix": "libsecret"}, "optional": true, "purpose": "Reads the Copilot sign-in from the keyring"},
+    {"command": "xdg-open", "packages": {"pacman": "xdg-utils", "apt": "xdg-utils", "dnf": "xdg-utils", "nix": "xdg-utils"}, "optional": true, "purpose": "Opens Vercel to create an AI Gateway key"}
   ],
   "settings": { "refreshMinutes": 15, "view": "full", "sort": "provider", "barNumber": "most-used", "barShows": "used", "colourByUsage": true, "showClaude": true, "showCodex": true, "showCopilot": true, "hidden": [], "aiGateway": false },
   "schema": {
@@ -37,13 +37,13 @@
   "tui": {
     "sign-in-claude": {"script": "tui/sign-in-claude.sh", "title": "Sign in to Claude Code", "requires": ["claude", "gum"]},
     "sign-in-codex": {"script": "tui/sign-in-codex.sh", "title": "Sign in to Codex", "requires": ["codex", "gum"]},
-    "gateway-key": {"script": "tui/gateway-key.sh", "title": "Get AI Gateway key", "requires": ["xdg-open", "gum"], "entry": {"label": "Get AI Gateway key", "icon": "external-link", "group": "Sign-in", "setting": "aiGateway"}}
+    "gateway-key": {"script": "tui/gateway-key.sh", "title": "Get AI Gateway key", "requires": ["xdg-open", "gum"], "entry": {"label": "Get AI Gateway key", "icon": "external-link", "group": "Sign-in"}}
   },
   "status": {
     "usage": {"type": "data", "label": "Usage"},
     "accounts": {"type": "choices", "label": "Accounts", "hidden": true},
-    "claude": {"type": "state", "label": "Claude Code", "group": "Sign-in", "action": {"label": "Sign in", "tui": "sign-in-claude"}, "setting": "showClaude"},
-    "codex": {"type": "state", "label": "Codex", "group": "Sign-in", "action": {"label": "Sign in", "tui": "sign-in-codex"}, "setting": "showCodex"},
+    "claude": {"type": "state", "label": "Claude Code", "group": "Sign-in", "action": {"label": "Sign in", "tui": "sign-in-claude"}},
+    "codex": {"type": "state", "label": "Codex", "group": "Sign-in", "action": {"label": "Sign in", "tui": "sign-in-codex"}},
     "gatewayKey": {"type": "presenceList", "label": "AI Gateway key", "hint": "This key shows your AI Gateway credits", "info": "In Vercel, open AI Gateway, then API keys, then Create key. Add the key here to show AI Gateway credit figures. VGS stores the key in your keyring.", "setting": "aiGateway"}
   },
   "secrets": { "service": "vgs-ai-usage", "label": "VGS AI Usage AI Gateway key" }

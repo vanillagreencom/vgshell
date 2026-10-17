@@ -26,12 +26,15 @@ function waitingLine(name) { return name + " has not reported this step yet"; }
 function detailEntries(status) {
     return status.filter(function (entry) { return !declaresStep(entry) && entry.setting === "" && entry.step === ""; });
 }
-function detailRequirements(requirements) { return requirements.filter(function (entry) { return entry.optional && entry.setting === ""; }); }
+function detailRequirements(requirements) { return requirements.filter(function (entry) { return entry.optional; }); }
 // The action that opens the plugin's notice for every missing or outdated
-// tool, the one install action of Setup's Tools step and of a field's
-// tools line.
+// tool, the one install action of Setup's Tools step and of Details' Tools
+// section.
 var REVIEW_LABEL = "Review all missing or outdated tools";
 function reviewButton() { return { kind: "tools", key: "tools", name: "", label: REVIEW_LABEL, tone: "", enabled: true, reason: "" }; }
+// The Review action Details' Tools section offers for REQUIREMENTS, its
+// optional tools, while one is missing or outdated, else null.
+function toolsReview(requirements) { return requirements.some(requirementApplies) ? reviewButton() : null; }
 // REQUIREMENTS by title, each that is missing or outdated marked so.
 function toolsText(requirements) {
     return requirements.map(function (row) { return row.title + (row.state === "outdated" ? " (outdated)" : row.state === "missing" ? " (missing)" : ""); }).join(", ");
@@ -93,8 +96,9 @@ function turnOn(name) { return { kind: "enable", key: "enable", name: "", label:
 function offReason(name) { return "Turn on " + name + " first"; }
 // The action a line draws for PLUGIN, { enabled, name }: BUTTON, the one
 // its entry offers, while the plugin is on; while it is off, Turn on for a
-// line that holds work (OPEN), a To do step or an action field, else none,
-// since the page reads the plugin's settings alone while it is off.
+// line that holds work (OPEN), a To do step or a Details fact that
+// declares an action, else none, since the page reads the plugin's
+// settings alone while it is off.
 function lineAction(button, open, plugin) {
     if (!plugin.enabled) return open ? turnOn(plugin.name) : null;
     return button;
@@ -106,14 +110,14 @@ function screenButtons(tuis, names, plugin) {
         return { kind: "tui", key: tui.name + " " + tui.label + " " + plugin.enabled, name: tui.name, label: tui.label, tone: "", enabled: plugin.enabled, reason: plugin.enabled ? "" : offReason(plugin.name) };
     });
 }
-// The listed screens a page draws apart from its fields: PLACE "Settings",
-// a configuration screen's More settings link, or "Details", a task, each
-// one no status entry and no field declares.
+// The listed screens a page draws apart from its status entries: PLACE
+// "Settings", a configuration screen's More settings link, or "Details", a
+// task, each one no status entry declares.
 function freeScreens(tuis, status, place, plugin) {
     var declared = [];
     status.forEach(function (entry) { declared = declared.concat(entry.declaredTuis); });
     return screenButtons(tuis, tuis.filter(function (tui) {
-        return declared.indexOf(tui.name) === -1 && (place === "Settings" ? tui.settings : !tui.settings && tui.setting === "");
+        return declared.indexOf(tui.name) === -1 && (place === "Settings" ? tui.settings : !tui.settings);
     }).map(function (tui) { return tui.name; }), plugin);
 }
 // Why BUTTONS take no press, "" while they do: they all take none while
@@ -124,70 +128,30 @@ function withheldHint(buttons) {
 }
 
 // What a Settings page draws for FIELD, one row of the manager row's
-// `fieldRows` (PluginLogic.fieldRows), from ROW, that manager row, for
-// PLUGIN, { enabled, name }: the lines under the field's control, in drawn
-// order, each { slot, kind, label, key, hint, lines, action, aside, more }.
-// An action field has no control, so its first line is its head and takes
-// the field's label: its own entry's line, else its screens', else its
-// tools'. `kind` is `own`, the field's one entry, with no label of its own
-// beside a control; `entry`, one of two or more, with its label; `keys`, a
-// key list; `screens`, the field's listed screens; or `tools`, its optional
-// tools by title, with the Review action while one is missing or outdated.
-// KEY names the entry the line draws, HINT what the line reads where its
-// entry has no hint, or what a line with no entry reads, LINES what it
-// reads under that, ACTION and ASIDE its actions (lineAction), and MORE its
-// further actions.
-function featureRow(field, row, plugin) {
-    var spec = row.schema[field.key], acting = spec.type === "action";
-    var description = spec.description === undefined ? "" : spec.description;
-    var head = acting;
+// `fieldRows` (PluginLogic.fieldRows), from ROW, that manager row: the lines
+// under the field's control, each { slot, kind, key }, a `keys` line for
+// each stored key list beside the field whose entry ROW still holds. A
+// Settings row holds only values the user changes, and a masked key field
+// is one (docs/architecture/design-system.md § Settings pages).
+function featureRow(field, row) {
     var lines = [];
-    function entryOf(key) { return row.status.find(function (entry) { return entry.key === key; }) || null; }
-    // An entry the row no longer holds, such as a state published hidden,
-    // draws no line.
-    function entryLine(kind, key, label) {
-        var entry = entryOf(key);
-        if (entry === null) return;
-        lines.push({ slot: kind + " " + key, kind: kind, label: label, key: key, hint: head ? description : "", lines: [],
-            action: lineAction(stepButton(entry), head, plugin), aside: plugin.enabled ? asideButton(entry) : null, more: [] });
-        head = false;
-    }
-    if (field.own !== "") entryLine("own", field.own, acting ? spec.label : "");
-    field.entries.forEach(function (key) {
-        var entry = entryOf(key);
-        if (entry !== null) entryLine("entry", key, entry.label);
-    });
     field.keyLists.forEach(function (key) {
-        if (entryOf(key) !== null) lines.push({ slot: "keys " + key, kind: "keys", label: "", key: key, hint: "", lines: [], action: null, aside: null, more: [] });
+        if (row.status.some(function (entry) { return entry.key === key; })) lines.push({ slot: "keys " + key, kind: "keys", key: key });
     });
-    var screens = screenButtons(row.tuis, field.screens, plugin);
-    if (screens.length > 0) {
-        var off = head && !plugin.enabled;
-        lines.push({ slot: "screens", kind: "screens", label: head ? spec.label : "", key: "", hint: head ? description : withheldHint(screens), lines: [],
-            action: off ? turnOn(plugin.name) : null, aside: null, more: off ? [] : screens });
-        head = false;
-    }
-    var tools = row.requirements.filter(function (requirement) { return field.tools.indexOf(requirement.name) !== -1; });
-    if (tools.length > 0) {
-        var review = tools.some(requirementApplies) ? reviewButton() : null;
-        var enable = head && !plugin.enabled;
-        lines.push({ slot: "tools", kind: "tools", label: head ? spec.label : "", key: "", hint: "Tools: " + toolsText(tools),
-            lines: head && description !== "" ? [description] : [], action: enable ? turnOn(plugin.name) : review, aside: null,
-            more: enable && review !== null ? [review] : [] });
-    }
     return lines;
+}
+
+// What a Details line of ENTRY offers for PLUGIN, an optional feature's
+// own action beside its fact: { action, aside }, ACTION the action ENTRY
+// offers while the plugin is on and Turn on while it is off, for an entry
+// that declares one (lineAction), and ASIDE its aside while the plugin is
+// on.
+function detailButtons(entry, plugin) {
+    return { action: lineAction(stepButton(entry), entry.action !== null, plugin), aside: plugin.enabled ? asideButton(entry) : null };
 }
 
 // The words a `presence` value reads as on the page.
 var PRESENCE_WORDS = { present: "Present", absent: "Absent", locked: "Locked", unavailable: "Unavailable", unsafe: "Unsafe", "signed-out": "Signed out" };
-
-// A schema field's guidance: its fixed description, or the live hint of
-// its declared state row. Discovery and disabled plugins report no state.
-function settingHint(spec, status) {
-    if (spec.hintFrom === undefined) return spec.description === undefined ? "" : spec.description;
-    var entry = status.find(function (row) { return row.key === spec.hintFrom; });
-    return entry === undefined || entry.report !== "reported" ? "" : entry.hint;
-}
 
 // What a page draws of ENTRY, one row of PluginLogic.statusRows, or null
 // for a row whose entry left the manager row: { label, hint, info, link,

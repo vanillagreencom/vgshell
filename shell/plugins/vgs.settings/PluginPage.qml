@@ -4,8 +4,10 @@ import qs.Commons
 import qs.Ui
 import "Steps.js" as Steps
 
-// Manifest choices and their actions live on Settings. Setup keeps required
-// steps visible through completion. Details holds facts and task screens.
+// Settings holds only values the user changes, Setup the required steps,
+// kept visible through completion, and Details facts, each optional
+// feature's action beside its fact, optional tools and task screens
+// (docs/architecture/design-system.md § Settings pages).
 FocusScope {
     id: page
 
@@ -47,11 +49,10 @@ FocusScope {
     // then each group in the order its first field appears. A `list` field
     // whose group exists on the page follows that group; one whose group is
     // absent stays with ungrouped lists at the end. A `hideEmpty` field has
-    // no place while its select model is empty and it draws no line beside
-    // it (Steps.featureRow), such as an attached state published hidden:
-    // nothing is offered for it.
+    // no place while its select model is empty and it draws no key list
+    // beside it (Steps.featureRow): nothing is offered for it.
     function drawsLines(field) {
-        return Steps.featureRow(field, row, plugin).length > 0;
+        return Steps.featureRow(field, row).length > 0;
     }
     function placed(field) {
         return !field.list && !(row.schema[field.key].hideEmpty === true && (row.settingChoices[field.key] || []).length === 0 && !drawsLines(field));
@@ -155,19 +156,15 @@ FocusScope {
         return button.kind === "status" && entry !== null ? panel.replyOf(row.id, entry.key) : "";
     }
 
-    // One line of the page drawn from a status entry, or from none: a Setup
-    // step, or a line of a Settings field (Steps.featureRow). ACTION,
-    // ASIDE_ACTION and MORE are the line's actions, which its owner reads
-    // from Steps.js, and FALLBACK_HINT what it reads where its entry has no
-    // hint.
+    // One Setup step drawn from a status entry, or from none, the Tools
+    // step. ACTION and ASIDE_ACTION are the line's actions, which its owner
+    // reads from Steps.js.
     component EntryRow: StatusLine {
         id: stateRow
         required property var entry
         property bool setup: false
         property var action: null
         property var asideAction: null
-        property var more: []
-        property string fallbackHint: ""
         // A step whose entry left the row draws as no entry (statusView),
         // and its delegate is hidden.
         readonly property var view: setup && entry !== null ? Steps.stepView(entry, ms => Timestamp.text(ms, Time.now.getTime()), page.plugin) : Steps.statusView(entry, ms => Timestamp.text(ms, Time.now.getTime()))
@@ -179,11 +176,11 @@ FocusScope {
         muted: view.muted
         lines: view.lines
         plainLines: setup
-        hint: view.hint !== "" ? view.hint : fallbackHint
+        hint: view.hint
         hintLink: view.link === null ? "" : view.link.text
         onHintLinkActivated: page.panel.openLink(page.row.id, view.link)
         onHintPageActivated: (id, tab) => page.panel.openPage(id, tab)
-        error: [action, asideAction].concat(more).map(button => page.replyFor(button, entry)).find(reply => reply !== "") || ""
+        error: [action, asideAction].map(button => page.replyFor(button, entry)).find(reply => reply !== "") || ""
         actionOffered: action !== null
         actionLabel: action === null ? "" : action.label
         actionTone: action === null ? "" : action.tone
@@ -192,8 +189,6 @@ FocusScope {
         asideLabel: asideAction === null ? "" : asideAction.label
         asideTone: asideAction === null ? "" : asideAction.tone
         onAside: page.press(asideAction, entry)
-        moreSteps: more
-        onMoreStep: index => page.press(more[index], entry)
     }
 
     component ChoiceField: Column {
@@ -205,7 +200,6 @@ FocusScope {
         property alias spec: editor.spec
         property alias value: editor.value
         property alias choices: editor.choices
-        property alias status: editor.status
         property alias editable: editor.editable
         property alias edits: editor.edits
         // Whether the row's last shown line ends in sub-text, which takes
@@ -223,7 +217,6 @@ FocusScope {
         SettingField {
             id: editor
             width: parent.width
-            visible: spec.type !== "action"
             onApply: value => choiceField.apply(value)
             onOpenLink: link => choiceField.openLink(link)
             onOpenPage: (id, tab) => choiceField.openPage(id, tab)
@@ -236,10 +229,9 @@ FocusScope {
     }
 
     // The lines a field draws under its control, one feature row
-    // (Steps.featureRow): its entries, its key lists, then its screens and
-    // its tools. Each delegate reads its line again by slot, so a status
-    // write, which hands the page new objects, keeps a key list's open
-    // masked field.
+    // (Steps.featureRow): its stored key lists. Each delegate reads its
+    // entry again by key, so a status write, which hands the page new
+    // objects, keeps a key list's open masked field.
     component ChoiceExtras: Column {
         id: choiceExtras
         required property string key
@@ -248,31 +240,16 @@ FocusScope {
         // the row before.
         readonly property var lines: {
             const field = page.fieldRow(key);
-            return field === null ? [] : Steps.featureRow(field, page.row, page.plugin);
+            return field === null ? [] : Steps.featureRow(field, page.row);
         }
         readonly property bool subText: {
             const shown = children.filter(child => child.visible && child.height > 0);
             return shown.length > 0 && shown[shown.length - 1].subText === true;
         }
-        function lineOf(slot) { return lines.find(line => line.slot === slot) || null; }
         spacing: Theme.stack.row
         bottomPadding: Theme.subTextRoom(choiceExtras.subText, Positioner.index, Positioner.isLastItem, parent)
         Repeater {
-            model: ScriptModel { values: choiceExtras.lines.filter(line => line.kind === "own" || line.kind === "entry"); objectProp: "slot" }
-            EntryRow {
-                id: entryLine
-                required property var modelData
-                readonly property var line: choiceExtras.lineOf(modelData.slot)
-                width: choiceExtras.width
-                entry: page.statusEntry(modelData.key)
-                label: entryLine.line === null ? "" : entryLine.line.label
-                fallbackHint: entryLine.line === null ? "" : entryLine.line.hint
-                action: entryLine.line === null ? null : entryLine.line.action
-                asideAction: entryLine.line === null ? null : entryLine.line.aside
-            }
-        }
-        Repeater {
-            model: ScriptModel { values: choiceExtras.lines.filter(line => line.kind === "keys"); objectProp: "slot" }
+            model: ScriptModel { values: choiceExtras.lines; objectProp: "slot" }
             Column {
                 id: keyLine
                 required property var modelData
@@ -289,22 +266,6 @@ FocusScope {
                     onOpenLink: link => page.panel.openLink(page.row.id, link)
                     onOpenPage: (id, tab) => page.panel.openPage(id, tab)
                 }
-            }
-        }
-        Repeater {
-            model: ScriptModel { values: choiceExtras.lines.filter(line => line.kind === "screens" || line.kind === "tools"); objectProp: "slot" }
-            EntryRow {
-                id: actionLine
-                required property var modelData
-                readonly property var line: choiceExtras.lineOf(modelData.slot)
-                width: choiceExtras.width
-                entry: null
-                label: actionLine.line === null ? "" : actionLine.line.label
-                fallbackHint: actionLine.line === null ? "" : actionLine.line.hint
-                lines: actionLine.line === null ? [] : actionLine.line.lines
-                plainLines: true
-                action: actionLine.line === null ? null : actionLine.line.action
-                more: actionLine.line === null ? [] : actionLine.line.more
             }
         }
     }
@@ -550,7 +511,6 @@ FocusScope {
                                 spec: page.row.schema[modelData]
                                 value: page.row.settings[modelData]
                                 choices: page.row.settingChoices[modelData] || []
-                                status: page.row.status
                                 editable: page.editable
                                 edits: unsaved
                                 onApply: v => { if (page !== null && page.row !== null) page.panel.writeSetting(pluginId, key, v); }
@@ -611,7 +571,6 @@ FocusScope {
                                     spec: page.row.schema[modelData]
                                     value: page.row.settings[modelData]
                                     choices: page.row.settingChoices[modelData] || []
-                                    status: page.row.status
                                     editable: page.editable
                                     edits: unsaved
                                     onApply: v => { if (page !== null && page.row !== null) page.panel.writeSetting(pluginId, key, v); }
@@ -643,7 +602,6 @@ FocusScope {
                                         spec: page.row.schema[groupedListSection.modelData]
                                         value: page.row.settings[groupedListSection.modelData]
                                         choices: page.row.settingChoices[groupedListSection.modelData] || []
-                                        status: page.row.status
                                         editable: page.editable
                                         edits: unsaved
                                         onApply: v => { if (page !== null && page.row !== null) page.panel.writeSetting(pluginId, key, v); }
@@ -681,7 +639,6 @@ FocusScope {
                                 spec: page.row.schema[listSection.modelData]
                                 value: page.row.settings[listSection.modelData]
                                 choices: page.row.settingChoices[listSection.modelData] || []
-                                status: page.row.status
                                 editable: page.editable
                                 edits: unsaved
                                 onApply: v => { if (page !== null && page.row !== null) page.panel.writeSetting(pluginId, key, v); }
@@ -965,9 +922,16 @@ FocusScope {
                                         values: statusSection.modelData.keys
                                     }
                                     StatusRow {
+                                        id: detailRow
                                         required property string modelData
+                                        // An optional feature's own action beside its fact.
+                                        readonly property var buttons: entry === null ? ({ action: null, aside: null }) : Steps.detailButtons(entry, page.plugin)
                                         width: statusRows.width
                                         entry: page.statusEntry(modelData)
+                                        action: detailRow.buttons.action
+                                        asideAction: detailRow.buttons.aside
+                                        actionReply: [detailRow.action, detailRow.asideAction].map(button => page.replyFor(button, detailRow.entry)).find(reply => reply !== "") || ""
+                                        onActionPressed: button => page.press(button, detailRow.entry)
                                         panel: page.panel
                                         onOpenLink: link => { if (page !== null && page.row !== null) page.panel.openLink(page.row.id, link); }
                                         onOpenPage: (id, tab) => { if (page !== null && page.panel !== null) page.panel.openPage(id, tab); }
@@ -980,12 +944,22 @@ FocusScope {
                     }
 
                     Section {
+                        id: toolsSection
+                        // The optional tools and the action that installs
+                        // the missing or outdated ones (Steps.toolsReview).
+                        readonly property var tools: page.row === null ? [] : Steps.detailRequirements(page.row.requirements)
+                        readonly property var review: Steps.toolsReview(tools)
                         width: parent.width
                         title: "Tools"
-                        visible: page.row !== null && Steps.detailRequirements(page.row.requirements).length > 0
+                        visible: tools.length > 0
                         Repeater {
-                            model: page.row === null ? [] : Steps.detailRequirements(page.row.requirements)
-                            RequirementRow { required property var modelData; width: parent.width; requirement: modelData }
+                            model: toolsSection.tools
+                            RequirementRow { required property var modelData; width: toolsSection.width; requirement: modelData }
+                        }
+                        RowAction {
+                            visible: toolsSection.review !== null
+                            text: toolsSection.review === null ? "" : toolsSection.review.label
+                            onClicked: page.press(toolsSection.review, null)
                         }
                     }
                 }

@@ -209,7 +209,6 @@ function plantBrokenPackageGap(tree) {
     const rows = manifest.requirements.filter(row => row.command === "agent-browser");
     if (rows.length !== 1 || rows[0].optional !== true) throw new Error("fixture: agent-browser requirement is not optional");
     rows[0].optional = false;
-    delete rows[0].setting;
     fs.writeFileSync(pluginFile, JSON.stringify(manifest));
     const lock = JSON.parse(fs.readFileSync(path.join(tree, "flake.lock"), "utf8"));
     const file = path.join(tree, "packaging/channel-gaps.json");
@@ -301,7 +300,6 @@ const ROWS = [
         editRequirementRows(t, "vgs.jarvis", ["voxtype"], row => {
             if (row.optional !== true || row.install !== undefined) throw new Error("fixture: optional voxtype row missing");
             row.optional = false;
-            delete row.setting;
         });
     }, 1, () => refused("on-request=voxtype-bin wanted-hard-by=vgs.jarvis channel=pacman recipe=vgshell scope=vgs.voice")],
     ["a floor on an on-request command is refused", t => edit(t, "bin/vgshell", "^(preflight_floor='\\n)", "$1voxtype    1.0     ^([0-9.]+)   voxtype --version\n"),

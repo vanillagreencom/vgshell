@@ -37,11 +37,10 @@
   },
   "schema": {
     "placement": {"type": "enum", "label": "Panel position", "description": "Where the panel opens when you use its shortcut", "options": [{"value": "top-left", "label": "Top left"}, {"value": "top", "label": "Top"}, {"value": "top-right", "label": "Top right"}, {"value": "left", "label": "Left"}, {"value": "center", "label": "Center"}, {"value": "right", "label": "Right"}, {"value": "bottom-left", "label": "Bottom left"}, {"value": "bottom", "label": "Bottom"}, {"value": "bottom-right", "label": "Bottom right"}]},
-    "noWindowGaps": {"type": "boolean", "label": "No window gaps", "description": "Remove the space around and between tiled windows on every workspace", "group": "Hyprland"},
-    "browserTheming": {"type": "action", "label": "Browser theming", "description": "Let the selected theme change your browser"}
+    "noWindowGaps": {"type": "boolean", "label": "No window gaps", "description": "Remove the space around and between tiled windows on every workspace", "group": "Hyprland"}
   },
   "status": {
-    "browserTheming": {"type": "state", "label": "Browser theming", "hint": "Apply theme colours to Chromium, Chrome, Edge and Brave after setup", "action": {"label": "Install browser theming", "tui": "browser-policy"}, "setting": "browserTheming"},
+    "browserTheming": {"type": "state", "label": "Browser theming", "hint": "Apply theme colours to Chromium, Chrome, Edge and Brave after setup", "action": {"label": "Install browser theming", "tui": "browser-policy"}},
     "themeWiring": {"type": "presenceList", "label": "Theme files", "hint": "The file and line VGS added for each app"}
   },
   "tui": {

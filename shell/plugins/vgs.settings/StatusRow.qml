@@ -9,9 +9,11 @@ import "Steps.js" as Steps
 // beside its value and the entry's hint; the words of the hint the entry's
 // `link` names open that address through `openLink`, and a page reference
 // in a hint (LinkText), or in an entry's or item's info, asks for its page
-// through `openPage`. The row draws no
-// action of its entry: an entry that declares one is a step of the Setup
-// tab (Steps.declaresStep). A presence
+// through `openPage`. Beside its value the row draws `action` and
+// `asideAction`, the buttons its page reads for the entry on Details
+// (Steps.detailButtons), and emits `actionPressed` with the one pressed;
+// `actionReply`, the last refusal of their presses, reads in place of the
+// entry's own. A presence
 // or a state draws as a Badge in the tone the entry carries, a state's
 // further lines each as a Badge of that tone under it, and its hint, the
 // state's sentence where the state carries one, wrapped under them; a
@@ -39,8 +41,13 @@ GroupList {
     // The plugin's `secrets` label, which a line's masked field asks for.
     property string secretLabel: ""
     property bool setup: false
+    // The buttons of Steps.detailButtons, each null for none.
+    property var action: null
+    property var asideAction: null
+    property string actionReply: ""
 
     signal openLink(var link)
+    signal actionPressed(var button)
     signal openPage(string page, string tab)
 
     // The panel's last refusal or failure of this row's entry, or of
@@ -75,7 +82,15 @@ GroupList {
         text: row.view.text
         lines: row.view.lines
         muted: row.view.muted
-        error: row.replyOf()
+        error: row.actionReply !== "" ? row.actionReply : row.replyOf()
+        actionOffered: row.action !== null
+        actionLabel: row.action === null ? "" : row.action.label
+        actionTone: row.action === null ? "" : row.action.tone
+        onAct: row.actionPressed(row.action)
+        asideOffered: row.asideAction !== null
+        asideLabel: row.asideAction === null ? "" : row.asideAction.label
+        asideTone: row.asideAction === null ? "" : row.asideAction.tone
+        onAside: row.actionPressed(row.asideAction)
     }
 
     Repeater {

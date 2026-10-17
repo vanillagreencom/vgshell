@@ -14,11 +14,11 @@
   "defaultSection": "right",
   "requirements": [
     {"command": "checkupdates", "packages": {"pacman": "pacman-contrib"}, "optional": false, "purpose": "Checks Arch system updates"},
-    {"command": "snapper", "packages": {"pacman": "snapper", "apt": "snapper"}, "optional": true, "purpose": "Saves a system snapshot before updates", "setting": "snapshot"},
-    {"command": "timeshift", "packages": {"pacman": "timeshift", "apt": "timeshift"}, "optional": true, "purpose": "Saves a system snapshot when Snapper is unavailable", "setting": "snapshot"},
+    {"command": "snapper", "packages": {"pacman": "snapper", "apt": "snapper"}, "optional": true, "purpose": "Saves a system snapshot before updates"},
+    {"command": "timeshift", "packages": {"pacman": "timeshift", "apt": "timeshift"}, "optional": true, "purpose": "Saves a system snapshot when Snapper is unavailable"},
     {"command": "less", "packages": {"pacman": "less", "apt": "less", "dnf": "less", "nix": "less"}, "optional": false, "purpose": "Shows the last update log"},
-    {"command": "claude", "packages": {}, "optional": true, "purpose": "Reviews third-party packages before they install", "setting": "reviewAgent"},
-    {"command": "codex", "packages": {}, "optional": true, "purpose": "Reviews third-party packages before they install", "setting": "reviewAgent"}
+    {"command": "claude", "packages": {}, "optional": true, "purpose": "Reviews third-party packages before they install"},
+    {"command": "codex", "packages": {}, "optional": true, "purpose": "Reviews third-party packages before they install"}
   ],
   "tui": {
     "update": { "script": "tui/update.sh", "title": "Update everything", "size": "tall", "entry": { "label": "Update everything", "icon": "refresh-cw", "group": "Update" } },

@@ -12,8 +12,8 @@
   "capabilities": ["compositor", "configure", "ipc", "monitors", "notify", "requirements", "run", "screens", "screencopy", "shortcut", "status", "surfaces", "tui"],
   "defaultSection": "right",
   "requirements": [
-    {"command": "systemctl", "packages": {"pacman": "systemd", "apt": "systemd", "dnf": "systemd", "nix": "systemd"}, "optional": true, "purpose": "Applies the screen sharing picker to the portal service", "setting": "screenSharing"},
-    {"command": "busctl", "packages": {"pacman": "systemd", "apt": "systemd", "dnf": "systemd", "nix": "systemd"}, "optional": true, "purpose": "Checks when the screen sharing portal loaded its picker", "setting": "screenSharing"},
+    {"command": "systemctl", "packages": {"pacman": "systemd", "apt": "systemd", "dnf": "systemd", "nix": "systemd"}, "optional": true, "purpose": "Applies the screen sharing picker to the portal service"},
+    {"command": "busctl", "packages": {"pacman": "systemd", "apt": "systemd", "dnf": "systemd", "nix": "systemd"}, "optional": true, "purpose": "Checks when the screen sharing portal loaded its picker"},
     {"command": "grim", "packages": {"pacman": "grim", "apt": "grim", "dnf": "grim", "nix": "grim"}, "optional": false, "purpose": "Captures screenshots and images for text recognition"},
     {"command": "slurp", "packages": {"pacman": "slurp", "apt": "slurp", "dnf": "slurp", "nix": "slurp"}, "optional": false, "purpose": "Selects an area or a whole output to capture"},
     {"command": "hyprpicker", "packages": {"pacman": "hyprpicker", "apt": "hyprpicker", "dnf": "hyprpicker", "nix": "hyprpicker"}, "optional": false, "purpose": "Holds the screen still while you select an area"},
@@ -24,9 +24,9 @@
     {"command": "pw-dump", "packages": {"pacman": "pipewire", "apt": "pipewire-bin", "dnf": "pipewire-utils", "nix": "pipewire"}, "optional": false, "purpose": "Lists the audio sources and cameras a recording can use, without opening them"},
     {"command": "notify-send", "packages": {"pacman": "libnotify", "apt": "libnotify-bin", "dnf": "libnotify", "nix": "libnotify"}, "optional": false, "purpose": "Shows the notification of a finished capture"},
     {"command": "gdbus", "packages": {"pacman": "glib2", "apt": "libglib2.0-bin", "dnf": "glib2", "nix": "glib"}, "optional": false, "purpose": "Closes Capture's notifications when Capture stops"},
-    {"command": "imv", "packages": {"pacman": "imv", "dnf": "imv", "nix": "imv"}, "optional": true, "purpose": "Opens a saved screenshot from its notification", "setting": "viewer"},
-    {"command": "satty", "packages": {"pacman": "satty", "nix": "satty"}, "optional": true, "purpose": "Edits a saved screenshot from its notification", "setting": "editor"},
-    {"command": "mpv", "packages": {"pacman": "mpv", "apt": "mpv", "dnf": "mpv", "nix": "mpv"}, "optional": true, "purpose": "Plays a saved recording from its notification", "setting": "player"}
+    {"command": "imv", "packages": {"pacman": "imv", "dnf": "imv", "nix": "imv"}, "optional": true, "purpose": "Opens a saved screenshot from its notification"},
+    {"command": "satty", "packages": {"pacman": "satty", "nix": "satty"}, "optional": true, "purpose": "Edits a saved screenshot from its notification"},
+    {"command": "mpv", "packages": {"pacman": "mpv", "apt": "mpv", "dnf": "mpv", "nix": "mpv"}, "optional": true, "purpose": "Plays a saved recording from its notification"}
   ],
   "settings": { "folder": "", "recordFolder": "", "audio": "desktop", "smart": true, "delay": 0, "cursor": false, "processing": "save-copy",
     "quality": "very_high", "frameRate": 60, "codec": "auto", "constantFrameRate": true, "recordCursor": false, "audioSources": [], "webcam": false, "webcamDevice": "", "postProcess": true, "ocrLanguages": "eng",
@@ -50,8 +50,7 @@
     "ocrLanguages": {"type": "string", "label": "Text languages", "description": "Capture reads text in the languages you choose", "group": "Text", "presets": [{"value": "eng", "label": "English"}, {"value": "deu", "label": "German"}, {"value": "fra", "label": "French"}, {"value": "spa", "label": "Spanish"}, {"value": "ita", "label": "Italian"}, {"value": "por", "label": "Portuguese"}, {"value": "nld", "label": "Dutch"}, {"value": "pol", "label": "Polish"}, {"value": "rus", "label": "Russian"}, {"value": "ukr", "label": "Ukrainian"}, {"value": "chi_sim", "label": "Chinese, simplified"}, {"value": "jpn", "label": "Japanese"}, {"value": "kor", "label": "Korean"}], "allowCustom": true, "separator": "+"},
     "viewer": {"type": "string", "label": "Image viewer", "description": "Opens a saved screenshot", "group": "Open with", "presets": [{"value": "imv %f", "label": "imv"}], "allowCustom": true},
     "editor": {"type": "string", "label": "Image editor", "description": "Edits a saved screenshot", "group": "Open with", "presets": [{"value": "satty --filename %f --output-filename %f", "label": "Satty"}], "allowCustom": true},
-    "player": {"type": "string", "label": "Video player", "description": "Plays a saved recording", "group": "Open with", "presets": [{"value": "mpv %f", "label": "mpv"}], "allowCustom": true},
-    "screenSharing": {"type": "action", "label": "Screen sharing", "description": "Use the VGS picker to choose what you share"}
+    "player": {"type": "string", "label": "Video player", "description": "Plays a saved recording", "group": "Open with", "presets": [{"value": "mpv %f", "label": "mpv"}], "allowCustom": true}
   },
   "hyprland": { "binds": [
     { "shortcut": "screenshot", "key": "PRINT", "info": "Takes a screenshot of the screen that has focus right away." },
@@ -62,12 +61,12 @@
     { "shortcut": "text", "key": "SUPER+CTRL+PRINT", "info": "Lets you drag over an area, reads the text in it and copies that text." }
   ] },
   "status": {
-    "sharing": {"type": "state", "label": "Screen sharing", "hint": "Applies the VGS picker to the screen sharing portal. A running screen share stops.", "action": {"label": "Set up screen sharing", "tui": "setup-sharing"}, "setting": "screenSharing"},
+    "sharing": {"type": "state", "label": "Screen sharing", "hint": "Applies the VGS picker to the screen sharing portal. A running screen share stops.", "action": {"label": "Set up screen sharing", "tui": "setup-sharing"}},
     "capture": {"type": "data", "label": "Capture state"},
     "recording": {"type": "state", "label": "Recording"},
     "audioSources": {"type": "choices", "label": "Audio sources"},
     "cameras": {"type": "choices", "label": "Cameras"},
-    "languages": {"type": "state", "label": "Text languages", "hint": "English is installed with Capture. Other chosen languages need their language data.", "action": {"label": "Install languages", "tui": "install-languages"}, "setting": "ocrLanguages"}
+    "languages": {"type": "state", "label": "Text languages", "hint": "English is installed with Capture. Other chosen languages need their language data.", "action": {"label": "Install languages", "tui": "install-languages"}}
   },
   "tui": {
     "setup-sharing": { "script": "tui/setup-sharing.sh", "title": "Set up screen sharing", "requires": ["systemctl", "busctl"] },

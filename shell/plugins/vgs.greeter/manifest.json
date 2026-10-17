@@ -35,8 +35,7 @@
       "nix": "uwsm"
     },
     "optional": true,
-    "purpose": "Starts the Hyprland (uwsm-managed) session",
-    "setting": "sessionTools"
+    "purpose": "Starts the Hyprland (uwsm-managed) session"
   },
   {
     "command": "startx",
@@ -47,8 +46,7 @@
       "nix": "xorg.xinit"
     },
     "optional": true,
-    "purpose": "Starts an X11 session",
-    "setting": "sessionTools"
+    "purpose": "Starts an X11 session"
   },
   {
     "command": "getent",
@@ -70,8 +68,7 @@
       "nix": "systemd"
     },
     "optional": true,
-    "purpose": "Suspends, restarts and shuts down from the login screen",
-    "setting": "powerActions"
+    "purpose": "Suspends, restarts and shuts down from the login screen"
   },
   {
     "command": "bash",
@@ -183,17 +180,5 @@
     "optional": false,
     "purpose": "Copies the theme for the login screen"
   }
-],
-  "schema": {
-  "sessionTools": {
-    "type": "action",
-    "label": "Session choices",
-    "description": "Choose the desktop session on the login screen"
-  },
-  "powerActions": {
-    "type": "action",
-    "label": "Power actions",
-    "description": "Suspend, restart or shut down from the login screen"
-  }
-}
+]
 }

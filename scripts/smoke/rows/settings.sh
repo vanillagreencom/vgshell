@@ -385,8 +385,8 @@ home_field() { ipc smoke invokeInstance window vgs.settings fieldChoice "{\"id\"
 home_state() { home_field home | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps([[m["label"] for m in d["model"]], d["value"], d["enabled"]]))'; }
 expect_poll "the disabled Jarvis page's Home folder field offers only Custom\u2026, unset" '[["Custom\u2026"], "", false]' home_state
 expect "control: a field the Jarvis page lacks reads absent" absent home_field homeFolder
-voice_unreported() { home_field voice | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps([d["model"], d["enabled"], d["shown"]]))'; }
-expect "the disabled Jarvis page keeps Voice for its attached guidance, with no choices reported" '[[], false, "Not reported"]' voice_unreported
+# Voice hides with no voices reported: its ElevenLabs guidance is a Details fact.
+expect "the disabled Jarvis page hides Voice with no voices reported" absent home_field voice
 # The ElevenLabs option, by its stored value, as the field draws it.
 voice_provider() { home_field voiceProvider | py_reply 'import json,sys; print(json.dumps([o["label"] for o in json.load(sys.stdin)["model"] if o["value"] == sys.argv[1]]))' "$1"; }
 expect_poll "the Jarvis page's Voice provider field offers ElevenLabs in words, not as its stored value" '["ElevenLabs"]' voice_provider elevenlabs

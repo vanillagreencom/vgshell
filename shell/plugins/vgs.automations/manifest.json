@@ -14,20 +14,19 @@
     "historyDays": 30
   },
   "schema": {
-    "historyDays": {"type": "number", "label": "Keep history", "description": "How long to keep each run's history and output", "min": 1, "max": 30, "step": 1, "unit": "days", "group": "History"},
-    "whileLoggedOut": {"type": "action", "label": "While logged out", "description": "Keep automations running after you log out"}
+    "historyDays": {"type": "number", "label": "Keep history", "description": "How long to keep each run's history and output", "min": 1, "max": 30, "step": 1, "unit": "days", "group": "History"}
   },
   "requirements": [
     {"command": "notify-send", "packages": {"pacman": "libnotify", "apt": "libnotify-bin", "dnf": "libnotify", "nix": "libnotify"}, "optional": false, "purpose": "Sends run alerts"},
     {"command": "systemctl", "packages": {"pacman": "systemd", "apt": "systemd", "dnf": "systemd", "nix": "systemd"}, "optional": false, "purpose": "Manages automation schedules"},
     {"command": "systemd-run", "packages": {"pacman": "systemd", "apt": "systemd", "dnf": "systemd", "nix": "systemd"}, "optional": false, "purpose": "Starts a run that continues if VGS closes"},
     {"command": "systemd-analyze", "packages": {"pacman": "systemd", "apt": "systemd", "dnf": "systemd", "nix": "systemd"}, "optional": false, "purpose": "Checks automation schedules"},
-    {"command": "loginctl", "packages": {"pacman": "systemd", "apt": "systemd", "dnf": "systemd", "nix": "systemd"}, "optional": true, "purpose": "Lets automations run while you are logged out", "setting": "whileLoggedOut"},
+    {"command": "loginctl", "packages": {"pacman": "systemd", "apt": "systemd", "dnf": "systemd", "nix": "systemd"}, "optional": true, "purpose": "Lets automations run while you are logged out"},
     {"command": "crontab", "packages": {"pacman": "cronie", "apt": "cron", "dnf": "cronie"}, "optional": true, "purpose": "Schedules automations when the system scheduler is unavailable"}
   ],
   "status": {
     "scheduler": {"type": "state", "label": "Scheduler"},
-    "linger": {"type": "state", "label": "While logged out", "hint": "Allow scheduled runs to continue after you log out", "action": {"label": "Enable while logged out", "tui": "linger"}, "setting": "whileLoggedOut"},
+    "linger": {"type": "state", "label": "While logged out", "hint": "Allow scheduled runs to continue after you log out", "action": {"label": "Enable while logged out", "tui": "linger"}},
     "active": {"type": "count", "label": "Scheduled automations"},
     "nextRun": {"type": "text", "label": "Next run"},
     "lastRuns": {"type": "state", "label": "Last runs", "hint": "Select a failure alert to open the run output"},

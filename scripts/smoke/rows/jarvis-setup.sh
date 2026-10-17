@@ -627,9 +627,9 @@ row=next((r for r in json.load(open(sys.argv[1])).get("plugins",[]) if r.get("id
 print("true" if row.get("clonedVoice", False) else "false")
 PY
 }
-# The setup row as [group, offered, the screen its press opens].
+# The setup row as [offered, the screen its press opens].
 setup_clone_row() {
-  status_row vgs.jarvis clonedVoiceSetup | py_reply 'import json,sys; r=json.load(sys.stdin); print(json.dumps([r["setting"], r["action"]["offered"], r["action"]["tui"]]))'
+  status_row vgs.jarvis clonedVoiceSetup | py_reply 'import json,sys; r=json.load(sys.stdin); print(json.dumps([r["action"]["offered"], r["action"]["tui"]]))'
 }
 # Whether the shown tab's SECTION section draws LABEL.
 setup_tab_section() { # SECTION LABEL
@@ -641,51 +641,50 @@ print(json.dumps(any(sys.argv[2] in s for s in r)) if r else "absent")' "$1" "$2
 setup_tab_draws() { # LABEL
   ipc smoke itemTexts window vgs.settings Section | py_reply 'import json,sys; print(json.dumps(any(sys.argv[1] in s for s in json.load(sys.stdin))))' "$1"
 }
-# Settings' attached Cloned voice state: real field owner, chip tones and
-# visible action words, enabled state and tone.
+# The shown tab's Cloned voice state: its Settings field owner, none on
+# Details, chip tones and visible action words, enabled state and tone.
 setup_clone_drawn() {
   ipc smoke settingRows window vgs.settings | py_reply 'import json,sys
 r=[x for x in json.load(sys.stdin) if x["key"]=="clonedVoiceSetup"]
-print(json.dumps([r[0]["setting"], r[0]["field"], [c[1] for c in r[0]["chips"]], [[b["text"],b["enabled"],b["tone"]] for b in r[0]["buttons"]]]) if len(r)==1 else "rows=%d" % len(r))'
+print(json.dumps([r[0]["field"], [c[1] for c in r[0]["chips"]], [[b["text"],b["enabled"],b["tone"]] for b in r[0]["buttons"]]]) if len(r)==1 else "rows=%d" % len(r))'
 }
 { read -r setup_clone_setting_label && read -r setup_clone_step && read -r setup_clone_press && read -r setup_clone_remove; } < <(python3 -c 'import json,sys
 m=json.load(open(sys.argv[1])); row=m["status"]["clonedVoiceSetup"]
 print(m["schema"]["clonedVoice"]["label"]); print(row["label"]); print(row["actions"]["setup"]["label"]); print(row["actions"]["remove"]["label"])' "$repo/shell/plugins/vgs.jarvis/manifest.json") ||
   fail "the manifest names no Cloned voice setting, setup row or Set up action"
-settings_tab_click Settings || fail "the click on the Settings tab for Cloned voice failed"
+settings_details
 setup_clone_answer false
 rescan "a rescan reads the clone status beside no large tier"
-expect_poll "beside no large tier the setup row offers nothing" '["clonedVoice", false, ""]' setup_clone_row
-expect_poll "Settings draws Cloned voice with no action before the large tier is ready" '["clonedVoice", "clonedVoice", ["info"], []]' setup_clone_drawn
+expect_poll "beside no large tier the setup row offers nothing" '[false, ""]' setup_clone_row
+expect_poll "Details draws Cloned voice with no action before the large tier is ready" '["", ["info"], []]' setup_clone_drawn
 # A local voice setup's end reads the row again, with no rescan: the
 # Large model now ready, the row offers the clone setup.
 setup_clone_answer true
 forget_record
 expect "the launcher opens local voice setup" ok ipc shell openTui vgs.jarvis/setup-local
 expect_run_end "the local voice setup terminal ends" vgs.jarvis/setup-local
-expect_poll "after a local voice setup the setup row opens the clone setup while the voice resolves Local" '["clonedVoice", true, "clone-voice"]' setup_clone_row
-expect_poll "Settings draws the declared clone setup text link beside Cloned voice" '["clonedVoice", "clonedVoice", ["info"], [["Set up cloned voice", true, "accent"]]]' setup_clone_drawn
+expect_poll "after a local voice setup the setup row opens the clone setup while the voice resolves Local" '[true, "clone-voice"]' setup_clone_row
+expect_poll "Details draws the declared clone setup text link beside Cloned voice" '["", ["info"], [["Set up cloned voice", true, "accent"]]]' setup_clone_drawn
 settings_tab_click Settings || fail "the click on the Settings tab failed"
 expect_poll "the plugin page shows Settings" Settings settings_tab_text
 expect_poll "the Settings tab's Local voice section draws the Cloned voice setting" true setup_tab_section "Local voice" "$setup_clone_setting_label"
+expect_poll "Settings draws no Cloned voice step" rows=0 setup_clone_drawn
 settings_details
-expect_poll "Details draws no Cloned voice step" false setup_tab_draws "$setup_clone_step"
-settings_tab_click Settings || fail "the click back to Settings for Cloned voice failed"
-expect_poll "Settings draws Cloned voice beside its setting" true setup_tab_section "Local voice" "$setup_clone_step"
+expect_poll "Details draws Cloned voice in its Status section" true setup_tab_section Status "$setup_clone_step"
 forget_record
 settings_press --type RowAction "$setup_clone_press" || fail "the click on $setup_clone_press failed"
 expect_poll "the step's button opens the clone setup in the core floating terminal" '["vgs.jarvis/clone-voice", "tui/clone-voice.sh"]' recorded_tail
 expect_run_end "the clone setup terminal ends" vgs.jarvis/clone-voice
 setup_provider realtime
-expect_poll "with Realtime chosen the setup row offers nothing" '["clonedVoice", false, ""]' setup_clone_row
+expect_poll "with Realtime chosen the setup row offers nothing" '[false, ""]' setup_clone_row
 expect_poll "with Realtime chosen Local voice reads optional and offers its setup" matched local_value optional
 setup_provider ""
 expect_poll "the default voice, Local, hands Local voice setup to the Voice step again" matched local_value absent-under-voice
-expect_poll "the default voice, Local, offers the clone setup again" '["clonedVoice", true, "clone-voice"]' setup_clone_row
+expect_poll "the default voice, Local, offers the clone setup again" '[true, "clone-voice"]' setup_clone_row
 
 setup_clone_ready_answer true
 rescan "a rescan reads the ready cloned voice"
-expect_poll "a ready recording offers Remove recording" '["clonedVoice", true, "clone-voice-remove"]' setup_clone_row
+expect_poll "a ready recording offers Remove recording" '[true, "clone-voice-remove"]' setup_clone_row
 setup_clone_setting true
 expect_poll "Cloned voice is on before Remove recording" true setup_clone_setting_value
 hold_runs
@@ -695,7 +694,7 @@ setup_clone_answer true
 release_runs
 expect_run_end "the clone remove terminal ends" vgs.jarvis/clone-voice-remove
 expect_poll "Remove recording turns Cloned voice off" false setup_clone_setting_value
-expect_poll "after Remove recording the setup row offers Set up" '["clonedVoice", true, "clone-voice"]' setup_clone_row
+expect_poll "after Remove recording the setup row offers Set up" '[true, "clone-voice"]' setup_clone_row
 
 python3 - "$setup_clone_reader" <<'PY'
 from pathlib import Path

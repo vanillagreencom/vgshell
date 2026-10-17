@@ -148,7 +148,7 @@ vpn_switch_focus() {
   type_keys -k Tab || return 1
   echo moving
 }
-vpn_setup_field() { ipc smoke settingRows window vgs.settings | py_reply 'import json,sys; rows=[row for row in json.load(sys.stdin) if row["key"]=="setup"]; print(json.dumps([[row["label"], row["setting"], row["field"], [[button["text"], button["enabled"]] for button in row["buttons"]]] for row in rows]))'; }
+vpn_setup_field() { ipc smoke settingRows window vgs.settings | py_reply 'import json,sys; rows=[row for row in json.load(sys.stdin) if row["key"]=="setup"]; print(json.dumps([[row["field"], [[button["text"], button["enabled"]] for button in row["buttons"]]] for row in rows]))'; }
 vpn_body_state() { vpn_body "$1" vpn | py_reply 'import json,sys; print(json.load(sys.stdin)["state"])'; }
 vpn_exit_rows() { vpn_body window exitRows | py_reply 'import json,sys; print(json.dumps([[r["text"], r["badge"]] for r in json.load(sys.stdin)]))'; }
 vpn_placed() { bar_widget_ids | py_reply 'import json,sys; print(any("vgs.vpn" in ids for ids in json.load(sys.stdin)))'; }
@@ -381,7 +381,8 @@ expect "the poll waits the setting's 30 s while no view is open" 30000 vpn_inter
 expect_poll "the core reads the operator step needed" "needed operator-unset" vpn_step tailscale-operator
 expect_poll "an unset operator offers Allow" allow vpn_setup
 settings_page_open vgs.vpn
-expect_poll "Settings keeps the offered Allow action beside Tailscale" '[["Tailscale", "tailscale", "tailscale", [["Let my login control Tailscale", true]]]]' vpn_setup_field
+settings_details
+expect_poll "Details keeps the offered Allow action beside the Tailscale reading" '[["", [["Let my login control Tailscale", true]]]]' vpn_setup_field
 settings_page_close vgs.vpn
 expect "changes wait for Allow" false vpn_value writable
 # The flyout's header switch is locked until Allow: it says why on hover.

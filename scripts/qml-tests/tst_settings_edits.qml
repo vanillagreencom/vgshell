@@ -182,7 +182,7 @@ Item {
     // core judges them with the manifest (PluginLogic.fieldRows), the ones
     // ROW holds, else from its schema alone, for a row that attaches no
     // entry to a field.
-    function withFields(row) { return Object.assign({}, row, { fieldRows: row.fieldRows !== undefined ? row.fieldRows : PluginLogic.fieldRows(row.schema, {}, [], {}) }); }
+    function withFields(row) { return Object.assign({}, row, { fieldRows: row.fieldRows !== undefined ? row.fieldRows : PluginLogic.fieldRows(row.schema, {}) }); }
 
     TestCase {
         name: "settingsEdits"
@@ -307,29 +307,23 @@ Item {
             verify(gap.edited, "and the edit");
         }
 
-        function test_plugin_page_live_hint_and_details_message() {
+        // A status reading, such as the graphics card a GPU switch needs,
+        // reads on Details alone: the switch beside it on Settings keeps
+        // its own description.
+        function test_a_status_message_reads_on_details_alone() {
             const original = root.pageRow;
             const manifest = { status: { graphics: { type: "state", label: "Graphics card", group: "Readings" } } };
-            function update(values) {
-                root.pageRow = Object.assign({}, original, {
-                    schema: { showGpu: { type: "boolean", label: "GPU", group: "Readings", hintFrom: "graphics" } },
-                    settings: { showGpu: true }, binds: [],
-                    status: PluginLogic.statusRows(manifest, values)
-                });
-            }
-            update({});
+            root.pageRow = Object.assign({}, original, {
+                schema: { showGpu: { type: "boolean", label: "GPU", group: "Readings" } },
+                settings: { showGpu: true }, binds: [],
+                status: PluginLogic.statusRows(manifest, { graphics: { text: "Not found", tone: "info", hint: "No supported graphics card found." } })
+            });
             const page = createTemporaryObject(pluginPageComponent, root);
             verify(page !== null);
             const field = () => descendants(page).find(child => child instanceof SettingField && child.key === "showGpu");
             tryVerify(() => field() !== undefined);
-            compare(field().hintText, "", "discovery pending has no missing-card hint");
-            update({ graphics: { text: "Not found", tone: "info", hint: "No supported graphics card found." } });
-            tryVerify(() => field().hintText === "No supported graphics card found.");
-            const hint = descendants(field()).find(child => child.role === "hint" && child.text === "No supported graphics card found.");
-            verify(hint !== undefined && hint.visible, "the GPU switch shows its live message");
-            const toggle = descendants(field()).find(child => child instanceof Switch);
-            verify(toggle !== undefined);
-            verify(hint.mapToItem(field(), 0, 0).y >= toggle.mapToItem(field(), 0, toggle.height).y, "the hint sits below the switch");
+            compare(field().hintText, "", "the switch reads no status message");
+            verify(!descendants(field()).some(child => child.role === "hint" && child.visible && child.text === "No supported graphics card found."), "Settings draws no status message");
             const tabs = descendants(page).find(child => child instanceof TabPages);
             verify(tabs !== undefined);
             tabs.currentIndex = 1;
@@ -341,12 +335,6 @@ Item {
             verify(message !== undefined && message.visible, "Details shows the full message");
             // The tab's Columns position their children after it becomes visible.
             tryVerify(() => message.mapToItem(status(), 0, 0).y >= chip.mapToItem(status(), 0, chip.height).y, 1000, "the full message sits beneath the chip");
-            tabs.currentIndex = 0;
-            update({ graphics: { text: "Available", tone: "ok", hint: "" } });
-            tryVerify(() => field().hintText === "", 1000, "a supported card removes the hint");
-            verify(!descendants(field()).some(child => child.role === "hint" && child.visible && child.text === "No supported graphics card found."));
-            update({});
-            tryVerify(() => field().hintText === "", 1000, "cleared status removes the hint");
             releasePage(page, original);
         }
 
@@ -485,10 +473,9 @@ Item {
         function test_a_hide_empty_field_has_no_place_while_nothing_is_offered() {
             const original = root.pageRow;
             const choices = { type: "string", optionsFrom: "items" };
-            // `attached` keeps its row while the state beside it draws, as
-            // Voice preview keeps Jarvis's Voice field with no voices;
-            // `attachedHidden`'s state is published hidden, so it draws
-            // nothing beside the field and the field has no place.
+            // `attached` keeps its row while the stored key list beside it
+            // draws; `attachedHidden`'s list has left the manager row, so
+            // it draws nothing beside the field and the field has no place.
             const schema = {
                 kept: Object.assign({ label: "Kept", group: "Choices" }, choices),
                 hiding: Object.assign({ label: "Hiding", group: "Choices", hideEmpty: true }, choices),
@@ -496,13 +483,13 @@ Item {
                 attached: Object.assign({ label: "Attached", group: "Choices", hideEmpty: true }, choices),
                 attachedHidden: Object.assign({ label: "Attached hidden", group: "Choices", hideEmpty: true }, choices)
             };
-            const status = { shownState: { type: "state", label: "Shown state", setting: "attached" }, hiddenState: { type: "state", label: "Hidden state", setting: "attachedHidden" } };
+            const status = { shownKeys: { type: "presenceList", label: "Shown keys", setting: "attached" }, goneKeys: { type: "presenceList", label: "Gone keys", setting: "attachedHidden" } };
             root.pageRow = Object.assign({}, original, {
                 schema: schema,
                 settings: { kept: "", hiding: "", alone: "", attached: "", attachedHidden: "" },
                 settingChoices: { kept: [], hiding: [], alone: [], attached: [], attachedHidden: [] }, binds: [],
-                status: PluginLogic.statusRows({ status: status }, { shownState: { tone: "ok", text: "Ready" }, hiddenState: { hidden: true } }),
-                fieldRows: PluginLogic.fieldRows(schema, status, [], {})
+                status: PluginLogic.statusRows({ status: status, secrets: { service: "acme-unit", label: "Key" } }, { shownKeys: [] }).filter(row => row.key !== "goneKeys"),
+                fieldRows: PluginLogic.fieldRows(schema, status)
             });
             const page = createTemporaryObject(pluginPageComponent, root);
             verify(page !== null);
@@ -512,8 +499,8 @@ Item {
             compare(drawn().filter(key => key === "hiding" || key === "alone"), [], "a hideEmpty field with nothing offered is not drawn");
             compare(headings().indexOf("Lone"), -1, "a group whose every field is hidden draws no heading");
             verify(drawn().indexOf("attached") !== -1, "a hideEmpty field keeps its place while a line beside it draws");
-            verify(descendants(page).some(item => item instanceof StatusLine && item.visible && item.entry !== undefined && item.entry !== null && item.entry.key === "shownState"), "the line beside it draws");
-            compare(drawn().indexOf("attachedHidden"), -1, "a hideEmpty field whose attached state is published hidden is not drawn");
+            verify(descendants(page).some(item => item instanceof StatusRow && item.visible && item.entry !== null && item.entry.key === "shownKeys"), "the key list beside it draws");
+            compare(drawn().indexOf("attachedHidden"), -1, "a hideEmpty field whose key list left the manager row is not drawn");
             root.pageRow = Object.assign({}, root.pageRow, { settingChoices: { kept: [], hiding: [{ label: "One", value: "" }], alone: [{ label: "One", value: "" }] } });
             tryVerify(() => drawn().indexOf("hiding") !== -1 && drawn().indexOf("alone") !== -1);
             verify(headings().indexOf("Lone") !== -1, "an offer draws the field under its heading");
