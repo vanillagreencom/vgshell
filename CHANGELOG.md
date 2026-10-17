@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- With no home folder chosen, the Home section of the Jarvis page's Details tab says so once, on Personality. Conversation start text and Jarvis session link Home folder, which opens the field. Before, three rows said that no home folder was chosen, and Jarvis session linked a Settings path that wrapped onto a second line.
 - The Details tab of the Jarvis page shows Claude Code, Codex and voxtype once, under Tools. Before, Claude Code and Codex also showed under AI model, and voxtype under Voice read Not installed where Tools read Optional. Cloned voice and Personality now state what they need and link the setting: Voice provider, Local voice model or Home folder.
 - The Details tab of the Jarvis page shows Conversation start text under Home: about how many tokens each home file and the whole start text add to every conversation. The count is an estimate from the size of each text, and a file over its budget reads over its budget. Its info button says why each file has a budget.
 - The Details tab of the Jarvis page puts each reading in the section of its feature: AI model, Voice, Local voice, Home and Access. The Sign in row and the Setup summary row are gone: the AI model step under Setup keeps Sign in, and the Setup tab's warning mark shows unfinished setup. The Local voice reading offers no setup of its own; Set up local voice is on the Voice step under Setup. Copilot Memory reads Kept by GitHub, and ElevenLabs voices reads No key chosen or Key not stored. Before, both read Your step.

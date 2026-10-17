@@ -582,13 +582,14 @@ function fleetStep(home, tool) {
 
 // The Jarvis session row (the manifest's sessionStart): what the Jarvis
 // package's session command answers, in the page's words. Each sentence is
-// the owner's (VGS-1439, 2026-10-12; the no-home one, which names its
-// Settings path, VGS-1511).
+// the owner's (VGS-1439, 2026-10-12; the no-home one, which links the Home
+// folder field as the Personality row does and leaves that row's badge the
+// one place the Home group says no folder is chosen, VGS-1785).
 var SESSION_BOOT = "When VGS starts after you sign in, a tmux session starts Jarvis in your selected home folder";
 var SESSION_BLOCKS = {
     "no-account": "No session can start without an account: [choose an app as the Account under AI model](page:vgs.jarvis/Settings)",
     "not-app": "No session can start with an API key or a local model: [choose an app as the Account under AI model](page:vgs.jarvis/Settings)",
-    "no-home": "No session can start without a home folder: choose one in [Settings > Jarvis > Home folder](page:vgs.jarvis/Settings)",
+    "no-home": "No session can start until [Home folder](page:vgs.jarvis/Settings/home) sets a folder",
     "package": "Install or update the Jarvis package in this home folder"
 };
 // The blocks that wait only on a choice the user has not made yet. The

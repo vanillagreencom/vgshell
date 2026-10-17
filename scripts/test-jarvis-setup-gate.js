@@ -1369,10 +1369,11 @@ function verifySession(gate) {
         const value = plain(gate.sessionStart(true, { kind: "blocked", block }));
         assert.deepEqual([value.tone, value.hint, offered(value)], [tone, gate.SESSION_BLOCKS[block], "none"], block + ": a block's tone, and it offers no start");
     }
-    // The no-home hint says where the choice is, as the Personality row does.
+    // The no-home hint links the Home folder field, as the Personality row
+    // does, whose badge already says no folder is chosen.
     const homeless = plain(gate.sessionStart(true, { kind: "blocked", block: "no-home" })).hint;
-    assert.deepEqual([oneSentence(homeless), homeless.includes("Settings > Jarvis > Home folder")], [true, true],
-        "no-home: the hint is one sentence that names its Settings path");
+    assert.deepEqual([oneSentence(homeless), homeless.includes("[Home folder](page:vgs.jarvis/Settings/home)"), /home folder/.test(homeless)], [true, true, false],
+        "no-home: the hint is one sentence that links the Home folder field");
     assert.throws(() => gate.sessionStart(true, { kind: "blocked", block: "unknown" }), { message: "jarvis-setup: session=unknown" });
     for (const result of [{ kind: "failed" }, { kind: "answer", state: "running", reason: "launching", detail: "", names: null }, { kind: "other" }]) {
         const value = plain(gate.sessionStart(true, result));
@@ -1916,8 +1917,9 @@ const CONTROLS = [
     ["names too long for a hint are published", "hint === \"\" || hint.length > SESSION_HINT_MAX ?", "hint === \"\" ?", "the manifest judge accepts the row"],
     ["a starting session is not live", 'var SESSION_LIVE = ["running", "starting", "handing-over"];', 'var SESSION_LIVE = ["running", "handing-over"];', "the states of a session that lives"],
     ["the session field draws while the setting is off", "return wanted ? SESSION_MODES : [];", "return SESSION_MODES;", "the session field while the setting is false"],
-    ["the no-home hint names no Settings path", "choose one in [Settings > Jarvis > Home folder](page:vgs.jarvis/Settings)", "choose a Home folder", "no-home: the hint is one sentence that names its Settings path"],
-    ["the no-home hint has more than one sentence", "without a home folder: choose one in", "without a home folder. Choose one in", "no-home: the hint is one sentence that names its Settings path"],
+    ["the no-home hint names its Settings path", "No session can start until [Home folder](page:vgs.jarvis/Settings/home)", "No session can start until [Settings > Jarvis > Home folder](page:vgs.jarvis/Settings)", "no-home: the hint is one sentence that links the Home folder field"],
+    ["the no-home hint repeats the Personality badge", "No session can start until [Home folder]", "No session can start without a home folder: choose one in [Home folder]", "no-home: the hint is one sentence that links the Home folder field"],
+    ["the no-home hint has more than one sentence", "No session can start until [Home folder]", "No session can start. Choose a folder in [Home folder]", "no-home: the hint is one sentence that links the Home folder field"],
     ["a choice not made reads as a fault", 'var SESSION_CHOICES = ["no-account", "not-app", "no-home"];', "var SESSION_CHOICES = [];", "a block's tone"],
     ["a missing package reads optional", 'var SESSION_CHOICES = ["no-account", "not-app", "no-home"];', 'var SESSION_CHOICES = ["no-account", "not-app", "no-home", "package"];', "package: a block's tone"],
     ["a Ready summary ignores the session", "    if (setup.tone !== \"ok\" || !Object.prototype.hasOwnProperty.call(SESSION_FAULTS, session.tone)) return setup;",

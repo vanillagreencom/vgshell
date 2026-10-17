@@ -527,7 +527,7 @@ Item {
         const value = size.kind === "unreadable" ? { tone: "warning", text: "Cannot be read",
                 hint: "Check the home folder in [Home folder](page:vgs.jarvis/Settings/home)" }
             : size.layers.length === 0 ? { tone: "info", text: "About " + count(size.tokens, "start"),
-                hint: "Only Jarvis's own guidance, since no home folder is chosen" }
+                hint: "Only Jarvis's own guidance until [Home folder](page:vgs.jarvis/Settings/home) sets a folder" }
             : { tone: "info", text: "About " + count(size.tokens, "start"),
                 lines: size.layers.map(layer => startTextNames[layer.layer] + ": about " + count(layer.tokens, layer.layer)) };
         const reply = shell.status.set("startText", value);
