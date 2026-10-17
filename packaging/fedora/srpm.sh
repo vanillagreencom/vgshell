@@ -3,10 +3,9 @@
 #
 # Usage: packaging/fedora/srpm.sh --spec SPEC --outdir DIR [--tarball FILE]
 #
-# SPEC is packaging/fedora/vgshell.spec or packaging/fedora/vgshell-git.spec, taken
-# from the checkout this script sits in. COPR runs it through .copr/Makefile
-# (the make_srpm method); a maintainer or scripts/fedora-container.sh runs it
-# directly.
+# SPEC is packaging/fedora/vgshell.spec, packaging/fedora/vgshell-git.spec or
+# packaging/fedora/vgshell-quickshell.spec from this checkout. COPR runs it through
+# .copr/Makefile (make_srpm); a maintainer or scripts/fedora-container.sh runs it directly.
 #
 # vgshell.spec, the release: the checkout must sit at tag v<VERSION>, and the
 # spec's Version must be VERSION's line. Source0 is the release tarball,
@@ -14,13 +13,14 @@
 # which must unpack to vgshell-<VERSION>/ holding that VERSION.
 #
 # vgshell-git.spec, main: the version is the RPM form of `vgshell --version`'s
-# describe, X.Y.Z^<count>.git<hash> for X.Y.Z.r<count>.g<hash>, so the
-# package and `vgshell --version` in the checkout agree. The script packs HEAD
-# as vgshell-<commit>.tar.gz with scripts/lib/release-tarball.sh, the release's
-# builder, and writes a spec copy that defines vgs_version and vgs_commit
-# ahead of the template and ends its %changelog with one entry of the
-# commit's author and UTC date. A shallow clone is refused, since its
-# commit count is short.
+# describe, X.Y.Z^<count>.git<hash> for X.Y.Z.r<count>.g<hash>. It packs HEAD with
+# scripts/lib/release-tarball.sh as vgshell-<commit>.tar.gz, defines vgs_version
+# and vgs_commit in a spec copy, and adds a changelog entry with the commit's
+# author and UTC date. A shallow clone is refused because its commit count is short.
+#
+# vgshell-quickshell.spec, the engine: fetches pinned upstream sources and uses
+# the shared patches in packaging/arch/vgshell-quickshell/. No VGS release tag
+# is required.
 #
 # Prints `srpm: ok path=<file> version=<version>`. Refusals exit 1 with one
 # keyed first line `srpm: refused: ...`; usage errors exit 2.

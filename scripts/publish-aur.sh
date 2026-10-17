@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Publish the Arch recipes under packaging/arch to their AUR repositories.
 #
-#   scripts/publish-aur.sh [--dry-run] PACKAGE...    PACKAGE: vgshell, vgshell-git
+#   scripts/publish-aur.sh [--dry-run] PACKAGE...
+#   PACKAGE: vgshell-quickshell, vgshell, vgshell-git
 #
 # Run it from the checkout whose recipes are published; DEVELOPMENT.md § Release
 # holds the whole flow. Before any package it refuses:
