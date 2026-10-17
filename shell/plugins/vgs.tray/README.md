@@ -20,7 +20,7 @@ Tray shows the tray icons of your apps in the bar, such as chat, sync, VPN and m
 | Pinned icons | The apps whose icons always show in the bar. |
 | Hidden icons | The apps whose icons never show in the bar. |
 
-Pin and Hide in Manage tray icons change the same two lists. An app that is not running keeps its place in each list.
+Pin and Hide in Manage tray icons change the same two lists. A new item reads Choose an app and pins or hides nothing until you choose one. An app that is not running keeps its place in each list.
 
 ## Licence
 

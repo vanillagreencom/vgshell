@@ -41,8 +41,7 @@ Item {
     function edit(kind, id) {
         if (typeof id !== "string" || id === "") return "refused: item=" + id + " reason=empty";
         const settings = shell.settings;
-        const firstOffer = offers.length > 0 ? offers[0].value : "";
-        const next = TrayLogic.toggle(kind, id, settings.pinned, settings.hidden, firstOffer);
+        const next = TrayLogic.toggle(kind, id, settings.pinned, settings.hidden);
         const order = kind === "pin" ? ["hidden", "pinned"] : ["pinned", "hidden"];
         for (const key of order) {
             if (JSON.stringify(next[key]) === JSON.stringify(settings[key])) continue;

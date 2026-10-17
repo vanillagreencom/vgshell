@@ -40,11 +40,11 @@ function suite(logic) {
     const own = { name: "the tray item" };
     assert.equal(logic.buckets([item("a", { item: own })], [], []).drawer[0].item, own);
 
-    // A setting's ids: in order, each once, an empty item the first offer.
-    assert.deepEqual(plain(logic.ids([{ name: "item-1", item: "b" }, { name: "item-2", item: "a" }, { name: "item-3", item: "b" }], "")), ["b", "a"]);
-    assert.deepEqual(plain(logic.ids([{ name: "item-1", item: "" }], "first")), ["first"]);
-    assert.deepEqual(plain(logic.ids([{ name: "item-1", item: "" }], "")), []);
-    for (const value of [null, undefined, "a", {}, 3]) assert.deepEqual(plain(logic.ids(value, "first")), [], "ids of " + JSON.stringify(value));
+    // A setting's ids: in order, each once; an item still at its
+    // placeholder names none.
+    assert.deepEqual(plain(logic.ids([{ name: "item-1", item: "b" }, { name: "item-2", item: "a" }, { name: "item-3", item: "b" }])), ["b", "a"]);
+    assert.deepEqual(plain(logic.ids([{ name: "item-1", item: "" }, { name: "item-2", item: "a" }])), ["a"]);
+    for (const value of [null, undefined, "a", {}, 3]) assert.deepEqual(plain(logic.ids(value)), [], "ids of " + JSON.stringify(value));
 
     // The toggles. Pinning adds a free name and takes the id out of the
     // hidden list; hiding unpins; a second toggle takes the item out.
@@ -59,13 +59,15 @@ function suite(logic) {
         ["hide adds the item and unpins it", "hide", "a", [entry("item-1", "a")], [], { pinned: [], hidden: [entry("item-1", "a")] }],
         ["hide again shows the item", "hide", "a", [], [entry("item-1", "a")], { pinned: [], hidden: [] }],
         ["a list that is no list reads empty", "hide", "a", null, "x", { pinned: [], hidden: [entry("item-1", "a")] }]
-    ]) assert.deepEqual(plain(logic.toggle(kind, id, pinned, hidden, "")), want, name);
-    // An empty item names the first offer, so a toggle on that id finds it.
-    assert.deepEqual(plain(logic.toggle("pin", "first", [entry("item-1", "")], [], "first")), { pinned: [], hidden: [] });
+    ]) assert.deepEqual(plain(logic.toggle(kind, id, pinned, hidden)), want, name);
+    // An item still at its placeholder names no app: a toggle on any id
+    // neither finds it in its own list nor takes it out of the other.
+    assert.deepEqual(plain(logic.toggle("pin", "first", [entry("item-1", "")], [entry("item-1", "")])),
+        { pinned: [entry("item-1", ""), entry("item-2", "first")], hidden: [entry("item-1", "")] });
     // The input lists are left as they were.
     const pinnedIn = [entry("item-1", "a")];
     const hiddenIn = [entry("item-1", "b")];
-    logic.toggle("hide", "a", pinnedIn, hiddenIn, "");
+    logic.toggle("hide", "a", pinnedIn, hiddenIn);
     assert.deepEqual(plain([pinnedIn, hiddenIn]), [[entry("item-1", "a")], [entry("item-1", "b")]]);
 
     // Names and tooltips.
@@ -118,10 +120,10 @@ try {
         ["pinned wins over hidden", "if (hidden.indexOf(entry.id) !== -1) out.hidden.push(row);\n        else if (pinned.indexOf(entry.id) !== -1) out.pinned.push(row);",
             "if (pinned.indexOf(entry.id) !== -1) out.pinned.push(row);\n        else if (hidden.indexOf(entry.id) !== -1) out.hidden.push(row);"],
         ["a passive item keeps its bucket", "if (entry.passive) continue;\n        var row", "var row"],
-        ["pinning keeps the item hidden", "var nextOther = named ? other.slice() : without(other, id, firstOffer);", "var nextOther = other.slice();"],
-        ["a toggle never takes the item out", "var nextOwn = named ? without(own, id, firstOffer) :", "var nextOwn = named ? own.slice() :"],
+        ["pinning keeps the item hidden", "var nextOther = named ? other.slice() : without(other, id);", "var nextOther = other.slice();"],
+        ["a toggle never takes the item out", "var nextOwn = named ? without(own, id) :", "var nextOwn = named ? own.slice() :"],
         ["a new item takes a taken name", 'if (taken.indexOf("item-" + n) === -1) return "item-" + n;', 'return "item-" + (list.length + 1);'],
-        ["an empty item names no offer", 'return id !== "" ? id : (firstOffer || "");', "return id;"],
+        ["an empty item names the first offer", 'typeof entry.item === "string" ? entry.item : "";', 'typeof entry.item === "string" ? (entry.item || "first") : "";'],
         ["a choice repeats an id", "|| seen.indexOf(id) !== -1) continue;", ") continue;"],
         ["the root keeps a leading separator", "return row.isSeparator === true && index <= 1;", "return false;"],
         ["a row drops its item", "var row = { id: entry.id, index: i, item: entry.item };", "var row = { id: entry.id, index: i };"]

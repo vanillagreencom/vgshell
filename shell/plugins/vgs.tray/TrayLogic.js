@@ -17,20 +17,20 @@ var CHOICES_MAX = 32;
 // A character a status line may not hold, as the core's judge reads it.
 var CONTROL_OR_SEPARATOR = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g;
 
-// The id a list item names. An empty `item` is the Settings page's first
-// offered choice, `firstOffer` here, or no id while nothing is offered.
-function itemId(entry, firstOffer) {
-    var id = entry !== null && typeof entry === "object" && typeof entry.item === "string" ? entry.item : "";
-    return id !== "" ? id : (firstOffer || "");
+// The id a list item names. An item still at its placeholder, "", names
+// none: the offers are the running apps, so a first-offer reading would
+// move to another app as apps start and stop.
+function itemId(entry) {
+    return entry !== null && typeof entry === "object" && typeof entry.item === "string" ? entry.item : "";
 }
 
 // The ids a `pinned` or `hidden` setting names, in its order; a value that
 // is no list names none.
-function ids(list, firstOffer) {
+function ids(list) {
     if (!Array.isArray(list)) return [];
     var out = [];
     for (var i = 0; i < list.length; i++) {
-        var id = itemId(list[i], firstOffer);
+        var id = itemId(list[i]);
         if (id !== "" && out.indexOf(id) === -1) out.push(id);
     }
     return out;
@@ -64,8 +64,8 @@ function freeName(list) {
 }
 
 // `list` without its items that name `id`.
-function without(list, id, firstOffer) {
-    return list.filter(function (entry) { return itemId(entry, firstOffer) !== id; });
+function without(list, id) {
+    return list.filter(function (entry) { return itemId(entry) !== id; });
 }
 
 // The two lists after a toggle of `id`: `kind` "pin" or "hide". A toggle
@@ -73,13 +73,13 @@ function without(list, id, firstOffer) {
 // one item for it, under a free name, and takes the id out of the other
 // list, so pinning shows a hidden item and hiding unpins it. The answer is
 // { pinned, hidden }, each a new list, the input lists untouched.
-function toggle(kind, id, pinned, hidden, firstOffer) {
+function toggle(kind, id, pinned, hidden) {
     var lists = { pin: Array.isArray(pinned) ? pinned : [], hide: Array.isArray(hidden) ? hidden : [] };
     var own = lists[kind];
     var other = lists[kind === "pin" ? "hide" : "pin"];
-    var named = ids(own, firstOffer).indexOf(id) !== -1;
-    var nextOwn = named ? without(own, id, firstOffer) : own.concat([{ name: freeName(own), item: id }]);
-    var nextOther = named ? other.slice() : without(other, id, firstOffer);
+    var named = ids(own).indexOf(id) !== -1;
+    var nextOwn = named ? without(own, id) : own.concat([{ name: freeName(own), item: id }]);
+    var nextOther = named ? other.slice() : without(other, id);
     return kind === "pin" ? { pinned: nextOwn, hidden: nextOther } : { pinned: nextOther, hidden: nextOwn };
 }
 

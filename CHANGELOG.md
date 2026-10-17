@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- A new Pinned icons or Hidden icons item in Settings > Tray reads Choose an app and pins or hides nothing until you choose an app. Before, it stood for the first running app the list offered, which changed as apps started and stopped. An item you saved without choosing an app now pins or hides nothing; choose its app again.
 - The VGlass info button under Settings > Launcher and Settings > Notifications says what the switch does, and links VGlass in Appearance > Windows: the switch works only while that setting is Each surface decides. Before, it said only that the switch could have no effect.
 - The info buttons of six Jarvis settings say what the setting is and what you do with it: Home folder, Start Jarvis at boot, Shell tools, Personality, ElevenLabs voices and the Voice step under Setup. Before, they described what Jarvis does inside, such as which files it changes in the home folder.
 - A detail row in the Agents panel shows no pointing hand, since a click on it does nothing. A plugin row that takes no click can say so with `clickable: false`: it then draws no hover or press and shows no pointing hand, while an action at its end, such as Remove, keeps its own hover, pointer, focus and click.

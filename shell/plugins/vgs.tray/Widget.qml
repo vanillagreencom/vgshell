@@ -20,10 +20,8 @@ BarWidget {
 
     readonly property var trayItems: SystemTray.items.values
     readonly property var entries: trayItems.map(item => ({ id: item.id, passive: item.status === Status.Passive, item: item }))
-    readonly property var offers: shell === null ? [] : (shell.status.values.items || [])
-    readonly property string firstOffer: offers.length > 0 ? offers[0].value : ""
-    readonly property var pinnedIds: TrayLogic.ids(setting("pinned", []), firstOffer)
-    readonly property var hiddenIds: TrayLogic.ids(setting("hidden", []), firstOffer)
+    readonly property var pinnedIds: TrayLogic.ids(setting("pinned", []))
+    readonly property var hiddenIds: TrayLogic.ids(setting("hidden", []))
     // Each bucket as a list of { id, index, item }, `item` the tray item
     // itself, so a delegate never reads trayItems past an app that quit.
     readonly property var buckets: TrayLogic.buckets(entries, pinnedIds, hiddenIds)
