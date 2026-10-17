@@ -22,7 +22,7 @@
 # SCENE is gallery, settings, wide-settings, focus, focus-open, flyout-titles, plugin-pages, manager, launcher,
 # notifications, bar, panels, devtools, system, network, vpn, vpn-locked, bluetooth, power, dialog, by-hand, reset, lock, polkit,
 # greeter, narrow, theme-browser, wallpaper-browser, automations, googledrive, tooltips, capture,
-# info-dialog, keyhints, clipboard, voice, voice-setup, voice-elsewhere, dictation-setup, jarvis-console, jarvis-audit, jarvis-setup, elevenlabs-voices, jarvis-fleet, outdated, jarvis-causes, plugin-messages, page-links, tooltip-link, traffic, ai-usage, ai-usage-states, sysmon, tui-edges, appearance, sounds, setup-tab, updates, clone-voice, displays-override or theme-previews. settings takes the
+# info-dialog, keyhints, clipboard, voice, voice-setup, voice-elsewhere, dictation-setup, jarvis-console, jarvis-audit, jarvis-setup, elevenlabs-voices, jarvis-fleet, outdated, jarvis-causes, jarvis-restart, plugin-messages, page-links, tooltip-link, traffic, ai-usage, ai-usage-states, sysmon, tui-edges, appearance, sounds, setup-tab, updates, clone-voice, displays-override or theme-previews. settings takes the
 # automations', the Jarvis, the AI Usage and the Tray pages among the plugin pages,
 # each when the tree ships its plugin. plugin-pages, taken only when named, opens every
 # plugin the Settings window lists, in that window's order, or with --pages
@@ -139,6 +139,10 @@
 # Jarvis home folder chosen that holds no kendex mail tool, taken only
 # when named; jarvis-causes plants each Jarvis start cause and
 # captures its bar widget tooltip and Setup section, taken only when named;
+# jarvis-restart is Jarvis's bar widget tooltip offering the resume of a
+# session saved before a machine restart, the tooltip once that resume
+# ran, and the card a Reboot draws while the session saves, over the
+# stand-in Jarvis package command, taken only when named;
 # googledrive is Google Drive's bar widget, its tooltip, its window and every
 # screen of its page's Settings, Setup and Details tabs in each state the plugin's runner reaches
 # over a local rclone remote and a keyring stand-in, from first run to a
@@ -407,7 +411,7 @@ while [[ $# -gt 0 ]]; do
     --title-inventory) title_inventory=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
 
-    sysmon|tui-edges|gallery|settings|info-dialog|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|voice-keys|jarvis-console|jarvis-audit|jarvis-setup|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes|plugin-messages|page-links|tooltip-link|traffic|ai-usage|ai-usage-states|devtools|system|appearance|sounds|network|vpn|vpn-locked|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|googledrive|tooltips|screensaver|theme-previews|setup-tab|updates|clone-voice|displays-override) scenes+=("$1"); shift ;;
+    sysmon|tui-edges|gallery|settings|info-dialog|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|voice-keys|jarvis-console|jarvis-audit|jarvis-setup|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes|jarvis-restart|plugin-messages|page-links|tooltip-link|traffic|ai-usage|ai-usage-states|devtools|system|appearance|sounds|network|vpn|vpn-locked|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|googledrive|tooltips|screensaver|theme-previews|setup-tab|updates|clone-voice|displays-override) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -567,7 +571,7 @@ scene_ships() {
     capture) ships_plugin vgs.capture ;;
     keyhints) ships_plugin vgs.keyhints vgs.launcher vgs.settings vgs.themes ;;
     clipboard) ships_plugin vgs.clipboard ;;
-    jarvis-console|jarvis-audit) ships_plugin vgs.jarvis ;;
+    jarvis-console|jarvis-audit|jarvis-restart) ships_plugin vgs.jarvis ;;
     voice) ships_plugin vgs.voice ;;
     voice-setup) ships_plugin vgs.voice vgs.settings ;;
     voice-elsewhere) ships_plugin vgs.voice vgs.settings && tree_has shell/plugins/vgs.voice/manifest.json '"dictation"' ;;
@@ -4757,6 +4761,93 @@ scene_jarvis-causes() { # MODE
   settings_close
   expect "disabling vgs.jarvis after cause sheets is allowed" ok ipc shell setPluginEnabled vgs.jarvis false
   expect_poll "vgs.jarvis is gone after cause sheets" absent ipc smoke jarvisProcess
+}
+
+# The Jarvis session saved before a machine restart, over the stand-in
+# Jarvis package command (scripts/fixtures/jarvis/session-package.py) in a
+# home folder of the scene's own: the bar widget's tooltip offering its
+# resume with the 1Password unlock first, the tooltip once the resume ran
+# with each step's outcome and a failed step's cause, and the card a
+# Reboot draws while the session saves. The scene's systemctl stands over
+# the harness's and records the call the wait's helper makes; nothing
+# restarts. A tree without the wait (PowerWait.qml) takes the first
+# tooltip alone, over the same record.
+scene_jarvis-restart() { # MODE
+  local config="$home/.config/vgshell/shell.json" folder="$home/jarvis-restart-home" phase=after
+  local scripts="$home/jarvis-restart-home/.agents/skills/jarvis/scripts" log="$sandbox/jarvis-restart-systemctl.calls"
+  [[ -f $repo/shell/plugins/vgs.jarvis/PowerWait.qml ]] || phase=before
+  jarvis_restart_row() { ipc smoke jarvisProcess | py_reply 'import json,sys; v=json.load(sys.stdin)["status"].get("sessionStart"); print(json.dumps(v["text"]) if isinstance(v, dict) and "text" in v else "pending")'; }
+  jarvis_restart_steps() { ipc smoke jarvisProcess | py_reply 'import json,sys; v=json.load(sys.stdin)["status"].get("jarvisSession"); print("pending" if v is None else len(v["steps"]))'; }
+  jarvis_restart_card() { ipc smoke layerItems vgs.jarvis PowerCard shown | py_reply 'import json,sys; rows=json.load(sys.stdin); print("none" if not rows else "shown" if any(r[2]["shown"] for r in rows) else "hidden")'; }
+  jarvis_restart_calls() { if [[ -f $log ]]; then wc -l <"$log"; else echo 0; fi; }
+  jarvis_restart_stopped() { if grep -qs '"argv": \["stop"' -- "$scripts/calls.log"; then echo asked; else echo none; fi; }
+  mkdir -p -- "$scripts"
+  cp -- "$checkout/scripts/fixtures/jarvis/session-package.py" "$scripts/jarvis-session"
+  chmod 755 "$scripts/jarvis-session"
+  python3 - "$scripts/answers.json" "$folder" <<'PY' || fail "the Jarvis restart answers are not written"
+import json, sys
+path, home = sys.argv[1:]
+def step(kind, name, outcome, cause=None):
+    return {"kind": kind, "name": name, "outcome": outcome, "cause": cause}
+def entry(state, reason, **fields):
+    return {"exit": 0, "object": {"state": state, "reason": reason, "home": home, "harness": "claude", "account": home + "/.claude", **fields}}
+names = [("delegate", "jarvis"), ("overseer", "vgshell"), ("lane", "VGS-1797")]
+saved = {"unlock": "1password", "steps": [step(kind, name, "pending") for kind, name in names]}
+ran = {"unlock": "1password", "steps": [step("delegate", "jarvis", "resumed"), step("overseer", "vgshell", "resumed"),
+    step("lane", "VGS-1797", "failed", "Copilot settings were busy")]}
+live = entry("running", "resumed", model="claude-opus-4-1", since="2026-10-17T18:02:00Z", restart=ran)
+json.dump({"status": entry("stopped", "ended", restart=saved),
+           "resume": dict(entry("starting", "resuming"), then={"status": live}),
+           "prepare": entry("running", "resumed", saved=True),
+           "stop": entry("stopping", "stop-requested")}, open(path, "w"))
+PY
+  jarvis_home_setting "$config" "~/jarvis-restart-home"
+  expect "enabling vgs.jarvis for the restart sheets is allowed" ok ipc shell setPluginEnabled vgs.jarvis true
+  expect "vgs.jarvis is placed for the restart sheets" ok ipc shell setPluginPlaced vgs.jarvis true
+  expect_poll "the Jarvis daemon is settled for the restart sheets" ready jarvis_started
+  close_notices
+  if [[ $phase == after ]]; then
+    expect_poll "the Jarvis row offers the saved session's resume" '"Saved before the restart"' jarvis_restart_row
+  else
+    expect_poll "the Jarvis row reads the saved session" '"Not started"' jarvis_restart_row
+  fi
+  if hover_widget "the pointer rests on Jarvis for its saved session" vgs.jarvis; then
+    expect_poll "the Jarvis tooltip opens for its saved session" true tooltip_opened vgs.jarvis
+    take_posed "jarvis-restart-$1-$phase-offer"
+  fi
+  park_pointer
+  expect_poll "the Jarvis tooltip closes after its saved session" false tooltip_opened vgs.jarvis
+  if [[ $phase == after ]]; then
+    expect "the saved session's resume is taken" ok ipc vgs.jarvis invoke resume-session ''
+    expect_poll "the resumed session's steps reach the widget" 3 jarvis_restart_steps
+    if hover_widget "the pointer rests on Jarvis for its resumed session" vgs.jarvis; then
+      expect_poll "the Jarvis tooltip opens for its resumed session" true tooltip_opened vgs.jarvis
+      take_posed "jarvis-restart-$1-$phase-resumed"
+    fi
+    park_pointer
+    expect_poll "the Jarvis tooltip closes after its resumed session" false tooltip_opened vgs.jarvis
+    if [[ $(shell_resolves systemctl) == "$shim/systemctl" ]]; then
+      rm -f -- "$log"
+      sentinel_stand_over "$shim/systemctl" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >>$(printf %q "$log")
+EOF
+      expect "a Reboot while the session lives is held" held ipc vgs.jarvis invoke power reboot
+      expect_poll "the wait's card shows" shown jarvis_restart_card
+      take_posed "jarvis-restart-$1-$phase-card"
+      expect "a second Reboot ends the wait" proceed ipc vgs.jarvis invoke power reboot
+      expect_poll "the wait's card goes" none jarvis_restart_card
+      expect_poll "the wait's helper asks the stand-in systemctl once" 1 jarvis_restart_calls
+      sentinel_restore "$shim/systemctl"
+    else
+      fail "systemctl does not resolve to the shell's stand-in, so no Reboot was asked"
+    fi
+  fi
+  expect "disabling vgs.jarvis after the restart sheets is allowed" ok ipc shell setPluginEnabled vgs.jarvis false
+  expect_poll "vgs.jarvis is gone after the restart sheets" absent ipc smoke jarvisProcess
+  expect_poll "the Off asks the stand-in to stop the session" asked jarvis_restart_stopped
+  rm -rf -- "${folder:?}" "$log"
+  jarvis_home_setting "$config" ""
 }
 
 voice_level_flowing() { ipc smoke readInstance service vgs.voice level | py_reply 'import json,sys; print(str(json.load(sys.stdin) > 0).lower())'; }

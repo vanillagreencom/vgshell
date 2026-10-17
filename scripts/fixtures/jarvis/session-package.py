@@ -4,20 +4,25 @@ sandbox scenes. A test copies it to
 <home>/.agents/skills/jarvis/scripts/jarvis-session. It starts nothing.
 
 Beside itself it appends one JSON line a call to calls.log: the argv, the
-working folder, XDG_SESSION_ID and which of the shell's own variables
-reached it. It answers from answers.json beside itself, an object keyed by
-verb: {"exit": N, "object": {...}} prints the contract's object, with the
+working folder, XDG_SESSION_ID, which of the shell's own variables
+reached it and the time it started, in seconds since the epoch. It answers
+from answers.json beside itself, an object keyed by verb:
+{"exit": N, "object": {...}} prints the contract's object, with the
 fields the entry leaves out filled in, and {"exit": N, "raw": TEXT} prints
 TEXT as it is. A verb with no entry exits 2 with a keyed line, as the
 contract's argument refusal does. An entry's "hold": SECONDS stalls the
 call as a command does that waits on a program it started: a child that
-holds the output open sleeps that long, and so does the call."""
+holds the output open sleeps that long, and so does the call. An entry's
+"then": {VERB: ENTRY, ...} replaces those verbs' entries in answers.json
+before the call answers, as a call that changes the session changes what
+the next status reads."""
 import json, os, subprocess, sys, time
 
 here = os.path.dirname(os.path.abspath(__file__))
 argv = sys.argv[1:]
 record = {"argv": argv, "cwd": os.getcwd(), "session": os.environ.get("XDG_SESSION_ID"),
-          "leaked": sorted(name for name in ("TMUX", "TMUX_PANE", "VGSHELL_RUNNER_PID") if name in os.environ)}
+          "leaked": sorted(name for name in ("TMUX", "TMUX_PANE", "VGSHELL_RUNNER_PID") if name in os.environ),
+          "time": time.time()}
 fd = os.open(os.path.join(here, "calls.log"), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
 os.write(fd, (json.dumps(record) + "\n").encode())
 os.close(fd)
@@ -30,6 +35,11 @@ entry = answers.get(argv[0]) if argv else None
 if entry is None:
     sys.stderr.write("jarvis-session: verb=%s\n" % (argv[0] if argv else ""))
     sys.exit(2)
+if "then" in entry:
+    answers.update(entry["then"])
+    with open(os.path.join(here, "answers.json.next"), "w") as out:
+        json.dump(answers, out)
+    os.replace(os.path.join(here, "answers.json.next"), os.path.join(here, "answers.json"))
 if "hold" in entry:
     subprocess.Popen(["sleep", str(entry["hold"])])
     time.sleep(entry["hold"])
