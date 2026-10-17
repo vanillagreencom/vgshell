@@ -413,13 +413,13 @@ Item {
             select.openList();
             const list = selectList(select);
             tryVerify(() => list.itemAtIndex(0) !== null, 1000, "the choice list builds entries");
-            compare(list.currentIndex, -1, "an unset choice opens with no entry highlighted");
+            compare(list.highlightIndex, -1, "an unset choice opens with no entry highlighted");
             list.Window.window.requestActivate();
             list.forceActiveFocus();
             tryCompare(list.Window, "active", true);
             tryCompare(list, "activeFocus", true);
             keyClick(Qt.Key_Down);
-            compare(list.currentIndex, 0, "Down moves to the first entry");
+            compare(list.highlightIndex, 0, "Down moves to the first entry");
             keyClick(Qt.Key_Escape);
             tryCompare(select, "listOpen", false);
             compare(picked.value, "", "moving the highlight chooses nothing");
@@ -438,9 +438,9 @@ Item {
             tryVerify(() => list.itemAtIndex(2) !== null, 1000, "the preset list builds the target entry");
             keyClick(Qt.Key_Down);
             keyClick(Qt.Key_Down);
-            compare(list.currentIndex, 2);
+            compare(list.highlightIndex, 2);
             Time.now = new Date(2026, 8, 30, 20, 35, 0);
-            compare(list.currentIndex, 2, "a clock tick does not reset the highlighted preset");
+            compare(list.highlightIndex, 2, "a clock tick does not reset the highlighted preset");
             keyClick(Qt.Key_Return);
             tryCompare(select, "listOpen", false);
             compare(root.applied, ["yyyy-MM-dd HH:mm"]);

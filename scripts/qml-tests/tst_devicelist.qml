@@ -12,7 +12,9 @@ import qs.Unit
 // takes a removed row's place takes the keyboard; the selection shows only
 // while the list holds the keyboard; a change to the rows that keeps their
 // count keeps the keyboard where it is; a row's `secondaryTone` reaches
-// its DeviceRow. A list given a `disabledReason` keeps its selected row a
+// its DeviceRow; a hover over the row at a scroll area's edge moves the
+// plate and neither the keyboard nor the page, while the arrows still
+// reveal. A list given a `disabledReason` keeps its selected row a
 // Tab stop, takes no click and no key, on a row or its action, moves no
 // selection under the pointer, offers no overflow menu, draws its rows'
 // content faded under a full-strength ring, and shows the reason on hover
@@ -58,6 +60,25 @@ Item {
         }
     }
     Component { id: spyComponent; SignalSpy {} }
+    // A list taller than the area it scrolls in, as a device pane's.
+    Component {
+        id: scrolledList
+        ScrollArea {
+            readonly property alias list: inner
+            y: 320
+            width: 440
+            height: 100
+            DeviceList {
+                id: inner
+                width: 400
+                rows: root.three.concat([
+                    { key: "d", text: "Keyboard", iconName: "keyboard" },
+                    { key: "e", text: "Printer", iconName: "printer" },
+                    { key: "f", text: "Phone", iconName: "smartphone" }
+                ])
+            }
+        }
+    }
 
     TestCase {
         name: "devicelist"
@@ -198,6 +219,36 @@ Item {
             compare(list.rowAt(0).highlighted, true);
             before.forceActiveFocus(Qt.TabFocusReason);
             compare(list.rowAt(0).highlighted, false);
+        }
+
+        // A hover never moves the keyboard: the scroll area reveals the item
+        // that takes it, so a hover over the row at the area's edge would
+        // scroll the page under a resting pointer. The arrows still reveal.
+        function test_a_hover_at_a_scrolled_lists_edge_moves_no_keyboard_and_no_page() {
+            const area = createTemporaryObject(scrolledList, root);
+            const made = area.list;
+            tryVerify(() => made.rowAt(5) !== null && made.rowAt(5).y >= made.rowAt(4).y + made.rowAt(4).height, 1000, "the rows are laid out");
+            area.height = made.rowAt(0).height * 2.5;
+            tryVerify(() => area.overflowing, 1000, "the list overflows its area");
+            made.focusCurrent(Qt.TabFocusReason);
+            tryCompare(made.rowAt(0), "activeFocus", true);
+            compare(area.contentY, 0);
+            let edge = 0;
+            while (made.rowAt(edge + 1).y < area.height) edge++;
+            const row = made.rowAt(edge);
+            verify(edge > 0 && row.y + row.height > area.height - area.fadeExtent, "row " + edge + " lies in the bottom band");
+            mouseMove(row, 20, (area.height - row.y) / 2);
+            mouseMove(row, 24, (area.height - row.y) / 2);
+            compare(plateOf(made).placed, row, "the plate follows the pointer");
+            // Frames for a hover delivered again to reach the rows.
+            wait(100);
+            compare(area.contentY, 0, "the page stays where the pointer rests");
+            compare(made.rowAt(0).activeFocus, true, "the keyboard stays on the selected row");
+            compare(made.current, 0);
+            for (let index = 0; index < edge; index++) keyClick(Qt.Key_Down);
+            compare(made.rowAt(edge).activeFocus, true);
+            verify(area.contentY > 0, "an arrow reveals the row it moves to");
+            mouseMove(root, root.width - 1, 0);
         }
 
         function reasonTip(control) { return control.lock.children.map(child => child.item).find(item => item && item.objectName === "disabledReasonTip") || null; }

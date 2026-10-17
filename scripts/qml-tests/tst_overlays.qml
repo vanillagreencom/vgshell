@@ -12,7 +12,10 @@ import qs.Unit
 // reads its text role, an empty select opens no list from a key or a click
 // and shows neither the hand nor a chevron in its resting colour, a tooltip opens after the delay while the pointer
 // rests and not under an open overlay. A menu
-// taller than its maximum scrolls with the highlight kept in view, jumps
+// taller than its maximum scrolls with a key's highlight kept in view, and
+// a pointer resting at its edge or over a select entry part way past the
+// list's bottom highlights the entry and scrolls nothing; a long select
+// list opens with its choice in view. A menu jumps
 // to the entry whose text starts with the letters typed, opens on its
 // checked entry and draws its mark. A menu and a select's list draw their
 // highlight through one ListCursor, which a hover moves only once the
@@ -131,7 +134,7 @@ Item {
         name: "overlays"
         when: windowShown
 
-        function init() { tip.shown = false; longTip.shown = false; detailsTip.shown = false; host.enabled = true; host.visible = true; UnitTheme.reset(); popover.close(); menu.close(); nested.close(); homed.close(); long.close(); root.chosen = 4; select.choose(0); root.triggered = -1; Hyprland.monitors = {}; }
+        function init() { tip.shown = false; longTip.shown = false; detailsTip.shown = false; host.enabled = true; host.visible = true; UnitTheme.reset(); popover.close(); menu.close(); nested.close(); homed.close(); long.close(); root.chosen = 4; select.choose(0); longSelect.choose(0); root.triggered = -1; Hyprland.monitors = {}; }
 
         function tooltipDelay(of) {
             return of.resources.find(child => child.running !== undefined && child.interval === Theme.tooltip.delay);
@@ -425,8 +428,41 @@ Item {
             verify(item.y + item.height <= long.scrollArea.contentY + long.scrollArea.height, "the highlighted entry's bottom is in view");
             verify(item.y >= long.scrollArea.contentY, "the highlighted entry's top is in view");
             long.move(1);
-            long.currentIndex = 0;
+            long.nav.moveTo(0, true);
             compare(long.scrollArea.contentY, 0, "going back up scrolls the first entry into view");
+            long.close();
+            root.chosen = 4;
+        }
+
+        // A resting pointer never scrolls a list: Qt delivers its hover
+        // again each frame to an entry that moves under it, so a hover that
+        // revealed its entry clear of the fade band would take the next
+        // entry and scroll again, one entry a frame, to the menu's end.
+        function test_a_resting_pointer_at_a_long_menus_edge_scrolls_nothing() {
+            compare(UnitTheme.override({ menu: { maxHeight: 90 } }), "ok");
+            root.chosen = -1;
+            long.open("pointer");
+            focusMenu(long);
+            const scroll = long.scrollArea;
+            tryVerify(() => scroll.overflowing, 1000, "the long menu overflows");
+            tryCompare(scroll, "height", 90);
+            const items = long.items();
+            const band = scroll.height - scroll.fadeExtent;
+            let edge = -1;
+            for (let index = 0; index < items.length; ++index) {
+                const bottom = items[index].y + items[index].height;
+                if (bottom > band && bottom <= scroll.height) edge = index;
+            }
+            verify(edge > 0, "an entry ends inside the bottom band, from " + band);
+            mouseMove(items[edge], 10, items[edge].height / 2);
+            mouseMove(items[edge], 12, items[edge].height / 2);
+            // Frames for a hover delivered again to reach the entries.
+            wait(100);
+            compare(scroll.contentY, 0, "the menu stays where the pointer rests");
+            compare(long.currentIndex, edge, "the entry under the pointer is highlighted");
+            keyClick(Qt.Key_Down);
+            compare(long.currentIndex, edge + 1);
+            verify(scroll.contentY > 0, "a key move scrolls its entry into view");
             long.close();
             root.chosen = 4;
         }
@@ -480,13 +516,13 @@ Item {
             tryVerify(() => list.itemAtIndex(2) !== null, 1000, "the list builds its entries");
             const plate = list.contentItem.children.find(child => child.follow !== undefined);
             tryCompare(plate, "opacity", 1);
-            list.currentIndex = 2;
+            list.highlightIndex = 2;
             // The cursor is on its way to the moved highlight.
             tryVerify(() => plate.y > list.itemAtIndex(0).y, 1000, "the cursor left the choice");
             list.Window.window.visible = false;
             compare(select.listOpen, false);
             select.openList();
-            compare(list.currentIndex, 0);
+            compare(list.highlightIndex, 0);
             compare(plate.y, list.itemAtIndex(0).y, "the cursor lands on the choice at once");
             select.choose(0);
         }
@@ -509,12 +545,12 @@ Item {
             select.openList();
             const list = selectList(select);
             tryVerify(() => list.itemAtIndex(2) !== null, 1000, "the list builds its entries");
-            list.currentIndex = 2;
+            list.highlightIndex = 2;
             keyClick(Qt.Key_Down);
-            compare(list.currentIndex, 2);
-            list.currentIndex = 0;
+            compare(list.highlightIndex, 2);
+            list.highlightIndex = 0;
             keyClick(Qt.Key_Up);
-            compare(list.currentIndex, 0);
+            compare(list.highlightIndex, 0);
             select.choose(0);
         }
 
@@ -789,12 +825,12 @@ Item {
             select.openList();
             const list = selectList(select);
             tryVerify(() => list.itemAtIndex(2) !== null, 1000, "the list builds its entries");
-            compare(list.currentIndex, 0, "the list opens on the chosen entry");
+            compare(list.highlightIndex, 0, "the list opens on the chosen entry");
             mouseMove(list.itemAtIndex(2), 10, 5);
             mouseMove(list.itemAtIndex(2), 12, 5);
-            compare(list.currentIndex, 2, "a moved pointer highlights the entry under it");
+            compare(list.highlightIndex, 2, "a moved pointer highlights the entry under it");
             leaveWindow(list);
-            compare(list.currentIndex, 0, "leaving returns the highlight to the keyboard's entry");
+            compare(list.highlightIndex, 0, "leaving returns the highlight to the keyboard's entry");
             select.choose(0);
         }
 
@@ -822,21 +858,68 @@ Item {
             // One event-loop turn lets the offscreen window finish activating before the first key.
             wait(0);
             keyClick(Qt.Key_Down);
-            compare(list.currentIndex, 1);
+            compare(list.highlightIndex, 1);
             mouseMove(second, 10, 5);
-            compare(list.currentIndex, 1, "the first reading after a key moves nothing");
+            compare(list.highlightIndex, 1, "the first reading after a key moves nothing");
             mouseMove(first, 12, 5);
-            compare(list.currentIndex, 0, "a moved pointer highlights the entry under it");
+            compare(list.highlightIndex, 0, "a moved pointer highlights the entry under it");
             compare(String(first.background.color), String(Qt.color(Theme.select.selected)), "the chosen entry keeps its fill");
             keyClick(Qt.Key_Down);
-            compare(list.currentIndex, 1);
+            compare(list.highlightIndex, 1);
             compare(String(second.background.color), "#00000000", "the highlighted entry draws no fill of its own");
             // The pointer rests where it was: Qt delivers it hover again
             // while the cursor travels, and a resting pointer must not take
             // the highlight back from the key.
             mouseMove(first, 12, 5);
-            compare(list.currentIndex, 1, "a key disarms the pointer");
+            compare(list.highlightIndex, 1, "a key disarms the pointer");
             select.choose(0);
+        }
+
+        // The list the pointer rests over keeps its place: a hover over an
+        // entry part way past the list's bottom highlights it and scrolls
+        // nothing, while Down scrolls the next entry into view.
+        function test_a_hover_over_a_part_hidden_select_entry_scrolls_nothing() {
+            compare(UnitTheme.override({ menu: { maxHeight: Theme.menu.item.height * 2.5 } }), "ok");
+            longSelect.choose(0);
+            longSelect.openList();
+            const list = selectList(longSelect);
+            tryCompare(list, "height", Theme.menu.item.height * 2.5);
+            tryVerify(() => list.itemAtIndex(2) !== null, 1000, "the list builds its entries");
+            compare(list.contentY, 0);
+            const part = list.itemAtIndex(2);
+            verify(part.y < list.height && part.y + part.height > list.height, "the third entry lies part way past the bottom: " + part.y);
+            list.Window.window.requestActivate();
+            list.forceActiveFocus();
+            tryCompare(list.Window, "active", true);
+            tryCompare(list, "activeFocus", true);
+            wait(0);
+            mouseMove(part, 10, (list.height - part.y) / 2);
+            mouseMove(part, 12, (list.height - part.y) / 2);
+            // A ListView scrolls to its current item over its highlight's
+            // move, 400 px/s by default (highlightMoveVelocity): a second
+            // covers that move across the rows above the entry.
+            wait(1000);
+            compare(list.contentY, 0, "the list stays where the pointer rests");
+            compare(part.highlighted, true, "the entry under the pointer is highlighted");
+            keyClick(Qt.Key_Down);
+            compare(list.itemAtIndex(3).highlighted, true);
+            verify(list.contentY > 0, "a key move scrolls its entry into view");
+            longSelect.choose(0);
+        }
+
+        // An opening scrolls the choice into view, here one far below the
+        // list's first page.
+        function test_a_long_select_list_opens_on_its_choice() {
+            compare(UnitTheme.override({ menu: { maxHeight: Theme.menu.item.height * 2.5 } }), "ok");
+            longSelect.choose(12);
+            longSelect.openList();
+            const list = selectList(longSelect);
+            tryCompare(list, "height", Theme.menu.item.height * 2.5);
+            tryVerify(() => list.itemAtIndex(12) !== null, 1000, "the list builds the chosen entry");
+            const chosen = list.itemAtIndex(12);
+            tryVerify(() => chosen.y >= list.contentY - 0.5 && chosen.y + chosen.height <= list.contentY + list.height + 0.5, 1000, "the choice lies in view: " + chosen.y + " at " + list.contentY);
+            compare(chosen.highlighted, true);
+            longSelect.choose(0);
         }
 
         // A fill's box in its window's content item.

@@ -19,8 +19,9 @@ import qs.Ui
 // Escape close it too (DismissScope). Typing letters highlights the first
 // reachable entry whose text starts with them, the letters kept for
 // `menu.typeahead` milliseconds. Entries taller than `maxHeight` scroll
-// inside the menu, and the highlighted entry is kept in view; opening
-// shows the top, and a key opening's highlighted entry in view. It follows its anchor when that
+// inside the menu: a key move keeps the highlighted entry in view, a hover
+// scrolls nothing, and opening shows the top, and a key opening's
+// highlighted entry in view. It follows its anchor when that
 // moves and closes when it hides. The declaring item is an invisible,
 // sizeless member of its parent. The entries fill the list inside the
 // menu's border, so an entry's highlight meets the border at the top and
@@ -142,10 +143,11 @@ Item {
         return width + (column.implicitHeight - root.maxHeight >= 0.5 ? Theme.scrollArea.gutter : 0);
     }
 
-    onCurrentIndexChanged: {
-        items().forEach((item, index) => { item.highlighted = index === currentIndex; });
-        reveal();
-    }
+    // A hover changes the index too, so a change reveals nothing: a key
+    // move reveals through KeyNav.moveTo and an opening through open(). A
+    // reveal here would scroll a menu under a resting pointer, whose next
+    // row then takes the hover, one row a frame (design-system.md § Pointer).
+    onCurrentIndexChanged: items().forEach((item, index) => { item.highlighted = index === currentIndex; })
 
     property KeyNav nav: KeyNav {
         count: root.items().length

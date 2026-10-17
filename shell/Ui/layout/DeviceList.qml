@@ -14,7 +14,11 @@ import qs.Ui
 // With `removable`, Delete asks to remove the selected row (K9).
 // The selection shows while the list holds the keyboard or the pointer is
 // over it, so two lists of one page never both show one. The selected row
-// holds the scope's focus, so a removed row's place takes the keyboard.
+// holds the scope's focus, so a removed row's place takes the keyboard. A
+// hover moves the plate and never the selection: the selection moving
+// would move the keyboard, and a scroll area reveals the item that takes
+// it, so a hover over a row at its edge would scroll the page under the
+// pointer (design-system.md § Pointer).
 // A set `disabledReason` disables the list: the selected row stays its
 // Tab stop, no row, action or key acts or moves the selection, the rows'
 // content draws faded with no selection, hover or overflow menu, and the
@@ -116,7 +120,6 @@ FocusScope {
                 activeFocusOnTab: list.current === index
                 cursor: plate
                 highlighted: list.engaged && list.current === index
-                onPointed: if (!lockState.locked) list.current = index
                 onActiveFocusChanged: if (activeFocus) list.current = index
                 text: modelData.text
                 secondary: modelData.secondary === undefined ? "" : modelData.secondary

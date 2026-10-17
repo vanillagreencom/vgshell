@@ -12,7 +12,7 @@ import qs.Ui
 // Down move the highlight there and Enter chooses, a click chooses, and a
 // press outside or Escape closes it (DismissScope). One ListCursor draws the highlight
 // and travels between entries, and a hover moves it once the pointer moves
-// (ListCursor). With the list closed, Up and Down on the focused control
+// (ListCursor) and scrolls nothing. With the list closed, Up and Down on the focused control
 // move the choice. The list opens on the control's edges, as wide as it,
 // and its entries fill it inside the menu's border, so a highlight or the
 // chosen entry's fill meets the border at the top and both sides
@@ -105,8 +105,10 @@ T.AbstractButton {
         // the last opening left it.
         plate.disarm();
         plate.snap();
-        entries.currentIndex = currentIndex;
+        entries.highlightIndex = currentIndex;
         list.visible = true;
+        if (currentIndex >= 0 && currentIndex < count) entries.positionViewAtIndex(currentIndex, ListView.Contain);
+        else entries.positionViewAtBeginning();
         entries.forceActiveFocus();
         opened();
     }
@@ -217,28 +219,37 @@ T.AbstractButton {
                     maskSpreadAtMin: 1
                 }
                 focus: true
-                keyNavigationEnabled: true
-                keyNavigationWraps: false
+                // openNav owns the keys.
+                keyNavigationEnabled: false
                 boundsBehavior: Flickable.StopAtBounds
                 acceptedButtons: Qt.NoButton
                 TouchpadScroll { view: entries }
                 // The bar's own test, so an entry keeps the bar's strip exactly
                 // while the bar shows.
                 readonly property bool overflowing: listBar.needed
+                // The highlighted entry, which a key and a hover move. It is
+                // not the view's currentIndex: a ListView scrolls to keep a
+                // new current item in view as its highlight moves there, so
+                // a hover over an entry part way past the bottom scrolled
+                // the list (scripts/qml-unit.sh tst_overlays.qml,
+                // 2026-10-16: contentY 0 to 18; design-system.md § Pointer).
+                // Only a key move, through openNav, and an opening scroll an
+                // entry into view.
+                property int highlightIndex: -1
                 // A key moves the highlight: the pointer resting over the list
-                // takes it again only once it moves. The key goes on to the view.
+                // takes it again only once it moves.
                 Keys.onPressed: event => { event.accepted = openNav.handle(event); }
 
                 property KeyNav openNav: KeyNav {
                     count: entries.count
-                    currentIndex: entries.currentIndex
+                    currentIndex: entries.highlightIndex
                     wrap: false /* open select */
                     viewHeight: entries.height
                     rowHeight: Theme.menu.item.height
                     labelAt: index => root.textAt(index)
                     cursor: plate
                     onMoved: index => {
-                        entries.currentIndex = index;
+                        entries.highlightIndex = index;
                         entries.positionViewAtIndex(index, ListView.Contain);
                     }
                     onActivated: index => root.choose(index)
@@ -254,7 +265,7 @@ T.AbstractButton {
                     leftPadding: root.sidePadding - Theme.border.thin
                     rightPadding: root.sidePadding - Theme.border.thin + (entries.overflowing ? Theme.scrollArea.gutter : 0)
                     text: root.textAt(index)
-                    highlighted: ListView.isCurrentItem
+                    highlighted: index === entries.highlightIndex
                     hoverEnabled: true
                     PointerCursor {}
                     Accessible.name: text
@@ -263,7 +274,7 @@ T.AbstractButton {
                     ListCursorRow {
                         cursor: plate
                         holds: entry.highlighted
-                        onPointed: entries.currentIndex = entry.index
+                        onPointed: entries.highlightIndex = entry.index
                     }
 
                     contentItem: Label {
