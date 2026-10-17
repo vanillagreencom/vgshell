@@ -235,11 +235,11 @@ sp_card_within() {
   echo absent
 }
 sp_page_drawn() {
-  ipc smoke layerItems vgs.notifications NotificationCard summary,linkWords | py_reply 'import json,sys; print(str(any(r[2].get("summary") == "Pad 2 cannot open" and r[2].get("linkWords") == "Plugins" for r in json.load(sys.stdin))).lower())'
+  ipc smoke layerItems vgs.notifications NotificationCard summary,linkWords | py_reply 'import json,sys; print(str(any(r[2].get("summary") == sys.argv[1] and r[2].get("linkWords") == "Plugins" for r in json.load(sys.stdin))).lower())' "$sp_refused"
 }
 sp_page_check() {
   expect_poll "the no-pad notice draws its page link" true sp_page_drawn
-  click_item vgs:layer vgs.notifications NotificationCard summary "Pad 2 cannot open" 24 - || fail "the no-pad notice was not pressed"
+  click_item vgs:layer vgs.notifications NotificationCard summary "$sp_refused" 24 - || fail "the no-pad notice was not pressed"
   expect_poll "the no-pad notice opens the Scratchpads page" '"vgs.scratchpads/Settings"' ipc smoke readInstance window vgs.settings shownPage
 }
 
@@ -296,13 +296,18 @@ expect_poll "the page draws each pad as shell.json holds it" same sp_drawn_same
 expect_poll "a second pad on the first one's class is reported" '["hyprland: pad 2 of vgs.scratchpads skipped: class=org.vgs.pad held by pad 1"]' sp_problems
 expect_poll "the refused pad keeps its Keys row" drawn sp_key_row 2
 expect "pad 2's app logs its start" applied sp_field command "\"echo start >>$sandbox/pad-starts-2\"" 2
+# A notice names a pad by its App, here the command typed under Custom…,
+# cut short to keep the title within notify's 120 characters.
+sp_app_2="echo start >>$sandbox/pad-starts-2"
+(( ${#sp_app_2} <= 104 )) || sp_app_2="${sp_app_2:0:103}…"
+sp_refused="Pad $sp_app_2 cannot open"
 expect_poll "pad 2's app reaches shell.json" same sp_drawn_same
 notes_on "scratchpads refused pad"
 settings_page_close "Scratchpads"
 expect "Settings is absent before the no-pad notice" absent ipc smoke readInstance window vgs.settings shownPage
 expect "pad 2's shortcut is pressed" ok hypr dispatch 'hl.dsp.global("vgs.scratchpads:pad-2")'
-expect "the refused pad's press says why" shown sp_card_within "Pad 2 cannot open"
-expect "the refused pad's press sends one notification" 1 sp_card_count "Pad 2 cannot open"
+expect "the refused pad's press says why" shown sp_card_within "$sp_refused"
+expect "the refused pad's press sends one notification" 1 sp_card_count "$sp_refused"
 expect "the refused pad's press starts no app" absent sp_started_2
 sp_page_check
 notes_off "scratchpads refused pad"
@@ -325,7 +330,7 @@ notes_on "scratchpads page control"
 settings_page_close "Scratchpads"
 expect "Settings is absent before the no-link control" absent ipc smoke readInstance window vgs.settings shownPage
 expect "control: pad 2's shortcut is pressed" ok hypr dispatch 'hl.dsp.global("vgs.scratchpads:pad-2")'
-expect "control: the refused pad's notice shows" shown sp_card_within "Pad 2 cannot open"
+expect "control: the refused pad's notice shows" shown sp_card_within "$sp_refused"
 sp_page_control() { (failures=0 behaviour_failures=0; sp_page_check >"$sandbox/scratchpads-page-control.log"; echo "$failures"); }
 expect "control: a no-pad notice with plain page words fails both link checks" 2 sp_page_control
 sed 's/^/  CONTROL  /' "$sandbox/scratchpads-page-control.log"
@@ -564,8 +569,8 @@ expect "the Settings window is hidden after the command change" ok ipc shell hid
 expect_poll "the failing command reaches shell.json" '"true"' sp_pad_field command
 notes_on "scratchpads failed start"
 sp_press || fail "typing the pad's key for the failing start failed"
-expect "a start that maps no window ends in a notification" shown sp_card_within "Pad 1 did not open"
-expect "a start that maps no window ends in one notification" 1 sp_card_count "Pad 1 did not open"
+expect "a start that maps no window ends in a notification" shown sp_card_within "Pad true did not open"
+expect "a start that maps no window ends in one notification" 1 sp_card_count "Pad true did not open"
 expect "the failed start shows no pad" hidden sp_state
 notes_off "scratchpads failed start"
 

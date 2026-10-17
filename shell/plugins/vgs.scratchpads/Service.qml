@@ -82,12 +82,27 @@ Item {
         return tracked[name];
     }
 
-    // The Keys row's text for PAD: the word its Settings list item shows
-    // for its App, the preset's label or the command typed under Custom….
-    // The pad's name is a storage key the Settings page never shows.
-    function describe(pad) {
+    // The word PAD's Settings list item shows for its App, the preset's
+    // label or the command typed under Custom…, which names the pad in its
+    // Keys row and its notices. The pad's name is a storage key the
+    // Settings page never shows.
+    function appOf(pad) {
         const preset = shell.manifest.schema.pads.items.command.presets.find(p => p.value === pad.command);
-        return "Show or hide " + (preset === undefined ? pad.command : preset.label);
+        return preset === undefined ? pad.command : preset.label;
+    }
+
+    // The Keys row's text for PAD.
+    function describe(pad) {
+        return "Show or hide " + appOf(pad);
+    }
+
+    // A notice's title: PAD by its App, then END. shell.notify.send refuses
+    // a title past 120 characters (vgs-plugin api.md), so a long custom
+    // command is cut short.
+    function noticeTitle(pad, end) {
+        const app = appOf(pad);
+        const room = 120 - ("Pad  " + end).length;
+        return "Pad " + (app.length > room ? app.slice(0, room - 1) + "…" : app) + " " + end;
     }
 
     // Register a shortcut for each listed pad and dispose of a removed
@@ -198,7 +213,7 @@ Item {
             toggle(pad, null);
             return;
         case "no-pad":
-            notice("Pad " + name + " cannot open", "Another pad uses its window class, " + pad["class"] + ". Give each pad its own window class in [Plugins](page:vgs.scratchpads/Settings), and an app that opens its window with it.");
+            notice(noticeTitle(pad, "cannot open"), "Another pad uses its window class, " + pad["class"] + ". Give each pad its own window class in [Plugins](page:vgs.scratchpads/Settings), and an app that opens its window with it.");
             return;
         default:
             console.warn("scratchpads: pad=" + name + " toggle answered " + JSON.stringify(answer));
@@ -298,8 +313,10 @@ Item {
             if (state.phase !== "starting" || state.deadline > now) continue;
             state.phase = "idle";
             state.wanted = false;
+            // sync() drops a removed pad's state, so a starting pad is listed.
             const pad = padOf(name);
-            notice("Pad " + name + " did not open", "Its app showed no window of class " + (pad === undefined ? "" : pad["class"]) + ". Check the app and window class of the pad in [Plugins](page:vgs.scratchpads/Settings).");
+            if (pad === undefined) throw new Error("scratchpads: pad " + name + " is starting but not listed");
+            notice(noticeTitle(pad, "did not open"), "Its app showed no window of class " + pad["class"] + ". Check the app and window class of the pad in [Plugins](page:vgs.scratchpads/Settings).");
         }
         armDeadline();
     }

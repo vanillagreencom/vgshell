@@ -10,8 +10,12 @@
 //
 // A description is read from the register call that names the shortcut: a
 // string literal, Capture's `descriptions[name]` map in the same file, or
-// the Themes views' `view.description` from BrowserLogic.VIEWS. A register
-// call of any other form, or a manifest bind no call describes, fails the
+// the Themes views' `view.description` from BrowserLogic.VIEWS. A pad's
+// shortcut, `"pad-" + name`, is described by the Scratchpads service's own
+// `describe(pad)` and `appOf(pad)`, run here over each App preset of the
+// manifest's `hyprland.pads` list, one Keys row per preset: a custom App is
+// the user's own text. A register call of any other form, a manifest bind
+// no call describes, or declared pads with no pad register call, fail the
 // extractor, so a new form cannot drop rows unseen.
 //
 // The control plants one description long enough to elide and requires
@@ -37,9 +41,12 @@ function fail(message) {
     process.exit(1);
 }
 
-// The descriptions SOURCE registers, shortcut name -> text.
-function registered(id, source) {
+// The descriptions SOURCE, MANIFEST's Service.qml, registers: `binds`,
+// shortcut name -> text, and `pads`, one { shortcut, label } per App preset.
+function registered(manifest, source) {
+    const id = manifest.id;
     const out = {};
+    const pads = [];
     const views = () => {
         const keyNav = load(path.join(repo, "shell", "Ui", "foundation", "KeyNavLogic.js"));
         return load(path.join(plugins, "vgs.themes", "BrowserLogic.js"), { "qs.Ui 1.0": { KeyNavLogic: keyNav } }).VIEWS;
@@ -49,15 +56,23 @@ function registered(id, source) {
         if (block === null) fail("extractor: " + id + " registers descriptions[name] with no descriptions map");
         return vm.runInNewContext(block[1]);
     };
+    const padRows = () => {
+        const list = manifest.hyprland === undefined || manifest.hyprland.pads === undefined ? undefined : manifest.schema[manifest.hyprland.pads];
+        if (list === undefined) fail("extractor: " + id + " registers pad shortcuts with no hyprland.pads list");
+        const helpers = [...source.matchAll(/^    function (?:appOf|describe)\(pad\) \{$[\s\S]*?^    \}$/gm)].map(match => match[0]);
+        if (helpers.length !== 2) fail("extractor: " + id + " registers pad shortcuts with " + helpers.length + " of describe(pad) and appOf(pad)");
+        const describe = vm.runInNewContext(helpers.join("\n") + "\ndescribe", { shell: { manifest } });
+        return list.items.command.presets.map(preset => ({ shortcut: "pad-" + preset.label, label: describe({ command: preset.value }) }));
+    };
     for (const call of source.matchAll(REGISTER)) {
         const [, name, description] = call;
         if (/^"[a-z0-9-]+"$/.test(name) && /^"[^"]*"$/.test(description)) out[JSON.parse(name)] = JSON.parse(description);
         else if (name === "name" && description === "descriptions[name]") Object.assign(out, named());
         else if (name === "view.name" && description === "view.description") for (const view of views()) out[view.name] = view.description;
-        else if (name.startsWith('"pad-"')) continue;
+        else if (name === '"pad-" + name' && description === "description") pads.push(...padRows());
         else fail("extractor: " + id + " registers an unknown form: " + call[0]);
     }
-    return out;
+    return { binds: out, pads };
 }
 
 function rows() {
@@ -67,14 +82,17 @@ function rows() {
         if (!fs.existsSync(manifestPath)) continue;
         const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
         const binds = manifest.hyprland === undefined || manifest.hyprland.binds === undefined ? [] : manifest.hyprland.binds;
-        if (binds.length === 0) continue;
+        const padsDeclared = manifest.hyprland !== undefined && manifest.hyprland.pads !== undefined;
+        if (binds.length === 0 && !padsDeclared) continue;
         const servicePath = path.join(plugins, dir, "Service.qml");
-        const descriptions = registered(manifest.id, fs.existsSync(servicePath) ? fs.readFileSync(servicePath, "utf8") : "");
+        const descriptions = registered(manifest, fs.existsSync(servicePath) ? fs.readFileSync(servicePath, "utf8") : "");
         for (const bind of binds) {
-            if (!Object.prototype.hasOwnProperty.call(descriptions, bind.shortcut))
+            if (!Object.prototype.hasOwnProperty.call(descriptions.binds, bind.shortcut))
                 fail("extractor: no register call describes " + manifest.id + ":" + bind.shortcut);
-            out.push({ id: manifest.id, shortcut: bind.shortcut, label: descriptions[bind.shortcut], info: bind.info || "" });
+            out.push({ id: manifest.id, shortcut: bind.shortcut, label: descriptions.binds[bind.shortcut], info: bind.info || "" });
         }
+        if (padsDeclared && descriptions.pads.length === 0) fail("extractor: no register call describes " + manifest.id + "'s pads");
+        for (const pad of descriptions.pads) out.push({ id: manifest.id, shortcut: pad.shortcut, label: pad.label, info: "" });
     }
     // A broken extractor finds none; the shipped set has a dozen plugins with binds.
     if (out.length < 12) fail("extractor: rows=" + out.length + " floor=12");

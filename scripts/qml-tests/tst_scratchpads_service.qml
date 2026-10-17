@@ -2,11 +2,12 @@ import QtQuick
 import QtTest
 import "../../shell/plugins/vgs.scratchpads" as Scratchpads
 
-// The scratchpads service's pad shortcuts. The Keys row names each pad by
-// the word its Settings list item shows for its App, never by the pad's
-// storage name, and follows an App change under the same shortcut name.
-// The service is created started, so no Hyprland reply is read; the fake
-// shell records each registration, each disposal and each app start.
+// The scratchpads service's pad shortcuts and notices. The Keys row and
+// each notice name a pad by the word its Settings list item shows for its
+// App, never by the pad's storage name, and the Keys row follows an App
+// change under the same shortcut name. The service is created started, so
+// no Hyprland reply is read; the fake shell records each registration,
+// each disposal, each app start and each notice.
 Item {
     id: root
 
@@ -22,6 +23,7 @@ Item {
         property var service: null
         property var log: []
         property var starts: []
+        property var notices: []
 
         readonly property var manifest: ({ schema: { pads: { items: { command: { presets: [
             { value: "term --app-id=one", label: "Terminal" },
@@ -39,6 +41,7 @@ Item {
                 settings: { pads: pads },
                 screens: { all: [] },
                 status: { set: (key, value) => "ok" },
+                notify: { send: notice => { tests.notices = tests.notices.concat([notice.title]); return "ok"; } },
                 run: { detached: argv => { tests.starts = tests.starts.concat([argv[2]]); return "ok"; } },
                 shortcut: {
                     register: (name, description, onPressed) => {
@@ -52,6 +55,7 @@ Item {
         function init() {
             log = [];
             starts = [];
+            notices = [];
             service = createTemporaryObject(serviceComponent, root);
             verify(service !== null);
         }
@@ -81,6 +85,27 @@ Item {
             log = [];
             service.shell = fakeShell([pad("1", "term --app-id=one", false)]);
             compare(log, [["dispose", "pad-2"]]);
+        }
+
+        function test_each_notice_names_its_pad_by_its_app() {
+            const one = pad("1", "term --app-id=two", false);
+            const two = pad("2", "kitty --class=pad", false);
+            service.shell = fakeShell([one, two]);
+            service.answered("1", "vgs-pad=no-pad");
+            service.start(two, true);
+            service.tracked["2"].deadline = 0;
+            service.expire();
+            compare(notices, ["Pad Second terminal cannot open", "Pad kitty --class=pad did not open"]);
+        }
+
+        // shell.notify.send refuses a title past 120 characters.
+        function test_a_long_custom_app_is_cut_to_fit_the_title() {
+            const command = "sh -c " + "x".repeat(200);
+            service.shell = fakeShell([pad("1", command, false)]);
+            service.answered("1", "vgs-pad=no-pad");
+            compare(notices.length, 1);
+            compare(notices[0].length, 120);
+            compare(notices[0], "Pad " + command.slice(0, 103) + "… cannot open");
         }
     }
 }
