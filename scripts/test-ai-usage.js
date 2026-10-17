@@ -1098,6 +1098,65 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
     await control("account-folder-fallback", "UsageView.js", "    return row.email;", "    return row.email || row.id;", views);
     await control("credits-raw", "UsageView.js", '    return (whole < 0 ? "-" : "") + grouped(String(Math.abs(whole)));', "    return String(n);", views);
 
+    // The reset calendar, in a zone where two resets an hour apart fall on
+    // two local days but one UTC day: each account's longest all-model
+    // limit by local day, a monthly pool inside the week, two accounts on
+    // one day in reset order, and no 5-hour or per-model limit, past reset
+    // or reset after the week.
+    const calendars = folder => {
+        const View = viewIn(folder);
+        const zone = process.env.TZ;
+        process.env.TZ = "America/Los_Angeles";
+        try {
+            const at = iso => Date.parse(iso);
+            const usage = View.merge(null, { accounts: [
+                { id: "claude-a", provider: "claude", email: "", state: "ok", windows: [
+                    { name: "five_hour", usedPercent: 40, resetsAt: NOW + HOUR },
+                    { name: "seven_day_fable", usedPercent: 20, resetsAt: at("2026-10-08T12:00:00Z") },
+                    { name: "seven_day", usedPercent: 75, resetsAt: at("2026-10-07T06:30:00Z") }] },
+                { id: "claude-c", provider: "claude", email: "c@example.invalid", state: "ok", windows: [
+                    { name: "seven_day", usedPercent: 25.4, resetsAt: at("2026-10-07T20:00:00Z") }] },
+                { id: "claude-s", provider: "claude", email: "s@example.invalid", state: "ok", windows: [
+                    { name: "five_hour", usedPercent: 10, resetsAt: NOW + 2 * HOUR }] },
+                { id: "codex-b", provider: "codex", email: "b@example.invalid", state: "ok", windows: [
+                    { name: "five_hour", usedPercent: 5, resetsAt: NOW + HOUR }, { name: "seven_day", usedPercent: 50, resetsAt: at("2026-10-07T07:30:00Z") }] },
+                { id: "codex-past", provider: "codex", email: "p@example.invalid", state: "ok", windows: [
+                    { name: "seven_day", usedPercent: 90, resetsAt: NOW }] },
+                { id: "copilot-n", provider: "copilot", email: "octo-near", state: "ok", credits: { unit: "credits", used: 10, granted: 100 },
+                    windows: [{ name: "credits", usedPercent: 10, resetsAt: at("2026-10-10T00:00:00Z") }] },
+                { id: "copilot-m", provider: "copilot", email: "octo-month", state: "ok", credits: { unit: "credits", used: 60, granted: 100 },
+                    windows: [{ name: "credits", usedPercent: 60, resetsAt: at("2026-11-01T00:00:00Z") }] },
+                { id: "gateway-g", provider: "gateway", email: "", state: "ok", windows: [{ name: "credits", usedPercent: 30, resetsAt: null }] }
+            ], partial: "" }, NOW);
+            const clock = ms => { const d = new Date(ms); return d.getHours() + ":" + String(d.getMinutes()).padStart(2, "0"); };
+            const days = (settings, now = NOW) => JSON.parse(JSON.stringify(View.calendar(usage, now, settings, clock)))
+                .map(day => [day.key, day.heading, day.accounts.map(a => [a.id, a.label, a.window, a.text, a.time, a.tone])]);
+            assert.deepEqual(days(null), [
+                ["2026-10-06", "Tuesday, 6th", [["claude-a", "Claude Code", "seven_day", "75%", "23:30", "warning"]]],
+                ["2026-10-07", "Wednesday, 7th", [["codex-b", "b@example.invalid", "seven_day", "50%", "0:30", "warning"],
+                    ["claude-c", "c@example.invalid", "seven_day", "25%", "13:00", "success"]]],
+                ["2026-10-09", "Friday, 9th", [["copilot-n", "octo-near", "credits", "10%", "17:00", "success"]]]]);
+            assert.deepEqual(days({ hidden: [{ account: "codex-b" }] }).map(day => day[2].map(a => a[0])), [["claude-a"], ["claude-c"], ["copilot-n"]],
+                "a hidden account leaves the calendar");
+            assert.deepEqual(days(null, at("2026-10-25T12:00:00Z")).map(day => [day[0], day[2].map(a => a[0])]), [["2026-10-31", ["copilot-m"]]],
+                "a monthly pool lists once its reset is inside the week");
+            assert.equal(View.calendar(View.merge(null, null, NOW), NOW, null, clock).length, 0, "no account, no day");
+            assert.deepEqual(["1st", "2nd", "3rd", "4th", "11th", "12th", "13th", "21st", "22nd", "23rd", "31st"],
+                [1, 2, 3, 4, 11, 12, 13, 21, 22, 23, 31].map(View.ordinal));
+        } finally {
+            if (zone === undefined) delete process.env.TZ; else process.env.TZ = zone;
+        }
+    };
+    calendars(plugin);
+    cases++;
+    await control("calendar-utc-day", "UsageView.js", "return at.getFullYear() + \"-\" + (at.getMonth() < 9 ? \"0\" : \"\") + (at.getMonth() + 1) + \"-\" + (at.getDate() < 10 ? \"0\" : \"\") + at.getDate();",
+        "return at.toISOString().slice(0, 10);", calendars);
+    await control("calendar-short-limit", "UsageView.js", "item.resetsAt === undefined || shortLimit(item.name)) return;", "item.resetsAt === undefined) return;", calendars);
+    await control("calendar-model-limit", "UsageView.js", "        if (item.name !== \"credits\" && limit.model !== \"\") return;\n", "", calendars);
+    await control("calendar-week-unbounded", "UsageView.js", " || item.resetsAt > now + CALENDAR_MS) return;", ") return;", calendars);
+    await control("calendar-past-kept", "UsageView.js", "if (item === null || item.resetsAt <= now ||", "if (item === null ||", calendars);
+    await control("calendar-panel-order", "UsageView.js", "return a.item.resetsAt - b.item.resetsAt || a.order - b.order;", "return a.order - b.order;", calendars);
+
     // The sign-in TUIs run each tool's own login, through the presentation
     // library, with the stand-ins on PATH.
     const signIns = folder => {

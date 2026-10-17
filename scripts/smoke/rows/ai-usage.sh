@@ -11,6 +11,9 @@
 # naming the Claude Code id and one at its placeholder; the panel's rows, notes, figure
 # shared check age, reset times and height cap, half its output's logical height; that
 # opening the panel publishes no read and sends the endpoint no request;
+# the reset calendar, which the calendar button, clicked with the nested
+# pointer, opens with each account's weekly limit under the local day it
+# resets on and a heading drawn for each day;
 # the panel's Settings gear, which always-on Plugins gives every panel,
 # clicked with the nested pointer, which opens the Settings window on AI Usage's page and closes the panel;
 # the panel's Check now, clicked with the nested pointer, which publishes a
@@ -25,7 +28,8 @@
 # alone, with no key line on Details.
 # Controls: a widget copy shown with no account, a panel copy capped at its
 # output's whole height, a panel copy whose open asks for a read, a panel
-# copy whose Check now asks for none, a helper copy that writes the
+# copy whose Check now asks for none, a panel copy that never draws its
+# calendar, a helper copy that writes the
 # credential file, one that reads a failed request as 0 % and a panel host
 # copy whose slot opens Settings with no page each fail their own reading,
 # and a Settings copy that draws its stored keys on Details fails the key
@@ -162,6 +166,29 @@ usage_gear_shown() { local box; box="$(usage_gear)" || return; if [[ $box == \[*
 usage_gear_click() { local box; box="$(usage_gear)" || return 1; usage_click gear "$box"; }
 usage_check_now_click() { local box; box="$(ipc smoke itemGeometry panel vgs.ai-usage Button "Check now")" || return 1; usage_click "Check now" "$box"; }
 usage_settings_page() { ipc smoke readInstance window vgs.settings page; }
+# The reset calendar: whether it is open, a click on its button, and
+# `matched` while it lists each account's seven_day limit at the share its
+# card shows, on the local day of its reset, which the stand-ins answer
+# 3 d 6 h after the read, with each day's heading drawn, else what it reads.
+usage_calendar_open() { ipc smoke readInstance panel vgs.ai-usage calendarOpen; }
+usage_calendar_click() { local box; box="$(ipc smoke labelledGeometry panel vgs.ai-usage IconButton "Reset calendar")" || return 1; usage_click calendar "$box"; }
+usage_calendar() {
+  local labels read_at
+  labels="$(ipc smoke itemValues panel vgs.ai-usage Label text,visible)" && read_at="$(usage_read_at)" || return
+  ipc smoke readInstance panel vgs.ai-usage calendar | py_reply 'import datetime,json,sys
+days = json.load(sys.stdin)
+shown = {r.get("text") for r in json.loads(sys.argv[1]) if r.get("visible")}
+want = int(sys.argv[2]) + 4680 * 60000
+got = sorted([a["provider"], a["label"], a["window"], a["percent"]] for d in days for a in d["accounts"])
+matched = got == [["claude", "Claude Code", "seven_day", 83], ["codex", "person@example.invalid", "seven_day", 64]]
+for d in days:
+    for a in d["accounts"]:
+        local = datetime.datetime.fromtimestamp(a["resetsAt"] / 1000)
+        matched = matched and d["key"] == local.strftime("%Y-%m-%d") and d["heading"].startswith(local.strftime("%A") + ", ")
+        matched = matched and want - 10 * 60000 <= a["resetsAt"] <= want + 60000 and a["time"] != "" and a["label"] in shown
+    matched = matched and d["heading"] in shown
+print("matched" if matched else json.dumps([got, [[d["key"], d["heading"], d["heading"] in shown] for d in days]]))' "$labels" "$read_at"
+}
 # Each card's state, whether it holds no note and the note's tone.
 usage_panel_notes() { usage_panel | py_reply 'import json,sys; print(json.dumps([[r["provider"], r["state"], r["note"] == "", r["noteTone"]] for r in json.load(sys.stdin)]))'; }
 usage_panel_rows() { usage_panel | py_reply 'import json,sys; print(json.dumps([[r["provider"], r["email"], [[w["name"], w["percent"], w["tone"]] for w in r["windows"]]] for r in json.load(sys.stdin)]))'; }
@@ -366,6 +393,13 @@ usage_notes_ok='[["claude", "ok", true, "normal"], ["codex", "ok", true, "normal
 click_centre "$(bar_key)" vgs.ai-usage || fail "opening AI Usage from its widget failed"
 expect_poll "the widget opens its panel" '[["claude", "", [["seven_day", 83, "danger"], ["seven_day_fable", 12, "success"], ["five_hour", 42, "success"]]], ["codex", "person@example.invalid", [["seven_day", 64, "warning"], ["five_hour", 27, "success"]]]]' usage_panel_rows
 expect_poll "the panel's reset times are the stand-ins'" matched usage_panel_resets
+expect "the reset calendar starts closed" false usage_calendar_open
+summon_drawn panel vgs.ai-usage || fail "the panel never drew a frame before the calendar click"
+usage_calendar_click || fail "the click on the calendar button failed"
+expect_poll "the calendar button opens the reset calendar" true usage_calendar_open
+expect_poll "the reset calendar lists each weekly reset on its local day" matched usage_calendar
+usage_calendar_click || fail "the second click on the calendar button failed"
+expect_poll "a second click closes the reset calendar" false usage_calendar_open
 expect "the full panel is selected by default" true usage_panel_view
 expect "the full panel carries provider details" '[["claude", [["Extra usage", "$123.45 of $500.00"]]], ["codex", [["Codex credits", "12,345 available"]]]]' usage_panel_details
 summon_drawn panel vgs.ai-usage || fail "the panel never drew a frame"
@@ -407,6 +441,22 @@ expect "the whole-height panel copy hides" ok ipc shell hide panel vgs.ai-usage
 expect_poll "the whole-height panel copy is gone" absent usage_panel
 cp -- "$usage_dir/Panel.qml.original" "$usage_panel_qml"
 rescan "the restored panel is scanned"
+# A panel copy that never draws its calendar fails the calendar reading on
+# its missing day headings.
+usage_edit "$usage_panel_qml" '            visible: root.calendarOpen' '            visible: false' || fail "the hidden-calendar control's edit failed"
+rescan "the hidden-calendar panel copy is scanned"
+usage_refresh "the hidden-calendar panel copy"
+click_centre "$(bar_key)" vgs.ai-usage || fail "opening the hidden-calendar panel copy failed"
+summon_drawn panel vgs.ai-usage || fail "the hidden-calendar panel copy never drew a frame"
+usage_calendar_click || fail "the click on the hidden-calendar copy's button failed"
+expect_poll "the hidden-calendar copy's button opens its calendar" true usage_calendar_open
+expect "a calendar that is never drawn breaks the calendar reading" 1 \
+  usage_control "$usage_dir/calendar-control.log" "the reset calendar must draw its days" matched usage_calendar
+expect "the calendar reading fails on the undrawn heading of a listed day" 1 grep -c -E -- 'the reset calendar must draw its days: got \[\[\["claude", "Claude Code", "seven_day", 83\], \["codex", "person@example.invalid", "seven_day", 64\]\], \[\[[^]]*, false\]' "$usage_dir/calendar-control.log"
+expect "the hidden-calendar panel copy hides" ok ipc shell hide panel vgs.ai-usage
+expect_poll "the hidden-calendar panel copy is gone" absent usage_panel
+cp -- "$usage_dir/Panel.qml.original" "$usage_panel_qml"
+rescan "the panel restored after the calendar control is scanned"
 # A panel copy whose open asks for a read fails the no-request reading
 # with its own request. The service may be rebuilt by the rescan, so a
 # check it publishes first ends any read it starts.
@@ -663,7 +713,8 @@ expect "a hidden API chip fails the drawn chip reading" 1 usage_control "$usage_
 expect "the hidden API chip panel hides" ok ipc shell hide panel vgs.ai-usage
 expect_poll "the hidden API chip panel is gone" absent usage_panel
 cp -- "$usage_dir/Panel.qml.original" "$usage_panel_qml"
-usage_edit "$usage_panel_qml" 'source: View.logo(modelData.provider, Theme.color.text)' 'source: modelData.provider === "codex" ? "" : View.logo(modelData.provider, Theme.color.text)' || fail "the absent Codex logo control edit failed"
+# The card's mark, by its indent apart from the reset calendar's.
+usage_edit "$usage_panel_qml" $'\n                        source: View.logo(modelData.provider, Theme.color.text)' $'\n                        source: modelData.provider === "codex" ? "" : View.logo(modelData.provider, Theme.color.text)' || fail "the absent Codex logo control edit failed"
 rescan "the absent logo control is scanned"
 usage_refresh "the absent logo control"
 click_centre "$(bar_key)" vgs.ai-usage || fail "opening the absent logo control failed"

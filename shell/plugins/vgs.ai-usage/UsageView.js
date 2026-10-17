@@ -463,8 +463,12 @@ function sortedAccounts(accounts, mode) {
     });
 }
 
+function sortOf(settings) {
+    return settings === null || settings === undefined ? "provider" : settings.sort;
+}
+
 function panel(usage, now, settings) {
-    return sortedAccounts(visibleAccounts(usage, settings), settings === null || settings === undefined ? "provider" : settings.sort).map(function (row) {
+    return sortedAccounts(visibleAccounts(usage, settings), sortOf(settings)).map(function (row) {
         var idle = unused(row);
         var warning = row.state === "expired" ? EXPIRED[row.provider]
             : row.state === "stale" || (row.state === "limited" && pastReset(row, now)) ? STALE_NOTE
@@ -479,4 +483,65 @@ function panel(usage, now, settings) {
             note: note, noteTone: warning !== "" ? "warning" : "normal", details: detailRows(row),
             windows: idle ? [] : shownWindows(row.windows).map(function (item) { return windowRow(row, item, now); }) };
     });
+}
+
+var WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+var CALENDAR_MS = 7 * 24 * 3600000;
+
+function ordinal(n) {
+    var tens = n % 100;
+    return n + (tens >= 11 && tens <= 13 ? "th" : ["th", "st", "nd", "rd"][n % 10] || "th");
+}
+
+// The local calendar date of AT, a Date, as yyyy-mm-dd.
+function dayKey(at) {
+    return at.getFullYear() + "-" + (at.getMonth() < 9 ? "0" : "") + (at.getMonth() + 1) + "-" + (at.getDate() < 10 ? "0" : "") + at.getDate();
+}
+
+// The limit an account renews by: its longest all-model limit with a reset
+// time, a credit pool, such as Copilot's monthly one, before any time limit.
+// A limit shorter than a day resets several times a day, so it never counts.
+function planWindow(row) {
+    var best = null, bestLength = -1;
+    row.windows.forEach(function (item) {
+        var limit = limitOf(item.name);
+        if (item.resetsAt === null || item.resetsAt === undefined || shortLimit(item.name)) return;
+        if (item.name !== "credits" && limit.model !== "") return;
+        var length = item.name === "credits" ? Infinity : limit.minutes === null ? 0 : limit.minutes;
+        if (length > bestLength) { best = item; bestLength = length; }
+    });
+    return best;
+}
+
+/**
+ * The reset calendar: the visible accounts whose plan limit (planWindow)
+ * resets after NOW and at most seven days after it, grouped by the local
+ * day of the reset, earliest first; a day with no reset has no entry. Each
+ * day is { key, heading, accounts }: key its yyyy-mm-dd, heading its
+ * weekday and ordinal date; each account { id, provider, label, window,
+ * resetsAt, time, percent, tone, text } in reset order, ties in the panel's
+ * order. label is the card's account line, or the provider's name with
+ * none; time is TIMETEXT(resetsAt), the caller's clock format.
+ */
+function calendar(usage, now, settings, timeText) {
+    var entries = [];
+    sortedAccounts(visibleAccounts(usage, settings), sortOf(settings)).forEach(function (row, order) {
+        var item = planWindow(row);
+        if (item === null || item.resetsAt <= now || item.resetsAt > now + CALENDAR_MS) return;
+        entries.push({ order: order, row: row, item: item });
+    });
+    entries.sort(function (a, b) { return a.item.resetsAt - b.item.resetsAt || a.order - b.order; });
+    var days = [];
+    entries.forEach(function (entry) {
+        var at = new Date(entry.item.resetsAt);
+        var key = dayKey(at);
+        if (days.length === 0 || days[days.length - 1].key !== key)
+            days.push({ key: key, heading: WEEKDAYS[at.getDay()] + ", " + ordinal(at.getDate()), accounts: [] });
+        var row = entry.row;
+        days[days.length - 1].accounts.push({ id: row.id, provider: row.provider,
+            label: accountLine(row) || NAMES[row.provider] || row.provider, window: entry.item.name,
+            resetsAt: entry.item.resetsAt, time: timeText(entry.item.resetsAt), percent: entry.item.usedPercent,
+            tone: usageTone(entry.item.usedPercent), text: Math.round(entry.item.usedPercent) + "%" });
+    });
+    return days;
 }

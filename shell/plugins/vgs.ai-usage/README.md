@@ -15,6 +15,7 @@ AI Usage shows how much of your Claude Code, Codex and Copilot plan limits you h
 - A compact panel view with one line for each limit and the time left until it resets.
 - A full panel view with meters and provider details when the provider sends them.
 - An account that has had no use yet says so instead of showing 0 %. A limit that starts with your first message reads Not started until then.
+- The calendar button left of the Settings gear shows the reset calendar above the cards. It lists the next seven days that have a reset. Under each day are the accounts whose weekly limit, or Copilot's monthly allowance, resets that day, with the reset time and the share used. The 5-hour limit is not listed. The calendar stays open until you close the panel.
 - The panel grows to half the screen height before it scrolls.
 - Copilot AI credits per account, with the amount used this month and the renewal date.
 - Claude Code extra usage and Codex credit balance when those providers report them.

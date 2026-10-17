@@ -7,7 +7,9 @@ import "UsageView.js" as View
 // Each signed-in and visible account in a card of its own: the provider,
 // the account's email and one row per limit with its time to reset. Full
 // view adds a meter under each limit and the provider detail fields the
-// helper received. The footer shows when the shared check last completed.
+// helper received. The calendar button left of the Settings gear shows the
+// reset calendar above the cards until the panel closes. The footer shows
+// when the shared check last completed.
 // The pane is at most half its output's height. Opening the panel reads
 // nothing: Check now asks the service for a new check, and the panel draws
 // status alone.
@@ -19,6 +21,12 @@ Item {
     readonly property var rows: View.panel(usage, Time.now.getTime(), shell === null ? null : shell.settings)
     readonly property string checked: View.checkedText(usage === null ? null : usage.readAt, Time.now.getTime())
     readonly property bool fullView: shell !== null && shell.settings.view !== "compact"
+    readonly property bool calendarOpen: calendarButton.checked
+    // Each reset time in the locale's short time format, which Qt reads from
+    // LC_TIME: doc.qt.io/qt-6/qml-qtqml-date.html#toLocaleTimeString-method.
+    readonly property var calendar: calendarOpen
+        ? View.calendar(usage, Time.now.getTime(), shell === null ? null : shell.settings, ms => new Date(ms).toLocaleTimeString(Qt.locale(), Locale.ShortFormat))
+        : []
     // The output the panel's popup window occupies, a ShellScreen whose
     // height is logical, or null before the panel has a window.
     readonly property var host: QsWindow.window
@@ -47,6 +55,86 @@ Item {
         fitToContent: true
         maximumHeight: root.heightCap
         title: "AI Usage"
+        // Pane leaves the title slot's end clear of its Settings gear, and
+        // the slot comes before the gear in Tab order.
+        titleContent: [
+            IconButton {
+                id: calendarButton
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                size: "sm"
+                iconName: "calendar-clock"
+                label: "Reset calendar"
+                checkable: true
+            }
+        ]
+
+        // Built only while open, so a closed calendar adds no card to the body.
+        Loader {
+            width: layout.contentWidth
+            visible: root.calendarOpen
+            active: visible
+            sourceComponent: Card {
+                Label { role: "label"; text: "Reset calendar" }
+                Label {
+                    width: parent.width
+                    visible: root.calendar.length === 0
+                    role: "hint"
+                    wrapMode: Text.Wrap
+                    text: "No plan limit resets in the next seven days."
+                }
+                Repeater {
+                    model: root.calendar
+                    Column {
+                        required property var modelData
+                        width: parent.width
+                        spacing: Theme.row.lineGap
+                        Label { role: "bodyStrong"; text: modelData.heading }
+                        Repeater {
+                            model: modelData.accounts
+                            Item {
+                                required property var modelData
+                                width: parent.width
+                                implicitHeight: Math.max(resetAccount.implicitHeight, resetShare.implicitHeight)
+                                // The provider mark leads the account's line on
+                                // its x-height centre (design-system.md § Tokens).
+                                Image {
+                                    id: resetLogo
+                                    y: resetAccount.y + resetAccount.topForLeadingIcon(height, resetAccount.y)
+                                    width: Theme.icon.size.sm
+                                    height: Theme.icon.size.sm
+                                    sourceSize.width: width
+                                    sourceSize.height: height
+                                    source: View.logo(modelData.provider, Theme.color.text)
+                                }
+                                Label {
+                                    id: resetAccount
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    x: resetLogo.width + Theme.stack.inline
+                                    width: parent.width - x - resetShare.width - Theme.stack.inline
+                                    elide: Text.ElideRight
+                                    role: "body"
+                                    text: modelData.label
+                                }
+                                Row {
+                                    id: resetShare
+                                    anchors.right: parent.right
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    spacing: Theme.stack.inline
+                                    Label { anchors.verticalCenter: parent.verticalCenter; role: "hint"; text: modelData.time }
+                                    Label {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        role: "body"
+                                        text: modelData.text
+                                        color: Theme.badge.tone[modelData.tone].foreground
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         Label {
             width: layout.contentWidth
