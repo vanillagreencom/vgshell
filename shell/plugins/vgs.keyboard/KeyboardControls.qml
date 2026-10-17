@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Templates as T
 import qs.Commons
 import qs.Ui
 import "KeyboardLogic.js" as Logic
@@ -194,31 +193,19 @@ Column {
                 label: modelData.label
                 setting: modelData.key
                 formatValue: value => value + " " + modelData.unit
-                Item {
+                SavedSlider {
+                    id: repeatSaved
                     width: parent.width
-                    implicitHeight: repeatSlider.implicitHeight
-                    // The slider's and the reading's drawn top and bottom, so a key/value
-                    // row above or below reads them as drawn, not this box (FormRow `inkTop`).
-                    function inkAbove() { return Math.min(repeatSlider.y + repeatSlider.inkAbove(), repeatValue.y + repeatValue.inkAbove()); }
-                    function inkBelow() { return height - Math.max(repeatSlider.y + repeatSlider.height - repeatSlider.inkBelow(), repeatValue.y + repeatValue.height - repeatValue.inkBelow()); }
-                    function commit() {
-                        const wanted = Math.round(repeatSlider.value);
-                        repeatSlider.value = Qt.binding(() => root.shell === null ? 0 : repeatRow.shownValue);
-                        if (root.shell !== null && wanted !== repeatSlider.value) root.setValue(repeatRow.modelData.key, wanted);
-                    }
-                    Slider {
-                        id: repeatSlider
-                        objectName: repeatRow.modelData.key
-                        width: parent.width - repeatValue.width - Theme.field.labelGap
-                        from: 0
-                        to: repeatRow.modelData.maximum
-                        stepSize: 1
-                        snapMode: T.Slider.SnapAlways
-                        value: root.shell === null ? 0 : repeatRow.shownValue
-                        onMoved: if (!pressed) parent.commit()
-                        onPressedChanged: if (!pressed) parent.commit()
-                    }
-                    Label { id: repeatValue; width: repeatColumn.implicitWidth; horizontalAlignment: Text.AlignRight; anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; role: "value"; text: Math.round(repeatSlider.value) + " " + repeatRow.modelData.unit }
+                    from: 0
+                    to: repeatRow.modelData.maximum
+                    stepSize: 1
+                    shown: root.shell === null ? 0 : repeatRow.shownValue
+                    formatValue: value => Math.round(value) + " " + repeatRow.modelData.unit
+                    readingRole: "value"
+                    readingWidth: repeatColumn.implicitWidth
+                    onSaved: value => { if (root.shell !== null) root.setValue(repeatRow.modelData.key, Math.round(value)); }
+                    // The smoke reads the slider by its setting's key.
+                    Binding { target: repeatSaved.slider; property: "objectName"; value: repeatRow.modelData.key }
                 }
             }
         }

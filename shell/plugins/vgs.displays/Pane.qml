@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Templates as T
 import Quickshell
 import qs.Commons
 import qs.Ui
@@ -483,47 +482,20 @@ FocusScope {
                     width: parent.width
                     label: modelData.label
 
-                    Item {
-                        id: levelItem
+                    // The draft is what shows once the change lands; a press
+                    // that moved the level less than the float error of a
+                    // snapped step saves no draft.
+                    SavedSlider {
                         width: parent.width
-                        implicitHeight: Math.max(levelSlider.implicitHeight, levelValue.implicitHeight)
-                        // The slider's and the reading's drawn top and bottom, so a key/value
-                        // row above or below reads them as drawn, not this box (FormRow `inkTop`).
-                        function inkAbove() { return Math.min(levelSlider.y + levelSlider.inkAbove(), levelValue.y + levelValue.inkAbove()); }
-                        function inkBelow() { return height - Math.max(levelSlider.y + levelSlider.height - levelSlider.inkBelow(), levelValue.y + levelValue.height - levelValue.inkBelow()); }
-
-                        // The binding comes back after a change, so the
-                        // draft is what shows.
-                        function commit() {
-                            const wanted = levelSlider.value;
-                            levelSlider.value = Qt.binding(() => levelRow.level);
-                            if (Math.abs(wanted - levelRow.level) > 0.0001) root.setOutputDraft({ [levelRow.modelData.key]: wanted });
-                        }
-
-                        Slider {
-                            id: levelSlider
-                            width: parent.width - levelValue.width - Theme.field.labelGap
-                            anchors.verticalCenter: parent.verticalCenter
-                            enabled: !root.trialHolding
-                            from: Logic.SDR_FROM
-                            to: Logic.SDR_TO
-                            stepSize: Logic.SDR_STEP
-                            snapMode: T.Slider.SnapAlways
-                            value: levelRow.level
-                            Accessible.name: levelRow.modelData.label
-                            onPressedChanged: if (!pressed) levelItem.commit()
-                            onMoved: if (!pressed) levelItem.commit()
-                        }
-
-                        Label {
-                            id: levelValue
-                            role: "label"
-                            text: Logic.levelText(levelSlider.value)
-                            width: Math.max(implicitWidth, Theme.size.control.md)
-                            horizontalAlignment: Text.AlignRight
-                            anchors.right: parent.right
-                            anchors.verticalCenter: parent.verticalCenter
-                        }
+                        enabled: !root.trialHolding
+                        from: Logic.SDR_FROM
+                        to: Logic.SDR_TO
+                        stepSize: Logic.SDR_STEP
+                        shown: levelRow.level
+                        tolerance: 0.0001
+                        accessibleName: levelRow.modelData.label
+                        formatValue: value => Logic.levelText(value)
+                        onSaved: value => root.setOutputDraft({ [levelRow.modelData.key]: value })
                     }
                 }
             }

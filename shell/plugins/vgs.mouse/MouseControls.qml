@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Templates as T
 import qs.Commons
 import qs.Ui
 import "MouseLogic.js" as Logic
@@ -13,7 +12,7 @@ Column {
     readonly property var devices: shell === null ? null : shell.hyprland.devices
     readonly property var optionPaths: shell === null ? ({}) : shell.manifest.hyprland.options
     readonly property bool hasTouchpad: Logic.hasTouchpad(devices)
-    readonly property Item firstFocus: pointerSpeed
+    readonly property Item firstFocus: pointerSpeed.slider
 
     width: parent ? parent.width : implicitWidth
     spacing: Theme.stack.group
@@ -67,46 +66,15 @@ Column {
             id: sensitivitySource
             setting: "sensitivity"
             label: "Pointer speed"
-            Item {
-                id: pointerSpeedRow
+            SavedSlider {
+                id: pointerSpeed
                 width: parent.width
-                implicitHeight: Math.max(pointerSpeed.implicitHeight, pointerSpeedValue.implicitHeight)
-                // The slider's and the reading's drawn top and bottom, so a key/value
-                // row above or below reads them as drawn, not this box (FormRow `inkTop`).
-                function inkAbove() { return Math.min(pointerSpeed.y + pointerSpeed.inkAbove(), pointerSpeedValue.y + pointerSpeedValue.inkAbove()); }
-                function inkBelow() { return height - Math.max(pointerSpeed.y + pointerSpeed.height - pointerSpeed.inkBelow(), pointerSpeedValue.y + pointerSpeedValue.height - pointerSpeedValue.inkBelow()); }
-
-                // The rebound slider holds the shown value within its range,
-                // as Slider clamps value, so a press that moved nothing saves
-                // nothing, even over a user value past the range.
-                function commit() {
-                    const wanted = pointerSpeed.value;
-                    pointerSpeed.value = Qt.binding(() => root.shell === null ? 0 : sensitivitySource.shownValue);
-                    if (wanted !== pointerSpeed.value) root.setValue("sensitivity", wanted);
-                }
-
-                Slider {
-                    id: pointerSpeed
-                    width: parent.width - pointerSpeedValue.width - Theme.field.labelGap
-                    anchors.verticalCenter: parent.verticalCenter
-                    from: -1
-                    to: 1
-                    stepSize: 0.05
-                    snapMode: T.Slider.SnapAlways
-                    value: root.shell === null ? 0 : sensitivitySource.shownValue
-                    onPressedChanged: if (!pressed) pointerSpeedRow.commit()
-                    onMoved: if (!pressed) pointerSpeedRow.commit()
-                }
-
-                Label {
-                    id: pointerSpeedValue
-                    role: "label"
-                    text: Logic.pointerSpeedText(pointerSpeed.value)
-                    width: Math.max(implicitWidth, Theme.size.control.md)
-                    horizontalAlignment: Text.AlignRight
-                    anchors.right: parent.right
-                    anchors.verticalCenter: parent.verticalCenter
-                }
+                from: -1
+                to: 1
+                stepSize: 0.05
+                shown: root.shell === null ? 0 : sensitivitySource.shownValue
+                formatValue: value => Logic.pointerSpeedText(value)
+                onSaved: value => root.setValue("sensitivity", value)
             }
         }
 
@@ -159,43 +127,14 @@ Column {
             visible: !root.compact
             setting: "scrollFactor"
             label: "Scroll speed"
-            Item {
-                id: scrollSpeedRow
+            SavedSlider {
                 width: parent.width
-                implicitHeight: Math.max(scrollSpeed.implicitHeight, scrollSpeedValue.implicitHeight)
-                // The slider's and the reading's drawn top and bottom, so a key/value
-                // row above or below reads them as drawn, not this box (FormRow `inkTop`).
-                function inkAbove() { return Math.min(scrollSpeed.y + scrollSpeed.inkAbove(), scrollSpeedValue.y + scrollSpeedValue.inkAbove()); }
-                function inkBelow() { return height - Math.max(scrollSpeed.y + scrollSpeed.height - scrollSpeed.inkBelow(), scrollSpeedValue.y + scrollSpeedValue.height - scrollSpeedValue.inkBelow()); }
-
-                function commit() {
-                    const wanted = scrollSpeed.value;
-                    scrollSpeed.value = Qt.binding(() => root.shell === null ? 1 : scrollFactorSource.shownValue);
-                    if (wanted !== scrollSpeed.value) root.setValue("scrollFactor", wanted);
-                }
-
-                Slider {
-                    id: scrollSpeed
-                    width: parent.width - scrollSpeedValue.width - Theme.field.labelGap
-                    anchors.verticalCenter: parent.verticalCenter
-                    from: 0
-                    to: 2
-                    stepSize: 0.05
-                    snapMode: T.Slider.SnapAlways
-                    value: root.shell === null ? 1 : scrollFactorSource.shownValue
-                    onPressedChanged: if (!pressed) scrollSpeedRow.commit()
-                    onMoved: if (!pressed) scrollSpeedRow.commit()
-                }
-
-                Label {
-                    id: scrollSpeedValue
-                    role: "label"
-                    text: Logic.factorText(scrollSpeed.value)
-                    width: Math.max(implicitWidth, Theme.size.control.md)
-                    horizontalAlignment: Text.AlignRight
-                    anchors.right: parent.right
-                    anchors.verticalCenter: parent.verticalCenter
-                }
+                from: 0
+                to: 2
+                stepSize: 0.05
+                shown: root.shell === null ? 1 : scrollFactorSource.shownValue
+                formatValue: value => Logic.factorText(value)
+                onSaved: value => root.setValue("scrollFactor", value)
             }
         }
     }
@@ -317,43 +256,14 @@ Column {
             visible: !root.compact
             setting: "touchpadScrollFactor"
             label: "Touchpad scroll speed"
-            Item {
-                id: touchpadScrollSpeedRow
+            SavedSlider {
                 width: parent.width
-                implicitHeight: Math.max(touchpadScrollSpeed.implicitHeight, touchpadScrollSpeedValue.implicitHeight)
-                // The slider's and the reading's drawn top and bottom, so a key/value
-                // row above or below reads them as drawn, not this box (FormRow `inkTop`).
-                function inkAbove() { return Math.min(touchpadScrollSpeed.y + touchpadScrollSpeed.inkAbove(), touchpadScrollSpeedValue.y + touchpadScrollSpeedValue.inkAbove()); }
-                function inkBelow() { return height - Math.max(touchpadScrollSpeed.y + touchpadScrollSpeed.height - touchpadScrollSpeed.inkBelow(), touchpadScrollSpeedValue.y + touchpadScrollSpeedValue.height - touchpadScrollSpeedValue.inkBelow()); }
-
-                function commit() {
-                    const wanted = touchpadScrollSpeed.value;
-                    touchpadScrollSpeed.value = Qt.binding(() => root.shell === null ? 1 : touchpadScrollFactorSource.shownValue);
-                    if (wanted !== touchpadScrollSpeed.value) root.setValue("touchpadScrollFactor", wanted);
-                }
-
-                Slider {
-                    id: touchpadScrollSpeed
-                    width: parent.width - touchpadScrollSpeedValue.width - Theme.field.labelGap
-                    anchors.verticalCenter: parent.verticalCenter
-                    from: 0
-                    to: 2
-                    stepSize: 0.05
-                    snapMode: T.Slider.SnapAlways
-                    value: root.shell === null ? 1 : touchpadScrollFactorSource.shownValue
-                    onPressedChanged: if (!pressed) touchpadScrollSpeedRow.commit()
-                    onMoved: if (!pressed) touchpadScrollSpeedRow.commit()
-                }
-
-                Label {
-                    id: touchpadScrollSpeedValue
-                    role: "label"
-                    text: Logic.factorText(touchpadScrollSpeed.value)
-                    width: Math.max(implicitWidth, Theme.size.control.md)
-                    horizontalAlignment: Text.AlignRight
-                    anchors.right: parent.right
-                    anchors.verticalCenter: parent.verticalCenter
-                }
+                from: 0
+                to: 2
+                stepSize: 0.05
+                shown: root.shell === null ? 1 : touchpadScrollFactorSource.shownValue
+                formatValue: value => Logic.factorText(value)
+                onSaved: value => root.setValue("touchpadScrollFactor", value)
             }
         }
     }

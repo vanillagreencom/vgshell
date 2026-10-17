@@ -11,10 +11,13 @@ import qs.Ui
 // release, a click on the track or a key emits `saved(value)` once, and
 // only for a value other than the one shown. The rebound slider holds
 // `shown` within its range, as Slider clamps value, so a press that moved
-// nothing saves nothing, even over a saved value past the range. The
-// slider ends `field.labelGap` before the reading, which is never narrower
-// than `size.control.md`, so the sliders of a page end together. `slider`
-// is the tab stop, for a page's initial focus.
+// nothing saves nothing, even over a saved value past the range; a value
+// within `tolerance` of the shown one, such as a float the snap could not
+// hit exactly, saves nothing too. The slider ends `field.labelGap` before
+// the reading, in the role `readingRole` names and never narrower than
+// `readingWidth`, `size.control.md` unless set, so the sliders of a page
+// end together. `accessibleName` names the slider to assistive
+// technology. `slider` is the tab stop, for a page's initial focus.
 Item {
     id: root
 
@@ -31,6 +34,10 @@ Item {
     property real stepSize: 1
     property real shown: 0
     property var formatValue: value => String(value)
+    property real tolerance: 0
+    property string readingRole: "label"
+    property real readingWidth: Theme.size.control.md
+    property string accessibleName: ""
     readonly property Item slider: bar
 
     signal saved(real value)
@@ -46,7 +53,7 @@ Item {
     function commit() {
         const wanted = bar.value;
         bar.value = Qt.binding(() => root.shown);
-        if (wanted !== bar.value) root.saved(wanted);
+        if (Math.abs(wanted - bar.value) > root.tolerance) root.saved(wanted);
     }
 
     Slider {
@@ -58,6 +65,7 @@ Item {
         stepSize: root.stepSize
         snapMode: T.Slider.SnapAlways
         value: root.shown
+        Accessible.name: root.accessibleName
         // Slider clamps a value to the range it holds when the value
         // arrives, so a range that arrives later, as a page's does with
         // its capability, takes the shown value again.
@@ -70,9 +78,9 @@ Item {
 
     Label {
         id: reading
-        role: "label"
+        role: root.readingRole
         text: root.formatValue(bar.value)
-        width: Math.max(implicitWidth, Theme.size.control.md)
+        width: Math.max(implicitWidth, root.readingWidth)
         horizontalAlignment: Text.AlignRight
         x: root.width - width
         anchors.verticalCenter: parent.verticalCenter

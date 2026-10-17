@@ -11,7 +11,10 @@ import qs.Unit
 // after a save the slider follows the shown value again; a range that
 // arrives after the shown value takes that value; the reading is what
 // `formatValue` writes, ends on the row's end edge and stands
-// `field.labelGap` after the slider.
+// `field.labelGap` after the slider. A press that moves the value less than
+// `tolerance` saves nothing, a step past it saves; the reading draws in the
+// role and at the least width it is given; the slider carries the name it
+// is given to assistive technology.
 Item {
     id: root
     width: 600
@@ -19,6 +22,9 @@ Item {
 
     SavedSlider { id: saved; width: 400; from: 0; to: 32; shown: 8; formatValue: value => Math.round(value) + " px" }
     SavedSlider { id: late; y: 60; width: 400; from: 0; to: 0; shown: 12 }
+    // A level the snap cannot hit exactly, as a display's stored float.
+    SavedSlider { id: tuned; y: 120; width: 400; from: 0.5; to: 2; stepSize: 0.05; shown: 1.0000001; tolerance: 0.0001; readingRole: "value"; readingWidth: 120; accessibleName: "Brightness" }
+    SignalSpy { id: tunedSaves; target: tuned; signalName: "saved" }
     SignalSpy { id: saves; target: saved; signalName: "saved" }
 
     TestCase {
@@ -32,6 +38,8 @@ Item {
             late.from = 0;
             late.to = 0;
             saves.clear();
+            tuned.shown = 1.0000001;
+            tunedSaves.clear();
         }
 
         function test_the_slider_follows_the_shown_value() {
@@ -84,6 +92,24 @@ Item {
             compare(saves.count, 2);
             compare(saves.signalArguments[1][0], 32);
             compare(saved.slider.value, 8);
+        }
+
+        function test_a_press_within_the_tolerance_saves_nothing() {
+            const bar = tuned.slider;
+            mouseClick(bar, bar.handle.x + bar.handle.width / 2, bar.height / 2);
+            compare(tunedSaves.count, 0, "a press on the handle saves the snapped float");
+            bar.forceActiveFocus(Qt.TabFocusReason);
+            keyClick(Qt.Key_Right);
+            compare(tunedSaves.count, 1, "a step past the tolerance saves");
+            fuzzyCompare(tunedSaves.signalArguments[0][0], 1.05, 0.000001);
+        }
+
+        function test_the_reading_and_the_name_take_what_they_are_given() {
+            const text = reading(tuned);
+            compare(text.role, "value");
+            verify(text.implicitWidth < 120, "the reading is shorter than the width it is given");
+            compare(text.width, 120);
+            compare(tuned.slider.Accessible.name, "Brightness");
         }
 
         function test_a_late_range_takes_the_shown_value() {
