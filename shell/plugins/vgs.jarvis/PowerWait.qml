@@ -12,8 +12,9 @@ import "SetupGate.js" as Gate
 // detached, which asks the session to save and runs `systemctl` whatever
 // the answer, at the latest after its bound, so a shell crash or reload
 // during the wait still restarts the computer. It also shows the card
-// (PowerCard) on the focused screen until the bound. A second ask while
-// held, or the card's button, is the skip: the restart goes at once.
+// (PowerCard) on the focused screen until the bound, in a layer registered
+// only while the wait is held. A second ask while held, or the card's
+// button, is the skip: the restart goes at once.
 Item {
     id: root
     property var shell: null
@@ -31,15 +32,19 @@ Item {
     readonly property int waitMs: 60000
     readonly property string program: String(Qt.resolvedUrl("backend/power-wait.js")).replace(/^file:\/\//, "")
     property bool registered: false
+    // The card layer's release while a wait is held, else null.
+    property var cardRelease: null
 
     onVerbChanged: Time.holdSeconds(root, verb !== "")
-    Component.onDestruction: Time.holdSeconds(root, false)
+    Component.onDestruction: {
+        Time.holdSeconds(root, false);
+        releaseCard();
+    }
 
     onShellChanged: {
         if (shell === null || registered) return;
         registered = true;
         shell.ipc.handle("power", arg => root.power(arg));
-        shell.layers.show(card);
     }
 
     // The `power` handler's answer for ARG, "reboot" or "poweroff": `held`
@@ -61,6 +66,12 @@ Item {
         verb = arg;
         deadline = Date.now() + waitMs;
         bound.restart();
+        // The helper runs whether the card shows or not.
+        try {
+            cardRelease = shell.layers.show(card);
+        } catch (error) {
+            console.warn("jarvis-power: card " + error.message);
+        }
         return "held";
     }
 
@@ -76,6 +87,14 @@ Item {
         bound.stop();
         verb = "";
         deadline = 0;
+        releaseCard();
+    }
+
+    function releaseCard() {
+        if (cardRelease === null) return;
+        const release = cardRelease;
+        cardRelease = null;
+        release();
     }
 
     // The card goes at the bound: power-wait.js has asked for the restart
