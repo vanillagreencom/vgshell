@@ -197,13 +197,20 @@ function verify(logic) {
     same(logic.published(calm, ["vsys"]).warden, { tone: "ok", text: "Running" });
     same(logic.published(calm, ["vsys"]).setup, { tone: "ok", text: "Done" });
     // The setup row offers Set up exactly where the flyout's step is the
-    // setup TUI: a warden not set up, with vsys present.
+    // setup TUI: a warden not set up, with vsys present. Without vsys it
+    // offers the missing tools' Review, the tools action. A row's hint is
+    // its words, compared only for presence.
     const stateOf = (state, reason) => Object.assign(logic.derive({ kind: "absent" }, MS), { state: state, reason: reason === undefined ? null : reason });
-    for (const [label, detail, missing, want] of [
-        ["not set up with vsys", stateOf("not-set-up"), [], { tone: "warning", text: "Not set up", action: true }],
-        ["not set up without vsys", stateOf("not-set-up"), ["vsys"], { tone: "warning", text: "Not set up" }],
-        ["stopped checking", stateOf("not-checking", "stale"), [], { tone: "ok", text: "Done" }],
-    ]) same(logic.published(detail, missing).setup, want, "setup row, " + label);
+    for (const [label, detail, missing, want, hinted] of [
+        ["not set up with vsys", stateOf("not-set-up"), [], { tone: "warning", text: "Not set up", action: true }, false],
+        ["not set up without vsys", stateOf("not-set-up"), ["vsys"], { tone: "warning", text: "Not set up", action: "tools" }, true],
+        ["stopped checking", stateOf("not-checking", "stale"), [], { tone: "ok", text: "Done" }, false],
+    ]) {
+        const row = JSON.parse(JSON.stringify(logic.published(detail, missing).setup));
+        assert.equal(typeof row.hint === "string", hinted, "setup row hint, " + label);
+        delete row.hint;
+        same(row, want, "setup row, " + label);
+    }
     same(logic.published(stateOf("not-set-up"), []).warden, { tone: "info", text: "Not set up" }, "the warden row reads not set up without offering setup");
     for (const [label, detail, missing, want] of [
         ["not set up with vsys", stateOf("not-set-up"), [], "setup"],
@@ -226,32 +233,41 @@ function verifyPlacement(logic, source) {
     const checked = manifest(source);
     const base = logic.derive({ kind: "absent" }, MS);
     const detailOf = (state, reason) => Object.assign({}, base, { state, reason: reason === undefined ? null : reason, items: state === "problem" ? [{ kind: "scan-failed" }] : [] });
+    // [label, detail, missing commands, the Setup step's button kind or
+    // null, setupNeeds open]: "status" is the step's own Set up, "tools"
+    // the Review of the missing tools.
     const rows = [
-        ["not set up with vsys", detailOf("not-set-up"), [], true, true],
-        ["not set up without vsys", detailOf("not-set-up"), ["vsys"], false, true],
-        ["calm", detailOf("calm"), [], false, false],
-        ["look", detailOf("look"), [], false, false],
-        ["problem", detailOf("problem"), [], false, false],
-        ["stale", detailOf("not-checking", "stale"), [], false, false],
-        ["unreadable", detailOf("not-checking", "unreadable"), [], false, false],
-        ["schema", detailOf("not-checking", "schema"), [], false, false],
+        ["not set up with vsys", detailOf("not-set-up"), [], "status", true],
+        ["not set up without vsys", detailOf("not-set-up"), ["vsys"], "tools", true],
+        ["calm", detailOf("calm"), [], null, false],
+        ["look", detailOf("look"), [], null, false],
+        ["problem", detailOf("problem"), [], null, false],
+        ["stale", detailOf("not-checking", "stale"), [], null, false],
+        ["unreadable", detailOf("not-checking", "unreadable"), [], null, false],
+        ["schema", detailOf("not-checking", "schema"), [], null, false],
     ];
-    for (const [label, detail, missing, buttonOpen, needsOpen] of rows) {
+    for (const [label, detail, missing, buttonKind, needsOpen] of rows) {
         const values = logic.published(detail, missing);
+        // The core's status write admits each value the service publishes.
+        Object.keys(values).reduce((held, key) => {
+            const written = producer.statusWrite(checked, held, key, values[key]);
+            assert.equal(written.ok, true, "the status write admits " + key + ": " + label + ": " + written.error);
+            return written.values;
+        }, {});
         const status = producer.statusRows(checked, values);
+        const requirements = producer.requirementRows(checked, missing, {});
         const warden = steps.detailEntries(status).find(entry => entry.key === "warden");
         assert.notEqual(warden, undefined, "Details keeps the warden reading: " + label);
         // The reading offers no press of its own, on or off: Set up is the
         // Setup step's alone.
         same([true, false].map(enabled => steps.detailButtons(warden, { enabled, name: "Agent Warden" }).action), [null, null],
             "the warden reading offers no action: " + label);
-        const section = steps.setupSections(producer.listedTuis(checked), status).find(row => row.title === "Setup");
+        const section = steps.setupSections(producer.listedTuis(checked), status, requirements, { enabled: true, failed: false }).find(row => row.title === "Setup");
         assert.notEqual(section, undefined, "Setup section exists: " + label);
         const setup = section.items.find(item => item.key === "setup");
         assert.notEqual(setup, undefined, "the setup step is on Setup: " + label);
         assert.equal(steps.detailEntries(status).some(entry => entry.key === "setup"), false, "setup is never on Details: " + label);
-        assert.equal(setup.button !== null, buttonOpen, "setup button matches the open setup step: " + label);
-        const requirements = producer.requirementRows(checked, missing, {});
+        assert.equal(setup.button === null ? null : setup.button.kind, buttonKind, "setup button matches the open setup step: " + label);
         same(steps.setupNeeds(status, requirements, true).open, needsOpen, "setupNeeds.open: " + label);
     }
 }
@@ -279,7 +295,8 @@ const CONTROLS = [
     ["a failed scan warns", 'detail.items.some(function (i) { return i.kind === "scan-failed"; })', "false"],
     ["an unknown count is published", "if (detail.agents !== null) out.agents", "out.agents"],
     ["GB always one decimal", "return value < 10 ?", "return true ?"],
-    ["the setup step never offers Set up", "if (setupStep(detail, vsysMissing) === \"setup\") row.action = true;", ""],
+    ["the setup step never offers Set up", "if (step === \"setup\") row.action = true;", ""],
+    ["the setup step without vsys offers no Review", "row.action = \"tools\";", ""],
     ["Set up offered without vsys", "return vsysMissing ? \"get-vsys\" : \"setup\";", "return \"setup\";"],
     ["a healthy warden reads as a warning", "return { tone: \"ok\", text: \"Running\" };", "return { tone: \"warning\", text: \"Running\" };"],
     ["a warning reads as healthy", "if (detail.state === \"look\") return { tone: \"warning\", text: \"Warnings need attention\" };", ""],

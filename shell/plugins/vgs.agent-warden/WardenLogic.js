@@ -360,13 +360,20 @@ function wardenRow(detail) {
 }
 
 // The Settings setup step for installing the warden checks. It is open
-// only while no warden is set up; vsys missing is handled by the required
-// requirement row, so the step offers its action only when vsys is present.
+// only while no warden is set up. With vsys present it offers Set up, the
+// setup TUI. With vsys missing it names `action: "tools"`, so the Settings
+// page draws Review all missing or outdated tools on the step, the core's
+// one install route for vsys, and its hint says vsys comes first.
 function setupRow(detail, vsysMissing) {
     switch (detail.state) {
     case "not-set-up":
         var row = { tone: "warning", text: "Not set up" };
-        if (setupStep(detail, vsysMissing) === "setup") row.action = true;
+        var step = setupStep(detail, vsysMissing);
+        if (step === "setup") row.action = true;
+        if (step === "get-vsys") {
+            row.hint = "Install vsys first. Agent Warden needs it.";
+            row.action = "tools";
+        }
         return row;
     case "calm":
     case "working":
@@ -400,8 +407,9 @@ function setupStep(detail, vsysMissing) {
 // find: key -> value for each key the manifest declares. `agents` and
 // `lastCheck` are left out while no status has told them. The warden row
 // stays a reading. The setup row offers Set up while setupStep answers
-// `setup`. Whether vsys is installed is its requirement's row, never a
-// status value.
+// `setup`, and Review of the missing tools while it answers `get-vsys`.
+// Whether vsys is installed is its requirement's row, never a status
+// value.
 function published(detail, missing) {
     var vsysMissing = missing.indexOf("vsys") !== -1;
     var setup = setupRow(detail, vsysMissing);

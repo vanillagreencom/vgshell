@@ -9,8 +9,9 @@
 # missing or present from the scan as a stub on the sandbox PATH comes and
 # goes; the host's PATH sets its first answer. The Settings page draws a
 # step only while the step applies: none anywhere while the warden checks
-# and vsys is present, Set up while the warden is not set up, and Install
-# all missing while vsys is missing. A status written 85 s back and left
+# and vsys is present, Set up while the warden is not set up, and Review
+# all missing or outdated tools on the Tools step and the Warden setup step
+# while vsys is missing. A status written 85 s back and left
 # unchanged turns stale on the service's own timer, with no file change.
 # The shield in the bar and its panel are read back as drawn for each
 # state: the icon, tone, count and tooltip, and every text the panel draws,
@@ -54,6 +55,8 @@ warden_raw() { printf '%s' "$1" >"$warden_dir/status.tmp.raw" && mv -T -- "$ward
 warden_values() { ipc vgs.agent-warden invoke status ''; }
 # warden_value KEY: one published value as JSON, `null` when unpublished.
 warden_value() { warden_values | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin).get(sys.argv[1])))' "$1"; }
+# warden_step KEY: warden_value without the value's hint, which is copy.
+warden_step() { warden_values | py_reply 'import json,sys; v=json.load(sys.stdin).get(sys.argv[1]); print(json.dumps(v if v is None else {k: v[k] for k in v if k != "hint"}))' "$1"; }
 # The published detail's state and reason, and each item's kind and level.
 warden_state() { warden_values | py_reply 'import json,sys; d=json.load(sys.stdin).get("detail"); print("unpublished" if d is None else json.dumps([d["state"], d["reason"], d["issues"], [[i["kind"], i["level"]] for i in d["items"]]]))'; }
 warden_lent() { ipc shell lent | py_reply 'import json,sys; r=json.load(sys.stdin)["status"].get("vgs.agent-warden"); print(json.dumps(r if r is None else r["keys"]))'; }
@@ -72,8 +75,11 @@ warden_setup_drawn() { ipc smoke itemTexts window vgs.settings Field | py_reply 
 no_show_command() { ipc smoke itemTexts window vgs.settings PluginPage | py_reply 'import json,sys; print(str(not any("Show command" in r for r in json.load(sys.stdin))).lower())'; }
 warden_tools_drawn() { ipc smoke setupRows window vgs.settings | py_reply 'import json,sys; rows=[r for r in json.load(sys.stdin) if r["key"]=="required-tools"]; print(json.dumps([rows[0]["chips"], rows[0]["lines"], [b["text"] for b in rows[0]["buttons"]]]) if len(rows)==1 else "rows=%d" % len(rows))'; }
 warden_hint="Checks whether AI agents stay within their memory and process limits"
-warden_info="Shows whether the vsys warden is set up, checking agents and reporting problems."
-warden_setup_hint="Starts the Agent Warden checks in a floating terminal"
+warden_info="Shows whether Agent Warden is watching your AI agents and whether any of them needs your attention."
+warden_setup_hint="Set up Agent Warden to watch your AI agents"
+# The Warden setup step's own hint while vsys is missing, which replaces
+# warden_setup_hint on the drawn step.
+warden_vsys_hint="Install vsys first. Agent Warden needs it."
 # info_label TEXT: whether an open info dialog draws TEXT.
 info_label() { ipc smoke popupItemGeometry window vgs.settings "" "" Label "$1" | py_reply 'import sys; print("shown" if sys.stdin.read().strip().startswith("[") else "absent")'; }
 warden_info_dialog() { printf '%s|%s\n' "$(info_label Warden)" "$(info_label "$warden_info")"; }
@@ -210,7 +216,7 @@ expect "the warden row says it is not set up with no action" '{"tone": "info", "
 if [[ $vsys_first == present ]]; then
   expect "the setup row offers Set up while the warden is not set up" '{"tone": "warning", "text": "Not set up", "action": true}' warden_value setup
 else
-  expect "the setup row is open without Set up while vsys is missing" '{"tone": "warning", "text": "Not set up"}' warden_value setup
+  expect "the setup row offers the missing tools' Review while vsys is missing" '{"tone": "warning", "text": "Not set up", "action": "tools"}' warden_step setup
 fi
 expect "no agent count is published before a status" null warden_value agents
 expect "the lending record holds the published keys" '["detail", "setup", "warden"]' warden_lent
@@ -781,15 +787,17 @@ rm -f -- "$shim/vsys" "$warden_dir/status.json"
 rescan "a rescan after the stand-in vsys goes starts"
 expect_poll "vsys reads as the host PATH gives it" "$vsys_first" warden_requirement vsys
 if [[ $vsys_first == missing ]]; then
-  # Required Tools names missing vsys. Its text action opens the existing
-  # install notice. A scan that finds vsys closes that notice.
+  # Required Tools names missing vsys, and the Warden setup step offers the
+  # same Review action, which opens the existing install notice. The row
+  # presses the step's; the manager and settings rows press Tools'. A scan
+  # that finds vsys closes that notice.
   settings_page_open vgs.agent-warden
   settings_setup
   expect_poll "a warden not set up without vsys offers no Set up" '[["setup", "Set up", false]]' offered_actions vgs.agent-warden
-  expect_poll "the Warden setup row stays To do without an action while vsys is missing" "$(words "Warden setup" "To do" "$warden_setup_hint" "Not set up")" warden_setup_drawn
+  expect_poll "the Warden setup row draws To do with Review and why while vsys is missing" "$(words "Warden setup" "To do" "Review all missing or outdated tools" "$warden_vsys_hint" "Not set up")" warden_setup_drawn
   expect_poll "Tools names missing vsys and offers its install text link" '[[["To do", "warning"]], ["vsys (missing)"], ["Review all missing or outdated tools"]]' warden_tools_drawn
   expect "the page without vsys draws no Show command" true no_show_command
-  settings_press --type RowAction "Review all missing or outdated tools" || fail "the click on the Tools action failed"
+  settings_press --type RowAction "Review all missing or outdated tools" Field "Warden setup" || fail "the click on the Warden setup step's Review failed"
   expect_poll "Install all missing raises the notice for vsys" '["vgs.agent-warden", ["vsys"]]' warden_notice
   expect_poll "the Install all missing notice holds the keyboard" true ipc smoke noticeFocused
   warden_vsys_stub
