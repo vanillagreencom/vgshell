@@ -194,7 +194,14 @@ var STATUS_PRESENCE_TONES = { present: "success", absent: "warning", locked: "in
 var STATUS_STATE_TONES = { ok: "success", info: "info", warning: "warning", danger: "danger" };
 // The keys a `state` value carries. `action` is its writer's to decide
 // (D061): true when the entry's declared `action` applies to this value,
-// or the name of the one of the entry's declared `actions` that does.
+// the name of the one of the entry's declared `actions` that does, or, on
+// a required step of a plugin with a required tool, STATUS_TOOLS_ACTION
+// while a missing or outdated required tool blocks the step, whose page
+// then offers Review all missing or outdated tools on the step's row.
+// `available: false` says a required step that is not done offers the
+// user no action and does not wait on the user, so its page reads it Not
+// available and raises no Setup needed; its `hint` says why and what will
+// change that.
 // `lines` is the further printable lines a state that names several things
 // draws under `text`, at most STATUS_LIST_MAX. `hint` is bounded plain
 // guidance for this state; without it, the declaration's hint applies.
@@ -202,7 +209,11 @@ var STATUS_STATE_TONES = { ok: "success", info: "info", warning: "warning", dang
 // row off the page while its writer finds nothing to show. `aside` is its
 // writer's too: true when the entry's declared `aside` applies to this
 // value.
-var STATUS_STATE_KEYS = ["tone", "text", "lines", "hint", "action", "aside"];
+var STATUS_STATE_KEYS = ["tone", "text", "lines", "hint", "action", "aside", "available"];
+// The `action` a required step's value names for the one install action,
+// which no entry declares: it names that action over a declared action of
+// the same name.
+var STATUS_TOOLS_ACTION = "tools";
 // A `presenceList` value is a list of at most STATUS_LIST_MAX items, each
 // carrying these keys: a printable `label` and a `presence` value, with an
 // optional printable `hint`, an optional `info`, the item's own explanation,
@@ -239,8 +250,10 @@ var LAUNCHER_ROW_KEYS = ["id", "label", "icon", "description", "aliases", "menu"
 // `system`, a step of the manifest's own `systemSteps` the core applies in
 // its `core/system` TUI (D081); `undo`, such a step the core undoes there;
 // or `dictation`, `setup` for a holder of that capability. No route
-// installs a requirement: the page's Requirements section holds the one
-// install action. An entry of a
+// installs a requirement: Review all missing or outdated tools, which opens
+// the requirement notice, is the one install action, offered by Setup's
+// Tools step, by Details' Tools section and by a required step whose value
+// names STATUS_TOOLS_ACTION. An entry of a
 // type in STATUS_ACTION_TYPES takes one. A `state`
 // entry whose step differs by what its writer found declares `actions`
 // instead: two or more such steps by name, a STATUS_KEY_PATTERN
@@ -1204,7 +1217,8 @@ function statusValueFits(type, value) {
                 && value.lines.every(function (line) { return isPrintableLine(line, STATUS_TEXT_MAX); })))
             && (value.hint === undefined || isPrintableLine(value.hint, STATUS_HINT_MAX))
             && (value.action === undefined || typeof value.action === "boolean" || typeof value.action === "string")
-            && (value.aside === undefined || typeof value.aside === "boolean");
+            && (value.aside === undefined || typeof value.aside === "boolean")
+            && (value.available === undefined || value.available === false);
     }
     if (type === "text") return isPrintableLine(value, STATUS_TEXT_MAX);
     if (type === "count" || type === "time") return typeof value === "number" && isFinite(value) && value >= 0 && Math.floor(value) === value && value <= Number.MAX_SAFE_INTEGER;
@@ -1337,7 +1351,10 @@ function statusWrite(manifest, values, key, value) {
 // Whether VALUE, which statusValueFits admitted for ENTRY's type, also fits
 // what MANIFEST declares: a `state` value carries a boolean `action` only
 // for an entry that declares an action, a name only for an entry whose
-// `actions` hold it and `aside` only for an entry that declares one, a
+// `actions` hold it, STATUS_TOOLS_ACTION only for a required step of a
+// manifest that declares a required tool, `aside` only for an entry that
+// declares one and `available: false` only for a required step that is
+// not done and offers no action or aside, a
 // `presenceList` item carries `secret` only for a manifest that declares
 // `secrets`, and a `rows` row names in `actions` only the entry's
 // `rowActions`.
@@ -1345,6 +1362,8 @@ function statusDeclarationFits(manifest, entry, value) {
     if (entry.type === "state") {
         if (entry.setup === true && statusStateHidden(value)) return false;
         if (value.aside !== undefined && entry.aside === undefined) return false;
+        if (value.available === false && (entry.setup !== true || value.tone === "ok" || (value.action !== undefined && value.action !== false) || value.aside === true)) return false;
+        if (value.action === STATUS_TOOLS_ACTION) return entry.setup === true && manifest.requirements.some(function (row) { return !row.optional; });
         if (value.action === undefined) return true;
         if (typeof value.action === "string") return entry.actions !== undefined && hasOwn(entry.actions, value.action);
         return entry.action !== undefined;
@@ -1463,13 +1482,15 @@ function statusRowValue(entry, value) {
 // The action of status entry ENTRY that applies to its published VALUE, or
 // null: its declared `action` for a `presence` while nothing is there,
 // `absent`, and for a `state` while its writer says so, `action: true`; the
-// one of its declared `actions` a `state` value names (D061); and for a
-// `rows` entry, its `action` on the whole list, such as Add, whenever the
-// list is reported.
+// one of its declared `actions` a `state` value names (D061), none for
+// STATUS_TOOLS_ACTION, whose Review opens the requirement notice and no
+// declared action; and for a `rows` entry, its `action` on the whole list,
+// such as Add, whenever the list is reported.
 function statusActionOffered(entry, value) {
     switch (entry.type) {
     case "presence": return value === "absent" ? entry.action : null;
     case "state":
+        if (value.action === STATUS_TOOLS_ACTION) return null;
         if (entry.actions !== undefined) return typeof value.action === "string" ? entry.actions[value.action] : null;
         return value.action === true ? entry.action : null;
     case "rows": return entry.action;

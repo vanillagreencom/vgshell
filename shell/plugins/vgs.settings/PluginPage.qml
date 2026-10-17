@@ -39,12 +39,20 @@ FocusScope {
     // Whether a field of the page holds an unsaved edit.
     readonly property bool dirty: unsaved.edited
 
-    // What the page's lines act on: whether the plugin is on, its name and,
+    // What the page's lines act on: whether the plugin is on, its name,
     // while it is on, why it was not built, its first failed build or the
-    // capability another plugin holds, in the shell's words, which a step it
-    // never reported reads in place of the wait (Steps.stepView).
-    readonly property var plugin: row === null ? { enabled: false, name: "", error: "" }
-        : { enabled: row.enabled, name: row.name, error: Reply.line(row.errors.find(error => error.startsWith("build failed: ") || error.startsWith("refused: ")) || "ok") }
+    // capability another plugin holds, in the shell's words (Reply.line),
+    // which a step it never reported reads in place of Checking, and
+    // `failed`, whether that is a failed build, which reads such a step Not
+    // available (Steps.stepView). A binding that reads it with the row
+    // calls pluginOf(row), so a new row reaches it in one evaluation and
+    // never beside the plugin of the row before.
+    function pluginOf(row) {
+        if (row === null) return { enabled: false, name: "", error: "", failed: false };
+        const line = row.errors.find(error => error.startsWith("build failed: ") || error.startsWith("refused: ")) || "";
+        return { enabled: row.enabled, name: row.name, error: Reply.line(line || "ok"), failed: line.startsWith("build failed: ") };
+    }
+    readonly property var plugin: pluginOf(row)
 
     // The rows of the manager row's `fieldRows` (PluginLogic.fieldRows)
     // decide each field's section. Fields of no group are rows under the
@@ -96,7 +104,7 @@ FocusScope {
     }
     // The Setup tab's status sections in drawn order, with their rows,
     // keys and setup actions.
-    readonly property var setupSections: row === null ? [] : Steps.setupSections(row.tuis, row.status, row.requirements)
+    readonly property var setupSections: row === null ? [] : Steps.setupSections(row.tuis, row.status, row.requirements, pluginOf(row))
     // Required declarations keep their tab after completion.
     readonly property bool hasSetup: row !== null && Steps.setupTab(setupSections, row.requirements)
     readonly property bool setupNeeded: row !== null && Steps.setupNeeds(row.status, row.requirements, row.enabled).open
@@ -802,7 +810,7 @@ FocusScope {
                                             entry: tools ? requiredEntry.modelData.entry : page.statusEntry(requiredEntry.modelData.key)
                                             setup: true
                                             action: page.row === null ? null : tools ? Steps.requirementStep(page.row.requirements).button
-                                                : entry === null ? null : Steps.lineAction(Steps.stepButton(entry), Steps.stepOpen(entry), page.plugin)
+                                                : entry === null ? null : Steps.lineAction(Steps.stepButton(entry, page.row.requirements), Steps.stepOpen(entry), page.plugin)
                                             asideAction: entry === null || tools || !page.plugin.enabled ? null : Steps.asideButton(entry)
                                         }
                                     }

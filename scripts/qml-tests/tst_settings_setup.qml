@@ -12,7 +12,9 @@ import "../../shell/plugins/vgs.settings/Steps.js" as Steps
 // feature's action stays beside its fact on Details, with its tools.
 // Setup has only Done/To do chips and RowAction links, including its one
 // Tools step; while the plugin is off each To do step offers Turn on and
-// Tools still installs. The unit model rebuilds delegates;
+// Tools still installs. A step the user cannot act on, by its value or a
+// failed build, reads neutral, offers nothing and raises no Setup needed;
+// a step a missing required tool blocks offers Review on its own row. The unit model rebuilds delegates;
 // keyed movement and editor retention run in the actual settings smoke.
 // A page link in a status entry's info, or in one key's, opens that page.
 // Production-source controls live in
@@ -34,6 +36,10 @@ Item {
     readonly property var todo: ({ model: { tone: "warning", text: "Account missing", action: true }, home: ready, health: ready })
     readonly property var done: ({ model: ready, home: ready, health: ready })
     readonly property var homeOnly: ({ model: ready, home: { tone: "danger", text: "Choose an allowed Home" }, health: ready })
+    readonly property var homeUnavailable: ({ model: ready, home: { tone: "warning", text: "No Home on this computer", hint: "Connect a Home to set this up", available: false }, health: ready })
+    // stepped with a required tool, whose Home a missing tool blocks.
+    readonly property var toolStepped: Object.assign({}, stepped, { requirements: PluginLogic.normalRequirements([{ command: "required-a", purpose: "Basic work" }]) })
+    readonly property var homeBlocked: ({ model: ready, home: { tone: "warning", text: "Needs its tool", action: "tools" }, health: ready })
     readonly property var optional: ({
         requirements: PluginLogic.normalRequirements([{ command: "optional-tool", optional: true, purpose: "Optional work" }]),
         tui: { configure: { requires: [] } },
@@ -81,6 +87,9 @@ Item {
             pluginRow("acme.done", stepped, done, [], {}),
             pluginRow("acme.home", stepped, homeOnly, [], {}),
             pluginRow("acme.unknown", stepped, {}, [], {}),
+            pluginRow("acme.neutral", stepped, homeUnavailable, [], {}),
+            pluginRow("acme.failed", stepped, {}, [], { errors: ["build failed: service: file:///fixture/Service.qml:12: No such type"] }),
+            pluginRow("acme.toolstep", toolStepped, homeBlocked, ["required-a"], {}),
             pluginRow("acme.off", stepped, todo, [], { enabled: false }),
             pluginRow("acme.optional", optional, { featureState: { tone: "warning", text: "Not configured", action: true }, health: ready }, ["optional-tool"],
                 { schema: { feature: { type: "boolean", label: "Feature" } }, settings: { feature: false } }),
@@ -180,6 +189,8 @@ Item {
                 { tag: "done", id: "acme.done", warning: false },
                 { tag: "Home only blocker", id: "acme.home", warning: true },
                 { tag: "unreported", id: "acme.unknown", warning: true },
+                { tag: "not available", id: "acme.neutral", warning: false },
+                { tag: "blocked by a missing tool", id: "acme.toolstep", warning: true },
                 { tag: "missing required tools", id: "acme.required", warning: true },
                 { tag: "tools present", id: "acme.present", warning: false },
                 { tag: "off", id: "acme.off", warning: false }
@@ -222,6 +233,28 @@ Item {
             compare(shown(window, RowAction).map(action => action.text), data.actions);
             compare(onTab(window, Button).length, 0, "Setup draws no boxed action");
             compare(shown(window, RequirementRow).length, 0, "Setup has no separate requirement rows");
+        }
+        // [tag, plugin, the chip tone of each step in drawn order, the step
+        // labels in that order, the steps that draw an action].
+        function test_setup_draws_the_neutral_reading_and_the_tools_action_data() {
+            return [{ tag: "not available by its value", id: "acme.neutral", tones: ["neutral", "success"], labels: ["Home", "Model"], acting: [] },
+                { tag: "not available after a failed build", id: "acme.failed", tones: ["neutral", "neutral"], labels: ["Model", "Home"], acting: [] },
+                { tag: "blocked by a missing tool", id: "acme.toolstep", tones: ["warning", "warning", "success"], labels: ["Home", "Tools", "Model"], acting: ["Home", "Tools"] }];
+        }
+        function test_setup_draws_the_neutral_reading_and_the_tools_action(data) {
+            const window = opened(); window.openPlugin(data.id, Qt.OtherFocusReason, "Setup");
+            compare(pageOf(window).tab, "Setup");
+            const steps = shown(window, Field).filter(field => data.labels.indexOf(field.label) !== -1);
+            compare(steps.map(field => field.label), data.labels);
+            compare(shown(window, Badge).map(chip => chip.tone), data.tones);
+            const action = field => descendants(field).find(item => item instanceof RowAction && item.visible);
+            compare(steps.filter(field => action(field) !== undefined).map(field => field.label), data.acting);
+            if (data.acting.indexOf("Home") === -1) return;
+            const review = action(steps[0]);
+            tryVerify(() => review.height > 0 && pageOf(window).parent.x === -window.width, 2000, "the page has slid in");
+            mouseClick(review);
+            compare(fakeManager.installs, [data.id], "the step's Review opens the one requirement notice");
+            compare(fakeManager.acts, [], "the step's Review takes no status route");
         }
         // Settings holds only values the user changes: the feature's
         // switch, with no chip, status line, tools line or action. The

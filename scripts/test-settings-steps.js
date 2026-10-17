@@ -1,7 +1,10 @@
 #!/usr/bin/env node
 // Exercises the production page judge with PluginLogic manager rows.
 // Required work alone creates Setup. Unknown and blocked required work
-// stays open; Settings draws only values and their stored key lists, and
+// stays open; a step the user cannot act on, by its value or a failed
+// build, reads neutral after the open steps and raises no Setup needed; a
+// step a missing required tool blocks offers the one install action on its
+// own row. Settings draws only values and their stored key lists, and
 // optional work, its action and its tools belong on Details. Required
 // tools form one persistent step. Every To do step and every Details fact
 // that holds work draws an action that takes a press, with the plugin on
@@ -52,8 +55,12 @@ const blocked = { tone: "warning", text: "Waiting for account" };
 const allDone = { model: ready, home: ready, account: ready, connection: ready, ownedState: ready,
     optional: { tone: "warning", text: "Feature unavailable", action: true }, fact: { tone: "danger", text: "Alternative unavailable" } };
 const homeUnreported = Object.fromEntries(Object.entries(allDone).filter(([key]) => key !== "home"));
-const on = { enabled: true, name: "Fixture", error: "" };
-const off = { enabled: false, name: "Fixture", error: "" };
+const on = { enabled: true, name: "Fixture", error: "", failed: false };
+const off = { enabled: false, name: "Fixture", error: "", failed: false };
+// A step the user cannot act on, as its plugin publishes it, and one a
+// missing or outdated required tool blocks.
+const unavailable = { tone: "warning", text: "No reader on this computer", hint: "Connect a reader to set this up", available: false };
+const toolBlocked = { tone: "warning", text: "Needs its tool", action: "tools" };
 const items = sections => sections.flatMap(section => section.items);
 // What BUTTONS, Steps.detailButtons', offer to press: [label, takes a
 // press] per action, in order.
@@ -103,6 +110,8 @@ function verify(logic, producer) {
         ["failed required step", Object.assign({}, allDone, { model: { tone: "danger", text: "Refused" } }), [], true, true],
         ["required tool missing", allDone, ["required-a"], true, true],
         ["only optional tool missing", allDone, ["optional-tool"], true, false],
+        ["only Home not available", Object.assign({}, allDone, { home: unavailable }), [], true, false],
+        ["Home blocked by a missing tool", Object.assign({}, allDone, { home: toolBlocked }), ["required-a"], true, true],
         ["disabled plugin", {}, ["required-a"], false, false]
     ]) same(logic.setupNeeds(rows(values), requirements(missing), enabled), { open: expected }, "readiness: " + label);
     for (const [label, missing, want] of [
@@ -152,10 +161,57 @@ function verify(logic, producer) {
     const byHand = rows(Object.assign({}, allDone, { home: blocked })).find(entry => entry.key === "home");
     same([logic.stepButton(byHand), logic.stepView(byHand, String, on).hint], [null, status.home.hint], "on: a by-hand step draws its explanation");
     const waiting = logic.stepView(rows({}).find(entry => entry.key === "home"), String, on);
-    same(waiting.lines, [logic.waitingLine(on.name)], "on, unreported: the step names the wait");
-    same(logic.stepView(rows({}).find(entry => entry.key === "home"), String, Object.assign({}, on, { error: "This plugin could not start." })).lines,
-        ["This plugin could not start."], "on, unreported after a failed build: the step names the failure");
+    same([logic.stepReading(rows({}).find(entry => entry.key === "home"), on), waiting.tone, waiting.lines.length, typeof waiting.lines[0]], ["todo", "warning", 1, "string"],
+        "on, unreported: the step stays To do and names the wait on one line");
+    const refused = Object.assign({}, on, { error: "Another plugin uses this feature." });
+    same([logic.stepView(rows({}).find(entry => entry.key === "home"), String, refused).tone, logic.stepView(rows({}).find(entry => entry.key === "home"), String, refused).lines],
+        ["warning", [refused.error]], "on, unreported while refused: the step stays To do and draws the plain line");
     same(logic.stepView(rows({}).find(entry => entry.key === "home"), String, off).lines, [], "off: an unreported step names no wait");
+
+    // The neutral reading: a required step the user cannot act on, by its
+    // value, or by a build that failed while the plugin is on, which
+    // turning it off and on does not mend. [name, values, missing tools,
+    // the plugin, Home's reading and chip tone, the step order].
+    const failed = Object.assign({}, on, { error: "This plugin could not start.", failed: true });
+    const accountOpen = { tone: "warning", text: "Signed out", action: "signIn" };
+    for (const [name, values, missing, plugin, reading, order] of [
+        ["by its value, between To do and Done", Object.assign({}, allDone, { model: { tone: "warning", text: "Needs a key", action: true }, account: accountOpen, home: unavailable }), [], on,
+            ["unavailable", "neutral"], ["model", "account", "home", "connection", "connectionKeys", "required-tools"]],
+        ["by its value, after a pending Tools step", Object.assign({}, allDone, { account: accountOpen, home: unavailable }), ["required-a"], on,
+            ["unavailable", "neutral"], ["account", "required-tools", "home", "model", "connection", "connectionKeys"]],
+        ["after a failed build", {}, ["required-a"], failed,
+            ["unavailable", "neutral"], ["required-tools", "model", "home", "account", "connection", "connectionKeys"]],
+        ["refused, not built", {}, [], refused,
+            ["todo", "warning"], ["model", "home", "account", "connection", "connectionKeys", "required-tools"]]
+    ]) {
+        const status = rows(values), home = status.find(entry => entry.key === "home");
+        same([logic.stepReading(home, plugin), logic.stepView(home, String, plugin).tone], reading, "Not available " + name + ": the chip");
+        same(items(logic.setupSections(screens, status, requirements(missing), plugin)).map(item => item.key), order, "Not available " + name + ": the order");
+        same(logic.lineAction(logic.stepButton(home, requirements(missing)), logic.stepOpen(home), plugin), null, "Not available " + name + ": no action");
+    }
+    const neutral = logic.stepView(rows(Object.assign({}, allDone, { home: unavailable })).find(entry => entry.key === "home"), String, on);
+    same([neutral.hint, neutral.lines], [unavailable.hint, [unavailable.text]], "Not available by its value: the step says why and what changes it");
+    same(logic.stepView(rows({}).find(entry => entry.key === "home"), String, failed).lines, [failed.error], "Not available after a failed build: the step draws the plain line");
+    same(items(logic.setupSections(screens, rows({}), requirements([]), failed)).filter(item => !item.keys && item.tools !== true)
+        .map(item => logic.lineAction(logic.stepButton(item.entry, requirements([])), logic.stepOpen(item.entry), failed)), [null, null, null, null], "after a failed build no step draws an action");
+
+    // A step a missing or outdated required tool blocks: [name, missing
+    // tools, the action kind on Home's own row, Setup needed]. The step
+    // stays To do until its plugin publishes again after the scan that
+    // found its tool; Review is offered only while a required tool lacks.
+    for (const [name, missing, want, needed] of [
+        ["a missing required tool", ["required-a"], "tools", true],
+        ["an outdated required tool", null, "tools", true],
+        ["a missing optional tool alone", ["optional-tool"], null, true],
+        ["every required tool present", [], null, true]
+    ]) {
+        const reqs = missing === null ? outdated : requirements(missing);
+        const status = rows(Object.assign({}, allDone, { home: toolBlocked }));
+        const home = items(logic.setupSections(screens, status, reqs, on)).find(item => item.key === "home");
+        same([home.button === null ? null : home.button.kind, logic.setupNeeds(status, reqs, true).open], [want, needed], "tools: " + name);
+        const drawn = logic.lineAction(logic.stepButton(home.entry, reqs), logic.stepOpen(home.entry), on);
+        same(drawn === null ? null : [drawn.kind, drawn.enabled], want === null ? null : ["tools", true], "tools: " + name + ": the step's own row draws Review");
+    }
     same(items(sections).find(item => item.key === "model").button, null, "unoffered required action draws nowhere");
     // Rescans restart the smoke publisher. Its absent check is unreported,
     // not an offered action blocked by a tool. The action owner reads only
@@ -176,6 +232,29 @@ function verify(logic, producer) {
         const currentEntry = current.status.find(entry => entry.key === key);
         const button = logic.lineAction(logic.stepButton(currentEntry), logic.stepOpen(currentEntry), plugin);
         same(button === null ? null : [button.kind, button.enabled], want, "step action owner: " + name);
+    }
+
+    // The status value judge: [name, the manifest, entry, value, admitted].
+    const noRequiredTool = Object.assign({}, manifest, { requirements: manifest.requirements.filter(row => row.optional) });
+    for (const [name, judged, key, value, admitted] of [
+        ["tools on a required step of a plugin with a required tool", manifest, "home", toolBlocked, true],
+        ["tools on a plugin with no required tool", noRequiredTool, "home", toolBlocked, false],
+        ["tools on a Details fact", manifest, "fact", toolBlocked, false],
+        ["Not available on a required step", manifest, "home", unavailable, true],
+        ["Not available on a Details fact", manifest, "fact", unavailable, false],
+        ["Not available on a done step", manifest, "home", Object.assign({}, unavailable, { tone: "ok" }), false],
+        ["Not available with an action", manifest, "model", Object.assign({}, unavailable, { action: true }), false],
+        ["Not available with tools", manifest, "home", Object.assign({}, unavailable, { action: "tools" }), false],
+        ["available true", manifest, "home", Object.assign({}, unavailable, { available: true }), false]
+    ]) same(producer.statusWrite(judged, {}, key, value).ok, admitted, "judge: " + name);
+    // A `tools` value adds no second install route: the entry's own act
+    // offers nothing for it, whether it declares one action or several.
+    for (const key of ["model", "account"]) {
+        const values = Object.assign({}, allDone, { [key]: toolBlocked });
+        let request = null;
+        assert.doesNotThrow(() => { request = producer.statusActionRequest(manifest, "fixture", true, values, key); }, "act on a tools value: " + key);
+        same(request, { ok: false, answer: producer.statusActionRefusal(key, "not-offered") }, "act on a tools value: " + key);
+        same(rows(values).find(entry => entry.key === key).action.offered, false, "act on a tools value: " + key + ": its declared action is not offered");
     }
 
     // Details facts: [name, entry, published values, the plugin, what the
@@ -225,20 +304,28 @@ verifyPage(fs.readFileSync(pageFile, "utf8"));
 const controls = [
     ["optional-on-Setup", 'return entry.setup === true;', 'return entry.setup === true || entry.setting !== "";', "optional entries never draw on Setup"],
     ["Details duplicates required step", '!declaresStep(entry) && ', '', "Details lists each former Settings entry"],
-    ["blocked required work marked done", 'entry.report !== "reported" || entry.tone !== "success"', 'entry.report !== "reported"', "only Home blocked"],
-    ["unknown required work marked done", 'entry.report !== "reported" || entry.tone !== "success"', 'entry.report === "reported" && entry.tone !== "success"', "Home not reported"],
+    ["blocked required work marked done", 'return entry.report !== "reported" || (entry.tone !== "success" && entry.value.available !== false);', 'return entry.report !== "reported";', "only Home blocked"],
+    ["unknown required work marked done", 'return entry.report !== "reported" || (entry.tone !== "success" && entry.value.available !== false);', 'return entry.report === "reported" && entry.tone !== "success";', "Home not reported"],
+    ["Not available counts as open", '(entry.tone !== "success" && entry.value.available !== false)', 'entry.tone !== "success"', "readiness: only Home not available"],
+    ["Not available sorts with To do", 'var STEP_RANKS = { todo: 0, unavailable: 1, done: 2 };', 'var STEP_RANKS = { todo: 0, unavailable: 0, done: 2 };', "Not available by its value, between To do and Done: the order"],
+    ["Not available sorts with Done", 'var STEP_RANKS = { todo: 0, unavailable: 1, done: 2 };', 'var STEP_RANKS = { todo: 0, unavailable: 2, done: 2 };', "Not available by its value, after a pending Tools step: the order"],
+    ["Not available reads To do", 'unavailable: { text: "Not available", tone: "neutral" }', 'unavailable: { text: "Not available", tone: "warning" }', "Not available by its value, between To do and Done: the chip"],
+    ["a failed build reads To do", 'if (entry.report !== "reported" && plugin !== undefined && plugin.enabled && plugin.failed) return "unavailable";', '', "Not available after a failed build: the chip"],
+    ["a refusal reads Not available", 'plugin.enabled && plugin.failed) return', 'plugin.enabled && plugin.error !== "") return', "on, unreported while refused: the step stays To do"],
+    ["a tools step offers nothing", 'return requiredLacking(requirements).length > 0 ? reviewButton() : null;', 'return null;', "tools: a missing required tool"],
+    ["a tools step offers Review with no required tool lacking", 'return requiredLacking(requirements).length > 0 ? reviewButton() : null;', 'return reviewButton();', "tools: a missing optional tool alone"],
     ["optional tool creates Setup", 'requirements.some(function (row) { return !row.optional; })', 'requirements.length > 0', "optional tools never create Setup"],
     ["optional tool becomes required Tools", 'requirements.filter(function (row) { return !row.optional; })', 'requirements.slice()', "optional tools never create the Tools step"],
     ["ready tools drop Tools", 'if (required.length === 0) return null;', 'if (required.length === 0 || required.every(function (row) { return row.state === "present"; })) return null;', "Tools: present"],
-    ["optional tool warns", '!entry.optional && requirementApplies(entry)', 'requirementApplies(entry)', "only optional tool missing"],
+    ["optional tool warns", 'return !row.optional && requirementApplies(row);', 'return requirementApplies(row);', "only optional tool missing"],
     ["disabled plugin warns", 'open: enabled && (', 'open: (', "disabled plugin"],
     ["outdated tool passes", 'return requirement.state !== "present";', 'return requirement.state === "missing";', "outdated required tools stay open"],
-    ["pending chip leaks status words", 'view.text = stepOpen(entry) ? "To do" : "Done";', 'view.text = entry.value.text;', "pending chip keeps explanation"],
-    ["completed chip stays pending", 'view.text = stepOpen(entry) ? "To do" : "Done";', 'view.text = "To do";', "completed chip uses two-state vocabulary"],
-    ["open steps follow completed ones", 'steps.filter(stepOpen).concat(steps.filter(function (entry) { return !stepOpen(entry); }))', 'steps.filter(function (entry) { return !stepOpen(entry); }).concat(steps.filter(stepOpen))', "Home-only blocker is first"],
+    ["pending chip leaks status words", 'view.text = chip.text;', 'view.text = entry.value.text;', "pending chip keeps explanation"],
+    ["completed chip stays pending", 'view.text = chip.text;', 'view.text = STEP_CHIPS.todo.text;', "completed chip uses two-state vocabulary"],
+    ["open steps follow completed ones", 'return rank(a.entry) - rank(b.entry) || a.index - b.index;', 'return rank(b.entry) - rank(a.entry) || a.index - b.index;', "Home-only blocker is first"],
     ["pending Tools follow completed steps", 'if (!tools.done && firstDone !== -1)', 'if (false)', "pending Tools precede completed required steps"],
     ["keys leave their required step", 'keyList.step === entry.key', 'false', "optional entries never draw on Setup"],
-    ["unoffered action is drawn", 'entry.action === null || !entry.action.offered', 'entry.action === null', "unoffered required action draws nowhere"],
+    ["unoffered action is drawn", 'entry.action === null || !entry.action.offered', 'entry.action === null', "after a failed build no step draws an action"],
     ["a primary status action uses a separate screen reply", 'return { kind: "status", key: entry.key', 'return { kind: "tui", key: entry.key', "on: a step whose screen lacks an optional tool offers its own action"],
     ["More settings leaves Settings", 'place === "Settings" ? tui.settings', 'place === "Settings" ? false', "settings screens stay in More settings"],
     ["required keys keep ordinary chips", 'if (setup) {', 'if (false) {', "required stored key uses Done"],
@@ -253,14 +340,22 @@ const controls = [
     ["optional tools leave Details", 'return requirements.filter(function (entry) { return entry.optional; });', 'return requirements.filter(function (entry) { return entry.optional && entry.name === "automatic-tool"; });', "every optional tool is on Details"],
     ["Details Tools offers no Review", 'return requirements.some(requirementApplies) ? reviewButton() : null;', 'return null;', "Details Tools: a missing optional tool"],
     ["Details Tools offers Review with every optional tool present", 'return requirements.some(requirementApplies) ? reviewButton() : null;', 'return reviewButton();', "Details Tools: a missing required tool alone"],
-    ["an unreported step names no wait", 'if (entry.report !== "reported" && plugin.enabled)', 'if (false)', "on, unreported: the step names the wait"],
-    ["a failed build reads as a wait", 'plugin.error !== "" ? plugin.error : ', '', "on, unreported after a failed build: the step names the failure"],
+    ["an unreported step names no wait", 'if (entry.report !== "reported" && plugin.enabled)', 'if (false)', "on, unreported: the step stays To do and names the wait"],
+    ["a refusal reads as a wait", 'plugin.error !== "" ? plugin.error : ', '', "on, unreported while refused: the step stays To do and draws the plain line"],
 ];
 // Each producer control edits PluginLogic, whose rows the page draws.
 const producerControls = [
     ["a step whose screen needs an optional tool is withheld", "            action: statusRowAction(entry, value),",
         "            action: statusRowAction(entry, statusEntryActions(entry).some(function (a) { return a.action.tui !== undefined && (manifest.tui[a.action.tui].requires || []).some(function (name) { return manifest.requirements.some(function (r) { return r.optional && r.name === name; }); }); }) ? null : value),",
-        "on: a step whose screen lacks an optional tool offers its own action"]
+        "on: a step whose screen lacks an optional tool offers its own action"],
+    ["tools on a plugin with no required tool passes", 'return entry.setup === true && manifest.requirements.some(function (row) { return !row.optional; });', 'return entry.setup === true;',
+        "judge: tools on a plugin with no required tool"],
+    ["tools on a Details fact passes", 'return entry.setup === true && manifest.requirements.some(function (row) { return !row.optional; });', 'return manifest.requirements.some(function (row) { return !row.optional; });',
+        "judge: tools on a Details fact"],
+    ["Not available on a Details fact passes", 'value.available === false && (entry.setup !== true || ', 'value.available === false && (false || ', "judge: Not available on a Details fact"],
+    ["Not available with an action passes", ' || (value.action !== undefined && value.action !== false) || ', ' || ', "judge: Not available with an action"],
+    ["available true passes", '&& (value.available === undefined || value.available === false);', ';', "judge: available true"],
+    ["a tools value offers a declared action", '        if (value.action === STATUS_TOOLS_ACTION) return null;\n', '', "act on a tools value: account"]
 ];
 const temp = fs.mkdtempSync(path.join("/tmp", "settings-steps-control-"));
 function mustFail(label, run, message) {

@@ -4,25 +4,44 @@
 // validates every reference before these manager rows reach the page.
 function requirementApplies(requirement) { return requirement.state !== "present"; }
 function declaresStep(entry) { return entry.setup === true; }
-function stepOpen(entry) { return entry.report !== "reported" || entry.tone !== "success"; }
-function stepRank(entry) { return stepOpen(entry) ? 0 : 1; }
-// What a Setup step draws of ENTRY for PLUGIN, { enabled, name, error }:
-// To do or Done, and under the chip the published state's own text, or,
-// while the plugin is on and has published nothing for the step, why:
-// ERROR, why it was not built, or that it has not reported yet
-// (waitingLine).
+// Whether ENTRY, a required step, waits on the user: unreported, or
+// published as not done by a value that does not say the user cannot act
+// on it (`available: false`, PluginLogic.statusDeclarationFits).
+function stepOpen(entry) { return entry.report !== "reported" || (entry.tone !== "success" && entry.value.available !== false); }
+// What required step ENTRY reads for PLUGIN, { enabled, failed }, `failed`
+// true while its build failed: "todo" while it waits on the user, "done",
+// or "unavailable" while the user cannot act on it, because its value says
+// so or because the plugin, on, could not start, which turning it off and
+// on does not change (Plugins.failedBuilds keeps a failure per source
+// revision). PLUGIN is omitted where no build failure applies.
+function stepReading(entry, plugin) {
+    if (entry.report === "reported" && entry.tone === "success") return "done";
+    if (entry.report !== "reported" && plugin !== undefined && plugin.enabled && plugin.failed) return "unavailable";
+    return stepOpen(entry) ? "todo" : "unavailable";
+}
+var STEP_RANKS = { todo: 0, unavailable: 1, done: 2 };
+// The chip of each reading, its word and its tone. The words are declared
+// here alone (docs/architecture/design-system.md § Settings pages).
+var STEP_CHIPS = { todo: { text: "To do", tone: "warning" }, done: { text: "Done", tone: "success" }, unavailable: { text: "Not available", tone: "neutral" } };
+// The line an unreported step draws while its plugin is on and starting.
+var CHECKING_LINE = "Checking…";
+// What a Setup step draws of ENTRY for PLUGIN, { enabled, name, error,
+// failed }: its chip (stepReading), and under it the published state's own
+// text, or, while the plugin is on and has published nothing for the step,
+// why: ERROR, the plain line of why it was not built or could not start,
+// else that it is checking.
 function stepView(entry, timeText, plugin) {
     var view = statusView(entry, timeText);
-    view.text = stepOpen(entry) ? "To do" : "Done";
-    view.tone = stepOpen(entry) ? "warning" : "success";
-    // The published state explains the work beneath the two-state chip.
+    var chip = STEP_CHIPS[stepReading(entry, plugin)];
+    view.text = chip.text;
+    view.tone = chip.tone;
+    // The published state explains the work beneath the chip.
     if (entry.report === "reported" && entry.type === "state" && entry.value.text !== "" && entry.value.text !== view.text)
         view.lines = [entry.value.text].concat(view.lines);
     if (entry.report !== "reported" && plugin.enabled)
-        view.lines = [plugin.error !== "" ? plugin.error : waitingLine(plugin.name)];
+        view.lines = [plugin.error !== "" ? plugin.error : CHECKING_LINE];
     return view;
 }
-function waitingLine(name) { return name + " has not reported this step yet"; }
 function detailEntries(status) {
     return status.filter(function (entry) { return !declaresStep(entry) && entry.setting === "" && entry.step === "" && entry.type !== "rows"; });
 }
@@ -45,41 +64,58 @@ function toolsReview(requirements) { return requirements.some(requirementApplies
 function toolsText(requirements) {
     return requirements.map(function (row) { return row.title + (row.state === "outdated" ? " (outdated)" : row.state === "missing" ? " (missing)" : ""); }).join(", ");
 }
+// The required tools of REQUIREMENTS that are missing or outdated.
+function requiredLacking(requirements) {
+    return requirements.filter(function (row) { return !row.optional && requirementApplies(row); });
+}
 function requirementStep(requirements) {
     var required = requirements.filter(function (row) { return !row.optional; });
     if (required.length === 0) return null;
-    var lacking = required.filter(requirementApplies);
-    return { done: lacking.length === 0, label: "Tools", text: lacking.length === 0 ? "Done" : "To do",
-        tone: lacking.length === 0 ? "success" : "warning",
+    var lacking = requiredLacking(required);
+    var chip = STEP_CHIPS[lacking.length === 0 ? "done" : "todo"];
+    return { done: lacking.length === 0, label: "Tools", text: chip.text, tone: chip.tone,
         hint: lacking.length === 0 ? "Every required tool is installed" : toolsText(lacking),
         button: lacking.length === 0 ? null : reviewButton() };
 }
-function setupSections(tuis, status, requirements) {
-    var steps = status.filter(declaresStep);
-    var ordered = steps.filter(stepOpen).concat(steps.filter(function (entry) { return !stepOpen(entry); }));
+// The Setup section of a plugin's STATUS rows and REQUIREMENTS for
+// PLUGIN, { enabled, failed }: its required steps, To do, then Not
+// available, then Done (stepReading), each in manifest order with its key
+// lists, and the one Tools step, To do before the first step that is not,
+// else last. REQUIREMENTS and PLUGIN are omitted where neither applies.
+function setupSections(tuis, status, requirements, plugin) {
+    var required = requirements === undefined ? [] : requirements;
+    var rank = function (entry) { return STEP_RANKS[stepReading(entry, plugin)]; };
+    var ordered = status.filter(declaresStep).map(function (entry, index) { return { entry: entry, index: index }; })
+        .sort(function (a, b) { return rank(a.entry) - rank(b.entry) || a.index - b.index; })
+        .map(function (step) { return step.entry; });
     var items = [];
     ordered.forEach(function (entry) {
-        items.push({ key: entry.key, slot: entry.key + ":" + stepRank(entry), keys: false, entry: entry,
-            label: entry.label, step: true, button: stepButton(entry), aside: asideButton(entry) });
+        items.push({ key: entry.key, slot: entry.key + ":" + rank(entry), keys: false, entry: entry,
+            label: entry.label, step: true, button: stepButton(entry, required), aside: asideButton(entry) });
         status.filter(function (keyList) { return keyList.step === entry.key; }).forEach(function (keyList) {
             items.push({ key: keyList.key, slot: keyList.key, keys: true, entry: keyList, label: keyList.label, step: false, button: null, aside: null });
         });
     });
-    var tools = requirementStep(requirements === undefined ? [] : requirements);
+    var tools = requirementStep(required);
     if (tools !== null) {
         var toolEntry = { key: "required-tools", label: tools.label, type: "state", setup: true, report: "reported", tone: tools.tone,
             value: { text: "" }, hint: tools.hint, info: "", link: null, action: null, aside: null };
         var toolItem = { key: toolEntry.key, slot: toolEntry.key + ":" + tools.done, keys: false, tools: true, entry: toolEntry,
             label: tools.label, step: true, button: tools.button, aside: null };
-        var firstDone = items.findIndex(function (item) { return !item.keys && !stepOpen(item.entry); });
+        var firstDone = items.findIndex(function (item) { return !item.keys && rank(item.entry) !== STEP_RANKS.todo; });
         if (!tools.done && firstDone !== -1) items.splice(firstDone, 0, toolItem);
         else items.push(toolItem);
     }
     return items.length === 0 ? [] : [{ title: "Setup", items: items, buttons: [] }];
 }
+// Whether a plugin, on while ENABLED, needs setup, the one reading of the
+// Plugins list's Setup needed and the Setup tab's mark: a required step of
+// STATUS reads To do, or a required tool of REQUIREMENTS is missing or
+// outdated. A step whose value says the user cannot act on it raises
+// neither (stepOpen).
 function setupNeeds(status, requirements, enabled) {
     return { open: enabled && (status.some(function (entry) { return declaresStep(entry) && stepOpen(entry); })
-        || requirements.some(function (entry) { return !entry.optional && requirementApplies(entry); })) };
+        || requiredLacking(requirements).length > 0) };
 }
 function setupTab(sections, requirements) { return sections.length > 0 || requirements.some(function (row) { return !row.optional; }); }
 // The action ENTRY's line offers while the plugin is on: { kind, key,
@@ -87,9 +123,16 @@ function setupTab(sections, requirements) { return sections.length > 0 || requir
 // danger action leads with, "" for the trash mark (RowAction's
 // `markName`). A primary status action always
 // uses the status route, including when it opens a TUI, so its refusal
-// and the successful retry belong to the same entry. Null while none is
-// offered.
-function stepButton(entry) {
+// and the successful retry belong to the same entry. A step whose value
+// names `action: "tools"` (PluginLogic.STATUS_TOOLS_ACTION), which a
+// missing or outdated required tool blocks, offers Review all missing or
+// outdated tools, the one install action, while one of REQUIREMENTS, the
+// plugin's, is, and none once every one is present. Only a Setup step
+// carries that value, so a Details or rows line reads no REQUIREMENTS.
+// Null while none is offered.
+function stepButton(entry, requirements) {
+    if (entry.type === "state" && entry.report === "reported" && entry.value.action === "tools")
+        return requiredLacking(requirements).length > 0 ? reviewButton() : null;
     if (entry.action === null || !entry.action.offered) return null;
     return { kind: "status", key: entry.key + " " + entry.action.label, name: entry.action.tui,
         label: entry.action.label, tone: entry.action.tone, icon: entry.action.icon, enabled: true, reason: "" };
@@ -237,7 +280,8 @@ function itemView(item, setup) {
     if (setup) {
         var done = item.value === "present";
         var reason = done ? "" : PRESENCE_WORDS[item.value];
-        return { tone: done ? "success" : "warning", text: done ? "Done" : "To do", reason: reason };
+        var chip = STEP_CHIPS[done ? "done" : "todo"];
+        return { tone: chip.tone, text: chip.text, reason: reason };
     }
     if (item.access === "connect" && item.value === "absent") return { tone: "", text: "" };
     return { tone: item.tone, text: PRESENCE_WORDS[item.value] };
