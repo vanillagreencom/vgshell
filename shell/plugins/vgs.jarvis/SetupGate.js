@@ -460,7 +460,7 @@ function voiceChoice(keys, settings) {
 // page's primary action from a required step (Steps.js stepOpen).
 var CLONE_WITHHELD = {
     provider: { text: "Needs the Local voice", hint: "The cloned voice speaks only through Local in [Voice provider](page:vgs.jarvis/Settings/voiceProvider)" },
-    tier: { text: "Needs the Large model", hint: "The cloned voice needs Large in [Local voice model](page:vgs.jarvis/Settings/localTier), which runs only on an NVIDIA graphics card" }
+    tier: { text: "Needs the Large model", hint: "The cloned voice needs the Large model in [Local voice model](page:vgs.jarvis/Settings/localTier), and the Large model runs only on an NVIDIA graphics card" }
 };
 // The hint of a ready row: what the recording gives now. The declared hint
 // says how to set the step up, which a done step no longer asks.
