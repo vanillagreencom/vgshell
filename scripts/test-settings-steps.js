@@ -303,6 +303,36 @@ function verify(logic, producer) {
     same(filedRows({}).find(row => row.key === "notes").info, "Notes hold what the fixture reads", "value info: an unreported step reads the entry's info");
     same(logic.stepView(notesStep({ notes: tooLong }).entry, String, on).info, tooLong.info, "value info: the Setup step draws the value's info");
 
+    // A file action whose path its value supplies: a folder the user
+    // chooses in Settings is the writer's to know, so the action declares
+    // `file: true` and the value that offers it carries the path, judged as
+    // a declared path is. The value carries `file` exactly while it offers
+    // such an action.
+    const chosenStatus = Object.assign({}, filedStatus, { homeFiles: { type: "state", label: "Home files", setup: true,
+        actions: { agents: { label: "Open AGENTS.md", file: true }, skills: { label: "Open skills folder", file: true }, notes: { label: "Open notes", file: "notes.md" } } } });
+    const chosen = Object.assign({}, manifest, { status: chosenStatus });
+    const agentsLong = { tone: "warning", text: "AGENTS.md is long", action: "agents", file: "/srv/home/AGENTS.md" };
+    const skillsFull = { tone: "warning", text: "Too many skills", action: "skills", file: "~/jarvis/skills/" };
+    same(producer.statusError(chosenStatus, ["status", "tui"], tui, undefined), "", "file value: a file action whose value supplies the path is admitted");
+    assert.ok(producer.statusError(Object.assign({}, chosenStatus, { held: { type: "presence", label: "Held", action: { label: "Open held", file: true } } }), ["status", "tui"], tui, undefined)
+        .startsWith("status.held.action.file "), "file value: a presence entry, which carries no path, is refused a value path");
+    same(producer.statusWrite(chosen, {}, "homeFiles", agentsLong).ok, true, "file value: a value naming its file action with a path is admitted");
+    same(producer.statusActionRequest(chosen, "fixture", true, { homeFiles: agentsLong }, "homeFiles"), { ok: true, kind: "file", path: "/srv/home/AGENTS.md" }, "file value: the act opens the value's path");
+    same(producer.statusActionRequest(chosen, "fixture", true, { homeFiles: skillsFull }, "homeFiles"), { ok: true, kind: "file", path: "~/jarvis/skills/" }, "file value: the act opens the value's folder");
+    for (const [name, value] of [
+        ["a value naming a file action without its path", { tone: "warning", text: "AGENTS.md is long", action: "agents" }],
+        ["a value path beside a declared path", { tone: "warning", text: "Notes are long", action: "notes", file: "/srv/home/notes.md" }],
+        ["a value path with no action", { tone: "ok", text: "Ready", file: "/srv/home/AGENTS.md" }],
+        ["a value path on a done step", { tone: "ok", text: "Ready", action: false, file: "/srv/home/AGENTS.md" }],
+        ["a value path that climbs out", Object.assign({}, agentsLong, { file: "/srv/home/../AGENTS.md" })],
+        ["a value path with a control character", Object.assign({}, agentsLong, { file: "/srv/home/AGENTS\n.md" })],
+        ["an empty value path", Object.assign({}, agentsLong, { file: "" })]
+    ])
+        same(producer.statusWrite(chosen, {}, "homeFiles", value).ok, false, "file value: " + name + " is refused");
+    same(producer.statusWrite(filed, {}, "notes", Object.assign({}, tooLong, { file: "/srv/home/notes.md" })).ok, false, "file value: a value path beside the entry's declared path is refused");
+    const chosenStep = values => items(logic.setupSections(screens, producer.statusRows(chosen, values), manifest.requirements, on)).find(item => item.key === "homeFiles");
+    same(((b) => [b.kind, b.label, b.enabled])(chosenStep({ homeFiles: skillsFull }).button), ["status", "Open skills folder", true], "file value: a Setup step offers the value's file action on the status route");
+
     // Details facts: [name, entry, published values, the plugin, what the
     // fact offers]. A former Settings entry keeps its action beside its
     // fact: a fact that holds work offers a press, Turn on while the
@@ -405,12 +435,18 @@ const producerControls = [
     ["Not available with no hint passes", ' || value.aside === true\n            || value.hint === undefined))', ' || value.aside === true))', "judge: Not available with no hint"],
     ["available true passes", '&& (value.available === undefined || value.available === false);', ';', "judge: available true"],
     ["a tools value offers a declared action", '        if (value.action === STATUS_TOOLS_ACTION) return null;\n', '', "act on a tools value: account"],
-    ["no info key in a state value", '"available", "info"];', '"available"];', "value info: a value with its own info is admitted"],
+    ["no info key in a state value", '"available", "info", "file"];', '"available", "file"];', "value info: a value with its own info is admitted"],
+    ["no file key in a state value", '"available", "info", "file"];', '"available", "info"];', "file value: a value naming its file action with a path is admitted"],
     ["a value's info is not judged", '            && infoError(value.info, "") === ""\n', '', "value info: an info empty is refused"],
     ["the entry's info stands over the value's", '        var info = entry.type === "state" && value !== null && value.info !== undefined\n            ? value.info : entry.info', '        var info = false\n            ? value.info : entry.info', "value info: a value's info stands in the entry's"],
     ["no file route", 'var STATUS_ACTION_ROUTES = ["tui", "system", "undo", "dictation", "file"];', 'var STATUS_ACTION_ROUTES = ["tui", "system", "undo", "dictation"];', "file action: a file action is admitted"],
-    ["a file act opens a script", '    if (action.file !== undefined)\n        return { ok: true, kind: "file", path: action.file };\n', '', "file action: the act opens the declared path"],
-    ["a file path is not judged", '        if (typeof action.file !== "string" || !editArgs(action.file).ok)', '        if (typeof action.file !== "string")', "file action: a path that climbs out is refused at its path"],
+    ["a file act opens a script", '    if (action.file !== undefined)\n        return { ok: true, kind: "file", path: action.file === true ? values[key].file : action.file };\n', '', "file action: the act opens the declared path"],
+    ["a file act ignores the value's path", 'path: action.file === true ? values[key].file : action.file };', 'path: action.file };', "file value: the act opens the value's path"],
+    ["a value path is not judged", '(typeof value.file === "string" && editArgs(value.file).ok)', '(typeof value.file === "string")', "file value: a value path that climbs out is refused"],
+    ["a value need not carry its action's path", '        if ((value.file !== undefined) !== statusValueOffersFile(entry, value)) return false;\n', '        if (value.file !== undefined && !statusValueOffersFile(entry, value)) return false;\n', "file value: a value naming a file action without its path is refused"],
+    ["a value path need not match its action", '        if ((value.file !== undefined) !== statusValueOffersFile(entry, value)) return false;\n', '        if (value.file === undefined && statusValueOffersFile(entry, value)) return false;\n', "file value: a value path beside a declared path is refused"],
+    ["a value path on any entry type", '            if (type !== "state")\n                return at + ".file true needs type state, whose value supplies the path";\n', '', "file value: a presence entry, which carries no path, is refused a value path"],
+    ["a file path is not judged", '        } else if (typeof action.file !== "string" || !editArgs(action.file).ok)', '        } else if (typeof action.file !== "string")', "file action: a path that climbs out is refused at its path"],
     ["a file action beside a script named edit", '        if (isPlainObject(tui) && hasOwn(tui, STATUS_FILE_TUI))', '        if (false)', "file action: a manifest whose script is named edit is refused at its path"]
 ];
 const temp = fs.mkdtempSync(path.join("/tmp", "settings-steps-control-"));

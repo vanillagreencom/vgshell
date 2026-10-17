@@ -609,7 +609,9 @@ fi
 # LABEL, a step of the Setup tab or a line of a Status row, each a Field:
 # its label, its value, its action and its hint or last refusal.
 # token_drawn: the Token step's, the Sync group's first entry.
-step_drawn() { ipc smoke itemTexts window vgs.settings Field | py_reply 'import json,sys; r=[r for r in json.load(sys.stdin) if r and r[0] == sys.argv[1]]; print(json.dumps(r[0] if len(r) == 1 else "rows=%d" % len(r)))' "$1"; }
+# A step's texts as a user reads them: a link's styled markup and the
+# narrow spaces LinkText sets for its ring are not words.
+step_drawn() { ipc smoke itemTexts window vgs.settings Field | py_reply 'import html,json,re,sys; r=[[html.unescape(re.sub(r"<[^>]*>", "", t)).replace("\u202f", "") for t in r] for r in json.load(sys.stdin) if r and r[0] == sys.argv[1]]; print(json.dumps(r[0] if len(r) == 1 else "rows=%d" % len(r)))' "$1"; }
 token_drawn() { step_drawn Token; }
 status_of() { settings_rows | py_reply 'import json,sys; r=[p for p in json.load(sys.stdin) if p["id"] == sys.argv[1]][0]["status"]; print(json.dumps([[s["label"], s["report"], s["value"], s["tone"]] for s in r]))' "$1"; }
 drawn_status() { ipc smoke itemTexts window vgs.settings StatusRow | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)))'; }
@@ -663,7 +665,7 @@ terminal_stand_in
 terminal_ready "the status actions"
 settings_setup
 expect_poll "values that do not call for them offer no action" '[["token", "Set up token", false], ["check", "Check again", false]]' offered_actions acme.status
-expect_poll "the Token row draws no button and no command" '["Token", "Done", "Needed for the fixture'"'"'s sync"]' token_drawn
+expect_poll "the Token row draws no button and no command" '["Token", "Done", "Needed for the fixture'"'"'s sync, which its manifest declares"]' token_drawn
 forget_record
 expect "the manager refuses an act the token does not call for" "refused: action=token reason=not-offered" settings_act acme.status token
 expect "the manager refuses an act the check does not call for" "refused: action=check reason=not-offered" settings_act acme.status check
@@ -675,7 +677,7 @@ expect_poll "an absent token offers Set up token and the check offers nothing" '
 expect_poll "the Token row draws its Set up token action" '["Token", "To do", "Set up token", "This setup step is not needed now."]' token_drawn
 settings_press --type RowAction "Set up token" || fail "the click on Set up token failed"
 expect_poll "Set up token hands the terminal the fixture's setup TUI" "$(words acme.status/setup tui/setup.sh)" recorded_tail
-expect_poll "the step that ran clears the Token line's refusal" '["Token", "To do", "Set up token", "Needed for the fixture'"'"'s sync"]' token_drawn
+expect_poll "the step that ran clears the Token line's refusal" '["Token", "To do", "Set up token", "Needed for the fixture'"'"'s sync, which its manifest declares"]' token_drawn
 expect_run_end "the setup TUI's run ends" acme.status/setup
 expect_poll "the setup TUI's terminal closes" 0 tui_windows
 expect "the check publishes that it can run again" ok ipc acme.status invoke set 'check={"tone":"warning","text":"Check failed","action":true}'
@@ -713,7 +715,7 @@ expect "the fixture republishes an absent token" ok ipc acme.status invoke set '
 expect "the restarted fixture republishes its offered check" ok ipc acme.status invoke set 'check={"tone":"warning","text":"Check failed","action":true}'
 expect_poll "Settings offers the steps whose screen lacks the required command" '[["token", "Set up token", true], ["check", "Check again", true]]' offered_actions acme.status
 settings_setup
-expect_poll "the Token line draws its step beside its own hint" '["Token", "To do", "Set up token", "Needed for the fixture'"'"'s sync"]' token_drawn
+expect_poll "the Token line draws its step beside its own hint" '["Token", "To do", "Set up token", "Needed for the fixture'"'"'s sync, which its manifest declares"]' token_drawn
 forget_record
 settings_press --type RowAction "Set up token" || fail "the click on Set up token failed"
 expect_poll "Set up token asks for the command its screen lacks" '["acme.status", ["vgs-smoke-absent"], ["vgs-smoke-absent"], false]' notice_shown
@@ -1087,7 +1089,7 @@ expect_poll "a disabled plugin's dynamic Select is read-only and has no offered 
 settings_details
 expect_poll "a disabled plugin's rows all read not reported" '[["Last check", "Not reported"], ["Note", "Not reported"], ["Pending", "Not reported"]]' drawn_status
 settings_setup
-expect_poll "a disabled plugin's step draws Turn on" '["Token", "To do", "Turn on Status", "Needed for the fixture'"'"'s sync"]' token_drawn
+expect_poll "a disabled plugin's step draws Turn on" '["Token", "To do", "Turn on Status", "Needed for the fixture'"'"'s sync, which its manifest declares"]' token_drawn
 expect "the window opens the notifications' page" ok ipc smoke invokeInstance window vgs.settings openPlugin vgs.notifications
 expect_poll "the notifications' page opens on its Settings tab" 0 settings_tab
 slack_tokens_hint="Connect each workspace to show sender photos"
