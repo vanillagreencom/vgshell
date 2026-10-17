@@ -103,8 +103,8 @@ ORCH_REPORT_QUIET_HOURS = "0-7"
 # Discovery owns the lane inventory; ORCH_LANE_DIRS covers other layouts.
 
 # Used by: orch (`oversee`). Max concurrent lanes the overseer keeps in
-# flight.
-ORCH_OVERSEER_LANES = "12"
+# flight. Owner Slack 1792275992 (2026-10-17): 16 lanes.
+ORCH_OVERSEER_LANES = "16"
 
 # Successor overseer order for oversee-succeed, as harness:rank:effort on the
 # tier ladder: top Claude tier, top Codex tier, then the second tier of each.
