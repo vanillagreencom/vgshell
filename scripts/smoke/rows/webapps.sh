@@ -46,6 +46,7 @@ wa_mime="$home/.config/mimeapps.list"
 wa_launches="$wa_dir/launches"
 wa_browser_entry="$wa_apps/vgs-smoke-browser.desktop"
 wa_index_s=30
+wa_mime_before=unchanged
 source "$repo/scripts/smoke/webapps-browsers.sh"
 
 # wa_list VERB ARG: one of the probe's list verbs on the Web apps field.
@@ -133,14 +134,24 @@ wa_close_class() {
   done
   expect_poll "no window of class $1 is left" 0 wa_windows "$1"
 }
-# What the row plants in the data home goes on every exit path; the
-# harness's own exit trap, cleanup, runs after it.
+# A row end removes the plants before another row reads the data home.
 wa_unplant() {
   webapps_shadows_remove
   rm -f -- "${wa_browser_entry:?}"
+  case "$wa_mime_before" in
+    kept) mv -f -- "$wa_dir/mimeapps.list.before" "$wa_mime" ;;
+    absent) rm -f -- "${wa_mime:?}" ;;
+  esac
+  wa_mime_before=unchanged
+  if [[ -f $wa_dir/shell.json.before ]]; then
+    cp -p -- "$wa_dir/shell.json.before" "$wa_user.next"
+    mv -T -- "$wa_user.next" "$wa_user"
+    expect "the shell reads the kept configuration" ok ipc shell reloadConfig
+    expect_poll "the shell has read the kept configuration" true ipc smoke configSettled
+  fi
+  ipc shell hide window vgs.settings >/dev/null
 }
-wa_previous_exit_trap="$(trap -p EXIT)"
-trap 'wa_unplant; cleanup' EXIT
+smoke_row_abandon=(wa_unplant)
 
 # The world: the shadows first, then the site, the stand-in browser and
 # the default, whose entry is written after the control below.
@@ -150,8 +161,7 @@ if webapps_shadows_plant; then
 else
   fail "the host browser entries could not be shadowed, so Web Apps is not started"
   wa_unplant
-  trap - EXIT
-  eval "$wa_previous_exit_trap"
+  smoke_row_abandon=()
   return 0
 fi
 printf '<!doctype html><html><head><title>Smoke Mail</title><link rel="stylesheet" href="style.css"><link rel="icon" href="icon.png" sizes="32x32"></head><body>mail</body></html>\n' >"$wa_dir/site/app/index.html"
@@ -368,17 +378,10 @@ case "$wa_before" in
   *) fail "Web Apps' enabled state before the row: got $wa_before" ;;
 esac
 wa_unplant
-trap - EXIT
-eval "$wa_previous_exit_trap"
-if [[ $wa_mime_before == kept ]]; then mv -f -- "$wa_dir/mimeapps.list.before" "$wa_mime"; else rm -f -- "${wa_mime:?}"; fi
+smoke_row_abandon=()
 rmdir -- "$wa_icons" "${wa_icons%/icons}" 2>/dev/null || true
 expect "the row leaves no web app entry or icon" none wa_planted
 expect "the row leaves no shadow or browser entry" absent wa_world_left
-# The plugins rows the enable and the list wrote go with the kept file.
-cp -p -- "$wa_dir/shell.json.before" "$wa_user.next"
-mv -T -- "$wa_user.next" "$wa_user"
-expect "the shell reads the kept configuration" ok ipc shell reloadConfig
-expect_poll "the shell has read the kept configuration" true ipc smoke configSettled
 expect "shell.json is as the row found it" same wa_same "$wa_user" "$wa_dir/shell.json.before"
 expect "Web Apps is off as the row found it" False plugin_enabled "$wa_id"
 rm -rf -- "${wa_dir:?}"

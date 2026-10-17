@@ -3547,7 +3547,11 @@ source "$repo/scripts/smoke/leaks.sh"
 # ERR trap and still ends the run. The ERR trap, errexit and errtrace in
 # force before the row come back after it. A row that must undo its
 # state when it ends early names the command in smoke_row_abandon, which
-# runs only then. The filter runs by exec: under an inherited ERR trap a
+# runs only then, with the same failed-command trap. The first trap writes
+# the command and source location, including when a subshell fails first.
+# Before undo runs, the row ends its new child processes and their children
+# through pidfds; pre-row children and the shell and device owners stay.
+# The filter runs by exec: under an inherited ERR trap a
 # process substitution keeps its shell, which holds the caller's output
 # open while the filter waits for its input to close, and a row run in a
 # command substitution, as rows/leak-check.sh runs its plants, then never
@@ -3561,6 +3565,8 @@ smoke_row() { # NAME [DIR]
   local smoke_row_out="$sandbox/rows/$1.out" smoke_row_result="$sandbox/rows/$1.result" smoke_row_started=$EPOCHSECONDS
   local smoke_row_flags smoke_row_trap smoke_row_err=0 smoke_row_status=0 smoke_row_abandon=()
   local ipc_timeout_log="$sandbox/rows/$1.ipc-timeout.log"
+  local smoke_row_children smoke_row_owner=$BASHPID smoke_row_child smoke_row_source_status=0 smoke_row_abandon_status=0
+  local smoke_row_fault="$sandbox/rows/$1.command" smoke_row_faults=() smoke_row_abandon_faults=()
   smoke_row_marker="qml-smoke: row-end $1 $$ $SRANDOM"
   mkdir -p -- "$sandbox/rows"
   : >"$ipc_timeout_log"
@@ -3582,16 +3588,99 @@ smoke_row() { # NAME [DIR]
   # inside another row starts where that row left it, in both runs.
   [[ ${#leak_starts[@]} -gt 0 ]] || rest_pointer || fail "$smoke_row_name: the pointer is not put at rest before the row"
   leak_row_start
-  rm -f -- "$smoke_row_out" "$smoke_row_result"
+  rm -f -- "$smoke_row_out" "$smoke_row_result" "$smoke_row_fault" "$smoke_row_fault.abandon"
   smoke_row_flags=$-
   smoke_row_trap="$(trap -p ERR)"
   set -E
-  trap "smoke_row_err=\$?; if [[ \$- == *e* ]]; then if (( \${#FUNCNAME[@]} > ${#FUNCNAME[@]} )); then return \"\$smoke_row_err\"; fi; smoke_row_status=\$smoke_row_err; set +e; fi" ERR
+  trap "smoke_row_err=\$?; if [[ \$- == *e* ]]; then if [[ ! -e \$smoke_row_fault ]]; then printf '%s\\n' \"\$BASH_COMMAND\" \"\${BASH_SOURCE[0]}\" \"\$LINENO\" >\"\$smoke_row_fault\"; fi; if (( \${#FUNCNAME[@]} > ${#FUNCNAME[@]} )); then return \"\$smoke_row_err\"; fi; smoke_row_status=\$smoke_row_err; set +e; fi" ERR
   {
+    # The output filter is already running here. Run-owned children stay
+    # with their owners even when a row starts or restarts them.
+    read -r smoke_row_children <"/proc/$smoke_row_owner/task/$smoke_row_owner/children" || :
     # The row reads no argument, as when qml-smoke.sh sourced it.
     set --
     source "$smoke_row_dir/$smoke_row_name.sh"
-    if [[ $smoke_row_status != 0 && ${#smoke_row_abandon[@]} -gt 0 ]]; then "${smoke_row_abandon[@]}"; fi
+    if [[ $smoke_row_status != 0 ]]; then
+      smoke_row_source_status=$smoke_row_status
+      mapfile -t smoke_row_faults <"$smoke_row_fault"
+      if ! python3 - "$smoke_row_owner" "$smoke_row_children" "${shell_pid:-}" "${devices_pid[@]}" <<'PY'
+import os, signal, sys, time
+owner = int(sys.argv[1])
+kept = set(map(int, sys.argv[2].split())) | {int(p) for p in sys.argv[3:] if p}
+# This reader can have a command-substitution shell above it. Neither is
+# part of the row. pidfds prevent a dead child's pid from naming a new one.
+pid = os.getpid()
+while pid != owner:
+    kept.add(pid)
+    with open(f"/proc/{pid}/stat") as f:
+        pid = int(f.read().rsplit(")", 1)[1].split()[1])
+held = []
+def stop_children(parent):
+    try:
+        with open(f"/proc/{parent}/task/{parent}/children") as f:
+            children = list(map(int, f.read().split()))
+    except FileNotFoundError:
+        return
+    for child in children:
+        if child in kept:
+            continue
+        try:
+            fd = os.pidfd_open(child)
+        except ProcessLookupError:
+            continue
+        try:
+            with open(f"/proc/{child}/stat") as f:
+                stat = f.read().rsplit(")", 1)[1].split()
+            if int(stat[1]) != parent:
+                os.close(fd)
+                continue
+            with open(f"/proc/{child}/comm") as f:
+                command = f.read().strip()
+            if command in {"claude", "codex", "copilot", "pi"}:
+                raise RuntimeError(f"row-child=agent pid={child} command={command}")
+            signal.pidfd_send_signal(fd, signal.SIGSTOP)
+            held.append(fd)
+            while True:
+                with open(f"/proc/{child}/stat") as f:
+                    state = f.read().rsplit(")", 1)[1].split()[0]
+                if state in {"T", "t", "Z", "X"}:
+                    break
+                time.sleep(0.01)
+            stop_children(child)
+        except (ProcessLookupError, FileNotFoundError):
+            if fd not in held:
+                os.close(fd)
+try:
+    stop_children(owner)
+finally:
+    # Stopped parents cannot fork or abandon a child while it is acquired.
+    for fd in reversed(held):
+        try:
+            signal.pidfd_send_signal(fd, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        finally:
+            os.close(fd)
+PY
+      then fail "$smoke_row_name: row-child cleanup failed"; fi
+      # Reap only this row's jobs. The pre-row jobs and the run owners stay.
+      for smoke_row_child in $(jobs -p); do
+        case " $smoke_row_children ${shell_pid:-} ${devices_pid[*]} " in
+          *" $smoke_row_child "*) ;;
+          *) wait "$smoke_row_child" 2>/dev/null || : ;;
+        esac
+      done
+      if [[ ${#smoke_row_abandon[@]} -gt 0 ]]; then
+        smoke_row_fault+=.abandon
+        smoke_row_status=0
+        set -e
+        "${smoke_row_abandon[@]}"
+        if [[ $smoke_row_status != 0 ]]; then mapfile -t smoke_row_abandon_faults <"$smoke_row_fault"; fi
+        smoke_row_abandon_status=$smoke_row_status
+        smoke_row_status=$smoke_row_source_status
+        set +e
+      fi
+    fi
     printf '%s\n' "$smoke_row_marker"
   } > >(exec awk -v marker="$smoke_row_marker" -v out="$smoke_row_out" -v result="$smoke_row_result" '
     $0 == marker && !ended { printf "%d\n", tracebacks > result; close(result); ended = 1; next }
@@ -3610,7 +3699,8 @@ smoke_row() { # NAME [DIR]
   # After the drain, so the failure follows the row's own lines. Under a
   # held-mode reset it is an operation failure, never a reset the verdict
   # excuses: every check after the failed command is lost.
-  [[ $smoke_row_status == 0 ]] || row_class=operation fail "$smoke_row_name: a command outside every check failed status=$smoke_row_status, and the row's later checks did not run"
+  [[ $smoke_row_status == 0 ]] || row_class=operation fail "$smoke_row_name: a command outside every check failed status=$smoke_row_status, command=[${smoke_row_faults[0]}] at=${smoke_row_faults[1]}:${smoke_row_faults[2]}, and the row's later checks did not run"
+  [[ $smoke_row_abandon_status == 0 ]] || row_class=operation fail "$smoke_row_name: abandon failed status=$smoke_row_abandon_status command=[${smoke_row_abandon_faults[0]}] at=${smoke_row_abandon_faults[1]}:${smoke_row_abandon_faults[2]}"
   if [[ -z $smoke_row_count ]]; then
     fail "$smoke_row_name: its output did not drain within ${smoke_row_drain_s}s: $smoke_row_out"
   elif [[ $smoke_row_count -gt 0 ]]; then

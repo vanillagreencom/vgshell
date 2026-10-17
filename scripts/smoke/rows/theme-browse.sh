@@ -13,6 +13,19 @@
 # disabled; this file leaves them so.
 # inputs: scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/ThemeRunner.qml bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/catalog/* themes/vgs/* scripts/smoke/rows/themes.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/fixtures/theme-image.jpg
 set -euo pipefail
+theme_browse_controls=""
+theme_browse_controls_cleanup() {
+  ipc smoke runnerDrop >/dev/null 2>&1 || true
+  if [[ -n $theme_browse_controls ]]; then
+    rm -rf -- "${theme_browse_controls:?}"
+    theme_browse_controls=""
+  fi
+}
+theme_browse_cleanup() {
+  if [[ -f $repo/bin/vgshell.real ]]; then mv -T -- "$repo/bin/vgshell.real" "$repo/bin/vgshell"; fi
+  theme_browse_controls_cleanup
+}
+smoke_row_abandon=(theme_browse_cleanup)
 browse="$installed/browse"
 # What VERB's callback last received, as JSON: its call count, then the
 # result's value of each KEY; `none` before the first call.
@@ -138,12 +151,6 @@ expect "the rebuilt instance received no download callback" none answer wallpape
 # directory before loading either, so Qt's cached listing includes them.
 runner_qml="$repo/shell/Core/ThemeRunner.qml"
 theme_browse_controls="$(mktemp -d "$repo/shell/Core/ThemeBrowseControls.XXXXXX")"
-theme_browse_previous_exit_trap="$(trap -p EXIT)"
-theme_browse_controls_cleanup() {
-  ipc smoke runnerDrop >/dev/null 2>&1 || true
-  teardown_step theme-browse-controls "$theme_browse_controls" rm -rf -- "${theme_browse_controls:?}"
-}
-trap 'theme_browse_controls_cleanup; cleanup' EXIT
 update_copy="$theme_browse_controls/ThemeRunnerNoUpdate.qml"
 runner_copy="$theme_browse_controls/ThemeRunnerQueuedDownloads.qml"
 python3 - "$runner_qml" "$update_copy" "$runner_copy" <<'PY'
@@ -214,9 +221,9 @@ if [[ -f $update_copy ]]; then
   expect "the smoke probe drops the no-update copy" ok ipc smoke runnerDrop
   rm -- "$update_copy"
 fi
+theme_browse_controls_path="$theme_browse_controls"
 theme_browse_controls_cleanup
-expect "the runner controls release their private directory" absent bash -c '[[ -e $1 ]] && echo present || echo absent' _ "$theme_browse_controls"
-eval "$theme_browse_previous_exit_trap"
+expect "the runner controls release their private directory" absent bash -c '[[ -e $1 ]] && echo present || echo absent' _ "$theme_browse_controls_path"
 rm -f -- "$download_argv"
 mv -T -- "$repo/bin/vgshell.real" "$repo/bin/vgshell"
 

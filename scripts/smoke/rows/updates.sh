@@ -494,6 +494,59 @@ for planted in updates-bare-refused:77 updates-bare-nested:1; do
 done
 expect "control: the failures the row handles fail nothing" 3 grep -c -E -- "^updates-bare-refused: handled (after \|\||in a substitution|under set \+e)$" "$sandbox/row-plant-updates-bare-refused.log"
 
+# A real native held press and a listening stand-in belong to the row,
+# including their coprocess wrappers. The next row reads their channels,
+# never an already-reaped pid which the host could have reused.
+cat >"$row_plants/updates-abandoned.sh" <<'SH'
+python3 - "$sandbox/row-stand-in.socket" "$sandbox/row-stand-in.ready" <<'PY' &
+import pathlib, socket, sys
+server = socket.socket(socket.AF_UNIX)
+server.bind(sys.argv[1])
+server.listen()
+pathlib.Path(sys.argv[2]).touch()
+server.accept()
+PY
+expect_poll "control: the row's stand-in listens before its failure" present bash -c '[[ -e $1 ]] && echo present || echo absent' _ "$sandbox/row-stand-in.ready"
+nested_input_check "$sandbox/click"
+coproc updates_abandoned_press { "${shell_env[@]}" "$sandbox/click" 1 1 "$mon_w" "$mon_h" drag 1 1 hold; }
+exec {updates_abandoned_out}<&"${updates_abandoned_press[0]}"
+read -r -t 10 updates_abandoned_line <&"$updates_abandoned_out"
+[[ $updates_abandoned_line == 'holding 1 1' ]]
+updates_abandoned_cleanup() { cp -- "$sandbox/no-abandon-source" "$sandbox/no-abandon-target"; echo went-on >"$sandbox/abandon-went-on"; }
+smoke_row_abandon=(updates_abandoned_cleanup)
+false
+SH
+cat >"$row_plants/updates-after-abandoned.sh" <<'SH'
+python3 - "$sandbox/row-stand-in.socket" <<'PY'
+import socket, sys
+client = socket.socket(socket.AF_UNIX)
+try:
+    client.connect(sys.argv[1])
+except ConnectionRefusedError:
+    pass
+else:
+    sys.exit("row-stand-in=still-listening")
+PY
+updates_abandoned_read=0
+read -r -t 1 updates_abandoned_line <&"$updates_abandoned_out" || updates_abandoned_read=$?
+exec {updates_abandoned_out}<&-
+[[ $updates_abandoned_read == 1 ]]
+SH
+(
+  failures=0 behaviour_failures=0
+  smoke_row updates-abandoned "$row_plants" >"$sandbox/row-plant-updates-abandoned.log" 2>&1
+  printf '%s\n' "$failures" >"$sandbox/row-abandoned.failures"
+  failures=0 behaviour_failures=0
+  smoke_row updates-after-abandoned "$row_plants" >"$sandbox/row-plant-updates-after-abandoned.log" 2>&1
+  printf '%s\n' "$failures" >"$sandbox/row-after-abandoned.failures"
+) &
+wait "$!" || :
+expect "control: the bare failure and its failing abandon each fail under the planted row" 2 cat "$sandbox/row-abandoned.failures"
+expect "control: the later row finds no stand-in or held press alive" 0 cat "$sandbox/row-after-abandoned.failures"
+expect "control: the first failure names its command and source location" 1 grep -c -E -- '^  FAIL  updates-abandoned: .*command=\[false\] at=.*/updates-abandoned.sh:[0-9]+,' "$sandbox/row-plant-updates-abandoned.log"
+expect "control: a bare copy failure in abandon names its command and source location" 1 grep -c -E -- '^  FAIL  updates-abandoned: abandon failed .*command=\[cp .*\] at=.*/updates-abandoned.sh:[0-9]+$' "$sandbox/row-plant-updates-abandoned.log"
+expect "control: abandon runs nothing after its failed copy" absent bash -c '[[ -e $1 ]] && echo present || echo absent' _ "$sandbox/abandon-went-on"
+
 # Pending, from the last real check.
 expect_poll "a pending check draws the accent count" '["pending", "refresh-cw", "accent", "7", "accent"]' widget_view
 expect "the widget draws the icon in the accent colour with the count" '["refresh-cw", "accent", "7"]' widget_drawn

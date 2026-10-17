@@ -6,6 +6,44 @@
 # claimed.
 # inputs: shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* shell/plugins/vgs.bar/* shell/Ui/feedback/VoiceOrb.qml shell/Core/Layers.qml shell/Hosts/AppWindow.qml shell/Hosts/SummonHost.qml scripts/smoke/toplevel/* scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/jarvis.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/diagnostics.sh
 set -euo pipefail
+jarvis_bubble_row_config="$sandbox/jarvis-bubble-row-shell.json"
+jarvis_bubble_focus_output=false
+jarvis_bubble_row_focus="$(hypr -j activewindow | py_reply 'import json,sys; print(json.load(sys.stdin).get("address", ""))')"
+cp -p -- "$home/.config/vgshell/shell.json" "$jarvis_bubble_row_config"
+jarvis_bubble_abandon() {
+  local before target
+  jarvis_key_talk_up
+  jarvis_key_stop
+  jarvis_disable
+  ipc shell hide window vgs.jarvis >/dev/null
+  # These snapshots are acquired before each corresponding control plant.
+  while read -r before target; do
+    if [[ -f $sandbox/$before ]]; then cp -- "$sandbox/$before" "$target"; fi
+  done <<EOF
+jarvis-bubble-engine-before $repo/shell/plugins/vgs.jarvis/backend/ChainedEngine.js
+jarvis-bubble-backend-before $jarvis_key_backend
+jarvis-bubble-before $repo/shell/plugins/vgs.jarvis/Bubble.qml
+jarvis-bubble-fixture-before $repo/shell/plugins/vgs.jarvis/backend/scripted-fixture.js
+jarvis-key-service-before $jarvis_key_service
+EOF
+  if [[ -f $sandbox/jarvis-bubble-focus-before.lua ]]; then
+    cp -- "$sandbox/jarvis-bubble-focus-before.lua" "$home/.config/hypr/hyprland.lua"
+    if [[ $jarvis_bubble_focus_output == true ]]; then
+      expect "the bubble row removes its extra focus output" ok hypr output remove SMOKE-JARVIS
+    fi
+    expect "the bubble row restores its focus rules" ok hypr reload config-only
+  fi
+  jarvis_restore_requirements
+  cp -p -- "$jarvis_bubble_row_config" "$home/.config/vgshell/shell.json.next"
+  mv -T -- "$home/.config/vgshell/shell.json.next" "$home/.config/vgshell/shell.json"
+  expect "the bubble row restores its configuration" ok ipc shell reloadConfig
+  jarvis_rescan
+  jarvis_enable
+  if [[ -n $jarvis_bubble_row_focus ]]; then
+    expect "the bubble row restores its previous focus" ok hypr dispatch "hl.dsp.focus({ window = \"address:$jarvis_bubble_row_focus\" })"
+  fi
+}
+smoke_row_abandon=(jarvis_bubble_abandon)
 
 jarvis_bubble_state() {
   ipc smoke layerWindows vgs.jarvis | py_reply '
@@ -515,6 +553,7 @@ jarvis_bubble_first="$(hypr -j monitors | py_reply 'import json,sys; print(next(
 printf '%s\n' 'hl.config({ input = { follow_mouse = 0 }, cursor = { no_warps = true }, misc = { mouse_move_focuses_monitor = false } })' >>"$jarvis_bubble_lua"
 expect "the nested configuration holds monitor focus" ok hypr reload config-only
 expect "the nested compositor adds another focus target" ok hypr output create headless SMOKE-JARVIS
+jarvis_bubble_focus_output=true
 expect "the physical-key fixture focuses the other monitor" ok probe dispatch "focusMonitor SMOKE-JARVIS"
 expect_poll "the service observes the other focused output" '"SMOKE-JARVIS"' ipc smoke readInstance service vgs.jarvis focusedOutput
 expect_poll "only the focused output requests a bubble" focused jarvis_bubble_focused
@@ -522,6 +561,7 @@ expect "focus returns to the original monitor" ok probe dispatch "focusMonitor $
 expect_poll "the service observes restored monitor focus" "\"$jarvis_bubble_first\"" ipc smoke readInstance service vgs.jarvis focusedOutput
 expect_poll "the restored focused output owns the visual" focused jarvis_bubble_focused
 expect "the nested compositor removes the focus target" ok hypr output remove SMOKE-JARVIS
+jarvis_bubble_focus_output=false
 cp -- "$sandbox/jarvis-bubble-focus-before.lua" "$jarvis_bubble_lua"
 expect "the nested pointer configuration is restored" ok hypr reload config-only
 jarvis_key_talk_up

@@ -35,6 +35,25 @@
 # lacks the server and plugins earlier rows build.
 # inputs: scripts/fixtures/notifications/state-v3.json bin/lib/qml-library.js shell/Commons/PageReference.js shell/Ui/foundation/ImageText* shell/Core/Sounds.qml shell/assets/sounds/* scripts/smoke/fixtures/plugins/acme.sounds/* scripts/smoke/devices.sh scripts/smoke/fixtures/devices/* shell/plugins/vgs.notifications/* shell/plugins/vgs.settings/* shell/Ui/controls/ShortcutField.qml shell/Ui/controls/BindField.qml shell/Core/HyprlandLayer.js shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/PluginSlot.qml shell/Commons/Reply.js shell/Core/NotificationHub.qml shell/Core/Notifier.qml shell/Core/Layers.qml scripts/smoke/fixtures/slack/* scripts/smoke/fixtures/ai-usage/edit.py shell/Core/PluginLogic.js shell/Core/ConfigLogic.js scripts/smoke/toplevel/* scripts/smoke/fixtures/theme-image.jpg shell/Core/SecretWriter.qml shell/Core/Capabilities.qml shell/Core/TuiRunner.qml scripts/smoke/rows/capabilities.sh scripts/smoke/rows/status.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/overlay/Tooltip.qml shell/Ui/controls/Select.qml shell/Core/Plugins.qml shell/Commons/Tokens.js shell/Ui/layout/Section.qml shell/Ui/layout/Pane.qml shell/Ui/controls/RowAction.qml shell/Commons/Theme.qml shell/plugins/vgs.themes/* bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/vgs/* shell/Commons/ThemeLogic.js themes/catalog/flexoki-light/theme.json shell/Ui/foundation/GlassSurface.qml shell/Commons/Glass.js
 set -euo pipefail
+note_row_config="$sandbox/notifications-row-shell.json"
+note_row_focus="$(hypr -j activewindow | py_reply 'import json,sys; print(json.load(sys.stdin).get("address", ""))')"
+cp -p -- "$home/.config/vgshell/shell.json" "$note_row_config"
+notifications_restore_standins() {
+  sentinel_restore "$shim/secret-tool"
+  rm -f -- "${shim:?}/curl"
+}
+notifications_abandon() {
+  notifications_restore_standins
+  ipc shell hide window vgs.settings >/dev/null
+  cp -p -- "$note_row_config" "$home/.config/vgshell/shell.json.next"
+  mv -T -- "$home/.config/vgshell/shell.json.next" "$home/.config/vgshell/shell.json"
+  expect "the notification row restores its configuration after an early end" ok ipc shell reloadConfig
+  expect_poll "the notification row has released its window and layers" False record_exists vgs.notifications
+  if [[ -n $note_row_focus ]]; then
+    expect "the notification row restores its previous focus" ok hypr dispatch "hl.dsp.focus({ window = \"address:$note_row_focus\" })"
+  fi
+}
+smoke_row_abandon=(notifications_abandon)
 expected_errors+=('notifications: refused: status=slackTokens reason=retired')
 # The sound rule is not loaded in the sandbox's WirePlumber until the
 # row's app sound part restarts it, so a mute that outlasts the grace
@@ -5578,5 +5597,4 @@ expect "the images directory holds only what the stored entries own" '[]' orphan
 # The rows above are done with the secret-tool stand-in: the harness's
 # sentinel comes back for every later row. The curl stand-in the row added
 # goes too.
-sentinel_restore "$shim/secret-tool"
-rm -f -- "${shim:?}/curl"
+notifications_restore_standins

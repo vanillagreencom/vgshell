@@ -41,6 +41,12 @@ swatch_accent() { probe theme "swatch=$1" | py_reply 'import json,sys; print(jso
 revision_rose() { local now; now="$(theme_member revision)" && [[ $now -gt $revision_before ]] && echo rose || echo same; }
 # The sandbox copy's vgshell runs BODY for a theme command and the real
 # runner for everything else, so the rows' own ipc calls keep working.
+theme_core_restore=false
+restore_theme_row() {
+  if [[ -f $repo/bin/vgshell.real ]]; then mv -T -- "$repo/bin/vgshell.real" "$repo/bin/vgshell"; fi
+  if [[ $theme_core_restore == true ]]; then restore_theme_core_config; fi
+}
+smoke_row_abandon=(restore_theme_row)
 cp -p -- "$repo/bin/vgshell" "$repo/bin/vgshell.real"
 stand_in_vgshell() {
   printf '#!/usr/bin/env bash\nif [[ ${1:-} == theme ]]; then\n%s\nfi\nexec %q "$@"\n' "$1" "$repo/bin/vgshell.real" >"$repo/bin/vgshell.next" \
@@ -57,7 +63,7 @@ restore_theme_core_config() {
 }
 # A failed command ends the row before the restore below; smoke_row then
 # runs it, so the rows after this one read the preserved configuration.
-smoke_row_abandon=(restore_theme_core_config)
+theme_core_restore=true
 expect "enabling the fixture for the theme rows is allowed" ok ipc shell setPluginEnabled acme.probe true
 expect_poll "the fixture service is back for the theme rows" True service_built
 expect_poll "the rebuilt fixture has applied nothing" 0 applies
@@ -294,7 +300,7 @@ expect "the vgs apply after the follow rows ends" idle theme_idle
 expect "disabling the fixture after the theme rows is allowed" ok ipc shell setPluginEnabled acme.probe false
 restore_theme_core_config
 expect_poll "the browser service restores before its panel rows" false ipc smoke readInstance service vgs.themes setupPending
-smoke_row_abandon=()
+theme_core_restore=false
 
 # ---- vgs.themes: the themes panel ----------------------------------------
 # The first-party themes plugin: its shortcut opens an unanchored panel,
