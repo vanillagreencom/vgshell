@@ -9,11 +9,13 @@ Power shows the battery level and the power profile in the bar, and switches the
 - A bar icon with the battery level and the active power profile. On a desktop it shows the profile alone, and it hides when profile control is unavailable too.
 - A flyout with the battery level, the charging state, the time estimate and the power profiles.
 - Use power saver, Use balanced and Use performance in the launcher.
-- Switches to the profile you choose when you connect or disconnect power. It leaves the profile alone when VGS starts.
+- With a battery, switches to the profile you choose when you connect or disconnect power. It leaves the profile alone when VGS starts.
 - Sends a low battery alert and an urgent critical alert, each once per discharge.
 - Performance is unavailable on hardware without a performance profile.
 
 ## Settings
+
+The battery rows show only on a machine with a battery. Without a battery, Power sets one profile from the bar, and Details says so.
 
 | Setting | What it changes |
 | --- | --- |

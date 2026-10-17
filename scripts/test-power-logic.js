@@ -2,7 +2,8 @@
 // Table-driven checks for vgs.power's pure decisions, PowerLogic.js:
 // battery presence, battery and profile views, icon bands, time text,
 // the profile view read from the daemon's reply, source-change profile
-// choice, low-battery latches and the notice each latch sends.
+// choice, the setting a bar pick remembers, low-battery latches and the
+// notice each latch sends.
 // Controls edit one rule at a time in a copy of the logic under repo tmp
 // and require this suite to fail on each copy.
 "use strict";
@@ -95,6 +96,13 @@ function verify(logic) {
     assert.equal(logic.profileForSource(false, settings, ["power-saver", "balanced", "performance"]), "performance", "source change applies the charger profile");
     assert.equal(logic.profileForSource(true, settings, ["power-saver", "balanced", "performance"]), "power-saver", "source change applies the battery profile");
     assert.equal(logic.profileForSource(false, settings, ["power-saver", "balanced"]), "balanced", "source change falls back from performance");
+    // The setting a bar pick remembers: [battery present, on battery, key].
+    for (const [present, onBattery, want] of [
+        [true, false, "chargerProfile"],
+        [true, true, "batteryProfile"],
+        [false, false, ""],
+        [false, true, ""]
+    ]) assert.equal(logic.rememberedSetting(present, onBattery), want, `rememberedSetting: present=${present} onBattery=${onBattery}`);
 
     assert.equal(logic.stateLabel({ present: true, charging: true, state: "charging" }), "Charging", "stateLabel: charging");
     assert.equal(logic.stateLabel({ present: true, charging: false, state: "discharging" }), "On battery", "stateLabel: discharging");
@@ -175,6 +183,8 @@ const CONTROLS = [
     ["a level bounce does not rearm low", "    if (discharging !== true) return { notices: out, latch: latchInitial() };\n    if (n <= critical) {", "    if (discharging !== true) return { notices: out, latch: latchInitial() };\n    if (n > low) next.low = false;\n    if (n <= critical) {"],
     ["the critical notice is danger", "tone: critical ? \"danger\" : \"warning\",", "tone: \"warning\","],
     ["each notice state has its own title", "title: critical ? \"Battery critical\" : \"Battery low\",", "title: \"Battery low\","],
+    ["a bar pick with no battery remembers nothing", "if (batteryPresent !== true) return \"\";", "if (false) return \"\";"],
+    ["a bar pick remembers the current source's profile", "return onBattery === true ? \"batteryProfile\" : \"chargerProfile\";\n}", "return \"chargerProfile\";\n}"],
     ["first ready source reading does not apply", "if (state.ready !== true) return { state: { ready: true, onBattery: onBattery === true }, apply: false };", "if (state.ready !== true) return { state: { ready: true, onBattery: onBattery === true }, apply: true };"]
 ];
 

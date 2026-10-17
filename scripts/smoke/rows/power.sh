@@ -42,8 +42,12 @@
 # active one marked, and follows the daemon to a shorter list; keyboard
 # selection in the panel chooses Performance and writes the current source setting; a
 # plug change applies the remembered charger profile; removing the display
-# battery hides the widget's battery part again; and a profile service
-# that starts after the plugin is read. Two orders of a profile write
+# battery hides the widget's battery part again; Power's Settings tab draws
+# its four battery fields with a battery, none with no battery and all
+# four again once the display battery is back; with no battery a bar pick
+# sets the profile and remembers no setting, and with one it remembers
+# the current source's; and a profile service that starts after the
+# plugin is read. Two orders of a profile write
 # are held with the barrier: a profile asked for while a write runs is
 # written next, and after a write the daemon refuses the mark returns to
 # the daemon's profile. Controls build fixture
@@ -64,7 +68,7 @@
 # directory, stops the mock process groups it spawned, and restarts the
 # shell because Quickshell keeps that singleton in the process after the
 # plugin is disabled.
-# inputs: shell/plugins/vgs.power/* shell/Core/Capabilities.qml shell/Core/PluginStatus.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Notices.qml shell/Core/Notifier.qml shell/Hosts/NoticeHost.qml shell/Hosts/SummonHost.qml bin/vgshell-scan scripts/smoke/rows/device-fakes.sh scripts/smoke/power-fakes.sh
+# inputs: shell/plugins/vgs.power/* shell/plugins/vgs.settings/* shell/Core/Registry.qml shell/Core/Capabilities.qml shell/Core/PluginStatus.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Notices.qml shell/Core/Notifier.qml shell/Hosts/NoticeHost.qml shell/Hosts/SummonHost.qml bin/vgshell-scan scripts/smoke/rows/device-fakes.sh scripts/smoke/power-fakes.sh
 set -euo pipefail
 source "$repo/scripts/smoke/power-fakes.sh"
 
@@ -157,6 +161,16 @@ power_set_writes() { [[ -s $power_gdbus_calls ]] && py_reply 'import json,sys
 runs = [json.loads(line) for line in sys.stdin]
 print(json.dumps([run[-1][2:-2] for run in runs if "org.freedesktop.DBus.Properties.Set" in run]))' <"$power_gdbus_calls" || echo '[]'; }
 power_exists() { [[ -e $1 ]] && echo yes || echo no; }
+# power_battery_fields: which of the four battery settings Power's Settings
+# tab draws, as the sorted schema keys whose label a SettingField of the
+# Settings window shows. The keys are listed here, not read from the
+# manifest's shownWhen, so a field that loses its condition still counts.
+power_battery_keys='["batteryProfile", "chargerProfile", "criticalThreshold", "lowThreshold"]'
+power_battery_fields() { ipc smoke itemTexts window vgs.settings SettingField | py_reply 'import json,sys
+schema = json.load(open(sys.argv[1]))["schema"]
+drawn = {t.lower() for row in json.load(sys.stdin) for t in row}
+print(json.dumps(sorted(k for k in json.loads(sys.argv[2]) if schema[k]["label"].lower() in drawn)))' "$repo/shell/plugins/vgs.power/manifest.json" "$power_battery_keys"; }
+power_battery_presence() { ipc smoke statusValues vgs.power | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin).get("battery")))'; }
 power_hold_next_set() {
   power_unlink "$power_set_held"
   power_unlink "$power_set_release"
@@ -307,9 +321,25 @@ EOF_STAND
   expect_poll "plugging in applies the remembered charger profile" performance power_profile_get
   expect "the Power panel closes" ok ipc shell hide panel vgs.power
 
+  expect "Settings opens on Power's Settings tab" ok ipc shell summon window vgs.settings '{"plugin":"vgs.power","tab":"Settings"}'
+  expect_poll "with a battery Settings draws Power's four battery fields" "$power_battery_keys" power_battery_fields
   power_no_battery
   expect_poll "removing the display battery hides the widget battery text" '[[], []]' power_texts
   expect_poll "removing the display battery leaves the profile icon" '["zap"]' power_icons
+  expect_poll "with no battery the service publishes the battery absent" '"absent"' power_battery_presence
+  expect_poll "with no battery Settings draws none of Power's battery fields" '[]' power_battery_fields
+  expect "with no battery a bar pick is taken" power-saver ipc vgs.power invoke profile power-saver
+  expect_poll "with no battery the daemon holds the bar pick" power-saver power_profile_get
+  power_discharging 64.0 7200
+  expect_poll "with the battery back the service publishes it present" '"present"' power_battery_presence
+  expect_poll "with the battery back Settings draws Power's four battery fields again" "$power_battery_keys" power_battery_fields
+  # Writes to the configuration land in order, so once this pick is stored
+  # a store of the no-battery pick would be too.
+  expect "with a battery a bar pick is taken" balanced ipc vgs.power invoke profile balanced
+  expect_poll "with a battery a bar pick remembers the battery profile" '"balanced"' power_setting batteryProfile
+  expect "with no battery the bar pick remembered no charger profile" null power_setting chargerProfile
+  expect "the Settings window hides after Power's fields" ok ipc shell hide window vgs.settings
+  expect_poll "the Settings window is gone after Power's fields" 0 window_count Plugins
 
   expect "disabling vgs.power for controls is allowed" ok ipc shell setPluginEnabled vgs.power false
   power_install_fixture acme.power-relatch "$power_relatch_dir" PowerLogic.js \

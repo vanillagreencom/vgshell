@@ -2,8 +2,9 @@
 
 // Pure decisions for vgs.power: whether the display device is a laptop
 // battery, the battery and profile view published as plugin status, icon
-// bands, time text, profile mapping, low-battery latches and the profile
-// to apply when the power source changes. QML owns UPower, the gdbus runs
+// bands, time text, profile mapping, low-battery latches, the profile
+// to apply when the power source changes and the setting a bar pick
+// remembers. QML owns UPower, the gdbus runs
 // that reach the power profiles daemon, settings writes, IPC and notices.
 
 var PROFILE = {
@@ -197,6 +198,26 @@ function noticePayload(notice) {
         icon: critical ? "battery-warning" : "battery-low",
         urgency: notice.urgency
     };
+}
+
+// The setting a bar pick of a profile writes, so the next change of the
+// power source applies that pick again: the current source's profile
+// while a battery is present, and "" with no battery. Without a battery
+// the source never changes, so neither setting would ever act, and the
+// Settings page draws neither field (the manifest's shownWhen).
+function rememberedSetting(batteryPresent, onBattery) {
+    if (batteryPresent !== true) return "";
+    return onBattery === true ? "batteryProfile" : "chargerProfile";
+}
+
+// The Details line that says how Power sets the profile on this machine:
+// with a battery it follows the power source, without one it keeps the
+// one profile chosen from the bar. Settings draws a text value on one
+// elided line with no link, so it stays short and plain.
+function profileRuleText(batteryPresent) {
+    return batteryPresent === true
+        ? "Power sets it when you connect or disconnect power"
+        : "Power sets one profile from the bar";
 }
 
 function profileForSource(onBattery, settings, choices) {

@@ -72,10 +72,20 @@ Item {
         }
     }
 
+    // `battery` is the presence the Settings page shows the battery fields
+    // by (their shownWhen); `profileRule` the Details line that says how
+    // the profile is set on this machine. The status capability keeps a
+    // value it already holds, so a repeat write changes nothing.
     function publish() {
         if (shell === null) return;
-        const reply = shell.status.set("power", root.view);
-        if (reply !== "ok") console.error("power: status power " + reply);
+        report("power", root.view);
+        report("battery", battery.present ? "present" : "absent");
+        report("profileRule", Logic.profileRuleText(battery.present));
+    }
+
+    function report(key, value) {
+        const reply = shell.status.set(key, value);
+        if (reply !== "ok") console.error("power: status " + key + " " + reply);
     }
 
     function profileRequest(arg) {
@@ -89,8 +99,8 @@ Item {
         if (!Logic.validProfile(name)) return "refused: profile=" + name + " want=power-saver|balanced|performance";
         if (profile.choices.indexOf(name) === -1) return "refused: profile=" + name + " reason=unavailable";
         writeProfile(name);
-        if (remember === true && shell !== null) {
-            const key = UPower.onBattery ? "batteryProfile" : "chargerProfile";
+        const key = remember === true && shell !== null ? Logic.rememberedSetting(battery.present, UPower.onBattery) : "";
+        if (key !== "") {
             const saved = shell.configure.set(key, name);
             if (saved !== "ok") console.warn("power: configure " + saved);
         }
