@@ -241,6 +241,29 @@ Item {
         }
     }
 
+    // Read-only key/value rows, as a device's details draw them, whose
+    // values and hints hold descenders, tall glyphs, both or neither.
+    Component {
+        id: coveredText
+        Rectangle {
+            property alias rows: textRows
+            anchors.fill: parent
+            z: 1
+            color: Theme.color.surface
+            Column {
+                id: textRows
+                width: 420
+                spacing: Theme.stack.row
+                Field { label: "Name"; hint: "Seen here"; inline: true; width: parent.width; Label { role: "value"; text: "desk" } }
+                Field { label: "Address"; hint: "Typing jumpy query"; inline: true; width: parent.width; Label { role: "value"; text: "100.64.0.1" } }
+                Field { label: "Network"; inline: true; width: parent.width; Label { role: "value"; text: "jpqy.example" } }
+                Field { label: "Account"; inline: true; width: parent.width; Label { role: "value"; text: "owner@fixture.example" } }
+                Field { label: "State"; inline: true; width: parent.width; Label { role: "value"; text: "100 (connected)" } }
+                Field { label: "Type"; inline: true; width: parent.width; Label { role: "value"; text: "ethernet" } }
+            }
+        }
+    }
+
     TestCase {
         name: "settingfield"
         when: windowShown
@@ -763,6 +786,36 @@ Item {
             const read = gaps.map(entry => entry.pair + " " + entry.gap).join(", ");
             for (const entry of gaps)
                 verify(Math.abs(entry.gap - want) <= 1, "every row stands " + want + " blank rows under the one above: " + read);
+        }
+
+        // The first row of ink in LABEL's box.
+        function inkTop(img, label) {
+            const at = label.mapToItem(root, 0, 0);
+            for (let y = Math.floor(at.y); y < at.y + label.height; y++)
+                for (let x = Math.floor(at.x); x < at.x + label.width; x++) if (inked(img, x, y)) return y;
+            return -1;
+        }
+
+        // A text line counts from its capital top to its font's descent
+        // line, so rows of text keep one pitch whatever their values and
+        // hints hold: the labels' capitals stand as far apart under a hint
+        // with descenders as under one without, and under a value with
+        // descenders, tall glyphs or neither. Read by their glyphs, as
+        // Section reads a heading's space, the labels stood 48 and 50 px
+        // apart under the two hints and 30, 31 and 29 px under the values,
+        // under scripts/qml-unit.sh on 732f0dae5: the controls in
+        // scripts/test-qml-unit.sh.
+        function test_text_rows_keep_one_pitch_whatever_they_read() {
+            const cover = createTemporaryObject(coveredText, root);
+            verify(cover !== null);
+            verify(waitForRendering(cover));
+            const img = grabImage(root);
+            const labels = cover.rows.children.map(field => descendants(field).find(child => child.objectName === "fieldLabel"));
+            const tops = labels.map(label => inkTop(img, label));
+            verify(tops.every(top => top >= 0), "every label draws: " + tops.join(", "));
+            const pitch = tops.slice(1).map((top, i) => top - tops[i]);
+            compare(pitch[0], pitch[1], "under a hint with descenders as without: " + pitch.join(", "));
+            verify(pitch.slice(2).every(step => step === pitch[2]), "under values with descenders, tall glyphs or neither: " + pitch.join(", "));
         }
 
         function test_a_status_choice_without_custom_reads_unavailable() {

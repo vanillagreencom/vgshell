@@ -30,9 +30,13 @@ import qs.Ui
 // no key/value row starts `stack.group` below the last line
 // (Theme.subTextRoom). An inline field with a label is a key/value row,
 // and one under another key/value row of its column (`keyValueRow`) stands
-// `stack.page` under that row's drawn ink, from its lowest drawn pixel to
-// this row's highest (Theme.inkBelow, Theme.inkAbove), whatever either
-// control draws in its row box: its top padding takes out of that space
+// `stack.page` under that row's drawn ink, from its lowest drawn part to
+// this row's highest, whatever either control draws in its row box. A
+// text line, the label, a Label value, the lines and the hint, counts from
+// its capital top to its font's descent line, or its baseline in a role
+// drawn in capitals, not by the glyphs it holds, so rows of one role keep
+// one pitch whatever they read (FormRow.lineAbove, `lineBelow()`); a
+// control counts as drawn (Theme.inkAbove, Theme.inkBelow). Its top padding takes out of that space
 // the column's spacing and both blanks, and goes negative where those
 // exceed it, so the row boxes overlap where the controls draw less than
 // the box. Ink is drawn in whole pixel rows on whole-pixel item edges, as
@@ -116,7 +120,7 @@ Column {
     onDisabledReasonChanged: judgeReason()
     Component.onCompleted: judgeReason()
 
-    topPadding: rowAbove === null ? 0 : Theme.stack.page - rowAbove.room - Math.floor(Theme.inkBelow(rowAbove.item)) - Math.floor(controlRow.inkAbove())
+    topPadding: rowAbove === null ? 0 : Theme.stack.page - rowAbove.room - Math.floor(lineBelowOf(rowAbove.item)) - Math.floor(controlRow.lineAbove())
     leftPadding: Theme.field.paddingX
     rightPadding: Theme.field.paddingX
     bottomPadding: Theme.subTextRoom(subText, Positioner.index, Positioner.isLastItem, parent)
@@ -134,6 +138,32 @@ Column {
         if (!subText) return below;
         const slotTop = bottomPadding + room - spacing;
         return Math.min(below, slotTop - hintSlot.textBottom + hintSlot.textInkBelow());
+    }
+
+    // inkBelow() with each text line read by its font: where a key/value
+    // row under this one measures from.
+    function lineBelow() {
+        const room = hintSlot.visible && hintSlot.height > 0 ? spacing + hintSlot.height : 0;
+        const below = bottomPadding + room + controlRow.lineBelow();
+        if (!subText) return below;
+        const slotTop = bottomPadding + room - spacing;
+        return Math.min(below, slotTop - hintSlot.textBottom + hintSlot.textLineBelow());
+    }
+
+    // How far above ITEM's bottom edge the row it ends with stops, read by
+    // lineBelow() as Theme.inkBelow reads ink: a field by its own, a
+    // Column by its last shown child above its bottom padding, a GroupList
+    // by its last shown group, a Loader by its item, and anything else as
+    // drawn.
+    function lineBelowOf(item) {
+        if (typeof item.lineBelow === "function") return item.lineBelow();
+        if (item instanceof Loader) return item.item instanceof Item ? item.height - item.item.height + lineBelowOf(item.item) : 0;
+        const list = item instanceof GroupList;
+        if (!list && !(item instanceof Column)) return Theme.inkBelow(item);
+        const shown = (list ? Array.from(item.groups) : Array.from(item.children)).filter(child => child instanceof Item && child.visible && child.width > 0 && child.height > 0);
+        if (shown.length === 0) return Theme.inkBelow(item);
+        const last = shown[shown.length - 1];
+        return (list ? item.height - last.y - last.height : item.bottomPadding) + lineBelowOf(last);
     }
 
     Item {
@@ -190,6 +220,16 @@ Column {
         readonly property real linesHeight: root.lines.length > 0 ? subLines.implicitHeight + (hintLine.text !== "" ? Theme.field.gap : 0) : 0
         readonly property real textBottom: textTop + linesHeight + (hintLine.text !== "" ? hintLine.implicitHeight : 0)
         function textInkBelow() { return hintLine.text !== "" ? hintLine.inkBelow() : Theme.inkBelow(subLines); }
+        // The same by the text's font (FormRow.fontBelow): the hint's role
+        // through a probe line of it, a link's underline still counted.
+        function textLineBelow() {
+            if (hintLine.text === "") {
+                const lines = Array.from(subLines.children).filter(child => child instanceof Label);
+                return controlRow.fontBelow(lines[lines.length - 1]);
+            }
+            const line = controlRow.fontBelow(hintProbe);
+            return hintLine.linked ? Math.min(line, hintLine.inkBelow()) : line;
+        }
         // How far the text sits below where the slot is: none while the
         // Column places it, and the slot's stale `y` for a slot of no
         // height, which the Column skips.
@@ -227,6 +267,14 @@ Column {
                     wrapMode: Text.Wrap
                 }
             }
+        }
+
+        // One line of the hint's role, for its font's lines; last, after the
+        // lines and the hint, which keep their places among the children.
+        Label {
+            id: hintProbe
+            visible: false
+            role: "hint"
         }
     }
 }

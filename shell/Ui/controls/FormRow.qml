@@ -76,6 +76,10 @@ import qs.Ui
 // an action on a line of its own under that message, since the control
 // centres in a taller row box. `inkAbove()` is how far below its top edge
 // the highest drawn part starts, its label or its control as drawn.
+// `lineAbove()` and `lineBelow()` read the same, but a text line, the
+// label, a Label in the slot or the message, by its font rather than the
+// glyphs it holds (`fontAbove()`, `fontBelow()`), so key/value rows of one
+// role keep one pitch whatever they read (Field).
 Item {
     id: root
 
@@ -155,20 +159,51 @@ Item {
     signal warningPageActivated(string page, string tab)
     signal infoPageActivated(string page, string tab)
 
-    function inkBelow() {
-        let bottom = labelColumn && label !== "" ? labelText.y + labelText.height - labelText.inkBelow() : 0;
+    function inkBelow() { return drawnBelow(false); }
+    function inkAbove() { return drawnAbove(false); }
+    function lineBelow() { return drawnBelow(true); }
+    function lineAbove() { return drawnAbove(true); }
+
+    // A text line's top and bottom by its font, not the glyphs it holds:
+    // the capital top, and the last baseline plus the font's descent, or
+    // the baseline for a role drawn in capitals. TEXT is a Label, or a probe
+    // Label of a LinkText's role, whose lines share one line box, so its
+    // last baseline stands as far above its bottom. The descent is the
+    // font's height less its ascent, the capital centre plus half the
+    // capital height: QFontMetricsF::height() is always ascent() + descent()
+    // (https://doc.qt.io/qt-6/qfontmetricsf.html#height).
+    function fontAbove(text) { return text.capTop(); }
+    function fontBelow(text) {
+        const baseline = text.height - text.lastBaseline();
+        if (text.typography.uppercase) return baseline;
+        const capital = text.baselineOffset - text.capTop();
+        return baseline - (text.fontHeight - text.capCentre - capital / 2);
+    }
+    // A link's underline, under the descent line, still ends the message.
+    function messageBelow() {
+        const line = fontBelow(messageProbe);
+        return message.linked ? Math.min(line, message.inkBelow()) : line;
+    }
+
+    // How far above its bottom edge the row's lowest drawn part ends, each
+    // text line read by its font while BYFONT holds and by its glyphs
+    // otherwise.
+    function drawnBelow(byFont) {
+        let bottom = labelColumn && label !== "" ? labelText.y + labelText.height - (byFont ? fontBelow(labelText) : labelText.inkBelow()) : 0;
         for (const child of slot.children) {
-            if (child.visible) bottom = Math.max(bottom, slot.y + child.y + child.height - Theme.inkBelow(child));
+            if (child.visible) bottom = Math.max(bottom, slot.y + child.y + child.height - (byFont && child instanceof Label ? fontBelow(child) : Theme.inkBelow(child)));
         }
-        if (message.visible) bottom = Math.max(bottom, message.y + message.height - message.inkBelow());
+        if (message.visible) bottom = Math.max(bottom, message.y + message.height - (byFont ? messageBelow() : message.inkBelow()));
         if (actionSlot.visible && root.actionBelow) bottom = Math.max(bottom, actionSlot.y + actionSlot.height);
         return height - bottom;
     }
 
-    function inkAbove() {
-        let top = labelColumn && label !== "" ? labelText.y + labelText.inkAbove() : height;
+    // How far below its top edge the row's highest drawn part starts, read
+    // as drawnBelow reads.
+    function drawnAbove(byFont) {
+        let top = labelColumn && label !== "" ? labelText.y + (byFont ? fontAbove(labelText) : labelText.inkAbove()) : height;
         for (const child of slot.children) {
-            if (child.visible) top = Math.min(top, slot.y + child.y + Theme.inkAbove(child));
+            if (child.visible) top = Math.min(top, slot.y + child.y + (byFont && child instanceof Label ? fontAbove(child) : Theme.inkAbove(child)));
         }
         return Math.min(top, height);
     }
@@ -268,5 +303,12 @@ Item {
         text: root.labelTooltip
         width: Math.max(1, root.besideWrap)
         wrapMode: Text.Wrap
+    }
+
+    // One line of the message's role, for its font's lines (fontBelow).
+    Label {
+        id: messageProbe
+        visible: false
+        role: message.role
     }
 }
