@@ -631,13 +631,40 @@ display_record_finish() { # ORIGINAL_EXIT, after the producer groups end
   printf 'qml-smoke: display-record-retained=%s original_exit=%s recorder_exit=%s\n' "$display_record_dir" "$original_exit" "$recorder_exit"
   return "$finalizer_errors"
 }
+# display_record_arm DIR CMD...: spawn CMD, the recorder serving DIR, and
+# wait for the ready line it writes once its control socket is bound. Only
+# the recorder holds a write end of the ready pipe, so a recorder that exits
+# before that line ends the read at end of file; no deadline that a slow
+# healthy start could outlast. A recorder that did not arm ends the run
+# with a keyed line and 77. scripts/test-smoke-display-record.sh runs it.
+display_record_arm() { # DIR CMD...
+  local dir="$1" log="$1/recorder.log" answer="" held ready_r ready_w status=0
+  shift
+  mkfifo -m 600 "$dir/ready"
+  # On Linux an O_RDWR open of a FIFO does not wait for a peer (fifo(7)), so
+  # the one-way ends open here without blocking.
+  exec {held}<>"$dir/ready"
+  exec {ready_r}<"$dir/ready" {ready_w}>"$dir/ready"
+  exec {held}<&-
+  spawn "$log" "$@"
+  display_record_pid="$spawn_pid"
+  # The recorder inherited the write end; no later child may.
+  exec {ready_w}>&-
+  if IFS= read -r -u "$ready_r" answer; then
+    exec {ready_r}<&-
+    [[ $answer == ready ]] && return 0
+    printf 'qml-smoke: display-record=arm-failed cause=unexpected-answer answer=[%s] log=%s\n' "$answer" "$log"
+    exit 77
+  fi
+  exec {ready_r}<&-
+  wait "$display_record_pid" || status=$?
+  printf 'qml-smoke: display-record=arm-failed cause=recorder-exited status=%s log=%s\n' "$status" "$log"
+  tail -n 5 -- "$log" || true
+  exit 77
+}
 display_record_dir="$(mktemp -d "$source_repo/tmp/display-record.XXXXXX")"
 display_record_program >"$display_record_dir/recorder.py"
-mkfifo -m 600 "$display_record_dir/ready"
-spawn "$display_record_dir/recorder.log" "${sandbox_env[@]}" python3 -u "$display_record_dir/recorder.py" serve "$display_record_dir"
-display_record_pid="$spawn_pid"
-IFS= read -r display_record_ready <"$display_record_dir/ready"
-[[ $display_record_ready == ready ]] || { printf 'qml-smoke: display-record=arm-failed\n'; exit 77; }
+display_record_arm "$display_record_dir" "${sandbox_env[@]}" python3 -u "$display_record_dir/recorder.py" serve "$display_record_dir"
 display_record_scope() {
   display_scope=unknown
   display_rows=()

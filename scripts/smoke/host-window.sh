@@ -74,6 +74,7 @@ display_record_program() {
   cat <<'PY'
 import collections
 import array
+import contextlib
 import ctypes
 import fcntl
 import json
@@ -159,9 +160,22 @@ def process_binding(pid):
     except (OSError, IndexError, ValueError) as error:
         return dict(status="unavailable", error=str(error))
 
+@contextlib.contextmanager
+def socket_name(path):
+    # sun_path holds 108 bytes (unix(7)), and the record directory under a
+    # long checkout path exceeds it. The directory's /proc/self/fd link names
+    # the same directory in a few bytes (proc_pid_fd(5)).
+    path = pathlib.Path(path)
+    directory = os.open(path.parent, os.O_PATH | os.O_DIRECTORY | os.O_CLOEXEC)
+    try:
+        yield f"/proc/self/fd/{directory}/{path.name}"
+    finally:
+        os.close(directory)
+
 def request(path, command, *args):
     with socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET) as client:
-        client.connect(path)
+        with socket_name(path) as name:
+            client.connect(name)
         client.sendall(json.dumps([command, *args]).encode())
         reply = json.loads(client.recv(CAP_LINE))
         if not reply["ok"]:
@@ -236,7 +250,8 @@ class Record:
         self.output = (self.directory / "events.jsonl").open("xb", buffering=0)
         self.selector = selectors.DefaultSelector()
         self.server = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
-        self.server.bind(str(self.directory / "control"))
+        with socket_name(self.directory / "control") as name:
+            self.server.bind(name)
         self.server.listen()
         self.selector.register(self.server, selectors.EVENT_READ, ("control", None))
         self.sequences = collections.Counter()
