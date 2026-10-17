@@ -208,8 +208,10 @@ var STATUS_STATE_TONES = { ok: "success", info: "info", warning: "warning", dang
 // A value of `hidden: true` alone (statusStateHidden) keeps the entry's
 // row off the page while its writer finds nothing to show. `aside` is its
 // writer's too: true when the entry's declared `aside` applies to this
-// value.
-var STATUS_STATE_KEYS = ["tone", "text", "lines", "hint", "action", "aside", "available"];
+// value. `info` is this state's own explanation, judged as an entry's
+// (infoError), such as why a limit holds for the cause its writer found;
+// while present it stands in the entry's info (statusRows).
+var STATUS_STATE_KEYS = ["tone", "text", "lines", "hint", "action", "aside", "available", "info"];
 // The `action` a required step's value names for the one install action,
 // which no entry declares: it names that action over a declared action of
 // the same name.
@@ -249,7 +251,11 @@ var LAUNCHER_ROW_KEYS = ["id", "label", "icon", "description", "aliases", "menu"
 // manifest's own `tui` key the core opens in a floating terminal;
 // `system`, a step of the manifest's own `systemSteps` the core applies in
 // its `core/system` TUI (D081); `undo`, such a step the core undoes there;
-// or `dictation`, `setup` for a holder of that capability. No route
+// `dictation`, `setup` for a holder of that capability; or `file`, a
+// path the core opens as a cited file is opened (editRoute): a file in the
+// core editor TUI, whose run is the plugin's own, read in its
+// `shell.tui.state` under STATUS_FILE_TUI, and a folder, ending in `/`, in
+// the default file manager, which no run tracks. No route
 // installs a requirement: Review all missing or outdated tools, which opens
 // the requirement notice, is the one install action, offered by Setup's
 // Tools step, by Details' Tools section and by a required step whose value
@@ -270,7 +276,12 @@ var LAUNCHER_ROW_KEYS = ["id", "label", "icon", "description", "aliases", "menu"
 // reported, and its `rowActions` act on one row each: each of route `tui`,
 // whose script the core opens with the row's `id` as its one argument,
 // offered on a row whose `actions` name it.
-var STATUS_ACTION_ROUTES = ["tui", "system", "undo", "dictation"];
+var STATUS_ACTION_ROUTES = ["tui", "system", "undo", "dictation", "file"];
+// The name a plugin's file action runs the core editor under, `<plugin
+// id>/edit`, and the name its end reads under in the plugin's
+// `shell.tui.state` (tuiStateNames). A manifest that declares a file
+// action declares no script of that name, so the two never share a state.
+var STATUS_FILE_TUI = "edit";
 var STATUS_ACTION_KEYS = ["label", "tone", "icon"].concat(STATUS_ACTION_ROUTES);
 var STATUS_ACTION_TONES = ["danger"];
 var STATUS_ACTION_TYPES = ["presence", "state", "rows"];
@@ -838,8 +849,11 @@ function statusAsideError(entry, at, tui, system, capabilities) {
 // since only a danger action draws one, and exactly one
 // of STATUS_ACTION_ROUTES: `tui`, a name the
 // manifest's TUI key declares; `system` or `undo`, a step the manifest's
-// SYSTEM, its `systemSteps`, declares; or `dictation`. An unknown key names
-// the keys an action takes, so an `install` list reads as no route.
+// SYSTEM, its `systemSteps`, declares; `dictation`; or `file`, a path
+// editArgs admits, absolute, under `~/` or relative to the configuration
+// directory, on a manifest whose TUI names no script STATUS_FILE_TUI. An
+// unknown key names the keys an action takes, so an `install` list reads
+// as no route.
 function statusActionError(type, action, at, tui, system, capabilities) {
     if (STATUS_ACTION_TYPES.indexOf(type) === -1)
         return at + " needs a type whose value says when it applies, one of " + STATUS_ACTION_TYPES.join(", ");
@@ -865,6 +879,13 @@ function statusActionError(type, action, at, tui, system, capabilities) {
             return at + ".dictation must be setup";
         if (capabilities.indexOf("dictation") === -1)
             return at + ".dictation needs capability dictation";
+        return "";
+    }
+    if (action.file !== undefined) {
+        if (typeof action.file !== "string" || !editArgs(action.file).ok)
+            return at + ".file must be a path with no control character and no .. segment, got " + JSON.stringify(action.file);
+        if (isPlainObject(tui) && hasOwn(tui, STATUS_FILE_TUI))
+            return at + ".file needs no tui script named " + STATUS_FILE_TUI + "; a file action's run reads under that name";
         return "";
     }
     var stepRoute = action.system !== undefined ? "system" : action.undo !== undefined ? "undo" : null;
@@ -1216,6 +1237,7 @@ function statusValueFits(type, value) {
             && (value.lines === undefined || (Array.isArray(value.lines) && value.lines.length > 0 && value.lines.length <= STATUS_LIST_MAX
                 && value.lines.every(function (line) { return isPrintableLine(line, STATUS_TEXT_MAX); })))
             && (value.hint === undefined || isPrintableLine(value.hint, STATUS_HINT_MAX))
+            && infoError(value.info, "") === ""
             && (value.action === undefined || typeof value.action === "boolean" || typeof value.action === "string")
             && (value.aside === undefined || typeof value.aside === "boolean")
             && (value.available === undefined || value.available === false);
@@ -1563,9 +1585,10 @@ function statusActionIcon(action) {
 // in manifest key order, as { key, type, label,
 // group, setup, setting, step, settings, icon, hint, info, link, secrets,
 // declaredTuis, action, aside, report, value, tone }. `group`, `hint`,
-// `info` and `icon` are "" when the manifest omits them,
-// and `link`, the words of the declared hint that open an https address,
-// null. `settings` holds for a `rows` entry the Settings tab draws
+// `info` and `icon` are "" when the manifest omits them; a reported
+// `state` value's own `hint` and `info` stand in the entry's.
+// `link`, the words of the declared hint that open an https address, is
+// null when the manifest omits it. `settings` holds for a `rows` entry the Settings tab draws
 // (pagePlacementError). `secrets` holds for the entry that lists the plugin's stored keys,
 // a `presenceList` of a manifest that declares `secrets`, which a page
 // draws with its setup. `declaredTuis` is each TUI the entry's actions may
@@ -1584,6 +1607,8 @@ function statusRows(manifest, values) {
         var value = reported ? values[key] : null;
         var hint = entry.type === "state" && value !== null && value.hint !== undefined
             ? value.hint : entry.hint === undefined ? "" : entry.hint;
+        var info = entry.type === "state" && value !== null && value.info !== undefined
+            ? value.info : entry.info === undefined ? "" : entry.info;
         return {
             key: key,
             type: entry.type,
@@ -1595,7 +1620,7 @@ function statusRows(manifest, values) {
             settings: entry.settings === true,
             icon: entry.icon === undefined ? "" : entry.icon,
             hint: hint,
-            info: entry.info === undefined ? "" : entry.info,
+            info: info,
             link: entry.link === undefined ? null : { text: entry.link.text, url: entry.link.url },
             secrets: entry.type === "presenceList" && manifest.secrets !== undefined,
             declaredTuis: statusDeclaredTuis(entry),
@@ -1648,8 +1673,9 @@ function tuiRunFor(manifest, enabled, sourceDir, runner, name, missing, args) {
 // status entry KEY of plugin MANIFEST, null for an id no plugin has,
 // ENABLED and VALUES its published values: { ok: true, kind: "tui", name } to open the plugin's own
 // TUI NAME, { ok: true, kind: "system", args } to open the core TUI
-// `core/system` with ARGS, `apply` or `undo` and its declared step, or
-// { ok: false,
+// `core/system` with ARGS, `apply` or `undo` and its declared step,
+// { ok: true, kind: "file", path } to open its declared PATH (editRoute)
+// as the plugin's own run, or { ok: false,
 // answer } with `unknown: <id>` or statusActionRefusal's line: `undeclared`
 // for an entry without an action, `disabled` for a disabled plugin and
 // `not-offered` while the published value does not call for it. With ROW,
@@ -1687,6 +1713,8 @@ function statusActionRequest(manifest, id, enabled, values, key, row, rowAction)
         return { ok: true, kind: "system", args: ["apply", action.system] };
     if (action.undo !== undefined)
         return { ok: true, kind: "system", args: ["undo", action.undo] };
+    if (action.file !== undefined)
+        return { ok: true, kind: "file", path: action.file };
     return { ok: true, kind: "tui", name: action.tui };
 }
 
@@ -3228,14 +3256,21 @@ function tuiArgsValid(args) {
     });
 }
 
-// The arguments for the core file editor: PATH is relative to the user's
-// configuration directory and LINE, when present, is a positive integer.
-// The CLI judges the same contract again before it opens anything.
+// The control characters `vgshell edit` refuses in a path, U+0000 to
+// U+001F and U+007F, the CLI's own list (bin/vgshell edit_controls).
+var EDIT_CONTROL = /[\u0000-\u001f\u007f]/;
+
+// The arguments for the core file editor, judged as `vgshell edit` judges
+// them, which judges them again before it opens anything: PATH is absolute
+// or relative to the user's configuration directory, holds no control
+// character, which the refusal never echoes, since a newline in it could
+// forge a line of the answer, and no `..` segment; LINE, when present, is
+// a positive integer.
 function editArgs(path, line) {
     if (typeof path !== "string" || path.length === 0)
         return { ok: false, answer: "refused: edit=path reason=empty" };
-    if (path.charAt(0) === "/")
-        return { ok: false, answer: "refused: edit=" + tuiLabel(path) + " reason=absolute" };
+    if (EDIT_CONTROL.test(path))
+        return { ok: false, answer: "refused: edit=path reason=control" };
     if (path.split("/").indexOf("..") !== -1)
         return { ok: false, answer: "refused: edit=" + tuiLabel(path) + " reason=parent" };
     if (line === undefined || line === null || line === "")
@@ -3246,6 +3281,29 @@ function editArgs(path, line) {
     if (!/^[1-9][0-9]*$/.test(text))
         return { ok: false, answer: "refused: line=" + tuiLabel(line) + " reason=positive-integer" };
     return { ok: true, args: [path, text] };
+}
+
+// How the core opens PATH, a cited file or folder, at LINE: a leading
+// `~/` is the home folder HOME, then editArgs judges the path. A path that
+// ends in `/` names a folder, which opens in the default file manager,
+// { ok: true, kind: "folder", path }, PATH made absolute under
+// CONFIG_HOME, the configuration directory, when it is relative, and
+// takes no line (`line=<line> reason=folder`); any other path opens in
+// the core editor TUI, { ok: true, kind: "file", args }, editArgs' args.
+// The shell cannot read whether a path is a folder, so the `/` says it,
+// and the editor refuses a folder it is handed (`vgshell edit`).
+function editRoute(path, line, home, configHome) {
+    if (typeof home !== "string" || home.charAt(0) !== "/")
+        throw new Error("editRoute: home " + JSON.stringify(home) + " is not an absolute path");
+    var expanded = typeof path === "string" && path.indexOf("~/") === 0 ? home + path.slice(1) : path;
+    var judged = editArgs(expanded, line);
+    if (!judged.ok)
+        return judged;
+    if (expanded.charAt(expanded.length - 1) !== "/")
+        return { ok: true, kind: "file", args: judged.args };
+    if (judged.args.length > 1)
+        return { ok: false, answer: "refused: line=" + judged.args[1] + " reason=folder" };
+    return { ok: true, kind: "folder", path: expanded.charAt(0) === "/" ? expanded : configHome + "/" + expanded };
 }
 
 // The arguments after bin/vgshell-tui that open ROW, a normalized `tui` entry
@@ -3292,14 +3350,19 @@ function tuiRun(manifest, enabled, sourceDir, runner, name, args) {
 // `reason=undeclared` for a name CORE lacks, `reason=args` for arguments
 // tuiArgsValid refuses, then `reason=busy` or `reason=launcher-missing` as
 // tuiRunnerRefusal decides. The core alone calls it; tuiOpen opens a
-// listed row with no arguments through it.
-function tuiCore(core, coreBin, runner, name, args) {
-    var key = "core/" + name;
+// listed row with no arguments through it. With OWNER, a plugin id, the
+// run is that plugin's, keyed `<plugin id>/<name>` and named `<name>` in
+// its refusals, as its own script's run is, so the plugin reads its end in
+// its `shell.tui.state` (tuiStateNames): the core editor a plugin's file
+// action opens (STATUS_FILE_TUI).
+function tuiCore(core, coreBin, runner, name, args, owner) {
+    var key = (owner === undefined ? "core" : owner) + "/" + name;
+    var label = owner === undefined ? key : name;
     if (typeof name !== "string" || !hasOwn(core, name))
-        return tuiRefusal(key, "undeclared");
+        return tuiRefusal(label, "undeclared");
     if (!tuiArgsValid(args))
-        return tuiRefusal(key, "args");
-    var refusal = tuiRunnerRefusal(runner, key, key);
+        return tuiRefusal(label, "args");
+    var refusal = tuiRunnerRefusal(runner, label, key);
     if (refusal !== null)
         return refusal;
     var row = core[name];
@@ -3567,6 +3630,18 @@ function tuiBusyKeys(runs, launching) {
             busy.push(key);
     });
     return busy.sort();
+}
+
+// The names a plugin's `shell.tui.state` holds for MANIFEST: each script
+// of its `tui` key, and STATUS_FILE_TUI while a status entry declares a
+// file action, whose core editor runs as the plugin's (tuiCore).
+function tuiStateNames(manifest) {
+    var names = Object.keys(isPlainObject(manifest.tui) ? manifest.tui : {});
+    var status = isPlainObject(manifest.status) ? manifest.status : {};
+    var files = Object.keys(status).some(function (key) {
+        return statusEntryActions(status[key]).some(function (declared) { return declared.action.file !== undefined; });
+    });
+    return files ? names.concat([STATUS_FILE_TUI]) : names;
 }
 
 // shell.tui.state for the plugin ID's own TUIs NAMES, from RUNS, a tuiRuns

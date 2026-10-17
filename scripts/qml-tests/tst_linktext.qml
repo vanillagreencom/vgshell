@@ -6,7 +6,7 @@ import qs.Ui
 Item {
     id: root
     width: 420
-    height: 560
+    height: 600
 
     function labelOf(item) { return item.children[0]; }
 
@@ -119,11 +119,21 @@ Item {
         link: "hyprland.lua"
         linkColor: "#123456"
     }
+    // A file reference in prose, as a Setup hint cites a file outside the
+    // configuration directory.
+    LinkText {
+        id: filed
+        y: 560
+        width: 360
+        text: "Shorten [AGENTS.md](file:~/.local/share/vgs/AGENTS.md) first."
+    }
     FontMetrics { id: font; font: labelOf(inline).font }
     SignalSpy { id: elsewherePages; target: elsewhere; signalName: "pageActivated" }
     SignalSpy { id: pagedPages; target: paged; signalName: "pageActivated" }
     SignalSpy { id: pagedActivated; target: paged; signalName: "activated" }
     SignalSpy { id: tablessPages; target: tabless; signalName: "pageActivated" }
+    SignalSpy { id: filedPages; target: filed; signalName: "pageActivated" }
+    SignalSpy { id: filedActivated; target: filed; signalName: "activated" }
 
     TestCase {
         name: "linktext"
@@ -204,6 +214,26 @@ Item {
             compare(tablessPages.count, 1);
             compare(tablessPages.signalArguments[0][0], "acme.models");
             compare(tablessPages.signalArguments[0][1], "", "a reference without a tab names none");
+        }
+
+        // The file reference travels as the page `file:<path>`, which the
+        // owner hands on to the core's reference route.
+        function test_a_file_reference_activates_its_path() {
+            compare(filed.plain, "Shorten AGENTS.md first.");
+            compare(labelOf(filed).text.indexOf("file:"), -1, "the target is not drawn");
+            compare(filed.underlined.length, 1, "the words draw one underline");
+            compare(filed.activeFocusOnTab, true);
+            filedPages.clear();
+            filedActivated.clear();
+            filed.forceActiveFocus();
+            keyClick(Qt.Key_Return);
+            mouseClick(filed, filed.linkBox.x + filed.linkBox.width / 2, filed.linkBox.y + filed.linkBox.height / 2);
+            compare(filedPages.count, 2, "the keyboard and the pointer each activate it once");
+            for (const args of filedPages.signalArguments) {
+                compare(args[0], "file:~/.local/share/vgs/AGENTS.md");
+                compare(args[1], "");
+            }
+            compare(filedActivated.count, 0, "a file reference emits no plain activation");
         }
 
         function test_a_link_the_text_does_not_hold_gives_way_to_the_page_reference() {

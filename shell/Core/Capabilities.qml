@@ -187,15 +187,17 @@ Singleton {
             register: (name, item) => Plugins.recordBuiltin(ctx, name, item),
             add: (family, x) => Plugins.addBuiltin(ctx, family, x)
         }),
-        // `openPage` opens the manager's window on a plugin's page, never
-        // another plugin's surface; the caller leaves a refused reference's
-        // words as words, so the reply is logged here once.
+        // `openPage` opens what a reference names (Plugins.openReference):
+        // the manager's window on a plugin's page, never another plugin's
+        // surface, or a cited file through the core edit route; the caller
+        // leaves a refused reference's words as words, so the reply is
+        // logged here once.
         surfaces: ctx => ({
             summon: (kind, payloadJson, anchor) => root.surfaceRoute(ctx, "summon", kind, payloadJson, anchor),
             hide: kind => root.surfaceRoute(ctx, "hide", kind, "", null),
             toggle: (kind, payloadJson, anchor) => root.surfaceRoute(ctx, "toggle", kind, payloadJson, anchor),
             openPage: (page, tab) => {
-                const reply = Plugins.openSettingsPage(page, tab);
+                const reply = Plugins.openReference(page, tab);
                 if (reply !== "ok") console.warn("surfaces: openPage " + reply);
                 return reply;
             }
@@ -431,7 +433,8 @@ Singleton {
     // plugin's own declared TUI through TuiRunner.runFor, with the
     // request's `args`, a row action's row id, absent for none, its own system
     // step in the core TUI `core/system`, after whose end the steps are
-    // probed again (D081), or its summonable surface. Every step
+    // probed again (D081), its file action's path through the core editor
+    // as its own run (TuiRunner.editFor), or its summonable surface. Every step
     // of the manager's that opens a plugin's TUI or surface goes through
     // here.
     function managerStep(id, request) {
@@ -441,10 +444,11 @@ Singleton {
         case "core": return root.managerCoreTui(request.name, [], end => {
             if (end.code === 0) dictation.restart();
         });
+        case "file": return tuis.editFor(id, request.path);
         case "summon": return Plugins.route("summon", request.surface, id, "{}", null);
         case "pane": return root.paneRoute(id, "summon", "{}", null);
         }
-        throw new Error("manager: step kind " + JSON.stringify(request.kind) + " is not one of tui, system, core, summon, pane");
+        throw new Error("manager: step kind " + JSON.stringify(request.kind) + " is not one of tui, system, core, file, summon, pane");
     }
 
     // The manager's store or clear (VERB) of plugin ID's ACCOUNT, listed in

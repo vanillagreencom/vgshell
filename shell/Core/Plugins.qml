@@ -285,7 +285,7 @@ Singleton {
             describe: () => root.frameFacts(id, item),
             hide: () => root.setPlaced(id, false),
             openSettings: () => root.openSettingsPage(root.frameFacts(id, item).page),
-            openPage: (page, tab) => root.openSettingsPage(page, tab),
+            openPage: (page, tab) => root.openReference(page, tab),
             openReadme: () => {
                 const url = root.frameFacts(id, item).readme;
                 return url === "" ? "refused: readme=none" : Capabilities.runDetached(DesktopLaunch.open(url));
@@ -882,6 +882,16 @@ Singleton {
         const payload = { plugin: page };
         if (tab) payload.tab = tab;
         return route("summon", "window", Registry.managerId, JSON.stringify(payload), null);
+    }
+
+    // Open what an activated reference names (PageReference.parse), its
+    // PAGE and TAB as LinkText hands them on: a file reference's path
+    // through the core edit route (TuiRunner.edit), any other page as
+    // openSettingsPage opens it. A bar widget's openPage and capability
+    // `surfaces`' openPage open a reference here.
+    function openReference(page, tab) {
+        const file = PageReference.file(page);
+        return file !== "" ? Capabilities.tuis.edit(file) : openSettingsPage(page, tab);
     }
 
     function navigateOverlay(direction) {

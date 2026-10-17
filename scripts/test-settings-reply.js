@@ -227,7 +227,9 @@ function verifyCallers(logic, source, page) {
 
 function verifyPageRoutes(logic, source) {
     const { ctx } = windowContext(logic, source);
+    const pages = load(path.join(core, "..", "Commons", "PageReference.js"));
     ctx.Qt = { OtherFocusReason: "other" };
+    ctx.PageReference = pages;
     ctx.rowOf = id => id === "vgs.sounds" ? { kinds: ["pane"] } : id === "acme.setup" ? { kinds: ["service"] } : null;
     for (const [id, tab, route, reply] of [
         ["vgs.sounds", "", "pane", "ok"],
@@ -243,8 +245,16 @@ function verifyPageRoutes(logic, source) {
         same(calls, route === "pane" ? [["pane", id]] : [["settings", id, "other", tab === "" ? null : tab]]);
         if (route === "pane") assert.equal(ctx.replyOf(id), logic.line(reply));
     }
+    // A file reference opens through the core edit route and no page.
+    const filed = pages.parse("Shorten [AGENTS.md](file:~/vgs/AGENTS.md).");
+    const edits = [], opened = [];
+    ctx.shell.tui = { edit: target => { edits.push(target); return "ok"; } };
+    ctx.shell.manager.openPane = target => { opened.push(target); return "ok"; };
+    ctx.openPlugin = target => { opened.push(target); return "ok"; };
+    assert.equal(ctx.openPage(filed.page, filed.tab), "ok");
+    same([edits, opened], [["~/vgs/AGENTS.md"], []]);
     const jarvis = JSON.parse(fs.readFileSync(path.join(dir, "..", "vgs.jarvis", "manifest.json"), "utf8"));
-    const reference = load(path.join(core, "..", "Commons", "PageReference.js")).parse(jarvis.schema.microphone.info);
+    const reference = pages.parse(jarvis.schema.microphone.info);
     assert.equal(jarvis.schema.microphone.link, undefined);
     assert.equal(reference.page, "vgs.sounds");
     assert.equal(reference.tab, "");

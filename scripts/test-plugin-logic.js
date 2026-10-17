@@ -531,7 +531,7 @@ function suite(ctx, configLogic, check) {
         ["an action with an unknown key", { capabilities: ["status"], status: { a: { type: "state", label: "A", setup: true, action: { label: "Run", run: ["sh"] } } } }, "status.a.action has unknown key \"run\""],
         ["an action without a label", { capabilities: ["status", "tui"], tui: { setup: { script: "tui/setup.sh", title: "Set up" } }, status: { a: { type: "state", label: "A", setup: true, action: { tui: "setup" } } } }, "status.a.action.label must be a printable line of 1 to 60"],
         ["an action label of 61 characters", { capabilities: ["status", "tui"], tui: { setup: { script: "tui/setup.sh", title: "Set up" } }, status: { a: { type: "state", label: "A", setup: true, action: { label: "x".repeat(61), tui: "setup" } } } }, "status.a.action.label must be a printable line"],
-        ["an action naming neither", { capabilities: ["status"], status: { a: { type: "state", label: "A", setup: true, action: { label: "Go" } } } }, "status.a.action must name exactly one of tui, system, undo, dictation"],
+        ["an action naming neither", { capabilities: ["status"], status: { a: { type: "state", label: "A", setup: true, action: { label: "Go" } } } }, "status.a.action must name exactly one of tui, system, undo, dictation, file"],
         ["a state with two named actions", { capabilities: ["status", "tui"], tui: { setup: { script: "tui/setup.sh", title: "Set up" } }, status: { a: { type: "state", label: "A", setup: true, actions: { fix: { label: "Fix", tui: "setup" }, get: { label: "Redo", tui: "setup" } } } } }, null],
         // An aside: one more TUI action a state step's row draws beside
         // its step, opening a listed screen (Jarvis's Remove key).
@@ -580,11 +580,11 @@ function suite(ctx, configLogic, check) {
         ["an action applying a step the manifest does not declare", { capabilities: ["status", "system"], systemSteps: ["i2c-dev"], status: { apple: { type: "state", label: "A", setup: true, action: { label: "Allow", system: "apple-displays" } } } }, "status.apple.action.system must name a step of the manifest's systemSteps, got \"apple-displays\""],
         ["an action applying a step with no systemSteps", { capabilities: ["status"], status: { apple: { type: "state", label: "A", setup: true, action: { label: "Allow", system: "apple-displays" } } } }, "status.apple.action.system must name a step of the manifest's systemSteps"],
         ["an action applying a step outside the table", { capabilities: ["status", "system"], systemSteps: ["i2c-dev"], status: { a: { type: "state", label: "A", setup: true, action: { label: "Allow", system: "etc-shadow" } } } }, "status.a.action.system must name a step of the manifest's systemSteps, got \"etc-shadow\""],
-        ["an action naming a system step and a TUI", { capabilities: ["status", "system", "tui"], systemSteps: ["i2c-dev"], tui: { setup: { script: "tui/setup.sh", title: "Set up" } }, status: { a: { type: "state", label: "A", setup: true, action: { label: "Go", tui: "setup", system: "i2c-dev" } } } }, "status.a.action must name exactly one of tui, system, undo, dictation"],
+        ["an action naming a system step and a TUI", { capabilities: ["status", "system", "tui"], systemSteps: ["i2c-dev"], tui: { setup: { script: "tui/setup.sh", title: "Set up" } }, status: { a: { type: "state", label: "A", setup: true, action: { label: "Go", tui: "setup", system: "i2c-dev" } } } }, "status.a.action must name exactly one of tui, system, undo, dictation, file"],
         ["a state action undoing a declared step", { capabilities: ["status", "system"], systemSteps: ["reboot-notice"], status: { notice: { type: "state", label: "Reboot notice", setup: true, actions: { off: { label: "Turn off", system: "reboot-notice" }, on: { label: "Turn on", undo: "reboot-notice" } } } } }, null],
         ["an action undoing a step the manifest does not declare", { capabilities: ["status", "system"], systemSteps: ["i2c-dev"], status: { a: { type: "state", label: "A", setup: true, action: { label: "Undo", undo: "reboot-notice" } } } }, "status.a.action.undo must name a step of the manifest's systemSteps, got \"reboot-notice\""],
         ["an action undoing a step with no systemSteps", { capabilities: ["status"], status: { a: { type: "state", label: "A", setup: true, action: { label: "Undo", undo: "reboot-notice" } } } }, "status.a.action.undo must name a step of the manifest's systemSteps"],
-        ["an action applying and undoing a step", { capabilities: ["status", "system"], systemSteps: ["i2c-dev"], status: { a: { type: "state", label: "A", setup: true, action: { label: "Go", system: "i2c-dev", undo: "i2c-dev" } } } }, "status.a.action must name exactly one of tui, system, undo, dictation"],
+        ["an action applying and undoing a step", { capabilities: ["status", "system"], systemSteps: ["i2c-dev"], status: { a: { type: "state", label: "A", setup: true, action: { label: "Go", system: "i2c-dev", undo: "i2c-dev" } } } }, "status.a.action must name exactly one of tui, system, undo, dictation, file"],
         ["an action naming a system step that is a list", { capabilities: ["status", "system"], systemSteps: ["i2c-dev"], status: { a: { type: "state", label: "A", setup: true, action: { label: "Go", system: ["i2c-dev"] } } } }, "status.a.action.system must name a step of the manifest's systemSteps"],
         ["secrets beside a presence list", { capabilities: ["status", "secrets"], secrets: { service: "acme-sync", label: "Acme token" }, status: { tokens: { type: "presenceList", label: "Tokens" } } }, null],
         ["secrets not an object", { capabilities: ["status", "secrets"], secrets: "acme", status: { tokens: { type: "presenceList", label: "Tokens" } } }, "secrets must be an object"],
@@ -655,7 +655,7 @@ function suite(ctx, configLogic, check) {
     const installAction = ctx.validateManifest(Object.assign(JSON.parse(JSON.stringify(bar)), { capabilities: ["status"], requirements: [{ command: "x", purpose: "p" }],
         status: { a: { type: "state", label: "A", setup: true, action: { label: "Install", install: ["x"] } } } }), "/p");
     check("validateManifest: an install action is refused", [installAction.ok, installAction.error],
-        [false, "status.a.action has unknown key \"install\"; an action takes label, tone, icon, tui, system, undo, dictation"]);
+        [false, "status.a.action has unknown key \"install\"; an action takes label, tone, icon, tui, system, undo, dictation, file"]);
     // hyprland.options rows over a service whose schema holds one entry of
     // each kind an option path takes: [name, options, schema patch, want].
     const optionSettings = { sensitivity: 0, rate: 25, tap: true, natural: false, layouts: "us", profile: "flat" };
@@ -2340,7 +2340,7 @@ const CONTROLS = [
     ["a step is declared once", "if (steps.indexOf(steps[i]) !== i)", "if (false)"],
     ["an absent systemSteps is normalised", "manifest.systemSteps = raw.systemSteps === undefined ? [] : raw.systemSteps.slice();", "manifest.systemSteps = raw.systemSteps;"],
     ["an action TUI is the manifest's own", "if (typeof action.tui !== \"string\" || !isPlainObject(tui) || !hasOwn(tui, action.tui))", "if (false)"],
-    ["install is no action route", "var STATUS_ACTION_ROUTES = [\"tui\", \"system\", \"undo\", \"dictation\"];", "var STATUS_ACTION_ROUTES = [\"tui\", \"install\", \"system\", \"undo\", \"dictation\"];"],
+    ["install is no action route", "var STATUS_ACTION_ROUTES = [\"tui\", \"system\", \"undo\", \"dictation\", \"file\"];", "var STATUS_ACTION_ROUTES = [\"tui\", \"install\", \"system\", \"undo\", \"dictation\", \"file\"];"],
     ["secrets are judged", "var badSecrets = secretsError(raw.secrets, capabilities, raw.status);", "var badSecrets = \"\";"],
     ["capability secrets needs secrets", "} else if (capabilities.indexOf(\"secrets\") !== -1) {", "} else if (false) {"],
     ["secrets is an object", "if (!isPlainObject(secrets))\n        return \"secrets must be an object\";", "if (false)\n        return \"secrets must be an object\";"],
