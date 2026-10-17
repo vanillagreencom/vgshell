@@ -4,7 +4,7 @@ Read before touching the Hyprland layer, a manifest's `hyprland` key, a `plugins
 
 ## The approach
 
-The core renders one Lua file from judged manifest data and theme tokens, `shell/Core/HyprlandLayer.js`. [D028](../decisions/D028-one-generated-hyprland-layer.md) governs its loading line, appearance switches, explicit options and guarded monitor rules. The theme's border, radius, motion, window glass and window glow groups follow the user's Appearance values, which `Theme` resolves once ([D104](../decisions/D104-appearance-values-over-the-theme.md)). VGS edits no line of the user's files but its own loading line and a bind line the user confirms Settings may remove. A user's own later `hl.monitor` line still wins.
+The core renders one Lua file from judged manifest data and theme tokens, `shell/Core/HyprlandLayer.js`. [D028](../decisions/D028-one-generated-hyprland-layer.md) governs its loading line, appearance switches, explicit options and guarded monitor rules. The theme's border, radius, motion, window glass and window glow groups follow the user's Appearance values, which `Theme` resolves once ([D104](../decisions/D104-appearance-values-over-the-theme.md)). VGS edits no line of the user's files but its own loading line and a bind line the user confirms Settings may remove. A user's own later `hl.monitor` line still wins, at the first reload after Keep; the Displays pane then says the Hyprland file sets that display and opens the file in one click.
 
 Every Hyprland request at run time leaves the shell through one queue, `Compositor`, and `Dispatch.js` is the one judge of its arguments. Only a state read after the reply proves a dispatcher acted. Hyprland is the only compositor ([D001](../decisions/D001-hyprland-only.md)).
 
@@ -36,6 +36,7 @@ Hyprland runs a global bind before the focused layer or window sees the key, so 
 - Do remove a user's line only after the user confirms it, only a whole `hl.bind` line under the Hyprland directory that binds a plugin's key, through `vgshell hypr remove-bind`, and put it back only between the lines it stood between. `scripts/test-hyprland-state.js`, `scripts/test-vgshell-hypr.sh` and `scripts/smoke/rows/hyprland-options.sh` pin it.
 - Do render the layer in the runner's shell only, after the first scan, the configuration and the theme are read. Gap: no check renders the layer before its inputs are read.
 - Do read outputs on activation and on every monitor and `configreloaded` event, and keep `monitors` non-exclusive. `scripts/smoke/rows/monitor-outputs.sh` and `scripts/test-plugin-logic.js` pin both.
+- Do hold the layer's write and reload while a display trial runs, and write once when it ends. A trial's rules live in Hyprland only until the next reload, which loads the saved rule or the user's later line in their place, and the trial's own scale change renders the layer again. `scripts/test-hyprland-layer.js` and `scripts/smoke/rows/displays-modes.sh` pin it.
 - Do turn an output off in the layer only inside a check that another output stays on; `shell/Core/MonitorLogic.js` states the Hyprland behaviour this rests on. `scripts/test-monitor-logic.js` and `scripts/smoke/rows/displays-modes.sh` pin it.
 
 ### Dispatch

@@ -10,7 +10,7 @@ Displays sets each screen's mode, scale, orientation and brightness. Apple Pro D
 - A flyout with one slider per display, the bar's own display first, Link displays, and Display Settings.
 - The brightness keys change the display you work on, or every display. An on-screen display shows the new level.
 - System Settings → Displays: a display arrangement canvas, each screen's resolution, refresh rate, scale, orientation, colour mode, colour depth, HDR levels and brightness, the screen a display shows on when VGS cannot tell, Identify, Link displays, Dimming, and the access each kind of display needs.
-- A display mode change first opens a trial. Keep saves it, and Revert or the timer restores the old mode.
+- A display mode change first opens a trial. Keep saves it, and Revert or the timer restores the old mode. When your Hyprland file sets that display after VGS, Displays says so and opens the file in one click.
 - Identify shows each screen's name and flashes the display, so you can tell two displays of one model apart.
 - The displays dim after a time without input, to a level you choose. Any input brings each display back to its level. A playing video keeps the displays from dimming.
 - When a display needs your permission, Allow opens a terminal that shows the one-time setup and asks for your password.

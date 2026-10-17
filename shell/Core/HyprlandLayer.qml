@@ -89,6 +89,12 @@ Scope {
     readonly property var renderInputs: inputsReady ? [sections, themeAppearance, Theme.name, highestMonitorScale, Capabilities.hyprland.touchpads, Capabilities.hyprland.devicesFailure, Registry.monitorRuleOwnerId] : null
     // Assigned by renderLayer alone.
     property var rendered: null
+    // A display trial runs from its start until Keep, Revert, its deadline
+    // or a failed start sets MonitorState's trial idle again: the machine
+    // starts no write or reload in that time (Layer.step, `trial`). Its end
+    // reaches the machine through renderLayer, after the turn that ended
+    // it, so Keep's outputs write in that turn is in the text written.
+    readonly property bool trialRunning: Capabilities.monitors.trialState.phase !== "idle"
 
     // What `listPlugins` and the plugin manager report beside the manifest
     // errors, as { id, dir, error }: each bind a conflict skipped, each pad
@@ -172,7 +178,15 @@ Scope {
     Binding { target: Notices; property: "consentState"; value: root.machine.consent }
     Binding { target: Notices; property: "welcome"; value: root.welcome }
 
-    Component.onCompleted: welcomeRead.running = true
+    Component.onCompleted: {
+        welcomeRead.running = true;
+        if (trialRunning) feed({ type: "trial", running: true });
+    }
+
+    onTrialRunningChanged: {
+        if (trialRunning) feed({ type: "trial", running: true });
+        else Qt.callLater(root.renderLayer);
+    }
 
     Connections {
         target: Notices
@@ -205,6 +219,7 @@ Scope {
 
     function renderLayer() {
         rendered = renderInputs === null ? null : Layer.render.apply(null, renderInputs);
+        feed({ type: "trial", running: trialRunning });
         feed({ type: "render" });
     }
 

@@ -1545,6 +1545,12 @@ function render(sections, theme, themeName, highestScale, touchpads, touchpadFai
 // a render forces it, so an unwritable directory costs one attempt per
 // change, never a loop. A render asked while a step runs is queued in
 // `queuedForce` and starts its own cycle, a read first, once the step ends.
+// A display trial's rules live in Hyprland only until its next reload, which
+// loads the saved rule or the user's later `hl.monitor` line in their place,
+// and the trial's own scale change renders the layer again. So while a trial
+// runs (`trialHeld`) the machine starts no cycle; a step already running
+// ends as it would. The trial's end starts the one cycle every held render
+// and force asked for, from the text rendered then.
 //
 // State: phase (`reading`, `idle`, `preparing`, `writing`, `reloading`,
 // `probing`, `checkingDecline`, `declining`, `wiring`);
@@ -1555,7 +1561,7 @@ function render(sections, theme, themeName, highestScale, touchpads, touchpadFai
 // completes; reloadOwner, `layer` for the layer writer and `wire` for a
 // Connect reload; reloaded, whether this run has asked Hyprland to reload,
 // failed reloads included, set by the first reload of either owner and
-// never cleared; consent, a tagged
+// never cleared; trialHeld; consent, a tagged
 // state for the Hyprland wiring question.
 // Actions: `none`, `read`, `mkdir`, `write` (state.pending), `reload`,
 // `probe`, `checkDecline`, `ask`, `decline` and `wire`.
@@ -1571,6 +1577,7 @@ function initialState() {
         failure: "",
         reloadOwner: "",
         reloaded: false,
+        trialHeld: false,
         consent: { phase: "pending", queued: "", failure: "" }
     };
 }
@@ -1593,6 +1600,7 @@ function consentChanges(state, changes) {
 
 // An idle writer: start the next cycle, or rest.
 function begin(state, text) {
+    if (state.trialHeld) return { state: state, action: "none" };
     if (state.queuedForce || state.stale)
         return { state: withChanges(state, { phase: "reading", forcing: state.forcing || state.queuedForce, queuedForce: false, stale: false }), action: "read" };
     if (text !== null && (state.forcing || (text !== state.onDisk && text !== state.failedText)))
@@ -1633,8 +1641,8 @@ function idleDecision(state, failure, text, clearForcing) {
 // { type: "saveFailed", failure }, { type: "reloadDone", failure },
 // { type: "probeDone", answer|failure }, { type: "declineChecked",
 // declined|failure }, { type: "connect" }, { type: "decline" },
-// { type: "declineDone", failure } and { type: "wireDone", failure }, a
-// failure being "" when the step worked.
+// { type: "declineDone", failure }, { type: "wireDone", failure } and
+// { type: "trial", running }, a failure being "" when the step worked.
 function step(state, event, text) {
     switch (event.type) {
     case "loaded":
@@ -1705,6 +1713,10 @@ function step(state, event, text) {
     case "declineDone":
         expectPhase(state, event, "declining");
         return idleDecision(consentChanges(state, { phase: "declined", queued: "", failure: "" }), event.failure, text);
+    case "trial":
+        if (event.running === state.trialHeld) return { state: state, action: "none" };
+        var held = withChanges(state, { trialHeld: event.running });
+        return !event.running && state.phase === "idle" ? begin(held, text) : { state: held, action: "none" };
     case "wireDone":
         expectPhase(state, event, "wiring");
         if (event.failure !== "")

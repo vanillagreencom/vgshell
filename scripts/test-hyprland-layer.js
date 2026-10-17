@@ -1269,7 +1269,27 @@ const probeAbsent = { type: "probeDone", answer: "absent", failure: "" };
 const probeFailed = { type: "probeDone", answer: "", failure: "probe=failed status=1" };
 const notDeclined = { type: "declineChecked", declined: false, failure: "" };
 const declined = { type: "declineChecked", declined: true, failure: "" };
+const trialOn = { type: "trial", running: true };
+const trialOff = { type: "trial", running: false };
+// A wired layer at T1 after its first cycle.
+const WIRED = [[loaded("T0"), "T1"], [mkdirOk, "T1"], [saved, "T1"], [reloaded, "T1"], [probeWired, "T1"]];
+const WIRED_ACTIONS = ["mkdir", "write", "reload", "probe", "none"];
 const SEQUENCES = [
+    ["renders while a display trial runs wait for its end, then write the last text once",
+        [...WIRED, [trialOn, "T1"], [render, "T2"], [render, "T3"], [trialOff, "T3"], [mkdirOk, "T3"], [saved, "T3"], [reloaded, "T3"], [trialOff, "T3"]],
+        [...WIRED_ACTIONS, "none", "none", "none", "mkdir", "write", "reload", "none", "none"], { phase: "idle", onDisk: "T3", trialHeld: false }],
+    ["a trial that ends with the text on disk starts no cycle",
+        [...WIRED, [trialOn, "T1"], [render, "T1"], [trialOff, "T1"]],
+        [...WIRED_ACTIONS, "none", "none", "none"], { phase: "idle", onDisk: "T1", trialHeld: false }],
+    ["a force while a trial runs reads and reloads once the trial ends",
+        [...WIRED, [trialOn, "T1"], [force, "T1"], [trialOff, "T1"], [loaded("T1"), "T1"], [mkdirOk, "T1"], [reloaded, "T1"]],
+        [...WIRED_ACTIONS, "none", "none", "read", "mkdir", "reload", "none"], { phase: "idle", queuedForce: false, forcing: false, trialHeld: false }],
+    ["a write running when a trial starts ends, and the next render waits for the trial",
+        [...WIRED, [render, "T2"], [trialOn, "T2"], [mkdirOk, "T2"], [saved, "T2"], [reloaded, "T2"], [render, "T3"], [trialOff, "T3"]],
+        [...WIRED_ACTIONS, "mkdir", "none", "write", "reload", "none", "none", "mkdir"], { phase: "preparing", pending: "T3", trialHeld: false }],
+    ["a trial end during a running step starts the held cycle when that step ends",
+        [...WIRED, [render, "T2"], [trialOn, "T2"], [render, "T3"], [trialOff, "T3"], [mkdirOk, "T3"], [saved, "T3"], [reloaded, "T3"]],
+        [...WIRED_ACTIONS, "mkdir", "none", "none", "none", "write", "reload", "mkdir"], { phase: "preparing", pending: "T3", onDisk: "T2", trialHeld: false }],
     ["a first completed write and reload probes and asks when unwired",
         [[absent, "T1"], [mkdirOk, "T1"], [saved, "T1"], [reloaded, "T1"], [probeUnwired, "T1"], [notDeclined, "T1"]],
         ["mkdir", "write", "reload", "probe", "checkDecline", "none"], { phase: "idle", onDisk: "T1", failure: "", consent: { phase: "asking", queued: "", failure: "" } }],

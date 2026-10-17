@@ -15,7 +15,14 @@
 # run's held rule out of the configuration while it tests monitor rules
 # and puts it back at its end (suspend_run_base in mode-hold.sh): that rule
 # loads after the generated layer, so each reload would give the output
-# the held mode again and replace the rule Keep saved.
+# the held mode again and replace the rule Keep saved. A trial over a saved
+# rule, and one under a monitor line the row adds to the end of the
+# sandbox's hyprland.lua, each hold past the layer's reload point: the
+# trial's scale change renders the layer again, and a reload then would
+# load that rule or line in the trial's place within about 0.1 s
+# (VGS-1712's display records). After Keep the user's line wins at the
+# layer's reload, and the pane shows that the Hyprland file sets the
+# display.
 # Control run on 2026-10-10, host cachy, through this row after the setup
 # rows: a guard copy that exits before restore leaves the trial's token
 # held and writes no log, and the control reports the defect; with the
@@ -25,7 +32,7 @@
 # rows: a rule that turns the main output off with no check, sent while it
 # is the only output, leaves it off, and the control reports the defect;
 # a reload of the layer turns it back on.
-# inputs: shell/plugins/vgs.displays/* shell/Core/MonitorState.qml shell/Core/MonitorLogic.js shell/Core/HyprlandLayer.js shell/Core/Dispatch.js shell/Core/Compositor.qml bin/vgshell-display-guard
+# inputs: shell/plugins/vgs.displays/* shell/Core/MonitorState.qml shell/Core/MonitorLogic.js shell/Core/HyprlandLayer.js shell/Core/HyprlandLayer.qml shell/Ui/feedback/LinkText.qml shell/Core/Dispatch.js shell/Core/Compositor.qml bin/vgshell-display-guard
 set -euo pipefail
 
 user_config="$home/.config/vgshell/shell.json"
@@ -95,6 +102,9 @@ name, x, y = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
 print(json.dumps({name: {"position": {"x": x, "y": y}}}))
 PY
 }
+layer_scale_of() { grep -o -E "hl\.monitor\(\{ output = \"$1\"[^}]*scale = [0-9.]+" "$hypr_layer" | grep -o -E '[0-9.]+$' | tail -n 1 || echo none; }
+scale_and_phase() { echo "$(scale_of "$1") $(trial_phase)"; }
+pane_says_file() { ipc smoke itemTexts window vgs.displays LinkText | py_reply 'import json,sys; print("yes" if any("Your Hyprland file now sets this display differently." in t for t in json.load(sys.stdin)) else "no")'; }
 layer_has_rule() { grep -q -E 'hl\.monitor[[:space:]]*\(' "$hypr_layer" && echo yes || echo no; }
 hold_file_state() { [[ -e $mode_hold_file ]] && echo present || echo absent; }
 disabled_of() { hypr -j monitors all | py_reply 'import json,sys; rows=[m for m in json.load(sys.stdin) if m["name"]==sys.argv[1]]; print(str(rows[0]["disabled"]).lower() if rows else "absent")' "$1"; }
@@ -306,6 +316,58 @@ expect "clearing the sRGB rule is allowed" ok invoke_displays clearRules ""
 expect_poll "the layer drops the sRGB rule" no layer_has_rule
 expect "reload drops the sRGB rule" ok hypr reload config-only
 release_mode "display modes restores $output after the colour rule" "$output" "$base" 1
+
+# A trial over a saved rule holds past the layer's reload point, and Keep
+# writes it into the layer.
+expect "the trial for a saved rule starts" ok invoke_displays trialRules "$rules"
+expect_poll "the trial for a saved rule applies scale $trial_scale" "$trial_scale" scale_of "$output"
+token="$(token_of)"
+expect "Keep saves the rule a later trial runs over" ok invoke_displays keepTrial "{\"token\":\"$token\",\"rules\":$rules}"
+expect_poll "the layer holds the saved rule at scale $trial_scale" "$trial_scale" layer_scale_of "$output"
+expect_poll "the saved rule's scale survives its reload" "$trial_scale" scale_of "$output"
+over_rules="$(rule_json "$output" "$base" 1)"
+expect "the trial over the saved rule starts" ok invoke_displays trialRules "$over_rules"
+expect_poll "the trial over the saved rule applies scale 1" 1 scale_of "$output"
+sleep 2
+expect "the trial over the saved rule holds past the layer's reload point" "1 holding" scale_and_phase "$output"
+expect "the layer keeps the saved rule while the trial runs" "$trial_scale" layer_scale_of "$output"
+token="$(token_of)"
+expect "Keep saves the trial over the saved rule" ok invoke_displays keepTrial "{\"token\":\"$token\",\"rules\":$over_rules}"
+expect_poll "the layer writes the kept rule once the trial ends" 1 layer_scale_of "$output"
+expect "reload keeps the rule kept over the saved one" ok hypr reload config-only
+expect_poll "the rule kept over the saved one survives reload" 1 scale_of "$output"
+
+# A trial under the user's own later monitor line holds past the layer's
+# reload point too. After Keep the user's line wins at the layer's reload,
+# and the pane shows that the Hyprland file sets the display.
+system_was="$(record_exists vgs.system)"
+if [[ $system_was != True ]]; then
+  expect "enabling the System window for the user's line is allowed" ok ipc shell setPluginEnabled vgs.system true
+  expect_poll "the System window is built for the user's line" True record_exists vgs.system
+fi
+hypr_lua_save displays-modes-user-line
+monitor_rule "$output" "$base" 1 >>"$home/.config/hypr/hyprland.lua"
+expect "a reload loads the user's later monitor line" ok hypr reload config-only
+expect "the deep link opens System → Displays for the user's line" ok ipc shell summon window vgs.system '{"pane":"vgs.displays"}'
+expect_poll "the System window mounts the displays pane for the user's line" '["vgs.displays"]' window_panes
+expect "the trial under the user's line starts" ok invoke_displays trialRules "$rules"
+expect_poll "the trial under the user's line applies scale $trial_scale" "$trial_scale" scale_of "$output"
+sleep 2
+expect "the trial under the user's line holds past the layer's reload point" "$trial_scale holding" scale_and_phase "$output"
+token="$(token_of)"
+expect "Keep saves the trial under the user's line" ok invoke_displays keepTrial "{\"token\":\"$token\",\"rules\":$rules}"
+expect_poll "the layer writes the rule kept under the user's line" "$trial_scale" layer_scale_of "$output"
+expect_poll "the user's later monitor line wins at the reload after Keep" 1 scale_of "$output"
+expect_poll "the pane says the Hyprland file sets the display" yes pane_says_file
+expect "hiding the System window after the user's line is allowed" ok ipc shell hide window vgs.system
+hypr_lua_restore displays-modes-user-line || fail "display modes puts the sandbox's hyprland.lua back after the user's line"
+expect "clearing the rule kept under the user's line is allowed" ok invoke_displays clearRules ""
+expect_poll "the layer drops the rule kept under the user's line" no layer_has_rule
+expect "reload drops the user's monitor line" ok hypr reload config-only
+release_mode "display modes restores $output after the user's line" "$output" "$base" 1
+if [[ $system_was != True ]]; then
+  expect "disabling the System window after the user's line is allowed" ok ipc shell setPluginEnabled vgs.system false
+fi
 resume_run_base "display modes"
 
 cp -- "$sandbox/shell-before-displays-modes.json" "$user_config.next" && mv -T -- "$user_config.next" "$user_config"

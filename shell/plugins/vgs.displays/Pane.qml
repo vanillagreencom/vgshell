@@ -200,6 +200,11 @@ FocusScope {
         }
     }
 
+    function openHyprlandConfig() {
+        const reply = shell.tui.edit("hypr/hyprland.lua");
+        if (reply !== "ok") console.warn("displays pane: edit " + reply);
+    }
+
     function revertTrial() {
         const reply = shell.monitors.revert(trialState.token);
         problem = Logic.replyText(reply);
@@ -519,13 +524,15 @@ FocusScope {
                 }
             }
 
-            Label {
+            LinkText {
                 width: parent.width
                 visible: root.trialState.phase === "idle" && root.selected !== null && root.shell !== null && (root.shell.monitors.overridden(root.outputRules)[root.selected.name] === true || root.shell.monitors.overridden(root.outputRules)[root.selectedOutput] === true)
                 role: "hint"
                 color: Theme.color.warning
                 text: "Your Hyprland file now sets this display differently."
+                link: "Hyprland file"
                 wrapMode: Text.Wrap
+                onActivated: root.openHyprlandConfig()
             }
 
             Timer {
