@@ -12,7 +12,7 @@
   "capabilities": ["status", "system"],
   "systemSteps": ["greeter"],
   "status": {
-    "greeter": {"type": "state", "label": "Login screen", "hint": "Sets up the VGS login screen through the system setup", "action": {"label": "Set up", "system": "greeter"}, "setup": true},
+    "greeter": {"type": "state", "label": "Login screen", "hint": "Sets up the VGS login screen. It works only when you install VGS for all users.", "link": {"text": "install VGS for all users", "url": "https://github.com/vanillagreencom/vgshell#install"}, "action": {"label": "Set up", "system": "greeter"}, "setup": true},
     "theme": {"type": "state", "label": "Login screen theme", "hint": "The login screen shows your theme and background"}
   },
   "requirements": [

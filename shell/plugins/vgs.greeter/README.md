@@ -19,7 +19,7 @@
 
 The plugin ships with VGS. The login screen is off until you turn it on: open Plugins, choose Login screen and press Set up. A terminal shows each file the setup writes and asks for your password once. The login screen shows at the next boot.
 
-Setup needs greetd and VGS installed from a package. If another login screen, such as GDM or SDDM, is turned on, Set up is not offered and VGS leaves that login screen alone. On that login screen, Hyprland (uwsm-managed) starts the same session.
+Setup needs greetd and a VGS installed for all users. The login screen handles every password on this computer, so it does not run a VGS from a folder your account owns. To use it from such a folder, [install VGS for all users](../../../README.md#install). If another login screen, such as GDM or SDDM, is turned on, Set up is not offered and VGS leaves that login screen alone. To use the VGS login screen, turn the other one off. Until then, choose Hyprland (uwsm-managed) on it to start the same session.
 
 Removing the setup puts back the login configuration that was there before.
 

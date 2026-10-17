@@ -17,6 +17,7 @@ const { load } = require("../bin/lib/qml-library.js");
 
 const file = path.join(__dirname, "..", "shell", "plugins", "vgs.greeter", "GreeterLogic.js");
 const judge = load(path.join(__dirname, "..", "shell", "Core", "PluginLogic.js"));
+const pageReference = load(path.join(__dirname, "..", "shell", "Commons", "PageReference.js"));
 const same = (got, want, message) => assert.deepEqual(JSON.parse(JSON.stringify(got)), JSON.parse(JSON.stringify(want)), message || "");
 
 // A session file's text from its [Desktop Entry] lines.
@@ -186,37 +187,68 @@ function verify(logic) {
     const second = logic.promptAnswer(true, false, first.pending);
     same([first.respond, second], ["pw", { respond: null, ask: true, pending: null }], "the typed password answers only the first of two hidden prompts");
 
-    // The statuses. The Setup tone rule (design-system.md, Steps.js
-    // stepOpen): the step reads warning while it offers Set up, and info
-    // in every state that offers no action.
-    // [label, step, { tone, text, action }, whether a hint stands under
-    // the chip]. A chip holds a short state; every reading that offers no
-    // action carries a hint that names why or what to do instead.
+    // The statuses. A step's reading follows the Setup contract of
+    // PluginLogic.statusDeclarationFits and
+    // docs/architecture/design-system.md § Settings pages: tone ok is
+    // Done, `available: false` is Not available, any other value is To do. Its action kinds: "set-up" for a boolean
+    // action, "tools" for the one install route, "link" for a hint that
+    // cites the entry's manifest link, "off-and-on" for a hint whose page
+    // reference opens the plugin's Settings tab, where its Enabled switch
+    // is. [label, step, reading, tone, action kinds].
+    const manifest = judge.validateManifest(JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8")), path.dirname(file)).manifest;
+    const declared = manifest.status.greeter;
+    const reading = value => value.tone === "ok" ? "done" : value.available === false ? "unavailable" : "todo";
+    const kinds = value => {
+        const found = [];
+        if (value.action === true) found.push("set-up");
+        if (value.action === "tools") found.push("tools");
+        const hint = value.hint || "";
+        if (declared.link !== undefined && hint.indexOf(declared.link.text) !== -1) found.push("link");
+        const reference = pageReference.parse(hint);
+        if (reference.page === "vgs.greeter" && reference.tab === "Settings") found.push("off-and-on");
+        return found;
+    };
     const STEPS = [
-        ["ready", { state: "ready", reason: "granted" }, { tone: "ok", text: "Set up", action: false }, false],
-        ["needed offers Set up", { state: "needed", reason: "not-set-up" }, { tone: "warning", text: "Not set up", action: true }, false],
-        ["nixos offers the snippet", { state: "nixos", reason: "not-set-up" }, { tone: "warning", text: "Needs your NixOS configuration", action: true }, false],
-        ["another display manager", { state: "denied", reason: "other-display-manager" }, { tone: "info", text: "Unavailable", action: false }, true],
-        ["an install its owner can write", { state: "denied", reason: "install-untrusted" }, { tone: "info", text: "Unavailable", action: false }, true],
-        ["an install path the login screen cannot use", { state: "denied", reason: "install-path-unsupported" }, { tone: "info", text: "Unavailable", action: false }, true],
-        ["another account's setup", { state: "denied", reason: "other-account" }, { tone: "info", text: "Unavailable", action: false }, true],
-        ["a masked greetd", { state: "denied", reason: "unit-masked" }, { tone: "info", text: "Unavailable", action: false }, true],
-        ["no greetd", { state: "absent", reason: "greetd-missing" }, { tone: "info", text: "Unavailable", action: false }, true],
-        ["no Hyprland", { state: "absent", reason: "hyprland-missing" }, { tone: "info", text: "Unavailable", action: false }, true],
-        ["no greeter account", { state: "absent", reason: "greeter-user-missing" }, { tone: "info", text: "Unavailable", action: false }, true],
-        ["an unnamed reason", { state: "absent", reason: "other" }, { tone: "info", text: "Unavailable", action: false }, true],
-        ["unknown", { state: "unknown", reason: "probe-failed" }, { tone: "info", text: "Not checked", action: false }, true],
-        ["no reading yet", null, { tone: "info", text: "Not checked", action: false }, true]
+        ["ready", { state: "ready", reason: "granted" }, "done", "ok", []],
+        ["needed offers Set up", { state: "needed", reason: "not-set-up" }, "todo", "warning", ["set-up"]],
+        ["nixos offers the snippet", { state: "nixos", reason: "not-set-up" }, "todo", "warning", ["set-up"]],
+        ["no greetd offers the tools review", { state: "absent", reason: "greetd-missing" }, "todo", "warning", ["tools"]],
+        ["an install its owner can write", { state: "denied", reason: "install-untrusted" }, "unavailable", "info", ["link"]],
+        ["an install path the login screen cannot use", { state: "denied", reason: "install-path-unsupported" }, "unavailable", "info", ["link"]],
+        ["no Hyprland, which the plugin does not declare", { state: "absent", reason: "hyprland-missing" }, "unavailable", "info", []],
+        ["no greeter account", { state: "absent", reason: "greeter-user-missing" }, "unavailable", "info", []],
+        ["another display manager", { state: "denied", reason: "other-display-manager" }, "unavailable", "info", []],
+        ["a masked greetd", { state: "denied", reason: "unit-masked" }, "unavailable", "info", []],
+        ["another account's setup", { state: "denied", reason: "other-account" }, "unavailable", "info", []],
+        ["an unnamed absent reason", { state: "absent", reason: "other" }, "unavailable", "info", ["off-and-on"]],
+        ["an unnamed denied reason", { state: "denied", reason: "other" }, "unavailable", "info", ["off-and-on"]],
+        ["unknown", { state: "unknown", reason: "probe-failed" }, "unavailable", "info", ["off-and-on"]],
+        ["no reading yet", null, "unavailable", "info", ["off-and-on"]]
     ];
-    for (const [label, step, want, hinted] of STEPS) {
+    for (const [label, step, wantReading, wantTone, wantKinds] of STEPS) {
         const shown = logic.stepState(step);
-        same({ tone: shown.tone, text: shown.text, action: shown.action }, want, label);
-        assert.equal(typeof shown.hint === "string" && shown.hint !== "", hinted, "a hint stands under the chip: " + label);
+        same([reading(shown), shown.tone, kinds(shown)], [wantReading, wantTone, wantKinds], label);
+        if (wantReading === "todo") assert.ok(kinds(shown).some(kind => kind === "set-up" || kind === "tools"), "a To do step offers an action: " + label);
+        if (wantReading === "unavailable") assert.ok(typeof shown.hint === "string" && shown.hint !== "", "a Not available step says why: " + label);
+        // The tools review installs only the plugin's required tools, so a
+        // step names it only for a missing command the manifest declares
+        // required.
+        if (shown.action === "tools") {
+            const command = step.reason.replace(/-missing$/, "");
+            assert.ok(manifest.requirements.some(row => row.name === command && !row.optional), "tools names a required tool of the manifest: " + label);
+        }
     }
     // The step draws on Setup, so no hint of it links to the tab it is on.
     for (const [label, step] of STEPS) assert.doesNotMatch(logic.stepState(step).hint || "", /\(page:vgs\.greeter\/Setup\)/, "a step hint links to no Setup tab: " + label);
-    const hints = STEPS.filter(([label, step]) => step !== null && step.state !== "unknown" && step.reason !== "other").map(([label, step]) => logic.stepState(step).hint).filter(hint => hint !== undefined);
+    const named = STEPS.filter(([label, step]) => step !== null && step.state !== "unknown" && step.reason !== "other");
+    const hints = named.map(([label, step]) => logic.stepState(step).hint).filter(hint => hint !== undefined);
     assert.equal(new Set(hints).size, hints.length, "each reason names its own why");
+    // Done when of VGS-1734: no reading says it is for information only or
+    // sends a user who runs VGS from their own folder to a package.
+    const STALE = /for information only|from a package/i;
+    for (const [label, step] of STEPS) assert.doesNotMatch(logic.stepState(step).hint || "", STALE, "no step hint keeps the replaced copy: " + label);
+    assert.doesNotMatch(declared.hint, STALE, "the entry's hint keeps no replaced copy");
+    assert.doesNotMatch(fs.readFileSync(path.join(path.dirname(file), "README.md"), "utf8"), STALE, "the README keeps no replaced copy");
     assert.throws(() => logic.stepState({ state: "odd", reason: "x" }), /step state "odd"/, "an unknown state throws");
     // The service's copy: nothing until the step reads ready, then the
     // theme file, the background link and the step's directory, in that
@@ -231,7 +263,6 @@ function verify(logic) {
     same(logic.themeState(true, { ok: false }), { tone: "danger", text: "Could not be copied" }, "a failed copy");
     // Every value the service publishes is one the manifest judge accepts
     // for its entry.
-    const manifest = judge.validateManifest(JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8")), path.dirname(file)).manifest;
     const published = STEPS.map(([label, step]) => ["greeter", logic.stepState(step), label])
         .concat([[false, null], [true, null], [true, { ok: true }], [true, { ok: false }]].map(([ready, copy]) => ["theme", logic.themeState(ready, copy), "theme " + JSON.stringify(copy)]));
     for (const [key, value, label] of published) assert.equal(judge.statusWrite(manifest, {}, key, value).ok, true, "the manifest judge accepts the " + key + " value: " + label);
@@ -270,10 +301,15 @@ const CONTROLS = [
     ["the theme is copied only once the step reads ready", "    if (!ready) return null;\n    return [configDir", "    return [configDir"],
     ["the copy's arguments are the theme, the link, then the directory", 'return [configDir + "/theme.json", stateDir + "/background", THEME_DIR];', 'return [stateDir + "/background", configDir + "/theme.json", THEME_DIR];'],
     ["the theme status carries no action", 'if (!ready) return { tone: "info", text: "Waits for the login screen" };', 'if (!ready) return { tone: "info", text: "Waits for the login screen", action: false };'],
-    ["a denied step offers no action and reads info", '        return { tone: "info", text: "Unavailable"', '        return { tone: state === "denied" ? "danger" : "info", text: "Unavailable"'],
-    ["an unchecked step offers no action and reads info", 'case "unknown": return { tone: "info"', 'case "unknown": return { tone: "warning"'],
-    ["an unavailable step's hint names why", 'hint: Object.prototype.hasOwnProperty.call(REASON_HINTS, reason) ? REASON_HINTS[reason] : ', 'hint: '],
-    ["an unchecked step carries a hint", ', action: false, hint: "VGS could not check the login screen.', ', action: false, unused: "VGS could not check the login screen.'],
+    ["ready reads Done", 'case "ready": return { tone: "ok"', 'case "ready": return { tone: "info"'],
+    ["a Not available reading is info", 'return { tone: "info", text: pair[0]', 'return { tone: "warning", text: pair[0]'],
+    ["install-untrusted reads Not available", "action: false, available: false, hint: pair[1] }; }", 'action: false, available: pair === NOT_AVAILABLE["install-untrusted"] ? undefined : false, hint: pair[1] }; }'],
+    ["install-untrusted cites the install link", "Switch to one installed for all users, or install VGS for all users.", "Switch to one installed for all users."],
+    ["a missing greetd offers the tools review", 'action: "tools", hint: "Install greetd', 'action: false, hint: "Install greetd'],
+    ["a missing Hyprland offers no tools review", "if (reason === GREETD_MISSING) return", 'if (reason === GREETD_MISSING || reason === "hyprland-missing") return'],
+    ["an unnamed reason reads as not checked", "? NOT_AVAILABLE[reason] : NOT_CHECKED);", '? NOT_AVAILABLE[reason] : NOT_AVAILABLE["other-account"]);'],
+    ["a failed check offers Turn off and on", "[Turn Login screen off and on](page:vgs.greeter/Settings)", "Turn Login screen off and on"],
+    ["no hint says it is for information only", "Only that account can change it.", "Only that account can change it. This is for information only."],
     ["a needed step offers Set up", 'case "needed": return { tone: "warning", text: "Not set up", action: true };', 'case "needed": return { tone: "warning", text: "Not set up", action: false };']
 ];
 const scratch = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "test-greeter-logic-")));

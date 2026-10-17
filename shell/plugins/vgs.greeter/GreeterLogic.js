@@ -436,35 +436,49 @@ function promptAnswer(responseRequired, echoResponse, pending) {
 }
 
 // The `greeter` status: the step's reading as the Settings row shows it,
-// { tone, text, action, hint? }, `text` the chip's short state and `hint`
-// the sentence under it. Set up is offered while it reads needed or nixos,
-// in the warning tone of an open step. A reading that offers no action
-// reads info, and its hint names why and what the user can do instead,
-// such as installing VGS from a package, or says the reading is for
-// information only.
+// { tone, text, action, available?, hint? }, `text` the short state under
+// the step's chip and `hint` the sentence under it. A step that reads
+// ready is done, in the ok tone. Set up is offered while it reads needed
+// or nixos, in the warning tone of an open step. While greetd is missing
+// the step names the `tools` action, which the Setup tab draws as Review
+// all missing or outdated tools: the manifest declares greetd a required
+// tool, so that review installs it. Every other reading offers the user no
+// action and does not wait on them, so it says `available: false` in the
+// info tone (PluginLogic.statusDeclarationFits), and its hint says why and
+// the one thing that changes it: install VGS for all users, which the
+// manifest's link on the entry opens, Turn Login screen off and on, which
+// opens the plugin's Settings tab where its Enabled switch is, or what
+// someone else must do. Hyprland is no declared requirement of this
+// plugin, so the review would not list it, and its reading offers no
+// action. A probe that could not answer, or names a reason this table
+// does not know, reads the same as unknown, so a failed check raises no
+// Setup needed.
 var STEP_STATES = ["ready", "needed", "nixos", "absent", "denied", "unknown"];
-var REASON_HINTS = {
-    "greetd-missing": "Choose Review all missing or outdated tools on the Tools step to install what the login screen needs",
-    "hyprland-missing": "Needs Hyprland, which the login screen runs in. Install Hyprland to use it.",
-    "greeter-user-missing": "You cannot set up the login screen on this computer",
-    "other-display-manager": "Another login screen is turned on. VGS does not turn it off, so it stays your login screen.",
-    "install-untrusted": "The login screen runs only a VGS that a package installed. Install VGS from a package to use it.",
-    "install-path-unsupported": "VGS is installed in a folder the login screen cannot use. Install VGS from a package to use it.",
-    "other-account": "Another account set up the login screen. Only that account can change it.",
-    "unit-masked": "The system turned the login screen off, and VGS leaves it off"
+var GREETD_MISSING = "greetd-missing";
+// [text, hint] per reason that reads Not available.
+var NOT_AVAILABLE = {
+    "hyprland-missing": ["Needs Hyprland", "Install Hyprland to use the login screen."],
+    "greeter-user-missing": ["No login-screen account", "This computer has no login-screen account. Reinstalling greetd adds it."],
+    "other-display-manager": ["Another login screen is on", "Another login screen is turned on now. To use the VGS login screen, turn the other one off. Until then, choose Hyprland (uwsm-managed) on it."],
+    "install-untrusted": ["Runs from your own folder", "The login screen handles every password, so it runs only a VGS installed for all users. This VGS is in a folder your account owns. Switch to one installed for all users, or install VGS for all users."],
+    "install-path-unsupported": ["Folder name not supported", "VGS is in a folder whose name has a space or a sign the login screen cannot use. To set it up, install VGS for all users."],
+    "other-account": ["Set up by another account", "Another account set up the login screen. Only that account can change it."],
+    "unit-masked": ["Turned off by an administrator", "An administrator turned the login screen off on this computer. It stays off until they turn it back on."]
 };
+var NOT_CHECKED = ["Not checked", "VGS could not check the login screen. [Turn Login screen off and on](page:vgs.greeter/Settings) to check again."];
+function notAvailable(pair) { return { tone: "info", text: pair[0], action: false, available: false, hint: pair[1] }; }
 function stepState(step) {
     var state = step === null || step === undefined ? "unknown" : step.state;
     var reason = step === null || step === undefined ? "" : step.reason;
     switch (state) {
-    case "ready": return { tone: "ok", text: "Set up", action: false };
+    case "ready": return { tone: "ok", text: "Ready", action: false };
     case "needed": return { tone: "warning", text: "Not set up", action: true };
     case "nixos": return { tone: "warning", text: "Needs your NixOS configuration", action: true };
     case "absent":
     case "denied":
-        return { tone: "info", text: "Unavailable", action: false,
-            hint: Object.prototype.hasOwnProperty.call(REASON_HINTS, reason) ? REASON_HINTS[reason] : "The login screen is not available on this computer. This is for information only." };
-    case "unknown": return { tone: "info", text: "Not checked", action: false, hint: "VGS could not check the login screen. This is for information only." };
+        if (reason === GREETD_MISSING) return { tone: "warning", text: "Needs greetd", action: "tools", hint: "Install greetd to use the login screen." };
+        return notAvailable(Object.prototype.hasOwnProperty.call(NOT_AVAILABLE, reason) ? NOT_AVAILABLE[reason] : NOT_CHECKED);
+    case "unknown": return notAvailable(NOT_CHECKED);
     }
     throw new Error("greeter: step state " + JSON.stringify(state) + " is not one of " + STEP_STATES.join(", "));
 }
