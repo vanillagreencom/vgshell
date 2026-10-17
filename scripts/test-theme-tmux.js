@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// The tmux target's two truecolor lines, themes/targets/tmux/tmux.conf,
+// The tmux target's truecolor lines, themes/targets/tmux/tmux.conf,
 // sourced into private tmux servers. The include renders through the
 // renderer under the shipped vgs package and each server sources it, as the
 // user's tmux.conf does:
@@ -7,6 +7,8 @@
 // - CLAUDE_CODE_TMUX_TRUECOLOR: a pane opened after the include loads holds
 //   CLAUDE_CODE_TMUX_TRUECOLOR=1, the variable Claude Code reads before it
 //   drops to 256 colours under TMUX.
+// - PROMPT_TOOLKIT_COLOR_DEPTH: a new pane holds DEPTH_24_BIT, the override
+//   prompt_toolkit reads for Hermes' classic CLI.
 // - RGB: a client attached with TERM=xterm-256color and no COLORTERM, whose
 //   terminfo has no RGB flag, shows RGB in #{client_termfeatures}.
 //
@@ -15,7 +17,7 @@
 // tmux answers XTVERSION, the client reads its terminal type as tmux and turns
 // RGB on with or without the line (tmux 3.8, run by hand on 2026-10-17).
 //
-// The controls: the template without each line, rendered and sourced the
+// The controls: the template with each line disabled, rendered and sourced the
 // same way, must show no variable and no RGB.
 //
 // Each server runs on its own socket under a scratch TMUX_TMPDIR and HOME,
@@ -38,7 +40,10 @@ const repo = path.join(__dirname, "..");
 const logic = load(path.join(repo, "shell", "Commons", "ThemeLogic.js"));
 const TOKENS = load(path.join(repo, "shell", "Commons", "Tokens.js")).TOKENS;
 const targetDir = path.join(repo, "themes", "targets", "tmux");
-const VARIABLE_LINE = "set-environment -g CLAUDE_CODE_TMUX_TRUECOLOR 1";
+const VARIABLES = [
+    ["CLAUDE_CODE_TMUX_TRUECOLOR", "1"],
+    ["PROMPT_TOOLKIT_COLOR_DEPTH", "DEPTH_24_BIT"]
+];
 const RGB_LINE = 'set -ag terminal-overrides ",*:RGB"';
 // A spawnSync deadline: a tmux client that never returns fails the test.
 const DEADLINE_MS = 10000;
@@ -70,10 +75,10 @@ const rendered = text => {
     assert.equal(result.ok, true, result.ok ? "" : render.refusalLine("tmux", result));
     return result.files[0].bytes.toString("utf8");
 };
-// The template without LINE, which it must hold exactly once.
-const without = line => {
+// Comment out LINE, retaining its text while disabling its behaviour.
+const disabled = line => {
     assert.equal(template.split(line + "\n").length, 2, line);
-    const text = template.replace(line + "\n", "");
+    const text = template.replace(line + "\n", "# " + line + "\n");
     assert.notEqual(text, template);
     return text;
 };
@@ -135,11 +140,11 @@ const server = (name, text) => {
 };
 
 // What a pane opened after TEXT loads holds as the variable.
-const paneVariable = (name, text) => {
+const paneVariable = (name, text, variable) => {
     const socket = server(name, text);
     const out = path.join(root, `${name}.out`);
     tmux(socket, "new-window", "-d",
-        `printf '%s' "\${CLAUDE_CODE_TMUX_TRUECOLOR-unset}" > '${out}'; tmux wait-for -S read`);
+        `printf '%s' "\${${variable}-unset}" > '${out}'; tmux wait-for -S read`);
     tmux(socket, "wait-for", "read");
     return fs.readFileSync(out, "utf8");
 };
@@ -170,12 +175,15 @@ const stop = async () => {
     try {
         fs.mkdirSync(env.HOME);
         fs.mkdirSync(env.TMUX_TMPDIR);
-        assert.equal(paneVariable("v1", template), "1");
-        assert.equal(paneVariable("v0", without(VARIABLE_LINE)), "unset");
-        console.log("test-theme-tmux: pane-variable=1 control=unset");
+        for (const [index, [variable, value]] of VARIABLES.entries()) {
+            const line = `set-environment -g ${variable} ${value}`;
+            assert.equal(paneVariable(`v${index}1`, template, variable), value, variable);
+            assert.equal(paneVariable(`v${index}0`, disabled(line), variable), "unset", variable);
+            console.log(`test-theme-tmux: pane-variable=${variable} value=${value} control=unset`);
+        }
 
         assert.ok(clientFeatures("r1", template).includes("RGB"));
-        const control = clientFeatures("r0", without(RGB_LINE));
+        const control = clientFeatures("r0", disabled(RGB_LINE));
         assert.ok(!control.includes("RGB"), control.join(","));
         console.log("test-theme-tmux: client-rgb=on control=off");
     } finally {
