@@ -732,10 +732,6 @@ printf '%s\n' "$status" "$shell_pid" >>"$fixture/pids"
 stop_shell || true
 for pid in "${pgids[@]}"; do wait "$pid" 2>/dev/null || true; done
 ''')
-    if mode == 'many':
-        body = helper.read_text().replace('spawn_pid=stale', 'for iteration in $(seq 1 130); do\ndisplay_stream_kind=probe\nspawn_pid=stale')
-        body = body.replace('stop_shell || true\nfor pid', 'stop_shell || true\ndone\nfor pid')
-        helper.write_text(body)
     result = subprocess.run(['bash', str(helper), str(recorder), str(directory), mode],
                             env={'PATH': os.getenv('PATH')}, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=25)
     assert result.returncode == 0, ('boundary-runtime', result.stderr)
@@ -812,14 +808,22 @@ def end(record, child):
     record.end_owner(context, str(child.pid))
 
 def many_stops(name, source=text):
-    with server(name, source) as (directory, recorder, child, request):
-        boundary(directory, recorder, 'many')
-        assert request('read')['activeStreams'] == 0, 'completed-resource-retired'
-        rows = events(directory)
-        bindings = [e['data']['source'] for e in rows if e['kind'] == 'log-binding']
-        assert len(bindings) == 130 and len(set(bindings)) == 130, 'unique-registration-generation'
-        assert len([e for e in rows if e['kind'] == 'local-owner-end']) == 130, 'every-stop-owned-generation'
-        request('close', '1', 'cleanup'); request('stop', 'normal'); child.wait(timeout=10)
+    # 130 generations cross the 128-stream capacity if retirement leaks.
+    # The boundary cases above cover spawn/stop wiring. Use the collector's
+    # real methods here to avoid a recorder client process for each operation.
+    record, _ = local(name, source)
+    try:
+        for index in range(130):
+            with acquired(record, index, path=record.directory / 'child.log') as (_, _, _, child):
+                end(record, child)
+            # Catch missing retirement before it causes a capacity refusal.
+            assert len(record.streams) == 0, 'completed-resource-retired'
+    finally:
+        finish(record)
+    rows = events(record.directory)
+    bindings = [e['data']['source'] for e in rows if e['kind'] == 'log-binding']
+    assert len(bindings) == 130 and len(set(bindings)) == 130, 'unique-registration-generation'
+    assert len([e for e in rows if e['kind'] == 'local-owner-end']) == 130, 'every-stop-owned-generation'
 many_stops('retire-many')
 record, _ = local('reader-close')
 with acquired(record, 1) as (path, writer, key, child):
