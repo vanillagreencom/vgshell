@@ -45,7 +45,7 @@ Item {
     onShellChanged: {
         if (shell === null || registeredWith !== null) return;
         registeredWith = shell;
-        shell.shortcut.register("group-lock", "Lock or unlock the window group", () => root.press());
+        shell.shortcut.register("group-lock", "Lock or unlock group", () => root.press());
     }
 
     function press() {
