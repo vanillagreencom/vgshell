@@ -65,6 +65,7 @@ A wallpaper another program draws must not be covered by a bare background colou
 - Do stage every file and swap by rename; never write into `theme/` in place. `scripts/test-vgshell.sh` pins it.
 - Do write the theme file last and byte for byte. `scripts/test-vgshell.sh` pins it.
 - Do repair the include line, the managed entries and the selection key on every apply. `scripts/test-vgshell.sh` and `scripts/test-vgshell-agents.sh` pin it.
+- Do keep the include line of a `last` wiring after every line of the user's own, moving it there on each apply and changing no other line. The tmux target sets `last`, with `~/.tmux.conf` as its fallback, and a linked file is written through its link. An inline colour in the user's `status-left` beats every style option, so the theme loads after the user's lines and sets every colour option tmux lists and every status format: its `status-left " #S "` and tmux's default `status-right` replace the user's text as well as its colours, under the 2026-10-10 ruling above. A user keeps their own by listing `tmux` in `disabledTargets` in `shell.json`. `scripts/test-theme-render.js` and `scripts/test-vgshell-chat-tools.sh` pin it.
 - Never create a file through a dangling symlink. `scripts/test-vgshell.sh` pins it.
 - Do refuse the whole apply when a configuration layer is refused. `scripts/test-vgshell.sh` pins it.
 - Do record every due target as pending before the swap, so `vgshell theme reload` can retry it. `scripts/test-vgshell-reload.sh` pins it.

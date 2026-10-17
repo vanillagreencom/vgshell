@@ -4,6 +4,6 @@
   "encoder": "hex6",
   "files": [{ "template": "tmux.conf", "destination": "tmux.conf" }],
   "detect": ["tmux"],
-  "wiring": { "file": "tmux/tmux.conf", "line": "source-file -q '@{state}/tmux.conf'", "create": false },
+  "wiring": { "file": "tmux/tmux.conf", "line": "source-file -q '@{state}/tmux.conf'", "create": false, "fallbacks": [".tmux.conf"], "last": true },
   "reload": { "command": ["sh", "-c", "tmux list-sessions >/dev/null 2>&1 || exit 0; exec tmux source-file -q \"$1\"", "sh", "@{state}/tmux.conf"], "timeoutMs": 5000 }
 }

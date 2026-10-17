@@ -105,6 +105,8 @@ const ACCEPTED_TARGETS = [
     ["probe", targetText({ wiring: Object.assign({}, wiring, { file: "chrome/userChrome.css", profiles: [".zen/profiles.ini", ".config/zen/profiles.ini"] }) })],
     ["probe", targetText({ wiring: Object.assign({}, wiring, { section: "general", profiles: ["profiles.ini"] }) })],
     ["probe", targetText({ wiring: Object.assign({}, wiring, { fallbacks: [".config/probe/probe.conf", ".probe.conf"] }) })],
+    ["probe", targetText({ wiring: Object.assign({}, wiring, { fallbacks: [".probe.conf"], last: true }) })],
+    ["probe", targetText({ wiring: Object.assign({}, wiring, { last: false }) })],
     ["probe", targetText({ wiring: Object.assign({}, wiring, { fallbacks: [".probe.conf"] }), reload: { command: ["touch", "-c", "--", "@{wiring}", "@{state}", "@@{x}"], timeoutMs: 2000 } })],
     ["probe", entryText({ dir: ".obsidian/themes/vgs", owned: true, vaults: "obsidian/obsidian.json" })],
     ["probe", entryText({ base: "home", dir: ".probe", vaults: ".probe-vaults.json" })],
@@ -177,6 +179,10 @@ const REFUSED_TARGETS = [
     ["probe", targetText({ wiring: Object.assign({}, wiring, { fallbacks: [".config//probe.conf"] }) }), "target-schema", "key=wiring.fallbacks"],
     ["probe", targetText({ wiring: Object.assign({}, wiring, { fallbacks: [[".probe.conf"]] }) }), "target-schema", "key=wiring.fallbacks"],
     ["probe", targetText({ wiring: Object.assign({}, wiring, { profiles: ["profiles.ini"], fallbacks: [".probe.conf"] }) }), "target-schema", "key=wiring.fallbacks"],
+    ["probe", targetText({ wiring: Object.assign({}, wiring, { last: "yes" }) }), "target-schema", "key=wiring.last"],
+    ["probe", targetText({ wiring: Object.assign({}, wiring, { last: null }) }), "target-schema", "key=wiring.last"],
+    ["probe", targetText({ wiring: Object.assign({}, wiring, { last: true, section: "general" }) }), "target-schema", "key=wiring.last"],
+    ["probe", entryText({ last: true }), "target-schema", "key=wiring"],
     ["probe", entryText({ profiles: [".zen/profiles.ini"] }), "target-schema", "key=wiring"],
     ["probe", entryText({ fallbacks: [".probe.conf"] }), "target-schema", "key=wiring"],
     ["probe", entryText({ line: "include=@{state}/probe.conf" }), "target-schema", "key=wiring"],
@@ -351,6 +357,20 @@ const WIRED = [
     ["include=/s/foot.ini", null],
     ["# include=/s/foot.ini\n", "include=/s/foot.ini\n# include=/s/foot.ini\n"],
     ["include=/s/foot.ini.old\n", "include=/s/foot.ini\ninclude=/s/foot.ini.old\n"]
+];
+// The same before a `last` wiring, and after it: the line ends the file, a
+// copy anywhere else moves there, and every other line stays byte for byte.
+const WIRED_LAST = [
+    [undefined, "include=/s/foot.ini\n"],
+    ["", "include=/s/foot.ini\n"],
+    ["font=x", "font=x\ninclude=/s/foot.ini\n"],
+    ["font=x\nstatus=y\n", "font=x\nstatus=y\ninclude=/s/foot.ini\n"],
+    ["include=/s/foot.ini\nfont=x\nstatus=y\n", "font=x\nstatus=y\ninclude=/s/foot.ini\n"],
+    ["include=/s/foot.ini\nfont=x\ninclude=/s/foot.ini\nstatus=y", "font=x\nstatus=y\ninclude=/s/foot.ini\n"],
+    ["# include=/s/foot.ini\nfont=x\n", "# include=/s/foot.ini\nfont=x\ninclude=/s/foot.ini\n"],
+    ["font=x\ninclude=/s/foot.ini\n", null],
+    ["font=x\ninclude=/s/foot.ini\n\n\n", null],
+    ["include=/s/foot.ini", null]
 ];
 
 // A configuration file's text before the wiring into the `general` section,
@@ -734,6 +754,8 @@ function verify(render) {
     assert.equal(render.wiringLine(escaped, "/s"), "a=@{x} source /s/b /s/c");
     for (const [text, want] of WIRED)
         assert.equal(render.wiredText(text, LINE), want, JSON.stringify(text));
+    for (const [text, want] of WIRED_LAST)
+        assert.equal(render.wiredText(text, LINE, undefined, true), want, JSON.stringify(text));
     for (const [text, want] of WIRED_SECTION)
         assert.equal(render.wiredText(text, TOML_LINE, "general"), want, JSON.stringify(text));
     for (const [text, detail] of CONFLICTS)
@@ -1723,6 +1745,9 @@ function tmuxStyle(text, option) {
     assert.ok(value, option);
     return Object.fromEntries(value[1].split(",").map(part => part.includes("=") ? part.split("=") : [part, true]));
 }
+// The desk switcher's active pair for one light and one dark package: each
+// package's accent, and the black or white contrast() picks on it.
+const SESSION_PAIRS = { "flexoki-light": ["#205ea6", "#ffffff"], vgs: ["#ff5a36", "#000000"] };
 function verifyAppStyles(render, changedTemplates = {}) {
     const targets = Object.fromEntries(["tmux", "neovim", "ghostty"].map(name => {
         const dir = path.join(repo, "themes", "targets", name);
@@ -1778,7 +1803,10 @@ function verifyAppStyles(render, changedTemplates = {}) {
         assert.equal(status.bg, bg);
         assert.equal(active.bg, bg);
         assert.equal(inactive.bg, bg);
-        assert.equal(session.fg, pkg.values.color.onInfo.slice(0, 7));
+        // The session label takes the bar's active desk pair (BarItem.qml's
+        // Theme.bar.active fill and Theme.bar.onActive text).
+        assert.deepEqual([session.bg, session.fg], [pkg.values.bar.active.slice(0, 7), pkg.values.bar.onActive.slice(0, 7)], name + "/session");
+        if (name in SESSION_PAIRS) assert.deepEqual([session.bg, session.fg], SESSION_PAIRS[name], name + "/session literal");
         assert.equal(active.fg, pkg.values.color.info.slice(0, 7));
         assert.equal(active.bold, true);
         assert.equal(inactive.bold, undefined);
@@ -1787,7 +1815,17 @@ function verifyAppStyles(render, changedTemplates = {}) {
             assert.deepEqual(ratio < 4.5 ? [{ kind: "app-style-contrast", theme: name, role, ratio, floor: 4.5 }] : [], []);
             return [role, ratio];
         }));
-        assert.equal(session.bg, pkg.values.color.info.slice(0, 7));
+        // Every other text style: its text on its own fill, or on the
+        // terminal's background, which a pane draws on, where it sets none.
+        // A border style draws no text.
+        for (const [, option, value] of rendered.tmux.matchAll(/^set -gq? ([a-z-]+-style) "([^"\n]+)"$/gm)) {
+            if (option.includes("border")) continue;
+            const style = Object.fromEntries(value.split(",").map(part => part.includes("=") ? part.split("=") : [part, true]));
+            if (!/^#[0-9a-f]{6}$/.test(style.fg)) continue;
+            const fill = /^#[0-9a-f]{6}$/.test(style.bg) ? style.bg : bg;
+            const ratio = logic.contrastRatio(logic.parseColor(style.fg), logic.parseColor(fill));
+            assert.deepEqual(ratio < 4.5 ? [{ kind: "app-style-contrast", theme: name, role: option, ratio, floor: 4.5 }] : [], []);
+        }
         const separation = channelSeparation(active.fg, inactive.fg);
         assert.ok(separation >= 55.65, name + "/inactive RGB separation=" + separation);
         const old = pkg.terminal.color8.slice(0, 7);
@@ -1804,7 +1842,6 @@ function verifyAppStyles(render, changedTemplates = {}) {
             assert.ok(line);
             assert.equal(line.includes("#["), false, option + "/inline style overrides managed colours");
         }
-        if (name === "horizon-light") assert.equal(session.fg, "#ffffff");
         metrics.push({ name, background: bg, session, active, inactive, ratios, separation, preserved: inactive.fg === old,
             ghostty: { foreground, faintOpacity } });
     }
@@ -2322,32 +2359,19 @@ try {
 console.log(`test-theme-render: ghostty-faint packages=${appStyleMetrics.length} opacity=0.8 controls=default,absent,normal-foreground,invalid-color model=full-coverage-linear comparisons=${ghosttyFaintModels.length} normal=source-unchanged`);
 const tmuxTemplate = fs.readFileSync(path.join(repo, "themes/targets/tmux/tmux.conf"), "utf8");
 const styleControls = [
-    ["old session block text", 'fg=#@{color.onInfo}', 'fg=#@{color.text}'],
-    ["rejected session without block", 'set -g status-left-style "bg=#@{color.info}', 'set -g status-left-style "bg=#@{color.background}'],
+    ["session text not the active text", 'bg=#@{bar.active},fg=#@{bar.onActive},bold', 'bg=#@{bar.active},fg=#@{color.text},bold'],
+    ["old session block fill", 'set -g status-left-style "bg=#@{bar.active}', 'set -g status-left-style "bg=#@{color.info}'],
+    ["rejected session without block", 'set -g status-left-style "bg=#@{bar.active}', 'set -g status-left-style "bg=#@{color.background}'],
     ["old filled active tab", 'set -g window-status-current-style "bg=#@{color.background}', 'set -g window-status-current-style "bg=#@{palette.accent}'],
     ["rejected neutral unbolded active", 'fg=#@{color.info},bold', 'fg=#@{color.textHeading}'],
-    ["old inline active", 'set -g window-status-current-format " #I:#W#F "', 'set -g window-status-current-format "#[fg=blue,bold] #I:#W#F "']
+    ["old inline active", 'set -g window-status-current-format " #I:#W#F "', 'set -g window-status-current-format "#[fg=blue,bold] #I:#W#F "'],
+    ["unreadable menu text", 'set -gq menu-style "bg=#@{color.surfaceRaised},fg=#@{color.text}"', 'set -gq menu-style "bg=#@{color.surfaceRaised},fg=#@{color.surfaceRaised}"'],
+    ["unreadable line numbers on the pane", 'set -gq copy-mode-line-number-style "fg=#@{color.textMuted}"', 'set -gq copy-mode-line-number-style "fg=#@{color.background}"']
 ];
 for (const [label, needle, replacement] of styleControls) {
     assert.equal(tmuxTemplate.split(needle).length, 2, label);
     assert.throws(() => verifyAppStyles(require(rendererFile), { tmux: tmuxTemplate.replace(needle, replacement) }), undefined, label);
 }
-const sessionScratch = fs.mkdtempSync(path.join(os.tmpdir(), "tmux-session-control-"));
-try {
-    const needle = 'set -g status-left-style "bg=#@{color.info}';
-    assert.equal(tmuxTemplate.split(needle).length, 2);
-    const mutant = tmuxTemplate.replace(needle, 'set -g status-left-style "bg=#@{palette.info}');
-    assert.notEqual(mutant, tmuxTemplate);
-    const file = path.join(sessionScratch, "tmux.conf");
-    fs.writeFileSync(file, mutant, { flag: "wx" });
-    assert.throws(() => verifyAppStyles(require(rendererFile), { tmux: fs.readFileSync(file, "utf8") }),
-        error => error instanceof assert.AssertionError && Array.isArray(error.actual) &&
-            error.actual.some(shortfall => shortfall.kind === "app-style-contrast" &&
-                shortfall.theme === "akane" && shortfall.role === "session" && shortfall.ratio < shortfall.floor));
-} finally {
-    fs.rmSync(sessionScratch, { recursive: true, force: true });
-}
-console.log("test-theme-render: tmux-session control=palette-info rejected=akane/session");
 
 // Alacritty's search, hint labels and footer have explicit colour pairs.
 // Parse the rendered TOML, including catalog packages that use the same
@@ -2934,9 +2958,12 @@ const CONTROLS = [
     ["detected every entry", "return detect.every(entry => Array.isArray", "return detect.some(entry => Array.isArray"],
     ["wiring required keys", "!WIRING_KEYS.every(key => logic.hasOwn(wiring, key)) ||", "false ||"],
     ["wiring unknown key", "!Object.keys(wiring).every(key => WIRING_KEYS.includes(key) || INCLUDE_OPTIONAL_KEYS.includes(key))", "false"],
-    ["wiring section admitted", 'const INCLUDE_OPTIONAL_KEYS = ["section", "profiles", "fallbacks"];', 'const INCLUDE_OPTIONAL_KEYS = ["profiles", "fallbacks"];'],
-    ["wiring profiles admitted", 'const INCLUDE_OPTIONAL_KEYS = ["section", "profiles", "fallbacks"];', 'const INCLUDE_OPTIONAL_KEYS = ["section", "fallbacks"];'],
-    ["wiring fallbacks admitted", 'const INCLUDE_OPTIONAL_KEYS = ["section", "profiles", "fallbacks"];', 'const INCLUDE_OPTIONAL_KEYS = ["section", "profiles"];'],
+    ["wiring section admitted", 'const INCLUDE_OPTIONAL_KEYS = ["section", "profiles", "fallbacks", "last"];', 'const INCLUDE_OPTIONAL_KEYS = ["profiles", "fallbacks", "last"];'],
+    ["wiring profiles admitted", 'const INCLUDE_OPTIONAL_KEYS = ["section", "profiles", "fallbacks", "last"];', 'const INCLUDE_OPTIONAL_KEYS = ["section", "fallbacks", "last"];'],
+    ["wiring fallbacks admitted", 'const INCLUDE_OPTIONAL_KEYS = ["section", "profiles", "fallbacks", "last"];', 'const INCLUDE_OPTIONAL_KEYS = ["section", "profiles", "last"];'],
+    ["wiring last admitted", 'const INCLUDE_OPTIONAL_KEYS = ["section", "profiles", "fallbacks", "last"];', 'const INCLUDE_OPTIONAL_KEYS = ["section", "profiles", "fallbacks"];'],
+    ["wiring last boolean", 'typeof wiring.last !== "boolean" || logic.hasOwn(wiring, "section")', 'logic.hasOwn(wiring, "section")'],
+    ["wiring last excludes section", 'typeof wiring.last !== "boolean" || logic.hasOwn(wiring, "section")', 'typeof wiring.last !== "boolean"'],
     ["wiring section name", "(typeof wiring.section !== \"string\" || !SECTION_PATTERN.test(wiring.section))", "false"],
     ["wiring profiles list", "(!Array.isArray(wiring.profiles) || wiring.profiles.length === 0 ||", "(!Array.isArray(wiring.profiles) ||"],
     ["wiring profiles path", "!wiring.profiles.every(ini => typeof ini === \"string\" && ini.split(\"/\").every(segment => DIR_SEGMENT_PATTERN.test(segment)))", "!wiring.profiles.every(ini => typeof ini === \"string\")"],
@@ -2976,6 +3003,10 @@ const CONTROLS = [
     ["reload timeout", "if (!Number.isInteger(reload.timeoutMs) || reload.timeoutMs <= 0) return", "if (false) return"],
     ["wiring line state", "        return values[part.name];\n", "        return part.name === STATE_PLACEHOLDER ? \"@{state}\" : values[part.name];\n"],
     ["wiring whole line", "if (lines.includes(line)) return null;", "if (text !== undefined && text.includes(line)) return null;"],
+    ["wiring last read", "if (last === true) {", "if (false) {"],
+    ["wiring last null when last", 'if (lines.findLast(existing => existing !== "") === line) return null;', "if (false) return null;"],
+    ["wiring last past blank lines", 'lines.findLast(existing => existing !== "")', "lines.findLast(() => true)"],
+    ["wiring last moves every copy", "const kept = lines.filter(existing => existing !== line)", "const kept = lines.filter((existing, at) => at !== lines.indexOf(line))"],
     ["wiring line first", "return line + \"\\n\" + (text === undefined ? \"\" : text);", "return (text === undefined ? \"\" : text) + line + \"\\n\";"],
     ["wiring creates", "const lines = text === undefined ? [] : text.split(\"\\n\");", "if (text === undefined) return null;\n    const lines = text.split(\"\\n\");"],
     ["wiring into its section", "if (at !== -1) {", "if (false) {"],

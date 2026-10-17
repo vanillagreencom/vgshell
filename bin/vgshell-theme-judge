@@ -1320,7 +1320,7 @@ function editWiring(name, target, configHome, live, edit) {
         if (typeof e.code !== "string") throw e;
         return { reason: "unreadable", failure: key + "=unreadable path=" + e.path + " error=" + e.code };
     }
-    const edited = text => edit(text, Buffer.from(render.wiringLine(target, live), "utf8").toString("latin1"), target.wiring.section);
+    const edited = text => edit(text, Buffer.from(render.wiringLine(target, live), "utf8").toString("latin1"), target.wiring.section, target.wiring.last);
     for (const file of files) {
         const failure = editFile(key, file, target.wiring.create, edited);
         if (failure !== null) return failure;
@@ -3052,6 +3052,8 @@ function setupTargetRows(name, target, configHome, live) {
                 rows.push(...unreadable(includeFile, e.code));
                 continue;
             }
+            // Presence alone, without `last`: a line no apply has moved last
+            // yet still includes the theme.
             if (text !== undefined && render.wiredText(text.toString("latin1"), lineText, target.wiring.section) === null)
                 rows.push({ name, app: target.app, file: includeFile, line, state: "wired" });
         }

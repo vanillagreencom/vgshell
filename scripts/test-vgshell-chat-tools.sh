@@ -6,11 +6,14 @@
 # reaches only a stub. Obsidian's links stand in every vault its registry
 # lists, the entry form's `vaults`. Every detect command, the signal command
 # and tmux are stubs on the rows' PATH, under a temporary HOME,
-# XDG_CONFIG_HOME and XDG_RUNTIME_DIR, so no row reaches a real application,
-# a tmux server or the developer's session.
+# XDG_CONFIG_HOME and XDG_RUNTIME_DIR, so no row reaches a real application
+# or the developer's session. The one real program is a tmux server of the
+# suite's own, on a socket under its scratch directory, which reads the
+# configuration the apply wired as a login would.
 set -euo pipefail
 
 source "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/vgshell-rows.sh"
+tmux_bin="$(command -v tmux)" || { echo "test-vgshell-chat-tools: status=not-measured missing=tmux"; exit 77; }
 theme_tree btop equibop obsidian oh-my-posh tmux vencord vesktop
 live="$state/theme"; uid="$(id -u)"; pending="$state/reload-pending.json"
 theme_pkg "$tree/themes/dusk" '{ "schemaVersion": 1, "name": "dusk", "tokens": { "palette": { "accent": "#111111" } } }'
@@ -124,7 +127,7 @@ check "the Oh My Posh file is JSON whose segments draw from its palette" python3
 check "the Obsidian manifest names the theme vgs" python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1]))["name"] == "vgs" else 1)' "$live/obsidian.manifest.json"
 
 # The wiring: a link in each application's own directory, created with its
-# parents when absent, and tmux's line first in tmux.conf.
+# parents when absent, and tmux's line last in tmux.conf.
 check "Vesktop's theme link stands in its themes directory" links_to "$cfg/vesktop/themes/vgs.css" "$live/vesktop.css"
 check "Equibop's theme link stands beside the user's theme" links_to "$cfg/equibop/themes/vgs.css" "$live/equibop.css"
 check "the user's Equibop theme stays" test "$(cat "$cfg/equibop/themes/mine.css")" == '/** @name mine */'
@@ -132,7 +135,7 @@ check "Vencord's theme link stands in its themes directory" links_to "$cfg/Venco
 check "btop's theme link stands in its themes directory" links_to "$cfg/btop/themes/vgs.theme" "$live/btop.theme"
 check "btop.conf is left byte for byte" cmp -s "$tmp/btop/btop.conf" "$cfg/btop/btop.conf"
 check "Oh My Posh's config link stands in its directory" links_to "$cfg/oh-my-posh/vgs.omp.json" "$live/oh-my-posh.json"
-check "tmux.conf takes the source-file line first and keeps its own text" test "$(cat "$cfg/tmux/tmux.conf")" == "source-file -q '$live/tmux.conf'"$'\nset -g mouse on'
+check "tmux.conf takes the source-file line last and keeps its own text" test "$(cat "$cfg/tmux/tmux.conf")" == $'set -g mouse on\n'"source-file -q '$live/tmux.conf'"
 check "each opened vault takes the theme's two links" test "$(links_to "$notes_theme/theme.css" "$live/obsidian.css" && links_to "$notes_theme/manifest.json" "$live/obsidian.manifest.json" && links_to "$work_theme/theme.css" "$live/obsidian.css" && echo yes)" == yes
 check "a vault that is gone, one never opened and a relative path get nothing" test ! -e "$vaults/gone" -a ! -e "$vaults/fresh/.obsidian" -a ! -e "$cfg/obsidian/Notes" -a ! -e "$cfg/.obsidian"
 check "no hookless target is pending" test ! -e "$pending"
@@ -172,17 +175,129 @@ check "reload sourced the theme file" calls_are "$tmux_calls" "list-sessions"$'\
 check "a reload that succeeds clears tmux" test ! -e "$pending"
 rm -- "$tmp/tmux-server"
 
-# tmux.conf is never created: a ~/.tmux.conf user keeps loading theirs,
-# and a plugin manager reading the XDG file first would lose its list.
+# tmux.conf is never created: a plugin manager reading the XDG file first
+# would lose its list. With no ~/.tmux.conf either, tmux is skipped.
 rm -- "$cfg/tmux/tmux.conf"
 apply_json "an absent tmux.conf skips tmux" 0 nord
-check "an absent tmux.conf skips tmux as unwired" test "$(target_state tmux)" == "skipped wiring-file-absent"
+check "an absent tmux.conf and ~/.tmux.conf skip tmux as unwired" test "$(target_state tmux)" == "skipped wiring-file-absent"
 check "an absent tmux.conf stays absent and no ~/.tmux.conf appears" test ! -e "$cfg/tmux/tmux.conf" -a ! -e "$tmp/home/.tmux.conf"
 tree_control tmux-creates themes/targets/tmux/target.json '"create": false' '"create": true'
 apply_json "the creating tmux mutant applies" 0 dusk
 check "the creating tmux mutant writes a tmux.conf" test -f "$cfg/tmux/tmux.conf"
 unset THEME_BIN
 rm -f -- "$cfg/tmux/tmux.conf"
+
+# A ~/.tmux.conf user is wired there, with the line after every line of
+# their own: tmux reads its configuration top to bottom, and inline colours
+# in a status-left, as in the owner's line below, beat any style option, so
+# only the theme's own status-left loaded after it sets the session label.
+# Flexoki Light comes from the shipped catalog; its label takes the bar's
+# active desk pair, #ffffff on its accent #205ea6. tmux_read prints the status-left-style and status-left that
+# a fresh server of the suite's own reads from the files a login reads, and
+# tmux_options [-f /dev/null] every global session and window option it
+# holds, with no configuration file under -f /dev/null. Each server takes a
+# socket name of its own, which a file mktemp makes reserves: kill-server
+# returns before the server has left its socket, and a server started on
+# that socket then exits at once. The sockets stand in $tmp/tmux-<uid>, a
+# short path, since a socket path holds at most 107 bytes.
+mkdir -p "$tmp/tmux-names"
+tmux_run() { env -i PATH="$base_path" HOME="$tmp/home" XDG_CONFIG_HOME="$cfg" TMUX_TMPDIR="$tmp" "$tmux_bin" -L "$tmux_name" "$@"; }
+tmux_read() {
+  tmux_name="$(basename -- "$(mktemp "$tmp/tmux-names/XXXXXX")")"
+  tmux_run new-session -d -s probe || return 1
+  tmux_run show -gv status-left-style && tmux_run show -gv status-left
+  tmux_run kill-server
+}
+tmux_options() {
+  tmux_name="$(basename -- "$(mktemp "$tmp/tmux-names/XXXXXX")")"
+  tmux_run "$@" new-session -d -s probe || return 1
+  tmux_run show -g && tmux_run show -gw
+  tmux_run kill-server
+}
+user_left='#[fg=black,bg=blue,bold] #S #[bg=default] '
+tmux_own=$'set -g mouse on\nset -g status-left "'"$user_left"$'"\nset -g status-right-length 40'
+tmux_line="source-file -q '$live/tmux.conf'"
+theme_reads=$'bg=#205ea6,fg=#ffffff,bold\n #S '
+printf '%s\n' "$tmux_own" >"$tmp/home/.tmux.conf"
+tinst "Flexoki Light installs from the catalog" "$cfg" "$rt_empty" 0 "ok installed=flexoki-light path=$cfg/vgshell/themes/flexoki-light" "" theme install flexoki-light
+# Controls: the target without fallbacks and last skips a ~/.tmux.conf
+# user, and without last puts the line first, where the user's line wins.
+tree_control tmux-unwired themes/targets/tmux/target.json ', "fallbacks": [".tmux.conf"], "last": true' ''
+apply_json "the fallback-less tmux mutant applies Flexoki Light" 0 flexoki-light
+check "the fallback-less tmux mutant skips a ~/.tmux.conf user as unwired" test "$(target_state tmux)" == "skipped wiring-file-absent" -a "$(cat "$tmp/home/.tmux.conf")" == "$tmux_own"
+check "the fallback-less tmux mutant leaves the user's session label" test "$(tmux_read | tail -n 1)" == "$user_left"
+tree_control tmux-first themes/targets/tmux/target.json ', "last": true' ''
+apply_json "the first-line tmux mutant applies Flexoki Light" 0 flexoki-light
+check "the first-line tmux mutant puts the line ahead of the user's text" test "$(cat "$tmp/home/.tmux.conf")" == "$tmux_line"$'\n'"$tmux_own"
+check "the first-line tmux mutant leaves the user's session label" test "$(tmux_read | tail -n 1)" == "$user_left"
+unset THEME_BIN
+# The shipped target moves a line an earlier apply put first to the end.
+apply_json "Flexoki Light applies over a ~/.tmux.conf wired first" 0 flexoki-light
+check "an unchanged tmux file still repairs ~/.tmux.conf" test "$(target_state tmux)" == "unchanged None" -a ! -e "$cfg/tmux/tmux.conf"
+check "~/.tmux.conf keeps its text and holds the line once, last" test "$(cat "$tmp/home/.tmux.conf")" == "$tmux_own"$'\n'"$tmux_line"
+check "tmux reads Flexoki Light's session label over the user's line" test "$(tmux_read)" == "$theme_reads"
+touch -d @1000 -- "$tmp/home/.tmux.conf"
+apply_json "Flexoki Light applies again" 0 flexoki-light
+check "a line already last is not written again" test "$(stat -c %Y -- "$tmp/home/.tmux.conf")" == 1000
+# With both files, tmux reads ~/.tmux.conf and then the XDG tmux.conf, and
+# only the XDG file, which the fallback stands behind, takes the line.
+printf '%s\n' "$tmux_own" >"$tmp/home/.tmux.conf"
+printf 'set -g status-left "#[fg=black,bg=blue] #S "\n' >"$cfg/tmux/tmux.conf"
+apply_json "Flexoki Light applies with both tmux files" 0 flexoki-light
+check "with both files the XDG tmux.conf takes the line last" test "$(cat "$cfg/tmux/tmux.conf")" == 'set -g status-left "#[fg=black,bg=blue] #S "'$'\n'"$tmux_line"
+check "with both files ~/.tmux.conf is left byte for byte" test "$(cat "$tmp/home/.tmux.conf")" == "$tmux_own"
+check "with both files tmux reads Flexoki Light's session label" test "$(tmux_read)" == "$theme_reads"
+rm -- "$cfg/tmux/tmux.conf" "$tmp/home/.tmux.conf"
+# A ~/.tmux.conf that is a relative link into a dotfiles repository is
+# written through: the link stays, and the file it names takes the line.
+mkdir -p "$tmp/home/.dot/tmux"
+printf '%s\n' "$tmux_own" >"$tmp/home/.dot/tmux/.tmux.conf"
+ln -s .dot/tmux/.tmux.conf "$tmp/home/.tmux.conf"
+apply_json "Flexoki Light applies over a linked ~/.tmux.conf" 0 flexoki-light
+check "the linked ~/.tmux.conf stays the same link" test -L "$tmp/home/.tmux.conf" -a "$(readlink -- "$tmp/home/.tmux.conf")" == .dot/tmux/.tmux.conf
+check "the file the link names keeps its text and takes the line last" test "$(cat "$tmp/home/.dot/tmux/.tmux.conf")" == "$tmux_own"$'\n'"$tmux_line"
+check "tmux reads Flexoki Light's session label through the link" test "$(tmux_read)" == "$theme_reads"
+rm -- "$tmp/home/.tmux.conf"
+
+# Every colour a user's lines can set loses to the theme. The colour options
+# come from tmux itself: each option of a server with no configuration file
+# whose name ends in -style, -colour or -colours, but the cursor shapes and
+# the clock's hour format, which hold no colour. The formats are those drawn
+# on the status line, the pane borders and the area outside a window. A
+# ~/.tmux.conf sets each to colour196: a server reads it from the user's
+# lines alone, and none keeps it once the theme is wired.
+tmux_options -f /dev/null >"$tmp/tmux-defaults"
+colour_options="$(awk '{ sub(/\[[0-9]+\]$/, "", $1); print $1 }' "$tmp/tmux-defaults" | grep -E -- '-(style|colours?)$' | grep -Ev -- '(cursor-style|^clock-mode-style)$' | sort -u)"
+formats="status-left status-right status-format[0] message-format window-status-format window-status-current-format window-status-separator pane-border-format window-pane-status-format window-pane-current-status-format fill-character"
+lists_all() { # LIST NAME...: whether the newline list LIST holds every NAME
+  local name
+  for name in "${@:2}"; do grep -qxF -- "$name" <<<"$1" || return 1; done
+}
+check "tmux lists the colour options the theme sets" lists_all "$colour_options" status-style status-right-style window-status-last-style menu-style popup-style copy-mode-match-style mode-style pane-colours cursor-colour clock-mode-colour
+{
+  for option in $colour_options; do
+    case $option in
+      *-colours) printf 'set -g %s[0] colour196\n' "$option" ;;
+      *-colour) printf 'set -g %s colour196\n' "$option" ;;
+      *) printf 'set -g %s "fg=colour196,bg=colour196"\n' "$option" ;;
+    esac
+  done
+  for option in $formats; do printf 'set -g %s "#[fg=colour196]x"\n' "$option"; done
+} >"$tmp/home/.tmux.conf"
+user_colours() { # FILE: the option names whose value in FILE holds colour196, one a line
+  awk '/colour196/ { sub(/\[[0-9]+\]$/, "", $1); print $1 }' "$1" | sort -u
+}
+no_user_colour() { # FILE: whether no option in FILE holds colour196; prints each that does
+  local kept
+  kept="$(user_colours "$1")" || return 1
+  [[ -z $kept ]] || { printf '    user colour kept: %s\n' $kept; return 1; }
+}
+tmux_options >"$tmp/tmux-user"
+check "the user's lines alone set every colour option and format" test "$(user_colours "$tmp/tmux-user")" == "$(printf '%s\n' $colour_options ${formats//\[0\]/} | sort -u)"
+apply_json "Flexoki Light applies over every user colour" 0 flexoki-light
+tmux_options >"$tmp/tmux-themed"
+check "no user colour shows through the theme" no_user_colour "$tmp/tmux-themed"
+rm -- "$tmp/home/.tmux.conf"
 
 # Obsidian's registry: absent, or listing no opened vault, skips it;
 # one that is no vault list fails it and leaves every vault as it stands.

@@ -48,7 +48,7 @@ check "an absent file becomes the header and the line" test "$(cat "$cfg/sect/se
 # The must-fail control: a judge copy that drops the section puts the line
 # first, where a TOML file reads it outside its table.
 printf '[general]\nlive = true\n' >"$cfg/sect/sect.toml"
-judge_control section-dropped '"utf8").toString("latin1"), target.wiring.section);' '"utf8").toString("latin1"));'
+judge_control section-dropped '"utf8").toString("latin1"), target.wiring.section, target.wiring.last);' '"utf8").toString("latin1"), undefined, target.wiring.last);'
 tinst "the section-dropping mutant applies" "$cfg" "$rt_empty" 0 "ok theme=dusk state=unchanged shell=unchanged" "" theme apply dusk
 check "the section-dropping mutant puts the line first" test "$(head -n 1 "$cfg/sect/sect.toml")" == "$sect_line"
 unset THEME_BIN

@@ -63,11 +63,12 @@ const CURATED_KEYS_KEY = "curatedKeys";
 // The three wiring forms. An include wiring keeps one line in the
 // application's configuration file; its optional keys are the section the
 // line goes into, the Mozilla profiles.ini paths whose profile directories
-// the file is relative to, and the fallback files under HOME tried when the
-// configuration-home file is absent. An entry wiring keeps entries to the
-// target's files in the application's theme or extension directory and edits
-// no file; its optional key is the Obsidian vault registry whose vaults the
-// directory is relative to. Exactly one of `links` or `copies` tells which
+// the file is relative to, the fallback files under HOME tried when the
+// configuration-home file is absent, and whether the line goes last. An
+// entry wiring keeps entries to the target's files in the application's
+// theme or extension directory and edits no file; its optional key is the
+// Obsidian vault registry whose vaults the directory is relative to.
+// Exactly one of `links` or `copies` tells which
 // entry kind it writes. An extension wiring, an editors target's only form,
 // keeps one generated extension in each wired editor's extensions directory:
 // `extension` is the `<publisher>.<name>` id its id starts with, `stamp` the
@@ -75,7 +76,7 @@ const CURATED_KEYS_KEY = "curatedKeys";
 // files, each a copy of one of the target's files. A null wiring keeps nothing: the target's hook
 // asserts the setting that makes its application read the files.
 const WIRING_KEYS = ["file", "line", "create"];
-const INCLUDE_OPTIONAL_KEYS = ["section", "profiles", "fallbacks"];
+const INCLUDE_OPTIONAL_KEYS = ["section", "profiles", "fallbacks", "last"];
 const ENTRY_BASE_KEYS = ["base", "dir", "owned"];
 const ENTRY_ITEM_KEYS = ["links", "copies"];
 const ENTRY_OPTIONAL_KEYS = ["vaults"];
@@ -313,7 +314,9 @@ function withValues(text, values, what) {
 // section name; `profiles`, when present, is one or more paths relative to
 // the home directory, one name per segment, in the order they are tried.
 // `fallbacks`, when present, is the same path shape and is tried only after
-// the configuration-home file is absent.
+// the configuration-home file is absent. `last`, when present, is a boolean;
+// true puts the line after every line of the file, which a section placement
+// cannot do, so `last` with `section` is refused.
 function wiringError(logic, wiring) {
     if (!logic.isPlainObject(wiring) || !WIRING_KEYS.every(key => logic.hasOwn(wiring, key)) ||
         !Object.keys(wiring).every(key => WIRING_KEYS.includes(key) || INCLUDE_OPTIONAL_KEYS.includes(key))) return "key=wiring";
@@ -328,6 +331,7 @@ function wiringError(logic, wiring) {
     if (logic.hasOwn(wiring, "fallbacks") && (!Array.isArray(wiring.fallbacks) || wiring.fallbacks.length === 0 ||
         !wiring.fallbacks.every(file => typeof file === "string" && file.split("/").every(segment => DIR_SEGMENT_PATTERN.test(segment))))) return "key=wiring.fallbacks";
     if (logic.hasOwn(wiring, "fallbacks") && logic.hasOwn(wiring, "profiles")) return "key=wiring.fallbacks";
+    if (logic.hasOwn(wiring, "last") && (typeof wiring.last !== "boolean" || logic.hasOwn(wiring, "section"))) return "key=wiring.last";
     return "";
 }
 
@@ -1231,7 +1235,12 @@ function sectionEnd(lines, at) {
 
 // The text a configuration file holding TEXT takes so that LINE is one of its
 // lines, or null when it already is one; the rest of the text is kept byte
-// for byte. With SECTION undefined the line goes first, ahead of every
+// for byte. With LAST true the line must be the file's last non-empty line,
+// so the file's own settings never override the included theme: a file
+// whose last non-empty line is LINE answers null, and any other loses every
+// whole line equal to LINE and takes LINE at its end, so an apply moves a
+// line an earlier placement put elsewhere. With
+// LAST not true and SECTION undefined the line goes first, ahead of every
 // section, so an INI file reads it in its main section and the file's own
 // settings after it override the included theme, and an absent file (TEXT
 // undefined) becomes the line alone. With a SECTION the line goes right
@@ -1245,8 +1254,13 @@ function sectionEnd(lines, at) {
 // keys ahead of every header, would then hold a key twice, which TOML
 // refuses: that answers the refusal
 // { ok: false, reason: "wiring-conflict", detail } and the file is left.
-function wiredText(text, line, section) {
+function wiredText(text, line, section, last) {
     const lines = text === undefined ? [] : text.split("\n");
+    if (last === true) {
+        if (lines.findLast(existing => existing !== "") === line) return null;
+        const kept = lines.filter(existing => existing !== line).join("\n");
+        return kept + (kept === "" || kept.endsWith("\n") ? "" : "\n") + line + "\n";
+    }
     if (lines.includes(line)) return null;
     if (section === undefined) return line + "\n" + (text === undefined ? "" : text);
     const key = assignedKey(line);
