@@ -32,7 +32,7 @@
 # rows: a rule that turns the main output off with no check, sent while it
 # is the only output, leaves it off, and the control reports the defect;
 # a reload of the layer turns it back on.
-# inputs: shell/plugins/vgs.displays/* shell/Core/MonitorState.qml shell/Core/MonitorLogic.js shell/Core/HyprlandLayer.js shell/Core/HyprlandLayer.qml shell/Ui/feedback/LinkText.qml shell/Core/Dispatch.js shell/Core/Compositor.qml bin/vgshell-display-guard
+# inputs: shell/plugins/vgs.displays/* shell/Core/MonitorState.qml shell/Core/MonitorLogic.js shell/Core/HyprlandLayer.js shell/Core/HyprlandLayer.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Core/Dispatch.js shell/Core/Compositor.qml bin/vgshell-display-guard
 set -euo pipefail
 
 user_config="$home/.config/vgshell/shell.json"
