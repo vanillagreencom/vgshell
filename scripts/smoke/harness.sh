@@ -3567,6 +3567,7 @@ smoke_row() { # NAME [DIR]
   local ipc_timeout_log="$sandbox/rows/$1.ipc-timeout.log"
   local smoke_row_children smoke_row_owner=$BASHPID smoke_row_child smoke_row_source_status=0 smoke_row_abandon_status=0
   local smoke_row_fault="$sandbox/rows/$1.command" smoke_row_faults=() smoke_row_abandon_faults=()
+  local smoke_row_command smoke_row_abandon_command
   smoke_row_marker="qml-smoke: row-end $1 $$ $SRANDOM"
   mkdir -p -- "$sandbox/rows"
   : >"$ipc_timeout_log"
@@ -3592,7 +3593,9 @@ smoke_row() { # NAME [DIR]
   smoke_row_flags=$-
   smoke_row_trap="$(trap -p ERR)"
   set -E
-  trap "smoke_row_err=\$?; if [[ \$- == *e* ]]; then if [[ ! -e \$smoke_row_fault ]]; then printf '%s\\n' \"\$BASH_COMMAND\" \"\${BASH_SOURCE[0]}\" \"\$LINENO\" >\"\$smoke_row_fault\"; fi; if (( \${#FUNCNAME[@]} > ${#FUNCNAME[@]} )); then return \"\$smoke_row_err\"; fi; smoke_row_status=\$smoke_row_err; set +e; fi" ERR
+  # A failed heredoc puts newlines in BASH_COMMAND. NUL keeps its source
+  # and line separate, and %q below keeps the reported command on one line.
+  trap "smoke_row_err=\$?; if [[ \$- == *e* ]]; then if [[ ! -e \$smoke_row_fault ]]; then printf '%s\\0' \"\$BASH_COMMAND\" \"\${BASH_SOURCE[0]}\" \"\$LINENO\" >\"\$smoke_row_fault\"; fi; if (( \${#FUNCNAME[@]} > ${#FUNCNAME[@]} )); then return \"\$smoke_row_err\"; fi; smoke_row_status=\$smoke_row_err; set +e; fi" ERR
   {
     # The output filter is already running here. Run-owned children stay
     # with their owners even when a row starts or restarts them.
@@ -3602,7 +3605,8 @@ smoke_row() { # NAME [DIR]
     source "$smoke_row_dir/$smoke_row_name.sh"
     if [[ $smoke_row_status != 0 ]]; then
       smoke_row_source_status=$smoke_row_status
-      mapfile -t smoke_row_faults <"$smoke_row_fault"
+      mapfile -d '' -t smoke_row_faults <"$smoke_row_fault"
+      printf -v smoke_row_command '%q' "${smoke_row_faults[0]}"
       if ! python3 - "$smoke_row_owner" "$smoke_row_children" "${shell_pid:-}" "${devices_pid[@]}" <<'PY'
 import os, signal, sys, time
 owner = int(sys.argv[1])
@@ -3675,7 +3679,10 @@ PY
         smoke_row_status=0
         set -e
         "${smoke_row_abandon[@]}"
-        if [[ $smoke_row_status != 0 ]]; then mapfile -t smoke_row_abandon_faults <"$smoke_row_fault"; fi
+        if [[ $smoke_row_status != 0 ]]; then
+          mapfile -d '' -t smoke_row_abandon_faults <"$smoke_row_fault"
+          printf -v smoke_row_abandon_command '%q' "${smoke_row_abandon_faults[0]}"
+        fi
         smoke_row_abandon_status=$smoke_row_status
         smoke_row_status=$smoke_row_source_status
         set +e
@@ -3699,8 +3706,8 @@ PY
   # After the drain, so the failure follows the row's own lines. Under a
   # held-mode reset it is an operation failure, never a reset the verdict
   # excuses: every check after the failed command is lost.
-  [[ $smoke_row_status == 0 ]] || row_class=operation fail "$smoke_row_name: a command outside every check failed status=$smoke_row_status, command=[${smoke_row_faults[0]}] at=${smoke_row_faults[1]}:${smoke_row_faults[2]}, and the row's later checks did not run"
-  [[ $smoke_row_abandon_status == 0 ]] || row_class=operation fail "$smoke_row_name: abandon failed status=$smoke_row_abandon_status command=[${smoke_row_abandon_faults[0]}] at=${smoke_row_abandon_faults[1]}:${smoke_row_abandon_faults[2]}"
+  [[ $smoke_row_status == 0 ]] || row_class=operation fail "$smoke_row_name: a command outside every check failed status=$smoke_row_status, command=[$smoke_row_command] at=${smoke_row_faults[1]}:${smoke_row_faults[2]}, and the row's later checks did not run"
+  [[ $smoke_row_abandon_status == 0 ]] || row_class=operation fail "$smoke_row_name: abandon failed status=$smoke_row_abandon_status command=[$smoke_row_abandon_command] at=${smoke_row_abandon_faults[1]}:${smoke_row_abandon_faults[2]}"
   if [[ -z $smoke_row_count ]]; then
     fail "$smoke_row_name: its output did not drain within ${smoke_row_drain_s}s: $smoke_row_out"
   elif [[ $smoke_row_count -gt 0 ]]; then

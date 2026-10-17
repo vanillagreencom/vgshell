@@ -481,14 +481,21 @@ updates_bare_outer() { (updates_bare_inner; echo "updates-bare-nested: went on i
 updates_bare_outer
 echo "updates-bare-nested: went on after the failed call"
 SH
+cat >"$row_plants/updates-bare-multiline.sh" <<'SH'
+python3 - <<'PY'
+raise SystemExit(78)
+PY
+echo "updates-bare-multiline: went on after the failed heredoc"
+SH
 planted_bare_row() { # NAME
   (failures=0 behaviour_failures=0 smoke_row_drain_s=1; smoke_row "$1" "$row_plants" >"$sandbox/row-plant-$1.log" 2>&1; echo "$failures" >"$sandbox/row-plant-$1.failures") &
   wait "$!" || :
 }
-for planted in updates-bare-refused:77 updates-bare-nested:1; do
+for planted in updates-bare-refused:77 updates-bare-nested:1 updates-bare-multiline:78; do
   planted_bare_row "${planted%:*}"
   expect "control: ${planted%:*} fails its row once and the run goes on" 1 cat "$sandbox/row-plant-${planted%:*}.failures"
   expect "control: ${planted%:*}'s failure names the row and status=${planted#*:}" 1 grep -c -E -- "^  FAIL  ${planted%:*}: .*status=${planted#*:}," "$sandbox/row-plant-${planted%:*}.log"
+  expect "control: ${planted%:*}'s failure preserves its source and line" 1 grep -c -E -- "^  FAIL  ${planted%:*}: .* at=.*/${planted%:*}.sh:[0-9]+," "$sandbox/row-plant-${planted%:*}.log"
   expect "control: ${planted%:*} runs nothing after its failed call" 0 awk 'index($0, "went on") { n++ } END { print n + 0 }' "$sandbox/row-plant-${planted%:*}.log"
   expect "control: ${planted%:*} still prints its row time" 1 grep -c -E -- "^qml-smoke: row-secs row=${planted%:*} secs=[0-9]+$" "$sandbox/row-plant-${planted%:*}.log"
 done
@@ -544,7 +551,7 @@ wait "$!" || :
 expect "control: the bare failure and its failing abandon each fail under the planted row" 2 cat "$sandbox/row-abandoned.failures"
 expect "control: the later row finds no stand-in or held press alive" 0 cat "$sandbox/row-after-abandoned.failures"
 expect "control: the first failure names its command and source location" 1 grep -c -E -- '^  FAIL  updates-abandoned: .*command=\[false\] at=.*/updates-abandoned.sh:[0-9]+,' "$sandbox/row-plant-updates-abandoned.log"
-expect "control: a bare copy failure in abandon names its command and source location" 1 grep -c -E -- '^  FAIL  updates-abandoned: abandon failed .*command=\[cp .*\] at=.*/updates-abandoned.sh:[0-9]+$' "$sandbox/row-plant-updates-abandoned.log"
+expect "control: a bare copy failure in abandon names its command and source location" 1 grep -c -E -- '^  FAIL  updates-abandoned: abandon failed .*command=\[cp.*\] at=.*/updates-abandoned.sh:[0-9]+$' "$sandbox/row-plant-updates-abandoned.log"
 expect "control: abandon runs nothing after its failed copy" absent bash -c '[[ -e $1 ]] && echo present || echo absent' _ "$sandbox/abandon-went-on"
 
 # Pending, from the last real check.
