@@ -21,7 +21,9 @@ const REQUIRED = ["check", "chevron-down", "chevron-right", "chevron-up", "x", "
 // argument groups (a move or line a pair, a cubic six, an arc seven with
 // two one-digit flags, a close none), so a coordinate split in the wrong
 // place, such as `16.36.8` read as one number, leaves a group short and
-// refuses.
+// refuses. An arc flag must be followed by a space or a comma: Qt's PathSvg
+// reads a flag that touches the next number as part of it
+// (scripts/vendor-lucide), which SVG itself allows.
 const ARITY = { M: 2, L: 2, T: 2, H: 1, V: 1, C: 6, S: 4, Q: 4, A: 7, Z: 0 };
 const NUMBER = /^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?/;
 function parsePath(d) {
@@ -43,9 +45,10 @@ function parsePath(d) {
             continue;
         }
         if (command === null || ARITY[command] === 0) return { ok: false, at: i, char: c };
-        // An arc's two flags are single digits and may touch the next number.
+        // An arc's two flags are single digits, each written apart.
         if (command === "A" && (args % 7 === 3 || args % 7 === 4)) {
             if (c !== "0" && c !== "1") return { ok: false, at: i, char: c };
+            if (d[i + 1] !== " " && d[i + 1] !== ",") return { ok: false, at: i + 1, char: d[i + 1] };
             args++;
             i++;
             continue;
@@ -104,6 +107,7 @@ const CONTROLS = [
     ["a joined path starting with a relative move", '"x": ["M18 6 6 18 M6 6 l12 12",""]', '"x": ["M18 6 6 18 m6 6 12 12",""]'],
     ["a move's implicit lines made absolute", '"x": ["M18 6 6 18 M6 6 l12 12",""]', '"x": ["M18 6 6 18 M6 6 12 12",""]'],
     ["compact decimals read as one number", "M7.88 16.36 l.8 4", "M7.88 16.36.8 l4"],
+    ["arc flags touching the next number", '"leaf": ["M11 20a10 10 0 0 0 10 -10', '"leaf": ["M11 20a10 10 0 0010 -10'],
     ["a wrong circle conversion", '"circle": ["M2 12a10 10 0 1 0 20 0a10 10 0 1 0 -20 0z",""]', '"circle": ["M2 12a10 10 0 1 0 20 0z",""]'],
     ["a fill dropped from the fill path", '","M13 6.5a0.5 0.5 0 1 0 1 0a0.5 0.5 0 1 0 -1 0z M17', '","M17'],
     ["a filled node without its stroke", '2.8z M13 6.5a0.5 0.5 0 1 0 1 0a0.5 0.5 0 1 0 -1 0z M17', '2.8z M17']

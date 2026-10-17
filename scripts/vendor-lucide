@@ -34,6 +34,38 @@ function number(attrs, key, fallback) {
     return value;
 }
 
+// The SVG number grammar: `16.36.8` is two numbers, 16.36 and .8.
+const NUMBER = /^[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?/;
+
+// `d` with each arc's arguments joined by one space. An arc takes groups of
+// seven: radii, rotation, two one-digit flags and the end point; SVG lets
+// the flags touch each other and the next number, and Lucide's data does.
+// Qt's PathSvg reads a flag that touches the next number as part of it:
+// measured with qmltestrunner on Qt 6.11.2 on 2026-10-16 at 96 px, leaf's
+// `a10 10 0 0010-10` drew a stray arc where `a10 10 0 0 0 10-10` drew the leaf.
+function spacedArcs(d) {
+    return d.replace(/([Aa])([^MmLlHhVvCcSsQqTtAaZz]*)/g, (whole, command, body) => {
+        const args = [];
+        let i = 0;
+        while (i < body.length) {
+            const c = body[i];
+            if (c === " " || c === "," || c === "\n") { i++; continue; }
+            if (args.length % 7 === 3 || args.length % 7 === 4) {
+                if (c !== "0" && c !== "1") refuse("arc-flag=malformed path=" + JSON.stringify(d));
+                args.push(c);
+                i++;
+                continue;
+            }
+            const m = NUMBER.exec(body.slice(i));
+            if (m === null) refuse("arc-argument=malformed path=" + JSON.stringify(d));
+            args.push(m[0]);
+            i += m[0].length;
+        }
+        if (args.length === 0 || args.length % 7 !== 0) refuse("arc-arguments=" + args.length + " path=" + JSON.stringify(d));
+        return command + args.join(" ");
+    });
+}
+
 // One node as path commands; the shapes follow the SVG rendering of each.
 function pathOf(tag, attrs) {
     switch (tag) {
@@ -43,8 +75,7 @@ function pathOf(tag, attrs) {
         // an absolute one; joined after another path it would start from
         // that path's end instead. The pairs that follow a move are implicit
         // lines relative to it, so they keep a relative line command.
-        // The SVG number grammar: `16.36.8` is two numbers, 16.36 and .8.
-        const d = attrs.d.trim();
+        const d = spacedArcs(attrs.d.trim());
         const number = "(-?(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][-+]?\\d+)?)";
         const lead = new RegExp("^m\\s*" + number + "[\\s,]*" + number + "\\s*(.*)$", "s").exec(d);
         if (lead === null) return d;
