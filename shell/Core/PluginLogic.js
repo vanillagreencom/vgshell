@@ -119,7 +119,7 @@ var SOUNDS = [
 
 // Every key a manifest may carry. An unknown key is refused, so a misspelt
 // key fails loudly instead of being carried and ignored.
-var MANIFEST_KEYS = ["schemaVersion", "id", "name", "version", "author", "description", "license", "icon", "kinds", "entryPoints", "capabilities", "systemSteps", "settings", "schema", "defaultSection", "pane", "appearance", "hyprland", "requirements", "status", "tui", "menu", "secrets", "sounds", "alwaysOn"];
+var MANIFEST_KEYS = ["schemaVersion", "id", "name", "version", "author", "description", "license", "icon", "kinds", "entryPoints", "capabilities", "capabilityKinds", "systemSteps", "settings", "schema", "defaultSection", "pane", "appearance", "hyprland", "requirements", "status", "tui", "menu", "secrets", "sounds", "alwaysOn"];
 
 // What one entry of a manifest's `requirements`, and of the core's own
 // config/requirements.json, may carry: an external command the plugin runs
@@ -3724,11 +3724,53 @@ function menuActivation(rows, registered, key, item, valuesByPlugin) {
     return "ok";
 }
 
+// The first defect of a manifest's `capabilityKinds`, or "". It maps a
+// capability `capabilities` lists to the kinds whose instances hold it,
+// for a capability only some kinds read; a capability it leaves out is
+// held by every kind (instanceCapabilities). A list names each kind once,
+// only declared kinds, and never all of them, which is leaving it out.
+// The panes capability stays with the window, the kind that mounts panes.
+function capabilityKindsError(capabilityKinds, capabilities, kinds) {
+    if (!isPlainObject(capabilityKinds))
+        return "capabilityKinds must be an object";
+    var names = Object.keys(capabilityKinds);
+    for (var n = 0; n < names.length; n++) {
+        var name = names[n];
+        var at = "capabilityKinds." + name;
+        if (capabilities.indexOf(name) === -1)
+            return at + " names a capability capabilities does not list";
+        var held = capabilityKinds[name];
+        if (!Array.isArray(held) || held.length === 0)
+            return at + " must be a non-empty list of kinds";
+        for (var k = 0; k < held.length; k++) {
+            if (kinds.indexOf(held[k]) === -1)
+                return at + " names " + JSON.stringify(held[k]) + ", a kind the manifest does not declare";
+            if (held.indexOf(held[k]) !== k)
+                return at + " lists kind " + held[k] + " twice";
+        }
+        if (held.length === kinds.length)
+            return at + " lists every kind; leave it out";
+        if (name === "panes" && held.indexOf("window") === -1)
+            return at + " must list kind window";
+    }
+    return "";
+}
+
+// The capabilities an instance of KIND holds: the manifest's
+// `capabilities`, less each one `capabilityKinds` gives only other kinds.
+// Capabilities.providersFor builds exactly these.
+function instanceCapabilities(manifest, kind) {
+    return manifest.capabilities.filter(function (name) {
+        return !hasOwn(manifest.capabilityKinds, name) || manifest.capabilityKinds[name].indexOf(kind) !== -1;
+    });
+}
+
 // Validate one manifest object. Returns { ok: true, manifest } with the
 // normalized manifest, or { ok: false, error } naming the first defect.
 // `sourceDir` is recorded on the manifest so entry points resolve later.
 // A normalized manifest always carries `capabilities` and `requirements`
-// (arrays, the latter's entries normalRequirements' shape), `settings`,
+// (arrays, the latter's entries normalRequirements' shape),
+// `capabilityKinds` (an object, {} when undeclared), `settings`,
 // `schema`, `status`, `sounds` and `tui` (objects, `tui` normalTui's shape),
 // `menu` (an object, {} when undeclared), `fieldRows` (fieldRows'),
 // `defaultSection` only when declared, and
@@ -3798,6 +3840,10 @@ function validateManifest(raw, sourceDir) {
     }
     if (capabilities.indexOf("panes") !== -1 && raw.kinds.indexOf("window") === -1)
         return { ok: false, error: "capability panes needs kind window" };
+    var capabilityKinds = raw.capabilityKinds === undefined ? {} : raw.capabilityKinds;
+    var badCapabilityKinds = capabilityKindsError(capabilityKinds, capabilities, raw.kinds);
+    if (badCapabilityKinds !== "")
+        return { ok: false, error: badCapabilityKinds };
     var settings = raw.settings === undefined ? {} : raw.settings;
     if (!isPlainObject(settings))
         return { ok: false, error: "settings must be an object" };
@@ -3896,6 +3942,7 @@ function validateManifest(raw, sourceDir) {
     if (badPlacement !== "") return { ok: false, error: badPlacement };
     var manifest = clone(raw);
     manifest.capabilities = capabilities.slice();
+    manifest.capabilityKinds = clone(capabilityKinds);
     manifest.requirements = normalRequirements(requirements);
     manifest.tui = normalTui(raw.tui === undefined ? {} : raw.tui);
     manifest.menu = raw.menu === undefined ? {} : clone(raw.menu);

@@ -133,11 +133,11 @@ Singleton {
 
     // The scoped object a plugin receives as `shell`: its manifest, its
     // settings, and the providers made for this instance, one per capability
-    // its manifest names. Nothing else on it. A settings change hands over a
-    // new object holding the same providers.
+    // its manifest gives the instance's kind. Nothing else on it. A settings
+    // change hands over a new object holding the same providers.
     function facadeFor(manifest, settings, providers) {
         const facade = { manifest: manifest, settings: settings };
-        for (const name of manifest.capabilities)
+        for (const name of Object.keys(providers))
             facade[name] = providers[name];
         return facade;
     }
@@ -219,7 +219,7 @@ Singleton {
         }
         const settings = Logic.settingsFor(Config.effective, manifest);
         const onScreen = screen !== undefined && screen !== null ? screen : null;
-        const row = { id: id, kind: kind, origin: "core", revision: manifest.__revision, instance: instance, capabilities: manifest.capabilities, settingsKey: JSON.stringify(settings), providers: {}, lifetime: Lifetime.create(e => console.error("plugins: " + id + " disposer failed: " + e.message)), screen: onScreen };
+        const row = { id: id, kind: kind, origin: "core", revision: manifest.__revision, instance: instance, capabilities: Logic.instanceCapabilities(manifest, kind), settingsKey: JSON.stringify(settings), providers: {}, lifetime: Lifetime.create(e => console.error("plugins: " + id + " disposer failed: " + e.message)), screen: onScreen };
         try {
             row.providers = Capabilities.providersFor({ id: id, manifest: manifest, kind: kind, hostKey: hostKey, screen: onScreen, onDispose: row.lifetime.register, get active() { return row.lifetime.active; } });
         } catch (e) {

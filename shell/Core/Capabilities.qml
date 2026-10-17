@@ -94,12 +94,13 @@ Singleton {
     }
 
     // The providers for one instance: one per capability its manifest
-    // names. `ctx` is { id, manifest, kind, hostKey, screen,
-    // onDispose(fn), active }, `active` reading the instance's lifetime;
-    // every hold and registration is released through ctx.onDispose.
+    // gives its kind, PluginLogic.instanceCapabilities. `ctx` is { id,
+    // manifest, kind, hostKey, screen, onDispose(fn), active }, `active`
+    // reading the instance's lifetime; every hold and registration is
+    // released through ctx.onDispose.
     function providersFor(ctx) {
         const out = {};
-        for (const name of ctx.manifest.capabilities) {
+        for (const name of Logic.instanceCapabilities(ctx.manifest, ctx.kind)) {
             if (!Logic.hasOwn(factories, name))
                 throw new Error("capabilities: " + name + " is in PluginLogic.CAPABILITIES but has no provider");
             acquire(name, ctx.id);

@@ -10,6 +10,7 @@
   "kinds": ["pane", "service"],
   "entryPoints": { "pane": "Pane.qml", "service": "Service.qml" },
   "capabilities": ["appearance", "compositor", "hyprland", "notify", "shortcut", "tui"],
+  "capabilityKinds": { "appearance": ["pane"], "compositor": ["service"], "hyprland": ["pane"], "notify": ["service"], "shortcut": ["service"], "tui": ["pane"] },
   "pane": { "group": "Appearance", "order": 20 },
   "hyprland": {
     "binds": [

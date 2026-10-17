@@ -8,6 +8,7 @@
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const vm = require("vm");
 const { load } = require("../bin/lib/qml-library.js");
 
 const LOGIC = path.join(__dirname, "..", "shell", "Core", "PluginLogic.js");
@@ -21,6 +22,24 @@ const PAGE_REFERENCE = path.join(__dirname, "..", "shell", "Commons", "PageRefer
 const CORE_REQUIREMENTS = path.join(__dirname, "..", "config", "requirements.json");
 // The sounds the core ships, which PluginLogic.SOUNDS names.
 const SOUND_DIR = path.join(__dirname, "..", "shell", "assets", "sounds");
+// The capability providers, whose providersFor the suite runs over the judge.
+const CAPABILITIES_SOURCE = fs.readFileSync(path.join(__dirname, "..", "shell", "Core", "Capabilities.qml"), "utf8");
+const PROVIDERS_LOOP = "for (const name of Logic.instanceCapabilities(ctx.manifest, ctx.kind)) {";
+
+// What Capabilities.providersFor, cut from SOURCE and run over the judge
+// LOGIC, holds and hands an instance of KIND of MANIFEST: { held,
+// providers }, each a list of capability names.
+function providersHeld(source, logic, manifest, kind) {
+    const match = source.match(/\n    function providersFor\(ctx\) \{([\s\S]*?)\n    \}\n/);
+    if (match === null) return "providersFor-not-found";
+    const held = [];
+    const providersFor = vm.runInNewContext("(function (ctx) {" + match[1] + "\n})", {
+        Logic: logic, factories: { hyprland: () => ({}), notify: () => ({}) },
+        acquire: name => held.push(name), root: { release: () => {} }
+    });
+    const providers = providersFor({ id: manifest.id, manifest: manifest, kind: kind, onDispose: () => {} });
+    return { held: held, providers: Object.keys(providers) };
+}
 
 let failures = 0;
 function report(name, got, want) {
@@ -622,6 +641,43 @@ function suite(ctx, configLogic, check) {
     check("appearance is not exclusive", ctx.EXCLUSIVE_CAPABILITIES.indexOf("appearance"), -1);
     check("panes is a known capability on a window", ctx.validateManifest(Object.assign({}, svc, { kinds: ["window"], entryPoints: { window: "Window.qml" }, capabilities: ["panes"] }), "/p").ok, true);
     check("panes needs kind window", ctx.validateManifest(Object.assign({}, svc, { capabilities: ["panes"] }), "/p").error, "capability panes needs kind window");
+    // capabilityKinds rows: [name, capabilities, capabilityKinds, want], over
+    // a plugin of kinds pane, service and window. A refusal pins the start of
+    // the error text, as manifestRows does.
+    const kindsRaw = Object.assign({}, svc, { kinds: ["pane", "service", "window"], entryPoints: { pane: "Pane.qml", service: "Service.qml", window: "Window.qml" }, pane: { group: "System", order: 1 } });
+    const capabilityKindsRows = [
+        ["one kind holds a capability", ["hyprland", "notify"], { hyprland: ["pane"] }, null],
+        ["two of three kinds hold a capability", ["hyprland", "notify"], { hyprland: ["pane", "window"], notify: ["service"] }, null],
+        ["panes kept to the window", ["panes"], { panes: ["window"] }, null],
+        ["not an object", ["hyprland"], [["hyprland", "pane"]], "capabilityKinds must be an object"],
+        ["an unknown capability", ["hyprland"], { network: ["pane"] }, "capabilityKinds.network names a capability capabilities does not list"],
+        ["a capability capabilities does not list", ["notify"], { hyprland: ["pane"] }, "capabilityKinds.hyprland names a capability capabilities does not list"],
+        ["a kind outside kinds", ["hyprland"], { hyprland: ["bar-widget"] }, "capabilityKinds.hyprland names \"bar-widget\", a kind the manifest does not declare"],
+        ["a kind that is no kind", ["hyprland"], { hyprland: ["panel "] }, "capabilityKinds.hyprland names \"panel \", a kind the manifest does not declare"],
+        ["an empty list", ["hyprland"], { hyprland: [] }, "capabilityKinds.hyprland must be a non-empty list of kinds"],
+        ["a kind string, not a list", ["hyprland"], { hyprland: "pane" }, "capabilityKinds.hyprland must be a non-empty list of kinds"],
+        ["a kind twice", ["hyprland"], { hyprland: ["pane", "pane"] }, "capabilityKinds.hyprland lists kind pane twice"],
+        ["every kind", ["hyprland"], { hyprland: ["window", "pane", "service"] }, "capabilityKinds.hyprland lists every kind; leave it out"],
+        ["panes away from the window", ["panes"], { panes: ["service"] }, "capabilityKinds.panes must list kind window"]
+    ];
+    for (const [name, capabilities, capabilityKinds, want] of capabilityKindsRows) {
+        const r = ctx.validateManifest(Object.assign({}, kindsRaw, { capabilities: capabilities, capabilityKinds: capabilityKinds }), "/p");
+        check("capabilityKinds: " + name, r.ok ? null : r.error.slice(0, want === null ? 0 : want.length), want);
+    }
+    // instanceCapabilities rows: [kind, want] over one manifest, in the
+    // order capabilities lists them; an undeclared capabilityKinds holds
+    // every capability for every kind.
+    const perKind = ctx.validateManifest(Object.assign({}, kindsRaw, { capabilities: ["appearance", "compositor", "hyprland", "notify"], capabilityKinds: { hyprland: ["pane"], compositor: ["service", "window"] } }), "/p").manifest;
+    check("a normalised manifest carries its capabilityKinds", perKind.capabilityKinds, { hyprland: ["pane"], compositor: ["service", "window"] });
+    for (const [kind, want] of [["pane", ["appearance", "hyprland", "notify"]], ["service", ["appearance", "compositor", "notify"]], ["window", ["appearance", "compositor", "notify"]]])
+        check("instanceCapabilities: " + kind, ctx.instanceCapabilities(perKind, kind), want);
+    const flat = ctx.validateManifest(Object.assign({}, kindsRaw, { capabilities: ["hyprland", "notify"] }), "/p").manifest;
+    check("a manifest without capabilityKinds normalises to none", flat.capabilityKinds, {});
+    for (const kind of kindsRaw.kinds)
+        check("instanceCapabilities without capabilityKinds: " + kind, ctx.instanceCapabilities(flat, kind), ["hyprland", "notify"]);
+    const paneOnly = ctx.validateManifest(Object.assign({}, kindsRaw, { capabilities: ["hyprland", "notify"], capabilityKinds: { hyprland: ["pane"] } }), "/p").manifest;
+    for (const [kind, want] of [["service", ["notify"]], ["pane", ["hyprland", "notify"]]])
+        check("providersFor: a " + kind + " instance holds its kind's capabilities", providersHeld(CAPABILITIES_SOURCE, ctx, paneOnly, kind), { held: want, providers: want });
     check("a normalised manifest carries its options", (() => {
         const m = ctx.validateManifest(Object.assign({}, svc, { capabilities: ["hyprland"], settings: optionSettings, schema: optionSchema, hyprland: { options: { sensitivity: "input.sensitivity" } } }), "/p").manifest;
         return m.hyprland.options;
@@ -2197,7 +2253,9 @@ const CONTROLS = [
     ["an action system step is a declared one", "if (typeof action[stepRoute] !== \"string\" || !Array.isArray(system) || system.indexOf(action[stepRoute]) === -1)", "if (false)"],
     ["an undo is a step route", "var stepRoute = action.system !== undefined ? \"system\" : action.undo !== undefined ? \"undo\" : null;", "var stepRoute = action.system !== undefined ? \"system\" : null;"],
     ["system is a capability", "\"tui\", \"system\", \"requirements\"", "\"tui\", \"requirements\""],
-    ["systemSteps is a manifest key", "\"capabilities\", \"systemSteps\", \"settings\"", "\"capabilities\", \"settings\""],
+    ["capabilityKinds is judged", "var badCapabilityKinds = capabilityKindsError(capabilityKinds, capabilities, raw.kinds);", "var badCapabilityKinds = \"\";"],
+    ["an instance holds only the capabilities its kind is given", "return !hasOwn(manifest.capabilityKinds, name) || manifest.capabilityKinds[name].indexOf(kind) !== -1;", "return true;"],
+    ["systemSteps is a manifest key", "\"capabilityKinds\", \"systemSteps\", \"settings\"", "\"capabilityKinds\", \"settings\""],
     ["systemSteps is judged", "var badSteps = systemStepsError(raw.systemSteps, capabilities);", "var badSteps = \"\";"],
     ["capability system needs systemSteps", "} else if (capabilities.indexOf(\"system\") !== -1) {", "} else if (false) {"],
     ["systemSteps is a non-empty list", "if (!Array.isArray(steps) || steps.length === 0)\n        return \"systemSteps must", "if (false)\n        return \"systemSteps must"],
@@ -2546,6 +2604,14 @@ try {
             report("control: the suite fails without the rule: " + label, red > 0, true);
         }
     }
+    // providersFor that builds every capability for every kind hands the
+    // service the pane's hyprland.
+    const loops = CAPABILITIES_SOURCE.split(PROVIDERS_LOOP).length - 1;
+    report("control: providersFor's loop occurs once", loops, 1);
+    const logic = load(LOGIC);
+    const paneOnly = logic.validateManifest({ schemaVersion: 1, id: "acme.kinds", name: "K", version: "1", author: "a", description: "d", kinds: ["pane", "service"], entryPoints: { pane: "Pane.qml", service: "Service.qml" }, pane: { group: "System", order: 1 }, capabilities: ["hyprland", "notify"], capabilityKinds: { hyprland: ["pane"] } }, "/p").manifest;
+    const flatLoop = CAPABILITIES_SOURCE.replace(PROVIDERS_LOOP, () => "for (const name of ctx.manifest.capabilities) {");
+    report("control: a providersFor that ignores the kind hands the service hyprland", JSON.stringify(providersHeld(flatLoop, logic, paneOnly, "service")), JSON.stringify({ held: ["hyprland", "notify"], providers: ["hyprland", "notify"] }));
 } finally {
     fs.rmSync(temp, { recursive: true, force: true });
 }

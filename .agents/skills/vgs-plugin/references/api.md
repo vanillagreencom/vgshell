@@ -309,6 +309,7 @@ A plugin's script that sends a desktop notification, such as `notify-send` from 
 | `kinds` | yes | The kinds of § Kinds the plugin fills, each once. |
 | `entryPoints` | yes | One QML file per declared kind, keyed by the kind name, inside the plugin directory. |
 | `capabilities` | no | The capabilities of § Capabilities the plugin uses. |
+| `capabilityKinds` | no | For a capability only some kinds read, the kinds whose instances hold it, keyed by a capability `capabilities` lists: `{ "hyprland": ["pane"] }`. Every kind holds a capability left out. An instance's `shell` carries only what its kind holds: `PluginLogic.instanceCapabilities`. |
 | `settings` | no | The plugin's default settings; its `plugins` row overrides them key by key. `placement` is reserved: where an unanchored `panel` or `menu` sits, one of `PluginLogic.PLACEMENTS`, `center` when absent. |
 | `schema` | no | The settings a user or the plugin may change, keyed by setting name; § Settings schema. Each entry is a value the user changes on its row; an optional feature's action is its status entry's, on Details. Required with capability `configure`. |
 | `defaultSection` | no | `left`, `center` or `right`: the bar section an enable places an unplaced widget in. `center` when absent. |

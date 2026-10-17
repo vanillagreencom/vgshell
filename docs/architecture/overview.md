@@ -6,7 +6,7 @@ Read before structural work, before writing a plugin, a host or a capability pro
 
 Every surface a user sees and every background service is a plugin: one directory under `shell/plugins/` or `~/.config/vgshell/plugins/`, with one `manifest.json`. The core is what has to exist before any plugin can run and keep running when one breaks.
 
-A plugin reaches the core in two ways only. A host gives it a surface to draw inside, one per kind its manifest declares. The scoped `shell` object hands it the capabilities its manifest names, made for that instance and released with it. A manifest declares what the plugin fills and what it uses, never another plugin. A kind whose host is absent is not built, and the plugin's other kinds are.
+A plugin reaches the core in two ways only. A host gives it a surface to draw inside, one per kind its manifest declares. The scoped `shell` object hands it the capabilities its manifest gives that instance's kind, made for that instance and released with it. A manifest declares what the plugin fills and what it uses, never another plugin. A kind whose host is absent is not built, and the plugin's other kinds are.
 
 The choices are [D003](../decisions/D003-everything-is-a-plugin.md), [D005](../decisions/D005-kinds-are-surfaces-no-dependencies.md), [D010](../decisions/D010-facade-scope-not-sandbox.md) and [D012](../decisions/D012-core-owns-lent-objects.md).
 
@@ -39,6 +39,7 @@ The boundary is a static import check plus the scoped object, not a process sand
 ### Hosts and capabilities
 
 - Do hand a plugin only the capabilities its manifest names. `Capabilities.providersFor` builds one provider per named capability, and `scripts/smoke/rows/capabilities.sh` checks that a plugin that does not name one does not hold it.
+- Do give a capability only to the kinds that read it. `capabilities` lists what the plugin uses; `capabilityKinds` names the kinds that hold a capability only some kinds read, and every kind holds the rest. A kind that holds a capability it never reads keeps the core's work for it running while that instance lives, such as the Hyprland reads behind `hyprland`. `PluginLogic.instanceCapabilities` decides, `PluginLogic.validateManifest` refuses a malformed `capabilityKinds`, `scripts/test-plugin-logic.js` pins both, and `scripts/smoke/rows/hyprland-options.sh` checks that the core stops the Hyprland reads once no instance holds `hyprland`.
 - Do tell a service that its user turned it off only through its optional `turnedOff()`, which `Plugins.setEnabled` calls on a disable; a reload, a rescan and a shell exit destroy it without that call. `scripts/smoke/rows/plugins.sh` pins it.
 - Do return a disposer from every registration a provider makes, so that disabling a plugin releases everything it held. `shell/Core/Lifetime.js` releases them with the instance; `scripts/test-lifetime.js` and `scripts/smoke/rows/capability-release.sh` pin it.
 - Never let a plugin own a session-wide object; the core owns it and lends it through a capability. `scripts/check-plugin-boundary.py` refuses a lent type in a plugin.
