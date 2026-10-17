@@ -118,9 +118,10 @@ INST_REPLY=ok inst "render prints the shell's ok" "$cfg" "$rt_live" 0 "ok" "" hy
 check "render calls the shell's renderHyprland" test "$(cat "$tmp/args")" == "ipc --pid $$ call shell renderHyprland"
 INST_REPLY="refused: hyprland=pending" inst "a shell refusal is a refusal with exit 1" "$cfg" "$rt_live" 1 "" "vgshell: refused: hyprland=pending" hypr render
 
-# edit opens a cited configuration file under XDG_CONFIG_HOME, with $EDITOR
-# first and xdg-open as the fallback. It refuses paths outside that tree
-# before it launches an opener.
+# edit opens a cited file, by absolute path or relative to XDG_CONFIG_HOME,
+# with $EDITOR first and a picker of installed editors as the fallback. It
+# refuses an empty path, a control character, a parent segment and a file
+# it cannot read before it launches an editor.
 edit_dir="$tmp/edit-bin"; mkdir -p "$edit_dir"
 cat >"$edit_dir/stub" <<'EOF'
 #!/usr/bin/env bash
@@ -145,9 +146,21 @@ edit_min="$tmp/edit-min"; mkdir -p "$edit_min"
 for tool in bash readlink dirname id basename; do ln -s -- "$(command -v "$tool")" "$edit_min/$tool"; done
 inst_env=()
 INST_PATH="$edit_min" inst "edit refuses without an editor" "$cfg" "$rt_empty" 1 "" "vgs-tui: refused: editor=missing" edit hypr/hyprland.lua
-INST_PATH="$edit_dir:$base_path" inst "edit refuses an absolute path" "$cfg" "$rt_empty" 2 "" "vgshell: refused: edit=/etc/passwd reason=absolute" edit /etc/passwd
+abs="$tmp/edit-abs"; mkdir -p "$abs"; printf 'notes\n' >"$abs/notes.txt"
+inst_env=(EDITOR="stub" EDIT_RECORD="$tmp/edit-argv")
+rm -f -- "${tmp:?}/edit-argv"
+INST_PATH="$edit_dir:$base_path" inst "edit opens an absolute path outside the configuration directory" "$cfg" "$rt_empty" 0 "" "" edit "$abs/notes.txt"
+check "EDITOR receives the absolute path as given" test "$(tr '\n' ' ' <"$tmp/edit-argv")" == "$abs/notes.txt "
+rm -f -- "${tmp:?}/edit-argv"
 INST_PATH="$edit_dir:$base_path" inst "edit refuses a parent path" "$cfg" "$rt_empty" 2 "" "vgshell: refused: edit=hypr/../secret reason=parent" edit hypr/../secret
+INST_PATH="$edit_dir:$base_path" inst "edit refuses an absolute parent path" "$cfg" "$rt_empty" 2 "" "vgshell: refused: edit=$abs/../edit-abs/notes.txt reason=parent" edit "$abs/../edit-abs/notes.txt"
+INST_PATH="$edit_dir:$base_path" inst "edit refuses a control character and names no path" "$cfg" "$rt_empty" 2 "" "vgshell: refused: edit=path reason=control" edit "$abs/no"$'\n'"tes.txt"
+check "the control refusal is one line" test "$(wc -l <"$tmp/err")" == 1
+INST_PATH="$edit_dir:$base_path" inst "edit refuses a delete character in a relative path" "$cfg" "$rt_empty" 2 "" "vgshell: refused: edit=path reason=control" edit "hypr/hyprland.lua"$'\x7f'
 INST_PATH="$edit_dir:$base_path" inst "edit refuses a missing file" "$cfg" "$rt_empty" 1 "" "vgshell: refused: file=unreadable path=$cfg/hypr/missing.lua" edit hypr/missing.lua
+INST_PATH="$edit_dir:$base_path" inst "edit refuses a missing absolute file" "$cfg" "$rt_empty" 1 "" "vgshell: refused: file=unreadable path=$abs/missing.txt" edit "$abs/missing.txt"
+INST_PATH="$edit_dir:$base_path" inst "edit refuses a folder" "$cfg" "$rt_empty" 1 "" "vgshell: refused: file=unreadable path=$abs" edit "$abs"
+check "no refused path reaches the editor" test ! -e "$tmp/edit-argv"
 INST_PATH="$edit_dir:$base_path" inst "edit refuses a bad line" "$cfg" "$rt_empty" 2 "" "vgshell: refused: line=0 reason=positive-integer" edit hypr/hyprland.lua 0
 INST_PATH="$edit_dir:$base_path" inst "edit refuses an extra argument" "$cfg" "$rt_empty" 2 "" "vgshell: refused: argument=extra" edit hypr/hyprland.lua 1 extra
 unset INST_PATH
