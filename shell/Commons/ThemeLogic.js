@@ -51,6 +51,7 @@ var REFERENCE_PATTERN = /^\{([A-Za-z0-9.]*)\}$/;
 // token the expression is written for.
 var FUNCTIONS = {
     mix: { args: ["color", "color", "number"], result: "color" },
+    contrastMix: { args: ["color", "color", "color", "number"], result: "color" },
     alpha: { args: ["color", "number"], result: "color" },
     contrast: { args: ["color"], result: "color" },
     readable: { args: ["color", "color", "color"], result: "color" },
@@ -203,6 +204,42 @@ function contrastRatio(a, b) {
     var light = Math.max(first, second);
     var dark = Math.min(first, second);
     return (light + 0.05) / (dark + 0.05);
+}
+
+// Furthest mix toward TARGET that meets RATIO on BACKGROUND, or null.
+// Judge published bytes: rounding a continuous solution can break its floor.
+// Opposing RGB channels can reverse luminance, so inspect every colour
+// interval instead of assuming contrast changes in one direction.
+function contrastMix(color, target, background, ratio) {
+    var points = [0, 1];
+    var channels = ["r", "g", "b"];
+    for (var c = 0; c < channels.length; c++) {
+        var key = channels[c];
+        var delta = target[key] - color[key];
+        if (delta === 0)
+            continue;
+        for (var byte = 0; byte < 255; byte++) {
+            var amount = ((byte + 0.5) / 255 - color[key]) / delta;
+            if (amount > 0 && amount < 1)
+                points.push(amount);
+        }
+    }
+    points.sort(function (a, b) { return a - b; });
+    for (var p = points.length - 1; p >= 0; p--) {
+        // A crossing itself can differ from both adjacent intervals when
+        // channels move in opposite directions and round at the same point.
+        var amounts = p > 0 ? [points[p], (points[p] + points[p - 1]) / 2] : [points[p]];
+        for (var a = 0; a < amounts.length; a++) {
+            var mix = parseColor(formatColor({
+                r: color.r + (target.r - color.r) * amounts[a],
+                g: color.g + (target.g - color.g) * amounts[a],
+                b: color.b + (target.b - color.b) * amounts[a], a: 1
+            }));
+            if (contrastRatio(mix, background) >= ratio)
+                return mix;
+        }
+    }
+    return null;
 }
 
 // COLOR made opaque and mixed toward white by LIFT, a share of one: what a
@@ -693,6 +730,13 @@ function resolve(tokens, overrides) {
             args.push(arg);
         }
         switch (tree.name) {
+        case "contrastMix":
+            if (args[3] < 1 || args[3] > 21)
+                return fail("range", token, "function=contrastMix ratio=" + args[3]);
+            if (args[0].a < 1 || args[1].a < 1 || args[2].a < 1)
+                return fail("contrast-translucent", token, "function=contrastMix");
+            var solved = contrastMix(args[0], args[1], args[2], args[3]);
+            return solved === null ? fail("contrast-unreachable", token, "function=contrastMix ratio=" + args[3]) : solved;
         case "mix":
             if (args[2] < 0 || args[2] > 1)
                 return fail("range", token, "function=mix amount=" + args[2]);

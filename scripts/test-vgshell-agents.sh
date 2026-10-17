@@ -121,17 +121,11 @@ const equals = (label, got, want) => { if (got !== want) note(label + " got=" + 
 const claude = JSON.parse(fs.readFileSync(path.join(live, "claude.json"), "utf8")).overrides;
 const mix = (first, second, amount) => "#" + [1, 3, 5].map(index =>
     byteHex(Math.round(channel(first, index) + (channel(second, index) - channel(first, index)) * amount))).join("");
-const word = semantic => "#" + [1, 3, 5].map(index => {
-    const page = channel(values.color.background, index) / 255;
-    const normalTone = page + (channel(values.palette[semantic], index) / 255 - page) * 0.14;
-    return byteHex(Math.round(255 * (normalTone + (channel(values.color[semantic], index) / 255 - normalTone) * 0.22121734137238014)));
-}).join("");
 const dimmed = semantic => mix(values.color.background, values.palette[semantic], Math.round(255 * 0.07) / 255);
+// Word highlight contrast is checked across the catalog in test-theme-render.js.
 const claudeWant = {
     diffAdded: token("color.successSubtle"),
     diffRemoved: token("color.dangerSubtle"),
-    diffAddedWord: word("success"),
-    diffRemovedWord: word("danger"),
     diffAddedDimmed: dimmed("success"),
     diffRemovedDimmed: dimmed("danger"),
     background: slot("color6"),

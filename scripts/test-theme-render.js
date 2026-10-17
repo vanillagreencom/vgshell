@@ -1599,7 +1599,7 @@ assert.equal(claudeAnsi256("#f3f0e5"), "#ffffd7");
 assert.equal(claudeAnsi256("#e0ddd3"), "#d7d7d7");
 assert.equal(claudeAnsi256("#808080"), "#808080");
 function verifyClaudePalette(template) {
-    const metrics = [], paletteFailures = [], contrastFailures = [], countShortfalls = [], baselineFailures = [];
+    const metrics = [], paletteFailures = [], contrastFailures = [], countShortfalls = [];
     const rgb = hex => [1, 3, 5].map(index => parseInt(hex.slice(index, index + 2), 16));
     const hex = channels => "#" + channels.map(channel => Math.round(channel).toString(16).padStart(2, "0")).join("");
     const mixed = (first, second, amount) => hex(rgb(first).map((channel, index) => channel + (rgb(second)[index] - channel) * amount));
@@ -1623,14 +1623,8 @@ function verifyClaudePalette(template) {
         });
         if (document.overrides.userMessageBackgroundHover === document.overrides.userMessageBackground)
             paletteFailures.push({ kind: "claude-band-hover", theme: pkg.name, band: document.overrides.userMessageBackground });
-        // Main used selection for both Word fields. Eligibility is computed
-        // from that source contract, never from a named-theme exception.
-        const selection = pkg.values.color.selection;
-        const baselineWord = mixed(page, selection, parseInt(selection.slice(7, 9), 16) / 255);
-        const baselineRatio = ratio(basic, baselineWord);
-        const eligible = baselineRatio >= 4.5;
-        if (!eligible) baselineFailures.push({ kind: "claude-main-basic-word", theme: pkg.name,
-            mode: pkg.values.scheme.mode, baselineWord, ratio: baselineRatio, floor: 4.5, shortfall: 4.5 - baselineRatio });
+        const panel = document.overrides.composerSidebarBackground;
+        const gap = ratio(basic, panel), eligible = gap >= 3 * 4.5;
         const pairs = [["Added", "success"], ["Removed", "danger"]].map(([role, semantic]) => {
             const normal = document.overrides["diff" + role];
             const word = document.overrides["diff" + role + "Word"];
@@ -1640,14 +1634,9 @@ function verifyClaudePalette(template) {
             const normalAlpha = parseInt(normalSource.slice(7, 9), 16) / 255;
             const expected = {
                 normal: mixed(page, normalSource, normalAlpha),
-                word: hex(rgb(page).map((channel, index) => {
-                    const pageChannel = channel / 255;
-                    const normalTone = pageChannel + (rgb(pkg.values.palette[semantic])[index] / 255 - pageChannel) * 0.14;
-                    return 255 * (normalTone + (rgb(pkg.values.color[semantic])[index] / 255 - normalTone) * 0.22121734137238014);
-                })),
                 dimmed: mixed(page, pkg.values.palette[semantic], Math.round(255 * 0.07) / 255)
             };
-            for (const [field, got] of [["normal", normal], ["word", word], ["dimmed", dimmed]]) {
+            for (const [field, got] of [["normal", normal], ["dimmed", dimmed]]) {
                 if (got !== expected[field]) paletteFailures.push({ kind: "claude-palette-" + field, theme: pkg.name, role, got, expected: expected[field] });
             }
             const colors = [normal, word, dimmed];
@@ -1656,45 +1645,62 @@ function verifyClaudePalette(template) {
                 return null;
             }
             const basicWord = ratio(basic, word), countPage = ratio(word, page);
+            const countSidebar = ratio(word, panel);
+            // The next byte on the palette-to-BASIC tint path must break
+            // the code floor when the count floor cannot coexist with it.
+            const target = rgb(pkg.values.palette[semantic]).map((channel, index) => channel + (rgb(basic)[index] - channel) * 0.4);
+            const start = rgb(panel), current = rgb(word);
+            const intervals = target.map((channel, index) => {
+                const delta = channel - start[index];
+                if (delta === 0)
+                    return current[index] === start[index] ? [0, 1] : [Infinity, -Infinity];
+                return [-0.5, 0.5].map(edge => (current[index] + Math.sign(delta) * edge - start[index]) / delta);
+            });
+            const begin = Math.max(0, ...intervals.map(interval => interval[0]));
+            const end = Math.min(1, ...intervals.map(interval => interval[1]));
+            const onPath = begin <= end + Number.EPSILON * 16;
+            const nextAmount = onPath ? Math.min(1, end + Number.EPSILON * 16) : 0;
+            const nextWord = onPath ? hex(start.map((channel, index) => channel + (target[index] - channel) * nextAmount)) : word;
+            const nextBasic = ratio(basic, nextWord);
+            if (!eligible && (!onPath || nextWord === word || nextBasic >= 4.5))
+                contrastFailures.push({ kind: "claude-count-extremum", theme: pkg.name, role, word, nextWord, nextBasic, begin, end, onPath });
             const normalPage = ratio(normal, page), dimmedPage = ratio(dimmed, page);
             if (!(dimmedPage < normalPage) || normal === dimmed)
                 paletteFailures.push({ kind: "claude-dimmed-role", theme: pkg.name, role, normal, dimmed, normalPage, dimmedPage });
             if (word === normal || word === dimmed)
                 paletteFailures.push({ kind: "claude-word-role", theme: pkg.name, role, word, normal, dimmed });
             const pair = { role, normal, word, dimmed, basicWord, countPage,
-                countSidebar: ratio(word, document.overrides.composerSidebarBackground),
+                countSidebar, nextWord, nextBasic, gap, maximumCount: gap / 4.5,
                 wordNormal: ratio(word, normal), wordDimmed: ratio(word, dimmed), normalPage, dimmedPage,
                 addedRemovedDimmed: ratio(document.overrides.diffAddedDimmed, document.overrides.diffRemovedDimmed) };
-            if (eligible && basicWord < 4.5) contrastFailures.push({ kind: "claude-basic-word", theme: pkg.name,
-                mode: pkg.values.scheme.mode, role, ratio: basicWord, floor: 4.5, shortfall: 4.5 - basicWord,
-                baselineRatio, basicWord, countPage });
-            if (countPage < 3) countShortfalls.push({ kind: "claude-count-page", theme: pkg.name,
-                mode: pkg.values.scheme.mode, role, ratio: countPage, floor: 3, shortfall: 3 - countPage,
-                baselineRatio, basicWord, countPage });
+            if (basicWord < 4.5) contrastFailures.push({ kind: "claude-basic-word", theme: pkg.name,
+                mode: pkg.values.scheme.mode, role, ratio: basicWord, floor: 4.5, basicWord, countSidebar });
+            if (eligible && countSidebar < 3) countShortfalls.push({ kind: "claude-count-panel", theme: pkg.name,
+                mode: pkg.values.scheme.mode, role, ratio: countSidebar, floor: 3, basicWord, countSidebar, gap });
+            if (!eligible && countSidebar > gap / 4.5 + Number.EPSILON * 64)
+                contrastFailures.push({ kind: "claude-count-upper-bound", theme: pkg.name, role, countSidebar, maximumCount: gap / 4.5 });
             return pair;
         });
         if (pairs.every(pair => pair !== null)) {
-            const semanticEqual = pkg.values.color.success === pkg.values.color.danger;
             const paletteEqual = pkg.values.palette.success === pkg.values.palette.danger;
-            if (!(semanticEqual && paletteEqual) && pairs[0].word === pairs[1].word)
-                paletteFailures.push({ kind: "claude-word-distinction", theme: pkg.name, pairs });
             if (!paletteEqual && pairs[0].dimmed === pairs[1].dimmed)
                 paletteFailures.push({ kind: "claude-dimmed-distinction", theme: pkg.name, pairs });
         }
-        metrics.push({ theme: pkg.name, mode: pkg.values.scheme.mode, baselineWord, baselineRatio, eligible, pairs, bands });
+        metrics.push({ theme: pkg.name, mode: pkg.values.scheme.mode, gap, eligible, pairs, bands });
     }
-    return { metrics, paletteFailures, contrastFailures, countShortfalls, baselineFailures };
+    return { metrics, paletteFailures, contrastFailures, countShortfalls };
 }
 const claudeResult = verifyClaudePalette(claudeTemplate);
 assert.deepEqual(claudeResult.paletteFailures, []);
+assert.deepEqual(claudeResult.contrastFailures, []);
+assert.deepEqual(claudeResult.countShortfalls, []);
+const wordExpressions = JSON.parse(claudeTemplate).overrides;
+const addedWordExpression = wordExpressions.diffAddedWord;
 const claudeControls = [
     ["normal source", "#@{color.successSubtle}", "#@{color.dangerSubtle}", "claude-palette-normal"],
-    ["palette word", "#@{mix(mix({color.background},{palette.success},0.14),{color.success},0.22121734137238014)}", "#00ff00", "claude-palette-word"],
-    ["separate words", "#@{mix(mix({color.background},{palette.danger},0.14),{color.danger},0.22121734137238014)}", "#@{mix(mix({color.background},{palette.success},0.14),{color.success},0.22121734137238014)}", "claude-palette-word"],
     ["dimmed role", "#@{alpha({palette.success},0.07)}", "#@{color.successSubtle}", "claude-dimmed-role"],
-    ["count report", "#@{mix(mix({color.background},{palette.success},0.14),{color.success},0.22121734137238014)}", "#@{color.background}", "claude-count-page"],
-    ["global bound", "#@{mix(mix({color.background},{palette.success},0.14),{color.success},0.22121734137238014)}", "#@{mix(mix({color.background},{palette.success},0.14),{color.success},0.22121734137238036)}", "claude-basic-word"],
-    ["basic floor", "#@{mix(mix({color.background},{palette.success},0.14),{color.success},0.22121734137238014)}", "#@{scheme.mode|dark=f8f8f2|light=333333}", "claude-basic-word"],
+    ["count floor", addedWordExpression, "#@{color.surfaceSunken}", "claude-count-panel"],
+    ["basic floor", addedWordExpression, "#@{scheme.mode|dark=f8f8f2|light=333333}", "claude-basic-word"],
     ["band page", "\"userMessageBackground\": \"#@{mix({color.background},{color.text},0.13)}\"", "\"userMessageBackground\": \"#@{color.surface}\"", "claude-band-page"],
     ["band reduced", "\"userMessageBackground\": \"#@{mix({color.background},{color.text},0.13)}\"", "\"userMessageBackground\": \"#@{color.surface}\"", "claude-band-reduced"],
     ["band hover", "\"userMessageBackgroundHover\": \"#@{mix({color.background},{color.text},0.17)}\"", "\"userMessageBackgroundHover\": \"#@{mix({color.background},{color.text},0.13)}\"", "claude-band-hover"]
@@ -1710,7 +1716,7 @@ try {
         const result = verifyClaudePalette(fs.readFileSync(file, "utf8"));
         const observed = [...result.paletteFailures, ...result.contrastFailures, ...result.countShortfalls].find(failure => failure.kind === kind);
         assert.ok(observed, label);
-        if (kind === "claude-count-page") assert.equal(observed.ratio, 1);
+        if (label === "count floor") assert.equal(observed.ratio, 1);
         if (kind === "claude-basic-word") assert.ok(observed.ratio < observed.floor);
         if (kind === "claude-band-page" || kind === "claude-band-reduced") {
             const flexoki = result.paletteFailures.find(failure => failure.kind === kind
@@ -1718,18 +1724,27 @@ try {
             assert.ok(flexoki && flexoki.ratio < flexoki.floor, label);
         }
     }
+    const previous = JSON.parse(claudeTemplate);
+    for (const [role, semantic] of [["Added", "success"], ["Removed", "danger"]])
+        previous.overrides["diff" + role + "Word"] = `#@{mix(mix({color.background},{palette.${semantic}},0.14),{color.${semantic}},0.22121734137238014)}`;
+    const previousFile = path.join(claudeScratch, "previous-claude.json");
+    fs.writeFileSync(previousFile, JSON.stringify(previous), { flag: "wx" });
+    const previousResult = verifyClaudePalette(fs.readFileSync(previousFile, "utf8"));
+    assert.ok(previousResult.countShortfalls.some(failure => failure.role === "Added"), "previous added count fails the panel floor");
+    assert.ok(previousResult.countShortfalls.some(failure => failure.role === "Removed"), "previous removed count fails the panel floor");
 } finally {
     fs.rmSync(claudeScratch, { recursive: true, force: true });
 }
-for (const failure of [...claudeResult.baselineFailures, ...claudeResult.contrastFailures, ...claudeResult.countShortfalls])
-    console.log("test-theme-render: claude-floor-shortfall " + JSON.stringify(failure));
 for (const theme of claudeResult.metrics) {
+    console.log("test-theme-render: claude-diff-metric " + JSON.stringify({ theme: theme.theme, mode: theme.mode,
+        gap: theme.gap, eligible: theme.eligible, pairs: theme.pairs.map(({ role, word, basicWord, countSidebar, nextWord, nextBasic, maximumCount }) =>
+            ({ role, word, basicWord, countSidebar, nextWord, nextBasic, maximumCount })) }));
     const ratio = theme.pairs[0].addedRemovedDimmed;
     if (ratio < 3) console.log("test-theme-render: claude-dimmed-role-ratio " + JSON.stringify({
         theme: theme.theme, mode: theme.mode, ratio, reference: 3,
         added: theme.pairs[0].dimmed, removed: theme.pairs[1].dimmed }));
 }
-console.log(`test-theme-render: claude-palette packages=${claudeResult.metrics.length} controls=${claudeControls.length} count-minimum=${Math.min(...claudeResult.metrics.flatMap(theme => theme.pairs.map(pair => pair.countPage)))} band-page-minimum=${Math.min(...claudeResult.metrics.flatMap(theme => theme.bands.map(band => band.bandPage)))} band-reduced-minimum=${Math.min(...claudeResult.metrics.flatMap(theme => theme.bands.map(band => band.reducedPage)))} basic-shortfalls=${claudeResult.contrastFailures.length} baseline-shortfalls=${claudeResult.baselineFailures.length} count-shortfalls=${claudeResult.countShortfalls.length}`);
+console.log(`test-theme-render: claude-palette packages=${claudeResult.metrics.length} controls=${claudeControls.length} count-panel-minimum=${Math.min(...claudeResult.metrics.flatMap(theme => theme.pairs.map(pair => pair.countSidebar)))} band-page-minimum=${Math.min(...claudeResult.metrics.flatMap(theme => theme.bands.map(band => band.bandPage)))} band-reduced-minimum=${Math.min(...claudeResult.metrics.flatMap(theme => theme.bands.map(band => band.reducedPage)))} basic-shortfalls=${claudeResult.contrastFailures.length} count-shortfalls=${claudeResult.countShortfalls.length}`);
 
 // RGB channel separation is a numerical distinction check. The owner judges
 // appearance in real terminal pictures. Rose Pine's main ANSI blue/brightblack

@@ -8,6 +8,7 @@
 "use strict";
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const { load } = require("../bin/lib/qml-library.js");
 
@@ -443,6 +444,11 @@ const ACCEPTED = [
     { tokens: { dialog: { titleRole: "h2", bodyRole: "itemHint" } }, want: [["dialog.titleRole", "h2"], ["dialog.bodyRole", "itemHint"]] },
     { tokens: { motion: { easing: { standard: "linear" } } }, want: [["motion.easing.standard", "linear"]] },
     { tokens: { color: { surface: "mix( {palette.background} , alpha(#ffffff, 0.5), 0.5 )" } }, want: [["color.surface", "#808080bf"]] },
+    { tokens: { palette: { accent: "contrastMix(#000,#fff,#fff,4.5)" } }, want: [["palette.accent", "#767676ff"]] },
+    { tokens: { palette: { accent: "contrastMix(#fff,#000,#000,4.5)" } }, want: [["palette.accent", "#757575ff"]] },
+    { tokens: { palette: { accent: "contrastMix(#000,#f00,#fff,3)" } }, want: [["palette.accent", "#ff0000ff"]] },
+    { tokens: { palette: { accent: "contrastMix(#000,#fff,#fff,21)" } }, want: [["palette.accent", "#000000ff"]] },
+    { tokens: { palette: { accent: "contrastMix(#000,#fff,#fff,1)" } }, want: [["palette.accent", "#ffffffff"]] },
     { tokens: { color: { surface: "mix(#000, mix(#000, mix(#000, mix(#000, mix(#000, mix(#000, #fff, 1), 1), 1), 1), 1), 1)" } }, want: [["color.surface", "#ffffffff"]] }
 ];
 
@@ -504,6 +510,13 @@ const REFUSED = [
     { tokens: { motion: { duration: { fast: 20000 } } }, reason: "range", token: "motion.duration.fast" },
     { tokens: { palette: { accent: "mix(#000, #fff, 1.5)" } }, reason: "range", token: "palette.accent" },
     { tokens: { palette: { accent: "alpha(#000, -0.5)" } }, reason: "range", token: "palette.accent" },
+    { tokens: { palette: { accent: "contrastMix(#000,#fff,#fff,22)" } }, reason: "range", token: "palette.accent" },
+    { tokens: { palette: { accent: "contrastMix(#000,#fff,#fff,0.5)" } }, reason: "range", token: "palette.accent" },
+    { tokens: { palette: { accent: "contrastMix(#888,#999,#fff,4.5)" } }, reason: "contrast-unreachable", token: "palette.accent" },
+    ...[0, 1, 2].map(index => ({
+        tokens: { palette: { accent: `contrastMix(${["#000000ff", "#ffffffff", "#ffffffff"].map((color, at) => at === index ? color.slice(0, 7) + "80" : color).join(",")},4.5)` } },
+        reason: "contrast-translucent", token: "palette.accent"
+    })),
     { tokens: { color: { onAccent: "contrast(alpha({palette.accent}, 0.5))" } }, reason: "contrast-translucent", token: "color.onAccent" },
     // The default text on a fill derives from the fill, so a translucent
     // fill alone is refused where that default is evaluated.
@@ -733,6 +746,9 @@ function verifyReadabilityNotice(judge) {
 }
 
 function verify(judge) {
+    const interior = judge.contrastMix(judge.parseColor("#ff0000"), judge.parseColor("#00ff00"), judge.parseColor("#ffffff"), 4.1);
+    assert.notEqual(interior, null, "opposing channels can meet the floor when both endpoints fail");
+    assert.ok(judge.contrastRatio(interior, judge.parseColor("#ffffff")) >= 4.1);
     verifyReadabilityNotice(judge);
     assert.equal(judge.tableError(TOKENS), "");
     for (const [table, start] of BAD_TABLES)
@@ -2003,6 +2019,7 @@ const CONTROLS = [
     ["function result type", 'if (result !== want || (signature.result === "same" && NUMERIC_TYPES.indexOf(want) === -1))', "if (false)"],
     ["cycle", "if (visiting.indexOf(path) !== -1)", "if (false)"],
     ["mix amount", "if (args[2] < 0 || args[2] > 1)", "if (false)"],
+    ["contrast mix floor", "if (contrastRatio(mix, background) >= ratio)", "if (true)"],
     ["alpha amount", "if (args[1] < 0 || args[1] > 1)", "if (false)"],
     ["translucent contrast", "if (args[0].a < 1)", "if (false)"],
     ["contrast choice", "1.05 / (light + 0.05) > (light + 0.05) / 0.05", "true"],
@@ -2169,7 +2186,7 @@ const CONTROLS = [
 ];
 
 const source = fs.readFileSync(judgeFile, "utf8");
-const temp = fs.mkdtempSync(path.join(repo, "tmp", "theme-logic-control-"));
+const temp = fs.mkdtempSync(path.join(os.tmpdir(), "theme-logic-control-"));
 try {
     for (const [label, needle, replacement] of CONTROLS) {
         assert.equal(source.split(needle).length, 2, `control "${label}": the text to replace must occur once`);
