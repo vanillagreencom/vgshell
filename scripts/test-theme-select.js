@@ -10,7 +10,6 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { spawnSync } = require("node:child_process");
 const { load } = require("../bin/lib/qml-library.js");
 
 const repo = path.join(__dirname, "..");
@@ -345,59 +344,6 @@ function verify(render, edit) {
 const selectFile = path.join(lib, "theme-select.js");
 const renderFile = path.join(lib, "theme-render.js");
 verify(require(renderFile), require(selectFile));
-
-// Exercise the real apply planner and atomic writer. The explicit child
-// environment has no display, bus, live HOME or runtime directory.
-function verifyBatCreation(tree, scratch) {
-    for (const detected of [true, false]) {
-        const home = fs.mkdtempSync(path.join(scratch, "home-"));
-        const commands = path.join(home, "commands");
-        fs.mkdirSync(commands);
-        if (detected) fs.writeFileSync(path.join(commands, "bat"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
-        const config = path.join(home, ".config");
-        const state = path.join(home, "state");
-        const result = spawnSync(process.execPath, [path.join(tree, "bin", "vgshell-theme-judge"), "apply", "json", path.join(config, "vgshell"), state, "held", "vgs"], {
-            encoding: "utf8", timeout: 30000,
-            env: { HOME: home, PATH: commands, XDG_CONFIG_HOME: config, XDG_CACHE_HOME: path.join(home, "cache"), XDG_DATA_HOME: path.join(home, "data"), XDG_STATE_HOME: path.join(home, "state-home"), XDG_RUNTIME_DIR: path.join(home, "runtime"), TMPDIR: scratch, VGS_TEST_RUN: "1", DBUS_SYSTEM_BUS_ADDRESS: "unix:path=" + path.join(home, "no-system-bus") }
-        });
-        assert.equal(result.status, 0, result.stderr);
-        const row = JSON.parse(result.stdout.trim()).targets.find(row => row.name === "bat");
-        const file = path.join(config, "bat", "config");
-        if (detected) {
-            assert.equal(fs.readFileSync(file, "utf8"), "--theme=vgs\n");
-            assert.equal(row.state, "written");
-        } else {
-            assert.equal(fs.existsSync(file), false);
-            assert.equal(row.reason, "not-detected");
-        }
-    }
-}
-
-const batScratch = fs.mkdtempSync(path.join(os.tmpdir(), "theme-bat-create-"));
-try {
-    const tree = path.join(batScratch, "tree");
-    for (const directory of ["bin", "shell/Commons", "shell/Core", "shell/Ui/icons", "config", "themes/vgs"])
-        fs.cpSync(path.join(repo, directory), path.join(tree, directory), { recursive: true });
-    const targetDir = path.join(tree, "themes", "targets", "bat");
-    fs.mkdirSync(targetDir, { recursive: true });
-    const target = JSON.parse(targetText({}));
-    Object.assign(target, { detect: ["bat"], files: [{ template: "bat.conf", destination: "bat.conf" }], select: { base: "config", file: "bat/config", format: "bat", values: { theme: "vgs" } } });
-    fs.writeFileSync(path.join(targetDir, "target.json"), JSON.stringify(target));
-    fs.writeFileSync(path.join(targetDir, "bat.conf"), "# test theme\n");
-    verifyBatCreation(tree, batScratch);
-    const judgeFile = path.join(tree, "bin", "vgshell-theme-judge");
-    const original = fs.readFileSync(judgeFile, "utf8");
-    for (const [needle, replacement] of [
-        [' || selection.format === "bat"', ""],
-        ['if (!render.detected(target.detect, onPath)) return "not-detected";', 'if (false) return "not-detected";']
-    ]) {
-        assert.equal(original.split(needle).length, 2);
-        fs.writeFileSync(judgeFile, original.replace(needle, replacement));
-        assert.throws(() => verifyBatCreation(tree, batScratch));
-    }
-} finally {
-    fs.rmSync(batScratch, { recursive: true, force: true });
-}
 
 // Each control removes one rule's behaviour from a copy of one file and
 // keeps the text around it: the file, the text, its replacement.

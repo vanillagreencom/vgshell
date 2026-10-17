@@ -680,4 +680,57 @@ for app in starship yazi bat fastfetch television; do
   unset THEME_BIN
 done
 
+# Creation reaches the apply planner and atomic writer, so it belongs to
+# this integration row and its writer/helper/configuration/theme inputs.
+# The only target is synthetic bat, with no reload hook. Detection uses
+# each child's private command directory and never the host PATH.
+rm -r -- "${tree:?}/themes/targets"
+mkdir -p "$tree/themes/targets"
+target_dir bat '{ "app": "bat", "runsCode": false, "encoder": "hex6", "files": [{ "template": "bat.conf", "destination": "bat.conf" }], "detect": ["bat"], "wiring": null, "reload": null, "select": { "base": "config", "file": "bat/config", "format": "bat", "values": { "theme": "vgs" } } }' $'# test theme\n'
+check "bat creates only the managed selection when detected" "$node_bin" - "$tree" "$tmp" <<'JS'
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const { spawnSync } = require("node:child_process");
+const tree = process.argv[2];
+const scratch = process.argv[3];
+
+function verifyBatCreation(tree, scratch) {
+    for (const detected of [true, false]) {
+        const home = fs.mkdtempSync(path.join(scratch, "home-"));
+        const commands = path.join(home, "commands");
+        fs.mkdirSync(commands);
+        if (detected) fs.writeFileSync(path.join(commands, "bat"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+        const config = path.join(home, ".config");
+        const state = path.join(home, "state");
+        const result = spawnSync(process.execPath, [path.join(tree, "bin", "vgshell-theme-judge"), "apply", "json", path.join(config, "vgshell"), state, "held", "vgs"], {
+            encoding: "utf8", timeout: 30000,
+            env: { HOME: home, PATH: commands, XDG_CONFIG_HOME: config, XDG_CACHE_HOME: path.join(home, "cache"), XDG_DATA_HOME: path.join(home, "data"), XDG_STATE_HOME: path.join(home, "state-home"), XDG_RUNTIME_DIR: path.join(home, "runtime"), TMPDIR: scratch, VGS_TEST_RUN: "1", DBUS_SYSTEM_BUS_ADDRESS: "unix:path=" + path.join(home, "no-system-bus") }
+        });
+        assert.equal(result.status, 0, result.stderr);
+        const row = JSON.parse(result.stdout.trim()).targets.find(row => row.name === "bat");
+        const file = path.join(config, "bat", "config");
+        if (detected) {
+            assert.equal(fs.readFileSync(file, "utf8"), "--theme=vgs\n");
+            assert.equal(row.state, "written");
+        } else {
+            assert.equal(fs.existsSync(file), false);
+            assert.equal(row.reason, "not-detected");
+        }
+    }
+}
+
+verifyBatCreation(tree, scratch);
+const judgeFile = path.join(tree, "bin", "vgshell-theme-judge");
+const original = fs.readFileSync(judgeFile, "utf8");
+for (const [needle, replacement] of [
+    [' || selection.format === "bat"', ""],
+    ['if (!render.detected(target.detect, onPath)) return "not-detected";', 'if (false) return "not-detected";']
+]) {
+    assert.equal(original.split(needle).length, 2);
+    fs.writeFileSync(judgeFile, original.replace(needle, replacement));
+    assert.throws(() => verifyBatCreation(tree, scratch));
+}
+JS
+
 rows_done test-vgshell-targets
