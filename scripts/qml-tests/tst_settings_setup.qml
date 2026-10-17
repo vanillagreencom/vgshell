@@ -190,6 +190,7 @@ Item {
                 { tag: "Home only blocker", id: "acme.home", warning: true },
                 { tag: "unreported", id: "acme.unknown", warning: true },
                 { tag: "not available", id: "acme.neutral", warning: false },
+                { tag: "not available after a failed build", id: "acme.failed", warning: false },
                 { tag: "blocked by a missing tool", id: "acme.toolstep", warning: true },
                 { tag: "missing required tools", id: "acme.required", warning: true },
                 { tag: "tools present", id: "acme.present", warning: false },
@@ -424,6 +425,7 @@ Item {
             return [
                 { tag: "required row", id: "acme.todo", row: true, asked: "", tab: "Setup" },
                 { tag: "done row", id: "acme.done", row: true, asked: "", tab: "Settings" },
+                { tag: "failed build row", id: "acme.failed", row: true, asked: "", tab: "Settings" },
                 { tag: "optional row", id: "acme.optional", row: true, asked: "", tab: "Settings" },
                 { tag: "requested Setup", id: "acme.done", row: false, asked: "Setup", tab: "Setup" },
                 { tag: "missing Setup", id: "acme.plain", row: false, asked: "Setup", tab: "Settings" }

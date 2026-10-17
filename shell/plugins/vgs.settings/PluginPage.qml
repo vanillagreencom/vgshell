@@ -49,8 +49,8 @@ FocusScope {
     // never beside the plugin of the row before.
     function pluginOf(row) {
         if (row === null) return { enabled: false, name: "", error: "", failed: false };
-        const line = row.errors.find(error => error.startsWith("build failed: ") || error.startsWith("refused: ")) || "";
-        return { enabled: row.enabled, name: row.name, error: Reply.line(line || "ok"), failed: line.startsWith("build failed: ") };
+        const line = Steps.startError(row.errors);
+        return { enabled: row.enabled, name: row.name, error: Reply.line(line || "ok"), failed: Steps.buildFailed(row.errors) };
     }
     readonly property var plugin: pluginOf(row)
 
@@ -107,7 +107,7 @@ FocusScope {
     readonly property var setupSections: row === null ? [] : Steps.setupSections(row.tuis, row.status, row.requirements, pluginOf(row))
     // Required declarations keep their tab after completion.
     readonly property bool hasSetup: row !== null && Steps.setupTab(setupSections, row.requirements)
-    readonly property bool setupNeeded: row !== null && Steps.setupNeeds(row.status, row.requirements, row.enabled).open
+    readonly property bool setupNeeded: row !== null && Steps.setupNeeds(row.status, row.requirements, row.enabled, Steps.buildFailed(row.errors)).open
     readonly property var moreSettings: row === null ? [] : Steps.freeScreens(row.tuis, row.status, "Settings", plugin)
     // The listed screens Details draws in its Actions row: those that are
     // no setup screens and that no status entry declares.

@@ -194,6 +194,17 @@ function verify(logic, producer) {
     same(logic.stepView(rows({}).find(entry => entry.key === "home"), String, failed).lines, [failed.error], "Not available after a failed build: the step draws the plain line");
     same(items(logic.setupSections(screens, rows({}), requirements([]), failed)).filter(item => !item.keys && item.tools !== true)
         .map(item => logic.lineAction(logic.stepButton(item.entry, requirements([])), logic.stepOpen(item.entry), failed)), [null, null, null, null], "after a failed build no step draws an action");
+    // Setup needed, as the Plugins list, the row's tab and the Setup tab
+    // read it from the row's errors (Registry.managerRows): [name, errors,
+    // missing tools, Setup needed], Home unreported throughout.
+    const buildLine = "build failed: service: file:///fixture/Service.qml:12: No such type";
+    const refusalLine = "refused: capability=fixture.audio held-by=acme.other";
+    for (const [name, errors, missing, needed] of [
+        ["after a failed build", [buildLine], [], false],
+        ["after a failed build, a required tool missing", [buildLine], ["required-a"], true],
+        ["built", [], [], true],
+        ["refused, a stale failed build after it", [refusalLine, buildLine], [], true]
+    ]) same(logic.setupNeeds(rows(homeUnreported), requirements(missing), true, logic.buildFailed(errors)).open, needed, "Setup needed " + name);
 
     // A step a missing or outdated required tool blocks: [name, missing
     // tools, the action kind on Home's own row, Setup needed]. The step
@@ -311,7 +322,9 @@ const controls = [
     ["Not available sorts with Done", 'var STEP_RANKS = { todo: 0, unavailable: 1, done: 2 };', 'var STEP_RANKS = { todo: 0, unavailable: 2, done: 2 };', "Not available by its value, after a pending Tools step: the order"],
     ["Not available reads To do", 'unavailable: { text: "Not available", tone: "neutral" }', 'unavailable: { text: "Not available", tone: "warning" }', "Not available by its value, between To do and Done: the chip"],
     ["a failed build reads To do", 'if (entry.report !== "reported" && plugin !== undefined && plugin.enabled && plugin.failed) return "unavailable";', '', "Not available after a failed build: the chip"],
-    ["a refusal reads Not available", 'plugin.enabled && plugin.failed) return', 'plugin.enabled && plugin.error !== "") return', "on, unreported while refused: the step stays To do"],
+    ["Setup needed ignores a failed build", 'var plugin = { enabled: enabled, failed: failed === true };', 'var plugin = { enabled: enabled, failed: false };', "Setup needed after a failed build"],
+    ["a refusal before a failed build reads Not available", 'return line.startsWith("build failed: ") || line.startsWith("refused: ");', 'return line.startsWith("build failed: ");', "Setup needed refused, a stale failed build after it"],
+    ["a refusal reads Not available", 'plugin.enabled && plugin.failed) return', 'plugin.enabled && (plugin.failed || plugin.error)) return', "on, unreported while refused: the step stays To do"],
     ["a tools step offers nothing", 'return requiredLacking(requirements).length > 0 ? reviewButton() : null;', 'return null;', "tools: a missing required tool"],
     ["a tools step offers Review with no required tool lacking", 'return requiredLacking(requirements).length > 0 ? reviewButton() : null;', 'return reviewButton();', "tools: a missing optional tool alone"],
     ["optional tool creates Setup", 'requirements.some(function (row) { return !row.optional; })', 'requirements.length > 0', "optional tools never create Setup"],

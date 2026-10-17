@@ -20,6 +20,14 @@ function stepReading(entry, plugin) {
     return stepOpen(entry) ? "todo" : "unavailable";
 }
 var STEP_RANKS = { todo: 0, unavailable: 1, done: 2 };
+// The line that says why a plugin, on, does not run, of its manager row's
+// ERRORS (Registry.managerRows): its first refusal or failed build, ""
+// while neither applies.
+function startError(errors) {
+    return errors.find(function (line) { return line.startsWith("build failed: ") || line.startsWith("refused: "); }) || "";
+}
+// Whether that line is a failed build, the `failed` stepReading takes.
+function buildFailed(errors) { return startError(errors).startsWith("build failed: "); }
 // The chip of each reading, its word and its tone. The words are declared
 // here alone (docs/architecture/design-system.md § Settings pages).
 var STEP_CHIPS = { todo: { text: "To do", tone: "warning" }, done: { text: "Done", tone: "success" }, unavailable: { text: "Not available", tone: "neutral" } };
@@ -111,10 +119,12 @@ function setupSections(tuis, status, requirements, plugin) {
 // Whether a plugin, on while ENABLED, needs setup, the one reading of the
 // Plugins list's Setup needed and the Setup tab's mark: a required step of
 // STATUS reads To do, or a required tool of REQUIREMENTS is missing or
-// outdated. A step whose value says the user cannot act on it raises
-// neither (stepOpen).
-function setupNeeds(status, requirements, enabled) {
-    return { open: enabled && (status.some(function (entry) { return declaresStep(entry) && stepOpen(entry); })
+// outdated. FAILED, buildFailed of the plugin's errors, is true while its
+// build failed. A step that reads Not available, by its value or after a
+// failed build, raises neither (stepReading).
+function setupNeeds(status, requirements, enabled, failed) {
+    var plugin = { enabled: enabled, failed: failed === true };
+    return { open: enabled && (status.some(function (entry) { return declaresStep(entry) && stepReading(entry, plugin) === "todo"; })
         || requiredLacking(requirements).length > 0) };
 }
 function setupTab(sections, requirements) { return sections.length > 0 || requirements.some(function (row) { return !row.optional; }); }
