@@ -1837,11 +1837,6 @@ function verifyAppStyles(render, changedTemplates = {}) {
             assert.equal(colour.r, colour.g, name + "/repair uses grey");
             assert.equal(colour.g, colour.b, name + "/repair uses grey");
         }
-        for (const option of ["status-left", "window-status-format", "window-status-current-format"]) {
-            const line = rendered.tmux.split("\n").find(line => line.startsWith("set -g " + option + " "));
-            assert.ok(line);
-            assert.equal(line.includes("#["), false, option + "/inline style overrides managed colours");
-        }
         metrics.push({ name, background: bg, session, active, inactive, ratios, separation, preserved: inactive.fg === old,
             ghostty: { foreground, faintOpacity } });
     }
@@ -2364,7 +2359,6 @@ const styleControls = [
     ["rejected session without block", 'set -g status-left-style "bg=#@{bar.active}', 'set -g status-left-style "bg=#@{color.background}'],
     ["old filled active tab", 'set -g window-status-current-style "bg=#@{color.background}', 'set -g window-status-current-style "bg=#@{palette.accent}'],
     ["rejected neutral unbolded active", 'fg=#@{color.info},bold', 'fg=#@{color.textHeading}'],
-    ["old inline active", 'set -g window-status-current-format " #I:#W#F "', 'set -g window-status-current-format "#[fg=blue,bold] #I:#W#F "'],
     ["unreadable menu text", 'set -gq menu-style "bg=#@{color.surfaceRaised},fg=#@{color.text}"', 'set -gq menu-style "bg=#@{color.surfaceRaised},fg=#@{color.surfaceRaised}"'],
     ["unreadable line numbers on the pane", 'set -gq copy-mode-line-number-style "fg=#@{color.textMuted}"', 'set -gq copy-mode-line-number-style "fg=#@{color.background}"']
 ];

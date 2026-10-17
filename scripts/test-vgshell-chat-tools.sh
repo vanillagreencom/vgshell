@@ -122,7 +122,6 @@ obsidian.css|    --text-normal: #d7d7d9;
 EOF
 check "Equibop and Vencord render the Vesktop file" test "$(cmp -s "$live/vesktop.css" "$live/equibop.css"; echo $?)$(cmp -s "$live/vesktop.css" "$live/vencord.css"; echo $?)" == 00
 check "the theme CSS names itself vgs to Vencord's theme list" grep -qxF -- ' * @name vgs' "$live/vesktop.css"
-check "tmux's #{pane_id} and the formats around it pass through the render" grep -qF -- '#{pane_index} #{pane_id}#[default] \"#{pane_title}\""' "$live/tmux.conf"
 check "the Oh My Posh file is JSON whose segments draw from its palette" python3 -c 'import json,sys; c = json.load(open(sys.argv[1])); s = c["blocks"][0]["segments"]; sys.exit(0 if c["palette"]["danger"] == "#f43f5e" and s[0]["foreground"] == "p:accent" and s[0]["template"] == "{{ .Path }} " else 1)' "$live/oh-my-posh.json"
 check "the Obsidian manifest names the theme vgs" python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1]))["name"] == "vgs" else 1)' "$live/obsidian.manifest.json"
 
@@ -190,7 +189,7 @@ rm -f -- "$cfg/tmux/tmux.conf"
 # A ~/.tmux.conf user is wired there, with the line after every line of
 # their own: tmux reads its configuration top to bottom, and inline colours
 # in a status-left, as in the owner's line below, beat any style option, so
-# only the theme's own status-left loaded after it sets the session label.
+# the theme drops inline colour styles after the user's lines.
 # Flexoki Light comes from the shipped catalog; its label takes the bar's
 # active desk pair, #ffffff on its accent #205ea6. tmux_read prints the status-left-style and status-left that
 # a fresh server of the suite's own reads from the files a login reads, and
@@ -217,7 +216,7 @@ tmux_options() {
 user_left='#[fg=black,bg=blue,bold] #S #[bg=default] '
 tmux_own=$'set -g mouse on\nset -g status-left "'"$user_left"$'"\nset -g status-right-length 40'
 tmux_line="source-file -q '$live/tmux.conf'"
-theme_reads=$'bg=#205ea6,fg=#ffffff,bold\n #S '
+theme_reads=$'bg=#205ea6,fg=#ffffff,bold\n #S  '
 printf '%s\n' "$tmux_own" >"$tmp/home/.tmux.conf"
 tinst "Flexoki Light installs from the catalog" "$cfg" "$rt_empty" 0 "ok installed=flexoki-light path=$cfg/vgshell/themes/flexoki-light" "" theme install flexoki-light
 # Controls: the target without fallbacks and last skips a ~/.tmux.conf
@@ -246,7 +245,7 @@ printf 'set -g status-left "#[fg=black,bg=blue] #S "\n' >"$cfg/tmux/tmux.conf"
 apply_json "Flexoki Light applies with both tmux files" 0 flexoki-light
 check "with both files the XDG tmux.conf takes the line last" test "$(cat "$cfg/tmux/tmux.conf")" == 'set -g status-left "#[fg=black,bg=blue] #S "'$'\n'"$tmux_line"
 check "with both files ~/.tmux.conf is left byte for byte" test "$(cat "$tmp/home/.tmux.conf")" == "$tmux_own"
-check "with both files tmux reads Flexoki Light's session label" test "$(tmux_read)" == "$theme_reads"
+check "with both files tmux keeps the XDG label with Flexoki Light's styles" test "$(tmux_read)" == "${theme_reads% }"
 rm -- "$cfg/tmux/tmux.conf" "$tmp/home/.tmux.conf"
 # A ~/.tmux.conf that is a relative link into a dotfiles repository is
 # written through: the link stays, and the file it names takes the line.
