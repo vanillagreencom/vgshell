@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// The tmux target's truecolor lines, themes/targets/tmux/tmux.conf,
+// The tmux target's colours and content, themes/targets/tmux/tmux.conf,
 // sourced into private tmux servers. The include renders through the
 // renderer under the shipped vgs package and each server sources it, as the
 // user's tmux.conf does:
@@ -19,6 +19,8 @@
 //
 // The controls: the template with each line disabled, rendered and sourced the
 // same way, must show no variable and no RGB.
+// User content is read back after sourcing and reloading the actual rendered
+// include. Restoring the former writer for each row must break its assertion.
 //
 // Each server runs on its own socket under a scratch TMUX_TMPDIR and HOME,
 // with -f /dev/null, and is killed before the scratch root is removed. A
@@ -67,7 +69,7 @@ assert.equal(pkg.ok, true, pkg.ok ? "" : logic.refusalLine(pkg));
 const judged = render.acceptTarget(logic, "tmux", fs.readFileSync(path.join(targetDir, render.TARGET_FILE), "utf8"));
 assert.equal(judged.ok, true, judged.ok ? "" : render.refusalLine("tmux", judged));
 assert.deepEqual(judged.target.files.map(f => f.template), ["tmux.conf"]);
-const template = fs.readFileSync(path.join(targetDir, "tmux.conf"), "utf8");
+const template = fs.readFileSync(process.argv[2] ?? path.join(targetDir, "tmux.conf"), "utf8");
 
 const rendered = text => {
     const result = render.renderTarget(logic, TOKENS, judged.target, new Map([["tmux.conf", text]]),
@@ -129,14 +131,54 @@ const tmux = (socket, ...args) => {
 // A server on its own socket, NAME, holding one session whose pane waits
 // until this process ends, that has sourced TEXT rendered. The session's end
 // ends the server, and with it any client attached.
-const server = (name, text) => {
+const server = (name, text, options = []) => {
     const include = path.join(root, `${name}.conf`);
     fs.writeFileSync(include, rendered(text));
     sockets.push(name);
     tmux(name, "new-session", "-d", "-s", "t", "-x", "80", "-y", "24",
         `exec tail --pid=${process.pid} -f /dev/null`);
+    for (const [option, value] of options) tmux(name, "set", "-g", option, value);
     tmux(name, "source-file", include);
     return name;
+};
+
+// tmux-continuum prepends its autosave command to status-right. These fixtures
+// keep commands literal; sourcing the theme must not execute or rewrite them.
+const CONTENT = [
+    { option: "status-right", value: "#(continuum_save.sh) clock %H:%M", expected: "#(continuum_save.sh) clock %H:%M", former: "set -gqu status-right" },
+    { option: "status-right", value: "#[fg=red]#(continuum_save.sh) #[bg=blue,fg=white]clock#[default]", expected: "#(continuum_save.sh) clock#[default]", former: "set -gqu status-right" },
+    { option: "status-format[1]", value: "", expected: "", former: "set -gqu status-format" },
+    { option: "status-format[4]", value: "#[align=right]#{session_name}", expected: "#[align=right]#{session_name}", former: "set -gqu status-format" },
+    { option: "status-format[4]", value: "#[align=right,fg=red]#{session_name}", expected: "#{session_name}", former: "set -gqu status-format" },
+    // A tmux mouse range's user-defined name may contain fg= without a colour.
+    { option: "status-format[4]", value: "#[range=user|fg=x]#S", expected: "#[range=user|fg=x]#S",
+        former: 'set -gF "status-format[4]" "#{s~#[[][^]]*(fg|bg|us)=[^]]*[]]~~:status-format[4]}"' },
+    ...[
+        ["status-left", 'set -g status-left " #S "'],
+        ["window-status-format", 'set -g window-status-format " #I:#W#F "'],
+        ["window-status-current-format", 'set -g window-status-current-format " #I:#W#F "'],
+        ["pane-border-format", 'set -g pane-border-format "#{pane_index}"'],
+        ["fill-character", 'set -gq fill-character "~"'],
+        ["message-format", "set -gqu message-format"],
+        ["window-status-separator", "set -gqu window-status-separator"],
+        ["window-pane-status-format", "set -gqu window-pane-status-format"],
+        ["window-pane-current-status-format", "set -gqu window-pane-current-status-format"]
+    ].flatMap(([option, former]) => [
+        { option, value: "#{pane_title} #()", expected: "#{pane_title} #()", former },
+        { option, value: "#[fg=colour196,bg=blue,us=red]#{pane_title} #()", expected: "#{pane_title} #()", former }
+    ])
+];
+
+const contentValue = (name, text, row) => {
+    const socket = server(name, text, [["status", "2"], [row.option, row.value]]);
+    const read = () => {
+        assert.equal(tmux(socket, "show", "-gv", "status"), "2\n");
+        return tmux(socket, "show", "-gv", row.option);
+    };
+    const first = read();
+    tmux(socket, "source-file", path.join(root, `${name}.conf`));
+    assert.equal(read(), first, `${row.option}/reload`);
+    return first;
 };
 
 // What a pane opened after TEXT loads holds as the variable.
@@ -186,6 +228,15 @@ const stop = async () => {
         const control = clientFeatures("r0", disabled(RGB_LINE));
         assert.ok(!control.includes("RGB"), control.join(","));
         console.log("test-theme-tmux: client-rgb=on control=off");
+
+        for (const [index, row] of CONTENT.entries()) {
+            assert.equal(contentValue(`c${index}1`, template, row), row.expected + "\n", row.option);
+            const former = template + "\n" + row.former + "\n";
+            const controlValue = contentValue(`c${index}0`, former, row);
+            assert.throws(() => assert.equal(controlValue, row.expected + "\n"),
+                { code: "ERR_ASSERTION" }, `${row.option}/former writer must fail`);
+            console.log(`test-theme-tmux: content=${row.option} unchanged=${row.value === row.expected} control=former-writer-failed`);
+        }
     } finally {
         await stop();
     }
