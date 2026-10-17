@@ -497,7 +497,7 @@ world(async () => {
                     captionLimit: 4096, dispatch: e => w.runner.dispatch(e), clock: w.runnerClock,
                     harness: {bridge: w.bridge, gate: {}, env: {...process.env, ...PLANTED}, runtime: () => w.runtime}});
                 owners.push(() => engine.close()); w.installEngine(engine);
-                assert.deepEqual(engine.configure({brain: "claude-fixture"}), {kind: "ready"});
+                assert.deepEqual(engine.configure({brain: "claude-fixture"}), {kind: "ready", cautions: []});
                 const {gen, turn: {op}} = w.runner.state;
                 let verdict;
                 engine.brain.send({gen, op, owner: 1, text: "read twice"}, kind => { if (kind === "brain-done") verdict = kind; });
@@ -543,7 +543,7 @@ world(async () => {
             // The model and effort the service chose for this sign-in.
             assert.doesNotThrow(() => { answer = engine.configure({ brain: "claude-fixture", model: "claude-fable-5-1", effort: "high" }); },
                 "the engine has a Claude Code driver");
-            assert.deepEqual(answer, { kind: "ready" });
+            assert.deepEqual(answer, { kind: "ready", cautions: [] });
             const { gen, turn: { op } } = w.runner.state;
             // The turn reports play when its speech starts, then its end.
             const verdicts = [];

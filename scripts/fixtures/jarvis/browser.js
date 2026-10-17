@@ -100,7 +100,7 @@ async function daemonLease(ending, removeClose = false) {
                 { v: 1, type: "audit-failures", gen: 0, revision: hello.revision, rows: [] },
                 { v: 1, type: "shell-status", gen: 0, revision: hello.revision, availability: { kind: "checking" } },
                 { v: 1, type: "status", gen: 0, revision: hello.revision, daemon: "ready",
-                    causes: ["speech=local-not-set-up", "brain=unselected"] },
+                    causes: ["speech=local-not-set-up", "brain=unselected"], cautions: [] },
                 { v: 1, type: "state", gen: 1, revision: hello.revision, seq: 1, state: {
                     gen: 1, nextOp: 1, stale: 0, settings: hello.settings,
                     gate: { kind: "down", reason: "unconfigured" },

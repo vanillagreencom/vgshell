@@ -59,7 +59,8 @@ var SETUP_TEXT = [
 // Session's thinking-timeout and device-lost, the engine's keyed brain and
 // speech causes (ChainedEngine keyed: brain=stream-error, net=timeout,
 // speech=local-ready-timeout), the home folder causes of a conversation's
-// first turn (home=link, guidance=home-too-large) and Audio's capture and
+// first turn (home=link, guidance=home-skills-too-large; a home text over
+// its budget is no fault) and Audio's capture and
 // playback failures (audio-start: ..., device-probe: ..., playback-busy).
 // A model its app refused carries the model's name (ClaudeCode:
 // brain=harness-model-refused model=claude-fable-5-1).

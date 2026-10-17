@@ -315,6 +315,20 @@ function setupCauses(value) {
     }
     return true;
 }
+// The home texts over their size budget (Guidance.compose's overBudget):
+// cautions, which hold no step, in this order, each at most once.
+var SETUP_CAUTIONS = ["guidance=persona-over-budget", "guidance=agents-over-budget", "guidance=skills-over-budget",
+    "guidance=memory-over-budget", "guidance=start-over-budget"];
+function setupCautions(cautions) {
+    if (!Array.isArray(cautions)) return false;
+    var last = -1;
+    for (var i = 0; i < cautions.length; i++) {
+        var at = SETUP_CAUTIONS.indexOf(cautions[i]);
+        if (at <= last) return false;
+        last = at;
+    }
+    return true;
+}
 
 // Whether VALUE is a line a status value may carry, of 1 to MAX characters.
 function statusLine(value, max) {
@@ -569,9 +583,10 @@ function accept(line, direction) {
         break;
     case "status":
         if (direction !== "daemon") fail("direction-status");
-        keys(message, ["v", "type", "gen", "revision", "daemon", "causes"], "status");
+        keys(message, ["v", "type", "gen", "revision", "daemon", "causes", "cautions"], "status");
         if (message.daemon !== "ready" && message.daemon !== "locked") fail("daemon");
         if (!setupCauses(message.causes)) fail("causes");
+        if (!setupCautions(message.cautions)) fail("cautions");
         break;
     case "state":
         if (direction !== "daemon") fail("direction-state");
@@ -645,7 +660,7 @@ function accept(line, direction) {
                 fail("personality-lines");
         } else {
             keys(shown, ["kind"], "personality");
-            if (["none", "missing", "too-large", "unreadable"].indexOf(shown.kind) === -1) fail("personality-kind");
+            if (["none", "missing", "unreadable"].indexOf(shown.kind) === -1) fail("personality-kind");
         }
         break;
     case "level":

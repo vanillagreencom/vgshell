@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Jarvis reads `AGENTS.md`, `memory/MEMORY.md`, the persona and the skill list whole whatever their size, and keeps answering. On the Jarvis page under Setup, the Home folder step reads Done and names each file over its size budget, and the Personality row shows its section with a line that says `AGENTS.md` is over its budget. Before, a file over its budget stopped Jarvis until you shortened it. A skills folder with more than 256 entries still stops Jarvis.
 - A new Pinned icons or Hidden icons item in Settings > Tray reads Choose an app and pins or hides nothing until you choose an app. Before, it stood for the first running app the list offered, which changed as apps started and stopped. An item you saved without choosing an app now pins or hides nothing; choose its app again.
 - The VGlass info button under Settings > Launcher and Settings > Notifications says what the switch does, and links VGlass in Appearance > Windows: the switch works only while that setting is Each surface decides. Before, it said only that the switch could have no effect.
 - The info buttons of six Jarvis settings say what the setting is and what you do with it: Home folder, Start Jarvis at boot, Shell tools, Personality, ElevenLabs voices and the Voice step under Setup. Before, they described what Jarvis does inside, such as which files it changes in the home folder.

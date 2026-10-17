@@ -383,7 +383,7 @@ const READINESS = [
 const DONE_ACTION = { setupVoice: false, setupModel: undefined };
 // The home folder's causes: Home.js's and Guidance.js's. One without a hint
 // of its own takes the step's.
-const HOME_CAUSES = ["home=link", "home=path", "home=unwritable", "guidance=home-too-large", "guidance=home-skills-too-large", "guidance=home-memory-too-large"];
+const HOME_CAUSES = ["home=link", "home=path", "home=unwritable", "guidance=home-skills-too-large"];
 // Each brain cause asks for its own action.
 const BRAIN_CAUSES = ["brain=unselected", "brain=account-unavailable", "brain=model-required", "brain=accounts-unreadable", "brain=signed-out",
     "brain=pi-update"];
@@ -1511,6 +1511,7 @@ function verifyHintStops(gate) {
         ...HOME_CAUSES, ...BRAIN_CAUSES, "brain=unnamed", "speech=local-not-set-up"];
     const answers = [...READINESS.map(([, answer]) => answer), ...causes.map(cause => ({ kind: "answered", causes: [cause] })),
         { kind: "answered", causes: ["setup=probe-timeout", "brain=unselected"] }, { kind: "stopped" }, { kind: "checking" },
+        { kind: "answered", causes: ["setup=probe-timeout", ...Array.from(protocol.SETUP_CAUTIONS)] }, { kind: "answered", causes: ["guidance=agents-over-budget"] },
         ...START_CAUSES.flatMap(([, cause]) => [{ kind: "problem", cause }, { kind: "problem", cause, action: gate.RETRYING_START }])];
     for (const answer of answers)
         for (const [key, value] of Object.entries(plain(gate.readiness(answer)))) {
@@ -1553,7 +1554,51 @@ function verifyHintStops(gate) {
     assert.deepEqual([judge.hintFits(one + "."), judge.hintFits(longer.slice(0, -1))], [false, false], "a hint that breaks the copy rule fails the check");
 }
 
+// A home text over its budget, each of the wire's cautions
+// (JarvisProtocol SETUP_CAUTIONS), by the file the caution names. It holds
+// no step: the summary reads Ready and the Home folder step Done, with a
+// hint that names each text over its budget, beside other steps' causes
+// too. The Personality row the shipped service publishes shows its section,
+// with a line while AGENTS.md is over its budget.
+const OVER_BUDGET_FILES = { "guidance=persona-over-budget": "persona.md", "guidance=agents-over-budget": "AGENTS.md",
+    "guidance=skills-over-budget": "skill list", "guidance=memory-over-budget": "memory/MEMORY.md", "guidance=start-over-budget": "start text" };
+function verifyOverBudget(gate, serviceSource) {
+    const cautions = Array.from(protocol.SETUP_CAUTIONS);
+    assert.deepEqual(cautions, Object.keys(OVER_BUDGET_FILES), "each caution the wire carries names its file here");
+    for (const cause of cautions) {
+        const got = plain(gate.readiness({ kind: "answered", causes: [cause] }));
+        assert.deepEqual([got.setup, got.setupHome.tone, got.setupHome.text, got.setupVoice.tone, got.setupModel.tone],
+            [{ tone: "ok", text: "Ready" }, "ok", "Done", "ok", "ok"], cause + ": over its budget reads Ready");
+        assert.equal(typeof got.setupHome.hint === "string" && got.setupHome.hint.includes(OVER_BUDGET_FILES[cause]), true, cause + ": the caution names the file");
+        assert.equal(judge.statusWrite(manifest, {}, "setupHome", got.setupHome).ok, true, cause + ": the judge accepts the Home folder step");
+    }
+    const all = plain(gate.readiness({ kind: "answered", causes: ["setup=probe-timeout", ...cautions, "brain=unselected"] }));
+    assert.deepEqual([all.setup.tone, all.setupHome.tone, all.setupHome.text, all.setupModel.tone], ["warning", "ok", "Done", "warning"],
+        "texts over their budget beside a step to do: that step alone is open");
+    assert.deepEqual(cautions.filter(cause => !all.setupHome.hint.includes(OVER_BUDGET_FILES[cause])), [], "the caution names every text over its budget");
+    assert.equal(judge.statusWrite(manifest, {}, "setupHome", all.setupHome).ok, true, "the judge accepts the step that names every text");
+    const section = { kind: "section", lines: ["Calm."], more: false };
+    for (const [label, shown, causes, want] of [
+        ["a section", section, [], ["ok", "Set", undefined]],
+        ["a section of an AGENTS.md over its budget", section, ["guidance=agents-over-budget"], ["info", "Set", 1]],
+        ["no section in an AGENTS.md over its budget", { kind: "missing" }, ["guidance=agents-over-budget"], ["info", "No Personality section", 1]],
+        ["a section beside another text over its budget", section, ["guidance=memory-over-budget"], ["ok", "Set", undefined]],
+        ["no home", { kind: "none" }, [], ["info", "No home folder", undefined]]]) {
+        const values = {};
+        const shell = { status: { set: (key, value) => {
+            assert.equal(judge.statusWrite(manifest, values, key, value).ok, true, label + ": the Personality row is accepted");
+            values[key] = value;
+            return "ok";
+        } } };
+        serviceCall(serviceSource, "publishPersonality", { shell, personalityShown: shown, setupAnswer: { kind: "answered", causes } }, gate);
+        const row = plain(values.personality);
+        assert.deepEqual([row.tone, row.text, row.lines?.length], want, label);
+        if (shown.kind === "section") assert.equal(row.hint, "Calm.", label + ": the section shows");
+    }
+}
+
 function verify(gate) {
+    verifyOverBudget(gate, fs.readFileSync(serviceFile, "utf8"));
     verifySession(gate);
     verifyOneSessionJudgement(gate);
     for (const check of [{ kind: "ready" }, { kind: "done", result: "ready" }]) {
@@ -1801,8 +1846,12 @@ const CONTROLS = [
     ["a cause marks no step", "out[REQUIRED[step]] = hint === undefined", "void (hint === undefined)"],
     ["a cause marks the other step", 'speech: "setupVoice", brain: "setupModel" };', 'speech: "setupModel", brain: "setupVoice" };'],
     ["a caution reads not ready", 'blocking.length === 0 ? { tone: "ok", text: "Ready", hint:', 'false ? { tone: "ok", text: "Ready", hint:', "the bar and the Setup status state one readiness"],
-    ["a caution turns its step to do", 'var blocking = answer.causes.filter(function (cause) { return !Object.prototype.hasOwnProperty.call(CAUTION, cause); });\n        var out',
-        'var blocking = answer.causes.filter(function (cause) { return !Object.prototype.hasOwnProperty.call(CAUTION, cause); });\n        REQUIRED.setup = "setupVoice"; TODO["setup=probe-timeout"] = CAUTION["setup=probe-timeout"]; blocking = answer.causes;\n        var out'],
+    ["a caution turns its step to do", 'var blocking = causes.filter(function (cause) { return !Object.prototype.hasOwnProperty.call(CAUTION, cause); });\n        var out',
+        'var blocking = causes.filter(function (cause) { return !Object.prototype.hasOwnProperty.call(CAUTION, cause); });\n        REQUIRED.setup = "setupVoice"; TODO["setup=probe-timeout"] = CAUTION["setup=probe-timeout"]; blocking = causes;\n        var out'],
+    ["an over-budget text drops its caution", "setupHome: homeDone(answer.causes),", "setupHome: HOME_READY,", "the caution names the file"],
+    ["an over-budget text holds its step", 'var causes = answer.causes.filter(function (cause) { return !Object.prototype.hasOwnProperty.call(OVER_BUDGET, cause); });',
+        "var causes = answer.causes;", "over its budget reads Ready"],
+    ["the AGENTS.md line is dropped", 'return Object.assign({}, value, { tone: "info", lines: [AGENTS_OVER] });', "return value;", "a section of an AGENTS.md over its budget"],
     ["the timed-out Local voice row asks for a restart", 'hint: "Jarvis does not need this check to answer and runs it again after the next setup", action: false };',
         "hint: START_RESTART, action: false };", "probe timeout: the Local voice row asks for no restart beside Ready"],
     ["the probe timeout caution asks for a restart", '"setup=probe-timeout": "Jarvis answers, but its check of the local voice did not finish"',
@@ -1832,7 +1881,7 @@ const CONTROLS = [
     ["a stopped summary draws its reason as a line", 'hint: "Turn Jarvis off and on again" }', 'lines: ["Turn Jarvis off and on again"] }'],
     ["the not-ready summary draws its causes", ': { tone: "warning", text: "Not ready" },', ': { tone: "warning", text: "Not ready", lines: answer.causes.map(String) },', "nothing set up: the summary draws no keyed cause"],
     ["a caution summary draws its cause", 'return CAUTION[cause]; })) }', 'return CAUTION[cause]; })), lines: answer.causes.map(String) }', "probe timeout: the summary draws no keyed cause"],
-    ["causes leave the summary ready", 'setup: answer.causes.length === 0 ? { tone: "ok", text: "Ready" }', 'setup: true ? { tone: "ok", text: "Ready" }'],
+    ["causes leave the summary ready", 'setup: causes.length === 0 ? { tone: "ok", text: "Ready" }', 'setup: true ? { tone: "ok", text: "Ready" }'],
     ["checking reads done", 'return { setup: CHECKING_SUMMARY, setupHome: HOME_UNCHECKED, setupVoice: CHECKING, setupModel: noAction(CHECKING) };', 'return { setup: CHECKING_SUMMARY, setupHome: HOME_UNCHECKED, setupVoice: DONE, setupModel: noAction(DONE) };'],
     ["an optional step reads open when ok", 'return value.tone === "ok" ? value :', "return false ? value :", "done under Local: the browser and input read optional"],
     ["an optional step drops its action", 'Object.assign({}, value, { tone: "info" })', 'Object.assign({}, value, { tone: "info", action: false })', "partial under Local: the rows that offer"],

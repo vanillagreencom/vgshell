@@ -87,22 +87,32 @@ world("jg", root => {
         assert.throws(() => require(path.join(copy, "Guidance.js")).compose("chained", "text", "en"),
             { message: "jarvis: guidance=layer file=core.md cause=" + cause });
     }
-    // Actual boundary input: all selected files reach their per-layer cap.
-    const large = path.join(root, "large");
-    fs.cpSync(backend, large, { recursive: true });
-    for (const file of fixtures[5].layers) fs.writeFileSync(path.join(large, "skills/voice", file), "x".repeat(8192));
-    assert.throws(() => require(path.join(large, "Guidance.js")).compose("chained", "local", "en"),
-        { message: "jarvis: guidance=compose-too-large" });
     control(root, "layer-bound", "Guidance.js", 'if (size > MAX_LAYER_BYTES)', 'if (false)', logic => {
         const copy = path.join(root, "layer-bound/skills/voice/core.md");
         fs.writeFileSync(copy, "x".repeat(8193));
         assert.throws(() => logic.compose("duplex", "text", "en"), /layer-too-large/);
     }); controls++;
-    control(root, "compose-bound", "Guidance.js", 'Buffer.byteLength(instructions) > MAX_COMPOSE_BYTES', 'false', logic => {
-        for (const file of fixtures[5].layers)
-            fs.writeFileSync(path.join(root, "compose-bound/skills/voice", file), "x".repeat(8192));
-        assert.throws(() => logic.compose("chained", "local", "en"), { message: "jarvis: guidance=compose-too-large" });
-    }); controls++;
+    // A start text over its whole budget composes whole and names that
+    // budget: every selected shipped layer at its own bound, no home.
+    const startOver = (logic, copy) => {
+        for (const file of fixtures[5].layers) fs.writeFileSync(path.join(copy, "skills/voice", file), "x".repeat(8192));
+        let value;
+        assert.doesNotThrow(() => { value = logic.compose("chained", "local", "en"); }, "a start text over its budget composes");
+        assert.equal(value.instructions, fixtures[5].layers.map(() => "x".repeat(8192)).join("\n\n"), "and is whole");
+        assert.deepEqual(value.overBudget, ["guidance=start-over-budget"]);
+    };
+    {
+        const large = path.join(root, "large");
+        fs.cpSync(backend, large, { recursive: true });
+        startOver(require(path.join(large, "Guidance.js")), large);
+    }
+    for (const [name, needle, replacement] of [
+        ["start-budget", "Buffer.byteLength(instructions) > START_BUDGET", "false"],
+        ["start-refuses", "    const overBudget = Buffer.byteLength(instructions) > START_BUDGET",
+            '    if (Buffer.byteLength(instructions) > START_BUDGET) throw new Error("jarvis: guidance=compose-too-large");\n    const overBudget = Buffer.byteLength(instructions) > START_BUDGET']
+    ]) {
+        control(root, name, "Guidance.js", needle, replacement, logic => startOver(logic, path.join(root, name))); controls++;
+    }
     for (const [name, needle, replacement, content, cause] of [
         ["empty-bound", 'if (text === "")', 'if (false)', "", "layer-empty"],
         ["utf8-bound", '{ fatal: true }', '{ fatal: false }', Buffer.from([255]), "ERR_ENCODING_INVALID_ENCODED_DATA"]
@@ -116,7 +126,8 @@ world("jg", root => {
     // The user's home folder: a brain gets the base package's persona and
     // then its AGENTS.md after the shipped layers, the index of its skills and
     // memory/MEMORY.md, the index of its memory notes; the voice model gets
-    // none, and a text over its bound refuses whole. The folder is made by
+    // none. A text over its budget composes whole, and overBudget names it; a
+    // skill set over Home's entry bound refuses. The folder is made by
     // hand, as a user's is, with the package where kendex renders it.
     const tree = path.resolve(backend, "../../../..");
     const home = (name, agents, skills = {}, persona = "# Persona\nPERSONA-MARKER\n", memory = "") => {
@@ -144,6 +155,7 @@ world("jg", root => {
     const edge = home("edge", "x".repeat(8192));
     const oversize = home("oversize", "x".repeat(8193));
     const crowded = home("crowded", "persona", Object.fromEntries(Array.from({ length: 60 }, (_, index) => ["own/s" + index + ".md", "y".repeat(200) + "\n"])));
+    const startHome = home("start", "s".repeat(32768));
     const many = home("many", "persona", Object.fromEntries(Array.from({ length: 257 }, (_, index) => ["own/s" + index + ".md", "z\n"])));
     const linked = home("linked", "");
     fs.rmSync(path.join(linked, "AGENTS.md"));
@@ -176,6 +188,7 @@ world("jg", root => {
             assert.equal(added.includes("ALPHA-BODY"), false, "a skill body is read on demand, never composed");
             assert.equal(stateLast(added, full, row.class).endsWith("\n\n- [Team](facts/team.md): MEMORY-MARKER"), true, row.class + ": the memory index, each line whole");
             assert.deepEqual(value.layers, [...row.layers, "home/persona", "home/AGENTS.md", "home/skills", "home/MEMORY.md", "home/state"]);
+            assert.deepEqual(value.overBudget, [], row.class + ": a home within its budgets names none");
             assert.equal(value.afterToolResult, plain.afterToolResult, "the home text is not repeated after a tool result");
             assert.equal(plain.withHome(full).instructions, value.instructions, "a composed guidance reads the home again");
             const empty = logic.compose(row.engine, row.class, row.language, bare);
@@ -185,38 +198,49 @@ world("jg", root => {
             assert.equal(bareAdded.slice(plain.instructions.length).split("\n").includes("- base/jarvis: Jarvis package"), true, "the package's skill");
             assert.deepEqual(empty.layers, [...row.layers, "home/skills", "home/state"], "an empty home adds only the package's skill and its state folder");
         }
-        // A layer is whole where the blank lines around it hold it alone.
-        assert.equal(stateLast(logic.compose("chained", "text", "en", edge).instructions, edge, "edge").includes("\n\n" + "x".repeat(8192) + "\n\n"), true, "a persona of exactly the bound is whole");
-        assert.throws(() => logic.compose("chained", "text", "en", oversize), { message: "jarvis: guidance=home-too-large" });
-        assert.equal(stateLast(logic.compose("chained", "text", "en", personaEdge).instructions, personaEdge, "persona edge").includes("\n\n" + "p".repeat(3072) + "\n\n"), true, "a persona of exactly its bound is whole");
-        assert.throws(() => logic.compose("chained", "text", "en", personaOver), { message: "jarvis: guidance=home-persona-too-large" });
-        let edged;
-        assert.doesNotThrow(() => { edged = logic.compose("chained", "text", "en", memoryEdge); }, "a memory index of exactly its bound composes");
-        assert.equal(stateLast(edged.instructions, memoryEdge, "memory edge").endsWith("m".repeat(4096)), true, "and is whole");
-        assert.throws(() => logic.compose("chained", "text", "en", memoryOver), { message: "jarvis: guidance=home-memory-too-large" });
-        for (const folder of [crowded, many])
-            assert.throws(() => logic.compose("chained", "local", "en", folder), { message: "jarvis: guidance=home-skills-too-large" });
+        // Each text at and over its budget: the layer is whole where the
+        // blank lines around it hold it alone, or it ends the text before
+        // the state layer.
+        const skillLines = text => Array.from({ length: 60 }, (_, index) => "- own/s" + index + ": " + "y".repeat(160)).every(line => text.split("\n").includes(line));
+        for (const [name, folder, whole, over] of [
+            ["AGENTS.md at its budget", edge, text => text.includes("\n\n" + "x".repeat(8192) + "\n\n"), []],
+            ["AGENTS.md over its budget", oversize, text => text.includes("\n\n" + "x".repeat(8193) + "\n\n"), ["guidance=agents-over-budget"]],
+            ["persona at its budget", personaEdge, text => text.includes("\n\n" + "p".repeat(3072) + "\n\n"), []],
+            ["persona over its budget", personaOver, text => text.includes("\n\n" + "p".repeat(3073) + "\n\n"), ["guidance=persona-over-budget"]],
+            ["MEMORY.md at its budget", memoryEdge, text => text.endsWith("\n\n" + "m".repeat(4096)), []],
+            ["MEMORY.md over its budget", memoryOver, text => text.endsWith("\n\n" + "m".repeat(4097)), ["guidance=memory-over-budget"]],
+            ["a skill list over its budget", crowded, skillLines, ["guidance=skills-over-budget"]],
+            ["a start text over its budget", startHome, text => text.includes("\n\n" + "s".repeat(32768) + "\n\n"), ["guidance=agents-over-budget", "guidance=start-over-budget"]]
+        ]) {
+            let value;
+            assert.doesNotThrow(() => { value = logic.compose("chained", "local", "en", folder); }, name + ": composes");
+            assert.equal(whole(stateLast(value.instructions, folder, name)), true, name + ": whole");
+            assert.deepEqual(value.overBudget, over, name + ": the budgets it is over");
+        }
+        // A skill set's entry bound guards the folder scan and still refuses.
+        assert.throws(() => logic.compose("chained", "local", "en", many), { message: "jarvis: guidance=home-skills-too-large" });
         assert.throws(() => logic.compose("chained", "text", "en", linked), { message: "jarvis: home=link" });
     }
     homeText(Guidance);
     for (const [name, needle, replacement] of [
-        ["home-bound", 'if (agents.kind !== "text") throw new Error("jarvis: guidance=home-too-large");', ""],
+        ["home-refuses", 'const agents = whole("AGENTS.md", AGENTS_BUDGET, "guidance=agents-over-budget");',
+            'const agents = whole("AGENTS.md", AGENTS_BUDGET, "guidance=agents-over-budget");\n    if (Buffer.byteLength(agents) > AGENTS_BUDGET) throw new Error("jarvis: guidance=home-too-large");'],
+        ["home-whole", 'const text = Home.read(home, entry, null).text;', 'const text = Home.read(home, entry, budget).text ?? "";'],
+        ["over-named", "if (Buffer.byteLength(text) > budget) over.push(cause);", ""],
         ["home-layer", "        content.push(text);\n", ""],
         ["home-order", "        content.push(text);\n", "        content.unshift(text);\n"],
-        ["home-empty", 'if (agents.text.trim() !== "")', "if (true)"],
-        ["persona-bound", 'if (persona.kind !== "text") throw new Error("jarvis: guidance=home-persona-too-large");', ""],
-        ["persona-layer", 'if (persona.text.trim() !== "") out.push(["home/persona", persona.text.trim()]);', ""],
-        ["persona-empty", 'if (persona.text.trim() !== "")', "if (true)"],
+        ["home-empty", 'if (agents !== "")', "if (true)"],
+        ["persona-layer", 'if (persona !== "") out.push(["home/persona", persona]);', ""],
+        ["persona-empty", 'if (persona !== "")', "if (true)"],
         ["persona-render", 'Home.baseSet(home) + "/" + Home.PACKAGE', '"skills/base/" + Home.PACKAGE'],
         ["voice-home", 'if (home !== null && brainClass === "duplex") throw new Error("jarvis: guidance=consumer");', ""],
-        ["memory-bound", 'if (memory.kind !== "text") throw new Error("jarvis: guidance=home-memory-too-large");', ""],
-        ["memory-cap-high", "const MAX_MEMORY_BYTES = 4096;", "const MAX_MEMORY_BYTES = 4097;"],
-        ["memory-cap-low", "const MAX_MEMORY_BYTES = 4096;", "const MAX_MEMORY_BYTES = 4095;"],
-        ["memory-cut", '" + memory.text.trim()]);', '" + memory.text.trim().slice(0, 4095)]);'],
-        ["memory-empty", 'if (memory.text.trim() !== "")', "if (true)"],
-        ["memory-file", 'Home.read(home, "memory/MEMORY.md", MAX_MEMORY_BYTES)', 'Home.read(home, "AGENTS.md", MAX_MEMORY_BYTES)'],
-        ["skills-bound", "if (!listed.complete || Buffer.byteLength(index) > MAX_LAYER_BYTES)", "if (!listed.complete)"],
-        ["skills-complete", "if (!listed.complete || Buffer.byteLength(index) > MAX_LAYER_BYTES)", "if (Buffer.byteLength(index) > MAX_LAYER_BYTES)"],
+        ["memory-cap-high", "const MEMORY_BUDGET = 4096;", "const MEMORY_BUDGET = 4097;"],
+        ["memory-cap-low", "const MEMORY_BUDGET = 4096;", "const MEMORY_BUDGET = 4095;"],
+        ["memory-cut", 'bootstrap:\\n\\n" + memory]);', 'bootstrap:\\n\\n" + memory.slice(0, 4096)]);'],
+        ["memory-empty", 'if (memory !== "")', "if (true)"],
+        ["memory-file", 'whole("memory/MEMORY.md", MEMORY_BUDGET', 'whole("AGENTS.md", MEMORY_BUDGET'],
+        ["skills-budget", 'if (Buffer.byteLength(index) > SKILLS_BUDGET) over.push("guidance=skills-over-budget");', ""],
+        ["skills-complete", 'if (!listed.complete) throw new Error("jarvis: guidance=home-skills-too-large");', ""],
         ["skill-line", '(skill.line === "" ? "" : ": " + skill.line)', '""'],
         ["read-again", "withHome: folder => compose(engine, brainClass, language, folder)", "withHome: () => compose(engine, brainClass, language)"],
         ["state-root", "path.join(home, Home.guard(home).open)", "home"],
@@ -235,16 +259,20 @@ world("jg", root => {
         ["empty", "## Personality\n\n## Tools\nx\n", { kind: "missing" }],
         ["another heading", "## Personality notes\nx\n", { kind: "missing" }]
     ].map(([name, agents, expected]) => [name, home("personality-" + name.replace(/ /g, "-"), agents), expected]);
+    const overSection = home("personality-over", "## Personality\nCalm.\n## Notes\n" + "n".repeat(9000) + "\n");
     const personality = (logic, copy = backend) => {
         require(path.join(copy, "Core.js")).use(tree);
         for (const [name, folder, expected] of sections) assert.deepEqual(logic.personality(folder), expected, name);
-        assert.deepEqual(logic.personality(oversize), { kind: "too-large" });
+        let shown;
+        assert.doesNotThrow(() => { shown = logic.personality(overSection); }, "an AGENTS.md over its budget shows its section");
+        assert.deepEqual(shown, { kind: "section", text: "Calm." });
     };
     personality(Guidance);
     for (const [name, needle, replacement] of [
         ["personality-end", 'const end = rest.findIndex(line => /^#{1,2}\\s/.test(line));', "const end = -1;"],
         ["personality-heading", "/^##\\s+Personality\\s*$/i", "/^##\\s+Personality/i"],
-        ["personality-empty", 'return text === "" ? { kind: "missing" } : { kind: "section", text };', 'return { kind: "section", text };']
+        ["personality-empty", 'return text === "" ? { kind: "missing" } : { kind: "section", text };', 'return { kind: "section", text };'],
+        ["personality-whole", 'Home.read(home, "AGENTS.md", null)', 'Home.read(home, "AGENTS.md", 8192)']
     ]) {
         control(root, name, "Guidance.js", needle, replacement, logic => personality(logic, path.join(root, name))); controls++;
     }

@@ -437,7 +437,7 @@ world(async () => {
                     captionLimit: 4096, dispatch: e => w.runner.dispatch(e), clock: w.runnerClock,
                     harness: { bridge: w.bridge, gate: w.gate, env, runtime: () => w.runtime }, trace: { marker: "1", file: trace } });
                 owners.unshift(() => engine.close());
-                assert.deepEqual(engine.configure({ brain: "codex-fixture", voiceProvider: "realtime", voiceAccount: "live-fixture" }), { kind: "ready" });
+                assert.deepEqual(engine.configure({ brain: "codex-fixture", voiceProvider: "realtime", voiceAccount: "live-fixture" }), { kind: "ready", cautions: [] });
                 const { gen, turn: { op } } = w.runner.state;
                 const callbacks = [];
                 const send = (id, text) => engine.brain.send({ gen, op: id, owner: 1, text, delegation: "del_" + id },
@@ -528,7 +528,7 @@ world(async () => {
                     captionLimit: 4096, dispatch: e => w.runner.dispatch(e), clock: w.runnerClock,
                     harness: {bridge: w.bridge, gate: w.gate, env, runtime: () => w.runtime}});
                 owners.unshift(() => engine.close()); w.installEngine(engine);
-                assert.deepEqual(engine.configure({brain: "codex-fixture"}), {kind: "ready"});
+                assert.deepEqual(engine.configure({brain: "codex-fixture"}), {kind: "ready", cautions: []});
                 const {gen, turn: {op}} = w.runner.state;
                 let verdict;
                 engine.brain.send({gen, op, owner: 1, text: "read twice"}, kind => { if (kind === "brain-done") verdict = kind; });
@@ -564,7 +564,7 @@ world(async () => {
                 policy: () => ({ profile: "standard", cloudVision: "ask" }), fault: reason => assert.fail("fault " + reason),
                 captionLimit: 4096, dispatch: e => w.runner.dispatch(e), clock: w.runnerClock, harness: { bridge: w.bridge, gate: w.gate, env, runtime: () => w.runtime } });
             owners.unshift(() => engine.close());
-            assert.deepEqual(engine.configure({ brain: "codex-fixture" }), { kind: "ready" });
+            assert.deepEqual(engine.configure({ brain: "codex-fixture" }), { kind: "ready", cautions: [] });
             const { gen, turn: { op } } = w.runner.state;
             const send = text => new Promise(resolve => engine.brain.send({ gen, op, owner: 1, text },
                 (verdict, detail) => { if (["brain-done", "brain-ended", "brain-failed"].includes(verdict)) resolve([verdict, detail]); }));

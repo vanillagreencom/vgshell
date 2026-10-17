@@ -138,7 +138,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
         publishVoices();
         write({ v: 1, type: "status", gen: runner.state.gen, revision: context.revision,
             daemon: context.locked ? "locked" : "ready",
-            causes: configuration.kind === "ready" ? [] : configuration.causes });
+            causes: configuration.kind === "ready" ? [] : configuration.causes, cautions: configuration.cautions });
         // A selected healthy loading plan can accept bounded capture. The
         // loading cause remains until the same child reports model readiness.
         // Session still owns lock, mute, fault and indicator admission.
@@ -147,7 +147,8 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
     }
 
     // Judge the home and the engine again; the status carries each failing
-    // setup step's cause for the shell's setup view.
+    // setup step's cause, and each home text over its budget, for the
+    // shell's setup view.
     function judgeSetup() {
         homeFolder = judgeHome(context.settings.home);
         rememberHome();

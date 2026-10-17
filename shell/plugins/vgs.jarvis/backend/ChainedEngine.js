@@ -204,18 +204,22 @@ function homeCause(error) {
 }
 
 /**
- * The plan with the home folder's step judged before its own. home is the
- * daemon's judgement of the folder the user chose. A folder the daemon
- * refused, or whose text no brain can take whole, holds the engine with its
- * cause first: Jarvis never answers without the persona the user chose.
+ * The plan with the home folder's step judged before its own, as {plan,
+ * cautions}. home is the daemon's judgement of the folder the user chose. A
+ * folder the daemon refused, or whose text Guidance cannot read, holds the
+ * engine with its cause first: Jarvis never answers without the persona the
+ * user chose. cautions are the causes of the home texts over their budget,
+ * in the largest consumer's guidance, the local brain's: each loads whole and
+ * holds nothing (Guidance homeLayers).
  */
 function heldByHome(plan, home) {
     let cause = null;
+    let cautions = [];
     switch (home.kind) {
     case "none": break;
     case "refused": cause = home.cause; break;
     case "ready":
-        try { Guidance.compose("chained", "local", LANGUAGE, home.path); }
+        try { cautions = Guidance.compose("chained", "local", LANGUAGE, home.path).overBudget; }
         catch (error) {
             cause = homeCause(error);
             if (cause === null) throw error;
@@ -223,8 +227,9 @@ function heldByHome(plan, home) {
         break;
     default: fail("home-state");
     }
-    if (cause === null) return plan;
-    return { ...unconfigured(cause), speech: plan.speech, causes: [cause, ...(plan.kind === "ready" ? [] : plan.causes)], list: plan.list, modelLists: plan.modelLists };
+    if (cause === null) return { plan, cautions };
+    return { plan: { ...unconfigured(cause), speech: plan.speech, causes: [cause, ...(plan.kind === "ready" ? [] : plan.causes)], list: plan.list, modelLists: plan.modelLists },
+        cautions };
 }
 
 // Always mode listens for the wake word on this computer, so it needs a row
@@ -398,6 +403,9 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
     const homePath = () => { const judged = home(); return judged.kind === "ready" ? judged.path : null; };
     // Whether the home folder's own cause holds the plan.
     let homeHeld = false;
+    // The causes of the home texts over their budget (heldByHome), which
+    // every configuration answer carries.
+    let cautions = [];
     // The settings of the last configure, which a voice list's answer
     // judges again.
     let lastSettings = null;
@@ -431,14 +439,15 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         if (plan.kind !== "ready") {
             const { speech, list, modelLists, ...answer } = plan;
             // One cause per step: the sidecar's goes before the recording's.
-            return cause === null ? answer : { ...answer, cause, causes: [cause, ...answer.causes.filter(other => !other.startsWith("speech="))] };
+            return cause === null ? { ...answer, cautions }
+                : { ...answer, cause, causes: [cause, ...answer.causes.filter(other => !other.startsWith("speech="))], cautions };
         }
         if (local && speechState.kind === "starting")
-            return { kind: "loading", cause: "speech=local-loading", causes: ["speech=local-loading"] };
+            return { kind: "loading", cause: "speech=local-loading", causes: ["speech=local-loading"], cautions };
         if (local && speechState.kind === "refused") {
-            return { kind: "unconfigured", cause, causes: [cause] };
+            return { kind: "unconfigured", cause, causes: [cause], cautions };
         }
-        return { kind: "ready" };
+        return { kind: "ready", cautions };
     }
 
     function startSpeech(row) {
@@ -1653,9 +1662,10 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
 
     function judge(settings) {
         plan = select(settings, accounts, directories, listed, modelOffers);
-        const selected = plan;
-        plan = heldByHome(plan, home());
-        homeHeld = plan !== selected;
+        const held = heldByHome(plan, home());
+        homeHeld = held.plan !== plan;
+        plan = held.plan;
+        cautions = held.cautions;
         if (plan.speech?.kind === "ready" && plan.speech.lifetime === "daemon") {
             // A completed setup publication can repair an initial
             // refusal. Ordinary hellos leave that runtime unloaded.

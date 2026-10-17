@@ -153,7 +153,7 @@ const CASES = [
         ["an ElevenLabs reply ElevenLabs refused", "playback-source: jarvis: speech=elevenlabs-http status=401", "elevenlabs"],
         ["another playback source failure", "playback-source: jarvis: speech=local-synthesis-timeout", "audio"],
         ["a device probe", "device-probe: pw-dump-exit", "audio"], ["a busy player", "playback-busy", "audio"],
-        ["a home text over its bound", "guidance=home-too-large", "home"], ["a home skill list over its bound", "guidance=home-skills-too-large", "home"],
+        ["a home skill set over its entry bound", "guidance=home-skills-too-large", "home"],
         ["a link in the home folder", "home=link", "home"],
         ["an unexpected engine failure", "engine=unexpected", "other"]].map(([label, reason, kind]) =>
         [label, up({ fault: { kind: "error", reason, retry: 0 } }), ["problem", "circle-alert", "danger", WITH(fault(kind), [MUTE])]]),
@@ -322,7 +322,7 @@ function verify(view) {
         assert.equal(got.tooltip.startsWith(status.setupVoice.text), true);
         assert.equal(got.tooltipDetails[0].includes(status.setupVoice.hint), true, "the widget carries the published recovery explanation");
     }
-    for (const causes of [["home=link", "brain=unselected"], ["guidance=home-too-large", "speech=local-loading"]]) {
+    for (const causes of [["home=link", "brain=unselected"], ["guidance=home-skills-too-large", "speech=local-loading"]]) {
         const status = SetupGate.readiness({ kind: "answered", causes });
         const got = callView(view, up(down("unconfigured"), status));
         assert.deepEqual([got.state, got.icon, got.tone], ["off", "power-off", "neutral"], causes[0]);

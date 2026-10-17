@@ -546,7 +546,7 @@ world(async () => {
             owners.unshift(() => engine.close());
             let plan;
             assert.doesNotThrow(() => { plan = engine.configure({ brain: "copilot-fixture", model: "", effort: "" }); }, "the engine has the ACP driver");
-            assert.deepEqual(plan, { kind: "ready" });
+            assert.deepEqual(plan, { kind: "ready", cautions: [] });
             const { gen, turn: { op } } = w.runner.state;
             const send = text => new Promise(resolve => engine.brain.send({ gen, op, owner: 1, text },
                 (verdict, detail) => { if (["brain-done", "brain-ended", "brain-failed"].includes(verdict)) resolve([verdict, detail]); }));

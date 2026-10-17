@@ -422,7 +422,7 @@ world(async () => {
             // The engine hands Pi the saved model and effort, as it does any sign-in program.
             assert.doesNotThrow(() => { plan = engine.configure({ brain: "pi-fixture", model: "stub/stub-1", effort: "high" }); },
                 "the engine has the Pi driver");
-            assert.deepEqual(plan, { kind: "ready" });
+            assert.deepEqual(plan, { kind: "ready", cautions: [] });
             const { gen, turn: { op } } = w.runner.state;
             // A turn's verdict, or the error the engine threw starting it.
             const send = text => new Promise(resolve => {

@@ -162,12 +162,53 @@ var STEP_TODO = { brain: "Add a key or sign in, then [choose an AI model](page:v
 var HOME_TODO = {
     "home=link": "Remove the link from the home folder, or [choose another Home folder](page:vgs.jarvis/Settings): Jarvis checks again when you press Talk",
     "home=path": "Jarvis cannot use this folder: [choose a Home folder](page:vgs.jarvis/Settings) inside your own home directory",
-    "guidance=home-too-large": "Shorten AGENTS.md in the home folder to less than 8 KB",
-    "guidance=home-skills-too-large": "Remove unused skills from the home folder so Jarvis can list them",
-    "guidance=home-memory-too-large": "Shorten memory/MEMORY.md in the home folder to less than 4 KB"
+    "guidance=home-skills-too-large": "Remove unused skills from the home folder so Jarvis can list them"
 };
 var HOME_STEP_TODO = "Check that you can open and change the folder, or [choose another Home folder](page:vgs.jarvis/Settings): Jarvis checks again when you press Talk";
 var HOME_READY = { tone: "ok", text: "Done" };
+// The home texts over their size budget (JarvisProtocol SETUP_CAUTIONS),
+// by the name the Home folder step gives each. Jarvis loads each whole and
+// answers, so the summary stays Ready and the step Done, with a hint that
+// names the texts. The hint goes on the step, not the summary, whose hint
+// a session fault and a shell caution already share.
+var OVER_BUDGET = {
+    "guidance=persona-over-budget": "persona.md",
+    "guidance=agents-over-budget": "AGENTS.md",
+    "guidance=skills-over-budget": "the skill list",
+    "guidance=memory-over-budget": "memory/MEMORY.md",
+    "guidance=start-over-budget": "the start text"
+};
+// The Personality row from SHOWN, the daemon's personality message, and
+// CAUSES, its last answer's: the section as the row's hint, which Settings
+// draws as text where a state's text and lines draw as badges; or what keeps
+// it from showing. The hint holds at most PluginLogic's STATUS_HINT_MAX of
+// 200 characters, so a longer or cut section ends in "…". An AGENTS.md over
+// its budget adds a line in the info tone: Jarvis still reads it whole.
+var AGENTS_OVER = "AGENTS.md is over its budget";
+function personalityRow(shown, causes) {
+    var joined = shown.kind === "section" ? shown.lines.join(" ") : "";
+    var cut = joined.length > 200 || shown.more === true;
+    var value = shown.kind === "section" ? { tone: "ok", text: "Set", hint: cut ? joined.slice(0, 199).trimEnd() + "…" : joined, action: true }
+        : shown.kind === "none" ? { tone: "info", text: "No home folder",
+            hint: "Choose a home folder first in [Home folder](page:vgs.jarvis/Settings/home)" }
+        : shown.kind === "missing" ? { tone: "info", text: "No Personality section", action: true,
+            hint: "Edit opens AGENTS.md. Add the heading ## Personality on its own line and say how Jarvis talks under it." }
+        : { tone: "warning", text: "AGENTS.md cannot be read", hint: "Check the home folder in [Home folder](page:vgs.jarvis/Settings/home)" };
+    if ((shown.kind === "section" || shown.kind === "missing") && causes.indexOf("guidance=agents-over-budget") !== -1)
+        return Object.assign({}, value, { tone: "info", lines: [AGENTS_OVER] });
+    return value;
+}
+
+// The Home folder step over CAUSES, the over-budget causes of an answer
+// whose home step is done: Done, with a hint naming each text over its
+// budget while one is.
+function homeDone(causes) {
+    var names = causes.filter(function (cause) { return Object.prototype.hasOwnProperty.call(OVER_BUDGET, cause); })
+        .map(function (cause) { return OVER_BUDGET[cause]; });
+    if (names.length === 0) return HOME_READY;
+    var listed = names.length === 1 ? names[0] : names.slice(0, -1).join(", ") + " and " + names[names.length - 1];
+    return { tone: "ok", text: "Done", hint: "Jarvis reads " + listed + " whole, but " + (names.length === 1 ? "it is over its budget" : "they are over their budgets") };
+}
 var HOME_UNCHECKED = { tone: "warning", text: "Not checked" };
 var DONE = { tone: "ok", text: "Done", action: false };
 // Voice setup uses Session's check result, which only the local wake detector
@@ -317,11 +358,14 @@ function readiness(answer) {
     case "answered":
         // The summary says only its state and hint: each step words its own
         // causes, and a caution's hint is its words.
-        var blocking = answer.causes.filter(function (cause) { return !Object.prototype.hasOwnProperty.call(CAUTION, cause); });
-        var out = { setup: answer.causes.length === 0 ? { tone: "ok", text: "Ready" }
-                : blocking.length === 0 ? { tone: "ok", text: "Ready", hint: joinedHint(answer.causes.map(function (cause) { return CAUTION[cause]; })) }
+        // A home text over its budget is a caution of the Home folder step
+        // alone (homeDone).
+        var causes = answer.causes.filter(function (cause) { return !Object.prototype.hasOwnProperty.call(OVER_BUDGET, cause); });
+        var blocking = causes.filter(function (cause) { return !Object.prototype.hasOwnProperty.call(CAUTION, cause); });
+        var out = { setup: causes.length === 0 ? { tone: "ok", text: "Ready" }
+                : blocking.length === 0 ? { tone: "ok", text: "Ready", hint: joinedHint(causes.map(function (cause) { return CAUTION[cause]; })) }
                     : { tone: "warning", text: "Not ready" },
-            setupHome: HOME_READY, setupVoice: DONE, setupModel: noAction(DONE) };
+            setupHome: homeDone(answer.causes), setupVoice: DONE, setupModel: noAction(DONE) };
         var open = [];
         blocking.forEach(function (cause) {
             var step = cause.slice(0, cause.indexOf("="));

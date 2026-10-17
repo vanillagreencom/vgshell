@@ -19,7 +19,7 @@ const confirm = { ...intent, intent: "confirm", id, digest: "a".repeat(64), sour
 const cancel = { ...intent, intent: "cancel", id };
 const shown = { v: 1, type: "shown", gen: 0, revision: hello.revision, id };
 const indicator = { v: 1, type: "indicator", gen: 0, revision: hello.revision, shown: true };
-const status = { v: 1, type: "status", gen: 0, revision: hello.revision, daemon: "ready", causes: [] };
+const status = { v: 1, type: "status", gen: 0, revision: hello.revision, daemon: "ready", causes: [], cautions: [] };
 const shellStatus = { v: 1, type: "shell-status", gen: 0, revision: hello.revision, availability: { kind: "available" } };
 const memory = { v: 1, type: "memory", gen: 0, revision: hello.revision, cause: "memory=sqlite" };
 const memoryEntry = { id, target: "facts/new.md", kind: "propose", title: "New memory", labels: ["home", "web"], text: "Remember this.", hash: "b".repeat(64), problem: "" };
@@ -97,6 +97,7 @@ const keysReply = { ...reply, kind: "input.keys", data: { ok: true, keys: [{ mod
 const inputReady = { ...status, type: "input-ready", commands: ["wtype", "wlrctl"] };
 delete inputReady.daemon;
 delete inputReady.causes;
+delete inputReady.cautions;
 const cases = [
     ["task-list-direction", JSON.stringify(taskList), "shell", "direction-task-list"],
     ["task-list-count", changed(taskList, { rows: Array(17).fill(taskRow) }), "daemon", "task-list"],
@@ -191,6 +192,8 @@ const cases = [
     ["voices-duplicate", changed(voices, { voices: voices.voices.concat(voices.voices) }), "daemon", "voice-duplicate"],
     ["personality-direction", JSON.stringify(personality), "shell", "direction-personality"],
     ["personality-kind", changed(personality, { personality: { kind: "granted" } }), "daemon", "personality-kind"],
+    // An AGENTS.md of any size shows its section: no kind says it is too long.
+    ["personality-too-large", changed(personality, { personality: { kind: "too-large" } }), "daemon", "personality-kind"],
     ["personality-lines", changed(personality, { personality: { kind: "section", lines: Array(25).fill("Calm."), more: true } }), "daemon", "personality-lines"],
     ["personality-control", changed(personality, { personality: { kind: "section", lines: ["Calm.\nBrief."], more: false } }), "daemon", "personality-lines"],
     // The status judge refuses these too: a line separator and a C1 control.
@@ -263,9 +266,16 @@ const cases = [
     ["status-causes-twice", changed(status, { causes: ["brain=unselected", "brain=account-unavailable"] }), "daemon", "causes"],
     ["status-causes-step", changed(status, { causes: ["voice=local-not-set-up"] }), "daemon", "causes"],
     ["status-causes-home-order", changed(status, { causes: ["speech=local-not-set-up", "home=link"] }), "daemon", "causes"],
-    ["status-causes-home-twice", changed(status, { causes: ["home=link", "guidance=home-too-large"] }), "daemon", "causes"],
+    ["status-causes-home-twice", changed(status, { causes: ["home=link", "guidance=home-skills-too-large"] }), "daemon", "causes"],
     ["status-causes-key", changed(status, { causes: ["speech=Not set up"] }), "daemon", "causes"],
     ["status-causes-text", changed(status, { causes: [7] }), "daemon", "causes"],
+    // Guidance.compose's overBudget: the home texts over their budget, in
+    // layer order, each once, none of them a step's cause.
+    ["status-cautions-missing", changed(status, { cautions: undefined }), "daemon", "shape-status"],
+    ["status-cautions-list", changed(status, { cautions: {} }), "daemon", "cautions"],
+    ["status-cautions-order", changed(status, { cautions: ["guidance=memory-over-budget", "guidance=agents-over-budget"] }), "daemon", "cautions"],
+    ["status-cautions-twice", changed(status, { cautions: ["guidance=agents-over-budget", "guidance=agents-over-budget"] }), "daemon", "cautions"],
+    ["status-cautions-cause", changed(status, { cautions: ["guidance=home-skills-too-large"] }), "daemon", "cautions"],
     ["state-direction", JSON.stringify(state), "shell", "direction-state"],
     ["state-shape", changed(state, { extra: 1 }), "daemon", "shape-state"],
     ["state-seq", changed(state, { seq: 0 }), "daemon", "sequence"],
@@ -379,8 +389,11 @@ voiceProviders(Protocol);
 for (const daemon of ["ready", "locked"])
     assert.equal(Protocol.accept(changed(status, { daemon }), "daemon").daemon, daemon);
 for (const causes of [[], ["speech=local-not-set-up"], ["brain=unselected"], ["speech=local-not-ready", "brain=account-unavailable"],
-    ["home=link", "speech=local-not-set-up", "brain=unselected"], ["guidance=home-too-large", "brain=unselected"]])
+    ["home=link", "speech=local-not-set-up", "brain=unselected"], ["guidance=home-skills-too-large", "brain=unselected"]])
     assert.equal(JSON.stringify(Protocol.accept(changed(status, { causes }), "daemon").causes), JSON.stringify(causes));
+for (const cautions of [["guidance=agents-over-budget"], ["guidance=persona-over-budget", "guidance=agents-over-budget",
+    "guidance=skills-over-budget", "guidance=memory-over-budget", "guidance=start-over-budget"]])
+    assert.equal(JSON.stringify(Protocol.accept(changed(status, { cautions, causes: ["brain=unselected"] }), "daemon").cautions), JSON.stringify(cautions));
 assert.equal(JSON.stringify(Protocol.accept(JSON.stringify(state), "daemon")), JSON.stringify(state));
 for (const reason of ["check-timeout", "speech=local-wake-failed"]) {
     const failed = { ...state, state: { ...state.state, check: { kind: "failed", reason } } };
@@ -702,6 +715,11 @@ try {
         ["causes-key", "/^([a-z]+)=[a-z0-9-]{1,60}$/", "/^([a-z]+)=.{1,60}$/", "status-causes-key"],
         ["causes-home-order", 'var SETUP_STEPS = ["home", "speech", "brain"];', 'var SETUP_STEPS = ["speech", "home", "brain"];', "status-causes-home-order"],
         ["causes-home-text", 'guidance: "home", speech', 'guidance: "speech", speech', "status-causes-home-twice"],
+        ["status-cautions", 'if (!setupCautions(message.cautions)) fail("cautions");', 'if (false) fail("cautions");', "status-cautions-list"],
+        ["cautions-list", "if (!Array.isArray(cautions)) return false;", "", "status-cautions-list"],
+        ["cautions-order", "if (at <= last) return false;", "if (at < 0) return false;", "status-cautions-order"],
+        ["cautions-twice", "if (at <= last) return false;", "if (at < last || at < 0) return false;", "status-cautions-twice"],
+        ["cautions-known", "if (at <= last) return false;", "if (at < last) return false;", "status-cautions-cause"],
         ["home-type", 'typeof message.settings.home !== "string"', "false", "home-type"],
         ["home-control", "/^[^\\x00-\\x1f\\x7f]{0,4096}$/", "/^[^]{0,4096}$/", "home-control"],
         ["home-size", "/^[^\\x00-\\x1f\\x7f]{0,4096}$/", "/^[^\\x00-\\x1f\\x7f]*$/", "home-size"],

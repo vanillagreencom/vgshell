@@ -919,7 +919,7 @@ world(async () => {
         fs.writeFileSync(path.join(folder, name), text);
     }
     fs.symlinkSync(daemonHome, path.join(daemonLinked, "skills"));
-    const UNHELD = ["ChainedEngine.js", "        plan = heldByHome(plan, home());\n", ""];
+    const UNHELD = ["ChainedEngine.js", "        plan = held.plan;\n", ""];
     // The daemon's install root is the plugin directory it runs from: a
     // disposable copy beside HOME, so a read inside it is outside HOME
     // unless the producer protects it. EDITS are [backend file, needle,

@@ -27,6 +27,9 @@ Item {
     property var sessionState: null
     property var conversationLog: []
     property var setupAnswer: ({ kind: "checking" })
+    // The daemon's last personality message, null before one: its row
+    // follows the status after it too (SetupGate.personalityRow).
+    property var personalityShown: null
     // The Voice step's last published value, which shapes the Local voice
     // row (SetupGate.localVoiceStep).
     property var voiceStep: Gate.readiness({ kind: "checking" }).setupVoice
@@ -234,6 +237,7 @@ Item {
         cause = "";
         lastDiagnostic = "";
         setupAnswer = { kind: "checking" };
+        personalityShown = null;
         voiceOffers = 0;
         audioHealth = { kind: "reading" };
         sessionState = null;
@@ -492,23 +496,12 @@ Item {
         if (reply !== "ok") throw new Error("jarvis: " + reply);
     }
 
-    // The Personality row: the section as the row's hint, which Settings
-    // draws as text where a state's text and lines draw as badges; or what
-    // keeps it from showing. The hint holds at most PluginLogic's
-    // STATUS_HINT_MAX of 200 characters, so a longer or cut section ends in "…".
-    function publishPersonality(shown) {
-        const joined = shown.kind === "section" ? shown.lines.join(" ") : "";
-        const cut = joined.length > 200 || shown.more === true;
-        const value = shown.kind === "section"
-            ? { tone: "ok", text: "Set", hint: cut ? joined.slice(0, 199).trimEnd() + "…" : joined, action: true }
-            : shown.kind === "none" ? { tone: "info", text: "No home folder",
-                hint: "Choose a home folder first in [Home folder](page:vgs.jarvis/Settings/home)" }
-            : shown.kind === "missing" ? { tone: "info", text: "No Personality section", action: true,
-                hint: "Edit opens AGENTS.md. Add the heading ## Personality on its own line and say how Jarvis talks under it." }
-            : shown.kind === "too-large" ? { tone: "warning", text: "AGENTS.md is too long", action: true,
-                hint: "Edit opens AGENTS.md. Make it shorter than 8 KB." }
-            : { tone: "warning", text: "AGENTS.md cannot be read", hint: "Check the home folder in [Home folder](page:vgs.jarvis/Settings/home)" };
-        const reply = shell.status.set("personality", value);
+    // The Personality row from the last personality message and the last
+    // status's causes, which say whether AGENTS.md is over its budget.
+    function publishPersonality() {
+        if (personalityShown === null) return;
+        const reply = shell.status.set("personality",
+            Gate.personalityRow(personalityShown, setupAnswer.kind === "answered" ? setupAnswer.causes : []));
         if (reply !== "ok") throw new Error("jarvis: " + reply);
     }
 
@@ -844,7 +837,8 @@ Item {
                     continue;
                 }
                 if (message.type === "personality") {
-                    publishPersonality(message.personality);
+                    personalityShown = message.personality;
+                    publishPersonality();
                     continue;
                 }
                 if (message.type === "request") {
@@ -949,7 +943,9 @@ Item {
                 lifetime = { kind: "ready", pendingMute: lifetime.pendingMute };
                 helloDeadline.stop();
                 publish("info", message.daemon === "locked" ? "Jarvis is locked; microphone is off" : "Jarvis is ready; microphone is off");
-                publishSetup({ kind: "answered", causes: message.causes });
+                // A home text over its budget is a caution of the home step.
+                publishSetup({ kind: "answered", causes: message.cautions.concat(message.causes) });
+                publishPersonality();
                 sendTuiState();
                 Qt.callLater(() => sendIndicator(indicatorPresented));
                 refreshShell();

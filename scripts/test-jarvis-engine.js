@@ -1373,9 +1373,11 @@ async function cases(kit, server, only = null) {
     }, { sounds: true });
 
     // The home folder's text follows the shipped guidance in the brain's
-    // instructions and is read again at each conversation's first turn; a
-    // text that outgrew its bound since the setup answer fails that turn
-    // with its cause, and no request leaves without the whole persona.
+    // instructions and is read again at each conversation's first turn. A
+    // text that outgrew its budget since the setup answer reaches the brain
+    // whole and fails no turn; a skill set that outgrew its entry bound fails
+    // that turn with its cause, and no request leaves without the whole
+    // persona.
     const homeFolder = fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "home-"));
     for (const set of [".agents/skills/jarvis", "skills/own", "memory"]) fs.mkdirSync(path.join(homeFolder, set), { recursive: true });
     fs.writeFileSync(path.join(homeFolder, "memory/MEMORY.md"), "");
@@ -1402,10 +1404,15 @@ async function cases(kit, server, only = null) {
         const next = await exchange("Again.");
         assert.deepEqual([next.includes("HOME-MARKER-ONE"), next.includes("HOME-MARKER-TWO")], [false, true], "the last edit is the one a brain gets");
         fs.writeFileSync(path.join(homeFolder, "AGENTS.md"), "x".repeat(8193));
-        const third = await say(w, utterance("Once more."));
-        await settled(() => w.s().fault.kind !== "none", () => w.server.requests.length > third, "the oversized text fails the turn");
-        assert.equal(w.s().fault.reason, "guidance=home-too-large");
-        assert.equal(w.server.requests.length, third, "no request leaves without the whole persona");
+        fs.writeFileSync(path.join(homeFolder, "memory/MEMORY.md"), "m".repeat(4097));
+        const over = await exchange("Once more.");
+        assert.deepEqual([over.includes("x".repeat(8193)), over.includes("m".repeat(4097))], [true, true], "texts over their budget reach the brain whole");
+        assert.equal(w.s().fault.kind, "none", "a text over its budget fails no turn");
+        for (let index = 0; index < 257; index++) fs.writeFileSync(path.join(homeFolder, "skills/own/s" + index + ".md"), "# S\n");
+        const fourth = await say(w, utterance("And again."));
+        await settled(() => w.s().fault.kind !== "none", () => w.server.requests.length > fourth, "the overfull skill set fails the turn");
+        assert.equal(w.s().fault.reason, "guidance=home-skills-too-large");
+        assert.equal(w.server.requests.length, fourth, "no request leaves without the whole persona");
     }, { home: () => ({ kind: "ready", path: homeFolder }) });
 
     // Partials draw; the final alone reaches the brain. Brain text reaches
@@ -1859,7 +1866,7 @@ async function cases(kit, server, only = null) {
         await requested(w, first + 1, "first request");
         await until(() => w.s().turn.kind === "none", "the first turn completes");
         const old = control.opened[0];
-        assert.deepEqual(w.configure({ mode: "hold", microphone: "", speaker: "", brain: "other-account" }), { kind: "ready" });
+        assert.deepEqual(w.configure({ mode: "hold", microphone: "", speaker: "", brain: "other-account" }), { kind: "ready", cautions: [] });
         await assert.rejects(old.net.request({ content: "x", labels: ["speech"] }, { url: "http://127.0.0.1:" + PORT + "/v1" }),
             { message: "jarvis: net=closed" }, "the old transport closes at the change");
         const second = await say(w, utterance("What did I say?"));
@@ -2146,7 +2153,7 @@ async function cases(kit, server, only = null) {
         assert.equal(server.requests.length, before, "no request left without its audit record");
         fs.rmSync(path.join(w.state, "audit"));
         fs.renameSync(path.join(w.state, "audit-saved"), path.join(w.state, "audit"));
-        assert.deepEqual(w.configure({ mode: "hold", microphone: "", speaker: "", brain: "other-account" }), { kind: "ready" });
+        assert.deepEqual(w.configure({ mode: "hold", microphone: "", speaker: "", brain: "other-account" }), { kind: "ready", cautions: [] });
         await say(w, utterance("Again."));
         server.replies.push(text(""));
         assert.deepEqual(user(await requested(w, before + 1, "the next turn")), ["Again."],
@@ -2412,7 +2419,7 @@ async function cases(kit, server, only = null) {
     // and nothing is recorded.
     await run("dictation-cause-holds", async w => {
         assert.deepEqual(w.configure({ ...w.s().settings, dictation: "speech=dictation-device" }),
-            { kind: "unconfigured", cause: "speech=dictation-device", causes: ["speech=dictation-device"] });
+            { kind: "unconfigured", cause: "speech=dictation-device", causes: ["speech=dictation-device"], cautions: [] });
         assert.equal(w.s().gate.kind, "down");
         control.utterances.push(utterance("Hello."));
         w.runner.dispatch({ type: "talk-down" });
@@ -2847,17 +2854,17 @@ function selection(Engine) {
         [{ brain: "" }, accepted(resolved), true, ["brain=unselected"]],
         [{}, refused("account-unavailable"), true, ["brain=account-unavailable"]],
         [{}, refused("model-required"), true, ["brain=model-required"]]])
-        assert.deepEqual(configure(settings, choose, ready), { kind: "unconfigured", cause: causes[0], causes }, causes.join(" "));
+        assert.deepEqual(configure(settings, choose, ready), { kind: "unconfigured", cause: causes[0], causes, cautions: [] }, causes.join(" "));
     assert.deepEqual(configure({}, () => { throw new Error("jarvis-keys: references=json"); }, true),
-        { kind: "unconfigured", cause: "brain=accounts-unreadable", detail: "jarvis-keys: references=json", causes: ["brain=accounts-unreadable"] },
+        { kind: "unconfigured", cause: "brain=accounts-unreadable", detail: "jarvis-keys: references=json", causes: ["brain=accounts-unreadable"], cautions: [] },
         "a reader's keyed failure keeps its cause");
     assert.deepEqual(configure({ fallbacks: [{ name: "backup", brain: "b", model: "backup-model" }] },
         id => id === "a" ? { kind: "refused", cause: "signed-out" } : { kind: "accepted", account: { ...resolved, id, model: "" } }, true),
-    { kind: "ready" }, "a refused primary is skipped when a backup is usable");
+    { kind: "ready", cautions: [] }, "a refused primary is skipped when a backup is usable");
     Fixture.reset();
     assert.throws(() => Engine.create({ accounts: () => ({ choose: () => { throw new TypeError("defect"); } }), captionLimit: 1 })
         .configure({ brain: "a" }), TypeError, "a defect is not a configuration cause");
-    assert.deepEqual(configure({}, accepted(resolved), true), { kind: "ready" });
+    assert.deepEqual(configure({}, accepted(resolved), true), { kind: "ready", cautions: [] });
     // Always mode needs a row that spots the word on this computer.
     const always = ["speech=always-local-voice"];
     for (const [settings, wake, causes] of [
@@ -2865,18 +2872,20 @@ function selection(Engine) {
         [{ mode: "always", voiceProvider: "realtime" }, true, always],
         [{ mode: "always", voiceProvider: "gemini" }, true, always],
         [{ mode: "always", brain: "" }, false, [...always, "brain=unselected"]]])
-        assert.deepEqual(configure(settings, accepted(resolved), true, wake), { kind: "unconfigured", cause: causes[0], causes }, JSON.stringify(settings));
+        assert.deepEqual(configure(settings, accepted(resolved), true, wake), { kind: "unconfigured", cause: causes[0], causes, cautions: [] }, JSON.stringify(settings));
     assert.deepEqual(configure({ mode: "always" }, accepted(resolved), false, true), { kind: "unconfigured", cause: "speech=fixture-off",
-        causes: ["speech=fixture-off"] }, "a row not set up keeps its own cause and Settings path");
-    assert.deepEqual(configure({ mode: "always" }, accepted(resolved), true, true), { kind: "ready" });
-    assert.deepEqual(configure({ mode: "toggle" }, accepted(resolved), true), { kind: "ready" });
+        causes: ["speech=fixture-off"], cautions: [] }, "a row not set up keeps its own cause and Settings path");
+    assert.deepEqual(configure({ mode: "always" }, accepted(resolved), true, true), { kind: "ready", cautions: [] });
+    assert.deepEqual(configure({ mode: "toggle" }, accepted(resolved), true), { kind: "ready", cautions: [] });
     // The home folder's step leads the two: a folder the daemon refused, or
-    // whose text no brain can take whole, holds the engine with its cause
-    // first; no home, or a home that reads whole, adds none.
+    // whose text Guidance cannot read, holds the engine with its cause
+    // first; no home, or a home that reads, adds none. A text over its
+    // budget holds nothing: each answer names it among its cautions.
     const homes = fs.mkdtempSync(path.join(process.env.JARVIS_TEST_ROOT, "homes-"));
-    const homeAt = (name, agents) => {
+    const homeAt = (name, agents, memory = "", skills = 0) => {
         for (const set of [".agents/skills/jarvis", "skills/own", "memory"]) fs.mkdirSync(path.join(homes, name, set), { recursive: true });
-        fs.writeFileSync(path.join(homes, name, "memory/MEMORY.md"), "");
+        fs.writeFileSync(path.join(homes, name, "memory/MEMORY.md"), memory);
+        for (let index = 0; index < skills; index++) fs.writeFileSync(path.join(homes, name, "skills/own/s" + index + ".md"), "# S\n");
         fs.writeFileSync(path.join(homes, name, ".agents/skills/jarvis/SKILL.md"), "# Jarvis\n");
         fs.writeFileSync(path.join(homes, name, ".agents/skills/jarvis/persona.md"), "# Persona\n");
         fs.writeFileSync(path.join(homes, name, "AGENTS.md"), agents);
@@ -2887,17 +2896,24 @@ function selection(Engine) {
         return Engine.create({ accounts: () => ({ secrets: null, choose: accepted(resolved) }), captionLimit: 1, home: () => home })
             .configure({ brain: "a", ...settings });
     };
-    for (const home of [{ kind: "none" }, homeAt("whole", "persona")]) assert.deepEqual(withHome(home, {}, true), { kind: "ready" }, home.kind);
-    for (const [home, cause] of [[{ kind: "refused", cause: "home=link" }, "home=link"], [homeAt("large", "x".repeat(8193)), "guidance=home-too-large"]]) {
-        assert.deepEqual(withHome(home, {}, true), { kind: "unconfigured", cause, causes: [cause] }, cause);
-        assert.deepEqual(withHome(home, { brain: "" }, false), { kind: "unconfigured", cause, causes: [cause, "speech=fixture-off", "brain=unselected"] },
+    for (const home of [{ kind: "none" }, homeAt("whole", "persona")]) assert.deepEqual(withHome(home, {}, true), { kind: "ready", cautions: [] }, home.kind);
+    for (const [name, home, cautions] of [
+        ["AGENTS.md", homeAt("large", "x".repeat(8193)), ["guidance=agents-over-budget"]],
+        ["MEMORY.md", homeAt("memory-large", "persona", "m".repeat(4097)), ["guidance=memory-over-budget"]]]) {
+        assert.deepEqual(withHome(home, {}, true), { kind: "ready", cautions }, name + " over its budget leaves the engine ready");
+        assert.deepEqual(withHome(home, { brain: "" }, false), { kind: "unconfigured", cause: "speech=fixture-off",
+            causes: ["speech=fixture-off", "brain=unselected"], cautions }, name + " over its budget beside the other steps' causes");
+    }
+    for (const [home, cause] of [[{ kind: "refused", cause: "home=link" }, "home=link"], [homeAt("many", "persona", "", 257), "guidance=home-skills-too-large"]]) {
+        assert.deepEqual(withHome(home, {}, true), { kind: "unconfigured", cause, causes: [cause], cautions: [] }, cause);
+        assert.deepEqual(withHome(home, { brain: "" }, false), { kind: "unconfigured", cause, causes: [cause, "speech=fixture-off", "brain=unselected"], cautions: [] },
             cause + " leads every other step's cause");
     }
     assert.throws(() => withHome({ kind: "other" }, {}, true), { message: "jarvis: engine=home-state" });
     // A subscription's program chooses its own model; its account names its directory.
     for (const [provider, directory] of [["codex", "/home/fixture/.codex"], ["claude", "/home/fixture/.claude"]])
         assert.deepEqual(configure({}, accepted({ id: "c", provider, label: "default",
-            source: { kind: "cli", directory }, model: "" }), true), { kind: "ready" }, provider);
+            source: { kind: "cli", directory }, model: "" }), true), { kind: "ready", cautions: [] }, provider);
 }
 
 // The brain plan's model and effort: the saved pair, else the choice
@@ -2919,7 +2935,7 @@ function brainPlan(Engine) {
         ["Codex and nothing saved", codex, {}, ["", ""]]]) {
         Fixture.reset({ ready: true });
         const engine = Engine.create({ accounts: () => ({ secrets: null, choose }), captionLimit: 1 });
-        assert.deepEqual(engine.configure({ brain: "a", model: "", effort: "", ...saved }), { kind: "ready" }, label);
+        assert.deepEqual(engine.configure({ brain: "a", model: "", effort: "", ...saved }), { kind: "ready", cautions: [] }, label);
         assert.deepEqual([engine.plan().brain.model, engine.plan().brain.effort], want, label);
     }
 }
@@ -3033,7 +3049,7 @@ async function localCatalog(kit, root, only) {
             try {
                 const answer = engine.configure({ brain: id, model: row.model, effort: "", fallbacks: row.fallbacks ?? [] });
                 if (row.count === 0) {
-                    assert.deepEqual(answer, { kind: "unconfigured", cause: row.cause, causes: [row.cause] });
+                    assert.deepEqual(answer, { kind: "unconfigured", cause: row.cause, causes: [row.cause], cautions: [] });
                     assert.equal(requests.length, count);
                     assert.equal(engine.modelsHeld(), false);
                     continue;
@@ -3061,11 +3077,11 @@ async function localCatalog(kit, root, only) {
                     await until(() => observed.length !== 0 || faults.length !== 0, "catalog answers configure");
                     assert.equal(faults.length, 0);
                     if (row.kind === "ready") {
-                        assert.deepEqual(observed.at(-1), { kind: "ready" });
+                        assert.deepEqual(observed.at(-1), { kind: "ready", cautions: [] });
                         assert.equal(engine.plan().brain.model, "fixture-model");
                         assert.deepEqual(engine.configure({ brain: id, model: row.model, effort: "", fallbacks: row.fallbacks ?? [] }),
-                            { kind: "ready" }, "an identical hello preserves admitted model readiness");
-                    } else assert.deepEqual(observed.at(-1), { kind: "unconfigured", cause: row.cause, causes: [row.cause] });
+                            { kind: "ready", cautions: [] }, "an identical hello preserves admitted model readiness");
+                    } else assert.deepEqual(observed.at(-1), { kind: "unconfigured", cause: row.cause, causes: [row.cause], cautions: [] });
                     assert.equal(requests.length, count + 1, "a primary and backup on one server share their read");
                     assert.equal(engine.modelsHeld(), row.kind !== "ready");
                     if (row.recover) {
@@ -3076,7 +3092,7 @@ async function localCatalog(kit, root, only) {
                         vm.runInNewContext(rule[0][1], { message: { intent: "talk-down" }, engine,
                             judgeSetup: () => engine.configure({ brain: id, model: row.model, effort: "" }) });
                         await until(() => observed.length === 2, "Talk reads the recovered catalog");
-                        assert.deepEqual(observed.at(-1), { kind: "ready" });
+                        assert.deepEqual(observed.at(-1), { kind: "ready", cautions: [] });
                         assert.equal(engine.plan().brain.model, "fixture-model");
                         assert.equal(engine.modelsHeld(), false);
                     }
@@ -3094,7 +3110,7 @@ async function groupSelection(root, server) {
     const bare = fs.mkdtempSync(path.join(root, "stock-"));
     assert.deepEqual(stock.create({ accounts: () => ({ secrets: null, choose: () => ({ kind: "refused", cause: "account-unavailable" }) }),
         captionLimit: 1, directories: { state: bare, data: bare, runtime: bare } }).configure({ brain: "a" }),
-    { kind: "unconfigured", cause: "speech=local-not-set-up", causes: ["speech=local-not-set-up", "brain=account-unavailable"] },
+    { kind: "unconfigured", cause: "speech=local-not-set-up", causes: ["speech=local-not-set-up", "brain=account-unavailable"], cautions: [] },
     "the stock daemon stays unconfigured and judges the brain too");
     const file = path.join(tree, "shell/plugins/vgs.jarvis/backend/ChainedEngine.js");
     await checkFailures(file);
@@ -3158,9 +3174,11 @@ async function groupSelection(root, server) {
     controls++;
     for (const [name, needle, replacement = ""] of [
         ["speech-first", "const failing = [speech, dictation, brain]", "const failing = [brain, dictation, speech]"],
-        ["home-step", "        plan = heldByHome(plan, home());\n"],
+        ["home-step", "        plan = held.plan;\n"],
+        ["home-cautions", "        cautions = held.cautions;\n"],
+        ["ready-cautions", 'return { kind: "ready", cautions };', 'return { kind: "ready" };'],
         ["home-refused", 'case "refused": cause = home.cause; break;', 'case "refused": break;'],
-        ["home-text-judged", 'try { Guidance.compose("chained", "local", LANGUAGE, home.path); }', "try { void home.path; }"],
+        ["home-text-judged", 'try { cautions = Guidance.compose("chained", "local", LANGUAGE, home.path).overBudget; }', "try { void home.path; }"],
         ["home-first", 'causes: [cause, ...(plan.kind === "ready" ? [] : plan.causes)]', 'causes: [...(plan.kind === "ready" ? [] : plan.causes), cause]'],
         ["home-state", 'default: fail("home-state");', "default: break;"],
         ["every-cause", "causes: failing.map(step => step.cause)", "causes: [failing[0].cause]"],
@@ -3207,6 +3225,25 @@ async function groupSelection(root, server) {
         await assert.rejects(() => cases(Fixture.copy(root, [[needle, replacement]]), server, "home-text"), assert.AssertionError,
             name + " must turn home-text red");
         console.log("control=" + name + " detected");
+        controls++;
+    }
+    {
+        // The refusal for size Guidance no longer makes: a MEMORY.md over its
+        // budget refused whole holds the engine and fails the turn.
+        const kit = Fixture.copy(root);
+        const file = path.join(kit.folder, "backend/Guidance.js");
+        const needle = 'const memory = whole("memory/MEMORY.md", MEMORY_BUDGET, "guidance=memory-over-budget");';
+        const source = fs.readFileSync(file, "utf8");
+        assert.equal(source.split(needle).length - 1, 1, "home-memory-refusal mutation match");
+        fs.writeFileSync(file, source.replace(needle, needle + '\n    if (Buffer.byteLength(memory) > MEMORY_BUDGET) throw new Error("jarvis: guidance=home-memory-too-large");'));
+        // The copy's engine loaded Guidance already: load both again.
+        const engineFile = path.join(kit.folder, "backend/ChainedEngine.js");
+        delete require.cache[file];
+        delete require.cache[engineFile];
+        kit.Engine = require(engineFile);
+        assert.throws(() => selection(kit.Engine), assert.AssertionError, "home-memory-refusal must turn selection red");
+        await assert.rejects(() => cases(kit, server, "home-text"), assert.AssertionError, "home-memory-refusal must turn home-text red");
+        console.log("control=home-memory-refusal detected");
         controls++;
     }
     assert.deepEqual(server.faults, [], "selection requests matched the pinned schema");
@@ -3268,7 +3305,7 @@ async function groupDaemonLoading(root, server) {
     }
     for (const [name, file, needle, replacement] of [
         ["loading admission removed", "backend/jarvisd.js", ' || configuration.kind === "loading"', ""],
-        ["loading ready too early", "backend/ChainedEngine.js", 'return { kind: "loading", cause: "speech=local-loading", causes: ["speech=local-loading"] };', 'return { kind: "ready" };'],
+        ["loading ready too early", "backend/ChainedEngine.js", 'return { kind: "loading", cause: "speech=local-loading", causes: ["speech=local-loading"], cautions };', 'return { kind: "ready", cautions };'],
         ["loading ignores presented indicator", "Session.js", 's.indicator.kind === "shown"', "true"],
         ["loading starts a second child", "backend/ChainedEngine.js", 'if (plan.speech.lifetime === "daemon" && daemonSpeech === null) startSpeech(plan.speech);', 'if (plan.speech.lifetime === "daemon") startSpeech(plan.speech);'],
         ["replacement loading unpublished", "backend/ChainedEngine.js", 'daemonSpeech = owner;\n        configured(configuration());', 'daemonSpeech = owner;'],

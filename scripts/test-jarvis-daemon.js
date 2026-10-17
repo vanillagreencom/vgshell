@@ -95,7 +95,7 @@ async function inside() {
     }
     // Without local setup or a saved AI model the engine names both steps.
     const reply = (locked, gen) => ({ v: 1, type: "status", gen, revision: hello.revision, daemon: locked ? "locked" : "ready",
-        causes: ["speech=local-not-set-up", "brain=unselected"] });
+        causes: ["speech=local-not-set-up", "brain=unselected"], cautions: [] });
     function states(locks) {
         let seq = 0;
         const lines = [];
@@ -238,10 +238,11 @@ async function inside() {
     await control("task-startup-list", 'write({ v: 1, type: "task-list", gen: runner.state.gen,',
         'void ({ v: 1, type: "task-list", gen: runner.state.gen,', startup);
     // The home folder each hello names, on one daemon: it makes what a new
-    // folder lacks, and a folder it refuses, or whose text is over its
-    // bound, leads the status causes with its own keyed cause. No hello
-    // follows an edit inside the folder, so a request made while the folder
-    // holds the engine judges it again; any other request sends no status.
+    // folder lacks, a folder it refuses leads the status causes with its own
+    // keyed cause, and a text over its budget is one of the status cautions,
+    // never a cause. No hello follows an edit inside the folder, so a
+    // request made while the folder holds the engine judges it again; any
+    // other request sends no status.
     async function homeStatus(file) {
         const base = fs.realpathSync(process.env.HOME);
         const made = path.join(base, "home-made"), linked = path.join(base, "home-linked");
@@ -257,6 +258,7 @@ async function inside() {
         child.stderr.on("data", data => { err += data; });
         const closed = once(child, "close");
         const statuses = () => out.split("\n").slice(0, -1).map(line => JSON.parse(line)).filter(frame => frame.type === "status").map(frame => frame.causes);
+        const cautions = () => out.split("\n").slice(0, -1).map(line => JSON.parse(line)).filter(frame => frame.type === "status").map(frame => frame.cautions);
         // The Personality row each judgement of the folder sends.
         const shown = () => out.split("\n").slice(0, -1).map(line => JSON.parse(line)).filter(frame => frame.type === "personality").map(frame => frame.personality);
         const personality = () => shown().at(-1);
@@ -291,11 +293,14 @@ async function inside() {
             assert.deepEqual(personality(), { kind: "missing" }, "a new AGENTS.md has no Personality section");
             assert.deepEqual(["AGENTS.md", "skills/own", "memory/MEMORY.md", "memory/inbox", "state",
                 ".claude/settings.json", ".codex/config.toml", ".agents/skills/jarvis/SKILL.md", ".agents/skills/jarvis/persona.md"].filter(name => !fs.existsSync(path.join(made, name))), [], "the second hello makes the layout");
-            fs.writeFileSync(path.join(made, "AGENTS.md"), "x".repeat(8193));
-            await step([named("~/home-made")], [["guidance=home-too-large", ...others]]);
-            assert.deepEqual(personality(), { kind: "too-large" });
+            fs.writeFileSync(path.join(made, "AGENTS.md"), "x".repeat(8193) + "\n## Personality\nCalm.\n");
+            await step([named("~/home-made")], [others]);
+            assert.deepEqual([cautions().at(-1), personality()], [["guidance=agents-over-budget"], { kind: "section", lines: ["Calm."], more: false }],
+                "an AGENTS.md over its budget is a caution of a ready folder, and shows its section");
             fs.writeFileSync(path.join(made, "AGENTS.md"), "# Short again\n\n## Personality\nCalm\u2028and brief.\n");
-            await step([intent("talk-down"), named("~/home-linked")], [others, ["home=link", ...others]]);
+            await step([intent("talk-down"), named("~/home-made")], [others]);
+            assert.deepEqual(cautions().at(-1), [], "a text back within its budget is no caution");
+            await step([named("~/home-linked")], [["home=link", ...others]]);
             assert.deepEqual(shown().slice(-2), [{ kind: "section", lines: ["Calm and brief."], more: false }, { kind: "unreadable" }],
                 "each judgement reads the section again, a pasted line separator as a space, and a refused folder shows none");
             fs.rmSync(path.join(linked, "skills"));
