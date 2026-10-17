@@ -11,6 +11,7 @@ AI Usage shows how much of your Claude Code, Codex and Copilot plan limits you h
 - Sort cards by provider, email or the most room left in their limits. Accounts with no reported limit come last when sorted by room.
 - Provider marks identify the cards. An API account carries an [API] chip. Codex API accounts show that they have no plan limits.
 - Limit values use the theme's success, warning and danger colours as their used share grows.
+- Each card shows the 5-hour limit last. When the weekly limit is at 100 %, the card shows only the weekly limit.
 - A compact panel view with one line for each limit and the time left until it resets.
 - A full panel view with meters and provider details when the provider sends them.
 - An account that has had no use yet says so instead of showing 0 %. A limit that starts with your first message reads Not started until then.
@@ -21,7 +22,7 @@ AI Usage shows how much of your Claude Code, Codex and Copilot plan limits you h
 - Filters for providers and hidden accounts.
 - The bar item stays hidden until you sign in to one of the visible tools. A click opens the panel.
 - When a check fails, the panel keeps the last figures and says that they may be old.
-- Last checked beside Check now shows how long ago the shared check completed. When Claude limits how often usage can be read, the card keeps the last figures and says so, and the next check tries again. After a limit resets, the card says that the kept figures may be old.
+- Last checked beside Check now shows how long ago the shared check completed. When Claude turns away a usage read, the card keeps the last figures. After a limit resets, the card says that the kept figures may be old.
 - AI Usage never changes a tool's sign-in.
 
 ## Settings

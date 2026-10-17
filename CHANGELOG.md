@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Each card in the AI Usage panel shows the 5-hour limit last, under the weekly limits. When the weekly limit is at 100 %, the card shows only the weekly limit. When Claude turns away a usage read, the card keeps the last figures and shows no note. A card with no figures yet reads Usage could not be read yet. Before, the 5-hour limit came first, and a turned-away read showed a note that Claude limits how often usage can be read.
 - The Agent Warden samples in VGS Components say what Agent Warden shows, in the words of its own Settings page. Before, their info buttons and the Warden dialog named vsys and agent lanes.
 - The Printing step on the Printers page's Setup tab says why printing does not work and what you can do. Without CUPS it reads To do and links Install printing on the Details tab, whose Tools section installs it. When an administrator turned printing off, or VGS could not check printing or read your printers, the step reads Not available and says what will change that. Before, these states read To do with nothing to press.
 - On the Setup tab of the Voice page, without the dictation tool, the Setup step reads Not installed and offers Review to install it. Its lines say in plain words what to do, such as Select Set up to start dictation. Before, it read Dictation tool missing with nothing to press, and the lines for a speech engine the tool cannot use and for dictation that is not running named voxtype and the engine build.

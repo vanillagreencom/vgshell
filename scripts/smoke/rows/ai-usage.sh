@@ -15,8 +15,8 @@
 # clicked with the nested pointer, which opens the Settings window on AI Usage's page and closes the panel;
 # the panel's Check now, clicked with the nested pointer, which publishes a
 # read and sends the endpoint a request; a 429 from the endpoint's limited
-# mode on that Check now, which keeps the figures, marked limited, with a
-# plain note and no warning, then ten opens and closes of the panel that
+# mode on that Check now, which keeps the figures, marked limited, with no
+# note, then ten opens and closes of the panel that
 # send no request; a refused token's expired warning and a failed
 # request's stale figures; that no read changed a credential file's
 # bytes or modification time; and the AI Gateway key's line beside its
@@ -270,7 +270,7 @@ def fits(name, left):
     want = {"five_hour": 330, "seven_day": 4680, "seven_day_fable": 4680}[name]
     return want - 10 <= total <= want + 1
 names = [name for name, _ in got]
-print("matched" if names == ["five_hour", "seven_day", "seven_day_fable", "five_hour", "seven_day"] and all(fits(n, l) for n, l in got) else json.dumps(got))'
+print("matched" if names == ["seven_day", "seven_day_fable", "five_hour", "seven_day", "five_hour"] and all(fits(n, l) for n, l in got) else json.dumps(got))'
 }
 # usage_refresh LABEL: one check the row asks for, once the service is idle,
 # read back once the service published it.
@@ -364,7 +364,7 @@ usage_before_panel="$(usage_read_at)" || usage_before_panel=0
 usage_sent_before_panel="$(usage_requests)"
 usage_notes_ok='[["claude", "ok", true, "normal"], ["codex", "ok", true, "normal"]]'
 click_centre "$(bar_key)" vgs.ai-usage || fail "opening AI Usage from its widget failed"
-expect_poll "the widget opens its panel" '[["claude", "", [["five_hour", 42, "success"], ["seven_day", 83, "danger"], ["seven_day_fable", 12, "success"]]], ["codex", "person@example.invalid", [["five_hour", 27, "success"], ["seven_day", 64, "warning"]]]]' usage_panel_rows
+expect_poll "the widget opens its panel" '[["claude", "", [["seven_day", 83, "danger"], ["seven_day_fable", 12, "success"], ["five_hour", 42, "success"]]], ["codex", "person@example.invalid", [["seven_day", 64, "warning"], ["five_hour", 27, "success"]]]]' usage_panel_rows
 expect_poll "the panel's reset times are the stand-ins'" matched usage_panel_resets
 expect "the full panel is selected by default" true usage_panel_view
 expect "the full panel carries provider details" '[["claude", [["Extra usage", "$123.45 of $500.00"]]], ["codex", [["Codex credits", "12,345 available"]]]]' usage_panel_details
@@ -429,13 +429,13 @@ expect "the account choices list each signed-in account by provider and email" '
 expect "choosing compact view is allowed" ok usage_apply_setting view '"compact"'
 click_centre "$(bar_key)" vgs.ai-usage || fail "opening AI Usage for compact view failed"
 expect_poll "the compact panel is selected" false usage_panel_view
-expect_poll "the compact panel still shows every limit" '[["claude", "", [["five_hour", 42, "success"], ["seven_day", 83, "danger"], ["seven_day_fable", 12, "success"]]], ["codex", "person@example.invalid", [["five_hour", 27, "success"], ["seven_day", 64, "warning"]]]]' usage_panel_rows
+expect_poll "the compact panel still shows every limit" '[["claude", "", [["seven_day", 83, "danger"], ["seven_day_fable", 12, "success"], ["five_hour", 42, "success"]]], ["codex", "person@example.invalid", [["seven_day", 64, "warning"], ["five_hour", 27, "success"]]]]' usage_panel_rows
 expect "the compact panel hides" ok ipc shell hide panel vgs.ai-usage
 expect_poll "the compact panel is gone" absent usage_panel
 expect "hiding Codex by provider is allowed" ok usage_apply_setting showCodex false
 expect_poll "the widget recomputes without Codex" '[true, true, 83, "warning"]' usage_widget_state
 click_centre "$(bar_key)" vgs.ai-usage || fail "opening AI Usage with Codex filtered failed"
-expect_poll "the provider filter leaves Claude only" '[["claude", "", [["five_hour", 42, "success"], ["seven_day", 83, "danger"], ["seven_day_fable", 12, "success"]]]]' usage_panel_rows
+expect_poll "the provider filter leaves Claude only" '[["claude", "", [["seven_day", 83, "danger"], ["seven_day_fable", 12, "success"], ["five_hour", 42, "success"]]]]' usage_panel_rows
 expect "the filtered panel hides" ok ipc shell hide panel vgs.ai-usage
 expect_poll "the filtered panel is gone" absent usage_panel
 usage_claude_id="$(usage_choice_id "Claude Code")" || fail "the Claude Code choice has no id"
@@ -503,12 +503,12 @@ usage_credentials_before="$(usage_credentials)"
 # Claude's endpoint turns away frequent reads with 429, as the stand-in's
 # limited mode does inside 60 s of the answer it served. The panel's Check
 # now inside that window publishes a read and sends a request, whose 429
-# keeps the figures, marked limited, with their read time and a plain note,
+# keeps the figures, marked limited, with their read time and no note,
 # and ten opens and closes of the panel send no request at all.
 expected_errors+=('ai-usage: account=claude-[0-9a-f]+ limited=http-429')
 usage_figures='[["ok", [["five_hour", 42], ["seven_day", 83], ["seven_day_fable", 12]]]]'
 usage_kept='[["limited", [["five_hour", 42], ["seven_day", 83], ["seven_day_fable", 12]]]]'
-usage_notes_limited='[["claude", "limited", false, "normal"], ["codex", "ok", true, "normal"]]'
+usage_notes_limited='[["claude", "limited", true, "normal"], ["codex", "ok", true, "normal"]]'
 usage_mode limited
 usage_refresh "the first read under the limit"
 expect "the first read under the limit is served" "$usage_figures" usage_windows claude
@@ -523,7 +523,7 @@ expect_poll "the panel's Check now publishes a read" new usage_read_after "$usag
 expect "the panel's Check now sends the endpoint one request" "requests=+1" usage_requests_since "$usage_sent_before_check"
 expect "a Check now inside the limit keeps the figures, marked limited" "$usage_kept" usage_windows claude
 expect "a Check now inside the limit keeps the figures' read time" "$usage_claude_read_at" usage_account_read_at claude
-expect_poll "the limited card draws a plain note and no warning" "$usage_notes_limited" usage_panel_notes
+expect_poll "the limited card draws no note" "$usage_notes_limited" usage_panel_notes
 expect_poll "the partial batch keeps one shared check age beside Check now" matched usage_panel_checked
 expect "the Check now panel hides" ok ipc shell hide panel vgs.ai-usage
 expect_poll "the Check now panel is gone" absent usage_panel

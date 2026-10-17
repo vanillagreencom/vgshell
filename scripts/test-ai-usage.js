@@ -778,8 +778,8 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
 
         // A limited read, the endpoint turning away a frequent read, keeps
         // the last figures with the time they were read, reads limited and
-        // draws a plain note; once a kept window has reset, the figures read
-        // as old. With none, the account reads limited with no figures.
+        // draws no note; once a kept window has reset, the figures read as
+        // old. With none, the account reads limited and says why it is empty.
         assert.deepEqual(plainOf(first.accounts.map(row => row.readAt)), [NOW, NOW], "an ok read sets its read time");
         const limitedRead = View.merge(first, reading("limited", []), NOW + 5 * 60000);
         const keptClaude = { id: "claude-a", provider: "claude", email: "",
@@ -794,29 +794,28 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
             View.merge(limitedRead, reading("failed", []), NOW + 6 * 60000).accounts[0])), ["stale", NOW, 1],
         "a failed read after a limited one turns the kept figures stale");
         const card = (usage, now) => { const r = View.panel(usage, now)[0]; return [r.state, r.note, r.noteTone, r.windows.length]; };
-        assert.deepEqual(card(limitedRead, NOW + 5 * 60000), ["limited", View.LIMITED_NOTE, "normal", 1], "kept figures draw a plain note");
+        assert.deepEqual(card(limitedRead, NOW + 5 * 60000), ["limited", "", "normal", 1], "kept figures draw no note");
         assert.deepEqual(card(limitedRead, NOW + 26 * HOUR), ["limited", View.STALE_NOTE, "warning", 1],
             "kept figures past a window's reset draw the stale warning");
-        assert.deepEqual(card(limitedRead, NOW + 26 * HOUR - 1), ["limited", View.LIMITED_NOTE, "normal", 1], "a reset not yet passed is no warning");
+        assert.deepEqual(card(limitedRead, NOW + 26 * HOUR - 1), ["limited", "", "normal", 1], "a reset not yet passed is no warning");
         assert.deepEqual(shown(limitedRead, null, NOW + 5 * 60000), [true, 80, "warning"], "the bar counts the kept share");
         const tip = (usage, now) => View.widget(usage, null, now).tooltip;
         const okTip = tip(first, NOW + 5 * 60000);
         const staleTip = tip(failedRead, NOW + 5 * 60000);
         const limitedTip = tip(limitedRead, NOW + 5 * 60000);
-        assert.deepEqual([limitedTip === okTip, limitedTip === staleTip, staleTip === okTip], [false, false, false],
-            "kept figures name their own tooltip");
+        assert.deepEqual([limitedTip === okTip, staleTip === okTip], [true, false], "kept figures before a reset add nothing to the tooltip");
         assert.equal(tip(limitedRead, NOW + 26 * HOUR), tip(failedRead, NOW + 26 * HOUR), "kept figures past a reset take the stale tooltip");
         const limitedFirst = View.merge(null, reading("limited", []), NOW);
         assert.deepEqual(plainOf([limitedFirst.accounts[0].state, limitedFirst.accounts[0].windows, limitedFirst.accounts[0].readAt]),
             ["limited", [], null], "a limited first read holds no figures");
         const limitedEmpty = View.panel(limitedFirst, NOW)[0];
-        assert.deepEqual([limitedEmpty.note, limitedEmpty.noteTone], [View.LIMITED_NOTE, "normal"],
-            "a limited account with no figures draws a plain note");
+        assert.deepEqual([limitedEmpty.note, limitedEmpty.noteTone], [View.UNREAD_NOTE, "normal"],
+            "a limited account with no figures says why it is empty");
         assert.deepEqual(shown(limitedFirst), [true, 79, "normal"], "a limited account adds no share");
         assert.equal(tip(limitedFirst, NOW), tip(View.merge(null, reading("signed-out", []), NOW), NOW), "a limited account with no figures adds nothing to the tooltip");
-        const limitedIdle = View.merge(View.merge(null, reading("ok", [{ name: "five_hour", usedPercent: 0, resetsAt: null }]), NOW),
-            reading("limited", []), NOW + 1);
-        assert.deepEqual(card(limitedIdle, NOW + 1), ["limited", View.LIMITED_NOTE, "normal", 0], "kept figures with no use draw no limits");
+        const okIdle = View.merge(null, reading("ok", [{ name: "five_hour", usedPercent: 0, resetsAt: null }]), NOW);
+        const limitedIdle = View.merge(okIdle, reading("limited", []), NOW + 1);
+        assert.deepEqual(card(limitedIdle, NOW + 1), ["limited", View.panel(okIdle, NOW)[0].note, "normal", 0], "kept figures with no use draw no limits");
         const refusedRead = View.panel(View.merge(first, reading("expired", []), NOW + 1), NOW + 1)[0];
         assert.deepEqual([refusedRead.state, refusedRead.note, refusedRead.noteTone], ["expired", View.EXPIRED.claude, "warning"],
             "a refused token still reads expired");
@@ -837,7 +836,7 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
         assert.notEqual(View.checkedText(limitedTen.readAt, tenOn), View.checkedText(limitedTen.accounts[0].readAt, tenOn));
         assert.equal(limitedTen.accounts[0].readAt, NOW);
         assert.equal(View.checkedText(limitedTen.readAt, tenOn), age(NOW, 0));
-        assert.equal(View.panel(limitedTen, tenOn)[0].note, View.LIMITED_NOTE);
+        assert.equal(View.panel(limitedTen, tenOn)[0].note, "");
         assert.equal(View.panel(View.merge(first, reading("failed", []), tenOn), tenOn)[0].note, View.STALE_NOTE);
         const never = View.merge(null, reading("failed", []), NOW);
         assert.deepEqual(plainOf(never.accounts[0].windows), [], "a failed first read holds no window");
@@ -893,6 +892,16 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
         for (const [resetAt, text] of [[null, ""], [NOW, "now"], [NOW + 59000, "1m"], [NOW + 61 * 60000, "1h 1m"], [NOW + 4 * 24 * HOUR, "4d 0h"]])
             assert.equal(View.resetText(resetAt, NOW), text);
 
+        // A card draws a limit shorter than a day below every other; a full
+        // all-model weekly limit draws alone.
+        const limits = (windows, provider = "claude") => plainOf(View.panel(View.merge(null, { accounts: [{ id: provider + "-w", provider, email: "",
+            state: "ok", windows: windows.map(([name, usedPercent]) => ({ name, usedPercent, resetsAt: NOW + HOUR })) }], partial: "" }, NOW), NOW)[0]
+            .windows.map(w => w.name));
+        assert.deepEqual(limits([["five_hour", 10], ["seven_day", 99], ["seven_day_fable", 20]]), ["seven_day", "seven_day_fable", "five_hour"]);
+        assert.deepEqual(limits([["five_hour", 10], ["seven_day", 100], ["seven_day_fable", 20]]), ["seven_day"]);
+        assert.deepEqual(limits([["five_hour", 10], ["seven_day_fable", 100]]), ["seven_day_fable", "five_hour"], "a full per-model limit hides nothing");
+        assert.deepEqual(limits([["primary", 10], ["secondary", 30]], "codex"), ["secondary", "primary"]);
+
         // An account whose every window reads 0 % has had no use: a note in
         // the normal tone and no limit rows. A window with no use and no
         // reset time beside one in use reads not started.
@@ -906,8 +915,8 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
         const [idle, half] = View.panel(fresh, NOW);
         assert.deepEqual(plainOf([idle.windows, idle.noteTone, idle.note !== ""]), [[], "normal", true], "an unused account shows no limits");
         assert.deepEqual(plainOf(half.windows.map(w => [w.name, w.started, w.percent, w.reset, w.text === "0%"])),
-            [["five_hour", false, 0, "", false], ["seven_day", true, 40, "1d 2h", false]]);
-        assert.equal(half.windows[1].text, "40%");
+            [["seven_day", true, 40, "1d 2h", false], ["five_hour", false, 0, "", false]]);
+        assert.equal(half.windows[0].text, "40%");
         assert.deepEqual([half.note, half.noteTone], ["", "normal"]);
         assert.deepEqual(shown(fresh), [true, 40, "normal"], "the bar keeps the used account's share");
         const pool = View.panel(View.merge(null, { accounts: [{ id: "copilot-p", provider: "copilot", email: "octo-user",
@@ -1039,7 +1048,10 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
     await control("limited-past-reset-ignored", "UsageView.js",
         ': row.state === "stale" || (row.state === "limited" && pastReset(row, now)) ? STALE_NOTE', ': row.state === "stale" ? STALE_NOTE', views);
     await control("reset-boundary", "UsageView.js", "item.resetsAt <= now; });", "item.resetsAt < now; });", views);
-    await control("limited-tip-dropped", "UsageView.js", '    else if (limited) tooltip += ". " + LIMITED_TIP;\n', "", views);
+    await control("unread-note-dropped", "UsageView.js", '            : row.state === "limited" && row.windows.length === 0 ? UNREAD_NOTE\n', "", views);
+    await control("reading-order-kept", "UsageView.js", 'return windows.filter(function (item) { return !shortLimit(item.name); })\n        .concat(windows.filter(function (item) { return shortLimit(item.name); }));',
+        "return windows;", views);
+    await control("full-weekly-ignored", "UsageView.js", "    if (full.length > 0) return full;\n", "", views);
     await control("limited-tip-past-reset", "UsageView.js",
         'if (row.state === "stale" || (row.state === "limited" && pastReset(row, now))) stale = true;', 'if (row.state === "stale") stale = true;', views);
     await control("limited-unused-ignored", "UsageView.js", 'return (row.state === "ok" || row.state === "limited") && row.windows.length > 0',
@@ -1080,7 +1092,7 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
     await control("no-reset-drawn", "UsageView.js", 'if (left.kind === "none") return "";', 'if (left.kind === "none") return "No reset time";', views);
     await control("title-labelled", "UsageView.js", "title: NAMES[row.provider] || row.provider,",
         'title: (NAMES[row.provider] || row.provider) + " · " + row.id,', views);
-    await control("unused-limits-drawn", "UsageView.js", "windows: idle ? [] : row.windows.map(", "windows: row.windows.map(", views);
+    await control("unused-limits-drawn", "UsageView.js", "windows: idle ? [] : shownWindows(row.windows).map(", "windows: shownWindows(row.windows).map(", views);
     await control("not-started-percent", "UsageView.js", 'return item.name === "credits" || item.usedPercent > 0 || ', "return true || ", views);
     await control("pool-unused", "UsageView.js", 'return item.name !== "credits" && item.usedPercent === 0;', "return item.usedPercent === 0;", views);
     await control("account-folder-fallback", "UsageView.js", "    return row.email;", "    return row.email || row.id;", views);

@@ -55,12 +55,11 @@ var NAMES = { claude: "Claude Code", codex: "Codex", copilot: "Copilot", gateway
 var EXPIRED = { claude: "Open Claude Code to refresh the sign-in", copilot: "Open Copilot to sign in again" };
 var NO_PLAN = "Signed in with an API key, which has no plan limits";
 var STALE_NOTE = "The last check failed. These figures may be old.";
-var LIMITED_NOTE = "Claude limits how often usage can be read. The next check tries again.";
+// Why a card with no figures is empty: a limited read before any served one.
+var UNREAD_NOTE = "Usage could not be read yet.";
 // What the bar's tooltip adds for old figures: a failed check's, or a
-// limited read's kept figures once a window has reset since; and a limited
-// read's kept figures before that.
+// limited read's kept figures once a window has reset since.
 var STALE_TIP = "The last check failed; figures may be old";
-var LIMITED_TIP = "These figures are from the last check";
 var GATEWAY_ACCOUNT = "ai-gateway";
 var LABEL_MAX = 60;
 // What the bar's number is under each Bar number setting, for its tooltip.
@@ -205,9 +204,8 @@ function barNumber(peaks, mode) {
  * draws: used, or what is left of it under Bar shows "left"; null while no
  * window holds a share. tone is "warning" from WARNING_PERCENT of used
  * while Colour by usage is on, else "normal". A limited account's kept
- * figures count; the tooltip says they are from the last check, or that
- * they may be old once a window has reset since NOW, in epoch ms, as it
- * does for a failed check.
+ * figures count; the tooltip says they may be old once a window has reset
+ * since NOW, in epoch ms, as it does for a failed check.
  */
 function widget(usage, settings, now) {
     var given = settings === null || settings === undefined ? {} : settings;
@@ -217,12 +215,10 @@ function widget(usage, settings, now) {
     var peaks = [];
     var expired = "";
     var stale = false;
-    var limited = false;
     for (var i = 0; i < accounts.length; i++) {
         var row = accounts[i];
         if (row.state === "expired" && expired === "") expired = EXPIRED[row.provider];
         if (row.state === "stale" || (row.state === "limited" && pastReset(row, now))) stale = true;
-        else if (row.state === "limited" && row.windows.length > 0) limited = true;
         if (row.windows.length > 0)
             peaks.push(Math.max.apply(null, row.windows.map(function (item) { return item.usedPercent; })));
     }
@@ -232,7 +228,6 @@ function widget(usage, settings, now) {
     var tooltip = percent === null ? "No usage figures yet" : BAR_MEANING[mode] + ": " + text + (left ? " left" : " used");
     if (expired !== "") tooltip += ". " + expired;
     else if (stale) tooltip += ". " + STALE_TIP;
-    else if (limited) tooltip += ". " + LIMITED_TIP;
     return { shown: accounts.length > 0, used: used, percent: percent,
         tone: used !== null && given.colourByUsage !== false && used >= WARNING_PERCENT ? "warning" : "normal", text: text, tooltip: tooltip };
 }
@@ -410,6 +405,25 @@ function unused(row) {
         && row.windows.every(function (item) { return item.name !== "credits" && item.usedPercent === 0; });
 }
 
+// A limit shorter than a day, such as a 5-hour limit, or the short window
+// a tool names by no length.
+function shortLimit(name) {
+    var minutes = limitOf(name).minutes;
+    return minutes === null ? name === "primary" : minutes < 1440;
+}
+
+// The limits a card draws, short limits last. A full all-model weekly
+// limit binds every other, so the card draws it alone.
+function shownWindows(windows) {
+    var full = windows.filter(function (item) {
+        var limit = limitOf(item.name);
+        return limit.minutes === 10080 && limit.model === "" && item.usedPercent >= 100;
+    });
+    if (full.length > 0) return full;
+    return windows.filter(function (item) { return !shortLimit(item.name); })
+        .concat(windows.filter(function (item) { return shortLimit(item.name); }));
+}
+
 // The account identity the helper read. A folder label is not an identity.
 function accountLine(row) {
     return row.email;
@@ -456,13 +470,13 @@ function panel(usage, now, settings) {
             : row.state === "stale" || (row.state === "limited" && pastReset(row, now)) ? STALE_NOTE
             : row.state === "failed" ? "Usage could not be read." : "";
         var note = warning !== "" ? warning
-            : row.state === "limited" ? LIMITED_NOTE
+            : row.state === "limited" && row.windows.length === 0 ? UNREAD_NOTE
             : idle ? "No usage yet."
             : row.state === "no-plan" ? NO_PLAN
             : row.state === "ok" && !hasFigures(row) ? "This plan reports no usage limits." : "";
         return { id: row.id, provider: row.provider, email: row.email, account: accountLine(row), state: row.state,
             title: NAMES[row.provider] || row.provider, api: row.state === "no-plan" || row.provider === "gateway", detail: row.provider === "copilot" ? creditLine(row.credits) : "",
             note: note, noteTone: warning !== "" ? "warning" : "normal", details: detailRows(row),
-            windows: idle ? [] : row.windows.map(function (item) { return windowRow(row, item, now); }) };
+            windows: idle ? [] : shownWindows(row.windows).map(function (item) { return windowRow(row, item, now); }) };
     });
 }
