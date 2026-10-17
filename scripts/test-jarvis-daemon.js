@@ -310,9 +310,12 @@ async function inside() {
             await step([named("~/home-made")], [others]);
             assert.deepEqual([cautions().at(-1), personality()], [["guidance=agents-over-budget"], { kind: "section", lines: ["Calm."], more: false }],
                 "an AGENTS.md over its budget is a caution of a ready folder, and shows its section");
-            // 8,193 bytes and more at the recorded ratio: over 2,000 tokens.
-            assert.ok(sizes().at(-1).layers.find(entry => entry.layer === "home/AGENTS.md").tokens > 2000, "an AGENTS.md over its budget is counted whole");
-            assert.ok(sizes().at(-1).tokens > bare.tokens + 2000, "and the whole start text grows with it");
+            // The layer is 8,283 bytes with its heading: about 2,110 tokens at
+            // the recorded ratio. The upper bounds fail a size sent in bytes.
+            const agentsTokens = sizes().at(-1).layers.find(entry => entry.layer === "home/AGENTS.md").tokens;
+            assert.ok(agentsTokens > 2000 && agentsTokens < 2300, "an AGENTS.md over its budget is counted whole, in tokens: " + agentsTokens);
+            const grown = sizes().at(-1).tokens - bare.tokens;
+            assert.ok(grown > 2000 && grown < 2300, "and the whole start text grows with it, in tokens: " + grown);
             fs.writeFileSync(path.join(made, "AGENTS.md"), "# Short again\n\n## Personality\nCalm\u2028and brief.\n");
             await step([intent("talk-down"), named("~/home-made")], [others]);
             assert.deepEqual(cautions().at(-1), [], "a text back within its budget is no caution");
@@ -354,6 +357,8 @@ async function inside() {
     await control("personality-section", 'personality = section.kind === "section" ? Protocol.personalitySection(section.text) : section;',
         "void section;", homeStatus);
     await control("start-text-each-judgement", "        publishStartText();\n        configured(", "        configured(", homeStatus);
+    await control("start-text-total-tokens", "tokens: Guidance.tokens(read.start),", "tokens: read.start,", homeStatus);
+    await control("start-text-layer-tokens", "tokens: Guidance.tokens(layer.bytes) }", "tokens: layer.bytes }", homeStatus);
     await control("home-refusal", 'return { path: folder, state: { kind: "refused", cause } };', 'return { path: folder, state: { kind: "none" } };', homeStatus);
     await control("home-engine", "directories: context.directories, home: () => homeFolder.state, rejudge: judgeSetup });", "directories: context.directories, rejudge: judgeSetup });", homeStatus);
     await control("home-each-hello", "                judgeSetup();\n", "                if (first) judgeSetup(); else configured(engine.configure(context.settings));\n", homeStatus);
