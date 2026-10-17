@@ -19,12 +19,13 @@
     "hideWhenOff": { "type": "boolean", "label": "Hide when off", "description": "Hide the bar icon while Bluetooth is off", "group": "Display" }
   },
   "requirements": [
-    { "command": "rfkill", "packages": { "pacman": "util-linux", "apt": "rfkill", "dnf": "util-linux", "nix": "util-linux" }, "purpose": "Turns Bluetooth on and off and keeps it so after a restart" }
+    { "command": "rfkill", "packages": { "pacman": "util-linux", "apt": "rfkill", "dnf": "util-linux", "nix": "util-linux" }, "purpose": "Turns Bluetooth on and off and keeps it so after a restart" },
+    { "dbus": { "bus": "system", "name": "org.bluez", "label": "Bluetooth" }, "packages": { "pacman": "bluez", "apt": "bluez", "dnf": "bluez", "nix": "bluez" }, "install": "on-request", "purpose": "The Bluetooth service, which finds, pairs and connects your devices" }
   ],
   "systemSteps": ["service-bluetooth"],
   "status": {
     "power": {"type": "state", "label": "Bluetooth"},
-    "service": {"type": "state", "label": "Bluetooth service", "hint": "Starts the Bluetooth service through the system setup", "action": {"label": "Turn on the service", "system": "service-bluetooth"}, "setup": true},
+    "service": {"type": "state", "label": "Bluetooth service", "hint": "Bluetooth must be on to connect devices", "action": {"label": "Turn on the service", "system": "service-bluetooth"}, "setup": true},
     "bluetooth": {"type": "data", "label": "Bluetooth"}
   }
 }

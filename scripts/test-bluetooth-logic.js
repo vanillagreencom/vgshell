@@ -101,20 +101,46 @@ function verifyView(logic) {
     same([logic.publishedPower({}), logic.publishedPower(null), logic.publishedPower({ bluetooth: { power: { key: "on" } } })], [null, null, { key: "on" }], "the published power");
 }
 
+// The service step as the Setup tab reads it: the status judge admits the
+// published value, and the row's chip, its tone, its action kind (the
+// declared system step, the one Review of missing tools, or none), the
+// Setup order and the Setup needed mark follow. bluez, the manifest's
+// org.bluez requirement, is missing exactly while the probe reads absent.
 function verifyServiceRow(logic) {
+    const checked = manifest(manifestFile);
+    assert.equal(checked.status.service.action.system, "service-bluetooth", "the service step's action is its system step");
+    const bluez = checked.requirements.find(row => row.bus === "system" && row.name === "org.bluez");
+    assert.notEqual(bluez, undefined, "bluez is declared as the system bus name org.bluez");
+    assert.equal(bluez.optional, false, "bluez is a required tool, so the service step may offer Review");
+    const TONES = { todo: "warning", unavailable: "neutral", done: "success" };
     const rows = [
-        ["an adapter means the service runs before the step reports", "", 1, { tone: "ok", text: "Running" }],
-        ["ready with no adapter is running", "ready", 0, { tone: "ok", text: "Running" }],
-        ["needed with no adapter is an open setup step", "needed", 0, { tone: "warning", text: "Off", action: true }],
-        ["nixos with no adapter is an open setup step", "nixos", 0, { tone: "warning", text: "Off", action: true }],
-        ["absent with no adapter is informational", "absent", 0, { tone: "info", text: "Not installed" }],
-        ["denied with no adapter is informational", "denied", 0, { tone: "info", text: "Unavailable" }],
-        ["unknown with no adapter is informational", "unknown", 0, { tone: "info", text: "Unknown" }],
-        ["empty with no adapter is informational", "", 0, { tone: "info", text: "Unknown" }],
-        ["an adapter wins over a stopped step", "needed", 2, { tone: "ok", text: "Running" }],
+        ["an adapter means the service runs before the step reports", "", 1, "done", "none", false],
+        ["ready with no adapter is running", "ready", 0, "done", "none", false],
+        ["needed with no adapter is an open setup step", "needed", 0, "todo", "status", true],
+        ["nixos with no adapter is an open setup step", "nixos", 0, "todo", "status", true],
+        ["absent with no adapter offers the tools install", "absent", 0, "todo", "tools", true],
+        ["denied with no adapter is not available", "denied", 0, "unavailable", "none", false],
+        ["unknown with no adapter is not available", "unknown", 0, "unavailable", "none", false],
+        ["empty with no adapter is not available", "", 0, "unavailable", "none", false],
+        ["an adapter wins over a stopped step", "needed", 2, "done", "none", false],
     ];
-    for (const [label, step, adapters, want] of rows)
-        same(logic.serviceRow(step, adapters), want, "service row: " + label);
+    for (const [label, step, adapters, reading, action, needsOpen] of rows) {
+        const written = producer.statusWrite(checked, {}, "service", logic.serviceRow(step, adapters));
+        assert.equal(written.ok, true, "service row: " + label + " is admitted: " + (written.error || ""));
+        const status = producer.statusRows(checked, written.values);
+        const entry = status.find(row => row.key === "service");
+        const plugin = { enabled: true, name: "Bluetooth", error: "", failed: false };
+        assert.equal(steps.stepReading(entry, plugin), reading, "service row: " + label);
+        assert.equal(steps.stepView(entry, () => "", plugin).tone, TONES[reading], "service row: " + label + " chip tone");
+        if (reading === "unavailable") assert.notEqual(entry.hint, checked.status.service.hint, "service row: " + label + " says why in its own hint");
+        const requirements = checked.requirements.map(row => Object.assign({}, row, { state: row === bluez && step === "absent" ? "missing" : "present" }));
+        const section = steps.setupSections([], status, requirements, plugin).find(row => row.title === "Setup");
+        // The service step leads the Tools step, which installs bluez.
+        same(section.items.map(item => item.key), ["service", "required-tools"], "service row: " + label + " order");
+        const item = section.items.find(row => row.key === "service");
+        assert.equal(item.button === null ? "none" : item.button.kind, action, "service row: " + label + " action");
+        assert.equal(steps.setupNeeds(status, requirements, true).open, needsOpen, "service row: " + label + " Setup needed");
+    }
     assert.throws(() => logic.serviceRow("future", 0), /service step/, "an unknown service step is refused");
 }
 
@@ -667,9 +693,9 @@ function verifyPlacement(logic, source) {
         ["needed with no adapter", "needed", 0, "service-needed", true, true],
         ["nixos with no adapter", "nixos", 0, "service-needed", true, true],
         ["absent with no adapter", "absent", 0, "no-adapter", false, true],
-        ["denied with no adapter", "denied", 0, "no-adapter", false, true],
-        ["unknown with no adapter", "unknown", 0, "no-adapter", false, true],
-        ["empty with no adapter", "", 0, "no-adapter", false, true],
+        ["denied with no adapter", "denied", 0, "no-adapter", false, false],
+        ["unknown with no adapter", "unknown", 0, "no-adapter", false, false],
+        ["empty with no adapter", "", 0, "no-adapter", false, false],
         ["adapter listed", "needed", 1, "on", false, false],
     ];
     for (const [label, step, adapters, powerKey, buttonOpen, needsOpen] of rows) {
@@ -722,6 +748,9 @@ const controls = [
     ["a soft block reads off", "    if (read && rfkill.soft) return view(\"off\", {});\n", "", "view: a soft block reads off"],
     ["no adapter offers the service step", 'input.step === "needed" || input.step === "nixos" ? "service-needed" : "no-adapter"', '"no-adapter"', "view: no adapter with the service step needed"],
     ["a done service step offers Turn on", 'if (adapters > 0 || step === "ready") return { tone: "ok", text: "Running" };', 'if (adapters > 0 || step === "ready") return { tone: "ok", text: "Running", action: true };', "service row: an adapter means the service runs before the step reports"],
+    ["a missing bluez offers no Review", 'action: "tools", hint:', "hint:", "service row: absent with no adapter offers the tools install"],
+    ["a masked unit waits on the user", 'available: false,\n            hint: "An administrator', 'hint: "An administrator', "service row: denied with no adapter is not available"],
+    ["an unchecked service waits on the user", 'available: false,\n            hint: "VGS could not', 'hint: "VGS could not', "service row: unknown with no adapter is not available"],
     ["an open service step loses Turn on", 'return { tone: "warning", text: "Off", action: true };', 'return { tone: "warning", text: "Off" };', "service row: needed with no adapter is an open setup step"],
     ["the power reading carries Turn on again", "var out = { key: key, on: base.on, canToggle: base.canToggle, tone: base.tone, text: base.text, shows: base.shows };", "var out = { key: key, on: base.on, canToggle: base.canToggle, tone: base.tone, text: base.text, action: true, shows: base.shows };", "view: unblocked and powered reads on"],
     ["a hint line shows its text", 'hint: current.shows === "hint" ? current.text : "",', 'hint: "",', "powerLine: a hard block is a hint"],

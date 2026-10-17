@@ -157,7 +157,13 @@ function view(key, changes) {
 }
 
 // The Settings setup step for the Bluetooth service from the
-// service-bluetooth system step and the adapters Quickshell lists.
+// service-bluetooth system step and the adapters Quickshell lists. The
+// step reads absent when bluez is not installed, which the manifest's
+// required org.bluez requirement installs through the Tools Review
+// (`action: "tools"`), and denied when the unit is masked, which only an
+// administrator changes. An unknown step is probed again on each open of
+// the Settings window (its open() rescans, and SystemSteps probes after
+// each scan); turning Bluetooth off and on probes nothing.
 function serviceRow(step, adapters) {
     if (adapters > 0 || step === "ready") return { tone: "ok", text: "Running" };
     switch (step) {
@@ -165,12 +171,14 @@ function serviceRow(step, adapters) {
     case "nixos":
         return { tone: "warning", text: "Off", action: true };
     case "absent":
-        return { tone: "info", text: "Not installed" };
+        return { tone: "warning", text: "Not installed", action: "tools", hint: "Bluetooth is not installed. Install it to use Bluetooth." };
     case "denied":
-        return { tone: "info", text: "Unavailable" };
+        return { tone: "info", text: "Turned off", available: false,
+            hint: "An administrator turned Bluetooth off on this computer. It stays off until they turn it back on." };
     case "unknown":
     case "":
-        return { tone: "info", text: "Unknown" };
+        return { tone: "info", text: "Unknown", available: false,
+            hint: "VGS could not check Bluetooth. Close and open Settings to check again." };
     }
     throw new Error("bluetooth: service step " + JSON.stringify(step) + " is not one of ready, needed, denied, absent, unknown, nixos or empty");
 }
