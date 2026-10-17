@@ -2116,6 +2116,7 @@ scene_updates() { # MODE
 # saved a rule at scale 2 that a monitor line the user's hyprland.lua loads
 # after the layer replaces, holding the output at the mode it read, so the
 # pane says the Hyprland file sets the display, with its link.
+displays_layer_rule() { grep -q -E 'hl\.monitor[[:space:]]*\(' "$home/.local/state/vgshell/hypr/vgs.lua" && echo yes || echo no; }
 displays_trial() { ipc smoke readInstance service vgs.displays trialState | py_reply 'import json,sys; print(json.load(sys.stdin).get(sys.argv[1], ""))' "$1"; }
 scene_displays-override() { # MODE
   local id output held rules
@@ -2144,9 +2145,13 @@ PY
   park_pointer
   take "displays-override-$1"
   expect "the System window hides after the override shot" ok ipc shell hide window vgs.system
+  # The layer drops the kept rule before the user's line goes, or the
+  # reload would load that rule with no later line to replace it.
   expect "clearing the override shot's rule is allowed" ok ipc smoke invokeInstance service vgs.displays clearRules ""
+  expect_poll "the layer drops the override shot's rule" no displays_layer_rule
   hypr_lua_restore displays-override || fail "hyprland.lua is put back after the override shot"
   expect "the nested instance reloads without the override shot's line" ok hypr reload config-only
+  expect_poll "$output is back at $held after the override shot" "$held" mode_scale_of "$output"
   for id in vgs.system vgs.displays; do
     [[ ${was[$id]} == True ]] || expect "disabling $id after the override shot is allowed" ok ipc shell setPluginEnabled "$id" false
   done
