@@ -166,6 +166,74 @@ function suite(ctx, configLogic, check) {
     }
     const dictationManifest = ctx.validateManifest(dictationRaw, "/p").manifest;
     check("dictation setup opens the core TUI", ctx.statusActionRequest(dictationManifest, "acme.dictation", true, { setup: "absent" }, "setup"), { ok: true, kind: "core", name: "dictation-setup" });
+    // A `rows` entry: the fixture acme.rows as it ships, then its manifest
+    // with one defect planted, each refused at its path by its rule.
+    const rowsRaw = () => JSON.parse(fs.readFileSync(path.join(__dirname, "smoke/fixtures/plugins/acme.rows/manifest.json"), "utf8"));
+    for (const [name, plant, refusal] of [
+        ["the fixture's Settings list of rows with Add and Remove", m => m, ""],
+        ["a row action that names no declared TUI", m => { m.status.pairs.rowActions.remove.tui = "gone"; }, "status.pairs.rowActions.remove.tui must name a script of the manifest's tui key"],
+        ["a row action that opens a system step", m => { m.capabilities.push("system"); m.systemSteps = ["i2c-dev"]; m.status.pairs.rowActions.remove = { label: "Remove", system: "i2c-dev" }; }, "status.pairs.rowActions.remove must name a tui"],
+        ["a row action that opens a listed screen", m => { m.tui.remove.entry = { label: "Remove a pair", icon: "trash", group: "Rows" }; }, "status.pairs.rowActions.remove.tui must name a script with no entry"],
+        ["row actions that are none", m => { m.status.pairs.rowActions = {}; }, "status.pairs.rowActions must be an object of one or more actions"],
+        ["a row action named as no status key is", m => { m.status.pairs.rowActions = { "Remove-it": { label: "Remove", tui: "remove" } }; }, "status.pairs.rowActions key \"Remove-it\" must match"],
+        ["row actions on a state", m => { m.status.state = { type: "state", label: "State", rowActions: { remove: { label: "Remove", tui: "remove" } } }; }, "status.state.rowActions needs type rows"],
+        ["a row mark on a state", m => { m.status.state = { type: "state", label: "State", icon: "folder" }; }, "status.state.icon needs type rows"],
+        ["a row mark the shipped set lacks", m => { m.status.pairs.icon = "no-such-mark"; }, "status.pairs.icon must name an icon of the shipped set"],
+        ["a rows entry in a group", m => { m.status.pairs.group = "Sync"; }, "status.pairs.group cannot be on a rows entry"],
+        ["a rows entry on Settings the user cannot change", m => { delete m.status.pairs.action; delete m.status.pairs.rowActions; }, "status.pairs.settings needs a rows entry the user changes"],
+        ["a state on Settings", m => { m.status.state = { type: "state", label: "State", settings: true, action: { label: "Fix", tui: "add" } }; }, "status.state.settings needs a rows entry the user changes"],
+        ["a Settings placement that is no boolean", m => { m.status.pairs.settings = "yes"; }, "status.pairs.settings must be a boolean"],
+        ["a hidden rows entry on Settings", m => { m.status.pairs.hidden = true; }, "status.pairs.settings needs a displayed status"],
+        ["a rows entry of facts on Details", m => { delete m.status.pairs.settings; delete m.status.pairs.action; delete m.status.pairs.rowActions; }, ""]
+    ]) {
+        const raw = rowsRaw();
+        plant(raw);
+        const judged = ctx.validateManifest(raw, "/p");
+        check("rows: " + name, judged.ok ? "" : judged.error.slice(0, refusal.length || judged.error.length), refusal);
+    }
+    // Each published `rows` value the judge takes or refuses: [name, the
+    // value, accepted].
+    const rowsManifest = ctx.validateManifest(rowsRaw(), "/p").manifest;
+    const pair = (id, extra) => Object.assign({ id: id, label: "Pair " + id, secondary: "Drive/" + id + " ⇄ ~/" + id, state: { tone: "ok", text: "Up to date" }, actions: ["remove"] }, extra);
+    const noId = pair("a");
+    delete noId.id;
+    for (const [name, value, accepted] of [
+        ["two rows", [pair("a"), pair("b", { state: { tone: "warning", text: "1 to review" } })], true],
+        ["an empty list", [], true],
+        ["a row with its label alone", [{ id: "a", label: "A" }], true],
+        ["a row with no id", [noId], false],
+        ["a row with an empty id", [pair("")], false],
+        ["a row whose id holds a control character", [pair("a\nb")], false],
+        ["a row whose id is longer than one TUI argument", [pair("x".repeat(257))], false],
+        ["two rows of one id", [pair("a"), pair("a")], false],
+        ["a row with no label", [{ id: "a" }], false],
+        ["a row with an unknown key", [pair("a", { tone: "ok" })], false],
+        ["a row whose state has an unknown tone", [pair("a", { state: { tone: "bad", text: "Bad" } })], false],
+        ["a row whose state has no text", [pair("a", { state: { tone: "ok" } })], false],
+        ["a row offering an undeclared row action", [pair("a", { actions: ["open"] })], false],
+        ["a row offering its row action twice", [pair("a", { actions: ["remove", "remove"] })], false],
+        ["a list longer than the status list ceiling", Array.from({ length: 65 }, (_, i) => pair("p" + i)), false]
+    ])
+        check("rows value: " + name, ctx.statusWrite(rowsManifest, {}, "pairs", value).ok, accepted);
+    const published = ctx.statusWrite(rowsManifest, {}, "pairs", [pair("a", { state: { tone: "warning", text: "1 to review" } }), pair("b"), { id: "c", label: "C" }]).values;
+    const rowsRow = ctx.statusRows(rowsManifest, published)[0];
+    check("rows: the Status row carries each row, its chip and its row actions", [rowsRow.settings, rowsRow.icon, rowsRow.declaredTuis, rowsRow.action, rowsRow.value], [true, "folder-sync", ["add", "remove"],
+        { label: "Add a folder pair", icon: "", tone: "", offered: true, tui: "add" }, [
+            { id: "a", label: "Pair a", secondary: "Drive/a ⇄ ~/a", state: "1 to review", tone: "warning", chip: true, actions: [{ name: "remove", label: "Remove", tone: "danger", icon: "" }] },
+            { id: "b", label: "Pair b", secondary: "Drive/b ⇄ ~/b", state: "Up to date", tone: "success", chip: false, actions: [{ name: "remove", label: "Remove", tone: "danger", icon: "" }] },
+            { id: "c", label: "C", secondary: "", state: "", tone: "", chip: false, actions: [] }]]);
+    // The act on a row: [name, enabled, values, row, row action, answer].
+    for (const [name, enabled, values, row, rowAction, want] of [
+        ["a row's Remove opens its TUI with the row's id", true, published, "b", "remove", { ok: true, kind: "tui", name: "remove", args: ["b"] }],
+        ["the list's Add opens its TUI with no argument", true, published, undefined, undefined, { ok: true, kind: "tui", name: "add" }],
+        ["a row action the entry does not declare", true, published, "b", "open", { ok: false, answer: "refused: action=pairs reason=undeclared" }],
+        ["a row action with no name", true, published, "b", undefined, { ok: false, answer: "refused: action=pairs reason=undeclared" }],
+        ["a row action of a disabled plugin", false, published, "b", "remove", { ok: false, answer: "refused: action=pairs reason=disabled" }],
+        ["a row action on a row the list does not hold", true, published, "gone", "remove", { ok: false, answer: "refused: action=pairs reason=not-offered" }],
+        ["a row action the row does not offer", true, published, "c", "remove", { ok: false, answer: "refused: action=pairs reason=not-offered" }],
+        ["a row action before the list is reported", true, {}, "b", "remove", { ok: false, answer: "refused: action=pairs reason=not-offered" }]
+    ])
+        check("rows act: " + name, ctx.statusActionRequest(rowsManifest, "acme.rows", enabled, values, "pairs", row, rowAction), want);
     const bar = { schemaVersion: 1, id: "vgs.bar", name: "Bar", version: "0.1.0", author: "VGS", description: "d", kinds: ["bar"], entryPoints: { bar: "Bar.qml" } };
     const clock = { schemaVersion: 1, id: "vgs.clock", name: "Clock", version: "0.1.0", author: "VGS", description: "d", kinds: ["bar-widget"], entryPoints: { "bar-widget": "Widget.qml" }, defaultSection: "center" };
     const svc = { schemaVersion: 1, id: "acme.svc", name: "S", version: "1", author: "a", description: "d", kinds: ["service"], entryPoints: { service: "S.qml" }, settings: { x: 0 } };
@@ -432,7 +500,7 @@ function suite(ctx, configLogic, check) {
         ["a status key starting upper case", { capabilities: ["status"], status: { Token: { type: "text", label: "A" } } }, "status key \"Token\" must match"],
         ["a status entry not an object", { capabilities: ["status"], status: { a: "text" } }, "status.a must be an object"],
         ["a status entry with an unknown key", { capabilities: ["status"], status: { a: { type: "text", label: "A", run: true } } }, "status.a has unknown key \"run\""],
-        ["a status entry with an unknown type", { capabilities: ["status"], status: { a: { type: "secret", label: "A" } } }, "status.a.type must be one of presence, presenceList, state, text, count, time, data, choices, launcherRows"],
+        ["a status entry with an unknown type", { capabilities: ["status"], status: { a: { type: "secret", label: "A" } } }, "status.a.type must be one of presence, presenceList, state, text, count, time, data, choices, launcherRows, rows"],
         ["a presenceList entry with its group and hint", { capabilities: ["status"], status: { tokens: { type: "presenceList", label: "Tokens", group: "Slack", hint: "h" } } }, null],
         ["a status entry without a label", { capabilities: ["status"], status: { a: { type: "text" } } }, "status.a.label must be a printable line of 1 to 60"],
         ["a status label of 61 characters", { capabilities: ["status"], status: { a: { type: "text", label: "x".repeat(61) } } }, "status.a.label must be a printable line of 1 to 60"],
@@ -2086,6 +2154,15 @@ const CONTROLS = [
     ["keys name a required step", 'typeof entry.step !== "string" || !hasOwn(status, entry.step) || status[entry.step].setup !== true', 'false'],
     ["key association holds keys", 'if (entry.type !== "presenceList") return at + ".step needs a key list";', 'if (false) return at + ".step needs a key list";'],
     ["status has one place", '(entry.setup === true ? 1 : 0) + (entry.setting !== undefined ? 1 : 0) + (entry.step !== undefined ? 1 : 0) > 1', 'false'],
+    ["a row action may open no tui", "if (entry.rowActions[names[i]].tui === undefined)", "if (false)"],
+    ["a row action may open a listed screen", "if (isPlainObject(tui[entry.rowActions[names[i]].tui].entry))", "if (false)"],
+    ["a published row needs no id", 'return typeof row.id === "string" && tuiArgsValid([row.id])', "return true"],
+    ["two rows may share an id", " || rowIds.indexOf(value[w].id) !== -1", ""],
+    ["a row may offer an undeclared row action", "return entry.rowActions !== undefined && hasOwn(entry.rowActions, name);", "return true;"],
+    ["any entry may stand on Settings", 'if (entry.type !== "rows" || (entry.action === undefined && entry.rowActions === undefined)) return at + ".settings needs', 'if (false) return at + ".settings needs'],
+    ["a row action hands its TUI no row id", "args: [row] };", "args: [] };"],
+    ["a row action runs on a row that does not offer it", "return published.id === row && published.actions !== undefined && published.actions.indexOf(rowAction) !== -1;", "return true;"],
+    ["a row's state is never a chip", 'var STATUS_ROW_CHIP_TONES = ["warning", "danger"];', "var STATUS_ROW_CHIP_TONES = [];"],
     ["a schema field may be an action", 'var SETTING_TYPES = ["string", "number", "boolean", "enum", "list"];', 'var SETTING_TYPES = ["string", "number", "boolean", "enum", "list", "action"];'],
     ["a requirement may sit beside a field", '"floor", "install"];', '"floor", "install", "setting"];'],
     ["a listed screen may sit beside a field", 'var TUI_ENTRY_KEYS = ["label", "icon", "group", "settings"];', 'var TUI_ENTRY_KEYS = ["label", "icon", "group", "setting", "settings"];'],

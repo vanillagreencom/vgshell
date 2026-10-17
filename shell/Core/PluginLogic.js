@@ -155,9 +155,11 @@ var DBUS_NAME_PART = /^[A-Za-z_-][A-Za-z0-9_-]*$/;
 // capability, each declared in the manifest's `status` key with one of these
 // types. `data` is structured JSON only the plugin's own instances read; the
 // Settings window draws every other type unless the entry is `hidden`;
-// `choices` feeds a setting's Select instead of a Status row.
-var STATUS_TYPES = ["presence", "presenceList", "state", "text", "count", "time", "data", "choices", "launcherRows"];
-var STATUS_ENTRY_KEYS = ["type", "label", "group", "hint", "info", "link", "hidden", "action", "actions", "aside", "setup", "setting", "step"];
+// `choices` feeds a setting's Select instead of a Status row; `rows` is a
+// list a page draws full width under its label, each row with its own
+// actions.
+var STATUS_TYPES = ["presence", "presenceList", "state", "text", "count", "time", "data", "choices", "launcherRows", "rows"];
+var STATUS_ENTRY_KEYS = ["type", "label", "group", "hint", "info", "link", "hidden", "action", "actions", "aside", "setup", "setting", "step", "settings", "icon", "rowActions"];
 // A status key names a value in `shell.status.values`, so it is a plain
 // identifier.
 var STATUS_KEY_PATTERN = /^[a-z][A-Za-z0-9]*$/;
@@ -211,6 +213,19 @@ var STATUS_LIST_ITEM_KEYS = ["label", "value", "hint", "info", "secret"];
 // Choice values are stable ids, not their display labels. Empty string is
 // reserved for a setting that follows the first offered value.
 var STATUS_CHOICE_KEYS = ["label", "value"];
+// A `rows` value is a list of at most STATUS_LIST_MAX rows, each carrying
+// these keys: an `id`, unique in the list, which a row action hands its
+// TUI as its one argument, so it is one argument tuiArgsValid admits; a
+// printable `label` of at most STATUS_LABEL_MAX characters; an optional
+// printable `secondary` line of at most STATUS_TEXT_MAX; an optional
+// `state`, STATUS_ROW_STATE_KEYS, a tone of STATUS_STATE_TONES and a
+// printable `text` of at most STATUS_LABEL_MAX; and optional `actions`,
+// the names of the entry's `rowActions` this row offers, each once.
+var STATUS_ROW_KEYS = ["id", "label", "secondary", "state", "actions"];
+var STATUS_ROW_STATE_KEYS = ["tone", "text"];
+// The tones of a row's state that need the user: a page draws such a state
+// as a chip, and every other tone as plain text.
+var STATUS_ROW_CHIP_TONES = ["warning", "danger"];
 // A plugin-published launcher provider can expose a category of dynamic
 // rows. The ceiling admits a 150-row catalog with growth room and keeps
 // search work bounded.
@@ -237,11 +252,15 @@ var LAUNCHER_ROW_KEYS = ["id", "label", "icon", "description", "aliases", "menu"
 // entry with a step may declare `aside`, one more action its row draws
 // beside the step, such as Remove key beside Add key: an action of route
 // `tui` whose script has an `entry`, since the page opens it as a listed
-// screen, offered while its value carries `aside: true`.
+// screen, offered while its value carries `aside: true`. A `rows` entry's
+// `action` acts on the whole list, such as Add, offered while the list is
+// reported, and its `rowActions` act on one row each: each of route `tui`,
+// whose script the core opens with the row's `id` as its one argument,
+// offered on a row whose `actions` name it.
 var STATUS_ACTION_ROUTES = ["tui", "system", "undo", "dictation"];
 var STATUS_ACTION_KEYS = ["label", "tone", "icon"].concat(STATUS_ACTION_ROUTES);
 var STATUS_ACTION_TONES = ["danger"];
-var STATUS_ACTION_TYPES = ["presence", "state"];
+var STATUS_ACTION_TYPES = ["presence", "state", "rows"];
 // The refusal reasons of the `manager` capability's `act`.
 var STATUS_ACTION_REASONS = ["undeclared", "disabled", "not-offered"];
 
@@ -642,7 +661,8 @@ function linkError(entry, at, field) {
 // open an https address, an optional `action` statusActionError admits, and
 // an optional boolean `hidden`. A `state` entry may declare `actions` in
 // place of `action`: an object of two or more named actions; with either
-// it may declare `aside`, a `tui` action of a listed screen. A `data`
+// it may declare `aside`, a `tui` action of a listed screen. A `rows` entry
+// may declare `icon` and `rowActions` (statusRowsEntryError). A `data`
 // entry is never drawn, so it carries none of `group`, `hint`, `link`,
 // `hidden`, `action`, `actions` or `aside`. A plugin publishes status
 // only through its `status` capability, so the key needs the capability,
@@ -710,6 +730,9 @@ function statusError(status, capabilities, tui, system) {
                     return at + "." + drawn[d] + " needs a type Settings draws; " + entry.type + " is never drawn";
             }
         }
+        var badRows = statusRowsEntryError(entry, at, tui, system, capabilities);
+        if (badRows !== "")
+            return badRows;
         var badAside = statusAsideError(entry, at, tui, system, capabilities);
         if (badAside !== "")
             return badAside;
@@ -719,7 +742,9 @@ function statusError(status, capabilities, tui, system) {
 
 // The actions status entry ENTRY declares, each { name, at, action }: its
 // one `action`, NAME null and AT `.action`, or each of its `actions` by
-// NAME, AT `.actions.<name>`; none for an entry without either.
+// NAME, AT `.actions.<name>`; none for an entry without either. A `rows`
+// entry's `rowActions` are not among them: each acts on one row
+// (statusActionRequest).
 function statusEntryActions(entry) {
     if (entry.action !== undefined)
         return [{ name: null, at: ".action", action: entry.action }];
@@ -728,6 +753,46 @@ function statusEntryActions(entry) {
     return Object.keys(entry.actions).map(function (name) {
         return { name: name, at: ".actions." + name, action: entry.actions[name] };
     });
+}
+
+// The first defect of status entry ENTRY's rows keys, AT its path, or "":
+// `icon` and `rowActions` only on a `rows` entry, which takes no `group`,
+// since its label heads a section of its own. `icon` names the mark of
+// the shipped Lucide set each row leads with. `rowActions` is an object of
+// one or more actions by STATUS_KEY_PATTERN name, each one
+// statusActionError admits whose route is `tui`, naming a script with no
+// `entry`: a row action opens its own declared script with the row's `id`
+// as its one argument, and a listed screen opens with none.
+function statusRowsEntryError(entry, at, tui, system, capabilities) {
+    if (entry.type !== "rows") {
+        if (entry.icon !== undefined)
+            return at + ".icon needs type rows, whose rows it leads";
+        if (entry.rowActions !== undefined)
+            return at + ".rowActions needs type rows, whose rows offer them";
+        return "";
+    }
+    if (entry.group !== undefined)
+        return at + ".group cannot be on a rows entry; its label heads a section of its own";
+    if (entry.icon !== undefined && (typeof entry.icon !== "string" || !hasOwn(Lucide.ICONS, entry.icon)))
+        return at + ".icon must name an icon of the shipped set, shell/Ui/icons/Lucide.js, got " + JSON.stringify(entry.icon);
+    if (entry.rowActions === undefined)
+        return "";
+    if (!isPlainObject(entry.rowActions) || Object.keys(entry.rowActions).length === 0)
+        return at + ".rowActions must be an object of one or more actions";
+    var names = Object.keys(entry.rowActions);
+    for (var i = 0; i < names.length; i++) {
+        var actionAt = at + ".rowActions." + names[i];
+        if (!STATUS_KEY_PATTERN.test(names[i]))
+            return at + ".rowActions key " + JSON.stringify(names[i]) + " must match " + STATUS_KEY_PATTERN.source;
+        var badAction = statusActionError(entry.type, entry.rowActions[names[i]], actionAt, tui, system, capabilities);
+        if (badAction !== "")
+            return badAction;
+        if (entry.rowActions[names[i]].tui === undefined)
+            return actionAt + " must name a tui; a row action opens its script with the row's id";
+        if (isPlainObject(tui[entry.rowActions[names[i]].tui].entry))
+            return actionAt + ".tui must name a script with no entry; a listed screen opens with no row id";
+    }
+    return "";
 }
 
 // The first defect of status entry ENTRY's `aside`, AT the entry's path, or
@@ -1088,7 +1153,8 @@ function isPlainJson(value) {
 // `action` and a boolean `aside` when present; `text` a printable line; `count`
 // a whole number from 0; `time` a whole number of milliseconds since the
 // Unix epoch, from 0; `data` plain JSON; `choices` a bounded list of labeled,
-// distinct, non-empty string ids.
+// distinct, non-empty string ids; `rows` a list statusRowFits admits row by
+// row, at most STATUS_LIST_MAX long, no id twice.
 function statusValueFits(type, value) {
     if (type === "presence") return typeof value === "string" && hasOwn(STATUS_PRESENCE_TONES, value);
     if (type === "presenceList") {
@@ -1142,7 +1208,38 @@ function statusValueFits(type, value) {
     if (type === "text") return isPrintableLine(value, STATUS_TEXT_MAX);
     if (type === "count" || type === "time") return typeof value === "number" && isFinite(value) && value >= 0 && Math.floor(value) === value && value <= Number.MAX_SAFE_INTEGER;
     if (type === "data") return isPlainJson(value);
+    if (type === "rows") {
+        if (!Array.isArray(value) || value.length > STATUS_LIST_MAX) return false;
+        var rowIds = [];
+        for (var w = 0; w < value.length; w++) {
+            if (!statusRowFits(value[w]) || rowIds.indexOf(value[w].id) !== -1) return false;
+            rowIds.push(value[w].id);
+        }
+        return true;
+    }
     throw new Error("statusValueFits: status type " + JSON.stringify(type) + " passed validation but has no rule");
+}
+
+// Whether ROW is one row of a `rows` value: plain JSON holding only
+// STATUS_ROW_KEYS, an `id` the core may hand a TUI as one argument
+// (tuiArgsValid), a printable `label` of at most STATUS_LABEL_MAX, and when
+// present a printable `secondary` of at most STATUS_TEXT_MAX, a `state` of
+// STATUS_ROW_STATE_KEYS with a tone of STATUS_STATE_TONES and a printable
+// `text` of at most STATUS_LABEL_MAX, and `actions`, a list of distinct
+// STATUS_KEY_PATTERN names. Unique ids are a list-level rule in
+// statusValueFits; that each action is declared, statusDeclarationFits'.
+function statusRowFits(row) {
+    if (!isPlainObject(row) || !isPlainJson(row)) return false;
+    if (Object.keys(row).some(function (key) { return STATUS_ROW_KEYS.indexOf(key) === -1; })) return false;
+    var state = row.state;
+    return typeof row.id === "string" && tuiArgsValid([row.id])
+        && isPrintableLine(row.label, STATUS_LABEL_MAX)
+        && (row.secondary === undefined || isPrintableLine(row.secondary, STATUS_TEXT_MAX))
+        && (state === undefined || (isPlainObject(state) && Object.keys(state).every(function (key) { return STATUS_ROW_STATE_KEYS.indexOf(key) !== -1; })
+            && typeof state.tone === "string" && hasOwn(STATUS_STATE_TONES, state.tone) && isPrintableLine(state.text, STATUS_LABEL_MAX)))
+        && (row.actions === undefined || (Array.isArray(row.actions) && row.actions.every(function (name, index) {
+            return typeof name === "string" && STATUS_KEY_PATTERN.test(name) && row.actions.indexOf(name) === index;
+        })));
 }
 
 // Whether VALUE, a plain `state` object, is the hidden value:
@@ -1239,9 +1336,10 @@ function statusWrite(manifest, values, key, value) {
 // Whether VALUE, which statusValueFits admitted for ENTRY's type, also fits
 // what MANIFEST declares: a `state` value carries a boolean `action` only
 // for an entry that declares an action, a name only for an entry whose
-// `actions` hold it and `aside` only for an entry that declares one, and a
+// `actions` hold it and `aside` only for an entry that declares one, a
 // `presenceList` item carries `secret` only for a manifest that declares
-// `secrets`.
+// `secrets`, and a `rows` row names in `actions` only the entry's
+// `rowActions`.
 function statusDeclarationFits(manifest, entry, value) {
     if (entry.type === "state") {
         if (entry.setup === true && statusStateHidden(value)) return false;
@@ -1251,6 +1349,9 @@ function statusDeclarationFits(manifest, entry, value) {
         return entry.action !== undefined;
     }
     if (entry.type === "presenceList") return manifest.secrets !== undefined || value.every(function (item) { return item.secret === undefined; });
+    if (entry.type === "rows") return value.every(function (row) {
+        return row.actions === undefined || row.actions.every(function (name) { return entry.rowActions !== undefined && hasOwn(entry.rowActions, name); });
+    });
     return true;
 }
 
@@ -1306,21 +1407,45 @@ function withheldFields(manifest, values) {
 }
 
 // The badge tone Settings draws a reported status value with: the
-// presence's or the state's tone, "" for a type drawn as text and for a
-// `presenceList`, whose items carry their own (statusRowValue).
+// presence's or the state's tone, "" for a type drawn as text, for a
+// `presenceList`, whose items carry their own, and for `rows`, whose rows
+// do (statusRowValue).
 function statusTone(type, value) {
     if (type === "presence") return STATUS_PRESENCE_TONES[value];
     if (type === "state") return STATUS_STATE_TONES[value.tone];
     return "";
 }
 
-// A reported value as a Status row carries it: a `presenceList`'s items
-// each as { label, value, hint, info, tone, secret, access }, `hint`, `info`
-// and `secret` "" when the item omits them, `tone` its presence's, and
-// `access` what the page offers for its secret, SECRET_ACCESS by its
-// presence, "" for an item without one; any other value as published.
-function statusRowValue(type, value) {
-    if (type !== "presenceList") return value;
+// A reported VALUE of status entry ENTRY as a Status row carries it: a
+// `presenceList`'s items each as { label, value, hint, info, tone, secret,
+// access }, `hint`, `info` and `secret` "" when the item omits them, `tone`
+// its presence's, and `access` what the page offers for its secret,
+// SECRET_ACCESS by its presence, "" for an item without one; a `rows`
+// value's rows each as { id, label, secondary, state, tone, chip, actions },
+// `secondary` and `state`, the state's text, "" when the row omits them,
+// `tone` the state's badge tone, "" for none, `chip` whether the state
+// needs the user, a tone of STATUS_ROW_CHIP_TONES, which a page draws as a
+// chip and any other state as text, and `actions` each row action it
+// offers, in its own order, as { name, label, tone, icon }, `tone` and
+// `icon` as statusActionTone and statusActionIcon read them; any other
+// value as published.
+function statusRowValue(entry, value) {
+    if (entry.type === "rows") return value.map(function (row) {
+        var tone = row.state === undefined ? "" : row.state.tone;
+        return {
+            id: row.id,
+            label: row.label,
+            secondary: row.secondary === undefined ? "" : row.secondary,
+            state: row.state === undefined ? "" : row.state.text,
+            tone: tone === "" ? "" : STATUS_STATE_TONES[tone],
+            chip: STATUS_ROW_CHIP_TONES.indexOf(tone) !== -1,
+            actions: (row.actions === undefined ? [] : row.actions).map(function (name) {
+                var action = entry.rowActions[name];
+                return { name: name, label: action.label, tone: statusActionTone(action), icon: statusActionIcon(action) };
+            })
+        };
+    });
+    if (entry.type !== "presenceList") return value;
     return value.map(function (item) {
         return {
             label: item.label,
@@ -1337,13 +1462,16 @@ function statusRowValue(type, value) {
 // The action of status entry ENTRY that applies to its published VALUE, or
 // null: its declared `action` for a `presence` while nothing is there,
 // `absent`, and for a `state` while its writer says so, `action: true`; the
-// one of its declared `actions` a `state` value names (D061).
+// one of its declared `actions` a `state` value names (D061); and for a
+// `rows` entry, its `action` on the whole list, such as Add, whenever the
+// list is reported.
 function statusActionOffered(entry, value) {
     switch (entry.type) {
     case "presence": return value === "absent" ? entry.action : null;
     case "state":
         if (entry.actions !== undefined) return typeof value.action === "string" ? entry.actions[value.action] : null;
         return value.action === true ? entry.action : null;
+    case "rows": return entry.action;
     }
     throw new Error("statusActionOffered: status type " + JSON.stringify(entry.type) + " takes no action");
 }
@@ -1368,13 +1496,14 @@ function statusRowAction(entry, value) {
         tone: entry.action === undefined ? "" : statusActionTone(entry.action), offered: false, tui: "" };
 }
 
-// The declared TUI screens a status entry may open, its `aside`'s last, in
-// manifest order and without duplicates.
+// The declared TUI screens a status entry may open, its `aside`'s, then its
+// `rowActions`', last, in manifest order and without duplicates.
 function statusDeclaredTuis(entry) {
     var seen = Object.create(null);
     var out = [];
     var actions = statusEntryActions(entry).map(function (declared) { return declared.action; });
     if (entry.aside !== undefined) actions.push(entry.aside);
+    if (entry.rowActions !== undefined) Object.keys(entry.rowActions).forEach(function (name) { actions.push(entry.rowActions[name]); });
     actions.forEach(function (action) {
         var tui = action.tui;
         if (typeof tui === "string" && !seen[tui]) {
@@ -1408,10 +1537,12 @@ function statusActionIcon(action) {
 // The Status rows the plugin manager shows for a plugin: one per entry
 // statusDisplayable admits whose `state` value is not hidden (statusStateHidden),
 // in manifest key order, as { key, type, label,
-// group, hint, info, link, secrets, declaredTuis, action, aside, report,
-// value, tone }. `group`, `hint` and `info` are "" when the manifest omits them,
+// group, setup, setting, step, settings, icon, hint, info, link, secrets,
+// declaredTuis, action, aside, report, value, tone }. `group`, `hint`,
+// `info` and `icon` are "" when the manifest omits them,
 // and `link`, the words of the declared hint that open an https address,
-// null. `secrets` holds for the entry that lists the plugin's stored keys,
+// null. `settings` holds for a `rows` entry the Settings tab draws
+// (pagePlacementError). `secrets` holds for the entry that lists the plugin's stored keys,
 // a `presenceList` of a manifest that declares `secrets`, which a page
 // draws with its setup. `declaredTuis` is each TUI the entry's actions may
 // open, in declaration order. `action` is
@@ -1437,6 +1568,8 @@ function statusRows(manifest, values) {
             setup: entry.setup === true,
             setting: entry.setting === undefined ? "" : entry.setting,
             step: entry.step === undefined ? "" : entry.step,
+            settings: entry.settings === true,
+            icon: entry.icon === undefined ? "" : entry.icon,
             hint: hint,
             info: entry.info === undefined ? "" : entry.info,
             link: entry.link === undefined ? null : { text: entry.link.text, url: entry.link.url },
@@ -1445,7 +1578,7 @@ function statusRows(manifest, values) {
             action: statusRowAction(entry, value),
             aside: statusRowAside(entry, value),
             report: reported ? "reported" : "unreported",
-            value: reported ? statusRowValue(entry.type, value) : null,
+            value: reported ? statusRowValue(entry, value) : null,
             tone: reported ? statusTone(entry.type, value) : ""
         };
     });
@@ -1487,18 +1620,36 @@ function tuiRunFor(manifest, enabled, sourceDir, runner, name, missing, args) {
     return request;
 }
 
-// What the `manager` capability's `act(id, key)` does for status entry KEY
-// of plugin MANIFEST, null for an id no plugin has, ENABLED and VALUES its
-// published values: { ok: true, kind: "tui", name } to open the plugin's own
+// What the `manager` capability's `act(id, key, row, rowAction)` does for
+// status entry KEY of plugin MANIFEST, null for an id no plugin has,
+// ENABLED and VALUES its published values: { ok: true, kind: "tui", name } to open the plugin's own
 // TUI NAME, { ok: true, kind: "system", args } to open the core TUI
 // `core/system` with ARGS, `apply` or `undo` and its declared step, or
 // { ok: false,
 // answer } with `unknown: <id>` or statusActionRefusal's line: `undeclared`
 // for an entry without an action, `disabled` for a disabled plugin and
-// `not-offered` while the published value does not call for it.
-function statusActionRequest(manifest, id, enabled, values, key) {
+// `not-offered` while the published value does not call for it. With ROW,
+// the act is ROW_ACTION, a name of the `rows` entry's `rowActions`, on the
+// published row whose `id` is ROW: { ok: true, kind: "tui", name, args },
+// ARGS [ROW], the row's id as the script's one argument, `undeclared` for
+// a name the entry's `rowActions` lack, and `not-offered` while no
+// published row of that id names it.
+function statusActionRequest(manifest, id, enabled, values, key, row, rowAction) {
     if (manifest === null)
         return { ok: false, answer: "unknown: " + tuiLabel(id) };
+    if (row !== undefined) {
+        var rowsEntry = typeof key === "string" && hasOwn(manifest.status, key) ? manifest.status[key] : null;
+        if (rowsEntry === null || rowsEntry.rowActions === undefined || typeof rowAction !== "string" || !hasOwn(rowsEntry.rowActions, rowAction))
+            return { ok: false, answer: statusActionRefusal(key, "undeclared") };
+        if (!enabled)
+            return { ok: false, answer: statusActionRefusal(key, "disabled") };
+        var offering = (hasOwn(values, key) ? values[key] : []).some(function (published) {
+            return published.id === row && published.actions !== undefined && published.actions.indexOf(rowAction) !== -1;
+        });
+        if (!offering)
+            return { ok: false, answer: statusActionRefusal(key, "not-offered") };
+        return { ok: true, kind: "tui", name: rowsEntry.rowActions[rowAction].tui, args: [row] };
+    }
     if (typeof key !== "string" || !hasOwn(manifest.status, key) || statusEntryActions(manifest.status[key]).length === 0)
         return { ok: false, answer: statusActionRefusal(key, "undeclared") };
     if (!enabled)
@@ -5083,14 +5234,21 @@ function idleWatchRefusal(seconds, onChange) {
 // key list beside its step there. Settings holds only values the user
 // changes, so `setting` takes only a stored key list, the presenceList of
 // a manifest that declares `secrets` (SECRETS), whose masked field is one,
-// beside a field of SCHEMA. Every other entry, with its action, is a fact
-// of Details.
+// beside a field of SCHEMA, and `settings: true` only a displayed `rows`
+// entry the user changes through its `action` or its `rowActions`, such
+// as a list of folder pairs with Add and Remove. Every other entry, with
+// its action, is a fact of Details.
 function pagePlacementError(status, schema, secrets) {
     var keys = Object.keys(status);
     for (var i = 0; i < keys.length; i++) {
         var entry = status[keys[i]], at = "status." + keys[i];
         if (entry.setup !== undefined && typeof entry.setup !== "boolean") return at + ".setup must be a boolean";
         if (entry.setup === true && (entry.hidden === true || ["state", "presence"].indexOf(entry.type) === -1)) return at + ".setup needs a displayed state or presence";
+        if (typeof entry.settings !== "boolean" && entry.settings !== undefined) return at + ".settings must be a boolean";
+        if (entry.settings === true) {
+            if (entry.type !== "rows" || (entry.action === undefined && entry.rowActions === undefined)) return at + ".settings needs a rows entry the user changes through its action or rowActions; Settings draws only values the user changes";
+            if (entry.hidden === true) return at + ".settings needs a displayed status";
+        }
         if (entry.setting !== undefined) {
             if (entry.type !== "presenceList" || !secrets) return at + ".setting needs a stored key list; Settings draws only values the user changes";
             if (typeof entry.setting !== "string" || !hasOwn(schema, entry.setting)) return at + ".setting must name a schema field";

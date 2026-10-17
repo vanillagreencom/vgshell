@@ -24,7 +24,13 @@ function stepView(entry, timeText, plugin) {
 }
 function waitingLine(name) { return name + " has not reported this step yet"; }
 function detailEntries(status) {
-    return status.filter(function (entry) { return !declaresStep(entry) && entry.setting === "" && entry.step === ""; });
+    return status.filter(function (entry) { return !declaresStep(entry) && entry.setting === "" && entry.step === "" && entry.type !== "rows"; });
+}
+// The `rows` entries of STATUS a tab draws as sections of their own, in
+// manifest order: those the manifest places on Settings while SETTINGS,
+// else the Details ones.
+function rowsEntries(status, settings) {
+    return status.filter(function (entry) { return entry.type === "rows" && entry.settings === settings; });
 }
 function detailRequirements(requirements) { return requirements.filter(function (entry) { return entry.optional; }); }
 // The action that opens the plugin's notice for every missing or outdated
@@ -154,6 +160,34 @@ function detailButtons(entry, plugin) {
 
 // The words a `presence` value reads as on the page.
 var PRESENCE_WORDS = { present: "Present", absent: "Absent", locked: "Locked", unavailable: "Unavailable", unsafe: "Unsafe", "signed-out": "Signed out" };
+
+// What a page draws of ENTRY, a `rows` entry of PluginLogic.statusRows, for
+// PLUGIN, { enabled, name }: { rows, add, text }. ROWS are its published
+// rows, each with the `key` its line keeps across writes, its id, and its
+// `buttons`, one per row action it offers, as a line action { kind, key,
+// name, row, label, text, tone, icon, removesItem }: KIND `row`, ROW the
+// row's id, TEXT the words a RowAction draws, its label, and
+// REMOVES_ITEM for a danger action with no mark of its own, which removes
+// the row it stands on and so draws the trash mark alone, its TEXT its
+// label and the row's, as its tooltip and accessible name name the row.
+// ADD is the entry's action on the whole list, such as Add, while the
+// plugin is on and the list is reported (lineAction), else null. TEXT is
+// "Not reported" while the list is not reported, "None yet" while it is
+// empty, else "".
+function rowsView(entry, plugin) {
+    if (entry.report !== "reported") return { rows: [], add: null, text: "Not reported" };
+    return {
+        rows: entry.value.map(function (row) {
+            return Object.assign({ key: row.id, buttons: row.actions.map(function (action) {
+                var removes = action.tone === "danger" && action.icon === "";
+                return { kind: "row", key: entry.key + " " + row.id + " " + action.name, name: action.name, row: row.id, label: action.label,
+                    text: removes ? action.label + " " + row.label : action.label, tone: action.tone, icon: action.icon, removesItem: removes };
+            }) }, row);
+        }),
+        add: lineAction(stepButton(entry), false, plugin),
+        text: entry.value.length === 0 ? "None yet" : ""
+    };
+}
 
 // What a page draws of ENTRY, one row of PluginLogic.statusRows, or null
 // for a row whose entry left the manager row: { label, hint, info, link,

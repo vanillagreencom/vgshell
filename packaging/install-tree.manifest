@@ -691,6 +691,7 @@ f share/vgshell/shell/plugins/vgs.settings/ListPage.qml
 f share/vgshell/shell/plugins/vgs.settings/PageHeader.qml
 f share/vgshell/shell/plugins/vgs.settings/PluginPage.qml
 f share/vgshell/shell/plugins/vgs.settings/RequirementRow.qml
+f share/vgshell/shell/plugins/vgs.settings/RowsList.qml
 f share/vgshell/shell/plugins/vgs.settings/Service.qml
 f share/vgshell/shell/plugins/vgs.settings/SettingField.qml
 f share/vgshell/shell/plugins/vgs.settings/StatusLine.qml

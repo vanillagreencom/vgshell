@@ -35,7 +35,7 @@ FocusScope {
     // whose fields only wait, on a `shownWhen` entry or a `hideEmpty`
     // offer, keeps the Turn on hint while it is off and never reads as
     // having no settings.
-    readonly property bool bare: row !== null && row.builtins.length === 0 && row.fieldRows.length === 0 && row.binds.length === 0 && paneHolder === null
+    readonly property bool bare: row !== null && row.builtins.length === 0 && row.fieldRows.length === 0 && row.binds.length === 0 && paneHolder === null && settingsRows.length === 0
     // Whether a field of the page holds an unsaved edit.
     readonly property bool dirty: unsaved.edited
 
@@ -104,6 +104,10 @@ FocusScope {
     // The listed screens Details draws in its Actions row: those that are
     // no setup screens and that no status entry declares.
     readonly property var detailScreens: row === null ? [] : Steps.freeScreens(row.tuis, row.status, "Details", plugin)
+    // The keys of the `rows` entries each tab draws as a section of its
+    // own: those the manifest places on Settings, and the Details ones.
+    readonly property var settingsRows: row === null ? [] : Steps.rowsEntries(row.status, true).map(entry => entry.key)
+    readonly property var detailRows: row === null ? [] : Steps.rowsEntries(row.status, false).map(entry => entry.key)
     // Keep the selected tab by name when a new plugin changes the strip.
     // If that plugin has no Setup tab, an open Setup moves to Details.
     onHasSetupChanged: {
@@ -140,14 +144,15 @@ FocusScope {
 
     // Run BUTTON, one action a line draws (Steps.js), for ENTRY, the status
     // entry of its line, or null: Turn on through the Enabled switch's
-    // route, the requirement notice, a listed screen or the entry's own
-    // action; answers the manager's reply.
+    // route, the requirement notice, a listed screen, the entry's own
+    // action or one row action of a `rows` entry; answers the manager's reply.
     function press(button, entry) {
         switch (button.kind) {
         case "enable": return panel.setEnabled(row.id, true);
         case "tools": return panel.installRequirements(row.id);
         case "tui": return panel.openTui(row.id, button.name);
         case "status": return panel.act(row.id, entry.key);
+        case "row": return panel.act(row.id, entry.key, button.row, button.name);
         }
         throw new Error("settings: action kind " + JSON.stringify(button.kind) + " has no route");
     }
@@ -664,6 +669,25 @@ FocusScope {
                         }
                     }
 
+                    // A list of rows the user changes, each a section of
+                    // its own after the schema's.
+                    Repeater {
+                        model: ScriptModel {
+                            values: page.settingsRows
+                        }
+                        RowsList {
+                            required property string modelData
+                            width: body.width
+                            entry: page.statusEntry(modelData)
+                            plugin: page.plugin
+                            panel: page.panel
+                            pluginId: page.row === null ? "" : page.row.id
+                            onPressed: button => page.press(button, entry)
+                            onOpenLink: link => { if (page !== null && page.row !== null) page.panel.openLink(page.row.id, link); }
+                            onPageActivated: (id, tab) => { if (page !== null && page.panel !== null) page.panel.openPage(id, tab); }
+                        }
+                    }
+
                     Section {
                         width: parent.width
                         visible: page.row !== null && page.row.binds.length > 0
@@ -952,6 +976,25 @@ FocusScope {
                                     }
                                 }
                             }
+                        }
+                    }
+
+                    // A list of rows that are facts, each a section of its
+                    // own after the status sections.
+                    Repeater {
+                        model: ScriptModel {
+                            values: page.detailRows
+                        }
+                        RowsList {
+                            required property string modelData
+                            width: body.width
+                            entry: page.statusEntry(modelData)
+                            plugin: page.plugin
+                            panel: page.panel
+                            pluginId: page.row === null ? "" : page.row.id
+                            onPressed: button => page.press(button, entry)
+                            onOpenLink: link => { if (page !== null && page.row !== null) page.panel.openLink(page.row.id, link); }
+                            onPageActivated: (id, tab) => { if (page !== null && page.panel !== null) page.panel.openPage(id, tab); }
                         }
                     }
 

@@ -354,7 +354,7 @@ function suite(ctx, check) {
     const values = ctx.statusWrite(m, ctx.statusWrite(m, ctx.statusWrite(m, {}, "token", "locked").values, "check", { tone: "ok", text: "Up to date" }).values, "pending", 0).values;
     const rows = ctx.statusRows(m, values);
     check("statusRows: one row per displayable entry, in manifest order", rows.map(r => r.key), ["token", "tokens", "check", "note", "pending", "lastCheck", "health"]);
-    check("statusRows: a reported presence carries its tone and the declaration", rows[0], { key: "token", type: "presence", label: "Token", group: "Keys", setup: true, setting: "", step: "", hint: "Needed", info: "Explains this status", link: null, secrets: false, declaredTuis: ["setup"], action: { label: "Set up token", icon: "", tone: "", offered: false, tui: "" }, aside: null, report: "reported", value: "locked", tone: "info" });
+    check("statusRows: a reported presence carries its tone and the declaration", rows[0], { key: "token", type: "presence", label: "Token", group: "Keys", setup: true, setting: "", step: "", settings: false, icon: "", hint: "Needed", info: "Explains this status", link: null, secrets: false, declaredTuis: ["setup"], action: { label: "Set up token", icon: "", tone: "", offered: false, tui: "" }, aside: null, report: "reported", value: "locked", tone: "info" });
     check("statusRows: a declaration carries info", rows[0].info, "Explains this status");
     check("statusRows: a declaration carries its hint's link", rows[6].link, { text: "vendor page", url: "https://vendor.example/health" });
     check("statusRows: a reported state carries its tone", [rows[2].report, rows[2].value, rows[2].tone], ["reported", { tone: "ok", text: "Up to date" }, "success"]);
@@ -364,7 +364,7 @@ function suite(ctx, check) {
     check("statusRows: state guidance reaches the plain hint", [guidanceRow.hint, guidanceRow.value.lines], ["Try again.", undefined]);
     check("statusRows: an unreported state retains declaration help", ctx.statusRows(m, {}).find(r => r.key === "check").hint, "Check information");
     check("statusRows: clearing state guidance restores declaration help", ctx.statusRows(m, ctx.statusWrite(m, guidance, "check", null).values).find(r => r.key === "check").hint, "Check information");
-    check("statusRows: an unreported entry has no value and no tone", rows[3], { key: "note", type: "text", label: "Note", group: "", setup: false, setting: "", step: "", hint: "", info: "", link: null, secrets: false, declaredTuis: [], action: null, aside: null, report: "unreported", value: null, tone: "" });
+    check("statusRows: an unreported entry has no value and no tone", rows[3], { key: "note", type: "text", label: "Note", group: "", setup: false, setting: "", step: "", settings: false, icon: "", hint: "", info: "", link: null, secrets: false, declaredTuis: [], action: null, aside: null, report: "unreported", value: null, tone: "" });
     check("statusRows: a reported count of 0 is reported, drawn without a tone", [rows[4].report, rows[4].value, rows[4].tone], ["reported", 0, ""]);
     // A state its writer publishes hidden leaves the page until it shows one.
     const hiddenHealth = ctx.statusWrite(m, values, "health", { hidden: true }).values;
@@ -414,7 +414,7 @@ function suite(ctx, check) {
     check("statusTone: every tone is a badge tone", Object.values(ctx.STATUS_PRESENCE_TONES).concat(Object.values(ctx.STATUS_STATE_TONES)).every(t => badges.indexOf(t) !== -1), true);
     check("statusTone: a text type has none", ["text", "count", "time"].map(t => ctx.statusTone(t, 1)), ["", "", ""]);
     check("statusTone: a presence list has none of its own", ctx.statusTone("presenceList", [{ label: "A", value: "present" }]), "");
-    check("STATUS_TYPES", ctx.STATUS_TYPES, ["presence", "presenceList", "state", "text", "count", "time", "data", "choices", "launcherRows"]);
+    check("STATUS_TYPES", ctx.STATUS_TYPES, ["presence", "presenceList", "state", "text", "count", "time", "data", "choices", "launcherRows", "rows"]);
     check("LAUNCHER_ROWS_MAX", ctx.LAUNCHER_ROWS_MAX, 256);
     check("STATUS_LIST_MAX", ctx.STATUS_LIST_MAX, 64);
 
@@ -740,7 +740,7 @@ const CONTROLS = [
     ["a presence list item info is judged", "        && infoError(item.info, \"\") === \"\"\n", ""],
     ["a presence list row item carries its info", "info: item.info === undefined ? \"\" : item.info,", "info: \"\","],
     ["a presence list row item omits no info", "info: item.info === undefined ? \"\" : item.info,", "info: item.info,"],
-    ["a presence list row carries its items", "value: reported ? statusRowValue(entry.type, value) : null,", "value: reported ? value : null,"],
+    ["a presence list row carries its items", "value: reported ? statusRowValue(entry, value) : null,", "value: reported ? value : null,"],
     ["a state tone is one of the set", "typeof value.tone === \"string\" && hasOwn(STATUS_STATE_TONES, value.tone) &&", ""],
     ["a state has only its keys", "if (STATUS_STATE_KEYS.indexOf(keys[i]) === -1) return false;", ""],
     ["a state hint is a bounded printable line", "&& (value.hint === undefined || isPrintableLine(value.hint, STATUS_HINT_MAX))", ""],

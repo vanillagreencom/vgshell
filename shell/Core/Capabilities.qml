@@ -173,7 +173,7 @@ Singleton {
             add: () => root.managerCoreTui("plugin-add", []),
             reset: () => Notices.askReset(),
             rescan: () => Registry.rescan().answer,
-            act: (id, key) => root.managerAct(id, key),
+            act: (id, key, row, rowAction) => root.managerAct(id, key, row, rowAction),
             refreshChoices: (id, key) => PluginStatus.refresh(id, key),
             viewPage: id => { PluginStatus.viewed = id; },
             open: id => root.managerOpen(id),
@@ -219,7 +219,7 @@ Singleton {
         status: ctx => ({
             set: (key, value) => PluginStatus.set(ctx, key, value),
             handleRefresh: (key, handler) => PluginStatus.handleRefresh(ctx, key, handler),
-            act: key => root.managerAct(ctx.id, key),
+            act: (key, row, rowAction) => root.managerAct(ctx.id, key, row, rowAction),
             get rows() { return Logic.statusRows(Registry.manifests[ctx.id], PluginStatus.valuesOf(ctx.id)); },
             get values() { return PluginStatus.valuesOf(ctx.id); },
             get viewed() { return PluginStatus.viewed === ctx.id; },
@@ -394,11 +394,12 @@ Singleton {
         return { manifest: known ? Registry.manifests[id] : null, enabled: known && Registry.isEnabled(id), values: known ? PluginStatus.valuesOf(id) : {} };
     }
 
-    // The manager's act on plugin ID's status entry KEY (D061), as
+    // The manager's act on plugin ID's status entry KEY (D061), or with ROW
+    // its ROW_ACTION on the published row of that id, as
     // PluginLogic.statusActionRequest decides from its published values.
-    function managerAct(id, key) {
+    function managerAct(id, key, row, rowAction) {
         const subject = managerSubject(id);
-        const request = Logic.statusActionRequest(subject.manifest, id, subject.enabled, subject.values, key);
+        const request = Logic.statusActionRequest(subject.manifest, id, subject.enabled, subject.values, key, row, rowAction);
         return request.ok ? root.managerStep(id, request) : request.answer;
     }
 
@@ -427,14 +428,15 @@ Singleton {
     }
 
     // Runs REQUEST, one a manager judge accepted for plugin ID: the
-    // plugin's own declared TUI through TuiRunner.runFor, its own system
+    // plugin's own declared TUI through TuiRunner.runFor, with the
+    // request's `args`, a row action's row id, absent for none, its own system
     // step in the core TUI `core/system`, after whose end the steps are
     // probed again (D081), or its summonable surface. Every step
     // of the manager's that opens a plugin's TUI or surface goes through
     // here.
     function managerStep(id, request) {
         switch (request.kind) {
-        case "tui": return tuis.runFor(id, request.name);
+        case "tui": return tuis.runFor(id, request.name, request.args);
         case "system": return root.managerCoreTui("system", request.args, () => systemSteps.probe());
         case "core": return root.managerCoreTui(request.name, [], end => {
             if (end.code === 0) dictation.restart();

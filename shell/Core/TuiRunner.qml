@@ -81,18 +81,20 @@ Scope {
         return request(ctx.id, ctx.manifest, { name: name, args: args, ctx: ctx, done: done });
     }
 
-    // runFor: plugin ID's own declared script NAME, with no arguments and no
+    // runFor: plugin ID's own declared script NAME, with ARGS after it as
+    // tuiRun takes them, absent for none, and no
     // `done`, for the `manager` capability's step runner
-    // (Capabilities.managerStep): its act on a status action (D061) and
+    // (Capabilities.managerStep): its act on a status action (D061), whose
+    // row action hands the row's id as the one argument, and
     // its open of a listed setup screen, the Settings page's Setup button.
     // Judged by request, as run is, so a disabled plugin's or an undeclared
-    // script is refused and one that lacks a required command raises the
+    // script, or arguments tuiArgsValid refuses, are refused and one that lacks a required command raises the
     // requirement notice for those commands, for both steps. Answers `ok`
     // when the request starts the TUI or focuses its live window, as
     // PluginLogic.tuiShownAnswer decides. The plugin reads the run's end
     // from its `state`.
-    function runFor(id, name) {
-        return Logic.tuiShownAnswer(name, request(id, Registry.manifests[id], { name: name, args: [], ctx: null, done: undefined }));
+    function runFor(id, name, args) {
+        return Logic.tuiShownAnswer(name, request(id, Registry.manifests[id], { name: name, args: args, ctx: null, done: undefined }));
     }
 
     // The one judge of a plugin's own script request, run's and runFor's:

@@ -1,0 +1,15 @@
+{ "schemaVersion": 1, "id": "acme.rows", "name": "Rows", "version": "0.1.0", "author": "acme", "description": "smoke fixture publishing a list of rows on its Settings page, each row with its own Remove and Add under the list",
+  "icon": "folders",
+  "kinds": ["service"], "entryPoints": { "service": "Service.qml" },
+  "capabilities": ["status", "ipc", "tui"],
+  "tui": {
+    "add": { "script": "tui/add.sh", "title": "Add a folder pair" },
+    "remove": { "script": "tui/remove.sh", "title": "Remove a folder pair" }
+  },
+  "settings": {},
+  "status": {
+    "pairs": { "type": "rows", "label": "Folder pairs", "settings": true, "icon": "folder-sync",
+      "hint": "Each pair keeps one Google Drive folder and one folder on this computer the same",
+      "action": { "label": "Add a folder pair", "tui": "add" },
+      "rowActions": { "remove": { "label": "Remove", "tui": "remove", "tone": "danger" } } }
+  } }

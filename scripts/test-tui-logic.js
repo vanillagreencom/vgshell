@@ -686,7 +686,7 @@ function requestSuite(source, logic, check) {
         "acme.req": { live: judged(needingRaw, "r3"), registered: judged(needingRaw, "r9") },
         "vgs.jarvis": { live: judged(jarvisRaw, "j3"), registered: judged(jarvisRaw, "j9") },
     };
-    const functions = ["run(ctx, name, args, done)", "runFor(id, name)", "request(id, manifest, held)", "resume(id, held)", "unstarted(held)"]
+    const functions = ["run(ctx, name, args, done)", "runFor(id, name, args)", "request(id, manifest, held)", "resume(id, held)", "unstarted(held)"]
         .map(header => runnerFunction(source, header)).join("")
         + ["handOver(id, done, result)", "frozen(value)"].map(header => runnerFunction(RECORDS, header)).join("")
         + "const recordStore = { handOver: handOver };\n";
@@ -739,8 +739,17 @@ function requestSuite(source, logic, check) {
             [[["acme-other"], [], "run(ctx, \"sync\", [\"/file\"], done)"]],
             { answers: ["ok"], notices: [], started: [sync("r3", true)], ends: [] }],
         ["runFor of a script whose required command is missing holds a request no instance made", "acme.req",
-            [[["acme-sync"], [], "runFor(\"acme.req\", \"sync\")"]],
+            [[["acme-sync"], [], "runFor(\"acme.req\", \"sync\", [])"]],
             { answers: ["ok"], notices: [["acme.req", ["acme-sync"], "sync", []]], started: [], ends: [] }],
+        ["runFor with a row's id starts the script with that id as its one argument", "acme.req",
+            [[[], [], "runFor(\"acme.req\", \"sync\", [\"/file\"])"]],
+            { answers: ["ok"], notices: [], started: [sync("r9", false)], ends: [] }],
+        ["runFor of a status action with no argument starts the script alone", "acme.req",
+            [[[], [], "runFor(\"acme.req\", \"sync\", undefined)"]],
+            { answers: ["ok"], notices: [], started: [{ dir: "/run/src/r9", script: ["tui/sync.sh"], done: false }], ends: [] }],
+        ["runFor of a row id tuiArgsValid refuses starts nothing", "acme.req",
+            [[[], [], "runFor(\"acme.req\", \"sync\", [\"\"])"]],
+            { answers: ["refused: tui=sync reason=args"], notices: [], started: [], ends: [] }],
         ["resume of the request run held starts the same script, arguments and done", "acme.req",
             [[["acme-sync"], [], "run(ctx, \"sync\", [\"/file\"], done)"], [[], [], "resume(\"acme.req\", captured)"]],
             { answers: ["ok", "ok"], notices: [["acme.req", ["acme-sync"], "sync", ["/file"]]], started: [sync("r3", true)], ends: [] }],

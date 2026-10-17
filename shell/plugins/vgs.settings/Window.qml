@@ -297,7 +297,8 @@ FocusScope {
     }
 
     // Where a reply is kept: plugin `id`, then, for a status step, its
-    // entry `key` and, for a secret, its `account`, joined by "/".
+    // entry `key` and, for a secret, its `account`, or for a row action,
+    // its row's id, joined by "/".
     function stepKey(id, key, account) {
         return [id].concat(key === undefined ? [] : [key], account === undefined ? [] : [account]).join("/");
     }
@@ -439,10 +440,11 @@ FocusScope {
     function installRequirements(id) { return keep(stepKey(id, actionKey("tools")), shell.manager.installRequirements(id)); }
 
     // Run the action of plugin `id`'s status entry `key` through the
-    // manager: its floating TUI, which Hyprland focuses over this window,
+    // manager, or with `row` its row action `rowAction` on the row of that
+    // id, a reply kept under the row's id: its floating TUI, which Hyprland focuses over this window,
     // or the requirement notice; answers the manager's reply (D061).
-    function act(id, key) {
-        return keep(stepKey(id, key), shell.manager.act(id, key));
+    function act(id, key, row, rowAction) {
+        return keep(stepKey(id, key, row), shell.manager.act(id, key, row, rowAction));
     }
 
     // The step key of setup screen `name`, which `replyOf` reads its reply
