@@ -523,8 +523,8 @@ const ROWS = [
         1, () => refused("epoch=mismatch package=nodejs have=2 want=1 " + dnf())],
     ["dnf: an epoch on an epoch-0 package is refused", t => { edit(t, REL, "^(Requires:\\s+quickshell >= )", "$11:"); edit(t, GIT, "^(Requires:\\s+quickshell >= )", "$11:"); },
         1, () => refused("epoch=mismatch package=quickshell have=1 want=0 " + dnf())],
-    ["dnf: an optional requirement as Requires is refused", t => replaceIn(t, SPECS, "Recommends:     bluez\n", "Requires:       bluez\n"),
-        1, () => refused("extra=bluez field=Requires channel=dnf recipe=vgshell")],
+    ["dnf: an optional requirement as Requires is refused", t => replaceIn(t, SPECS, "Recommends:     btop\n", "Requires:       btop\n"),
+        1, () => refused("extra=btop field=Requires channel=dnf recipe=vgshell")],
     ["dnf: an extra Recommends is refused", t => replaceIn(t, SPECS, "Recommends:     brightnessctl\n", "Recommends:     brightnessctl\nRecommends:     jq\n"),
         1, () => refused("extra=jq field=Recommends channel=dnf recipe=vgshell")],
     ["dnf: a renamed dnf package is refused", t => {
