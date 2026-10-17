@@ -14,4 +14,4 @@ Polkit asks for your password when an application needs administrator access. Th
 
 ## Setup
 
-The plugin ships with VGS and is on by default. Only one app at a time can show password prompts. The Settings page shows whether VGS can show them. When another app shows them, the page names it and offers Uninstall, or Stop when another installed app needs it. When polkit is not installed, select Review all missing or outdated tools on the Tools step of the Setup tab. After each of these, VGS shows password prompts at once, with no new login.
+The plugin ships with VGS and is on by default. Only one app at a time can show password prompts. The Password prompts step on the Setup tab shows whether VGS can show them. When another app shows them, the page names it and offers Uninstall, or Stop when another installed app needs it. When polkit is not installed, select Review all missing or outdated tools under Tools on the Details tab. After each of these, VGS shows password prompts at once, with no new login.

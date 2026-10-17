@@ -11,7 +11,7 @@ Lock protects your session with your password. The lock screen uses your theme a
 - Locks before the computer sleeps, and the sleep waits for the lock.
 - Shows the time, the date and the password field on every screen. Typing on any screen fills every field.
 - Pauses the password check for two minutes after ten wrong passwords, and says so.
-- Takes over from another lock screen that holds the session. If that lock screen later unlocks the session, the Settings page warns you.
+- Takes over from another lock screen that holds the session. If that lock screen later unlocks the session, the Lock reading on the Details tab warns you.
 - Warns you with a notification if the computer slept before the lock was confirmed.
 - Locks the session again when the shell starts after a crash while locked.
 - Needs no setup. The password check uses the plugin's own PAM stack, and the shell's requirement notice installs a missing tool in one click.

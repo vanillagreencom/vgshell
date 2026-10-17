@@ -33,4 +33,4 @@ vgshell system undo greeter
 
 </details>
 
-The Settings page shows whether the login screen is set up and whether its copy of your theme is up to date.
+The Login screen step on the Setup tab shows whether the login screen is set up. The Login screen theme reading on the Details tab shows whether its copy of your theme is up to date.

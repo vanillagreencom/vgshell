@@ -36,7 +36,8 @@ AI Usage shows how much of your Claude Code, Codex and Copilot plan limits you h
 | Colour by usage | Shows the bar number in the warning colour from 80 % used, whichever share it shows. |
 | Providers | Show or hide Claude Code, Codex and Copilot in the panel and bar total. |
 | Hidden accounts | Hide selected accounts from the panel and bar total. The choices are the signed-in accounts, each shown as its provider and email, or the GitHub login for Copilot. An account that has neither shows the provider alone. A new item reads Choose an account and hides nothing until you choose one. A hidden account that is later signed out stays in the list and shows as unavailable. |
-| Sign-in | One row per tool. While no account of a tool is signed in, its row offers Sign in, which opens the tool's own sign-in in a terminal window. |
+
+Sign in for Claude Code and Codex is under Sign-in on the Details tab and opens the tool's own sign-in in a terminal window.
 
 When a Claude Code or Copilot sign-in has expired, open that tool once to refresh it.
 
@@ -53,7 +54,7 @@ codex login
 
 Turn on AI Gateway credits in Settings. Select Get AI Gateway key on the Details tab to open Vercel. In the dashboard, open AI Gateway, then API keys, then Create key. The key unlocks AI Gateway credit figures.
 
-In Settings, beside AI Gateway credits, select Add key. Paste the key into the masked field. VGS stores it in your keyring. Replace beside a stored key replaces it, and Remove removes it. A key or a switch change checks the figures at once. With the switch off, VGS reads no AI Gateway key and calls no AI Gateway API.
+On the Settings tab, under AI Gateway key, select Add key. Paste the key into the masked field. VGS stores it in your keyring. Replace beside a stored key replaces it, and Remove removes it. A key or a switch change checks the figures at once. With the switch off, VGS reads no AI Gateway key and calls no AI Gateway API.
 
 ## Credits
 
