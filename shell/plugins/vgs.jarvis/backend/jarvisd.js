@@ -594,7 +594,8 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
                     // A harness brain opens the bridge's session for its conversation;
                     // until one is selected no socket exists.
                     bridge = ToolBridge.create({ router, state: () => runner.state, audit,
-                        directory: context.directories.runtime, release: { prepare: (value, recipients) => engine.release.prepare(value, recipients) } });
+                        directory: context.directories.runtime, release: { prepare: (value, recipients) => engine.release.prepare(value, recipients) },
+                        answered: (value, tool) => engine.brain.bridged(value, tool) });
                     gate = HarnessGate.create({ router, state: () => runner.state });
                     router.register("harness", gate.executor);
                     // Executor owners register only after their real probes.

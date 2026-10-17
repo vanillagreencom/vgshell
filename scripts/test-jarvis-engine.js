@@ -6,6 +6,7 @@
 const { assert, fs, path, cp, tree, world, until: wait } = require("./fixtures/jarvis/audio.js");
 const { once } = require("node:events");
 const http = require("node:http");
+const net = require("node:net");
 const { clock, turn } = require("./fixtures/jarvis/playback.js");
 const Fixture = require("./fixtures/jarvis/engine.js");
 const Frames = require("./fixtures/jarvis-brain/openai-chat-frames.js");
@@ -29,6 +30,13 @@ function gate() {
     let open;
     const wait = new Promise(resolve => { open = resolve; });
     return { wait, open };
+}
+
+// One expression of the shipped daemon's wiring, evaluated in the rig's scope.
+function shipped(source, pattern, scope, what) {
+    const found = [...source.matchAll(pattern)];
+    assert.equal(found.length, 1, "one shipped daemon " + what);
+    return vm.runInContext("(" + found[0][1] + ")", scope);
 }
 
 function rig(kit, server, options = {}) {
@@ -83,13 +91,26 @@ function rig(kit, server, options = {}) {
         if (s.turn.kind === "collecting" && s.turn.partial !== "" && partials.at(-1) !== s.turn.partial)
             partials.push(s.turn.partial);
     });
+    const daemonSource = fs.readFileSync(path.join(kit.folder, "backend/jarvisd.js"), "utf8");
+    // A harness program's tool bridge takes the shipped daemon's result
+    // route and bridge wiring, so its answers reach the engine as in jarvisd.
+    const daemon = options.bridge ? vm.createContext({ runner, audit, router: null, engine: null, gate: null, bridge: null,
+        context: { directories: { runtime: fs.mkdtempSync(path.join(process.env.XDG_RUNTIME_DIR, "b-")) } } }) : null;
+    const result = daemon === null ? value => runner.ports.brain.outcome(value)
+        : shipped(daemonSource, /result: (value => gate\.deliver\(value\)[^\n]*?),\n/g, daemon, "result route");
     const router = Router.create({ session: Session, state: () => runner.state, dispatch: e => runner.dispatch(e), audit,
         context: () => ({ profile: "standard", locked: false, denied: options.actionApproval ? Denied.create({
             home: process.env.HOME, config: process.env.XDG_CONFIG_HOME, data: process.env.XDG_DATA_HOME,
             state: options.deniedState ?? process.env.XDG_STATE_HOME, runtime: process.env.XDG_RUNTIME_DIR, install: kit.folder, accountRoots: [], jarvisHome: null
         }) : null }),
-        result: value => runner.ports.brain.outcome(value), routed: turn => engine?.brain.routed(turn) });
+        result, routed: turn => engine?.brain.routed(turn) });
     Object.assign(ports, router.ports);
+    if (daemon !== null) {
+        daemon.router = router;
+        daemon.bridge = backend("ToolBridge.js").create(shipped(daemonSource,
+            /bridge = ToolBridge\.create\((\{[\s\S]*?\})\);\n/g, daemon, "bridge"));
+        daemon.gate = backend("HarnessGate.js").create({ router, state: () => runner.state });
+    }
     // The callback stands in for a command-ready executor; it never starts hyprctl.
     router.register("compositor", { commands: ["hyprctl"], timeoutMs: 30000, cancellable: false, start(call, done) {
         executions.push(call);
@@ -141,9 +162,9 @@ function rig(kit, server, options = {}) {
         ...(options.home === undefined ? {} : { home: options.home }),
         ...(options.log === undefined ? {} : { log: options.log }),
         ...(options.trace === undefined ? {} : { trace: options.trace }) });
+    if (daemon !== null) daemon.engine = engine;
     ports.release = engine.release;
     const actionApproval = ports.approval;
-    const daemonSource = fs.readFileSync(path.join(kit.folder, "backend/jarvisd.js"), "utf8");
     const wiring = [...daemonSource.matchAll(/runner\.ports\.approval = (\{\n[\s\S]*?\n                    \});/g)];
     assert.equal(wiring.length, 1, "one shipped daemon approval wiring");
     ports.approval = vm.runInNewContext("(" + wiring[0][1] + ")", { engine, actionApproval });
@@ -168,9 +189,11 @@ function rig(kit, server, options = {}) {
         return fs.existsSync(file) ? fs.readFileSync(file, "utf8").trim().split("\n").map(line => JSON.parse(line)) : [];
     };
     return { runner, router, audio, audioClock, engine, audit, faults, executions, held, partials, captions, rows, configure,
-        state, workspace, server, advanceRunner, writes, timers, tasks, dictation,
+        state, workspace, server, advanceRunner, writes, timers, tasks, dictation, bridge: daemon?.bridge,
         s: () => runner.state,
         async close() {
+            daemon?.bridge.close();
+            daemon?.gate.close();
             tasks?.close();
             runner.close();
             engine.close();
@@ -254,6 +277,31 @@ async function settled(observed, over, message) {
     let seen = false;
     await until(() => (seen = observed()) || over(), message);
     assert.ok(seen, message);
+}
+// A harness program's side of the tool bridge: the shim's hello, then MCP
+// through initialize and its notification, on the session's socket.
+async function harnessProgram(launch) {
+    const socket = net.createConnection({ path: launch.env.VGS_JARVIS_TOOLS_SOCKET });
+    socket.setEncoding("utf8");
+    socket.on("error", () => {});
+    const lines = [];
+    let tail = "";
+    socket.on("data", chunk => {
+        tail += chunk;
+        for (let end; (end = tail.indexOf("\n")) >= 0; tail = tail.slice(end + 1)) lines.push(JSON.parse(tail.slice(0, end)));
+    });
+    const next = async what => {
+        await until(() => lines.length !== 0, what);
+        return lines.shift();
+    };
+    const send = message => socket.write(JSON.stringify(message) + "\n");
+    send({ v: 1, type: "hello", token: launch.env.VGS_JARVIS_TOOLS_TOKEN });
+    assert.deepEqual(await next("the bridge admits the program"), { v: 1, type: "ready" });
+    send({ jsonrpc: "2.0", id: 0, method: "initialize",
+        params: { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "fixture-harness", version: "0" } } });
+    assert.equal((await next("the bridge answers initialize")).id, 0);
+    send({ jsonrpc: "2.0", method: "notifications/initialized" });
+    return { next, send, close: () => socket.destroy() };
 }
 async function requested(w, count, label, over = () => false) {
     await settled(() => w.server.requests.length >= count && w.server.requests[count - 1].body !== null, over, label);
@@ -1584,8 +1632,9 @@ async function cases(kit, server, only = null) {
     // Jarvis's fixed line, captioned and spoken once whatever the brain
     // says after it; any other result leaves the words to the brain.
     const ASKING = "Asking Jarvis's session.";
+    const FLEET_ROW = { outcome: "completed", content: "Completed: the request is in the Jarvis session's mailbox as row 1792200000001." };
     for (const [name, result, reply, spoken] of [
-        ["completed-echo", { outcome: "completed", content: "Completed: the request is in the Jarvis session's mailbox as row 1792200000001." },
+        ["completed-echo", FLEET_ROW,
             "Asking Jarvis's session. It reads its mail next.", [ASKING, "It reads its mail next."]],
         ["completed-silent", { outcome: "completed", content: "Completed: the request is in the Jarvis session's mailbox as row 1792200000002." },
             "", [ASKING]],
@@ -1611,6 +1660,40 @@ async function cases(kit, server, only = null) {
         assert.deepEqual(said, spoken, "the transcript shows what was spoken");
         assert.deepEqual(w.faults, []);
     }, { fleet: result });
+
+    // The same request from a harness program, answered through the tool
+    // bridge while the brain's reply streams: Jarvis's fixed line, said once,
+    // though the brain says nothing after it.
+    await run("fleet-request-bridged", async w => {
+        const first = await say(w, utterance("Ask my fleet to update the docs."));
+        const streaming = gate();
+        server.replies.push([...pause(streaming), ...text("").slice(1)]);
+        await requested(w, first + 1, "the brain's reply streams");
+        const launch = await w.bridge.open({ gen: w.s().gen, recipients: control.opened.at(-1).recipients });
+        const program = await harnessProgram(launch);
+        try {
+            program.send({ jsonrpc: "2.0", id: 1, method: "tools/call",
+                params: { name: "fleet_request", arguments: { text: "Update the docs." } } });
+            await until(() => w.s().approval.kind === "held", "the request for the Jarvis session waits for the user");
+            const h = w.s().approval;
+            w.runner.dispatch({ type: "shown", gen: h.gen, op: h.op, id: h.id });
+            w.advanceRunner(1000);
+            w.runner.dispatch({ type: "confirm", gen: h.gen, id: h.id, digest: h.digest, source: "button" });
+            const answer = await program.next("the program receives the result");
+            assert.deepEqual([answer.id, answer.result.content[0].text], [1, FLEET_ROW.content], "the row id stays in the result");
+            assert.deepEqual(w.executions.map(call => [call.id, call.args]), [["fleet.request", { text: "Update the docs." }]]);
+            streaming.open();
+            await until(() => w.s().turn.kind === "none", "the turn completes");
+            await playOut(w);
+            assert.deepEqual(withoutAcks(control.spoken), [ASKING]);
+            const said = withoutAcks(assistantCaptions(w).filter(row => row[2] === "final").at(-1)[4].split(/(?<=\.) /u));
+            assert.deepEqual(said, [ASKING], "the transcript shows what was spoken");
+            assert.deepEqual(w.faults, []);
+        } finally {
+            program.close();
+            launch.close();
+        }
+    }, { fleet: FLEET_ROW, bridge: true });
 
     // A short command takes the local fast path: one call through the real
     // router and audit, no brain request, a fixed spoken line, and an
@@ -3501,6 +3584,20 @@ async function groupPlants(root, server) {
         console.log("control=" + name + " detected operator=" + failure.operator + ": " + failure.message.split("\n")[0]);
         controls++;
     }
+    // Without the daemon's bridge answer port a harness program's request
+    // never reaches the engine's fixed line.
+    const bridgeKit = Fixture.copy(root);
+    const daemonFile = path.join(bridgeKit.folder, "backend/jarvisd.js");
+    const daemonSource = fs.readFileSync(daemonFile, "utf8");
+    const answeredNeedle = ",\n                        answered: (value, tool) => engine.brain.bridged(value, tool)";
+    assert.equal(daemonSource.split(answeredNeedle).length, 2, "one bridge answer wiring control match");
+    fs.writeFileSync(daemonFile, daemonSource.replace(answeredNeedle, ""));
+    await assert.rejects(() => cases(bridgeKit, server, "fleet-request-bridged"), error => {
+        assert.ok(error instanceof assert.AssertionError, "dropping the daemon's bridge answer port must fail the bridged fixed line: " + error);
+        console.log("control=fleet-line-bridged-wiring detected by=" + JSON.stringify(error.message.split("\n").slice(0, 6).join(" ")));
+        return true;
+    });
+    controls++;
     return controls;
 }
 

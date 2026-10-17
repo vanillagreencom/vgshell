@@ -28,16 +28,19 @@ function log(line) { process.stderr.write("jarvis: bridge=" + line + "\n"); }
 function digest(token) { return crypto.createHash("sha256").update(token).digest(); }
 
 /**
- * create({router, state, audit, directory, clock?}) owns the bridge for the
- * daemon's lifetime. router is the ToolRouter, state returns the runner's
- * Session state, audit is the daemon's writer, directory is hello's
- * directories.runtime. Creation touches no file; open() starts one session.
+ * create({router, state, audit, directory, release, answered, clock?}) owns
+ * the bridge for the daemon's lifetime. router is the ToolRouter, state
+ * returns the runner's Session state, audit is the daemon's writer,
+ * directory is hello's directories.runtime. answered(value, tool), the
+ * daemon's engine, hears each call's one answer as it arrives, before its
+ * release; a suite without an engine leaves it out. Creation touches no
+ * file; open() starts one session.
  */
-function create({ router, state, audit, directory, release, clock = { set: setTimeout, clear: clearTimeout } }) {
+function create({ router, state, audit, directory, release, answered = () => {}, clock = { set: setTimeout, clear: clearTimeout } }) {
     if (typeof directory !== "string" || !path.isAbsolute(directory)) fail("directory");
     const socketPath = path.join(directory, "tools.sock");
-    // Router call id -> {connection, request, recipients, answered}. The one
-    // judge of whether a router result belongs to the bridge.
+    // Router call id -> {connection, request, tool, recipients, answered}.
+    // The one judge of whether a router result belongs to the bridge.
     const pending = new Map();
     let session = null;
     let lifetime = "open";
@@ -197,7 +200,7 @@ function create({ router, state, audit, directory, release, clock = { set: setTi
         }
         const id = "bridge-" + crypto.randomUUID();
         // Registered first: the router delivers a refusal before route returns.
-        pending.set(id, { connection, request: act.id, recipients: current.recipients, answered: false });
+        pending.set(id, { connection, request: act.id, tool: names.get(act.name), recipients: current.recipients, answered: false });
         router.route({ kind: "tool-call", id, tool: names.get(act.name), arguments: act.arguments },
             { gen: s.turn.gen, op: s.turn.op });
     }
@@ -215,6 +218,7 @@ function create({ router, state, audit, directory, release, clock = { set: setTi
         if (value.final) pending.delete(answer.id);
         if (entry.answered || entry.connection.closed) return true;
         entry.answered = true;
+        answered(value, entry.tool);
         void release.prepare(value, entry.recipients).then(grants => {
             if (grants === null || entry.connection.closed) return;
             deliverReleased(value, answer, entry, grants);

@@ -1351,14 +1351,23 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
     }
     // A brain's call whose result Jarvis states in fixed words as it
     // arrives, whatever the brain then says; any other result is the
-    // brain's to state.
+    // brain's to state. A wire brain's call arrives at outcome, a harness
+    // program's at bridged. Answers false when saying it failed the turn.
     const CALL_LINES = { "fleet.request": { completed: "Asking Jarvis's session." } };
-    function callLine(c, turn, text) {
-        quiet(turn);
-        const speakable = Speakable.create(LANGUAGE);
-        const sentences = [...speakable.push(text), ...speakable.finish()];
-        for (const sentence of sentences) say(c, turn, sentence, ["desktop"]);
-        turn.fixed = new Set(sentences.map(normalizedLine));
+    function callLine(c, turn, tool, outcome) {
+        const text = CALL_LINES[tool]?.[outcome];
+        if (text === undefined) return true;
+        try {
+            quiet(turn);
+            const speakable = Speakable.create(LANGUAGE);
+            const sentences = [...speakable.push(text), ...speakable.finish()];
+            for (const sentence of sentences) say(c, turn, sentence, ["desktop"]);
+            turn.fixed = new Set(sentences.map(normalizedLine));
+            return true;
+        } catch (error) {
+            failed(c, turn, error);
+            return false;
+        }
     }
     // Jarvis's own words as the whole turn: spoken, captioned and done.
     function fixedLine(c, turn, text) {
@@ -1611,16 +1620,9 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             if (turn !== null && turn.op === value.op && turn.phase === "routing" && turn.routing?.id === id) {
                 // A result's image stays with its text for the tool-results turn.
                 turn.answers.set(id, image === undefined ? { item } : { item, image });
-                const fixed = CALL_LINES[turn.routing?.tool]?.[value.outcome];
+                const tool = turn.routing?.tool;
                 turn.routing = null;
-                if (fixed !== undefined) {
-                    try { callLine(c, turn, fixed); }
-                    catch (error) {
-                        failed(c, turn, error);
-                        return;
-                    }
-                }
-                next(c, turn);
+                if (callLine(c, turn, tool, value.outcome)) next(c, turn);
                 return;
             }
             const late = c.late.get(id);
@@ -1628,6 +1630,14 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
             c.late.delete(id);
             if (late.fast !== undefined) c.results.push(fastAccount(late.fast.e.text, late.call, value.outcome, item));
             else c.results.push(lateItem(late.call, value.outcome, item));
+        },
+        // A harness program's call answered through the tool bridge while
+        // its reply streams; the bridge alone answers the program.
+        bridged(value, tool) {
+            const c = conversation;
+            const turn = c?.turn;
+            if (c === null || c.gen !== value.gen || turn === null || turn.op !== value.op || turn.phase !== "streaming") return;
+            callLine(c, turn, tool, value.outcome);
         }
     };
 
