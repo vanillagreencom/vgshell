@@ -23,9 +23,11 @@ import "../../shell/plugins/vgs.settings"
 // the new key, Use my binding removes the key a user bind holds, and the
 // reset sends undefined. A refused key returns to the row's text entry
 // whether the field or a caller sent it, and a refused removal or list
-// opens none. The owner here stands in for the page: it records
-// each write and takes it or refuses it; the page's capture names keys
-// with the core's judge and says a user bind holds Right Ctrl when asked.
+// opens none. A field that declares `shownWhen` is drawn only while its
+// presence entry reads present. The owner here stands in for the page: it
+// records each write and takes it or refuses it; the page's capture names
+// keys with the core's judge and says a user bind holds Right Ctrl when
+// asked.
 Item {
     id: root
     width: 480
@@ -505,6 +507,37 @@ Item {
             root.pageRow = Object.assign({}, root.pageRow, { settingChoices: { kept: [], hiding: [{ label: "One", value: "" }], alone: [{ label: "One", value: "" }] } });
             tryVerify(() => drawn().indexOf("hiding") !== -1 && drawn().indexOf("alone") !== -1);
             verify(headings().indexOf("Lone") !== -1, "an offer draws the field under its heading");
+            releasePage(page, original);
+        }
+
+        // The withheld keys come from the core's judge over the published
+        // values, as the manager row's do (PluginLogic.withheldFields).
+        function test_a_shown_when_field_has_no_place_while_its_entry_reads_absent() {
+            const original = root.pageRow;
+            const status = { battery: { type: "presence", label: "Battery", hidden: true } };
+            const schema = {
+                kept: { type: "boolean", label: "Kept", group: "Alerts" },
+                low: { type: "boolean", label: "Low battery", group: "Alerts", shownWhen: "battery" },
+                charging: { type: "boolean", label: "While charging", group: "Battery", shownWhen: "battery" }
+            };
+            const manifest = { schema: schema, status: status };
+            root.pageRow = Object.assign({}, original, {
+                schema: schema,
+                settings: { kept: true, low: true, charging: true },
+                binds: [],
+                withheldFields: PluginLogic.withheldFields(manifest, { battery: "absent" }),
+                fieldRows: PluginLogic.fieldRows(schema, status)
+            });
+            const page = createTemporaryObject(pluginPageComponent, root);
+            verify(page !== null);
+            const drawn = () => descendants(page).filter(item => item instanceof SettingField).map(item => item.key);
+            const headings = () => descendants(page).filter(item => item instanceof Section).map(item => item.title);
+            tryVerify(() => drawn().indexOf("kept") !== -1);
+            compare(drawn().filter(key => key === "low" || key === "charging"), [], "a field whose presence entry reads absent is not drawn");
+            compare(headings().indexOf("Battery"), -1, "a group whose every field is withheld draws no heading");
+            root.pageRow = Object.assign({}, root.pageRow, { withheldFields: PluginLogic.withheldFields(manifest, { battery: "present" }) });
+            tryVerify(() => drawn().indexOf("low") !== -1 && drawn().indexOf("charging") !== -1);
+            verify(headings().indexOf("Battery") !== -1, "a present entry draws its fields under their heading");
             releasePage(page, original);
         }
 

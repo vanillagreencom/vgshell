@@ -50,12 +50,15 @@ FocusScope {
     // whose group exists on the page follows that group; one whose group is
     // absent stays with ungrouped lists at the end. A `hideEmpty` field has
     // no place while its select model is empty and it draws no key list
-    // beside it (Steps.featureRow): nothing is offered for it.
+    // beside it (Steps.featureRow): nothing is offered for it. A
+    // `shownWhen` field has no place while the manager row withholds it,
+    // its presence entry not reading present (PluginLogic.withheldFields).
     function drawsLines(field) {
         return Steps.featureRow(field, row).length > 0;
     }
     function placed(field) {
-        return !field.list && !(row.schema[field.key].hideEmpty === true && (row.settingChoices[field.key] || []).length === 0 && !drawsLines(field));
+        return !field.list && !(row.schema[field.key].shownWhen !== undefined && row.withheldFields.indexOf(field.key) !== -1)
+            && !(row.schema[field.key].hideEmpty === true && (row.settingChoices[field.key] || []).length === 0 && !drawsLines(field));
     }
     function fieldRow(key) {
         return row === null ? null : row.fieldRows.find(field => field.key === key) || null;

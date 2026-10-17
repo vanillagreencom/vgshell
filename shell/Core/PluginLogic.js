@@ -52,13 +52,15 @@ var EXCLUSIVE_CAPABILITIES = ["lock", "polkit", "bluetoothAgent", "panes"];
 // `group` names the section heading the entry is drawn under;
 // `placeholder` is what an `optionsFrom` select reads while its value is
 // "", which then means nothing is chosen; `hideEmpty` leaves an
-// `optionsFrom` field off the page while nothing is offered for it; `link`
+// `optionsFrom` field off the page while nothing is offered for it;
+// `shownWhen` names a `presence` status entry of the same plugin and
+// places the field only while that entry reads present; `link`
 // makes part of the description open an https address or another plugin's
 // page; `tooltip` is the few words a label that is not plain needs, shown
 // on hover and keyboard focus of the label. Pads.js judges a
 // `list`.
 var SETTING_TYPES = ["string", "number", "boolean", "enum", "list"];
-var SCHEMA_ENTRY_KEYS = ["type", "label", "description", "info", "tooltip", "link", "options", "optionsFrom", "presets", "separator", "allowCustom", "format", "unit", "min", "max", "step", "group", "items", "defaults", "placeholder", "hideEmpty"];
+var SCHEMA_ENTRY_KEYS = ["type", "label", "description", "info", "tooltip", "link", "options", "optionsFrom", "presets", "separator", "allowCustom", "format", "unit", "min", "max", "step", "group", "shownWhen", "items", "defaults", "placeholder", "hideEmpty"];
 var NUMBER_BOUND_KEYS = ["min", "max", "step"];
 var PRESET_KEYS = ["value", "label"];
 var OPTION_KEYS = ["value", "label"];
@@ -447,6 +449,13 @@ function schemaError(schema, settings, status) {
                 return at + ".hideEmpty needs optionsFrom";
             if (typeof entry.hideEmpty !== "boolean")
                 return at + ".hideEmpty must be a boolean";
+        }
+        // A list draws as a section of its own, which no field gate places.
+        if (entry.shownWhen !== undefined) {
+            if (entry.type === "list")
+                return at + ".shownWhen needs a flat setting";
+            if (typeof entry.shownWhen !== "string" || !hasOwn(status, entry.shownWhen) || status[entry.shownWhen].type !== "presence")
+                return at + ".shownWhen must name a presence status entry";
         }
         if (entry.presets !== undefined && entry.optionsFrom !== undefined)
             return at + " must not declare both presets and optionsFrom";
@@ -1273,6 +1282,19 @@ function settingChoices(manifest, values, settings) {
         else if (entry.optionsFrom !== undefined) out[key] = choices(entry, settings[key]);
     });
     return frozenJson(out);
+}
+
+// The keys of MANIFEST's schema fields that declare `shownWhen` and whose
+// presence entry does not read present in VALUES, the plugin's published
+// status. An unreported entry withholds its field too: before the service's
+// first publish, and while the plugin is off, since PluginStatus drops the
+// record of a disabled plugin, the page draws no field for hardware it has
+// not seen.
+function withheldFields(manifest, values) {
+    return Object.keys(manifest.schema).filter(function (key) {
+        var entry = manifest.schema[key];
+        return entry.shownWhen !== undefined && !(hasOwn(values, entry.shownWhen) && values[entry.shownWhen] === "present");
+    });
 }
 
 // The badge tone Settings draws a reported status value with: the

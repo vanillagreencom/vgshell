@@ -357,6 +357,15 @@ function suite(ctx, configLogic, check) {
         ["a choices string may hide while nothing is offered", { capabilities: ["status"], status: { devices: { type: "choices", label: "Devices" } }, settings: { a: "" }, schema: { a: { type: "string", label: "A", optionsFrom: "devices", hideEmpty: true } } }, null],
         ["hideEmpty needs optionsFrom", { settings: { a: "x" }, schema: { a: { type: "string", label: "A", presets: [{ value: "x" }], hideEmpty: true } } }, "schema.a.hideEmpty needs optionsFrom"],
         ["a hideEmpty that is no boolean", { capabilities: ["status"], status: { devices: { type: "choices", label: "Devices" } }, settings: { a: "" }, schema: { a: { type: "string", label: "A", optionsFrom: "devices", hideEmpty: "yes" } } }, "schema.a.hideEmpty must be a boolean"],
+        ["a field shown while a presence entry reads present", { capabilities: ["status"], status: { battery: { type: "presence", label: "Battery" } }, settings: { a: true }, schema: { a: { type: "boolean", label: "A", shownWhen: "battery" } } }, null],
+        ["a field shown while a hidden presence entry reads present", { capabilities: ["status"], status: { battery: { type: "presence", label: "Battery", hidden: true } }, settings: { a: 20 }, schema: { a: { type: "number", label: "A", presets: [{ value: 20 }], shownWhen: "battery" } } }, null],
+        ["a shownWhen naming no status entry", { capabilities: ["status"], status: { battery: { type: "presence", label: "Battery" } }, settings: { a: true }, schema: { a: { type: "boolean", label: "A", shownWhen: "lid" } } }, "schema.a.shownWhen must name a presence status entry"],
+        ["a shownWhen without a status declaration", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", shownWhen: "battery" } } }, "schema.a.shownWhen must name a presence status entry"],
+        ["a shownWhen naming a state entry", { capabilities: ["status"], status: { battery: { type: "state", label: "Battery" } }, settings: { a: true }, schema: { a: { type: "boolean", label: "A", shownWhen: "battery" } } }, "schema.a.shownWhen must name a presence status entry"],
+        ["a shownWhen naming a key list", { capabilities: ["status"], status: { battery: { type: "presenceList", label: "Battery" } }, settings: { a: true }, schema: { a: { type: "boolean", label: "A", shownWhen: "battery" } } }, "schema.a.shownWhen must name a presence status entry"],
+        ["a shownWhen that is no string", { capabilities: ["status"], status: { battery: { type: "presence", label: "Battery" } }, settings: { a: true }, schema: { a: { type: "boolean", label: "A", shownWhen: ["battery"] } } }, "schema.a.shownWhen must name a presence status entry"],
+        ["a list that is shown when", { capabilities: ["status"], status: { battery: { type: "presence", label: "Battery" } }, settings: { a: [] }, schema: { a: { type: "list", label: "A", shownWhen: "battery", items: { on: { type: "boolean", label: "On" } }, defaults: { on: true } } } }, "schema.a.shownWhen needs a flat setting"],
+        ["a list item field that is shown when", { capabilities: ["status"], status: { battery: { type: "presence", label: "Battery" } }, settings: { a: [] }, schema: { a: { type: "list", label: "A", items: { on: { type: "boolean", label: "On", shownWhen: "battery" } }, defaults: { on: true } } } }, "schema.a.items.on.shownWhen is refused: an item draws every field"],
         ["a placeholder that is not a string", { capabilities: ["status"], status: { devices: { type: "choices", label: "Devices" } }, settings: { a: "" }, schema: { a: { type: "string", label: "A", optionsFrom: "devices", placeholder: 3 } } }, "schema.a.placeholder must be a printable line"],
         ["an empty placeholder", { capabilities: ["status"], status: { devices: { type: "choices", label: "Devices" } }, settings: { a: "" }, schema: { a: { type: "string", label: "A", optionsFrom: "devices", placeholder: "" } } }, "schema.a.placeholder must be a printable line"],
         ["a placeholder with a newline", { capabilities: ["status"], status: { devices: { type: "choices", label: "Devices" } }, settings: { a: "" }, schema: { a: { type: "string", label: "A", optionsFrom: "devices", placeholder: "Choose\na device" } } }, "schema.a.placeholder must be a printable line"],
@@ -497,6 +506,17 @@ function suite(ctx, configLogic, check) {
         const r = ctx.validateManifest(raw, "/p");
         check("validateManifest: " + name, r.ok ? null : r.error.slice(0, want === null ? 0 : want.length), want === null ? null : want);
     }
+    // The fields a page withholds (withheldFields): [name, published
+    // values, the withheld keys]. `low` waits on the battery, `lid` on the
+    // lid, and `kept` on nothing.
+    const gated = { schema: { low: { type: "boolean", label: "Low", shownWhen: "battery" }, kept: { type: "boolean", label: "Kept" }, lid: { type: "boolean", label: "Lid", shownWhen: "lid" } } };
+    for (const [name, values, want] of [
+        ["every entry present", { battery: "present", lid: "present" }, []],
+        ["every entry absent", { battery: "absent", lid: "absent" }, ["low", "lid"]],
+        ["before the first publish", {}, ["low", "lid"]],
+        ["one entry present", { battery: "present", lid: "absent" }, ["lid"]],
+        ["a presence that is not present", { battery: "unavailable", lid: "present" }, ["low"]],
+    ]) check("withheldFields: " + name, ctx.withheldFields(gated, values), want);
     // Capture declares atomic presets but keeps joined and custom strings.
     const joined = { type: "string", label: "Languages", separator: "+", allowCustom: true, presets: [{ value: "eng" }, { value: "deu" }, { value: "fra" }] };
     for (const [name, patch, value, accepted] of [
@@ -2337,6 +2357,13 @@ const CONTROLS = [
     ["hideEmpty is a schema entry key", ", \"placeholder\", \"hideEmpty\"];", ", \"placeholder\"];"],
     ["hideEmpty needs optionsFrom", "if (entry.optionsFrom === undefined)\n                return at + \".hideEmpty needs optionsFrom\";", "if (false)\n                return at + \".hideEmpty needs optionsFrom\";"],
     ["hideEmpty is a boolean", "if (typeof entry.hideEmpty !== \"boolean\")", "if (false)"],
+    ["shownWhen is a schema entry key", "\"group\", \"shownWhen\", \"items\"", "\"group\", \"items\""],
+    ["shownWhen needs a flat setting", "if (entry.type === \"list\")\n                return at + \".shownWhen needs a flat setting\";", "if (false)\n                return at + \".shownWhen needs a flat setting\";"],
+    ["shownWhen is a string", "if (typeof entry.shownWhen !== \"string\" || ", "if ("],
+    ["shownWhen names a presence entry", " || status[entry.shownWhen].type !== \"presence\")", ")"],
+    ["a present entry shows its field", "values[entry.shownWhen] === \"present\")", "values[entry.shownWhen] !== \"absent\")"],
+    ["an unreported entry withholds its field", "!(hasOwn(values, entry.shownWhen) && values[entry.shownWhen] === \"present\")", "(hasOwn(values, entry.shownWhen) && values[entry.shownWhen] !== \"present\")"],
+    ["a field without shownWhen is never withheld", "return entry.shownWhen !== undefined && !(hasOwn", "return !(hasOwn"],
     ["a placeholder needs optionsFrom", "if (entry.optionsFrom === undefined)\n                return at + \".placeholder needs optionsFrom\";", "if (false)\n                return at + \".placeholder needs optionsFrom\";"],
     ["a placeholder is a bounded printable line", "if (!isPrintableLine(entry.placeholder, STATUS_LABEL_MAX))", "if (false)"],
     ["pads are a hyprland key", 'var HYPRLAND_KEYS = ["binds", "layerRules", "appearance", "options", "pads", "monitors"];', 'var HYPRLAND_KEYS = ["binds", "layerRules", "appearance", "options", "monitors"];'],
