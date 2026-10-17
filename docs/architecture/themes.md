@@ -57,6 +57,7 @@ A wallpaper another program draws must not be covered by a bare background colou
 - Never let a hook replace what the user set: link a shipped theme only over an absent name or a dangling link, set nothing that already holds, and set no value the system lacks. `scripts/test-vgshell-toolkits.sh` pins each.
 - Never source `gum.env`; the floating TUI parses it. `scripts/test-theme-gum.js` pins it.
 - Never add a Hyprland target; the theme reaches Hyprland through the generated layer ([D028](../decisions/D028-one-generated-hyprland-layer.md)). Review.
+- Do mix the page 0.13 toward the text for the Claude Code user-message and bash bands. Claude Code drops to 256 colours inside tmux unless `CLAUDE_CODE_TMUX_TRUECOLOR` is set. A tinted colour near the page then becomes a tinted palette entry: Flexoki Light's old band `#f3f0e5` showed as `#ffffd7`, which is almost the page. The mixed band holds at least 1.2:1 on the page as written, and its 256-colour form holds at least 1.05:1 on the page. Flexoki Light's band is now `#e0ddd3`, which shows as the neutral grey `#d7d7d7`. `scripts/test-theme-render.js` pins both floors.
 
 ### Applying
 

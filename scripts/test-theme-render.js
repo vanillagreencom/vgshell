@@ -1560,6 +1560,22 @@ const claudeTemplate = fs.readFileSync(claudeTemplateFile, "utf8");
 const claudeTarget = selectionRender.acceptTarget(logic, "claude",
     fs.readFileSync(path.join(themesDir, "targets", "claude", "target.json"), "utf8"));
 assert.equal(claudeTarget.ok, true);
+// Claude Code 2.1.302 drops to 256 colours inside tmux unless
+// CLAUDE_CODE_TMUX_TRUECOLOR is set. Its reduction is ansi-styles
+// rgbToAnsi256; the result is the xterm palette value of that index.
+function claudeAnsi256(color) {
+    const [r, g, b] = [1, 3, 5].map(index => parseInt(color.slice(index, index + 2), 16));
+    const levels = [0, 95, 135, 175, 215, 255], step = channel => Math.round(channel / 255 * 5);
+    const index = r === g && g === b
+        ? (r < 8 ? 16 : r > 248 ? 231 : 232 + Math.round((r - 8) / 247 * 24))
+        : 16 + 36 * step(r) + 6 * step(g) + step(b);
+    const channels = index >= 232 ? Array(3).fill(8 + 10 * (index - 232))
+        : [Math.floor((index - 16) / 36), Math.floor((index - 16) / 6) % 6, (index - 16) % 6].map(level => levels[level]);
+    return "#" + channels.map(channel => channel.toString(16).padStart(2, "0")).join("");
+}
+assert.equal(claudeAnsi256("#f3f0e5"), "#ffffd7");
+assert.equal(claudeAnsi256("#e0ddd3"), "#d7d7d7");
+assert.equal(claudeAnsi256("#808080"), "#808080");
 function verifyClaudePalette(template) {
     const metrics = [], paletteFailures = [], contrastFailures = [], countShortfalls = [], baselineFailures = [];
     const rgb = hex => [1, 3, 5].map(index => parseInt(hex.slice(index, index + 2), 16));
@@ -1576,6 +1592,15 @@ function verifyClaudePalette(template) {
         const page = pkg.values.color.background;
         const basic = pkg.values.scheme.mode === "dark" ? "#f8f8f2" : "#333333";
         const ratio = (first, second) => logic.contrastRatio(logic.parseColor(first), logic.parseColor(second));
+        const bands = ["userMessageBackground", "bashMessageBackgroundColor"].map(field => {
+            const band = document.overrides[field], reduced = claudeAnsi256(band);
+            const bandPage = ratio(band, page), reducedPage = ratio(reduced, page);
+            if (bandPage < 1.2) paletteFailures.push({ kind: "claude-band-page", theme: pkg.name, field, band, ratio: bandPage, floor: 1.2 });
+            if (reducedPage < 1.05) paletteFailures.push({ kind: "claude-band-reduced", theme: pkg.name, field, band, reduced, ratio: reducedPage, floor: 1.05 });
+            return { field, band, reduced, bandPage, reducedPage };
+        });
+        if (document.overrides.userMessageBackgroundHover === document.overrides.userMessageBackground)
+            paletteFailures.push({ kind: "claude-band-hover", theme: pkg.name, band: document.overrides.userMessageBackground });
         // Main used selection for both Word fields. Eligibility is computed
         // from that source contract, never from a named-theme exception.
         const selection = pkg.values.color.selection;
@@ -1634,7 +1659,7 @@ function verifyClaudePalette(template) {
             if (!paletteEqual && pairs[0].dimmed === pairs[1].dimmed)
                 paletteFailures.push({ kind: "claude-dimmed-distinction", theme: pkg.name, pairs });
         }
-        metrics.push({ theme: pkg.name, mode: pkg.values.scheme.mode, baselineWord, baselineRatio, eligible, pairs });
+        metrics.push({ theme: pkg.name, mode: pkg.values.scheme.mode, baselineWord, baselineRatio, eligible, pairs, bands });
     }
     return { metrics, paletteFailures, contrastFailures, countShortfalls, baselineFailures };
 }
@@ -1647,7 +1672,10 @@ const claudeControls = [
     ["dimmed role", "#@{alpha({palette.success},0.07)}", "#@{color.successSubtle}", "claude-dimmed-role"],
     ["count report", "#@{mix(mix({color.background},{palette.success},0.14),{color.success},0.22121734137238014)}", "#@{color.background}", "claude-count-page"],
     ["global bound", "#@{mix(mix({color.background},{palette.success},0.14),{color.success},0.22121734137238014)}", "#@{mix(mix({color.background},{palette.success},0.14),{color.success},0.22121734137238036)}", "claude-basic-word"],
-    ["basic floor", "#@{mix(mix({color.background},{palette.success},0.14),{color.success},0.22121734137238014)}", "#@{scheme.mode|dark=f8f8f2|light=333333}", "claude-basic-word"]
+    ["basic floor", "#@{mix(mix({color.background},{palette.success},0.14),{color.success},0.22121734137238014)}", "#@{scheme.mode|dark=f8f8f2|light=333333}", "claude-basic-word"],
+    ["band page", "\"userMessageBackground\": \"#@{mix({color.background},{color.text},0.13)}\"", "\"userMessageBackground\": \"#@{color.surface}\"", "claude-band-page"],
+    ["band reduced", "\"userMessageBackground\": \"#@{mix({color.background},{color.text},0.13)}\"", "\"userMessageBackground\": \"#@{color.surface}\"", "claude-band-reduced"],
+    ["band hover", "\"userMessageBackgroundHover\": \"#@{mix({color.background},{color.text},0.17)}\"", "\"userMessageBackgroundHover\": \"#@{mix({color.background},{color.text},0.13)}\"", "claude-band-hover"]
 ];
 const claudeScratch = fs.mkdtempSync(path.join(os.tmpdir(), "claude-palette-control-"));
 try {
@@ -1662,6 +1690,11 @@ try {
         assert.ok(observed, label);
         if (kind === "claude-count-page") assert.equal(observed.ratio, 1);
         if (kind === "claude-basic-word") assert.ok(observed.ratio < observed.floor);
+        if (kind === "claude-band-page" || kind === "claude-band-reduced") {
+            const flexoki = result.paletteFailures.find(failure => failure.kind === kind
+                && failure.theme === "flexoki-light" && failure.field === "userMessageBackground");
+            assert.ok(flexoki && flexoki.ratio < flexoki.floor, label);
+        }
     }
 } finally {
     fs.rmSync(claudeScratch, { recursive: true, force: true });
@@ -1674,7 +1707,7 @@ for (const theme of claudeResult.metrics) {
         theme: theme.theme, mode: theme.mode, ratio, reference: 3,
         added: theme.pairs[0].dimmed, removed: theme.pairs[1].dimmed }));
 }
-console.log(`test-theme-render: claude-palette packages=${claudeResult.metrics.length} controls=${claudeControls.length} count-minimum=${Math.min(...claudeResult.metrics.flatMap(theme => theme.pairs.map(pair => pair.countPage)))} basic-shortfalls=${claudeResult.contrastFailures.length} baseline-shortfalls=${claudeResult.baselineFailures.length} count-shortfalls=${claudeResult.countShortfalls.length}`);
+console.log(`test-theme-render: claude-palette packages=${claudeResult.metrics.length} controls=${claudeControls.length} count-minimum=${Math.min(...claudeResult.metrics.flatMap(theme => theme.pairs.map(pair => pair.countPage)))} band-page-minimum=${Math.min(...claudeResult.metrics.flatMap(theme => theme.bands.map(band => band.bandPage)))} band-reduced-minimum=${Math.min(...claudeResult.metrics.flatMap(theme => theme.bands.map(band => band.reducedPage)))} basic-shortfalls=${claudeResult.contrastFailures.length} baseline-shortfalls=${claudeResult.baselineFailures.length} count-shortfalls=${claudeResult.countShortfalls.length}`);
 
 // RGB channel separation is a numerical distinction check. The owner judges
 // appearance in real terminal pictures. Rose Pine's main ANSI blue/brightblack
