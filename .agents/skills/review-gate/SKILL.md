@@ -1,7 +1,7 @@
 ---
 name: review-gate
-description: "Load to watch pull requests, report the organization standard, or adopt consumer refresh."
-summary: "GitHub review-state reducer, organization-standard report, environment provisioning and consumer refresh."
+description: "Load to report the organization standard or adopt consumer refresh."
+summary: "Organization-standard report, environment provisioning and consumer refresh."
 license: MIT
 user-invocable: true
 dependencies:
@@ -18,16 +18,12 @@ tags: [review]
 <!-- kendex:project-instructions:start -->
 ## Project Instructions
 
-VGS delivery policy overrides the shared workflow's mandatory review, CI-wait, branch-size and commit-hook gates. Work targets main. PRs are optional; push directly or merge a PR immediately with gh, with no queue or CI wait. Review goes by risk: a change to code where a defect shows as a performance, stability, race, leak or lifetime problem (services, Quickshell or Hyprland IPC, processes and timers, file or socket watchers, object ownership and destruction, caches, concurrency, the plugin scan and publish path, the sandbox and smoke harness) runs one internal review round, the orch review panel, before the push; a change that is only layout, copy, styling, tokens, docs or a settings field runs none. The done line names which applied and why. Do not arm git guards. Run scripts/validate once on the final relevant diff; use --changed <last-validated-commit> for a fix round, and reuse passing results while those inputs are unchanged. Do not rerun a full battery at commit, push or submission. Use --full only for an explicit full sweep or an unmapped dependency. Keep the live-session safety rules.
+VGS delivery policy overrides the shared workflow's mandatory review, CI-wait, branch-size and commit-hook gates. Work targets main. PRs are optional; push directly or merge a PR immediately with gh, with no queue or CI wait. Review goes by risk: a change to code where a defect shows as a performance, stability, race, leak or lifetime problem (services, Quickshell or Hyprland IPC, processes and timers, file or socket watchers, object ownership and destruction, caches, concurrency, the plugin scan and publish path, the sandbox and smoke harness) runs one internal review round, the orch review panel, before the push; a change that is only layout, copy, styling, tokens, docs or a settings field runs no review round. A change that touches a QA_UI_PATHS file also runs the reviewer-quality UI check, the UI lens against the design-system doc judging the before and after screenshot pair; for a layout, copy or styling change that check is the one review it gets. Google Drive lanes run neither. The done line names which applied and why. Do not arm git guards. Run scripts/validate once on the final relevant diff; use --changed <last-validated-commit> for a fix round, and reuse passing results while those inputs are unchanged. Do not rerun a full battery at commit, push or submission. Use --full only for an explicit full sweep or an unmapped dependency. Keep the live-session safety rules.
 <!-- kendex:project-instructions:end -->
 
 # Review operations
 
-GitHub rulesets enforce approvals, stale-approval dismissal and review-thread resolution. This package watches pull requests, reports repository configuration and refreshes consumer installs. It posts no review status.
-
-## Watching pull requests
-
-Run `scripts/pr-watch.sh` through the harness's wake-up mechanism. Read its attention lines rather than watching review-state transitions. Output and exit codes: `pr-watch.sh --help`.
+GitHub rulesets enforce approvals, stale-approval dismissal and review-thread resolution. This package reports repository configuration and refreshes consumer installs. It posts no review status. When the github skill is installed, its `scripts/pr-watch.sh` is the pull-request watcher.
 
 ## Organization standard
 
@@ -41,7 +37,7 @@ Consumers refresh on a schedule or a manual run. An organization managed by flee
 
 ## 4. Operations
 
-A pull request with no automatic review needs a Copilot request. When orch is present, request through its mode owner, `approval-wait <PR#> --request-review --base-checkout PATH`, per orch's `references/gates.md` § Copilot requests, which routes its `off` and `fallback` answers. Without orch, request directly: `gh pr edit <PR#> --add-reviewer @copilot`. Ruleset targeting and request failures: [references/automatic-review.md](references/automatic-review.md).
+A pull request with no automatic review needs a Copilot request. When orch is present, request through its mode owner, `approval-wait <PR#> --request-review --base-checkout PATH`, per orch's `references/gates.md` § Copilot requests, which routes its `off` and `fallback` answers. Without orch, request directly: `gh pr edit <PR#> --add-reviewer @copilot`. Ruleset targeting and request failures, when the github skill is installed: its `references/automatic-review.md`. The central request workflow: [references/adoption.md § Central Copilot request workflow](references/adoption.md#central-copilot-request-workflow).
 
 The overseer's fallback approval and emergency merge follow the managing repository's merge workflow. This package grants no bypass and changes no ruleset.
 
@@ -49,7 +45,6 @@ The overseer's fallback approval and emergency merge follow the managing reposit
 
 | Script | Purpose |
 | --- | --- |
-| `scripts/pr-watch.sh` | Reduce open pull requests to attention lines from GitHub's review state. |
 | `scripts/validate-standard.sh` | Report rulesets, required checks, app installation and secret placement. |
 | `scripts/provision-environment.sh` | Provision the organization's declared app-secret environment. |
 | `refresh/adopt-refresh.sh` in the release checkout | Adopt the refresh workflow. `--retire-writer` opts into trusted retirement. |
