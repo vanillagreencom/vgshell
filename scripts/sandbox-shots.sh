@@ -174,7 +174,8 @@
 # a refused card's failure line, on the chosen catalog card, on it
 # installed and with its wallpaper offer; the wallpaper view on its Theme
 # source, with the pointer on a card, with a typed filter, on its download
-# card, on All and with a missing image's failure line.
+# card, on All and with a missing image's failure line, rounded with a
+# user control radius of 6.
 # Each leaves vgs and the mode's theme applied. The default is every
 # other scene the tree ships, or gallery and the manager's scene with
 # --rev; the manager's scene is `settings` for a tree that ships
@@ -2390,6 +2391,23 @@ scene_wallpaper-browser() { # MODE
   cp -- "$checkout/scripts/smoke/fixtures/theme-image.jpg" "$theme_dir/backgrounds/b.jpg"
   sandbox_vgshell theme apply "$name" >/dev/null || fail "$name applies for the wallpaper browser shot"
   expect_poll "$name is published for the wallpaper browser shot" "$name" ipc smoke themeName
+  # The apply replaces the mode's radius tokens, so the rounded shots take
+  # the user's control radius, which the name box reads as button.radius.
+  local user="$home/.config/vgshell/shell.json" saved="$sandbox/shell-before-wallpaper-radius.json"
+  if [[ $1 == rounded ]]; then
+    cp -- "$user" "$saved"
+    python3 - "$user" <<'PYRADIUS' || fail "the user file took no control radius for the wallpaper browser shot"
+import json, os, sys
+path = sys.argv[1]
+config = json.load(open(path))
+config.setdefault("appearance", {})["controlRadius"] = 6
+with open(path + ".tmp", "w") as out:
+    json.dump(config, out)
+os.replace(path + ".tmp", path)
+PYRADIUS
+    expect "the configuration reloads with a control radius for the wallpaper browser shot" ok ipc shell reloadConfig
+    expect_poll "the wallpaper name box takes the control radius" 6 ipc smoke themeValue button.radius
+  fi
   expect "the nested compositor adds a monitor for the wallpaper browser shot" ok hypr output create headless "$wallpaper_output"
   expect "vgs.themes enables for the wallpaper browser shot" ok ipc shell setPluginEnabled vgs.themes true
   expect_poll "vgs.themes is built for the wallpaper browser shot" True record_exists vgs.themes
@@ -2437,6 +2455,10 @@ scene_wallpaper-browser() { # MODE
     take "wallpaper-browser-$1-failure"
   fi
   mv -- "$theme_dir/backgrounds-missing" "$theme_dir/backgrounds" || { fail "wallpaper-browser-$1-failure: backgrounds restore failed"; return; }
+  if [[ $1 == rounded ]]; then
+    cp -- "$saved" "$user.next" && mv -T -- "$user.next" "$user" || fail "the user file is put back after the wallpaper browser shots"
+    expect "the configuration reloads as the wallpaper browser shots found it" ok ipc shell reloadConfig
+  fi
   expect "the wallpaper browser hides" ok ipc shell hide overlay vgs.themes
   expect_poll "the wallpaper browser is gone" 0 layer_count vgs:overlay
   expect "the wallpaper browser shot's monitor is removed" ok hypr output remove "$wallpaper_output"
