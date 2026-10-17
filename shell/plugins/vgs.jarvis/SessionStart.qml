@@ -9,11 +9,17 @@ import "SetupGate.js" as Gate
 // when the user enables Jarvis, makes the one automatic call: the package
 // starts the session after the app's Off or, while Start Jarvis at boot is
 // on, for a boot it has not handled, and answers the session as it is for
-// any other. The Start and Retry actions ask for a start, a changed account
-// or home replaces a session that lives, and each opening of the Jarvis
-// page reads the session again. A read starts nothing. turnedOff() is the
-// user's Off: it stops the session in a process that outlives this service.
-// Each answer is the Jarvis session row.
+// any other; with Resume the last session, a record the package saved
+// before a machine restart is resumed instead. The Start and Retry actions
+// ask for a start, a changed account or home replaces a session that lives,
+// and each opening of the Jarvis page reads the session again. A read
+// starts nothing. turnedOff() is the user's Off: it stops the session in a
+// process that outlives this service. Each answer is the Jarvis session row
+// and the bar widget's reading (`jarvisSession`). While Start Jarvis at boot
+// is off, that record is the Resume offer: the widget's click and the row's
+// Resume ask for its resume, Do not resume sets it aside, and while a step
+// of its resume is pending this instance reads the session again every
+// stepPollMs, for at most stepPollLimitMs from the first pending read.
 Item {
     id: root
     property var shell: null
@@ -35,6 +41,20 @@ Item {
     property string output: ""
     property string errors: ""
     property int exitCode: 0
+    // The record the user chose Do not resume for, as recordKey writes it;
+    // "" for none. A later record, of a later restart, offers again.
+    property string setAside: ""
+    // True from a Resume until its answer.
+    property bool resumeAsked: false
+    // When the first read of pending steps came, 0 before; the reads stop
+    // for good once stepPollLimitMs have passed since.
+    property real pollSince: 0
+    property bool pollOver: false
+    readonly property int stepPollMs: 2000
+    readonly property int stepPollLimitMs: 600000
+    readonly property bool stepsPending: Gate.sessionStepsPending(result)
+    readonly property bool offered: shell !== null
+        && Gate.sessionOffer(shell.settings.startAtBoot, result, resumeAsked || (setAside !== "" && setAside === recordKey(result)))
     readonly property string program: String(Qt.resolvedUrl("backend/session-control.js")).replace(/^file:\/\//, "")
     readonly property bool wanted: shell !== null && shell.settings.startAtBoot
     onWantedChanged: publish()
@@ -55,6 +75,10 @@ Item {
                 root.call("start", now.home, [now.brain, now.home, now.bootSession === "new" ? "new" : "resume"]);
                 return "ok";
             });
+            // The widget's click and the row's Resume (tui/resume-session.sh),
+            // and the widget's Do not resume.
+            shell.ipc.handle("resume-session", () => root.resume());
+            shell.ipc.handle("dismiss-resume", () => root.dismissResume());
             sessionHome = settings.home;
             call("build", settings.home, [settings.brain, settings.home, mode, settings.startAtBoot ? "on" : "off"]);
         } else if (read !== judged) call("change", settings.home, [sessionHome, settings.brain, settings.home, mode]);
@@ -62,17 +86,43 @@ Item {
         publish();
     }
 
+    // RESULT's record saved before a machine restart, as one string that
+    // names it whatever its steps' outcomes; "" for none.
+    function recordKey(result) {
+        if (result === null || result.kind !== "answer" || result.restart === undefined) return "";
+        return JSON.stringify([result.restart.unlock, result.restart.steps.map(step => [step.kind, step.name])]);
+    }
+
+    function resume() {
+        if (!offered) return "refused: resume=not-offered";
+        resumeAsked = true;
+        pollSince = 0;
+        pollOver = false;
+        publish();
+        call("resume", sessionHome, [sessionHome]);
+        return "ok";
+    }
+
+    function dismissResume() {
+        if (!offered) return "refused: resume=not-offered";
+        setAside = recordKey(result);
+        publish();
+        return "ok";
+    }
+
     // False when the status judge refuses the row, which then keeps its
     // last value.
     function publish() {
         if (shell === null) return true;
-        const modes = shell.status.set("sessionModes", Gate.sessionModes(shell.settings.startAtBoot));
-        const value = Gate.sessionStart(shell.settings.startAtBoot, result);
+        const wanted = shell.settings.startAtBoot;
+        const modes = shell.status.set("sessionModes", Gate.sessionModes(wanted));
+        const value = Gate.sessionStart(wanted, result, offered);
         // The extra status lines draw as badges, which do not draw links.
         if (value.lines !== undefined) value.lines = value.lines.map(PageReference.plain);
         const row = shell.status.set("sessionStart", value);
-        if (modes === "ok" && row === "ok") return true;
-        console.warn("jarvis-session: status=refused modes=" + modes + " row=" + row);
+        const reading = shell.status.set("jarvisSession", Gate.sessionRecord(wanted, result, !offered));
+        if (modes === "ok" && row === "ok" && reading === "ok") return true;
+        console.warn("jarvis-session: status=refused modes=" + modes + " row=" + row + " reading=" + reading);
         return false;
     }
 
@@ -100,6 +150,7 @@ Item {
             answer = { kind: "failed" };
         }
         let again = false;
+        if (current.verb === "resume") resumeAsked = false;
         if (answer.kind === "answer" && answer.unapplied !== undefined) unapplied = answer.unapplied;
         else if (answer.kind !== "failed" && current.verb === "status" && unapplied !== "") {
             // A read of the session a refused selection left in place.
@@ -116,6 +167,7 @@ Item {
             sessionHome = current.home;
         }
         result = answer;
+        if (stepsPending && pollSince === 0) pollSince = Date.now();
         publish();
         if (again) call("status", sessionHome, [sessionHome]);
         if (waiting.length === 0) return;
@@ -129,9 +181,22 @@ Item {
     // stop goes to the home the session lives in, which a refused selection
     // leaves behind the selected one. No home folder holds no session.
     function turnedOff() {
+        pollOver = true;
         if (shell === null || sessionHome === "") return;
         const reply = shell.run.detached(["node", program, "--tree", Quickshell.shellDir + "/..", "stop", sessionHome, "app-off"]);
         if (reply !== "ok") console.warn("jarvis-session: stop " + reply);
+    }
+
+    // The one reader of a resume's steps. A status read behind a running
+    // call adds nothing (call), so a slow command queues no reads.
+    Timer {
+        interval: root.stepPollMs
+        repeat: true
+        running: root.stepsPending && root.pollSince > 0 && !root.pollOver
+        onTriggered: {
+            if (Date.now() - root.pollSince >= root.stepPollLimitMs) root.pollOver = true;
+            else root.call("status", root.sessionHome, [root.sessionHome]);
+        }
     }
 
     Process {

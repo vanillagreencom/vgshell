@@ -213,7 +213,72 @@ function inside() {
         cases++;
     }
 
-    const checks = { boot, bootOff, enable, manual, off, change, changeRefused, blocks, noPackage, outside };
+    // A running session's model and start time, and the record saved before
+    // a machine restart, pass on as the package gives them; a field it
+    // does not give, or gives as null, stays absent.
+    const record = { unlock: "1password", steps: [
+        { kind: "delegate", name: "jarvis", outcome: "resumed", cause: null },
+        { kind: "overseer", name: "vgshell", outcome: "failed", cause: "The app asked for a sign-in." },
+        { kind: "lane", name: "VGS-1", outcome: "pending", cause: null }] };
+    function fields(directory) {
+        const since = "2026-10-17T11:02:00-07:00";
+        answers(folder, { status: said("running", "existing", { home: folder, harness: "claude", account, model: "claude-fable-5-1", since, restart: record }) });
+        const given = helper(directory, ["status", "~/Jarvis"]);
+        assert.deepEqual([given.model, given.since, given.restart], ["claude-fable-5-1", since, record], "the fields pass on");
+        for (const more of [{}, { model: null, since: null, restart: null }]) {
+            answers(folder, { status: said("running", "existing", more) });
+            const none = helper(directory, ["status", "~/Jarvis"]);
+            assert.deepEqual(["model", "since", "restart"].filter(field => Object.hasOwn(none, field)), [], "absent or null stays absent");
+        }
+        cases++;
+    }
+    // A field outside the contract makes the whole answer outside it.
+    function fieldsOutside(directory) {
+        const step = more => ({ restart: { unlock: null, steps: [{ kind: "lane", name: "VGS-1", outcome: "pending", cause: null, ...more }] } });
+        const rows = [
+            ["model-empty", { model: "" }], ["model-long", { model: "m".repeat(101) }], ["model-control", { model: "a\u0007" }],
+            ["since-not-iso", { since: "11:02" }], ["since-no-zone", { since: "2026-10-17T11:02:00" }], ["since-number", { since: 1 }],
+            ["unlock", { restart: { unlock: "keyring", steps: [] } }], ["steps-missing", { restart: { unlock: null } }],
+            ["steps-many", { restart: { unlock: null, steps: Array(33).fill({ kind: "lane", name: "x", outcome: "pending", cause: null }) } }],
+            ["step-kind", step({ kind: "task" })], ["step-name", step({ name: "" })], ["step-outcome", step({ outcome: "done" })],
+            ["step-cause-control", step({ cause: "a\nb" })], ["step-cause-absent", step({ cause: undefined })]
+        ];
+        for (const [name, more] of rows) {
+            answers(folder, { status: said("running", "existing", more) });
+            assert.deepEqual(helper(directory, ["status", "~/Jarvis"]), { kind: "blocked", block: "package" }, name);
+            cases++;
+        }
+        answers(folder, { status: said("running", "existing", { model: "m".repeat(100), since: "2026-10-17T18:02:00.5Z" }) });
+        assert.equal(helper(directory, ["status", "~/Jarvis"]).kind, "answer", "the longest model and a UTC time are inside");
+        cases++;
+    }
+    // The Resume: one `resume --origin manual` in the home, then a status
+    // read; it names no account.
+    function resume(directory) {
+        answers(folder, { resume: said("starting", "resuming"), status: said("starting", "resuming", { restart: record }) });
+        const result = helper(directory, ["resume", "~/Jarvis"]);
+        assert.deepEqual([result.state, result.reason, result.restart], ["starting", "resuming", record]);
+        assert.deepEqual(calls(folder).map(call => call.argv), [["resume", "--origin", "manual", "--home", folder], status(folder)]);
+        cases++;
+    }
+    // At boot with Resume the last session, a record saved before a machine
+    // restart is resumed instead of a start; with Start a new session, or
+    // with no record, the boot starts as before.
+    function bootResume(directory) {
+        const stopped = more => said("stopped", "ended", more);
+        answers(folder, { status: stopped({ restart: record }), resume: said("starting", "resuming"), start: said("starting", "launching") });
+        helper(directory, ["build", claude, "~/Jarvis", "resume", "on"]);
+        assert.deepEqual(calls(folder).map(call => call.argv), [status(folder), ["resume", "--origin", "boot", "--home", folder], status(folder)], "a record resumes");
+        answers(folder, { status: stopped({ restart: record }), resume: said("starting", "resuming"), start: said("starting", "launching") });
+        helper(directory, ["build", claude, "~/Jarvis", "new", "on"]);
+        assert.deepEqual(calls(folder).map(call => call.argv), [status(folder), startWords("new", "boot"), status(folder)], "a new session starts");
+        answers(folder, { status: stopped({ restart: record }), resume: said("starting", "resuming") });
+        helper(directory, ["build", claude, "~/Jarvis", "resume", "off"]);
+        assert.deepEqual(calls(folder).map(call => call.argv), [status(folder)], "with the boot setting off a build only reads");
+        cases++;
+    }
+
+    const checks = { boot, bootOff, enable, manual, off, change, changeRefused, blocks, noPackage, outside, fields, fieldsOutside, resume, bootResume };
     for (const check of Object.values(checks)) check(plugin);
 
     // A copy of the plugin tree FROM with one text of FILE replaced.
@@ -248,13 +313,14 @@ function inside() {
         controls++;
     }
     const C = "backend/session-control.js";
+    const S = "backend/SessionCommand.js";
     control("duplicate-start", C, 'if (started.state === "blocked" || started.state === "failed") return answer(started);',
-        'if (started.state === "blocked" || started.state === "failed") return answer(started);\n        await run(at, ["start", "--harness", who.harness, "--account", who.directory, "--mode", mode, "--origin", origin]);', boot);
+        'if (started.state === "blocked" || started.state === "failed") return answer(started);\n        await run(at, words);', boot);
     control("boot-setting", C, 'boot === "on" ? "boot" : null', '"boot"', bootOff);
     control("app-on", C, 'now.state === "off" ? "app-on" : ', "", enable);
     control("origin-manual", C, 'verb === "start" ? "manual" : ', "", manual);
-    control("mode", C, '"--mode", mode, "--origin", origin]);\n        if (started === null)', '"--mode", "resume", "--origin", origin]);\n        if (started === null)', manual);
-    control("environment", C, "const { TMUX, TMUX_PANE, VGSHELL_RUNNER_PID, ...environment } = process.env;", "const environment = process.env;", boot);
+    control("mode", C, '"--mode", mode, "--origin", origin]);', '"--mode", "resume", "--origin", origin]);', manual);
+    control("environment", S, "const { TMUX, TMUX_PANE, VGSHELL_RUNNER_PID, ...kept } = from;", "const kept = from;", boot);
     control("app-off", C, 'args.length === 2 ? ["--origin", "app-off"] : []', "[]", off);
     control("check-before-stop", C, 'if (probe.kind === "blocked") return { ...answer(before), unapplied: probe.block };', "", changeRefused);
     control("stop-old-home", C, 'if (await run(from, ["stop"]) === null) return failed;', "", change);
@@ -269,7 +335,14 @@ function inside() {
     control("exit-status", C, "signal === null && (code === 0 || code === 1) ? accepted(out) : null", "accepted(out)", outside);
     control("one-line", C, "if (!/^[^\\n]+\\n$/.test(text)) return null;", "text = text.split(\"\\n\")[0];", outside);
     control("version", C, "|| value.v !== 1", "", noPackage);
-    control("home-folder", C, "folder === null || !fs.statSync(folder, { throwIfNoEntry: false })?.isDirectory()", "folder === null", blocks);
+    control("home-folder", S, "folder === null || !fs.statSync(folder, { throwIfNoEntry: false })?.isDirectory()", "folder === null", blocks);
+    control("fields-pass-on", C, '...Object.fromEntries(["model", "since", "restart"]', '...Object.fromEntries([]', fields);
+    control("model-checked", C, 'if (given("model") && !named(value.model)) return null;', "", fieldsOutside);
+    control("since-checked", C, "ISO.test(value.since)", "true", fieldsOutside);
+    control("step-checked", C, "|| !OUTCOMES.includes(step.outcome)", "", fieldsOutside);
+    control("resume-origin", C, 'launch(at, ["resume", "--origin", "manual"])', 'launch(at, ["resume", "--origin", "boot"])', resume);
+    control("boot-resume", C, 'if (origin === "boot" && mode === "resume" && now.restart !== null) return launch(at, ["resume", "--origin", "boot"]);', "", bootResume);
+    control("boot-resume-mode", C, 'origin === "boot" && mode === "resume" && now.restart !== null', 'origin === "boot" && now.restart !== null', bootResume);
     control("not-app", C, 'resolved.source.kind === "cli" ? { harness: resolved.provider, directory: resolved.source.directory } : blocked("not-app")',
         "{ harness: resolved.provider, directory: String(resolved.source.directory) }", blocks);
     // No control plants a file without its execute bit as a package: the

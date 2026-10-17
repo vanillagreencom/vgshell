@@ -239,7 +239,7 @@ expect_poll "the clear control's daemon answers after one retry" ready jarvis_re
 jarvis_widget_restore Service.qml
 
 # Keep the widget's button and its handler. Drop only the click's call.
-jarvis_widget_plant Widget.qml 'onClicked: root.toggleMute()' 'onClicked: {}'
+jarvis_widget_plant Widget.qml 'onClicked: root.view.click === "resume" ? root.offer("resume-session") : root.toggleMute()' 'onClicked: {}'
 jarvis_enable
 expect_poll "the click control draws the ready widget" "$jarvis_widget_ready" jarvis_widget
 jarvis_widget_click

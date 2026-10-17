@@ -8,8 +8,9 @@ import "WidgetView.js" as View
 // ready, listening, working, speaking, muted and problem. The tooltip
 // names what happens, the next action and the mute action. A click, Space
 // (which the button turns into a click), Return and keypad Enter call the
-// service's `mute` IPC handler, the intent the Mute key sends. It is one
-// BarItem.
+// service's `mute` IPC handler, the intent the Mute key sends; while the
+// Resume offer stands (WidgetView `click`) they call `resume-session`
+// instead, and the right-click menu adds Do not resume. It is one BarItem.
 BarWidget {
     id: root
 
@@ -21,6 +22,7 @@ BarWidget {
 
     implicitWidth: item.implicitWidth
     implicitHeight: barSize
+    frameActions: view.click === "resume" ? [{ label: "Do not resume", icon: "x", action: () => root.offer("dismiss-resume") }] : []
 
     function toneColor(tone) {
         switch (tone) {
@@ -40,6 +42,14 @@ BarWidget {
         return reply;
     }
 
+    // NAME, the service's resume-session or dismiss-resume handler, while
+    // the Resume offer stands; answers the handler's reply.
+    function offer(name) {
+        const reply = shell.ipc.call(name, "");
+        if (reply !== "ok") console.warn("jarvis widget: " + name + " " + reply);
+        return reply;
+    }
+
     BarItem {
         id: item
         anchors.centerIn: parent
@@ -49,6 +59,6 @@ BarWidget {
         tooltip: root.view.tooltip
         tooltipDetails: root.view.tooltipDetails
         onTooltipPageActivated: (page, tab) => root.frame.openPage(page, tab)
-        onClicked: root.toggleMute()
+        onClicked: root.view.click === "resume" ? root.offer("resume-session") : root.toggleMute()
     }
 }

@@ -85,6 +85,8 @@ Setup says Ready when Jarvis has an AI model and the selected voice.
 
 The tooltip says what to do next. When an AI model is active, the tooltip names it. A click turns mute on or off.
 
+After the computer restarts while your Jarvis session ran, and Start Jarvis at boot is off, the tooltip reads "Resume Jarvis from before the restart". Then a click resumes the Jarvis session, then each overseer and lane it ran, one at a time, and the Mute key mutes. When the session needs 1Password, the tooltip says before you click that Resume asks you once to unlock 1Password first. Do not resume, in the right-click menu, removes the offer. While the resume runs, the tooltip shows each step and the cause of a step that failed. The tooltip also shows the model of your running Jarvis session and the time it started, when the Jarvis package reports them.
+
 | State | Icon | When | What the tooltip tells you |
 | --- | --- | --- | --- |
 | Off | A power symbol | Jarvis needs setup, a requirement, or an unlocked screen. | The setting or action that turns Jarvis on. |
@@ -179,12 +181,20 @@ The Jarvis package in the home folder starts and owns the session. The Jarvis se
 - No session can start with an API key or a local model as the Account. Under AI model, choose an app as the Account.
 - When you change the home folder or the Account, Jarvis checks the new choice, then restarts the session.
 
+When the session runs, the row shows its model and the time it started, if the Jarvis package reports them.
+
 <details>
 <summary>Show command</summary>
 
 VGS starts and stops the session with `.agents/skills/jarvis/scripts/jarvis-session` of the Jarvis package in the home folder, which kendex installs. The session is the tmux session `jarvis` on your own tmux server, and `tmux attach -t jarvis` opens it.
 
 </details>
+
+### Restart and shut down
+
+When you choose Reboot or Shut down in the launcher while your Jarvis session runs, Jarvis tells the session that the computer restarts and shows "Jarvis is saving its work". The computer restarts when the session has saved its work, or after one minute, so a session that does not answer cannot stop the restart. Restart now on that card, or Reboot again in the launcher, restarts at once.
+
+After the restart, the Jarvis package keeps a record of the session and of each overseer and lane it ran. With Start Jarvis at boot on and Session at boot set to Resume the last session, Jarvis resumes them by itself after you sign in. With Start Jarvis at boot off, the bar icon and the Resume action on the Jarvis session row offer the resume: read [Bar icon](#bar-icon).
 
 ## Tools
 

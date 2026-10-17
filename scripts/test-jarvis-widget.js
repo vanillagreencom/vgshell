@@ -344,6 +344,47 @@ function verify(view) {
     }
     const idle = callView(view, up(down("unconfigured"), { ...SetupGate.readiness({ kind: "answered", causes: ["brain=unselected"] }), setupHome: { tone: "ok", text: "Done", hint: "fixture" } }));
     assert.equal(idle.tooltipDetails.join(" ").includes("fixture"), false);
+    verifySession(view);
+}
+
+// The Jarvis session's reading (SetupGate.sessionRecord, published as
+// `jarvisSession`): the offer names the Resume and what a click does
+// before the click, the 1Password unlock when the record needs it, and
+// the Mute key in place of the click; a running session's model and time
+// and each resume step's outcome add lines. The state's look is kept.
+function verifySession(view) {
+    const reading = more => ({ model: null, since: null, offer: null, steps: [], ...more });
+    const ready = callView(view, up({}));
+    assert.equal(ready.click, "mute", "a click mutes without the offer");
+    const plainReading = callView(view, up({}, { jarvisSession: reading() }));
+    assert.deepEqual(copy([plainReading.tooltip, plainReading.tooltipDetails, plainReading.click]), copy([ready.tooltip, ready.tooltipDetails, "mute"]),
+        "an empty reading changes nothing");
+    for (const [unlock, keys] of [[null, KEYS], ["1password", KEYS], [null, UNBOUND]]) {
+        const label = "offer unlock=" + unlock + " keys=" + (keys === KEYS ? "bound" : "unbound");
+        const got = callView(view, up({}, { jarvisSession: reading({ offer: { unlock } }) }), keys);
+        const base = callView(view, up({}), keys);
+        assert.deepEqual([got.state, got.icon, got.tone, got.click], [base.state, base.icon, base.tone, "resume"], label + ": the state's look, a click resumes");
+        assert.equal(got.tooltip, view.RESUME_TITLE, label + ": the tooltip names the offer");
+        assert.equal(got.tooltipDetails[0], view.RESUME_CLICK, label + ": the first line says what a click does");
+        assert.equal(got.tooltipDetails.includes(view.RESUME_UNLOCK["1password"]), unlock === "1password", label + ": the unlock line");
+        assert.equal(got.tooltipDetails.some(text => /^Click/.test(text) && text !== view.RESUME_CLICK), false, label + ": no line says a click mutes");
+        assert.equal(got.tooltipDetails[got.tooltipDetails.length - 1], view.keyLine(false, keys), label + ": the last line names the Mute key");
+    }
+    const muted = callView(view, up(MUTED, { jarvisSession: reading({ offer: { unlock: null } }) }));
+    assert.equal(muted.tooltipDetails[muted.tooltipDetails.length - 1], view.keyLine(true, KEYS), "a muted offer names the key to unmute");
+    const steps = [{ kind: "delegate", name: "jarvis", outcome: "resumed", cause: null }, { kind: "overseer", name: "vgshell", outcome: "pending", cause: null },
+        { kind: "lane", name: "VGS-1", outcome: "failed", cause: "The app asked for a sign-in" }];
+    const running = callView(view, up({}, { jarvisSession: reading({ model: "claude-fable-5-1", since: "11:02", steps }) }));
+    assert.equal(running.click, "mute", "a resume that started leaves the click to mute");
+    assert.deepEqual(copy(running.tooltipDetails), copy(ready.tooltipDetails.slice(0, -1).concat(
+        ["Jarvis session model: claude-fable-5-1.", "Jarvis session running since 11:02."], steps.map(view.stepLine), ready.tooltipDetails.slice(-1))),
+        "the model, the time and each step, before the click line");
+    assert.deepEqual(steps.map(step => view.stepLine(step).includes(step.name)), [false, true, true], "an overseer and a lane are named");
+    assert.equal(view.stepLine(steps[2]).includes(steps[2].cause), true, "a failed step shows its cause");
+    assert.notEqual(view.stepLine(steps[0]), view.stepLine({ ...steps[0], outcome: "pending" }), "each outcome reads apart");
+    for (const [name, bad] of [["offer", { offer: { unlock: "keyring" } }], ["steps", { steps: [{ kind: "task", name: "x", outcome: "pending", cause: null }] }],
+        ["outcome", { steps: [{ ...steps[0], outcome: "done" }] }], ["model", { model: 1 }], ["shape", null]])
+        assert.throws(() => callView(view, up({}, { jarvisSession: bad === null ? "x" : reading(bad) })), /jarvis widget: jarvisSession=/, "a reading outside its shape: " + name);
 }
 
 verify(load(path.join(dir, "WidgetView.js")));
@@ -351,6 +392,11 @@ verify(load(path.join(dir, "WidgetView.js")));
 // Each control removes one rule from a copy of the view and keeps the text
 // around it: [label, needle, replacement].
 const CONTROLS = [
+    ["the offer leaves the click to mute", 'out.click = "resume";', ""],
+    ["the offer keeps the click line", "var details = base.tooltipDetails.slice(0, -1);", "var details = base.tooltipDetails;"],
+    ["the unlock line is dropped", "out.tooltipDetails = [RESUME_CLICK].concat(session.offer.unlock === null ? [] : [RESUME_UNLOCK[session.offer.unlock]],", "out.tooltipDetails = [RESUME_CLICK].concat([],"],
+    ["the steps are dropped", "running, session.steps.map(stepLine)", "running, []"],
+    ["a failed step hides its cause", 'step.cause === null || step.cause === "" ? "." : ": " + line(step.cause)', '"."', "a failed step shows its cause"],
     ["an ElevenLabs refusal reads as a broken speaker", '    [/^playback-source: jarvis: speech=elevenlabs-/, "elevenlabs"],\n', ''],
     ["memory explanation discarded", 'return { title: step.text, action: step.hint };', 'return GATE_TEXT.unconfigured;'],
     ["checking setup reads off", 'state.gate.reason === "unconfigured" && setupChecking(values)', 'state.gate.reason === "unconfigured" && false'],

@@ -615,6 +615,7 @@ var SESSION_ROWS = {
     "stopped stopped": { wanted: true },
     "stopped ended": { wanted: true },
     "starting launching": { tone: "info", text: "Starting", hint: "Jarvis is starting in your selected home folder" },
+    "starting resuming": { tone: "info", text: "Resuming", hint: "Jarvis is resuming its work from before the restart" },
     "running new-no-record": { tone: "ok", text: "Running", hint: "Jarvis started a new session because none was saved" },
     "running new-history-gone": { tone: "ok", text: "Running", hint: "A new session continued your saved work because the saved conversation is unavailable" },
     "running new-selection-changed": { tone: "ok", text: "Running", hint: "A new session continued your saved work on the selected account" },
@@ -634,12 +635,67 @@ var SESSION_ROWS = {
 };
 // The setting's two session choices; the first is what the unset value means.
 var SESSION_MODES = [{ label: "Resume the last session", value: "resume" }, { label: "Start a new session", value: "new" }];
+// The row while the package holds a session saved before a machine restart
+// that the user can resume by hand (sessionOffer).
+var SESSION_RESUME = { tone: "info", text: "Saved before the restart", hint: "Resume Jarvis from before the restart", action: "resume" };
+// The states in which the Resume offer stands: no session runs, and none
+// is turned off, stopping or blocked.
+var SESSION_OFFERED = ["stopped", "failed"];
+
+// "HH:MM", the local time of ISO, an ISO 8601 time session-control.js
+// accepted, as the lock screen's clock writes it.
+function sessionClock(iso) {
+    var at = new Date(iso);
+    var two = function (n) { return (n < 10 ? "0" : "") + n; };
+    return two(at.getHours()) + ":" + two(at.getMinutes());
+}
+
+// Whether RESULT, session-control.js's answer, offers the Resume of the
+// session saved before a machine restart. WANTED is Start Jarvis at boot,
+// whose boot build resumes it by itself; SET_ASIDE is true once the user
+// chose Do not resume for this record or asked for its resume.
+function sessionOffer(wanted, result, setAside) {
+    return !wanted && !setAside && result !== null && result.kind === "answer" && result.restart !== undefined
+        && SESSION_OFFERED.indexOf(result.state) !== -1;
+}
+
+// The words of a running session the row and the bar's tooltip show:
+// { model, since } of RESULT, each null where the package gives none or no
+// session lives, `since` as sessionClock writes it.
+function sessionRunning(result) {
+    var live = result !== null && result.kind === "answer" && sessionLive(result.state);
+    return { model: live && result.model !== undefined ? result.model : null,
+        since: live && result.since !== undefined ? sessionClock(result.since) : null };
+}
+
+// The bar widget's reading of the session (status `jarvisSession`), null
+// before the first answer: { model, since } as sessionRunning gives them,
+// `offer` null or { unlock } while sessionOffer holds, and `steps`, the
+// record's steps once its resume started (a step that is not pending, or
+// a session that lives), else none.
+function sessionRecord(wanted, result, setAside) {
+    if (result === null || result.kind !== "answer") return null;
+    var running = sessionRunning(result);
+    var offer = sessionOffer(wanted, result, setAside);
+    var restart = result.restart === undefined ? null : result.restart;
+    var started = restart !== null && !offer && (sessionLive(result.state)
+        || restart.steps.some(function (step) { return step.outcome !== "pending"; }));
+    return { model: running.model, since: running.since, offer: offer ? { unlock: restart.unlock } : null,
+        steps: started ? restart.steps : [] };
+}
+
+// Whether RESULT's record still has a step its resume has not reached.
+function sessionStepsPending(result) {
+    return result !== null && result.kind === "answer" && result.restart !== undefined
+        && result.restart.steps.some(function (step) { return step.outcome === "pending"; });
+}
 
 // The row for RESULT, backend/session-control.js's answer, null before the
 // first one and { kind: "failed" } where the helper gave none. WANTED is
 // the Start Jarvis at boot setting, which words only a session that does
-// not run: a live session reads as it is, whatever the setting.
-function sessionStart(wanted, result) {
+// not run: a live session reads as it is, whatever the setting. OFFERED
+// is sessionOffer's answer: the row then offers the Resume.
+function sessionStart(wanted, result, offered) {
     if (result === null) return { hidden: true };
     if (result.kind === "blocked") {
         if (!Object.prototype.hasOwnProperty.call(SESSION_BLOCKS, result.block)) throw new Error("jarvis-setup: session=" + result.block);
@@ -651,7 +707,8 @@ function sessionStart(wanted, result) {
     var row = SESSION_ROWS[result.state + " " + result.reason];
     if (row === undefined) return failure;
     var value;
-    if (row.wanted) value = wanted ? { tone: "info", text: "Starts at the next boot", hint: SESSION_BOOT, action: "start" }
+    if (offered === true) value = Object.assign({}, SESSION_RESUME);
+    else if (row.wanted) value = wanted ? { tone: "info", text: "Starts at the next boot", hint: SESSION_BOOT, action: "start" }
         : { tone: "info", text: "Not started", hint: "Start Jarvis to continue your work", action: "start" };
     else {
         var hint = row.detail ? (result.detail !== "" ? result.detail : SESSION_FAILED)
@@ -662,8 +719,13 @@ function sessionStart(wanted, result) {
         value = hint === "" || hint.length > SESSION_HINT_MAX ? { tone: row.tone, text: row.text } : { tone: row.tone, text: row.text, hint: hint };
         if (row.action !== undefined) value.action = row.action;
     }
+    var running = sessionRunning(result);
+    var lines = [];
+    if (running.model !== null) lines.push("Model: " + running.model);
+    if (running.since !== null) lines.push("Running since " + running.since);
     // The selection that failed its check, beside the session that stays.
-    if (result.unapplied !== undefined) value.lines = [SESSION_BLOCKS[result.unapplied]];
+    if (result.unapplied !== undefined) lines.push(SESSION_BLOCKS[result.unapplied]);
+    if (lines.length > 0) value.lines = lines;
     return value;
 }
 

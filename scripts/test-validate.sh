@@ -827,6 +827,10 @@ session_input = (file.startswith("shell/plugins/vgs.jarvis/backend/")
                              "bin/lib/account-folders.js", "scripts/lib/jarvis-env.sh"})
 if area in ["cli", "offline", "all"] and session not in lines and session_input:
     lines.insert(lines.index(home) + 1, session)
+# The power wait suite's row follows the session control row, with the same inputs.
+power = "node scripts/test-jarvis-power-wait.js"
+if area in ["cli", "offline", "all"] and power not in lines and session_input:
+    lines.insert(lines.index(session) + 1, power)
 print("\n".join(lines), end="")
 PYLIVE
 }

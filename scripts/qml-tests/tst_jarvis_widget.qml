@@ -102,6 +102,19 @@ Item {
             compare(JSON.stringify(root.calls), '[["mute",""]]');
         }
 
+        // While the Resume offer stands, a click asks for the resume once and
+        // the right-click menu offers Do not resume; without it, neither.
+        function test_a_click_on_the_offer_resumes_once() {
+            compare(widget.frameActions.length, 0, "no Do not resume without the offer");
+            widget.shell = root.shellWith(Object.assign(root.ready({}),
+                { jarvisSession: { model: null, since: null, offer: { unlock: "1password" }, steps: [] } }));
+            mouseClick(button());
+            compare(JSON.stringify(root.calls), '[["resume-session",""]]');
+            compare(widget.frameActions.length, 1);
+            widget.frameActions[0].action();
+            compare(JSON.stringify(root.calls), '[["resume-session",""],["dismiss-resume",""]]');
+        }
+
         function test_space_return_and_enter_each_call_mute_once() {
             for (const key of [Qt.Key_Space, Qt.Key_Return, Qt.Key_Enter]) {
                 root.calls = [];

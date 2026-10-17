@@ -9,32 +9,38 @@
 //   status HOME                      reads the session; starts nothing
 //   build ACCOUNT HOME MODE BOOT     the service's build: `start --origin
 //                                    app-on` after the app's Off, else
-//                                    `start --origin boot` while BOOT is
-//                                    "on", else a status read
+//                                    while BOOT is "on" `resume --origin
+//                                    boot` when MODE is "resume" and the
+//                                    package holds a record saved before a
+//                                    machine restart, else `start --origin
+//                                    boot`; else a status read
 //   start ACCOUNT HOME MODE          `start --origin manual`
+//   resume HOME                      `resume --origin manual`: the record
+//                                    saved before a machine restart
 //   change OLD ACCOUNT HOME MODE     a changed account or home: while a
 //                                    session lives in OLD, checks the new
 //                                    selection, stops the old session and
 //                                    starts the new one; else a status read
 //   stop HOME [app-off]              `stop`, with the app's Off recorded
+// The package's `prepare` before a machine restart is power-wait.js's call.
 // Each verb prints one JSON line and exits 0:
 //   { kind: "answer", state, reason, detail, names: { home, account } }
 //     the package's answer, names those of the recorded session or null;
-//     `unapplied`, a block, is added when the selection failed its check
-//     and the session that lives stays as it is
+//     `model`, `since` and `restart` are added as the package gives them
+//     (accepted); `unapplied`, a block, is added when the selection failed
+//     its check and the session that lives stays as it is
 //   { kind: "blocked", block }  "no-account", "not-app", "no-home" or
 //     "package": no call can be made
 //   { kind: "failed" }  the command ran outside its contract
 // Arguments it cannot read exit 2 with a keyed line.
 "use strict";
 const cp = require("node:child_process");
-const fs = require("node:fs");
 const path = require("node:path");
 
 // The contract's closed table: each state with its reasons.
 const STATES = Object.freeze({
     running: ["resumed", "new-no-record", "new-history-gone", "new-selection-changed", "new-requested", "existing"],
-    starting: ["launching"],
+    starting: ["launching", "resuming"],
     "handing-over": ["succession"],
     stopping: ["stop-requested"],
     stopped: ["never-started", "stopped", "ended"],
@@ -52,6 +58,36 @@ const OUTPUT_BYTES = 16384;
 // What that page draws as one line (SettingValues.CONTROL_OR_SEPARATOR).
 const UNPRINTABLE = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/;
 const DETAIL_MAX = 200;
+// The optional fields of a running session and of the record saved before
+// a machine restart. A model or a step's name draws as one line with its
+// label in a status line or the bar's tooltip (PluginLogic
+// STATUS_TEXT_MAX); a step's cause is a line as `detail` is.
+const NAME_MAX = 100;
+const STEPS_MAX = 32;
+const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})$/;
+const UNLOCKS = [null, "1password"];
+const STEP_KINDS = ["delegate", "overseer", "lane"];
+const OUTCOMES = ["pending", "resumed", "failed"];
+
+const line = (text, max) => typeof text === "string" && text.length <= max && !UNPRINTABLE.test(text);
+const named = text => line(text, NAME_MAX) && text !== "";
+
+/**
+ * RECORD, the `restart` field of an answer, as the plain record VGS
+ * passes on, or undefined when it is outside the contract: `unlock` null
+ * or "1password", and each step its kind, name, outcome and cause.
+ */
+function restartOf(record) {
+    if (record === null || typeof record !== "object" || Array.isArray(record) || !UNLOCKS.includes(record.unlock)
+            || !Array.isArray(record.steps) || record.steps.length > STEPS_MAX) return undefined;
+    const steps = [];
+    for (const step of record.steps) {
+        if (step === null || typeof step !== "object" || !STEP_KINDS.includes(step.kind) || !named(step.name)
+                || !OUTCOMES.includes(step.outcome) || (step.cause !== null && !line(step.cause, DETAIL_MAX))) return undefined;
+        steps.push({ kind: step.kind, name: step.name, outcome: step.outcome, cause: step.cause });
+    }
+    return { unlock: record.unlock, steps };
+}
 
 /** The contract's one object from a run's stdout, or null for anything else. */
 function accepted(text) {
@@ -63,12 +99,18 @@ function accepted(text) {
             || !Object.hasOwn(STATES, value.state) || !STATES[value.state].includes(value.reason)
             || !["home", "harness", "account"].every(optional) || typeof value.detail !== "string" || value.detail.length > DETAIL_MAX
             || ["home", "harness", "account", "detail"].some(field => value[field] !== null && UNPRINTABLE.test(value[field]))) return null;
-    return value;
+    // A field the package does not give, or gives as null, is none.
+    const given = field => value[field] !== undefined && value[field] !== null;
+    if (given("model") && !named(value.model)) return null;
+    if (given("since") && !(typeof value.since === "string" && ISO.test(value.since) && Number.isFinite(Date.parse(value.since)))) return null;
+    const restart = given("restart") ? restartOf(value.restart) : null;
+    if (restart === undefined) return null;
+    return { ...value, model: given("model") ? value.model : null, since: given("since") ? value.since : null, restart };
 }
 
 async function main() {
     const [flag, tree, verb, ...args] = process.argv.slice(2);
-    const shapes = { status: 1, build: 4, start: 3, change: 4, stop: [1, 2] };
+    const shapes = { status: 1, build: 4, start: 3, resume: 1, change: 4, stop: [1, 2] };
     if (flag !== "--tree" || !path.isAbsolute(tree || "") || !Object.hasOwn(shapes, verb)
             || ![].concat(shapes[verb]).includes(args.length)
             || (verb === "build" && !["on", "off"].includes(args[3]))
@@ -80,32 +122,20 @@ async function main() {
     }
     require("./Core.js").use(tree);
     const { Accounts, provider } = require("./Accounts.js");
-    const Home = require("./Home.js");
+    const SessionCommand = require("./SessionCommand.js");
     const user = process.env.HOME;
-    // The session is the user's own program, so the command takes the
-    // user's session environment, XDG_SESSION_ID for its boot receipt among
-    // it, less what marks the shell's own processes and a tmux pane the
-    // shell was restarted from.
-    const { TMUX, TMUX_PANE, VGSHELL_RUNNER_PID, ...environment } = process.env;
+    const environment = SessionCommand.environment(process.env);
 
     const blocked = block => ({ kind: "blocked", block });
     const short = value => value === user || value.startsWith(user + "/") ? "~" + value.slice(user.length) : value;
+    // The optional fields are passed on only as the package gives them.
     const answer = value => ({ kind: "answer", state: value.state, reason: value.reason, detail: value.detail,
         names: value.home === null || value.harness === null || value.account === null ? null
-            : { home: short(value.home), account: provider(value.harness).label + ", " + short(value.account) } });
+            : { home: short(value.home), account: provider(value.harness).label + ", " + short(value.account) },
+        ...Object.fromEntries(["model", "since", "restart"].filter(field => value[field] !== null).map(field => [field, value[field]])) });
 
     // The home folder a setting names with its session command, or a block.
-    function place(setting) {
-        let folder = null;
-        try { folder = Home.resolve(setting, user); }
-        catch (error) {
-            // A setting the daemon refuses is the home row's to show.
-            if (!/^jarvis: home=/.test(error.message)) throw error;
-        }
-        if (folder === null || !fs.statSync(folder, { throwIfNoEntry: false })?.isDirectory()) return blocked("no-home");
-        const command = Home.sessionCommand(folder);
-        return command === null ? blocked("package") : { folder, command };
-    }
+    const place = setting => SessionCommand.place(setting, user);
     // The app account a setting names, or a block.
     function account(setting) {
         const state = path.join(process.env.XDG_STATE_HOME || path.join(user, ".local/state"), "vgshell/jarvis");
@@ -143,15 +173,16 @@ async function main() {
     // The session as the command reads it now; a status outside the
     // contract is no package VGS can use.
     const read = async at => await run(at, ["status"]) ?? blocked("package");
-    // `start` on the selection, then the session as it is after it. A
+    // A `start` or `resume`, WORDS, then the session as it is after it. A
     // refusal's own object is the answer.
-    async function start(at, who, mode, origin) {
-        const started = await run(at, ["start", "--harness", who.harness, "--account", who.directory, "--mode", mode, "--origin", origin]);
+    async function launch(at, words) {
+        const started = await run(at, words);
         if (started === null) return failed;
         if (started.state === "blocked" || started.state === "failed") return answer(started);
         const after = await run(at, ["status"]);
         return after === null ? failed : answer(after);
     }
+    const start = (at, who, mode, origin) => launch(at, ["start", "--harness", who.harness, "--account", who.directory, "--mode", mode, "--origin", origin]);
     const shown = value => value.kind === "blocked" ? value : answer(value);
 
     if (verb === "stop") {
@@ -163,6 +194,10 @@ async function main() {
     if (verb === "status") {
         const at = place(args[0]);
         return at.kind === "blocked" ? at : shown(await read(at));
+    }
+    if (verb === "resume") {
+        const at = place(args[0]);
+        return at.kind === "blocked" ? at : launch(at, ["resume", "--origin", "manual"]);
     }
     if (verb === "change") {
         const [old, setting, home, mode] = args;
@@ -193,6 +228,9 @@ async function main() {
     // turned Jarvis on again.
     const origin = verb === "start" ? "manual" : now.state === "off" ? "app-on" : boot === "on" ? "boot" : null;
     if (origin === null) return answer(now);
+    // The record names the app of each session it resumes, so a resume
+    // takes no account.
+    if (origin === "boot" && mode === "resume" && now.restart !== null) return launch(at, ["resume", "--origin", "boot"]);
     const who = account(setting);
     if (who.kind !== "blocked") return start(at, who, mode, origin);
     // A session that lives, one started by hand among them, stays shown.

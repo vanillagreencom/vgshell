@@ -11,6 +11,7 @@ Launcher finds and opens apps, files and system actions from one search field. I
 - Finds a file with `f:` and a folder with `F:`. Enter opens it with its default app. Shift+Enter lists the apps that can open it, with Show in folder and Copy path.
 - Shows the categories with Ctrl+B or the menu button.
 - Offers Lock, Sleep, Hibernate, Log out, Reboot and Shut down under System.
+- Waits for your Jarvis session before Reboot and Shut down: Jarvis saves its work for up to one minute. Choose the row again to restart at once.
 - Offers Screenshot, Automations and New automation under Tools.
 - Opens the Packages category from Updates, with Install, Update and Remove.
 - Lists the rows other plugins add, such as the Style category from Themes.

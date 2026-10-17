@@ -1317,12 +1317,19 @@ function verifyTiers(gate) {
 // offers Retry, and an answer outside the contract is a failure.
 const SESSION_CONTRACT = {
     running: ["resumed", "new-no-record", "new-history-gone", "new-selection-changed", "new-requested", "existing"],
-    starting: ["launching"], "handing-over": ["succession"], stopping: ["stop-requested"],
+    starting: ["launching", "resuming"], "handing-over": ["succession"], stopping: ["stop-requested"],
     stopped: ["never-started", "stopped", "ended"], off: ["app-off"],
     blocked: ["app-off", "name-conflict", "record-unreadable", "sign-in-required", "selection-conflict", "tmux-missing", "app-missing"],
     failed: ["launch-failed", "handover-failed"]
 };
 const SESSION_TONES = { running: "ok", starting: "info", "handing-over": "info", stopping: "info", stopped: "info", off: "info", failed: "danger" };
+// The ISO 8601 offset of the local zone at AT, so a time reads back as the
+// same local clock.
+function offset(at) {
+    const minutes = -at.getTimezoneOffset();
+    const two = n => String(Math.floor(Math.abs(n))).padStart(2, "0");
+    return (minutes < 0 ? "-" : "+") + two(minutes / 60) + ":" + two(minutes % 60);
+}
 function verifySession(gate) {
     const names = { home: "~/Jarvis", account: "Claude Code, ~/.claude" };
     const offered = value => {
@@ -1382,6 +1389,44 @@ function verifySession(gate) {
     const kept = plain(gate.sessionStart(true, { kind: "answer", state: "running", reason: "resumed", detail: "", names, unapplied: "not-app" }));
     assert.deepEqual([kept.text === plain(gate.sessionStart(true, { kind: "answer", state: "running", reason: "resumed", detail: "", names })).text,
         Array.isArray(kept.lines) && kept.lines.length === 1 && offered(kept)], [true, "none"], "a selection that failed its check shows beside the session that stays");
+    // A running session's model and start time draw as the row's lines and
+    // the widget's reading, only while it lives and as the package gives them.
+    const since = "2026-10-17T11:02:00" + offset(new Date(2026, 9, 17, 11, 2));
+    const running = { kind: "answer", state: "running", reason: "existing", detail: "", names, model: "claude-fable-5-1", since };
+    const shownRunning = plain(gate.sessionStart(true, running));
+    assert.deepEqual([shownRunning.lines, offered(shownRunning)], [["Model: claude-fable-5-1", "Running since 11:02"], "none"], "the model and since lines");
+    assert.equal(offered(plain(gate.sessionStart(true, { ...running, model: "m".repeat(100) }))), "none", "the longest model is a row the judge accepts");
+    assert.equal(plain(gate.sessionStart(true, { kind: "answer", state: "running", reason: "existing", detail: "", names })).lines, undefined,
+        "no field, no line");
+    assert.equal(plain(gate.sessionStart(true, { ...running, state: "stopped", reason: "ended" })).lines, undefined, "a session that does not live shows neither");
+    assert.deepEqual(plain(gate.sessionRecord(true, running, false)), { model: "claude-fable-5-1", since: "11:02", offer: null, steps: [] }, "the widget's reading");
+    assert.equal(gate.sessionRecord(true, null, false), null, "no reading before the first answer");
+    assert.equal(gate.sessionRecord(true, { kind: "failed" }, false), null, "no reading of a failed call");
+    // The record saved before a machine restart: the Resume offer stands
+    // while no session runs, the boot setting is off and the user did not
+    // put it aside; the row then offers Resume.
+    const pending = { kind: "lane", name: "VGS-1", outcome: "pending", cause: null };
+    const restart = { unlock: "1password", steps: [{ kind: "delegate", name: "jarvis", outcome: "pending", cause: null }, pending] };
+    const saved = { kind: "answer", state: "stopped", reason: "ended", detail: "", names: null, restart };
+    for (const [label, wanted, result, aside, offers] of [
+        ["a stopped session", false, saved, false, true], ["a failed start", false, { ...saved, state: "failed", reason: "launch-failed" }, false, true],
+        ["the boot setting on", true, saved, false, false], ["put aside", false, saved, true, false],
+        ["a live session", false, { ...saved, state: "starting", reason: "resuming" }, false, false],
+        ["an app Off", false, { ...saved, state: "off", reason: "app-off" }, false, false], ["no record", false, { ...saved, restart: undefined }, false, false]]) {
+        assert.equal(gate.sessionOffer(wanted, result, aside), offers, label + ": the offer");
+        const row = plain(gate.sessionStart(wanted, result, gate.sessionOffer(wanted, result, aside)));
+        assert.equal(offered(row) === "resume:resume-session", offers, label + ": the row offers Resume");
+        assert.deepEqual(plain(gate.sessionRecord(wanted, result, aside)).offer, offers ? { unlock: "1password" } : null, label + ": the widget's offer");
+    }
+    // The steps show once the resume started, and stay pending until none is.
+    const resuming = { ...saved, state: "starting", reason: "resuming" };
+    assert.deepEqual(plain(gate.sessionRecord(false, resuming, false)).steps, restart.steps, "the steps of a resume");
+    const ended = { ...saved, restart: { unlock: null, steps: [{ ...pending, outcome: "failed", cause: "The app asked for a sign-in." }] } };
+    assert.deepEqual(plain(gate.sessionRecord(true, ended, false)).steps, ended.restart.steps, "a failed step shows after the resume ended");
+    assert.deepEqual(plain(gate.sessionRecord(false, { ...ended, state: "failed", reason: "launch-failed" }, false)).steps, [], "no steps under the offer");
+    assert.deepEqual([gate.sessionStepsPending(resuming), gate.sessionStepsPending(ended), gate.sessionStepsPending(null)], [true, false, false],
+        "the steps still pending");
+    assert.equal(judge.statusWrite(manifest, {}, "jarvisSession", plain(gate.sessionRecord(false, resuming, false))).ok, true, "the manifest judge accepts the reading");
     assert.equal(manifest.settings.startAtBoot, false, "the setting is off at first");
     for (const [wanted, values] of [[false, []], [true, ["", "new"]]]) {
         const offers = plain(gate.sessionModes(wanted));
@@ -1910,11 +1955,17 @@ const CONTROLS = [
     ["a failure offers no Retry", '"failed launch-failed": { tone: "danger", text: "Not started", detail: true, action: "retry" }', '"failed launch-failed": { tone: "danger", text: "Not started", detail: true }', "the action the row offers"],
     ["a missing tmux offers a step", '"blocked tmux-missing": { tone:',
         '"blocked tmux-missing": { action: "retry", tone:', "the action the row offers"],
-    ["the boot setting hides a running session", '    if (row.wanted) value = wanted ?', '    if (row.wanted || !wanted) value = wanted ?', "the boot setting changes no row"],
+    ["the boot setting hides a running session", '    else if (row.wanted) value = wanted ?', '    else if (row.wanted || !wanted) value = wanted ?', "the boot setting changes no row"],
     ["an answer outside the contract reads as a state", "    if (row === undefined) return failure;", '    if (row === undefined) return { tone: "ok", text: "Running", hint: "Planted." };', "outside the contract"],
     ["the package's failure line is dropped", 'var hint = row.detail ? (result.detail !== "" ? result.detail : SESSION_FAILED)', "var hint = row.detail ? SESSION_FAILED", "the package's own line is shown"],
-    ["the unapplied selection is not shown", "    if (result.unapplied !== undefined) value.lines = [SESSION_BLOCKS[result.unapplied]];", "", "a selection that failed its check"],
+    ["the unapplied selection is not shown", "    if (result.unapplied !== undefined) lines.push(SESSION_BLOCKS[result.unapplied]);", "", "a selection that failed its check"],
     ["names too long for a hint are published", "hint === \"\" || hint.length > SESSION_HINT_MAX ?", "hint === \"\" ?", "the manifest judge accepts the row"],
+    ["the model line is dropped", 'if (running.model !== null) lines.push("Model: " + running.model);', "", "the model and since lines"],
+    ["a stopped session shows its model", 'var live = result !== null && result.kind === "answer" && sessionLive(result.state);', 'var live = result !== null && result.kind === "answer";', "a session that does not live shows neither"],
+    ["the offer ignores the boot setting", "return !wanted && !setAside && result !== null", "return !setAside && result !== null", "the boot setting on: the offer"],
+    ["the offer ignores Do not resume", "return !wanted && !setAside && result !== null", "return !wanted && result !== null", "put aside: the offer"],
+    ["the row offers no Resume", "if (offered === true) value = Object.assign({}, SESSION_RESUME);", "if (false) value = null;", "the row offers Resume"],
+    ["the steps show under the offer", "var started = restart !== null && !offer && (", "var started = restart !== null && (", "no steps under the offer"],
     ["a starting session is not live", 'var SESSION_LIVE = ["running", "starting", "handing-over"];', 'var SESSION_LIVE = ["running", "handing-over"];', "the states of a session that lives"],
     ["the session field draws while the setting is off", "return wanted ? SESSION_MODES : [];", "return SESSION_MODES;", "the session field while the setting is false"],
     ["the no-home hint names its Settings path", "No session can start until [Home folder](page:vgs.jarvis/Settings/home)", "No session can start until [Settings > Jarvis > Home folder](page:vgs.jarvis/Settings)", "no-home: the hint is one sentence that links the Home folder field"],
@@ -2645,7 +2696,7 @@ function verifyPathForm(gate) {
         const values = {};
         const result = { kind: "answer", state: "running", reason: "resumed", detail: "", names: null, unapplied: block };
         const shell = { settings: { startAtBoot: true }, status: { set: (key, value) => { values[key] = plain(value); return "ok"; } } };
-        vm.runInNewContext("(" + publish[0] + ")", { shell, result, Gate: gate, PageReference: pageReference })();
+        vm.runInNewContext("(" + publish[0] + ")", { shell, result, offered: false, Gate: gate, PageReference: pageReference })();
         assert.deepEqual(values.sessionStart.lines, [pageReference.plain(gate.SESSION_BLOCKS[block])], block + ": unapplied badges draw the reference's words");
         assert.equal(pageReference.parse(gate.sessionStart(true, { kind: "blocked", block }).hint).page, "vgs.jarvis", block + ": the blocked hint keeps its link");
     }

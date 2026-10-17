@@ -562,7 +562,7 @@ mutations=(
   "a wallpaper name centres its line box|../plugins/vgs.themes/WallpaperCard.qml|y: Math.round(nameBox.pad - capTop())|anchors.verticalCenter: parent.verticalCenter|tst_wallpapercard.qml"
   "a wallpaper name box ignores the control radius|../plugins/vgs.themes/WallpaperCard.qml|radius: Theme.button.radius|radius: 0|tst_wallpapercard.qml"
   "the launcher walks an order its apps menu swap replaced|../plugins/vgs.launcher/Launcher.qml|const next = MenuModel.swapAppMenus(root.items, root.itemOrder, root.providersLoaded, root.desktopApps());|for (const id of root.itemOrder) if (root.items[id].provider === \"apps\" && root.providersLoaded[id]) root.mergeAppRows(id); const next = { items: root.items };|tst_launcher_apps.qml"
-  "the Jarvis widget drops a click|../plugins/vgs.jarvis/Widget.qml|onClicked: root.toggleMute()|onClicked: {}|tst_jarvis_widget.qml"
+  "the Jarvis widget drops a click|../plugins/vgs.jarvis/Widget.qml|onClicked: root.view.click === \"resume\" ? root.offer(\"resume-session\") : root.toggleMute()|onClicked: {}|tst_jarvis_widget.qml"
   "the Jarvis widget calls another handler|../plugins/vgs.jarvis/Widget.qml|shell.ipc.call(\"mute\", \"\")|shell.ipc.call(\"stop\", \"\")|tst_jarvis_widget.qml"
   "the Jarvis widget keeps one icon|../plugins/vgs.jarvis/Widget.qml|iconName: root.view.icon|iconName: \"mic\"|tst_jarvis_widget.qml"
   "the Jarvis reader saves a read list inside its binding's update|../plugins/vgs.jarvis/Accounts.qml|Qt.callLater(save);|save();|tst_jarvis_accounts.qml"

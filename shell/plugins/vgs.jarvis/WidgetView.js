@@ -20,6 +20,11 @@
 // that timed out, keeps its setup title and shows its hint while Jarvis is
 // off; a ready Setup summary's caution shows under ready.
 // A tone is `calm` or a Theme.color state role, `neutral` being textMuted.
+// The Jarvis session's reading (`jarvisSession`, SetupGate.sessionRecord)
+// adds to the state's tooltip: its model, since when it runs, and each step
+// of a resume after a machine restart. While the Resume offer stands, the
+// tooltip names it first and `click` is "resume": a click resumes, and the
+// Mute key alone mutes. Else `click` is "mute".
 // A value outside the shapes the service and Session.js produce throws a
 // keyed error; nothing falls back.
 
@@ -350,11 +355,78 @@ function reportLook(state, report, muteOn, keys) {
     return look(state, report.text, [report.hint === undefined ? RESTART : report.hint], muteOn, keys);
 }
 
-// The widget's { state, icon, tone, tooltip, tooltipDetails } for VALUES,
-// the plugin's status values, KEYS, the already-spelled effective shortcut
-// keys, and MODE, the talk mode. A key the service has not published yet is
-// undefined.
+// The Resume offer's words. A step's kind names it in the tooltip.
+var RESUME_TITLE = "Resume Jarvis from before the restart";
+var RESUME_CLICK = "Click to resume the Jarvis session, then each overseer and lane it ran, one at a time.";
+var RESUME_UNLOCK = { "1password": "Resume asks you once to unlock 1Password first." };
+var STEP_NAMES = {
+    "delegate": function () { return "the Jarvis session"; },
+    "overseer": function (name) { return "overseer " + name; },
+    "lane": function (name) { return "lane " + name; }
+};
+
+// VALUE, the `jarvisSession` status, or null while the service has
+// published none.
+function sessionReading(value) {
+    if (value === undefined || value === null) return null;
+    var text = function (field) { return field === null || typeof field === "string"; };
+    if (typeof value !== "object" || !text(value.model) || !text(value.since) || !Array.isArray(value.steps)
+            || (value.offer !== null && (typeof value.offer !== "object" || (value.offer.unlock !== null && !hasOwn(RESUME_UNLOCK, value.offer.unlock)))))
+        refuse("jarvisSession", value);
+    for (var i = 0; i < value.steps.length; i++) {
+        var step = value.steps[i];
+        if (step === null || typeof step !== "object" || !hasOwn(STEP_NAMES, step.kind) || typeof step.name !== "string"
+                || ["pending", "resumed", "failed"].indexOf(step.outcome) === -1 || !text(step.cause))
+            refuse("jarvisSession", value);
+    }
+    return value;
+}
+
+// One tooltip line for STEP, a resume step.
+function stepLine(step) {
+    var name = STEP_NAMES[step.kind](step.name);
+    if (step.outcome === "pending") return "Waiting to resume " + name + ".";
+    if (step.outcome === "resumed") return "Resumed " + name + ".";
+    return "Could not resume " + name + (step.cause === null || step.cause === "" ? "." : ": " + line(step.cause));
+}
+
+// What the Mute key does while a click resumes.
+function keyLine(muteOn, keys) {
+    var action = muteOn ? "unmute" : "mute";
+    return keys.mute === null ? "Set [Mute key in Settings > Jarvis](page:vgs.jarvis/Keys) to " + action + "."
+        : "Press " + keys.mute + " to " + action + ".";
+}
+
+// The widget's { state, icon, tone, tooltip, tooltipDetails, click } for
+// VALUES, the plugin's status values, KEYS, the already-spelled effective
+// shortcut keys, and MODE, the talk mode. A key the service has not
+// published yet is undefined.
 function view(values, keys, mode) {
+    var base = stateView(values, keys, mode);
+    var session = sessionReading(values.jarvisSession);
+    var out = { state: base.state, icon: base.icon, tone: base.tone, tooltip: base.tooltip,
+        tooltipDetails: base.tooltipDetails, click: "mute" };
+    if (session === null) return out;
+    // The state's last line names what a click does (clickLine).
+    var details = base.tooltipDetails.slice(0, -1);
+    if (session.offer !== null) {
+        var detail = values.detail === undefined ? null : values.detail;
+        var muteOn = detail !== null && muted(detail.state.mute);
+        out.tooltip = RESUME_TITLE;
+        out.tooltipDetails = [RESUME_CLICK].concat(session.offer.unlock === null ? [] : [RESUME_UNLOCK[session.offer.unlock]],
+            [line(base.tooltip)], details, [keyLine(muteOn, shortcutKeys(keys))]);
+        out.click = "resume";
+        return out;
+    }
+    var running = [];
+    if (session.model !== null) running.push("Jarvis session model: " + session.model + ".");
+    if (session.since !== null) running.push("Jarvis session running since " + session.since + ".");
+    out.tooltipDetails = details.concat(running, session.steps.map(stepLine), base.tooltipDetails.slice(-1));
+    return out;
+}
+
+// The state's look, without the Jarvis session's reading.
+function stateView(values, keys, mode) {
     var effectiveKeys = shortcutKeys(keys);
     var effectiveMode = talkMode(mode);
     var daemon = report("daemon", values.daemon, DAEMON_TONES);
