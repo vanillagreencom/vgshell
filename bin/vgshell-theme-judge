@@ -964,16 +964,6 @@ function planTarget(dir, row, slots, font, disabled, configHome, live) {
     let roots;
     const editors = isEditorTarget(target) ? detectedEditors(target, configHome) : undefined;
     if (editors !== undefined) roots = editors.map(editor => editor.user);
-    if (target.select !== undefined && editors === undefined) {
-        const selected = reading(name, dir, () => {
-            if (isAccountTarget(target)) roots = accountRoots(target, true);
-            const selections = selectionEdits(target, configHome, live, roots);
-            if (selections.length === 0) return "selection-file-absent";
-            return selectionRefusal(selections);
-        }, failed);
-        if (!selected.ok) return selected.entry;
-        if (selected.value !== null) return skipped(selected.value);
-    }
     const curated = reading(name, dir, () => {
         const files = new Map();
         const linked = [];
@@ -988,6 +978,17 @@ function planTarget(dir, row, slots, font, disabled, configHome, live) {
     const rendered = render.renderTarget(logic, tokens, target, judged.value.templates,
         { values: row.values, slots, curated: curated.value.files, installed: row.source === "installed", terminalFont: font });
     if (!rendered.ok) return failed(rendered.reason, render.refusalLine(name, rendered));
+    const selectionValues = rendered.selectionValues;
+    if (target.select !== undefined && editors === undefined) {
+        const selected = reading(name, dir, () => {
+            if (isAccountTarget(target)) roots = accountRoots(target, true);
+            const selections = selectionEdits(target, configHome, live, roots, undefined, selectionValues);
+            if (selections.length === 0) return "selection-file-absent";
+            return selectionRefusal(selections);
+        }, failed);
+        if (!selected.ok) return selected.entry;
+        if (selected.value !== null) return skipped(selected.value);
+    }
     // A symlinked curated file is never read, so the template renders in
     // its place; the renderer drops the rest, on runsCode targets.
     const dropped = target.files.map(file => file.destination)
@@ -1016,7 +1017,7 @@ function planTarget(dir, row, slots, font, disabled, configHome, live) {
         if (!registries.ok) return registries.entry;
         if (registries.value !== null) return skipped(registries.value);
     }
-    return { name, state: "pending", reason: null, target, files: rendered.files, dropped, entryPlan, roots, editors, extension: rendered.extension };
+    return { name, state: "pending", reason: null, target, files: rendered.files, dropped, entryPlan, roots, editors, extension: rendered.extension, selectionValues };
 }
 
 // Every shipped target under themes/targets/, planned by planTarget, in
@@ -1351,7 +1352,7 @@ function entryDirs(target, configHome, roots) {
     const wiring = target.wiring;
     if (isAccountTarget(target)) return (roots || accountRoots(target, true)).map(root => path.join(root, wiring.dir));
     const base = baseDir(wiring.base, configHome);
-    if (wiring.vaults === undefined) return [path.join(base, wiring.dir)];
+    if (wiring.vaults === undefined) return (Array.isArray(wiring.dir) ? wiring.dir : [wiring.dir]).map(dir => path.join(base, dir));
     const registry = path.join(base, wiring.vaults);
     let bytes;
     try {
@@ -1483,20 +1484,25 @@ function dropEntries(name, target, configHome, live) {
 // whether the file is `create`d when absent, and `holds`, whether the file's
 // latin1 text already selects a value. An editor writes no settings file
 // until a setting changes, so an editor's absent file is edited as an empty
-// object and created.
-function selectionEdits(target, configHome, live, roots, extension) {
+// object and created. Bat never writes its own config; its detected target
+// creates only --theme=vgs in an absent file.
+function selectionEdits(target, configHome, live, roots, extension, selectionValues) {
     const selection = target.select;
-    const value = latin1(Buffer.from(render.selectValue(target, live, extension), "utf8"));
-    const create = selection.base === render.EDITOR_BASE;
+    const app = selection.values !== undefined;
+    const value = app ? undefined : latin1(Buffer.from(render.selectValue(target, live, extension), "utf8"));
+    const create = selection.base === render.EDITOR_BASE || selection.format === "bat";
     const dirs = isAccountTarget(target) ? roots || accountRoots(target, true)
-        : create ? roots || detectedEditors(target, configHome).map(editor => editor.user)
+        : selection.base === render.EDITOR_BASE ? roots || detectedEditors(target, configHome).map(editor => editor.user)
         : [baseDir(selection.base, configHome)];
-    return dirs.map(root => ({
-        file: path.join(root, selection.file),
+    const files = Array.isArray(selection.file) ? selection.file : [selection.file];
+    const values = app ? Object.fromEntries(Object.entries(selectionValues).map(([key, value]) => [key, latin1(Buffer.from(value, "utf8"))])) : undefined;
+    return dirs.flatMap(root => files.map(file => ({
+        file: path.join(root, file),
         create,
-        edit: text => select.selectedText(selection.format, text === undefined && create ? "{}\n" : text, render.selectKeys(target), value),
+        edit: text => app ? select.appSelectedText(selection.format, text === undefined && create ? "" : text, values)
+            : select.selectedText(selection.format, text === undefined && create ? "{}\n" : text, render.selectKeys(target), value),
         holds: (text, held) => select.selectedText(selection.format, text, render.selectKeys(target), latin1(Buffer.from(held, "utf8"))) === null
-    }));
+    }))).filter(edit => !Array.isArray(selection.file) || create || existingPath(edit.file) !== undefined);
 }
 
 // The reason the first of SELECTIONS refuses its file's text, or null.
@@ -1523,7 +1529,7 @@ function wire(entry, configHome, live) {
     default: throw new Error("vgshell-theme-judge: wire: target " + entry.name + " has no known wiring form");
     }
     if (failure === null && entry.target.select !== undefined && !isEditorTarget(entry.target)) {
-        for (const selection of selectionEdits(entry.target, configHome, live, entry.roots)) {
+        for (const selection of selectionEdits(entry.target, configHome, live, entry.roots, undefined, entry.selectionValues)) {
             failure = editFile("target=" + entry.name + " reason", selection.file, selection.create, selection.edit);
             if (failure !== null) break;
         }
@@ -3106,7 +3112,19 @@ function setupTargetRows(name, target, configHome, live) {
                 if (stamped === undefined) return rows;
                 extension = render.extensionOf(target, stamped);
             }
-            selections = selectionEdits(target, configHome, live, undefined, extension);
+            let selectionValues;
+            if (target.select.values !== undefined) {
+                const theme = readIfPresent(path.join(live, "theme.json"));
+                const terminal = readIfPresent(path.join(live, "terminal.json"));
+                if (theme === undefined || terminal === undefined) return rows;
+                const accepted = logic.accept(tokens, text(theme));
+                const slots = logic.acceptTerminal(text(terminal));
+                if (!accepted.ok || !slots.ok) return rows;
+                const selected = render.selectValues(logic, tokens, target, { values: accepted.values, slots: slots.slots });
+                if (!selected.ok) return rows;
+                selectionValues = selected.values;
+            }
+            selections = selectionEdits(target, configHome, live, undefined, extension, selectionValues);
         } catch (e) {
             if (typeof e.code !== "string") throw e;
             return rows.concat(unreadable(e.path || configHome, e.code));
@@ -3121,9 +3139,12 @@ function setupTargetRows(name, target, configHome, live) {
                 continue;
             }
             if (selection.edit(latin1(text)) === null) {
-                const value = render.selectValue(target, live, extension);
-                for (const keyPath of render.selectKeys(target))
-                    rows.push({ name, app: target.app, file: selection.file, line: keyPath.join(".") + " = " + value, state: "wired" });
+                if (target.select.values !== undefined) rows.push({ name, app: target.app, file: selection.file, line: null, state: "wired" });
+                else {
+                    const value = render.selectValue(target, live, extension);
+                    for (const keyPath of render.selectKeys(target))
+                        rows.push({ name, app: target.app, file: selection.file, line: keyPath.join(".") + " = " + value, state: "wired" });
+                }
             }
         }
     }

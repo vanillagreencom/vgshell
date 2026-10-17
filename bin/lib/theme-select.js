@@ -100,7 +100,7 @@ function jsonSpan(text, at) {
                 i = skipSpace(text, keyEnd) + 1;
             }
             const value = jsonSpan(text, i);
-            if (open === "{") members.push({ key: name, start, value });
+            members.push({ key: open === "{" ? name : String(members.length), start, value });
             i = skipSpace(text, value.end);
             if (text[i] === ",") i = skipSpace(text, i + 1);
         }
@@ -416,4 +416,328 @@ function yamlSelected(text, key, value, refuse) {
     return lines.join("\n");
 }
 
-module.exports = { selectedText };
+// TOML colour edits need spans inside inline tables and arrays (Yazi's icon
+// rules), and multiline strings (Starship's format). Keep those spans in
+// the existing selection owner instead of serialising the user's document.
+function tomlSpans(text) {
+    let at = 0;
+    const records = [];
+    const headers = [];
+    const invalid = () => { throw new SyntaxError("toml"); };
+    const space = multiline => {
+        while (at < text.length) {
+            if ((multiline ? /\s/ : /[ \t\r]/).test(text[at])) at++;
+            else if (multiline && text[at] === "#") {
+                while (at < text.length && text[at] !== "\n") at++;
+            } else break;
+        }
+    };
+    const string = () => {
+        const start = at;
+        const quote = text[at];
+        const delimiter = text.startsWith(quote.repeat(3), at) ? quote.repeat(3) : quote;
+        at += delimiter.length;
+        const contentStart = at;
+        while (at < text.length) {
+            if (text.startsWith(delimiter, at)) {
+                const contentEnd = at;
+                at += delimiter.length;
+                return { kind: "string", start, end: at, contentStart, contentEnd };
+            }
+            if (delimiter.length === 1 && text[at] === "\n") invalid();
+            at += quote === '"' && text[at] === "\\" ? 2 : 1;
+        }
+        invalid();
+    };
+    const key = () => {
+        const names = [];
+        while (true) {
+            space(false);
+            if (text[at] === '"' || text[at] === "'") {
+                const token = string();
+                const name = tomlString(text.slice(token.start, token.end));
+                if (name === undefined || token.contentStart !== token.start + 1) invalid();
+                names.push(name);
+            } else {
+                const match = /^[A-Za-z0-9_-]+/.exec(text.slice(at));
+                if (match === null) invalid();
+                names.push(match[0]);
+                at += match[0].length;
+            }
+            space(false);
+            if (text[at] !== ".") return names;
+            at++;
+        }
+    };
+    const value = names => {
+        space(false);
+        const start = at;
+        let node;
+        if (text[at] === '"' || text[at] === "'") node = string();
+        else if (text[at] === "[" || text[at] === "{") {
+            const object = text[at++] === "{";
+            const close = object ? "}" : "]";
+            let index = 0;
+            space(true);
+            while (text[at] !== close) {
+                if (at >= text.length) invalid();
+                let child = [String(index++)];
+                if (object) {
+                    child = key();
+                    if (text[at++] !== "=") invalid();
+                }
+                value(names.concat(child));
+                space(true);
+                if (text[at] === close) break;
+                if (text[at++] !== ",") invalid();
+                space(true);
+            }
+            at++;
+            node = { kind: object ? "object" : "array", start, end: at };
+        } else {
+            while (at < text.length && !"\n\r,]}#".includes(text[at])) at++;
+            if (text.slice(start, at).trim() === "") invalid();
+            node = { kind: "literal", start, end: at };
+        }
+        records.push({ key: names, ...node });
+    };
+    let table = [];
+    const arrayTables = new Map();
+    while (at < text.length) {
+        space(true);
+        if (at === text.length) break;
+        if (text[at] === "[") {
+            const start = at++;
+            const array = text[at] === "[";
+            if (array) at++;
+            const names = key();
+            if (text[at++] !== "]" || (array && text[at++] !== "]")) invalid();
+            table = names;
+            if (array) {
+                const name = names.join(".");
+                const index = arrayTables.get(name) || 0;
+                arrayTables.set(name, index + 1);
+                table = names.concat(String(index));
+            }
+            if (!array && headers.some(header => !header.array && header.key.length === table.length && header.key.every((name, i) => name === table[i]))) invalid();
+            headers.push({ key: table, start, end: at, array });
+        } else {
+            const names = key();
+            if (text[at++] !== "=") invalid();
+            value(table.concat(names));
+        }
+        space(false);
+        if (text[at] === "#") while (at < text.length && text[at] !== "\n") at++;
+        if (at < text.length && text[at++] !== "\n") invalid();
+    }
+    const seen = new Set();
+    for (const record of records) {
+        const name = JSON.stringify(record.key);
+        if (seen.has(name)) invalid();
+        seen.add(name);
+    }
+    return { records, headers };
+}
+
+function replaceSpans(text, edits) {
+    let out = text;
+    for (const { start, end, value } of edits.sort((a, b) => b.start - a.start))
+        out = out.slice(0, start) + value + out.slice(end);
+    return out === text ? null : out;
+}
+
+function tomlColorKey(text, key, value) {
+    const { records, headers } = tomlSpans(text);
+    const same = names => names.length === key.length && names.every((name, i) => name === key[i]);
+    const record = records.find(record => same(record.key));
+    if (record !== undefined) {
+        if (record.kind !== "string") throw new SyntaxError("not-a-string");
+        if (tomlString(text.slice(record.start, record.end)) === value) return text;
+        return text.slice(0, record.start) + JSON.stringify(value) + text.slice(record.end);
+    }
+    const parent = key.slice(0, -1);
+    if (headers.some(header => startsWith(header.key, key))) throw new SyntaxError("not-a-string");
+    if (records.some(record => record.kind !== "object" && startsWith(key, record.key) && record.key.length < key.length)) throw new SyntaxError("not-a-table");
+    // An inline table has no header at which an independent assignment can
+    // be inserted. Add its member inside its own braces.
+    const inline = records.filter(record => record.kind === "object" && startsWith(parent, record.key)).sort((a, b) => b.key.length - a.key.length)[0];
+    if (inline !== undefined) {
+        const inside = text.slice(inline.start + 1, inline.end - 1);
+        let member = JSON.stringify(value);
+        for (let i = key.length - 1; i > inline.key.length; i--) member = "{ " + key[i] + " = " + member + " }";
+        member = key[inline.key.length] + " = " + member;
+        return text.slice(0, inline.start + 1) + " " + member + (inside.trim() === "" ? " " : ",") + inside + text.slice(inline.end - 1);
+    }
+    if (records.some(record => startsWith(key, record.key) && record.key.length < key.length)) throw new SyntaxError("not-a-table");
+    const lineEnd = lineBreak(text);
+    const assignment = key.at(-1) + " = " + JSON.stringify(value) + lineEnd;
+    const header = headers.find(header => !header.array && header.key.length === parent.length && header.key.every((name, i) => name === parent[i]));
+    if (parent.length === 0) return assignment + text;
+    if (header === undefined) return terminated(text, lineEnd) + "[" + parent.join(".") + "]" + lineEnd + assignment;
+    const newline = text.indexOf("\n", header.end);
+    const insert = newline === -1 ? text.length : newline + 1;
+    return terminated(text.slice(0, insert), lineEnd) + assignment + text.slice(insert);
+}
+
+const STARSHIP_ANSI = /^(?:bright-)?(?:black|red|green|yellow|blue|purple|magenta|cyan|white)$/;
+const STARSHIP_ATTRIBUTE = /^(?:none|bold|italic|underline|dimmed|inverted|blink|hidden|strikethrough|overline)$/;
+
+// Starship styles are space-separated attributes and colours. Its named
+// ANSI colours remain names; the VGS palette supplies their values. Literal
+// and custom-palette colours need an explicit VGS colour to override them.
+// https://starship.rs/advanced-config/#style-strings
+function starshipStyle(style, values) {
+    return style.replace(/\S+/g, atom => {
+        const match = /^(fg:|bg:)?(.*)$/.exec(atom);
+        const prefix = match[1] || "";
+        const color = match[2];
+        if (color.includes("$") || STARSHIP_ATTRIBUTE.test(color) || STARSHIP_ANSI.test(color)) return atom;
+        return prefix + values[prefix === "bg:" ? "bg" : "fg"];
+    });
+}
+
+function tomlAppSelected(format, text, values) {
+    const { records } = tomlSpans(text);
+    const edits = [];
+    for (const record of records) {
+        const key = record.key.filter(name => !/^\d+$/.test(name));
+        const name = key.at(-1);
+        if (format === "yazi" && (name === "fg" || name === "bg")) {
+            if (record.kind !== "string") throw new SyntaxError("not-a-string");
+            edits.push({ ...record, value: JSON.stringify(values[key.join(".")] ?? values[name]) });
+        } else if (format === "television" && key[0] === "ui" && key[1] === "theme_overrides") {
+            if (record.kind === "object") continue;
+            if (record.kind !== "string" || values[name] === undefined) throw new SyntaxError("unsupported-colour");
+            edits.push({ ...record, value: JSON.stringify(values[name]) });
+        } else if (format === "starship" && record.kind === "string" && key[0] !== "palettes" &&
+            (/(?:^style(?:_|$)|_style$|(?:^|_)format$|(?:^|_)symbol$)/.test(name) || name === "continuation_prompt")) {
+            const raw = text.slice(record.contentStart, record.contentEnd);
+            const changed = /(?:^style(?:_|$)|_style$)/.test(name) ? starshipStyle(raw, values)
+                : raw.replace(/\]\(([^()]*)\)/g, (whole, style) => "](" + starshipStyle(style, values) + ")");
+            if (changed !== raw) edits.push({ start: record.contentStart, end: record.contentEnd, value: changed });
+        }
+    }
+    let out = replaceSpans(text, edits) ?? text;
+    switch (format) {
+    case "starship":
+        out = tomlColorKey(out, ["palette"], "vgs");
+        for (const [name, value] of Object.entries(values))
+            if (name !== "fg" && name !== "bg") out = tomlColorKey(out, ["palettes", "vgs", name], value);
+        break;
+    case "yazi":
+        for (const scheme of ["dark", "light"]) out = tomlColorKey(out, ["flavor", scheme], "vgs");
+        break;
+    case "television":
+        out = tomlColorKey(out, ["ui", "theme"], "vgs");
+        break;
+    default: throw new Error("theme-select: unknown TOML app " + format);
+    }
+    return out === text ? null : out;
+}
+
+function batSelected(text, values) {
+    const edits = [];
+    // bat's config is one shell-like option per line. Change only the
+    // option's argument; comments and unrelated options stay in place.
+    // https://github.com/sharkdp/bat#configuration-file
+    const pattern = /^([ \t]*--theme(?:=|[ \t]+))((?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s#"']+))(?=[ \t]*(?:#|\r?$))/gm;
+    for (const match of text.matchAll(pattern)) edits.push({ start: match.index + match[1].length, end: match.index + match[0].length, value: values.theme });
+    const unknown = text.split("\n").some(line => /^\s*--theme(?:\s|=|$)/.test(line) && !new RegExp(pattern.source, "m").test(line));
+    if (unknown) throw new SyntaxError("unsupported-option");
+    if (edits.length !== 0) return replaceSpans(text, edits);
+    return terminated(text, lineBreak(text)) + "--theme=" + values.theme + lineBreak(text);
+}
+
+function ansiColor(value, background) {
+    const hex = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(value);
+    if (hex !== null) return (background ? "48" : "38") + ";2;" + hex.slice(1).map(part => parseInt(part, 16)).join(";");
+    const names = ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white"];
+    const match = /^(light_)?(black|red|green|yellow|blue|magenta|cyan|white)$/.exec(value);
+    if (match === null) throw new SyntaxError("unsupported-colour");
+    return String((match[1] ? 90 : 30) + (background ? 10 : 0) + names.indexOf(match[2]));
+}
+
+function themedSgr(code, foreground, background) {
+    const parts = code.split(";");
+    const out = [];
+    for (let i = 0; i < parts.length; i++) {
+        const n = Number(parts[i]);
+        if (n === 38 || n === 48) {
+            const count = parts[i + 1] === "2" ? 4 : parts[i + 1] === "5" ? 2 : 0;
+            if (count === 0 || i + count >= parts.length) throw new SyntaxError("unsupported-colour");
+            out.push(ansiColor(n === 48 ? background : foreground, n === 48));
+            i += count;
+        } else if ((n >= 30 && n <= 37) || (n >= 90 && n <= 97)) out.push(ansiColor(foreground, false));
+        else if ((n >= 40 && n <= 47) || (n >= 100 && n <= 107)) out.push(ansiColor(background, true));
+        else out.push(parts[i]);
+    }
+    return out.join(";");
+}
+
+function fastfetchSelected(text, values) {
+    const plain = jsoncBlanked(text);
+    const document = JSON.parse(plain);
+    if (document === null || typeof document !== "object" || Array.isArray(document)) throw new SyntaxError("unparseable");
+    const edits = [];
+    const walk = (node, key) => {
+        const seen = new Set();
+        for (const member of node.members) {
+            if (seen.has(member.key)) throw new SyntaxError("duplicate-key");
+            seen.add(member.key);
+            walk(member.value, key.concat(member.key));
+        }
+        const name = key.at(-1);
+        if (key.length === 2 && key[0] === "display" && name === "color" && node.kind !== "object") {
+            if (node.kind !== "string" && plain.slice(node.start, node.end) !== "null") throw new SyntaxError("unsupported-colour");
+            edits.push({ ...node, value: JSON.stringify(Object.fromEntries(["keys", "title", "output", "separator"].map(role => [role, values[role]]))) });
+            return;
+        }
+        const role = name === "keyColor" ? "keys" : name === "outputColor" ? "output"
+            : key[0] === "logo" && key[1] === "color" ? "logo"
+            : key[0] === "display" && key[1] === "color" ? name : undefined;
+        if (role !== undefined && values[role] !== undefined && node.kind !== "object" && node.kind !== "array") {
+            if (node.kind !== "string" && plain.slice(node.start, node.end) !== "null") throw new SyntaxError("not-a-string");
+            edits.push({ ...node, value: JSON.stringify(values[role]) });
+        } else if (node.kind === "string" && key[0] === "modules" && (name === "key" || name === "format")) {
+            const raw = text.slice(node.start + 1, node.end - 1);
+            const color = values[name === "key" ? "keys" : "output"];
+            // Keep reset and text attributes; replace only SGR colour codes.
+            // fastfetch accepts RGB or ANSI names in {#...} placeholders.
+            const changed = raw.replace(/\{#([^{}]+)\}/g, (whole, code) => {
+                if (["keys", "title", "output", "separator"].includes(code)) return whole;
+                if (/^[0-9;]+$/.test(code)) {
+                    return "{#" + themedSgr(code, color, values.bg) + "}";
+                }
+                const attributes = { reset: 0, bold: 1, bright: 1, dim: 2, italic: 3, underline: 4, blink: 5, inverse: 7, hidden: 8, strike: 9 };
+                const kept = code.split("_").filter(part => Object.hasOwn(attributes, part)).map(part => attributes[part]);
+                return "{#" + kept.concat(ansiColor(color, false)).join(";") + "}";
+            }).replace(/(?<!\\)((?:\\\\)*)(\\u001[bB]\[)([0-9;]*)(m)/g,
+                (_, literal, open, code, close) => literal + open + themedSgr(code, color, values.bg) + close);
+            if (changed !== raw) edits.push({ start: node.start + 1, end: node.end - 1, value: changed });
+        }
+    };
+    walk(jsonSpan(plain, 0), []);
+    let out = replaceSpans(text, edits) ?? text;
+    for (const role of ["keys", "title", "output", "separator"]) {
+        const result = jsonSelected(out, jsoncBlanked(out), ["display", "color", role], values[role], cause => { throw new SyntaxError(cause); });
+        if (result !== null) out = result;
+    }
+    return out === text ? null : out;
+}
+
+function appSelectedText(format, text, values) {
+    if (text === undefined) return { ok: false, reason: ABSENT, detail: "" };
+    try {
+        switch (format) {
+        case "starship": case "yazi": case "television": return tomlAppSelected(format, text, values);
+        case "fastfetch": return fastfetchSelected(text, values);
+        case "bat": return batSelected(text, values);
+        default: throw new Error("theme-select: unknown app " + format);
+        }
+    } catch (e) {
+        if (!(e instanceof SyntaxError)) throw e;
+        return { ok: false, reason: REFUSED, detail: "format=" + format + " cause=" + e.message };
+    }
+}
+
+module.exports = { selectedText, appSelectedText };

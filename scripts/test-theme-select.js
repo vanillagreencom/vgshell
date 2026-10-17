@@ -10,11 +10,13 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { spawnSync } = require("node:child_process");
 const { load } = require("../bin/lib/qml-library.js");
 
 const repo = path.join(__dirname, "..");
 const lib = path.join(repo, "bin", "lib");
 const logic = load(path.join(repo, "shell", "Commons", "ThemeLogic.js"));
+const tokens = load(path.join(repo, "shell", "Commons", "Tokens.js")).TOKENS;
 
 const CLAUDE = ["theme"];
 const GEMINI = ["ui", "theme"];
@@ -238,7 +240,71 @@ const REFUSED_SCHEMA = [
     [targetText({ value: "@{state" }), "key=select.value"]
 ];
 
+const APP_VALUES = {
+    starship: { fg: "#123456", bg: "#102030", red: "#aa0000" },
+    yazi: { fg: "#123456", bg: "#102030", "mgr.cwd.fg": "#abcdef" },
+    television: { background: "#102030", text_fg: "#123456" },
+    bat: { theme: "vgs" },
+    fastfetch: { keys: "#123456", title: "#abcdef", output: "#654321", separator: "#112233", logo: "#aabbcc", bg: "#102030" }
+};
+const APP_SELECTED = [
+    ["bat", "# mine\r\n--style=plain\r\n--theme='Dracula' # old\r\n", "# mine\r\n--style=plain\r\n--theme=vgs # old\r\n"],
+    ["bat", "--theme=ansi\n--theme \"other\"\n", "--theme=vgs\n--theme vgs\n"],
+    ["bat", "", "--theme=vgs\n"],
+    ["yazi", '[flavor]\ndark="vgs"\nlight="vgs"\n[mgr]\ncwd={fg="red", bold=true} # keep\n[icon]\nprepend_dirs=[{name="Desktop",text="icon",fg="#ff0000"}]\n', '[flavor]\ndark="vgs"\nlight="vgs"\n[mgr]\ncwd={fg="#abcdef", bold=true} # keep\n[icon]\nprepend_dirs=[{name="Desktop",text="icon",fg="#123456"}]\n'],
+    ["yazi", '[flavor]\ndark="other"\nlight="other"\n[tabs]\nactive={ fg="red", bg="blue", bold=true }\n', '[flavor]\ndark="vgs"\nlight="vgs"\n[tabs]\nactive={ fg="#123456", bg="#102030", bold=true }\n'],
+    ["yazi", '[icon]\nprepend_exts = [\n # keep\n {name="rs",text="x",fg="red"},\n]\n', '[icon]\nprepend_exts = [\n # keep\n {name="rs",text="x",fg="#123456"},\n]\n[flavor]\nlight = "vgs"\ndark = "vgs"\n'],
+    ["television", '[ui]\ntheme = "default" # picker\nscale=2\n[ui.theme_overrides]\nbackground="none"\ntext_fg="red"\n', '[ui]\ntheme = "vgs" # picker\nscale=2\n[ui.theme_overrides]\nbackground="#102030"\ntext_fg="#123456"\n'],
+    ["television", 'ui={theme="default",theme_overrides={text_fg="red"},scale=2}\n', 'ui={theme="vgs",theme_overrides={text_fg="#123456"},scale=2}\n'],
+    ["starship", 'palette="vgs"\n[palettes.vgs]\nred="#aa0000"\n[character]\nsuccess_symbol="[x](bold fg:#ffffff bg:42)" # symbol\nstyle="italic red"\n', 'palette="vgs"\n[palettes.vgs]\nred="#aa0000"\n[character]\nsuccess_symbol="[x](bold fg:#123456 bg:#102030)" # symbol\nstyle="italic red"\n'],
+    ["starship", 'format = """\n[x](#fff bold) $all\n"""\n[custom.x]\ncommand="echo [x](#fff)"\n', 'palette = "vgs"\nformat = """\n[x](#123456 bold) $all\n"""\n[custom.x]\ncommand="echo [x](#fff)"\n[palettes.vgs]\nred = "#aa0000"\n'],
+    ["starship", 'palettes={}\n', 'palette = "vgs"\npalettes={ vgs = { red = "#aa0000" } }\n'],
+    ["fastfetch", '{// keep\n"display":{"color":"red"},"modules":[{"type":"custom","key":"{#1;31}user{#}","keyColor":"red","outputColor":null,"format":"\\u001b[3;44;32mx\\u001b[0m"}],"logo":{"color":{"1":"red"}}}', '{// keep\n"display":{"color":{"keys":"#123456","title":"#abcdef","output":"#654321","separator":"#112233"}},"modules":[{"type":"custom","key":"{#1;38;2;18;52;86}user{#}","keyColor":"#123456","outputColor":"#654321","format":"\\u001b[3;48;2;16;32;48;38;2;101;67;33mx\\u001b[0m"}],"logo":{"color":{"1":"#aabbcc"}}}'],
+    ["fastfetch", '{"display":{"color":null},"modules":[{"key":"{#bold_red}\\uf007"}]}', '{"display":{"color":{"keys":"#123456","title":"#abcdef","output":"#654321","separator":"#112233"}},"modules":[{"key":"{#1;38;2;18;52;86}\\uf007"}]}']
+];
+
 function verify(render, edit) {
+    for (const [format, text, want] of APP_SELECTED) {
+        assert.equal(edit.appSelectedText(format, text, APP_VALUES[format]), want, format + " " + text);
+        assert.equal(edit.appSelectedText(format, want, APP_VALUES[format]), null, format + " must be idempotent");
+    }
+    const escapedAnsi = '{"display":{"color":{"keys":"#123456","title":"#abcdef","output":"#654321","separator":"#112233"}},"modules":[{"format":"literal \\\\u001b[31m; real \\u001b[31m\\u001b[44m"}]}';
+    const themedAnsi = '{"display":{"color":{"keys":"#123456","title":"#abcdef","output":"#654321","separator":"#112233"}},"modules":[{"format":"literal \\\\u001b[31m; real \\u001b[38;2;101;67;33m\\u001b[48;2;16;32;48m"}]}';
+    assert.equal(edit.appSelectedText("fastfetch", escapedAnsi, APP_VALUES.fastfetch), themedAnsi);
+    assert.equal(edit.appSelectedText("fastfetch", themedAnsi, APP_VALUES.fastfetch), null);
+    const commandText = '{"display":{"color":{"keys":"#123456","title":"#abcdef","output":"#654321","separator":"#112233"}},"modules":[{"type":"command","text":"printf {#31}","folders":"/tmp/{#32}"}]}';
+    assert.equal(edit.appSelectedText("fastfetch", commandText, APP_VALUES.fastfetch), null);
+    for (const [format, text] of [["yazi", 'x="open'], ["yazi", '[flavor]\n[flavor]\n'], ["starship", 'palettes={vgs="red"}\n'], ["television", '[ui.theme_overrides]\nunknown="red"\n'], ["fastfetch", '{"modules":[]} broken'], ["bat", '--theme="unterminated\n']])
+        assert.equal(edit.appSelectedText(format, text, APP_VALUES[format]).reason, "selection-refused");
+    for (const [format, values] of Object.entries(APP_VALUES)) {
+        assert.equal(edit.appSelectedText(format, undefined, values).reason, "selection-file-absent");
+        const document = JSON.parse(targetText({}));
+        if (format === "bat") document.detect = ["bat"];
+        document.select = { base: "config", file: "app/config", format, values };
+        const accepted = render.acceptTarget(logic, "probe", JSON.stringify(document));
+        assert.equal(accepted.ok, true, format);
+        document.select.file = ["yazi/theme.toml", "yazi-scratchpad/theme.toml"];
+        assert.equal(render.acceptTarget(logic, "probe", JSON.stringify(document)).ok, true);
+        document.select.values = {};
+        assert.equal(render.acceptTarget(logic, "probe", JSON.stringify(document)).reason, "target-schema");
+        document.select.values = values;
+        document.select.file = ["app/config", "../outside"];
+        assert.equal(render.acceptTarget(logic, "probe", JSON.stringify(document)).reason, "target-schema");
+    }
+    const directories = JSON.parse(targetText({}));
+    directories.wiring = { base: "config", dir: ["yazi/flavors/vgs.yazi", "yazi-scratchpad/flavors/vgs.yazi"], owned: true, links: { "flavor.toml": "probe.conf" } };
+    assert.equal(render.acceptTarget(logic, "probe", JSON.stringify(directories)).ok, true);
+    directories.wiring.dir.push("../outside");
+    assert.equal(render.acceptTarget(logic, "probe", JSON.stringify(directories)).reason, "target-schema");
+    const document = JSON.parse(targetText({}));
+    document.select = { base: "config", file: "yazi/theme.toml", format: "yazi", values: { fg: "#@{color.text}", bg: "#@{color.background}" } };
+    const target = render.acceptTarget(logic, "probe", JSON.stringify(document)).target;
+    const values = logic.accept(tokens, '{"schemaVersion":1,"name":"probe","tokens":{"palette":{"foreground":"#123456","background":"#102030"}}}').values;
+    const rendered = render.selectValues(logic, tokens, target, { values, slots: {} });
+    assert.equal(rendered.values.fg, "#123456");
+    assert.equal(rendered.values.bg, "#102030");
+    target.select.values.fg = "@{unknown}";
+    assert.equal(render.selectValues(logic, tokens, target, { values, slots: {} }).reason, "placeholder");
     for (const [format, text, key, value, want] of SELECTED)
         assert.equal(edit.selectedText(format, text, [key], value), want, format + " " + JSON.stringify(text));
     for (const [format, text, key, cause] of REFUSED)
@@ -280,11 +346,72 @@ const selectFile = path.join(lib, "theme-select.js");
 const renderFile = path.join(lib, "theme-render.js");
 verify(require(renderFile), require(selectFile));
 
+// Exercise the real apply planner and atomic writer. The explicit child
+// environment has no display, bus, live HOME or runtime directory.
+function verifyBatCreation(tree, scratch) {
+    for (const detected of [true, false]) {
+        const home = fs.mkdtempSync(path.join(scratch, "home-"));
+        const commands = path.join(home, "commands");
+        fs.mkdirSync(commands);
+        if (detected) fs.writeFileSync(path.join(commands, "bat"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+        const config = path.join(home, ".config");
+        const state = path.join(home, "state");
+        const result = spawnSync(process.execPath, [path.join(tree, "bin", "vgshell-theme-judge"), "apply", "json", path.join(config, "vgshell"), state, "held", "vgs"], {
+            encoding: "utf8", timeout: 30000,
+            env: { HOME: home, PATH: commands, XDG_CONFIG_HOME: config, XDG_CACHE_HOME: path.join(home, "cache"), XDG_DATA_HOME: path.join(home, "data"), XDG_STATE_HOME: path.join(home, "state-home"), XDG_RUNTIME_DIR: path.join(home, "runtime"), TMPDIR: scratch, VGS_TEST_RUN: "1", DBUS_SYSTEM_BUS_ADDRESS: "unix:path=" + path.join(home, "no-system-bus") }
+        });
+        assert.equal(result.status, 0, result.stderr);
+        const row = JSON.parse(result.stdout.trim()).targets.find(row => row.name === "bat");
+        const file = path.join(config, "bat", "config");
+        if (detected) {
+            assert.equal(fs.readFileSync(file, "utf8"), "--theme=vgs\n");
+            assert.equal(row.state, "written");
+        } else {
+            assert.equal(fs.existsSync(file), false);
+            assert.equal(row.reason, "not-detected");
+        }
+    }
+}
+
+const batScratch = fs.mkdtempSync(path.join(os.tmpdir(), "theme-bat-create-"));
+try {
+    const tree = path.join(batScratch, "tree");
+    for (const directory of ["bin", "shell/Commons", "shell/Core", "shell/Ui/icons", "config", "themes/vgs"])
+        fs.cpSync(path.join(repo, directory), path.join(tree, directory), { recursive: true });
+    const targetDir = path.join(tree, "themes", "targets", "bat");
+    fs.mkdirSync(targetDir, { recursive: true });
+    const target = JSON.parse(targetText({}));
+    Object.assign(target, { detect: ["bat"], files: [{ template: "bat.conf", destination: "bat.conf" }], select: { base: "config", file: "bat/config", format: "bat", values: { theme: "vgs" } } });
+    fs.writeFileSync(path.join(targetDir, "target.json"), JSON.stringify(target));
+    fs.writeFileSync(path.join(targetDir, "bat.conf"), "# test theme\n");
+    verifyBatCreation(tree, batScratch);
+    const judgeFile = path.join(tree, "bin", "vgshell-theme-judge");
+    const original = fs.readFileSync(judgeFile, "utf8");
+    for (const [needle, replacement] of [
+        [' || selection.format === "bat"', ""],
+        ['if (!render.detected(target.detect, onPath)) return "not-detected";', 'if (false) return "not-detected";']
+    ]) {
+        assert.equal(original.split(needle).length, 2);
+        fs.writeFileSync(judgeFile, original.replace(needle, replacement));
+        assert.throws(() => verifyBatCreation(tree, batScratch));
+    }
+} finally {
+    fs.rmSync(batScratch, { recursive: true, force: true });
+}
+
 // Each control removes one rule's behaviour from a copy of one file and
 // keeps the text around it: the file, the text, its replacement.
 const S = "theme-select.js";
 const R = "theme-render.js";
 const CONTROLS = [
+    [S, 'case "bat": return batSelected(text, values);', 'case "bat": return null;'],
+    [S, 'if (format === "yazi" && (name === "fg" || name === "bg"))', 'if (false)'],
+    [S, 'edits.push({ ...record, value: JSON.stringify(values[name]) });', 'edits.push({ ...record, value: JSON.stringify("red") });'],
+    [S, 'starshipStyle(style, values) + ")"', 'style + ")"'],
+    [S, 'themedSgr(code, color, values.bg) + close', 'code + close'],
+    [S, '/(?<!\\\\)((?:\\\\\\\\)*)(\\\\u001[bB]\\[)([0-9;]*)(m)/g', '/()(\\\\u001[bB]\\[)([0-9;]*)(m)/g'],
+    [S, ' && (name === "key" || name === "format")', ""],
+    [R, 'values[key] = value;', 'values[key] = text;'],
     [S, '    case "jsonc": return jsonSelected(text, jsoncBlanked(text), key, value, refuse);', '    case "jsonc": return jsonSelected(text, text, key, value, refuse);'],
     [S, '} else if (text.startsWith("//", i)) {', '} else if (false) {'],
     [S, '} else if (text.startsWith("/*", i)) {', '} else if (false) {'],
@@ -293,7 +420,7 @@ const CONTROLS = [
     [R, 'const SELECT_FORMATS = ["json", "jsonc", "toml", "yaml"];', 'const SELECT_FORMATS = ["json", "toml", "yaml"];'],
     [R, "const segment = isJsonFormat(format) ? JSON_KEY_PATTERN : SECTION_PATTERN;", "const segment = JSON_KEY_PATTERN;"],
     [R, "const segment = isJsonFormat(format) ? JSON_KEY_PATTERN : SECTION_PATTERN;", "const segment = SECTION_PATTERN;"],
-    [S, 'if (text === undefined) return { ok: false, reason: ABSENT, detail: "" };', 'if (text === undefined) text = "";'],
+    [S, 'function selectedText(format, text, keys, value) {\n    if (text === undefined) return { ok: false, reason: ABSENT, detail: "" };', 'function selectedText(format, text, keys, value) {\n    if (text === undefined) text = "";'],
     [S, "    } catch (e) {\n        return refuse(\"unparseable\");", "    } catch (e) {\n        return text;"],
     [S, 'if (document === null || typeof document !== "object" || Array.isArray(document)) return refuse("unparseable");', 'if (document === null) return refuse("unparseable");'],
     [S, '        if (found.length > 1) return refuse("duplicate-key");\n        if (found.length === 0) return withMember', "        if (found.length === 0) return withMember"],

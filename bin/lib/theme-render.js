@@ -26,8 +26,10 @@ const ACCOUNTS_KEY = "accounts";
 // The one optional top-level key: the theme selection apply keeps in the
 // application's own settings file, `{ base, file, format, key, value }`,
 // beside any wiring form. `key` is one key path, or a list of two or more
-// key paths that each take the value. bin/lib/theme-select.js makes the
-// edit.
+// key paths that each take the value. The named terminal apps use
+// `{ base, file, format, values }` for their native colour spans; `file`
+// may name several existing configurations. bin/lib/theme-select.js owns
+// both edits.
 const SELECT_KEY = "select";
 // An optional editors target serves every installed editor of one family
 // from one render: each `{ detect, extensions, user }` names the editor's
@@ -44,6 +46,8 @@ const EDITOR_BASE = "editor";
 // skipped with `setup-absent`, so no apply runs a hook that cannot work.
 const SETUP_KEY = "setup";
 const SELECT_KEYS = ["base", "file", "format", "key", "value"];
+const COLOR_SELECT_KEYS = ["base", "file", "format", "values"];
+const COLOR_SELECT_FORMATS = ["starship", "yazi", "bat", "fastfetch", "television"];
 // `jsonc` is JSON with comments and trailing commas, as VS Code-family
 // editors read their settings.
 const SELECT_FORMATS = ["json", "jsonc", "toml", "yaml"];
@@ -368,7 +372,11 @@ function entryError(logic, wiring, destinations, hasAccounts) {
     if (itemKey === "" || !ENTRY_BASE_KEYS.every(key => logic.hasOwn(wiring, key)) ||
         !Object.keys(wiring).every(key => ENTRY_BASE_KEYS.includes(key) || ENTRY_ITEM_KEYS.includes(key) || ENTRY_OPTIONAL_KEYS.includes(key))) return "key=wiring";
     if (!entryBaseAccepted(wiring.base, hasAccounts)) return "key=wiring.base";
-    if (!isRelativePath(wiring.dir)) return "key=wiring.dir";
+    if (Array.isArray(wiring.dir)) {
+        if (hasAccounts || logic.hasOwn(wiring, "vaults") || wiring.dir.length === 0 || !wiring.dir.every(isRelativePath) || new Set(wiring.dir).size !== wiring.dir.length) return "key=wiring.dir";
+    } else {
+        if (!isRelativePath(wiring.dir)) return "key=wiring.dir";
+    }
     if (logic.hasOwn(wiring, "vaults") && !isRelativePath(wiring.vaults)) return "key=wiring.vaults";
     if (typeof wiring.owned !== "boolean") return "key=wiring.owned";
     if (!logic.isPlainObject(wiring[itemKey]) || Object.keys(wiring[itemKey]).length === 0) return "key=wiring." + itemKey;
@@ -507,6 +515,22 @@ function isKeyPrefix(a, b) {
 // lies on another's path, and one line of value whose only placeholders are
 // `@{state}` and, on an editors target, `@{extension.stamp}`.
 function selectError(logic, select, hasAccounts, hasEditors) {
+    if (logic.isPlainObject(select) && COLOR_SELECT_FORMATS.includes(select.format)) {
+        if (!hasExactKeys(logic, select, COLOR_SELECT_KEYS)) return "key=select";
+        if (!ENTRY_BASES.includes(select.base)) return "key=select.base";
+        const files = Array.isArray(select.file) ? select.file : [select.file];
+        if (files.length === 0 || !files.every(isRelativePath) || new Set(files).size !== files.length) return "key=select.file";
+        if (!logic.isPlainObject(select.values) || Object.keys(select.values).length === 0) return "key=select.values";
+        for (const [key, value] of Object.entries(select.values)) {
+            if (!JSON_KEY_PATTERN.test(key) || !isLine(value) || CONTROL_CHARACTER.test(value) || placeholderNames(value) === null) return "key=select.values";
+        }
+        const required = select.format === "starship" || select.format === "yazi" ? ["fg", "bg"]
+            : select.format === "fastfetch" ? ["keys", "title", "output", "separator", "logo", "bg"]
+            : select.format === "bat" ? ["theme"] : [];
+        if (required.some(key => !logic.hasOwn(select.values, key))) return "key=select.values";
+        if (select.format === "bat" && (Object.keys(select.values).length !== 1 || select.values.theme !== "vgs")) return "key=select.values";
+        return "";
+    }
     if (!hasExactKeys(logic, select, SELECT_KEYS)) return "key=select";
     if (!entryBaseAccepted(select.base, hasAccounts) && !(hasEditors && select.base === EDITOR_BASE)) return "key=select.base";
     if (!isRelativePath(select.file)) return "key=select.file";
@@ -570,6 +594,7 @@ function acceptTarget(logic, name, text) {
     if (reload !== "") return refused("target-schema", reload);
     const select = logic.hasOwn(document, SELECT_KEY) ? selectError(logic, document.select, hasAccounts, hasEditors) : "";
     if (select !== "") return refused("target-schema", select);
+    if (document.select?.format === "bat" && !document.detect.includes("bat")) return refused("target-schema", "key=detect");
     if (hasAccounts) {
         if (!logic.hasOwn(document, SELECT_KEY) || wiringForm(document.wiring) !== "entry" ||
             document.wiring.base !== ACCOUNT_BASE || document.select.base !== ACCOUNT_BASE) return refused("target-schema", "key=accounts");
@@ -907,6 +932,8 @@ function renderTarget(logic, tokens, target, templates, input) {
         throw new Error("theme-render: renderTarget: target " + target.name + " rendered without terminal slots");
     if (typeof input.installed !== "boolean")
         throw new Error("theme-render: renderTarget: target " + target.name + " rendered without the package's source");
+    const selection = selectValues(logic, tokens, target, input);
+    if (selection !== undefined && !selection.ok) return selection;
     if (target.name === "kitty") input = { ...input, targetColors: kittyColors(logic, tokens, input) };
     if (target.name === "tmux") input = { ...input, slots: tmuxSlots(logic, input) };
     const encode = hex => ENCODERS[target.encoder](hex, input.values.color.background);
@@ -958,7 +985,7 @@ function renderTarget(logic, tokens, target, templates, input) {
     }
     const destinations = target.files.map(file => file.destination);
     const extension = stampFrom === undefined ? undefined : extensionOf(target, rendered.get(stampFrom).bytes);
-    return { ok: true, files: destinations.map(destination => rendered.get(destination)), dropped: destinations.filter(destination => dropped.includes(destination)), extension };
+    return { ok: true, files: destinations.map(destination => rendered.get(destination)), dropped: destinations.filter(destination => dropped.includes(destination)), extension, selectionValues: selection?.values };
 }
 
 // The stamp of an extension whose `stamp` file holds BYTES: the first 32
@@ -1010,6 +1037,25 @@ function selectValue(target, state, extension) {
 function selectKeys(target) {
     if (target.select === undefined) throw new Error("theme-render: selectKeys: target " + target.name + " has no select");
     return typeof target.select.key[0] === "string" ? [target.select.key] : target.select.key;
+}
+
+// App colour edits use the same placeholder owner and encoder as templates.
+function selectValues(logic, tokens, target, input) {
+    if (target.select === undefined || target.select.values === undefined) return undefined;
+    const encode = hex => ENCODERS[target.encoder](hex, input.values.color.background);
+    const values = {};
+    for (const [key, text] of Object.entries(target.select.values)) {
+        const parsed = parseTemplate(text);
+        if (!parsed.ok) return refused("placeholder", "selection=" + key);
+        let value = "";
+        for (const part of parsed.parts) {
+            const rendered = typeof part === "string" ? part : placeholderText(logic, tokens, input, part.name, encode);
+            if (rendered === undefined) return refused("placeholder", "selection=" + key);
+            value += rendered;
+        }
+        values[key] = value;
+    }
+    return { ok: true, values };
 }
 
 // Whether an accepted TARGET's hook is due on every apply that lands it,
@@ -1318,4 +1364,4 @@ function unwiredText(text, line, section) {
     return next === text ? null : next;
 }
 
-module.exports = { colorDeltaE, colorDifference, TARGET_FILE, EDITOR_BASE, extensionOf, extensionFolder, manifestThemes, extensionFolderId, registeredText, unregisteredText, unobsoletedText, acceptTarget, placeholderNames, detected, setupDone, curatedTaken, renderTarget, terminalSource, refusalLine, wiringForm, wiringLine, entryItems, profileDirs, vaultDirs, reloadNamesWiring, reloadCommand, reloadAlways, reloadLast, selectKeys, selectValue, wiredText, unwiredText, isSectionHeader, opensSection, assignedKey };
+module.exports = { colorDeltaE, colorDifference, TARGET_FILE, EDITOR_BASE, extensionOf, extensionFolder, manifestThemes, extensionFolderId, registeredText, unregisteredText, unobsoletedText, acceptTarget, placeholderNames, detected, setupDone, curatedTaken, renderTarget, terminalSource, refusalLine, wiringForm, wiringLine, entryItems, profileDirs, vaultDirs, reloadNamesWiring, reloadCommand, reloadAlways, reloadLast, selectKeys, selectValue, selectValues, wiredText, unwiredText, isSectionHeader, opensSection, assignedKey };
