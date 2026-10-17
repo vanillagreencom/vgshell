@@ -285,7 +285,14 @@ Singleton {
             describe: () => root.frameFacts(id, item),
             hide: () => root.setPlaced(id, false),
             openSettings: () => root.openSettingsPage(root.frameFacts(id, item).page),
-            openPage: (page, tab) => root.openReference(page, tab),
+            // The widget leaves a refused reference's words as words, so
+            // the reply is logged here once, as capability `surfaces`'
+            // openPage logs it.
+            openPage: (page, tab) => {
+                const reply = root.openReference(page, tab);
+                if (reply !== "ok") console.warn("plugins: " + id + " openPage " + reply);
+                return reply;
+            },
             openReadme: () => {
                 const url = root.frameFacts(id, item).readme;
                 return url === "" ? "refused: readme=none" : Capabilities.runDetached(DesktopLaunch.open(url));

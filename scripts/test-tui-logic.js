@@ -726,7 +726,7 @@ function requestSuite(source, logic, check) {
         "acme.req": { live: judged(needingRaw, "r3"), registered: judged(needingRaw, "r9") },
         "vgs.jarvis": { live: judged(jarvisRaw, "j3"), registered: judged(jarvisRaw, "j9") },
     };
-    const functions = ["run(ctx, name, args, done)", "runFor(id, name, args)", "request(id, manifest, held)", "resume(id, held)", "unstarted(held)"]
+    const functions = ["run(ctx, name, args, done)", "runFor(id, name, args)", "request(id, manifest, held)", "recordStarted(launch, args)", "resume(id, held)", "unstarted(held)"]
         .map(header => runnerFunction(source, header)).join("")
         + ["handOver(id, done, result)", "frozen(value)"].map(header => runnerFunction(RECORDS, header)).join("")
         + "const recordStore = { handOver: handOver };\n";
@@ -855,8 +855,8 @@ requestSuite(RUNNER, load(LOGIC), report);
 // TuiRunner: runFor reading a busy key as `ok` whatever its arguments, and
 // request recording no arguments of the run it starts.
 for (const [label, needle, replacement] of [
-    ["runFor reads every busy key as its own window", "return Logic.tuiOwnShownAnswer(id, name, answer, args, startedArgs);", "return Logic.tuiShownAnswer(name, answer);"],
-    ["request records no started arguments", "        if (launch.ok) startedArgs = Object.assign({}, startedArgs, { [launch.key]: held.args === undefined ? [] : held.args.slice() });\n", ""]
+    ["runFor reads every busy key as its own window", "return Logic.tuiArgsShownAnswer(Logic.tuiOwnKey(id, name), name, answer, args, startedArgs);", "return Logic.tuiShownAnswer(name, answer);"],
+    ["request records no started arguments", "        recordStarted(launch, held.args);\n", ""]
 ]) {
     report("control: " + label + ": the text to replace occurs once", RUNNER.split(needle).length - 1, 1);
     let red = 0;
@@ -866,6 +866,102 @@ for (const [label, needle, replacement] of [
         red += 1;
     }
     report("control: the request rows fail when " + label, red > 0, true);
+}
+
+// TuiRunner's edit and editFor share one route, openPath: a file opens in
+// the core editor, keyed `core/edit` or the plugin's `<id>/edit`, and a
+// request for another file while that editor is live answers busy-other
+// while it raises the live one, so a notice card that leaves on `ok` stays;
+// a folder path opens in the file manager only once `test -d` finds a
+// folder there, since gio drops the trailing `/` and opens a file in its
+// default application. edit, editFor, openPath, recordStarted, openFolder
+// and folderChecked run as TuiRunner.qml holds them, with the judge above,
+// against stand-ins for the launcher, the folder check and runDetached.
+function editSuite(source, logic, check) {
+    const functions = ["edit(path, line)", "editFor(id, path)", "openPath(path, line, owner)", "recordStarted(launch, args)", "openFolder(path)", "folderChecked(path, completion)"]
+        .map(header => runnerFunction(source, header)).join("");
+    // STEPS run in order in one context, each [busy keys, call, the end of
+    // the folder check the call starts, null for one that never started].
+    const scenario = steps => {
+        const seen = { started: [], checks: [], opened: [], logs: 0 };
+        let busy = [];
+        let end = null;
+        const sandbox = vm.createContext({
+            Logic: logic, JSON: JSON, Object: Object, startedArgs: {}, root: {}, coreBin: "/vgs/bin",
+            Paths: { home: "/home/me", configHome: "/home/me/.config" },
+            DesktopLaunch: { open: target => ["gio", "open", target] },
+            Capabilities: { runDetached: argv => { seen.opened.push(argv); return "ok"; } },
+            console: { warn: () => { seen.logs += 1; }, error: () => { seen.logs += 1; } },
+            runner: () => ({ launcher: "present", busy: busy, run: "7-1" }),
+            start: launch => {
+                if (!launch.ok) return launch.answer;
+                seen.started.push([launch.key, launch.argv.slice(launch.argv.indexOf("--") + 3)]);
+                return "ok";
+            },
+            folderCheckComponent: {
+                createObject: (parent, props) => {
+                    seen.checks.push(props.path);
+                    const process = { path: props.path };
+                    Object.defineProperty(process, "running", { set: () => sandbox.folderChecked(process.path, end) });
+                    return process;
+                },
+            },
+        });
+        vm.runInContext(functions, sandbox);
+        const answers = steps.map(([stepBusy, call, stepEnd]) => {
+            busy = stepBusy;
+            end = stepEnd;
+            return vm.runInContext(call, sandbox);
+        });
+        return { answers: answers, started: seen.started, checks: seen.checks, opened: seen.opened, logs: seen.logs };
+    };
+    const folder = { code: 0, status: 0 };
+    const notFolder = { code: 1, status: 0 };
+    const none = { started: [], checks: [], opened: [], logs: 0 };
+    const want = fields => Object.assign({ answers: [] }, none, fields);
+    // rows: [name, steps, what the steps answer, start, check and open]
+    const rows = [
+        ["edit of a file starts the core editor on it", [[[], "edit(\"hypr/a.lua\", 3)", null]],
+            want({ answers: ["ok"], started: [["core/edit", ["hypr/a.lua", "3"]]] })],
+        ["edit of another file while the editor holds one answers busy-other", [[[], "edit(\"hypr/a.lua\")", null], [["core/edit"], "edit(\"hypr/b.lua\")", null]],
+            want({ answers: ["ok", "refused: tui=core/edit reason=busy-other"], started: [["core/edit", ["hypr/a.lua"]]] })],
+        ["edit of the same file while the editor holds it raises it", [[[], "edit(\"hypr/a.lua\")", null], [["core/edit"], "edit(\"hypr/a.lua\")", null]],
+            want({ answers: ["ok", "ok"], started: [["core/edit", ["hypr/a.lua"]]] })],
+        ["edit while an editor this shell did not start is live answers busy-other", [[["core/edit"], "edit(\"hypr/a.lua\")", null]],
+            want({ answers: ["refused: tui=core/edit reason=busy-other"] })],
+        ["editFor of another file while the plugin's editor holds one answers busy-other", [[[], "editFor(\"acme.tui\", \"acme/a.toml\")", null], [["acme.tui/edit"], "editFor(\"acme.tui\", \"acme/b.toml\")", null]],
+            want({ answers: ["ok", "refused: tui=edit reason=busy-other"], started: [["acme.tui/edit", ["acme/a.toml"]]] })],
+        ["editFor of the same file while the plugin's editor holds it raises it", [[[], "editFor(\"acme.tui\", \"acme/a.toml\")", null], [["acme.tui/edit"], "editFor(\"acme.tui\", \"acme/a.toml\")", null]],
+            want({ answers: ["ok", "ok"], started: [["acme.tui/edit", ["acme/a.toml"]]] })],
+        ["the core editor's file does not answer for a plugin's editor", [[[], "edit(\"acme/a.toml\")", null], [["acme.tui/edit"], "editFor(\"acme.tui\", \"acme/a.toml\")", null]],
+            want({ answers: ["ok", "refused: tui=edit reason=busy-other"], started: [["core/edit", ["acme/a.toml"]]] })],
+        ["a folder path that is a folder opens in the file manager", [[[], "edit(\"~/.local/share/vgs/\")", folder]],
+            want({ answers: ["ok"], checks: ["/home/me/.local/share/vgs/"], opened: [["gio", "open", "/home/me/.local/share/vgs/"]] })],
+        ["a /-suffixed path to a file opens nothing and is logged", [[[], "edit(\"/home/me/.bashrc/\")", notFolder]],
+            want({ answers: ["ok"], checks: ["/home/me/.bashrc/"], logs: 1 })],
+        ["a folder check that never started opens nothing and is logged", [[[], "editFor(\"acme.tui\", \"acme/\")", null]],
+            want({ answers: ["ok"], checks: ["/home/me/.config/acme/"], logs: 1 })],
+        ["a refused path starts nothing", [[[], "edit(\"a/../x\")", null]],
+            want({ answers: ["refused: edit=a/../x reason=parent"] })],
+    ];
+    for (const [name, steps, expected] of rows) check("TuiRunner edit: " + name, scenario(steps), expected);
+}
+editSuite(RUNNER, load(LOGIC), report);
+// Each control drops one rule from a copy of TuiRunner: the editor reading
+// every busy key as its own file's window, and a folder path opening
+// whatever the check found.
+for (const [label, needle, replacement] of [
+    ["the editor drops the started-arguments comparison", "return Logic.tuiArgsShownAnswer(named.key, named.label, answer, route.args, startedArgs);", "return Logic.tuiShownAnswer(named.label, answer);"],
+    ["the folder check admits a /-suffixed file", "if (completion === null || completion.status !== 0 || completion.code !== 0) {", "if (false) {"]
+]) {
+    report("control: " + label + ": the text to replace occurs once", RUNNER.split(needle).length - 1, 1);
+    let red = 0;
+    try {
+        editSuite(RUNNER.replace(needle, () => replacement), load(LOGIC), (name, got, want) => { if (JSON.stringify(got) !== JSON.stringify(want)) red += 1; });
+    } catch (e) {
+        red += 1;
+    }
+    report("control: the edit rows fail when " + label, red > 0, true);
 }
 
 // Notices holds a plugin's script request while the notice for its lacking
@@ -1171,7 +1267,7 @@ const CONTROLS = [
     ["a folder opens in the file manager", "if (expanded.charAt(expanded.length - 1) !== \"/\")", "if (true)"],
     ["a relative folder sits under the configuration directory", ": configHome + \"/\" + expanded };", ": expanded };"],
     ["a folder takes no line", "    if (judged.args.length > 1)\n        return { ok: false, answer: \"refused: line=\" + judged.args[1] + \" reason=folder\" };\n", ""],
-    ["an owned launch is keyed by its owner", "var key = (owner === undefined ? \"core\" : owner) + \"/\" + name;", "var key = \"core/\" + name;"],
+    ["an owned launch is keyed by its owner", "    return { key: tuiOwnKey(owner, name), label: name };", "    return { key: \"core/\" + name, label: name };"],
     ["a file action names the editor in the plugin's state", "return files ? names.concat([STATUS_FILE_TUI]) : names;", "return names;"],
     ["a core request's arguments follow its argv", "row.argv.slice(1), args === undefined ? [] : args)", "row.argv.slice(1))"],
     ["a launcher that never started is logged", "if (completion === null)\n        return \"tui: launcher=unstarted", "if (false)\n        return \"tui: launcher=unstarted"],

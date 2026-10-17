@@ -27,11 +27,12 @@ Scope {
     // Launches whose run has no record yet and whose launcher did not fail,
     // each { key, run }: the key stays busy until the record appears.
     property var pending: []
-    // Each plugin script's key, and each plugin's file action editor key,
-    // -> the arguments of the latest run this shell started for it, so a
-    // request for a live key with other arguments is told apart from a
-    // second press of the same one (PluginLogic.tuiOwnShownAnswer). One
-    // entry per such key, each replaced by the next start. Replaced whole.
+    // Each plugin script's key and each editor key, the core's
+    // `core/edit` and a plugin's file action's `<id>/edit`, -> the
+    // arguments of the latest run this shell started for it, so a request
+    // for a live key with other arguments is told apart from a second press
+    // of the same one (PluginLogic.tuiArgsShownAnswer). One entry per such
+    // key, each replaced by the next start (recordStarted). Replaced whole.
     property var startedArgs: ({})
     // One of PluginLogic.TUI_LAUNCHER_STATES: the first probe answers it,
     // and every later probe and launch moves it.
@@ -99,11 +100,11 @@ Scope {
     // requirement notice for those commands, for both steps. Answers `ok`
     // when the request starts the TUI or focuses its live window of the same
     // arguments, and `reason=busy-other` when that window is another row's,
-    // as PluginLogic.tuiOwnShownAnswer decides. The plugin reads the run's end
+    // as PluginLogic.tuiArgsShownAnswer decides. The plugin reads the run's end
     // from its `state`.
     function runFor(id, name, args) {
         const answer = request(id, Registry.manifests[id], { name: name, args: args, ctx: null, done: undefined });
-        return Logic.tuiOwnShownAnswer(id, name, answer, args, startedArgs);
+        return Logic.tuiArgsShownAnswer(Logic.tuiOwnKey(id, name), name, answer, args, startedArgs);
     }
 
     // The one judge of a plugin's own script request, run's and runFor's:
@@ -116,8 +117,15 @@ Scope {
         const launch = Logic.tuiRunFor(manifest, Registry.isEnabled(id), Registry.sourceDir, runner(), held.name, Notices.missingOf(id), held.args);
         if (launch.kind === "install") return Notices.raiseHeld(id, launch.commands, held);
         const answer = start(launch, held.ctx, held.done);
-        if (launch.ok) startedArgs = Object.assign({}, startedArgs, { [launch.key]: held.args === undefined ? [] : held.args.slice() });
+        recordStarted(launch, held.args);
         return answer;
+    }
+
+    // The one record of the arguments ARGS, absent for none, that LAUNCH
+    // started with, read by tuiArgsShownAnswer; a launch refused records
+    // nothing, so the live run's arguments stay.
+    function recordStarted(launch, args) {
+        if (launch.ok) startedArgs = Object.assign({}, startedArgs, { [launch.key]: args === undefined ? [] : args.slice() });
     }
 
     // resume: plugin ID's HELD request, once its requirement notice closed
@@ -132,7 +140,7 @@ Scope {
             ? request(id, held.ctx.manifest, held)
             : request(id, Registry.manifests[id], { name: held.name, args: held.args, ctx: null, done: undefined });
         if (answer !== "ok") unstarted(held);
-        return Logic.tuiOwnShownAnswer(id, held.name, answer, held.args, startedArgs);
+        return Logic.tuiArgsShownAnswer(Logic.tuiOwnKey(id, held.name), held.name, answer, held.args, startedArgs);
     }
 
     // The end a held request's `done` receives when it never starts, so a
@@ -164,30 +172,61 @@ Scope {
 
     // edit: the one route that opens a cited file or folder, a file
     // reference's (PageReference), a notice's link or `shell.tui.edit`'s,
-    // as PluginLogic.editRoute decides: a file through the core editor TUI,
-    // answered as open answers, so a live editor is raised, and a folder in
-    // the default file manager.
+    // through openPath, its editor run keyed `core/edit`.
     function edit(path, line) {
-        const route = Logic.editRoute(path, line, Paths.home, Paths.configHome);
-        if (!route.ok) return route.answer;
-        if (route.kind === "folder") return Capabilities.runDetached(DesktopLaunch.open(route.path));
-        return Logic.tuiShownAnswer("core/edit", openCore("edit", route.args));
+        return openPath(path, line, undefined);
     }
 
     // editFor: plugin ID's file action (PluginLogic.statusActionRequest),
     // PATH opened by edit's route, its editor run keyed as the plugin's
     // own, `<id>/edit`, so the plugin reads its end in its `state`
-    // (PluginLogic.tuiStateNames) as it reads its own script's. A second
-    // press for the same file raises the live editor; one for another file
-    // while it is open answers `reason=busy-other`, as runFor does.
+    // (PluginLogic.tuiStateNames) as it reads its own script's.
     function editFor(id, path) {
-        const route = Logic.editRoute(path, undefined, Paths.home, Paths.configHome);
+        return openPath(path, undefined, id);
+    }
+
+    // PATH at LINE as PluginLogic.editRoute decides: a folder through
+    // openFolder, and a file through the core editor TUI, run for OWNER, a
+    // plugin id, or for the core while OWNER is undefined
+    // (PluginLogic.tuiCore). A second request for the same file raises the
+    // live editor and answers `ok`; one for another file while that editor
+    // is open raises it and answers `reason=busy-other`, as runFor does, so
+    // a caller that leaves once its file opened stays.
+    function openPath(path, line, owner) {
+        const route = Logic.editRoute(path, line, Paths.home, Paths.configHome);
         if (!route.ok) return route.answer;
-        if (route.kind === "folder") return Capabilities.runDetached(DesktopLaunch.open(route.path));
-        const launch = Logic.tuiCore(Logic.CORE_TUIS, coreBin, runner(), "edit", route.args, id);
+        if (route.kind === "folder") return openFolder(route.path);
+        const launch = Logic.tuiCore(Logic.CORE_TUIS, coreBin, runner(), "edit", route.args, owner);
         const answer = start(launch, null, undefined);
-        if (launch.ok) startedArgs = Object.assign({}, startedArgs, { [launch.key]: route.args.slice() });
-        return Logic.tuiOwnShownAnswer(id, Logic.STATUS_FILE_TUI, answer, route.args, startedArgs);
+        recordStarted(launch, route.args);
+        const named = Logic.tuiCoreNamed("edit", owner);
+        return Logic.tuiArgsShownAnswer(named.key, named.label, answer, route.args, startedArgs);
+    }
+
+    // Opens PATH, an absolute path editRoute read as a folder, in the
+    // default file manager once `test -d` finds a folder there: gio drops a
+    // trailing `/`, so a path naming a file would open that file in its
+    // default application, and a notification's sender chooses the path of
+    // a link on its card. Answers `ok` once the check starts, as
+    // runDetached answers once gio starts; a path that is no folder opens
+    // nothing and is logged (folderChecked).
+    function openFolder(path) {
+        const check = folderCheckComponent.createObject(root, { path: path });
+        check.running = true;
+        return "ok";
+    }
+
+    // The end of the folder check of PATH, COMPLETION its { code, status },
+    // null for a check that never started: exit 0 opens the folder, any
+    // other end opens nothing.
+    function folderChecked(path, completion) {
+        if (completion === null || completion.status !== 0 || completion.code !== 0) {
+            const end = completion === null ? "start=failed" : "code=" + completion.code + " status=" + completion.status;
+            console.warn("tui: folder=" + JSON.stringify(path) + " reason=not-a-folder " + end);
+            return;
+        }
+        const answer = Capabilities.runDetached(DesktopLaunch.open(path));
+        if (answer !== "ok") console.error("tui: folder=" + JSON.stringify(path) + " " + answer);
     }
 
     // The state a request is judged against, with the id a launch gets:
@@ -370,6 +409,26 @@ Scope {
             const line = Logic.tuiProbeOutcome(prober.completion, probeErrors.text);
             if (line !== "") console.error(line);
             root.launcher = Logic.tuiLauncherAfter(root.launcher, prober.completion);
+        }
+    }
+
+    // `test -d PATH`, PATH absolute, so never read as an option. Quickshell
+    // 0.3.1 reports a failed start only through runningChanged, so the end
+    // is judged there.
+    // https://quickshell.org/docs/v0.3.1/types/Quickshell.Io/Process
+    Component {
+        id: folderCheckComponent
+        Process {
+            id: check
+            property string path: ""
+            property var completion: null
+            command: ["test", "-d", check.path]
+            onExited: (code, status) => { check.completion = { code: code, status: status }; }
+            onRunningChanged: {
+                if (running) return;
+                root.folderChecked(check.path, check.completion);
+                check.destroy();
+            }
         }
     }
 

@@ -214,7 +214,9 @@ var STATUS_STATE_TONES = { ok: "success", info: "info", warning: "warning", dang
 // path a file action declared `file: true` opens, a path editArgs admits,
 // carried exactly while the value offers such an action
 // (statusDeclarationFits): the writer, not the manifest, knows a path the
-// user chose, such as a folder picked in Settings.
+// user chose, such as a file in a folder picked in Settings. A folder's
+// path ends in `/`, as editRoute reads it; any other path opens in the
+// editor, which refuses a folder.
 var STATUS_STATE_KEYS = ["tone", "text", "lines", "hint", "action", "aside", "available", "info", "file"];
 // The `action` a required step's value names for the one install action,
 // which no entry declares: it names that action over a declared action of
@@ -3001,18 +3003,19 @@ function tuiArgsSame(a, b) {
     return JSON.stringify(a === undefined ? [] : a) === JSON.stringify(b === undefined ? [] : b);
 }
 
-// What a request no plugin instance made for plugin ID's own TUI NAME with
-// ARGS answers, ANSWER being start's: tuiShownAnswer's, but for a busy key
+// What a request for launch KEY with ARGS answers, ANSWER being start's and
+// LABEL the name its refusals carry: tuiShownAnswer's, but for a busy key
 // whose live run the shell started with other arguments, which answers
-// `refused: tui=<name> reason=busy-other` while the runner still shows that
-// run's window, so a press on one row's action never answers with another
-// row's window. STARTED maps each key to the arguments of the latest run
-// the shell started for it; a key it lacks, a run that outlived an earlier
-// shell, counts as a run with none.
-function tuiOwnShownAnswer(id, name, answer, args, started) {
-    if (answer !== tuiRefusal(name, "busy").answer) return answer;
-    var key = tuiOwnKey(id, name);
-    return tuiArgsSame(hasOwn(started, key) ? started[key] : [], args) ? "ok" : tuiRefusal(name, "busy-other").answer;
+// `refused: tui=<label> reason=busy-other` while the runner still shows
+// that run's window, so a press on one row's action, or a link to one
+// file, never answers with another row's or file's window. A plugin
+// script's request no instance made and every editor request take it,
+// since their arguments name what they open. STARTED maps each key to the
+// arguments of the latest run the shell started for it; a key it lacks, a
+// run that outlived an earlier shell, counts as a run with none.
+function tuiArgsShownAnswer(key, label, answer, args, started) {
+    if (answer !== tuiRefusal(label, "busy").answer) return answer;
+    return tuiArgsSame(hasOwn(started, key) ? started[key] : [], args) ? "ok" : tuiRefusal(label, "busy-other").answer;
 }
 
 // Why HELD, a request for a plugin's own script made while a command it
@@ -3313,8 +3316,10 @@ function editArgs(path, line) {
 // CONFIG_HOME, the configuration directory, when it is relative, and
 // takes no line (`line=<line> reason=folder`); any other path opens in
 // the core editor TUI, { ok: true, kind: "file", args }, editArgs' args.
-// The shell cannot read whether a path is a folder, so the `/` says it,
-// and the editor refuses a folder it is handed (`vgshell edit`).
+// The shell cannot read whether a path is a folder, so the `/` says it:
+// the editor refuses a folder it is handed (`vgshell edit`), and the core
+// opens a folder path only once `test -d` finds a folder there
+// (TuiRunner.openFolder).
 function editRoute(path, line, home, configHome) {
     if (typeof home !== "string" || home.charAt(0) !== "/")
         throw new Error("editRoute: home " + JSON.stringify(home) + " is not an absolute path");
@@ -3367,6 +3372,15 @@ function tuiRun(manifest, enabled, sourceDir, runner, name, args) {
     return { ok: true, key: key, run: runner.run, argv: tuiArgv(row, plugin, key, runner.run, [row.script].concat(args === undefined ? [] : args)) };
 }
 
+// The launch key and refusal label of core TUI NAME run for OWNER, a
+// plugin id, or for the core while OWNER is undefined: `core/<name>` named
+// so, or the plugin's own `<plugin id>/<name>` named `<name>`, as tuiCore
+// keys and refuses it.
+function tuiCoreNamed(name, owner) {
+    if (owner === undefined) return { key: "core/" + name, label: "core/" + name };
+    return { key: tuiOwnKey(owner, name), label: name };
+}
+
 // The core's own TUI NAME of CORE, the CORE_TUIS table, listed or not,
 // with ARGS after its argv, its command resolved under CORE_BIN, the core's
 // bin/ directory, for RUNNER: answers as tuiRun, keyed `core/<name>`, with
@@ -3379,8 +3393,9 @@ function tuiRun(manifest, enabled, sourceDir, runner, name, args) {
 // its `shell.tui.state` (tuiStateNames): the core editor a plugin's file
 // action opens (STATUS_FILE_TUI).
 function tuiCore(core, coreBin, runner, name, args, owner) {
-    var key = (owner === undefined ? "core" : owner) + "/" + name;
-    var label = owner === undefined ? key : name;
+    var named = tuiCoreNamed(name, owner);
+    var key = named.key;
+    var label = named.label;
     if (typeof name !== "string" || !hasOwn(core, name))
         return tuiRefusal(label, "undeclared");
     if (!tuiArgsValid(args))
