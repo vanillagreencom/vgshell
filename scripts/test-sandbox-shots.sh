@@ -434,6 +434,15 @@ try {
         f.state.endDisplayEvents('interrupted', 'later');
         assert.equal(f.lines.length, count, 'terminal is emitted once');
     }
+    {
+        // Without the layer's reload Process the Probe refuses to arm.
+        const f = fixture('absent');
+        Object.assign(f.state, { LazyLoader: class {}, HyprlandLayer: class {}, Process: class {} });
+        f.state.hyprland = Object.assign(new f.state.LazyLoader(), { active: true,
+            item: Object.assign(new f.state.HyprlandLayer(), { reloadProcess: null }) });
+        assert.equal(f.state.armDisplayEvents('no-reloader'), 'refused: display-events=reloader-identity', 'reloader refusal');
+        assert.deepEqual(record(f).map(e => [e.kind, e.data.reason]), [['missing', 'reloader-identity']], 'reloader refusal terminal');
+    }
     if (process.argv[3] !== undefined && process.argv[3] !== '--packets')
         throw new Error('unknown Probe control mode');
     if (process.argv[3] === '--packets') {
@@ -450,7 +459,7 @@ try {
         const compositor = { queue: [], pending: null, pendingJudged: false, completion: null, reply: '' };
         const reloader = Object.assign(new state.Process(), {
             running: false, command: ['hyprctl', 'reload', 'config-only'], completion: null });
-        const layer = Object.assign(new state.HyprlandLayer(), { children: [reloader],
+        const layer = Object.assign(new state.HyprlandLayer(), { reloadProcess: reloader,
             highestMonitorScale: 1, rendered: { text: 'fixture layer' }, machine: { phase: 'idle' } });
         Object.assign(state, {
             hyprland: Object.assign(new state.LazyLoader(), { active: true, item: layer }),

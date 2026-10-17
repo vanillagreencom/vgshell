@@ -236,7 +236,6 @@ Scope {
         if (displayEventStatus !== "absent") return "refused: display-events=" + displayEventStatus;
         let missing = "";
         let layer = null;
-        let reloaders = [];
         // tree_smoke_observer places Probe in shell.qml's component context.
         // Access item only after active proves the loader is fully loaded.
         // https://doc.qt.io/qt-6/qtqml-documents-scope.html#component-instance-hierarchy
@@ -246,14 +245,7 @@ Scope {
         else {
             layer = hyprland.item;
             if (layer === null || !(layer instanceof HyprlandLayer)) missing = "layer-unavailable";
-            else {
-                // Scope.children exposes its direct objects. The unique
-                // Process command is the existing HyprlandLayer reloader.
-                // https://quickshell.org/docs/v0.3.1/types/Quickshell/Scope/
-                reloaders = Array.from(layer.children).filter(child => child instanceof Process
-                    && JSON.stringify(Array.from(child.command)) === '["hyprctl","reload","config-only"]');
-                if (reloaders.length !== 1) missing = "reloader-identity";
-            }
+            else if (!(layer.reloadProcess instanceof Process)) missing = "reloader-identity";
         }
         if (missing !== "") {
             root.endDisplayEvents("missing", missing);
@@ -263,7 +255,7 @@ Scope {
         displayEventCompositor = Compositor;
         displayEventLoader = hyprland;
         displayEventLayer = layer;
-        displayEventReloader = reloaders[0];
+        displayEventReloader = layer.reloadProcess;
         displayEventHyprland = Hyprland;
         displayEventQuickshell = Quickshell;
         displayEventPriming = true;

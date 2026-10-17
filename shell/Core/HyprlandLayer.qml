@@ -41,6 +41,11 @@ Scope {
     readonly property string consentDeclined: consentDir + "/consent-declined"
     readonly property string hyprlandSignature: Quickshell.env("HYPRLAND_INSTANCE_SIGNATURE")
     readonly property string welcomeSeen: Paths.stateDir + "/welcome-seen"
+    // The sandbox Probe (scripts/smoke/Probe.qml) observes the reload
+    // through this name. Read from outside a running shell, this Scope's
+    // documented `children` list held none of its objects (nested smoke
+    // record display-record.vfV8m3, 2026-10-17), so it cannot be found.
+    readonly property Process reloadProcess: reloader
 
     // HyprlandLayer.step's state: the phase, the bytes on disk, and what
     // waits.
