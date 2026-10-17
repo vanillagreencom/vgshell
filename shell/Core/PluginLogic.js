@@ -366,6 +366,15 @@ function clone(value) {
     return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
 }
 
+// A value a Settings or Keys control hands the manager, with each array or
+// object made plain: on Qt 6.12 a JavaScript array sent through a `var`
+// signal argument arrives as a list wrapper Array.isArray refuses, and an
+// object as a reference wrapper. A string, number, boolean, null or
+// undefined passes as it came, so the judge still sees a non-finite number.
+function controlValue(value) {
+    return value !== null && typeof value === "object" ? clone(value) : value;
+}
+
 function presetValues(entry) {
     return Array.isArray(entry.presets) ? entry.presets.map(function (preset) { return preset.value; }) : [];
 }
@@ -4923,6 +4932,7 @@ function withFirstPresence(user, manifests, effective) {
 // for: it takes a value of its default's type. No other key is writable.
 // The reply is one keyed line.
 function settingRefusal(manifest, key, value) {
+    value = controlValue(value);
     if (manifest.hyprland !== undefined && manifest.hyprland.monitors === key) {
         var badMonitors = MonitorLogic.rulesError(value, null);
         return badMonitors === "" ? "" : badMonitors.replace("refused: monitors", "refused: setting=" + key);
@@ -4953,6 +4963,7 @@ function keptType(value) {
 // it, and undefined removes the plugins row's entry so the manifest's key
 // applies. The reply is one keyed line.
 function keyRefusal(manifest, shortcut, key) {
+    key = controlValue(key);
     var binds = manifest.hyprland === undefined ? [] : manifest.hyprland.binds;
     var bind = binds.filter(function (row) { return row.shortcut === shortcut; })[0];
     if (bind === undefined && !Pads.isPadShortcut(manifest.hyprland, shortcut, ConfigLogic.NAME_PATTERN))
@@ -4973,6 +4984,7 @@ function keyRefusal(manifest, shortcut, key) {
 // the effective row does not need changes nothing. The caller checks the
 // key with keyRefusal first.
 function withKey(user, manifest, shortcut, key, effective) {
+    key = controlValue(key);
     var out = isPlainObject(user) ? clone(user) : {};
     if (out.version === undefined) out.version = ConfigLogic.CONFIG_VERSION;
     var row = pluginRow(out, manifest.id);
@@ -5087,7 +5099,7 @@ function withSetting(user, manifest, key, value, effective) {
     }
     var index = plugins.indexOf(row);
     row = copyEntrySettings({}, row, manifest, true);
-    row[key] = clone(value);
+    row[key] = controlValue(value);
     plugins[index] = row;
     out.plugins = plugins;
     return out;

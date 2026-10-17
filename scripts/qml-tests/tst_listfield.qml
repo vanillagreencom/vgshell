@@ -1,6 +1,7 @@
 import QtQuick
 import QtTest
 import qs.Commons
+import qs.Core
 import qs.Ui
 import qs.Unit
 import "../../shell/plugins/vgs.settings"
@@ -11,30 +12,47 @@ import "../../shell/plugins/vgs.settings"
 // stands `stack.inline` after the first field's value and centres on it,
 // and its trash ink ends where a flat setting's select beside the list
 // ends, whether that value fills the value column or stops at its widest.
-// Add still keys a new item by the lowest whole number no item names.
+// Add still keys a new item by the lowest whole number no item names, and
+// the list it sends is one the manager's judge accepts.
 Item {
     id: root
     width: 1100
     height: 800
 
     property var writes: []
+    property var refusals: []
+
+    // The plugin the field belongs to, as the manager's judge reads it.
+    function manifest() {
+        return {
+            id: "acme.unit",
+            schema: {
+                pairs: {
+                    type: "list",
+                    label: "Pairs",
+                    items: {
+                        kind: { type: "string", label: "Kind", presets: [{ value: "a", label: "Alpha" }, { value: "b", label: "Beta" }] },
+                        wide: { type: "boolean", label: "Wide" }
+                    },
+                    defaults: { kind: "a", wide: false }
+                }
+            }
+        };
+    }
 
     ListField {
         id: list
         width: 480
         pluginId: "acme.unit"
         key: "pairs"
-        spec: ({
-            type: "list",
-            label: "Pairs",
-            items: {
-                kind: { type: "string", label: "Kind", presets: [{ value: "a", label: "Alpha" }, { value: "b", label: "Beta" }] },
-                wide: { type: "boolean", label: "Wide" }
-            },
-            defaults: { kind: "a", wide: false }
-        })
+        spec: root.manifest().schema.pairs
         value: [{ name: "7", kind: "a", wide: false }, { name: "9", kind: "b", wide: true }]
-        onApply: v => { root.writes = root.writes.concat([v]); }
+        // Plugins.writeSetting judges the value the page relays from this
+        // signal with PluginLogic.settingRefusal before it writes.
+        onApply: v => {
+            root.writes = root.writes.concat([v]);
+            root.refusals = root.refusals.concat([PluginLogic.settingRefusal(root.manifest(), "pairs", v)]);
+        }
     }
 
     // A flat setting as wide as the list, as the page draws one beside it:
@@ -55,6 +73,7 @@ Item {
         function init() {
             UnitTheme.reset();
             root.writes = [];
+            root.refusals = [];
             list.width = 480;
             list.value = [{ name: "7", kind: "a", wide: false }, { name: "9", kind: "b", wide: true }];
         }
@@ -128,6 +147,13 @@ Item {
             mouseClick(add);
             compare(root.writes.length, 1);
             compare(root.writes[0][2], { name: "2", kind: "a", wide: false });
+        }
+
+        function test_add_sends_a_list_the_manager_judge_accepts() {
+            tryCompare(groups(), "length", 2);
+            const add = descendants(list).find(child => child instanceof RowAction && child.text === "Add");
+            mouseClick(add);
+            compare(root.refusals, [""]);
         }
     }
 }
