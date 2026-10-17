@@ -6,7 +6,7 @@
 
 Name:           vgshell
 Version:        0.1.0
-Release:        1%{?dist}
+Release:        2%{?dist}
 Summary:        Desktop shell for Hyprland on Quickshell
 License:        MIT AND OFL-1.1 AND ISC AND Apache-2.0 AND CC-BY-SA-4.0
 URL:            https://github.com/vanillagreencom/vgshell
@@ -20,7 +20,7 @@ BuildRequires:  python3
 # begin runtime dependencies
 Requires:       greetd
 Requires:       glibc-common
-Requires:       quickshell >= 0.3.1
+Requires:       vgshell-quickshell >= 0.3.1
 Requires:       hyprland >= 0.56
 Requires:       nodejs >= 1:18
 Requires:       python3
@@ -126,5 +126,7 @@ if [ "$1" -eq 1 ]; then
 fi
 
 %changelog
+* Sat Oct 17 2026 VanillaGreen <brad@vanillagreen.com> - 0.1.0-2
+- Use the VGS patched Quickshell engine.
 * Mon Sep 28 2026 Brad <brad@vanillagreen.com> - 0.1.0-1
 - First release of VGS as vgshell

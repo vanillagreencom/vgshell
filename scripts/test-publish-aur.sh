@@ -22,7 +22,7 @@ set -euo pipefail
 source "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/vgshell-rows.sh"
 
 suite=test-publish-aur
-for tool in git makepkg python3 tar; do
+for tool in git makepkg python3 tar diff; do
   command -v "$tool" >/dev/null || { echo "$suite: status=not-measured missing=$tool"; exit 77; }
 done
 
@@ -72,7 +72,7 @@ fixture() {
   {
     mkdir -p "$record" "$gh_dir" "$scratch" &&
     g clone -q "${FIXTURE_BASE:-$base}" "$r" && cp -- "$2" "$r/scripts/publish-aur.sh" &&
-      mkdir -p "$aur" "$h" && g init -q --bare -b master "$aur/vgshell.git" && g init -q --bare -b master "$aur/vgshell-git.git" &&
+      mkdir -p "$aur" "$h" && g init -q --bare -b master "$aur/vgshell.git" && g init -q --bare -b master "$aur/vgshell-git.git" && g init -q --bare -b master "$aur/vgshell-quickshell.git" &&
       g config --file "$h/.gitconfig" user.name maintainer && g config --file "$h/.gitconfig" user.email maintainer@example.invalid &&
       g config --file "$h/.gitconfig" "url.file://$aur/.insteadOf" https://aur.archlinux.org/ &&
       printf '[]\n' >"$gh_dir/list.json" && printf '{"assets":[]}\n' >"$gh_dir/view.json" && rm -f -- "$gh_dir/list.exit"
@@ -160,6 +160,14 @@ publish_row() { # SCRIPT: vgshell-git is committed as its version and pushed to 
   [[ $status == 0 ]] && aur_holds vgshell-git &&
     has_out "publish-aur: published package=vgshell-git version=$v commit=$(g -C "$aur/vgshell-git.git" rev-parse master)" &&
     [[ $(g -C "$aur/vgshell-git.git" log -1 --format=%s%n%b master) == "vgshell-git $v"$'\n'"From vanillagreencom/vgshell $(g -C "$r" rev-parse HEAD)" ]]
+}
+engine_row() {
+  local tree="$tmp/engine-export"
+  fixture engine "$1"
+  run vgshell-quickshell
+  [[ $status == 0 ]] || return 1
+  g clone -q "$aur/vgshell-quickshell.git" "$tree" 2>/dev/null || return 1
+  diff -r --exclude=.git -- "$r/packaging/arch/vgshell-quickshell" "$tree"
 }
 ssh_row() { # SCRIPT: ssh reads the key and the pinned host keys, and no ~/.ssh or /etc/ssh file
   fixture ssh "$1"
@@ -279,6 +287,7 @@ set_sum "$(printf '%064d' 9)"
 # as row jobs.
 echo "rows"
 row_job check "vgshell-git is committed as its version and pushed to master" publish_row "$script"
+row_job check "the engine exports its patches and compatibility hook" engine_row "$script"
 row_job check "ssh reads the key and the pinned host keys alone" ssh_row "$script"
 row_job check "an unchanged recipe commits nothing" unchanged_row "$script"
 row_job check "the AUR repository ends up holding the recipe's files alone" mirror_row "$script"

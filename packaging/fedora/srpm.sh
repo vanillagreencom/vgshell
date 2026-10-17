@@ -63,7 +63,8 @@ spec="$(readlink -f -- "$spec_arg")" || refuse 1 "spec=missing path=$spec_arg"
 case "$spec" in
   "$root/packaging/fedora/vgshell.spec") package=vgshell ;;
   "$root/packaging/fedora/vgshell-git.spec") package=vgshell-git ;;
-  *) refuse 1 "spec=unknown path=$spec" "use packaging/fedora/vgshell.spec or packaging/fedora/vgshell-git.spec of this checkout" ;;
+  "$root/packaging/fedora/vgshell-quickshell.spec") package=vgshell-quickshell ;;
+  *) refuse 1 "spec=unknown path=$spec" "use a packaging/fedora/*.spec recipe from this checkout" ;;
 esac
 [[ -z $tarball || $package == vgshell ]] || refuse 2 "argument=--tarball package=$package" "--tarball applies to the release package only"
 
@@ -83,6 +84,25 @@ unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR
 
 top="$(git -C "$root" rev-parse --show-toplevel 2>/dev/null)" && [[ $top == "$root" ]] ||
   refuse 1 "checkout=missing path=$root" "srpm.sh builds from the git checkout it sits in"
+
+if [[ $package == vgshell-quickshell ]]; then
+  work="$(mktemp -d "${TMPDIR:-/tmp}/vgs-engine-srpm.XXXXXX")" || refuse 1 "work=temp"
+  trap 'rm -rf -- "${work:?}"' EXIT
+  mkdir -p -- "$outdir"
+  outdir="$(cd -- "$outdir" && pwd -P)"
+  cp -- "$root/packaging/arch/vgshell-quickshell/"*.patch "$work/"
+  command -v curl >/dev/null || refuse 1 "tool=missing name=curl"
+  commit="$(sed -n 's/^%global commit //p' "$spec")"
+  [[ $commit =~ ^[a-f0-9]{40}$ ]] || refuse 1 "engine=commit"
+  curl --proto '=https' --tlsv1.2 -fsSL -o "$work/$commit.tar.gz" -- \
+    "https://git.outfoxxed.me/quickshell/quickshell/archive/$commit.tar.gz" || refuse 1 "engine=download"
+  rpmbuild -bs --define "_sourcedir $work" --define "_srcrpmdir $outdir" "$spec" >"$work/build.log" 2>&1 ||
+    refuse 1 "rpmbuild=failed spec=$spec" "$(cat -- "$work/build.log")"
+  srpm="$(sed -n 's/^Wrote: //p' "$work/build.log")"
+  [[ -f $srpm ]] || refuse 1 "rpmbuild=no-srpm"
+  printf 'srpm: ok path=%s version=%s\n' "$srpm" "$(rpmspec -q --srpm --qf '%{VERSION}' "$spec")"
+  exit 0
+fi
 
 # A build reads its checkout alone, without asking a running shell.
 version_json="$("$root/bin/vgshell" --version --json)" || refuse 1 "vgshell=version path=$root/bin/vgshell"

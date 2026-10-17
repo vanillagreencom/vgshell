@@ -52,6 +52,7 @@ spec="$1"
 cp -- "$spec" "$STUB_RECORD/built.spec"
 ls -- "$src" >"$STUB_RECORD/sources"
 cp -- "$src"/*.tar.gz "$STUB_RECORD/"
+for patch in "$src"/*.patch; do [[ ! -f $patch ]] || cp -- "$patch" "$STUB_RECORD/"; done
 name="$(sed -n 's/^Name:[[:space:]]*//p' "$spec")"
 ver="$(sed -n 's/^Version:[[:space:]]*//p' "$spec")"
 [[ $ver == '%{vgs_version}' ]] && ver="$(sed -n 's/^%global vgs_version //p' "$spec")"
@@ -96,6 +97,9 @@ fixture() { # DIR COMMITS
   cp -- "$repo/scripts/lib/release-tarball.sh" "$dir/scripts/lib/"
   cp -- "$repo/VERSION" "$dir/"
   cp -- "$repo/packaging/fedora/srpm.sh" "$repo/packaging/fedora/vgshell.spec" "$repo/packaging/fedora/vgshell-git.spec" "$dir/packaging/fedora/"
+  cp -- "$repo/packaging/fedora/vgshell-quickshell.spec" "$dir/packaging/fedora/"
+  mkdir -p "$dir/packaging/arch/vgshell-quickshell"
+  cp -- "$repo/packaging/arch/vgshell-quickshell/"*.patch "$dir/packaging/arch/vgshell-quickshell/"
   cp -- "$repo/.copr/Makefile" "$dir/.copr/"
   cp -- "$repo/scripts/fedora-container.sh" "$dir/scripts/"
   git init -q -b main "$dir"
@@ -135,6 +139,17 @@ snapshot_files() { # DIR
 }
 
 version="$(<"$repo/VERSION")"
+
+# The engine's source RPM carries the shared patch bytes, without a VGS tag.
+engine="$tmp/engine"
+fixture "$engine" 1
+"$engine/scripts/lib/release-tarball.sh" HEAD "$version" "$tmp/engine-source.tar.gz" >/dev/null
+STUB_CURL_TARBALL="$tmp/engine-source.tar.gz" run "$engine" packaging/fedora/srpm.sh --spec packaging/fedora/vgshell-quickshell.spec --outdir "$tmp/out"
+check "the pinned engine source RPM builds without a VGS release tag" test "$status" = 0
+check "the engine source RPM includes the socket patch" grep -qxF vgs-989-deletelater.patch "$record/sources"
+check "the engine source RPM includes the logging patch" grep -qxF vgs-1109-log-filter-mutex.patch "$record/sources"
+check "the engine source RPM socket patch matches the shared source" cmp -s "$record/vgs-989-deletelater.patch" "$repo/packaging/arch/vgshell-quickshell/vgs-989-deletelater.patch"
+check "the engine source RPM logging patch matches the shared source" cmp -s "$record/vgs-1109-log-filter-mutex.patch" "$repo/packaging/arch/vgshell-quickshell/vgs-1109-log-filter-mutex.patch"
 
 # --- vgshell-git ---------------------------------------------------------------
 fx="$tmp/snapshot"

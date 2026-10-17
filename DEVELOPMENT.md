@@ -107,17 +107,19 @@ Read `docs/architecture/overview.md`, then load the `vgs-plugin` skill, which sc
 The maintainer cuts every release from their own machine, with their own gpg key, GitHub login and AUR SSH key. VGS has no CI workflow for releases or package publication: [D040](docs/decisions/D040-one-shared-install-tree.md). The package recipes live beside the source under `packaging/`, so one checkout both tags the release and publishes the recipes that build it. Two scripts do the work. Their headers, which `--help` prints, state every refusal, output line and exit status.
 
 - `scripts/release X.Y.Z` makes the GitHub release `vX.Y.Z` from the pushed tag: the source archive `vgshell-X.Y.Z.tar.gz`, `install.sh`, `SHA256SUMS` and its detached signature `SHA256SUMS.asc`, written to `dist/`.
-- `scripts/publish-aur.sh vgshell vgshell-git` pushes the recipes under `packaging/arch/` to the AUR. It holds `vgshell` back until the release asset's sha256 is the one the recipe pins.
+- `scripts/publish-aur.sh vgshell-quickshell vgshell vgshell-git` pushes the recipes under `packaging/arch/` to the AUR. Publish the engine before the shell packages that depend on it. The publisher holds `vgshell` back until the release asset's sha256 is the one the recipe pins.
 
 Both take `--dry-run`, which makes every check and changes nothing outside `dist/`. `scripts/test-release.sh` and `scripts/test-publish-aur.sh` prove them with stub `gh`, `gpg` and `ssh`, in the `cli` area of `scripts/validate`.
 
 At each landing on `main` that changes `packaging/arch/vgshell-git/`, the overseer publishes `vgshell-git` to the AUR through `scripts/publish-aur.sh` on the maintainer's machine. The landing notice names the AUR commit or the refusal. A refusal leaves the publication acceptance box open.
 
+The overseer also publishes `vgshell-quickshell` when its recipe or local sources change. Keep the engine's upstream pin and patches consistent across AUR, COPR and the Nix flake. The git channels and Nix receive the patched engine through publication after landing. AUR `vgshell` and Fedora `vgshell` receive the dependency at the next VGS release tag containing this change. The owner decides when to cut that release. Keep the Fedora release tag check in `packaging/fedora/srpm.sh`. [distribution.md § Quickshell engine](docs/architecture/distribution.md#quickshell-engine) holds the channel gaps and retirement rule.
+
 ### Before the first release
 
 - Set `release_key` in `install.sh` to the full upper-case fingerprint of the release signing key, the `fpr` value `gpg --list-keys --with-colons` prints. The release signs `SHA256SUMS` with that key, and the curl installer verifies the signature against the same value. `scripts/release` refuses while it is empty.
 - Log in with `gh auth login`, as an account that may create releases in `vanillagreencom/vgshell`.
-- Register an RSA SSH public key with the AUR account that maintains `vgshell` and `vgshell-git`. The publisher reads the private key from `AUR_SSH_KEY_FILE` and nothing under `~/.ssh`. It pins the AUR's host keys in `packaging/aur-known-hosts`.
+- Register an RSA SSH public key with the AUR account that maintains `vgshell-quickshell`, `vgshell` and `vgshell-git`. The publisher reads the private key from `AUR_SSH_KEY_FILE` and nothing under `~/.ssh`. It pins the AUR's host keys in `packaging/aur-known-hosts`.
 
 ### Versions
 
@@ -167,25 +169,33 @@ At each landing on `main` that changes `packaging/arch/vgshell-git/`, the overse
    git commit -am "packaging: pin the vgshell X.Y.Z tarball" && git push origin main
    ```
 
-6. Publish both recipes. Exit 75 means a package was held back; its `deferred` line names the reason.
+6. Publish the engine, then both shell recipes. Exit 75 means a package was held back; its `deferred` line names the reason.
 
    ```bash
-   scripts/publish-aur.sh --dry-run vgshell vgshell-git
-   AUR_SSH_KEY_FILE=<the AUR account's private key> scripts/publish-aur.sh vgshell vgshell-git
+   scripts/publish-aur.sh --dry-run vgshell-quickshell vgshell vgshell-git
+   AUR_SSH_KEY_FILE=<the AUR account's private key> scripts/publish-aur.sh vgshell-quickshell vgshell vgshell-git
    ```
 
-7. Rebuild the Fedora package: set `vgshell.spec`'s `Version`, `Release` and `%changelog` with `VERSION`, then run `copr-cli edit-package-scm vgshell --name vgshell --commit vX.Y.Z` and `copr-cli build-package vgshell --name vgshell`. The GitHub webhook rebuilds `vgshell-git` on every push to `main`: [§ Fedora](#fedora).
+7. Publish the Fedora engine before the shell packages that depend on it: [§ Fedora](#fedora). Set `vgshell.spec`'s `Version`, `Release` and `%changelog` with `VERSION`, then run `copr-cli edit-package-scm vgshell --name vgshell --commit vX.Y.Z` and `copr-cli build-package vgshell --name vgshell`. The GitHub webhook rebuilds `vgshell-git` on every push to `main`.
 8. Verify every channel, as below.
 
 ### Fedora
 
-The COPR project `vanillagreen/vgshell` holds two packages, `vgshell` from a release tag and `vgshell-git` from `main`, and depends on the two third-party COPRs that ship Quickshell and Hyprland. These commands, run with a COPR API token, set up the project and its packages, and recreate them:
+The COPR project `vanillagreen/vgshell` holds `vgshell` from a release tag, `vgshell-git` from `main`, and `vgshell-quickshell` from its pinned upstream recipe. The engine needs `cpptrace-devel` to build and `libcpptrace.so.1` to run. Keep `errornointernet/quickshell` as both a build repository and a runtime repository dependency. The Hyprland COPR also remains a runtime repository dependency. These commands, run with a COPR API token, set up the project and its packages, and recreate them:
 
 ```bash
 copr-cli create vgshell --chroot fedora-44-x86_64 --chroot fedora-44-aarch64 \
   --repo copr://errornointernet/quickshell --repo copr://sdegler/hyprland \
   --runtime-repo-dependency copr://errornointernet/quickshell \
   --runtime-repo-dependency copr://sdegler/hyprland
+copr-cli add-package-scm vgshell --name vgshell-quickshell --clone-url https://github.com/vanillagreencom/vgshell.git \
+  --commit main --spec packaging/fedora/vgshell-quickshell.spec --method make_srpm
+copr-cli build-package vgshell --name vgshell-quickshell
+```
+
+Wait for the engine build to succeed. Then add and build the shell packages:
+
+```bash
 copr-cli add-package-scm vgshell --name vgshell-git --clone-url https://github.com/vanillagreencom/vgshell.git \
   --commit main --spec packaging/fedora/vgshell-git.spec --method make_srpm --webhook-rebuild on
 copr-cli add-package-scm vgshell --name vgshell --clone-url https://github.com/vanillagreencom/vgshell.git \
@@ -193,6 +203,8 @@ copr-cli add-package-scm vgshell --name vgshell --clone-url https://github.com/v
 copr-cli build-package vgshell --name vgshell
 copr-cli build-package vgshell --name vgshell-git
 ```
+
+`packaging/fedora/srpm.sh` fetches the engine's pinned upstream archive and puts the patches from `packaging/arch/vgshell-quickshell/` into its source RPM. The overseer publishes the engine after changes to that spec or its shared sources. For an existing COPR project, add the engine package through the project settings. Both shell specs require `vgshell-quickshell`, so repository priority cannot select the stock engine.
 
 Add the repository's GitHub webhook for `vgshell-git` only after the `v0.1.0` tag exists: `packaging/fedora/srpm.sh` builds `vgshell-git` without a release tag, so a webhook added earlier publishes a pre-tag build whose version sorts above the first builds after the tag, and a user who installed it gets no update. A user installs with `sudo dnf copr enable vanillagreen/vgshell`, then `sudo dnf install vgshell`. Once the first build installs in a clean container from the published project, the README gains a Fedora install command.
 
@@ -205,8 +217,8 @@ Each check reads the published channel, never the checkout.
 gh release download vX.Y.Z --repo vanillagreencom/vgshell --dir /tmp/vgshell-X.Y.Z
 (cd /tmp/vgshell-X.Y.Z && sha256sum -c SHA256SUMS && gpg --verify SHA256SUMS.asc SHA256SUMS)
 
-# The AUR's view of both packages.
-curl -fsS 'https://aur.archlinux.org/rpc/v5/info?arg[]=vgshell&arg[]=vgshell-git'
+# The AUR's view of the engine and shell packages.
+curl -fsS 'https://aur.archlinux.org/rpc/v5/info?arg[]=vgshell-quickshell&arg[]=vgshell&arg[]=vgshell-git'
 
 # Each AUR package, installed through paru in a clean Arch container, as a
 # user does: paru also builds the depends only the AUR holds.

@@ -60,11 +60,11 @@ for arg in "$@"; do
       [[ $dry_run == false ]] || refuse 2 "argument=$arg" "--dry-run is given once"
       dry_run=true ;;
     -h|--help) sed -n '2,/^[^#]/{/^#/{s/^# \{0,1\}//;p}}' "$self"; exit 0 ;;
-    vgshell|vgshell-git)
+    vgshell|vgshell-git|vgshell-quickshell)
       [[ " ${packages[*]-} " != *" $arg "* ]] || refuse 2 "package=$arg reason=repeated"
       packages+=("$arg") ;;
     -*) refuse 2 "argument=$arg" ;;
-    *) refuse 2 "package=$arg reason=unknown" "the packages are vgshell and vgshell-git" ;;
+    *) refuse 2 "package=$arg reason=unknown" "the packages are vgshell, vgshell-git and vgshell-quickshell" ;;
   esac
 done
 [[ ${#packages[@]} -gt 0 ]] || refuse 2 "argument=missing" "usage: scripts/publish-aur.sh [--dry-run] PACKAGE..."

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Controls for scripts/check-packaging.js, one table for every channel. Every
 // row runs this repository's check with `--root` on a scratch data tree
-// under its tmp/: the Arch recipes and the Fedora specs, the install tree
+// outside the worktree: the Arch recipes and the Fedora specs, the install tree
 // manifest, VERSION, bin/vgshell (its preflight floors), the core requirements,
 // each shipped plugin's manifest and docs/architecture/distribution.md (its
 // licence line), committed to the tree's own git repository so the release-tag
@@ -21,6 +21,7 @@ const childProcess = require("node:child_process");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
+const os = require("node:os");
 
 const repo = path.resolve(__dirname, "..");
 const hasMakepkg = childProcess.spawnSync("makepkg", ["--version"], { encoding: "utf8" });
@@ -29,8 +30,7 @@ if (hasMakepkg.error) {
     console.log("test-check-packaging: status=not-measured reason=makepkg-missing");
     process.exit(77);
 }
-const tmp = path.join(repo, "tmp", "test-check-packaging." + process.pid);
-fs.rmSync(tmp, { recursive: true, force: true });
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "test-check-packaging-"));
 fs.mkdirSync(path.join(tmp, "home"), { recursive: true });
 process.on("exit", () => fs.rmSync(tmp, { recursive: true, force: true }));
 
@@ -57,7 +57,7 @@ for (const rel of files) {
     fs.chmodSync(path.join(pristine, rel), fs.statSync(path.join(repo, rel)).mode);
 }
 fs.cpSync(path.join(repo, "packaging", "arch"), path.join(pristine, "packaging", "arch"), { recursive: true });
-for (const spec of ["vgshell.spec", "vgshell-git.spec"]) {
+for (const spec of ["vgshell.spec", "vgshell-git.spec", "vgshell-quickshell.spec"]) {
     fs.mkdirSync(path.join(pristine, "packaging", "fedora"), { recursive: true });
     fs.copyFileSync(path.join(repo, "packaging", "fedora", spec), path.join(pristine, "packaging", "fedora", spec));
 }
@@ -75,7 +75,7 @@ function srcinfo(tree, rel, key) {
 }
 // The package licence a tree's distribution.md states.
 function docLicence(tree) {
-    const m = new RegExp("^- The SPDX licence expression of a VGS package is `([^`]+)`\\.$", "m").exec(fs.readFileSync(path.join(tree, "docs/architecture/distribution.md"), "utf8"));
+    const m = new RegExp("^- The SPDX licence expression of a VGS shell package is `([^`]+)`\\.$", "m").exec(fs.readFileSync(path.join(tree, "docs/architecture/distribution.md"), "utf8"));
     if (m === null) throw new Error("docLicence: refused: no licence line");
     return m[1];
 }
@@ -313,7 +313,7 @@ const ROWS = [
         1, () => refused("extra=ddcutil field=runtimePackages channel=nix recipe=flake")],
     ["installer: a dropped English data package is refused", t => edit(t, "install.sh", "^(pacman .*?) tesseract-data-eng( .*)$", "$1$2"),
         1, () => refused("requirement=library:capture-english package=tesseract-data-eng want=runtime_packages channel=install-pacman recipe=pacman scope=core")],
-    ["installer: a dropped AUR requirement is refused", t => edit(t, "install.sh", "^aur vsys$", "aur"),
+    ["installer: a dropped AUR requirement is refused", t => edit(t, "install.sh", "^aur vgshell-quickshell vsys$", "aur vgshell-quickshell"),
         1, () => refused("requirement=vsys package=vsys want=runtime_packages channel=install-pacman recipe=pacman scope=vgs.agent-warden")],
     ["Debian installer: a dropped required package is refused", t => edit(t, "install.sh", "^(apt .*?) qrencode( .*)$", "$1$2"),
         1, () => refused("requirement=qrencode package=qrencode want=runtime_packages channel=install-apt recipe=apt scope=vgs.network")],
@@ -384,6 +384,16 @@ const ROWS = [
         fs.writeFileSync(file, JSON.stringify(manifest));
     }, 1, () => refused("gap=stale manager=dnf command=vsys")],
     ["the committed recipes pass", () => {}, 0, tree => ok(countRequirements(tree))],
+    ["engine: either stock conflict is required", t => edit(t, "packaging/arch/vgshell-quickshell/.SRCINFO", "^\\tconflicts = quickshell-git\\n", ""),
+        1, () => refused("engine=conflicts recipe=vgshell-quickshell")],
+    ["engine: a changed patch checksum is refused", t => edit(t, "packaging/arch/vgshell-quickshell/vgs-989-deletelater.patch", "^--- a/", "--- z/"),
+        1, () => refused("engine=checksum source=vgs-989-deletelater.patch")],
+    ["engine: Fedora stock replacement metadata is required", t => edit(t, "packaging/fedora/vgshell-quickshell.spec", "^Obsoletes:      quickshell < 0.3.3\\n", ""),
+        1, () => refused("engine=spec-contract")],
+    ["engine: a commented Nix patch is refused", t => edit(t, "flake.nix", "^(            )(./packaging/arch/vgshell-quickshell/vgs-989-deletelater.patch)$", "$1# $2"),
+        1, () => refused("engine=nix-patches")],
+    ["engine: source metadata must match the recipe", t => edit(t, "packaging/arch/vgshell-quickshell/PKGBUILD", "^pkgrel=1$", "pkgrel=2"),
+        1, () => refused("srcinfo=stale recipe=vgshell-quickshell")],
     ["Arch: a portal backend dependency is required", t => edit(t, SRC, "^\\tdepends = xdg-desktop-portal-gnome\\n", ""),
         1, () => refused("requirement=portal-backend:gnome package=xdg-desktop-portal-gnome want=depends channel=pacman recipe=vgshell scope=portal")],
     ["dnf: a portal backend dependency is required", t => replaceIn(t, SPECS, "Requires:       xdg-desktop-portal-gnome\n", ""),
@@ -412,8 +422,8 @@ const ROWS = [
     ["a shipped plugin's required D-Bus requirement is refused when unlisted", t => plantPluginDbusRequirement(t, "org.vgshell.Planted", { pacman: "vgs-planted-bus" }),
         1, () => refused("requirement=org.vgshell.Planted package=vgs-planted-bus want=depends channel=pacman recipe=vgshell scope=vgs.launcher")],
     // Floors from bin/vgshell's preflight table.
-    ["a floored depends without its constraint is refused", t => edit(t, SRC, "^\\tdepends = quickshell>=.*$", "\tdepends = quickshell"),
-        1, tree => refused(`floor=missing package=quickshell want=>=${floorOf(tree, "quickshell")} ` + where())],
+    ["a floored depends without its constraint is refused", t => edit(t, SRC, "^\\tdepends = vgshell-quickshell>=.*$", "\tdepends = vgshell-quickshell"),
+        1, tree => refused(`floor=missing package=vgshell-quickshell want=>=${floorOf(tree, "quickshell")} ` + where())],
     ["a floored depends below its floor is refused", t => edit(t, SRC, "^\\tdepends = nodejs>=.*$", "\tdepends = nodejs>=0"),
         1, tree => refused(`floor=below package=nodejs have=>=0 want=>=${floorOf(tree, "node")} ` + where())],
     // The floor rises one past the recipe's own constraint, so the recipe is
@@ -504,25 +514,25 @@ const ROWS = [
         1, () => refused("requirement=git package=git want=Requires " + dnf())],
     ["dnf: an extra Requires is refused", t => replaceIn(t, SPECS, "Requires:       git\n", "Requires:       git\nRequires:       jq\n"),
         1, () => refused("extra=jq field=Requires channel=dnf recipe=vgshell")],
-    ["dnf: a spec floor below the preflight is refused", t => { for (const spec of SPECS) edit(t, spec, "^(Requires:\\s+quickshell >= ).*$", "$10"); },
-        1, tree => refused(`floor=mismatch package=quickshell have=0 want=${floorOf(tree, "quickshell")} ` + dnf())],
+    ["dnf: a spec floor below the preflight is refused", t => { for (const spec of SPECS) edit(t, spec, "^(Requires:\\s+vgshell-quickshell >= ).*$", "$10"); },
+        1, tree => refused(`floor=mismatch package=vgshell-quickshell have=0 want=${floorOf(tree, "quickshell")} ` + dnf())],
     ["dnf: a spec floor with no version is refused", t => { edit(t, REL, "^(Requires:\\s+hyprland) >= .*$", "$1"); edit(t, GIT, "^(Requires:\\s+hyprland) >= .*$", "$1"); },
         1, tree => refused(`floor=mismatch package=hyprland have=none want=${floorOf(tree, "hyprland")} ` + dnf())],
     // The Arch recipes follow the raised floor, so the dnf channel is the one
     // that refuses.
     ["dnf: a raised preflight floor is refused", t => {
-        const bumped = specFloor(t, REL, "quickshell").replace(/[0-9]+$/, n => String(Number(n) + 1));
+        const bumped = specFloor(t, REL, "vgshell-quickshell").replace(/[0-9]+$/, n => String(Number(n) + 1));
         edit(t, "bin/vgshell", "^quickshell( +)[0-9.]+ ", `quickshell$1${bumped} `);
-        for (const recipe of ["vgshell", "vgshell-git"]) edit(t, `packaging/arch/${recipe}/.SRCINFO`, "^\\tdepends = quickshell>=.*$", "\tdepends = quickshell>=" + bumped);
-    }, 1, tree => refused(`floor=mismatch package=quickshell have=${specFloor(tree, REL, "quickshell")} want=${floorOf(tree, "quickshell")} ` + dnf())],
+        for (const recipe of ["vgshell", "vgshell-git"]) edit(t, `packaging/arch/${recipe}/.SRCINFO`, "^\\tdepends = vgshell-quickshell>=.*$", "\tdepends = vgshell-quickshell>=" + bumped);
+    }, 1, tree => refused(`floor=mismatch package=vgshell-quickshell have=${specFloor(tree, REL, "vgshell-quickshell")} want=${floorOf(tree, "quickshell")} ` + dnf())],
     ["dnf: an explicit epoch 0 on a floor passes", t => { edit(t, REL, "^(Requires:\\s+hyprland >= )", "$10:"); edit(t, GIT, "^(Requires:\\s+hyprland >= )", "$10:"); },
         0, tree => ok(countRequirements(tree))],
     ["dnf: a node floor without its epoch is refused", t => { edit(t, REL, "^(Requires:\\s+nodejs >= )1:", "$1"); edit(t, GIT, "^(Requires:\\s+nodejs >= )1:", "$1"); },
         1, () => refused("epoch=mismatch package=nodejs have=0 want=1 " + dnf())],
     ["dnf: a node floor with another epoch is refused", t => { edit(t, REL, "^(Requires:\\s+nodejs >= )1:", "$12:"); edit(t, GIT, "^(Requires:\\s+nodejs >= )1:", "$12:"); },
         1, () => refused("epoch=mismatch package=nodejs have=2 want=1 " + dnf())],
-    ["dnf: an epoch on an epoch-0 package is refused", t => { edit(t, REL, "^(Requires:\\s+quickshell >= )", "$11:"); edit(t, GIT, "^(Requires:\\s+quickshell >= )", "$11:"); },
-        1, () => refused("epoch=mismatch package=quickshell have=1 want=0 " + dnf())],
+    ["dnf: an epoch on an epoch-0 package is refused", t => { edit(t, REL, "^(Requires:\\s+vgshell-quickshell >= )", "$11:"); edit(t, GIT, "^(Requires:\\s+vgshell-quickshell >= )", "$11:"); },
+        1, () => refused("epoch=mismatch package=vgshell-quickshell have=1 want=0 " + dnf())],
     ["dnf: an optional requirement as Requires is refused", t => replaceIn(t, SPECS, "Recommends:     btop\n", "Requires:       btop\n"),
         1, () => refused("extra=btop field=Requires channel=dnf recipe=vgshell")],
     ["dnf: an extra Recommends is refused", t => replaceIn(t, SPECS, "Recommends:     brightnessctl\n", "Recommends:     brightnessctl\nRecommends:     jq\n"),
@@ -541,8 +551,8 @@ const ROWS = [
         1, tree => refused("requirement=vgs-required-new package=vgs-required-new want=Requires " + dnf("vgshell", firstPlugin(tree)))],
     ["dnf: a requirement with no dnf package has no Fedora line", t => addRequirement(t, firstPlugin(t), "checkupdates", { pacman: "pacman-contrib" }, true),
         0, tree => ok(countRequirements(tree))],
-    ["dnf: an unreadable dependency line is refused", t => { edit(t, REL, "^(Requires:\\s+quickshell) >= ", "$1 > "); edit(t, GIT, "^(Requires:\\s+quickshell) >= ", "$1 > "); },
-        1, tree => refused("line=unreadable spec=vgshell.spec text=Requires:       quickshell > " + fs.readFileSync(path.join(tree, REL), "utf8").match(/^Requires:\s+quickshell > (\S+)$/m)[1])],
+    ["dnf: an unreadable dependency line is refused", t => { edit(t, REL, "^(Requires:\\s+vgshell-quickshell) >= ", "$1 > "); edit(t, GIT, "^(Requires:\\s+vgshell-quickshell) >= ", "$1 > "); },
+        1, tree => refused("line=unreadable spec=vgshell.spec text=Requires:       vgshell-quickshell > " + fs.readFileSync(path.join(tree, REL), "utf8").match(/^Requires:\s+vgshell-quickshell > (\S+)$/m)[1])],
     // The same lines in another order: the dependency sets agree, the blocks
     // do not.
     ["dnf: blocks that differ are refused", t => replaceIn(t, [REL], "Recommends:     bluez\nRecommends:     brightnessctl\n", "Recommends:     brightnessctl\nRecommends:     bluez\n"),
@@ -551,7 +561,7 @@ const ROWS = [
         1, () => refused("block=missing spec=vgshell-git.spec")],
     ["dnf: a Version off VERSION is refused", t => edit(t, REL, "^(Version:\\s+).*$", "$19.9.9"),
         1, tree => refused(`version=mismatch spec=vgshell.spec have=9.9.9 want=${fs.readFileSync(path.join(tree, "VERSION"), "utf8").trim()}`)],
-    ["dnf: a changelog entry off the version is refused", t => edit(t, REL, "^(\\* .* - )[^\\s]+$", "$10.0.0-1"),
+    ["dnf: a changelog entry off the version is refused", t => edit(t, REL, "^%changelog\\n(\\* .* - )[^\\s]+$", "%changelog\n$10.0.0-1"),
         1, tree => refused(`changelog=mismatch spec=vgshell.spec want=...- ${specValue(tree, REL, "Version")}-${specValue(tree, REL, "Release").replace("%{?dist}", "")} have=${specValue(tree, REL, "*")}`)],
     ...[[REL, "vgshell.spec"], [GIT, "vgshell-git.spec"]].flatMap(([rel, spec]) => ["Conflicts", "Obsoletes", "Provides"].map(tag => [
         `dnf: ${tag} in ${spec} is refused`,
@@ -598,7 +608,7 @@ const ROWS = [
     ["an empty core list is refused", t => write(t, "config/requirements.json", "[]\n"), 1, () => refused("requirements=empty scope=core")],
     // Without makepkg every other rule still judges, and a clean tree is not
     // measured rather than passed.
-    ["without makepkg a passing tree is not measured", () => {}, 77, () => "check-packaging: status=not-measured reason=makepkg-missing channel=pacman", farm],
+    ["without makepkg a passing tree is not measured", () => {}, 77, () => "check-packaging: status=not-measured reason=makepkg-missing channel=engine", farm],
     ["an unknown argument is refused", () => {}, 2, () => refused("argument=--bogus"), undefined, ["--bogus"]],
     ["--root without a directory is refused", () => {}, 2, () => refused("argument=--root"), undefined, ["--root"]],
     // A data root whose own judge and scan would refuse still passes: both
@@ -613,9 +623,9 @@ const ROWS = [
     }, 0, tree => ok(countRequirements(tree))],
     // The licence: docs/architecture/distribution.md
     // recipe state one expression.
-    ["a doc licence the recipes do not state is refused", t => edit(t, "docs/architecture/distribution.md", "^(- The SPDX licence expression of a VGS package is `)[^`]+(`\\.)$", "$1MIT$2"),
+    ["a doc licence the recipes do not state is refused", t => edit(t, "docs/architecture/distribution.md", "^(- The SPDX licence expression of a VGS shell package is `)[^`]+(`\\.)$", "$1MIT$2"),
         1, tree => refused(`licence=mismatch channel=pacman recipe=vgshell have=${JSON.stringify(srcinfo(tree, SRC, "license"))} want="MIT"`)],
-    ["a doc with no licence line is refused", t => edit(t, "docs/architecture/distribution.md", "^- The SPDX licence expression of a VGS package is .*\\n", ""),
+    ["a doc with no licence line is refused", t => edit(t, "docs/architecture/distribution.md", "^- The SPDX licence expression of a VGS shell package is .*\\n", ""),
         1, () => refused("licence-doc=unreadable path=docs/architecture/distribution.md")],
     ["vgshell-git: a recipe licence the doc does not state is refused", t => edit(t, GIT_SRC, "^(\\tlicense = ).*$", "$1MIT"),
         1, tree => refused(`licence=mismatch channel=pacman recipe=vgshell-git have="MIT" want=${JSON.stringify(docLicence(tree))}`)],

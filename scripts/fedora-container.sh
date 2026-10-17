@@ -42,7 +42,7 @@ set -euo pipefail
 self="$(readlink -f -- "${BASH_SOURCE[0]}")"
 
 inside() {
-  local version srpm srpm_git srpm_rel git_version rpms hypr_version out status line key value want have floor_re
+  local version srpm srpm_engine srpm_git srpm_rel git_version rpms hypr_version out status line key value want have floor_re
   fail() { printf 'fedora-container: fail: %s\n' "$*" >&2; exit 1; }
   step() { printf 'fedora-container: %s\n' "$*"; }
   # Runs COMMAND with its output in /work/logs/NAME.log, printed only when
@@ -68,6 +68,19 @@ inside() {
     step "enabled copr $value"
   done <packaging/fedora/copr-project
 
+  logged srpm-vgshell-quickshell make -s -f .copr/Makefile srpm outdir=/work/out spec=packaging/fedora/vgshell-quickshell.spec
+  [[ $line =~ ^srpm:\ ok\ path=([^ ]+)\ version=([^ ]+)$ ]] || fail "engine srpm printed: $line"
+  srpm_engine="${BASH_REMATCH[1]}"
+  useradd -m builder
+  logged builddep-engine dnf -y builddep "$srpm_engine"
+  logged rebuild-engine runuser -u builder -- rpmbuild --rebuild --define '_topdir /home/builder/rpmbuild' "$srpm_engine"
+  # The third-party stock package is the installed user's starting point.
+  logged install-stock-engine dnf -y install quickshell
+  logged migrate-engine dnf -y install /home/builder/rpmbuild/RPMS/*/vgshell-quickshell-*.rpm
+  rpm -q vgshell-quickshell >/dev/null || fail "engine missing after migration"
+  ! rpm -q quickshell >/dev/null 2>&1 || fail "stock engine retained"
+  step "engine migration from stock quickshell passed"
+
   logged srpm-vgshell-git make -s -f .copr/Makefile srpm outdir=/work/out spec=packaging/fedora/vgshell-git.spec
   [[ $line =~ ^srpm:\ ok\ path=([^ ]+)\ version=([^ ]+)$ ]] || fail "vgshell-git srpm printed: $line"
   srpm_git="${BASH_REMATCH[1]}" git_version="${BASH_REMATCH[2]}"
@@ -83,7 +96,6 @@ inside() {
   srpm_rel="${BASH_REMATCH[1]}"
   step "vgshell source RPM $version"
 
-  useradd -m builder
   for srpm in "$srpm_rel" "$srpm_git"; do
     logged "builddep-${srpm##*/}" dnf -y builddep "$srpm"
     logged "rebuild-${srpm##*/}" runuser -u builder -- rpmbuild --rebuild --define '_topdir /home/builder/rpmbuild' "$srpm"
@@ -160,7 +172,7 @@ EOF
   }
 
   logged install-vgshell dnf -y install "$rpms/vgshell-$version-"*.noarch.rpm
-  step "installed $(rpm -q vgshell) with $(rpm -q quickshell hyprland | tr '\n' ' ')"
+  step "installed $(rpm -q vgshell) with $(rpm -q vgshell-quickshell hyprland | tr '\n' ' ')"
   # Each floor's epoch is the one its installed provider carries, so no
   # floor reads as epoch 0 against an epoch-1 package.
   floor_re='^([^ ]+) >= (([0-9]+):)?[^ ]+$'

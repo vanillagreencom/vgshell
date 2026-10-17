@@ -7,7 +7,24 @@
     let
       inherit (nixpkgs) lib;
       systems = [ "x86_64-linux" "aarch64-linux" ];
-      forAllSystems = f: lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
+      forAllSystems = f: lib.genAttrs systems (system: f (nixpkgs.legacyPackages.${system}.extend (final: prev: {
+        quickshell = prev.quickshell.overrideAttrs (old: {
+          pname = "vgshell-quickshell";
+          version = "0.3.2.r7.g2b4501a";
+          src = final.fetchurl {
+            url = "https://git.outfoxxed.me/quickshell/quickshell/archive/2b4501a282689792b62e94f3fb30d8f512324fe6.tar.gz";
+            sha256 = "326d14142c50578f0a4efc3fd1180cac5066256bfa7e09329e1d5167d1c3ccb6";
+          };
+          patches = [
+            ./packaging/arch/vgshell-quickshell/vgs-989-deletelater.patch
+            ./packaging/arch/vgshell-quickshell/vgs-1109-log-filter-mutex.patch
+          ];
+          cmakeFlags = builtins.filter (flag: !(lib.hasPrefix "-DDISTRIBUTOR" flag) && !(lib.hasPrefix "-DGIT_REVISION" flag)) old.cmakeFlags ++ [
+            (lib.cmakeFeature "DISTRIBUTOR" "VGS (package: vgshell-quickshell)")
+            (lib.cmakeFeature "GIT_REVISION" "2b4501a282689792b62e94f3fb30d8f512324fe6")
+          ];
+        });
+      })));
 
       # Only required packages enter the runtime PATH. The shared recipe
       # check holds this closure to the manifests and runtime libraries.

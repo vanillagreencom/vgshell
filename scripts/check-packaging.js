@@ -66,7 +66,7 @@
 // only while the tag v<pkgver> does not exist, otherwise 64 lower-case hex
 // digits. vgshell-git: arch is any; makedepends holds git; no source; url is
 // the repository URL; the PKGBUILD's prepare() holds GIT_CLONE, the clone of
-// main alone. Both: no conflicts, replaces or provides entry, refused as
+// main alone. Both shell recipes: no conflicts, replaces or provides entry, refused as
 // <tag>=<value> recipe=<name>; install is <pkgname>.install,
 // the scriptlet beside the PKGBUILD; its post_install prints MESSAGE under
 // /usr and runs the installed first-start helper; the two scriptlets are the same text; the PKGBUILD's package()
@@ -88,9 +88,13 @@
 // ends with an empty %changelog, which packaging/fedora/srpm.sh fills. Neither
 // spec has a Conflicts, Obsoletes or Provides tag, refused as
 // <tag lowercase>=<value> spec=<file>.
-// Licence, after every channel: the package licence expression
+// The dedicated vgshell-quickshell engine instead provides versioned
+// quickshell and conflicts with both stock engine package names. Its pinned
+// source, shared patch bytes, checksums and channel integration are checked
+// separately by engineRules.
+// Licence, after every channel: the shell package licence expression
 // docs/architecture/distribution.md, its line
-// "- The SPDX licence expression of a VGS package is `<expr>`.", equals
+// "- The SPDX licence expression of a VGS shell package is `<expr>`.", equals
 // every recipe's: each .SRCINFO's license and each spec's License.
 //
 // Exit 0 prints `check-packaging: ok channels=<ids> requirements=<n>`, n
@@ -105,6 +109,7 @@
 "use strict";
 const childProcess = require("node:child_process");
 const fs = require("node:fs");
+const crypto = require("node:crypto");
 const os = require("node:os");
 const path = require("node:path");
 const { parseFloors, DOTTED } = require("./preflight-floor.js");
@@ -412,7 +417,10 @@ function pacmanFresh(recipe) {
     const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "check-packaging-"));
     scratchDirs.push(scratch);
     // makepkg refuses a PKGBUILD whose install file is not beside it.
-    for (const name of ["PKGBUILD", recipe.name + ".install"]) fs.copyFileSync(path.join(root, recipe.dir, name), path.join(scratch, name));
+    for (const name of fs.readdirSync(path.join(root, recipe.dir))) {
+        const file = path.join(root, recipe.dir, name);
+        if (fs.statSync(file).isFile()) fs.copyFileSync(file, path.join(scratch, name));
+    }
     const run = childProcess.spawnSync("makepkg", ["--printsrcinfo"], { cwd: scratch, encoding: "utf8" });
     if (run.error && run.error.code === "ENOENT") return null;
     if (run.error || run.status !== 0) refuse("srcinfo=unreadable recipe=" + recipe.name + " status=" + (run.error ? run.error.code : run.status), run.stderr || "");
@@ -591,10 +599,56 @@ function readInstaller(recipe) {
 // rules read, its own rules over all its recipes, a reader of a recipe's
 // licence expressions for the licence rule or null where no package
 // recipe is read, and its freshness check or null. Its controls go in scripts/test-check-packaging.js ROWS.
+// The engine replaces stock Quickshell only on channels that publish it.
+const ENGINE = "vgshell-quickshell";
+const ENGINE_REVISION = "2b4501a282689792b62e94f3fb30d8f512324fe6";
+const ENGINE_DIR = "packaging/arch/" + ENGINE;
+const ENGINE_SOURCES = ["quickshell-check.hook", "vgs-989-deletelater.patch", "vgs-1109-log-filter-mutex.patch"];
+function engineRules() {
+    const recipe = { name: ENGINE, dir: ENGINE_DIR };
+    const { info } = readSrcinfo(recipe);
+    const build = readText(ENGINE_DIR + "/PKGBUILD", "engine=pkgbuild");
+    const field = (key, want) => {
+        if (one(info[key]) !== want) refuse(`engine=${key} recipe=${ENGINE}`, "want " + want);
+    };
+    field("provides", "quickshell=0.3.2");
+    field("license", "LGPL-3.0-only");
+    field("conflicts", "quickshell,quickshell-git");
+    if ((info.replaces || []).length) refuse(`engine=replaces recipe=${ENGINE}`);
+    field("source", `quickshell::git+https://git.outfoxxed.me/quickshell/quickshell.git#commit=${ENGINE_REVISION},${ENGINE_SOURCES.join(",")}`);
+    const sums = info.sha256sums || [];
+    if (sums.length !== ENGINE_SOURCES.length + 1 || sums[0] !== "SKIP") refuse(`engine=checksums recipe=${ENGINE}`);
+    ENGINE_SOURCES.forEach((name, i) => {
+        const bytes = readText(ENGINE_DIR + "/" + name, "engine=source");
+        if (crypto.createHash("sha256").update(bytes).digest("hex") !== sums[i + 1]) refuse(`engine=checksum source=${name}`);
+    });
+    for (const name of ENGINE_SOURCES.filter(name => name.endsWith(".patch")))
+        if (!functionHolds(build, "prepare", `patch -p1 --forward < "$srcdir/${name}"`)) refuse(`engine=patch source=${name}`);
+    if (!build.includes('-DDISTRIBUTOR="VGS (package: vgshell-quickshell)"')) refuse("engine=distributor channel=pacman");
+    const spec = readText("packaging/fedora/vgshell-quickshell.spec", "engine=spec");
+    const required = [
+        `%global commit ${ENGINE_REVISION}`, "Name:           " + ENGINE,
+        "Provides:       quickshell = %{version}", "Conflicts:      quickshell", "Conflicts:      quickshell-git",
+        "Obsoletes:      quickshell < 0.3.3", "Obsoletes:      quickshell-git < 0.3.3",
+        "Source0:        %{url}/archive/%{commit}.tar.gz", "%autosetup -n quickshell -p1",
+        '    -DDISTRIBUTOR="VGS (package: vgshell-quickshell)" \\',
+        "Patch0:         vgs-989-deletelater.patch", "Patch1:         vgs-1109-log-filter-mutex.patch",
+    ];
+    for (const line of required)
+        if (!spec.split("\n").includes(line)) refuse("engine=spec-contract", "want " + line);
+    const nix = readText("flake.nix", "engine=nix");
+    const override = /^        quickshell = prev.quickshell.overrideAttrs \(old: \{\n([\s\S]*?)^        \}\);$/m.exec(nix);
+    if (override === null || !override[1].includes(`/${ENGINE_REVISION}.tar.gz`)) refuse("engine=nix-source");
+    const patches = /^          patches = \[\n([\s\S]*?)^          \];$/m.exec(override[1]);
+    const paths = patches === null ? [] : patches[1].split("\n").map(line => line.trim()).filter(line => line && !line.startsWith("#"));
+    const expected = ENGINE_SOURCES.filter(name => name.endsWith(".patch")).map(name => `./${ENGINE_DIR}/${name}`);
+    if (paths.join(",") !== expected.join(",")) refuse("engine=nix-patches");
+    return recipe;
+}
 const CHANNELS = {
     pacman: {
         recipes: [{ name: "vgshell", dir: "packaging/arch/vgshell" }, { name: "vgshell-git", dir: "packaging/arch/vgshell-git" }],
-        managers: ["pacman", "aur"],
+        managers: ["pacman", "aur"], enginePackage: ENGINE,
         hardField: "depends",
         softField: "optdepends",
         exact: false,
@@ -608,7 +662,7 @@ const CHANNELS = {
     },
     dnf: {
         recipes: [{ name: "vgshell", spec: "vgshell.spec", file: "packaging/fedora/vgshell.spec" }, { name: "vgshell-git", spec: "vgshell-git.spec", file: "packaging/fedora/vgshell-git.spec" }],
-        managers: ["dnf"],
+        managers: ["dnf"], enginePackage: ENGINE,
         hardField: "Requires",
         softField: "Recommends",
         exact: true,
@@ -631,7 +685,7 @@ const CHANNELS = {
         read: readNix, licence: null, rules: () => {}, freshness: null, requiredOnly: true,
     },
     "install-pacman": {
-        recipes: [{ name: "pacman", manager: "pacman" }], managers: ["pacman", "aur"], hardField: "runtime_packages", softField: "optional",
+        recipes: [{ name: "pacman", manager: "pacman" }], managers: ["pacman", "aur"], enginePackage: ENGINE, hardField: "runtime_packages", softField: "optional",
         exact: false, checkFloors: false, epochs: null,
         read: readInstaller, licence: null, rules: () => {}, freshness: null, requiredOnly: true,
     },
@@ -641,7 +695,7 @@ const CHANNELS = {
         read: readInstaller, licence: null, rules: () => {}, freshness: null, requiredOnly: true,
     },
     "install-dnf": {
-        recipes: [{ name: "dnf", manager: "dnf" }], managers: ["dnf"], hardField: "runtime_packages", softField: "optional",
+        recipes: [{ name: "dnf", manager: "dnf" }], managers: ["dnf"], enginePackage: ENGINE, hardField: "runtime_packages", softField: "optional",
         exact: false, checkFloors: false, epochs: null,
         read: readInstaller, licence: null, rules: () => {}, freshness: null, requiredOnly: true,
     },
@@ -656,7 +710,8 @@ function sharedRules(id, channel, recipe, read, requirements, gaps, portalBacken
     const where = r => ` channel=${id} recipe=${recipe.name} scope=${r.scope}`;
     const hardWant = new Map(), softWant = new Map(), onRequest = new Map();
     for (const r of requirements) {
-        const pkg = packageOf(r, channel.managers);
+        const declaredPackage = packageOf(r, channel.managers);
+        const pkg = declaredPackage === "quickshell" && channel.enginePackage ? channel.enginePackage : declaredPackage;
         if (pkg === undefined) {
             if (!r.optional && channel.managers.some(manager => gaps[manager] && gaps[manager][r.command])) continue;
             if (!r.optional) refuse(`requirement=${r.command} package=unmapped want=${channel.hardField}` + where(r));
@@ -728,12 +783,12 @@ function sharedRules(id, channel, recipe, read, requirements, gaps, portalBacken
 
 // The package licence expression docs/architecture/distribution.md
 // § Licence states.
-const DOC_LICENCE = new RegExp("^- The SPDX licence expression of a VGS package is `([^`]+)`\\.$", "m");
+const DOC_LICENCE = new RegExp("^- The SPDX licence expression of a VGS shell package is `([^`]+)`\\.$", "m");
 
 function licenceRule(licences) {
     const rel = "docs/architecture/distribution.md";
     const m = DOC_LICENCE.exec(readText(rel, "licence-doc=missing"));
-    if (m === null) refuse("licence-doc=unreadable path=" + rel, "want a line: - The SPDX licence expression of a VGS package is `<expr>`.");
+    if (m === null) refuse("licence-doc=unreadable path=" + rel, "want a line: - The SPDX licence expression of a VGS shell package is `<expr>`.");
     for (const [where, values] of licences) {
         if (values.length !== 1 || values[0] !== m[1])
             refuse(`licence=mismatch ${where} have=${JSON.stringify(values.join(" "))} want=${JSON.stringify(m[1])}`, "the recipe and " + rel + " § Licence must state one licence expression");
@@ -751,6 +806,7 @@ if (!readText("packaging/install-system.sh", "installer=missing").split("\n").in
     refuse("autostart=exec want=" + AUTOSTART_EXEC);
 const judged = [];
 const licences = [];
+const engineRecipe = engineRules();
 for (const [id, channel] of Object.entries(CHANNELS)) {
     const reads = channel.recipes.map(recipe => channel.read(recipe));
     channel.recipes.forEach((recipe, i) => sharedRules(id, channel, recipe, reads[i], requirements, gaps, portalBackends));
@@ -767,6 +823,7 @@ licenceRule(licences);
 pacmanVersion();
 // Freshness last, so a missing tool still leaves every other rule judged.
 const notMeasured = [];
+if (pacmanFresh(engineRecipe) === null) notMeasured.push("check-packaging: status=not-measured reason=makepkg-missing channel=engine");
 for (const id of judged) {
     const freshness = CHANNELS[id].freshness;
     if (freshness === null) continue;

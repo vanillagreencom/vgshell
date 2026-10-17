@@ -89,7 +89,7 @@ install_expected="$tmp/install-expected.json"
 node - "$repo" >"$install_expected" <<'JS'
 const fs = require("fs"), path = require("path");
 const root = process.argv[2];
-const aur = new Set();
+const aur = new Set(["vgshell-quickshell"]);
 for (const plugin of fs.readdirSync(path.join(root, "shell/plugins"), { withFileTypes: true })) {
     if (!plugin.isDirectory()) continue;
     const manifest = JSON.parse(fs.readFileSync(path.join(root, "shell/plugins", plugin.name, "manifest.json"), "utf8"));
@@ -692,7 +692,7 @@ floor_rows() {
   check "a tool below its floor names its version" err_has "install.sh: refused: floor=hyprland have=0.55.2 need=0.56"
   check "every miss is named, not the first alone" err_has "install.sh: refused: floor=git have=none need=present"
   check "the missing launcher is named with have=none" err_has "install.sh: refused: floor=xdg-terminal-exec have=none need=present"
-  check "the miss names the distribution's install command" err_has "Install them as root: pacman -S --needed -- quickshell hyprland git xdg-terminal-exec"
+  check "the miss names the distribution's install command" err_has "Install them as root: pacman -S --needed -- hyprland git xdg-terminal-exec"
   check "the floor miss writes nothing" test ! -e "$h/.local"
   check "the floor miss leaves nothing in TMPDIR" scratch_empty
 }
@@ -1058,7 +1058,7 @@ row_job rule keep-foreign-link keep_foreign_row '[[ $state != ours ]] || rm -f -
 row_job rule keep-lock lock_kept_row '^(current|git|\.self-update-.*|[0-9]+' '^(current|git|\.self\.lock|\.self-update-.*|[0-9]+'
 row_job rule floor-need drift_row 'quickshell 0.3.1   ^Quickshell' 'quickshell 0.3.0   ^Quickshell'
 row_job rule requirement-package drift_row 'dnf=util-linux-core' 'dnf=util-linux'
-row_job rule debian-floor-package debian_floor_row 'quickshell pacman=quickshell apt=quickshell nix=quickshell' 'quickshell pacman=quickshell nix=quickshell'
+row_job rule debian-floor-package debian_floor_row 'quickshell apt=quickshell dnf=vgshell-quickshell nix=quickshell' 'quickshell dnf=vgshell-quickshell nix=quickshell'
 row_job rule runtime-packages packages_row 'runtime_install() { # TREE' 'runtime_install() { return 0 # TREE'
 row_job rule runtime-result runtime_failure_row '[[ $code == 0 ]] || refuse 1' '[[ $code == "$code" ]] || refuse 1'
 row_job rule package-verb packages_row '"$tree/bin/vgshell" pkg run install' '"$tree/bin/vgshell" pkg plan install'

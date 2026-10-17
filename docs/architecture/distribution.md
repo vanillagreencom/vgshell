@@ -25,17 +25,45 @@ A package manager or Nix owns the tree it installed, and its next update would o
 - Do print `bin/lib/post-install.txt` from a scriptlet on a first install only; a scriptlet holds no text of its own. `scripts/check-packaging.js` pins it.
 - Never add a required plugin command without a package on every channel or a row in `packaging/channel-gaps.json`. `scripts/check-packaging.js` pins it.
 - Do mark a required command `"install": "on-request"` only when its package must stay an optional dependency of every recipe; its plugin's Tools step on Setup opens the existing all-tools notice to install it. `scripts/check-packaging.js` pins it.
-- Never give a recipe `conflicts`, `replaces` or `provides`; the two packages own the same files. `scripts/check-packaging.js` pins it.
+- Never give a VGS shell recipe `conflicts`, `replaces` or `provides`; `vgshell` and `vgshell-git` own the same files. The separate Quickshell engine follows the contract below. `scripts/check-packaging.js` checks both contracts.
+- Never give a Fedora shell spec `Obsoletes`. `scripts/check-packaging.js` checks this separately from the engine.
 - Do set `SYSCONFDIR` only in a system package; it installs the browser-policy sudoers rule, the autostart entry and the Hyprland portal preference, which the flake and the curl installer must not ship. `scripts/test-install-tree.sh` pins it.
 - Do name the autostart entry's `Exec` by absolute path, keep `OnlyShowIn=Hyprland;`, and never write a user entry from the installer. `scripts/test-install-tree.sh` runs the host generator.
 - Do compute the Fedora `Requires` block between its markers from data, and write each floor with its package's epoch. `scripts/check-packaging.js` and `scripts/fedora-container.sh` pin them.
 - Do clone `vgshell-git` in `prepare()` with a single-branch filtered clone, never a `git+` source, which mirrors every advertised ref. `scripts/check-packaging.js` pins it.
 - Do insert the one `# vgs-nix-path` line after each script's leading comment block, and never put Hyprland on the runtime `PATH`. `scripts/test-flake.sh` pins both.
 
+### Quickshell engine
+
+VGS carries the Hyprland request-socket lifetime fix and the log-filter mutex fix on pinned upstream Quickshell. The lifetime defect can crash the whole shell during a request reply. Without memory poisoning, the crash is rare and delayed. The logging patch protects the filter hashes from concurrent readers and writers. VGS keeps the fixes with its package recipes, without a separate engine repository or an upstream pull request.
+
+| Channel | Engine | Reason |
+| --- | --- | --- |
+| AUR release and `-git` | `vgshell-quickshell` | Both shell packages depend on the named engine, so a satisfactory stock version cannot bypass the patches. |
+| Fedora COPR | `vgshell-quickshell` in `vanillagreen/vgshell` | Both shell packages use the named engine from the VGS project. Repository priority does not select the engine. `errornointernet/quickshell` remains a build and runtime repository dependency for cpptrace. |
+| Nix flake | Quickshell overridden in the VGS closure | The flake pins upstream and applies the same local patches. It does not replace a host package. |
+| New curl installations on Arch | `vgshell-quickshell` | The installer's existing package presenter installs the named AUR engine. |
+| New curl installations on Fedora | `vgshell-quickshell` | The existing package presenter requires the engine from a configured repository. Publication belongs to the overseer. |
+| Existing curl installations on Arch and Fedora | The installed stock engine | Self-update does not replace the engine. The migration follows VGS-1799. |
+| Curl installer apt row | Stock Quickshell | VGS has no Debian engine package or publication channel. The installer does not build an engine or add a compiler. |
+| Curl installer on NixOS | Stock nixpkgs Quickshell | The curl package table cannot apply the flake's derivation override. The VGS flake supplies the patched Nix path. |
+
+The stock channels retain the rare shell crash risk. A stock engine that meets the runtime version floor does not prove that either patch is present.
+
+The git channels and Nix receive the patched engine through publication after landing. The AUR and Fedora release packages receive the changed dependency at the next VGS release tag containing this change. The owner decides that release timing. Keep the Fedora release tag check in `packaging/fedora/srpm.sh`; a recipe-only rebuild does not bypass it.
+
+Existing curl installations retain their engine during normal self-update. The deferred scope is "curl existing-user migration to vgshell-quickshell at bin/lib/self.js, after VGS-1799". The overseer owns the follow-up. It must land before publication acceptance closes.
+
+- Keep the engine on pinned upstream with both patches and a VGS distributor identity. Keep the patches and Qt compatibility hook in `packaging/arch/vgshell-quickshell/`. The Fedora source builder and Nix flake use the same patch files. Keep local source checksums verified. `scripts/check-packaging.js` checks the recipes and the flake.
+- Give the Arch engine a versioned `quickshell` provision and conflicts with both `quickshell` and `quickshell-git`. Keep matching generated source metadata. Give the Fedora engine its versioned provision and conflicts with both stock engine names. Its `Obsoletes` entries replace `quickshell` and `quickshell-git` below `0.3.3`. Without them, an ordinary dnf upgrade skips the shell update. `scripts/check-packaging.js` checks the engine contracts separately from the shell recipes.
+- Route an Arch package migration through the existing VGS Updates terminal. The shell package dependency selects the engine. The package manager asks about the old engine in that terminal. An owner machine's package hold remains an owner action.
+- Keep publication in the existing overseer route. `DEVELOPMENT.md` § Release names the source recipes and publication steps.
+- Keep the patches until an upstream release contains the fixes for upstream issues #947 and #1285. VGS-996 tracks that condition. Then raise the runtime floor, remove the patches and dedicated engine recipes, and move the patched channels to stock in one change. Prove package replacement from `vgshell-quickshell` before retiring it. Review holds this retirement rule.
+
 ### Licence
 
-- The SPDX licence expression of a VGS package is `MIT AND OFL-1.1 AND ISC AND Apache-2.0 AND CC-BY-SA-4.0`.
-- Do keep that expression in every recipe; `scripts/check-packaging.js` reads it from the line above and refuses a recipe that differs.
+- The SPDX licence expression of a VGS shell package is `MIT AND OFL-1.1 AND ISC AND Apache-2.0 AND CC-BY-SA-4.0`.
+- Do keep that expression in every shell recipe; `scripts/check-packaging.js` reads it from the line above and refuses a shell recipe that differs. The engine keeps Quickshell's own licence.
 
 ### Version
 

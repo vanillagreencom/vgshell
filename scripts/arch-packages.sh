@@ -82,7 +82,7 @@ cache="$repo/tmp/arch-packages-cache"
 cleanup() { rm -rf -- "$scratch"; }
 trap cleanup EXIT
 rm -rf -- "$scratch"
-mkdir -p -- "$scratch/in/vgshell" "$scratch/in/vgshell-git" "$cache"
+mkdir -p -- "$scratch/in/vgshell" "$scratch/in/vgshell-git" "$scratch/in/vgshell-quickshell" "$cache"
 
 # The commit to build.
 git_env=(env GIT_AUTHOR_NAME=arch-packages GIT_AUTHOR_EMAIL=arch-packages@example.invalid
@@ -127,6 +127,7 @@ if changed == text:
 path.write_text(changed)
 PY
 }
+cp -a -- "$repo/packaging/arch/vgshell-quickshell/." "$scratch/in/vgshell-quickshell/"
 recipe_copy vgshell "^sha256sums=\('[^']*'\)$" "sha256sums=('$sum')"
 recipe_copy vgshell-git ' -- "\$url\.git" "\$srcdir/vgshell"$' ' -- "file:///build/srcrepo.git" "$srcdir/vgshell"'
 
@@ -150,6 +151,8 @@ mapfile -t depends < <(sed -n 's/^\tdepends = //p' /in/vgshell/.SRCINFO)
 pacman -Syu --noconfirm --needed base-devel git sudo python mise >/tmp/setup.log 2>&1 ||
   not_measured container-setup "$(tail -n 20 /tmp/setup.log)"
 useradd -m builder
+# CMake otherwise starts one compiler per CPU for the engine.
+export MAKEFLAGS=-j8 CMAKE_BUILD_PARALLEL_LEVEL=8
 cp -a /in/. /build/
 chown -R builder:builder /build
 
@@ -173,11 +176,15 @@ install_dependency() { # DEPENDENCY
   [[ $name =~ ^[a-zA-Z0-9][a-zA-Z0-9+_.-]*$ ]] || refuse "depends=malformed package=$name"
   [[ ! -v building[$name] ]] || refuse "depends=cycle package=$name"
   building[$name]=true
-  dir="/build/aur/$name"
-  mkdir -p /build/aur
-  chown builder:builder /build/aur
-  runuser -u builder -- git clone --quiet --depth 1 -- "https://aur.archlinux.org/$name.git" "$dir" >/tmp/aur-fetch.log 2>&1 ||
-    not_measured "aur-source package=$name" "$(tail -n 20 /tmp/aur-fetch.log)"
+  if [[ $name == vgshell-quickshell ]]; then
+    dir=/build/vgshell-quickshell
+  else
+    dir="/build/aur/$name"
+    mkdir -p /build/aur
+    chown builder:builder /build/aur
+    runuser -u builder -- git clone --quiet --depth 1 -- "https://aur.archlinux.org/$name.git" "$dir" >/tmp/aur-fetch.log 2>&1 ||
+      not_measured "aur-source package=$name" "$(tail -n 20 /tmp/aur-fetch.log)"
+  fi
   metadata="$(runuser -u builder -- bash -c 'cd -- "$1" && makepkg --printsrcinfo' _ "$dir")" ||
     refuse "aur-metadata=unreadable package=$name"
   mapfile -t children < <(sed -n -E 's/^\t(depends|makedepends) = //p' <<<"$metadata" | sort -u)
@@ -188,12 +195,47 @@ install_dependency() { # DEPENDENCY
     refuse "aur-build=failed package=$name" "$(tail -n 40 "/tmp/aur-build-$name.log")"
   mapfile -t files < <(find "$dir" -maxdepth 1 -type f -name '*.pkg.tar.*' ! -name '*.sig')
   [[ ${#files[@]} -gt 0 ]] || refuse "aur-build=empty package=$name"
-  pacman -U --noconfirm --asdeps -- "${files[@]}" >/tmp/aur-install.log 2>&1 ||
+  printf 'y\ny\n' | pacman -U --asdeps -- "${files[@]}" >/tmp/aur-install.log 2>&1 ||
     refuse "aur-install=failed package=$name" "$(tail -n 20 /tmp/aur-install.log)"
   pacman -T "$dependency" >/tmp/missing.log 2>&1 || refuse "depends=unsatisfied package=$dependency"
   unset 'building[$name]'
 }
+# Whether a package named NAME, not one providing NAME, is installed.
+installed() { # NAME
+  local names
+  names="$(pacman -Qq)" || refuse "pacman=query-failed"
+  grep -qxF -e "$1" <<<"$names"
+}
+
+# The official stock engine is the existing-user starting point.
+install_dependency quickshell
 for dependency in "${depends[@]}"; do install_dependency "$dependency"; done
+installed vgshell-quickshell || refuse "engine=missing"
+! installed quickshell || refuse "engine=stock-retained"
+# Model the AUR producer's versionless provision with the same built engine
+# payload. The package manager must remove its package identity as well.
+mkdir -p /build/stock-git
+cat >/build/stock-git/PKGBUILD <<'PKG'
+pkgname=quickshell-git
+pkgver=0.3.2.r7.g2b4501a
+pkgrel=1
+arch=(any)
+options=(!strip !debug)
+provides=(quickshell)
+conflicts=(quickshell)
+package() { install -Dm755 /usr/bin/quickshell "$pkgdir/usr/bin/quickshell"; }
+PKG
+chown -R builder:builder /build/stock-git
+runuser -u builder -- bash -c 'cd /build/stock-git && makepkg --nodeps --noconfirm' >/tmp/stock-git.log 2>&1 ||
+  refuse "engine=stock-git-fixture" "$(tail -n 20 /tmp/stock-git.log)"
+# Engine removal and these installs run only inside this disposable container.
+pacman -Rdd --noconfirm vgshell-quickshell >/tmp/engine-remove.log 2>&1 || refuse "engine=remove"
+pacman -U --noconfirm /build/stock-git/*.pkg.tar.* >/tmp/stock-git-install.log 2>&1 || refuse "engine=stock-git-install"
+printf 'y\ny\n' | pacman -U /build/vgshell-quickshell/*.pkg.tar.* >/tmp/engine-git-migrate.log 2>&1 ||
+  refuse "engine=git-migration" "$(tail -n 20 /tmp/engine-git-migrate.log)"
+! installed quickshell-git || refuse "engine=git-retained"
+pacman -T 'vgshell-quickshell>=0.3.1' 'quickshell>=0.3.1' || refuse "engine=provision"
+echo 'arch-packages: engine migrations=quickshell,quickshell-git versionless-provider=removed'
 
 # The one package file makepkg built for RECIPE.
 package_file() { # RECIPE
@@ -217,12 +259,7 @@ objects="$(runuser -u builder -- git -C /build/vgshell-git/src/vgshell rev-list 
   refuse "clone=unreadable package=vgshell-git"
 grep -q '^?' <<<"$objects" || refuse "clone=unfiltered package=vgshell-git" "every object the history reaches is in /build/vgshell-git/src/vgshell"
 
-# Whether a package named NAME, not one providing NAME, is installed.
-installed() { # NAME
-  local names
-  names="$(pacman -Qq)" || refuse "pacman=query-failed"
-  grep -qxF -e "$1" <<<"$names"
-}
+
 install_pkg() { # FILE NAME
   pacman -U --noconfirm "$1" >"/tmp/install-$2.log" 2>&1 ||
     refuse "install=failed package=$2" "$(tail -n 40 "/tmp/install-$2.log")"
