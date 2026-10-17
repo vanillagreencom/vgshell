@@ -21,10 +21,11 @@
 // off; a ready Setup summary's caution shows under ready.
 // A tone is `calm` or a Theme.color state role, `neutral` being textMuted.
 // The Jarvis session's reading (`jarvisSession`, SetupGate.sessionRecord)
-// adds to the state's tooltip: its model, since when it runs, and each step
-// of a resume after a machine restart. While the Resume offer stands, the
-// tooltip names it first and `click` is "resume": a click resumes, and the
-// Mute key alone mutes. Else `click` is "mute".
+// adds to the state's tooltip: its model, since when it runs, each step of
+// a resume after a machine restart, and, once the service stopped reading
+// the steps still pending, when it read them last. While the Resume offer
+// stands, the tooltip names it first and `click` is "resume": a click
+// resumes, and the Mute key alone mutes. Else `click` is "mute".
 // A value outside the shapes the service and Session.js produce throws a
 // keyed error; nothing falls back.
 
@@ -370,7 +371,7 @@ var STEP_NAMES = {
 function sessionReading(value) {
     if (value === undefined || value === null) return null;
     var text = function (field) { return field === null || typeof field === "string"; };
-    if (typeof value !== "object" || !text(value.model) || !text(value.since) || !Array.isArray(value.steps)
+    if (typeof value !== "object" || !text(value.model) || !text(value.since) || !text(value.checkedAt) || !Array.isArray(value.steps)
             || (value.offer !== null && (typeof value.offer !== "object" || (value.offer.unlock !== null && !hasOwn(RESUME_UNLOCK, value.offer.unlock)))))
         refuse("jarvisSession", value);
     for (var i = 0; i < value.steps.length; i++) {
@@ -388,6 +389,12 @@ function stepLine(step) {
     if (step.outcome === "pending") return "Waiting to resume " + name + ".";
     if (step.outcome === "resumed") return "Resumed " + name + ".";
     return "Could not resume " + name + (step.cause === null || step.cause === "" ? "." : ": " + line(step.cause));
+}
+
+// The line in place of the pending steps once the service stopped reading
+// them at CHECKED_AT, "HH:MM". Opening the page reads the session again.
+function checkedLine(checkedAt) {
+    return "Jarvis stopped checking the resume at " + checkedAt + ". Open [Settings > Jarvis](page:vgs.jarvis/Details) to check it again.";
 }
 
 // What the Mute key does while a click resumes.
@@ -421,7 +428,8 @@ function view(values, keys, mode) {
     var running = [];
     if (session.model !== null) running.push("Jarvis session model: " + session.model + ".");
     if (session.since !== null) running.push("Jarvis session running since " + session.since + ".");
-    out.tooltipDetails = details.concat(running, session.steps.map(stepLine), base.tooltipDetails.slice(-1));
+    out.tooltipDetails = details.concat(running, session.steps.map(stepLine), session.checkedAt === null ? [] : [checkedLine(session.checkedAt)],
+        base.tooltipDetails.slice(-1));
     return out;
 }
 

@@ -9,8 +9,16 @@
 // command cannot start. The service starts this file detached
 // (shell.run.detached), so a shell crash or reload during the wait cancels
 // no restart. Arguments it cannot read exit 2 with a keyed line and run
-// nothing. Each other run writes one keyed line to stderr:
-//   jarvis: power-wait=VERB prepare=answered|bound|no-home|package|spawn-failed|error
+// nothing. Each other run writes one keyed line to stderr, before it asks
+// systemctl, with what came of the `prepare`:
+//   jarvis: power-wait=VERB prepare=OUTCOME
+// OUTCOME is `answered exit=0`; `refused exit=2`, the contract's refusal
+// of a verb, as from a package without `prepare`; `failed exit=N` or
+// `failed signal=S`; `bound`, killed at the bound; `no-home` or `package`,
+// no command to ask; `spawn-failed`; or `error`. systemctl's own refusal
+// goes to stderr as it writes it, and a systemctl that does not succeed
+// adds one keyed line:
+//   jarvis: power-wait=VERB systemctl=exit-N|signal-S|ERROR_CODE
 "use strict";
 const cp = require("node:child_process");
 const path = require("node:path");
@@ -34,12 +42,18 @@ function main() {
         if (asked) return;
         asked = true;
         process.stderr.write("jarvis: power-wait=" + verb + " prepare=" + cause + "\n");
-        const request = cp.spawn("systemctl", [verb], { stdio: "ignore" });
+        // Its stderr is this helper's own, so a refusal by logind or polkit
+        // goes where the keyed lines go, as systemctl writes it.
+        const request = cp.spawn("systemctl", [verb], { stdio: ["ignore", "ignore", "inherit"] });
         request.on("error", error => {
             process.stderr.write("jarvis: power-wait=" + verb + " systemctl=" + error.code + "\n");
             process.exitCode = 1;
         });
-        request.on("exit", code => { process.exitCode = code === 0 ? 0 : 1; });
+        request.on("exit", (code, signal) => {
+            if (code === 0) return;
+            process.stderr.write("jarvis: power-wait=" + verb + " systemctl=" + (signal === null ? "exit-" + code : "signal-" + signal) + "\n");
+            process.exitCode = 1;
+        });
     }
     try {
         require("./Core.js").use(tree);
@@ -59,9 +73,9 @@ function main() {
             clearTimeout(bound);
             power("spawn-failed");
         });
-        prepare.on("exit", () => {
+        prepare.on("exit", (code, signal) => {
             clearTimeout(bound);
-            power("answered");
+            power(signal !== null ? "failed signal=" + signal : code === 0 ? "answered exit=0" : code === 2 ? "refused exit=2" : "failed exit=" + code);
         });
     } catch (error) {
         process.stderr.write("jarvis: power-wait cause=" + String(error.message).split("\n")[0] + "\n");

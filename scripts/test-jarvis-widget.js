@@ -353,7 +353,7 @@ function verify(view) {
 // the Mute key in place of the click; a running session's model and time
 // and each resume step's outcome add lines. The state's look is kept.
 function verifySession(view) {
-    const reading = more => ({ model: null, since: null, offer: null, steps: [], ...more });
+    const reading = more => ({ model: null, since: null, offer: null, steps: [], checkedAt: null, ...more });
     const ready = callView(view, up({}));
     assert.equal(ready.click, "mute", "a click mutes without the offer");
     const plainReading = callView(view, up({}, { jarvisSession: reading() }));
@@ -382,8 +382,14 @@ function verifySession(view) {
     assert.deepEqual(steps.map(step => view.stepLine(step).includes(step.name)), [false, true, true], "an overseer and a lane are named");
     assert.equal(view.stepLine(steps[2]).includes(steps[2].cause), true, "a failed step shows its cause");
     assert.notEqual(view.stepLine(steps[0]), view.stepLine({ ...steps[0], outcome: "pending" }), "each outcome reads apart");
+    // Once the service stopped reading the pending steps, one line says when
+    // it read them last, after the steps it still shows.
+    const stale = callView(view, up({}, { jarvisSession: reading({ steps: [steps[0]], checkedAt: "11:12" }) }));
+    assert.deepEqual(copy(stale.tooltipDetails), copy(ready.tooltipDetails.slice(0, -1).concat([view.stepLine(steps[0]), view.checkedLine("11:12")],
+        ready.tooltipDetails.slice(-1))), "the last read's time after the steps");
+    assert.equal(view.checkedLine("11:12").includes("11:12"), true, "the line names the time");
     for (const [name, bad] of [["offer", { offer: { unlock: "keyring" } }], ["steps", { steps: [{ kind: "task", name: "x", outcome: "pending", cause: null }] }],
-        ["outcome", { steps: [{ ...steps[0], outcome: "done" }] }], ["model", { model: 1 }], ["shape", null]])
+        ["outcome", { steps: [{ ...steps[0], outcome: "done" }] }], ["model", { model: 1 }], ["checkedAt", { checkedAt: 1112 }], ["shape", null]])
         assert.throws(() => callView(view, up({}, { jarvisSession: bad === null ? "x" : reading(bad) })), /jarvis widget: jarvisSession=/, "a reading outside its shape: " + name);
 }
 
@@ -396,6 +402,7 @@ const CONTROLS = [
     ["the offer keeps the click line", "var details = base.tooltipDetails.slice(0, -1);", "var details = base.tooltipDetails;"],
     ["the unlock line is dropped", "out.tooltipDetails = [RESUME_CLICK].concat(session.offer.unlock === null ? [] : [RESUME_UNLOCK[session.offer.unlock]],", "out.tooltipDetails = [RESUME_CLICK].concat([],"],
     ["the steps are dropped", "running, session.steps.map(stepLine)", "running, []"],
+    ["the last read's time is dropped", "session.checkedAt === null ? [] : [checkedLine(session.checkedAt)]", "[]"],
     ["a failed step hides its cause", 'step.cause === null || step.cause === "" ? "." : ": " + line(step.cause)', '"."', "a failed step shows its cause"],
     ["an ElevenLabs refusal reads as a broken speaker", '    [/^playback-source: jarvis: speech=elevenlabs-/, "elevenlabs"],\n', ''],
     ["memory explanation discarded", 'return { title: step.text, action: step.hint };', 'return GATE_TEXT.unconfigured;'],

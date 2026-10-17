@@ -11,7 +11,10 @@ import "SetupGate.js" as Gate
 // wait is held already: this instance then starts backend/power-wait.js
 // detached, which asks the session to save and runs `systemctl` whatever
 // the answer, at the latest after its bound, so a shell crash or reload
-// during the wait still restarts the computer. It also shows the card
+// during the wait still restarts the computer. This instance asks
+// `systemctl` itself at the same bound too: `held` means only that the
+// helper's start was handed to Quickshell, which reports no start that
+// failed (Capabilities.runDetached). It also shows the card
 // (PowerCard) on the focused screen until the bound, in a layer registered
 // only while the wait is held. A second ask while held, or the card's
 // button, is the skip: the restart goes at once.
@@ -26,8 +29,10 @@ Item {
     // When the held wait ends, in milliseconds since the epoch.
     property real deadline: 0
     // Whole seconds to the deadline by the shell's clock (Time), which
-    // ticks seconds only while a wait is held.
-    readonly property int remaining: verb === "" ? 0 : Math.max(0, Math.ceil((deadline - Time.now.getTime()) / 1000))
+    // ticks seconds only while a wait is held, at most the wait's own: that
+    // clock reads whole seconds (whole minutes until its seconds start),
+    // and the deadline keeps the fraction it drops.
+    readonly property int remaining: verb === "" ? 0 : Math.max(0, Math.min(waitMs / 1000, Math.ceil((deadline - Time.now.getTime()) / 1000)))
     // backend/power-wait.js PREPARE_MS, the longest wait.
     readonly property int waitMs: 60000
     readonly property string program: String(Qt.resolvedUrl("backend/power-wait.js")).replace(/^file:\/\//, "")
@@ -75,7 +80,8 @@ Item {
         return "held";
     }
 
-    // The card's Restart now or Shut down now.
+    // The card's Restart now or Shut down now, and the bound: the restart
+    // goes now. A second request after the helper's is harmless.
     function proceedNow() {
         if (verb === "") return;
         const reply = shell.run.detached(["systemctl", verb]);
@@ -97,12 +103,12 @@ Item {
         release();
     }
 
-    // The card goes at the bound: power-wait.js has asked for the restart
-    // by then.
+    // The card goes at the bound, and the restart with it, whether
+    // power-wait.js ran or not.
     Timer {
         id: bound
         interval: root.waitMs
-        onTriggered: root.end()
+        onTriggered: root.proceedNow()
     }
 
     Component {

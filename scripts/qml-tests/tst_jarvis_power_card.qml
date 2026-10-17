@@ -8,8 +8,9 @@ import "../../shell/plugins/vgs.jarvis"
 // The card of a held Reboot or Shut down (vgs.jarvis PowerCard): it shows
 // only while a wait is held and only on the focused screen, names the
 // action and the seconds left, takes the pointer on its two controls alone,
-// and its button asks the wait to proceed once. PowerWait's own logic is
-// the jarvis-session smoke row's; this test reads what the card draws.
+// and its button asks the wait to proceed once. PowerWait's count of the
+// seconds left never passes its wait. PowerWait's other logic is the
+// jarvis-session smoke row's; this test reads what the card draws.
 Item {
     id: root
     width: 900
@@ -23,6 +24,11 @@ Item {
         property int remaining: 42
         property int proceeded: 0
         function proceedNow() { proceeded++; }
+    }
+
+    // A real wait with no shell: it starts nothing and registers nothing.
+    PowerWait {
+        id: powerWait
     }
 
     PowerCard {
@@ -42,6 +48,11 @@ Item {
             wait.focusedOutput = "DP-1";
             wait.remaining = 42;
             wait.proceeded = 0;
+        }
+
+        function cleanup() {
+            powerWait.verb = "";
+            powerWait.deadline = 0;
         }
 
         function find(node, test) {
@@ -89,6 +100,18 @@ Item {
             wait.verb = "reboot";
             wait.focusedOutput = "HDMI-A-1";
             verify(!card.visible, "another screen's card hides");
+        }
+
+        // The shell's clock reads whole seconds and the deadline keeps the
+        // fraction: half a second past the wait still counts the wait.
+        function test_the_count_never_passes_the_wait() {
+            powerWait.verb = "reboot";
+            powerWait.deadline = Time.now.getTime() + powerWait.waitMs + 500;
+            compare(powerWait.remaining, powerWait.waitMs / 1000);
+            powerWait.deadline = Time.now.getTime() + 41500;
+            compare(powerWait.remaining, 42);
+            powerWait.deadline = Time.now.getTime() - 1000;
+            compare(powerWait.remaining, 0);
         }
 
         function test_the_card_fits_its_screen() {

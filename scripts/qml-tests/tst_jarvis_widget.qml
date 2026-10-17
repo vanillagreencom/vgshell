@@ -107,7 +107,7 @@ Item {
         function test_a_click_on_the_offer_resumes_once() {
             compare(widget.frameActions.length, 0, "no Do not resume without the offer");
             widget.shell = root.shellWith(Object.assign(root.ready({}),
-                { jarvisSession: { model: null, since: null, offer: { unlock: "1password" }, steps: [] } }));
+                { jarvisSession: { model: null, since: null, offer: { unlock: "1password" }, steps: [], checkedAt: null } }));
             mouseClick(button());
             compare(JSON.stringify(root.calls), '[["resume-session",""]]');
             compare(widget.frameActions.length, 1);

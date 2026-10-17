@@ -241,7 +241,7 @@ function inside() {
             ["unlock", { restart: { unlock: "keyring", steps: [] } }], ["steps-missing", { restart: { unlock: null } }],
             ["steps-many", { restart: { unlock: null, steps: Array(33).fill({ kind: "lane", name: "x", outcome: "pending", cause: null }) } }],
             ["step-kind", step({ kind: "task" })], ["step-name", step({ name: "" })], ["step-outcome", step({ outcome: "done" })],
-            ["step-cause-control", step({ cause: "a\nb" })], ["step-cause-absent", step({ cause: undefined })]
+            ["step-cause-control", step({ cause: "a\nb" })], ["step-cause-number", step({ cause: 1 })], ["unlock-number", { restart: { unlock: 1, steps: [] } }]
         ];
         for (const [name, more] of rows) {
             answers(folder, { status: said("running", "existing", more) });
@@ -250,6 +250,11 @@ function inside() {
         }
         answers(folder, { status: said("running", "existing", { model: "m".repeat(100), since: "2026-10-17T18:02:00.5Z" }) });
         assert.equal(helper(directory, ["status", "~/Jarvis"]).kind, "answer", "the longest model and a UTC time are inside");
+        // A nested field the package does not give is null, as a top-level
+        // one is: a record with no `unlock`, a step with no `cause`.
+        answers(folder, { status: said("stopped", "ended", { restart: { steps: [{ kind: "lane", name: "x", outcome: "pending" }] } }) });
+        assert.deepEqual(helper(directory, ["status", "~/Jarvis"]).restart, { unlock: null, steps: [{ kind: "lane", name: "x", outcome: "pending", cause: null }] },
+            "an absent unlock and cause read as null");
         cases++;
     }
     // The Resume: one `resume --origin manual` in the home, then a status
@@ -275,6 +280,13 @@ function inside() {
         answers(folder, { status: stopped({ restart: record }), resume: said("starting", "resuming") });
         helper(directory, ["build", claude, "~/Jarvis", "resume", "off"]);
         assert.deepEqual(calls(folder).map(call => call.argv), [status(folder)], "with the boot setting off a build only reads");
+        // A shell restart while the resume runs, or after it, resumes nothing
+        // again: the boot start, which the package handles once a boot.
+        for (const live of [said("starting", "resuming", { restart: record }), said("running", "resumed", { restart: record })]) {
+            answers(folder, { status: live, resume: said("starting", "resuming"), start: said("starting", "launching") });
+            helper(directory, ["build", claude, "~/Jarvis", "resume", "on"]);
+            assert.deepEqual(calls(folder).map(call => call.argv), [status(folder), startWords("resume", "boot"), status(folder)], live.object.reason + ": no second resume");
+        }
         cases++;
     }
 
@@ -337,12 +349,14 @@ function inside() {
     control("version", C, "|| value.v !== 1", "", noPackage);
     control("home-folder", S, "folder === null || !fs.statSync(folder, { throwIfNoEntry: false })?.isDirectory()", "folder === null", blocks);
     control("fields-pass-on", C, '...Object.fromEntries(["model", "since", "restart"]', '...Object.fromEntries([]', fields);
-    control("model-checked", C, 'if (given("model") && !named(value.model)) return null;', "", fieldsOutside);
-    control("since-checked", C, "ISO.test(value.since)", "true", fieldsOutside);
+    control("model-checked", C, "if (model !== null && !named(model)) return null;", "", fieldsOutside);
+    control("nested-absent-refused", C, 'const cause = given(step, "cause");', "const cause = step.cause;", fieldsOutside);
+    control("since-checked", C, "ISO.test(since)", "true", fieldsOutside);
     control("step-checked", C, "|| !OUTCOMES.includes(step.outcome)", "", fieldsOutside);
     control("resume-origin", C, 'launch(at, ["resume", "--origin", "manual"])', 'launch(at, ["resume", "--origin", "boot"])', resume);
-    control("boot-resume", C, 'if (origin === "boot" && mode === "resume" && now.restart !== null) return launch(at, ["resume", "--origin", "boot"]);', "", bootResume);
+    control("boot-resume", C, 'if (origin === "boot" && mode === "resume" && now.restart !== null && !LIVE.includes(now.state)) return launch(at, ["resume", "--origin", "boot"]);', "", bootResume);
     control("boot-resume-mode", C, 'origin === "boot" && mode === "resume" && now.restart !== null', 'origin === "boot" && now.restart !== null', bootResume);
+    control("boot-resume-live", C, "now.restart !== null && !LIVE.includes(now.state)", "now.restart !== null", bootResume);
     control("not-app", C, 'resolved.source.kind === "cli" ? { harness: resolved.provider, directory: resolved.source.directory } : blocked("not-app")',
         "{ harness: resolved.provider, directory: String(resolved.source.directory) }", blocks);
     // No control plants a file without its execute bit as a package: the

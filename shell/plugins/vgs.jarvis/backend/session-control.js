@@ -10,10 +10,11 @@
 //   build ACCOUNT HOME MODE BOOT     the service's build: `start --origin
 //                                    app-on` after the app's Off, else
 //                                    while BOOT is "on" `resume --origin
-//                                    boot` when MODE is "resume" and the
-//                                    package holds a record saved before a
-//                                    machine restart, else `start --origin
-//                                    boot`; else a status read
+//                                    boot` when MODE is "resume", no
+//                                    session lives and the package holds a
+//                                    record saved before a machine
+//                                    restart, else `start --origin boot`;
+//                                    else a status read
 //   start ACCOUNT HOME MODE          `start --origin manual`
 //   resume HOME                      `resume --origin manual`: the record
 //                                    saved before a machine restart
@@ -64,6 +65,9 @@ const DETAIL_MAX = 200;
 // STATUS_TEXT_MAX); a step's cause is a line as `detail` is.
 const NAME_MAX = 100;
 const STEPS_MAX = 32;
+// `since` names an instant: a time with no offset or Z could be any zone's.
+// A value outside these forms puts the whole answer outside the contract,
+// as any other field does: the package then is not one VGS was written for.
 const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})$/;
 const UNLOCKS = [null, "1password"];
 const STEP_KINDS = ["delegate", "overseer", "lane"];
@@ -72,21 +76,28 @@ const OUTCOMES = ["pending", "resumed", "failed"];
 const line = (text, max) => typeof text === "string" && text.length <= max && !UNPRINTABLE.test(text);
 const named = text => line(text, NAME_MAX) && text !== "";
 
+// OBJECT's FIELD, null where the package does not give it: an optional
+// field may be absent or null alike, at any depth.
+const given = (object, field) => object[field] === undefined ? null : object[field];
+
 /**
  * RECORD, the `restart` field of an answer, as the plain record VGS
  * passes on, or undefined when it is outside the contract: `unlock` null
- * or "1password", and each step its kind, name, outcome and cause.
+ * or "1password", and each step its kind, name, outcome and cause, the
+ * cause null or a line. An absent `unlock` or `cause` is null.
  */
 function restartOf(record) {
-    if (record === null || typeof record !== "object" || Array.isArray(record) || !UNLOCKS.includes(record.unlock)
+    if (record === null || typeof record !== "object" || Array.isArray(record) || !UNLOCKS.includes(given(record, "unlock"))
             || !Array.isArray(record.steps) || record.steps.length > STEPS_MAX) return undefined;
     const steps = [];
     for (const step of record.steps) {
-        if (step === null || typeof step !== "object" || !STEP_KINDS.includes(step.kind) || !named(step.name)
-                || !OUTCOMES.includes(step.outcome) || (step.cause !== null && !line(step.cause, DETAIL_MAX))) return undefined;
-        steps.push({ kind: step.kind, name: step.name, outcome: step.outcome, cause: step.cause });
+        if (step === null || typeof step !== "object" || Array.isArray(step) || !STEP_KINDS.includes(step.kind) || !named(step.name)
+                || !OUTCOMES.includes(step.outcome)) return undefined;
+        const cause = given(step, "cause");
+        if (cause !== null && !line(cause, DETAIL_MAX)) return undefined;
+        steps.push({ kind: step.kind, name: step.name, outcome: step.outcome, cause });
     }
-    return { unlock: record.unlock, steps };
+    return { unlock: given(record, "unlock"), steps };
 }
 
 /** The contract's one object from a run's stdout, or null for anything else. */
@@ -99,13 +110,13 @@ function accepted(text) {
             || !Object.hasOwn(STATES, value.state) || !STATES[value.state].includes(value.reason)
             || !["home", "harness", "account"].every(optional) || typeof value.detail !== "string" || value.detail.length > DETAIL_MAX
             || ["home", "harness", "account", "detail"].some(field => value[field] !== null && UNPRINTABLE.test(value[field]))) return null;
-    // A field the package does not give, or gives as null, is none.
-    const given = field => value[field] !== undefined && value[field] !== null;
-    if (given("model") && !named(value.model)) return null;
-    if (given("since") && !(typeof value.since === "string" && ISO.test(value.since) && Number.isFinite(Date.parse(value.since)))) return null;
-    const restart = given("restart") ? restartOf(value.restart) : null;
+    const model = given(value, "model");
+    const since = given(value, "since");
+    if (model !== null && !named(model)) return null;
+    if (since !== null && !(typeof since === "string" && ISO.test(since) && Number.isFinite(Date.parse(since)))) return null;
+    const restart = given(value, "restart") === null ? null : restartOf(value.restart);
     if (restart === undefined) return null;
-    return { ...value, model: given("model") ? value.model : null, since: given("since") ? value.since : null, restart };
+    return { ...value, model, since, restart };
 }
 
 async function main() {
@@ -229,8 +240,9 @@ async function main() {
     const origin = verb === "start" ? "manual" : now.state === "off" ? "app-on" : boot === "on" ? "boot" : null;
     if (origin === null) return answer(now);
     // The record names the app of each session it resumes, so a resume
-    // takes no account.
-    if (origin === "boot" && mode === "resume" && now.restart !== null) return launch(at, ["resume", "--origin", "boot"]);
+    // takes no account. A session that lives, a resume's among them, is not
+    // resumed again; the package handles `start --origin boot` once a boot.
+    if (origin === "boot" && mode === "resume" && now.restart !== null && !LIVE.includes(now.state)) return launch(at, ["resume", "--origin", "boot"]);
     const who = account(setting);
     if (who.kind !== "blocked") return start(at, who, mode, origin);
     // A session that lives, one started by hand among them, stays shown.

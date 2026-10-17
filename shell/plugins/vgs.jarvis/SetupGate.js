@@ -650,13 +650,24 @@ function sessionClock(iso) {
     return two(at.getHours()) + ":" + two(at.getMinutes());
 }
 
+// Whether the resume of RESULT's record saved before a machine restart
+// started: a session lives, or a step is no longer pending. The one answer
+// the offer, the steps the widget shows and the reads of a resume's steps
+// take.
+function sessionResumeStarted(result) {
+    return result !== null && result.kind === "answer" && result.restart !== undefined
+        && (sessionLive(result.state) || result.restart.steps.some(function (step) { return step.outcome !== "pending"; }));
+}
+
 // Whether RESULT, session-control.js's answer, offers the Resume of the
 // session saved before a machine restart. WANTED is Start Jarvis at boot,
 // whose boot build resumes it by itself; SET_ASIDE is true once the user
-// chose Do not resume for this record or asked for its resume.
+// chose Do not resume for this record or asked for its resume. The offer
+// ends once the record's resume started, a resume that failed among them:
+// its steps then show in its place.
 function sessionOffer(wanted, result, setAside) {
     return !wanted && !setAside && result !== null && result.kind === "answer" && result.restart !== undefined
-        && SESSION_OFFERED.indexOf(result.state) !== -1;
+        && SESSION_OFFERED.indexOf(result.state) !== -1 && !sessionResumeStarted(result);
 }
 
 // The words of a running session the row and the bar's tooltip show:
@@ -670,24 +681,27 @@ function sessionRunning(result) {
 
 // The bar widget's reading of the session (status `jarvisSession`), null
 // before the first answer: { model, since } as sessionRunning gives them,
-// `offer` null or { unlock } while sessionOffer holds, and `steps`, the
-// record's steps once its resume started (a step that is not pending, or
-// a session that lives), else none.
-function sessionRecord(wanted, result, setAside) {
+// `offer` null or { unlock } while sessionOffer holds, `steps`, the
+// record's steps once its resume started (sessionResumeStarted), else
+// none, and `checkedAt`. CHECKED is null while the service reads pending
+// steps, else the ISO time of its last read: the pending steps then drop,
+// since nothing reads them any more, and `checkedAt` is that read's
+// "HH:MM"; else it is null.
+function sessionRecord(wanted, result, setAside, checked) {
     if (result === null || result.kind !== "answer") return null;
     var running = sessionRunning(result);
     var offer = sessionOffer(wanted, result, setAside);
-    var restart = result.restart === undefined ? null : result.restart;
-    var started = restart !== null && !offer && (sessionLive(result.state)
-        || restart.steps.some(function (step) { return step.outcome !== "pending"; }));
-    return { model: running.model, since: running.since, offer: offer ? { unlock: restart.unlock } : null,
-        steps: started ? restart.steps : [] };
+    var steps = sessionResumeStarted(result) ? result.restart.steps : [];
+    var stale = checked !== null && sessionStepsPending(result);
+    if (stale) steps = steps.filter(function (step) { return step.outcome !== "pending"; });
+    return { model: running.model, since: running.since, offer: offer ? { unlock: result.restart.unlock } : null,
+        steps: steps, checkedAt: stale ? sessionClock(checked) : null };
 }
 
-// Whether RESULT's record still has a step its resume has not reached.
+// Whether RESULT's record has a resume that started and a step it has not
+// reached: the steps the service reads again.
 function sessionStepsPending(result) {
-    return result !== null && result.kind === "answer" && result.restart !== undefined
-        && result.restart.steps.some(function (step) { return step.outcome === "pending"; });
+    return sessionResumeStarted(result) && result.restart.steps.some(function (step) { return step.outcome === "pending"; });
 }
 
 // The row for RESULT, backend/session-control.js's answer, null before the
