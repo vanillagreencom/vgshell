@@ -3384,7 +3384,8 @@ function setupTargetRows(name, target, configHome, live) {
             }
         }
         if (target.select.format === "posh" && selections.length === 0)
-            rows.push(disconnected(os.homedir(), "no Oh My Posh init line"));
+            for (const file of target.select.file)
+                rows.push(disconnected(path.join(baseDir(target.select.base, configHome), file), "no Oh My Posh init line"));
     }
     return rows;
 }

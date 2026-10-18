@@ -283,6 +283,29 @@ refusal_row() { # SCRIPT NAME
   [[ $status == "$want_status" && $err == $want_err && ! -e $r/dist && ! -e $record/gh ]]
 }
 
+# Execute the package consumer's assertions against setup's machine-read lines.
+# Other targets' wiring rows must not hide the chromium state or reject it.
+arch_setup_row() { # SCRIPT
+  "${base_env[@]}" python3 - "$1" "$BASH" <<'PY'
+import os, re, subprocess, sys
+source = open(sys.argv[1]).read()
+checks = re.findall(r'^  (.+) \|\| refuse "setup=unexpected browser=(absent|chromium) package=\$1" "\$out"$', source, re.M)
+assert {browser for _, browser in checks} == {"absent", "chromium"}, checks
+for expression, browser in checks:
+    wanted = "not-detected" if browser == "absent" else "done"
+    line = "setup=chromium command=vgshell-browser-policy state=" + wanted
+    wiring = "\nwiring=oh-my-posh state=not-wired file=/home/builder/.bashrc"
+    for output, accepted in [
+        (line, True), (line + wiring, True), (wiring.lstrip(), False),
+        (line.replace(wanted, "absent"), False),
+        (line.replace(wanted, "done" if wanted == "not-detected" else "not-detected") + wiring, False),
+        (line + "-unexpected" + wiring, False), ("prefix " + line + wiring, False)
+    ]:
+        result = subprocess.run([sys.argv[2], "-c", 'out="$1"; ' + expression, "_", output], env=os.environ, capture_output=True)
+        assert result.returncode == (0 if accepted else 1), (browser, output, result.returncode, result.stderr)
+PY
+}
+
 echo "rows"
 check "the release archive is the tag under vgshell-3.4.5/ with no gzip name or time" archive_row "$script"
 check "SHA256SUMS lists the archive and the tag's install.sh" sums_row "$script"
@@ -296,6 +319,7 @@ for name in $(printf '%s\n' "${!channels[@]}" | LC_ALL=C sort); do
   check "parity: the $name build hands its container the release asset of its commit" parity_row "$builder" "$name"
 done
 check "Arch host preparation and recipe clone accept explicit bare repositories" arch_bare_row "$repo/scripts/arch-packages.sh"
+check "Arch setup reads the chromium state independently of other target rows" arch_setup_row "$repo/scripts/arch-packages.sh"
 for name in $(printf '%s\n' "${!refusals[@]}" | LC_ALL=C sort); do
   check "refusal: $name" refusal_row "$script" "$name"
 done
@@ -334,6 +358,14 @@ PY
 check "the dry run on this working tree builds an archive that installs" real_tree_row
 
 echo "controls"
+copy_with arch-setup "$repo/scripts/arch-packages.sh" \
+  'grep -qxF -e "setup=chromium command=vgshell-browser-policy state=not-detected" <<<"$out"' \
+  '[[ $out == "setup=chromium command=vgshell-browser-policy state=not-detected" ]]'
+if arch_setup_row "$copy" >"$tmp/arch-setup-control" 2>&1; then
+  fail "control: whole-answer matching passed the Arch setup row"
+else
+  ok "control: whole-answer matching rejects the multi-line setup answer"
+fi
 copy_with arch-bare "$repo/scripts/arch-packages.sh" \
   'git --git-dir="$scratch/in/srcrepo.git" config' 'git -C "$scratch/in/srcrepo.git" config'
 if arch_bare_row "$copy" >/dev/null; then

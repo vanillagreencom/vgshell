@@ -326,12 +326,12 @@ browser_policy() { # PACKAGE
   grep -qxF -e "$rule" /etc/sudoers.d/vgshell-theme-browser || refuse "browser-policy=grant package=$1" "$(cat /etc/sudoers.d/vgshell-theme-browser)"
   mkdir -p /tmp/browser-standin
   out="$(runuser -u builder -- env PATH=/usr/bin vgshell theme setup 2>&1)" || refuse "setup=failed package=$1" "$out"
-  [[ $out == "setup=chromium command=vgshell-browser-policy state=not-detected" ]] || refuse "setup=unexpected browser=absent package=$1" "$out"
+  grep -qxF -e "setup=chromium command=vgshell-browser-policy state=not-detected" <<<"$out" || refuse "setup=unexpected browser=absent package=$1" "$out"
   printf '#!/bin/sh\nexit 1\n' >/tmp/browser-standin/chromium
   chmod 755 /tmp/browser-standin/chromium
   out="$(runuser -u builder -- env PATH=/tmp/browser-standin:/usr/bin vgshell theme setup 2>&1)" || refuse "setup=failed package=$1" "$out"
   rm -f /tmp/browser-standin/chromium
-  [[ $out == "setup=chromium command=vgshell-browser-policy state=done" ]] || refuse "setup=unexpected browser=chromium package=$1" "$out"
+  grep -qxF -e "setup=chromium command=vgshell-browser-policy state=done" <<<"$out" || refuse "setup=unexpected browser=chromium package=$1" "$out"
 }
 
 holder_checks() { # PACKAGE

@@ -1150,6 +1150,7 @@ try {
     }
     function verifyPosh() {
         for (const [before, reason] of [
+            [undefined, 'no Oh My Posh init line'],
             ['export KEEP=1\neval "$(oh-my-posh init bash --config old.json)" # keep\n', null],
             ['eval "$(oh-my-posh init zsh --config old.json)"\n', null],
             ['# no prompt\nexport KEEP=1\n', 'no Oh My Posh init line'],
@@ -1158,15 +1159,18 @@ try {
         ]) {
             const w = world();
             const file = path.join(w.home, '.bashrc');
-            w.put(file, before);
+            if (before !== undefined) w.put(file, before);
             w.run('apply');
             const expected = reason ? before : before.replace('old.json', "'" + path.join(w.config, 'oh-my-posh/vgs.omp.json') + "'");
-            assert.equal(fs.readFileSync(file, 'utf8'), expected);
+            const contents = () => fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : undefined;
+            assert.equal(contents(), expected);
             const rows = w.run('setup').wiring.filter(row => row.name === 'oh-my-posh');
-            if (reason) assert.ok(rows.some(row => row.state === 'not-wired' && row.reason === reason), JSON.stringify(rows));
+            if (reason === 'no Oh My Posh init line') assert.deepEqual(rows.map(row => [row.file, row.state, row.line, row.reason]),
+                ['.bashrc', '.bash_profile', '.profile', '.zshrc'].map(name => [path.join(w.home, name), 'not-wired', null, reason]));
+            else if (reason) assert.ok(rows.some(row => row.state === 'not-wired' && row.file === file && row.reason === reason), JSON.stringify(rows));
             else assert.ok(rows.some(row => row.state === 'wired' && row.file === file));
             w.run('apply', 'other');
-            assert.equal(fs.readFileSync(file, 'utf8'), expected);
+            assert.equal(contents(), expected);
         }
     }
     for (const row of cases) verifyCase(row);
@@ -1180,6 +1184,13 @@ try {
     fs.writeFileSync(emacsTemplate, template);
     const judgeFile = path.join(tree, 'bin/vgshell-theme-judge');
     const judge = fs.readFileSync(judgeFile, 'utf8');
+    const missingInit = 'disconnected(path.join(baseDir(target.select.base, configHome), file), "no Oh My Posh init line")';
+    assert.equal(judge.split(missingInit).length, 2);
+    const homeReport = judge.replace(missingInit, 'disconnected(os.homedir(), "no Oh My Posh init line")');
+    assert.notEqual(homeReport, judge);
+    fs.writeFileSync(judgeFile, homeReport);
+    assert.throws(verifyPosh, { code: 'ERR_ASSERTION' }, 'a home directory cannot stand for an init file');
+    fs.writeFileSync(judgeFile, judge);
     const invalidation = 'writing(compiled, key, () => fs.unlinkSync(compiled));';
     assert.equal(judge.split(invalidation).length, 2);
     fs.writeFileSync(judgeFile, judge.replace(invalidation, 'void compiled;'));
