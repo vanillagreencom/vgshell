@@ -68,12 +68,22 @@ var BORDERS = [
 // terminal, in the words of its own refusal: "Needed for current config:
 // Width = 80 Height = 36" (btop in the System Monitor's window on the
 // owner's desktop, 2026-10-10). `wide` is 11/8 as wide and 6/5 as tall,
-// and `tall` 3/2 as tall, in share and in cells. Only the core writes
+// in share and in cells. `tall`, the class of the Updates terminals alone,
+// is 3/2 as tall in share and in cells, `default`'s share wide and never
+// under 125 columns: the width pacman's verbose package table needs, or
+// pacman prints "insufficient columns available for table display" and a
+// plain list instead. pacman 7.1.0's table is its columns' widest cells
+// with 2 columns between them (src/pacman/util.c, table_calc_widths and
+// table_display); the owner's 54-package update of 2026-10-17 (VGS-1839)
+// needs 41 for `cachyos-extra-znver4/python-pydantic-core`, 26 for each
+// luajit version, 11 for vscodium's `-141.11 MiB` and 13 for the
+// `Download Size` header, 125 with the 8 between (pacman.log and the
+// package cache of a host that ran the same update). Only the core writes
 // window rules: no plugin sets a size or a class pattern.
 var TUI_WINDOWS = {
     "default": { appId: "org.vgs.tui", rule: "vgs:tui", widthShare: 0.4, heightShare: 0.5, columns: 80, rows: 36 },
     "wide": { appId: "org.vgs.tui.wide", rule: "vgs:tui-wide", widthShare: 0.55, heightShare: 0.6, columns: 110, rows: 43 },
-    "tall": { appId: "org.vgs.tui.tall", rule: "vgs:tui-tall", widthShare: 0.4, heightShare: 0.75, columns: 80, rows: 54 }
+    "tall": { appId: "org.vgs.tui.tall", rule: "vgs:tui-tall", widthShare: 0.4, heightShare: 0.75, columns: 125, rows: 54 }
 };
 
 // What a terminal keeps of its window beside the grid, counted in cells so

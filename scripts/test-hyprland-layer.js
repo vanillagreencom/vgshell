@@ -86,7 +86,7 @@ const TUI_SECTION = [
     "-- Floating TUIs: each size class's app-id floats, centred, at its share of its output or its cells, inside the gutters where its cells fit there, never past the bar.",
     "hl.window_rule({ name = \"vgs:tui\", match = { class = \"^org\\\\.vgs\\\\.tui$\" }, float = true, center = true, suppress_event = \"maximize\", size = { \"min(max(monitor_w*0.4,820),max(monitor_w-20,min(820,monitor_w-8)))\", \"min(max(monitor_h*0.5,814),max(monitor_h-50,min(814,monitor_h-38)))\" } })",
     "hl.window_rule({ name = \"vgs:tui-wide\", match = { class = \"^org\\\\.vgs\\\\.tui\\\\.wide$\" }, float = true, center = true, suppress_event = \"maximize\", size = { \"min(max(monitor_w*0.55,1120),max(monitor_w-20,min(1120,monitor_w-8)))\", \"min(max(monitor_h*0.6,968),max(monitor_h-50,min(968,monitor_h-38)))\" } })",
-    "hl.window_rule({ name = \"vgs:tui-tall\", match = { class = \"^org\\\\.vgs\\\\.tui\\\\.tall$\" }, float = true, center = true, suppress_event = \"maximize\", size = { \"min(max(monitor_w*0.4,820),max(monitor_w-20,min(820,monitor_w-8)))\", \"min(max(monitor_h*0.75,1210),max(monitor_h-50,min(1210,monitor_h-38)))\" } })"
+    "hl.window_rule({ name = \"vgs:tui-tall\", match = { class = \"^org\\\\.vgs\\\\.tui\\\\.tall$\" }, float = true, center = true, suppress_event = \"maximize\", size = { \"min(max(monitor_w*0.4,1270),max(monitor_w-20,min(1270,monitor_w-8)))\", \"min(max(monitor_h*0.75,1210),max(monitor_h-50,min(1210,monitor_h-38)))\" } })"
 ];
 // The size a floating TUI rule line gives a window on an output WIDTH by
 // HEIGHT logical pixels, as [width, height]. Hyprland v0.56.2 hands each
@@ -973,7 +973,7 @@ function verify(logic, configLogic, layer, shellText) {
     ].forEach(([label, margins, error]) => {
         assert.throws(() => layer.render([], Object.assign({}, theme, { tuiMargins: margins }), "vgs", 1), error, label + " is refused");
     });
-    assert.ok(lines(layer.render([], Object.assign({}, theme, { tuiMargins: { bar: 0, gutter: 0 } }), "vgs", 1)).includes("hl.window_rule({ name = \"vgs:tui-tall\", match = { class = \"^org\\\\.vgs\\\\.tui\\\\.tall$\" }, float = true, center = true, suppress_event = \"maximize\", size = { \"min(max(monitor_w*0.4,820),max(monitor_w-0,min(820,monitor_w-8)))\", \"min(max(monitor_h*0.75,1210),max(monitor_h-0,min(1210,monitor_h-8)))\" } })"), "zero margins clamp to the whole output");
+    assert.ok(lines(layer.render([], Object.assign({}, theme, { tuiMargins: { bar: 0, gutter: 0 } }), "vgs", 1)).includes("hl.window_rule({ name = \"vgs:tui-tall\", match = { class = \"^org\\\\.vgs\\\\.tui\\\\.tall$\" }, float = true, center = true, suppress_event = \"maximize\", size = { \"min(max(monitor_w*0.4,1270),max(monitor_w-0,min(1270,monitor_w-8)))\", \"min(max(monitor_h*0.75,1210),max(monitor_h-0,min(1210,monitor_h-8)))\" } })"), "zero margins clamp to the whole output");
     // A cell HyprlandLayer.qml could not measure is refused by name, never
     // written as a floor.
     [
@@ -991,7 +991,7 @@ function verify(logic, configLogic, layer, shellText) {
     // px, and its 36 rows and 1 of padding at 19.5 px are 721.5 px.
     assert.ok(lines(layer.render([], Object.assign({}, theme, { tuiCell: { width: 8.2, height: 19.5 } }), "vgs", 1)).includes("hl.window_rule({ name = \"vgs:tui\", match = { class = \"^org\\\\.vgs\\\\.tui$\" }, float = true, center = true, suppress_event = \"maximize\", size = { \"min(max(monitor_w*0.4,673),max(monitor_w-20,min(673,monitor_w-8)))\", \"min(max(monitor_h*0.5,722),max(monitor_h-50,min(722,monitor_h-38)))\" } })"), "a floor is its cells and the padding's at the cell, rounded up to a whole pixel");
     // Each class's size on an output, in the layer's order: default, wide,
-    // tall, at the fixture's floors: 820, 1120 and 820 px wide, 814, 968
+    // tall, at the fixture's floors: 820, 1120 and 1270 px wide, 814, 968
     // and 1210 px tall. An output less the fixture's margins is 20 px
     // narrower and 50 px shorter. Hyprland draws the fixture's 4 px border
     // outside the window, so a window that takes the gutters stops 8 px
@@ -1000,14 +1000,14 @@ function verify(logic, configLogic, layer, shellText) {
     const tuiRules = bareLines.filter(line => line.startsWith("hl.window_rule({ name = \"vgs:tui"));
     [
         [3840, 2160, [[1536, 1080], [2112, 1296], [1536, 1620]], "a large output gets each class at its share and no more"],
-        [1600, 1010, [[820, 814], [1120, 968], [820, 972]], "cells that fit inside the gutters keep them, cells 8 px over take those 8 px, and taller cells stop at the bar and the border"],
-        [1366, 768, [[820, 730], [1120, 730], [820, 730]], "a small output gets each class at its cells wide and the output less the bar and the border tall"],
-        [1280, 720, [[820, 682], [1120, 682], [820, 682]], "a 720 px tall output gets each class the output less the bar and the border tall"],
-        [1024, 768, [[820, 730], [1016, 730], [820, 730]], "cells wider than the output get the whole width less the border and no more"]
+        [1600, 1010, [[820, 814], [1120, 968], [1270, 972]], "cells that fit inside the gutters keep them, cells 8 px over take those 8 px, and taller cells stop at the bar and the border"],
+        [1366, 768, [[820, 730], [1120, 730], [1270, 730]], "a small output gets each class at its cells wide and the output less the bar and the border tall"],
+        [1280, 720, [[820, 682], [1120, 682], [1270, 682]], "a 720 px tall output gets each class the output less the bar and the border tall"],
+        [1024, 768, [[820, 730], [1016, 730], [1016, 730]], "cells wider than the output get the whole width less the border and no more"]
     ].forEach(([width, height, want, label]) => same(tuiRules.map(line => tuiSize(line, width, height)), want, label));
     // A theme with a 1 px border keeps 2 px of each axis, not the fixture's 8.
     const thinRules = lines(layer.render([], Object.assign({}, theme, { hyprland: Object.assign({}, theme.hyprland, { border: { size: 1 } }) }), "vgs", 1)).filter(line => line.startsWith("hl.window_rule({ name = \"vgs:tui"));
-    same(thinRules.map(line => tuiSize(line, 1024, 768)), [[820, 736], [1022, 736], [820, 736]], "the border kept is the theme's border size");
+    same(thinRules.map(line => tuiSize(line, 1024, 768)), [[820, 736], [1022, 736], [1022, 736]], "the border kept is the theme's border size");
 
     const switched = layer.render([], groupsOf(false, false, true), "vgs", 1.5);
     const switchedLines = lines(switched);
