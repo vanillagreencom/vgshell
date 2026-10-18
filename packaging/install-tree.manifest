@@ -3969,6 +3969,7 @@ f share/vgshell/themes/targets/omp/omp.json
 f share/vgshell/themes/targets/omp/target.json
 f share/vgshell/themes/targets/opencode/opencode.json
 f share/vgshell/themes/targets/opencode/target.json
+f share/vgshell/themes/targets/pi/pi.js
 f share/vgshell/themes/targets/pi/pi.json
 f share/vgshell/themes/targets/pi/target.json
 f share/vgshell/themes/targets/pywalfox/pywalfox.json

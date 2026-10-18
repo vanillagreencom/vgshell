@@ -953,6 +953,34 @@ world(async () => {
         controls++;
     }
     cases++;
+    const piHome = worldOf("pi-folders").env.HOME;
+    const piConfig = path.join(piHome, ".config");
+    const piData = path.join(piHome, ".local/share");
+    const piRoots = [path.join(piHome, ".spi/agent"), path.join(piConfig, ".1pi/agent"), path.join(piData, ".pi-work/agent")];
+    for (const dir of piRoots) fs.mkdirSync(dir, { recursive: true });
+    fs.mkdirSync(path.join(piHome, ".pi-empty"));
+    fs.mkdirSync(path.join(piHome, ".pi-file"));
+    fs.writeFileSync(path.join(piHome, ".pi-file/agent"), "not a directory");
+    const piLinked = path.join(piHome, "linked-agent");
+    fs.mkdirSync(piLinked);
+    fs.mkdirSync(path.join(piHome, ".pi-linked"));
+    fs.symlinkSync(piLinked, path.join(piHome, ".pi-linked/agent"));
+    const piExplicit = path.join(piHome, "explicit-agent");
+    fs.mkdirSync(piExplicit);
+    const piFolders = folder => {
+        const { accountFolders } = require(path.join(folder, "backend/Core.js")).folders();
+        for (const followLinks of [false, true]) {
+            const found = accountFolders({ home: piHome, config: piConfig, data: piData,
+                env: { PI_CODING_AGENT_DIR: piExplicit }, followLinks }).folders.filter(row => row.provider === "pi");
+            assert.deepEqual(found.map(row => row.directory).sort(),
+                [piExplicit, path.join(piHome, ".pi/agent"), ...piRoots, ...(followLinks ? [path.join(piHome, ".pi-linked/agent")] : [])].sort());
+        }
+    };
+    piFolders(plugin);
+    await mutant("bin/lib/account-folders.js", "pi-agent-subdirectory", 'entry.name, row.accountSubdir || ""', 'entry.name, ""', piFolders);
+    controls++;
+    cases++;
+
     const crowded = worldOf("crowded");
     const crowdedFolders = [seed(crowded.env.HOME, ".4claude"), seed(crowded.env.HOME, ".codex-work")];
     for (let i = 0; i < 4998; i++) fs.writeFileSync(path.join(crowded.env.HOME, String(i)), "");

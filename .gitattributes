@@ -23,3 +23,6 @@ themes/targets/yazi/* text eol=lf
 themes/targets/bat/* text eol=lf
 themes/targets/fastfetch/* text eol=lf
 themes/targets/television/* text eol=lf
+themes/targets/ghostty/* text eol=lf
+themes/targets/neovim/* text eol=lf
+themes/targets/pi/* text eol=lf

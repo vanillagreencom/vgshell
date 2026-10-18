@@ -774,4 +774,140 @@ for (const [needle, replacement] of [
 }
 JS
 
+# Native precedence uses private HOME/XDG paths and no reload hooks. Pi's
+# public extension boundary is injected; its settings merge and native ANSI
+# output are also checked in the issue's no-prompt native evidence.
+ghostty_native="$(command -v ghostty)" || { echo "test-vgshell-targets: status=not-measured missing=ghostty"; exit 77; }
+nvim_native="$(command -v nvim)" || { echo "test-vgshell-targets: status=not-measured missing=nvim"; exit 77; }
+check "native application precedence and stable selectors" "$node_bin" --experimental-vm-modules - "$repo" "$ghostty_native" "$nvim_native" <<'JS'
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const vm = require("node:vm");
+const { spawnSync } = require("node:child_process");
+const [repo, ghostty, nvim] = process.argv.slice(2);
+const root = fs.mkdtempSync(path.join(require("node:os").tmpdir(), "vgs-target-precedence-"));
+const tree = path.join(root, "tree");
+
+async function verify(control) {
+    const home = fs.mkdtempSync(path.join(root, "home-"));
+    const config = path.join(home, ".config");
+    const state = path.join(home, ".local/state/vgshell");
+    const commands = path.join(home, "commands");
+    fs.mkdirSync(commands);
+    for (const name of ["ghostty", "neovim", "pi"]) {
+        const target = JSON.parse(fs.readFileSync(path.join(tree, "themes/targets", name, "target.json")));
+        fs.writeFileSync(path.join(commands, target.detect[0]), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+    }
+    const env = { HOME: home, PATH: commands, XDG_CONFIG_HOME: config, XDG_DATA_HOME: path.join(home, "data"), XDG_CACHE_HOME: path.join(home, "cache"), XDG_STATE_HOME: path.join(home, ".local/state"), XDG_RUNTIME_DIR: path.join(home, "run"), TMPDIR: root, VGS_TEST_RUN: "1", TERM: "xterm-256color", LC_ALL: "C" };
+    const write = (file, text) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, text); };
+    const ghostFile = path.join(config, "ghostty/config.ghostty");
+    const localFile = path.join(config, "ghostty/local.conf");
+    const include = "config-file = ?" + state + "/theme/ghostty.conf";
+    write(localFile, "foreground = #010203\nbackground = #040506\n");
+    const ownGhost = "foreground = #010203\nbackground = #040506\nfont-size = 13\nconfig-file = " + localFile + "\n";
+    write(ghostFile, include + "\n" + ownGhost);
+    const nvimDir = path.join(config, "nvim");
+    const report = path.join(home, "neovim.json");
+    write(path.join(nvimDir, "after/plugin/local.lua"), `vim.g.local_after_loaded = true
+vim.api.nvim_set_hl(0, 'Normal', {fg=0x010203})
+vim.api.nvim_create_autocmd('VimEnter', {callback=function() vim.api.nvim_set_hl(0, 'Normal', {fg=0x010203}) end})
+vim.api.nvim_create_autocmd('ColorScheme', {callback=function() vim.api.nvim_set_hl(0, 'Normal', {fg=0x010203}) end})
+`);
+    write(path.join(nvimDir, "colors/local.vim"), "hi clear\nlet g:colors_name='local'\nhi Normal guifg=#010203 guibg=#040506\n");
+    write(path.join(nvimDir, "init.lua"), `vim.api.nvim_create_autocmd('VimEnter', {callback=function() vim.schedule(function() vim.schedule(function() local startup=vim.api.nvim_get_hl(0,{name='Normal'}); vim.cmd.colorscheme('local'); vim.schedule(function() vim.fn.writefile({vim.json.encode({after=vim.g.local_after_loaded,startup=startup,second=vim.api.nvim_get_hl(0,{name='Normal'}),name=vim.g.colors_name})},${JSON.stringify(report)}); vim.cmd('qa!') end) end) end) end})\n`);
+    const project = path.join(home, "project/.pi/settings.json");
+    const projectText = '{"theme":"vgs-theme","defaultModel":"fixture"}\n';
+    write(project, projectText);
+    const accountRoots = [".pi/agent", ".spi/agent", ".1pi/agent"].map(dir => path.join(home, dir));
+    for (const account of accountRoots) write(path.join(account, "settings.json"), '{"theme":"dark","defaultModel":"fixture"}\n');
+    const selectors = [ghostFile, path.join(nvimDir, "plugin/vgs-theme.lua"), ...accountRoots.map(account => path.join(account, "settings.json"))];
+    let stable;
+    for (const [theme, fg, bg] of [["vgs", "d7d7d9", "000000"], ["flexoki-light", "100f0f", "fffcf0"], ["flexoki-light", "100f0f", "fffcf0"]]) {
+        const applied = spawnSync(process.execPath, [path.join(tree, "bin/vgshell-theme-judge"), "apply", "json", path.join(config, "vgshell"), state, "held", theme], { env, encoding: "utf8", timeout: 30000 });
+        assert.equal(applied.status, 0, applied.stderr);
+        if (!control || control === "ghostty") {
+            const result = spawnSync(ghostty, ["+show-config"], { env, encoding: "utf8", timeout: 10000 });
+            assert.equal(result.status, 0, result.stderr);
+            const colours = Object.fromEntries([...result.stdout.matchAll(/^(foreground|background) = #?([a-f0-9]+)$/gm)].map(match => [match[1], match[2]]));
+            assert.deepEqual(colours, { foreground: fg, background: bg });
+            assert.equal(fs.readFileSync(ghostFile, "utf8"), ownGhost + include + "\n");
+        }
+        if (!control || control === "neovim") {
+            const result = spawnSync(nvim, ["--headless", "-i", "NONE"], { env, encoding: "utf8", timeout: 10000 });
+            assert.equal(result.status, 0, result.stderr);
+            const got = JSON.parse(fs.readFileSync(report));
+            assert.equal(got.after, true);
+            for (const phase of [got.startup, got.second]) assert.deepEqual(phase, { fg: parseInt(fg, 16), bg: parseInt(bg, 16) });
+            assert.equal(got.name, "vgs");
+        }
+        if (!control || control === "pi") for (const account of accountRoots) {
+            let selected = { colours: { text: "#010203" } };
+            const extension = path.join(account, "extensions/vgs-theme.js");
+            if (fs.existsSync(extension)) {
+                const context = vm.createContext({});
+                class Theme { constructor(colours) { this.colours = colours; } }
+                const dependency = new vm.SyntheticModule(["getAgentDir", "Theme"], function () { this.setExport("getAgentDir", () => account); this.setExport("Theme", Theme); }, { context });
+                const io = new vm.SyntheticModule(["readFileSync"], function () { this.setExport("readFileSync", fs.readFileSync); }, { context });
+                const paths = new vm.SyntheticModule(["join"], function () { this.setExport("join", path.join); }, { context });
+                const module = new vm.SourceTextModule(fs.readFileSync(extension, "utf8"), { context });
+                await module.link(name => name === "node:fs" ? io : name === "node:path" ? paths : dependency);
+                await module.evaluate();
+                const events = new Map();
+                module.namespace.default({ on: (name, callback) => events.set(name, callback) });
+                await events.get("session_start")({}, { hasUI: true, ui: { theme: { getColorMode: () => "truecolor" }, setTheme: value => { selected = value; return { success: true }; } } });
+            }
+            assert.equal(selected.colours.text, "#" + fg);
+            assert.deepEqual(JSON.parse(fs.readFileSync(path.join(account, "settings.json"))), { theme: "vgs", defaultModel: "fixture" });
+            assert.equal(fs.readFileSync(project, "utf8"), projectText);
+        }
+        const now = selectors.map(file => fs.readFileSync(file, "utf8"));
+        if (stable) assert.deepEqual(now, stable, "all theme changes and repeated applies preserve selectors byte for byte");
+        stable = now;
+    }
+}
+
+(async () => {
+    try {
+        fs.mkdirSync(path.join(tree, "themes/targets"), { recursive: true });
+        for (const dir of ["bin", "shell", "config", "themes/vgs"]) fs.cpSync(path.join(repo, dir), path.join(tree, dir), { recursive: true });
+        const installed = path.join(tree, "config-light");
+        // Installed packages may omit their on-demand wallpaper assets.
+        fs.cpSync(path.join(repo, "themes/catalog/flexoki-light"), installed, { recursive: true });
+        for (const name of ["ghostty", "neovim", "pi"]) {
+            fs.cpSync(path.join(repo, "themes/targets", name), path.join(tree, "themes/targets", name), { recursive: true });
+            const file = path.join(tree, "themes/targets", name, "target.json");
+            const target = JSON.parse(fs.readFileSync(file));
+            target.reload = null;
+            fs.writeFileSync(file, JSON.stringify(target));
+        }
+        // The fixture light package keeps its own palette and drops only the
+        // background declaration, so it can be treated as shipped here.
+        const light = JSON.parse(fs.readFileSync(path.join(installed, "theme.json")));
+        delete light.backgrounds;
+        fs.mkdirSync(path.join(tree, "themes/flexoki-light"));
+        fs.writeFileSync(path.join(tree, "themes/flexoki-light/theme.json"), JSON.stringify(light));
+        fs.copyFileSync(path.join(installed, "terminal.json"), path.join(tree, "themes/flexoki-light/terminal.json"));
+        await verify();
+        for (const name of ["ghostty", "neovim", "pi"]) {
+            const file = path.join(tree, "themes/targets", name, name === "neovim" ? "neovim.lua" : "target.json");
+            const original = fs.readFileSync(file, "utf8");
+            if (name === "neovim") {
+                const needle = "local group = vim.api.nvim_create_augroup";
+                assert.equal(original.split(needle).length, 2);
+                fs.writeFileSync(file, original.slice(0, original.indexOf(needle)) + 'if vim.v.vim_did_enter == 1 then apply() else vim.api.nvim_create_autocmd("VimEnter", { once = true, callback = apply }) end\nreturn {}\n');
+            } else {
+                const target = JSON.parse(original);
+                if (name === "ghostty") delete target.wiring.last;
+                else { target.files = target.files.filter(file => file.destination !== "pi.js"); delete target.wiring.copies["extensions/vgs-theme.js"]; }
+                fs.writeFileSync(file, JSON.stringify(target));
+            }
+            assert.notEqual(fs.readFileSync(file, "utf8"), original);
+            await assert.rejects(() => verify(name), { code: "ERR_ASSERTION" }, name + ": original pickup must fail the same colour assertion");
+            fs.writeFileSync(file, original);
+        }
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+})().catch(error => { console.error(error); process.exitCode = 1; });
+JS
+
 rows_done test-vgshell-targets

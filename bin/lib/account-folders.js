@@ -76,7 +76,15 @@ function accountFolders({ home, config, data, env, followLinks = false }) {
                 if (++read > MAX_PARENT_ENTRIES) { partial ||= "entry-limit"; break; }
                 if (!(entry.isDirectory() || (followLinks && entry.isSymbolicLink() && open(path.join(parent, entry.name)).kind === "directory"))) continue;
                 const row = Rule.accountDirectory(entry.name, 1);
-                if (row) add(row, path.join(parent, entry.name), Rule.label(entry.name, row), "folder");
+                if (row) {
+                    const directory = path.join(parent, entry.name, row.accountSubdir || "");
+                    if (row.accountSubdir) {
+                        const account = open(directory);
+                        if (account.kind === "directory") account.close();
+                        else continue;
+                    }
+                    add(row, directory, Rule.label(entry.name, row), "folder");
+                }
             }
         } catch (error) {
             if (typeof error.code !== "string") throw error;

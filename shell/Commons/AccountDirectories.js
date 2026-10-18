@@ -9,16 +9,16 @@
 // (`copilot help environment`: "COPILOT_HOME: override the directory where
 // configuration and state files are stored; defaults to $HOME/.copilot").
 // A second account is a sibling such as `~/.claude-work`, `~/.2codex` or
-// `~/.1copilot`. Pi keeps `~/.pi/agent`, overridden by PI_CODING_AGENT_DIR
-// (Pi's environment-variables page: "Override the config directory;
-// default is ~/.pi/agent"), and names no sibling, so its `folder` is null and
-// the name rule finds none. `home` is each default folder under HOME.
+// `~/.1copilot`. Pi's config.ts getAgentDir uses `~/.pi/agent`, overridden
+// by PI_CODING_AGENT_DIR. Jarvis's own/accounts/scripts/agent-cli selects
+// `~/.spi/agent` for its work account, so Pi sibling roots use accountSubdir
+// for their existing agent directory. `home` is each default folder under HOME.
 // `marker` is the file each harness writes once it is signed in.
 var HARNESSES = [
     { id: "claude", folder: "claude", home: ".claude", variable: "CLAUDE_CONFIG_DIR", marker: ".credentials.json" },
     { id: "codex", folder: "codex", home: ".codex", variable: "CODEX_HOME", marker: "auth.json" },
     { id: "copilot", folder: "copilot", home: ".copilot", variable: "COPILOT_HOME", marker: "config.json" },
-    { id: "pi", folder: null, home: ".pi/agent", variable: "PI_CODING_AGENT_DIR", marker: "auth.json" }
+    { id: "pi", folder: "pi", accountSubdir: "agent", home: ".pi/agent", variable: "PI_CODING_AGENT_DIR", marker: "auth.json" }
 ];
 
 // harness(ID): the row of harness ID, else null.

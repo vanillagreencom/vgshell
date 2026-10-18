@@ -1482,6 +1482,7 @@ function keepEntries(name, target, configHome, live, plan) {
             for (const item of plan.items[index]) {
                 const file = path.join(dir, item.name);
                 if (entryState(file, item) === "managed") continue;
+                writing(path.dirname(file), key, () => fs.mkdirSync(path.dirname(file), { recursive: true }));
                 if (item.kind === "link") writing(file, key, () => linkByRename(item.to, file));
                 else replaceFile(file, item.newBytes, key, 0o644);
             }

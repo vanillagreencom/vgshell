@@ -379,7 +379,7 @@ function isRelativePath(value) {
 // The first defect of an entry `wiring`, or "". `dir` is relative to its
 // `base`, or, with `vaults`, to each vault the Obsidian registry at `vaults`
 // under `base` lists, one directory name per segment. Exactly one of
-// `links` or `copies` maps each entry's file name in `dir` to one of
+// `links` or `copies` maps each entry's relative path in `dir` to one of
 // DESTINATIONS, the target's own files. A destination list follows the
 // directory order when configurations retain different customizations.
 function entryBaseAccepted(base, hasAccounts) {
@@ -394,13 +394,13 @@ function entryError(logic, wiring, destinations, hasAccounts) {
     if (Array.isArray(wiring.dir)) {
         if (hasAccounts || logic.hasOwn(wiring, "vaults") || wiring.dir.length === 0 || !wiring.dir.every(isRelativePath) || new Set(wiring.dir).size !== wiring.dir.length) return "key=wiring.dir";
     } else {
-        if (!isRelativePath(wiring.dir)) return "key=wiring.dir";
+        if (!(hasAccounts && wiring.dir === ".") && !isRelativePath(wiring.dir)) return "key=wiring.dir";
     }
     if (logic.hasOwn(wiring, "vaults") && !isRelativePath(wiring.vaults)) return "key=wiring.vaults";
     if (typeof wiring.owned !== "boolean") return "key=wiring.owned";
     if (!logic.isPlainObject(wiring[itemKey]) || Object.keys(wiring[itemKey]).length === 0) return "key=wiring." + itemKey;
     for (const [name, destination] of Object.entries(wiring[itemKey])) {
-        if (!logic.isPackageName(name)) return "key=wiring." + itemKey + "." + name;
+        if (!isRelativePath(name)) return "key=wiring." + itemKey + "." + name;
         const listed = Array.isArray(destination) ? destination : [destination];
         if (Array.isArray(destination) && (!Array.isArray(wiring.dir) || listed.length !== wiring.dir.length)) return "key=wiring." + itemKey + "." + name;
         if (!listed.every(file => destinations.has(file))) return "key=wiring." + itemKey + "." + name;
