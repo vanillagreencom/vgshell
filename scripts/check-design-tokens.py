@@ -45,6 +45,15 @@ fixed geometry is what a placement row measures:
                      surface level, `Theme.surface.level.<level>.background`,
                      which an application window draws as its colour while
                      Hyprland's window glass is off
+  icon-button-background
+                     a qs.Ui `IconButton` that binds its `background`, outside
+                     shell/Ui: the shared control shows an icon button's
+                     hover, press and checked states on its glyph alone, and a
+                     replaced background is how a surface draws a fill or a
+                     border on an icon toggle (docs/architecture/design-system.md
+                     § Tokens). A qualified `X.IconButton` is the shared
+                     control; an unqualified one beside the plugin's own
+                     IconButton.qml is that file's type and is not judged
 A value that is more than one literal, such as `2 * inset`, is layout and
 passes. Comments are blanked and strings kept, through scripts/qml_source.py.
 Appearance rules, on a plugin whose manifest declares `appearance` (each
@@ -90,6 +99,7 @@ import sys
 # no bytecode cache beside it.
 sys.dont_write_bytecode = True
 from qml_source import Unreadable, source_lines, source_texts, blank_comments
+from qml_controls import blocks
 
 # node runs under this environment and nothing inherited beyond it.
 NODE_ENV = {"PATH": os.environ.get("PATH", ""), "LC_ALL": "C"}
@@ -153,6 +163,9 @@ APPEARANCE = (
 # ignore the bar. OverlayState.room owns the work-area and gutter deduction.
 SCREEN_GUTTER = re.compile(r"\bscreen\s*\.\s*(?:width|height)\s*-\s*(?:2\s*\*\s*)?(?:Theme\s*\.\s*size|look)\s*\.\s*window\s*\.\s*gutter\b")
 
+# A `background` binding in a block's own text, its children's taken out.
+BACKGROUND_BINDING = re.compile(r"(?:^|[;\n])\s*background\s*:")
+ICON_BUTTON = "IconButton"
 THEME_REFERENCE = re.compile(r"(?<![\w.$])Theme\.((?:[A-Za-z_]\w*)(?:\.[A-Za-z_]\w*)*)")
 LOOK_REFERENCE = re.compile(r"(?<![\w$])look\.((?:[A-Za-z_]\w*)(?:\.[A-Za-z_]\w*)*)")
 # The one member of Theme a plugin with its own appearance reads.
@@ -367,8 +380,23 @@ def look_of(looks, path):
     return None
 
 
-def check_tree(root, table, literal, looks, surfaces, findings, notices):
-    """Check every source file under `root`; answer the file count."""
+def icon_button_backgrounds(path, text):
+    """The lines of every qs.Ui IconButton in `text` that binds `background`."""
+    local = os.path.isfile(os.path.join(os.path.dirname(path), ICON_BUTTON + ".qml"))
+    lines = []
+    for block in blocks(blank_comments(text, literals=False)):
+        if block.type is None or block.type.rsplit(".", 1)[-1] != ICON_BUTTON:
+            continue
+        if local and "." not in block.type:
+            continue
+        if BACKGROUND_BINDING.search(block.own_text()):
+            lines.append(block.line)
+    return lines
+
+
+def check_tree(root, table, literal, looks, surfaces, findings, notices, library=False):
+    """Check every source file under `root`; answer the file count. `library`
+    marks qs.Ui, which owns the icon button's pixels."""
     files = set()
     for path, text in source_texts(root):
         if manifestless_plugin_dir(looks, path) is not None:
@@ -377,6 +405,9 @@ def check_tree(root, table, literal, looks, surfaces, findings, notices):
         for match in SCREEN_GUTTER.finditer(code):
             number = code.count("\n", 0, match.start()) + 1
             findings.append(f"window-room {path}:{number} screen-gutter")
+        if literal is not None and not library and path.endswith(".qml"):
+            for number in icon_button_backgrounds(path, text):
+                (findings if literal == "finding" else notices).append(f"icon-button-background {path}:{number} {ICON_BUTTON}.background")
     for look in looks.values():
         if look.file is not None:
             for refusal in look.refusals:
@@ -438,7 +469,7 @@ def main(argv):
         for refusal in table.glass_refusals:
             findings.append(f"appearance-refused {table.glass_file}:1 {refusal}")
         for root, literal, plugins in trees:
-            files += check_tree(root, table, literal, plugin_looks(repo, root, plugins), surfaces, findings, notices)
+            files += check_tree(root, table, literal, plugin_looks(repo, root, plugins), surfaces, findings, notices, library=root == os.path.join(shell, "Ui"))
     except Unreadable as exc:
         print(f"check-design-tokens: unreadable: {exc.path}: {exc.strerror}")
         return 2
