@@ -1708,8 +1708,8 @@ function clearDisabledStopPost(scheduling) {
 // ExecStopPost. That runner can take the state lock and enable its timer.
 // systemctl(1) daemon-reload reloads all unit files; systemd service.c's
 // service_enter_stop_post reads the reloaded ExecStopPost command list.
-// Keep the overrides on a failed stop, so its continuing stop job cannot
-// run that earlier runner after this invocation releases its locks.
+// The overrides belong to this stop attempt. Restore the services' future
+// stop commands before reporting either a successful or a failed stop.
 function stopDisabledUnits() {
     if (lockDir === "") refuse("runtime-dir=unset");
     const names = [OLD_TIMER, TIMER, OLD_SERVICE, SERVICE].filter(name => exists(path.join(unitDir, name)));
@@ -1719,23 +1719,27 @@ function stopDisabledUnits() {
         if (failure !== null) failures.push(failure);
     }
     const services = names.filter(name => name.endsWith(".service"));
-    for (const name of services) writeAtomic(disabledStopPostFile(name), DISABLED_STOP_POST, 0o644);
-    if (services.length > 0) {
-        const reloaded = systemctlFailure(["daemon-reload"], "disabled");
-        if (reloaded !== null) holdRename("reason=stop-post-reload-failed");
+    let reloadFailed = false;
+    try {
+        for (const name of services) writeAtomic(disabledStopPostFile(name), DISABLED_STOP_POST, 0o644);
+        if (services.length > 0) reloadFailed = systemctlFailure(["daemon-reload"], "disabled") !== null;
+        if (!reloadFailed) {
+            for (const name of services) {
+                const failure = systemctlFailure(["disable", "--now", name], "disabled");
+                if (failure !== null) failures.push(failure);
+            }
+            const bin = which("systemctl");
+            for (const name of services) {
+                if (bin === null) continue;
+                const out = run(bin, ["--user", "is-active", name], { timeout: 10000, killSignal: "SIGKILL" });
+                if (UNIT_ENDED.indexOf(String(out.stdout || "").trim()) === -1) failures.push("service=not-ended");
+            }
+        }
+    } finally {
+        clearDisabledStopPost("disabled");
     }
-    for (const name of services) {
-        const failure = systemctlFailure(["disable", "--now", name], "disabled");
-        if (failure !== null) failures.push(failure);
-    }
-    const bin = which("systemctl");
-    for (const name of services) {
-        if (bin === null) continue;
-        const out = run(bin, ["--user", "is-active", name], { timeout: 10000, killSignal: "SIGKILL" });
-        if (UNIT_ENDED.indexOf(String(out.stdout || "").trim()) === -1) failures.push("service=not-ended");
-    }
+    if (reloadFailed) holdRename("reason=stop-post-reload-failed");
     if (failures.length > 0) holdRename("reason=disabled-stop-failed");
-    clearDisabledStopPost("disabled");
 }
 
 // Moves FROM to TO. A floating TUI makes the new state directory for its

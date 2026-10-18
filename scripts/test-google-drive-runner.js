@@ -2178,22 +2178,25 @@ function caseRenameMigration(runner, only) {
 // partial-new services and never enables a schedule or invokes a sync.
 // A failed stop or locked keyring keeps the source data for the next start.
 function caseDisabledMigration(runner, only) {
+    const partialInstall = w => {
+        const units = path.join(w.env.XDG_CONFIG_HOME, "systemd", "user");
+        const stopPost = JSON.parse(read(path.join(w.stub, "stop-post-commands")))["vgs-google-drive.service"];
+        write(path.join(units, "vgs-google-drive.service"), "[Service]\nExecStopPost=" + stopPost.map(word => JSON.stringify(word)).join(" ") + "\n");
+        write(path.join(units, "vgs-google-drive.timer"), "partial timer\n");
+        write(path.join(w.stub, "enabled"), "vgs-cloud-sync.timer\nvgs-google-drive.timer\n");
+        write(path.join(w.stub, "new-run"), "");
+    };
     const rows = [
         { name: "disabled", plant: () => {} },
         { name: "active old service", plant: w => write(path.join(w.stub, "old-run"), "") },
-        { name: "partial new install", plant: w => {
-            const units = path.join(w.env.XDG_CONFIG_HOME, "systemd", "user");
-            write(path.join(units, "vgs-google-drive.service"), "partial service\n");
-            write(path.join(units, "vgs-google-drive.timer"), "partial timer\n");
-            write(path.join(w.stub, "enabled"), "vgs-cloud-sync.timer\nvgs-google-drive.timer\n");
-            write(path.join(w.stub, "new-run"), "");
-        } },
+        { name: "partial new install", plant: partialInstall },
         { name: "locked keyring", plant: w => {
             for (const account of CREDENTIAL_ACCOUNTS) write(path.join(w.stub, "old-secrets", account + ".locked"), "");
         }, release: w => {
             for (const account of CREDENTIAL_ACCOUNTS) fs.unlinkSync(path.join(w.stub, "old-secrets", account + ".locked"));
         } },
         ...["stop-fail", "stop-unconfirmed"].map(marker => ({ name: marker, plant: w => {
+            partialInstall(w);
             write(path.join(w.stub, "old-run"), "");
             write(path.join(w.stub, marker), "");
         }, release: w => fs.unlinkSync(path.join(w.stub, marker)), stopHeld: true }))
@@ -2209,19 +2212,23 @@ function caseDisabledMigration(runner, only) {
         write(partialEngine, read(runner || RUNNER), 0o755);
         write(path.join(w.stub, "stop-post-commands"), JSON.stringify({ "vgs-cloud-sync.service": oldStatus, "vgs-google-drive.service": partialStatus }));
         row.plant(w);
-        if (row.name === "partial new install") write(path.join(w.env.XDG_CONFIG_HOME, "systemd", "user", "vgs-google-drive.service"), "[Service]\nExecStopPost=" + partialStatus.map(word => JSON.stringify(word)).join(" ") + "\n");
         const before = snapshot(Object.values(old));
+        const assertCleanStop = () => {
+            for (const name of ["vgs-cloud-sync.service", "vgs-google-drive.service"])
+                assert.equal(fs.existsSync(path.join(w.run, "systemd", "user", name + ".d", "90-vgs-google-drive-migrate.conf")), false, row.name + ": " + name);
+            assert.equal(fs.existsSync(path.join(w.stub, "stop-post-executed")), false, row.name);
+        };
         let out;
         if (runner === undefined) {
             out = childProcess.spawnSync(path.join(path.dirname(RUNNER), "..", "migrate"), ["disabled"], { env: w.env, encoding: "utf8", timeout: 120000 });
         } else out = cli(w, ["migrate", "disabled"], runner);
+        assertCleanStop();
         if (row.release) {
             assert.equal(out.status, 75, row.name + ": " + out.stderr);
             assert.deepEqual(enabledUnits(w), [], row.name);
             if (row.stopHeld) {
                 assert.deepEqual(snapshot(Object.values(old)), before);
                 assert.ok(fs.existsSync(path.join(w.stub, "old-secrets", "token.user." + ACCOUNT)));
-                assert.ok(fs.existsSync(path.join(w.run, "systemd", "user", "vgs-cloud-sync.service.d", "90-vgs-google-drive-migrate.conf")));
             } else {
                 assert.ok(fs.existsSync(path.join(w.state, "rename.pending")));
                 assert.ok(fs.existsSync(path.join(w.stub, "old-secrets", "token.user." + ACCOUNT)));
@@ -2229,14 +2236,12 @@ function caseDisabledMigration(runner, only) {
             }
             row.release(w);
             out = cli(w, ["migrate", "disabled"], runner);
+            assertCleanStop();
         }
         assert.equal(out.status, 0, row.name + ": " + out.stderr);
         assert.deepEqual(enabledUnits(w), [], row.name);
         assert.equal(fs.existsSync(path.join(w.stub, "old-run")), false);
         assert.equal(fs.existsSync(path.join(w.stub, "new-run")), false);
-        assert.equal(fs.existsSync(path.join(w.stub, "stop-post-executed")), false, row.name);
-        for (const name of ["vgs-cloud-sync.service", "vgs-google-drive.service"])
-            assert.equal(fs.existsSync(path.join(w.run, "systemd", "user", name + ".d", "90-vgs-google-drive-migrate.conf")), false);
         if (row.name === "active old service") assert.ok(fs.existsSync(path.join(w.stub, "old-run-stopped")));
         for (const dir of Object.values(old)) assert.equal(fs.existsSync(dir), false, row.name + ": " + dir);
         for (const name of ["vgs-cloud-sync.service", "vgs-cloud-sync.timer"])
@@ -2505,6 +2510,7 @@ async function controls() {
     await mustFail("rename installs the units", mutant("rename installs the units", "const installed = writeInstall(false, scheduling);", "const installed = { changed: 0, failure: null };"), r => caseRenameMigration(r, "previous service idle"));
     await mustFail("disabled rename never enables timers", mutant("disabled rename never enables timers", 'if (scheduling === "enabled" && failure === null', 'if (failure === null'), r => caseDisabledMigration(r, "disabled"));
     await mustFail("disabled rename suppresses installed stop-post", mutant("disabled rename suppresses installed stop-post", 'const DISABLED_STOP_POST = "[Service]\\nExecStopPost=\\n";', 'const DISABLED_STOP_POST = "[Service]\\n# ExecStopPost=\\n";'), r => caseDisabledMigration(r, "partial new install"));
+    await mustFail("disabled failed stop clears overrides", mutant("disabled failed stop clears overrides", '    } finally {\n        clearDisabledStopPost("disabled");\n    }', '    } finally {\n        if (failures.length === 0) clearDisabledStopPost("disabled");\n    }'), r => caseDisabledMigration(r, "stop-fail"));
     await mustFail("rename resumes a held keyring", mutant("rename resumes a held keyring", "writeJson(RENAME_PENDING, { held: keyring.held });", "fs.rmSync(RENAME_PENDING, { force: true });"), r => caseRenameMigration(r, "keyring locked"));
     await mustFail("stale units refresh", mutant("stale units refresh", "if (verb !== \"install\") refreshStaleInstallIfNeeded();", ""), caseStaleUnitsRefresh);
     await mustFail("stale refresh never refuses", mutant("stale refresh never refuses", "if (done.failure !== null) log(\"units=stale refresh=failed \" + done.failure);", "if (done.failure !== null) refuse(done.failure);"), caseStaleUnitsRefresh);
