@@ -134,6 +134,9 @@ world(() => {
         [base + "-depth-1", path.join(root, ".claude-" + base, "file"), "protected-path"],
         [base + "-depth-2", path.join(root, "group-" + base, ".codex-" + base, "file"), "protected-path"],
         [base + "-tagged", path.join(root, ".5claude", "file"), "protected-path"],
+        [base + "-pi-account", path.join(root, ".spi", "agent", "file"), "protected-path"],
+        [base + "-pi-numbered", path.join(root, ".1pi", "agent", "file"), "protected-path"],
+        [base + "-pi-nested", path.join(root, "group-" + base, ".pi-work", "agent", "file"), "protected-path"],
         [base + "-depth-3", path.join(root, "deep-" + base, "inner", ".claude-" + base, "file"),
             base === "home" ? null : "outside-home"]
     ]);
@@ -164,13 +167,19 @@ world(() => {
     fs.mkdirSync(linkTarget);
     const namedLink = path.join(home, ".codex-linked");
     fs.symlinkSync(linkTarget, namedLink);
+    const piTarget = path.join(project, "pi-linked-target");
+    fs.mkdirSync(piTarget);
+    const piLink = path.join(home, ".spi");
+    fs.symlinkSync(piTarget, piLink);
     const nestedNamed = path.join(home, "holder", ".codex-nested");
     fs.mkdirSync(nestedNamed, { recursive: true });
     const linkJudge = Denied.create(options);
     refused(linkJudge, path.join(namedAlias, "file"), "read", "protected-path");
     refused(linkJudge, path.join(namedLink, "file"), "read", "protected-path");
+    refused(linkJudge, path.join(piLink, "agent", "file"), "read", "protected-path");
+    refused(linkJudge, path.join(piTarget, "agent", "file"), "read", "protected-path");
     // Masks hold the present matches, configured and resolved, never deeper.
-    for (const present of [namedAccount, namedLink, linkTarget, nestedNamed, late])
+    for (const present of [namedAccount, namedLink, linkTarget, nestedNamed, late, piLink, piTarget])
         assert.equal(linkJudge.masks.includes(present), true, present + " masked");
     // The scan for masks reads names only and never enters a link.
     const outsideNamed = path.join(process.env.JARVIS_TEST_ROOT, "outside-accounts", ".claude-outside");

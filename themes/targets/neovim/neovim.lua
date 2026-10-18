@@ -1,11 +1,14 @@
 -- The vgs theme for Neovim, rendered by vgshell theme apply. Neovim sources
--- nvim/plugin/vgs-theme.lua at startup; the colours are set once Neovim has
--- started, after any colorscheme a plugin loads at startup.
+-- nvim/plugin/vgs-theme.lua at startup. Scheduled callbacks run after the
+-- current event's handlers (Neovim :help vim.schedule, ColorScheme).
 -- Neovim's terminal background detection can reset highlights. Set the
 -- declared mode first (Neovim runtime/doc/options.txt, 'background').
 vim.o.background = "@{scheme.mode}"
+local background = vim.o.background
 
 local function apply()
+  vim.g.colors_name = "vgs"
+  vim.o.background = background
   vim.cmd("highlight clear")
   vim.g.colors_name = "vgs"
   local hl = function(group, spec) vim.api.nvim_set_hl(0, group, spec) end
@@ -144,9 +147,21 @@ local function apply()
   for i, slot in ipairs(slots) do vim.g["terminal_color_" .. (i - 1)] = slot end
 end
 
+local group = vim.api.nvim_create_augroup("VgsTheme", { clear = true })
+local pending = false
+local function schedule_apply()
+  if pending then return end
+  pending = true
+  vim.schedule(function()
+    apply()
+    pending = false
+  end)
+end
+vim.api.nvim_create_autocmd({ "VimEnter", "ColorScheme" }, {
+  group = group,
+  callback = schedule_apply,
+})
 if vim.v.vim_did_enter == 1 then
   apply()
-else
-  vim.api.nvim_create_autocmd("VimEnter", { once = true, callback = apply })
 end
 return {}
