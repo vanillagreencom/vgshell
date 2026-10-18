@@ -92,6 +92,24 @@ function run(view, logic) {
     assert.equal(view.draftFromAutomation(Object.assign({}, row, { schedule: { frequency: "monthly", interval: 1, monthly: { by: "date", day: 9 }, times: ["09:00"], start: "2026-01-05", end: { type: "never" } } }), logic).preset, "custom", "a monthly date on another day is custom");
     assert.equal(view.draftFromAutomation(Object.assign({}, row, { schedule: { frequency: "yearly", interval: 1, yearly: { month: 2, day: 5 }, times: ["09:00"], start: "2026-01-05", end: { type: "never" } } }), logic).preset, "custom", "a yearly rule on another date is custom");
     assert.equal(view.draftFromAutomation(Object.assign({}, row, { schedule: { frequency: "weekly", interval: 1, weekdays: ["fri"], times: ["09:00"], start: "2026-01-05", end: { type: "count", count: 1 } } }), logic).preset, "custom", "one later occurrence is custom, not Once");
+
+    // A saved every-10-minutes record reopens as a Custom rule with no
+    // times and rebuilds the schedule it was saved with.
+    const tenMinutes = { frequency: "minutely", interval: 10, start: "2026-01-05", end: { type: "date", date: "2026-02-01" } };
+    const reopened = view.draftFromAutomation(Object.assign({}, row, { schedule: tenMinutes }), logic);
+    same([reopened.preset, reopened.frequency, reopened.interval, reopened.endType, reopened.endDate], ["custom", "minutely", 10, "date", "2026-02-01"], "the editor shows the saved interval rule");
+    same(view.scheduleFromDraft(reopened, logic), tenMinutes, "the reopened draft rebuilds the saved schedule");
+    const untimed = view.clone(reopened);
+    untimed.times = [];
+    const checked = view.validation(untimed, logic, now);
+    same([checked.ok, checked.errors], [true, {}], "an interval rule needs no time of day");
+    assert.equal(view.summary(untimed, logic), "Every 10 minutes, until 1 February 2026");
+    same(view.frequencyChoices(logic).map(c => [c.label, c.value]), [["minutes", "minutely"], ["hours", "hourly"], ["days", "daily"], ["weeks", "weekly"], ["months", "monthly"], ["years", "yearly"]], "Repeat every lists the judge's frequencies");
+    const counted = Object.assign(view.clone(custom), { interval: 2, endType: "count" });
+    same(view.frequencyChanges(counted, "minutely", logic), [["frequency", "minutely"], ["endType", "never"]], "minutes keep a step of 2 and drop the end after N runs");
+    same(view.frequencyChanges(Object.assign(view.clone(custom), { interval: 7 }), "hourly", logic), [["frequency", "hourly"], ["interval", 1]], "hours take a step when 7 is none");
+    same(view.frequencyChanges(counted, "daily", logic), [["frequency", "daily"]], "days keep the interval and the end");
+
     const copy = view.duplicateDraft(row, ["Backup copy"], logic);
     assert.equal(copy.name, "Backup copy 2");
     assert.equal(copy.saved, false);
@@ -145,6 +163,11 @@ try {
         ["yearly custom omits its chosen date", "if (draft.frequency === \"yearly\") schedule.yearly = { month: Number(draft.yearlyMonth), day: Number(draft.yearlyDay) };", "if (draft.frequency === \"yearly\") schedule.yearly = { month: 1, day: 1 };"],
         ["empty commands are accepted", "if (String(draft.command || \"\").trim() === \"\") errors.command = \"Add the command this automation runs.\";", "if (false) errors.command = \"Add the command this automation runs.\";"],
         ["a rule with no run ahead is accepted", "else if (defect === \"\" && logic.nextOccurrences(schedule, nowMs === undefined ? Date.now() : nowMs, 1).length === 0)", "else if (false)"],
+        ["reopening an interval rule reads its times", "if (schedule.times !== undefined) draft.times = schedule.times.slice();", "draft.times = schedule.times.slice();"],
+        ["an interval rule is built with times", "return { frequency: draft.frequency, interval: Number(draft.interval), start: draft.start, end: endOf(draft) };", "return { frequency: draft.frequency, interval: Number(draft.interval), times: draft.times.slice(), start: draft.start, end: endOf(draft) };"],
+        ["an interval rule needs a time", "if (!isStepDraft(draft, logic) && (!Array.isArray(draft.times)", "if ((!Array.isArray(draft.times)"],
+        ["a frequency choice keeps an end after N runs", "if (draft.endType === \"count\") out.push([\"endType\", \"never\"]);", ""],
+        ["a frequency choice keeps a step the rule cannot take", "if (steps.indexOf(Number(draft.interval)) === -1) out.push([\"interval\", steps[0]]);", ""],
         ["duplicates do not advance copy names", "for (var n = 2; takenNames.indexOf(name) !== -1; n++) name = base + \" \" + n;", "for (var n = 2; false; n++) name = base + \" \" + n;"]
     ];
     for (const [name, from, to] of controls) {

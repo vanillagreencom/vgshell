@@ -10,7 +10,7 @@ At each run the runner starts the command in the user's login shell and stops it
 
 A failure sends a red notification with the last error lines. With "notify on every run" on, a start and a green finish notification come too. Under the VGS notifications, a click on a finish or failure notification opens the transcript in the user's `$EDITOR`, or with `xdg-open`.
 
-The editor uses presets first, then Custom for every N days, weeks, months or years. Once is stored as a schedule that ends after one run.
+The editor uses presets first, then Custom for every N minutes, hours, days, weeks, months or years. Once is stored as a schedule that ends after one run.
 
 Lingering, the systemd setting that keeps the user manager running after logout, is read by the plugin's Settings page. The `linger` TUI asks, then turns it on.
 

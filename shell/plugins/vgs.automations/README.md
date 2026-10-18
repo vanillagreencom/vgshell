@@ -8,7 +8,8 @@ Automations runs your commands on a schedule. It keeps each run's output and sen
 
 - A window with the list of automations, an editor, a preview of the next runs and the history.
 - Schedules: once, every day, weekdays, every week, every two weeks, a day of the month, a weekday of the month, a day of the year, or a custom every N days, weeks, months or years.
-- An end: never, on a date, or after a number of runs.
+- Interval schedules: every N minutes or every N hours, such as every 10 minutes or every 2 hours. The runs start at midnight each day, so N divides an hour or a day.
+- An end: never, on a date, or after a number of runs. An interval schedule ends never or on a date.
 - Per automation: paused or enabled, a multi-line shell command, a timeout, a working directory, catch-up of runs missed while the computer was off, and a notification for every start and finish.
 - Each command runs in your login shell, so it finds what your terminal finds.
 - Run now, a history of every run with its outcome and transcript, and clearing one automation's history or all of it.

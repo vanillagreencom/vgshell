@@ -28,7 +28,13 @@ var TIMEOUT_MIN = 1;
 var TIMEOUT_MAX = 86400;
 var TIMEOUT_DEFAULT = 3600;
 
-var FREQUENCIES = ["daily", "weekly", "monthly", "yearly"];
+var FREQUENCIES = ["minutely", "hourly", "daily", "weekly", "monthly", "yearly"];
+// The steps an every-N-minutes or every-N-hours rule may take: those that
+// divide an hour or a day, so its slots, counted from each local midnight,
+// fall on the same wall-clock times every day. systemd's `*:00/N` and
+// `00/N:00` and cron's `*/N` restart their step at each hour or day, so
+// only such a step makes the two schedulers and the preview agree.
+var INTERVAL_STEPS = { minutely: [1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30], hourly: [1, 2, 3, 4, 6, 8, 12] };
 // Monday first: weeks are ISO weeks, so "every 2 weeks" counts from the
 // Monday of the start date's week.
 var WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
@@ -53,6 +59,10 @@ var PREVIEW_MAX = 50;
 var LATE_GRACE_MS = 10 * 60 * 1000;
 
 var HISTORY_DAYS_MAX = 30;
+// The ended runs an automation keeps beside the day cutoff: 30 days of a
+// rule at TIMES_MAX runs a day, so an every-minute rule's history and its
+// runs folder stay as large as a day-grained rule's could grow.
+var HISTORY_RUNS_MAX = HISTORY_DAYS_MAX * TIMES_MAX;
 var DAY_MS = 24 * 60 * 60 * 1000;
 var TRANSCRIPT_MAX_BYTES = 1024 * 1024;
 // The longest line the runner holds: a longer one, output with no line
@@ -188,41 +198,54 @@ function localInstant(y, m, d, time) {
 // "" for a recurrence the compiler accepts, else the first defect as
 // `schedule.<path>: <reason>`.
 //
-// { frequency, interval, weekdays?, monthly?, yearly?, times, start, end }
-//   frequency  daily, weekly, monthly or yearly
-//   interval   every N of them, 1 to INTERVAL_MAX
+// { frequency, interval, weekdays?, monthly?, yearly?, times?, start, end }
+//   frequency  minutely, hourly, daily, weekly, monthly or yearly
+//   interval   every N of them: 1 to INTERVAL_MAX for a day frequency, one
+//              of INTERVAL_STEPS for minutely and hourly
 //   weekdays   weekly only: the days it runs, a non-empty set of WEEKDAYS
 //   monthly    monthly only: { by: "date", day } or
 //              { by: "weekday", week: 1..5 or -1 (the last), weekday }
 //   yearly     yearly only: { month, day }, a day the month can hold
-//   times      "HH:MM" local times, 1 to TIMES_MAX, ascending and distinct
+//   times      day frequencies only: "HH:MM" local times, 1 to TIMES_MAX,
+//              ascending and distinct. A minutely or hourly rule runs at
+//              every step from each local midnight instead.
 //   start      "YYYY-MM-DD": no occurrence before it, and the anchor every
-//              interval counts from
+//              day-frequency interval counts from
 //   end        { type: "never" }, { type: "date", date } (the last day it
-//              may run) or { type: "count", count } (its first N
-//              occurrences)
+//              may run) or, for a day frequency, { type: "count", count }
+//              (its first N occurrences). A minutely or hourly rule takes
+//              no count: its slots start at midnight of the start date,
+//              which a rule saved later that day has already passed.
 function scheduleError(s) {
     if (!isPlainObject(s)) return "schedule: want=object";
     if (FREQUENCIES.indexOf(s.frequency) === -1) return "schedule.frequency: want=" + FREQUENCIES.join("|");
-    var allowed = ["frequency", "interval", "times", "start", "end"];
+    var stepped = isStepFrequency(s.frequency);
+    var allowed = ["frequency", "interval", "start", "end"];
+    if (!stepped) allowed.push("times");
     if (s.frequency === "weekly") allowed.push("weekdays");
     if (s.frequency === "monthly") allowed.push("monthly");
     if (s.frequency === "yearly") allowed.push("yearly");
     var unknown = unknownKey(s, allowed, "schedule");
     if (unknown !== "") return unknown;
-    if (!isWhole(s.interval) || s.interval < 1 || s.interval > INTERVAL_MAX) return "schedule.interval: want=1.." + INTERVAL_MAX;
+    if (stepped) {
+        if (INTERVAL_STEPS[s.frequency].indexOf(s.interval) === -1) return "schedule.interval: want=" + INTERVAL_STEPS[s.frequency].join("|");
+    } else if (!isWhole(s.interval) || s.interval < 1 || s.interval > INTERVAL_MAX) {
+        return "schedule.interval: want=1.." + INTERVAL_MAX;
+    }
     var partError = s.frequency === "weekly" ? weekdaysError(s.weekdays)
         : s.frequency === "monthly" ? monthlyError(s.monthly)
         : s.frequency === "yearly" ? yearlyError(s.yearly)
         : "";
     if (partError !== "") return partError;
-    if (!Array.isArray(s.times) || s.times.length === 0 || s.times.length > TIMES_MAX) return "schedule.times: want=1.." + TIMES_MAX + " times";
-    for (var t = 0; t < s.times.length; t++) {
-        if (parseTime(s.times[t]) === null) return "schedule.times." + t + ": want=HH:MM";
-        if (t > 0 && s.times[t] <= s.times[t - 1]) return "schedule.times." + t + ": want=ascending and distinct";
+    if (!stepped) {
+        if (!Array.isArray(s.times) || s.times.length === 0 || s.times.length > TIMES_MAX) return "schedule.times: want=1.." + TIMES_MAX + " times";
+        for (var t = 0; t < s.times.length; t++) {
+            if (parseTime(s.times[t]) === null) return "schedule.times." + t + ": want=HH:MM";
+            if (t > 0 && s.times[t] <= s.times[t - 1]) return "schedule.times." + t + ": want=ascending and distinct";
+        }
     }
     if (parseDate(s.start) === null) return "schedule.start: want=YYYY-MM-DD";
-    var endDefect = endError(s.end, s.start);
+    var endDefect = endError(s.end, s.start, stepped ? ["never", "date"] : END_TYPES);
     if (endDefect !== "") return endDefect;
     if (occurrencesFrom(s, null, 1).length === 0) return "schedule: no occurrence";
     return "";
@@ -266,8 +289,10 @@ function yearlyError(yr) {
     return "";
 }
 
-function endError(end, start) {
+// `types` is the END_TYPES the frequency takes.
+function endError(end, start, types) {
     if (!isPlainObject(end)) return "schedule.end: want=object";
+    if (types.indexOf(end.type) === -1) return "schedule.end.type: want=" + types.join("|");
     switch (end.type) {
     case "never":
         return unknownKey(end, ["type"], "schedule.end");
@@ -285,7 +310,32 @@ function endError(end, start) {
         return "";
     }
     default:
-        return "schedule.end.type: want=" + END_TYPES.join("|");
+        throw new Error("automations: end type " + JSON.stringify(end.type) + " unjudged");
+    }
+}
+
+// Whether a frequency is an every-N-minutes or every-N-hours rule, whose
+// times of day are its steps rather than a `times` list.
+function isStepFrequency(frequency) {
+    return hasOwn(INTERVAL_STEPS, frequency);
+}
+
+// The parsed times of day a rule runs at, ascending: its `times`, or every
+// step of a minutely or hourly rule from midnight. Every day of the rule
+// holds the same ones.
+function dayTimes(s) {
+    var out = [];
+    var h, mi;
+    switch (s.frequency) {
+    case "minutely":
+        for (h = 0; h < 24; h++)
+            for (mi = 0; mi < 60; mi += s.interval) out.push({ h: h, mi: mi });
+        return out;
+    case "hourly":
+        for (h = 0; h < 24; h += s.interval) out.push({ h: h, mi: 0 });
+        return out;
+    default:
+        return s.times.map(parseTime);
     }
 }
 
@@ -321,6 +371,8 @@ function calendarDays(s, y, m) {
     var out = [];
     var d;
     switch (s.frequency) {
+    case "minutely":
+    case "hourly":
     case "daily":
         for (d = 1; d <= dim; d++) out.push(d);
         return out;
@@ -344,7 +396,9 @@ function calendarDays(s, y, m) {
 
 // Whether a calendar day holds occurrences: the interval counted from the
 // start date, not before the start and not after an end date. An end after
-// N occurrences is applied on instants, by `lastOccurrence`.
+// N occurrences is applied on instants, by `lastOccurrence`. A minutely or
+// hourly rule's interval is its step within each day, so every day in
+// range holds its slots.
 function ruleDay(s, start, y, m, d) {
     var day = dayNumber(y, m, d);
     var first = dayNumber(start.y, start.m, start.d);
@@ -355,6 +409,8 @@ function ruleDay(s, start, y, m, d) {
     }
     var n = s.interval;
     switch (s.frequency) {
+    case "minutely":
+    case "hourly": return true;
     case "daily": return (day - first) % n === 0;
     case "weekly": return ((mondayNumber(y, m, d) - mondayNumber(start.y, start.m, start.d)) / 7) % n === 0;
     case "monthly": return ((y * 12 + m) - (start.y * 12 + start.m)) % n === 0;
@@ -378,19 +434,22 @@ function occurrencesFrom(s, afterMs, count) {
     var start = parseDate(s.start);
     var last = lastOccurrence(s);
     var endMonth = s.end.type === "date" ? Number(s.end.date.slice(0, 4)) * 12 + Number(s.end.date.slice(5, 7)) : null;
-    var times = s.times.map(parseTime);
+    var times = dayTimes(s);
     var from = start;
     if (afterMs !== null) {
         var at = localDate(afterMs);
         if (dayNumber(at.y, at.m, at.d) > dayNumber(start.y, start.m, start.d)) from = at;
     }
+    // A day before `from` holds no instant after `afterMs`: skipping it
+    // before its times keeps an every-minute rule to the days it needs.
+    var fromDay = dayNumber(from.y, from.m, from.d);
     var out = [];
     var y = from.y, m = from.m;
     for (var scanned = 0; scanned < SCAN_MONTHS_MAX && out.length < count; scanned++) {
         if (endMonth !== null && y * 12 + m > endMonth) break;
         var days = calendarDays(s, y, m);
         for (var i = 0; i < days.length && out.length < count; i++) {
-            if (!ruleDay(s, start, y, m, days[i])) continue;
+            if (dayNumber(y, m, days[i]) < fromDay || !ruleDay(s, start, y, m, days[i])) continue;
             for (var t = 0; t < times.length && out.length < count; t++) {
                 var instant = localInstant(y, m, days[i], times[t]);
                 if (instant === null || (afterMs !== null && instant <= afterMs)) continue;
@@ -415,14 +474,16 @@ function nextOccurrences(s, afterMs, count) {
 function latestOccurrence(s, atMs) {
     var start = parseDate(s.start);
     var last = lastOccurrence(s);
-    var times = s.times.map(parseTime);
+    var times = dayTimes(s);
     var at = localDate(atMs);
+    // A day after the date of `atMs` holds no instant at or before it.
+    var atDay = dayNumber(at.y, at.m, at.d);
     var y = at.y, m = at.m;
     for (var scanned = 0; scanned < SCAN_MONTHS_MAX; scanned++) {
         if (y * 12 + m < start.y * 12 + start.m) return null;
         var days = calendarDays(s, y, m);
         for (var i = days.length - 1; i >= 0; i--) {
-            if (!ruleDay(s, start, y, m, days[i])) continue;
+            if (dayNumber(y, m, days[i]) > atDay || !ruleDay(s, start, y, m, days[i])) continue;
             for (var t = times.length - 1; t >= 0; t--) {
                 var instant = localInstant(y, m, days[i], times[t]);
                 if (instant === null || instant > atMs) continue;
@@ -467,6 +528,12 @@ function calendarExpressions(s) {
     var date;
     var weekdays = "";
     switch (s.frequency) {
+    // A step from each hour's minute 0, or from each day's hour 0: the
+    // slots dayTimes generates, as `systemd-analyze calendar` reads them.
+    case "minutely":
+        return ["*-*-* *:00/" + s.interval + ":00"];
+    case "hourly":
+        return ["*-*-* 00/" + s.interval + ":00:00"];
     case "daily":
         date = "*-*-*";
         break;
@@ -496,10 +563,15 @@ function calendarExpressions(s) {
 // The cron fallback's fields per time of day, "minute hour day month
 // weekday". cron ORs a day and a weekday, so a weekday within a week of the
 // month is its weekday alone, the tighter of the two, and the guard keeps
-// the week.
+// the week. A minutely or hourly rule is one line whose `*/N` steps from
+// minute 0 or hour 0, the same slots as its OnCalendar= expression.
 function cronFields(s) {
     var tail;
     switch (s.frequency) {
+    case "minutely":
+        return ["*/" + s.interval + " * * * *"];
+    case "hourly":
+        return ["0 */" + s.interval + " * * *"];
     case "daily":
         tail = "* * *";
         break;
@@ -558,14 +630,21 @@ function weekdayNameOfDate(text) {
 }
 
 // The rule in one line: "Every weekday at 09:00", "Every 2 weeks on Monday
-// and Thursday at 08:30 and 17:00, 10 times".
+// and Thursday at 08:30 and 17:00, 10 times", "Every 10 minutes".
 function summaryText(s) {
     if (s.end.type === "count" && s.end.count === 1) {
         var first = occurrencesFrom(s, null, 1)[0];
         return first === undefined ? "Once" : "Once on " + weekdayNameFromInstant(first) + " " + longDateFromInstant(first) + " at " + timeFromInstant(first);
     }
     var head;
+    var at = isStepFrequency(s.frequency) ? "" : " at " + listText(s.times);
     switch (s.frequency) {
+    case "minutely":
+        head = every(s.interval, "Every minute", "minutes");
+        break;
+    case "hourly":
+        head = every(s.interval, "Every hour", "hours");
+        break;
     case "daily":
         head = every(s.interval, "Every day", "days");
         break;
@@ -590,7 +669,7 @@ function summaryText(s) {
     var tail = s.end.type === "date" ? ", until " + longDate(s.end.date)
         : s.end.type === "count" ? (s.end.count === 1 ? ", once" : ", " + s.end.count + " times")
         : "";
-    return head + " at " + listText(s.times) + tail;
+    return head + at + tail;
 }
 
 // --------------------------------------------------------------- store
@@ -998,13 +1077,26 @@ function retentionDays(value) {
     return value;
 }
 
-// The runs, as "<id>@<run>", a prune removes: every one that started
-// before the retention window and is not running.
+// The runs, as "<id>@<run>", a prune removes: every one that is not
+// running and started before the retention window or past its
+// automation's newest HISTORY_RUNS_MAX.
 function prunable(rows, nowMs, days) {
     var cutoff = nowMs - retentionDays(days) * DAY_MS;
+    var newest = rows.filter(function (r) { return r.outcome !== "running"; });
+    newest.sort(function (a, b) { return b.startedAt - a.startedAt || (a.run < b.run ? 1 : -1); });
+    var kept = {};
+    var beyondCap = {};
+    for (var n = 0; n < newest.length; n++) {
+        var id = newest[n].automation;
+        kept[id] = (hasOwn(kept, id) ? kept[id] : 0) + 1;
+        if (kept[id] > HISTORY_RUNS_MAX) beyondCap[id + "@" + newest[n].run] = true;
+    }
     var out = [];
-    for (var i = 0; i < rows.length; i++)
-        if (rows[i].startedAt < cutoff && rows[i].outcome !== "running") out.push(rows[i].automation + "@" + rows[i].run);
+    for (var i = 0; i < rows.length; i++) {
+        var key = rows[i].automation + "@" + rows[i].run;
+        if (rows[i].outcome === "running") continue;
+        if (rows[i].startedAt < cutoff || hasOwn(beyondCap, key)) out.push(key);
+    }
     return out;
 }
 

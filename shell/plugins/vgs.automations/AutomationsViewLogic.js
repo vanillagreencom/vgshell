@@ -20,7 +20,9 @@ function outcomeLabel(outcome) {
 }
 
 var PRESETS = ["once", "daily", "weekdays", "weekly", "biweekly", "monthly-date", "monthly-weekday", "yearly", "custom"];
-var FREQUENCIES = ["daily", "weekly", "monthly", "yearly"];
+// The unit the Custom rule's Repeat every list names for each of the
+// judge's FREQUENCIES.
+var FREQUENCY_UNITS = { minutely: "minutes", hourly: "hours", daily: "days", weekly: "weeks", monthly: "months", yearly: "years" };
 var TEMPLATES = [
     {
         key: "heartbeat-weekly",
@@ -126,6 +128,33 @@ function presetOptions(start, logic) {
     return PRESETS.map(function (preset) { return { key: preset, label: presetLabel(preset, start, logic) }; });
 }
 
+// The Repeat every list, one entry per frequency the judge accepts, in its
+// order.
+function frequencyChoices(logic) {
+    return logic.FREQUENCIES.map(function (frequency) {
+        if (FREQUENCY_UNITS[frequency] === undefined) throw new Error("automations: frequency " + JSON.stringify(frequency) + " has no unit");
+        return { label: FREQUENCY_UNITS[frequency], value: frequency };
+    });
+}
+
+// Whether the draft is a Custom every-N-minutes or every-N-hours rule,
+// which has no times and no end after N runs.
+function isStepDraft(draft, logic) {
+    return draft.preset === "custom" && logic.isStepFrequency(draft.frequency);
+}
+
+// The draft changes a choice of frequency makes, as [key, value] pairs: the
+// frequency, a step the rule takes when its interval is not one, and an end
+// it takes when it ended after N runs.
+function frequencyChanges(draft, frequency, logic) {
+    var out = [["frequency", frequency]];
+    if (!logic.isStepFrequency(frequency)) return out;
+    var steps = logic.INTERVAL_STEPS[frequency];
+    if (steps.indexOf(Number(draft.interval)) === -1) out.push(["interval", steps[0]]);
+    if (draft.endType === "count") out.push(["endType", "never"]);
+    return out;
+}
+
 function draftFromAutomation(row, logic) {
     var schedule = row.schedule;
     var draft = blankDraft(Date.now(), logic);
@@ -141,7 +170,7 @@ function draftFromAutomation(row, logic) {
     draft.frequency = schedule.frequency;
     draft.interval = schedule.interval;
     draft.weekdays = schedule.weekdays ? schedule.weekdays.slice() : draft.weekdays;
-    draft.times = schedule.times.slice();
+    if (schedule.times !== undefined) draft.times = schedule.times.slice();
     draft.start = schedule.start;
     draft.endType = schedule.end.type;
     draft.endDate = schedule.end.date || draft.start;
@@ -188,6 +217,7 @@ function isOnceSchedule(schedule, logic) {
 }
 
 function presetFromSchedule(schedule, logic) {
+    if (logic.isStepFrequency(schedule.frequency)) return "custom";
     if (isOnceSchedule(schedule, logic)) return "once";
     var time = schedule.times && schedule.times.length > 0 ? schedule.times[0] : "09:00";
     for (var i = 0; i < logic.PRESETS.length; i++) {
@@ -212,6 +242,8 @@ function scheduleFromDraft(draft, logic) {
         schedule = logic.presetSchedule(draft.preset, draft.start, time);
     } else if (draft.preset === "once") {
         schedule = { frequency: "daily", interval: 1, times: [time], start: draft.start, end: { type: "count", count: 1 } };
+    } else if (logic.isStepFrequency(draft.frequency)) {
+        return { frequency: draft.frequency, interval: Number(draft.interval), start: draft.start, end: endOf(draft) };
     } else {
         schedule = { frequency: draft.frequency, interval: Number(draft.interval), times: [], start: draft.start, end: { type: "never" } };
         if (draft.frequency === "weekly") schedule.weekdays = draft.weekdays.slice();
@@ -245,7 +277,7 @@ function validation(draft, logic, nowMs) {
     if (String(draft.name || "").trim() === "") errors.name = "Name the automation.";
     if (String(draft.command || "").trim() === "") errors.command = "Add the command this automation runs.";
     if (logic.parseDate(draft.start) === null) errors.start = "Use a real start date.";
-    if (!Array.isArray(draft.times) || draft.times.length === 0) errors.times = "Add at least one time.";
+    if (!isStepDraft(draft, logic) && (!Array.isArray(draft.times) || draft.times.length === 0)) errors.times = "Add at least one time.";
     if (draft.endType === "date") {
         if (logic.parseDate(draft.endDate) === null) errors.end = "Use a real end date.";
         else if (draft.endDate < todayText(nowMs, logic)) errors.end = "Choose today or a future date.";

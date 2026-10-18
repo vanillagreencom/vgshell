@@ -391,6 +391,34 @@ const CASES = {
         assert.equal(cli(w, engine, ["run", "--scheduled", id]).first, "automations: skipped=job reason=paused");
     },
 
+    "an every-10-minutes automation runs its latest slot once per trigger"(engine) {
+        const w = world();
+        const TEN = 10 * 60 * 1000;
+        // The two triggers below must fall in one slot: a run takes well
+        // under the 15 s kept clear of the next boundary.
+        const toBoundary = TEN - Date.now() % TEN;
+        if (toBoundary < 15000) childProcess.spawnSync("sleep", [String((toBoundary + 100) / 1000)]);
+        const today = new Date().toISOString().slice(0, 10);
+        const schedule = { frequency: "minutely", interval: 10, start: today, end: { type: "never" } };
+        for (const catchUp of [false, true]) {
+            const id = add(w, engine, { name: "Ten " + catchUp, schedule: schedule, catchUp: catchUp });
+            const timer = fs.readFileSync(path.join(w.units, "vgs-automation-" + id + ".timer"), "utf8");
+            same(timer.split("\n").filter(line => /^(OnCalendar|Persistent)=/.test(line)), ["OnCalendar=*-*-* *:00/10:00", "Persistent=" + catchUp], "the timer of " + id);
+            // The last slot handled 25 minutes back: two slots went by.
+            const handled = Date.now() - 25 * 60 * 1000;
+            write(path.join(w.home, ".local", "state", "vgshell", "automations", "guard", id + ".json"), JSON.stringify({ handledThrough: handled }));
+            assert.equal(cli(w, engine, ["run", "--scheduled", id]).status, 0);
+            const rec = ended(w, id);
+            same([rec.trigger, rec.outcome, rec.slot % TEN, rec.slot > handled, rec.startedAt - rec.slot < TEN], ["scheduled", "succeeded", 0, true, true], "the latest slot ran, catch-up " + catchUp);
+            assert.equal(cli(w, engine, ["run", "--scheduled", id]).first, "automations: skipped=" + id + " reason=handled", "a second trigger in the slot runs nothing, catch-up " + catchUp);
+            same(runFiles(w).filter(n => n.startsWith(id + "@") && n.endsWith(".ended.json")).length, 1, "one run, never one per missed slot");
+        }
+        const cron = world({ systemd: "down" });
+        const id = add(cron, engine, { name: "Ten cron", schedule: schedule });
+        const lines = fs.readFileSync(path.join(cron.stub, "crontab"), "utf8").split("\n").filter(line => line.endsWith("'run' '--scheduled' '" + id + "'"));
+        same(lines.map(line => line.split(" env ")[0]), ["*/10 * * * *"], "one crontab line every 10 minutes");
+    },
+
     "run-now goes through systemd-run and refuses a busy automation"(engine) {
         const w = world();
         const id = add(w, engine, {});

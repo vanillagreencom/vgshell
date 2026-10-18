@@ -22,7 +22,9 @@
 # runs listing; the linger TUI opens through the stand-in terminal, from
 # the IPC and from the Settings page's Enable while logged out, whose run's
 # end lists lingering again and withdraws the action; the Automations
-# window creates, edits, pauses, runs, removes and clears through the
+# window creates, edits (a custom rule, then every 10 minutes from the
+# Repeat every list, its summary and its preview's 10-minute gaps read
+# back), pauses, runs, removes and clears through the
 # nested seat's pointer and keyboard alone, the CLI only reading each
 # result back; and the control, a copy of the plugin whose service lists
 # neither after a run file lands nor after the store changes and whose
@@ -200,6 +202,30 @@ expect_poll "the draft holds the interval" 2 ui_draft interval
 expect "Save stores the edited recurrence" ok ui_click Button Save
 expect_poll "the CLI reads the edited recurrence interval" 2 auto_row_value smoke-ui 'schedule.interval'
 expect_poll "the drawn preview's first occurrence is the engine's" "$(auto_preview_first smoke-ui)" ui_preview_first
+
+# Every 10 minutes: Repeat every's list moves from weeks up to minutes,
+# whose Every field is a list of steps, 2 kept from the rule above; Down to
+# 10 and Save. The engine stores the step, the summary reads it and the
+# drawn preview's runs are 10 minutes apart.
+ui_select_in() { # FIELD TEXT: click the Select reading TEXT inside the Field labelled FIELD
+  ui_revealed "$(ipc smoke revealScopedText window vgs.automations Field "$1" Select "$2")" || return
+  click_scoped_in window:Automations window vgs.automations Field "$1" Select "$2" && echo ok
+}
+ui_preview_gaps() { ipc smoke readInstance window vgs.automations previewRows | py_reply 'import json,sys; r=json.load(sys.stdin); print(json.dumps([len(r), sorted(set(b - a for a, b in zip(r, r[1:])))]))'; }
+expect "Repeat every's list opens" ok ui_select_in Every weeks
+expect "Up to its first entry and Return choose minutes" ok ui_keys -k Up -k Up -k Up -k Up -k Up -k Return
+expect_poll "the draft repeats every N minutes" '"minutely"' ui_draft frequency
+ui_step_shown() { ipc smoke itemValues window vgs.automations Select currentText,visible | py_reply 'import json,sys; print(any(r["visible"] and r["currentText"] == sys.argv[1] for r in json.load(sys.stdin)))' "$1"; }
+expect_poll "the Every field shows the steps list on 2" True ui_step_shown 2
+expect "the Every steps list opens on 2" ok ui_select_in Every 2
+expect "Down to 10 and Return choose it" ok ui_keys -k Down -k Down -k Down -k Down -k Down -k Return
+expect_poll "the draft holds the step" 10 ui_draft interval
+expect "Save stores every 10 minutes" ok ui_click Button Save
+expect_poll "the CLI reads the stored frequency" '"minutely"' auto_row_value smoke-ui schedule.frequency
+expect_poll "the CLI reads the stored step" 10 auto_row_value smoke-ui schedule.interval
+expect_poll "the engine's summary reads every 10 minutes" '"Every 10 minutes"' auto_row_value smoke-ui summary
+expect_poll "the drawn summary reads every 10 minutes" '"Every 10 minutes"' ipc smoke readInstance window vgs.automations previewSummary
+expect_poll "the drawn preview's five runs are 10 minutes apart" '[5, [600000]]' ui_preview_gaps
 
 # Toggle: the row's switch pauses and resumes the automation.
 expect "Escape returns to the list" ok ui_keys -k Escape

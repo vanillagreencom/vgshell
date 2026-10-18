@@ -20,14 +20,18 @@ Section {
     readonly property int presetIndex: Math.max(0, presets.map(p => p.key).indexOf(draft.preset))
     property int chosenPresetIndex: presetIndex
     property int chosenFrequencyIndex: Math.max(0, frequencyChoices.map(item => item.value).indexOf(draft.frequency))
+    property int chosenStepIndex: stepIndex(draft)
     property int chosenMonthlyWeekIndex: Math.max(0, weekChoices.map(item => item.value).indexOf(draft.monthlyWeek))
     property int chosenYearlyMonthIndex: Math.max(0, monthChoices.map(item => item.value).indexOf(draft.yearlyMonth))
-    readonly property var frequencyChoices: [
-        { label: "days", value: "daily" },
-        { label: "weeks", value: "weekly" },
-        { label: "months", value: "monthly" },
-        { label: "years", value: "yearly" }
-    ]
+    readonly property var frequencyChoices: View.frequencyChoices(Engine)
+    // An every-N-minutes or every-N-hours rule: its Every field offers the
+    // judge's steps alone, and it has no times and no end after N runs.
+    readonly property bool stepped: Engine.isStepFrequency(draft.frequency)
+    readonly property bool customSteps: View.isStepDraft(draft, Engine)
+    readonly property var stepChoices: stepped ? Engine.INTERVAL_STEPS[draft.frequency].map(n => ({ label: String(n), value: n })) : []
+    // Read from the judge, not stepChoices: onDraftChanged can run before
+    // that binding takes the new frequency.
+    function stepIndex(d) { return Engine.isStepFrequency(d.frequency) ? Engine.INTERVAL_STEPS[d.frequency].indexOf(d.interval) : -1; }
     readonly property var weekChoices: [
         { label: "first", value: 1 },
         { label: "second", value: 2 },
@@ -41,6 +45,7 @@ Section {
     onPresetIndexChanged: chosenPresetIndex = presetIndex
     onDraftChanged: {
         chosenFrequencyIndex = Math.max(0, frequencyChoices.map(item => item.value).indexOf(draft.frequency));
+        chosenStepIndex = stepIndex(draft);
         chosenMonthlyWeekIndex = Math.max(0, weekChoices.map(item => item.value).indexOf(draft.monthlyWeek));
         chosenYearlyMonthIndex = Math.max(0, monthChoices.map(item => item.value).indexOf(draft.yearlyMonth));
     }
@@ -72,6 +77,7 @@ Section {
     Field {
         label: "Times"
         width: parent.width
+        visible: !root.customSteps
         error: root.validation.errors.times || ""
         TimeChipList { width: parent.width; times: root.draft.times; onChanged: times => root.change("times", times) }
     }
@@ -90,9 +96,21 @@ Section {
                 spacing: Theme.space.xs
                 TextField {
                     width: Theme.size.control.lg
+                    visible: !root.stepped
                     text: String(root.draft.interval)
                     validator: IntValidator { bottom: 1; top: 99 }
                     onTextEdited: root.change("interval", Number(text))
+                }
+                Select {
+                    width: Theme.size.control.lg
+                    visible: root.stepped
+                    model: root.stepChoices
+                    textRole: "label"
+                    currentIndex: root.chosenStepIndex
+                    onActivated: index => {
+                        currentIndex = Qt.binding(() => root.chosenStepIndex);
+                        root.change("interval", model[index].value);
+                    }
                 }
                 Select {
                     width: parent.width - x
@@ -101,7 +119,7 @@ Section {
                     currentIndex: root.chosenFrequencyIndex
                     onActivated: index => {
                         currentIndex = Qt.binding(() => root.chosenFrequencyIndex);
-                        root.change("frequency", model[index].value);
+                        for (const pair of View.frequencyChanges(root.draft, model[index].value, Engine)) root.change(pair[0], pair[1]);
                     }
                 }
             }
@@ -197,6 +215,7 @@ Section {
                 Row {
                     width: parent.width
                     spacing: Theme.space.xs
+                    visible: !root.stepped
                     Radio { text: "After"; checked: root.draft.endType === "count"; onClicked: root.change("endType", "count") }
                     TextField {
                         width: Theme.size.panel.sm

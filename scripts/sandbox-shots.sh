@@ -7075,6 +7075,10 @@ scene_automations() { # MODE
   automation_reveal() { local at; at="$(ipc smoke revealText window vgs.automations "$1" "$2")" && [[ -n $at && $at != absent ]]; }
   automation_click() { automation_reveal "$1" "$2" && click_in window:Automations window vgs.automations "$1" "$2"; }
   automation_read() { ipc smoke readInstance window vgs.automations "$1"; }
+  # A tree whose judge has every-N-minutes rules draws an every-10-minutes
+  # editor; an older tree's engine refuses that rule, so it has no such shot.
+  local has_interval_rules=false
+  grep -qF -- '"minutely"' "$tree/shell/plugins/vgs.automations/AutomationsLogic.js" && has_interval_rules=true
   local success='{"name":"Shot success","command":"echo success","notifyEveryRun":true,"schedule":{"frequency":"weekly","interval":1,"weekdays":["mon"],"times":["09:00"],"start":"2026-01-05","end":{"type":"never"}}}'
   local failure='{"name":"Shot failure","command":"echo nope >&2; exit 3","notifyEveryRun":true,"schedule":{"frequency":"weekly","interval":1,"weekdays":["fri"],"times":["17:30"],"start":"2026-01-09","end":{"type":"never"}}}'
   local custom='{"name":"Shot custom","command":"printf custom","notifyEveryRun":false,"schedule":{"frequency":"weekly","interval":3,"weekdays":["mon","wed"],"times":["08:30","16:45"],"start":"2026-01-05","end":{"type":"never"}}}'
@@ -7105,6 +7109,14 @@ scene_automations() { # MODE
   expect_poll "the custom preview has a first occurrence" True auto_shot_preview_ready
   expect "the Automations window's root takes the focus for the custom image" focused ipc smoke invokeInstance window vgs.automations focusInstance ""
   take "automations-$1-editor-custom-next"
+  # Repeat every's list open under Custom's Every field.
+  automation_select_open() { ipc smoke itemValues window vgs.automations Select listOpen | py_reply 'import json,sys; print(str(any(r["listOpen"] for r in json.load(sys.stdin))).lower())'; }
+  ipc smoke revealScopedText window vgs.automations Field Every Select weeks >/dev/null || fail "revealing Repeat every failed"
+  click_scoped_in window:Automations window vgs.automations Field Every Select weeks || fail "opening Repeat every failed"
+  expect_poll "the Repeat every list opens" true automation_select_open
+  take_posed "automations-$1-repeat-every-list"
+  type_keys -k Escape || fail "closing the Repeat every list failed"
+  expect_poll "the Repeat every list closes" false automation_select_open
   automation_click Radio On || fail "showing the end date field failed"
   ipc smoke revealScopedText window vgs.automations Field Ends IconButton "Pick date" >/dev/null || fail "revealing the end date's picker failed"
   click_scoped_in window:Automations window vgs.automations Field Ends IconButton "Pick date" || fail "opening the date picker failed"
@@ -7113,6 +7125,23 @@ scene_automations() { # MODE
   take_posed "automations-$1-date-picker"
   type_keys -k Escape || fail "closing the date picker failed"
   expect_poll "the date picker closes" false automation_date_open
+  if "$has_interval_rules"; then
+    local ten='{"name":"Shot every 10 minutes","command":"printf ten","notifyEveryRun":false,"schedule":{"frequency":"minutely","interval":10,"start":"2026-01-05","end":{"type":"never"}}}'
+    automations_shot add --definition "$ten" >/dev/null || fail "adding the every-10-minutes automation failed"
+    automation_click IconButton "Back to automations" || fail "returning to the list for the every-10-minutes rule failed"
+    expect_poll "the automations list shows the every-10-minutes rule" True automation_list_has "Shot every 10 minutes"
+    click_in window:Automations window vgs.automations AutomationRow "Shot every 10 minutes" || fail "selecting the every-10-minutes automation failed"
+    expect_poll "the every-10-minutes preview has a first occurrence" True auto_shot_preview_ready
+    expect_poll "the every-10-minutes summary is drawn" '"Every 10 minutes"' automation_read previewSummary
+    # The editor in two parts: the rule, whose Every field lists steps,
+    # then its preview.
+    automation_reveal Select 10 || fail "revealing the every-10-minutes rule failed"
+    expect "the Automations window's root takes the focus for the every-10-minutes rule image" focused ipc smoke invokeInstance window vgs.automations focusInstance ""
+    take "automations-$1-editor-every-10-minutes-rule"
+    automation_reveal Label "Every 10 minutes" || fail "revealing the every-10-minutes preview failed"
+    expect "the Automations window's root takes the focus for the every-10-minutes preview image" focused ipc smoke invokeInstance window vgs.automations focusInstance ""
+    take "automations-$1-editor-every-10-minutes-preview"
+  fi
   automations_shot run-now shot-success >/dev/null
   automations_shot run-now shot-failure >/dev/null
   automation_click Label History || fail "opening history failed"
@@ -7126,6 +7155,7 @@ scene_automations() { # MODE
   automations_shot remove shot-success >/dev/null
   automations_shot remove shot-failure >/dev/null
   automations_shot remove shot-custom >/dev/null
+  if "$has_interval_rules"; then automations_shot remove shot-every-10-minutes >/dev/null; fi
   expect "the Automations window hides before the empty shot" ok ipc shell hide window vgs.automations
   expect_poll "the Automations window is hidden before the empty shot" 0 window_count Automations
   expect "the empty Automations window opens" ok ipc shell summon window vgs.automations '{}'
