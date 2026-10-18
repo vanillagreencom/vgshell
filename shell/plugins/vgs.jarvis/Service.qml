@@ -545,7 +545,7 @@ Item {
     // The Start text size row from the last start-text message, each home
     // layer a line, and the last status's cautions, which name each text
     // over its budget.
-    readonly property var startTextNames: ({ "home/persona": "Persona", "home/AGENTS.md": "Your instructions", "home/skills": "Skills",
+    readonly property var startTextNames: ({ "home/persona": "Persona", "home/AGENTS.md": "Instructions", "home/skills": "Skills",
         "home/MEMORY.md": "Memory index", "home/state": "Working folder" })
     readonly property var startTextOver: ({ "guidance=persona-over-budget": "home/persona", "guidance=agents-over-budget": "home/AGENTS.md",
         "guidance=skills-over-budget": "home/skills", "guidance=memory-over-budget": "home/MEMORY.md", "guidance=start-over-budget": "start" })
