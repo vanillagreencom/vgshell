@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.1 (2026-10-18)
 
 - Each card in the AI Usage panel shows the 5-hour limit last, under the weekly limits. When the weekly limit is at 100 %, the card shows only the weekly limit. When Claude turns away a usage read, the card keeps the last figures and shows no note. A card with no figures yet reads Usage could not be read yet. Before, the 5-hour limit came first, and a turned-away read showed a note that Claude limits how often usage can be read.
 - The Agent Warden samples in VGS Components say what Agent Warden shows, in the words of its own Settings page. Before, their info buttons and the Warden dialog named vsys and agent lanes.
