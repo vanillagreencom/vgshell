@@ -1,17 +1,17 @@
 import QtQuick
 import qs.Commons
 import qs.Ui
-import "CloudSyncLogic.js" as Logic
+import "GoogleDriveLogic.js" as Logic
 
-// The Cloud Sync window: where the sync stands, from the status the service
-// publishes. Its subtitle is the headline (CloudSyncLogic.headline, which
+// The Google Drive window: where the sync stands, from the status the service
+// publishes. Its subtitle is the headline (GoogleDriveLogic.headline, which
 // the bar and the Settings page also read) in its tone's colour, then the
 // last complete sync, the first file to review, the pause and the last
 // problem. Folder pairs lists
 // each pair by its label, Google Drive folder and state, an idle pair by its own files to review, with Remove, which opens
 // the remove TUI for that pair; while the folder pair list is invalid, it
 // offers the reset TUI, which keeps the damaged list and starts an empty
-// one. To review lists each file Cloud Sync kept or restored,
+// one. To review lists each file VGS kept or restored,
 // a change on both sides, a local deletion, a Drive deletion or a Drive rename, and each file
 // it could not copy from Drive or Drive holds twice, under its folder
 // pair's label, with what happened, the folder that holds the copy it
@@ -19,7 +19,7 @@ import "CloudSyncLogic.js" as Logic
 // versions and shows only for a file with a folder here. The footer holds Sync now, enabled only when a sync can
 // start, Resume while the sync is paused, or Set up hourly sync while the
 // hourly sync is not set up, over Pause or Resume and Add a folder pair
-// while a folder pair exists (CloudSyncLogic.footerView).
+// while a folder pair exists (GoogleDriveLogic.footerView).
 // It runs nothing itself: Sync now, Pause and Resume ask the service
 // through the plugin's own IPC, setup opens the plugin's floating TUIs,
 // and Open folders hands each folder to xdg-open. The window asks to be
@@ -52,7 +52,7 @@ FocusScope {
 
     // Sync now, Pause or Resume through the service; answers its reply.
     function ask(name) {
-        return answered(shell.ipc.call(name, ""), "VGS could not reach Cloud Sync.");
+        return answered(shell.ipc.call(name, ""), "VGS could not reach the Google Drive sync.");
     }
 
     // Open the plugin's TUI NAME with ARGS; answers the capability's reply.
@@ -75,7 +75,7 @@ FocusScope {
 
     function answered(reply, sentence) {
         problem = reply === "ok" ? "" : sentence;
-        if (reply !== "ok") console.warn("cloud-sync window: " + reply);
+        if (reply !== "ok") console.warn("google-drive window: " + reply);
         return reply;
     }
 
@@ -88,7 +88,7 @@ FocusScope {
         anchors.fill: parent
         container: "window"
 
-        title: "Cloud Sync"
+        title: "Google Drive"
         subtitle: [
             Column {
                 width: layout.contentWidth
@@ -167,7 +167,7 @@ FocusScope {
                     width: parent.width
                     visible: root.pairsValid && root.cloud.pairs.length === 0
                     iconName: "folder-sync"
-                    text: "No folder pairs yet. Add one to choose what Cloud Sync keeps in step."
+                    text: "No folder pairs yet. Add one to choose what VGS keeps in step with Google Drive."
                     actionText: "Add a folder pair"
                     onActivated: root.run("add-pair")
                 }
@@ -176,7 +176,7 @@ FocusScope {
             Section {
                 visible: root.known && root.cloud.conflictCount > 0
                 title: "To review"
-                description: "Cloud Sync kept older copies on this computer, restored removed files, and deleted nothing. It also lists each file it could not copy from Google Drive. Open folders shows the folders that hold each version."
+                description: "VGS kept older copies on this computer, restored removed files, and deleted nothing. It also lists each file it could not copy from Google Drive. Open folders shows the folders that hold each version."
                 // A pair's label on its own line over its files. Each file's
                 // row wraps its name, what happened and the folder line at
                 // the window's width, so no line is cut as a ListItem's

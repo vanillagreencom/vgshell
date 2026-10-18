@@ -287,6 +287,11 @@ Singleton {
         if (JSON.stringify(nextMissing) !== JSON.stringify(root.missingCommands)) root.missingCommands = nextMissing;
         if (JSON.stringify(nextCore) !== JSON.stringify(root.coreRequirements)) root.coreRequirements = nextCore;
         if (JSON.stringify(nextCoreMissing) !== JSON.stringify(root.coreMissing)) root.coreMissing = nextCoreMissing;
+        // The user file names each renamed plugin by its new id before the
+        // map and `scanned` change: a slot key, the build and first
+        // presence read them, and would build a plugin its user disabled
+        // under a former id, or place a second widget for it.
+        if (isChanged) renameUserFile(next);
         if (isChanged) root.manifests = next;
         // `scanned` gates every slot key, so it moves after the map.
         root.scanned = true;
@@ -295,6 +300,16 @@ Singleton {
         // changed nothing and so leaves no other trace.
         console.info("plugins: scan complete changed=" + isChanged);
         if (mapChanged && holdMap) console.info("plugins: scan held reason=core-changed");
+    }
+
+    // Hands the rename map of scan NEXT to Config.adoptRenames, and logs
+    // each former id claim the map leaves out (PluginLogic.formerIdClaims),
+    // an installed plugin's once, as the scan logs a collision.
+    function renameUserFile(next) {
+        const claims = Logic.formerIdClaims(next, m => root.sourceOf(m));
+        for (const entry of claims.ignored)
+            console.warn("plugins: former id claim ignored id=" + entry.id + " reason=" + entry.reason + " formerIds=" + entry.formerIds.join(","));
+        Config.adoptRenames(claims.renames);
     }
 
     function applyCoreRevision(line) {

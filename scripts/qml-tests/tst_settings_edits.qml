@@ -351,7 +351,7 @@ Item {
                 secrets: { service: "acme-unit", label: "Key" }, requirements: [],
                 tui: { pairs: screen, connect: screen, out: screen },
                 status: {
-                    sync: { type: "state", label: "Cloud Sync", setup: true },
+                    sync: { type: "state", label: "Google Drive sync", setup: true },
                     pairs: { type: "state", label: "Folder pairs", setup: true, action: { label: "Add a pair", tui: "pairs" } },
                     keys: { type: "presenceList", label: "Keys", step: "down" },
                     down: { type: "state", label: "Sign-in", setup: true, actions: { signIn: { label: "Sign in", tui: "connect" }, signOut: { label: "Sign out", tui: "out", tone: "danger" } } }
@@ -372,7 +372,7 @@ Item {
                 const shown = type => descendants(page).filter(child => child instanceof type && child.visible);
                 tryVerify(() => shown(StatusRow).length === 1, 1000, "the key list is drawn");
                 compare(shown(SectionHeader).map(header => header.text).filter(text => ["Status", "Setup", "Download"].indexOf(text) !== -1), ["Setup"]);
-                verify(shown(Field).some(row => row.label === "Cloud Sync"), "the Status section draws its entry under its own label");
+                verify(shown(Field).some(row => row.label === "Google Drive sync"), "the Status section draws its entry under its own label");
                 compare(shown(Button).filter(button => button.variant === "primary").map(button => button.text), [], "Setup has no boxed action");
                 compare(shown(RowAction).map(action => action.text + " " + action.tone).sort(), ["Add a pair accent", "Remove danger", "Replace accent", "Sign out danger"]);
                 compare(shown(GroupList).map(list => list.hairlines.length).sort(), [1, 3], "required rows and the key list keep their dividers");

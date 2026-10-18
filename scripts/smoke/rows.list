@@ -66,7 +66,7 @@ notifications-keys
 automations
 # After automations, whose systemctl and notify-send stand-ins it uses
 # and whose unit directory it reads empty before this row writes there.
-cloudsync
+googledrive
 polkit
 # The device fakes the System rows build on; they stay up after it.
 device-fakes

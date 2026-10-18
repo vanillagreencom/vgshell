@@ -1,80 +1,93 @@
 #!/usr/bin/env node
-// cloud-sync: the vgs.cloud-sync runner. It owns the pair list, the systemd
+// google-drive: the vgs.google-drive runner. It owns the pair list, the systemd
 // user units, the per-pair locks, credential loading, the rclone calls, the
 // per-pair inventory, the conflict records and the status record. The
 // plugin and the command line start the same service; the service runs a
 // copy of this file. The plugin never runs rclone.
 //
-//   cloud-sync run [--pair <id>]
+//   google-drive run [--pair <id>]
 //       the service's ExecStart: each pair, or the one named, under its own
 //       lock. Prints `pair=<id> result=<r>` per pair, r one of idle, paused,
 //       busy, offline, authorization-required, error.
-//   cloud-sync status [--quiet]
+//   google-drive status [--quiet]
 //       renders the status record, writes it and prints it as one JSON line
 //       (nothing with --quiet: the service's ExecStopPost).
 //       The record's `attention`, when set, is { reasons, key, notified }:
 //       notified is true once `attention-seen` named that key.
-//   cloud-sync attention-seen <key>
+//   google-drive attention-seen <key>
 //       records that the plugin notified the user of attention KEY, so no
 //       later render or shell start notifies again; prints `seen=<key>`.
-//   cloud-sync probe
+//   google-drive probe
 //       the presence of every credential account, read without unlocking
 //       the store, as one JSON line; a token's row carries `user`, the
 //       Google account's address, when its keyring item names one.
-//   cloud-sync authorize
-//       Google's consent for Cloud Sync's OAuth client, in the browser
+//   google-drive authorize
+//       Google's consent for the stored client keys' OAuth client, in the browser
 //       rclone opens, and the token it returns stored in the keyring as the
 //       account's one token item, with the account's address as its `user`
 //       attribute when Google names it; pairs that waited for a sign-in read
 //       idle; prints `authorized=drive`. The Sign in floating TUI runs it.
-//   cloud-sync sign-out
+//   google-drive sign-out
 //       clears the token from the keyring and records each pair as needing a
 //       sign-in, an attention the user's own action notifies of; prints
 //       `signed-out=drive`. The client keys and every file stay.
-//   cloud-sync install
+//   google-drive install
 //       writes the units, reloads the user manager when they changed and
 //       enables the timer; prints `installed=<timer> changed=<n>`.
-//   cloud-sync start
+//   google-drive start
 //       `systemctl --user start --no-block` of the service: Sync now.
-//   cloud-sync pause|resume [--pair <id>]
+//   google-drive pause|resume [--pair <id>]
 //       prints `paused=<id|all>` or `resumed=<id|all>`.
-//   cloud-sync pairs [--lines]
+//   google-drive pairs [--lines]
 //       one JSON line, { pairs, error }; with --lines, one `<id>\t<label>`
 //       line per pair, for the Remove a folder pair TUI's list.
-//   cloud-sync pairs-reset
+//   google-drive pairs-reset
 //       while the pair list is invalid, keeps the damaged list beside it,
 //       starts a valid empty list and prints `reset=<kept-name>`.
-//   cloud-sync pair-add --definition <json> | pair-remove <id>
+//   google-drive pair-add --definition <json> | pair-remove <id>
 //       one validated change to the pair list; prints `added=<id>` or
 //       `removed=<id>`. Removing a pair deletes no file.
 //
-// Files: the pair list is $XDG_CONFIG_HOME/vgshell/cloud-sync/pairs.json;
-// the units are $XDG_CONFIG_HOME/systemd/user/vgs-cloud-sync.service and
+// Files: the pair list is $XDG_CONFIG_HOME/vgshell/google-drive/pairs.json;
+// the units are $XDG_CONFIG_HOME/systemd/user/vgs-google-drive.service and
 // .timer; status.json, control.json (pause and the notified attention
 // key) and pairs/<id>/ (state.json, inventory.json, conflicts/) are under
-// $XDG_STATE_HOME/vgshell/cloud-sync/; the locks are under
-// $XDG_RUNTIME_DIR/vgshell/cloud-sync/; the copy the units run is
-// $XDG_DATA_HOME/vgshell/cloud-sync/engine/<hash>/cloud-sync, since the
+// $XDG_STATE_HOME/vgshell/google-drive/; the locks are under
+// $XDG_RUNTIME_DIR/vgshell/google-drive/; the copy the units run is
+// $XDG_DATA_HOME/vgshell/google-drive/engine/<hash>/google-drive, since the
 // shell runs this file from a snapshot a restart removes. Every file is
 // written whole under a temporary name and renamed into place.
 //
+// Before any verb, every invocation runs the rename from the plugin's
+// previous name (the rename section), then the pair list and pair state
+// converters. While a sync of the previous name's service runs, the rename
+// refuses the invocation with `migration=held` and exit 75 and leaves
+// that name's timer enabled. A rename step left for a later invocation,
+// such as the keyring step while the keyring is locked, keeps
+// rename.pending in the state directory, logs `migration=held` and lets
+// the verb go on; an account still under the previous name reads as
+// locked or unavailable, never absent.
+//
 // Exit 0: done, or every pair skipped as paused. 1: a refusal, or a pair
 // that did not finish. 2: a bad invocation. 75: a pair whose lock another
-// run holds, and no pair failed. A refusal is one stderr line,
-// `cloud-sync: refused: <key>=<value> ...`.
+// run holds, and no pair failed; or the rename held, with
+// `migration=held`: a sync of the previous service runs, its timer could
+// not be disabled, or systemctl is missing or gave no state (developer.md,
+// the rename steps). A refusal is one stderr line,
+// `google-drive: refused: <key>=<value> ...`.
 "use strict";
 const childProcess = require("child_process");
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 
-const SERVICE = "vgs-cloud-sync.service";
-const TIMER = "vgs-cloud-sync.timer";
+const SERVICE = "vgs-google-drive.service";
+const TIMER = "vgs-google-drive.timer";
 // The manifest's `secrets` service and label; the core's SecretWriter
 // stores each account under the attributes `service` and `account`, with
 // the label and the account as its item label, and authorize does the same.
-const SECRET_SERVICE = "vgs-cloud-sync";
-const SECRET_LABEL = "VGS Cloud Sync";
+const SECRET_SERVICE = "vgs-google-drive";
+const SECRET_LABEL = "VGS Google Drive";
 // One credential reads and writes the folder pairs with Google Drive's full
 // drive scope. The runner still never asks rclone to delete.
 const DRIVE_SCOPE = "drive";
@@ -118,10 +131,10 @@ const FAILURE_STATES = {
     "authorization-refused": "authorization-required",
     offline: "offline"
 };
-const USAGE = "usage: cloud-sync run [--pair <id>] | status [--quiet] | attention-seen <key> | probe | authorize | sign-out | install | start | pause [--pair <id>] | resume [--pair <id>] | pairs [--lines] | pairs-reset | pair-add --definition <json> | pair-remove <id>";
+const USAGE = "usage: google-drive run [--pair <id>] | status [--quiet] | attention-seen <key> | probe | authorize | sign-out | install | start | pause [--pair <id>] | resume [--pair <id>] | pairs [--lines] | pairs-reset | pair-add --definition <json> | pair-remove <id>";
 
 function bad(first) {
-    process.stderr.write("cloud-sync: refused: " + first + "\n" + USAGE + "\n");
+    process.stderr.write("google-drive: refused: " + first + "\n" + USAGE + "\n");
     process.exit(2);
 }
 
@@ -130,12 +143,12 @@ function stampOf(ms) {
 }
 
 function refuse(first) {
-    process.stderr.write("cloud-sync: refused: " + first + "\n");
+    process.stderr.write("google-drive: refused: " + first + "\n");
     process.exit(1);
 }
 
 function log(line) {
-    process.stderr.write("cloud-sync: " + line + "\n");
+    process.stderr.write("google-drive: " + line + "\n");
 }
 
 // ------------------------------------------------------------ the places
@@ -150,13 +163,13 @@ const configHome = absoluteOr(process.env.XDG_CONFIG_HOME, path.join(home, ".con
 const stateHome = absoluteOr(process.env.XDG_STATE_HOME, path.join(home, ".local", "state"));
 const dataHome = absoluteOr(process.env.XDG_DATA_HOME, path.join(home, ".local", "share"));
 const runtimeDir = absoluteOr(process.env.XDG_RUNTIME_DIR, "");
-const pairsFile = path.join(configHome, "vgshell", "cloud-sync", "pairs.json");
+const pairsFile = path.join(configHome, "vgshell", "google-drive", "pairs.json");
 const unitDir = path.join(configHome, "systemd", "user");
-const stateDir = path.join(stateHome, "vgshell", "cloud-sync");
+const stateDir = path.join(stateHome, "vgshell", "google-drive");
 const statusFile = path.join(stateDir, "status.json");
 const controlFile = path.join(stateDir, "control.json");
-const engineRoot = path.join(dataHome, "vgshell", "cloud-sync", "engine");
-const lockDir = runtimeDir === "" ? "" : path.join(runtimeDir, "vgshell", "cloud-sync");
+const engineRoot = path.join(dataHome, "vgshell", "google-drive", "engine");
+const lockDir = runtimeDir === "" ? "" : path.join(runtimeDir, "vgshell", "google-drive");
 
 function pairDir(id) {
     return path.join(stateDir, "pairs", id);
@@ -545,25 +558,40 @@ function migratePairStatesIfNeeded() {
 // ------------------------------------------------------------ credentials
 
 // The words after `secret-tool` for one account's items: VERB's words, the
-// attributes every item of this plugin carries, then EXTRA. An argv with
-// no shell between, so no word is quoted; a secret never enters it.
-function secretArgs(verb, account, extra = []) {
-    return verb.concat(["service", SECRET_SERVICE, "account", account], extra);
+// attributes every item of SERVICE carries, then EXTRA. An argv with no
+// shell between, so no word is quoted; a secret never enters it. SERVICE
+// is this plugin's own but in the rename migration, which reads and clears
+// the previous name's items.
+function secretArgs(verb, account, extra = [], service = SECRET_SERVICE) {
+    return verb.concat(["service", service, "account", account], extra);
 }
 
 // One account's secret, searched without --unlock so an unattended run
 // raises no unlock prompt. `secret-tool search` prints the first match's
 // `label = ` and, only when its collection is unlocked, `secret = <value>`
 // on stdout (libsecret tool/secret-tool.c). The value stays in this
-// process and the rclone child's environment.
-function readSecret(tool, account) {
-    const out = run(tool, secretArgs(["search"], account), { timeout: 10000, killSignal: "SIGKILL" });
+// process and the rclone child's environment. Only the rename reads
+// SERVICE's item as it is; every other reader calls readSecret.
+function searchItem(tool, account, service) {
+    const out = run(tool, secretArgs(["search"], account, [], service), { timeout: 10000, killSignal: "SIGKILL" });
     if (out.status !== 0) return { kind: "unavailable", reason: out.status === null ? "secret-tool-timeout" : "secret-tool-failed" };
     const lines = out.stdout.split("\n");
     const secret = lines.find(line => line.startsWith("secret = "));
     if (secret !== undefined && secret.length > "secret = ".length) return { kind: "found", value: secret.slice("secret = ".length) };
     if (lines.some(line => line.startsWith("label = "))) return { kind: "locked" };
     return { kind: "absent" };
+}
+
+// ACCOUNT's secret under this plugin's service. An item the rename still
+// holds under the previous name reads as that item reads there, never as
+// absent: a locked keyring stays the locked case, not a missing key.
+function readSecret(tool, account) {
+    const got = searchItem(tool, account, SECRET_SERVICE);
+    if (got.kind !== "absent") return got;
+    const held = renameHeldPresence(account);
+    if (held === "locked") return { kind: "locked" };
+    if (held === "unavailable") return { kind: "unavailable", reason: "secret-tool-failed" };
+    return got;
 }
 
 // { kind: "found", values: { part: value } }, or the first account that
@@ -592,10 +620,11 @@ function validAddress(value) {
 // or not, prints its `attribute.` lines on stderr, and a locked one also a
 // `secret-tool: ` line naming the lock, gnome-keyring's `Cannot get secret
 // of a locked object`. { presence, user }: user is the item's `user`
-// attribute when it holds an address, else null.
-function probeAccount(tool, account) {
+// attribute when it holds an address, else null. Only the rename probes
+// SERVICE's item as it is; every other reader calls probeAccount.
+function probeItem(tool, account, service) {
     if (tool === null) return { presence: "unavailable", user: null };
-    const out = run(tool, secretArgs(["search"], account), { stdio: ["ignore", "ignore", "pipe"], timeout: 10000, killSignal: "SIGKILL" });
+    const out = run(tool, secretArgs(["search"], account, [], service), { stdio: ["ignore", "ignore", "pipe"], timeout: 10000, killSignal: "SIGKILL" });
     if (out.status !== 0) return { presence: "unavailable", user: null };
     const lines = out.stderr.split("\n");
     const found = lines.some(line => line.startsWith("attribute."));
@@ -606,6 +635,15 @@ function probeAccount(tool, account) {
     if (found && failure === undefined) return { presence: "present", user: user };
     if (found && /locked/i.test(failure)) return { presence: "locked", user: user };
     return { presence: "unavailable", user: null };
+}
+
+// ACCOUNT's presence under this plugin's service, an item the rename
+// holds read as readSecret reads it.
+function probeAccount(tool, account) {
+    const probed = probeItem(tool, account, SECRET_SERVICE);
+    if (probed.presence !== "absent") return probed;
+    const held = renameHeldPresence(account);
+    return held === null ? probed : { presence: held, user: null };
 }
 
 // Removes every item of ACCOUNT that is unlocked: libsecret's clear leaves
@@ -619,8 +657,8 @@ function clearAccount(tool, account) {
     if (out.status !== 0) refuse("clear=failed exit=" + out.status + " account=" + account);
 }
 
-function clearAccountResult(tool, account) {
-    const out = run(tool, secretArgs(["clear"], account), { timeout: 30000, killSignal: "SIGKILL" });
+function clearAccountResult(tool, account, service = SECRET_SERVICE) {
+    const out = run(tool, secretArgs(["clear"], account, [], service), { timeout: 30000, killSignal: "SIGKILL" });
     if (out.status === 1 && out.stderr === "") return { ok: true };
     if (out.status !== 0) return { ok: false, reason: "clear-failed", account: account };
     return { ok: true };
@@ -1128,7 +1166,7 @@ function engineHash() {
 }
 
 function engineFile(hash) {
-    return path.join(engineRoot, hash, "cloud-sync");
+    return path.join(engineRoot, hash, "google-drive");
 }
 
 // The service names node by its own path and the engine copy, and hands
@@ -1138,9 +1176,9 @@ function serviceText(hash) {
     const env = ["XDG_CONFIG_HOME=" + configHome, "XDG_STATE_HOME=" + stateHome, "XDG_DATA_HOME=" + dataHome, "XDG_RUNTIME_DIR=" + runtimeDir];
     const runner = [process.execPath, engineFile(hash)];
     return [
-        "# Written by vgs.cloud-sync install; install replaces it.",
+        "# Written by vgs.google-drive install; install replaces it.",
         "[Unit]",
-        "Description=VGS Cloud Sync",
+        "Description=VGS Google Drive",
         "",
         "[Service]",
         "Type=oneshot",
@@ -1158,9 +1196,9 @@ function serviceText(hash) {
 
 function timerText() {
     return [
-        "# Written by vgs.cloud-sync install; install replaces it.",
+        "# Written by vgs.google-drive install; install replaces it.",
         "[Unit]",
-        "Description=VGS Cloud Sync schedule",
+        "Description=VGS Google Drive schedule",
         "",
         "[Timer]",
         "OnCalendar=hourly",
@@ -1202,7 +1240,7 @@ function ensureEngine(hash) {
     if (fs.existsSync(file)) return;
     fs.mkdirSync(engineRoot, { recursive: true });
     const temp = fs.mkdtempSync(path.join(engineRoot, ".tmp-"));
-    fs.writeFileSync(path.join(temp, "cloud-sync"), fs.readFileSync(__filename), { mode: 0o755 });
+    fs.writeFileSync(path.join(temp, "google-drive"), fs.readFileSync(__filename), { mode: 0o755 });
     try {
         fs.renameSync(temp, path.dirname(file));
     } catch (e) {
@@ -1372,6 +1410,242 @@ function writeStatus() {
     return status;
 }
 
+// ------------------------------------------------------------- the rename
+
+// The plugin's name before it was Google Drive. A converter step under
+// D107: an install that ran the previous plugin has its state directory,
+// since that plugin's service wrote the status record at every shell
+// start, and keeps its units and keyring items under the old names until
+// this step moves them. The previous runner's locks under
+// $XDG_RUNTIME_DIR stay where they are: a lock file holds no data, and
+// the old service has stopped before anything moves.
+const OLD_NAME = "cloud-sync";
+const OLD_SERVICE = "vgs-cloud-sync.service";
+const OLD_TIMER = "vgs-cloud-sync.timer";
+const OLD_SECRET_SERVICE = "vgs-cloud-sync";
+// Each previous directory and the one it becomes: the pair list and the
+// setup log's neighbours, the status, pause and per-pair records with the
+// kept copies, and the runner copies the units ran.
+const OLD_DIRS = [
+    [path.join(configHome, "vgshell", OLD_NAME), path.dirname(pairsFile)],
+    [path.join(stateHome, "vgshell", OLD_NAME), stateDir],
+    [path.join(dataHome, "vgshell", OLD_NAME), path.dirname(engineRoot)]
+];
+// Present from the rename's first move until its last step ends, so an
+// invocation that finds no previous directory or unit still waits on the
+// state lock for a rename in progress, and a held step is retried. It
+// holds `held`: each keyring account whose item stays under the previous
+// name alone, mapped to the presence readSecret and probeAccount give it.
+const RENAME_PENDING = path.join(stateDir, "rename.pending");
+// `systemctl is-active` words (systemctl(1)): a oneshot service reads
+// activating while its sync runs and deactivating while ExecStopPost runs.
+const UNIT_BUSY = ["active", "activating", "deactivating", "reloading", "refreshing"];
+const UNIT_ENDED = ["inactive", "failed"];
+
+function exists(p) {
+    try {
+        fs.lstatSync(p);
+        return true;
+    } catch (e) {
+        if (e.code === "ENOENT") return false;
+        throw e;
+    }
+}
+
+function oldUnitFiles() {
+    return [OLD_SERVICE, OLD_TIMER].filter(name => exists(path.join(unitDir, name)));
+}
+
+function renameNeeded() {
+    return exists(RENAME_PENDING) || OLD_DIRS.some(dirs => exists(dirs[0])) || oldUnitFiles().length > 0;
+}
+
+// The presence ACCOUNT reads with while the rename holds its item under
+// the previous name, or null. The previous name's two-client accounts
+// stand for the account they become. A damaged record holds nothing; the
+// rename rewrites it at the next invocation.
+function renameHeldPresence(account) {
+    const pending = readJson(RENAME_PENDING);
+    if (pending.kind !== "ok" || !plain(pending.value) || !plain(pending.value.held)) return null;
+    for (const name of [account].concat(OLD_DIRECTIONS.map(direction => direction + "-" + account))) {
+        const presence = pending.value.held[name];
+        if (presence === "locked" || presence === "unavailable") return presence;
+    }
+    return null;
+}
+
+// A rename step that waits on the previous service: the invocation ends
+// with EXIT_BUSY, which the plugin's service reads as held and retries.
+function holdRename(reason) {
+    process.stderr.write("google-drive: refused: migration=held " + reason + "\n");
+    process.exit(EXIT_BUSY);
+}
+
+// The previous service's is-active word when it reads busy, else null.
+// No word from systemctl holds the rename.
+function oldServiceBusy() {
+    const bin = which("systemctl");
+    if (bin === null) holdRename("systemctl=missing");
+    const out = run(bin, ["--user", "is-active", OLD_SERVICE], { timeout: 10000, killSignal: "SIGKILL" });
+    const word = String(out.stdout || "").trim();
+    if (UNIT_BUSY.indexOf(word) !== -1) return word;
+    if (UNIT_ENDED.indexOf(word) === -1) holdRename("reason=old-service-unknown");
+    return null;
+}
+
+// Disables the previous timer once no sync of its service runs, so no
+// previous runner writes a directory while it moves. A sync that runs
+// holds the rename with the timer still enabled: the hourly sync goes on
+// under the previous units until a later invocation finds the sync ended.
+// The timer's Persistent=true starts a catch-up sync at the first login
+// after a missed hour, as the new shell starts, and a oneshot service has
+// no start timeout, so the sync is waited out by retries, never by this
+// call. systemctl has no verb that waits for a unit's end without
+// stopping it, and stopping would cut the sync short.
+function stopOldUnits(names) {
+    const busy = oldServiceBusy();
+    if (busy !== null) holdRename("reason=old-service-" + busy);
+    if (names.indexOf(OLD_TIMER) === -1) return;
+    const failure = systemctlFailure(["disable", "--now", OLD_TIMER]);
+    if (failure !== null) holdRename(failure);
+    // The timer can start a sync between the read above and the disable;
+    // that sync is waited out like any other, with the timer enabled again.
+    const started = oldServiceBusy();
+    if (started === null) return;
+    const restored = systemctlFailure(["enable", "--now", OLD_TIMER]);
+    holdRename("reason=old-service-" + started + (restored === null ? "" : " restore=" + restored));
+}
+
+// Moves FROM to TO. A floating TUI makes the new state directory for its
+// setup log before its first runner call, so TO may exist: then each entry
+// moves on its own. The TUI holds the new setup log open and reads its
+// own lines from the offset it began at, so the previous setup log keeps
+// its own name beside it. Any other entry both hold stays, logged, and
+// keeps the rename pending. Returns whether FROM is gone.
+function moveTree(from, to) {
+    let fromStat;
+    try {
+        fromStat = fs.lstatSync(from);
+    } catch (e) {
+        if (e.code === "ENOENT") return true;
+        throw e;
+    }
+    if (!exists(to)) {
+        fs.mkdirSync(path.dirname(to), { recursive: true, mode: 0o700 });
+        fs.renameSync(from, to);
+        return true;
+    }
+    const toStat = fs.lstatSync(to);
+    if (fromStat.isDirectory() && toStat.isDirectory()) {
+        let gone = true;
+        for (const name of fs.readdirSync(from)) gone = moveTree(path.join(from, name), path.join(to, name)) && gone;
+        if (gone) fs.rmdirSync(from);
+        return gone;
+    }
+    if (path.basename(to) === "setup.log") return moveTree(from, path.join(path.dirname(to), "setup.before-rename.log"));
+    log("migration=held reason=both-exist path=" + to);
+    return false;
+}
+
+// One keyring account of the previous name moved to this one in the
+// order migrateCredentialsIfNeeded keeps: copy, check the copy, clear the
+// old item. An account this name already holds keeps its item, an
+// earlier invocation's copy or a sign-in made since. Returns null when
+// nothing is left of it, or { reason, held }: held is the presence the
+// account reads with here while its value stays under the previous name
+// alone, or null once a copy here stands for it.
+function moveKeyringItem(tool, account) {
+    const unmoved = reason => ({ reason: reason, held: reason === "credential-locked" ? "locked" : "unavailable" });
+    const old = probeItem(tool, account, OLD_SECRET_SERVICE);
+    if (old.presence === "absent") return null;
+    if (old.presence !== "present") return unmoved("credential-" + old.presence);
+    const current = probeItem(tool, account, SECRET_SERVICE);
+    if (current.presence === "absent") {
+        const value = searchItem(tool, account, OLD_SECRET_SERVICE);
+        if (value.kind !== "found") return unmoved("credential-" + (value.kind === "unavailable" ? value.reason : value.kind));
+        const stored = storeSecret(tool, account, value.value, old.user === null ? [] : ["user", old.user]);
+        if (!stored.ok) return unmoved("store-failed");
+        const copy = searchItem(tool, account, SECRET_SERVICE);
+        if (copy.kind !== "found" || copy.value !== value.value || probeItem(tool, account, SECRET_SERVICE).user !== old.user) {
+            // A later invocation would take a copy that stands for the
+            // old item, so this one goes and the old item stays.
+            clearAccountResult(tool, account);
+            return unmoved("copy-differs");
+        }
+    } else if (current.presence !== "present") {
+        return { reason: "credential-" + current.presence, held: null };
+    }
+    if (!clearAccountResult(tool, account, OLD_SECRET_SERVICE).ok) return { reason: "clear-failed", held: null };
+    const left = probeItem(tool, account, OLD_SECRET_SERVICE).presence;
+    return left === "absent" ? null : { reason: "credential-" + left, held: null };
+}
+
+// Every account's move, the two-client accounts too, for
+// migrateCredentialsIfNeeded to convert: { held, holds }, held as
+// RENAME_PENDING keeps it and holds the log line of each step left for a
+// later invocation.
+function moveKeyringItems() {
+    const tool = which("secret-tool");
+    if (tool === null) return { held: {}, holds: ["reason=secret-tool-missing"] };
+    const held = {};
+    const holds = [];
+    for (const account of CREDENTIAL_PARTS.concat(OLD_ACCOUNTS)) {
+        const moved = moveKeyringItem(tool, account);
+        if (moved === null) continue;
+        holds.push("reason=" + moved.reason + " account=" + account);
+        if (moved.held !== null) held[account] = moved.held;
+    }
+    return { held: held, holds: holds };
+}
+
+// The rename, under the state lock: stop the previous units, move the
+// directories, move the keyring items, then install this name's units in
+// place of the previous ones when those were installed. The new units are
+// written before the old files go, so an invocation cut off at any point
+// still finds the old files or RENAME_PENDING and finishes. A held step
+// keeps RENAME_PENDING and lets the verb go on; only a running previous
+// sync holds the whole invocation (stopOldUnits). Returns whether a rename
+// ran, so the caller rewrites the status record, which names stored
+// copies by their full path.
+function migrateRenameIfNeeded() {
+    if (!renameNeeded()) return false;
+    withStateLock(() => {
+        if (!renameNeeded()) return;
+        const units = oldUnitFiles();
+        if (units.length > 0) stopOldUnits(units);
+        if (!exists(RENAME_PENDING)) writeJson(RENAME_PENDING, { held: {} });
+        // moveTree logs each entry it leaves.
+        const moved = OLD_DIRS.map(dirs => moveTree(dirs[0], dirs[1])).every(Boolean);
+        const holds = [];
+        const keyring = moveKeyringItems();
+        holds.push(...keyring.holds);
+        if (units.length > 0) {
+            const installed = writeInstall(false);
+            if (installed.failure !== null) {
+                holds.push(installed.failure);
+            } else {
+                for (const name of units) fs.rmSync(path.join(unitDir, name), { force: true });
+                // A manager that missed this reload still holds the old
+                // units, disabled and stopped, until its next reload.
+                const failure = systemctlFailure(["daemon-reload"]);
+                if (failure !== null) holds.push("reload=failed " + failure);
+                // The manager keeps a previous unit whose last run failed,
+                // listed as not-found failed, until this or its restart.
+                // A unit it no longer holds fails this, which changes nothing.
+                systemctlFailure(["reset-failed", OLD_SERVICE, OLD_TIMER]);
+            }
+        }
+        if (moved && holds.length === 0) {
+            fs.rmSync(RENAME_PENDING, { force: true });
+            log("migration=rename old=" + OLD_NAME + " result=written");
+            return;
+        }
+        writeJson(RENAME_PENDING, { held: keyring.held });
+        for (const hold of holds) log("migration=held " + hold);
+    });
+    return true;
+}
+
 // ------------------------------------------------------------------ verbs
 
 function pairOption(words) {
@@ -1494,7 +1768,7 @@ function accountAddress(token) {
     return validAddress(address) ? { kind: "read", address: address } : { kind: "unread", reason: "address-invalid" };
 }
 
-// `rclone authorize drive` for Cloud Sync's client, which rclone
+// `rclone authorize drive` for the stored client keys, which rclone
 // reads from RCLONE_DRIVE_CLIENT_ID and RCLONE_DRIVE_CLIENT_SECRET in its
 // environment (fs/configmap.go, optionEnvVars), never from argv, with the
 // drive scope. rclone's link and messages reach the terminal on
@@ -1528,7 +1802,7 @@ function authorizeVerb(words) {
     // The account's older items go before the store, so one item remains:
     // an item without `user` matches every search of the account, so it
     // could not be cleared after the store without the new one. A store
-    // that fails after this leaves Cloud Sync signed out.
+    // that fails after this leaves VGS signed out of Google Drive.
     clearAccount(tool, account);
     const stored = storeSecret(tool, account, token, read.kind === "read" ? ["user", read.address] : []);
     if (!stored.ok) refuse("store=failed account=" + account);
@@ -1664,8 +1938,10 @@ function pairRemoveVerb(words) {
 
 const verb = process.argv[2];
 const rest = process.argv.slice(3);
+const renamed = migrateRenameIfNeeded();
 migratePairListIfNeeded();
 migratePairStatesIfNeeded();
+if (renamed) withStateLock(writeStatus);
 if (verb !== "install") refreshStaleInstallIfNeeded();
 switch (verb) {
 case "run": runVerb(rest); break;

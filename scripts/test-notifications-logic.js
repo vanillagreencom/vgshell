@@ -180,7 +180,7 @@ const HINT_ROWS = [
     // The core's plugin notice: a page reference, and a click that would
     // otherwise only dismiss.
     ["a plugin notice naming a page", { "x-vgs-page": SETUP, "x-vgs-click": "none" }, Object.assign({}, NO_HINTS, { hintClick: "none", hintPage: SETUP }), [], "page"],
-    ["a page reference with no tab", { "x-vgs-page": "[Cloud Sync](page:vgs.cloud-sync)" }, Object.assign({}, NO_HINTS, { hintPage: "[Cloud Sync](page:vgs.cloud-sync)" }), [], "page"],
+    ["a page reference with no tab", { "x-vgs-page": "[Google Drive](page:vgs.google-drive)" }, Object.assign({}, NO_HINTS, { hintPage: "[Google Drive](page:vgs.google-drive)" }), [], "page"],
     ["a page reference to no page", { "x-vgs-page": "[Setup](page:)" }, NO_HINTS, ["x-vgs-page"], "default"],
     ["two page references", { "x-vgs-page": SETUP + SETUP }, NO_HINTS, ["x-vgs-page"], "default"],
     ["a page reference inside text", { "x-vgs-page": "Open " + SETUP }, NO_HINTS, ["x-vgs-page"], "default"],
@@ -360,7 +360,7 @@ function verify(logic) {
     assert.equal(logic.pageWords(SETUP), "Setup", "the card underlines the hint's words");
     assert.equal(logic.pageWords(""), "", "no hint underlines nothing");
     same(logic.pageTarget(SETUP), { page: "acme.probe", tab: "Setup" }, "a page hint opens its page on its tab");
-    same(logic.pageTarget("[Cloud Sync](page:vgs.cloud-sync)"), { page: "vgs.cloud-sync", tab: "" }, "a page hint with no tab opens the page");
+    same(logic.pageTarget("[Google Drive](page:vgs.google-drive)"), { page: "vgs.google-drive", tab: "" }, "a page hint with no tab opens the page");
     assert.equal(logic.sanitizeBody("", "app", ""), "", "an empty body stays empty");
     assert.equal(logic.summaryStartsWithGlyph("\u{f0e0}  Mail"), true, "a glyph and two spaces open the summary");
     assert.equal(logic.summaryStartsWithGlyph("M  ail"), true, "any first character counts, as the reference reads it");

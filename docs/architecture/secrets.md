@@ -24,7 +24,7 @@ An argument sits in every process list, an IPC reply in the shell's log, a statu
 
 ## The canonical example
 
-`shell/Core/SecretWriter.qml`, the one writer for masked fields. Copy its shape for a new secret. For an OAuth round trip, `cloud-sync authorize` in `shell/plugins/vgs.cloud-sync/bin/` is the writer: the token goes from rclone's stdout to the stdin of `secret-tool store`, which `scripts/test-cloud-sync-runner.js` pins.
+`shell/Core/SecretWriter.qml`, the one writer for masked fields. Copy its shape for a new secret. For an OAuth round trip, `google-drive authorize` in `shell/plugins/vgs.google-drive/bin/` is the writer: the token goes from rclone's stdout to the stdin of `secret-tool store`, which `scripts/test-google-drive-runner.js` pins.
 
 ## Revisit when
 

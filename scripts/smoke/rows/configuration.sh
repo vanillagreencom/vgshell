@@ -3,8 +3,11 @@
 # write answers the write with the refusal and keeps its value. A version 1
 # user file is written as version 2 once the shell reads it, its layout
 # entry's settings moved into the plugin's row; a copy whose read migrates
-# nothing is its control, and refuses the file.
-# inputs: shell/Core/Config.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Registry.qml shell/Core/Plugins.qml shell/Core/Capabilities.qml shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.bar/manifest.json shell/plugins/vgs.bar/Bar.qml shell/plugins/vgs.bar/Service.qml bin/vgshell shell/Commons/WatchedFile.qml bin/vgshell-plugin-judge scripts/smoke/rows/capability-release.sh
+# nothing is its control, and refuses the file. A user file that disables a
+# plugin's former id and places its widget names the plugin by its new id
+# before the scan publishes it, so the plugin is never built; a copy that
+# renames after the scan publishes is its control, and builds it.
+# inputs: scripts/smoke/fixtures/plugins/vgs.fixture-renamed/* shell/Core/Config.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Registry.qml shell/Core/Plugins.qml shell/Core/Capabilities.qml shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.bar/manifest.json shell/plugins/vgs.bar/Bar.qml shell/plugins/vgs.bar/Service.qml bin/vgshell shell/Commons/WatchedFile.qml bin/vgshell-plugin-judge scripts/smoke/rows/capability-release.sh
 set -euo pipefail
 config_user_state() { ipc shell listPlugins | py_reply 'import json,sys; print(json.load(sys.stdin)["config"]["user"])'; }
 expected_errors+=('config: user file unreadable at ')
@@ -137,6 +140,59 @@ if copy_tree configuration-unmigrated && edit_tree configuration-unmigrated shel
     expect "control: the version 1 file stays as it was" '[1, [{"id": "acme.tick", "format": "entry-loses", "extra": "moves"}], [{"id": "acme.tick", "format": "row-wins"}]]' config_migration_read
   fi
   configuration_control_restore
+fi
+
+# A bundled plugin shipped under a new id declares the id it had in its
+# manifest's formerIds; only a bundled plugin's claim renames the user file
+# (PluginLogic.formerIdClaims). The fixture lands in a tree copy's bundled
+# plugins directory, where the scan reads it as bundled. Planted before the
+# shell starts, with a user file that disables the former id and places its
+# widget, the file takes the new id before anything is built from the scan:
+# the plugin never builds, the bar shows no widget for it, and the file
+# names it by its new id alone. The fixture is first-party, so it runs
+# unless the file disables its new id, and its background builds in the
+# turn the scan publishes it; it logs `renamed-fixture: built` from every
+# instance.
+config_plant_renamed() { # TREE_NAME
+  cp -R -- "$repo/scripts/smoke/fixtures/plugins/vgs.fixture-renamed" "$sandbox/tree-$1/shell/plugins/vgs.fixture-renamed" || return
+  python3 - "$home/.config/vgshell/shell.json" <<'PY'
+import json, os, sys
+p = sys.argv[1]
+d = json.load(open(p))
+d["disabledPlugins"] = d.get("disabledPlugins", []) + ["vgs.fixture-formerly"]
+d["bar"]["layout"]["right"] = d["bar"]["layout"].get("right", []) + [{"id": "vgs.fixture-formerly"}]
+json.dump(d, open(p + ".tmp", "w"), indent=2)
+os.replace(p + ".tmp", p)
+PY
+}
+# config_renamed_read: the user file's disabledPlugins entries and layout
+# entries that name the fixture by either id.
+config_renamed_read() { python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); ids=("vgs.fixture-formerly", "vgs.fixture-renamed"); l=d["bar"]["layout"]; print(json.dumps([[i for i in d.get("disabledPlugins", []) if i in ids], [e["id"] for s in ("left", "center", "right") for e in l.get(s, []) if e["id"] in ids]]))' "$home/.config/vgshell/shell.json"; }
+config_renamed_restore() {
+  stop_shell || :
+  configuration_control_restore
+}
+if copy_tree configuration-renamed; then
+  stop_shell || :
+  config_plant_renamed configuration-renamed || fail "planting the renamed plugin and its user file failed"
+  if start_shell "$sandbox/tree-configuration-renamed" "$sandbox/configuration-renamed-qs.log"; then
+    expect_log "the shell's first scan publishes the renamed plugin" 1 'plugins: scan complete changed=true'
+    expect_poll "the user file names the renamed plugin by its new id alone" '[["vgs.fixture-renamed"], ["vgs.fixture-renamed"]]' config_renamed_read
+    expect_widgets "the bar shows no widget for the renamed plugin its user disabled" '["acme.tick"]'
+    expect "the renamed plugin its user disabled is never built" 0 log_lines 'renamed-fixture: built'
+  fi
+  config_renamed_restore
+fi
+
+if copy_tree configuration-renames-late && edit_tree configuration-renames-late shell/Core/Registry.qml \
+    $'        if (isChanged) renameUserFile(next);\n        if (isChanged) root.manifests = next;\n        // `scanned` gates every slot key, so it moves after the map.\n        root.scanned = true;\n' \
+    $'        if (isChanged) root.manifests = next;\n        // `scanned` gates every slot key, so it moves after the map.\n        root.scanned = true;\n        if (isChanged) renameUserFile(next);\n'; then
+  stop_shell || :
+  config_plant_renamed configuration-renames-late || fail "control: planting the renamed plugin and its user file failed"
+  if start_shell "$sandbox/tree-configuration-renames-late" "$sandbox/configuration-renames-late-qs.log"; then
+    expect_log "control: a shell that renames after the scan publishes builds the plugin its user disabled" 1 'renamed-fixture: built'
+  fi
+  config_renamed_restore
 fi
 
 # Read the saved undeclared field from runtime settings in a disposable

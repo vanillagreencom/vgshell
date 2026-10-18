@@ -303,6 +303,7 @@ A plugin's script that sends a desktop notification, such as `notify-send` from 
 |---|---|---|
 | `schemaVersion` | yes | `1`. |
 | `id` | yes | `author.name`, dotted and lower case. A `vgs.` id is first-party: enabled unless disabled. Every other plugin is enabled only when the configuration names it. |
+| `formerIds` | no | The ids the plugin shipped under before, each dotted, once, and not its own `id`. Only a bundled plugin's `formerIds` renames the user file; an installed plugin's is accepted, logged once and renames nothing. The shell renames each former id in the user's `shell.json` to `id` before it builds any plugin: in `plugins[]` rows, `disabledPlugins` and `bar.layout` entries, and nowhere else (`sounds`, `bar.id`, `manager.id` and `welcome.keys` keep it). The shell ignores, and logs, a claim of an id a scanned plugin holds; between two bundled claims of one former id the first in scan order wins. A former id stays in the manifest for as long as the plugin ships, since a user may update from any earlier release: [D108](../../../../docs/decisions/D108-renamed-plugin-declares-former-ids.md). |
 | `name`, `version`, `author`, `description` | yes | Listing metadata. `name` also titles a `window`. |
 | `license` | no | A non-empty string. |
 | `icon` | no | A Lucide name from the shipped set, `shell/Ui/icons/Lucide.js`. The Settings window lists the plugin with it, and with `package` when absent. |

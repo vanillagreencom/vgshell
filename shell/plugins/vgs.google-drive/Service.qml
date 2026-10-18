@@ -2,14 +2,14 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import qs.Commons
-import "CloudSyncLogic.js" as Logic
+import "GoogleDriveLogic.js" as Logic
 
-// Owns vgs.cloud-sync's runtime side: the one runner door (RunnerClient),
+// Owns vgs.google-drive's runtime side: the one runner door (RunnerClient),
 // the one watch of the runner's status record, the presence probe of the
-// Google Drive keys, the notification when Cloud Sync needs the user, IPC
+// Google Drive keys, the notification when the sync needs the user, IPC
 // and every status write. The widget and the window read status only.
 // The plugin never runs rclone: Sync now asks systemd for the same service
-// the hourly timer and the command line start (bin/cloud-sync start), and
+// the hourly timer and the command line start (bin/google-drive start), and
 // that run writes the status record this service watches.
 //
 // The record is read again whenever the runner writes it: a run's start
@@ -23,14 +23,18 @@ import "CloudSyncLogic.js" as Logic
 // `status` IPC answer returns with every published value; never the bar,
 // the window or a log line.
 //
-//   vgshell ipc call vgs.cloud-sync invoke <name> ""   with <name>:
+//   vgshell ipc call vgs.google-drive invoke <name> ""   with <name>:
 //     status    the published values, JSON
 //     sync      Sync now: starts the service through systemd; `ok`
 //     pause     pauses every pair; `ok`
 //     resume    resumes every pair; `ok`
 //     refresh   renders the record and probes the keys again; `ok`
-//     open      opens the Cloud Sync window; shell.surfaces.summon's reply
-// A request that fails is logged and shown in the window as `problem`.
+//     open      opens the Google Drive window; shell.surfaces.summon's reply
+// A request that fails is logged and shown in the window as `problem`. An
+// answer the runner holds for the rename from the plugin's previous name
+// (Logic.RUNNER_HELD) is no failure: the Settings sync value says why it
+// waits, and status and probe are asked again on the `held` timer until
+// the runner answers them.
 Item {
     id: root
 
@@ -43,6 +47,9 @@ Item {
     // The operation of the last request that failed, and its log line.
     property string problem: ""
     property string problemLine: ""
+    // Why the runner last held the rename from the plugin's previous name
+    // (Logic.heldReason), "" once an answer passed it.
+    property string heldReason: ""
     property var reported: ({})
     // The attention key this service last notified, so a record read again
     // before the runner writes `notified` sends no second notification.
@@ -51,7 +58,7 @@ Item {
     // The first `status` answered: the record exists, so its directory
     // does, which the watch needs.
     property bool statusReady: false
-    readonly property string statusFile: Paths.stateDir + "/cloud-sync/status.json"
+    readonly property string statusFile: Paths.stateDir + "/google-drive/status.json"
     readonly property int secretRevision: shell === null ? 0 : shell.secrets.revision
     // The end of each setup TUI's last run, whoever opened it: Settings,
     // the window or the launcher.
@@ -83,7 +90,7 @@ Item {
     }
 
     function failed(operation, line) {
-        console.warn("cloud-sync: " + line);
+        console.warn("google-drive: " + line);
         problem = operation;
         problemLine = line;
         publish();
@@ -98,7 +105,8 @@ Item {
 
     // The runner writes the record; the watch reads it.
     function refresh() {
-        client.request(["status", "--quiet"], (ok, out, line) => {
+        client.request(["status", "--quiet"], (ok, out, line, code) => {
+            if (root.heldAnswer(code, line)) return;
             if (!ok) {
                 root.failed("status", line);
                 return;
@@ -109,7 +117,8 @@ Item {
     }
 
     function probe() {
-        client.request(["probe"], (ok, out, line) => {
+        client.request(["probe"], (ok, out, line, code) => {
+            if (root.heldAnswer(code, line)) return;
             if (!ok) {
                 root.failed("probe", line);
                 return;
@@ -125,9 +134,26 @@ Item {
         });
     }
 
+    // Whether the runner held this answer for the rename. The rename runs
+    // before every verb, so each answer sets or clears the held state.
+    function heldAnswer(code, line) {
+        root.retryIfHeld(code);
+        const reason = code === Logic.RUNNER_HELD ? Logic.heldReason(line) : "";
+        if (reason === heldReason) return reason !== "";
+        if (reason !== "") console.warn("google-drive: " + line);
+        heldReason = reason;
+        publish();
+        return reason !== "";
+    }
+
+    function retryIfHeld(code) {
+        if (code === Logic.RUNNER_HELD) held.restart();
+    }
+
     // start, pause or resume; the runner's record write shows its effect.
     function act(operation) {
-        client.request([operation], (ok, out, line) => {
+        client.request([operation], (ok, out, line, code) => {
+            if (root.heldAnswer(code, line)) return;
             if (ok) root.succeeded(operation);
             else root.failed(operation, line);
         });
@@ -137,7 +163,7 @@ Item {
     function accept(content) {
         const judged = Logic.parseStatus(content);
         if (!judged.ok) {
-            console.warn("cloud-sync: status record refused: " + judged.error);
+            console.warn("google-drive: status record refused: " + judged.error);
             return;
         }
         record = judged.record;
@@ -153,12 +179,12 @@ Item {
 
     function publish() {
         if (shell === null) return;
-        const values = Logic.statusValues(record, presence, Logic.problemText(problem, problemLine), Date.now());
+        const values = Logic.statusValues(record, presence, Logic.problemText(problem, problemLine), heldReason, Date.now());
         const next = Object.assign({}, reported);
         for (const key of Logic.changedKeys(reported, values)) {
             const value = values[key] === undefined ? null : values[key];
             const reply = shell.status.set(key, value);
-            if (reply !== "ok") console.error("cloud-sync: " + reply);
+            if (reply !== "ok") console.error("google-drive: " + reply);
             else next[key] = value;
         }
         reported = next;
@@ -180,10 +206,10 @@ Item {
         const message = Logic.notification(record);
         if (message !== null) {
             const reply = shell.notify.send({ title: message.title, message: message.message, tone: message.tone, icon: "cloud-alert" });
-            if (reply !== "ok") console.warn("cloud-sync: notify " + reply);
+            if (reply !== "ok") console.warn("google-drive: notify " + reply);
         }
         client.request(["attention-seen", key], (ok, out, line) => {
-            if (!ok) console.warn("cloud-sync: " + line);
+            if (!ok) console.warn("google-drive: " + line);
         });
     }
 
@@ -209,7 +235,19 @@ Item {
             path: root.statusFile
             onChanged: read()
             onLoaded: content => root.accept(content)
-            onLoadFailed: error => console.warn("cloud-sync: status record unreadable: " + FileViewError.toString(error))
+            onLoadFailed: error => console.warn("google-drive: status record unreadable: " + FileViewError.toString(error))
+        }
+    }
+
+    // One timer for both requests: each held answer restarts it, and its
+    // end asks for both again, which RunnerClient runs one after the other.
+    Timer {
+        id: held
+        interval: Logic.HELD_RETRY_MS
+        repeat: false
+        onTriggered: {
+            root.refresh();
+            root.probe();
         }
     }
 

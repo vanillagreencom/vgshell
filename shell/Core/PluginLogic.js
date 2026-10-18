@@ -119,7 +119,7 @@ var SOUNDS = [
 
 // Every key a manifest may carry. An unknown key is refused, so a misspelt
 // key fails loudly instead of being carried and ignored.
-var MANIFEST_KEYS = ["schemaVersion", "id", "name", "version", "author", "description", "license", "icon", "kinds", "entryPoints", "capabilities", "capabilityKinds", "systemSteps", "settings", "schema", "defaultSection", "pane", "appearance", "hyprland", "requirements", "status", "tui", "menu", "secrets", "sounds", "alwaysOn"];
+var MANIFEST_KEYS = ["schemaVersion", "id", "formerIds", "name", "version", "author", "description", "license", "icon", "kinds", "entryPoints", "capabilities", "capabilityKinds", "systemSteps", "settings", "schema", "defaultSection", "pane", "appearance", "hyprland", "requirements", "status", "tui", "menu", "secrets", "sounds", "alwaysOn"];
 
 // What one entry of a manifest's `requirements`, and of the core's own
 // config/requirements.json, may carry: an external command the plugin runs
@@ -4097,6 +4097,44 @@ function instanceCapabilities(manifest, kind) {
     });
 }
 
+// The rename map of a scan, MANIFESTS being its id to manifest map in
+// scan order and SOURCE_OF naming where a manifest was found, `bundled` or
+// `installed` as Registry.sourceOf names it. Returns { renames, ignored }:
+// RENAMES maps each former id a bundled manifest declares in `formerIds` to
+// that manifest's id, and IGNORED holds one { id, reason, formerIds } entry
+// for each claim the map leaves out, by reason:
+// - `installed`: an installed manifest's formerIds rename nothing, one entry
+//   per manifest, since the opt-in a user gives at `plugin add` judges the
+//   plugin's own id and a claim would carry a removed plugin's row onto it;
+// - `scanned`: a claim of a former id that a scanned plugin holds, since the
+//   user file's row, disable and placement under that id are that plugin's;
+// - `claimed`: a later claim in scan order of a former id already mapped.
+// A left-out claim does not refuse its manifest. bin/lib/check-manifests.js
+// holds the shipped manifests to one claimant per former id and no former
+// id that a shipped plugin holds. Registry logs IGNORED and hands RENAMES
+// to Config.adoptRenames, which renames the user file by it
+// (ConfigLogic.renamePlugins).
+function formerIdClaims(manifests, sourceOf) {
+    var renames = {}, ignored = [];
+    Object.keys(manifests).forEach(function (id) {
+        var formerIds = manifests[id].formerIds;
+        if (!Array.isArray(formerIds)) return;
+        if (sourceOf(manifests[id]) !== "bundled") {
+            ignored.push({ id: id, reason: "installed", formerIds: formerIds.slice() });
+            return;
+        }
+        formerIds.forEach(function (former) {
+            if (hasOwn(manifests, former))
+                ignored.push({ id: id, reason: "scanned", formerIds: [former] });
+            else if (hasOwn(renames, former))
+                ignored.push({ id: id, reason: "claimed", formerIds: [former] });
+            else
+                renames[former] = id;
+        });
+    });
+    return { renames: renames, ignored: ignored };
+}
+
 // Validate one manifest object. Returns { ok: true, manifest } with the
 // normalized manifest, or { ok: false, error } naming the first defect.
 // `sourceDir` is recorded on the manifest so entry points resolve later.
@@ -4122,6 +4160,21 @@ function validateManifest(raw, sourceDir) {
         return { ok: false, error: "schemaVersion must be 1, got " + JSON.stringify(raw.schemaVersion) };
     if (typeof raw.id !== "string" || !ID_PATTERN.test(raw.id))
         return { ok: false, error: "id must be dotted and author-namespaced, got " + JSON.stringify(raw.id) };
+    // The ids the plugin shipped under before, each a converter step a
+    // user file is renamed by (formerIdClaims, ConfigLogic.renamePlugins).
+    if (raw.formerIds !== undefined) {
+        if (!Array.isArray(raw.formerIds) || raw.formerIds.length === 0)
+            return { ok: false, error: "formerIds must be a non-empty list of plugin ids" };
+        for (var f = 0; f < raw.formerIds.length; f++) {
+            var former = raw.formerIds[f];
+            if (typeof former !== "string" || !ID_PATTERN.test(former))
+                return { ok: false, error: "formerIds." + f + " must be dotted and author-namespaced, got " + JSON.stringify(former) };
+            if (former === raw.id)
+                return { ok: false, error: "formerIds." + f + " is the plugin's own id" };
+            if (raw.formerIds.indexOf(former) !== f)
+                return { ok: false, error: "formerIds lists " + former + " twice" };
+        }
+    }
     var required = ["name", "version", "author", "description"];
     for (var i = 0; i < required.length; i++) {
         if (typeof raw[required[i]] !== "string" || raw[required[i]].length === 0)

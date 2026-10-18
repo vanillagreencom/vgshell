@@ -20,6 +20,9 @@ const SETTING_VALUES = path.join(__dirname, "..", "shell", "Commons", "SettingVa
 const PAGE_REFERENCE = path.join(__dirname, "..", "shell", "Commons", "PageReference.js");
 // The core's own requirements, judged by the function a manifest's are.
 const CORE_REQUIREMENTS = path.join(__dirname, "..", "config", "requirements.json");
+// The bundled plugins, whose manifests' formerIds build the rename map the
+// shell reads.
+const PLUGINS_DIR = path.join(__dirname, "..", "shell", "plugins");
 // The sounds the core ships, which PluginLogic.SOUNDS names.
 const SOUND_DIR = path.join(__dirname, "..", "shell", "assets", "sounds");
 // The capability providers, whose providersFor the suite runs over the judge.
@@ -257,6 +260,13 @@ function suite(ctx, configLogic, check) {
         ["schemaVersion 2", { schemaVersion: 2 }, "schemaVersion must be 1"],
         ["id without namespace", { id: "bar" }, "id must be dotted"],
         ["id with uppercase", { id: "vgs.Bar" }, "id must be dotted"],
+        ["formerIds naming two earlier ids", { formerIds: ["vgs.old-bar", "acme.bar"] }, null],
+        ["formerIds not a list", { formerIds: "vgs.old-bar" }, "formerIds must be a non-empty list"],
+        ["formerIds empty", { formerIds: [] }, "formerIds must be a non-empty list"],
+        ["formerIds holding an undotted id", { formerIds: ["bar"] }, "formerIds.0 must be dotted"],
+        ["formerIds holding a non-string", { formerIds: ["vgs.old-bar", 3] }, "formerIds.1 must be dotted"],
+        ["formerIds holding the plugin's own id", { formerIds: ["vgs.bar"] }, "formerIds.0 is the plugin's own id"],
+        ["formerIds naming one id twice", { formerIds: ["vgs.old-bar", "vgs.old-bar"] }, "formerIds lists vgs.old-bar twice"],
         ["missing description", { description: "" }, "description must be"],
         ["empty kinds", { kinds: [] }, "kinds must be a non-empty array"],
         ["unknown kind", { kinds: ["widget"] }, "unknown kind"],
@@ -959,6 +969,74 @@ function suite(ctx, configLogic, check) {
         check("migrateConfig: " + name, got, { config: want, migrated: migrated });
         check("migrateConfig leaves its input: " + name, JSON.stringify(user), before);
         check("migrateConfig result judged: " + name, configLogic.configError(got.config), verdict);
+    }
+
+    // formerIdClaims rows: [name, manifests in scan order, { renames,
+    // ignored }]. A manifest whose directory is under /bundled/ is bundled,
+    // any other installed. Only a bundled claim renames; an installed
+    // manifest's claims are left out once per manifest, a claim of a scanned
+    // plugin's id is left out, and of two bundled claims of one former id the
+    // first in scan order wins. No claim refuses its manifest.
+    const declaring = (id, formerIds, dir) => ctx.validateManifest({ schemaVersion: 1, id: id, name: "N", version: "1", author: "a", description: "d", kinds: ["service"], entryPoints: { service: "S.qml" }, formerIds: formerIds }, dir === undefined ? "/user/" + id : dir).manifest;
+    const bundledDeclaring = (id, formerIds) => declaring(id, formerIds, "/bundled/" + id);
+    const plainAt = (id, dir) => ctx.validateManifest({ schemaVersion: 1, id: id, name: "N", version: "1", author: "a", description: "d", kinds: ["service"], entryPoints: { service: "S.qml" } }, dir).manifest;
+    const plain = plainAt("acme.plain", "/user/acme.plain");
+    const scanOrder = list => { const map = Object.create(null); list.forEach(m => { map[m.id] = m; }); return map; };
+    const claimSource = m => m.__sourceDir.indexOf("/bundled/") === 0 ? "bundled" : "installed";
+    for (const [name, manifests, want] of [
+        ["each bundled former id maps to its declaring plugin", [bundledDeclaring("acme.new", ["acme.old", "acme.older"]), plain], { renames: { "acme.old": "acme.new", "acme.older": "acme.new" }, ignored: [] }],
+        ["an installed manifest's former ids rename nothing and are left out once", [declaring("acme.new", ["acme.old", "acme.older"]), plain],
+            { renames: {}, ignored: [{ id: "acme.new", reason: "installed", formerIds: ["acme.old", "acme.older"] }] }],
+        ["the first bundled claim of a former id in scan order wins", [bundledDeclaring("acme.first", ["acme.old"]), bundledDeclaring("acme.second", ["acme.old", "acme.other"])],
+            { renames: { "acme.old": "acme.first", "acme.other": "acme.second" }, ignored: [{ id: "acme.second", reason: "claimed", formerIds: ["acme.old"] }] }],
+        ["a bundled claim of an installed plugin's live id is left out", [plain, bundledDeclaring("acme.new", ["acme.plain", "acme.old"])],
+            { renames: { "acme.old": "acme.new" }, ignored: [{ id: "acme.new", reason: "scanned", formerIds: ["acme.plain"] }] }],
+        ["a scan with no declaration renames nothing", [plain, plainAt("acme.shipped", "/bundled/acme.shipped")], { renames: {}, ignored: [] }],
+        ["an empty scan renames nothing", [], { renames: {}, ignored: [] }],
+    ])
+        check("formerIdClaims: " + name, ctx.formerIdClaims(scanOrder(manifests), claimSource), want);
+    // A plugin the user removed leaves its plugins[] row; an installed
+    // plugin that names that id in formerIds takes no rename, so the opt-in
+    // `plugin add` asks for still holds and the plugin stays off.
+    {
+        const installed = declaring("acme.drive", ["acme.foo"]);
+        const leftover = { version: 2, plugins: [{ id: "acme.foo", x: 1 }] };
+        const claims = ctx.formerIdClaims(scanOrder([installed]), claimSource);
+        const renamed = configLogic.renamePlugins(leftover, claims.renames);
+        check("formerIdClaims: an installed claim of a leftover row renames nothing", renamed, { config: leftover, renamed: false });
+        check("formerIdClaims: an installed plugin claiming a leftover row stays off", ctx.isEnabled(renamed.config, installed, "vgs.bar"), false);
+    }
+
+    // renamePlugins rows: [name, user file, rename map, want file, want
+    // renamed]. A plugins[] row, a disabledPlugins entry and a layout entry
+    // in each section take the new id; every other key, and an id the map
+    // does not hold, stays as it is.
+    const driveRenames = { "vgs.cloud-sync": "vgs.google-drive" };
+    const renameRows = [
+        ["vgs.cloud-sync enabled, disabled and placed becomes vgs.google-drive in the same places",
+            v2({ left: [{ id: "a.b" }], center: [], right: [{ id: "c.d" }, { id: "vgs.cloud-sync" }] }, { plugins: [{ id: "a.b" }, { id: "vgs.cloud-sync", x: 1 }], disabledPlugins: ["c.d", "vgs.cloud-sync"] }), driveRenames,
+            v2({ left: [{ id: "a.b" }], center: [], right: [{ id: "c.d" }, { id: "vgs.google-drive" }] }, { plugins: [{ id: "a.b" }, { id: "vgs.google-drive", x: 1 }], disabledPlugins: ["c.d", "vgs.google-drive"] }), true],
+        ["a former id placed in every section is renamed in each",
+            v2({ left: [{ id: "acme.old" }], center: [{ id: "acme.old" }], right: [{ id: "acme.old" }] }), { "acme.old": "acme.new" },
+            v2({ left: [{ id: "acme.new" }], center: [{ id: "acme.new" }], right: [{ id: "acme.new" }] }), true],
+        ["a former id in disabledPlugins alone is renamed",
+            { version: 2, disabledPlugins: ["acme.old"] }, { "acme.old": "acme.new" }, { version: 2, disabledPlugins: ["acme.new"] }, true],
+        ["an id of a plugin that is not installed stays",
+            v2({ right: [{ id: "gone.plugin" }] }, { plugins: [{ id: "gone.plugin", x: 1 }], disabledPlugins: ["gone.plugin"] }), { "acme.old": "acme.new" },
+            v2({ right: [{ id: "gone.plugin" }] }, { plugins: [{ id: "gone.plugin", x: 1 }], disabledPlugins: ["gone.plugin"] }), false],
+        ["an empty map renames nothing",
+            { version: 2, disabledPlugins: ["acme.old"] }, {}, { version: 2, disabledPlugins: ["acme.old"] }, false],
+        ["every other key naming a former id stays",
+            { version: 2, sounds: { "acme.old": { ping: "pop" } }, manager: { id: "acme.old" }, bar: { id: "acme.old" }, welcome: { keys: [{ id: "acme.old", shortcut: "S", text: "t" }] } }, { "acme.old": "acme.new" },
+            { version: 2, sounds: { "acme.old": { ping: "pop" } }, manager: { id: "acme.old" }, bar: { id: "acme.old" }, welcome: { keys: [{ id: "acme.old", shortcut: "S", text: "t" }] } }, false],
+        ["a row or entry that is no object is left for the judge",
+            v2({ right: ["acme.old"] }, { plugins: ["acme.old"] }), { "acme.old": "acme.new" }, v2({ right: ["acme.old"] }, { plugins: ["acme.old"] }), false],
+        ["a list is left for the judge", [], { "acme.old": "acme.new" }, [], false],
+    ];
+    for (const [name, user, renames, want, renamed] of renameRows) {
+        const before = JSON.stringify(user);
+        check("renamePlugins: " + name, configLogic.renamePlugins(user, renames), { config: want, renamed: renamed });
+        check("renamePlugins leaves its input: " + name, JSON.stringify(user), before);
     }
 
     const shipped = { version: 2, bar: { id: "vgs.bar", layout: { left: [{ id: "vgs.workspaces" }], center: [{ id: "vgs.clock" }], right: [] } }, plugins: [{ id: "acme.svc", x: 1 }], disabledPlugins: [] };
@@ -2131,6 +2209,35 @@ function suite(ctx, configLogic, check) {
 
 suite(load(LOGIC), load(CONFIG), report);
 
+// The map the bundled manifests build renames a Cloud Sync user file
+// enabled, disabled and placed, so the rename the shell runs at its first
+// start after the update comes from the shipped manifest. Run once, outside
+// the controls, which the rows above cover.
+{
+    const logic = load(LOGIC), configLogic = load(CONFIG);
+    const bundled = Object.create(null);
+    for (const name of fs.readdirSync(PLUGINS_DIR).sort()) {
+        const file = path.join(PLUGINS_DIR, name, "manifest.json");
+        if (!fs.existsSync(file)) continue;
+        const r = logic.validateManifest(JSON.parse(fs.readFileSync(file, "utf8")), path.dirname(file));
+        if (r.ok) bundled[r.manifest.id] = r.manifest;
+    }
+    const layout = right => ({ id: "vgs.bar", layout: { left: [], center: [], right: right } });
+    const user = { version: 2, bar: layout([{ id: "c.d" }, { id: "vgs.cloud-sync" }]), plugins: [{ id: "vgs.cloud-sync", x: 1 }], disabledPlugins: ["c.d", "vgs.cloud-sync"] };
+    const want = { version: 2, bar: layout([{ id: "c.d" }, { id: "vgs.google-drive" }]), plugins: [{ id: "vgs.google-drive", x: 1 }], disabledPlugins: ["c.d", "vgs.google-drive"] };
+    const sourceOf = m => m.__sourceDir.indexOf(PLUGINS_DIR + "/") === 0 ? "bundled" : "installed";
+    const claims = logic.formerIdClaims(bundled, sourceOf);
+    report("renamePlugins: the bundled manifests rename vgs.cloud-sync to vgs.google-drive", configLogic.renamePlugins(user, claims.renames), { config: want, renamed: true });
+    // An installed plugin that claims the bundled former id and the bundled
+    // live id takes neither.
+    const thief = logic.validateManifest({ schemaVersion: 1, id: "acme.drive", name: "N", version: "1", author: "a", description: "d", kinds: ["service"], entryPoints: { service: "S.qml" }, formerIds: ["vgs.cloud-sync", "vgs.google-drive"] }, "/home/u/.config/vgshell/plugins/acme.drive").manifest;
+    const scan = Object.assign(Object.create(null), { "acme.drive": thief }, bundled);
+    const thiefClaims = logic.formerIdClaims(scan, sourceOf);
+    report("formerIdClaims: an installed claim leaves the bundled rename of vgs.cloud-sync", configLogic.renamePlugins(user, thiefClaims.renames), { config: want, renamed: true });
+    report("formerIdClaims: an installed claim of vgs.cloud-sync and vgs.google-drive is left out", thiefClaims.ignored,
+        [{ id: "acme.drive", reason: "installed", formerIds: ["vgs.cloud-sync", "vgs.google-drive"] }]);
+}
+
 // Each control removes one rule from a copy of a judge and keeps the text
 // around it; the suite must fail on every copy. The copy sits at the
 // judge's own place in a temporary tree, beside the other judge, the icon
@@ -2618,6 +2725,10 @@ const CONTROLS = [
     ["a drop past the shown widgets lands before the hidden next", "var target = slot < widgets.length ? widgets[slot] : next;", "var target = slot < widgets.length ? widgets[slot] : null;"],
     ["PluginLogic keeps no copy of a moved name", "var KINDS = [", "var SECTIONS = [\"left\", \"center\", \"right\"];\nvar KINDS = ["],
     ["PluginLogic keeps no alias of ConfigLogic", "var KINDS = [", "var judgeConfig = ConfigLogic.configError;\nvar KINDS = ["],
+    ["formerIds may not hold the plugin's own id", "if (former === raw.id)", "if (false)"],
+    ["the first claim of a former id wins", "else if (hasOwn(renames, former))", "else if (false)"],
+    ["a claim of a scanned plugin's id is left out", "if (hasOwn(manifests, former))", "if (false)"],
+    ["an installed claim renames nothing", 'if (sourceOf(manifests[id]) !== "bundled") {', "if (false) {"],
     ["PluginLogic reads the sections through ConfigLogic", "    ConfigLogic.SECTIONS.forEach(function (section) {\n        sectionEntries(config, section)", "    [\"left\", \"center\", \"right\"].forEach(function (section) {\n        sectionEntries(config, section)"],
 ];
 
@@ -2645,6 +2756,10 @@ const CONFIG_CONTROLS = [
     ["a migration leaves its input", "    var out = clone(config);\n    var layout = isPlainObject(out.bar)", "    var out = config;\n    var layout = isPlainObject(out.bar)"],
     ["only a version 1 or unversioned file migrates", "(config.version !== 1 && config.version !== undefined)", "(config.version === 3)"],
     ["an unversioned file with nothing to move is left", "    if (config.version === undefined && !moved)\n        return same;\n", ""],
+    ["a rename reaches disabledPlugins", "if (Array.isArray(out.disabledPlugins)) out.disabledPlugins = out.disabledPlugins.map(renamedId);", ""],
+    ["a rename reaches plugins rows", "    renameRows(out.plugins);\n", ""],
+    ["a rename reaches every layout section", "SECTIONS.forEach(function (section) { renameRows(layout[section]); });", "[\"right\"].forEach(function (section) { renameRows(layout[section]); });"],
+    ["a rename leaves its input", "    var out = clone(config);\n    var renamed = false;", "    var out = config;\n    var renamed = false;"],
 ];
 
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), "plugin-logic-control-"));

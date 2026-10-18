@@ -12,7 +12,7 @@ import qs.Ui
 // (Theme.inkBelow) and the highest of the group below (Theme.inkAbove),
 // so a hint's leading, a label centred in a taller row or a button that
 // fills its row moves it no closer to one group than to the other. A group
-// that is a heading over a group list of its own, such as a Cloud Sync
+// that is a heading over a group list of its own, such as a Google Drive
 // folder pair over its files, takes out of the gap above it how far its
 // heading's ink starts below its rows' ink, so the heading stands as far
 // from the group above as one row from the next. A child that is hidden or

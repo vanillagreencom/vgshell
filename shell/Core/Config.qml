@@ -24,6 +24,9 @@ import "ConfigLogic.js" as ConfigLogic
 // write answers. A user file of the previous format version is rewritten as
 // this one when it is read (ConfigLogic.migrateConfig), through the same
 // judge, and written once; one the judge refuses is never overwritten.
+// A former plugin id the scan maps to a scanned plugin is renamed in the
+// user file the same way (ConfigLogic.renamePlugins), by the map the scan
+// hands adoptRenames.
 Singleton {
     id: root
 
@@ -37,6 +40,10 @@ Singleton {
     property var user: null
     property var shippedText: null
     property var userText: null
+    // Each former plugin id the scan's rename map holds, to the id of the
+    // plugin whose claim it keeps (PluginLogic.formerIdClaims), set by
+    // adoptRenames alone.
+    property var renames: ({})
     // "pending" until the first answer, then "loaded", "unparseable",
     // "unreadable" or "malformed" (parsed, refused by configError); the user
     // file may also be "absent". A file that was loaded once keeps its last
@@ -123,9 +130,11 @@ Singleton {
         Qt.callLater(publish);
     }
 
-    // Judge one file's text: { state, value, migrated } with `value` only
-    // when loaded. With `migrate`, the user file's case, the parsed value is
-    // migrated first and `migrated` says whether the migration changed it.
+    // Judge one file's text: { state, value, migrated, renamed } with
+    // `value` only when loaded. With `migrate`, the user file's case, the
+    // parsed value is migrated first and `migrated` says whether the
+    // migration changed it; a loaded value then takes `renames`, and
+    // `renamed` says whether that changed it.
     function judge(label, text, migrate) {
         let value;
         try {
@@ -140,7 +149,8 @@ Singleton {
             console.error("config: " + label + " malformed: " + bad);
             return { state: "malformed" };
         }
-        return { state: "loaded", value: moved.config, migrated: moved.migrated };
+        const renamed = migrate ? ConfigLogic.renamePlugins(moved.config, renames) : { config: moved.config, renamed: false };
+        return { state: "loaded", value: renamed.config, migrated: moved.migrated, renamed: renamed.renamed };
     }
 
     WatchedFile {
@@ -182,13 +192,15 @@ Singleton {
             // Written once, so the next read finds this version's file, and
             // before it is published, which writeUser does, so a write
             // made during that publish is not overwritten.
-            if (r.migrated) {
+            if (r.migrated || r.renamed) {
                 const written = root.writeUser(r.value);
                 if (written === "ok") {
-                    console.info("config: user file migrated: file=" + path + " version=" + ConfigLogic.CONFIG_VERSION);
+                    if (r.migrated) console.info("config: user file migrated: file=" + path + " version=" + ConfigLogic.CONFIG_VERSION);
+                    if (r.renamed) console.info("config: user file plugins renamed: file=" + path);
                     return;
                 }
-                console.error("config: user file migrated in memory, not written: file=" + path + " version=" + ConfigLogic.CONFIG_VERSION + " refusal=" + written);
+                if (r.migrated) console.error("config: user file migrated in memory, not written: file=" + path + " version=" + ConfigLogic.CONFIG_VERSION + " refusal=" + written);
+                if (r.renamed) console.error("config: user file plugins renamed in memory, not written: file=" + path + " refusal=" + written);
             }
             if (r.state === "loaded") root.user = r.value;
             root.publish();
@@ -238,6 +250,27 @@ Singleton {
         userState = "loaded";
         publish();
         return "ok";
+    }
+
+    // Take the scan's rename map, MAP, and rename the user value by it, so
+    // the file names each renamed plugin by its new id. Registry calls it
+    // before it publishes the manifests, so nothing built from them reads a
+    // former id; a user file read later takes the map in judge(). A value
+    // the disk refuses to hold is renamed in memory, as a refused migrated
+    // write is.
+    function adoptRenames(map) {
+        renames = map;
+        if (user === null) return;
+        const r = ConfigLogic.renamePlugins(user, renames);
+        if (!r.renamed) return;
+        const written = writeUser(r.config);
+        if (written === "ok") {
+            console.info("config: user file plugins renamed: file=" + userPath);
+            return;
+        }
+        console.error("config: user file plugins renamed in memory, not written: file=" + userPath + " refusal=" + written);
+        user = r.config;
+        publish();
     }
 
     function reload() {

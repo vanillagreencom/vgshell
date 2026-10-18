@@ -1,4 +1,4 @@
-# Cloud Sync, vgs.cloud-sync. The harness starts it disabled; this row
+# Google Drive, vgs.google-drive. The harness starts it disabled; this row
 # stands in every command it and its runner reach in the shell's own PATH
 # directory, then enables it: automations_stand_ins' systemctl, which logs
 # every verb, and its notify-send; a secret-tool that answers the plugin's
@@ -7,7 +7,7 @@
 # drive remote for rclone's `local` backend rooted at a fixture Drive
 # beside the run's home and runs the host's rclone. No call reaches the
 # host's systemd user manager, keyring, Google Drive or network. The row
-# runs the runner, bin/cloud-sync, as the systemd service runs it, with
+# runs the runner, bin/google-drive, as the systemd service runs it, with
 # the sandbox's directories, and reads what the shell's service publishes.
 #
 # Rows: the service publishes its declared status, its record and IPC
@@ -40,24 +40,24 @@
 # read of the record leaves a pause the runner writes unpublished. The row
 # ends with the pair removed, the units gone and the plugin disabled, as
 # it found it, and its stand-ins removed. No latency reading.
-# inputs: shell/plugins/vgs.cloud-sync/* shell/plugins/vgs.settings/* shell/plugins/vgs.notifications/* shell/Commons/PageReference.js shell/Ui/feedback/LinkText.qml shell/Commons/WatchedFile.qml shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml bin/vgshell-tui
+# inputs: shell/plugins/vgs.google-drive/* shell/plugins/vgs.settings/* shell/plugins/vgs.notifications/* shell/Commons/PageReference.js shell/Ui/feedback/LinkText.qml shell/Commons/WatchedFile.qml shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml bin/vgshell-tui
 set -euo pipefail
-cs_dir="$sandbox/cloudsync"
+cs_dir="$sandbox/googledrive"
 cs_stub="$cs_dir/stub"
-cs_runner="$repo/shell/plugins/vgs.cloud-sync/bin/cloud-sync"
+cs_runner="$repo/shell/plugins/vgs.google-drive/bin/google-drive"
 cs_err="$cs_dir/runner.err"
 mkdir -p -- "$cs_stub/secrets" "$cs_dir/controls"
 : >"$cs_err"
 
 # The world a runner call runs in: HOME, the runtime directory and the
-# runner file. The fixture Drive is cloudsync-drive beside HOME, which the
+# runner file. The fixture Drive is googledrive-drive beside HOME, which the
 # rclone stand-in reads from the HOME the runner hands it.
 cs_use() { # HOME RUNTIME RUNNER
   cs_home="$1" cs_rt="$2" cs_file="$3"
-  cs_drive="$(dirname -- "$1")/cloudsync-drive/Docs"
-  cs_second="$(dirname -- "$1")/cloudsync-second/Shared"
-  cs_mirror="$1/cloudsync/docs"
-  cs_state="$1/.local/state/vgshell/cloud-sync"
+  cs_drive="$(dirname -- "$1")/googledrive-drive/Docs"
+  cs_second="$(dirname -- "$1")/googledrive-second/Shared"
+  cs_mirror="$1/googledrive/docs"
+  cs_state="$1/.local/state/vgshell/google-drive"
   mkdir -p -- "$cs_drive"
 }
 cs() {
@@ -76,7 +76,7 @@ cs_blocked() { if [[ -e $cs_stub/blocked ]]; then echo yes; else echo no; fi; }
 cs_second_shared() { if [[ -e $cs_second/local.txt ]]; then echo yes; else echo no; fi; }
 cs_path_state() { if [[ -e $1 ]]; then echo "$2"; else echo "$3"; fi; }
 # The values the shell's service publishes, and one of them.
-cs_values() { ipc vgs.cloud-sync invoke status ""; }
+cs_values() { ipc vgs.google-drive invoke status ""; }
 cs_value() { cs_values | py_reply 'import json,sys; v=json.load(sys.stdin)
 for part in sys.argv[1].split("."):
     if not isinstance(v, dict) or part not in v:
@@ -94,49 +94,49 @@ cs_pairs() { cs_state pairs action; }
 cs_account() { cs_values | py_reply 'import json,sys; v=json.load(sys.stdin); a=v.get("account"); print(json.dumps(None if a is None else [a["text"], a.get("action")]))'; }
 cs_published_conflicts() { cs_values | py_reply 'import json,sys; c=json.load(sys.stdin).get("cloud", {}).get("conflicts", []); print(json.dumps(sorted([x["kind"], x["path"]] for x in c)))'; }
 cs_keys() { cs_values | py_reply 'import json,sys; v=json.load(sys.stdin); print(json.dumps([[k["secret"], k["value"]] for k in v.get("keys", [])]))'; }
-cs_lent() { ipc shell lent | py_reply 'import json,sys; d=json.load(sys.stdin); r=d["status"].get("vgs.cloud-sync"); print(json.dumps([sorted(r["keys"]) if r else None, "vgs.cloud-sync" in d["ipcTargets"]]))'; }
-# The systemctl calls the stand-in logged for Cloud Sync: a reload and
+cs_lent() { ipc shell lent | py_reply 'import json,sys; d=json.load(sys.stdin); r=d["status"].get("vgs.google-drive"); print(json.dumps([sorted(r["keys"]) if r else None, "vgs.google-drive" in d["ipcTargets"]]))'; }
+# The systemctl calls the stand-in logged for Google Drive: a reload and
 # each call that names one of its units.
-cs_systemctl() { if [[ -f $cs_stub/systemd/systemctl.calls ]]; then py_reply 'import json,sys; print(json.dumps([c for c in map(json.loads, sys.stdin) if "daemon-reload" in c or any(a.startswith("vgs-cloud-sync.") for a in c)]))' <"$cs_stub/systemd/systemctl.calls"; else echo '[]'; fi; }
-cs_click_sync() { click_in "window:Cloud Sync" window vgs.cloud-sync Button "Sync now" && echo ok; }
+cs_systemctl() { if [[ -f $cs_stub/systemd/systemctl.calls ]]; then py_reply 'import json,sys; print(json.dumps([c for c in map(json.loads, sys.stdin) if "daemon-reload" in c or any(a.startswith("vgs-google-drive.") for a in c)]))' <"$cs_stub/systemd/systemctl.calls"; else echo '[]'; fi; }
+cs_click_sync() { click_in "window:Google Drive" window vgs.google-drive Button "Sync now" && echo ok; }
 # The window footer's primary action and whether it is enabled.
-cs_window_primary() { ipc smoke readInstance window vgs.cloud-sync footer | py_reply 'import json,sys; p=json.load(sys.stdin)["primary"]; print(json.dumps([p["action"], p["enabled"]]))'; }
-cs_click_remove() { click_in "window:Cloud Sync" window vgs.cloud-sync RowAction Remove && echo ok; }
-cs_click_reset() { click_in "window:Cloud Sync" window vgs.cloud-sync Button "Start the folder pair list again" && echo ok; }
+cs_window_primary() { ipc smoke readInstance window vgs.google-drive footer | py_reply 'import json,sys; p=json.load(sys.stdin)["primary"]; print(json.dumps([p["action"], p["enabled"]]))'; }
+cs_click_remove() { click_in "window:Google Drive" window vgs.google-drive RowAction Remove && echo ok; }
+cs_click_reset() { click_in "window:Google Drive" window vgs.google-drive Button "Start the folder pair list again" && echo ok; }
 cs_reset_output() { cs_answer pairs-reset | py_reply 'import sys
 s=sys.stdin.read().strip()
 print("reset=kept exit=0" if s.startswith("reset=pairs.json.damaged-") and s.endswith(" exit=0") else s)'; }
-cs_pairs_json() { python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))))' "$cs_home/.config/vgshell/cloud-sync/pairs.json"; }
+cs_pairs_json() { python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))))' "$cs_home/.config/vgshell/google-drive/pairs.json"; }
 cs_kept_pairs_bytes() { python3 -c 'import glob,sys
 files=glob.glob(sys.argv[1] + "/pairs.json.damaged-*")
-print(open(files[0]).read() if len(files) == 1 else "kept-count=%d" % len(files))' "$cs_home/.config/vgshell/cloud-sync"; }
-cs_remove_kept_pairs() { rm -f -- "$cs_home"/.config/vgshell/cloud-sync/pairs.json.damaged-*; }
-cs_dropped() { ipc smoke readInstance service vgs.cloud-sync smokeDropped; }
+print(open(files[0]).read() if len(files) == 1 else "kept-count=%d" % len(files))' "$cs_home/.config/vgshell/google-drive"; }
+cs_remove_kept_pairs() { rm -f -- "$cs_home"/.config/vgshell/google-drive/pairs.json.damaged-*; }
+cs_dropped() { ipc smoke readInstance service vgs.google-drive smokeDropped; }
 cs_dropped_after() { local now; now="$(cs_dropped)" || return; [[ $now =~ ^[0-9]+$ && $now -gt $1 ]] && echo read || echo "$now"; }
 # The attention key the runner's record holds, and the one the service
 # last asked a notification for.
 cs_attention() { cs status | py_reply 'import json,sys; a=json.load(sys.stdin)["attention"]; print(a["key"] if a else "none")'; }
-cs_notified() { ipc smoke readInstance service vgs.cloud-sync notifiedKey | py_reply 'import json,sys; print(json.load(sys.stdin) or "none")'; }
+cs_notified() { ipc smoke readInstance service vgs.google-drive notifiedKey | py_reply 'import json,sys; print(json.load(sys.stdin) or "none")'; }
 # Whether the runner's record holds its attention as notified.
 cs_record_notified() { cs status | py_reply 'import json,sys; a=json.load(sys.stdin)["attention"]; print(json.dumps(a["notified"] if a else None))'; }
-cs_widget_shown() { ipc smoke readInstance "$(bar_key)" vgs.cloud-sync visible; }
-cs_widget() { ipc smoke readInstance "$(bar_key)" vgs.cloud-sync tip | py_reply 'import json,sys; t=json.load(sys.stdin); print(json.dumps([t["title"], t["details"].split("\n")[:1]]))'; }
-cs_widget_names_files() { ipc smoke readInstance "$(bar_key)" vgs.cloud-sync tip | py_reply 'import json,sys; t=json.load(sys.stdin); print(any(n in t["title"] + t["details"] for n in sys.argv[1:]))' a.txt b.txt; }
-cs_link_text='A Google Drive key or connection is missing. Add the client ID and secret, then [select Connect on the Cloud Sync page](page:vgs.cloud-sync/Setup).'
-cs_linked() { ipc smoke readMatchingDescendant window vgs.cloud-sync LinkText text "$cs_link_text" linked; }
+cs_widget_shown() { ipc smoke readInstance "$(bar_key)" vgs.google-drive visible; }
+cs_widget() { ipc smoke readInstance "$(bar_key)" vgs.google-drive tip | py_reply 'import json,sys; t=json.load(sys.stdin); print(json.dumps([t["title"], t["details"].split("\n")[:1]]))'; }
+cs_widget_names_files() { ipc smoke readInstance "$(bar_key)" vgs.google-drive tip | py_reply 'import json,sys; t=json.load(sys.stdin); print(any(n in t["title"] + t["details"] for n in sys.argv[1:]))' a.txt b.txt; }
+cs_link_text='A Google Drive key or connection is missing. Add the client ID and secret, then [select Connect on the Google Drive page](page:vgs.google-drive/Setup).'
+cs_linked() { ipc smoke readMatchingDescendant window vgs.google-drive LinkText text "$cs_link_text" linked; }
 cs_page() { ipc smoke readInstance window vgs.settings shownPage; }
 cs_notice() {
-  ipc smoke modelRows vgs.notifications rows app,summary,hintPage,leaving | py_reply 'import json,sys; print(json.dumps(next((r[2] for r in json.load(sys.stdin) if r[0] == "Cloud Sync" and r[1] == "Cloud Sync needs Connect" and r[3] == ""), "none")))'
+  ipc smoke modelRows vgs.notifications rows app,summary,hintPage,leaving | py_reply 'import json,sys; print(json.dumps(next((r[2] for r in json.load(sys.stdin) if r[0] == "Google Drive" and r[1] == "Google Drive needs Connect" and r[3] == ""), "none")))'
 }
 cs_click_link() {
   local box spans pitch rect x y
-  box="$(ipc smoke windowGeometry window vgs.cloud-sync LinkText "$cs_link_text")" || return 1
-  spans="$(ipc smoke readMatchingDescendant window vgs.cloud-sync LinkText text "$cs_link_text" underlined)" || return 1
-  pitch="$(ipc smoke readMatchingDescendant window vgs.cloud-sync LinkText text "$cs_link_text" linePitch)" || return 1
+  box="$(ipc smoke windowGeometry window vgs.google-drive LinkText "$cs_link_text")" || return 1
+  spans="$(ipc smoke readMatchingDescendant window vgs.google-drive LinkText text "$cs_link_text" underlined)" || return 1
+  pitch="$(ipc smoke readMatchingDescendant window vgs.google-drive LinkText text "$cs_link_text" linePitch)" || return 1
   rect="$(py_reply 'import json,sys; b=json.loads(sys.argv[1]); p=float(sys.argv[2]); s=json.load(sys.stdin)[0]; print(json.dumps([b[0]+s["left"], b[1]+s["line"]*p, s["right"]-s["left"], p]))' "$box" "$pitch" <<<"$spans")" || return 1
-  read -r x y < <(at_centre "window:Cloud Sync" "$rect") || return 1
+  read -r x y < <(at_centre "window:Google Drive" "$rect") || return 1
   hover "$x" "$y" || return 1
-  expect_poll "the pointer reaches the Cloud Sync page link" true ipc smoke readMatchingDescendant window vgs.cloud-sync LinkText text "$cs_link_text" hoveredLink
+  expect_poll "the pointer reaches the Google Drive page link" true ipc smoke readMatchingDescendant window vgs.google-drive LinkText text "$cs_link_text" hoveredLink
   click "$x" "$y"
 }
 
@@ -197,7 +197,7 @@ check_export() {
 check_prune() {
   local prune_drive prune_local old young
   prune_drive="$(dirname -- "$cs_drive")/Prune"
-  prune_local="$cs_home/cloudsync/prune"
+  prune_local="$cs_home/googledrive/prune"
   mkdir -p -- "$prune_drive" "$prune_local"
   expect "the prune pair is added" added=prune cs pair-add --definition "{\"id\":\"prune\",\"label\":\"Prune\",\"remote\":\"Prune\",\"local\":\"$prune_local\"}"
   old="$cs_state/pairs/prune/conflicts/20000101T000000Z-1/old.txt"
@@ -213,10 +213,10 @@ check_prune() {
   rm -rf -- "$prune_local" "$prune_drive" "$cs_state/pairs/prune"
 }
 check_shared_folder() {
-  mkdir -p -- "$(dirname -- "$cs_drive")/Shared" "$cs_home/cloudsync/shared"
-  printf '%s' "made outside Cloud Sync" >"$(dirname -- "$cs_drive")/Shared/original.txt"
-  expect "the shared pair is added" added=shared cs pair-add --definition "{\"id\":\"shared\",\"label\":\"Shared\",\"remote\":\"Shared\",\"local\":\"$cs_home/cloudsync/shared\"}"
-  printf '%s' "local add" >"$cs_home/cloudsync/shared/local.txt"
+  mkdir -p -- "$(dirname -- "$cs_drive")/Shared" "$cs_home/googledrive/shared"
+  printf '%s' "made outside Google Drive" >"$(dirname -- "$cs_drive")/Shared/original.txt"
+  expect "the shared pair is added" added=shared cs pair-add --definition "{\"id\":\"shared\",\"label\":\"Shared\",\"remote\":\"Shared\",\"local\":\"$cs_home/googledrive/shared\"}"
+  printf '%s' "local add" >"$cs_home/googledrive/shared/local.txt"
   expect "a run uploads into the existing shared Drive folder" "pair=shared result=idle exit=0" cs_answer run --pair shared
   expect "the local add reaches the shared Drive folder" "local add" cat -- "$(dirname -- "$cs_drive")/Shared/local.txt"
   expect "no second shared folder is created" no cs_second_shared
@@ -280,7 +280,7 @@ control_red() { # NAME FROM TO CHECK...
   shift 3
   mkdir -p -- "$dir/home" "$dir/run"
   log="$dir/checks.log"
-  if ! edit_error="$(python3 - "$cs_runner" "$dir/cloud-sync" "$from" "$to" 2>&1 <<'PY'
+  if ! edit_error="$(python3 - "$cs_runner" "$dir/google-drive" "$from" "$to" 2>&1 <<'PY'
 import sys
 source, target, old, new = sys.argv[1:]
 text = open(source).read()
@@ -292,17 +292,17 @@ PY
     printf 'edit-failed %s\n' "$edit_error"
     return
   fi
-  cmp -s -- "$cs_runner" "$dir/cloud-sync" && { echo unchanged; return; }
+  cmp -s -- "$cs_runner" "$dir/google-drive" && { echo unchanged; return; }
   (
     failures=0 behaviour_failures=0
-    cs_use "$dir/home" "$dir/run" "$dir/cloud-sync"
+    cs_use "$dir/home" "$dir/run" "$dir/google-drive"
     for check; do "$check"; done
     rm -f -- "$cs_stub/block" "$cs_stub/release" "$cs_stub/blocked"
     if [[ $failures -gt 0 ]]; then echo red; else echo green; fi
   ) 2>&1 | tee "$log" | tail -n 1
 }
 
-cloudsync_row() {
+googledrive_row() {
   local host_rclone shell_path
   host_rclone="$(command -v rclone)"
   automations_stand_ins "$cs_stub/systemd"
@@ -324,14 +324,14 @@ PY
 python3 -c 'import json,os,sys; print(json.dumps({"argv": sys.argv[1:], "env": {k: v for k, v in os.environ.items() if k.startswith("RCLONE_")}}))' "\$@" >>"$cs_stub/rclone.calls"
 scope="\${RCLONE_CONFIG_VGSDRIVE_SCOPE:-}"
 if [[ \$scope != drive && \$3 == copy && \${6:-} == vgsdrive:Shared ]]; then
-  second="\$(dirname -- "\$HOME")/cloudsync-second/Shared"
+  second="\$(dirname -- "\$HOME")/googledrive-second/Shared"
   mkdir -p -- "\$second"
   cp -a -- "\$5/." "\$second/"
   exit 0
 fi
 export RCLONE_CONFIG_VGSDRIVE_TYPE=local
 unset RCLONE_CONFIG_VGSDRIVE_CLIENT_ID RCLONE_CONFIG_VGSDRIVE_CLIENT_SECRET RCLONE_CONFIG_VGSDRIVE_TOKEN RCLONE_CONFIG_VGSDRIVE_SCOPE
-cd "\$(dirname -- "\$HOME")/cloudsync-drive" || exit 9
+cd "\$(dirname -- "\$HOME")/googledrive-drive" || exit 9
 if [[ -f "$cs_stub/block" && ! -e "$cs_stub/blocked" && \$3 == copy ]]; then
   : >"$cs_stub/blocked"
   read -r _ <"$cs_stub/release"
@@ -349,10 +349,10 @@ SH
   chmod 755 "$shim/rclone"
   sentinel_stand_over "$shim/secret-tool" <<SH
 #!/usr/bin/env bash
-if [[ \${1:-} == search && \${2:-} == service && \${3:-} == vgs-cloud-sync && \${4:-} == account && \$# -eq 5 ]]; then
+if [[ \${1:-} == search && \${2:-} == service && \${3:-} == vgs-google-drive && \${4:-} == account && \$# -eq 5 ]]; then
   if [[ -f "$cs_stub/secrets/\$5" ]]; then
-    printf '[/1]\\nlabel = VGS Cloud Sync %s\\nsecret = %s\\n' "\$5" "\$(<"$cs_stub/secrets/\$5")"
-    printf 'attribute.service = vgs-cloud-sync\\nattribute.account = %s\\n' "\$5" >&2
+    printf '[/1]\\nlabel = VGS Google Drive %s\\nsecret = %s\\n' "\$5" "\$(<"$cs_stub/secrets/\$5")"
+    printf 'attribute.service = vgs-google-drive\\nattribute.account = %s\\n' "\$5" >&2
     if [[ -f "$cs_stub/secrets/\$5.user" ]]; then printf 'attribute.user = %s\\n' "\$(<"$cs_stub/secrets/\$5.user")" >&2; fi
   fi
   exit 0
@@ -368,9 +368,9 @@ SH
   cs_use "$home" "$rt_dir" "$cs_runner"
 
   # The service, built over the stand-ins.
-  expect "Cloud Sync starts disabled" '[null, false]' cs_lent
-  expect "enabling Cloud Sync is allowed" ok ipc shell setPluginEnabled vgs.cloud-sync true
-  expect "placing Cloud Sync's widget is allowed" ok ipc shell setPluginPlaced vgs.cloud-sync true
+  expect "Google Drive starts disabled" '[null, false]' cs_lent
+  expect "enabling Google Drive is allowed" ok ipc shell setPluginEnabled vgs.google-drive true
+  expect "placing Google Drive's widget is allowed" ok ipc shell setPluginPlaced vgs.google-drive true
   expect_poll "the service holds its status record and IPC target" '[["account", "cloud", "connection", "firstPair", "keys", "pairs", "schedule", "sync"], true]' cs_lent
   expect_poll "with no pair and no unit the sync reads not set up" '["warning", "Not set up"]' cs_sync
   expect_poll "with no unit the hourly sync offers Set up" '["warning", "Not set up", true]' cs_schedule
@@ -382,7 +382,7 @@ SH
   printf 'fixture-secret' >"$cs_stub/secrets/client-secret"
   printf '{"access_token":"fixture","token_type":"Bearer","refresh_token":"fixture-refresh"}' >"$cs_stub/secrets/token"
   printf 'a.person@example.com' >"$cs_stub/secrets/token.user"
-  expect "the service reads the keys again on request" ok ipc vgs.cloud-sync invoke refresh ""
+  expect "the service reads the keys again on request" ok ipc vgs.google-drive invoke refresh ""
   expect_poll "the stored keys read present" '[["client-id", "present"], ["client-secret", "present"]]' cs_keys
   expect_poll "the connection reads connected and offers Sign out" '["Connected", "signOut"]' cs_account
   expect_poll "the connection names the account its token carries" '"Connected as a.person@example.com."' cs_value account.hint
@@ -391,15 +391,15 @@ SH
   # unit is installed, and its press opens the setup TUI. The stand-in
   # terminal runs no shipped script, so the row runs the install the
   # script runs.
-  settings_page_open vgs.cloud-sync
+  settings_page_open vgs.google-drive
   forget_record
-  expect "Set up hourly sync is pressed" ok settings_act vgs.cloud-sync schedule
-  expect_poll "Set up hands the terminal the setup TUI" "$(words vgs.cloud-sync/setup tui/setup.sh)" recorded_tail
-  expect_run_end "the setup run ends" vgs.cloud-sync/setup
-  settings_page_close vgs.cloud-sync
-  expect "the install the setup TUI runs writes the units" "installed=vgs-cloud-sync.timer changed=2 exit=0" cs_answer install
-  expect "install reloads the stand-in manager and enables the timer" '[["--user", "daemon-reload"], ["--user", "enable", "--now", "vgs-cloud-sync.timer"]]' cs_systemctl
-  expect "the service reads the record again after the setup run" ok ipc vgs.cloud-sync invoke refresh ""
+  expect "Set up hourly sync is pressed" ok settings_act vgs.google-drive schedule
+  expect_poll "Set up hands the terminal the setup TUI" "$(words vgs.google-drive/setup tui/setup.sh)" recorded_tail
+  expect_run_end "the setup run ends" vgs.google-drive/setup
+  settings_page_close vgs.google-drive
+  expect "the install the setup TUI runs writes the units" "installed=vgs-google-drive.timer changed=2 exit=0" cs_answer install
+  expect "install reloads the stand-in manager and enables the timer" '[["--user", "daemon-reload"], ["--user", "enable", "--now", "vgs-google-drive.timer"]]' cs_systemctl
+  expect "the service reads the record again after the setup run" ok ipc vgs.google-drive invoke refresh ""
   expect_poll "with the units installed and no pair the sync reads no folder pairs" '["warning", "No folder pairs"]' cs_sync
   expect_poll "with the units installed the hourly sync reads on" '["ok", "On", null]' cs_schedule
 
@@ -415,7 +415,7 @@ SH
   expect_poll "the service publishes the last sync" set cs_last_sync
   cs_local_edit_records='[["both-changed", "a.txt"], ["removed-locally", "local-gone.txt"]]' check_local_edit
   expect_poll "the service publishes the local edit" '[["both-changed", "a.txt"], ["removed-locally", "local-gone.txt"]]' cs_published_conflicts
-  expected_errors+=('notify: unsent plugin=vgs\.cloud-sync')
+  expected_errors+=('notify: unsent plugin=vgs\.google-drive')
   expect_poll "the service asks for one notification for the local edit" "$(cs_attention)" cs_notified
   expect_poll "the service has the runner record the local edit as notified" true cs_record_notified
   cs_removed_records='[["both-changed", "a.txt"], ["removed-locally", "local-gone.txt"], ["removed-on-drive", "b.txt"]]' check_removed
@@ -425,12 +425,12 @@ SH
 
   # The widget names the pair and its state, never a file.
   expect "with a folder pair the widget shows" true cs_widget_shown
-  expect_poll "the widget's tooltip leads with the files to review and names the pair" '["Cloud Sync: 3 files to review", ["Documents: 3 files to review"]]' cs_widget
+  expect_poll "the widget's tooltip leads with the files to review and names the pair" '["Google Drive: 3 files to review", ["Documents: 3 files to review"]]' cs_widget
   expect "the widget's tooltip names no file" False cs_widget_names_files
 
   # The window, and Sync now through the one service.
-  expect "the window is summoned" ok ipc shell summon window vgs.cloud-sync '{}'
-  expect_poll "the window maps, titled Cloud Sync" 1 window_count "Cloud Sync"
+  expect "the window is summoned" ok ipc shell summon window vgs.google-drive '{}'
+  expect_poll "the window maps, titled Google Drive" 1 window_count "Google Drive"
   expect_poll "the window offers Sync now with a folder pair" '["sync", true]' cs_window_primary
   # Sync now is off while a sync cannot start: a run holds its copy, then
   # the download client ID is missing.
@@ -439,32 +439,34 @@ SH
   cs_let_go
   expect_poll "the window offers Sync now again once the sync ends" '["sync", true]' cs_window_primary
   mv -- "$shim/notify-send" "$cs_stub/notify-send.link-test"
-  notes_on cloudsync-links
+  notes_on googledrive-links
   rm -- "${cs_stub:?}/secrets/client-id"
   expect "a run without the download client ID waits for it" "pair=docs result=authorization-required exit=1" cs_answer run
   expect_poll "the window holds Sync now off while a key is missing" '["sync", false]' cs_window_primary
   expect_poll "the missing-key window draws its page link" true cs_linked
-  expect_poll "the needs-Connect notice holds its page link" '"[select Connect on the Cloud Sync page](page:vgs.cloud-sync/Setup)"' cs_notice
-  cs_click_link || fail "cloudsync: the window page link click failed"
-  expect_poll "the window page link opens Cloud Sync Setup" '"vgs.cloud-sync/Setup"' cs_page
-  settings_page_close vgs.cloud-sync
-  click_item vgs:layer vgs.notifications NotificationCard summary "Cloud Sync needs Connect" 24 - || fail "cloudsync: the notice page link click failed"
-  expect_poll "the needs-Connect notice opens Cloud Sync Setup" '"vgs.cloud-sync/Setup"' cs_page
-  settings_page_close vgs.cloud-sync
-  notes_off cloudsync-links
+  expect_poll "the needs-Connect notice holds its page link" '"[select Connect on the Google Drive page](page:vgs.google-drive/Setup)"' cs_notice
+  cs_click_link || fail "googledrive: the window page link click failed"
+  expect_poll "the window page link opens Google Drive Setup" '"vgs.google-drive/Setup"' cs_page
+  settings_page_close vgs.google-drive
+  click_item vgs:layer vgs.notifications NotificationCard summary "Google Drive needs Connect" 24 - || fail "googledrive: the notice page link click failed"
+  expect_poll "the needs-Connect notice opens Google Drive Setup" '"vgs.google-drive/Setup"' cs_page
+  settings_page_close vgs.google-drive
+  notes_off googledrive-links
 
   # The same missing-key state with its page reference removed must fail
   # both link readers. The control preserves the drawn words.
-  local link_copy="$home/.config/vgshell/plugins/vgs.cloud-sync"
+  local link_copy="$home/.config/vgshell/plugins/vgs.google-drive"
   mkdir -p -- "$link_copy"
-  cp -R -- "$repo/shell/plugins/vgs.cloud-sync/." "$link_copy/"
-  expected_errors+=('plugins: hidden by a higher-precedence plugin with the same id: vgs\.cloud-sync')
-  if edit_file_once "$link_copy/CloudSyncLogic.js" '[select Connect on the Cloud Sync page](page:vgs.cloud-sync/Setup)' 'select Connect on the Cloud Sync page'; then
-    expect "the window hides before the link control" ok ipc shell hide window vgs.cloud-sync
-    notes_on cloudsync-link-control
+  cp -R -- "$repo/shell/plugins/vgs.google-drive/." "$link_copy/"
+  expected_errors+=('plugins: hidden by a higher-precedence plugin with the same id: vgs\.google-drive')
+  # An installed copy's former ids rename nothing (PluginLogic.formerIdClaims).
+  expected_errors+=('plugins: former id claim ignored id=vgs\.google-drive reason=installed ')
+  if edit_file_once "$link_copy/GoogleDriveLogic.js" '[select Connect on the Google Drive page](page:vgs.google-drive/Setup)' 'select Connect on the Google Drive page'; then
+    expect "the window hides before the link control" ok ipc shell hide window vgs.google-drive
+    notes_on googledrive-link-control
     rescan "the copy without the page reference is scanned"
-    expect "the control window is summoned" ok ipc shell summon window vgs.cloud-sync '{}'
-    expect_poll "the control window maps" 1 window_count "Cloud Sync"
+    expect "the control window is summoned" ok ipc shell summon window vgs.google-drive '{}'
+    expect_poll "the control window maps" 1 window_count "Google Drive"
     expect_poll "control: the window without a reference fails the link reader" absent cs_linked
     printf 'fixture-client' >"$cs_stub/secrets/client-id"
     expect "a good run clears the control attention" "pair=docs result=idle exit=0" cs_answer run
@@ -472,18 +474,18 @@ SH
     rm -- "${cs_stub:?}/secrets/client-id"
     expect "a missing-key run renews attention for the notice control" "pair=docs result=authorization-required exit=1" cs_answer run
     expect_poll "control: the notice without a reference fails the link reader" '""' cs_notice
-    click_item vgs:layer vgs.notifications NotificationCard summary "Cloud Sync needs Connect" 24 - || fail "cloudsync: the control notice click failed"
+    click_item vgs:layer vgs.notifications NotificationCard summary "Google Drive needs Connect" 24 - || fail "googledrive: the control notice click failed"
     expect_poll "control: the notice without a reference leaves" '"none"' cs_notice
     expect "control: the notice without a reference leaves Settings closed" absent cs_page
-    notes_off cloudsync-link-control
-    expect "the control window hides" ok ipc shell hide window vgs.cloud-sync
+    notes_off googledrive-link-control
+    expect "the control window hides" ok ipc shell hide window vgs.google-drive
   else
-    fail "cloudsync: the page-reference control edit failed"
+    fail "googledrive: the page-reference control edit failed"
   fi
   rm -r -- "$link_copy"
   mv -- "$cs_stub/notify-send.link-test" "$shim/notify-send"
   rescan "the shipped page reference is scanned again"
-  expect "the shipped window is summoned again" ok ipc shell summon window vgs.cloud-sync '{}'
+  expect "the shipped window is summoned again" ok ipc shell summon window vgs.google-drive '{}'
   printf 'fixture-client' >"$cs_stub/secrets/client-id"
   expect "a run with the client ID back copies again" "pair=docs result=idle exit=0" cs_answer run
   expect_poll "the window offers Sync now again with the key back" '["sync", true]' cs_window_primary
@@ -491,27 +493,27 @@ SH
   copies="$(cs_copies)"
   : >"$cs_stub/systemd/systemctl.calls"
   expect "Sync now is clicked" ok cs_click_sync
-  expect_poll "Sync now asks systemd to start the one service" '[["--user", "start", "--no-block", "vgs-cloud-sync.service"]]' cs_systemctl
+  expect_poll "Sync now asks systemd to start the one service" '[["--user", "start", "--no-block", "vgs-google-drive.service"]]' cs_systemctl
   expect "Sync now runs no rclone of its own" "$copies" cs_copies
   forget_record
   expect "Remove beside the folder pair is clicked" ok cs_click_remove
-  expect_poll "Remove hands the terminal the remove TUI for that pair" "$(words vgs.cloud-sync/remove-pair tui/remove-pair.sh docs)" recorded_tail
-  expect_run_end "the remove run ends" vgs.cloud-sync/remove-pair
-  expect "the window is hidden" ok ipc shell hide window vgs.cloud-sync
-  expect_poll "the window is gone" 0 window_count "Cloud Sync"
+  expect_poll "Remove hands the terminal the remove TUI for that pair" "$(words vgs.google-drive/remove-pair tui/remove-pair.sh docs)" recorded_tail
+  expect_run_end "the remove run ends" vgs.google-drive/remove-pair
+  expect "the window is hidden" ok ipc shell hide window vgs.google-drive
+  expect_poll "the window is gone" 0 window_count "Google Drive"
 
   # Pause stops the next run's copy and survives a restart.
   cs_put d.txt "while paused"
-  expect "Pause through the service" ok ipc vgs.cloud-sync invoke pause ""
+  expect "Pause through the service" ok ipc vgs.google-drive invoke pause ""
   expect_poll "the service publishes the pause" true cs_value cloud.paused
   expect "a paused run copies nothing" "pair=docs result=paused exit=0" cs_answer run
   expect "the paused run left the add on Drive" absent cs_read d.txt
-  stop_shell || fail "cloudsync: the shell stops before the restart"
-  start_shell "$repo" "$sandbox/qs-cloudsync.log" || return 0
+  stop_shell || fail "googledrive: the shell stops before the restart"
+  start_shell "$repo" "$sandbox/qs-googledrive.log" || return 0
   expect_poll "after a restart the service publishes the pause" true cs_value cloud.paused
   expect_poll "after a restart the sync still names the files to review" '["warning", "3 files to review"]' cs_sync
   expect_poll "after a restart the pair reads paused" '["Documents: Paused"]' cs_value sync.lines
-  expect "Resume through the service" ok ipc vgs.cloud-sync invoke resume ""
+  expect "Resume through the service" ok ipc vgs.google-drive invoke resume ""
   expect_poll "the service publishes the resume" false cs_value cloud.paused
   expect "a resumed run copies the add" "pair=docs result=idle exit=0" cs_answer run
   expect "the add made while paused reaches the mirror" "while paused" cs_read d.txt
@@ -529,10 +531,12 @@ SH
 
   # Control: a plugin copy whose service drops every read of the record
   # leaves a pause the runner writes unpublished.
-  local copy="$home/.config/vgshell/plugins/vgs.cloud-sync" dropped
+  local copy="$home/.config/vgshell/plugins/vgs.google-drive" dropped
   mkdir -p -- "$copy"
-  cp -R -- "$repo/shell/plugins/vgs.cloud-sync/." "$copy/"
-  expected_errors+=('plugins: hidden by a higher-precedence plugin with the same id: vgs\.cloud-sync')
+  cp -R -- "$repo/shell/plugins/vgs.google-drive/." "$copy/"
+  expected_errors+=('plugins: hidden by a higher-precedence plugin with the same id: vgs\.google-drive')
+  # An installed copy's former ids rename nothing (PluginLogic.formerIdClaims).
+  expected_errors+=('plugins: former id claim ignored id=vgs\.google-drive reason=installed ')
   if edit_file_once "$copy/Service.qml" "            onLoaded: content => root.accept(content)" "            onLoaded: content => root.smokeDropped += 1" &&
     edit_file_once "$copy/Service.qml" "    property bool registered: false" "    property bool registered: false
     property int smokeDropped: 0"; then
@@ -552,34 +556,34 @@ SH
 
   # The world as the row found it.
   expect "the pair is removed" removed=docs cs pair-remove docs
-  printf '{"pairs": [' >"$cs_home/.config/vgshell/cloud-sync/pairs.json"
-  expect "the service reads the damaged pair list" ok ipc vgs.cloud-sync invoke refresh ""
+  printf '{"pairs": [' >"$cs_home/.config/vgshell/google-drive/pairs.json"
+  expect "the service reads the damaged pair list" ok ipc vgs.google-drive invoke refresh ""
   expect_poll "the damaged pair list offers Reset in status" '["danger", "Not readable", "reset"]' cs_pairs
-  expect "the window is summoned for the damaged pair list" ok ipc shell summon window vgs.cloud-sync '{}'
-  expect_poll "the window reads the damaged pair list" false ipc smoke readInstance window vgs.cloud-sync pairsValid
+  expect "the window is summoned for the damaged pair list" ok ipc shell summon window vgs.google-drive '{}'
+  expect_poll "the window reads the damaged pair list" false ipc smoke readInstance window vgs.google-drive pairsValid
   forget_record
   expect "the window reset step is clicked" ok cs_click_reset
-  expect_poll "the window reset hands the terminal the reset TUI" "$(words vgs.cloud-sync/reset-pairs tui/reset-pairs.sh)" recorded_tail
-  expect_run_end "the window reset run ends" vgs.cloud-sync/reset-pairs
-  expect "the damaged-list window is hidden" ok ipc shell hide window vgs.cloud-sync
-  settings_page_open vgs.cloud-sync
+  expect_poll "the window reset hands the terminal the reset TUI" "$(words vgs.google-drive/reset-pairs tui/reset-pairs.sh)" recorded_tail
+  expect_run_end "the window reset run ends" vgs.google-drive/reset-pairs
+  expect "the damaged-list window is hidden" ok ipc shell hide window vgs.google-drive
+  settings_page_open vgs.google-drive
   forget_record
-  expect "the Settings pair-list repair is pressed" ok settings_act vgs.cloud-sync pairs
-  expect_poll "Settings hands the terminal the reset TUI" "$(words vgs.cloud-sync/reset-pairs tui/reset-pairs.sh)" recorded_tail
-  expect_run_end "the Settings reset run ends" vgs.cloud-sync/reset-pairs
-  settings_page_close vgs.cloud-sync
+  expect "the Settings pair-list repair is pressed" ok settings_act vgs.google-drive pairs
+  expect_poll "Settings hands the terminal the reset TUI" "$(words vgs.google-drive/reset-pairs tui/reset-pairs.sh)" recorded_tail
+  expect_run_end "the Settings reset run ends" vgs.google-drive/reset-pairs
+  settings_page_close vgs.google-drive
   expect "the runner resets the damaged pair list" "reset=kept exit=0" cs_reset_output
   expect "the damaged pair list is kept" '{"pairs": [' cs_kept_pairs_bytes
   expect "the new pair list is empty" '{"pairs": []}' cs_pairs_json
-  expect "the service reads the empty pair list" ok ipc vgs.cloud-sync invoke refresh ""
+  expect "the service reads the empty pair list" ok ipc vgs.google-drive invoke refresh ""
   expect_poll "the empty pair list offers Add again" '["warning", "None", "add"]' cs_pairs
   cs_remove_kept_pairs
-  rm -f -- "$home/.config/systemd/user/vgs-cloud-sync.service" "$home/.config/systemd/user/vgs-cloud-sync.timer"
-  expect "the service reads the record again" ok ipc vgs.cloud-sync invoke refresh ""
+  rm -f -- "$home/.config/systemd/user/vgs-google-drive.service" "$home/.config/systemd/user/vgs-google-drive.timer"
+  expect "the service reads the record again" ok ipc vgs.google-drive invoke refresh ""
   expect_poll "with no pair and no unit the sync reads not set up" '["warning", "Not set up"]' cs_sync
   expect_poll "with no unit the hourly sync offers Set up again" '["warning", "Not set up", true]' cs_schedule
-  expect "unplacing Cloud Sync's widget is allowed" ok ipc shell setPluginPlaced vgs.cloud-sync false
-  expect "disabling Cloud Sync is allowed" ok ipc shell setPluginEnabled vgs.cloud-sync false
+  expect "unplacing Google Drive's widget is allowed" ok ipc shell setPluginPlaced vgs.google-drive false
+  expect "disabling Google Drive is allowed" ok ipc shell setPluginEnabled vgs.google-drive false
   expect_poll "the disabled plugin holds no status record or IPC target" '[null, false]' cs_lent
   sentinel_restore "$shim/secret-tool"
   rm -f -- "$shim/rclone"
@@ -599,7 +603,7 @@ PY
 }
 
 if command -v rclone >/dev/null 2>&1; then
-  cloudsync_row
+  googledrive_row
 else
-  not_measured cloudsync missing=rclone
+  not_measured googledrive missing=rclone
 fi

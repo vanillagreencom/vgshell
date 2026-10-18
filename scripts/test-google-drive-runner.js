@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// The Cloud Sync runner, shell/plugins/vgs.cloud-sync/bin/cloud-sync, end to
+// The Google Drive runner, shell/plugins/vgs.google-drive/bin/google-drive, end to
 // end against rclone's `local` backend: a Drive-side add and change reach
 // the mirror after one run; a local edit since the last download keeps
 // both versions and reads `both-changed`; a Drive deletion keeps the file and
@@ -18,7 +18,14 @@
 // with the access token on curl's stdin; sign-out clears one direction;
 // attention-seen keeps a notified key across renders until the key
 // changes or a settled record needs nothing; two failing pairs keep one
-// key through a run; and no credential value reaches an argv, a log line, a unit or
+// key through a run; the rename from the plugin's previous name holds
+// while a sync of the old units runs, with an hourly timer enabled
+// throughout, moves the directories, the units and the keyring items with
+// the token's account in one invocation, keeps the setup log a TUI holds
+// open in place, holds the keyring step alone while the keyring is locked
+// with the held items read as locked, keeps a concurrent invocation
+// waiting until it ends, and changes nothing a second time;
+// and no credential value reaches an argv, a log line, a unit or
 // the status record.
 //
 // Every case runs in its own scratch home and runtime directory with a PATH
@@ -40,8 +47,9 @@ const childProcess = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { load } = require("../bin/lib/qml-library.js");
 
-const RUNNER = path.join(__dirname, "..", "shell", "plugins", "vgs.cloud-sync", "bin", "cloud-sync");
+const RUNNER = path.join(__dirname, "..", "shell", "plugins", "vgs.google-drive", "bin", "google-drive");
 // The runner's rclone remote, as every Drive path in its argv names it.
 const REMOTE_PREFIX = "vgsdrive:";
 
@@ -62,12 +70,12 @@ const HOST = {};
 for (const tool of ["rclone", "flock", "bash", "mkfifo"]) {
     HOST[tool] = which(tool);
     if (HOST[tool] === null) {
-        console.log("test-cloud-sync-runner: unavailable: " + tool + "=missing");
+        console.log("test-google-drive-runner: unavailable: " + tool + "=missing");
         process.exit(77);
     }
 }
 
-const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "test-cloud-sync-runner-"));
+const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "test-google-drive-runner-"));
 process.on("exit", () => fs.rmSync(scratch, { recursive: true, force: true }));
 
 const SECRETS = {
@@ -123,9 +131,9 @@ function world(options) {
         drive: path.join(root, "drive"),
         second: path.join(root, "second-folder")
     };
-    for (const dir of [w.home, w.stub, w.bin, w.drive, w.second, path.join(w.stub, "secrets")]) fs.mkdirSync(dir, { recursive: true });
+    for (const dir of [w.home, w.stub, w.bin, w.drive, w.second, path.join(w.stub, "secrets"), path.join(w.stub, "old-secrets")]) fs.mkdirSync(dir, { recursive: true });
     fs.mkdirSync(w.run, { recursive: true, mode: 0o700 });
-    w.state = path.join(w.home, ".local", "state", "vgshell", "cloud-sync");
+    w.state = path.join(w.home, ".local", "state", "vgshell", "google-drive");
     w.mirror = path.join(w.home, "mirror", "docs");
     w.env = {
         PATH: w.bin,
@@ -143,21 +151,34 @@ function world(options) {
     if (opts.ids) write(path.join(w.stub, "ids"), "");
     // Each item is a file of the store: <account> holds one without a
     // `user` attribute, <account>.user.<address> one with it, and
-    // <account>.locked marks the account's items locked. It prints as
-    // libsecret's secret-tool does: the label and an unlocked item's secret
-    // on stdout, the attributes and a lock failure on stderr.
+    // <account>.locked marks the account's items locked. secrets/ holds the
+    // plugin's service, old-secrets/ the service of its name before the
+    // rename, and any other service is refused. It prints as libsecret's
+    // secret-tool does: the label and an unlocked item's secret on stdout,
+    // the attributes and a lock failure on stderr. A store of the account
+    // \`block-store\` names leaves \`store-blocked\` and waits for a line on
+    // the \`release\` fifo before it writes.
     write(path.join(w.bin, "secret-tool"), `#!${process.execPath}
 const fs = require("fs");
 const path = require("path");
-const store = ${JSON.stringify(path.join(w.stub, "secrets"))};
+const stub = ${JSON.stringify(w.stub)};
+const stores = { "vgs-google-drive": ${JSON.stringify(path.join(w.stub, "secrets"))}, "vgs-cloud-sync": ${JSON.stringify(path.join(w.stub, "old-secrets"))} };
 const calls = ${JSON.stringify(path.join(w.stub, "secret-tool.calls"))};
 const args = process.argv.slice(2);
 const items = account => fs.readdirSync(store).filter(n => n === account || n.startsWith(account + ".user.")).sort();
-const keyed = (rest, more) => rest.length === 4 + more && rest[0] === "service" && rest[1] === "vgs-cloud-sync" && rest[2] === "account";
+const keyed = (rest, more) => rest.length === 4 + more && rest[0] === "service" && Object.hasOwn(stores, rest[1]) && rest[2] === "account";
+const at = args.indexOf("service");
+const service = at === -1 ? "" : args[at + 1];
+const store = stores[service];
 if (args[0] === "store") {
     const rest = args.slice(2);
     if (!String(args[1]).startsWith("--label=") || !(keyed(rest, 0) || keyed(rest, 2) && rest[4] === "user")) process.exit(2);
     fs.appendFileSync(calls, args.join(" ") + "\\n");
+    if (fs.existsSync(stub + "/block-store") && fs.readFileSync(stub + "/block-store", "utf8") === rest[3]) {
+        fs.unlinkSync(stub + "/block-store");
+        fs.writeFileSync(stub + "/store-blocked", "");
+        fs.readFileSync(stub + "/release");
+    }
     fs.writeFileSync(path.join(store, rest.length === 6 ? rest[3] + ".user." + rest[5] : rest[3]), fs.readFileSync(0));
     process.exit(0);
 }
@@ -179,8 +200,8 @@ const locked = fs.existsSync(path.join(store, account + ".locked"));
 let found = items(account);
 if (locked && found.length === 0) found = [account];
 for (const name of all ? found : found.slice(0, 1)) {
-    process.stdout.write("[/org/freedesktop/secrets/collection/login/1]\\nlabel = VGS Cloud Sync " + account + "\\n" + (locked ? "" : "secret = " + fs.readFileSync(path.join(store, name), "utf8") + "\\n"));
-    process.stderr.write("attribute.service = vgs-cloud-sync\\nattribute.account = " + account + "\\n" + (name === account ? "" : "attribute.user = " + name.slice(account.length + ".user.".length) + "\\n")
+    process.stdout.write("[/org/freedesktop/secrets/collection/login/1]\\nlabel = VGS " + account + "\\n" + (locked ? "" : "secret = " + fs.readFileSync(path.join(store, name), "utf8") + "\\n"));
+    process.stderr.write("attribute.service = " + service + "\\nattribute.account = " + account + "\\n" + (name === account ? "" : "attribute.user = " + name.slice(account.length + ".user.".length) + "\\n")
         + (locked ? "secret-tool: Cannot get secret of a locked object\\n" : ""));
 }
 `, 0o755);
@@ -198,9 +219,38 @@ if (mode === "fail") {
 }
 process.stdout.write(JSON.stringify({ user: { emailAddress: mode === "bad" ? "two@at@example.com" : ${JSON.stringify(ACCOUNT)} } }));
 `, 0o755);
+    // \`enable --now\` and \`disable --now\` keep the enabled units in
+    // \`enabled\`, one a line. \`is-active\` prints activating while the
+    // \`old-run\` file exists, as a oneshot sync reads while it runs, then
+    // inactive with systemctl's exit 3; asked after the old state directory
+    // has gone, it leaves \`moved-early\`. The first disable of the previous
+    // timer while \`fire-on-disable\` exists starts the previous sync first,
+    // as the timer elapsing just before the disable would. \`reset-failed\`
+    // exits 1, as systemctl does for a unit its manager no longer holds.
     write(path.join(w.bin, "systemctl"), `#!${HOST.bash}
-printf '%s\\n' "$*" >>${JSON.stringify(path.join(w.stub, "systemctl.calls"))}
-[[ ! -f ${JSON.stringify(path.join(w.stub, "systemctl-fail"))} ]]
+stub=${JSON.stringify(w.stub)}
+printf '%s\\n' "$*" >>"$stub/systemctl.calls"
+[[ ! -f $stub/systemctl-fail ]] || exit 1
+case $2 in
+  enable)
+    units=()
+    [[ -f $stub/enabled ]] && mapfile -t units <"$stub/enabled"
+    for unit in "\${units[@]}"; do [[ $unit == "$4" ]] && exit 0; done
+    printf '%s\\n' "$4" >>"$stub/enabled" ;;
+  disable)
+    if [[ $4 == vgs-cloud-sync.timer && -f $stub/fire-on-disable && ! -e $stub/fired ]]; then : >"$stub/fired"; : >"$stub/old-run"; fi
+    units=()
+    [[ -f $stub/enabled ]] && mapfile -t units <"$stub/enabled"
+    : >"$stub/enabled"
+    for unit in "\${units[@]}"; do [[ $unit == "$4" ]] || printf '%s\\n' "$unit" >>"$stub/enabled"; done ;;
+  is-active)
+    [[ -d ${JSON.stringify(path.join(w.home, ".local", "state", "vgshell", "cloud-sync"))} ]] || : >"$stub/moved-early"
+    if [[ -f $stub/old-run ]]; then echo activating; exit 3; fi
+    echo inactive
+    exit 3 ;;
+  reset-failed)
+    exit 1 ;;
+esac
 `, 0o755);
     // Each rclone call also records the status record's attention as the
     // run's own render left it.
@@ -425,11 +475,9 @@ function release(w) {
     return true;
 }
 
-function startBlocked(w, runner) {
-    write(path.join(w.stub, "block"), "");
-    const made = childProcess.spawnSync(HOST.mkfifo, [path.join(w.stub, "release")]);
-    assert.equal(made.status, 0, String(made.stderr));
-    const child = childProcess.spawn(process.execPath, [runner || RUNNER, "run"], { env: w.env, stdio: ["ignore", "pipe", "pipe"] });
+// The runner on ARGS in W, started and not waited for.
+function spawnRunner(w, args, runner) {
+    const child = childProcess.spawn(process.execPath, [runner || RUNNER].concat(args), { env: w.env, stdio: ["ignore", "pipe", "pipe"] });
     const exited = new Promise(resolve => child.on("exit", resolve));
     const done = new Promise(resolve => {
         let stdout = "";
@@ -442,6 +490,13 @@ function startBlocked(w, runner) {
         });
     });
     return { child, exited, done };
+}
+
+function startBlocked(w, runner) {
+    write(path.join(w.stub, "block"), "");
+    const made = childProcess.spawnSync(HOST.mkfifo, [path.join(w.stub, "release")]);
+    assert.equal(made.status, 0, String(made.stderr));
+    return spawnRunner(w, ["run"], runner);
 }
 
 // ------------------------------------------------------------- the cases
@@ -774,7 +829,7 @@ function validationRows(w) {
         { rule: "home-or-above", def: { local: path.dirname(w.home) } },
         { rule: "repository-root", def: { local: repoDir } },
         { rule: "state-overlap", def: { local: path.join(w.state, "elsewhere") } },
-        { rule: "vgs-overlap", def: { local: path.join(w.home, ".local", "share", "vgshell", "cloud-sync", "engine") } },
+        { rule: "vgs-overlap", def: { local: path.join(w.home, ".local", "share", "vgshell", "google-drive", "engine") } },
         { rule: "vgs-overlap", def: { local: path.join(w.home, ".config") } },
         { rule: "unit-overlap", def: { local: path.join(w.home, ".config", "systemd", "user") } },
         { rule: "repository-inside", def: { local: w.home + "/projects" } },
@@ -787,7 +842,7 @@ function validationRows(w) {
 function caseValidation(runner, onlyRule) {
     const w = world();
     addPair(w, runner);
-    const before = read(path.join(w.home, ".config", "vgshell", "cloud-sync", "pairs.json"));
+    const before = read(path.join(w.home, ".config", "vgshell", "google-drive", "pairs.json"));
     for (const row of validationRows(w)) {
         if (onlyRule !== undefined && row.rule !== onlyRule) continue;
         const out = cli(w, ["pair-add", "--definition", JSON.stringify(row.def)], runner);
@@ -797,18 +852,18 @@ function caseValidation(runner, onlyRule) {
             continue;
         }
         assert.equal(out.status, 1, "rule " + row.rule + " " + JSON.stringify(row.def));
-        const refused = /^cloud-sync: refused: pair=\S+ rule=(\S+)$/m.exec(out.stderr);
+        const refused = /^google-drive: refused: pair=\S+ rule=(\S+)$/m.exec(out.stderr);
         assert.ok(refused !== null, out.stderr);
         assert.equal(refused[1], row.rule, JSON.stringify(row.def));
-        assert.equal(read(path.join(w.home, ".config", "vgshell", "cloud-sync", "pairs.json")), before);
+        assert.equal(read(path.join(w.home, ".config", "vgshell", "google-drive", "pairs.json")), before);
     }
     if (onlyRule !== undefined) return;
     // A hand-edited list that breaks a rule runs nothing and reads as an
     // error.
-    write(path.join(w.home, ".config", "vgshell", "cloud-sync", "pairs.json"), JSON.stringify({ pairs: [{ id: "all", label: "All", remote: "", local: w.mirror }] }));
+    write(path.join(w.home, ".config", "vgshell", "google-drive", "pairs.json"), JSON.stringify({ pairs: [{ id: "all", label: "All", remote: "", local: w.mirror }] }));
     const out = cli(w, ["run"], runner);
     assert.equal(out.status, 1);
-    assert.match(out.stderr, /^cloud-sync: refused: pair=all rule=drive-root$/m);
+    assert.match(out.stderr, /^google-drive: refused: pair=all rule=drive-root$/m);
     assert.deepEqual(rcloneCalls(w), []);
     const s = status(w, runner);
     assert.equal(s.state, "error");
@@ -831,16 +886,16 @@ function caseInstall(runner) {
     assert.equal(status(w, runner).state, "not-set-up");
     let out = cli(w, ["start"], runner);
     assert.equal(out.status, 1);
-    assert.match(out.stderr, /^cloud-sync: refused: units=absent$/m);
+    assert.match(out.stderr, /^google-drive: refused: units=absent$/m);
     out = cli(w, ["install"], runner);
-    assert.equal(out.stdout, "installed=vgs-cloud-sync.timer changed=2\n", out.stderr);
+    assert.equal(out.stdout, "installed=vgs-google-drive.timer changed=2\n", out.stderr);
     const unitDir = path.join(w.home, ".config", "systemd", "user");
-    const service = read(path.join(unitDir, "vgs-cloud-sync.service"));
-    const timer = read(path.join(unitDir, "vgs-cloud-sync.timer"));
+    const service = read(path.join(unitDir, "vgs-google-drive.service"));
+    const timer = read(path.join(unitDir, "vgs-google-drive.timer"));
     SEEN.push(service, timer);
-    const engines = fs.readdirSync(path.join(w.home, ".local", "share", "vgshell", "cloud-sync", "engine"));
+    const engines = fs.readdirSync(path.join(w.home, ".local", "share", "vgshell", "google-drive", "engine"));
     assert.equal(engines.length, 1);
-    const engine = path.join(w.home, ".local", "share", "vgshell", "cloud-sync", "engine", engines[0], "cloud-sync");
+    const engine = path.join(w.home, ".local", "share", "vgshell", "google-drive", "engine", engines[0], "google-drive");
     assert.equal(read(engine), read(runner || RUNNER));
     assert.ok((fs.statSync(engine).mode & 0o111) !== 0);
     const lines = service.split("\n");
@@ -849,19 +904,19 @@ function caseInstall(runner) {
     assert.ok(lines.includes("SuccessExitStatus=75"));
     assert.ok(timer.split("\n").includes("OnCalendar=hourly"));
     assert.ok(timer.split("\n").includes("Persistent=true"));
-    assert.deepEqual(read(path.join(w.stub, "systemctl.calls")).trim().split("\n"), ["--user daemon-reload", "--user enable --now vgs-cloud-sync.timer"]);
+    assert.deepEqual(read(path.join(w.stub, "systemctl.calls")).trim().split("\n"), ["--user daemon-reload", "--user enable --now vgs-google-drive.timer"]);
     addPair(w, runner);
     assert.equal(cli(w, ["pairs", "--lines"], runner).stdout, "docs\tDocuments\n", "the Remove a folder pair list");
     assert.equal(status(w, runner).units, "installed");
     out = cli(w, ["install"], runner);
-    assert.equal(out.stdout, "installed=vgs-cloud-sync.timer changed=0\n");
+    assert.equal(out.stdout, "installed=vgs-google-drive.timer changed=0\n");
     out = cli(w, ["start"], runner);
-    assert.equal(out.stdout, "started=vgs-cloud-sync.service\n", out.stderr);
-    assert.deepEqual(read(path.join(w.stub, "systemctl.calls")).trim().split("\n").slice(2), ["--user enable --now vgs-cloud-sync.timer", "--user start --no-block vgs-cloud-sync.service"]);
-    write(path.join(unitDir, "vgs-cloud-sync.service"), service.replace(engines[0], "0000000000000000"));
+    assert.equal(out.stdout, "started=vgs-google-drive.service\n", out.stderr);
+    assert.deepEqual(read(path.join(w.stub, "systemctl.calls")).trim().split("\n").slice(2), ["--user enable --now vgs-google-drive.timer", "--user start --no-block vgs-google-drive.service"]);
+    write(path.join(unitDir, "vgs-google-drive.service"), service.replace(engines[0], "0000000000000000"));
     const s = status(w, runner);
     assert.equal(s.units, "installed");
-    assert.ok(read(path.join(unitDir, "vgs-cloud-sync.service")).includes(engines[0]));
+    assert.ok(read(path.join(unitDir, "vgs-google-drive.service")).includes(engines[0]));
 }
 
 // The words of one unit line's value as systemd reads them back, the
@@ -913,8 +968,8 @@ function caseUnitWords(runner) {
     Object.assign(w.env, dirs);
     fs.mkdirSync(dirs.XDG_RUNTIME_DIR, { recursive: true, mode: 0o700 });
     const out = cli(w, ["install"], runner);
-    assert.equal(out.stdout, "installed=vgs-cloud-sync.timer changed=2\n", out.stderr);
-    const service = read(path.join(dirs.XDG_CONFIG_HOME, "systemd", "user", "vgs-cloud-sync.service"));
+    assert.equal(out.stdout, "installed=vgs-google-drive.timer changed=2\n", out.stderr);
+    const service = read(path.join(dirs.XDG_CONFIG_HOME, "systemd", "user", "vgs-google-drive.service"));
     SEEN.push(service);
     const value = key => {
         const found = service.split("\n").filter(l => l.startsWith(key + "="));
@@ -922,18 +977,18 @@ function caseUnitWords(runner) {
         return found[0].slice(key.length + 1);
     };
     assert.deepEqual(unitWords(value("Environment"), false).sort(), Object.entries(dirs).map(([name, dir]) => name + "=" + dir).sort());
-    const engineRoot = path.join(dirs.XDG_DATA_HOME, "vgshell", "cloud-sync", "engine");
+    const engineRoot = path.join(dirs.XDG_DATA_HOME, "vgshell", "google-drive", "engine");
     const engines = fs.readdirSync(engineRoot);
     assert.equal(engines.length, 1);
-    const engine = path.join(engineRoot, engines[0], "cloud-sync");
+    const engine = path.join(engineRoot, engines[0], "google-drive");
     assert.deepEqual(unitWords(value("ExecStart"), true), [process.execPath, engine, "run"]);
     assert.deepEqual(unitWords(value("ExecStopPost"), true), [process.execPath, engine, "status", "--quiet"]);
     const v = world();
     v.env.XDG_STATE_HOME = path.join(v.root, "state\nnext");
     const refused = cli(v, ["install"], runner);
     assert.equal(refused.status, 1);
-    assert.match(refused.stderr, /^cloud-sync: refused: unit-argument=control-character$/m);
-    assert.ok(!fs.existsSync(path.join(v.env.XDG_CONFIG_HOME, "systemd", "user", "vgs-cloud-sync.service")));
+    assert.match(refused.stderr, /^google-drive: refused: unit-argument=control-character$/m);
+    assert.ok(!fs.existsSync(path.join(v.env.XDG_CONFIG_HOME, "systemd", "user", "vgs-google-drive.service")));
 }
 
 // The probe reads presence alone, a locked item included, and a token's
@@ -982,7 +1037,7 @@ function caseAuthorize(runner) {
         assert.deepEqual(tokenItems(w, direction), ["token.user." + ACCOUNT]);
         assert.equal(read(path.join(w.stub, "secrets", "token.user." + ACCOUNT)), CONSENT_TOKEN);
         assert.ok(!out.stdout.includes("fake-consent") && !out.stderr.includes("fake-consent"), "the token is printed");
-        assert.ok(!/^cloud-sync: account=/m.test(out.stderr), out.stderr);
+        assert.ok(!/^google-drive: account=/m.test(out.stderr), out.stderr);
     }
     const reads = jsonLines(path.join(w.stub, "curl.calls"));
     assert.equal(reads.length, 1);
@@ -1001,8 +1056,8 @@ function caseAuthorize(runner) {
     }]);
     const stores = read(path.join(w.stub, "secret-tool.calls")).trim().split("\n");
     assert.deepEqual(stores, [
-        "clear service vgs-cloud-sync account token",
-        "store --label=VGS Cloud Sync token service vgs-cloud-sync account token user " + ACCOUNT
+        "clear service vgs-google-drive account token",
+        "store --label=VGS Google Drive token service vgs-google-drive account token user " + ACCOUNT
     ]);
     for (const row of [{ mode: "fail", reason: "curl-failed exit=22" }, { mode: "bad", reason: "address-invalid" }]) {
         const u = world({ secrets: ["client-id", "client-secret"] });
@@ -1012,17 +1067,17 @@ function caseAuthorize(runner) {
         assert.equal(out.stdout, "authorized=drive\n", out.stderr);
         assert.deepEqual(tokenItems(u), ["token"], row.mode);
         assert.equal(read(path.join(u.stub, "secrets", "token")), CONSENT_TOKEN, row.mode);
-        assert.deepEqual(out.stderr.split("\n").filter(l => l.startsWith("cloud-sync: account=")), ["cloud-sync: account=unread reason=" + row.reason], row.mode);
+        assert.deepEqual(out.stderr.split("\n").filter(l => l.startsWith("google-drive: account=")), ["google-drive: account=unread reason=" + row.reason], row.mode);
     }
     const v = world({ secrets: ["client-id"] });
     let out = cli(v, ["authorize"], runner);
     assert.equal(out.status, 1);
-    assert.match(out.stderr, /^cloud-sync: refused: credential=absent account=client-secret$/m);
+    assert.match(out.stderr, /^google-drive: refused: credential=absent account=client-secret$/m);
     assert.deepEqual(rcloneCalls(v), []);
     const x = world({ secrets: ["client-id", "client-secret"] });
     write(path.join(x.stub, "mode"), "no-refresh");
     out = cli(x, ["authorize"], runner);
-    assert.match(out.stderr, /^cloud-sync: refused: authorize=no-token$/m);
+    assert.match(out.stderr, /^google-drive: refused: authorize=no-token$/m);
     assert.ok(!fs.existsSync(path.join(x.stub, "secrets", "token")));
 }
 
@@ -1069,7 +1124,7 @@ function caseSignOut(runner) {
     write(path.join(v.stub, "secrets", "token.locked"), "");
     const locked = cli(v, ["sign-out"], runner);
     assert.equal(locked.status, 1);
-    assert.match(locked.stderr, /^cloud-sync: refused: credential=locked account=token$/m);
+    assert.match(locked.stderr, /^google-drive: refused: credential=locked account=token$/m);
     assert.equal(cli(v, ["sign-out", "both"], runner).status, 2);
 }
 
@@ -1078,7 +1133,7 @@ function caseSignOut(runner) {
 // again. A valid or absent list is never reset.
 function casePairsReset(runner) {
     const w = world();
-    const file = path.join(w.home, ".config", "vgshell", "cloud-sync", "pairs.json");
+    const file = path.join(w.home, ".config", "vgshell", "google-drive", "pairs.json");
     const damaged = "{\"pairs\": [";
     write(file, damaged);
     const out = cli(w, ["pairs-reset"], runner);
@@ -1096,21 +1151,21 @@ function casePairsReset(runner) {
     const validBefore = read(file);
     const refused = cli(w, ["pairs-reset"], runner);
     assert.equal(refused.status, 1);
-    assert.match(refused.stderr, /^cloud-sync: refused: pairs=valid$/m);
+    assert.match(refused.stderr, /^google-drive: refused: pairs=valid$/m);
     assert.equal(read(file), validBefore, "a valid list is unchanged");
     assert.deepEqual(fs.readdirSync(path.dirname(file)).filter(name => name.startsWith("pairs.json.damaged-")).sort(), [keptName]);
 
     const absent = world();
-    const absentFile = path.join(absent.home, ".config", "vgshell", "cloud-sync", "pairs.json");
+    const absentFile = path.join(absent.home, ".config", "vgshell", "google-drive", "pairs.json");
     const absentOut = cli(absent, ["pairs-reset"], runner);
     assert.equal(absentOut.status, 1);
-    assert.match(absentOut.stderr, /^cloud-sync: refused: pairs=valid$/m);
+    assert.match(absentOut.stderr, /^google-drive: refused: pairs=valid$/m);
     assert.equal(fs.existsSync(absentFile), false, "an absent list stays absent");
 
     const invalidPair = world();
-    const invalidPairFile = path.join(invalidPair.home, ".config", "vgshell", "cloud-sync", "pairs.json");
+    const invalidPairFile = path.join(invalidPair.home, ".config", "vgshell", "google-drive", "pairs.json");
     write(invalidPairFile, JSON.stringify({ pairs: [{ id: "docs", label: "Documents", remote: "Docs", local: invalidPair.home }] }));
-    const prefixed = "cloud-sync: refused: pairs=invalid pair=docs rule=home-or-above";
+    const prefixed = "google-drive: refused: pairs=invalid pair=docs rule=home-or-above";
     const add = cli(invalidPair, ["pair-add", "--definition", JSON.stringify({ id: "more", label: "More", remote: "More", local: path.join(invalidPair.home, "more") })], runner);
     assert.equal(add.status, 1);
     assert.match(add.stderr, new RegExp("^" + prefixed + "$", "m"));
@@ -1200,7 +1255,7 @@ function caseRunKey(runner) {
 // No credential value in any argv, log line, unit or status record.
 function caseNoLeak() {
     for (const dir of fs.readdirSync(scratch)) {
-        const statusFile = path.join(scratch, dir, "home", ".local", "state", "vgshell", "cloud-sync", "status.json");
+        const statusFile = path.join(scratch, dir, "home", ".local", "state", "vgshell", "google-drive", "status.json");
         if (fs.existsSync(statusFile)) SEEN.push(read(statusFile));
         for (const name of ["rclone.calls", "curl.calls"])
             for (const call of jsonLines(path.join(scratch, dir, "stub", name))) SEEN.push(JSON.stringify(call.argv));
@@ -1535,7 +1590,7 @@ function caseSamePathNoBaseline(runner) {
 // the status reads the list as invalid, and Start again recovers.
 function casePairListMigrationRefused(runner) {
     const w = world();
-    const pairsFile = path.join(w.env.XDG_CONFIG_HOME, "vgshell", "cloud-sync", "pairs.json");
+    const pairsFile = path.join(w.env.XDG_CONFIG_HOME, "vgshell", "google-drive", "pairs.json");
     const local = path.join(w.home, "outbox");
     fs.mkdirSync(path.join(local, "project", ".git"), { recursive: true });
     write(pairsFile, JSON.stringify({ pairs: [{ id: "uploads", label: "Uploads", direction: "upload", remote: "Up", local: local }] }));
@@ -1581,7 +1636,7 @@ function caseCredentialMigrationMixed(runner) {
     write(path.join(held.stub, "secrets", "pull-client-id"), OLD_SECRETS["pull-client-id"]);
     const out = cli(held, ["probe"], runner);
     assert.equal(out.status, 0, out.stderr);
-    assert.match(out.stderr, /^cloud-sync: migration=held reason=credential-incomplete$/m);
+    assert.match(out.stderr, /^google-drive: migration=held reason=credential-incomplete$/m);
     assert.equal(read(path.join(held.stub, "secrets", "pull-client-id")), "old-pull-client");
 }
 
@@ -1591,8 +1646,8 @@ function caseCredentialMigrationMixed(runner) {
 function caseStaleUnitsRefresh(runner) {
     const w = world();
     assert.equal(cli(w, ["install"], runner).status, 0);
-    const unitFile = path.join(w.home, ".config", "systemd", "user", "vgs-cloud-sync.service");
-    const engineRoot = path.join(w.home, ".local", "share", "vgshell", "cloud-sync", "engine");
+    const unitFile = path.join(w.home, ".config", "systemd", "user", "vgs-google-drive.service");
+    const engineRoot = path.join(w.home, ".local", "share", "vgshell", "google-drive", "engine");
     const hash = fs.readdirSync(engineRoot)[0];
     const installed = read(unitFile);
     write(unitFile, installed.split(hash).join("0000000000000000"));
@@ -1603,6 +1658,274 @@ function caseStaleUnitsRefresh(runner) {
     fs.rmSync(path.join(w.stub, "systemctl-fail"));
     assert.equal(status(w, runner).units, "installed");
     assert.equal(read(unitFile), installed);
+}
+
+// The layout the runner kept under its name before the rename to Google
+// Drive, planted in W: a paused pair with an inventory and a kept copy,
+// the setup log, an engine copy, the hourly units with the timer enabled
+// and, unless KEYRING is false, the three keyring items, the token naming
+// its account.
+const OLD_NAME = "cloud-sync";
+const OLD_KEPT = "20990101T000000Z-1/a.txt";
+
+function oldPlaces(w) {
+    return {
+        config: path.join(w.env.XDG_CONFIG_HOME, "vgshell", OLD_NAME),
+        state: path.join(w.env.XDG_STATE_HOME, "vgshell", OLD_NAME),
+        data: path.join(w.env.XDG_DATA_HOME, "vgshell", OLD_NAME)
+    };
+}
+
+function plantOldLayout(w, keyring) {
+    const old = oldPlaces(w);
+    write(path.join(old.config, "pairs.json"), JSON.stringify({ pairs: [{ id: "docs", label: "Documents", remote: "Docs", local: w.mirror }] }, null, 2) + "\n");
+    write(path.join(old.state, "control.json"), JSON.stringify({ paused: false, pausedPairs: ["docs"], notifiedKey: null }, null, 2) + "\n");
+    write(path.join(old.state, "pairs", "docs", "state.json"), JSON.stringify({
+        state: "idle", startedAt: null, lastAttempt: null, lastSuccess: null, lastError: null, changes: null,
+        records: [{ kind: "both-changed", path: "a.txt", stored: OLD_KEPT, since: new Date().toISOString() }]
+    }, null, 2) + "\n");
+    write(path.join(old.state, "pairs", "docs", "inventory.json"), JSON.stringify({ entries: { "a.txt": { size: 6, mtimeMs: 1, hash: null, id: null } } }, null, 2) + "\n");
+    write(path.join(old.state, "pairs", "docs", "conflicts", OLD_KEPT), "kept edit\n");
+    write(path.join(old.state, "setup.log"), "earlier line\n");
+    write(path.join(old.data, "engine", "0000000000000000", OLD_NAME), "the previous runner\n", 0o755);
+    const unitDir = path.join(w.env.XDG_CONFIG_HOME, "systemd", "user");
+    write(path.join(unitDir, "vgs-cloud-sync.service"), "[Service]\nExecStart=" + path.join(old.data, "engine", "0000000000000000", OLD_NAME) + " run\n");
+    write(path.join(unitDir, "vgs-cloud-sync.timer"), "[Timer]\nOnCalendar=hourly\n");
+    write(path.join(w.stub, "enabled"), "vgs-cloud-sync.timer\n");
+    if (keyring === false) return old;
+    write(path.join(w.stub, "old-secrets", "client-id"), SECRETS["client-id"]);
+    write(path.join(w.stub, "old-secrets", "client-secret"), SECRETS["client-secret"]);
+    write(path.join(w.stub, "old-secrets", "token.user." + ACCOUNT), SECRETS["token"]);
+    return old;
+}
+
+// Every file under each of DIRS, by path, with its bytes.
+function snapshot(dirs) {
+    const files = {};
+    for (const dir of dirs) {
+        const walk = d => {
+            if (!fs.existsSync(d)) return;
+            for (const entry of fs.readdirSync(d, { withFileTypes: true })) {
+                const child = path.join(d, entry.name);
+                if (entry.isDirectory()) walk(child);
+                else files[child] = fs.readFileSync(child, "utf8");
+            }
+        };
+        walk(dir);
+    }
+    return files;
+}
+
+// What the Google Drive Settings Setup tab and Details page read from the
+// runner's status record and probe, through the plugin's own judge.
+function setupValues(w, runner) {
+    const Logic = load(path.join(__dirname, "..", "shell", "plugins", "vgs.google-drive", "GoogleDriveLogic.js"));
+    const statusOut = cli(w, ["status"], runner);
+    const probeOut = cli(w, ["probe"], runner);
+    assert.equal(statusOut.status + probeOut.status, 0, statusOut.stderr + probeOut.stderr);
+    const record = Logic.parseStatus(statusOut.stdout);
+    const presence = Logic.parseProbe(probeOut.stdout);
+    assert.ok(record.ok && presence.ok, JSON.stringify([record, presence]));
+    // The judge runs in its own realm; JSON brings its answer into this one.
+    return JSON.parse(JSON.stringify(Logic.statusValues(record.record, presence.presence, "", "", Date.now())));
+}
+
+// The units the systemctl stand-in holds enabled, sorted.
+function enabledUnits(w) {
+    const file = path.join(w.stub, "enabled");
+    return fs.existsSync(file) ? read(file).split("\n").filter(Boolean).sort() : [];
+}
+
+const CREDENTIAL_ACCOUNTS = ["client-id", "client-secret", "token"];
+const UNIT_HOLD = { exit: "held", reason: "old-service-activating" };
+const FIRST_RENAME_CALLS = [
+    "--user is-active vgs-cloud-sync.service",
+    "--user disable --now vgs-cloud-sync.timer",
+    "--user is-active vgs-cloud-sync.service",
+    "--user daemon-reload",
+    "--user enable --now vgs-google-drive.timer",
+    "--user daemon-reload",
+    "--user reset-failed vgs-cloud-sync.service vgs-cloud-sync.timer"
+];
+// Each state the rename can meet at the shell's first start, the hold it
+// makes and what ends the hold. Every row then ends with the same moved
+// home.
+const RENAME_ROWS = [
+    { name: "previous service idle", plant: () => {}, hold: null, calls: FIRST_RENAME_CALLS },
+    {
+        name: "previous service syncing",
+        plant: w => write(path.join(w.stub, "old-run"), ""),
+        hold: UNIT_HOLD,
+        release: w => fs.unlinkSync(path.join(w.stub, "old-run")),
+        calls: ["--user is-active vgs-cloud-sync.service"].concat(FIRST_RENAME_CALLS)
+    },
+    {
+        name: "previous timer starts a sync as it is disabled",
+        plant: w => write(path.join(w.stub, "fire-on-disable"), ""),
+        hold: UNIT_HOLD,
+        release: w => fs.unlinkSync(path.join(w.stub, "old-run")),
+        calls: [
+            "--user is-active vgs-cloud-sync.service",
+            "--user disable --now vgs-cloud-sync.timer",
+            "--user is-active vgs-cloud-sync.service",
+            "--user enable --now vgs-cloud-sync.timer"
+        ].concat(FIRST_RENAME_CALLS)
+    },
+    {
+        name: "keyring locked",
+        plant: w => { for (const account of CREDENTIAL_ACCOUNTS) write(path.join(w.stub, "old-secrets", account + ".locked"), ""); },
+        hold: { exit: 0, reason: "credential-locked" },
+        release: w => { for (const account of CREDENTIAL_ACCOUNTS) fs.unlinkSync(path.join(w.stub, "old-secrets", account + ".locked")); },
+        calls: FIRST_RENAME_CALLS
+    }
+];
+
+// The held invocation of ROW: a running previous sync refuses it with the
+// code the plugin's service asks again on, with nothing moved and the
+// previous timer enabled; a locked keyring holds its own step alone, and
+// every reader takes the held items as locked, never as absent.
+function assertRenameHeld(w, row, runner, out, before) {
+    const Logic = load(path.join(__dirname, "..", "shell", "plugins", "vgs.google-drive", "GoogleDriveLogic.js"));
+    const old = oldPlaces(w);
+    if (row.hold.exit === "held") {
+        assert.equal(out.status, Logic.RUNNER_HELD, out.stderr);
+        assert.match(out.stderr, new RegExp("^google-drive: refused: migration=held reason=" + row.hold.reason + "$", "m"));
+        assert.equal(Logic.heldReason(out.stderr), "old-sync", "the service reads the runner's hold as a running previous sync");
+        assert.deepEqual(snapshot(Object.values(old)), before);
+        assert.deepEqual(fs.readdirSync(w.state), ["setup.log"]);
+        assert.deepEqual(enabledUnits(w), ["vgs-cloud-sync.timer"]);
+        return;
+    }
+    assert.equal(out.status, 0, out.stderr);
+    for (const account of CREDENTIAL_ACCOUNTS)
+        assert.match(out.stderr, new RegExp("^google-drive: migration=held reason=" + row.hold.reason + " account=" + account + "$", "m"));
+    assert.ok(!/result=written/.test(out.stderr), out.stderr);
+    for (const dir of Object.values(old)) assert.equal(fs.existsSync(dir), false, dir);
+    assert.deepEqual(enabledUnits(w), ["vgs-google-drive.timer"]);
+    assert.ok(fs.existsSync(path.join(w.state, "rename.pending")));
+    assert.deepEqual(fs.readdirSync(path.join(w.stub, "secrets")), []);
+    const probed = cli(w, ["probe"], runner);
+    assert.deepEqual(JSON.parse(probed.stdout).credentials.map(c => c.presence), ["locked", "locked", "locked"]);
+    assert.equal(setupValues(w, runner).account.text, "Keyring locked");
+    assert.equal(cli(w, ["resume", "--pair", "docs"], runner).status, 0);
+    assert.equal(cli(w, ["run"], runner).stdout, "pair=docs result=authorization-required\n");
+    assert.equal(JSON.parse(read(path.join(w.state, "pairs", "docs", "state.json"))).lastError.kind, "credential-locked");
+    assert.equal(cli(w, ["pause", "--pair", "docs"], runner).status, 0);
+    assert.match(cli(w, ["authorize"], runner).stderr, /^google-drive: refused: credential=locked account=client-id$/m);
+}
+
+// A home with the layout of the plugin's name before the rename, its
+// hourly units installed and enabled, a paused pair and all three keyring
+// items, and the setup log a floating TUI already holds open under the new
+// name, in each state of RENAME_ROWS: the invocation that state allows
+// moves everything, installs the units under the new name, keeps both
+// setup logs with the TUI's file in place and leaves nothing under the old
+// name, and an hourly timer is enabled throughout. A further invocation
+// changes nothing.
+function caseRenameMigration(runner, only) {
+    for (const row of RENAME_ROWS.filter(r => only === undefined || r.name === only)) {
+        const w = world({ secrets: [] });
+        const old = plantOldLayout(w);
+        write(path.join(w.state, "setup.log"), "later line\n");
+        const tuiLog = fs.statSync(path.join(w.state, "setup.log")).ino;
+        row.plant(w);
+        const unitDir = path.join(w.env.XDG_CONFIG_HOME, "systemd", "user");
+        let out = cli(w, ["status"], runner);
+        if (row.hold !== null) {
+            assertRenameHeld(w, row, runner, out, snapshot(Object.values(old)));
+            row.release(w);
+            out = cli(w, ["status"], runner);
+        }
+        assert.equal(out.status, 0, row.name + ": " + out.stderr);
+        assert.match(out.stderr, /^google-drive: migration=rename old=cloud-sync result=written$/m);
+        for (const dir of Object.values(old)) assert.equal(fs.existsSync(dir), false, dir);
+        assert.equal(fs.existsSync(path.join(w.state, "rename.pending")), false);
+        assert.deepEqual(read(path.join(w.env.XDG_CONFIG_HOME, "vgshell", "google-drive", "pairs.json")), JSON.stringify({ pairs: [{ id: "docs", label: "Documents", remote: "Docs", local: w.mirror }] }, null, 2) + "\n");
+        assert.deepEqual(JSON.parse(read(path.join(w.state, "control.json"))).pausedPairs, ["docs"]);
+        assert.deepEqual(JSON.parse(read(path.join(w.state, "pairs", "docs", "inventory.json"))).entries["a.txt"].size, 6);
+        assert.equal(fs.statSync(path.join(w.state, "setup.log")).ino, tuiLog);
+        assert.equal(read(path.join(w.state, "setup.log")), "later line\n");
+        assert.equal(read(path.join(w.state, "setup.before-rename.log")), "earlier line\n");
+        const s = JSON.parse(out.stdout);
+        assert.deepEqual([s.units, s.pairs.map(p => [p.id, p.state])], ["installed", [["docs", "paused"]]]);
+        assert.deepEqual(s.conflicts.map(c => c.storedPath), [path.join(w.state, "pairs", "docs", "conflicts", OLD_KEPT)]);
+        assert.equal(read(s.conflicts[0].storedPath), "kept edit\n");
+        // Nothing moved while the previous service read busy, and the
+        // previous units went after the new ones were in.
+        assert.equal(fs.existsSync(path.join(w.stub, "moved-early")), false);
+        assert.deepEqual(read(path.join(w.stub, "systemctl.calls")).trim().split("\n"), row.calls, row.name);
+        assert.deepEqual(enabledUnits(w), ["vgs-google-drive.timer"]);
+        assert.deepEqual(fs.readdirSync(unitDir).sort(), ["vgs-google-drive.service", "vgs-google-drive.timer"]);
+        assert.match(read(path.join(unitDir, "vgs-google-drive.timer")), /^OnCalendar=hourly$/m);
+        const engines = fs.readdirSync(path.join(w.env.XDG_DATA_HOME, "vgshell", "google-drive", "engine"));
+        assert.equal(engines.length, 1);
+        assert.ok(read(path.join(unitDir, "vgs-google-drive.service")).includes(path.join(engines[0], "google-drive")));
+        assert.deepEqual(fs.readdirSync(path.join(w.stub, "old-secrets")), []);
+        assert.deepEqual(fs.readdirSync(path.join(w.stub, "secrets")).sort(), ["client-id", "client-secret", "token.user." + ACCOUNT]);
+        for (const [account, file] of [["client-id", "client-id"], ["client-secret", "client-secret"], ["token", "token.user." + ACCOUNT]])
+            assert.equal(read(path.join(w.stub, "secrets", file)), SECRETS[account], account);
+        const values = setupValues(w, runner);
+        assert.deepEqual([values.schedule.tone, values.firstPair.tone, values.account.tone, values.keys.map(k => k.value)],
+            ["ok", "ok", "ok", ["present", "present"]], row.name);
+        assert.equal(cli(w, ["probe"], runner).stdout, JSON.stringify({ credentials: [
+            { account: "client-id", presence: "present", needed: true },
+            { account: "client-secret", presence: "present", needed: true },
+            { account: "token", presence: "present", needed: true, user: ACCOUNT }
+        ] }) + "\n");
+
+        const places = [w.home, path.join(w.stub, "secrets"), path.join(w.stub, "old-secrets")];
+        const before = snapshot(places);
+        const calls = ["systemctl.calls", "secret-tool.calls"].map(name => read(path.join(w.stub, name)));
+        const again = cli(w, ["probe"], runner);
+        assert.equal(again.status, 0, again.stderr);
+        assert.ok(!/migration=/.test(again.stderr), again.stderr);
+        assert.deepEqual(snapshot(places), before);
+        assert.deepEqual(["systemctl.calls", "secret-tool.calls"].map(name => read(path.join(w.stub, name))), calls);
+    }
+}
+
+// A rename on a home whose units were never installed, held inside its
+// keyring step after every directory has moved, and a sign-out started
+// then: the sign-out waits for the rename on the state lock, so the token
+// the rename moves is the one it clears and no sign-in comes back.
+async function caseRenameConcurrent(runner) {
+    const w = world({ secrets: [] });
+    plantOldLayout(w);
+    for (const unit of ["vgs-cloud-sync.service", "vgs-cloud-sync.timer"]) fs.unlinkSync(path.join(w.env.XDG_CONFIG_HOME, "systemd", "user", unit));
+    // flock, logged: a call that waits names -w first.
+    fs.unlinkSync(path.join(w.bin, "flock"));
+    write(path.join(w.bin, "flock"), "#!" + HOST.bash + "\nprintf '%s\\n' \"$*\" >>" + JSON.stringify(path.join(w.stub, "flock.calls")) + "\nexec " + JSON.stringify(HOST.flock) + " \"$@\"\n", 0o755);
+    const waits = () => fs.existsSync(path.join(w.stub, "flock.calls")) ? read(path.join(w.stub, "flock.calls")).split("\n").filter(line => line.startsWith("-w ")).length : 0;
+    const made = childProcess.spawnSync(HOST.mkfifo, [path.join(w.stub, "release")]);
+    assert.equal(made.status, 0, String(made.stderr));
+    write(path.join(w.stub, "block-store"), "token");
+    const rename = spawnRunner(w, ["status"], runner);
+    let signOut = null;
+    try {
+        await waitFor(path.join(w.stub, "store-blocked"), "the rename's token store");
+        for (const dir of Object.values(oldPlaces(w))) assert.equal(fs.existsSync(dir), false, dir);
+        const before = waits();
+        signOut = spawnRunner(w, ["sign-out"], runner);
+        const deadline = Date.now() + 30000;
+        while (waits() === before) {
+            if (Date.now() > deadline) throw new Error("timed out waiting for the sign-out's lock wait");
+            await sleep(20);
+        }
+        while (!release(w)) await sleep(20);
+        const [renamed, signedOut] = await Promise.all([rename.done, signOut.done]);
+        assert.equal(renamed.code, 0, renamed.stderr);
+        assert.equal(signedOut.code, 0, signedOut.stderr);
+        assert.equal(signedOut.stdout, "signed-out=drive\n");
+        assert.deepEqual(fs.readdirSync(path.join(w.stub, "old-secrets")), []);
+        assert.deepEqual(fs.readdirSync(path.join(w.stub, "secrets")).sort(), ["client-id", "client-secret"]);
+    } finally {
+        // A stand-in still waiting on the fifo outlives a killed runner.
+        release(w);
+        for (const started of [rename, signOut]) if (started !== null && started.child.exitCode === null && started.child.signalCode === null) {
+            started.child.kill("SIGKILL");
+            await started.exited;
+        }
+    }
 }
 
 function casePruneConflictStorage(runner) {
@@ -1655,7 +1978,7 @@ function assertNoDeletingArgvAnywhere() {
     for (const name of fs.readdirSync(scratch)) {
         if (!/^w\d+$/.test(name)) continue;
         const root = path.join(scratch, name);
-        assertNoDeletingArgv({ stub: path.join(root, "stub"), state: path.join(root, "home", ".local", "state", "vgshell", "cloud-sync") });
+        assertNoDeletingArgv({ stub: path.join(root, "stub"), state: path.join(root, "home", ".local", "state", "vgshell", "google-drive") });
         checked += 1;
     }
     assert.equal(checked, worlds);
@@ -1689,7 +2012,7 @@ function assertMigratedSecrets(w) {
 function caseCredentialMigration(runner) {
     const w = world({ secrets: [] });
     plantOldSecrets(w);
-    const pairsFile = path.join(w.env.XDG_CONFIG_HOME, "vgshell", "cloud-sync", "pairs.json");
+    const pairsFile = path.join(w.env.XDG_CONFIG_HOME, "vgshell", "google-drive", "pairs.json");
     write(pairsFile, JSON.stringify({ pairs: [{ id: "docs", label: "Documents", direction: "pull", remote: "Docs", local: w.mirror }] }));
     const pairDir = path.join(w.state, "pairs", "docs");
     write(path.join(pairDir, "state.json"), JSON.stringify({
@@ -1757,7 +2080,7 @@ function mutant(name, from, to, count) {
     const found = text.split(from).length - 1;
     assert.equal(found, count === undefined ? 1 : count, "control " + name + " matches " + found + " times");
     const dir = fs.mkdtempSync(path.join(scratch, "control-"));
-    const file = path.join(dir, "cloud-sync");
+    const file = path.join(dir, "google-drive");
     fs.writeFileSync(file, text.split(from).join(to), { mode: 0o755 });
     assert.notEqual(read(file), text);
     return file;
@@ -1798,6 +2121,16 @@ async function controls() {
     await mustFail("migrated copies kept", mutant("migrated copies kept", "const renamed = slash === -1 ? edit.stored : migratedStamp + edit.stored.slice(slash);", "const renamed = edit.stored;"), caseStateMigrationKeepsCopies);
     await mustFail("one old client", mutant("one old client", "const source = pull.every(row => row[1].kind === \"found\") ? pull : upload.every(row => row[1].kind === \"found\") ? upload : null;", "const source = pull.every(row => row[1].kind === \"found\") ? pull : upload;"), caseCredentialMigrationMixed);
     await mustFail("clear only when complete", mutant("clear only when complete", "log(\"migration=held reason=credential-incomplete\");\n        return;", "log(\"migration=held reason=credential-incomplete\");"), caseCredentialMigrationMixed);
+    await mustFail("rename", mutant("rename", "const renamed = migrateRenameIfNeeded();", "const renamed = false;"), caseRenameMigration);
+    await mustFail("rename holds while the previous service syncs", mutant("rename holds while the previous service syncs", "if (busy !== null) holdRename(\"reason=old-service-\" + busy);", ""), r => caseRenameMigration(r, "previous service syncing"));
+    await mustFail("rename keeps the timer of a sync it raced", mutant("rename keeps the timer of a sync it raced", "const restored = systemctlFailure([\"enable\", \"--now\", OLD_TIMER]);", "const restored = null;"), r => caseRenameMigration(r, "previous timer starts a sync as it is disabled"));
+    await mustFail("rename held exit", mutant("rename held exit", "    process.exit(EXIT_BUSY);\n}", "    process.exit(1);\n}"), r => caseRenameMigration(r, "previous service syncing"));
+    await mustFail("rename held account reads held", mutant("rename held account reads held", "function renameHeldPresence(account) {\n", "function renameHeldPresence(account) {\n    return null;\n"), r => caseRenameMigration(r, "keyring locked"));
+    await mustFail("rename pending before the first move", mutant("rename pending before the first move", "if (!exists(RENAME_PENDING)) writeJson(RENAME_PENDING, { held: {} });", ""), caseRenameConcurrent);
+    await mustFail("rename keeps the account", mutant("rename keeps the account", "old.user === null ? [] : [\"user\", old.user]", "[]"), r => caseRenameMigration(r, "previous service idle"));
+    await mustFail("rename keeps the previous setup log", mutant("rename keeps the previous setup log", "if (path.basename(to) === \"setup.log\")", "if (false)"), r => caseRenameMigration(r, "previous service idle"));
+    await mustFail("rename installs the units", mutant("rename installs the units", "const installed = writeInstall(false);", "const installed = { changed: 0, failure: null };"), r => caseRenameMigration(r, "previous service idle"));
+    await mustFail("rename resumes a held keyring", mutant("rename resumes a held keyring", "writeJson(RENAME_PENDING, { held: keyring.held });", "fs.rmSync(RENAME_PENDING, { force: true });"), r => caseRenameMigration(r, "keyring locked"));
     await mustFail("stale units refresh", mutant("stale units refresh", "if (verb !== \"install\") refreshStaleInstallIfNeeded();", ""), caseStaleUnitsRefresh);
     await mustFail("stale refresh never refuses", mutant("stale refresh never refuses", "if (done.failure !== null) log(\"units=stale refresh=failed \" + done.failure);", "if (done.failure !== null) refuse(done.failure);"), caseStaleUnitsRefresh);
     await mustFail("forbidden argv", mutant("forbidden argv", "const uploadArgs = [\"copy\", \"--update\", pair.local, remotePath(pair)].concat(filterArgs());", "const uploadArgs = [\"copy\", \"--update\", pair.local, remotePath(pair), \"--delete-after\"].concat(filterArgs());"), caseForbiddenRcloneArgv);
@@ -1843,7 +2176,7 @@ async function controls() {
     await mustFail("sign-in resets", mutant("sign-in resets", "if (state.state === \"authorization-required\") writePairState(", "if (false) writePairState("), caseSignOut);
     await mustFail("pause keeps notified", mutant("pause keeps notified", "paused ? control.pausedPairs : [], notifiedKey: control.notifiedKey }", "paused ? control.pausedPairs : [] }"), caseAttention);
     await mustFail("child environment", mutant("child environment", "const env = { LANG: \"C.UTF-8\" };", "const env = Object.assign({ LANG: \"C.UTF-8\" }, process.env);"), caseCopy);
-    await mustFail("secret attributes", mutant("secret attributes", "return verb.concat([\"service\", SECRET_SERVICE, \"account\", account], extra);", "return verb.concat([\"service\", SECRET_SERVICE, \"user\", account], extra);"), caseAuthorize);
+    await mustFail("secret attributes", mutant("secret attributes", "return verb.concat([\"service\", service, \"account\", account], extra);", "return verb.concat([\"service\", service, \"user\", account], extra);"), caseAuthorize);
     await mustFail("unit backslash", mutant("unit backslash", ".replace(/\\\\/g, \"\\\\\\\\\")", ""), caseUnitWords);
     await mustFail("unit quote", mutant("unit quote", ".replace(/\"/g, \"\\\\\\\"\")", ""), caseUnitWords);
     await mustFail("unit dollar in ExecStart", mutant("unit dollar in ExecStart", "quoted.replace(/\\$/g, \"$$$$\")", "quoted"), caseUnitWords);
@@ -1905,11 +2238,13 @@ async function main() {
     casePairListMigrationRefused();
     caseStateMigrationKeepsCopies();
     caseStaleUnitsRefresh();
+    caseRenameMigration();
+    await caseRenameConcurrent();
     caseMissingRemoteFirstSync();
     caseMissingRemoteWithBaseline();
     assertNoDeletingArgvAnywhere();
     await controls();
-    console.log("test-cloud-sync-runner: ok");
+    console.log("test-google-drive-runner: ok");
 }
 
 main().catch(e => {

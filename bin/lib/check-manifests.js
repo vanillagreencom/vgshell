@@ -12,8 +12,12 @@
 // names: every entry point must be a file, every first-party default key must
 // be unique across the checked manifests, at most one of them declares
 // `hyprland.pads`, since the Hyprland layer holds one pads table and writes
-// a later plugin's pads as a comment (docs/architecture/hyprland.md), and
-// every `tui` script a regular
+// a later plugin's pads as a comment (docs/architecture/hyprland.md), each
+// former id in `formerIds` has one claimant and is no checked plugin's id,
+// since the shell renames a user file by bundled claims alone, the first in
+// scan order, and leaves out a claim of a live id (PluginLogic.formerIdClaims,
+// D108), so a second claimant would lose its settings and a live id's
+// claimant its rename, and every `tui` script a regular
 // file with its owner's execute bit, reached through no symbolic link, since
 // bin/vgshell-scan follows links and would publish whatever one points at.
 // A bar widget that offers `layout` keeps the settings order bar widgets
@@ -124,6 +128,7 @@ function readingsOrderDefect(manifest) {
 let refused = 0;
 const seen = {};
 const defaultKeys = {};
+const formerClaims = {};
 let padsOwner = null;
 for (const { dir, text } of manifests()) {
     let raw;
@@ -139,6 +144,24 @@ for (const { dir, text } of manifests()) {
     if (seen[r.manifest.id]) { console.log("refused  " + dir + ": id " + r.manifest.id + " already used by " + seen[r.manifest.id]); refused += 1; continue; }
     seen[r.manifest.id] = dir;
     let missing = false;
+    // Either order of a former id and a live id refuses the later manifest.
+    if (formerClaims[r.manifest.id] !== undefined) {
+        console.log("refused  " + dir + ": id " + r.manifest.id + " is a former id of " + formerClaims[r.manifest.id]);
+        refused += 1;
+        missing = true;
+    }
+    for (const former of (r.manifest.formerIds === undefined ? [] : r.manifest.formerIds)) {
+        if (formerClaims[former] !== undefined) {
+            console.log("refused  " + dir + ": former id " + former + " of " + r.manifest.id + " already claimed by " + formerClaims[former]);
+            refused += 1;
+            missing = true;
+        } else if (seen[former] !== undefined) {
+            console.log("refused  " + dir + ": former id " + former + " of " + r.manifest.id + " is the id of " + seen[former]);
+            refused += 1;
+            missing = true;
+        }
+        if (formerClaims[former] === undefined) formerClaims[former] = r.manifest.id;
+    }
     for (const bind of (r.manifest.hyprland === undefined ? [] : r.manifest.hyprland.binds)) {
         if (bind.key === null) continue;
         const owner = r.manifest.id + ":" + bind.shortcut;

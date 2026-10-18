@@ -1,15 +1,15 @@
 .pragma library
 
-// vgs.cloud-sync's pure decisions, run under node by
-// scripts/test-cloud-sync-logic.js: the one judge of the runner's status
+// vgs.google-drive's pure decisions, run under node by
+// scripts/test-google-drive-logic.js: the one judge of the runner's status
 // record and probe answer, the status values the service publishes from
 // them, and what the bar widget, the window and the notification draw from
 // those values. `headline` is the one statement of where the sync stands:
 // the bar, its tooltip, the window and the Settings `sync` value all read
-// it. The runner, bin/cloud-sync, owns every rule about the sync; this
+// it. The runner, bin/google-drive, owns every rule about the sync; this
 // file only reads its answers.
 
-// The runner's overall states and a pair's states (bin/cloud-sync,
+// The runner's overall states and a pair's states (bin/google-drive,
 // renderStatus).
 var STATES = ["idle", "running", "paused", "offline", "authorization-required", "error", "not-set-up"];
 var PAIR_STATES = ["idle", "running", "paused", "offline", "authorization-required", "error"];
@@ -17,7 +17,7 @@ var UNITS = ["installed", "absent", "stale"];
 var CONFLICT_KINDS = ["both-changed", "removed-locally", "removed-on-drive", "renamed", "unreadable-on-drive", "duplicate-on-drive"];
 var PRESENCES = ["present", "absent", "locked", "unavailable"];
 // The credential accounts of the manifest's `secrets`, in the order the
-// Setup section lists them (bin/cloud-sync probe prints the same set).
+// Setup section lists them (bin/google-drive probe prints the same set).
 var ACCOUNTS = ["client-id", "client-secret", "token"];
 
 // The conflicts the window lists: the published values share one 64 KiB
@@ -30,7 +30,7 @@ var CLOUD_BYTES_MAX = 40000;
 var LINES_MAX = 64;
 var HINT_MAX = 200;
 // A Google account address as the runner stores it on a token
-// (bin/cloud-sync authorize): printable, at most 254 characters, one `@`.
+// (bin/google-drive authorize): printable, at most 254 characters, one `@`.
 var ADDRESS_MAX = 254;
 var NOT_PRINTABLE = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/;
 
@@ -55,9 +55,9 @@ var BADGE_TONES = { ok: "success", info: "info", warning: "warning", danger: "da
 // A run's last error, as plain text a user reads. A kind not listed here is
 // a sync error.
 var ERROR_TEXT = {
-    offline: "Google Drive cannot be reached. Cloud Sync tries again at the next sync.",
-    "authorization-refused": "Google Drive did not accept Connect. [Select Connect again on the Cloud Sync page](page:vgs.cloud-sync/Setup).",
-    "credential-absent": "A Google Drive key or connection is missing. Add the client ID and secret, then [select Connect on the Cloud Sync page](page:vgs.cloud-sync/Setup).",
+    offline: "Google Drive cannot be reached. VGS tries again at the next sync.",
+    "authorization-refused": "Google Drive did not accept Connect. [Select Connect again on the Google Drive page](page:vgs.google-drive/Setup).",
+    "credential-absent": "A Google Drive key or connection is missing. Add the client ID and secret, then [select Connect on the Google Drive page](page:vgs.google-drive/Setup).",
     "credential-locked": "Your keyring is locked. Unlock it to sync.",
     "source-missing": "A Google Drive folder of a folder pair does not exist.",
     "rclone-missing": "rclone is not installed.",
@@ -65,9 +65,9 @@ var ERROR_TEXT = {
     "secret-tool-failed": "VGS cannot read your keyring.",
     "secret-tool-timeout": "VGS cannot read your keyring.",
     interrupted: "The last sync stopped before it finished.",
-    "pairs-invalid": "The folder pair list is not valid, so Cloud Sync copies nothing."
+    "pairs-invalid": "The folder pair list is not valid, so VGS copies nothing."
 };
-var ERROR_DEFAULT = "The sync stopped with an error. Cloud Sync tries again at the next sync.";
+var ERROR_DEFAULT = "The sync stopped with an error. VGS tries again at the next sync.";
 // The Settings page's own words where ERROR_TEXT sends the user to that
 // page: its fields stand below the sync value.
 var PAGE_ERROR_TEXT = {
@@ -76,11 +76,11 @@ var PAGE_ERROR_TEXT = {
 };
 var CONFLICT_TEXT = {
     "both-changed": "Changed here and on Google Drive. The older copy is kept for 30 days.",
-    "removed-locally": "Removed here. Cloud Sync copied it back from Google Drive.",
+    "removed-locally": "Removed here. VGS copied it back from Google Drive.",
     "removed-on-drive": "Removed from Google Drive. The copy here stays.",
     renamed: "Renamed on Google Drive. The old name was copied back to Google Drive.",
-    "unreadable-on-drive": "Cloud Sync could not copy this file from Google Drive.",
-    "duplicate-on-drive": "Google Drive holds two files with this name. Cloud Sync copied one of them."
+    "unreadable-on-drive": "VGS could not copy this file from Google Drive.",
+    "duplicate-on-drive": "Google Drive holds two files with this name. VGS copied one of them."
 };
 // The line that names the folder of the copy CONFLICT_TEXT speaks of,
 // before that folder's path: the kept older copy, or the copy here.
@@ -96,7 +96,7 @@ var CONFLICT_FOLDER_TEXT = {
 var REASON_TEXT = [
     { pattern: /dangling shortcut/, text: "It is a Google Drive shortcut to a file that no longer exists." }
 ];
-var REASON_DEFAULT = "Google Drive did not let Cloud Sync read it.";
+var REASON_DEFAULT = "Google Drive did not let VGS read it.";
 
 var PAIR_RULE_TEXT = {
     shape: "Folder pair {id} is not a valid folder pair.",
@@ -107,7 +107,7 @@ var PAIR_RULE_TEXT = {
     local: "Folder pair {id} has an invalid folder on this computer.",
     "home-or-above": "Folder pair {id} uses your home folder or a folder above it.",
     "repository-root": "Folder pair {id} uses a Git repository.",
-    "state-overlap": "Folder pair {id} overlaps the folder where Cloud Sync keeps its records.",
+    "state-overlap": "Folder pair {id} overlaps the folder where VGS keeps its Google Drive records.",
     "vgs-overlap": "Folder pair {id} overlaps a VGS folder.",
     "unit-overlap": "Folder pair {id} overlaps the folder for system services.",
     "repository-inside": "Folder pair {id} holds a Git repository.",
@@ -118,18 +118,52 @@ var PAIR_RULE_TEXT = {
 
 var PAIRS_RESET_HINT = "Start again to keep the damaged file and make an empty list.";
 
+// The runner's exit while its rename from the plugin's previous name is
+// held (bin/google-drive, the rename): a sync of that name's service runs,
+// its timer could not be disabled, or systemctl gave no state. Nothing
+// tells the shell when the hold ends, so the service asks again after
+// HELD_RETRY_MS while the runner answers this.
+var RUNNER_HELD = 75;
+var HELD_RETRY_MS = 15000;
+
+// Why the runner held the rename, read from its refusal line,
+// `google-drive: refused: migration=held <reason>` (holdRename). First
+// match wins; a held answer no row matches is `other`.
+var HELD_REASONS = [
+    { pattern: /migration=held reason=old-service-(active|activating|deactivating|reloading|refreshing)\b/, reason: "old-sync" },
+    { pattern: /migration=held reason=old-service-unknown\b/, reason: "old-sync-unknown" },
+    { pattern: /migration=held systemctl=missing\b/, reason: "systemd-missing" },
+    { pattern: /migration=held systemctl=failed\b/, reason: "old-timer" }
+];
+
+// The Settings sync value while the runner holds the rename, by reason.
+// It stands with or without a status record, since a held runner writes
+// none.
+var HELD_VIEW = {
+    "old-sync": { tone: "info", text: "Waiting", hint: "Google Drive is finishing a sync under its earlier name, Cloud Sync. VGS shows the sync status when it ends." },
+    "old-sync-unknown": { tone: "warning", text: "Waiting", hint: "VGS could not tell whether a sync under the earlier name, Cloud Sync, still runs. VGS tries again soon." },
+    "systemd-missing": { tone: "warning", text: "Waiting", hint: "VGS could not find systemd, which runs the hourly sync under the earlier name, Cloud Sync. VGS tries again soon." },
+    "old-timer": { tone: "warning", text: "Waiting", hint: "VGS could not stop the hourly sync under the earlier name, Cloud Sync. VGS tries again soon." },
+    other: { tone: "warning", text: "Waiting", hint: "VGS could not finish the move from the earlier name, Cloud Sync. VGS tries again soon." }
+};
+
+function heldReason(line) {
+    var row = HELD_REASONS.find(function (r) { return r.pattern.test(line); });
+    return row === undefined ? "other" : row.reason;
+}
+
 // What a failed request to the runner reads as, by its operation.
 var PROBLEM_TEXT = {
     start: "VGS could not start a sync.",
-    pause: "VGS could not pause Cloud Sync.",
-    resume: "VGS could not resume Cloud Sync.",
-    status: "VGS could not read the Cloud Sync status.",
+    pause: "VGS could not pause the Google Drive sync.",
+    resume: "VGS could not resume the Google Drive sync.",
+    status: "VGS could not read the Google Drive status.",
     probe: "VGS could not check the Google Drive keys."
 };
 
-var SCHEDULE_HINT = "Cloud Sync runs every hour while you are logged in.";
-var NO_PAIRS_HINT = "Add a folder pair to choose what Cloud Sync keeps in step.";
-var REVIEW_HINT = "Open Cloud Sync to review them.";
+var SCHEDULE_HINT = "VGS syncs Google Drive every hour while you are logged in.";
+var NO_PAIRS_HINT = "Add a folder pair to choose what VGS keeps in step with Google Drive.";
+var REVIEW_HINT = "Open the Google Drive window to review them.";
 var UNUSED_KEY_HINT = "No folder pair uses this key now.";
 
 function hasOwn(object, key) {
@@ -174,7 +208,7 @@ function conflictOk(c) {
 }
 
 // The one judge of the runner's status record, status.json or `status`'s
-// line (bin/cloud-sync renderStatus): { ok: true, record } or
+// line (bin/google-drive renderStatus): { ok: true, record } or
 // { ok: false, error } naming the first field that does not fit.
 function parseStatus(text) {
     var doc;
@@ -234,7 +268,7 @@ function parseProbe(text) {
 // before the first success.
 function stateView(state, staleAfter, now) {
     if (state !== "idle") {
-        if (!hasOwn(STATE_VIEW, state)) throw new Error("cloud-sync: state " + JSON.stringify(state) + " is not one of " + STATES.join(", "));
+        if (!hasOwn(STATE_VIEW, state)) throw new Error("google-drive: state " + JSON.stringify(state) + " is not one of " + STATES.join(", "));
         return STATE_VIEW[state];
     }
     if (staleAfter === null) return NOT_SYNCED;
@@ -250,7 +284,7 @@ function badgeTone(tone) {
 function errorText(error, onPage) {
     if (error === null) return "";
     if (error.kind === "credential-absent" && error.account === "token")
-        return "Google Drive is not connected. " + (onPage === true ? "Select Connect below." : "[Select Connect on the Cloud Sync page](page:vgs.cloud-sync/Setup).");
+        return "Google Drive is not connected. " + (onPage === true ? "Select Connect below." : "[Select Connect on the Google Drive page](page:vgs.google-drive/Setup).");
     if (onPage === true && hasOwn(PAGE_ERROR_TEXT, error.kind)) return PAGE_ERROR_TEXT[error.kind];
     return hasOwn(ERROR_TEXT, error.kind) ? ERROR_TEXT[error.kind] : ERROR_DEFAULT;
 }
@@ -286,7 +320,7 @@ function reasonText(reason) {
 function problemText(operation, firstLine) {
     if (operation === "") return "";
     if (operation === "start" && firstLine.indexOf("units=absent") !== -1) return "Set up hourly sync first.";
-    return hasOwn(PROBLEM_TEXT, operation) ? PROBLEM_TEXT[operation] : "VGS could not reach Cloud Sync.";
+    return hasOwn(PROBLEM_TEXT, operation) ? PROBLEM_TEXT[operation] : "VGS could not reach the Google Drive sync.";
 }
 
 
@@ -416,7 +450,7 @@ function scheduleValue(units) {
     if (units === "installed") return { tone: "ok", text: "On", hint: SCHEDULE_HINT };
     if (units === "absent") return { tone: "warning", text: "Not set up", action: true, hint: SCHEDULE_HINT };
     if (units === "stale") return { tone: "warning", text: "Needs setup", action: true, hint: SCHEDULE_HINT };
-    throw new Error("cloud-sync: units " + JSON.stringify(units) + " is not one of " + UNITS.join(", "));
+    throw new Error("google-drive: units " + JSON.stringify(units) + " is not one of " + UNITS.join(", "));
 }
 
 // A pair's second line, in the window row and the Settings Folder pairs
@@ -472,8 +506,10 @@ function signInValue(presence, record) {
 // `cloud`, the data the widget and the window draw; and `lastSync`, the
 // time of the last complete sync, or null to clear it. From the probe,
 // the key list and connection. RECORD and PRESENCE are null
-// until their first answer, which leaves their values out.
-function statusValues(record, presence, problem, now) {
+// until their first answer, which leaves their values out. HELD is the
+// heldReason the runner last held the rename for, "" for none: while it
+// holds, `sync` says why, with or without a record.
+function statusValues(record, presence, problem, held, now) {
     var values = {};
     if (record !== null) {
         var cloud = cloudValue(record, problem);
@@ -483,7 +519,7 @@ function statusValues(record, presence, problem, now) {
         values.firstPair = pairListValid(cloud) && cloud.pairs.length > 0
             ? { tone: "ok", text: "A folder pair is ready", action: false }
             : { tone: "warning", text: "Add your first folder pair", action: pairListValid(cloud) };
-        if (!pairListValid(cloud)) values.firstPair.hint = "Choose Start the folder pair list again under [Folder pairs](page:vgs.cloud-sync/Details)";
+        if (!pairListValid(cloud)) values.firstPair.hint = "Choose Start the folder pair list again under [Folder pairs](page:vgs.google-drive/Details)";
         values.cloud = cloud;
         values.lastSync = cloud.lastSuccess;
     }
@@ -494,6 +530,10 @@ function statusValues(record, presence, problem, now) {
         // Connecting belongs to the required step. This row keeps account
         // maintenance beside its fact on Details.
         if (values.account.action === "signIn") delete values.account.action;
+    }
+    if (held !== "") {
+        if (!hasOwn(HELD_VIEW, held)) throw new Error("google-drive: held reason " + JSON.stringify(held) + " is not one of " + Object.keys(HELD_VIEW).join(", "));
+        values.sync = Object.assign({}, HELD_VIEW[held]);
     }
     return values;
 }
@@ -528,12 +568,12 @@ function widgetView(cloud, now) {
 // its label and state, the files to review when the headline does not say
 // so, and the last sync's time in the shell's wording (TIME_TEXT).
 function widgetTooltip(cloud, now, timeText) {
-    if (cloud === undefined || cloud === null) return { title: "Cloud Sync", details: "" };
+    if (cloud === undefined || cloud === null) return { title: "Google Drive", details: "" };
     var head = headline(cloud, now);
     var lines = pairLines(cloud.pairs, now);
     if (cloud.conflictCount > 0 && head.cause !== "review") lines.push(reviewLine(cloud.conflictCount));
     if (cloud.lastSuccess !== null) lines.push("Last sync " + timeText(cloud.lastSuccess, now));
-    return { title: "Cloud Sync: " + head.text, details: lines.join("\n") };
+    return { title: "Google Drive: " + head.text, details: lines.join("\n") };
 }
 
 // The window's subtitle: { text, tone, lines }, the headline, then
@@ -639,13 +679,13 @@ function notification(record) {
     if (record.attention === null) return null;
     var reasons = record.attention.reasons;
     if (reasons.indexOf("authorization-required") !== -1)
-        return { title: "Cloud Sync needs Connect", message: errorText(record.lastError === null ? { kind: "authorization-refused" } : record.lastError), tone: "danger" };
+        return { title: "Google Drive needs Connect", message: errorText(record.lastError === null ? { kind: "authorization-refused" } : record.lastError), tone: "danger" };
     if (reasons.indexOf("error") !== -1)
-        return { title: "Cloud Sync failed", message: errorText(record.lastError), tone: "danger" };
+        return { title: "Google Drive sync failed", message: errorText(record.lastError), tone: "danger" };
     if (reasons.indexOf("conflicts") !== -1)
-        return { title: "Cloud Sync kept files for review", message: reviewLine(record.conflicts.length) + ". Open Cloud Sync to see them.", tone: "warning" };
+        return { title: "Google Drive sync kept files for review", message: reviewLine(record.conflicts.length) + ". Open the Google Drive window to see them.", tone: "warning" };
     if (reasons.indexOf("units-stale") !== -1)
-        return { title: "Cloud Sync needs setup", message: "[Select Set up hourly sync in Cloud Sync Details](page:vgs.cloud-sync/Details).", tone: "warning" };
+        return { title: "Google Drive needs setup", message: "[Select Set up hourly sync in Google Drive Details](page:vgs.google-drive/Details).", tone: "warning" };
     return null;
 }
 

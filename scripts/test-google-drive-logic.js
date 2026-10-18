@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// vgs.cloud-sync's pure decisions, shell/plugins/vgs.cloud-sync/
-// CloudSyncLogic.js: the judge of the runner's status record and probe
+// vgs.google-drive's pure decisions, shell/plugins/vgs.google-drive/
+// GoogleDriveLogic.js: the judge of the runner's status record and probe
 // answer, the headline, the status values the service publishes, what the
 // bar widget, its tooltip and the window draw, the notification, and when
 // idle data turns old. One table holds a row per state of the sync and
@@ -19,7 +19,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { load } = require("../bin/lib/qml-library.js");
 
-const file = path.join(__dirname, "..", "shell", "plugins", "vgs.cloud-sync", "CloudSyncLogic.js");
+const file = path.join(__dirname, "..", "shell", "plugins", "vgs.google-drive", "GoogleDriveLogic.js");
 const Timestamp = load(path.join(__dirname, "..", "shell", "Commons", "Timestamp.js"));
 const same = (got, want, message) => assert.deepEqual(JSON.parse(JSON.stringify(got)), JSON.parse(JSON.stringify(want)), message || "");
 
@@ -28,7 +28,7 @@ const HOUR = 3600 * 1000;
 const iso = ms => new Date(ms).toISOString();
 const ADDRESS = "a.person@example.com";
 
-// A record as bin/cloud-sync renderStatus writes it: a account pair that
+// A record as bin/google-drive renderStatus writes it: a account pair that
 // synced an hour ago, an account pair whose connection Google refused, and one
 // conflict of each kind.
 const DOCS = { id: "docs", label: "Documents", remote: "Docs", state: "idle", lastSuccess: iso(NOW - HOUR), staleAfter: iso(NOW + HOUR), lastError: null, changes: { added: 1, updated: 0 } };
@@ -36,7 +36,7 @@ const INBOX = { id: "inbox", label: "Agent uploads", remote: "Inbox", state: "au
 // A new name longer than a window row, with no space to break at.
 const RENAMED_TO = "Quarterly-planning-notes-for-the-agent-uploads-review-with-every-attachment-from-the-October-meeting.txt";
 const CONFLICTS = [
-    { kind: "both-changed", pair: "docs", pairLabel: "Documents", path: "taxes/2025.xlsx", localPath: "/home/me/gdrive/taxes/2025.xlsx", storedPath: "/home/me/.local/state/vgshell/cloud-sync/pairs/docs/conflicts/20261010T110000Z-7/taxes/2025.xlsx", since: iso(NOW - HOUR) },
+    { kind: "both-changed", pair: "docs", pairLabel: "Documents", path: "taxes/2025.xlsx", localPath: "/home/me/gdrive/taxes/2025.xlsx", storedPath: "/home/me/.local/state/vgshell/google-drive/pairs/docs/conflicts/20261010T110000Z-7/taxes/2025.xlsx", since: iso(NOW - HOUR) },
     { kind: "removed-on-drive", pair: "docs", pairLabel: "Documents", path: "old.txt", localPath: "/home/me/gdrive/old.txt", since: iso(NOW - HOUR) },
     { kind: "renamed", pair: "inbox", pairLabel: "Agent uploads", path: "a.txt", to: RENAMED_TO, localPath: "/home/me/outbox/a.txt", since: iso(NOW - HOUR) },
     { kind: "removed-locally", pair: "docs", pairLabel: "Documents", path: "taxes/receipts.pdf", localPath: "/home/me/gdrive/taxes/receipts.pdf", since: iso(NOW - HOUR) }
@@ -77,13 +77,13 @@ function probe(over) {
 // The bar's tone for each headline tone, stated here apart from the logic.
 const BAR = { ok: "calm", info: "calm", warning: "warning", danger: "danger" };
 
-const SIGNED_OUT = "Google Drive is not connected. [Select Connect on the Cloud Sync page](page:vgs.cloud-sync/Setup).";
+const SIGNED_OUT = "Google Drive is not connected. [Select Connect on the Google Drive page](page:vgs.google-drive/Setup).";
 const SIGNED_OUT_PAGE = "Google Drive is not connected. Select Connect below.";
 const REFUSED_PAGE = "Google Drive did not accept Connect. Select Connect again below.";
-const INVALID = "The folder pair list is not valid, so Cloud Sync copies nothing.";
+const INVALID = "The folder pair list is not valid, so VGS copies nothing.";
 const signedOut = { kind: "credential-absent", account: "token" };
 // The pair list the runner could not read: it reads no pair and refuses
-// every pair change (bin/cloud-sync readPairs).
+// every pair change (bin/google-drive readPairs).
 const invalid = detail => record({ state: "error", lastError: { kind: "pairs-invalid", detail: detail || "pair=docs rule=repository-inside" }, pairs: [], conflicts: [], attention: { reasons: ["error"], key: "k", notified: false } });
 
 // The window footer's primary: [action, enabled].
@@ -91,7 +91,7 @@ const SYNC = ["sync", true];
 const NO_SYNC = ["sync", false];
 const SETUP = ["setup", true];
 const RESUME = ["resume", true];
-// A pair as the runner renders it under a pause (bin/cloud-sync
+// A pair as the runner renders it under a pause (bin/google-drive
 // renderStatus): its own state reads paused.
 const PAUSED_DOCS = Object.assign({}, DOCS, { state: "paused" });
 
@@ -113,12 +113,12 @@ const STATES = [
     ["paused", well({ state: "paused", paused: true, pairs: [PAUSED_DOCS] }), "Paused", "info", "cloud-off", RESUME, undefined],
     ["every pair paused on its own", well({ state: "paused", pairs: [PAUSED_DOCS] }), "Paused", "info", "cloud-off", NO_SYNC, undefined],
     ["error", well({ state: "error", lastError: { kind: "source-missing", pair: "docs" } }), "Sync failed", "danger", "cloud-alert", SYNC, "A Google Drive folder of a folder pair does not exist."],
-    ["offline", well({ state: "offline", lastError: { kind: "offline", pair: "docs" } }), "Offline", "warning", "cloud-off", SYNC, "Google Drive cannot be reached. Cloud Sync tries again at the next sync."],
+    ["offline", well({ state: "offline", lastError: { kind: "offline", pair: "docs" } }), "Offline", "warning", "cloud-off", SYNC, "Google Drive cannot be reached. VGS tries again at the next sync."],
     ["keyring locked", well({ state: "authorization-required", pairs: [Object.assign({}, DOCS, { state: "authorization-required", lastError: { kind: "credential-locked", account: "client-id" } })], lastError: { kind: "credential-locked", account: "client-id", pair: "docs" } }), "Connect needed", "danger", "cloud-alert", SYNC, "Your keyring is locked. Unlock it to sync."],
     ["connection needed", record({ conflicts: [] }), "Connect needed", "danger", "cloud-alert", SYNC, REFUSED_PAGE],
-    ["set up with files to review", well({ conflicts: CONFLICTS.slice(0, 2) }), "2 files to review", "warning", "cloud-alert", SYNC, "Open Cloud Sync to review them."],
-    ["one file to review", well({ conflicts: CONFLICTS.slice(1, 2) }), "1 file to review", "warning", "cloud-alert", SYNC, "Open Cloud Sync to review them."],
-    ["files to review while paused", well({ state: "paused", paused: true, pairs: [PAUSED_DOCS], conflicts: CONFLICTS.slice(0, 2) }), "2 files to review", "warning", "cloud-alert", RESUME, "Open Cloud Sync to review them."],
+    ["set up with files to review", well({ conflicts: CONFLICTS.slice(0, 2) }), "2 files to review", "warning", "cloud-alert", SYNC, "Open the Google Drive window to review them."],
+    ["one file to review", well({ conflicts: CONFLICTS.slice(1, 2) }), "1 file to review", "warning", "cloud-alert", SYNC, "Open the Google Drive window to review them."],
+    ["files to review while paused", well({ state: "paused", paused: true, pairs: [PAUSED_DOCS], conflicts: CONFLICTS.slice(0, 2) }), "2 files to review", "warning", "cloud-alert", RESUME, "Open the Google Drive window to review them."],
     ["connection needed with files to review", record(), "Connect needed", "danger", "cloud-alert", SYNC, REFUSED_PAGE]
 ];
 
@@ -185,14 +185,14 @@ function verify(L) {
         const cloud = L.cloudValue(rec, "");
         const head = L.headline(cloud, NOW);
         same([head.text, head.tone, head.icon], [text, tone, icon], label + ": headline");
-        const sync = L.statusValues(rec, null, "", NOW).sync;
+        const sync = L.statusValues(rec, null, "", "", NOW).sync;
         same([sync.text, sync.tone, sync.hint], [text, tone, hint], label + ": the Settings sync value");
         const window = L.windowStatus(cloud, NOW, Timestamp.text);
         same([window.text, window.tone], [text, tone], label + ": the window subtitle");
         const foot = L.footerView(cloud).primary;
         same([foot.action, foot.enabled], primary, label + ": the window footer's primary");
         const tip = L.widgetTooltip(cloud, NOW, Timestamp.text);
-        assert.equal(tip.title, "Cloud Sync: " + text, label + ": the tooltip title");
+        assert.equal(tip.title, "Google Drive: " + text, label + ": the tooltip title");
         const bar = L.widgetView(cloud, NOW);
         if (hidden === true) {
             assert.equal(bar.hidden, true, label + ": no folder pair hides the icon");
@@ -204,26 +204,26 @@ function verify(L) {
 
     // The published values of the record and the probe.
     const presence = L.parseProbe(JSON.stringify(probe())).presence;
-    const values = L.statusValues(good.record, presence, "", NOW);
+    const values = L.statusValues(good.record, presence, "", "", NOW);
     same(Object.keys(values).sort(), ["account", "cloud", "connection", "firstPair", "keys", "lastSync", "pairs", "schedule", "sync"]);
     same(values.sync.lines, ["Documents: 3 files to review", "Agent uploads: Connect needed"], "a line per pair, each by its own state and files");
     assert.equal(values.lastSync, NOW - HOUR);
-    same(Object.keys(L.statusValues(null, null, "", NOW)), [], "nothing is published before the first answers");
-    same(Object.keys(L.statusValues(null, presence, "", NOW)).sort(), ["account", "connection", "keys"]);
+    same(Object.keys(L.statusValues(null, null, "", "", NOW)), [], "nothing is published before the first answers");
+    same(Object.keys(L.statusValues(null, presence, "", "", NOW)).sort(), ["account", "connection", "keys"]);
 
     for (const [label, record, expected] of [
         ["first pair missing", well({ state: "not-set-up", pairs: [] }), ["warning", true]],
         ["first pair exists", good.record, ["ok", false]]
     ]) {
-        const first = L.statusValues(record, null, "", NOW).firstPair;
+        const first = L.statusValues(record, null, "", "", NOW).firstPair;
         same([first.tone, first.action], expected, label);
     }
     const disconnected = L.parseProbe(JSON.stringify(probe({ token: { presence: "absent" } }))).presence;
-    const disconnectedValues = L.statusValues(good.record, disconnected, "", NOW);
+    const disconnectedValues = L.statusValues(good.record, disconnected, "", "", NOW);
     same([disconnectedValues.connection.action, disconnectedValues.account.action], [true, undefined], "only the connection step offers Connect");
 
     // schedule: the hourly units.
-    const hourly = "Cloud Sync runs every hour while you are logged in.";
+    const hourly = "VGS syncs Google Drive every hour while you are logged in.";
     same(L.scheduleValue("installed"), { tone: "ok", text: "On", hint: hourly });
     same(L.scheduleValue("absent"), { tone: "warning", text: "Not set up", action: true, hint: hourly });
     same(L.scheduleValue("stale"), { tone: "warning", text: "Needs setup", action: true, hint: hourly });
@@ -232,7 +232,7 @@ function verify(L) {
     // pairs: each pair's Drive folder, Add while none, Remove once one exists.
     const pairsOf = rec => L.pairsValue(L.cloudValue(rec, ""));
     const genericPairListProblem = L.errorText({ kind: "pairs-invalid" });
-    same(pairsOf(well({ state: "not-set-up", pairs: [] })), { tone: "warning", text: "None", action: "add", hint: "Add a folder pair to choose what Cloud Sync keeps in step." });
+    same(pairsOf(well({ state: "not-set-up", pairs: [] })), { tone: "warning", text: "None", action: "add", hint: "Add a folder pair to choose what VGS keeps in step with Google Drive." });
     same(values.pairs, { tone: "ok", text: "2 folder pairs", lines: ["Documents: Docs", "Agent uploads: Inbox"], action: "remove" });
     same(pairsOf(well()).text, "1 folder pair");
     // A pair's second line, the same in the window row and the Settings
@@ -306,7 +306,7 @@ function verify(L) {
     // folders Open folders opens, the list capped under the ceiling.
     const cloud = values.cloud;
     same(cloud.conflicts.map(c => c.dirs), [
-        ["/home/me/gdrive/taxes", "/home/me/.local/state/vgshell/cloud-sync/pairs/docs/conflicts/20261010T110000Z-7/taxes"],
+        ["/home/me/gdrive/taxes", "/home/me/.local/state/vgshell/google-drive/pairs/docs/conflicts/20261010T110000Z-7/taxes"],
         ["/home/me/gdrive"],
         ["/home/me/outbox"],
         ["/home/me/gdrive/taxes"]
@@ -328,7 +328,7 @@ function verify(L) {
     const tip = L.widgetTooltip(cloud, NOW, Timestamp.text);
     same(tip.details.split("\n"), ["Documents: 3 files to review", "Agent uploads: Connect needed", "4 files to review", "Last sync " + Timestamp.text(NOW - HOUR, NOW)]);
     same(L.widgetTooltip(L.cloudValue(well({ conflicts: CONFLICTS.slice(0, 2) }), ""), NOW, Timestamp.text).details.split("\n"), ["Documents: 2 files to review", "Last sync " + Timestamp.text(NOW - HOUR, NOW)], "the headline says the whole count once");
-    same(L.widgetTooltip(undefined, NOW, Timestamp.text), { title: "Cloud Sync", details: "" });
+    same(L.widgetTooltip(undefined, NOW, Timestamp.text), { title: "Google Drive", details: "" });
     for (const text of [tip.title, tip.details].concat(values.sync.lines))
         for (const c of CONFLICTS) assert.ok(!text.includes(c.path) && !text.includes(c.localPath), "a file name shows: " + text);
 
@@ -338,15 +338,15 @@ function verify(L) {
     same(subtitle(L.windowStatus(cloud, NOW, Timestamp.text)), [
         ["Last complete sync " + Timestamp.text(NOW - HOUR, NOW), ""],
         ["First file to review: taxes/2025.xlsx", ""],
-        ["Google Drive did not accept Connect. [Select Connect again on the Cloud Sync page](page:vgs.cloud-sync/Setup).", "danger"]
+        ["Google Drive did not accept Connect. [Select Connect again on the Google Drive page](page:vgs.google-drive/Setup).", "danger"]
     ]);
-    same(subtitle(L.windowStatus(L.cloudValue(well({ state: "paused", paused: true, lastSuccess: null, staleAfter: null }), "VGS could not pause Cloud Sync."), NOW, Timestamp.text)), [
-        ["No complete sync yet", ""], ["The hourly sync copies nothing until you resume it.", ""], ["VGS could not pause Cloud Sync.", "danger"]
+    same(subtitle(L.windowStatus(L.cloudValue(well({ state: "paused", paused: true, lastSuccess: null, staleAfter: null }), "VGS could not pause the Google Drive sync."), NOW, Timestamp.text)), [
+        ["No complete sync yet", ""], ["The hourly sync copies nothing until you resume it.", ""], ["VGS could not pause the Google Drive sync.", "danger"]
     ], "a paused headline");
     same(subtitle(L.windowStatus(L.cloudValue(well({ state: "paused", paused: true, conflicts: CONFLICTS.slice(0, 1) }), ""), NOW, Timestamp.text)), [
         ["Last complete sync " + Timestamp.text(NOW - HOUR, NOW), ""], ["First file to review: taxes/2025.xlsx", ""], ["Paused. The hourly sync copies nothing until you resume it.", ""]
     ], "files to review while paused say the pause");
-    same(L.windowStatus(L.cloudValue(well({ state: "offline", lastError: { kind: "offline" } }), ""), NOW, Timestamp.text).lines[1], { text: "Google Drive cannot be reached. Cloud Sync tries again at the next sync.", tone: "" });
+    same(L.windowStatus(L.cloudValue(well({ state: "offline", lastError: { kind: "offline" } }), ""), NOW, Timestamp.text).lines[1], { text: "Google Drive cannot be reached. VGS tries again at the next sync.", tone: "" });
     // A pair's badge: its own files to review, a state that needs the
     // user or stops the sync before them, and Up to date only with none.
     same(L.pairRow(cloud.pairs[0], NOW), { id: "docs", label: "Documents", secondary: "Docs", icon: "folder-sync", text: "3 files to review", tone: "warning" });
@@ -374,12 +374,12 @@ function verify(L) {
     // Each review row whole, one of each kind: its full text, uncut, the
     // folder line of the copy its text speaks of, and the folders Open
     // folders opens.
-    const KEPT = "/home/me/.local/state/vgshell/cloud-sync/pairs/docs/conflicts/20261010T110000Z-7/taxes";
+    const KEPT = "/home/me/.local/state/vgshell/google-drive/pairs/docs/conflicts/20261010T110000Z-7/taxes";
     same(L.conflictGroups(cloud.conflicts), [
         { label: "Documents", rows: [
             { label: "taxes/2025.xlsx", detail: "Changed here and on Google Drive. The older copy is kept for 30 days.", folder: "The older copy is in this folder: " + KEPT, dirs: ["/home/me/gdrive/taxes", KEPT] },
             { label: "old.txt", detail: "Removed from Google Drive. The copy here stays.", folder: "The copy here is in this folder: /home/me/gdrive", dirs: ["/home/me/gdrive"] },
-            { label: "taxes/receipts.pdf", detail: "Removed here. Cloud Sync copied it back from Google Drive.", folder: "", dirs: ["/home/me/gdrive/taxes"] }
+            { label: "taxes/receipts.pdf", detail: "Removed here. VGS copied it back from Google Drive.", folder: "", dirs: ["/home/me/gdrive/taxes"] }
         ] },
         { label: "Agent uploads", rows: [
             { label: "a.txt", detail: "Renamed on Google Drive. The old name was copied back to Google Drive. New name: " + RENAMED_TO + ".", folder: "", dirs: ["/home/me/outbox"] }
@@ -392,30 +392,30 @@ function verify(L) {
     const driveCloud = L.cloudValue(driveSide.record, "");
     same(L.conflictGroups(driveCloud.conflicts), [
         { label: "Documents", rows: [
-            { label: DRIVE_CONFLICTS[0].path, detail: "Cloud Sync could not copy this file from Google Drive. It is a Google Drive shortcut to a file that no longer exists.", folder: "", dirs: [] },
-            { label: DRIVE_CONFLICTS[1].path, detail: "Cloud Sync could not copy this file from Google Drive. It is a Google Drive shortcut to a file that no longer exists.", folder: "The older copy here is in this folder: /home/me/gdrive/reports", dirs: ["/home/me/gdrive/reports"] },
-            { label: DRIVE_CONFLICTS[2].path, detail: "Google Drive holds two files with this name. Cloud Sync copied one of them.", folder: "", dirs: ["/home/me/gdrive/reports"] }
+            { label: DRIVE_CONFLICTS[0].path, detail: "VGS could not copy this file from Google Drive. It is a Google Drive shortcut to a file that no longer exists.", folder: "", dirs: [] },
+            { label: DRIVE_CONFLICTS[1].path, detail: "VGS could not copy this file from Google Drive. It is a Google Drive shortcut to a file that no longer exists.", folder: "The older copy here is in this folder: /home/me/gdrive/reports", dirs: ["/home/me/gdrive/reports"] },
+            { label: DRIVE_CONFLICTS[2].path, detail: "Google Drive holds two files with this name. VGS copied one of them.", folder: "", dirs: ["/home/me/gdrive/reports"] }
         ] }
     ]);
     same(L.headline(driveCloud, NOW).text, "3 files to review");
     // A reason the table does not know reads in the default words, and no
     // published value holds rclone's text.
     const unknown = L.cloudValue(well({ conflicts: [Object.assign({}, DRIVE_CONFLICTS[0], { reason: "failed to open source object: stand-in cause" })] }), "");
-    same(L.conflictRow(unknown.conflicts[0]).detail, "Cloud Sync could not copy this file from Google Drive. Google Drive did not let Cloud Sync read it.");
+    same(L.conflictRow(unknown.conflicts[0]).detail, "VGS could not copy this file from Google Drive. Google Drive did not let VGS read it.");
     for (const value of [driveCloud, unknown]) assert.ok(!JSON.stringify(value).includes("failed to open source object"), "rclone's text is published");
     same(subtitle(L.windowStatus(driveCloud, NOW, Timestamp.text))[1], ["First file to review: " + DRIVE_CONFLICTS[0].path, ""]);
     // A change on both sides with no kept copy names no folder.
     same(L.conflictRow(L.cloudValue(well({ conflicts: [Object.assign({}, CONFLICTS[0], { storedPath: undefined })] }), "").conflicts[0]).folder, "");
 
     // The notification: one per reason in order of need.
-    same(L.notification(good.record), { title: "Cloud Sync needs Connect", message: "Google Drive did not accept Connect. [Select Connect again on the Cloud Sync page](page:vgs.cloud-sync/Setup).", tone: "danger" });
-    same(L.notification(record({ attention: { reasons: ["conflicts"], key: "k", notified: false } })), { title: "Cloud Sync kept files for review", message: "4 files to review. Open Cloud Sync to see them.", tone: "warning" });
+    same(L.notification(good.record), { title: "Google Drive needs Connect", message: "Google Drive did not accept Connect. [Select Connect again on the Google Drive page](page:vgs.google-drive/Setup).", tone: "danger" });
+    same(L.notification(record({ attention: { reasons: ["conflicts"], key: "k", notified: false } })), { title: "Google Drive sync kept files for review", message: "4 files to review. Open the Google Drive window to see them.", tone: "warning" });
     same(L.notification(record({ lastError: { kind: "offline" }, attention: { reasons: ["error"], key: "k", notified: false } })).tone, "danger");
-    same(L.notification(record({ attention: { reasons: ["units-stale"], key: "k", notified: false } })), { title: "Cloud Sync needs setup", message: "[Select Set up hourly sync in Cloud Sync Details](page:vgs.cloud-sync/Details).", tone: "warning" });
+    same(L.notification(record({ attention: { reasons: ["units-stale"], key: "k", notified: false } })), { title: "Google Drive needs setup", message: "[Select Set up hourly sync in Google Drive Details](page:vgs.google-drive/Details).", tone: "warning" });
     assert.equal(L.notification(record({ attention: null })), null);
     same(L.notification(record({ lastError: Object.assign({ pair: "docs" }, signedOut) })).message, SIGNED_OUT, "a missing token is a connection");
-    assert.equal(L.errorText({ kind: "credential-absent", account: "token" }), "Google Drive is not connected. [Select Connect on the Cloud Sync page](page:vgs.cloud-sync/Setup).");
-    assert.equal(L.errorText({ kind: "credential-absent", account: "client-id" }), "A Google Drive key or connection is missing. Add the client ID and secret, then [select Connect on the Cloud Sync page](page:vgs.cloud-sync/Setup).");
+    assert.equal(L.errorText({ kind: "credential-absent", account: "token" }), "Google Drive is not connected. [Select Connect on the Google Drive page](page:vgs.google-drive/Setup).");
+    assert.equal(L.errorText({ kind: "credential-absent", account: "client-id" }), "A Google Drive key or connection is missing. Add the client ID and secret, then [select Connect on the Google Drive page](page:vgs.google-drive/Setup).");
     // The Settings page names its own fields instead of sending the user to itself.
     assert.equal(L.errorText({ kind: "credential-absent", account: "token" }, true), "Google Drive is not connected. Select Connect below.");
     assert.equal(L.errorText({ kind: "credential-absent", account: "client-id" }, true), "A Google Drive key or connection is missing. Add the client ID and secret, then select Connect below.");
@@ -425,9 +425,30 @@ function verify(L) {
     assert.equal(L.errorText({ kind: "offline" }, true), L.errorText({ kind: "offline" }), "a sentence that names no place reads the same on the page");
 
     // A failed request reads as a sentence.
-    assert.equal(L.problemText("start", "start exit=1 cloud-sync: refused: units=absent"), "Set up hourly sync first.");
-    assert.equal(L.problemText("pause", "pause exit=1 cloud-sync: refused: state-lock=timeout"), "VGS could not pause Cloud Sync.");
+    assert.equal(L.problemText("start", "start exit=1 google-drive: refused: units=absent"), "Set up hourly sync first.");
+    assert.equal(L.problemText("pause", "pause exit=1 google-drive: refused: state-lock=timeout"), "VGS could not pause the Google Drive sync.");
     assert.equal(L.problemText("", ""), "");
+
+    // A held answer reads by its reason, in the line RunnerClient hands the
+    // service: the operation, the exit and the runner's refusal
+    // (bin/google-drive holdRename). The Settings sync value says why it
+    // waits with or without a record, and holds no failure.
+    const heldLines = [
+        ["running previous sync", "status exit=75 google-drive: refused: migration=held reason=old-service-activating", "old-sync", "info"],
+        ["sync started during the disable", "probe exit=75 google-drive: refused: migration=held reason=old-service-active restore=systemctl=failed args=enable,--now,vgs-cloud-sync.timer exit=1", "old-sync", "info"],
+        ["unknown is-active word", "status exit=75 google-drive: refused: migration=held reason=old-service-unknown", "old-sync-unknown", "warning"],
+        ["systemctl missing", "status exit=75 google-drive: refused: migration=held systemctl=missing", "systemd-missing", "warning"],
+        ["failed disable", "start exit=75 google-drive: refused: migration=held systemctl=failed args=disable,--now,vgs-cloud-sync.timer exit=1", "old-timer", "warning"],
+        ["unnamed hold", "status exit=75 google-drive: refused: migration=held", "other", "warning"]
+    ];
+    for (const [label, line, reason, tone] of heldLines) {
+        assert.equal(L.heldReason(line), reason, label);
+        for (const rec of [null, good.record]) {
+            const sync = L.statusValues(rec, null, "", reason, NOW).sync;
+            same([sync.tone, typeof sync.hint, sync.action], [tone, "string", undefined], label + (rec === null ? ": no record" : ": with a record"));
+        }
+    }
+    assert.throws(() => L.statusValues(null, null, "", "busy", NOW), /held reason "busy"/);
 
     // The next moment idle data turns old.
     assert.equal(L.nextStale(record(), NOW), NOW + HOUR);
@@ -441,7 +462,7 @@ const controls = [
     ["connection offers Connect when missing", 'values.account.action === "signIn" || values.account.action === "reconnect"', 'false'],
     ["account maintenance cannot offer Connect", 'if (values.account.action === "signIn") delete values.account.action;', 'if (false) delete values.account.action;'],
 
-    ["the missing-key text links to Setup", "then [select Connect on the Cloud Sync page](page:vgs.cloud-sync/Setup).", "then select Connect on the Cloud Sync page."],
+    ["the missing-key text links to Setup", "then [select Connect on the Google Drive page](page:vgs.google-drive/Setup).", "then select Connect on the Google Drive page."],
     ["the judge refuses an unknown state", "if (STATES.indexOf(doc.state) === -1) return", "if (false) return"],
     ["the judge needs attention.notified", "\n        && typeof doc.attention.notified === \"boolean\")", ")"],
     ["a both-changed stored path is absolute", "&& (c.kind !== \"both-changed\" || !hasOwn(c, \"storedPath\") || (isText(c.storedPath) && c.storedPath.charAt(0) === \"/\"))", ""],
@@ -502,14 +523,14 @@ const controls = [
     ["the account key list is published", "values.keys = keyItems(presence);", "values.account = signInValue(presence, record);"]
 ];
 
-const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "test-cloud-sync-logic-"));
+const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "test-google-drive-logic-"));
 try {
     const source = fs.readFileSync(file, "utf8");
     for (const [label, needle, replacement] of controls) {
         const count = source.split(needle).length - 1;
         assert.equal(count, 1, "control pattern occurs once: " + label);
         const dir = fs.mkdtempSync(path.join(scratch, "control-"));
-        const mutant = path.join(dir, "CloudSyncLogic.js");
+        const mutant = path.join(dir, "GoogleDriveLogic.js");
         fs.writeFileSync(mutant, source.replace(needle, replacement));
         assert.notEqual(fs.readFileSync(mutant, "utf8"), source);
         let red = false;
@@ -520,4 +541,4 @@ try {
     fs.rmSync(scratch, { recursive: true, force: true });
 }
 
-console.log("test-cloud-sync-logic: ok");
+console.log("test-google-drive-logic: ok");

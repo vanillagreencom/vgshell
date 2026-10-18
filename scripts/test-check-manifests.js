@@ -3,7 +3,7 @@
 // script adds beyond PluginLogic.js (duplicate id, missing entry point,
 // unreadable directory, unparseable manifest, a `tui` script that is
 // missing, a link, under a link, not a regular file or not executable), one
-// duplicate default shortcut key, alone or in a default key list, a second manifest declaring pads, one manifest the judge itself refuses so a
+// duplicate default shortcut key, alone or in a default key list, a second manifest declaring pads, a former id two manifests claim or a checked plugin holds, one manifest the judge itself refuses so a
 // judge that passed everything would turn a row red, the icon rule the judge
 // reads from the shipped icon set, the bar widget settings order (a valid
 // order passes; layout not first, layout outside Readings, the shared
@@ -87,6 +87,17 @@ row("a second manifest declaring pads is refused", tmp => {
     plugin(b, padsPlugin("acme.two"), true);
     return ["--", a, b];
 }, 1, "hyprland.pads of acme.two already declared by acme.one", "ok       acme.two");
+// Former ids: the shell renames a user file by the first bundled claim in
+// scan order, so the checked set holds one claimant per former id and no former
+// id that a checked plugin holds, in either order.
+const formerPlugin = (id, formerIds) => Object.assign({}, good, { id: id, formerIds: formerIds });
+function formerRow(name, a, b, wantStatus, wantLine, forbidLine) {
+    row(name, tmp => { const da = path.join(tmp, "a"), db = path.join(tmp, "b"); plugin(da, a, true); plugin(db, b, true); return ["--", da, db]; }, wantStatus, wantLine, forbidLine);
+}
+formerRow("a former id one manifest claims passes", formerPlugin("acme.one", ["acme.old"]), formerPlugin("acme.two", ["acme.older"]), 0, "ok       acme.two", "former id");
+formerRow("a former id two manifests claim is refused", formerPlugin("acme.one", ["acme.old"]), formerPlugin("acme.two", ["acme.old"]), 1, "former id acme.old of acme.two already claimed by acme.one", "ok       acme.two");
+formerRow("a former id an earlier manifest holds as its id is refused", good, formerPlugin("acme.two", ["acme.one"]), 1, "former id acme.one of acme.two is the id of", "ok       acme.two");
+formerRow("an id an earlier manifest claims as a former id is refused", formerPlugin("acme.one", ["acme.two"]), formerPlugin("acme.two", ["acme.old"]), 1, "id acme.two is a former id of acme.one", "ok       acme.two");
 row("unparseable manifest is refused", tmp => { const d = path.join(tmp, "a"); plugin(d, "{not json", true); return ["--", d]; }, 1, "manifest does not parse");
 row("a manifest the judge refuses is refused with the judge's line", tmp => { const d = path.join(tmp, "a"); plugin(d, Object.assign({ requires: [] }, good), true); return ["--", d]; }, 1, "requires is refused: a plugin names no other plugin (D005)", "ok       acme.one");
 // The manifest's icon is judged against the shipped icon set, which the

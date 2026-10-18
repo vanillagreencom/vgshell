@@ -3,7 +3,8 @@
 
 // The configuration judgement: the shape a shell.json layer must have
 // (configError), the migration of a user file of the previous format
-// version (migrateConfig), the merge of the two layers (effectiveConfig)
+// version (migrateConfig), the rename of a plugin's former ids
+// (renamePlugins), the merge of the two layers (effectiveConfig)
 // and the key grammar a plugins row's `keys` is judged by (hyprlandKey).
 // PluginLogic.js and the shell files that judge or read configuration
 // import it, and the offline judges that read shell.json load it alone, so
@@ -210,6 +211,41 @@ function migrateConfig(config) {
         return same;
     out.version = CONFIG_VERSION;
     return { config: out, migrated: true };
+}
+
+// The configuration CONFIG with each plugin id RENAMES maps, a former id
+// to the id of the bundled plugin that declares it in its manifest's
+// `formerIds` (PluginLogic.formerIdClaims), replaced by the new id:
+// { config, renamed }. Each plugins[] row, disabledPlugins entry and
+// bar.layout entry in SECTIONS with a mapped id takes the new id; no other
+// key names a renamed plugin (D108). The map comes from the scan, so the
+// core names no plugin (D003). A former id stays in its manifest for as
+// long as the plugin ships, which makes this the converter step D107 asks
+// for without a format version. A row or entry that is not an object with
+// a string id is left for configError to name. CONFIG is not changed; with
+// nothing renamed it comes back as it is.
+function renamePlugins(config, renames) {
+    var same = { config: config, renamed: false };
+    if (!isPlainObject(config) || !isPlainObject(renames) || Object.keys(renames).length === 0)
+        return same;
+    var out = clone(config);
+    var renamed = false;
+    var renamedId = function (id) {
+        if (typeof id !== "string" || !hasOwn(renames, id)) return id;
+        renamed = true;
+        return renames[id];
+    };
+    var renameRows = function (list) {
+        if (!Array.isArray(list)) return;
+        list.forEach(function (row) {
+            if (isPlainObject(row) && typeof row.id === "string") row.id = renamedId(row.id);
+        });
+    };
+    renameRows(out.plugins);
+    if (Array.isArray(out.disabledPlugins)) out.disabledPlugins = out.disabledPlugins.map(renamedId);
+    var layout = isPlainObject(out.bar) && isPlainObject(out.bar.layout) ? out.bar.layout : {};
+    SECTIONS.forEach(function (section) { renameRows(layout[section]); });
+    return renamed ? { config: out, renamed: true } : same;
 }
 
 // Merge the shipped defaults with the user file. Every top-level key in the
