@@ -56,6 +56,7 @@ Item {
         settingChoices: ({}),
         status: [],
         secretLabel: "",
+        guide: null,
         tuis: [],
         opens: "",
         paneHolder: "",
@@ -375,7 +376,9 @@ Item {
                 verify(shown(Field).some(row => row.label === "Google Drive sync"), "the Status section draws its entry under its own label");
                 compare(shown(Button).filter(button => button.variant === "primary").map(button => button.text), [], "Setup has no boxed action");
                 compare(shown(RowAction).map(action => action.text + " " + action.tone).sort(), ["Add a pair accent", "Remove danger", "Replace accent", "Sign out danger"]);
-                compare(shown(GroupList).map(list => list.hairlines.length).sort(), [1, 3], "required rows and the key list keep their dividers");
+                // The key list draws its one key alone under its step, so
+                // its own list holds no divider; the steps keep theirs.
+                compare(shown(GroupList).map(list => list.hairlines.length).sort(), [0, 3], "required rows keep their dividers, and a lone key under its step has none of its own");
                 page.open(Qt.OtherFocusReason, "Settings");
                 compare(shown(SectionHeader).map(header => header.text).filter(text => ["Status", "Setup", "Download"].indexOf(text) !== -1), [], "Settings draws none of the setup");
             } finally {
