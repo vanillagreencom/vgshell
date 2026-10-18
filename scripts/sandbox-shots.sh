@@ -414,7 +414,7 @@ while [[ $# -gt 0 ]]; do
     --title-inventory) title_inventory=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
 
-    sysmon|tui-edges|gallery|settings|info-dialog|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|voice-keys|jarvis-console|jarvis-audit|jarvis-setup|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes|jarvis-restart|plugin-messages|page-links|tooltip-link|traffic|ai-usage|ai-usage-states|devtools|system|appearance|sounds|network|vpn|vpn-locked|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|googledrive|tooltips|screensaver|theme-previews|setup-tab|updates|clone-voice|displays-override) scenes+=("$1"); shift ;;
+    sysmon|tui-edges|gallery|settings|info-dialog|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|voice-keys|jarvis-console|jarvis-audit|jarvis-setup|jarvis-home-repair|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes|jarvis-restart|plugin-messages|page-links|tooltip-link|traffic|ai-usage|ai-usage-states|devtools|system|appearance|sounds|network|vpn|vpn-locked|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|googledrive|tooltips|screensaver|theme-previews|setup-tab|updates|clone-voice|displays-override) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -584,7 +584,7 @@ scene_ships() {
     tooltip-link) scene_ships bar ;;
     voice-keys) [[ $manager_scene == settings ]] && ships_plugin vgs.voice ;;
     elevenlabs-voices) [[ $manager_scene == settings && $has_tab_pages == true ]] && tree_has shell/plugins/vgs.jarvis/backend/ElevenLabs.js 'async function voices(' && ships_plugin vgs.jarvis ;;
-    jarvis-setup|jarvis-fleet|outdated|jarvis-causes) [[ $manager_scene == settings && $has_tab_pages == true ]] && ships_plugin vgs.jarvis ;;
+    jarvis-setup|jarvis-home-repair|jarvis-fleet|outdated|jarvis-causes) [[ $manager_scene == settings && $has_tab_pages == true ]] && ships_plugin vgs.jarvis ;;
     clone-voice) [[ $manager_scene == settings && $has_setup_tab == true ]] && ships_plugin vgs.jarvis ;;
     updates) [[ $manager_scene == settings ]] && ships_plugin vgs.updates && tree_has shell/plugins/vgs.settings/PluginPage.qml "detailScreens" ;;
     ai-usage|ai-usage-states) ships_plugin vgs.ai-usage ;;
@@ -3683,6 +3683,54 @@ JSHOME
     [[ $reply == ok ]] || { printf '%s=%s\n' "$key" "$reply"; failed=1; }
   done <<<"$rows"
   [[ $failed == 0 ]] && echo ok || return 1
+}
+# Each Home repair state uses the selected revision's own status rules.
+# The before revision has no repair result formatter and keeps its refusal.
+scene_jarvis-home-repair() { # MODE
+  local state rows key value name
+  local -a home_states=(home install byhand failed complete)
+  # The older revision has one package-refusal view for all three cases.
+  # Capture that distinct view once; all after cases pair with this before.
+  if ! node - "$repo" <<'JSHOMEVERSION'
+const path = require("node:path"), tree = process.argv[2];
+const { load } = require(path.join(tree, "bin/lib/qml-library.js"));
+process.exit(typeof load(path.join(tree, "shell/plugins/vgs.jarvis/SetupGate.js")).homeRepairResult === "function" ? 0 : 1);
+JSHOMEVERSION
+  then home_states=(home complete); fi
+  expect "Jarvis enables for Home repair views" ok ipc shell setPluginEnabled vgs.jarvis true
+  expect_poll "Jarvis answers for Home repair views" ready jarvis_started
+  expect "the Jarvis status provider is held for Home repair views" held ipc smoke holdStatus service vgs.jarvis
+  close_notices
+  expect "Settings opens Jarvis for Home repair views" ok ipc shell summon "$settings_kind" vgs.settings '{}'
+  expect_poll "Settings maps for Home repair views" 1 settings_count
+  expect "Settings selects Jarvis for Home repair views" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin vgs.jarvis
+  expect_poll "Settings shows Jarvis for Home repair views" '"vgs.jarvis"' settings_page
+  page_setup
+  for state in "${home_states[@]}"; do
+    rows="$(node - "$repo" "$state" "$home/Screenshot Home" <<'JSHOMEREPAIR'
+const path = require("node:path");
+const [tree, state, folder] = process.argv.slice(2);
+const { load } = require(path.join(tree, "bin/lib/qml-library.js"));
+const gate = load(path.join(tree, "shell/plugins/vgs.jarvis/SetupGate.js"));
+const home = { kind: "ready", path: folder, repair: { kind: state === "install" || state === "byhand" ? "install" : "home", folder,
+    installPlan: state === "byhand" ? { kind: "by-hand", method: "nix", reason: "nix" } : { kind: "run" },
+    lastRepair: state === "failed" ? { kind: "failed", cause: "refresh-failed", code: 1 } : null } };
+const values = gate.readiness({ kind: "answered", causes: state === "complete" ? [] : ["home=package"] }, home, home);
+if (typeof gate.homeRepairResult === "function") values.setupHome = gate.homeRepairResult(values.setupHome, home);
+for (const key of ["setup", "setupHome"]) console.log(key + "\t" + JSON.stringify(values[key]));
+JSHOMEREPAIR
+)" || { fail "Home repair state $state is unreadable"; continue; }
+    while IFS=$'\t' read -r key value; do
+      expect "the Home repair $state $key value publishes" ok ipc smoke heldStatusSet "$key" "$value"
+    done <<<"$rows"
+    name="jarvis-home-repair-$1-$state"
+    jarvis_anchor_shot "$name" SectionHeader Setup
+    clone_record "$name" settings
+    page_state_record "$name" "$1" vgs.jarvis
+  done
+  settings_close
+  expect "Jarvis disables after Home repair views" ok ipc shell setPluginEnabled vgs.jarvis false
+  expect_poll "Jarvis is gone after Home repair views" absent ipc smoke jarvisProcess
 }
 scene_jarvis-setup() { # MODE
   local accounts_before="$sandbox/jarvis-backups-accounts-before"
@@ -7540,7 +7588,7 @@ for scene in "${scenes[@]}"; do
     bar) need_setup launcher; need_setup panels; need_setup bar ;;
     theme-previews) need_setup launcher; need_setup panels; need_setup bar; need_setup ai-usage ;;
     tooltips) need_setup launcher; need_setup panels; need_setup bar; need_setup tooltips ;;
-    jarvis-causes) need_setup bar; need_setup settings; need_setup jarvis-causes ;;
+    jarvis-causes|jarvis-home-repair) need_setup bar; need_setup settings; need_setup "$scene" ;;
     ai-usage-states) need_setup ai-usage ;;
     focus) need_setup settings ;;
     info-dialog) need_setup info-dialog ;;

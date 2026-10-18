@@ -527,9 +527,9 @@ Usage: vgshell pkg <subcommand> [arguments]
 Subcommands:
   detect [--json]                         Show available package managers
   present <command>...                    Check commands on PATH
-  plan install|update|remove|upgrade <manager> [names...]
+  plan install|reinstall|update|remove|upgrade <manager> [names...]
   check [--json] [--source <manager>]     Count pending updates
-  run install|update|remove|upgrade [--manager <id>] [names...]
+  run install|reinstall|update|remove|upgrade [--manager <id>] [names...]
   run upgrade [--manager <id>] --ignore <name>...
   run update [--manager <id>] <name>... --install <name>...
   install|remove [--manager <id>] [names...]
@@ -596,6 +596,7 @@ Usage: vgshell self <subcommand> [arguments]
 Subcommands:
   status [--json]    Show install state and available update
   update             Update VGS and restart the shell
+  repair [--plan]    Restore this version through its installation owner
 EOF_HELP
       ;;
     reset) cat <<'EOF_HELP'
@@ -2100,6 +2101,40 @@ self_update() {
   esac
 }
 
+# self.js owns the install decision. Git commands remain in this caller,
+# and the plan reaches exec as argv without a shell-code conversion.
+self_repair() {
+  local version checkout=false plan words notice status=0
+  local -a command=()
+  version="$(version_line)" || exit 1
+  tree_is_checkout && checkout=true
+  plan="$(node "$self_judge" repair-plan "$root" "$data_home" "$version" "$checkout")" || exit 1
+  if [[ ${1:-} == --plan ]]; then printf '%s\n' "$plan"; return; fi
+  [[ -z ${VGSHELL_RUNNER_PID:-} ]] || refuse 1 "repair=inside-shell"
+  if [[ $plan == *'"kind":"by-hand"'* ]]; then
+    notice="$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).notice)' "$plan")" || refuse 1 "repair=plan-unreadable"
+    refuse 69 "repair=by-hand" "$notice"
+  fi
+  if [[ $plan == *'"method":"package"'* ]]; then
+    printf 'The package manager reinstalls the version its repository offers. It may be newer than the installed version.\n' >&2
+  fi
+  printf 'Jarvis restores VGS-owned Home package files on their next check, including package edits.\n' >&2
+  confirm_change restore "$root including edited files" "the VGS install stays unchanged" repair
+  self_lock_hold
+  words="$(mktemp)" || refuse 1 "repair=temporary-file"
+  node -e 'const fs=require("node:fs"); const p=JSON.parse(process.argv[1]); fs.writeFileSync(process.argv[2], p.command.join("\0")+"\0");' "$plan" "$words" || { rm -f -- "$words"; refuse 1 "repair=plan-unreadable"; }
+  mapfile -d '' -t command <"$words"
+  rm -f -- "$words"
+  if [[ ${command[0]} == git ]]; then
+    git_or_refuse "repair=git" "${command[@]:1}" || status=$?
+  else
+    "${command[@]}" || status=$?
+  fi
+  exec 8>&-
+  if [[ $status == 0 && $plan == *'"method":"curl"'* ]]; then self_restart "$data_home/vgshell/current/bin/vgshell"; fi
+  return "$status"
+}
+
 # The directories `reset` empties, each under the class its backup
 # subfolder is named for, in the order the move takes them.
 cache_home="${XDG_CACHE_HOME:-$HOME/.cache}"
@@ -2115,7 +2150,11 @@ reset_keeps() { # CLASS ENTRY
   case "$1:$2" in
     config:theme.lock | data:backups | data:current | data:git | data:.self.lock | data:.self-update-*) return 0 ;;
   esac
-  [[ $1 == data && $2 =~ $version_re ]]
+  [[ $1 == data ]] || return 1
+  if [[ -z ${reset_install_re:-} ]]; then
+    reset_install_re="$(node "$self_judge" directory-pattern)" || refuse 1 "reset=install-pattern-unreadable"
+  fi
+  [[ $2 =~ $reset_install_re ]]
 }
 
 # Sets reset_names to the entries of DIR, CLASS's directory, that reset
@@ -2902,6 +2941,10 @@ case "$cmd" in
       update)
         if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; try_help; exit 2; fi
         self_update
+        ;;
+      repair)
+        if [[ $# -gt 1 || ( $# == 1 && $1 != --plan ) ]]; then refuse 2 "repair=arguments"; fi
+        self_repair "$@"
         ;;
       *)
         printf 'vgshell: refused: self-subcommand=%s\n' "${sub:-missing}" >&2; try_help; exit 2

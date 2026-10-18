@@ -32,7 +32,7 @@ const { load } = require("../bin/lib/qml-library.js");
 const { TABLE, FIXTURES } = require("./vgshell-pkg-shared.js");
 const ELEVATORS = ["sudo", "doas", "run0", "pkexec", "su"];
 const PLACEHOLDERS = ["{bin}", "{names}", "{names@latest}", "{name}", "{path}"];
-const NAMED = ["install", "update", "remove"];
+const NAMED = ["install", "reinstall", "update", "remove"];
 const EXIT_MEANINGS = ["updates", "none", "rows"];
 
 // The table's own defects, one string each; empty for a sound table.
@@ -144,6 +144,15 @@ const ID_ROWS = [
 const PLAN_ROWS = [
     ["pacman install", "pacman", "install", ["gum", "fzf"], ["pacman"], { binary: "pacman", elevate: true, steps: [["pacman", "-S", "--needed", "--", "gum", "fzf"]] }],
     ["pacman update takes the install step, which skips only an up-to-date target", "pacman", "update", ["gum"], ["pacman"], { binary: "pacman", elevate: true, steps: [["pacman", "-S", "--needed", "--", "gum"]] }],
+    ["pacman reinstalls an installed package", "pacman", "reinstall", ["vgshell"], ["pacman"], { binary: "pacman", elevate: true, steps: [["pacman", "-S", "--", "vgshell"]] }],
+    ["aur paru reinstalls an installed package", "aur", "reinstall", ["vgshell"], ["paru", "yay"], { binary: "paru", elevate: false, steps: [["paru", "-S", "--", "vgshell"]] }],
+    ["aur yay reinstalls an installed package", "aur", "reinstall", ["vgshell"], ["yay"], { binary: "yay", elevate: false, steps: [["yay", "-S", "--", "vgshell"]] }],
+    ["apt reinstalls an installed package", "apt", "reinstall", ["vgshell"], ["apt-get"], { binary: "apt-get", elevate: true, steps: [["apt-get", "install", "--reinstall", "vgshell"]] }],
+    ["dnf5 reinstalls an installed package", "dnf", "reinstall", ["vgshell"], ["dnf5", "dnf"], { binary: "dnf5", elevate: true, steps: [["dnf5", "reinstall", "vgshell"]] }],
+    ["dnf reinstalls an installed package", "dnf", "reinstall", ["vgshell"], ["dnf"], { binary: "dnf", elevate: true, steps: [["dnf", "reinstall", "vgshell"]] }],
+    ["nix reinstall is unsupported", "nix", "reinstall", ["vgshell"], ["nix"], "manager=nix action=reinstall reason=unsupported"],
+    ["flatpak reinstall is unsupported", "flatpak", "reinstall", ["vgshell"], ["flatpak"], "manager=flatpak action=reinstall reason=unsupported"],
+    ["mise reinstall is unsupported", "mise", "reinstall", ["vgshell"], ["mise"], "manager=mise action=reinstall reason=unsupported"],
     ["pacman remove", "pacman", "remove", ["gum"], ["pacman"], { binary: "pacman", elevate: true, steps: [["pacman", "-Rns", "--", "gum"]] }],
     ["pacman upgrade is a full -Syu", "pacman", "upgrade", [], ["pacman"], { binary: "pacman", elevate: true, steps: [["pacman", "-Syu"]] }],
     ["aur install through paru", "aur", "install", ["gum-bin"], ["paru", "yay"], { binary: "paru", elevate: false, steps: [["paru", "-S", "--needed", "--", "gum-bin"]] }],
@@ -524,6 +533,7 @@ function verifyTable(t) {
 // text one of the copy's failures must hold, for a control that proves one
 // particular assertion can fail.
 const CONTROLS = [
+    ["table", "an up-to-date package is skipped during repair", TABLE, 'reinstall: [["{bin}", "install", "--reinstall", "{names}"]],', 'reinstall: [["{bin}", "install", "{names}"]],'],
     ["rule:partial upgrade", "a pacman upgrade refreshes without upgrading", TABLE, "upgrade: [[\"{bin}\", \"-Syu\"]],", "upgrade: [[\"{bin}\", \"-Sy\"]],"],
     ["rule:elevation command", "a step elevates", TABLE, "[\"{bin}\", \"full-upgrade\"]", "[\"sudo\", \"{bin}\", \"full-upgrade\"]"],
     ["rule:brace", "a preview word holds an fzf placeholder", TABLE, "preview: [\"{bin}\", \"-Sii\", \"{name}\"]", "preview: [\"{bin}\", \"-Sii\", \"--x={q}\", \"{name}\"]"],

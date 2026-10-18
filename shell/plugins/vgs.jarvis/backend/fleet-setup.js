@@ -8,7 +8,7 @@ const Home = require("./Home.js");
 
 function environment(source) {
     const env = { PATH: source.PATH || "/usr/bin:/bin", LANG: "C.UTF-8", HOME: source.HOME };
-    for (const key of ["XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_RUNTIME_DIR"])
+    for (const key of ["XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_RUNTIME_DIR", "TERM"])
         if (source[key]) env[key] = source[key];
     return env;
 }
@@ -16,18 +16,24 @@ function environment(source) {
 // Retain the existing TUI lock identity. The locked worker consumes the
 // automatic record before namespace setup, so a refused namespace consumes it.
 async function install(tree, folder, automatic, source, signal) {
+    return locked(tree, folder, automatic ? "automatic-worker" : "manual-worker", source, signal);
+}
+
+function locked(tree, folder, verb, source, signal, terminal = false) {
     const env = environment(source);
     const runtime = env.XDG_RUNTIME_DIR || "/run/user/" + process.getuid();
     return leased("exec", ["flock", "--no-fork", "-n", "-E", "75", path.join(runtime, "vgs-tui-jarvis-fleet-setup.lock"),
-        process.execPath, __filename, "--tree", tree, automatic ? "automatic-worker" : "manual-worker", folder], {
-        env, cwd: folder, signal
+        process.execPath, __filename, "--tree", tree, verb, folder], {
+        env, cwd: folder, signal, terminal
     });
 }
 
-function leased(mode, command, { env, cwd, signal }) {
+function leased(mode, command, { env, cwd, signal, terminal = false, deadline = 300000 }) {
     return require("./Child.js").run("setpriv", ["--pdeathsig", "KILL", "--", "python3", "-I",
         path.join(__dirname, "audio-child.py"), mode, String(process.pid), ...command], {
-        env, cwd, limit: 1 << 20, deadline: 300000, group: mode === "exec", signal, extra: 2,
+        // A terminal worker keeps its controlling terminal. The existing
+        // namespace lease still ends its descendants when this owner ends.
+        env, cwd, limit: 1 << 20, deadline, group: mode === "exec" && !terminal, terminal, signal, extra: 2,
         attach(child) {
             child.stdio[3].on("error", error => { if (error.code !== "EPIPE") child.kill("SIGKILL"); });
             child.stdio[3].write("S");
@@ -38,8 +44,8 @@ function leased(mode, command, { env, cwd, signal }) {
 
 function fail(key) { throw new Error("jarvis: fleet-setup=" + key); }
 
-async function worker(tree, folder, automatic) {
-    if (Home.mailTool(folder) !== null) return 0;
+async function worker(tree, folder, automatic, repair = false) {
+    if (!repair && Home.mailTool(folder) !== null) return 0;
     if (automatic) {
         if (Home.mailCutover(folder) !== "eligible") return 0;
         if (!Home.consumeMailCutover(folder)) return 0;
@@ -49,18 +55,50 @@ async function worker(tree, folder, automatic) {
     process.once("SIGTERM", cancel);
     process.once("SIGINT", cancel);
     try {
-        const result = await leased("outer", [process.execPath, __filename, "--tree", tree, "install-worker", folder], {
-            env: environment(process.env), cwd: folder, signal: controller.signal
+        if (repair) Home.repairResult(folder, { kind: "running" });
+        const result = await leased("outer", [process.execPath, __filename, "--tree", tree, repair ? "repair-package-worker" : "install-worker", folder], {
+            env: environment(process.env), cwd: folder, signal: controller.signal, terminal: repair
         });
         if (result.stdout) process.stdout.write(result.stdout);
         if (result.stderr) process.stderr.write(result.stderr);
-        if (result.kind !== "exited") fail(result.reason);
+        if (result.kind !== "exited") {
+            if (repair) Home.repairResult(folder, { kind: "failed", cause: result.reason });
+            fail(result.reason);
+        }
+        if (repair) {
+            if (result.code !== 0 && Home.repairResult(folder)?.kind === "running")
+                Home.repairResult(folder, { kind: "failed", cause: "worker-failed", code: result.code });
+            return result.code;
+        }
         if (result.code !== 0) fail("install-failed");
         return 0;
     } finally {
         process.removeListener("SIGTERM", cancel);
         process.removeListener("SIGINT", cancel);
     }
+}
+
+function repairPackage(tree, folder) {
+    const owner = Home.packageOwner(folder);
+    const file = owner === "kendex" ? "kendex" : path.join(tree, "bin/vgshell");
+    const args = owner === "kendex" ? ["refresh", "--scope", "project", "--project-path", folder, "--leave"] : ["self", "repair"];
+    const result = cp.spawnSync(file, args, { cwd: folder, env: environment(process.env), stdio: "inherit" });
+    if (result.error || result.status !== 0) {
+        const code = Number.isInteger(result.status) ? result.status : 1;
+        Home.repairResult(folder, { kind: "failed", cause: owner === "kendex" ? "refresh-failed" : "install-failed", code });
+        return code;
+    }
+    // Curl repair publishes a new tree and restarts the shell. Its new
+    // daemon judges the Home against that tree; this worker holds the old.
+    try { if (owner === "kendex") Home.layout(folder); }
+    catch (error) {
+        if (!/^jarvis: home=[a-z-]+$/.test(error.message)) throw error;
+        Home.repairResult(folder, { kind: "failed", cause: error.message.slice(8) });
+        process.stderr.write(error.message + "\n");
+        return 1;
+    }
+    Home.repairResult(folder, { kind: "complete" });
+    return 0;
 }
 
 function packageInstall(folder) {
@@ -83,7 +121,7 @@ function packageInstall(folder) {
 async function main() {
     const [flag, tree, verb, setting, ...rest] = process.argv.slice(2);
     if (flag !== "--tree" || !path.isAbsolute(tree || "")
-            || !["status", "folder", "tool", "manual", "automatic-worker", "manual-worker", "install-worker"].includes(verb)
+            || !["status", "folder", "tool", "manual", "repair-status", "repair", "automatic-worker", "manual-worker", "install-worker", "repair-worker", "repair-package-worker"].includes(verb)
             || typeof setting !== "string" || rest.length > 0) fail("arguments");
     require("./Core.js").use(tree);
     let folder = null;
@@ -91,20 +129,38 @@ async function main() {
     catch (error) { if (!/^jarvis: home=/.test(error.message)) throw error; }
     if (verb.endsWith("-worker")) {
         if (folder === null) fail("home-unchosen");
-        return verb === "install-worker" ? packageInstall(folder) : worker(tree, folder, verb === "automatic-worker");
+        if (verb === "repair-package-worker") return repairPackage(tree, folder);
+        return verb === "install-worker" ? packageInstall(folder) : worker(tree, folder, verb === "automatic-worker", verb === "repair-worker");
     }
-    if (verb === "manual") {
+    if (verb === "repair-status") {
+        if (folder === null) fail("home-unchosen");
+        const kind = Home.packageOwner(folder) === "kendex" ? "home" : "install";
+        const status = { kind, folder, lastRepair: Home.repairResult(folder) };
+        if (kind === "install") {
+            const plan = await leased("outer", [path.join(tree, "bin/vgshell"), "self", "repair", "--plan"], {
+                env: environment(process.env), cwd: folder, deadline: 10000
+            });
+            if (plan.kind !== "exited" || plan.code !== 0) fail("install-plan-unreadable");
+            status.installPlan = JSON.parse(plan.stdout);
+        }
+        process.stdout.write(JSON.stringify(status) + "\n");
+        return 0;
+    }
+    if (verb === "manual" || verb === "repair") {
         if (folder === null) fail("home-unchosen");
         const controller = new AbortController();
         const cancel = () => controller.abort();
         process.once("SIGTERM", cancel);
         process.once("SIGINT", cancel);
         try {
-            const result = await install(tree, folder, false, process.env, controller.signal);
+            const result = await (verb === "repair"
+                ? locked(tree, folder, "repair-worker", process.env, controller.signal, true)
+                : install(tree, folder, false, process.env, controller.signal));
             if (result.stdout) process.stdout.write(result.stdout);
             if (result.stderr) process.stderr.write(result.stderr);
             if (result.kind !== "exited") fail(result.reason);
             if (result.code === 75) fail("busy");
+            if (verb === "repair") return result.code;
             if (result.code !== 0) fail("install-failed");
             return 0;
         } finally {

@@ -68,10 +68,11 @@ fixture() { # NAME [unthemed]
   printf 'hl.config({})\n' >"$st/hypr/vgs.lua"
   printf 'state\n' >"$st/plugins/acme.probe/state.json"
   printf 'notifications\n' >"$st/notifications/history.json"
-  mkdir -p "$dat/automations" "$dat/jarvis" "$dat/0.1.0/bin" "$dat/git"
+  mkdir -p "$dat/automations" "$dat/jarvis" "$dat/0.1.0/bin" "$dat/0.1.0-repair-fixture/bin" "$dat/git"
   printf 'data\n' >"$dat/automations/runs.json"
   printf 'jarvis\n' >"$dat/jarvis/memory.json"
   printf '0.1.0\n' >"$dat/0.1.0/VERSION"
+  printf '0.1.0\n' >"$dat/0.1.0-repair-fixture/VERSION"
   ln -s 0.1.0 "$dat/current"
   : >"$dat/.self.lock"
   mkdir -p "$cch/launcher" "$cch/theme-assets"
@@ -144,7 +145,7 @@ snap_class() { # CLASS: the snapshot of CLASS's directory with the kept entries 
   cp -a -- "$src" "$f/want/$1"
   case "$1" in
     config) rm -f -- "$f/want/config/theme.lock" ;;
-    data) rm -rf -- "$f/want/data/current" "$f/want/data/0.1.0" "$f/want/data/git" "$f/want/data/.self.lock" ;;
+    data) rm -rf -- "$f/want/data/current" "$f/want/data/0.1.0" "$f/want/data/0.1.0-repair-fixture" "$f/want/data/git" "$f/want/data/.self.lock" ;;
   esac
 }
 
@@ -164,7 +165,7 @@ row_reset_yes() {
   # The link stays a link, and the files the install and the lock own stay.
   link_kept || return 1
   [[ -e $cfg/theme.lock && -L $dat/current && -f $dat/0.1.0/VERSION && -d $dat/git && -e $dat/.self.lock ]] || return 1
-  [[ $(names "$dat") == ".self.lock 0.1.0 backups current git " ]] || return 1
+  [[ $(names "$dat") == ".self.lock 0.1.0 0.1.0-repair-fixture backups current git " ]] || return 1
   # What a fresh install has, with the defaults applied.
   [[ $(names "$cfg") == "theme.json theme.lock " ]] || return 1
   cmp -s -- "$cfg/theme.json" "$tree/themes/vgs/theme.json" || return 1

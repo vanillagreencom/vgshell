@@ -876,7 +876,7 @@ function verifyModelConsumers(gate, serviceSource, accountsSource) {
                 brains: [], voiceAccounts: [], search: { found: row.apps.length, partial: "" } }), refreshed: () => {} };
         vm.runInNewContext(publishAccounts[0],
             { root, Gate: gate, Words: words, Providers: { probeFailure: () => "jarvis-accounts: probe=failed" }, console: { warn: () => {} } });
-        vm.runInNewContext("(" + publishSetup[0] + ")", { Gate: gate, shell, homePathRead: { kind: "ready", path: "/home/user/Fixture" }, dictationState: null, accountReader: root, localRuntime: { setupCause: "", republish: () => true }, voiceStep: null, sessionState: null, sessionStart: { result: null }, shellSetupCauses: [], setupAnswer: { kind: "checking" } })(row.answer);
+        vm.runInNewContext("(" + publishSetup[0] + ")", { Gate: gate, shell, homeRepair: { result: { kind: "unavailable" } }, homePathRead: { kind: "ready", path: "/home/user/Fixture" }, dictationState: null, accountReader: root, localRuntime: { setupCause: "", republish: () => true }, voiceStep: null, sessionState: null, sessionStart: { result: null }, shellSetupCauses: [], setupAnswer: { kind: "checking" } })(row.answer);
         try {
             assert.deepEqual([values.setupModel.tone, values.setupModel.action], row.want, row.name);
             const entry = judge.statusRows(manifest, values).find(item => item.key === "setupModel");
@@ -1744,6 +1744,58 @@ function verifyHomeActions(gate, source) {
         assert.deepEqual(calls, expected === "stale" ? ["resolve"] : ["publish"], expected + ": a stale result cannot publish");
         if (expected === "ready") assert.equal(context.homePathRead.path, "/home/user/new ", "a trailing filename space is preserved");
     }
+    const repairSource = fs.readFileSync(path.join(path.dirname(file), "HomeRepair.qml"), "utf8");
+    const repairFinished = repairSource.match(/^    function finished\(\) \{\n[\s\S]*?^    \}/m);
+    assert.ok(repairFinished, "the repair reader completes its status read");
+    for (const [name, change, expected] of [
+        ["read", {}, "ready"], ["failed process", { code: 1 }, "failed"],
+        ["timeout", { timedOut: true }, "failed"], ["invalid output", { output: "{" }, "failed"],
+        ["wrong owner", { output: JSON.stringify({ kind: "other", folder: "/fixture", lastRepair: null }) }, "failed"],
+        ["pending read", { pending: true }, "reading"], ["changed selection", { selected: "~/previous" }, "reading"]]) {
+        const calls = [], warnings = [];
+        const { pending = false, ...probe } = change;
+        const context = { pending, selected: "~/current", result: { kind: "reading" },
+            probe: { selected: "~/current", code: 0, timedOut: false, output: JSON.stringify({ kind: "home", folder: "/fixture", lastRepair: null }), ...probe },
+            deadline: { stop: () => {} }, refresh: () => calls.push("refresh"), tuiState: null,
+            console: { warn: text => warnings.push(text) } };
+        vm.runInNewContext("(" + repairFinished[0] + ")", context)();
+        assert.equal(context.result.kind, expected, name + ": repair status result");
+        assert.deepEqual(calls, expected === "reading" ? ["refresh"] : [], name + ": stale status reads again");
+    }
+    for (const running of [true, false]) {
+        const context = { pending: false, selected: "~/current", result: { kind: "reading" },
+            probe: { selected: "~/current", code: 0, timedOut: false,
+                output: JSON.stringify({ kind: "home", folder: "/fixture", lastRepair: { kind: "running" } }) },
+            deadline: { stop: () => {} }, refresh: () => {}, tuiState: { running, endedAt: "fixture-end" },
+            console: { warn: () => {} } };
+        vm.runInNewContext("(" + repairFinished[0] + ")", context)();
+        assert.equal(context.result.repair.lastRepair.kind, running ? "running" : "failed", "an interrupted repair is no completed repair");
+    }
+    const repairEnd = repairSource.match(/^    onEndedAtChanged: (.*)$/m);
+    assert.ok(repairEnd, "the repair reader handles terminal completion");
+    for (const endedAt of [null, "2026-10-18T00:00:00Z"]) {
+        const calls = [];
+        vm.runInNewContext(repairEnd[1], { endedAt,
+            refresh: () => calls.push("current-path"), recheck: () => calls.push("home-check") });
+        assert.deepEqual(calls, endedAt === null ? [] : ["current-path", "home-check"], "repair end checks the current selected Home");
+    }
+    for (const [kind, installPlan] of [["home", undefined], ["install", { kind: "run" }], ["install", { kind: "by-hand" }]]) {
+        for (const lastRepair of [null, { kind: "complete" }, { kind: "failed", cause: kind === "home" ? "refresh-failed" : "install-failed", code: 1 },
+            { kind: "failed", cause: "install-failed", code: 69 }]) {
+            const home = { kind: "ready", path: "/home/user/Fixture", repair: { kind, installPlan, folder: "/home/user/Fixture", lastRepair } };
+            for (const causes of [["home=package"], []]) {
+                const normal = plain(gate.readiness({ kind: "answered", causes }, home, home).setupHome);
+                const value = plain(gate.homeRepairResult(normal, home));
+                assert.equal(value.action, causes.length ? "repair" : undefined, kind + ": only damaged Home offers repair");
+                assert.equal(value.tone, causes.length ? "warning" : "ok", kind + ": the normal Home check owns readiness");
+                const notice = installPlan?.kind === "by-hand" && lastRepair?.code === 69;
+                assert.equal(value.hint !== normal.hint, lastRepair?.kind === "failed" && !notice, kind + ": only an attempted failed repair adds its cause");
+                assert.equal(judge.statusWrite(manifest, {}, "setupHome", value).ok, true, kind + ": the repaired row is accepted");
+                if (causes.length) assert.deepEqual(plain(judge.statusActionRequest(manifest, "vgs.jarvis", true, { setupHome: value }, "setupHome")),
+                    { ok: true, kind: "tui", name: "repair-home" }, kind + ": Repair opens the declared floating TUI");
+            }
+        }
+    }
     const end = source.match(/^    onHomeEditEndedAtChanged: (.*)$/m);
     assert.ok(end, "the service handles edit completion");
     const calls = [];
@@ -1769,7 +1821,7 @@ function verifyHomeActions(gate, source) {
                 values[key] = value;
                 return "ok";
             } } };
-        vm.runInNewContext("(" + publishSetup[0] + ")", { Gate: gate, shell, homePathRead: { kind: "empty" }, dictationState: null,
+        vm.runInNewContext("(" + publishSetup[0] + ")", { Gate: gate, shell, homeRepair: { result: { kind: "unavailable" } }, homePathRead: { kind: "empty" }, dictationState: null,
             accountReader: { modelAccess: { kind: "checking" } }, localRuntime: { setupCause: "", republish: () => true },
             voiceStep: null, sessionState: null, sessionStart: { result: null }, setupAnswer: { kind: "checking" } })(
             { kind: "answered", causes: ["speech=local-not-ready"] });
@@ -2058,7 +2110,7 @@ const CONTROLS = [
     ["a wire-defect title overflows the chip", 'title: "Jarvis message error"', 'title: "Jarvis and its daemon could not understand each other"', "fits the Setup status chip"],
     ["a home cause marks no step", 'if (REQUIRED[step] === "setupHome") {', 'if (false) {'],
     ["a home text cause marks the voice step", 'guidance: "setupHome", ', 'guidance: "setupVoice", '],
-    ["the home causes share one reading", "out.setupHome = homeStep(cause, home);", "out.setupHome = { tone: \"warning\", text: \"To do\", hint: HOME_STEP_TODO };"],
+    ["the home causes share one reading", "out.setupHome = homeStep(cause, home, repair);", "out.setupHome = { tone: \"warning\", text: \"To do\", hint: HOME_STEP_TODO };"],
     ["the completed Home folder step disappears", 'var HOME_READY = { tone: "ok", text: "Done" };', "var HOME_READY = { hidden: true };"],
     ["the unchecked Home folder reads Done", 'var HOME_UNCHECKED = { tone: "warning", text: "Not checked" };', 'var HOME_UNCHECKED = { tone: "ok", text: "Done" };'],
     ["the home folder action loses its path", 'value.file = home.path + HOME_FILES[value.action];', ""],
@@ -2673,7 +2725,7 @@ function verifyDictation(gate, serviceSource) {
             values[key] = value;
             return "ok";
         } } };
-        vm.runInNewContext("(" + publishSetup[0] + ")", { Gate: gate, shell, homePathRead: { kind: "ready", path: "/home/user/Fixture" }, dictationState: state === null ? null : Object.assign({ setup: null }, state), accountReader: { modelAccess: { kind: "checking" } },
+        vm.runInNewContext("(" + publishSetup[0] + ")", { Gate: gate, shell, homeRepair: { result: { kind: "unavailable" } }, homePathRead: { kind: "ready", path: "/home/user/Fixture" }, dictationState: state === null ? null : Object.assign({ setup: null }, state), accountReader: { modelAccess: { kind: "checking" } },
             localRuntime: { setupCause: "", republish: () => true }, voiceStep: null, sessionState: null, sessionStart: { result: null }, setupAnswer: { kind: "checking" } })({ kind: "answered", causes: cause === "" ? [] : [cause] });
         const voice_ = plain(values.setupVoice);
         if (expect === "withheld")
@@ -2899,7 +2951,7 @@ function verifyVoiceStepRepublish(gate, serviceSource) {
     assert.ok(publishSetup, "Service.qml declares publishSetup");
     const values = {};
     const calls = [];
-    const context = { Gate: gate, homePathRead: { kind: "ready", path: "/home/user/Fixture" }, dictationState: null, accountReader: { modelAccess: { kind: "checking" } }, sessionState: null, setupAnswer: { kind: "checking" },
+    const context = { Gate: gate, homeRepair: { result: { kind: "unavailable" } }, homePathRead: { kind: "ready", path: "/home/user/Fixture" }, dictationState: null, accountReader: { modelAccess: { kind: "checking" } }, sessionState: null, setupAnswer: { kind: "checking" },
         voiceStep: readiness(gate, { kind: "checking" }).setupVoice, sessionStart: { result: null },
         shell: { manifest, settings: { voiceAccount: "", startAtBoot: false }, requirements: { missing: [] }, status: { values, isOk: judge.statusReplyOk, set: (key, value) => { values[key] = value; return "ok"; } } } };
     context.localRuntime = { setupCause: "", republish: () => { calls.push(plain(context.voiceStep)); return true; } };

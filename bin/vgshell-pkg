@@ -16,7 +16,7 @@
 //   vgshell-pkg present <command>...
 //       one JSON line `{ present, missing }` naming each command found and
 //       not found on PATH; exit 0 when none is missing, 1 when one is
-//   vgshell-pkg plan install|update|remove|upgrade <manager> [names...]
+//   vgshell-pkg plan install|reinstall|update|remove|upgrade <manager> [names...]
 //       one JSON line `{ manager, binary, action, elevate, steps,
 //       elevator }`: the argv of each step the action takes, in order,
 //       whether it needs root, and the elevation command `run` would put
@@ -40,7 +40,7 @@
 //       printed, whatever each source answered. A check stopped by SIGINT,
 //       SIGTERM or SIGHUP prints nothing and exits 128 plus the signal's
 //       number once every query has ended.
-//   vgshell-pkg run install|update|remove|upgrade [--manager <id>] [names...]
+//   vgshell-pkg run install|reinstall|update|remove|upgrade [--manager <id>] [names...]
 //   vgshell-pkg run upgrade [--manager <id>] --ignore <name>...
 //   vgshell-pkg run upgrade --manager pacman|aur --config <path> [--ignore <name>...]
 //   vgshell-pkg run update [--manager <id>] <name>... --install <name>...
@@ -166,7 +166,7 @@ const FRESH_MS = 10 * 60 * 1000;
 const QUERY_TIMEOUT = 30;
 
 function usage(first) {
-    process.stderr.write("vgshell: refused: " + first + "\nusage: vgshell pkg detect [--json] [--holders <command>...] | present <command>... | plan install|update|remove|upgrade <manager> [names...] | run install|update|remove|upgrade [--manager <id>] [names...] | run upgrade [--manager <id>] --ignore <name>... | run update [--manager <id>] <name>... --install <name>... | install|remove [--manager <id>] [names...] | check [--json] [--source <manager>] | owner <path> | removable <package>\n");
+    process.stderr.write("vgshell: refused: " + first + "\nusage: vgshell pkg detect [--json] [--holders <command>...] | present <command>... | plan install|reinstall|update|remove|upgrade <manager> [names...] | run install|reinstall|update|remove|upgrade [--manager <id>] [names...] | run upgrade [--manager <id>] --ignore <name>... | run update [--manager <id>] <name>... --install <name>... | install|remove [--manager <id>] [names...] | check [--json] [--source <manager>] | owner <path> | removable <package>\n");
     process.exit(2);
 }
 

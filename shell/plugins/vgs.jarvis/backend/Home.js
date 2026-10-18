@@ -50,6 +50,8 @@ const COPIED_KINDS = Object.freeze(["skill", "agent"]);
 // it replaces and removes those files only.
 const RECORD = ".vgs-package.json";
 const RECORD_BYTES = 1 << 20;
+// The Home step reads the last repair result, never as proof of readiness.
+const REPAIR_RECORD = ".vgs-home-repair.json";
 // VGS's copy of the package before the home took kendex's layout.
 const OLD_COPY = "skills/base";
 // The CLAUDE.md VGS wrote before: one line importing AGENTS.md, which Claude
@@ -468,6 +470,38 @@ function installed(fd) {
         jarvis: rows.some(row => row?.kind === "skill" && row.name === PACKAGE),
         paths: rows.flatMap(row => Array.isArray(row?.emitted?.paths) ? row.emitted.paths.filter(at => plainParts(at) !== null) : [])
     };
+}
+
+// Repair reads ownership without laying out a refused Home or consulting
+// the shipped render, which may itself be the missing package input.
+function packageOwner(home) {
+    const fd = hold(home, false);
+    try { return installed(fd)?.jarvis ? "kendex" : "vgs"; }
+    finally { fs.closeSync(fd); }
+}
+
+function repairResult(home, result) {
+    const fd = hold(home, false);
+    try {
+        if (result !== undefined) {
+            replace(fd, REPAIR_RECORD, JSON.stringify(result) + "\n", false);
+            return result;
+        }
+        const kind = kindOf(fd, REPAIR_RECORD);
+        if (kind === "absent") return null;
+        if (kind === "link") fail("link");
+        if (kind !== "file") fail("kind");
+        const file = fs.openSync(Core.anchored().child(fd, REPAIR_RECORD), O_RDONLY | O_NONBLOCK | O_NOFOLLOW);
+        let raw;
+        try { raw = bytes(file, RECORD_BYTES); } finally { fs.closeSync(file); }
+        if (raw.length > RECORD_BYTES) fail("repair-record");
+        let found;
+        try { found = JSON.parse(raw.toString("utf8")); } catch { fail("repair-record"); }
+        if (!found || !["running", "complete", "failed"].includes(found.kind)
+                || (found.cause !== undefined && !/^[a-z][a-z=-]{0,79}$/.test(found.cause))
+                || (found.code !== undefined && !Number.isInteger(found.code))) fail("repair-record");
+        return found;
+    } finally { fs.closeSync(fd); }
 }
 
 /**
@@ -1040,4 +1074,4 @@ function mailbox(home) {
     return held(home, MAILBOX, O_RDONLY | O_DIRECTORY, () => true) === true;
 }
 
-module.exports = { PACKAGE, resolve, relativeHome, remembered, remember, offers, layout, release, guard, baseSet, read, declaration, skills, skill, note, notes, mailTool, mailCutover, consumeMailCutover, mailbox, sessionCommand, directory };
+module.exports = { PACKAGE, resolve, relativeHome, remembered, remember, offers, layout, release, packageOwner, repairResult, guard, baseSet, read, declaration, skills, skill, note, notes, mailTool, mailCutover, consumeMailCutover, mailbox, sessionCommand, directory };

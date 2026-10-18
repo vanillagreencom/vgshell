@@ -150,12 +150,13 @@ var HOME_TODO = {
     "home=link": { hint: "A file in your Home folder is a shortcut to another place. Jarvis does not follow shortcuts. Replace it with the real file, or choose another [Home folder](page:vgs.jarvis/Settings/home)." },
     "home=path": { hint: "Jarvis cannot use this folder: choose a [Home folder](page:vgs.jarvis/Settings/home) inside your own home directory" },
     "home=text": { hint: "AGENTS.md is not plain text. Save it as plain text.", action: "agents" },
-    "home=package": { hint: "A Jarvis file in your Home folder is damaged. Choose another [Home folder in Settings](page:vgs.jarvis/Settings/home)." },
+    "home=package": {},
     "guidance=home-skills-too-large": { text: "Too many skills", hint: "Your Home folder has more skills than Jarvis can list. Remove the skills you do not use.", action: "skills" }
 };
 var HOME_STEP_TODO = "Check that you can open and change the folder, or choose another [Home folder](page:vgs.jarvis/Settings/home)";
 var HOME_FILES = { agents: "/AGENTS.md", skills: "/skills/" };
-function homeStep(cause, home) {
+function homeStep(cause, home, repair) {
+    if (cause === "home=package") return homePackageStep(repair);
     var value = Object.assign({ tone: "warning", text: "To do" },
         Object.prototype.hasOwnProperty.call(HOME_TODO, cause) ? HOME_TODO[cause] : { hint: HOME_STEP_TODO });
     if (value.action !== undefined) {
@@ -165,6 +166,33 @@ function homeStep(cause, home) {
         value.file = home.path + HOME_FILES[value.action];
     }
     return value;
+}
+// Home.js judges the writer. VGS restores its install, and Kendex restores
+// the Home it already owns. Neither route transfers ownership.
+function homePackageStep(home) {
+    if (home === undefined || home.kind !== "ready") return { tone: "warning", text: "To do", hint: home !== undefined && home.kind === "reading"
+        ? "Jarvis is checking how to repair your Home folder"
+        : "Jarvis could not check the repair route. Choose another [Home folder in Settings](page:vgs.jarvis/Settings/home)." };
+    return { tone: "warning", text: "To do", action: "repair", hint: home.repair.kind === "install"
+        ? home.repair.installPlan !== undefined && home.repair.installPlan.kind === "by-hand"
+            ? "The VGS install is missing Jarvis files. Repair shows the required steps. Or choose another [Home folder](page:vgs.jarvis/Settings/home)."
+            : "The VGS install is missing Jarvis files. Repair restores VGS. Or choose another [Home folder](page:vgs.jarvis/Settings/home)."
+        : "Repair restores missing Home files with Kendex. Or choose another [Home folder](page:vgs.jarvis/Settings/home)." };
+}
+// The normal Home check owns Done or To do. A failed repair adds its cause
+// without replacing that check or removing the route to another folder.
+function homeRepairResult(value, home) {
+    if (home.kind !== "ready" || home.repair === undefined || home.repair.lastRepair === null || home.repair.lastRepair.kind !== "failed") return value;
+    var failed = home.repair.lastRepair;
+    // self repair exits 69 after showing a by-hand notice. It attempted no
+    // reinstall, so the step keeps its required-steps hint without a failure.
+    if (failed.cause === "install-failed" && failed.code === 69 && home.repair.installPlan !== undefined && home.repair.installPlan.kind === "by-hand") return value;
+    var reason = failed.cause === "refresh-failed" ? "Kendex refresh failed."
+        : failed.cause === "install-failed" ? "VGS install repair failed."
+        : failed.cause === "timeout" ? "Repair timed out."
+        : failed.cause === "cancelled" ? "Repair was cancelled."
+        : "The repair did not finish.";
+    return Object.assign({}, value, { hint: joinedHint((value.hint === undefined ? [] : [value.hint]).concat([reason + " Check the repair window."])) });
 }
 var HOME_READY = { tone: "ok", text: "Done" };
 // The home texts over their size budget (JarvisProtocol SETUP_CAUTIONS),
@@ -337,7 +365,7 @@ function modelStep(value, keys, access) {
 // { kind: "answered", causes } from its status, as { setup, setupHome,
 // setupVoice, setupModel }. No value holds a keyed cause: the service
 // log keeps it.
-function readiness(answer, home) {
+function readiness(answer, home, repair) {
     switch (answer.kind) {
     case "checking":
         return { setup: CHECKING_SUMMARY, setupHome: HOME_UNCHECKED, setupVoice: CHECKING, setupModel: noAction(CHECKING) };
@@ -366,7 +394,7 @@ function readiness(answer, home) {
             var name = STEP_NAMES[REQUIRED[step]];
             if (open.indexOf(name) === -1) open.push(name);
             if (REQUIRED[step] === "setupHome") {
-                out.setupHome = homeStep(cause, home);
+                out.setupHome = homeStep(cause, home, repair);
                 return;
             }
             // ElevenLabs's voices are being read: the voice is chosen once

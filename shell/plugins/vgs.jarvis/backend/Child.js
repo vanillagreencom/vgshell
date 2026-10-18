@@ -26,6 +26,7 @@ const CLOCK = { set: (fn, ms) => setTimeout(fn, ms), clear: timer => clearTimeou
  *             false: its end kills the child alone, for a child that ends its
  *             own descendants (bwrap --die-with-parent).
  *   input     text written to stdin, then closed; absent, stdin is /dev/null.
+ *   terminal  inherit the presenter's stdin and output for interactive setup.
  *   output    "pipe" collects stdout and stderr; "ignore" sends them to
  *             /dev/null, for a child that forks a server which must not hold
  *             this owner's pipes open after the child exits.
@@ -33,7 +34,7 @@ const CLOCK = { set: (fn, ms) => setTimeout(fn, ms), clear: timer => clearTimeou
  *   signal    an AbortSignal; abort ends the child as "cancelled".
  *   clock     {set, clear} for the deadline.
  */
-function run(file, argv, { env, cwd, limit, deadline, group, input, output = "pipe", extra = 0, attach, signal, clock = CLOCK }) {
+function run(file, argv, { env, cwd, limit, deadline, group, input, terminal = false, output = terminal ? "inherit" : "pipe", extra = 0, attach, signal, clock = CLOCK }) {
     return new Promise(resolve => {
         if (signal && signal.aborted) { resolve({ kind: "stopped", reason: "cancelled", stdout: "", stderr: "" }); return; }
         let child = null;
@@ -53,7 +54,7 @@ function run(file, argv, { env, cwd, limit, deadline, group, input, output = "pi
         };
         // Arm the deadline first: a clock that throws leaves no child behind.
         const timer = clock.set(() => end("timeout"), deadline);
-        child = spawn(file, argv, { env, cwd, detached: group, stdio: [input === undefined ? "ignore" : "pipe",
+        child = spawn(file, argv, { env, cwd, detached: group, stdio: [terminal ? "inherit" : input === undefined ? "ignore" : "pipe",
             output, output, ...Array.from({ length: extra }, () => "pipe")] });
         const cancel = () => end("cancelled");
         if (signal) signal.addEventListener("abort", cancel, { once: true });
