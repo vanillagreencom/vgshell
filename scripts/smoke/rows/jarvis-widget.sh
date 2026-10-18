@@ -150,9 +150,10 @@ PY
 }
 jarvis_widget_voice_line() {
   "$node_bin" -e 'const { load } = require(process.argv[1]);
-const view = load(process.argv[2]);
+const PageReference = load(process.argv[3]);
+const view = load(process.argv[2], { "qs.Commons 1.0": { PageReference } });
 process.stdout.write(JSON.stringify(["power-off", "neutral", view.SETUP_TEXT.find(row => row[0] === "setupVoice")[1].title, "setup"]));' \
-    "$repo/bin/lib/qml-library.js" "$repo/shell/plugins/vgs.jarvis/WidgetView.js"
+    "$repo/bin/lib/qml-library.js" "$repo/shell/plugins/vgs.jarvis/WidgetView.js" "$repo/shell/Commons/PageReference.js"
 }
 jarvis_widget_restart_assertion() { expect_poll "the widget reads loading after the daemon ends" restarting jarvis_widget_restarting; }
 jarvis_widget_restart_control() {

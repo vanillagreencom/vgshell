@@ -17,12 +17,13 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
-const { load } = require("../bin/lib/qml-library.js");
+const { load: loadLibrary } = require("../bin/lib/qml-library.js");
+const pageReference = loadLibrary(path.join(__dirname, "..", "shell", "Commons", "PageReference.js"));
+const load = file => loadLibrary(file, { "qs.Commons 1.0": { PageReference: pageReference } });
 
 const dir = path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis");
 const Session = load(path.join(dir, "Session.js"));
 const SetupGate = load(path.join(dir, "SetupGate.js"));
-const pageReference = load(path.join(dir, "..", "..", "Commons", "PageReference.js"));
 const Lucide = load(path.join(__dirname, "..", "shell", "Ui", "icons", "Lucide.js"));
 const KeyNavLogic = load(path.join(__dirname, "..", "shell", "Ui", "foundation", "KeyNavLogic.js"));
 const MANIFEST_KEYS = Object.fromEntries(JSON.parse(fs.readFileSync(path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "manifest.json"), "utf8"))

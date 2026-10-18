@@ -4,6 +4,7 @@ import qs.Commons
 import qs.Ui
 import "Session.js" as Session
 import "WidgetView.js" as WidgetView
+import "SetupGate.js" as Gate
 
 // Jarvis console: a keyboard-first window for typed turns. It asks the
 // service through IPC, reads the service's bounded conversation status, and
@@ -37,6 +38,7 @@ FocusScope {
     readonly property string livePartial: state !== null && state.turn.kind === "collecting" ? state.turn.partial : ""
     readonly property var transcriptRows: rows()
     readonly property string hint: problem !== "" ? problem : refusalText(refusal)
+    readonly property var messageLimit: Gate.messageLimit(Session.TRANSCRIPT_CHARS)
 
     function open(payloadJson) {
         payload = payloadJson ? JSON.parse(payloadJson) : {};
@@ -133,7 +135,7 @@ FocusScope {
         if (key === "busy") return "Wait, or press Stop";
         if (key === "held") return "Confirm or cancel the request first";
         if (key === "duplex") return "Typing is unavailable with this voice provider: speak to Jarvis instead";
-        if (key === "say-text") return "Message too long or has unsupported characters";
+        if (key === "say-text") return "Use up to " + Gate.numberText(messageLimit.maximum) + " characters of plain text";
         return "Jarvis is not ready";
     }
 
@@ -201,7 +203,8 @@ FocusScope {
         if (problem === "link") return "Not saved. The note path contains a link.";
         if (problem === "secret") return "Not saved. The note contains a secret.";
         if (problem === "hash") return "Not saved. The pending note changed.";
-        if (problem === "bootstrap") return "Not saved. Jarvis cannot rewrite MEMORY.md.";
+        if (problem === "bootstrap") return "Not saved. Jarvis cannot rewrite " + Gate.homeReference("memory/MEMORY.md",
+            { kind: values.homePath ? "ready" : "empty", path: values.homePath }, "/memory/MEMORY.md") + ".";
         if (problem === "write") return "Not saved. Jarvis could not write the note.";
         return "";
     }
@@ -341,14 +344,14 @@ FocusScope {
                             wrapMode: Text.Wrap
                             textFormat: Text.PlainText
                         }
-                        Label {
+                        LinkText {
                             width: parent.width
                             role: "body"
                             visible: modelData.problem !== ""
                             text: root.memoryProblemText(modelData.problem)
                             color: Theme.color.danger
                             wrapMode: Text.Wrap
-                            textFormat: Text.PlainText
+                            onPageActivated: (page, tab) => root.shell.surfaces.openPage(page, tab)
                         }
                         Label {
                             width: parent.width
@@ -480,12 +483,21 @@ FocusScope {
                 width: layout.contentWidth
                 spacing: Theme.stack.inline
 
-                Label {
+                Row {
                     width: parent.width
-                    role: "hint"
-                    text: root.hint
-                    color: root.problem !== "" ? Theme.color.danger : root.refusal === null ? Theme.color.textMuted : Theme.color.warning
-                    wrapMode: Text.Wrap
+                    spacing: Theme.control.gap
+                    Label {
+                        width: parent.width - messageInfo.width - parent.spacing
+                        role: "hint"
+                        text: root.hint
+                        color: root.problem !== "" ? Theme.color.danger : root.refusal === null ? Theme.color.textMuted : Theme.color.warning
+                        wrapMode: Text.Wrap
+                    }
+                    InfoButton {
+                        id: messageInfo
+                        title: "Message length"
+                        info: root.messageLimit.info
+                    }
                 }
 
                 Row {

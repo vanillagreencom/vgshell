@@ -23,7 +23,8 @@ const STATUS_SOURCE = fs.readFileSync(path.join(__dirname, "..", "shell", "Core"
 const CAPABILITIES_SOURCE = fs.readFileSync(path.join(__dirname, "..", "shell", "Core", "Capabilities.qml"), "utf8");
 const BROWSER_SOURCE = fs.readFileSync(path.join(JARVIS, "BrowserRuntime.qml"), "utf8");
 const LOCAL_SOURCE = fs.readFileSync(path.join(JARVIS, "LocalRuntime.qml"), "utf8");
-const GATE = load(path.join(JARVIS, "SetupGate.js"));
+const PAGE_REFERENCE = load(path.join(path.dirname(SETTING_VALUES), "PageReference.js"));
+const GATE = load(path.join(JARVIS, "SetupGate.js"), { "qs.Commons 1.0": { PageReference: PAGE_REFERENCE } });
 const PLUGINS_SOURCE = fs.readFileSync(path.join(path.dirname(LOGIC), "Plugins.qml"), "utf8");
 const CONFIG_SOURCE = fs.readFileSync(path.join(path.dirname(LOGIC), "Config.qml"), "utf8");
 const READER_SOURCES = Object.fromEntries(["Accounts", "Keys", "LocalTier", "Service"].map(name =>
@@ -199,7 +200,7 @@ function continuationChecks(logic, check, sourceChanges = {}) {
                 let refreshes = 0, starts = 0, running = false;
                 const probe = {};
                 Object.defineProperty(probe, "running", { get: () => running, set: value => { running = value; if (value) starts++; } });
-                root = { shell: world.shell, Gate: GATE, Words: WORDS, Providers: PROVIDERS, pending: true,
+                root = { shell: world.shell, Gate: GATE, Words: WORDS, PageReference: PAGE_REFERENCE, Providers: PROVIDERS, pending: true,
                     probe, reader: probe, program: "/fixture/reader", removedFrom: undefined,
                     completion: { kind: "exited", code: failed ? 1 : 0 }, diagnostic: { kind: "collected", text: "" }, code: failed ? 1 : 0,
                     output: name === "Accounts" ? JSON.stringify({ accounts: [], brains: [], providers: {}, voiceAccounts: keys, search: { found: 1, partial: "" } })

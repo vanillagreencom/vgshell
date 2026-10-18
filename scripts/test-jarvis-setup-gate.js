@@ -16,7 +16,9 @@ const path = require("node:path");
 const os = require("node:os");
 const vm = require("node:vm");
 const cp = require("node:child_process");
-const { load } = require("../bin/lib/qml-library.js");
+const { load: loadLibrary } = require("../bin/lib/qml-library.js");
+const pageReference = loadLibrary(path.join(__dirname, "..", "shell", "Commons", "PageReference.js"));
+const load = file => loadLibrary(file, { "qs.Commons 1.0": { PageReference: pageReference } });
 const judge = load(path.join(__dirname, "..", "shell", "Core", "PluginLogic.js"));
 const settings = load(path.join(__dirname, "..", "shell", "plugins", "vgs.settings", "Steps.js"));
 // Required Setup projection and Details action decisions from Steps.js.
@@ -33,7 +35,6 @@ const detailActionRows = status => Array.from(settings.detailEntries(status)).ma
 const protocol = load(path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "JarvisProtocol.js"));
 const session = load(path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "Session.js"));
 const widget = load(path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis", "WidgetView.js"));
-const pageReference = load(path.join(__dirname, "..", "shell", "Commons", "PageReference.js"));
 let manifestControlCount = 0;
 
 function changedManifest(source, change) {
@@ -875,7 +876,7 @@ function verifyModelConsumers(gate, serviceSource, accountsSource) {
             output: JSON.stringify({ accounts: row.apps.map(app => ({ label: "Fixture app", value: "present", plan: "", email: "", mismatch: false, signIn: false, ...app })),
                 brains: [], voiceAccounts: [], search: { found: row.apps.length, partial: "" } }), refreshed: () => {} };
         vm.runInNewContext(publishAccounts[0],
-            { root, Gate: gate, Words: words, Providers: { probeFailure: () => "jarvis-accounts: probe=failed" }, console: { warn: () => {} } });
+            { root, Gate: gate, Words: words, PageReference: pageReference, Providers: { probeFailure: () => "jarvis-accounts: probe=failed" }, console: { warn: () => {} } });
         vm.runInNewContext("(" + publishSetup[0] + ")", { Gate: gate, shell, homeRepair: { result: { kind: "unavailable" } }, homePathRead: { kind: "ready", path: "/home/user/Fixture" }, dictationState: null, accountReader: root, localRuntime: { setupCause: "", republish: () => true }, voiceStep: null, sessionState: null, sessionStart: { result: null }, shellSetupCauses: [], setupAnswer: { kind: "checking" } })(row.answer);
         try {
             assert.deepEqual([values.setupModel.tone, values.setupModel.action], row.want, row.name);
@@ -985,7 +986,7 @@ function verifyVoice(gate, serviceSource, accountsSource) {
                 diagnostic: { kind: "collected", text: "" }, refreshed: () => {},
                 output: JSON.stringify({ accounts: [], brains: [], providers: { "claude-team": "claude" }, voiceAccounts: offered ?? [], search: { found: 0, partial: "" } }) };
             vm.runInNewContext(publishAccounts[0],
-                { root, Gate: gate, Words: words, Providers: { probeFailure: () => "jarvis-accounts: probe=failed" }, console: { warn: () => {} } });
+                { root, Gate: gate, Words: words, PageReference: pageReference, Providers: { probeFailure: () => "jarvis-accounts: probe=failed" }, console: { warn: () => {} } });
             assert.deepEqual(plain({ keys: root.voiceKeys }), plain({ keys: offered ?? undefined }), label + ": the keys the reader hands the service");
             assert.deepEqual(plain(root.providers), offered === null ? {} : { "claude-team": "claude" }, label + ": the providers the reader hands the service");
             const entry = judge.statusRows(manifest, values).find(item => item.key === "voiceKey");
@@ -1108,7 +1109,8 @@ function verifyReadiness(gate) {
     for (const [label, answer, tone, todo, declared, model] of READINESS) {
         const got = plain(readiness(gate, answer));
         assert.deepEqual(Object.keys(got).sort(), ["setup", "setupHome", "setupModel", "setupVoice"], label);
-        assert.deepEqual(got.setupHome, { tone: "ok", text: "Done" }, label + ": the checked Home folder stays visible as Done");
+        assert.deepEqual([got.setupHome.tone, got.setupHome.text], ["ok", "Done"], label + ": the checked Home folder stays visible as Done");
+        assert.equal(pageReference.file(pageReference.parse(got.setupHome.hint).page), "/home/user/Fixture/", label + ": the completed step opens the chosen folder");
         assert.equal(got.setup.tone, tone, label + ": the summary");
         assert.equal(got.setup.action, undefined, label + ": the summary offers no step");
         assert.deepEqual(keyedCauses(got.setup, ["text", "hint", "lines"]), [], label + ": the summary draws no keyed cause");
@@ -1659,22 +1661,37 @@ function verifyHintStops(gate) {
 // hint that names each text over its budget, beside other steps' causes
 // too. The Personality row the shipped service publishes shows its section,
 // with a line while AGENTS.md is over its budget.
-const OVER_BUDGET_FILES = { "guidance=persona-over-budget": "persona.md", "guidance=agents-over-budget": "AGENTS.md",
-    "guidance=skills-over-budget": "skill list", "guidance=memory-over-budget": "memory/MEMORY.md", "guidance=start-over-budget": "start text" };
+const OVER_BUDGET_FILES = { "guidance=persona-over-budget": "/.agents/skills/jarvis/persona.md", "guidance=agents-over-budget": "/AGENTS.md",
+    "guidance=skills-over-budget": "/skills/", "guidance=memory-over-budget": "/memory/MEMORY.md", "guidance=start-over-budget": "/" };
 function verifyOverBudget(gate, serviceSource) {
     const cautions = Array.from(protocol.SETUP_CAUTIONS);
     assert.deepEqual(cautions, Object.keys(OVER_BUDGET_FILES), "each caution the wire carries names its file here");
+    const guidance = fs.readFileSync(path.join(path.dirname(file), "backend/Guidance.js"), "utf8");
+    const budgets = { "guidance=persona-over-budget": "PERSONA_BUDGET", "guidance=agents-over-budget": "AGENTS_BUDGET",
+        "guidance=skills-over-budget": "SKILLS_BUDGET", "guidance=memory-over-budget": "MEMORY_BUDGET", "guidance=start-over-budget": "START_BUDGET" };
+    for (const cause of cautions) {
+        const held = [...guidance.matchAll(new RegExp("const " + budgets[cause] + " = ([0-9]+);", "g"))];
+        assert.equal(held.length, 1, cause + ": one budget owned by Guidance");
+        assert.equal(gate.OVER_BUDGET[cause].bytes, Number(held[0][1]), cause + ": presentation uses the actual byte budget");
+    }
     for (const cause of cautions) {
         const got = plain(readiness(gate, { kind: "answered", causes: [cause] }));
         assert.deepEqual([got.setup, got.setupHome.tone, got.setupHome.text, got.setupVoice.tone, got.setupModel.tone],
             [{ tone: "ok", text: "Ready" }, "ok", "Done", "ok", "ok"], cause + ": over its budget reads Ready");
-        assert.equal(typeof got.setupHome.hint === "string" && got.setupHome.hint.includes(OVER_BUDGET_FILES[cause]), true, cause + ": the caution names the file");
+        assert.equal(typeof got.setupHome.info === "string" && got.setupHome.info.length > 0, true, cause + ": the caution has a reason info");
+        const suffix = OVER_BUDGET_FILES[cause];
+        assert.equal(pageReference.file(pageReference.parse(got.setupHome.info).page), "/home/user/Fixture" + suffix, cause + ": the caution links its chosen file");
+        assert.deepEqual(plain(judge.statusActionRequest(manifest, "vgs.jarvis", true, { setupHome: got.setupHome }, "setupHome")),
+            { ok: true, kind: "file", path: "/home/user/Fixture" + suffix }, cause + ": the caution carries its file action");
+        const entry = judge.statusRows(manifest, { setupHome: got.setupHome }).find(row => row.key === "setupHome");
+        assert.equal(settings.stepButton(entry)?.kind, "status", cause + ": the completed step still offers its open action");
         assert.equal(judge.statusWrite(manifest, {}, "setupHome", got.setupHome).ok, true, cause + ": the judge accepts the Home folder step");
     }
     const all = plain(readiness(gate, { kind: "answered", causes: ["setup=probe-timeout", ...cautions, "brain=unselected"] }));
     assert.deepEqual([all.setup.tone, all.setupHome.tone, all.setupHome.text, all.setupModel.tone], ["warning", "ok", "Done", "warning"],
         "texts over their budget beside a step to do: that step alone is open");
-    assert.deepEqual(cautions.filter(cause => !all.setupHome.hint.includes(OVER_BUDGET_FILES[cause])), [], "the caution names every text over its budget");
+    assert.equal(typeof all.setupHome.info, "string", "all cautions keep their reason info");
+    assert.equal(all.setupHome.file, "/home/user/Fixture/", "several cautions offer the chosen folder");
     assert.equal(judge.statusWrite(manifest, {}, "setupHome", all.setupHome).ok, true, "the judge accepts the step that names every text");
     const section = { kind: "section", lines: ["Calm."], more: false };
     for (const [label, shown, causes, want] of [
@@ -1689,11 +1706,15 @@ function verifyOverBudget(gate, serviceSource) {
             values[key] = value;
             return "ok";
         } } };
-        serviceCall(serviceSource, "publishPersonality", { shell, personalityShown: shown, setupAnswer: { kind: "answered", causes } }, gate);
+        serviceCall(serviceSource, "publishPersonality", { shell, personalityShown: shown, homePathRead: { kind: "ready", path: "/home/user/Fixture" }, setupAnswer: { kind: "answered", causes } }, gate);
         const row = plain(values.personality);
         assert.deepEqual([row.tone, row.text, row.lines?.length], want, label);
         if (shown.kind === "section") assert.equal(row.hint, "Calm.", label + ": the section shows");
         if (shown.kind === "none") assert.deepEqual(settingLinks(row.hint), ["home"], label + ": the row links the Home folder setting");
+        if (causes.includes("guidance=agents-over-budget")) {
+            assert.equal(typeof row.info === "string" && row.info.length > 0, true, label + ": the Personality caution has info");
+            assert.equal(pageReference.file(pageReference.parse(row.info).page), "/home/user/Fixture/AGENTS.md", label + ": the Personality caution links the chosen file");
+        }
     }
 }
 
@@ -1703,7 +1724,7 @@ function verifyHomeActions(gate, source) {
     const personalityFile = source.match(/^    function personalityFile\(\) \{\n[\s\S]*?^    \}/m);
     assert.ok(personalityFile, "the service exposes the selected-home file");
     for (const home of [{ kind: "empty" }, { kind: "reading" }, { kind: "failed" },
-        { kind: "ready", path: "/home/user/My folder/é#%notes" }]) {
+        { kind: "ready", path: "/home/user/My folder (chosen)/é#%notes" }]) {
         const context = { homePathRead: home };
         vm.runInNewContext(personalityFile[0], context);
         assert.equal(context.personalityFile(), home.kind === "ready" ? home.path + "/AGENTS.md" : "refused: home=none",
@@ -1717,6 +1738,9 @@ function verifyHomeActions(gate, source) {
             if (home.kind === "ready")
                 assert.deepEqual(plain(judge.statusActionRequest(manifest, "vgs.jarvis", true, { setupHome: value }, "setupHome")),
                     { ok: true, kind: "file", path: home.path + suffix }, cause + ": the core opens the selected file");
+            if (home.kind === "ready" && cause === "home=text")
+                assert.equal(pageReference.file(pageReference.parse(value.hint).page), home.path + suffix,
+                    "a refused home still links its selected file");
         }
     }
     const resolve = source.match(/^    function resolveHomePath\(\) \{\n[\s\S]*?^    \}/m);
@@ -1850,6 +1874,7 @@ function verifyHomeActions(gate, source) {
 function verify(gate) {
     verifyHomeActions(gate, fs.readFileSync(serviceFile, "utf8"));
     verifyOverBudget(gate, fs.readFileSync(serviceFile, "utf8"));
+    verifyLimitPresentation(gate);
     verifySession(gate);
     verifyOneSessionJudgement(gate);
     for (const check of [{ kind: "ready" }, { kind: "done", result: "ready" }]) {
@@ -1965,6 +1990,65 @@ function verify(gate) {
     }
     verifyWordedText(gate);
     verifyHintStops(gate);
+}
+
+// The deployed producers publish typed causes. Their presentation must keep
+// an explanation and, for a home file, a route to the selected path even
+// when the daemon refused that home's contents. Wording remains review work.
+function verifyLimitPresentation(gate) {
+    const home = { kind: "ready", path: "/home/user/Fixture (chosen)/é#%notes" };
+    const skills = gate.homeStep("guidance=home-skills-too-large", home);
+    assert.equal(typeof skills.info === "string" && skills.info.length > 0, true, "the skill-entry refusal has a reason info");
+    assert.deepEqual(plain(judge.statusActionRequest(manifest, "vgs.jarvis", true, { setupHome: skills }, "setupHome")),
+        { ok: true, kind: "file", path: home.path + "/skills/" }, "the skill-entry refusal has a file action");
+    for (const partial of ["entry-limit", "account-limit"]) {
+        const value = words.searchValue({ kind: "found", found: 2, partial }, pageReference);
+        assert.equal(value.action, true, partial + ": account search keeps its recovery action");
+        assert.equal(typeof value.info === "string" && value.info.length > 0, true, partial + ": account search has a reason info");
+        assert.equal(judge.statusWrite(manifest, {}, "accountSearch", value).ok, true, partial + ": accepted account limit info");
+        if (partial === "entry-limit") assert.equal(pageReference.file(pageReference.parse(value.info).page), "~/",
+            "account search links the user's home, not the chosen Jarvis home");
+    }
+    const voice = gate.voiceCheck(gate.DONE, { kind: "recording" });
+    assert.equal(typeof voice.info === "string" && voice.info.length > 0, true, "the microphone duration has a reason info");
+    const consoleSource = fs.readFileSync(path.join(path.dirname(file), "Console.qml"), "utf8");
+    const memoryText = consoleSource.match(/^    function memoryProblemText\(problem\) \{\n[\s\S]*?^    \}/m);
+    assert.ok(memoryText, "the console maps memory causes");
+    const context = { Gate: gate, values: { homePath: home.path } };
+    vm.runInNewContext(memoryText[0], context);
+    assert.equal(pageReference.file(pageReference.parse(context.memoryProblemText("bootstrap")).page), home.path + "/memory/MEMORY.md",
+        "the console bootstrap refusal links the chosen file");
+    const composer = consoleSource.slice(consoleSource.indexOf("id: composer"));
+    assert.match(composer, /InfoButton\s*\{\s*id: messageInfo\s+title: "[^"\n]+"\s+info: root\.messageLimit\.info/,
+        "the console message bound has an info control");
+    assert.ok(consoleSource.includes("readonly property var messageLimit: Gate.messageLimit(Session.TRANSCRIPT_CHARS)"),
+        "the console reads its actual typed-message bound");
+    const limit = gate.messageLimit(session.TRANSCRIPT_CHARS);
+    assert.equal(limit.maximum, 4096, "the console uses the Session character bound");
+    assert.equal(typeof limit.info === "string" && limit.info.length > 0, true, "the message bound has a reason info");
+    const refusalText = consoleSource.match(/^    function refusalText\(key\) \{\n[\s\S]*?^    \}/m);
+    const refusalContext = { messageLimit: limit, Gate: gate };
+    vm.runInNewContext(refusalText[0], refusalContext);
+    assert.ok(refusalText[0].includes("Gate.numberText(messageLimit.maximum)"), "the typed rejection renders its actual bound");
+    assert.equal(typeof refusalContext.refusalText("say-text"), "string", "the typed rejection renders without a QML-only formatter");
+    const fileProblem = consoleSource.match(/LinkText\s*\{[^}]*text: root\.memoryProblemText\(modelData\.problem\)[^}]*onPageActivated:/);
+    assert.ok(fileProblem, "the console draws memory file references with an open handler");
+    const layers = { "home/persona": "/.agents/skills/jarvis/persona.md", "home/AGENTS.md": "/AGENTS.md", "home/skills": "/skills/",
+        "home/MEMORY.md": "/memory/MEMORY.md", "home/state": "/state/" };
+    for (const [layer, suffix] of Object.entries(layers)) {
+        const info = gate.startTextInfo([{ layer }], [], home);
+        assert.equal(pageReference.file(pageReference.parse(info).page), home.path + suffix, layer + ": start text info opens the actual chosen file");
+    }
+    const combinedInfo = gate.startTextInfo(Object.keys(layers).map(layer => ({ layer })), Array.from(protocol.SETUP_CAUTIONS), home);
+    const combinedLinks = Array.from(pageReference.references(combinedInfo).links, link => pageReference.file(link.page));
+    for (const suffix of Object.values(layers)) assert.ok(combinedLinks.includes(home.path + suffix), "each start text file remains a distinct link");
+    const homeFault = widget.faultText({ kind: "error", reason: "home=text" }, "dictation", home.path);
+    assert.deepEqual(Array.from(pageReference.references(homeFault.action).links, link => pageReference.file(link.page)),
+        ["/AGENTS.md", "/memory/MEMORY.md", "/skills/"].map(suffix => home.path + suffix), "each home fault link opens its own selected file");
+    assert.equal(judge.statusWrite(manifest, {}, "startText", { tone: "info", text: "Fixture", info: combinedInfo }).ok, true,
+        "the start text row accepts all file links beside every budget caution");
+    assert.ok(fs.readFileSync(serviceFile, "utf8").includes("info: Gate.startTextInfo(size.layers, causes, homePathRead)"),
+        "the start text row publishes the file links in its info");
 }
 
 verify(load(file));
@@ -2099,10 +2183,12 @@ const CONTROLS = [
     ["a caution reads not ready", 'blocking.length === 0 ? { tone: "ok", text: "Ready", hint:', 'false ? { tone: "ok", text: "Ready", hint:', "the bar and the Setup status state one readiness"],
     ["a caution turns its step to do", 'var blocking = causes.filter(function (cause) { return !Object.prototype.hasOwnProperty.call(CAUTION, cause); });\n        var out',
         'var blocking = causes.filter(function (cause) { return !Object.prototype.hasOwnProperty.call(CAUTION, cause); });\n        REQUIRED.setup = "setupVoice"; TODO["setup=probe-timeout"] = CAUTION["setup=probe-timeout"]; blocking = causes;\n        var out'],
-    ["an over-budget text drops its caution", "setupHome: homeDone(answer.causes),", "setupHome: HOME_READY,", "the caution names the file"],
+    ["an over-budget text drops its caution", "setupHome: homeDone(answer.causes, home),", "setupHome: HOME_READY,", "the caution has a reason info"],
     ["an over-budget text holds its step", 'var causes = answer.causes.filter(function (cause) { return !Object.prototype.hasOwnProperty.call(OVER_BUDGET, cause); });',
         "var causes = answer.causes;", "over its budget reads Ready"],
-    ["the AGENTS.md line is dropped", 'return Object.assign({}, value, { tone: "info", lines: [AGENTS_OVER] });', "return value;", "a section of an AGENTS.md over its budget"],
+    ["the AGENTS.md line is dropped", 'return Object.assign({}, value, { tone: "info", lines: ["Over the " + numberText(OVER_BUDGET["guidance=agents-over-budget"].bytes) + "-byte budget"],\n            info: (value.info === undefined ? "" : value.info + " ") + budgetInfo(["guidance=agents-over-budget"], home) });', "return value;", "a section of an AGENTS.md over its budget"],
+    ["a caution loses its reason info", 'info: budgetInfo(over, home)', 'unusedInfo: budgetInfo(over, home)', "the caution has a reason info"],
+    ["a caution loses its file action", 'value.file = home.path + HOME_FILES[value.action];\n    }\n    return value;\n}\nvar HOME_UNCHECKED', 'delete value.action;\n    }\n    return value;\n}\nvar HOME_UNCHECKED', "the caution carries its file action"],
     ["the timed-out Local voice row asks for a restart", 'hint: "Jarvis does not need this check to answer and runs it again after the next setup" };',
         "hint: START_RESTART };", "probe timeout: the Local voice row asks for no restart beside Ready"],
     ["the probe timeout caution asks for a restart", '"setup=probe-timeout": "Jarvis answers, but its check of the local voice did not finish"',
@@ -2113,7 +2199,8 @@ const CONTROLS = [
     ["the home causes share one reading", "out.setupHome = homeStep(cause, home, repair);", "out.setupHome = { tone: \"warning\", text: \"To do\", hint: HOME_STEP_TODO };"],
     ["the completed Home folder step disappears", 'var HOME_READY = { tone: "ok", text: "Done" };', "var HOME_READY = { hidden: true };"],
     ["the unchecked Home folder reads Done", 'var HOME_UNCHECKED = { tone: "warning", text: "Not checked" };', 'var HOME_UNCHECKED = { tone: "ok", text: "Done" };'],
-    ["the home folder action loses its path", 'value.file = home.path + HOME_FILES[value.action];', ""],
+    ["the home folder action loses its path", '        value.file = home.path + HOME_FILES[value.action];\n    }\n    if (home.kind === "ready")',
+        '    }\n    if (home.kind === "ready")'],
     ["any account shows Copilot Memory", 'account.provider === "copilot" && ', ""],
     ["a signed-out Copilot shows Copilot Memory", ' && account.value === "present"; })', "; })"],
     ["a command below its floor reads as installed", 'if (outdated.indexOf(command) !== -1) return { tone: "warning", text: "Needs an update" };', ""],
@@ -2868,8 +2955,6 @@ function verifyPathForm(gate) {
     // links it on Settings.
     const voices = pageReference.parse(gate.ELEVENLABS_READY);
     assert.deepEqual([voices.words.includes(manifest.schema.voice.label), voices.page, voices.tab], [true, "vgs.jarvis", "Settings/voice"], "the voices hint links the Voice field");
-    for (const text of texts)
-        assert.ok((text.match(/\]\(page:/g) ?? []).length <= 1, JSON.stringify(text) + ": at most one reference per drawn text");
     for (const [cause, page, tab] of [
         ...["unselected", "model-required", "models-unavailable", "model-unavailable", "signed-out"]
             .map(name => ["brain=" + name, "vgs.jarvis", "Settings"]),
@@ -2884,8 +2969,9 @@ function verifyPathForm(gate) {
         ["speech=dictation-device", "vgs.voice", "Settings"],
         ["home=link", "vgs.jarvis", "Settings/home"],
         ["home=path", "vgs.jarvis", "Settings/home"]]) {
-        const values = readiness(gate, { kind: "answered", causes: [cause] });
-        const hint = Object.entries(values).find(([key, value]) => key !== "setup" && value.hint !== undefined)[1].hint;
+        const values = gate.readiness({ kind: "answered", causes: [cause] }, { kind: "empty" });
+        const entryKey = cause.startsWith("brain=") ? "setupModel" : cause.startsWith("home=") ? "setupHome" : "setupVoice";
+        const hint = values[entryKey].hint;
         const reference = pageReference.parse(hint);
         assert.deepEqual([reference.page, reference.tab], [page, tab], cause + ": the converted hint links its tab");
         assert.ok(judge.hintFits(hint), cause + ": a converted hint fits the status reading");

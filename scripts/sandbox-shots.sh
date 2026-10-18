@@ -3593,13 +3593,9 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 const [repo, cause, phase] = process.argv.slice(2);
-function lib(file) {
-  const source = fs.readFileSync(file, "utf8").replace(/^\.pragma library\s*/, "");
-  const sandbox = {};
-  vm.createContext(sandbox);
-  vm.runInContext(source + "\nthis.__exports = Object.assign({}, this);", sandbox, { filename: file });
-  return sandbox.__exports;
-}
+const { load } = require(path.join(repo, "bin/lib/qml-library.js"));
+const PageReference = load(path.join(repo, "shell/Commons/PageReference.js"));
+const lib = file => load(file, { "qs.Commons 1.0": { PageReference } });
 function literal(source, pattern, label) {
   const match = source.match(pattern);
   if (!match) throw new Error("missing " + label);
@@ -3673,7 +3669,8 @@ jarvis_plant_home_cause() { # CAUSE
 const path = require("node:path");
 const [tree, cause, home] = process.argv.slice(2);
 const { load } = require(path.join(tree, "bin/lib/qml-library.js"));
-const gate = load(path.join(tree, "shell/plugins/vgs.jarvis/SetupGate.js"));
+const PageReference = load(path.join(tree, "shell/Commons/PageReference.js"));
+const gate = load(path.join(tree, "shell/plugins/vgs.jarvis/SetupGate.js"), { "qs.Commons 1.0": { PageReference } });
 const values = gate.readiness({ kind: "answered", causes: [cause] }, { kind: "ready", path: home });
 for (const key of ["setup", "setupHome"]) console.log(key + "\t" + JSON.stringify(values[key]));
 JSHOME
@@ -3694,7 +3691,8 @@ scene_jarvis-home-repair() { # MODE
   if ! node - "$repo" <<'JSHOMEVERSION'
 const path = require("node:path"), tree = process.argv[2];
 const { load } = require(path.join(tree, "bin/lib/qml-library.js"));
-process.exit(typeof load(path.join(tree, "shell/plugins/vgs.jarvis/SetupGate.js")).homeRepairResult === "function" ? 0 : 1);
+const PageReference = load(path.join(tree, "shell/Commons/PageReference.js"));
+process.exit(typeof load(path.join(tree, "shell/plugins/vgs.jarvis/SetupGate.js"), { "qs.Commons 1.0": { PageReference } }).homeRepairResult === "function" ? 0 : 1);
 JSHOMEVERSION
   then home_states=(home complete); fi
   expect "Jarvis enables for Home repair views" ok ipc shell setPluginEnabled vgs.jarvis true
@@ -3711,7 +3709,8 @@ JSHOMEVERSION
 const path = require("node:path");
 const [tree, state, folder] = process.argv.slice(2);
 const { load } = require(path.join(tree, "bin/lib/qml-library.js"));
-const gate = load(path.join(tree, "shell/plugins/vgs.jarvis/SetupGate.js"));
+const PageReference = load(path.join(tree, "shell/Commons/PageReference.js"));
+const gate = load(path.join(tree, "shell/plugins/vgs.jarvis/SetupGate.js"), { "qs.Commons 1.0": { PageReference } });
 const home = { kind: "ready", path: folder, repair: { kind: state === "install" || state === "byhand" ? "install" : "home", folder,
     installPlan: state === "byhand" ? { kind: "by-hand", method: "nix", reason: "nix" } : { kind: "run" },
     lastRepair: state === "failed" ? { kind: "failed", cause: "refresh-failed", code: 1 } : null } };

@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import qs.Commons
 import "AccountProviders.js" as Providers
 import "AccountStatus.js" as Words
 import "SetupGate.js" as Gate
@@ -181,7 +182,7 @@ Item {
             providers = value.providers;
             const accounts = value.accounts.map(item => Words.accountHint(item) === "" ? { label: item.label, value: item.value }
                 : { label: item.label, value: item.value, hint: Words.accountHint(item) });
-            const search = Words.searchValue({ kind: "found", found: value.search.found, partial: value.search.partial });
+            const search = Words.searchValue({ kind: "found", found: value.search.found, partial: value.search.partial }, PageReference);
             const replies = [shell.status.set("accounts", accounts), shell.status.set("brains", value.brains),
                 shell.status.set("accountSearch", search), shell.status.set("copilotMemory", Gate.copilotMemory(value.accounts))];
             if (replies.some(reply => !shell.status.isOk(reply))) throw new Error("status");

@@ -1,4 +1,5 @@
 .pragma library
+.import qs.Commons 1.0 as Commons
 
 // What the Jarvis bar widget shows, pure so scripts/test-jarvis-widget.js
 // runs it under node. This is the one judge from the service status values
@@ -99,7 +100,7 @@ var FAULT_TEXT = {
     "device": { title: "The microphone or speaker is gone", action: "Connect it again, or choose another under [Audio in Settings > Jarvis](page:vgs.jarvis/Settings)." },
     // The local voice hears the system default microphone, as dictation does.
     "defaultDevice": { title: "The microphone or speaker is gone", action: "Connect it again, or choose another default microphone in [System > Sound](page:vgs.sound)." },
-    "home": { title: "Jarvis cannot use the home folder", action: "Check AGENTS.md, MEMORY.md and the skills in the folder, or [choose another Home folder](page:vgs.jarvis/Settings)." },
+    "home": { title: "Jarvis cannot use the home folder", action: "Choose a folder with [Home folder](page:vgs.jarvis/Settings/home)." },
     "brain": { title: "The AI model did not answer", action: RESTART },
     "model": { title: "The AI app cannot use the model", action: "Choose another model under [AI model in Settings > Jarvis](page:vgs.jarvis/Settings)." },
     "localVoice": { title: "Local voice did not get ready in time", action: "Turn Jarvis off and on again, or set it up again in [Settings > Jarvis](page:vgs.jarvis/Setup)." },
@@ -209,8 +210,12 @@ function faultKind(fault) {
 // What FAULT, a Session fault that is not none, says: { title, action }.
 // ENGINE is Session's engine word: a dictation engine hears the default
 // microphone, not the Microphone setting.
-function faultText(fault, engine) {
+function faultText(fault, engine, homePath) {
     var kind = faultKind(fault);
+    if (kind === "home" && homePath) return { title: FAULT_TEXT.home.title,
+        action: "Check " + Commons.PageReference.fileReference("AGENTS.md", homePath + "/AGENTS.md") + ", "
+            + Commons.PageReference.fileReference("memory/MEMORY.md", homePath + "/memory/MEMORY.md") + " and the "
+            + Commons.PageReference.fileReference("skills folder", homePath + "/skills/") + "." };
     if (kind === "device" && engine === "dictation") kind = "defaultDevice";
     if (kind === "model") return { title: FAULT_TEXT.model.title + " " + MODEL_REFUSED.exec(fault.reason)[1], action: FAULT_TEXT.model.action };
     return fault.kind === "retrying" ? RETRYING : FAULT_TEXT[kind];
@@ -465,7 +470,7 @@ function stateView(values, keys, mode) {
         [armed ? "Say Hey Jarvis." : followUp ? "Speak now. No wake word needed." : "Speak now."], muteOn, effectiveKeys));
     if (daemon !== null && daemon.tone === "danger") return withBrain(reportLook("problem", daemon, muteOn, effectiveKeys));
     if (daemon !== null && daemon.tone === "warning" && daemon.hint !== undefined) return withBrain(reportLook("problem", daemon, muteOn, effectiveKeys));
-    if (detail !== null && detail.phase === "error") return withBrain(textLook("problem", faultText(state.fault, state.engine.kind), muteOn, effectiveKeys));
+    if (detail !== null && detail.phase === "error") return withBrain(textLook("problem", faultText(state.fault, state.engine.kind, values.homePath), muteOn, effectiveKeys));
     if (audio !== null && audio.tone === "danger") return withBrain(textLook("problem", AUDIO_TEXT, muteOn, effectiveKeys));
     if (state === null) return textLook("loading", GATE_TEXT.starting, muteOn, effectiveKeys);
     var down = gateDown(state.gate);
