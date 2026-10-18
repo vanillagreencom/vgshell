@@ -3691,7 +3691,8 @@ scene_jarvis-home-repair() { # MODE
   if ! node - "$repo" <<'JSHOMEVERSION'
 const path = require("node:path"), tree = process.argv[2];
 const { load } = require(path.join(tree, "bin/lib/qml-library.js"));
-process.exit(typeof load(path.join(tree, "shell/plugins/vgs.jarvis/SetupGate.js")).homeRepairResult === "function" ? 0 : 1);
+const PageReference = load(path.join(tree, "shell/Commons/PageReference.js"));
+process.exit(typeof load(path.join(tree, "shell/plugins/vgs.jarvis/SetupGate.js"), { "qs.Commons 1.0": { PageReference } }).homeRepairResult === "function" ? 0 : 1);
 JSHOMEVERSION
   then home_states=(home complete); fi
   expect "Jarvis enables for Home repair views" ok ipc shell setPluginEnabled vgs.jarvis true
@@ -3708,7 +3709,8 @@ JSHOMEVERSION
 const path = require("node:path");
 const [tree, state, folder] = process.argv.slice(2);
 const { load } = require(path.join(tree, "bin/lib/qml-library.js"));
-const gate = load(path.join(tree, "shell/plugins/vgs.jarvis/SetupGate.js"));
+const PageReference = load(path.join(tree, "shell/Commons/PageReference.js"));
+const gate = load(path.join(tree, "shell/plugins/vgs.jarvis/SetupGate.js"), { "qs.Commons 1.0": { PageReference } });
 const home = { kind: "ready", path: folder, repair: { kind: state === "install" || state === "byhand" ? "install" : "home", folder,
     installPlan: state === "byhand" ? { kind: "by-hand", method: "nix", reason: "nix" } : { kind: "run" },
     lastRepair: state === "failed" ? { kind: "failed", cause: "refresh-failed", code: 1 } : null } };
