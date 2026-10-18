@@ -48,7 +48,7 @@ plugin="$tmp/plugin"
 cp -R -- "$repo/shell/plugins/vgs.updates" "$plugin"
 tree="$tmp/tree"
 mkdir -p "$tree/bin/lib" "$tree/shell/Commons"
-cp -- "$repo/bin/lib/tui.sh" "$repo/bin/lib/qml-library.js" "$repo/bin/lib/judge-files.js" "$repo/bin/lib/aur-helper.sh" "$tree/bin/lib/"
+cp -- "$repo/bin/lib/tui.sh" "$repo/bin/lib/hyprland-instance.sh" "$repo/bin/lib/qml-library.js" "$repo/bin/lib/judge-files.js" "$repo/bin/lib/aur-helper.sh" "$tree/bin/lib/"
 cp -- "$repo/shell/Commons/PageReference.js" "$tree/shell/Commons/"
 # This fixture loader observes the real library returned to facts. The
 # existing self verb never draws a window, so the fixture checks that same
@@ -318,7 +318,7 @@ done
 stub "$stubs" flock "exec '$tools/flock' \"\$@\""
 stub "$stubs" pikaur ''
 stub "$stubs" df 'a=99999999999; [ ! -e "$FIX/avail" ] || read -r a <"$FIX/avail"; printf "  Avail\n%s\n" "$a"'
-stub "$stubs" pgrep '[ -e "$FIX/pids" ] || exit 1; cat "$FIX/pids"'
+stub "$stubs" hyprctl 'exit 1'
 stub "$stubs" uname "echo $kernel"
 stub "$stubs" systemctl ''
 # findmnt lists the mounted file system types in $FIX/fstypes, none when
@@ -381,7 +381,8 @@ self_json() { # METHOD PACKAGE_JSON STEP [REASON]
 # upgraded, every answer yes.
 reset_fix() {
   rm -rf -- "${fix:?}" "$state/vgshell"
-  mkdir -p "$fix" "$tmp/home/.config/paru"
+  mkdir -p "$fix" "$tmp/home/.config/paru" "$rt/hypr/session"
+  printf '%s\nwayland-test\n' "$$" >"$rt/hypr/session/hyprland.lock"
   printf "[options]\n" >"$tmp/home/.config/paru/paru.conf"
   printf 'linux 6.1-1\nmesa 24.1-1\nvgshell-git 0.1.0.r1-1\n' >"$fix/installed"
   settings "" false
@@ -456,10 +457,10 @@ pipeline() {
   : >"$calls"
   status=0
   "${base_env[@]}" PATH="${PIPE_PATH:+$PIPE_PATH:}$stubs:$tools" VGS_TUI_LIB="$tree/bin/lib/tui.sh" VGS_PLUGIN_ID=vgs.updates VGS_PLUGIN_DIR="${PLUGIN:-$plugin}" \
-    XDG_STATE_HOME="$state" XDG_RUNTIME_DIR="$rt" CALLS="$calls" FIX="$fix" TERMINAL_OUT="$tmp/out" UPDATES_TEST_SECONDARY="${UPDATES_TEST_SECONDARY:-0}" \
+    XDG_STATE_HOME="$state" XDG_RUNTIME_DIR="$rt" HYPRLAND_INSTANCE_SIGNATURE=session CALLS="$calls" FIX="$fix" TERMINAL_OUT="$tmp/out" UPDATES_TEST_SECONDARY="${UPDATES_TEST_SECONDARY:-0}" \
     script -qec "$(printf '%q ' "$tools/stty" cols "${PIPE_COLUMNS:-80}") && $(printf '%q ' "$BASH" "$script_path" "$@")" /dev/null <"$tmp/terminal-input" {terminal_input}>&- >"$tmp/out" 2>&1 || status=$?
   local filtered=0
-  grep -v -e '^df ' -e '^uname ' -e '^pgrep ' -e '^gum style' -e '^flock ' -e '^pacman-conf --config ' -e '^yay --show ' -e '^$' -e $'^\e\\[22m' "$calls" |
+  grep -v -e '^df ' -e '^uname ' -e '^gum style' -e '^flock ' -e '^pacman-conf --config ' -e '^yay --show ' -e '^$' -e $'^\e\\[22m' "$calls" |
     sed -E "s/ --config \/tmp\/vgs-updates-hooks\.[^ ]+\/pacman\.conf//g; s/ ${confirm_margins[*]}//" >"$tmp/seq" || filtered=$?
   # grep -v exits 1 when every call is filtered out, and above 1 when it failed.
   [[ $filtered -le 1 ]] || { echo "test-updates-pipeline: calls=unreadable exit=$filtered" >&2; exit 1; }
@@ -838,7 +839,7 @@ row_interrupted() {
 }
 row_reboot() {
   reset_fix
-  printf '%s\n' "$hyprland_pid" >"$fix/pids"
+  printf '%s\nwayland-test\n' "$hyprland_pid" >"$rt/hypr/session/hyprland.lock"
   pipeline update.sh
   assert "a replaced Hyprland asks to reboot" has_call "gum confirm --affirmative=Reboot --negative=Later --default=false -- Hyprland was updated. Reboot now?"
   assert "a replaced Hyprland rechecks before it asks to reboot" before "vgshell ipc call vgs.updates invoke check " "gum confirm --affirmative=Reboot --negative=Later --default=false -- Hyprland was updated. Reboot now?"
@@ -1138,7 +1139,7 @@ log_tui() {
       script -qec "$(printf '%q ' "$BASH" "$script_path" "$@")" /dev/null >"$tmp/out" 2>&1
   status=${PIPESTATUS[1]}
   set -e
-  grep -v -e '^df ' -e '^uname ' -e '^pgrep ' -e '^gum style' -e '^flock ' -e '^pacman-conf --config ' -e '^yay --show ' -e '^$' -e $'^\e\\[22m' "$calls" |
+  grep -v -e '^df ' -e '^uname ' -e '^gum style' -e '^flock ' -e '^pacman-conf --config ' -e '^yay --show ' -e '^$' -e $'^\e\\[22m' "$calls" |
     sed -E "s/ --config \/tmp\/vgs-updates-hooks\.[^ ]+\/pacman\.conf//g; s/ ${confirm_margins[*]}//" >"$tmp/seq" || filtered=$?
   [[ $filtered -le 1 ]] || { echo "test-updates-pipeline: calls=unreadable exit=$filtered" >&2; exit 1; }
 }

@@ -1047,34 +1047,14 @@ hyprland_config_uses_lua() {
 }
 
 select_hyprland_instance() {
-  local instances status selected count
   [[ -z ${HYPRLAND_INSTANCE_SIGNATURE:-} ]] || return 0
-  set +e
-  instances="$(hyprctl instances -j 2>&1)"
-  status=$?
-  set -e
-  [[ $status == 0 ]] || refuse 69 "hyprland=unreachable" "VGS cannot connect to Hyprland. Log in to a Hyprland session, then try again."
-  selected="$(python3 -c 'import json,sys
-try:
-    rows=json.loads(sys.stdin.read())
-except Exception:
-    raise SystemExit(3)
-if not isinstance(rows, list):
-    raise SystemExit(3)
-print(len(rows))
-if len(rows) == 1:
-    row = rows[0]
-    sig = row.get("instance") if isinstance(row, dict) else None
-    if not isinstance(sig, str) or sig == "":
-        raise SystemExit(3)
-    print(sig)
-' <<<"$instances")" || refuse 69 "hyprland=unreachable" "VGS cannot connect to Hyprland. Log in to a Hyprland session, then try again."
-  count="${selected%%$'\n'*}"
-  [[ $count =~ ^[0-9]+$ ]] || refuse 69 "hyprland=unreachable" "VGS cannot connect to Hyprland. Log in to a Hyprland session, then try again."
-  case "$count" in
+  # shellcheck source=bin/lib/hyprland-instance.sh
+  source "$root/bin/lib/hyprland-instance.sh" || refuse 1 "library=missing path=$root/bin/lib/hyprland-instance.sh" "VGS cannot load a required file. Repair the VGS installation, then try again."
+  vgs_hyprland_instance || refuse 69 "hyprland=unreachable" "VGS cannot connect to Hyprland. Log in to a Hyprland session, then try again."
+  case "$vgs_hyprland_count" in
     0) refuse 69 "hyprland=unreachable" "VGS cannot connect to Hyprland. Log in to a Hyprland session, then try again." ;;
-    1) export HYPRLAND_INSTANCE_SIGNATURE="${selected#*$'\n'}" ;;
-    *) refuse 1 "hyprland=ambiguous count=$count" "More than one Hyprland session is running. Open this task from the session you want to use." ;;
+    1) export HYPRLAND_INSTANCE_SIGNATURE="$vgs_hyprland_signature" ;;
+    *) refuse 1 "hyprland=ambiguous count=$vgs_hyprland_count" "More than one Hyprland session is running. Open this task from the session you want to use." ;;
   esac
 }
 

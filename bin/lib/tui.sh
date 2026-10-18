@@ -665,19 +665,18 @@ _vgs_tui_drain_terminal() {
 
 # Prints one `reboot=<reason>` line per reason and returns 0 when a reboot
 # is needed, 1 when none is: `kernel` when the running kernel's module
-# directory is gone, as after a kernel upgrade; `hyprland` when a Hyprland
-# of this user runs a binary that was replaced.
+# directory is gone, as after a kernel upgrade; `hyprland` when this
+# session's compositor runs a binary that was replaced.
 vgs_tui_reboot_check() {
-  local release pids pid exe status=0 reasons=()
+  local release exe reasons=()
   release="$(uname -r)" || _vgs_tui_refuse 1 "reboot-check=uname" "VGS cannot check whether you need to restart the computer. Check the system error above, then try again." || return
   [[ -d /lib/modules/$release ]] || reasons+=(kernel)
-  # pgrep exits 1 when no process matches, and above 1 when it failed.
-  pids="$(pgrep -x -u "$(id -u)" Hyprland)" || status=$?
-  [[ $status -le 1 ]] || _vgs_tui_refuse 1 "reboot-check=pgrep exit=$status" "VGS cannot check whether Hyprland needs a restart. Check the system error above, then try again." || return
-  for pid in $pids; do
-    exe="$(readlink "/proc/$pid/exe" 2>/dev/null)" || continue
-    if [[ $exe == *' (deleted)' ]]; then reasons+=(hyprland); break; fi
-  done
+  # shellcheck source=bin/lib/hyprland-instance.sh
+  source "${BASH_SOURCE[0]%/*}/hyprland-instance.sh" || _vgs_tui_refuse 1 "reboot-check=library" "VGS cannot load a required file. Repair the VGS installation, then try again." || return
+  [[ -n ${HYPRLAND_INSTANCE_SIGNATURE:-} ]] && vgs_hyprland_instance "$HYPRLAND_INSTANCE_SIGNATURE" &&
+    exe="$(readlink -- "/proc/$vgs_hyprland_pid/exe" 2>/dev/null)" ||
+    _vgs_tui_refuse 1 "reboot-check=hyprland" "VGS cannot check whether Hyprland needs a restart. Check the system error above, then try again." || return
+  [[ $exe != *' (deleted)' ]] || reasons+=(hyprland)
   [[ ${#reasons[@]} -gt 0 ]] || return 1
   printf 'reboot=%s\n' "${reasons[@]}"
 }

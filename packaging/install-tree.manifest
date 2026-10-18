@@ -7,6 +7,7 @@ f share/vgshell/bin/lib/aur-helper.sh
 f share/vgshell/bin/lib/check-manifests.js
 f share/vgshell/bin/lib/codex-account.js
 f share/vgshell/bin/lib/first-start.sh
+f share/vgshell/bin/lib/hyprland-instance.sh
 f share/vgshell/bin/lib/ipc-reply.sh
 f share/vgshell/bin/lib/judge-files.js
 f share/vgshell/bin/lib/logo.txt
