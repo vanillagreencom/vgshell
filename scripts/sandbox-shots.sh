@@ -1103,7 +1103,7 @@ gallery_menu_first() { # MODE
 # gallery_pages pages.
 gallery_pages=12
 scene_gallery() { # MODE
-  local page=1 y=0 at cy ch h
+  local page=1 y=0 at cy ch h span focus_shown
   expect "the gallery summons" ok ipc shell summon "$gallery_kind" vgs.gallery '{}'
   expect_poll "the gallery maps its surface" 1 surface_count "$gallery_surface"
   expect_poll "the gallery draws every component" '[]' ipc smoke galleryMissing "$gallery_kind" vgs.gallery
@@ -1111,9 +1111,18 @@ scene_gallery() { # MODE
     at="$(ipc smoke scrollTo "$gallery_kind" vgs.gallery "$y")" || at=""
     if [[ $at != "["* ]]; then fail "the gallery did not scroll: ${at:-no reply}"; break; fi
     read -r cy ch h < <(python3 -c 'import json,sys; print(*(int(v) for v in json.loads(sys.argv[1])))' "$at")
-    # The Gallery's focus examples deliberately draw rings when reached.
-    # Inventory images retain those examples rather than judge them as chrome.
-    if [[ $title_inventory == true ]]; then take_posed "gallery-$1-p$page"; else take "gallery-$1-p$page"; fi
+    span="$(ipc smoke sectionSpan "$gallery_kind" vgs.gallery Focus)" &&
+      focus_shown="$(python3 -c 'import json,sys; s=json.loads(sys.argv[1]) if sys.argv[1].startswith("[") else []; print(len(s) == 4 and s[0] < s[2] + s[3] and s[1] > s[2])' "$span")" || {
+        fail "the gallery Focus section could not be read"; break;
+      }
+    # Gallery.qml's Focus samples set focusPreview: true deliberately.
+    # Pose only their measured viewport; other pages keep the chrome check.
+    if [[ $title_inventory == true || $focus_shown == True ]]; then
+      [[ $title_inventory == true ]] || park_pointer
+      take_posed "gallery-$1-p$page"
+    else
+      take "gallery-$1-p$page"
+    fi
     (( cy + h < ch )) || break
     y=$(( cy + h - 40 )); page=$(( page + 1 ))
   done
