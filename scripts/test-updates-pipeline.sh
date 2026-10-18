@@ -145,7 +145,7 @@ case "$1 $2" in
   "plugin outdated") cat "$FIX/plugins.json" ;;
   "theme outdated") cat "$FIX/themes.json" ;;
   "pkg run")
-    case "$5" in pacman|aur) [ ! -e "$FIX/transaction" ] || "$FIX/transaction" "$5" "$@" ;; esac
+    case "$5" in pacman|aur) [ ! -e "$FIX/transaction" ] || "$FIX/transaction" "$5" "$@" || exit "$?" ;; esac
     [ ! -e "$FIX/build-$5" ] || { printf "==> ERROR: A failure occurred in build().\n    Aborting...\n" >&2; exit 4; }
     [ ! -e "$FIX/interrupt-$5" ] || exit 130
     [ ! -e "$FIX/fail-$5" ] || { printf "\033[31merror:\033[0m failed to install crush\r\n" >&2; exit 9; }
@@ -301,7 +301,7 @@ stub "$stubs" paru 'if [ "$1" = -G ]; then shift; for p; do
   done
   [ -e "$b/.SRCINFO" ] || printf "pkgbase = %s\n\npkgname = %s\n" "$b" "$p" >"$b/.SRCINFO"
 done; exit 0; fi
-[ ! -e "$FIX/transaction" ] || "$FIX/transaction" "${0##*/}" "$@"
+[ ! -e "$FIX/transaction" ] || "$FIX/transaction" "${0##*/}" "$@" || exit "$?"
 [ ! -e "$FIX/pkgver-paru" ] || { printf "==> ERROR: A failure occurred in pkgver().\n    Aborting...\n" >&2; exit 4; }
 [ ! -e "$FIX/conflict-paru" ] || { printf "\033[1;34m::\033[0m quickshell-\033[2m0.3.1-1\033[0m and quickshell-git-\033[2mr120.g1a2b3c4-1\033[0m are in conflict. Remove quickshell-git? [y/N] error: unresolvable package conflicts detected\nerror: failed to prepare transaction (conflicting dependencies)\n" >&2; exit 1; }
 [ ! -e "$FIX/interrupt-paru" ] || { sudo /usr/bin/true; exit 130; }
