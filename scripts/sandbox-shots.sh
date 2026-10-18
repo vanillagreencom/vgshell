@@ -2466,7 +2466,7 @@ cursor-style-blink = false
 resize-overlay = never
 confirm-close-surface = false
 GHOSTTY
-  for id in ghostty neovim; do cp -R -- "$checkout/themes/targets/$id" "$repo/themes/targets/$id"; done
+  for id in ghostty neovim tmux; do cp -R -- "$checkout/themes/targets/$id" "$repo/themes/targets/$id"; done
   hover "$((mon_w - 2))" "$((mon_h - 2))" || true
   for name in "${preview_themes[@]}"; do
     preview_package "$name"
