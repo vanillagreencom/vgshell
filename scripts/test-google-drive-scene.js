@@ -30,25 +30,24 @@ const L = load(path.join(root, "shell", "plugins", "vgs.google-drive", "GoogleDr
 const ISSUE_STATES = ["first-run", "no-keys", "no-pair", "empty-review", "paused", "syncing", "error", "review", "pairs-invalid", "migrated", "renamed"];
 
 // Every cause headline returns over each runner state, unit state, pair
-// state, review count and data age.
+// state, count of files that need the user and data age.
 function headlineCauses() {
     const causes = new Set();
     const now = Date.parse("2026-10-11T12:00:00Z");
     for (const state of L.STATES) for (const units of L.UNITS) for (const pair of [null].concat(L.PAIR_STATES))
-        for (const conflictCount of [0, 1]) for (const staleAfter of [null, now - 1, now + 1]) {
+        for (const needsYou of [0, 1]) for (const staleAfter of [null, now - 1, now + 1]) {
             const pairs = pair === null ? [] : [{ id: "p", label: "P", remote: "P", state: pair, lastSuccess: null, staleAfter: staleAfter, lastError: null }];
-            causes.add(L.headline({ state, units, staleAfter, pairs, conflictCount, lastError: null, paused: false }, now).cause);
+            causes.add(L.headline({ state, units, staleAfter, pairs, conflictCount: needsYou, needsYou, lastError: null, paused: false }, now).cause);
         }
     return causes;
 }
 
 // The words the code publishes: each state's text, each error and
-// conflict sentence, each review row's folder line before its path, and
-// the review line without its count.
+// conflict sentence, and the needs-you line without its count.
 function publishedWords() {
     const views = Object.values(L.STATE_VIEW).concat([L.CURRENT, L.OUT_OF_DATE, L.NOT_SYNCED, L.NO_PAIRS]).map(v => v.text);
-    return views.concat(Object.values(L.ERROR_TEXT), Object.values(L.CONFLICT_TEXT), Object.values(L.CONFLICT_FOLDER_TEXT),
-        [L.ERROR_DEFAULT, L.SIGNED_OUT_TEXT, L.reviewLine(2).replace(/^2 /, ""), L.reviewLine(1).replace(/^1 /, "")]);
+    return views.concat(Object.values(L.ERROR_TEXT), Object.values(L.CONFLICT_TEXT),
+        [L.ERROR_DEFAULT, L.SIGNED_OUT_TEXT, L.needsLine(2).replace(/^2 /, ""), L.needsLine(1).replace(/^1 /, "")]);
 }
 
 function sceneOf(text) {
@@ -104,7 +103,7 @@ function plant(from, to) {
 }
 const anchor = '  cs_shots "$m" 5-paused paused\n';
 const controls = [
-    ["cause", plant('cs_shots "$m" 8-review review\n', 'cs_shots "$m" 8-review reviewing\n'), "cause=review:reviewing"],
+    ["cause", plant('cs_shots "$m" 8-review needs-you\n', 'cs_shots "$m" 8-review reviewing\n'), "cause=review:reviewing"],
     ["kind", plant("9-pairs-invalid error pairs-invalid\n", "9-pairs-invalid error pairs-damaged\n"), "kind=pairs-invalid:pairs-damaged"],
     ["state", plant(anchor, ""), "state=paused"],
     ["state-write", plant(anchor, anchor + "  printf '{}' >\"$home/.local/state/vgshell/google-drive/status.json\"\n"), "state-write="],

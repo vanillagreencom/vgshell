@@ -2,19 +2,22 @@
 // vgs.google-drive's pure decisions, shell/plugins/vgs.google-drive/
 // GoogleDriveLogic.js: the judge of the runner's status record and probe
 // answer, the headline, the status values the service publishes, what the
-// bar widget, its tooltip and the window draw, the notification, and when
+// bar widget, its tooltip and its popover draw, the notification, and when
 // idle data turns old. One table holds a row per state of the sync and
 // pins the headline's words and tone; every surface (the bar's tone, icon
-// and count, the tooltip's title, the window's subtitle and the Settings
+// and count, the tooltip's title, the popover's header and the Settings
 // `sync` value) must read that one headline. The words are pinned because
-// the issue (VGS-1314) makes them the contract of the four surfaces. The
-// Settings and Setup values (VGS-1744) are held by their tones, actions
-// and structure, never their words. A
-// review row is held by its structured fields alone (VGS-1727): its needs
-// mark, its local-action flag, its folders, and which case of its kind
-// its line takes, never its words. The
-// tooltip and the Details lines never carry a file name, and the Google
-// account a sign-in stored reaches the account value alone.
+// the issues (VGS-1314, VGS-1729) make them the contract of the four
+// surfaces. The Settings and Setup values (VGS-1744) are held by their
+// tones, actions and structure, never their words. A review row is held by
+// its structured fields alone (VGS-1727): its needs mark, its local-action
+// flag, its action, and which case of its kind its line takes, never its
+// words. The popover (VGS-1745) is held by its structure: its header's
+// parts, which problem callout shows and where its fix goes, whether its
+// body speaks, the rows in Needs you and in the folded notes with the
+// counts, and when its footer shows and lets Sync now start. The tooltip,
+// the Details lines and the popover's header never carry a file name, and
+// the Google account a sign-in stored reaches the account value alone.
 // Controls edit a copy of the logic, one rule each, and require this suite
 // to fail on it.
 "use strict";
@@ -96,8 +99,10 @@ function probe(over) {
     return { credentials: ACCOUNTS.map(account => Object.assign({ account, presence: "present", needed: true }, account === "token" ? { user: ADDRESS } : {}, (over || {})[account] || {})) };
 }
 
-// The bar's tone for each headline tone, stated here apart from the logic.
+// The bar's tone and the popover header's Badge tone for each headline
+// tone, stated here apart from the logic.
 const BAR = { ok: "calm", info: "calm", warning: "warning", danger: "danger" };
+const BADGE = { ok: "success", info: "info", warning: "warning", danger: "danger" };
 
 // The sentences that send the user to the Setup tab's sign-in step, read
 // from the logic: their words are not this suite's to pin.
@@ -108,11 +113,10 @@ const signedOut = { kind: "credential-absent", account: "token" };
 // every pair change (bin/google-drive readPairs).
 const invalid = detail => record({ state: "error", lastError: { kind: "pairs-invalid", detail: detail || "pair=docs rule=repository-inside" }, pairs: [], conflicts: [], attention: { reasons: ["error"], key: "k", notified: false } });
 
-// The window footer's primary: [action, enabled].
-const SYNC = ["sync", true];
-const NO_SYNC = ["sync", false];
-const SETUP = ["setup", true];
-const RESUME = ["resume", true];
+// The popover's footer: shown, and whether Sync now can start.
+const SYNC = { shown: true, sync: true };
+const HELD = { shown: true, sync: false };
+const NO_FOOT = { shown: false };
 // A pair as the runner renders it under a pause (bin/google-drive
 // renderStatus): its own state reads paused.
 const PAUSED_DOCS = Object.assign({}, DOCS, { state: "paused" });
@@ -125,31 +129,36 @@ const PAUSED_DOCS = Object.assign({}, DOCS, { state: "paused" });
 const LINKED = { linksSetup: true };
 const SETUP_AGAIN = { schedule: "failed" };
 
+// The Details hint of a headline that counts the files that need the
+// user: it says where to see them.
+const NEEDS_SEEN = { needs: true };
+
 // One row per state of the sync: the record, then the headline's text,
-// tone and icon every surface must show, the window footer's primary, the
+// tone and icon every surface must show, the popover's footer, the
 // Details hint, and whether the bar hides its icon.
 const STATES = [
-    ["first run", { state: "not-set-up", units: "absent", lastSuccess: null, staleAfter: null, lastError: null, pairs: [], conflicts: [], attention: null }, "No folder pairs", "warning", "cloud", NO_SYNC, undefined, true],
-    ["a folder pair whose hourly sync did not install", well({ state: "not-set-up", units: "absent" }), "Not set up", "warning", "cloud", SETUP, SETUP_AGAIN],
-    ["no keys", well({ state: "authorization-required", pairs: [Object.assign({}, DOCS, { state: "authorization-required", lastError: { kind: "credential-absent", account: "client-id" } })], lastError: { kind: "credential-absent", account: "client-id", pair: "docs" } }), "Sign-in needed", "danger", "cloud-alert", NO_SYNC, LINKED],
-    ["no folder pair", { state: "not-set-up", units: "installed", lastSuccess: null, staleAfter: null, lastError: null, pairs: [], conflicts: [], attention: null }, "No folder pairs", "warning", "cloud", NO_SYNC, undefined, true],
-    ["pair list not readable", invalid(), "Sync failed", "danger", "cloud-alert", NO_SYNC, INVALID, false],
-    ["signed out", well({ state: "authorization-required", pairs: [Object.assign({}, DOCS, { state: "authorization-required", lastError: signedOut })], lastError: Object.assign({ pair: "docs" }, signedOut) }), "Sign-in needed", "danger", "cloud-alert", NO_SYNC, { error: signedOut }],
-    ["syncing while another pair needs a sign-in", record({ state: "running", pairs: [Object.assign({}, DOCS, { state: "running" }), INBOX], conflicts: [] }), "Sign-in needed", "danger", "cloud-alert", NO_SYNC, LINKED],
-    ["syncing while another pair failed", well({ state: "running", pairs: [Object.assign({}, DOCS, { state: "running" }), Object.assign({}, INBOX, { state: "error", lastError: { kind: "source-missing" } })], lastError: { kind: "source-missing", pair: "inbox" }, conflicts: CONFLICTS.slice(0, 1) }), "Sync failed", "danger", "cloud-alert", NO_SYNC, "A Google Drive folder of a folder pair does not exist."],
+    ["first run", { state: "not-set-up", units: "absent", lastSuccess: null, staleAfter: null, lastError: null, pairs: [], conflicts: [], attention: null }, "No folder pairs", "warning", "cloud", NO_FOOT, undefined, true],
+    ["a folder pair whose hourly sync did not install", well({ state: "not-set-up", units: "absent" }), "Not set up", "warning", "cloud", NO_FOOT, SETUP_AGAIN],
+    ["no keys", well({ state: "authorization-required", pairs: [Object.assign({}, DOCS, { state: "authorization-required", lastError: { kind: "credential-absent", account: "client-id" } })], lastError: { kind: "credential-absent", account: "client-id", pair: "docs" } }), "Sign-in needed", "danger", "cloud-alert", NO_FOOT, LINKED],
+    ["no folder pair", { state: "not-set-up", units: "installed", lastSuccess: null, staleAfter: null, lastError: null, pairs: [], conflicts: [], attention: null }, "No folder pairs", "warning", "cloud", NO_FOOT, undefined, true],
+    ["pair list not readable", invalid(), "Sync failed", "danger", "cloud-alert", NO_FOOT, INVALID, false],
+    ["signed out", well({ state: "authorization-required", pairs: [Object.assign({}, DOCS, { state: "authorization-required", lastError: signedOut })], lastError: Object.assign({ pair: "docs" }, signedOut) }), "Sign-in needed", "danger", "cloud-alert", NO_FOOT, { error: signedOut }],
+    ["syncing while another pair needs a sign-in", record({ state: "running", pairs: [Object.assign({}, DOCS, { state: "running" }), INBOX], conflicts: [] }), "Sign-in needed", "danger", "cloud-alert", HELD, LINKED],
+    ["syncing while another pair failed", well({ state: "running", pairs: [Object.assign({}, DOCS, { state: "running" }), Object.assign({}, INBOX, { state: "error", lastError: { kind: "source-missing" } })], lastError: { kind: "source-missing", pair: "inbox" }, conflicts: CONFLICTS.slice(0, 1) }), "Sync failed", "danger", "cloud-alert", HELD, "A Google Drive folder of a folder pair does not exist."],
     ["empty review", well(), "Up to date", "ok", "cloud-check", SYNC, undefined],
     ["data old", well({ staleAfter: iso(NOW) }), "Out of date", "warning", "cloud-alert", SYNC, undefined],
     ["never synced", well({ lastSuccess: null, staleAfter: null }), "Not synced yet", "info", "cloud", SYNC, undefined],
-    ["syncing", well({ state: "running", pairs: [Object.assign({}, DOCS, { state: "running" })] }), "Syncing", "info", "cloud-sync", NO_SYNC, undefined],
-    ["paused", well({ state: "paused", paused: true, pairs: [PAUSED_DOCS] }), "Paused", "info", "cloud-off", RESUME, undefined],
-    ["every pair paused on its own", well({ state: "paused", pairs: [PAUSED_DOCS] }), "Paused", "info", "cloud-off", NO_SYNC, undefined],
+    ["syncing", well({ state: "running", pairs: [Object.assign({}, DOCS, { state: "running" })] }), "Syncing", "info", "cloud-sync", HELD, undefined],
+    ["paused", well({ state: "paused", paused: true, pairs: [PAUSED_DOCS] }), "Paused", "info", "cloud-off", HELD, undefined],
+    ["every pair paused on its own", well({ state: "paused", pairs: [PAUSED_DOCS] }), "Paused", "info", "cloud-off", NO_FOOT, undefined],
     ["error", well({ state: "error", lastError: { kind: "source-missing", pair: "docs" } }), "Sync failed", "danger", "cloud-alert", SYNC, "A Google Drive folder of a folder pair does not exist."],
     ["offline", well({ state: "offline", lastError: { kind: "offline", pair: "docs" } }), "Offline", "warning", "cloud-off", SYNC, "Google Drive cannot be reached. VGS tries again at the next sync."],
     ["keyring locked", well({ state: "authorization-required", pairs: [Object.assign({}, DOCS, { state: "authorization-required", lastError: { kind: "credential-locked", account: "client-id" } })], lastError: { kind: "credential-locked", account: "client-id", pair: "docs" } }), "Sign-in needed", "danger", "cloud-alert", SYNC, "Your keyring is locked. Unlock it to sync."],
     ["sign-in needed", record({ conflicts: [] }), "Sign-in needed", "danger", "cloud-alert", SYNC, LINKED],
-    ["set up with files to review", well({ conflicts: CONFLICTS.slice(0, 2) }), "2 files to review", "warning", "cloud-alert", SYNC, "Open the Google Drive window to review them."],
-    ["one file to review", well({ conflicts: CONFLICTS.slice(1, 2) }), "1 file to review", "warning", "cloud-alert", SYNC, "Open the Google Drive window to review them."],
-    ["files to review while paused", well({ state: "paused", paused: true, pairs: [PAUSED_DOCS], conflicts: CONFLICTS.slice(0, 2) }), "2 files to review", "warning", "cloud-alert", RESUME, "Open the Google Drive window to review them."],
+    ["a file that needs you and a note", well({ conflicts: CONFLICTS.slice(0, 2) }), "1 file needs you", "warning", "cloud-alert", SYNC, NEEDS_SEEN],
+    ["two files that need you", well({ conflicts: [CONFLICTS[0], DRIVE_CONFLICTS[2]] }), "2 files need you", "warning", "cloud-alert", SYNC, NEEDS_SEEN],
+    ["a note alone", well({ conflicts: CONFLICTS.slice(1, 2) }), "Up to date", "ok", "cloud-check", SYNC, undefined],
+    ["a file that needs you while paused", well({ state: "paused", paused: true, pairs: [PAUSED_DOCS], conflicts: CONFLICTS.slice(0, 2) }), "1 file needs you", "warning", "cloud-alert", HELD, NEEDS_SEEN],
     ["sign-in needed with files to review", record(), "Sign-in needed", "danger", "cloud-alert", SYNC, LINKED]
 ];
 
@@ -239,7 +248,7 @@ function verify(L) {
 
     // The headline, and every surface reading it.
     assert.equal(L.headline(undefined, NOW), null, "no record, no headline");
-    for (const [label, rec, text, tone, icon, primary, hint, hidden] of STATES) {
+    for (const [label, rec, text, tone, icon, footer, hint, hidden] of STATES) {
         const cloud = L.cloudValue(rec, "");
         const head = L.headline(cloud, NOW);
         same([head.text, head.tone, head.icon], [text, tone, icon], label + ": headline");
@@ -248,11 +257,12 @@ function verify(L) {
         if (hint === LINKED) assert.ok(typeof sync.hint === "string" && sync.hint.includes(SETUP_LINK), label + ": the Details hint links the Setup tab: " + sync.hint);
         else if (hint !== undefined && hint.error !== undefined) same(sync.hint, L.errorText(hint.error), label + ": the Details hint is the sentence of the record's own error");
         else if (hint === SETUP_AGAIN) same(sync.hint, L.scheduleValue(rec.units, true).hint, label + ": the Details hint says what Hourly sync says");
+        else if (hint === NEEDS_SEEN) assert.ok(typeof sync.hint === "string" && sync.hint !== "" && !sync.hint.includes("](page:"), label + ": the Details hint says where to see the files");
         else assert.equal(sync.hint, hint, label + ": the Details hint");
-        const window = L.windowStatus(cloud, NOW, Timestamp.text);
-        same([window.text, window.tone], [text, tone], label + ": the window subtitle");
-        const foot = L.footerView(cloud).primary;
-        same([foot.action, foot.enabled], primary, label + ": the window footer's primary");
+        const header = L.panelHeader(cloud, NOW, Timestamp.text);
+        same([header.headline, header.tone, header.icon], [text, BADGE[tone], icon], label + ": the popover header");
+        const foot = L.footerView(cloud);
+        same(foot.shown ? { shown: true, sync: foot.sync.reason === "" } : { shown: false }, footer, label + ": the popover footer");
         const tip = L.widgetTooltip(cloud, NOW, Timestamp.text);
         assert.equal(tip.title, "Google Drive: " + text, label + ": the tooltip title");
         const bar = L.widgetView(cloud, NOW);
@@ -260,7 +270,8 @@ function verify(L) {
             assert.equal(bar.hidden, true, label + ": no folder pair hides the icon");
             continue;
         }
-        same([bar.hidden, bar.tone, bar.icon, bar.badge], [false, BAR[tone], icon, cloud.conflictCount > 0 ? String(cloud.conflictCount) : ""], label + ": the bar");
+        const needing = rec.conflicts.filter(c => c.needs === "you").length;
+        same([bar.hidden, bar.tone, bar.icon, bar.badge], [false, BAR[tone], icon, needing > 0 ? String(needing) : ""], label + ": the bar counts only the files that need the user");
         assert.equal(bar.spinning, rec.state === "running", label + ": the spinner");
     }
 
@@ -268,7 +279,11 @@ function verify(L) {
     const presence = L.parseProbe(JSON.stringify(probe())).presence;
     const values = L.statusValues(good.record, presence, "", "", NOW, HOME);
     same(Object.keys(values).sort(), ["account", "cloud", "cloudKeys", "connection", "firstPair", "keys", "lastSync", "pairList", "pairs", "schedule", "sync"]);
-    same(values.sync.lines, ["Documents: 3 files to review", "Agent uploads: Sign-in needed"], "a line per pair, each by its own state and files");
+    same(values.sync.lines, ["Documents: 1 file needs you", "Agent uploads: Sign-in needed"], "a line per pair, each by its own state and the files that need the user");
+    const lines = rec => L.statusValues(rec, null, "", "", NOW, HOME).sync.lines;
+    same(lines(well({ conflicts: CONFLICTS.slice(1, 2) })), ["Documents: Up to date"], "a note leaves its pair up to date");
+    same(lines(well({ state: "paused", paused: true, pairs: [PAUSED_DOCS], conflicts: CONFLICTS.slice(0, 1) })), ["Documents: Paused"], "a paused pair reads its pause before its files");
+    same(lines(well({ conflicts: [Object.assign({}, CONFLICTS[0], { pair: "inbox", pairLabel: "Agent uploads" })] })), ["Documents: Up to date"], "another pair's file is not this pair's");
     assert.equal(values.lastSync, NOW - HOUR);
     same(Object.keys(L.statusValues(null, null, "", "", NOW, HOME)), [], "nothing is published before the first answers");
     same(Object.keys(L.statusValues(null, presence, "", "", NOW, HOME)).sort(), ["account", "cloudKeys", "connection", "keys"]);
@@ -334,7 +349,6 @@ function verify(L) {
     for (const [label, local, home, line] of folders) {
         const rec = well({ pairs: [Object.assign({}, DOCS, { local })] });
         same(L.statusValues(rec, null, "", "", NOW, home).pairs[0].secondary, line, label + ": the Settings row");
-        assert.equal(L.pairRow(L.cloudValue(rec, "").pairs[0], NOW, home).secondary, line, label + ": the window row");
     }
     same(L.statusValues(well({ state: "not-set-up", pairs: [] }), null, "", "", NOW, HOME).pairs, [], "no pair, no row");
     const unreadable = L.statusValues(invalid(), null, "", "", NOW, HOME).pairs;
@@ -424,14 +438,15 @@ function verify(L) {
         }
     }
 
-    // The window's data: times as milliseconds, each conflict with the
-    // folders Open folders opens, the list capped under the ceiling.
+    // The popover's data: times as milliseconds, each conflict with its
+    // local-action flag and the folder of a kept copy, the list capped
+    // under the ceiling.
     const cloud = values.cloud;
-    same(cloud.conflicts.map(c => c.dirs), [
-        ["/home/me/gdrive/taxes", "/home/me/.local/state/vgshell/google-drive/pairs/docs/conflicts/20261010T110000Z-7/taxes"],
-        ["/home/me/gdrive"],
-        ["/home/me/outbox"],
-        ["/home/me/gdrive/taxes"]
+    same(cloud.conflicts.map(c => [c.localAction, c.copyFolder === undefined ? null : c.copyFolder]), [
+        [true, "/home/me/.local/state/vgshell/google-drive/pairs/docs/conflicts/20261010T110000Z-7/taxes"],
+        [true, null],
+        [true, null],
+        [true, null]
     ]);
     assert.equal(cloud.conflicts[2].to, RENAMED_TO);
     const many = record({ conflicts: Array.from({ length: 500 }, (_, i) => Object.assign({}, CONFLICTS[1], { path: "f" + i + ".txt", localPath: "/home/me/gdrive/" + "x".repeat(3000) + "/f" + i + ".txt" })) });
@@ -439,7 +454,6 @@ function verify(L) {
     assert.equal(capped.conflictCount, 500);
     assert.ok(capped.conflicts.length > 0 && capped.conflicts.length <= L.CONFLICTS_MAX);
     assert.ok(JSON.stringify(capped).length <= L.CLOUD_BYTES_MAX, "the data stays under its ceiling");
-    assert.equal(L.moreConflicts(capped), (500 - capped.conflicts.length) + " more files to review");
 
     // Writes: a key the next values lack is cleared with null.
     same(L.changedKeys({ sync: 1, lastSync: 5 }, { sync: 1 }), ["lastSync"]);
@@ -448,93 +462,161 @@ function verify(L) {
     // The tooltip: pairs and states, never a file name; the count of files
     // to review when the headline does not say it.
     const tip = L.widgetTooltip(cloud, NOW, Timestamp.text);
-    same(tip.details.split("\n"), ["Documents: 3 files to review", "Agent uploads: Sign-in needed", "4 files to review", "Last sync " + Timestamp.text(NOW - HOUR, NOW)]);
-    same(L.widgetTooltip(L.cloudValue(well({ conflicts: CONFLICTS.slice(0, 2) }), ""), NOW, Timestamp.text).details.split("\n"), ["Documents: 2 files to review", "Last sync " + Timestamp.text(NOW - HOUR, NOW)], "the headline says the whole count once");
+    same(tip.details.split("\n"), ["Documents: 1 file needs you", "Agent uploads: Sign-in needed", "1 file needs you", "Last sync " + Timestamp.text(NOW - HOUR, NOW)]);
+    same(L.widgetTooltip(L.cloudValue(well({ conflicts: CONFLICTS.slice(0, 2) }), ""), NOW, Timestamp.text).details.split("\n"), ["Documents: 1 file needs you", "Last sync " + Timestamp.text(NOW - HOUR, NOW)], "the headline says the count once");
+    same(L.widgetTooltip(L.cloudValue(well({ conflicts: CONFLICTS.slice(1, 2) }), ""), NOW, Timestamp.text).details.split("\n"), ["Documents: Up to date", "Last sync " + Timestamp.text(NOW - HOUR, NOW)], "a note adds no count");
     same(L.widgetTooltip(undefined, NOW, Timestamp.text), { title: "Google Drive", details: "" });
     for (const text of [tip.title, tip.details].concat(values.sync.lines))
         for (const c of CONFLICTS) assert.ok(!text.includes(c.path) && !text.includes(c.localPath), "a file name shows: " + text);
 
-    // The window: the subtitle's lines, each pair's direction in the long
-    // form, the review list under each pair's label.
-    const subtitle = w => w.lines.map(l => [l.text, l.tone]);
-    same(subtitle(L.windowStatus(cloud, NOW, Timestamp.text)), [
-        ["Last complete sync " + Timestamp.text(NOW - HOUR, NOW), ""],
-        ["First file to review: taxes/2025.xlsx", ""],
-        [L.errorText({ kind: "authorization-refused" }), "danger"]
-    ]);
-    same(subtitle(L.windowStatus(L.cloudValue(well({ state: "paused", paused: true, lastSuccess: null, staleAfter: null }), "VGS could not pause the Google Drive sync."), NOW, Timestamp.text)), [
-        ["No complete sync yet", ""], ["The hourly sync copies nothing until you resume it.", ""], ["VGS could not pause the Google Drive sync.", "danger"]
-    ], "a paused headline");
-    same(subtitle(L.windowStatus(L.cloudValue(well({ state: "paused", paused: true, conflicts: CONFLICTS.slice(0, 1) }), ""), NOW, Timestamp.text)), [
-        ["Last complete sync " + Timestamp.text(NOW - HOUR, NOW), ""], ["First file to review: taxes/2025.xlsx", ""], ["Paused. The hourly sync copies nothing until you resume it.", ""]
-    ], "files to review while paused say the pause");
-    same(L.windowStatus(L.cloudValue(well({ state: "offline", lastError: { kind: "offline" } }), ""), NOW, Timestamp.text).lines[1], { text: "Google Drive cannot be reached. VGS tries again at the next sync.", tone: "" });
-    // A pair's badge: its own files to review, a state that needs the
-    // user or stops the sync before them, and Up to date only with none.
-    same(L.pairRow(cloud.pairs[0], NOW, HOME), { id: "docs", label: "Documents", secondary: "Drive/Docs \u21c4 ~/gdrive", icon: "folder-sync", text: "3 files to review", tone: "warning" });
-    same(L.cloudValue(good.record, "").pairs.map(p => p.review), [3, 1]);
-    const badge = rec => { const p = L.pairRow(L.cloudValue(rec, "").pairs[0], NOW, HOME); return [p.text, p.tone]; };
-    same(badge(well()), ["Up to date", "success"]);
-    same(badge(well({ conflicts: DRIVE_CONFLICTS.slice(0, 1) })), ["1 file to review", "warning"]);
-    same(badge(well({ conflicts: CONFLICTS.slice(2, 3) })), ["Up to date", "success"], "another pair's file");
-    same(badge(well({ state: "paused", paused: true, pairs: [PAUSED_DOCS], conflicts: CONFLICTS.slice(0, 1) })), ["Paused", "info"]);
-    same(L.pairRow(cloud.pairs[1], NOW, HOME), { id: "inbox", label: "Agent uploads", secondary: "Drive/Inbox \u21c4 ~/outbox", icon: "folder-sync", text: "Sign-in needed", tone: "danger" });
-    // The footer: one primary, Set up hourly sync again while the schedule
-    // offers it, Resume while paused; Pause or Resume and Add a folder pair
-    // only while a folder pair exists, since the empty pair list offers Add.
-    const SETUP_FOOT = { text: "Set up hourly sync again", icon: "cloud-cog", action: "setup", enabled: true };
-    const footer = rec => L.footerView(rec === undefined ? undefined : L.cloudValue(rec, ""));
-    const footers = [
-        ["before the first value", undefined, { primary: { text: "Sync now", icon: "refresh-cw", action: "sync", enabled: false }, pause: null, add: false }],
-        ["first run", well({ state: "not-set-up", units: "absent", pairs: [] }), { primary: { text: "Sync now", icon: "refresh-cw", action: "sync", enabled: false }, pause: null, add: false }],
-        ["a folder pair whose units did not install", well({ state: "not-set-up", units: "absent" }), { primary: SETUP_FOOT, pause: { text: "Pause", icon: "pause", action: "pause" }, add: true }],
-        ["no folder pair", well({ state: "not-set-up", pairs: [] }), { primary: { text: "Sync now", icon: "refresh-cw", action: "sync", enabled: false }, pause: null, add: false }],
-        ["units stale with a pair", well({ units: "stale" }), { primary: SETUP_FOOT, pause: { text: "Pause", icon: "pause", action: "pause" }, add: true }],
-        ["set up", well(), { primary: { text: "Sync now", icon: "refresh-cw", action: "sync", enabled: true }, pause: { text: "Pause", icon: "pause", action: "pause" }, add: true }],
-        ["paused", well({ state: "paused", paused: true, pairs: [PAUSED_DOCS] }), { primary: { text: "Resume", icon: "play", action: "resume", enabled: true }, pause: null, add: true }],
-        ["units stale while paused", well({ units: "stale", state: "paused", paused: true, pairs: [PAUSED_DOCS] }), { primary: SETUP_FOOT, pause: { text: "Resume", icon: "play", action: "resume" }, add: true }]
+    // The popover's header: the headline, then the last complete sync in
+    // the shell's wording and, unless the sync stopped, the count of folder
+    // pairs, as one line of parts. It names no file.
+    const metaParts = rec => L.panelHeader(L.cloudValue(rec, ""), NOW, Timestamp.text).meta.split(" · ");
+    const SYNCED = Timestamp.text(NOW - HOUR, NOW);
+    for (const [label, rec, count] of [
+        ["up to date, one pair", well(), 1],
+        ["a file that needs you, two pairs", well({ pairs: [DOCS, Object.assign({}, INBOX, { state: "idle", lastError: null })], conflicts: CONFLICTS.slice(0, 1) }), 2],
+        ["sign-in needed", record(), null],
+        ["sync failed", well({ state: "error", lastError: { kind: "source-missing", pair: "docs" } }), null]
+    ]) {
+        const parts = metaParts(rec);
+        assert.ok(parts[0].endsWith(SYNCED), label + ": the header says when the sync last ran: " + parts[0]);
+        same(parts.length, count === null ? 1 : 2, label + ": the header counts the folder pairs unless the sync stopped");
+        if (count !== null) assert.ok(parts[1].startsWith(count + " "), label + ": the pair count: " + parts[1]);
+    }
+    same(metaParts(well({ lastSuccess: null, staleAfter: null })).length, 2, "a pair never synced still counts");
+    assert.notEqual(metaParts(well({ lastSuccess: null, staleAfter: null }))[0], metaParts(well())[0], "no complete sync says so");
+    for (const rec of [record(), well({ conflicts: CONFLICTS.concat(DRIVE_CONFLICTS) })]) {
+        const header = JSON.stringify(L.panelHeader(L.cloudValue(rec, ""), NOW, Timestamp.text));
+        for (const c of rec.conflicts) assert.ok(!header.includes(c.path) && !header.includes(c.localPath), "the header names a file: " + header);
+    }
+
+    // The problem callout: which shows, its tone, and where its one fix
+    // goes, a TUI the manifest declares or a tab of the plugin's page.
+    const driveManifest = JSON.parse(fs.readFileSync(MANIFEST, "utf8"));
+    const callout = rec => {
+        const c = L.problemCallout(L.cloudValue(rec, ""), NOW);
+        if (c === null) return null;
+        assert.ok(c.title !== "" && c.text !== "" && !c.text.includes("](") && !c.title.includes("]("), "a callout's words are plain text: " + JSON.stringify(c));
+        if (c.action !== null && c.action.tui !== undefined) assert.ok(Object.prototype.hasOwnProperty.call(driveManifest.tui, c.action.tui), "the manifest declares " + c.action.tui);
+        if (c.action !== null && c.action.tab !== undefined) assert.ok(["Settings", "Setup", "Details"].includes(c.action.tab), "a tab of the page: " + c.action.tab);
+        return [c.tone, c.action === null ? null : c.action.tui !== undefined ? "tui:" + c.action.tui : "tab:" + c.action.tab];
+    };
+    const STATE_OF = (state, error) => well({ state, pairs: [Object.assign({}, DOCS, { state, lastError: error })], lastError: Object.assign({ pair: "docs" }, error) });
+    const SIGNED_OUT = STATE_OF("authorization-required", signedOut);
+    const REFUSED = STATE_OF("authorization-required", { kind: "authorization-refused" });
+    const CALLOUT_ROWS = [
+        ["up to date", well(), null],
+        ["a file that needs you", well({ conflicts: CONFLICTS.slice(0, 1) }), null],
+        ["paused", well({ state: "paused", paused: true, pairs: [PAUSED_DOCS] }), null],
+        ["signed out", SIGNED_OUT, ["danger", "tui:connect"]],
+        ["a sign-in Google refused", REFUSED, ["danger", "tui:connect"]],
+        ["no keys", STATE_OF("authorization-required", { kind: "credential-absent", account: "client-id" }), ["danger", "tab:Setup"]],
+        ["keyring locked", STATE_OF("authorization-required", { kind: "credential-locked", account: "client-id" }), ["danger", null]],
+        ["a running pair beside a pair with no keys", well({ state: "running", pairs: [Object.assign({}, DOCS, { state: "running" }), Object.assign({}, INBOX, { lastError: { kind: "credential-absent", account: "client-id" } })], lastError: null }), ["danger", "tab:Setup"]],
+        ["a Drive folder gone", STATE_OF("error", { kind: "source-missing" }), ["danger", "tab:Settings"]],
+        ["rclone missing", STATE_OF("error", { kind: "rclone-missing" }), ["danger", "tab:Setup"]],
+        ["an interrupted sync", STATE_OF("error", { kind: "interrupted" }), ["danger", null]],
+        ["a pair list that cannot be read", invalid(), ["danger", "tui:reset-pairs"]],
+        ["offline", STATE_OF("offline", { kind: "offline" }), ["warning", null]],
+        ["offline with a file that needs you", Object.assign(STATE_OF("offline", { kind: "offline" }), { conflicts: CONFLICTS.slice(0, 1), needsYou: 1 }), ["warning", null]],
+        ["a folder pair whose hourly sync did not install", well({ state: "not-set-up", units: "absent" }), ["warning", "tab:Details"]],
+        ["an hourly sync out of date", well({ units: "stale" }), ["warning", "tab:Details"]]
     ];
-    for (const [label, rec, want] of footers) same(footer(rec), want, "footer: " + label);
+    for (const [label, rec, want] of CALLOUT_ROWS) same(callout(rec), want, "callout: " + label);
+    const titleOf = rec => L.problemCallout(L.cloudValue(rec, ""), NOW).title;
+    assert.notEqual(titleOf(SIGNED_OUT), titleOf(REFUSED), "a sign-in never made reads apart from one Google refused");
+
+    // The body: a pause always, else what the state means while nothing is
+    // to review and nothing is wrong.
+    const body = rec => L.panelBody(L.cloudValue(rec, ""), NOW);
+    for (const [label, rec, speaks] of [
+        ["up to date", well(), true],
+        ["out of date", well({ staleAfter: iso(NOW) }), true],
+        ["never synced", well({ lastSuccess: null, staleAfter: null }), true],
+        ["paused", well({ state: "paused", paused: true, pairs: [PAUSED_DOCS] }), true],
+        ["a file that needs you while paused", well({ state: "paused", paused: true, pairs: [PAUSED_DOCS], conflicts: CONFLICTS.slice(0, 1) }), true],
+        ["a note alone", well({ conflicts: CONFLICTS.slice(1, 2) }), false],
+        ["a file that needs you", well({ conflicts: CONFLICTS.slice(0, 1) }), false],
+        ["syncing", well({ state: "running", pairs: [Object.assign({}, DOCS, { state: "running" })] }), false],
+        ["sync failed", STATE_OF("error", { kind: "source-missing" }), false],
+        ["an hourly sync out of date", well({ units: "stale" }), false]
+    ]) assert.equal(body(rec) !== "", speaks, "body: " + label + ": " + JSON.stringify(body(rec)));
+    assert.notEqual(body(well()), body(well({ pairs: [DOCS, Object.assign({}, INBOX, { state: "idle", lastError: null })] })), "up to date counts the folder pairs");
+    assert.notEqual(body(well({ state: "paused", paused: true, pairs: [PAUSED_DOCS] })), body(well({ state: "paused", paused: true, pairs: [PAUSED_DOCS], conflicts: CONFLICTS.slice(0, 1) })), "a pause under another headline names itself");
+
+    // The footer: shown only while a sync can run, Pause or Resume, and
+    // Sync now with the reason it cannot start now.
+    const footer = rec => {
+        const f = L.footerView(rec === undefined ? undefined : L.cloudValue(rec, ""));
+        return f.shown ? [f.pause.action, f.sync.action, f.sync.reason !== ""] : null;
+    };
+    const FOOTERS = [
+        ["before the first value", undefined, null],
+        ["first run", well({ state: "not-set-up", units: "absent", pairs: [] }), null],
+        ["a folder pair whose units did not install", well({ state: "not-set-up", units: "absent" }), null],
+        ["no folder pair", well({ state: "not-set-up", pairs: [] }), null],
+        ["a pair list that cannot be read", invalid(), null],
+        ["signed out", SIGNED_OUT, null],
+        ["set up", well(), ["pause", "sync", false]],
+        ["units out of date", well({ units: "stale" }), ["pause", "sync", false]],
+        ["syncing", well({ state: "running", pairs: [Object.assign({}, DOCS, { state: "running" })] }), ["pause", "sync", true]],
+        ["paused", well({ state: "paused", paused: true, pairs: [PAUSED_DOCS] }), ["resume", "sync", true]],
+        ["every pair paused on its own", well({ state: "paused", pairs: [PAUSED_DOCS] }), null],
+        ["keyring locked", STATE_OF("authorization-required", { kind: "credential-locked", account: "client-id" }), ["pause", "sync", false]]
+    ];
+    for (const [label, rec, want] of FOOTERS) same(footer(rec), want, "footer: " + label);
+    assert.notEqual(L.footerView(L.cloudValue(well({ state: "paused", paused: true, pairs: [PAUSED_DOCS] }), "")).sync.reason,
+        L.footerView(L.cloudValue(well({ state: "running", pairs: [Object.assign({}, DOCS, { state: "running" })] }), "")).sync.reason, "a pause and a running sync each give their own reason");
+
     // Each review row by its fields: its needs mark and local-action flag
-    // as the record and its kind give them, the folders Open folders opens,
-    // and whether a folder line names the copy its line speaks of.
+    // as the record and its kind give them, its name and place, and its
+    // action: Show older copy only on a row that needs the user and whose
+    // copy VGS kept here.
     const KEPT = "/home/me/.local/state/vgshell/google-drive/pairs/docs/conflicts/20261010T110000Z-7/taxes";
     const UNKNOWN_REASON = Object.assign({}, DRIVE_CONFLICTS[0], { path: "reports/Held.pdf", reason: "failed to open source object: stand-in cause", needs: "you" });
     const ROWS = [
-        // label, record row, needs, local action, dirs, folder line
-        ["a change on both sides with the copy that was here kept", CONFLICTS[0], "you", true, ["/home/me/gdrive/taxes", KEPT], true],
-        ["a change on both sides uploaded from here", Object.assign({}, CONFLICTS[0], { storedPath: undefined }), "you", true, ["/home/me/gdrive/taxes"], false],
-        ["a Drive deletion put back", CONFLICTS[1], "nothing", true, ["/home/me/gdrive"], false],
-        ["a Drive rename", CONFLICTS[2], "nothing", true, ["/home/me/outbox"], false],
-        ["a local deletion put back", CONFLICTS[3], "nothing", true, ["/home/me/gdrive/taxes"], false],
-        ["a dangling shortcut never copied", DRIVE_CONFLICTS[0], "nothing", false, [], false],
-        ["a dangling shortcut with an earlier copy here", DRIVE_CONFLICTS[1], "nothing", false, [], true],
-        ["a file not copied for another reason", UNKNOWN_REASON, "you", false, [], false],
-        ["identical copies, the user's", doubled("a.pdf", true, true), "nothing", false, [], false],
-        ["different copies, the user's", doubled("b.pdf", false, true), "you", false, [], false],
-        ["identical copies shared by an owner", doubled("c.pdf", true, false, OWNER), "nothing", false, [], false],
-        ["different copies shared by an owner", doubled("d.pdf", false, false, OWNER), "nothing", false, [], false],
-        ["identical copies, no owner named", doubled("e.pdf", true, false), "nothing", false, [], false],
-        ["different copies, no owner named", doubled("f.pdf", false, false), "nothing", false, [], false]
+        // label, record row, needs, local action, the action's folder or null
+        ["a change on both sides with the copy that was here kept", CONFLICTS[0], "you", true, KEPT],
+        ["a change on both sides uploaded from here", Object.assign({}, CONFLICTS[0], { storedPath: undefined }), "you", true, null],
+        ["a kept copy on a row that needs nothing", Object.assign({}, CONFLICTS[0], { needs: "nothing" }), "nothing", true, null],
+        ["a Drive deletion put back", CONFLICTS[1], "nothing", true, null],
+        ["a Drive rename", CONFLICTS[2], "nothing", true, null],
+        ["a local deletion put back", CONFLICTS[3], "nothing", true, null],
+        ["a dangling shortcut never copied", DRIVE_CONFLICTS[0], "nothing", false, null],
+        ["a dangling shortcut with an earlier copy here", DRIVE_CONFLICTS[1], "nothing", false, null],
+        ["a file not copied for another reason", UNKNOWN_REASON, "you", false, null],
+        ["identical copies, the user's", doubled("a.pdf", true, true), "nothing", false, null],
+        ["different copies, the user's", doubled("b.pdf", false, true), "you", false, null],
+        ["identical copies shared by an owner", doubled("c.pdf", true, false, OWNER), "nothing", false, null],
+        ["different copies shared by an owner", doubled("d.pdf", false, false, OWNER), "nothing", false, null],
+        ["identical copies, no owner named", doubled("e.pdf", true, false), "nothing", false, null],
+        ["different copies, no owner named", doubled("f.pdf", false, false), "nothing", false, null]
     ];
     const rowOf = c => {
         const judgedRow = L.parseStatus(JSON.stringify(well({ conflicts: [c] })));
         assert.equal(judgedRow.ok, true, c.path + ": " + judgedRow.error);
         const published = L.cloudValue(judgedRow.record, "").conflicts[0];
-        return [published, L.conflictGroups([published])[0].rows[0]];
+        return [published, L.conflictRow(published)];
     };
-    const details = {};
-    for (const [label, c, needs, local, dirs, folder] of ROWS) {
+    const details = {}, needsMarks = new Set(), noteMarks = new Set();
+    for (const [label, c, needs, local, folder] of ROWS) {
         const [published, row] = rowOf(c);
-        same([published.needs, published.localAction, published.dirs], [needs, local, dirs], label + ": the published row");
-        same([row.needs, row.localAction, row.dirs, row.folder !== ""], [needs, local, dirs, folder], label + ": the window row");
+        same([published.needs, published.localAction], [needs, local], label + ": the published row");
+        same([row.needs, row.action === null ? null : row.action.folder], [needs, folder], label + ": the popover row");
+        (needs === "you" ? needsMarks : noteMarks).add(row.icon);
         // Only the line that states how long VGS keeps a copy has the info
         // that says why.
-        assert.equal(row.info !== "", label === "a change on both sides with the copy that was here kept", label + ": the limit's info");
-        assert.equal(row.label, c.path, label + ": the row names its file");
+        assert.equal(row.info !== "", c.kind === "both-changed" && c.storedPath !== undefined, label + ": the limit's info");
+        const at = c.path.lastIndexOf("/");
+        assert.equal(row.name, c.path.slice(at + 1), label + ": the row names its file");
+        assert.ok(row.place.startsWith(c.pairLabel) && (at <= 0 || c.path.slice(0, at).split("/").every(part => row.place.includes(part))), label + ": the row names its pair and folders: " + row.place);
         assert.ok(typeof row.detail === "string" && row.detail !== "", label + ": the row has its line");
         details[label] = row.detail;
     }
+    assert.equal(needsMarks.size, 1, "every row that needs the user takes one mark");
+    assert.ok(![...noteMarks].some(m => needsMarks.has(m)), "no note takes the mark of a row that needs the user");
     // Each case of a kind takes its own line: who can act on a doubled
     // name, a kept copy or an upload, a dangling shortcut or another cause.
     const cases = ["identical copies, the user's", "identical copies shared by an owner", "identical copies, no owner named",
@@ -545,10 +627,7 @@ function verify(L) {
     assert.ok(details["identical copies shared by an owner"].includes(OWNER) && details["different copies shared by an owner"].includes(OWNER), "a shared doubled name names its owner");
     for (const c of cases.filter(c => !c.includes("shared"))) assert.ok(!details[c].includes("@"), c + ": names no one");
     assert.ok(details["a Drive rename"].includes(RENAMED_TO), "a rename names its new name");
-    // The folder line names the folder of the copy it speaks of.
-    assert.ok(rowOf(CONFLICTS[0])[1].folder.endsWith(KEPT), "the kept copy's folder");
-    assert.ok(rowOf(DRIVE_CONFLICTS[1])[1].folder.endsWith("/home/me/gdrive/reports"), "the earlier copy's folder");
-    // The needs-you count the record publishes reaches the window's data.
+    // The needs-you count the record publishes reaches the popover's data.
     const drivenRecord = L.parseStatus(JSON.stringify(well({ conflicts: CONFLICTS.concat(DRIVE_CONFLICTS) })));
     assert.equal(drivenRecord.ok, true, drivenRecord.error);
     assert.equal(L.cloudValue(drivenRecord.record, "").needsYou, 2, "one change on both sides and one doubled name of the user's");
@@ -556,22 +635,39 @@ function verify(L) {
     const driveSide = L.parseStatus(JSON.stringify(well({ conflicts: DRIVE_CONFLICTS })));
     assert.equal(driveSide.ok, true, driveSide.error);
     const driveCloud = L.cloudValue(driveSide.record, "");
-    same(L.headline(driveCloud, NOW).text, "3 files to review");
+    same(L.headline(driveCloud, NOW).text, "1 file needs you");
     const unknown = L.cloudValue(well({ conflicts: [UNKNOWN_REASON] }), "");
     for (const value of [driveCloud, unknown]) assert.ok(!JSON.stringify(value).includes("failed to open source object"), "rclone's text is published");
-    // Rows that need the user come first, in the list, in each pair's
-    // group and in the pair order, and the cap cuts notes before them.
+    // Rows that need the user come first, in the list and in Needs you,
+    // and the cap cuts notes before them.
     same(driveCloud.conflicts.map(c => c.needs), ["you", "nothing", "nothing"], "the user's doubled name comes first");
-    same(subtitle(L.windowStatus(driveCloud, NOW, Timestamp.text))[1], ["First file to review: " + DRIVE_CONFLICTS[2].path, ""]);
     const INBOX_NOTE = Object.assign({}, CONFLICTS[2], { path: "note.txt" });
     const mixed = L.cloudValue(well({ conflicts: [INBOX_NOTE, CONFLICTS[1], DRIVE_CONFLICTS[0], CONFLICTS[0], CONFLICTS[3], DRIVE_CONFLICTS[2]] }), "");
     same(mixed.conflicts.map(c => c.path), [CONFLICTS[0].path, DRIVE_CONFLICTS[2].path, INBOX_NOTE.path, CONFLICTS[1].path, DRIVE_CONFLICTS[0].path, CONFLICTS[3].path], "needs-you first, each part in the record's order");
-    same(L.conflictGroups(mixed.conflicts).map(g => [g.label, g.rows.map(r => r.needs)]), [["Documents", ["you", "you", "nothing", "nothing", "nothing"]], ["Agent uploads", ["nothing"]]], "the group of the first row that needs the user leads");
+    const mixedView = L.reviewView(mixed);
+    same([mixedView.needs.map(r => r.name), mixedView.notes.map(r => r.name)], [["2025.xlsx", "Twice listed.txt"], ["note.txt", "old.txt", "Plan – first draft.pdf", "receipts.pdf"]], "Needs you holds the rows that need the user, the notes the rest");
+    assert.ok(mixedView.notesLine.startsWith("4 "), "the fold line counts the notes: " + mixedView.notesLine);
+    same([mixedView.moreNeeds, mixedView.moreNotes], ["", ""], "a whole list counts no rest");
+    // One file that needs the user and eight notes: Needs you lists it,
+    // the eight fold into one line, and the bar counts one.
+    const eight = Array.from({ length: 8 }, (_, i) => Object.assign({}, CONFLICTS[1], { path: "kept/n" + i + ".txt" }));
+    const oneAndEight = L.cloudValue(well({ conflicts: eight.concat([CONFLICTS[0]]) }), "");
+    const oneAndEightView = L.reviewView(oneAndEight);
+    same([oneAndEightView.needs.length, oneAndEightView.notes.length, L.widgetView(oneAndEight, NOW).badge], [1, 8, "1"]);
+    assert.ok(oneAndEightView.notesLine.startsWith("8 "), "the fold line counts eight notes: " + oneAndEightView.notesLine);
+    same(L.reviewView(L.cloudValue(well({ conflicts: CONFLICTS.slice(0, 1) }), "")).notesLine, "", "no note, no fold line");
     const notes = Array.from({ length: L.CONFLICTS_MAX + 5 }, (_, i) => Object.assign({}, CONFLICTS[1], { path: "n" + i + ".txt" }));
     const overCap = L.cloudValue(well({ conflicts: notes.concat([CONFLICTS[0]]) }), "");
     assert.equal(overCap.conflicts.length, L.CONFLICTS_MAX);
     same([overCap.conflicts[0].path, overCap.conflicts[0].needs], [CONFLICTS[0].path, "you"], "the cap keeps the row that needs the user");
-    const heavy = record({ conflicts: Array.from({ length: 500 }, (_, i) => Object.assign({}, CONFLICTS[1], { path: "f" + i + ".txt", localPath: "/home/me/gdrive/" + "x".repeat(3000) + "/f" + i + ".txt" })).concat([CONFLICTS[0]]) });
+    const overCapView = L.reviewView(overCap);
+    assert.ok(overCapView.notesLine.startsWith((L.CONFLICTS_MAX + 5) + " "), "the fold line counts every note the record holds: " + overCapView.notesLine);
+    assert.ok(overCapView.moreNotes.startsWith((L.CONFLICTS_MAX + 5 - (L.CONFLICTS_MAX - 1)) + " "), "the notes the list leaves out are counted: " + overCapView.moreNotes);
+    same(overCapView.moreNeeds, "");
+    const manyNeeds = L.cloudValue(well({ conflicts: Array.from({ length: L.CONFLICTS_MAX + 2 }, (_, i) => Object.assign({}, CONFLICTS[0], { path: "y" + i + ".txt" })) }), "");
+    assert.ok(L.reviewView(manyNeeds).moreNeeds.startsWith("2 "), "the files that need the user the list leaves out are counted");
+    // A row carries its path, so long paths fill the ceiling first.
+    const heavy = record({ conflicts: Array.from({ length: 500 }, (_, i) => Object.assign({}, CONFLICTS[1], { path: "x".repeat(3000) + "/f" + i + ".txt", localPath: "/home/me/gdrive/" + "x".repeat(3000) + "/f" + i + ".txt" })).concat([CONFLICTS[0]]) });
     const heavyCloud = L.cloudValue(heavy, "");
     assert.ok(heavyCloud.conflicts.length < L.CONFLICTS_MAX, "the byte ceiling cuts the list");
     assert.equal(heavyCloud.conflicts[0].needs, "you", "the byte ceiling keeps the row that needs the user");
@@ -656,10 +752,29 @@ const controls = [
     ["an unreadable pair list shows its repair", "if (pairListValid(cloud)) return { hidden: true };", "return { hidden: true };"],
     ["an unreadable pair list says so on Settings", "if (!pairListValid(cloud)) return [UNREADABLE_ROW];", ""],
     ["an unreadable pair list keeps the bar", "(cloud.pairs.length === 0 && pairListValid(cloud))", "cloud.pairs.length === 0"],
-    ["files to review win over the state", "if (cloud.conflictCount > 0) return {", "if (false) return {"],
+    ["files that need the user win over the state", "if (cloud.needsYou > 0) return {", "if (false) return {"],
+    ["a note never raises the headline", "if (cloud.needsYou > 0) return {", "if (cloud.conflictCount > 0) return {"],
     ["the bar reads the headline", "var head = headline(cloud, now);\n    return { hidden: false", "var head = stateView(cloud.state, cloud.staleAfter, now);\n    return { hidden: false"],
     ["the tooltip reads the headline", "var head = headline(cloud, now);\n    var lines = pairLines(cloud.pairs, now);", "var head = stateView(cloud.state, cloud.staleAfter, now);\n    var lines = pairLines(cloud.pairs, now);"],
-    ["the window reads the headline", "var head = headline(cloud, now);\n    var lines = [{", "var head = stateView(cloud.state, cloud.staleAfter, now);\n    var lines = [{"],
+    ["the popover header reads the headline", "var head = headline(cloud, now);\n    var stopped", "var head = withCause(stateView(cloud.state, cloud.staleAfter, now), cloud.state);\n    var stopped"],
+    ["the header says when the sync stopped", "if (!stopped && cloud.pairs.length > 0) meta +=", "if (cloud.pairs.length > 0) meta +="],
+    ["a refused sign-in offers Sign in again", "    return CALLOUTS[\"sign-in-refused\"];\n}", "    return null;\n}"],
+    ["a missing token is no missing key", "CALLOUTS[error.account === \"token\" ? \"signed-out\" : \"keys-missing\"]", "CALLOUTS[\"keys-missing\"]"],
+    ["a locked keyring offers no sign-in", "if (error !== null && error.kind === \"credential-locked\") return CALLOUTS[\"keyring-locked\"];", ""],
+    ["a callout reads the pair in the headline's state", "return pair === undefined ? cloud.lastError : pair.lastError;", "return cloud.lastError;"],
+    ["an offline sync says so", "if (cloud.state === \"offline\") return CALLOUTS.offline;", ""],
+    ["a failed sync names its fix", "action: hasOwn(FAILED_ACTIONS, kind) ? FAILED_ACTIONS[kind] : null };", "action: null };"],
+    ["out-of-date units offer their fix", "if (cloud.units === \"stale\") return CALLOUTS.stale;", ""],
+    ["absent units offer their fix", "if (head.cause === \"not-set-up\") return CALLOUTS[\"not-set-up\"];", ""],
+    ["an unreadable pair list offers its repair in the popover", "action: { label: \"Start the list again\", tui: \"reset-pairs\" } };", "action: null };"],
+    ["the popover says a pause", "if (cloud.paused) return (head.cause", "if (false) return (head.cause"],
+    ["a note hides the up-to-date sentence", "if (cloud.conflictCount > 0 || problemCallout(", "if (problemCallout("],
+    ["up to date counts the folder pairs", "return (n === 1 ? \"Your folder pair matches Google Drive.\" : \"Your \" + n + \" folder pairs match Google Drive.\")", "return \"Your folder pairs match Google Drive.\""],
+    ["the fold line counts the record's notes", "var noteCount = cloud.conflictCount - cloud.needsYou;", "var noteCount = notes.length;"],
+    ["the notes the list leaves out are counted", "notesRest = noteCount - notes.length;", "notesRest = 0;"],
+    ["Needs you holds only the rows that need the user", "var needs = rows.filter(function (r) { return r.needs === \"you\"; });", "var needs = rows;"],
+    ["Show older copy only on a row that needs the user", "var action = needs && conflict.localAction && conflict.copyFolder !== undefined", "var action = conflict.copyFolder !== undefined"],
+    ["a row names its pair and folders", "return [conflict.pairLabel].concat(at <= 0 ? [] : conflict.path.slice(0, at).split(\"/\")).join(PLACE_MARK);", "return conflict.pairLabel;"],
     ["the Settings sync value reads the headline", "var head = headline(cloud, now);\n    var value = {", "var head = stateView(cloud.state, cloud.staleAfter, now);\n    var value = {"],
     ["Set up again for units absent beside a pair", "return units === \"stale\" || (units === \"absent\" && hasPairs);", "return units === \"stale\";"],
     ["no Set up again for units absent with no pair", "return units === \"stale\" || (units === \"absent\" && hasPairs);", "return units !== \"installed\";"],
@@ -674,49 +789,45 @@ const controls = [
     ["a line that states a limit has its info", "info: hasOwn(CONFLICT_INFO, variant) ? CONFLICT_INFO[variant] : \"\"", "info: \"\""],
     ["the review list stays under its ceiling", "while (value.conflicts.length > 0 && JSON.stringify(value).length > CLOUD_BYTES_MAX) value.conflicts.pop();", ""],
     ["a cleared key is written as null", "if (!hasOwn(next, k) && previous[k] !== null) keys.push(k);", ""],
-    ["the tooltip names pairs, not files", "var lines = pairLines(cloud.pairs, now);\n    if (cloud.conflictCount > 0 && head.cause", "var lines = pairLines(cloud.pairs, now).concat(cloud.conflicts.map(function (c) { return c.path; }));\n    if (cloud.conflictCount > 0 && head.cause"],
+    ["the tooltip names pairs, not files", "var lines = pairLines(cloud.pairs, now);\n    if (cloud.needsYou > 0 && head.cause", "var lines = pairLines(cloud.pairs, now).concat(cloud.conflicts.map(function (c) { return c.path; }));\n    if (cloud.needsYou > 0 && head.cause"],
     ["Sync now waits for a key or a connection", "return pair.state !== \"authorization-required\" ||", "return true ||"],
     ["Sync now retries a locked keyring", " || (pair.lastError !== null && pair.lastError.kind === \"credential-locked\");", ";"],
-    ["Sync now waits for a running sync", "known && cloud.state !== \"running\" && cloud.pairs.some(pairCanSync)", "known && cloud.pairs.some(pairCanSync)"],
+    ["Sync now waits for a running sync", "cloud.state === \"running\" ? SYNC_REASONS.running", "false ? SYNC_REASONS.running"],
+    ["Sync now waits for a pause", "reason: cloud.paused ? SYNC_REASONS.paused", "reason: false ? SYNC_REASONS.paused"],
+    ["the footer offers Resume while paused", "pause: cloud.paused ? { text: \"Resume\"", "pause: false ? { text: \"Resume\""],
+    ["a paused sync keeps its footer", "(cloud.paused || cloud.pairs.some(pairCanSync))", "(cloud.pairs.some(pairCanSync))"],
+    ["the footer hides while the hourly units are absent", " && cloud.units !== \"absent\"", ""],
     ["Sync now waits for a paused pair", "if (pair.state === \"paused\") return false;", ""],
-    ["the footer offers Add only beside a folder pair", "add: hasPairs }", "add: true }"],
-    ["Resume is the primary while paused", ": hasPairs && cloud.paused ? Object.assign({ enabled: true }, resume)", ": false ? Object.assign({ enabled: true }, resume)"],
-    ["the pause slot is empty beside a Resume primary", "!hasPairs || primary.action === \"resume\" ? null", "!hasPairs ? null"],
-    ["Pause needs a folder pair", "var pause = !hasPairs ||", "var pause = !known ||"],
-    ["the footer offers Set up again as the schedule does", "var primary = known && setupOffered(cloud.units, hasPairs)", "var primary = false"],
-    ["the window says a pause", "    if (cloud.paused)\n", "    if (false)\n"],
-    ["the window names the first file to review", "if (cloud.conflicts.length > 0) lines.push({ text: \"First file to review: \"", "if (false) lines.push({ text: \"First file to review: \""],
     ["a file not copied carries its reason", " && (c.kind !== \"unreadable-on-drive\" || isText(c.reason))", ""],
     ["a file not copied with no copy here needs no local path", "(c.kind === \"unreadable-on-drive\" && !hasOwn(c, \"localPath\")) || ", ""],
     ["only a file not copied may lack its local path", "c.kind === \"unreadable-on-drive\" && !hasOwn(c, \"localPath\")", "!hasOwn(c, \"localPath\")"],
-    ["a file not copied names its earlier copy's folder", "if (conflict.kind === \"unreadable-on-drive\" && conflict.localPath !== undefined) return dirname(conflict.localPath);", ""],
     ["a known reason reads in its own words", "return row === undefined ? REASON_DEFAULT : row.text;", "return REASON_DEFAULT;"],
     ["an unknown reason reads in the default words", "return row === undefined ? REASON_DEFAULT : row.text;", "return row === undefined ? reason : row.text;"],
-    ["a pair with files to review does not read up to date", "if (pair.state === \"idle\" && pair.review > 0) return {", "if (false) return {"],
+    ["a pair with files that need the user does not read up to date", "if (pair.state === \"idle\" && pair.needsYou > 0) return {", "if (false) return {"],
+    ["a paused pair reads its pause", "if (pair.state === \"idle\" && pair.needsYou > 0) return {", "if (pair.needsYou > 0) return {"],
     ["a pair counts its own files", "return c.pair === p.id;", "return true;"],
-    ["a paused pair reads its pause", "if (pair.state === \"idle\" && pair.review > 0) return {", "if (pair.review > 0) return {"],
     ["the pair lines read the pair's view", "return p.label + \": \" + pairView(p, now).text;", "return p.label + \": \" + stateView(p.state, p.staleAfter, now).text;"],
-    ["a review group holds each pair's files", "if (group === undefined) {", "if (true) {"],
     ["a change on both sides names the kept copy's folder", "if (conflict.kind === \"both-changed\" && conflict.storedPath !== undefined) return dirname(conflict.storedPath);", ""],
     ["a row needs its needs mark", "\n        && NEEDS.indexOf(c.needs) !== -1", ""],
     ["only a doubled name carries mine", "(duplicate ? typeof c.mine === \"boolean\" : !hasOwn(c, \"mine\"))", "true"],
     ["an owner is a not-mine doubled name's address", "(!hasOwn(c, \"owner\") || (duplicate && c.mine === false && isAddress(c.owner)))", "true"],
     ["the earlier doubled-name kind is refused", "\"duplicate-different\"];\nvar DUPLICATE_KINDS", "\"duplicate-different\", \"duplicate-on-drive\"];\nvar DUPLICATE_KINDS"],
     ["the needs-you count is judged", "if (doc.needsYou !== doc.conflicts.filter(function (c) { return c.needs === \"you\"; }).length) return", "if (false) return"],
-    ["the window's data carries the needs-you count", "needsYou: record.needsYou,", ""],
+    ["the popover's data carries the needs-you count", "needsYou: record.needsYou,", ""],
     ["rows that need the user come first", "needsFirst(record.conflicts).slice(0, CONFLICTS_MAX)", "record.conflicts.slice(0, CONFLICTS_MAX)"],
     ["the cap cuts after the sort", "needsFirst(record.conflicts).slice(0, CONFLICTS_MAX)", "needsFirst(record.conflicts.slice(0, CONFLICTS_MAX))"],
     ["a row carries the record's needs", "needs: c.needs, localAction:", "needs: \"you\", localAction:"],
-    ["a fix in Google Drive has no local action", "if (LOCAL_ACTION_KINDS.indexOf(conflict.kind) === -1 || conflict.localPath === undefined) return [];", "if (conflict.localPath === undefined) return [];"],
-    ["the local-action flag reads the folders", "localAction: dirs.length > 0", "localAction: true"],
-    ["the window row carries the mark and the flag", "needs: conflict.needs, localAction: conflict.localAction }", "needs: \"you\", localAction: true }"],
+    ["a fix in Google Drive has no local action", "return LOCAL_ACTION_KINDS.indexOf(conflict.kind) !== -1 && conflict.localPath !== undefined;", "return conflict.localPath !== undefined;"],
+    ["the local-action flag is published", "localAction: hasLocalAction(c) };", "localAction: true };"],
+    ["the popover row carries the needs mark", "needs: conflict.needs, action: action };", "needs: \"you\", action: action };"],
     ["a doubled name the user owns says what they do", "if (DUPLICATE_KINDS.indexOf(conflict.kind) === -1 || conflict.mine) return conflict.kind;", "if (DUPLICATE_KINDS.indexOf(conflict.kind) === -1) return conflict.kind;"],
     ["a shared doubled name names who can fix it", "conflict.kind + (conflict.owner !== undefined ? \"-shared\" : \"-unowned\")", "conflict.kind + \"-unowned\""],
     ["a change on both sides says which copy is here", "return conflict.copyFolder !== undefined ? \"both-changed-kept\" : \"both-changed\";", "return \"both-changed-kept\";"],
     ["a rename names its new name", ".replace(\"{to}\", function () { return conflict.to; })", ""],
     ["the notification counts the rows that need the user", "needsLine(record.needsYou)", "needsLine(record.conflicts.length)"],
     ["a connection notifies first", "if (reasons.indexOf(\"authorization-required\") !== -1)\n", "if (false)\n"],
-    ["no file to review draws no count", "cloud.conflictCount > 0 ? String(cloud.conflictCount) : \"\"", "String(cloud.conflictCount)"],
+    ["no file that needs the user draws no count", "cloud.needsYou > 0 ? String(cloud.needsYou) : \"\"", "String(cloud.needsYou)"],
+    ["the bar counts only the files that need the user", "cloud.needsYou > 0 ? String(cloud.needsYou) : \"\"", "cloud.conflictCount > 0 ? String(cloud.conflictCount) : \"\""],
     ["no folder pair hides the icon", "if (cloud === undefined || cloud === null || (cloud.pairs.length === 0 && pairListValid(cloud))) return", "if (cloud === undefined || cloud === null) return"],
     ["the account key list is published", "values.keys = keyItems(presence);", "values.keys = [];"]
 ];
