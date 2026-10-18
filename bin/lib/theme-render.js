@@ -18,7 +18,8 @@ const crypto = require("crypto");
 // dropped and the template rendered in its place: renderTarget.
 const TARGET_KEYS = ["app", "encoder", "files", "detect", "wiring", "reload", "runsCode"];
 // An optional account target writes one render into each account directory
-// of one harness, named by its id in shell/Commons/AccountDirectories.js.
+// of one harness, named by its id in shell/Commons/AccountDirectories.js,
+// or each existing configuration directory named by { base, prefix }.
 // Its entry wiring and selection are relative to each account directory.
 // The caller, which reads the account rule, judges that the id names a
 // harness: readTarget in bin/vgshell-theme-judge.
@@ -176,6 +177,7 @@ const MARKER = /@@\{|@\{((?:[^{}]|\{[^{}]*\})*)\}|@\{/g;
 const ENCODERS = {
     hex6: (hex, background) => hex6(hex, background),
     hex8: hex => hex.slice(1, 9),
+    hsl: (hex, background) => hsl(hex6(hex, background)),
     "gnome-accent": (hex, background) => gnomeAccent(hex6(hex, background))
 };
 
@@ -204,6 +206,22 @@ function hex6(hex, background) {
     if (hex.length < 9 || channel(hex, 7) === 255) return hex.slice(1, 7);
     const alpha = channel(hex, 7) / 255;
     return [1, 3, 5].map(at => byteHex(Math.round(channel(hex, at) * alpha + channel(background, at) * (1 - alpha)))).join("");
+}
+
+// Claude Desktop Extra reads CSS HSL components without the hsl() wrapper.
+// Keep fractional components so converting back retains the RGB bytes.
+function hsl(rgb) {
+    const [r, g, b] = [0, 2, 4].map(at => parseInt(rgb.slice(at, at + 2), 16) / 255);
+    const high = Math.max(r, g, b), low = Math.min(r, g, b);
+    const delta = high - low, light = (high + low) / 2;
+    let hue = 0;
+    if (delta !== 0) {
+        hue = high === r ? (g - b) / delta : high === g ? (b - r) / delta + 2 : (r - g) / delta + 4;
+        hue = (hue * 60 + 360) % 360;
+    }
+    const saturation = delta === 0 ? 0 : delta / (1 - Math.abs(2 * light - 1));
+    const decimal = value => String(Number(value.toFixed(4)));
+    return decimal(hue) + " " + decimal(saturation * 100) + "% " + decimal(light * 100) + "%";
 }
 
 // RGB, six hex digits, as OKLCh lightness, chroma and hue in degrees,
@@ -576,7 +594,9 @@ function acceptTarget(logic, name, text) {
     if (!Array.isArray(document.detect) || !document.detect.every(entry => isDetectEntry(logic, entry))) return refused("target-schema", "key=detect");
     if (logic.hasOwn(document, SETUP_KEY) && !logic.isPackageName(document.setup)) return refused("target-schema", "key=setup");
     const hasAccounts = logic.hasOwn(document, ACCOUNTS_KEY);
-    if (hasAccounts && !logic.isPackageName(document.accounts)) return refused("target-schema", "key=accounts");
+    if (hasAccounts && !logic.isPackageName(document.accounts) &&
+        !(hasExactKeys(logic, document.accounts, ["base", "prefix"]) && document.accounts.base === "config" &&
+            typeof document.accounts.prefix === "string" && DIR_SEGMENT_PATTERN.test(document.accounts.prefix))) return refused("target-schema", "key=accounts");
     const hasEditors = logic.hasOwn(document, EDITORS_KEY);
     if (hasEditors) {
         const editors = editorsError(logic, document.editors);
@@ -669,13 +689,20 @@ function terminalFont(input) {
 // and no slot. A colour is written by ENCODE; a token with cases as the case
 // of its value; any other token as its value.
 function placeholderText(logic, tokens, input, name, encode) {
-    const [path, ...cases] = name.split(CASE_SEPARATOR);
+    let [path, ...cases] = name.split(CASE_SEPARATOR);
+    const format = cases.length === 1 && cases[0].startsWith("format=") ? cases[0].slice("format=".length) : null;
+    if (format !== null) {
+        if (!Object.hasOwn(ENCODERS, format)) return undefined;
+        encode = hex => ENCODERS[format](hex, input.values.color.background);
+        cases = [];
+    }
     if (path.startsWith(TERMINAL_PREFIX)) {
         if (cases.length > 0) return undefined;
         const slot = path.slice(TERMINAL_PREFIX.length);
         return logic.terminalSlotNames().includes(slot) ? encode(input.slots[slot]) : undefined;
     }
     if (path === TERMINAL_FONT) {
+        if (format !== null) return undefined;
         if (cases.length === 0) return terminalFont(input) || "";
         const set = cases.length === 1 ? CASE_PATTERN.exec(cases[0]) : null;
         return set !== null && set[1] === TERMINAL_FONT_SET ? set[2] : undefined;
@@ -687,6 +714,7 @@ function placeholderText(logic, tokens, input, name, encode) {
     if (input.targetColors && Object.hasOwn(input.targetColors, path) && cases.length === 0) return encode(input.targetColors[path]);
     const leaf = logic.nodeAt(tokens, path);
     if (!logic.isLeaf(leaf)) return undefined;
+    if (format !== null && leaf.type !== "color") return undefined;
     const value = path.split(".").reduce((node, key) => node[key], input.values);
     if (cases.length > 0) return caseText(leaf, cases, value);
     return leaf.type === "color" ? encode(value) : String(value);

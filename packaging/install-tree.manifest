@@ -1143,6 +1143,8 @@ f share/vgshell/themes/targets/btop/btop.theme
 f share/vgshell/themes/targets/btop/target.json
 f share/vgshell/themes/targets/chromium/chromium.color
 f share/vgshell/themes/targets/chromium/target.json
+f share/vgshell/themes/targets/claude-desktop/claude-desktop.json
+f share/vgshell/themes/targets/claude-desktop/target.json
 f share/vgshell/themes/targets/claude/claude.json
 f share/vgshell/themes/targets/claude/target.json
 f share/vgshell/themes/targets/codex/codex.tmTheme

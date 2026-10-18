@@ -456,4 +456,46 @@ apply_json "the unknown-accounts mutant applies" 3 dusk "vgshell: refused: targe
 check "the unknown-accounts mutant fails Claude as target-schema" test "$(target_state claude)" == "failed target-schema"
 unset THEME_BIN
 
+# Desktop profiles reuse the account entry and selection path. The config
+# home differs from HOME/.config; one profile is a dotfile-manager link.
+cp -R -- "$repo/themes/targets/claude-desktop" "$tree/themes/targets/"
+printf '#!/bin/sh\nexit 1\n' >"$stubs/claude-desktop"
+chmod +x "$stubs/claude-desktop"
+mkdir -p "$cfg/Claude" "$dotfiles/desktop-work" "$cfg/Claude-empty" "$cfg/ClaudeBackup" "$cfg/claude-work" "$home/.config/Claude"
+ln -s -- "$dotfiles/desktop-work" "$cfg/Claude-work"
+desktop_text=$'{\r\n  // work settings\r\n  "activeTheme" : "mine", /* picker */\r\n  "themeOverlay": { "--text-000": "0 0% 90%" },\r\n  "themes": { "mine": {} },\r\n  "customCss": "/* user */",\r\n  "nested": { "activeTheme": "mine", },\r\n}\r\n'
+desktop_selected="${desktop_text/\"activeTheme\" : \"mine\"/\"activeTheme\" : \"vgs\"}"
+for profile in "$cfg/Claude" "$cfg/Claude-work" "$cfg/ClaudeBackup" "$cfg/claude-work" "$home/.config/Claude"; do
+  printf '%s' "$desktop_text" >"$profile/claude-desktop-extra.jsonc"
+done
+mkdir -p "$cfg/Claude/themes.d" "$cfg/Claude-work/themes.d"
+printf '%s' '{"mine":true}' >"$cfg/Claude/themes.d/mine.json"
+printf '%s' '{"foreign":true}' >"$cfg/Claude/themes.d/vgs.json"
+desktop_profiles_selected() {
+  has_text "$cfg/Claude/claude-desktop-extra.jsonc" "$desktop_selected" &&
+    has_text "$cfg/Claude-work/claude-desktop-extra.jsonc" "$desktop_selected" &&
+    same_file "$cfg/Claude/themes.d/vgs.json" "$live/claude-desktop.json" &&
+    same_file "$cfg/Claude-work/themes.d/vgs.json" "$live/claude-desktop.json"
+}
+apply_json "desktop profile themes apply" 0 dusk
+check "desktop profiles receive the theme and preserve other JSONC bytes" desktop_profiles_selected
+check "desktop keeps the user's other theme file" has_text "$cfg/Claude/themes.d/mine.json" '{"mine":true}'
+check "a settings-less desktop profile stays absent" test ! -e "$cfg/Claude-empty/themes.d" -a ! -e "$cfg/Claude-empty/claude-desktop-extra.jsonc"
+for profile in "$cfg/ClaudeBackup" "$cfg/claude-work" "$home/.config/Claude"; do
+  check "desktop discovery excludes $profile" has_text "$profile/claude-desktop-extra.jsonc" "$desktop_text"
+  check "desktop discovery writes no theme in $profile" test ! -e "$profile/themes.d"
+done
+if ! desktop_stamp="$(stamp "$cfg/Claude/themes.d/vgs.json" "$cfg/Claude-work/claude-desktop-extra.jsonc")"; then fail "desktop file stamp is available"; fi
+apply_json "an unchanged desktop apply" 0 dusk
+check "an unchanged desktop apply writes nothing" test "$(stamp "$cfg/Claude/themes.d/vgs.json" "$cfg/Claude-work/claude-desktop-extra.jsonc")" == "$desktop_stamp"
+printf '%s' "$desktop_text" >"$cfg/Claude-work/claude-desktop-extra.jsonc"
+apply_json "desktop reapply repairs the work profile selection" 0 nord
+check "desktop reapply repairs each profile" desktop_profiles_selected
+judge_control desktop-first-profile 'name === prefix || name.startsWith(prefix + "-")' 'name === prefix'
+printf '%s' "$desktop_text" >"$cfg/Claude-work/claude-desktop-extra.jsonc"
+rm -f -- "$cfg/Claude-work/themes.d/vgs.json"
+apply_json "desktop first-profile mutant applies" 0 dusk
+check "desktop first-profile mutant fails the profile contract" test "$(desktop_profiles_selected >/dev/null; echo $?)" == 1
+unset THEME_BIN
+
 rows_done test-vgshell-agents

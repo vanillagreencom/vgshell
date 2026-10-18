@@ -95,6 +95,7 @@ const ACCEPTED_TARGETS = [
     ["probe", copyEntryText()],
     ["probe", targetText({ wiring: accountEntry, select: accountSelect, accounts: "claude" })],
     ["probe", targetText({ wiring: accountCopyEntry, select: accountSelect, accounts: "codex" })],
+    ["probe", targetText({ wiring: accountCopyEntry, select: accountSelect, accounts: { base: "config", prefix: "Claude" } })],
     ["probe", targetText({ wiring: null })],
     ["probe", targetText({ reload: { command: ["probe", "--file=@{state}/probe.conf", "@@{x}"], timeoutMs: 2000, always: true } })],
     ["probe", targetText({ reload: { command: ["probe"], timeoutMs: 2000, always: false } })],
@@ -209,6 +210,9 @@ const REFUSED_TARGETS = [
     ["probe", copyEntryText({ copies: { "../vgs.conf": "probe.conf" } }), "target-schema", "key=wiring.copies.../vgs.conf"],
     ["probe", copyEntryText({ copies: { "vgs.conf": "other.conf" } }), "target-schema", "key=wiring.copies.vgs.conf"],
     ["probe", targetText({ wiring: accountEntry, select: accountSelect, accounts: 7 }), "target-schema", "key=accounts"],
+    ...[null, {}, { base: "home", prefix: "Claude" }, { base: "config", prefix: "../Claude" },
+        { base: "config", prefix: "Claude", extra: true }].map(accounts =>
+        ["probe", targetText({ wiring: accountEntry, select: accountSelect, accounts }), "target-schema", "key=accounts"]),
     ["probe", targetText({ wiring: accountEntry, accounts: "claude" }), "target-schema", "key=accounts"],
     ["probe", targetText({ wiring: entry, select: accountSelect, accounts: "claude" }), "target-schema", "key=accounts"],
     ["probe", targetText({ wiring: accountEntry, select: Object.assign({}, accountSelect, { base: "home" }), accounts: "claude" }), "target-schema", "key=accounts"],
@@ -2844,7 +2848,120 @@ for (const [name, dropped] of [["kitty", "font_family @{appearance.terminalFont}
     assert.throws(() => verifyTerminalFont(require(rendererFile), { [name]: template.replace(dropped, "") }), { code: "ERR_ASSERTION" }, `${name} without ${JSON.stringify(dropped)}`);
 }
 
+const desktopDir = path.join(themesDir, "targets", "claude-desktop");
+const desktopTemplate = fs.readFileSync(path.join(desktopDir, "claude-desktop.json"), "utf8");
+const desktopTarget = selectionRender.acceptTarget(logic, "claude-desktop", fs.readFileSync(path.join(desktopDir, "target.json"), "utf8"));
+assert.equal(desktopTarget.ok, true);
+
+// Decode the CSS components the app consumes, independently of the RGB
+// renderer, so readability assertions use its final HSL precision.
+function desktopColor(value) {
+    if (/^#[0-9a-f]{6}$/.test(value)) return logic.parseColor(value);
+    const match = /^(\d+(?:\.\d+)?) (\d+(?:\.\d+)?)% (\d+(?:\.\d+)?)%$/.exec(value);
+    assert.notEqual(match, null, value);
+    const [, hue, saturation, lightness] = match.map(Number);
+    const light = lightness / 100, amplitude = saturation / 100 * Math.min(light, 1 - light);
+    const channel = offset => {
+        const k = (offset + hue / 30) % 12;
+        return light - amplitude * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+    };
+    return { r: channel(0), g: channel(8), b: channel(4), a: 1 };
+}
+
+function verifyDesktop(template) {
+    const metrics = [];
+    const shortfalls = [];
+    for (const { pkg } of selectionPackages) {
+        const rendered = selectionRender.renderTarget(logic, TOKENS, desktopTarget.target,
+            new Map([["claude-desktop.json", template]]), { values: pkg.values,
+                slots: selectionRender.terminalSource(pkg, selectionDefaults).terminal, curated: new Map(), installed: false });
+        assert.equal(rendered.ok, true, pkg.name);
+        const document = JSON.parse(rendered.files[0].bytes.toString("utf8"));
+        assert.deepEqual(document.light, document.dark, pkg.name + ": appearance keeps the VGS palette");
+        for (const [mode, fields] of Object.entries(document)) {
+            const colors = Object.fromEntries(Object.entries(fields).map(([name, value]) => {
+                assert.equal(value.startsWith("#"), name.startsWith("--claude-"), name);
+                return [name, desktopColor(value)];
+            }));
+            const pairs = [];
+            const surfaces = Array.from({ length: 6 }, (_, i) => "--bg-" + i + "00");
+            const text = Array.from({ length: 6 }, (_, i) => "--text-" + i + "00");
+            const fills = ["--accent-brand", ...["accent", "accent-pro", "brand", "danger", "warning", "success"]
+                .flatMap(role => ["000", "100", "200"].map(level => "--" + role + "-" + level))];
+            for (const foreground of [...text, ...fills, "--pictogram-100", "--pictogram-200", "--pictogram-300"])
+                for (const background of surfaces) pairs.push([foreground, background, logic.READABILITY_FLOOR]);
+            for (const foreground of ["--oncolor-100", "--oncolor-200", "--oncolor-300"])
+                for (const background of fills) pairs.push([foreground, background, logic.READABILITY_FLOOR]);
+            for (const foreground of ["--claude-accent-clay", "--claude-foreground-color", "--claude-secondary-color",
+                "--claude-text-100", "--claude-text-200", "--claude-text-400", "--claude-text-500", "--claude-description-text"])
+                pairs.push([foreground, "--claude-background-color", logic.READABILITY_FLOOR]);
+            for (const foreground of ["--claude-border", "--claude-border-300", "--claude-border-300-more"])
+                pairs.push([foreground, "--claude-background-color", 3]);
+            for (const [foreground, background, floor] of pairs) {
+                assert.notEqual(colors[foreground], undefined, foreground);
+                assert.notEqual(colors[background], undefined, background);
+                const ratio = logic.contrastRatio(colors[foreground], colors[background]);
+                if (ratio < floor) shortfalls.push({ kind: "desktop-contrast", theme: pkg.name, mode, foreground, background, ratio, floor });
+                metrics.push(ratio);
+            }
+            for (const [field, role] of [["--bg-500", "background"], ["--text-000", "text"], ["--accent-brand", "accent"]]) {
+                const actual = colors[field], expected = logic.parseColor(pkg.values.color[role]);
+                assert.deepEqual([actual.r, actual.g, actual.b].map(c => Math.round(c * 255)),
+                    [expected.r, expected.g, expected.b].map(c => Math.round(c * 255)), pkg.name + " " + field);
+            }
+        }
+    }
+    assert.deepEqual(shortfalls, []);
+    return metrics;
+}
+const desktopMetrics = verifyDesktop(desktopTemplate);
+const desktopScratch = fs.mkdtempSync(path.join(os.tmpdir(), "claude-desktop-control-"));
+try {
+    const needle = '"--text-100": "@{color.text}"';
+    assert.equal(desktopTemplate.split(needle).length, 3);
+    const mutant = path.join(desktopScratch, "claude-desktop.json");
+    fs.writeFileSync(mutant, desktopTemplate.replaceAll(needle, '"--text-100": "@{color.surfaceRaised}"'), { flag: "wx" });
+    assert.throws(() => verifyDesktop(fs.readFileSync(mutant, "utf8")),
+        error => error.code === "ERR_ASSERTION" && error.actual.some(row => row.kind === "desktop-contrast"));
+} finally {
+    fs.rmSync(desktopScratch, { recursive: true, force: true });
+}
+console.log(`test-theme-render: claude-desktop packages=${selectionPackages.length} pairs=${desktopMetrics.length} minimum=${Math.min(...desktopMetrics)} controls=unreadable-text`);
+
+// HSL components consumed by Claude Desktop Extra. Expected values are
+// independent RGB examples, including alpha composited on a black page.
+function verifyHsl(render) {
+    for (const [color, hsl, hex] of [
+        ["#000000ff", "0 0% 0%", "000000"],
+        ["#ffffffff", "0 0% 100%", "ffffff"],
+        ["#ff0000ff", "0 100% 50%", "ff0000"],
+        ["#00ff00ff", "120 100% 50%", "00ff00"],
+        ["#0000ffff", "240 100% 50%", "0000ff"],
+        ["#123456ff", "210 65.3846% 20.3922%", "123456"],
+        ["#ff000080", "0 100% 25.098%", "800000"]
+    ]) {
+        const accepted = render.acceptTarget(logic, "probe", targetText({ encoder: "hsl" }));
+        assert.equal(accepted.ok, true);
+        const values = structuredClone(probe.values);
+        values.palette.accent = color;
+        values.color.background = "#000000ff";
+        const slots = { ...defaults.terminal, color1: color };
+        const one = text => render.renderTarget(logic, TOKENS, accepted.target, new Map([["probe.conf", text]]),
+            { values, slots, curated: new Map(), installed: false });
+        const text = "@{palette.accent} #@{palette.accent|format=hex6} @{terminal.color1|format=hsl} @{mix({palette.accent}, {palette.accent}, 0.5)|format=hex6}";
+        const result = one(text);
+        assert.equal(result.ok, true, color);
+        assert.equal(result.files[0].bytes.toString("utf8"), `${hsl} #${hex} ${hsl} ${hex}`, color);
+        for (const invalid of ["@{scheme.mode|format=hex6}", "@{appearance.terminalFont|format=hex6}",
+            "@{palette.accent|format=invalid}", "@{palette.accent|format=hex6|format=hsl}"])
+            assert.equal(one(invalid).reason, "placeholder", invalid);
+    }
+}
+verifyHsl(require(rendererFile));
+
 const CONTROLS = [
+    ["HSL format", "hsl: (hex, background) => hsl(hex6(hex, background)),", "hsl: (hex, background) => hex6(hex, background),", verifyHsl],
+    ["per-colour format", "encode = hex => ENCODERS[format](hex, input.values.color.background);", "encode = encode;", verifyHsl],
     ["terminal font line left out without a font", "if (dropFrom === -1 && terminalFont(input) === null && part.name.split(CASE_SEPARATOR)[0] === TERMINAL_FONT)", "if (false)", verifyTerminalFont],
     ["terminal font line cut from its start", "out = out.slice(0, dropFrom) + part.slice(end + 1);", "out = out + part.slice(end + 1);", verifyTerminalFont],
     ["terminal font line cut to its end", "out = out.slice(0, dropFrom) + part.slice(end + 1);", "out = out.slice(0, dropFrom) + part.slice(end);", verifyTerminalFont],
@@ -3062,7 +3179,7 @@ const CONTROLS = [
     ["entry base", "if (!entryBaseAccepted(wiring.base, hasAccounts)) return", "if (false) return"],
     ["entry cache base", 'const ENTRY_BASES = ["config", "home", "cache"];', 'const ENTRY_BASES = ["config", "home"];'],
     ["accounts key admitted", "![SELECT_KEY, SETUP_KEY, ACCOUNTS_KEY, EDITORS_KEY].includes(key)", "![SELECT_KEY, SETUP_KEY, EDITORS_KEY].includes(key)"],
-    ["accounts id shape", "if (hasAccounts && !logic.isPackageName(document.accounts)) return", "if (false) return"],
+    ["accounts id shape", 'if (hasAccounts && !logic.isPackageName(document.accounts) &&\n        !(hasExactKeys(logic, document.accounts, ["base", "prefix"]) && document.accounts.base === "config" &&\n            typeof document.accounts.prefix === "string" && DIR_SEGMENT_PATTERN.test(document.accounts.prefix))) return', "if (false) return"],
     ["account base requires accounts", "return ENTRY_BASES.includes(base) || (hasAccounts && base === ACCOUNT_BASE);", "return ENTRY_BASES.includes(base) || base === ACCOUNT_BASE;"],
     ["accounts require account wiring and selection", "if (hasAccounts) {", "if (false) {"],
     ["entry dir segment", "const DIR_SEGMENT_PATTERN = /^\\.?[A-Za-z0-9][A-Za-z0-9._-]*$/;", "const DIR_SEGMENT_PATTERN = /^[.A-Za-z0-9_-]+$/;"],

@@ -1,0 +1,11 @@
+{
+  "app": "Claude Desktop",
+  "runsCode": false,
+  "encoder": "hsl",
+  "files": [{ "template": "claude-desktop.json", "destination": "claude-desktop.json" }],
+  "detect": ["claude-desktop"],
+  "accounts": { "base": "config", "prefix": "Claude" },
+  "wiring": { "base": "account", "dir": "themes.d", "owned": false, "copies": { "vgs.json": "claude-desktop.json" } },
+  "select": { "base": "account", "file": "claude-desktop-extra.jsonc", "format": "jsonc", "key": ["activeTheme"], "value": "vgs" },
+  "reload": null
+}

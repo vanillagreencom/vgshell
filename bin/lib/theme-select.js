@@ -134,7 +134,8 @@ function withMember(text, object, member) {
     const between = text.slice(object.start + 1, first);
     const newline = between.lastIndexOf("\n");
     if (newline === -1) return text.slice(0, first) + member + ", " + text.slice(first);
-    return text.slice(0, object.start + 1) + lineEnd + between.slice(newline + 1) + member + "," + text.slice(object.start + 1);
+    const indent = /^[ \t]*/.exec(between.slice(newline + 1))[0];
+    return text.slice(0, object.start + 1) + lineEnd + indent + member + "," + text.slice(object.start + 1);
 }
 
 // TEXT, JSON with comments and trailing commas, with each comment and each

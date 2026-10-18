@@ -24,10 +24,14 @@ const HERMES = ["display", "skin"];
 const OMP = [["theme", "dark"], ["theme", "light"]];
 // VS Code-family editors read one flat key holding a dot.
 const EDITOR = ["workbench.colorTheme"];
+const DESKTOP = ["activeTheme"];
 
 // Edits that land: the format, the file's text, the key, the value, the
 // text the file takes, or null when it already selects the value.
 const SELECTED = [
+    ["jsonc", '{\r\n  // The work profile\r\n  "activeTheme" : "stock", /* keep */\r\n  "locale": "caf\u00c3\u00a9",\r\n  "nested": { "activeTheme": "mine", },\r\n}\r\n', DESKTOP, "vgs", '{\r\n  // The work profile\r\n  "activeTheme" : "vgs", /* keep */\r\n  "locale": "caf\u00c3\u00a9",\r\n  "nested": { "activeTheme": "mine", },\r\n}\r\n'],
+    ["jsonc", '{\n  /* profile */ "themeOverlay": { "--text-000": "0 0% 100%" },\n  "themes": { "mine": {} },\n}\n', DESKTOP, "vgs", '{\n  "activeTheme": "vgs",\n  /* profile */ "themeOverlay": { "--text-000": "0 0% 100%" },\n  "themes": { "mine": {} },\n}\n'],
+    ["jsonc", '/* selected */ { "activeTheme": "vgs", "unknown": [1,], }\n', DESKTOP, "vgs", null],
     ["json", '{\n  "model": "opus"\n}\n', CLAUDE, "custom:vgs", '{\n  "theme": "custom:vgs",\n  "model": "opus"\n}\n'],
     ["json", '{\n\t"a": 1\n}', CLAUDE, "custom:vgs", '{\n\t"theme": "custom:vgs",\n\t"a": 1\n}'],
     ["json", '{\n  "theme": "dark",\n  "x": [1, {"theme": "no"}]\n}\n', CLAUDE, "custom:vgs", '{\n  "theme": "custom:vgs",\n  "x": [1, {"theme": "no"}]\n}\n'],
@@ -358,6 +362,7 @@ const CONTROLS = [
     [S, '/(?<!\\\\)((?:\\\\\\\\)*)(\\\\u001[bB]\\[)([0-9;]*)(m)/g', '/()(\\\\u001[bB]\\[)([0-9;]*)(m)/g'],
     [S, ' && (name === "key" || name === "format")', ""],
     [R, 'values[key] = value;', 'values[key] = text;'],
+    [S, 'case "jsonc": return jsonSelected(text, jsoncBlanked(text), key, value, refuse);', 'case "jsonc": return jsonSelected(jsoncBlanked(text), jsoncBlanked(text), key, value, refuse);'],
     [S, '    case "jsonc": return jsonSelected(text, jsoncBlanked(text), key, value, refuse);', '    case "jsonc": return jsonSelected(text, text, key, value, refuse);'],
     [S, '} else if (text.startsWith("//", i)) {', '} else if (false) {'],
     [S, '} else if (text.startsWith("/*", i)) {', '} else if (false) {'],
@@ -376,7 +381,8 @@ const CONTROLS = [
     [S, "return text.slice(0, span.start) + JSON.stringify(value) + text.slice(span.end);", 'return text.slice(0, span.start) + "\\"" + value + "\\"" + text.slice(span.end);'],
     [S, "name = JSON.parse(text.slice(i, keyEnd));", "name = text.slice(i + 1, keyEnd - 1);"],
     [S, "            object = span;\n", ""],
-    [S, "lineEnd + between.slice(newline + 1) + member", 'lineEnd + "  " + member'],
+    [S, "lineEnd + indent + member", 'lineEnd + "  " + member'],
+    [S, 'const indent = /^[ \\t]*/.exec(between.slice(newline + 1))[0];', 'const indent = between.slice(newline + 1);'],
     [S, 'if (newline === -1) return text.slice(0, first) + member + ", " + text.slice(first);', ""],
     [S, 'lineEnd + indent + "  " + member + lineEnd', "lineEnd + indent + member + lineEnd"],
     [S, 'if (inside.trim() !== "") return', 'if (false) return'],

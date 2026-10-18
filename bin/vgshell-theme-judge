@@ -409,7 +409,7 @@ function checkPackages(dirArg) {
 // read. Any read failure throws the fs error.
 function readTarget(dir) {
     let verdict = render.acceptTarget(logic, path.basename(dir), fs.readFileSync(path.join(dir, render.TARGET_FILE), "utf8"));
-    if (verdict.ok && verdict.target.accounts !== undefined && accountRule.harness(verdict.target.accounts) === null)
+    if (verdict.ok && typeof verdict.target.accounts === "string" && accountRule.harness(verdict.target.accounts) === null)
         verdict = { ok: false, reason: "target-schema", detail: "key=accounts" };
     if (!verdict.ok) return { verdict, templates: null };
     const templates = new Map();
@@ -1288,7 +1288,8 @@ function dropExtension(key, target, editor, keep) {
     for (const old of extensionFolders(editor.extensions, target, keep)) writing(old, key, () => fs.rmSync(old, { recursive: true, force: true }));
 }
 
-// The account directories of account TARGET's harness that
+// The existing configuration profiles named by TARGET's account prefix,
+// or the account directories of account TARGET's harness that
 // bin/lib/account-folders.js finds, through links as the harness itself
 // reads them; with SERVED, only those whose selection file exists. An XDG
 // variable that is no absolute path is ignored, as the XDG Base Directory
@@ -1296,10 +1297,19 @@ function dropExtension(key, target, editor, keep) {
 function accountRoots(target, served) {
     const home = os.homedir();
     const xdg = (value, fallback) => typeof value === "string" && path.isAbsolute(value) ? value : fallback;
-    return accountFolders({ home, config: xdg(process.env.XDG_CONFIG_HOME, path.join(home, ".config")),
-        data: xdg(process.env.XDG_DATA_HOME, path.join(home, ".local", "share")), env: process.env, followLinks: true }).folders
-        .filter(row => row.provider === target.accounts && isDirectory(row.directory))
-        .map(row => row.directory)
+    let dirs;
+    if (typeof target.accounts === "object") {
+        const config = xdg(process.env.XDG_CONFIG_HOME, path.join(home, ".config"));
+        const prefix = target.accounts.prefix;
+        dirs = (childDirs(config) || []).filter(name => name === prefix || name.startsWith(prefix + "-"))
+            .map(name => path.join(config, name));
+    } else {
+        dirs = accountFolders({ home, config: xdg(process.env.XDG_CONFIG_HOME, path.join(home, ".config")),
+            data: xdg(process.env.XDG_DATA_HOME, path.join(home, ".local", "share")), env: process.env, followLinks: true }).folders
+            .filter(row => row.provider === target.accounts && isDirectory(row.directory))
+            .map(row => row.directory);
+    }
+    return dirs
         .filter(dir => !served || existingPath(path.join(dir, target.select.file)) !== undefined);
 }
 
