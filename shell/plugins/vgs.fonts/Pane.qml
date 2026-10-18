@@ -125,7 +125,8 @@ FocusScope {
                 id: terminalRow
                 width: parent.width
                 label: "Terminal"
-                info: "The font of Kitty and Ghostty. Kitty changes at once. In Ghostty, open a new window if the font does not change. Without a font here, each terminal keeps the font from its own config."
+                info: "The font of Kitty and Ghostty. Kitty changes at once. In Ghostty, open a new window if the font does not change. Without a font here, Kitty keeps the font from " + PageReference.fileReference("its config", Paths.configHome + "/kitty/kitty.conf") + " and Ghostty keeps the font from " + PageReference.fileReference("its config", Paths.configHome + "/ghostty/config.ghostty") + "."
+                onInfoPageActivated: (page, tab) => root.shell.surfaces.openPage(page, tab)
                 themeOffered: true
                 source: root.sourceOf("terminalFont")
                 userValue: root.valueOf("terminalFont")

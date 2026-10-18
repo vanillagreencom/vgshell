@@ -2796,7 +2796,7 @@ function consentSlotView(consent, welcomeState, shipped, sections) {
     ];
     if (welcomeState === "reading") return null;
     if (welcomeState === "seen")
-        return question === null ? null : { welcome: false, title: question.title, message: question.message, lines: [], link: null, keys: [], keysTitle: "", actions: actions, failure: question.failure, busy: question.busy };
+        return question === null ? null : { welcome: false, title: question.title, message: question.message, lines: [], link: WELCOME.link, keys: [], keysTitle: "", actions: actions, failure: question.failure, busy: question.busy };
     if (WELCOME_WAITS.indexOf(consent.phase) !== -1) return null;
     var rows = isPlainObject(shipped) && isPlainObject(shipped.welcome) ? shipped.welcome.keys : [];
     var keyRows = rows.map(function (row) {

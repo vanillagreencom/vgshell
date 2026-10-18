@@ -212,7 +212,8 @@ Item {
                 Field {
                     width: parent.width
                     label: "Add tool commands to the terminal"
-                    hint: "Write commands into ~/.local/bin and install a tool the first time you run one"
+                    hint: "Write commands into " + PageReference.fileReference("~/.local/bin", Paths.home + "/.local/bin/") + " and install a tool the first time you run one"
+                    onHintPageActivated: (page, tab) => root.shell.surfaces.openPage(page, tab)
                     inline: true
                     Switch {
                         size: "sm"

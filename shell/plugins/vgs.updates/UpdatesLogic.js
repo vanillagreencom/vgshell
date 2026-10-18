@@ -777,7 +777,7 @@ function rebootNoticeValue(step) {
     case "needed": return { tone: "info", text: "CachyOS and VGS", action: "vgsOnly" };
     case "ready": return { tone: "ok", text: "VGS only", action: "both" };
     case "denied": return { tone: "warning", text: "Set by another file",
-        hint: "A file VGS did not write is at /etc/pacman.d/hooks/cachyos-reboot-required.hook, and VGS does not change it." };
+        hint: "VGS did not write " + Commons.PageReference.fileReference("/etc/pacman.d/hooks/cachyos-reboot-required.hook", "/etc/pacman.d/hooks/cachyos-reboot-required.hook") + " and does not change it." };
     }
     return { tone: "warning", text: "Could not be checked" };
 }

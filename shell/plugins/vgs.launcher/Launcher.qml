@@ -819,7 +819,7 @@ Item {
         if (notice) rows.push(row("notice.now", "notice", "info", "", notice, "", "", ""));
         if (requestMode || fileMode || !(searching || showCategories || activeMenu !== "root")) return rows;
         for (const shown of MenuModel.menuNotices(menuErrors, mergeError))
-            rows.push(row("notice.menu." + shown.source, "notice", "info", "", shown.source === "user" ? "Your menu is unavailable" : "The VGS menu is unavailable", "", MenuModel.menuErrorText(shown.error), ""));
+            rows.push(row("notice.menu." + shown.source, "notice", "info", "", shown.source === "user" ? "Your menu is unavailable" : "The VGS menu is unavailable", "", MenuModel.menuErrorText(shown.error, shown.source === "user" ? userPath : shippedPath), ""));
         return rows;
     }
 

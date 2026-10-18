@@ -1,4 +1,5 @@
 .pragma library
+.import qs.Commons 1.0 as Commons
 
 // The Browser theming row of the plugin's Settings page, pure so
 // scripts/test-themes-setup.js runs it under node: what `vgshell theme setup
@@ -90,7 +91,9 @@ function wiring(text, code) {
         var file = displayFile(row.file, home);
         var detail = row.state === "not-wired" ? "not wired: " + row.reason : row.line;
         var hint = detail === null ? file : file + ": " + detail;
-        items.push({ label: truncated(row.app, LABEL_MAX), value: row.state === "wired" ? "present" : row.state === "not-wired" ? "absent" : "unavailable", hint: truncated(hint, HINT_MAX), sort: row.app + "\n" + row.file });
+        // Clip the visible words before adding the encoded target, so a
+        // long path cannot cut the reference in half.
+        items.push({ label: truncated(row.app, LABEL_MAX), value: row.state === "wired" ? "present" : row.state === "not-wired" ? "absent" : "unavailable", hint: Commons.PageReference.fileReference(truncated(hint, HINT_MAX), row.file), sort: row.app + "\n" + row.file });
     }
     items.sort(function (a, b) { return a.sort < b.sort ? -1 : a.sort > b.sort ? 1 : 0; });
     if (items.length > STATUS_LIST_MAX) {

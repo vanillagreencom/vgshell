@@ -1,4 +1,5 @@
 .pragma library
+.import qs.Commons 1.0 as Commons
 
 // The launcher's decisions, with no QML object and no I/O, so
 // scripts/test-launcher-model.js runs every function under node: the menu
@@ -70,9 +71,10 @@ function fileErrorText(reason) {
     return "File search failed. Try the search again.";
 }
 
-function menuErrorText(reason) {
-    if (/not-json|not-object|schemaVersion/.test(String(reason))) return "The menu file is not supported. Check the file and reopen Launcher.";
-    return "The menu settings are invalid. Check the menu file and reopen Launcher.";
+function menuErrorText(reason, path) {
+    var file = Commons.PageReference.fileReference("menu file", path);
+    if (/not-json|not-object|schemaVersion/.test(String(reason))) return "The " + file + " is not supported. Check it and reopen Launcher.";
+    return "The menu settings are invalid. Check the " + file + " and reopen Launcher.";
 }
 
 function actionErrorText(reason) {

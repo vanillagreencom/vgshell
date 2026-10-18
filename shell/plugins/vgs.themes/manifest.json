@@ -41,7 +41,7 @@
   },
   "status": {
     "browserTheming": {"type": "state", "label": "Browser theming", "group": "Browsers", "hint": "Let the selected theme change the colours of Chromium, Chrome, Edge and Brave", "action": {"label": "Install browser theming", "tui": "browser-policy"}},
-    "themeWiring": {"type": "presenceList", "label": "Theme files", "hint": "The file and line VGS added for each app"}
+    "themeWiring": {"type": "presenceList", "label": "Theme files", "hint": "Open the file and line VGS added for each app", "info": "Each link opens the app's theme file. The list shows up to 32 rows to keep this page short. When more files are connected, the last row gives the number left out."}
   },
   "tui": {
     "browser-policy": {

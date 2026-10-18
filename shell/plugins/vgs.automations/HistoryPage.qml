@@ -83,12 +83,18 @@ FocusScope {
                 width: parent.width
                 spacing: Theme.stack.group
 
-                Label {
+                Field {
                     width: parent.width
-                    role: "hint"
-                    text: "No runs from the last 30 days."
+                    label: "History"
+                    info: "Run history and saved output are kept for up to 30 days so old runs do not keep using disk space. Change how long to keep them in [Plugins](page:vgs.automations/Settings/historyDays)."
+                    onInfoPageActivated: (target, tab) => page.panel.shell.surfaces.openPage(target, tab)
                     visible: page.groups.length === 0
-                    wrapMode: Text.Wrap
+                    Label {
+                        width: parent.width
+                        role: "hint"
+                        text: "No runs from the last 30 days."
+                        wrapMode: Text.Wrap
+                    }
                 }
 
                 Repeater {

@@ -108,7 +108,8 @@ FocusScope {
                 onUseHyprlandValue: root.answer(root.shell.appearance.set("borderWidth", "hyprland"))
                 onUseThemeValue: root.answer(root.shell.appearance.unset("borderWidth"))
                 onOpenHyprlandConfig: root.openHyprlandConfig()
-                info: "Use my Hyprland value also keeps the border colours from your Hyprland config."
+                info: "Use my Hyprland value also keeps the border colours from " + PageReference.fileReference("your Hyprland config", "hypr/hyprland.lua") + "."
+                onInfoPageActivated: (page, tab) => root.shell.surfaces.openPage(page, tab)
                 SavedSlider {
                     width: parent.width
                     from: root.boundOf("borderWidth", "min")
@@ -151,7 +152,8 @@ FocusScope {
             FormRow {
                 width: parent.width
                 label: "Windows"
-                info: "On: Hyprland draws your windows with blur, transparency and a shadow. Off: Hyprland keeps the window look from your own Hyprland config. The VGlass choice above sets this unless each surface decides."
+                info: "On: Hyprland draws your windows with blur, transparency and a shadow. Off: Hyprland keeps the window look from " + PageReference.fileReference("your own Hyprland config", "hypr/hyprland.lua") + ". The VGlass choice above sets this unless each surface decides."
+                onInfoPageActivated: (page, tab) => root.shell.surfaces.openPage(page, tab)
                 Switch {
                     size: "sm"
                     Accessible.name: "Windows"
@@ -168,7 +170,8 @@ FocusScope {
             FormRow {
                 width: parent.width
                 label: "Glow"
-                info: "On: Hyprland draws a soft glow inside your focused window in your theme's colours while Windows glass is on. Off: Hyprland keeps the glow from your own Hyprland config."
+                info: "On: Hyprland draws a soft glow inside your focused window in your theme's colours while Windows glass is on. Off: Hyprland keeps the glow from " + PageReference.fileReference("your own Hyprland config", "hypr/hyprland.lua") + "."
+                onInfoPageActivated: (page, tab) => root.shell.surfaces.openPage(page, tab)
                 Switch {
                     size: "sm"
                     Accessible.name: "Glow"

@@ -44,6 +44,12 @@ function providersHeld(source, logic, manifest, kind) {
     return { held: held, providers: Object.keys(providers) };
 }
 
+const consentViews = load(LOGIC);
+const asking = { phase: "asking", queued: "", failure: "" };
+const questionLink = consentViews.consentSlotView(asking, "seen", {}, []).link;
+const welcomeLink = consentViews.consentSlotView(asking, "unseen", {}, []).link;
+require("node:assert/strict").deepEqual(JSON.parse(JSON.stringify(questionLink)), { text: welcomeLink.text, path: "hypr/hyprland.lua" }, "the question opens the same configuration file as the welcome");
+
 let failures = 0;
 function report(name, got, want) {
     const g = JSON.stringify(got), w = JSON.stringify(want);

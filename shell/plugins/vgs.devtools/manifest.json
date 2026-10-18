@@ -39,7 +39,7 @@
     "writeLaunchers": {
       "type": "boolean",
       "label": "Add tool commands to the terminal",
-      "description": "Write commands into ~/.local/bin and install a tool the first time you run one"
+      "description": "Add tool commands to the terminal and install a tool the first time you run one"
     }
   },
   "requirements": [
@@ -53,7 +53,8 @@
     },
     "checks": {
       "type": "state",
-      "label": "Checks"
+      "label": "Checks",
+      "info": "Update checks wait 10 minutes before they can run again. This avoids repeated requests to the services that supply tool versions. Local tool checks can run again as soon as you reopen Dev Tools."
     },
     "installed": {
       "type": "count",

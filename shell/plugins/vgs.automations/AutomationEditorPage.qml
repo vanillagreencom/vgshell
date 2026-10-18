@@ -139,6 +139,7 @@ FocusScope {
                     Field {
                         width: parent.width
                         label: "Timeout"
+                        info: "Choose from 1 second to 24 hours. The time limit stops a command that does not finish, so it cannot keep using your computer without a bound. A full day allows long tasks while keeping that bound."
                         inline: true
                         error: page.validation.errors.timeout || ""
                         Row {

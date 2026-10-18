@@ -16,7 +16,9 @@ const fs = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
 const { spawnSync } = require("node:child_process");
-const { load } = require("../bin/lib/qml-library.js");
+const { load: loadLibrary } = require("../bin/lib/qml-library.js");
+const PageReference = loadLibrary(path.join(__dirname, "../shell/Commons/PageReference.js"));
+const load = file => loadLibrary(file, { "qs.Commons 1.0": { PageReference } });
 const render = require("../bin/lib/theme-render.js");
 
 const dir = path.join(__dirname, "..", "shell", "plugins", "vgs.themes");
@@ -79,11 +81,21 @@ const WIRING_ROWS = [
     const got = load(file).wiring(wiringReport(rows), 0);
     assert.equal(got.length, 32, "the wiring list is capped");
     same(got[31], { label: "More files", value: "present", hint: "4 more files are not listed" }, "the cap ends with a summary item");
-    assert.ok(got.every(item => item.label.length <= 60 && item.hint.length <= 200), "items fit the manifest limits");
+    assert.ok(got.every(item => item.label.length <= 60 && PageReference.plain(item.hint).length <= 200), "items fit the manifest limits");
 }
 
 function verifyWiring(logic) {
-    for (const [label, text, code, want] of WIRING_ROWS) same(logic.wiring(text, code), want, label);
+    for (const [label, text, code, want] of WIRING_ROWS) {
+        const got = logic.wiring(text, code);
+        if (got === null) { same(got, want, label); continue; }
+        const paths = JSON.parse(text).wiring.slice().sort((a, b) => (a.app + "\n" + a.file).localeCompare(b.app + "\n" + b.file)).map(row => row.file);
+        got.forEach((item, index) => {
+            const links = PageReference.references(item.hint).links;
+            assert.equal(links.length, 1, label + ": file link");
+            assert.equal(PageReference.file(links[0].page), paths[index], label + ": source path");
+        });
+        same(got.map(item => Object.assign({}, item, { hint: PageReference.plain(item.hint) })), want, label);
+    }
 }
 
 verifyWiring(load(file));
@@ -388,6 +400,7 @@ const CONTROLS = [
     ["an unknown state is installed", 'case "done": return', 'default: return'],
     ["wiring failures publish an empty list", 'if (code !== 0) return unknown("exited " + String(code));', 'if (code !== 0) return [];'],
     ["wiring unreadable rows look present", 'value: row.state === "wired" ? "present" : row.state === "not-wired" ? "absent" : "unavailable"', 'value: "present"'],
+    ["wiring file link removed", "Commons.PageReference.fileReference(truncated(hint, HINT_MAX), row.file)", "truncated(hint, HINT_MAX)"],
     ["wiring rows are not capped", 'if (items.length > STATUS_LIST_MAX) {', 'if (false) {']
 ];
 const source = fs.readFileSync(file, "utf8");
