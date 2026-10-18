@@ -55,11 +55,14 @@ A broken environment that reads as a pass hides the regression the check exists 
 
 - Do start and stop the sandbox only through `scripts/smoke/harness.sh`. `scripts/test-smoke-teardown.sh` holds the teardown.
 - Do wait on a state the shell or the compositor reports, never on time. Review holds it.
+- Do bound each smoke IPC call at 10 seconds in `scripts/smoke/harness.sh::ipc_call_last`. Expiry kills the call and fails its row as an operation failure, with the target, function and bound. `scripts/test-smoke-dumps.py` holds it, including a reader that catches the failure and a paged reply.
 - Never let a reader raise; answer a state word for absent, partial, missing or empty input. `scripts/check-smoke-readers.py` refuses a reader outside `py_reply`, and the harness fails a row on any Python traceback.
 - Do name every error line a row provokes in `expected_errors`; the harness fails every other.
 - Do let a failed command outside every check end only its row. `smoke_row` in `scripts/smoke/harness.sh` fails the row with the status and runs the next row, and `scripts/smoke/rows/updates.sh` holds it. Gap: an unbound variable under `set -u` reaches no ERR trap and still ends the run.
 - Do hand the next row the state the row found. The leak check in `scripts/smoke/leaks.sh` fails a row that leaves compositor, harness or stand-in state it does not declare, and `scripts/smoke/rows/leak-check.sh` holds it. Gap: no check compares a plugin's files, its enablement or a key binding before and after a row.
 - Do write a disposable QML control in a fresh directory, never in one the shell already read: Qt caches a directory listing, so a control written there fails to load. Review holds it.
+
+The IPC bound uses the `scripts/qml-smoke.sh --rows bar,displays-modes,themes` run that started at 2026-10-17T23:55:16Z on cachy, AMD Ryzen 9 9950X. Bash `EPOCHREALTIME` measured 5449 successful calls. The slowest took 2.410180 seconds at a 1-minute load of 17.96; loads ranged from 9.12 to 22.95. Four times that maximum, rounded up, gives 10 seconds, a margin of 7.589820 seconds. This margin assumes no linear scaling with load. One CPU pressure sample during the run read `some avg10=1.98 avg60=1.27 avg300=4.87`; it does not describe every call. [VGS-1831](https://linear.app/vanillagreen/issue/VGS-1831/smoke-each-nested-rows-ipc-call-has-a-time-bound-so-a-stuck-shell) holds the raw samples and run log.
 
 ### Faults
 

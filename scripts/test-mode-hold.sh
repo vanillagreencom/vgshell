@@ -537,6 +537,7 @@ source "$2"
 source "$3/operations.sh"
 stub_dir="$3" stub_phase="$4" stub_action="$5" stub_path="$6"
 sandbox="$stub_dir" mode_hold_file="$stub_dir/hold.lua"
+ipc_timeout_log="$sandbox/ipc-timeout.log"
 mon_w=1755 mon_h=933 screen_name=WAYLAND-1
 # The nested display nested_input_check passes, so each step reaches the stub.
 nested_socket=wayland-1 rt_dir="$stub_dir"
