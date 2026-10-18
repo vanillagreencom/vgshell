@@ -8,9 +8,9 @@
   "description": "Keep folders on this computer in step with Google Drive. VGS copies both ways every hour and never deletes a file.",
   "license": "MIT",
   "icon": "cloud-sync",
-  "kinds": ["service", "bar-widget", "window"],
-  "entryPoints": { "service": "Service.qml", "bar-widget": "Widget.qml", "window": "Window.qml" },
-  "capabilities": ["ipc", "notify", "run", "screens", "secrets", "status", "surfaces", "tui"],
+  "kinds": ["service", "bar-widget", "panel"],
+  "entryPoints": { "service": "Service.qml", "bar-widget": "Widget.qml", "panel": "Panel.qml" },
+  "capabilities": ["ipc", "notify", "secrets", "status", "surfaces", "tui"],
   "defaultSection": "right",
   "requirements": [
     {"command": "node", "packages": {"pacman": "nodejs", "apt": "nodejs", "dnf": "nodejs", "nix": "nodejs"}, "optional": false, "purpose": "Runs the sync and reads its status"},
@@ -21,7 +21,7 @@
     {"command": "notify-send", "packages": {"pacman": "libnotify", "apt": "libnotify-bin", "dnf": "libnotify", "nix": "libnotify"}, "optional": false, "purpose": "Tells you when the Google Drive sync needs you"},
     {"command": "curl", "packages": {"pacman": "curl", "apt": "curl", "dnf": "curl", "nix": "curl"}, "optional": false, "purpose": "Reads the name of the Google account you sign in with"},
     {"command": "gum", "packages": {"pacman": "gum", "apt": "gum", "dnf": "gum", "nix": "gum"}, "optional": false, "purpose": "Asks the setup questions in the setup window"},
-    {"command": "xdg-open", "packages": {"pacman": "xdg-utils", "apt": "xdg-utils", "dnf": "xdg-utils", "nix": "xdg-utils"}, "optional": true, "purpose": "Opens the Google sign-in page and the folders to review"}
+    {"command": "xdg-open", "packages": {"pacman": "xdg-utils", "apt": "xdg-utils", "dnf": "xdg-utils", "nix": "xdg-utils"}, "optional": true, "purpose": "Opens the Google sign-in page"}
   ],
   "tui": {
     "setup": { "script": "tui/setup.sh", "title": "Set up hourly sync again", "requires": ["node", "systemctl"] },

@@ -3,10 +3,10 @@
 // vgs.google-drive's pure decisions, run under node by
 // scripts/test-google-drive-logic.js: the one judge of the runner's status
 // record and probe answer, the status values the service publishes from
-// them, and what the bar widget, the window and the notification draw from
-// those values. `headline` is the one statement of where the sync stands:
-// the bar, its tooltip, the window and the Details `sync` value all read
-// it. The runner, bin/google-drive, owns every rule about the sync; this
+// them, and what the bar widget, its popover and the notification draw
+// from those values. `headline` is the one statement of where the sync
+// stands: the bar, its tooltip, the popover and the Details `sync` value
+// all read it. The runner, bin/google-drive, owns every rule about the sync; this
 // file only reads its answers.
 
 // The runner's overall states and a pair's states (bin/google-drive,
@@ -29,9 +29,9 @@ var PRESENCES = ["present", "absent", "locked", "unavailable"];
 // Setup section lists them (bin/google-drive probe prints the same set).
 var ACCOUNTS = ["client-id", "client-secret", "token"];
 
-// The conflicts the window lists: the published values share one 64 KiB
+// The conflicts the popover lists: the published values share one 64 KiB
 // ceiling (PluginLogic.STATUS_MAX_BYTES) with the rest, and a removed
-// Drive folder can make thousands. The window states the rest as a count.
+// Drive folder can make thousands. The popover states the rest as a count.
 var CONFLICTS_MAX = 20;
 var CLOUD_BYTES_MAX = 40000;
 // A state's lines and hint, PluginLogic.STATUS_LIST_MAX and
@@ -105,13 +105,14 @@ var CONFLICT_TEXT = {
 var CONFLICT_INFO = {
     "both-changed-kept": "VGS deletes a kept copy after 30 days, so old copies do not fill your disk. To keep the copy for longer, move it out of its folder."
 };
-// The line that names the folder of the copy CONFLICT_TEXT speaks of,
-// before that folder's path: the copy a download displaced, or the
-// earlier copy of a file the download could not copy.
-var CONFLICT_FOLDER_TEXT = {
-    "both-changed": "The copy that was here is in this folder: ",
-    "unreadable-on-drive": "An earlier copy is in this folder: "
-};
+// A review row's mark: a file that needs the user, else a note by its
+// kind, a doubled name, a file not copied, or a file the sync kept.
+var NEEDS_ICON = "file-exclamation-point";
+var NOTE_ICONS = { "duplicate-identical": "copy", "duplicate-different": "copy", "unreadable-on-drive": "link-2-off" };
+var NOTE_ICON = "file-check";
+// What stands between a folder pair's name and each folder of a row's
+// path, as "Documents › Taxes".
+var PLACE_MARK = " \u203a ";
 // rclone's reason for a file it could not copy, as the review row's line
 // for it. The dangling shortcut row reads rclone v1.75.1's "failed to
 // open source object: can't read dangling shortcut". The raw reason stays
@@ -184,7 +185,8 @@ var PROBLEM_TEXT = {
     probe: "VGS could not check the Google Drive keys."
 };
 
-var REVIEW_HINT = "Open the Google Drive window to review them.";
+// Where a file that needs the user is shown: the bar icon's popover.
+var NEEDS_HINT = "Select the Google Drive icon in the bar to see what to do.";
 
 // The Google Drive folder and the folder on this computer a pair joins,
 // as a pair's second line shows them.
@@ -356,16 +358,11 @@ function problemText(operation, firstLine) {
 }
 
 
-// The folders Open folders opens for CONFLICT: the mirror's folder, and
-// for a local edit also the folder that keeps the local version. A kind
-// whose fix is in Google Drive (LOCAL_ACTION_KINDS) has no folder to open,
-// nor has a file the runner names no local path for. A row has an action
-// on this computer exactly when this gives a folder.
-function reviewDirs(conflict) {
-    if (LOCAL_ACTION_KINDS.indexOf(conflict.kind) === -1 || conflict.localPath === undefined) return [];
-    var dirs = [dirname(conflict.localPath)];
-    if (conflict.kind === "both-changed" && conflict.storedPath !== undefined) dirs.push(dirname(conflict.storedPath));
-    return dirs;
+// Whether CONFLICT has an action on this computer: a kind whose file
+// stays here (LOCAL_ACTION_KINDS) and that the runner names a local path
+// for. A kind whose fix is in Google Drive has none.
+function hasLocalAction(conflict) {
+    return LOCAL_ACTION_KINDS.indexOf(conflict.kind) !== -1 && conflict.localPath !== undefined;
 }
 
 // An error as the published data carries it: its kind, and the account
@@ -382,12 +379,10 @@ function pairListValid(cloud) {
     return cloud.lastError === null || cloud.lastError.kind !== "pairs-invalid";
 }
 
-// The folder of the copy a row's folder line names (CONFLICT_FOLDER_TEXT),
-// or undefined: the copy a download displaced, kept beside the pair's
-// records, or the earlier copy here of a file the download could not copy.
+// The folder of the copy a download displaced, kept beside the pair's
+// records, or undefined: Show older copy opens it.
 function copyFolder(conflict) {
     if (conflict.kind === "both-changed" && conflict.storedPath !== undefined) return dirname(conflict.storedPath);
-    if (conflict.kind === "unreadable-on-drive" && conflict.localPath !== undefined) return dirname(conflict.localPath);
     return undefined;
 }
 
@@ -398,20 +393,18 @@ function needsFirst(conflicts) {
     return conflicts.filter(function (c) { return c.needs === "you"; }).concat(conflicts.filter(function (c) { return c.needs !== "you"; }));
 }
 
-// The published `cloud` data the widget and the window draw: the record
+// The published `cloud` data the widget and the popover draw: the record
 // with times as epoch milliseconds, each pair with its folder on this
-// computer, `local`, and `review` and `needsYou`, the counts of its own
-// files to review and of those that need the user, `needsYou`, the
-// record's count of rows that need the user, the review list needs-first and capped, and the last
-// failed request. Each conflict carries the record's `needs`,
-// `localAction`, whether it has an action on this computer, the folders
-// Open folders opens, `copyFolder` when its folder line names one, a
-// file not copied `why`, its line from rclone's reason, and a doubled
-// name `mine` and, when the record names one, `owner`.
+// computer, `local`, and `needsYou`, the count of its own files that need
+// the user, `needsYou`, the record's count of rows that need the user,
+// the review list needs-first and capped, and the last failed request.
+// Each conflict carries the record's `needs`, `localAction`, whether it
+// has an action on this computer, `copyFolder`, the folder of a kept
+// copy, a file not copied `why`, its line from rclone's reason, and a
+// doubled name `mine` and, when the record names one, `owner`.
 function cloudValue(record, problem) {
     var conflicts = needsFirst(record.conflicts).slice(0, CONFLICTS_MAX).map(function (c) {
-        var dirs = reviewDirs(c);
-        var out = { kind: c.kind, pairLabel: c.pairLabel, path: c.path, since: msOf(c.since), needs: c.needs, localAction: dirs.length > 0, dirs: dirs };
+        var out = { kind: c.kind, pairLabel: c.pairLabel, path: c.path, since: msOf(c.since), needs: c.needs, localAction: hasLocalAction(c) };
         var copy = copyFolder(c);
         if (copy !== undefined) out.copyFolder = copy;
         if (c.kind === "renamed") out.to = c.to;
@@ -432,7 +425,7 @@ function cloudValue(record, problem) {
         pairs: record.pairs.map(function (p) {
             var own = record.conflicts.filter(function (c) { return c.pair === p.id; });
             return { id: p.id, label: p.label, remote: p.remote, local: p.local, state: p.state, lastSuccess: msOf(p.lastSuccess), staleAfter: msOf(p.staleAfter), lastError: publishedError(p.lastError),
-                review: own.length, needsYou: own.filter(function (c) { return c.needs === "you"; }).length };
+                needsYou: own.filter(function (c) { return c.needs === "you"; }).length };
         }),
         conflicts: conflicts,
         conflictCount: record.conflicts.length,
@@ -441,10 +434,6 @@ function cloudValue(record, problem) {
     };
     while (value.conflicts.length > 0 && JSON.stringify(value).length > CLOUD_BYTES_MAX) value.conflicts.pop();
     return value;
-}
-
-function reviewLine(count) {
-    return count === 1 ? "1 file to review" : count + " files to review";
 }
 
 // COUNT files that need the user, the record's `needsYou`.
@@ -457,9 +446,10 @@ function needsLine(count) {
 // comes first, then a folder pair whose hourly units are absent, which an
 // install at its add could not finish, then Sign-in needed or a failed
 // sync, of the whole sync or of any pair, since the runner ranks a running
-// pair above another pair's failure; then files to review, then the
-// state, an idle one by the data's age. `cause` is the state, `no-pairs`
-// or `review`. With no folder pair nothing asks for the hourly sync: the
+// pair above another pair's failure; then the files that need the user,
+// then the state, an idle one by the data's age. A note, a row that needs
+// nothing, never raises the headline. `cause` is the state, `no-pairs` or
+// `needs-you`. With no folder pair nothing asks for the hourly sync: the
 // first pair installs it (bin/google-drive pairAddVerb).
 function headline(cloud, now) {
     if (cloud === undefined || cloud === null) return null;
@@ -469,7 +459,7 @@ function headline(cloud, now) {
         return cloud.state === state || cloud.pairs.some(function (p) { return p.state === state; });
     });
     if (danger.length > 0) return withCause(STATE_VIEW[danger[0]], danger[0]);
-    if (cloud.conflictCount > 0) return { text: reviewLine(cloud.conflictCount), tone: "warning", icon: "cloud-alert", cause: "review" };
+    if (cloud.needsYou > 0) return { text: needsLine(cloud.needsYou), tone: "warning", icon: "cloud-alert", cause: "needs-you" };
     return withCause(stateView(cloud.state, cloud.staleAfter, now), cloud.state);
 }
 
@@ -481,20 +471,20 @@ function withCause(view, cause) {
 }
 
 // The sentence the Details `sync` value gives for HEAD's cause, or "":
-// what to do with files to review, the hourly sync a folder pair waits
-// for, or the last error behind a failure or an offline sync.
+// where to see the files that need the user, the hourly sync a folder pair
+// waits for, or the last error behind a failure or an offline sync.
 function headlineHint(cloud, head) {
-    if (head.cause === "review") return REVIEW_HINT;
+    if (head.cause === "needs-you") return NEEDS_HINT;
     if (head.cause === "not-set-up") return SCHEDULE_HINTS.failed;
     if (head.tone === "danger" || head.cause === "offline") return errorText(cloud.lastError);
     return "";
 }
 
-// What PAIR reads as wherever a pair shows, the window's badge, the
-// tooltip and the Details sync lines: its state, and an idle pair by its
-// own files to review before the data's age, in the headline's review tone.
+// What PAIR reads as wherever a pair shows, the tooltip and the Details
+// sync lines: its state, and an idle pair by its own files that need the
+// user before the data's age, in the headline's tone for them.
 function pairView(pair, now) {
-    if (pair.state === "idle" && pair.review > 0) return { text: reviewLine(pair.review), tone: "warning", icon: "cloud-alert" };
+    if (pair.state === "idle" && pair.needsYou > 0) return { text: needsLine(pair.needsYou), tone: "warning", icon: "cloud-alert" };
     return stateView(pair.state, pair.staleAfter, now);
 }
 
@@ -545,7 +535,7 @@ function cut(text, max) {
     return text.length <= max ? text : text.slice(0, max - 1) + "\u2026";
 }
 
-// A pair's second line, in the window row and the Settings row: its Google
+// A pair's second line in the Settings row: its Google
 // Drive folder and its folder on this computer, the second under HOME
 // written from `~`.
 function pairFolders(pair, home) {
@@ -677,7 +667,7 @@ function accountValue(presence, record) {
 // The values the service publishes (the manifest's `status`): from the
 // record, `sync`, the headline; `schedule`, the hourly units; `pairs`,
 // the Settings rows; `pairList`, the repair of a list the runner cannot
-// read; `firstPair`; `cloud`, the data the widget and the window draw; and
+// read; `firstPair`; `cloud`, the data the widget and the popover draw; and
 // `lastSync`, the time of the last complete sync, or null to clear it.
 // From the probe, the key list, its step, the sign-in step and the
 // account. RECORD and PRESENCE are null until their first answer, which
@@ -725,51 +715,119 @@ function changedKeys(previous, next) {
 var BAR_TONES = { ok: "calm", info: "calm", warning: "warning", danger: "danger" };
 
 // The bar widget: { hidden, icon, tone, spinning, badge }, the headline's
-// icon and tone (calm, warning or danger), and badge the count of files to
-// review as BarItem's `count` text, "" for none. The icon is hidden until
-// a folder pair exists, so a bar that places it before setup shows nothing
-// to act on, but not while the pair list cannot be read. CLOUD is the
-// published value, undefined before the first.
+// icon and tone (calm, warning or danger), and badge the count of files
+// that need the user as BarItem's `count` text, "" for none: a note never
+// counts. The icon is hidden until a folder pair exists, so a bar that
+// places it before setup shows nothing to act on, but not while the pair
+// list cannot be read. CLOUD is the published value, undefined before the
+// first.
 function widgetView(cloud, now) {
     if (cloud === undefined || cloud === null || (cloud.pairs.length === 0 && pairListValid(cloud))) return { hidden: true, icon: "cloud", tone: "calm", spinning: false, badge: "" };
     var head = headline(cloud, now);
-    return { hidden: false, icon: head.icon, tone: BAR_TONES[head.tone], spinning: cloud.state === "running", badge: cloud.conflictCount > 0 ? String(cloud.conflictCount) : "" };
+    return { hidden: false, icon: head.icon, tone: BAR_TONES[head.tone], spinning: cloud.state === "running", badge: cloud.needsYou > 0 ? String(cloud.needsYou) : "" };
 }
 
 // The widget's tooltip: the headline as its title, then one line per pair,
-// its label and state, the files to review when the headline does not say
-// so, and the last sync's time in the shell's wording (TIME_TEXT).
+// its label and state, the files that need the user when the headline
+// does not say so, and the last sync's time in the shell's wording
+// (TIME_TEXT).
 function widgetTooltip(cloud, now, timeText) {
     if (cloud === undefined || cloud === null) return { title: "Google Drive", details: "" };
     var head = headline(cloud, now);
     var lines = pairLines(cloud.pairs, now);
-    if (cloud.conflictCount > 0 && head.cause !== "review") lines.push(reviewLine(cloud.conflictCount));
+    if (cloud.needsYou > 0 && head.cause !== "needs-you") lines.push(needsLine(cloud.needsYou));
     if (cloud.lastSuccess !== null) lines.push("Last sync " + timeText(cloud.lastSuccess, now));
     return { title: "Google Drive: " + head.text, details: lines.join("\n") };
 }
 
-// The window's subtitle: { text, tone, lines }, the headline, then
-// [{ text, tone }] lines, tone "" or "danger": the last complete sync,
-// the first file to review, the pause, the last error and the last failed
-// request.
-function windowStatus(cloud, now, timeText) {
+// The popover's header: { icon, tone, headline, meta }, the headline's
+// icon, its tone as a Badge tone and its text, and the line under it: the
+// last complete sync in the shell's wording (TIME_TEXT) and the count of
+// folder pairs, or, while the sync stops, when it last synced. It names
+// no file.
+function panelHeader(cloud, now, timeText) {
     var head = headline(cloud, now);
-    var lines = [{ text: cloud.lastSuccess === null ? "No complete sync yet" : "Last complete sync " + timeText(cloud.lastSuccess, now), tone: "" }];
-    if (cloud.conflicts.length > 0) lines.push({ text: "First file to review: " + cloud.conflicts[0].path, tone: "" });
-    if (cloud.paused)
-        lines.push({ text: (head.cause === "paused" ? "" : "Paused. ") + "The hourly sync copies nothing until you resume it.", tone: "" });
-    if (cloud.lastError !== null) lines.push({ text: errorText(cloud.lastError), tone: head.tone === "danger" ? "danger" : "" });
-    if (cloud.problem !== "") lines.push({ text: cloud.problem, tone: "danger" });
-    return { text: head.text, tone: head.tone, lines: lines };
+    var stopped = head.tone === "danger";
+    var meta = cloud.lastSuccess === null ? "No complete sync yet" : (stopped ? "Last synced " : "Synced ") + timeText(cloud.lastSuccess, now);
+    if (!stopped && cloud.pairs.length > 0) meta += " · " + (cloud.pairs.length === 1 ? "1 folder pair" : cloud.pairs.length + " folder pairs");
+    return { icon: head.icon, tone: badgeTone(head.tone), headline: head.text, meta: meta };
 }
 
-// One folder pair's row in the window: { id, label, secondary, icon, text,
-// tone }, its pairFolders line from HOME, which a ListItem's secondary
-// line elides where it does not fit beside the state and Remove, and its
-// pairView as a Badge tone.
-function pairRow(pair, now, home) {
-    var view = pairView(pair, now);
-    return { id: pair.id, label: pair.label, secondary: pairFolders(pair, home), icon: "folder-sync", text: view.text, tone: badgeTone(view.tone) };
+// What a problem reads as in the popover: a callout that says what
+// happened and offers its one fix, an `action` { label, tui } that opens
+// the plugin's own TUI or { label, tab } that opens that tab of the
+// plugin's page, or null where the fix is the user's alone or the
+// footer's Sync now. Its words are plain text: a callout draws no link.
+var CALLOUTS = {
+    "signed-out": { tone: "danger", title: "Google Drive is not signed in", text: "Your files are safe here and in Google Drive. Sign in to start the sync.", action: { label: "Sign in", tui: "connect" } },
+    "sign-in-refused": { tone: "danger", title: "Google signed this computer out", text: "Your files are safe here and in Google Drive. Sign in again to resume the sync.", action: { label: "Sign in again", tui: "connect" } },
+    "keys-missing": { tone: "danger", title: "Google Drive needs its keys", text: "Add the Client ID and the Client secret, then sign in. Your files are safe here and in Google Drive.", action: { label: "Add the keys", tab: "Setup" } },
+    "keyring-locked": { tone: "danger", title: "Your keyring is locked", text: "VGS cannot read the Google Drive keys. Unlock your keyring, then select Sync now.", action: null },
+    offline: { tone: "warning", title: "Google Drive cannot be reached", text: "Your files stay as the last complete sync left them. VGS tries again at the next sync.", action: null },
+    "not-set-up": { tone: "warning", title: "The hourly sync is not on", text: "VGS could not turn on the hourly sync, so Google Drive does not sync. Select Set up again beside Hourly sync.", action: { label: "Open Details", tab: "Details" } },
+    stale: { tone: "warning", title: "The hourly sync is out of date", text: SCHEDULE_HINTS.stale, action: { label: "Open Details", tab: "Details" } }
+};
+var PAIRS_STOPPED = "VGS copies nothing until you start the list again.";
+// A failed sync's fix by its error kind, where one place holds it.
+var FAILED_ACTIONS = {
+    "source-missing": { label: "Check the folder pairs", tab: "Settings" },
+    "rclone-missing": { label: "Review the tools", tab: "Setup" }
+};
+// The error kinds a sign-in or a key answers.
+var SIGN_IN_KINDS = ["authorization-refused", "credential-absent", "credential-locked"];
+
+// The error behind the headline's CAUSE, a state: the whole sync's while
+// it is in that state, else the first pair's in it, else the whole
+// sync's last error.
+function causeError(cloud, cause) {
+    if (cloud.state === cause && cloud.lastError !== null) return cloud.lastError;
+    var pair = cloud.pairs.find(function (p) { return p.state === cause && p.lastError !== null; });
+    return pair === undefined ? cloud.lastError : pair.lastError;
+}
+
+function signInCallout(error) {
+    if (error !== null && error.kind === "credential-locked") return CALLOUTS["keyring-locked"];
+    if (error !== null && error.kind === "credential-absent") return CALLOUTS[error.account === "token" ? "signed-out" : "keys-missing"];
+    return CALLOUTS["sign-in-refused"];
+}
+
+// The popover's problem callout for CLOUD, or null: a sign-in, a key or
+// the keyring, a failed sync, an offline sync, or hourly units absent
+// beside a folder pair or out of date. It takes the place of the error
+// lines under the headline.
+function problemCallout(cloud, now) {
+    var head = headline(cloud, now);
+    if (head.cause === "authorization-required" || head.cause === "error") {
+        var error = causeError(cloud, head.cause);
+        var kind = error === null ? "" : error.kind;
+        if (head.cause === "authorization-required" || SIGN_IN_KINDS.indexOf(kind) !== -1) return signInCallout(error);
+        if (kind === "pairs-invalid")
+            return { tone: "danger", title: "The folder pair list cannot be read", text: pairListProblem(error) + " " + PAIRS_STOPPED, action: { label: "Start the list again", tui: "reset-pairs" } };
+        return { tone: "danger", title: "Google Drive could not sync", text: hasOwn(ERROR_TEXT, kind) ? ERROR_TEXT[kind] : ERROR_DEFAULT, action: hasOwn(FAILED_ACTIONS, kind) ? FAILED_ACTIONS[kind] : null };
+    }
+    if (head.cause === "not-set-up") return CALLOUTS["not-set-up"];
+    if (cloud.state === "offline") return CALLOUTS.offline;
+    if (cloud.units === "stale") return CALLOUTS.stale;
+    return null;
+}
+
+// The popover's sentence under its header, or "": a pause, which holds
+// every copy; else, with nothing to review and no problem, what the
+// state means: up to date, out of date or never synced.
+var PAUSED_BODY = "The hourly sync copies nothing until you resume it.";
+var STATE_BODY = {
+    "out-of-date": "Google Drive missed its hourly sync. Select Sync now to sync again.",
+    "not-synced": "No sync has finished yet. Select Sync now to start one."
+};
+function panelBody(cloud, now) {
+    var head = headline(cloud, now);
+    if (cloud.paused) return (head.cause === "paused" ? "" : "Paused. ") + PAUSED_BODY;
+    if (cloud.conflictCount > 0 || problemCallout(cloud, now) !== null || cloud.state !== "idle") return "";
+    var view = stateView(cloud.state, cloud.staleAfter, now);
+    if (view === OUT_OF_DATE) return STATE_BODY["out-of-date"];
+    if (view === NOT_SYNCED) return STATE_BODY["not-synced"];
+    var n = cloud.pairs.length;
+    return (n === 1 ? "Your folder pair matches Google Drive." : "Your " + n + " folder pairs match Google Drive.") + " Google Drive syncs every hour, also while VGS is closed.";
 }
 
 // The CONFLICT_TEXT key of a published CONFLICT other than a file not
@@ -782,37 +840,49 @@ function conflictVariant(conflict) {
     return conflict.kind + (conflict.owner !== undefined ? "-shared" : "-unowned");
 }
 
-// One conflict's row in the window: { label, detail, info, folder, dirs,
-// needs, localAction }, its path, its one line (conflictVariant, or for a
-// file not copied the line of its reason), why a limit that line states
-// holds (CONFLICT_INFO, "" for none), the line that names the folder of
-// the copy the detail speaks of ("" for none), the folders Open folders
-// opens, and the published `needs` and `localAction`. The window wraps
-// each line, so none is cut.
+// A row's place: its folder pair's name, then each folder of its path.
+function placeOf(conflict) {
+    var at = conflict.path.lastIndexOf("/");
+    return [conflict.pairLabel].concat(at <= 0 ? [] : conflict.path.slice(0, at).split("/")).join(PLACE_MARK);
+}
+
+// One conflict's row in the popover: { name, place, detail, info, icon,
+// needs, action }, its file's name, its place (placeOf), its one line
+// (conflictVariant, or for a file not copied the line of its reason), why
+// a limit that line states holds (CONFLICT_INFO, "" for none), its mark,
+// the published `needs`, and its action on this computer, or null: Show
+// older copy, which opens the folder of the copy VGS kept, on a row that
+// needs the user and has a local action. A note has none: its fix, if
+// any, is in Google Drive. The popover wraps each line, so none is cut.
 function conflictRow(conflict) {
     var variant = conflict.kind === "unreadable-on-drive" ? "" : conflictVariant(conflict);
     var what = variant === "" ? conflict.why : CONFLICT_TEXT[variant]
         .replace("{to}", function () { return conflict.to; })
         .replace("{owner}", function () { return conflict.owner; });
-    var folder = conflict.copyFolder === undefined ? "" : CONFLICT_FOLDER_TEXT[conflict.kind] + conflict.copyFolder;
-    return { label: conflict.path, detail: what, info: hasOwn(CONFLICT_INFO, variant) ? CONFLICT_INFO[variant] : "", folder: folder, dirs: conflict.dirs, needs: conflict.needs, localAction: conflict.localAction };
+    var needs = conflict.needs === "you";
+    var action = needs && conflict.localAction && conflict.copyFolder !== undefined ? { label: "Show older copy", folder: conflict.copyFolder } : null;
+    return { name: conflict.path.slice(conflict.path.lastIndexOf("/") + 1), place: placeOf(conflict), detail: what, info: hasOwn(CONFLICT_INFO, variant) ? CONFLICT_INFO[variant] : "",
+        icon: needs ? NEEDS_ICON : hasOwn(NOTE_ICONS, conflict.kind) ? NOTE_ICONS[conflict.kind] : NOTE_ICON, needs: conflict.needs, action: action };
 }
 
-// The review list by folder pair, in the order the list first names each:
-// [{ label, rows }], so a pair's label stands on its own line. The list is
-// needs-first (cloudValue), so each group's rows that need the user come
-// first, and the pair of the first such row leads.
-function conflictGroups(conflicts) {
-    var groups = [];
-    conflicts.forEach(function (c) {
-        var group = groups.find(function (g) { return g.label === c.pairLabel; });
-        if (group === undefined) {
-            group = { label: c.pairLabel, rows: [] };
-            groups.push(group);
-        }
-        group.rows.push(conflictRow(c));
-    });
-    return groups;
+// The popover's review: { needs, notes, notesLine, moreNeeds, moreNotes },
+// the rows that need the user and the notes, each in the published order;
+// the line the notes fold into, "" with none; and the line that counts
+// each part's rows the published list leaves out (cloudValue's cap), ""
+// when it holds them all. The counts are the record's, not the list's.
+function reviewView(cloud) {
+    var rows = cloud.conflicts.map(conflictRow);
+    var needs = rows.filter(function (r) { return r.needs === "you"; });
+    var notes = rows.filter(function (r) { return r.needs !== "you"; });
+    var noteCount = cloud.conflictCount - cloud.needsYou;
+    var needsRest = cloud.needsYou - needs.length, notesRest = noteCount - notes.length;
+    return {
+        needs: needs,
+        notes: notes,
+        notesLine: noteCount === 0 ? "" : (noteCount === 1 ? "1 note" : noteCount + " notes") + " · nothing was lost",
+        moreNeeds: needsRest <= 0 ? "" : needsRest === 1 ? "1 more file needs you" : needsRest + " more files need you",
+        moreNotes: notesRest <= 0 ? "" : notesRest === 1 ? "1 more note" : notesRest + " more notes"
+    };
 }
 
 // Whether a run would copy PAIR: not paused, and not waiting for a key or
@@ -824,32 +894,26 @@ function pairCanSync(pair) {
     return pair.state !== "authorization-required" || (pair.lastError !== null && pair.lastError.kind === "credential-locked");
 }
 
-// The window's footer for CLOUD, undefined before the first value:
-// { primary, pause, add }. The primary is Set up hourly sync again while
-// setupOffered, else Resume while the sync is paused with a folder pair,
-// since a run then copies nothing, else Sync now, enabled only when a sync
-// can start: no sync runs and a folder pair can sync (pairCanSync); the
-// headline already says why it cannot. `pause` is Pause or Resume while a
-// folder pair exists and the primary is not Resume, else null; `add`, the
-// footer's Add a folder pair, shows only beside a folder pair, since the
-// empty pair list offers its own.
-function footerView(cloud) {
-    var known = cloud !== undefined && cloud !== null;
-    var hasPairs = known && cloud.pairs.length > 0;
-    var canSync = known && cloud.state !== "running" && cloud.pairs.some(pairCanSync);
-    var resume = { text: "Resume", icon: "play", action: "resume" };
-    var primary = known && setupOffered(cloud.units, hasPairs)
-        ? { text: "Set up hourly sync again", icon: "cloud-cog", action: "setup", enabled: true }
-        : hasPairs && cloud.paused ? Object.assign({ enabled: true }, resume)
-        : { text: "Sync now", icon: "refresh-cw", action: "sync", enabled: canSync };
-    var pause = !hasPairs || primary.action === "resume" ? null : cloud.paused ? resume : { text: "Pause", icon: "pause", action: "pause" };
-    return { primary: primary, pause: pause, add: hasPairs };
-}
+// Why Sync now cannot start while the footer shows.
+var SYNC_REASONS = {
+    paused: "Select Resume first, because the sync is paused",
+    running: "Wait until the sync that runs now ends"
+};
 
-// The line under the review list when it shows only part of the list.
-function moreConflicts(cloud) {
-    var rest = cloud.conflictCount - cloud.conflicts.length;
-    return rest <= 0 ? "" : rest === 1 ? "1 more file to review" : rest + " more files to review";
+// The popover's footer for CLOUD, undefined before the first value:
+// { shown, pause, sync }. It shows only while a sync can run: a folder
+// pair exists, its hourly units are there to start the sync, and the sync
+// is paused, which Resume ends, or a folder pair can sync (pairCanSync).
+// `pause` is Pause, or Resume while paused; `sync` is Sync now, with the
+// reason it cannot start now, "" when it can: a pause or a running sync.
+function footerView(cloud) {
+    var shown = cloud !== undefined && cloud !== null && cloud.pairs.length > 0 && cloud.units !== "absent" && (cloud.paused || cloud.pairs.some(pairCanSync));
+    if (!shown) return { shown: false, pause: null, sync: null };
+    return {
+        shown: true,
+        pause: cloud.paused ? { text: "Resume", icon: "play", action: "resume" } : { text: "Pause", icon: "pause", action: "pause" },
+        sync: { text: "Sync now", icon: "refresh-cw", action: "sync", reason: cloud.paused ? SYNC_REASONS.paused : cloud.state === "running" ? SYNC_REASONS.running : "" }
+    };
 }
 
 // The notification RECORD asks for while it needs the user, or null:
@@ -862,7 +926,7 @@ function notification(record) {
     if (reasons.indexOf("error") !== -1)
         return { title: "Google Drive sync failed", message: errorText(record.lastError), tone: "danger" };
     if (reasons.indexOf("conflicts") !== -1)
-        return { title: "Google Drive needs you", message: needsLine(record.needsYou) + ". Open the Google Drive window to see what to do.", tone: "warning" };
+        return { title: "Google Drive needs you", message: needsLine(record.needsYou) + ". " + NEEDS_HINT, tone: "warning" };
     if (reasons.indexOf("units-stale") !== -1)
         return { title: "Google Drive needs setup", message: "The hourly sync is out of date. [Set it up again on the Google Drive Details tab](page:vgs.google-drive/Details).", tone: "warning" };
     return null;

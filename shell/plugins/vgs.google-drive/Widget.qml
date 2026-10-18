@@ -6,12 +6,13 @@ import "GoogleDriveLogic.js" as Logic
 // The Google Drive icon in the bar. It draws the status the service
 // publishes and runs nothing itself: nothing until a folder pair exists,
 // then the headline's icon and tone (GoogleDriveLogic.headline, which the
-// window and the Details tab also read), calm while the sync is fine,
-// with the count of files to review and a spinner while a sync runs. The
-// tooltip's title is the headline; its lines name each folder pair by its
-// label and state, and the last sync's time in the shell's one wording of
-// a past moment (Timestamp); it never shows a file name or an account. A
-// click opens or closes the Google Drive window.
+// popover and the Details tab also read), calm while the sync is fine,
+// with the count of files that need the user, never the notes, and a
+// spinner while a sync runs. The tooltip's title is the headline; its
+// lines name each folder pair by its label and state, and the last sync's
+// time in the shell's one wording of a past moment (Timestamp); it never
+// shows a file name or an account. A click opens or closes the Google
+// Drive popover under the icon (Panel.qml).
 BarWidget {
     id: widget
 
@@ -32,10 +33,11 @@ BarWidget {
         }
     }
 
-    // Open or close the Google Drive window; answers the window host's reply.
+    // Open or close the popover under this widget; answers the panel
+    // host's reply.
     function toggle() {
-        const reply = shell.surfaces.toggle("window", "{}");
-        if (reply !== "ok") console.warn("google-drive widget: window " + reply);
+        const reply = shell.surfaces.toggle("panel", "{}", widget);
+        if (reply !== "ok") console.warn("google-drive widget: panel " + reply);
         return reply;
     }
 

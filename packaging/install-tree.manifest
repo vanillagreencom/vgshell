@@ -413,10 +413,10 @@ f share/vgshell/shell/plugins/vgs.gallery/Gallery.qml
 f share/vgshell/shell/plugins/vgs.gallery/manifest.json
 f share/vgshell/shell/plugins/vgs.gallery/sample-emoji.png
 f share/vgshell/shell/plugins/vgs.google-drive/GoogleDriveLogic.js
+f share/vgshell/shell/plugins/vgs.google-drive/Panel.qml
 f share/vgshell/shell/plugins/vgs.google-drive/RunnerClient.qml
 f share/vgshell/shell/plugins/vgs.google-drive/Service.qml
 f share/vgshell/shell/plugins/vgs.google-drive/Widget.qml
-f share/vgshell/shell/plugins/vgs.google-drive/Window.qml
 f share/vgshell/shell/plugins/vgs.google-drive/bin/google-drive
 f share/vgshell/shell/plugins/vgs.google-drive/manifest.json
 f share/vgshell/shell/plugins/vgs.google-drive/migrate

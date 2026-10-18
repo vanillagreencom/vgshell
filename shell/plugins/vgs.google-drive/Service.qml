@@ -7,7 +7,7 @@ import "GoogleDriveLogic.js" as Logic
 // Owns vgs.google-drive's runtime side: the one runner door (RunnerClient),
 // the one watch of the runner's status record, the presence probe of the
 // Google Drive keys, the notification when the sync needs the user, IPC
-// and every status write. The widget and the window read status only.
+// and every status write. The widget and the popover read status only.
 // The plugin never runs rclone: Sync now asks systemd for the same service
 // the hourly timer and the command line start (bin/google-drive start), and
 // that run writes the status record this service watches.
@@ -21,7 +21,7 @@ import "GoogleDriveLogic.js" as Logic
 // when the pair list changes. The probe's account address reaches the
 // published account value alone, which the Details tab draws and the
 // `status` IPC answer returns with every published value; never the bar,
-// the window or a log line.
+// the popover or a log line.
 //
 //   vgshell ipc call vgs.google-drive invoke <name> ""   with <name>:
 //     status    the published values, JSON
@@ -29,8 +29,7 @@ import "GoogleDriveLogic.js" as Logic
 //     pause     pauses every pair; `ok`
 //     resume    resumes every pair; `ok`
 //     refresh   renders the record and probes the keys again; `ok`
-//     open      opens the Google Drive window; shell.surfaces.summon's reply
-// A request that fails is logged and shown in the window as `problem`. An
+// A request that fails is logged and shown in the popover as `problem`. An
 // answer the runner holds for the rename from the plugin's previous name
 // (Logic.RUNNER_HELD) is no failure: the Details sync value says why it
 // waits, and status and probe are asked again on the `held` timer until
@@ -61,7 +60,7 @@ Item {
     readonly property string statusFile: Paths.stateDir + "/google-drive/status.json"
     readonly property int secretRevision: shell === null ? 0 : shell.secrets.revision
     // The end of each setup TUI's last run, whoever opened it: Settings,
-    // the window or the launcher.
+    // the popover or the launcher.
     readonly property string tuiEnds: shell === null ? "" : JSON.stringify(["setup", "add-pair", "remove-pair", "reset-pairs", "connect", "sign-out"]
         .map(name => shell.tui.state[name] ? shell.tui.state[name].endedAt : null))
 
@@ -84,7 +83,6 @@ Item {
             root.probe();
             return "ok";
         });
-        shell.ipc.handle("open", arg => shell.surfaces.summon("window", arg || "{}"));
         refresh();
         probe();
     }
