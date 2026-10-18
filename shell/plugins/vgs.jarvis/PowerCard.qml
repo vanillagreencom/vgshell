@@ -48,9 +48,10 @@ Item {
                 InfoButton {
                     id: info
                     Layout.alignment: Qt.AlignTop
-                    title: "the wait"
+                    title: root.restart ? "Saving before a restart" : "Saving before a shutdown"
                     info: "Jarvis gets one minute to save its work. After that minute, the computer "
-                        + (root.restart ? "restarts" : "shuts down") + " also if Jarvis did not finish, so a session that does not answer cannot stop it."
+                        + (root.restart ? "restarts" : "shuts down") + " even if Jarvis did not finish, so a session that does not answer cannot stop the "
+                        + (root.restart ? "restart." : "shutdown.")
                 }
             }
             Item {

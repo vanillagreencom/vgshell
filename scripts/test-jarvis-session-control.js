@@ -274,8 +274,16 @@ function inside() {
         const result = helper(directory, ["dismiss", "~/Jarvis"]);
         assert.deepEqual([result.kind, result.state, result.reason, Object.hasOwn(result, "restart")], ["answer", "stopped", "ended", false]);
         assert.deepEqual(calls(folder).map(call => call.argv), [["dismiss", "--home", folder]]);
-        answers(folder, { status: said("stopped", "ended", { restart: record }) });
-        assert.deepEqual(helper(directory, ["dismiss", "~/Jarvis"]), { kind: "failed" }, "a refused dismiss");
+        // The package's refusals, exit 1 with its contract object, and an
+        // unknown verb, exit 2: each keeps the record.
+        for (const [label, refusal] of [
+            ["an unknown verb", undefined],
+            ["a record it cannot read", { exit: 1, object: { state: "blocked", reason: "record-unreadable" } }],
+            ["a failed state", { exit: 1, object: { state: "failed", reason: "launch-failed", restart: record } }],
+            ["an answer that keeps the record", { exit: 1, object: { state: "stopped", reason: "ended", restart: record } }]]) {
+            answers(folder, { status: said("stopped", "ended", { restart: record }), ...(refusal === undefined ? {} : { dismiss: refusal }) });
+            assert.deepEqual(helper(directory, ["dismiss", "~/Jarvis"]), { kind: "failed" }, label + ": a dismiss not done");
+        }
         cases++;
     }
     // At boot with Resume the last session, a record saved before a machine
@@ -294,7 +302,7 @@ function inside() {
         assert.deepEqual(calls(folder).map(call => call.argv), [status(folder)], "with the boot setting off a build only reads");
         // A shell restart while the resume runs, or after it, resumes nothing
         // again: the boot start, which the package handles once a boot.
-        for (const live of [said("starting", "resuming", { restart: record }), said("running", "resumed", { restart: record })]) {
+        for (const live of [said("starting", "resuming", { restart: record }), said("running", "restart-resumed", { restart: record })]) {
             answers(folder, { status: live, resume: said("starting", "resuming"), start: said("starting", "launching") });
             helper(directory, ["build", claude, "~/Jarvis", "resume", "on"]);
             assert.deepEqual(calls(folder).map(call => call.argv), [status(folder), startWords("resume", "boot"), status(folder)], live.object.reason + ": no second resume");
@@ -366,6 +374,8 @@ function inside() {
     control("since-checked", C, "ISO.test(since)", "true", fieldsOutside);
     control("step-checked", C, "|| !OUTCOMES.includes(step.outcome)", "", fieldsOutside);
     control("resume-origin", C, 'launch(at, ["resume", "--origin", "manual"])', 'launch(at, ["resume", "--origin", "boot"])', resume);
+    control("dismiss-refusal", C, '["blocked", "failed"].includes(dismissed.state) || ', "", dismiss);
+    control("dismiss-kept-record", C, " || dismissed.restart !== null) return failed;", ") return failed;", dismiss);
     control("dismiss-verb", C, 'const dismissed = await run(at, ["dismiss"]);', 'const dismissed = await run(at, ["status"]);', dismiss);
     control("boot-resume", C, 'if (origin === "boot" && mode === "resume" && now.restart !== null && !LIVE.includes(now.state)) return launch(at, ["resume", "--origin", "boot"]);', "", bootResume);
     control("boot-resume-mode", C, 'origin === "boot" && mode === "resume" && now.restart !== null', 'origin === "boot" && now.restart !== null', bootResume);

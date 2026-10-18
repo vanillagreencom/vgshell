@@ -358,12 +358,12 @@ function reportLook(state, report, muteOn, keys) {
 
 // The Resume offer's words. A step's kind names it in the tooltip.
 var RESUME_TITLE = "Resume Jarvis from before the restart";
-var RESUME_CLICK = "Click to resume the Jarvis session, then each overseer and lane it ran, one at a time.";
+var RESUME_CLICK = "Click to resume the Jarvis session, then the agent fleets and coding tasks it ran, one at a time.";
 var RESUME_UNLOCK = { "1password": "Resume asks you once to unlock 1Password first." };
 var STEP_NAMES = {
     "delegate": function () { return "the Jarvis session"; },
-    "overseer": function (name) { return "overseer " + name; },
-    "lane": function (name) { return "lane " + name; }
+    "overseer": function (name) { return "the agent fleet for project " + name; },
+    "lane": function (name) { return "coding task " + name; }
 };
 
 // VALUE, the `jarvisSession` status, or null while the service has

@@ -1316,7 +1316,7 @@ function verifyTiers(gate) {
 // setting, only a session that does not run offers Start, only a failure
 // offers Retry, and an answer outside the contract is a failure.
 const SESSION_CONTRACT = {
-    running: ["resumed", "new-no-record", "new-history-gone", "new-selection-changed", "new-requested", "existing"],
+    running: ["resumed", "restart-resumed", "new-no-record", "new-history-gone", "new-selection-changed", "new-requested", "existing"],
     starting: ["launching", "resuming"], "handing-over": ["succession"], stopping: ["stop-requested"],
     stopped: ["never-started", "stopped", "ended"], off: ["app-off"],
     blocked: ["app-off", "name-conflict", "record-unreadable", "sign-in-required", "selection-conflict", "tmux-missing", "app-missing"],
@@ -1354,7 +1354,7 @@ function verifySession(gate) {
                         label + ": the boot setting changes no row of a session that is not stopped");
                 if (["failed"].includes(state) || reason === "sign-in-required")
                     assert.equal(value.hint, "The package's line.", label + ": the package's own line is shown");
-                if (["resumed", "existing", "new-requested"].includes(reason))
+                if (["resumed", "restart-resumed", "existing", "new-requested"].includes(reason))
                     assert.equal(value.hint.includes(names.home) && value.hint.includes(names.account), true, label + ": the recorded home and account are named");
             }
     assert.equal(offered(plain(gate.sessionStart(true, { kind: "answer", state: "running", reason: "existing", detail: "", names: null }))), "none",
@@ -1412,7 +1412,7 @@ function verifySession(gate) {
     const resuming = { ...saved, state: "starting", reason: "resuming" };
     // The resume ran its first step and the session lives.
     const resumedDelegate = { kind: "delegate", name: "jarvis", outcome: "resumed", cause: null };
-    const resumedRunning = { ...saved, state: "running", reason: "resumed", restart: { unlock: "1password", steps: [resumedDelegate, pending] } };
+    const resumedRunning = { ...saved, state: "running", reason: "restart-resumed", restart: { unlock: "1password", steps: [resumedDelegate, pending] } };
     // A resume that ended after its last step failed.
     const ended = { ...saved, restart: { unlock: "1password", steps: [{ ...pending, outcome: "failed", cause: "The app asked for a sign-in." }] } };
     // A resume that failed at its first step, the session left failed.
@@ -1456,8 +1456,9 @@ function verifySession(gate) {
         ["a session beside the record", beside, [], false], ["a session starting beside the record", startingBeside, [], false],
         ["a Start beside a failed resume, starting", { ...startingBeside, restart: failedRecord }, [], false],
         ["a Start beside a failed resume, running", { ...beside, restart: failedRecord }, [], false],
+        ["a Start in mode resume beside a failed resume", { ...beside, reason: "resumed", restart: failedRecord }, [], false],
         ["a resume that starts", resuming, restart.steps, true],
-        ["running resumed with the delegate pending", { ...resumedRunning, restart }, restart.steps, true],
+        ["running restart-resumed with the delegate pending", { ...resumedRunning, restart }, restart.steps, true],
         ["a resume past its first step", resumedRunning, resumedRunning.restart.steps, true],
         ["a resume that ended after a step", ended, ended.restart.steps, false],
         ["a resume that failed at its first step", failedResume, [failedDelegate, notResumed], false]]) {
@@ -2015,7 +2016,8 @@ const CONTROLS = [
     ["a starting session is the resume", "&& sessionLive(result.state) && SESSION_RESUME_REASONS.indexOf(result.reason) !== -1;",
         '&& sessionLive(result.state) && (SESSION_RESUME_REASONS.indexOf(result.reason) !== -1 || result.state === "starting");', "a session starting beside the record: the steps and reads"],
     ["a Start beside a failed resume reads its steps", "    if (sessionLive(result.state)) return sessionResumeLive(result);\n", "", "a Start beside a failed resume, starting: the steps and reads"],
-    ["running resumed is not the resume", 'var SESSION_RESUME_REASONS = ["resuming", "resumed"];', 'var SESSION_RESUME_REASONS = ["resuming"];', "running resumed with the delegate pending: the steps and reads"],
+    ["running restart-resumed is not the resume", 'var SESSION_RESUME_REASONS = ["resuming", "restart-resumed"];', 'var SESSION_RESUME_REASONS = ["resuming"];', "running restart-resumed with the delegate pending: the steps and reads"],
+    ["a start in mode resume is the resume", 'var SESSION_RESUME_REASONS = ["resuming", "restart-resumed"];', 'var SESSION_RESUME_REASONS = ["resuming", "restart-resumed", "resumed"];', "a Start in mode resume beside a failed resume: the steps and reads"],
     ["a resume that ended is read again", "    return sessionResumeLive(result)\n", "    return sessionResumeStarted(result)\n", "a resume that failed at its first step: the steps and reads"],
     ["an ended resume's pending steps read waiting", 'outcome: "failed", cause: null } : step;', "outcome: step.outcome, cause: step.cause } : step;", "a resume that failed at its first step: the steps and reads"],
     ["a Do not resume not answered says nothing", "    if (offered === true && notDismissed === true) lines.push(SESSION_NOT_DISMISSED);", "", "a Do not resume the package did not answer: the row"],

@@ -18,10 +18,11 @@ before the call answers, as a call that changes the session changes what
 the next status reads.
 
 It holds its answers to the package's resume reasons (design VGS-1797,
-`status` reason during a resume, and `dismiss`): a session `start`
-started beside a kept record never reads `resuming` or `resumed`,
-`running resumed` over a record comes only once the delegate step has its
-outcome, and `dismiss` drops the record, so its answer carries none. A
+`status` reason during a resume, and `dismiss`): only the resume worker
+writes `resuming` or `restart-resumed`, so a `start` answer never carries
+them, `running restart-resumed` comes only once the delegate step has its
+outcome, and a `dismiss` that answers with exit 0 drops the record, so its
+answer carries none; a refusal, exit 1, may keep it. A
 package without `dismiss` is an answers.json with no entry for it. An
 entry whose object, or an object under its "then", breaks a rule exits 2 with
 `jarvis-session: stand-in=contract verb=VERB reason=REASON`, so no test
@@ -48,13 +49,14 @@ if entry is None:
 for value in [entry] + list(entry.get("then", {}).values()):
     shown = value.get("object", {})
     restart, reason = shown.get("restart"), shown.get("reason")
-    if restart is None:
+    if not isinstance(restart, dict) or not isinstance(restart.get("steps"), list) \
+            or not all(isinstance(step, dict) for step in restart["steps"]):
         continue
-    if argv[0] == "dismiss":
+    if argv[0] == "dismiss" and value.get("exit", 0) == 0:
         sys.stderr.write("jarvis-session: stand-in=contract verb=dismiss reason=%s\n" % reason)
         sys.exit(2)
-    delegate = [step["outcome"] for step in restart["steps"] if step["kind"] == "delegate"]
-    if (argv[0] == "start" and reason in ("resuming", "resumed")) or (reason == "resumed" and "pending" in delegate):
+    delegate = [step.get("outcome") for step in restart["steps"] if step.get("kind") == "delegate"]
+    if (argv[0] == "start" and reason in ("resuming", "restart-resumed")) or (reason == "restart-resumed" and "pending" in delegate):
         sys.stderr.write("jarvis-session: stand-in=contract verb=%s reason=%s\n" % (argv[0], reason))
         sys.exit(2)
 if "then" in entry:

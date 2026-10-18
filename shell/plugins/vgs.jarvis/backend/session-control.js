@@ -20,8 +20,9 @@
 //                                    saved before a machine restart
 //   dismiss HOME                     `dismiss`: the package drops that
 //                                    record and answers the session as
-//                                    `status` does; a package that refuses
-//                                    the verb answers `failed`
+//                                    `status` does; a refusal, an answer
+//                                    that keeps the record or no answer
+//                                    is `failed`
 //   change OLD ACCOUNT HOME MODE     a changed account or home: while a
 //                                    session lives in OLD, checks the new
 //                                    selection, stops the old session and
@@ -44,7 +45,7 @@ const path = require("node:path");
 
 // The contract's closed table: each state with its reasons.
 const STATES = Object.freeze({
-    running: ["resumed", "new-no-record", "new-history-gone", "new-selection-changed", "new-requested", "existing"],
+    running: ["resumed", "restart-resumed", "new-no-record", "new-history-gone", "new-selection-changed", "new-requested", "existing"],
     starting: ["launching", "resuming"],
     "handing-over": ["succession"],
     stopping: ["stop-requested"],
@@ -218,7 +219,11 @@ async function main() {
         const at = place(args[0]);
         if (at.kind === "blocked") return at;
         const dismissed = await run(at, ["dismiss"]);
-        return dismissed === null ? failed : answer(dismissed);
+        // The package refuses with its contract object and exit 1, state
+        // blocked or failed (session.py main), and a refusal's answer
+        // carries the record it kept; an unknown verb exits 2.
+        if (dismissed === null || ["blocked", "failed"].includes(dismissed.state) || dismissed.restart !== null) return failed;
+        return answer(dismissed);
     }
     if (verb === "change") {
         const [old, setting, home, mode] = args;

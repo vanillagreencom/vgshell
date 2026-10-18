@@ -140,9 +140,11 @@
 # when named; jarvis-causes plants each Jarvis start cause and
 # captures its bar widget tooltip and Setup section, taken only when named;
 # jarvis-restart is Jarvis's bar widget tooltip offering the resume of a
-# session saved before a machine restart, the tooltip once that resume
-# ran, and the card a Reboot draws while the session saves, over the
-# stand-in Jarvis package command, taken only when named;
+# session saved before a machine restart, the Jarvis session row on the
+# Settings page offering it and, once Do not resume was refused, saying so,
+# the tooltip and the row once that resume ran, and the card a Reboot draws
+# while the session saves, over the stand-in Jarvis package command, taken
+# only when named;
 # googledrive is Google Drive's bar widget, its tooltip, its window and every
 # screen of its page's Settings, Setup and Details tabs in each state the plugin's runner reaches
 # over a local rclone remote and a keyring stand-in, from first run to a
@@ -4766,8 +4768,11 @@ scene_jarvis-causes() { # MODE
 # The Jarvis session saved before a machine restart, over the stand-in
 # Jarvis package command (scripts/fixtures/jarvis/session-package.py) in a
 # home folder of the scene's own: the bar widget's tooltip offering its
-# resume with the 1Password unlock first, the tooltip once the resume ran
-# with each step's outcome and a failed step's cause, and the card a
+# resume with the 1Password unlock first and the Jarvis session row on the
+# Settings page offering it, the row once the stand-in, which has no
+# `dismiss`, refused Do not resume, the tooltip once the resume ran with
+# each step's outcome and a failed step's cause and the row with the
+# running session's model and start time, and the card a
 # Reboot draws while the session saves. The scene's systemctl stands over
 # the harness's and records the call the wait's helper makes; nothing
 # restarts. A tree without the wait (PowerWait.qml) takes the first
@@ -4780,6 +4785,18 @@ scene_jarvis-restart() { # MODE
   jarvis_restart_steps() { ipc smoke jarvisProcess | py_reply 'import json,sys; v=json.load(sys.stdin)["status"].get("jarvisSession"); print("pending" if v is None else len(v["steps"]))'; }
   jarvis_restart_card() { ipc smoke layerItems vgs.jarvis PowerCard shown | py_reply 'import json,sys; rows=json.load(sys.stdin); print("none" if not rows else "shown" if any(r[2]["shown"] for r in rows) else "hidden")'; }
   jarvis_restart_calls() { if [[ -f $log ]]; then wc -l <"$log"; else echo 0; fi; }
+  jarvis_restart_lines() { ipc smoke jarvisProcess | py_reply 'import json,sys; v=json.load(sys.stdin)["status"].get("sessionStart"); print(len(v.get("lines", [])) if isinstance(v, dict) and "text" in v else "pending")'; }
+  # The Jarvis session row on the Settings page, taken as NAME.
+  jarvis_restart_row_shot() { # NAME
+    close_notices
+    expect "the Settings window opens for the Jarvis session row" ok ipc shell summon "$settings_kind" vgs.settings '{}'
+    expect_poll "the Settings window maps for the Jarvis session row" 1 settings_count
+    expect "the window opens the Jarvis page for its session row" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin vgs.jarvis
+    expect_poll "the Jarvis page is shown for its session row" '"vgs.jarvis"' settings_page
+    page_status vgs.jarvis sessionStart || fail "the Jarvis session row's tab is unreadable"
+    jarvis_anchor_shot "$1" Label "Jarvis session"
+    settings_close
+  }
   jarvis_restart_stopped() { if grep -qs '"argv": \["stop"' -- "$scripts/calls.log"; then echo asked; else echo none; fi; }
   mkdir -p -- "$scripts"
   cp -- "$checkout/scripts/fixtures/jarvis/session-package.py" "$scripts/jarvis-session"
@@ -4795,10 +4812,10 @@ names = [("delegate", "jarvis"), ("overseer", "vgshell"), ("lane", "VGS-1797")]
 saved = {"unlock": "1password", "steps": [step(kind, name, "pending") for kind, name in names]}
 ran = {"unlock": "1password", "steps": [step("delegate", "jarvis", "resumed"), step("overseer", "vgshell", "resumed"),
     step("lane", "VGS-1797", "failed", "Copilot settings were busy")]}
-live = entry("running", "resumed", model="claude-opus-4-1", since="2026-10-17T18:02:00Z", restart=ran)
+live = entry("running", "restart-resumed", model="claude-opus-4-1", since="2026-10-17T18:02:00Z", restart=ran)
 json.dump({"status": entry("stopped", "ended", restart=saved),
            "resume": dict(entry("starting", "resuming"), then={"status": live}),
-           "prepare": entry("running", "resumed", saved=True),
+           "prepare": entry("running", "restart-resumed", saved=True),
            "stop": entry("stopping", "stop-requested")}, open(path, "w"))
 PY
   jarvis_home_setting "$config" "~/jarvis-restart-home"
@@ -4817,7 +4834,12 @@ PY
   fi
   park_pointer
   expect_poll "the Jarvis tooltip closes after its saved session" false tooltip_opened vgs.jarvis
+  jarvis_restart_row_shot "jarvis-restart-$1-$phase-row-offer"
   if [[ $phase == after ]]; then
+    expect "Do not resume is taken" ok ipc vgs.jarvis invoke dismiss-resume ''
+    expect_poll "the refused Do not resume puts its line on the Jarvis row" 1 jarvis_restart_lines
+    expect_poll "the refused Do not resume keeps the offer" '"Saved before the restart"' jarvis_restart_row
+    jarvis_restart_row_shot "jarvis-restart-$1-$phase-row-not-saved"
     expect "the saved session's resume is taken" ok ipc vgs.jarvis invoke resume-session ''
     expect_poll "the resumed session's steps reach the widget" 3 jarvis_restart_steps
     if hover_widget "the pointer rests on Jarvis for its resumed session" vgs.jarvis; then
@@ -4826,6 +4848,8 @@ PY
     fi
     park_pointer
     expect_poll "the Jarvis tooltip closes after its resumed session" false tooltip_opened vgs.jarvis
+    expect_poll "the Jarvis row shows the resumed session's model and start time" 2 jarvis_restart_lines
+    jarvis_restart_row_shot "jarvis-restart-$1-$phase-row-resumed"
     if [[ $(shell_resolves systemctl) == "$shim/systemctl" ]]; then
       rm -f -- "$log"
       sentinel_stand_over "$shim/systemctl" <<EOF

@@ -620,6 +620,7 @@ var SESSION_ROWS = {
     "running new-history-gone": { tone: "ok", text: "Running", hint: "A new session continued your saved work because the saved conversation is unavailable" },
     "running new-selection-changed": { tone: "ok", text: "Running", hint: "A new session continued your saved work on the selected account" },
     "running resumed": { tone: "ok", text: "Running", names: true },
+    "running restart-resumed": { tone: "ok", text: "Running", names: true },
     "running new-requested": { tone: "ok", text: "Running", names: true },
     "running existing": { tone: "ok", text: "Running", names: true },
     "handing-over succession": { tone: "info", text: "Handing over", hint: "Jarvis is moving its saved work to a new session" },
@@ -654,10 +655,12 @@ function sessionClock(iso) {
 }
 
 // The reasons of a live session that is the resume of the record saved
-// before a machine restart: `resuming` until the delegate step's outcome is
-// written, then `resumed`. The package gives a session `start` started
-// beside the record neither (`launching`, `existing`, `new-requested`).
-var SESSION_RESUME_REASONS = ["resuming", "resumed"];
+// before a machine restart, which only the package's resume worker writes:
+// `resuming` until the delegate step's outcome is written, then
+// `restart-resumed`. A session `start` started beside the record carries
+// neither: `resumed` is a start in mode resume that found its saved
+// conversation, and says nothing of the record.
+var SESSION_RESUME_REASONS = ["resuming", "restart-resumed"];
 
 // Whether RESULT reads a live session that is its record's resume.
 function sessionResumeLive(result) {

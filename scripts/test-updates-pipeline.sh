@@ -733,6 +733,7 @@ row_reboot() {
   echo 1 >"$fix/answer-reboot"
   pipeline update.sh
   assert "a no does not reboot" test "$(grep -c '^systemctl' "$tmp/seq")" == 0
+  assert "a no asks for no power action" no_call "vgshell power "
 }
 # The run's own upgrade list, pacman -Q before the first package step and
 # after the last, judged by the CachyOS reboot hook's targets and its
@@ -1570,6 +1571,7 @@ control conflict-versioned 'conflict="\"$(_updates_json_text "${BASH_REMATCH[2]%
 control record-kept '      rm -f -- "${state:?}/rebuild-failed.json"' '      :' row_rebuild_failed
 control no-recovery "trap '_updates_failed \$?' ERR" ':' row_stopped
 control no-reboot-check '  _updates_reboot "${_updates_core[@]}"' '  :' row_reboot
+control later-powers '    1) echo "Reboot later to run the updated system." ;;' '    1) "$_updates_vgshell" power reboot ;;' row_reboot
 control no-success-recheck '  _updates_recheck "$ended"' '  :' row_reboot
 control no-failure-recheck '  _updates_recheck failed' '  :' row_stopped
 control source-stops-run '"$_updates_cause_file" >&2) || status=$?' '"$_updates_cause_file" >&2)' row_failure

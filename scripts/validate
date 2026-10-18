@@ -437,6 +437,7 @@ rows=(
   "cli|greeter helper controls|scripts/test-greeter-helpers.sh|scripts/vgshell-rows.sh shell/plugins/vgs.greeter/bin/*"
   "cli|greeter compositor controls|scripts/test-greeter-compositor.sh|scripts/vgshell-rows.sh config/system/greeter/hyprland.lua"
   "cli|vgshell lock controls|scripts/test-vgshell-lock.sh|scripts/vgshell-rows.sh bin/vgshell bin/vgshell-lock bin/lib/ipc-reply.sh"
+  "cli|vgshell power controls|scripts/test-vgshell-power.sh|scripts/vgshell-rows.sh bin/vgshell bin/vgshell-power bin/lib/ipc-reply.sh"
   "cli|floating TUI library controls|scripts/test-tui.sh|scripts/vgshell-rows.sh bin/lib/tui.sh .agents/skills/vgs-plugin/templates/tui.sh"
   "cli|gum target under the TUI presenter|node scripts/test-theme-gum.js|themes/targets/gum/* themes/vgs/* themes/catalog/flexoki-light/* bin/lib/* bin/vgshell-tui bin/vgshell-theme-judge shell/Commons/ThemeLogic.js shell/Commons/Tokens.js shell/Commons/AccountDirectories.js shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Pads.js shell/Core/PackageManagers.js shell/Ui/icons/Lucide.js shell/Core/HyprlandLayer.js shell/Commons/SettingValues.js shell/Commons/PageReference.js"
   "cli|tmux target truecolor lines|node scripts/test-theme-tmux.js|themes/targets/tmux/* themes/vgs/* bin/lib/theme-render.js bin/lib/qml-library.js shell/Commons/ThemeLogic.js shell/Commons/Tokens.js"

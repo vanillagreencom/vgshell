@@ -400,6 +400,9 @@ if [[ $(session_resolves systemctl) == "$shim/systemctl" && $(session_resolves v
   expect "with no live session Jarvis lets a reboot proceed" proceed ipc vgs.jarvis invoke power reboot
   expect "the launcher's Reboot runs with no live session" "" session_menu system.reboot
   expect "the launcher's Reboot with no live session runs systemctl reboot at once" '[["reboot"]]' session_systemctl
+  rm -f -- "${session_systemctl_log:?}"
+  expect "the launcher's Shut down runs with no live session" "" session_menu system.shutdown
+  expect "the launcher's Shut down with no live session runs systemctl poweroff at once" '[["poweroff"]]' session_systemctl
   expect "with no live session nothing asks the package to save" '[]' session_calls prepare
 
   session_live_holding 1
@@ -485,7 +488,7 @@ session_offer_answers() {
   session_answers "stopped ended" "running existing" "stopping stop-requested"
   session_answer status "{\"exit\": 0, \"object\": {\"state\": \"stopped\", \"reason\": \"ended\", \"restart\": $pending}}"
   session_answer dismiss '{"exit": 0, "object": {"state": "stopped", "reason": "ended"}, "then": {"status": {"exit": 0, "object": {"state": "stopped", "reason": "ended"}}}}'
-  session_answer resume "{\"exit\": 0, \"hold\": 2, \"object\": {\"state\": \"starting\", \"reason\": \"resuming\"}, \"then\": {\"status\": {\"exit\": 0, \"object\": {\"state\": \"running\", \"reason\": \"resumed\", \"restart\": $resumed}}}}"
+  session_answer resume "{\"exit\": 0, \"hold\": 2, \"object\": {\"state\": \"starting\", \"reason\": \"resuming\"}, \"then\": {\"status\": {\"exit\": 0, \"object\": {\"state\": \"running\", \"reason\": \"restart-resumed\", \"restart\": $resumed}}}}"
 }
 session_resume_words() { # ORIGIN...
   python3 -c 'import json,sys; print(json.dumps([["resume", "--origin", origin, "--home", sys.argv[1]] for origin in sys.argv[2:]]))' "$session_home" "$@"
@@ -501,7 +504,7 @@ expect_poll "two Resumes ask the package for one manual resume, in the session's
 expect_poll "the offer ends once the resume starts" null session_offer
 expect_poll "the row reads the resumed session" Running session_text
 expect_poll "the widget shows each step's outcome and the failed step's cause" \
-  '["Resumed the Jarvis session.", "Could not resume overseer vgshell: settings-busy.", "Waiting to resume lane VGS-1797."]' session_steps
+  '["Resumed the Jarvis session.", "Could not resume the agent fleet for project vgshell: settings-busy.", "Waiting to resume coding task VGS-1797."]' session_steps
 expect "a Resume once the resume started is refused" "refused: resume=not-offered" ipc vgs.jarvis invoke resume-session ''
 expect "the refused Resume asks for no resume" "$(session_resume_words manual)" session_calls resume
 
@@ -514,7 +517,7 @@ session_shell_start "$repo" resume-failed
 expect_poll "a shell before a resume that fails offers it" '{"unlock": null}' session_offer
 expect "Resume is taken" ok ipc vgs.jarvis invoke resume-session ''
 expect_poll "a failed resume shows the failed step's cause and the steps it did not reach" \
-  '["Could not resume the Jarvis session: launch-timeout.", "Could not resume overseer vgshell.", "Could not resume lane VGS-1797."]' session_steps
+  '["Could not resume the Jarvis session: launch-timeout.", "Could not resume the agent fleet for project vgshell.", "Could not resume coding task VGS-1797."]' session_steps
 expect "the failed resume asks for one manual resume" "$(session_resume_words manual)" session_calls resume
 expect "a failed resume offers nothing again" null session_offer
 expect "the row reads the failed session" "Not started" session_text
