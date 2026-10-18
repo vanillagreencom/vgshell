@@ -954,7 +954,7 @@ rm -f -- "${rdir:?}"/acme.*@*.json
 control colour-only-line vgshell-tui 'gum_colour_line="^($_vgs_tui_gum_colours|VGS_TUI_$_vgs_tui_upper+)=(#$_vgs_tui_hex{6})?\$"' \
   'gum_colour_line="^($_vgs_tui_gum_colours|VGS_TUI_$_vgs_tui_upper+)=(#$_vgs_tui_hex{6})\$"'
 check "the colour-only-line mutant fails the empty value row" test "$(empty_value_row "$control_bin" && echo green || echo red)" == red
-control no-bold-line vgshell-tui '    if [[ $line =~ $gum_colour_line || $line =~ $gum_bold_line ]]; then' '    if [[ $line =~ $gum_colour_line ]]; then'
+control no-bold-line vgshell-tui '    elif [[ $line =~ $gum_colour_line || $line =~ $gum_bold_line ]]; then' '    elif [[ $line =~ $gum_colour_line ]]; then'
 check "the no-bold-line mutant fails the bold rows" test "$(bold_rows "$control_bin" && echo green || echo red)" == red
 control any-bold-value vgshell-tui 'gum_bold_line="^($_vgs_tui_gum_bolds)=true\$"' 'gum_bold_line="^($_vgs_tui_gum_bolds)=[^=]*\$"'
 check "the any-bold-value mutant fails the bold rows" test "$(bold_rows "$control_bin" && echo green || echo red)" == red

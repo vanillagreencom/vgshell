@@ -1103,7 +1103,7 @@ control gum-behaviour-option 'GUM_($_vgs_tui_upper|_)+_(FOREGROUND|BACKGROUND)|'
 check "the gum-behaviour-option mutant fails the gum words row" test "$(gum_env_row && echo green || echo red)" == red
 control gum-unanchored '[[ $name =~ ^($_vgs_tui_gum_names|TERM|COLORTERM)$ ]]' '[[ $name =~ ($_vgs_tui_gum_names|TERM|COLORTERM) ]]'
 check "the gum-unanchored mutant fails the gum words row" test "$(gum_env_row && echo green || echo red)" == red
-control gum-no-bold '_vgs_tui_gum_names="$_vgs_tui_gum_colours|$_vgs_tui_gum_bolds"' '_vgs_tui_gum_names="$_vgs_tui_gum_colours"'
+control gum-no-bold '_vgs_tui_gum_names="$_vgs_tui_gum_colours|$_vgs_tui_gum_bolds|$_vgs_tui_gum_paths"' '_vgs_tui_gum_names="$_vgs_tui_gum_colours|$_vgs_tui_gum_paths"'
 check "the gum-no-bold mutant fails the gum words row" test "$(gum_env_row && echo green || echo red)" == red
 control gum-drops-empty 'then _vgs_tui_words+=("$name=${!name}"); fi' 'then [[ -z ${!name} ]] || _vgs_tui_words+=("$name=${!name}"); fi'
 check "the gum-drops-empty mutant fails the gum words row" test "$(gum_env_row && echo green || echo red)" == red
