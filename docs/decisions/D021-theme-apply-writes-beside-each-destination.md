@@ -3,13 +3,15 @@
 [← Decision Index](INDEX.md)
 
 **Date**: 2026-09-27
+
 **Status**: Active (application-directory writes → [D022](D022-theme-apply-keeps-managed-links-in-application-directories.md))
-**Research**: [VGS-461](https://linear.app/vanillagreen/issue/VGS-461), [VGS-458](https://linear.app/vanillagreen/issue/VGS-458)
 
-**Decision**: Apply renders into a stage and swaps it over the state `theme/` directory by rename, under one `flock` beside the theme file. Every application write is staged beside its destination and moved in by rename; a symlink is resolved and the file it names replaced with its mode kept. The shell document is written last. A target that fails to render leaves the apply `partial` and keeps the files it landed, and an include line is never left naming a dropped file.
+**Research**: [VGS-461](https://linear.app/vanillagreen/issue/VGS-461), [VGS-458](https://linear.app/vanillagreen/issue/VGS-458), [VGS-1800](https://linear.app/vanillagreen/issue/VGS-1800), [VGS-1834](https://linear.app/vanillagreen/issue/VGS-1834)
 
-**Why**: A rename in one directory is atomic and crosses no filesystem. Replacing the resolved file keeps a dotfile manager's link a link. The lock beside the theme file is the one place two callers with different runtime directories both reach. Writing the shell last keeps the displayed theme from running ahead of the applications.
+**Decision**: Apply renders into a stage and swaps it over the state `theme/` directory by rename, under one `flock` beside the theme file. Every application write is staged beside its destination and moved in by rename; a symlink is resolved and the file it names replaced with its mode kept. The shell document is written last. A target that fails to render leaves the apply `partial` and keeps the files it landed, and an include line is never left naming a dropped file. A target's include goes last (`"last": true` wiring) when the application lets a later definition replace an earlier one, as tmux, Ghostty and Emacs do. Every other include goes first.
 
-**Rejected**: An in-place write, which can leave a user's configuration half-written on a crash; replacing the link, which severs the managed file; and a lock under `XDG_RUNTIME_DIR`, which two callers need not share.
+**Why**: A rename in one directory is atomic and crosses no filesystem. Replacing the resolved file keeps a dotfile manager's link a link. The lock beside the theme file is the one place two callers with different runtime directories both reach. Writing the shell last keeps the displayed theme from running ahead of the applications. Last placement lets the included theme replace earlier definitions; first placement remains the default.
 
-**Revisit when**: An application reads its configuration through a hard link or watches its inode, needs its include line somewhere other than the first line, or needs `theme/` present at every instant.
+**Rejected**: An in-place write, which can leave a user's configuration half-written on a crash; replacing the link, which severs the managed file; a lock under `XDG_RUNTIME_DIR`, which two callers need not share; and always putting includes first, which lets later definitions replace the theme.
+
+**Revisit when**: An application reads its configuration through a hard link or watches its inode, needs include precedence that first or last placement cannot provide, or needs `theme/` present at every instant.
