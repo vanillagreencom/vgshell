@@ -3125,11 +3125,16 @@ function setupTargetRows(name, target, configHome, live) {
     case "entry": {
         let plan;
         try {
-            // A theme file alone does not connect an application whose
-            // settings still select another theme, as btop can do.
-            if (target.select !== undefined && selectionEdits(target, configHome, live)
-                .some(selection => selection.edit(latin1(readIfPresent(selection.file))) !== null)) return [];
-            plan = currentEntries(target, entryDirs(target, configHome), live);
+            let roots = isAccountTarget(target) ? accountRoots(target, true) : undefined;
+            // Each account selects independently. A managed theme file
+            // connects only the account whose settings select that theme.
+            if (target.select !== undefined) {
+                const selected = selectionEdits(target, configHome, live, roots)
+                    .map(selection => selection.edit(latin1(readIfPresent(selection.file))) === null);
+                if (roots !== undefined) roots = roots.filter((root, index) => selected[index]);
+                else if (selected.some(holds => !holds)) return [];
+            }
+            plan = currentEntries(target, entryDirs(target, configHome, roots), live);
         } catch (e) {
             if (typeof e.code !== "string") throw e;
             return unreadable(e.path || configHome, e.code);

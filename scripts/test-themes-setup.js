@@ -89,7 +89,7 @@ try {
     const home = path.join(btopScratch, "home");
     const config = path.join(home, ".config");
     const state = path.join(home, ".local/state/vgshell");
-    for (const name of ["bin", "shell/Commons", "themes/targets/btop"])
+    for (const name of ["bin", "shell/Commons", "themes/targets/btop", "themes/targets/claude", "themes/targets/codex"])
         fs.cpSync(path.join(setupRepo, name), path.join(tree, name), { recursive: true });
     fs.mkdirSync(path.join(config, "btop/themes"), { recursive: true });
     fs.mkdirSync(path.join(state, "theme"), { recursive: true });
@@ -99,15 +99,15 @@ try {
     const judge = path.join(tree, "bin/vgshell-theme-judge");
     const env = { HOME: home, PATH: path.dirname(process.execPath), XDG_CONFIG_HOME: config,
         XDG_STATE_HOME: path.join(home, ".local/state"), VGS_TEST_RUN: "1" };
-    function readBtopWiring() {
+    function readWiring(name) {
         const result = spawnSync(process.execPath, [judge, "setup", "json", path.join(config, "vgshell"), state], { env, encoding: "utf8", timeout: 10000 });
         assert.equal(result.status, 0, result.stderr);
-        return JSON.parse(result.stdout).wiring.filter(row => row.name === "btop" && row.state === "wired");
+        return JSON.parse(result.stdout).wiring.filter(row => row.name === name && row.state === "wired");
     }
     for (const selection of ['color_theme = "Default"\n', '# owner\n', null, 'color_theme = "vgs"\n']) {
         if (selection === null) fs.unlinkSync(settings);
         else fs.writeFileSync(settings, selection);
-        const rows = readBtopWiring();
+        const rows = readWiring("btop");
         if (selection === 'color_theme = "vgs"\n') {
             assert.ok(rows.some(row => row.file === settings));
             assert.ok(rows.some(row => row.file === path.join(config, "btop/themes/vgs.theme")));
@@ -115,13 +115,63 @@ try {
     }
     fs.writeFileSync(settings, 'color_theme = "Default"\n');
     const source = fs.readFileSync(judge, "utf8");
-    const needle = 'if (target.select !== undefined && selectionEdits(target, configHome, live)\n                .some(selection => selection.edit(latin1(readIfPresent(selection.file))) !== null)) return [];';
+    const needle = 'else if (selected.some(holds => !holds)) return [];';
     assert.equal(source.split(needle).length, 2);
     const mutant = source.replace(needle, "");
     assert.notEqual(mutant, source);
     fs.writeFileSync(judge, mutant);
-    const mutantRows = readBtopWiring();
+    const mutantRows = readWiring("btop");
     assert.throws(() => assert.deepEqual(mutantRows, []), { name: "AssertionError" });
+    fs.writeFileSync(judge, source);
+
+    const families = [
+        { name: "claude", root: ".claude", settings: "settings.json", entry: "vgs.json", render: "claude.json",
+            selected: '{"theme":"custom:vgs","owner":true}\n', other: '{"theme":"dark","owner":true}\n', line: "theme = custom:vgs" },
+        { name: "codex", root: ".codex", settings: "config.toml", entry: "vgs.tmTheme", render: "codex.tmTheme",
+            selected: 'owner = true\n[tui]\ntheme = "vgs"\n', other: 'owner = true\n[tui]\ntheme = "other"\n', line: "tui.theme = vgs" }
+    ];
+    for (const family of families) {
+        fs.writeFileSync(path.join(state, "theme", family.render), "managed theme\n");
+        for (const suffix of ["", "-work"]) {
+            const entries = path.join(home, family.root + suffix, "themes");
+            fs.mkdirSync(entries, { recursive: true });
+            const entry = path.join(entries, family.entry);
+            if (family.name === "claude") fs.copyFileSync(path.join(state, "theme", family.render), entry);
+            else fs.symlinkSync(path.join(state, "theme", family.render), entry);
+        }
+    }
+    function verifyAccounts() {
+        for (const family of families) {
+            for (const connected of [[true, false], [false, true], [true, true], [false, false]]) {
+                const expected = [];
+                for (const [index, suffix] of ["", "-work"].entries()) {
+                    const root = path.join(home, family.root + suffix);
+                    const file = path.join(root, family.settings);
+                    fs.writeFileSync(file, connected[index] ? family.selected : family.other);
+                    if (connected[index]) expected.push([path.join(root, "themes", family.entry), null], [file, family.line]);
+                }
+                const rows = readWiring(family.name).map(row => [row.file, row.line]);
+                const byFile = (left, right) => left[0].localeCompare(right[0]);
+                assert.deepEqual(rows.sort(byFile), expected.sort(byFile), family.name + ": " + connected.join(","));
+                for (const [index, suffix] of ["", "-work"].entries())
+                    assert.equal(fs.readFileSync(path.join(home, family.root + suffix, family.settings), "utf8"),
+                        connected[index] ? family.selected : family.other);
+            }
+        }
+    }
+    verifyAccounts();
+    const accountNeedle = "if (roots !== undefined) roots = roots.filter((root, index) => selected[index]);";
+    assert.equal(source.split(accountNeedle).length, 2);
+    const accountMutant = source.replace(accountNeedle, "if (selected.some(holds => !holds)) return [];");
+    assert.notEqual(accountMutant, source);
+    fs.writeFileSync(judge, accountMutant);
+    fs.writeFileSync(path.join(home, ".claude/settings.json"), families[0].selected);
+    fs.writeFileSync(path.join(home, ".claude-work/settings.json"), families[0].other);
+    const accountMutantRows = readWiring("claude").map(row => [row.file, row.line]);
+    assert.throws(() => assert.deepEqual(accountMutantRows, [
+        [path.join(home, ".claude/themes/vgs.json"), null],
+        [path.join(home, ".claude/settings.json"), "theme = custom:vgs"]
+    ]), { name: "AssertionError" });
 } finally {
     fs.rmSync(btopScratch, { recursive: true, force: true });
 }
