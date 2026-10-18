@@ -3154,13 +3154,17 @@ function setupTargetRows(name, target, configHome, live) {
                         return { ...selection, connected: false, error: e.code };
                     }
                 });
-                // Each shipped entry configuration keeps its theme directory
-                // below its settings file. Match paths, never target order or
-                // another configuration's selection, including account roots.
-                dirs = dirs.filter(dir => selections.some(selection => {
-                    const relative = path.relative(path.dirname(selection.file), dir);
-                    return selection.connected && !path.isAbsolute(relative) && relative !== ".." && !relative.startsWith(".." + path.sep);
-                }));
+                // Explicit account roots can nest. The nearest settings
+                // ancestor owns the entry even when it selects another theme.
+                dirs = dirs.filter(dir => {
+                    const owner = selections.reduce((nearest, selection) => {
+                        const root = path.dirname(selection.file);
+                        const relative = path.relative(root, dir);
+                        if (path.isAbsolute(relative) || relative === ".." || relative.startsWith(".." + path.sep)) return nearest;
+                        return nearest === undefined || root.length > path.dirname(nearest.file).length ? selection : nearest;
+                    }, undefined);
+                    return owner?.connected === true;
+                });
             }
             plan = currentEntries(target, dirs, live);
         } catch (e) {

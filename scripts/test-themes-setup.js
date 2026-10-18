@@ -99,9 +99,11 @@ try {
             entries: [["themes/vgs.theme", "btop.theme", "link"]], lines: ["color_theme = vgs"],
             selected: 'color_theme = "vgs"\n# owner\n', other: 'color_theme = "Default"\n# owner\n', missing: '# owner\n' },
         { name: "claude", base: home, roots: [".claude", ".claude-work"], settings: "settings.json",
+            nested: [".claude", ".claude/work"], explicit: "CLAUDE_CONFIG_DIR",
             entries: [["themes/vgs.json", "claude.json", "copy"]], lines: ["theme = custom:vgs"],
             selected: '{"theme":"custom:vgs","owner":true}\n', other: '{"theme":"dark","owner":true}\n' },
         { name: "codex", base: home, roots: [".codex", ".codex-work"], settings: "config.toml",
+            nested: [".codex", ".codex/work"], explicit: "CODEX_HOME",
             entries: [["themes/vgs.tmTheme", "codex.tmTheme", "link"]], lines: ["tui.theme = vgs"],
             selected: 'owner = true\n[tui]\ntheme = "vgs"\n', other: 'owner = true\n[tui]\ntheme = "other"\n' },
         { name: "hermes", base: home, roots: [".hermes"], settings: "config.yaml",
@@ -127,7 +129,7 @@ try {
         fs.cpSync(path.join(setupRepo, name), path.join(tree, name), { recursive: true });
     fs.mkdirSync(path.join(state, "theme"), { recursive: true });
     for (const row of configurations) {
-        for (const root of row.roots) {
+        for (const root of new Set([...row.roots, ...(row.nested ?? [])])) {
             for (const [entry, rendered, kind] of row.entries) {
                 const file = path.join(row.base, root, entry);
                 const live = path.join(state, "theme", rendered);
@@ -141,8 +143,8 @@ try {
     const judge = path.join(tree, "bin/vgshell-theme-judge");
     const env = { HOME: home, PATH: path.dirname(process.execPath), XDG_CONFIG_HOME: config,
         XDG_STATE_HOME: path.join(home, ".local/state"), VGS_TEST_RUN: "1" };
-    function readWiring(name) {
-        const result = spawnSync(process.execPath, [judge, "setup", "json", path.join(config, "vgshell"), state], { env, encoding: "utf8", timeout: 10000 });
+    function readWiring(name, explicit) {
+        const result = spawnSync(process.execPath, [judge, "setup", "json", path.join(config, "vgshell"), state], { env: { ...env, ...explicit }, encoding: "utf8", timeout: 10000 });
         assert.equal(result.status, 0, result.stderr);
         return JSON.parse(result.stdout).wiring.filter(row => row.name === name);
     }
@@ -152,33 +154,38 @@ try {
         if (applied === "valid") fs.copyFileSync(path.join(setupRepo, "themes/vgs/terminal.json"), path.join(state, "theme/terminal.json"));
         if (applied === "invalid") fs.writeFileSync(path.join(state, "theme/terminal.json"), "{}\n");
         for (const row of configurations) {
-            const states = row.roots.length === 1 ? [[true], [false], [null], ["missing"], ["unreadable"]]
-                : [[true, false], [false, true], [true, true], [false, false], [true, null], [null, true], [true, "missing"], ["missing", true], [true, "unreadable"], ["unreadable", true]];
-            for (const connected of states) {
-                const expected = [];
-                for (const [index, root] of row.roots.entries()) {
-                    const file = path.join(row.base, root, row.settings);
-                    fs.rmSync(file, { recursive: true, force: true });
-                    if (connected[index] === "unreadable") fs.mkdirSync(file);
-                    else if (connected[index] === "missing") fs.writeFileSync(file, row.missing ?? "");
-                    else if (connected[index] !== null) fs.writeFileSync(file, connected[index] ? row.selected : row.other);
-                    const unknownValues = row.values && applied !== "valid";
-                    if (unknownValues || connected[index] === true)
-                        for (const [entry] of row.entries) expected.push([path.join(row.base, root, entry), null, "wired", null]);
-                    if (!unknownValues && connected[index] === true)
-                        for (const line of row.lines) expected.push([file, line, "wired", null]);
-                    if (!unknownValues && connected[index] === "unreadable") expected.push([file, null, "unreadable", "EISDIR"]);
-                }
-                const actual = readWiring(row.name).map(item => [item.file, item.line, item.state, item.error ?? null]);
-                const byFileAndLine = (left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right));
-                assert.deepEqual(actual.sort(byFileAndLine), expected.sort(byFileAndLine), row.name + ": " + applied + ": " + connected.join(","));
-                for (const [index, root] of row.roots.entries()) {
-                    const file = path.join(row.base, root, row.settings);
-                    if (typeof connected[index] === "boolean") assert.equal(fs.readFileSync(file, "utf8"), connected[index] ? row.selected : row.other);
-                    else if (connected[index] === null) assert.equal(fs.existsSync(file), false);
-                    else if (connected[index] === "missing") assert.equal(fs.readFileSync(file, "utf8"), row.missing ?? "");
-                    else assert.equal(fs.statSync(file).isDirectory(), true);
-                }
+            for (const roots of [row.roots, ...(row.nested ? [row.nested] : [])]) {
+                for (const root of new Set([...row.roots, ...(row.nested ?? [])]))
+                    fs.rmSync(path.join(row.base, root, row.settings), { recursive: true, force: true });
+                const explicit = roots === row.nested ? { [row.explicit]: path.join(row.base, roots[1]) } : {};
+                const states = row.roots.length === 1 ? [[true], [false], [null], ["missing"], ["unreadable"]]
+                    : [[true, false], [false, true], [true, true], [false, false], [true, null], [null, true], [true, "missing"], ["missing", true], [true, "unreadable"], ["unreadable", true]];
+                for (const connected of states) {
+                    const expected = [];
+                    for (const [index, root] of roots.entries()) {
+                        const file = path.join(row.base, root, row.settings);
+                        fs.rmSync(file, { recursive: true, force: true });
+                        if (connected[index] === "unreadable") fs.mkdirSync(file);
+                        else if (connected[index] === "missing") fs.writeFileSync(file, row.missing ?? "");
+                        else if (connected[index] !== null) fs.writeFileSync(file, connected[index] ? row.selected : row.other);
+                        const unknownValues = row.values && applied !== "valid";
+                        if (unknownValues || connected[index] === true)
+                            for (const [entry] of row.entries) expected.push([path.join(row.base, root, entry), null, "wired", null]);
+                        if (!unknownValues && connected[index] === true)
+                            for (const line of row.lines) expected.push([file, line, "wired", null]);
+                        if (!unknownValues && connected[index] === "unreadable") expected.push([file, null, "unreadable", "EISDIR"]);
+                    }
+                    const actual = readWiring(row.name, explicit).map(item => [item.file, item.line, item.state, item.error ?? null]);
+                    const byFileAndLine = (left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right));
+                    assert.deepEqual(actual.sort(byFileAndLine), expected.sort(byFileAndLine), row.name + ": " + roots.join(",") + ": " + applied + ": " + connected.join(","));
+                    for (const [index, root] of roots.entries()) {
+                        const file = path.join(row.base, root, row.settings);
+                        if (typeof connected[index] === "boolean") assert.equal(fs.readFileSync(file, "utf8"), connected[index] ? row.selected : row.other);
+                        else if (connected[index] === null) assert.equal(fs.existsSync(file), false);
+                        else if (connected[index] === "missing") assert.equal(fs.readFileSync(file, "utf8"), row.missing ?? "");
+                        else assert.equal(fs.statSync(file).isDirectory(), true);
+                    }
+            }
             }
         }
     }
@@ -188,8 +195,9 @@ try {
     const source = fs.readFileSync(judge, "utf8");
     const controls = [
         ["selectionEdits(target, configHome, live, undefined, undefined, selectionValues).map", "selectionEdits(target, configHome, live, undefined, undefined).map"],
-        ["return selection.connected &&", "return true &&"],
-        ["return selection.connected &&", "return selection.connected && selections.every(item => item.connected) &&"]
+        ["return owner?.connected === true;", "return owner !== undefined;"],
+        ["return owner?.connected === true;", "return owner?.connected === true && selections.every(item => item.connected);"],
+        ["root.length > path.dirname(nearest.file).length", "selection.connected"]
     ];
     for (const [needle, replacement] of controls) {
         assert.equal(source.split(needle).length, 2);
