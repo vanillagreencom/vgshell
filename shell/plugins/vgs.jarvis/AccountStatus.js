@@ -16,15 +16,18 @@ function counted(count, one, many) {
  * Accounts works on could not be read or Jarvis could not run the check.
  * Any other outcome reads as a failed check.
  */
-function searchValue(outcome) {
+function searchValue(outcome, pageReference) {
     if (outcome.kind === "found") {
         var found = counted(outcome.found, "account found", "accounts found");
         if (outcome.partial === "entry-limit")
-            return { tone: "warning", text: found + ". Your home folder is too large to search fully. Add an account by hand with Accounts.", action: true };
+            return { tone: "warning", text: found + ". Search stopped at 10,000 folder entries.", action: true,
+                hint: "Add an account with Accounts",
+                info: "Jarvis searches up to 10,000 entries in each parent folder. This limit keeps a large folder from delaying account search. Use Accounts to add a folder that the search missed. Open your " + pageReference.fileReference("home folder", "~/") + " to look for it." };
         if (outcome.partial === "parent-unreadable")
             return { tone: "warning", text: found + ". Some of your folders could not be read. Add an account by hand with Accounts.", action: true };
         if (outcome.partial === "account-limit")
-            return { tone: "warning", text: found + ". Jarvis shows no more than these.", action: true };
+            return { tone: "warning", text: found + ". Jarvis can show up to 32 accounts.", action: true,
+                info: "Jarvis shows up to 32 accounts so the account list stays small enough to use. Use Accounts to remove an account you do not use before you add another." };
         if (outcome.partial === "")
             return outcome.found > 0 ? { tone: "ok", text: found, action: true }
                 : { tone: "info", text: "No account found yet", action: true };
