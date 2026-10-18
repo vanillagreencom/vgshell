@@ -127,6 +127,7 @@ FIELDS = (
     ("menu", "*", "label"), ("menu", "*", "description"), ("menu", "*", "toggle", "label"),
     ("hyprland", "binds", "*", "info"),
     ("sounds", "*", "label"), ("sounds", "*", "description"), ("sounds", "*", "own"),
+    ("setupGuide", "title"), ("setupGuide", "text"), ("setupGuide", "link"),
     ("secrets", "label"),
 )
 # The keys the judge admits that the check does not read, and why: an
@@ -141,7 +142,8 @@ EXEMPT = (
     ("status", "*", "actions", "*", "tui"), ("status", "*", "actions", "*", "system"), ("status", "*", "actions", "*", "undo"), ("status", "*", "actions", "*", "tone"), ("status", "*", "actions", "*", "icon"), ("status", "*", "actions", "*", "dictation"), ("status", "*", "actions", "*", "file"),
     ("status", "*", "aside", "tui"), ("status", "*", "aside", "system"), ("status", "*", "aside", "undo"), ("status", "*", "aside", "tone"), ("status", "*", "aside", "icon"), ("status", "*", "aside", "dictation"), ("status", "*", "aside", "file"),
     ("status", "*", "rowActions", "*", "tui"), ("status", "*", "rowActions", "*", "system"), ("status", "*", "rowActions", "*", "undo"), ("status", "*", "rowActions", "*", "tone"), ("status", "*", "rowActions", "*", "icon"), ("status", "*", "rowActions", "*", "dictation"), ("status", "*", "rowActions", "*", "file"),
-    ("status", "*", "settings"), ("status", "*", "icon"),
+    ("status", "*", "settings"), ("status", "*", "icon"), ("status", "*", "plain"),
+    ("setupGuide", "readme"),
     ("requirements", "*", "command"), ("requirements", "*", "dbus", "bus"), ("requirements", "*", "dbus", "name"), ("requirements", "*", "packages"), ("requirements", "*", "optional"), ("requirements", "*", "floor"), ("requirements", "*", "install"),
     ("tui", "*", "script"), ("tui", "*", "size"), ("tui", "*", "presentation"), ("tui", "*", "requires"), ("tui", "*", "entry", "icon"), ("tui", "*", "entry", "settings"),
     ("menu", "*", "icon"), ("menu", "*", "aliases"), ("menu", "*", "shortcut"), ("menu", "*", "tui"), ("menu", "*", "tuiGroup"), ("menu", "*", "provider"), ("menu", "*", "toggle", "setting"), ("menu", "*", "toggle", "icon"),

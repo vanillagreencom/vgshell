@@ -76,6 +76,8 @@ function suite(ctx, configLogic, check) {
         ["key step refers to required work", { ready: { type: "state", label: "Ready" }, keys: { type: "presenceList", label: "Keys", step: "ready" } }, true, false],
         ["key association value type", { ...requiredStatus, keys: { type: "text", label: "Keys", step: "ready" } }, true, false],
         ["one status place", { ...requiredStatus, keys: { type: "presenceList", label: "Keys", step: "ready", setting: "mode" } }, true, false],
+        ["connection keys with a hint Setup never draws", { ...requiredStatus, keys: { type: "presenceList", label: "Keys", step: "ready", hint: "Paste both keys" } }, true, false],
+        ["connection keys with an info Setup never draws", { ...requiredStatus, keys: { type: "presenceList", label: "Keys", step: "ready", info: "Both keys come from Google Cloud." } }, true, false],
         ["hidden plugin-owned action needs no manager row", { optional: { type: "state", label: "Optional", hidden: true, action: { label: "Fix", tui: "fix" } } }, false, true],
         ["an optional feature's action beside its fact on Details", { optional: { type: "state", label: "Optional", action: { label: "Fix", tui: "fix" } } }, false, true]
     ];
@@ -237,6 +239,49 @@ function suite(ctx, configLogic, check) {
         ["a row action before the list is reported", true, {}, "b", "remove", { ok: false, answer: "refused: action=pairs reason=row-changed" }]
     ])
         check("rows act: " + name, ctx.statusActionRequest(rowsManifest, "acme.rows", enabled, values, "pairs", row, rowAction), want);
+    // A `plain` state and a `setupGuide`: the acme.rows fixture with a
+    // Setup step and an account beside its list, then one defect planted.
+    const guidedRaw = () => {
+        const m = rowsRaw();
+        m.status.signIn = { type: "state", label: "Sign in", setup: true, action: { label: "Sign in", tui: "add" } };
+        m.status.account = { type: "state", label: "Account", plain: true, action: { label: "Sign out", tui: "remove", tone: "danger", icon: "log-out" } };
+        m.setupGuide = { title: "Rows needs keys from your own account", text: "It takes about 5 minutes.", link: "Open the guide", readme: "get-your-keys" };
+        return m;
+    };
+    for (const [name, plant, refusal] of [
+        ["a plain account and a guide over a Setup step", m => m, ""],
+        ["plain that is no boolean", m => { m.status.account.plain = "yes"; }, "status.account.plain must be a boolean"],
+        ["a plain list of rows", m => { m.status.pairs.plain = true; }, "status.pairs.plain needs a state entry that is no Setup step"],
+        ["a plain Setup step", m => { m.status.signIn.plain = true; }, "status.signIn.plain needs a state entry that is no Setup step"],
+        ["a guide that is no object", m => { m.setupGuide = "read me"; }, "setupGuide must be an object"],
+        ["a guide with an unknown key", m => { m.setupGuide.url = "https://example.com"; }, "setupGuide has unknown key \"url\""],
+        ["a guide with no title", m => { delete m.setupGuide.title; }, "setupGuide.title must be a printable line"],
+        ["a guide title past its ceiling", m => { m.setupGuide.title = "x".repeat(81); }, "setupGuide.title must be a printable line"],
+        ["a guide text on two lines", m => { m.setupGuide.text = "a\nb"; }, "setupGuide.text must be a printable line"],
+        ["a guide with no link words", m => { m.setupGuide.link = ""; }, "setupGuide.link must be a printable line"],
+        ["a guide anchor in heading case", m => { m.setupGuide.readme = "Get your keys"; }, "setupGuide.readme must be a README heading anchor"],
+        ["a guide anchor with a leading #", m => { m.setupGuide.readme = "#get-your-keys"; }, "setupGuide.readme must be a README heading anchor"],
+        ["a guide anchor of doubled dashes", m => { m.setupGuide.readme = "get--keys"; }, "setupGuide.readme must be a README heading anchor"],
+        ["a guide with no Setup step to head", m => { delete m.status.signIn; }, "setupGuide needs a required Setup step"]
+    ]) {
+        const raw = guidedRaw();
+        plant(raw);
+        const judged = ctx.validateManifest(raw, "/p");
+        check("guided: " + name, judged.ok ? "" : judged.error.slice(0, refusal.length || judged.error.length), refusal);
+    }
+    const guided = ctx.validateManifest(guidedRaw(), "/p").manifest;
+    // A plain state draws as text while it needs nothing, and as its chip
+    // while it needs the user; a state that is not plain keeps its chip.
+    const accountTone = (entry, tone) => ctx.statusRows(guided, { [entry]: { tone: tone, text: "a.person@example.com", action: true } }).find(row => row.key === entry).tone;
+    check("plain: a calm state draws as text", ["ok", "info"].map(tone => accountTone("account", tone)), ["", ""]);
+    check("plain: a state that needs the user keeps its chip", ["warning", "danger"].map(tone => accountTone("account", tone)), ["warning", "danger"]);
+    check("plain: a state that is not plain keeps its chip", accountTone("signIn", "ok"), "success");
+    // The guide a page draws: its README section's address, or no address
+    // for a plugin with no README to open.
+    check("setupGuideRow: the README section", ctx.setupGuideRow(guided, "https://example.com/acme.rows/README.md"),
+        { title: "Rows needs keys from your own account", text: "It takes about 5 minutes.", link: "Open the guide", url: "https://example.com/acme.rows/README.md#get-your-keys" });
+    check("setupGuideRow: no README to open", ctx.setupGuideRow(guided, "").url, "");
+    check("setupGuideRow: no guide", ctx.setupGuideRow(rowsManifest, "https://example.com/README.md"), null);
     const bar = { schemaVersion: 1, id: "vgs.bar", name: "Bar", version: "0.1.0", author: "VGS", description: "d", kinds: ["bar"], entryPoints: { bar: "Bar.qml" } };
     const clock = { schemaVersion: 1, id: "vgs.clock", name: "Clock", version: "0.1.0", author: "VGS", description: "d", kinds: ["bar-widget"], entryPoints: { "bar-widget": "Widget.qml" }, defaultSection: "center" };
     const svc = { schemaVersion: 1, id: "acme.svc", name: "S", version: "1", author: "a", description: "d", kinds: ["service"], entryPoints: { service: "S.qml" }, settings: { x: 0 } };
@@ -2260,6 +2305,7 @@ const CONTROLS = [
     ["required step is displayed", 'entry.hidden === true || ["state", "presence"].indexOf(entry.type) === -1', 'false'],
     ["keys name a required step", 'typeof entry.step !== "string" || !hasOwn(status, entry.step) || status[entry.step].setup !== true', 'false'],
     ["key association holds keys", 'if (entry.type !== "presenceList") return at + ".step needs a key list";', 'if (false) return at + ".step needs a key list";'],
+    ["connection keys declare nothing Setup never draws", 'if (undrawn !== undefined) return at + "." + undrawn', 'if (false) return at + "." + undrawn'],
     ["status has one place", '(entry.setup === true ? 1 : 0) + (entry.setting !== undefined ? 1 : 0) + (entry.step !== undefined ? 1 : 0) > 1', 'false'],
     ["a row action may open no tui", "if (entry.rowActions[names[i]].tui === undefined)", "if (false)"],
     ["a row action may open a listed screen", "if (isPlainObject(tui[entry.rowActions[names[i]].tui].entry))", "if (false)"],
@@ -2585,7 +2631,15 @@ const CONTROLS = [
     ["a third-party plugin of another kind is enabled by its row", "return manifest.id.indexOf(FIRST_PARTY_PREFIX) === 0 ? \"first-party\" : \"row\";", "return \"first-party\";"],
     ["a first-party plugin of another kind is enabled unlisted", "return manifest.id.indexOf(FIRST_PARTY_PREFIX) === 0 ? \"first-party\" : \"row\";", "return \"row\";"],
     ["moving reads enablement from isEnabled", "placed && !isEnabled(config, manifest, defaultBarId)", "placed && (Array.isArray(config.disabledPlugins) ? config.disabledPlugins : []).indexOf(manifest.id) !== -1"],
-    ["alwaysOn is a manifest key", "\"sounds\", \"alwaysOn\"];", "\"sounds\"];"],
+    ["alwaysOn is a manifest key", "\"sounds\", \"alwaysOn\", \"setupGuide\"];", "\"sounds\", \"setupGuide\"];"],
+    ["setupGuide is a manifest key", "\"alwaysOn\", \"setupGuide\"];", "\"alwaysOn\"];"],
+    ["a guide anchor is a README heading's", "|| !README_ANCHOR.test(guide.readme))", ")"],
+    ["a guide heads a Setup step", "if (!Object.keys(status).some(function (key) { return status[key].setup === true; }))\n        return \"setupGuide needs", "if (false)\n        return \"setupGuide needs"],
+    ["a guide links its README section", "url: readme === \"\" ? \"\" : readme + \"#\" + guide.readme", "url: readme"],
+    ["plain is a status entry key", "\"icon\", \"rowActions\", \"plain\"];", "\"icon\", \"rowActions\"];"],
+    ["plain needs a state that is no Setup step", "if (entry.type !== \"state\" || entry.setup === true)\n                return at + \".plain", "if (false)\n                return at + \".plain"],
+    ["a plain state draws as text only while it needs nothing", "if (entry.plain === true && STATUS_ROW_CHIP_TONES.indexOf(value.tone) === -1) return \"\";", "if (entry.plain === true) return \"\";"],
+    ["a plain state draws as text", "if (entry.plain === true && STATUS_ROW_CHIP_TONES.indexOf(value.tone) === -1) return \"\";", ""],
     ["alwaysOn is a boolean", "if (typeof raw.alwaysOn !== \"boolean\")", "if (false)"],
     ["alwaysOn needs the first-party rule", "if (raw.alwaysOn && enablementRule(raw) !== \"first-party\")", "if (false)"],
     ["an alwaysOn plugin is enabled whatever the configuration lists", "if (manifest.alwaysOn === true)\n        return true;", ""],
@@ -2664,7 +2718,7 @@ const CONTROLS = [
     ["a notify message escapes <", '.replace(/</g, "&lt;")', ''],
     ["a notify message escapes >", '.replace(/>/g, "&gt;");', ';'],
     ["a notify title ends the options", 'return argv.concat(["--", judged.title, message]);', 'return argv.concat([judged.title, message]);'],
-    ["sounds is a manifest key", '"secrets", "sounds", "alwaysOn"];', '"secrets", "alwaysOn"];'],
+    ["sounds is a manifest key", '"secrets", "sounds", "alwaysOn",', '"secrets", "alwaysOn",'],
     ["sounds is a capability", '"appearance", "sounds", "soundSettings", ', '"appearance", "soundSettings", '],
     ["soundSettings is a capability", '"appearance", "sounds", "soundSettings", ', '"appearance", "sounds", '],
     ["dictation is a capability", '"soundSettings", "dictation"];', '"soundSettings"];'],

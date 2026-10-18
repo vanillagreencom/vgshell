@@ -58,18 +58,21 @@ Item {
     readonly property string idHint: "Ends in .apps.googleusercontent.com"
     readonly property var keyed: ({ requirements: [], tui: {}, secrets: { service: "acme-unit", label: "Key" },
         status: { connection: { type: "state", label: "Connection", setup: true }, credentials: { type: "presenceList", label: "Credentials", step: "connection" } } })
-    // keyed, its Credentials entry's info and its Client ID's each linking
+    // keyed, its Connection step's info and its Client ID's each linking
     // another plugin's page.
     readonly property var pagedKeys: ({ requirements: [], tui: {}, secrets: { service: "acme-unit", label: "Key" },
-        status: { connection: { type: "state", label: "Connection", setup: true },
-            credentials: { type: "presenceList", label: "Credentials", step: "connection", info: "Keys are listed on the [Done page](page:acme.done/Details)." } } })
+        status: { connection: { type: "state", label: "Connection", setup: true, info: "Keys are listed on the [Done page](page:acme.done/Details)." },
+            credentials: { type: "presenceList", label: "Credentials", step: "connection" } } })
+    // The guide a manifest's setupGuide gives its Setup tab, and the same
+    // guide of a plugin with no README to open.
+    readonly property var guide: ({ title: "Acme needs keys from your own account", text: "It takes about 5 minutes.", link: "Open the guide", url: "https://example.com/acme/README.md#get-your-keys" })
     // The manager row of plugin ID, its MANIFEST's rows for its published
     // VALUES and MISSING commands, with FIELDS over them; its field rows
     // are the core's (PluginLogic.fieldRows) over the schema FIELDS holds.
     function pluginRow(id, manifest, values, missing, fields) {
         const row = Object.assign({ id: id, name: id, version: "1", description: "", author: "VGS", license: "", icon: "package", source: "bundled",
             enabled: true, alwaysOn: false, placed: false, kinds: ["service"], capabilities: [], schema: {}, settings: {}, settingChoices: {},
-            status: PluginLogic.statusRows(manifest, values), secretLabel: "", readme: "", tuis: [], builtins: [], opens: "", paneHolder: "", binds: [],
+            status: PluginLogic.statusRows(manifest, values), secretLabel: "", readme: "", guide: null, tuis: [], builtins: [], opens: "", paneHolder: "", binds: [],
             requirements: PluginLogic.requirementRows(manifest, missing, {}), errors: [] }, fields);
         row.fieldRows = PluginLogic.fieldRows(row.schema, manifest.status);
         return row;
@@ -98,6 +101,8 @@ Item {
             pluginRow("acme.present", requiredTools, {}, [], {}),
             pluginRow("acme.keys", keyed, { connection: ready, credentials: [{ label: "Client ID", value: "present", secret: "acme:id" }, { label: "Client secret", value: "absent", secret: "acme:secret" }] }, [], {}),
             pluginRow("acme.explained", keyed, { connection: ready, credentials: [{ label: "Client ID", value: "present", hint: root.idHint, info: root.idInfo, secret: "acme:id" }, { label: "Client secret", value: "absent", secret: "acme:secret" }] }, [], {}),
+            pluginRow("acme.guided", keyed, { connection: ready, credentials: [{ label: "Client ID", value: "absent", secret: "acme:id" }] }, [], { guide: root.guide }),
+            pluginRow("acme.unlinked", keyed, { connection: ready, credentials: [{ label: "Client ID", value: "absent", secret: "acme:id" }] }, [], { guide: Object.assign({}, root.guide, { url: "" }) }),
             pluginRow("acme.paged", pagedKeys, { connection: ready, credentials: [{ label: "Client ID", value: "present", info: "Make one on the [Plain page](page:acme.plain).", secret: "acme:id" }] }, [], {}),
             pluginRow("acme.plain", { requirements: [], status: {}, tui: {} }, {}, [], {}),
             pluginRow("acme.tasks", { requirements: [], status: {}, tui: {} }, {}, [], listed(false)),
@@ -136,6 +141,12 @@ Item {
         readonly property var manifest: ({ id: "vgs.settings", name: "Plugins" })
         readonly property var screens: ({ current: root.screen, all: [root.screen] })
         readonly property var shortcut: ({ capture: null })
+        readonly property var run: fakeRun
+    }
+    QtObject {
+        id: fakeRun
+        property var launched: []
+        function detached(argv) { launched = launched.concat([argv]); return "ok"; }
     }
     Component { id: windowComponent; Window { shell: fakeShell } }
     TestCase {
@@ -361,6 +372,36 @@ Item {
             compare(fakeManager.opens, [], "the primary status action keeps its own reply owner");
             compare(error(), "", "a successful retry clears the same entry's refusal");
         }
+        // A key list under its step draws its keys alone: the step names it.
+        function test_a_step_key_list_draws_its_keys_alone() {
+            const window = opened(); window.openPlugin("acme.keys", Qt.OtherFocusReason, "Setup");
+            compare(onTab(window, StatusLine).map(line => line.label), ["Connection", "Client ID", "Client secret"]);
+        }
+        // The guide heads the Setup tab, above its steps, and its link opens
+        // the README section in the default browser; a plugin with no README
+        // to open draws it with no link, and one with no guide draws none.
+        function test_the_setup_guide_heads_the_steps_and_opens_its_readme_section_data() {
+            return [{ tag: "a guide with its README section", id: "acme.guided", callout: true, link: true },
+                { tag: "a guide with no README to open", id: "acme.unlinked", callout: true, link: false },
+                { tag: "no guide", id: "acme.keys", callout: false, link: false }];
+        }
+        function test_the_setup_guide_heads_the_steps_and_opens_its_readme_section(data) {
+            fakeRun.launched = [];
+            const window = opened(); window.openPlugin(data.id, Qt.OtherFocusReason, "Setup");
+            const callouts = onTab(window, Callout);
+            compare(callouts.length, data.callout ? 1 : 0, "the tab draws the guide only for a plugin that declares one");
+            if (!data.callout) return;
+            compare([callouts[0].title, callouts[0].text], [root.guide.title, root.guide.text]);
+            const setup = onTab(window, Section).find(section => section.title === "Setup");
+            tryVerify(() => callouts[0].height > 0 && callouts[0].mapToItem(null, 0, callouts[0].height).y <= setup.mapToItem(null, 0, 0).y, 2000, "the guide stands above the steps: "
+                + callouts[0].mapToItem(null, 0, callouts[0].height).y + " " + setup.mapToItem(null, 0, 0).y);
+            const links = descendants(callouts[0]).filter(item => item instanceof RowAction && item.visible);
+            compare(links.map(link => link.text), data.link ? [root.guide.link] : [], "the guide links its README section only where one opens");
+            if (!data.link) return;
+            tryVerify(() => links[0].height > 0 && pageOf(window).parent.x === -window.width, 2000, "the page has slid in");
+            mouseClick(links[0]);
+            compare(fakeRun.launched, [DesktopLaunch.open(root.guide.url)], "the link opens the README section in the default browser");
+        }
         function test_required_credential_chips_and_masked_actions_follow_setup_rules() {
             const window = opened(); window.openPlugin("acme.keys", Qt.OtherFocusReason, "Setup");
             compare(shown(window, Badge).map(chip => chip.text), ["Done", "Done", "To do"]);
@@ -398,7 +439,7 @@ Item {
         // A page link in the info of a status entry, or of one of its keys,
         // closes the dialog and opens the page it names, on its tab.
         function test_an_info_page_link_opens_its_page_data() {
-            return [{ tag: "entry info", label: "Credentials", page: "acme.done", tab: "Details" },
+            return [{ tag: "step info", label: "Connection", page: "acme.done", tab: "Details" },
                 { tag: "key info", label: "Client ID", page: "acme.plain", tab: "Settings" }];
         }
         function test_an_info_page_link_opens_its_page(data) {

@@ -8,7 +8,8 @@
 // reads from the shipped icon set, the bar widget settings order (a valid
 // order passes; layout not first, layout outside Readings, the shared
 // Readings fields out of order and an ungrouped field, which the page
-// draws before Readings, are refused), and the base listing: a directory without a manifest is not a plugin, an absent or
+// draws before Readings, are refused), a Setup guide whose README holds
+// no heading of its anchor, and the base listing: a directory without a manifest is not a plugin, an absent or
 // unreadable base exits 2. Each row asserts the printed verdict line and the
 // exit status. The check runs in a child node with an explicit environment.
 // The permission rows need a uid that permissions bind; under euid 0 the
@@ -53,6 +54,22 @@ function row(name, build, wantStatus, wantLine, forbidLine) {
 }
 
 row("valid plugin passes", tmp => { const d = path.join(tmp, "a"); plugin(d, good, true); return ["--", d]; }, 0, "ok       acme.one");
+// A Setup guide names a heading of the plugin's README: the heading as
+// GitHub anchors it passes; a README with no such heading, one that holds
+// it only inside a code block, and no README at all are refused.
+const guided = Object.assign({}, good, { capabilities: ["status"], status: { step: { type: "state", label: "Step", setup: true } },
+    setupGuide: { title: "One needs keys", text: "It takes about 5 minutes.", link: "Open the guide", readme: "get-your-one-keys" } });
+for (const [name, readme, status, line] of [
+    ["a guide whose README holds its heading passes", "# One\n\n## Get your One keys\n\nSteps.\n", 0, "ok       acme.one"],
+    ["a guide whose README lacks its heading is refused", "# One\n\n## Get your keys\n", 1, "setupGuide.readme README.md has no heading #get-your-one-keys"],
+    ["a guide whose heading stands only in a code block is refused", "# One\n\n```\n## Get your One keys\n```\n", 1, "setupGuide.readme README.md has no heading #get-your-one-keys"],
+    ["a guide with no README is refused", null, 1, "setupGuide.readme README.md is missing"]
+]) row(name, tmp => {
+    const d = path.join(tmp, "a");
+    plugin(d, guided, true);
+    if (readme !== null) fs.writeFileSync(path.join(d, "README.md"), readme);
+    return ["--", d];
+}, status, line);
 row("missing entry point is refused and prints no ok line", tmp => { const d = path.join(tmp, "a"); plugin(d, good, false); return ["--", d]; }, 1, "entry point for service missing", "ok       acme.one");
 row("entry point directory is refused", tmp => { const d = path.join(tmp, "a"); plugin(d, good, false); fs.mkdirSync(path.join(d, "Service.qml")); return ["--", d]; }, 1, "entry point for service not a file", "ok       acme.one");
 row("duplicate id across directories is refused", tmp => { const a = path.join(tmp, "a"), b = path.join(tmp, "b"); plugin(a, good, true); plugin(b, good, true); return ["--", a, b]; }, 1, "already used by");

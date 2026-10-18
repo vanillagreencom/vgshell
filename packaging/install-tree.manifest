@@ -233,6 +233,7 @@ f share/vgshell/shell/Ui/controls/WeekdayChipGroup.qml
 f share/vgshell/shell/Ui/feedback/AvatarFace.qml
 f share/vgshell/shell/Ui/feedback/AvatarGroup.qml
 f share/vgshell/shell/Ui/feedback/Badge.qml
+f share/vgshell/shell/Ui/feedback/Callout.qml
 f share/vgshell/shell/Ui/feedback/CodeLine.qml
 f share/vgshell/shell/Ui/feedback/Dialog.qml
 f share/vgshell/shell/Ui/feedback/EmptyState.qml

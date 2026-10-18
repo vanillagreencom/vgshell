@@ -454,6 +454,24 @@ var TOKENS = {
         border: color("{color.borderSubtle}")
     },
 
+    // A callout stands out from a page's rows to say one thing a reader
+    // needs before them, such as a guide to read first: its lines `gap`
+    // apart beside its icon, `iconGap` from them, `padding` inside a
+    // faint fill of its tone, its corner `radius`; the icon takes the
+    // tone's text colour.
+    callout: {
+        radius: length("{radius.md}"),
+        padding: length("{space.lg}"),
+        gap: length("{row.lineGap}"),
+        iconGap: length("{space.md}"),
+        tone: {
+            accent: tone("accent"),
+            info: tone("info"),
+            warning: tone("warning"),
+            danger: tone("danger")
+        }
+    },
+
     focusRing: {
         width: length("{border.thick}"),
         offset: length(2),

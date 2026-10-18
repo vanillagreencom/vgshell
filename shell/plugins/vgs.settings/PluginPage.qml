@@ -202,6 +202,7 @@ FocusScope {
         hintLink: view.link === null ? "" : view.link.text
         onHintLinkActivated: page.panel.openLink(page.row.id, view.link)
         onHintPageActivated: (id, tab) => page.panel.openPage(id, tab)
+        onInfoPageActivated: (id, tab) => page.panel.openPage(id, tab)
         error: [action, asideAction].map(button => page.replyFor(button, entry)).find(reply => reply !== "") || ""
         actionOffered: action !== null
         actionLabel: action === null ? "" : action.label
@@ -765,6 +766,21 @@ FocusScope {
                 Column {
                     id: setupPage
                     spacing: Theme.stack.page
+
+                    // The manifest's guide to the steps, which opens its
+                    // README section in the default browser
+                    // (PluginLogic.setupGuideRow); a plugin with no README
+                    // to open draws it with no link.
+                    Callout {
+                        readonly property var guide: page.hasSetup && page.row !== null ? page.row.guide : null
+                        width: body.width
+                        visible: guide !== null
+                        iconName: "book-open"
+                        title: guide === null ? "" : guide.title
+                        text: guide === null ? "" : guide.text
+                        linkText: guide === null || guide.url === "" ? "" : guide.link
+                        onActivated: page.panel.openLink(page.row.id, { url: guide.url })
+                    }
 
                     Section {
                         width: body.width

@@ -20,6 +20,9 @@
 // claimant its rename, and every `tui` script a regular
 // file with its owner's execute bit, reached through no symbolic link, since
 // bin/vgshell-scan follows links and would publish whatever one points at.
+// A `setupGuide` names the anchor of a heading of the plugin's README.md,
+// which its Setup tab opens on GitHub; a heading renamed under it would
+// open the README's top.
 // A bar widget that offers `layout` keeps the settings order bar widgets
 // share: every field grouped, `layout` first in group "Readings", and the
 // Readings fields starting with the shared ones it offers in
@@ -101,6 +104,36 @@ function scriptDefect(dir, script) {
     if (!stat.isFile()) return "is not a regular file";
     if ((stat.mode & 0o100) === 0) return "is not executable";
     return "";
+}
+
+// The anchors GitHub gives the headings of the Markdown TEXT: each heading
+// in lower case with every character but a letter, a digit, a space, a
+// dash and an underscore dropped and each space a dash. A heading inside a
+// fenced code block is no heading.
+function headingAnchors(text) {
+    const anchors = [];
+    let fenced = false;
+    for (const line of text.split("\n")) {
+        if (/^\s*(```|~~~)/.test(line)) fenced = !fenced;
+        const heading = fenced ? null : /^#{1,6}\s+(.*?)\s*#*\s*$/.exec(line);
+        if (heading !== null) anchors.push(heading[1].toLowerCase().replace(/[^\p{L}\p{N} _-]/gu, "").replace(/ /g, "-"));
+    }
+    return anchors;
+}
+
+// Why the plugin at DIR cannot open the README section its `setupGuide`
+// names, or "": its README.md is missing or holds no heading of that
+// anchor. A README that cannot be read otherwise ends the run.
+function guideDefect(dir, guide) {
+    const file = path.join(dir, "README.md");
+    let text;
+    try {
+        text = fs.readFileSync(file, "utf8");
+    } catch (e) {
+        if (e.code === "ENOENT") return "README.md is missing";
+        return unreadable(file, e.code);
+    }
+    return headingAnchors(text).indexOf(guide.readme) === -1 ? "README.md has no heading #" + guide.readme : "";
 }
 
 // The shared Readings fields of a bar widget, in their Settings order.
@@ -204,6 +237,12 @@ for (const { dir, text } of manifests()) {
         const defect = scriptDefect(dir, r.manifest.tui[name].script);
         if (defect === "") continue;
         console.log("refused  " + dir + ": tui." + name + ".script " + r.manifest.tui[name].script + " " + defect);
+        refused += 1;
+        missing = true;
+    }
+    const guide = r.manifest.setupGuide === undefined ? "" : guideDefect(dir, r.manifest.setupGuide);
+    if (guide !== "") {
+        console.log("refused  " + dir + ": setupGuide.readme " + guide);
         refused += 1;
         missing = true;
     }

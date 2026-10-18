@@ -303,11 +303,13 @@ function statusView(entry, timeText, plugin) {
 
 // What a line draws of ITEM's presence, one item of a presence list:
 // { tone, text }, its chip, or neither for a secret nothing is stored for,
-// whose line offers Add key in the chip's place.
+// whose line offers Add key in the chip's place. On Setup, a key that is
+// not done reads To do with its presence as the reason before its hint,
+// save an absent one, whose To do and Add key already say it.
 function itemView(item, setup) {
     if (setup) {
         var done = item.value === "present";
-        var reason = done ? "" : PRESENCE_WORDS[item.value];
+        var reason = done || item.value === "absent" ? "" : PRESENCE_WORDS[item.value];
         var chip = STEP_CHIPS[done ? "done" : "todo"];
         return { tone: chip.tone, text: chip.text, reason: reason };
     }

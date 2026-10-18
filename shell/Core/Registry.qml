@@ -537,7 +537,8 @@ Singleton {
     // receives (its plugins[]
     // row's, PluginLogic.settingsFor), its Keys rows, its Status rows
     // (PluginLogic.statusRows over its manifest and the values it
-    // published), the label of its `secrets`, "" without, its setup
+    // published), the label of its `secrets`, "" without, the guide its
+    // Setup tab opens with (PluginLogic.setupGuideRow), its setup
     // screens (PluginLogic.listedTuis), its Open surface
     // (PluginLogic.openKind), the id of the enabled panes holder that
     // shows its page, "" for a plugin without kind `pane` or while no
@@ -584,6 +585,7 @@ Singleton {
                 capabilities: m.capabilities,
                 source: sourceOf(m),
                 readme: readmeOf(id),
+                guide: Logic.setupGuideRow(m, readmeOf(id)),
                 enabled: isEnabled(id),
                 alwaysOn: m.alwaysOn === true,
                 placed: Logic.isPlaced(config, m),

@@ -366,6 +366,7 @@ function verify(logic, producer) {
     same(logic.itemView({ access: "connect", value: "absent", tone: "info" }), { tone: "", text: "" }, "absent stored key gives Add key its place");
     same(logic.itemView({ access: "disconnect", value: "present", tone: "success" }, true), { tone: "success", text: "Done", reason: "" }, "required stored key uses Done");
     same(logic.itemView({ access: "connect", value: "locked", tone: "info" }, true), { tone: "warning", text: "To do", reason: "Locked" }, "required blocked key keeps its reason outside the chip");
+    same(logic.itemView({ access: "connect", value: "absent", tone: "warning" }, true), { tone: "warning", text: "To do", reason: "" }, "required absent key leaves its reason to To do and Add key");
     same(logic.itemsKeyed([{ secret: "provider:key", label: "Provider" }, { secret: "", label: "Local" }, { secret: "", label: "Local" }]).map(item => item.key), ["secret provider:key", "label Local", "label Local 2"], "stored key rows keep stable identities");
 }
 
@@ -417,6 +418,7 @@ const controls = [
     ["More settings leaves Settings", 'place === "Settings" ? tui.settings', 'place === "Settings" ? false', "settings screens stay in More settings"],
     ["required keys keep ordinary chips", 'if (setup) {', 'if (false) {', "required stored key uses Done"],
     ["a plugin that is off offers nothing", 'if (!plugin.enabled) return open ? turnOn(plugin.name) : null;', 'if (!plugin.enabled) return null;', "off: every To do step offers Turn on Fixture"],
+    ["an absent required key repeats its To do as a reason", 'var reason = done || item.value === "absent" ? ""', 'var reason = done ? ""', "required absent key leaves its reason to To do and Add key"],
     ["a screen that is off names no reason", 'reason: plugin.enabled ? "" : offReason(plugin.name)', 'reason: ""', "off: Settings screens take no press and name why"],
     ["a screen takes a press while the plugin is off", 'enabled: plugin.enabled, reason:', 'enabled: true, reason:', "off: Settings screens take no press and name why"],
     ["a Settings field draws a line for each entry with an action", 'lines.push({ slot: "keys " + key, kind: "keys", key: key });\n    });', 'lines.push({ slot: "keys " + key, kind: "keys", key: key });\n    });\n    row.status.forEach(function (entry) { if (entry.action !== null) lines.push({ slot: "own " + entry.key, kind: "keys", key: entry.key }); });', "a Settings field draws its stored key list alone"],

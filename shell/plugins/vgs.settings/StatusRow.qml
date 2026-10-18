@@ -26,8 +26,10 @@ import "Steps.js" as Steps
 // its own `info` when it carries one, beside a Badge of its presence, its
 // hint, and, for an item that is a secret's presence, Add key
 // in the chip's place while nothing is stored, or Replace and Remove after
-// the chip (Steps.itemView). Each line is one group of the row's GroupList,
-// divided from the next as the rows of a section are. No row takes an edit
+// the chip (Steps.itemView). On Setup (`setup`), a key list stands under
+// the required step it serves, which names it, so it draws its item lines
+// alone. Each line is one group of the row's GroupList, divided from the
+// next as the rows of a section are. No row takes an edit
 // of a value: a key's step goes to the manager through `panel` (D061).
 GroupList {
     id: row
@@ -76,6 +78,7 @@ GroupList {
 
     StatusLine {
         id: head
+        visible: !row.setup
         width: row.width
         label: row.view.label
         hint: row.view.hint

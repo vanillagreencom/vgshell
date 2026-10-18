@@ -45,7 +45,7 @@ Item {
         const manifest = { requirements: [], tui: { add: { requires: [] }, remove: { requires: [] } }, status: { pairs: entry } };
         const row = Object.assign({ id: id, name: id, version: "1", description: "", author: "VGS", license: "", icon: "package", source: "bundled",
             enabled: true, alwaysOn: false, placed: false, kinds: ["service"], capabilities: [], schema: {}, settings: {}, settingChoices: {},
-            status: PluginLogic.statusRows(manifest, values), secretLabel: "", readme: "", tuis: [], builtins: [], opens: "", paneHolder: "", binds: [],
+            status: PluginLogic.statusRows(manifest, values), secretLabel: "", readme: "", guide: null, tuis: [], builtins: [], opens: "", paneHolder: "", binds: [],
             requirements: [], errors: [] }, fields);
         row.fieldRows = PluginLogic.fieldRows(row.schema, manifest.status);
         return row;

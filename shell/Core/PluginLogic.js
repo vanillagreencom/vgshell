@@ -119,7 +119,7 @@ var SOUNDS = [
 
 // Every key a manifest may carry. An unknown key is refused, so a misspelt
 // key fails loudly instead of being carried and ignored.
-var MANIFEST_KEYS = ["schemaVersion", "id", "formerIds", "name", "version", "author", "description", "license", "icon", "kinds", "entryPoints", "capabilities", "capabilityKinds", "systemSteps", "settings", "schema", "defaultSection", "pane", "appearance", "hyprland", "requirements", "status", "tui", "menu", "secrets", "sounds", "alwaysOn"];
+var MANIFEST_KEYS = ["schemaVersion", "id", "formerIds", "name", "version", "author", "description", "license", "icon", "kinds", "entryPoints", "capabilities", "capabilityKinds", "systemSteps", "settings", "schema", "defaultSection", "pane", "appearance", "hyprland", "requirements", "status", "tui", "menu", "secrets", "sounds", "alwaysOn", "setupGuide"];
 
 // What one entry of a manifest's `requirements`, and of the core's own
 // config/requirements.json, may carry: an external command the plugin runs
@@ -159,7 +159,7 @@ var DBUS_NAME_PART = /^[A-Za-z_-][A-Za-z0-9_-]*$/;
 // list a page draws full width under its label, each row with its own
 // actions.
 var STATUS_TYPES = ["presence", "presenceList", "state", "text", "count", "time", "data", "choices", "launcherRows", "rows"];
-var STATUS_ENTRY_KEYS = ["type", "label", "group", "hint", "info", "link", "hidden", "action", "actions", "aside", "setup", "setting", "step", "settings", "icon", "rowActions"];
+var STATUS_ENTRY_KEYS = ["type", "label", "group", "hint", "info", "link", "hidden", "action", "actions", "aside", "setup", "setting", "step", "settings", "icon", "rowActions", "plain"];
 // A status key names a value in `shell.status.values`, so it is a plain
 // identifier.
 var STATUS_KEY_PATTERN = /^[a-z][A-Za-z0-9]*$/;
@@ -749,6 +749,12 @@ function statusError(status, capabilities, tui, system) {
             return statusLink;
         if (entry.hidden !== undefined && typeof entry.hidden !== "boolean")
             return at + ".hidden must be a boolean when present";
+        if (entry.plain !== undefined) {
+            if (typeof entry.plain !== "boolean")
+                return at + ".plain must be a boolean when present";
+            if (entry.type !== "state" || entry.setup === true)
+                return at + ".plain needs a state entry that is no Setup step, whose chip reads Done or To do";
+        }
         if (entry.action !== undefined && entry.actions !== undefined)
             return at + " declares both action and actions";
         if (entry.actions !== undefined) {
@@ -1617,7 +1623,8 @@ function statusActionIcon(action) {
 // statusDisplayable admits whose `state` value is not hidden (statusStateHidden),
 // in manifest key order, as { key, type, label,
 // group, setup, setting, step, settings, icon, hint, info, link, secrets,
-// declaredTuis, systemStep, action, aside, report, value, tone }. `group`, `hint`,
+// declaredTuis, systemStep, action, aside, report, value, tone }, `tone`
+// statusRowTone's. `group`, `hint`,
 // `info` and `icon` are "" when the manifest omits them; a reported
 // `state` value's own `hint` and `info` stand in the entry's.
 // `link`, the words of the declared hint that open an https address, is
@@ -1665,9 +1672,19 @@ function statusRows(manifest, values) {
             aside: statusRowAside(entry, value),
             report: reported ? "reported" : "unreported",
             value: reported ? statusRowValue(entry, value) : null,
-            tone: reported ? statusTone(entry.type, value) : ""
+            tone: reported ? statusRowTone(entry, value) : ""
         };
     });
+}
+
+// The tone a page draws reported VALUE of ENTRY in (statusTone), or "" for
+// a value the page draws as plain text: that of a `plain` state while it
+// needs nothing, a tone outside STATUS_ROW_CHIP_TONES, so its page draws
+// a chip only while the state needs the user, as a `rows` entry's states
+// draw.
+function statusRowTone(entry, value) {
+    if (entry.plain === true && STATUS_ROW_CHIP_TONES.indexOf(value.tone) === -1) return "";
+    return statusTone(entry.type, value);
 }
 
 // The one keyed line a refused status action answers:
@@ -4329,6 +4346,8 @@ function validateManifest(raw, sourceDir) {
     }
     var badPlacement = pagePlacementError(raw.status || {}, schema, raw.secrets !== undefined);
     if (badPlacement !== "") return { ok: false, error: badPlacement };
+    var badGuide = setupGuideError(raw.setupGuide, raw.status || {});
+    if (badGuide !== "") return { ok: false, error: badGuide };
     var manifest = clone(raw);
     manifest.capabilities = capabilities.slice();
     manifest.capabilityKinds = clone(capabilityKinds);
@@ -5473,7 +5492,8 @@ function idleWatchRefusal(seconds, onChange) {
 // The first defect of where STATUS's entries draw on a plugin page, or ""
 // (docs/architecture/design-system.md § Settings pages). `setup` makes a
 // displayed state or presence a required step of Setup, and `step` puts a
-// key list beside its step there. Settings holds only values the user
+// key list beside its step there, its items alone under the step, so it
+// declares no hint, info or link of its own. Settings holds only values the user
 // changes, so `setting` takes only a stored key list, the presenceList of
 // a manifest that declares `secrets` (SECRETS), whose masked field is one,
 // beside a field of SCHEMA, and `settings: true` only a displayed `rows`
@@ -5499,10 +5519,55 @@ function pagePlacementError(status, schema, secrets) {
         if (entry.step !== undefined) {
             if (typeof entry.step !== "string" || !hasOwn(status, entry.step) || status[entry.step].setup !== true) return at + ".step must name a required Setup step";
             if (entry.type !== "presenceList") return at + ".step needs a key list";
+            var undrawn = ["hint", "info", "link"].find(function (key) { return entry[key] !== undefined; });
+            if (undrawn !== undefined) return at + "." + undrawn + " is never drawn: Setup draws a key list's items alone under the step it serves, whose own hint and info explain it";
         }
         if ((entry.setup === true ? 1 : 0) + (entry.setting !== undefined ? 1 : 0) + (entry.step !== undefined ? 1 : 0) > 1) return at + " declares more than one page placement";
     }
     return "";
+}
+
+// A manifest's `setupGuide`: the callout a plugin page draws at the top of
+// its Setup tab, for the steps a new user cannot know before the first
+// one, such as keys made on another site. `title` and `text` say what the
+// steps need, `link` is the words of the action that opens the guide, and
+// `readme` the anchor of the README section that holds it, the GitHub
+// form of its heading: lower case words joined by dashes.
+// bin/lib/check-manifests.js holds a bundled plugin's anchor to a heading
+// of its README.
+var SETUP_GUIDE_KEYS = ["title", "text", "link", "readme"];
+var SETUP_GUIDE_TITLE_MAX = 80;
+var README_ANCHOR = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+var README_ANCHOR_MAX = 100;
+
+// The first defect of GUIDE, a manifest's `setupGuide`, or "": absent, or
+// an object of every SETUP_GUIDE_KEYS, printable lines within their
+// bounds and a README_ANCHOR, on a manifest whose STATUS declares a
+// required step, since the callout heads the Setup tab's steps.
+function setupGuideError(guide, status) {
+    if (guide === undefined) return "";
+    if (!isPlainObject(guide)) return "setupGuide must be an object";
+    var keys = Object.keys(guide);
+    for (var i = 0; i < keys.length; i++)
+        if (SETUP_GUIDE_KEYS.indexOf(keys[i]) === -1) return "setupGuide has unknown key " + JSON.stringify(keys[i]);
+    if (!isPrintableLine(guide.title, SETUP_GUIDE_TITLE_MAX)) return "setupGuide.title must be a printable line of 1 to " + SETUP_GUIDE_TITLE_MAX + " characters";
+    if (!isPrintableLine(guide.text, STATUS_HINT_MAX)) return "setupGuide.text must be a printable line of 1 to " + STATUS_HINT_MAX + " characters";
+    if (!isPrintableLine(guide.link, LINK_TEXT_MAX)) return "setupGuide.link must be a printable line of 1 to " + LINK_TEXT_MAX + " characters";
+    if (typeof guide.readme !== "string" || guide.readme.length > README_ANCHOR_MAX || !README_ANCHOR.test(guide.readme))
+        return "setupGuide.readme must be a README heading anchor of lower case words joined by dashes, at most " + README_ANCHOR_MAX + " characters";
+    if (!Object.keys(status).some(function (key) { return status[key].setup === true; }))
+        return "setupGuide needs a required Setup step, which the guide heads";
+    return "";
+}
+
+// What a plugin page draws of MANIFEST's `setupGuide`: { title, text,
+// link, url }, URL its README section's address from README, the address
+// of the plugin's README, "" for a plugin that has none to open, which
+// draws no link; null for a manifest that declares no guide.
+function setupGuideRow(manifest, readme) {
+    var guide = manifest.setupGuide;
+    if (guide === undefined) return null;
+    return { title: guide.title, text: guide.text, link: guide.link, url: readme === "" ? "" : readme + "#" + guide.readme };
 }
 
 // The rows a plugin's Settings page draws for SCHEMA, one per field in

@@ -45,6 +45,7 @@ Kbd 1.0 feedback/Kbd.qml
 KeyCaps 1.0 feedback/KeyCaps.qml
 KeyHints 1.0 feedback/KeyHints.qml
 LinkText 1.0 feedback/LinkText.qml
+Callout 1.0 feedback/Callout.qml
 CodeLine 1.0 feedback/CodeLine.qml
 AvatarGroup 1.0 feedback/AvatarGroup.qml
 ScrollArea 1.0 layout/ScrollArea.qml
