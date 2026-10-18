@@ -246,7 +246,7 @@ function verifyPageRoutes(logic, source) {
         if (route === "pane") assert.equal(ctx.replyOf(id), logic.line(reply));
     }
     // A file reference opens through the core edit route and no page.
-    const filed = pages.parse("Shorten [AGENTS.md](file:~/vgs/AGENTS.md).");
+    const filed = pages.parse("Shorten [AGENTS.md](file:~%2Fvgs%2FAGENTS.md).");
     const edits = [], opened = [];
     ctx.shell.tui = { edit: target => { edits.push(target); return "ok"; } };
     ctx.shell.manager.openPane = target => { opened.push(target); return "ok"; };

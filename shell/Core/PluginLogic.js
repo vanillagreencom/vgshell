@@ -666,8 +666,17 @@ function labelLines(text, perLine) {
     return lines;
 }
 
-function infoError(info, at) {
-    return info === undefined || isPrintableLine(info, INFO_MAX) ? "" : at + ".info must be a printable line of 1 to " + INFO_MAX + " characters when present";
+// Encoded file targets can exceed the visible hint and info limits. Bound
+// each stored string by STATUS_MAX_BYTES characters, the existing 65536-byte
+// status-write ceiling, so a hidden target cannot grow without limit.
+// Published status JSON still passes that separate UTF-8 byte ceiling.
+function statusReferenceFits(text, max) {
+    return isPrintableLine(text, STATUS_MAX_BYTES) && isPrintableLine(PageReference.plain(text), max);
+}
+
+function infoError(info, at, statusText) {
+    var fits = statusText === true ? statusReferenceFits : isPrintableLine;
+    return info === undefined || fits(info, INFO_MAX) ? "" : at + ".info must be a printable line of 1 to " + INFO_MAX + " characters when present";
 }
 
 // The first defect of an entry's optional `link`, or "": an object of
@@ -737,11 +746,11 @@ function statusError(status, capabilities, tui, system) {
             return at + ".label must be a printable line of 1 to " + STATUS_LABEL_MAX + " characters";
         if (entry.group !== undefined && !isPrintableLine(entry.group, STATUS_LABEL_MAX))
             return at + ".group must be a printable line of 1 to " + STATUS_LABEL_MAX + " characters when present";
-        if (entry.hint !== undefined && !isPrintableLine(entry.hint, STATUS_HINT_MAX))
+        if (entry.hint !== undefined && !statusReferenceFits(entry.hint, STATUS_HINT_MAX))
             return at + ".hint must be a printable line of 1 to " + STATUS_HINT_MAX + " characters when present";
-        if (entry.hint !== undefined && !hintFits(entry.hint))
+        if (entry.hint !== undefined && !hintFits(PageReference.plain(entry.hint)))
             return at + ".hint" + HINT_RULE;
-        var statusInfo = infoError(entry.info, at);
+        var statusInfo = infoError(entry.info, at, true);
         if (statusInfo !== "")
             return statusInfo;
         var statusLink = linkError(entry, at, "hint");
@@ -1263,8 +1272,8 @@ function statusValueFits(type, value) {
         return typeof value.tone === "string" && hasOwn(STATUS_STATE_TONES, value.tone) && isPrintableLine(value.text, STATUS_TEXT_MAX)
             && (value.lines === undefined || (Array.isArray(value.lines) && value.lines.length > 0 && value.lines.length <= STATUS_LIST_MAX
                 && value.lines.every(function (line) { return isPrintableLine(line, STATUS_TEXT_MAX); })))
-            && (value.hint === undefined || isPrintableLine(value.hint, STATUS_HINT_MAX))
-            && infoError(value.info, "") === ""
+            && (value.hint === undefined || statusReferenceFits(value.hint, STATUS_HINT_MAX))
+            && infoError(value.info, "", true) === ""
             && (value.file === undefined || (typeof value.file === "string" && editArgs(value.file).ok))
             && (value.action === undefined || typeof value.action === "boolean" || typeof value.action === "string")
             && (value.aside === undefined || typeof value.aside === "boolean")
@@ -1325,8 +1334,8 @@ function statusListItemFits(item) {
         if (STATUS_LIST_ITEM_KEYS.indexOf(keys[i]) === -1) return false;
     return isPrintableLine(item.label, STATUS_LABEL_MAX)
         && typeof item.value === "string" && hasOwn(STATUS_PRESENCE_TONES, item.value)
-        && (item.hint === undefined || isPrintableLine(item.hint, STATUS_HINT_MAX))
-        && infoError(item.info, "") === ""
+        && (item.hint === undefined || statusReferenceFits(item.hint, STATUS_HINT_MAX))
+        && infoError(item.info, "", true) === ""
         && (item.secret === undefined || (typeof item.secret === "string" && SECRET_ACCOUNT_PATTERN.test(item.secret)));
 }
 

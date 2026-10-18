@@ -6,7 +6,7 @@ import qs.Ui
 Item {
     id: root
     width: 420
-    height: 600
+    height: 760
 
     function labelOf(item) { return item.children[0]; }
 
@@ -125,8 +125,24 @@ Item {
         id: filed
         y: 560
         width: 360
-        text: "Shorten [AGENTS.md](file:~/.local/share/vgs/AGENTS.md) first."
+        text: "Shorten [AGENTS.md](file:~%2F.local%2Fshare%2Fvgs%2FAGENTS.md) first."
     }
+    LinkText {
+        id: multiple
+        y: 600
+        width: 400
+        text: "notes: [notes](file:%2Fhome%2FMy%20Home%2Fnotes%20%28draft%29.md) or [notes](page:vgs.voice/Setup)."
+    }
+    LinkText {
+        id: explicit
+        y: 640
+        width: 400
+        text: "[notes](page:vgs.voice) or [notes](page:acme.models)."
+        link: "notes"
+    }
+    SignalSpy { id: multiplePages; target: multiple; signalName: "pageActivated" }
+    SignalSpy { id: explicitPages; target: explicit; signalName: "pageActivated" }
+    SignalSpy { id: explicitActivated; target: explicit; signalName: "activated" }
     FontMetrics { id: font; font: labelOf(inline).font }
     SignalSpy { id: elsewherePages; target: elsewhere; signalName: "pageActivated" }
     SignalSpy { id: pagedPages; target: paged; signalName: "pageActivated" }
@@ -189,6 +205,50 @@ Item {
             compare(ring.visible, true);
         }
 
+        function test_each_reference_has_its_own_pointer_and_keyboard_target() {
+            compare(multiple.plain, "notes: notes or notes.");
+            compare((labelOf(multiple).text.match(/<font color=/g) || []).length, 2);
+            compare(multiple.underlined.length, 2);
+            const spans = multiple.underlined;
+            multiplePages.clear();
+            for (const span of spans)
+                mouseClick(multiple, (span.left + span.right) / 2, multiple.height / 2);
+            compare(multiplePages.count, 2);
+            compare(multiplePages.signalArguments[0][0], "file:%2Fhome%2FMy%20Home%2Fnotes%20%28draft%29.md");
+            compare(PageReference.file(multiplePages.signalArguments[0][0]), "/home/My Home/notes (draft).md");
+            compare(multiplePages.signalArguments[1][0], "vgs.voice");
+            compare(multiplePages.signalArguments[1][1], "Setup");
+            mouseClick(multiple, 2, multiple.height / 2);
+            compare(multiplePages.count, 2, "the same label outside a reference is plain text");
+            multiple.forceActiveFocus(Qt.TabFocusReason);
+            keyClick(Qt.Key_Home);
+            const firstBox = multiple.linkBox.x;
+            keyClick(Qt.Key_Return);
+            keyClick(Qt.Key_Right);
+            verify(multiple.linkBox.x > firstBox, "the ring follows the keyboard target");
+            keyClick(Qt.Key_Space);
+            compare(multiplePages.count, 4);
+            compare(multiplePages.signalArguments[2][0], "file:%2Fhome%2FMy%20Home%2Fnotes%20%28draft%29.md");
+            compare(multiplePages.signalArguments[3][0], "vgs.voice");
+            keyClick(Qt.Key_Left);
+            keyClick(Qt.Key_Enter);
+            compare(multiplePages.signalArguments[4][0], "file:%2Fhome%2FMy%20Home%2Fnotes%20%28draft%29.md");
+            multiplePages.clear();
+            keyClick(Qt.Key_Right);
+            compare(multiplePages.count, 0, "navigation opens no target");
+        }
+
+        function test_an_explicit_link_keeps_its_activation() {
+            explicitPages.clear();
+            explicitActivated.clear();
+            explicit.forceActiveFocus();
+            keyClick(Qt.Key_Return);
+            const span = explicit.underlined[1];
+            mouseClick(explicit, (span.left + span.right) / 2, explicit.height / 2);
+            compare(explicitActivated.count, 2);
+            compare(explicitPages.count, 0);
+        }
+
         function test_a_page_reference_draws_its_words_as_the_link() {
             compare(paged.plain, "Add a key on the Models page first.");
             compare(paged.Accessible.name, "Add a key on the Models page first.");
@@ -230,7 +290,7 @@ Item {
             mouseClick(filed, filed.linkBox.x + filed.linkBox.width / 2, filed.linkBox.y + filed.linkBox.height / 2);
             compare(filedPages.count, 2, "the keyboard and the pointer each activate it once");
             for (const args of filedPages.signalArguments) {
-                compare(args[0], "file:~/.local/share/vgs/AGENTS.md");
+                compare(args[0], "file:~%2F.local%2Fshare%2Fvgs%2FAGENTS.md");
                 compare(args[1], "");
             }
             compare(filedActivated.count, 0, "a file reference emits no plain activation");

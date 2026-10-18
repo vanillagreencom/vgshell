@@ -524,7 +524,7 @@ FocusScope {
                 visible: root.trialState.phase === "idle" && root.selected !== null && root.shell !== null && (root.shell.monitors.overridden(root.outputRules)[root.selected.name] === true || root.shell.monitors.overridden(root.outputRules)[root.selectedOutput] === true)
                 role: "hint"
                 color: Theme.color.warning
-                text: "Your [Hyprland file](file:hypr/hyprland.lua) now sets this display differently."
+                text: "Your " + PageReference.fileReference("Hyprland file", "hypr/hyprland.lua") + " now sets this display differently."
                 wrapMode: Text.Wrap
                 onPageActivated: (page, tab) => root.shell.surfaces.openPage(page, tab)
             }

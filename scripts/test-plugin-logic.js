@@ -55,6 +55,20 @@ function report(name, got, want) {
 // Every row against one loaded judge, `ctx`, and the configuration judge it
 // imports, `configLogic`, each result handed to `check`.
 function suite(ctx, configLogic, check) {
+    // Published state and key-list hints use the same visible words as their
+    // declarations; the encoded target does not draw in either view.
+    for (const [name, text, max, accepted] of [
+        ["long target", "Open [notes](file:%2F" + "folder%20".repeat(80) + "notes.md)", 200, true],
+        ["long hint words", "[" + "x".repeat(201) + "](file:a.md)", 200, false],
+        ["long info words", "[" + "x".repeat(401) + "](file:a.md)", 400, false],
+        ["whole reference bound", "[notes](file:" + "a".repeat(65536) + ")", 400, false]
+    ]) {
+        const field = max === 200 ? "hint" : "info";
+        const state = { tone: "ok", text: "Ready", [field]: text };
+        const item = { label: "Key", value: "present", [field]: text };
+        check("status reference state: " + name, ctx.statusValueFits("state", state), accepted);
+        check("status reference key list: " + name, ctx.statusListItemFits(item), accepted);
+    }
     // Where each status entry draws (pagePlacementError): [name, status,
     // whether the plugin declares secrets, accepted]. Settings takes only
     // a stored key list; every other entry, its action with it, is a
@@ -562,6 +576,12 @@ function suite(ctx, configLogic, check) {
         ["a status label of 60 characters", { capabilities: ["status"], status: { a: { type: "text", label: "x".repeat(60) } } }, null],
         ["a status label with a newline", { capabilities: ["status"], status: { a: { type: "text", label: "A\nB" } } }, "status.a.label must be a printable line"],
         ["an empty status group", { capabilities: ["status"], status: { a: { type: "text", label: "A", group: "" } } }, "status.a.group must be a printable line of 1 to 60"],
+        ["a status hint counts words, not a long encoded target", { capabilities: ["status"], status: { a: { type: "text", label: "A", hint: "Open [notes](file:%2F" + "folder%20".repeat(80) + "notes.md)" } } }, null],
+        ["a status info counts words, not a long encoded target", { capabilities: ["status"], status: { a: { type: "text", label: "A", info: "Open [notes](file:%2F" + "folder%20".repeat(80) + "notes.md)." } } }, null],
+        ["a status hint refuses excess visible link words", { capabilities: ["status"], status: { a: { type: "text", label: "A", hint: "[" + "x".repeat(201) + "](file:a.md)" } } }, "status.a.hint must be a printable line"],
+        ["a status info refuses excess visible link words", { capabilities: ["status"], status: { a: { type: "text", label: "A", info: "[" + "x".repeat(401) + "](file:a.md)" } } }, "status.a.info must be a printable line"],
+        ["a status hint bounds its whole stored reference", { capabilities: ["status"], status: { a: { type: "text", label: "A", hint: "[notes](file:" + "a".repeat(65536) + ")" } } }, "status.a.hint must be a printable line"],
+        ["a status info bounds its whole stored reference", { capabilities: ["status"], status: { a: { type: "text", label: "A", info: "[notes](file:" + "a".repeat(65536) + ")" } } }, "status.a.info must be a printable line"],
         ["a status hint of 201 characters", { capabilities: ["status"], status: { a: { type: "text", label: "A", hint: "x".repeat(201) } } }, "status.a.hint must be a printable line of 1 to 200"],
         ["a status hint of 200 characters", { capabilities: ["status"], status: { a: { type: "text", label: "A", hint: "x".repeat(200) } } }, null],
         ["a status hint of one sentence with a full stop is refused", { capabilities: ["status"], status: { a: { type: "text", label: "A", hint: "Connect the account." } } }, "status.a.hint must end with no full stop"],
@@ -2325,7 +2345,7 @@ const CONTROLS = [
     ["a one-sentence hint ends with no full stop", "return !/\\.$/.test(text);", "return true;"],
     ["each sentence of a longer hint ends with one", "return sentences.every(function (sentence) { return /[.?!]$/.test(sentence); });", "return true;"],
     ["a schema description keeps the hint rule", "if (entry.description !== undefined && !hintFits(entry.description))", "if (false)"],
-    ["a status hint keeps the hint rule", "if (entry.hint !== undefined && !hintFits(entry.hint))", "if (false)"],
+    ["a status hint keeps the hint rule", "if (entry.hint !== undefined && !hintFits(PageReference.plain(entry.hint)))", "if (false)"],
     ["a sound event description keeps the hint rule", "if (event.description !== undefined && !hintFits(event.description))", "if (false)"],
     ["a requirement purpose keeps the hint rule", "if (!hintFits(requirement.purpose))", "if (false)"],
     ["sudo is a capability", '"monitors", "sudo", ', '"monitors", '],
@@ -2510,8 +2530,11 @@ const CONTROLS = [
     ["a status entry names a known type", "if (STATUS_TYPES.indexOf(entry.type) === -1)\n            return at", "if (false)\n            return at"],
     ["a status label is a printable line", "if (!isPrintableLine(entry.label, STATUS_LABEL_MAX))", "if (false)"],
     ["a status group is a printable line", "if (entry.group !== undefined && !isPrintableLine(entry.group, STATUS_LABEL_MAX))", "if (false)"],
-    ["a status hint is a printable line", "if (entry.hint !== undefined && !isPrintableLine(entry.hint, STATUS_HINT_MAX))", "if (false)"],
-    ["status info is judged", "        var statusInfo = infoError(entry.info, at);\n        if (statusInfo !== \"\")\n            return statusInfo;\n", ""],
+    ["status links count visible words", "isPrintableLine(PageReference.plain(text), max)", "isPrintableLine(text, max)"],
+    ["status link words still obey their limit", "isPrintableLine(PageReference.plain(text), max)", "true"],
+    ["status links keep a whole-string limit", "isPrintableLine(text, STATUS_MAX_BYTES) && ", ""],
+    ["a status hint is a printable line", "if (entry.hint !== undefined && !statusReferenceFits(entry.hint, STATUS_HINT_MAX))", "if (false)"],
+    ["status info is judged", "        var statusInfo = infoError(entry.info, at, true);\n        if (statusInfo !== \"\")\n            return statusInfo;\n", ""],
     ["a printable line holds no control character", "!SettingValues.CONTROL_OR_SEPARATOR.test(text)", "true"],
     ["a printable line has a ceiling", "text.length <= max &&", ""],
     ["status hidden is a boolean", "if (entry.hidden !== undefined && typeof entry.hidden !== \"boolean\")", "if (false)"],
