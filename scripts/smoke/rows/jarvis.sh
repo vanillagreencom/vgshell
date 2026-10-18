@@ -1859,6 +1859,8 @@ p.write_text(s.replace(needle, "        startWait.stop();\n"))
 PY
 jarvis_rescan
 jarvis_enable
+# Clear the start note only after the stand-in daemon has written it.
+expect_poll "the cancel-free recording daemon reads ready" "ready running vgs.jarvis" dictation_lent
 jarvis_dictation_talk "the cancel-free daemon end"
 jarvis_kill_daemon
 jarvis_dictation_end_control() {
