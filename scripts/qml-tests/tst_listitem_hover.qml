@@ -5,7 +5,7 @@ import qs.Ui
 import qs.Unit
 
 // ListItem's first hover frame uses the theme fill, without a blend from
-// transparent black. Cloud Sync's folder pairs used this shared row.
+// transparent black. Google Drive's folder pairs use this shared row.
 Rectangle {
     id: root
     width: 520
