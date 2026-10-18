@@ -83,50 +83,53 @@ Item {
                     wrapMode: Text.Wrap
                     text: "No plan limit resets in the next seven days."
                 }
-                Repeater {
-                    model: root.calendar
-                    Column {
-                        required property var modelData
-                        width: parent.width
-                        spacing: Theme.row.lineGap
-                        Label { role: "bodyStrong"; text: modelData.heading }
-                        Repeater {
-                            model: modelData.accounts
-                            Item {
-                                required property var modelData
-                                width: parent.width
-                                implicitHeight: Math.max(resetAccount.implicitHeight, resetShare.implicitHeight)
-                                // The provider mark leads the account's line on
-                                // its x-height centre (design-system.md § Tokens).
-                                Image {
-                                    id: resetLogo
-                                    y: resetAccount.y + resetAccount.topForLeadingIcon(height, resetAccount.y)
-                                    width: Theme.icon.size.sm
-                                    height: Theme.icon.size.sm
-                                    sourceSize.width: width
-                                    sourceSize.height: height
-                                    source: View.logo(modelData.provider, Theme.color.text)
-                                }
-                                Label {
-                                    id: resetAccount
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    x: resetLogo.width + Theme.stack.inline
-                                    width: parent.width - x - resetShare.width - Theme.stack.inline
-                                    elide: Text.ElideRight
-                                    role: "body"
-                                    text: modelData.label
-                                }
-                                Row {
-                                    id: resetShare
-                                    anchors.right: parent.right
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    spacing: Theme.stack.inline
-                                    Label { anchors.verticalCenter: parent.verticalCenter; role: "hint"; text: modelData.time }
+                // Each day is one group: its heading over its accounts.
+                GroupList {
+                    Repeater {
+                        model: root.calendar
+                        Column {
+                            required property var modelData
+                            width: parent.width
+                            spacing: Theme.row.lineGap
+                            Label { role: "bodyStrong"; text: modelData.heading }
+                            Repeater {
+                                model: modelData.accounts
+                                Item {
+                                    required property var modelData
+                                    width: parent.width
+                                    implicitHeight: Math.max(resetAccount.implicitHeight, resetShare.implicitHeight)
+                                    // The provider mark leads the account's line on
+                                    // its x-height centre (design-system.md § Tokens).
+                                    Image {
+                                        id: resetLogo
+                                        y: resetAccount.y + resetAccount.topForLeadingIcon(height, resetAccount.y)
+                                        width: Theme.icon.size.sm
+                                        height: Theme.icon.size.sm
+                                        sourceSize.width: width
+                                        sourceSize.height: height
+                                        source: View.logo(modelData.provider, Theme.color.text)
+                                    }
                                     Label {
+                                        id: resetAccount
                                         anchors.verticalCenter: parent.verticalCenter
+                                        x: resetLogo.width + Theme.stack.inline
+                                        width: parent.width - x - resetShare.width - Theme.stack.inline
+                                        elide: Text.ElideRight
                                         role: "body"
-                                        text: modelData.text
-                                        color: Theme.badge.tone[modelData.tone].foreground
+                                        text: modelData.label
+                                    }
+                                    Row {
+                                        id: resetShare
+                                        anchors.right: parent.right
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        spacing: Theme.stack.inline
+                                        Label { anchors.verticalCenter: parent.verticalCenter; role: "hint"; text: modelData.time }
+                                        Label {
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            role: "body"
+                                            text: modelData.text
+                                            color: Theme.badge.tone[modelData.tone].foreground
+                                        }
                                     }
                                 }
                             }
