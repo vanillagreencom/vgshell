@@ -1440,9 +1440,16 @@ function planEntries(target, dirs, live, files) {
     return { dirs, items };
 }
 
-function currentEntries(target, dirs, live) {
-    const items = dirs.map((dir, index) => render.entryItems(target, live, index).map(item => Object.assign({}, item, { newBytes: readIfPresent(item.to) })));
-    return { dirs, items };
+function currentEntries(target, dirs, live, keep = () => true) {
+    const plan = { dirs: [], items: [] };
+    // Each destination belongs to its declared directory index, even when
+    // setup omits another directory whose selection is disconnected.
+    for (const [index, dir] of dirs.entries()) {
+        if (!keep(dir)) continue;
+        plan.dirs.push(dir);
+        plan.items.push(render.entryItems(target, live, index).map(item => Object.assign({}, item, { newBytes: readIfPresent(item.to) })));
+    }
+    return plan;
 }
 
 // What stands at FILE for an entry ITEM: `absent`, `managed`, or
@@ -3144,7 +3151,8 @@ function setupTargetRows(name, target, configHome, live) {
     case "entry": {
         let plan;
         try {
-            let dirs = entryDirs(target, configHome);
+            const dirs = entryDirs(target, configHome);
+            let keep = () => true;
             if (target.select !== undefined && (target.select.values === undefined || selectionValues !== undefined)) {
                 selections = selectionEdits(target, configHome, live, undefined, undefined, selectionValues).map(selection => {
                     try {
@@ -3156,7 +3164,7 @@ function setupTargetRows(name, target, configHome, live) {
                 });
                 // Explicit account roots can nest. The nearest settings
                 // ancestor owns the entry even when it selects another theme.
-                dirs = dirs.filter(dir => {
+                keep = dir => {
                     const owner = selections.reduce((nearest, selection) => {
                         const root = path.dirname(selection.file);
                         const relative = path.relative(root, dir);
@@ -3164,9 +3172,9 @@ function setupTargetRows(name, target, configHome, live) {
                         return nearest === undefined || root.length > path.dirname(nearest.file).length ? selection : nearest;
                     }, undefined);
                     return owner?.connected === true;
-                });
+                };
             }
-            plan = currentEntries(target, dirs, live);
+            plan = currentEntries(target, dirs, live, keep);
         } catch (e) {
             if (typeof e.code !== "string") throw e;
             return unreadable(e.path || configHome, e.code);

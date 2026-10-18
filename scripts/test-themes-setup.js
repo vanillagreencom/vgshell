@@ -17,6 +17,7 @@ const path = require("node:path");
 const os = require("node:os");
 const { spawnSync } = require("node:child_process");
 const { load } = require("../bin/lib/qml-library.js");
+const render = require("../bin/lib/theme-render.js");
 
 const dir = path.join(__dirname, "..", "shell", "plugins", "vgs.themes");
 const file = path.join(dir, "SetupLogic.js");
@@ -93,50 +94,53 @@ try {
     // producer. Multiple roots are independent configurations of that app.
     const configurations = [
         { name: "bat", base: config, roots: ["bat"], settings: "config", values: true,
-            entries: [["themes/vgs.tmTheme", "bat.tmTheme", "link"]], lines: [null],
+            entries: ["themes/vgs.tmTheme"], lines: [null],
             selected: "--theme=vgs\n", other: "--theme=other\n" },
         { name: "btop", base: config, roots: ["btop"], settings: "btop.conf",
-            entries: [["themes/vgs.theme", "btop.theme", "link"]], lines: ["color_theme = vgs"],
+            entries: ["themes/vgs.theme"], lines: ["color_theme = vgs"],
             selected: 'color_theme = "vgs"\n# owner\n', other: 'color_theme = "Default"\n# owner\n', missing: '# owner\n' },
         { name: "claude", base: home, roots: [".claude", ".claude-work"], settings: "settings.json",
             nested: [".claude", ".claude/work"], explicit: "CLAUDE_CONFIG_DIR",
-            entries: [["themes/vgs.json", "claude.json", "copy"]], lines: ["theme = custom:vgs"],
+            entries: ["themes/vgs.json"], lines: ["theme = custom:vgs"],
             selected: '{"theme":"custom:vgs","owner":true}\n', other: '{"theme":"dark","owner":true}\n' },
         { name: "codex", base: home, roots: [".codex", ".codex-work"], settings: "config.toml",
             nested: [".codex", ".codex/work"], explicit: "CODEX_HOME",
-            entries: [["themes/vgs.tmTheme", "codex.tmTheme", "link"]], lines: ["tui.theme = vgs"],
+            entries: ["themes/vgs.tmTheme"], lines: ["tui.theme = vgs"],
             selected: 'owner = true\n[tui]\ntheme = "vgs"\n', other: 'owner = true\n[tui]\ntheme = "other"\n' },
         { name: "hermes", base: home, roots: [".hermes"], settings: "config.yaml",
-            entries: [["skins/vgs.yaml", "hermes.yaml", "copy"]], lines: ["display.skin = vgs"],
+            entries: ["skins/vgs.yaml"], lines: ["display.skin = vgs"],
             selected: 'owner: true\ndisplay:\n  skin: vgs\n', other: 'owner: true\ndisplay:\n  skin: other\n' },
         { name: "omp", base: home, roots: [".omp/agent"], settings: "config.yml",
-            entries: [["themes/vgs.json", "omp.json", "copy"]], lines: ["theme.dark = vgs", "theme.light = vgs"],
+            entries: ["themes/vgs.json"], lines: ["theme.dark = vgs", "theme.light = vgs"],
             selected: 'owner: true\ntheme:\n  dark: vgs\n  light: vgs\n', other: 'owner: true\ntheme:\n  dark: other\n  light: other\n' },
         { name: "opencode", base: config, roots: ["opencode"], settings: "tui.json",
-            entries: [["themes/vgs.json", "opencode.json", "link"]], lines: ["theme = vgs"],
+            entries: ["themes/vgs.json"], lines: ["theme = vgs"],
             selected: '{"theme":"vgs","owner":true}\n', other: '{"theme":"other","owner":true}\n' },
         { name: "pi", base: home, roots: [".pi/agent"], settings: "settings.json",
-            entries: [["themes/vgs.json", "pi.json", "copy"]], lines: ["theme = vgs"],
+            entries: ["themes/vgs.json"], lines: ["theme = vgs"],
             selected: '{"theme":"vgs","owner":true}\n', other: '{"theme":"other","owner":true}\n' },
         { name: "television", base: config, roots: ["television"], settings: "config.toml", values: true,
-            entries: [["themes/vgs.toml", "television.toml", "link"]], lines: [null],
-            selected: '[ui]\ntheme = "vgs"\n[ui.theme_overrides]\nbackground = "#000000"\n', other: '[ui]\ntheme = "other"\n' },
+            entries: ["themes/vgs.toml"], lines: [null],
+            selected: '[ui]\ntheme = "vgs"\n', other: '[ui]\ntheme = "other"\n' },
         { name: "yazi", base: config, roots: ["yazi", "yazi-scratchpad"], settings: "theme.toml", values: true,
-            entries: [["flavors/vgs.yazi/flavor.toml", "yazi.toml", "link"], ["flavors/vgs.yazi/tmtheme.xml", "yazi.tmTheme", "link"]], lines: [null],
-            selected: '[flavor]\ndark = "vgs"\nlight = "vgs"\n[mgr.cwd]\nbg = "#000000"\n', other: '[flavor]\ndark = "other"\nlight = "other"\n' }
+            entries: ["flavors/vgs.yazi/flavor.toml", "flavors/vgs.yazi/tmtheme.xml"], lines: [null],
+            selected: '[flavor]\ndark = "vgs"\nlight = "vgs"\n', other: '[flavor]\ndark = "other"\nlight = "other"\n' }
     ];
     for (const name of ["bin", "shell/Commons", ...configurations.map(row => "themes/targets/" + row.name)])
         fs.cpSync(path.join(setupRepo, name), path.join(tree, name), { recursive: true });
     fs.mkdirSync(path.join(state, "theme"), { recursive: true });
     for (const row of configurations) {
-        for (const root of new Set([...row.roots, ...(row.nested ?? [])])) {
-            for (const [entry, rendered, kind] of row.entries) {
+        const target = JSON.parse(fs.readFileSync(path.join(tree, "themes/targets", row.name, "target.json"), "utf8"));
+        for (const [index, root] of [...new Set([...row.roots, ...(row.nested ?? [])])].entries()) {
+            const items = render.entryItems(target, path.join(state, "theme"), index);
+            for (const entry of row.entries) {
+                const item = items.find(item => item.name === path.basename(entry));
+                assert.ok(item, row.name + ": declared entry " + entry);
                 const file = path.join(row.base, root, entry);
-                const live = path.join(state, "theme", rendered);
                 fs.mkdirSync(path.dirname(file), { recursive: true });
-                fs.writeFileSync(live, "managed theme\n");
-                if (kind === "copy") fs.copyFileSync(live, file);
-                else fs.symlinkSync(live, file);
+                fs.writeFileSync(item.to, "managed theme\n");
+                if (item.kind === "copy") fs.copyFileSync(item.to, file);
+                else fs.symlinkSync(item.to, file);
             }
         }
     }
@@ -170,7 +174,7 @@ try {
                         else if (connected[index] !== null) fs.writeFileSync(file, connected[index] ? row.selected : row.other);
                         const unknownValues = row.values && applied !== "valid";
                         if (unknownValues || connected[index] === true)
-                            for (const [entry] of row.entries) expected.push([path.join(row.base, root, entry), null, "wired", null]);
+                            for (const entry of row.entries) expected.push([path.join(row.base, root, entry), null, "wired", null]);
                         if (!unknownValues && connected[index] === true)
                             for (const line of row.lines) expected.push([file, line, "wired", null]);
                         if (!unknownValues && connected[index] === "unreadable") expected.push([file, null, "unreadable", "EISDIR"]);
@@ -197,14 +201,16 @@ try {
         ["selectionEdits(target, configHome, live, undefined, undefined, selectionValues).map", "selectionEdits(target, configHome, live, undefined, undefined).map"],
         ["return owner?.connected === true;", "return owner !== undefined;"],
         ["return owner?.connected === true;", "return owner?.connected === true && selections.every(item => item.connected);"],
-        ["root.length > path.dirname(nearest.file).length", "selection.connected"]
+        ["root.length > path.dirname(nearest.file).length", "selection.connected"],
+        ["for (const [index, dir] of dirs.entries()) {", "for (const [index, dir] of dirs.filter(keep).entries()) {",
+            { name: "AssertionError", message: /^yazi: yazi,yazi-scratchpad: valid: false,true\b/ }]
     ];
-    for (const [needle, replacement] of controls) {
+    for (const [needle, replacement, failure] of controls) {
         assert.equal(source.split(needle).length, 2);
         const mutant = source.replace(needle, replacement);
         assert.notEqual(mutant, source);
         fs.writeFileSync(judge, mutant);
-        assert.throws(() => verifyConfigurations("valid"), { name: "AssertionError" });
+        assert.throws(() => verifyConfigurations("valid"), failure ?? { name: "AssertionError" });
         fs.writeFileSync(judge, source);
     }
 } finally {
