@@ -827,6 +827,23 @@ net_reveal() { ipc smoke revealText window vgs.system ListItem enp10s0 | py_repl
 # To a tenth of a pixel: a row still ending its entrance (ListEntrance)
 # reads a fraction of a pixel off its place.
 net_below() { ipc smoke itemGeometry window vgs.network ListItem enp11s0 | py_reply 'import json,sys; print(round(json.load(sys.stdin)[1], 1))'; }
+# net_settled_below: net_below once two reads 0.2 s apart agree, so the
+# row has ended its entrance and the reveal's scroll. A failed read is
+# retried as expect_poll retries; with no two agreeing reads within
+# smoke_poll_bound_ms it prints `unsettled:` and the last read and fails.
+net_settled_below() {
+  local last=unread now
+  smoke_poll_tries 200 1
+  for _ in $(seq 1 "$smoke_poll_n"); do
+    now="$(net_below)" || now=unread
+    [[ ! -s $ipc_timeout_log ]] || break
+    if [[ $now != unread && $now == "$last" ]]; then printf '%s\n' "$now"; return 0; fi
+    last="$now"
+    sleep 0.2
+  done
+  printf 'unsettled:%s\n' "$last"
+  return 1
+}
 net_spinners() { ipc smoke itemValues window vgs.network Spinner visible | py_reply 'import json,sys; print(sum(1 for r in json.load(sys.stdin) if r["visible"]))'; }
 net_detail_state() { net_snapshot | py_reply 'import json,sys; d=json.load(sys.stdin)["network"]["detail"]; print(d["interface"] + " " + d["state"])'; }
 # net_details_layout LABEL: opens enp10s0's Details in System while its
@@ -840,7 +857,7 @@ net_details_layout() {
   expect_poll "$1: the pane is mounted" shown net_shown window
   expect_poll "$1: the pane lists the wired devices" '[["enp10s0", true], ["enp11s0", true]]' net_wired_listed window
   expect "$1: enp10s0 scrolls into view" scrolled net_reveal
-  before="$(net_below)" || before=unread
+  before="$(net_settled_below)" || true
   touch -- "$net_hold"
   click_in "window:System Settings" window vgs.network ListItem enp10s0 || fail "$1: the click on enp10s0 failed"
   expect_poll "$1: the held read is loading" "enp10s0 loading" net_detail_state
@@ -852,7 +869,7 @@ net_details_layout() {
   after="$(net_below)" || after=unread
   expect "$1: System closes the pane" ok ipc shell hide window vgs.system
   expect_poll "$1: the pane is gone" hidden net_shown window
-  if [[ $before == unread || $during == unread || $after == unread ]]; then net_layout="unread before=$before during=$during after=$after"
+  if [[ $before == unread || $before == unsettled:* || $during == unread || $after == unread ]]; then net_layout="unread before=$before during=$during after=$after"
   elif [[ $during != "$before" ]]; then net_layout="moved-while-loading before=$before during=$during after=$after"
   elif [[ $after == "$before" ]]; then net_layout="never-moved before=$before after=$after"
   else net_layout=steady; fi
