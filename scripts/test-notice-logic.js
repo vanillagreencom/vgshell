@@ -487,7 +487,7 @@ function suite(ctx, check) {
         busy: view.busy
     });
     const welcome = (lineCount, keys, asking, failure, busy, link) => ({ welcome: true, title: "Welcome to VGS", message: "", lineCount, link: link === undefined ? LINK : link, keys, keysTitle: "Quick commands", actions: asking ? CONNECT : CLOSE, failure: failure || "", busy: busy === true });
-    const question = { welcome: false, title: QUESTION, message: "present", lineCount: 0, link: LINK, keys: [], keysTitle: "", actions: CONNECT, failure: "", busy: false };
+    const question = { welcome: false, title: QUESTION, message: "", lineCount: 1, link: LINK, keys: [], keysTitle: "", actions: CONNECT, failure: "", busy: false };
     const keyLine = (shortcut, text) => ({ shortcut, text });
     const keyHintsLine = keyLine("Super+/", "shows every key VGS adds.");
     const themeLine = keyLine("Super+Shift+T", "picks a theme.");
@@ -632,7 +632,7 @@ const CONTROLS = [
     ["the welcome waits for the marker's read", "    if (welcomeState === \"reading\") return null;\n", ""],
     ["the welcome waits for the consent answer", "    if (WELCOME_WAITS.indexOf(consent.phase) !== -1) return null;\n", ""],
     ["a key row needs its bind", "return typeof key === \"string\" ? { shortcut: keyLabel(key), text: row.text } : null;", "return { shortcut: keyLabel(typeof key === \"string\" ? key : \"SUPER+SLASH\"), text: row.text };"],
-    ["the question carries the welcome file link", "lines: [], link: WELCOME.link, keys: []", "lines: [], link: null, keys: []"],
+    ["the question carries the welcome file link", "lines: [question.message], link: WELCOME.link, keys: []", "lines: [question.message], link: null, keys: []"],
     ["the welcome carries its file link except settled", "link: consent.phase === \"settled\" ? null : WELCOME.link,", "link: null,"],
     ["a settled consent offers Close alone", "actions: question === null ? [{ label: WELCOME.close, role: \"cancel\", answer: \"close\" }] : actions,", "actions: actions,"],
     ["a key that types a character reads as it", "        if (hasOwn(KEY_GLYPHS, part)) return KEY_GLYPHS[part];\n", ""],

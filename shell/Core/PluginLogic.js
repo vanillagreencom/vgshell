@@ -2796,7 +2796,9 @@ function consentSlotView(consent, welcomeState, shipped, sections) {
     ];
     if (welcomeState === "reading") return null;
     if (welcomeState === "seen")
-        return question === null ? null : { welcome: false, title: question.title, message: question.message, lines: [], link: WELCOME.link, keys: [], keysTitle: "", actions: actions, failure: question.failure, busy: question.busy };
+        // NoticeHost applies the welcome's explicit file link to its
+        // consent lines; Dialog.message has no explicit file-link slot.
+        return question === null ? null : { welcome: false, title: question.title, message: "", lines: [question.message], link: WELCOME.link, keys: [], keysTitle: "", actions: actions, failure: question.failure, busy: question.busy };
     if (WELCOME_WAITS.indexOf(consent.phase) !== -1) return null;
     var rows = isPlainObject(shipped) && isPlainObject(shipped.welcome) ? shipped.welcome.keys : [];
     var keyRows = rows.map(function (row) {
