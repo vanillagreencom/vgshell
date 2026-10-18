@@ -161,6 +161,33 @@ _updates_install_helper() (
   command -v paru >/dev/null
 )
 
+# pacman parses CLI HookDir before configured directories. A configuration
+# ending in our HookDir wins by filename while retaining every other hook.
+# alpm-hooks(5), pacman/conf.c setup_libalpm and libalpm/hook.c.
+_updates_pacman_run() ( # HELPER ARGV...
+  local helper="$1" scratch facts key value original="" dirs argv=() status
+  shift
+  scratch="$(mktemp -d /tmp/vgs-updates-hooks.XXXXXXXXXX)" || return 1
+  [[ -d $scratch && ! -L $scratch ]] || return 1
+  scratch="$(cd -- "$scratch" && pwd -P)" || return 1
+  trap 'status=$?; rm -rf -- "${scratch:?}" || { printf "updates: hook-mask=cleanup-failed\n" >&2; status=1; }; exit "$status"' EXIT
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  facts="$(_updates_facts pacman-config "$scratch/pacman.conf" "$helper" "$@")" || return 1
+  while IFS=' ' read -r key value; do
+    case "$key" in config) original="$value" ;; word) argv+=("$value") ;; esac
+  done <<<"$facts"
+  dirs="$(pacman-conf --config "$original" HookDir)" || { printf 'updates: hook-mask=hookdirs-unreadable\n' >&2; return 1; }
+  mkdir -- "$scratch/hooks" && ln -s -- /dev/null "$scratch/hooks/cachyos-reboot-required.hook" || return 1
+  {
+    printf '[options]\nInclude = %s\n[options]\n' "$original"
+    while IFS= read -r value; do [[ -z $value ]] || printf 'HookDir = %s\n' "$value"; done <<<"$dirs"
+    printf 'HookDir = %s/hooks\n' "$scratch"
+  } >"$scratch/pacman.conf" || return 1
+  (cd -- "$HOME" && "${argv[@]}")
+)
+
 # FILE's text without SGR escapes, and of each line only what follows its
 # last carriage return, as the terminal showed it.
 _updates_plain() { # FILE
@@ -1191,7 +1218,11 @@ updates_main() {
       *)
         ignore=()
         if [[ $id == pacman && ${#_updates_skip_repo[@]} -gt 0 ]]; then ignore=(--ignore "${_updates_skip_repo[@]}"); fi
-        _updates_source "$id" "${labels[$id]}" "$_updates_vgshell" pkg run upgrade --manager "$id" "${ignore[@]}"
+        if [[ $id == pacman ]]; then
+          _updates_source "$id" "${labels[$id]}" _updates_pacman_run pacman "$_updates_vgshell" pkg run upgrade --manager "$id" "${ignore[@]}"
+        else
+          _updates_source "$id" "${labels[$id]}" "$_updates_vgshell" pkg run upgrade --manager "$id" "${ignore[@]}"
+        fi
         if [[ $id == pacman ]]; then
           case "$_updates_outcome" in
             failed) aur_blocked="the system upgrade failed, and AUR packages build against it" ;;
@@ -1221,10 +1252,11 @@ updates_main() {
       if [[ ${#aur_command[@]} -gt 0 ]]; then
         # The words may sync the system too, so both lists are kept out.
         for name in "${_updates_skip_aur[@]}" "${_updates_skip_repo[@]}"; do ignore+=(--ignore "$name"); done
-        _updates_source aur AUR _updates_run "Updating AUR packages" "${aur_command[@]}" "${ignore[@]}"
+        vgs_tui_step "Updating AUR packages"
+        _updates_source aur AUR _updates_pacman_run "${aur_command[0]}" "${aur_command[@]}" "${ignore[@]}"
       else
         if [[ ${#_updates_skip_aur[@]} -gt 0 ]]; then ignore=(--ignore "${_updates_skip_aur[@]}"); fi
-        _updates_source aur AUR "$_updates_vgshell" pkg run upgrade --manager aur "${ignore[@]}"
+        _updates_source aur AUR _updates_pacman_run "$aur_binary" "$_updates_vgshell" pkg run upgrade --manager aur "${ignore[@]}"
       fi
     fi
     if [[ $rebuild_run == 1 && $vgs_step == install-helper ]]; then
@@ -1235,7 +1267,8 @@ updates_main() {
     fi
     if [[ $rebuild_run == 1 ]]; then
       rm -f -- "${state:?}/rebuild-failed.json"
-      _updates_source vgshell-git "VGS package" _updates_run "Rebuilding VGS" "$aur_binary" -S vgshell-git
+      vgs_tui_step "Rebuilding VGS"
+      _updates_source vgshell-git "VGS package" _updates_pacman_run "$aur_binary" "$aur_binary" -S vgshell-git
       if [[ $_updates_outcome == failed ]]; then _updates_rebuild_failed "$vgs_current" "$aur_binary" "$_updates_exit"; fi
     fi
     if [[ $guarded == 1 ]]; then vgs_tui_sudo_session end; fi

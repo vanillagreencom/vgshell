@@ -237,8 +237,8 @@ declare -A step_description=(
   [undo:greeter]='Undo the login screen changes that VGS made. This removes the VGS login screen setup and restores how the computer starts.'
   [apply:bandwhich-capture]='Give the network monitor access to connection details. This lets VGS show which applications use your network.'
   [undo:bandwhich-capture]='Remove the network monitor access that VGS granted. This stops that access to application connection details.'
-  [apply:reboot-notice]='Turn off the CachyOS reboot notice. VGS shows when a restart is needed after an update.'
-  [undo:reboot-notice]='Restore the CachyOS reboot notice that VGS turned off. CachyOS can show its own restart notice again.'
+  [apply:reboot-notice]='Turn off CachyOS reboot notices for package updates outside VGS. VGS still asks once after all its update steps finish when a restart is needed.'
+  [undo:reboot-notice]='Restore CachyOS reboot notices for package updates outside VGS. VGS still asks once after all its update steps finish when a restart is needed.'
   [apply:voxtype-engine]='Enable the speech engine for dictation. This lets VGS turn your speech into text.'
   [undo:voxtype-engine]='Disable the speech engine that VGS enabled. Dictation will need another speech engine.'
 )

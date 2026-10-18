@@ -52,7 +52,7 @@
     "reviewThirdParty": {"type": "boolean", "label": "Review third-party packages", "description": "An AI agent checks packages from outside your distribution's official repositories before they install", "group": "Update options"},
     "reviewAgent": {"type": "string", "label": "AI agent", "description": "Choose the AI agent that checks the packages", "group": "Update options", "optionsFrom": "reviewAgents"},
     "reviewCommand": {"type": "string", "label": "Review command", "description": "Choose the command that starts the review agent", "group": "Update options", "allowCustom": true, "presets": [{"value": "", "label": "Automatic"}, {"value": "claude --model opus --effort medium --permission-mode default"}, {"value": "codex -m gpt-6.1-sol -c model_reasoning_effort=medium --sandbox workspace-write --ask-for-approval on-request"}]},
-    "rebootNotice": {"type": "string", "label": "Reboot notice", "description": "Choose which notice asks you to reboot after an update that needs one", "info": "After some updates, the computer must restart. VGS then asks you to restart, and CachyOS can show its own notice too. With VGS only, you see the VGS question alone. With CachyOS and VGS, you see both. VGS asks for your password before it changes this.", "group": "Update options", "optionsFrom": "rebootNotices", "hideEmpty": true}
+    "rebootNotice": {"type": "string", "label": "Reboot notice", "description": "Choose whether CachyOS shows reboot notices for package updates outside VGS", "info": "When an update needs a restart, VGS asks once after all update steps finish with either choice. Choose CachyOS and VGS to keep CachyOS notices for package updates outside VGS. Choose VGS only to turn those notices off. VGS asks for confirmation in a terminal before it applies or restores this setting. It asks for your password there if needed.", "group": "Update options", "optionsFrom": "rebootNotices", "hideEmpty": true}
   },
   "hyprland": {
     "binds": [
@@ -68,6 +68,6 @@
     "reviewAgents": {"type": "choices", "label": "Review agents"},
     "reviewAgent": {"type": "text", "label": "Review agent"},
     "rebootNotices": {"type": "choices", "label": "Reboot notices"},
-    "rebootNotice": {"type": "state", "label": "Reboot notice", "hidden": true, "actions": {"vgsOnly": {"label": "Use the VGS reboot notice only", "system": "reboot-notice"}, "both": {"label": "Turn the CachyOS notice back on", "undo": "reboot-notice"}}}
+    "rebootNotice": {"type": "state", "label": "Reboot notice", "hidden": true, "actions": {"vgsOnly": {"label": "Turn off CachyOS notices outside VGS", "system": "reboot-notice"}, "both": {"label": "Turn on CachyOS notices outside VGS", "undo": "reboot-notice"}}}
   }
 }
