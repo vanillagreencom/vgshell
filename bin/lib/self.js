@@ -465,7 +465,7 @@ async function install(repository, dataHome, root, current, shellTree, repair = 
 
 // The Home step consumes this plan without installing or consulting a
 // marketplace. The same plan is run by `vgshell self repair` after consent.
-function repairPlan(root, dataHome, version, checkout) {
+function repairPlan(root, dataHome, version, checkout, shellTree) {
     let detected;
     try { detected = detect(root, dataHome, version, checkout); }
     catch (error) {
@@ -477,7 +477,7 @@ function repairPlan(root, dataHome, version, checkout) {
     const cli = path.join(root, "bin", "vgshell");
     let command;
     if (method === "checkout") command = ["git", "-C", root, "restore", "--source=HEAD", "--worktree", "--", "."];
-    else if (method === "curl") command = [process.execPath, __filename, "restore", "vanillagreencom/vgshell", dataHome, root, current, "-"];
+    else if (method === "curl") command = [process.execPath, __filename, "restore", "vanillagreencom/vgshell", dataHome, root, current, shellTree];
     else if (method === "package") {
         const target = manager === AUR_PRIMARY ? "aur" : manager;
         command = [cli, "pkg", "run", "reinstall", "--manager", target, pkg];
@@ -578,8 +578,8 @@ if (require.main === module) main(() => {
         if (args.length !== 5) usage("restore-arguments=" + JSON.stringify(args));
         return install(...args, true);
     case "repair-plan":
-        if (args.length !== 4 || !["true", "false"].includes(args[3])) usage("repair-plan-arguments=" + JSON.stringify(args));
-        process.stdout.write(JSON.stringify(repairPlan(args[0], args[1], args[2], args[3] === "true")) + "\n");
+        if (args.length !== 5 || !["true", "false"].includes(args[3])) usage("repair-plan-arguments=" + JSON.stringify(args));
+        process.stdout.write(JSON.stringify(repairPlan(args[0], args[1], args[2], args[3] === "true", args[4])) + "\n");
         return undefined;
     case "directory-pattern":
         if (args.length !== 0) usage("directory-pattern-arguments=" + JSON.stringify(args));

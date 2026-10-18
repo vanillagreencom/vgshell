@@ -22,18 +22,21 @@ async function install(tree, folder, automatic, source, signal) {
 function locked(tree, folder, verb, source, signal, terminal = false) {
     const env = environment(source);
     const runtime = env.XDG_RUNTIME_DIR || "/run/user/" + process.getuid();
-    return leased("exec", ["flock", "--no-fork", "-n", "-E", "75", path.join(runtime, "vgs-tui-jarvis-fleet-setup.lock"),
-        process.execPath, __filename, "--tree", tree, verb, folder], {
-        env, cwd: folder, signal, terminal
+    return leased(terminal ? "host" : "exec", [process.execPath, __filename, "--tree", tree, verb, folder], {
+        env, cwd: folder, signal, terminal,
+        prefix: ["flock", "--no-fork", "-n", "-E", "75", path.join(runtime, "vgs-tui-jarvis-fleet-setup.lock")]
     });
 }
 
-function leased(mode, command, { env, cwd, signal, terminal = false, deadline = 300000 }) {
-    return require("./Child.js").run("setpriv", ["--pdeathsig", "KILL", "--", "python3", "-I",
-        path.join(__dirname, "audio-child.py"), mode, String(process.pid), ...command], {
-        // A terminal worker keeps its controlling terminal. The existing
-        // namespace lease still ends its descendants when this owner ends.
+function leased(mode, command, { env, cwd, signal, terminal = false, deadline = 300000, prefix = [] }) {
+    const argv = ["python3", "-I", path.join(__dirname, "audio-child.py"), mode, String(process.pid), ...command];
+    if (mode !== "host") argv.unshift("setpriv", "--pdeathsig", "KILL", "--");
+    argv.unshift(...prefix);
+    return require("./Child.js").run(argv[0], argv.slice(1), {
+        // A terminal worker keeps its controlling terminal. The host lease
+        // keeps the repair lock until its descendants have ended.
         env, cwd, limit: 1 << 20, deadline, group: mode === "exec" && !terminal, terminal, signal, extra: 2,
+        shutdown: mode === "host" ? child => child.stdio[3].end() : undefined,
         attach(child) {
             child.stdio[3].on("error", error => { if (error.code !== "EPIPE") child.kill("SIGKILL"); });
             child.stdio[3].write("S");
@@ -55,21 +58,16 @@ async function worker(tree, folder, automatic, repair = false) {
     process.once("SIGTERM", cancel);
     process.once("SIGINT", cancel);
     try {
-        if (repair) Home.repairResult(folder, { kind: "running" });
-        const result = await leased("outer", [process.execPath, __filename, "--tree", tree, repair ? "repair-package-worker" : "install-worker", folder], {
-            env: environment(process.env), cwd: folder, signal: controller.signal, terminal: repair
+        if (repair) {
+            Home.repairResult(folder, { kind: "running" });
+            return await repairPackage(tree, folder, controller.signal);
+        }
+        const result = await leased("outer", [process.execPath, __filename, "--tree", tree, "install-worker", folder], {
+            env: environment(process.env), cwd: folder, signal: controller.signal
         });
         if (result.stdout) process.stdout.write(result.stdout);
         if (result.stderr) process.stderr.write(result.stderr);
-        if (result.kind !== "exited") {
-            if (repair) Home.repairResult(folder, { kind: "failed", cause: result.reason });
-            fail(result.reason);
-        }
-        if (repair) {
-            if (result.code !== 0 && Home.repairResult(folder)?.kind === "running")
-                Home.repairResult(folder, { kind: "failed", cause: "worker-failed", code: result.code });
-            return result.code;
-        }
+        if (result.kind !== "exited") fail(result.reason);
         if (result.code !== 0) fail("install-failed");
         return 0;
     } finally {
@@ -78,13 +76,19 @@ async function worker(tree, folder, automatic, repair = false) {
     }
 }
 
-function repairPackage(tree, folder) {
+async function repairPackage(tree, folder, signal) {
     const owner = Home.packageOwner(folder);
     const file = owner === "kendex" ? "kendex" : path.join(tree, "bin/vgshell");
     const args = owner === "kendex" ? ["refresh", "--scope", "project", "--project-path", folder, "--leave"] : ["self", "repair"];
-    const result = cp.spawnSync(file, args, { cwd: folder, env: environment(process.env), stdio: "inherit" });
-    if (result.error || result.status !== 0) {
-        const code = Number.isInteger(result.status) ? result.status : 1;
+    const result = await leased(owner === "kendex" ? "outer" : "exec", [file, ...args], {
+        cwd: folder, env: environment(process.env), terminal: true, signal
+    });
+    if (result.kind !== "exited") {
+        Home.repairResult(folder, { kind: "failed", cause: result.reason });
+        fail(result.reason);
+    }
+    if (result.code !== 0) {
+        const code = Number.isInteger(result.code) ? result.code : 1;
         Home.repairResult(folder, { kind: "failed", cause: owner === "kendex" ? "refresh-failed" : "install-failed", code });
         return code;
     }
@@ -121,7 +125,7 @@ function packageInstall(folder) {
 async function main() {
     const [flag, tree, verb, setting, ...rest] = process.argv.slice(2);
     if (flag !== "--tree" || !path.isAbsolute(tree || "")
-            || !["status", "folder", "tool", "manual", "repair-status", "repair", "automatic-worker", "manual-worker", "install-worker", "repair-worker", "repair-package-worker"].includes(verb)
+            || !["status", "folder", "tool", "manual", "repair-status", "repair", "automatic-worker", "manual-worker", "install-worker", "repair-worker"].includes(verb)
             || typeof setting !== "string" || rest.length > 0) fail("arguments");
     require("./Core.js").use(tree);
     let folder = null;
@@ -129,7 +133,6 @@ async function main() {
     catch (error) { if (!/^jarvis: home=/.test(error.message)) throw error; }
     if (verb.endsWith("-worker")) {
         if (folder === null) fail("home-unchosen");
-        if (verb === "repair-package-worker") return repairPackage(tree, folder);
         return verb === "install-worker" ? packageInstall(folder) : worker(tree, folder, verb === "automatic-worker", verb === "repair-worker");
     }
     if (verb === "repair-status") {

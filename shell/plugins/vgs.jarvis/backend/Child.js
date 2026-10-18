@@ -31,10 +31,12 @@ const CLOCK = { set: (fn, ms) => setTimeout(fn, ms), clear: timer => clearTimeou
  *             /dev/null, for a child that forks a server which must not hold
  *             this owner's pipes open after the child exits.
  *   extra     pipes after descriptor 2, wired by attach(child, end).
+ *   shutdown  request an owned supervisor's cleanup instead of killing it;
+ *             close still waits for that supervisor and all its pipes.
  *   signal    an AbortSignal; abort ends the child as "cancelled".
  *   clock     {set, clear} for the deadline.
  */
-function run(file, argv, { env, cwd, limit, deadline, group, input, terminal = false, output = terminal ? "inherit" : "pipe", extra = 0, attach, signal, clock = CLOCK }) {
+function run(file, argv, { env, cwd, limit, deadline, group, input, terminal = false, output = terminal ? "inherit" : "pipe", extra = 0, attach, shutdown, signal, clock = CLOCK }) {
     return new Promise(resolve => {
         if (signal && signal.aborted) { resolve({ kind: "stopped", reason: "cancelled", stdout: "", stderr: "" }); return; }
         let child = null;
@@ -46,6 +48,7 @@ function run(file, argv, { env, cwd, limit, deadline, group, input, terminal = f
             if (stop !== null) return;
             stop = reason;
             if (child === null || child.pid === undefined) return;
+            if (shutdown !== undefined) { shutdown(child); return; }
             if (!group) { child.kill("SIGKILL"); return; }
             // The group also holds what the child forked and any member
             // that outlives it while holding a pipe.

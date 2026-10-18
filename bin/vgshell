@@ -2104,11 +2104,11 @@ self_update() {
 # self.js owns the install decision. Git commands remain in this caller,
 # and the plan reaches exec as argv without a shell-code conversion.
 self_repair() {
-  local version checkout=false plan words notice status=0
+  local version checkout=false plan words notice running status=0
   local -a command=()
   version="$(version_line)" || exit 1
   tree_is_checkout && checkout=true
-  plan="$(node "$self_judge" repair-plan "$root" "$data_home" "$version" "$checkout")" || exit 1
+  plan="$(node "$self_judge" repair-plan "$root" "$data_home" "$version" "$checkout" -)" || exit 1
   if [[ ${1:-} == --plan ]]; then printf '%s\n' "$plan"; return; fi
   [[ -z ${VGSHELL_RUNNER_PID:-} ]] || refuse 1 "repair=inside-shell"
   if [[ $plan == *'"kind":"by-hand"'* ]]; then
@@ -2121,6 +2121,10 @@ self_repair() {
   printf 'Jarvis restores VGS-owned Home package files on their next check, including package edits.\n' >&2
   confirm_change restore "$root including edited files" "the VGS install stays unchanged" repair
   self_lock_hold
+  if [[ $plan == *'"method":"curl"'* ]]; then
+    running="$(shell_tree)" || exit 1
+    plan="$(node "$self_judge" repair-plan "$root" "$data_home" "$version" "$checkout" "$running")" || exit 1
+  fi
   if [[ $plan == *'"ensureHelper":true'* ]]; then
     "$root/bin/vgshell" pkg ensure-helper || return "$?"
   fi

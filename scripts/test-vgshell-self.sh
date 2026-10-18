@@ -671,6 +671,7 @@ check "checkout repair restores a missing Jarvis file" test "$(cat "$repair_chec
 
 repair_data="$tmp/repair-data"; mkdir -p "$repair_data/vgshell"
 install_tree "$repair_source" "$repair_data/vgshell/$version_text"
+install_tree "$repair_source" "$repair_data/vgshell/0.0.8"
 ln -s -- "$version_text" "$repair_data/vgshell/current"
 repair_archive="vgshell-$version_text.tar.gz"
 mkdir -p "$tmp/repair-release" "$www/repos/vanillagreencom/vgshell/releases/tags"
@@ -684,11 +685,18 @@ rm -- "$repair_data/vgshell/$version_text/$repair_persona"
 inst_env=(VGS_RELEASE_API="$api" XDG_DATA_HOME="$repair_data")
 repair_base_env=("${base_env[@]}")
 base_env+=(VGS_RELEASE_API="$api" XDG_DATA_HOME="$repair_data")
+wait "$fake_shell" 2>/dev/null || true
+"$stubs/qs" -p "$repair_data/vgshell/0.0.8/shell" &
+fake_shell=$!
+printf '%s\n' "$fake_shell" >"$rt_running/vgshell.lock"
+repair_empty_runtime="$rt_empty"; rt_empty="$rt_running"
 INST_BIN="$repair_data/vgshell/current/bin/vgshell" on_terminal y self repair
-if [[ $term_status != 0 ]]; then cat "$tmp/out" >&2; fi
-check "curl repair restores the same release" test "$term_status" == 0
+rt_empty="$repair_empty_runtime"
+if [[ $term_status != 78 ]]; then cat "$tmp/out" >&2; fi
+check "curl repair reaches the existing restart refusal" test "$term_status" == 78
 check "curl repair restores a missing Jarvis file" test "$(cat "$repair_data/vgshell/current/$repair_persona")" == "$repair_original"
-check "curl repair retains the old running tree" test -d "$repair_data/vgshell/$version_text"
+check "curl repair retains the previous selected tree" test -d "$repair_data/vgshell/$version_text"
+check "failed restart retains the distinct running tree" test -d "$repair_data/vgshell/0.0.8/shell"
 check "curl repair publishes a new tree" test "$(readlink "$repair_data/vgshell/current")" != "$version_text"
 base_env=("${repair_base_env[@]}")
 
