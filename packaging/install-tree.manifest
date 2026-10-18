@@ -29,8 +29,8 @@ f share/vgshell/bin/vgshell-display-guard
 f share/vgshell/bin/vgshell-hypr-judge
 f share/vgshell/bin/vgshell-lock
 f share/vgshell/bin/vgshell-pkg
-f share/vgshell/bin/vgshell-power
 f share/vgshell/bin/vgshell-plugin-judge
+f share/vgshell/bin/vgshell-power
 f share/vgshell/bin/vgshell-scan
 f share/vgshell/bin/vgshell-share-picker
 f share/vgshell/bin/vgshell-sudo-grant
