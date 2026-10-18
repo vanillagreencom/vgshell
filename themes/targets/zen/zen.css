@@ -122,3 +122,226 @@ toolbar .toolbarbutton-1 {
 toolbar .toolbarbutton-1 > .toolbarbutton-icon {
   fill: #@{color.accent} !important;
 }
+
+/* Zen 1.23b native roots. Leave dependent transforms and content previews native. */
+@media not (forced-colors: active) {
+  :root {
+    --background-color-canvas: #@{color.surface} !important;
+    --hr-color: #@{color.border} !important;
+    --input-background-color: #@{color.surfaceRaised} !important;
+    --select-background-color: #@{color.surface} !important;
+    --text-color: #@{color.text} !important;
+    --text-color-error: #@{color.danger} !important;
+    --text-color-secondary: #@{color.textMuted} !important;
+  }
+  #zen-site-data-header {
+    & toolbarbutton {
+      &::before {
+        @media (-moz-platform: macos) {
+          --base-border-color: #@{color.border} !important;
+        }
+      }
+    }
+  }
+  dialog::part(dialog-button) {
+    --button-background-color: #@{color.surfaceRaised} !important;
+    --button-background-color-active: #@{color.surfaceRaised} !important;
+    --button-background-color-hover: #@{color.surfaceRaised} !important;
+    --button-background-color-primary: #@{color.accent} !important;
+  }
+  :host(:is(.anonymous-content-host, notification-message)), :root {
+    --button-background-color: #@{color.surfaceRaised} !important;
+    --button-background-color-active: #@{color.surfaceRaised} !important;
+    --button-background-color-hover: #@{color.surfaceRaised} !important;
+    --button-background-color-primary: #@{color.accent} !important;
+    --in-content-button-background: #@{color.surfaceRaised} !important;
+    --in-content-button-background-hover: #@{color.surfaceRaised} !important;
+    --input-text-background-color: #@{color.surfaceRaised} !important;
+    --panel-separator-color: #@{color.border} !important;
+    --tab-icon-overlay-stroke: #@{color.background} !important;
+    --toolbar-background-color: #@{color.surface} !important;
+    --toolbar-field-focus-background-color: #@{color.surfaceRaised} !important;
+    --zen-branding-dark: #@{color.background} !important;
+    --zen-branding-paper: #@{color.text} !important;
+    --zen-dialog-background: #@{color.surfaceRaised} !important;
+    --zen-input-border-color: #@{color.borderControl} !important;
+    --zen-sidebar-notification-outline: 1px solid #@{color.border} !important;
+    --zen-themed-toolbar-bg-transparent: #@{color.surface} !important;
+    --zen-toolbar-element-bg-hover: #@{color.surfaceRaised} !important;
+    --zen-branding-bg: #@{color.background} !important;
+    --zen-branding-bg-reverse: #@{color.text} !important;
+    --zen-colors-input-bg: #@{color.surfaceRaised} !important;
+    --button-primary-color: #@{color.onAccent} !important;
+    --button-text-color-primary: #@{color.onAccent} !important;
+    --in-content-primary-button-text-color: #@{color.onAccent} !important;
+    --in-content-primary-button-background: #@{color.accent} !important;
+    --in-content-primary-button-background-hover: #@{color.accent} !important;
+    --in-content-primary-button-background-active: #@{color.accent} !important;
+  }
+  zen-workspace-creation {
+    & .zen-workspace-creation {
+      & form {
+        --input-text-background-color: #@{color.surfaceRaised} !important;
+      }
+    }
+  }
+  zen-workspace-creation {
+    & .zen-workspace-creation {
+      & form {
+        & .zen-workspace-creation-name-wrapper {
+          & .zen-workspace-creation-name {
+            --input-text-background-color: #@{color.surfaceRaised} !important;
+          }
+        }
+      }
+    }
+  }
+  menupopup, panel[type="arrow"]:not(#feature-callout) {
+    @media (-moz-windows-mica-popups) {
+      --panel-background-color: #@{color.surface} !important;
+    }
+  }
+  menupopup, panel[type="arrow"]:not(#feature-callout) {
+    @media (-moz-platform: macos) {
+      --panel-background-color: #@{color.surface} !important;
+    }
+  }
+  menupopup, panel {
+    --panel-background-color: #@{color.surface} !important;
+  }
+  .zen-sidebar-notification-body {
+    & .zen-sidebar-notification-link-container {
+      &[special] {
+        --specia-color-2: #@{color.accent} !important;
+        --special-color: #@{color.accent} !important;
+      }
+    }
+  }
+  #feature-callout {
+    #mainContentHeader {
+      --specia-color-2: #@{color.accent} !important;
+      --special-color: #@{color.accent} !important;
+    }
+  }
+  zen-workspace {
+    --tab-background-color-selected: #@{color.surfaceRaised} !important;
+  }
+  tab-group[split-view-group] {
+    & .tab-group-container {
+      & > .tabbrowser-tab {
+        --tab-background-color-selected: #@{color.surfaceRaised} !important;
+      }
+    }
+  }
+  .tabbrowser-tab[zen-essential="true"] {
+    --tab-background-color-selected: #@{color.surfaceRaised} !important;
+  }
+  #customization-container {
+    --toolbar-background-color: #@{color.surface} !important;
+  }
+  :host(:is(.anonymous-content-host, notification-message)), :root {
+    &[zen-private-window='true'] {
+      --toolbox-textcolor: #@{color.text} !important;
+    }
+  }
+  :host(:is(.anonymous-content-host, notification-message)), :root {
+    &[zen-unsynced-window='true'] {
+      --toolbox-textcolor: #@{color.text} !important;
+    }
+  }
+  .urlbar {
+    --urlbarview-separator-color: #@{color.border} !important;
+  }
+  #zenBoostWindow {
+    --zen-boosts-active-button-background: #@{color.accent} !important;
+    --zen-boosts-active-button-color: #@{color.onAccent} !important;
+    --zen-boosts-active-button-hover-background: #@{color.accent} !important;
+    --zen-boosts-back-button-hover-background: #@{color.surfaceRaised} !important;
+    --zen-boosts-button-background: #@{color.surfaceRaised} !important;
+    --zen-boosts-color-picker-background: #@{color.surface} !important;
+    --zen-boosts-font-wrapper-background: #@{color.surface} !important;
+    --zen-boosts-magic-theme-active-background: #@{color.accent} !important;
+    --zen-boosts-magic-theme-background: #@{color.surfaceRaised} !important;
+    --zen-boosts-mica-background: #@{color.surfaceRaised} !important;
+    --zen-boosts-primary-background: #@{color.surface} !important;
+    --zen-boosts-primary-border-color: #@{color.border} !important;
+    --zen-boosts-primary-color: #@{color.text} !important;
+    --zen-boosts-secondary-background: #@{color.surface} !important;
+    --zen-boosts-secondary-color: #@{color.textMuted} !important;
+  }
+  #select-component {
+    --zen-boosts-selector-background: #@{color.surfaceRaised} !important;
+    --zen-boosts-selector-button-color: #@{color.text} !important;
+    --zen-boosts-selector-outline-color: #@{color.border} !important;
+    --zen-boosts-selector-preview-background: #@{color.surfaceRaised} !important;
+    --zen-boosts-selector-preview-color: #@{color.text} !important;
+  }
+  .tabbrowser-tab[zen-essential="true"] {
+    @media -moz-pref("zen.theme.essentials-favicon-bg") {
+      &[visuallyselected] > .tab-stack > .tab-background {
+        --zen-essential-tab-selected-bg: #@{color.surfaceRaised} !important;
+        --zen-essential-tab-selected-bg-hover: #@{color.surfaceRaised} !important;
+      }
+    }
+  }
+  .tabbrowser-tab[zen-essential="true"] {
+    @media -moz-pref("zen.theme.essentials-favicon-bg") {
+      &[visuallyselected] > .tab-stack > .tab-background {
+        :root[zen-default-theme="true"] & {
+          --zen-essential-tab-selected-bg: #@{color.surfaceRaised} !important;
+          --zen-essential-tab-selected-bg-hover: #@{color.surfaceRaised} !important;
+        }
+      }
+    }
+  }
+  zen-library {
+    --zen-library-pill-bg: #@{color.surfaceRaised} !important;
+    --zen-library-pill-hover-bg: #@{color.surfaceRaised} !important;
+  }
+  zen-workspace {
+    & > arrowscrollbox {
+      &[overflowing] {
+        --zen-scrollbar-overflow-background: #@{color.border} !important;
+      }
+    }
+  }
+  #main-window[windowtype="navigator:browser"]:not([popup-window]) {
+    @media (-moz-windows-mica) or (-moz-platform: macos) or ((-moz-platform: linux) and -moz-pref('zen.widget.linux.transparency')) {
+      --zen-themed-toolbar-bg-transparent: #@{color.surface} !important;
+    }
+  }
+  #main-window[windowtype="navigator:browser"]:not([popup-window]) {
+    @media (-moz-windows-mica) or (-moz-platform: macos) or ((-moz-platform: linux) and -moz-pref('zen.widget.linux.transparency')) {
+      @media (-moz-windows-mica) and (not (-moz-pref('widget.windows.mica.toplevel-backdrop', 1))) and (not (-moz-pref('widget.windows.mica.toplevel-backdrop', 2))) {
+        --zen-themed-toolbar-bg-transparent: #@{color.surface} !important;
+      }
+    }
+  }
+  :root:not([inDOMFullscreen="true"]):not([popup-window]) {
+    & #tabbrowser-tabbox #tabbrowser-tabpanels .browserSidebarContainer {
+      --zen-transparent-browser-background: #@{color.surface} !important;
+    }
+  }
+  #urlbar[breakout-extend] {
+    & .urlbar-background {
+      --zen-urlbar-background-base: #@{color.surface} !important;
+    }
+  }
+  #urlbar[breakout-extend] {
+    & .urlbar-background {
+      @media -moz-pref("zen.theme.acrylic-elements") and (not (prefers-reduced-transparency: reduce)) {
+        &:not(:-moz-window-inactive) {
+          --zen-urlbar-background-transparent: #@{color.surface} !important;
+        }
+      }
+    }
+  }
+  #zen-welcome {
+    --zen-welcome-border: #@{color.border} !important;
+    --zen-welcome-content-bg: #@{color.surface} !important;
+    --zen-welcome-sidebar-bg: #@{color.surface} !important;
+    --zen-welcome-surface-bg: #@{color.surfaceRaised} !important;
+    --zen-welcome-text-secondary: #@{color.textMuted} !important;
+    --zen-welcome-tile-bg: #@{color.surfaceRaised} !important;
+  }
+}

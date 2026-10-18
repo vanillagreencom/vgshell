@@ -1444,6 +1444,279 @@ try {
 }
 console.log(`test-theme-render: zed packages=${zedDocuments.length} native-players=8 accents=1..15 syntax-baseline=46`);
 
+// Zen 1.23b: VGS-1867's release-scoped native inventory, independent of zen.css.
+// Only these roots and companions replace native values; aliases, named content
+// colours, mod-button previews and the colour-picker checkerboard stay native.
+const ZEN_NATIVE_SCOPES = [
+    [[":root"], {
+        "--background-color-canvas": "color.surface",
+        "--hr-color": "color.border",
+        "--input-background-color": "color.surfaceRaised",
+        "--select-background-color": "color.surface",
+        "--text-color": "color.text",
+        "--text-color-error": "color.danger",
+        "--text-color-secondary": "color.textMuted",
+    }],
+    [["#zen-site-data-header", "& toolbarbutton", "&::before", "@media (-moz-platform: macos)"], {
+        "--base-border-color": "color.border",
+    }],
+    [["dialog::part(dialog-button)"], {
+        "--button-background-color": "color.surfaceRaised",
+        "--button-background-color-active": "color.surfaceRaised",
+        "--button-background-color-hover": "color.surfaceRaised",
+        "--button-background-color-primary": "color.accent",
+    }],
+    [[":host(:is(.anonymous-content-host, notification-message)), :root"], {
+        "--button-background-color": "color.surfaceRaised",
+        "--button-background-color-active": "color.surfaceRaised",
+        "--button-background-color-hover": "color.surfaceRaised",
+        "--button-background-color-primary": "color.accent",
+        "--in-content-button-background": "color.surfaceRaised",
+        "--in-content-button-background-hover": "color.surfaceRaised",
+        "--input-text-background-color": "color.surfaceRaised",
+        "--panel-separator-color": "color.border",
+        "--tab-icon-overlay-stroke": "color.background",
+        "--toolbar-background-color": "color.surface",
+        "--toolbar-field-focus-background-color": "color.surfaceRaised",
+        "--zen-branding-dark": "color.background",
+        "--zen-branding-paper": "color.text",
+        "--zen-dialog-background": "color.surfaceRaised",
+        "--zen-input-border-color": "color.borderControl",
+        "--zen-sidebar-notification-outline": "color.border",
+        "--zen-themed-toolbar-bg-transparent": "color.surface",
+        "--zen-toolbar-element-bg-hover": "color.surfaceRaised",
+        "--zen-branding-bg": "color.background",
+        "--zen-branding-bg-reverse": "color.text",
+        "--zen-colors-input-bg": "color.surfaceRaised",
+        "--button-primary-color": "color.onAccent",
+        "--button-text-color-primary": "color.onAccent",
+        "--in-content-primary-button-text-color": "color.onAccent",
+        "--in-content-primary-button-background": "color.accent",
+        "--in-content-primary-button-background-hover": "color.accent",
+        "--in-content-primary-button-background-active": "color.accent",
+    }],
+    [["zen-workspace-creation", "& .zen-workspace-creation", "& form"], {
+        "--input-text-background-color": "color.surfaceRaised",
+    }],
+    [["zen-workspace-creation", "& .zen-workspace-creation", "& form", "& .zen-workspace-creation-name-wrapper", "& .zen-workspace-creation-name"], {
+        "--input-text-background-color": "color.surfaceRaised",
+    }],
+    [["menupopup, panel[type=\"arrow\"]:not(#feature-callout)", "@media (-moz-windows-mica-popups)"], {
+        "--panel-background-color": "color.surface",
+    }],
+    [["menupopup, panel[type=\"arrow\"]:not(#feature-callout)", "@media (-moz-platform: macos)"], {
+        "--panel-background-color": "color.surface",
+    }],
+    [["menupopup, panel"], {
+        "--panel-background-color": "color.surface",
+    }],
+    [[".zen-sidebar-notification-body", "& .zen-sidebar-notification-link-container", "&[special]"], {
+        "--specia-color-2": "color.accent",
+        "--special-color": "color.accent",
+    }],
+    [["#feature-callout", "#mainContentHeader"], {
+        "--specia-color-2": "color.accent",
+        "--special-color": "color.accent",
+    }],
+    [["zen-workspace"], {
+        "--tab-background-color-selected": "color.surfaceRaised",
+    }],
+    [["tab-group[split-view-group]", "& .tab-group-container", "& > .tabbrowser-tab"], {
+        "--tab-background-color-selected": "color.surfaceRaised",
+    }],
+    [[".tabbrowser-tab[zen-essential=\"true\"]"], {
+        "--tab-background-color-selected": "color.surfaceRaised",
+    }],
+    [["#customization-container"], {
+        "--toolbar-background-color": "color.surface",
+    }],
+    [[":host(:is(.anonymous-content-host, notification-message)), :root", "&[zen-private-window='true']"], {
+        "--toolbox-textcolor": "color.text",
+    }],
+    [[":host(:is(.anonymous-content-host, notification-message)), :root", "&[zen-unsynced-window='true']"], {
+        "--toolbox-textcolor": "color.text",
+    }],
+    [[".urlbar"], {
+        "--urlbarview-separator-color": "color.border",
+    }],
+    [["#zenBoostWindow"], {
+        "--zen-boosts-active-button-background": "color.accent",
+        "--zen-boosts-active-button-color": "color.onAccent",
+        "--zen-boosts-active-button-hover-background": "color.accent",
+        "--zen-boosts-back-button-hover-background": "color.surfaceRaised",
+        "--zen-boosts-button-background": "color.surfaceRaised",
+        "--zen-boosts-color-picker-background": "color.surface",
+        "--zen-boosts-font-wrapper-background": "color.surface",
+        "--zen-boosts-magic-theme-active-background": "color.accent",
+        "--zen-boosts-magic-theme-background": "color.surfaceRaised",
+        "--zen-boosts-mica-background": "color.surfaceRaised",
+        "--zen-boosts-primary-background": "color.surface",
+        "--zen-boosts-primary-border-color": "color.border",
+        "--zen-boosts-primary-color": "color.text",
+        "--zen-boosts-secondary-background": "color.surface",
+        "--zen-boosts-secondary-color": "color.textMuted",
+    }],
+    [["#select-component"], {
+        "--zen-boosts-selector-background": "color.surfaceRaised",
+        "--zen-boosts-selector-button-color": "color.text",
+        "--zen-boosts-selector-outline-color": "color.border",
+        "--zen-boosts-selector-preview-background": "color.surfaceRaised",
+        "--zen-boosts-selector-preview-color": "color.text",
+    }],
+    [[".tabbrowser-tab[zen-essential=\"true\"]", "@media -moz-pref(\"zen.theme.essentials-favicon-bg\")", "&[visuallyselected] > .tab-stack > .tab-background"], {
+        "--zen-essential-tab-selected-bg": "color.surfaceRaised",
+        "--zen-essential-tab-selected-bg-hover": "color.surfaceRaised",
+    }],
+    [[".tabbrowser-tab[zen-essential=\"true\"]", "@media -moz-pref(\"zen.theme.essentials-favicon-bg\")", "&[visuallyselected] > .tab-stack > .tab-background", ":root[zen-default-theme=\"true\"] &"], {
+        "--zen-essential-tab-selected-bg": "color.surfaceRaised",
+        "--zen-essential-tab-selected-bg-hover": "color.surfaceRaised",
+    }],
+    [["zen-library"], {
+        "--zen-library-pill-bg": "color.surfaceRaised",
+        "--zen-library-pill-hover-bg": "color.surfaceRaised",
+    }],
+    [["zen-workspace", "& > arrowscrollbox", "&[overflowing]"], {
+        "--zen-scrollbar-overflow-background": "color.border",
+    }],
+    [["#main-window[windowtype=\"navigator:browser\"]:not([popup-window])", "@media (-moz-windows-mica) or (-moz-platform: macos) or ((-moz-platform: linux) and -moz-pref('zen.widget.linux.transparency'))"], {
+        "--zen-themed-toolbar-bg-transparent": "color.surface",
+    }],
+    [["#main-window[windowtype=\"navigator:browser\"]:not([popup-window])", "@media (-moz-windows-mica) or (-moz-platform: macos) or ((-moz-platform: linux) and -moz-pref('zen.widget.linux.transparency'))", "@media (-moz-windows-mica) and (not (-moz-pref('widget.windows.mica.toplevel-backdrop', 1))) and (not (-moz-pref('widget.windows.mica.toplevel-backdrop', 2)))"], {
+        "--zen-themed-toolbar-bg-transparent": "color.surface",
+    }],
+    [[":root:not([inDOMFullscreen=\"true\"]):not([popup-window])", "& #tabbrowser-tabbox #tabbrowser-tabpanels .browserSidebarContainer"], {
+        "--zen-transparent-browser-background": "color.surface",
+    }],
+    [["#urlbar[breakout-extend]", "& .urlbar-background"], {
+        "--zen-urlbar-background-base": "color.surface",
+    }],
+    [["#urlbar[breakout-extend]", "& .urlbar-background", "@media -moz-pref(\"zen.theme.acrylic-elements\") and (not (prefers-reduced-transparency: reduce))", "&:not(:-moz-window-inactive)"], {
+        "--zen-urlbar-background-transparent": "color.surface",
+    }],
+    [["#zen-welcome"], {
+        "--zen-welcome-border": "color.border",
+        "--zen-welcome-content-bg": "color.surface",
+        "--zen-welcome-sidebar-bg": "color.surface",
+        "--zen-welcome-surface-bg": "color.surfaceRaised",
+        "--zen-welcome-text-secondary": "color.textMuted",
+        "--zen-welcome-tile-bg": "color.surfaceRaised",
+    }],
+ ];
+const ZEN_COLOUR_GUARD = "@media not (forced-colors: active)";
+function zenDeclarations(text) {
+    text = text.replace(/\r\n/g, "\n").replace(/\/\*[\s\S]*?\*\//g, "");
+    const declarations = [];
+    let cursor = 0;
+    function block(contexts) {
+        let token = "", quote = null, depth = 0;
+        const declaration = () => {
+            const match = /^\s*(--[\w-]+):\s*([\s\S]*?)\s*(!important)?\s*$/.exec(token);
+            if (match) declarations.push({ contexts, key: match[1], value: match[2], important: Boolean(match[3]) });
+            token = "";
+        };
+        while (cursor < text.length) {
+            const char = text[cursor++];
+            if (quote) {
+                token += char;
+                if (char === "\\") token += text[cursor++] ?? "";
+                else if (char === quote) quote = null;
+            } else if (char === '"' || char === "'") { quote = char; token += char; }
+            else if (char === "(") { depth++; token += char; }
+            else if (char === ")") { depth--; token += char; }
+            else if (!depth && char === "{") {
+                const selector = token.trim().replace(/\s+/g, " ");
+                token = "";
+                block([...contexts, selector]);
+            } else if (!depth && char === ";") declaration();
+            else if (!depth && char === "}") { declaration(); return; }
+            else token += char;
+        }
+        assert.equal(contexts.length, 0, "Zen CSS has an unclosed block");
+        assert.equal(quote, null);
+        assert.equal(depth, 0);
+    }
+    block([]);
+    return declarations;
+}
+const zenDirectory = path.join(themesDir, "targets", "zen");
+const zenTarget = selectionRender.acceptTarget(logic, "zen", fs.readFileSync(path.join(zenDirectory, "target.json"), "utf8"));
+assert.equal(zenTarget.ok, true);
+const zenTemplate = fs.readFileSync(path.join(zenDirectory, "zen.css"), "utf8");
+function verifyZenNative(template, packages = selectionPackages) {
+    const failures = [], metrics = [];
+    const required = new Set(ZEN_NATIVE_SCOPES.flatMap(([, roles]) => Object.keys(roles)));
+    for (const { pkg, shipped } of packages) {
+        const rendered = selectionRender.renderTarget(logic, TOKENS, zenTarget.target, new Map([["zen.css", template]]), {
+            values: pkg.values, slots: selectionRender.terminalSource(pkg, selectionDefaults).terminal, curated: new Map(), installed: !shipped
+        });
+        assert.equal(rendered.ok, true);
+        const declarations = zenDeclarations(rendered.files[0].bytes.toString("utf8"));
+        const roleColour = role => logic.formatColor(logic.overlay(logic.parseColor(pkg.values.color[role.split(".")[1]]),
+            logic.parseColor(pkg.values.color.background))).slice(0, 7).toLowerCase();
+        for (const [contexts, roles] of ZEN_NATIVE_SCOPES) {
+            for (const [key, role] of Object.entries(roles)) {
+                const expectedContexts = [ZEN_COLOUR_GUARD, ...contexts];
+                const rows = declarations.filter(row => row.key === key && JSON.stringify(row.contexts) === JSON.stringify(expectedContexts));
+                const expected = (key === "--zen-sidebar-notification-outline" ? "1px solid " : "") + roleColour(role);
+                if (rows.length !== 1 || !rows[0].important || rows[0].value.toLowerCase() !== expected)
+                    failures.push({ kind: rows.length ? "zen-native-role" : "zen-native-missing", theme: pkg.name,
+                        key, contexts: expectedContexts, role, actual: rows.map(row => ({ value: row.value, important: row.important })), expected });
+            }
+        }
+        for (const row of declarations) {
+            // The stock release owns every non-inventory transform/category.
+            if (row.contexts.includes(ZEN_COLOUR_GUARD) ? !required.has(row.key) : required.has(row.key))
+                failures.push({ kind: "zen-native-scope", theme: pkg.name, key: row.key, contexts: row.contexts });
+        }
+        const value = key => declarations.find(row => row.key === key)?.value;
+        const ratio = (fg, bg) => logic.contrastRatio(logic.parseColor(value(fg)), logic.parseColor(value(bg)));
+        if (!failures.length) {
+            for (const [fg, bg] of [["--text-color", "--zen-main-browser-background"], ["--text-color", "--background-color-canvas"],
+                ["--text-color", "--input-background-color"], ["--in-content-primary-button-text-color", "--in-content-primary-button-background"]]) {
+                const contrast = ratio(fg, bg);
+                metrics.push({ theme: pkg.name, foreground: fg, background: bg, contrast });
+                if (contrast < 4.5) failures.push({ kind: "zen-native-contrast", theme: pkg.name, key: fg, background: bg, contrast, floor: 4.5 });
+            }
+        }
+    }
+    assert.deepEqual(failures, []);
+    return metrics;
+}
+const zenMetrics = verifyZenNative(zenTemplate);
+const zenControlRoot = fs.mkdtempSync(path.join(os.tmpdir(), "zen-native-control-"));
+try {
+    const controls = [
+        ["canvas", "--background-color-canvas", "", "zen-native-missing"],
+        ["paired-foreground", "--in-content-primary-button-text-color", "", "zen-native-missing"],
+        ["stock-role", "--zen-branding-dark", "#101010 !important", "zen-native-role"],
+        ["component-format", "--zen-sidebar-notification-outline", "#@{color.border} !important", "zen-native-role"],
+        ["state-scope", "&[zen-private-window='true']", "&[zen-private-window='false']", "zen-native-missing"],
+        ["forced-colours", ZEN_COLOUR_GUARD, "@media (forced-colors: active)", "zen-native-missing"]
+    ];
+    for (const [label, key, replacement, kind] of controls) {
+        const pattern = key.startsWith("--") ? new RegExp("^([ \t]*)" + key + ":[^\n]*\n", "gm") : null;
+        assert.equal(pattern ? [...zenTemplate.matchAll(pattern)].length : zenTemplate.split(key).length - 1, 1);
+        const changed = pattern ? zenTemplate.replace(pattern, replacement ? "$1" + key + ": " + replacement + ";\n" : "") : zenTemplate.replace(key, replacement);
+        assert.notEqual(changed, zenTemplate);
+        const copy = path.join(zenControlRoot, label + ".css");
+        fs.writeFileSync(copy, changed);
+        if (label === "paired-foreground") assert.match(changed, /^\s*--in-content-primary-button-background: #@\{color.accent\} !important;$/m);
+        assert.throws(() => verifyZenNative(fs.readFileSync(copy, "utf8"), [selectionPackages[0]]), error => {
+            const diagnostic = error.actual?.find(row => row.kind === kind && (!key.startsWith("--") || row.key === key));
+            if (!diagnostic) return false;
+            console.log("test-theme-render: zen-control " + JSON.stringify({ label, rejected: true, diagnostic }));
+            return true;
+        });
+    }
+} finally {
+    fs.rmSync(zenControlRoot, { recursive: true, force: true });
+}
+for (const background of [...new Set(zenMetrics.map(row => row.background))]) {
+    const minimum = zenMetrics.filter(row => row.background === background).reduce((a, b) => a.contrast < b.contrast ? a : b);
+    console.log("test-theme-render: zen-minimum " + JSON.stringify({ ...minimum, floor: 4.5 }));
+}
+console.log(`test-theme-render: zen-native packages=${selectionPackages.length} required=${new Set(ZEN_NATIVE_SCOPES.flatMap(([, roles]) => Object.keys(roles))).size} declarations=${ZEN_NATIVE_SCOPES.reduce((sum, [, roles]) => sum + Object.keys(roles).length, 0)}`);
+
 // foot reads six-digit RGB flash colours independently in its two INI palettes.
 const footDir = path.join(themesDir, "targets", "foot");
 const footTemplate = path.join(footDir, "foot.ini");
