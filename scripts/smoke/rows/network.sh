@@ -403,30 +403,61 @@ p=pathlib.Path(sys.argv[1]);rows=[json.loads(line) for line in p.read_text().spl
 print("submitted" if any(r["operation"]=="up" for r in rows) else "pending")
 PYSUBMITTED
 }
+# net_join_choose TEXT FIELD [KEY...]: a click on the join form's Select
+# reading TEXT, objectName network-join-FIELD, then KEY... and Return in
+# its list once the list is open, so no key reaches the form before the
+# list, and 0 once Return closed it, so the next key reaches the form, not
+# the list. 1, with a failure and no key typed, when the list does not
+# open.
+net_join_choose() {
+  local text=$1 field=$2 before=$failures
+  shift 2
+  click_in 'window:System Settings' window vgs.network Select "$text" || { fail "the enterprise $field choice could not open"; return 1; }
+  expect_poll "the enterprise $field list opens" true ipc smoke readMatchingDescendant window vgs.network Select objectName "network-join-$field" listOpen
+  (( failures == before )) || return 1
+  type_keys "$@" -k Return
+  expect_poll "Return closes the enterprise $field list" false ipc smoke readMatchingDescendant window vgs.network Select objectName "network-join-$field" listOpen
+}
+# A step that fails ends the case through net_enterprise_abandon: keys
+# typed on would act on whatever holds them, the network list's Return
+# connecting its selected network into the checks after this one. It
+# closes an open list, whose catcher would take the press on Cancel
+# (DismissScope), then the form.
+net_enterprise_abandon() {
+  local field
+  [[ $(net_join_result) != closed ]] || return 0
+  for field in security method; do
+    [[ $(ipc smoke readMatchingDescendant window vgs.network Select objectName "network-join-$field" listOpen) != true ]] || type_keys -k Escape
+  done
+  expect "the abandoned enterprise form's Cancel scrolls into view" scrolled net_join_cancel_reveal
+  click_in 'window:System Settings' window vgs.network Button Cancel || fail "the abandoned enterprise form could not be canceled"
+  expect_poll "Cancel releases the abandoned enterprise form" closed net_join_result
+}
 net_enterprise_submit_test() { # HIDDEN METHOD RECORD
-local net_enterprise_hidden=$1 net_enterprise_method=$2 net_enterprise_name
+local net_enterprise_hidden=$1 net_enterprise_method=$2 net_enterprise_name net_enterprise_before=$failures
 rm -f -- "${net_join_dir:?}/calls" "${net_join_dir:?}/ready"
 net_join_world 802-1x.password failed
 if [[ $net_enterprise_hidden == no ]]; then
 net_enterprise_name='VGS Enterprise Wi-Fi'
 expect "the enterprise row is revealed" scrolled net_enterprise_reveal
 expect_poll "the scanned enterprise row is mounted and enabled" true ipc smoke readMatchingDescendant window vgs.network DeviceRow text "$net_enterprise_name" enabled
-click_in 'window:System Settings' window vgs.network DeviceRow "$net_enterprise_name" || fail "the enterprise row could not be opened"
+click_item 'window:System Settings' window vgs.network DeviceRow "$net_enterprise_name" || fail "the enterprise row could not be opened"
 else
 net_enterprise_name='Hidden enterprise Wi-Fi'
 expect "Other Network is revealed for enterprise input" scrolled net_other_reveal
 click_in 'window:System Settings' window vgs.network Button 'Other Network…' || fail "the hidden enterprise form could not open"
 expect_poll "the hidden enterprise form takes focus" true ipc smoke activeFocusWithin window vgs.network NetworkJoin
 type_keys "$net_enterprise_name"
-click_in 'window:System Settings' window vgs.network Select 'WPA/WPA2 Personal' || fail "the enterprise security choice could not open"
-type_keys -k Down -k Return
+net_join_choose 'WPA/WPA2 Personal' security -k Down || { net_enterprise_abandon; return 0; }
 fi
 expect_poll "enterprise input uses the shared form" idle net_join_result
 expect "the form selects enterprise security" true ipc smoke readDescendant window vgs.network NetworkJoin enterprise
+(( failures == net_enterprise_before )) || { net_enterprise_abandon; return 0; }
 expect "the enterprise password field is masked" true ipc smoke readMatchingDescendant window vgs.network TextField objectName network-join-password password
-click_in 'window:System Settings' window vgs.network Select 'PEAP / MSCHAPv2' || fail "the enterprise method choice could not open"
-if [[ $net_enterprise_method == ttls ]]; then type_keys -k Down; fi
-type_keys -k Return -k Tab
+local -a net_enterprise_step=()
+[[ $net_enterprise_method != ttls ]] || net_enterprise_step=(-k Down)
+net_join_choose 'PEAP / MSCHAPv2' method "${net_enterprise_step[@]}" || { net_enterprise_abandon; return 0; }
+type_keys -k Tab
 type_keys 'enterprise.user'
 type_keys -k Tab
 type_keys 'auth.example.test'
