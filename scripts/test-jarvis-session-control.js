@@ -266,6 +266,18 @@ function inside() {
         assert.deepEqual(calls(folder).map(call => call.argv), [["resume", "--origin", "manual", "--home", folder], status(folder)]);
         cases++;
     }
+    // Do not resume: one `dismiss` in the home, whose answer, the session
+    // without its record, is the session; a package that refuses the verb,
+    // as one without `dismiss` does, is a failed call.
+    function dismiss(directory) {
+        answers(folder, { dismiss: said("stopped", "ended"), status: said("stopped", "ended", { restart: record }) });
+        const result = helper(directory, ["dismiss", "~/Jarvis"]);
+        assert.deepEqual([result.kind, result.state, result.reason, Object.hasOwn(result, "restart")], ["answer", "stopped", "ended", false]);
+        assert.deepEqual(calls(folder).map(call => call.argv), [["dismiss", "--home", folder]]);
+        answers(folder, { status: said("stopped", "ended", { restart: record }) });
+        assert.deepEqual(helper(directory, ["dismiss", "~/Jarvis"]), { kind: "failed" }, "a refused dismiss");
+        cases++;
+    }
     // At boot with Resume the last session, a record saved before a machine
     // restart is resumed instead of a start; with Start a new session, or
     // with no record, the boot starts as before.
@@ -290,7 +302,7 @@ function inside() {
         cases++;
     }
 
-    const checks = { boot, bootOff, enable, manual, off, change, changeRefused, blocks, noPackage, outside, fields, fieldsOutside, resume, bootResume };
+    const checks = { boot, bootOff, enable, manual, off, change, changeRefused, blocks, noPackage, outside, fields, fieldsOutside, resume, dismiss, bootResume };
     for (const check of Object.values(checks)) check(plugin);
 
     // A copy of the plugin tree FROM with one text of FILE replaced.
@@ -354,6 +366,7 @@ function inside() {
     control("since-checked", C, "ISO.test(since)", "true", fieldsOutside);
     control("step-checked", C, "|| !OUTCOMES.includes(step.outcome)", "", fieldsOutside);
     control("resume-origin", C, 'launch(at, ["resume", "--origin", "manual"])', 'launch(at, ["resume", "--origin", "boot"])', resume);
+    control("dismiss-verb", C, 'const dismissed = await run(at, ["dismiss"]);', 'const dismissed = await run(at, ["status"]);', dismiss);
     control("boot-resume", C, 'if (origin === "boot" && mode === "resume" && now.restart !== null && !LIVE.includes(now.state)) return launch(at, ["resume", "--origin", "boot"]);', "", bootResume);
     control("boot-resume-mode", C, 'origin === "boot" && mode === "resume" && now.restart !== null', 'origin === "boot" && now.restart !== null', bootResume);
     control("boot-resume-live", C, "now.restart !== null && !LIVE.includes(now.state)", "now.restart !== null", bootResume);

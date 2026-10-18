@@ -564,7 +564,7 @@ _updates_reboot() { # CORE...
   status=0
   vgs_tui_confirm "${reasons[*]} Reboot now?" --affirmative=Reboot --negative=Later --default=false || status=$?
   case "$status" in
-    0) systemctl reboot ;;
+    0) "$_updates_vgshell" power reboot ;;
     1) echo "Reboot later to run the updated system." ;;
     *) exit "$status" ;;
   esac

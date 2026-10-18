@@ -18,10 +18,12 @@ before the call answers, as a call that changes the session changes what
 the next status reads.
 
 It holds its answers to the package's resume reasons (design VGS-1797,
-`status` reason during a resume): a session `start` started beside a
-kept record never reads `resuming` or `resumed`, and `running resumed`
-over a record comes only once the delegate step has its outcome. An entry
-whose object, or an object under its "then", breaks either exits 2 with
+`status` reason during a resume, and `dismiss`): a session `start`
+started beside a kept record never reads `resuming` or `resumed`,
+`running resumed` over a record comes only once the delegate step has its
+outcome, and `dismiss` drops the record, so its answer carries none. A
+package without `dismiss` is an answers.json with no entry for it. An
+entry whose object, or an object under its "then", breaks a rule exits 2 with
 `jarvis-session: stand-in=contract verb=VERB reason=REASON`, so no test
 models a package that does not exist."""
 import json, os, subprocess, sys, time
@@ -48,6 +50,9 @@ for value in [entry] + list(entry.get("then", {}).values()):
     restart, reason = shown.get("restart"), shown.get("reason")
     if restart is None:
         continue
+    if argv[0] == "dismiss":
+        sys.stderr.write("jarvis-session: stand-in=contract verb=dismiss reason=%s\n" % reason)
+        sys.exit(2)
     delegate = [step["outcome"] for step in restart["steps"] if step["kind"] == "delegate"]
     if (argv[0] == "start" and reason in ("resuming", "resumed")) or (reason == "resumed" and "pending" in delegate):
         sys.stderr.write("jarvis-session: stand-in=contract verb=%s reason=%s\n" % (argv[0], reason))

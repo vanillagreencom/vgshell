@@ -420,7 +420,7 @@ Commands:
   hypr       Connect the VGS Hyprland settings to hyprland.lua
   tui        Run a command in a VGS floating terminal
 
-Other commands: pid, ipc, log, version, edit, dictation
+Other commands: pid, ipc, log, version, edit, dictation, power
 
 Run 'vgshell <command> --help' for the options of one command.
 EOF_HELP
@@ -545,6 +545,13 @@ EOF_HELP
 Usage: vgshell lock
 
 Ask the running shell's lock plugin to lock the session.
+EOF_HELP
+      ;;
+    power) cat <<'EOF_HELP'
+Usage: vgshell power reboot|poweroff
+
+Restart or shut down the computer. A running Jarvis session saves its
+work first, for at most one minute.
 EOF_HELP
       ;;
     sudo) cat <<'EOF_HELP'
@@ -2823,6 +2830,9 @@ case "$cmd" in
     ;;
   lock)
     exec "$root/bin/vgshell-lock" "$@"
+    ;;
+  power)
+    exec "$root/bin/vgshell-power" "$@"
     ;;
   sudo)
     case "${1:-}" in

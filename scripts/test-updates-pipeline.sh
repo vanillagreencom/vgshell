@@ -729,7 +729,7 @@ row_reboot() {
   pipeline update.sh
   assert "a replaced Hyprland asks to reboot" has_call "gum confirm --affirmative=Reboot --negative=Later --default=false -- Hyprland was updated. Reboot now?"
   assert "a replaced Hyprland rechecks before it asks to reboot" before "vgshell ipc call vgs.updates invoke check " "gum confirm --affirmative=Reboot --negative=Later --default=false -- Hyprland was updated. Reboot now?"
-  assert "a yes reboots" test "$(tail -n 1 "$tmp/seq")" == "systemctl reboot"
+  assert "a yes reboots" test "$(tail -n 1 "$tmp/seq")" == "vgshell power reboot"
   echo 1 >"$fix/answer-reboot"
   pipeline update.sh
   assert "a no does not reboot" test "$(grep -c '^systemctl' "$tmp/seq")" == 0
@@ -746,7 +746,7 @@ row_reboot_core() {
   assert "the installed packages are read before the first package step" before "pacman -Q" "vgshell pkg run upgrade --manager pacman"
   assert "the installed packages are read again after the last" before "vgshell pkg run upgrade --manager aur" "pacman -Q"
   assert "the hook is read under pacman's RootDir" has_call "pacman-conf RootDir"
-  assert "a reboot asked after an upgraded kernel reboots on a yes" test "$(tail -n 1 "$tmp/seq")" == "systemctl reboot"
+  assert "a reboot asked after an upgraded kernel reboots on a yes" test "$(tail -n 1 "$tmp/seq")" == "vgshell power reboot"
   reset_fix
   reboot_hook
   printf 'linux 6.1-1\nmesa 24.1-1\nvgshell-git 0.1.0.r1-1\nfirefox 130-1\n' >"$fix/installed"

@@ -18,6 +18,10 @@
 //   start ACCOUNT HOME MODE          `start --origin manual`
 //   resume HOME                      `resume --origin manual`: the record
 //                                    saved before a machine restart
+//   dismiss HOME                     `dismiss`: the package drops that
+//                                    record and answers the session as
+//                                    `status` does; a package that refuses
+//                                    the verb answers `failed`
 //   change OLD ACCOUNT HOME MODE     a changed account or home: while a
 //                                    session lives in OLD, checks the new
 //                                    selection, stops the old session and
@@ -121,7 +125,7 @@ function accepted(text) {
 
 async function main() {
     const [flag, tree, verb, ...args] = process.argv.slice(2);
-    const shapes = { status: 1, build: 4, start: 3, resume: 1, change: 4, stop: [1, 2] };
+    const shapes = { status: 1, build: 4, start: 3, resume: 1, dismiss: 1, change: 4, stop: [1, 2] };
     if (flag !== "--tree" || !path.isAbsolute(tree || "") || !Object.hasOwn(shapes, verb)
             || ![].concat(shapes[verb]).includes(args.length)
             || (verb === "build" && !["on", "off"].includes(args[3]))
@@ -209,6 +213,12 @@ async function main() {
     if (verb === "resume") {
         const at = place(args[0]);
         return at.kind === "blocked" ? at : launch(at, ["resume", "--origin", "manual"]);
+    }
+    if (verb === "dismiss") {
+        const at = place(args[0]);
+        if (at.kind === "blocked") return at;
+        const dismissed = await run(at, ["dismiss"]);
+        return dismissed === null ? failed : answer(dismissed);
     }
     if (verb === "change") {
         const [old, setting, home, mode] = args;

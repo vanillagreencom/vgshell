@@ -23,7 +23,9 @@
 # package for one `prepare` in the session's home and runs systemctl once,
 # after the saved answer, while the wait's card shows; a second Reboot
 # runs systemctl at once, and so does the card's Shut down now while the
-# session has not answered. In a copy whose helper bound is 2 s, a prepare
+# session has not answered. The Updates run's Reboot answer, tui/pipeline.sh's
+# _updates_reboot answered Reboot, takes the same wait through `vgshell
+# power`. In a copy whose helper bound is 2 s, a prepare
 # that holds 10 s still reaches systemctl before it answers. A record the
 # package saved before a machine restart offers its resume on the row and
 # the bar widget while Start Jarvis at boot is off. Resume asks for one
@@ -34,8 +36,10 @@
 # fails at its first step keeps that step's cause on the widget, reads
 # the steps it did not reach as not resumed and offers nothing again. A
 # resume that leaves the session failed before its first step offers
-# again, and a second Resume is taken. Do not resume hides the offer and
-# asks for nothing. With Start Jarvis at boot on and Resume the last
+# again, and a second Resume is taken. Do not resume asks the package for
+# one `dismiss`, which drops the record, so the offer is gone also after a
+# shell restart; a package that refuses `dismiss` keeps the offer, and the
+# row gets one line saying so. With Start Jarvis at boot on and Resume the last
 # session, a shell start asks for one boot resume and no start, and a
 # shell restart while that resumed session lives asks for one boot start
 # and no second resume. With Start a new session, a shell start asks for
@@ -49,11 +53,14 @@
 # answers, a tree whose Resume keeps no mark of its ask takes a second
 # Resume before the answer and reads two resumes, and a tree that keeps
 # that mark past the answer offers nothing again after a resume that never
-# started.
+# started, a tree whose Updates Reboot answer runs systemctl itself asks
+# for no save, a tree whose Do not resume calls nothing offers the resume
+# again after a shell restart, and a tree that takes a refused `dismiss`
+# as the answer drops the offer with no line.
 # No latency ceiling. Reads poll once per nested IPC round trip.
 # The home's Jarvis package is the copy VGS writes there; the row adds only
 # the stand-in command beside it.
-# inputs: shell/plugins/vgs.jarvis/* shell/plugins/vgs.jarvis/backend/* packaging/jarvis-home/* scripts/fixtures/jarvis/session-package.py shell/Core/Plugins.qml shell/Commons/AccountDirectories.js bin/lib/account-folders.js bin/lib/anchored.js bin/lib/qml-library.js shell/Core/PluginStatus.qml scripts/smoke/rows/jarvis.sh shell/plugins/vgs.launcher/menu.json shell/Core/Layers.qml shell/Hosts/LayerHost.qml shell/Ui/overlay/Tooltip.qml shell/Ui/controls/BarItem.qml
+# inputs: shell/plugins/vgs.jarvis/* shell/plugins/vgs.jarvis/backend/* packaging/jarvis-home/* scripts/fixtures/jarvis/session-package.py shell/Core/Plugins.qml shell/Commons/AccountDirectories.js bin/lib/account-folders.js bin/lib/anchored.js bin/lib/qml-library.js shell/Core/PluginStatus.qml scripts/smoke/rows/jarvis.sh shell/plugins/vgs.launcher/menu.json shell/Core/Layers.qml shell/Hosts/LayerHost.qml shell/Ui/overlay/Tooltip.qml shell/Ui/controls/BarItem.qml shell/plugins/vgs.updates/tui/pipeline.sh bin/vgshell bin/vgshell-power
 set -euo pipefail
 session_config="$home/.config/vgshell/shell.json"
 session_home="$home/SmokeJarvis"
@@ -361,6 +368,18 @@ session_menu() { # ITEM
   mapfile -t run <<<"$words"
   "${shell_env[@]}" PATH="$session_path" "${run[@]}"
 }
+# The Updates run's Reboot answer in TREE: tui/pipeline.sh's
+# _updates_reboot with the reboot question answered Reboot, over the row's
+# stand-ins. The pipeline's start names its vgshell by the tree
+# (_updates_vgshell); this sets it the same way and runs no other step.
+session_updates_reboot() { # TREE
+  "${shell_env[@]}" PATH="$session_path" bash -c '
+    source "$1/shell/plugins/vgs.updates/tui/pipeline.sh"
+    _updates_vgshell="$1/bin/vgshell" _updates_yes=0
+    vgs_tui_reboot_check() { return 1; }
+    vgs_tui_confirm() { return 0; }
+    _updates_reboot linux' _ "$1"
+}
 session_prepare_words() { # FOR
   python3 -c 'import json,sys; print(json.dumps([["prepare", "--for", sys.argv[1], "--home", sys.argv[2]]]))' "$1" "$session_home"
 }
@@ -394,6 +413,21 @@ if [[ $(session_resolves systemctl) == "$shim/systemctl" && $(session_resolves v
   expect "a second Reboot while the wait shows runs" "" session_menu system.reboot
   expect "the second Reboot runs systemctl reboot at once" '[["reboot"], ["reboot"]]' session_systemctl
   expect_poll "the second Reboot ends the wait's card" none session_card
+
+  session_live_holding 1
+  expect "the Updates run's Reboot answer runs while a session lives" "" session_updates_reboot "$repo"
+  expect_poll "the Updates Reboot answer asks the package once to save the session for a restart" "$(session_prepare_words restart)" session_calls prepare
+  expect_poll "the Updates Reboot answer runs systemctl reboot after the session's saved answer" after-answer session_power_when
+  expect "the Updates Reboot answer runs systemctl once" '[["reboot"]]' session_systemctl
+  expect "a second ask ends the Updates Reboot's wait" proceed ipc vgs.jarvis invoke power reboot
+  expect_poll "the Updates Reboot's card goes" none session_card
+  copy_tree jarvis-updates-direct
+  if edit_tree jarvis-updates-direct shell/plugins/vgs.updates/tui/pipeline.sh '    0) "$_updates_vgshell" power reboot ;;' '    0) systemctl reboot ;;'; then
+    session_live_holding 1
+    expect "control: the copy's Updates Reboot answer runs" "" session_updates_reboot "$sandbox/tree-jarvis-updates-direct"
+    expect "control: a Reboot answer that runs systemctl itself asks the package for no save" '[]' session_calls prepare
+    expect "control: that Reboot answer runs systemctl reboot at once" '[["reboot"]]' session_systemctl
+  fi
 
   session_live_holding 15
   expect "Shut down while a session lives is held" held ipc vgs.jarvis invoke power poweroff
@@ -450,6 +484,7 @@ session_offer_answers() {
   resumed="$(session_restart delegate:jarvis:resumed overseer:vgshell:failed:settings-busy lane:VGS-1797:pending)"
   session_answers "stopped ended" "running existing" "stopping stop-requested"
   session_answer status "{\"exit\": 0, \"object\": {\"state\": \"stopped\", \"reason\": \"ended\", \"restart\": $pending}}"
+  session_answer dismiss '{"exit": 0, "object": {"state": "stopped", "reason": "ended"}, "then": {"status": {"exit": 0, "object": {"state": "stopped", "reason": "ended"}}}}'
   session_answer resume "{\"exit\": 0, \"hold\": 2, \"object\": {\"state\": \"starting\", \"reason\": \"resuming\"}, \"then\": {\"status\": {\"exit\": 0, \"object\": {\"state\": \"running\", \"reason\": \"resumed\", \"restart\": $resumed}}}}"
 }
 session_resume_words() { # ORIGIN...
@@ -501,13 +536,61 @@ expect "a resume that never started offers again" '{"unlock": null}' session_off
 expect "a second Resume is taken" ok ipc vgs.jarvis invoke resume-session ''
 expect_poll "the second Resume asks for one more manual resume" "$(session_resume_words manual manual)" session_calls resume
 
+# Do not resume asks the package to drop the record, so a shell restart
+# offers nothing; a package that does not answer keeps the offer, and the
+# row says the choice was not saved.
+session_dismiss_words() { python3 -c 'import json,sys; print(json.dumps([["dismiss", "--home", sys.argv[1]]]))' "$session_home"; }
+# Whether the stand-in's status still carries the record: kept or dropped.
+# Its `then` changes the status before the call answers.
+session_record() { python3 -c 'import json,sys; print("kept" if json.load(open(sys.argv[1]))["status"]["object"].get("restart") else "dropped")' "$session_package/scripts/answers.json"; }
+# The row's extra lines, as their count, or pending.
+session_line_count() { session_lines | py_reply 'import json,sys; t=sys.stdin.read().strip(); print(t if t == "pending" else len(json.loads(t)))'; }
 session_offer_answers
 session_shell_start "$repo" dismiss
 expect_poll "a new shell offers the record's resume" '{"unlock": null}' session_offer
 expect "Do not resume is taken" ok ipc vgs.jarvis invoke dismiss-resume ''
-expect_poll "Do not resume hides the offer" null session_offer
-expect_poll "the row no longer offers the resume" "Not started" session_text
+expect_poll "Do not resume asks the package for one dismiss, in the session's home" "$(session_dismiss_words)" session_calls dismiss
+expect_poll "the package drops the record" dropped session_record
+expect_poll "the row reads the session without the record" '["Not started", "Start Jarvis to continue your work"]' session_row
+expect "Do not resume hides the offer" null session_offer
 expect "Do not resume asks for no resume" '[]' session_calls resume
+session_shell_start "$repo" dismiss-restart
+expect_poll "after a shell restart the row reads the session without the record" '["Not started", "Start Jarvis to continue your work"]' session_row
+expect "after a shell restart Do not resume still holds" null session_offer
+
+copy_tree jarvis-session-dismiss-nothing
+if edit_tree jarvis-session-dismiss-nothing shell/plugins/vgs.jarvis/SessionStart.qml \
+    '        call("dismiss", sessionHome, [sessionHome]);
+' ''; then
+  session_offer_answers
+  session_shell_start "$sandbox/tree-jarvis-session-dismiss-nothing" dismiss-nothing
+  expect_poll "control: the copy offers the record's resume" '{"unlock": null}' session_offer
+  expect "control: the copy's Do not resume is taken" ok ipc vgs.jarvis invoke dismiss-resume ''
+  expect "control: a Do not resume that calls nothing asks for no dismiss" '[]' session_calls dismiss
+  session_shell_start "$sandbox/tree-jarvis-session-dismiss-nothing" dismiss-nothing-restart
+  expect_poll "control: after a shell restart the copy offers the resume again" '{"unlock": null}' session_offer
+fi
+
+# A package without `dismiss`: the stand-in refuses the verb.
+session_offer_answers
+session_answer dismiss '{"exit": 2, "raw": ""}'
+session_shell_start "$repo" dismiss-refused
+expect_poll "a shell before a refused Do not resume offers the resume" '{"unlock": null}' session_offer
+expect "the Do not resume the package refuses is taken" ok ipc vgs.jarvis invoke dismiss-resume ''
+expect_poll "a refused Do not resume puts one line on the row" 1 session_line_count
+expect "a refused Do not resume keeps the offer" '{"unlock": null}' session_offer
+expect "a refused Do not resume asked for one dismiss" "$(session_dismiss_words)" session_calls dismiss
+copy_tree jarvis-session-dismiss-silent
+if edit_tree jarvis-session-dismiss-silent shell/plugins/vgs.jarvis/SessionStart.qml \
+    '            dismissFailed = answer.kind !== "answer";' '            dismissFailed = false;'; then
+  session_offer_answers
+  session_answer dismiss '{"exit": 2, "raw": ""}'
+  session_shell_start "$sandbox/tree-jarvis-session-dismiss-silent" dismiss-silent
+  expect_poll "control: the copy offers the record's resume" '{"unlock": null}' session_offer
+  expect "control: the copy's Do not resume is taken" ok ipc vgs.jarvis invoke dismiss-resume ''
+  expect_poll "control: a copy that takes the refusal as the answer reads the failure" '["Not started", "Jarvis did not start"]' session_row
+  expect "control: that copy drops the offer with no line" null session_offer
+fi
 
 copy_tree jarvis-session-resume-twice
 if edit_tree jarvis-session-resume-twice shell/plugins/vgs.jarvis/SessionStart.qml \

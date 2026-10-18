@@ -638,6 +638,9 @@ var SESSION_MODES = [{ label: "Resume the last session", value: "resume" }, { la
 // The row while the package holds a session saved before a machine restart
 // that the user can resume by hand (sessionOffer).
 var SESSION_RESUME = { tone: "info", text: "Saved before the restart", hint: "Resume Jarvis from before the restart", action: "resume" };
+// The row's line while the offer stands after the package did not answer
+// Do not resume (`dismiss`): the record and the offer stay.
+var SESSION_NOT_DISMISSED = "Do not resume was not saved because the Jarvis package did not answer, so the offer stays";
 // The states in which the Resume offer stands: no session runs, and none
 // is turned off, stopping or blocked.
 var SESSION_OFFERED = ["stopped", "failed"];
@@ -677,13 +680,13 @@ function sessionResumeStarted(result) {
 
 // Whether RESULT, session-control.js's answer, offers the Resume of the
 // session saved before a machine restart. WANTED is Start Jarvis at boot,
-// whose boot build resumes it by itself; SET_ASIDE is true once the user
-// chose Do not resume for this record, and while a resume asked for has no
-// answer yet. The offer ends once the record's resume started, a resume
+// whose boot build resumes it by itself; ASKED is true while a Resume or a
+// Do not resume asked for has no answer yet. Do not resume drops the
+// record in the package, so no later answer carries it. The offer ends once the record's resume started, a resume
 // that failed among them: its steps then show in its place. A resume that
 // never started offers again.
-function sessionOffer(wanted, result, setAside) {
-    return !wanted && !setAside && result !== null && result.kind === "answer" && result.restart !== undefined
+function sessionOffer(wanted, result, asked) {
+    return !wanted && !asked && result !== null && result.kind === "answer" && result.restart !== undefined
         && SESSION_OFFERED.indexOf(result.state) !== -1 && !sessionResumeStarted(result);
 }
 
@@ -706,10 +709,10 @@ function sessionRunning(result) {
 // is null while the service reads pending steps, else the ISO time of its
 // last read: the pending steps then drop, since nothing reads them any
 // more, and `checkedAt` is that read's "HH:MM"; else it is null.
-function sessionRecord(wanted, result, setAside, checked) {
+function sessionRecord(wanted, result, asked, checked) {
     if (result === null || result.kind !== "answer") return null;
     var running = sessionRunning(result);
-    var offer = sessionOffer(wanted, result, setAside);
+    var offer = sessionOffer(wanted, result, asked);
     var steps = sessionResumeLive(result) ? result.restart.steps : !sessionResumeStarted(result) ? []
         : result.restart.steps.map(function (step) {
             return step.outcome === "pending" ? { kind: step.kind, name: step.name, outcome: "failed", cause: null } : step;
@@ -732,8 +735,10 @@ function sessionStepsPending(result) {
 // first one and { kind: "failed" } where the helper gave none. WANTED is
 // the Start Jarvis at boot setting, which words only a session that does
 // not run: a live session reads as it is, whatever the setting. OFFERED
-// is sessionOffer's answer: the row then offers the Resume.
-function sessionStart(wanted, result, offered) {
+// is sessionOffer's answer: the row then offers the Resume. NOT_DISMISSED
+// is true once the package did not answer the last Do not resume: while
+// the offer stands, the row says so in a line.
+function sessionStart(wanted, result, offered, notDismissed) {
     if (result === null) return { hidden: true };
     if (result.kind === "blocked") {
         if (!Object.prototype.hasOwnProperty.call(SESSION_BLOCKS, result.block)) throw new Error("jarvis-setup: session=" + result.block);
@@ -763,6 +768,7 @@ function sessionStart(wanted, result, offered) {
     if (running.since !== null) lines.push("Running since " + running.since);
     // The selection that failed its check, beside the session that stays.
     if (result.unapplied !== undefined) lines.push(SESSION_BLOCKS[result.unapplied]);
+    if (offered === true && notDismissed === true) lines.push(SESSION_NOT_DISMISSED);
     if (lines.length > 0) value.lines = lines;
     return value;
 }

@@ -17,8 +17,9 @@ import "SetupGate.js" as Gate
 // process that outlives this service. Each answer is the Jarvis session row
 // and the bar widget's reading (`jarvisSession`). While Start Jarvis at boot
 // is off, that record is the Resume offer: the widget's click and the row's
-// Resume ask for its resume, Do not resume sets it aside, and the offer
-// waits for the ask's answer and ends once its resume started
+// Resume ask for its resume, Do not resume asks the package to drop the
+// record (`dismiss`), and the offer waits for either ask's answer and ends
+// once the record is gone or its resume started
 // (SetupGate.sessionResumeStarted). While a resume that started still runs
 // with a pending step (SetupGate.sessionStepsPending), this instance reads
 // the session again every stepPollMs, for at most stepPollLimitMs from the
@@ -44,9 +45,12 @@ Item {
     property string output: ""
     property string errors: ""
     property int exitCode: 0
-    // The record the user chose Do not resume for, as recordKey writes it;
-    // "" for none. A later record, of a later restart, offers again.
-    property string setAside: ""
+    // True from Do not resume's ask to its answer. The package drops the
+    // record, so no later read offers it again; VGS keeps no mark of it.
+    property bool dismissing: false
+    // True once the package did not answer the last Do not resume: the
+    // record and its offer stay, and the row says the choice was not saved.
+    property bool dismissFailed: false
     // True from the Resume's ask to its answer: a second Resume before the
     // answer asks for nothing. The answer says whether the resume started.
     property bool resumed: false
@@ -60,7 +64,7 @@ Item {
     readonly property int stepPollLimitMs: 600000
     readonly property bool stepsPending: Gate.sessionStepsPending(result)
     readonly property bool offered: shell !== null
-        && Gate.sessionOffer(shell.settings.startAtBoot, result, resumed || (recordKey(result) !== "" && recordKey(result) === setAside))
+        && Gate.sessionOffer(shell.settings.startAtBoot, result, resumed || dismissing)
     readonly property string program: String(Qt.resolvedUrl("backend/session-control.js")).replace(/^file:\/\//, "")
     readonly property bool wanted: shell !== null && shell.settings.startAtBoot
     onWantedChanged: publish()
@@ -92,13 +96,6 @@ Item {
         publish();
     }
 
-    // RESULT's record saved before a machine restart, as one string that
-    // names it whatever its steps' outcomes; "" for none.
-    function recordKey(result) {
-        if (result === null || result.kind !== "answer" || result.restart === undefined) return "";
-        return JSON.stringify([result.restart.unlock, result.restart.steps.map(step => [step.kind, step.name])]);
-    }
-
     function resume() {
         if (!offered) return "refused: resume=not-offered";
         resumed = true;
@@ -111,8 +108,10 @@ Item {
 
     function dismissResume() {
         if (!offered) return "refused: resume=not-offered";
-        setAside = recordKey(result);
+        dismissing = true;
+        dismissFailed = false;
         publish();
+        call("dismiss", sessionHome, [sessionHome]);
         return "ok";
     }
 
@@ -122,7 +121,7 @@ Item {
         if (shell === null) return true;
         const wanted = shell.settings.startAtBoot;
         const modes = shell.status.set("sessionModes", Gate.sessionModes(wanted));
-        const value = Gate.sessionStart(wanted, result, offered);
+        const value = Gate.sessionStart(wanted, result, offered, dismissFailed);
         // The extra status lines draw as badges, which do not draw links.
         if (value.lines !== undefined) value.lines = value.lines.map(PageReference.plain);
         const row = shell.status.set("sessionStart", value);
@@ -155,6 +154,18 @@ Item {
             console.warn("jarvis-session: control=no-answer verb=" + current.verb + " exit=" + exitCode + " cause=" + errors.split("\n")[0].slice(0, 180));
             answer = { kind: "failed" };
         }
+        if (current.verb === "dismiss") {
+            dismissing = false;
+            dismissFailed = answer.kind !== "answer";
+            if (dismissFailed) {
+                // The package kept the record: the offer and the session as
+                // last read stay, and the row says the choice was not saved.
+                console.warn("jarvis-session: dismiss=not-saved kind=" + answer.kind + (answer.block === undefined ? "" : " block=" + answer.block));
+                publish();
+                takeNext();
+                return;
+            }
+        }
         let again = false;
         if (answer.kind === "answer" && answer.unapplied !== undefined) unapplied = answer.unapplied;
         else if (answer.kind !== "failed" && current.verb === "status" && unapplied !== "") {
@@ -177,6 +188,11 @@ Item {
         if (stepsPending && pollSince === 0) pollSince = Date.now();
         publish();
         if (again) call("status", sessionHome, [sessionHome]);
+        takeNext();
+    }
+
+    // The oldest call that waits for the one that answered, if any.
+    function takeNext() {
         if (waiting.length === 0) return;
         const next = waiting[0];
         waiting = waiting.slice(1);

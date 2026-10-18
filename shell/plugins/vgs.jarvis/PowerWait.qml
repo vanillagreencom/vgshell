@@ -4,9 +4,11 @@ import qs.Commons
 import "." as Jarvis
 import "SetupGate.js" as Gate
 
-// The shell's Reboot and Shut down while a Jarvis session lives. The
-// launcher's System menu asks this instance's `power` handler first and
-// runs `systemctl` itself unless the answer is `held`. The answer is `held`
+// The shell's Reboot and Shut down while a Jarvis session lives. Every
+// restart or shutdown VGS asks for, the launcher's System menu and the
+// Updates run's Reboot answer, runs `vgshell power` (bin/vgshell-power),
+// which asks this instance's `power` handler first and runs `systemctl`
+// itself unless the answer is `held`. The answer is `held`
 // only while the last session answer reads a session that lives and no
 // wait is held already: this instance then starts backend/power-wait.js
 // detached, which asks the session to save and runs `systemctl` whatever

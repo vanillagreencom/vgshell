@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# vgshell-power: restart or shut down the computer, after a running Jarvis
+# session saved its work.
+#
+#   vgshell power reboot|poweroff
+#       ask vgs.jarvis's `power` handler first; unless it answers `held`,
+#       run `systemctl reboot` or `systemctl poweroff` at once
+#
+# The one route of every VGS restart and shutdown that a user asks for: the
+# launcher's System menu Reboot and Shut down, and the Updates run's Reboot
+# answer. vgs.jarvis answers `held` only while a Jarvis session lives; it
+# then runs systemctl itself, after the session saved or at its bound
+# (shell/plugins/vgs.jarvis/PowerWait.qml). Any other answer, no answer
+# within 5 s, no running shell or a disabled vgs.jarvis lets the restart go
+# at once, so no shell state can hold a restart. It prints nothing.
+#
+# Refusals, one keyed line on stderr, exit 2, nothing run:
+#   vgshell: refused: power=<arg>      not reboot or poweroff
+#   vgshell: refused: argument=<arg>   a second argument
+set -euo pipefail
+
+self="$(readlink -f -- "${BASH_SOURCE[0]}")"
+vgshell="$(dirname -- "$self")/vgshell"
+
+if [[ $# -eq 0 || ($1 != reboot && $1 != poweroff) ]]; then
+  printf 'vgshell: refused: power=%s\n' "${1:-missing}" >&2
+  exit 2
+fi
+if [[ $# -gt 1 ]]; then
+  printf 'vgshell: refused: argument=%s\n' "$2" >&2
+  exit 2
+fi
+# The reply is a line `vgshell ipc` prints; its own refusals, such as no
+# running shell, go to the discarded stderr and print no `held`. Read whole
+# before it is judged: a pipe into `grep -q` could end the call early.
+reply="$(timeout 5 "$vgshell" ipc call vgs.jarvis invoke power "$1" 2>/dev/null)" || true
+if grep -qx held <<<"$reply"; then
+  exit 0
+fi
+exec systemctl "$1"

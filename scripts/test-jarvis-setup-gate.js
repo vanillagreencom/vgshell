@@ -1427,7 +1427,7 @@ function verifySession(gate) {
     for (const [label, wanted, result, aside, offers] of [
         ["a stopped session", false, saved, false, true], ["a failed start", false, { ...saved, state: "failed", reason: "launch-failed" }, false, true],
         ["a resume that ended before its first step", false, { ...saved, reason: "stopped" }, false, true],
-        ["the boot setting on", true, saved, false, false], ["put aside", false, saved, true, false],
+        ["the boot setting on", true, saved, false, false], ["an ask in flight", false, saved, true, false],
         ["a live session", false, resuming, false, false], ["a session beside the record", false, beside, false, false],
         ["a session starting beside the record", false, startingBeside, false, false],
         ["a resume that failed at its first step", false, failedResume, false, false], ["a resume that ended after a step", false, ended, false, false],
@@ -1436,6 +1436,16 @@ function verifySession(gate) {
         const row = plain(gate.sessionStart(wanted, result, gate.sessionOffer(wanted, result, aside)));
         assert.equal(offered(row) === "resume:resume-session", offers, label + ": the row offers Resume");
         assert.deepEqual(plain(gate.sessionRecord(wanted, result, aside, null)).offer, offers ? { unlock: "1password" } : null, label + ": the widget's offer");
+    }
+    // A Do not resume the package did not answer: while the offer stands
+    // the row says the choice was not saved; the offer is the package's.
+    for (const [label, result, shown, notDismissed, lines] of [
+        ["a Do not resume the package did not answer", saved, true, true, [gate.SESSION_NOT_DISMISSED]],
+        ["a Do not resume the package answered", saved, true, false, undefined],
+        ["a Do not resume not answered once the offer ended", beside, false, true, undefined]]) {
+        const row = plain(gate.sessionStart(false, result, shown, notDismissed));
+        assert.deepEqual([row.lines, offered(row) === "resume:resume-session"], [lines, shown], label + ": the row");
+        if (lines !== undefined) assert.equal(judge.statusWrite(manifest, {}, "sessionStart", row).ok, true, label + ": the manifest judge accepts the row");
     }
     // The steps show once the resume started, and the service reads them
     // again while the resume runs with a step pending. Once no session
@@ -1997,8 +2007,8 @@ const CONTROLS = [
     ["names too long for a hint are published", "hint === \"\" || hint.length > SESSION_HINT_MAX ?", "hint === \"\" ?", "the manifest judge accepts the row"],
     ["the model line is dropped", 'if (running.model !== null) lines.push("Model: " + running.model);', "", "the model and since lines"],
     ["a stopped session shows its model", 'var live = result !== null && result.kind === "answer" && sessionLive(result.state);', 'var live = result !== null && result.kind === "answer";', "a session that does not live shows neither"],
-    ["the offer ignores the boot setting", "return !wanted && !setAside && result !== null", "return !setAside && result !== null", "the boot setting on: the offer"],
-    ["the offer ignores Do not resume", "return !wanted && !setAside && result !== null", "return !wanted && result !== null", "put aside: the offer"],
+    ["the offer ignores the boot setting", "return !wanted && !asked && result !== null", "return !asked && result !== null", "the boot setting on: the offer"],
+    ["the offer ignores an ask in flight", "return !wanted && !asked && result !== null", "return !wanted && result !== null", "an ask in flight: the offer"],
     ["the row offers no Resume", "if (offered === true) value = Object.assign({}, SESSION_RESUME);", "if (false) value = null;", "the row offers Resume"],
     ["a resume that failed is offered again", "SESSION_OFFERED.indexOf(result.state) !== -1 && !sessionResumeStarted(result);", "SESSION_OFFERED.indexOf(result.state) !== -1;", "a resume that failed at its first step: the offer"],
     ["a session beside the record is its resume", "    if (sessionLive(result.state)) return sessionResumeLive(result);", "    if (sessionLive(result.state)) return true;", "a session beside the record: the steps and reads"],
@@ -2008,6 +2018,7 @@ const CONTROLS = [
     ["running resumed is not the resume", 'var SESSION_RESUME_REASONS = ["resuming", "resumed"];', 'var SESSION_RESUME_REASONS = ["resuming"];', "running resumed with the delegate pending: the steps and reads"],
     ["a resume that ended is read again", "    return sessionResumeLive(result)\n", "    return sessionResumeStarted(result)\n", "a resume that failed at its first step: the steps and reads"],
     ["an ended resume's pending steps read waiting", 'outcome: "failed", cause: null } : step;', "outcome: step.outcome, cause: step.cause } : step;", "a resume that failed at its first step: the steps and reads"],
+    ["a Do not resume not answered says nothing", "    if (offered === true && notDismissed === true) lines.push(SESSION_NOT_DISMISSED);", "", "a Do not resume the package did not answer: the row"],
     ["stale pending steps stay", "    if (stale) steps = steps.filter(", "    if (false) steps = steps.filter(", "the reads stopped"],
     ["a starting session is not live", 'var SESSION_LIVE = ["running", "starting", "handing-over"];', 'var SESSION_LIVE = ["running", "handing-over"];', "the states of a session that lives"],
     ["the session field draws while the setting is off", "return wanted ? SESSION_MODES : [];", "return SESSION_MODES;", "the session field while the setting is false"],
@@ -2739,10 +2750,16 @@ function verifyPathForm(gate) {
         const values = {};
         const result = { kind: "answer", state: "running", reason: "resumed", detail: "", names: null, unapplied: block };
         const shell = { settings: { startAtBoot: true }, status: { set: (key, value) => { values[key] = plain(value); return "ok"; } } };
-        vm.runInNewContext("(" + publish[0] + ")", { shell, result, offered: false, pollOver: false, lastRead: "", Gate: gate, PageReference: pageReference })();
+        vm.runInNewContext("(" + publish[0] + ")", { shell, result, offered: false, dismissFailed: false, pollOver: false, lastRead: "", Gate: gate, PageReference: pageReference })();
         assert.deepEqual(values.sessionStart.lines, [pageReference.plain(gate.SESSION_BLOCKS[block])], block + ": unapplied badges draw the reference's words");
         assert.equal(pageReference.parse(gate.sessionStart(true, { kind: "blocked", block }).hint).page, "vgs.jarvis", block + ": the blocked hint keeps its link");
     }
+    // The service hands the row a Do not resume the package did not answer.
+    const values = {};
+    const shell = { settings: { startAtBoot: false }, status: { set: (key, value) => { values[key] = plain(value); return "ok"; } } };
+    const record = { kind: "answer", state: "stopped", reason: "ended", detail: "", names: null, restart: { unlock: null, steps: [] } };
+    vm.runInNewContext("(" + publish[0] + ")", { shell, result: record, offered: true, dismissFailed: true, pollOver: false, lastRead: "", Gate: gate, PageReference: pageReference })();
+    assert.deepEqual(values.sessionStart.lines, [gate.SESSION_NOT_DISMISSED], "the service's row says Do not resume was not saved");
 }
 
 function verifyChipTitles(gate) {
