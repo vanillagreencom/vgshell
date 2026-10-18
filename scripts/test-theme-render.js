@@ -5,8 +5,8 @@
 //
 // The controls at the end edit a copy of the renderer, one rule at a time,
 // and require this suite to fail on each copy.
-// Inputs also include themes/vgs/* and themes/catalog/*: KDE selection
-// foregrounds are rendered from every shipped and catalog package below.
+// Inputs also include themes/vgs/* and themes/catalog/*: application
+// colours are rendered from every shipped and catalog package below.
 "use strict";
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -2565,6 +2565,69 @@ assert.ok(ghosttyFaintModels.some(metric => metric.mode === "light"));
 assert.throws(() => ghosttyFaintModel("invalid", "#ffffff", 0.8),
     error => error instanceof assert.AssertionError && error.actual === null);
 const ghosttyTemplate = fs.readFileSync(path.join(themesDir, "targets", "ghostty", "ghostty.conf"), "utf8");
+const ghosttyTarget = selectionRender.acceptTarget(logic, "ghostty",
+    fs.readFileSync(path.join(themesDir, "targets", "ghostty", "target.json"), "utf8"));
+assert.equal(ghosttyTarget.ok, true);
+const GHOSTTY_COLORS = [
+    ["search-foreground", "text"], ["search-background", "infoSubtle"],
+    ["search-selected-foreground", "onAccent"], ["search-selected-background", "accent"],
+    ["split-divider-color", "borderStrong"], ["window-titlebar-background", "surface"],
+    ["window-titlebar-foreground", "text"]
+];
+function verifyGhosttyColors(template) {
+    const pairs = [];
+    for (const { pkg, shipped } of selectionPackages) {
+        const rendered = selectionRender.renderTarget(logic, TOKENS, ghosttyTarget.target,
+            new Map([["ghostty.conf", template]]), { values: pkg.values,
+                slots: selectionRender.terminalSource(pkg, selectionDefaults).terminal,
+                curated: new Map(), installed: !shipped });
+        assert.equal(rendered.ok, true);
+        const text = rendered.files[0].bytes.toString("utf8").replace(/\r\n/g, "\n");
+        const settings = new Map([...text.matchAll(/^([a-z-]+)\s*=\s*([^\n]*?)\s*$/gm)]
+            .map(([, key, value]) => [key, value]));
+        for (const [key, role] of GHOSTTY_COLORS) {
+            const value = settings.get(key), label = `${pkg.name}: ${key}`;
+            assert.match(value ?? "", /^#[0-9a-f]{6}$/, label);
+            const source = pkg.values.color[role];
+            const alpha = parseInt(source.slice(7, 9) || "ff", 16) / 255;
+            const expected = "#" + [1, 3, 5].map(at => {
+                const background = parseInt(pkg.values.color.background.slice(at, at + 2), 16);
+                const channel = parseInt(source.slice(at, at + 2), 16);
+                return Math.round(channel * alpha + background * (1 - alpha)).toString(16).padStart(2, "0");
+            }).join("");
+            assert.equal(value, expected, label);
+        }
+        for (const key of ["window-decoration", "window-theme", "bold-color", "unfocused-split-fill"])
+            assert.equal(settings.has(key), false, `${pkg.name}: ${key} stays user-owned or inherited`);
+        for (const [foreground, background] of [["foreground", "background"],
+            ["search-foreground", "search-background"], ["search-selected-foreground", "search-selected-background"],
+            ["window-titlebar-foreground", "window-titlebar-background"]]) {
+            const ratio = logic.contrastRatio(logic.parseColor(settings.get(foreground)), logic.parseColor(settings.get(background)));
+            assert.ok(ratio >= 4.5, JSON.stringify({ kind: "ghostty-color-contrast", theme: pkg.name, foreground, background, ratio, floor: 4.5 }));
+            pairs.push({ theme: pkg.name, foreground, background, ratio });
+        }
+    }
+    return pairs;
+}
+const ghosttyColorPairs = verifyGhosttyColors(ghosttyTemplate);
+const ghosttyColorsScratch = fs.mkdtempSync(path.join(os.tmpdir(), "ghostty-colors-control-"));
+try {
+    for (const [key] of GHOSTTY_COLORS) {
+        const expression = new RegExp(`^${key} = [^\\n]*\\n`, "gm");
+        assert.equal([...ghosttyTemplate.matchAll(expression)].length, 1, key);
+        for (const [label, replacement] of [["missing", ""], ["stock", `${key} = #010203\n`]]) {
+            const mutant = ghosttyTemplate.replace(expression, replacement);
+            assert.notEqual(mutant, ghosttyTemplate);
+            const file = path.join(ghosttyColorsScratch, `${label}-${key}.conf`);
+            fs.writeFileSync(file, mutant, { flag: "wx" });
+            assert.throws(() => verifyGhosttyColors(fs.readFileSync(file, "utf8")),
+                error => error.code === "ERR_ASSERTION" && error.message.includes(key));
+        }
+    }
+} finally {
+    fs.rmSync(ghosttyColorsScratch, { recursive: true, force: true });
+}
+console.log(`test-theme-render: ghostty-colors packages=${selectionPackages.length} keys=${GHOSTTY_COLORS.length} pairs=${ghosttyColorPairs.length} minimum=${Math.min(...ghosttyColorPairs.map(pair => pair.ratio))} text-floor=4.5 controls=missing,stock`);
 const ghosttyScratch = fs.mkdtempSync(path.join(os.tmpdir(), "ghostty-faint-control-"));
 try {
     for (const [label, needle, replacement] of [
