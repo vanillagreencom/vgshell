@@ -1158,6 +1158,55 @@ try {
 }
 console.log(`test-theme-render: btop-process packages=${selectionPackages.length} roles=${BTOP_PROCESS_ROLES.length} text-floor=4.5 controls=missing,stock`);
 
+// tmux's native theme references carry ANSI identities in both mode palettes.
+const TMUX_THEME_ROLES = [
+    ["black", "color0"], ["white", "color7"], ["light-grey", "color7"],
+    ["dark-grey", "color8"], ["green", "color2"], ["yellow", "color3"],
+    ["red", "color1"], ["blue", "color4"], ["cyan", "color6"], ["magenta", "color5"]
+];
+const tmuxPaletteDir = path.join(themesDir, "targets", "tmux");
+const tmuxPaletteTemplate = fs.readFileSync(path.join(tmuxPaletteDir, "tmux.conf"), "utf8").replace(/\r\n/g, "\n");
+const tmuxPaletteTarget = selectionRender.acceptTarget(logic, "tmux", fs.readFileSync(path.join(tmuxPaletteDir, "target.json"), "utf8"));
+assert.equal(tmuxPaletteTarget.ok, true);
+function verifyTmuxPalette(template, render = selectionRender) {
+    const failures = [];
+    for (const { pkg, shipped } of selectionPackages) {
+        const slots = render.terminalSource(pkg, selectionDefaults).terminal;
+        const rendered = render.renderTarget(logic, TOKENS, tmuxPaletteTarget.target,
+            new Map([["tmux.conf", template]]), { values: pkg.values, slots, curated: new Map(), installed: !shipped });
+        assert.equal(rendered.ok, true);
+        const output = rendered.files.find(file => file.destination === "tmux.conf").bytes.toString("utf8");
+        const fields = new Map([...output.matchAll(/^set -gq ((?:dark|light)-theme-[a-z-]+) "(#[\da-f]{6})"$/gim)]
+            .map(match => [match[1], match[2].toLowerCase()]));
+        for (const mode of ["dark", "light"]) for (const [name, slot] of TMUX_THEME_ROLES) {
+            const key = `${mode}-theme-${name}`, actual = fields.get(key) ?? null, expected = slots[slot].slice(0, 7).toLowerCase();
+            if (actual !== expected) failures.push({ package: pkg.name, key, role: `terminal.${slot}`, actual, expected });
+        }
+    }
+    assert.deepEqual(failures, []);
+}
+verifyTmuxPalette(tmuxPaletteTemplate);
+const tmuxPaletteScratch = fs.mkdtempSync(path.join(os.tmpdir(), "tmux-palette-control-"));
+try {
+    for (const fault of ["today", "missing-black"]) {
+        const pattern = fault === "today" ? /^set -gq (?:dark|light)-theme-[a-z-]+ .*\n/gm : /^set -gq dark-theme-black .*\n/gm;
+        assert.equal([...tmuxPaletteTemplate.matchAll(pattern)].length, fault === "today" ? TMUX_THEME_ROLES.length * 2 : 1);
+        const changed = tmuxPaletteTemplate.replace(pattern, "");
+        assert.notEqual(changed, tmuxPaletteTemplate);
+        const file = path.join(tmuxPaletteScratch, `${fault}.conf`);
+        fs.writeFileSync(file, changed, { flag: "wx" });
+        assert.throws(() => verifyTmuxPalette(fs.readFileSync(file, "utf8")), error => {
+            if (error.code !== "ERR_ASSERTION" || !error.actual.some(row => row.key === "dark-theme-black" && row.actual === null)) return false;
+            console.log("test-theme-render: tmux-palette-control " + JSON.stringify({ fault, rejected: true,
+                failure: error.actual.find(row => row.key === "dark-theme-black") }));
+            return true;
+        });
+    }
+} finally {
+    fs.rmSync(tmuxPaletteScratch, { recursive: true, force: true });
+}
+console.log(`test-theme-render: tmux-palette packages=${selectionPackages.length} modes=dark,light controls=today,missing-black`);
+
 function verifySelection(pkg, shipped, template) {
     const rendered = selectionRender.renderTarget(logic, TOKENS, selectionTarget.target,
         new Map([["kcolorscheme.colors", template]]), {
@@ -3351,11 +3400,11 @@ const CONTROLS = [
     ["stamped ids only", 'return id === base || (id.startsWith(base + "-") && /^[0-9]+$/.test(id.slice(base.length + 1)));', 'return id.startsWith(base);'],
     ["the bare id is stamped", 'return id === base || (id.startsWith(base + "-")', 'return (id.startsWith(base + "-")'],
     ["unregister keeps the kept ids", "return id === null || keep.includes(id) || !isStampedId(id, base);", "return id === null || keep[0] === id || !isStampedId(id, base);"],
-    ["tmux derivation never changes terminal", 'if (target.name === "tmux") input = { ...input, slots: tmuxSlots(logic, input) };', 'if (target.name === "tmux" || target.name === "ghostty") input = { ...input, slots: tmuxSlots(logic, input) };', verifyAppStyles],
-    ["tmux old inactive values", 'if (target.name === "tmux") input = { ...input, slots: tmuxSlots(logic, input) };', "", verifyAppStyles],
+    ["tmux native palette preserves ANSI", 'if (target.name === "tmux") input = { ...input, targetColors: tmuxColors(logic, input) };', 'if (target.name === "tmux") { input = { ...input, targetColors: tmuxColors(logic, input) }; input = { ...input, slots: { ...input.slots, color8: input.targetColors["tmux.inactive_foreground"] } }; }', render => verifyTmuxPalette(tmuxPaletteTemplate, render)],
+    ["tmux old inactive values", 'if (target.name === "tmux") input = { ...input, targetColors: tmuxColors(logic, input) };', 'if (target.name === "tmux") input = { ...input, targetColors: { "tmux.inactive_foreground": input.slots.color8 } };', verifyAppStyles],
     ["tmux readability", 'const readable = color => color.a === 1 && logic.contrastRatio(color, background) >= logic.READABILITY_FLOOR;', 'const readable = color => true;', verifyAppStyles],
     ["tmux distinction", 'const distinct = color => separation(color) >= 55.65;', 'const distinct = color => true;', verifyAppStyles],
-    ["tmux preserve distinct readable", 'if (readable(inactive) && distinct(inactive)) return input.slots;', '', verifyAppStyles],
+    ["tmux preserve distinct readable", 'if (readable(inactive) && distinct(inactive)) return { "tmux.inactive_foreground": input.slots.color8 };', '', verifyAppStyles],
     ["hex6 encoder", "hex6: (hex, background) => hex6(hex, background)", "hex6: hex => hex.slice(1, 7)"],
     ["hex8 encoder", "hex8: hex => hex.slice(1, 9)", "hex8: hex => hex.slice(1, 7)"],
     ["gnome accent composited", '"gnome-accent": (hex, background) => gnomeAccent(hex6(hex, background))', '"gnome-accent": hex => gnomeAccent(hex.slice(1, 7))'],
@@ -3648,6 +3697,12 @@ try {
             failure = e;
         }
         assert.ok(failed, `control "${label}": the suite passed on a renderer without that rule`);
+        if (label === "tmux native palette preserves ANSI") {
+            assert.equal(failure.code, "ERR_ASSERTION");
+            const changed = failure.actual.find(row => row.package === "vgs" && row.key === "dark-theme-dark-grey");
+            assert.ok(changed && changed.actual !== changed.expected);
+            console.log("test-theme-render: tmux-palette-control " + JSON.stringify({ fault: "global-slot-remap", rejected: true, failure: changed }));
+        }
         if (label.startsWith("editor cap")) {
             assert.equal(failure.code, "ERR_ASSERTION");
             const typed = Array.isArray(failure.actual) ? failure.actual.filter(row => row && typeof row.kind === "string") : [];

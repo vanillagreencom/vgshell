@@ -853,19 +853,20 @@ function kittyColors(logic, tokens, input) {
 }
 
 // The owner's tmux formats use ANSI blue for active text and brightblack
-// for inactive text. Preserve a readable, distinct brightblack; otherwise
+// for inactive text. Keep the inactive style separate from native ANSI
+// references. Preserve a readable, distinct brightblack; otherwise
 // use the nearest grey to the theme's muted text. The RGB separation floor
 // is the smallest nonzero gap in the seven owner-requested main renders,
 // measured in tmp/tmux-block-role-probe.json on 2026-10-07. It is a channel
 // distance, not a perceptual standard; the pictures judge appearance.
-function tmuxSlots(logic, input) {
+function tmuxColors(logic, input) {
     const background = logic.parseColor(input.values.color.background);
     const active = logic.parseColor(input.values.color.info);
     const inactive = logic.parseColor(input.slots.color8);
     const separation = color => 255 * Math.hypot(color.r - active.r, color.g - active.g, color.b - active.b);
     const readable = color => color.a === 1 && logic.contrastRatio(color, background) >= logic.READABILITY_FLOOR;
     const distinct = color => separation(color) >= 55.65;
-    if (readable(inactive) && distinct(inactive)) return input.slots;
+    if (readable(inactive) && distinct(inactive)) return { "tmux.inactive_foreground": input.slots.color8 };
     const muted = logic.parseColor(input.values.color.textMuted);
     const middle = (muted.r + muted.g + muted.b) / 3;
     let chosen = null;
@@ -881,7 +882,7 @@ function tmuxSlots(logic, input) {
         }
     }
     if (chosen === null) throw new Error("theme-render: tmux has no readable, distinct inactive colour");
-    return { ...input.slots, color8: logic.formatColor(chosen) };
+    return { "tmux.inactive_foreground": logic.formatColor(chosen) };
 }
 
 // Each stack is ordered from the page upward. One scale applies to every
@@ -996,7 +997,7 @@ function renderTarget(logic, tokens, target, templates, input) {
     const selection = selectValues(logic, tokens, target, input);
     if (selection !== undefined && !selection.ok) return selection;
     if (target.name === "kitty") input = { ...input, targetColors: kittyColors(logic, tokens, input) };
-    if (target.name === "tmux") input = { ...input, slots: tmuxSlots(logic, input) };
+    if (target.name === "tmux") input = { ...input, targetColors: tmuxColors(logic, input) };
     const encode = hex => ENCODERS[target.encoder](hex, input.values.color.background);
     const rendered = new Map();
     const dropped = [];
