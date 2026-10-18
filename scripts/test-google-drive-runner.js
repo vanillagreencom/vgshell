@@ -19,7 +19,8 @@
 // earlier doubled-name record is dropped on the first invocation, and a
 // notified status record stays notified across the key's change; the
 // exclusions; pair validation; install, start, probe
-// and status; the probe names a token's account; authorize stores the
+// and status; the first pair-add installs the units, a failed install
+// keeps the pair, and each pair publishes its local folder; the probe names a token's account; authorize stores the
 // token Google's consent returns through secret-tool's stdin as the
 // account's one item, named for the account Drive's about read returns,
 // with the access token on curl's stdin; sign-out clears one direction;
@@ -988,6 +989,50 @@ function caseInstall(runner) {
     const s = status(w, runner);
     assert.equal(s.units, "installed");
     assert.ok(read(path.join(unitDir, "vgs-google-drive.service")).includes(engines[0]));
+}
+
+// The hourly sync is no setup step. A home with no pair and no units asks
+// for nothing. The first pair-add installs the units and enables the
+// timer; a pair-add on a home whose units exist calls no systemctl. Each
+// failed install keeps the pair, prints its cause, leaves no unit file
+// and reads absent in the status record, and the next pair-add installs.
+// Each pair publishes its Drive folder and its local folder.
+const INSTALL_FAILURES = [
+    { name: "user manager refuses", plant: w => write(path.join(w.stub, "systemctl-fail"), ""), unplant: w => fs.rmSync(path.join(w.stub, "systemctl-fail")), line: "install=failed systemctl=failed args=daemon-reload exit=1" },
+    { name: "systemctl missing", plant: w => fs.renameSync(path.join(w.bin, "systemctl"), path.join(w.stub, "systemctl")), unplant: w => fs.renameSync(path.join(w.stub, "systemctl"), path.join(w.bin, "systemctl")), line: "install=failed systemctl=missing" }
+];
+
+function casePairAddInstalls(runner) {
+    const unitFiles = w => ["vgs-google-drive.service", "vgs-google-drive.timer"].filter(name => fs.existsSync(path.join(w.home, ".config", "systemd", "user", name)));
+    const calls = w => fs.existsSync(path.join(w.stub, "systemctl.calls")) ? read(path.join(w.stub, "systemctl.calls")).trim().split("\n") : [];
+    const add = (w, id) => {
+        const out = cli(w, ["pair-add", "--definition", JSON.stringify({ id: id, label: id, remote: "Drive/" + id, local: path.join(w.home, "mirror", id) })], runner);
+        assert.equal(out.status, 0, out.stderr);
+        return out.stdout;
+    };
+    const w = world();
+    const empty = status(w, runner);
+    assert.deepEqual([empty.units, empty.pairs.length, empty.attention], ["absent", 0, null]);
+    assert.equal(add(w, "docs"), "added=docs\ninstalled=vgs-google-drive.timer changed=2\n");
+    assert.deepEqual(calls(w), ["--user daemon-reload", "--user enable --now vgs-google-drive.timer"]);
+    assert.deepEqual(unitFiles(w), ["vgs-google-drive.service", "vgs-google-drive.timer"]);
+    assert.equal(add(w, "more"), "added=more\n");
+    assert.equal(calls(w).length, 2, "a pair-add on a home with units installs nothing");
+    const s = status(w, runner);
+    assert.equal(s.units, "installed");
+    assert.deepEqual(s.pairs.map(p => [p.id, p.remote, p.local]), [["docs", "Drive/docs", path.join(w.home, "mirror", "docs")], ["more", "Drive/more", path.join(w.home, "mirror", "more")]]);
+    for (const row of INSTALL_FAILURES) {
+        const v = world();
+        row.plant(v);
+        assert.equal(add(v, "docs"), "added=docs\n" + row.line + "\n", row.name);
+        assert.equal(cli(v, ["pairs", "--lines"], runner).stdout, "docs\tdocs\n", row.name);
+        assert.deepEqual(unitFiles(v), [], row.name);
+        const failed = status(v, runner);
+        assert.deepEqual([failed.units, failed.state, failed.pairs.map(p => p.id)], ["absent", "not-set-up", ["docs"]], row.name);
+        row.unplant(v);
+        assert.equal(add(v, "more"), "added=more\ninstalled=vgs-google-drive.timer changed=2\n", row.name);
+        assert.equal(status(v, runner).units, "installed", row.name);
+    }
 }
 
 // The words of one unit line's value as systemd reads them back, the
@@ -2575,6 +2620,11 @@ async function controls() {
     await mustFail("unit dollar in Environment", mutant("unit dollar in Environment", "directive === \"Environment\" ? quoted : ", ""), caseUnitWords);
     await mustFail("unit percent", mutant("unit percent", ".replace(/%/g, \"%%\")", ""), caseUnitWords);
     await mustFail("unit control character", mutant("unit control character", "if (CONTROL.test(s)) refuse(\"unit-argument=control-character\");", ""), caseUnitWords);
+    await mustFail("pair-add installs the units", mutant("pair-add installs the units", "if (unitsState() === \"absent\") installed = writeInstall(false);", ""), casePairAddInstalls);
+    await mustFail("pair-add keeps installed units", mutant("pair-add keeps installed units", "if (unitsState() === \"absent\") installed = writeInstall(false);", "installed = writeInstall(false);"), casePairAddInstalls);
+    await mustFail("a failed install keeps the pair", mutant("a failed install keeps the pair", "if (unitsState() === \"absent\") installed = writeInstall(false);", "if (unitsState() === \"absent\") installed = writeInstall(false);\n        if (installed !== null && installed.failure !== null) refuse(installed.failure);"), casePairAddInstalls);
+    await mustFail("a failed install leaves no unit", mutant("a failed install leaves no unit", "if (earlier[name] === null) fs.rmSync(path.join(unitDir, name), { force: true });", "if (earlier[name] === null) continue;"), casePairAddInstalls);
+    await mustFail("status publishes the local folder", mutant("status publishes the local folder", "local: pair.local, state: state,", "state: state,"), casePairAddInstalls);
     await mustFail("pairs-reset keeps the damaged file", mutant("pairs-reset keeps the damaged file", "fs.renameSync(pairsFile, kept);\n        fs.renameSync(temp, pairsFile);", "fs.renameSync(temp, pairsFile);"), casePairsReset);
     await mustFail("pairs-reset refuses a valid list", mutant("pairs-reset refuses a valid list", "if (read.error === null) refuse(\"pairs=valid\");", "if (false) refuse(\"pairs=valid\");"), casePairsReset);
     const rules = [...new Set(validationRows(world()).map(row => row.rule).filter(rule => rule !== null))];
@@ -2605,6 +2655,7 @@ async function main() {
     caseExclusions();
     caseValidation();
     caseInstall();
+    casePairAddInstalls();
     caseUnitWords();
     caseProbe();
     caseAuthorize();

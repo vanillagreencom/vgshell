@@ -2,14 +2,15 @@
 # The vgs.google-drive floating TUIs, shell/plugins/vgs.google-drive/tui/,
 # against a stand-in runner that logs its argv and a stand-in gum that
 # answers each question from a list. It proves that Set up hourly sync runs
-# the runner's install; that Sign in for Download and Sign in for Upload
-# run its authorize for their own direction and turn this run's
-# refusal, never an earlier run's, into a plain sentence; that Add a folder
-# pair hands the runner the answers as one JSON definition, a quote and a
-# backslash in a name included, and turns a refused rule into a sentence;
-# that Remove a folder pair lists the pairs and removes only the one chosen
-# after a yes, or with an id removes that pair after a yes and refuses an id
-# the runner does not list; that Start the folder pair list again runs the
+# the runner's install; that Sign in to Google runs its authorize and turns
+# this run's refusal, never an earlier run's, into a plain sentence; that
+# Add a folder pair hands the runner the answers as one JSON definition, a
+# quote and a backslash in a name included, turns a refused rule into a
+# sentence, and says plainly when the runner added the pair but could not
+# install the hourly sync; that Remove a folder pair removes the pair its
+# id names after a yes, refuses an id the runner does not list, and
+# refuses no id, an id over 256 characters and an id with a control
+# character before any runner call; that Start the folder pair list again runs the
 # runner's repair after a yes and turns this run's valid-list refusal into
 # a plain sentence; that Sign out runs the runner's sign-out for its own
 # direction only after a yes and turns this run's refusal into a plain
@@ -65,7 +66,9 @@ case "\$1" in
 esac
 SH
 # The runner: logs its argv as one JSON line, then answers from the mode
-# file, `fail <line>` for a refusal with that line and no other.
+# file, `fail <line>` for a refusal with that line and no other, and
+# `install-failed` for a pair-add that kept the pair but could not install
+# the units.
 cat >"$plugin/bin/google-drive" <<SH
 #!$(command -v bash)
 $(command -v python3) -c 'import json,sys; print(json.dumps(sys.argv[1:]))' "\$@" >>"$TMP_ROOT/calls"
@@ -80,7 +83,9 @@ case "\$1" in
   authorize) echo "authorized=\$2" ;;
   pairs) printf 'docs\tDocuments\ninbox\tAgent uploads\n' ;;
   pairs-reset) echo "reset=pairs.json.damaged-20261011T091349Z" ;;
-  pair-add) echo "added=x" ;;
+  pair-add)
+    echo "added=x"
+    [[ \$mode != install-failed ]] || echo "install=failed systemctl=missing" ;;
   pair-remove) echo "removed=\$2" ;;
   sign-out) echo "signed-out=\$2" ;;
 esac
@@ -100,7 +105,9 @@ tui() {
   : >"$TMP_ROOT/calls"
   command="$(printf '%q ' bash "$file" "$@")"
   status=0
-  env -i PATH="$tools" HOME="$home" TERM=dumb VGS_TUI_LIB="$repo/bin/lib/tui.sh" VGS_PLUGIN_ID=vgs.google-drive VGS_PLUGIN_DIR="$plugin" \
+  # script(1) runs the command with $SHELL, else the login shell, which
+  # need not read bash's quoting.
+  env -i PATH="$tools" HOME="$home" SHELL="$tools/bash" TERM=dumb VGS_TUI_LIB="$repo/bin/lib/tui.sh" VGS_PLUGIN_ID=vgs.google-drive VGS_PLUGIN_DIR="$plugin" \
     script -qec "$command" /dev/null </dev/null >"$TMP_ROOT/screen" 2>&1 || status=$?
   if ! screen="$(tr -d '\r' <"$TMP_ROOT/screen")"; then fail "${file##*/}: the screen capture is unreadable"; exit 1; fi
   calls="$(python3 -c 'import json,sys; print(json.dumps([json.loads(l) for l in open(sys.argv[1]) if l.strip()]))' "$TMP_ROOT/calls")"
@@ -138,7 +145,7 @@ case_connect_reads_this_runs_refusal() {
   [[ $status == 1 ]] && shows "Add the client ID and the client secret" || return 1
   # An earlier run's refusal stays in the log; this run's failure has none.
   tui "$1" "fail" ""
-  [[ $status == 1 ]] && shows "VGS could not connect Google Drive." && ! shows "client secret"
+  [[ $status == 1 ]] && shows "VGS could not sign you in to Google." && ! shows "client secret"
 }
 case_add_pair_defines_the_answers() {
   tui "$1" "" "$(printf '%s\n' 'My "Docs" \ 2026' '/Docs/Taxes/' "$home/gdrive/")"
@@ -153,11 +160,12 @@ case_add_pair_pairs_invalid_refusal_reads_plainly() {
   tui "$1" "fail google-drive: refused: pairs=invalid pair=docs rule=local-overlap" "$(printf '%s\n' Docs Inbox "$home/inbox")"
   [[ $status == 1 && $(defined) != calls=* ]] && shows "Start the folder pair list again" && ! shows "pairs=invalid" && ! shows "rule=local-overlap"
 }
-case_remove_pair_removes_the_chosen_after_yes() {
-  tui "$1" "" "$(printf '%s\n' inbox yes)"
-  [[ $status == 0 && $calls == '[["pairs", "--lines"], ["pair-remove", "inbox"]]' ]] || return 1
-  tui "$1" "" "$(printf '%s\n' inbox no)"
-  [[ $status == 0 && $calls == '[["pairs", "--lines"]]' ]]
+case_add_pair_install_failure_reads_plainly() {
+  tui "$1" "install-failed" "$(printf '%s\n' Docs Docs "$home/docs")"
+  [[ $status == 1 && $(defined) != calls=* ]] && shows "VGS could not set up the hourly sync." && ! shows "install=failed" &&
+    grep -q -x -F "install=failed systemctl=missing" -- "$log" || return 1
+  tui "$1" "" "$(printf '%s\n' Docs Docs "$home/docs")"
+  [[ $status == 0 ]] && ! shows "VGS could not set up the hourly sync."
 }
 case_remove_pair_removes_the_named_after_yes() {
   tui "$1" "" yes docs
@@ -166,6 +174,18 @@ case_remove_pair_removes_the_named_after_yes() {
   [[ $status == 0 && $calls == '[["pairs", "--lines"]]' ]] || return 1
   tui "$1" "" yes nope
   [[ $status == 1 && $calls == '[["pairs", "--lines"]]' ]] && grep -q -x -F "google-drive: refused: pair=unknown id=nope" -- "$log"
+}
+case_remove_pair_refuses_a_bad_id() {
+  local long
+  printf -v long '%257s' ''
+  tui "$1" "" yes
+  [[ $status == 2 && $calls == '[]' ]] || return 1
+  tui "$1" "" yes "${long// /a}"
+  [[ $status == 2 && $calls == '[]' ]] || return 1
+  tui "$1" "" yes "${long:0:256}"
+  [[ $status == 1 && $calls == '[["pairs", "--lines"]]' ]] || return 1
+  tui "$1" "" yes $'docs\tx'
+  [[ $status == 2 && $calls == '[]' ]]
 }
 case_reset_pairs_runs_after_yes() {
   tui "$1" "" yes
@@ -204,8 +224,8 @@ case_refuses_an_argument() {
   true
 }
 CASES=(case_setup_installs:setup case_setup_failure_reads_plainly:setup case_connect_runs_its_direction:connect case_connect_reads_this_runs_refusal:connect
-  case_add_pair_defines_the_answers:add-pair case_add_pair_refusal_reads_plainly:add-pair case_add_pair_pairs_invalid_refusal_reads_plainly:add-pair case_remove_pair_removes_the_chosen_after_yes:remove-pair
-  case_remove_pair_removes_the_named_after_yes:remove-pair case_reset_pairs_runs_after_yes:reset-pairs case_reset_pairs_reads_this_runs_refusal:reset-pairs
+  case_add_pair_defines_the_answers:add-pair case_add_pair_refusal_reads_plainly:add-pair case_add_pair_pairs_invalid_refusal_reads_plainly:add-pair case_add_pair_install_failure_reads_plainly:add-pair
+  case_remove_pair_removes_the_named_after_yes:remove-pair case_remove_pair_refuses_a_bad_id:remove-pair case_reset_pairs_runs_after_yes:reset-pairs case_reset_pairs_reads_this_runs_refusal:reset-pairs
   case_sign_out_runs_its_direction_after_yes:sign-out case_sign_out_reads_this_runs_refusal:sign-out
   case_refuses_an_argument:setup)
 copy_scripts
@@ -216,12 +236,12 @@ done
 
 # Controls: a case, its script, the text in that script it needs, and a
 # replacement without the rule.
-CONTROL_CASES=(case_setup_installs case_connect_reads_this_runs_refusal case_add_pair_defines_the_answers case_add_pair_refusal_reads_plainly case_add_pair_pairs_invalid_refusal_reads_plainly case_remove_pair_removes_the_chosen_after_yes
-  case_remove_pair_removes_the_named_after_yes case_reset_pairs_runs_after_yes case_reset_pairs_reads_this_runs_refusal case_sign_out_runs_its_direction_after_yes case_sign_out_reads_this_runs_refusal)
-CONTROL_SCRIPTS=(setup connect add-pair add-pair add-pair remove-pair remove-pair reset-pairs reset-pairs sign-out sign-out)
-CONTROL_NEEDLES=('"$runner" install >>"$log"' 'tail -c "+$((logged + 1))" -- "$log"' 's="${s//\"/\\\"}";' '*rule=local-overlap* | *rule=remote-overlap*)' '*pairs=invalid*)'
-  'vgs_tui_confirm "Remove this folder pair? Its files stay." || status=$?' '[[ $listed != "$id" ]] || label="$name"' '"$runner" pairs-reset' 'tail -c "+$((logged + 1))" -- "$log"' 'vgs_tui_confirm "Sign out of Google Drive?" || status=$?' '*credential=locked*)')
-CONTROL_REPLACEMENTS=('true >>"$log"' 'cat -- "$log"' ':;' '*rule=no-such-rule*)' '*pairs=no-such*)' 'true' 'label="$name"' 'true' 'cat -- "$log"' 'true' '*credential=no-such*)')
+CONTROL_CASES=(case_setup_installs case_connect_reads_this_runs_refusal case_add_pair_defines_the_answers case_add_pair_refusal_reads_plainly case_add_pair_pairs_invalid_refusal_reads_plainly case_add_pair_install_failure_reads_plainly
+  case_remove_pair_removes_the_named_after_yes case_remove_pair_removes_the_named_after_yes case_remove_pair_refuses_a_bad_id case_remove_pair_refuses_a_bad_id case_reset_pairs_runs_after_yes case_reset_pairs_reads_this_runs_refusal case_sign_out_runs_its_direction_after_yes case_sign_out_reads_this_runs_refusal)
+CONTROL_SCRIPTS=(setup connect add-pair add-pair add-pair add-pair remove-pair remove-pair remove-pair remove-pair reset-pairs reset-pairs sign-out sign-out)
+CONTROL_NEEDLES=('"$runner" install >>"$log"' 'tail -c "+$((logged + 1))" -- "$log"' 's="${s//\"/\\\"}";' '*rule=local-overlap* | *rule=remote-overlap*)' '*pairs=invalid*)' "*\$'\\n'install=failed*"
+  'vgs_tui_confirm "Remove this folder pair? Its files stay." || status=$?' '[[ $listed != "$id" ]] || label="$name"' '${#1} -le 256' '$1 != *[[:cntrl:]]*' '"$runner" pairs-reset' 'tail -c "+$((logged + 1))" -- "$log"' 'vgs_tui_confirm "Sign out of Google Drive?" || status=$?' '*credential=locked*)')
+CONTROL_REPLACEMENTS=('true >>"$log"' 'cat -- "$log"' ':;' '*rule=no-such-rule*)' '*pairs=no-such*)' '*no-such*' 'true' 'label="$name"' '${#1} -le 999' 'true' 'true' 'cat -- "$log"' 'true' '*credential=no-such*)')
 for i in "${!CONTROL_CASES[@]}"; do
   case="${CONTROL_CASES[i]}"
   script="$plugin/tui/${CONTROL_SCRIPTS[i]}.sh"

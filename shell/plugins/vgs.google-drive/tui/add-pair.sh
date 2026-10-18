@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # The vgs.google-drive `add-pair` floating TUI: asks for a folder pair's
 # name, Google Drive folder and folder on this computer, and
-# hands it to the runner's `pair-add`, which judges it. Keyed lines go to
-# the Google Drive setup log; the screen shows a plain sentence.
+# hands it to the runner's `pair-add`, which judges it and, for the first
+# pair, installs the hourly sync. Keyed lines go to the Google Drive setup
+# log; the screen shows a plain sentence.
 #
 #   add-pair.sh
 set -euo pipefail
@@ -41,7 +42,15 @@ remote="${remote%/}"
 local_dir="${local_dir%/}"
 definition="{\"id\":$(json_string "$(pair_id "$label")"),\"label\":$(json_string "$label"),\"remote\":$(json_string "$remote"),\"local\":$(json_string "$local_dir")}"
 logged="$(stat -c %s -- "$log" 2>/dev/null)" || logged=0
-if vgs_tui_logged "$log" "$runner" pair-add --definition "$definition" >>"$log"; then
+answer=""
+if answer="$(vgs_tui_logged "$log" "$runner" pair-add --definition "$definition")"; then
+  printf '%s\n' "$answer" >>"$log"
+  # The pair stands; the runner could not install the hourly sync.
+  if [[ $'\n'"$answer" == *$'\n'install=failed* ]]; then
+    vgs_tui_success "VGS added $label."
+    vgs_tui_failed "$log" "VGS could not set up the hourly sync. Select Set up again beside Hourly sync on the Google Drive page in Settings."
+    exit 1
+  fi
   vgs_tui_success "VGS added $label. It syncs both ways at the next hourly run, or when you select Sync now."
   exit 0
 fi

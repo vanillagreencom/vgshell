@@ -3,6 +3,8 @@
 ## A sync
 
 - One systemd user service, `vgs-google-drive.service`, runs every sync: the hourly timer, Sync now in the window and `start` on the command line all ask for that service, so a sync never runs twice at once. The timer runs hourly while the user is logged in, and once at the next login after a missed hour.
+- The hourly sync is no setup step. A `pair-add` on a home with neither unit installs both and enables the timer before it writes the pair, under the state lock, and prints install's `installed=` line after `added=<id>`. A `pair-add` on a home whose units exist calls no `systemctl`. A failed install keeps the pair, exits 0, prints `install=failed <refusal>`, and leaves no unit it wrote, so the status record reads `units` `absent` beside the pair until the next `pair-add` or Set up again installs them. Add a folder pair says so on its screen.
+- Every invocation but `install` rewrites stale units, units an earlier runner wrote, to name itself. Units that stay stale, because the user manager refused the rewrite, read `units` `stale`, and Set up again (`tui/setup.sh`) runs `install`.
 - A sync copies each folder pair two ways, and only files that are newer: Drive to this computer, then this computer to Drive.
 - The runner never deletes, moves or mirrors a file on either side.
 - A local file that a download replaces is kept under the pair's records, unless it is the copy the runner made at the last sync. A file that an upload replaces stays in Drive as an earlier revision, under Drive's own retention.
@@ -49,7 +51,7 @@ A pair that another run holds reads `busy` and copies nothing.
 ## Files
 
 - `~/.config/vgshell/google-drive/pairs.json`: the folder pairs, `{ pairs: [{ id, label, remote, local }] }`. Add a folder pair and Remove a folder pair change it through `pair-add` and `pair-remove`, which judge every pair. Start the folder pair list again runs `pairs-reset`, which keeps a damaged list beside a new empty list.
-- `~/.local/state/vgshell/google-drive/status.json`: the status record the plugin's service watches and publishes.
+- `~/.local/state/vgshell/google-drive/status.json`: the status record the plugin's service watches and publishes. Its `units` is `installed`, both units as install writes them now; `absent`, neither; or `stale`, anything else. Each of its `pairs` carries the pair's `remote`, the Drive folder, and `local`, the folder on this computer. The service watches the file only after its first `status` call, which writes the record whole.
 - `~/.local/state/vgshell/google-drive/control.json`: the pause record and the attention key last notified, so both survive a restart.
 - `~/.local/state/vgshell/google-drive/pairs/<id>/`: each pair's state, inventory and conflict copies.
 - `~/.local/state/vgshell/google-drive/setup.log`: what the setup windows logged. `setup.before-rename.log` beside it holds the earlier name's log when a setup window had begun this one before the rename below.

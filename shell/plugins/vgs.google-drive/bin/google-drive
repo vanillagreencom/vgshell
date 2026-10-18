@@ -12,6 +12,8 @@
 //   google-drive status [--quiet]
 //       renders the status record, writes it and prints it as one JSON line
 //       (nothing with --quiet: the service's ExecStopPost).
+//       The record's `units` is installed, absent or stale (unitsState);
+//       each of its `pairs` carries `remote` and `local` from the pair list.
 //       The record's `attention`, when set, is { reasons, key, notified }:
 //       notified is true once `attention-seen` named that key. Each of its
 //       `conflicts` carries `needs`, "you" or "nothing" (needsOf), and
@@ -49,7 +51,9 @@
 //       starts a valid empty list and prints `reset=<kept-name>`.
 //   google-drive pair-add --definition <json> | pair-remove <id>
 //       one validated change to the pair list; prints `added=<id>` or
-//       `removed=<id>`. Removing a pair deletes no file.
+//       `removed=<id>`. Removing a pair deletes no file. A pair-add on a
+//       home with no units also installs them and prints install's line,
+//       or `install=failed <refusal>` with the pair kept and exit 0.
 //
 // Files: the pair list is $XDG_CONFIG_HOME/vgshell/google-drive/pairs.json;
 // the units are $XDG_CONFIG_HOME/systemd/user/vgs-google-drive.service and
@@ -1389,10 +1393,12 @@ function ensureEngine(hash) {
 // unit changed and, under enabled scheduling, enables the timer:
 // { changed, failure }, failure null
 // or the refusal of the systemctl call that failed. EXISTING_ONLY rewrites
-// only unit files that exist, for the refresh of an earlier install, and
-// puts their earlier text back when the user manager refuses the reload,
-// since a manager that did not reload keeps running the earlier units and
-// the next invocation must see them stale and try again.
+// only unit files that exist, for the refresh of an earlier install. A
+// failed call puts each unit's earlier text back and removes a unit that
+// did not exist, since a manager that did not reload keeps running the
+// earlier units and a timer the manager did not enable never runs: the
+// status must read them stale or absent, never installed, and the next
+// invocation tries again.
 function writeInstall(existingOnly, scheduling = "enabled") {
     const hash = engineHash();
     ensureEngine(hash);
@@ -1407,7 +1413,10 @@ function writeInstall(existingOnly, scheduling = "enabled") {
     let failure = changed.length > 0 ? systemctlFailure(["daemon-reload"], scheduling) : null;
     if (scheduling === "enabled" && failure === null && (!existingOnly || names.indexOf(TIMER) !== -1)) failure = systemctlFailure(["enable", "--now", TIMER]);
     if (failure !== null) {
-        if (existingOnly) for (const name of changed) writeAtomic(path.join(unitDir, name), earlier[name], 0o644);
+        for (const name of changed) {
+            if (earlier[name] === null) fs.rmSync(path.join(unitDir, name), { force: true });
+            else writeAtomic(path.join(unitDir, name), earlier[name], 0o644);
+        }
         return { changed: changed.length, failure: failure };
     }
     for (const name of fs.existsSync(engineRoot) ? fs.readdirSync(engineRoot) : [])
@@ -1491,7 +1500,7 @@ function renderStatus() {
         }
         if (state !== "running" && isPaused(control, pair.id)) state = "paused";
         pairs.push({
-            id: pair.id, label: pair.label, remote: pair.remote, state: state,
+            id: pair.id, label: pair.label, remote: pair.remote, local: pair.local, state: state,
             lastSuccess: stored.lastSuccess, staleAfter: staleAfter(stored.lastSuccess), lastError: lastError, changes: stored.changes
         });
         conflicts = conflicts.concat(conflictsOf(pair, stored));
@@ -2141,16 +2150,25 @@ function pairAddVerb(words) {
     } catch (_e) {
         bad("definition=not-json");
     }
+    // The hourly sync is no setup step: a pair-add on a home without the
+    // units installs them, under the state lock, so two adds install once.
+    // The install runs before the pair is written, so a unit it refuses to
+    // write leaves nothing changed; a failed systemctl call keeps the pair,
+    // and the units read absent in the status.
+    let installed = null;
     withStateLock(() => {
         const read = readPairs();
         if (read.error !== null) refuse("pairs=invalid " + read.error);
         const next = read.pairs.concat([pair]);
         const error = pairsError(next);
         if (error !== null) refuse(error);
+        if (unitsState() === "absent") installed = writeInstall(false);
         writeJson(pairsFile, { pairs: next });
         writeStatus();
     });
     process.stdout.write("added=" + pair.id + "\n");
+    if (installed === null) return;
+    process.stdout.write(installed.failure === null ? "installed=" + TIMER + " changed=" + installed.changed + "\n" : "install=failed " + installed.failure + "\n");
 }
 
 function pairRemoveVerb(words) {
