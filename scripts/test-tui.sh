@@ -661,6 +661,40 @@ check "a logged script does not hang while filtering" test "$status" == 23
 copy_with unfiltered-log "$lib" '_vgs_tui_log_clean >&"$fd"' 'cat >&"$fd"'
 check "the unfiltered-log mutant fails the clean-log row" test "$(log_bytes_row "$copy" && echo green || echo red)" == red
 
+# The transcript: the run finds script(1)'s unchanged output in a private
+# file under the runtime directory, which is gone once the run ends. The
+# run copies the file once its last bytes reach it.
+cat >"$tmp/transcript.sh" <<'SH'
+source "$LIB"
+vgs_tui_log "$LOG_FILE"
+printf '%s\n' "$VGS_TUI_TRANSCRIPT" >"$SEEN"
+stat -c %a -- "$VGS_TUI_TRANSCRIPT" >>"$SEEN"
+printf 'a\033]8913;x\aB\033[31mred\033[0m end-of-transcript\n'
+grep -q -F end-of-transcript < <(exec timeout 5 tail -c +1 -f -- "$VGS_TUI_TRANSCRIPT") && cat -- "$VGS_TUI_TRANSCRIPT" >"$COPY"
+SH
+transcript_ok() { # SEEN COPY
+  local path mode
+  { read -r path; read -r mode; } <"$1" || return 1
+  [[ $path == "$rt"/* && $mode == 600 && ! -e $path ]] || return 1
+  python3 - "$2" <<'PY'
+import pathlib, sys
+data = pathlib.Path(sys.argv[1]).read_bytes()
+sys.exit(0 if b"a\x1b]8913;x\x07B\x1b[31mred\x1b[0m end-of-transcript\r\n" in data else 1)
+PY
+}
+transcript_row() { # LIB_PATH
+  rm -f -- "$tmp/seen" "$tmp/transcript-copy"
+  "${lib_env[@]}" LIB="$1" LOG_FILE="$tmp/transcript.log" SEEN="$tmp/seen" COPY="$tmp/transcript-copy" \
+    timeout 10 "$BASH" "$tmp/transcript.sh" </dev/null >"$tmp/out" 2>&1 || return 1
+  transcript_ok "$tmp/seen" "$tmp/transcript-copy"
+}
+check "a logged run reads its unchanged output in a private transcript, removed at its end" transcript_row "$LIB"
+check "the clean log leaves the private OSC out" test "$(grep -c 8913 "$tmp/transcript.log")" == 0
+copy_with kept-transcript "$lib" "trap 'rm -f -- \"\${_vgs_tui_transcript:?}\"' EXIT" ':'
+check "the kept-transcript mutant fails the transcript row" test "$(transcript_row "$copy" && echo green || echo red)" == red
+copy_with unwritten-transcript "$lib" ' --log-out "$_vgs_tui_transcript"' ''
+check "the unwritten-transcript mutant fails the transcript row" test "$(transcript_row "$copy" && echo green || echo red)" == red
+
 # The cause log: a command's stderr goes to the file, which is made with its
 # directory and added to; its stdout and status stay the command's.
 causes="$tmp/causes/setup.log"

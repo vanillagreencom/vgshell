@@ -52,7 +52,9 @@
 #                                    the credential when the script ends
 #   vgs_tui_lock NAME                hold $XDG_RUNTIME_DIR/vgs-tui-NAME.lock until exit
 #   vgs_tui_log FILE [ARG...]        run this script again under script(1) into FILE,
-#                                    keeping SGR colour and dropping terminal controls
+#                                    keeping SGR colour and dropping terminal controls;
+#                                    the run reads its unchanged output at
+#                                    $VGS_TUI_TRANSCRIPT
 #   vgs_tui_logged FILE COMMAND [ARG...]
 #                                    run COMMAND with its stderr added to FILE, so its
 #                                    keyed causes reach the log and not the screen;
@@ -500,6 +502,13 @@ _vgs_tui_log_clean() {
 # FILE, so the terminal shows the run and FILE keeps a copy, and exits with
 # that run's status; inside the run it returns at once. script(1) hands the
 # command line to $SHELL, so SHELL is bash there, which reads the %q quoting.
+# script(1) also logs its output unchanged, every byte the run's terminal
+# received in order, to a private file in the runtime directory that the
+# run finds at $VGS_TUI_TRANSCRIPT; the Updates pipeline cuts a step's
+# output from it. -f flushes each write to both logs. The file is removed
+# when this process exits, which a hangup or TERM makes it do; these
+# traps replace the caller's.
+_vgs_tui_transcript=""
 vgs_tui_log() { # FILE [ARG...]
   [[ ${VGS_TUI_LOGGED:-} == 1 ]] && return 0
   local file="${1:-}" cmd fd status=0
@@ -507,7 +516,13 @@ vgs_tui_log() { # FILE [ARG...]
   shift
   cmd="$(printf '%q ' "$BASH" "$0" "$@")"
   exec {fd}>"$file" || _vgs_tui_refuse 1 "log=$file reason=open-failed" || return
-  env VGS_TUI_LOGGED=1 VGS_TUI_GAP_LEFT="$_vgs_tui_gap_left" SHELL="$BASH" script -qef --log-out >(_vgs_tui_log_clean >&"$fd") -c "$cmd" {fd}>&- || status=$?
+  _vgs_tui_transcript="$(mktemp -p "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" vgs-tui-transcript.XXXXXXXX)" ||
+    _vgs_tui_refuse 1 "transcript=unmade" "mktemp could not make the run's transcript" || return
+  trap 'rm -f -- "${_vgs_tui_transcript:?}"' EXIT
+  trap 'exit 129' HUP
+  trap 'exit 143' TERM
+  env VGS_TUI_LOGGED=1 VGS_TUI_TRANSCRIPT="$_vgs_tui_transcript" VGS_TUI_GAP_LEFT="$_vgs_tui_gap_left" SHELL="$BASH" \
+    script -qef --log-out >(_vgs_tui_log_clean >&"$fd") --log-out "$_vgs_tui_transcript" -c "$cmd" {fd}>&- || status=$?
   exec {fd}>&-
   wait "$!" || :
   exit "$status"

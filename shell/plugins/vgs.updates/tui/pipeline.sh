@@ -80,8 +80,8 @@
 # manager asks its own questions in this terminal. -y answers only the
 # pipeline's own start question; the orphan and reboot questions are then
 # reported instead of asked, and the review's questions are still asked.
-# A source step (7 to 10 and 12) that fails records its cause, the last
-# line it printed on stderr, and the run goes on with the next; a run with
+# A source step (7 to 10 and 12) that fails records its cause, read from
+# its output (_updates_cause_of), and the run goes on with the next; a run with
 # a failed step exits 1 after the reboot question. After a failed or
 # declined system step the AUR step and the vgshell-git rebuild are
 # skipped, since they build against the system that step left. A step a
@@ -139,11 +139,9 @@ _updates_failed() { # STATUS
   vgs_tui_error "Select Open last log in Updates to read this run's output."
 }
 
-# Runs ARGV from $HOME after a step line, as vgshell pkg run runs its steps,
-# so a project's configuration in the caller's directory changes nothing.
-_updates_run() { # LABEL ARGV...
-  vgs_tui_step "$1"
-  shift
+# Runs ARGV from $HOME, as vgshell pkg run runs its steps, so a project's
+# configuration in the caller's directory changes nothing.
+_updates_run() { # ARGV...
   (cd -- "$HOME" && "$@")
 }
 
@@ -194,22 +192,37 @@ _updates_plain() { # FILE
   LC_ALL=C sed -E -e $'s/\e\\[[0-9;:?]*[ -/]*[@-~]//g' -e $'s/\r+$//' -e $'s/^.*\r//' -- "$1"
 }
 
-# The cause of a failed step from its stderr in FILE, once SGR escapes and
-# carriage returns are gone. VGS prints a `vgshell: refused:` or `vgs-tui:
-# refused:` key line and English after it. A question with no newline can
-# precede the key on its line, as `vgshell plugin update`'s [y/N] does,
-# and that text is never a cause. With a key line the cause is the last
-# line after the last one, else its value, such as git's message after a
-# `fetch=` refusal. `vgshell pkg run`'s closing block, a `rescan=` refusal
-# after its steps, is the exception: there the cause is the last line the
-# steps printed before it. Without a key line it is the last line that
-# holds text, after any question answered on it. Sets _updates_cause, and
+# The lines a tool starts a failure with, once SGR escapes and leading
+# space are gone: pacman's `error: `, which its pm_printf writes to stderr
+# before an ALPM_LOG_ERROR message (src/pacman/util.c). A failed commit
+# prints it before the conflicting files and its stdout line `Errors
+# occurred, no packages were upgraded.` (src/pacman/sync.c,
+# sync_prepare_execute), and a step's output mixes such lines with its
+# progress and summary lines, which never name the cause.
+_updates_error_line='^[[:space:]]*error:[[:space:]]'
+# What the terminal echoes after a [Y/n] or [y/N] question when the user
+# answers it: nothing, for Enter, else a yes or a no.
+_updates_answer='^[[:space:]]*([YyNn]|[Yy][Ee][Ss]|[Nn][Oo])?[[:space:]]*$'
+
+# The cause of a failed step from its output in FILE, stdout and stderr in
+# the order the terminal showed them with the answers the user typed, once
+# SGR escapes and carriage returns are gone. VGS prints a `vgshell:
+# refused:` or `vgs-tui: refused:` key line and English after it. A
+# question and its answer can precede the key on its line, as `vgshell
+# plugin update`'s [y/N] does, and that text is never a cause. With a key
+# line the cause is the last line after the last one, else its value, such
+# as git's message after a `fetch=` refusal. `vgshell pkg run`'s closing
+# block, a `rescan=` refusal after its steps, is the exception: there the
+# cause is the last error line the steps printed before it, else their last
+# line. Without a key line it is the last error line, else the last line
+# that holds text. A question the step printed text after, with no answer
+# echoed, gives that text instead. Sets _updates_cause, and
 # _updates_declined to 1 when the user said no: the `declined=` refusal of
 # `vgshell plugin|theme update`, or a step whose own text ends on a [Y/n]
-# or [y/N] question, as pacman and an AUR helper leave one answered no.
-# Also sets _updates_next for the result line's action.
+# or [y/N] question answered no or left unanswered, as pacman and an AUR
+# helper leave one. Also sets _updates_next for the result line's action.
 _updates_cause_of() { # FILE
-  local line out last="" keyed=0 value="" held="" tail="" after="" own=""
+  local line rest out last="" fault="" keyed=0 value="" held="" held_fault="" tail="" after="" own=""
   _updates_declined=0
   out="$(_updates_plain "$1")"
   while IFS= read -r line; do
@@ -217,25 +230,30 @@ _updates_cause_of() { # FILE
       value="${BASH_REMATCH[3]}"
       [[ $value != declined=* ]] || _updates_declined=1
       tail="${line:0:${#line}-${#BASH_REMATCH[0]}}"
-      keyed=1 held="$last" after=""
+      keyed=1 held="$last" held_fault="$fault" after=""
     elif [[ -n ${line//[[:space:]]/} ]]; then
-      # An answer echoes on the terminal alone, so what the step printed
-      # after a question it asked shares the question's line.
-      if [[ $line =~ \[(Y/n|y/N)\]:?[[:space:]]+(.*[^[:space:]].*)$ ]]; then line="${BASH_REMATCH[2]}"; fi
+      if [[ $line =~ \[(Y/n|y/N)\]:?[[:space:]]+(.*[^[:space:]].*)$ ]]; then
+        rest="${BASH_REMATCH[2]}"
+        [[ $rest =~ $_updates_answer ]] || line="$rest"
+      fi
       last="$line" after="$line"
+      if [[ $line =~ $_updates_error_line ]]; then fault="$line"; fi
     fi
   done <<<"$out"
   if [[ $keyed == 0 ]]; then
-    own="$last" _updates_cause="$last"
+    own="$last" _updates_cause="${fault:-$last}"
   elif [[ $value == rescan=* ]]; then
-    own="${tail:-$held}" _updates_cause="${held:-${after:-$value}}"
+    own="${tail:-$held}" _updates_cause="${held_fault:-${held:-${after:-$value}}}"
   else
     _updates_cause="${after:-$value}"
   fi
-  if [[ $own =~ \[(Y/n|y/N)\]:?[[:space:]]*$ ]]; then _updates_declined=1; fi
+  if [[ $own =~ \[(Y/n|y/N)\]:?(.*)$ ]]; then
+    rest="${BASH_REMATCH[2]}"
+    if [[ $rest =~ $_updates_answer && $rest != *[Yy]* ]]; then _updates_declined=1; fi
+  fi
   _updates_next="update again; if it fails again, the log names the cause. Select Open last log in Updates."
   # VGS's theme refusal and makepkg's build errors can precede a closing
-  # line such as Aborting, so map the whole stderr the step supplied.
+  # line such as Aborting, so map the whole output the step supplied.
   case "$out" in
     *"another theme command holds the theme lock"*)
       _updates_cause="Another theme change is still running."
@@ -252,23 +270,86 @@ _updates_cause_of() { # FILE
   esac
 }
 
+# The OSC number of the marks around a step's output: one no terminal
+# handles, so the terminal draws nothing for them and the log's cleaner
+# drops them. Checked against the OSC tables of foot (osc.c
+# osc_dispatch), kitty (vt-parser.c dispatch_osc) and Ghostty
+# (terminal/osc.zig) on 2026-10-17: each discards an unknown OSC, and
+# kitty also logs it as an unknown escape code.
+_updates_mark_osc=8913
+# How long a step's end mark may take to reach the transcript after the
+# step exits, in seconds: a ceiling far above the wait measured with this
+# function's tail and awk under vgs_tui_log, 200 marks each after 48 KiB
+# of output, p50 5.7 ms, p99 17 ms, max 18.7 ms (a scratch timing run on
+# the development host, 2026-10-17).
+_updates_mark_ceiling=10
+
+# Writes the step's output, between the marks named NONCE, from the run's
+# transcript at byte FROM on into the cause file. The end mark is written
+# here, after the step exited, so every byte the step wrote to the
+# terminal precedes it on the one pty, and once the mark is in the
+# transcript, so is all of that. GNU tail -f follows the file by inotify,
+# so the wait is a read, not a poll. awk splits the stream at BEL, the
+# byte that ends a mark, and sees the mark when its BEL arrives; grep
+# matches only whole lines, and nothing follows the mark until the cut
+# ends. Returns 1 with _updates_unread set,
+# absent when the transcript was not there, late when the end mark did not
+# arrive within the ceiling, lost when a mark is not in what arrived,
+# copy-failed when the copy failed.
+_updates_cut() { # FROM NONCE
+  local from="$1" transcript="${VGS_TUI_TRANSCRIPT:-}" start end at mark first="" last="" follow follower arrived=1
+  _updates_unread=copy-failed
+  printf -v start '\e]%s;vgs-step;%s;start\a' "$_updates_mark_osc" "$2"
+  printf -v end '\e]%s;vgs-step;%s;end\a' "$_updates_mark_osc" "$2"
+  printf '%s' "$end"
+  if [[ -z $from || ! -f $transcript ]]; then _updates_unread=absent; return 1; fi
+  exec {follow}< <(exec timeout "$_updates_mark_ceiling" tail -c "+$((from + 1))" -f -- "$transcript")
+  follower=$!
+  LC_ALL=C awk -v RS='\a' -v mark="${end%$'\a'}" 'index($0, mark) { seen = 1; exit } END { exit !seen }' <&"$follow" || arrived=0
+  exec {follow}<&-
+  kill "$follower" 2>/dev/null || :
+  wait "$follower" 2>/dev/null || :
+  if [[ $arrived == 0 ]]; then _updates_unread=late; return 1; fi
+  # grep -b prints each mark's byte offset from FROM.
+  while IFS=: read -r at mark; do
+    if [[ $mark == "$start" && -z $first ]]; then first="$at"
+    elif [[ $mark == "$end" ]]; then last="$at"
+    fi
+  done < <(tail -c "+$((from + 1))" -- "$transcript" | LC_ALL=C grep -a -b -o -F -e "$start" -e "$end")
+  if [[ -z $first || -z $last ]] || (( last < first )); then _updates_unread=lost; return 1; fi
+  head -c "$((from + last))" -- "$transcript" | tail -c "+$((from + first + ${#start} + 1))" >"$_updates_cause_file"
+}
+
 # Runs one source step, ARGV, and adds its result to _updates_results as
 # `LABEL <result>.`: installed; skipped when the user declined it; failed
 # with its cause and next step, else `exit <n>`. _updates_outcome is installed,
 # declined or failed, and _updates_exit the step's exit status. The run goes
-# on after a failure, so neither errexit nor the ERR trap sees it. Its stderr reaches the terminal and the cause
-# file both, and the tee is waited for, so the file is whole when it is
-# read; stdout and stdin stay the terminal's, so a manager still asks its
-# questions. The tee ignores the SIGHUP a closed window sends the group, so
-# the lines a step such as pacman writes on its way out still have a
-# reader instead of killing it by SIGPIPE before it unlocks its database.
-# A step a Ctrl-C ended, 130, ends the run.
+# on after a failure, so neither errexit nor the ERR trap sees it.
+#
+# The step keeps the run's terminal on stdin, stdout and stderr, so a
+# manager asks its questions, and both its output streams reach the
+# terminal through one pty in the order it wrote them. A stderr that is
+# not the terminal splits a sudo'd step's output: under sudo's use_pty,
+# on by default since sudo 1.9.14 (sudoers(5)), sudo runs the command on a
+# pty of its own, relays that pty to /dev/tty and passes a standard stream
+# that is not the user's tty to the command unchanged (sudo src/exec_pty.c,
+# exec_pty: "Read from pty leader, write to /dev/tty"; "Not logging
+# stderr, do not interpose"). pacman's size summary on stdout then waited
+# in sudo's relay while its [Y/n] on stderr reached the terminal first. The
+# cause file is cut from the run's transcript, which vgs_tui_log's
+# script(1) keeps, between a start mark written before the step and an end
+# mark written after it; only a failed step's output is cut, and the file
+# is whole when it is read. A closed window hangs up the run's pty, and a
+# write to a pty whose master is closed fails with EIO and raises no
+# signal (a Python os.write on Linux 7.2, 2026-10-17), so a step such as
+# pacman still reaches the end of its transaction and unlocks its database
+# instead of dying by SIGPIPE. A step a Ctrl-C ended, 130, ends the run.
 _updates_source() { # ID LABEL ARGV...
-  local id="$1" label="$2" status=0
+  local id="$1" label="$2" status=0 from="" nonce="$BASHPID.$SRANDOM$SRANDOM"
   shift 2
-  : >"$_updates_cause_file"
-  { "$@"; } 2> >(trap '' HUP; exec tee -a --output-error=warn -- "$_updates_cause_file" >&2) || status=$?
-  wait "$!" || :
+  from="$(stat -c %s -- "${VGS_TUI_TRANSCRIPT:-}" 2>/dev/null)" || from=""
+  printf '\e]%s;vgs-step;%s;start\a' "$_updates_mark_osc" "$nonce"
+  "$@" || status=$?
   _updates_exit="$status"
   if [[ $status -eq 0 ]]; then
     _updates_outcome=installed
@@ -279,7 +360,15 @@ _updates_source() { # ID LABEL ARGV...
     _updates_diagnostic "updates: stopped source=$id exit=$status"
     exit "$status"
   fi
-  _updates_cause_of "$_updates_cause_file"
+  : >"$_updates_cause_file"
+  if _updates_cut "$from" "$nonce"; then
+    _updates_cause_of "$_updates_cause_file"
+  else
+    _updates_diagnostic "updates: transcript=unread source=$id reason=$_updates_unread"
+    _updates_declined=0
+    _updates_cause="VGS could not read this step's output."
+    _updates_next="select Open last log in Updates to read the step's output."
+  fi
   if [[ $_updates_declined == 1 ]]; then
     _updates_outcome=declined
     _updates_results+=("$label skipped. You declined it.")
@@ -315,7 +404,7 @@ _updates_result() { # WIDTH PREFIX TEXT [SGR]
 
 # The record of a failed vgshell-git rebuild, as the header states: the
 # installed version CURRENT, the HELPER and its EXIT status, and the first
-# package of pacman's conflict line in the step's stderr, the cause file.
+# package of pacman's conflict line in the step's output, the cause file.
 # pacman prints its conflict question on stderr as `:: <name>-<version> and
 # <name>-<version> are in conflict...`, and a version holds no hyphen but
 # the one before its release, so the name is the word without its last two
@@ -946,10 +1035,10 @@ updates_main() {
   _updates_pid=$BASHPID
   trap '_updates_failed $?' ERR
   # The result list, the failed steps' count, whether a reboot read warned,
-  # and the file a source step's stderr is copied to: one file, since the
-  # lock holds one run at a time.
+  # and the file a failed source step's output is cut into: one file, since
+  # the lock holds one run at a time.
   _updates_results=() _updates_failed_parts=() _updates_failures=0 _updates_reboot_warned=0
-  _updates_cause_file="$state/.step-stderr"
+  _updates_cause_file="$state/.step-output"
 
   # What the run acts on: the plugin's settings and the system's managers.
   local out facts key value aur_command=() snapshot_setting="" trust=false
@@ -1260,7 +1349,8 @@ updates_main() {
       fi
     fi
     if [[ $rebuild_run == 1 && $vgs_step == install-helper ]]; then
-      _updates_source paru Paru _updates_run "Installing paru for VGS updates" _updates_install_helper
+      vgs_tui_step "Installing paru for VGS updates"
+      _updates_source paru Paru _updates_run _updates_install_helper
       if [[ $_updates_outcome == installed ]]; then aur_binary=paru
       else rebuild_run=0; _updates_results+=("VGS package skipped. Paru was not installed.")
       fi

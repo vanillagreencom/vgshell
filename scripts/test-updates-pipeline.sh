@@ -103,30 +103,29 @@ stub() { # DIR NAME BODY
 # unanswered on stderr, as a no does, for $FIX/decline-<id>, and before its
 # closing `rescan=` refusal for $FIX/decline-rescan-<id>; fails after a
 # question answered yes for $FIX/answered-<id>; ends on its closing
-# `rescan=` refusal after an error line for $FIX/rescan-<id>; and for
-# $FIX/hup-<id> hangs up the tee that copies its stderr, as a closed window
-# does, then writes a last error line. `plugin|theme update` for an ID
+# `rescan=` refusal after an error line for $FIX/rescan-<id>. For
+# $FIX/order-<id> it writes pacman's size summary to stdout and then its
+# question to stderr with no newline, and records in $FIX/terminals
+# whether stdin, stdout and stderr are terminals; $FIX/relay-<id> does
+# the same through use-pty-relay, as sudo's use_pty runs pacman. For
+# $FIX/ask-<id> it asks pacman's [Y/n] and reads the answer, for
+# $FIX/ask-default-no-<id> a [y/N]; both then exit 1, as a no does. For
+# $FIX/faulted-<id> it fails as pacman's failed commit does, in its order
+# and streams: pm_printf's `error: ` line and the conflicting file on
+# stderr, then `Errors occurred, no packages were upgraded.` on stdout
+# (pacman src/pacman/sync.c sync_prepare_execute and src/pacman/util.c
+# pm_printf, master read through the GitLab API on 2026-10-17; both
+# strings are in pacman 7.1.0's /usr/bin/pacman). For
+# $FIX/transcript-gone-<id> it removes the run's transcript and fails, and
+# for $FIX/transcript-replaced-<id> it puts an empty file at the
+# transcript's path, which script(1) no longer writes, and fails. `plugin|theme update` for an ID
 # declines, as its [y/N] question answered no does, for $FIX/decline-<id>,
 # and refuses an offline fetch with git's message for $FIX/offline-<id>.
 # `pkg owner` answers only while $FIX/owner exists, with a new version
 # after its first answer when $FIX/owner-changes does.
-stub "$tree/bin" vgshell 'hup_tee() {
-  pipe="$(readlink /proc/$$/fd/2)" tee_pid="" i=0
-  while [ -z "$tee_pid" ] && [ "$i" -lt 100 ]; do
-    for f in /proc/[0-9]*/stat; do
-      read -r pid comm rest 2>/dev/null <"$f" || continue
-      [ "$comm" = "(tee)" ] && [ "$(readlink "/proc/$pid/fd/0" 2>/dev/null)" = "$pipe" ] && tee_pid="$pid"
-    done
-    [ -n "$tee_pid" ] || { sleep 0.02; i=$((i + 1)); }
-  done
-  kill -HUP "$tee_pid"
-  i=0
-  while [ "$i" -lt 20 ]; do
-    read -r pid comm state rest 2>/dev/null <"/proc/$tee_pid/stat" || break
-    [ "$state" != Z ] || break
-    sleep 0.05; i=$((i + 1))
-  done
-  printf "error: interrupted by a hangup\n" >&2
+stub "$tree/bin" vgshell 'order() {
+  printf "Total Download Size:    952.82 MiB\nTotal Installed Size:  3120.40 MiB\nNet Upgrade Size:        12.04 MiB\n"
+  printf "\n:: Proceed with installation? [Y/n] " >&2
   exit 1
 }
 case "$1 $2" in
@@ -153,7 +152,13 @@ case "$1 $2" in
     [ ! -e "$FIX/decline-rescan-$5" ] || { printf ":: Proceed with installation? [Y/n] vgshell: refused: rescan=refused\nthe plugin files changed; run vgshell ipc call shell rescanPlugins\n" >&2; exit 1; }
     [ ! -e "$FIX/answered-$5" ] || { printf ":: Proceed with installation? [Y/n] error: failed to commit transaction (conflicting files)\n" >&2; exit 1; }
     [ ! -e "$FIX/rescan-$5" ] || { printf "error: failed to commit transaction (conflicting files)\nvgshell: refused: rescan=refused\nthe plugin files changed; run vgshell ipc call shell rescanPlugins\n" >&2; exit 1; }
-    [ ! -e "$FIX/hup-$5" ] || hup_tee ;;
+    [ ! -e "$FIX/order-$5" ] || { t=""; for fd in 0 1 2; do [ -t "$fd" ] && t="$t$fd"; done; echo "$t" >"$FIX/terminals"; order; }
+    [ ! -e "$FIX/relay-$5" ] || exec use-pty-relay /bin/sh -c "$(sed -n "/^order() {/,/^}/p" "$0"); order"
+    [ ! -e "$FIX/ask-$5" ] || { printf ":: Proceed with installation? [Y/n] " >&2; read -r answer; exit 1; }
+    [ ! -e "$FIX/ask-default-no-$5" ] || { printf ":: Remove the old kernel? [y/N] " >&2; read -r answer; exit 1; }
+    [ ! -e "$FIX/faulted-$5" ] || { printf "error: failed to commit transaction (conflicting files)\ncrush: /usr/bin/crush exists in filesystem\n" >&2; printf "Errors occurred, no packages were upgraded.\n"; exit 1; }
+    [ ! -e "$FIX/transcript-gone-$5" ] || { rm -f -- "${VGS_TUI_TRANSCRIPT:?}"; printf "error: failed to install crush\n" >&2; exit 1; }
+    [ ! -e "$FIX/transcript-replaced-$5" ] || { rm -f -- "${VGS_TUI_TRANSCRIPT:?}"; : >"$VGS_TUI_TRANSCRIPT"; printf "error: failed to install crush\n" >&2; exit 1; } ;;
   "plugin update"|"theme update")
     if [ "$1" = theme ] && [ -x "$FIX/theme-update" ]; then exec "$FIX/theme-update" "$@"; fi
     for id; do :; done
@@ -200,6 +205,30 @@ stub "$stubs" sudo 'case "$1" in -k) exit 0 ;; esac
 case "$1" in -n|/usr/bin/true) exit 0 ;; esac
 exec "$@"'
 stub "$stubs" doas 'exec "$@"'
+# use-pty-relay COMMAND...: COMMAND on a pseudo-terminal of its own, as
+# sudo's use_pty runs it (sudo src/exec_pty.c): its stdout, and its stderr
+# when that is a terminal, go through the new terminal, whose output is
+# relayed apart from a stderr that is not a terminal, which passes to the
+# command unchanged. The relay holds what it read until the question
+# reaches the run's terminal, $TERMINAL_OUT, or 2 s pass, the order a
+# loaded relay loop gives; that bound is the wait before an in-order relay
+# releases both streams.
+cat >"$stubs/use-pty-relay" <<'SH'
+#!/usr/bin/env bash
+hold() {
+  local i=0
+  while (( i < 40 )) && ! grep -qF "Proceed with installation" "$TERMINAL_OUT"; do sleep 0.05; i=$((i + 1)); done
+  cat
+}
+cmd="$(printf '%q ' "$@")"
+if [[ -t 2 ]]; then
+  SHELL="$BASH" script -qfec "$cmd" /dev/null | hold
+else
+  SHELL="$BASH" script -qfec "$cmd 2>&3" /dev/null 3>&2 | hold
+fi
+exit "${PIPESTATUS[0]}"
+SH
+chmod +x "$stubs/use-pty-relay"
 stub "$snapper_dir" snapper 'case "$*" in
   "--csvout list-configs") printf "config,subvolume\nroot,/\n" ;;
   *create*) [ ! -e "$FIX/fail-snapper" ] || exit 1 ;;
@@ -312,7 +341,7 @@ mkdir -p -- "$dest"
 printf "%s\n" "$dest" >"$FIX/helper-build"'
 stub "$stubs" makepkg '[ ! -e "$FIX/fail-helper-makepkg" ] || exit 8'
 stub "$stubs" less ''
-for tool in bash env readlink dirname mkdir chmod mv rm script flock sleep cat id sed tee diff ln stty mktemp; do
+for tool in bash env readlink dirname mkdir chmod mv rm script flock sleep cat id sed tee diff ln stty mktemp stat tail head timeout grep awk; do
   found="$(command -v "$tool")" || { echo "test-updates-pipeline: status=not-measured missing=$tool"; exit 77; }
   ln -s -- "$(readlink -f -- "$found")" "$tools/$tool"
 done
@@ -415,7 +444,7 @@ pipeline() {
   : >"$calls"
   status=0
   "${base_env[@]}" PATH="${PIPE_PATH:+$PIPE_PATH:}$stubs:$tools" VGS_TUI_LIB="$tree/bin/lib/tui.sh" VGS_PLUGIN_ID=vgs.updates VGS_PLUGIN_DIR="${PLUGIN:-$plugin}" \
-    XDG_STATE_HOME="$state" XDG_RUNTIME_DIR="$rt" CALLS="$calls" FIX="$fix" UPDATES_TEST_SECONDARY="${UPDATES_TEST_SECONDARY:-0}" \
+    XDG_STATE_HOME="$state" XDG_RUNTIME_DIR="$rt" CALLS="$calls" FIX="$fix" TERMINAL_OUT="$tmp/out" UPDATES_TEST_SECONDARY="${UPDATES_TEST_SECONDARY:-0}" \
     script -qec "$(printf '%q ' "$tools/stty" cols "${PIPE_COLUMNS:-80}") && $(printf '%q ' "$BASH" "$script_path" "$@")" /dev/null <"$tmp/terminal-input" {terminal_input}>&- >"$tmp/out" 2>&1 || status=$?
   local filtered=0
   grep -v -e '^df ' -e '^uname ' -e '^pgrep ' -e '^gum style' -e '^flock ' -e '^pacman-conf --config ' -e '^yay --show ' -e '^$' -e $'^\e\\[22m' "$calls" |
@@ -675,14 +704,82 @@ row_system_failed() {
   assert "a declined system upgrade lists the AUR skipped with its cause" result_has "AUR skipped. You declined the system upgrade, and AUR packages build against it."
   assert "a later source installs after a declined system upgrade" result_has "mise installed."
 }
-# A closed window hangs up the step's group; the tee that copies its
-# stderr ignores it, so the step's last line still reaches the terminal
-# and the cause, and the step is not killed by SIGPIPE.
-row_hangup() {
+# The terminal shows pacman's question on its own line after its whole
+# size summary, which it writes to stdout before the question on stderr,
+# and the step keeps a terminal on stdin, stdout and stderr. The relay
+# form runs the stand-in as sudo's use_pty runs pacman.
+question_after_summary() {
+  python3 - "$tmp/out" <<'PY'
+import pathlib, re, sys
+text = pathlib.Path(sys.argv[1]).read_bytes().decode("utf-8", "replace")
+text = re.sub(r"\x1b\][^\x07\x1b]*(\x07|\x1b\\)", "", text)
+text = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", text)
+lines = [re.sub(r"^.*\r", "", l.rstrip("\r")) for l in text.split("\n")]
+summary = [i for i, l in enumerate(lines) if re.search(r"Total Download Size|Total Installed Size|Net Upgrade Size", l)]
+question = [i for i, l in enumerate(lines) if "Proceed with installation?" in l]
+assert len(summary) == 3 and len(question) == 1, (summary, question)
+assert question[0] > max(summary), lines[min(summary + question):max(summary + question) + 1]
+assert lines[question[0]].strip().startswith(":: Proceed with installation? [Y/n]"), lines[question[0]]
+PY
+}
+row_order() {
   reset_fix
-  touch "$fix/hup-mise"
+  touch "$fix/order-pacman"
+  pipeline update-source.sh pacman
+  assert "the question follows the size summary on its own line" question_after_summary
+  assert "the step keeps a terminal on stdin, stdout and stderr" test "$(cat "$fix/terminals")" == 012
+  assert "an unanswered question still reads declined" result_has "System skipped. You declined it."
+  reset_fix
+  touch "$fix/relay-pacman"
+  pipeline update-source.sh pacman
+  assert "through a relay like sudo's use_pty the question follows the summary" question_after_summary
+  assert "through a relay the unanswered question reads declined" result_has "System skipped. You declined it."
+}
+# The terminal echoes the user's answer after the question; an answer of
+# no, or Enter on a question whose default is no, reads declined.
+answer() { # TEXT FIX_FILE: TEXT typed once the question shows
+  local i=0
+  : >"$tmp/out"
+  (
+    while (( i < 200 )) && ! grep -qE "Proceed with installation|Remove the old kernel" "$tmp/out"; do sleep 0.05; i=$((i + 1)); done
+    printf '%s\r' "$1" >&"$terminal_input"
+  ) &
+  touch "$fix/$2"
+  pipeline update-source.sh pacman
+  wait "$!" || :
+}
+cause_file_has() { grep -qF -- "$1" "$state/vgshell/updates/.step-output"; } # TEXT
+row_answer() {
+  reset_fix
+  answer n ask-pacman
+  assert "a [Y/n] answered n reads declined" result_has "System skipped. You declined it."
+  reset_fix
+  answer '' ask-default-no-pacman
+  assert "a [y/N] answered with Enter reads declined" result_has "System skipped. You declined it."
+  reset_fix
+  answer y ask-pacman
+  assert "a [Y/n] answered y that fails reads failed" result_has "System packages failed."
+}
+# The cause is the error line, not stdout that follows it, and a cut the
+# transcript cannot give is a stated cause with a keyed diagnostic.
+row_cause_output() {
+  reset_fix
+  touch "$fix/faulted-mise"
   pipeline update.sh
-  assert "a hung-up step's last line is its cause" result_has "mise failed. error: interrupted by a hangup."
+  assert "an error line before stdout is the cause" result_has "mise failed. error: failed to commit transaction (conflicting files)."
+  reset_fix
+  touch "$fix/transcript-gone-mise"
+  pipeline update.sh
+  assert "a step whose output cannot be cut says so" result_has "mise failed. VGS could not read this step's output."
+  assert "a cut that cannot run is keyed in the developer log" diag_has "updates: transcript=unread source=mise reason=absent"
+  # The end mark goes to the file script(1) still writes, so the wait on
+  # the new one ends at its ceiling.
+  reset_fix
+  touch "$fix/transcript-replaced-mise"
+  pipeline update.sh
+  assert "an end mark that never arrives says so" result_has "mise failed. VGS could not read this step's output."
+  assert "an end mark that never arrives is keyed in the developer log" diag_has "updates: transcript=unread source=mise reason=late"
+  assert "the run goes on after an end mark that never arrives" result_has "AUR installed."
 }
 # A read the reboot question needs that fails stays in the developer log
 # and warns once.
@@ -1526,7 +1623,7 @@ row_pipeline_plain() {
   assert "the pipeline leaves no page markup in the window secondary" out_has "updates-test: secondary=plain"
 }
 row_facts_plain; row_pipeline_plain
-row_full; row_trusted; row_snapshot; row_failure; row_failed_end; row_cause; row_system_failed; row_hangup; row_stopped; row_interrupted; row_reboot; row_reboot_core; row_reboot_unread; row_orphans; row_yes
+row_full; row_trusted; row_snapshot; row_failure; row_failed_end; row_cause; row_system_failed; row_order; row_answer; row_cause_output; row_stopped; row_interrupted; row_reboot; row_reboot_core; row_reboot_unread; row_orphans; row_yes
 row_declined; row_busy; row_aur_command; row_aur_failure; row_doas; row_vgs_only; row_vgs_helper; row_vgs_git; row_vgs_step; row_rebuild_failed; row_source; row_recheck_failure; row_reboot_deferred; row_helper_configs; row_log
 row_review_off; row_review_no_agent; row_review_none_pending; row_review_clean; row_review_start_stable; row_review_flagged; row_review_no_verdict; row_review_no_helper; row_review_custom; row_review_install
 row_review_install_links; row_review_split
@@ -1574,15 +1671,18 @@ control no-reboot-check '  _updates_reboot "${_updates_core[@]}"' '  :' row_rebo
 control later-powers '    1) echo "Reboot later to run the updated system." ;;' '    1) "$_updates_vgshell" power reboot ;;' row_reboot
 control no-success-recheck '  _updates_recheck "$ended"' '  :' row_reboot
 control no-failure-recheck '  _updates_recheck failed' '  :' row_stopped
-control source-stops-run '"$_updates_cause_file" >&2) || status=$?' '"$_updates_cause_file" >&2)' row_failure
-control tee-hangs-up ">(trap '' HUP; exec tee" '>(exec tee' row_hangup
+control source-stops-run '  "$@" || status=$?' '  "$@"' row_failure
+# The step's stderr split from stdout through a pipe, as before VGS-1839.
+control stderr-split '  "$@" || status=$?' '  { "$@"; } 2> >(exec tee -a -- "$_updates_cause_file" >&2) || status=$?' row_order
 control key-at-line-start '(^|[[:space:]])(vgshell|vgs-tui):' '(^)(vgshell|vgs-tui):' row_full
 control refusal-cause-held '    _updates_cause="${after:-$value}"' '    _updates_cause="$held"' row_cause
-control rescan-cause-after 'own="${tail:-$held}" _updates_cause="${held:-${after:-$value}}"' 'own="${tail:-$held}" _updates_cause="${after:-$value}"' row_cause
+control rescan-cause-after 'own="${tail:-$held}" _updates_cause="${held_fault:-${held:-${after:-$value}}}"' 'own="${tail:-$held}" _updates_cause="${after:-$value}"' row_cause
+control cause-ignores-error-line 'own="$last" _updates_cause="${fault:-$last}"' 'own="$last" _updates_cause="$last"' row_cause_output
+control answer-unread '$rest =~ $_updates_answer && $rest != *[Yy]*' '-z ${rest//[[:space:]]/}' row_answer
 control question-tail-ignored 'own="${tail:-$held}"' 'own="$held"' row_cause
 control question-unread 'if [[ $own =~' 'if false && [[ $own =~' row_cause
 control reboot-mask-missing 'ln -s -- /dev/null' 'ln -s -- /dev/zero' row_reboot_deferred
-control answered-question-kept 'then line="${BASH_REMATCH[2]}"; fi' 'then :; fi' row_cause
+control answered-question-kept '[[ $rest =~ $_updates_answer ]] || line="$rest"' ':' row_cause
 control aur-after-failed-system 'if [[ -n $aur_blocked ]]; then' 'if false; then' row_system_failed
 control aur-after-declined-system '            declined) aur_blocked=' '            declined) ;; x) aur_blocked=' row_system_failed
 control reboot-read-silent '  vgs_tui_warn "Could not check which updates need a restart."' '  :' row_reboot_unread
