@@ -47,7 +47,7 @@
 # read of the record leaves a pause the runner writes unpublished. The row
 # ends with the pair removed, the units gone and the plugin disabled, as
 # it found it, and its stand-ins removed. No latency reading.
-# inputs: shell/plugins/vgs.google-drive/* shell/plugins/vgs.settings/* shell/plugins/vgs.notifications/* shell/Commons/PageReference.js shell/Ui/feedback/Callout.qml shell/Ui/layout/Disclosure.qml shell/Ui/layout/Pane.qml shell/Hosts/SummonPopup.qml shell/Hosts/PluginSlot.qml shell/Commons/WatchedFile.qml shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml bin/vgshell-tui
+# inputs: shell/plugins/vgs.google-drive/* shell/plugins/vgs.settings/* shell/plugins/vgs.notifications/* shell/Commons/PageReference.js shell/Ui/feedback/Callout.qml shell/Ui/layout/ListItem.qml shell/Ui/layout/Pane.qml shell/Hosts/SummonPopup.qml shell/Hosts/PluginSlot.qml shell/Commons/WatchedFile.qml shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml bin/vgshell-tui
 set -euo pipefail
 cs_dir="$sandbox/googledrive"
 cs_stub="$cs_dir/stub"

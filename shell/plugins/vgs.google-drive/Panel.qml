@@ -253,17 +253,45 @@ Item {
             }
         }
 
-        // The notes, folded until the user opens them. The row is a Tab
-        // stop; Return, Enter or Space opens and closes it (Disclosure).
-        Disclosure {
+        // The notes, folded until the user opens them. The fold line's
+        // chevron stands in the rows' icon column and its words in their
+        // text column, so it and every row share one grid: the row takes no
+        // side padding, and its hover box reaches out into the focus ring's
+        // room instead (Pane leaves that room past the content edge), never
+        // pushing the content in. Disclosure would put the chevron at the
+        // end and inset the line by its padding. The line is a Tab stop;
+        // a click, Return, Enter or Space opens and closes it, Right opens
+        // and Left closes, as Disclosure's row does.
+        Column {
             id: notesFold
+            property bool expanded: false
+            readonly property real ringRoom: Theme.focusRing.width + Theme.focusRing.offset
             width: layout.contentWidth
             visible: root.review.notesLine !== ""
-            text: root.review.notesLine
+            spacing: Theme.stack.row
+
+            // focus-indicator: ListItem draws its FocusRing for the fold line
+            ListItem {
+                width: parent.width
+                leftPadding: 0
+                rightPadding: 0
+                leftInset: -notesFold.ringRoom
+                rightInset: -notesFold.ringRoom
+                focusPolicy: Qt.StrongFocus
+                iconName: notesFold.expanded ? "chevron-down" : "chevron-right"
+                text: root.review.notesLine
+                onClicked: notesFold.expanded = !notesFold.expanded
+                Keys.onReturnPressed: notesFold.expanded = !notesFold.expanded
+                Keys.onEnterPressed: notesFold.expanded = !notesFold.expanded
+                Keys.onSpacePressed: notesFold.expanded = !notesFold.expanded
+                Keys.onRightPressed: notesFold.expanded = true
+                Keys.onLeftPressed: notesFold.expanded = false
+            }
 
             GroupList {
                 id: notesList
                 width: parent.width
+                visible: notesFold.expanded
                 Repeater {
                     model: root.review.notes
                     ReviewRow {
@@ -273,7 +301,7 @@ Item {
             }
             Label {
                 width: parent.width
-                visible: text !== ""
+                visible: notesFold.expanded && text !== ""
                 role: "hint"
                 text: root.review.moreNotes
             }
