@@ -84,6 +84,9 @@ dependencies:
     - command: ydotool
       purpose: Optional pointer input on Linux Wayland
       optional: true
+    - command: hyprctl
+      purpose: Optional pointer movement in logical coordinates on Hyprland
+      optional: true
     - command: wtype
       purpose: Optional keyboard input on Linux Wayland
       optional: true
@@ -102,7 +105,7 @@ tags: [assistant, productivity]
 
 ## Setup
 
-Use the [home layout](README.md#home-layout) for the assistant home.
+Use the [home layout](references/home-layout.md) for the assistant home.
 
 kendex does not insert package text into `AGENTS.md`. The fixed persona path is `persona.md`, beside `SKILL.md`.
 
