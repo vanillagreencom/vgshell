@@ -518,7 +518,7 @@ function syncValue(cloud, now) {
 
 // The `schedule` value's hint by what it reads.
 var SCHEDULE_HINTS = {
-    on: "Google Drive syncs every hour while you are logged in, also while VGS is closed",
+    on: "Google Drive syncs every hour while you are logged in, also while VGS is closed. It turned on with your first folder pair.",
     off: "Google Drive syncs every hour while you are logged in. The hourly sync turns on with your first folder pair.",
     stale: "The hourly sync is from an earlier version of VGS. Select Set up again to update it.",
     failed: "VGS could not turn on the hourly sync. Select Set up again beside Hourly sync."

@@ -12,17 +12,20 @@
 #
 # Rows: the service publishes its declared status, its record and IPC
 # target go with a disable, and it reads the stand-in keyring's presence
-# into the key list and connection, the download connection naming
-# the account its token carries; the Settings page offers Set up hourly
-# sync while no unit is installed and its press hands the terminal the
-# setup TUI; the window maps with the record, holds Sync now off while a
+# into the key list, the sign-in step and the account, which names the
+# address its token carries; with no folder pair nothing offers the hourly
+# sync's setup, the first pair's add installs the units, and a pair whose
+# units are gone offers Set up again, whose press hands the terminal the
+# setup TUI; the Settings list holds one row per pair, whose Remove hands
+# the terminal the remove TUI for that pair; the window maps with the record, holds Sync now off while a
 # run holds its copy and while the download client ID is missing, and its
 # Sync now asks systemd
 # to start the one service, which the systemctl stand-in logs, and runs no
 # rclone, and its Remove beside a pair hands the terminal the remove TUI
-# for that pair; an invalid pair list publishes the reset step to Settings
-# and the window, and the runner keeps the damaged file beside an empty
-# list; a Drive-side add and change reach the mirror after one run; a
+# for that pair; an invalid pair list publishes its repair to the Details
+# tab and the window, and one row that says so to the Settings list, and
+# the runner keeps the damaged file beside an empty list, whose Add hands
+# the terminal the add TUI; a Drive-side add and change reach the mirror after one run; a
 # local edit since the last download keeps both versions and reads
 # `both-changed` in the published status, and the service asks for one
 # notification for it, which the core delivers or drops by its own rule
@@ -66,6 +69,10 @@ cs() {
 }
 # The runner's answer to ARGS and its exit status on one line.
 cs_answer() { local out status=0; out="$(cs "$@")" || status=$?; printf '%s exit=%s\n' "${out//$'\n'/ }" "$status"; }
+# The runner's `added=` line for ARGS, a pair add: an add on a home with
+# no hourly units also prints the install's line, which a check that adds
+# a pair in a world of its own does not judge.
+cs_added() { cs "$@" | grep '^added='; }
 cs_put() { mkdir -p -- "$(dirname -- "$cs_drive/$1")" && printf '%s' "$2" >"$cs_drive/$1"; }
 cs_read() { if [[ -f $cs_mirror/$1 ]]; then cat -- "$cs_mirror/$1"; else echo absent; fi; }
 # The runner's record, read afresh: KEY's [kind, path] pairs of conflicts.
@@ -89,9 +96,19 @@ cs_last_sync() { cs_value lastSync | py_reply 'import sys; t=sys.stdin.read().st
 cs_state() { cs_values | py_reply 'import json,sys; v=json.load(sys.stdin).get(sys.argv[1]); print(json.dumps(v if v is None else [v["tone"], v["text"]] + ([v.get("action")] if sys.argv[2] == "action" else [])))' "$1" "${2:-}"; }
 cs_sync() { cs_state sync; }
 cs_schedule() { cs_state schedule action; }
-cs_pairs() { cs_state pairs action; }
-# The connection: its text and the action it offers.
+cs_sign_in() { cs_state connection action; }
+# The Settings list of pairs: each row's id, its state's tone and the row
+# actions it offers; and each row's second line.
+cs_pairs() { cs_values | py_reply 'import json,sys; v=json.load(sys.stdin).get("pairs"); print(json.dumps(None if v is None else [[r["id"], r["state"]["tone"], r.get("actions", [])] for r in v]))'; }
+cs_pair_lines() { cs_values | py_reply 'import json,sys; v=json.load(sys.stdin).get("pairs"); print(json.dumps(None if v is None else [r.get("secondary") for r in v], ensure_ascii=False))'; }
+# The Details repair of the pair list: `hidden` while the list reads, else
+# its tone, text and action.
+cs_pair_list() { cs_values | py_reply 'import json,sys; v=json.load(sys.stdin).get("pairList"); print("hidden" if v == {"hidden": True} else json.dumps(v if v is None else [v["tone"], v["text"], v.get("action")]))'; }
+# The account: its text and the action it offers.
 cs_account() { cs_values | py_reply 'import json,sys; v=json.load(sys.stdin); a=v.get("account"); print(json.dumps(None if a is None else [a["text"], a.get("action")]))'; }
+# A row action of the Settings list: the manager's answer to ROW's
+# ROW_ACTION of entry KEY, as the row's button hands it to the window.
+settings_row_act() { ipc smoke invokeInstanceArgs window vgs.settings act "{\"args\":[\"$1\",\"$2\",\"$3\",\"$4\"]}"; }
 cs_published_conflicts() { cs_values | py_reply 'import json,sys; c=json.load(sys.stdin).get("cloud", {}).get("conflicts", []); print(json.dumps(sorted([x["kind"], x["path"]] for x in c)))'; }
 cs_keys() { cs_values | py_reply 'import json,sys; v=json.load(sys.stdin); print(json.dumps([[k["secret"], k["value"]] for k in v.get("keys", [])]))'; }
 cs_lent() { ipc shell lent | py_reply 'import json,sys; d=json.load(sys.stdin); r=d["status"].get("vgs.google-drive"); print(json.dumps([sorted(r["keys"]) if r else None, "vgs.google-drive" in d["ipcTargets"]]))'; }
@@ -122,11 +139,11 @@ cs_record_notified() { cs status | py_reply 'import json,sys; a=json.load(sys.st
 cs_widget_shown() { ipc smoke readInstance "$(bar_key)" vgs.google-drive visible; }
 cs_widget() { ipc smoke readInstance "$(bar_key)" vgs.google-drive tip | py_reply 'import json,sys; t=json.load(sys.stdin); print(json.dumps([t["title"], t["details"].split("\n")[:1]]))'; }
 cs_widget_names_files() { ipc smoke readInstance "$(bar_key)" vgs.google-drive tip | py_reply 'import json,sys; t=json.load(sys.stdin); print(any(n in t["title"] + t["details"] for n in sys.argv[1:]))' a.txt b.txt; }
-cs_link_text='A Google Drive key or connection is missing. Add the client ID and secret, then [select Connect on the Google Drive page](page:vgs.google-drive/Setup).'
+cs_link_text='A Google Cloud key or the sign-in is missing. Add both keys, then [sign in on the Google Drive Setup tab](page:vgs.google-drive/Setup).'
 cs_linked() { ipc smoke readMatchingDescendant window vgs.google-drive LinkText text "$cs_link_text" linked; }
 cs_page() { ipc smoke readInstance window vgs.settings shownPage; }
 cs_notice() {
-  ipc smoke modelRows vgs.notifications rows app,summary,hintPage,leaving | py_reply 'import json,sys; print(json.dumps(next((r[2] for r in json.load(sys.stdin) if r[0] == "Google Drive" and r[1] == "Google Drive needs Connect" and r[3] == ""), "none")))'
+  ipc smoke modelRows vgs.notifications rows app,summary,hintPage,leaving | py_reply 'import json,sys; print(json.dumps(next((r[2] for r in json.load(sys.stdin) if r[0] == "Google Drive" and r[1] == "Google Drive needs a sign-in" and r[3] == ""), "none")))'
 }
 cs_click_link() {
   local box spans pitch rect x y
@@ -143,7 +160,7 @@ cs_click_link() {
 # The checks the controls replay against a broken runner: each runs in the
 # world cs_use set and fails through expect.
 check_copy() {
-  expect "the pair is added" added=docs cs pair-add --definition "{\"id\":\"docs\",\"label\":\"Documents\",\"remote\":\"Docs\",\"local\":\"$cs_mirror\"}"
+  expect "the pair is added" added=docs cs_added pair-add --definition "{\"id\":\"docs\",\"label\":\"Documents\",\"remote\":\"Docs\",\"local\":\"$cs_mirror\"}"
   cs_put a.txt "one"
   expect "a run copies the Drive folder" "pair=docs result=idle exit=0" cs_answer run
   expect "the Drive-side add reaches the mirror" one cs_read a.txt
@@ -199,7 +216,7 @@ check_prune() {
   prune_drive="$(dirname -- "$cs_drive")/Prune"
   prune_local="$cs_home/googledrive/prune"
   mkdir -p -- "$prune_drive" "$prune_local"
-  expect "the prune pair is added" added=prune cs pair-add --definition "{\"id\":\"prune\",\"label\":\"Prune\",\"remote\":\"Prune\",\"local\":\"$prune_local\"}"
+  expect "the prune pair is added" added=prune cs_added pair-add --definition "{\"id\":\"prune\",\"label\":\"Prune\",\"remote\":\"Prune\",\"local\":\"$prune_local\"}"
   old="$cs_state/pairs/prune/conflicts/20000101T000000Z-1/old.txt"
   young="$cs_state/pairs/prune/conflicts/29990101T000000Z-1/young.txt"
   mkdir -p -- "$(dirname -- "$old")" "$(dirname -- "$young")"
@@ -215,7 +232,7 @@ check_prune() {
 check_shared_folder() {
   mkdir -p -- "$(dirname -- "$cs_drive")/Shared" "$cs_home/googledrive/shared"
   printf '%s' "made outside Google Drive" >"$(dirname -- "$cs_drive")/Shared/original.txt"
-  expect "the shared pair is added" added=shared cs pair-add --definition "{\"id\":\"shared\",\"label\":\"Shared\",\"remote\":\"Shared\",\"local\":\"$cs_home/googledrive/shared\"}"
+  expect "the shared pair is added" added=shared cs_added pair-add --definition "{\"id\":\"shared\",\"label\":\"Shared\",\"remote\":\"Shared\",\"local\":\"$cs_home/googledrive/shared\"}"
   printf '%s' "local add" >"$cs_home/googledrive/shared/local.txt"
   expect "a run uploads into the existing shared Drive folder" "pair=shared result=idle exit=0" cs_answer run --pair shared
   expect "the local add reaches the shared Drive folder" "local add" cat -- "$(dirname -- "$cs_drive")/Shared/local.txt"
@@ -371,47 +388,59 @@ SH
   expect "Google Drive starts disabled" '[null, false]' cs_lent
   expect "enabling Google Drive is allowed" ok ipc shell setPluginEnabled vgs.google-drive true
   expect "placing Google Drive's widget is allowed" ok ipc shell setPluginPlaced vgs.google-drive true
-  expect_poll "the service holds its status record and IPC target" '[["account", "cloud", "connection", "firstPair", "keys", "pairs", "schedule", "sync"], true]' cs_lent
-  expect_poll "with no pair and no unit the sync reads not set up" '["warning", "Not set up"]' cs_sync
-  expect_poll "with no unit the hourly sync offers Set up" '["warning", "Not set up", true]' cs_schedule
-  expect_poll "with no folder pair the pairs offer Add" '["warning", "None", "add"]' cs_pairs
+  expect_poll "the service holds its status record and IPC target" '[["account", "cloud", "cloudKeys", "connection", "firstPair", "keys", "pairList", "pairs", "schedule", "sync"], true]' cs_lent
+  expect_poll "with no pair and no unit the sync reads no folder pairs" '["warning", "No folder pairs"]' cs_sync
+  expect_poll "with no pair and no unit the hourly sync asks for no setup" '["info", "Off", null]' cs_schedule
+  expect_poll "with no folder pair the Settings list holds no row" '[]' cs_pairs
+  expect_poll "a pair list that reads hides its repair" hidden cs_pair_list
   expect_poll "with no folder pair the widget is hidden" false cs_widget_shown
   expect_poll "with no key stored every key reads absent" '[["client-id", "absent"], ["client-secret", "absent"]]' cs_keys
-  expect_poll "with no client stored no connection is offered" '["Not connected", null]' cs_account
+  expect_poll "with no key stored the sign-in step waits for the keys" '["info", "Keys needed", null]' cs_sign_in
+  expect_poll "with no key stored the account reads not signed in" '["Not signed in", null]' cs_account
   printf 'fixture-client' >"$cs_stub/secrets/client-id"
   printf 'fixture-secret' >"$cs_stub/secrets/client-secret"
   printf '{"access_token":"fixture","token_type":"Bearer","refresh_token":"fixture-refresh"}' >"$cs_stub/secrets/token"
   printf 'a.person@example.com' >"$cs_stub/secrets/token.user"
   expect "the service reads the keys again on request" ok ipc vgs.google-drive invoke refresh ""
   expect_poll "the stored keys read present" '[["client-id", "present"], ["client-secret", "present"]]' cs_keys
-  expect_poll "the connection reads connected and offers Sign out" '["Connected", "signOut"]' cs_account
-  expect_poll "the connection names the account its token carries" '"Connected as a.person@example.com."' cs_value account.hint
+  expect_poll "with a sign-in stored the sign-in step is done" '["ok", "Signed in", null]' cs_sign_in
+  expect_poll "the account is the address its token carries, with Sign out" '["a.person@example.com", true]' cs_account
 
-  # Set up hourly sync, D061: the Settings page offers the step while no
-  # unit is installed, and its press opens the setup TUI. The stand-in
-  # terminal runs no shipped script, so the row runs the install the
-  # script runs.
+  # The hourly sync is no step (D061, VGS-1744): with no folder pair the
+  # Settings page offers no setup for it, the first pair's add installs
+  # it, and a pair whose units are gone offers Set up again, whose press
+  # opens the setup TUI. The stand-in terminal runs no shipped script, so
+  # the row runs the install the script runs.
   settings_page_open vgs.google-drive
-  forget_record
-  expect "Set up hourly sync is pressed" ok settings_act vgs.google-drive schedule
-  expect_poll "Set up hands the terminal the setup TUI" "$(words vgs.google-drive/setup tui/setup.sh)" recorded_tail
-  expect_run_end "the setup run ends" vgs.google-drive/setup
+  expect "with no pair Set up again is not offered" "refused: action=schedule reason=not-offered" settings_act vgs.google-drive schedule
   settings_page_close vgs.google-drive
-  expect "the install the setup TUI runs writes the units" "installed=vgs-google-drive.timer changed=2 exit=0" cs_answer install
-  expect "install reloads the stand-in manager and enables the timer" '[["--user", "daemon-reload"], ["--user", "enable", "--now", "vgs-google-drive.timer"]]' cs_systemctl
-  expect "the service reads the record again after the setup run" ok ipc vgs.google-drive invoke refresh ""
-  expect_poll "with the units installed and no pair the sync reads no folder pairs" '["warning", "No folder pairs"]' cs_sync
-  expect_poll "with the units installed the hourly sync reads on" '["ok", "On", null]' cs_schedule
 
   # A Drive-side add and change, a local edit and a Drive deletion, each
   # after one run, and the service's reading of each.
   check_copy
+  expect "the first pair's add reloads the stand-in manager and enables the timer" '[["--user", "daemon-reload"], ["--user", "enable", "--now", "vgs-google-drive.timer"]]' cs_systemctl
+  expect "the service reads the record again after the first pair" ok ipc vgs.google-drive invoke refresh ""
+  expect_poll "with the first pair the hourly sync reads on" '["ok", "On", null]' cs_schedule
+  rm -f -- "$home/.config/systemd/user/vgs-google-drive.service" "$home/.config/systemd/user/vgs-google-drive.timer"
+  expect "the service reads the record again with the units gone" ok ipc vgs.google-drive invoke refresh ""
+  expect_poll "with a pair and no unit the sync reads not set up" '["warning", "Not set up"]' cs_sync
+  expect_poll "with a pair and no unit the hourly sync offers Set up again" '["warning", "Not on", true]' cs_schedule
+  settings_page_open vgs.google-drive
+  forget_record
+  expect "Set up again is pressed" ok settings_act vgs.google-drive schedule
+  expect_poll "Set up again hands the terminal the setup TUI" "$(words vgs.google-drive/setup tui/setup.sh)" recorded_tail
+  expect_run_end "the setup run ends" vgs.google-drive/setup
+  settings_page_close vgs.google-drive
+  expect "the install the setup TUI runs writes the units" "installed=vgs-google-drive.timer changed=2 exit=0" cs_answer install
+  expect "the service reads the record again after the setup run" ok ipc vgs.google-drive invoke refresh ""
+  expect_poll "with the units installed again the hourly sync reads on" '["ok", "On", null]' cs_schedule
   check_local_add
   check_removed_locally
   check_export
   check_prune
   expect_poll "the service publishes the pair's state" '["Documents: 1 file to review"]' cs_value sync.lines
-  expect_poll "the service publishes the pair and its Drive folder" '["Documents: Docs"]' cs_value pairs.lines
+  expect_poll "the Settings list holds the pair with Remove" '[["docs", "ok", ["remove"]]]' cs_pairs
+  expect_poll "the pair's row names its Drive folder and its folder here" '["Drive/Docs ⇄ ~/googledrive/docs"]' cs_pair_lines
   expect_poll "the service publishes the last sync" set cs_last_sync
   cs_local_edit_records='[["both-changed", "a.txt"], ["removed-locally", "local-gone.txt"]]' check_local_edit
   expect_poll "the service publishes the local edit" '[["both-changed", "a.txt"], ["removed-locally", "local-gone.txt"]]' cs_published_conflicts
@@ -444,12 +473,12 @@ SH
   expect "a run without the download client ID waits for it" "pair=docs result=authorization-required exit=1" cs_answer run
   expect_poll "the window holds Sync now off while a key is missing" '["sync", false]' cs_window_primary
   expect_poll "the missing-key window draws its page link" true cs_linked
-  expect_poll "the needs-Connect notice holds its page link" '"[select Connect on the Google Drive page](page:vgs.google-drive/Setup)"' cs_notice
+  expect_poll "the needs-sign-in notice holds its page link" '"[sign in on the Google Drive Setup tab](page:vgs.google-drive/Setup)"' cs_notice
   cs_click_link || fail "googledrive: the window page link click failed"
   expect_poll "the window page link opens Google Drive Setup" '"vgs.google-drive/Setup"' cs_page
   settings_page_close vgs.google-drive
-  click_item vgs:layer vgs.notifications NotificationCard summary "Google Drive needs Connect" 24 - || fail "googledrive: the notice page link click failed"
-  expect_poll "the needs-Connect notice opens Google Drive Setup" '"vgs.google-drive/Setup"' cs_page
+  click_item vgs:layer vgs.notifications NotificationCard summary "Google Drive needs a sign-in" 24 - || fail "googledrive: the notice page link click failed"
+  expect_poll "the needs-sign-in notice opens Google Drive Setup" '"vgs.google-drive/Setup"' cs_page
   settings_page_close vgs.google-drive
   notes_off googledrive-links
 
@@ -461,7 +490,7 @@ SH
   expected_errors+=('plugins: hidden by a higher-precedence plugin with the same id: vgs\.google-drive')
   # An installed copy's former ids rename nothing (PluginLogic.formerIdClaims).
   expected_errors+=('plugins: former id claim ignored id=vgs\.google-drive reason=installed ')
-  if edit_file_once "$link_copy/GoogleDriveLogic.js" '[select Connect on the Google Drive page](page:vgs.google-drive/Setup)' 'select Connect on the Google Drive page'; then
+  if edit_file_once "$link_copy/GoogleDriveLogic.js" '[sign in on the Google Drive Setup tab](page:vgs.google-drive/Setup)' 'sign in on the Google Drive Setup tab'; then
     expect "the window hides before the link control" ok ipc shell hide window vgs.google-drive
     notes_on googledrive-link-control
     rescan "the copy without the page reference is scanned"
@@ -474,7 +503,7 @@ SH
     rm -- "${cs_stub:?}/secrets/client-id"
     expect "a missing-key run renews attention for the notice control" "pair=docs result=authorization-required exit=1" cs_answer run
     expect_poll "control: the notice without a reference fails the link reader" '""' cs_notice
-    click_item vgs:layer vgs.notifications NotificationCard summary "Google Drive needs Connect" 24 - || fail "googledrive: the control notice click failed"
+    click_item vgs:layer vgs.notifications NotificationCard summary "Google Drive needs a sign-in" 24 - || fail "googledrive: the control notice click failed"
     expect_poll "control: the notice without a reference leaves" '"none"' cs_notice
     expect "control: the notice without a reference leaves Settings closed" absent cs_page
     notes_off googledrive-link-control
@@ -495,6 +524,12 @@ SH
   expect "Sync now is clicked" ok cs_click_sync
   expect_poll "Sync now asks systemd to start the one service" '[["--user", "start", "--no-block", "vgs-google-drive.service"]]' cs_systemctl
   expect "Sync now runs no rclone of its own" "$copies" cs_copies
+  settings_page_open vgs.google-drive
+  forget_record
+  expect "Remove on the Settings row of the pair is pressed" ok settings_row_act vgs.google-drive pairs docs remove
+  expect_poll "the Settings Remove hands the terminal the remove TUI for that pair" "$(words vgs.google-drive/remove-pair tui/remove-pair.sh docs)" recorded_tail
+  expect_run_end "the Settings remove run ends" vgs.google-drive/remove-pair
+  settings_page_close vgs.google-drive
   forget_record
   expect "Remove beside the folder pair is clicked" ok cs_click_remove
   expect_poll "Remove hands the terminal the remove TUI for that pair" "$(words vgs.google-drive/remove-pair tui/remove-pair.sh docs)" recorded_tail
@@ -558,7 +593,8 @@ SH
   expect "the pair is removed" removed=docs cs pair-remove docs
   printf '{"pairs": [' >"$cs_home/.config/vgshell/google-drive/pairs.json"
   expect "the service reads the damaged pair list" ok ipc vgs.google-drive invoke refresh ""
-  expect_poll "the damaged pair list offers Reset in status" '["danger", "Not readable", "reset"]' cs_pairs
+  expect_poll "the damaged pair list offers its repair on Details" '["danger", "Not readable", true]' cs_pair_list
+  expect_poll "the Settings list says the list cannot be read and offers no Remove" '[["unreadable", "danger", []]]' cs_pairs
   expect "the window is summoned for the damaged pair list" ok ipc shell summon window vgs.google-drive '{}'
   expect_poll "the window reads the damaged pair list" false ipc smoke readInstance window vgs.google-drive pairsValid
   forget_record
@@ -568,7 +604,7 @@ SH
   expect "the damaged-list window is hidden" ok ipc shell hide window vgs.google-drive
   settings_page_open vgs.google-drive
   forget_record
-  expect "the Settings pair-list repair is pressed" ok settings_act vgs.google-drive pairs
+  expect "the Details pair-list repair is pressed" ok settings_act vgs.google-drive pairList
   expect_poll "Settings hands the terminal the reset TUI" "$(words vgs.google-drive/reset-pairs tui/reset-pairs.sh)" recorded_tail
   expect_run_end "the Settings reset run ends" vgs.google-drive/reset-pairs
   settings_page_close vgs.google-drive
@@ -576,12 +612,19 @@ SH
   expect "the damaged pair list is kept" '{"pairs": [' cs_kept_pairs_bytes
   expect "the new pair list is empty" '{"pairs": []}' cs_pairs_json
   expect "the service reads the empty pair list" ok ipc vgs.google-drive invoke refresh ""
-  expect_poll "the empty pair list offers Add again" '["warning", "None", "add"]' cs_pairs
+  expect_poll "the empty pair list holds no row" '[]' cs_pairs
+  expect_poll "the empty pair list hides its repair" hidden cs_pair_list
+  settings_page_open vgs.google-drive
+  forget_record
+  expect "Add under the empty list is pressed" ok settings_act vgs.google-drive pairs
+  expect_poll "Add hands the terminal the add TUI" "$(words vgs.google-drive/add-pair tui/add-pair.sh)" recorded_tail
+  expect_run_end "the add run ends" vgs.google-drive/add-pair
+  settings_page_close vgs.google-drive
   cs_remove_kept_pairs
   rm -f -- "$home/.config/systemd/user/vgs-google-drive.service" "$home/.config/systemd/user/vgs-google-drive.timer"
   expect "the service reads the record again" ok ipc vgs.google-drive invoke refresh ""
-  expect_poll "with no pair and no unit the sync reads not set up" '["warning", "Not set up"]' cs_sync
-  expect_poll "with no unit the hourly sync offers Set up again" '["warning", "Not set up", true]' cs_schedule
+  expect_poll "at the end, with no pair and no unit, the sync reads no folder pairs" '["warning", "No folder pairs"]' cs_sync
+  expect_poll "at the end, with no pair and no unit, the hourly sync asks for no setup" '["info", "Off", null]' cs_schedule
   expect "unplacing Google Drive's widget is allowed" ok ipc shell setPluginPlaced vgs.google-drive false
   expect "disabling Google Drive is allowed" ok ipc shell setPluginEnabled vgs.google-drive false
   expect_poll "the disabled plugin holds no status record or IPC target" '[null, false]' cs_lent
