@@ -45,8 +45,10 @@ fail() { failures=$((failures + 1)); printf '  FAIL  %s\n' "$*"; }
 # The process group the child records. TERM from the teardown writes the
 # marker the second-signal cases wait for.
 cat >"$tmp/group.sh" <<'SH'
+# Delay trap installation so the signal cases require the ready handshake.
+sleep 0.1
 trap ': >"$1"; exit 0' TERM
-[[ -z ${2:-} ]] || printf 'ready\n' >"$2"
+printf 'ready\n' >"$2"
 while :; do sleep 0.1; done
 SH
 cat >"$tmp/recorder.sh" <<'SH'
@@ -76,15 +78,12 @@ printf '#!/bin/sh\n' >"$readonly_dest/usr/bin/vgshell"
 chmod 755 -- "$readonly_dest/usr/bin/vgshell"
 echo 'Item {}' >"$readonly_dest/usr/share/vgshell/shell/Core/Config.qml"
 echo '{}' >"$readonly_dest/usr/share/vgshell/themes/targets/kitty/target.json"
-group_ready=""
-if [[ $mode == recorder* ]]; then
-  group_ready="$case_dir/group-ready"
-  mkfifo "$group_ready"
-fi
+group_ready="$case_dir/group-ready"
+mkfifo "$group_ready"
 setsid bash "$group_script" "$case_dir/group-termed" "$group_ready" &
 pgids+=("$!")
 printf '%s\n' "$!" >"$case_dir/group"
-[[ -z $group_ready ]] || IFS= read -r ready <"$group_ready"
+IFS= read -r ready <"$group_ready"
 chmod -R a-w -- "$readonly_dest/usr"
 if [[ $mode == recorder* ]]; then
   mkfifo "$case_dir/recorder-ready"
