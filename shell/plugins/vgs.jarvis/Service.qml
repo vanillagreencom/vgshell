@@ -212,7 +212,8 @@ Item {
         const merged = answer.kind === "answered" && setupCause !== "" && answer.causes.indexOf(setupCause) === -1
             ? { kind: "answered", causes: [setupCause].concat(answer.causes) }
             : answer;
-        const values = Gate.readiness(merged, homePathRead);
+        const values = Gate.readiness(merged, homePathRead, homeRepair.result);
+        values.setupHome = Gate.homeRepairResult(values.setupHome, homeRepair.result);
         values.setup = Gate.sessionSummary(values.setup, Gate.sessionStart(shell.settings.startAtBoot, sessionStart.result));
         values.setupVoice = Gate.dictationSetup(values.setupVoice, dictationState);
         values.setupVoice = Gate.voiceCheck(values.setupVoice, sessionState === null ? null : sessionState.check);
@@ -1193,6 +1194,13 @@ Item {
     }
     Jarvis.BrowserRuntime { shell: root.shell }
     Jarvis.FleetRuntime { id: fleetRuntime; shell: root.shell }
+    Jarvis.HomeRepair {
+        id: homeRepair
+        shell: root.shell
+        wanted: root.setupAnswer.kind === "answered" && root.setupAnswer.causes.indexOf("home=package") !== -1
+        onResultChanged: if (root.shell !== null) root.publishShellSetup()
+        onRecheck: root.hello()
+    }
     Process {
         id: homePathProbe
         property string selected: ""

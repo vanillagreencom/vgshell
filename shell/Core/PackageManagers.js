@@ -34,7 +34,7 @@
 //             the updates; "none": there are none), the parser's name in
 //             PARSERS and the seconds a run may take. An unlisted status is
 //             a failure. null when no read-only query exists.
-//   install, update, remove, upgrade
+//   install, reinstall, update, remove, upgrade
 //             the steps, each an argv template run in order; null when VGS
 //             plans none for the manager. An update brings named packages
 //             the manager already installed to its current version, and a
@@ -73,6 +73,8 @@ var MANAGERS = [
         id: "pacman", role: "primary", family: ["arch"], release: null, requires: null, binaries: ["pacman"], elevate: true,
         check: [{ binary: null, argv: ["checkupdates"], exits: { "0": "updates", "2": "none" }, parser: "arrow", timeout: 120 }],
         install: [["{bin}", "-S", "--needed", "--", "{names}"]],
+        // pacman(8): omitting --needed restores an up-to-date target.
+        reinstall: [["{bin}", "-S", "--", "{names}"]],
         // pacman(8): --needed skips only a target that is up to date, so
         // the install step updates an older one to the version the
         // databases of the last upgrade hold.
@@ -92,6 +94,7 @@ var MANAGERS = [
         id: "aur", role: "overlay", family: [], release: null, requires: "pacman", binaries: ["paru", "yay"], elevate: false,
         check: [{ binary: null, argv: ["{bin}", "-Qua"], exits: { "0": "updates", "1": "none" }, parser: "arrow", timeout: 120 }],
         install: [["{bin}", "-S", "--needed", "--", "{names}"]],
+        reinstall: [["{bin}", "-S", "--", "{names}"]],
         update: [["{bin}", "-S", "--needed", "--", "{names}"]],
         remove: [["{bin}", "-Rns", "--", "{names}"]],
         upgrade: [["{bin}", "-Sua"]],
@@ -113,6 +116,7 @@ var MANAGERS = [
         id: "apt", role: "primary", family: ["debian"], release: { key: "VERSION_CODENAME", value: "forky" }, requires: null, binaries: ["apt-get"], elevate: true,
         check: [{ binary: null, argv: ["apt", "list", "--upgradable"], exits: { "0": "rows" }, parser: "apt", timeout: 120 }],
         install: [["{bin}", "install", "{names}"]],
+        reinstall: [["{bin}", "install", "--reinstall", "{names}"]],
         // apt-get(8): install is also the target that upgrades an installed
         // package without upgrading every package.
         update: [["{bin}", "install", "{names}"]],
@@ -134,6 +138,7 @@ var MANAGERS = [
             { binary: "dnf", argv: ["{bin}", "-q", "check-update"], exits: { "0": "none", "100": "updates" }, parser: "dnf", timeout: 120 }
         ],
         install: [["{bin}", "install", "{names}"]],
+        reinstall: [["{bin}", "reinstall", "{names}"]],
         // dnf(8): upgrade with a package updates that package to the latest
         // version.
         update: [["{bin}", "upgrade", "{names}"]],
@@ -156,13 +161,14 @@ var MANAGERS = [
     // step and has no read-only update query for it.
     {
         id: "nix", role: "primary", family: ["nixos"], release: null, requires: null, binaries: ["nix"], elevate: false,
-        check: null, install: null, update: null, remove: null, upgrade: null, ignore: null, owner: null, installed: null, removable: null,
+        check: null, install: null, reinstall: null, update: null, remove: null, upgrade: null, ignore: null, owner: null, installed: null, removable: null,
         picker: { install: null, remove: null }
     },
     {
         id: "flatpak", role: "overlay", family: [], release: null, requires: null, binaries: ["flatpak"], elevate: false,
         check: [{ binary: null, argv: ["{bin}", "remote-ls", "--updates", "--columns=application,branch"], exits: { "0": "rows" }, parser: "flatpak", timeout: 120 }],
         install: [["{bin}", "install", "{names}"]],
+        reinstall: null,
         // flatpak-update(1): update with a ref updates that ref alone.
         update: [["{bin}", "update", "{names}"]],
         remove: [["{bin}", "uninstall", "{names}"]],
@@ -185,6 +191,7 @@ var MANAGERS = [
         id: "mise", role: "source", family: [], release: null, requires: null, binaries: ["mise"], elevate: false,
         check: [{ binary: null, argv: ["env", "MISE_MINIMUM_RELEASE_AGE=0", "{bin}", "outdated", "--json"], exits: { "0": "rows" }, parser: "mise", timeout: 120 }],
         install: [["{bin}", "use", "--global", "{names}"]],
+        reinstall: null,
         update: [["env", "MISE_MINIMUM_RELEASE_AGE=0", "{bin}", "use", "--global", "{names@latest}"]],
         remove: [["{bin}", "unuse", "--global", "{names}"]],
         upgrade: [["env", "MISE_MINIMUM_RELEASE_AGE=0", "{bin}", "upgrade"]],
@@ -196,7 +203,7 @@ var MANAGERS = [
     }
 ];
 
-var ACTIONS = ["install", "update", "remove", "upgrade"];
+var ACTIONS = ["install", "reinstall", "update", "remove", "upgrade"];
 
 // The commands `vgshell pkg run` may put before a step of a row whose elevate
 // is true, in the order it looks for them on PATH. They live outside the
@@ -389,7 +396,7 @@ function presentManager(id, onPath) {
 // resolves: `{ ok: true, plan: { manager, binary, action, elevate, steps } }`
 // or `{ ok: false, error }`, the error the keyed first line of a refusal.
 // ACTION is one of ACTIONS and NAMES holds at least one name for install,
-// update and remove and none for upgrade; the caller refuses any other call as a
+// reinstall, update and remove and none for upgrade; the caller refuses any other call as a
 // bad invocation. IGNORED, absent or empty but for an upgrade, names the
 // packages the upgrade keeps out, through the row's `ignore`: a manager
 // without one refuses them as `manager=<id> option=ignore

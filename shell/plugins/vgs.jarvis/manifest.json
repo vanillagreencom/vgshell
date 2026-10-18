@@ -134,7 +134,7 @@
     "auditFailures": {"type": "data", "label": "Recent audit failures"},
     "input": {"type": "state", "label": "Desktop input", "group": "Access", "hint": "Jarvis does not click or type on VGS panels, the lock screen or password prompts, including the empty space around them, and it acts only in apps that the app launcher lists", "action": {"label": "Check input", "tui": "setup-input"}},
     "setup": {"type": "state", "label": "Setup summary", "hidden": true},
-    "setupHome": {"type": "state", "label": "Home folder", "hint": "Choose the folder Jarvis reads in [Home folder](page:vgs.jarvis/Settings/home)", "setup": true, "actions": {"agents": {"label": "Open AGENTS.md", "file": true}, "skills": {"label": "Open skills folder", "file": true}}, "info": "Your Home folder holds what Jarvis knows about you: your instructions, your memory notes and your skills. To use another folder, change [Home folder in Settings](page:vgs.jarvis/Settings/home)."},
+    "setupHome": {"type": "state", "label": "Home folder", "hint": "Choose the folder Jarvis reads in [Home folder](page:vgs.jarvis/Settings/home)", "setup": true, "actions": {"repair": {"label": "Repair", "tui": "repair-home"}, "agents": {"label": "Open AGENTS.md", "file": true}, "skills": {"label": "Open skills folder", "file": true}}, "info": "Your Home folder holds what Jarvis knows about you: your instructions, your memory notes and your skills. To use another folder, change [Home folder in Settings](page:vgs.jarvis/Settings/home)."},
     "setupModel": {"type": "state", "label": "AI model", "hint": "Jarvis uses the AI model to answer you", "actions": {"key": {"label": "Add key", "tui": "add-key"}, "signIn": {"label": "Sign in", "tui": "sign-in"}}, "setup": true},
     "setupVoice": {"type": "state", "label": "Voice", "hint": "Jarvis uses the selected voice provider to hear you and speak", "actions": {"setup": {"label": "Set up local voice", "tui": "setup-local"}, "check": {"label": "Check microphone", "tui": "check-microphone"}, "dictation": {"label": "Set up dictation", "dictation": "setup"}}, "setup": true, "info": "Voice is how Jarvis hears you and speaks to you. The local voice keeps your speech on this computer. When this row asks for a step, do it so Jarvis can hear you."},
     "setupFleet": {"type": "state", "label": "Agent fleet", "group": "Access", "hint": "The mail tool in your Jarvis home folder sends requests to your agent fleet", "action": {"label": "Install mail tool", "tui": "setup-fleet"}},
@@ -165,6 +165,7 @@
     "task": { "script": "tui/task.sh", "title": "Jarvis coding task", "presentation": "plain", "requires": ["python3", "node"] },
     "task-view": { "script": "tui/task-view.sh", "title": "Jarvis coding task", "presentation": "plain", "requires": ["tmux"] },
     "setup-input": {"script": "tui/setup-input.sh", "title": "Check Jarvis input", "entry": {"label": "Check input", "icon": "mouse-pointer", "group": "Jarvis"}},
+    "repair-home": { "script": "tui/repair-home.sh", "title": "Repair Jarvis Home", "requires": ["node"] },
     "setup-fleet": { "script": "tui/setup-fleet.sh", "title": "Set up Jarvis agent fleet", "requires": ["gum", "node", "git", "kendex"] }
   }
 }

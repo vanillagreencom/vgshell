@@ -55,6 +55,8 @@ const { Refusal, refuse, main, writing } = require(path.join(__dirname, "judge-f
 const packageTable = require(path.join(__dirname, "qml-library.js")).load(path.join(__dirname, "..", "..", "shell", "Core", "PackageManagers.js"));
 
 const VERSION_PATTERN = /^[0-9]+\.[0-9]+\.[0-9]+$/;
+// Also read by bin/vgshell's Reset through directory-pattern.
+const CURL_DIRECTORY_PATTERN = /^[0-9]+\.[0-9]+\.[0-9]+(-repair-[A-Za-z0-9]+)?$/;
 // A vgshell-git package's version ends in the commit it was built from: the
 // AUR form X.Y.Z.r<N>.g<hash> and the COPR form X.Y.Z^<N>.git<hash>.
 const GIT_PACKAGE_PATTERN = /^[0-9]+\.[0-9]+\.[0-9]+(?:\.r|\^)[0-9]+\.g(?:it)?([0-9a-f]{7,40})$/;
@@ -217,8 +219,8 @@ async function readJson(response, url, seconds, key) {
 
 // The newest release of REPOSITORY: `{ version, assets }`, assets mapping
 // each asset's name to its download URL.
-async function latestRelease(repository, api) {
-    const url = api.base + "/repos/" + repository + "/releases/latest";
+async function latestRelease(repository, api, requestedVersion = null) {
+    const url = api.base + "/repos/" + repository + "/releases/" + (requestedVersion === null ? "latest" : "tags/v" + requestedVersion);
     const response = await get(url, API_TIMEOUT, "release", api);
     if (response.status === 404) refuse("release=none repository=" + repository);
     if (response.status !== 200) refuse("release=http status=" + response.status + " url=" + url);
@@ -368,7 +370,7 @@ function migrateCurlStage(source, dest, prefix) {
     const stage = real(path.dirname(dest));
     if (data === null || stage === null || path.dirname(stage) !== data || !path.basename(stage).startsWith(".self-update-")) return;
     const current = real(path.join(data, "current"));
-    if (current === null || path.dirname(current) !== data || !VERSION_PATTERN.test(path.basename(current))) return;
+    if (current === null || path.dirname(current) !== data || !CURL_DIRECTORY_PATTERN.test(path.basename(current))) return;
     const version = fs.readFileSync(path.join(source, "VERSION"), "utf8").trim();
     if (!VERSION_PATTERN.test(version) || real(source) !== real(path.join(stage, "source", "vgshell-" + version))
         || real(dest) !== path.join(stage, "tree")) return;
@@ -385,16 +387,21 @@ function migrateCurlStage(source, dest, prefix) {
 // was refused still runs from a tree `current` no longer names; every other
 // version directory is removed. bin/vgshell holds DATA/.self.lock around the
 // call.
-async function install(repository, dataHome, root, current, shellTree) {
+async function install(repository, dataHome, root, current, shellTree, repair = false) {
     const data = path.join(dataHome, "vgshell");
+    // An update can move current while the user answers Repair's question.
+    if (repair && real(path.join(data, "current")) !== real(root)) refuse("repair=selection-changed");
     const api = apiBase();
-    const release = await latestRelease(repository, api);
-    if (!newer(release.version, current)) {
+    const release = await latestRelease(repository, api, repair ? current : null);
+    if (repair && release.version !== current) refuse("repair=version expected=" + current + " found=" + release.version);
+    if (!repair && !newer(release.version, current)) {
         migrateEngine();
         process.stdout.write("ok up-to-date=vgshell version=" + current + "\n");
         return;
     }
-    const target = path.join(data, release.version);
+    // A same-version repair publishes a fresh tree through `current`, just
+    // like an update. The running and previous trees never disappear.
+    const target = repair ? fs.mkdtempSync(path.join(data, current + "-repair-")) : path.join(data, release.version);
     let taken = true;
     try {
         fs.lstatSync(target);
@@ -402,7 +409,7 @@ async function install(repository, dataHome, root, current, shellTree) {
         if (e.code !== "ENOENT") refuse("target=unreadable path=" + target + " error=" + e.code);
         taken = false;
     }
-    if (taken) refuse("target=exists path=" + target, undefined, 1, "remove it and run vgshell self update again");
+    if (taken && !repair) refuse("target=exists path=" + target, undefined, 1, "remove it and run vgshell self update again");
     let stage;
     writing(data, "data", () => {
         // Under the lock, a staging directory left behind is a dead run's.
@@ -436,23 +443,49 @@ async function install(repository, dataHome, root, current, shellTree) {
         writing(target, "target", () => fs.renameSync(path.join(destdir, "vgshell", "share", "vgshell"), target));
         const link = path.join(stage, "current");
         writing(path.join(data, "current"), "current", () => {
-            fs.symlinkSync(release.version, link);
+            fs.symlinkSync(path.basename(target), link);
             fs.renameSync(link, path.join(data, "current"));
         });
     } finally {
         fs.rmSync(stage, { recursive: true, force: true });
+        if (repair && real(path.join(data, "current")) !== real(target)) fs.rmSync(target, { recursive: true, force: true });
     }
-    const kept = [release.version, path.basename(root)];
+    const kept = [path.basename(target), path.basename(root)];
     const running = shellTree === "-" ? null : real(shellTree);
     if (running !== null && path.dirname(running) === real(data)) kept.push(path.basename(running));
     writing(data, "prune", () => {
         for (const entry of fs.readdirSync(data)) {
-            if (!VERSION_PATTERN.test(entry) || kept.includes(entry)) continue;
+            if (!CURL_DIRECTORY_PATTERN.test(entry) || kept.includes(entry)) continue;
             const dir = path.join(data, entry);
             if (fs.lstatSync(dir).isDirectory()) fs.rmSync(dir, { recursive: true, force: true });
         }
     });
-    process.stdout.write("ok updated=vgshell from=" + current + " to=" + release.version + " path=" + target + "\n");
+    process.stdout.write("ok " + (repair ? "repaired" : "updated") + "=vgshell from=" + current + " to=" + release.version + " path=" + target + "\n");
+}
+
+// The Home step consumes this plan without installing or consulting a
+// marketplace. The same plan is run by `vgshell self repair` after consent.
+function repairPlan(root, dataHome, version, checkout) {
+    let detected;
+    try { detected = detect(root, dataHome, version, checkout); }
+    catch (error) {
+        if (!(error instanceof Refusal)) throw error;
+        return { kind: "by-hand", method: "unknown", reason: "method-unknown", cause: error.first, command: null,
+            notice: "VGS could not identify this installation's owner. Repair it through the installer that supplied this copy." };
+    }
+    const [method, pkg, current, manager] = detected;
+    const cli = path.join(root, "bin", "vgshell");
+    let command;
+    if (method === "checkout") command = ["git", "-C", root, "restore", "--source=HEAD", "--worktree", "--", "."];
+    else if (method === "curl") command = [process.execPath, __filename, "restore", "vanillagreencom/vgshell", dataHome, root, current, "-"];
+    else if (method === "package") {
+        const target = manager === AUR_PRIMARY ? "aur" : manager;
+        if (target === "aur" && aurHelper() === null) return { kind: "by-hand", method, reason: "no-aur-helper", command: null,
+            notice: "The VGS package needs an AUR helper before its package manager can reinstall it." };
+        command = [cli, "pkg", "run", "reinstall", "--manager", target, pkg];
+    } else return { kind: "by-hand", method, reason: "nix", command: null,
+        notice: "Update the Nix configuration that installed VGS, then rebuild it. VGS cannot change that configuration." };
+    return { kind: "run", method, reason: null, command };
 }
 
 // `behind` from the facts bin/vgshell gathered: a checkout is behind while its
@@ -541,6 +574,17 @@ if (require.main === module) main(() => {
     case "install":
         if (args.length !== 5) usage("install-arguments=" + JSON.stringify(args));
         return install(args[0], args[1], args[2], args[3], args[4]);
+    case "restore":
+        if (args.length !== 5) usage("restore-arguments=" + JSON.stringify(args));
+        return install(...args, true);
+    case "repair-plan":
+        if (args.length !== 4 || !["true", "false"].includes(args[3])) usage("repair-plan-arguments=" + JSON.stringify(args));
+        process.stdout.write(JSON.stringify(repairPlan(args[0], args[1], args[2], args[3] === "true")) + "\n");
+        return undefined;
+    case "directory-pattern":
+        if (args.length !== 0) usage("directory-pattern-arguments=" + JSON.stringify(args));
+        process.stdout.write(CURL_DIRECTORY_PATTERN.source + "\n");
+        return undefined;
     default:
         usage("self-subcommand=" + (verb === undefined ? "missing" : verb));
     }

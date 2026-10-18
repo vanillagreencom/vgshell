@@ -441,6 +441,7 @@ f share/vgshell/shell/plugins/vgs.jarvis/CloneRuntime.qml
 f share/vgshell/shell/plugins/vgs.jarvis/Console.qml
 f share/vgshell/shell/plugins/vgs.jarvis/Conversation.js
 f share/vgshell/shell/plugins/vgs.jarvis/FleetRuntime.qml
+f share/vgshell/shell/plugins/vgs.jarvis/HomeRepair.qml
 f share/vgshell/shell/plugins/vgs.jarvis/JarvisProtocol.js
 f share/vgshell/shell/plugins/vgs.jarvis/Keys.qml
 f share/vgshell/shell/plugins/vgs.jarvis/LocalRuntime.qml
@@ -557,6 +558,7 @@ f share/vgshell/shell/plugins/vgs.jarvis/tui/clone-voice.sh
 f share/vgshell/shell/plugins/vgs.jarvis/tui/edit-personality.sh
 f share/vgshell/shell/plugins/vgs.jarvis/tui/preview-voice.sh
 f share/vgshell/shell/plugins/vgs.jarvis/tui/remove-key.sh
+f share/vgshell/shell/plugins/vgs.jarvis/tui/repair-home.sh
 f share/vgshell/shell/plugins/vgs.jarvis/tui/resume-session.sh
 f share/vgshell/shell/plugins/vgs.jarvis/tui/setup-browser.sh
 f share/vgshell/shell/plugins/vgs.jarvis/tui/setup-fleet.sh
