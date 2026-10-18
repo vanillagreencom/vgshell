@@ -580,6 +580,8 @@ mutations=(
   "the Jarvis daemon loses the Wayland display|../plugins/vgs.jarvis/Service.qml|            WAYLAND_DISPLAY: Quickshell.env(\"WAYLAND_DISPLAY\"),||tst_jarvis_service.qml"
   "the Jarvis daemon loses the Hyprland session|../plugins/vgs.jarvis/Service.qml|            HYPRLAND_INSTANCE_SIGNATURE: Quickshell.env(\"HYPRLAND_INSTANCE_SIGNATURE\"),||tst_jarvis_service.qml"
   "a retired Jarvis setup reader throws on its refused write|../plugins/vgs.jarvis/LocalRuntime.qml|if (written.endsWith(\" reason=retired\")) return false;||tst_jarvis_local_runtime.qml"
+  "the power card shows on every screen|../plugins/vgs.jarvis/PowerCard.qml|screen.name === wait.focusedOutput|true|tst_jarvis_power_card.qml"
+  "the power card's button does not proceed|../plugins/vgs.jarvis/PowerCard.qml|onClicked: root.wait.proceedNow()|onClicked: {}|tst_jarvis_power_card.qml"
   "the body's room ignores the footer|layout/Pane.qml| - headerHeight - footerHeight - | - headerHeight - |tst_pane.qml"
   "an overlay pane takes the panel inset|layout/Pane.qml|case \"overlay\": return Theme.inset.overlay;|case \"overlay\": return Theme.surface.padding;|tst_pane.qml"
   "an overlay pane clears a corner it does not draw|layout/Pane.qml|case \"overlay\": return 0;|case \"overlay\": return Theme.surface.radius;|tst_pane.qml"
