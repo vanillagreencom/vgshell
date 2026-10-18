@@ -154,6 +154,7 @@ function world(options) {
         RCLONE_CONFIG_VGSDRIVE_TYPE: "s3"
     };
     fs.symlinkSync(HOST.flock, path.join(w.bin, "flock"));
+    fs.symlinkSync(process.execPath, path.join(w.bin, "node"));
     // USER names the token item's account, as authorize stores it.
     for (const account of opts.secrets) write(path.join(w.stub, "secrets", account === "token" && opts.user !== null ? "token.user." + opts.user : account), SECRETS[account]);
     if (opts.ids) write(path.join(w.stub, "ids"), "");
@@ -250,10 +251,19 @@ case $2 in
     units=()
     [[ -f $stub/enabled ]] && mapfile -t units <"$stub/enabled"
     : >"$stub/enabled"
-    for unit in "\${units[@]}"; do [[ $unit == "$4" ]] || printf '%s\\n' "$unit" >>"$stub/enabled"; done ;;
+    for unit in "\${units[@]}"; do [[ $unit == "$4" ]] || printf '%s\\n' "$unit" >>"$stub/enabled"; done
+    if [[ $4 == vgs-cloud-sync.service ]]; then
+      [[ ! -f $stub/stop-fail ]] || exit 1
+      [[ ! -f $stub/stop-unconfirmed ]] || exit 0
+      [[ ! -f $stub/old-run ]] || : >"$stub/old-run-stopped"
+      /usr/bin/rm -f "$stub/old-run"
+    fi
+    if [[ $4 == vgs-google-drive.service ]]; then /usr/bin/rm -f "$stub/new-run"; fi ;;
   is-active)
-    [[ -d ${JSON.stringify(path.join(w.home, ".local", "state", "vgshell", "cloud-sync"))} ]] || : >"$stub/moved-early"
-    if [[ -f $stub/old-run ]]; then echo activating; exit 3; fi
+    if [[ $3 == vgs-cloud-sync.service ]]; then
+      [[ -d ${JSON.stringify(path.join(w.home, ".local", "state", "vgshell", "cloud-sync"))} ]] || : >"$stub/moved-early"
+      if [[ -f $stub/old-run ]]; then echo activating; exit 3; fi
+    elif [[ $3 == vgs-google-drive.service && -f $stub/new-run ]]; then echo activating; exit 3; fi
     echo inactive
     exit 3 ;;
   reset-failed)
@@ -2129,6 +2139,73 @@ function caseRenameMigration(runner, only) {
     }
 }
 
+// Disabled startup shares the rename operations, but stops active old and
+// partial-new services and never enables a schedule or invokes a sync.
+// A failed stop or locked keyring keeps the source data for the next start.
+function caseDisabledMigration(runner, only) {
+    const rows = [
+        { name: "disabled", plant: () => {} },
+        { name: "active old service", plant: w => write(path.join(w.stub, "old-run"), "") },
+        { name: "partial new install", plant: w => {
+            const units = path.join(w.env.XDG_CONFIG_HOME, "systemd", "user");
+            write(path.join(units, "vgs-google-drive.service"), "partial service\n");
+            write(path.join(units, "vgs-google-drive.timer"), "partial timer\n");
+            write(path.join(w.stub, "enabled"), "vgs-cloud-sync.timer\nvgs-google-drive.timer\n");
+            write(path.join(w.stub, "new-run"), "");
+        } },
+        { name: "locked keyring", plant: w => write(path.join(w.stub, "old-secrets", "token.locked"), ""),
+            release: w => fs.unlinkSync(path.join(w.stub, "old-secrets", "token.locked")) },
+        ...["stop-fail", "stop-unconfirmed"].map(marker => ({ name: marker, plant: w => {
+            write(path.join(w.stub, "old-run"), "");
+            write(path.join(w.stub, marker), "");
+        }, release: w => fs.unlinkSync(path.join(w.stub, marker)), stopHeld: true }))
+    ];
+    for (const row of rows.filter(row => only === undefined || row.name === only)) {
+        const w = world({ secrets: [] });
+        const old = plantOldLayout(w);
+        row.plant(w);
+        const before = snapshot(Object.values(old));
+        let out;
+        if (runner === undefined) {
+            out = childProcess.spawnSync(path.join(path.dirname(RUNNER), "..", "migrate"), ["disabled"], { env: w.env, encoding: "utf8", timeout: 120000 });
+        } else out = cli(w, ["migrate", "disabled"], runner);
+        if (row.release) {
+            assert.equal(out.status, 75, row.name + ": " + out.stderr);
+            assert.deepEqual(enabledUnits(w), [], row.name);
+            if (row.stopHeld) {
+                assert.deepEqual(snapshot(Object.values(old)), before);
+                assert.ok(fs.existsSync(path.join(w.stub, "old-secrets", "token.user." + ACCOUNT)));
+            } else {
+                assert.ok(fs.existsSync(path.join(w.state, "rename.pending")));
+                assert.ok(fs.existsSync(path.join(w.stub, "old-secrets", "token.user." + ACCOUNT)));
+            }
+            row.release(w);
+            out = cli(w, ["migrate", "disabled"], runner);
+        }
+        assert.equal(out.status, 0, row.name + ": " + out.stderr);
+        assert.deepEqual(enabledUnits(w), [], row.name);
+        assert.equal(fs.existsSync(path.join(w.stub, "old-run")), false);
+        assert.equal(fs.existsSync(path.join(w.stub, "new-run")), false);
+        if (row.name === "active old service") assert.ok(fs.existsSync(path.join(w.stub, "old-run-stopped")));
+        for (const dir of Object.values(old)) assert.equal(fs.existsSync(dir), false, row.name + ": " + dir);
+        for (const name of ["vgs-cloud-sync.service", "vgs-cloud-sync.timer"])
+            assert.equal(fs.existsSync(path.join(w.env.XDG_CONFIG_HOME, "systemd", "user", name)), false);
+        assert.deepEqual(fs.readdirSync(path.join(w.stub, "old-secrets")), []);
+        assert.equal(fs.existsSync(path.join(w.state, "rename.pending")), false);
+        assert.equal(read(path.join(w.state, "pairs", "docs", "conflicts", OLD_KEPT)), "kept edit\n");
+        const calls = read(path.join(w.stub, "systemctl.calls"));
+        assert.ok(!calls.split("\n").some(line => /--user (enable|start) /.test(line)), row.name + ": " + calls);
+        for (const name of ["rclone.calls", "curl.calls"]) assert.equal(fs.existsSync(path.join(w.stub, name)), false);
+        const places = [w.home, path.join(w.stub, "secrets"), path.join(w.stub, "old-secrets")];
+        const after = snapshot(places);
+        assert.equal(cli(w, ["migrate", "disabled"], runner).status, 0);
+        assert.deepEqual(snapshot(places), after);
+        assert.equal(read(path.join(w.stub, "systemctl.calls")), calls);
+        assert.deepEqual(status(w, runner).pairs.map(pair => [pair.id, pair.state]), [["docs", "paused"]]);
+        for (const name of ["rclone.calls", "curl.calls"]) assert.equal(fs.existsSync(path.join(w.stub, name)), false);
+    }
+}
+
 // A rename on a home whose units were never installed, held inside its
 // keyring step after every directory has moved, and a sign-out started
 // then: the sign-out waits for the rename on the state lock, so the token
@@ -2374,7 +2451,8 @@ async function controls() {
     await mustFail("rename pending before the first move", mutant("rename pending before the first move", "if (!exists(RENAME_PENDING)) writeJson(RENAME_PENDING, { held: {} });", ""), caseRenameConcurrent);
     await mustFail("rename keeps the account", mutant("rename keeps the account", "old.user === null ? [] : [\"user\", old.user]", "[]"), r => caseRenameMigration(r, "previous service idle"));
     await mustFail("rename keeps the previous setup log", mutant("rename keeps the previous setup log", "if (path.basename(to) === \"setup.log\")", "if (false)"), r => caseRenameMigration(r, "previous service idle"));
-    await mustFail("rename installs the units", mutant("rename installs the units", "const installed = writeInstall(false);", "const installed = { changed: 0, failure: null };"), r => caseRenameMigration(r, "previous service idle"));
+    await mustFail("rename installs the units", mutant("rename installs the units", "const installed = writeInstall(false, scheduling);", "const installed = { changed: 0, failure: null };"), r => caseRenameMigration(r, "previous service idle"));
+    await mustFail("disabled rename never enables timers", mutant("disabled rename never enables timers", 'if (scheduling === "enabled" && failure === null', 'if (failure === null'), r => caseDisabledMigration(r, "disabled"));
     await mustFail("rename resumes a held keyring", mutant("rename resumes a held keyring", "writeJson(RENAME_PENDING, { held: keyring.held });", "fs.rmSync(RENAME_PENDING, { force: true });"), r => caseRenameMigration(r, "keyring locked"));
     await mustFail("stale units refresh", mutant("stale units refresh", "if (verb !== \"install\") refreshStaleInstallIfNeeded();", ""), caseStaleUnitsRefresh);
     await mustFail("stale refresh never refuses", mutant("stale refresh never refuses", "if (done.failure !== null) log(\"units=stale refresh=failed \" + done.failure);", "if (done.failure !== null) refuse(done.failure);"), caseStaleUnitsRefresh);
@@ -2499,6 +2577,7 @@ async function main() {
     caseStateMigrationKeepsCopies();
     caseStaleUnitsRefresh();
     caseRenameMigration();
+    caseDisabledMigration();
     await caseRenameConcurrent();
     caseMissingRemoteFirstSync();
     caseMissingRemoteWithBaseline();

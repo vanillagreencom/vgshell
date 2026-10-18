@@ -203,6 +203,27 @@ def revision_rows():
     return results
 
 
+def migration_rows(script=SCAN, quiet=False):
+    results = []
+    for name, files, modes, expected in [
+        ("executable migration entry", {"migrate": "#!/bin/sh\nexit 0\n"}, {"migrate": 0o755}, True),
+        ("non-executable migration entry", {"migrate": "exit 0\n"}, {}, False),
+        ("absent migration entry", {}, {}, False),
+        ("nested migration executable", {"bin/migrate": "exit 0\n"}, {"bin/migrate": 0o755}, False),
+    ]:
+        with tempfile.TemporaryDirectory() as tmp:
+            plant(tmp, {"plugins/a/manifest.json": MANIFEST, **{"plugins/a/" + key: value for key, value in files.items()}})
+            for relative, mode in modes.items():
+                os.chmod(os.path.join(tmp, "plugins/a", relative), mode)
+            entry = one_entry(scan("--snapshot-dir", os.path.join(tmp, "snapshots"), os.path.join(tmp, "plugins"), script=script))
+            good = entry is not None and (entry.get("migrate") is True if expected else "migrate" not in entry)
+            if good and expected:
+                published = os.path.join(tmp, "snapshots", entry["revision"], "migrate")
+                good = os.access(published, os.X_OK) and pathlib.Path(published).read_text() == files["migrate"]
+            results.append(good if quiet else report(name, good, str(entry)))
+    return results
+
+
 def requirement(command):
     return {"command": command, "purpose": "p"}
 
@@ -827,6 +848,8 @@ def main():
         return 77
     results = [run_row(*row) for row in ROWS]
     results += revision_rows()
+    results += migration_rows()
+    results.append(mutant_control("migration entry discovery", 'entry["migrate"] = True', 'pass', migration_rows))
     results += probe_rows()
     results.append(probe_control())
     results += dbus_rows()

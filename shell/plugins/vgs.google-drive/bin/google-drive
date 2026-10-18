@@ -1357,10 +1357,10 @@ function unitsState() {
 }
 
 // null, or the refusal of a failed `systemctl --user ARGS`.
-function systemctlFailure(args) {
+function systemctlFailure(args, scheduling = "enabled") {
     const bin = which("systemctl");
     if (bin === null) return "systemctl=missing";
-    const out = run(bin, ["--user"].concat(args));
+    const out = run(bin, ["--user"].concat(args), scheduling === "disabled" ? { timeout: 10000, killSignal: "SIGKILL" } : {});
     return out.status === 0 ? null : "systemctl=failed args=" + args.join(",") + " exit=" + out.status;
 }
 
@@ -1386,13 +1386,14 @@ function ensureEngine(hash) {
 }
 
 // Writes the engine copy and the units, reloads the user manager when a
-// unit changed and enables the timer: { changed, failure }, failure null
+// unit changed and, under enabled scheduling, enables the timer:
+// { changed, failure }, failure null
 // or the refusal of the systemctl call that failed. EXISTING_ONLY rewrites
 // only unit files that exist, for the refresh of an earlier install, and
 // puts their earlier text back when the user manager refuses the reload,
 // since a manager that did not reload keeps running the earlier units and
 // the next invocation must see them stale and try again.
-function writeInstall(existingOnly) {
+function writeInstall(existingOnly, scheduling = "enabled") {
     const hash = engineHash();
     ensureEngine(hash);
     const wanted = {};
@@ -1403,8 +1404,8 @@ function writeInstall(existingOnly) {
     for (const name of names) earlier[name] = readText(path.join(unitDir, name));
     const changed = names.filter(name => earlier[name] !== wanted[name]);
     for (const name of changed) writeAtomic(path.join(unitDir, name), wanted[name], 0o644);
-    let failure = changed.length > 0 ? systemctlFailure(["daemon-reload"]) : null;
-    if (failure === null && (!existingOnly || names.indexOf(TIMER) !== -1)) failure = systemctlFailure(["enable", "--now", TIMER]);
+    let failure = changed.length > 0 ? systemctlFailure(["daemon-reload"], scheduling) : null;
+    if (scheduling === "enabled" && failure === null && (!existingOnly || names.indexOf(TIMER) !== -1)) failure = systemctlFailure(["enable", "--now", TIMER]);
     if (failure !== null) {
         if (existingOnly) for (const name of changed) writeAtomic(path.join(unitDir, name), earlier[name], 0o644);
         return { changed: changed.length, failure: failure };
@@ -1682,6 +1683,25 @@ function stopOldUnits(names) {
     holdRename("reason=old-service-" + started + (restored === null ? "" : " restore=" + restored));
 }
 
+// A disabled plugin must also stop an install left by an interrupted
+// rename. Disable every timer before stopping services, and try every
+// unit even when one fails, so a failed stop cannot leave a timer armed.
+function stopDisabledUnits() {
+    const names = [OLD_TIMER, TIMER, OLD_SERVICE, SERVICE].filter(name => exists(path.join(unitDir, name)));
+    const failures = [];
+    for (const name of names) {
+        const failure = systemctlFailure(["disable", "--now", name], "disabled");
+        if (failure !== null) failures.push(failure);
+    }
+    const bin = which("systemctl");
+    for (const name of names.filter(name => name.endsWith(".service"))) {
+        if (bin === null) continue;
+        const out = run(bin, ["--user", "is-active", name], { timeout: 10000, killSignal: "SIGKILL" });
+        if (UNIT_ENDED.indexOf(String(out.stdout || "").trim()) === -1) failures.push("service=not-ended");
+    }
+    if (failures.length > 0) holdRename("reason=disabled-stop-failed");
+}
+
 // Moves FROM to TO. A floating TUI makes the new state directory for its
 // setup log before its first runner call, so TO may exist: then each entry
 // moves on its own. The TUI holds the new setup log open and reads its
@@ -1729,6 +1749,8 @@ function moveKeyringItem(tool, account) {
     if (current.presence === "absent") {
         const value = searchItem(tool, account, OLD_SECRET_SERVICE);
         if (value.kind !== "found") return unmoved("credential-" + (value.kind === "unavailable" ? value.reason : value.kind));
+        // Both shipped writers use the default collection. If it locks
+        // after this read, store can show one unlock prompt; no data is lost.
         const stored = storeSecret(tool, account, value.value, old.user === null ? [] : ["user", old.user]);
         if (!stored.ok) return unmoved("store-failed");
         const copy = searchItem(tool, account, SECRET_SERVICE);
@@ -1773,12 +1795,13 @@ function moveKeyringItems() {
 // sync holds the whole invocation (stopOldUnits). Returns whether a rename
 // ran, so the caller rewrites the status record, which names stored
 // copies by their full path.
-function migrateRenameIfNeeded() {
+function migrateRenameIfNeeded(scheduling = "enabled") {
     if (!renameNeeded()) return false;
     withStateLock(() => {
         if (!renameNeeded()) return;
         const units = oldUnitFiles();
-        if (units.length > 0) stopOldUnits(units);
+        if (scheduling === "disabled") stopDisabledUnits();
+        else if (units.length > 0) stopOldUnits(units);
         if (!exists(RENAME_PENDING)) writeJson(RENAME_PENDING, { held: {} });
         // moveTree logs each entry it leaves.
         const moved = OLD_DIRS.map(dirs => moveTree(dirs[0], dirs[1])).every(Boolean);
@@ -1786,19 +1809,19 @@ function migrateRenameIfNeeded() {
         const keyring = moveKeyringItems();
         holds.push(...keyring.holds);
         if (units.length > 0) {
-            const installed = writeInstall(false);
+            const installed = writeInstall(false, scheduling);
             if (installed.failure !== null) {
                 holds.push(installed.failure);
             } else {
                 for (const name of units) fs.rmSync(path.join(unitDir, name), { force: true });
                 // A manager that missed this reload still holds the old
                 // units, disabled and stopped, until its next reload.
-                const failure = systemctlFailure(["daemon-reload"]);
+                const failure = systemctlFailure(["daemon-reload"], scheduling);
                 if (failure !== null) holds.push("reload=failed " + failure);
                 // The manager keeps a previous unit whose last run failed,
                 // listed as not-found failed, until this or its restart.
                 // A unit it no longer holds fails this, which changes nothing.
-                systemctlFailure(["reset-failed", OLD_SERVICE, OLD_TIMER]);
+                systemctlFailure(["reset-failed", OLD_SERVICE, OLD_TIMER], scheduling);
             }
         }
         if (moved && holds.length === 0) {
@@ -2104,6 +2127,12 @@ function pairRemoveVerb(words) {
 
 const verb = process.argv[2];
 const rest = process.argv.slice(3);
+if (verb === "migrate") {
+    if (rest.length !== 1 || rest[0] !== "disabled") bad("migration=argument");
+    migrateRenameIfNeeded("disabled");
+    if (exists(RENAME_PENDING)) holdRename("reason=disabled-incomplete");
+    process.exit(0);
+}
 const renamed = migrateRenameIfNeeded();
 migratePairListIfNeeded();
 const converted = migratePairStatesIfNeeded();

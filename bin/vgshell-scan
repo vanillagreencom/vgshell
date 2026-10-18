@@ -494,6 +494,8 @@ def scan_base(base, out, require_base, snapshot_dir, probed, bus_cache):
             out.append({"dir": plugin_dir, "path": manifest, "error": f"manifest is not UTF-8: {exc.reason} at byte {exc.start}"})
             continue
         entry = {"dir": plugin_dir, "text": text, "revision": source_revision(files), "missing": missing_requirements(text, probed, bus_cache)}
+        if any(path == "migrate" and executable for path, executable, _ in files):
+            entry["migrate"] = True
         if snapshot_dir:
             try:
                 entry["loadUrl"] = publish_source(snapshot_dir, entry["revision"], files)

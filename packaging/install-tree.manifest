@@ -417,6 +417,7 @@ f share/vgshell/shell/plugins/vgs.google-drive/Widget.qml
 f share/vgshell/shell/plugins/vgs.google-drive/Window.qml
 f share/vgshell/shell/plugins/vgs.google-drive/bin/google-drive
 f share/vgshell/shell/plugins/vgs.google-drive/manifest.json
+f share/vgshell/shell/plugins/vgs.google-drive/migrate
 f share/vgshell/shell/plugins/vgs.google-drive/tui/add-pair.sh
 f share/vgshell/shell/plugins/vgs.google-drive/tui/connect.sh
 f share/vgshell/shell/plugins/vgs.google-drive/tui/remove-pair.sh
