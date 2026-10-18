@@ -484,7 +484,6 @@ fi
 
 # Which plugin manager the tree ships picks the manager's scene.
 tree="${source_tree:-$checkout}"
-# Fixture targets use this same revision as the presenter and renderer.
 # What the tree draws decides how a scene reaches it, so a --rev tree from
 # before a control existed is still captured: the bar's gear and the
 # launcher's bar entry are BarItems or older items, and the Settings list
@@ -717,8 +716,12 @@ if [[ " ${scenes[*]} " == *" sysmon "* || " ${scenes[*]} " == *" flyout-titles "
   # The private copy keeps the live poller from replacing posed readings.
   cp -- "$checkout/scripts/smoke/fixtures/sysmon/Service.qml" "$repo/shell/plugins/vgs.sysmon/Service.qml"
 fi
-# The harness copied the tree into the sandbox; the export is no longer
-# read, and every later read of the tree reads the sandbox's copy.
+# Keep the captured revision's fixture targets outside the active target
+# directory: the harness empties it, and tree is rebound after export cleanup.
+# The sandbox teardown owns this private source for the full scene lifetime.
+fixture_targets="$sandbox/fixture-targets"
+cp -R -- "$tree/themes/targets" "$fixture_targets"
+# Every later product read uses the sandbox's copy.
 [[ -z $source_tree ]] || rm -rf -- "$source_tree"
 tree="$repo"
 if grep -qF -- "Let VGS manage its Hyprland settings?" "$tree/shell/Core/HyprlandLayer.js" 2>/dev/null; then
@@ -2483,7 +2486,7 @@ cursor-style-blink = false
 resize-overlay = never
 confirm-close-surface = false
 GHOSTTY
-  for id in ghostty neovim tmux; do cp -R -- "$tree/themes/targets/$id" "$repo/themes/targets/$id"; done
+  for id in ghostty neovim tmux; do cp -R -- "$fixture_targets/$id" "$repo/themes/targets/$id"; done
   hover "$((mon_w - 2))" "$((mon_h - 2))" || true
   for name in "${preview_themes[@]}"; do
     preview_package "$name"
@@ -4291,7 +4294,7 @@ clone_tui_requirements() {
 clone_terminal_on() { # KITTY GUM
   local bg fg theme_name
   # Only gum is applied: terminal reload targets can signal host terminals.
-  cp -RT -- "$tree/themes/targets/gum" "$repo/themes/targets/gum" || { fail "clone-voice: gum's theme target is not copied"; return 1; }
+  cp -RT -- "$fixture_targets/gum" "$repo/themes/targets/gum" || { fail "clone-voice: gum's theme target is not copied"; return 1; }
   theme_name="$(ipc smoke themeName)" || { fail "clone-voice: the theme is unreadable"; return 1; }
   if [[ $theme_name != vgs ]]; then
     mkdir -p -- "$home/.config/vgshell/themes/$theme_name"
@@ -4983,7 +4986,7 @@ scene_dictation-setup() { # MODE
   close_notices
 
   # Only gum is applied: terminal reload targets can signal host terminals.
-  cp -RT -- "$tree/themes/targets/gum" "$repo/themes/targets/gum" || { fail "dictation-setup: gum's theme target is not copied"; return; }
+  cp -RT -- "$fixture_targets/gum" "$repo/themes/targets/gum" || { fail "dictation-setup: gum's theme target is not copied"; return; }
   theme_name="$(ipc smoke themeName)" || { fail "dictation-setup: the theme is unreadable"; return; }
   if [[ $theme_name != vgs ]]; then
     mkdir -p -- "$home/.config/vgshell/themes/$theme_name"
@@ -7953,7 +7956,7 @@ PY
         [[ -f $sandbox/shots-device-systemctl ]] || cp -- "$shim/systemctl" "$sandbox/shots-device-systemctl"
         printf '#!/usr/bin/env bash\nexit 0\n' >"$shim/systemctl"
         chmod 755 "$shim/systemctl"
-        cp -R -- "$tree/themes/targets/chromium" "$repo/themes/targets/chromium"
+        cp -R -- "$fixture_targets/chromium" "$repo/themes/targets/chromium"
         tree_rescan "the status fixture is scanned"
         expect_poll "the status fixture is listed" True plugin_known acme.status
         for id in acme.status vgs.automations vgs.agent-warden vgs.devtools; do
@@ -8274,7 +8277,7 @@ EOF
   # where the host's stood before any launcher was written.
   expect_poll "tui-edges: the core finds a terminal launcher" '["present", false]' tui_edges_launcher
 
-  cp -R -- "$tree/themes/targets/btop" "$repo/themes/targets/btop"
+  cp -R -- "$fixture_targets/btop" "$repo/themes/targets/btop"
   # Under the test-run marker the theme judge refuses every reload hook, so
   # an apply with a target ends partial (3) once the target's files are written.
   status=0; sandbox_vgshell theme apply vgs >/dev/null 2>&1 || status=$?
@@ -8293,7 +8296,7 @@ EOF
   take "tui-edges-$mode-btop-alone"
   tui_edges_close "btop alone" || return
 
-  cp -R -- "$tree/themes/targets/ghostty" "$repo/themes/targets/ghostty"
+  cp -R -- "$fixture_targets/ghostty" "$repo/themes/targets/ghostty"
   status=0; sandbox_vgshell theme apply vgs >/dev/null 2>&1 || status=$?
   expect "btop and Ghostty: vgs applies, their reloads refused" 3 echo "$status"
   expect "btop and Ghostty: Ghostty's background is btop's" "#$bg" sed -n 's/^background = \(#[0-9a-fA-F]*\)$/\L\1/p' "$state/ghostty.conf"
