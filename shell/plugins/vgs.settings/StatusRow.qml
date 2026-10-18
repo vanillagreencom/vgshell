@@ -41,9 +41,11 @@ GroupList {
     required property string pluginId
     // The plugin's `secrets` label, which a line's masked field asks for.
     property string secretLabel: ""
-    // The plugin as the page reads it, { enabled, failed }, or null where
-    // no start applies, which reads every unpublished entry Not reported.
-    property var plugin: null
+    // The plugin as the page reads it, { enabled, failed }, or undefined,
+    // where no start applies, which reads every unpublished entry Not
+    // reported. A `var` property with no value reads undefined (Qt 6 qml
+    // run, `typeof` of an unset `property var`).
+    property var plugin
     property bool setup: false
     // The buttons of Steps.detailButtons, each null for none.
     property var action: null
@@ -64,7 +66,7 @@ GroupList {
     // What the row draws: Steps.statusView of its entry, a time in the
     // shell's one wording of a past moment, which reads Time.now and so
     // moves on with the clock.
-    readonly property var view: Steps.statusView(entry, ms => Timestamp.text(ms, Time.now.getTime()), plugin === null ? undefined : plugin)
+    readonly property var view: Steps.statusView(entry, ms => Timestamp.text(ms, Time.now.getTime()), plugin)
 
     // Whether the row's last line ends in sub-text (StatusLine.subText), so
     // a row that holds it takes the room under it a Field takes.
