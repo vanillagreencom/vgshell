@@ -49,6 +49,9 @@ Item {
     // its field asks for, which this service runs once and clears, so the
     // field always reads the probed notice.
     readonly property string rebootRequest: shell === null || typeof shell.settings.rebootNotice !== "string" ? "" : shell.settings.rebootNotice
+    // The AUR command setting, which decides what the VGS row says installs
+    // a new release package (UpdatesLogic.publishedNote).
+    readonly property string aurCommand: shell === null || typeof shell.settings.aurCommand !== "string" ? "" : shell.settings.aurCommand
 
     onShellChanged: {
         start();
@@ -57,6 +60,7 @@ Item {
     onCurrentIntervalMsChanged: schedule()
     onRebootStepChanged: publishNow()
     onRebootRequestChanged: takeRebootRequest()
+    onAurCommandChanged: publishNow()
     // Only a run that ends after this instance first read the state starts
     // a check: `shell` arrives with every run an earlier instance saw end,
     // and this handler can run before onShellChanged does, so the first read
@@ -170,7 +174,7 @@ Item {
     function publishNow() {
         if (shell === null) return;
         const notice = Logic.rebootNoticeValue(rebootStep);
-        const values = Object.assign(Logic.publishValues(snapshot, checking, Date.now(), currentIntervalMs, checkFailure), Logic.reviewValues(shell.settings, agents),
+        const values = Object.assign(Logic.publishValues(snapshot, checking, Date.now(), currentIntervalMs, checkFailure, aurCommand), Logic.reviewValues(shell.settings, agents),
             { rebootNotice: notice, rebootNotices: Logic.rebootNoticeChoices(notice) });
         const writes = Logic.statusWrites(reported, values);
         if (writes.length === 0) return;

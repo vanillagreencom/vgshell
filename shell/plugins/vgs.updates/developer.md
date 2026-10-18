@@ -39,7 +39,9 @@ The status file has this shape:
 
 `checkedAt` is whole milliseconds since the Unix epoch.
 
-`sources` is a list of source rows. Each row is `{ source, label, count, packages, checkedAt, error }`. A failed source stays visible with `count: null` and its reason in `error`.
+`sources` is a list of source rows. Each row is `{ source, label, count, packages, checkedAt, error, note }`. A failed source stays visible with `count: null` and its reason in `error`. `note` is null on every row but the VGS row, as [§ Counts](#counts) states.
+
+The check also reads `${XDG_STATE_HOME}/vgshell/updates/rebuild-failed.json`, the record a failed `vgshell-git` rebuild leaves ([pipeline.md](pipeline.md) step 12), when it is there.
 
 The shared status value bounds `packages` to twelve rows per source. A shared source row adds `more` with the number of package rows omitted. Package `name`, `old` and `new` text is cut to eighty characters in shared status. The full package list stays in `status.json`.
 
@@ -51,7 +53,7 @@ The badge counts every source, because it represents the whole system.
 
 Package-manager rows count packages.
 
-VGS counts as one update when `vgshell self status --json` reports `behind: true`.
+VGS counts as one update when `vgshell self status --json` reports `behind: true` with the step `self` or `rebuild`, a step the Update runs. A tree that is behind with the step `none` counts none: its row's `note` is `{ kind: "reason", reason }`, the status's reason. With nothing else waiting, `checkState`, the widget's tooltip and the window's heading read `New VGS version`, not `Up to date`, so the summary agrees with the row's `New` badge. The release `vgshell` package with the reason `no-aur-helper` is published with `package-manager` while the `aurCommand` setting holds a word, because Update everything then runs that command for the AUR; the service reads the setting when it publishes, so a change to it shows without a new check. `vgshell-git` keeps `no-aur-helper`, because its rebuild needs paru or yay. While the status reads the step `rebuild` for the same installed version the rebuild record names, the row's `note` is `{ kind: "rebuildFailed", conflict }` from that record. Any other status leaves the record out, so a check after a rebuilt or current package drops it.
 
 Plugins and themes count one update per checkout or catalog package that is behind. Their package rows keep the commit count as `behind` for the window.
 
@@ -85,7 +87,7 @@ The service publishes these status keys:
 
 - `pending`: total updates with numeric counts.
 - `lastCheck`: the last successful snapshot time.
-- `checkState`: `ok`, `info`, `warning` or `danger`, with a short state as its text and, for a failed or old check, the sentence that says what to do as its `hint`.
+- `checkState`: `ok`, `info`, `warning` or `danger`, with a short state as its text and, for a failed or old check, the sentence that says what to do as its `hint`. The hint is written for the Settings page and the tooltip, so it ends by sending the user to Refresh in the Updates window.
 - `checking`: whether a check process runs. It is the widget's spinner, since `info` also means "not checked".
 - `sources`: the source rows for the bar widget and the window.
 - `reviewAgent`: the agent that reviews third-party packages, in words: its name, `Custom:` and the edited command's first word, that the chosen agent is not installed, `None found`, or `Off`.
@@ -120,12 +122,13 @@ The shell never elevates for a check.
 
 The widget and the window read the status values alone. `UpdatesLogic.js` decides what each draws, and neither runs a check.
 
-The widget has five states:
+The widget has six states:
 
 | State | When | Draws |
 |---|---|---|
 | Current | The last check succeeded and nothing waits. | The calm `refresh-cw` icon in the bar's colour, with no badge. |
 | Pending | The last check succeeded and updates wait. | The icon and a count badge in the accent tone. |
+| New version | The last check succeeded, nothing waits, and the VGS row has a reason note. | The `refresh-cw` icon in the accent tone, with no badge. |
 | Attention | The check failed, a source failed, or the snapshot is older than twice the interval. | The `triangle-alert` icon and the count in the warning tone. |
 | Checking | A check process runs. | A spinner in place of the icon, with the last count. |
 | Unchecked | No check has published a state yet. | The calm `circle-dashed` icon. |
@@ -134,11 +137,11 @@ The count badge shows at most `99+`. The tooltip lists the state, each source's 
 
 A left click opens or closes the Updates window, a Hyprland window like any other: Hyprland draws its border and moves it, and Escape closes it. The global shortcut `vgs.updates:toggle`, bound to `SUPER+CTRL+U` by default, opens or closes the same window. A middle click opens the `update` TUI for every source; the window's Update everything button is its keyboard path.
 
-The window has one row per source, in the order the service publishes them. It opens with keyboard focus on the first source row. Each row shows its count badge and its error, if it has one. A source with updates has its own Update, which opens `update-source` with the row's source. A click or Space on a row lists its packages as `name old → new`, or `name: N commits behind` for a plugin or theme. The list holds the twelve packages the shared status keeps and a `+N more` line for the rest.
+The window has one row per source, in the order the service publishes them. It opens with keyboard focus on the first source row. Each row shows its count badge. A source with updates has its own Update, which opens `update-source` with the row's source. A row whose sentence does not fit beside its badge opens with that sentence wrapped under it: a source's error, under `Could not check` when the source has no count. A row's error sentence has the same cause as the Settings hint and ends with Refresh, the button in view. Under a failed source, the heading counts the update sources that could not be checked and repeats no row; a failed or old check as a whole reads its hint with the window's ending. The VGS row with a reason has a `New` badge and no Update, and says what installs the new version, by the status's reason: Update everything for `package-manager`, the user's Nix flake for `nix`, or an AUR helper this computer lacks for `no-aur-helper`, which an AUR package, `vgshell` or `vgshell-git`, gets with no helper. The `package-manager` text says the package manager may not offer the new version yet and that Update everything installs it when it does, because the status compares with GitHub's latest release. After a failed rebuild, the VGS row has an `Update failed` badge in the danger tone, names the conflicting package when pacman named one, and keeps Update for a retry, whose update window shows the helper's output as it runs. It names no log, because every later update run replaces the last log while the row stays until the next rebuild. The helper and its exit status stay in the record. A click or Space on a row lists its packages as `name old → new`, or `name: N commits behind` for a plugin or theme. The list holds the twelve packages the shared status keeps and a `+N more` line for the rest.
 
 Update everything opens `update`. The footer has Refresh, the time of the last check, and Open last log. Open last log opens the `log` TUI, `tui/log.sh`. It shows the last run's log in `less -R`, from its end, and names the path when no run has written a log. The window has no command text field.
 
-The widget is always visible by default. `hideWhenCurrent`, off by default, hides it only in the current state. A hidden icon would make "up to date" look the same as "never checked" or "check failed", and the widget is also the way to Refresh and to the time of the last check. A failed, stale, running or missing check always shows, with `hideWhenCurrent` on too.
+The widget is always visible by default. `hideWhenCurrent`, off by default, hides it only in the current state. A hidden icon would make "up to date" look the same as "never checked" or "check failed", and the widget is also the way to Refresh and to the time of the last check. A failed, stale, running or missing check and a new VGS version always show, with `hideWhenCurrent` on too.
 
 ## Third-party review
 

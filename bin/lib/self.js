@@ -9,8 +9,18 @@
 //       tree is the top level of its own git checkout.
 //   self.js latest <repository>
 //       the newest release's version, X.Y.Z, from the GitHub API
-//   self.js report text|json <version> <method> <package> <current> <latest> <behind-count> <error>
-//       judge `behind` and print the status; `-` is an absent value
+//   self.js changed <repository> <current> <latest>
+//       `true` when main's commit <latest> changes an installed path since
+//       the commit the vgshell-git version <current> was built from, else
+//       `false`, from the GitHub API's compare of the two
+//   self.js helper
+//       the binary of the AUR helper `vgshell pkg detect` finds, its `aur`
+//       overlay, or `-` with none
+//   self.js report text|json <version> <method> <package> <current> <manager> <latest> <behind> <helper> <error>
+//       judge `behind`, the step an update takes and the reason none runs,
+//       and print the status; <manager> is the package manager detect
+//       printed, <behind> a checkout's count of upstream commits it lacks
+//       or vgshell-git's `changed` answer; `-` is an absent value
 //   self.js install <repository> <data-home> <root> <current> <shell-tree>
 //       replace a curl install by the newest release when it is newer;
 //       <shell-tree> is the tree the running shell was started from, `-`
@@ -25,10 +35,10 @@
 //             (`vgshell pkg owner`), as the package vgshell or vgshell-git
 // Any other tree is refused as `method=unknown path=<root>`.
 //
-// The release API is https://api.github.com. VGS_RELEASE_API replaces it
-// only in a test run, VGS_TEST_RUN non-empty, and only with a loopback base,
-// http://127.0.0.1:<port>; anything else set there is refused. A download
-// is https, or on the loopback base's origin.
+// The release and compare API is https://api.github.com. VGS_RELEASE_API
+// replaces it only in a test run, VGS_TEST_RUN non-empty, and only with a
+// loopback base, http://127.0.0.1:<port>; anything else set there is
+// refused. A download is https, or on the loopback base's origin.
 //
 // Every refusal is one line on stderr, `vgshell: refused: <key>=<value>`,
 // through bin/lib/judge-files.js, exit 1; a bad invocation exits 2.
@@ -42,6 +52,7 @@ const { Readable } = require("stream");
 const { pipeline } = require("stream/promises");
 
 const { Refusal, refuse, main, writing } = require(path.join(__dirname, "judge-files.js"));
+const packageTable = require(path.join(__dirname, "qml-library.js")).load(path.join(__dirname, "..", "..", "shell", "Core", "PackageManagers.js"));
 
 const VERSION_PATTERN = /^[0-9]+\.[0-9]+\.[0-9]+$/;
 // A vgshell-git package's version ends in the commit it was built from: the
@@ -55,9 +66,26 @@ const API_TIMEOUT = 10;
 const DOWNLOAD_TIMEOUT = 120;
 const MAX_ARCHIVE = 128 * 1024 * 1024;
 const MAX_SUMS = 64 * 1024;
+// GitHub's compare lists at most 300 changed files, and fewer commits than
+// the comparison holds when it cuts the list short; either way the files
+// it names may not be all that changed.
+// https://docs.github.com/en/rest/commits/commits#compare-two-commits
+const COMPARE_FILES = 300;
+const COMMIT_PATTERN = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
+// What the vgshell-git recipe installs or builds from. Its package() runs
+// packaging/install-system.sh with SYSCONFDIR, which copies bin, shell,
+// config, themes, packaging/jarvis-home and VERSION into the tree, README.md
+// and LICENSE beside it, and the Hyprland portal preference; the installer
+// and the recipe decide what lands. A directory ends in `/`. Markdown under
+// shell/ that the installer drops still counts: matching the installer's
+// skip rule here would be a second copy of it, and a needless update costs
+// less than a missed one. scripts/test-vgshell-self.sh holds the list to
+// the installer.
+const INSTALLED_PATHS = ["bin/", "shell/", "config/", "themes/", "packaging/jarvis-home/", "VERSION", "README.md", "LICENSE",
+    "packaging/xdg-desktop-portal/hyprland-portals.conf", "packaging/install-system.sh", "packaging/arch/vgshell-git/"];
 
 function usage(first) {
-    process.stderr.write("vgshell: refused: " + first + "\nusage: self.js detect|latest|report|install ...\n");
+    process.stderr.write("vgshell: refused: " + first + "\nusage: self.js detect|latest|changed|helper|report|install ...\n");
     process.exit(2);
 }
 
@@ -86,6 +114,24 @@ function owner(root) {
     } catch (e) {
         refuse("pkg=unreadable output=" + JSON.stringify(run.stdout));
     }
+}
+
+// The binary of the `aur` overlay `vgshell pkg detect` finds, the helper the
+// update pipeline upgrades the AUR's packages and rebuilds vgshell-git
+// with, or null.
+function aurHelper() {
+    const run = childProcess.spawnSync(process.execPath, [path.join(__dirname, "..", "vgshell-pkg"), "detect", "--json"], { encoding: "utf8" });
+    if (run.error !== undefined) refuse("pkg=failed error=" + run.error.code);
+    if (run.status !== 0) refuse("pkg=detect exit=" + run.status, undefined, 1, run.stderr);
+    let found;
+    try {
+        found = JSON.parse(run.stdout);
+    } catch (e) {
+        found = null;
+    }
+    if (found === null || !Array.isArray(found.overlays)) refuse("pkg=unreadable output=" + JSON.stringify(run.stdout));
+    const aur = found.overlays.find(row => row !== null && row.id === "aur");
+    return aur === undefined ? null : aur.binary;
 }
 
 // The method line for ROOT, as the header states.
@@ -128,8 +174,16 @@ function apiBase() {
     return { base: value.replace(/\/+$/, ""), origin: url.origin };
 }
 
-// GET URL within SECONDS. KEY leads each refusal: KEY=timeout, KEY=unreachable
-// and KEY=http for a status other than 200.
+// Refuse the network error E from reading URL as KEY=timeout or
+// KEY=unreachable.
+function unread(e, url, seconds, key) {
+    if (e.name === "TimeoutError") refuse(key + "=timeout seconds=" + seconds + " url=" + url);
+    refuse(key + "=unreachable url=" + url, undefined, 1, String(e.cause || e.message));
+}
+
+// GET URL within SECONDS, the body read included: the signal stays on the
+// response. KEY leads each refusal: KEY=timeout, KEY=unreachable and KEY=http
+// for a status other than 200.
 async function get(url, seconds, key, api) {
     const parsed = new URL(url);
     if (parsed.protocol !== "https:" && parsed.origin !== api.origin) refuse(key + "=insecure url=" + url);
@@ -137,12 +191,28 @@ async function get(url, seconds, key, api) {
     try {
         response = await fetch(url, { headers: { "Accept": "application/vnd.github+json", "User-Agent": "vgshell" }, redirect: "follow", signal: AbortSignal.timeout(seconds * 1000) });
     } catch (e) {
-        if (e.name === "TimeoutError") refuse(key + "=timeout seconds=" + seconds + " url=" + url);
-        refuse(key + "=unreachable url=" + url, undefined, 1, String(e.cause || e.message));
+        unread(e, url, seconds, key);
     }
     const landed = new URL(response.url || url);
     if (landed.protocol !== "https:" && landed.origin !== api.origin) refuse(key + "=insecure url=" + landed.href);
     return response;
+}
+
+// The JSON document RESPONSE from get(URL, SECONDS, KEY) carries. A body
+// read the network ends is refused as get() refuses it; KEY=malformed is a
+// body that is not JSON alone.
+async function readJson(response, url, seconds, key) {
+    let text;
+    try {
+        text = await response.text();
+    } catch (e) {
+        unread(e, url, seconds, key);
+    }
+    try {
+        return JSON.parse(text);
+    } catch (e) {
+        refuse(key + "=malformed url=" + url);
+    }
 }
 
 // The newest release of REPOSITORY: `{ version, assets }`, assets mapping
@@ -152,12 +222,7 @@ async function latestRelease(repository, api) {
     const response = await get(url, API_TIMEOUT, "release", api);
     if (response.status === 404) refuse("release=none repository=" + repository);
     if (response.status !== 200) refuse("release=http status=" + response.status + " url=" + url);
-    let doc;
-    try {
-        doc = JSON.parse(await response.text());
-    } catch (e) {
-        refuse("release=malformed url=" + url);
-    }
+    const doc = await readJson(response, url, API_TIMEOUT, "release");
     if (doc === null || typeof doc.tag_name !== "string" || !Array.isArray(doc.assets)) refuse("release=malformed url=" + url);
     const version = doc.tag_name.replace(/^v/, "");
     if (!doc.tag_name.startsWith("v") || !VERSION_PATTERN.test(version)) refuse("tag=" + doc.tag_name + " reason=not-a-version");
@@ -165,6 +230,34 @@ async function latestRelease(repository, api) {
     for (const asset of doc.assets)
         if (asset !== null && typeof asset.name === "string" && typeof asset.browser_download_url === "string") assets.set(asset.name, asset.browser_download_url);
     return { version, assets };
+}
+
+function installedPath(file) {
+    return INSTALLED_PATHS.some(entry => (entry.endsWith("/") ? file.startsWith(entry) : file === entry));
+}
+
+// Whether main's commit LATEST changes an installed path since the commit
+// the vgshell-git version CURRENT names, by REPOSITORY's compare of the two.
+// A file counts by its path or, renamed, its old one. A list GitHub may
+// have cut short, or a main that no longer holds the installed commit,
+// counts as a change, since no file list proves the tree the same.
+async function changed(repository, current, latest) {
+    const built = GIT_PACKAGE_PATTERN.exec(current);
+    if (built === null) refuse("version=" + current + " reason=not-a-git-package");
+    if (!COMMIT_PATTERN.test(latest)) refuse("commit=" + latest + " reason=not-a-commit");
+    if (latest.startsWith(built[1])) return false;
+    const api = apiBase();
+    const url = api.base + "/repos/" + repository + "/compare/" + built[1] + "..." + latest;
+    const response = await get(url, API_TIMEOUT, "compare", api);
+    if (response.status !== 200) refuse("compare=http status=" + response.status + " url=" + url);
+    const doc = await readJson(response, url, API_TIMEOUT, "compare");
+    const named = file => file !== null && typeof file === "object" && typeof file.filename === "string"
+        && (file.previous_filename === undefined || typeof file.previous_filename === "string");
+    if (doc === null || typeof doc !== "object" || typeof doc.status !== "string" || !Array.isArray(doc.files) || !doc.files.every(named)
+        || !Array.isArray(doc.commits) || !Number.isInteger(doc.total_commits))
+        refuse("compare=malformed url=" + url);
+    if (doc.status === "diverged" || doc.files.length >= COMPARE_FILES || doc.commits.length < doc.total_commits) return true;
+    return doc.files.some(file => installedPath(file.filename) || (file.previous_filename !== undefined && installedPath(file.previous_filename)));
 }
 
 // Stream NAME's download from RELEASE into FILE, refusing past MAX bytes.
@@ -291,32 +384,59 @@ async function install(repository, dataHome, root, current, shellTree) {
 }
 
 // `behind` from the facts bin/vgshell gathered: a checkout is behind while its
-// upstream holds commits it lacks, a vgshell-git package while main is not the
-// commit it was built from, and every other install while the newest
-// release is newer than its version. null when an error stopped the read.
-function behind(method, pkg, current, latest, count) {
-    if (method === "checkout") return Number(count) > 0;
-    if (pkg === "vgshell-git") return !latest.startsWith(GIT_PACKAGE_PATTERN.exec(current)[1]);
+// upstream holds commits it lacks, a vgshell-git package while main changed
+// an installed path since the commit it was built from, and every other
+// install while the newest release is newer than its version.
+function behind(method, pkg, current, latest, fact) {
+    if (method === "checkout") return Number(fact) > 0;
+    if (pkg === "vgshell-git") return fact === "true";
     return newer(latest, current);
 }
 
+// The primary manager whose packages include the AUR's, the one the table's
+// `aur` overlay requires: both VGS packages there come from the AUR, which
+// only an AUR helper updates.
+const AUR_PRIMARY = packageTable.managerRow("aur").requires;
+
+// What an Update runs for an install that is behind: `self` is `vgshell
+// self update`, `rebuild` the AUR helper's rebuild of vgshell-git, and
+// `none` names the reason VGS runs nothing: an AUR package with no helper
+// to update it, a package the system's packages update (the AUR helper's
+// upgrade for the AUR release package, the primary manager's elsewhere),
+// and a Nix tree its flake updates.
+function update(method, pkg, manager, helper) {
+    if (method === "checkout" || method === "curl") return { step: "self", reason: null };
+    if (method === "nix") return { step: "none", reason: "nix" };
+    if (method !== "package") throw new Error("self.js: method=" + method + " has no update step");
+    if (manager === AUR_PRIMARY && helper === null) return { step: "none", reason: "no-aur-helper" };
+    if (manager === AUR_PRIMARY && pkg === "vgshell-git") return { step: "rebuild", reason: null };
+    return { step: "none", reason: "package-manager" };
+}
+
 function report(format, fields) {
-    const [version, method, pkg, current, latest, count, error] = fields.map(v => (v === "-" || v === "" ? null : v));
-    const status = { version, method, package: pkg, current, latest, behind: null, error };
-    if (error === null) status.behind = behind(method, pkg, current, latest, count);
-    else status.latest = null;
+    const [version, method, pkg, current, manager, latest, fact, helper, error] = fields.map(v => (v === "-" || v === "" ? null : v));
+    const status = { version, method, package: pkg, current, latest, behind: null, step: null, reason: null, error };
+    if (error === null) {
+        status.behind = behind(method, pkg, current, latest, fact);
+        Object.assign(status, status.behind ? update(method, pkg, manager, helper) : { step: "none", reason: null });
+    } else {
+        status.latest = null;
+    }
     if (format === "json") {
         process.stdout.write(JSON.stringify(status) + "\n");
         return;
     }
     const words = [];
-    for (const key of ["version", "method", "package", "current", "latest", "behind", "error"])
+    for (const key of ["version", "method", "package", "current", "latest", "behind", "step", "reason", "error"])
         if (status[key] !== null) words.push(key + "=" + status[key]);
     process.stdout.write(words.join(" ") + "\n");
 }
 
+// The recipe check in scripts/test-vgshell-self.sh reads installedPath.
+module.exports = { installedPath };
+
 const [verb, ...args] = process.argv.slice(2);
-main(() => {
+if (require.main === module) main(() => {
     switch (verb) {
     case "detect":
         if (args.length !== 4 || !["true", "false"].includes(args[3])) usage("detect-arguments=" + JSON.stringify(args));
@@ -325,8 +445,15 @@ main(() => {
     case "latest":
         if (args.length !== 1) usage("latest-arguments=" + JSON.stringify(args));
         return latestRelease(args[0], apiBase()).then(r => process.stdout.write(r.version + "\n"));
+    case "changed":
+        if (args.length !== 3) usage("changed-arguments=" + JSON.stringify(args));
+        return changed(args[0], args[1], args[2]).then(answer => process.stdout.write(answer + "\n"));
+    case "helper":
+        if (args.length !== 0) usage("helper-arguments=" + JSON.stringify(args));
+        process.stdout.write((aurHelper() || "-") + "\n");
+        return undefined;
     case "report":
-        if (args.length !== 8 || !["text", "json"].includes(args[0])) usage("report-arguments=" + JSON.stringify(args));
+        if (args.length !== 10 || !["text", "json"].includes(args[0])) usage("report-arguments=" + JSON.stringify(args));
         report(args[0], args.slice(1));
         return undefined;
     case "install":

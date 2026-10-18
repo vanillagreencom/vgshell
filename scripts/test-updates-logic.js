@@ -57,6 +57,9 @@ Target = dracut*
 Target = winesync-dkms
 `;
 
+// `vgshell self status --json` for an install with nothing to update.
+const SELF_CURRENT = { version: "0.1.0", method: "checkout", package: null, current: "0.1.0", latest: "0.1.0", behind: false, step: "none", reason: null, error: null };
+
 function probe(value, status = 0, stderr = "") {
   return { status, stdout: typeof value === "string" ? value : JSON.stringify(value), stderr };
 }
@@ -117,12 +120,38 @@ function verify(logic) {
     const missing = "A tool needed for this check is missing. Install it in [Plugins](page:vgs.updates/Setup).";
     assert.equal(logic.errorText("helper-missing=checkupdates"), missing);
     assert.equal(logic.checkState(null, false, 0, 0, "helper-missing=checkupdates").hint, missing);
-    assert.equal(logic.windowRows({ sources: [{ source: "pacman", label: "System", count: null, error: "helper-missing=checkupdates" }] })[0].secondary, "A tool needed for this check is missing. Install it in Plugins.");
+    assert.equal(logic.windowRows({ sources: [{ source: "pacman", label: "System", count: null, error: "helper-missing=checkupdates" }] })[0].detail, "A tool needed for this check is missing. Install it in Plugins.");
     // Producer diagnostics never cross the display boundary.
     for (const diagnostic of ["spawn=failed", "unparseable pkg", "timeout=120", "fetch=failed", "helper-missing=checkupdates", "unexpected: key=value"]) {
         const text = logic.errorText(diagnostic);
         assert.ok(text.length > 0, "a failed operation must tell the user");
         assert.doesNotMatch(text, /[a-z][a-z-]*=|start-failed|output-unreadable/, "diagnostic fields stay in logs");
+    }
+    // `vgshell self status` reads GitHub's compare and release (bin/lib/self.js).
+    // A server that answered never asks for the connection to be checked.
+    // Each row: [diagnostic, the diagnostic whose sentence it shares].
+    const github = [
+      ["compare=unreachable url=u", "fetch=failed"],
+      ["compare=timeout seconds=10 url=u", "timeout=120"],
+      ["compare=malformed url=u", "unparseable pkg"],
+      ["release=http status=429 url=u", "compare=http status=403 url=u"],
+      ["release=http status=500 url=u", "compare=http status=502 url=u"]
+    ];
+    for (const [diagnostic, kin] of github) assert.equal(logic.errorText(diagnostic), logic.errorText(kin), diagnostic + " reads as " + kin);
+    const causes = ["compare=http status=404 url=u", "compare=http status=403 url=u", "compare=http status=502 url=u", "fetch=failed", "timeout=120", "unparseable pkg", "unexpected: key=value"];
+    assert.equal(new Set(causes.map(c => logic.errorText(c))).size, causes.length, "each GitHub answer names its own cause");
+    // One cause, two endings: the Settings hint sends the user to the
+    // Updates window, and the window's row names Refresh, the button in
+    // view, and no Open button, which the window lacks.
+    for (const diagnostic of causes.concat(["spawn=failed", "helper-missing=checkupdates"])) {
+      const hint = logic.errorText(diagnostic);
+      const row = logic.errorText(diagnostic, true);
+      assert.equal(row.split(". ")[0], hint.split(". ")[0], diagnostic + ": the row and the hint name one cause");
+      assert.doesNotMatch(row, /\bOpen\b/, diagnostic + ": the window names no Open button");
+      if (/Refresh/.test(hint)) {
+        assert.match(hint, /\bOpen\b.*Updates window/, diagnostic + ": the hint sends the user to the window");
+        assert.match(row, /[Ss]elect Refresh/, diagnostic + ": the row names Refresh");
+      } else assert.equal(row, hint, diagnostic + ": a remedy other than Refresh reads the same in both");
     }
 
   const now = 1000000;
@@ -133,7 +162,7 @@ function verify(logic) {
       { source: "flatpak", count: 0, packages: [], checkedAt: now - 8, error: null },
       { source: "mise", count: null, packages: [], checkedAt: null, error: "skipped=no-check" }
     ]),
-    self: probe({ version: "0.1.0", method: "checkout", package: null, current: "0.1.0.r1.g1111111", latest: "0.1.0.r2.g2222222", behind: true, error: null }),
+    self: probe({ version: "0.1.0", method: "checkout", package: null, current: "0.1.0.r1.g1111111", latest: "0.1.0.r2.g2222222", behind: true, step: "self", reason: null, error: null }),
     plugins: probe([{ id: "acme.one", behind: 2, head: "a", upstream: "b", error: null }]),
     themes: probe([{ id: "moss", behind: 0, head: "c", upstream: "c", error: null }])
   }, now);
@@ -195,7 +224,7 @@ function verify(logic) {
   assert.equal(logic.nextTimerDelay({ checkedAt: now - 13, sources: [], error: null }, false, now, 6, now - 1000, true, true, null), logic.RETRY_AFTER_FAILURE_MS - 1000);
   const many = logic.normalizeSnapshot({
     pkg: probe([{ source: "pacman", count: 3000, packages: Array.from({ length: 3000 }, (_, i) => ({ name: "pkg-" + i + "-".repeat(120), old: "1".repeat(120), new: "2".repeat(120) })), checkedAt: now, error: null }]),
-    self: probe({ behind: false, error: null }),
+    self: probe(SELF_CURRENT),
     plugins: probe([]),
     themes: probe([])
   }, now);
@@ -211,7 +240,7 @@ function verify(logic) {
   same(logic.parseSnapshotText("{"), { ok: false, error: "not-json" });
   same(logic.snapshotFromObject({ checkedAt: now, sources: [{ source: "x", count: -1 }] }), { ok: false, error: "sources.0.count" });
 
-  const failedPlugins = logic.normalizeSnapshot({ pkg: probe([]), self: probe({ behind: false, error: null }), plugins: probe([{ id: "bad", behind: null, head: null, upstream: null, error: "fetch=bad" }, { id: "good", behind: 3, head: "a", upstream: "b", error: null }]), themes: probe([]) }, now);
+  const failedPlugins = logic.normalizeSnapshot({ pkg: probe([]), self: probe(SELF_CURRENT), plugins: probe([{ id: "bad", behind: null, head: null, upstream: null, error: "fetch=bad" }, { id: "good", behind: 3, head: "a", upstream: "b", error: null }]), themes: probe([]) }, now);
   const pluginRow = failedPlugins.sources.find(s => s.source === "plugins");
   same([pluginRow.count, pluginRow.error], [1, "bad: fetch=bad"]);
   same(logic.checkState(failedPlugins, false, now, 6 * 60 * 60 * 1000, ""), { tone: "warning", text: "Plugins failed", hint: logic.errorText(pluginRow.error) });
@@ -222,16 +251,16 @@ function verify(logic) {
     ["symlink=/home/u/.config/vgshell/plugins/local", null, "ok"],
     ["fetch=local", "local: fetch=local", "warning"]
   ]) {
-    const checked = logic.normalizeSnapshot({ pkg: probe([]), self: probe({ behind: false, error: null }), plugins: probe([{ id: "local", behind: null, head: null, upstream: null, error }]), themes: probe([]) }, now);
+    const checked = logic.normalizeSnapshot({ pkg: probe([]), self: probe(SELF_CURRENT), plugins: probe([{ id: "local", behind: null, head: null, upstream: null, error }]), themes: probe([]) }, now);
     const row = checked.sources.find(s => s.source === "plugins");
     same([row.count, row.packages, row.error], [0, [], expectedError], error);
     assert.equal(logic.checkState(checked, false, now, 6 * 60 * 60 * 1000, "").tone, tone, error);
     assert.equal(logic.windowRows(checked).find(s => s.source === "plugins").badgeTone, expectedError === null ? "neutral" : "warning", error);
   }
-  const noManager = logic.normalizeSnapshot({ pkg: probe([]), self: probe({ behind: false, error: null }), plugins: probe([]), themes: probe([]) }, now);
+  const noManager = logic.normalizeSnapshot({ pkg: probe([]), self: probe(SELF_CURRENT), plugins: probe([]), themes: probe([]) }, now);
   same(noManager.sources.map(s => s.source), ["vgs", "plugins", "themes"]);
-  const failedPkg = logic.normalizeSnapshot({ pkg: probe("", 1, "vgshell: refused: lock=failed"), self: probe({ behind: false, error: null }), plugins: probe([]), themes: probe([]) }, now);
-  same(failedPkg.sources[0], { source: "packages", label: "Packages", count: null, packages: [], checkedAt: null, error: "exit=1 lock=failed" });
+  const failedPkg = logic.normalizeSnapshot({ pkg: probe("", 1, "vgshell: refused: lock=failed"), self: probe(SELF_CURRENT), plugins: probe([]), themes: probe([]) }, now);
+  same(failedPkg.sources[0], { source: "packages", label: "Packages", count: null, packages: [], checkedAt: null, error: "exit=1 lock=failed", note: null });
 
   assert.equal(logic.tuiRunEnded({}, {}), false);
   assert.equal(logic.tuiRunEnded(null, { update: { running: false, code: 0, endedAt: "2026-10-05T03:30:10.000Z" } }), false);
@@ -246,6 +275,101 @@ function verify(logic) {
   same([logic.publishValues(snapshot, true, now, 6, "").checking, logic.publishValues(snapshot, false, now, 6, "").checking], [true, false]);
   same(logic.statusWrites({ checking: true }, { checking: false }), [{ key: "checking", value: false }]);
   verifyView(logic);
+  verifySelf(logic);
+}
+
+// The VGS row from `vgshell self status --json` and the rebuild-failed.json
+// record, through the snapshot file and the published status to the
+// window. Each row: [name, status, record, count, note, the window row's
+// { updatable, badgeTone }].
+function verifySelf(logic) {
+  const now = 1000000;
+  const git = { version: "0.1.0", method: "package", package: "vgshell-git", current: "0.1.0.r2510.g111603e", latest: "c".repeat(40), error: null };
+  const rebuild = Object.assign({}, git, { behind: true, step: "rebuild", reason: null });
+  const conflict = { current: git.current, helper: "paru", exit: 1, conflict: "quickshell" };
+  const failedRebuild = { kind: "rebuildFailed", conflict: "quickshell" };
+  const unanswered = Object.assign({}, git, { latest: null, behind: null, step: null, reason: null, error: "compare=http status=404 url=https://api.github.com/x" });
+  const rows = [
+    ["a checkout behind runs self update", Object.assign({}, SELF_CURRENT, { behind: true, step: "self" }), null, 1, null, { updatable: true, badgeTone: "accent" }],
+    ["vgshell-git behind with a helper rebuilds", rebuild, null, 1, null, { updatable: true, badgeTone: "accent" }],
+    ["a failed rebuild of this version shows its cause", rebuild, conflict, 1, failedRebuild, { updatable: true, badgeTone: "danger" }],
+    ["a failed rebuild with no conflict line", rebuild, Object.assign({}, conflict, { exit: 2, conflict: null }), 1, { kind: "rebuildFailed", conflict: null }, { updatable: true, badgeTone: "danger" }],
+    ["a record of another version is stale", rebuild, Object.assign({}, conflict, { current: "0.1.0.r2400.g0000000" }), 1, null, { updatable: true, badgeTone: "accent" }],
+    ["a rebuilt package drops the record", Object.assign({}, git, { behind: false, step: "none", reason: null }), conflict, 0, null, { updatable: false, badgeTone: "neutral" }],
+    ["vgshell-git without a helper", Object.assign({}, git, { behind: true, step: "none", reason: "no-aur-helper" }), conflict, 0, { kind: "reason", reason: "no-aur-helper" }, { updatable: false, badgeTone: "info" }],
+    ["the release package updates with the system", Object.assign({}, git, { package: "vgshell", current: "0.1.0", latest: "0.2.0", behind: true, step: "none", reason: "package-manager" }), null, 0, { kind: "reason", reason: "package-manager" }, { updatable: false, badgeTone: "info" }],
+    ["a Nix tree updates with its flake", Object.assign({}, git, { method: "nix", package: null, current: "0.1.0", latest: "0.2.0", behind: true, step: "none", reason: "nix" }), null, 0, { kind: "reason", reason: "nix" }, { updatable: false, badgeTone: "info" }],
+    ["a compare GitHub cannot answer", unanswered, conflict, null, null, { updatable: false, badgeTone: "warning" }],
+    ["a step the status does not name", Object.assign({}, rebuild, { step: "later" }), null, null, null, { updatable: false, badgeTone: "warning" }],
+    ["a reason on a step that runs", Object.assign({}, rebuild, { reason: "nix" }), null, null, null, { updatable: false, badgeTone: "warning" }]
+  ];
+  const seen = {};
+  for (const [name, status, record, count, note, want] of rows) {
+    const snapshot = logic.normalizeSnapshot({ pkg: probe([]), self: probe(status), plugins: probe([]), themes: probe([]), rebuildFailed: record }, now);
+    const vgs = snapshot.sources.find(s => s.source === "vgs");
+    same([vgs.count, vgs.note], [count, note], name);
+    const reread = logic.parseSnapshotText(JSON.stringify(snapshot));
+    assert.equal(reread.ok, true, name);
+    const values = logic.publishValues(reread.snapshot, false, now, 6 * 60 * 60 * 1000, "");
+    const row = Object.assign({ values: values }, logic.windowRows(values).find(r => r.source === "vgs"));
+    same({ updatable: row.updatable, badgeTone: row.badgeTone }, want, name);
+    assert.ok(row.secondary.length > 0, name);
+    assert.equal(row.detail !== "", note !== null || count === null, name + ": a note or a failure has its detail");
+    assert.equal(row.lines.length, count !== null && status.behind === true ? 1 : 0, name);
+    seen[name] = row;
+  }
+  // Each reason, a failed rebuild and a failed check read apart from an
+  // update and from up to date, and a failed rebuild names its cause.
+  const current = seen["a rebuilt package drops the record"].secondary;
+  const update = seen["vgshell-git behind with a helper rebuilds"];
+  const failed = seen["a failed rebuild of this version shows its cause"];
+  const unreached = seen["a compare GitHub cannot answer"];
+  const noted = ["vgshell-git without a helper", "the release package updates with the system", "a Nix tree updates with its flake", "a failed rebuild of this version shows its cause", "a compare GitHub cannot answer"];
+  for (const name of noted) assert.ok(![current, update.secondary].includes(seen[name].secondary), name + " reads apart from an update and from up to date");
+  assert.equal(new Set(noted.map(name => seen[name].detail)).size, noted.length, "each VGS detail is its own");
+  // A failed rebuild names the conflicting package, and the helper and its
+  // exit status stay in the record and the log.
+  const unexplained = seen["a failed rebuild with no conflict line"];
+  assert.ok(failed.detail.includes("quickshell"), "a failed rebuild names the conflicting package");
+  for (const [row, exit] of [[failed, "1"], [unexplained, "2"]]) {
+    for (const value of ["paru", exit]) assert.ok(!row.detail.includes(value), "a failed rebuild's detail leaves out " + value);
+    // Every later update run replaces the last log while this row stays.
+    assert.doesNotMatch(row.detail, /\blog\b/i, "a failed rebuild sends the user to no log");
+    assert.match(row.detail, /did not rebuild/, "a failed rebuild says the package did not rebuild");
+  }
+  // The `aurCommand` setting is read when the service publishes, not in the
+  // snapshot. Each row: [name, package, aurCommand, published reason].
+  const helperless = Object.assign({}, git, { behind: true, step: "none", reason: "no-aur-helper" });
+  const reasonDetail = { "package-manager": seen["the release package updates with the system"].detail, "no-aur-helper": seen["vgshell-git without a helper"].detail };
+  for (const [name, pkg, aurCommand, reason] of [
+    ["the release package with no helper and no AUR command", "vgshell", "", "no-aur-helper"],
+    ["a blank AUR command runs nothing", "vgshell", " \t", "no-aur-helper"],
+    ["the release package updates through the AUR command", "vgshell", "aur sync -u", "package-manager"],
+    ["vgshell-git under an AUR command still needs a helper", "vgshell-git", "aur sync -u", "no-aur-helper"]
+  ]) {
+    const snapshot = logic.normalizeSnapshot({ pkg: probe([]), self: probe(Object.assign({}, helperless, { package: pkg })), plugins: probe([]), themes: probe([]), rebuildFailed: null }, now);
+    same(snapshot.sources.find(s => s.source === "vgs").note, { kind: "reason", reason: "no-aur-helper" }, name + ": the snapshot keeps the status's reason");
+    const values = logic.publishValues(logic.parseSnapshotText(JSON.stringify(snapshot)).snapshot, false, now, 6 * 60 * 60 * 1000, "", aurCommand);
+    same(values.sources.find(s => s.source === "vgs").note, { kind: "reason", reason }, name);
+    const row = logic.windowRows(values).find(r => r.source === "vgs");
+    same([row.detail, row.updatable], [reasonDetail[reason], false], name + ": the window row");
+  }
+  // A release package reads behind from GitHub's latest release, which its
+  // package manager may not offer yet: the text promises no time.
+  assert.equal(seen["the release package updates with the system"].detail, "Your package manager may not offer it yet. Update everything installs it when it does.");
+  assert.notEqual(failed.badge, update.badge, "a failed rebuild has its own badge");
+  assert.notEqual(failed.badge, unreached.badge, "a failed rebuild is not a failed check");
+  assert.equal(unreached.detail, logic.errorText(unanswered.error, true), "a compare GitHub cannot answer names its cause");
+  // A behind tree no step here installs names the new version in the
+  // summary, though it counts none; up to date is the control.
+  for (const name of ["vgshell-git without a helper", "the release package updates with the system", "a Nix tree updates with its flake"]) {
+    assert.equal(logic.summaryText(seen[name].values), "New VGS version", name + " summary");
+    assert.equal(seen[name].values.checkState.text, "New VGS version", name + " check state");
+    same(logic.widgetView(seen[name].values, true).hidden, false, name + " shows under hideWhenCurrent");
+  }
+  assert.equal(logic.summaryText(seen["a rebuilt package drops the record"].values), "Up to date", "a current VGS row reads up to date");
+  same(logic.widgetView(seen["a rebuilt package drops the record"].values, true).hidden, true, "a current VGS row hides under hideWhenCurrent");
+  assert.equal(seen["a step the status does not name"].detail, logic.errorText("unparseable self", true), "an unknown step reads unreadable");
 }
 
 // The widget and the window, from published values as the service writes
@@ -256,6 +380,8 @@ function verifyView(logic) {
     ["current", { pending: 0, checkState: ok, checking: false }, false, { state: "current", icon: "refresh-cw", tone: "calm", spinning: false, badge: "", badgeTone: "neutral", hidden: false }],
     ["current hidden", { pending: 0, checkState: ok, checking: false }, true, { state: "current", icon: "refresh-cw", tone: "calm", spinning: false, badge: "", badgeTone: "neutral", hidden: true }],
     ["pending", { pending: 7, checkState: { tone: "ok", text: "Updates waiting" }, checking: false }, true, { state: "pending", icon: "refresh-cw", tone: "accent", spinning: false, badge: "7", badgeTone: "accent", hidden: false }],
+    ["a new VGS version no step installs", { pending: 0, checkState: ok, checking: false, sources: [{ source: "vgs", count: 0, note: { kind: "reason", reason: "nix" } }] }, true, { state: "newVersion", icon: "refresh-cw", tone: "accent", spinning: false, badge: "", badgeTone: "accent", hidden: false }],
+    ["a VGS row with no note", { pending: 0, checkState: ok, checking: false, sources: [{ source: "vgs", count: 0, note: null }] }, true, { state: "current", icon: "refresh-cw", tone: "calm", spinning: false, badge: "", badgeTone: "neutral", hidden: true }],
     ["pending past the badge", { pending: 150, checkState: { tone: "ok", text: "Updates waiting" } }, false, { state: "pending", icon: "refresh-cw", tone: "accent", spinning: false, badge: "99+", badgeTone: "accent", hidden: false }],
     ["failed source", { pending: 3, checkState: { tone: "warning", text: "AUR: exit=1 network down" }, checking: false }, true, { state: "attention", icon: "triangle-alert", tone: "warning", spinning: false, badge: "3", badgeTone: "warning", hidden: false }],
     ["failed check", { pending: 0, checkState: { tone: "danger", text: "exit=2 lock" }, checking: false }, true, { state: "attention", icon: "triangle-alert", tone: "warning", spinning: false, badge: "", badgeTone: "warning", hidden: false }],
@@ -271,6 +397,8 @@ function verifyView(logic) {
     [{ pending: 0, checkState: ok }, "Up to date"],
     [{ pending: 1, checkState: ok }, "1 update waiting"],
     [{ pending: 7, checkState: ok }, "7 updates waiting"],
+    [{ pending: 0, checkState: ok, sources: [{ source: "vgs", count: 0, note: { kind: "reason", reason: "nix" } }] }, "New VGS version"],
+    [{ pending: 2, checkState: ok, sources: [{ source: "vgs", count: 0, note: { kind: "reason", reason: "nix" } }] }, "2 updates waiting"],
     [{ pending: 7, checkState: { tone: "warning", text: "Check stale" } }, "Check stale"],
     [{ pending: 7, checkState: { tone: "warning", text: "Check is old", hint: "stale recovery hint" } }, "stale recovery hint"],
     [{ checkState: { tone: "danger", text: "Failed", hint: "failure recovery hint" } }, "failure recovery hint"],
@@ -278,6 +406,19 @@ function verifyView(logic) {
     [{}, "Not checked yet"]
   ];
   for (const [values, want] of summaryRows) assert.equal(logic.summaryText(values), want);
+  // The window's heading: the summary, worded for the window where the
+  // check needs attention.
+  for (const [values] of summaryRows.filter(([values]) => logic.widgetView(values, false).state !== "attention"))
+    assert.equal(logic.windowSummaryText(values), logic.summaryText(values));
+  for (const [name, reason] of [["a failed check", "timeout=120"], ["GitHub's limit", "compare=http status=429 url=u"], ["a missing tool", "helper-missing=checkupdates"]]) {
+    const values = { checkState: logic.checkState(null, false, 0, 0, reason) };
+    assert.equal(logic.windowSummaryText(values), logic.windowRows({ sources: [{ source: "x", count: null, error: reason }] })[0].detail, name + ": the heading reads the window row's sentence");
+  }
+  const old = { checkedAt: 0, sources: [], error: null };
+  const oldHeading = logic.windowSummaryText({ checkState: logic.checkState(old, false, 13, 6, "") });
+  assert.notEqual(oldHeading, logic.checkState(old, false, 13, 6, "").hint, "an old check's heading has the window's ending");
+  assert.doesNotMatch(oldHeading, /\bOpen\b/, "an old check's heading names no Open button");
+  assert.throws(() => logic.windowSummaryText({ checkState: { tone: "danger", text: "Failed", hint: "a hint from no table row" } }), /has no window text/);
 
   const now = new Date(2026, 8, 29, 14, 30).getTime();
   const today = new Date(2026, 8, 29, 14, 2).getTime();
@@ -308,13 +449,20 @@ function verifyView(logic) {
   });
   same(logic.widgetTooltip({}, now, when), { title: "Not checked yet", details: ["Never checked"] });
   same(logic.windowRows(values), [
-    { key: "pacman", source: "pacman", label: "System", icon: "package", secondary: "2 updates", badge: "2", badgeTone: "accent", updatable: true, lines: ["linux 6.1 → 6.2", "mesa → 25.2"], more: "+3 more" },
-    { key: "aur", source: "aur", label: "AUR", icon: "package-open", secondary: logic.errorText(sources[1].error), badge: "Failed", badgeTone: "warning", updatable: false, lines: [], more: "" },
-    { key: "flatpak", source: "flatpak", label: "Flatpak", icon: "boxes", secondary: "Up to date", badge: "0", badgeTone: "neutral", updatable: false, lines: [], more: "" },
-    { key: "plugins", source: "plugins", label: "Plugins", icon: "puzzle", secondary: logic.errorText(sources[3].error), badge: "1", badgeTone: "warning", updatable: true, lines: ["acme.one: 2 commits behind"], more: "" },
-    { key: "later", source: "later", label: "later", icon: "package", secondary: "1 update", badge: "1", badgeTone: "accent", updatable: true, lines: ["x"], more: "" }
+    { key: "pacman", source: "pacman", label: "System", icon: "package", secondary: "2 updates", badge: "2", badgeTone: "accent", updatable: true, detail: "", lines: ["linux 6.1 → 6.2", "mesa → 25.2"], more: "+3 more" },
+    { key: "aur", source: "aur", label: "AUR", icon: "package-open", secondary: "Could not check", badge: "Failed", badgeTone: "warning", updatable: false, detail: logic.errorText(sources[1].error, true), lines: [], more: "" },
+    { key: "flatpak", source: "flatpak", label: "Flatpak", icon: "boxes", secondary: "Up to date", badge: "0", badgeTone: "neutral", updatable: false, detail: "", lines: [], more: "" },
+    { key: "plugins", source: "plugins", label: "Plugins", icon: "puzzle", secondary: "1 update", badge: "1", badgeTone: "warning", updatable: true, detail: logic.errorText(sources[3].error, true), lines: ["acme.one: 2 commits behind"], more: "" },
+    { key: "later", source: "later", label: "later", icon: "package", secondary: "1 update", badge: "1", badgeTone: "accent", updatable: true, detail: "", lines: ["x"], more: "" }
   ]);
   same(logic.windowRows({}), []);
+  // Under a failed source, the heading repeats no row and counts the
+  // sources that could not be checked: here AUR and Plugins.
+  const failedSource = Object.assign({}, values, { checkState: { tone: "warning", text: "AUR failed", hint: logic.errorText(sources[1].error) } });
+  const heading = logic.windowSummaryText(failedSource);
+  for (const row of logic.windowRows(failedSource)) assert.ok(!heading.includes(row.detail) || row.detail === "", "the heading repeats no row: " + row.key);
+  assert.notEqual(heading, logic.windowSummaryText(Object.assign({}, failedSource, { sources: sources.slice(0, 2) })), "the heading counts the failed sources");
+  assert.match(heading, /^2 /, "the heading counts the failed sources");
 
   same(logic.tuiRequest("all"), { name: "update", args: [] });
   same(logic.tuiRequest("source", "aur"), { name: "update-source", args: ["aur"] });
@@ -495,7 +643,7 @@ verify(load(file, commons));
 
 const controls = [
   ["a missing launcher needs installation repair", 'if (/reason=launcher-missing/.test(reply))', 'if (false)'],
-    ["diagnostics stay out of display text", 'function errorText(reason) {', 'function errorText(reason) { return String(reason);'],
+    ["diagnostics stay out of display text", 'function errorText(reason, inWindow) {', 'function errorText(reason, inWindow) { return String(reason);'],
   ["package rows count", "total += snapshot.sources[i].count;", "total += 0;"],
   ["outdated rows count once", "count += 1;", "count += behind;"],
   ["outdated packages keep behind", "behind: behind", "oldBehind: behind"],
@@ -525,12 +673,44 @@ const controls = [
   ["only a current widget hides", "hidden: hideWhenCurrent === true && state === \"current\"", "hidden: hideWhenCurrent === true && state !== \"checking\""],
   ["a warning or danger check draws attention", "case \"danger\": return \"attention\";", "case \"danger\": return \"current\";"],
   ["a running check spins", "if (v.checking === true) return \"checking\";", "if (false) return \"checking\";"],
-  ["pending needs a count", "case \"ok\": return pendingOf(v) > 0 ? \"pending\" : \"current\";", "case \"ok\": return \"pending\";"],
+  ["pending needs a count", 'if (pendingOf(v) > 0) return "pending";', 'return "pending";'],
   ["the badge is capped", "return count > BADGE_COUNT_MAX ? BADGE_COUNT_MAX + \"+\" : String(count);", "return String(count);"],
   ["the checked line reads the shared wording at now", "return \"Checked \" + timeText(lastCheck, now);", "return \"Checked \" + timeText(lastCheck, lastCheck);"],
   ["a source with no count reads failed in the tooltip", "sources[i].count === null ? \"check failed\" : sources[i].count", "sources[i].count"],
   ["a failed source keeps its badge", "badge: failed ? \"Failed\" : badgeText(row.count),", "badge: badgeText(row.count),"],
-  ["only a source with updates offers Update", "updatable: !failed && row.count > 0,", "updatable: true,"],
+  ["only a source with updates offers Update", "\"neutral\", updatable: row.count > 0, detail: \"\" };", "\"neutral\", updatable: true, detail: \"\" };"],
+  ["a failure's sentence is the row's detail", "detail: Commons.PageReference.plain(errorText(error, true)) };", "detail: \"\" };"],
+  ["a row's failure names the window's button", "detail: Commons.PageReference.plain(errorText(error, true)) };", "detail: Commons.PageReference.plain(errorText(error)) };"],
+  ["the window ending names Refresh, not Open", 'return cause + " " + RETRY_ENDINGS[ending][inWindow === true ? "window" : "hint"];', 'return cause + " " + RETRY_ENDINGS[ending].hint;'],
+  ["the heading counts failed sources", 'if (check.tone === "warning" && failing > 0) return', "if (false) return"],
+  ["the heading reads the window's sentence", "return check.hint !== undefined ? Commons.PageReference.plain(windowHintText(check.hint)) : String(check.text);", "return String(check.hint !== undefined ? check.hint : check.text);"],
+  ["the heading draws a page link's words alone", "Commons.PageReference.plain(windowHintText(check.hint))", "windowHintText(check.hint)"],
+  ["a hint from no table row is refused", 'throw new Error("updates: check hint "', 'return hint; throw new Error("updates: check hint "'],
+  ["a failed rebuild names no log", '" conflicts with a package on this computer, so the VGS package did not rebuild. Select Update to try again."', '" conflicts with a package on this computer. Select Open last log for the details, then Update to try again."'],
+  ["an AUR command updates the release package", '&& row.packages[0].name === "vgshell" && /\\S/.test(String(aurCommand || ""))', '&& row.packages[0].name === "vgshell" && false'],
+  ["vgshell-git keeps its helper reason", '&& row.packages[0].name === "vgshell" &&', "&&"],
+  ["a blank AUR command runs nothing", '/\\S/.test(String(aurCommand || ""))', 'String(aurCommand || "") !== ""'],
+  ["the snapshot keeps the status's reason", "var runs = behind && row.step !== \"none\";", "var runs = behind && row.step !== \"none\"; if (row.reason === \"no-aur-helper\" && row.package === \"vgshell\") row.reason = \"package-manager\";"],
+  ["VGS counts an update only for a step that runs", "var runs = behind && row.step !== \"none\";", "var runs = behind;"],
+  ["the status's step and reason are narrowed", "if (!hasOwn(SELF_STEPS, row.step) || SELF_STEPS[row.step].indexOf(row.reason) < 0) return", "if (false) return"],
+  ["the status's error decides the VGS row", "if (row.error !== null && row.error !== undefined) return sourceRow(\"vgs\", null, [], checkedAt, row.error);", ""],
+  ["a reason makes the VGS note", "if (behind && row.reason !== null) note = { kind: \"reason\", reason: row.reason };", "if (false) note = null;"],
+  ["a failed rebuild makes the VGS note", "else if (behind && row.step === \"rebuild\" && isPlainObject(failed)", "else if (false && isPlainObject(failed)"],
+  ["a record of another version is stale", "failed.current === row.current", "true"],
+  ["the snapshot keeps the note", "row.error === undefined ? null : row.error, row.note));", "row.error === undefined ? null : row.error, null));"],
+  ["the published row keeps the note", "var note = clone(row.note);", "var note = null;"],
+  ["a reason offers no Update", "badge: \"New\", badgeTone: \"info\", updatable: false,", "badge: \"New\", badgeTone: \"info\", updatable: true,"],
+  ["a failed rebuild keeps Update under its own badge", "badge: \"Update failed\", badgeTone: \"danger\", updatable: row.count > 0,", "badge: badgeText(row.count), badgeTone: \"accent\", updatable: row.count > 0,"],
+  ["a failed rebuild names the conflicting package", "if (note.conflict !== null) return note.conflict + \" conflicts", "if (note.conflict !== null) return \"A package conflicts"],
+  ["a compare of a commit GitHub lost names it", "[/\\bcompare=http status=404\\b/, ", "[/$^/, "],
+  ["a 403 from GitHub reads as its limit", "[/=http status=(?:403|429)\\b/, ", "[/$^/, "],
+  ["a 429 from GitHub reads as its limit", "(?:403|429)", "(?:403)"],
+  ["another GitHub answer is not a connection to check", "[/=http status=/, ", "[/$^/, "],
+  ["a reason note keeps the widget out of current", 'return newVersionNoted(sourcesOf(v)) ? "newVersion" : "current";', 'return "current";'],
+  ["only a reason note names a new version", 'isPlainObject(row.note) && row.note.kind === "reason"', "true"],
+  ["the check state names a new VGS version", 'text: newVersionNoted(snapshot.sources) ? "New VGS version" : "Up to date" };', 'text: "Up to date" };'],
+  ["the summary names a new VGS version", 'case "newVersion": return "New VGS version";', 'case "newVersion": return "Up to date";'],
+  ["a new VGS version draws the accent", 'newVersion: { icon: "refresh-cw", tone: "accent",', 'newVersion: { icon: "refresh-cw", tone: "calm",'],
   ["the omitted packages read +N more", "more: typeof row.more === \"number\" && row.more > 0 ? \"+\" + row.more + \" more\" : \"\"", "more: \"\""],
   ["a checkout reads its commits behind", "if (typeof pkg.behind === \"number\") return", "if (false) return"],
   ["one source's update names its source", "return { name: \"update-source\", args: [source] };", "return { name: \"update-source\", args: [] };"],

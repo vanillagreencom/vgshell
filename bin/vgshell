@@ -273,15 +273,26 @@
 # ${XDG_DATA_HOME:-~/.local/share}/vgshell/current resolves to) and `package`
 # (the primary package manager owns VERSION as the package vgshell or vgshell-git).
 # A checkout fetches its upstream as `plugin outdated` does and compares
-# describe forms; a vgshell-git package compares the commit its version names
-# with main's, read by git ls-remote under the same rules; every other
-# method compares VERSION, or the vgshell package's version, with the newest
-# release's, read from the GitHub API within 10 s. It prints `version=...
-# method=... [package=...] current=... latest=... behind=true|false`, or
-# with --json one line `{ version, method, package, current, latest,
-# behind, error }`. A step that fails is the report's error, its keyed
-# refusal line, with latest and behind null and exit 0. `self update`
-# fast-forwards a checkout with no diff and no question, refusing a
+# describe forms; a vgshell-git package reads main's commit by git
+# ls-remote under the same rules and is behind only when GitHub's compare
+# of the commit its version names with main's lists a changed path the
+# package installs (bin/lib/self.js holds the list); every other method
+# compares VERSION, or the vgshell package's version, with the newest
+# release's. Each GitHub API read takes at most 10 s. It prints
+# `version=... method=... [package=...] current=... latest=...
+# behind=true|false step=self|rebuild|none [reason=...]`, or with --json one
+# line `{ version, method, package, current, latest, behind, step, reason,
+# error }`. `step` is what an update runs: `self` (`vgshell self update`,
+# for a checkout or a curl install that is behind), `rebuild` (the AUR
+# helper `vgshell pkg detect` finds rebuilds a vgshell-git that is behind)
+# or `none`. `reason` names why a tree that is behind takes `none`:
+# `no-aur-helper` (a package from the AUR, vgshell or vgshell-git under
+# pacman, with no AUR helper), `package-manager` (the package updates with
+# the system's packages: the AUR helper's upgrade for the AUR's vgshell, the
+# primary manager's on any other system) or `nix` (its flake updates it),
+# else null. A step that fails is the report's error, its keyed
+# refusal line, with latest, behind, step and reason null and exit 0.
+# `self update` fast-forwards a checkout with no diff and no question, refusing a
 # modified one as `plugin update` does; replaces a curl install by the
 # newest release under ${XDG_DATA_HOME:-~/.local/share}/vgshell/.self.lock,
 # refused self=busy with exit 75 while held, keeping the tree a running
@@ -1947,7 +1958,8 @@ version_report() { # FORMAT [COMMAND]: loaded is the runner's start reading
 }
 
 # The repository VGS releases come from: `self` reads its newest release
-# and, for a vgshell-git package, the commit its main branch points at.
+# and, for a vgshell-git package, the commit its main branch points at and
+# the files changed since the package's commit.
 self_repository=vanillagreencom/vgshell
 self_judge="$root/bin/lib/self.js"
 data_home="${XDG_DATA_HOME:-$HOME/.local/share}"
@@ -1973,11 +1985,13 @@ self_main_commit() {
 }
 
 # Prints the install method's status in FORMAT, as the header states: the
-# method self.js judges, the facts git reads for a checkout or a vgshell-git
-# package, else the newest release, and self.js's report, which judges
-# `behind`. A step's refusal is the report's error.
+# method self.js judges and its package manager, the facts git reads for a
+# checkout, for a vgshell-git package main's commit and whether it changed
+# an installed path, else the newest release, for a package the AUR
+# helper, and self.js's report, which judges `behind` and the step. A
+# step's refusal is the report's error.
 self_status() { # FORMAT
-  local version checkout=false method=- package=- current=- latest=- count=- error=- manager
+  local version checkout=false method=- package=- current=- manager=- latest=- count=- helper=- error=-
   version="$(version_line)" || exit 1
   tree_is_checkout && checkout=true
   if step_run node "$self_judge" detect "$root" "$data_home" "$version" "$checkout"; then
@@ -1990,16 +2004,24 @@ self_status() { # FORMAT
         error="$step_error"
       fi
     elif [[ $package == vgshell-git ]]; then
-      if step_run self_main_commit; then latest="$step_out"; else error="$step_error"; fi
+      if step_run self_main_commit && latest="$step_out" &&
+        step_run node "$self_judge" changed "$self_repository" "$current" "$latest"; then
+        count="$step_out"
+      else
+        error="$step_error"
+      fi
     elif step_run node "$self_judge" latest "$self_repository"; then
       latest="$step_out"
     else
       error="$step_error"
     fi
+    if [[ $method == package && $error == - ]]; then
+      if step_run node "$self_judge" helper; then helper="$step_out"; else error="$step_error"; fi
+    fi
   else
     error="$step_error"
   fi
-  node "$self_judge" report "$1" "$version" "$method" "$package" "$current" "$latest" "$count" "$error"
+  node "$self_judge" report "$1" "$version" "$method" "$package" "$current" "$manager" "$latest" "$count" "$helper" "$error"
 }
 
 # Hold the self-update lock on descriptor 8 until this process exits or

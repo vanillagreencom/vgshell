@@ -38,7 +38,9 @@
 #      is off, when neither tool is on PATH or when no elevation command
 #      resolves, and the plan box says which; a failed snapshot warns and
 #      the update goes on
-#   7. VGS itself: `vgshell self update` for a checkout or a curl install
+#   7. VGS itself: `vgshell self update` when `vgshell self status` names the
+#      step `self`, a checkout or a curl install behind; a step of `none`
+#      names its reason in the plan box and runs nothing
 #   8. the system: `vgshell pkg run upgrade --manager <primary>`, which joins
 #      the session
 #   9. Flatpak and mise: `vgshell pkg run upgrade --manager flatpak|mise`
@@ -48,9 +50,14 @@
 #  11. the end of the sudo session, which drops the credential
 #  12. the AUR, last, so no PKGBUILD runs under the update's credential:
 #      the `aurCommand` setting's words, else `vgshell pkg run upgrade
-#      --manager aur`, then `<helper> -S vgshell-git` when VGS is that package
-#      and behind, since an AUR helper rebuilds a -git package only when
-#      its recipe's version changes. The helper asks sudo itself, so the
+#      --manager aur`, then `<helper> -S vgshell-git` when the status names
+#      the step `rebuild`, since an AUR helper rebuilds a -git package only
+#      when its recipe's version changes. A rebuild removes the record
+#      $(updates_state_dir)/rebuild-failed.json before it runs and, when it
+#      fails, writes it: `{ current, helper, exit, conflict }`, the package
+#      version it replaced, the helper, its exit status and the first
+#      package pacman's `:: <a> and <b> are in conflict` line names, or
+#      null. The helper asks sudo itself, so the
 #      phase runs under tui.sh's sudo guard: the credential it caches is
 #      dropped when the phase ends, fails or is interrupted
 #  13. pacman's orphaned packages, removed only on a yes, default no, after
@@ -139,6 +146,12 @@ _updates_run() { # LABEL ARGV...
   (cd -- "$HOME" && "$@")
 }
 
+# FILE's text without SGR escapes, and of each line only what follows its
+# last carriage return, as the terminal showed it.
+_updates_plain() { # FILE
+  LC_ALL=C sed -E -e $'s/\e\\[[0-9;:?]*[ -/]*[@-~]//g' -e $'s/\r+$//' -e $'s/^.*\r//' -- "$1"
+}
+
 # The cause of a failed step from its stderr in FILE, once SGR escapes and
 # carriage returns are gone. VGS prints a `vgshell: refused:` or `vgs-tui:
 # refused:` key line and English after it. A question with no newline can
@@ -156,7 +169,7 @@ _updates_run() { # LABEL ARGV...
 _updates_cause_of() { # FILE
   local line out last="" keyed=0 value="" held="" tail="" after="" own=""
   _updates_declined=0
-  out="$(LC_ALL=C sed -E -e $'s/\e\\[[0-9;:?]*[ -/]*[@-~]//g' -e $'s/\r+$//' -e $'s/^.*\r//' -- "$1")"
+  out="$(_updates_plain "$1")"
   while IFS= read -r line; do
     if [[ $line =~ (^|[[:space:]])(vgshell|vgs-tui):\ refused:\ (.*)$ ]]; then
       value="${BASH_REMATCH[3]}"
@@ -200,8 +213,8 @@ _updates_cause_of() { # FILE
 # Runs one source step, ARGV, and adds its result to _updates_results as
 # `LABEL <result>.`: installed; skipped when the user declined it; failed
 # with its cause and next step, else `exit <n>`. _updates_outcome is installed,
-# declined or failed. The run goes on after a failure, so neither errexit
-# nor the ERR trap sees it. Its stderr reaches the terminal and the cause
+# declined or failed, and _updates_exit the step's exit status. The run goes
+# on after a failure, so neither errexit nor the ERR trap sees it. Its stderr reaches the terminal and the cause
 # file both, and the tee is waited for, so the file is whole when it is
 # read; stdout and stdin stay the terminal's, so a manager still asks its
 # questions. The tee ignores the SIGHUP a closed window sends the group, so
@@ -214,6 +227,7 @@ _updates_source() { # ID LABEL ARGV...
   : >"$_updates_cause_file"
   { "$@"; } 2> >(trap '' HUP; exec tee -a --output-error=warn -- "$_updates_cause_file" >&2) || status=$?
   wait "$!" || :
+  _updates_exit="$status"
   if [[ $status -eq 0 ]]; then
     _updates_outcome=installed
     _updates_results+=("$label installed.")
@@ -255,6 +269,32 @@ _updates_result() { # WIDTH PREFIX TEXT [SGR]
     printf '\n'
     printf -v prefix '%*s' "${#prefix}" ''
   done
+}
+
+# The record of a failed vgshell-git rebuild, as the header states: the
+# installed version CURRENT, the HELPER and its EXIT status, and the first
+# package of pacman's conflict line in the step's stderr, the cause file.
+# pacman prints its conflict question on stderr as `:: <name>-<version> and
+# <name>-<version> are in conflict...`, and a version holds no hyphen but
+# the one before its release, so the name is the word without its last two
+# hyphenated parts. Written by rename, so the service never reads half.
+_updates_rebuild_failed() { # CURRENT HELPER EXIT
+  local file conflict=null line
+  file="$(updates_state_dir)/rebuild-failed.json"
+  while IFS= read -r line; do
+    if [[ $line =~ (^|[[:space:]])::\ ([^[:space:]]+-[^[:space:]-]+-[^[:space:]-]+)\ and\ [^[:space:]]+\ are\ in\ conflict ]]; then
+      conflict="\"$(_updates_json_text "${BASH_REMATCH[2]%-*-*}")\""
+      break
+    fi
+  done < <(_updates_plain "$_updates_cause_file")
+  printf '{"current":"%s","helper":"%s","exit":%s,"conflict":%s}\n' "$(_updates_json_text "$1")" "$(_updates_json_text "$2")" "$3" "$conflict" >"$file.part"
+  mv -f -- "$file.part" "$file"
+}
+# TEXT with JSON's two escapes a string needs here: bin/facts refuses a
+# control character in the values this takes.
+_updates_json_text() { # TEXT
+  local text="${1//\\/\\\\}"
+  printf '%s' "${text//\"/\\\"}"
 }
 
 # The directory a run writes its log in, and the last run's log in it,
@@ -923,7 +963,7 @@ updates_main() {
   # Each source's plan, for the box and the steps. A package source whose
   # plan the table refuses, as it refuses nix's, leaves the run.
   local -A labels=()
-  local plan=() kept=() id label vgs_method="" vgs_package="" vgs_behind=false plugins=() themes=()
+  local plan=() kept=() id label vgs_package="" vgs_current="" vgs_step="" vgs_reason="" plugins=() themes=()
   local primary_planned=0 elevator="" elevator_refused=""
   local _updates_plan_text _updates_plan_elevator _updates_plan_elevator_refused
   if _updates_in vgs "${run[@]}"; then
@@ -931,22 +971,29 @@ updates_main() {
     facts="$(_updates_facts self <<<"$out")"
     while read -r key value; do
       case "$key" in
-        method) vgs_method="$value" ;;
         package) vgs_package="$value" ;;
-        behind) vgs_behind="$value" ;;
+        current) vgs_current="$value" ;;
+        step) vgs_step="$value" ;;
+        reason) vgs_reason="$value" ;;
         error) _updates_diagnostic "VGS: $value"; vgs_tui_warn "Could not check VGS for updates." ;;
       esac
     done <<<"$facts"
-    case "$vgs_method:$vgs_behind:$vgs_package" in
-      checkout:true:*|curl:true:*) plan+=("VGS: update VGS") ;;
-      package:true:vgshell-git)
-        if [[ -n $aur_binary ]]; then plan+=("VGS: rebuild the VGS package after AUR updates")
-        else plan+=("VGS: vgshell-git is behind, and no AUR helper is here to rebuild it")
-        fi
-        ;;
-      package:true:*) plan+=("VGS: the $vgs_package package updates with its package manager") ;;
-      nix:true:*) plan+=("VGS: its flake updates it") ;;
-      *) plan+=("VGS: current") ;;
+    # The status and this run each read `vgshell pkg detect`; a helper gone
+    # between the two reads rebuilds nothing.
+    if [[ $vgs_step == rebuild && -z $aur_binary ]]; then vgs_step=none vgs_reason=no-aur-helper; fi
+    # With no AUR helper, the `aurCommand` words run the AUR step (aur_here),
+    # and they update the release `vgshell` package from the AUR, as
+    # UpdatesLogic.publishedNote tells the Updates window. `vgshell-git`
+    # keeps `no-aur-helper`: its rebuild runs `<helper> -S vgshell-git`.
+    if [[ $vgs_step:$vgs_reason == none:no-aur-helper && $vgs_package == vgshell && $aur_here == 1 ]]; then vgs_reason=package-manager; fi
+    case "$vgs_step:$vgs_reason" in
+      self:) plan+=("VGS: update VGS") ;;
+      rebuild:) plan+=("VGS: rebuild the VGS package after AUR updates") ;;
+      none:no-aur-helper) plan+=("VGS: the $vgs_package package is behind, and no AUR helper is here to update it") ;;
+      none:package-manager) plan+=("VGS: the $vgs_package package updates with its package manager") ;;
+      none:nix) plan+=("VGS: its flake updates it") ;;
+      none:) plan+=("VGS: current") ;;
+      *) plan+=("VGS: could not check for an update") ;;
     esac
   fi
   for id in "${run[@]}"; do
@@ -989,7 +1036,7 @@ updates_main() {
   # rebuild. The orphans follow the upgrades alone.
   local upgrades=0 rebuild=0 replaces=0
   if _updates_in aur "${run[@]}" || { [[ -n $primary ]] && _updates_in "$primary" "${run[@]}"; }; then upgrades=1; fi
-  if _updates_in vgs "${run[@]}" && [[ $vgs_method:$vgs_behind:$vgs_package == package:true:vgshell-git && -n $aur_binary ]]; then rebuild=1; fi
+  if _updates_in vgs "${run[@]}" && [[ $vgs_step == rebuild ]]; then rebuild=1; fi
   if [[ $upgrades == 1 || $rebuild == 1 ]]; then replaces=1; fi
   local snapshot_line="" snapshot_tool=""
   if [[ $replaces == 1 ]]; then
@@ -1109,7 +1156,7 @@ updates_main() {
       _updates_reboot_unread "updates: installed=unread when=before"
     fi
   fi
-  if _updates_in vgs "${run[@]}" && [[ $vgs_behind == true && ( $vgs_method == checkout || $vgs_method == curl ) ]]; then
+  if _updates_in vgs "${run[@]}" && [[ $vgs_step == self ]]; then
     vgs_tui_step "Updating VGS"
     _updates_source vgs VGS "$_updates_vgshell" self update
   fi
@@ -1160,7 +1207,9 @@ updates_main() {
       fi
     fi
     if [[ $rebuild_run == 1 ]]; then
+      rm -f -- "${state:?}/rebuild-failed.json"
       _updates_source vgshell-git "VGS package" _updates_run "Rebuilding VGS" "$aur_binary" -S vgshell-git
+      if [[ $_updates_outcome == failed ]]; then _updates_rebuild_failed "$vgs_current" "$aur_binary" "$_updates_exit"; fi
     fi
     if [[ $guarded == 1 ]]; then vgs_tui_sudo_session end; fi
   fi

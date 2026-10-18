@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// Converts bin/check probe files into the status.json snapshot. It loads the
+// Converts bin/check probe files, with the record of a failed vgshell-git
+// rebuild, into the status.json snapshot. It loads the
 // plugin's pure UpdatesLogic.js through the core qml-library loader so the
 // script and QML use the same judge.
 "use strict";
@@ -28,5 +29,17 @@ function read(name) {
   };
 }
 
-const probes = { pkg: read("pkg"), self: read("self"), plugins: read("plugins"), themes: read("themes") };
+// rebuild-failed.json, which tui/pipeline.sh writes by rename when a
+// vgshell-git rebuild fails and removes before the next one, or null.
+function rebuildFailed() {
+  const file = path.join(stateDir, "rebuild-failed.json");
+  try {
+    return JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch (e) {
+    if (e.code === "ENOENT") return null;
+    usage("record=unreadable path=" + file + " error=" + (e.code || e.name));
+  }
+}
+
+const probes = { pkg: read("pkg"), self: read("self"), plugins: read("plugins"), themes: read("themes"), rebuildFailed: rebuildFailed() };
 process.stdout.write(JSON.stringify(logic.normalizeSnapshot(probes, Date.now())) + "\n");

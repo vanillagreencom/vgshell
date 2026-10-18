@@ -6,7 +6,7 @@ import "UpdatesLogic.js" as Logic
 
 // The Updates window: where updates stand, one row per source the service
 // published with its count, the packages it lists when opened and its own
-// Update when it has updates, and a footer with Update everything over
+// Update when it has updates, a row with a detail opened on it, and a footer with Update everything over
 // Refresh, the last check's time in the shell's one wording of a past
 // moment (Timestamp), and the last run's log. It draws the
 // status the service publishes and runs nothing itself: Refresh asks the
@@ -82,7 +82,7 @@ FocusScope {
                         anchors.verticalCenter: parent.verticalCenter
                         width: parent.width - (root.view.spinning ? Theme.spinner.size + parent.spacing : 0)
                         role: "hint"
-                        text: Logic.summaryText(root.values)
+                        text: Logic.windowSummaryText(root.values)
                         color: root.view.tone === "warning" ? Theme.color.warning : Theme.color.textMuted
                         wrapMode: Text.Wrap
                     }
@@ -122,7 +122,11 @@ FocusScope {
                     text: modelData.label
                     secondary: modelData.secondary
                     iconName: modelData.icon
-                    expandable: modelData.lines.length > 0 || modelData.more !== ""
+                    expandable: modelData.detail !== "" || modelData.lines.length > 0 || modelData.more !== ""
+                    // A row with a detail, a failure or what installs a new
+                    // VGS, opens with it shown: the line beside the badge
+                    // has room for a few words alone.
+                    expanded: modelData.detail !== ""
                     Component.onCompleted: if (index === 0) sections.firstFocus = focusItem
                     // The count stands beside an Update button only for a
                     // source that can update.
@@ -142,6 +146,13 @@ FocusScope {
                         }
                     ]
 
+                    Label {
+                        width: parent.width
+                        visible: text !== ""
+                        role: "hint"
+                        text: source.modelData.detail
+                        wrapMode: Text.Wrap
+                    }
                     Repeater {
                         model: source.modelData.lines
                         Label {

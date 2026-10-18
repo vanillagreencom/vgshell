@@ -3,8 +3,9 @@
 # per install method, each a copy under $tmp, never this repository's own
 # checkout. A checkout clones a local bare repository; a curl install is a
 # versioned directory under a fixture XDG_DATA_HOME with a `current` link; a
-# package tree is owned by a stub pacman under a fixture Arch os-release,
-# bound over /etc/os-release under `unshare -rm`; a Nix tree lies under a
+# package tree is owned by a stub pacman under a fixture Arch os-release, or
+# a stub rpm under a Fedora one, bound over /etc/os-release under
+# `unshare -rm`; a Nix tree lies under a
 # fixture NIX_STORE_DIR. The newest release is a local release fixture
 # served on 127.0.0.1, and main's commit for vgshell-git comes from the bare
 # repository through the fixture home's url.insteadOf. Every row runs with a
@@ -46,16 +47,28 @@ install_tree() { # SOURCE TARGET
 }
 
 # The release fixture: the GitHub API's latest-release document and its two
-# assets, served from $www on 127.0.0.1. The server writes its port once it
-# listens; the EXIT trap stops it.
+# assets, served from $www on 127.0.0.1. A file with a `<file>.stall`
+# marker beside it answers 200 and its headers, then stalls its body for
+# 20 seconds, past self.js's 10-second API timeout. The server writes its
+# port once it listens; the EXIT trap stops it.
 www="$tmp/www"; mkdir -p "$www/dl" "$www/repos/vanillagreencom/vgshell/releases"
 ready="$tmp/www-port"
 python3 -c '
-import functools, http.server, os, sys
+import functools, http.server, os, sys, time
 class Quiet(http.server.SimpleHTTPRequestHandler):
     def log_message(self, *args):
         pass
-server = http.server.HTTPServer(("127.0.0.1", 0), functools.partial(Quiet, directory=sys.argv[2]))
+    def do_GET(self):
+        if not os.path.exists(self.translate_path(self.path) + ".stall"):
+            return super().do_GET()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", "2")
+        self.end_headers()
+        self.wfile.write(b"{")
+        self.wfile.flush()
+        time.sleep(20)
+server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(Quiet, directory=sys.argv[2]))
 with open(sys.argv[1] + ".part", "w") as f:
     f.write(str(server.server_address[1]))
 os.rename(sys.argv[1] + ".part", sys.argv[1])
@@ -79,11 +92,11 @@ printf '{"tag_name":"v%s","assets":[{"name":"%s","browser_download_url":"%s/dl/%
   "$release" "$archive" "$api" "$archive" "$api" >"$www/repos/vanillagreencom/vgshell/releases/latest"
 inst_env=(VGS_RELEASE_API="$api" XDG_DATA_HOME="$data" NIX_STORE_DIR="$tmp/nix/store")
 
-status_json() { # VERSION METHOD PACKAGE CURRENT LATEST BEHIND ERROR: null for an absent value
+status_json() { # VERSION METHOD PACKAGE CURRENT LATEST BEHIND STEP REASON ERROR: null for an absent value
   python3 -c 'import json, sys
 v = [None if a == "null" else a for a in sys.argv[1:]]
 b = {"true": True, "false": False, None: None}[v[5]]
-print(json.dumps({"version": v[0], "method": v[1], "package": v[2], "current": v[3], "latest": v[4], "behind": b, "error": v[6]}, separators=(",", ":")))' "$@"
+print(json.dumps({"version": v[0], "method": v[1], "package": v[2], "current": v[3], "latest": v[4], "behind": b, "step": v[6], "reason": v[7], "error": v[8]}, separators=(",", ":")))' "$@"
 }
 
 # Checkout. The upstream is a bare repository; git hooks are live for every
@@ -103,15 +116,15 @@ g -C "$co" merge -q --ff-only origin/main
 describe() { printf '%s.r%s.g%s' "$version_text" "$(g -C "$1" rev-list --count "$2")" "$(g -C "$1" rev-parse --short "$2")"; }
 here="$(describe "$co" HEAD)"
 rm -f -- "$marker"
-INST_BIN="$co/bin/vgshell" inst "a current checkout is not behind" "$cfg" "$rt_empty" 0 "$(status_json "$version_text" checkout null "$here" "$here" false null)" "" self status --json
+INST_BIN="$co/bin/vgshell" inst "a current checkout is not behind" "$cfg" "$rt_empty" 0 "$(status_json "$version_text" checkout null "$here" "$here" false none null null)" "" self status --json
 check "status runs no git hook" test ! -e "$marker"
 # The upstream advances to a new commit.
 printf 'next\n' >"$seed/update-probe"
 g -C "$seed" add -A; g -C "$seed" commit -q -m two; g -C "$seed" push -q "$upstream" main; rm -f -- "$marker"
 there="$(describe "$seed" HEAD)"
-INST_BIN="$co/bin/vgshell" inst "a checkout behind its upstream names the upstream's describe form" "$cfg" "$rt_empty" 0 "$(status_json "$version_text" checkout null "$here" "$there" true null)" "" self status --json
+INST_BIN="$co/bin/vgshell" inst "a checkout behind its upstream names the upstream's describe form" "$cfg" "$rt_empty" 0 "$(status_json "$version_text" checkout null "$here" "$there" true self null null)" "" self status --json
 check "the behind status runs no git hook either" test ! -e "$marker"
-INST_BIN="$co/bin/vgshell" inst "the text form is one line of fields" "$cfg" "$rt_empty" 0 "version=$version_text method=checkout current=$here latest=$there behind=true" "" self status
+INST_BIN="$co/bin/vgshell" inst "the text form is one line of fields" "$cfg" "$rt_empty" 0 "version=$version_text method=checkout current=$here latest=$there behind=true step=self" "" self status
 check "status leaves HEAD where it was" test "$(g -C "$co" rev-parse --short HEAD)" == "${here##*.g}"
 
 printf 'local\n' >"$co/LOCAL"
@@ -124,7 +137,7 @@ check "the checkout is at its upstream" test "$(g -C "$co" rev-parse HEAD)" == "
 check "update runs no git hook" test ! -e "$marker"
 INST_BIN="$co/bin/vgshell" inst "a current checkout is up to date" "$cfg" "$rt_empty" 0 "ok up-to-date=vgshell" "" self update
 g -C "$co" remote set-url origin "$tmp/gone.git"
-INST_BIN="$co/bin/vgshell" inst "an unreachable upstream is the report's error, exit 0" "$cfg" "$rt_empty" 0 "$(status_json "$version_text" checkout null "$there" null null "fetch=vgshell")" "$any_out" self status --json
+INST_BIN="$co/bin/vgshell" inst "an unreachable upstream is the report's error, exit 0" "$cfg" "$rt_empty" 0 "$(status_json "$version_text" checkout null "$there" null null null null "fetch=vgshell")" "$any_out" self status --json
 # A stop during the checkout's fetch: status ends the fetch, returns once
 # it ended and exits 128 plus the signal, printing no report. The stop
 # controls are test-vgshell-outdated.sh's.
@@ -140,14 +153,14 @@ install_tree "$seed" "$data/vgshell/$version_text"
 install_tree "$seed" "$data/vgshell/0.0.9"
 ln -s -- "$version_text" "$data/vgshell/current"
 curl_bin="$data/vgshell/current/bin/vgshell"
-INST_BIN="$curl_bin" inst "a curl install compares VERSION with the newest release" "$cfg" "$rt_empty" 0 "$(status_json "$version_text" curl null "$version_text" "$release" true null)" "" self status --json
+INST_BIN="$curl_bin" inst "a curl install compares VERSION with the newest release" "$cfg" "$rt_empty" 0 "$(status_json "$version_text" curl null "$version_text" "$release" true self null null)" "" self status --json
 saved_env=("${inst_env[@]}")
 inst_env=(VGS_RELEASE_API="$api/elsewhere" XDG_DATA_HOME="$data")
-INST_BIN="$curl_bin" inst "a repository with no release is the report's error" "$cfg" "$rt_empty" 0 "$(status_json "$version_text" curl null "$version_text" null null "release=none repository=vanillagreencom/vgshell")" "" self status --json
+INST_BIN="$curl_bin" inst "a repository with no release is the report's error" "$cfg" "$rt_empty" 0 "$(status_json "$version_text" curl null "$version_text" null null null null "release=none repository=vanillagreencom/vgshell")" "" self status --json
 inst_env=(VGS_RELEASE_API="http://example.invalid" XDG_DATA_HOME="$data")
-INST_BIN="$curl_bin" inst "a release API other than loopback is refused" "$cfg" "$rt_empty" 0 "$(status_json "$version_text" curl null "$version_text" null null 'release-api=refused value="http://example.invalid"')" "$any_out" self status --json
+INST_BIN="$curl_bin" inst "a release API other than loopback is refused" "$cfg" "$rt_empty" 0 "$(status_json "$version_text" curl null "$version_text" null null null null 'release-api=refused value="http://example.invalid"')" "$any_out" self status --json
 inst_env=("${saved_env[@]}")
-INST_TEST_RUN="" INST_BIN="$curl_bin" inst "a loopback release API outside a test run is refused" "$cfg" "$rt_empty" 0 "$(status_json "$version_text" curl null "$version_text" null null "release-api=refused value=\"$api\"")" "$any_out" self status --json
+INST_TEST_RUN="" INST_BIN="$curl_bin" inst "a loopback release API outside a test run is refused" "$cfg" "$rt_empty" 0 "$(status_json "$version_text" curl null "$version_text" null null null null "release-api=refused value=\"$api\"")" "$any_out" self status --json
 
 printf '%s  %s\n' "$(printf '0%.0s' $(seq 1 64))" "$archive" >"$www/dl/SHA256SUMS"
 INST_BIN="$curl_bin" inst "update refuses an archive its SHA256SUMS does not list" "$cfg" "$rt_empty" 1 "" \
@@ -166,7 +179,7 @@ check "the new tree's command runs" test -x "$data/vgshell/$release/bin/vgshell"
 check "the tree that was current stays" test -d "$data/vgshell/$version_text"
 check "every other version is removed" test ! -e "$data/vgshell/0.0.9"
 check "no staging directory stays" test -z "$(find "$data/vgshell" -maxdepth 1 -name '.self-update-*')"
-INST_BIN="$curl_bin" inst "the new tree is current" "$cfg" "$rt_empty" 0 "$(status_json "$release" curl null "$release" "$release" false null)" "" self status --json
+INST_BIN="$curl_bin" inst "the new tree is current" "$cfg" "$rt_empty" 0 "$(status_json "$release" curl null "$release" "$release" false none null null)" "" self status --json
 INST_BIN="$curl_bin" inst "a current curl install is up to date" "$cfg" "$rt_empty" 0 "ok up-to-date=vgshell version=$release" "" self update
 
 # A shell whose restart was refused still runs from a tree `current` no
@@ -218,19 +231,107 @@ exit 1
 EOF
 chmod +x "$stubs/pacman"
 printf 'NAME="Arch Linux"\nID=arch\n' >"$tmp/os-release"
-cat >"$tmp/bound-vgshell" <<EOF
+bound_bin() { # TREE OUT: OUT runs TREE's vgshell under the Arch os-release fixture
+  cat >"$2" <<EOF
 #!$tools/sh
-exec $unshare_bin -rm $tools/sh -c 'mount_bin=\$1 fixture=\$2; shift 2; "\$mount_bin" --bind "\$fixture" /etc/os-release && exec "\$@"' sh $mount_bin $tmp/os-release $pkg_root/bin/vgshell "\$@"
+exec $unshare_bin -rm $tools/sh -c 'mount_bin=\$1 fixture=\$2; shift 2; "\$mount_bin" --bind "\$fixture" /etc/os-release && exec "\$@"' sh $mount_bin $tmp/os-release $1/bin/vgshell "\$@"
 EOF
-chmod +x "$tmp/bound-vgshell"
+  chmod +x "$2"
+}
+bound_bin "$pkg_root" "$tmp/bound-vgshell"
 g config --file "$tmp/home/.gitconfig" "url.$upstream.insteadOf" https://github.com/vanillagreencom/vgshell.git
 main_commit="$(g -C "$upstream" rev-parse main)"
-built="$version_text.r7.g${main_commit:0:7}"
+built_commit="${main_commit:0:7}"
+built="$version_text.r7.g$built_commit"
 inst_env+=(STUB_OWNED="$pkg_root/VERSION" STUB_PACKAGE=vgshell-git STUB_PKGVER="$built")
-INST_BIN="$tmp/bound-vgshell" inst "a vgshell-git package built from main's commit is not behind" "$cfg" "$rt_empty" 0 "$(status_json "$version_text" package vgshell-git "$built" "$main_commit" false null)" "" self status --json
-g -C "$seed" commit -q --allow-empty -m three; g -C "$seed" push -q "$upstream" main
+INST_BIN="$tmp/bound-vgshell" inst "a vgshell-git package built from main's commit is not behind" "$cfg" "$rt_empty" 0 "$(status_json "$version_text" package vgshell-git "$built" "$main_commit" false none null null)" "" self status --json
+
+# GitHub's compare of the package's commit with main's, served where the API
+# answers it: the commits main holds past it and each file changed, a
+# rename with its old path, read from the fixture upstream's own git.
+compare_dir="$www/repos/vanillagreencom/vgshell/compare"; mkdir -p "$compare_dir"
+compare_fixture() { # BASE HEAD
+  python3 - "$compare_dir/$1...$2" "$(g -C "$upstream" rev-list "$1..$2")" "$(g -C "$upstream" diff --name-status -M "$1" "$2")" <<'PY'
+import json, sys
+commits = [{"sha": c} for c in sys.argv[2].split()]
+files = []
+for line in sys.argv[3].splitlines():
+    parts = line.split("\t")
+    entry = {"filename": parts[-1], "status": {"A": "added", "M": "modified", "D": "removed", "R": "renamed"}[parts[0][0]]}
+    if parts[0][0] == "R":
+        entry["previous_filename"] = parts[1]
+    files.append(entry)
+json.dump({"status": "ahead", "total_commits": len(commits), "commits": commits, "files": files}, open(sys.argv[1], "w"))
+PY
+}
+# Main moves by a commit that changes only paths the package does not
+# install.
+mkdir -p "$seed/.agents" "$seed/docs"
+printf 'notes\n' >"$seed/.agents/notes.md"; printf '{}\n' >"$seed/.kendex-lock.json"; printf 'doc\n' >"$seed/docs/guide.md"
+g -C "$seed" add -A; g -C "$seed" commit -q -m three; g -C "$seed" push -q "$upstream" main
 main_commit="$(g -C "$upstream" rev-parse main)"
-INST_BIN="$tmp/bound-vgshell" inst "a vgshell-git package is behind once main moves" "$cfg" "$rt_empty" 0 "$(status_json "$version_text" package vgshell-git "$built" "$main_commit" true null)" "" self status --json
+compare_fixture "$built_commit" "$main_commit"
+check "the uninstalled-only compare lists its three files" json_is "$compare_dir/$built_commit...$main_commit" 'sorted(f["filename"] for f in d["files"]) == [".agents/notes.md", ".kendex-lock.json", "docs/guide.md"]'
+INST_BIN="$tmp/bound-vgshell" inst "a main that changed no installed path leaves vgshell-git up to date" "$cfg" "$rt_empty" 0 "$(status_json "$version_text" package vgshell-git "$built" "$main_commit" false none null null)" "" self status --json
+# The must-fail control: a package tree whose self.js judges by the hash
+# compare it replaced reads that main behind.
+hash_root="$tmp/pkghash/usr/share/vgshell"; mkdir -p "$(dirname -- "$hash_root")"; cp -R -- "$pkg_root" "$hash_root"
+copy_with self-hash "$hash_root/bin/lib/self.js" 'if (pkg === "vgshell-git") return fact === "true";' 'if (pkg === "vgshell-git") return !latest.startsWith(GIT_PACKAGE_PATTERN.exec(current)[1]);'
+cp -- "$copy" "$hash_root/bin/lib/self.js"
+bound_bin "$hash_root" "$tmp/bound-hash"
+inst_env+=(STUB_OWNED="$hash_root/VERSION")
+INST_BIN="$tmp/bound-hash" inst "the hash-compare mutant answers the uninstalled-only main" "$cfg" "$rt_empty" 0 "$any_out" "" self status --json
+check "and reads it behind, which the row above refuses" json_is "$tmp/out" 'd["behind"] is True'
+inst_env+=(STUB_OWNED="$pkg_root/VERSION")
+# Main moves by a commit that changes an installed path.
+printf 'fixture\n' >"$seed/shell/Core/Probe.js"
+g -C "$seed" add -A; g -C "$seed" commit -q -m four; g -C "$seed" push -q "$upstream" main
+main_commit="$(g -C "$upstream" rev-parse main)"
+compare_fixture "$built_commit" "$main_commit"
+INST_BIN="$tmp/bound-vgshell" inst "a vgshell-git package without an AUR helper is behind and takes no step" "$cfg" "$rt_empty" 0 "$(status_json "$version_text" package vgshell-git "$built" "$main_commit" true none no-aur-helper null)" "" self status --json
+INST_BIN="$tmp/bound-vgshell" inst "the text form names the step and its reason" "$cfg" "$rt_empty" 0 "version=$version_text method=package package=vgshell-git current=$built latest=$main_commit behind=true step=none reason=no-aur-helper" "" self status
+printf '#!/bin/sh\nexit 99\n' >"$stubs/paru"; chmod +x "$stubs/paru"
+INST_BIN="$tmp/bound-vgshell" inst "a vgshell-git package with an AUR helper takes the rebuild" "$cfg" "$rt_empty" 0 "$(status_json "$version_text" package vgshell-git "$built" "$main_commit" true rebuild null null)" "" self status --json
+# Answers whose files GitHub may have cut short, or that cannot prove the
+# installed tree unchanged, read behind; an answer GitHub could not give
+# is the report's error, exit 0. `stall` sends 200 and its headers, then
+# stalls the body past the timeout.
+compare_file="$compare_dir/$built_commit...$main_commit"
+compare_url="$api/repos/vanillagreencom/vgshell/compare/$built_commit...$main_commit"
+while IFS='|' read -r name body want; do
+  rm -f -- "${compare_file:?}.stall"
+  if [[ $body == absent ]]; then rm -f -- "${compare_file:?}"
+  elif [[ $body == stall ]]; then : >"$compare_file.stall"
+  else python3 -c 'import json, sys; json.dump(eval(sys.argv[2]), open(sys.argv[1], "w"))' "$compare_file" "$body"
+  fi
+  case "$want" in
+    behind) want_json="$(status_json "$version_text" package vgshell-git "$built" "$main_commit" true rebuild null null)" ;;
+    current) want_json="$(status_json "$version_text" package vgshell-git "$built" "$main_commit" false none null null)" ;;
+    *) want_json="$(status_json "$version_text" package vgshell-git "$built" null null null null "$want url=$compare_url")" ;;
+  esac
+  INST_BIN="$tmp/bound-vgshell" inst "$name" "$cfg" "$rt_empty" 0 "$want_json" "" self status --json
+done <<'ROWS'
+a compare of uninstalled paths alone is up to date|{"status": "ahead", "total_commits": 1, "commits": [{}], "files": [{"filename": "docs/a.md"}]}|current
+a rename out of an installed path is behind|{"status": "ahead", "total_commits": 1, "commits": [{}], "files": [{"filename": "docs/moved.json", "previous_filename": "config/moved.json"}]}|behind
+a full file list is behind|{"status": "ahead", "total_commits": 1, "commits": [{}], "files": [{"filename": "docs/%d.md" % i} for i in range(300)]}|behind
+a cut commit list is behind|{"status": "ahead", "total_commits": 2, "commits": [{}], "files": [{"filename": "docs/a.md"}]}|behind
+a main that no longer holds the package's commit is behind|{"status": "diverged", "total_commits": 1, "commits": [{}], "files": [{"filename": "docs/a.md"}]}|behind
+a compare without a file list is the report's error|{"status": "ahead", "total_commits": 1, "commits": [{}]}|compare=malformed
+a compare GitHub does not know is the report's error|absent|compare=http status=404
+a compare whose body stalls past the timeout is the report's timeout|stall|compare=timeout seconds=10
+ROWS
+# The stall row's control: a package tree whose self.js reads a failed body
+# as empty text reads the same stall as malformed, so the stub's headers
+# arrived and the timeout came from the body read.
+stall_root="$tmp/pkgstall/usr/share/vgshell"; mkdir -p "$(dirname -- "$stall_root")"; cp -R -- "$pkg_root" "$stall_root"
+copy_with self-stall "$stall_root/bin/lib/self.js" 'text = await response.text();' 'text = await response.text().catch(() => "");'
+cp -- "$copy" "$stall_root/bin/lib/self.js"
+bound_bin "$stall_root" "$tmp/bound-stall"
+inst_env+=(STUB_OWNED="$stall_root/VERSION")
+INST_BIN="$tmp/bound-stall" inst "the body-blind mutant answers the stalled compare" "$cfg" "$rt_empty" 0 "$any_out" "" self status --json
+check "and names it malformed, which the row above refuses" json_is "$tmp/out" 'd["error"] == "compare=malformed url='"$compare_url"'"'
+inst_env+=(STUB_OWNED="$pkg_root/VERSION")
+rm -f -- "${compare_file:?}.stall" "${stubs:?}/paru"
 # A stop during the ls-remote of main, as during a checkout's fetch.
 INST_BIN="$tmp/bound-vgshell" stop_run TERM self status --json
 check "TERM during main's ls-remote ends self status with exit 143" test "$stop_status" == 143
@@ -238,16 +339,45 @@ check "self status stopped during main's ls-remote prints no report" test ! -s "
 check "self status returns after the ls-remote TERM stopped has ended" test "$stop_ended/$stop_alive" == yes/no
 INST_BIN="$tmp/bound-vgshell" inst "update refuses a package and names its manager" "$cfg" "$rt_empty" 1 "" "vgshell: refused: method=package package=vgshell-git manager=pacman" self update
 inst_env+=(STUB_PACKAGE=vgshell STUB_PKGVER="$version_text")
-INST_BIN="$tmp/bound-vgshell" inst "a vgshell package compares its version with the newest release" "$cfg" "$rt_empty" 0 "$(status_json "$version_text" package vgshell "$version_text" "$release" true null)" "" self status --json
+INST_BIN="$tmp/bound-vgshell" inst "an AUR vgshell package without an AUR helper is behind and takes no step" "$cfg" "$rt_empty" 0 "$(status_json "$version_text" package vgshell "$version_text" "$release" true none no-aur-helper null)" "" self status --json
+# The must-fail control: a package tree whose self.js judges the reason by
+# the package's name, not its manager, sends the same AUR package to the
+# system's update.
+name_root="$tmp/pkgname/usr/share/vgshell"; mkdir -p "$(dirname -- "$name_root")"; cp -R -- "$pkg_root" "$name_root"
+copy_with self-name "$name_root/bin/lib/self.js" 'if (manager === AUR_PRIMARY && helper === null)' 'if (pkg === "vgshell-git" && helper === null)'
+cp -- "$copy" "$name_root/bin/lib/self.js"
+bound_bin "$name_root" "$tmp/bound-name"
+inst_env+=(STUB_OWNED="$name_root/VERSION")
+INST_BIN="$tmp/bound-name" inst "the name-judging mutant answers the helperless AUR vgshell" "$cfg" "$rt_empty" 0 "$any_out" "" self status --json
+check "and names the package manager, which the row above refuses" json_is "$tmp/out" 'd["reason"] == "package-manager"'
+inst_env+=(STUB_OWNED="$pkg_root/VERSION")
+printf '#!/bin/sh\nexit 99\n' >"$stubs/paru"; chmod +x "$stubs/paru"
+INST_BIN="$tmp/bound-vgshell" inst "an AUR vgshell package with an AUR helper updates with the system's packages" "$cfg" "$rt_empty" 0 "$(status_json "$version_text" package vgshell "$version_text" "$release" true none package-manager null)" "" self status --json
+rm -f -- "${stubs:?}/paru"
+# A Fedora vgshell package: dnf's owner and version queries go to a stub rpm
+# under a Fedora os-release, with no AUR helper anywhere.
+cp -- "$tmp/os-release" "$tmp/os-release.arch"
+printf 'NAME="Fedora Linux"\nID=fedora\n' >"$tmp/os-release"
+printf '#!/bin/sh\nexit 99\n' >"$stubs/dnf5"; chmod +x "$stubs/dnf5"
+cat >"$stubs/rpm" <<'EOF'
+#!/bin/sh
+[ "$1 $2 $4" = "-qf --queryformat $STUB_OWNED" ] && { echo "$STUB_PACKAGE"; exit 0; }
+[ "$1 $2 $4 $5" = "-q --queryformat -- $STUB_PACKAGE" ] && { echo "$STUB_PKGVER"; exit 0; }
+exit 99
+EOF
+chmod +x "$stubs/rpm"
+INST_BIN="$tmp/bound-vgshell" inst "a Fedora vgshell package updates with the system's packages" "$cfg" "$rt_empty" 0 "$(status_json "$version_text" package vgshell "$version_text" "$release" true none package-manager null)" "" self status --json
+rm -f -- "${stubs:?}/dnf5" "${stubs:?}/rpm"
+mv -f -- "$tmp/os-release.arch" "$tmp/os-release"
 inst_env+=(STUB_PACKAGE=unrelated-package)
-INST_BIN="$tmp/bound-vgshell" inst "a package that is not vgshell is the report's error" "$cfg" "$rt_empty" 0 "$(status_json "$version_text" null null null null null "package=unrelated-package manager=pacman reason=not-vgs")" "" self status --json
+INST_BIN="$tmp/bound-vgshell" inst "a package that is not vgshell is the report's error" "$cfg" "$rt_empty" 0 "$(status_json "$version_text" null null null null null null null "package=unrelated-package manager=pacman reason=not-vgs")" "" self status --json
 inst_env+=(STUB_PACKAGE=)
-INST_BIN="$tmp/bound-vgshell" inst "a tree no method claims is method=unknown" "$cfg" "$rt_empty" 0 "$(status_json "$version_text" null null null null null "method=unknown path=$pkg_root")" "$any_out" self status --json
+INST_BIN="$tmp/bound-vgshell" inst "a tree no method claims is method=unknown" "$cfg" "$rt_empty" 0 "$(status_json "$version_text" null null null null null null null "method=unknown path=$pkg_root")" "$any_out" self status --json
 inst_env=("${saved_env[@]}")
 
 # Nix: a tree under the fixture store.
 nix_root="$tmp/nix/store/0000-vgshell-$version_text/share/vgshell"; install_tree "$seed" "$nix_root"
-INST_BIN="$nix_root/bin/vgshell" inst "a Nix tree compares VERSION with the newest release" "$cfg" "$rt_empty" 0 "$(status_json "$version_text" nix null "$version_text" "$release" true null)" "" self status --json
+INST_BIN="$nix_root/bin/vgshell" inst "a Nix tree compares VERSION with the newest release" "$cfg" "$rt_empty" 0 "$(status_json "$version_text" nix null "$version_text" "$release" true none nix null)" "" self status --json
 INST_BIN="$nix_root/bin/vgshell" inst "update refuses a Nix tree" "$cfg" "$rt_empty" 1 "" "vgshell: refused: method=nix" self update
 
 for args in 'self' 'self sync' 'self status extra' 'self status --json extra' 'self update extra'; do
@@ -259,6 +389,62 @@ for args in 'self' 'self sync' 'self status extra' 'self status --json extra' 's
   esac
   INST_BIN="$co/bin/vgshell" inst "$args is a bad invocation" "$cfg" "$rt_empty" 2 "" "vgshell: refused: $want" "${words[@]}"
 done
+
+# The installed paths self.js lists are the vgshell-git recipe's: its
+# package() runs packaging/install-system.sh with PREFIX=/usr and
+# SYSCONFDIR=/etc, here over this repository's tracked files. Each file the
+# tree holds comes from its path under share/vgshell; each other file comes
+# from the tracked file of its name and bytes, and one with none, the
+# sudoers rule and the autostart entry, is the installer's own text. The
+# recipe's own inputs count too. A floor of members the installer always
+# copies catches a mapping that found nothing; the forbidden paths are the
+# ones the issue names and the release package's recipe.
+recipe="$tmp/recipe"
+"${base_env[@]}" DESTDIR="$recipe" PREFIX=/usr SYSCONFDIR=/etc bash "$repo/packaging/install-system.sh" >/dev/null
+recipe_listed() { # SELF_JS: exit 0 when its list matches the recipe
+  "$node_bin" - "$1" "$recipe" "$repo" <<'JS'
+const childProcess = require("child_process");
+const fs = require("fs");
+const path = require("path");
+const [selfJs, recipe, repo] = process.argv.slice(2);
+const { installedPath } = require(selfJs);
+const tracked = childProcess.execFileSync("git", ["-C", repo, "ls-files", "-z"], { encoding: "utf8" }).split("\0").filter(Boolean);
+const tree = "usr/share/vgshell/";
+const sources = [];
+const unlisted = [];
+(function walk(dir) {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const file = path.join(dir, entry.name);
+        const rel = path.relative(recipe, file);
+        if (entry.isDirectory()) walk(file);
+        else if (rel.startsWith(tree)) sources.push(rel.slice(tree.length));
+        else if (entry.isFile()) {
+            const bytes = fs.readFileSync(file);
+            const from = tracked.filter(t => path.basename(t) === entry.name && fs.existsSync(path.join(repo, t)) && fs.readFileSync(path.join(repo, t)).equals(bytes));
+            if (from.length > 0 && !from.some(installedPath)) unlisted.push(rel + " from " + from.join(","));
+            sources.push(...from.filter(installedPath));
+        }
+    }
+})(recipe);
+for (const file of sources) if (!installedPath(file)) unlisted.push(file);
+for (const file of ["packaging/install-system.sh", "packaging/arch/vgshell-git/PKGBUILD", "packaging/arch/vgshell-git/vgshell-git.install"])
+    if (!installedPath(file)) unlisted.push(file);
+const floor = ["bin/vgshell", "shell/Core/PluginLogic.js", "config/shell.json", "VERSION", "README.md", "LICENSE", "packaging/xdg-desktop-portal/hyprland-portals.conf"];
+const missing = floor.filter(file => !sources.includes(file));
+const forbidden = [".agents/skills/dev/SKILL.md", ".kendex-lock.json", "docs/architecture/distribution.md", "scripts/validate", "packaging/arch/vgshell/PKGBUILD"].filter(installedPath);
+for (const [key, list] of [["unlisted", unlisted], ["floor-missing", missing], ["forbidden", forbidden]])
+    for (const file of list) process.stderr.write("recipe: " + key + "=" + file + "\n");
+process.exit(unlisted.length + missing.length + forbidden.length === 0 ? 0 : 1);
+JS
+}
+check "self.js lists every path the vgshell-git recipe installs or builds from" recipe_listed "$repo/bin/lib/self.js"
+# Its control: a self.js copy whose list lacks themes/.
+recipe_copy="$tmp/recipe-control"; mkdir -p "$recipe_copy"
+cp -- "$repo/bin/lib/judge-files.js" "$recipe_copy/"
+copy_with self-recipe "$repo/bin/lib/self.js" '"config/", "themes/", ' '"config/", '
+cp -- "$copy" "$recipe_copy/self.js"
+recipe_refused() { ! recipe_listed "$1" 2>/dev/null; } # SELF_JS
+check "a list without themes/ fails the recipe check" recipe_refused "$recipe_copy/self.js"
 
 # The must-fail controls: copies of the Nix tree whose self.js lacks one
 # rule, each shown to answer what the rows above refuse to accept.
@@ -274,7 +460,7 @@ self_control everycheckout 'if (checkout) return ["checkout"' 'if (true) return 
 INST_BIN="$control_bin" inst "the every-tree-a-checkout mutant calls the Nix tree a checkout" "$cfg" "$rt_empty" 0 "$any_out" "$any_out" self status --json
 check "so the Nix row would fail on it" json_is "$tmp/out" 'd["method"] == "checkout"'
 self_control testrun '!process.env.VGS_TEST_RUN || ' ''
-INST_TEST_RUN="" INST_BIN="$control_bin" inst "the marker-blind mutant takes a loopback API outside a test run" "$cfg" "$rt_empty" 0 "$(status_json "$version_text" nix null "$version_text" "$release" true null)" "" self status --json
+INST_TEST_RUN="" INST_BIN="$control_bin" inst "the marker-blind mutant takes a loopback API outside a test run" "$cfg" "$rt_empty" 0 "$(status_json "$version_text" nix null "$version_text" "$release" true none nix null)" "" self status --json
 
 # The checksum control needs a curl install: the release fixture's sums are
 # made wrong and a curl tree whose self.js skips the comparison installs it.

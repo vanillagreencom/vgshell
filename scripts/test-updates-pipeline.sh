@@ -60,7 +60,7 @@ module.exports.load = function(file, modules) {
   if (process.env.UPDATES_TEST_SECONDARY === "1" && path.basename(file) === "UpdatesLogic.js") {
     const assert = require("node:assert/strict");
     const reason = "helper-missing=checkupdates";
-    const secondary = library.windowRows({ sources: [{ source: "pacman", count: null, error: reason }] })[0].secondary;
+    const secondary = library.windowRows({ sources: [{ source: "pacman", count: null, error: reason }] })[0].detail;
     process.stderr.write("updates-test: secondary=reached\n");
     assert.match(library.errorText(reason), /\]\(page:/);
     assert.doesNotMatch(secondary, /[\[\]]|\(page:/, "updates-test: secondary=markup");
@@ -269,7 +269,9 @@ stub "$stubs" systemctl ''
 # it is absent, and fails while $FIX/fail-findmnt exists.
 stub "$stubs" findmnt '[ ! -e "$FIX/fail-findmnt" ] || exit 1; [ ! -e "$FIX/fstypes" ] || cat "$FIX/fstypes"'
 # paru authorizes through sudo and fails with 7 while $FIX/fail-paru exists,
-# and with 130, as a Ctrl-C ends it, while $FIX/interrupt-paru does. Its -G
+# and with 130, as a Ctrl-C ends it, while $FIX/interrupt-paru does; while
+# $FIX/conflict-paru does it exits 1 after pacman's conflict question,
+# answered no, with the package versions faint as pacman colours them. Its -G
 # saves each package under its base, the one $FIX/base-<package> names,
 # else the package's own name, with a PKGBUILD, the files of
 # $FIX/build-<base>, links kept as links, and a .SRCINFO of the base and
@@ -285,6 +287,7 @@ stub "$stubs" paru 'if [ "$1" = -G ]; then shift; for p; do
   [ -e "$b/.SRCINFO" ] || printf "pkgbase = %s\n\npkgname = %s\n" "$b" "$p" >"$b/.SRCINFO"
 done; exit 0; fi
 [ ! -e "$FIX/pkgver-paru" ] || { printf "==> ERROR: A failure occurred in pkgver().\n    Aborting...\n" >&2; exit 4; }
+[ ! -e "$FIX/conflict-paru" ] || { printf "\033[1;34m::\033[0m quickshell-\033[2m0.3.1-1\033[0m and quickshell-git-\033[2mr120.g1a2b3c4-1\033[0m are in conflict. Remove quickshell-git? [y/N] error: unresolvable package conflicts detected\nerror: failed to prepare transaction (conflicting dependencies)\n" >&2; exit 1; }
 [ ! -e "$FIX/interrupt-paru" ] || { sudo /usr/bin/true; exit 130; }
 [ ! -e "$FIX/fail-paru" ] || { sudo /usr/bin/true; exit 7; }'
 stub "$stubs" less ''
@@ -302,8 +305,13 @@ settings() { # AUR_COMMAND TRUST [REVIEW AGENT COMMAND]
   printf '{"intervalHours":6,"hideWhenCurrent":false,"aurCommand":"%s","snapshot":"auto","trustPluginUpdates":%s,"reviewThirdParty":%s,"reviewAgent":"%s","reviewCommand":"%s","placement":"center"}\n' \
     "$1" "$2" "${3:-true}" "${4:-}" "${5:-}" >"$fix/settings.json"
 }
-self_json() { # METHOD PACKAGE_JSON BEHIND
-  printf '{"version":"0.1.0","method":"%s","package":%s,"current":"a","latest":"b","behind":%s,"error":null}\n' "$1" "$2" "$3" >"$fix/self.json"
+# The status `vgshell self status --json` prints: a STEP other than none, or
+# a REASON, is behind.
+self_json() { # METHOD PACKAGE_JSON STEP [REASON]
+  local behind=true reason=null
+  [[ -z ${4:-} ]] || reason="\"$4\""
+  [[ $3 != none || -n ${4:-} ]] || behind=false
+  printf '{"version":"0.1.0","method":"%s","package":%s,"current":"0.1.0.r1.gabc1234","latest":"b","behind":%s,"step":"%s","reason":%s,"error":null}\n' "$1" "$2" "$behind" "$3" "$reason" >"$fix/self.json"
 }
 # The fixture every row starts from: pacman with the AUR through paru,
 # Flatpak and mise; a checkout one commit behind; one plugin and one theme
@@ -316,7 +324,7 @@ reset_fix() {
   settings "" false
   echo sudo >"$fix/elevator"
   printf '{"primary":{"id":"pacman","binary":"pacman"},"overlays":[{"id":"aur","binary":"paru"},{"id":"flatpak","binary":"flatpak"}],"sources":[{"id":"mise","binary":"mise"}]}\n' >"$fix/detect.json"
-  self_json checkout null true
+  self_json checkout null self
   printf '[{"id":"acme.one","behind":2,"head":"h","upstream":"u","error":null},{"id":"acme.two","behind":0,"head":"h","upstream":"h","error":null}]\n' >"$fix/plugins.json"
   printf '[{"id":"night","behind":1,"head":"h","upstream":"u","error":null}]\n' >"$fix/themes.json"
 }
@@ -529,7 +537,7 @@ row_failed_end() {
   for columns in 60 80; do
     reset_fix
     reboot_hook
-    self_json package '"vgshell-git"' true
+    self_json package '"vgshell-git"' rebuild
     printf '[{"id":"tokyo-night","behind":1,"head":"h","upstream":"u","error":null}]\n' >"$fix/themes.json"
     touch "$fix/busy-tokyo-night" "$fix/build-aur" "$fix/pkgver-paru" "$fix/owner" "$fix/owner-changes" "$fix/running"
     printf 'linux 6.2-1\nmesa 24.1-1\nvgshell-git 0.1.0.r2-1\n' >"$fix/installed-after"
@@ -633,7 +641,7 @@ row_system_failed() {
   assert "a later source installs after a failed system upgrade" result_has "mise installed."
   assert "a plugin updates after a failed system upgrade" result_has "Plugin acme.one installed."
   reset_fix
-  self_json package '"vgshell-git"' true
+  self_json package '"vgshell-git"' rebuild
   touch "$fix/owner" "$fix/owner-changes" "$fix/running" "$fix/fail-pacman"
   pipeline update.sh
   assert "a failed system upgrade rebuilds no vgshell-git" no_call "paru -S vgshell-git"
@@ -850,7 +858,7 @@ row_doas() {
 # new version, and no other package is upgraded.
 row_vgs_only() {
   reset_fix
-  self_json package '"vgshell-git"' true
+  self_json package '"vgshell-git"' rebuild
   touch "$fix/owner" "$fix/owner-changes" "$fix/running"
   PIPE_PATH="$snapper_dir" pipeline update-source.sh vgs
   assert "a VGS rebuild alone exits 0" test "$status" == 0
@@ -861,13 +869,71 @@ row_vgs_only() {
 }
 row_vgs_git() {
   reset_fix
-  self_json package '"vgshell-git"' true
+  self_json package '"vgshell-git"' rebuild
   touch "$fix/owner" "$fix/owner-changes" "$fix/running"
   pipeline update.sh
   assert "a package tree runs no self update" test "$(grep -c 'self update' "$tmp/seq")" == 0
   assert "a behind vgshell-git is rebuilt after the AUR" before "vgshell pkg run upgrade --manager aur" "paru -S vgshell-git"
   assert "the credential is dropped after the rebuild" before "paru -S vgshell-git" "sudo -k"
   assert "a replaced VGS package restarts the running shell" has_call "vgshell restart"
+}
+# The step the status names is what runs. A step of none, whatever its
+# reason, and a status that could not check run no self update and no
+# rebuild, though the AUR helper or an aurCommand is here. The plan box
+# names what updates VGS: with no AUR helper, the aurCommand words update
+# the release `vgshell` package and cannot rebuild `vgshell-git`. HELPER
+# empty drops paru from `pkg detect`.
+row_vgs_step() {
+  local method package reason helper aur plan name
+  while IFS='|' read -r method package reason helper aur plan; do
+    reset_fix
+    self_json "$method" "$package" none "$reason"
+    [[ -n $helper ]] || printf '{"primary":{"id":"pacman","binary":"pacman"},"overlays":[],"sources":[]}\n' >"$fix/detect.json"
+    settings "$aur" false
+    name="step none ${reason:-current} on $method $package, helper ${helper:-none}, aurCommand ${aur:-none},"
+    PIPE_COLUMNS=200 pipeline update-source.sh vgs
+    assert "$name exits 0" test "$status" == 0
+    assert "$name runs no self update" no_call "vgshell self update"
+    assert "$name rebuilds nothing" no_call "paru -S"
+    assert "$name plans its reason" out_has "$plan"
+  done <<'ROWS'
+package|"vgshell-git"|no-aur-helper|paru||VGS: the vgshell-git package is behind, and no AUR helper is here to update it
+package|"vgshell-git"|no-aur-helper||pikaur -Sua|VGS: the vgshell-git package is behind, and no AUR helper is here to update it
+package|"vgshell"|no-aur-helper|||VGS: the vgshell package is behind, and no AUR helper is here to update it
+package|"vgshell"|no-aur-helper||pikaur -Sua|VGS: the vgshell package updates with its package manager
+package|"vgshell"|package-manager|paru||VGS: the vgshell package updates with its package manager
+nix|null|nix|paru||VGS: its flake updates it
+checkout|null||paru||VGS: current
+ROWS
+  reset_fix
+  printf '{"version":"0.1.0","method":"package","package":"vgshell-git","current":"0.1.0.r1.gabc1234","latest":null,"behind":null,"step":null,"reason":null,"error":"compare=http status=404 url=x"}\n' >"$fix/self.json"
+  pipeline update-source.sh vgs
+  assert "a status that could not check exits 0" test "$status" == 0
+  assert "a status that could not check rebuilds nothing" no_call "paru -S"
+  assert "a status that could not check keeps its error in the developer log" diag_has "VGS: compare=http status=404 url=x"
+}
+# A rebuild that fails writes its record: the installed version the status
+# named, the helper, its exit and the package pacman's conflict line names
+# first, without its version, or null with no such line. The next rebuild
+# that succeeds leaves none.
+row_rebuild_failed() {
+  local record="$state/vgshell/updates/rebuild-failed.json"
+  reset_fix
+  self_json package '"vgshell-git"' rebuild
+  touch "$fix/conflict-paru"
+  pipeline update-source.sh vgs
+  assert "a rebuild the helper fails ends the run with 1" test "$status" == 1
+  assert "a conflicting rebuild records its exit and the first conflicting package" json_is "$record" \
+    'd == {"current": "0.1.0.r1.gabc1234", "helper": "paru", "exit": 1, "conflict": "quickshell"}'
+  assert "the record leaves no partial file" test ! -e "$record.part"
+  mv -- "${fix:?}/conflict-paru" "${fix:?}/pkgver-paru"
+  pipeline update-source.sh vgs
+  assert "a rebuild that fails with no conflict line records a null conflict" json_is "$record" \
+    'd == {"current": "0.1.0.r1.gabc1234", "helper": "paru", "exit": 4, "conflict": None}'
+  mv -- "${fix:?}/pkgver-paru" "${fix:?}/passed-paru"
+  pipeline update-source.sh vgs
+  assert "a rebuild that succeeds exits 0" test "$status" == 0
+  assert "a rebuild that succeeds leaves no record" test ! -e "$record"
 }
 row_source() {
   reset_fix
@@ -1055,7 +1121,7 @@ row_review_flagged() {
   # and skipping it keeps the rebuild out.
   reset_fix
   third_party
-  self_json package '"vgshell-git"' true
+  self_json package '"vgshell-git"' rebuild
   touch "$fix/owner" "$fix/owner-changes" "$fix/running"
   printf 'verdict flagged\nflag vgshell-git Its source moved to a new domain.\n' >"$fix/verdict"
   PIPE_PATH="$agents" pipeline update.sh
@@ -1267,8 +1333,8 @@ row_review_split() {
 row_facts_plain() {
   reset_fix
   status=0
-  "${base_env[@]}" UPDATES_TEST_SECONDARY=1 "${PLUGIN:-$plugin}/bin/facts" "$tree/bin/lib/qml-library.js" self \
-    <"$fix/self.json" >"$tmp/facts.out" 2>"$tmp/out" || status=$?
+  "${base_env[@]}" UPDATES_TEST_SECONDARY=1 "${PLUGIN:-$plugin}/bin/facts" "$tree/bin/lib/qml-library.js" agents \
+    </dev/null >"$tmp/facts.out" 2>"$tmp/out" || status=$?
   assert "facts loads the window's plain secondary text" test "$status" == 0
   assert "facts reaches the window secondary check" out_has "updates-test: secondary=reached"
   assert "facts leaves no page markup in the window secondary" out_has "updates-test: secondary=plain"
@@ -1282,7 +1348,7 @@ row_pipeline_plain() {
 }
 row_facts_plain; row_pipeline_plain
 row_full; row_trusted; row_snapshot; row_failure; row_failed_end; row_cause; row_system_failed; row_hangup; row_stopped; row_interrupted; row_reboot; row_reboot_core; row_reboot_unread; row_orphans; row_yes
-row_declined; row_busy; row_aur_command; row_aur_failure; row_doas; row_vgs_only; row_vgs_git; row_source; row_recheck_failure; row_log
+row_declined; row_busy; row_aur_command; row_aur_failure; row_doas; row_vgs_only; row_vgs_git; row_vgs_step; row_rebuild_failed; row_source; row_recheck_failure; row_log
 row_review_off; row_review_no_agent; row_review_none_pending; row_review_clean; row_review_start_stable; row_review_flagged; row_review_no_verdict; row_review_no_helper; row_review_custom; row_review_install
 row_review_install_links; row_review_split
 
@@ -1299,7 +1365,7 @@ control() { # NAME NEEDLE REPLACEMENT ROW [FILE]
   check "the $1 mutant fails $4" test "$red" -gt 0
 }
 for row in row_facts_plain row_pipeline_plain; do
-  control "secondary-markup-$row" 'Commons.PageReference.plain(errorText(error))' 'errorText(error)' "$row" UpdatesLogic.js
+  control "secondary-markup-$row" 'Commons.PageReference.plain(errorText(error, true))' 'errorText(error, true)' "$row" UpdatesLogic.js
   check "the $row markup control reaches windowRows" out_has "updates-test: secondary=reached"
   check "the $row markup control fails on markup" out_has "updates-test: secondary=markup"
 done
@@ -1307,8 +1373,8 @@ missing_tree="$tmp/missing-page-reference"
 mkdir -p "$missing_tree/bin/lib"
 cp -- "$tree/bin/lib/qml-library.js" "$missing_tree/bin/lib/"
 status=0
-"${base_env[@]}" "$plugin/bin/facts" "$missing_tree/bin/lib/qml-library.js" self \
-  <"$fix/self.json" >"$tmp/facts.out" 2>"$tmp/out" || status=$?
+"${base_env[@]}" "$plugin/bin/facts" "$missing_tree/bin/lib/qml-library.js" agents \
+  </dev/null >"$tmp/facts.out" 2>"$tmp/out" || status=$?
 check "facts refuses a missing page-reference module" test "$status" == 2
 check "facts names the missing module file" out_has "qml-library: refused: unreadable path=$missing_tree/shell/Commons/PageReference.js error=ENOENT"
 control aur-before-revoke 'if [[ $session == 1 ]]; then vgs_tui_sudo_session end; fi' \
@@ -1318,6 +1384,12 @@ control aur-unguarded '      vgs_tui_sudo_session guard' '      :' row_aur_failu
 control session-ignores-elevator 'if [[ $elevator == sudo ]]; then session=1; fi' 'if command -v sudo >/dev/null; then session=1; fi' row_doas
 control snapshot-ignores-elevator '_updates_snapshot "$snapshot_tool" "$elevator" || status=$?' '_updates_snapshot "$snapshot_tool" sudo || status=$?' row_doas
 control rebuild-unguarded 'if [[ $upgrades == 1 || $rebuild == 1 ]]; then replaces=1; fi' 'if [[ $upgrades == 1 ]]; then replaces=1; fi' row_vgs_only
+control rebuild-by-package '[[ $vgs_step == rebuild ]]; then rebuild=1' '[[ $vgs_package == vgshell-git ]]; then rebuild=1' row_vgs_step
+control release-aur-command-unread '&& $aur_here == 1 ]]; then vgs_reason=package-manager' '&& false ]]; then vgs_reason=package-manager' row_vgs_step
+control git-aur-command-read '&& $vgs_package == vgshell && $aur_here' '&& $aur_here' row_vgs_step
+control rebuild-unrecorded 'if [[ $_updates_outcome == failed ]]; then _updates_rebuild_failed' 'if false; then _updates_rebuild_failed' row_rebuild_failed
+control conflict-versioned 'conflict="\"$(_updates_json_text "${BASH_REMATCH[2]%-*-*}")\""' 'conflict="\"$(_updates_json_text "${BASH_REMATCH[2]}")\""' row_rebuild_failed
+control record-kept '      rm -f -- "${state:?}/rebuild-failed.json"' '      :' row_rebuild_failed
 control no-recovery "trap '_updates_failed \$?' ERR" ':' row_stopped
 control no-reboot-check '  _updates_reboot "${_updates_core[@]}"' '  :' row_reboot
 control no-success-recheck '  _updates_recheck "$ended"' '  :' row_reboot

@@ -12,7 +12,7 @@ The install method decides who owns the tree, and `bin/lib/self.js` is the one j
 
 One installer gives every channel the same file set. The tree is scripts and data, not architecture-specific binaries, so it lives under `/usr/share`. A recipe that hand-lists its dependencies drifts from the declarations the scan probes. Publishing runs from the maintainer's machine, so no signing or AUR key sits in the repository.
 
-A package manager or Nix owns the tree it installed, and its next update would overwrite whatever VGS wrote there. A checkout fast-forwards with no diff and no question because VGS is the program the user runs, not third-party code. An AUR helper reports a `-git` package behind only when its recipe's version changes, so VGS reads `vgshell-git`'s commit itself. `Hyprland --version` aborts when `XDG_RUNTIME_DIR` is unset, so the installer probes under a private empty one.
+A package manager or Nix owns the tree it installed, and its next update would overwrite whatever VGS wrote there. A checkout fast-forwards with no diff and no question because VGS is the program the user runs, not third-party code. An AUR helper reports a `-git` package behind only when its recipe's version changes, so VGS reads `vgshell-git`'s commit itself. Most commits on main change no file the package installs, so VGS counts the package behind only when GitHub's compare of its commit with main's lists a changed installed path. `Hyprland --version` aborts when `XDG_RUNTIME_DIR` is unset, so the installer probes under a private empty one.
 
 ## Rules
 
@@ -77,7 +77,10 @@ Existing curl installations retain their engine during normal self-update. The d
 ### Installation ownership
 
 - Do make every git call in `bin/vgshell` and hand `bin/lib/self.js` the facts; `self.js` decides. Review holds it.
-- Never refuse `vgshell self` on a failed step; it becomes `error`, exit 0, and the fields read before it stay. `scripts/test-vgshell-self.sh` pins it.
+- Never refuse `vgshell self` on a failed step; it becomes `error`, exit 0, and the fields read before it stay. A compare GitHub cannot answer is such a step. `scripts/test-vgshell-self.sh` pins it.
+- Do judge `vgshell-git` behind only by a changed path in the one installed-path list in `self.js`, read from GitHub's compare API. A file list GitHub may have cut short, or a main that no longer holds the package's commit, reads behind. `scripts/test-vgshell-self.sh` pins it with a control of the commit-hash compare, and holds the list to what the recipe installs with a control that drops a path.
+- Do name in the status the step an update runs, `self`, `rebuild` or `none`, and for a tree that is behind with `none`, the reason. The Updates pipeline runs the step the status names and nothing else. `scripts/test-vgshell-self.sh` and `scripts/test-updates-pipeline.sh` pin it.
+- Do judge the reason by the package's manager, not its name. Under pacman both VGS packages come from the AUR, so with no AUR helper either reads `no-aur-helper`, and with one the release package reads `package-manager` because the helper's upgrade installs it. A package under any other manager reads `package-manager`. `scripts/test-vgshell-self.sh` pins it with a control of the name-based judge.
 - Do keep three trees after an update: the new one, the one the command ran from, and the one the running shell started from. `scripts/test-vgshell-self.sh` pins it with a control that removes the running shell's tree.
 - Do fetch with no hook, no prompt, no askpass, no `FETCH_HEAD` and a timeout. `scripts/test-vgshell-outdated.sh` and `scripts/test-vgshell-self.sh` pin each.
 - Do keep the whole installer one brace group, so a cut download runs nothing. `scripts/test-install-sh.sh` pins it.
@@ -85,7 +88,7 @@ Existing curl installations retain their engine during normal self-update. The d
 - Do fetch with `curl --proto =https --tlsv1.2`, match the one `SHA256SUMS` line, replace `current` by rename only, and never remove a version directory from the installer. `scripts/test-install-sh.sh` pins each.
 - Do run required installs through the staged tree's presenter and package runner, which owns elevation. `scripts/test-install-sh.sh` pins it with a fake presenter.
 - Do hold the installer's floor and package tables to `bin/vgshell` and `config/requirements.json`; the drift rows of `scripts/test-install-sh.sh` pin them.
-- Do accept `VGS_RELEASE_API` only in a test run: a `file://` base in the installer, a loopback base in `self.js`. `scripts/test-install-sh.sh` and `scripts/test-vgshell-self.sh` pin it.
+- Do accept `VGS_RELEASE_API` only in a test run: a `file://` base in the installer, a loopback base in `self.js` for the release and the compare reads. `scripts/test-install-sh.sh` and `scripts/test-vgshell-self.sh` pin it.
 
 ## The canonical example
 

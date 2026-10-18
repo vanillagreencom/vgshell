@@ -92,8 +92,10 @@ function publishedPackage(row) {
     return made;
 }
 
-function sourceRow(source, count, packages, checkedAt, error) {
-    return { source: source, label: sourceLabel(source), count: count, packages: packageRows(packages), checkedAt: checkedAt, error: error === undefined ? null : error };
+// `note` is null, or for the VGS row what stands in place of a plain count:
+// normalizeSelf states its kinds.
+function sourceRow(source, count, packages, checkedAt, error, note) {
+    return { source: source, label: sourceLabel(source), count: count, packages: packageRows(packages), checkedAt: checkedAt, error: error === undefined ? null : error, note: note === undefined ? null : note };
 }
 
 function commandError(name, probe) {
@@ -127,15 +129,37 @@ function normalizePkg(probe) {
     return out;
 }
 
-function normalizeSelf(probe, checkedAt) {
+// The steps `vgshell self status` names an update by, each with the reasons
+// it may carry: `self` and `rebuild` run, and `none` runs nothing, with the
+// reason when VGS is behind.
+var SELF_STEPS = { self: [null], rebuild: [null], none: [null, "no-aur-helper", "package-manager", "nix"] };
+
+// The VGS row from `vgshell self status --json` and FAILED, the
+// rebuild-failed.json record a failed vgshell-git rebuild of
+// tui/pipeline.sh left, or null. VGS counts one update only when its step
+// runs, `self` or `rebuild`. Its `note` is one of:
+//   { kind: "reason", reason }   behind, and the step is `none` for REASON
+//   { kind: "rebuildFailed", conflict }
+//                                the rebuild of this same installed version
+//                                failed: still behind with step `rebuild`
+//                                and FAILED names the status's `current`
+// A record for another version or step is stale and ignored: a rebuilt or
+// current package drops it.
+function normalizeSelf(probe, checkedAt, failed) {
     var parsed = parseProbeJson("self", probe);
     if (!parsed.ok) return sourceRow("vgs", null, [], checkedAt, parsed.error);
     var row = parsed.value;
     if (!isPlainObject(row)) return sourceRow("vgs", null, [], checkedAt, "unparseable self");
-    var error = row.error === undefined ? null : row.error;
+    if (row.error !== null && row.error !== undefined) return sourceRow("vgs", null, [], checkedAt, row.error);
+    if (!hasOwn(SELF_STEPS, row.step) || SELF_STEPS[row.step].indexOf(row.reason) < 0) return sourceRow("vgs", null, [], checkedAt, "unparseable self step");
     var behind = row.behind === true;
+    var runs = behind && row.step !== "none";
     var packages = behind ? [{ name: row.package || "vgs", old: row.current === undefined ? null : row.current, new: row.latest === undefined ? null : row.latest }] : [];
-    return sourceRow("vgs", error ? null : (behind ? 1 : 0), packages, checkedAt, error);
+    var note = null;
+    if (behind && row.reason !== null) note = { kind: "reason", reason: row.reason };
+    else if (behind && row.step === "rebuild" && isPlainObject(failed) && failed.current === row.current)
+        note = { kind: "rebuildFailed", conflict: failed.conflict };
+    return sourceRow("vgs", runs ? 1 : 0, packages, checkedAt, null, note);
 }
 
 // An installed directory VGS does not manage (a copied, linked or
@@ -171,11 +195,13 @@ function normalizeOutdated(source, probe, checkedAt) {
     return sourceRow(source, count, packages, checkedAt, errors.length > 0 ? errors.join("; ") : null);
 }
 
+// PROBES holds the four probe results and `rebuildFailed`, the
+// rebuild-failed.json record or null.
 function normalizeSnapshot(probes, now) {
     var checkedAt = typeof now === "number" ? now : Date.now();
     var sources = [];
     sources = sources.concat(normalizePkg(probes.pkg));
-    sources.push(normalizeSelf(probes.self, checkedAt));
+    sources.push(normalizeSelf(probes.self, checkedAt, probes.rebuildFailed));
     sources.push(normalizeOutdated("plugins", probes.plugins, checkedAt));
     sources.push(normalizeOutdated("themes", probes.themes, checkedAt));
     return { checkedAt: checkedAt, sources: sources, error: null };
@@ -202,7 +228,7 @@ function snapshotFromObject(value) {
         if (!isPlainObject(row) || typeof row.source !== "string") return { ok: false, error: "sources." + i };
         var count = row.count === null ? null : Number(row.count);
         if (count !== null && (!isFinite(count) || Math.floor(count) !== count || count < 0)) return { ok: false, error: "sources." + i + ".count" };
-        sources.push(sourceRow(row.source, count, row.packages, toMs(row.checkedAt), row.error === undefined ? null : row.error));
+        sources.push(sourceRow(row.source, count, row.packages, toMs(row.checkedAt), row.error === undefined ? null : row.error, row.note));
     }
     return { ok: true, snapshot: { checkedAt: checkedAt, sources: sources, error: value.error === undefined ? null : value.error } };
 }
@@ -215,6 +241,13 @@ function pendingCount(snapshot) {
     return total;
 }
 
+// Whether a source row of SOURCES says a new version is out that no step
+// here installs: the VGS row's `reason` note. That row counts none, so an
+// otherwise empty check reads `New VGS version` in place of up to date.
+function newVersionNoted(sources) {
+    return sources.some(function (row) { return isPlainObject(row) && isPlainObject(row.note) && row.note.kind === "reason"; });
+}
+
 function firstSourceError(snapshot) {
     if (snapshot === null) return null;
     for (var i = 0; i < snapshot.sources.length; i++) {
@@ -224,20 +257,63 @@ function firstSourceError(snapshot) {
     return null;
 }
 
+// How a sentence about a failed or old check ends, by where it shows:
+// `hint` on the Settings page and in the bar tooltip, where the user must
+// open the Updates window to reach Refresh, and `window` in the Updates
+// window, where Refresh is in view.
+var RETRY_ENDINGS = {
+    again: { hint: "Select Open if needed, then Refresh in the Updates window to try again.", window: "Select Refresh to try again." },
+    checkAgain: { hint: "Select Open if needed, then Refresh in the Updates window to check again.", window: "Select Refresh to check again." },
+    later: { hint: "Select Open if needed, then Refresh in the Updates window later.", window: "Select Refresh later to try again." },
+    wait: { hint: "Wait an hour, select Open if needed, then Refresh in the Updates window.", window: "Wait an hour, then select Refresh to try again." },
+    connection: { hint: "Check your connection, select Open if needed, then Refresh in the Updates window.", window: "Check your connection, then select Refresh to try again." }
+};
+
 // vgshell and bin/check keep these diagnostics in the snapshot. The status
 // line and source rows use words; the log keeps the source's full result.
+// Each row is [pattern, cause, ending]: ending is a key of RETRY_ENDINGS,
+// or null for a cause whose remedy is not Refresh and reads the same in
+// every place. `KEY=http status=N` is GitHub's answer to `vgshell self
+// status`'s compare or release read (bin/lib/self.js): a server that
+// answered, so it never reads as a connection to check.
 var CHECK_ERRORS = [
-    [/spawn=failed|start=failed|start-failed/, "The update check could not start. Select Open if needed, then Refresh in the Updates window to try again."],
-    [/unparseable|not-json|output-unreadable|cache=|^sources|^checkedAt$/, "The update result could not be read. Select Open if needed, then Refresh in the Updates window to try again."],
-    [/timeout/, "The update check took too long. Select Open if needed, then Refresh in the Updates window to try again."],
-    [/fetch|remote|unreachable|release=http/, "The update source could not be reached. Check your connection, select Open if needed, then Refresh in the Updates window."],
-    [/missing|reason=absent/, "A tool needed for this check is missing. Install it in [Plugins](page:vgs.updates/Setup)."]
+    [/spawn=failed|start=failed|start-failed/, "The update check could not start.", "again"],
+    [/unparseable|not-json|output-unreadable|=malformed|cache=|^sources|^checkedAt$/, "The update result could not be read.", "again"],
+    [/timeout/, "The update check took too long.", "again"],
+    [/\bcompare=http status=404\b/, "GitHub no longer has the VGS version installed here, so VGS cannot tell what changed since. Reinstall VGS to get the newest version.", null],
+    [/=http status=(?:403|429)\b/, "GitHub limits how often VGS may check.", "wait"],
+    [/=http status=/, "GitHub could not answer the update check.", "later"],
+    [/fetch|remote|unreachable/, "The update source could not be reached.", "connection"],
+    [/missing|reason=absent/, "A tool needed for this check is missing. Install it in [Plugins](page:vgs.updates/Setup).", null]
 ];
+var CHECK_FAILED = ["The update check failed.", "again"];
+var CHECK_OLD = ["The last check is old.", "checkAgain"];
 
-function errorText(reason) {
+// The sentence for CAUSE and ENDING, the last two fields of a CHECK_ERRORS
+// row, worded for the Updates window when IN_WINDOW is true.
+function checkText(cause, ending, inWindow) {
+    if (ending === null) return cause;
+    return cause + " " + RETRY_ENDINGS[ending][inWindow === true ? "window" : "hint"];
+}
+
+// The sentence for a check's diagnostic REASON: for the Settings hint and
+// the tooltip, or, with IN_WINDOW true, for a row of the Updates window.
+function errorText(reason, inWindow) {
     for (var i = 0; i < CHECK_ERRORS.length; i++)
-        if (CHECK_ERRORS[i][0].test(String(reason))) return CHECK_ERRORS[i][1];
-    return "The update check failed. Select Open if needed, then Refresh in the Updates window to try again.";
+        if (CHECK_ERRORS[i][0].test(String(reason))) return checkText(CHECK_ERRORS[i][1], CHECK_ERRORS[i][2], inWindow);
+    return checkText(CHECK_FAILED[0], CHECK_FAILED[1], inWindow);
+}
+
+// The window's sentence for HINT, a hint checkState wrote: the same cause
+// with the window's ending. The core's `state` value takes only its fixed
+// keys (PluginLogic STATUS_STATE_KEYS), so the window cannot receive the
+// diagnostic beside the hint; it finds the hint's row in the one table
+// that wrote it. A hint from no row of it is a broken contract.
+function windowHintText(hint) {
+    var rows = CHECK_ERRORS.map(function (row) { return [row[1], row[2]]; }).concat([CHECK_FAILED, CHECK_OLD]);
+    for (var i = 0; i < rows.length; i++)
+        if (checkText(rows[i][0], rows[i][1], false) === hint) return checkText(rows[i][0], rows[i][1], true);
+    throw new Error("updates: check hint " + JSON.stringify(hint) + " has no window text");
 }
 
 // The check's `state` status value: `text` is the short state its badge
@@ -252,24 +328,42 @@ function checkState(snapshot, checking, now, intervalMs, checkFailure) {
     if (snapshot.error !== null && snapshot.error !== "") return { tone: "danger", text: "Failed", hint: errorText(snapshot.error) };
     var source = firstSourceError(snapshot);
     if (source !== null) return { tone: "warning", text: ((source.label || source.source) + " failed").slice(0, 200), hint: errorText(source.error) };
-    if (typeof now === "number" && intervalMs > 0 && now - snapshot.checkedAt >= 2 * intervalMs) return { tone: "warning", text: "Check is old", hint: "The last check is old. Select Open if needed, then Refresh in the Updates window to check again." };
-    return { tone: "ok", text: pendingCount(snapshot) > 0 ? "Updates waiting" : "Up to date" };
+    if (typeof now === "number" && intervalMs > 0 && now - snapshot.checkedAt >= 2 * intervalMs) return { tone: "warning", text: "Check is old", hint: checkText(CHECK_OLD[0], CHECK_OLD[1], false) };
+    if (pendingCount(snapshot) > 0) return { tone: "ok", text: "Updates waiting" };
+    return { tone: "ok", text: newVersionNoted(snapshot.sources) ? "New VGS version" : "Up to date" };
 }
 
 // `checking` is whether a check process runs: the widget's spinner reads
 // it, since the `info` tone of `checkState` also means "not checked".
-function publishValues(snapshot, checking, now, intervalMs, checkFailure) {
-    return { pending: pendingCount(snapshot), lastCheck: snapshot === null ? null : snapshot.checkedAt, checkState: checkState(snapshot, checking, now, intervalMs, checkFailure), checking: checking === true, sources: snapshot === null ? [] : publishedSources(snapshot.sources) };
+// AUR_COMMAND is the plugin's `aurCommand` setting as it stands now.
+function publishValues(snapshot, checking, now, intervalMs, checkFailure, aurCommand) {
+    return { pending: pendingCount(snapshot), lastCheck: snapshot === null ? null : snapshot.checkedAt, checkState: checkState(snapshot, checking, now, intervalMs, checkFailure), checking: checking === true, sources: snapshot === null ? [] : publishedSources(snapshot.sources, aurCommand) };
 }
 
-function publishedSources(sources) {
+// ROW's note as the service publishes it. The release `vgshell` package
+// with no AUR helper still updates when the `aurCommand` setting holds a
+// word: Update everything then runs those words for the AUR
+// (tui/pipeline.sh), so its reason reads `package-manager`. `vgshell-git`
+// keeps `no-aur-helper`: its rebuild runs `<helper> -S vgshell-git`, which
+// needs paru or yay. The VGS row's one package carries the status's
+// package name (normalizeSelf). The setting is read here, not in the
+// snapshot, so a change to it shows without a new check.
+function publishedNote(row, aurCommand) {
+    var note = clone(row.note);
+    if (row.source === "vgs" && isPlainObject(note) && note.kind === "reason" && note.reason === "no-aur-helper"
+        && row.packages.length > 0 && row.packages[0].name === "vgshell" && /\S/.test(String(aurCommand || "")))
+        note.reason = "package-manager";
+    return note;
+}
+
+function publishedSources(sources, aurCommand) {
     var out = [];
     for (var i = 0; i < sources.length; i++) {
         var row = sources[i];
         var packages = [];
         var limit = Math.min(row.packages.length, PUBLISHED_PACKAGES_PER_SOURCE_MAX);
         for (var p = 0; p < limit; p++) packages.push(publishedPackage(row.packages[p]));
-        var made = sourceRow(row.source, row.count, packages, row.checkedAt, row.error);
+        var made = sourceRow(row.source, row.count, packages, row.checkedAt, row.error, publishedNote(row, aurCommand));
         made.more = Math.max(0, row.packages.length - packages.length);
         out.push(made);
     }
@@ -713,15 +807,18 @@ function rebootNoticeRequested(request, value) {
 // spinner stands in for the icon, and the tone of the count badge.
 //   current    the last check succeeded and nothing waits
 //   pending    the last check succeeded and updates wait
+//   newVersion the last check succeeded, nothing waits, and the VGS row
+//              names a new version no step here installs
 //   attention  the check failed, a source failed, or the snapshot is older
 //              than twice the interval: checkState `warning` or `danger`
 //   checking   a check process runs
 //   unchecked  no check has published a state yet
 // Only `current` may hide, and only under the `hideWhenCurrent` setting, so
-// a failed, stale or missing check always shows.
+// a failed, stale or missing check and a new VGS version always show.
 var WIDGET_STATES = {
     current: { icon: "refresh-cw", tone: "calm", spinning: false, badgeTone: "neutral" },
     pending: { icon: "refresh-cw", tone: "accent", spinning: false, badgeTone: "accent" },
+    newVersion: { icon: "refresh-cw", tone: "accent", spinning: false, badgeTone: "accent" },
     attention: { icon: "triangle-alert", tone: "warning", spinning: false, badgeTone: "warning" },
     checking: { icon: "refresh-cw", tone: "calm", spinning: true, badgeTone: "accent" },
     unchecked: { icon: "circle-dashed", tone: "calm", spinning: false, badgeTone: "neutral" }
@@ -759,7 +856,9 @@ function widgetState(values) {
     if (v.checking === true) return "checking";
     if (!isPlainObject(v.checkState)) return "unchecked";
     switch (v.checkState.tone) {
-    case "ok": return pendingOf(v) > 0 ? "pending" : "current";
+    case "ok":
+        if (pendingOf(v) > 0) return "pending";
+        return newVersionNoted(sourcesOf(v)) ? "newVersion" : "current";
     case "warning":
     case "danger": return "attention";
     case "info": return "unchecked";
@@ -776,14 +875,15 @@ function widgetView(values, hideWhenCurrent) {
     return { state: state, icon: look.icon, tone: look.tone, spinning: look.spinning, badge: pending > 0 ? badgeText(pending) : "", badgeTone: look.badgeTone, hidden: hideWhenCurrent === true && state === "current" };
 }
 
-// The one line that says where updates stand, as the tooltip and the
-// window's heading show it: a check that needs attention reads its state's
+// The one line that says where updates stand, as the tooltip shows it and
+// windowSummaryText starts from: a check that needs attention reads its state's
 // sentence, its `hint`, where it has one, else its short text.
 function summaryText(values) {
     var state = widgetState(values);
     switch (state) {
     case "current": return "Up to date";
     case "pending": return countText(pendingOf(values), "update") + " waiting";
+    case "newVersion": return "New VGS version";
     case "attention":
         var check = valuesOf(values).checkState;
         return String(check.hint !== undefined ? check.hint : check.text);
@@ -791,6 +891,21 @@ function summaryText(values) {
     case "unchecked": return "Not checked yet";
     default: throw new Error("updates: widget state " + JSON.stringify(state) + " has no summary");
     }
+}
+
+// The Updates window's heading line: summaryText, worded for the window
+// where the check needs attention. A source that failed names its cause on
+// its own row, so the heading counts those sources rather than repeat a
+// row; a failed or old check as a whole reads its hint with the window's
+// ending, with a page link's words alone, since the heading is no link.
+// checkState gives a warning with a failed source only for that source,
+// before an old check.
+function windowSummaryText(values) {
+    if (widgetState(values) !== "attention") return summaryText(values);
+    var check = valuesOf(values).checkState;
+    var failing = sourcesOf(values).filter(function (row) { return isPlainObject(row) && row.error !== null && row.error !== undefined && row.error !== ""; }).length;
+    if (check.tone === "warning" && failing > 0) return countText(failing, "update source") + " could not be checked";
+    return check.hint !== undefined ? Commons.PageReference.plain(windowHintText(check.hint)) : String(check.text);
 }
 
 // `Checked <time>` for `lastCheck` at NOW, or `Never checked`. `timeText`
@@ -824,29 +939,72 @@ function packageLine(pkg) {
     return pkg.name;
 }
 
+// What the VGS row's detail says when it is behind and VGS runs no step for
+// it, by the status's reason. None offers Update, so each names what
+// installs the new version or what VGS needs to install it. A release
+// package reads behind from GitHub's latest release, which its package
+// manager may not offer yet, so the `package-manager` text promises no time.
+var SELF_REASON_TEXT = {
+    "package-manager": "Your package manager may not offer it yet. Update everything installs it when it does.",
+    "nix": "Nix manages VGS on this computer. Update the VGS input of your flake to get it.",
+    "no-aur-helper": "This computer needs an AUR helper, paru or yay, to update VGS."
+};
+
+// The VGS row's detail after a failed rebuild: the package pacman named in
+// conflict when it named one, and the retry, whose update window shows the
+// helper's output as it runs. It names no log: the row stays until the
+// next rebuild, while every later update run replaces the last log.
+function rebuildFailedText(note) {
+    if (note.conflict !== null) return note.conflict + " conflicts with a package on this computer, so the VGS package did not rebuild. Select Update to try again.";
+    return "The VGS package did not rebuild. Select Update to try again.";
+}
+
+// A row's line, badge, Update and detail: an error first, then the VGS
+// row's note, then the count. The line is one elided line beside the
+// badge, so a sentence that must be read whole is the `detail`, which the
+// window wraps under the row, "" for none.
+function rowReading(row) {
+    var failed = row.count === null;
+    var error = row.error === null || row.error === undefined ? "" : String(row.error);
+    if (error !== "") return { secondary: failed ? "Could not check" : countText(row.count, "update"), badge: failed ? "Failed" : badgeText(row.count), badgeTone: "warning", updatable: !failed && row.count > 0, detail: Commons.PageReference.plain(errorText(error, true)) };
+    if (failed) return { secondary: "Could not count updates", badge: "Failed", badgeTone: "neutral", updatable: false, detail: "" };
+    var note = row.note === undefined ? null : row.note;
+    if (note !== null) {
+        switch (note.kind) {
+        case "reason":
+            if (!hasOwn(SELF_REASON_TEXT, note.reason)) throw new Error("updates: self reason " + JSON.stringify(note.reason) + " has no text");
+            return { secondary: "A new version is out", badge: "New", badgeTone: "info", updatable: false, detail: SELF_REASON_TEXT[note.reason] };
+        case "rebuildFailed": return { secondary: "The last update failed", badge: "Update failed", badgeTone: "danger", updatable: row.count > 0, detail: rebuildFailedText(note) };
+        default: throw new Error("updates: row note " + JSON.stringify(note.kind) + " is not one of reason, rebuildFailed");
+        }
+    }
+    return { secondary: row.count === 0 ? "Up to date" : countText(row.count, "update"), badge: badgeText(row.count), badgeTone: row.count > 0 ? "accent" : "neutral", updatable: row.count > 0, detail: "" };
+}
+
 // The window's rows, one per published source in the service's order:
 // { key, source, label, icon, secondary, badge, badgeTone, updatable,
-// lines, more }. `lines` are the packages the shared status lists, `more`
-// the `+N more` it omitted, "" for none. A source with an error keeps its
-// row and names the error; only a source with a count above zero offers
-// its own Update.
+// detail, lines, more }. `detail` is rowReading's, `lines` the packages
+// the shared status lists, `more` the `+N more` it omitted, "" for none. A
+// source with an error keeps its row and names the error; only a source
+// with a count above zero offers its own Update, so the VGS row offers it
+// only for a step that runs.
 function windowRows(values) {
     var sources = sourcesOf(values);
     var rows = [];
     for (var i = 0; i < sources.length; i++) {
         var row = sources[i];
-        var failed = row.count === null;
-        var error = row.error === null || row.error === undefined ? "" : String(row.error);
+        var reading = rowReading(row);
         var packages = Array.isArray(row.packages) ? row.packages : [];
         rows.push({
             key: row.source,
             source: row.source,
             label: row.label,
             icon: sourceIcon(row.source),
-            secondary: error !== "" ? Commons.PageReference.plain(errorText(error)) : failed ? "Could not count updates" : row.count === 0 ? "Up to date" : countText(row.count, "update"),
-            badge: failed ? "Failed" : badgeText(row.count),
-            badgeTone: error !== "" ? "warning" : !failed && row.count > 0 ? "accent" : "neutral",
-            updatable: !failed && row.count > 0,
+            secondary: reading.secondary,
+            badge: reading.badge,
+            badgeTone: reading.badgeTone,
+            updatable: reading.updatable,
+            detail: reading.detail,
             lines: packages.map(packageLine),
             more: typeof row.more === "number" && row.more > 0 ? "+" + row.more + " more" : ""
         });
