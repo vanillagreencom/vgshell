@@ -288,6 +288,14 @@ function verify(L) {
     assert.ok(head.text.startsWith("1 "), "the headline counts one: " + head.text);
     same([chip.text, detailsLine, tipLine], [head.text, head.text, head.text], "Settings, Details and the tooltip read the headline's words");
     assert.ok(L.reviewView(oneTwoCloud).notesLine.startsWith("2 "), "the two notes fold apart");
+    // No surface calls a row "to review": a row needs the user or is a
+    // note. The record of every state in the table, and the two-note one.
+    for (const rec of STATES.map(row => row[1]).concat([oneTwo])) {
+        const c = L.cloudValue(rec, "");
+        const shown = JSON.stringify([L.statusValues(rec, null, "", "", NOW, HOME), L.widgetTooltip(c, NOW, Timestamp.text), L.panelHeader(c, NOW, Timestamp.text),
+            L.problemCallout(c, NOW), L.panelBody(c, NOW), L.reviewView(c), L.notification(rec)]);
+        assert.ok(!/to review/i.test(shown), "a surface says to review: " + shown);
+    }
 
     // The published values of the record and the probe.
     const presence = L.parseProbe(JSON.stringify(probe())).presence;
@@ -784,6 +792,7 @@ const controls = [
     ["the popover says a pause", "if (cloud.paused) return (head.cause", "if (false) return (head.cause"],
     ["a note hides the up-to-date sentence", "if (cloud.conflictCount > 0 || problemCallout(", "if (problemCallout("],
     ["up to date counts the folder pairs", "return (n === 1 ? \"Your folder pair matches Google Drive.\" : \"Your \" + n + \" folder pairs match Google Drive.\")", "return \"Your folder pairs match Google Drive.\""],
+    ["no surface calls a note to review", "notes\") + \" · nothing was lost\"", "notes\") + \" to review\""],
     ["the fold line counts the record's notes", "var noteCount = cloud.conflictCount - cloud.needsYou;", "var noteCount = notes.length;"],
     ["the notes the list leaves out are counted", "notesRest = noteCount - notes.length;", "notesRest = 0;"],
     ["Needs you holds only the rows that need the user", "var needs = rows.filter(function (r) { return r.needs === \"you\"; });", "var needs = rows;"],
