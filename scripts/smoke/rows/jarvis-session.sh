@@ -26,11 +26,11 @@
 # session has not answered. In a copy whose helper bound is 2 s, a prepare
 # that holds 10 s still reaches systemctl before it answers. A record the
 # package saved before a machine restart offers its resume on the row and
-# the bar widget while Start Jarvis at boot is off, and the offer reads the
-# session no more than the build did. Resume asks for one manual resume; a
-# second Resume before the package answers is refused and asks for none.
-# Once the resume starts the offer ends, the row reads the resume and the
-# widget each step's outcome and the failed step's cause. A resume that
+# the bar widget while Start Jarvis at boot is off. Resume asks for one
+# manual resume; a second Resume before the package answers is refused and
+# asks for none. Once the resume starts the offer ends, the row reads the
+# resumed session and the widget each step's outcome and the failed step's
+# cause. A resume that
 # fails at its first step keeps that step's cause on the widget, reads
 # the steps it did not reach as not resumed and offers nothing again. A
 # resume that leaves the session failed before its first step offers
@@ -39,8 +39,9 @@
 # session, a shell start asks for one boot resume and no start, and a
 # shell restart while that resumed session lives asks for one boot start
 # and no second resume. With Start a new session, a shell start asks for
-# one boot start beside the kept record, and the session it starts reads
-# the session no more than the build did and shows no step. Controls: a tree
+# one boot start beside the kept record, and the session it starts shows
+# no step. Whether a session reads its steps again is the setup-gate
+# test's (sessionStepsPending), not a count over time here. Controls: a tree
 # whose helper asks twice reads two starts for one shell start, a tree
 # whose service follows a refused selection holds the new home, a tree
 # whose helper drops the model and start time shows neither, a tree whose
@@ -439,8 +440,8 @@ session_restart() { # STEP...
   python3 -c 'import json,sys; print(json.dumps({"unlock": None, "steps": [dict(zip(["kind", "name", "outcome", "cause"], (step.split(":", 3) + [None])[:4])) for step in sys.argv[1:]]}))' "$@"
 }
 # A record saved before a machine restart: each step pending, then, once
-# the package's resume starts, the session resumed, overseer vgshell
-# failed with its cause and lane VGS-1797 still pending. The resume
+# the package's resume starts, the session running resumed, overseer
+# vgshell failed with its cause and lane VGS-1797 still pending. The resume
 # answers after 2 s, so a second Resume can come before its answer. The
 # calls start over.
 session_offer_answers() {
@@ -449,7 +450,7 @@ session_offer_answers() {
   resumed="$(session_restart delegate:jarvis:resumed overseer:vgshell:failed:settings-busy lane:VGS-1797:pending)"
   session_answers "stopped ended" "running existing" "stopping stop-requested"
   session_answer status "{\"exit\": 0, \"object\": {\"state\": \"stopped\", \"reason\": \"ended\", \"restart\": $pending}}"
-  session_answer resume "{\"exit\": 0, \"hold\": 2, \"object\": {\"state\": \"starting\", \"reason\": \"resuming\"}, \"then\": {\"status\": {\"exit\": 0, \"object\": {\"state\": \"starting\", \"reason\": \"resuming\", \"restart\": $resumed}}}}"
+  session_answer resume "{\"exit\": 0, \"hold\": 2, \"object\": {\"state\": \"starting\", \"reason\": \"resuming\"}, \"then\": {\"status\": {\"exit\": 0, \"object\": {\"state\": \"running\", \"reason\": \"resumed\", \"restart\": $resumed}}}}"
 }
 session_resume_words() { # ORIGIN...
   python3 -c 'import json,sys; print(json.dumps([["resume", "--origin", origin, "--home", sys.argv[1]] for origin in sys.argv[2:]]))' "$session_home" "$@"
@@ -458,17 +459,12 @@ session_offer_answers
 session_shell_start "$repo" offer
 expect_poll "a record saved before the restart offers its resume on the row" '["Saved before the restart", "Resume Jarvis from before the restart"]' session_row
 expect_poll "the bar widget offers the resume" '"Resume Jarvis from before the restart"' session_tip
-# Real time for the timer's wiring alone: two step-read periods
-# (SessionStart.qml stepPollMs) pass while the offer stands.
-sleep 5
-expect "the offer reads the session no more than the build did" \
-  "$(python3 -c 'import json,sys; print(json.dumps([["status", "--home", sys.argv[1]]]))' "$session_home")" session_calls status
 expect "the offer asks for no resume" '[]' session_calls resume
 expect "Resume is taken" ok ipc vgs.jarvis invoke resume-session ''
 expect "a second Resume before the package answers is refused" "refused: resume=not-offered" ipc vgs.jarvis invoke resume-session ''
 expect_poll "two Resumes ask the package for one manual resume, in the session's home" "$(session_resume_words manual)" session_calls_settled resume
 expect_poll "the offer ends once the resume starts" null session_offer
-expect_poll "the row reads the resume" Resuming session_text
+expect_poll "the row reads the resumed session" Running session_text
 expect_poll "the widget shows each step's outcome and the failed step's cause" \
   '["Resumed the Jarvis session.", "Could not resume overseer vgshell: settings-busy.", "Waiting to resume lane VGS-1797."]' session_steps
 expect "a Resume once the resume started is refused" "refused: resume=not-offered" ipc vgs.jarvis invoke resume-session ''
@@ -542,7 +538,7 @@ session_shell_start "$repo" boot-resume
 expect_poll "with Start Jarvis at boot on a shell start asks for one boot resume" "$(session_resume_words boot)" session_calls_settled resume
 expect "the boot resume asks for no start" '[]' session_calls start
 expect "a record resumed at boot offers nothing" null session_offer
-# The resumed session lives: the stand-in's status reads it starting.
+# The resumed session lives: the stand-in's status reads it running resumed.
 rm -f -- "${session_package:?}/scripts/calls.log"
 session_shell_start "$repo" boot-live
 expect_poll "a shell restart while the resumed session lives asks for one boot start" "$(session_start_words resume boot)" session_calls_settled start
@@ -559,11 +555,6 @@ session_shell_start "$repo" boot-new
 expect_poll "with Start a new session a shell start asks for one boot start" "$(session_start_words new boot)" session_calls start
 expect_poll "the new session runs beside the kept record" Running session_text
 expect "the boot start asks for no resume" '[]' session_calls resume
-# Real time for the timer's wiring alone: two step-read periods
-# (SessionStart.qml stepPollMs) pass after the start.
-sleep 5
-expect "a session beside the kept record reads the session no more than the build did" \
-  "$(python3 -c 'import json,sys; print(json.dumps([["status", "--home", sys.argv[1]]] * 2))' "$session_home")" session_calls status
 expect "a session beside the kept record shows no step" '[]' session_steps
 session_set '{"startAtBoot": false, "bootSession": "new"}'
 

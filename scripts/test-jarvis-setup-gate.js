@@ -1420,13 +1420,16 @@ function verifySession(gate) {
     const failedResume = { ...saved, state: "failed", reason: "launch-failed", detail: "The app asked for a sign-in.",
         restart: { unlock: "1password", steps: [failedDelegate, pending] } };
     // A session a Start or a boot with Start a new session started beside
-    // the record: no resume of it started.
+    // the record: no resume of it started, whatever the record's steps read.
     const beside = { ...saved, state: "running", reason: "existing" };
+    const startingBeside = { ...saved, state: "starting", reason: "launching" };
+    const failedRecord = { unlock: "1password", steps: [failedDelegate, { kind: "overseer", name: "vgshell", outcome: "pending", cause: null }] };
     for (const [label, wanted, result, aside, offers] of [
         ["a stopped session", false, saved, false, true], ["a failed start", false, { ...saved, state: "failed", reason: "launch-failed" }, false, true],
         ["a resume that ended before its first step", false, { ...saved, reason: "stopped" }, false, true],
         ["the boot setting on", true, saved, false, false], ["put aside", false, saved, true, false],
         ["a live session", false, resuming, false, false], ["a session beside the record", false, beside, false, false],
+        ["a session starting beside the record", false, startingBeside, false, false],
         ["a resume that failed at its first step", false, failedResume, false, false], ["a resume that ended after a step", false, ended, false, false],
         ["an app Off", false, { ...saved, state: "off", reason: "app-off" }, false, false], ["no record", false, { ...saved, restart: undefined }, false, false]]) {
         assert.equal(gate.sessionOffer(wanted, result, aside), offers, label + ": the offer");
@@ -1440,8 +1443,12 @@ function verifySession(gate) {
     const notResumed = { ...pending, outcome: "failed", cause: null };
     for (const [label, result, steps, reads] of [
         ["a record no resume reached", saved, [], false], ["a failed start", { ...saved, state: "failed", reason: "launch-failed" }, [], false],
-        ["a session beside the record", beside, [], false],
-        ["a resume that starts", resuming, restart.steps, true], ["a resume past its first step", resumedRunning, resumedRunning.restart.steps, true],
+        ["a session beside the record", beside, [], false], ["a session starting beside the record", startingBeside, [], false],
+        ["a Start beside a failed resume, starting", { ...startingBeside, restart: failedRecord }, [], false],
+        ["a Start beside a failed resume, running", { ...beside, restart: failedRecord }, [], false],
+        ["a resume that starts", resuming, restart.steps, true],
+        ["running resumed with the delegate pending", { ...resumedRunning, restart }, restart.steps, true],
+        ["a resume past its first step", resumedRunning, resumedRunning.restart.steps, true],
         ["a resume that ended after a step", ended, ended.restart.steps, false],
         ["a resume that failed at its first step", failedResume, [failedDelegate, notResumed], false]]) {
         assert.deepEqual([plain(gate.sessionRecord(false, result, false, null)).steps, gate.sessionStepsPending(result)], [steps, reads],
@@ -1994,8 +2001,12 @@ const CONTROLS = [
     ["the offer ignores Do not resume", "return !wanted && !setAside && result !== null", "return !wanted && result !== null", "put aside: the offer"],
     ["the row offers no Resume", "if (offered === true) value = Object.assign({}, SESSION_RESUME);", "if (false) value = null;", "the row offers Resume"],
     ["a resume that failed is offered again", "SESSION_OFFERED.indexOf(result.state) !== -1 && !sessionResumeStarted(result);", "SESSION_OFFERED.indexOf(result.state) !== -1;", "a resume that failed at its first step: the offer"],
-    ["a session beside the record is its resume", '        && ((result.state === "starting" && result.reason === "resuming")', "        && (sessionLive(result.state)", "a session beside the record: the steps and reads"],
-    ["a resume that ended is read again", "    return sessionResumeStarted(result) && sessionLive(result.state)\n", "    return sessionResumeStarted(result)\n", "a resume that failed at its first step: the steps and reads"],
+    ["a session beside the record is its resume", "    if (sessionLive(result.state)) return sessionResumeLive(result);", "    if (sessionLive(result.state)) return true;", "a session beside the record: the steps and reads"],
+    ["a starting session is the resume", "&& sessionLive(result.state) && SESSION_RESUME_REASONS.indexOf(result.reason) !== -1;",
+        '&& sessionLive(result.state) && (SESSION_RESUME_REASONS.indexOf(result.reason) !== -1 || result.state === "starting");', "a session starting beside the record: the steps and reads"],
+    ["a Start beside a failed resume reads its steps", "    if (sessionLive(result.state)) return sessionResumeLive(result);\n", "", "a Start beside a failed resume, starting: the steps and reads"],
+    ["running resumed is not the resume", 'var SESSION_RESUME_REASONS = ["resuming", "resumed"];', 'var SESSION_RESUME_REASONS = ["resuming"];', "running resumed with the delegate pending: the steps and reads"],
+    ["a resume that ended is read again", "    return sessionResumeLive(result)\n", "    return sessionResumeStarted(result)\n", "a resume that failed at its first step: the steps and reads"],
     ["an ended resume's pending steps read waiting", 'outcome: "failed", cause: null } : step;', "outcome: step.outcome, cause: step.cause } : step;", "a resume that failed at its first step: the steps and reads"],
     ["stale pending steps stay", "    if (stale) steps = steps.filter(", "    if (false) steps = steps.filter(", "the reads stopped"],
     ["a starting session is not live", 'var SESSION_LIVE = ["running", "starting", "handing-over"];', 'var SESSION_LIVE = ["running", "handing-over"];', "the states of a session that lives"],

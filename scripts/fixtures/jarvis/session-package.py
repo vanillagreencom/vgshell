@@ -15,7 +15,15 @@ call as a command does that waits on a program it started: a child that
 holds the output open sleeps that long, and so does the call. An entry's
 "then": {VERB: ENTRY, ...} replaces those verbs' entries in answers.json
 before the call answers, as a call that changes the session changes what
-the next status reads."""
+the next status reads.
+
+It holds its answers to the package's resume reasons (design VGS-1797,
+`status` reason during a resume): a session `start` started beside a
+kept record never reads `resuming` or `resumed`, and `running resumed`
+over a record comes only once the delegate step has its outcome. An entry
+whose object, or an object under its "then", breaks either exits 2 with
+`jarvis-session: stand-in=contract verb=VERB reason=REASON`, so no test
+models a package that does not exist."""
 import json, os, subprocess, sys, time
 
 here = os.path.dirname(os.path.abspath(__file__))
@@ -35,6 +43,15 @@ entry = answers.get(argv[0]) if argv else None
 if entry is None:
     sys.stderr.write("jarvis-session: verb=%s\n" % (argv[0] if argv else ""))
     sys.exit(2)
+for value in [entry] + list(entry.get("then", {}).values()):
+    shown = value.get("object", {})
+    restart, reason = shown.get("restart"), shown.get("reason")
+    if restart is None:
+        continue
+    delegate = [step["outcome"] for step in restart["steps"] if step["kind"] == "delegate"]
+    if (argv[0] == "start" and reason in ("resuming", "resumed")) or (reason == "resumed" and "pending" in delegate):
+        sys.stderr.write("jarvis-session: stand-in=contract verb=%s reason=%s\n" % (argv[0], reason))
+        sys.exit(2)
 if "then" in entry:
     answers.update(entry["then"])
     with open(os.path.join(here, "answers.json.next"), "w") as out:
