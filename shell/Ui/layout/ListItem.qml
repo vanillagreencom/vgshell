@@ -119,8 +119,9 @@ T.ItemDelegate {
 
     background: Rectangle {
         radius: Theme.listItem.radius
+        // Paint the theme state at once: a colour blend from transparent
+        // black can darken the row below both its rest and hover fills.
         color: root.cursor !== null ? "transparent" : root.highlighted ? (root.down ? Theme.listItem.selectedPressed : Theme.listItem.selected) : root.down ? Theme.rowFill(Theme.listItem.pressed, true) : root.hovered && root.clickable ? Theme.rowFill(Theme.listItem.hover, false) : "transparent"
-        Behavior on color { ColorAnimation { duration: Theme.motion.duration.fast; easing.type: Theme.motion.easing.standard } }
         FocusRing { target: root }
     }
 }
