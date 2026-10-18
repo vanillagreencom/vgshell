@@ -102,6 +102,8 @@ template() {
   printf '# kendex-guard-dialect: legacy-glob\n.agents/*\tcopies of checkers, whose citations name their own repository\n' >"$dir/tools/md-excludes"
   printf 'docs/architecture/validation.md\tborrowed citation target, whose links name the full repository\n' >>"$dir/tools/md-excludes"
   printf '[env]\nWORKTREE_DEFAULT_BRANCH = "trunk"\n' >"$dir/kendex.settings.toml"
+  # The copied extensionless scripts need the repository's source discovery setting.
+  grep '^COMMIT_GUARDS_MD_REFS_SOURCE_PATHS[[:space:]]*=' "$repo/kendex.settings.toml" >>"$dir/kendex.settings.toml"
   printf 'clean\n' >"$dir/clean.txt"
   mkdir -p "$dir/bin/lib" "$dir/shell/Core" "$dir/config/system/udev"
   printf 'clean\n' | tee "$dir/bin/lib/logo.txt" "$dir/shell/Core/qmldir" >"$dir/config/system/udev/60-vgs-apple-displays.rules"
