@@ -46,7 +46,7 @@ A pair that another run holds reads `busy` and copies nothing.
 - The client id, the client secret and the token live in the keyring alone. No argv, file, log or systemd unit holds one.
 - The token is the account's one keyring item, with the Google account's address in its `user` attribute. `probe` reports that address.
 - The credential uses the Drive scope `drive`.
-- `sign-out` clears the token and marks each pair as needing Connect. The client keys and every file stay.
+- `sign-out` clears the token and marks each pair as needing a sign-in. The client keys and every file stay.
 
 ## Files
 
@@ -59,14 +59,14 @@ A pair that another run holds reads `busy` and copies nothing.
 
 The plugin had another name before Google Drive. For an enabled plugin, the runner's first invocation on a home that holds that name's directories or units runs the rename under the state lock, before its normal verb:
 
-1. While that name's service runs a sync, the runner refuses the invocation with `migration=held` and exit 75, and leaves that name's timer enabled, so the hourly sync goes on under the earlier units. The plugin's service asks for the status and the probe again every 15 seconds while the runner answers 75; the first call after the sync ends runs the rename. Until then, the Settings page's Google Drive sync row reads Waiting and gives the reason from the runner's `migration=held` line. A failed disable and an `is-active` answer that names no state also refuse with exit 75.
+1. While that name's service runs a sync, the runner refuses the invocation with `migration=held` and exit 75, and leaves that name's timer enabled, so the hourly sync goes on under the earlier units. The plugin's service asks for the status and the probe again every 15 seconds while the runner answers 75; the first call after the sync ends runs the rename. Until then, the Google Drive sync row on the plugin page's Details tab reads Waiting and gives the reason from the runner's `migration=held` line. A failed disable and an `is-active` answer that names no state also refuse with exit 75.
 2. Once no sync runs, the runner disables that name's timer. If the timer started a sync just before the disable, the runner enables the timer again and refuses as in step 1.
 3. The runner writes `rename.pending`, then moves the directories here. A file that both names hold stays and logs `migration=held`.
 4. It copies each keyring item to the `vgs-google-drive` service with the token's `user` attribute, checks the copy and clears the old item.
 5. When the old units were installed, it installs the units under this name, removes the old unit files and reloads the user manager. It then clears the failed state the manager can keep for the old units, so `systemctl --user --failed` does not list them.
 6. When every step finished, it removes `rename.pending`.
 
-A step that cannot finish, such as the keyring step while the keyring is locked, logs `migration=held` and lets the verb go on. Every later invocation takes the state lock and retries the steps left. Until then, `probe`, a sync, Connect and Sign out read an account still under the earlier name as locked, or as unreadable after a failed copy, never as missing. The runner's `the rename` section names the old paths.
+A step that cannot finish, such as the keyring step while the keyring is locked, logs `migration=held` and lets the verb go on. Every later invocation takes the state lock and retries the steps left. Until then, `probe`, a sync, Sign in and Sign out read an account still under the earlier name as locked, or as unreadable after a failed copy, never as missing. The runner's `the rename` section names the old paths.
 
 For a disabled plugin, the root `migrate` entry calls the runner's internal `migrate disabled` verb under the [startup migration contract](../../../.agents/skills/vgs-plugin/references/api.md#startup-migrations). It stops and disables the old and partially installed units before taking the state lock. It never starts a sync or enables a timer. A failed stop or incomplete keyring move returns failure and keeps the data and retry records for the next shell start.
 
