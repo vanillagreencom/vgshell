@@ -855,7 +855,13 @@ vim.api.nvim_create_autocmd('ColorScheme', {callback=function() vim.api.nvim_set
                 await module.evaluate();
                 const events = new Map();
                 module.namespace.default({ on: (name, callback) => events.set(name, callback) });
-                await events.get("session_start")({}, { hasUI: true, ui: { theme: { getColorMode: () => "truecolor" }, setTheme: value => { selected = value; return { success: true }; } } });
+                const ui = { theme: { getColorMode: () => "truecolor" }, setTheme: value => { selected = value; return { success: true }; } };
+                await events.get("session_start")({}, { mode: "tui", hasUI: true, ui });
+                for (const [mode, hasUI] of [["rpc", true], ["json", false], ["print", false]]) {
+                    const before = selected;
+                    await events.get("session_start")({}, { mode, hasUI, ui });
+                    assert.equal(selected, before, mode + ": no terminal theme request");
+                }
             }
             assert.equal(selected.colours.text, "#" + fg);
             assert.deepEqual(JSON.parse(fs.readFileSync(path.join(account, "settings.json"))), { theme: "vgs", defaultModel: "fixture" });
@@ -906,6 +912,14 @@ vim.api.nvim_create_autocmd('ColorScheme', {callback=function() vim.api.nvim_set
             await assert.rejects(() => verify(name), { code: "ERR_ASSERTION" }, name + ": original pickup must fail the same colour assertion");
             fs.writeFileSync(file, original);
         }
+        const bridge = path.join(tree, "themes/targets/pi/pi.js");
+        const original = fs.readFileSync(bridge, "utf8");
+        const needle = 'if (ctx.mode !== "tui") return;';
+        assert.equal(original.split(needle).length, 2);
+        fs.writeFileSync(bridge, original.replace(needle, "if (!ctx.hasUI) return;"));
+        assert.notEqual(fs.readFileSync(bridge, "utf8"), original);
+        await assert.rejects(() => verify("pi"), { code: "ERR_ASSERTION" }, "RPC dialog availability must not enable terminal theme switching");
+        fs.writeFileSync(bridge, original);
     } finally { fs.rmSync(root, { recursive: true, force: true }); }
 })().catch(error => { console.error(error); process.exitCode = 1; });
 JS
