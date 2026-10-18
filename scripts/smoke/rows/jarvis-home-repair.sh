@@ -6,6 +6,34 @@
 # the same repair restores the file but leaves the Home step To do.
 # inputs: scripts/smoke/rows/jarvis.sh scripts/smoke/fixtures/tui/vgs.jarvis/tui/repair-home.sh shell/plugins/vgs.jarvis/* packaging/jarvis-home/* shell/plugins/vgs.settings/* shell/Core/TuiRunner.qml bin/vgshell-tui bin/lib/tui.sh
 set -euo pipefail
+# Accepted homes are remembered even after their folders go away. Preserve
+# the incoming profile as well as its history, while no daemon can write it.
+repair_homes="$home/.local/state/vgshell/jarvis/homes.json"
+cp -- "$home/.config/vgshell/shell.json" "$sandbox/repair-home-config-original"
+repair_homes_present=false
+if [[ -e $repair_homes ]]; then
+  cp -- "$repair_homes" "$sandbox/repair-home-homes-original"
+  repair_homes_present=true
+fi
+repair_home_restore_profile() {
+  user_config_restore "$sandbox/repair-home-config-original"
+  if [[ $repair_homes_present == true ]]; then
+    cp -- "$sandbox/repair-home-homes-original" "$repair_homes"
+  else
+    rm -f -- "$repair_homes"
+  fi
+}
+repair_home_profile() {
+  if ! cmp -s -- "$sandbox/repair-home-config-original" "$home/.config/vgshell/shell.json"; then
+    echo changed-config
+  elif [[ $repair_homes_present == true ]]; then
+    if cmp -s -- "$sandbox/repair-home-homes-original" "$repair_homes"; then echo restored; else echo changed-homes; fi
+  elif [[ -e $repair_homes ]]; then
+    echo changed-homes
+  else
+    echo restored
+  fi
+}
 repair_service="$repo/shell/plugins/vgs.jarvis/Service.qml"
 repair_reader="$repo/shell/plugins/vgs.jarvis/HomeRepair.qml"
 repair_tui="$repo/shell/plugins/vgs.jarvis/tui/repair-home.sh"
@@ -104,10 +132,25 @@ repair_home_control() {
 expect "removing the completion recheck rejects the repaired outcome" 1 repair_home_control
 settings_page_close vgs.jarvis
 jarvis_disable
+cp -- "$repair_homes" "$sandbox/repair-home-homes-leaked"
 cp -- "$sandbox/repair-home-service-original" "$repair_service"
 cp -- "$sandbox/repair-home-reader-original" "$repair_reader"
 cp -- "$sandbox/repair-home-tui-original" "$repair_tui"
 rm -rf -- "${home:?}/Repair Home"
 rm -f -- "${home:?}/.repair-home-persona" "${home:?}/.repair-home-pressed"
+repair_home_restore_profile
+expect "Home repair restores the incoming profile and used homes" restored repair_home_profile
+# Plant the original leak after the daemon ends: removing a folder alone
+# must fail the same restoration assertion, without relying on a later row.
+cp -- "$sandbox/repair-home-homes-leaked" "$repair_homes"
+repair_home_profile_control() {
+  (failures=0 behaviour_failures=0
+   expect "Home repair restores the incoming profile and used homes" restored repair_home_profile >"$sandbox/repair-home-profile-control.log"
+   echo "$failures")
+}
+expect "a leaked used home breaks the profile restoration assertion" 1 repair_home_profile_control
+repair_home_restore_profile
+expect "the profile is restored after its leak control" restored repair_home_profile
+expect "the restored user profile is read again" ok ipc shell reloadConfig
 rescan "the original Home repair service is restored"
 jarvis_restore_requirements
