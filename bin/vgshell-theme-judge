@@ -3094,6 +3094,7 @@ async function wallpapersLand(format, configDir, stage, lock, name, mode) {
 
 function setupTargetRows(name, target, configHome, live) {
     const rows = [];
+    let selections;
     const unreadable = (file, code) => [{ name, app: target.app, file, line: null, state: "unreadable", error: code }];
     let selectionValues;
     if (target.select?.values !== undefined) {
@@ -3143,16 +3144,25 @@ function setupTargetRows(name, target, configHome, live) {
     case "entry": {
         let plan;
         try {
-            let roots = isAccountTarget(target) ? accountRoots(target, true) : undefined;
-            // Each account selects independently. A managed theme file
-            // connects only the account whose settings select that theme.
+            let dirs = entryDirs(target, configHome);
             if (target.select !== undefined && (target.select.values === undefined || selectionValues !== undefined)) {
-                const selected = selectionEdits(target, configHome, live, roots, undefined, selectionValues)
-                    .map(selection => selection.edit(latin1(readIfPresent(selection.file))) === null);
-                if (roots !== undefined) roots = roots.filter((root, index) => selected[index]);
-                else if (selected.some(holds => !holds)) return [];
+                selections = selectionEdits(target, configHome, live, undefined, undefined, selectionValues).map(selection => {
+                    try {
+                        return { ...selection, connected: selection.edit(latin1(readIfPresent(selection.file))) === null };
+                    } catch (e) {
+                        if (typeof e.code !== "string") throw e;
+                        return { ...selection, connected: false, error: e.code };
+                    }
+                });
+                // Each shipped entry configuration keeps its theme directory
+                // below its settings file. Match paths, never target order or
+                // another configuration's selection, including account roots.
+                dirs = dirs.filter(dir => selections.some(selection => {
+                    const relative = path.relative(path.dirname(selection.file), dir);
+                    return selection.connected && !path.isAbsolute(relative) && relative !== ".." && !relative.startsWith(".." + path.sep);
+                }));
             }
-            plan = currentEntries(target, entryDirs(target, configHome, roots), live);
+            plan = currentEntries(target, dirs, live);
         } catch (e) {
             if (typeof e.code !== "string") throw e;
             return unreadable(e.path || configHome, e.code);
@@ -3186,7 +3196,6 @@ function setupTargetRows(name, target, configHome, live) {
         throw new Error("vgshell-theme-judge: setupTargetRows: target " + name + " has no known wiring form");
     }
     if (target.select !== undefined) {
-        let selections;
         // An editors target selects the theme of the extension its applied
         // render made, and nothing before an apply.
         let extension;
@@ -3197,21 +3206,25 @@ function setupTargetRows(name, target, configHome, live) {
                 extension = render.extensionOf(target, stamped);
             }
             if (target.select.values !== undefined && selectionValues === undefined) return rows;
-            selections = selectionEdits(target, configHome, live, undefined, extension, selectionValues);
+            if (selections === undefined) selections = selectionEdits(target, configHome, live, undefined, extension, selectionValues);
         } catch (e) {
             if (typeof e.code !== "string") throw e;
             return rows.concat(unreadable(e.path || configHome, e.code));
         }
         for (const selection of selections) {
-            let text;
+            let connected = selection.connected;
+            if (selection.error !== undefined) {
+                rows.push(...unreadable(selection.file, selection.error));
+                continue;
+            }
             try {
-                text = readIfPresent(selection.file);
+                if (connected === undefined) connected = selection.edit(latin1(readIfPresent(selection.file))) === null;
             } catch (e) {
                 if (typeof e.code !== "string") throw e;
                 rows.push(...unreadable(selection.file, e.code));
                 continue;
             }
-            if (selection.edit(latin1(text)) === null) {
+            if (connected) {
                 if (target.select.values !== undefined) rows.push({ name, app: target.app, file: selection.file, line: null, state: "wired" });
                 else {
                     const value = render.selectValue(target, live, extension);

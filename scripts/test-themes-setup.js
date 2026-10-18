@@ -80,152 +80,127 @@ function verifyWiring(logic) {
 
 verifyWiring(load(file));
 
-// Exercise the shipped setup reader against a managed btop link and an
-// unrelated selection. No application or reload hook runs in this fixture.
+// Exercise every shipped entry-plus-selection form through the setup reader.
+// No application or reload hook runs in this temporary HOME.
 const setupRepo = path.join(__dirname, "..");
-const btopScratch = fs.mkdtempSync(path.join(os.tmpdir(), "btop-setup-"));
+const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "themes-setup-"));
 try {
-    const tree = path.join(btopScratch, "tree");
-    const home = path.join(btopScratch, "home");
+    const tree = path.join(scratch, "tree");
+    const home = path.join(scratch, "home");
     const config = path.join(home, ".config");
     const state = path.join(home, ".local/state/vgshell");
-    for (const name of ["bin", "shell/Commons", "themes/targets/btop", "themes/targets/claude", "themes/targets/codex",
-        "themes/targets/bat", "themes/targets/television", "themes/targets/yazi"])
+    // Each row describes the settings and managed entries of one shipped
+    // producer. Multiple roots are independent configurations of that app.
+    const configurations = [
+        { name: "bat", base: config, roots: ["bat"], settings: "config", values: true,
+            entries: [["themes/vgs.tmTheme", "bat.tmTheme", "link"]], lines: [null],
+            selected: "--theme=vgs\n", other: "--theme=other\n" },
+        { name: "btop", base: config, roots: ["btop"], settings: "btop.conf",
+            entries: [["themes/vgs.theme", "btop.theme", "link"]], lines: ["color_theme = vgs"],
+            selected: 'color_theme = "vgs"\n# owner\n', other: 'color_theme = "Default"\n# owner\n', missing: '# owner\n' },
+        { name: "claude", base: home, roots: [".claude", ".claude-work"], settings: "settings.json",
+            entries: [["themes/vgs.json", "claude.json", "copy"]], lines: ["theme = custom:vgs"],
+            selected: '{"theme":"custom:vgs","owner":true}\n', other: '{"theme":"dark","owner":true}\n' },
+        { name: "codex", base: home, roots: [".codex", ".codex-work"], settings: "config.toml",
+            entries: [["themes/vgs.tmTheme", "codex.tmTheme", "link"]], lines: ["tui.theme = vgs"],
+            selected: 'owner = true\n[tui]\ntheme = "vgs"\n', other: 'owner = true\n[tui]\ntheme = "other"\n' },
+        { name: "hermes", base: home, roots: [".hermes"], settings: "config.yaml",
+            entries: [["skins/vgs.yaml", "hermes.yaml", "copy"]], lines: ["display.skin = vgs"],
+            selected: 'owner: true\ndisplay:\n  skin: vgs\n', other: 'owner: true\ndisplay:\n  skin: other\n' },
+        { name: "omp", base: home, roots: [".omp/agent"], settings: "config.yml",
+            entries: [["themes/vgs.json", "omp.json", "copy"]], lines: ["theme.dark = vgs", "theme.light = vgs"],
+            selected: 'owner: true\ntheme:\n  dark: vgs\n  light: vgs\n', other: 'owner: true\ntheme:\n  dark: other\n  light: other\n' },
+        { name: "opencode", base: config, roots: ["opencode"], settings: "tui.json",
+            entries: [["themes/vgs.json", "opencode.json", "link"]], lines: ["theme = vgs"],
+            selected: '{"theme":"vgs","owner":true}\n', other: '{"theme":"other","owner":true}\n' },
+        { name: "pi", base: home, roots: [".pi/agent"], settings: "settings.json",
+            entries: [["themes/vgs.json", "pi.json", "copy"]], lines: ["theme = vgs"],
+            selected: '{"theme":"vgs","owner":true}\n', other: '{"theme":"other","owner":true}\n' },
+        { name: "television", base: config, roots: ["television"], settings: "config.toml", values: true,
+            entries: [["themes/vgs.toml", "television.toml", "link"]], lines: [null],
+            selected: '[ui]\ntheme = "vgs"\n[ui.theme_overrides]\nbackground = "#000000"\n', other: '[ui]\ntheme = "other"\n' },
+        { name: "yazi", base: config, roots: ["yazi", "yazi-scratchpad"], settings: "theme.toml", values: true,
+            entries: [["flavors/vgs.yazi/flavor.toml", "yazi.toml", "link"], ["flavors/vgs.yazi/tmtheme.xml", "yazi.tmTheme", "link"]], lines: [null],
+            selected: '[flavor]\ndark = "vgs"\nlight = "vgs"\n[mgr.cwd]\nbg = "#000000"\n', other: '[flavor]\ndark = "other"\nlight = "other"\n' }
+    ];
+    for (const name of ["bin", "shell/Commons", ...configurations.map(row => "themes/targets/" + row.name)])
         fs.cpSync(path.join(setupRepo, name), path.join(tree, name), { recursive: true });
-    fs.mkdirSync(path.join(config, "btop/themes"), { recursive: true });
     fs.mkdirSync(path.join(state, "theme"), { recursive: true });
-    fs.writeFileSync(path.join(state, "theme/btop.theme"), "theme[main_bg]=\"#000000\"\n");
-    fs.symlinkSync(path.join(state, "theme/btop.theme"), path.join(config, "btop/themes/vgs.theme"));
-    const settings = path.join(config, "btop/btop.conf");
+    for (const row of configurations) {
+        for (const root of row.roots) {
+            for (const [entry, rendered, kind] of row.entries) {
+                const file = path.join(row.base, root, entry);
+                const live = path.join(state, "theme", rendered);
+                fs.mkdirSync(path.dirname(file), { recursive: true });
+                fs.writeFileSync(live, "managed theme\n");
+                if (kind === "copy") fs.copyFileSync(live, file);
+                else fs.symlinkSync(live, file);
+            }
+        }
+    }
     const judge = path.join(tree, "bin/vgshell-theme-judge");
     const env = { HOME: home, PATH: path.dirname(process.execPath), XDG_CONFIG_HOME: config,
         XDG_STATE_HOME: path.join(home, ".local/state"), VGS_TEST_RUN: "1" };
     function readWiring(name) {
         const result = spawnSync(process.execPath, [judge, "setup", "json", path.join(config, "vgshell"), state], { env, encoding: "utf8", timeout: 10000 });
         assert.equal(result.status, 0, result.stderr);
-        return JSON.parse(result.stdout).wiring.filter(row => row.name === name && row.state === "wired");
+        return JSON.parse(result.stdout).wiring.filter(row => row.name === name);
     }
-    // These shipped entry targets produce select.values, including rendered
-    // colour fields. Setup reads them without running an application or apply.
-    const renderedSelections = [
-        { name: "bat", files: ["bat/config"], entries: ["bat/themes/vgs.tmTheme"], rendered: ["bat.tmTheme"],
-            selected: "--theme=vgs\n", other: "--theme=other\n" },
-        { name: "television", files: ["television/config.toml"], entries: ["television/themes/vgs.toml"], rendered: ["television.toml"],
-            selected: '[ui]\ntheme = "vgs"\n[ui.theme_overrides]\nbackground = "#000000"\n', other: '[ui]\ntheme = "other"\n' },
-        { name: "yazi", files: ["yazi/theme.toml", "yazi-scratchpad/theme.toml"],
-            entries: ["yazi/flavors/vgs.yazi/flavor.toml", "yazi/flavors/vgs.yazi/tmtheme.xml",
-                "yazi-scratchpad/flavors/vgs.yazi/flavor.toml", "yazi-scratchpad/flavors/vgs.yazi/tmtheme.xml"],
-            rendered: ["yazi.toml", "yazi.tmTheme", "yazi.toml", "yazi.tmTheme"],
-            selected: '[flavor]\ndark = "vgs"\nlight = "vgs"\n[mgr.cwd]\nbg = "#000000"\n', other: '[flavor]\ndark = "other"\nlight = "other"\n' }
-    ];
-    for (const target of renderedSelections) {
-        for (const [index, entry] of target.entries.entries()) {
-            const file = path.join(config, entry);
-            fs.mkdirSync(path.dirname(file), { recursive: true });
-            fs.writeFileSync(path.join(state, "theme", target.rendered[index]), "managed theme\n");
-            fs.symlinkSync(path.join(state, "theme", target.rendered[index]), file);
-        }
-    }
-    const appliedTheme = path.join(state, "theme/theme.json");
-    const appliedTerminal = path.join(state, "theme/terminal.json");
-    function verifyRenderedSelections() {
-        for (const applied of ["absent", "theme-only", "invalid", "valid"]) {
-            for (const file of [appliedTheme, appliedTerminal]) fs.rmSync(file, { force: true });
-            if (applied !== "absent") fs.copyFileSync(path.join(setupRepo, "themes/vgs/theme.json"), appliedTheme);
-            if (applied === "valid") fs.copyFileSync(path.join(setupRepo, "themes/vgs/terminal.json"), appliedTerminal);
-            if (applied === "invalid") fs.writeFileSync(appliedTerminal, "{}\n");
-            for (const target of renderedSelections) {
-                for (const connected of [false, true]) {
-                    for (const file of target.files) fs.writeFileSync(path.join(config, file), connected ? target.selected : target.other);
-                    const expected = applied === "valid" && !connected ? [] : target.entries;
-                    const expectedFiles = expected.map(file => path.join(config, file));
-                    if (applied === "valid" && connected) expectedFiles.push(...target.files.map(file => path.join(config, file)));
-                    assert.deepEqual(readWiring(target.name).map(row => row.file).sort(), expectedFiles.sort(),
-                        target.name + ": " + applied + ": " + connected);
-                    for (const file of target.files)
-                        assert.equal(fs.readFileSync(path.join(config, file), "utf8"), connected ? target.selected : target.other);
-                }
-            }
-        }
-    }
-    verifyRenderedSelections();
-    for (const selection of ['color_theme = "Default"\n', '# owner\n', null, 'color_theme = "vgs"\n']) {
-        if (selection === null) fs.unlinkSync(settings);
-        else fs.writeFileSync(settings, selection);
-        const rows = readWiring("btop");
-        if (selection === 'color_theme = "vgs"\n') {
-            assert.ok(rows.some(row => row.file === settings));
-            assert.ok(rows.some(row => row.file === path.join(config, "btop/themes/vgs.theme")));
-        } else assert.deepEqual(rows, []);
-    }
-    fs.writeFileSync(settings, 'color_theme = "Default"\n');
-    const source = fs.readFileSync(judge, "utf8");
-    const valuesNeedle = "selectionEdits(target, configHome, live, roots, undefined, selectionValues)\n                    .map";
-    assert.equal(source.split(valuesNeedle).length, 2);
-    const valuesMutant = source.replace(valuesNeedle, "selectionEdits(target, configHome, live, roots)\n                    .map");
-    assert.notEqual(valuesMutant, source);
-    fs.writeFileSync(judge, valuesMutant);
-    assert.throws(verifyRenderedSelections, { name: "AssertionError" });
-    fs.writeFileSync(judge, source);
-    const needle = 'else if (selected.some(holds => !holds)) return [];';
-    assert.equal(source.split(needle).length, 2);
-    const mutant = source.replace(needle, "");
-    assert.notEqual(mutant, source);
-    fs.writeFileSync(judge, mutant);
-    const mutantRows = readWiring("btop");
-    assert.throws(() => assert.deepEqual(mutantRows, []), { name: "AssertionError" });
-    fs.writeFileSync(judge, source);
-
-    const families = [
-        { name: "claude", root: ".claude", settings: "settings.json", entry: "vgs.json", render: "claude.json",
-            selected: '{"theme":"custom:vgs","owner":true}\n', other: '{"theme":"dark","owner":true}\n', line: "theme = custom:vgs" },
-        { name: "codex", root: ".codex", settings: "config.toml", entry: "vgs.tmTheme", render: "codex.tmTheme",
-            selected: 'owner = true\n[tui]\ntheme = "vgs"\n', other: 'owner = true\n[tui]\ntheme = "other"\n', line: "tui.theme = vgs" }
-    ];
-    for (const family of families) {
-        fs.writeFileSync(path.join(state, "theme", family.render), "managed theme\n");
-        for (const suffix of ["", "-work"]) {
-            const entries = path.join(home, family.root + suffix, "themes");
-            fs.mkdirSync(entries, { recursive: true });
-            const entry = path.join(entries, family.entry);
-            if (family.name === "claude") fs.copyFileSync(path.join(state, "theme", family.render), entry);
-            else fs.symlinkSync(path.join(state, "theme", family.render), entry);
-        }
-    }
-    function verifyAccounts() {
-        for (const family of families) {
-            for (const connected of [[true, false], [false, true], [true, true], [false, false]]) {
+    function verifyConfigurations(applied) {
+        for (const name of ["theme.json", "terminal.json"]) fs.rmSync(path.join(state, "theme", name), { force: true });
+        if (applied !== "absent") fs.copyFileSync(path.join(setupRepo, "themes/vgs/theme.json"), path.join(state, "theme/theme.json"));
+        if (applied === "valid") fs.copyFileSync(path.join(setupRepo, "themes/vgs/terminal.json"), path.join(state, "theme/terminal.json"));
+        if (applied === "invalid") fs.writeFileSync(path.join(state, "theme/terminal.json"), "{}\n");
+        for (const row of configurations) {
+            const states = row.roots.length === 1 ? [[true], [false], [null], ["missing"], ["unreadable"]]
+                : [[true, false], [false, true], [true, true], [false, false], [true, null], [null, true], [true, "missing"], ["missing", true], [true, "unreadable"], ["unreadable", true]];
+            for (const connected of states) {
                 const expected = [];
-                for (const [index, suffix] of ["", "-work"].entries()) {
-                    const root = path.join(home, family.root + suffix);
-                    const file = path.join(root, family.settings);
-                    fs.writeFileSync(file, connected[index] ? family.selected : family.other);
-                    if (connected[index]) expected.push([path.join(root, "themes", family.entry), null], [file, family.line]);
+                for (const [index, root] of row.roots.entries()) {
+                    const file = path.join(row.base, root, row.settings);
+                    fs.rmSync(file, { recursive: true, force: true });
+                    if (connected[index] === "unreadable") fs.mkdirSync(file);
+                    else if (connected[index] === "missing") fs.writeFileSync(file, row.missing ?? "");
+                    else if (connected[index] !== null) fs.writeFileSync(file, connected[index] ? row.selected : row.other);
+                    const unknownValues = row.values && applied !== "valid";
+                    if (unknownValues || connected[index] === true)
+                        for (const [entry] of row.entries) expected.push([path.join(row.base, root, entry), null, "wired", null]);
+                    if (!unknownValues && connected[index] === true)
+                        for (const line of row.lines) expected.push([file, line, "wired", null]);
+                    if (!unknownValues && connected[index] === "unreadable") expected.push([file, null, "unreadable", "EISDIR"]);
                 }
-                const rows = readWiring(family.name).map(row => [row.file, row.line]);
-                const byFile = (left, right) => left[0].localeCompare(right[0]);
-                assert.deepEqual(rows.sort(byFile), expected.sort(byFile), family.name + ": " + connected.join(","));
-                for (const [index, suffix] of ["", "-work"].entries())
-                    assert.equal(fs.readFileSync(path.join(home, family.root + suffix, family.settings), "utf8"),
-                        connected[index] ? family.selected : family.other);
+                const actual = readWiring(row.name).map(item => [item.file, item.line, item.state, item.error ?? null]);
+                const byFileAndLine = (left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right));
+                assert.deepEqual(actual.sort(byFileAndLine), expected.sort(byFileAndLine), row.name + ": " + applied + ": " + connected.join(","));
+                for (const [index, root] of row.roots.entries()) {
+                    const file = path.join(row.base, root, row.settings);
+                    if (typeof connected[index] === "boolean") assert.equal(fs.readFileSync(file, "utf8"), connected[index] ? row.selected : row.other);
+                    else if (connected[index] === null) assert.equal(fs.existsSync(file), false);
+                    else if (connected[index] === "missing") assert.equal(fs.readFileSync(file, "utf8"), row.missing ?? "");
+                    else assert.equal(fs.statSync(file).isDirectory(), true);
+                }
             }
         }
     }
-    verifyAccounts();
-    const accountNeedle = "if (roots !== undefined) roots = roots.filter((root, index) => selected[index]);";
-    assert.equal(source.split(accountNeedle).length, 2);
-    const accountMutant = source.replace(accountNeedle, "if (selected.some(holds => !holds)) return [];");
-    assert.notEqual(accountMutant, source);
-    fs.writeFileSync(judge, accountMutant);
-    fs.writeFileSync(path.join(home, ".claude/settings.json"), families[0].selected);
-    fs.writeFileSync(path.join(home, ".claude-work/settings.json"), families[0].other);
-    const accountMutantRows = readWiring("claude").map(row => [row.file, row.line]);
-    assert.throws(() => assert.deepEqual(accountMutantRows, [
-        [path.join(home, ".claude/themes/vgs.json"), null],
-        [path.join(home, ".claude/settings.json"), "theme = custom:vgs"]
-    ]), { name: "AssertionError" });
+    for (const applied of ["absent", "theme-only", "invalid", "valid"]) verifyConfigurations(applied);
+    // Each control retains the selection operation in the disposable judge.
+    // The complete behavior table must fail when values or isolation are lost.
+    const source = fs.readFileSync(judge, "utf8");
+    const controls = [
+        ["selectionEdits(target, configHome, live, undefined, undefined, selectionValues).map", "selectionEdits(target, configHome, live, undefined, undefined).map"],
+        ["return selection.connected &&", "return true &&"],
+        ["return selection.connected &&", "return selection.connected && selections.every(item => item.connected) &&"]
+    ];
+    for (const [needle, replacement] of controls) {
+        assert.equal(source.split(needle).length, 2);
+        const mutant = source.replace(needle, replacement);
+        assert.notEqual(mutant, source);
+        fs.writeFileSync(judge, mutant);
+        assert.throws(() => verifyConfigurations("valid"), { name: "AssertionError" });
+        fs.writeFileSync(judge, source);
+    }
 } finally {
-    fs.rmSync(btopScratch, { recursive: true, force: true });
+    fs.rmSync(scratch, { recursive: true, force: true });
 }
 
 // Every value fits the manifest's `browserTheming` entry, whose action the
