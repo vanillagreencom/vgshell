@@ -1375,6 +1375,7 @@ set -euo pipefail
 failures=0
 clock=${JSON.stringify(retryClock)}
 sandbox=${JSON.stringify(root)}
+ipc_timeout_log="$sandbox/ipc-timeout.log"
 hello_tick=${helloTick}
 ok() { :; }
 fail() { failures=$((failures + 1)); printf '%s\\n' "$1"; }

@@ -1604,6 +1604,12 @@ expect_cursor_at() { # LABEL SHAPE X Y
 ipc_reply_chars=32768
 ipc_oversize_log="$sandbox/ipc-oversize.log"
 ipc_last_reply=""
+ipc_timeout_log="$sandbox/ipc-timeout.log"
+# scripts/qml-smoke.sh --rows bar,displays-modes,themes, run
+# tmp/ipc-measure/run.log starting 2026-10-17T23:55:16Z on cachy (Ryzen 9
+# 9950X), measured 5449 calls at load 9.12 to 22.95: maximum 2410.18 ms.
+# Four times that maximum, rounded up, leaves a margin for higher load.
+ipc_call_bound_s=10
 
 # ipc_call_last VGSHELL TARGET FUNCTION [ARG...]: run one IPC call and keep
 # the last stdout line in ipc_last_reply.
@@ -1611,8 +1617,15 @@ ipc_call_last() {
   local vgshell="$1" out status
   shift
   ipc_last_reply=""
-  out="$("${shell_env[@]}" "$vgshell" ipc call "$@" 2>>"$sandbox/ipc.log")" || status=$?
+  [[ ! -s $ipc_timeout_log ]] || return 124
+  out="$("${shell_env[@]}" timeout --signal=KILL "$ipc_call_bound_s" "$vgshell" ipc call "$@" 2>>"$sandbox/ipc.log")" || status=$?
   status="${status:-0}"
+  if [[ $status -eq 124 || $status -eq 137 ]]; then
+    printf -v out 'ipc-timeout: target=%s function=%s bound_s=%s' "$1" "$2" "$ipc_call_bound_s"
+    printf '%s\n' "$out" >>"$ipc_timeout_log"
+    printf '%s\n' "$out" >&2
+    return 124
+  fi
   vgs_ipc_last_line_into "$out"
   ipc_last_reply="$vgs_ipc_last_line"
   return "$status"
@@ -1692,6 +1705,18 @@ ipc_at() { # PID TARGET FUNCTION [ARG...]
   fi
   shift
   ipc_via "$via" "$@"
+}
+
+# Calls run in command substitutions and polling readers, where a failure
+# tally would be lost. The row owns this file and counts every timeout as
+# an operation failure, even when a reader caught the call's status.
+ipc_timeout_check() { # ROW
+  local line
+  [[ -s $ipc_timeout_log ]] || return 0
+  while IFS= read -r line || [[ -n $line ]]; do
+    row_class=operation fail "$1: $line"
+  done <"$ipc_timeout_log"
+  return 1
 }
 
 ipc_oversize_check() { # ROW
@@ -2355,6 +2380,7 @@ expect_poll() { # LABEL WANT CMD...
   for _ in $(seq 1 "$smoke_poll_n"); do
     matched=false status=0
     got="$("$@" 2>"$err")" || status=$?
+    [[ ! -s $ipc_timeout_log ]] || return 124
     [[ $status != 0 || $got != "$want" ]] || matched=true
     reader_stderr "$label" "$err" || return 0
     if [[ $status -ne 0 && ${coordinate_scope:-false} == true ]]; then return "$status"; fi
@@ -3485,13 +3511,19 @@ smoke_row() { # NAME [DIR]
   local smoke_row_name="$1" smoke_row_dir="${2:-$repo/scripts/smoke/rows}" smoke_row_marker smoke_row_count="" smoke_row_line smoke_row_pong
   local smoke_row_out="$sandbox/rows/$1.out" smoke_row_result="$sandbox/rows/$1.result" smoke_row_started=$EPOCHSECONDS
   local smoke_row_flags smoke_row_trap smoke_row_err=0 smoke_row_status=0 smoke_row_abandon=()
+  local ipc_timeout_log="$sandbox/rows/$1.ipc-timeout.log"
   smoke_row_marker="qml-smoke: row-end $1 $$ $SRANDOM"
   mkdir -p -- "$sandbox/rows"
+  : >"$ipc_timeout_log"
   if ! devices_check "$smoke_row_name"; then
     printf 'qml-smoke: row-secs row=%s secs=%s\n' "$smoke_row_name" "$((EPOCHSECONDS - smoke_row_started))"
     return 0
   fi
   if ! smoke_row_pong="$(ipc shell ping 2>/dev/null)" || [[ $smoke_row_pong != ok ]]; then
+    if ! ipc_timeout_check "$smoke_row_name"; then
+      printf 'qml-smoke: row-secs row=%s secs=%s\n' "$smoke_row_name" "$((EPOCHSECONDS - smoke_row_started))"
+      return 0
+    fi
     fail "$smoke_row_name: shell=not-answering before the row"
     printf 'qml-smoke: row-secs row=%s secs=%s\n' "$smoke_row_name" "$((EPOCHSECONDS - smoke_row_started))"
     return 0
@@ -3535,6 +3567,7 @@ smoke_row() { # NAME [DIR]
   elif [[ $smoke_row_count -gt 0 ]]; then
     fail "$smoke_row_name: its output holds $smoke_row_count Python traceback(s): $smoke_row_out"
   fi
+  ipc_timeout_check "$smoke_row_name" || true
   ipc_oversize_check "$smoke_row_name"
   # A shell crash fails the row it happened in, which leaves the rows after
   # it a fresh shell and no crash reporter window. A row run inside another

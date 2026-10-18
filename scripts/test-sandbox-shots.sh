@@ -1545,6 +1545,7 @@ PY
     set -euo pipefail
     source "$D/scene.sh"
     sandbox="$D" home="$D/home" shim="$D/shim"
+    ipc_timeout_log="$sandbox/ipc-timeout.log"
     mkdir -p "$home/.local/state/vgshell/plugins/vgs.displays" "$home/.config/hypr" "$shim"
     printf "#!/usr/bin/env bash\nexit 1\n" >"$shim/hyprctl.real"
     printf "%s\n" '\''hl.monitor({ output = "VGS-PLANTED-VRR", mode = "5120x2880@60", position = "1755x0", scale = 2, transform = 0 })'\'' >"$D/original.lua"

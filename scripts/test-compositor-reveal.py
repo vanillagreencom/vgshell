@@ -31,6 +31,7 @@ POLL = section(HARNESS.read_text(), "expect_poll() { # LABEL WANT CMD...\n",
 FIXTURE = r'''
 set -euo pipefail
 sandbox="$1" shim="$1/shim" mode="$2"
+ipc_timeout_log="$sandbox/ipc-timeout.log"
 mkdir "$shim"
 hyprctl_bin=/bin/true
 failures=0 closed=0 restored=0 completed=0 released=0 reader=""
