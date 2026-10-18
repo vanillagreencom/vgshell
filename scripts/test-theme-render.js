@@ -1319,6 +1319,131 @@ for (const surface of ["background", "surface", "surfaceRaised"])
     console.log("test-theme-render: emacs-ansi-min " + JSON.stringify(emacsMetrics.ansi.filter(row => row.surface === surface)
         .reduce((least, row) => row.ratio < least.ratio ? row : least)));
 
+// Zed v1.24.3: crates/settings_content/src/theme.rs::{ThemeColorsContent,
+// StatusColorsContent}, assets/themes/one/one.json and crates/theme/src/styles/players.rs.
+// The older linked web schema omits native fields. Keep this role inventory
+// independent of the template; syntax captures and user-added players are extensible.
+const ZED_ROLES = {
+    "color.background": "toolbar.background tab.active_background scrollbar.track.background editor.background editor.gutter.background terminal.background terminal.ansi.background",
+    "color.surface": "background surface.background element.disabled status_bar.background title_bar.background tab_bar.background tab.inactive_background panel.background panel.overlay_background editor.subheader.background editor.highlighted_line.background hidden.background ignored.background predictive.background unreachable.background",
+    "color.surfaceRaised": "elevated_surface.background element.background panel.overlay_hover editor.active_line.background editor.debugger_active_line.background",
+    "color.surfaceHover": "element.hover ghost_element.hover",
+    "color.surfaceSunken": "title_bar.inactive_background",
+    "color.border": "border drop_target.border panel.indent_guide_hover panel.indent_guide_active pane_group.border scrollbar.thumb.background scrollbar.thumb.border scrollbar.track.border minimap.thumb.background minimap.thumb.border editor.indent_guide_active hidden.border ignored.border predictive.border unreachable.border",
+    "color.borderSubtle": "border.variant border.disabled panel.indent_guide editor.wrap_guide editor.indent_guide",
+    "color.borderStrong": "element.active element.selected ghost_element.active ghost_element.selected scrollbar.thumb.hover_background scrollbar.thumb.active_background minimap.thumb.hover_background minimap.thumb.active_background editor.active_wrap_guide",
+    "color.focus": "border.focused panel.focused_border pane.focused_border",
+    "color.accent": "border.selected text.accent icon.accent debugger.accent editor.hover_line_number vim.normal.background vim.helix_jump_label.foreground vim.helix_normal.background",
+    "color.accentSubtle": "drop_target.background search.match_background editor.document_highlight.read_background",
+    "color.text": "text icon editor.foreground editor.active_line_number terminal.foreground",
+    "color.textHeading": "terminal.bright_foreground",
+    "color.textMuted": "text.muted icon.muted",
+    "color.textFaint": "text.placeholder icon.disabled icon.placeholder editor.code_lens.foreground editor.line_number terminal.dim_foreground version_control.ignored hidden ignored predictive unreachable",
+    "color.textDisabled": "text.disabled editor.invisible",
+    "color.info": "info info.border hint.border renamed.border link_text.hover version_control.renamed vim.visual.background vim.visual_line.background vim.visual_block.background",
+    "color.infoSubtle": "info.background search.active_match_background editor.document_highlight.write_background editor.document_highlight.bracket_background version_control.conflict_marker.theirs vim.yank.background",
+    "color.success": "success created created.border success.border editor.diff_hunk.added.hollow_border version_control.added vim.insert.background",
+    "color.successSubtle": "success.background editor.diff_hunk.added.background editor.diff_hunk.added.hollow_background version_control.word_added version_control.conflict_marker.ours",
+    "color.danger": "error deleted error.border deleted.border editor.diff_hunk.deleted.hollow_border version_control.deleted vim.replace.background",
+    "color.dangerSubtle": "error.background editor.diff_hunk.deleted.background editor.diff_hunk.deleted.hollow_background version_control.word_deleted",
+    "color.warning": "warning warning.border modified modified.border conflict.border version_control.modified version_control.conflict vim.helix_select.background",
+    "color.warningSubtle": "warning.background",
+    "color.onAccent": "vim.normal.foreground vim.helix_normal.foreground",
+    "color.onSuccess": "vim.insert.foreground",
+    "color.onDanger": "vim.replace.foreground",
+    "color.onInfo": "vim.visual.foreground vim.visual_line.foreground vim.visual_block.foreground",
+    "color.onWarning": "vim.helix_select.foreground",
+    "badge.tone.warning.foreground": "conflict",
+    "badge.tone.warning.background": "conflict.background",
+    "badge.tone.info.foreground": "hint renamed",
+    "badge.tone.info.background": "hint.background renamed.background"
+};
+const ZED_SYNTAX_ROLES = {
+    "color.textFaint": "comment comment.doc predictive",
+    "color.text": "embedded primary property variable variable.parameter",
+    "color.textMuted": "operator punctuation punctuation.bracket punctuation.delimiter punctuation.list_marker punctuation.markup",
+    "color.accent": "emphasis emphasis.strong label punctuation.special title variable.special",
+    "color.info": "hint link_text link_uri",
+    "color.success": "diff.plus",
+    "color.danger": "diff.minus",
+    "terminal.color1": "preproc tag",
+    "terminal.color2": "string string.special string.special.symbol text.literal",
+    "terminal.color3": "attribute enum namespace selector selector.pseudo string.escape type",
+    "terminal.color4": "constructor function",
+    "terminal.color5": "keyword",
+    "terminal.color6": "boolean constant number string.regex variant"
+};
+const zedDir = path.join(themesDir, "targets", "zed");
+const zedTemplate = fs.readFileSync(path.join(zedDir, "zed.json"), "utf8");
+const zedTarget = selectionRender.acceptTarget(logic, "zed", fs.readFileSync(path.join(zedDir, "target.json"), "utf8"));
+assert.equal(zedTarget.ok, true);
+function verifyZedPalette(template) {
+    const faults = [], documents = [];
+    for (const { pkg, shipped } of selectionPackages) {
+        const slots = selectionRender.terminalSource(pkg, selectionDefaults).terminal;
+        const result = selectionRender.renderTarget(logic, TOKENS, zedTarget.target,
+            new Map([["zed.json", template]]), { values: pkg.values, slots, curated: new Map(), installed: !shipped });
+        assert.equal(result.ok, true);
+        const document = JSON.parse(result.files.find(file => file.destination === "zed.json").bytes.toString("utf8"));
+        assert.equal(document.themes[0].appearance, pkg.values.scheme.mode);
+        const style = document.themes[0].style;
+        const roleValue = role => role.startsWith("terminal.") ? slots[role.slice(9)]
+            : role.split(".").reduce((value, key) => value[key], pkg.values);
+        const check = (key, actual, role) => {
+            if (actual === undefined) faults.push({ kind: "zed-missing-key", package: pkg.name, key });
+            else if (JSON.stringify(logic.parseColor(actual)) !== JSON.stringify(logic.parseColor(roleValue(role))))
+                faults.push({ kind: "zed-role", package: pkg.name, key, role, actual, expected: roleValue(role) });
+        };
+        for (const [role, keys] of Object.entries(ZED_ROLES))
+            for (const key of keys.split(" ")) check(key, style[key], role);
+        const ansiNames = ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white"];
+        for (const [index, name] of ansiNames.entries()) {
+            check(`terminal.ansi.${name}`, style[`terminal.ansi.${name}`], `terminal.color${index}`);
+            check(`terminal.ansi.bright_${name}`, style[`terminal.ansi.bright_${name}`], `terminal.color${index + 8}`);
+            check(`terminal.ansi.dim_${name}`, style[`terminal.ansi.dim_${name}`], `terminal.color${index}`);
+        }
+        for (const [role, captures] of Object.entries(ZED_SYNTAX_ROLES))
+            for (const capture of captures.split(" ")) check(`syntax.${capture}.color`, style.syntax?.[capture]?.color, role);
+        for (let index = 0; index < 15; index++) check(`accents[${index}]`, style.accents?.[index], `terminal.color${index + 1}`);
+        // merge_player_colors overlays each field by index onto eight native
+        // players; supplying only the local entry leaves stock collaborator colours.
+        const cursors = ["color.accent", "terminal.color3", "terminal.color5", "terminal.color2",
+            "terminal.color5", "terminal.color3", "terminal.color2", "terminal.color1"];
+        for (const [index, cursor] of cursors.entries()) {
+            check(`players[${index}].cursor`, style.players?.[index]?.cursor, cursor);
+            check(`players[${index}].background`, style.players?.[index]?.background, index === 0 ? "color.accent" : "color.surfaceRaised");
+            check(`players[${index}].selection`, style.players?.[index]?.selection, index === 0 ? "color.selection" : "color.infoSubtle");
+        }
+        assert.equal(style.syntax.comment.font_style, "italic");
+        assert.equal(style.syntax.title.font_weight, 700);
+        documents.push({ package: pkg.name, style });
+    }
+    assert.deepEqual(faults, []);
+    return documents;
+}
+const zedDocuments = verifyZedPalette(zedTemplate);
+const zedControlDir = fs.mkdtempSync(path.join(os.tmpdir(), "zed-inventory-control-"));
+try {
+    for (const [kind, edit] of [
+        ["zed-missing-key", style => { delete style["drop_target.border"]; }],
+        ["zed-role", style => { style["drop_target.border"] = "#@{color.background}"; }]
+    ]) {
+        const copy = JSON.parse(zedTemplate);
+        assert.ok(Object.hasOwn(copy.themes[0].style, "drop_target.border"));
+        edit(copy.themes[0].style);
+        const mutant = JSON.stringify(copy);
+        assert.notEqual(mutant, zedTemplate);
+        const file = path.join(zedControlDir, `${kind}.json`);
+        fs.writeFileSync(file, mutant);
+        assert.throws(() => verifyZedPalette(fs.readFileSync(file, "utf8")), error =>
+            error.code === "ERR_ASSERTION" && error.actual.some(row => row.kind === kind && row.key === "drop_target.border"));
+        console.log(`test-theme-render: zed-control kind=${kind} key=drop_target.border rejected=true`);
+    }
+} finally {
+    fs.rmSync(zedControlDir, { recursive: true, force: true });
+}
+console.log(`test-theme-render: zed packages=${zedDocuments.length} native-players=8 accents=1..15 syntax-baseline=46`);
+
 // foot reads six-digit RGB flash colours independently in its two INI palettes.
 const footDir = path.join(themesDir, "targets", "foot");
 const footTemplate = path.join(footDir, "foot.ini");
