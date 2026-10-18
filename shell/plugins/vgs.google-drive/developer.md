@@ -55,7 +55,7 @@ A pair that another run holds reads `busy` and copies nothing.
 - `~/.local/state/vgshell/google-drive/setup.log`: what the setup windows logged. `setup.before-rename.log` beside it holds the earlier name's log when a setup window had begun this one before the rename below.
 - `~/.local/state/vgshell/google-drive/rename.pending`: present from the rename's first move until its last step ends. It names each keyring account still held under the earlier name.
 
-The plugin had another name before Google Drive. The runner's first invocation on a home that holds that name's directories or units runs the rename under the state lock, before any verb:
+The plugin had another name before Google Drive. For an enabled plugin, the runner's first invocation on a home that holds that name's directories or units runs the rename under the state lock, before its normal verb:
 
 1. While that name's service runs a sync, the runner refuses the invocation with `migration=held` and exit 75, and leaves that name's timer enabled, so the hourly sync goes on under the earlier units. The plugin's service asks for the status and the probe again every 15 seconds while the runner answers 75; the first call after the sync ends runs the rename. Until then, the Settings page's Google Drive sync row reads Waiting and gives the reason from the runner's `migration=held` line. A failed disable and an `is-active` answer that names no state also refuse with exit 75.
 2. Once no sync runs, the runner disables that name's timer. If the timer started a sync just before the disable, the runner enables the timer again and refuses as in step 1.
@@ -66,7 +66,11 @@ The plugin had another name before Google Drive. The runner's first invocation o
 
 A step that cannot finish, such as the keyring step while the keyring is locked, logs `migration=held` and lets the verb go on. Every later invocation takes the state lock and retries the steps left. Until then, `probe`, a sync, Connect and Sign out read an account still under the earlier name as locked, or as unreadable after a failed copy, never as missing. The runner's `the rename` section names the old paths.
 
-Only a runner call runs the rename, and only the plugin's service, its setup windows and the units under this name call the runner. For a plugin the user disabled, the move runs when Google Drive is next enabled. Until then, the earlier name's timer, when the user set one up, keeps its hourly sync under the earlier units and keyring items.
+For a disabled plugin, the root `migrate` entry calls the runner's internal `migrate disabled` verb under the [startup migration contract](../../../.agents/skills/vgs-plugin/references/api.md#startup-migrations). It stops and disables the old and partially installed units before taking the state lock. It never starts a sync or enables a timer. A failed stop or incomplete keyring move returns failure and keeps the data and retry records for the next shell start.
+
+The migration must remove its temporary service overrides after the stop on success and failure.
+
+A locked keyring item at the probe prevents a store call. If the collection locks between the read and the store, the store can show one unlock prompt. The old item stays until the copy is checked, so this race loses no data.
 
 ## The plugin
 

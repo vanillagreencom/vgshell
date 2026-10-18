@@ -2,6 +2,19 @@
 
 What a plugin receives and may call. The core owns every table here; a value not listed does not exist for a plugin.
 
+## Startup migrations
+
+A bundled plugin may provide an executable file named `migrate` at its root. This entry has no manifest key, capability or kind.
+
+- The existing scanner discovers the entry from its source inventory. The core runs the published immutable snapshot, with `disabled` as its single argument.
+- Only the selected bundled copy of a disabled plugin qualifies. An enabled plugin migrates through its normal service.
+- The core runs the startup queue once per shell start, after the first scan and former-id adoption. A rescan never runs it again.
+- The startup owner holds one queue and one owned process. The attempt deadline covers the runner's maximum child waits plus a small stated margin. The value and its derivation belong beside that core owner's process.
+- A migration runs only while its plugin is disabled. It stops and disables former and partially installed services and timers. It never starts sync, calls the network, or enables or restores a timer.
+- The entry bounds its child processes and keeps user data and retry records when a step cannot finish. Success requires removal of the former unit files and keyring items. Repeated calls are safe.
+- A failure logs only the plugin id and a generic category. The core never forwards hook output. Other startup work continues, and the next shell start retries the migration.
+- The queue adds no plugin build hold or migration state framework.
+
 ## Kinds
 
 | Kind | Entry point key | Base | Host today | Built when |

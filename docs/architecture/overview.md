@@ -35,6 +35,7 @@ The boundary is a static import check plus the scoped object, not a process sand
 - Do add a capability as a general core API, with a fixture consumer under `scripts/smoke/fixtures/plugins/`, before the plugin that needs it. Review checks it.
 - Do make every decision about a manifest in `shell/Core/PluginLogic.js`, the one judge, and add a manifest key there with its refusal row in `scripts/test-plugin-logic.js` ([D009](../decisions/D009-one-manifest-judge-under-node.md)). `bin/lib/check-manifests.js` and `vgshell plugin validate` load the same file; review catches a second validator.
 - Do keep the plugin manager's mechanism in the core, because it must run before any plugin and keep running when one breaks; its user interface is a plugin that reaches it through capability `manager` ([D032](../decisions/D032-settings-plugin-and-manifest-settings-convention.md)). Review checks it.
+- Do keep a disabled bundled plugin's migration separate from its service, so disabling the plugin cannot leave its former service running. The optional executable root `migrate` follows the vgs-plugin API's [startup migration contract](../../.agents/skills/vgs-plugin/references/api.md#startup-migrations). Review checks this boundary.
 
 ### Hosts and capabilities
 
