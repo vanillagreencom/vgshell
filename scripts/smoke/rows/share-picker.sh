@@ -152,7 +152,7 @@ assert text.count(old)==1
 pathlib.Path(sys.argv[2]).write_text(text.replace(old,'pixels[i] = 0xff993366;',1))
 PY
 cc -Wall -Wextra -Werror "$share_world/other.c" "$sandbox/xdg-shell-protocol.c" -I"$sandbox" -o "$share_world/other" $(pkg-config --cflags --libs wayland-client)
-spawn_display "$share_world/other.log" "$share_world/other" smoke.share-other "Other share target"
+spawn_display "$share_world/other.log" "${shell_env[@]}" -- "$share_world/other" smoke.share-other "Other share target"
 share_other_pid="$spawn_pid"
 share_other_mapped() { hypr -j clients | py_reply 'import json,sys; print(any(c["class"]=="smoke.share-other" and c["mapped"] for c in json.load(sys.stdin)))'; }
 expect_poll "the other preview source is live at the same time" True share_other_mapped
@@ -435,7 +435,7 @@ for share_mode in dark light; do
   mv -T -- "$share_theme.next" "$share_theme"
   expect_poll "the $share_mode picture theme publishes" "$share_theme_name" ipc smoke themeName
   printf '[Appearance]\ncolor_scheme_path=/usr/share/qt6ct/colors/%s.conf\ncustom_palette=true\nstyle=Fusion\n' "$share_qt_palette" >"$home/.config/qt6ct/qt6ct.conf"
-  spawn "$share_world/$share_mode-before.log" "${shell_env[@]}" QT_QPA_PLATFORM=wayland QT_QPA_PLATFORMTHEME=qt6ct XDPH_WINDOW_SHARING_LIST="$share_window_list" bwrap --ro-bind / / --tmpfs /tmp --bind "$sandbox" "$sandbox" hyprland-share-picker --allow-token
+  spawn_display "$share_world/$share_mode-before.log" "${shell_env[@]}" QT_QPA_PLATFORM=wayland QT_QPA_PLATFORMTHEME=qt6ct XDPH_WINDOW_SHARING_LIST="$share_window_list" -- bwrap --ro-bind / / --tmpfs /tmp --bind "$sandbox" "$sandbox" hyprland-share-picker --allow-token
   share_before_pid="$spawn_pid"
   expect_poll "the original picker maps in $share_mode" 1 share_before_count
   share_shot_kind=before
@@ -565,7 +565,7 @@ share_pipewire_ready() { [[ -S $share_pipewire_dir/pipewire-0 && -S $share_pipew
 expect_poll "isolated PipeWire owns its socket" ready share_pipewire_ready
 spawn "$share_world/permission-store.log" "${share_portal_env[@]}" /usr/lib/xdg-permission-store
 share_permissions_pid="$spawn_pid"
-spawn "$share_world/backend.log" "${share_portal_env[@]}" /usr/lib/xdg-desktop-portal-hyprland
+spawn_display "$share_world/backend.log" "${share_portal_env[@]}" -- /usr/lib/xdg-desktop-portal-hyprland
 share_backend_pid="$spawn_pid"
 share_name() { "${share_portal_env[@]}" gdbus call --session --dest org.freedesktop.DBus --object-path /org/freedesktop/DBus --method org.freedesktop.DBus.NameHasOwner "$1"; }
 expect_poll "xdph owns the nested bus name" '(true,)' share_name org.freedesktop.impl.portal.desktop.hyprland

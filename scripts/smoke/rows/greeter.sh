@@ -112,7 +112,7 @@ greeter_stop() {
   wait "$1" 2>/dev/null || true
   expect_poll "the stopped host leaves no surface" 0 layer_count vgs:greeter
 }
-spawn "$greeter_log" "${greeter_env[@]}" VGS_GREETER_VIEW="$greeter_view" qs -p "$repo/shell/greeter.qml"
+spawn_display "$greeter_log" "${greeter_env[@]}" VGS_GREETER_VIEW="$greeter_view" -- qs -p "$repo/shell/greeter.qml"
 greeter_pid="$spawn_pid"
 if greeter_wait "greeter: sessions=3 preselected=wayland-sessions/hyprland-uwsm.desktop" "$greeter_log" "$greeter_pid"; then ok "the greeter host lists the sessions and preselects the uwsm-managed Hyprland session"; else fail "the greeter host's preselection line, log: $(tail -n 20 -- "$greeter_log")"; fi
 expect "the host accepts the plugin's view" 1 greeter_count "/shell/plugins/vgs.greeter/Greeter.qml screens=" "$greeter_log"
@@ -138,7 +138,7 @@ spawn "$sandbox/greetd-stand-in.log" "${shell_env[@]}" python3 "$greeter_fixture
 greetd_pid="$spawn_pid"
 for _ in $(seq 1 50); do [[ -S $greetd_sock ]] && break; sleep 0.1; done
 [[ -S $greetd_sock ]] || fail "the stand-in greetd's socket, log: $(tail -n 20 -- "$sandbox/greetd-stand-in.log")"
-spawn "$greeter_again_log" "${greeter_env[@]}" GREETD_SOCK="$greetd_sock" VGS_GREETER_VIEW="$greeter_view" qs -p "$repo/shell/greeter.qml"
+spawn_display "$greeter_again_log" "${greeter_env[@]}" GREETD_SOCK="$greetd_sock" VGS_GREETER_VIEW="$greeter_view" -- qs -p "$repo/shell/greeter.qml"
 greeter_pid="$spawn_pid"
 if greeter_wait "greeter: sessions=3 preselected=wayland-sessions/hyprland.desktop" "$greeter_again_log" "$greeter_pid"; then ok "the next start preselects the session the last user chose"; else fail "the greeter host's remembered preselection, log: $(tail -n 20 -- "$greeter_again_log")"; fi
 expect "the view finds the stand-in greetd" 1 greeter_lines "greeter: greetd=available" "$greeter_again_log"
@@ -184,7 +184,7 @@ wait "$greetd_pid" 2>/dev/null || true
 
 # Control: a view outside the plugin tree, reached through `..`.
 outside="$repo/shell/plugins/../../scripts/smoke/fixtures/greeter/Outside.qml"
-spawn "$sandbox/greeter-outside.log" "${greeter_env[@]}" VGS_GREETER_VIEW="$outside" qs -p "$repo/shell/greeter.qml"
+spawn_display "$sandbox/greeter-outside.log" "${greeter_env[@]}" VGS_GREETER_VIEW="$outside" -- qs -p "$repo/shell/greeter.qml"
 outside_pid="$spawn_pid"
 outside_exit=0
 if ! greeter_ended "$outside_pid"; then

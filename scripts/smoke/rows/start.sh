@@ -30,6 +30,8 @@ start_status=0
 start_err="$sandbox/start.err"
 
 vgshell_start_no_signature() { # TREE
+  start_reply="" start_status=1
+  nested_input_check "$1/bin/vgshell" "${start_env[@]}" || return 1
   set +e
   start_reply="$("${start_env[@]}" "$1/bin/vgshell" start 2>"$start_err")"
   start_status=$?
@@ -137,6 +139,7 @@ if copy_tree foreground && edit_tree foreground bin/vgshell \
     'dispatch_reply="$(hyprctl dispatch "$request" 2>&1)"' \
     'dispatch_reply="$("$self" run 2>&1)"'; then
   stop_shell || :
+  nested_input_check "$sandbox/tree-foreground/bin/vgshell" "${start_env[@]}" || return 1
   set +e
   control_out="$(timeout "$(( (start_budget_ms + 999) / 1000 ))" "${start_env[@]}" "$sandbox/tree-foreground/bin/vgshell" start 2>&1)"
   control_status=$?

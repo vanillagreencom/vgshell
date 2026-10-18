@@ -128,7 +128,7 @@ open_tui() {
     *) printf 'open_tui: request=%s unknown\n' "$2" >&2; return 1 ;;
   esac
   : >"$log"
-  spawn_display "$log" "$sandbox/toplevel" "${flags[@]}" "$1" || return 1
+  spawn_display "$log" "${shell_env[@]}" -- "$sandbox/toplevel" "${flags[@]}" "$1" || return 1
   tui_pid="$spawn_pid"
   for _ in $(seq 1 25); do
     logged "$log" "${want[@]}" && return 0

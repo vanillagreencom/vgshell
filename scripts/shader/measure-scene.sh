@@ -23,10 +23,10 @@ measure_scene() {
   local scale="$1" scene="$2" stem="$3" scene_pid result done=false instance scene_exit=0 start_us start_ms poll group remaining=()
   start_us="$(cpu_some_us)"
   start_ms="$(now_ms)"
-  spawn "$stem.launch.log" "${shell_env[@]}" VGS_SHADER_MODE="$scene" VGS_SHADER_NAME="$shader" \
+  spawn_display "$stem.launch.log" "${shell_env[@]}" VGS_SHADER_MODE="$scene" VGS_SHADER_NAME="$shader" \
     QSG_RHI_BACKEND=vulkan QSG_RHI_PROFILE=1 QSG_NO_VSYNC=1 \
     QT_LOGGING_RULES='qt.scenegraph.time.renderloop.debug=true;qt.scenegraph.general=true;qt.rhi.general=true' \
-    qs -p "$repo/shell/ShaderScene.qml"
+    -- qs -p "$repo/shell/ShaderScene.qml" || return 1
   scene_pid="$spawn_pid"
   result=""
   for ((poll=0; poll<timeout_s*5; poll++)); do

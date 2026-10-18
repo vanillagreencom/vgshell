@@ -214,7 +214,7 @@ expect_poll "Escape clears the search, then closes" 0 layer_count vgs:overlay
 # selections hold different texts, so each reading names its source. The
 # block leaves both selections empty and the pointer where it found it.
 launcher_field() { ipc smoke readShownDescendant overlay vgs.launcher QQuickTextInput "$1"; }
-clip_text() { "${shell_env[@]}" wl-paste --no-newline "$@"; }
+clip_text() { nested_input_check wl-paste || return 1; "${shell_env[@]}" wl-paste --no-newline "$@"; }
 if ! command -v wl-copy >/dev/null || ! command -v wl-paste >/dev/null; then
   fail "launcher: wl-copy or wl-paste is unavailable"
 elif nested_input_check wl-copy; then

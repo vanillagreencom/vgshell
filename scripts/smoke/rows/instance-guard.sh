@@ -3,7 +3,7 @@
 # addressing the guarded instance.
 # inputs: shell/shell.qml shell/Core/Registry.qml shell/Core/ThemeRunner.qml bin/vgshell bin/vgshell-theme-judge
 set -euo pipefail
-spawn "$sandbox/bare.log" "${shell_env[@]}" qs -p "$repo/shell"
+spawn_display "$sandbox/bare.log" "${shell_env[@]}" -- qs -p "$repo/shell"
 bare_pid="$spawn_pid"
 # instance_count SHELL_DIR: how many instances qs lists for SHELL_DIR,
 # or `none` while none runs; count_reply is its reader of the listing.
@@ -70,7 +70,7 @@ unguarded_call() { ipc_at "$unguarded_pid" "$@"; }
 # row NAME once it answers that it is unguarded.
 start_unguarded() { # LOG SHELL_DIR NAME
   local answer=""
-  spawn "$1" "${shell_env[@]}" qs -p "$2"
+  spawn_display "$1" "${shell_env[@]}" -- qs -p "$2" || return 1
   unguarded_pid="$spawn_pid"
   for _ in $(seq 1 100); do
     answer="$("${shell_env[@]}" qs ipc --pid "$unguarded_pid" call shell guarded 2>/dev/null | tail -n 1)" && [[ $answer == false ]] && { ok "$3"; return; }

@@ -282,7 +282,7 @@ sp_monitor_name="$(first_name)" || fail "the first monitor's name is unreadable"
 rm -f -- "${sandbox:?}/pad-starts" "${sandbox:?}/pad-starts-2"
 # The pad's app: the helper a second after the press, so an early show
 # would read empty for that second, its start logged first.
-sp_app="sleep 1; echo start >>$sandbox/pad-starts; exec $sandbox/toplevel $sp_class Pad"
+sp_app="sleep 1; echo start >>$sandbox/pad-starts; exec $sandbox/display-client $sandbox/toplevel $sp_class Pad"
 
 # The list field: two Adds, a second pad on the first one's class, Remove
 # and an Add that takes the lowest free name again.

@@ -93,8 +93,8 @@ clip_copy_file() { nested_input_check wl-copy || return 1; "${shell_env[@]}" wl-
 clip_copy_secret() { nested_input_check wl-copy || return 1; printf '%s' "$1" | "${shell_env[@]}" wl-copy --sensitive >/dev/null 2>&1; }
 # clip_holds: the nested clipboard's text. clip_holds_image: `same` when its
 # PNG bytes are the fixture's.
-clip_holds() { "${shell_env[@]}" wl-paste --no-newline; }
-clip_holds_image() { if "${shell_env[@]}" wl-paste --type image/png | cmp -s -- - "$clip_image"; then echo same; else echo differs; fi; }
+clip_holds() { nested_input_check wl-paste || return 1; "${shell_env[@]}" wl-paste --no-newline; }
+clip_holds_image() { nested_input_check wl-paste || return 1; if "${shell_env[@]}" wl-paste --type image/png | cmp -s -- - "$clip_image"; then echo same; else echo differs; fi; }
 clip_invoke() { ipc vgs.clipboard invoke "$1" "${2:-}"; }
 # clip_labels [FILTER]: the history's rows for FILTER as the service
 # answers them, each [type, label], pinned first.

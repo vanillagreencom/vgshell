@@ -58,7 +58,7 @@ lines = Path(path).read_text().split("\n")
 kind, _, name = spec.partition(":")
 if kind == "fn":
     hits = [i for i, l in enumerate(lines) if re.match(r"\s*" + re.escape(name) + r"\(\) \{", l)]
-elif kind in ("block", "statement", "heredoc"):
+elif kind in ("block", "statement", "heredoc", "writer", "span"):
     hits = [i for i, l in enumerate(lines) if l.startswith(name)]
 else:
     hits = [i for i, l in enumerate(lines) if l == name]
@@ -69,8 +69,19 @@ indent = lines[start][: len(lines[start]) - len(lines[start].lstrip())]
 end = None
 if kind == "statement":
     end = start
-    while lines[end].endswith("\\"):
+    if "=(" in lines[start]:
+        while not lines[end].rstrip().endswith(")"):
+            end += 1
+    else:
+        while lines[end].endswith("\\"):
+            end += 1
+elif kind == "writer":
+    start = next(i for i in range(start - 1, -1, -1) if lines[i] == "  {")
+    end = next(i for i in range(start + 1, len(lines)) if lines[i].startswith('  } >"$tui_terminal"'))
+    if lines[end + 1] == '  chmod 755 "$tui_terminal"':
         end += 1
+elif kind == "span":
+    end = next(i for i in range(start, len(lines)) if needle in lines[i])
 elif kind == "heredoc":
     marker = lines[start].split("<<", 1)[1].strip("'\"")
     end = next(i for i in range(start + 1, len(lines)) if lines[i] == marker)
@@ -96,6 +107,8 @@ if end is None:
 unit = "\n".join(lines[start : end + 1])
 if needle not in unit:
     sys.exit("test-smoke-input-guard: extract=no-tool-call needle=[%s] spec=[%s]" % (needle, spec))
+if kind == "writer":
+    unit = "fixture_writer() {\n" + unit + "\n}"
 if kind == "case":
     unit = "case %s in\n%s\nesac" % (name.strip()[:-1], unit)
 Path(out).write_text(unit + "\n")
@@ -107,34 +120,45 @@ mkdir -p -- "$units"
 harness="$repo/scripts/smoke/harness.sh"
 extract "$harness" fn:nested_input_check 'fail "nested-input: refused tool=$1 ' "$units/check.sh" || exit 1
 extract "$harness" fn:type_keys '"${shell_env[@]}" wtype "$@"' "$units/type-keys.sh" || exit 1
-extract "$harness" fn:spawn_display 'spawn "$1" "${shell_env[@]}" "${@:2}"' "$units/spawn-display.sh" || exit 1
+extract "$harness" fn:spawn_display 'spawn "$log" "${shell_env[@]}" "$@"' "$units/spawn-display.sh" || exit 1
 extract "$harness" fn:spawn 'setsid "$@"' "$units/spawn.sh" || exit 1
 extract "$harness" fn:write_display_client 'exec "${shell_env[@]}" "$@"' "$units/display-client.sh" || exit 1
+# These are the real producer prefixes, with only fixture paths supplied below.
+extract "$harness" statement:sandbox_env= 'VGS_TEST_RUN=1' "$units/sandbox-env.sh" || exit 1
+extract "$harness" statement:shell_start_words= 'MALLOC_CONF=' "$units/start-words.sh" || exit 1
+extract "$harness" 'statement:shell_env=("${sandbox_env[@]}"' 'HYPRLAND_INSTANCE_SIGNATURE=' "$units/shell-env.sh" || exit 1
+extract "$repo/scripts/smoke/rows/greeter.sh" statement:greeter_env= 'XDG_STATE_HOME=' "$units/greeter-env.sh" || exit 1
+extract "$repo/scripts/smoke/rows/share-picker.sh" statement:share_portal_env= 'PIPEWIRE_CONFIG_DIR=' "$units/share-env.sh" || exit 1
+extract "$repo/scripts/smoke/rows/start.sh" statement:start_env= 'WAYLAND_DISPLAY=' "$units/start-env.sh" || exit 1
 
 # make_world DIR: DIR/bin and DIR/sandbox, each tool a stub that records
 # its name, arguments and display in DIR/calls.
 make_world() {
   local dir="$1" tool
-  mkdir -p -- "$dir/bin" "$dir/sandbox" "$dir/rt" "$dir/host"
-  for tool in bin/wtype bin/wl-copy sandbox/click sandbox/keyboard sandbox/keyboard-silent sandbox/toplevel sandbox/lock-client sandbox/other; do
+  mkdir -p -- "$dir/bin" "$dir/sandbox" "$dir/rt" "$dir/host" || return 1
+  for tool in bin/wtype bin/wl-copy bin/wl-paste bin/qs bin/grim bin/bwrap bin/ghostty bin/kitty sandbox/backend-client sandbox/click sandbox/keyboard sandbox/keyboard-silent sandbox/toplevel sandbox/lock-client sandbox/other; do
     printf '#!%s\nprintf %q "${0##*/}" "$*" "${WAYLAND_DISPLAY:-}" "${XDG_RUNTIME_DIR:-}" >>%q\n' \
-      "$BASH" 'tool=%s args=%s display=%s runtime=%s\n' "$dir/calls" >"$dir/$tool"
-    chmod 755 "$dir/$tool"
+      "$BASH" 'tool=%s args=%s display=%s runtime=%s\n' "$dir/calls" >"$dir/$tool" || return 1
+    printf 'printf "%%s\n" "${VGS_TEST_RUN:-}" >%q\n' "$dir/test-run" >>"$dir/$tool" || return 1
+    printf 'printf "%%s\n" "instance=${HYPRLAND_INSTANCE_SIGNATURE:-} xdisplay=${DISPLAY:-} wayland-socket=${WAYLAND_SOCKET:-}" >%q\n' "$dir/client-env" >>"$dir/$tool" || return 1
+    chmod 755 "$dir/$tool" || return 1
   done
-  printf '#!%s\nexit 0\n' "$BASH" >"$dir/bin/wl-paste"
-  chmod 755 "$dir/bin/wl-paste"
+  mkdir -p -- "$dir/sandbox/bin" "$dir/sandbox/plugin/tui" "$dir/sandbox/repo/shell/plugins/vgs.jarvis/tui" || return 1
+  cp -- "$dir/sandbox/toplevel" "$dir/sandbox/bin/vgshell" || return 1
+  : >"$dir/sandbox/plugin/tui/clone-voice.sh" || return 1
+  : >"$dir/sandbox/repo/shell/plugins/vgs.jarvis/tui/clone-voice.sh" || return 1
   printf '#!%s\nfor ((i=0; i<100; i++)); do [[ ! -e %q ]] || exit 0; sleep 0.01; done\nexit 1\n' \
-    "$BASH" "$dir/calls" >"$dir/bin/vgshell-tui"
+    "$BASH" "$dir/calls" >"$dir/bin/vgshell-tui" || return 1
   chmod 755 "$dir/bin/vgshell-tui"
 }
 
-# run_world DIR CHECK UNIT WORDS CALL: CALL in a clean bash that has
+# run_world DIR CHECK UNIT WORDS CALL [PREP]: CALL in a clean bash that has
 # sourced CHECK and UNIT, with shell_env set from WORDS; fail appends to
 # DIR/fails. Prints the exit status.
 run_world() {
   local dir="$1" status=0
   env -i PATH="$dir/bin:$PATH" HOME="$dir" LC_ALL=C TMPDIR="$dir" \
-    CASE_WORDS="$4" CASE_CALL="$5" CASE_DIR="$dir" timeout 15 "$BASH" -c '
+    CASE_WORDS="$4" CASE_CALL="$5" CASE_PREP="${6:-:}" CASE_DIR="$dir" UNITS="$units" timeout 15 "$BASH" -c '
     set -euo pipefail
     # A held drag runs its tool in a coproc, which can outlive a helper
     # that returns early; the world waits for it, so its call is recorded
@@ -148,19 +172,48 @@ run_world() {
     pgids=()
     source "$3"
     source "$4"
-    unguarded_display_spawn() { local log="$1"; shift; spawn "$log" "${shell_env[@]}" "$@"; }
-    nested_socket=wayland-1 rt_dir="$CASE_DIR/rt" sandbox="$CASE_DIR/sandbox" home="$CASE_DIR"
+    unguarded_display_spawn() {
+      local log="$1"; shift
+      local -a prefix=()
+      while [[ $1 != -- ]]; do prefix+=("$1"); shift; done
+      shift
+      spawn "$log" "${prefix[@]}" "$@"
+    }
+    nested_socket=wayland-1 rt_dir="$CASE_DIR/rt" signature=nested-instance sandbox="$CASE_DIR/sandbox" home="$CASE_DIR"
     mon_w=100 mon_h=100 pointer_at="" failures=0
+    dir="$sandbox" shader=fixture base_path="$PATH"
     share_world="$sandbox" traffic_dir="$sandbox" lc_class=smoke.leak shell_reporter_class=smoke.reporter
     tui_record="$sandbox/terminal.calls" tui_refused="$sandbox/refused" tui_fixtures="$sandbox/fixtures"
     tui_terminal="$sandbox/terminal" tui_terminal_written="$sandbox/terminal-written"
     wa_dir="$sandbox" wa_launches="$sandbox/browser.calls" jd_entry="$sandbox/app.desktop"
+    repo="$sandbox/repo" checkout="$sandbox/repo" source_repo="$sandbox/repo"
+    shim="$CASE_DIR/bin" node_bin="$CASE_DIR/bin/node" shell_start_path="$CASE_DIR/bin:$PATH" devices_env_words=()
+    share_pipewire_dir="$rt_dir/share-pipewire" share_fixture="$sandbox/share-fixture"
+    greeter_fixtures="$sandbox/greeter-fixtures" greeter_view="$sandbox/Greeter.qml" greeter_log="$sandbox/greeter.log"
+    greeter_again_log="$sandbox/greeter-again.log" greetd_sock="$rt_dir/greetd.sock" outside="$sandbox/Outside.qml"
+    share_mode=dark share_window_list=fixture pages_copy_config="$sandbox/pages-config" pages_copy="$sandbox/pages-copy"
+    capture_real_grim="$CASE_DIR/bin/grim" capture_surface_box="1,1 10x10" capture_state="$sandbox"
+    clip_image="$sandbox/image.png" shell_pids_started=() timeout_s=1
+    tui_self="$CASE_DIR/bin/vgshell-tui" clone_world_tool="$sandbox/clone-world.py"
+    kitty_bin="$CASE_DIR/bin/kitty" key=core/dictation-setup core_vgshell="$sandbox/bin/vgshell"
+    voice="$sandbox/voice.sh" sp_class=smoke.pad start_err="$sandbox/start.err" start_budget_ms=1000
+    cpu_some_us() { echo 0; }
+    now_ms() { echo 0; }
+    shell_answers() { :; }
+    display_record_call() { :; }
+    preview_tmux() { :; }
+    source "$UNITS/sandbox-env.sh"
+    source "$UNITS/start-words.sh"
+    source "$UNITS/start-env.sh"
     read -r -a shell_env <<<"$CASE_WORDS"
+    source "$UNITS/greeter-env.sh"
+    source "$UNITS/share-env.sh"
     source "$1"
     source "$5"
     write_display_client
+    eval "$CASE_PREP"
     source "$2"
-    eval "$CASE_CALL"' _ "$2" "$3" "$units/spawn.sh" "$units/spawn-display.sh" "$units/display-client.sh" </dev/null >/dev/null 2>&1 || status=$?
+    eval "$CASE_CALL"' _ "$2" "$3" "$units/spawn.sh" "$units/spawn-display.sh" "$units/display-client.sh" </dev/null >"$dir/output" 2>&1 || status=$?
   printf '%s\n' "$status"
 }
 
@@ -193,6 +246,11 @@ refusals() {
 rule_cases=(
   "the nested socket by name in the sandbox runtime directory|accepted|env -i PATH=@bin XDG_RUNTIME_DIR=@rt WAYLAND_DISPLAY=wayland-1"
   "the nested socket by absolute path|accepted|env -i PATH=@bin WAYLAND_DISPLAY=@rt/wayland-1"
+  "the actual complete startup prefix|accepted|env -i PATH=@bin XDG_RUNTIME_DIR=@rt WAYLAND_DISPLAY=wayland-1 HYPRLAND_INSTANCE_SIGNATURE=nested-instance VGS_TEST_RUN=1 MALLOC_CONF=junk:free PATH=@bin VGS_NOTIFICATIONS_SLACK_TEST_SECRET_TOOL_DIR=@bin"
+  "an embedded command before later host assignments|refused|env -i PATH=@bin XDG_RUNTIME_DIR=@rt WAYLAND_DISPLAY=wayland-1 /usr/bin/env XDG_RUNTIME_DIR=@host"
+  "a supplied live Hyprland signature|refused|env -i PATH=@bin XDG_RUNTIME_DIR=@rt WAYLAND_DISPLAY=wayland-1 HYPRLAND_INSTANCE_SIGNATURE=host-instance"
+  "an unowned X display|refused|env -i PATH=@bin XDG_RUNTIME_DIR=@rt WAYLAND_DISPLAY=wayland-1 DISPLAY=:0"
+  "an inherited Wayland descriptor|refused|env -i PATH=@bin XDG_RUNTIME_DIR=@rt WAYLAND_DISPLAY=wayland-1 WAYLAND_SOCKET=0"
   "shell_env replaced by command|refused|command"
   "an empty shell_env|refused|"
   "env without -i, which keeps the caller's environment|refused|env PATH=@bin XDG_RUNTIME_DIR=@rt WAYLAND_DISPLAY=wayland-1"
@@ -206,7 +264,7 @@ rule_cases=(
 rule_case() {
   local dir status count other problems=()
   dir="$(mktemp -d "$tmp/rule.XXXXXX")" || { echo "scratch=mktemp-failed"; return; }
-  make_world "$dir"
+  make_world "$dir" || { echo "make_world-failed"; return; }
   if ! status="$(run_world "$dir" "$1" "${4:-$units/type-keys.sh}" "$(expand "$dir" "$3")" "$(expand "$dir" "${5:-type_keys -k Escape}")")"; then echo "run_world-failed"; return; fi
   read -r count other < <(refusals "$dir" wtype)
   case $2 in
@@ -223,8 +281,14 @@ rule_case() {
       [[ $status == 1 ]] || problems+=("status=$status")
       [[ $count == 1 && $other == 0 ]] || problems+=("refusals=$count other-tool=$other")
       [[ ! -e $dir/calls ]] || problems+=("calls=[$(<"$dir/calls")]")
+      [[ ! -e $dir/client-env ]] || problems+=("client-env=[$(<"$dir/client-env")]")
       ;;
   esac
+  if [[ ${6:-} == marker ]]; then
+    local marker=missing
+    [[ ! -f $dir/test-run ]] || marker="$(<"$dir/test-run")"
+    [[ $marker == 1 ]] || problems+=("test-run=$marker")
+  fi
   [[ ${#problems[@]} == 0 ]] || printf '%s\n' "${problems[*]}"
 }
 
@@ -240,29 +304,65 @@ done
 # The display boundary also starts its real session on the nested socket.
 for row in "${rule_cases[@]}"; do
   IFS='|' read -r name want words <<<"$row"
-  if found="$(rule_case "$units/check.sh" "$want" "$words" "$units/spawn-display.sh" 'spawn_display @sandbox/display.log wtype -k Escape')" && [[ -z $found ]]; then
+  if found="$(rule_case "$units/check.sh" "$want" "$words" "$units/spawn-display.sh" 'spawn_display @sandbox/display.log "${shell_env[@]}" -- wtype -k Escape')" && [[ -z $found ]]; then
     ok "display rule: $want: $name"
   else
     fail "display rule: $want: $name: ${found:-rule_case-failed}"
   fi
 done
 
+# The generated launcher preserves the final nested display and forces isolation.
+inherited_case() {
+  rule_case "$units/check.sh" accepted 'env -i PATH=@bin XDG_RUNTIME_DIR=@rt WAYLAND_DISPLAY=wayland-1' "$1" \
+    'write_display_client; env XDG_RUNTIME_DIR=@rt WAYLAND_DISPLAY=wayland-1 HYPRLAND_INSTANCE_SIGNATURE=nested-instance VGS_TEST_RUN=0 @sandbox/display-client @bin/wtype -k Escape' marker
+}
+if found="$(inherited_case "$units/display-client.sh")" && [[ -z $found ]]; then
+  ok "inherited client preserves the nested display and forces the test-run marker"
+else
+  fail "inherited client: ${found:-inherited_case-failed}"
+fi
+
 # Helper cases: NAME|FILE|UNIT (extract's SPEC)|NEEDLE, the tool call the
-# guard stands before|CALL|TOOL the refusal names|STATUS wanted: nonzero,
+# guard stands before|CALL (or PREP::CALL::CALL)|TOOL the refusal names|STATUS wanted: nonzero,
 # or any for a block its refusal skips|GUARD changed by its control, default
 # nested_input_check. Each runs with the host-socket
 # shell_env below.
 host_words="env -i PATH=@bin XDG_RUNTIME_DIR=@host WAYLAND_DISPLAY=wayland-1"
 helpers=(
-  'display spawn boundary|scripts/smoke/harness.sh|fn:spawn_display|spawn "$1" "${shell_env[@]}"|spawn_display @sandbox/display.log @sandbox/toplevel smoke.boundary|@sandbox/toplevel|nonzero|nested_input_check'
+
+  'shell runner|scripts/smoke/harness.sh|fn:start_shell|spawn_display|start_shell @sandbox @sandbox/shell.log no-bar|@sandbox/bin/vgshell|nonzero|spawn_display'
+  'shell runner startup runtime override|scripts/smoke/harness.sh|fn:start_shell|spawn_display|shell_env=("${sandbox_env[@]}" WAYLAND_DISPLAY=wayland-1); shell_start_words+=(XDG_RUNTIME_DIR=@host); start_shell @sandbox @sandbox/shell.log no-bar|@sandbox/bin/vgshell|nonzero|spawn_display'
+  'shell runner trailing display override|scripts/smoke/harness.sh|fn:start_shell|spawn_display|shell_env=("${sandbox_env[@]}" WAYLAND_DISPLAY=wayland-1); start_shell @sandbox @sandbox/shell.log no-bar XDG_RUNTIME_DIR=@host|@sandbox/bin/vgshell|nonzero|spawn_display'
+  'start runtime override|scripts/smoke/rows/start.sh|fn:vgshell_start_no_signature|nested_input_check|shell_start_words+=(XDG_RUNTIME_DIR=@host); source "$UNITS/start-env.sh"; vgshell_start_no_signature @sandbox|@sandbox/bin/vgshell|nonzero|nested_input_check'
+  'start signature override|scripts/smoke/rows/start.sh|fn:vgshell_start_no_signature|nested_input_check|shell_start_words+=(HYPRLAND_INSTANCE_SIGNATURE=host-instance); source "$UNITS/start-env.sh"; vgshell_start_no_signature @sandbox|@sandbox/bin/vgshell|nonzero|nested_input_check'
+  'start foreground control|scripts/smoke/rows/start.sh|span:  nested_input_check "$sandbox/tree-foreground/bin/vgshell"|control_out="$(timeout|start_env+=(XDG_RUNTIME_DIR=@host); mkdir -p "$sandbox/tree-foreground/bin"; cp "$sandbox/bin/vgshell" "$sandbox/tree-foreground/bin/vgshell"::CALL:::|@sandbox/tree-foreground/bin/vgshell|nonzero|nested_input_check'
+  'bare instance|scripts/smoke/rows/instance-guard.sh|statement:spawn_display "$sandbox/bare.log"|spawn_display|:|qs|nonzero|spawn_display'
+  'unguarded instance|scripts/smoke/rows/instance-guard.sh|fn:start_unguarded|spawn_display|start_unguarded @sandbox/unguarded.log @sandbox/tree label|qs|nonzero|spawn_display'
+  'unpaged instance|scripts/smoke/rows/plugin-pages.sh|statement:  spawn_display "$sandbox/plugin-pages-unpaged.log"|spawn_display|:|qs|nonzero|spawn_display'
+  'greeter host|scripts/smoke/rows/greeter.sh|statement:spawn_display "$greeter_log"|spawn_display|:|qs|nonzero|spawn_display'
+  'greeter fake greetd|scripts/smoke/rows/greeter.sh|statement:spawn_display "$greeter_again_log"|spawn_display|:|qs|nonzero|spawn_display'
+  'greeter refused view|scripts/smoke/rows/greeter.sh|statement:spawn_display "$sandbox/greeter-outside.log"|spawn_display|:|qs|nonzero|spawn_display'
+  'original share picker|scripts/smoke/rows/share-picker.sh|statement:  spawn_display "$share_world/$share_mode-before.log"|spawn_display|:|bwrap|nonzero|spawn_display'
+  'share portal backend|scripts/smoke/rows/share-picker.sh|statement:spawn_display "$share_world/backend.log"|spawn_display|:|@sandbox/backend-client|nonzero|spawn_display'
+  'capture reference|scripts/smoke/rows/capture.sh|fn:capture_reference|nested_input_check|capture_reference probe|@bin/grim|nonzero|nested_input_check'
+  'clipboard text reader|scripts/smoke/rows/clipboard.sh|fn:clip_holds|nested_input_check|clip_holds|wl-paste|nonzero|nested_input_check'
+  'clipboard image reader|scripts/smoke/rows/clipboard.sh|fn:clip_holds_image|nested_input_check|clip_holds_image|wl-paste|nonzero|nested_input_check'
+  'launcher clipboard reader|scripts/smoke/rows/launcher.sh|fn:clip_text|nested_input_check|clip_text|wl-paste|nonzero|nested_input_check'
+  'preview Ghostty|scripts/sandbox-shots.sh|fn:preview_terminal_start|spawn_display|preview_terminal_start|ghostty|nonzero|spawn_display'
+  'screenshot greeter|scripts/sandbox-shots.sh|statement:  spawn_display "$dir/greeter.log"|spawn_display|:|qs|nonzero|spawn_display'
+  'shader scene|scripts/shader/measure-scene.sh|fn:measure_scene|spawn_display|measure_scene 1 fixture @sandbox/shader|qs|nonzero|spawn_display'
+  'scratchpad application|scripts/smoke/rows/scratchpads.sh|statement:sp_app=|$sandbox/display-client|env XDG_RUNTIME_DIR=@host WAYLAND_DISPLAY=wayland-1 "$BASH" -c "$sp_app" 2>"$CASE_DIR/fails"|@sandbox/toplevel|nonzero|$sandbox/display-client '
+  'clone kitty|scripts/sandbox-shots.sh|writer:    printf '\''kitty=%q config=%q presenter=%q key=%q script=|"$display_client" "$kitty"|fixture_writer @bin/kitty @bin/gum; env XDG_RUNTIME_DIR=@host WAYLAND_DISPLAY=wayland-1 "$tui_terminal" --app-id=smoke.clone --title=Clone -- @bin/vgshell-tui present --plugin vgs.jarvis --dir @sandbox/plugin --record vgs.jarvis/clone-voice -- tui/clone-voice.sh 2>"$CASE_DIR/fails"|@bin/kitty|nonzero|"$display_client" '
+  'dictation kitty|scripts/sandbox-shots.sh|writer:    printf '\''kitty=%q config=%q presenter=%q key=%q core=|"$display_client" "$kitty"|fixture_writer; env XDG_RUNTIME_DIR=@host WAYLAND_DISPLAY=wayland-1 "$tui_terminal" --app-id=smoke.dictation --title=Dictation -- @bin/vgshell-tui present --record core/dictation-setup -- @sandbox/bin/vgshell dictation setup 2>"$CASE_DIR/fails"|@bin/kitty|nonzero|"$display_client" '
+  'display spawn boundary|scripts/smoke/harness.sh|fn:spawn_display|spawn "$log" "${shell_env[@]}"|spawn_display @sandbox/display.log "${shell_env[@]}" -- @sandbox/toplevel smoke.boundary|@sandbox/toplevel|nonzero|nested_input_check'
   'lock client|scripts/smoke/rows/lock.sh|fn:start_lock_client|spawn_display|start_lock_client probe|@sandbox/lock-client|nonzero|spawn_display'
   'application window|scripts/smoke/app-window.sh|fn:open_toplevel|spawn_display|open_toplevel @sandbox/app.log smoke.app App|@sandbox/toplevel|nonzero|spawn_display'
   'Hyprland window|scripts/smoke/rows/hyprland.sh|fn:open_tui|spawn_display|open_tui smoke.hyprland|@sandbox/toplevel|nonzero|spawn_display'
-  'leak client|scripts/smoke/rows/leak-check.sh|line:spawn_display "$sandbox/leak-plant-toplevel.log" "$sandbox/toplevel" "$lc_class"|spawn_display|:|@sandbox/toplevel|nonzero|spawn_display'
-  'leak reporter|scripts/smoke/rows/leak-check.sh|line:  spawn_display "$sandbox/leak-plant-reporter.log" "$sandbox/toplevel" "$shell_reporter_class"|spawn_display|:|@sandbox/toplevel|nonzero|spawn_display'
-  'traffic window|scripts/smoke/rows/traffic.sh|line:spawn_display "$traffic_dir/other.log" "$sandbox/toplevel" org.example.traffic Traffic-other|spawn_display|:|@sandbox/toplevel|nonzero|spawn_display'
-  'TUI other window|scripts/smoke/rows/tui.sh|line:spawn_display "$sandbox/toplevel-other.log" "$sandbox/toplevel" org.example.other Other|spawn_display|:|@sandbox/toplevel|nonzero|spawn_display'
-  'share target|scripts/smoke/rows/share-picker.sh|line:spawn_display "$share_world/other.log" "$share_world/other" smoke.share-other "Other share target"|spawn_display|:|@sandbox/other|nonzero|spawn_display'
+  'leak client|scripts/smoke/rows/leak-check.sh|line:spawn_display "$sandbox/leak-plant-toplevel.log" "${shell_env[@]}" -- "$sandbox/toplevel" "$lc_class"|spawn_display|:|@sandbox/toplevel|nonzero|spawn_display'
+  'leak reporter|scripts/smoke/rows/leak-check.sh|line:  spawn_display "$sandbox/leak-plant-reporter.log" "${shell_env[@]}" -- "$sandbox/toplevel" "$shell_reporter_class"|spawn_display|:|@sandbox/toplevel|nonzero|spawn_display'
+  'traffic window|scripts/smoke/rows/traffic.sh|line:spawn_display "$traffic_dir/other.log" "${shell_env[@]}" -- "$sandbox/toplevel" org.example.traffic Traffic-other|spawn_display|:|@sandbox/toplevel|nonzero|spawn_display'
+  'TUI other window|scripts/smoke/rows/tui.sh|line:spawn_display "$sandbox/toplevel-other.log" "${shell_env[@]}" -- "$sandbox/toplevel" org.example.other Other|spawn_display|:|@sandbox/toplevel|nonzero|spawn_display'
+  'share target|scripts/smoke/rows/share-picker.sh|line:spawn_display "$share_world/other.log" "${shell_env[@]}" -- "$share_world/other" smoke.share-other "Other share target"|spawn_display|:|@sandbox/other|nonzero|spawn_display'
   'inherited display boundary|scripts/smoke/harness.sh|fn:write_display_client|exec "${shell_env[@]}" "$@"|write_display_client; env XDG_RUNTIME_DIR=@host WAYLAND_DISPLAY=wayland-1 "$sandbox/display-client" "$sandbox/toplevel" 2>"$CASE_DIR/fails"|@sandbox/toplevel|nonzero|nested_input_check "$1"'
   'terminal window|scripts/smoke/harness.sh|fn:terminal_stand_in|"$display_client" "$toplevel"|terminal_stand_in; env XDG_RUNTIME_DIR=@host WAYLAND_DISPLAY=wayland-1 "$tui_terminal" --app-id=smoke.terminal --title=Terminal -- @bin/vgshell-tui present -- true 2>"$CASE_DIR/fails"|@sandbox/toplevel|nonzero|"$display_client" '
   'webapps browser|scripts/smoke/rows/webapps.sh|heredoc:cat >"$wa_dir/chromium" <<EOF|"$sandbox/display-client"|env XDG_RUNTIME_DIR=@host WAYLAND_DISPLAY=wayland-1 "$BASH" "$wa_dir/chromium" --app=https://example.com 2>"$CASE_DIR/fails"|@sandbox/toplevel|nonzero|$(printf '\''%q'\'' "$sandbox/display-client") '
@@ -294,15 +394,19 @@ helpers=(
 # CALL in the host-socket world, refuses through nested_input_check naming
 # TOOL and reaches no stub, else the problems found.
 helper_case() {
-  local dir status count other tool problems=()
+  local dir status count other tool call="$2" prep=: problems=()
   dir="$(mktemp -d "$tmp/helper.XXXXXX")" || { echo "scratch=mktemp-failed"; return; }
-  make_world "$dir"
+  make_world "$dir" || { echo "make_world-failed"; return; }
   tool="$(expand "$dir" "$3")"
-  if ! status="$(run_world "$dir" "$units/check.sh" "$1" "$(expand "$dir" "$host_words")" "$(expand "$dir" "$2")")"; then echo "run_world-failed"; return; fi
+  if [[ $call == *'::CALL::'* ]]; then prep="${call%%::CALL::*}"; call="${call#*::CALL::}"; fi
+  if ! status="$(run_world "$dir" "$units/check.sh" "$1" "$(expand "$dir" "$host_words")" "$(expand "$dir" "$call")" "$(expand "$dir" "$prep")")"; then echo "run_world-failed"; return; fi
   read -r count other < <(refusals "$dir" "$tool")
   [[ $4 == any || $status != 0 ]] || problems+=("status=$status")
   [[ $count -ge 1 && $other == 0 ]] || problems+=("refusals=$count other-tool=$other")
+  [[ $count -ge 1 || -e $dir/calls || ! -s $dir/output ]] || problems+=("output=[$(<"$dir/output")]")
+  [[ $count -ge 1 || -e $dir/calls || ! -s $dir/fails ]] || problems+=("diagnostic=[$(<"$dir/fails")]")
   [[ ! -e $dir/calls ]] || problems+=("calls=[$(<"$dir/calls")]")
+  [[ ! -e $dir/client-env ]] || problems+=("client-env=[$(<"$dir/client-env")]")
   [[ ${#problems[@]} == 0 ]] || printf '%s\n' "${problems[*]}"
 }
 
@@ -313,10 +417,43 @@ for i in "${!helpers[@]}"; do
     fail "helper: $name: extract failed"
     continue
   fi
+  # Exercise the real launch boundary while replacing this absolute daemon.
+  # A planted bypass must never start the installed backend.
+  if [[ $tool == @sandbox/backend-client ]]; then
+    python3 - "$(helper_unit "$i")" <<'PY'
+import pathlib, sys
+p = pathlib.Path(sys.argv[1]); source = p.read_text()
+old = '/usr/lib/xdg-desktop-portal-hyprland'
+assert source.count(old) == 1
+p.write_text(source.replace(old, '"$sandbox/backend-client"'))
+PY
+  fi
   if found="$(helper_case "$(helper_unit "$i")" "$call" "$tool" "$want")" && [[ -z $found ]]; then
     ok "helper: $name refuses with no tool call"
   else
     fail "helper: $name: ${found:-helper_case-failed}"
+  fi
+done
+
+# Accepted startup cases use the actual prefix producers. The fixture supplies
+# only owned paths; no shell, terminal or compositor executable can be reached.
+startup_cases=(
+  'shell runner|source "$UNITS/shell-env.sh"; start_shell @sandbox @sandbox/shell.log no-bar PATH=@bin|nested-instance'
+  'start runtime override|vgshell_start_no_signature @sandbox|'
+)
+for row in "${startup_cases[@]}"; do
+  IFS='|' read -r name call instance <<<"$row"
+  index=""
+  for i in "${!helpers[@]}"; do [[ ${helpers[i]%%|*} != "$name" ]] || index="$i"; done
+  [[ -n $index ]] || { fail "startup: no helper named $name"; continue; }
+  dir="$(mktemp -d "$tmp/startup.XXXXXX")" || exit 1
+  make_world "$dir" || exit 1
+  status="$(run_world "$dir" "$units/check.sh" "$(helper_unit "$index")" "$(expand "$dir" 'env -i PATH=@bin XDG_RUNTIME_DIR=@rt WAYLAND_DISPLAY=wayland-1')" "$(expand "$dir" "$call")")"
+  if [[ $status == 0 && -e $dir/calls && $(<"$dir/calls") == "tool=vgshell args="*" display=wayland-1 runtime=$dir/rt" \
+    && $(<"$dir/test-run") == 1 && $(<"$dir/client-env") == "instance=$instance xdisplay= wayland-socket=" ]]; then
+    ok "startup: $name accepts its complete producer prefix and test-run marker"
+  else
+    fail "startup: $name: status=$status calls=[$(cat -- "$dir/calls" 2>/dev/null)] environment=[$(cat -- "$dir/client-env" 2>/dev/null)]"
   fi
 done
 
@@ -336,8 +473,12 @@ PY
 # of nested_input_check; the case must go red with a wtype call. No cell
 # holds a `|`.
 rule_controls=(
+  'embedded executable allowed|an embedded command before later host assignments|        *) prefix_ok=false ;;|        *) break ;;'
+  'live signature allowed|a supplied live Hyprland signature|$instance != "${signature:-}"|false == true'
+  'X display allowed|an unowned X display|DISPLAY=*) prefix_ok=false|DISPLAY=*) :'
+  'inherited descriptor allowed|an inherited Wayland descriptor|WAYLAND_SOCKET=*) prefix_ok=false|WAYLAND_SOCKET=*) :'
   'no refusal|shell_env replaced by command|if [[ -z ${nested_socket:-} |if false && [[ -z ${nested_socket:-} '
-  "no -i required|env without -i, which keeps the caller's environment|&& \${shell_env[1]:-} == -i ]]|]]"
+  "no -i required|env without -i, which keeps the caller's environment|&& \${checked_env[1]:-} == -i ]]|]]"
   "the socket name alone compared|the nested socket's name in the host runtime directory|\$socket != \"\$rt_dir/\$nested_socket\"|\${socket##*/} != \"\$nested_socket\""
   'the first WAYLAND_DISPLAY word taken|a later WAYLAND_DISPLAY word naming the host socket|display="${word#*=}"|display="${display:-${word#*=}}"'
 )
@@ -352,6 +493,17 @@ for i in "${!rule_controls[@]}"; do
   if found="$(rule_case "$mutant" "$want" "$words")" && [[ $found == *calls=\[tool=wtype* ]]; then ok "control: $name turns \"$target\" red: $found"; else fail "control: $name leaves \"$target\" green"; fi
 done
 
+marker_mutant="$tmp/marker-mutant.sh"
+if plant "$units/display-client.sh" 'shell_env+=(VGS_TEST_RUN=1)' ':' "$marker_mutant"; then
+  if found="$(inherited_case "$marker_mutant")" && [[ $found == *test-run=* ]]; then
+    ok "control: an inherited client without the test-run marker goes red: $found"
+  else
+    fail "control: a missing test-run marker stays green"
+  fi
+else
+  fail "control: the missing test-run marker could not be planted"
+fi
+
 # Helper controls bypass the guard in each disposable unit. Display callers
 # restore the old unguarded spawn with host shell_env. The generated terminal
 # bypasses the shared check in its script body.
@@ -362,13 +514,16 @@ for i in "${!helpers[@]}"; do
   replacement=:
   [[ ${guard:-nested_input_check} != spawn_display ]] || replacement=unguarded_display_spawn
   case $name in
-    'terminal window'|'webapps browser') replacement="" ;;
+    'terminal window'|'webapps browser'|'clone kitty'|'dictation kitty'|'scratchpad application') replacement="" ;;
     'Jarvis application') replacement='"" ' ;;
   esac
   plant "$(helper_unit "$i")" "${guard:-nested_input_check}" "$replacement" "$mutant" || { fail "control: $name: the defect could not be planted"; continue; }
   if found="$(helper_case "$mutant" "$call" "$tool" "$want")" && [[ $found == *"calls=[tool=${tool##*/} "* ]]; then ok "control: $name without its guard goes red: $found"; else fail "control: $name without its guard stays green"; fi
-  if [[ -n $guard && $found != *"display=wayland-1 runtime="*"/host"* ]]; then
+  if [[ -n $guard && $name != 'start signature override' && $found != *"display=wayland-1 runtime="*"/host"* ]]; then
     fail "control: $name did not reach the host display fixture"
+  fi
+  if [[ $name == 'start signature override' && $found != *instance=host-instance* ]]; then
+    fail "control: $name did not reach the supplied host signature"
   fi
 done
 

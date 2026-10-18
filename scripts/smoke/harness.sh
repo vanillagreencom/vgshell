@@ -550,12 +550,21 @@ in_harness_tree() { # PID
   echo no
 }
 
-# Display clients receive only shell_env. Checking here prevents row copies
-# from opening the host display before spawn starts the process.
-spawn_display() { # LOG CLIENT ARGS...
+# The delimiter separates the complete environment from the executable.
+# Trailing row assignments must be checked before they can override a display.
+spawn_display() { # LOG ENV_WORDS... -- CLIENT ARGS...
+  local log="$1"
+  local -a shell_env=()
+  shift
   spawn_pid=""
-  nested_input_check "$2" || return 1
-  spawn "$1" "${shell_env[@]}" "${@:2}"
+  while (( $# )) && [[ $1 != -- ]]; do shell_env+=("$1"); shift; done
+  if (( $# < 2 )); then
+    fail "spawn-display: refused arguments=environment-boundary"
+    return 1
+  fi
+  shift
+  nested_input_check "$1" || return 1
+  spawn "$log" "${shell_env[@]}" "$@"
 }
 # Start a command in its own session and process group; the pid doubles as
 # the pgid for teardown and is left in spawn_pid. Not a command substitution,
@@ -1379,34 +1388,45 @@ swipe() { pointer_dispatch "$1" "$2" "$mon_w" "$mon_h" swipe "$3" || return $?; 
 # nested_input_check TOOL: the one display check of every input tool a row
 # or a scene runs under shell_env: wtype (type_keys), $sandbox/click
 # (pointer_dispatch and the held drags), $sandbox/keyboard and its copies,
-# and wl-copy. Each caller runs it before its tool and runs no tool when it
-# returns 1. spawn_display and the generated terminal use the same check
-# before a display client. Each acts on the display its environment names,
+# and clipboard readers. Each caller runs it before its tool and runs no
+# tool when it returns 1. spawn_display and generated clients use the same
+# check over their complete final environment. Each acts on that display,
 # and the harness's own process carries the user's live one, so the check
-# passes only when shell_env starts from an empty environment (env -i, so
+# passes only when the prefix starts from an empty environment (env -i, so
 # no inherited WAYLAND_SOCKET or XDG_RUNTIME_DIR decides it) and its last
 # WAYLAND_DISPLAY and XDG_RUNTIME_DIR words, which env applies, name the
-# socket the harness started. A name alone is not enough: the host's
+# socket the harness started, with no command embedded in the prefix. A
+# supplied Hyprland signature must identify the nested instance too.
+# A name alone is not enough: the host's
 # socket can carry the same name in another runtime directory. A refusal
 # fails the row under the operation class with the line
 # `nested-input: refused tool=TOOL socket=... nested=...`. A caller runs
 # the check outside its tool's redirections, which would hide that line.
-nested_input_check() {
-  local word display="" runtime="" socket=none
-  if [[ ${shell_env[0]:-} == env && ${shell_env[1]:-} == -i ]]; then
-    for word in "${shell_env[@]:2}"; do
+nested_input_check() { # TOOL [ENV_WORDS...], otherwise shell_env
+  local word display="" runtime="" socket=none prefix_ok=true instance="${signature:-}"
+  local -a checked_env=("${shell_env[@]}")
+  (( $# < 2 )) || checked_env=("${@:2}")
+  if [[ ${checked_env[0]:-} == env && ${checked_env[1]:-} == -i ]]; then
+    for word in "${checked_env[@]:2}"; do
       case $word in
         WAYLAND_DISPLAY=*) display="${word#*=}" ;;
         XDG_RUNTIME_DIR=*) runtime="${word#*=}" ;;
-        *=*) ;;
-        *) break ;;
+        HYPRLAND_INSTANCE_SIGNATURE=*) instance="${word#*=}" ;;
+        # This Wayland-only harness owns no X server. A descriptor can
+        # bypass the owned socket pathname, so neither form is provable.
+        DISPLAY=*) prefix_ok=false ;;
+        WAYLAND_SOCKET=*) prefix_ok=false ;;
+        *=*) [[ $word =~ ^[a-zA-Z_][a-zA-Z_0-9]*= ]] || prefix_ok=false ;;
+        *) prefix_ok=false ;;
       esac
     done
     if [[ $display == /* ]]; then socket="$display"; elif [[ -n $display ]]; then socket="$runtime/$display"; fi
+  else
+    prefix_ok=false
   fi
-  if [[ -z ${nested_socket:-} || -z ${rt_dir:-} || $socket != "$rt_dir/$nested_socket" ]]; then
+  if [[ -z ${nested_socket:-} || -z ${rt_dir:-} || $socket != "$rt_dir/$nested_socket" || $prefix_ok != true || $instance != "${signature:-}" ]]; then
     local row_class=operation
-    fail "nested-input: refused tool=$1 socket=$socket nested=${rt_dir:-}/${nested_socket:-}"
+    fail "nested-input: refused tool=$1 socket=$socket nested=${rt_dir:-}/${nested_socket:-} prefix=$prefix_ok instance=$instance"
     return 1
   fi
 }
@@ -1414,16 +1434,20 @@ type_keys() {
   nested_input_check wtype || return 1
   "${shell_env[@]}" wtype "$@"
 }
-# Shell-launched fixtures cannot call a harness function. Give them the
-# same check and only the display values they actually inherited.
+# Generated fixtures and real terminals inherit their producer's environment.
+# Copy its exported assignments into env -i, then check that exact environment.
+# Serialize the one owner check because these children cannot call a harness function.
 write_display_client() {
   {
     printf '#!/usr/bin/env bash\n'
-    printf 'rt_dir=%q nested_socket=%q\n' "$rt_dir" "$nested_socket"
+    printf 'rt_dir=%q nested_socket=%q signature=%q\n' "$rt_dir" "$nested_socket" "$signature"
     declare -f nested_input_check
     cat <<'EOF'
 fail() { printf '%s\n' "$*" >&2; }
-shell_env=(env -i "XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-}" "WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-}")
+shell_env=(env -i)
+while IFS= read -r word; do shell_env+=("$word=${!word}"); done < <(compgen -e)
+# Theme reload hooks must retain the harness's test isolation.
+shell_env+=(VGS_TEST_RUN=1)
 nested_input_check "$1" || exit 1
 exec "${shell_env[@]}" "$@"
 EOF
@@ -2012,7 +2036,7 @@ start_shell() { # TREE LOG [BAR [NAME=VALUE...]]
   display_record_call mark shell-launch "$tree" "$log" "${shell_env[@]}" "${shell_start_words[@]}" "$@" >/dev/null || true
   display_stream_kind=probe
   shell_pid=""
-  if ! spawn "$log" "${shell_env[@]}" "${shell_start_words[@]}" "$@" "$tree/bin/vgshell" run; then
+  if ! spawn_display "$log" "${shell_env[@]}" "${shell_start_words[@]}" "$@" -- "$tree/bin/vgshell" run; then
     fail "start_shell: launch=failed log=$log"
     return 1
   fi

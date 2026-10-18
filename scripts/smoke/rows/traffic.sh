@@ -296,7 +296,7 @@ traffic_active_class() { hypr -j activewindow | py_reply 'import json,sys; print
 expect_poll "See all opens one terminal" 1 traffic_tui_window
 expect_poll "the launcher ends while its terminal stays open" '[]' lent tui.launching
 expect "Traffic remains available for launch-or-focus" ok ipc shell summon panel vgs.traffic '{}'
-spawn_display "$traffic_dir/other.log" "$sandbox/toplevel" org.example.traffic Traffic-other
+spawn_display "$traffic_dir/other.log" "${shell_env[@]}" -- "$sandbox/toplevel" org.example.traffic Traffic-other
 traffic_other_pid="$spawn_pid"
 expect_poll "another client takes focus" '"org.example.traffic"' traffic_active_class
 expect "a second See all finds the live key" "refused: tui=bandwhich reason=busy" ipc smoke invokeInstance panel vgs.traffic seeAll ""

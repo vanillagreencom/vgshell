@@ -2363,7 +2363,7 @@ preview_terminal_start() {
   preview_tmux new-session -d -s vgshell -c "$home/Projects/vgshell" -x 140 -y 42 || { fail "the preview's tmux session did not start"; return; }
   preview_tmux new-window -d -t vgshell -c "$home/Projects/vgshell" || fail "the preview's second tmux window did not open"
   preview_tmux send-keys -t vgshell:1 "nvim ThemeCard.qml -c 'Neotree show'" Enter || fail "Neovim did not start in tmux"
-  spawn "$sandbox/preview-terminal.log" "${shell_env[@]}" PATH="$shell_start_path" TERM=xterm-256color ghostty -e tmux attach -t vgshell
+  spawn_display "$sandbox/preview-terminal.log" "${shell_env[@]}" PATH="$shell_start_path" TERM=xterm-256color -- ghostty -e tmux attach -t vgshell || return 1
   preview_terminal_pid="$spawn_pid"
   expect_poll "Neovim draws Neo-tree and its status line" True preview_drawn
 }
@@ -4224,6 +4224,7 @@ PY
   } >"$shim/gum" && chmod 755 "$shim/gum" || { fail "clone-voice: the gum wrapper is not written"; return 1; }
   {
     printf '#!/usr/bin/env bash\nset -euo pipefail\n'
+    printf 'display_client=%q\n' "$sandbox/display-client"
     printf 'kitty=%q config=%q presenter=%q key=%q script=%q steps=%q tool=%q\n' "$1" "$sandbox/clone-voice-kitty.conf" "$tui_self" vgs.jarvis/clone-voice \
       "$repo/shell/plugins/vgs.jarvis/tui/clone-voice.sh" "$sandbox/clone-voice-steps" "$clone_world_tool"
     cat <<'EOF'
@@ -4260,7 +4261,7 @@ if [[ -f $steps ]]; then
 fi
 # kitty's documented --class retains the core's floating size class.
 # https://sw.kovidgoyal.net/kitty/invocation/
-exec "$kitty" --config "$config" --class "$app_id" --title "$title" "${run[@]}"
+exec "$display_client" "$kitty" --config "$config" --class "$app_id" --title "$title" "${run[@]}"
 EOF
   } >"$tui_terminal" && chmod 755 "$tui_terminal" || { fail "clone-voice: the kitty terminal is not written"; return 1; }
 }
@@ -4807,6 +4808,7 @@ PY
   rm -f -- "$sandbox/dictation-setup-confirm"
   {
     printf '#!/usr/bin/env bash\nset -euo pipefail\n'
+    printf 'display_client=%q\n' "$sandbox/display-client"
     printf 'kitty=%q config=%q presenter=%q key=%q core=%q voice=%q\n' "$kitty_bin" "$sandbox/dictation-setup-kitty.conf" "$tui_self" "$key" "$core_vgshell" "$repo/shell/plugins/vgs.voice/tui/setup.sh"
     cat <<'EOF'
 app_id="" title=""
@@ -4833,7 +4835,7 @@ else
 fi
 # kitty's documented --class retains the core's floating size class.
 # https://sw.kovidgoyal.net/kitty/invocation/
-exec "$kitty" --config "$config" --class "$app_id" --title "$title" "${run[@]}"
+exec "$display_client" "$kitty" --config "$config" --class "$app_id" --title "$title" "${run[@]}"
 EOF
   } >"$tui_terminal"
   chmod 755 "$tui_terminal"
@@ -6745,10 +6747,10 @@ scene_greeter() { # MODE
   printf '#!/bin/sh\n[ "$1" = passwd ] || exit 2\necho "alex:x:1000:1000:Alex Doe:/home/alex:/bin/bash"\n' >"$dir/bin/getent"
   chmod 755 "$dir/bin/getent"
   for word in "${shell_env[@]}"; do [[ $word != PATH=* ]] || base_path="${word#PATH=}"; done
-  spawn "$dir/greeter.log" "${shell_env[@]}" PATH="$dir/bin:$base_path" \
+  spawn_display "$dir/greeter.log" "${shell_env[@]}" PATH="$dir/bin:$base_path" \
     XDG_DATA_DIRS="$checkout/scripts/smoke/fixtures/greeter/share-a:$checkout/scripts/smoke/fixtures/greeter/share-b" \
     XDG_CONFIG_HOME="$dir/config" XDG_STATE_HOME="$dir/state" \
-    VGS_GREETER_VIEW="$repo/shell/plugins/vgs.greeter/Greeter.qml" qs -p "$repo/shell/greeter.qml"
+    VGS_GREETER_VIEW="$repo/shell/plugins/vgs.greeter/Greeter.qml" -- qs -p "$repo/shell/greeter.qml"
   pid="$spawn_pid"
   for _ in $(seq 1 100); do
     if grep -q -F -- "greeter: sessions=" "$dir/greeter.log"; then ready=true; break; fi

@@ -127,7 +127,7 @@ for dir in bin config themes scripts; do ln -s -- "$repo/$dir" "$pages_copy/$dir
 paged_call='function listPlugins(): string { return IpcPages.answer(Registry.listJson()); }'
 if [[ $(grep -c -F -- "$paged_call" "$pages_copy/shell/shell.qml") == 1 ]]; then
   python3 -c 'import sys; p, a, b = sys.argv[1:]; s = open(p).read(); open(p, "w").write(s.replace(a, b))' "$pages_copy/shell/shell.qml" "$paged_call" 'function listPlugins(): string { return Registry.listJson(); }'
-  spawn "$sandbox/plugin-pages-unpaged.log" "${shell_env[@]}" XDG_CONFIG_HOME="$pages_copy_config" qs -p "$pages_copy/shell"
+  spawn_display "$sandbox/plugin-pages-unpaged.log" "${shell_env[@]}" XDG_CONFIG_HOME="$pages_copy_config" -- qs -p "$pages_copy/shell"
   pages_copy_pid="$spawn_pid"
   copy_guarded=""
   for _ in $(seq 1 100); do

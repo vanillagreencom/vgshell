@@ -1195,10 +1195,12 @@ mutant('adoption-type', 'return dict(tag="unobserved-adoption", pid=pid, snapsho
 def failed_start(name, source):
     directory = fixture_directory(name)
     helper = directory / 'start.sh'
-    helper.write_text('\n'.join(extract(source, n) for n in ('spawn', 'start_shell')) + r'''
+    helper.write_text('\n'.join(extract(source, n) for n in ('nested_input_check', 'spawn', 'spawn_display', 'start_shell')) + r'''
 set -u
 fixture=$1
-pgids=() shell_env=() shell_start_words=()
+pgids=() shell_start_words=()
+rt_dir="$fixture/runtime" nested_socket=wayland-test signature=test-instance
+shell_env=(env -i XDG_RUNTIME_DIR="$rt_dir" WAYLAND_DISPLAY="$nested_socket" HYPRLAND_INSTANCE_SIGNATURE="$signature" VGS_TEST_RUN=1)
 cpu_some_us() { echo 0; }
 now_ms() { echo 0; }
 fail() { :; }

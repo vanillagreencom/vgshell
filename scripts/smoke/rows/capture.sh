@@ -607,7 +607,7 @@ expect "earlier capture notices expire before the surface readings" 0 capture_wa
 read -r capture_box_top < <(hypr -j monitors | py_reply 'import json,sys; print(json.load(sys.stdin)[0]["reserved"][1] + 1)')
 # slurp counts both drag corners, so the box ends on the bottom row.
 capture_surface_box="1,$capture_box_top $((mon_w - 2))x$((mon_h - capture_box_top))"
-capture_reference() { "${shell_env[@]}" "$capture_real_grim" -g "$capture_surface_box" "$capture_state/reference-$1.png"; }
+capture_reference() { nested_input_check "$capture_real_grim" || return 1; "${shell_env[@]}" "$capture_real_grim" -g "$capture_surface_box" "$capture_state/reference-$1.png"; }
 # capture_settled NAME: `settled` once two grim images of the box in a row
 # are equal, the rule the helper's settle uses, kept as reference NAME.
 capture_settled() {
