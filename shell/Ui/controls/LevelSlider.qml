@@ -65,10 +65,6 @@ Item {
         iconName: root.iconName
         label: root.buttonLabel
         onClicked: root.buttonClicked()
-        background: Item {
-            implicitHeight: button.controlHeight
-            FocusRing { target: button }
-        }
     }
 
     Slider {

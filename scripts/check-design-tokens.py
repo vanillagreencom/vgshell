@@ -46,13 +46,14 @@ fixed geometry is what a placement row measures:
                      which an application window draws as its colour while
                      Hyprland's window glass is off
   icon-button-background
-                     a qs.Ui `IconButton` that binds its `background`, outside
-                     shell/Ui: the shared control shows an icon button's
-                     hover, press and checked states on its glyph alone, and a
-                     replaced background is how a surface draws a fill or a
-                     border on an icon toggle (docs/architecture/design-system.md
-                     § Tokens). A qualified `X.IconButton` is the shared
-                     control; an unqualified one beside the plugin's own
+                     a qs.Ui `IconButton` that binds its `background`, in qs.Ui
+                     too: the shared control, IconButton.qml, shows an icon
+                     button's hover, press and checked states on its glyph
+                     alone, and a replaced background is how a surface draws a
+                     fill or a border on an icon toggle
+                     (docs/architecture/design-system.md § Tokens). A
+                     qualified `X.IconButton` is the shared control; outside
+                     shell/Ui an unqualified one beside the plugin's own
                      IconButton.qml is that file's type and is not judged
 A value that is more than one literal, such as `2 * inset`, is layout and
 passes. Comments are blanked and strings kept, through scripts/qml_source.py.
@@ -380,9 +381,10 @@ def look_of(looks, path):
     return None
 
 
-def icon_button_backgrounds(path, text):
-    """The lines of every qs.Ui IconButton in `text` that binds `background`."""
-    local = os.path.isfile(os.path.join(os.path.dirname(path), ICON_BUTTON + ".qml"))
+def icon_button_backgrounds(path, text, library):
+    """The lines of every qs.Ui IconButton in `text` that binds `background`.
+    In qs.Ui (`library`) an unqualified IconButton is the shared control."""
+    local = not library and os.path.isfile(os.path.join(os.path.dirname(path), ICON_BUTTON + ".qml"))
     lines = []
     for block in blocks(blank_comments(text, literals=False)):
         if block.type is None or block.type.rsplit(".", 1)[-1] != ICON_BUTTON:
@@ -396,7 +398,7 @@ def icon_button_backgrounds(path, text):
 
 def check_tree(root, table, literal, looks, surfaces, findings, notices, library=False):
     """Check every source file under `root`; answer the file count. `library`
-    marks qs.Ui, which owns the icon button's pixels."""
+    marks qs.Ui, whose IconButton.qml is the shared control."""
     files = set()
     for path, text in source_texts(root):
         if manifestless_plugin_dir(looks, path) is not None:
@@ -405,8 +407,8 @@ def check_tree(root, table, literal, looks, surfaces, findings, notices, library
         for match in SCREEN_GUTTER.finditer(code):
             number = code.count("\n", 0, match.start()) + 1
             findings.append(f"window-room {path}:{number} screen-gutter")
-        if literal is not None and not library and path.endswith(".qml"):
-            for number in icon_button_backgrounds(path, text):
+        if literal is not None and path.endswith(".qml"):
+            for number in icon_button_backgrounds(path, text, library):
                 (findings if literal == "finding" else notices).append(f"icon-button-background {path}:{number} {ICON_BUTTON}.background")
     for look in looks.values():
         if look.file is not None:
