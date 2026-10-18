@@ -48,6 +48,13 @@ command:
   page-reference-field  a complete literal `page:<id>/Settings/<field key>`
                 reference whose key names no field of that plugin's
                 manifest schema, which its Settings tab would not show.
+  file-reference  a known file extension, ~/ path or absolute path in
+                manifest prose or drawn/source prose outside a file link.
+                PageReference.js reads inline links. File-action labels,
+                explicit LinkText links and label/value folder choices
+                already have their own route. Call arguments and CodeLine
+                samples are data, not prose. Markdown and TUI text cannot
+                draw the inline links and are not read for this rule.
 A string literal is a quoted one or a template literal, whose `${...}`
 parts read as the argument $ARG.
 The text read is every Markdown file and every manifest.json of each plugin
@@ -108,6 +115,10 @@ PAGE_LINK = re.compile(r"\[[^\[\]\n]+\]\(page:")
 # Only complete literal targets can be judged. An empty id opens the
 # plugin list; a template argument or unfinished concatenation is unknown.
 PAGE_TARGET = re.compile(PAGE_LINK.pattern + r"([^\s()/$]+)(?:/Settings/([^\s()/$]+)|/[^\s()/$]+)?\)")
+# Extensions of the configuration and instruction files VGS cites. The
+# path branch also catches extensionless folders and files.
+FILE_NAME = re.compile(r"(?<![\w./~:$])(?:~?/[^\s<>\[\]`\"']+|[\w.-]+\.(?:lua|conf|config|ghostty|json|jsonc|md|txt|toml|ini|yaml|yml|qml|js|sh|service|desktop|hook))(?!\w|\.[A-Za-z0-9])", re.I)
+URL = re.compile(r"\b[A-Za-z][A-Za-z0-9+.-]*://[^\s<>]+")
 HEADS_FLOOR = 20
 # Members the head extractors must yield: the core's own command and an
 # elevator. A set without them came from a broken extractor.
@@ -350,6 +361,112 @@ def link_words(doc, where):
     return link["text"] if isinstance(link, dict) and isinstance(link.get("text"), str) else ""
 
 
+def file_action_label(doc, where):
+    """Whether WHERE labels an action whose existing route opens a file."""
+    if not where.endswith(".label"):
+        return False
+    node = doc
+    for key in where.split(".")[:-1]:
+        node = node[int(key)] if isinstance(node, list) else node.get(key, {})
+    return isinstance(node, dict) and bool(node.get("file"))
+
+
+def literal_context(masked, code, literal):
+    """The enclosing expression's start and end, and its opening delimiter.
+
+    A direct call argument is data (including fileReference and its local
+    wrappers). An object member inside a call is still drawn prose.
+    """
+    depth = 0
+    start = literal.start()
+    for at in range(start - 1, -1, -1):
+        if masked[at] in ")}]":
+            depth += 1
+        elif masked[at] in "({[":
+            if depth == 0:
+                end = at + 1
+                nested = 1
+                while end < len(masked) and nested:
+                    if masked[end] in "({[":
+                        nested += 1
+                    elif masked[end] in ")}]":
+                        nested -= 1
+                    end += 1
+                return at, end, masked[at]
+            depth -= 1
+    return 0, len(code), ""
+
+
+def file_prose(code, masked, literal, value):
+    """Source prose to judge, or empty for technical data/linked words."""
+    start, end, delimiter = literal_context(masked, code, literal)
+    if delimiter in ("(", "[") or "CodeLine" == enclosing_type(masked, literal.start()):
+        return ""
+    prefix = masked[start + (1 if delimiter else 0):literal.start()]
+    bindings = list(re.finditer(r"(?:^|[;,\n])\s*(?:readonly\s+)?(?:property\s+\w+\s+)?(\w+)\s*:", prefix))
+    binding = bindings[-1] if bindings else None
+    if binding is not None and binding.group(1) not in DRAWN:
+        return ""
+    if binding is None and not re.search(r"\b(?:var|let|const)\s+\w+\s*=\s*$", prefix):
+        return ""
+    if re.search(r"^\s*(?:[\w.-]+\s*=|[a-z][\w-]*:)", value):
+        return ""
+    if binding is None and re.search(r"\s", value.strip()) is None:
+        return ""
+    block = code[start:end]
+    if re.search(r"\blink\s*:\s*$", masked[:start]):
+        return ""
+    # Settings folder offers draw a label for the value they select; these
+    # are choices of a folder, rather than citations in explanatory text.
+    choice = re.search(r"\bvalue\s*:\s*(" + STRING.pattern + r")", block)
+    if choice and choice.group(1)[1:-1] == value:
+        return ""
+    if enclosing_type(masked, literal.start()) == "LinkText":
+        link = re.search(r"\blink\s*:\s*(" + STRING.pattern + r")", block)
+        if link:
+            words = link.group(1)[1:-1]
+            value = value.replace(words, " " * len(words)) if words else value
+    return value
+
+
+def check_file_references(citations, findings, root, core):
+    """Read inline references through their production owner, in one call."""
+    if not citations:
+        return
+    script = ("const fs = require('fs'); const load = require(process.argv[1]).load; const m = load(process.argv[2]);"
+              # The consent slot, not its input constants, owns the explicit
+              # file link applied by NoticeHost. Read that shipped consumer.
+              "const linked = new Map(); if (process.argv[3]) { const p = load(process.argv[3]);"
+              "for (const state of p.WELCOME_STATES) for (const phase of p.WELCOME_SHOWS) {"
+              "const view = p.consentSlotView({phase, failure: '', busy: false}, state, {}, []);"
+              "if (view && view.link && view.link.path) for (const text of view.lines)"
+              "linked.set(text, text.split(view.link.text).join(' '.repeat(view.link.text.length))); }}"
+              "const texts = JSON.parse(fs.readFileSync(0, 'utf8'));"
+              "process.stdout.write(JSON.stringify(texts.map(([text, consent]) => {"
+              "if (consent && linked.has(text)) text = linked.get(text);"
+              "const r = m.references(text); let plain = r.text;"
+              "for (const link of r.links.slice().reverse()) if (m.file(link.page))"
+              "plain = plain.slice(0, link.start) + ' '.repeat(link.end - link.start) + plain.slice(link.end);"
+              "return plain; })));" )
+    try:
+        consumer = os.path.join(root, "Core", "PluginLogic.js")
+        consumer = consumer if core and os.path.isfile(consumer) else ""
+        inputs = [(text, bool(consumer) and os.path.dirname(path) == os.path.join(root, "Core"))
+                  for path, _where, text in citations]
+        done = subprocess.run(["node", "-e", script, os.path.join(REPO, "bin", "lib", "qml-library.js"),
+                               os.path.join(REPO, "shell", "Commons", "PageReference.js"), consumer],
+                              input=json.dumps(inputs), capture_output=True,
+                              text=True, check=True, env={"PATH": os.environ.get("PATH", "/usr/bin:/bin")})
+        plain = json.loads(done.stdout)
+        if not isinstance(plain, list) or len(plain) != len(citations) or not all(isinstance(text, str) for text in plain):
+            raise ValueError("reference reader returned incomplete text")
+    except (OSError, subprocess.CalledProcessError, ValueError) as exc:
+        unreadable("shell/Commons/PageReference.js", "file references did not load: " + str(exc).splitlines()[0])
+    for (path, where, text), visible in zip(citations, plain):
+        if FILE_NAME.search(blank(visible, URL)):
+            findings.append(("file-reference", path, where, text.strip()[:120]))
+
+
 def check_markdown(path, heads, findings):
     text = blank(read(path), DETAILS)
     for fence in FENCE.finditer(text):
@@ -457,6 +574,7 @@ def main(argv):
     findings = []
     pages = []
     references = []
+    citations = []
     strings = 0
     for path in markdown:
         check_markdown(path, heads, findings)
@@ -469,6 +587,8 @@ def main(argv):
             for _index, excerpt in instructions(text, heads, True):
                 findings.append(("instruction", path, where, excerpt))
             references.append((path, where, text))
+            if not file_action_label(doc, where):
+                citations.append((path, where, text))
             for excerpt in page_references(text, link_words(doc, where)):
                 pages.append((path, where, excerpt))
     code_files = 0
@@ -488,6 +608,9 @@ def main(argv):
                 for excerpt in page_references(value):
                     pages.append((path, line, excerpt))
                 start = statement_start(masked, literal.start())
+                prose = file_prose(code, masked, literal, value) if FILE_NAME.search(value) else ""
+                if FILE_NAME.search(prose):
+                    citations.append((path, line, prose))
                 if DRAWN_BEFORE.search(masked, start, literal.start()) is None:
                     continue
                 inline_named = not token.startswith("`") and any(first_word(inline) in heads for inline in LITERAL_CODE.findall(value))
@@ -506,6 +629,7 @@ def main(argv):
                 findings.append(("page-reference-field", path, where, text.strip()[:120]))
     for path, where, excerpt in pages:
         findings.append(("page-reference", path, where, excerpt))
+    check_file_references(citations, findings, root, core)
     for rule, path, where, excerpt in findings:
         print(f"{rule} {os.path.relpath(path, REPO)}:{where} {excerpt}")
     if findings:

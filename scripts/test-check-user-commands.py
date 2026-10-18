@@ -47,9 +47,42 @@ def qml(line):
     return "import QtQuick\nItem {\n" + line + "\n}\n"
 
 
+def file_reference(words, path):
+    script = "const m = require(process.argv[1]).load(process.argv[2]); process.stdout.write(m.fileReference(process.argv[3], process.argv[4]));"
+    done = subprocess.run(["node", "-e", script, os.path.join(REPO, "bin", "lib", "qml-library.js"),
+                           os.path.join(REPO, "shell", "Commons", "PageReference.js"), words, path],
+                          capture_output=True, text=True, check=True, env=ENV)
+    return done.stdout
+
+
+FILE_LINK = file_reference("hyprland.lua", "hypr/hyprland.lua")
+CAPS_LINK = file_reference("AGENTS.md", "/home/a folder (one)/AGENTS.md")
+
+
 # rows: name, { file in the plugin: text }, rule key or None, location.
 ROWS = [
     ("a clean plugin", {}, None, None),
+    ("a manifest bare file citation", {"manifest.json": manifest(description='"Read hyprland.lua first."')}, "file-reference", "manifest.json:description"),
+    ("a drawn uppercase instruction file", {"Service.qml": qml('    Label { text: "Open AGENTS.md." }')}, "file-reference", "Service.qml:3"),
+    ("a home folder citation", {"Service.qml": qml('    Field { info: "Write files in ~/.local/bin." }')}, "file-reference", "Service.qml:3"),
+    ("an absolute extensionless folder", {"Service.qml": qml('    Label { text: "/etc/pacman.d/hooks/" }')}, "file-reference", "Service.qml:3"),
+    ("a JS prose constant", {"Logic.js": 'var NOTE = "Read config.ghostty first.";\n'}, "file-reference", "Logic.js:1"),
+    ("a wrapped file citation", {"Service.qml": qml('    Label {\n        text: ready\n            ? "Done"\n            : "Check settings.json."\n    }')}, "file-reference", "Service.qml:6"),
+    ("multiple file references including capitals", {"manifest.json": manifest(description=json.dumps("Read " + FILE_LINK + " and " + CAPS_LINK + "."))}, None, None),
+    ("a bare filename after a file reference", {"manifest.json": manifest(description=json.dumps("Read " + FILE_LINK + " and AGENTS.md."))}, "file-reference", "manifest.json:description"),
+    ("a page link does not open its filename words", {"manifest.json": manifest(description='"[AGENTS.md](page:acme.setup)"')}, "file-reference", "manifest.json:description"),
+    ("a file reference helper argument", {"Service.qml": qml('    LinkText { text: "Open " + PageReference.fileReference("AGENTS.md", "/home/a/AGENTS.md") }')}, None, None),
+    ("a local reference helper argument", {"Logic.js": 'function note(home) { return "Read " + homeReference("AGENTS.md", home, "/AGENTS.md"); }\n'}, None, None),
+    ("an explicit file link", {"Service.qml": qml('    LinkText { text: "Open hyprland.lua."; link: "hyprland.lua" }')}, None, None),
+    ("an explicit link does not cover a second filename", {"Service.qml": qml('    LinkText { text: "Open hyprland.lua and AGENTS.md."; link: "hyprland.lua" }')}, "file-reference", "Service.qml:3"),
+    ("a file action supplies the route", {"manifest.json": manifest(status='{ "home": { "type": "state", "label": "Home", "actions": { "agents": { "label": "Open AGENTS.md", "file": true } } } }')}, None, None),
+    ("a nonfile action supplies no file route", {"manifest.json": manifest(status='{ "home": { "type": "state", "label": "Home", "action": { "label": "Open AGENTS.md", "tui": "edit" } } }')}, "file-reference", "manifest.json:status.home.action.label"),
+    ("a selected folder label", {"Service.qml": qml('    function choices() { return [{ label: "~/Jarvis", value: "~/Jarvis" }]; }')}, None, None),
+    ("a different label is still prose", {"Service.qml": qml('    function choices() { return [{ label: "Read ~/Jarvis", value: "none" }]; }')}, "file-reference", "Service.qml:3"),
+    ("a CodeLine path is technical data", {"Service.qml": qml('    CodeLine { text: "~/.config/vgshell/shell.json" }')}, None, None),
+    ("a program argument is data", {"Logic.js": 'function run() { proc(["cat", "/etc/a.conf"]); }\n'}, None, None),
+    ("URLs API routes config syntax and units", {"Service.qml": qml('    Label { text: "See https://example.org/a.json and https://example.org/docs/ for KB/s." }\n    property string route: "/v1/messages"\n    property string config: "source = /etc/hypr/a.conf"')}, None, None),
+    ("a comment is not a file citation", {"Service.qml": qml('    // Open AGENTS.md.')}, None, None),
     ("a README step to run a command", {"README.md": "# Setup\n\n1. Run `vsys warden install` once.\n"}, "instruction", "README.md:3"),
     ("an instruction after a comma and or", {"README.md": "Open it from the launcher, or run `vgshell ipc call acme.setup invoke go \"\"`.\n"}, "instruction", "README.md:1"),
     ("an instruction to type at a command's prompt", {"docs.md": "Type the token at `secret-tool`'s prompt.\n"}, "instruction", "docs.md:1"),
@@ -311,6 +344,7 @@ def plugin_target_failures():
 # modules it loads, must fail the rows. The copy reads the heads from this
 # repository, as the check does.
 CONTROLS = [
+    ("the file-reference rule", '            findings.append(("file-reference", path, where, text.strip()[:120]))', "            pass"),
     ("the instruction rule", "        findings.append((\"instruction\", path, line_of(prose, index), excerpt))", "        pass"),
     ("the shell-block rule", "if lang in SHELL_FENCES and body and first_word(body[0]) in heads:", "if False:"),
     ("the code-command rule", "                    findings.append((\"code-command\", path, line, value.strip()[:120]))", "                    pass"),
@@ -388,6 +422,14 @@ def control_failure(rooted, control):
         return f"control {label}: the text to replace occurs {count} times, want 1"
     with tempfile.TemporaryDirectory() as tmp:
         mutant = write_check_copy(tmp, rooted.replace(needle, replacement))
+        if label == "the file-reference rule":
+            # Removing only the refusal must let the same bare citation
+            # through the real manifest/source entry point. The row below
+            # then proves the suite rejects that lost protection.
+            with tempfile.TemporaryDirectory() as tree:
+                done = run(mutant, build(tree, {"Service.qml": qml('    Label { text: "Open AGENTS.md." }')}))
+            if done.returncode != 0:
+                return f"control {label}: bare fixture did not pass with the rule removed: exit {done.returncode}: {done.stdout.strip()}"
         if label == "the heads floor":
             # A copy that reads no bin/ and no manager must be refused by
             # the floor; without it, the copy passes on too few heads.
