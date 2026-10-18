@@ -265,7 +265,7 @@ function continuationChecks(logic, check, sourceChanges = {}) {
                 root = loadReader({ shell: world.shell, Gate: GATE, Protocol: protocol, Session: protocol.Session,
                     Conversation: load(path.join(JARVIS, "Conversation.js")), conversationLog: [], outputTail: "", cause: "",
                     lifetime: { kind: "starting", pendingMute: "none" }, sessionState: protocol.Session.initial(),
-                    setupAnswer: { kind: "checking" }, homePathRead: { kind: "ready", path: "/home/user/Fixture" }, voiceStep: null, dictationState: null, personalityShown: null, startTextShown: null, startTextOver: {},
+                    setupAnswer: { kind: "checking" }, homeRepair: { result: { kind: "unavailable" } }, homePathRead: { kind: "ready", path: "/home/user/Fixture" }, voiceStep: null, dictationState: null, personalityShown: null, startTextShown: null, startTextOver: {},
                     localRuntime: { setupCause: "", republish: () => true }, sessionStart: { result: null },
                     accountReader: { voiceKeys: undefined, modelAccess: { kind: "checking" } }, audioHealth: { kind: "reading" },
                     fleetRuntime: { refresh: () => events.push("fleet") }, serve: () => events.push("request"),
