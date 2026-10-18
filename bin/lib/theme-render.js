@@ -52,7 +52,7 @@ const COLOR_SELECT_FORMATS = ["starship", "yazi", "bat", "fastfetch", "televisio
 // `jsonc` is JSON with comments and trailing commas, as VS Code-family
 // editors read their settings. The line-exact `toml` edit also handles
 // btop.conf's quoted root assignment without parsing unrelated settings.
-const SELECT_FORMATS = ["json", "jsonc", "toml", "yaml"];
+const SELECT_FORMATS = ["json", "jsonc", "toml", "yaml", "qtct", "json-array", "userjs"];
 // The longest `key` a line-exact format takes: a root key, or a key in one
 // table or top-level mapping. JSON takes any depth.
 const SELECT_LINE_DEPTH = 2;
@@ -516,7 +516,7 @@ function setupDone(target, onPath) {
 }
 
 function isJsonFormat(format) {
-    return format === "json" || format === "jsonc";
+    return format === "json" || format === "jsonc" || format === "json-array" || format === "userjs";
 }
 
 // Whether KEY is a key path FORMAT takes: one bare name per segment, a dot
@@ -621,6 +621,11 @@ function acceptTarget(logic, name, text) {
     if (reload !== "") return refused("target-schema", reload);
     const select = logic.hasOwn(document, SELECT_KEY) ? selectError(logic, document.select, hasAccounts, hasEditors) : "";
     if (select !== "") return refused("target-schema", select);
+    if (document.select?.format === "qtct" && (JSON.stringify(document.select.key) !== '["Appearance","color_scheme_path"]'))
+        return refused("target-schema", "key=select.key");
+    if (document.select?.format === "userjs" && (document.wiring?.profiles === undefined || document.select.base !== "home" ||
+        document.select.file !== "user.js" || JSON.stringify(document.select.key) !== '["toolkit.legacyUserProfileCustomizations.stylesheets"]' || document.select.value !== "true"))
+        return refused("target-schema", "key=select");
     if (document.select?.format === "yazi") {
         const files = Array.isArray(document.select.file) ? document.select.file : [document.select.file];
         const dirs = Array.isArray(document.wiring?.dir) ? document.wiring.dir : [document.wiring?.dir];

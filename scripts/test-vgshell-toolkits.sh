@@ -148,8 +148,8 @@ check "qt6ct's scheme is linked into qt6ct/colors" links_to "$cfg/qt6ct/colors/v
 check "qt5ct's scheme holds 21 #rrggbb roles with the accent as Highlight" qt_scheme_is "$live/qt5ct.conf" "#111111"
 check "qt6ct's scheme holds 21 #rrggbb roles with the accent as Highlight" qt_scheme_is "$live/qt6ct.conf" "#111111"
 check "the qt6ct hook touches qt6ct.conf, which qt6ct's watcher reads" test "$(mtime "$cfg/qt6ct/qt6ct.conf")" -gt 0
-check "the qt6ct hook leaves qt6ct.conf's settings as they were" file_is "$cfg/qt6ct/qt6ct.conf" $'[Appearance]\nstyle=Fusion\n'
-check "the qt5ct hook creates no qt5ct.conf" test ! -e "$cfg/qt5ct/qt5ct.conf"
+check "qt6ct selects VGS and keeps its style" file_is "$cfg/qt6ct/qt6ct.conf" $'[Appearance]\ncustom_palette=true\ncolor_scheme_path='"\"$live/qt6ct.conf\""$'\nstyle=Fusion\n'
+check "qt5ct creates only the VGS selection" file_is "$cfg/qt5ct/qt5ct.conf" $'[Appearance]\ncustom_palette=true\ncolor_scheme_path='"\"$live/qt5ct.conf\""$'\n'
 check "the KDE scheme is linked into the home's color-schemes" links_to "$home/.local/share/color-schemes/Vgs.colors" "$live/kcolorscheme.colors"
 check "the KDE scheme is #rrggbb with the accent as the selection" kde_scheme_is "$live/kcolorscheme.colors" "#111111"
 
@@ -297,10 +297,6 @@ tree_control qt6ct-encoder themes/targets/qt6ct/target.json '"encoder": "hex6"' 
 control_cfg qt6ct-encoder
 THEME_PATH="$with_stubs" tinst "the qt6ct hex8 mutant applies" "$cfg" "$rt_empty" 0 "$any_out" "" theme apply dusk
 check "the qt6ct hex8 mutant's roles are not #rrggbb" test "$(qt_scheme_is "$live/qt6ct.conf" "#111111"; echo $?)" == 1
-tree_control qt5ct-reload themes/targets/qt5ct/target.json '"touch -c -- ' '"touch -- '
-control_cfg qt5ct-reload
-THEME_PATH="$with_stubs" tinst "the creating qt5ct hook mutant applies" "$cfg" "$rt_empty" 0 "$any_out" "" theme apply dusk
-check "the creating qt5ct hook mutant creates qt5ct.conf" test -e "$cfg/qt5ct/qt5ct.conf"
 tree_control kcolorscheme-base themes/targets/kcolorscheme/target.json '"base": "home"' '"base": "config"'
 control_cfg kcolorscheme-base; rm -rf -- "$home/.local/share/color-schemes"
 THEME_PATH="$with_stubs" tinst "the configuration-home KDE mutant applies" "$cfg" "$rt_empty" 0 "$any_out" "" theme apply dusk
