@@ -275,37 +275,22 @@ Item {
             compare(secondCaps[0].shortcut, "Ctrl+Tab");
         }
 
-        function test_hint_shadow_follows_text_luminance_data() {
+        function test_hint_word_draws_plain_in_the_hint_role_data() {
             return [
-                { tag: "dark mode dark text", mode: "dark", ink: "#101010", shadow: "#ffffff" },
-                { tag: "light mode light text", mode: "light", ink: "#f0f0f0", shadow: "#000000" }
+                { tag: "dark", mode: "dark", faint: "#8090a0" },
+                { tag: "light", mode: "light", faint: "#405060" }
             ];
         }
 
-        function test_hint_shadow_follows_text_luminance(row) {
-            compare(UnitTheme.override({ scheme: { mode: row.mode }, color: { text: row.ink } }), "ok");
+        // A hint word is a hint-role label on the surface under it: no
+        // backing, no layer and no colour of its own.
+        function test_hint_word_draws_plain_in_the_hint_role(row) {
+            compare(UnitTheme.override({ scheme: { mode: row.mode }, color: { text: "#d0d0d0", textFaint: row.faint } }), "ok");
             const label = hints.children[0].children[1];
-            tryCompare(label, "color", Qt.color(row.ink));
-            const backing = label.children.find(child => child.objectName === "keyHintBacking");
-            verify(backing !== undefined, "the actual word has a backing");
-            compare(backing.color, Qt.color(row.shadow));
-            compare(label.font.weight, 600);
-            compare(label.font.variableAxes.wght, 600);
-            verify(label.layer.effect !== null, "the actual hint label carries its effect");
-            const effect = label.layer.effect.createObject(label);
-            verify(effect !== null, "the shipped effect component builds");
-            compare(effect.shadowEnabled, true);
-            compare(effect.shadowColor, Qt.color(row.shadow));
-            compare(effect.shadowOpacity, 0.7);
-            verify(effect.blurMax >= 4, "the soft halo covers the floating label");
-            compare(effect.shadowBlur, 1);
-            compare(label.layer.enabled, true);
-            hints.visible = false;
-            compare(label.visible, false);
-            compare(label.layer.enabled, false, "hidden ancestors release the texture layer");
-            hints.visible = true;
-            compare(label.layer.enabled, true);
-            effect.destroy();
+            compare(label.role, "hint");
+            tryCompare(label, "color", Qt.color(row.faint));
+            compare(label.children.length, 0, "the word draws no backing");
+            compare(label.layer.enabled, false, "the word draws no shadow layer");
         }
 
         // The title and secondary lines draw with whole-pixel line boxes,

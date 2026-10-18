@@ -737,17 +737,6 @@ var TOKENS = {
         foreground: color("{color.textMuted}")
     },
 
-    keyHints: {
-        foreground: color("alpha({color.text}, 1)"),
-        background: color("contrast({keyHints.foreground})"),
-        radius: length("{radius.sm}"),
-        weight: weight(600),
-        shadow: color("contrast({keyHints.foreground})"),
-        shadowOpacity: share(0.7),
-        blur: length(4),
-        shadowOffset: length(0)
-    },
-
     // A command or path shown to copy: its text on a sunken fill, a Copy
     // button at its right edge, and `confirm` the milliseconds the button
     // shows a check mark after a copy.

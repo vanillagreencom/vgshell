@@ -285,12 +285,12 @@ var READABILITY_FLOOR = 4.5;
 // Medium (500) uses the regular fit; bold (600/700) uses bodyStrong's.
 var TEXT_STROKE_COVERAGE = { regular: 0.966, bold: 1.000 };
 // Each judged colour's actual weight sources: Label typography, Button's
-// variant override, KeyHints and AvatarGroup. TileGroup selects its role
+// variant override and AvatarGroup. TileGroup selects its role
 // from the theme, so both caption colours read the selected role's weight.
 function readabilityWeights(values) {
     var tileWeight = "text." + valueAt(values, "tileGroup.captionRole") + ".weight";
     return {
-        "color.text": ["text.body.weight", "text.bodyStrong.weight", "text.item.weight", "text.itemCode.weight", "text.menuItem.weight", "text.value.weight", "text.button.weight", "text.kbd.weight", "text.code.weight", "text.bar.weight", "text.tooltip.weight", "button.variant.secondary.weight", "button.variant.tertiary.weight", "button.variant.ghost.weight", "keyHints.weight", "avatarGroup.weight"],
+        "color.text": ["text.body.weight", "text.bodyStrong.weight", "text.item.weight", "text.itemCode.weight", "text.menuItem.weight", "text.value.weight", "text.button.weight", "text.kbd.weight", "text.code.weight", "text.bar.weight", "text.tooltip.weight", "button.variant.secondary.weight", "button.variant.tertiary.weight", "button.variant.ghost.weight", "avatarGroup.weight"],
         "color.textHeading": ["text.display.weight", "text.h1.weight", "text.h2.weight", "text.h3.weight", "text.windowTitle.weight"],
         "color.textMuted": ["text.subheading.weight", "text.label.weight", "text.body.weight", "text.hint.weight", "text.bar.weight", "text.value.weight", "text.bodyStrong.weight", "text.code.weight", "text.item.weight", "text.button.weight", "text.kbd.weight", tileWeight],
         "color.textFaint": ["text.hint.weight", "text.itemHint.weight", "text.menuItemHint.weight", "text.item.weight", "text.body.weight", "text.kbd.weight"],
