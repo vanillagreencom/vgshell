@@ -20,7 +20,8 @@
 // The controls: the template with each line disabled, rendered and sourced the
 // same way, must show no variable and no RGB.
 // User content is read back after sourcing and reloading the actual rendered
-// include. Restoring the former writer for each row must break its assertion.
+// include. Restoring the former writer or omitting a native colour attribute
+// from the reset must break the corresponding assertion.
 //
 // Each server runs on its own socket under a scratch TMUX_TMPDIR and HOME,
 // with -f /dev/null, and is killed before the scratch root is removed. A
@@ -145,6 +146,10 @@ const server = (name, text, options = []) => {
 // tmux-continuum prepends its autosave command to status-right. These fixtures
 // keep commands literal; sourcing the theme must not execute or rewrite them.
 const CONTENT = [
+    // Native colour assignments from the installed tmux manual's STYLES section.
+    ...["fg", "bg", "us", "fill"].map(colour => ({
+        option: "status-format[0]", value: `#[${colour}=red]OWNER`, expected: "OWNER", omittedColour: colour
+    })),
     { option: "status-right", value: "#(continuum_save.sh) clock %H:%M", expected: "#(continuum_save.sh) clock %H:%M", former: "set -gqu status-right" },
     { option: "status-right", value: "#[fg=red]#(continuum_save.sh) #[bg=blue,fg=white]clock#[default]", expected: "#(continuum_save.sh) clock#[default]", former: "set -gqu status-right" },
     { option: "status-format[1]", value: "", expected: "", former: "set -gqu status-format" },
@@ -231,7 +236,16 @@ const stop = async () => {
 
         for (const [index, row] of CONTENT.entries()) {
             assert.equal(contentValue(`c${index}1`, template, row), row.expected + "\n", row.option);
-            const former = template + "\n" + row.former + "\n";
+            let former;
+            if (row.omittedColour) {
+                const attributes = ["fg", "bg", "us", "fill"];
+                const pattern = `(${attributes.join("|")})`;
+                assert.equal(template.split(pattern).length, 2, pattern);
+                former = template.replace(pattern, `(${attributes.filter(colour => colour !== row.omittedColour).join("|")})`);
+                assert.notEqual(former, template);
+            } else {
+                former = template + "\n" + row.former + "\n";
+            }
             const controlValue = contentValue(`c${index}0`, former, row);
             assert.throws(() => assert.equal(controlValue, row.expected + "\n"),
                 { code: "ERR_ASSERTION" }, `${row.option}/former writer must fail`);
