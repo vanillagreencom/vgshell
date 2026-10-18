@@ -13,7 +13,7 @@ import "../../shell/plugins/vgs.settings"
 // and its trash ink ends where a flat setting's select beside the list
 // ends, whether that value fills the value column or stops at its widest.
 // Add still keys a new item by the lowest whole number no item names, and
-// the list it sends is one the manager's judge accepts.
+// the list it sends is one the manager's judge accepts and writes as a list.
 Item {
     id: root
     width: 1100
@@ -21,6 +21,7 @@ Item {
 
     property var writes: []
     property var refusals: []
+    property var written: []
 
     // The plugin the field belongs to, as the manager's judge reads it.
     function manifest() {
@@ -48,10 +49,12 @@ Item {
         spec: root.manifest().schema.pairs
         value: [{ name: "7", kind: "a", wide: false }, { name: "9", kind: "b", wide: true }]
         // Plugins.writeSetting judges the value the page relays from this
-        // signal with PluginLogic.settingRefusal before it writes.
+        // signal with PluginLogic.settingRefusal before it writes it with
+        // PluginLogic.withSetting.
         onApply: v => {
             root.writes = root.writes.concat([v]);
             root.refusals = root.refusals.concat([PluginLogic.settingRefusal(root.manifest(), "pairs", v)]);
+            root.written = root.written.concat([Array.isArray(PluginLogic.withSetting({}, root.manifest(), "pairs", v, {}).plugins[0].pairs)]);
         }
     }
 
@@ -74,6 +77,7 @@ Item {
             UnitTheme.reset();
             root.writes = [];
             root.refusals = [];
+            root.written = [];
             list.width = 480;
             list.value = [{ name: "7", kind: "a", wide: false }, { name: "9", kind: "b", wide: true }];
         }
@@ -154,6 +158,7 @@ Item {
             const add = descendants(list).find(child => child instanceof RowAction && child.text === "Add");
             mouseClick(add);
             compare(root.refusals, [""]);
+            compare(root.written, [true], "the manager writes a list");
         }
     }
 }

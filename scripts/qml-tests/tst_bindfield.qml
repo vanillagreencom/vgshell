@@ -2,6 +2,7 @@ import QtQuick
 import QtTest
 import Quickshell
 import qs.Commons
+import qs.Core
 import qs.Ui
 import qs.Unit
 
@@ -19,7 +20,9 @@ import qs.Unit
 // on the bind under it. A bind with a hint opens its explanation in a band
 // of one line over that hint, and one too long for that line is in the info
 // icon's dialog too. The capture here answers every conflict question with
-// one hint and records each question as "KEY ID SHORTCUT".
+// one hint and records each question as "KEY ID SHORTCUT". The listed
+// bind's key goes through the manager's judge and write as Plugins.setKey
+// takes it from the signal.
 Item {
     id: root
     width: 480
@@ -62,6 +65,8 @@ Item {
 
     property var sent: []
     property var pairs: []
+    property var judged: []
+    readonly property var voice: ({ id: "vgs.voice", hyprland: { binds: [{ shortcut: "tap", key: ["code:108", "code:105"] }] } })
     property int linked: 0
 
     Column {
@@ -105,7 +110,10 @@ Item {
             width: parent.width
             pluginId: "vgs.voice"
             bind: ({ shortcut: "tap", key: "code:108", keys: ["code:108", "code:105"], default: ["code:108", "code:105"] })
-            onApplyKey: key => root.pairs = root.pairs.concat([[key, listed.alternative]])
+            onApplyKey: key => {
+                root.pairs = root.pairs.concat([[key, listed.alternative]]);
+                root.judged = root.judged.concat([[PluginLogic.keyRefusal(root.voice, "tap", key), PluginLogic.withKey({}, root.voice, "tap", key, {}).plugins[0].keys.tap]]);
+            }
         }
         BindField {
             id: readOnly
@@ -123,6 +131,7 @@ Item {
             UnitTheme.reset();
             root.sent = [];
             root.pairs = [];
+            root.judged = [];
         }
 
         function descendant(f, matches) {
@@ -220,8 +229,11 @@ Item {
                 ["remove takes the alternative it names", () => listed.remove(1), ["code:108", null]]
             ]) {
                 root.pairs = [];
+                root.judged = [];
                 edit();
                 compare(JSON.stringify(root.pairs), JSON.stringify([want]), why);
+                // On Qt 6.12 a list arrives as a wrapper Array.isArray refuses.
+                compare(JSON.stringify(root.judged), JSON.stringify([["", want[0]]]), why + ": the manager judges and writes it");
             }
             field.committed("SUPER+K", 0);
             compare(listed.alternative, undefined, "the edit's key is named only while it is sent");
