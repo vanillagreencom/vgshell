@@ -1807,9 +1807,9 @@ function channelSeparation(first, second) {
     return 255 * Math.hypot(a.r - b.r, a.g - b.g, a.b - b.b);
 }
 function tmuxStyle(text, option) {
-    const line = text.split("\n").find(line => line.startsWith("set -g " + option + " "));
+    const line = text.split("\n").find(line => new RegExp("^set -gq? " + option + " ").test(line));
     assert.ok(line, option);
-    const value = /^set -g [^ ]+ "([^"\n]+)"$/.exec(line);
+    const value = /^set -gq? [^ ]+ "([^"\n]+)"$/.exec(line);
     assert.ok(value, option);
     return Object.fromEntries(value[1].split(",").map(part => part.includes("=") ? part.split("=") : [part, true]));
 }
@@ -1871,6 +1871,11 @@ function verifyAppStyles(render, changedTemplates = {}) {
         assert.equal(status.bg, bg);
         assert.equal(active.bg, bg);
         assert.equal(inactive.bg, bg);
+        for (const option of ["popup-style", "popup-border-style", "menu-style", "menu-border-style"]) {
+            const style = tmuxStyle(rendered.tmux, option);
+            assert.equal(style.bg, pkg.values.color[option.startsWith("popup") ? "background" : "surfaceRaised"].slice(0, 7), name + "/" + option);
+            if (option.endsWith("border-style")) assert.equal(style.fg, pkg.values.color.borderStrong.slice(0, 7), name + "/" + option);
+        }
         // The session label takes the bar's active desk pair (BarItem.qml's
         // Theme.bar.active fill and Theme.bar.onActive text).
         assert.deepEqual([session.bg, session.fg], [pkg.values.bar.active.slice(0, 7), pkg.values.bar.onActive.slice(0, 7)], name + "/session");
@@ -2422,6 +2427,8 @@ try {
 console.log(`test-theme-render: ghostty-faint packages=${appStyleMetrics.length} opacity=0.8 controls=default,absent,normal-foreground,invalid-color model=full-coverage-linear comparisons=${ghosttyFaintModels.length} normal=source-unchanged`);
 const tmuxTemplate = fs.readFileSync(path.join(repo, "themes/targets/tmux/tmux.conf"), "utf8");
 const styleControls = [
+    ...["popup-style", "popup-border-style"].map(option => ["old raised " + option,
+        `set -gq ${option} "bg=#@{color.background}`, `set -gq ${option} "bg=#@{color.surfaceRaised}`]),
     ["session text not the active text", 'bg=#@{bar.active},fg=#@{bar.onActive},bold', 'bg=#@{bar.active},fg=#@{color.text},bold'],
     ["old session block fill", 'set -g status-left-style "bg=#@{bar.active}', 'set -g status-left-style "bg=#@{color.info}'],
     ["rejected session without block", 'set -g status-left-style "bg=#@{bar.active}', 'set -g status-left-style "bg=#@{color.background}'],
