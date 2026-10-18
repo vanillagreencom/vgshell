@@ -76,8 +76,9 @@ parallel_cases() { # WORKER PREFIX SPEC...
 }
 
 # A fresh scratch repository at $1: trunk holds the script, the loader, the
-# md-refs checker with an exclusion list that keeps its own copy out of its
-# scope, a settings file naming trunk as the base branch, one clean file and
+# md-refs checker, the document validate cites, and an exclusion list that
+# keeps these borrowed files' own references out of scope, a settings file
+# naming trunk as the base branch, one clean file and
 # one under each root an install ships, bin/, shell/ and config/, each at a
 # path the tree holds, so a fixture that copies the tree in replaces it;
 # refs/remotes/origin/trunk points at it; HEAD is a feature branch on top.
@@ -92,12 +93,14 @@ fresh() {
 }
 template() {
   local dir="$tmp/template"
-  mkdir -p "$dir/scripts/smoke" "$dir/.agents/skills/orch/scripts/lib" "$dir/.agents/skills/commit-guards" "$dir/tools"
+  mkdir -p "$dir/scripts/smoke" "$dir/.agents/skills/orch/scripts/lib" "$dir/.agents/skills/commit-guards" "$dir/tools" "$dir/docs/architecture"
   cp -- "$repo/scripts/validate" "$dir/scripts/validate"
+  cp -- "$repo/docs/architecture/validation.md" "$dir/docs/architecture/validation.md"
   cp -- "$repo/scripts/smoke/row-inputs.sh" "$dir/scripts/smoke/row-inputs.sh"
   cp -- "$repo/.agents/skills/orch/scripts/lib/kendex-env.sh" "$dir/.agents/skills/orch/scripts/lib/kendex-env.sh"
   cp -R -- "$repo/.agents/skills/commit-guards/scripts" "$dir/.agents/skills/commit-guards/"
   printf '# kendex-guard-dialect: legacy-glob\n.agents/*\tcopies of checkers, whose citations name their own repository\n' >"$dir/tools/md-excludes"
+  printf 'docs/architecture/validation.md\tborrowed citation target, whose links name the full repository\n' >>"$dir/tools/md-excludes"
   printf '[env]\nWORKTREE_DEFAULT_BRANCH = "trunk"\n' >"$dir/kendex.settings.toml"
   printf 'clean\n' >"$dir/clean.txt"
   mkdir -p "$dir/bin/lib" "$dir/shell/Core" "$dir/config/system/udev"
@@ -2542,8 +2545,15 @@ refs_failed="validate: failed=markdown references and source citations (exit 1)"
 test_area=repo
 test_args=()
 d="$tmp/refs-clean"; refs_fixture "$d"
-row "live references pass" "$d" 0 "" \
-  "md-refs: summary=violations=0 references=2 markdown=1 sources=2 decisions=0:docs/decisions skipped=0"
+row_re "live references pass" "$d" 0 "" \
+  "~md-refs: summary=violations=0 references="
+d="$tmp/refs-citation-target"; fresh "$d"
+rm -- "$d/docs/architecture/validation.md"
+row_re "control: default md-refs rejects the copied script's missing citation target" "$d" 1 "" \
+  "~md-refs: citation-target=scripts/validate:" \
+  "~:docs/architecture/validation.md § Test isolation" "$refs_failed"
+cp -- "$repo/docs/architecture/validation.md" "$d/docs/architecture/validation.md"
+row "the copied script's citation passes with its document restored" "$d" 0 "" "validate: ok"
 d="$tmp/refs-untracked"; refs_fixture "$d"
 mkdir -p "$d/sub"; printf 'See [gone](gone.md).\n' >"$d/sub/AGENTS.md"
 row "a dead link in an untracked document fails" "$d" 1 "" \
