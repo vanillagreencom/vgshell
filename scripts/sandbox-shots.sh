@@ -3429,9 +3429,9 @@ voice_stand_ins_removed() { rm -f -- "${shim:?}/voxtype" "${shim:?}/wtype" "${vo
 voice_bridge_stand_in() {
   cat >"$shim/voxtype-audio-bridge" <<'EOF'
 #!/usr/bin/env bash
-printf '{"status":"connected"}\n'
+printf '{"status":"connected"}\n' || exit
 trap 'exit 0' TERM
-while :; do printf '{"peak":0.42,"rms":0.18,"vad":1,"ts_ms":0}\n'; sleep 0.05; done
+while :; do printf '{"peak":0.42,"rms":0.18,"vad":1,"ts_ms":0}\n' || exit; sleep 0.05; done
 EOF
   chmod 755 "$shim/voxtype-audio-bridge"
 }

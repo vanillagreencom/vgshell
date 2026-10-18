@@ -46,11 +46,34 @@ on_tty() {
   local cmd
   cmd="$(printf '%q ' "$@")"
   set +e
-  { while :; do printf x; sleep 0.2; done; } |
+  { while printf x; do sleep 0.2; done; } |
     timeout 30 "${tui_env[@]}" script -qec "$cmd" /dev/null >"$tmp/out" 2>&1
   tty_status=${PIPESTATUS[1]}
   set -e
 }
+# A supervisor can ignore SIGPIPE before Bash starts. Exercise the actual
+# helper with a reader that exits at once; its old loop must hit the bound.
+{
+  declare -p tmp tui_env
+  declare -f on_tty
+  printf '%s\n' 'on_tty true' 'exit "$tty_status"'
+} >"$tmp/typist.sh"
+python3 - "$tmp/typist.sh" "$tmp/typist-old.sh" <<'PY'
+import pathlib, sys
+source = pathlib.Path(sys.argv[1]).read_text()
+needle = 'while printf x; do'
+assert source.count(needle) == 1
+mutant = source.replace(needle, 'while :; do printf x;')
+assert mutant != source
+pathlib.Path(sys.argv[2]).write_text(mutant)
+PY
+for row in 'typist|0' 'typist-old|124'; do
+  IFS='|' read -r helper want_status <<<"$row"
+  helper_status=0
+  (trap '' PIPE; timeout --kill-after=1 5 "${base_env[@]}" "$BASH" "$tmp/$helper.sh") \
+    >"$tmp/$helper.log" 2>&1 || helper_status=$?
+  check "$helper with inherited ignored SIGPIPE exits $want_status" test "$helper_status" == "$want_status"
+done
 # plain_run BIN ARGS...: BIN with no terminal; stdout in $tmp/out, stderr
 # in $tmp/err, the exit status in $plain_status.
 plain_run() {
@@ -122,7 +145,7 @@ done
 prompt_on_tty() { # BIN
   rm -f -- "$tmp/stdout"
   set +e
-  { while :; do printf x; sleep 0.2; done; } |
+  { while printf x; do sleep 0.2; done; } |
     timeout 30 "${tui_env[@]}" script -qec "$(printf '%q ' "$1" present -- exits 1) >$(printf '%q' "$tmp/stdout")" /dev/null >"$tmp/out" 2>&1
   tty_status=${PIPESTATUS[1]}
   set -e
@@ -289,8 +312,8 @@ on_tty_interrupt() {
   set +e
   {
     while [[ ! -s $tmp/child && ! -e $tmp/reader-done ]] && ((polls++ < 600)); do sleep 0.05; done
-    [[ -s $tmp/child ]] && printf '\003'
-    while [[ ! -e $tmp/reader-done ]]; do printf x; sleep 0.2; done
+    if [[ -s $tmp/child ]]; then printf '\003' || exit; fi
+    while [[ ! -e $tmp/reader-done ]] && printf x; do sleep 0.2; done
   } | {
     timeout 30 "${tui_env[@]}" script -qec "$cmd" /dev/null >"$tmp/out" 2>&1
     st=$?

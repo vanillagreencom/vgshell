@@ -17,6 +17,6 @@ mkdir -p -- "$(dirname -- "$log")"
 printf '%s\n' "$*" >>"$log"
 trap 'exit 0' TERM INT HUP
 while :; do
-  printf '\0338\033[38;2;0;200;255mVGS\033[0m\n'
+  printf '\0338\033[38;2;0;200;255mVGS\033[0m\n' || exit
   sleep 0.2
 done

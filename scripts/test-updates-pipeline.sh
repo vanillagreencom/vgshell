@@ -1133,7 +1133,7 @@ log_tui() {
   [[ $keys == yes ]] || ceiling=2
   : >"$calls"
   set +e
-  { if [[ $keys == yes ]]; then while :; do printf x; sleep 0.2; done; else sleep 3; fi; } |
+  { if [[ $keys == yes ]]; then while printf x; do sleep 0.2; done; else sleep 3; fi; } |
     timeout "$ceiling" "${base_env[@]}" PATH="$stubs:$tools" VGS_TUI_LIB="$tree/bin/lib/tui.sh" VGS_PLUGIN_ID=vgs.updates VGS_PLUGIN_DIR="${PLUGIN:-$plugin}" \
       XDG_STATE_HOME="$state" XDG_RUNTIME_DIR="$rt" CALLS="$calls" FIX="$fix" \
       script -qec "$(printf '%q ' "$BASH" "$script_path" "$@")" /dev/null >"$tmp/out" 2>&1
