@@ -1455,6 +1455,7 @@ function verifyKittyStyles(template, render = selectionRender) {
         const fields = new Map(output.bytes.toString("utf8").split("\n")
             .filter(line => line.trim() !== "" && !line.trimStart().startsWith("#"))
             .map(line => line.trim().split(/\s+/)));
+        assert.equal(fields.get("wayland_titlebar_color"), "background");
         const colors = new Map();
         for (const field of ["background", "foreground", ...KITTY_FIELDS]) {
             const color = logic.parseColor(fields.get(field));
@@ -1568,6 +1569,14 @@ const kittyControls = [
 ];
 const kittyScratch = fs.mkdtempSync(path.join(os.tmpdir(), "kitty-style-control-"));
 try {
+    const titlebarLine = "wayland_titlebar_color background\n";
+    assert.equal(kittyTemplate.split(titlebarLine).length, 2);
+    const withoutTitlebar = kittyTemplate.replace(titlebarLine, "");
+    assert.notEqual(withoutTitlebar, kittyTemplate);
+    const titlebarFile = path.join(kittyScratch, "without-titlebar.conf");
+    fs.writeFileSync(titlebarFile, withoutTitlebar, { flag: "wx" });
+    assert.throws(() => verifyKittyStyles(fs.readFileSync(titlebarFile, "utf8")),
+        { code: "ERR_ASSERTION", actual: undefined, expected: "background" });
     for (const [index, control] of kittyControls.entries()) {
         const sameRule = shortfall => shortfall.kind === control.kind && shortfall.role === control.role &&
             (control.kind !== "kitty-mark-distinction" || shortfall.peer === control.peer);
