@@ -477,7 +477,7 @@ session_restart() { # STEP...
   python3 -c 'import json,sys; print(json.dumps({"unlock": None, "steps": [dict(zip(["kind", "name", "outcome", "cause"], (step.split(":", 3) + [None])[:4])) for step in sys.argv[1:]]}))' "$@"
 }
 # A record saved before a machine restart: each step pending, then, once
-# the package's resume starts, the session running resumed, overseer
+# the package's resume starts, the session running restart-resumed, overseer
 # vgshell failed with its cause and lane VGS-1797 still pending. The resume
 # answers after 2 s, so a second Resume can come before its answer. The
 # calls start over.
@@ -624,7 +624,7 @@ session_shell_start "$repo" boot-resume
 expect_poll "with Start Jarvis at boot on a shell start asks for one boot resume" "$(session_resume_words boot)" session_calls_settled resume
 expect "the boot resume asks for no start" '[]' session_calls start
 expect "a record resumed at boot offers nothing" null session_offer
-# The resumed session lives: the stand-in's status reads it running resumed.
+# The resumed session lives: the stand-in's status reads it running restart-resumed.
 rm -f -- "${session_package:?}/scripts/calls.log"
 session_shell_start "$repo" boot-live
 expect_poll "a shell restart while the resumed session lives asks for one boot start" "$(session_start_words resume boot)" session_calls_settled start

@@ -274,13 +274,23 @@ function inside() {
         const result = helper(directory, ["dismiss", "~/Jarvis"]);
         assert.deepEqual([result.kind, result.state, result.reason, Object.hasOwn(result, "restart")], ["answer", "stopped", "ended", false]);
         assert.deepEqual(calls(folder).map(call => call.argv), [["dismiss", "--home", folder]]);
+        // A dismiss after a failed start: exit 0 answers the session, failed
+        // as the start left it, with the record dropped.
+        answers(folder, { dismiss: said("failed", "launch-failed"), status: said("failed", "launch-failed", { restart: record }) });
+        const afterFailedStart = helper(directory, ["dismiss", "~/Jarvis"]);
+        assert.deepEqual([afterFailedStart.kind, afterFailedStart.state, Object.hasOwn(afterFailedStart, "restart")], ["answer", "failed", false],
+            "a dismiss after a failed start is saved");
         // The package's refusals, exit 1 with its contract object, and an
         // unknown verb, exit 2: each keeps the record.
         for (const [label, refusal] of [
             ["an unknown verb", undefined],
             ["a record it cannot read", { exit: 1, object: { state: "blocked", reason: "record-unreadable" } }],
             ["a failed state", { exit: 1, object: { state: "failed", reason: "launch-failed", restart: record } }],
-            ["an answer that keeps the record", { exit: 1, object: { state: "stopped", reason: "ended", restart: record } }]]) {
+            ["a refusal that keeps the record", { exit: 1, object: { state: "stopped", reason: "ended", restart: record } }],
+            // Raw, since the stand-in refuses to write an exit 0 dismiss
+            // that keeps the record: a package outside its contract.
+            ["an exit 0 answer that keeps the record", { exit: 0, raw: JSON.stringify({ v: 1, state: "stopped", reason: "ended", home: null, harness: null,
+                account: null, detail: "", restart: record }) + "\n" }]]) {
             answers(folder, { status: said("stopped", "ended", { restart: record }), ...(refusal === undefined ? {} : { dismiss: refusal }) });
             assert.deepEqual(helper(directory, ["dismiss", "~/Jarvis"]), { kind: "failed" }, label + ": a dismiss not done");
         }
@@ -374,9 +384,10 @@ function inside() {
     control("since-checked", C, "ISO.test(since)", "true", fieldsOutside);
     control("step-checked", C, "|| !OUTCOMES.includes(step.outcome)", "", fieldsOutside);
     control("resume-origin", C, 'launch(at, ["resume", "--origin", "manual"])', 'launch(at, ["resume", "--origin", "boot"])', resume);
-    control("dismiss-refusal", C, '["blocked", "failed"].includes(dismissed.state) || ', "", dismiss);
-    control("dismiss-kept-record", C, " || dismissed.restart !== null) return failed;", ") return failed;", dismiss);
-    control("dismiss-verb", C, 'const dismissed = await run(at, ["dismiss"]);', 'const dismissed = await run(at, ["status"]);', dismiss);
+    control("dismiss-exit-code", C, " || dismissed.code !== 0 || ", " || ", dismiss);
+    control("dismiss-by-state", C, " || dismissed.code !== 0 || ", ' || ["blocked", "failed"].includes(dismissed.value.state) || ', dismiss);
+    control("dismiss-kept-record", C, " || dismissed.value.restart !== null) return failed;", ") return failed;", dismiss);
+    control("dismiss-verb", C, 'const dismissed = await exited(at, ["dismiss"]);', 'const dismissed = await exited(at, ["status"]);', dismiss);
     control("boot-resume", C, 'if (origin === "boot" && mode === "resume" && now.restart !== null && !LIVE.includes(now.state)) return launch(at, ["resume", "--origin", "boot"]);', "", bootResume);
     control("boot-resume-mode", C, 'origin === "boot" && mode === "resume" && now.restart !== null', 'origin === "boot" && now.restart !== null', bootResume);
     control("boot-resume-live", C, "now.restart !== null && !LIVE.includes(now.state)", "now.restart !== null", bootResume);

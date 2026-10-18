@@ -20,9 +20,9 @@
 //                                    saved before a machine restart
 //   dismiss HOME                     `dismiss`: the package drops that
 //                                    record and answers the session as
-//                                    `status` does; a refusal, an answer
-//                                    that keeps the record or no answer
-//                                    is `failed`
+//                                    `status` does; a refusal (exit 1),
+//                                    an answer that keeps the record or
+//                                    no answer is `failed`
 //   change OLD ACCOUNT HOME MODE     a changed account or home: while a
 //                                    session lives in OLD, checks the new
 //                                    selection, stops the old session and
@@ -159,11 +159,11 @@ async function main() {
         if (resolved === null) return blocked("no-account");
         return resolved.source.kind === "cli" ? { harness: resolved.provider, directory: resolved.source.directory } : blocked("not-app");
     }
-    // One run of the command by argument list in its home: the contract's
-    // object for exit 0 or 1, else null. The bound ends the run itself: a
-    // program the command started can hold its output open past the
-    // command's own end, and `close` waits for that.
-    function run(at, words) {
+    // One run of the command by argument list in its home: { code, value },
+    // the exit status, 0 or 1, and the contract's object, else null. The
+    // bound ends the run itself: a program the command started can hold its
+    // output open past the command's own end, and `close` waits for that.
+    function exited(at, words) {
         return new Promise(resolve => {
             const child = cp.spawn(at.command, words.concat(["--home", at.folder]), { cwd: at.folder, env: environment, stdio: ["ignore", "pipe", "ignore"] });
             let out = "";
@@ -182,9 +182,14 @@ async function main() {
             child.stdout.setEncoding("utf8");
             child.stdout.on("data", text => { if (out.length <= OUTPUT_BYTES) out += text; });
             child.on("error", () => end(null));
-            child.on("close", (code, signal) => end(signal === null && (code === 0 || code === 1) ? accepted(out) : null));
+            child.on("close", (code, signal) => {
+                const value = signal === null && (code === 0 || code === 1) ? accepted(out) : null;
+                end(value === null ? null : { code, value });
+            });
         });
     }
+    // The contract's object of one run, exit 0 and exit 1 alike, else null.
+    const run = async (at, words) => (await exited(at, words))?.value ?? null;
     const failed = { kind: "failed" };
     // The session as the command reads it now; a status outside the
     // contract is no package VGS can use.
@@ -218,12 +223,13 @@ async function main() {
     if (verb === "dismiss") {
         const at = place(args[0]);
         if (at.kind === "blocked") return at;
-        const dismissed = await run(at, ["dismiss"]);
-        // The package refuses with its contract object and exit 1, state
-        // blocked or failed (session.py main), and a refusal's answer
-        // carries the record it kept; an unknown verb exits 2.
-        if (dismissed === null || ["blocked", "failed"].includes(dismissed.state) || dismissed.restart !== null) return failed;
-        return answer(dismissed);
+        const dismissed = await exited(at, ["dismiss"]);
+        // The package refuses with exit 1 and its contract object (session.py
+        // main), and an unknown verb exits 2. Exit 0 answers the session as
+        // `status` does, a `failed` one from an earlier start included, and
+        // carries no record once the record is dropped.
+        if (dismissed === null || dismissed.code !== 0 || dismissed.value.restart !== null) return failed;
+        return answer(dismissed.value);
     }
     if (verb === "change") {
         const [old, setting, home, mode] = args;
