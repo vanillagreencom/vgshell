@@ -45,6 +45,8 @@
 #                        session, and `systemctl set-default graphical.target` while
 #                        another target is the default, since only graphical.target
 #                        starts a display manager
+#   vgs-quickshell-repository  enable vanillagreen/vgshell in Fedora COPR;
+#                        keep errornointernet/quickshell for cpptrace
 #   voxtype-engine       `voxtype setup onnx --enable`; undo disables ONNX
 #                        only while the step has a root-owned record
 #   reboot-notice        link /etc/pacman.d/hooks/cachyos-reboot-required.hook to
@@ -219,7 +221,7 @@ dev="$prefix/dev"
 boot_id_file="$prefix/proc/sys/kernel/random/boot_id"
 
 # The closed table, in the order status prints it.
-steps=(apple-displays i2c-dev service-bluetooth service-tailscaled service-cups tailscale-operator greeter bandwhich-capture reboot-notice voxtype-engine)
+steps=(apple-displays i2c-dev service-bluetooth service-tailscaled service-cups tailscale-operator greeter bandwhich-capture reboot-notice voxtype-engine vgs-quickshell-repository)
 declare -A step_description=(
   [apply:apple-displays]='Give this desktop access to Apple display controls. This lets VGS change their brightness.'
   [undo:apple-displays]='Remove the Apple display access rule that VGS added. This removes the brightness access from that rule.'
@@ -239,6 +241,8 @@ declare -A step_description=(
   [undo:bandwhich-capture]='Remove the network monitor access that VGS granted. This stops that access to application connection details.'
   [apply:reboot-notice]='Turn off CachyOS reboot notices for package updates outside VGS. VGS still asks once after all its update steps finish when a restart is needed.'
   [undo:reboot-notice]='Restore CachyOS reboot notices for package updates outside VGS. VGS still asks once after all its update steps finish when a restart is needed.'
+  [apply:vgs-quickshell-repository]='Enable the VGS software repository. This supplies the VGS engine and its updates.'
+  [undo:vgs-quickshell-repository]='Disable the VGS software repository that VGS enabled. This stops engine updates from that repository.'
   [apply:voxtype-engine]='Enable the speech engine for dictation. This lets VGS turn your speech into text.'
   [undo:voxtype-engine]='Disable the speech engine that VGS enabled. Dictation will need another speech engine.'
 )
@@ -781,6 +785,22 @@ probe_reboot_notice() {
   esac
 }
 
+# repolist --enabled is provided by both supported dnf binaries. The repo
+# id is COPR's published identity; another Quickshell COPR cannot satisfy it.
+probe_vgs_quickshell_repository() {
+  local listing line repo rest
+  command -v dnf >/dev/null || command -v dnf5 >/dev/null || { set_probe absent command-missing; return; }
+  detect_system || { set_probe unknown system-undetected; return; }
+  [[ $detected_system == dnf ]] || { set_probe absent distribution-unsupported; return; }
+  line="${system_detect_output%%$'\n'*}"
+  program copr_dnf "${line##* binary=}"
+  listing="$(LC_ALL=C "$copr_dnf" repolist --enabled)" || { set_probe unknown repositories-unreadable; return; }
+  while read -r repo rest; do
+    if [[ $repo == copr:copr.fedorainfracloud.org:vanillagreen:vgshell ]]; then set_probe ready repository-enabled; return; fi
+  done <<<"$listing"
+  set_probe needed repository-disabled
+}
+
 probe_voxtype_engine() {
   local engine compiled
   command -v voxtype >/dev/null || { set_probe absent command-missing; return; }
@@ -803,6 +823,7 @@ probe() { # STEP
     bandwhich-capture) probe_bandwhich_capture ;;
     reboot-notice) probe_reboot_notice ;;
     voxtype-engine) probe_voxtype_engine ;;
+    vgs-quickshell-repository) probe_vgs_quickshell_repository ;;
     *) refuse 1 "internal=probe step=$1" "the step table has no probe for it" ;;
   esac
 }
@@ -881,7 +902,7 @@ read_record() { # STEP
     greeter) allowed=' uid config pam dropin enabled target deferred dropin-dir greeter-dir theme-dir copy-dir state-dir ' ;;
     bandwhich-capture) allowed=' uid binary hash ' ;;
     reboot-notice) allowed=' uid link hooks-dir ' ;;
-    voxtype-engine) allowed=' uid enabled ' ;;
+    voxtype-engine|vgs-quickshell-repository) allowed=' uid enabled ' ;;
     *) refuse 1 "internal=record step=$1" ;;
   esac
   while IFS= read -r line || [[ -n $line ]]; do
@@ -912,8 +933,9 @@ read_record() { # STEP
 mode=show
 shown=""
 shown_commands=()
-cmd() { # ARGV...
-  local status=0 line
+cmd() { # [--terminal] ARGV...
+  local status=0 line input=/dev/null
+  if [[ ${1-} == --terminal ]]; then input=/dev/tty; shift; fi
   case "$mode" in
     show)
       line="sudo$(printf ' %q' "$@")"
@@ -921,7 +943,7 @@ cmd() { # ARGV...
       shown_commands+=("$line")
       ;;
     run)
-      sudo -- "$@" </dev/null || status=$?
+      sudo -- "$@" <"$input" || status=$?
       ((status == 0)) || refuse 1 "command=failed exit=$status argv=$(printf '%q' "$*")"
       ;;
     *) refuse 1 "internal=mode value=$mode" ;;
@@ -1033,6 +1055,22 @@ apply_tailscale_operator() {
   program tailscale tailscale
   record_put tailscale-operator "uid=$uid"$'\n'"operator=$user"$'\n'"previous="
   cmd "$tailscale" set "--operator=$user"
+}
+
+apply_vgs_quickshell_repository() {
+  probe_vgs_quickshell_repository
+  [[ $probe_state == needed ]] || refuse 1 "state=$probe_state reason=$probe_reason step=vgs-quickshell-repository"
+  read_record vgs-quickshell-repository || true
+  record_put vgs-quickshell-repository "uid=$uid"$'\n'"enabled=1"
+  # COPR reads its repository confirmation from stdin.
+  cmd --terminal "$copr_dnf" copr enable vanillagreen/vgshell
+}
+
+undo_vgs_quickshell_repository() {
+  probe_vgs_quickshell_repository
+  [[ $probe_state == ready || $probe_state == needed ]] || refuse 1 "state=$probe_state reason=$probe_reason step=vgs-quickshell-repository"
+  [[ ${record[enabled]-} != 1 || $probe_state != ready ]] || cmd "$copr_dnf" copr disable vanillagreen/vgshell
+  record_drop vgs-quickshell-repository
 }
 
 apply_voxtype_engine() {
@@ -1282,6 +1320,7 @@ plan() { # VERB STEP
     bandwhich-capture) "$1_bandwhich_capture" ;;
     reboot-notice) "$1_reboot_notice" ;;
     voxtype-engine) "$1_voxtype_engine" ;;
+    vgs-quickshell-repository) "$1_vgs_quickshell_repository" ;;
     *) refuse 1 "internal=plan step=$2" ;;
   esac
 }

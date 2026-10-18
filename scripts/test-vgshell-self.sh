@@ -468,6 +468,9 @@ check "so the Nix row would fail on it" json_is "$tmp/out" 'd["method"] == "chec
 self_control testrun '!process.env.VGS_TEST_RUN || ' ''
 INST_TEST_RUN="" INST_BIN="$control_bin" inst "the marker-blind mutant takes a loopback API outside a test run" "$cfg" "$rt_empty" 0 "$(status_json "$version_text" nix null "$version_text" "$release" true none nix null)" "" self status --json
 
+# Package-method stubs do not describe the engine in later curl controls.
+rm -f -- "${stubs:?}/pacman"
+
 # The checksum control needs a curl install: the release fixture's sums are
 # made wrong and a curl tree whose self.js skips the comparison installs it.
 self_control checksum 'if (got !== want) refuse(' 'if (false) refuse('
@@ -494,5 +497,158 @@ INST_BIN="$blind_data/vgshell/current/bin/vgshell" inst "the shell-blind mutant 
 check "and removes the running shell's tree, which the row above keeps" test ! -e "$blind_data/vgshell/0.0.8"
 kill "$blind_shell" 2>/dev/null || true
 inst_env=("${saved_env[@]}")
+
+# Exercise the previous updater against a release containing the migration.
+# The real package table runs stand-in helpers under each private os-release.
+migration_source="$tmp/migration-source/vgshell-$release"
+source_tree "$migration_source" "$release"
+cp -- "$repo/shell/Core/ConfigLogic.js" "$migration_source/shell/Core/"
+cat >"$migration_source/bin/vgshell-tui" <<'PRESENTER'
+#!/bin/bash
+[[ $1 == present ]] || exit 61
+shift
+while [[ $1 != -- ]]; do shift; done
+shift
+exec "$@"
+PRESENTER
+# The root step has its own production suite. This stand-in proves that
+# migration requests it before Fedora installs from that repository.
+cat >"$migration_source/bin/vgshell-system" <<'SYSTEM'
+#!/bin/bash
+[[ $* == 'apply vgs-quickshell-repository' ]] || exit 62
+printf '%s\n' "$*" >>"$ENGINE_STATE/system.log"
+touch "$ENGINE_STATE/vgs-repository"
+SYSTEM
+chmod +x "$migration_source/bin/vgshell-tui" "$migration_source/bin/vgshell-system"
+migration_helpers="$tmp/migration-helpers"; mkdir -p "$migration_helpers"
+cat >"$migration_helpers/pacman" <<'PACMAN'
+#!/bin/bash
+[[ $1 == -Qoq ]] || exit 63
+touch "$ENGINE_STATE/query"
+cat "$ENGINE_STATE/owner"
+PACMAN
+cat >"$migration_helpers/rpm" <<'RPM'
+#!/bin/bash
+[[ $1 == -qf ]] || exit 63
+touch "$ENGINE_STATE/query"
+cat "$ENGINE_STATE/owner"
+RPM
+cat >"$migration_helpers/qs" <<'QS'
+#!/bin/bash
+exit 64
+QS
+cat >"$migration_helpers/paru" <<'PARU'
+#!/bin/bash
+[[ $* == '-S --needed -- vgshell-quickshell' ]] || exit 63
+[[ -t 0 && -t 1 && -t 2 ]] || exit 65
+printf '%s\n' "$*" >>"$ENGINE_STATE/install.log"
+printf 'Replace stock engine? [y/N] '
+read -r answer || exit 130
+[[ $answer == y ]] || exit 0
+[[ ! -f $ENGINE_STATE/fail ]] || exit 42
+[[ ! -f $ENGINE_STATE/retain ]] || exit 0
+printf 'vgshell-quickshell\n' >"$ENGINE_STATE/owner"
+PARU
+cat >"$migration_helpers/dnf" <<'DNF'
+#!/bin/bash
+[[ $* == 'install vgshell-quickshell' && -f $ENGINE_STATE/vgs-repository ]] || exit 63
+exec "$ENGINE_HELPERS/paru" -S --needed -- vgshell-quickshell
+DNF
+cat >"$migration_helpers/sudo" <<'SUDO'
+#!/bin/bash
+case "$1" in -k|-n) exit 0 ;; esac
+exec "$@"
+SUDO
+chmod +x "$migration_helpers/"*
+git -C "$repo" show 18c62b11fb19f074b5167cf857ffa2c34be50862:bin/lib/self.js >"$tmp/previous-self.js"
+migration_pack() {
+  tar -C "$tmp/migration-source" -czf "$www/dl/$archive" "vgshell-$release"
+  printf '%s  %s\n' "$(sha256sum "$www/dl/$archive" | cut -d' ' -f1)" "$archive" >"$www/dl/SHA256SUMS"
+}
+migration_invoke() { # STATE DATA HELPERS ANSWER SELF_JS
+  local command status=0
+  printf -v command '%q ' "$unshare_bin" -rm "$BASH" -c 'mount --bind "$1" /etc/os-release && shift && exec "$@"' bash "$1/os-release" \
+    "$unshare_bin" --user --map-user="$(id -u)" --map-group="$(id -g)" env -i PATH="$3:$tools" HOME="$tmp/home" XDG_CONFIG_HOME="$cfg" XDG_RUNTIME_DIR="$rt_empty" XDG_DATA_HOME="$2" \
+    TMPDIR="$tmp" VGS_TEST_RUN=1 VGS_RELEASE_API="$api" ENGINE_STATE="$1" ENGINE_HELPERS="$migration_helpers" \
+    "$node_bin" "$5" install vanillagreencom/vgshell "$2" "$2/vgshell/$version_text" "$(cat "${5%/bin/lib/self.js}/VERSION")" -
+  printf '%s\n' "$4" | SHELL="$BASH" script -qec "$command" /dev/null >"$tmp/migration.out" 2>&1 || status=$?
+  if [[ $status != 0 ]]; then cat "$tmp/migration.out"; fi
+  return "$status"
+}
+migration_run() { # NAME DISTRIBUTION IDENTITY ANSWER WANT_EXIT
+  local name="$1" distro="$2" identity="$3" answer="$4" wanted="$5" status=0 binary
+  local state="$tmp/engine-$name" mdata="$tmp/engine-data-$name" helperdir="$tmp/engine-path-$name"
+  mkdir -p "$state" "$helperdir" "$mdata/vgshell"
+  if [[ $name == *symlink* ]]; then
+    mv "$mdata" "$mdata-real"
+    ln -s "$mdata-real" "$mdata"
+  fi
+  printf '%s\n' "$identity" >"$state/owner"
+  printf 'ID=%s\n' "$distro" >"$state/os-release"
+  for binary in qs sudo; do ln -s "$migration_helpers/$binary" "$helperdir/$binary"; done
+  if [[ $distro == arch ]]; then
+    for binary in pacman paru; do ln -s "$migration_helpers/$binary" "$helperdir/$binary"; done
+  else
+    for binary in rpm dnf; do ln -s "$migration_helpers/$binary" "$helperdir/$binary"; done
+  fi
+  install_tree "$seed" "$mdata/vgshell/$version_text"
+  cp -- "$tmp/previous-self.js" "$mdata/vgshell/$version_text/bin/lib/self.js"
+  ln -s "$version_text" "$mdata/vgshell/current"
+  [[ $name != *failure* ]] || touch "$state/fail"
+  [[ $name != *retained* ]] || touch "$state/retain"
+  migration_invoke "$state" "$mdata" "$helperdir" "$answer" "$mdata/vgshell/$version_text/bin/lib/self.js" || status=$?
+  check "migration $name has expected exit" test "$status" == "$wanted"
+  if [[ $wanted == 0 ]]; then
+    check "migration $name replaces the stock identity" test "$(cat "$state/owner")" == vgshell-quickshell
+    check "migration $name publishes the release" test "$(readlink "$mdata/vgshell/current")" == "$release"
+    if [[ $name == control-* ]]; then return; fi
+    printf '%s\n' "$identity" >"$state/owner"
+    migration_invoke "$state" "$mdata" "$helperdir" y "$mdata/vgshell/current/bin/lib/self.js" || status=$?
+    check "migration $name repairs a stock engine at the same version" test "$(cat "$state/owner")" == vgshell-quickshell
+    rm -f "${state:?}/install.log"
+    migration_invoke "$state" "$mdata" "$helperdir" y "$mdata/vgshell/current/bin/lib/self.js" || status=$?
+    check "migration $name remains successful at the same version" test "$status" == 0
+    check "migration $name is idempotent at the same version" test ! -e "$state/install.log"
+  else
+    check "migration $name keeps current" test "$(readlink "$mdata/vgshell/current")" == "$version_text"
+    check "migration $name removes the failed stage" test -z "$(find "$mdata/vgshell" -maxdepth 1 -name '.self-update-*')"
+    if [[ $name == *failure* ]]; then
+      rm "${state:?}/fail"
+      migration_invoke "$state" "$mdata" "$helperdir" y "$mdata/vgshell/$version_text/bin/lib/self.js" || status=$?
+      check "migration $name resumes after failure" test "$(cat "$state/owner")" == vgshell-quickshell
+    fi
+  fi
+}
+ln -s "$mount_bin" "$tools/mount"
+for tool in touch tr sleep; do ln -s "$(command -v "$tool")" "$tools/$tool"; done
+migration_pack
+mkdir "$tmp/ordinary-engine-state"
+"${base_env[@]}" PATH="$migration_helpers:$tools" ENGINE_STATE="$tmp/ordinary-engine-state" DESTDIR="$tmp/ordinary-package-stage" PREFIX=/vgshell "$migration_source/packaging/install-system.sh" >"$tmp/ordinary-stage.out"
+check "ordinary package staging with curl prefix performs no package action" test -d "$tmp/ordinary-package-stage/vgshell/share/vgshell"
+check "ordinary package staging never queries the host engine" test ! -e "$tmp/ordinary-engine-state/query"
+for row in 'arch-stock arch quickshell' 'arch-versionless arch quickshell-git' 'arch-symlink arch quickshell' 'fedora-stock fedora quickshell'; do
+  read -r name distro identity <<<"$row"
+  migration_run "$name" "$distro" "$identity" y 0
+done
+migration_run arch-cancel arch quickshell n 1
+migration_run fedora-failure fedora quickshell y 1
+migration_run arch-retained arch quickshell y 1
+# The same replacement assertions reject a release with its hook removed.
+cp -- "$migration_source/packaging/install-system.sh" "$tmp/migration-installer"
+python3 - "$migration_source/packaging/install-system.sh" <<'CONTROL'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1]); s = p.read_text()
+needle = '  node "$source_root/bin/lib/self.js" migrate-curl-stage "$source_root" "$destdir" "$prefix"'
+assert s.count(needle) == 1
+p.write_text(s.replace(needle, '  :'))
+CONTROL
+migration_pack
+for distro in arch fedora; do
+  before="$failures"
+  migration_run "control-$distro" "$distro" quickshell y 0
+  if ((failures > before)); then failures="$before"; ok "control: $distro replacement rejects a missing migration"; else fail "control: $distro replacement accepted missing migration"; fi
+done
+mv -- "$tmp/migration-installer" "$migration_source/packaging/install-system.sh"
 
 rows_done test-vgshell-self

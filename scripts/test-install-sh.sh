@@ -65,7 +65,14 @@ stub "$stubs" nmcli "nmcli tool, version 1.56.0"
 stub "$stubs" qrencode "qrencode version 4.1.1"
 stub "$stubs" xdg-terminal-exec ""
 install_managers="$tmp/install-managers"; mkdir -p "$install_managers"
-stub "$install_managers" pacman "" 1
+cat >"$install_managers/pacman" <<'PACMAN'
+#!/bin/sh
+# The presenter models a successful engine install in this fixture home.
+# Other package queries still report no installed VGS system package.
+[ "$1" = -Qoq ] && [ -f "$HOME/.fixture-engine-installed" ] || exit 1
+printf 'vgshell-quickshell\n'
+PACMAN
+chmod +x "$install_managers/pacman"
 stub "$install_managers" paru "" 1
 run_path="$stubs:$install_managers:$tools"
 
@@ -132,6 +139,8 @@ const command = args.slice(separator + 1);
 const manager = command[5];
 const expected = JSON.parse(fs.readFileSync(file, "utf8"))[manager];
 if (separator < 0 || command[0] !== path.join(path.dirname(presenter), "vgshell") || JSON.stringify(command.slice(1, 5)) !== JSON.stringify(["pkg", "run", "install", "--manager"]) || !Array.isArray(expected) || JSON.stringify(command.slice(6).sort()) !== JSON.stringify(expected.sort())) process.exit(2);
+if (process.env.VGS_INSTALL_CODE === "0" && command.slice(6).includes("vgshell-quickshell"))
+    fs.writeFileSync(path.join(process.env.HOME, ".fixture-engine-installed"), "");
 JS
     [[ $1 != present ]] || exit "${VGS_INSTALL_CODE:-0}"
     ;;
