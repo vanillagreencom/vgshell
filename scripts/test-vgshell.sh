@@ -1684,8 +1684,8 @@ if vgshell_help_contract "$repo/bin/vgshell"; then ok "help screens follow the C
 
 help_capture "$repo/bin/vgshell" plugin frobnicate
 refusal_first=""; IFS= read -r refusal_first <"$tmp/help-err" || true
-if [[ $help_status == 2 && -z $help_out && $refusal_first == "vgshell: refused: plugin-subcommand=frobnicate" && $(help_err_lines) == 2 ]]; then
-  ok "bad plugin invocation keeps its keyed refusal and one hint"
+if [[ $help_status == 2 && -z $help_out && $refusal_first == "vgshell: refused: plugin-subcommand=frobnicate" && $(help_err_lines) == 3 ]]; then
+  ok "bad plugin invocation keeps its keyed refusal, owner sentence and one hint"
 else
   fail "bad plugin invocation: exit=$help_status stdout=[$help_out] first=[$refusal_first] stderr-lines=$(help_err_lines)"
 fi
