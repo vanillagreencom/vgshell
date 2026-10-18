@@ -14,6 +14,29 @@
 # inputs: scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/ThemeRunner.qml bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/catalog/* themes/vgs/* scripts/smoke/rows/themes.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh scripts/smoke/fixtures/theme-image.jpg
 set -euo pipefail
 theme_browse_controls=""
+theme_browse_saved=""
+theme_browse_download_gate=""
+theme_browse_keep_state() {
+  local saved i status enabled
+  enabled="$(plugin_enabled acme.probe)" || return
+  case "$enabled" in
+    True) theme_browse_fixture_before=true ;;
+    False) theme_browse_fixture_before=false ;;
+    *) fail "theme-browse: fixture-state=$enabled"; return 1 ;;
+  esac
+  saved="$(mktemp -d "$sandbox/theme-browse-state.XXXXXX")" || return
+  theme_browse_paths=("$installed/browse" "$installed/nord" "$bg_state/backgrounds.json" "$bg_state/background")
+  for i in "${!theme_browse_paths[@]}"; do
+    if [[ -e ${theme_browse_paths[i]} || -L ${theme_browse_paths[i]} ]]; then
+      if cp -a -- "${theme_browse_paths[i]}" "$saved/$i"; then :; else
+        status=$?
+        rm -rf -- "${saved:?}"
+        return "$status"
+      fi
+    fi
+  done
+  theme_browse_saved="$saved"
+}
 theme_browse_controls_cleanup() {
   ipc smoke runnerDrop >/dev/null 2>&1 || true
   if [[ -n $theme_browse_controls ]]; then
@@ -22,9 +45,91 @@ theme_browse_controls_cleanup() {
   fi
 }
 theme_browse_cleanup() {
+  local i target
+  if [[ -n $theme_browse_download_gate ]]; then touch -- "$theme_browse_download_gate"; fi
   restore_vgshell
   theme_browse_controls_cleanup
+  if [[ -n $theme_browse_saved ]]; then
+    expect "the browse row restores its fixture enablement" ok ipc shell setPluginEnabled acme.probe "$theme_browse_fixture_before"
+    expect "the browse row's theme jobs finish before restoration" idle theme_idle
+    for i in "${!theme_browse_paths[@]}"; do
+      target="${theme_browse_paths[i]}"
+      rm -rf -- "${target:?}"
+      if [[ -e $theme_browse_saved/$i || -L $theme_browse_saved/$i ]]; then
+        cp -a -- "$theme_browse_saved/$i" "$target"
+      fi
+    done
+    rm -rf -- "${theme_browse_saved:?}"
+    theme_browse_saved=""
+  fi
+  if [[ -n $theme_browse_download_gate ]]; then
+    rm -f -- "${theme_browse_download_gate:?}"
+    theme_browse_download_gate=""
+  fi
 }
+theme_browse_cleanup_control() (
+  unset WAYLAND_DISPLAY DISPLAY HYPRLAND_INSTANCE_SIGNATURE
+  local mode="$1" control status=0
+  control="$(mktemp -d "$sandbox/theme-browse-control.XXXXXX")" || return
+  trap 'rm -rf -- "${control:?}"' EXIT
+  sandbox="$control"
+  installed="$control/world/packages"
+  bg_state="$control/world/backgrounds"
+  mkdir -p -- "$installed" "$bg_state" "$control/stubs"
+  export PATH="$control/stubs:$PATH"
+  printf 'false\n' >"$control/world/fixture"
+  if [[ $mode != empty ]]; then
+    printf 'original\n' >"$bg_state/backgrounds.json"
+    ln -s -- original "$bg_state/background"
+  fi
+  if [[ $mode == packages ]]; then
+    mkdir -p -- "$installed/browse" "$installed/nord"
+    printf 'original\n' >"$installed/browse/theme.json"
+    printf 'original\n' >"$installed/nord/theme.json"
+    printf 'true\n' >"$control/world/fixture"
+  fi
+  cp -a -- "$control/world" "$control/before"
+  plugin_enabled() { case "$(cat "$control/world/fixture")" in true) echo True ;; false) echo False ;; esac; }
+  ipc() {
+    if [[ $1 == shell && $2 == setPluginEnabled ]]; then printf '%s\n' "$4" >"$control/world/fixture"; fi
+    echo ok
+  }
+  restore_vgshell() { :; }
+  theme_idle() { echo idle; }
+  theme_browse_saved="" theme_browse_download_gate=""
+  theme_browse_controls="$control/runner-controls"
+  mkdir -- "$theme_browse_controls"
+  if [[ $mode == copy-fails ]]; then
+    cat >"$control/stubs/cp" <<'SH'
+#!/usr/bin/env bash
+printf 'partial\n' >"${@: -1}"
+exit 23
+SH
+    chmod 755 -- "$control/stubs/cp"
+    hash -r
+    theme_browse_keep_state || status=$?
+    [[ $status == 23 && -z $theme_browse_saved ]] || return 1
+    diff -r --no-dereference -- "$control/before" "$control/world" || return
+    echo restored
+    return 0
+  fi
+  theme_browse_keep_state || return
+  mkdir -p -- "$installed/browse" "$installed/nord"
+  printf 'planted\n' >"$installed/browse/theme.json"
+  printf 'planted\n' >"$installed/nord/theme.json"
+  printf 'planted\n' >"$bg_state/backgrounds.json"
+  rm -f -- "${bg_state:?}/background"
+  ln -s -- planted "$bg_state/background"
+  printf 'true\n' >"$control/world/fixture"
+  theme_browse_cleanup >"$control/cleanup.log"
+  [[ ! -e $control/runner-controls && -z $theme_browse_saved ]] || return 1
+  diff -r --no-dereference -- "$control/before" "$control/world" || return
+  echo restored
+)
+for theme_browse_control_mode in empty background packages copy-fails; do
+  expect "browse cleanup preserves the $theme_browse_control_mode state" restored theme_browse_cleanup_control "$theme_browse_control_mode"
+done
+theme_browse_keep_state
 smoke_row_abandon=(theme_browse_cleanup)
 browse="$installed/browse"
 # What VERB's callback last received, as JSON: its call count, then the
@@ -98,7 +203,9 @@ expect "the fixture downloads a package that is no catalog install" ok probe the
 expect_poll "the runner's refusal reaches the fixture as the result" '[1, "failed", "browse", "not-catalog"]' answer wallpapers state theme reason
 expect "no download runs after the refusal" null last_part downloading
 
-download_gate="$sandbox/theme-download-gate"
+download_gate="$(mktemp "$sandbox/theme-download-gate.XXXXXX")"
+theme_browse_download_gate="$download_gate"
+rm -- "$download_gate"
 slow_download="$sandbox/slow-download"
 cat >"$slow_download" <<SH
 #!/usr/bin/env bash
@@ -248,5 +355,5 @@ expect "a download whose runner prints no result is accepted" ok probe theme-wal
 expect_poll "the unreadable download is a failure with its reason" '[3, "failed", "nord", null, "output-unreadable"]' answer wallpapers state theme wallpapers reason
 restore_vgshell
 
-rm -r -- "$browse" "$installed/nord"
-expect "disabling the fixture after the browse rows is allowed" ok ipc shell setPluginEnabled acme.probe false
+theme_browse_cleanup
+smoke_row_abandon=()
