@@ -296,7 +296,7 @@ set +e
 out="$("${base_env[@]}" XDG_RUNTIME_DIR="$rt_live" STUB_REPLY='ok hidden=vgs.clock,vgs.workspaces' "$repo/bin/vgshell" plugin disable vgs.bar 2>/dev/null)"
 status=$?
 set -e
-if [[ $status == 0 && $out == $'ok hidden=vgs.clock,vgs.workspaces\nthose bar widgets stay enabled and return when a bar is enabled' ]]; then ok "disable prints the hidden widgets and the note"; else fail "hidden reply: exit=$status out=[$out]"; fi
+if [[ $status == 0 && $out == $'ok hidden=vgs.clock,vgs.workspaces\nThese widgets stay enabled. Turn on a bar in the Plugins window to show them again.' ]]; then ok "disable prints the hidden widgets and the note"; else fail "hidden reply: exit=$status out=[$out]"; fi
 
 # The instance lock. With no holder, run takes the lock and starts the
 # shell as its child, which records its own pid and carries it as its
@@ -573,9 +573,9 @@ pre_control "preflight first" full STUB_HYPR_VERSION=0.55.9 78 "vgshell: refused
 pre_control "table order" no-node "STUB_QS_VERSION=Quickshell 0.3.0" 78 "vgshell: refused: preflight=quickshell have=0.3.0 need=0.3.1" \
   $'  for i in "${!tools[@]}"; do\n    tool=' $'  for ((i = ${#tools[@]} - 1; i >= 0; i--)); do\n    tool='
 pre_control "scratch refused" full "TMPDIR=$pre_no_tmp" 1 "vgshell: refused: scratch=$pre_no_tmp" \
-  'scratch="$(mktemp -d 2>&1)" || refuse 1 "scratch=${TMPDIR:-/tmp}" "$scratch"' 'scratch="$(mktemp -d 2>&1)" || true'
+  'scratch="$(mktemp -d 2>&1)" || refuse 1 "scratch=${TMPDIR:-/tmp}" "VGS cannot create a temporary folder. Check free space and temporary folder access, then try again." "$scratch"' 'scratch="$(mktemp -d 2>&1)" || true'
 pre_control "scratch removed" full "" 0 "" \
-  $'  rm -rf -- "$scratch" || refuse 1 "scratch=$scratch"\n' ''
+  $'  rm -rf -- "$scratch" || refuse 1 "scratch=$scratch" "VGS cannot use its temporary folder. Check free space and folder access, then try again."\n' ''
 
 # Start asks Hyprland to launch the runner and returns after the guarded shell answers.
 start_capture() { # RUNTIME_DIR RECORD DISPATCH [ENV...]
@@ -982,7 +982,7 @@ check "a declined update runs no post-merge hook" test ! -e "$hooks/post-merge.m
 
 # The must-fail control: a copy of vgshell that never asks fast-forwards both
 # without a terminal and on a terminal that answers no.
-ask='      confirm_change update "$label" "the checkout stays at ${ff_old:0:12}"'
+ask='      confirm_change update "$label" "VGS keeps the installed version. Open Update again when you are ready."'
 check "the update asks once in bin/vgshell" test "$(grep -c -x -F -- "$ask" "$repo/bin/vgshell")" == 1
 noask="$tmp/noask"; mkdir -p "$noask/bin"
 grep -v -x -F -- "$ask" "$repo/bin/vgshell" >"$noask/bin/vgshell" || true

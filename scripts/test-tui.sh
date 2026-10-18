@@ -801,7 +801,7 @@ cancelled_wait_row() {
   (
     found=0
     for _ in {1..200}; do
-      if grep -qF "Press any key to close..." "$tmp/cancel-out" 2>/dev/null; then found=1; break; fi
+      if grep -qF "Press any key to close." "$tmp/cancel-out" 2>/dev/null; then found=1; break; fi
       sleep 0.05
     done
     [[ $found == 1 ]] || exit 1
@@ -816,7 +816,7 @@ cancelled_wait_row() {
   wait "$writer" || writer_status=$?
   exec {cancel_fd}>&-
   [[ $status == 0 && $writer_status == 0 ]] && grep -qF "Nothing changed." "$tmp/cancel-out" &&
-    grep -qF "● " "$tmp/cancel-out" && grep -qF "Press any key to close..." "$tmp/cancel-out"
+    grep -qF "● " "$tmp/cancel-out" && grep -qF "Press any key to close." "$tmp/cancel-out"
 }
 check "a cancellation on a terminal waits until a key" cancelled_wait_row
 cancelled_blocks_row() { # LIB_PATH
@@ -824,7 +824,7 @@ cancelled_blocks_row() { # LIB_PATH
   status=0
   "${lib_env[@]}" LIB="$row_lib" timeout 1 script -qec "$(printf '%q ' "$BASH" -c "set -euo pipefail; source \"\$LIB\"; vgs_tui_cancelled 'Nothing changed.'")" /dev/null \
     </dev/null >"$tmp/out" 2>&1 || status=$?
-  [[ $status == 124 ]] && grep -qF "Press any key to close..." "$tmp/out"
+  [[ $status == 124 ]] && grep -qF "Press any key to close." "$tmp/out"
 }
 check "a cancellation on a terminal blocks with no key" cancelled_blocks_row "$LIB"
 # The width: a sized terminal's columns, 80 for one that reports none.

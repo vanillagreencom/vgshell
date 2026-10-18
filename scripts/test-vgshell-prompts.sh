@@ -87,13 +87,13 @@ run_theme_add_arg() {
 row_plugin_url() {
   fresh_cfg
   term "$1" "  $tmp/src/probe.git  "$'\n'"y" plugin add
-  [[ $term_status == 0 ]] && gum_asked "Git URL of the plugin: " && out_holds "ok added=acme.probe path=$cfg/vgshell/plugins/acme.probe" && installed
+  [[ $term_status == 0 ]] && gum_asked "plugin Git address: " && out_holds "ok added=acme.probe path=$cfg/vgshell/plugins/acme.probe" && installed
 }
 row_theme_url() {
   fresh_cfg
   term "$1" "$tmp/tsrc/moss.git"$'\n'"n" theme add
   [[ $term_status == 0 ]] \
-    && gum_asked "Git URL of the theme: " \
+    && gum_asked "theme Git address: " \
     && gum_confirmed "Apply theme moss now?" \
     && out_has "ok added=moss path=$cfg/vgshell/themes/moss" \
     && out_has "   │ vgshell theme apply moss" \
@@ -104,7 +104,7 @@ row_theme_apply_yes() {
   fresh_cfg
   term "$1" "$tmp/tsrc/moss.git"$'\n'"y" theme add
   [[ $term_status == 0 ]] \
-    && gum_asked "Git URL of the theme: " \
+    && gum_asked "theme Git address: " \
     && gum_confirmed "Apply theme moss now?" \
     && out_has "ok added=moss path=$cfg/vgshell/themes/moss" \
     && out_has "   │ vgshell theme apply moss" \
@@ -124,7 +124,7 @@ row_theme_refused_no_offer() {
   add_moss "$1" || return 1
   term "$1" "$tmp/tsrc/moss.git"$'\n'"y" theme add
   [[ $term_status == 1 ]] \
-    && gum_asked "Git URL of the theme: " \
+    && gum_asked "theme Git address: " \
     && [[ ! -e $gum_args.confirm ]] \
     && out_has "vgshell: refused: theme=moss reason=exists path=$cfg/vgshell/themes/moss" \
     && ! out_holds "│ vgshell theme apply" \
@@ -161,13 +161,13 @@ row_add_declined() {
 row_add_disabled_said() {
   fresh_cfg
   term "$1" y plugin add "$tmp/src/probe.git"
-  [[ $term_status == 0 ]] && out_has "vgshell: acme.probe is installed turned off; its code runs once you turn it on in Plugins." \
+  [[ $term_status == 0 ]] && out_has "vgshell: acme.probe stays off after you install it. Turn it on in the Plugins window when you are ready." \
     && out_holds "vgshell: add acme.probe? [y/N] ok added=acme.probe path=$cfg/vgshell/plugins/acme.probe config=unchanged lands=disabled" && installed
 }
 row_add_shown_said() {
   fresh_cfg
   term "$1" y plugin add "$tmp/src/widget.git"
-  [[ $term_status == 0 ]] && out_has "vgshell: acme.widget runs its code as soon as it is installed, and its widget shows in the bar." \
+  [[ $term_status == 0 ]] && out_has "vgshell: acme.widget turns on as soon as you install it. Its widget appears in the bar." \
     && out_holds "vgshell: add acme.widget? [y/N] ok added=acme.widget path=$cfg/vgshell/plugins/acme.widget config=written lands=shown" && widget_installed
 }
 row_add_yes() {
@@ -252,14 +252,14 @@ declare -a CONTROLS=(
   "the url loses its leading blanks" 'url="${url#"${url%%[![:space:]]*}"}"' ':' row_plugin_url
   "the url loses its trailing blanks" 'url="${url%"${url##*[![:space:]]}"}"' ':' row_plugin_url
   "an empty url refuses" '  [[ -n $url ]] || refuse 2 "url=missing"' '  [[ -n $url ]] || true' row_empty_url
-  "a cancelled prompt is its own refusal" '    130) refuse 1 "cancelled=url" ;;' '' row_cancelled_url
+  "a cancelled prompt is its own refusal" '    130) refuse 1 "cancelled=url" "You cancelled the address prompt. Open Add again when you are ready." ;;' '' row_cancelled_url
   "the prompt needs gum" '  command -v gum >/dev/null || refuse 1 "gum=missing"' '  true || refuse 1 "gum=missing"' row_gum_missing
-  "remove asks before it deletes" '  confirm_change remove "$id" "$dir stays installed"' '' row_remove_declined
+  "remove asks before it deletes" '  confirm_change remove "$id" "VGS keeps the plugin installed. Open Remove again when you are ready."' '' row_remove_declined
   "remove takes --yes" '$sub == update || $sub == remove) && ${1:-} == --yes' '$sub == update) && ${1:-} == --yes' row_remove_yes
   "add takes --yes" '($sub == add || $sub == update' '($sub == update' row_add_yes
-  "add asks before it installs" '  confirm_change add "$id" "nothing was installed"' '' row_add_declined
-  "add says a widget plugin shows in the bar" 'runs its code as soon as it is installed, and its widget shows in the bar.' 'is installed.' row_add_shown_said
-  "add says a plugin without a widget lands turned off" 'is installed turned off; its code runs once you turn it on in Plugins.' 'is installed.' row_add_disabled_said
+  "add asks before it installs" '  confirm_change add "$id" "VGS leaves the plugin uninstalled. Open Add again when you are ready."' '' row_add_declined
+  "add says a widget plugin shows in the bar" 'turns on as soon as you install it. Its widget appears in the bar.' 'is installed.' row_add_shown_said
+  "add says a plugin without a widget lands turned off" 'stays off after you install it. Turn it on in the Plugins window when you are ready.' 'is installed.' row_add_disabled_said
 )
 for ((i = 0; i < ${#CONTROLS[@]}; i += 4)); do
   label="${CONTROLS[i]}" fn="${CONTROLS[i + 3]}"

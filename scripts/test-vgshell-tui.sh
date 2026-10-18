@@ -82,8 +82,8 @@ o = open(sys.argv[1], encoding="utf-8").read()
 edge = " " * int(sys.argv[2])
 sys.exit(0 if all(re.search(r"(?:^|[\nA-Za-z])" + edge + re.escape(l) + r"\r?$", o, re.M) for l in open(sys.argv[3], encoding="utf-8").read().splitlines()) else 1)' "${1:-$tmp/out}" "$logo_edge" "$logo"
 }
-done_text="Done! Press any key to close..."
-failed_text() { printf 'Failed! Press any key to close...'; }
+done_text="Done. Press any key to close."
+failed_text() { printf 'The task failed. Press any key to close.'; }
 
 # present: the prompt by exit code, none on 130 or under plain, the logo
 # under full only, and the command's code as present's own. A refusal
@@ -106,10 +106,10 @@ for row in "${rows[@]}"; do
     done) check "$name prompts Done" out_has "$done_text" ;;
     failed) check "$name prompts Failed" out_has "$(failed_text)" ;;
     refused)
-      check "$name prompts a key" out_has "Press any key to close..."
-      check "$name prompts neither Done nor Failed" test "$(grep -c -e 'Done!' -e 'Failed!' "$tmp/out")" == 0
+      check "$name prompts a key" out_has "Press any key to close."
+      check "$name prompts neither Done nor Failed" test "$(grep -cF -e 'Done.' -e 'The task failed.' "$tmp/out")" == 0
       ;;
-    none) check "$name prompts nothing" test "$(grep -c -e 'Done!' -e 'Failed!' "$tmp/out")" == 0 ;;
+    none) check "$name prompts nothing" test "$(grep -cF -e 'Done.' -e 'The task failed.' "$tmp/out")" == 0 ;;
   esac
   if [[ $want_logo == yes ]]; then
     check "$name draws every line of the logo" logo_drawn
@@ -130,7 +130,7 @@ prompt_on_tty() { # BIN
 prompt_on_tty "$subject"
 check "a redirected present exits with the code" test "$tty_status" == 1
 check "a redirected present prompts on the terminal" out_has "$(failed_text)"
-check "a redirected present keeps the prompt out of stdout" test "$(grep -c 'Failed!' "$tmp/stdout")" == 0
+check "a redirected present keeps the prompt out of stdout" test "$(grep -cF 'The task failed.' "$tmp/stdout")" == 0
 check "a redirected present's stdout holds the command's output" grep -qxF 'ran 1' "$tmp/stdout"
 
 # argv reaches the command as a list, never through a shell.
@@ -304,12 +304,12 @@ child_gone() { local pid; pid="$(cat "$tmp/child" 2>/dev/null)"; [[ -n $pid ]] &
 on_tty_interrupt "$subject" present -- waitint 8
 check "a Ctrl-C'd command exits 130" test "$tty_status" == 130
 check "a Ctrl-C'd command is stopped" child_gone
-check "a Ctrl-C'd command prompts nothing" test "$(grep -c -e 'Done!' -e 'Failed!' "$tmp/out")" == 0
+check "a Ctrl-C'd command prompts nothing" test "$(grep -cF -e 'Done.' -e 'The task failed.' "$tmp/out")" == 0
 plugin_snapshot
 on_tty_interrupt "$subject" present --plugin acme.tui --dir "$snap" -- tui/wait.sh 8
 check "a Ctrl-C'd plugin script exits 130" test "$tty_status" == 130
 check "a Ctrl-C'd plugin script is stopped" child_gone
-check "a Ctrl-C'd plugin script prompts nothing" test "$(grep -c -e 'Done!' -e 'Failed!' "$tmp/out")" == 0
+check "a Ctrl-C'd plugin script prompts nothing" test "$(grep -cF -e 'Done.' -e 'The task failed.' "$tmp/out")" == 0
 check "a Ctrl-C'd plugin script leaves no copy" test -z "$(find "$rt" -mindepth 1 -maxdepth 1 -name 'vgs-tui.*')"
 
 # launch: setsid -f, which forks the terminal off so launch returns, then
@@ -904,8 +904,8 @@ control_lib() { # NAME NEEDLE REPLACEMENT
 }
 control_lib stdout-prompt '"$(vgs_tui_sgr "${VGS_TUI_DANGER:-}" 31)" >/dev/tty' '"$(vgs_tui_sgr "${VGS_TUI_DANGER:-}" 31)"'
 prompt_on_tty "$control_bin"
-check "the stdout-prompt mutant keeps the prompt off the terminal" test "$(grep -c 'Failed!' "$tmp/out")" == 0
-check "the stdout-prompt mutant writes the prompt to stdout" grep -q 'Failed!' "$tmp/stdout"
+check "the stdout-prompt mutant keeps the prompt off the terminal" test "$(grep -cF 'The task failed.' "$tmp/out")" == 0
+check "the stdout-prompt mutant writes the prompt to stdout" grep -qF 'The task failed.' "$tmp/stdout"
 
 # The prompt's marker wait is the library's: a copy that waits for a key
 # alone leaves the failed window waiting after a later run of its plugin.

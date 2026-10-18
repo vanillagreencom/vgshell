@@ -155,7 +155,7 @@ rm -f -- "${tmp:?}/edit-argv"
 INST_PATH="$edit_dir:$base_path" inst "edit refuses a parent path" "$cfg" "$rt_empty" 2 "" "vgshell: refused: edit=hypr/../secret reason=parent" edit hypr/../secret
 INST_PATH="$edit_dir:$base_path" inst "edit refuses an absolute parent path" "$cfg" "$rt_empty" 2 "" "vgshell: refused: edit=$abs/../edit-abs/notes.txt reason=parent" edit "$abs/../edit-abs/notes.txt"
 INST_PATH="$edit_dir:$base_path" inst "edit refuses a control character and names no path" "$cfg" "$rt_empty" 2 "" "vgshell: refused: edit=path reason=control" edit "$abs/no"$'\n'"tes.txt"
-check "the control refusal is one line" test "$(wc -l <"$tmp/err")" == 1
+check "the control refusal has one diagnostic and one owner sentence" test "$(wc -l <"$tmp/err")" == 2
 INST_PATH="$edit_dir:$base_path" inst "edit refuses a delete character in a relative path" "$cfg" "$rt_empty" 2 "" "vgshell: refused: edit=path reason=control" edit "hypr/hyprland.lua"$'\x7f'
 INST_PATH="$edit_dir:$base_path" inst "edit refuses a missing file" "$cfg" "$rt_empty" 1 "" "vgshell: refused: file=unreadable path=$cfg/hypr/missing.lua" edit hypr/missing.lua
 INST_PATH="$edit_dir:$base_path" inst "edit refuses a missing absolute file" "$cfg" "$rt_empty" 1 "" "vgshell: refused: file=unreadable path=$abs/missing.txt" edit "$abs/missing.txt"

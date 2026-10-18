@@ -312,14 +312,14 @@ tinst "reset restore refuses a second argument" "$tmp/cfg-usage" "$rt_empty" 2 "
 # function of the row the rule serves, one control per four entries.
 declare -a CONTROLS=(
   "the link stays a link" \
-    '      mv -T -- "$dir/$entry" "$1/${reset_classes[i]}/$entry" || refuse 1 "move=failed path=$dir/$entry to=$1/${reset_classes[i]}"' \
+    '      mv -T -- "$dir/$entry" "$1/${reset_classes[i]}/$entry" || refuse 1 "move=failed path=$dir/$entry to=$1/${reset_classes[i]}" "VGS cannot move $dir/$entry into the backup. Check folder access and free space before trying again."' \
     '      [[ -L $dir ]] && { rmdir -- "$1/${reset_classes[i]}"; mv -T -- "$dir" "$1/${reset_classes[i]}"; break; }; mv -T -- "$dir/$entry" "$1/${reset_classes[i]}/$entry"' \
     row_reset_yes
-  "a terminal reset asks first" '  confirm_change reset VGS "nothing moved" reset' '' row_declined
+  "a terminal reset asks first" '  confirm_change reset VGS "VGS keeps your current settings. Open this action again when you are ready." reset' '' row_declined
   "state moves with the rest" '    config:theme.lock | data:backups' '    state:* | config:theme.lock | data:backups' row_reset_yes
   "the install's own entries stay" ' | data:current | ' ' | ' row_reset_yes
   "restore returns the cache" '    [[ -d $from ]] || continue' '    [[ -d $from && ${reset_classes[i]} != cache ]] || continue' row_restore_yes
-  "restore puts the restored theme file back" '      mv -fT -- "$saved/$i" "${restore_kept[i]}" || refuse 1 "keep=failed path=${restore_kept[i]}"' '      :' row_restore_yes
+  "restore puts the restored theme file back" '      mv -fT -- "$saved/$i" "${restore_kept[i]}" || refuse 1 "keep=failed path=${restore_kept[i]}" "VGS cannot preserve your theme file at ${restore_kept[i]}. Check free space and file access before trying again."' '      :' row_restore_yes
   "restore takes the newest backup" '    set -- "${folders[-1]}"' '    set -- "${folders[0]}"' row_restore_newest
   "no terminal and no shell moves nothing" '    shell_pid >/dev/null 2>&1 ||' '    true ||' row_no_terminal
   "reset applies the defaults only over an applied package" '  [[ $applied == false ]] ||' '  false ||' row_unthemed

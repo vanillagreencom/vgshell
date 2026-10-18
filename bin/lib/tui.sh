@@ -74,8 +74,8 @@
 #                                    reports none
 #   vgs_tui_reboot_check             print why a reboot is needed; 1 when none is
 #   vgs_tui_close_prompt CODE [MARKER]
-#                                    `● Done!` for 0, no word for 69, a refusal
-#                                    before anything ran, `● Failed!`
+#                                    `● Done.` for 0, no word for 69, a refusal
+#                                    before anything ran, `● The task failed.`
 #                                    otherwise, and one key, or MARKER's removal
 #                                    when given, on /dev/tty; nothing for 130, a
 #                                    Ctrl-C, or with no terminal
@@ -119,7 +119,7 @@ _vgs_tui_refuse() { # STATUS FIRST_LINE [ENGLISH...]
 # /dev/tty. The device node exists without one, so only opening it tells.
 _vgs_tui_has_terminal() { : 2>/dev/null <>/dev/tty; }
 _vgs_tui_terminal() { # KEY
-  _vgs_tui_has_terminal || _vgs_tui_refuse 2 "$1=no-terminal" "run this in a terminal"
+  _vgs_tui_has_terminal || _vgs_tui_refuse 2 "$1=no-terminal" "This task needs a terminal. Open it again from VGS."
 }
 # _vgs_tui_gap_left marks a row that already stands where a block's blank
 # line would go: the blank line above a question, which gum leaves when it
@@ -282,7 +282,7 @@ vgs_tui_cancelled() { # TEXT
   vgs_tui_text "$*"
   _vgs_tui_has_terminal || return 0
   _vgs_tui_drain_terminal
-  printf '\n%*s%s● \033[0mPress any key to close...' "$_vgs_tui_edge" '' "$(vgs_tui_sgr "${VGS_TUI_ACCENT:-}" 36)" >/dev/tty
+  printf '\n%*s%s● \033[0mPress any key to close.' "$_vgs_tui_edge" '' "$(vgs_tui_sgr "${VGS_TUI_ACCENT:-}" 36)" >/dev/tty
   read -rsn 1 _ </dev/tty || return 0
   printf '\n' >/dev/tty
 }
@@ -305,7 +305,7 @@ vgs_tui_confirm() { # QUESTION [GUM_FLAG...]
   shift
   if [[ ${VGS_TUI_UNATTENDED:-} == 1 ]]; then
     printf '\n'
-    _vgs_tui_print "" "$question yes (unattended)"
+    _vgs_tui_print "" "$question Yes (automatic answer)."
     return 0
   fi
   _vgs_tui_terminal confirm || return
@@ -314,7 +314,7 @@ vgs_tui_confirm() { # QUESTION [GUM_FLAG...]
     case "$flag" in --affirmative=*) yes="${flag#*=}" ;; --negative=*) no="${flag#*=}" ;; esac
     previous="$flag"
   done
-  printf -v help '\033[22m%s←→ toggle • enter submit • y %s • n %s\033[0m' \
+  printf -v help '\033[22m%s←→ choose • Enter confirm • y %s • n %s\033[0m' \
     "$(vgs_tui_sgr "${GUM_PAGER_HELP_FOREGROUND:-}" 39)" "$yes" "$no"
   # gum 2.0.2 cuts a question wider than the terminal at its last column,
   # seen in a script(1) run for VGS-1521 on 2026-10-12, so it is wrapped
@@ -357,13 +357,13 @@ vgs_tui_edit() { # FILE [LINE]
       command -v "$name" >/dev/null 2>&1 && installed+=("$name")
     done
     if [[ ${#installed[@]} == 0 ]]; then
-      _vgs_tui_refuse 1 "editor=missing" "No text editor is installed."
+      _vgs_tui_refuse 1 "editor=missing" "VGS cannot find a text editor. Install one, then open the file again."
       return
     fi
     selected="$(vgs_tui_choose --header "Choose an editor" -- "${installed[@]}")" || return
   fi
   read -r -a editor <<<"$selected"
-  [[ ${#editor[@]} -gt 0 ]] || { _vgs_tui_refuse 2 "editor=empty"; return; }
+  [[ ${#editor[@]} -gt 0 ]] || { _vgs_tui_refuse 2 "editor=empty" "The text editor setting is empty. Set a text editor for this terminal session, then open the file again."; return; }
   name="${editor[0]##*/}"
   for word in "${editor[@]:1}"; do
     case "$name:$word" in
@@ -417,12 +417,12 @@ vgs_tui_sudo_session() { # start|guard|end
       local outer="${VGS_TUI_SUDO_SESSION:-}"
       _vgs_tui_gap_left=""
       if [[ $outer =~ ^[123456789][0123456789]*$ ]] && kill -0 "$outer" 2>/dev/null; then
-        sudo /usr/bin/true || _vgs_tui_refuse 1 "sudo=not-authorized" || return
+        sudo /usr/bin/true || _vgs_tui_refuse 1 "sudo=not-authorized" "VGS cannot get permission to change the system. Try the action again and approve the password request." || return
         _vgs_tui_sudo_joined=1
         return 0
       fi
-      sudo -k || _vgs_tui_refuse 1 "sudo=reset-failed" || return
-      sudo /usr/bin/true || _vgs_tui_refuse 1 "sudo=not-authorized" || return
+      sudo -k || _vgs_tui_refuse 1 "sudo=reset-failed" "VGS cannot clear sudo's saved permission. Close this task and check the sudo error above." || return
+      sudo /usr/bin/true || _vgs_tui_refuse 1 "sudo=not-authorized" "VGS cannot get permission to change the system. Try the action again and approve the password request." || return
       local owner=$$
       (
         [[ -z $_vgs_tui_lock_fd ]] || exec {_vgs_tui_lock_fd}>&-
@@ -454,9 +454,9 @@ vgs_tui_sudo_session() { # start|guard|end
         _vgs_tui_keepalive_pid=""
       fi
       trap - EXIT HUP INT TERM
-      sudo -k || _vgs_tui_refuse 1 "sudo=revoke-failed" "the sudo credential may still be cached; run sudo -k"
+      sudo -k || _vgs_tui_refuse 1 "sudo=revoke-failed" "VGS cannot clear sudo's saved permission. End your session before leaving this computer."
       ;;
-    *) _vgs_tui_refuse 2 "sudo-session=${1:-missing}" ;;
+    *) _vgs_tui_refuse 2 "sudo-session=${1:-missing}" "VGS cannot read this task's permission request. Close this task and report the details above." ;;
   esac
 }
 
@@ -475,14 +475,14 @@ _vgs_tui_sudo_traps() {
 # and hold the lock against the script it runs.
 vgs_tui_lock() { # NAME
   local name="${1:-}" path status=0
-  [[ $name =~ ^$_vgs_tui_lower($_vgs_tui_lower|-)*$ ]] || _vgs_tui_refuse 2 "lock-name=$name" || return
+  [[ $name =~ ^$_vgs_tui_lower($_vgs_tui_lower|-)*$ ]] || _vgs_tui_refuse 2 "lock-name=$name" "VGS cannot identify this task. Close it and report the details above." || return
   path="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/vgs-tui-$name.lock"
-  { exec {_vgs_tui_lock_fd}>>"$path"; } 2>/dev/null || _vgs_tui_refuse 1 "lock=$name reason=open path=$path" || return
+  { exec {_vgs_tui_lock_fd}>>"$path"; } 2>/dev/null || _vgs_tui_refuse 1 "lock=$name reason=open path=$path" "VGS cannot save this task's running state. Check access to $path, then try again." || return
   flock -n -E 75 "$_vgs_tui_lock_fd" || status=$?
   case "$status" in
     0) ;;
-    75) _vgs_tui_refuse 75 "lock=$name reason=busy" "another run holds $path" ;;
-    *) _vgs_tui_refuse 1 "lock=$name reason=flock-failed path=$path" ;;
+    75) _vgs_tui_refuse 75 "lock=$name reason=busy" "This task is already running. Finish or close its other window first." ;;
+    *) _vgs_tui_refuse 1 "lock=$name reason=flock-failed path=$path" "VGS cannot check whether this task is already running. Close it and try again." ;;
   esac
 }
 
@@ -512,12 +512,12 @@ _vgs_tui_transcript=""
 vgs_tui_log() { # FILE [ARG...]
   [[ ${VGS_TUI_LOGGED:-} == 1 ]] && return 0
   local file="${1:-}" cmd fd status=0
-  [[ -n $file ]] || _vgs_tui_refuse 2 "log=missing" || return
+  [[ -n $file ]] || _vgs_tui_refuse 2 "log=missing" "VGS has no log file for this task. Close it and report the details above." || return
   shift
   cmd="$(printf '%q ' "$BASH" "$0" "$@")"
-  exec {fd}>"$file" || _vgs_tui_refuse 1 "log=$file reason=open-failed" || return
+  exec {fd}>"$file" || _vgs_tui_refuse 1 "log=$file reason=open-failed" "VGS cannot write the task log. Check access to $file, then try again." || return
   _vgs_tui_transcript="$(mktemp -p "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" vgs-tui-transcript.XXXXXXXX)" ||
-    _vgs_tui_refuse 1 "transcript=unmade" "mktemp could not make the run's transcript" || return
+    _vgs_tui_refuse 1 "transcript=unmade" "VGS cannot save this task's output. Check free space and access to your temporary folder, then try again." || return
   trap 'rm -f -- "${_vgs_tui_transcript:?}"' EXIT
   trap 'exit 129' HUP
   trap 'exit 143' TERM
@@ -532,10 +532,10 @@ vgs_tui_log() { # FILE [ARG...]
 # refused before COMMAND runs.
 vgs_tui_logged() { # FILE COMMAND [ARG...]
   local file="${1:-}"
-  [[ -n $file && $# -ge 2 ]] || _vgs_tui_refuse 2 "logged=missing" || return
+  [[ -n $file && $# -ge 2 ]] || _vgs_tui_refuse 2 "logged=missing" "VGS cannot start this task because its command or log file is missing. Close it and report the details above." || return
   shift
   { mkdir -p -- "$(dirname -- "$file")" && : >>"$file"; } 2>/dev/null ||
-    _vgs_tui_refuse 1 "logged=$file reason=open-failed" || return
+    _vgs_tui_refuse 1 "logged=$file reason=open-failed" "VGS cannot write the task log. Check access to $file, then try again." || return
   [[ ! -t 1 ]] || _vgs_tui_gap_left=""
   "$@" 2>>"$file"
 }
@@ -547,11 +547,11 @@ vgs_tui_logged() { # FILE COMMAND [ARG...]
 # keeps a question's blank line marked.
 vgs_tui_split() { # FILE KEY COMMAND [ARG...]
   local file="${1:-}" key="${2:-}" fd status piped had_errexit="" segment="" char terminator redrawn="" width
-  [[ -n $file && -n $key && $# -ge 3 ]] || _vgs_tui_refuse 2 "split=missing" || return
+  [[ -n $file && -n $key && $# -ge 3 ]] || _vgs_tui_refuse 2 "split=missing" "VGS cannot show this task's output because its request is incomplete. Close it and report the details above." || return
   shift 2
   { mkdir -p -- "$(dirname -- "$file")" && : >>"$file"; } 2>/dev/null ||
-    _vgs_tui_refuse 1 "split=$file reason=open-failed" || return
-  exec {fd}>>"$file" || _vgs_tui_refuse 1 "split=$file reason=open-failed" || return
+    _vgs_tui_refuse 1 "split=$file reason=open-failed" "VGS cannot write the task log. Check access to $file, then try again." || return
+  exec {fd}>>"$file" || _vgs_tui_refuse 1 "split=$file reason=open-failed" "VGS cannot write the task log. Check access to $file, then try again." || return
   [[ $- == *e* ]] && had_errexit=1
   set +e
   width="$(_vgs_tui_width)"
@@ -639,11 +639,11 @@ vgs_tui_close_prompt() { # CODE [MARKER]
   _vgs_tui_has_terminal || return 0
   _vgs_tui_drain_terminal
   if [[ $code == 0 ]]; then
-    printf '\n%*s%s● \033[0mDone! Press any key to close...' "$_vgs_tui_edge" '' "$(vgs_tui_sgr "${VGS_TUI_SUCCESS:-}" 32)" >/dev/tty
+    printf '\n%*s%s● \033[0mDone. Press any key to close.' "$_vgs_tui_edge" '' "$(vgs_tui_sgr "${VGS_TUI_SUCCESS:-}" 32)" >/dev/tty
   elif [[ $code == 69 ]]; then
-    printf '\n%*s%s● \033[0mPress any key to close...' "$_vgs_tui_edge" '' "$(vgs_tui_sgr "${VGS_TUI_ACCENT:-}" 36)" >/dev/tty
+    printf '\n%*s%s● \033[0mPress any key to close.' "$_vgs_tui_edge" '' "$(vgs_tui_sgr "${VGS_TUI_ACCENT:-}" 36)" >/dev/tty
   else
-    printf '\n%*s%s● \033[0mFailed! Press any key to close...' "$_vgs_tui_edge" '' "$(vgs_tui_sgr "${VGS_TUI_DANGER:-}" 31)" >/dev/tty
+    printf '\n%*s%s● \033[0mThe task failed. Press any key to close.' "$_vgs_tui_edge" '' "$(vgs_tui_sgr "${VGS_TUI_DANGER:-}" 31)" >/dev/tty
   fi
   if [[ -n $marker ]]; then
     while [[ -e $marker ]]; do
@@ -669,11 +669,11 @@ _vgs_tui_drain_terminal() {
 # of this user runs a binary that was replaced.
 vgs_tui_reboot_check() {
   local release pids pid exe status=0 reasons=()
-  release="$(uname -r)" || _vgs_tui_refuse 1 "reboot-check=uname" || return
+  release="$(uname -r)" || _vgs_tui_refuse 1 "reboot-check=uname" "VGS cannot check whether you need to restart the computer. Check the system error above, then try again." || return
   [[ -d /lib/modules/$release ]] || reasons+=(kernel)
   # pgrep exits 1 when no process matches, and above 1 when it failed.
   pids="$(pgrep -x -u "$(id -u)" Hyprland)" || status=$?
-  [[ $status -le 1 ]] || _vgs_tui_refuse 1 "reboot-check=pgrep exit=$status" || return
+  [[ $status -le 1 ]] || _vgs_tui_refuse 1 "reboot-check=pgrep exit=$status" "VGS cannot check whether Hyprland needs a restart. Check the system error above, then try again." || return
   for pid in $pids; do
     exe="$(readlink "/proc/$pid/exe" 2>/dev/null)" || continue
     if [[ $exe == *' (deleted)' ]]; then reasons+=(hyprland); break; fi

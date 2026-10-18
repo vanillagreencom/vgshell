@@ -58,7 +58,7 @@ system_calls="$sandbox/system-sudo.calls"
 system_question="Run these commands as root?"
 # vgs_tui_confirm's prompt (bin/lib/tui.sh): the question, a blank line and
 # the key help line in the terminal's own text colour, with no theme.
-system_prompt="$system_question"$'\n\n\e[22m\e[39m←→ toggle • enter submit • y Yes • n No\e[0m'
+system_prompt="$system_question"$'\n\n\e[22m\e[39m←→ choose • Enter confirm • y Yes • n No\e[0m'
 expect "the sandbox copy's system steps resolve in the fakes' tree" prefixed devices_system_tree
 # The Fedora repository step resolves only inside this isolated system
 # tree. Without its package manager it cannot touch a host repository.

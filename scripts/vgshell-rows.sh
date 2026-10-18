@@ -49,7 +49,7 @@ base_env=(env -i PATH="$base_path" HOME="$tmp/home" XDG_CONFIG_HOME="$tmp/home/.
 # confirm_prompt QUESTION [YES NO]: the prompt bin/lib/tui.sh's
 # vgs_tui_confirm hands gum confirm for QUESTION with no theme colour: the
 # question, a blank line and the key help line under it.
-confirm_prompt() { printf '%s\n\n\033[22m\033[39m←→ toggle • enter submit • y %s • n %s\033[0m' "$1" "${2:-Yes}" "${3:-No}"; }
+confirm_prompt() { printf '%s\n\n\033[22m\033[39m←→ choose • Enter confirm • y %s • n %s\033[0m' "$1" "${2:-Yes}" "${3:-No}"; }
 # The margins vgs_tui_confirm hands gum confirm: the question and both
 # buttons at the content edge, column 3.
 confirm_margins=(--prompt.margin "0 0 0 3" --selected.margin "0 0 0 3" --unselected.margin "0 0 0 3")
@@ -531,7 +531,7 @@ open(sys.argv[2], "w").write(text.replace(os.environ["NEEDLE"], os.environ["REPL
 vgshell_copy_loads() { # BIN
   local err status=0
   err="$("${base_env[@]}" "$1" pid 2>&1 >/dev/null)" || status=$?
-  [[ $status == 69 && $err == "vgshell: refused: shell=not-running lock=$rt_empty/vgshell.lock" ]]
+  [[ $status == 69 && ${err%%$'\n'*} == "vgshell: refused: shell=not-running lock=$rt_empty/vgshell.lock" ]]
 }
 
 # work_tree_repo DIR: a git repository at DIR holding one commit of this

@@ -1145,7 +1145,7 @@ log_tui() {
 # The first line of the output, without the typed keys the terminal echoed
 # before the script read any.
 first_line() { head -n 1 "$tmp/out" | tr -d '\r' | sed -e 's/^x*//'; }
-failed_prompt="Failed! Press any key to close..."
+failed_prompt="The task failed. Press any key to close."
 # tui/log.sh opens the log the pipeline wrote, at its end, and refuses
 # before any run wrote one and without less. Its presentation is plain, so
 # a refusal holds the window on the closing prompt until a key: with no key

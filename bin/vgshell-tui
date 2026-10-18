@@ -1,21 +1,22 @@
 #!/usr/bin/env bash
-# vgshell-tui: the floating TUI presenter, the one file that knows terminals.
+# vgshell-tui: open and run tasks in VGS floating terminals.
 #
+# Usage:
 #   vgshell-tui launch --title <text> [--size default|wide|tall] [--presentation full|plain]
-#                   [--plugin <id> --dir <snapshot>] [--record <key> --run <run>] -- <argv...>
-#       open a floating terminal that runs `present` with the same argv
+#                   [--plugin <id> --dir <snapshot>] [--record <key> --run <run>] -- <command...>
+#       Open a floating terminal and run the command.
 #   vgshell-tui present [--presentation full|plain] [--plugin <id> --dir <snapshot>]
 #                    [--record <key> --run <run> --record-dir <dir> --app-id <id> --window-title <text>]
-#                    -- <argv...>
-#       run argv under the VGS presentation in this terminal
+#                    -- <command...>
+#       Run the command in this terminal. Full shows the VGS logo.
+#       Plain skips the logo and the close prompt.
 #   vgshell-tui check
-#       exit 0 when launch would find xdg-terminal-exec, else refuse as launch does
+#       Check that xdg-terminal-exec is installed.
 #   vgshell-tui reap
-#       end the records of runs whose presenter is gone
+#       Update the saved results for tasks whose terminal has closed.
 #   vgshell-tui wait --record <key> --run <run>
-#       wait for one run's presenter to release its run lock, then print the
-#       run's ended record
-#
+#       Wait for a task to end and print its saved result.
+
 # launch runs `setsid -f xdg-terminal-exec --app-id=<app-id> --title="VGS ·
 # <text>" -- <this file> present ...`, with no shell between, so the
 # terminal outlives the process that asked for it: a shell restart kills the
@@ -34,9 +35,9 @@
 # the library's content edge, the column its text starts at,
 # runs argv as a list, never through a shell, and keeps its exit code.
 # Unless the code is 130, a Ctrl-C, it shows the library's closing prompt,
-# vgs_tui_close_prompt: `● Done! Press any key to close...`, `● Press any
-# key to close...` for 69, a refusal before anything ran, or `● Failed!
-# Press any key to close...` on /dev/tty, not on stdout, and waits for
+# vgs_tui_close_prompt: `● Done. Press any key to close.`, `● Press any
+# key to close.` for 69, a refusal before anything ran, or `● The task failed.
+# Press any key to close.` on /dev/tty, not on stdout, and waits for
 # one key. The prompt hides the exit code; the ended run record below keeps
 # `code` for logs and readers. `plain` skips the logo and the prompt. A plugin's
 # recorded run that failed first makes the failure marker
@@ -182,7 +183,7 @@ app_id_of() { # SIZE
 # when xdg-terminal-exec is not on PATH.
 require_terminal() {
   command -v xdg-terminal-exec >/dev/null || {
-    printf 'vgshell-tui: refused: terminal=missing\nxdg-terminal-exec is not on PATH; install it to open floating TUIs\n' >&2
+    printf 'vgshell-tui: refused: terminal=missing\nVGS cannot open a terminal because xdg-terminal-exec is missing. Install it, then try the action again.\n' >&2
     exit 69
   }
 }
@@ -190,7 +191,7 @@ require_terminal() {
 usage() { awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "$self" >&2; }
 
 bad_invocation() { # FIRST_LINE
-  printf 'vgshell-tui: refused: %s\n' "$1" >&2
+  printf 'vgshell-tui: refused: %s\nVGS cannot open this task because its request is incomplete or invalid. Close this window and try the action again.\n' "$1" >&2
   usage
   exit 2
 }
@@ -285,7 +286,7 @@ launch() {
   case "$status" in
     0) ;;
     3) bad_invocation "size=$size" ;;
-    *) printf 'vgshell-tui: refused: size-table=unreadable exit=%s\n' "$status" >&2; exit 1 ;;
+    *) printf 'vgshell-tui: refused: size-table=unreadable exit=%s\nVGS cannot read its terminal window sizes. Repair the VGS installation, then try again.\n' "$status" >&2; exit 1 ;;
   esac
   # present runs in the terminal's working directory, not this one.
   [[ -z $plugin_id ]] || { [[ $plugin_dir == /* ]] || plugin_dir="$PWD/$plugin_dir"; pass=(--plugin "$plugin_id" --dir "$plugin_dir"); }
@@ -305,7 +306,7 @@ await_record() {
     [[ -e $record_dir/$stem@$record_run.running.json || -e $record_dir/$stem@$record_run.ended.json ]] && return 0
     sleep 0.05
   done
-  printf 'vgshell-tui: refused: terminal=silent run=%s\nno presenter wrote a record of the run within %d s\n' "$record_run" "$start_ceiling" >&2
+  printf 'vgshell-tui: refused: terminal=silent run=%s\nThe terminal does not confirm that the task started within %d seconds. Check for an open task window before trying again.\n' "$record_run" "$start_ceiling" >&2
   exit 1
 }
 
@@ -320,7 +321,7 @@ export_gum_lines() { # SOURCE
       keys+=("${line%%=*}")
       values+=("${line#*=}")
     else
-      printf 'vgshell-tui: gum-env=rejected line=%d %s\nno colour of the file is used\n' "$n" "$1" >&2
+      printf 'vgshell-tui: gum-env=rejected line=%d %s\nVGS cannot read the saved terminal colours. The task continues. Apply your theme again to restore its colours.\n' "$n" "$1" >&2
       return 0
     fi
   done
@@ -333,12 +334,12 @@ export_gum_lines() { # SOURCE
 export_gum_env() {
   local text status=0
   if [[ -e $gum_env ]]; then
-    export_gum_lines "path=$gum_env" <"$gum_env" || printf 'vgshell-tui: gum-env=unreadable path=%s\n' "$gum_env" >&2
+    export_gum_lines "path=$gum_env" <"$gum_env" || printf 'vgshell-tui: gum-env=unreadable path=%s\nVGS cannot read the saved terminal colours. The task continues. Apply your theme again to restore its colours.\n' "$gum_env" >&2
     return 0
   fi
   text="$(node "$root/bin/vgshell-theme-judge" gum-default 2>/dev/null)" || status=$?
   if [[ $status != 0 ]]; then
-    printf 'vgshell-tui: gum-env=default-unavailable exit=%d\nno colour of the vgs theme is used\n' "$status" >&2
+    printf 'vgshell-tui: gum-env=default-unavailable exit=%d\nVGS cannot load its default terminal colours. The task continues. Repair the VGS installation to restore its colours.\n' "$status" >&2
     return 0
   fi
   export_gum_lines "default=gum" <<<"$text"
@@ -397,7 +398,7 @@ record_start() {
   case "$status" in
     0) ;;
     75)
-      printf 'vgshell-tui: refused: record=%s reason=busy\nanother presenter of the key is running\n' "$record_key" >&2
+      printf 'vgshell-tui: refused: record=%s reason=busy\nThis task is already open. Finish or close its other window first.\n' "$record_key" >&2
       exit 75
       ;;
     *) refusal="record=$record_key reason=flock-failed"; return 1 ;;
@@ -427,7 +428,7 @@ record_start() {
 record_end() { # CODE
   local own="$stem@$record_run.ended.json" old
   if ! put_record "$window_dir" "$own" "$(record_text ended "$1" "\"$(record_now)\"")"; then
-    printf 'vgshell-tui: refused: record=%s reason=unwritable\nthe shell does not learn that this run ended\n' "$window_dir/$own" >&2
+    printf 'vgshell-tui: refused: record=%s reason=unwritable\nVGS cannot save the task result. If VGS still shows the task as running, restart VGS.\n' "$window_dir/$own" >&2
     return 0
   fi
   for old in "$window_dir/$stem@"*.ended.json; do
@@ -477,7 +478,7 @@ present() {
     export VGS_TUI_GAP_LEFT=1
   fi
   if [[ -n $refusal ]]; then
-    printf 'vgshell-tui: refused: %s\n' "$refusal" >&2
+    printf 'vgshell-tui: refused: %s\nVGS cannot prepare the files for this task. Close this window and try again. If it still fails, report the details above.\n' "$refusal" >&2
     code=1
   else
     # A Ctrl-C reaches the command, which the trap resets to the default;
@@ -507,17 +508,17 @@ end_running_record() { # FILE STEM RUN REFUSAL_KEY
   ended_record_text=""
   if ! text="$(cat -- "$file" 2>/dev/null)"; then
     [[ ! -e $file ]] && return 2
-    printf 'vgshell-tui: refused: %s reason=unreadable\n' "$refusal_key" >&2
+    printf 'vgshell-tui: refused: %s reason=unreadable\nVGS cannot read the task result. Check whether the task succeeded before trying it again.\n' "$refusal_key" >&2
     return 1
   fi
   ended="${text/\"state\":\"running\"/\"state\":\"ended\"}"
   ended="${ended/\"endedAt\":null/\"endedAt\":\"$(record_now)\"}"
   if [[ $ended != *'"state":"ended"'* || $ended == *'"endedAt":null'* || $ended == *'"state":"running"'* ]]; then
-    printf 'vgshell-tui: refused: %s reason=malformed\n' "$refusal_key" >&2
+    printf 'vgshell-tui: refused: %s reason=malformed\nVGS cannot read the task result. Check whether the task succeeded before trying it again.\n' "$refusal_key" >&2
     return 1
   fi
   if ! put_record "$record_dir" "$stem@$run.ended.json" "$ended"; then
-    printf 'vgshell-tui: refused: %s reason=unwritable\n' "$refusal_key" >&2
+    printf 'vgshell-tui: refused: %s reason=unwritable\nVGS cannot save the task result. Check whether the task succeeded before trying it again.\n' "$refusal_key" >&2
     return 1
   fi
   rm -f -- "$file"
@@ -534,7 +535,7 @@ reap() {
     name="${name%.running.json}"
     stem="${name%@*}" run="${name##*@}"
     if ! { exec {fd}>>"$record_dir/$stem.lock"; } 2>/dev/null; then
-      printf 'vgshell-tui: refused: reap=%s reason=lock-unopenable\n' "$file" >&2
+      printf 'vgshell-tui: refused: reap=%s reason=lock-unopenable\nVGS cannot check a closed task. Restart VGS. If it still fails, report the details above.\n' "$file" >&2
       failed=1
       continue
     fi
@@ -544,7 +545,7 @@ reap() {
     case "$status" in
       0) ;;
       75) continue ;;
-      *) printf 'vgshell-tui: refused: reap=%s reason=flock-failed\n' "$file" >&2; failed=1; continue ;;
+      *) printf 'vgshell-tui: refused: reap=%s reason=flock-failed\nVGS cannot check a closed task. Restart VGS. If it still fails, report the details above.\n' "$file" >&2; failed=1; continue ;;
     esac
     # A presenter that died between writing its ended record and removing
     # its running one left both: its ended record stands. Either way the
@@ -564,7 +565,7 @@ reap() {
 }
 
 wait_refused() { # REASON
-  printf 'vgshell-tui: refused: wait=%s run=%s reason=%s\n' "$record_key" "$record_run" "$1" >&2
+  printf 'vgshell-tui: refused: wait=%s run=%s reason=%s\nVGS cannot read the task result. Check the task window before trying the action again.\n' "$record_key" "$record_run" "$1" >&2
 }
 
 # Prints the run's ended record, or ends a run that has only its running

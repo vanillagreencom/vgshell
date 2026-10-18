@@ -1167,7 +1167,7 @@ expect_poll "its own page draws no Enabled switch" absent enabled_switch
 expected_errors+=('settings: vgs\.settings/action:enable refused: enabled=vgs\.settings reason=always-on')
 expect "the window's toggle is refused for its own plugin" "refused: enabled=vgs.settings reason=always-on" ipc smoke invokeInstanceArgs window vgs.settings setEnabled '{"args":["vgs.settings", false]}'
 expect "the IPC refuses to disable the Settings plugin" "refused: enabled=vgs.settings reason=always-on" ipc shell setPluginEnabled vgs.settings false
-cli_disable() { local out status=0; out="$("${shell_env[@]}" "$repo/bin/vgshell" plugin disable "$1" 2>&1)" || status=$?; printf '%s exit=%s\n' "$out" "$status"; }
+cli_disable() { local out status=0; out="$("${shell_env[@]}" "$repo/bin/vgshell" plugin disable "$1" 2>&1)" || status=$?; printf '%s exit=%s\n' "${out%%$'\n'*}" "$status"; }
 expect "vgshell plugin disable refuses the Settings plugin" "vgshell: refused: refused: enabled=vgs.settings reason=always-on exit=1" cli_disable vgs.settings
 disabled_row() { # IDS...: the user file's disabledPlugins, written as given
   python3 - "$user_file" "$@" <<'PY'

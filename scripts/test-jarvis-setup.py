@@ -1365,7 +1365,7 @@ esac
     def test_clone_tier_refusal_closes_without_failed_and_control(self):
         """Without the Large tier the setup closes on the neutral prompt
         with no log path; the control sends the refusal down the failure
-        path, which shows Failed! and the log."""
+        path, which names the task failure and the log."""
         self.install()
         self.ready()
         source = (PLUGIN / "tui/clone-voice.sh").read_text()
@@ -1389,13 +1389,13 @@ esac
         self.assertIn("jarvis-setup: refused=clone=needs-large-tier",
                       (self.state / "clone-voice.log").read_text().splitlines())
         self.assertIn("Press any key to close", output)
-        self.assertNotIn("Failed!", output)
+        self.assertNotIn("The task failed.", output)
         self.assertNotIn("clone-voice.log", output)
         control = source.replace("  69) exit 69 ;;\n", "  69) details; exit 1 ;;\n")
         self.assertNotEqual(control, source)
         code, output = closed(control)
         self.assertEqual(code, 1, output)
-        self.assertIn("Failed!", output, "must-fail control: the refusal read Failed! on the failure path")
+        self.assertIn("The task failed.", output, "must-fail control: the failure path names the task failure")
         self.assertIn("clone-voice.log", output, "must-fail control: the failure path named its log")
         (self.plugin / "tui/clone-voice.sh").write_text(source)
 

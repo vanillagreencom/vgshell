@@ -434,7 +434,7 @@ EOF_HELP
     run) cat <<'EOF_HELP'
 Usage: vgshell run
 
-Run the shell in this terminal and hold the instance lock.
+Run the shell in this terminal. Only one VGS shell runs per session.
 EOF_HELP
       ;;
     restart) cat <<'EOF_HELP'
@@ -446,7 +446,7 @@ EOF_HELP
     pid) cat <<'EOF_HELP'
 Usage: vgshell pid
 
-Print the running shell's process ID from the instance lock.
+Print the running shell's process ID.
 EOF_HELP
       ;;
     ipc) cat <<'EOF_HELP'
@@ -473,7 +473,7 @@ Subcommands:
   disable <id>                      Disable one plugin
   validate <dir>                    Validate a plugin manifest
   add [--yes] [<git url>]           Install a plugin from git
-  update [--yes] <id>               Fast-forward an installed plugin
+  update [--yes] <id>               Update an installed plugin
   remove [--yes] <id>               Remove an installed plugin
   outdated [--json]                 Check installed plugins for updates
 EOF_HELP
@@ -484,13 +484,13 @@ Usage: vgshell theme <subcommand> [arguments]
 Subcommands:
   list [--json]                     List theme packages
   apply [--json] <name>             Apply a theme package
-  reload [--json]                   Run pending reload hooks again
+  reload [--json]                   Retry apps that still need to reload the theme
   follow [--json]                   Reapply the theme when its package or the terminal font changed
   background [--json] next|previous Show another background image
   background [--json] set <path> [--screen <output> | --every-screen]
   background [--json] list [--all]  List background images
   add [--json] [<git url>]          Install a theme package from git
-  update [--yes] <name>             Fast-forward an installed theme
+  update [--yes] <name>             Update an installed theme
   remove <name>                     Remove an installed theme
   catalog [--json]                  List catalog themes
   install [--json] <name>           Install one catalog theme
@@ -504,14 +504,14 @@ EOF_HELP
 Usage: vgshell hypr <subcommand>
 
 Subcommands:
-  state     Show whether hyprland.lua loads the VGS Hyprland layer
-  wire      Keep the VGS Hyprland layer load line first
-  unwire    Remove the VGS Hyprland layer load line
-  render    Write the Hyprland layer again and reload Hyprland
+  state     Show whether hyprland.lua loads the VGS settings
+  wire      Load the VGS settings at the start of hyprland.lua
+  unwire    Remove the VGS settings from hyprland.lua
+  render    Save the VGS settings again and reload Hyprland
   remove-bind <file> <line> <key>
-            Remove one of your binds that also takes a VGS key
+            Remove a shortcut that uses the same key as a VGS shortcut
   restore-bind <file> <line> <undo>
-            Put a removed bind line back
+            Restore a removed shortcut
 EOF_HELP
       ;;
     edit) cat <<'EOF_HELP'
@@ -526,7 +526,7 @@ Usage: vgshell pkg <subcommand> [arguments]
 
 Subcommands:
   detect [--json]                         Show available package managers
-  present <command>...                    Check commands on PATH
+  present <command>...                    Check which commands are installed
   plan install|reinstall|update|remove|upgrade <manager> [names...]
   check [--json] [--source <manager>]     Count pending updates
   run install|reinstall|update|remove|upgrade [--manager <id>] [names...]
@@ -538,13 +538,13 @@ EOF_HELP
     doctor) cat <<'EOF_HELP'
 Usage: vgshell doctor [--json]
 
-Check the core and enabled plugin requirements.
+Check that the software VGS and its enabled plugins need is installed.
 EOF_HELP
       ;;
     lock) cat <<'EOF_HELP'
 Usage: vgshell lock
 
-Ask the running shell's lock plugin to lock the session.
+Lock your session through the running VGS shell.
 EOF_HELP
       ;;
     power) cat <<'EOF_HELP'
@@ -558,11 +558,11 @@ EOF_HELP
 Usage: vgshell sudo <subcommand> [arguments]
 
 Subcommands:
-  status             Show whether a passwordless sudo grant is active
-  grant [duration]   Grant passwordless sudo for minutes, or indefinitely
-  revoke             End the active grant now
-  install            Install the root half of the grant
-  uninstall          Remove every grant and the root half
+  status             Show whether sudo can run without a password
+  grant [duration]   Allow sudo without a password for minutes, or indefinitely
+  revoke             End VGS passwordless sudo access
+  install            Install the system files for passwordless sudo
+  uninstall          Remove passwordless sudo access and its system files
 EOF_HELP
       ;;
     dictation) cat <<'EOF_HELP'
@@ -594,9 +594,9 @@ EOF_HELP
 Usage: vgshell self <subcommand> [arguments]
 
 Subcommands:
-  status [--json]    Show install state and available update
+  status [--json]    Show how VGS is installed and whether an update is available
   update             Update VGS and restart the shell
-  repair [--plan]    Restore this version through its installation owner
+  repair [--plan]    Restore VGS files through the tool that installed them
 EOF_HELP
       ;;
     reset) cat <<'EOF_HELP'
@@ -639,9 +639,9 @@ help_requested() { # COMMAND ARG...
 
 try_help() {
   if help_text "$cmd" >/dev/null; then
-    printf "Run 'vgshell %s --help' for usage.\n" "$cmd" >&2
+    printf "Run 'vgshell %s --help' for the accepted options.\n" "$cmd" >&2
   else
-    printf "Run 'vgshell --help' for usage.\n" >&2
+    printf "Run 'vgshell --help' for the accepted options.\n" >&2
   fi
 }
 
@@ -679,26 +679,26 @@ vgs_edit() {
   if [[ -n ${VGS_TUI_LIB:-} ]]; then
     trap 'status=$?; [[ $status == 0 ]] || vgs_tui_close_prompt "$status"' EXIT
   fi
-  if [[ $# -eq 0 ]]; then refuse_edit 2 "edit=path reason=missing"; fi
-  if [[ $# -gt 2 ]]; then refuse_edit 2 "argument=${3:-}"; fi
+  if [[ $# -eq 0 ]]; then refuse_edit 2 "edit=path reason=missing" "No file is selected. Choose a file to edit."; fi
+  if [[ $# -gt 2 ]]; then refuse_edit 2 "argument=${3:-}" "VGS cannot open more than one file at a time. Choose one file and an optional line number."; fi
   edit_path_valid "$path" || path_status=$?
   if [[ ${path_status:-0} != 0 ]]; then
     # A control character could forge a line of the refusal, so that
     # refusal names no path.
     case "$path_status" in
-      1) refuse_edit 2 "edit=path reason=empty" ;;
-      2) refuse_edit 2 "edit=path reason=control" ;;
-      3) refuse_edit 2 "edit=$path reason=parent" ;;
-      *) refuse_edit 2 "edit=path reason=malformed status=$path_status" ;;
+      1) refuse_edit 2 "edit=path reason=empty" "No file is selected. Choose a file to edit." ;;
+      2) refuse_edit 2 "edit=path reason=control" "The file name contains a control character. Choose a file with a plain text name." ;;
+      3) refuse_edit 2 "edit=$path reason=parent" "The file path goes up to a parent folder. Choose the file by its full path." ;;
+      *) refuse_edit 2 "edit=path reason=malformed status=$path_status" "VGS cannot read the file path. Choose the file again." ;;
     esac
   fi
   if [[ -n $line && ! $line =~ ^[1-9][0-9]*$ ]]; then
-    refuse_edit 2 "line=$line reason=positive-integer"
+    refuse_edit 2 "line=$line reason=positive-integer" "The line number must be a whole number above zero. Choose a valid line number."
   fi
   if [[ $path == /* ]]; then file="$path"; else file="$config_home/$path"; fi
   # -f refuses a folder: a folder opens through the shell's desktop opener,
   # never an editor.
-  [[ -f $file && -r $file ]] || refuse_edit 1 "file=unreadable path=$file" "The file is missing or cannot be read."
+  [[ -f $file && -r $file ]] || refuse_edit 1 "file=unreadable path=$file" "VGS cannot read this file. Check that it exists and that you can open it, then try again."
   vgs_tui_edit "$file" "$line"
 }
 
@@ -712,15 +712,15 @@ vgs_edit() {
 shell_pid() {
   local pid
   if [[ ! -r $lock ]]; then
-    printf 'vgshell: refused: shell=not-running lock=%s\n' "$lock" >&2
+    printf 'vgshell: refused: shell=not-running lock=%s\nThe VGS shell is not available. Log out and back in, then try again.\n' "$lock" >&2
     return 69
   fi
   if ! pid="$(head -n 1 -- "$lock")" || [[ ! $pid =~ ^[0-9]+$ ]]; then
-    printf 'vgshell: refused: shell=not-running lock=%s\n' "$lock" >&2
+    printf 'vgshell: refused: shell=not-running lock=%s\nThe VGS shell is not available. Log out and back in, then try again.\n' "$lock" >&2
     return 69
   fi
   if [[ ! -d /proc/$pid ]]; then
-    printf 'vgshell: refused: shell=not-running pid=%s\n' "$pid" >&2
+    printf 'vgshell: refused: shell=not-running pid=%s\nThe VGS shell is not available. Log out and back in, then try again.\n' "$pid" >&2
     return 69
   fi
   printf '%s\n' "$pid"
@@ -738,7 +738,7 @@ ipc_call() { # PID TARGET FUNCTION [ARG...]
   status=$?
   set -e
   if [[ $status -ne 0 ]]; then
-    printf 'vgshell: refused: shell=not-running pid=%s\n%s\n' "$pid" "$out" >&2
+    printf 'vgshell: refused: shell=not-running pid=%s\nThe VGS shell is not available. Log out and back in, then try again.\n%s\n' "$pid" "$out" >&2
     exit 69
   fi
   vgs_ipc_last_line_into "$out"
@@ -748,7 +748,7 @@ ipc_call() { # PID TARGET FUNCTION [ARG...]
     exit 69
   fi
   if [[ -z $ipc_line ]]; then
-    printf 'vgshell: refused: ipc=%s reason=empty-reply\n' "$label" >&2
+    printf 'vgshell: refused: ipc=%s reason=empty-reply\nThe VGS shell sends no answer. Restart VGS, then try again.\n' "$label" >&2
     exit 69
   fi
 }
@@ -763,7 +763,7 @@ ipc() {
   if vgs_ipc_paged_id "${1:-}" "$ipc_line"; then
     # vgs_ipc_pages runs ipc_page in this shell, so pid is ipc's.
     if ! vgs_ipc_pages ipc_page "$vgs_ipc_paged"; then
-      printf 'vgshell: refused: ipc=shell.%s reason=page-%s\n%s\n' "${2:-missing}" "$vgs_ipc_page_failure" "$vgs_ipc_page" >&2
+      printf 'vgshell: refused: ipc=shell.%s reason=page-%s\n%s\nVGS cannot read the full response. Restart VGS, then try again.\n' "${2:-missing}" "$vgs_ipc_page_failure" "$vgs_ipc_page" >&2
       exit 69
     fi
     printf '%s\n' "$vgs_ipc_document"
@@ -794,7 +794,7 @@ refuse() { # STATUS FIRST_LINE [ENGLISH...]
 }
 
 # shellcheck source=bin/lib/ipc-reply.sh
-source "$root/bin/lib/ipc-reply.sh" || refuse 1 "library=missing path=$root/bin/lib/ipc-reply.sh"
+source "$root/bin/lib/ipc-reply.sh" || refuse 1 "library=missing path=$root/bin/lib/ipc-reply.sh" "VGS cannot load a required file. Repair the VGS installation, then try again."
 
 ipc_arg_label() { # QS_IPC_ARG...
   if [[ ${1:-} == call ]]; then
@@ -812,11 +812,11 @@ ipc_reply_failure_reason() { # LABEL LINE
   case "$status" in
     0)
       vgs_ipc_strip_into "$line"
-      printf 'vgshell: refused: ipc=%s reason=%s\n%s\n' "$label" "$reason" "$vgs_ipc_stripped" >&2
+      printf 'vgshell: refused: ipc=%s reason=%s\n%s\nVGS cannot complete the request to the running shell. Restart VGS, then try again.\n' "$label" "$reason" "$vgs_ipc_stripped" >&2
       return 0
       ;;
     1) return 1 ;;
-    *) refuse 70 "ipc-judge=failed status=$status" "bin/lib/ipc-reply.sh could not classify the reply to $label" ;;
+    *) refuse 70 "ipc-judge=failed status=$status" "VGS cannot read the reply from the running shell. Restart VGS, then try again." ;;
   esac
 }
 
@@ -830,12 +830,12 @@ scratch_open() { # COUNT
   scratch_fds=()
   # mktemp prints nothing on stderr when it succeeds, so the substitution
   # holds the path, or on failure mktemp's own reason.
-  scratch="$(mktemp -d 2>&1)" || refuse 1 "scratch=${TMPDIR:-/tmp}" "$scratch"
+  scratch="$(mktemp -d 2>&1)" || refuse 1 "scratch=${TMPDIR:-/tmp}" "VGS cannot create a temporary folder. Check free space and temporary folder access, then try again." "$scratch"
   for ((i = 0; i < $1; i++)); do
-    exec {fd}>"$scratch/$i" || { rm -rf -- "$scratch"; refuse 1 "scratch=$scratch"; }
+    exec {fd}>"$scratch/$i" || { rm -rf -- "$scratch"; refuse 1 "scratch=$scratch" "VGS cannot use its temporary folder. Check free space and folder access, then try again."; }
     scratch_fds+=("$fd")
   done
-  rm -rf -- "$scratch" || refuse 1 "scratch=$scratch"
+  rm -rf -- "$scratch" || refuse 1 "scratch=$scratch" "VGS cannot use its temporary folder. Check free space and folder access, then try again."
 }
 
 # The floor `run` checks before it changes anything, one row per tool: the
@@ -930,7 +930,7 @@ preflight() {
   for i in "${!tools[@]}"; do
     fd="${scratch_fds[i]}"
     if [[ -n ${pids[i]} ]]; then
-      outs[i]="$(<"/dev/fd/$fd")" || refuse 1 "scratch=/dev/fd/$fd" "the ${tools[i]} probe's output could not be read back"
+      outs[i]="$(<"/dev/fd/$fd")" || refuse 1 "scratch=/dev/fd/$fd" "VGS cannot read the ${tools[i]} version check. Check free space and temporary folder access, then try again."
     fi
     exec {fd}>&-
   done
@@ -938,14 +938,14 @@ preflight() {
     tool="${tools[i]}" need="${needs[i]}" pattern="${patterns[i]}" probe="${probes[i]}"
     read -ra argv <<<"$probe"
     [[ -n ${pids[i]} ]] ||
-      refuse 78 "preflight=$tool have=none need=$need" "${argv[0]} is not on PATH"
+      refuse 78 "preflight=$tool have=none need=$need" "VGS cannot find ${argv[0]}. Install it through your package manager, then try again."
     [[ ${statuses[i]} == 0 ]] ||
-      refuse 78 "preflight=$tool have=unknown need=$need" "$probe exited ${statuses[i]}:" "${outs[i]}"
+      refuse 78 "preflight=$tool have=unknown need=$need" "VGS cannot check the $tool version. Check that it works in this session, then try again." "${outs[i]}"
     [[ ${outs[i]} =~ $pattern ]] ||
-      refuse 78 "preflight=$tool have=unknown need=$need" "$probe printed no version:" "${outs[i]}"
+      refuse 78 "preflight=$tool have=unknown need=$need" "VGS cannot read the $tool version. Check that it works in this session, then try again." "${outs[i]}"
     have="${BASH_REMATCH[1]}"
     [[ $need == present ]] || version_at_least "$have" "$need" ||
-      refuse 78 "preflight=$tool have=$have need=$need"
+      refuse 78 "preflight=$tool have=$have need=$need" "VGS needs a newer version of $tool. Update it through your package manager, then try again."
   done
 }
 
@@ -961,7 +961,7 @@ git_plain() { git "${git_flags[@]}" "$@" 9>&-; }
 git_or_refuse() { # KEY GIT_ARGS...
   local key="$1" err
   shift
-  { err="$(git_plain "$@" 2>&1 1>&3 3>&-)"; } 3>&1 || refuse 1 "$key" "$err"
+  { err="$(git_plain "$@" 2>&1 1>&3 3>&-)"; } 3>&1 || refuse 1 "$key" "Git cannot finish this operation. Check the error below, then try again." "$err"
   [[ -z $err ]] || printf '%s\n' "$err" >&2
 }
 
@@ -990,7 +990,7 @@ graphical_session() {
 # bin/vgshell-scan's JSON over the user plugin directory, then the bundled
 # one: the order the shell's registry reads them in.
 plugin_scan() {
-  "$root/bin/vgshell-scan" "$user_plugins" "$shell_dir/plugins" || refuse 1 "scan=failed"
+  "$root/bin/vgshell-scan" "$user_plugins" "$shell_dir/plugins" || refuse 1 "scan=failed" "VGS cannot read the installed plugins. Check the error above, then try again."
 }
 
 # Plugin directories whose manifest the judge accepts with ID, one per line.
@@ -1012,7 +1012,7 @@ rescan_if_running() { # [CALL...]
   [[ $# -gt 0 ]] || set -- rescanPlugins
   if ! shell_pid >/dev/null 2>&1; then echo "shell=not-running"; return 0; fi
   reply="$(ipc shell "$@")" || exit $?
-  [[ $reply =~ ^(ok|busy)\ scan=[0-9]+$ ]] || refuse 1 "rescan=$reply" "the plugin files changed; run vgshell ipc call shell rescanPlugins"
+  [[ $reply =~ ^(ok|busy)\ scan=[0-9]+$ ]] || refuse 1 "rescan=$reply" "The plugin files changed, but VGS cannot refresh the list. Restart VGS to load the changes."
   case "${BASH_REMATCH[1]}" in
     ok) echo "shell=rescan-started" ;;
     busy) echo "shell=rescan-queued" ;;
@@ -1042,7 +1042,7 @@ hyprland_config_uses_lua() {
   hypr_status="$(hyprctl -j status 2>&1)"
   status=$?
   set -e
-  [[ $status == 0 ]] || refuse 69 "hyprland=unreachable"
+  [[ $status == 0 ]] || refuse 69 "hyprland=unreachable" "VGS cannot connect to Hyprland. Log in to a Hyprland session, then try again."
   [[ $hypr_status =~ \"configProvider\"[[:space:]]*:[[:space:]]*\"lua\" ]]
 }
 
@@ -1053,7 +1053,7 @@ select_hyprland_instance() {
   instances="$(hyprctl instances -j 2>&1)"
   status=$?
   set -e
-  [[ $status == 0 ]] || refuse 69 "hyprland=unreachable"
+  [[ $status == 0 ]] || refuse 69 "hyprland=unreachable" "VGS cannot connect to Hyprland. Log in to a Hyprland session, then try again."
   selected="$(python3 -c 'import json,sys
 try:
     rows=json.loads(sys.stdin.read())
@@ -1068,13 +1068,13 @@ if len(rows) == 1:
     if not isinstance(sig, str) or sig == "":
         raise SystemExit(3)
     print(sig)
-' <<<"$instances")" || refuse 69 "hyprland=unreachable"
+' <<<"$instances")" || refuse 69 "hyprland=unreachable" "VGS cannot connect to Hyprland. Log in to a Hyprland session, then try again."
   count="${selected%%$'\n'*}"
-  [[ $count =~ ^[0-9]+$ ]] || refuse 69 "hyprland=unreachable"
+  [[ $count =~ ^[0-9]+$ ]] || refuse 69 "hyprland=unreachable" "VGS cannot connect to Hyprland. Log in to a Hyprland session, then try again."
   case "$count" in
-    0) refuse 69 "hyprland=unreachable" ;;
+    0) refuse 69 "hyprland=unreachable" "VGS cannot connect to Hyprland. Log in to a Hyprland session, then try again." ;;
     1) export HYPRLAND_INSTANCE_SIGNATURE="${selected#*$'\n'}" ;;
-    *) refuse 1 "hyprland=ambiguous count=$count" ;;
+    *) refuse 1 "hyprland=ambiguous count=$count" "More than one Hyprland session is running. Open this task from the session you want to use." ;;
   esac
 }
 
@@ -1101,21 +1101,21 @@ shell_start() { # OLD_PID USES_LUA [STEP]
     set -e
   fi
   run_dir="$state_home/vgshell"
-  mkdir -p -- "$run_dir" || refuse 1 "log-dir=failed path=$run_dir"
+  mkdir -p -- "$run_dir" || refuse 1 "log-dir=failed path=$run_dir" "VGS cannot create its log folder. Check access to $run_dir, then try again."
   run_log="$run_dir/run.log"
-  : >"$run_log" || refuse 1 "log=failed path=$run_log"
+  : >"$run_log" || refuse 1 "log=failed path=$run_log" "VGS cannot write its start log. Check access to $run_log, then try again."
   request="$(shell_launch_request "$using_lua" "$run_log")"
   # The file exists before the reading, so the first change seen is a
   # runner's write after it took the lock, never the runner's own create
   # before its flock, which a probe here could beat and make it refuse.
-  : >>"$lock" || refuse 1 "lock=unwritable path=$lock"
-  written="$(stat -L -c '%y' -- "$lock")" || refuse 1 "lock=unreadable path=$lock"
+  : >>"$lock" || refuse 1 "lock=unwritable path=$lock" "VGS cannot save its running state. Check access to $lock, then try again."
+  written="$(stat -L -c '%y' -- "$lock")" || refuse 1 "lock=unreadable path=$lock" "VGS cannot read its running state. Check access to $lock, then try again."
   set +e
   dispatch_reply="$(hyprctl dispatch "$request" 2>&1)"
   set -e
   if [[ $dispatch_reply != ok ]]; then
     refuse 1 "start=failed reply=${dispatch_reply//$'\n'/\\n}" \
-      "the shell did not start; start it with vgshell start"
+      "VGS cannot start the shell. Check $run_log, then log out and back in to try again."
   fi
 
   seen_pid=none
@@ -1124,7 +1124,7 @@ shell_start() { # OLD_PID USES_LUA [STEP]
       seen_pid="$new_pid"
       if [[ ! -d /proc/$new_pid ]]; then
         refuse 1 "start=exited pid=$new_pid" \
-          "the new shell exited; read $run_log or start it with vgshell start"
+          "The VGS shell stops during startup. Check $run_log, then log out and back in to try again."
       fi
       set +e
       guarded_out="$(qs ipc --pid "$new_pid" call shell guarded 2>/dev/null)"
@@ -1138,11 +1138,11 @@ shell_start() { # OLD_PID USES_LUA [STEP]
     fi
     if [[ $(stat -L -c '%y' -- "$lock" 2>/dev/null) != "$written" ]] && flock -n "$lock" true; then
       refuse 1 "start=exited pid=$seen_pid" \
-        "the new vgshell run ended with no guarded shell; read $run_log or start it with vgshell start"
+        "The VGS shell stops during startup. Check $run_log, then log out and back in to try again."
     fi
     sleep 0.1
   done
-  refuse 1 "start=timeout" "the shell did not answer; read $run_log or start it with vgshell start"
+  refuse 1 "start=timeout" "The VGS shell does not answer. Check $run_log before trying to start VGS again."
 }
 
 # STEP, a function, runs once the shell has stopped and before Hyprland
@@ -1160,22 +1160,22 @@ shell_restart() { # [STEP]
   set -e
   [[ $status == 0 ]] ||
     refuse 1 "locked=unanswered pid=$pid" \
-      "the shell did not answer shell.locked; start it with vgshell start after stopping it; the shell was not stopped"
+      "VGS cannot check whether your session is locked. It leaves the shell running. Log out and back in before trying again."
   vgs_ipc_last_line_into "$locked_out"
   reply="$vgs_ipc_last_line"
   case "$reply" in
     true)
       refuse 4 "session=locked" \
-        "the lock client is the shell; stopping it leaves Hyprland's dead-lock screen; unlock first"
+        "Your session is locked. Unlock it before restarting VGS."
       ;;
     false) ;;
-    *) refuse 1 "locked=${reply//$'\n'/\\n}" ;;
+    *) refuse 1 "locked=${reply//$'\n'/\\n}" "VGS cannot tell whether the session is locked. Unlock the session and try again." ;;
   esac
 
   stop_target="$(shell_stop_target "$pid")"
-  kill -TERM "$stop_target" || refuse 1 "stop=failed pid=$pid"
+  kill -TERM "$stop_target" || refuse 1 "stop=failed pid=$pid" "VGS cannot stop the running shell. Log out and back in before trying again."
   flock -w 10 "$lock" true ||
-    refuse 1 "stop=timeout pid=$pid" "the shell is still running"
+    refuse 1 "stop=timeout pid=$pid" "The VGS shell does not stop in time. Log out and back in before trying again."
   shell_start "$pid" "$using_lua" "${1:-}"
 }
 
@@ -1187,16 +1187,16 @@ installed_dir() { # ID
   if [[ ! -e $target && ! -L $target ]]; then
     owners="$(owners_of "$id")" || exit 1
     owner="${owners%%$'\n'*}"
-    [[ -z $owner ]] && refuse 1 "unknown=$id"
-    [[ $owner == "$shell_dir/plugins/"* ]] && refuse 1 "bundled=$id" "a bundled plugin is disabled, not removed: vgshell plugin disable $id"
-    refuse 1 "not-installed=$id owner=$owner" "only a plugin vgshell plugin add installed is updated or removed"
+    [[ -z $owner ]] && refuse 1 "unknown=$id" "VGS cannot find this plugin. Choose a plugin from the Plugins window."
+    [[ $owner == "$shell_dir/plugins/"* ]] && refuse 1 "bundled=$id" "This plugin comes with VGS. Turn it off in the Plugins window."
+    refuse 1 "not-installed=$id owner=$owner" "VGS did not install this plugin. Use the tool that installed it to update or remove it."
   fi
-  [[ -L $target ]] && refuse 1 "symlink=$target"
-  base="$(realpath -e -- "$user_plugins")" || refuse 1 "unreadable=$user_plugins"
-  real="$(realpath -e -- "$target")" || refuse 1 "unreadable=$target"
-  [[ -d $real && $(dirname -- "$real") == "$base" ]] || refuse 1 "outside=$real"
+  [[ -L $target ]] && refuse 1 "symlink=$target" "This plugin folder is a link. Choose a plugin installed through the Plugins window."
+  base="$(realpath -e -- "$user_plugins")" || refuse 1 "unreadable=$user_plugins" "VGS cannot read your plugin folder. Check access to $user_plugins, then try again."
+  real="$(realpath -e -- "$target")" || refuse 1 "unreadable=$target" "VGS cannot read this plugin folder. Check access to $target, then try again."
+  [[ -d $real && $(dirname -- "$real") == "$base" ]] || refuse 1 "outside=$real" "This plugin is outside your plugin folder. Choose a plugin installed through the Plugins window."
   got="$(node "$judge" id "$real")" || exit 1
-  [[ $got == "$id" ]] || refuse 1 "manifest-id=$got path=$real"
+  [[ $got == "$id" ]] || refuse 1 "manifest-id=$got path=$real" "This plugin uses a different name from its installation folder. Report this to the plugin author before trying again."
   printf '%s\n' "$real"
 }
 
@@ -1209,19 +1209,19 @@ installed_dir() { # ID
 # `theme`, names what the URL is of. Print the URL.
 ask_url() { # KIND
   local url status=0
-  if [[ ! -t 0 ]]; then printf 'vgshell: refused: url=missing\n' >&2; try_help; exit 2; fi
-  command -v gum >/dev/null || refuse 1 "gum=missing" "gum draws the prompt for the URL: install it (vgshell doctor names its package) or run vgshell $1 add <git url>"
+  if [[ ! -t 0 ]]; then printf 'vgshell: refused: url=missing\nNo Git address is supplied. Open Add from VGS to enter one.\n' >&2; try_help; exit 2; fi
+  command -v gum >/dev/null || refuse 1 "gum=missing" "VGS cannot ask for an address because gum is missing. Install gum, then open Add again."
   # shellcheck source=lib/tui.sh
-  source "$root/bin/lib/tui.sh" || refuse 1 "library=missing path=$root/bin/lib/tui.sh"
-  url="$(vgs_tui_input --prompt "Git URL of the $1: " --placeholder "https://")" || status=$?
+  source "$root/bin/lib/tui.sh" || refuse 1 "library=missing path=$root/bin/lib/tui.sh" "VGS cannot load its terminal prompts. Repair the VGS installation, then try again."
+  url="$(vgs_tui_input --prompt "$1 Git address: " --placeholder "https://")" || status=$?
   case "$status" in
     0) ;;
-    130) refuse 1 "cancelled=url" ;;
-    *) refuse 1 "prompt=failed exit=$status" ;;
+    130) refuse 1 "cancelled=url" "You cancelled the address prompt. Open Add again when you are ready." ;;
+    *) refuse 1 "prompt=failed exit=$status" "VGS cannot read the address. Close this task and open Add again." ;;
   esac
   url="${url#"${url%%[![:space:]]*}"}"
   url="${url%"${url##*[![:space:]]}"}"
-  [[ -n $url ]] || refuse 2 "url=missing" "no URL was typed; nothing was cloned"
+  [[ -n $url ]] || refuse 2 "url=missing" "No address is entered. Open Add again and enter the $1 Git address."
   printf '%s\n' "$url"
 }
 
@@ -1230,29 +1230,29 @@ plugin_add() { # URL
   mkdir -p -- "$user_plugins"
   # Staged beside the plugin directory, never inside it, so no scan sees a
   # half-cloned plugin and the final move is a rename on one filesystem.
-  stage="$(mktemp -d "$config_home/vgshell/.vgshell-add.XXXXXX")" || refuse 1 "staging=$config_home/vgshell"
+  stage="$(mktemp -d "$config_home/vgshell/.vgshell-add.XXXXXX")" || refuse 1 "staging=$config_home/vgshell" "VGS cannot create a temporary install folder. Check free space and access to $config_home/vgshell, then try again."
   trap 'rm -rf -- "${stage:?}"' EXIT
   git_or_refuse "clone=$url" clone --quiet --no-recurse-submodules -- "$url" "$stage/plugin"
-  verdict="$(node "$manifest_check" -- "$stage/plugin")" || refuse 1 "manifest=$url" "$verdict"
+  verdict="$(node "$manifest_check" -- "$stage/plugin")" || refuse 1 "manifest=$url" "VGS cannot use this plugin. Report the details below to the plugin author." "$verdict"
   id="$(node "$judge" id "$stage/plugin")" || exit 1
   owners="$(owners_of "$id")" || exit 1
-  [[ -z $owners ]] || refuse 1 "id-owned=$id owner=${owners%%$'\n'*}"
+  [[ -z $owners ]] || refuse 1 "id-owned=$id owner=${owners%%$'\n'*}" "A plugin already uses this name. Choose that plugin in the Plugins window to manage it."
   target="$user_plugins/$id"
-  [[ -e $target || -L $target ]] && refuse 1 "exists=$target"
+  [[ -e $target || -L $target ]] && refuse 1 "exists=$target" "The plugin folder already exists. Check $target before trying to add the plugin again."
   lands="$(node "$judge" lands "$stage/plugin")" || exit 1
   # Said only where it is asked: --yes gives the answer, and with no
   # terminal the question's own refusal is the first line.
   if [[ $assume_yes != 1 && -t 0 ]]; then
     case "$lands" in
-      shown) printf 'vgshell: %s runs its code as soon as it is installed, and its widget shows in the bar.\n' "$id" >&2 ;;
-      *) printf 'vgshell: %s is installed turned off; its code runs once you turn it on in Plugins.\n' "$id" >&2 ;;
+      shown) printf 'vgshell: %s turns on as soon as you install it. Its widget appears in the bar.\n' "$id" >&2 ;;
+      *) printf 'vgshell: %s stays off after you install it. Turn it on in the Plugins window when you are ready.\n' "$id" >&2 ;;
     esac
   fi
-  confirm_change add "$id" "nothing was installed"
+  confirm_change add "$id" "VGS leaves the plugin uninstalled. Open Add again when you are ready."
   # Before the move, so the first scan that sees the plugin sees it as it
   # lands.
   landed="$(node "$judge" land "$root/config/shell.json" "$config_home/vgshell/shell.json" "$stage/plugin")" || exit 1
-  mv -T -- "$stage/plugin" "$target" || refuse 1 "move=$target"
+  mv -T -- "$stage/plugin" "$target" || refuse 1 "move=$target" "VGS cannot install the plugin in $target. Check free space and folder access, then try again."
   echo "ok added=$id path=$target config=$landed lands=$lands"
   rescan_if_running pluginInstalled "$id"
   offer_requirements "$id"
@@ -1286,7 +1286,7 @@ offer_requirements() { # ID
     return 0
   fi
   # shellcheck source=lib/tui.sh
-  source "$root/bin/lib/tui.sh" || refuse 1 "library=missing path=$root/bin/lib/tui.sh"
+  source "$root/bin/lib/tui.sh" || refuse 1 "library=missing path=$root/bin/lib/tui.sh" "VGS cannot load its terminal prompts. Repair the VGS installation, then try again."
   vgs_tui_step 'Install the software that this plugin needs.'
   vgs_tui_commands "${commands[@]}"
   printf 'Install now? [y/N] ' >&2
@@ -1319,7 +1319,7 @@ assume_yes=0
 confirm_change() { # VERB LABEL KEPT [KEY]
   local answer="" key="${4:-$2}"
   [[ $assume_yes == 1 ]] && return 0
-  [[ -t 0 ]] || refuse 1 "no-terminal=$key" "no terminal on stdin to confirm the $1; run on a terminal or pass --yes"
+  [[ -t 0 ]] || refuse 1 "no-terminal=$key" "VGS needs your approval before it can $1. Open this action from VGS to answer in a terminal."
   printf 'vgshell: %s %s? [y/N] ' "$1" "$2" >&2
   read -r answer || answer=""
   case "$answer" in
@@ -1332,7 +1332,7 @@ confirm_change() { # VERB LABEL KEPT [KEY]
 own_checkout() { # DIR
   local top
   top="$(git_or_refuse "not-a-checkout=$1" -C "$1" rev-parse --show-toplevel)" || exit 1
-  [[ $top == "$1" ]] || refuse 1 "not-a-checkout=$1 toplevel=$top"
+  [[ $top == "$1" ]] || refuse 1 "not-a-checkout=$1 toplevel=$top" "This folder is not a separate Git checkout. Choose a plugin or theme installed through VGS."
 }
 
 # Set ff_old and ff_new to checkout DIR's HEAD and upstream commits.
@@ -1352,23 +1352,23 @@ fast_forward() { # DIR LABEL REVIEW
   local dir="$1" label="$2" dirty err rc=0
   own_checkout "$dir"
   dirty="$(git_or_refuse "git=status path=$dir" -C "$dir" status --porcelain --untracked-files=all)" || exit 1
-  [[ -z $dirty ]] || refuse 1 "modified=$dir" "commit or discard the local changes first"
+  [[ -z $dirty ]] || refuse 1 "modified=$dir" "This folder has local changes. Save or undo them before updating."
   git_or_refuse "fetch=$label" -C "$dir" fetch --quiet --no-recurse-submodules
   checkout_commits "$dir"
   [[ $ff_old == "$ff_new" ]] && return 0
   err="$(git_plain -C "$dir" merge-base --is-ancestor "$ff_old" "$ff_new" 2>&1)" || rc=$?
   case "$rc" in
     0) ;;
-    1) refuse 1 "not-fast-forward=$label" "the source rewrote its history; remove and add it again" ;;
-    *) refuse 1 "git=merge-base exit=$rc path=$dir" "$err" ;;
+    1) refuse 1 "not-fast-forward=$label" "The installed version and the update have different histories. Save any files you need, then reinstall from the source." ;;
+    *) refuse 1 "git=merge-base exit=$rc path=$dir" "Git cannot compare the installed version with its update. Check the error below, then try again." "$err" ;;
   esac
   case "$3" in
     review)
       git_or_refuse "git=diff path=$dir" -C "$dir" diff --no-ext-diff --no-textconv "$ff_old" "$ff_new"
-      confirm_change update "$label" "the checkout stays at ${ff_old:0:12}"
+      confirm_change update "$label" "VGS keeps the installed version. Open Update again when you are ready."
       ;;
     trusted) ;;
-    *) refuse 1 "fast-forward=$3 reason=unknown-review" ;;
+    *) refuse 1 "fast-forward=$3 reason=unknown-review" "VGS cannot read this update request. Close this task and report the details above." ;;
   esac
   git_or_refuse "git=merge path=$dir" -C "$dir" merge --quiet --ff-only "$ff_new"
 }
@@ -1385,11 +1385,11 @@ plugin_update() { # ID
   # plugin is always one the judge accepted.
   if ! verdict="$(node "$manifest_check" -- "$dir")"; then
     rollback "$dir" "$ff_old"
-    refuse 1 "manifest=$id rolled-back=${ff_old:0:12}" "$verdict"
+    refuse 1 "manifest=$id rolled-back=${ff_old:0:12}" "VGS cannot use this plugin update. It restores the previous version. Report the details below to the plugin author." "$verdict"
   fi
   if ! new_id="$(node "$judge" id "$dir")" || [[ $new_id != "$id" ]]; then
     rollback "$dir" "$ff_old"
-    refuse 1 "manifest-id=${new_id:-unreadable} want=$id rolled-back=${ff_old:0:12}"
+    refuse 1 "manifest-id=${new_id:-unreadable} want=$id rolled-back=${ff_old:0:12}" "The update changes the plugin name or cannot read it. VGS restores the previous version. Report this to the plugin author."
   fi
   echo "ok updated=$id from=${ff_old:0:12} to=${ff_new:0:12}"
   rescan_if_running
@@ -1398,8 +1398,8 @@ plugin_update() { # ID
 plugin_remove() { # ID
   local id="$1" dir
   dir="$(installed_dir "$id")" || exit $?
-  confirm_change remove "$id" "$dir stays installed"
-  rm -rf -- "${dir:?}" || refuse 1 "remove=$dir"
+  confirm_change remove "$id" "VGS keeps the plugin installed. Open Remove again when you are ready."
+  rm -rf -- "${dir:?}" || refuse 1 "remove=$dir" "VGS cannot remove the plugin folder. Check access to $dir, then try again."
   echo "ok removed=$id"
   rescan_if_running
 }
@@ -1473,8 +1473,8 @@ unattended_git() { # KEY GIT_ARGS...
   if [[ $rc == 137 ]] && ((SECONDS - started > outdated_fetch_timeout)); then rc=124; fi
   case "$rc" in
     0) [[ -z $err ]] || printf '%s\n' "$err" >&2 ;;
-    124) refuse 1 "$key timeout=${outdated_fetch_timeout}s" ${err:+"$err"} ;;
-    *) refuse 1 "$key" ${err:+"$err"} ;;
+    124) refuse 1 "$key timeout=${outdated_fetch_timeout}s" "The update server does not answer in time. Check your connection, then try again." ${err:+"$err"} ;;
+    *) refuse 1 "$key" "VGS cannot read the update source. Check your connection and access to the source, then try again." ${err:+"$err"} ;;
   esac
 }
 
@@ -1584,7 +1584,7 @@ outdated_rows() { # PROBE ID...
   for id in "$@"; do
     if step_run outdated_row "$probe" "$id"; then
       [[ $step_out =~ ^([0-9a-f]+)\ ([0-9a-f]+)\ ([0-9]+)$ ]] ||
-        refuse 1 "outdated=$id reason=probe-output" "$step_out"
+        refuse 1 "outdated=$id reason=probe-output" "VGS cannot read the update information. Try again. If it still fails, report the details below." "$step_out"
       outdated_fields+=("$id" "${BASH_REMATCH[3]}" "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "")
     else
       outdated_fields+=("$id" "" "" "" "$step_error")
@@ -1626,7 +1626,7 @@ PY
 plugin_outdated() { # FORMAT
   local entries=() ids=() entry
   if [[ -e $user_plugins || -L $user_plugins ]]; then
-    [[ -d $user_plugins && -r $user_plugins && -x $user_plugins ]] || refuse 1 "unreadable=$user_plugins"
+    [[ -d $user_plugins && -r $user_plugins && -x $user_plugins ]] || refuse 1 "unreadable=$user_plugins" "VGS cannot read your plugin folder. Check access to $user_plugins, then try again."
     shopt -s nullglob dotglob
     entries=("$user_plugins"/*)
     shopt -u nullglob dotglob
@@ -1657,12 +1657,12 @@ theme_lock_wait_s=10
 theme_lock_hold() { # KEY FLOCK_OPTION...
   local rc=0
   mkdir -p -- "$config_home/vgshell" 2>/dev/null && { exec 9>>"$theme_lock"; } 2>/dev/null ||
-    refuse 1 "$1 reason=lock-failed path=$theme_lock"
+    refuse 1 "$1 reason=lock-failed path=$theme_lock" "VGS cannot protect your theme files while this task runs. Check access to $theme_lock, then try again."
   flock "${@:2}" -E 75 9 || rc=$?
   case "$rc" in
     0) ;;
-    75) refuse 75 "$1 reason=busy" "another theme command holds the theme lock" ;;
-    *) refuse 1 "$1 reason=lock-failed path=$theme_lock" ;;
+    75) refuse 75 "$1 reason=busy" "Another theme task is running. Wait for it to finish, then try again." ;;
+    *) refuse 1 "$1 reason=lock-failed path=$theme_lock" "VGS cannot protect your theme files while this task runs. Check access to $theme_lock, then try again." ;;
   esac
 }
 
@@ -1714,7 +1714,7 @@ accept_theme() { # DIR [NAME]
 # installed yet: an update's old package waits outside it, beside themes/.
 # Sets `stage`.
 theme_stage() { # KIND
-  stage="$(mktemp -d "$config_home/vgshell/.vgshell-theme-$1.XXXXXX")" || refuse 1 "staging=$config_home/vgshell"
+  stage="$(mktemp -d "$config_home/vgshell/.vgshell-theme-$1.XXXXXX")" || refuse 1 "staging=$config_home/vgshell" "VGS cannot create a temporary install folder. Check free space and access to $config_home/vgshell, then try again."
   trap 'rm -rf -- "${stage:?}"' EXIT
 }
 
@@ -1760,7 +1760,7 @@ offer_theme_apply() { # NAME
   local name="$1" status=0 shown
   [[ -n $name ]] || return 0
   # shellcheck source=lib/tui.sh
-  source "$root/bin/lib/tui.sh" || refuse 1 "library=missing path=$root/bin/lib/tui.sh"
+  source "$root/bin/lib/tui.sh" || refuse 1 "library=missing path=$root/bin/lib/tui.sh" "VGS cannot load its terminal prompts. Repair the VGS installation, then try again."
   vgs_tui_step "Change the desktop appearance to the $name theme."
   printf -v shown '%q ' vgshell theme apply "$name"
   vgs_tui_commands "${shown% }"
@@ -1768,7 +1768,7 @@ offer_theme_apply() { # NAME
   case "$status" in
     0) ;;
     1 | 130) return 0 ;;
-    *) refuse 1 "apply-prompt=failed exit=$status" ;;
+    *) refuse 1 "apply-prompt=failed exit=$status" "VGS cannot read your answer. Close this task and apply the theme again in the theme browser." ;;
   esac
   exec 9>&- || true
   "$self" theme apply "$name"
@@ -1786,7 +1786,7 @@ theme_update() { # NAME
       echo "$line"
       [[ $line == "ok up-to-date=$name" ]] && return 0
       # exec runs no EXIT trap.
-      rm -rf -- "${stage:?}" || refuse 1 "staging=$stage reason=remove"
+      rm -rf -- "${stage:?}" || refuse 1 "staging=$stage reason=remove" "VGS cannot remove its temporary theme folder. Check access to $stage, then try again."
       trap - EXIT
       ;;
     git)
@@ -1799,11 +1799,11 @@ theme_update() { # NAME
       # package is always one the judge accepted.
       if ! accept_theme "$dir" "$name"; then
         rollback "$dir" "$ff_old"
-        refuse 1 "theme=$name $verdict rolled-back=${ff_old:0:12}"
+        refuse 1 "theme=$name $verdict rolled-back=${ff_old:0:12}" "VGS cannot use the updated theme. It restores the previous version. Report this to the theme author."
       fi
       echo "ok updated=$name from=${ff_old:0:12} to=${ff_new:0:12}"
       ;;
-    *) refuse 1 "theme=$name reason=origin got=$origin" ;;
+    *) refuse 1 "theme=$name reason=origin got=$origin" "VGS cannot identify how this theme was installed. Remove it in the Themes panel and add it again." ;;
   esac
   # Still under the lock this process holds on descriptor 9.
   exec node "$theme_judge" follow text "$config_home/vgshell" "$state_home/vgshell" held "$name"
@@ -1853,7 +1853,7 @@ theme_remove() { # NAME
   local name="$1" dir
   theme_lock_change "theme=$name"
   dir="$(node "$theme_judge" installed "$config_home/vgshell" "$name")" || exit $?
-  rm -rf -- "${dir:?}" || refuse 1 "theme=$name reason=remove path=$dir"
+  rm -rf -- "${dir:?}" || refuse 1 "theme=$name reason=remove path=$dir" "VGS cannot remove the theme folder. Check access to $dir, then try again."
   echo "ok removed=$name"
 }
 
@@ -1866,7 +1866,7 @@ theme_probe() { # NAME
   case "$origin" in
     git) outdated_probe "$dir" "$1" ;;
     catalog) node "$theme_judge" catalog-probe "$config_home/vgshell" "$1" ;;
-    *) refuse 1 "theme=$1 reason=origin got=$origin" ;;
+    *) refuse 1 "theme=$1 reason=origin got=$origin" "VGS cannot identify how this theme was installed. Remove it in the Themes panel and add it again." ;;
   esac
 }
 
@@ -1887,11 +1887,11 @@ version_re='^[0-9]+\.[0-9]+\.[0-9]+$'
 # Prints VERSION's one line, or refuses.
 version_line() {
   local file="$root/VERSION" content version
-  [[ -f $file && -r $file ]] || refuse 1 "version=missing path=$file"
-  content="$({ cat -- "$file" 2>/dev/null && printf .; })" || refuse 1 "version=missing path=$file"
+  [[ -f $file && -r $file ]] || refuse 1 "version=missing path=$file" "VGS cannot read its version file. Repair the VGS installation, then try again."
+  content="$({ cat -- "$file" 2>/dev/null && printf .; })" || refuse 1 "version=missing path=$file" "VGS cannot read its version file. Repair the VGS installation, then try again."
   content="${content%.}"
   version="${content%$'\n'}"
-  [[ $content == "$version"$'\n' && $version =~ $version_re ]] || refuse 1 "version=malformed path=$file"
+  [[ $content == "$version"$'\n' && $version =~ $version_re ]] || refuse 1 "version=malformed path=$file" "The VGS version file has an invalid value. Repair the VGS installation, then try again."
   printf '%s\n' "$version"
 }
 
@@ -1915,16 +1915,16 @@ describe_of() { # VERSION_TEXT REV
   out="$(git_or_refuse "git=describe path=$root" -C "$root" describe --long --tags --always --abbrev=7 --match 'v[0-9]*' --exclude 'v*[!0-9.]*' "$2")" || exit 1
   if [[ $out =~ ^(.+)-([0-9]+)-g([0-9a-f]+)$ ]]; then
     tag="${BASH_REMATCH[1]}" count="${BASH_REMATCH[2]}" hash="${BASH_REMATCH[3]}"
-    [[ ${tag#v} =~ $version_re ]] || refuse 1 "tag=$tag reason=not-a-version"
+    [[ ${tag#v} =~ $version_re ]] || refuse 1 "tag=$tag reason=not-a-version" "A Git release tag has an invalid version. Check the release tags in this VGS checkout."
     printf '%s.r%s.g%s\n' "${tag#v}" "$count" "$hash"
   elif [[ $out =~ ^[0-9a-f]+$ ]]; then
     # --always printed the abbreviated commit alone: no release tag is
     # reachable, so the distance is from the root.
     count="$(git_or_refuse "git=rev-list path=$root" -C "$root" rev-list --count "$2")" || exit 1
-    [[ $count =~ ^[0-9]+$ ]] || refuse 1 "git=rev-list path=$root" "count=$count"
+    [[ $count =~ ^[0-9]+$ ]] || refuse 1 "git=rev-list path=$root" "count=$count" "VGS cannot read this checkout's version history. Check the Git checkout before trying again."
     printf '%s.r%s.g%s\n' "$1" "$count" "$out"
   else
-    refuse 1 "git=describe path=$root" "describe printed: $out"
+    refuse 1 "git=describe path=$root" "VGS cannot read this checkout's version. Check the Git checkout before trying again."
   fi
 }
 
@@ -1940,7 +1940,7 @@ version_report() { # FORMAT [COMMAND]: loaded is the runner's start reading
     return
   fi
   if [[ ${2:-} == version ]] && pid="$(shell_pid 2>/dev/null)" && running="$(ipc shell version 2>/dev/null)"; then
-    [[ $running =~ ^[0-9]+\.[0-9]+\.[0-9]+(\.r[0-9]+\.g[0-9a-f]+)?$ ]] || refuse 69 "ipc=shell.version reason=malformed-reply"
+    [[ $running =~ ^[0-9]+\.[0-9]+\.[0-9]+(\.r[0-9]+\.g[0-9a-f]+)?$ ]] || refuse 69 "ipc=shell.version reason=malformed-reply" "VGS cannot read the running version. Restart VGS, then try again."
     restart=needed
     [[ $running != "${describe:-$version}" ]] || restart=none
   fi
@@ -1988,7 +1988,7 @@ self_main_commit() {
   local url="https://github.com/$self_repository.git"
   unattended_git "remote=main url=$url" ls-remote "$url" refs/heads/main
   [[ $git_out =~ ^([0-9a-f]{40}|[0-9a-f]{64})[[:space:]]refs/heads/main$ ]] ||
-    refuse 1 "remote=unreadable url=$url" "ls-remote printed: $git_out"
+    refuse 1 "remote=unreadable url=$url" "VGS cannot read the latest update from GitHub. Check your connection, then try again."
   printf '%s\n' "${BASH_REMATCH[1]}"
 }
 
@@ -2037,8 +2037,8 @@ self_status() { # FORMAT
 # refuses with self=busy.
 self_lock_hold() {
   mkdir -p -- "$data_home/vgshell" 2>/dev/null && { exec 8>>"$self_lock"; } 2>/dev/null ||
-    refuse 1 "self=lock-failed path=$self_lock"
-  flock -n 8 || refuse 75 "self=busy path=$self_lock" "another vgshell self update runs"
+    refuse 1 "self=lock-failed path=$self_lock" "VGS cannot prepare its update files. Check access to $self_lock, then try again."
+  flock -n 8 || refuse 75 "self=busy path=$self_lock" "Another VGS update or repair is running. Wait for it to finish, then try again."
 }
 
 # Prints the tree the running shell was started from, read from its
@@ -2055,7 +2055,7 @@ shell_tree() {
     fi
     previous="$arg"
   done <"/proc/$pid/cmdline" || true
-  refuse 1 "shell=unreadable pid=$pid" "the running shell's command line names no tree; stop it before updating"
+  refuse 1 "shell=unreadable pid=$pid" "VGS cannot find the files the running shell uses. Log out before updating VGS."
 }
 
 # After an update, restart a running shell through VGSHELL, the updated tree's
@@ -2091,13 +2091,13 @@ self_update() {
       ;;
     package)
       refuse 1 "method=package package=$package manager=$manager" \
-        "$manager owns this tree: update the $package package with the package manager that installed it; vgshell self update changes no package"
+        "Your package manager installs VGS. Update $package through $manager."
       ;;
     nix)
       refuse 1 "method=nix" \
-        "the Nix store owns this tree: update the flake that installed it and rebuild; vgshell self update changes no store path"
+        "Nix installs VGS. Update the flake that installs VGS, then rebuild your configuration."
       ;;
-    *) refuse 1 "method=$method reason=unknown" "self.js printed: $line" ;;
+    *) refuse 1 "method=$method reason=unknown" "VGS cannot identify how it was installed. Report the details above before trying to update it." ;;
   esac
 }
 
@@ -2110,16 +2110,15 @@ self_repair() {
   tree_is_checkout && checkout=true
   plan="$(node "$self_judge" repair-plan "$root" "$data_home" "$version" "$checkout" -)" || exit 1
   if [[ ${1:-} == --plan ]]; then printf '%s\n' "$plan"; return; fi
-  [[ -z ${VGSHELL_RUNNER_PID:-} ]] || refuse 1 "repair=inside-shell"
+  [[ -z ${VGSHELL_RUNNER_PID:-} ]] || refuse 1 "repair=inside-shell" "VGS cannot repair its files from this background task. Open the repair action in a floating terminal."
   if [[ $plan == *'"kind":"by-hand"'* ]]; then
-    notice="$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).notice)' "$plan")" || refuse 1 "repair=plan-unreadable"
+    notice="$(node -e 'process.stdout.write(JSON.parse(process.argv[1]).notice)' "$plan")" || refuse 1 "repair=plan-unreadable" "VGS cannot read the repair steps. Close this task and report the details above."
     refuse 69 "repair=by-hand" "$notice"
   fi
   if [[ $plan == *'"method":"package"'* ]]; then
     printf 'The package manager reinstalls the version its repository offers. It may be newer than the installed version.\n' >&2
   fi
-  printf 'Jarvis restores VGS-owned Home package files on their next check, including package edits.\n' >&2
-  confirm_change restore "$root including edited files" "the VGS install stays unchanged" repair
+  confirm_change restore "$root including edited files" "VGS keeps the current files. Open Repair again when you are ready." repair
   self_lock_hold
   if [[ $plan == *'"method":"curl"'* ]]; then
     running="$(shell_tree)" || exit 1
@@ -2128,8 +2127,8 @@ self_repair() {
   if [[ $plan == *'"ensureHelper":true'* ]]; then
     "$root/bin/vgshell" pkg ensure-helper || return "$?"
   fi
-  words="$(mktemp)" || refuse 1 "repair=temporary-file"
-  node -e 'const fs=require("node:fs"); const p=JSON.parse(process.argv[1]); fs.writeFileSync(process.argv[2], p.command.join("\0")+"\0");' "$plan" "$words" || { rm -f -- "$words"; refuse 1 "repair=plan-unreadable"; }
+  words="$(mktemp)" || refuse 1 "repair=temporary-file" "VGS cannot create a temporary repair file. Check free space and temporary folder access, then try again."
+  node -e 'const fs=require("node:fs"); const p=JSON.parse(process.argv[1]); fs.writeFileSync(process.argv[2], p.command.join("\0")+"\0");' "$plan" "$words" || { rm -f -- "$words"; refuse 1 "repair=plan-unreadable" "VGS cannot read the repair steps. Close this task and report the details above."; }
   mapfile -d '' -t command <"$words"
   rm -f -- "$words"
   if [[ ${command[0]} == git ]]; then
@@ -2159,7 +2158,7 @@ reset_keeps() { # CLASS ENTRY
   esac
   [[ $1 == data ]] || return 1
   if [[ -z ${reset_install_re:-} ]]; then
-    reset_install_re="$(node "$self_judge" directory-pattern)" || refuse 1 "reset=install-pattern-unreadable"
+    reset_install_re="$(node "$self_judge" directory-pattern)" || refuse 1 "reset=install-pattern-unreadable" "VGS cannot identify the installation files it must keep. Repair the VGS installation before trying Reset again."
   fi
   [[ $2 =~ $reset_install_re ]]
 }
@@ -2173,10 +2172,10 @@ reset_entries() { # CLASS DIR
   local -a all
   reset_names=()
   if [[ ! -d $2 ]]; then
-    [[ -e $2 ]] && refuse 1 "reset=not-a-directory path=$2"
+    [[ -e $2 ]] && refuse 1 "reset=not-a-directory path=$2" "VGS expects a folder at $2 but finds a file. Check that path before trying Reset again."
     return 0
   fi
-  [[ -r $2 && -x $2 ]] || refuse 1 "reset=unreadable path=$2"
+  [[ -r $2 && -x $2 ]] || refuse 1 "reset=unreadable path=$2" "VGS cannot read $2. Check folder access before trying Reset again."
   shopt -s nullglob dotglob
   all=("$2"/*)
   shopt -u nullglob dotglob
@@ -2192,21 +2191,21 @@ reset_entries() { # CLASS DIR
 reset_folder=""
 reset_folder_new() {
   local stamp n name class
-  stamp="$(date -u +%Y%m%dT%H%M%SZ)" || refuse 1 "clock=unreadable"
-  mkdir -p -- "$reset_backups" || refuse 1 "backup=unwritable path=$reset_backups"
+  stamp="$(date -u +%Y%m%dT%H%M%SZ)" || refuse 1 "clock=unreadable" "VGS cannot read the date for the backup name. Check the system error above, then try again."
+  mkdir -p -- "$reset_backups" || refuse 1 "backup=unwritable path=$reset_backups" "VGS cannot create the backup folder. Check free space and access to $reset_backups, then try again."
   for ((n = 0; n < 10; n++)); do
     name="$stamp"
     [[ $n == 0 ]] || name+=".$n"
     if mkdir -m 700 -- "$reset_backups/$name" 2>/dev/null; then
       reset_folder="$reset_backups/$name"
       for class in "${reset_classes[@]}"; do
-        mkdir -- "$reset_folder/$class" || refuse 1 "backup=unwritable path=$reset_folder/$class"
+        mkdir -- "$reset_folder/$class" || refuse 1 "backup=unwritable path=$reset_folder/$class" "VGS cannot create a backup subfolder. Check free space and access to $reset_folder, then try again."
       done
       return 0
     fi
-    [[ -e $reset_backups/$name ]] || refuse 1 "backup=unwritable path=$reset_backups/$name"
+    [[ -e $reset_backups/$name ]] || refuse 1 "backup=unwritable path=$reset_backups/$name" "VGS cannot create the backup. Check free space and access to $reset_backups, then try again."
   done
-  refuse 1 "backup=exists path=$reset_backups/$stamp" "ten backup folders were made in this second"
+  refuse 1 "backup=exists path=$reset_backups/$stamp" "VGS cannot choose an unused backup name yet. Wait a moment, then try again."
 }
 
 # Moves every entry reset moves into FOLDER's class subfolders.
@@ -2216,7 +2215,7 @@ reset_move_out() { # FOLDER
     dir="${reset_dirs[i]}"
     reset_entries "${reset_classes[i]}" "$dir"
     for entry in "${reset_names[@]}"; do
-      mv -T -- "$dir/$entry" "$1/${reset_classes[i]}/$entry" || refuse 1 "move=failed path=$dir/$entry to=$1/${reset_classes[i]}"
+      mv -T -- "$dir/$entry" "$1/${reset_classes[i]}/$entry" || refuse 1 "move=failed path=$dir/$entry to=$1/${reset_classes[i]}" "VGS cannot move $dir/$entry into the backup. Check folder access and free space before trying again."
     done
   done
 }
@@ -2230,24 +2229,24 @@ reset_move_back() { # FOLDER
   for i in "${!reset_classes[@]}"; do
     from="$1/${reset_classes[i]}" dir="${reset_dirs[i]}"
     [[ -d $from ]] || continue
-    mkdir -p -- "$dir" || refuse 1 "restore=unwritable path=$dir"
+    mkdir -p -- "$dir" || refuse 1 "restore=unwritable path=$dir" "VGS cannot create the restore folder. Check free space and access to $dir, then try again."
     shopt -s nullglob dotglob
     all=("$from"/*)
     shopt -u nullglob dotglob
     for entry in "${all[@]}"; do
       entry="${entry##*/}"
-      [[ -e $dir/$entry || -L $dir/$entry ]] && refuse 1 "restore=exists path=$dir/$entry" "the backup's $entry stays in $from"
-      mv -T -- "$from/$entry" "$dir/$entry" || refuse 1 "move=failed path=$from/$entry to=$dir"
+      [[ -e $dir/$entry || -L $dir/$entry ]] && refuse 1 "restore=exists path=$dir/$entry" "A file already uses this name. VGS keeps the backup file in $from. Move the conflicting file before trying again."
+      mv -T -- "$from/$entry" "$dir/$entry" || refuse 1 "move=failed path=$from/$entry to=$dir" "VGS cannot restore $from/$entry. Check folder access and free space before trying again."
     done
-    rmdir -- "$from" || refuse 1 "backup=not-empty path=$from"
+    rmdir -- "$from" || refuse 1 "backup=not-empty path=$from" "VGS cannot remove the backup subfolder. Check what remains in $from before trying again."
   done
-  rmdir -- "$1" || refuse 1 "backup=not-empty path=$1"
+  rmdir -- "$1" || refuse 1 "backup=not-empty path=$1" "VGS cannot remove the backup folder. Check what remains in $1 before trying again."
 }
 
 # What reset moves, said before its question: each entry, one line each.
 reset_say() {
   local i entry
-  printf 'vgshell: reset moves these into a new folder under %s:\n' "$reset_backups" >&2
+  printf 'vgshell: Reset saves these files in a new backup folder inside %s:\n' "$reset_backups" >&2
   for i in "${!reset_classes[@]}"; do
     reset_entries "${reset_classes[i]}" "${reset_dirs[i]}"
     for entry in "${reset_names[@]}"; do printf '  %s/%s\n' "${reset_dirs[i]}" "$entry" >&2; done
@@ -2266,7 +2265,7 @@ reset_step() {
   reset_folder_new
   reset_move_out "$reset_folder"
   { mkdir -p -- "$state_home/vgshell" && printf '%s\n' "$reset_folder" >"$reset_marker"; } ||
-    refuse 1 "marker=unwritable path=$reset_marker"
+    refuse 1 "marker=unwritable path=$reset_marker" "VGS cannot save the backup location for Restore. Keep the backup folder path and check access to $reset_marker."
   printf 'ok reset backup=%s\n' "$reset_folder"
   [[ $applied == false ]] || node "$theme_judge" apply text "$config_home/vgshell" "$state_home/vgshell" held vgs || status=$?
   return "$status"
@@ -2287,25 +2286,25 @@ restore_step() {
   reset_move_out "$reset_folder"
   reset_move_back "$restore_folder"
   if [[ -e $reset_marker ]]; then
-    marked="$(head -n 1 -- "$reset_marker")" || refuse 1 "marker=unreadable path=$reset_marker"
-    [[ -d $marked ]] || rm -f -- "$reset_marker" || refuse 1 "marker=unremovable path=$reset_marker"
+    marked="$(head -n 1 -- "$reset_marker")" || refuse 1 "marker=unreadable path=$reset_marker" "VGS cannot read the saved backup location. Check access to $reset_marker before trying again."
+    [[ -d $marked ]] || rm -f -- "$reset_marker" || refuse 1 "marker=unremovable path=$reset_marker" "VGS cannot clear the old backup location. Check access to $reset_marker before trying again."
   fi
   printf 'ok restored backup=%s aside=%s\n' "$restore_folder" "$reset_folder"
   [[ -e $state_home/vgshell/theme.name ]] || return 0
-  name="$(head -n 1 -- "$state_home/vgshell/theme.name")" || refuse 1 "theme-name=unreadable path=$state_home/vgshell/theme.name"
+  name="$(head -n 1 -- "$state_home/vgshell/theme.name")" || refuse 1 "theme-name=unreadable path=$state_home/vgshell/theme.name" "VGS cannot read the restored theme name. Check access to $state_home/vgshell/theme.name before trying again."
   # mktemp prints nothing on stderr when it succeeds, as in scratch_open.
-  saved="$(mktemp -d 2>&1)" || refuse 1 "scratch=${TMPDIR:-/tmp}" "$saved"
+  saved="$(mktemp -d 2>&1)" || refuse 1 "scratch=${TMPDIR:-/tmp}" "VGS cannot preserve your restored theme files. Check free space and temporary folder access, then try again." "$saved"
   for i in "${!restore_kept[@]}"; do
     if [[ -e ${restore_kept[i]} || -L ${restore_kept[i]} ]]; then
-      cp -a -- "${restore_kept[i]}" "$saved/$i" || refuse 1 "keep=failed path=${restore_kept[i]}"
+      cp -a -- "${restore_kept[i]}" "$saved/$i" || refuse 1 "keep=failed path=${restore_kept[i]}" "VGS cannot preserve your theme file at ${restore_kept[i]}. Check free space and file access before trying again."
     fi
   done
   node "$theme_judge" apply text "$config_home/vgshell" "$state_home/vgshell" held "$name" || status=$?
   for i in "${!restore_kept[@]}"; do
     if [[ -e $saved/$i || -L $saved/$i ]]; then
-      mv -fT -- "$saved/$i" "${restore_kept[i]}" || refuse 1 "keep=failed path=${restore_kept[i]}"
+      mv -fT -- "$saved/$i" "${restore_kept[i]}" || refuse 1 "keep=failed path=${restore_kept[i]}" "VGS cannot preserve your theme file at ${restore_kept[i]}. Check free space and file access before trying again."
     else
-      rm -f -- "${restore_kept[i]}" || refuse 1 "keep=failed path=${restore_kept[i]}"
+      rm -f -- "${restore_kept[i]}" || refuse 1 "keep=failed path=${restore_kept[i]}" "VGS cannot preserve your theme file at ${restore_kept[i]}. Check free space and file access before trying again."
     fi
   done
   rm -rf -- "${saved:?}"
@@ -2344,14 +2343,14 @@ reset_vgs() {
   local reply
   if [[ $assume_yes != 1 && ! -t 0 ]]; then
     shell_pid >/dev/null 2>&1 ||
-      refuse 1 "no-terminal=reset" "no terminal on stdin to confirm the reset and no shell running to ask; run on a terminal or pass --yes"
+      refuse 1 "no-terminal=reset" "VGS cannot ask you to confirm Reset because no terminal or VGS shell is open. Open VGS, then choose Reset VGS in the Plugins window."
     reply="$(ipc shell askReset)" || exit $?
-    [[ $reply == ok ]] || refuse 1 "ask=reset reply=$reply"
+    [[ $reply == ok ]] || refuse 1 "ask=reset reply=$reply" "VGS cannot open the Reset question. Choose Reset VGS again in the Plugins window."
     echo "shell=asked"
     return 0
   fi
   [[ $assume_yes == 1 ]] || reset_say
-  confirm_change reset VGS "nothing moved" reset
+  confirm_change reset VGS "VGS keeps your current settings. Open this action again when you are ready." reset
   reset_run reset=vgs reset_step
 }
 
@@ -2368,20 +2367,20 @@ restore_choose() { # PATH
     [[ -z $base ]] || all=("$base"/*)
     shopt -u nullglob
     for real in "${all[@]}"; do [[ -d $real ]] && folders+=("$real"); done
-    [[ ${#folders[@]} -gt 0 ]] || refuse 1 "backup=none path=$reset_backups"
+    [[ ${#folders[@]} -gt 0 ]] || refuse 1 "backup=none path=$reset_backups" "VGS finds no backup to restore. Choose a backup folder if you have one."
     set -- "${folders[-1]}"
   fi
-  real="$(realpath -e -- "$1" 2>/dev/null)" || refuse 1 "backup=$1 reason=absent"
-  [[ ! -L $1 && -d $real && $(dirname -- "$real") == "$base" ]] || refuse 1 "backup=$1 reason=outside" "a backup is a folder directly under $reset_backups"
+  real="$(realpath -e -- "$1" 2>/dev/null)" || refuse 1 "backup=$1 reason=absent" "VGS cannot find that backup. Choose a backup folder that still exists."
+  [[ ! -L $1 && -d $real && $(dirname -- "$real") == "$base" ]] || refuse 1 "backup=$1 reason=outside" "This is not a VGS backup folder. Choose a folder directly inside $reset_backups."
   restore_folder="$real"
 }
 
 reset_restore() { # [BACKUP]
   restore_choose "${1:-}"
   if [[ $assume_yes != 1 && -t 0 ]]; then
-    printf 'vgshell: restore moves what VGS holds now into a new folder under %s and moves %s back into place.\n' "$reset_backups" "$restore_folder" >&2
+    printf 'vgshell: Restore saves your current VGS files in a new backup folder inside %s. It then restores the files from %s.\n' "$reset_backups" "$restore_folder" >&2
   fi
-  confirm_change restore "${restore_folder##*/}" "nothing moved" restore
+  confirm_change restore "${restore_folder##*/}" "VGS keeps your current settings. Open this action again when you are ready." restore
   reset_run "restore=${restore_folder##*/}" restore_step
 }
 
@@ -2556,12 +2555,12 @@ if [[ $cmd == help ]]; then
     exit 0
   fi
   if [[ $# -gt 1 ]]; then
-    printf 'vgshell: refused: argument=%s\n' "$2" >&2
+    printf 'vgshell: refused: argument=%s\nThis command does not accept that argument. Check the command help for the accepted options.\n' "$2" >&2
     try_help
     exit 2
   fi
   if help_text "$1"; then exit 0; fi
-  printf 'vgshell: refused: command=%s\n' "$1" >&2
+  printf 'vgshell: refused: command=%s\nVGS does not recognize this command. Check the command help for the accepted commands.\n' "$1" >&2
   try_help
   exit 2
 fi
@@ -2571,15 +2570,15 @@ fi
 case "$cmd" in
   start)
     if [[ $# -gt 0 ]]; then
-      printf 'vgshell: refused: argument=%s\n' "$1" >&2
+      printf 'vgshell: refused: argument=%s\nThis command does not accept that argument. Check the command help for the accepted options.\n' "$1" >&2
       try_help
       exit 2
     fi
     select_hyprland_instance
     preflight
     start_lock="$rt_dir/vgshell-start.lock"
-    exec 7>>"$start_lock" || refuse 1 "start-lock=failed path=$start_lock"
-    flock -w 10 7 || refuse 75 "start=busy path=$start_lock" "another vgshell start is choosing this instance"
+    exec 7>>"$start_lock" || refuse 1 "start-lock=failed path=$start_lock" "VGS cannot prepare to start. Check access to $start_lock, then try again."
+    flock -w 10 7 || refuse 75 "start=busy path=$start_lock" "VGS is already starting. Wait for it to finish, then try again."
     if pid="$(shell_pid 2>/dev/null)"; then
       set +e
       guarded_out="$(qs ipc --pid "$pid" call shell guarded 2>/dev/null)"
@@ -2596,7 +2595,7 @@ case "$cmd" in
     ;;
   run)
     if [[ $# -gt 0 ]]; then
-      printf 'vgshell: refused: argument=%s\n' "$1" >&2
+      printf 'vgshell: refused: argument=%s\nThis command does not accept that argument. Check the command help for the accepted options.\n' "$1" >&2
       try_help
       exit 2
     fi
@@ -2607,14 +2606,14 @@ case "$cmd" in
     # holder's pid; only the holder rewrites the file.
     exec 9>>"$lock"
     if ! flock -n 9; then
-      printf 'vgshell: refused: lock=%s\nanother vgshell run holds the instance lock; one shell per session\n' "$lock" >&2
+      printf 'vgshell: refused: lock=%s\nVGS is already running in this session. Use the open VGS shell.\n' "$lock" >&2
       exit 75
     fi
     shell_supervise
     ;;
   restart)
     if [[ $# -gt 0 ]]; then
-      printf 'vgshell: refused: argument=%s\n' "$1" >&2
+      printf 'vgshell: refused: argument=%s\nThis command does not accept that argument. Check the command help for the accepted options.\n' "$1" >&2
       try_help
       exit 2
     fi
@@ -2662,58 +2661,58 @@ case "$cmd" in
         format=text
         if [[ ${1:-} == --json ]]; then format=json; shift; fi
         id="${1:-}"
-        if [[ -z $id ]]; then printf 'vgshell: refused: id=missing\n' >&2; try_help; exit 2; fi
-        if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\n' "$2" >&2; try_help; exit 2; fi
+        if [[ -z $id ]]; then printf 'vgshell: refused: id=missing\nNo plugin is selected. Choose a plugin and try again.\n' >&2; try_help; exit 2; fi
+        if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\nThis command does not accept that argument. Check the command help for the accepted options.\n' "$2" >&2; try_help; exit 2; fi
         scan="$(plugin_scan)" || exit 1
         node "$judge" requirements "$format" "$root/config/shell.json" "$config_home/vgshell/shell.json" "$id" <<<"$scan"
         ;;
       settings)
         id="${1:-}"
-        if [[ -z $id ]]; then printf 'vgshell: refused: id=missing\n' >&2; try_help; exit 2; fi
-        if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\n' "$2" >&2; try_help; exit 2; fi
+        if [[ -z $id ]]; then printf 'vgshell: refused: id=missing\nNo plugin is selected. Choose a plugin and try again.\n' >&2; try_help; exit 2; fi
+        if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\nThis command does not accept that argument. Check the command help for the accepted options.\n' "$2" >&2; try_help; exit 2; fi
         scan="$(plugin_scan)" || exit 1
         node "$judge" settings "$root/config/shell.json" "$config_home/vgshell/shell.json" "$id" <<<"$scan"
         ;;
       rescan)
-        if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; try_help; exit 2; fi
+        if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\nThis command does not accept that argument. Check the command help for the accepted options.\n' "$1" >&2; try_help; exit 2; fi
         rescan_if_running
         ;;
       enable|disable)
         id="${1:-}"
-        if [[ -z $id ]]; then printf 'vgshell: refused: id=missing\n' >&2; try_help; exit 2; fi
+        if [[ -z $id ]]; then printf 'vgshell: refused: id=missing\nNo plugin is selected. Choose a plugin and try again.\n' >&2; try_help; exit 2; fi
         enabled=true; [[ $sub == disable ]] && enabled=false
         reply="$(ipc shell setPluginEnabled "$id" "$enabled")" || exit $?
         case "$reply" in
           ok) echo ok ;;
-          "ok hidden="*) echo "$reply"; echo "those bar widgets stay enabled and return when a bar is enabled" ;;
-          *) printf 'vgshell: refused: %s\n' "$reply" >&2; exit 1 ;;
+          "ok hidden="*) echo "$reply"; echo "These widgets stay enabled. Turn on a bar in the Plugins window to show them again." ;;
+          *) printf 'vgshell: refused: %s\nVGS cannot change this plugin. Check its status in the Plugins window, then try again.\n' "$reply" >&2; exit 1 ;;
         esac
         ;;
       add)
-        if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\n' "$2" >&2; try_help; exit 2; fi
+        if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\nThis command does not accept that argument. Check the command help for the accepted options.\n' "$2" >&2; try_help; exit 2; fi
         url="${1:-}"
         if [[ -z $url ]]; then url="$(ask_url plugin)" || exit $?; fi
         plugin_add "$url"
         ;;
       update|remove)
         id="${1:-}"
-        if [[ -z $id ]]; then printf 'vgshell: refused: id=missing\n' >&2; try_help; exit 2; fi
-        if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\n' "$2" >&2; try_help; exit 2; fi
+        if [[ -z $id ]]; then printf 'vgshell: refused: id=missing\nNo plugin is selected. Choose a plugin and try again.\n' >&2; try_help; exit 2; fi
+        if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\nThis command does not accept that argument. Check the command help for the accepted options.\n' "$2" >&2; try_help; exit 2; fi
         "plugin_$sub" "$id"
         ;;
       validate)
         dir="${1:-}"
-        if [[ -z $dir ]]; then printf 'vgshell: refused: dir=missing\n' >&2; try_help; exit 2; fi
+        if [[ -z $dir ]]; then printf 'vgshell: refused: dir=missing\nNo plugin folder is selected. Choose a folder to check.\n' >&2; try_help; exit 2; fi
         exec node "$manifest_check" -- "$dir"
         ;;
       outdated)
         format=text
         if [[ ${1:-} == --json ]]; then format=json; shift; fi
-        if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; try_help; exit 2; fi
+        if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\nThis command does not accept that argument. Check the command help for the accepted options.\n' "$1" >&2; try_help; exit 2; fi
         plugin_outdated "$format"
         ;;
       *)
-        printf 'vgshell: refused: plugin-subcommand=%s\n' "${sub:-missing}" >&2; try_help; exit 2
+        printf 'vgshell: refused: plugin-subcommand=%s\nVGS does not recognize this action. Check the command help for the accepted actions.\n' "${sub:-missing}" >&2; try_help; exit 2
         ;;
     esac
     ;;
@@ -2724,22 +2723,22 @@ case "$cmd" in
     if [[ ${1:-} == --json ]]; then format=json; shift; fi
     case "$sub" in
       list)
-        if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; try_help; exit 2; fi
+        if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\nThis command does not accept that argument. Check the command help for the accepted options.\n' "$1" >&2; try_help; exit 2; fi
         exec node "$theme_judge" list "$format" "$config_home/vgshell" "$state_home/vgshell"
         ;;
       apply)
         name="${1:-}"
-        if [[ -z $name ]]; then printf 'vgshell: refused: name=missing\n' >&2; try_help; exit 2; fi
-        if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\n' "$2" >&2; try_help; exit 2; fi
+        if [[ -z $name ]]; then printf 'vgshell: refused: name=missing\nNo theme is selected. Choose a theme and try again.\n' >&2; try_help; exit 2; fi
+        if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\nThis command does not accept that argument. Check the command help for the accepted options.\n' "$2" >&2; try_help; exit 2; fi
         theme_apply "$name"
         ;;
       reload)
-        if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; try_help; exit 2; fi
+        if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\nThis command does not accept that argument. Check the command help for the accepted options.\n' "$1" >&2; try_help; exit 2; fi
         theme_lock_verdict
         exec node "$theme_judge" reload "$format" "$config_home/vgshell" "$state_home/vgshell" "$verdict"
         ;;
       follow)
-        if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; try_help; exit 2; fi
+        if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\nThis command does not accept that argument. Check the command help for the accepted options.\n' "$1" >&2; try_help; exit 2; fi
         # The shell queues a follow after every scan and gets no second
         # chance until the next scan, while a holder such as `theme
         # outdated` from a vgs.updates check, or an apply, is short; past
@@ -2752,71 +2751,71 @@ case "$cmd" in
         [[ $# -gt 0 ]] && shift
         case "$verb" in
           next|previous)
-            if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; try_help; exit 2; fi
+            if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\nThis command does not accept that argument. Check the command help for the accepted options.\n' "$1" >&2; try_help; exit 2; fi
             theme_lock_verdict
             exec node "$theme_judge" background "$format" "$verb" "$config_home/vgshell" "$state_home/vgshell" "$verdict"
             ;;
           set)
             image="${1:-}"
-            if [[ -z $image ]]; then printf 'vgshell: refused: path=missing\n' >&2; try_help; exit 2; fi
+            if [[ -z $image ]]; then printf 'vgshell: refused: path=missing\nNo background image is selected. Choose an image and try again.\n' >&2; try_help; exit 2; fi
             shift
             screen=()
             if [[ ${1:-} == --screen ]]; then
-              if [[ -z ${2:-} ]]; then printf 'vgshell: refused: screen=missing\n' >&2; try_help; exit 2; fi
+              if [[ -z ${2:-} ]]; then printf 'vgshell: refused: screen=missing\nNo screen is selected. Choose a screen and try again.\n' >&2; try_help; exit 2; fi
               screen=(--screen "$2")
               shift 2
             elif [[ ${1:-} == --every-screen ]]; then
               screen=(--every-screen)
               shift
             fi
-            if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; try_help; exit 2; fi
+            if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\nThis command does not accept that argument. Check the command help for the accepted options.\n' "$1" >&2; try_help; exit 2; fi
             theme_lock_verdict
             exec node "$theme_judge" background "$format" set "$config_home/vgshell" "$state_home/vgshell" "$verdict" "$image" "${screen[@]}"
             ;;
           list)
             scope=applied
             if [[ ${1:-} == --all ]]; then scope=all; shift; fi
-            if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; try_help; exit 2; fi
+            if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\nThis command does not accept that argument. Check the command help for the accepted options.\n' "$1" >&2; try_help; exit 2; fi
             exec node "$theme_judge" background "$format" list "$config_home/vgshell" "$state_home/vgshell" "$scope"
             ;;
           *)
-            printf 'vgshell: refused: background-subcommand=%s\n' "${verb:-missing}" >&2; try_help; exit 2
+            printf 'vgshell: refused: background-subcommand=%s\nVGS does not recognize this action. Check the command help for the accepted actions.\n' "${verb:-missing}" >&2; try_help; exit 2
             ;;
         esac
         ;;
       browser-policy)
-        [[ $format == json ]] && { printf 'vgshell: refused: argument=--json\n' >&2; try_help; exit 2; }
-        if [[ ${1:-} != install ]]; then printf 'vgshell: refused: browser-policy-subcommand=%s\n' "${1:-missing}" >&2; try_help; exit 2; fi
-        if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\n' "$2" >&2; try_help; exit 2; fi
+        [[ $format == json ]] && { printf 'vgshell: refused: argument=--json\nThis command does not support JSON output. Check the command help for the accepted options.\n' >&2; try_help; exit 2; }
+        if [[ ${1:-} != install ]]; then printf 'vgshell: refused: browser-policy-subcommand=%s\nVGS does not recognize this action. Check the command help for the accepted actions.\n' "${1:-missing}" >&2; try_help; exit 2; fi
+        if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\nThis command does not accept that argument. Check the command help for the accepted options.\n' "$2" >&2; try_help; exit 2; fi
         exec "$root/bin/vgshell-browser-policy" install
         ;;
       catalog)
-        if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; try_help; exit 2; fi
+        if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\nThis command does not accept that argument. Check the command help for the accepted options.\n' "$1" >&2; try_help; exit 2; fi
         exec node "$theme_judge" catalog "$format" "$config_home/vgshell"
         ;;
       setup)
-        if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; try_help; exit 2; fi
+        if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\nThis command does not accept that argument. Check the command help for the accepted options.\n' "$1" >&2; try_help; exit 2; fi
         exec node "$theme_judge" setup "$format" "$config_home/vgshell" "$state_home/vgshell"
         ;;
       install)
         name="${1:-}"
-        if [[ -z $name ]]; then printf 'vgshell: refused: name=missing\n' >&2; try_help; exit 2; fi
-        if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\n' "$2" >&2; try_help; exit 2; fi
+        if [[ -z $name ]]; then printf 'vgshell: refused: name=missing\nNo theme is selected. Choose a theme and try again.\n' >&2; try_help; exit 2; fi
+        if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\nThis command does not accept that argument. Check the command help for the accepted options.\n' "$2" >&2; try_help; exit 2; fi
         theme_install "$format" "$name"
         ;;
       add|update|remove)
-        [[ $format == json && $sub != add ]] && { printf 'vgshell: refused: argument=--json\n' >&2; try_help; exit 2; }
+        [[ $format == json && $sub != add ]] && { printf 'vgshell: refused: argument=--json\nThis command does not support JSON output. Check the command help for the accepted options.\n' >&2; try_help; exit 2; }
         if [[ $sub == update && ${1:-} == --yes ]]; then assume_yes=1; shift; fi
-        if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\n' "$2" >&2; try_help; exit 2; fi
+        if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\nThis command does not accept that argument. Check the command help for the accepted options.\n' "$2" >&2; try_help; exit 2; fi
         arg="${1:-}"
         prompted=0
         if [[ -z $arg && $sub == add ]]; then arg="$(ask_url theme)" || exit $?; prompted=1; fi
-        if [[ -z $arg ]]; then printf 'vgshell: refused: name=missing\n' >&2; try_help; exit 2; fi
+        if [[ -z $arg ]]; then printf 'vgshell: refused: name=missing\nNo theme is selected. Choose a theme and try again.\n' >&2; try_help; exit 2; fi
         "theme_$sub" "$arg"
         if [[ $sub == add && $prompted == 1 ]]; then offer_theme_apply "$theme_added"; fi
         ;;
       outdated)
-        if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; try_help; exit 2; fi
+        if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\nThis command does not accept that argument. Check the command help for the accepted options.\n' "$1" >&2; try_help; exit 2; fi
         theme_outdated "$format"
         ;;
       wallpapers)
@@ -2824,14 +2823,14 @@ case "$cmd" in
         for arg in "$@"; do
           if [[ $arg == --update && $mode == install ]]; then mode=update
           elif [[ -z $name && $arg != --* ]]; then name="$arg"
-          else printf 'vgshell: refused: argument=%s\n' "$arg" >&2; try_help; exit 2
+          else printf 'vgshell: refused: argument=%s\nThis command does not accept that argument. Check the command help for the accepted options.\n' "$arg" >&2; try_help; exit 2
           fi
         done
-        if [[ -z $name ]]; then printf 'vgshell: refused: name=missing\n' >&2; try_help; exit 2; fi
+        if [[ -z $name ]]; then printf 'vgshell: refused: name=missing\nNo theme is selected. Choose a theme and try again.\n' >&2; try_help; exit 2; fi
         theme_wallpapers "$format" "$name" "$mode"
         ;;
       *)
-        printf 'vgshell: refused: theme-subcommand=%s\n' "${sub:-missing}" >&2; try_help; exit 2
+        printf 'vgshell: refused: theme-subcommand=%s\nVGS does not recognize this action. Check the command help for the accepted actions.\n' "${sub:-missing}" >&2; try_help; exit 2
         ;;
     esac
     ;;
@@ -2840,11 +2839,11 @@ case "$cmd" in
     [[ $# -gt 0 ]] && shift
     case "$sub" in
       remove-bind|restore-bind)
-        if [[ $# -ne 3 ]]; then printf 'vgshell: refused: arguments=%s want=3\n' "$#" >&2; try_help; exit 2; fi
+        if [[ $# -ne 3 ]]; then printf 'vgshell: refused: arguments=%s want=3\nVGS needs the shortcut file, line and key or restore text. Check the command help for the accepted options.\n' "$#" >&2; try_help; exit 2; fi
         exec node "$hypr_judge" "$sub" "$config_home" "$state_home/vgshell" "$@"
         ;;
     esac
-    if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; try_help; exit 2; fi
+    if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\nThis command does not accept that argument. Check the command help for the accepted options.\n' "$1" >&2; try_help; exit 2; fi
     case "$sub" in
       state|wire|unwire)
         exec node "$hypr_judge" "$sub" "$config_home" "$state_home/vgshell"
@@ -2853,11 +2852,11 @@ case "$cmd" in
         reply="$(ipc shell renderHyprland)" || exit $?
         case "$reply" in
           ok) echo ok ;;
-          *) printf 'vgshell: refused: %s\n' "${reply#refused: }" >&2; exit 1 ;;
+          *) printf 'vgshell: refused: %s\nVGS cannot reload the Hyprland settings. Check the Hyprland error above, then try again.\n' "${reply#refused: }" >&2; exit 1 ;;
         esac
         ;;
       *)
-        printf 'vgshell: refused: hypr-subcommand=%s\n' "${sub:-missing}" >&2; try_help; exit 2
+        printf 'vgshell: refused: hypr-subcommand=%s\nVGS does not recognize this action. Check the command help for the accepted actions.\n' "${sub:-missing}" >&2; try_help; exit 2
         ;;
     esac
     ;;
@@ -2870,7 +2869,7 @@ case "$cmd" in
   doctor)
     format=text
     if [[ ${1:-} == --json ]]; then format=json; shift; fi
-    if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; try_help; exit 2; fi
+    if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\nThis command does not accept that argument. Check the command help for the accepted options.\n' "$1" >&2; try_help; exit 2; fi
     scan="$(plugin_scan)" || exit 1
     node "$judge" doctor "$format" "$root/config/shell.json" "$config_home/vgshell/shell.json" "$root/config/requirements.json" "$(graphical_session)" <<<"$scan"
     ;;
@@ -2883,19 +2882,19 @@ case "$cmd" in
   sudo)
     case "${1:-}" in
       status|grant|revoke|install|uninstall) exec "$root/bin/vgshell-sudo-grant" "$@" ;;
-      *) printf 'vgshell: refused: sudo-subcommand=%s\n' "${1:-missing}" >&2; try_help; exit 2 ;;
+      *) printf 'vgshell: refused: sudo-subcommand=%s\nVGS does not recognize this action. Check the command help for the accepted actions.\n' "${1:-missing}" >&2; try_help; exit 2 ;;
     esac
     ;;
   dictation)
     case "${1:-}" in
       setup) exec "$root/bin/vgshell-dictation" "$@" ;;
-      *) printf 'vgshell: refused: dictation-subcommand=%s\n' "${1:-missing}" >&2; try_help; exit 2 ;;
+      *) printf 'vgshell: refused: dictation-subcommand=%s\nVGS does not recognize this action. Check the command help for the accepted actions.\n' "${1:-missing}" >&2; try_help; exit 2 ;;
     esac
     ;;
   system)
     case "${1:-}" in
       status|apply|undo) exec "$root/bin/vgshell-system" "$@" ;;
-      *) printf 'vgshell: refused: system-subcommand=%s\n' "${1:-missing}" >&2; try_help; exit 2 ;;
+      *) printf 'vgshell: refused: system-subcommand=%s\nVGS does not recognize this action. Check the command help for the accepted actions.\n' "${1:-missing}" >&2; try_help; exit 2 ;;
     esac
     ;;
   tui)
@@ -2904,34 +2903,34 @@ case "$cmd" in
     case "$sub" in
       present) ;;
       list)
-        if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; try_help; exit 2; fi
+        if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\nThis command does not accept that argument. Check the command help for the accepted options.\n' "$1" >&2; try_help; exit 2; fi
         reply="$(ipc shell listTuis)" || exit $?
         node "$judge" tuis <<<"$reply"
         exit
         ;;
       open)
-        if [[ $# -eq 0 ]]; then printf 'vgshell: refused: key=missing\n' >&2; try_help; exit 2; fi
-        if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\n' "$2" >&2; try_help; exit 2; fi
+        if [[ $# -eq 0 ]]; then printf 'vgshell: refused: key=missing\nNo terminal task is selected. Choose a task from the terminal task list.\n' >&2; try_help; exit 2; fi
+        if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\nThis command does not accept that argument. Check the command help for the accepted options.\n' "$2" >&2; try_help; exit 2; fi
         reply="$(ipc shell openTui "$1")" || exit $?
         case "$reply" in
           ok) echo ok; exit 0 ;;
-          *) printf 'vgshell: refused: %s\n' "${reply#refused: }" >&2; exit 1 ;;
+          *) printf 'vgshell: refused: %s\nVGS cannot open this terminal task. Check for an open task window and any VGS notice, then try again.\n' "${reply#refused: }" >&2; exit 1 ;;
         esac
         ;;
-      *) printf 'vgshell: refused: tui-subcommand=%s\n' "${sub:-missing}" >&2; try_help; exit 2 ;;
+      *) printf 'vgshell: refused: tui-subcommand=%s\nVGS does not recognize this action. Check the command help for the accepted actions.\n' "${sub:-missing}" >&2; try_help; exit 2 ;;
     esac
     title="" size=default
     while [[ $# -gt 0 && $1 != -- ]]; do
       case "$1" in
         --title|--size)
-          if [[ $# -lt 2 ]]; then printf 'vgshell: refused: option=%s value=missing\n' "$1" >&2; try_help; exit 2; fi
+          if [[ $# -lt 2 ]]; then printf 'vgshell: refused: option=%s value=missing\nThis option needs a value. Check the command help for the accepted options.\n' "$1" >&2; try_help; exit 2; fi
           if [[ $1 == --title ]]; then title="$2"; else size="$2"; fi
           shift 2
           ;;
-        *) printf 'vgshell: refused: argument=%s\n' "$1" >&2; try_help; exit 2 ;;
+        *) printf 'vgshell: refused: argument=%s\nThis command does not accept that argument. Check the command help for the accepted options.\n' "$1" >&2; try_help; exit 2 ;;
       esac
     done
-    if [[ $# -lt 2 ]]; then printf 'vgshell: refused: command=missing\n' >&2; try_help; exit 2; fi
+    if [[ $# -lt 2 ]]; then printf 'vgshell: refused: command=missing\nNo command is selected for the terminal. Check the command help for the accepted options.\n' >&2; try_help; exit 2; fi
     shift
     exec "$root/bin/vgshell-tui" launch --title "${title:-${1##*/}}" --size "$size" --presentation full -- "$@"
     ;;
@@ -2942,19 +2941,19 @@ case "$cmd" in
       status)
         format=text
         if [[ ${1:-} == --json ]]; then format=json; shift; fi
-        if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; try_help; exit 2; fi
+        if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\nThis command does not accept that argument. Check the command help for the accepted options.\n' "$1" >&2; try_help; exit 2; fi
         self_status "$format"
         ;;
       update)
-        if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; try_help; exit 2; fi
+        if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\nThis command does not accept that argument. Check the command help for the accepted options.\n' "$1" >&2; try_help; exit 2; fi
         self_update
         ;;
       repair)
-        if [[ $# -gt 1 || ( $# == 1 && $1 != --plan ) ]]; then refuse 2 "repair=arguments"; fi
+        if [[ $# -gt 1 || ( $# == 1 && $1 != --plan ) ]]; then refuse 2 "repair=arguments" "VGS cannot read these repair options. Check the accepted options in the command help."; fi
         self_repair "$@"
         ;;
       *)
-        printf 'vgshell: refused: self-subcommand=%s\n' "${sub:-missing}" >&2; try_help; exit 2
+        printf 'vgshell: refused: self-subcommand=%s\nVGS does not recognize this action. Check the command help for the accepted actions.\n' "${sub:-missing}" >&2; try_help; exit 2
         ;;
     esac
     ;;
@@ -2962,12 +2961,12 @@ case "$cmd" in
     if [[ ${1:-} == restore ]]; then
       shift
       if [[ ${1:-} == --yes ]]; then assume_yes=1; shift; fi
-      if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\n' "$2" >&2; try_help; exit 2; fi
-      if [[ ${1:-} == -* ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; try_help; exit 2; fi
+      if [[ $# -gt 1 ]]; then printf 'vgshell: refused: argument=%s\nThis command does not accept that argument. Check the command help for the accepted options.\n' "$2" >&2; try_help; exit 2; fi
+      if [[ ${1:-} == -* ]]; then printf 'vgshell: refused: argument=%s\nThis command does not accept that argument. Check the command help for the accepted options.\n' "$1" >&2; try_help; exit 2; fi
       reset_restore "${1:-}"
     else
       if [[ ${1:-} == --yes ]]; then assume_yes=1; shift; fi
-      if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; try_help; exit 2; fi
+      if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\nThis command does not accept that argument. Check the command help for the accepted options.\n' "$1" >&2; try_help; exit 2; fi
       reset_vgs
     fi
     ;;
@@ -2977,10 +2976,10 @@ case "$cmd" in
   --version|version)
     format=text
     if [[ ${1:-} == --json ]]; then format=json; shift; fi
-    if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\n' "$1" >&2; try_help; exit 2; fi
+    if [[ $# -gt 0 ]]; then printf 'vgshell: refused: argument=%s\nThis command does not accept that argument. Check the command help for the accepted options.\n' "$1" >&2; try_help; exit 2; fi
     version_report "$format" "$cmd"
     ;;
   *)
-    printf 'vgshell: refused: command=%s\n' "${cmd:-missing}" >&2; try_help; exit 2
+    printf 'vgshell: refused: command=%s\nVGS does not recognize this command. Check the command help for the accepted commands.\n' "${cmd:-missing}" >&2; try_help; exit 2
     ;;
 esac

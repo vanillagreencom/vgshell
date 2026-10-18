@@ -250,7 +250,7 @@ stop_deaf17_timeout_row() {
   job_checkout "$cfg" stop
   stop_git deaf 17
   rm -f -- "$stop_git_dir/ended"
-  INST_PATH="$stop_git_dir:$base_path" inst "a fetch the timeout's kill grace ends is a timeout row" "$cfg" "$tmp/rt-empty" 0 "acme.stop error=fetch=acme.stop timeout=10s" "" plugin outdated
+  INST_PATH="$stop_git_dir:$base_path" inst "a fetch the timeout's kill grace ends is a timeout row" "$cfg" "$tmp/rt-empty" 0 "acme.stop error=fetch=acme.stop timeout=10s" "$any_out" plugin outdated
   check "the grace's SIGKILL ended the fetch before its own end" test ! -e "$stop_git_dir/ended"
 }
 stop_killblind_control() {
@@ -258,7 +258,7 @@ stop_killblind_control() {
   job_checkout "$cfg" stop
   stop_git deaf 17
   tree_control killblind bin/vgshell 'if [[ $rc == 137 ]]' 'if false'
-  INST_PATH="$stop_git_dir:$base_path" INST_BIN="$THEME_BIN" inst "the kill-blind mutant loses the timeout from the row" "$cfg" "$tmp/rt-empty" 0 "acme.stop error=fetch=acme.stop" "" plugin outdated
+  INST_PATH="$stop_git_dir:$base_path" INST_BIN="$THEME_BIN" inst "the kill-blind mutant loses the timeout from the row" "$cfg" "$tmp/rt-empty" 0 "acme.stop error=fetch=acme.stop" "$any_out" plugin outdated
   unset THEME_BIN
 }
 
