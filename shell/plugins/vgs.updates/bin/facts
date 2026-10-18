@@ -59,6 +59,9 @@
 //       `reboot <name>` per changed package UpdatesLogic.rebootPackages
 //       keeps by the reboot hook at path HOOK, `-` when there is none,
 //       and the running kernel VERSION, a /proc/version path
+//   facts <loader> pacman-config <generated> <helper> <argv>...
+//       `config <original>` and `word <argument>` for the command with
+//       its generated --config, retaining the helper's selected source
 //
 // Every refusal is one line on stderr, `updates-facts: refused: <key>=<value>`,
 // and exit 2 for a bad invocation, 1 for an answer it cannot read. A value
@@ -250,6 +253,66 @@ case "reboot": {
     const table = logic();
     const hook = process.argv[4] === "-" ? null : read(process.argv[4]);
     for (const name of table.rebootPackages(hook, changes, table.kernelPackage(read(process.argv[5])), mounted)) line("reboot", name);
+    break;
+}
+case "pacman-config": {
+    const [generated, helper, ...argv] = process.argv.slice(4);
+    if (!generated || !helper || argv.length === 0) refuse("pacman-config=want-generated-helper-argv", 2);
+    let original;
+    const words = [];
+    for (let i = 0; i < argv.length; i++) {
+        if (argv[i] === "--") { words.push(...argv.slice(i)); break; }
+        if (argv[i] === "--config") {
+            if (!argv[++i]) refuse("pacman-config=missing-value", 1);
+            original = argv[i];
+        } else if (argv[i].startsWith("--config=")) original = argv[i].slice(9);
+        else words.push(argv[i]);
+    }
+    if (original === undefined && path.basename(helper) === "yay") {
+        // yay(8) exposes its effective settings through --currentconfig.
+        const r = require("node:child_process").spawnSync(helper, ["--show", "--currentconfig"], { encoding: "utf8", cwd: process.env.HOME, timeout: 10000 });
+        if (r.error || r.status !== 0) refuse("pacman-config=yay-unreadable", 1);
+        try { original = JSON.parse(r.stdout).pacmanconf; } catch (_) { refuse("pacman-config=yay-unparseable", 1); }
+        if (typeof original !== "string" || original === "") refuse("pacman-config=yay-missing-path", 1);
+    }
+    if (original === undefined && path.basename(helper) === "paru") {
+        // paru.conf(5), config.rs: Include reads an exact path and carries
+        // the current section through it. [bin] PacmanConf is a program.
+        const optional = file => {
+            try { fs.statSync(file); return file; } catch (e) { if (e.code === "ENOENT") return null; throw e; }
+        };
+        const active = new Set();
+        let section = "";
+        const read = file => {
+            const absolute = path.resolve(process.env.HOME, file);
+            if (active.has(absolute)) refuse("pacman-config=paru-include-cycle", 1);
+            active.add(absolute);
+            for (const raw of fs.readFileSync(absolute, "utf8").split(/\r?\n/)) {
+                const entry = raw.trim();
+                if (!entry || entry.startsWith("#")) continue;
+                const heading = /^\[([^\]]+)\]$/.exec(entry);
+                if (heading) { section = heading[1]; continue; }
+                const split = entry.indexOf("=");
+                if (split === -1) continue;
+                const key = entry.slice(0, split).trim(), value = entry.slice(split + 1).trim();
+                if (key === "Include") read(value);
+                else if (section === "options" && key === "PacmanConf") original = value;
+            }
+            active.delete(absolute);
+        };
+        try {
+            const config = process.env.PARU_CONF !== undefined ? process.env.PARU_CONF
+                : optional(path.join(process.env.XDG_CONFIG_HOME || path.join(process.env.HOME, ".config"), "paru", "paru.conf")) || optional("/etc/paru.conf");
+            if (config !== null) read(config);
+        } catch (e) { refuse("pacman-config=paru-unreadable error=" + e.code, 1); }
+    }
+    original = original === undefined ? "/etc/pacman.conf" : original;
+    if (!original || /[\u0000-\u001f\u007f]/.test(original)) refuse("pacman-config=invalid-path", 1);
+    line("config", path.resolve(process.env.HOME, original));
+    // The package runner's --ignore consumes its tail; helper -- ends options.
+    const at = words.findIndex(word => word === "--" || word === "--ignore");
+    words.splice(at === -1 ? words.length : at, 0, "--config", generated);
+    for (const word of words) line("word", word);
     break;
 }
 default:

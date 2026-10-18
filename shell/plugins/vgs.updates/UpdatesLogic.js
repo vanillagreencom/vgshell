@@ -767,9 +767,9 @@ function rebootPackages(hook, changes, kernel, mounted) {
 
 // The `rebootNotice` status value for the reboot-notice system step STEP,
 // { state, reason } as capability `system` lends it, or null: hidden
-// while the CachyOS hook is absent or before the first probe, else which
-// notices an update gives and the action that changes it, `vgsOnly` or
-// `both`.
+// while the CachyOS hook is absent or before the first probe, else the
+// persistent CachyOS notice choice for package updates outside VGS and
+// the action that changes it, `vgsOnly` or `both`.
 function rebootNoticeValue(step) {
     var state = step ? step.state : "unknown";
     if (!step || state === "absent") return { hidden: true };

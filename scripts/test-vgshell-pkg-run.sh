@@ -173,6 +173,25 @@ row_ignore_unsupported() {
   pkg "$1" "$sudo_path" -- run upgrade --manager apt --ignore foo
   [[ $status == 1 ]] && out_has "vgshell: refused: manager=apt option=ignore reason=unsupported" && log_is ""
 }
+row_upgrade_config() {
+  local manager
+  for manager in pacman aur; do
+    pkg "$1" "$sudo_path" -- run upgrade --manager "$manager" --config "$tmp/config with spaces" --ignore held
+    [[ $status == 0 ]] || return 1
+    case "$manager" in
+      pacman) grep -qxF "pacman [--config] [$tmp/config with spaces] [-Syu] [--ignore] [held]" "$log" || return 1 ;;
+      aur) log_is "paru [--config] [$tmp/config with spaces] [-Sua] [--ignore] [held]" || return 1 ;;
+    esac
+  done
+  for manager in apt mise; do
+    pkg "$1" "$sudo_path" -- run upgrade --manager "$manager" --config "$tmp/unused"
+    [[ $status == 1 && ! -s $log ]] || return 1
+  done
+  pkg "$1" "$sudo_path" -- run install --manager pacman --config "$tmp/unused" foo
+  [[ $status == 1 && ! -s $log ]] || return 1
+  pkg "$1" "$sudo_path" -- run upgrade --manager pacman --config
+  [[ $status == 2 && ! -s $log ]]
+}
 row_first_failure() {
   pkg "$1" "$sudo_path" STUB_FAIL=update -- run upgrade --manager apt
   [[ $status == 7 ]] && log_is "$(lines \
@@ -293,7 +312,7 @@ row_picker_without_fzf() {
   [[ $status == 1 ]] && out_has "vgshell: refused: picker=fzf reason=absent" && log_is ""
 }
 
-rows=(no_terminal shell_process pacman_install apt_upgrade pacman_ignore aur_ignore ignore_unsupported first_failure doas run0 configured configured_absent
+rows=(no_terminal shell_process pacman_install apt_upgrade pacman_ignore aur_ignore ignore_unsupported upgrade_config first_failure doas run0 configured configured_absent
   configured_unknown no_elevator literal_name update update_installs aur_unelevated picker_install picker_remove picker_cancelled
   picker_nothing aur_picker picker_unsupported picker_without_fzf dnf_picker home_directory)
 for r in "${rows[@]}"; do
@@ -351,8 +370,9 @@ control unquoted-preview bin/lib/judge-files.js '    return "'"'"'" + word.repla
 control fixed-colour bin/vgshell-pkg 'return value !== undefined && HEX_COLOUR.test(value) ? value : fallback;' 'return fallback;' picker_install
 control dnf-notice shell/Core/PackageManagers.js 'list: ["{bin}", "-q", "repoquery", "--available",' 'list: ["{bin}", "repoquery", "--available",' dnf_picker
 control fzf-looked-up-late bin/vgshell-pkg '        if (!onPath("fzf")) refuse("picker=fzf reason=absent");' '' picker_without_fzf
-control drops-ignore bin/vgshell-pkg 'return run(action, manager === null ? primaryId() : manager, names, ignored, installs);' 'return run(action, manager === null ? primaryId() : manager, names, [], installs);' pacman_ignore
-control drops-install bin/vgshell-pkg 'return run(action, manager === null ? primaryId() : manager, names, ignored, installs);' 'return run(action, manager === null ? primaryId() : manager, names, ignored);' update_installs
+control drops-config bin/vgshell-pkg 'for (const step of r.plan.steps) step.splice(1, 0, "--config", config);' ';' upgrade_config
+control drops-ignore bin/vgshell-pkg 'return run(action, manager === null ? primaryId() : manager, names, ignored, installs, config);' 'return run(action, manager === null ? primaryId() : manager, names, [], installs, config);' pacman_ignore
+control drops-install bin/vgshell-pkg 'return run(action, manager === null ? primaryId() : manager, names, ignored, installs, config);' 'return run(action, manager === null ? primaryId() : manager, names, ignored, [], config);' update_installs
 control empty-install-tail bin/vgshell-pkg '            if (installs.length === 0) usage("option=--install value=missing");' '' update_installs
 control cancel-runs-nothing bin/vgshell-pkg '    if (r.status === 130) return { cancelled: true };' '' picker_cancelled
 

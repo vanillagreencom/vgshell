@@ -27,4 +27,4 @@ Updates checks your system, VGS, plugins, themes and developer tools for updates
 | Review third-party packages | An AI agent checks packages from outside your distribution's official repositories before they install. On by default. |
 | AI agent | The AI agent that checks the packages: Claude Code or Codex, from the agents found. |
 | Review command | The command that starts the review agent. Automatic runs the agent's default command. An edited command runs as written. |
-| Reboot notice | On CachyOS, which notice asks you to reboot after an update: CachyOS and VGS, or VGS only. A change asks before it runs. |
+| Reboot notice | On CachyOS, VGS asks once after all update steps finish when a restart is needed, with either choice. CachyOS and VGS keeps CachyOS notices for package updates outside VGS. VGS only turns those notices off. VGS asks for confirmation in a terminal before it applies or restores this setting. |

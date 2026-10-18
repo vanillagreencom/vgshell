@@ -57,6 +57,14 @@ cat >>"$tree/bin/lib/qml-library.js" <<'JS'
 const shippedLoad = module.exports.load;
 module.exports.load = function(file, modules) {
   const library = shippedLoad(file, modules);
+  if (process.env.FIX && require("node:fs").existsSync(process.env.FIX + "/transaction") && library.rebootPackages) {
+    const rebootPackages = library.rebootPackages;
+    library.rebootPackages = function(...args) {
+      const result = rebootPackages(...args);
+      for (const name of result) require("node:fs").appendFileSync(process.env.CALLS, "reboot-package " + name + "\n");
+      return result;
+    };
+  }
   if (process.env.UPDATES_TEST_SECONDARY === "1" && path.basename(file) === "UpdatesLogic.js") {
     const assert = require("node:assert/strict");
     const reason = "helper-missing=checkupdates";
@@ -137,6 +145,7 @@ case "$1 $2" in
   "plugin outdated") cat "$FIX/plugins.json" ;;
   "theme outdated") cat "$FIX/themes.json" ;;
   "pkg run")
+    case "$5" in pacman|aur) [ ! -e "$FIX/transaction" ] || "$FIX/transaction" "$5" "$@" ;; esac
     [ ! -e "$FIX/build-$5" ] || { printf "==> ERROR: A failure occurred in build().\n    Aborting...\n" >&2; exit 4; }
     [ ! -e "$FIX/interrupt-$5" ] || exit 130
     [ ! -e "$FIX/fail-$5" ] || { printf "\033[31merror:\033[0m failed to install crush\r\n" >&2; exit 9; }
@@ -213,7 +222,13 @@ stub "$stubs" pacman 'case "$1" in
     cat "$f" ;;
   *) [ -e "$FIX/orphans" ] || exit 1; cat "$FIX/orphans" ;;
 esac'
-stub "$stubs" pacman-conf 'case "$1 ${3:-}" in
+stub "$stubs" pacman-conf 'if [ "$1" = --config ]; then
+  [ ! -e "$FIX/fail-hookdirs" ] || exit 1
+  printf "%s\n" "$2" >>"$FIX/config-sources"
+  printf "%s\n" "$FIX/hooks"
+  exit 0
+fi
+case "$1 ${3:-}" in
   "DBPath ") echo "$FIX/db/" ;;
   "RootDir ") [ ! -e "$FIX/fail-rootdir" ] || exit 1; echo "$FIX/root/" ;;
   "--repo-list ") cat "$FIX/repos" ;;
@@ -286,6 +301,7 @@ stub "$stubs" paru 'if [ "$1" = -G ]; then shift; for p; do
   done
   [ -e "$b/.SRCINFO" ] || printf "pkgbase = %s\n\npkgname = %s\n" "$b" "$p" >"$b/.SRCINFO"
 done; exit 0; fi
+[ ! -e "$FIX/transaction" ] || "$FIX/transaction" "${0##*/}" "$@"
 [ ! -e "$FIX/pkgver-paru" ] || { printf "==> ERROR: A failure occurred in pkgver().\n    Aborting...\n" >&2; exit 4; }
 [ ! -e "$FIX/conflict-paru" ] || { printf "\033[1;34m::\033[0m quickshell-\033[2m0.3.1-1\033[0m and quickshell-git-\033[2mr120.g1a2b3c4-1\033[0m are in conflict. Remove quickshell-git? [y/N] error: unresolvable package conflicts detected\nerror: failed to prepare transaction (conflicting dependencies)\n" >&2; exit 1; }
 [ ! -e "$FIX/interrupt-paru" ] || { sudo /usr/bin/true; exit 130; }
@@ -324,7 +340,8 @@ self_json() { # METHOD PACKAGE_JSON STEP [REASON]
 # upgraded, every answer yes.
 reset_fix() {
   rm -rf -- "${fix:?}" "$state/vgshell"
-  mkdir -p "$fix"
+  mkdir -p "$fix" "$tmp/home/.config/paru"
+  printf "[options]\n" >"$tmp/home/.config/paru/paru.conf"
   printf 'linux 6.1-1\nmesa 24.1-1\nvgshell-git 0.1.0.r1-1\n' >"$fix/installed"
   settings "" false
   echo sudo >"$fix/elevator"
@@ -401,8 +418,8 @@ pipeline() {
     XDG_STATE_HOME="$state" XDG_RUNTIME_DIR="$rt" CALLS="$calls" FIX="$fix" UPDATES_TEST_SECONDARY="${UPDATES_TEST_SECONDARY:-0}" \
     script -qec "$(printf '%q ' "$tools/stty" cols "${PIPE_COLUMNS:-80}") && $(printf '%q ' "$BASH" "$script_path" "$@")" /dev/null <"$tmp/terminal-input" {terminal_input}>&- >"$tmp/out" 2>&1 || status=$?
   local filtered=0
-  grep -v -e '^df ' -e '^uname ' -e '^pgrep ' -e '^gum style' -e '^flock ' -e '^$' -e $'^\e\\[22m' "$calls" |
-    sed "s/ ${confirm_margins[*]}//" >"$tmp/seq" || filtered=$?
+  grep -v -e '^df ' -e '^uname ' -e '^pgrep ' -e '^gum style' -e '^flock ' -e '^pacman-conf --config ' -e '^yay --show ' -e '^$' -e $'^\e\\[22m' "$calls" |
+    sed -E "s/ --config \/tmp\/vgs-updates-hooks\.[^ ]+\/pacman\.conf//g; s/ ${confirm_margins[*]}//" >"$tmp/seq" || filtered=$?
   # grep -v exits 1 when every call is filtered out, and above 1 when it failed.
   [[ $filtered -le 1 ]] || { echo "test-updates-pipeline: calls=unreadable exit=$filtered" >&2; exit 1; }
 }
@@ -1007,8 +1024,8 @@ log_tui() {
       script -qec "$(printf '%q ' "$BASH" "$script_path" "$@")" /dev/null >"$tmp/out" 2>&1
   status=${PIPESTATUS[1]}
   set -e
-  grep -v -e '^df ' -e '^uname ' -e '^pgrep ' -e '^gum style' -e '^flock ' -e '^$' -e $'^\e\\[22m' "$calls" |
-    sed "s/ ${confirm_margins[*]}//" >"$tmp/seq" || filtered=$?
+  grep -v -e '^df ' -e '^uname ' -e '^pgrep ' -e '^gum style' -e '^flock ' -e '^pacman-conf --config ' -e '^yay --show ' -e '^$' -e $'^\e\\[22m' "$calls" |
+    sed -E "s/ --config \/tmp\/vgs-updates-hooks\.[^ ]+\/pacman\.conf//g; s/ ${confirm_margins[*]}//" >"$tmp/seq" || filtered=$?
   [[ $filtered -le 1 ]] || { echo "test-updates-pipeline: calls=unreadable exit=$filtered" >&2; exit 1; }
 }
 # The first line of the output, without the typed keys the terminal echoed
@@ -1040,6 +1057,130 @@ row_log() {
   assert "the log TUI leaves the window to the pager with no prompt" out_lacks "Press any key"
   log_tui yes extra
   assert "the log TUI refuses an argument" test "$status:$(first_line)" == "2:This update request is invalid. Open Updates and try again."
+}
+
+# The transaction stand-in reads the emitted configuration and resolves
+# same-name hooks from its directories. It emits a notice only when that
+# lookup retains the distribution hook. The production reboot judge still
+# reads the real fixture hook through bin/facts, independent of this stand-in.
+transaction_fixture() {
+  mkdir -p "$fix/hooks"
+  printf 'unrelated\n' >"$fix/hooks/other.hook"
+  printf 'notice\n' >"$fix/hooks/cachyos-reboot-required.hook"
+  cat >"$fix/transaction" <<'JS'
+#!/usr/bin/env node
+const fs = require('node:fs');
+const path = require('node:path');
+const [step, ...args] = process.argv.slice(2);
+const fix = process.env.FIX;
+const at = args.indexOf('--config');
+const config = at === -1 ? null : args[at + 1];
+const calls = line => fs.appendFileSync(process.env.CALLS, line + '\n');
+let dirs = [path.join(fix, 'hooks')];
+if (config !== null) {
+    const text = fs.readFileSync(config, 'utf8');
+    fs.appendFileSync(path.join(fix, 'generated'), text);
+    fs.appendFileSync(path.join(fix, 'scratch'), path.dirname(config) + '\n');
+    dirs = text.split('\n').filter(line => line.startsWith('HookDir = ')).map(line => line.slice(10));
+    if (dirs[0] !== path.join(fix, 'hooks')) process.exit(17);
+    if ((fs.statSync(path.dirname(config)).mode & 0o777) !== 0o700) process.exit(18);
+}
+const hooks = new Map();
+for (const dir of dirs) for (const name of fs.readdirSync(dir)) hooks.set(name, path.join(dir, name));
+for (const [name, file] of hooks) {
+    if (fs.lstatSync(file).isSymbolicLink() && fs.readlinkSync(file) === '/dev/null') continue;
+    calls(name === 'cachyos-reboot-required.hook' ? 'notification reboot' : 'hook ' + name);
+}
+calls('transaction-ended ' + step);
+JS
+  chmod +x "$fix/transaction"
+}
+row_reboot_deferred() {
+  reset_fix
+  reboot_hook
+  transaction_fixture
+  settings "" false false
+  printf 'linux 6.1-1\nmesa 24.2-1\nvgshell-git 0.1.0.r1-1\n' >"$fix/installed-after"
+  pipeline update.sh
+  assert "masked transactions finish successfully" test "$status" == 0
+  assert "no package transaction sends an early reboot notice" no_call 'notification reboot'
+  assert "custom hooks still run" has_call 'hook other.hook'
+  assert "the final question waits for the AUR transaction" none_before 'gum confirm --affirmative=Reboot' 'transaction-ended aur'
+  assert "the original hook still identifies the changed mesa package" has_call 'reboot-package mesa'
+  assert "the changed package still produces a final reboot question" grep -q '^gum confirm --affirmative=Reboot ' "$tmp/seq"
+  local scratch
+  while IFS= read -r scratch; do
+    assert "a completed transaction removes its private config" test ! -e "$scratch"
+  done <"$fix/scratch"
+  "${base_env[@]}" PATH="$stubs:$tools" FIX="$fix" CALLS="$calls" "$fix/transaction" outside
+  assert "outside VGS retains the reboot notification" grep -qxF 'notification reboot' "$calls"
+}
+row_helper_configs() {
+  local helper mode
+  for helper in paru yay; do
+    for mode in automatic custom rebuild; do
+      reset_fix
+      transaction_fixture
+      printf '[options]\n' >"$fix/selected.conf"
+      if [[ $helper == paru ]]; then
+        printf '[options]\nInclude = %s/paru-include\n[bin]\nPacmanConf = ignored-program\n' "$fix" >"$tmp/home/.config/paru/paru.conf"
+        printf 'PacmanConf = %s/selected.conf\n' "$fix" >"$fix/paru-include"
+      fi
+      if [[ $helper == yay ]]; then
+        mkdir -p "$fix/yay-bin"
+        stub "$fix/yay-bin" yay 'if [ "$1" = --show ] && [ "$2" = --currentconfig ]; then
+          [ ! -e "$FIX/fail-yay-config" ] || exit 6
+          printf "{\"pacmanconf\":\"%s/selected.conf\"}\n" "$FIX"; exit 0
+        fi
+        [ "$1" != --print ] || exit 98
+        [ ! -e "$FIX/transaction" ] || "$FIX/transaction" yay "$@"'
+        PIPE_PATH="$fix/yay-bin"
+      fi
+      printf '{"primary":{"id":"pacman","binary":"pacman"},"overlays":[{"id":"aur","binary":"%s"}],"sources":[]}\n' "$helper" >"$fix/detect.json"
+      case $mode in
+        custom) settings "$helper -Sua --config=$fix/explicit.conf" false false ;;
+        rebuild) self_json package '"vgshell-git"' rebuild; settings "" false false ;;
+        *) settings "" false false ;;
+      esac
+      pipeline update.sh
+      assert "$helper $mode finishes successfully" test "$status" == 0
+      local expected="$fix/selected.conf"
+      [[ $mode != custom ]] || expected="$fix/explicit.conf"
+      assert "$helper $mode retains its source config" grep -qxF "$expected" "$fix/config-sources"
+      assert "$helper $mode includes that same source config" grep -qxF "Include = $expected" "$fix/generated"
+      assert "$helper $mode remains masked" no_call 'notification reboot'
+      if [[ $helper:$mode == yay:automatic ]]; then
+        touch "$fix/fail-yay-config"
+        pipeline update-source.sh aur
+        assert "a failed yay settings read fails the run" test "$status" == 1
+        assert "a failed yay settings read runs no AUR transaction" no_call 'vgshell pkg run upgrade --manager aur'
+      fi
+      unset PIPE_PATH
+    done
+  done
+  local stopped want scratch
+  for stopped in fail-pacman interrupt-pacman fail-aur interrupt-aur; do
+    reset_fix
+    transaction_fixture
+    touch "$fix/$stopped"
+    pipeline update.sh
+    want=1
+    [[ $stopped != interrupt-* ]] || want=130
+    assert "$stopped retains the step result" test "$status" == "$want"
+    while IFS= read -r scratch; do
+      assert "$stopped removes scratch after the step ends" test ! -e "$scratch"
+    done <"$fix/scratch"
+  done
+  reset_fix
+  : >"$fix/fail-hookdirs"
+  pipeline update.sh
+  assert "an unreadable hook configuration runs no system transaction" no_call 'vgshell pkg run upgrade --manager pacman'
+  assert "an unreadable hook configuration fails the run" test "$status" == 1
+  reset_fix
+  printf '[options]\nInclude = %s/missing\n' "$fix" >"$tmp/home/.config/paru/paru.conf"
+  pipeline update-source.sh aur
+  assert "an unreadable paru include runs no transaction" no_call 'vgshell pkg run upgrade --manager aur'
+  assert "an unreadable paru include fails the run" test "$status" == 1
 }
 
 # The third-party review
@@ -1385,7 +1526,7 @@ row_pipeline_plain() {
 }
 row_facts_plain; row_pipeline_plain
 row_full; row_trusted; row_snapshot; row_failure; row_failed_end; row_cause; row_system_failed; row_hangup; row_stopped; row_interrupted; row_reboot; row_reboot_core; row_reboot_unread; row_orphans; row_yes
-row_declined; row_busy; row_aur_command; row_aur_failure; row_doas; row_vgs_only; row_vgs_helper; row_vgs_git; row_vgs_step; row_rebuild_failed; row_source; row_recheck_failure; row_log
+row_declined; row_busy; row_aur_command; row_aur_failure; row_doas; row_vgs_only; row_vgs_helper; row_vgs_git; row_vgs_step; row_rebuild_failed; row_source; row_recheck_failure; row_reboot_deferred; row_helper_configs; row_log
 row_review_off; row_review_no_agent; row_review_none_pending; row_review_clean; row_review_start_stable; row_review_flagged; row_review_no_verdict; row_review_no_helper; row_review_custom; row_review_install
 row_review_install_links; row_review_split
 
@@ -1438,6 +1579,7 @@ control refusal-cause-held '    _updates_cause="${after:-$value}"' '    _updates
 control rescan-cause-after 'own="${tail:-$held}" _updates_cause="${held:-${after:-$value}}"' 'own="${tail:-$held}" _updates_cause="${after:-$value}"' row_cause
 control question-tail-ignored 'own="${tail:-$held}"' 'own="$held"' row_cause
 control question-unread 'if [[ $own =~' 'if false && [[ $own =~' row_cause
+control reboot-mask-missing 'ln -s -- /dev/null' 'ln -s -- /dev/zero' row_reboot_deferred
 control answered-question-kept 'then line="${BASH_REMATCH[2]}"; fi' 'then :; fi' row_cause
 control aur-after-failed-system 'if [[ -n $aur_blocked ]]; then' 'if false; then' row_system_failed
 control aur-after-declined-system '            declined) aur_blocked=' '            declined) ;; x) aur_blocked=' row_system_failed
