@@ -3095,6 +3095,24 @@ async function wallpapersLand(format, configDir, stage, lock, name, mode) {
 function setupTargetRows(name, target, configHome, live) {
     const rows = [];
     const unreadable = (file, code) => [{ name, app: target.app, file, line: null, state: "unreadable", error: code }];
+    let selectionValues;
+    if (target.select?.values !== undefined) {
+        try {
+            const theme = readIfPresent(path.join(live, "theme.json"));
+            const terminal = readIfPresent(path.join(live, "terminal.json"));
+            if (theme !== undefined && terminal !== undefined) {
+                const accepted = logic.accept(tokens, text(theme));
+                const slots = logic.acceptTerminal(text(terminal));
+                if (accepted.ok && slots.ok) {
+                    const selected = render.selectValues(logic, tokens, target, { values: accepted.values, slots: slots.slots });
+                    if (selected.ok) selectionValues = selected.values;
+                }
+            }
+        } catch (e) {
+            if (typeof e.code !== "string") throw e;
+            return unreadable(e.path || configHome, e.code);
+        }
+    }
     switch (render.wiringForm(target.wiring)) {
     case "include": {
         let files;
@@ -3128,8 +3146,8 @@ function setupTargetRows(name, target, configHome, live) {
             let roots = isAccountTarget(target) ? accountRoots(target, true) : undefined;
             // Each account selects independently. A managed theme file
             // connects only the account whose settings select that theme.
-            if (target.select !== undefined) {
-                const selected = selectionEdits(target, configHome, live, roots)
+            if (target.select !== undefined && (target.select.values === undefined || selectionValues !== undefined)) {
+                const selected = selectionEdits(target, configHome, live, roots, undefined, selectionValues)
                     .map(selection => selection.edit(latin1(readIfPresent(selection.file))) === null);
                 if (roots !== undefined) roots = roots.filter((root, index) => selected[index]);
                 else if (selected.some(holds => !holds)) return [];
@@ -3178,18 +3196,7 @@ function setupTargetRows(name, target, configHome, live) {
                 if (stamped === undefined) return rows;
                 extension = render.extensionOf(target, stamped);
             }
-            let selectionValues;
-            if (target.select.values !== undefined) {
-                const theme = readIfPresent(path.join(live, "theme.json"));
-                const terminal = readIfPresent(path.join(live, "terminal.json"));
-                if (theme === undefined || terminal === undefined) return rows;
-                const accepted = logic.accept(tokens, text(theme));
-                const slots = logic.acceptTerminal(text(terminal));
-                if (!accepted.ok || !slots.ok) return rows;
-                const selected = render.selectValues(logic, tokens, target, { values: accepted.values, slots: slots.slots });
-                if (!selected.ok) return rows;
-                selectionValues = selected.values;
-            }
+            if (target.select.values !== undefined && selectionValues === undefined) return rows;
             selections = selectionEdits(target, configHome, live, undefined, extension, selectionValues);
         } catch (e) {
             if (typeof e.code !== "string") throw e;

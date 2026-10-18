@@ -89,7 +89,8 @@ try {
     const home = path.join(btopScratch, "home");
     const config = path.join(home, ".config");
     const state = path.join(home, ".local/state/vgshell");
-    for (const name of ["bin", "shell/Commons", "themes/targets/btop", "themes/targets/claude", "themes/targets/codex"])
+    for (const name of ["bin", "shell/Commons", "themes/targets/btop", "themes/targets/claude", "themes/targets/codex",
+        "themes/targets/bat", "themes/targets/television", "themes/targets/yazi"])
         fs.cpSync(path.join(setupRepo, name), path.join(tree, name), { recursive: true });
     fs.mkdirSync(path.join(config, "btop/themes"), { recursive: true });
     fs.mkdirSync(path.join(state, "theme"), { recursive: true });
@@ -104,6 +105,50 @@ try {
         assert.equal(result.status, 0, result.stderr);
         return JSON.parse(result.stdout).wiring.filter(row => row.name === name && row.state === "wired");
     }
+    // These shipped entry targets produce select.values, including rendered
+    // colour fields. Setup reads them without running an application or apply.
+    const renderedSelections = [
+        { name: "bat", files: ["bat/config"], entries: ["bat/themes/vgs.tmTheme"], rendered: ["bat.tmTheme"],
+            selected: "--theme=vgs\n", other: "--theme=other\n" },
+        { name: "television", files: ["television/config.toml"], entries: ["television/themes/vgs.toml"], rendered: ["television.toml"],
+            selected: '[ui]\ntheme = "vgs"\n[ui.theme_overrides]\nbackground = "#000000"\n', other: '[ui]\ntheme = "other"\n' },
+        { name: "yazi", files: ["yazi/theme.toml", "yazi-scratchpad/theme.toml"],
+            entries: ["yazi/flavors/vgs.yazi/flavor.toml", "yazi/flavors/vgs.yazi/tmtheme.xml",
+                "yazi-scratchpad/flavors/vgs.yazi/flavor.toml", "yazi-scratchpad/flavors/vgs.yazi/tmtheme.xml"],
+            rendered: ["yazi.toml", "yazi.tmTheme", "yazi.toml", "yazi.tmTheme"],
+            selected: '[flavor]\ndark = "vgs"\nlight = "vgs"\n[mgr.cwd]\nbg = "#000000"\n', other: '[flavor]\ndark = "other"\nlight = "other"\n' }
+    ];
+    for (const target of renderedSelections) {
+        for (const [index, entry] of target.entries.entries()) {
+            const file = path.join(config, entry);
+            fs.mkdirSync(path.dirname(file), { recursive: true });
+            fs.writeFileSync(path.join(state, "theme", target.rendered[index]), "managed theme\n");
+            fs.symlinkSync(path.join(state, "theme", target.rendered[index]), file);
+        }
+    }
+    const appliedTheme = path.join(state, "theme/theme.json");
+    const appliedTerminal = path.join(state, "theme/terminal.json");
+    function verifyRenderedSelections() {
+        for (const applied of ["absent", "theme-only", "invalid", "valid"]) {
+            for (const file of [appliedTheme, appliedTerminal]) fs.rmSync(file, { force: true });
+            if (applied !== "absent") fs.copyFileSync(path.join(setupRepo, "themes/vgs/theme.json"), appliedTheme);
+            if (applied === "valid") fs.copyFileSync(path.join(setupRepo, "themes/vgs/terminal.json"), appliedTerminal);
+            if (applied === "invalid") fs.writeFileSync(appliedTerminal, "{}\n");
+            for (const target of renderedSelections) {
+                for (const connected of [false, true]) {
+                    for (const file of target.files) fs.writeFileSync(path.join(config, file), connected ? target.selected : target.other);
+                    const expected = applied === "valid" && !connected ? [] : target.entries;
+                    const expectedFiles = expected.map(file => path.join(config, file));
+                    if (applied === "valid" && connected) expectedFiles.push(...target.files.map(file => path.join(config, file)));
+                    assert.deepEqual(readWiring(target.name).map(row => row.file).sort(), expectedFiles.sort(),
+                        target.name + ": " + applied + ": " + connected);
+                    for (const file of target.files)
+                        assert.equal(fs.readFileSync(path.join(config, file), "utf8"), connected ? target.selected : target.other);
+                }
+            }
+        }
+    }
+    verifyRenderedSelections();
     for (const selection of ['color_theme = "Default"\n', '# owner\n', null, 'color_theme = "vgs"\n']) {
         if (selection === null) fs.unlinkSync(settings);
         else fs.writeFileSync(settings, selection);
@@ -115,6 +160,13 @@ try {
     }
     fs.writeFileSync(settings, 'color_theme = "Default"\n');
     const source = fs.readFileSync(judge, "utf8");
+    const valuesNeedle = "selectionEdits(target, configHome, live, roots, undefined, selectionValues)\n                    .map";
+    assert.equal(source.split(valuesNeedle).length, 2);
+    const valuesMutant = source.replace(valuesNeedle, "selectionEdits(target, configHome, live, roots)\n                    .map");
+    assert.notEqual(valuesMutant, source);
+    fs.writeFileSync(judge, valuesMutant);
+    assert.throws(verifyRenderedSelections, { name: "AssertionError" });
+    fs.writeFileSync(judge, source);
     const needle = 'else if (selected.some(holds => !holds)) return [];';
     assert.equal(source.split(needle).length, 2);
     const mutant = source.replace(needle, "");
