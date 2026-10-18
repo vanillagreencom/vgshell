@@ -115,7 +115,7 @@ Item {
                                         x: resetLogo.width + Theme.stack.inline
                                         width: parent.width - x - resetShare.width - Theme.stack.inline
                                         elide: Text.ElideRight
-                                        role: "body"
+                                        role: "hint"
                                         text: modelData.label
                                     }
                                     Row {
