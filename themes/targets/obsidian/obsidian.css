@@ -61,3 +61,265 @@
     --graph-node-attachment: #@{palette.success};
     --graph-node-unresolved: #@{color.textFaint};
 }
+
+/* Palette roots at their native owners; forced-colours keeps Obsidian's
+   system colours. Canvas category bindings and native transforms inherit. */
+@media not (forced-colors: active) {
+    body {
+        --accent-h: @{color.accent|format=hsl-h};
+        --accent-l: @{color.accent|format=hsl-l};
+        --accent-s: @{color.accent|format=hsl-s};
+        --background-modifier-message: #@{color.surfaceRaised};
+        --callout-quote: #@{color.text};
+        --canvas-color: #@{color.text};
+        --drag-ghost-background: #@{color.surfaceRaised};
+        --drag-ghost-text-color: #@{color.text};
+        --notice-color: #@{color.text};
+        --text-on-accent-inverted: #@{color.onAccent};
+        --tooltip-color: #@{color.text};
+        --notice-background: #@{color.surfaceRaised};
+        --tooltip-background: #@{color.surfaceRaised};
+    }
+    .dialog {
+        --button-primary-active-bg-color: #@{color.accent};
+        --button-primary-bg-color: #@{color.accent};
+        --button-primary-fg-color: #@{color.onAccent};
+        --button-primary-hover-bg-color: #@{color.accent};
+        --button-secondary-active-bg-color: #@{color.surfaceRaised};
+        --button-secondary-bg-color: #@{color.surfaceRaised};
+        --button-secondary-hover-bg-color: #@{color.surfaceRaised};
+        --dialog-bg-color: #@{color.surfaceRaised};
+        --dialog-border-color: #@{color.border};
+        --input-text-bg-color: #@{color.surfaceRaised};
+        --link-fg-color: #@{color.info};
+        --link-hover-fg-color: #@{color.info};
+        --radio-bg-color: #@{color.surface};
+        --radio-border-color: #@{color.borderControl};
+        --radio-checked-bg-color: #@{color.accent};
+        --radio-checked-border-color: #@{color.accent};
+        --separator-color: #@{color.border};
+        --text-primary-color: #@{color.text};
+        --text-secondary-color: #@{color.textMuted};
+        --textarea-bg-color: #@{color.surfaceRaised};
+        --textarea-border-color: #@{color.borderControl};
+        --button-primary-hover-fg-color: #@{color.onAccent};
+        --button-primary-active-fg-color: #@{color.onAccent};
+        --button-primary-disabled-fg-color: #@{color.onAccent};
+        --input-text-fg-color: #@{color.text};
+        --textarea-fg-color: #@{color.text};
+        --button-secondary-fg-color: #@{color.text};
+        --button-secondary-active-fg-color: #@{color.text};
+        --button-secondary-hover-fg-color: #@{color.text};
+    }
+    @supports (color: light-dark(red, red)) {
+        .dialog {
+            --button-primary-active-bg-color: #@{color.accent};
+            --button-primary-bg-color: #@{color.accent};
+            --button-primary-fg-color: #@{color.onAccent};
+            --button-primary-hover-bg-color: #@{color.accent};
+            --button-secondary-active-bg-color: #@{color.surfaceRaised};
+            --button-secondary-bg-color: #@{color.surfaceRaised};
+            --button-secondary-hover-bg-color: #@{color.surfaceRaised};
+            --dialog-bg-color: #@{color.surfaceRaised};
+            --dialog-border-color: #@{color.border};
+            --input-text-bg-color: #@{color.surfaceRaised};
+            --link-fg-color: #@{color.info};
+            --link-hover-fg-color: #@{color.info};
+            --radio-bg-color: #@{color.surface};
+            --radio-checked-bg-color: #@{color.accent};
+            --radio-checked-border-color: #@{color.accent};
+            --separator-color: #@{color.border};
+            --text-primary-color: #@{color.text};
+            --text-secondary-color: #@{color.textMuted};
+            --textarea-bg-color: #@{color.surfaceRaised};
+        }
+    }
+    .dialog * {
+        --button-primary-active-bg-color: #@{color.accent};
+        --button-primary-bg-color: #@{color.accent};
+        --button-primary-fg-color: #@{color.onAccent};
+        --button-primary-hover-bg-color: #@{color.accent};
+        --button-secondary-active-bg-color: #@{color.surfaceRaised};
+        --button-secondary-bg-color: #@{color.surfaceRaised};
+        --button-secondary-hover-bg-color: #@{color.surfaceRaised};
+        --dialog-bg-color: #@{color.surfaceRaised};
+        --dialog-border-color: #@{color.border};
+        --input-text-bg-color: #@{color.surfaceRaised};
+        --link-fg-color: #@{color.info};
+        --link-hover-fg-color: #@{color.info};
+        --radio-bg-color: #@{color.surface};
+        --radio-checked-bg-color: #@{color.accent};
+        --radio-checked-border-color: #@{color.accent};
+        --separator-color: #@{color.border};
+        --text-primary-color: #@{color.text};
+        --text-secondary-color: #@{color.textMuted};
+        --textarea-bg-color: #@{color.surfaceRaised};
+    }
+    body.theme-dark {
+        --canvas-color: #@{color.text};
+    }
+    .theme-light {
+        --color-base-00: #@{color.background};
+        --color-base-05: #@{color.surfaceSunken};
+        --color-base-10: #@{color.surface};
+        --color-base-100: #@{color.textHeading};
+        --color-base-20: #@{color.surfaceRaised};
+        --color-base-25: #@{color.surfaceRaised};
+        --color-base-30: #@{color.borderSubtle};
+        --color-base-35: #@{color.border};
+        --color-base-40: #@{color.borderStrong};
+        --color-base-50: #@{color.textFaint};
+        --color-base-60: #@{color.textMuted};
+        --color-base-70: #@{color.text};
+        --color-blue: #@{color.info};
+        --color-blue-rgb: @{color.info|format=rgb};
+        --color-cyan: #@{terminal.color6};
+        --color-cyan-rgb: @{terminal.color6|format=rgb};
+        --color-green: #@{color.success};
+        --color-green-rgb: @{color.success|format=rgb};
+        --color-orange: #@{color.warning};
+        --color-orange-rgb: @{color.warning|format=rgb};
+        --color-pink: #@{terminal.color5};
+        --color-pink-rgb: @{terminal.color5|format=rgb};
+        --color-purple: #@{terminal.color5};
+        --color-purple-rgb: @{terminal.color5|format=rgb};
+        --color-red: #@{color.danger};
+        --color-red-rgb: @{color.danger|format=rgb};
+        --color-yellow: #@{color.warning};
+        --color-yellow-rgb: @{color.warning|format=rgb};
+        --mono-0: #@{color.background};
+        --mono-100: #@{color.text};
+        --mono-rgb-0: @{color.background|format=rgb};
+        --mono-rgb-100: @{color.text|format=rgb};
+    }
+    .theme-dark {
+        --color-base-00: #@{color.background};
+        --color-base-05: #@{color.surfaceSunken};
+        --color-base-10: #@{color.surface};
+        --color-base-100: #@{color.textHeading};
+        --color-base-20: #@{color.surfaceRaised};
+        --color-base-25: #@{color.surfaceRaised};
+        --color-base-30: #@{color.borderSubtle};
+        --color-base-35: #@{color.border};
+        --color-base-40: #@{color.borderStrong};
+        --color-base-50: #@{color.textFaint};
+        --color-base-60: #@{color.textMuted};
+        --color-base-70: #@{color.text};
+        --color-blue: #@{color.info};
+        --color-blue-rgb: @{color.info|format=rgb};
+        --color-cyan: #@{terminal.color6};
+        --color-cyan-rgb: @{terminal.color6|format=rgb};
+        --color-green: #@{color.success};
+        --color-green-rgb: @{color.success|format=rgb};
+        --color-orange: #@{color.warning};
+        --color-orange-rgb: @{color.warning|format=rgb};
+        --color-pink: #@{terminal.color5};
+        --color-pink-rgb: @{terminal.color5|format=rgb};
+        --color-purple: #@{terminal.color5};
+        --color-purple-rgb: @{terminal.color5|format=rgb};
+        --color-red: #@{color.danger};
+        --color-red-rgb: @{color.danger|format=rgb};
+        --color-yellow: #@{color.warning};
+        --color-yellow-rgb: @{color.warning|format=rgb};
+        --mono-0: #@{color.background};
+        --mono-100: #@{color.text};
+        --mono-rgb-0: @{color.background|format=rgb};
+        --mono-rgb-100: @{color.text|format=rgb};
+    }
+    .is-mobile.theme-dark {
+        --color-base-00: #@{color.background};
+        --color-base-10: #@{color.surface};
+        --color-base-20: #@{color.surfaceRaised};
+    }
+    .is-mobile.theme-light {
+        --color-base-100: #@{color.textHeading};
+    }
+    .is-translucent:not(.is-fullscreen) {
+        --divider-color: #@{color.border};
+    }
+    :root {
+        --focus-ring-color: #@{color.focus};
+    }
+    @supports (color: light-dark(red, red)) {
+        :root {
+            --focus-ring-color: #@{color.focus};
+        }
+    }
+    :root * {
+        --focus-ring-color: #@{color.focus};
+    }
+    .annotationLayer {
+        --input-hover-border-color: #@{color.borderControl};
+    }
+    #editorUndoBar {
+        --message-bar-bg-color: #@{color.surfaceRaised};
+        --message-bar-border-color: #@{color.borderControl};
+        --message-bar-icon-color: #@{color.text};
+        --text-primary-color: #@{color.text};
+        --undo-button-bg-color: #@{color.surfaceRaised};
+        --undo-button-bg-color-active: #@{color.surfaceRaised};
+        --undo-button-bg-color-hover: #@{color.surfaceRaised};
+        --undo-button-border: 1px solid #@{color.border};
+    }
+    @supports (color: light-dark(red, red)) {
+        #editorUndoBar {
+            --message-bar-bg-color: #@{color.surfaceRaised};
+            --message-bar-border-color: #@{color.borderControl};
+            --message-bar-icon-color: #@{color.text};
+            --text-primary-color: #@{color.text};
+            --undo-button-bg-color: #@{color.surfaceRaised};
+            --undo-button-bg-color-active: #@{color.surfaceRaised};
+            --undo-button-bg-color-hover: #@{color.surfaceRaised};
+            --undo-button-border: 1px solid #@{color.border};
+        }
+    }
+    #editorUndoBar * {
+        --message-bar-bg-color: #@{color.surfaceRaised};
+        --message-bar-border-color: #@{color.borderControl};
+        --message-bar-icon-color: #@{color.text};
+        --text-primary-color: #@{color.text};
+        --undo-button-bg-color: #@{color.surfaceRaised};
+        --undo-button-bg-color-active: #@{color.surfaceRaised};
+        --undo-button-bg-color-hover: #@{color.surfaceRaised};
+        --undo-button-border: 1px solid #@{color.border};
+    }
+    .dialog .mainContainer .messageBar {
+        --message-bar-bg-color: #@{color.surfaceRaised};
+        --message-bar-border-color: #@{color.borderControl};
+        --message-bar-fg-color: #@{color.text};
+        --message-bar-icon-color: #@{color.text};
+    }
+    @supports (color: light-dark(red, red)) {
+        .dialog .mainContainer .messageBar {
+            --message-bar-bg-color: #@{color.surfaceRaised};
+            --message-bar-border-color: #@{color.borderControl};
+            --message-bar-fg-color: #@{color.text};
+            --message-bar-icon-color: #@{color.text};
+        }
+    }
+    .dialog .mainContainer .messageBar * {
+        --message-bar-bg-color: #@{color.surfaceRaised};
+        --message-bar-border-color: #@{color.borderControl};
+        --message-bar-fg-color: #@{color.text};
+        --message-bar-icon-color: #@{color.text};
+    }
+    .messageBar {
+        --message-bar-close-button-active-bg-color: #@{color.surfaceRaised};
+        --message-bar-close-button-focus-bg-color: #@{color.surfaceRaised};
+        --message-bar-close-button-hover-bg-color: #@{color.surfaceRaised};
+        --message-bar-close-button-color: #@{color.text};
+        --message-bar-close-button-color-hover: #@{color.text};
+    }
+    @supports (color: light-dark(red, red)) {
+        .messageBar {
+            --message-bar-close-button-active-bg-color: #@{color.surfaceRaised};
+            --message-bar-close-button-focus-bg-color: #@{color.surfaceRaised};
+            --message-bar-close-button-hover-bg-color: #@{color.surfaceRaised};
+        }
+    }
+    .messageBar * {
+        --message-bar-close-button-active-bg-color: #@{color.surfaceRaised};
+        --message-bar-close-button-focus-bg-color: #@{color.surfaceRaised};
+        --message-bar-close-button-hover-bg-color: #@{color.surfaceRaised};
+    }
+}

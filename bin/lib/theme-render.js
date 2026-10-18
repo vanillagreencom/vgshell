@@ -182,7 +182,14 @@ const MARKER = /@@\{|@\{((?:[^{}]|\{[^{}]*\})*)\}|@\{/g;
 const ENCODERS = {
     hex6: (hex, background) => hex6(hex, background),
     hex8: hex => hex.slice(1, 9),
+    rgb: (hex, background) => {
+        const rgb = hex6(hex, background);
+        return [0, 2, 4].map(at => channel(rgb, at)).join(", ");
+    },
     hsl: (hex, background) => hsl(hex6(hex, background)),
+    "hsl-h": (hex, background) => hsl(hex6(hex, background)).split(" ")[0],
+    "hsl-s": (hex, background) => hsl(hex6(hex, background)).split(" ")[1],
+    "hsl-l": (hex, background) => hsl(hex6(hex, background)).split(" ")[2],
     "gnome-accent": (hex, background) => gnomeAccent(hex6(hex, background))
 };
 

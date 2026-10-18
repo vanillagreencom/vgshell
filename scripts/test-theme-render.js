@@ -906,7 +906,7 @@ const STATUS_TARGETS = [
         fields: DISCORD_STATUS_FIELDS, marks: [["--online", "success"], ["--dnd", "danger"], ["--idle", "warning"]] }))
 ];
 
-function statusFields(text, format) {
+function statusFields(text, format, required) {
     if (format === "json") {
         const doc = JSON.parse(text);
         return new Map(Object.entries(doc.colors || doc.palette));
@@ -919,6 +919,7 @@ function statusFields(text, format) {
     assert.ok(pattern, format);
     const fields = new Map();
     for (const [, name, color] of text.matchAll(pattern)) {
+        if (required !== undefined && !required.has(name)) continue;
         assert.equal(fields.has(name), false, `duplicate status field ${name}`);
         fields.set(name, color);
     }
@@ -937,7 +938,7 @@ function statusTemplatePairs(render, pkg, changeTemplate = text => text) {
             { values: pkg.values, slots: render.terminalSource(pkg, defaults).terminal, curated: new Map(), installed: false });
         assert.equal(result.ok, true);
         const text = result.files.find(file => file.destination === row.file).bytes.toString("utf8");
-        const fields = statusFields(text, row.format);
+        const fields = statusFields(text, row.format, new Set([...row.fields, ...(row.marks || [])].map(([field]) => field)));
         for (const [rows, surfaces, floor] of [[row.fields, row.surfaces, 4.5], [row.marks || [], ["background"], 3]]) {
             for (const [field, role] of rows) {
                 const color = logic.parseColor(fields.get(field));
@@ -4360,6 +4361,18 @@ function verifyHsl(render) {
         const result = one(text);
         assert.equal(result.ok, true, color);
         assert.equal(result.files[0].bytes.toString("utf8"), `${hsl} #${hex} ${hsl} ${hex}`, color);
+        for (const [format, expected] of [
+            ["rgb", [0, 2, 4].map(at => parseInt(hex.slice(at, at + 2), 16)).join(", ")],
+            ...["h", "s", "l"].map((channel, index) => ["hsl-" + channel, hsl.split(" ")[index]])
+        ]) {
+            const component = render.acceptTarget(logic, "probe", targetText({ encoder: format }));
+            assert.equal(component.ok, true, format);
+            const output = render.renderTarget(logic, TOKENS, component.target,
+                new Map([["probe.conf", `@{palette.accent} @{terminal.color1|format=${format}} @{mix({palette.accent}, {palette.accent}, 0.5)|format=${format}}`]]),
+                { values, slots, curated: new Map(), installed: false });
+            assert.equal(output.ok, true, color + "/" + format);
+            assert.equal(output.files[0].bytes.toString("utf8"), [expected, expected, expected].join(" "), color + "/" + format);
+        }
         for (const invalid of ["@{scheme.mode|format=hex6}", "@{appearance.terminalFont|format=hex6}",
             "@{palette.accent|format=invalid}", "@{palette.accent|format=hex6|format=hsl}"])
             assert.equal(one(invalid).reason, "placeholder", invalid);
@@ -4367,7 +4380,211 @@ function verifyHsl(render) {
 }
 verifyHsl(require(rendererFile));
 
+// Obsidian 1.14.4 native declarations, VGS-1867 release-scoped inventory.
+// app.css SHA-256: 866e50ac84dd8ad2775e0047ebd3ec5bd03e5af722aff259e6c4ea3cec42d7ba.
+// Alias-only declarations and forced-colours system values stay native.
+const OBSIDIAN_NATIVE_FIELDS = [
+    ["color.accent", "hsl-h", "--accent-h", ["body"]],
+    ["color.accent", "hsl-l", "--accent-l", ["body"]],
+    ["color.accent", "hsl-s", "--accent-s", ["body"]],
+    ["color.surfaceRaised", "hex", "--background-modifier-message --drag-ghost-background --notice-background --tooltip-background", ["body"]],
+    ["color.accent", "hex", "--button-primary-active-bg-color --button-primary-bg-color --button-primary-hover-bg-color --radio-checked-bg-color --radio-checked-border-color", [".dialog", "@supports (color: light-dark(red, red))\n.dialog", ".dialog *"]],
+    ["color.onAccent", "hex", "--button-primary-fg-color", [".dialog", "@supports (color: light-dark(red, red))\n.dialog", ".dialog *"]],
+    ["color.surfaceRaised", "hex", "--button-secondary-active-bg-color --button-secondary-bg-color --button-secondary-hover-bg-color --dialog-bg-color --input-text-bg-color --textarea-bg-color", [".dialog", "@supports (color: light-dark(red, red))\n.dialog", ".dialog *"]],
+    ["color.text", "hex", "--callout-quote --drag-ghost-text-color --notice-color --tooltip-color", ["body"]],
+    ["color.text", "hex", "--canvas-color", ["body", "body.theme-dark"]],
+    ["color.background", "hex", "--color-base-00", [".theme-light", ".theme-dark", ".is-mobile.theme-dark"]],
+    ["color.surfaceSunken", "hex", "--color-base-05", [".theme-light", ".theme-dark"]],
+    ["color.surface", "hex", "--color-base-10", [".theme-light", ".theme-dark", ".is-mobile.theme-dark"]],
+    ["color.textHeading", "hex", "--color-base-100", [".theme-light", ".theme-dark", ".is-mobile.theme-light"]],
+    ["color.surfaceRaised", "hex", "--color-base-20", [".theme-light", ".theme-dark", ".is-mobile.theme-dark"]],
+    ["color.surfaceRaised", "hex", "--color-base-25", [".theme-light", ".theme-dark"]],
+    ["color.borderSubtle", "hex", "--color-base-30", [".theme-light", ".theme-dark"]],
+    ["color.border", "hex", "--color-base-35", [".theme-light", ".theme-dark"]],
+    ["color.borderStrong", "hex", "--color-base-40", [".theme-light", ".theme-dark"]],
+    ["color.textFaint", "hex", "--color-base-50", [".theme-light", ".theme-dark"]],
+    ["color.textMuted", "hex", "--color-base-60", [".theme-light", ".theme-dark"]],
+    ["color.text", "hex", "--color-base-70 --mono-100", [".theme-light", ".theme-dark"]],
+    ["color.info", "hex", "--color-blue", [".theme-light", ".theme-dark"]],
+    ["color.info", "rgb", "--color-blue-rgb", [".theme-light", ".theme-dark"]],
+    ["terminal.color6", "hex", "--color-cyan", [".theme-light", ".theme-dark"]],
+    ["terminal.color6", "rgb", "--color-cyan-rgb", [".theme-light", ".theme-dark"]],
+    ["color.success", "hex", "--color-green", [".theme-light", ".theme-dark"]],
+    ["color.success", "rgb", "--color-green-rgb", [".theme-light", ".theme-dark"]],
+    ["color.warning", "hex", "--color-orange --color-yellow", [".theme-light", ".theme-dark"]],
+    ["color.warning", "rgb", "--color-orange-rgb --color-yellow-rgb", [".theme-light", ".theme-dark"]],
+    ["terminal.color5", "hex", "--color-pink --color-purple", [".theme-light", ".theme-dark"]],
+    ["terminal.color5", "rgb", "--color-pink-rgb --color-purple-rgb", [".theme-light", ".theme-dark"]],
+    ["color.danger", "hex", "--color-red", [".theme-light", ".theme-dark"]],
+    ["color.danger", "rgb", "--color-red-rgb", [".theme-light", ".theme-dark"]],
+    ["color.border", "hex", "--dialog-border-color --separator-color", [".dialog", "@supports (color: light-dark(red, red))\n.dialog", ".dialog *"]],
+    ["color.border", "hex", "--divider-color", [".is-translucent:not(.is-fullscreen)"]],
+    ["color.focus", "hex", "--focus-ring-color", [":root", "@supports (color: light-dark(red, red))\n:root", ":root *"]],
+    ["color.borderControl", "hex", "--input-hover-border-color", [".annotationLayer"]],
+    ["color.info", "hex", "--link-fg-color --link-hover-fg-color", [".dialog", "@supports (color: light-dark(red, red))\n.dialog", ".dialog *"]],
+    ["color.surfaceRaised", "hex", "--message-bar-bg-color", ["#editorUndoBar", "@supports (color: light-dark(red, red))\n#editorUndoBar", "#editorUndoBar *", ".dialog .mainContainer .messageBar", "@supports (color: light-dark(red, red))\n.dialog .mainContainer .messageBar", ".dialog .mainContainer .messageBar *"]],
+    ["color.borderControl", "hex", "--message-bar-border-color", ["#editorUndoBar", "@supports (color: light-dark(red, red))\n#editorUndoBar", "#editorUndoBar *", ".dialog .mainContainer .messageBar", "@supports (color: light-dark(red, red))\n.dialog .mainContainer .messageBar", ".dialog .mainContainer .messageBar *"]],
+    ["color.surfaceRaised", "hex", "--message-bar-close-button-active-bg-color --message-bar-close-button-focus-bg-color --message-bar-close-button-hover-bg-color", [".messageBar", "@supports (color: light-dark(red, red))\n.messageBar", ".messageBar *"]],
+    ["color.text", "hex", "--message-bar-fg-color", [".dialog .mainContainer .messageBar", "@supports (color: light-dark(red, red))\n.dialog .mainContainer .messageBar", ".dialog .mainContainer .messageBar *"]],
+    ["color.text", "hex", "--message-bar-icon-color", ["#editorUndoBar", "@supports (color: light-dark(red, red))\n#editorUndoBar", "#editorUndoBar *", ".dialog .mainContainer .messageBar", "@supports (color: light-dark(red, red))\n.dialog .mainContainer .messageBar", ".dialog .mainContainer .messageBar *"]],
+    ["color.background", "hex", "--mono-0", [".theme-light", ".theme-dark"]],
+    ["color.background", "rgb", "--mono-rgb-0", [".theme-light", ".theme-dark"]],
+    ["color.text", "rgb", "--mono-rgb-100", [".theme-light", ".theme-dark"]],
+    ["color.surface", "hex", "--radio-bg-color", [".dialog", "@supports (color: light-dark(red, red))\n.dialog", ".dialog *"]],
+    ["color.borderControl", "hex", "--radio-border-color --textarea-border-color", [".dialog"]],
+    ["color.onAccent", "hex", "--text-on-accent-inverted", ["body"]],
+    ["color.text", "hex", "--text-primary-color", ["#editorUndoBar", "@supports (color: light-dark(red, red))\n#editorUndoBar", "#editorUndoBar *", ".dialog", "@supports (color: light-dark(red, red))\n.dialog", ".dialog *"]],
+    ["color.textMuted", "hex", "--text-secondary-color", [".dialog", "@supports (color: light-dark(red, red))\n.dialog", ".dialog *"]],
+    ["color.surfaceRaised", "hex", "--undo-button-bg-color --undo-button-bg-color-active --undo-button-bg-color-hover", ["#editorUndoBar", "@supports (color: light-dark(red, red))\n#editorUndoBar", "#editorUndoBar *"]],
+    ["color.border", "border", "--undo-button-border", ["#editorUndoBar", "@supports (color: light-dark(red, red))\n#editorUndoBar", "#editorUndoBar *"]],
+    ["color.onAccent", "hex", "--button-primary-hover-fg-color --button-primary-active-fg-color --button-primary-disabled-fg-color", [".dialog"]],
+    ["color.text", "hex", "--input-text-fg-color --textarea-fg-color --button-secondary-fg-color --button-secondary-active-fg-color --button-secondary-hover-fg-color", [".dialog"]],
+    ["color.text", "hex", "--message-bar-close-button-color --message-bar-close-button-color-hover", [".messageBar"]],
+];
+const obsidianDir = path.join(themesDir, "targets", "obsidian");
+const obsidianTarget = selectionRender.acceptTarget(logic, "obsidian", fs.readFileSync(path.join(obsidianDir, "target.json"), "utf8"));
+assert.equal(obsidianTarget.ok, true);
+
+// This target emits declarations and nested media/supports rules only.
+// Tokenizing braces retains the selector and every enclosing condition.
+function obsidianDeclarations(text) {
+    const tokens = text.replace(/\r\n/g, "\n").replace(/\/\*[\s\S]*?\*\//g, "").match(/[^{}]+|[{}]/g) || [];
+    const stack = [], rows = [];
+    let pending = "";
+    for (const token of tokens) {
+        if (token === "{") {
+            assert.notEqual(pending.trim(), "");
+            stack.push(pending.trim());
+            pending = "";
+        } else if (token === "}") {
+            assert.ok(stack.length > 0);
+            const selector = stack.at(-1);
+            assert.ok(!selector.startsWith("@") || pending.trim() === "");
+            for (const declaration of pending.split(";").filter(value => value.trim() !== "")) {
+                const match = /^\s*(--[\w-]+)\s*:\s*(.*?)\s*(!important)?\s*$/s.exec(declaration);
+                assert.notEqual(match, null, declaration);
+                for (const scope of selector.split(",").map(value => value.trim()))
+                    rows.push({ key: match[1], value: match[2], important: Boolean(match[3]), contexts: [...stack.slice(0, -1), scope] });
+            }
+            stack.pop();
+            pending = "";
+        } else {
+            assert.equal(pending.trim(), "");
+            pending = token;
+        }
+    }
+    assert.deepEqual(stack, []);
+    assert.equal(pending.trim(), "");
+    return rows;
+}
+
+function verifyObsidian(template, packages = selectionPackages) {
+    const minima = new Map();
+    const guard = "@media not (forced-colors: active)";
+    const expected = OBSIDIAN_NATIVE_FIELDS.flatMap(([role, format, keys, contexts]) =>
+        keys.split(" ").flatMap(key => contexts.map(context => ({ key, role, format, contexts: [guard, ...context.split("\n")] }))));
+    const required = new Set(expected.map(row => row.key));
+    assert.ok(required.size >= 90);
+    for (const { pkg } of packages) {
+        const slots = selectionRender.terminalSource(pkg, selectionDefaults).terminal;
+        const rendered = selectionRender.renderTarget(logic, TOKENS, obsidianTarget.target,
+            new Map(obsidianTarget.target.files.map(file => [file.template, file.template === "obsidian.css" ? template : fs.readFileSync(path.join(obsidianDir, file.template), "utf8")])),
+            { values: pkg.values, slots, curated: new Map(), installed: false });
+        assert.equal(rendered.ok, true, pkg.name);
+        const rows = obsidianDeclarations(rendered.files.find(file => file.destination === "obsidian.css").bytes.toString("utf8"));
+        const native = rows.filter(row => required.has(row.key));
+        const id = row => JSON.stringify([row.key, row.contexts]);
+        const found = new Map(native.map(row => [id(row), row]));
+        // Reject duplicate, misplaced and unguarded roots as well as omissions.
+        const expectedIds = new Set(expected.map(id));
+        const failures = [];
+        for (const row of native) if (!expectedIds.has(id(row))) failures.push({ kind: "scope", key: row.key, contexts: row.contexts });
+        for (const forbidden of ["--color-accent", "--canvas-color-1", "--callout-default"])
+            if (rows.some(row => row.key === forbidden)) failures.push({ kind: "native-alias", key: forbidden });
+        assert.equal(found.size, native.length);
+        const roleColor = role => role.startsWith("terminal.") ? slots[role.slice("terminal.".length)] : logic.valueAt(pkg.values, role);
+        const opaque = role => logic.formatColor(logic.overlay(logic.parseColor(roleColor(role)), logic.parseColor(pkg.values.color.background))).slice(0, 7);
+        for (const want of expected) {
+            const actual = found.get(id(want));
+            if (!actual) { failures.push({ kind: "missing", key: want.key, contexts: want.contexts }); continue; }
+            if (actual.important) failures.push({ kind: "priority", key: want.key });
+            const hex = opaque(want.role);
+            let valid;
+            if (want.format.startsWith("hsl-")) {
+                valid = want.format === "hsl-h" ? /^\d+(?:\.\d+)?$/.test(actual.value) && Number(actual.value) < 360
+                    : /^\d+(?:\.\d+)?%$/.test(actual.value) && Number(actual.value.slice(0, -1)) <= 100;
+            } else if (want.format === "rgb") {
+                const components = actual.value.split(",").map(value => value.trim());
+                valid = components.length === 3 && components.every(value => /^(?:0|[1-9]\d{0,2})$/.test(value) && Number(value) <= 255) &&
+                    components.map(Number).every((value, index) => value === parseInt(hex.slice(1 + index * 2, 3 + index * 2), 16));
+            } else valid = actual.value === (want.format === "border" ? "1px solid " : "") + hex;
+            if (!valid) failures.push({ kind: "role-format", key: want.key, value: actual.value, role: want.role });
+        }
+        assert.deepEqual(failures, [], JSON.stringify({ package: pkg.name, failures }));
+        const value = (scope, key) => found.get(JSON.stringify([key, [guard, scope]])).value;
+        const accent = desktopColor(["h", "s", "l"].map(component => value("body", "--accent-" + component)).join(" "));
+        assert.equal(logic.formatColor(accent).slice(0, 7), opaque("color.accent"), pkg.name + ": HSL accent roundtrip");
+        const measure = (name, fg, bg, floor) => {
+            const ratio = logic.contrastRatio(logic.parseColor(fg), logic.parseColor(bg));
+            if (floor !== undefined) assert.ok(ratio >= floor, JSON.stringify({ kind: "obsidian-contrast", package: pkg.name, name, ratio, floor }));
+            if (!minima.has(name) || minima.get(name).ratio > ratio) minima.set(name, { name, package: pkg.name, ratio, fg, bg, floor });
+        };
+        for (const [scope, foreground, background] of [
+            ["body", "--notice-color", "--notice-background"], ["body", "--tooltip-color", "--tooltip-background"],
+            ...["", "-hover", "-active"].flatMap(state => [
+                [".dialog", `--button-primary${state}-fg-color`, `--button-primary${state}-bg-color`],
+                [".dialog", `--button-secondary${state}-fg-color`, `--button-secondary${state}-bg-color`]]),
+            [".dialog", "--input-text-fg-color", "--input-text-bg-color"], [".dialog", "--textarea-fg-color", "--textarea-bg-color"],
+            [".dialog .mainContainer .messageBar", "--message-bar-fg-color", "--message-bar-bg-color"],
+            [".dialog .mainContainer .messageBar", "--message-bar-icon-color", "--message-bar-bg-color"],
+            ...["active", "focus", "hover"].map(state => [".messageBar", "--message-bar-close-button-color", `--message-bar-close-button-${state}-bg-color`]),
+            ...["", "-hover", "-active"].map(state => ["#editorUndoBar", "--text-primary-color", `--undo-button-bg-color${state}`])
+        ]) measure(`${scope}/${foreground}/${background}`, value(scope, foreground), value(scope, background), 4.5);
+        for (const surface of ["background", "surface", "surfaceRaised", "infoSubtle"]) {
+            const bg = opaque("color." + surface);
+            measure("text/" + surface, opaque("color.text"), bg, 4.5);
+            for (const category of ["--color-red", "--color-orange", "--color-yellow", "--color-green", "--color-blue", "--color-cyan", "--color-pink", "--color-purple"])
+                measure(category + "/" + surface, value(".theme-dark", category), bg);
+        }
+    }
+    return [...minima.values()];
+}
+const obsidianTemplate = fs.readFileSync(path.join(obsidianDir, "obsidian.css"), "utf8");
+const obsidianMetrics = verifyObsidian(obsidianTemplate);
+const obsidianScratch = fs.mkdtempSync(path.join(os.tmpdir(), "obsidian-native-control-"));
+try {
+    for (const [label, needle, replacement, kind, key, matches = 1] of [
+        ["missing-accent", "    --accent-h: @{color.accent|format=hsl-h};", "", "missing", "--accent-h"],
+        ["missing-pair", "    --notice-color: #@{color.text};", "", "missing", "--notice-color"],
+        ["stock-literal", "    --callout-quote: #@{color.text};", "    --callout-quote: #9e9e9e;", "role-format", "--callout-quote"],
+        ["wrong-scope", "    .annotationLayer {", "    .wrongAnnotationLayer {", "scope", "--input-hover-border-color"],
+        ["wrong-state", "    .is-translucent:not(.is-fullscreen) {", "    .is-translucent.is-fullscreen {", "scope", "--divider-color"],
+        ["wrong-supports", "@supports (color: light-dark(red, red))", "@supports (color: invalid(red, red))", "scope", "--button-primary-bg-color", 5],
+        ["forced-colours", "@media not (forced-colors: active)", "@media (forced-colors: active)", "scope", "--accent-h"],
+        ["rgb-hex", "--color-red-rgb: @{color.danger|format=rgb};", "--color-red-rgb: #@{color.danger};", "role-format", "--color-red-rgb", 2],
+        ["hsl-hex", "--accent-h: @{color.accent|format=hsl-h};", "--accent-h: #@{color.accent};", "role-format", "--accent-h"],
+        ["priority", "--accent-h: @{color.accent|format=hsl-h};", "--accent-h: @{color.accent|format=hsl-h} !important;", "priority", "--accent-h"],
+        ["flattened-category", "--callout-quote: #@{color.text};", "--callout-quote: #@{color.text}; --canvas-color-1: #@{color.info};", "native-alias", "--canvas-color-1"]
+    ]) {
+        assert.equal(obsidianTemplate.split(needle).length - 1, matches, label);
+        const mutant = obsidianTemplate.replaceAll(needle, replacement);
+        assert.notEqual(mutant, obsidianTemplate, label);
+        const file = path.join(obsidianScratch, label + ".css");
+        fs.writeFileSync(file, mutant, { flag: "wx" });
+        assert.throws(() => verifyObsidian(fs.readFileSync(file, "utf8"), selectionPackages.slice(0, 1)),
+            error => error.code === "ERR_ASSERTION" && Array.isArray(error.actual) && error.actual.some(row => row.kind === kind && row.key === key), label);
+    }
+} finally {
+    fs.rmSync(obsidianScratch, { recursive: true, force: true });
+}
+console.log("test-theme-render: obsidian-native " + JSON.stringify({ packages: selectionPackages.length, minima: obsidianMetrics,
+    limits: "Offline native source/role proof. Disabled opacity, ANSI category contrast, arbitrary content, plugins and overlapping custom CSS have no universal 4.5:1 guarantee." }));
+
 const CONTROLS = [
+    ["RGB components", 'return [0, 2, 4].map(at => channel(rgb, at)).join(", ");', 'return rgb;', verifyHsl],
+    ...["h", "s", "l"].map((component, index) => ["HSL " + component + " component",
+        `"hsl-${component}": (hex, background) => hsl(hex6(hex, background)).split(" ")[${index}],`,
+        `"hsl-${component}": (hex, background) => hsl(hex6(hex, background)).split(" ")[${(index + 1) % 3}],`, verifyHsl]),
     ["HSL format", "hsl: (hex, background) => hsl(hex6(hex, background)),", "hsl: (hex, background) => hex6(hex, background),", verifyHsl],
     ["per-colour format", "encode = hex => ENCODERS[format](hex, input.values.color.background);", "encode = encode;", verifyHsl],
     ["terminal font line left out without a font", "if (dropFrom === -1 && terminalFont(input) === null && part.name.split(CASE_SEPARATOR)[0] === TERMINAL_FONT)", "if (false)", verifyTerminalFont],
