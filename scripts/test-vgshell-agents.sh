@@ -364,11 +364,12 @@ check "the doubled table is left byte for byte" cmp -s -- "$tmp/codex.twice" "$d
 check "a skipped target keeps its last theme file" test -f "$live/pi.json" -a -f "$live/claude.json"
 
 # The must-fail control: a judge copy that drops the plan's skip reaches
-# the wiring step, which fails the targets and still creates and edits
-# nothing.
+# the wiring step. Refused targets fail; a settings-less account is still
+# skipped by entry planning. Neither path creates or edits settings.
 judge_control plan-refusal-dropped 'if (selected.value !== null) return skipped(selected.value);' ''
 apply_json "the plan-dropping mutant applies" 3 nord "vgshell: refused: target=claude reason=selection-refused path=$claude_settings format=json cause=unparseable key=theme"
-check "the plan-dropping mutant fails the refused and absent targets" test "$(target_state claude)|$(target_state codex)|$(target_state hermes)|$(target_state pi)" == "failed selection-refused|failed selection-refused|failed selection-file-absent|failed selection-file-absent"
+check "the plan-dropping mutant fails the refused and ordinary absent targets" test "$(target_state claude)|$(target_state codex)|$(target_state hermes)" == "failed selection-refused|failed selection-refused|failed selection-file-absent"
+check "entry planning still skips a settings-less Pi account" test "$(target_state pi)" == "skipped wiring-file-absent"
 check "the plan-dropping mutant still creates no settings file" test ! -e "$pi_settings" -a ! -e "$tmp/nowhere.yaml"
 check "the plan-dropping mutant still edits no refused file" test "$(cmp -s -- "$tmp/claude.jsonc" "$claude_settings"; echo $?)$(cmp -s -- "$tmp/codex.twice" "$dotfiles/codex.toml"; echo $?)" == 00
 unset THEME_BIN
