@@ -145,7 +145,8 @@
 # the tooltip and the row once that resume ran, and the card a Reboot draws
 # while the session saves, over the stand-in Jarvis package command, taken
 # only when named;
-# googledrive is Google Drive's bar widget, its tooltip, its window and every
+# googledrive is Google Drive's bar widget, its tooltip, its popover with its
+# notes folded and unfolded and every
 # screen of its page's Settings, Setup and Details tabs in each state the plugin's runner reaches
 # over a local rclone remote and a keyring stand-in, from first run to a
 # damaged folder pair list and a home in the layout of the plugin's name
@@ -7045,13 +7046,55 @@ const L = require(lib).load(logic), now = Date.now();
 const read = { cause: L.headline(cloud, now).cause, kind: cloud.lastError === null ? "none" : cloud.lastError.kind, hidden: L.widgetView(cloud, now).hidden, paused: cloud.paused };
 console.log(fields.map(f => String(read[f])).join(" "));' "$tree/bin/lib/qml-library.js" "$tree/shell/plugins/vgs.google-drive/GoogleDriveLogic.js" "$@"
 }
+# cs_panel_shown: `shown` while the Google Drive popover is up, else
+# `hidden`. cs_notes_line: the line the popover's notes fold into, "" with
+# none.
+cs_panel_shown() { [[ $(ipc smoke instanceGeometry panel vgs.google-drive) != absent ]] && echo shown || echo hidden; }
+cs_notes_line() { ipc smoke readInstance panel vgs.google-drive review | python3 -c 'import json,sys; print(json.load(sys.stdin)["notesLine"])'; }
+# cs_popover MODE STATE: the popover a click on the bar icon opens,
+# anchored under it, then, while it holds notes, with them unfolded by a
+# click on their line, and at its end when it scrolls then. Each image is
+# the popover's box.
+cs_popover() {
+  local m="$1" s="$2" box notes rect x y at
+  click_centre "$(bar_key)" vgs.google-drive || { fail "the click on Google Drive's icon failed ($s)"; return; }
+  expect_poll "the click on the icon opens the Google Drive popover ($s)" shown cs_panel_shown
+  summon_drawn panel vgs.google-drive || fail "the Google Drive popover never drew ($s)"
+  take "googledrive-$m-$s-popover"
+  box="$(ipc smoke instanceGeometry panel vgs.google-drive)" || box=absent
+  record_item "googledrive-$m-$s-popover" "$box"
+  notes="$(cs_notes_line)" || notes=""
+  if [[ -n $notes ]]; then
+    rect="$(ipc smoke itemGeometry panel vgs.google-drive ListItem "$notes")" || rect=absent
+    if [[ $rect == \[* ]]; then
+      read -r x y < <(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); print(int(x+w/2), int(y+h/2))' "$rect")
+      hover "$((x + 1))" "$y" && click "$x" "$y" || fail "the click on the notes line failed ($s)"
+      expect_poll "the notes line unfolds the notes ($s)" true ipc smoke readInstance panel vgs.google-drive notesOpen
+      take "googledrive-$m-$s-popover-notes"
+      box="$(ipc smoke instanceGeometry panel vgs.google-drive)" || box=absent
+      record_item "googledrive-$m-$s-popover-notes" "$box"
+      # The probe's reply is [contentY, contentHeight, height].
+      at="$(ipc smoke scrollTo panel vgs.google-drive 1000000)" || at=""
+      if [[ $at != \[* ]]; then
+        fail "the Google Drive popover did not scroll ($s): ${at:-no reply}"
+      elif [[ $at != \[0,* ]]; then
+        take "googledrive-$m-$s-popover-notes-end"
+        record_item "googledrive-$m-$s-popover-notes-end" "$box"
+      fi
+    else
+      fail "the popover's notes line is not drawn ($s): $rect"
+    fi
+  fi
+  expect "the Google Drive popover hides ($s)" ok ipc shell hide panel vgs.google-drive
+  expect_poll "the Google Drive popover is gone ($s)" hidden cs_panel_shown
+}
 # cs_shots MODE STATE CAUSE [KIND]: once the code reads the published
 # values as CAUSE, and the last error as KIND when given, the bar with
-# the widget and its tooltip unless the code hides it, the Google Drive
-# window, and every screen of the Google Drive page's Settings, Setup and
-# Details tabs, each image named for its tab.
+# the widget, its tooltip and its popover unless the code hides it, and
+# every screen of the Google Drive page's Settings, Setup and Details
+# tabs, each image named for its tab.
 cs_shots() {
-  local m="$1" s="$2" want="$3" fields=(cause) hidden box name f at y tab page=2
+  local m="$1" s="$2" want="$3" fields=(cause) hidden box name f tab
   if [[ $# -gt 3 ]]; then want+=" $4"; fields+=(kind); fi
   expect "Google Drive reads its record again ($s)" ok ipc vgs.google-drive invoke refresh ""
   expect_poll "Google Drive's code reads the published values as $s" "$want" cs_code "${fields[@]}"
@@ -7066,31 +7109,8 @@ cs_shots() {
       take_posed "googledrive-$m-$s-bar-tooltip"
     fi
     park_pointer
+    cs_popover "$m" "$s"
   fi
-  expect "the Google Drive window opens ($s)" ok ipc shell summon window vgs.google-drive '{}'
-  expect_poll "the Google Drive window maps ($s)" 1 window_count "Google Drive"
-  take "googledrive-$m-$s-window"
-  record_item "googledrive-$m-$s-window" "$(one_window "Google Drive")"
-  # A window that runs past its view is shot again at its end, so each row
-  # to review shows in a shot. The probe's reply is [contentY,
-  # contentHeight, height].
-  at="$(ipc smoke scrollTo window vgs.google-drive 1000000)" || at=""
-  if [[ $at != \[* ]]; then
-    fail "the Google Drive window did not scroll ($s): ${at:-no reply}"
-  elif [[ $at != \[0,* ]]; then
-    take "googledrive-$m-$s-window-end"
-    record_item "googledrive-$m-$s-window-end" "$(one_window "Google Drive")"
-    # And at each view between, nine tenths of a view apart, so a list
-    # longer than two views shows every row in a shot.
-    for y in $(node -e 'const [end, , view] = JSON.parse(process.argv[1]), step = Math.floor(view * 0.9); for (let y = step; y < end; y += step) console.log(y);' "$at"); do
-      ipc smoke scrollTo window vgs.google-drive "$y" >/dev/null || { fail "the Google Drive window did not scroll to $y ($s)"; break; }
-      take "googledrive-$m-$s-window-$page"
-      record_item "googledrive-$m-$s-window-$page" "$(one_window "Google Drive")"
-      page=$((page + 1))
-    done
-  fi
-  expect "the Google Drive window hides ($s)" ok ipc shell hide window vgs.google-drive
-  expect_poll "the Google Drive window is gone ($s)" 0 window_count "Google Drive"
   expect "the Settings window opens ($s)" ok ipc shell summon "$settings_kind" vgs.settings '{}'
   expect_poll "the Settings window maps ($s)" 1 settings_count
   for tab in settings setup details; do
@@ -7133,6 +7153,9 @@ export RCLONE_CONFIG_VGSDRIVE_TYPE=local
 unset RCLONE_CONFIG_VGSDRIVE_CLIENT_ID RCLONE_CONFIG_VGSDRIVE_CLIENT_SECRET RCLONE_CONFIG_VGSDRIVE_TOKEN RCLONE_CONFIG_VGSDRIVE_SCOPE
 if [[ -f "$cs/block" ]]; then for _ in \$(seq 1 300); do [[ -f "$cs/release" ]] && break; sleep 0.2; done; fi
 if [[ -f "$cs/fail" ]]; then echo "Failed to copy: stand-in sync error" >&2; exit 1; fi
+# While \`refuse\` exists, Google refuses the stored sign-in, in the words
+# of Google's OAuth error code, which rclone repeats.
+if [[ -f "$cs/refuse" ]]; then echo 'couldn'"'"'t fetch token: oauth2: "invalid_grant" "Token has been expired or revoked."' >&2; exit 1; fi
 cd "$drive" || exit 9
 # While \`unreadable\` names files of the Documents folder, one a line, its
 # download copies the rest, then prints rclone v1.75.1's lines for files it
@@ -7285,6 +7308,11 @@ SH
   csr run || true
   cs_shots "$m" 7-error error
   rm -f -- "$cs/fail"
+  # Google refuses the stored sign-in; the next run signs in again.
+  : >"$cs/refuse"
+  csr run || true
+  cs_shots "$m" 7-signed-out authorization-required authorization-refused
+  rm -f -- "$cs/refuse"
   # Set up, with a change on both sides, a local deletion, a Drive
   # deletion and a Drive rename to a long name to review.
   printf '# Notes, edited here\n' >"$home/googledrive-$m/Drive/Documents/notes.md"
@@ -7294,7 +7322,7 @@ SH
   rm -f -- "${home:?}/googledrive-$m/Drive/Documents/Taxes/2025 return.pdf"
   mv -- "$drive/VGS/Uploads/report.md" "$drive/VGS/Uploads/October-planning-meeting-report-with-every-agent-task-its-owner-and-its-due-date.md"
   csr run || fail "googledrive scene: review run"
-  cs_shots "$m" 8-review review
+  cs_shots "$m" 8-review needs-you
   # A legal folder as the owner met it (VGS-1727): two dangling shortcuts
   # the download cannot open, and names Drive holds twice, two in copies
   # the user owns that are the same, one in copies the user owns that
@@ -7319,9 +7347,23 @@ process.stdout.write(JSON.stringify([
 ]));' >"$cs/copies/Documents/Legal.json"
   csr run || true
   if tree_has shell/plugins/vgs.google-drive/bin/google-drive '"unreadable-on-drive"'; then
-    cs_shots "$m" 8-unreadable review
+    cs_shots "$m" 8-unreadable needs-you
   else
     cs_shots "$m" 8-unreadable error
+  fi
+  # The user fixed two of them in Google Drive: one shortcut opens its file
+  # again, and the two retainer copies are now the same. One file still
+  # needs the user, and eight notes need nothing (VGS-1745).
+  printf '%s\n' "Legal/Power of attorney.pdf" >"$cs/unreadable"
+  node -e '
+const copies = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+for (const c of copies) if (c.Name === "Retainer agreement.docx") { c.Hashes.md5 = "a".repeat(32); c.Size = 1024; }
+process.stdout.write(JSON.stringify(copies));' "$cs/copies/Documents/Legal.json" >"$cs/copies/Documents/Legal.json.new" && mv -- "$cs/copies/Documents/Legal.json.new" "$cs/copies/Documents/Legal.json"
+  csr run || true
+  if tree_has shell/plugins/vgs.google-drive/bin/google-drive '"unreadable-on-drive"'; then
+    cs_shots "$m" 8-one-needs needs-you
+  else
+    cs_shots "$m" 8-one-needs error
   fi
   rm -f -- "$cs/unreadable" "$cs/doubled"
   # The folder pair list cut short, so it is not JSON.

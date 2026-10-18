@@ -17,13 +17,17 @@
 # sync's setup, the first pair's add installs the units, and a pair whose
 # units are gone offers Set up again, whose press hands the terminal the
 # setup TUI; the Settings list holds one row per pair, whose Remove hands
-# the terminal the remove TUI for that pair; the window maps with the record, holds Sync now off while a
-# run holds its copy and while the download client ID is missing, and its
-# Sync now asks systemd
-# to start the one service, which the systemctl stand-in logs, and runs no
-# rclone, and its Remove beside a pair hands the terminal the remove TUI
-# for that pair; an invalid pair list publishes its repair to the Details
-# tab and the window, and one row that says so to the Settings list, and
+# the terminal the remove TUI for that pair; with one file that needs the
+# user and eight notes the bar counts 1, and a click on the bar icon opens
+# the popover, no Google Drive window, whose Needs you lists that file and
+# whose notes fold into one line a click unfolds; its Sync now is held
+# while a run holds its copy, and asks systemd to start the one service,
+# which the systemctl stand-in logs, and runs no rclone; a click outside
+# it and Escape close it, and its gear opens the plugin's page; with the
+# download client ID missing it hides its footer and its callout's fix
+# opens the Setup tab; an invalid pair list publishes its repair to the
+# Details tab and the popover, whose fix hands the terminal the reset TUI,
+# and one row that says so to the Settings list, and
 # the runner keeps the damaged file beside an empty list, whose Add hands
 # the terminal the add TUI; a Drive-side add and change reach the mirror after one run; a
 # local edit since the last download keeps both versions and reads
@@ -33,8 +37,8 @@
 # deletion keeps the file and reads `removed-on-drive`; a run during
 # another is `busy` and starts no copy;
 # pause stops the next run's copy and survives a shell restart, read
-# through the published status, whose headline still names the files to
-# review; the bar widget stays hidden until a folder pair exists, then
+# through the published status, whose headline still names the file that
+# needs the user; the bar widget stays hidden until a folder pair exists, then
 # takes the headline as its tooltip title over the published labels and
 # states, never a file name. Must-fail controls:
 # runner copies with a dry-run copy, with every displaced file taken as
@@ -43,7 +47,7 @@
 # read of the record leaves a pause the runner writes unpublished. The row
 # ends with the pair removed, the units gone and the plugin disabled, as
 # it found it, and its stand-ins removed. No latency reading.
-# inputs: shell/plugins/vgs.google-drive/* shell/plugins/vgs.settings/* shell/plugins/vgs.notifications/* shell/Commons/PageReference.js shell/Ui/feedback/LinkText.qml shell/Commons/WatchedFile.qml shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml bin/vgshell-tui
+# inputs: shell/plugins/vgs.google-drive/* shell/plugins/vgs.settings/* shell/plugins/vgs.notifications/* shell/Commons/PageReference.js shell/Ui/feedback/Callout.qml shell/Ui/layout/Disclosure.qml shell/Ui/layout/Pane.qml shell/Hosts/SummonPopup.qml shell/Hosts/PluginSlot.qml shell/Commons/WatchedFile.qml shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml bin/vgshell-tui
 set -euo pipefail
 cs_dir="$sandbox/googledrive"
 cs_stub="$cs_dir/stub"
@@ -115,11 +119,48 @@ cs_lent() { ipc shell lent | py_reply 'import json,sys; d=json.load(sys.stdin); 
 # The systemctl calls the stand-in logged for Google Drive: a reload and
 # each call that names one of its units.
 cs_systemctl() { if [[ -f $cs_stub/systemd/systemctl.calls ]]; then py_reply 'import json,sys; print(json.dumps([c for c in map(json.loads, sys.stdin) if "daemon-reload" in c or any(a.startswith("vgs-google-drive.") for a in c)]))' <"$cs_stub/systemd/systemctl.calls"; else echo '[]'; fi; }
-cs_click_sync() { click_in "window:Google Drive" window vgs.google-drive Button "Sync now" && echo ok; }
-# The window footer's primary action and whether it is enabled.
-cs_window_primary() { ipc smoke readInstance window vgs.google-drive footer | py_reply 'import json,sys; p=json.load(sys.stdin)["primary"]; print(json.dumps([p["action"], p["enabled"]]))'; }
-cs_click_remove() { click_in "window:Google Drive" window vgs.google-drive RowAction Remove && echo ok; }
-cs_click_reset() { click_in "window:Google Drive" window vgs.google-drive Button "Start the folder pair list again" && echo ok; }
+# The popover: `shown` or `hidden`; its footer as [shown, whether Sync
+# now can start]; its review as [the names Needs you lists, the count of
+# notes]; whether its notes are unfolded; whether an item TYPE reading
+# TEXT is drawn in it, `drawn` or `absent`. cs_badge: the count the bar
+# icon draws.
+cs_panel_shown() { [[ $(ipc smoke instanceGeometry panel vgs.google-drive) != absent ]] && echo shown || echo hidden; }
+cs_panel_footer() { ipc smoke readInstance panel vgs.google-drive footer | py_reply 'import json,sys; f=json.load(sys.stdin); print(json.dumps([f["shown"], f["shown"] and f["sync"]["reason"] == ""]))'; }
+cs_panel_review() { ipc smoke readInstance panel vgs.google-drive review | py_reply 'import json,sys; r=json.load(sys.stdin); print(json.dumps([[x["name"] for x in r["needs"]], len(r["notes"])]))'; }
+cs_notes_open() { ipc smoke readInstance panel vgs.google-drive notesOpen; }
+cs_panel_drawn() { [[ $(ipc smoke itemGeometry panel vgs.google-drive "$1" "$2") == \[* ]] && echo drawn || echo absent; }
+cs_badge() { ipc smoke readInstance "$(bar_key)" vgs.google-drive view | py_reply 'import json,sys; print(json.load(sys.stdin)["badge"])'; }
+# cs_open_popover LABEL: a click on the bar icon opens the popover, drawn.
+cs_open_popover() {
+  click_centre "$(bar_key)" vgs.google-drive || { fail "$1: the click on the bar icon failed"; return 1; }
+  expect_poll "$1: a click on the bar icon opens the popover" shown cs_panel_shown
+  summon_drawn panel vgs.google-drive || fail "$1: the popover never drew"
+}
+# cs_panel_click BOX: a click on the centre of BOX, [x, y, w, h] on the
+# output, the pointer moved there a pixel off first, since a popup mapped
+# while the pointer rests on the bar takes no click until the pointer
+# moves. cs_panel_press TYPE TEXT: that click on the popover's item;
+# cs_gear_press: on its Settings gear, which draws no text.
+cs_panel_click() {
+  local x y
+  [[ $1 == \[* ]] || { echo "cs_panel_click: no box: $1" >&2; return 1; }
+  read -r x y < <(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); print(int(x+w/2), int(y+h/2))' "$1") || return 1
+  hover "$((x + 1))" "$y" || return 1
+  click "$x" "$y" && echo ok
+}
+cs_panel_press() { cs_panel_click "$(ipc smoke itemGeometry panel vgs.google-drive "$1" "$2")"; }
+cs_gear_press() { cs_panel_click "$(ipc smoke labelledGeometry panel vgs.google-drive IconButton Settings)"; }
+# The page the Settings window shows, without its tab.
+cs_page_plugin() { cs_page | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin).split("/")[0]))'; }
+# cs_more_notes: six more files Drive removed and the run put back, which
+# need nothing.
+cs_more_notes() {
+  local n
+  for n in 1 2 3 4 5 6; do cs_put "n$n.txt" "note $n"; done
+  expect "a run copies six more files" "pair=docs result=idle exit=0" cs_answer run
+  for n in 1 2 3 4 5 6; do rm -- "$cs_drive/n$n.txt"; done
+  expect "a run puts the six files back on Drive" "pair=docs result=idle exit=0" cs_answer run
+}
 cs_reset_output() { cs_answer pairs-reset | py_reply 'import sys
 s=sys.stdin.read().strip()
 print("reset=kept exit=0" if s.startswith("reset=pairs.json.damaged-") and s.endswith(" exit=0") else s)'; }
@@ -139,24 +180,10 @@ cs_record_notified() { cs status | py_reply 'import json,sys; a=json.load(sys.st
 cs_widget_shown() { ipc smoke readInstance "$(bar_key)" vgs.google-drive visible; }
 cs_widget() { ipc smoke readInstance "$(bar_key)" vgs.google-drive tip | py_reply 'import json,sys; t=json.load(sys.stdin); print(json.dumps([t["title"], t["details"].split("\n")[:1]]))'; }
 cs_widget_names_files() { ipc smoke readInstance "$(bar_key)" vgs.google-drive tip | py_reply 'import json,sys; t=json.load(sys.stdin); print(any(n in t["title"] + t["details"] for n in sys.argv[1:]))' a.txt b.txt; }
-cs_link_text='A Google Cloud key or the sign-in is missing. Add both keys, then [sign in on the Google Drive Setup tab](page:vgs.google-drive/Setup).'
-cs_linked() { ipc smoke readMatchingDescendant window vgs.google-drive LinkText text "$cs_link_text" linked; }
 cs_page() { ipc smoke readInstance window vgs.settings shownPage; }
 cs_notice() {
   ipc smoke modelRows vgs.notifications rows app,summary,hintPage,leaving | py_reply 'import json,sys; print(json.dumps(next((r[2] for r in json.load(sys.stdin) if r[0] == "Google Drive" and r[1] == "Google Drive needs a sign-in" and r[3] == ""), "none")))'
 }
-cs_click_link() {
-  local box spans pitch rect x y
-  box="$(ipc smoke windowGeometry window vgs.google-drive LinkText "$cs_link_text")" || return 1
-  spans="$(ipc smoke readMatchingDescendant window vgs.google-drive LinkText text "$cs_link_text" underlined)" || return 1
-  pitch="$(ipc smoke readMatchingDescendant window vgs.google-drive LinkText text "$cs_link_text" linePitch)" || return 1
-  rect="$(py_reply 'import json,sys; b=json.loads(sys.argv[1]); p=float(sys.argv[2]); s=json.load(sys.stdin)[0]; print(json.dumps([b[0]+s["left"], b[1]+s["line"]*p, s["right"]-s["left"], p]))' "$box" "$pitch" <<<"$spans")" || return 1
-  read -r x y < <(at_centre "window:Google Drive" "$rect") || return 1
-  hover "$x" "$y" || return 1
-  expect_poll "the pointer reaches the Google Drive page link" true ipc smoke readMatchingDescendant window vgs.google-drive LinkText text "$cs_link_text" hoveredLink
-  click "$x" "$y"
-}
-
 # The checks the controls replay against a broken runner: each runs in the
 # world cs_use set and fails through expect.
 check_copy() {
@@ -438,7 +465,7 @@ SH
   check_removed_locally
   check_export
   check_prune
-  expect_poll "the service publishes the pair's state" '["Documents: 1 file to review"]' cs_value sync.lines
+  expect_poll "the service publishes the pair's state, which a note leaves up to date" '["Documents: Up to date"]' cs_value sync.lines
   expect_poll "the Settings list holds the pair with Remove" '[["docs", "ok", ["remove"]]]' cs_pairs
   expect_poll "the pair's row names its Drive folder and its folder here" '["Drive/Docs ⇄ ~/googledrive/docs"]' cs_pair_lines
   expect_poll "the service publishes the last sync" set cs_last_sync
@@ -452,30 +479,69 @@ SH
   expect_poll "the service publishes the Drive deletion" '[["both-changed", "a.txt"], ["removed-locally", "local-gone.txt"], ["removed-on-drive", "b.txt"]]' cs_published_conflicts
   check_lock
 
-  # The widget names the pair and its state, never a file.
+  # The widget names the pair and its state, never a file, and counts
+  # only the file that needs the user.
   expect "with a folder pair the widget shows" true cs_widget_shown
-  expect_poll "the widget's tooltip leads with the files to review and names the pair" '["Google Drive: 3 files to review", ["Documents: 3 files to review"]]' cs_widget
+  expect_poll "the widget's tooltip leads with the file that needs the user and names the pair" '["Google Drive: 1 file needs you", ["Documents: 1 file needs you"]]' cs_widget
   expect "the widget's tooltip names no file" False cs_widget_names_files
 
-  # The window, and Sync now through the one service.
-  expect "the window is summoned" ok ipc shell summon window vgs.google-drive '{}'
-  expect_poll "the window maps, titled Google Drive" 1 window_count "Google Drive"
-  expect_poll "the window offers Sync now with a folder pair" '["sync", true]' cs_window_primary
-  # Sync now is off while a sync cannot start: a run holds its copy, then
-  # the download client ID is missing.
-  cs_hold "$cs_dir/window-held.out"
-  expect_poll "the window holds Sync now off while a sync runs" '["sync", false]' cs_window_primary
+  # One file that needs the user and eight notes: the bar counts 1, and
+  # the popover a click on the bar icon opens lists the file under Needs
+  # you and folds the notes into one line a click unfolds.
+  cs_more_notes
+  expect "the service reads the six notes" ok ipc vgs.google-drive invoke refresh ""
+  expect_poll "the bar counts only the file that needs the user" 1 cs_badge
+  cs_open_popover "the popover"
+  expect "no Google Drive window exists" 0 window_count "Google Drive"
+  expect_poll "Needs you lists the file that needs the user, and eight notes fold" '[["a.txt"], 8]' cs_panel_review
+  expect_poll "Needs you draws the file" drawn cs_panel_drawn Label a.txt
+  expect "a folded note is not drawn" absent cs_panel_drawn Label n1.txt
+  expect "the popover offers Sync now with a folder pair" '[true, true]' cs_panel_footer
+  expect "the notes line is clicked" ok cs_panel_press ListItem "8 notes · nothing was lost"
+  expect_poll "the notes line unfolds the notes" true cs_notes_open
+  expect_poll "an unfolded note is drawn" drawn cs_panel_drawn Label n1.txt
+
+  # Sync now is held while a run holds its copy, then asks systemd to
+  # start the one service.
+  cs_hold "$cs_dir/panel-held.out"
+  expect_poll "the popover holds Sync now while a sync runs" '[true, false]' cs_panel_footer
   cs_let_go
-  expect_poll "the window offers Sync now again once the sync ends" '["sync", true]' cs_window_primary
+  expect_poll "the popover offers Sync now again once the sync ends" '[true, true]' cs_panel_footer
+  local copies
+  copies="$(cs_copies)"
+  : >"$cs_stub/systemd/systemctl.calls"
+  expect "Sync now is clicked" ok cs_panel_press Button "Sync now"
+  expect_poll "Sync now asks systemd to start the one service" '[["--user", "start", "--no-block", "vgs-google-drive.service"]]' cs_systemctl
+  expect "Sync now runs no rclone of its own" "$copies" cs_copies
+
+  # A click outside the popover and Escape each close it; its gear opens
+  # the plugin's page and closes it.
+  rest_pointer
+  click 10 "$((mon_h - 10))" || fail "googledrive: the click outside the popover failed"
+  expect_poll "a click outside closes the popover" hidden cs_panel_shown
+  cs_open_popover "the popover for Escape"
+  type_keys -k Escape || fail "googledrive: Escape to the popover failed"
+  expect_poll "Escape closes the popover" hidden cs_panel_shown
+  cs_open_popover "the popover for its gear"
+  expect "the gear is clicked" ok cs_gear_press
+  expect_poll "the gear opens Google Drive's page" '"vgs.google-drive"' cs_page_plugin
+  expect_poll "the gear closes the popover" hidden cs_panel_shown
+  settings_page_close vgs.google-drive
+
+  # With the download client ID missing no sync can run: the popover hides
+  # its footer, and its callout's fix opens the Setup tab, where the keys
+  # are added.
   mv -- "$shim/notify-send" "$cs_stub/notify-send.link-test"
   notes_on googledrive-links
   rm -- "${cs_stub:?}/secrets/client-id"
   expect "a run without the download client ID waits for it" "pair=docs result=authorization-required exit=1" cs_answer run
-  expect_poll "the window holds Sync now off while a key is missing" '["sync", false]' cs_window_primary
-  expect_poll "the missing-key window draws its page link" true cs_linked
+  expect "the service reads the missing key" ok ipc vgs.google-drive invoke refresh ""
+  cs_open_popover "the popover without a key"
+  expect_poll "the popover hides its footer while no sync can run" '[false, false]' cs_panel_footer
   expect_poll "the needs-sign-in notice holds its page link" '"[sign in on the Google Drive Setup tab](page:vgs.google-drive/Setup)"' cs_notice
-  cs_click_link || fail "googledrive: the window page link click failed"
-  expect_poll "the window page link opens Google Drive Setup" '"vgs.google-drive/Setup"' cs_page
+  expect "the callout's fix is clicked" ok cs_panel_press RowAction "Add the keys"
+  expect_poll "the callout's fix opens Google Drive Setup" '"vgs.google-drive/Setup"' cs_page
+  expect_poll "the callout's fix closes the popover" hidden cs_panel_shown
   settings_page_close vgs.google-drive
   click_item vgs:layer vgs.notifications NotificationCard summary "Google Drive needs a sign-in" 24 - || fail "googledrive: the notice page link click failed"
   expect_poll "the needs-sign-in notice opens Google Drive Setup" '"vgs.google-drive/Setup"' cs_page
@@ -483,7 +549,7 @@ SH
   notes_off googledrive-links
 
   # The same missing-key state with its page reference removed must fail
-  # both link readers. The control preserves the drawn words.
+  # the notice's link reader. The control preserves the drawn words.
   local link_copy="$home/.config/vgshell/plugins/vgs.google-drive"
   mkdir -p -- "$link_copy"
   cp -R -- "$repo/shell/plugins/vgs.google-drive/." "$link_copy/"
@@ -491,12 +557,8 @@ SH
   # An installed copy's former ids rename nothing (PluginLogic.formerIdClaims).
   expected_errors+=('plugins: former id claim ignored id=vgs\.google-drive reason=installed ')
   if edit_file_once "$link_copy/GoogleDriveLogic.js" '[sign in on the Google Drive Setup tab](page:vgs.google-drive/Setup)' 'sign in on the Google Drive Setup tab'; then
-    expect "the window hides before the link control" ok ipc shell hide window vgs.google-drive
     notes_on googledrive-link-control
     rescan "the copy without the page reference is scanned"
-    expect "the control window is summoned" ok ipc shell summon window vgs.google-drive '{}'
-    expect_poll "the control window maps" 1 window_count "Google Drive"
-    expect_poll "control: the window without a reference fails the link reader" absent cs_linked
     printf 'fixture-client' >"$cs_stub/secrets/client-id"
     expect "a good run clears the control attention" "pair=docs result=idle exit=0" cs_answer run
     expect_poll "the control service reads the cleared error" null cs_value cloud.lastError
@@ -507,35 +569,21 @@ SH
     expect_poll "control: the notice without a reference leaves" '"none"' cs_notice
     expect "control: the notice without a reference leaves Settings closed" absent cs_page
     notes_off googledrive-link-control
-    expect "the control window hides" ok ipc shell hide window vgs.google-drive
   else
     fail "googledrive: the page-reference control edit failed"
   fi
   rm -r -- "$link_copy"
   mv -- "$cs_stub/notify-send.link-test" "$shim/notify-send"
   rescan "the shipped page reference is scanned again"
-  expect "the shipped window is summoned again" ok ipc shell summon window vgs.google-drive '{}'
   printf 'fixture-client' >"$cs_stub/secrets/client-id"
   expect "a run with the client ID back copies again" "pair=docs result=idle exit=0" cs_answer run
-  expect_poll "the window offers Sync now again with the key back" '["sync", true]' cs_window_primary
-  local copies
-  copies="$(cs_copies)"
-  : >"$cs_stub/systemd/systemctl.calls"
-  expect "Sync now is clicked" ok cs_click_sync
-  expect_poll "Sync now asks systemd to start the one service" '[["--user", "start", "--no-block", "vgs-google-drive.service"]]' cs_systemctl
-  expect "Sync now runs no rclone of its own" "$copies" cs_copies
+  expect "the service reads the key back" ok ipc vgs.google-drive invoke refresh ""
   settings_page_open vgs.google-drive
   forget_record
   expect "Remove on the Settings row of the pair is pressed" ok settings_row_act vgs.google-drive pairs docs remove
   expect_poll "the Settings Remove hands the terminal the remove TUI for that pair" "$(words vgs.google-drive/remove-pair tui/remove-pair.sh docs)" recorded_tail
   expect_run_end "the Settings remove run ends" vgs.google-drive/remove-pair
   settings_page_close vgs.google-drive
-  forget_record
-  expect "Remove beside the folder pair is clicked" ok cs_click_remove
-  expect_poll "Remove hands the terminal the remove TUI for that pair" "$(words vgs.google-drive/remove-pair tui/remove-pair.sh docs)" recorded_tail
-  expect_run_end "the remove run ends" vgs.google-drive/remove-pair
-  expect "the window is hidden" ok ipc shell hide window vgs.google-drive
-  expect_poll "the window is gone" 0 window_count "Google Drive"
 
   # Pause stops the next run's copy and survives a restart.
   cs_put d.txt "while paused"
@@ -546,7 +594,7 @@ SH
   stop_shell || fail "googledrive: the shell stops before the restart"
   start_shell "$repo" "$sandbox/qs-googledrive.log" || return 0
   expect_poll "after a restart the service publishes the pause" true cs_value cloud.paused
-  expect_poll "after a restart the sync still names the files to review" '["warning", "3 files to review"]' cs_sync
+  expect_poll "after a restart the sync still names the file that needs the user" '["warning", "1 file needs you"]' cs_sync
   expect_poll "after a restart the pair reads paused" '["Documents: Paused"]' cs_value sync.lines
   expect "Resume through the service" ok ipc vgs.google-drive invoke resume ""
   expect_poll "the service publishes the resume" false cs_value cloud.paused
@@ -595,13 +643,12 @@ SH
   expect "the service reads the damaged pair list" ok ipc vgs.google-drive invoke refresh ""
   expect_poll "the damaged pair list offers its repair on Details" '["danger", "Not readable", true]' cs_pair_list
   expect_poll "the Settings list says the list cannot be read and offers no Remove" '[["unreadable", "danger", []]]' cs_pairs
-  expect "the window is summoned for the damaged pair list" ok ipc shell summon window vgs.google-drive '{}'
-  expect_poll "the window reads the damaged pair list" false ipc smoke readInstance window vgs.google-drive pairsValid
+  cs_open_popover "the popover for the damaged pair list"
   forget_record
-  expect "the window reset step is clicked" ok cs_click_reset
-  expect_poll "the window reset hands the terminal the reset TUI" "$(words vgs.google-drive/reset-pairs tui/reset-pairs.sh)" recorded_tail
-  expect_run_end "the window reset run ends" vgs.google-drive/reset-pairs
-  expect "the damaged-list window is hidden" ok ipc shell hide window vgs.google-drive
+  expect "the popover's repair is clicked" ok cs_panel_press RowAction "Start the list again"
+  expect_poll "the popover's repair hands the terminal the reset TUI" "$(words vgs.google-drive/reset-pairs tui/reset-pairs.sh)" recorded_tail
+  expect_run_end "the popover reset run ends" vgs.google-drive/reset-pairs
+  expect_poll "the repair closes the popover" hidden cs_panel_shown
   settings_page_open vgs.google-drive
   forget_record
   expect "the Details pair-list repair is pressed" ok settings_act vgs.google-drive pairList
