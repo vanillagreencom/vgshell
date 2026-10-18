@@ -14,9 +14,12 @@ import "GoogleDriveLogic.js" as Logic
 // one. To review lists each file VGS kept or restored,
 // a change on both sides, a local deletion, a Drive deletion or a Drive rename, and each file
 // it could not copy from Drive or Drive holds twice, under its folder
-// pair's label, with what happened, the folder that holds the copy it
-// speaks of, and Open folders, which opens the folders that hold its
-// versions and shows only for a file with a folder here. The footer holds Sync now, enabled only when a sync can
+// pair's label, the files that need the user first, each with one line
+// that says what happened and what to do, the folder that holds the copy
+// it speaks of, and Open folders, which opens the folders that hold its
+// versions and shows only for a file whose fix is on this computer. A
+// file that needs the user leads with a warning-coloured exclamation
+// mark, a note with a muted check (GoogleDriveLogic.conflictRow `needs`). The footer holds Sync now, enabled only when a sync can
 // start, Resume while the sync is paused, or Set up hourly sync while the
 // hourly sync is not set up, over Pause or Resume and Add a folder pair
 // while a folder pair exists (GoogleDriveLogic.footerView).
@@ -220,9 +223,9 @@ FocusScope {
                                             Icon {
                                                 id: conflictIcon
                                                 y: conflictName.topForLeadingIcon(height)
-                                                name: "file-exclamation-point"
+                                                name: conflictRow.modelData.needs === "you" ? "file-exclamation-point" : "file-check"
                                                 size: Theme.icon.size.md
-                                                color: Theme.color.textMuted
+                                                color: conflictRow.modelData.needs === "you" ? Theme.color.warning : Theme.color.textMuted
                                             }
                                             Column {
                                                 id: conflictLines

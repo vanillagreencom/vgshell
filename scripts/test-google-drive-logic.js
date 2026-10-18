@@ -7,7 +7,10 @@
 // pins the headline's words and tone; every surface (the bar's tone, icon
 // and count, the tooltip's title, the window's subtitle and the Settings
 // `sync` value) must read that one headline. The words are pinned because
-// the issue (VGS-1314) makes them the contract of the four surfaces. The
+// the issue (VGS-1314) makes them the contract of the four surfaces. A
+// review row is held by its structured fields alone (VGS-1727): its needs
+// mark, its local-action flag, its folders, and which case of its kind
+// its line takes, never its words. The
 // tooltip and the Settings lines never carry a file name, and the Google
 // account a connection stored reaches the connection hint alone.
 // Controls edit a copy of the logic, one rule each, and require this suite
@@ -35,21 +38,35 @@ const DOCS = { id: "docs", label: "Documents", remote: "Docs", state: "idle", la
 const INBOX = { id: "inbox", label: "Agent uploads", remote: "Inbox", state: "authorization-required", lastSuccess: iso(NOW - 2 * HOUR), staleAfter: iso(NOW), lastError: { kind: "authorization-refused", at: iso(NOW - 60000), exit: 1 }, changes: null };
 // A new name longer than a window row, with no space to break at.
 const RENAMED_TO = "Quarterly-planning-notes-for-the-agent-uploads-review-with-every-attachment-from-the-October-meeting.txt";
+// Each carries `needs` as bin/google-drive needsOf decides it.
 const CONFLICTS = [
-    { kind: "both-changed", pair: "docs", pairLabel: "Documents", path: "taxes/2025.xlsx", localPath: "/home/me/gdrive/taxes/2025.xlsx", storedPath: "/home/me/.local/state/vgshell/google-drive/pairs/docs/conflicts/20261010T110000Z-7/taxes/2025.xlsx", since: iso(NOW - HOUR) },
-    { kind: "removed-on-drive", pair: "docs", pairLabel: "Documents", path: "old.txt", localPath: "/home/me/gdrive/old.txt", since: iso(NOW - HOUR) },
-    { kind: "renamed", pair: "inbox", pairLabel: "Agent uploads", path: "a.txt", to: RENAMED_TO, localPath: "/home/me/outbox/a.txt", since: iso(NOW - HOUR) },
-    { kind: "removed-locally", pair: "docs", pairLabel: "Documents", path: "taxes/receipts.pdf", localPath: "/home/me/gdrive/taxes/receipts.pdf", since: iso(NOW - HOUR) }
+    { kind: "both-changed", pair: "docs", pairLabel: "Documents", path: "taxes/2025.xlsx", localPath: "/home/me/gdrive/taxes/2025.xlsx", storedPath: "/home/me/.local/state/vgshell/google-drive/pairs/docs/conflicts/20261010T110000Z-7/taxes/2025.xlsx", since: iso(NOW - HOUR), needs: "you" },
+    { kind: "removed-on-drive", pair: "docs", pairLabel: "Documents", path: "old.txt", localPath: "/home/me/gdrive/old.txt", since: iso(NOW - HOUR), needs: "nothing" },
+    { kind: "renamed", pair: "inbox", pairLabel: "Agent uploads", path: "a.txt", to: RENAMED_TO, localPath: "/home/me/outbox/a.txt", since: iso(NOW - HOUR), needs: "nothing" },
+    { kind: "removed-locally", pair: "docs", pairLabel: "Documents", path: "taxes/receipts.pdf", localPath: "/home/me/gdrive/taxes/receipts.pdf", since: iso(NOW - HOUR), needs: "nothing" }
 ];
-// The two kinds a download leg records: a file it could not copy, with no
-// copy here and so no local path, then one with an older copy here, with
-// rclone's reason, and a name Drive holds twice.
+// The kinds a download leg records: a dangling shortcut with no copy
+// here and so no local path, then one with an older copy here, with
+// rclone's reason, and a name Drive holds twice in two different files,
+// one of them the user's.
+const DANGLING = "failed to open source object: can't read dangling shortcut";
 const DRIVE_CONFLICTS = [
-    { kind: "unreadable-on-drive", pair: "docs", pairLabel: "Documents", path: "reports/Plan \u2013 first draft.pdf", reason: "failed to open source object: can't read dangling shortcut", since: iso(NOW - HOUR) },
-    { kind: "unreadable-on-drive", pair: "docs", pairLabel: "Documents", path: "reports/Second gone.pdf", localPath: "/home/me/gdrive/reports/Second gone.pdf", reason: "failed to open source object: can't read dangling shortcut", since: iso(NOW - HOUR) },
-    { kind: "duplicate-different", pair: "docs", pairLabel: "Documents", path: "reports/Twice listed.txt", localPath: "/home/me/gdrive/reports/Twice listed.txt", since: iso(NOW - HOUR) }
+    { kind: "unreadable-on-drive", pair: "docs", pairLabel: "Documents", path: "reports/Plan \u2013 first draft.pdf", reason: DANGLING, since: iso(NOW - HOUR), needs: "nothing" },
+    { kind: "unreadable-on-drive", pair: "docs", pairLabel: "Documents", path: "reports/Second gone.pdf", localPath: "/home/me/gdrive/reports/Second gone.pdf", reason: DANGLING, since: iso(NOW - HOUR), needs: "nothing" },
+    { kind: "duplicate-different", pair: "docs", pairLabel: "Documents", path: "reports/Twice listed.txt", localPath: "/home/me/gdrive/reports/Twice listed.txt", since: iso(NOW - HOUR), mine: true, needs: "you" }
 ];
+// A doubled name as the runner's status record carries it (bin/google-drive
+// conflictsOf): IDENTICAL or not, MINE, and OWNER when given.
+const OWNER = "colleague@example.com";
+const doubled = (name, identical, mine, owner) => Object.assign({ kind: identical ? "duplicate-identical" : "duplicate-different", pair: "docs", pairLabel: "Documents", path: "legal/" + name, localPath: "/home/me/gdrive/legal/" + name, since: iso(NOW - HOUR), mine: mine, needs: !identical && mine ? "you" : "nothing" }, owner === undefined ? {} : { owner: owner });
+// A record's `needsYou` is its count of rows that need the user, unless
+// OVER names it.
 function record(over) {
+    const r = recordOf(over);
+    if (!Object.prototype.hasOwnProperty.call(over || {}, "needsYou")) r.needsYou = r.conflicts.filter(c => c.needs === "you").length;
+    return r;
+}
+function recordOf(over) {
     return Object.assign({
         state: "authorization-required",
         paused: false,
@@ -139,9 +156,36 @@ function verify(L) {
         ["a file not copied with no reason", JSON.stringify(record({ conflicts: [Object.assign({}, DRIVE_CONFLICTS[0], { reason: undefined })] })), "status=conflicts"],
         ["a local edit with no kept copy", JSON.stringify(record({ conflicts: [Object.assign({}, CONFLICTS[0], { storedPath: "relative" })] })), "status=conflicts"],
         ["attention with no key", JSON.stringify(record({ attention: { reasons: [], notified: false } })), "status=attention"],
-        ["attention with no notified", JSON.stringify(record({ attention: { reasons: [], key: "k" } })), "status=attention"]
+        ["attention with no notified", JSON.stringify(record({ attention: { reasons: [], key: "k" } })), "status=attention"],
+        ["a row with no needs mark", JSON.stringify(record({ conflicts: [Object.assign({}, CONFLICTS[1], { needs: undefined })] })), "status=conflicts"],
+        ["a needs mark the runner never writes", JSON.stringify(record({ conflicts: [Object.assign({}, CONFLICTS[1], { needs: "maybe" })] })), "status=conflicts"],
+        ["the earlier doubled-name kind", JSON.stringify(record({ conflicts: [{ kind: "duplicate-on-drive", pair: "docs", pairLabel: "Documents", path: "reports/Twice listed.txt", localPath: "/home/me/gdrive/reports/Twice listed.txt", since: iso(NOW - HOUR), needs: "nothing" }] })), "status=conflicts"],
+        ["a doubled name with no mine", JSON.stringify(record({ conflicts: [Object.assign({}, doubled("a.pdf", true, true), { mine: undefined })] })), "status=conflicts"],
+        ["mine as text", JSON.stringify(record({ conflicts: [doubled("a.pdf", true, "yes")] })), "status=conflicts"],
+        ["mine on a row that is no doubled name", JSON.stringify(record({ conflicts: [Object.assign({}, CONFLICTS[1], { mine: true })] })), "status=conflicts"],
+        ["an owner on the user's own copies", JSON.stringify(record({ conflicts: [doubled("a.pdf", true, true, OWNER)] })), "status=conflicts"],
+        ["an owner that is no address", JSON.stringify(record({ conflicts: [doubled("a.pdf", true, false, "a colleague")] })), "status=conflicts"],
+        ["an owner with a line break", JSON.stringify(record({ conflicts: [doubled("a.pdf", true, false, "colleague@example.com\nx")] })), "status=conflicts"],
+        ["an owner on a row that is no doubled name", JSON.stringify(record({ conflicts: [Object.assign({}, CONFLICTS[1], { owner: OWNER })] })), "status=conflicts"],
+        ["no needs-you count", JSON.stringify(record({ needsYou: undefined })), "status=needsYou"],
+        ["a needs-you count as text", JSON.stringify(record({ needsYou: "1" })), "status=needsYou"],
+        ["a needs-you count that counts the notes", JSON.stringify(record({ needsYou: CONFLICTS.length })), "status=needsYou"]
     ];
     for (const [label, text, error] of bad) same(L.parseStatus(text), { ok: false, error }, label);
+    // The runner's doubled-name records (bin/google-drive duplicateRecord,
+    // conflictsOf), each judged whole.
+    const RUNNER_DOUBLED = [
+        ["identical, the user's", doubled("a.pdf", true, true)],
+        ["different, the user's", doubled("b.pdf", false, true)],
+        ["identical, shared by an owner", doubled("c.pdf", true, false, OWNER)],
+        ["different, shared by an owner", doubled("d.pdf", false, false, OWNER)],
+        ["identical, no owner named", doubled("e.pdf", true, false)],
+        ["different, no owner named", doubled("f.pdf", false, false)]
+    ];
+    for (const [label, c] of RUNNER_DOUBLED) {
+        const judgedDoubled = L.parseStatus(JSON.stringify(well({ conflicts: [c] })));
+        assert.equal(judgedDoubled.ok, true, label + ": " + judgedDoubled.error);
+    }
 
     // The probe judge: a token's row may carry the account it connected
     // as; no other row may, and a value that is no address is refused.
@@ -371,45 +415,92 @@ function verify(L) {
         ["units stale while paused", well({ units: "stale", state: "paused", paused: true, pairs: [PAUSED_DOCS] }), { primary: { text: "Set up hourly sync", icon: "cloud-cog", action: "setup", enabled: true }, pause: { text: "Resume", icon: "play", action: "resume" }, add: true }]
     ];
     for (const [label, rec, want] of footers) same(footer(rec), want, "footer: " + label);
-    // Each review row whole, one of each kind: its full text, uncut, the
-    // folder line of the copy its text speaks of, and the folders Open
-    // folders opens.
+    // Each review row by its fields: its needs mark and local-action flag
+    // as the record and its kind give them, the folders Open folders opens,
+    // and whether a folder line names the copy its line speaks of.
     const KEPT = "/home/me/.local/state/vgshell/google-drive/pairs/docs/conflicts/20261010T110000Z-7/taxes";
-    same(L.conflictGroups(cloud.conflicts), [
-        { label: "Documents", rows: [
-            { label: "taxes/2025.xlsx", detail: "Changed here and on Google Drive. The older copy is kept for 30 days.", folder: "The older copy is in this folder: " + KEPT, dirs: ["/home/me/gdrive/taxes", KEPT] },
-            { label: "old.txt", detail: "Removed from Google Drive. The copy here stays.", folder: "The copy here is in this folder: /home/me/gdrive", dirs: ["/home/me/gdrive"] },
-            { label: "taxes/receipts.pdf", detail: "Removed here. VGS copied it back from Google Drive.", folder: "", dirs: ["/home/me/gdrive/taxes"] }
-        ] },
-        { label: "Agent uploads", rows: [
-            { label: "a.txt", detail: "Renamed on Google Drive. The old name was copied back to Google Drive. New name: " + RENAMED_TO + ".", folder: "", dirs: ["/home/me/outbox"] }
-        ] }
-    ]);
-    // A file not copied reads with rclone's reason and has no
-    // folder to open; a doubled name opens the folder of the copy here.
+    const UNKNOWN_REASON = Object.assign({}, DRIVE_CONFLICTS[0], { path: "reports/Held.pdf", reason: "failed to open source object: stand-in cause", needs: "you" });
+    const ROWS = [
+        // label, record row, needs, local action, dirs, folder line
+        ["a change on both sides with the copy that was here kept", CONFLICTS[0], "you", true, ["/home/me/gdrive/taxes", KEPT], true],
+        ["a change on both sides uploaded from here", Object.assign({}, CONFLICTS[0], { storedPath: undefined }), "you", true, ["/home/me/gdrive/taxes"], false],
+        ["a Drive deletion put back", CONFLICTS[1], "nothing", true, ["/home/me/gdrive"], false],
+        ["a Drive rename", CONFLICTS[2], "nothing", true, ["/home/me/outbox"], false],
+        ["a local deletion put back", CONFLICTS[3], "nothing", true, ["/home/me/gdrive/taxes"], false],
+        ["a dangling shortcut never copied", DRIVE_CONFLICTS[0], "nothing", false, [], false],
+        ["a dangling shortcut with an earlier copy here", DRIVE_CONFLICTS[1], "nothing", false, [], true],
+        ["a file not copied for another reason", UNKNOWN_REASON, "you", false, [], false],
+        ["identical copies, the user's", doubled("a.pdf", true, true), "nothing", false, [], false],
+        ["different copies, the user's", doubled("b.pdf", false, true), "you", false, [], false],
+        ["identical copies shared by an owner", doubled("c.pdf", true, false, OWNER), "nothing", false, [], false],
+        ["different copies shared by an owner", doubled("d.pdf", false, false, OWNER), "nothing", false, [], false],
+        ["identical copies, no owner named", doubled("e.pdf", true, false), "nothing", false, [], false],
+        ["different copies, no owner named", doubled("f.pdf", false, false), "nothing", false, [], false]
+    ];
+    const rowOf = c => {
+        const judgedRow = L.parseStatus(JSON.stringify(well({ conflicts: [c] })));
+        assert.equal(judgedRow.ok, true, c.path + ": " + judgedRow.error);
+        const published = L.cloudValue(judgedRow.record, "").conflicts[0];
+        return [published, L.conflictGroups([published])[0].rows[0]];
+    };
+    const details = {};
+    for (const [label, c, needs, local, dirs, folder] of ROWS) {
+        const [published, row] = rowOf(c);
+        same([published.needs, published.localAction, published.dirs], [needs, local, dirs], label + ": the published row");
+        same([row.needs, row.localAction, row.dirs, row.folder !== ""], [needs, local, dirs, folder], label + ": the window row");
+        assert.equal(row.label, c.path, label + ": the row names its file");
+        assert.ok(typeof row.detail === "string" && row.detail !== "", label + ": the row has its line");
+        details[label] = row.detail;
+    }
+    // Each case of a kind takes its own line: who can act on a doubled
+    // name, a kept copy or an upload, a dangling shortcut or another cause.
+    const cases = ["identical copies, the user's", "identical copies shared by an owner", "identical copies, no owner named",
+        "different copies, the user's", "different copies shared by an owner", "different copies, no owner named"];
+    assert.equal(new Set(cases.map(c => details[c])).size, cases.length, "each doubled-name case has its own line");
+    assert.notEqual(details["a change on both sides with the copy that was here kept"], details["a change on both sides uploaded from here"]);
+    assert.notEqual(details["a dangling shortcut never copied"], details["a file not copied for another reason"]);
+    assert.ok(details["identical copies shared by an owner"].includes(OWNER) && details["different copies shared by an owner"].includes(OWNER), "a shared doubled name names its owner");
+    for (const c of cases.filter(c => !c.includes("shared"))) assert.ok(!details[c].includes("@"), c + ": names no one");
+    assert.ok(details["a Drive rename"].includes(RENAMED_TO), "a rename names its new name");
+    // The folder line names the folder of the copy it speaks of.
+    assert.ok(rowOf(CONFLICTS[0])[1].folder.endsWith(KEPT), "the kept copy's folder");
+    assert.ok(rowOf(DRIVE_CONFLICTS[1])[1].folder.endsWith("/home/me/gdrive/reports"), "the earlier copy's folder");
+    // The needs-you count the record publishes reaches the window's data.
+    const drivenRecord = L.parseStatus(JSON.stringify(well({ conflicts: CONFLICTS.concat(DRIVE_CONFLICTS) })));
+    assert.equal(drivenRecord.ok, true, drivenRecord.error);
+    assert.equal(L.cloudValue(drivenRecord.record, "").needsYou, 2, "one change on both sides and one doubled name of the user's");
+    // A file not copied reads by rclone's reason, never in rclone's words.
     const driveSide = L.parseStatus(JSON.stringify(well({ conflicts: DRIVE_CONFLICTS })));
     assert.equal(driveSide.ok, true, driveSide.error);
     const driveCloud = L.cloudValue(driveSide.record, "");
-    same(L.conflictGroups(driveCloud.conflicts), [
-        { label: "Documents", rows: [
-            { label: DRIVE_CONFLICTS[0].path, detail: "VGS could not copy this file from Google Drive. It is a Google Drive shortcut to a file that no longer exists.", folder: "", dirs: [] },
-            { label: DRIVE_CONFLICTS[1].path, detail: "VGS could not copy this file from Google Drive. It is a Google Drive shortcut to a file that no longer exists.", folder: "The older copy here is in this folder: /home/me/gdrive/reports", dirs: ["/home/me/gdrive/reports"] },
-            { label: DRIVE_CONFLICTS[2].path, detail: "Google Drive holds two files with this name. VGS copied one of them.", folder: "", dirs: ["/home/me/gdrive/reports"] }
-        ] }
-    ]);
     same(L.headline(driveCloud, NOW).text, "3 files to review");
-    // A reason the table does not know reads in the default words, and no
-    // published value holds rclone's text.
-    const unknown = L.cloudValue(well({ conflicts: [Object.assign({}, DRIVE_CONFLICTS[0], { reason: "failed to open source object: stand-in cause" })] }), "");
-    same(L.conflictRow(unknown.conflicts[0]).detail, "VGS could not copy this file from Google Drive. Google Drive did not let VGS read it.");
+    const unknown = L.cloudValue(well({ conflicts: [UNKNOWN_REASON] }), "");
     for (const value of [driveCloud, unknown]) assert.ok(!JSON.stringify(value).includes("failed to open source object"), "rclone's text is published");
-    same(subtitle(L.windowStatus(driveCloud, NOW, Timestamp.text))[1], ["First file to review: " + DRIVE_CONFLICTS[0].path, ""]);
-    // A change on both sides with no kept copy names no folder.
-    same(L.conflictRow(L.cloudValue(well({ conflicts: [Object.assign({}, CONFLICTS[0], { storedPath: undefined })] }), "").conflicts[0]).folder, "");
-
+    // Rows that need the user come first, in the list, in each pair's
+    // group and in the pair order, and the cap cuts notes before them.
+    same(driveCloud.conflicts.map(c => c.needs), ["you", "nothing", "nothing"], "the user's doubled name comes first");
+    same(subtitle(L.windowStatus(driveCloud, NOW, Timestamp.text))[1], ["First file to review: " + DRIVE_CONFLICTS[2].path, ""]);
+    const INBOX_NOTE = Object.assign({}, CONFLICTS[2], { path: "note.txt" });
+    const mixed = L.cloudValue(well({ conflicts: [INBOX_NOTE, CONFLICTS[1], DRIVE_CONFLICTS[0], CONFLICTS[0], CONFLICTS[3], DRIVE_CONFLICTS[2]] }), "");
+    same(mixed.conflicts.map(c => c.path), [CONFLICTS[0].path, DRIVE_CONFLICTS[2].path, INBOX_NOTE.path, CONFLICTS[1].path, DRIVE_CONFLICTS[0].path, CONFLICTS[3].path], "needs-you first, each part in the record's order");
+    same(L.conflictGroups(mixed.conflicts).map(g => [g.label, g.rows.map(r => r.needs)]), [["Documents", ["you", "you", "nothing", "nothing", "nothing"]], ["Agent uploads", ["nothing"]]], "the group of the first row that needs the user leads");
+    const notes = Array.from({ length: L.CONFLICTS_MAX + 5 }, (_, i) => Object.assign({}, CONFLICTS[1], { path: "n" + i + ".txt" }));
+    const overCap = L.cloudValue(well({ conflicts: notes.concat([CONFLICTS[0]]) }), "");
+    assert.equal(overCap.conflicts.length, L.CONFLICTS_MAX);
+    same([overCap.conflicts[0].path, overCap.conflicts[0].needs], [CONFLICTS[0].path, "you"], "the cap keeps the row that needs the user");
+    const heavy = record({ conflicts: Array.from({ length: 500 }, (_, i) => Object.assign({}, CONFLICTS[1], { path: "f" + i + ".txt", localPath: "/home/me/gdrive/" + "x".repeat(3000) + "/f" + i + ".txt" })).concat([CONFLICTS[0]]) });
+    const heavyCloud = L.cloudValue(heavy, "");
+    assert.ok(heavyCloud.conflicts.length < L.CONFLICTS_MAX, "the byte ceiling cuts the list");
+    assert.equal(heavyCloud.conflicts[0].needs, "you", "the byte ceiling keeps the row that needs the user");
     // The notification: one per reason in order of need.
     same(L.notification(good.record), { title: "Google Drive needs Connect", message: "Google Drive did not accept Connect. [Select Connect again on the Google Drive page](page:vgs.google-drive/Setup).", tone: "danger" });
-    same(L.notification(record({ attention: { reasons: ["conflicts"], key: "k", notified: false } })), { title: "Google Drive sync kept files for review", message: "4 files to review. Open the Google Drive window to see them.", tone: "warning" });
+    // The conflicts reason counts the rows that need the user: four rows,
+    // one of which needs the user, notify as that one row alone does, and
+    // two that need the user do not.
+    const asked = conflicts => L.notification(record({ conflicts, attention: { reasons: ["conflicts"], key: "k", notified: false } }));
+    assert.equal(asked(CONFLICTS).tone, "warning");
+    same(asked(CONFLICTS), asked(CONFLICTS.slice(0, 1)), "the notes raise no count");
+    assert.notEqual(asked(CONFLICTS).message, asked([CONFLICTS[0], DRIVE_CONFLICTS[2]]).message, "the count is the rows that need the user");
     same(L.notification(record({ lastError: { kind: "offline" }, attention: { reasons: ["error"], key: "k", notified: false } })).tone, "danger");
     same(L.notification(record({ attention: { reasons: ["units-stale"], key: "k", notified: false } })), { title: "Google Drive needs setup", message: "[Select Set up hourly sync in Google Drive Details](page:vgs.google-drive/Details).", tone: "warning" });
     assert.equal(L.notification(record({ attention: null })), null);
@@ -506,8 +597,7 @@ const controls = [
     ["a file not copied carries its reason", " && (c.kind !== \"unreadable-on-drive\" || isText(c.reason))", ""],
     ["a file not copied with no copy here needs no local path", "(c.kind === \"unreadable-on-drive\" && !hasOwn(c, \"localPath\")) || ", ""],
     ["only a file not copied may lack its local path", "c.kind === \"unreadable-on-drive\" && !hasOwn(c, \"localPath\")", "!hasOwn(c, \"localPath\")"],
-    ["a file not copied names its older copy's folder", "hasOwn(CONFLICT_FOLDER_TEXT, conflict.kind) ? conflict.dirs[0]", "conflict.kind === \"removed-on-drive\" ? conflict.dirs[0]"],
-    ["a review row gives the reason", "if (conflict.kind === \"unreadable-on-drive\") what += ", "if (false) what += "],
+    ["a file not copied names its earlier copy's folder", "if (conflict.kind === \"unreadable-on-drive\" && conflict.localPath !== undefined) return dirname(conflict.localPath);", ""],
     ["a known reason reads in its own words", "return row === undefined ? REASON_DEFAULT : row.text;", "return REASON_DEFAULT;"],
     ["an unknown reason reads in the default words", "return row === undefined ? REASON_DEFAULT : row.text;", "return row === undefined ? reason : row.text;"],
     ["a pair with files to review does not read up to date", "if (pair.state === \"idle\" && pair.review > 0) return {", "if (false) return {"],
@@ -515,7 +605,24 @@ const controls = [
     ["a paused pair reads its pause", "if (pair.state === \"idle\" && pair.review > 0) return {", "if (pair.review > 0) return {"],
     ["the pair lines read the pair's view", "return p.label + \": \" + pairView(p, now).text;", "return p.label + \": \" + stateView(p.state, p.staleAfter, now).text;"],
     ["a review group holds each pair's files", "if (group === undefined) {", "if (true) {"],
-    ["a change on both sides names the kept copy's folder", "conflict.kind === \"both-changed\" ? conflict.dirs[1] : ", ""],
+    ["a change on both sides names the kept copy's folder", "if (conflict.kind === \"both-changed\" && conflict.storedPath !== undefined) return dirname(conflict.storedPath);", ""],
+    ["a row needs its needs mark", "\n        && NEEDS.indexOf(c.needs) !== -1", ""],
+    ["only a doubled name carries mine", "(duplicate ? typeof c.mine === \"boolean\" : !hasOwn(c, \"mine\"))", "true"],
+    ["an owner is a not-mine doubled name's address", "(!hasOwn(c, \"owner\") || (duplicate && c.mine === false && isAddress(c.owner)))", "true"],
+    ["the earlier doubled-name kind is refused", "\"duplicate-different\"];\nvar DUPLICATE_KINDS", "\"duplicate-different\", \"duplicate-on-drive\"];\nvar DUPLICATE_KINDS"],
+    ["the needs-you count is judged", "if (doc.needsYou !== doc.conflicts.filter(function (c) { return c.needs === \"you\"; }).length) return", "if (false) return"],
+    ["the window's data carries the needs-you count", "needsYou: record.needsYou,", ""],
+    ["rows that need the user come first", "needsFirst(record.conflicts).slice(0, CONFLICTS_MAX)", "record.conflicts.slice(0, CONFLICTS_MAX)"],
+    ["the cap cuts after the sort", "needsFirst(record.conflicts).slice(0, CONFLICTS_MAX)", "needsFirst(record.conflicts.slice(0, CONFLICTS_MAX))"],
+    ["a row carries the record's needs", "needs: c.needs, localAction:", "needs: \"you\", localAction:"],
+    ["a fix in Google Drive has no local action", "if (LOCAL_ACTION_KINDS.indexOf(conflict.kind) === -1 || conflict.localPath === undefined) return [];", "if (conflict.localPath === undefined) return [];"],
+    ["the local-action flag reads the folders", "localAction: dirs.length > 0", "localAction: true"],
+    ["the window row carries the mark and the flag", "needs: conflict.needs, localAction: conflict.localAction }", "needs: \"you\", localAction: true }"],
+    ["a doubled name the user owns says what they do", "if (DUPLICATE_KINDS.indexOf(conflict.kind) === -1 || conflict.mine) return conflict.kind;", "if (DUPLICATE_KINDS.indexOf(conflict.kind) === -1) return conflict.kind;"],
+    ["a shared doubled name names who can fix it", "conflict.kind + (conflict.owner !== undefined ? \"-shared\" : \"-unowned\")", "conflict.kind + \"-unowned\""],
+    ["a change on both sides says which copy is here", "return conflict.copyFolder !== undefined ? \"both-changed-kept\" : \"both-changed\";", "return \"both-changed-kept\";"],
+    ["a rename names its new name", ".replace(\"{to}\", function () { return conflict.to; })", ""],
+    ["the notification counts the rows that need the user", "needsLine(record.needsYou)", "needsLine(record.conflicts.length)"],
     ["a connection notifies first", "if (reasons.indexOf(\"authorization-required\") !== -1)\n", "if (false)\n"],
     ["no file to review draws no count", "cloud.conflictCount > 0 ? String(cloud.conflictCount) : \"\"", "String(cloud.conflictCount)"],
     ["no folder pair hides the icon", "if (cloud === undefined || cloud === null || (cloud.pairs.length === 0 && pairListValid(cloud))) return", "if (cloud === undefined || cloud === null) return"],

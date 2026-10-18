@@ -28,6 +28,13 @@ A duplicate record holds `mine`, true when the signed-in account, the token's `u
 
 In the status record each of `conflicts` carries `needs`, `you` or `nothing`, from the table, and `needsYou` counts the `you` rows. The `conflicts` attention reason and its key take only the `you` rows, so a note never notifies.
 
+The plugin's judge, `GoogleDriveLogic.parseStatus`, refuses a record whose `needsYou` is not that count, a row with no `needs`, `mine` on a row that is no doubled name, and `owner` other than on a doubled name that is not `mine`. The published `cloud` value carries `needsYou` and lists the rows that need the user first, in each folder pair's group too, before it caps the list, so the cap cuts notes first. Each of its `conflicts`, and each row `conflictRow` makes, carries:
+
+- `needs`: the record's `you` or `nothing`.
+- `localAction`: whether the row has an action on this computer. It is true for a `both-changed`, `removed-locally`, `removed-on-drive` or `renamed` row whose file is here, and then `dirs` names the folders Open folders opens. A doubled name and a file the download could not copy are fixed in Google Drive, so their rows have no action here, whoever owns the copies.
+
+Each row's line says what happened and what the user does, or that nothing is lost: a doubled name the user owns says how to clear it, one another account owns names that owner when the record does, and a `both-changed` row says whether VGS kept the copy that was here or copied it to Drive.
+
 An earlier runner recorded a doubled name as `duplicate-on-drive`, with no copy facts. The first invocation of this runner drops those records, logging `migration=pair-state ... dropped=duplicate-on-drive`, since reading the copies needs Google Drive and that step runs without it; the next sync that meets the name records it whole. A status record that an earlier runner notified of stays notified across the new attention key.
 
 A pair that another run holds reads `busy` and copies nothing.

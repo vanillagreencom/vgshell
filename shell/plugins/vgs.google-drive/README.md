@@ -13,8 +13,8 @@ VGS keeps Google Drive folders on this computer and in Google Drive. It runs eve
 - When both sides changed, VGS keeps the older local copy in its records for 30 days when Google Drive was newer. When this computer was newer, Google Drive keeps the older Drive copy in the file version history for 30 days.
 - Editor temporary files, unfinished downloads, Git and agent folders, `local/`, keys and credential files and old backups are never copied.
 - Once a folder pair exists, a bar icon shows the state: up to date, files to review, syncing, paused, offline, Connect needed or failed, with the count of files to review. The bar, the window and the Settings page show the same state. The tooltip names each folder pair and its state. It never shows a file name or an account.
-- A window with the state, the last complete sync, the last problem, the folder pairs with Remove, and the files to review, with Sync now, Pause and Resume.
-- A notification when Google Drive needs you: Connect, a failed sync or files to review.
+- A window with the state, the last complete sync, the last problem, the folder pairs with Remove, and the files to review, with Sync now, Pause and Resume. Each file says what happened and what to do, or that nothing is lost. The files that need you come first.
+- A notification when Google Drive needs you: Connect, a failed sync or a file that needs you. A file that needs nothing, such as a file VGS put back, sends no notification.
 - Pause stays on after VGS or the computer restarts. Disabling the plugin does not stop the hourly sync.
 - When Google Drive cannot be reached, the files stay as the last complete sync left them, and the window shows the time of that sync.
 

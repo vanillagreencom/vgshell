@@ -15,6 +15,15 @@ var STATES = ["idle", "running", "paused", "offline", "authorization-required", 
 var PAIR_STATES = ["idle", "running", "paused", "offline", "authorization-required", "error"];
 var UNITS = ["installed", "absent", "stale"];
 var CONFLICT_KINDS = ["both-changed", "removed-locally", "removed-on-drive", "renamed", "unreadable-on-drive", "duplicate-identical", "duplicate-different"];
+var DUPLICATE_KINDS = ["duplicate-identical", "duplicate-different"];
+// Whether a review record needs the user or only says what the sync did
+// (bin/google-drive needsOf decides it; this file only reads it).
+var NEEDS = ["you", "nothing"];
+// The kinds whose row has an action on this computer: each leaves the file
+// here, where the user checks it or deletes it. A name Drive holds twice
+// and a file the download could not copy are fixed in Google Drive, so
+// their rows have none.
+var LOCAL_ACTION_KINDS = ["both-changed", "removed-locally", "removed-on-drive", "renamed"];
 var PRESENCES = ["present", "absent", "locked", "unavailable"];
 // The credential accounts of the manifest's `secrets`, in the order the
 // Setup section lists them (bin/google-drive probe prints the same set).
@@ -74,30 +83,41 @@ var PAGE_ERROR_TEXT = {
     "authorization-refused": "Google Drive did not accept Connect. Select Connect again below.",
     "credential-absent": "A Google Drive key or connection is missing. Add the client ID and secret, then select Connect below."
 };
+// Each review row's one line: what the sync did, then what the user does,
+// or that nothing is lost and how to clear the note. A variant key is the
+// record's kind, or a kind and its case (conflictVariant). {to} is a
+// Drive rename's new name, {owner} the address that owns a doubled name's
+// copies. VGS keeps a displaced copy for 30 days (bin/google-drive
+// KEEP_MS); Drive keeps an earlier revision of an upload under its own
+// retention (developer.md).
 var CONFLICT_TEXT = {
-    "both-changed": "Changed here and on Google Drive. The older copy is kept for 30 days.",
-    "removed-locally": "Removed here. VGS copied it back from Google Drive.",
-    "removed-on-drive": "Removed from Google Drive. The copy here stays.",
-    renamed: "Renamed on Google Drive. The old name was copied back to Google Drive.",
-    "unreadable-on-drive": "VGS could not copy this file from Google Drive.",
-    "duplicate-identical": "Google Drive holds two files with this name. VGS copied one of them.",
-    "duplicate-different": "Google Drive holds two files with this name. VGS copied one of them."
+    "both-changed-kept": "Changed here and on Google Drive. The Google Drive version is here now. Compare it with the copy that was here, which VGS keeps for 30 days.",
+    "both-changed": "Changed here and on Google Drive. The copy here was newer, so VGS copied it to Google Drive. If you need the other version, open the file's version history in Google Drive.",
+    "removed-locally": "Removed here. VGS put it back from Google Drive, so nothing is lost. If you do not want it, delete it here and in Google Drive.",
+    "removed-on-drive": "Removed from Google Drive. VGS put it back from this computer, so nothing is lost. If you do not want it, delete it here and in Google Drive.",
+    renamed: "Renamed to {to} on Google Drive. VGS deletes no file, so both names are now here and on Google Drive. If you do not want this name, delete it here and in Google Drive.",
+    "duplicate-identical": "Google Drive has identical copies of this file, so nothing is lost. To clear this note, keep one copy in Google Drive and delete the others.",
+    "duplicate-identical-shared": "Google Drive has identical copies of this file, so nothing is lost. Only {owner}, who shared them with you, can remove a copy.",
+    "duplicate-identical-unowned": "Google Drive has identical copies of this file, so nothing is lost. Only their owner can remove a copy.",
+    "duplicate-different": "Google Drive has different files with this name, and VGS copied only one of them. In Google Drive, rename one so VGS copies both, or delete the one you do not need.",
+    "duplicate-different-shared": "Google Drive has different files with this name, and VGS copied only one of them. Only {owner}, who shared them with you, can remove one.",
+    "duplicate-different-unowned": "Google Drive has different files with this name, and VGS copied only one of them. Only their owner can remove one."
 };
 // The line that names the folder of the copy CONFLICT_TEXT speaks of,
-// before that folder's path: the kept older copy, or the copy here.
+// before that folder's path: the copy a download displaced, or the
+// earlier copy of a file the download could not copy.
 var CONFLICT_FOLDER_TEXT = {
-    "both-changed": "The older copy is in this folder: ",
-    "removed-on-drive": "The copy here is in this folder: ",
-    "unreadable-on-drive": "The older copy here is in this folder: "
+    "both-changed": "The copy that was here is in this folder: ",
+    "unreadable-on-drive": "An earlier copy is in this folder: "
 };
-// rclone's reason for a file it could not copy, as the words the review
-// row gives for it. The dangling shortcut row reads rclone v1.75.1's
-// "failed to open source object: can't read dangling shortcut". The raw
-// reason stays in the runner's record and log.
+// rclone's reason for a file it could not copy, as the review row's line
+// for it. The dangling shortcut row reads rclone v1.75.1's "failed to
+// open source object: can't read dangling shortcut". The raw reason stays
+// in the runner's record and log.
 var REASON_TEXT = [
-    { pattern: /dangling shortcut/, text: "It is a Google Drive shortcut to a file that no longer exists." }
+    { pattern: /dangling shortcut/, text: "This Google Drive shortcut points to a file VGS cannot open, so nothing was copied. If you do not need the shortcut, remove it in Google Drive." }
 ];
-var REASON_DEFAULT = "Google Drive did not let VGS read it.";
+var REASON_DEFAULT = "VGS could not copy this file from Google Drive. It tries again at each sync. If the file still does not copy, check that it opens in Google Drive.";
 
 var PAIR_RULE_TEXT = {
     shape: "Folder pair {id} is not a valid folder pair.",
@@ -201,11 +221,18 @@ function pairOk(p) {
         && PAIR_STATES.indexOf(p.state) !== -1 && isTime(p.lastSuccess) && isTime(p.staleAfter) && errorOk(p.lastError);
 }
 
+// A doubled name carries `mine` and, only when it is not the user's,
+// may carry `owner`, an address; no other kind carries either.
 function conflictOk(c) {
-    return isObject(c) && CONFLICT_KINDS.indexOf(c.kind) !== -1 && isText(c.pair) && isText(c.pairLabel) && isText(c.path)
+    if (!isObject(c)) return false;
+    var duplicate = DUPLICATE_KINDS.indexOf(c.kind) !== -1;
+    return CONFLICT_KINDS.indexOf(c.kind) !== -1 && isText(c.pair) && isText(c.pairLabel) && isText(c.path)
         && ((c.kind === "unreadable-on-drive" && !hasOwn(c, "localPath")) || (isText(c.localPath) && c.localPath.charAt(0) === "/"))
         && (c.kind !== "both-changed" || !hasOwn(c, "storedPath") || (isText(c.storedPath) && c.storedPath.charAt(0) === "/"))
-        && (c.kind !== "renamed" || isText(c.to)) && (c.kind !== "unreadable-on-drive" || isText(c.reason)) && isTime(c.since);
+        && (c.kind !== "renamed" || isText(c.to)) && (c.kind !== "unreadable-on-drive" || isText(c.reason)) && isTime(c.since)
+        && NEEDS.indexOf(c.needs) !== -1
+        && (duplicate ? typeof c.mine === "boolean" : !hasOwn(c, "mine"))
+        && (!hasOwn(c, "owner") || (duplicate && c.mine === false && isAddress(c.owner)));
 }
 
 // The one judge of the runner's status record, status.json or `status`'s
@@ -226,6 +253,7 @@ function parseStatus(text) {
     if (!errorOk(doc.lastError)) return { ok: false, error: "status=lastError" };
     if (!Array.isArray(doc.pairs) || !doc.pairs.every(pairOk)) return { ok: false, error: "status=pairs" };
     if (!Array.isArray(doc.conflicts) || !doc.conflicts.every(conflictOk)) return { ok: false, error: "status=conflicts" };
+    if (doc.needsYou !== doc.conflicts.filter(function (c) { return c.needs === "you"; }).length) return { ok: false, error: "status=needsYou" };
     if (doc.attention !== null && !(isObject(doc.attention) && Array.isArray(doc.attention.reasons) && isText(doc.attention.key)
         && typeof doc.attention.notified === "boolean"))
         return { ok: false, error: "status=attention" };
@@ -309,10 +337,6 @@ function pairListResetHint(error) {
     return pairListProblem(error) + " " + PAIRS_RESET_HINT;
 }
 
-function conflictText(kind) {
-    return CONFLICT_TEXT[kind];
-}
-
 function reasonText(reason) {
     var row = REASON_TEXT.find(function (r) { return r.pattern.test(reason); });
     return row === undefined ? REASON_DEFAULT : row.text;
@@ -326,10 +350,12 @@ function problemText(operation, firstLine) {
 
 
 // The folders Open folders opens for CONFLICT: the mirror's folder, and
-// for a local edit also the folder that keeps the local version. A file
-// the runner names no local path for has no copy here, so no folder.
+// for a local edit also the folder that keeps the local version. A kind
+// whose fix is in Google Drive (LOCAL_ACTION_KINDS) has no folder to open,
+// nor has a file the runner names no local path for. A row has an action
+// on this computer exactly when this gives a folder.
 function reviewDirs(conflict) {
-    if (conflict.localPath === undefined) return [];
+    if (LOCAL_ACTION_KINDS.indexOf(conflict.kind) === -1 || conflict.localPath === undefined) return [];
     var dirs = [dirname(conflict.localPath)];
     if (conflict.kind === "both-changed" && conflict.storedPath !== undefined) dirs.push(dirname(conflict.storedPath));
     return dirs;
@@ -349,16 +375,43 @@ function pairListValid(cloud) {
     return cloud.lastError === null || cloud.lastError.kind !== "pairs-invalid";
 }
 
+// The folder of the copy a row's folder line names (CONFLICT_FOLDER_TEXT),
+// or undefined: the copy a download displaced, kept beside the pair's
+// records, or the earlier copy here of a file the download could not copy.
+function copyFolder(conflict) {
+    if (conflict.kind === "both-changed" && conflict.storedPath !== undefined) return dirname(conflict.storedPath);
+    if (conflict.kind === "unreadable-on-drive" && conflict.localPath !== undefined) return dirname(conflict.localPath);
+    return undefined;
+}
+
+// CONFLICTS with the rows that need the user first, each part in the
+// record's order, so neither the review list's cap nor its byte ceiling
+// cuts a row that needs the user while a note stands.
+function needsFirst(conflicts) {
+    return conflicts.filter(function (c) { return c.needs === "you"; }).concat(conflicts.filter(function (c) { return c.needs !== "you"; }));
+}
+
 // The published `cloud` data the widget and the window draw: the record
 // with times as epoch milliseconds, each pair with `review`, the count of
-// its own files to review, the review list capped, each conflict with the
-// folders Open folders opens, a file not copied with `why`, its reason in
-// plain words, and the last failed request.
+// its own files to review, `needsYou`, the record's count of rows that
+// need the user, the review list needs-first and capped, and the last
+// failed request. Each conflict carries the record's `needs`,
+// `localAction`, whether it has an action on this computer, the folders
+// Open folders opens, `copyFolder` when its folder line names one, a
+// file not copied `why`, its line from rclone's reason, and a doubled
+// name `mine` and, when the record names one, `owner`.
 function cloudValue(record, problem) {
-    var conflicts = record.conflicts.slice(0, CONFLICTS_MAX).map(function (c) {
-        var out = { kind: c.kind, pairLabel: c.pairLabel, path: c.path, since: msOf(c.since), dirs: reviewDirs(c) };
+    var conflicts = needsFirst(record.conflicts).slice(0, CONFLICTS_MAX).map(function (c) {
+        var dirs = reviewDirs(c);
+        var out = { kind: c.kind, pairLabel: c.pairLabel, path: c.path, since: msOf(c.since), needs: c.needs, localAction: dirs.length > 0, dirs: dirs };
+        var copy = copyFolder(c);
+        if (copy !== undefined) out.copyFolder = copy;
         if (c.kind === "renamed") out.to = c.to;
         if (c.kind === "unreadable-on-drive") out.why = reasonText(c.reason);
+        if (DUPLICATE_KINDS.indexOf(c.kind) !== -1) {
+            out.mine = c.mine;
+            if (c.owner !== undefined) out.owner = c.owner;
+        }
         return out;
     });
     var value = {
@@ -374,6 +427,7 @@ function cloudValue(record, problem) {
         }),
         conflicts: conflicts,
         conflictCount: record.conflicts.length,
+        needsYou: record.needsYou,
         problem: problem
     };
     while (value.conflicts.length > 0 && JSON.stringify(value).length > CLOUD_BYTES_MAX) value.conflicts.pop();
@@ -382,6 +436,11 @@ function cloudValue(record, problem) {
 
 function reviewLine(count) {
     return count === 1 ? "1 file to review" : count + " files to review";
+}
+
+// COUNT files that need the user, the record's `needsYou`.
+function needsLine(count) {
+    return count === 1 ? "1 file needs you" : count + " files need you";
 }
 
 // Where the whole sync stands: { text, tone, icon, cause }, or null before
@@ -601,29 +660,34 @@ function pairRow(pair, now) {
     return { id: pair.id, label: pair.label, secondary: pairDrive(pair), icon: "folder-sync", text: view.text, tone: badgeTone(view.tone) };
 }
 
-// One conflict's row in the window: { label, detail, folder, dirs }, its
-// path, what happened, with the reason in plain words for a file it could
-// not copy, the line that names the folder of the copy the detail speaks of
-// ("" for none), and the folders Open folders opens. The window wraps
-// each line, so none is cut.
-function conflictRow(conflict) {
-    var what = conflictText(conflict.kind);
-    if (conflict.kind === "renamed") what += " New name: " + conflict.to + ".";
-    if (conflict.kind === "unreadable-on-drive") what += " " + conflict.why;
-    return { label: conflict.path, detail: what, folder: conflictFolder(conflict), dirs: conflict.dirs };
+// The CONFLICT_TEXT key of a published CONFLICT other than a file not
+// copied: a change on both sides by whether VGS kept the copy that was
+// here, a doubled name by whether the user owns a copy and else whether
+// the record names the owner.
+function conflictVariant(conflict) {
+    if (conflict.kind === "both-changed") return conflict.copyFolder !== undefined ? "both-changed-kept" : "both-changed";
+    if (DUPLICATE_KINDS.indexOf(conflict.kind) === -1 || conflict.mine) return conflict.kind;
+    return conflict.kind + (conflict.owner !== undefined ? "-shared" : "-unowned");
 }
 
-// The folder line of CONFLICT: a change on both sides names the folder
-// that keeps the older copy, reviewDirs' second, when the runner kept
-// one; a Drive deletion and a file not copied name the local folder,
-// reviewDirs' first, the latter only while an older copy is here.
-function conflictFolder(conflict) {
-    var dir = conflict.kind === "both-changed" ? conflict.dirs[1] : hasOwn(CONFLICT_FOLDER_TEXT, conflict.kind) ? conflict.dirs[0] : undefined;
-    return dir === undefined ? "" : CONFLICT_FOLDER_TEXT[conflict.kind] + dir;
+// One conflict's row in the window: { label, detail, folder, dirs, needs,
+// localAction }, its path, its one line (conflictVariant, or for a file
+// not copied the line of its reason), the line that names the folder of
+// the copy the detail speaks of ("" for none), the folders Open folders
+// opens, and the published `needs` and `localAction`. The window wraps
+// each line, so none is cut.
+function conflictRow(conflict) {
+    var what = conflict.kind === "unreadable-on-drive" ? conflict.why : CONFLICT_TEXT[conflictVariant(conflict)]
+        .replace("{to}", function () { return conflict.to; })
+        .replace("{owner}", function () { return conflict.owner; });
+    var folder = conflict.copyFolder === undefined ? "" : CONFLICT_FOLDER_TEXT[conflict.kind] + conflict.copyFolder;
+    return { label: conflict.path, detail: what, folder: folder, dirs: conflict.dirs, needs: conflict.needs, localAction: conflict.localAction };
 }
 
 // The review list by folder pair, in the order the list first names each:
-// [{ label, rows }], so a pair's label stands on its own line.
+// [{ label, rows }], so a pair's label stands on its own line. The list is
+// needs-first (cloudValue), so each group's rows that need the user come
+// first, and the pair of the first such row leads.
 function conflictGroups(conflicts) {
     var groups = [];
     conflicts.forEach(function (c) {
@@ -684,7 +748,7 @@ function notification(record) {
     if (reasons.indexOf("error") !== -1)
         return { title: "Google Drive sync failed", message: errorText(record.lastError), tone: "danger" };
     if (reasons.indexOf("conflicts") !== -1)
-        return { title: "Google Drive sync kept files for review", message: reviewLine(record.conflicts.length) + ". Open the Google Drive window to see them.", tone: "warning" };
+        return { title: "Google Drive needs you", message: needsLine(record.needsYou) + ". Open the Google Drive window to see what to do.", tone: "warning" };
     if (reasons.indexOf("units-stale") !== -1)
         return { title: "Google Drive needs setup", message: "[Select Set up hourly sync in Google Drive Details](page:vgs.google-drive/Details).", tone: "warning" };
     return null;

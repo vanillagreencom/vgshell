@@ -6936,7 +6936,7 @@ console.log(fields.map(f => String(read[f])).join(" "));' "$tree/bin/lib/qml-lib
 # the widget and its tooltip unless the code hides it, the Google Drive
 # window, and every screen of the Google Drive Settings page.
 cs_shots() {
-  local m="$1" s="$2" want="$3" fields=(cause) hidden box name f at
+  local m="$1" s="$2" want="$3" fields=(cause) hidden box name f at y page=2
   if [[ $# -gt 3 ]]; then want+=" $4"; fields+=(kind); fi
   expect "Google Drive reads its record again ($s)" ok ipc vgs.google-drive invoke refresh ""
   expect_poll "Google Drive's code reads the published values as $s" "$want" cs_code "${fields[@]}"
@@ -6965,6 +6965,14 @@ cs_shots() {
   elif [[ $at != \[0,* ]]; then
     take "googledrive-$m-$s-window-end"
     record_item "googledrive-$m-$s-window-end" "$(one_window "Google Drive")"
+    # And at each view between, nine tenths of a view apart, so a list
+    # longer than two views shows every row in a shot.
+    for y in $(node -e 'const [end, , view] = JSON.parse(process.argv[1]), step = Math.floor(view * 0.9); for (let y = step; y < end; y += step) console.log(y);' "$at"); do
+      ipc smoke scrollTo window vgs.google-drive "$y" >/dev/null || { fail "the Google Drive window did not scroll to $y ($s)"; break; }
+      take "googledrive-$m-$s-window-$page"
+      record_item "googledrive-$m-$s-window-$page" "$(one_window "Google Drive")"
+      page=$((page + 1))
+    done
   fi
   expect "the Google Drive window hides ($s)" ok ipc shell hide window vgs.google-drive
   expect_poll "the Google Drive window is gone ($s)" 0 window_count "Google Drive"
@@ -7011,15 +7019,17 @@ if [[ -f "$cs/fail" ]]; then echo "Failed to copy: stand-in sync error" >&2; exi
 cd "$drive" || exit 9
 # While \`unreadable\` names files of the Documents folder, one a line, its
 # download copies the rest, then prints rclone v1.75.1's lines for files it
-# could not open and a name Drive holds twice, and exits 1 as rclone did.
+# could not open and for each name \`doubled\` says Drive holds twice, and
+# exits 1 as rclone did.
 if [[ -f "$cs/unreadable" && \${3:-} == copy && \${5:-} == vgsdrive:Documents ]]; then
   mapfile -t gone <"$cs/unreadable"
+  mapfile -t twice <"$cs/doubled"
   skip=()
   for rel in "\${gone[@]}"; do skip+=(--exclude "/\$rel"); done
   "$host_rclone" "\$@" "\${skip[@]}" || exit 9
   why="failed to open source object: can't read dangling shortcut"
   for n in 1 2 3; do
-    printf '2026/10/13 00:03:27 NOTICE: %s: Duplicate object found in source - ignoring\\n' "Plans/Budget copy.xlsx" >&2
+    for rel in "\${twice[@]}"; do printf '2026/10/13 00:03:27 NOTICE: %s: Duplicate object found in source - ignoring\\n' "\$rel" >&2; done
     for rel in "\${gone[@]}"; do printf '2026/10/13 00:04:59 ERROR : %s: Failed to copy: %s\\n' "\$rel" "\$why" >&2; done
     printf '2026/10/13 00:04:59 ERROR : Attempt %s/3 failed with %s errors and: %s\\n' "\$n" "\${#gone[@]}" "\$why" >&2
   done
@@ -7034,6 +7044,12 @@ for a in "\$@"; do
   esac
 done
 [[ -n \$list ]] || exec "$host_rclone" "\$@"
+# A folder's read-only listing with Drive's owner metadata answers the
+# stand-in copies of its doubled names: a local folder holds one file a
+# name, and the local backend names no owner.
+for a in "\$@"; do
+  if [[ \$a == --drive-metadata-owner && -f "$cs/copies/\$remote.json" ]]; then cat -- "$cs/copies/\$remote.json"; exit 0; fi
+done
 listing="\$("$host_rclone" "\$@")" || exit
 printf '%s' "\$listing" | "$host_node" -e '
 const fs = require("fs"), path = require("path"), dir = process.argv[1];
@@ -7156,21 +7172,35 @@ SH
   mv -- "$drive/VGS/Uploads/report.md" "$drive/VGS/Uploads/October-planning-meeting-report-with-every-agent-task-its-owner-and-its-due-date.md"
   csr run || fail "googledrive scene: review run"
   cs_shots "$m" 8-review review
-  # Two Drive files the download cannot open and a name Drive holds twice.
-  # A runner that reads rclone's lines for them ends the pair synced with
-  # the files to review; one that does not ends it as a failed sync.
-  mkdir -p -- "$drive/Documents/Plans"
-  printf 'plan\n' >"$drive/Documents/Plans/Launch plan – final.pdf"
-  printf 'offsite\n' >"$drive/Documents/Plans/Team offsite.pdf"
-  printf 'budget copy\n' >"$drive/Documents/Plans/Budget copy.xlsx"
-  printf '%s\n' "Plans/Launch plan – final.pdf" "Plans/Team offsite.pdf" >"$cs/unreadable"
+  # A legal folder as the owner met it (VGS-1727): two dangling shortcuts
+  # the download cannot open, and names Drive holds twice, two in copies
+  # the user owns that are the same, one in copies the user owns that
+  # differ and one in copies a colleague owns. A runner that reads rclone's
+  # lines for them ends the pair synced with the files to review; one that
+  # does not ends it as a failed sync. The folder's listing gives each
+  # copy's size, md5 and owner.
+  mkdir -p -- "$drive/Documents/Legal" "$cs/copies/Documents"
+  for f in "Power of attorney.pdf" "Trust deed.pdf" "NDA signed.pdf" "Lease 2026.pdf" "Retainer agreement.docx" "Court filing.pdf"; do
+    printf '%s\n' "$f" >"$drive/Documents/Legal/$f"
+  done
+  printf '%s\n' "Legal/Power of attorney.pdf" "Legal/Trust deed.pdf" >"$cs/unreadable"
+  printf '%s\n' "Legal/NDA signed.pdf" "Legal/Lease 2026.pdf" "Legal/Retainer agreement.docx" "Legal/Court filing.pdf" >"$cs/doubled"
+  node -e '
+const copy = (name, md5, size, owner) => ({ Path: name, Name: name, Size: size, MimeType: "application/pdf", ModTime: "2026-09-01T10:00:00Z", IsDir: false, Hashes: { md5 }, Metadata: { owner } });
+const me = "a.person@example.com", colleague = "counsel@example.com";
+process.stdout.write(JSON.stringify([
+  copy("NDA signed.pdf", "1".repeat(32), 1024, me), copy("NDA signed.pdf", "1".repeat(32), 1024, me),
+  copy("Lease 2026.pdf", "2".repeat(32), 1024, me), copy("Lease 2026.pdf", "2".repeat(32), 1024, me),
+  copy("Retainer agreement.docx", "a".repeat(32), 1024, me), copy("Retainer agreement.docx", "b".repeat(32), 2048, me),
+  copy("Court filing.pdf", "3".repeat(32), 1024, colleague), copy("Court filing.pdf", "3".repeat(32), 1024, colleague)
+]));' >"$cs/copies/Documents/Legal.json"
   csr run || true
   if tree_has shell/plugins/vgs.google-drive/bin/google-drive '"unreadable-on-drive"'; then
     cs_shots "$m" 8-unreadable review
   else
     cs_shots "$m" 8-unreadable error
   fi
-  rm -f -- "$cs/unreadable"
+  rm -f -- "$cs/unreadable" "$cs/doubled"
   # The folder pair list cut short, so it is not JSON.
   pairs_file="$home/.config/vgshell/google-drive/pairs.json"
   printf '{"pairs": [{"id": "documents", "label": "Documents", "direction": "pull",' >"$pairs_file"
