@@ -60,6 +60,12 @@ system_question="Run these commands as root?"
 # the key help line in the terminal's own text colour, with no theme.
 system_prompt="$system_question"$'\n\n\e[22m\e[39m←→ toggle • enter submit • y Yes • n No\e[0m'
 expect "the sandbox copy's system steps resolve in the fakes' tree" prefixed devices_system_tree
+# The Fedora repository step resolves only inside this isolated system
+# tree. Without its package manager it cannot touch a host repository.
+system_engine_repository() {
+  "${sandbox_env[@]}" "$repo/bin/vgshell" system status --json | py_reply 'import json,sys; s=json.load(sys.stdin)["steps"]["vgs-quickshell-repository"]; print(s["state"] + " " + s["reason"])'
+}
+expect "the engine repository step cannot reach a host package manager" "absent command-missing" system_engine_repository
 system_hidraw_mode="$(stat -c %a -- "$system_hidraw")" || { fail "system steps: the HID fake planted no hidraw0"; return 0; }
 chmod 0000 "$system_hidraw"
 printf '#!/bin/sh\nfor last; do :; done\nif [ "$1 $2" = "-c %%u %%a" ]; then\n case %q in "$last"/*) echo "0 755"; exit 0 ;; esac\n [ "$last" = / ] && { echo "0 755"; exit 0; }\nfi\nout="$(%q "$@")" || exit $?\nprintf "%%s\\n" "$out" | sed "s/^%s /0 /"\n' "$system_root/" "$(command -v stat)" "$(id -u)" >"$system_bin/stat"

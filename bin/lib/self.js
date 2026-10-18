@@ -301,7 +301,78 @@ function listedSum(text, name) {
 function run(argv, options, key) {
     const r = childProcess.spawnSync(argv[0], argv.slice(1), Object.assign({ encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }, options));
     if (r.error !== undefined) refuse(key + " error=" + r.error.code);
-    if (r.status !== 0) refuse(key + " exit=" + (r.status === null ? r.signal : r.status), undefined, 1, r.stdout + r.stderr);
+    if (r.status !== 0) refuse(key + " exit=" + (r.status === null ? r.signal : r.status), undefined, 1, (r.stdout || "") + (r.stderr || ""));
+}
+
+// The engine's package identity, not its version provision, proves the VGS
+// patches are installed. The package layer owns detection and ownership.
+function engineFacts() {
+    const r = childProcess.spawnSync(process.execPath, [path.join(__dirname, "..", "vgshell-pkg"), "detect", "--json", "--holders", "qs"], { encoding: "utf8" });
+    if (r.error !== undefined || r.status !== 0) refuse("engine=detect-failed", undefined, 1, r.stderr);
+    let found;
+    try { found = JSON.parse(r.stdout); } catch (e) { refuse("engine=detect-unreadable"); }
+    if (found === null || !Array.isArray(found.overlays) || !found.holders || !found.holders.qs) refuse("engine=detect-unreadable");
+    return found;
+}
+
+function engineInstalled(found) {
+    return found.primary !== null && found.holders.qs.owners[found.primary.id] === "vgshell-quickshell";
+}
+
+// Run only inside the presenter. It owns the terminal, and the existing
+// package and system runners own elevation and show their plans.
+function engineRun(manager) {
+    if (manager === "dnf")
+        run([path.join(__dirname, "..", "vgshell-system"), "apply", "vgs-quickshell-repository"], { stdio: "inherit" }, "engine=repository-failed");
+    run([process.execPath, path.join(__dirname, "..", "vgshell-pkg"), "run", "install", "--manager", manager, "vgshell-quickshell"], { stdio: "inherit" }, "engine=install-failed");
+    if (!engineInstalled(engineFacts())) refuse("engine=not-installed package=vgshell-quickshell");
+}
+
+function migrateEngine() {
+    const found = engineFacts();
+    if (found.primary === null || !["pacman", "dnf"].includes(found.primary.id) || engineInstalled(found)) return;
+    const manager = found.primary.id === "pacman" ? "aur" : "dnf";
+    if (manager === "aur" && !found.overlays.some(row => row.id === "aur"))
+        refuse("engine=helper-missing manager=aur", undefined, 1, "Open Settings, Updates after installing an AUR helper.");
+    const tui = path.join(__dirname, "..", "vgshell-tui");
+    const command = [process.execPath, __filename, "engine-run", manager];
+    let tty;
+    try { tty = fs.openSync("/dev/tty", "r+"); } catch (e) {
+        if (!["ENXIO", "ENODEV", "ENOENT"].includes(e.code)) refuse("engine=terminal-failed error=" + e.code);
+    }
+    if (tty !== undefined) {
+        try {
+            // The previous updater captures its installer child's streams.
+            // Reopen the controlling terminal for the conflict question.
+            run([tui, "present", "--presentation", "plain", "--", ...command], { stdio: [tty, tty, tty] }, "engine=migration-failed");
+        } finally { fs.closeSync(tty); }
+    } else {
+        const key = "core/curl-engine", id = "engine-" + process.pid;
+        run([tui, "launch", "--title", "Update VGS engine", "--record", key, "--run", id, "--", ...command], {}, "engine=launch-failed");
+        const ended = childProcess.spawnSync(tui, ["wait", "--record", key, "--run", id], { encoding: "utf8" });
+        if (ended.error !== undefined || ended.status !== 0) refuse("engine=wait-failed", undefined, 1, ended.stderr);
+        let record;
+        try { record = JSON.parse(ended.stdout); } catch (e) { refuse("engine=result-unreadable"); }
+        if (record === null || record.state !== "ended" || !Number.isInteger(record.code)) refuse("engine=result-unreadable");
+        if (record.code !== 0) refuse("engine=migration-failed exit=" + record.code);
+    }
+    if (!engineInstalled(engineFacts())) refuse("engine=not-installed package=vgshell-quickshell");
+}
+
+// The previous curl updater already produces this layout. Recognizing its
+// complete transaction reaches the migration on its first new release,
+// without turning package recipe staging into a host package operation.
+function migrateCurlStage(source, dest, prefix) {
+    if (prefix !== "/vgshell") return;
+    const data = real(path.join(process.env.XDG_DATA_HOME || path.join(process.env.HOME, ".local", "share"), "vgshell"));
+    const stage = real(path.dirname(dest));
+    if (data === null || stage === null || path.dirname(stage) !== data || !path.basename(stage).startsWith(".self-update-")) return;
+    const current = real(path.join(data, "current"));
+    if (current === null || path.dirname(current) !== data || !VERSION_PATTERN.test(path.basename(current))) return;
+    const version = fs.readFileSync(path.join(source, "VERSION"), "utf8").trim();
+    if (!VERSION_PATTERN.test(version) || real(source) !== real(path.join(stage, "source", "vgshell-" + version))
+        || real(dest) !== path.join(stage, "tree")) return;
+    migrateEngine();
 }
 
 // Replace the curl install whose data directory is DATA and whose tree
@@ -319,6 +390,7 @@ async function install(repository, dataHome, root, current, shellTree) {
     const api = apiBase();
     const release = await latestRelease(repository, api);
     if (!newer(release.version, current)) {
+        migrateEngine();
         process.stdout.write("ok up-to-date=vgshell version=" + current + "\n");
         return;
     }
@@ -457,6 +529,14 @@ if (require.main === module) main(() => {
     case "report":
         if (args.length !== 10 || !["text", "json"].includes(args[0])) usage("report-arguments=" + JSON.stringify(args));
         report(args[0], args.slice(1));
+        return undefined;
+    case "migrate-curl-stage":
+        if (args.length !== 3) usage("migrate-curl-stage-arguments=" + JSON.stringify(args));
+        migrateCurlStage(...args);
+        return undefined;
+    case "engine-run":
+        if (args.length !== 1 || !["aur", "dnf"].includes(args[0])) usage("engine-run-arguments=" + JSON.stringify(args));
+        engineRun(args[0]);
         return undefined;
     case "install":
         if (args.length !== 5) usage("install-arguments=" + JSON.stringify(args));

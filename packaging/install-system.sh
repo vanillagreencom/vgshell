@@ -203,4 +203,11 @@ EOF
     refuse 1 "portal-config=failed path=$portal_config_dir/hyprland-portals.conf"
 fi
 
+# An installed older updater executes this release's installer before it
+# publishes current. self.js admits only that updater's complete staging
+# transaction; ordinary package staging remains a copy-only operation.
+if [[ $prefix == /vgshell ]]; then
+  node "$source_root/bin/lib/self.js" migrate-curl-stage "$source_root" "$destdir" "$prefix"
+fi
+
 printf 'install-system: ok prefix=%s root=%s\n' "$prefix" "$install_root"

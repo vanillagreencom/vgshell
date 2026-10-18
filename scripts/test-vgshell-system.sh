@@ -289,9 +289,13 @@ run() {
 # stderr together land in $tmp/out, carriage returns dropped.
 tty_env=()
 run_tty() {
-  local name="$1" want_exit="$2" status=0
+  local name="$1" want_exit="$2" status=0 input=/dev/null
   shift 2
-  "${row_env[@]}" SHELL="$BASH" "${tty_env[@]}" "$script_bin" -qec "$(printf '%q ' "$vgs/bin/vgshell" system "$@")" /dev/null </dev/null >"$tmp/raw" 2>&1 || status=$?
+  if [[ -n ${TTY_INPUT+x} ]]; then
+    printf '%s\n' "$TTY_INPUT" >"$tmp/tty-input"
+    input="$tmp/tty-input"
+  fi
+  "${row_env[@]}" SHELL="$BASH" "${tty_env[@]}" "$script_bin" -qec "$(printf '%q ' "$vgs/bin/vgshell" system "$@")" /dev/null <"$input" >"$tmp/raw" 2>&1 || status=$?
   tr -d '\r' <"$tmp/raw" >"$tmp/out"
   if [[ $status == "$want_exit" ]]; then ok "$name"; else fail "$name: exit=$status want=$want_exit output=[$(cat "$tmp/out")]"; fi
 }
@@ -315,7 +319,7 @@ last_out_is() { test "$(tail -n 1 "$tmp/out")" == "$1"; }
 sudo_calls() { cat -- "$tmp/sudo.log" 2>/dev/null; }
 no_sudo() { test ! -e "$tmp/sudo.log"; }
 state_json() { # STATE-REASON per step, table order
-  printf '{"steps":{"apple-displays":{"state":"%s","reason":"%s"},"i2c-dev":{"state":"%s","reason":"%s"},"service-bluetooth":{"state":"%s","reason":"%s"},"service-tailscaled":{"state":"%s","reason":"%s"},"service-cups":{"state":"%s","reason":"%s"},"tailscale-operator":{"state":"%s","reason":"%s"},"greeter":{"state":"%s","reason":"%s"},"bandwhich-capture":{"state":"absent","reason":"bandwhich-missing"},"reboot-notice":{"state":"absent","reason":"hook-missing"},"voxtype-engine":{"state":"absent","reason":"command-missing"}}}' "$@"
+  printf '{"steps":{"apple-displays":{"state":"%s","reason":"%s"},"i2c-dev":{"state":"%s","reason":"%s"},"service-bluetooth":{"state":"%s","reason":"%s"},"service-tailscaled":{"state":"%s","reason":"%s"},"service-cups":{"state":"%s","reason":"%s"},"tailscale-operator":{"state":"%s","reason":"%s"},"greeter":{"state":"%s","reason":"%s"},"bandwhich-capture":{"state":"absent","reason":"bandwhich-missing"},"reboot-notice":{"state":"absent","reason":"hook-missing"},"voxtype-engine":{"state":"absent","reason":"command-missing"},"vgs-quickshell-repository":{"state":"absent","reason":"command-missing"}}}' "$@"
 }
 step_state() { # STEP: the state status --json reads for it
   "${row_env[@]}" "$vgs/bin/vgshell" system status --json </dev/null 2>/dev/null |
@@ -1510,5 +1514,69 @@ control voxtype-unrecorded '  if ! read_record "$step"; then' '  if ! { read_rec
 voxtype_fixture; touch "$tmp/voxtype-compiled"
 run_tty "control: engine undo without a record" 0 undo voxtype-engine
 check "control: the record guard rejects an unrecorded engine undo" test ! -e "$tmp/voxtype-compiled"
+
+# The fixed Fedora step changes only its VGS COPR. The third-party engine
+# repository remains enabled because it supplies cpptrace.
+place "$source_file"; fresh
+fedora_os_release="$tmp/fedora-os-release"
+printf 'ID=fedora\n' >"$fedora_os_release"
+cat >"$bin/dnf" <<EOF
+#!/bin/sh
+printf '%s\n' "\$*" >>"$tmp/dnf.log"
+case "\$*" in
+  'repolist --enabled')
+    [ ! -e "$tmp/repo-unreadable" ] || exit 42
+    echo 'repo id repo name'
+    echo 'copr:copr.fedorainfracloud.org:errornointernet:quickshell third-party'
+    [ ! -e "$tmp/vgs-repository" ] || echo 'copr:copr.fedorainfracloud.org:vanillagreen:vgshell VGS'
+    exit 0 ;;
+  'copr enable vanillagreen/vgshell')
+    [ -e "$records/vgs-quickshell-repository" ] || exit 64
+    printf 'Enable this repository? [y/N] '
+    read -r answer || exit 66
+    [ "\$answer" = y ] || exit 0
+    [ ! -e "$tmp/copr-fail" ] || exit 42
+    touch "$tmp/vgs-repository" ;;
+  'copr disable vanillagreen/vgshell') rm -f -- "${tmp:?}/vgs-repository" ;;
+  *) exit 64 ;;
+esac
+EOF
+chmod +x "$bin/dnf"
+mv "$vgs/bin/vgshell" "$vgs/bin/vgshell-real"
+printf '#!/bin/sh\nexec %s -rm %s -c %s sh %s %s "$@"\n' "$unshare_bin" "$sh_bin" "$(printf '%q' "$nixos_mount_script")" "$fedora_os_release" "$vgs/bin/vgshell-real" >"$vgs/bin/vgshell"
+chmod +x "$vgs/bin/vgshell"
+row_env=(env -i HOME="$tmp/home" PATH="$bin:$caller:/usr/bin:/bin" LANG=C.UTF-8)
+check "third-party COPR alone needs the VGS repository" test "$(step_state vgs-quickshell-repository)" == 'needed repository-disabled'
+touch "$tmp/repo-unreadable"
+check "an unreadable repository probe is unknown" test "$(step_state vgs-quickshell-repository)" == 'unknown repositories-unreadable'
+rm -- "${tmp:?}/repo-unreadable"
+printf '1\n' >"$tmp/gum-answer"
+run_tty "declining repository setup leaves it disabled" 1 apply vgs-quickshell-repository
+check "declined repository setup writes no record" test ! -e "$records/vgs-quickshell-repository"
+printf '0\n' >"$tmp/gum-answer"
+TTY_INPUT=n run_tty "declining COPR confirmation leaves setup incomplete" 1 apply vgs-quickshell-repository
+check "declined COPR confirmation keeps the repository disabled" test ! -e "$tmp/vgs-repository"
+check "declined COPR confirmation does not read ready" test "$(step_state vgs-quickshell-repository)" == 'needed repository-disabled'
+touch "$tmp/copr-fail"
+TTY_INPUT=y run_tty "failed COPR setup returns its error" 1 apply vgs-quickshell-repository
+check "failed COPR setup keeps its change record" holds_text "$records/vgs-quickshell-repository" "uid=$uid"$'\n''enabled=1'
+rm -- "${tmp:?}/copr-fail"
+TTY_INPUT=y run_tty "repository setup resumes after failure" 0 apply vgs-quickshell-repository
+check "the VGS repository becomes enabled" test "$(step_state vgs-quickshell-repository)" == 'ready repository-enabled'
+cp "$tmp/dnf.log" "$tmp/dnf-before"
+run "already enabled repository needs no terminal" 0 '' apply vgs-quickshell-repository
+check "already enabled setup runs no additional root command" test "$(grep -c '^copr enable ' "$tmp/dnf.log")" == "$(grep -c '^copr enable ' "$tmp/dnf-before")"
+run_tty "undo disables the recorded VGS repository" 0 undo vgs-quickshell-repository
+check "repository undo drops its record" test ! -e "$records/vgs-quickshell-repository"
+touch "$tmp/vgs-repository"
+run "undo preserves a pre-existing repository" 0 '' undo vgs-quickshell-repository
+check "unrecorded VGS repository stays enabled" test -e "$tmp/vgs-repository"
+check "no step disables the third-party repository" test "$(grep -c '^copr disable errornointernet/' "$tmp/dnf.log" || true)" == 0
+
+control copr-terminal-input 'then input=/dev/tty; shift;' 'then input=/dev/null; shift;'
+rm -f -- "${tmp:?}/vgs-repository"
+TTY_INPUT=y run_tty "control: null input prevents accepted COPR setup" 1 apply vgs-quickshell-repository
+check "control: the repository command reports EOF" out_has 'command=failed exit=66'
+check "control: null input keeps the repository disabled" test ! -e "$tmp/vgs-repository"
 
 rows_done "$suite"
