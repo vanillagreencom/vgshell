@@ -275,6 +275,20 @@ function verify(L) {
         assert.equal(bar.spinning, rec.state === "running", label + ": the spinner");
     }
 
+    // One pair with one file that needs the user and two notes: every
+    // surface counts the one file in the same words, and no surface
+    // counts the notes (VGS-1745, the overseer's reading of VGS-1744).
+    const oneTwo = well({ conflicts: [CONFLICTS[0], CONFLICTS[1], CONFLICTS[3]] });
+    const oneTwoCloud = L.cloudValue(oneTwo, "");
+    const oneTwoValues = L.statusValues(oneTwo, null, "", "", NOW, HOME);
+    const chip = oneTwoValues.pairs[0].state, head = L.headline(oneTwoCloud, NOW);
+    const detailsLine = oneTwoValues.sync.lines[0].slice("Documents: ".length);
+    const tipLine = L.widgetTooltip(oneTwoCloud, NOW, Timestamp.text).details.split("\n")[0].slice("Documents: ".length);
+    same([chip.tone, L.widgetView(oneTwoCloud, NOW).badge, L.reviewView(oneTwoCloud).needs.length], ["warning", "1", 1], "the chip warns and the bar and Needs you count one");
+    assert.ok(head.text.startsWith("1 "), "the headline counts one: " + head.text);
+    same([chip.text, detailsLine, tipLine], [head.text, head.text, head.text], "Settings, Details and the tooltip read the headline's words");
+    assert.ok(L.reviewView(oneTwoCloud).notesLine.startsWith("2 "), "the two notes fold apart");
+
     // The published values of the record and the probe.
     const presence = L.parseProbe(JSON.stringify(probe())).presence;
     const values = L.statusValues(good.record, presence, "", "", NOW, HOME);
