@@ -484,6 +484,7 @@ fi
 
 # Which plugin manager the tree ships picks the manager's scene.
 tree="${source_tree:-$checkout}"
+# Fixture targets use this same revision as the presenter and renderer.
 # What the tree draws decides how a scene reaches it, so a --rev tree from
 # before a control existed is still captured: the bar's gear and the
 # launcher's bar entry are BarItems or older items, and the Settings list
@@ -2482,7 +2483,7 @@ cursor-style-blink = false
 resize-overlay = never
 confirm-close-surface = false
 GHOSTTY
-  for id in ghostty neovim tmux; do cp -R -- "$checkout/themes/targets/$id" "$repo/themes/targets/$id"; done
+  for id in ghostty neovim tmux; do cp -R -- "$tree/themes/targets/$id" "$repo/themes/targets/$id"; done
   hover "$((mon_w - 2))" "$((mon_h - 2))" || true
   for name in "${preview_themes[@]}"; do
     preview_package "$name"
@@ -4238,7 +4239,7 @@ clone_prepare_world() { # MODE
   fi
   if [[ -f $home/.local/state/vgshell/theme/gum.env ]]; then
     mkdir -p -- "$clone_world/state/vgshell/theme" &&
-      cp -- "$home/.local/state/vgshell/theme/gum.env" "$home/.local/state/vgshell/theme/gum.glamour.json" "$clone_world/state/vgshell/theme/" ||
+      cp -- "$home/.local/state/vgshell/theme"/gum.* "$clone_world/state/vgshell/theme/" ||
       fail "clone-voice: gum's theme is not copied to the world"
   fi
 }
@@ -4290,7 +4291,7 @@ clone_tui_requirements() {
 clone_terminal_on() { # KITTY GUM
   local bg fg theme_name
   # Only gum is applied: terminal reload targets can signal host terminals.
-  cp -RT -- "$checkout/themes/targets/gum" "$repo/themes/targets/gum" || { fail "clone-voice: gum's theme target is not copied"; return 1; }
+  cp -RT -- "$tree/themes/targets/gum" "$repo/themes/targets/gum" || { fail "clone-voice: gum's theme target is not copied"; return 1; }
   theme_name="$(ipc smoke themeName)" || { fail "clone-voice: the theme is unreadable"; return 1; }
   if [[ $theme_name != vgs ]]; then
     mkdir -p -- "$home/.config/vgshell/themes/$theme_name"
@@ -4982,7 +4983,7 @@ scene_dictation-setup() { # MODE
   close_notices
 
   # Only gum is applied: terminal reload targets can signal host terminals.
-  cp -R -- "$checkout/themes/targets/gum" "$repo/themes/targets/gum"
+  cp -RT -- "$tree/themes/targets/gum" "$repo/themes/targets/gum" || { fail "dictation-setup: gum's theme target is not copied"; return; }
   theme_name="$(ipc smoke themeName)" || { fail "dictation-setup: the theme is unreadable"; return; }
   if [[ $theme_name != vgs ]]; then
     mkdir -p -- "$home/.config/vgshell/themes/$theme_name"
@@ -7952,7 +7953,7 @@ PY
         [[ -f $sandbox/shots-device-systemctl ]] || cp -- "$shim/systemctl" "$sandbox/shots-device-systemctl"
         printf '#!/usr/bin/env bash\nexit 0\n' >"$shim/systemctl"
         chmod 755 "$shim/systemctl"
-        cp -R -- "$checkout/themes/targets/chromium" "$repo/themes/targets/chromium"
+        cp -R -- "$tree/themes/targets/chromium" "$repo/themes/targets/chromium"
         tree_rescan "the status fixture is scanned"
         expect_poll "the status fixture is listed" True plugin_known acme.status
         for id in acme.status vgs.automations vgs.agent-warden vgs.devtools; do
@@ -8273,7 +8274,7 @@ EOF
   # where the host's stood before any launcher was written.
   expect_poll "tui-edges: the core finds a terminal launcher" '["present", false]' tui_edges_launcher
 
-  cp -R -- "$checkout/themes/targets/btop" "$repo/themes/targets/btop"
+  cp -R -- "$tree/themes/targets/btop" "$repo/themes/targets/btop"
   # Under the test-run marker the theme judge refuses every reload hook, so
   # an apply with a target ends partial (3) once the target's files are written.
   status=0; sandbox_vgshell theme apply vgs >/dev/null 2>&1 || status=$?
@@ -8292,7 +8293,7 @@ EOF
   take "tui-edges-$mode-btop-alone"
   tui_edges_close "btop alone" || return
 
-  cp -R -- "$checkout/themes/targets/ghostty" "$repo/themes/targets/ghostty"
+  cp -R -- "$tree/themes/targets/ghostty" "$repo/themes/targets/ghostty"
   status=0; sandbox_vgshell theme apply vgs >/dev/null 2>&1 || status=$?
   expect "btop and Ghostty: vgs applies, their reloads refused" 3 echo "$status"
   expect "btop and Ghostty: Ghostty's background is btop's" "#$bg" sed -n 's/^background = \(#[0-9a-fA-F]*\)$/\L\1/p' "$state/ghostty.conf"
