@@ -2186,7 +2186,7 @@ const CONTROLS = [
     ["an over-budget text drops its caution", "setupHome: homeDone(answer.causes, home),", "setupHome: HOME_READY,", "the caution has a reason info"],
     ["an over-budget text holds its step", 'var causes = answer.causes.filter(function (cause) { return !Object.prototype.hasOwnProperty.call(OVER_BUDGET, cause); });',
         "var causes = answer.causes;", "over its budget reads Ready"],
-    ["the AGENTS.md line is dropped", 'return Object.assign({}, value, { tone: "info", lines: ["Over the " + numberText(OVER_BUDGET["guidance=agents-over-budget"].bytes) + "-byte budget"], info: budgetInfo(["guidance=agents-over-budget"], home) });', "return value;", "a section of an AGENTS.md over its budget"],
+    ["the AGENTS.md line is dropped", 'return Object.assign({}, value, { tone: "info", lines: ["Over the " + numberText(OVER_BUDGET["guidance=agents-over-budget"].bytes) + "-byte budget"],\n            info: (value.info === undefined ? "" : value.info + " ") + budgetInfo(["guidance=agents-over-budget"], home) });', "return value;", "a section of an AGENTS.md over its budget"],
     ["a caution loses its reason info", 'info: budgetInfo(over, home)', 'unusedInfo: budgetInfo(over, home)', "the caution has a reason info"],
     ["a caution loses its file action", 'value.file = home.path + HOME_FILES[value.action];\n    }\n    return value;\n}\nvar HOME_UNCHECKED', 'delete value.action;\n    }\n    return value;\n}\nvar HOME_UNCHECKED', "the caution carries its file action"],
     ["the timed-out Local voice row asks for a restart", 'hint: "Jarvis does not need this check to answer and runs it again after the next setup" };',

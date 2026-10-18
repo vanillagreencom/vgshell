@@ -273,7 +273,8 @@ function personalityRow(shown, causes, home) {
             info: "Press Edit. Add the heading ## Personality on its own line. Write how Jarvis should talk below it." }
         : { tone: "warning", text: "Instructions cannot be read", hint: "Check " + homeReference("AGENTS.md", home, "/AGENTS.md") };
     if ((shown.kind === "section" || shown.kind === "missing") && causes.indexOf("guidance=agents-over-budget") !== -1)
-        return Object.assign({}, value, { tone: "info", lines: ["Over the " + numberText(OVER_BUDGET["guidance=agents-over-budget"].bytes) + "-byte budget"], info: budgetInfo(["guidance=agents-over-budget"], home) });
+        return Object.assign({}, value, { tone: "info", lines: ["Over the " + numberText(OVER_BUDGET["guidance=agents-over-budget"].bytes) + "-byte budget"],
+            info: (value.info === undefined ? "" : value.info + " ") + budgetInfo(["guidance=agents-over-budget"], home) });
     return value;
 }
 
