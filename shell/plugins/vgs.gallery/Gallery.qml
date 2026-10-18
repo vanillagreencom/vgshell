@@ -325,6 +325,25 @@ Item {
                     title: "Feedback"
                     rowSpacing: Theme.stack.group
                     description: "Progress, badges, keys, copyable text and empty results"
+                Column {
+                    width: parent.width
+                    spacing: Theme.stack.group
+                    Repeater {
+                        model: ["accent", "info", "warning", "danger"]
+                        Callout {
+                            required property string modelData
+                            tone: modelData
+                            iconName: "book-open"
+                            title: "Callout: " + modelData
+                            text: "Read the guide before you start."
+                            linkText: "Read the guide"
+                            onActivated: text = "The guide action was selected."
+                        }
+                    }
+                    Callout { title: "Title only" }
+                    Callout { title: "Without an icon or link"; text: "The text wraps to fit the available width." }
+                    Callout { text: "Text without a title" }
+                }
                 Flow {
                     width: parent.width
                     spacing: Theme.stack.inline
