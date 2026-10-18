@@ -4794,7 +4794,7 @@ scene_jarvis-restart() { # MODE
     expect "the window opens the Jarvis page for its session row" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin vgs.jarvis
     expect_poll "the Jarvis page is shown for its session row" '"vgs.jarvis"' settings_page
     page_status vgs.jarvis sessionStart || fail "the Jarvis session row's tab is unreadable"
-    jarvis_anchor_shot "$1" Label "Jarvis session"
+    jarvis_anchor_shot "$1" SectionHeader Home
     settings_close
   }
   jarvis_restart_stopped() { if grep -qs '"argv": \["stop"' -- "$scripts/calls.log"; then echo asked; else echo none; fi; }

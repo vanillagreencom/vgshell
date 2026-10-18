@@ -640,8 +640,9 @@ var SESSION_MODES = [{ label: "Resume the last session", value: "resume" }, { la
 // that the user can resume by hand (sessionOffer).
 var SESSION_RESUME = { tone: "info", text: "Saved before the restart", hint: "Resume Jarvis from before the restart", action: "resume" };
 // The row's line while the offer stands after the package did not answer
-// Do not resume (`dismiss`): the record and the offer stay.
-var SESSION_NOT_DISMISSED = "Do not resume was not saved because the Jarvis package did not answer, so the offer stays";
+// Do not resume (`dismiss`): the record and the offer stay. A line draws as
+// a badge, which cuts a long one, so it names the fact alone.
+var SESSION_NOT_DISMISSED = "Do not resume was not saved";
 // The states in which the Resume offer stands: no session runs, and none
 // is turned off, stopping or blocked.
 var SESSION_OFFERED = ["stopped", "failed"];
