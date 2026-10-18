@@ -380,7 +380,8 @@ function isRelativePath(value) {
 // `base`, or, with `vaults`, to each vault the Obsidian registry at `vaults`
 // under `base` lists, one directory name per segment. Exactly one of
 // `links` or `copies` maps each entry's file name in `dir` to one of
-// DESTINATIONS, the target's own files.
+// DESTINATIONS, the target's own files. A destination list follows the
+// directory order when configurations retain different customizations.
 function entryBaseAccepted(base, hasAccounts) {
     return ENTRY_BASES.includes(base) || (hasAccounts && base === ACCOUNT_BASE);
 }
@@ -400,7 +401,9 @@ function entryError(logic, wiring, destinations, hasAccounts) {
     if (!logic.isPlainObject(wiring[itemKey]) || Object.keys(wiring[itemKey]).length === 0) return "key=wiring." + itemKey;
     for (const [name, destination] of Object.entries(wiring[itemKey])) {
         if (!logic.isPackageName(name)) return "key=wiring." + itemKey + "." + name;
-        if (!destinations.has(destination)) return "key=wiring." + itemKey + "." + name;
+        const listed = Array.isArray(destination) ? destination : [destination];
+        if (Array.isArray(destination) && (!Array.isArray(wiring.dir) || listed.length !== wiring.dir.length)) return "key=wiring." + itemKey + "." + name;
+        if (!listed.every(file => destinations.has(file))) return "key=wiring." + itemKey + "." + name;
     }
     return "";
 }
@@ -444,13 +447,17 @@ function editorsError(logic, editors) {
 // The entries an accepted entry TARGET keeps in its `dir`, in the order
 // target.json names them: each entry's `kind`, file `name`, destination and
 // path in LIVE, the state directory's `theme/` path. `link` entries are
-// symlinks to `to`; `copy` entries are atomic copies of it.
-function entryItems(target, live) {
+// symlinks to the destination; copies are atomic. INDEX selects a directory's
+// destination when its declaration supplies a list.
+function entryItems(target, live, index = 0) {
     const form = wiringForm(target.wiring);
     if (form !== "entry") throw new Error("theme-render: entryItems: target " + target.name + " has wiring form " + form);
     const itemKey = entryItemKey(target.wiring);
     const kind = itemKey === "links" ? "link" : "copy";
-    return Object.entries(target.wiring[itemKey]).map(([name, destination]) => ({ kind, name, destination, to: live + "/" + destination }));
+    return Object.entries(target.wiring[itemKey]).map(([name, declared]) => {
+        const destination = Array.isArray(declared) ? declared[index] : declared;
+        return { kind, name, destination, to: live + "/" + destination };
+    });
 }
 
 // The placeholders a reload command may name for TARGET.
@@ -538,13 +545,11 @@ function selectError(logic, select, hasAccounts, hasEditors) {
         if (!ENTRY_BASES.includes(select.base)) return "key=select.base";
         const files = Array.isArray(select.file) ? select.file : [select.file];
         if (files.length === 0 || !files.every(isRelativePath) || new Set(files).size !== files.length) return "key=select.file";
-        if (!logic.isPlainObject(select.values) || Object.keys(select.values).length === 0) return "key=select.values";
+        if (!logic.isPlainObject(select.values)) return "key=select.values";
         for (const [key, value] of Object.entries(select.values)) {
             if (!JSON_KEY_PATTERN.test(key) || !isLine(value) || CONTROL_CHARACTER.test(value) || placeholderNames(value) === null) return "key=select.values";
         }
-        const required = select.format === "starship" || select.format === "yazi" ? ["fg", "bg"]
-            : select.format === "fastfetch" ? ["keys", "title", "output", "separator", "logo", "bg"]
-            : select.format === "bat" ? ["theme"] : [];
+        const required = select.format === "yazi" ? ["fg", "bg"] : select.format === "bat" ? ["theme"] : [];
         if (required.some(key => !logic.hasOwn(select.values, key))) return "key=select.values";
         if (select.format === "bat" && (Object.keys(select.values).length !== 1 || select.values.theme !== "vgs")) return "key=select.values";
         return "";
@@ -583,7 +588,8 @@ function acceptTarget(logic, name, text) {
     if (!isLine(document.app)) return refused("target-schema", "key=app");
     if (typeof document.runsCode !== "boolean") return refused("target-schema", "key=runsCode");
     if (!logic.hasOwn(ENCODERS, document.encoder)) return refused("target-schema", "key=encoder");
-    if (!Array.isArray(document.files) || document.files.length === 0) return refused("target-schema", "key=files");
+    if (!Array.isArray(document.files) || document.files.length === 0 &&
+        !(document.wiring === null && ["starship", "fastfetch"].includes(document.select?.format))) return refused("target-schema", "key=files");
     const destinations = new Set();
     for (let at = 0; at < document.files.length; at++) {
         const defect = fileError(logic, name, document.files[at], at);
@@ -614,6 +620,14 @@ function acceptTarget(logic, name, text) {
     if (reload !== "") return refused("target-schema", reload);
     const select = logic.hasOwn(document, SELECT_KEY) ? selectError(logic, document.select, hasAccounts, hasEditors) : "";
     if (select !== "") return refused("target-schema", select);
+    if (document.select?.format === "yazi") {
+        const files = Array.isArray(document.select.file) ? document.select.file : [document.select.file];
+        const dirs = Array.isArray(document.wiring?.dir) ? document.wiring.dir : [document.wiring?.dir];
+        const flavor = document.wiring?.links?.["flavor.toml"];
+        const outputs = Array.isArray(flavor) ? flavor : [flavor];
+        if (form !== "entry" || document.wiring.links?.["flavor.toml"] === undefined || dirs.length !== files.length ||
+            document.wiring.base !== document.select.base || new Set(outputs).size !== files.length) return refused("target-schema", "key=select.file");
+    }
     if (document.select?.format === "bat" && !document.detect.includes("bat")) return refused("target-schema", "key=detect");
     if (hasAccounts) {
         if (!logic.hasOwn(document, SELECT_KEY) || wiringForm(document.wiring) !== "entry" ||

@@ -602,14 +602,14 @@ rm -r -- "$tree/themes/targets/loose" "$tree/themes/targets/neovim"
 # stand-ins; the bat hook records argv and never reaches a native cache.
 rm -r -- "$tree/themes/targets"
 mkdir -p "$tree/themes/targets"
-for app in starship yazi bat fastfetch television; do
+for app in starship yazi bat fastfetch television foot; do
   cp -R -- "$repo/themes/targets/$app" "$tree/themes/targets/"
 done
-for command in starship yazi fastfetch tv; do
+for command in starship yazi fastfetch tv foot; do
   printf '#!/bin/sh\nexit 0\n' >"$stubs/$command"; chmod +x "$stubs/$command"
 done
 printf '#!/bin/sh\nprintf "%%s\\n" "$*" >"%s/bat-cache-args"\n' "$tmp" >"$stubs/bat"; chmod +x "$stubs/bat"
-cfg="$tmp/cfg-terminal-apps"
+cfg="$tmp/home/.config/terminal-apps"
 terminal_app_seed() {
   rm -rf -- "$cfg"
   mkdir -p "$cfg/vgshell"
@@ -619,9 +619,10 @@ from pathlib import Path
 p=Path(sys.argv[1])
 def put(name,text):
  f=p/name; f.parent.mkdir(parents=True,exist_ok=True); f.write_text(text)
-put('starship.toml', 'palette = "owner"\nformat = "$directory$character"\n# keep prompt\n[directory]\nstyle = "bold #010203"\ntruncation_length = 7\n[character]\nsuccess_symbol = "[❯](#010203)"\n')
+put('starship.toml', 'palette = "vgs"\nformat = "$directory$character"\n# keep prompt\n[directory]\nstyle = "bold #010203"\ntruncation_length = 7\n[character]\nsuccess_symbol = "[❯](#010203)"\n[palettes.vgs]\nred = "#ff0000"\n')
 for name in ('yazi','yazi-scratchpad'):
- put(name+'/theme.toml', '[flavor]\ndark = "owner"\nlight = "owner-light"\n[mgr]\ncwd = { fg = "#010203", bg = "#040506", bold = true }\n[icon]\nprepend_dirs = [\n { name = "Desktop", text = "USER-GLYPH", fg = "#010203" },\n]\n[filetype]\nrules = [{ url = "*.mine", fg = "#010203" }]\n')
+ glyph='USER-GLYPH' if name=='yazi' else 'SCRATCH-GLYPH'
+ put(name+'/theme.toml', '[flavor]\ndark = "owner"\nlight = "owner-light"\n[mgr]\ncwd = { fg = "#010203", bg = "#040506", bold = true }\n[icon]\nprepend_dirs = [\n { name = "Desktop", text = "'+glyph+'", fg = "#010203" },\n]\n[filetype]\nrules = [{ url = "*.mine", fg = "#010203" }]\n')
 put('bat/config', '# keep bat\n--theme=ansi\n--wrap=character\n')
 put('fastfetch/config.jsonc', json.dumps({'logo':{'color':{'1':'#010203'},'padding':{'left':7}},'display':{'color':'#010203'},'modules':[{'type':'custom','key':'{#31}USER-GLYPH','format':'{#38;2;1;2;3}fixture','keyColor':'#010203'}]})+'\n')
 put('television/config.toml', '[ui]\ntheme = "default"\n[ui.input_bar]\nprompt = "sesh > "\n[ui.theme_overrides]\nbackground = "#040506"\ntext_fg = "#010203"\nselection_bg = "#040506"\nmatch_fg = "#010203"\n')
@@ -634,24 +635,26 @@ from pathlib import Path
 p,live,app=Path(sys.argv[1]),Path(sys.argv[2]),sys.argv[3]
 def toml(name): return tomllib.loads((p/name).read_text())
 if app=='starship':
- d=toml('starship.toml'); assert d['palette']=='vgs'; assert d['directory']['style']=='bold #d7d7d9'; assert d['directory']['truncation_length']==7
- assert d['character']['success_symbol']=='[❯](#d7d7d9)'; assert '# keep prompt' in (p/'starship.toml').read_text()
+ d=toml('starship.toml'); assert 'palette' not in d and 'vgs' not in d.get('palettes',{}); assert d['directory']['style']=='bold black'; assert d['directory']['truncation_length']==7
+ assert d['character']['success_symbol']=='[❯](black)'; assert '# keep prompt' in (p/'starship.toml').read_text()
 elif app=='yazi':
- for name in ('yazi','yazi-scratchpad'):
-  d=toml(name+'/theme.toml'); assert d['flavor']=={'dark':'vgs','light':'vgs'}; assert d['mgr']['cwd']=={'fg':'#ff5a36','bg':'#000000','bold':True}
-  icon=d['icon']['prepend_dirs'][0]; assert icon['text']=='USER-GLYPH' and icon['fg']=='#ff5a36'
-  assert d['filetype']['rules'][0]=={'url':'*.mine','fg':'#d7d7d9'}
-  flavor=p/name/'flavors/vgs.yazi'; assert (flavor/'flavor.toml').samefile(live/'yazi.toml'); assert (flavor/'tmtheme.xml').samefile(live/'yazi.tmTheme')
-  assert tomllib.loads((flavor/'flavor.toml').read_text())['icon']['exts']
+ for name,destination,glyph in (('yazi','yazi.toml','USER-GLYPH'),('yazi-scratchpad','yazi.scratchpad.toml','SCRATCH-GLYPH')):
+  d=toml(name+'/theme.toml'); assert d=={'flavor':{'dark':'vgs','light':'vgs'}}
+  flavor=p/name/'flavors/vgs.yazi'; assert (flavor/'flavor.toml').samefile(live/destination); assert (flavor/'tmtheme.xml').samefile(live/'yazi.tmTheme')
+  generated=tomllib.loads((flavor/'flavor.toml').read_text())
+  assert generated['mgr']['cwd']=={'fg':'#ff5a36','bg':'#000000','bold':True}
+  icon=generated['icon']['prepend_dirs'][0]; assert icon['text']==glyph and icon['fg']=='#ff5a36'
+  assert generated['filetype']['rules'][0]=={'url':'*.mine','fg':'#d7d7d9'}
+  assert generated['icon']['exts']
 elif app=='bat':
  assert (p/'bat/config').read_text()=='# keep bat\n--theme=vgs\n--wrap=character\n'
  assert (p/'bat/themes/vgs.tmTheme').samefile(live/'bat.tmTheme')
  assert plistlib.loads((p/'bat/themes/vgs.tmTheme').read_bytes())['name']=='vgs'
 elif app=='fastfetch':
- d=json.loads((p/'fastfetch/config.jsonc').read_text()); assert isinstance(d['display']['color'],dict); assert d['display']['color']['keys']=='blue'; assert d['display']['color']['output']=='#d7d7d9'
- assert d['modules'][0]['key']=='{#34}USER-GLYPH'; assert d['modules'][0]['format']=='{#38;2;215;215;217}fixture'; assert d['logo']['padding']['left']==7
+ d=json.loads((p/'fastfetch/config.jsonc').read_text()); assert d['display']['color']=='black'
+ assert d['modules'][0]['key']=='{#31}USER-GLYPH'; assert d['modules'][0]['format']=='{#30}fixture'; assert d['logo']['padding']['left']==7
 elif app=='television':
- d=toml('television/config.toml'); assert d['ui']['theme']=='vgs'; assert d['ui']['theme_overrides']['background']=='#000000'; assert d['ui']['theme_overrides']['text_fg']=='#d7d7d9'
+ d=toml('television/config.toml'); assert d['ui']['theme']=='vgs' and 'theme_overrides' not in d['ui']
  assert d['ui']['input_bar']['prompt']=='sesh > '; assert (p/'television/themes/vgs.toml').samefile(live/'television.toml')
 else: raise AssertionError(app)
 PY
@@ -662,6 +665,44 @@ for app in starship yazi bat fastfetch television; do
   check "$app picks up the VGS colours and keeps its content" terminal_app_pickup "$app"
 done
 check "bat's target builds its native theme cache" test "$(cat "$tmp/bat-cache-args")" == "cache --build"
+# Track only the user's settings. Generated themes stay outside the index.
+g -C "$cfg" init -q
+g -C "$cfg" add -- starship.toml fastfetch/config.jsonc yazi/theme.toml yazi-scratchpad/theme.toml bat/config television/config.toml
+g -C "$cfg" commit -qm baseline
+cp -- "$live/yazi.toml" "$tmp/first-yazi"
+cp -- "$live/yazi.scratchpad.toml" "$tmp/first-scratchpad"
+cp -- "$live/television.toml" "$tmp/first-television"
+cp -- "$live/foot.ini" "$tmp/first-foot"
+python3 - "$tree/themes" <<'PY'
+import json,sys
+from pathlib import Path
+p=Path(sys.argv[1])
+terminal=json.loads((p/'vgs/terminal.json').read_text())
+terminal['slots']['color0']='#050505'
+(p/'nord/terminal.json').write_text(json.dumps(terminal))
+PY
+apply_json "a second terminal app theme applies" 0 nord
+check "all VGS-1812 user configs stay tracked and clean after a theme switch" test -z "$(g -C "$cfg" status --porcelain --untracked-files=no)"
+check "generated flavors retain customizations and take the new colours" python3 - "$cfg" "$live" "$tmp" <<'PY'
+import configparser,json,sys,tomllib
+from pathlib import Path
+p,live,tmp=map(Path,sys.argv[1:])
+for name,file,glyph,before in (('yazi','yazi.toml','USER-GLYPH','first-yazi'),('yazi-scratchpad','yazi.scratchpad.toml','SCRATCH-GLYPH','first-scratchpad')):
+ flavor=p/name/'flavors/vgs.yazi'/'flavor.toml'
+ assert flavor.samefile(live/file)
+ d=tomllib.loads(flavor.read_text())
+ old=tomllib.loads((tmp/before).read_text())
+ assert d['mgr']['cwd']['fg']!=old['mgr']['cwd']['fg'] and d['mgr']['cwd']['bold']
+ assert d['icon']['prepend_dirs'][0]['text']==glyph
+ assert d['icon']['prepend_dirs'][0]['fg']!=old['icon']['prepend_dirs'][0]['fg']
+ assert d['filetype']['rules'][0]['url']=='*.mine'
+assert (live/'television.toml').read_bytes()!=(tmp/'first-television').read_bytes()
+assert (live/'foot.ini').read_bytes()!=(tmp/'first-foot').read_bytes()
+terminal=configparser.ConfigParser(); terminal.read(live/'foot.ini')
+assert terminal['colors-dark']['regular0']=='050505'
+assert tomllib.loads((p/'starship.toml').read_text())['directory']['style']=='bold black'
+assert json.loads((p/'fastfetch/config.jsonc').read_text())['display']['color']=='black'
+PY
 for app in starship yazi bat fastfetch television; do
   # The same pickup assertion must fail when that app's target is absent.
   # These are disposable fixture trees outside the repository.

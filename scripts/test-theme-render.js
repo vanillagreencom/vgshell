@@ -784,6 +784,11 @@ function verify(render) {
     assert.equal(render.wiringForm(target("hex6").wiring), "include");
     assert.deepEqual(render.entryItems(linked, "/s/vgshell/theme"), [{ kind: "link", name: "vgs.conf", destination: "probe.conf", to: "/s/vgshell/theme/probe.conf" }, { kind: "link", name: "package.json", destination: "probe.pkg.json", to: "/s/vgshell/theme/probe.pkg.json" }]);
     assert.deepEqual(render.entryItems(copied, "/s/vgshell/theme"), [{ kind: "copy", name: "vgs.conf", destination: "probe.conf", to: "/s/vgshell/theme/probe.conf" }]);
+    const separate = accepted("probe", entryText({ dir: ["one", "two"], links: { "flavor.toml": ["probe.conf", "probe.pkg.json"] } }));
+    assert.equal(render.entryItems(separate, "/s", 0)[0].to, "/s/probe.conf");
+    assert.equal(render.entryItems(separate, "/s", 1)[0].to, "/s/probe.pkg.json");
+    assert.equal(render.acceptTarget(logic, "probe", entryText({ dir: ["one", "two"], links: { "flavor.toml": ["probe.conf"] } })).reason, "target-schema");
+    assert.equal(render.acceptTarget(logic, "probe", entryText({ dir: ["one", "two"], links: { "flavor.toml": ["probe.conf", "outside"] } })).reason, "target-schema");
     assert.throws(() => render.wiringLine(linked, "/s"), /has wiring form entry/);
     assert.throws(() => render.entryItems(target("hex6"), "/s"), /has wiring form include/);
 
@@ -3070,7 +3075,7 @@ const CONTROLS = [
     ["missing key", "if (!logic.hasOwn(document, key)) return", "if (false) return"],
     ["app", "if (!isLine(document.app)) return", "if (false) return"],
     ["encoder name", "if (!logic.hasOwn(ENCODERS, document.encoder)) return", "if (false) return"],
-    ["files list", "if (!Array.isArray(document.files) || document.files.length === 0) return", "if (!Array.isArray(document.files)) return"],
+    ["files list", 'if (!Array.isArray(document.files) || document.files.length === 0 &&\n        !(document.wiring === null && ["starship", "fastfetch"].includes(document.select?.format))) return', "if (!Array.isArray(document.files)) return"],
     ["file keys", "!FILE_KEYS.every(k => logic.hasOwn(file, k)) ||", "false ||"],
     ["template name", "if (!logic.isPackageName(file.template) || file.template === TARGET_FILE) return", "if (false) return"],
     ["destination prefix", "!file.destination.startsWith(name + \".\")", "false"],
@@ -3186,8 +3191,9 @@ const CONTROLS = [
     ["entry owned", "if (typeof wiring.owned !== \"boolean\") return", "if (false) return"],
     ["entry item present", "if (!logic.isPlainObject(wiring[itemKey]) || Object.keys(wiring[itemKey]).length === 0) return", "if (!logic.isPlainObject(wiring[itemKey])) return"],
     ["entry item name", "if (!logic.isPackageName(name)) return", "if (false) return"],
-    ["entry item destination", "if (!destinations.has(destination)) return", "if (false) return"],
-    ["entry link target", "({ kind, name, destination, to: live + \"/\" + destination })", "({ kind, name, destination, to: destination })"],
+    ["entry item destination", "if (!listed.every(file => destinations.has(file))) return", "if (false) return"],
+    ["entry link target", "return { kind, name, destination, to: live + \"/\" + destination };", "return { kind, name, destination, to: destination };"],
+    ["entry link per directory", "Array.isArray(declared) ? declared[index] : declared", "Array.isArray(declared) ? declared[0] : declared"],
     ["unwiring whole line", 'text.split("\\n").filter(existing => existing !== line)', 'text.split("\\n").map(existing => existing.split(line).join(""))'],
     ["unwiring every line", 'text.split("\\n").filter(existing => existing !== line)', 'text.split("\\n").filter((existing, at, all) => at !== all.indexOf(line))'],
     ["unwiring null when unchanged", "return next === text ? null : next;", "return next;"],
@@ -3202,7 +3208,7 @@ const CONTROLS = [
 
 // Parse the native files, then measure the pairs the apps consume. This
 // checks rendered bytes rather than the token names written in a template.
-const TERMINAL_APPS = ["starship", "yazi", "bat", "fastfetch", "television"];
+const TERMINAL_APPS = ["yazi", "bat", "television"];
 function terminalAppDocuments(change = (text => text)) {
     const records = [];
     for (const { pkg, shipped } of selectionPackages) {
@@ -3257,14 +3263,6 @@ function verifyTerminalApps(documents) {
             assert.ok(doc.settings.some(style => style.scope?.includes("comment")));
             assert.ok(doc.settings.some(style => style.scope?.includes("string")));
             for (const style of doc.settings.filter(style => style.scope)) pair(style.scope, style.settings.foreground, style.settings.background || base.background);
-        } else if (row.app === "starship") {
-            assert.equal(doc.palette, "vgs");
-            for (const name of ["red", "green", "blue", "purple", "bright-black"]) assert.ok(Object.hasOwn(doc.palettes.vgs, name));
-            for (const [name, color] of Object.entries(doc.palettes.vgs)) {
-                pair(name, color);
-                assert.equal(color, row.selected[name], name);
-            }
-            assert.equal(doc.palettes.vgs["bright-black"], pkg.values.color.textFaint.slice(0, 7));
         } else if (row.app === "yazi") {
             assert.ok(doc.icon.dirs.some(icon => icon.name === "Desktop" && icon.text.length > 0));
             assert.ok(doc.icon.files.some(icon => icon.name === ".gitignore"));
@@ -3283,14 +3281,6 @@ function verifyTerminalApps(documents) {
                 for (const [name, child] of Object.entries(value)) visit(child, key ? key + "." + name : name);
             };
             visit(doc, "");
-        } else if (row.app === "fastfetch") {
-            const slots = selectionRender.terminalSource(pkg, selectionDefaults).terminal;
-            const nativeColor = value => value === "blue" ? slots.color4 : value;
-            for (const [role, value] of Object.entries(doc.display.color)) {
-                pair(role, nativeColor(value));
-                assert.equal(value, row.selected[role]);
-            }
-            pair("logo", nativeColor(doc.logo.color["1"]));
         } else if (row.app === "television") {
             assert.ok(Object.hasOwn(doc, "selection_fg"));
             assert.ok(Object.hasOwn(doc, "action_picker_mode_bg"));
@@ -3299,7 +3289,6 @@ function verifyTerminalApps(documents) {
                     const fill = name === "selection_fg" ? doc.selection_bg : name.endsWith("_mode_fg") ? doc[name.replace(/_fg$/, "_bg")] : doc.background;
                     pair(name, value, fill, name === "border_fg" ? 3 : 4.5);
                 }
-                assert.equal(value, row.selected[name], name);
             }
         }
     }
@@ -3311,9 +3300,9 @@ const terminalPairs = verifyTerminalApps(terminalDocuments);
 for (const app of TERMINAL_APPS) {
     // A missing target must fail this same render contract.
     assert.throws(() => verifyTerminalApps(terminalDocuments.filter(row => row.app !== app)), { code: "ERR_ASSERTION" });
-    const needle = app === "bat" ? "#@{color.textFaint}" : app === "fastfetch" ? '"blue"' : app === "starship" ? "#@{color.textFaint}" : "#@{color.text}";
-    const file = app === "bat" ? "bat.tmTheme" : app === "yazi" ? "yazi.toml" : app === "starship" ? "starship.toml" : app === "fastfetch" ? "fastfetch.jsonc" : "television.toml";
-    assert.throws(() => verifyTerminalApps(terminalAppDocuments((text, name, template) => name === app && template === file ? text.replace(needle, app === "fastfetch" ? '"#@{color.background}"' : "#@{color.background}") : text)), error => error.code === "ERR_ASSERTION" && error.message.includes('"kind":"terminal-app-contrast"'));
+    const needle = app === "bat" ? "#@{color.textFaint}" : "#@{color.text}";
+    const file = app === "bat" ? "bat.tmTheme" : app === "yazi" ? "yazi.toml" : "television.toml";
+    assert.throws(() => verifyTerminalApps(terminalAppDocuments((text, name, template) => name === app && template === file ? text.replace(needle, "#@{color.background}") : text)), error => error.code === "ERR_ASSERTION" && error.message.includes('"kind":"terminal-app-contrast"'));
 }
 console.log(`test-theme-render: terminal-apps packages=${selectionPackages.length} pairs=${terminalPairs.length} controls=missing-target,unreadable-text`);
 

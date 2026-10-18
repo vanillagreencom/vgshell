@@ -1155,7 +1155,6 @@ f share/vgshell/themes/targets/emacs/emacs.el
 f share/vgshell/themes/targets/emacs/target.json
 f share/vgshell/themes/targets/equibop/equibop.css
 f share/vgshell/themes/targets/equibop/target.json
-f share/vgshell/themes/targets/fastfetch/fastfetch.jsonc
 f share/vgshell/themes/targets/fastfetch/target.json
 f share/vgshell/themes/targets/foot/foot.ini
 f share/vgshell/themes/targets/foot/target.json
@@ -3978,7 +3977,6 @@ f share/vgshell/themes/targets/qt5ct/qt5ct.conf
 f share/vgshell/themes/targets/qt5ct/target.json
 f share/vgshell/themes/targets/qt6ct/qt6ct.conf
 f share/vgshell/themes/targets/qt6ct/target.json
-f share/vgshell/themes/targets/starship/starship.toml
 f share/vgshell/themes/targets/starship/target.json
 f share/vgshell/themes/targets/television/target.json
 f share/vgshell/themes/targets/television/television.toml

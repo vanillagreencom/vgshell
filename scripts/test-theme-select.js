@@ -244,52 +244,74 @@ const REFUSED_SCHEMA = [
 ];
 
 const APP_VALUES = {
-    starship: { fg: "#123456", bg: "#102030", red: "#aa0000" },
+    starship: {},
     yazi: { fg: "#123456", bg: "#102030", "mgr.cwd.fg": "#abcdef" },
-    television: { background: "#102030", text_fg: "#123456" },
+    television: {},
     bat: { theme: "vgs" },
-    fastfetch: { keys: "#123456", title: "#abcdef", output: "#654321", separator: "#112233", logo: "#aabbcc", bg: "#102030" }
+    fastfetch: {}
 };
+const YAZI_SELECTED = "[flavor]\ndark = \"vgs\"\nlight = \"vgs\"\n";
 const APP_SELECTED = [
     ["bat", "# mine\r\n--style=plain\r\n--theme='Dracula' # old\r\n", "# mine\r\n--style=plain\r\n--theme=vgs # old\r\n"],
     ["bat", "--theme=ansi\n--theme \"other\"\n", "--theme=vgs\n--theme vgs\n"],
     ["bat", "", "--theme=vgs\n"],
-    ["yazi", '[flavor]\ndark="vgs"\nlight="vgs"\n[mgr]\ncwd={fg="red", bold=true} # keep\n[icon]\nprepend_dirs=[{name="Desktop",text="icon",fg="#ff0000"}]\n', '[flavor]\ndark="vgs"\nlight="vgs"\n[mgr]\ncwd={fg="#abcdef", bold=true} # keep\n[icon]\nprepend_dirs=[{name="Desktop",text="icon",fg="#123456"}]\n'],
-    ["yazi", '[flavor]\ndark="other"\nlight="other"\n[tabs]\nactive={ fg="red", bg="blue", bold=true }\n', '[flavor]\ndark="vgs"\nlight="vgs"\n[tabs]\nactive={ fg="#123456", bg="#102030", bold=true }\n'],
-    ["yazi", '[icon]\nprepend_exts = [\n # keep\n {name="rs",text="x",fg="red"},\n]\n', '[icon]\nprepend_exts = [\n # keep\n {name="rs",text="x",fg="#123456"},\n]\n[flavor]\nlight = "vgs"\ndark = "vgs"\n'],
-    ["television", '[ui]\ntheme = "default" # picker\nscale=2\n[ui.theme_overrides]\nbackground="none"\ntext_fg="red"\n', '[ui]\ntheme = "vgs" # picker\nscale=2\n[ui.theme_overrides]\nbackground="#102030"\ntext_fg="#123456"\n'],
-    ["television", 'ui={theme="default",theme_overrides={text_fg="red"},scale=2}\n', 'ui={theme="vgs",theme_overrides={text_fg="#123456"},scale=2}\n'],
-    ["starship", 'palette="vgs"\n[palettes.vgs]\nred="#aa0000"\n[character]\nsuccess_symbol="[x](bold fg:#ffffff bg:42)" # symbol\nstyle="italic red"\n', 'palette="vgs"\n[palettes.vgs]\nred="#aa0000"\n[character]\nsuccess_symbol="[x](bold fg:#123456 bg:#102030)" # symbol\nstyle="italic red"\n'],
-    ["starship", 'format = """\n[x](#fff bold) $all\n"""\n[custom.x]\ncommand="echo [x](#fff)"\n', 'palette = "vgs"\nformat = """\n[x](#123456 bold) $all\n"""\n[custom.x]\ncommand="echo [x](#fff)"\n[palettes.vgs]\nred = "#aa0000"\n'],
-    ["starship", 'palettes={}\n', 'palette = "vgs"\npalettes={ vgs = { red = "#aa0000" } }\n'],
-    ["fastfetch", '{// keep\n"display":{"color":"red"},"modules":[{"type":"custom","key":"{#1;31}user{#}","keyColor":"red","outputColor":null,"format":"\\u001b[3;44;32mx\\u001b[0m"}],"logo":{"color":{"1":"red"}}}', '{// keep\n"display":{"color":{"keys":"#123456","title":"#abcdef","output":"#654321","separator":"#112233"}},"modules":[{"type":"custom","key":"{#1;38;2;18;52;86}user{#}","keyColor":"#123456","outputColor":"#654321","format":"\\u001b[3;48;2;16;32;48;38;2;101;67;33mx\\u001b[0m"}],"logo":{"color":{"1":"#aabbcc"}}}'],
-    ["fastfetch", '{"display":{"color":null},"modules":[{"key":"{#bold_red}\\uf007"}]}', '{"display":{"color":{"keys":"#123456","title":"#abcdef","output":"#654321","separator":"#112233"}},"modules":[{"key":"{#1;38;2;18;52;86}\\uf007"}]}']
+    ["yazi", "[mgr]\ncwd={fg=\"red\", bold=true}\n[icon]\nprepend_dirs=[{name=\"Desktop\",text=\"icon\",fg=\"#ff0000\"}]\n", "[flavor]\ndark = \"vgs\"\nlight = \"vgs\"\n"],
+    ["yazi", "[flavor]\ndark=\"other\"\nlight=\"other\"\n[tabs]\nactive={ fg=\"red\", bg=\"blue\", bold=true }\n", "[flavor]\ndark = \"vgs\"\nlight = \"vgs\"\n"],
+    ["yazi", "[icon]\nprepend_exts = [\n {name=\"rs\",text=\"x\",fg=\"red\"},\n]\n", "[flavor]\ndark = \"vgs\"\nlight = \"vgs\"\n"],
+    ["television", "[ui]\ntheme = \"default\" # picker\nscale=2\n[ui.theme_overrides]\nbackground=\"none\"\ntext_fg=\"red\"\n", "[ui]\ntheme = \"vgs\" # picker\nscale=2\n"],
+    ["television", "ui={theme=\"default\",theme_overrides={text_fg=\"red\"},scale=2}\n", "ui={theme=\"vgs\",scale=2}\n"],
+    ["television", "ui={theme_overrides={text_fg=\"red\"},theme=\"default\"}\n", "ui={theme=\"vgs\"}\n"],
+    ["starship", "palette=\"vgs\"\n[palettes.vgs]\nred=\"#aa0000\"\n[character]\nsuccess_symbol=\"[x](bold fg:#ffffff bg:#00cdcd)\" # symbol\nstyle=\"italic red\"\n", "[character]\nsuccess_symbol=\"[x](bold fg:bright-white bg:cyan)\" # symbol\nstyle=\"italic red\"\n"],
+    ["starship", "format = \"\"\"\n[x](#fff bold) $all\n\"\"\"\n[custom.x]\ncommand=\"echo [x](#fff)\"\n", "format = \"\"\"\n[x](bright-white bold) $all\n\"\"\"\n[custom.x]\ncommand=\"echo [x](#fff)\"\n"],
+    ["starship", "palette=\"owner\"\n[palettes.owner]\nbrand=\"#ff00ff\"\n[directory]\nstyle=\"bold brand bg:9\"\n", "[palettes.owner]\nbrand=\"#ff00ff\"\n[directory]\nstyle=\"bold bright-magenta bg:9\"\n"],
+    ["starship", "palette=\"vgs\"\npalettes={vgs={red=\"#aa0000\"},other={red=\"red\"}}\n", "palettes={other={red=\"red\"}}\n"],
+    ["starship", "palettes={}\n", null],
+    ["starship", "style = \"#e60000\"\n", "style = \"red\"\n"],
+    ["fastfetch", "{\"display\":{\"color\":\"red\"},\"modules\":[{\"key\":\"{#1;31}user{#}\",\"outputColor\":null,\"format\":\"{#bold_red}\"}]}", null],
+    ["fastfetch", "{\"display\":{\"color\":{\"output\":\"#ffffff\"}},\"modules\":[{\"key\":\"{#31}glyph\",\"format\":\"{#1;38;2;205;0;0}value{#}\",\"keyColor\":\"#00ff00\"}]}", "{\"display\":{\"color\":{\"output\":\"light_white\"}},\"modules\":[{\"key\":\"{#31}glyph\",\"format\":\"{#1;31}value{#}\",\"keyColor\":\"light_green\"}]}"],
+    ["fastfetch", "{\"logo\":{\"color\":{\"1\":\"bold_#cd0000\"}},\"modules\":[{\"key\":\"{#@196}x{#38;5;9}\",\"format\":\"{#48;5;196}\"}]}", "{\"logo\":{\"color\":{\"1\":\"bold_red\"}},\"modules\":[{\"key\":\"{#light_red}x{#38;5;9}\",\"format\":\"{#101}\"}]}"]
 ];
 
 function verify(render, edit) {
     for (const [format, text, want] of APP_SELECTED) {
         assert.equal(edit.appSelectedText(format, text, APP_VALUES[format]), want, format + " " + text);
-        assert.equal(edit.appSelectedText(format, want, APP_VALUES[format]), null, format + " must be idempotent");
+        assert.equal(edit.appSelectedText(format, want ?? text, APP_VALUES[format]), null, format + " must be idempotent");
     }
-    const escapedAnsi = '{"display":{"color":{"keys":"#123456","title":"#abcdef","output":"#654321","separator":"#112233"}},"modules":[{"format":"literal \\\\u001b[31m; real \\u001b[31m\\u001b[44m"}]}';
-    const themedAnsi = '{"display":{"color":{"keys":"#123456","title":"#abcdef","output":"#654321","separator":"#112233"}},"modules":[{"format":"literal \\\\u001b[31m; real \\u001b[38;2;101;67;33m\\u001b[48;2;16;32;48m"}]}';
-    assert.equal(edit.appSelectedText("fastfetch", escapedAnsi, APP_VALUES.fastfetch), themedAnsi);
-    assert.equal(edit.appSelectedText("fastfetch", themedAnsi, APP_VALUES.fastfetch), null);
-    const commandText = '{"display":{"color":{"keys":"#123456","title":"#abcdef","output":"#654321","separator":"#112233"}},"modules":[{"type":"command","text":"printf {#31}","folders":"/tmp/{#32}"}]}';
-    assert.equal(edit.appSelectedText("fastfetch", commandText, APP_VALUES.fastfetch), null);
-    for (const [format, text] of [["yazi", 'x="open'], ["yazi", '[flavor]\n[flavor]\n'], ["starship", 'palettes={vgs="red"}\n'], ["television", '[ui.theme_overrides]\nunknown="red"\n'], ["fastfetch", '{"modules":[]} broken'], ["bat", '--theme="unterminated\n']])
+    const escapedAnsi = "{\"modules\":[{\"format\":\"literal \\\\u001b[38;2;205;0;0m; real \\u001b[38;2;205;0;0m\\u001b[44m\"}]}";
+    const themedAnsi = "{\"modules\":[{\"format\":\"literal \\\\u001b[38;2;205;0;0m; real \\u001b[31m\\u001b[44m\"}]}";
+    assert.equal(edit.appSelectedText("fastfetch", escapedAnsi, {}), themedAnsi);
+    assert.equal(edit.appSelectedText("fastfetch", themedAnsi, {}), null);
+    const commandText = '{"modules":[{"type":"command","text":"printf {##ffffff}","folders":"/tmp/{##ffffff}"}]}';
+    assert.equal(edit.appSelectedText("fastfetch", commandText, {}), null);
+    for (const [format, text] of [["yazi", 'x="open'], ["yazi", '[flavor]\n[flavor]\n'], ["fastfetch", '{"modules":[]} broken'], ["bat", '--theme="unterminated\n']])
         assert.equal(edit.appSelectedText(format, text, APP_VALUES[format]).reason, "selection-refused");
+    const base = '[mgr]\ncwd={fg="red",bg="black"}\n[icon]\nfiles=[{name="default",text="D",fg="red"}]\n';
+    const custom = '[mgr]\ncwd={fg="#010203",bold=true}\n[[icon.prepend_dirs]]\nname="Desktop"\ntext="CUSTOM"\nfg="#010203"\n';
+    const flavor = edit.yaziFlavorText(base, undefined, custom, APP_VALUES.yazi);
+    assert.equal(flavor, '"mgr" = { "cwd" = { "fg" = "#abcdef", "bg" = "#102030", "bold" = true } }\n"icon" = { "files" = [{name="default",text="D",fg="#123456"}], "prepend_dirs" = [{ "name" = "Desktop", "text" = "CUSTOM", "fg" = "#123456" }] }\n');
+    const changed = { ...APP_VALUES.yazi, fg: "#ff0000", "mgr.cwd.fg": "#00ff00" };
+    const nextFlavor = edit.yaziFlavorText(base, flavor, YAZI_SELECTED, changed);
+    assert.equal(nextFlavor, flavor.replaceAll("#abcdef", "#00ff00").replaceAll("#123456", "#ff0000"));
+    assert.equal(edit.yaziFlavorText(base, nextFlavor, YAZI_SELECTED, changed), nextFlavor);
+    assert.throws(() => edit.yaziFlavorText(base, undefined, 'x=1\nx.a=2\n', changed), { name: "SyntaxError" });
     for (const [format, values] of Object.entries(APP_VALUES)) {
         assert.equal(edit.appSelectedText(format, undefined, values).reason, "selection-file-absent");
         const document = JSON.parse(targetText({}));
         if (format === "bat") document.detect = ["bat"];
         document.select = { base: "config", file: "app/config", format, values };
+        if (format === "yazi") document.wiring = { base: "config", dir: "app/flavors/vgs.yazi", owned: false, links: { "flavor.toml": "probe.conf" } };
         const accepted = render.acceptTarget(logic, "probe", JSON.stringify(document));
         assert.equal(accepted.ok, true, format);
         document.select.file = ["yazi/theme.toml", "yazi-scratchpad/theme.toml"];
+        if (format === "yazi") {
+            document.wiring.dir = ["yazi/flavors/vgs.yazi", "yazi-scratchpad/flavors/vgs.yazi"];
+            assert.equal(render.acceptTarget(logic, "probe", JSON.stringify(document)).reason, "target-schema");
+            document.files.push({ template: "scratchpad.conf", destination: "probe.scratchpad.conf" });
+            document.wiring.links["flavor.toml"] = ["probe.conf", "probe.scratchpad.conf"];
+        }
         assert.equal(render.acceptTarget(logic, "probe", JSON.stringify(document)).ok, true);
         document.select.values = {};
-        assert.equal(render.acceptTarget(logic, "probe", JSON.stringify(document)).reason, "target-schema");
+        assert.equal(render.acceptTarget(logic, "probe", JSON.stringify(document)).ok, !["yazi", "bat"].includes(format));
         document.select.values = values;
         document.select.file = ["app/config", "../outside"];
         assert.equal(render.acceptTarget(logic, "probe", JSON.stringify(document)).reason, "target-schema");
@@ -300,6 +322,7 @@ function verify(render, edit) {
     directories.wiring.dir.push("../outside");
     assert.equal(render.acceptTarget(logic, "probe", JSON.stringify(directories)).reason, "target-schema");
     const document = JSON.parse(targetText({}));
+    document.wiring = { base: "config", dir: "yazi/flavors/vgs.yazi", owned: false, links: { "flavor.toml": "probe.conf" } };
     document.select = { base: "config", file: "yazi/theme.toml", format: "yazi", values: { fg: "#@{color.text}", bg: "#@{color.background}" } };
     const target = render.acceptTarget(logic, "probe", JSON.stringify(document)).target;
     const values = logic.accept(tokens, '{"schemaVersion":1,"name":"probe","tokens":{"palette":{"foreground":"#123456","background":"#102030"}}}').values;
@@ -355,10 +378,11 @@ const S = "theme-select.js";
 const R = "theme-render.js";
 const CONTROLS = [
     [S, 'case "bat": return batSelected(text, values);', 'case "bat": return null;'],
-    [S, 'if (format === "yazi" && (name === "fg" || name === "bg"))', 'if (false)'],
-    [S, 'edits.push({ ...record, value: JSON.stringify(values[name]) });', 'edits.push({ ...record, value: JSON.stringify("red") });'],
-    [S, 'starshipStyle(style, values) + ")"', 'style + ")"'],
-    [S, 'themedSgr(code, color, values.bg) + close', 'code + close'],
+    [S, 'if (next < distance)', 'if (next > distance)'],
+    [S, 'if (next < distance)', 'if (next <= distance)'],
+    [S, 'const rgb = parts[i + 1] === "5"', 'const rgb = false'],
+    [S, 'const out = tomlColorKey(tomlWithout(text, ["ui", "theme_overrides"]),', 'const out = tomlColorKey(text,'],
+    [S, 'starshipStyle(style, palette) + ")"', 'style + ")"'],
     [S, '/(?<!\\\\)((?:\\\\\\\\)*)(\\\\u001[bB]\\[)([0-9;]*)(m)/g', '/()(\\\\u001[bB]\\[)([0-9;]*)(m)/g'],
     [S, ' && (name === "key" || name === "format")', ""],
     [R, 'values[key] = value;', 'values[key] = text;'],
