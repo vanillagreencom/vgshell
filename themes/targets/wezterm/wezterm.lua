@@ -33,6 +33,13 @@ if build then
     -- WezTerm reads tab styling from config.colors:
     -- https://wezterm.org/config/appearance.html#tab-bar-appearance
     config.colors = {
+      scrollbar_thumb = '#@{color.textMuted}',
+      split = '#@{color.borderStrong}',
+      compose_cursor = '#@{color.warning}',
+      input_selector_label_fg = '#@{color.text}',
+      input_selector_label_bg = '#@{color.background}',
+      launcher_label_fg = '#@{color.text}',
+      launcher_label_bg = '#@{color.background}',
       tab_bar = {
         background = '#@{color.background}',
         active_tab = { bg_color = '#@{color.accent}', fg_color = '#@{color.onAccent}' },
@@ -49,6 +56,16 @@ if build then
     config.window_frame = {
       active_titlebar_bg = '#@{color.background}', inactive_titlebar_bg = '#@{color.background}',
       active_titlebar_fg = '#@{color.text}', inactive_titlebar_fg = '#@{color.textMuted}',
+      inactive_titlebar_border_bottom = '#@{color.border}',
+      active_titlebar_border_bottom = '#@{color.border}',
+      button_fg = '#@{color.text}',
+      button_bg = '#@{color.surface}',
+      button_hover_fg = '#@{color.textHeading}',
+      button_hover_bg = '#@{color.surfaceRaised}',
+      border_left_color = '#@{color.border}',
+      border_right_color = '#@{color.border}',
+      border_top_color = '#@{color.border}',
+      border_bottom_color = '#@{color.border}',
     }
     return config
   end

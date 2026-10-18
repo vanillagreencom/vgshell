@@ -1695,12 +1695,23 @@ const weztermTarget = selectionRender.acceptTarget(logic, "wezterm",
     fs.readFileSync(path.join(weztermDir, "target.json"), "utf8"));
 assert.equal(weztermTarget.ok, true);
 
+const WEZTERM_NATIVE_ROLES = [
+    ["colors", "scrollbar_thumb", "textMuted"], ["colors", "split", "borderStrong"],
+    ["colors", "compose_cursor", "warning"],
+    ["colors", "input_selector_label_fg", "text"], ["colors", "input_selector_label_bg", "background"],
+    ["colors", "launcher_label_fg", "text"], ["colors", "launcher_label_bg", "background"],
+    ["window_frame", "inactive_titlebar_border_bottom", "border"],
+    ["window_frame", "active_titlebar_border_bottom", "border"],
+    ["window_frame", "button_fg", "text"], ["window_frame", "button_bg", "surface"],
+    ["window_frame", "button_hover_fg", "textHeading"], ["window_frame", "button_hover_bg", "surfaceRaised"],
+    ...["left", "right", "top", "bottom"].map(side => ["window_frame", `border_${side}_color`, "border"])
+];
 function verifyWeztermModes(template) {
     const metrics = [];
     const shortfalls = [];
-    for (const { pkg, shipped } of selectionPackages) {
+    for (const formatter of ["default", "hex6"]) for (const { pkg, shipped } of selectionPackages) {
         const rendered = selectionRender.renderTarget(logic, TOKENS, weztermTarget.target,
-            new Map([["wezterm.lua", template]]), { values: pkg.values,
+            new Map([["wezterm.lua", formatter === "hex6" ? template.replace(/@\{([^}|]+)\}/g, "@{$1|format=hex6}") : template]]), { values: pkg.values,
                 slots: selectionRender.terminalSource(pkg, selectionDefaults).terminal,
                 curated: new Map(), installed: !shipped });
         assert.equal(rendered.ok, true);
@@ -1717,6 +1728,11 @@ function verifyWeztermModes(template) {
             assert.equal(matches.length, 1, `${pkg.name}/${key}`);
             return matches[0][1];
         };
+        for (const [scope, key, role] of WEZTERM_NATIVE_ROLES) {
+            assert.equal(color(scope === "colors" ? colors[1] : frame[1], key),
+                pkg.values.color[role].slice(0, 7).toLowerCase(), `${pkg.name}/${scope}.${key}`);
+        }
+        assert.equal(color(text, "cursor_fg"), pkg.values.palette.background.slice(0, 7).toLowerCase(), `${pkg.name}/cursor_fg`);
         const pairs = [];
         for (const [role, fgRole, bgRole] of [
             ["active_tab", "onAccent", "accent"], ["inactive_tab", "textMuted", "background"],
@@ -1734,6 +1750,12 @@ function verifyWeztermModes(template) {
         for (const [role, fgRole] of [["active_titlebar", "text"], ["inactive_titlebar", "textMuted"]]) {
             pairs.push({ role, fg: color(frame[1], `${role}_fg`), bg: color(frame[1], `${role}_bg`), fgRole, bgRole: "background" });
         }
+        for (const [role, source, fgRole, bgRole] of [
+            ["input_selector_label", colors[1], "text", "background"],
+            ["launcher_label", colors[1], "text", "background"],
+            ["button", frame[1], "text", "surface"], ["button_hover", frame[1], "textHeading", "surfaceRaised"]
+        ]) pairs.push({ role, fg: color(source, `${role}_fg`), bg: color(source, `${role}_bg`), fgRole, bgRole });
+        pairs.push({ role: "compose_cursor", fg: color(text, "cursor_fg"), bg: color(colors[1], "compose_cursor"), fgRole: "background", bgRole: "warning" });
         const background = color(tabBar[1], "background");
         assert.deepEqual(logic.parseColor(background), logic.parseColor(pkg.values.color.background));
         const boundaries = [
@@ -1750,7 +1772,7 @@ function verifyWeztermModes(template) {
         ]) {
             for (const pair of rows) {
                 const ratio = logic.contrastRatio(logic.parseColor(pair.fg), logic.parseColor(pair.bg));
-                const metric = { kind, package: pkg.name, mode: pkg.values.scheme.mode, role: pair.role, ratio, floor };
+                const metric = { kind, package: pkg.name, mode: pkg.values.scheme.mode, formatter, role: pair.role, ratio, floor };
                 metrics.push(metric);
                 if (ratio < floor) shortfalls.push(metric);
             }
@@ -1773,6 +1795,17 @@ assert.throws(() => verifyWeztermModes(weztermTemplate.replace("config.colors = 
         error.message.includes("WezTerm consumes tab colours from config.colors"));
 const weztermScratch = fs.mkdtempSync(path.join(os.tmpdir(), "wezterm-modes-control-"));
 try {
+    for (const [scope, key, role] of WEZTERM_NATIVE_ROLES) {
+        const needle = `      ${key} = '#@{color.${role}}',`;
+        assert.equal(weztermTemplate.split(needle).length, 2);
+        for (const [fault, replacement] of [["missing", ""], ["stock", `${key} = '#123456',`]]) {
+            const file = path.join(weztermScratch, `${key}-${fault}.lua`);
+            fs.writeFileSync(file, weztermTemplate.replace(needle, replacement), { flag: "wx" });
+            assert.throws(() => verifyWeztermModes(fs.readFileSync(file, "utf8")),
+                error => error instanceof assert.AssertionError && error.message.includes(key));
+            console.log(`test-theme-render: wezterm-native-control key=${scope}.${key} fault=${fault} rejected=true`);
+        }
+    }
     for (const [kind, edits] of [
         ["wezterm-text", [["quick_select_label_fg = { Color = '#@{color.text}' }", "quick_select_label_fg = { Color = '#@{color.background}' }"]]],
         ["wezterm-boundary", [["inactive_tab_edge = '#@{color.textMuted}'", "inactive_tab_edge = '#@{color.background}'"]]],
@@ -1796,7 +1829,14 @@ try {
 } finally {
     fs.rmSync(weztermScratch, { recursive: true, force: true });
 }
-console.log(`test-theme-render: wezterm packages=${selectionPackages.length} pairs=${weztermMetrics.length} modes=dark,light text-floor=4.5 boundary-floor=3 controls=text,boundary,tab-scope,label-distinction`);
+console.log(`test-theme-render: wezterm packages=${selectionPackages.length} pairs=${weztermMetrics.length} modes=dark,light formatters=default,hex6 text-floor=4.5 boundary-floor=3 controls=text,boundary,tab-scope,label-distinction,missing,stock`);
+for (const role of new Set(weztermMetrics.filter(metric => metric.kind === "wezterm-text").map(metric => metric.role))) {
+    const minimum = weztermMetrics.filter(metric => metric.kind === "wezterm-text" && metric.role === role)
+        .reduce((held, metric) => metric.ratio < held.ratio ? metric : held);
+    console.log("test-theme-render: wezterm-text-minimum " + JSON.stringify(minimum));
+}
+// ANSI application output keeps the package's terminal slots; the native UI
+// text floor above makes no readability claim for arbitrary ANSI text pairs.
 
 // Claude Code uses Word as both the diff fill and count foreground. Its
 // native BASIC syntax text ignores overrides.text (the saved app contract
