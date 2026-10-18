@@ -114,8 +114,12 @@ Scope {
         // a start it makes meets the model that event left.
         case "done": {
             const done = waiting;
+            // Qt.callLater runs after returning to the event loop
+            // (doc.qt.io/qt-6/qml-qtqml-qt.html#callLater-method). A
+            // cancellation or recovery can retire this result first.
+            const delivery = model.delivery;
             waiting = null;
-            if (done !== null) Qt.callLater(() => done(effect.result));
+            if (done !== null) Qt.callLater(() => { if (root.model.delivery === delivery) done(effect.result); });
             return;
         }
         case "forget":

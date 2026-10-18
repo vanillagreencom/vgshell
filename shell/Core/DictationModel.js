@@ -25,11 +25,10 @@
 // One rule ties a command's end and a daemon word to a recording. `status`
 // holds only the daemon's own word, from the follower or from one
 // `status` read. A start is taken only while no recording is held, no
-// record command pends and that word is idle. The read is queued when the
-// last record command of an ended recording ends, so a command's end
-// always belongs to the one recording that could have issued it, and once
-// by the start check under the held recording the daemon has not said
-// `recording` for.
+// record command pends and that word is idle. Serial completion keeps a
+// command's result tied to its recording. The state is read after its
+// last command, under a start check before any recording word, or on a
+// refused busy start with no outstanding command.
 // The voxtype 1.1.0 facts each rule rests on are cited at the rule, by file
 // of github.com/peteonrails/voxtype at tag v1.1.0, and measured in the
 // report on VGS-1200 (2026-10-10, host cachy).
@@ -75,7 +74,7 @@ var OUTPUT_MODES = ["type", "clipboard", "paste", "file"];
 function initial(dir, statePath) {
     return {
         dir: dir, statePath: statePath, holders: [], daemon: "absent", step: "", child: "none", timer: "none",
-        recording: null, late: false, files: 0, pending: 0, status: "idle", config: {}, setup: null, elsewhere: false, maxSecs: 0, engine: "", model: "", device: "", typeFlags: []
+        recording: null, late: false, delivery: 0, reconciling: false, files: 0, pending: 0, status: "idle", config: {}, setup: null, elsewhere: false, maxSecs: 0, engine: "", model: "", device: "", typeFlags: []
     };
 }
 
@@ -131,6 +130,8 @@ function command(s, effects, tag, argv) {
 
 function abort(s, effects) {
     s.pending = 0;
+    s.reconciling = false;
+    s.delivery += 1;
     effects.push({ kind: "abort" });
 }
 
@@ -179,6 +180,7 @@ function drop(s, effects, reason) {
     var r = s.recording;
     if (r === null) return;
     s.recording = null;
+    s.delivery += 1;
     if (s.timer === "cap") setTimer(s, effects, "none", 0);
     if (r.phase === "stopping") effects.push(reason === "" ? { kind: "forget" } : { kind: "done", result: { kind: "failed", reason: reason } });
     if (r.mode === "text") run(effects, "remove", ["rm", "-f", "--", r.path, r.path + ".done"]);
@@ -266,7 +268,14 @@ function start(s, id, mode) {
     // A start the daemon gets while it transcribes starts nothing, and
     // one queued behind an earlier recording's commands would run among
     // them.
-    else if (phase(t) !== "idle") answer = "refused: dictation=engine-busy state=" + phase(t);
+    else if (phase(t) !== "idle") {
+        answer = "refused: dictation=engine-busy state=" + phase(t);
+        // The follower can print an unread state and then stay silent.
+        // Reuse an outstanding read, or read fresh on this press. Only
+        // idle retires the old attempt; no recording intent is retained.
+        t.reconciling = true;
+        if (t.pending === 0) command(t, effects, STATE, STATUS_ARGV);
+    }
     if (answer !== "") return { model: t, effects: effects, answer: answer };
     var argv = ["voxtype", "record", "start"];
     t.recording = { holder: id, mode: mode, phase: "starting", path: "" };
@@ -515,6 +524,11 @@ function ran(s, tag, code, out) {
         break;
     case STATE:
         var read = code === 0 ? phaseOf(statusOf(out.trim())) : null;
+        // An alive child with no readable state prints stopped too.
+        // Recovery cannot treat that as progress or reset it to idle.
+        if (t.reconciling && read === "stopped") read = null;
+        if (t.reconciling && read === "idle") t.delivery += 1;
+        t.reconciling = false;
         if (read === null) fail(t, effects, "state " + (code === 0 ? "status=unread" : "code=" + (code === null ? "none" : code)));
         // `stopped`: the child's exit reports a daemon that ended. Only
         // checked reads the daemon under a held recording, while the

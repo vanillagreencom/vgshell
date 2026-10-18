@@ -9,6 +9,8 @@ const { load } = require("../bin/lib/qml-library.js");
 const repo = path.join(__dirname, "..");
 const file = path.join(repo, "shell", "plugins", "vgs.voice", "VoiceLogic.js");
 const serviceSource = fs.readFileSync(path.join(path.dirname(file), "Service.qml"), "utf8");
+const dictationSource = fs.readFileSync(path.join(repo, "shell", "Core", "Dictation.qml"), "utf8");
+const dictationModelFile = path.join(repo, "shell", "Core", "DictationModel.js");
 const widgetSource = fs.readFileSync(path.join(path.dirname(file), "Widget.qml"), "utf8");
 const pluginLogic = load(path.join(repo, "shell", "Core", "PluginLogic.js"));
 const pageReference = load(path.join(repo, "shell", "Commons", "PageReference.js"));
@@ -22,6 +24,103 @@ const readsReady = { engine: "parakeet", model: "parakeet-tdt-0.6b-v3", version:
 const readsMissing = Object.assign({}, readsReady, { compiled: false, installed: false });
 // The `dictation` capability's state (DictationModel.state).
 const lent = (daemon, phase, holder) => ({ daemon: daemon, phase: phase, holder: holder, engine: "", model: "", device: "" });
+
+// The shared Voice handlers run against the real DictationModel. Only
+// process output and deferred scheduling are fixtures; no program starts.
+function verifyRecovery(logic, source, model = load(dictationModelFile), ownerSource = dictationSource) {
+  const names = ["start", "stop", "toggle", "applyDictation", "publishDictation", "refreshSetup", "publishSetup"];
+  const functions = names.map(name => {
+    const found = source.match(new RegExp("^    function " + name + "\\([^)]*\\) \\{\\n[\\s\\S]*?^    \\}", "m"));
+    assert.ok(found, "the service declares " + name);
+    return found[0];
+  }).join("\n");
+  const ownerRun = ownerSource.match(/^    function run\(effect\) \{\n[\s\S]*?^    \}/m);
+  assert.ok(ownerRun, "the owner declares its effect runner");
+  for (const ending of ["idle", "transcribing", "recording", "failed", "stopped", "", "other-holder", "normal-result", "late-before-next", "late-after-next"]) {
+    const pages = [], effects = [], deliveries = [], deferred = [];
+    const owner = { model: Object.assign(model.initial("/fixture/dictation", "/fixture/state"), {
+      holders: ["vgs.voice", "acme.dictation"], daemon: "ready", child: "running", maxSecs: 210, setup: readsReady
+    }), waiting: null, Qt: { callLater: fn => deferred.push(fn) } };
+    owner.root = owner;
+    vm.runInNewContext(ownerRun[0], owner);
+    const world = { VoiceLogic: logic, voxtypePresent: true, ownDictation: false, dictation: "idle", recoveryRequested: false,
+      setupValue: logic.setupState(readsReady, "ready"), publish: () => {}, publishModel: () => {},
+      console: { warn: () => {}, error: value => assert.fail(value) }, shell: {
+        dictation: { start: mode => event("start", "vgs.voice", mode).answer, stop: () => event("stop", "vgs.voice").answer },
+        surfaces: { openPage: (page, tab) => pages.push([page, tab]) }
+      } };
+    Object.defineProperty(world, "dictationState", { get: () => model.state(owner.model) });
+    Object.defineProperty(world, "daemon", { get: () => world.dictationState.daemon });
+    world.root = world;
+    vm.runInNewContext(functions, world);
+    function event(name, ...args) {
+      const step = model[name](owner.model, ...args);
+      owner.model = step.model;
+      effects.push(...step.effects);
+      for (const effect of step.effects) if (["done", "forget"].includes(effect.kind)) owner.run(effect);
+      world.applyDictation();
+      return step;
+    }
+    const status = alt => event("status", JSON.stringify({ alt }));
+    assert.equal(world.toggle(), "ok", ending + ": idle toggle starts");
+    event("ran", "start", 0, "");
+    status("recording");
+    assert.equal(world.dictation, "recording", ending + ": own recording shows");
+    assert.equal(world.toggle(), "ok", ending + ": recording toggle stops");
+    if (ending.indexOf("late-") === 0 || ending === "normal-result") owner.waiting = result => deliveries.push(result);
+    event("ran", "stop", 0, "");
+    event("ran", "state", 0, JSON.stringify({ alt: "transcribing" }));
+    assert.equal(world.dictation, "transcribing", ending + ": normal stop keeps the display");
+    if (ending === "normal-result") {
+      status("idle");
+      assert.equal(event("start", "acme.dictation", "text").answer, "ok");
+      deferred.splice(0).forEach(fn => fn());
+      same(deliveries, [{ kind: "typed" }], "normal stop completion still reaches its callback after another holder starts");
+      continue;
+    }
+    effects.length = 0;
+    if (ending === "other-holder") {
+      status("idle");
+      assert.equal(event("start", "acme.dictation", "text").answer, "ok");
+      event("ran", "start", 0, "");
+      status("recording");
+      effects.length = 0;
+      assert.equal(world.toggle(), "refused: dictation=busy holder=acme.dictation");
+      same(effects, [], "another holder is untouched by Voice recovery");
+      assert.equal(world.dictationState.holder, "acme.dictation");
+      assert.equal(world.dictation, "idle", "another holder has no Voice display");
+      continue;
+    }
+    assert.equal(world.toggle(), "refused: dictation=engine-busy state=transcribing");
+    assert.ok(effects.some(e => e.kind === "run" && e.tag === "state"), ending + ": refused toggle reads fresh engine state");
+    assert.equal(effects.some(e => e.tag === "start" || e.tag === "cancel"), false, ending + ": recovery press records and cancels nothing");
+    event("ran", "state", ending === "failed" ? 1 : 0, JSON.stringify({ alt: ending.indexOf("late-") === 0 ? "idle" : ending }));
+    if (ending === "idle" || ending.indexOf("late-") === 0) {
+      assert.equal(world.dictation, "idle", ending + ": stale display hides");
+      assert.equal(world.ownDictation, false);
+      assert.equal(world.dictationState.holder, "", ending + ": recovery retains no recording intent");
+      if (ending === "late-before-next") {
+        deferred.splice(0).forEach(fn => fn());
+        same(deliveries, [], "recovery discards a deferred cancelled result");
+      }
+      assert.equal(world.toggle(), "ok", ending + ": next press starts");
+      event("ran", "start", 0, "");
+      status("recording");
+      assert.equal(world.dictation, "recording");
+      deferred.splice(0).forEach(fn => fn());
+      same(deliveries, [], "old delivery cannot reach a new recording");
+    } else if (["failed", "stopped", ""].includes(ending)) {
+      assert.equal(world.dictation, "idle", "failure hides stale display");
+      same(pages, [["vgs.voice", "Setup"]], "failed recovery opens its actionable correction");
+      assert.equal(world.setupValue.action, "setup");
+    } else {
+      assert.equal(world.dictationState.holder, "", ending + ": progressing engine starts no recording");
+      assert.equal(world.dictationState.phase, ending);
+      assert.equal(world.dictation, ending === "transcribing" ? "transcribing" : "idle");
+      same(pages, [], ending + ": progress opens no correction");
+    }
+  }
+}
 
 // Execute the shipped handlers and publishers. Only capability effects
 // are replaced, so every user entry must reach the shared correction.
@@ -472,6 +571,36 @@ verifyRequirements(shipped);
 const judgedVoice = pluginLogic.validateManifest(shipped, path.dirname(manifestFile));
 assert.ok(judgedVoice.ok, "the Voice manifest supplies the correction route");
 verifyStartCorrection(serviceSource, judgedVoice.manifest);
+verifyRecovery(load(file), serviceSource);
+const recoveryControls = [
+  ["service", "failed recovery opens its correction", '            if (dictationState.daemon === "failed") shell.surfaces.openPage(VoiceLogic.HOLDER, "Setup");', '            if (false) shell.surfaces.openPage(VoiceLogic.HOLDER, "Setup");'],
+  ["service", "recovery remembers the refused start", '        recoveryRequested = answer.indexOf("refused: dictation=engine-busy state=") === 0;', '        recoveryRequested = false;'],
+  ["owner", "cancelled result cannot be delivered after recovery or a new start", 'if (root.model.delivery === delivery) done(effect.result);', 'if (true) done(effect.result);'],
+  ["model", "idle recovery retires delayed results", '        if (t.reconciling && read === "idle") t.delivery += 1;', '        if (false) t.delivery += 1;'],
+  ["model", "normal completion survives the next holder's start", '    t.recording = { holder: id, mode: mode, phase: "starting", path: "" };', '    t.delivery += 1;\n    t.recording = { holder: id, mode: mode, phase: "starting", path: "" };'],
+  ["model", "an absent state cannot leave recovery waiting forever", '        if (t.reconciling && read === "stopped") read = null;', '        if (false) read = null;'],
+  ["model", "stale start reads fresh engine status", '        if (t.pending === 0) command(t, effects, STATE, STATUS_ARGV);', '        if (false) command(t, effects, STATE, STATUS_ARGV);'],
+  ["model", "another holder is untouched by recovery", '    else if (t.recording !== null) answer = "refused: dictation=busy holder=" + t.recording.holder;', '    else if (false) answer = "refused: dictation=busy holder=" + t.recording.holder;'],
+  ["logic", "recovered idle hides the old transcription display", '(state.phase === "unread" || state.phase === "transcribing")', '(state.phase === "idle" || state.phase === "unread" || state.phase === "transcribing")'],
+  ["logic", "progressing transcription remains visible", '(state.phase === "unread" || state.phase === "transcribing")', '(state.phase === "unread")'],
+  ["logic", "another holder has no Voice display", 'if (state.holder === HOLDER)', 'if (state.holder !== "")']
+];
+const recoveryTemp = fs.mkdtempSync(path.join(require("node:os").tmpdir(), "voice-recovery-control-"));
+try {
+  const sources = { service: serviceSource, owner: dictationSource, model: fs.readFileSync(dictationModelFile, "utf8"), logic: fs.readFileSync(file, "utf8") };
+  for (const [target, label, needle, replacement] of recoveryControls) {
+    assert.equal(sources[target].split(needle).length, 2, label + ": mutation matches once");
+    const changed = sources[target].replace(needle, replacement);
+    assert.notEqual(changed, sources[target]);
+    const copy = path.join(recoveryTemp, target + ".js");
+    fs.writeFileSync(copy, changed);
+    const logic = target === "logic" ? load(copy) : load(file);
+    const model = target === "model" ? load(copy) : load(dictationModelFile);
+    assert.throws(() => verifyRecovery(logic, target === "service" ? changed : serviceSource, model, target === "owner" ? changed : dictationSource), assert.AssertionError, "control: " + label);
+  }
+} finally {
+  fs.rmSync(recoveryTemp, { recursive: true, force: true });
+}
 const startControls = [
   ["the pending correction is not opened", ' || answer === "refused: dictation=daemon-starting"', ""],
   ["the correction is not opened", "            shell.surfaces.openPage(", "            if (false) shell.surfaces.openPage("],
@@ -528,4 +657,4 @@ delete stored.sounds.feedback.held;
 stored.sounds.feedback.default = "own";
 assert.throws(() => verifyFeedback(stored), "control stored: a manifest copy whose dictation event the core stores passed");
 
-console.log(`test-voice-logic: ok controls=${controls.length + startControls.length + VOXTYPE_TUIS.length + 1 + manifestControls.length + 1}`);
+console.log(`test-voice-logic: ok controls=${controls.length + startControls.length + recoveryControls.length + VOXTYPE_TUIS.length + 1 + manifestControls.length + 1}`);

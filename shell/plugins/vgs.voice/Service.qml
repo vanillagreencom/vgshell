@@ -17,6 +17,9 @@ Item {
     // phase, `idle` during another holder's.
     property string dictation: "idle"
     property bool ownDictation: false
+    // A refused busy start waits for the core's fresh engine read. If
+    // that read fails, the existing Setup page gives the correction.
+    property bool recoveryRequested: false
     // The capability's word for the daemon, "" before the first read. Set
     // up's state reads it.
     readonly property string daemon: dictationState === null ? "" : dictationState.daemon
@@ -132,6 +135,10 @@ Item {
         if (shown.phase !== dictation) publishDictation(shown.phase);
         publishModel();
         refreshSetup();
+        if (recoveryRequested && (dictationState.daemon === "failed" || dictationState.phase === "idle")) {
+            recoveryRequested = false;
+            if (dictationState.daemon === "failed") shell.surfaces.openPage(VoiceLogic.HOLDER, "Setup");
+        }
     }
 
     // The core retires a disabled plugin's status record, then lets go of
@@ -276,6 +283,7 @@ Item {
     // A daemon refusal opens the existing correction without starting it.
     function start() {
         const answer = shell.dictation.start("type");
+        recoveryRequested = answer.indexOf("refused: dictation=engine-busy state=") === 0;
         if (answer !== "ok") console.warn("voice: start " + answer);
         if (answer === "refused: dictation=daemon-failed" || answer === "refused: dictation=daemon-absent" || answer === "refused: dictation=daemon-elsewhere" || answer === "refused: dictation=daemon-starting") {
             refreshSetup();
