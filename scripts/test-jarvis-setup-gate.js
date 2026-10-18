@@ -1409,40 +1409,49 @@ function verifySession(gate) {
     const pending = { kind: "lane", name: "VGS-1", outcome: "pending", cause: null };
     const restart = { unlock: "1password", steps: [{ kind: "delegate", name: "jarvis", outcome: "pending", cause: null }, pending] };
     const saved = { kind: "answer", state: "stopped", reason: "ended", detail: "", names: null, restart };
+    const resuming = { ...saved, state: "starting", reason: "resuming" };
+    // The resume ran its first step and the session lives.
+    const resumedDelegate = { kind: "delegate", name: "jarvis", outcome: "resumed", cause: null };
+    const resumedRunning = { ...saved, state: "running", reason: "resumed", restart: { unlock: "1password", steps: [resumedDelegate, pending] } };
+    // A resume that ended after its last step failed.
+    const ended = { ...saved, restart: { unlock: "1password", steps: [{ ...pending, outcome: "failed", cause: "The app asked for a sign-in." }] } };
+    // A resume that failed at its first step, the session left failed.
+    const failedDelegate = { kind: "delegate", name: "jarvis", outcome: "failed", cause: "The app asked for a sign-in." };
+    const failedResume = { ...saved, state: "failed", reason: "launch-failed", detail: "The app asked for a sign-in.",
+        restart: { unlock: "1password", steps: [failedDelegate, pending] } };
+    // A session a Start or a boot with Start a new session started beside
+    // the record: no resume of it started.
+    const beside = { ...saved, state: "running", reason: "existing" };
     for (const [label, wanted, result, aside, offers] of [
         ["a stopped session", false, saved, false, true], ["a failed start", false, { ...saved, state: "failed", reason: "launch-failed" }, false, true],
+        ["a resume that ended before its first step", false, { ...saved, reason: "stopped" }, false, true],
         ["the boot setting on", true, saved, false, false], ["put aside", false, saved, true, false],
-        ["a live session", false, { ...saved, state: "starting", reason: "resuming" }, false, false],
+        ["a live session", false, resuming, false, false], ["a session beside the record", false, beside, false, false],
+        ["a resume that failed at its first step", false, failedResume, false, false], ["a resume that ended after a step", false, ended, false, false],
         ["an app Off", false, { ...saved, state: "off", reason: "app-off" }, false, false], ["no record", false, { ...saved, restart: undefined }, false, false]]) {
         assert.equal(gate.sessionOffer(wanted, result, aside), offers, label + ": the offer");
         const row = plain(gate.sessionStart(wanted, result, gate.sessionOffer(wanted, result, aside)));
         assert.equal(offered(row) === "resume:resume-session", offers, label + ": the row offers Resume");
         assert.deepEqual(plain(gate.sessionRecord(wanted, result, aside, null)).offer, offers ? { unlock: "1password" } : null, label + ": the widget's offer");
     }
-    // The steps show once the resume started, and stay pending until none is.
-    const resuming = { ...saved, state: "starting", reason: "resuming" };
-    assert.deepEqual(plain(gate.sessionRecord(false, resuming, false, null)).steps, restart.steps, "the steps of a resume");
-    const ended = { ...saved, restart: { unlock: null, steps: [{ ...pending, outcome: "failed", cause: "The app asked for a sign-in." }] } };
-    assert.deepEqual(plain(gate.sessionRecord(true, ended, false, null)).steps, ended.restart.steps, "a failed step shows after the resume ended");
-    // A resume that failed at its first step, the session left failed: the
-    // offer does not stand again, the row reads the failure with its
-    // detail and the widget the failed step with its cause.
-    const failedResume = { ...saved, state: "failed", reason: "launch-failed", detail: "The app asked for a sign-in.",
-        restart: { unlock: "1password", steps: [{ kind: "delegate", name: "jarvis", outcome: "failed", cause: "The app asked for a sign-in." }, pending] } };
-    assert.equal(gate.sessionOffer(false, failedResume, false), false, "a resume that failed: no offer");
-    const failedRow = plain(gate.sessionStart(false, failedResume, false));
-    assert.deepEqual([failedRow.text, failedRow.hint], [plain(gate.sessionStart(false, { ...failedResume, restart: undefined }, false)).text, failedResume.detail],
-        "a resume that failed: the failure row");
-    assert.deepEqual(plain(gate.sessionRecord(false, failedResume, false, null)), { model: null, since: null, offer: null, steps: failedResume.restart.steps, checkedAt: null },
-        "a resume that failed: its steps");
-    // Only a resume that started has steps the service reads again: a
-    // record no resume reached, offered, set aside or left at boot, has none.
-    assert.deepEqual([resuming, ended, saved, { ...saved, state: "failed", reason: "launch-failed" }, failedResume, null].map(gate.sessionStepsPending),
-        [true, false, false, false, true, false], "the steps still pending");
+    // The steps show once the resume started, and the service reads them
+    // again while the resume runs with a step pending. Once no session
+    // lives, a step still pending reads failed with no cause: not resumed.
+    const notResumed = { ...pending, outcome: "failed", cause: null };
+    for (const [label, result, steps, reads] of [
+        ["a record no resume reached", saved, [], false], ["a failed start", { ...saved, state: "failed", reason: "launch-failed" }, [], false],
+        ["a session beside the record", beside, [], false],
+        ["a resume that starts", resuming, restart.steps, true], ["a resume past its first step", resumedRunning, resumedRunning.restart.steps, true],
+        ["a resume that ended after a step", ended, ended.restart.steps, false],
+        ["a resume that failed at its first step", failedResume, [failedDelegate, notResumed], false]]) {
+        assert.deepEqual([plain(gate.sessionRecord(false, result, false, null)).steps, gate.sessionStepsPending(result)], [steps, reads],
+            label + ": the steps and reads");
+    }
+    assert.equal(gate.sessionStepsPending(null), false, "no answer: no reads");
     // Once those reads stop, the pending steps give way to when they were read.
     const lastRead = "2026-10-17T11:12:00" + offset(new Date(2026, 9, 17, 11, 12));
-    const stale = plain(gate.sessionRecord(false, failedResume, false, lastRead));
-    assert.deepEqual([stale.steps, stale.checkedAt], [[failedResume.restart.steps[0]], "11:12"], "the reads stopped: no pending step, the last read's time");
+    const stale = plain(gate.sessionRecord(false, resumedRunning, false, lastRead));
+    assert.deepEqual([stale.steps, stale.checkedAt], [[resumedDelegate], "11:12"], "the reads stopped: no pending step, the last read's time");
     assert.equal(plain(gate.sessionRecord(true, ended, false, lastRead)).checkedAt, null, "no step pending: no time");
     assert.equal(judge.statusWrite(manifest, {}, "jarvisSession", plain(gate.sessionRecord(false, resuming, false, null))).ok, true, "the manifest judge accepts the reading");
     assert.equal(judge.statusWrite(manifest, {}, "jarvisSession", stale).ok, true, "the manifest judge accepts a reading whose reads stopped");
@@ -1984,8 +1993,10 @@ const CONTROLS = [
     ["the offer ignores the boot setting", "return !wanted && !setAside && result !== null", "return !setAside && result !== null", "the boot setting on: the offer"],
     ["the offer ignores Do not resume", "return !wanted && !setAside && result !== null", "return !wanted && result !== null", "put aside: the offer"],
     ["the row offers no Resume", "if (offered === true) value = Object.assign({}, SESSION_RESUME);", "if (false) value = null;", "the row offers Resume"],
-    ["a resume that failed is offered again", "SESSION_OFFERED.indexOf(result.state) !== -1 && !sessionResumeStarted(result);", "SESSION_OFFERED.indexOf(result.state) !== -1;", "a resume that failed: no offer"],
-    ["a record no resume reached is read again", "    return sessionResumeStarted(result) && result.restart.steps.some(", "    return result !== null && result.kind === \"answer\" && result.restart !== undefined && result.restart.steps.some(", "the steps still pending"],
+    ["a resume that failed is offered again", "SESSION_OFFERED.indexOf(result.state) !== -1 && !sessionResumeStarted(result);", "SESSION_OFFERED.indexOf(result.state) !== -1;", "a resume that failed at its first step: the offer"],
+    ["a session beside the record is its resume", '        && ((result.state === "starting" && result.reason === "resuming")', "        && (sessionLive(result.state)", "a session beside the record: the steps and reads"],
+    ["a resume that ended is read again", "    return sessionResumeStarted(result) && sessionLive(result.state)\n", "    return sessionResumeStarted(result)\n", "a resume that failed at its first step: the steps and reads"],
+    ["an ended resume's pending steps read waiting", 'outcome: "failed", cause: null } : step;', "outcome: step.outcome, cause: step.cause } : step;", "a resume that failed at its first step: the steps and reads"],
     ["stale pending steps stay", "    if (stale) steps = steps.filter(", "    if (false) steps = steps.filter(", "the reads stopped"],
     ["a starting session is not live", 'var SESSION_LIVE = ["running", "starting", "handing-over"];', 'var SESSION_LIVE = ["running", "handing-over"];', "the states of a session that lives"],
     ["the session field draws while the setting is off", "return wanted ? SESSION_MODES : [];", "return SESSION_MODES;", "the session field while the setting is false"],

@@ -9,8 +9,9 @@ import "../../shell/plugins/vgs.jarvis"
 // only while a wait is held and only on the focused screen, names the
 // action and the seconds left, takes the pointer on its two controls alone,
 // and its button asks the wait to proceed once. PowerWait's count of the
-// seconds left never passes its wait. PowerWait's other logic is the
-// jarvis-session smoke row's; this test reads what the card draws.
+// seconds left never passes its wait, and its own bound, past the helper's,
+// runs systemctl. PowerWait's other logic is the jarvis-session smoke
+// row's; this test reads what the card draws.
 Item {
     id: root
     width: 900
@@ -29,6 +30,19 @@ Item {
     // A real wait with no shell: it starts nothing and registers nothing.
     PowerWait {
         id: powerWait
+    }
+
+    // A real wait over a stand-in shell, which records each detached argv
+    // and starts nothing, and a stand-in session that lives.
+    property var detached: []
+    PowerWait {
+        id: heldWait
+        session: ({ result: { kind: "answer", state: "running" }, sessionHome: "~/Jarvis" })
+        shell: ({
+            ipc: { handle: (name, handler) => {} },
+            run: { detached: argv => { root.detached = root.detached.concat([argv]); return "ok"; } },
+            layers: { show: component => () => {} }
+        })
     }
 
     PowerCard {
@@ -53,6 +67,8 @@ Item {
         function cleanup() {
             powerWait.verb = "";
             powerWait.deadline = 0;
+            heldWait.end();
+            root.detached = [];
         }
 
         function find(node, test) {
@@ -112,6 +128,21 @@ Item {
             compare(powerWait.remaining, 42);
             powerWait.deadline = Time.now.getTime() - 1000;
             compare(powerWait.remaining, 0);
+        }
+
+        // The helper never asked: the wait's own bound, after the helper's,
+        // runs systemctl and ends the wait.
+        function test_the_bound_runs_systemctl() {
+            compare(heldWait.power("reboot"), "held");
+            compare(root.detached.length, 1, "the helper's start");
+            const bound = Array.from(heldWait.data).find(child => child.interval !== undefined && typeof child.triggered === "function");
+            verify(bound !== undefined, "the wait's bound");
+            verify(bound.running, "the bound runs while the wait is held");
+            verify(bound.interval > heldWait.waitMs, "the bound comes after the helper's");
+            bound.triggered();
+            compare(root.detached[root.detached.length - 1], ["systemctl", "reboot"]);
+            compare(heldWait.verb, "", "the wait ended");
+            verify(!bound.running, "the bound stopped");
         }
 
         function test_the_card_fits_its_screen() {

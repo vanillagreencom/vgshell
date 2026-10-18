@@ -18,8 +18,9 @@ import "SetupGate.js" as Gate
 // and the bar widget's reading (`jarvisSession`). While Start Jarvis at boot
 // is off, that record is the Resume offer: the widget's click and the row's
 // Resume ask for its resume, Do not resume sets it aside, and the offer
-// ends once its resume is asked or started. While a resume that started
-// has a pending step (SetupGate.sessionStepsPending), this instance reads
+// waits for the ask's answer and ends once its resume started
+// (SetupGate.sessionResumeStarted). While a resume that started still runs
+// with a pending step (SetupGate.sessionStepsPending), this instance reads
 // the session again every stepPollMs, for at most stepPollLimitMs from the
 // first such read; the widget then says when it last read the steps.
 Item {
@@ -46,9 +47,9 @@ Item {
     // The record the user chose Do not resume for, as recordKey writes it;
     // "" for none. A later record, of a later restart, offers again.
     property string setAside: ""
-    // The record the user asked to resume, as recordKey writes it; "" for
-    // none. Its offer does not stand again, whatever the resume's answer.
-    property string resumed: ""
+    // True from the Resume's ask to its answer: a second Resume before the
+    // answer asks for nothing. The answer says whether the resume started.
+    property bool resumed: false
     // When the first read of pending steps of a started resume came, 0
     // before; the reads stop for good once stepPollLimitMs have passed since.
     property real pollSince: 0
@@ -59,7 +60,7 @@ Item {
     readonly property int stepPollLimitMs: 600000
     readonly property bool stepsPending: Gate.sessionStepsPending(result)
     readonly property bool offered: shell !== null
-        && Gate.sessionOffer(shell.settings.startAtBoot, result, recordKey(result) !== "" && [setAside, resumed].indexOf(recordKey(result)) !== -1)
+        && Gate.sessionOffer(shell.settings.startAtBoot, result, resumed || (recordKey(result) !== "" && recordKey(result) === setAside))
     readonly property string program: String(Qt.resolvedUrl("backend/session-control.js")).replace(/^file:\/\//, "")
     readonly property bool wanted: shell !== null && shell.settings.startAtBoot
     onWantedChanged: publish()
@@ -100,7 +101,7 @@ Item {
 
     function resume() {
         if (!offered) return "refused: resume=not-offered";
-        resumed = recordKey(result);
+        resumed = true;
         pollSince = 0;
         pollOver = false;
         publish();
@@ -171,6 +172,7 @@ Item {
             sessionHome = current.home;
         }
         result = answer;
+        if (current.verb === "resume") resumed = false;
         if (answer.kind === "answer") lastRead = new Date().toISOString();
         if (stepsPending && pollSince === 0) pollSince = Date.now();
         publish();

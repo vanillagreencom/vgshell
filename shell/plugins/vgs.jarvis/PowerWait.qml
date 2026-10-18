@@ -12,12 +12,13 @@ import "SetupGate.js" as Gate
 // detached, which asks the session to save and runs `systemctl` whatever
 // the answer, at the latest after its bound, so a shell crash or reload
 // during the wait still restarts the computer. This instance asks
-// `systemctl` itself at the same bound too: `held` means only that the
-// helper's start was handed to Quickshell, which reports no start that
-// failed (Capabilities.runDetached). It also shows the card
-// (PowerCard) on the focused screen until the bound, in a layer registered
-// only while the wait is held. A second ask while held, or the card's
-// button, is the skip: the restart goes at once.
+// `systemctl` itself fallbackMarginMs after that bound: `held` means only
+// that the helper's start was handed to Quickshell, which reports no start
+// that failed (Capabilities.runDetached), so this request goes only when
+// the helper did not ask in time. It also shows the card (PowerCard) on
+// the focused screen, counting to the helper's bound, in a layer
+// registered only while the wait is held. A second ask while held, or the
+// card's button, is the skip: the restart goes at once.
 Item {
     id: root
     property var shell: null
@@ -35,6 +36,11 @@ Item {
     readonly property int remaining: verb === "" ? 0 : Math.max(0, Math.min(waitMs / 1000, Math.ceil((deadline - Time.now.getTime()) / 1000)))
     // backend/power-wait.js PREPARE_MS, the longest wait.
     readonly property int waitMs: 60000
+    // How long after the helper's bound this instance's own request waits.
+    // The helper arms its bound only once node has loaded it, after this
+    // instance's bound starts, and later still under load; the margin lets
+    // the helper's request at its bound come first.
+    readonly property int fallbackMarginMs: 5000
     readonly property string program: String(Qt.resolvedUrl("backend/power-wait.js")).replace(/^file:\/\//, "")
     property bool registered: false
     // The card layer's release while a wait is held, else null.
@@ -80,8 +86,10 @@ Item {
         return "held";
     }
 
-    // The card's Restart now or Shut down now, and the bound: the restart
-    // goes now. A second request after the helper's is harmless.
+    // The card's Restart now or Shut down now, and this instance's bound
+    // past the helper's: the restart goes now. The button can come before
+    // the helper's request, which then follows a restart already asked
+    // for; the bound comes only after the helper's own.
     function proceedNow() {
         if (verb === "") return;
         const reply = shell.run.detached(["systemctl", verb]);
@@ -103,12 +111,15 @@ Item {
         release();
     }
 
-    // The card goes at the bound, and the restart with it, whether
-    // power-wait.js ran or not.
+    // The restart for a helper that did not ask at its bound, which then
+    // never ran or failed before its request; the card goes with it.
     Timer {
         id: bound
-        interval: root.waitMs
-        onTriggered: root.proceedNow()
+        interval: root.waitMs + root.fallbackMarginMs
+        onTriggered: {
+            console.warn("jarvis-power: bound verb=" + root.verb);
+            root.proceedNow();
+        }
     }
 
     Component {
