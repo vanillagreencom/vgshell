@@ -453,7 +453,7 @@ const producerControls = [
     ["a tools value offers a declared action", '        if (value.action === STATUS_TOOLS_ACTION) return null;\n', '', "act on a tools value: account"],
     ["no info key in a state value", '"available", "info", "file"];', '"available", "file"];', "value info: a value with its own info is admitted"],
     ["no file key in a state value", '"available", "info", "file"];', '"available", "info"];', "file value: a value naming its file action with a path is admitted"],
-    ["a value's info is not judged", '            && infoError(value.info, "") === ""\n', '', "value info: an info empty is refused"],
+    ["a value's info is not judged", '            && infoError(value.info, "", true) === ""\n', '', "value info: an info empty is refused"],
     ["the entry's info stands over the value's", '        var info = entry.type === "state" && value !== null && value.info !== undefined\n            ? value.info : entry.info', '        var info = false\n            ? value.info : entry.info', "value info: a value's info stands in the entry's"],
     ["no file route", 'var STATUS_ACTION_ROUTES = ["tui", "system", "undo", "dictation", "file"];', 'var STATUS_ACTION_ROUTES = ["tui", "system", "undo", "dictation"];', "file action: a file action is admitted"],
     ["a file act opens a script", '    if (action.file !== undefined)\n        return { ok: true, kind: "file", path: action.file === true ? values[key].file : action.file };\n', '', "file action: the act opens the declared path"],
