@@ -2428,15 +2428,16 @@ LUA
   expect "the XDR is on the output" ok ipc vgs.displays invoke assign "{\"device\":\"usb:class/hidraw/hidraw0/device#VGSSMOKEXDR01\",\"output\":\"$first_output\"}"
   # The owner's tmux and LazyVim, copied, never linked. For the sandbox:
   # panes start fish, not his agent-confine shell; his pane-exit reap hook,
-  # which needs his systemd scopes, is dropped; status-right, which names
-  # his user and host, is empty; his Neovim reads the sandbox's theme
-  # state. His installed plugins and Mason tools are copied, so nothing installs.
+  # which needs his systemd scopes, is dropped; his Neovim reads the
+  # sandbox's theme state. His installed plugins and Mason tools are copied,
+  # so nothing installs.
   rm -rf -- "${home:?}/.config/tmux" "${home:?}/.config/nvim" "${home:?}/Projects/vgshell"
   mkdir -p -- "$home/.config/ghostty" "$home/.tmux/plugins" "$home/.local/share/nvim" "$home/Projects"
   cp -R -- "$preview_dotfiles/tmux/.config/tmux" "$home/.config/tmux"
   cp -- "$preview_dotfiles/tmux/.tmux.conf" "$home/.tmux.conf"
-  sed -i -e '/^set-hook -ga pane-exited .*tmux-scope-reap/d' -e 's|^set -g default-shell .*|set -g default-shell /usr/bin/fish|' \
-    -e 's|^set -g status-right .*|set -g status-right ""|' "$home/.tmux.conf"
+  sed -i -e '/^set-hook -ga pane-exited .*tmux-scope-reap/d' -e 's|^set -g default-shell .*|set -g default-shell /usr/bin/fish|' "$home/.tmux.conf"
+  # Keep the preview's pane title fixed so the status line names no host.
+  printf '\nset -g allow-set-title off\n' >>"$home/.tmux.conf"
   cp -R -- "$HOME/.tmux/plugins/tmux-smooth-scroll" "$home/.tmux/plugins/"
   cp -R -- "$preview_dotfiles/nvim/.config/nvim" "$home/.config/nvim"
   printf 'dofile("%s/.local/state/vgshell/theme/neovim.lua")\n' "$home" >"$home/.config/nvim/plugin/vgs-theme.lua"
@@ -2475,6 +2476,7 @@ GHOSTTY
       expect_poll "$name's wallpaper is drawn" 1 layer_count vgs:background
     fi
     preview_terminal_start
+    preview_tmux select-pane -t vgshell:1 -T vgshell || fail "the preview's pane title could not be set"
     expect_poll "the terminal is mapped" 1 preview_windows
     # The System window opens last, so it is on top and focused.
     expect "System → Displays summons" ok ipc shell summon window vgs.system '{"pane":"vgs.displays"}'
