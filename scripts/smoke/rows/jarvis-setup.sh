@@ -226,7 +226,7 @@ assert not p.is_symlink()
 s=p.read_text()
 for needle in sys.argv[2:]:
     assert s.count(needle)==1, needle
-    dropped=needle.replace("; onRefreshed: root.hello() }", " }").replace(" root.hello(); cloneRuntime.refresh(); }", " }")
+    dropped=needle.replace("; onRefreshed: root.hello() }", " }").replace("            root.hello();\n            cloneRuntime.refresh();", "            if (false) { root.hello(); cloneRuntime.refresh(); }")
     assert dropped!=needle, needle
     s=s.replace(needle, dropped)
 p.write_text(s)
@@ -234,7 +234,7 @@ PY
 }
 setup_keys_hook="Jarvis.Keys { shell: root.shell; onRefreshed: root.hello() }"
 setup_accounts_hook="Jarvis.Accounts { id: accountReader; shell: root.shell; onRefreshed: root.hello() }"
-setup_local_hook="onRefreshed: { root.publishShellSetup(); root.hello(); cloneRuntime.refresh(); }"
+setup_local_hook=$'onRefreshed: {\n            if (!root.publishShellSetup()) return;\n            root.hello();\n            cloneRuntime.refresh();\n        }'
 # The Local voice reader's answer (scripts/fixtures/jarvis-setup/status.py
 # --choices): PICK, READY ("none" for none) and the offers of a machine that
 # runs every English tier.

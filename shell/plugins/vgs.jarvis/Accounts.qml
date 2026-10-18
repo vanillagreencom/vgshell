@@ -99,8 +99,10 @@ Item {
 
     function publishChoice() {
         if (shell === null) return;
-        if (shell.status.set("models", choice.models) !== "ok" || shell.status.set("efforts", choice.efforts) !== "ok")
+        const replies = [shell.status.set("models", choice.models), shell.status.set("efforts", choice.efforts)];
+        if (replies.some(reply => !shell.status.isOk(reply)))
             throw new Error("jarvis-accounts: status=refused");
+        if (replies.some(reply => reply !== "ok")) return;
         Qt.callLater(save);
     }
 
@@ -147,6 +149,10 @@ Item {
     // same step, never left naming a key that is gone, and the sole key
     // left, if any, is then selected.
     function publishVoice(keys) {
+        const voiceChoices = Gate.voiceKeys(keys, shell.settings);
+        const choices = shell.status.set("voiceAccounts", voiceChoices);
+        if (!shell.status.isOk(choices)) throw new Error("jarvis-accounts: status=refused");
+        if (choices !== "ok") return false;
         if (removedFrom !== undefined && !pending) {
             const named = key => key.value === shell.settings.voiceAccount;
             const gone = removedFrom.some(named) && !keys.some(named);
@@ -154,12 +160,13 @@ Item {
             if (gone && shell.configure.set("voiceAccount", "") !== "ok")
                 console.warn("jarvis-accounts: voice-selection=refused");
         }
-        const voiceChoices = Gate.voiceKeys(keys, shell.settings);
-        if (shell.status.set("voiceAccounts", voiceChoices) !== "ok"
-            || shell.status.set("voiceKey", Gate.voiceKey(voiceChoices, shell.settings)) !== "ok") throw new Error("jarvis-accounts: status=refused");
+        const key = shell.status.set("voiceKey", Gate.voiceKey(voiceChoices, shell.settings));
+        if (!shell.status.isOk(key)) throw new Error("jarvis-accounts: status=refused");
+        if (key !== "ok") return false;
         const chosen = pending ? null : Gate.voiceChoice(keys, shell.settings);
         if (chosen !== null && shell.configure.set("voiceAccount", chosen) !== "ok")
             console.warn("jarvis-accounts: voice-selection=refused");
+        return true;
     }
     function republishVoice() {
         if (shell !== null && voiceKeys !== undefined) publishVoice(voiceKeys);
@@ -175,10 +182,11 @@ Item {
             const accounts = value.accounts.map(item => Words.accountHint(item) === "" ? { label: item.label, value: item.value }
                 : { label: item.label, value: item.value, hint: Words.accountHint(item) });
             const search = Words.searchValue({ kind: "found", found: value.search.found, partial: value.search.partial });
-            if (shell.status.set("accounts", accounts) !== "ok" || shell.status.set("brains", value.brains) !== "ok"
-                || shell.status.set("accountSearch", search) !== "ok"
-                || shell.status.set("copilotMemory", Gate.copilotMemory(value.accounts)) !== "ok") throw new Error("status");
-            publishVoice(value.voiceAccounts);
+            const replies = [shell.status.set("accounts", accounts), shell.status.set("brains", value.brains),
+                shell.status.set("accountSearch", search), shell.status.set("copilotMemory", Gate.copilotMemory(value.accounts))];
+            if (replies.some(reply => !shell.status.isOk(reply))) throw new Error("status");
+            if (replies.some(reply => reply !== "ok")) return false;
+            if (!publishVoice(value.voiceAccounts)) return false;
         } catch (error) {
             modelAccess = { kind: "checking" };
             voiceKeys = undefined;
@@ -188,9 +196,11 @@ Item {
             const replies = [shell.status.set("accounts", []), shell.status.set("brains", []), shell.status.set("voiceAccounts", []),
                 shell.status.set("accountSearch", Words.searchValue({ kind: "failed", reason: reason })),
                 shell.status.set("copilotMemory", Gate.copilotMemory([])), shell.status.set("voiceKey", Gate.voiceKey(null, shell.settings))];
-            if (replies.some(reply => reply !== "ok")) throw new Error("jarvis-accounts: status=refused");
+            if (replies.some(reply => !shell.status.isOk(reply))) throw new Error("jarvis-accounts: status=refused");
+            if (replies.some(reply => reply !== "ok")) return false;
         }
         refreshed();
+        return true;
     }
     Process {
         id: probe
@@ -212,8 +222,7 @@ Item {
         onExited: (code, status) => root.completion = status === 0 ? { kind: "exited", code: code } : { kind: "crashed" }
         onRunningChanged: {
             if (running) return;
-            root.publish();
-            if (root.pending) Qt.callLater(root.refresh);
+            if (root.publish() && root.pending) Qt.callLater(root.refresh);
         }
     }
     Process {

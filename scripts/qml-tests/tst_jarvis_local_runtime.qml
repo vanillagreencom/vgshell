@@ -27,7 +27,7 @@ Item {
             statusKey: "setupFleet"
             tuiName: "setup-fleet"
             shell: ({ manifest: { status: { setupFleet: entry } }, requirements: { missing: [], revision: 0 },
-                tui: { state: {} }, status: { set: (key, value) => runtime.write(key, value) } })
+                tui: { state: {} }, status: { isOk: PluginLogic.statusReplyOk, set: (key, value) => runtime.write(key, value) } })
 
             // The Agent fleet row: the key whose retired write reached the
             // shell log.

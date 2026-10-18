@@ -220,6 +220,7 @@ Singleton {
         // while the Settings window shows the plugin's page.
         status: ctx => ({
             set: (key, value) => PluginStatus.set(ctx, key, value),
+            isOk: Logic.statusReplyOk,
             handleRefresh: (key, handler) => PluginStatus.handleRefresh(ctx, key, handler),
             act: (key, row, rowAction) => root.managerAct(ctx.id, key, row, rowAction),
             get rows() { return Logic.statusRows(Registry.manifests[ctx.id], PluginStatus.valuesOf(ctx.id)); },

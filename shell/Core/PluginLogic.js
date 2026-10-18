@@ -1377,6 +1377,24 @@ function statusRefusal(key, reason) {
     return "refused: status=" + named + " reason=" + reason;
 }
 
+// PluginStatus.set can refuse a late callback after disable or replacement.
+// That retired write is a no-op; every other refusal remains a failure.
+function statusReplyOk(reply) {
+    if (reply === "ok") return true;
+    if (typeof reply !== "string") return false;
+    var match = /^refused: status=(.+) reason=retired$/.exec(reply);
+    if (match === null) return false;
+    if (STATUS_KEY_PATTERN.test(match[1])) return statusRefusal(match[1], "retired") === reply;
+    // Retirement is checked before the key, so malformed keys are quoted
+    // by statusRefusal too. Accept only that canonical keyed line.
+    try {
+        var key = JSON.parse(match[1]);
+        return typeof key === "string" && statusRefusal(key, "retired") === reply;
+    } catch (error) {
+        return false;
+    }
+}
+
 // One status write by a plugin whose validated manifest is `manifest` and
 // whose published values are `values`: { ok: true, values, bytes } with
 // the new deep-frozen values and their size, or { ok: false, error } with

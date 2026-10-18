@@ -20,7 +20,7 @@ Item {
     function publishValue(key, value) {
         if (shell === null) return;
         const reply = shell.status.set(key, value);
-        if (reply !== "ok" && reply.indexOf("reason=retired") === -1) console.warn("keyboard: status " + reply);
+        if (!shell.status.isOk(reply)) console.warn("keyboard: status " + reply);
     }
 
     function publishCatalog() { publishValue("catalog", { state: catalogState, layouts: catalog }); }

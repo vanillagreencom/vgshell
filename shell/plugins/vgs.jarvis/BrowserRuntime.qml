@@ -20,6 +20,6 @@ LocalRuntime {
         const reply = shell.status.set("browserDriver", driverValue);
         // A scan publishes the next instance before it reads versions, so
         // the outdated list moves once more under the instance it retired.
-        if (reply !== "ok" && !reply.endsWith(" reason=retired")) throw new Error("jarvis: " + reply);
+        if (!shell.status.isOk(reply)) throw new Error("jarvis: " + reply);
     }
 }

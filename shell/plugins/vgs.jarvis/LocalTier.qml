@@ -90,15 +90,18 @@ Item {
             && (value.ready === null || typeof value.ready === "string") && Array.isArray(value.choices);
         if (!shaped) console.warn("jarvis-tier: choices=" + (code === 0 ? "invalid" : "exit code=" + code));
         reading = shaped ? value : null;
-        if (shell.status.set("localTiers", shaped ? value.choices : []) !== "ok") throw new Error("jarvis-tier: status=refused");
+        const reply = shell.status.set("localTiers", shaped ? value.choices : []);
+        if (!shell.status.isOk(reply)) throw new Error("jarvis-tier: status=refused");
+        if (reply !== "ok") return false;
         // A read that started before the run ended answers for the state
         // before it; the read after it judges the end.
-        if (pending) return;
+        if (pending) return true;
         const ended = afterRun;
         afterRun = false;
         // A pick made since the run ended is judged as a change instead.
-        if (ended && wanted === endedWanted && follow()) return;
+        if (ended && wanted === endedWanted && follow()) return true;
         decide();
+        return true;
     }
 
     Process {
@@ -116,8 +119,7 @@ Item {
         onExited: (code, status) => root.code = status === 0 ? code : -1
         onRunningChanged: {
             if (running) return;
-            root.answered();
-            if (root.pending) Qt.callLater(root.refresh);
+            if (root.answered() && root.pending) Qt.callLater(root.refresh);
         }
     }
 }

@@ -126,7 +126,7 @@ Item {
         if (value.lines !== undefined) value.lines = value.lines.map(PageReference.plain);
         const row = shell.status.set("sessionStart", value);
         const reading = shell.status.set("jarvisSession", Gate.sessionRecord(wanted, result, !offered, pollOver && lastRead !== "" ? lastRead : null));
-        if (modes === "ok" && row === "ok" && reading === "ok") return true;
+        if (shell.status.isOk(modes) && shell.status.isOk(row) && shell.status.isOk(reading)) return true;
         console.warn("jarvis-session: status=refused modes=" + modes + " row=" + row + " reading=" + reading);
         return false;
     }

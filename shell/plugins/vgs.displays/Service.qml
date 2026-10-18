@@ -162,9 +162,9 @@ Item {
             const reply = shell.status.set(write.key, write.value);
             // A disabled plugin's instance lives on for a moment; its
             // writes are refused and it is on its way out.
-            if (reply.endsWith(" reason=retired")) return;
-            if (reply !== "ok") console.error("displays: " + reply);
-            else next[write.key] = write.value;
+            if (!shell.status.isOk(reply)) console.error("displays: " + reply);
+            else if (reply === "ok") next[write.key] = write.value;
+            else return;
         }
         reported = next;
     }

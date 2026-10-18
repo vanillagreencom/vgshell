@@ -1,6 +1,7 @@
 import QtQuick
 import QtTest
 import Quickshell.Io
+import qs.Core
 import "../../shell/plugins/vgs.jarvis"
 
 // The account reader's model and effort writes, over a stand-in of the
@@ -50,7 +51,7 @@ Item {
 
             function build() {
                 return { settings: effective, tui: { state: tuiState }, requirements: { missing: [] },
-                    status: { get viewed() { return host.viewed; }, set: (key, value) => host.publish(key, value) },
+                    status: { get viewed() { return host.viewed; }, isOk: PluginLogic.statusReplyOk, set: (key, value) => host.publish(key, value) },
                     configure: { set: (key, value) => host.write(key, value) } };
             }
             function publish(key, value) {

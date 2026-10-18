@@ -8,7 +8,9 @@
 // suite must fail on every copy. Exit 1 when any row or control fails.
 "use strict";
 const fs = require("fs");
+const os = require("node:os");
 const path = require("path");
+const vm = require("node:vm");
 const { load } = require("../bin/lib/qml-library.js");
 const { spawnSync } = require("node:child_process");
 
@@ -16,6 +18,18 @@ const LOGIC = path.join(__dirname, "..", "shell", "Core", "PluginLogic.js");
 const LUCIDE = path.join(__dirname, "..", "shell", "Ui", "icons", "Lucide.js");
 const MANAGERS = path.join(__dirname, "..", "shell", "Core", "PackageManagers.js");
 const SETTING_VALUES = path.join(__dirname, "..", "shell", "Commons", "SettingValues.js");
+const JARVIS = path.join(__dirname, "..", "shell", "plugins", "vgs.jarvis");
+const STATUS_SOURCE = fs.readFileSync(path.join(__dirname, "..", "shell", "Core", "PluginStatus.qml"), "utf8");
+const CAPABILITIES_SOURCE = fs.readFileSync(path.join(__dirname, "..", "shell", "Core", "Capabilities.qml"), "utf8");
+const BROWSER_SOURCE = fs.readFileSync(path.join(JARVIS, "BrowserRuntime.qml"), "utf8");
+const LOCAL_SOURCE = fs.readFileSync(path.join(JARVIS, "LocalRuntime.qml"), "utf8");
+const GATE = load(path.join(JARVIS, "SetupGate.js"));
+const PLUGINS_SOURCE = fs.readFileSync(path.join(path.dirname(LOGIC), "Plugins.qml"), "utf8");
+const CONFIG_SOURCE = fs.readFileSync(path.join(path.dirname(LOGIC), "Config.qml"), "utf8");
+const READER_SOURCES = Object.fromEntries(["Accounts", "Keys", "LocalTier", "Service"].map(name =>
+    [name, fs.readFileSync(path.join(JARVIS, name + ".qml"), "utf8")]));
+const WORDS = require(path.join(JARVIS, "AccountStatus.js"));
+const PROVIDERS = require(path.join(JARVIS, "AccountProviders.js"));
 
 let failures = 0;
 function report(name, got, want) {
@@ -23,6 +37,307 @@ function report(name, got, want) {
     if (g === w) { console.log("  ok    " + name); return; }
     failures += 1;
     console.log("  FAIL  " + name + "\n        got  " + g + "\n        want " + w);
+}
+
+function replyChecks(logic, check) {
+    // PluginStatus.set emits canonical keyed lines. Another protocol or a
+    // malformed reply must not be mistaken for a retired status write.
+    for (const [name, reply, accepted] of [
+        ["an accepted write", "ok", true],
+        ["a retired declared key", "refused: status=browserDriver reason=retired", true],
+        ["a retired empty key", 'refused: status="" reason=retired', true],
+        ["a retired key containing spaces", 'refused: status="bad key" reason=retired', true],
+        ["a retired key containing an escaped newline", 'refused: status="bad\\nkey" reason=retired', true],
+        ["a retired key containing reply words", 'refused: status="x reason=retired" reason=retired', true],
+        ["an undeclared key", "refused: status=missing reason=undeclared", false],
+        ["a value of the wrong type", "refused: status=browserDriver reason=type", false],
+        ["a value over the size limit", "refused: status=browserDriver reason=size", false],
+        ["a near-match reason", "refused: status=browserDriver reason=retired-extra", false],
+        ["another reason before retired", "refused: status=browserDriver reason=type reason=retired", false],
+        ["another protocol", "refused: action=browserDriver reason=retired", false],
+        ["a missing key", "refused: status= reason=retired", false],
+        ["an unquoted malformed key", "refused: status=bad key reason=retired", false],
+        ["a needlessly quoted valid key", 'refused: status="browserDriver" reason=retired', false],
+        ["a noncanonical JSON escape", 'refused: status="bad\\u0020key" reason=retired', false],
+        ["a JSON value that is no string", "refused: status=7 reason=retired", false],
+        ["a broken JSON key", 'refused: status="bad key reason=retired', false],
+        ["a prefixed diagnostic", "jarvis: refused: status=browserDriver reason=retired", false],
+        ["a second line", "refused: status=browserDriver reason=retired\nerror", false],
+        ["a trailing newline", "refused: status=browserDriver reason=retired\n", false],
+        ["a missing reply", undefined, false],
+        ["a null reply", null, false],
+        ["an object reply", { reason: "retired" }, false]
+    ]) check("status reply: " + name, logic.statusReplyOk(reply), accepted);
+}
+
+// Run the shipped provider and capability factory. Registry enablement and
+// revision are fixture inputs; publication, refusal and reply judging are real.
+function statusWorld(logic, enabled, replaced = false) {
+    const raw = JSON.parse(fs.readFileSync(path.join(JARVIS, "manifest.json"), "utf8"));
+    const judged = logic.validateManifest(raw, JARVIS);
+    if (!judged.ok) throw new Error("status fixture manifest refused: " + judged.error);
+    const manifest = Object.assign({}, judged.manifest, { __revision: "a".repeat(64) });
+    const instance = { id: manifest.id, manifest };
+    const Registry = { isEnabled: () => enabled, manifests: { [manifest.id]: Object.assign({}, manifest, { __revision: replaced ? "b".repeat(64) : manifest.__revision }) } };
+    const set = STATUS_SOURCE.match(/^    function set\(ctx, key, value\) \{\n[\s\S]*?^    \}/m);
+    const factory = CAPABILITIES_SOURCE.match(/^        status: (ctx => \(\{\n[\s\S]*?^        \}\)),/m);
+    if (!set || !factory) throw new Error("production status operations not found");
+    const state = { Logic: logic, Registry, records: {}, serial: 0, empty: Object.freeze({}) };
+    const provider = { set: vm.runInNewContext("(" + set[0] + ")", state),
+        valuesOf: vm.runInNewContext("(" + qmlMethod(STATUS_SOURCE, "valuesOf") + ")", state) };
+    const status = vm.runInNewContext("(" + factory[1] + ")", { Logic: logic, PluginStatus: provider, Registry })(instance);
+    const writes = [];
+    const forwarded = status.set;
+    status.set = (key, value) => {
+        const reply = forwarded(key, value);
+        writes.push({ key, value, reply });
+        return reply;
+    };
+    return { shell: { status, manifest, requirements: { missing: [] } }, state, writes };
+}
+
+function qmlMethod(source, name) {
+    const found = source.match(new RegExp("^    function " + name + "\\([^)]*\\) \\{\\n[\\s\\S]*?^    \\}", "m"));
+    if (!found) throw new Error("production method not found: " + name);
+    return found[0];
+}
+
+// Only FileView's final storage operation is replaced. The facade, plugin
+// settings writer, settings judge and Config.writeUser all run as shipped.
+function configuredWorld(logic, enabled, replaced, saved, file) {
+    const world = statusWorld(logic, enabled, replaced);
+    const initial = { version: logic.ConfigLogic.CONFIG_VERSION, plugins: [Object.assign({ id: world.shell.manifest.id }, saved)] };
+    const config = { user: initial, effective: initial, userState: "loaded", saveError: "", userPath: file,
+        userText: JSON.stringify(initial, null, 2) + "\n", writes: 0 };
+    fs.writeFileSync(file, config.userText);
+    config.userView = { write: text => { config.writes++; fs.writeFileSync(file, text); } };
+    config.publish = () => { config.effective = config.user; };
+    vm.runInNewContext(qmlMethod(CONFIG_SOURCE, "writeUser"), config);
+    const Registry = world.state.Registry;
+    Registry.has = id => Object.prototype.hasOwnProperty.call(Registry.manifests, id);
+    const plugins = { Logic: logic, Registry, Config: config };
+    vm.runInNewContext(qmlMethod(PLUGINS_SOURCE, "writeSetting"), plugins);
+    const factory = CAPABILITIES_SOURCE.match(/^        configure: (ctx => \(\{\n[\s\S]*?^        \}\)),/m);
+    if (!factory) throw new Error("production configure factory not found");
+    world.shell.configure = vm.runInNewContext("(" + factory[1] + ")", { Plugins: plugins })({ id: world.shell.manifest.id });
+    Object.defineProperty(world.shell, "settings", { get: () => logic.settingsFor(config.effective, world.shell.manifest) });
+    return Object.assign(world, { config });
+}
+
+function loadReader(root, source, methods) {
+    root.root = root;
+    vm.runInNewContext(methods.map(name => qmlMethod(source, name)).join("\n"), root);
+    return root;
+}
+
+function assertOutsideWorktree(directory) {
+    const relative = path.relative(fs.realpathSync(path.join(__dirname, "..")), fs.realpathSync(directory));
+    if (relative === "" || (!relative.startsWith(".." + path.sep) && !path.isAbsolute(relative)))
+        throw new Error("test scratch must be outside the worktree: " + directory);
+}
+
+// Execute the probe's completion handler too: a retired publication must not
+// schedule the next probe after suppressing its refreshed signal.
+function completeReader(root, source) {
+    const handler = source.match(/^        onRunningChanged: \{\n([\s\S]*?)^        \}/m);
+    if (!handler) throw new Error("production reader completion not found");
+    vm.runInNewContext("(function() {" + handler[1] + "\n})()", { root, running: false, Qt: root.Qt });
+}
+
+function continuationChecks(logic, check, sourceChanges = {}) {
+    const sources = Object.assign({}, READER_SOURCES, sourceChanges);
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "vgs-status-effects-"));
+    let sequence = 0;
+    try {
+        assertOutsideWorktree(scratch);
+        for (const [state, enabled, replaced, live] of [
+            ["live", true, false, true], ["disabled", false, false, false], ["replaced", true, true, false]
+        ]) {
+            const make = saved => configuredWorld(logic, enabled, replaced, saved, path.join(scratch, "settings-" + sequence++ + ".json"));
+            const keys = [{ label: "Fixture voice", value: "openai-fixture", provider: "openai" }];
+            let world = make({ voiceProvider: "realtime", voiceAccount: "" });
+            let root = loadReader({ shell: world.shell, Gate: GATE, pending: false, removedFrom: undefined,
+                console: { warn: value => { throw new Error(value); } } }, sources.Accounts, ["publishVoice"]);
+            const voice = root.publishVoice(keys);
+            const disk = JSON.parse(fs.readFileSync(world.config.userPath, "utf8"));
+            check("continuation: " + state + " voice selection", [voice, world.config.writes, disk.plugins[0].voiceAccount],
+                [live, live ? 1 : 0, live ? "openai-fixture" : ""]);
+
+            world = make({ brain: "claude-fixture", model: "previous", effort: "low" });
+            const deferred = [];
+            root = loadReader({ shell: world.shell, choice: { models: [], efforts: [], model: "selected", effort: "high" },
+                brain: "claude-fixture", seenBrain: "claude-fixture", list: { kind: "read" }, Qt: { callLater: fn => deferred.push(fn) },
+                console: { warn: value => { throw new Error(value); } } }, sources.Accounts, ["publishChoice", "save"]);
+            root.publishChoice();
+            const queued = deferred.length;
+            for (const fn of deferred) fn();
+            const settings = JSON.parse(fs.readFileSync(world.config.userPath, "utf8")).plugins[0];
+            check("continuation: " + state + " model save", [queued, world.config.writes, settings.model, settings.effort],
+                [live ? 1 : 0, live ? 2 : 0, live ? "selected" : "previous", live ? "high" : "low"]);
+
+            for (const afterRun of [true, false]) {
+                world = make({ localTier: "large" });
+                const runs = [];
+                world.shell.tui = { run: (name, args) => { runs.push([name, args]); return "ok"; } };
+                root = loadReader({ shell: world.shell, Gate: GATE, pending: false, afterRun, endedWanted: "large",
+                    wanted: "large", decided: "small", code: 0,
+                    output: JSON.stringify({ pick: "large", ready: "small", choices: [{ label: "Small", value: "small" }, { label: "Large", value: "large" }] }),
+                    Qt: { callLater: () => { throw new Error("unexpected tier deferral"); } },
+                    console: { warn: value => { throw new Error(value); } } }, sources.LocalTier, ["answered", "follow", "decide"]);
+                const answered = root.answered();
+                const tier = JSON.parse(fs.readFileSync(world.config.userPath, "utf8")).plugins[0].localTier;
+                check("continuation: " + state + (afterRun ? " tier follows setup" : " tier starts setup"),
+                    [answered, world.config.writes, tier, runs],
+                    [live, live && afterRun ? 1 : 0, live && afterRun ? "small" : "large", live && !afterRun ? [["setup-local", ["large"]]] : []]);
+            }
+
+            for (const [name, failed] of [
+                ["Accounts", false], ["Accounts", true], ["Keys", false], ["Keys", true], ["LocalTier", false]
+            ]) {
+                world = make({ voiceProvider: "realtime", voiceAccount: "", localTier: "large" });
+                const queue = [], warnings = [];
+                let refreshes = 0, starts = 0, running = false;
+                const probe = {};
+                Object.defineProperty(probe, "running", { get: () => running, set: value => { running = value; if (value) starts++; } });
+                root = { shell: world.shell, Gate: GATE, Words: WORDS, Providers: PROVIDERS, pending: true,
+                    probe, reader: probe, program: "/fixture/reader", removedFrom: undefined,
+                    completion: { kind: "exited", code: failed ? 1 : 0 }, diagnostic: { kind: "collected", text: "" }, code: failed ? 1 : 0,
+                    output: name === "Accounts" ? JSON.stringify({ accounts: [], brains: [], providers: {}, voiceAccounts: keys, search: { found: 1, partial: "" } })
+                        : name === "Keys" ? "[]" : JSON.stringify({ pick: "large", ready: "small", choices: [] }),
+                    refreshed: () => refreshes++, Qt: { callLater: fn => queue.push(fn) }, console: { warn: value => warnings.push(value) },
+                    Quickshell: { shellDir: "/fixture/shell", env: () => "" } };
+                loadReader(root, sources[name], name === "Accounts" ? ["publish", "publishVoice", "refresh"]
+                    : name === "Keys" ? ["publish", "refresh"] : ["answered", "refresh", "follow", "decide"]);
+                completeReader(root, sources[name]);
+                const queued = queue.length;
+                for (const fn of queue) fn();
+                check("continuation: " + state + " " + name + (failed ? " failed completion" : " completion"),
+                    [refreshes, queued, starts, world.config.writes], [live && name !== "LocalTier" ? 1 : 0, live ? 1 : 0, live ? 1 : 0, 0]);
+                if (failed) check("continuation: " + state + " " + name + " keeps probe failure reporting", warnings.length > 0, true);
+            }
+
+            world = make({});
+            root = loadReader({ shell: world.shell, childSerial: 0, lifetime: { kind: "retry", pendingMute: "none" },
+                child: { running: false }, Conversation: load(path.join(JARVIS, "Conversation.js")),
+                publishHomes: () => true, publishInput: () => true, publishSetup: () => true, shellStatus: () => true, publish: () => true },
+            sources.Service, ["start"]);
+            const timer = sources.Service.match(/Timer \{ id: retry; onTriggered: ([^}]+) \}/);
+            if (!timer) throw new Error("production retry timer not found");
+            vm.runInNewContext(timer[1], { root });
+            check("continuation: " + state + " retry starts no retired child", root.child.running, live);
+
+            world = make({});
+            let retried = 0;
+            const stoppedTimer = { stop: () => {} };
+            root = loadReader({ shell: world.shell, Gate: GATE, lifetime: { kind: "ready", pendingMute: "none" },
+                cause: "", outputTail: "", errorTail: "", retries: 0,
+                helloDeadline: stoppedTimer, stopDeadline: stoppedTimer, startWait: stoppedTimer,
+                cancelDictation: () => {}, publishPreview: () => {}, shellStatus: () => {},
+                publishDaemon: () => {}, publishSetup: () => {}, console: { warn: () => {} },
+                retry: { start: () => retried++ } }, sources.Service, ["ended"]);
+            root.ended({ code: 1, status: 0 });
+            check("continuation: " + state + " child exit schedules no retired retry", retried, live ? 1 : 0);
+
+            // Daemon messages can arrive in one read. A refused first status
+            // must stop that read before its later request reaches a tool.
+            const protocol = load(path.join(JARVIS, "JarvisProtocol.js"));
+            for (const [type, fields, liveEvents] of [
+                ["devices", { microphones: [], speakers: [] }, ["request"]],
+                ["homes", { homes: [], current: "" }, ["fleet", "request"]],
+                ["voices", { voices: [] }, ["request"]],
+                ["input-ready", { commands: ["wtype", "wlrctl"] }, ["request"]],
+                ["personality", { personality: { kind: "missing" } }, ["request"]],
+                ["start-text", { size: { kind: "unreadable" } }, ["request"]],
+                ["audio-fault", { reason: "discovery-exit" }, ["request"]],
+                ["shell-status", { availability: { kind: "available" } }, ["request"]],
+                ["memory", { cause: "memory=sqlite" }, ["request"]],
+                ["memory-inbox", { entries: [] }, ["request"]],
+                ["tasks", { count: 1 }, ["request"]],
+                ["task-list", { rows: [] }, ["request"]],
+                ["audit-failures", { rows: [] }, ["request"]],
+                ["level", { level: { capture: 0, playback: 0 } }, ["request"]],
+                ["transcript", { role: "user", text: "Fixture", stage: "final", rev: 1 }, ["request"]],
+                ["state", { seq: 1, state: protocol.Session.initial(), phase: "down", brain: "Fixture" }, ["mute", "request"]],
+                ["status", { daemon: "ready", causes: [], cautions: [] }, ["tui-state", "refresh-shell", "request"]]
+            ]) {
+                world = make({});
+                const events = [], broken = [], queue = [];
+                root = loadReader({ shell: world.shell, Gate: GATE, Protocol: protocol, Session: protocol.Session,
+                    Conversation: load(path.join(JARVIS, "Conversation.js")), conversationLog: [], outputTail: "", cause: "",
+                    lifetime: { kind: "starting", pendingMute: "none" }, sessionState: protocol.Session.initial(),
+                    setupAnswer: { kind: "checking" }, homePathRead: { kind: "ready", path: "/home/user/Fixture" }, voiceStep: null, dictationState: null, personalityShown: null, startTextShown: null, startTextOver: {},
+                    localRuntime: { setupCause: "", republish: () => true }, sessionStart: { result: null },
+                    accountReader: { voiceKeys: undefined, modelAccess: { kind: "checking" } }, audioHealth: { kind: "reading" },
+                    fleetRuntime: { refresh: () => events.push("fleet") }, serve: () => events.push("request"),
+                    deliverMute: () => events.push("mute"), sendTuiState: () => events.push("tui-state"), refreshShell: () => events.push("refresh-shell"),
+                    helloDeadline: { stop: () => {} }, indicatorPresented: false, sendIndicator: () => {},
+                    lockObservation: () => false, broken: value => broken.push(value), console: { warn: () => {} }, Qt: { callLater: fn => queue.push(fn) } },
+                sources.Service, ["receive", "deviceOffers", "homeOffers", "publishHomes", "publishInput", "publishPersonality", "publishStartText",
+                    "shellStatus", "publishSetup", "publishShellSetup", "publishPreview", "publishDaemon", "publish"]);
+                const base = { v: 1, gen: 0, revision: world.shell.manifest.__revision };
+                const first = Object.assign({}, base, { type }, fields);
+                const request = Object.assign({}, base, { type: "request", id: 1, kind: "compositor.moveWindow", args: ["0xa1", -10, 20] });
+                root.receive(JSON.stringify(first) + "\n" + JSON.stringify(request) + "\n");
+                check("continuation: " + state + " " + type + " batch", [broken, events, queue.length], [[], live ? liveEvents : [], live && type === "status" ? 1 : 0]);
+            }
+        }
+    } finally {
+        fs.rmSync(scratch, { recursive: true, force: true });
+    }
+}
+
+function browserWrite(logic, enabled, replaced = false, driverValue = { tone: "ok", text: "Ready" }) {
+    const world = statusWorld(logic, enabled, replaced);
+    const handler = BROWSER_SOURCE.match(/^    onDriverValueChanged: \{\n([\s\S]*?)^    \}/m);
+    if (!handler) throw new Error("BrowserRuntime status handler not found");
+    let error = null;
+    try {
+        vm.runInNewContext("(function() {" + handler[1] + "\n})()", { shell: world.shell, driverValue });
+    } catch (caught) {
+        if (caught.name !== "Error") throw caught;
+        error = caught.message;
+    }
+    return { error, replies: world.writes.map(write => write.reply), records: world.state.records };
+}
+
+function consumerChecks(logic, check) {
+    // diagnostics.sh's check_unexpected_log consumes Error lines. Preserve
+    // the keyed refusal in those lines while retiring only its retired case.
+    for (const [name, enabled, replaced, value, reply, error, published] of [
+        ["a live write publishes", true, false, { tone: "ok", text: "Ready" }, "ok", null, true],
+        ["a disabled instance is quiet", false, false, { tone: "ok", text: "Ready" }, "refused: status=browserDriver reason=retired", null, false],
+        ["a replaced instance is quiet", true, true, { tone: "ok", text: "Ready" }, "refused: status=browserDriver reason=retired", null, false],
+        ["a genuine refusal keeps its error line", true, false, 7, "refused: status=browserDriver reason=type", "jarvis: refused: status=browserDriver reason=type", false]
+    ]) {
+        const got = browserWrite(logic, enabled, replaced, value);
+        check("BrowserRuntime: " + name, [got.error, got.replies, Object.keys(got.records).length > 0], [error, [reply], published]);
+    }
+
+    const functions = ["publish", "republish"].map(name => {
+        const found = LOCAL_SOURCE.match(new RegExp("^    function " + name + "\\(\\) \\{\\n[\\s\\S]*?^    \\}", "m"));
+        if (!found) throw new Error("LocalRuntime." + name + " not found");
+        return found[0];
+    }).join("\n");
+    for (const [name, enabled, replaced, value, shape, wantedReplies, refreshed, failure] of [
+        ["live completion refreshes", true, false, { tone: "ok", text: "Ready" }, value => value, ["ok"], 1, null],
+        ["disabled completion does not refresh", false, false, { tone: "ok", text: "Ready" }, value => value, ["refused: status=localRuntime reason=retired"], 0, null],
+        ["replaced completion does not refresh", true, true, { tone: "ok", text: "Ready" }, value => value, ["refused: status=localRuntime reason=retired"], 0, null],
+        ["invalid reading publishes its failure", true, false, 7, value => value, ["refused: status=localRuntime reason=type", "ok"], 1, null],
+        ["invalid fallback keeps its error line", true, false, 7, () => 7, ["refused: status=localRuntime reason=type", "refused: status=localRuntime reason=type"], 0, "jarvis-setup: refused: status=localRuntime reason=type"]
+    ]) {
+        const world = statusWorld(logic, enabled, replaced);
+        let refreshes = 0, error = null;
+        const local = { shell: world.shell, Gate: GATE, reading: null, statusKey: "localRuntime", requires: [], shape,
+            checked: () => value, refreshed: () => refreshes++ };
+        vm.runInNewContext(functions, local);
+        try { local.publish(); } catch (caught) {
+            if (caught.name !== "Error") throw caught;
+            error = caught.message;
+        }
+        check("LocalRuntime: " + name, [world.writes.map(write => write.reply), refreshes, error], [wantedReplies, refreshed, failure]);
+        if (name === "invalid reading publishes its failure")
+            check("LocalRuntime: the accepted fallback marks the check unreadable", world.state.records[world.shell.manifest.id].values.localRuntime.tone, "warning");
+    }
 }
 
 function suite(ctx, check) {
@@ -687,6 +1002,9 @@ function suite(ctx, check) {
 }
 
 suite(load(LOGIC), report);
+replyChecks(load(LOGIC), report);
+consumerChecks(load(LOGIC), report);
+continuationChecks(load(LOGIC), report);
 
 // Each control removes one rule from a copy of the judge and keeps the text
 // around it; the suite must fail on every copy.
@@ -835,10 +1153,13 @@ const CONTROLS = [
     ["a secret account is named as JSON when malformed", "SECRET_ACCOUNT_PATTERN.test(account) ? account : JSON.stringify(String(account));", "SECRET_ACCOUNT_PATTERN.test(account) ? account : String(account);"],
 ];
 
-const scratchRoot = path.join(__dirname, "..", "tmp");
-fs.mkdirSync(scratchRoot, { recursive: true });
-const temp = fs.mkdtempSync(path.join(scratchRoot, "plugin-status-control-"));
+const scratch = spawnSync("/usr/bin/mktemp", ["-d", path.join(os.tmpdir(), "vgs-plugin-status-control.XXXXXX")], {
+    encoding: "utf8", env: { PATH: "/usr/bin:/bin", VGS_TEST_RUN: "1" }
+});
+if (scratch.status !== 0) throw new Error("plugin status control scratch failed: " + scratch.stderr);
+const temp = fs.realpathSync(scratch.stdout.trim());
 try {
+    assertOutsideWorktree(temp);
     fs.mkdirSync(path.join(temp, "shell", "Core"), { recursive: true });
     fs.mkdirSync(path.join(temp, "shell", "Commons"), { recursive: true });
     fs.mkdirSync(path.join(temp, "shell", "Ui", "icons"), { recursive: true });
@@ -851,6 +1172,45 @@ try {
     fs.symlinkSync(path.join(__dirname, "..", "shell", "Core", "MonitorLogic.js"), path.join(temp, "shell", "Core", "MonitorLogic.js"));
     fs.symlinkSync(path.join(__dirname, "..", "shell", "Core", "Pads.js"), path.join(temp, "shell", "Core", "Pads.js"));
     const source = fs.readFileSync(LOGIC, "utf8");
+    const voice = qmlMethod(READER_SOURCES.Accounts, "publishVoice");
+    const liveGuards = /if \((?:choices|key) !== "ok"\) return false;/g;
+    const liveMatches = [...voice.matchAll(liveGuards)].length;
+    report("control: the voice selection live guards occur once per write", liveMatches, 2);
+    if (liveMatches === 2) {
+        const changedVoice = voice.replace(liveGuards, "if (false) return false;");
+        const changed = READER_SOURCES.Accounts.replace(voice, changedVoice);
+        report("control: removing the live guards changes the reader", changed !== READER_SOURCES.Accounts, true);
+        const mutant = path.join(temp, "Accounts.qml");
+        fs.writeFileSync(mutant, changed);
+        let persisted = null, rejected = 0;
+        continuationChecks(load(LOGIC), (name, got, want) => {
+            if (JSON.stringify(got) !== JSON.stringify(want)) rejected++;
+            if (name === "continuation: disabled voice selection") persisted = got;
+        }, { Accounts: fs.readFileSync(mutant, "utf8") });
+        report("control: continuation assertions fail without the live guards", rejected > 0, true);
+        report("control: removing live guards restores a retired setting write", persisted, [true, 1, "openai-fixture"]);
+        console.log("  live-effect-control: retired-setting=" + JSON.stringify(persisted));
+    }
+    const retiredGuard = 'if (STATUS_KEY_PATTERN.test(match[1])) return statusRefusal(match[1], "retired") === reply;';
+    const matches = source.split(retiredGuard).length - 1;
+    report("control: the retired guard occurs once", matches, 1);
+    if (matches === 1) {
+        const changed = source.replace(retiredGuard, 'if (STATUS_KEY_PATTERN.test(match[1])) return false;');
+        report("control: removing the retired guard changes the source", changed !== source, true);
+        const mutant = path.join(temp, "shell", "Core", "PluginLogic.js");
+        fs.writeFileSync(mutant, changed);
+        const logic = load(mutant);
+        let red = 0;
+        consumerChecks(logic, (name, got, want) => {
+            if (JSON.stringify(got) !== JSON.stringify(want)) red++;
+        });
+        report("control: consumers fail without the retired guard", red > 0, true);
+        const before = browserWrite(load(LOGIC), false);
+        const after = browserWrite(logic, false);
+        report("control: the retired write has no error before mutation", before.error, null);
+        report("control: removing the guard restores the diagnostics error line", after.error, "jarvis: refused: status=browserDriver reason=retired");
+        console.log("  retired-control: before=" + JSON.stringify(before.error) + " after=" + JSON.stringify(after.error));
+    }
     for (const [label, needle, replacement] of CONTROLS) {
         const count = source.split(needle).length - 1;
         if (count !== 1) { report("control: " + label + ": the text to replace occurs once", count, 1); continue; }

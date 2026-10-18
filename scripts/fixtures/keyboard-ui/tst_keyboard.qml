@@ -1,6 +1,7 @@
 import QtQuick
 import QtTest
 import Quickshell.Hyprland
+import qs.Core
 
 // Test the shipped Keyboard components through the normal QML test
 // stand-ins. The provider counts snapshot reads, without timing them.
@@ -23,6 +24,7 @@ Item {
     function makeShell() {
         return {
             status: {
+                isOk: PluginLogic.statusReplyOk,
                 get revision() { return root.records.keyboard === undefined ? 0 : root.records.keyboard.serial; },
                 get values() {
                     root.meter.reads++;

@@ -48,13 +48,16 @@ Item {
         } catch (error) {
             console.warn("jarvis-keys: presence=failed");
         }
-        if (shown === null || shell.status.set("keys", shown) !== "ok"
-                || shell.status.set("keyStore", Words.keysValue({ kind: "listed", rows: shown })) !== "ok") {
+        let replies = shown === null ? [] : [shell.status.set("keys", shown),
+            shell.status.set("keyStore", Words.keysValue({ kind: "listed", rows: shown }))];
+        if (shown === null || replies.some(reply => !shell.status.isOk(reply))) {
             if (shown !== null) console.warn("jarvis-keys: presence=invalid");
-            if (shell.status.set("keys", []) !== "ok"
-                || shell.status.set("keyStore", Words.keysValue({ kind: "failed" })) !== "ok") throw new Error("jarvis-keys: status=refused");
+            replies = [shell.status.set("keys", []), shell.status.set("keyStore", Words.keysValue({ kind: "failed" }))];
+            if (replies.some(reply => !shell.status.isOk(reply))) throw new Error("jarvis-keys: status=refused");
         }
+        if (replies.some(reply => reply !== "ok")) return false;
         refreshed();
+        return true;
     }
     Process {
         id: probe
@@ -72,8 +75,7 @@ Item {
         onExited: (code, status) => root.code = status === 0 ? code : -1
         onRunningChanged: {
             if (running) return;
-            root.publish();
-            if (root.pending) Qt.callLater(root.refresh);
+            if (root.publish() && root.pending) Qt.callLater(root.refresh);
         }
     }
 }

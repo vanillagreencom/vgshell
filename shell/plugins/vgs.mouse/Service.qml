@@ -20,6 +20,6 @@ Item {
     function publish() {
         if (shell === null || shell.status === undefined) return;
         const reply = shell.status.set("devices", published);
-        if (reply !== "ok" && reply.indexOf("reason=retired") === -1) console.warn("mouse: devices " + reply);
+        if (!shell.status.isOk(reply)) console.warn("mouse: devices " + reply);
     }
 }

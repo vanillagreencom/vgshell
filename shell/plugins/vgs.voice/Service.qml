@@ -146,7 +146,7 @@ Item {
     // instance, whose write is then refused as retired.
     function publish(key, value) {
         const reply = shell.status.set(key, value);
-        if (reply !== "ok" && !reply.endsWith(" reason=retired")) console.error("voice: status=" + key + " " + reply);
+        if (!shell.status.isOk(reply)) console.error("voice: status=" + key + " " + reply);
     }
 
     function publishDictation(state) {

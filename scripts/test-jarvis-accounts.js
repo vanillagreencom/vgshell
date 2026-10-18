@@ -2,6 +2,7 @@
 "use strict";
 const { assert, fs, path, cp, tree, environment, world, mutant } = require("./fixtures/jarvis/accounts-world.js");
 const plugin = path.join(tree, "shell/plugins/vgs.jarvis");
+const statusReplyOk = require("../bin/lib/qml-library.js").load(path.join(tree, "shell/Core/PluginLogic.js")).statusReplyOk;
 const http = require("node:http");
 const privateValue = "fixture-secret-private";
 
@@ -111,7 +112,7 @@ world(async () => {
                     ...(row.eleven ?? []).map(value => ({ value, label: "Fixture " + value, provider: "elevenlabs" }))],
                 search: { found: row.choices.length, partial: "" } }),
             refreshed: () => refreshed++, shell: { settings: { voiceAccount: initial, voiceProvider: row.voice ?? "realtime" },
-                status: { set: (key, value) => {
+                status: { isOk: statusReplyOk, set: (key, value) => {
                     if (row.refuseStatus === key && !reports.has(key)) { reports.set(key, null); return "refused"; }
                     reports.set(key, value); return "ok";
                 } },
@@ -146,15 +147,15 @@ world(async () => {
         ["invalid", "JSON.parse(output)", 'JSON.parse(output === "broken" ? JSON.stringify({accounts: [], brains: [], voiceAccounts: [{value: "key-a", label: "Fixture"}], search: {found: 1, partial: ""}}) : output)'],
         ["stale", "const chosen = pending ? null : ", "const chosen = "],
         ["stale", 'const code = completion.kind === "exited" ? completion.code : -1;', 'if (pending) return; const code = completion.kind === "exited" ? completion.code : -1;'],
-        ["refused", 'console.warn("jarvis-accounts: voice-selection=refused");\n    }', "void 0;\n    }"],
+        ["refused", 'console.warn("jarvis-accounts: voice-selection=refused");\n        return true;\n    }', "void 0;\n        return true;\n    }"],
         ["removed", "const gone = removedFrom.some(named) && !keys.some(named);", "const gone = false;"],
         ["removal-cancelled", "const gone = removedFrom.some(named) && !keys.some(named);", "const gone = removedFrom.some(named);"],
         ["switch", "if (shell !== null && voiceKeys !== undefined) publishVoice(voiceKeys);", "void voiceKeys;"]
     ];
     for (const key of ["accounts", "brains", "voiceAccounts", "accountSearch"]) {
         const argument = { accounts: "accounts", brains: "value.brains", voiceAccounts: "voiceChoices", accountSearch: "search" }[key];
-        selectionControls.push(["status-" + key, 'shell.status.set("' + key + '", ' + argument + ') !== "ok"',
-            '(shell.status.set("' + key + '", ' + argument + '), false)']);
+        const write = 'shell.status.set("' + key + '", ' + argument + ')';
+        selectionControls.push(["status-" + key, write, '(' + write + ', "ok")']);
     }
     for (const [name, needle, replacement] of selectionControls) {
         assert.equal(publicationSource.split(needle).length - 1, 1);

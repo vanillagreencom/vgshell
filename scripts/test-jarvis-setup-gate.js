@@ -629,7 +629,7 @@ function listReader(accountsSource, providers, saved, viewed) {
     const writes = [], warnings = [], values = {}, queued = [];
     const root = { program: "/fixture/accounts.js", listed: { brain: "", kind: "none" }, seenBrain: null, providers: {},
         lister: { running: false, dropped: false, output: "", command: [] },
-        shell: { settings, status: { viewed, set: (key, value) => { values[key] = value; return "ok"; } },
+        shell: { settings, status: { viewed, isOk: judge.statusReplyOk, set: (key, value) => { values[key] = value; return "ok"; } },
             configure: { set: (key, value) => { writes.push([key, value]); settings[key] = value; return "ok"; } } } };
     const globals = { root, Providers: providers, Quickshell: { shellDir: "/fixture/shell" }, console: { warn: text => warnings.push(text) },
         Qt: { callLater: call => { if (!queued.includes(call)) queued.push(call); } } };
@@ -864,7 +864,7 @@ function verifyModelConsumers(gate, serviceSource, accountsSource) {
     for (const row of MODEL) {
         const values = row.keys === undefined ? {} : { keys: row.keys.map(key => ({ label: "Fixture key", ...key })) };
         if (row.keys !== undefined) assert.equal(judge.statusWrite(manifest, {}, "keys", values.keys).ok, true);
-        const shell = { manifest, settings: { voiceAccount: "" }, requirements: { missing: [] }, status: { values, set: (key, value) => {
+        const shell = { manifest, settings: { voiceAccount: "" }, requirements: { missing: [] }, status: { values, isOk: judge.statusReplyOk, set: (key, value) => {
             const accepted = judge.statusWrite(manifest, values, key, value);
             assert.equal(accepted.ok, true, row.name + ": accepted status " + key);
             values[key] = value;
@@ -876,7 +876,7 @@ function verifyModelConsumers(gate, serviceSource, accountsSource) {
                 brains: [], voiceAccounts: [], search: { found: row.apps.length, partial: "" } }), refreshed: () => {} };
         vm.runInNewContext(publishAccounts[0],
             { root, Gate: gate, Words: words, Providers: { probeFailure: () => "jarvis-accounts: probe=failed" }, console: { warn: () => {} } });
-        vm.runInNewContext("(" + publishSetup[0] + ")", { Gate: gate, shell, homePathRead: { kind: "ready", path: "/home/user/Fixture" }, dictationState: null, accountReader: root, localRuntime: { setupCause: "", republish: () => {} }, voiceStep: null, sessionState: null, sessionStart: { result: null }, shellSetupCauses: [], setupAnswer: { kind: "checking" } })(row.answer);
+        vm.runInNewContext("(" + publishSetup[0] + ")", { Gate: gate, shell, homePathRead: { kind: "ready", path: "/home/user/Fixture" }, dictationState: null, accountReader: root, localRuntime: { setupCause: "", republish: () => true }, voiceStep: null, sessionState: null, sessionStart: { result: null }, shellSetupCauses: [], setupAnswer: { kind: "checking" } })(row.answer);
         try {
             assert.deepEqual([values.setupModel.tone, values.setupModel.action], row.want, row.name);
             const entry = judge.statusRows(manifest, values).find(item => item.key === "setupModel");
@@ -976,7 +976,7 @@ function verifyVoice(gate, serviceSource, accountsSource) {
         const linked = {};
         for (const [label, offered, voiceProvider, want] of VOICE_KEY) {
             const values = {};
-            const shell = { manifest, settings: { voiceAccount: "openai-1", voiceProvider }, configure: { set: () => "ok" }, status: { values, set: (key, value) => {
+            const shell = { manifest, settings: { voiceAccount: "openai-1", voiceProvider }, configure: { set: () => "ok" }, status: { values, isOk: judge.statusReplyOk, set: (key, value) => {
                 assert.equal(judge.statusWrite(manifest, values, key, value).ok, true, label + ": accepted status " + key);
                 values[key] = value;
                 return "ok";
@@ -1057,7 +1057,7 @@ function verifyVoice(gate, serviceSource, accountsSource) {
         const previewed = voiceProvider => {
             let value = null;
             const root = { accountReader: { voiceKeys: undefined }, sessionState: { engine: { kind: "duplex" } },
-                shell: { manifest, settings: { ...plain(manifest.settings), voiceProvider }, status: { set: (key, row) => { value = row; return "ok"; } } } };
+                shell: { manifest, settings: { ...plain(manifest.settings), voiceProvider }, status: { isOk: judge.statusReplyOk, set: (key, row) => { value = row; return "ok"; } } } };
             vm.runInNewContext("(function() { with(root) { return (" + preview[0] + ").call(root); } })()",
                 { root, Gate: gate, Session: { previewRefusal: () => null } });
             assert.equal(judge.statusWrite(manifest, {}, "voicePreview", value).ok, true, voiceProvider + ": accepted status voicePreview");
@@ -1509,7 +1509,7 @@ function verifyElevenLabsRow(gate, serviceSource) {
     const hints = new Set();
     for (const [label, facts, want] of ELEVEN_ROWS) {
         const values = {};
-        const shell = { manifest, settings: { voiceAccount: facts.account }, status: { set: (key, value) => {
+        const shell = { manifest, settings: { voiceAccount: facts.account }, status: { isOk: judge.statusReplyOk, set: (key, value) => {
             assert.equal(judge.statusWrite(manifest, values, key, value).ok, true, label + ": the ElevenLabs voices row is accepted");
             values[key] = value;
             return "ok";
@@ -1545,7 +1545,7 @@ function verifyVoiceRoute(gate, serviceSource) {
     const sentences = new Set();
     for (const option of manifest.schema.voiceProvider.options) {
         const values = {};
-        const shell = { manifest, settings: { voiceProvider: option.value }, status: { set: (key, value) => {
+        const shell = { manifest, settings: { voiceProvider: option.value }, status: { isOk: judge.statusReplyOk, set: (key, value) => {
             assert.equal(judge.statusWrite(manifest, values, key, value).ok, true, option.value + ": the Voice provider hint is accepted");
             values[key] = value;
             return "ok";
@@ -1684,7 +1684,7 @@ function verifyOverBudget(gate, serviceSource) {
         ["a section beside another text over its budget", section, ["guidance=memory-over-budget"], ["ok", "Set", undefined]],
         ["no home", { kind: "none" }, [], ["info", "No home folder", undefined]]]) {
         const values = {};
-        const shell = { status: { set: (key, value) => {
+        const shell = { status: { isOk: judge.statusReplyOk, set: (key, value) => {
             assert.equal(judge.statusWrite(manifest, values, key, value).ok, true, label + ": the Personality row is accepted");
             values[key] = value;
             return "ok";
@@ -1764,13 +1764,13 @@ function verifyHomeActions(gate, source) {
         const label = missing.join("+") || "all present";
         const values = {};
         const shell = { manifest, settings: { voiceAccount: "", startAtBoot: false }, requirements: { missing },
-            status: { values, set: (key, value) => {
+            status: { values, isOk: judge.statusReplyOk, set: (key, value) => {
                 assert.equal(judge.statusWrite(manifest, values, key, value).ok, true, label + ": accepted " + key);
                 values[key] = value;
                 return "ok";
             } } };
         vm.runInNewContext("(" + publishSetup[0] + ")", { Gate: gate, shell, homePathRead: { kind: "empty" }, dictationState: null,
-            accountReader: { modelAccess: { kind: "checking" } }, localRuntime: { setupCause: "", republish: () => {} },
+            accountReader: { modelAccess: { kind: "checking" } }, localRuntime: { setupCause: "", republish: () => true },
             voiceStep: null, sessionState: null, sessionStart: { result: null }, setupAnswer: { kind: "checking" } })(
             { kind: "answered", causes: ["speech=local-not-ready"] });
         const requirements = judge.requirementRows(manifest, missing, {});
@@ -2235,12 +2235,12 @@ try {
             "a reader that reads a failed check as an answer turns red");
         console.log("test-jarvis-setup-gate: control=LocalRuntime.qml check=failed-check-read rejected=true");
     }
-    for (const [label, needle] of [["voice-step-republish-dropped", "            localRuntime.republish();\n"],
+    for (const [label, needle, replacement = ""] of [["voice-step-republish-dropped", "            if (!localRuntime.republish()) return false;\n", "            if (false && !localRuntime.republish()) return false;\n"],
         ["voice-step-unstored", "            voiceStep = values.setupVoice;\n"],
         ["session-summary-unjudged", "        values.setup = Gate.sessionSummary(values.setup, Gate.sessionStart(shell.settings.startAtBoot, sessionStart.result));\n"],
         ["session-answer-unpublished", "; onResultChanged: root.publishShellSetup()"]]) {
         assert.equal(serviceSource.split(needle).length, 2, label + ": the text to remove must occur once");
-        assert.throws(() => verifyVoiceStepRepublish(load(file), serviceSource.replace(needle, "")), assert.AssertionError, label + " must turn red");
+        assert.throws(() => verifyVoiceStepRepublish(load(file), serviceSource.replace(needle, replacement)), assert.AssertionError, label + " must turn red");
         console.log("test-jarvis-setup-gate: control=" + label + " rejected=true");
     }
     for (const [target, original, needle, replacement] of [
@@ -2382,7 +2382,7 @@ try {
         ["Accounts.qml", 'catch (error) { answer = { kind: "failed", reason: "helper" }; }', 'catch (error) { answer = { kind: "none" }; }'],
         ["Accounts.qml", 'if (answer.kind === "failed") console.warn("jarvis-accounts: models=" + answer.reason);', ""],
         ["Accounts.qml", "listed = Object.assign({ brain: listed.brain }, answer);", "listed = answer;"],
-        ["Accounts.qml", 'shell.status.set("efforts", choice.efforts) !== "ok"', 'shell.status.set("efforts", []) !== "ok"'],
+        ["Accounts.qml", 'shell.status.set("efforts", choice.efforts)', 'shell.status.set("efforts", [])'],
     ];
     for (const [index, [target, needle, replacement]] of CHOICE_CONTROLS.entries()) {
         const original = { "AccountProviders.js": providersSource, "Accounts.qml": accountsSource, "Service.qml": serviceSource }[target];
@@ -2668,13 +2668,13 @@ function verifyDictation(gate, serviceSource) {
     for (const [label, voice, state, missing, cause, expect, offered, names] of DICTATION) {
         assert.equal(gate.dictationCause(voice, state), cause, label + ": the cause");
         const values = {};
-        const shell = { manifest, settings: { voiceAccount: "" }, requirements: { missing }, status: { values, set: (key, value) => {
+        const shell = { manifest, settings: { voiceAccount: "" }, requirements: { missing }, status: { values, isOk: judge.statusReplyOk, set: (key, value) => {
             assert.equal(judge.statusWrite(manifest, values, key, value).ok, true, label + ": accepted status " + key);
             values[key] = value;
             return "ok";
         } } };
         vm.runInNewContext("(" + publishSetup[0] + ")", { Gate: gate, shell, homePathRead: { kind: "ready", path: "/home/user/Fixture" }, dictationState: state === null ? null : Object.assign({ setup: null }, state), accountReader: { modelAccess: { kind: "checking" } },
-            localRuntime: { setupCause: "", republish: () => {} }, voiceStep: null, sessionState: null, sessionStart: { result: null }, setupAnswer: { kind: "checking" } })({ kind: "answered", causes: cause === "" ? [] : [cause] });
+            localRuntime: { setupCause: "", republish: () => true }, voiceStep: null, sessionState: null, sessionStart: { result: null }, setupAnswer: { kind: "checking" } })({ kind: "answered", causes: cause === "" ? [] : [cause] });
         const voice_ = plain(values.setupVoice);
         if (expect === "withheld")
             assert.deepEqual([voice_.tone, voice_.action, "hint" in voice_], ["warning", "dictation", false], label + ": the Voice step");
@@ -2854,14 +2854,14 @@ function verifyPathForm(gate) {
     for (const block of ["no-home", "no-account", "not-app"]) {
         const values = {};
         const result = { kind: "answer", state: "running", reason: "resumed", detail: "", names: null, unapplied: block };
-        const shell = { manifest, settings: { startAtBoot: true }, status: { set: (key, value) => { values[key] = plain(value); return "ok"; } } };
+        const shell = { manifest, settings: { startAtBoot: true }, status: { isOk: judge.statusReplyOk, set: (key, value) => { values[key] = plain(value); return "ok"; } } };
         vm.runInNewContext("(" + publish[0] + ")", { shell, result, offered: false, dismissFailed: false, pollOver: false, lastRead: "", Gate: gate, PageReference: pageReference })();
         assert.deepEqual(values.sessionStart.lines, [pageReference.plain(gate.SESSION_BLOCKS[block])], block + ": unapplied badges draw the reference's words");
         assert.equal(pageReference.parse(gate.sessionStart(true, { kind: "blocked", block }).hint).page, "vgs.jarvis", block + ": the blocked hint keeps its link");
     }
     // The service hands the row a Do not resume the package did not answer.
     const values = {};
-    const shell = { manifest, settings: { startAtBoot: false }, status: { set: (key, value) => { values[key] = plain(value); return "ok"; } } };
+    const shell = { manifest, settings: { startAtBoot: false }, status: { isOk: judge.statusReplyOk, set: (key, value) => { values[key] = plain(value); return "ok"; } } };
     const record = { kind: "answer", state: "stopped", reason: "ended", detail: "", names: null, restart: { unlock: null, steps: [] } };
     vm.runInNewContext("(" + publish[0] + ")", { shell, result: record, offered: true, dismissFailed: true, pollOver: false, lastRead: "", Gate: gate, PageReference: pageReference })();
     assert.deepEqual(values.sessionStart.lines, [gate.SESSION_NOT_DISMISSED], "the service's row says Do not resume was not saved");
@@ -2901,8 +2901,8 @@ function verifyVoiceStepRepublish(gate, serviceSource) {
     const calls = [];
     const context = { Gate: gate, homePathRead: { kind: "ready", path: "/home/user/Fixture" }, dictationState: null, accountReader: { modelAccess: { kind: "checking" } }, sessionState: null, setupAnswer: { kind: "checking" },
         voiceStep: readiness(gate, { kind: "checking" }).setupVoice, sessionStart: { result: null },
-        shell: { manifest, settings: { voiceAccount: "", startAtBoot: false }, requirements: { missing: [] }, status: { values, set: (key, value) => { values[key] = value; return "ok"; } } } };
-    context.localRuntime = { setupCause: "", republish: () => calls.push(plain(context.voiceStep)) };
+        shell: { manifest, settings: { voiceAccount: "", startAtBoot: false }, requirements: { missing: [] }, status: { values, isOk: judge.statusReplyOk, set: (key, value) => { values[key] = value; return "ok"; } } } };
+    context.localRuntime = { setupCause: "", republish: () => { calls.push(plain(context.voiceStep)); return true; } };
     const publish = vm.runInNewContext("(" + publishSetup[0] + ")", context);
     for (const [label, answer, republished] of [
         ["checking", { kind: "checking" }, true],

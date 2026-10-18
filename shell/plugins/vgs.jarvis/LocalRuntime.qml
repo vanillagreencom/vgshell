@@ -74,12 +74,11 @@ Item {
     function republish() {
         if (reading === null) return true;
         const written = shell.status.set(statusKey, shape(reading));
-        if (written.endsWith(" reason=retired")) return false;
-        if (written === "ok") return true;
+        if (shell.status.isOk(written)) return written === "ok";
         reading = Gate.setupValue(Gate.checkFailure("unreadable", shell.manifest.status[statusKey]), requires, shell.requirements.missing);
         const reply = shell.status.set(statusKey, shape(reading));
-        if (reply !== "ok") throw new Error("jarvis-setup: " + reply);
-        return true;
+        if (!shell.status.isOk(reply)) throw new Error("jarvis-setup: " + reply);
+        return reply === "ok";
     }
     Process {
         id: probe
