@@ -48,6 +48,11 @@ Item {
     onVoiceChoiceChanged: publishVoiceRoute()
     property var homeMessage: ({ homes: [], current: "" })
     property var homePathRead: ({ kind: "empty" })
+    onHomePathReadChanged: {
+        if (shell === null) return;
+        if (personalityShown !== null) publishPersonality();
+        if (startTextShown !== null) publishStartText();
+    }
     readonly property string selectedHome: shell === null ? "" : shell.settings.home
     onSelectedHomeChanged: resolveHomePath()
     // The request handlers, built on the first request; see requestHandlers().
@@ -213,6 +218,7 @@ Item {
             ? { kind: "answered", causes: [setupCause].concat(answer.causes) }
             : answer;
         const values = Gate.readiness(merged, homePathRead);
+        values.homePath = homePathRead.kind === "ready" ? homePathRead.path : "";
         values.setup = Gate.sessionSummary(values.setup, Gate.sessionStart(shell.settings.startAtBoot, sessionStart.result));
         values.setupVoice = Gate.dictationSetup(values.setupVoice, dictationState);
         values.setupVoice = Gate.voiceCheck(values.setupVoice, sessionState === null ? null : sessionState.check);
@@ -532,15 +538,15 @@ Item {
     function publishPersonality() {
         if (personalityShown === null) return;
         const reply = shell.status.set("personality",
-            Gate.personalityRow(personalityShown, setupAnswer.kind === "answered" ? setupAnswer.causes : []));
+            Gate.personalityRow(personalityShown, setupAnswer.kind === "answered" ? setupAnswer.causes : [], homePathRead));
         if (reply !== "ok") throw new Error("jarvis: " + reply);
     }
 
     // The Start text size row from the last start-text message, each home
     // layer a line, and the last status's cautions, which name each text
     // over its budget.
-    readonly property var startTextNames: ({ "home/persona": "persona.md", "home/AGENTS.md": "AGENTS.md", "home/skills": "Skill list",
-        "home/MEMORY.md": "memory/MEMORY.md", "home/state": "State folder path" })
+    readonly property var startTextNames: ({ "home/persona": "Persona", "home/AGENTS.md": "Your instructions", "home/skills": "Skills",
+        "home/MEMORY.md": "Memory index", "home/state": "Working folder" })
     readonly property var startTextOver: ({ "guidance=persona-over-budget": "home/persona", "guidance=agents-over-budget": "home/AGENTS.md",
         "guidance=skills-over-budget": "home/skills", "guidance=memory-over-budget": "home/MEMORY.md", "guidance=start-over-budget": "start" })
     function publishStartText() {
@@ -552,11 +558,12 @@ Item {
             + (over.indexOf(name) === -1 ? "" : ", over its budget");
         const size = startTextShown;
         const value = size.kind === "unreadable" ? { tone: "warning", text: "Cannot be read",
-                hint: "Check the home folder in [Home folder](page:vgs.jarvis/Settings/home)" }
+                hint: "Check your " + Gate.homeReference("Home folder", homePathRead, "/") }
             : size.layers.length === 0 ? { tone: "info", text: "About " + count(size.tokens, "start"),
                 hint: "Only Jarvis's own guidance until [Home folder](page:vgs.jarvis/Settings/home) sets a folder" }
             : { tone: "info", text: "About " + count(size.tokens, "start"),
-                lines: size.layers.map(layer => startTextNames[layer.layer] + ": about " + count(layer.tokens, layer.layer)) };
+                lines: size.layers.map(layer => startTextNames[layer.layer] + ": about " + count(layer.tokens, layer.layer)),
+                info: Gate.startTextInfo(size.layers, causes, homePathRead) };
         const reply = shell.status.set("startText", value);
         if (reply !== "ok") throw new Error("jarvis: " + reply);
     }

@@ -922,6 +922,29 @@ PYEDGE
   row "control: omitting PageReference skips $label" "$d" 0 "" "!$command"
 done
 
+# Both Jarvis readers bind the shared file-reference formatter.
+for consumer in "logic:Jarvis bar widget view:node scripts/test-jarvis-widget.js" "cli:Jarvis accounts:node scripts/test-jarvis-accounts.js"; do
+  area="${consumer%%:*}"; rest="${consumer#*:}"; label="${rest%%:*}"; command="${rest#*:}"
+  d="$tmp/plan-jarvis-page-reference-$area"; fresh "$d"
+  mkdir -p "$d/shell/Commons"
+  printf 'changed\n' >"$d/shell/Commons/PageReference.js"
+  test_area="$area"
+  test_args=(--changed HEAD --list)
+  row "page references select $label" "$d" 0 "" "$command"
+  python3 - "$d/scripts/validate" "$area" "$label" <<'PYEDGE'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1]); source = p.read_text()
+rows = [line for line in source.splitlines() if line.startswith('  "' + sys.argv[2] + '|' + sys.argv[3] + '|')]
+edge = ' shell/Commons/PageReference.js'
+assert len(rows) == 1 and rows[0].count(edge) == 1
+p.write_text(source.replace(rows[0], rows[0].replace(edge, '', 1)))
+PYEDGE
+  "${base_env[@]}" git -C "$d" add scripts/validate
+  "${base_env[@]}" git -C "$d" commit -q -m control
+  row "control: the omitted page-reference input loses $label" "$d" 0 "" "!$command"
+done
+
 # Settings' projection is also a consumer boundary for Jarvis recovery.
 d="$tmp/plan-jarvis-settings-steps-control"; fresh "$d"
 mkdir -p "$d/shell/plugins/vgs.settings"

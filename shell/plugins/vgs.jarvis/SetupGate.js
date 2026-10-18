@@ -1,4 +1,5 @@
 .pragma library
+.import qs.Commons 1.0 as Commons
 
 // Which setup step Jarvis offers while a command its setup needs is missing,
 // pure so scripts/test-jarvis-setup-gate.js runs it under node. MISSING is
@@ -144,17 +145,24 @@ function setupActs(cause) {
     return cause.indexOf("speech=live-") !== 0 && cause.indexOf("speech=elevenlabs-") !== 0 && cause !== "speech=always-local-voice";
 }
 var STEP_TODO = { brain: "Add a key or sign in, then [choose an AI model](page:vgs.jarvis/Settings) under AI model" };
+// The path reader resolves the selected folder even when its contents are
+// refused. Never use a previously selected folder while that read runs.
+function homeReference(name, home, suffix) {
+    return home && home.kind === "ready" ? Commons.PageReference.fileReference(name, home.path + suffix)
+        : "[Home folder](page:vgs.jarvis/Settings/home)";
+}
 // The daemon's home refusal names the change and, for editable user files,
 // the core file action. The service supplies the selected folder's path.
 var HOME_TODO = {
     "home=link": { hint: "A file in your Home folder is a shortcut to another place. Jarvis does not follow shortcuts. Replace it with the real file, or choose another [Home folder](page:vgs.jarvis/Settings/home)." },
     "home=path": { hint: "Jarvis cannot use this folder: choose a [Home folder](page:vgs.jarvis/Settings/home) inside your own home directory" },
-    "home=text": { hint: "AGENTS.md is not plain text. Save it as plain text.", action: "agents" },
+    "home=text": { hint: "Your instructions are not plain text: save them as plain text", action: "agents" },
     "home=package": { hint: "A Jarvis file in your Home folder is damaged. Choose another [Home folder in Settings](page:vgs.jarvis/Settings/home)." },
-    "guidance=home-skills-too-large": { text: "Too many skills", hint: "Your Home folder has more skills than Jarvis can list. Remove the skills you do not use.", action: "skills" }
+    "guidance=home-skills-too-large": { text: "Too many skills", hint: "A skill set exceeds 256 entries: remove the skills you do not use", action: "skills",
+        info: "Jarvis lists up to 256 entries in a skill folder. This limit stops an unexpectedly large folder from making Jarvis stop responding. Remove unused skills, then try again." }
 };
 var HOME_STEP_TODO = "Check that you can open and change the folder, or choose another [Home folder](page:vgs.jarvis/Settings/home)";
-var HOME_FILES = { agents: "/AGENTS.md", skills: "/skills/" };
+var HOME_FILES = { agents: "/AGENTS.md", skills: "/skills/", memory: "/memory/MEMORY.md", persona: "/.agents/skills/jarvis/persona.md", folder: "/", state: "/state/" };
 function homeStep(cause, home) {
     var value = Object.assign({ tone: "warning", text: "To do" },
         Object.prototype.hasOwnProperty.call(HOME_TODO, cause) ? HOME_TODO[cause] : { hint: HOME_STEP_TODO });
@@ -164,51 +172,95 @@ function homeStep(cause, home) {
             : "Jarvis could not find the file. Check your [Home folder in Settings](page:vgs.jarvis/Settings/home)." };
         value.file = home.path + HOME_FILES[value.action];
     }
+    if (home.kind === "ready") {
+        if (cause === "home=text") value.hint = homeReference("AGENTS.md", home, "/AGENTS.md") + " is not plain text: save it as plain text";
+        if (cause === "guidance=home-skills-too-large") value.info += " Check the " + homeReference("base skills", home, "/.agents/skills/")
+            + " and " + homeReference("own skills", home, "/skills/own/") + ".";
+        if (cause === "home=link") value.hint = "Replace the shortcut in your " + homeReference("Home folder", home, "/") + " with the real file";
+        if (cause !== "home=text" && cause !== "home=link" && cause !== "guidance=home-skills-too-large")
+            value.hint = "Check that you can open and change your " + homeReference("Home folder", home, "/");
+    }
     return value;
 }
 var HOME_READY = { tone: "ok", text: "Done" };
 // The home texts over their size budget (JarvisProtocol SETUP_CAUTIONS),
 // by the name the Home folder step gives each. Jarvis loads each whole and
-// answers, so the summary stays Ready and the step Done, with a hint that
-// names the texts. The hint goes on the step, not the summary, whose hint
+// answers, so the summary stays Ready and the step Done, with an info that
+// names the texts. The caution goes on the step, not the summary, whose hint
 // a session fault and a shell caution already share.
+// backend/Guidance.js owns the byte budgets; the suite checks these copies.
 var OVER_BUDGET = {
-    "guidance=persona-over-budget": "persona.md",
-    "guidance=agents-over-budget": "AGENTS.md",
-    "guidance=skills-over-budget": "the skill list",
-    "guidance=memory-over-budget": "memory/MEMORY.md",
-    "guidance=start-over-budget": "the start text"
+    "guidance=persona-over-budget": { name: "persona.md", bytes: 3072, action: "persona" },
+    "guidance=agents-over-budget": { name: "AGENTS.md", bytes: 8192, action: "agents" },
+    "guidance=skills-over-budget": { name: "the skill list", bytes: 8192, action: "skills" },
+    "guidance=memory-over-budget": { name: "memory/MEMORY.md", bytes: 4096, action: "memory" },
+    "guidance=start-over-budget": { name: "the start text", bytes: 32768, action: "folder" }
 };
+function numberText(value) {
+    return String(value).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+function messageLimit(maximum) {
+    return { maximum: maximum,
+        info: "A message can hold up to " + numberText(maximum) + " characters. This keeps each message within the size Jarvis can send to the AI model. Send a longer request as separate messages. Control characters, such as line breaks and tabs, are not supported." };
+}
+var START_REASON = "Each answering AI model gets this text at the start of every conversation. Longer text costs more and leaves less room for your conversation. Jarvis still loads it whole.";
+function budgetInfo(causes, home) {
+    var facts = causes.map(function (cause) {
+        var budget = OVER_BUDGET[cause];
+        return homeReference(budget.name, home, HOME_FILES[budget.action]) + ": "
+            + numberText(budget.bytes) + " bytes.";
+    });
+    return "Budgets: " + facts.join(" ") + " " + START_REASON;
+}
+var START_FILES = {
+    "home/persona": { name: "Persona", action: "persona" },
+    "home/AGENTS.md": { name: "Instructions", action: "agents" },
+    "home/skills": { name: "Skills", action: "skills" },
+    "home/MEMORY.md": { name: "Memory index", action: "memory" },
+    "home/state": { name: "Working folder", action: "state" }
+};
+function startTextInfo(layers, causes, home) {
+    var over = causes.filter(function (cause) { return Object.prototype.hasOwnProperty.call(OVER_BUDGET, cause); });
+    var reason = over.length > 0 ? budgetInfo(over, home)
+        : "Tokens are small pieces of words. These counts are estimates. " + START_REASON;
+    return reason + " Open: " + layers.map(function (layer) {
+        var file = START_FILES[layer.layer];
+        return homeReference(file.name, home, HOME_FILES[file.action]);
+    }).join(", ") + ".";
+}
 // The Personality row from SHOWN, the daemon's personality message, and
 // CAUSES, its last answer's: the section as the row's hint, which Settings
 // draws as text where a state's text and lines draw as badges; or what keeps
 // it from showing. The hint holds at most PluginLogic's STATUS_HINT_MAX of
 // 200 characters, so a longer or cut section ends in "…". An AGENTS.md over
 // its budget adds a line in the info tone: Jarvis still reads it whole.
-var AGENTS_OVER = "AGENTS.md is over its budget";
-function personalityRow(shown, causes) {
+function personalityRow(shown, causes, home) {
     var joined = shown.kind === "section" ? shown.lines.join(" ") : "";
     var cut = joined.length > 200 || shown.more === true;
     var value = shown.kind === "section" ? { tone: "ok", text: "Set", hint: cut ? joined.slice(0, 199).trimEnd() + "…" : joined, action: true }
         : shown.kind === "none" ? { tone: "info", text: "No home folder",
-            hint: "Jarvis reads its personality from AGENTS.md in the folder that [Home folder](page:vgs.jarvis/Settings/home) sets" }
+            hint: "Choose where to keep your instructions with [Home folder](page:vgs.jarvis/Settings/home)" }
         : shown.kind === "missing" ? { tone: "info", text: "No Personality section", action: true,
-            hint: "Edit opens AGENTS.md. Add the heading ## Personality on its own line and say how Jarvis talks under it." }
-        : { tone: "warning", text: "AGENTS.md cannot be read", hint: "AGENTS.md is in the folder that [Home folder](page:vgs.jarvis/Settings/home) sets" };
+            hint: "Add a Personality section to " + homeReference("AGENTS.md", home, "/AGENTS.md") + " with Edit",
+            info: "Press Edit. Add the heading ## Personality on its own line. Write how Jarvis should talk below it." }
+        : { tone: "warning", text: "Instructions cannot be read", hint: "Check " + homeReference("AGENTS.md", home, "/AGENTS.md") };
     if ((shown.kind === "section" || shown.kind === "missing") && causes.indexOf("guidance=agents-over-budget") !== -1)
-        return Object.assign({}, value, { tone: "info", lines: [AGENTS_OVER] });
+        return Object.assign({}, value, { tone: "info", lines: ["Over the " + numberText(OVER_BUDGET["guidance=agents-over-budget"].bytes) + "-byte budget"], info: budgetInfo(["guidance=agents-over-budget"], home) });
     return value;
 }
 
 // The Home folder step over CAUSES, the over-budget causes of an answer
-// whose home step is done: Done, with a hint naming each text over its
-// budget while one is.
-function homeDone(causes) {
-    var names = causes.filter(function (cause) { return Object.prototype.hasOwnProperty.call(OVER_BUDGET, cause); })
-        .map(function (cause) { return OVER_BUDGET[cause]; });
-    if (names.length === 0) return HOME_READY;
-    var listed = names.length === 1 ? names[0] : names.slice(0, -1).join(", ") + " and " + names[names.length - 1];
-    return { tone: "ok", text: "Done", hint: "Jarvis reads " + listed + " whole, but " + (names.length === 1 ? "it is over its budget" : "they are over their budgets") };
+// whose home step is done: Done, with each budget in its info and an open
+// action on the chosen file, or the folder when several exceed a budget.
+function homeDone(causes, home) {
+    var over = causes.filter(function (cause) { return Object.prototype.hasOwnProperty.call(OVER_BUDGET, cause); });
+    if (over.length === 0) return home && home.kind === "ready" ? Object.assign({}, HOME_READY, { hint: homeReference("Home folder", home, "/") }) : HOME_READY;
+    var value = { tone: "ok", text: "Done", hint: "Text exceeds its size budget; Jarvis still loads it whole", info: budgetInfo(over, home) };
+    if (home && home.kind === "ready") {
+        value.action = over.length === 1 ? OVER_BUDGET[over[0]].action : "folder";
+        value.file = home.path + HOME_FILES[value.action];
+    }
+    return value;
 }
 var HOME_UNCHECKED = { tone: "warning", text: "Not checked" };
 var DONE = { tone: "ok", text: "Done", action: false };
@@ -218,7 +270,8 @@ function voiceCheck(value, check) {
     if (value.tone !== "ok" || check === null || check.kind === "unavailable") return value.action === true
         ? Object.assign({}, value, { action: "setup" }) : typeof value.action === "string" ? value : noAction(value);
     if (check.kind === "waiting" || check.kind === "recording")
-        return { tone: "info", text: "Say Hey Jarvis", hint: "The microphone is open for three seconds" };
+        return { tone: "info", text: "Say Hey Jarvis", hint: "The microphone is open for three seconds",
+            info: "This short test checks whether Jarvis can hear Hey Jarvis. The microphone closes after three seconds. Press Check microphone to try again." };
     if (check.kind === "finishing") return { tone: "info", text: "Checking" };
     if (check.kind === "failed") return { tone: "danger", text: "Check failed",
         hint: "Jarvis could not check the microphone: press Check microphone to try again", action: "check" };
@@ -358,7 +411,7 @@ function readiness(answer, home) {
         var out = { setup: causes.length === 0 ? { tone: "ok", text: "Ready" }
                 : blocking.length === 0 ? { tone: "ok", text: "Ready", hint: joinedHint(causes.map(function (cause) { return CAUTION[cause]; })) }
                     : { tone: "warning", text: "Not ready" },
-            setupHome: homeDone(answer.causes), setupVoice: DONE, setupModel: noAction(DONE) };
+            setupHome: homeDone(answer.causes, home), setupVoice: DONE, setupModel: noAction(DONE) };
         var open = [];
         blocking.forEach(function (cause) {
             var step = cause.slice(0, cause.indexOf("="));

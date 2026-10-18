@@ -4,6 +4,8 @@ const { assert, fs, path, cp, tree, environment, world, mutant } = require("./fi
 const plugin = path.join(tree, "shell/plugins/vgs.jarvis");
 const http = require("node:http");
 const privateValue = "fixture-secret-private";
+const { load } = require("../bin/lib/qml-library.js");
+const PageReference = load(path.join(tree, "shell/Commons/PageReference.js"));
 
 world(async () => {
     const env = environment();
@@ -121,7 +123,7 @@ world(async () => {
                     root.shell.settings.voiceAccount = value; return "ok";
                 } } } };
         const context = vm.createContext({ root, Providers: { probeFailure },
-            Gate: require("../bin/lib/qml-library.js").load(gate),
+            Gate: load(gate, { "qs.Commons 1.0": { PageReference } }), PageReference,
             Words: require(path.join(plugin, "AccountStatus.js")), console: { warn: value => warnings.push(value) } });
         vm.runInContext("(function() { with(root) { root.publishVoice = (" + matches[1][0][0] + "); root.republishVoice = ("
             + matches[2][0][0] + "); return (" + matches[0][0][0] + ").call(root); } })()", context);
@@ -1318,7 +1320,8 @@ world(async () => {
             [failed(""), "danger", false]
         ];
         for (const [outcome, tone, action] of searchCases) {
-            const value = Words.searchValue(outcome);
+            const value = Words.searchValue(outcome, outcome.partial === "entry-limit"
+                ? PageReference : undefined);
             assert.deepEqual([value.tone, value.action], [tone, action], JSON.stringify(outcome));
             plain(value);
         }

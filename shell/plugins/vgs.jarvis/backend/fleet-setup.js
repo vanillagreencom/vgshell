@@ -115,7 +115,8 @@ async function main() {
     const tool = folder === null ? null : Home.mailTool(folder);
     if (verb === "status") {
         const { load } = require(path.join(tree, "bin/lib/qml-library.js"));
-        const Gate = load(path.join(__dirname, "../SetupGate.js"));
+        const PageReference = load(path.join(tree, "shell/Commons/PageReference.js"));
+        const Gate = load(path.join(__dirname, "../SetupGate.js"), { "qs.Commons 1.0": { PageReference } });
         process.stdout.write(JSON.stringify(Gate.fleetStep(folder, tool)) + "\n");
         return 0;
     }
