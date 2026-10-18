@@ -115,7 +115,6 @@ FocusScope {
                                 highlighted: absoluteIndex === page.current
                                 cursorItem: plate
                                 scrollArea: layout.scrollArea
-                                onPointed: page.current = absoluteIndex
                                 onOpenRequested: transcript => page.openRequested(transcript)
                             }
                         }

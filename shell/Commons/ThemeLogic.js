@@ -381,6 +381,10 @@ var FAILURE_PLATE = "carousel.failurePlate";
 var TOOLTIP_TEXT_ROLES = ["tooltip.foreground", "tooltip.detail"];
 var TOOLTIP_FILL = "tooltip.background";
 var GLASS_SOLID = "glass.fill solid";
+// A list's plate and the text of the row it sits on draw over glass in a
+// menu or a select list as on any surface: the plate laid over the fill
+// solid glass draws, since no backdrop under drawn glass can be judged.
+var GLASS_PLATE_PAIRS = [["listItem.selectedForeground", "listItem.selected"]];
 
 // Notice copy shared by the terminal and ThemeRunner. Each role names
 // its weakest surface; the verdict keeps every shortfall unchanged.
@@ -468,7 +472,8 @@ function valueAt(values, path) {
 // failure line, the typed filter and the search hint at 4.5 on their
 // plate, then the tooltip's text at 4.5 on its fill and on GLASS, the
 // VGlass look resolved for VALUES (acceptAppearance of Glass.js), as its
-// glass draws solid. Any other translucent colour, a translucent failure plate included, has no ratio
+// glass draws solid, and the list plate's text at 4.5 on the plate laid
+// over that solid glass. Any other translucent colour, a translucent failure plate included, has no ratio
 // and is a shortfall.
 function readabilityShortfalls(values, glass) {
     var weights = readabilityWeights(values);
@@ -502,6 +507,8 @@ function readabilityShortfalls(values, glass) {
         pairs.push([TOOLTIP_TEXT_ROLES[t], TOOLTIP_FILL, READABILITY_FLOOR]);
         pairs.push([TOOLTIP_TEXT_ROLES[t], GLASS_SOLID, READABILITY_FLOOR]);
     }
+    for (var g = 0; g < GLASS_PLATE_PAIRS.length; g++)
+        pairs.push([GLASS_PLATE_PAIRS[g][0], GLASS_PLATE_PAIRS[g][1], READABILITY_FLOOR, GLASS_SOLID]);
     // As Theme.glassSolid draws it: formatted, so rounded to whole channels.
     var solid = parseColor(formatColor(liftedOpaque(parseColor(glass.glass.fill), glass.glass.solidLift)));
     var out = [];
@@ -509,9 +516,9 @@ function readabilityShortfalls(values, glass) {
         var under = pairs[q][3];
         var text = parseColor(valueAt(values, pairs[q][0]));
         var surface = pairs[q][1] === GLASS_SOLID ? solid : parseColor(valueAt(values, pairs[q][1]));
-        // UNDER names a role, or is the literal wallpaper colour.
+        // UNDER names a role, solid glass, or is the literal wallpaper colour.
         if (under !== undefined)
-            surface = overlay(surface, parseColor(under === RAIL_WALLPAPER ? under : valueAt(values, under)));
+            surface = overlay(surface, under === GLASS_SOLID ? solid : parseColor(under === RAIL_WALLPAPER ? under : valueAt(values, under)));
         var ratio = text === null || surface === null || text.a < 1 || surface.a < 1
             ? null
             : contrastRatio(text, surface);

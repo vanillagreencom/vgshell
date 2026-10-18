@@ -10,10 +10,13 @@ import qs.Ui
 // content stacks under the row and takes no height while hidden. A control
 // among the trailing items takes its own click, so pressing it toggles
 // nothing. While `expandable` is false, as
-// for a row with nothing to show, the row draws no chevron and a click
-// toggles nothing. The content starts at the row's text column, the row's
-// padding plus its icon and icon gap, and ends at the row's padding. The
-// caller sets the width.
+// for a row with nothing to show, the row draws no chevron and takes no
+// click, plate or pointing hand (ListItem.clickable). The content starts at
+// the row's text column, the row's padding plus its icon and icon gap, and
+// ends at the row's padding. The caller sets the width. A list of
+// disclosures declares one ListCursor beside the positioner that holds
+// them and names it in each one's `cursor`, which the row takes as a
+// ListItem does.
 Column {
     id: root
 
@@ -23,6 +26,7 @@ Column {
     property alias trailing: extra.data
     property bool expanded: false
     property bool expandable: true
+    property alias cursor: row.cursor
     readonly property alias focusItem: row
     default property alias content: body.data
 
@@ -31,6 +35,7 @@ Column {
         id: row
         width: root.width
         focusPolicy: Qt.StrongFocus
+        clickable: root.expandable
         onClicked: if (root.expandable) root.expanded = !root.expanded
         Keys.onReturnPressed: if (root.expandable) root.expanded = !root.expanded
         Keys.onEnterPressed: if (root.expandable) root.expanded = !root.expanded

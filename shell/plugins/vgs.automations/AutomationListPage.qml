@@ -127,7 +127,6 @@ FocusScope {
                         width: parent.width
                         highlighted: index === page.current
                         cursorItem: plate
-                        onPointed: page.current = index
                         onOpenRequested: page.openRequested(modelData.id)
                         onDuplicateRequested: page.duplicateRequested(modelData.id)
                         onRemoveRequested: page.removeRequested(modelData.id)

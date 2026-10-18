@@ -762,21 +762,26 @@ Item {
             const plate = items[0].cursor;
             verify(plate !== null, "the menu hands its entries a cursor");
             compare(plate.shown, true, "an open menu highlights its first reachable entry");
-            compare(String(plate.color), String(Qt.color(Theme.menu.item.hover)));
-            // With the user's glass on, the plate draws the glass highlight.
-            verify(String(Qt.color(Theme.glass.glass.highlight)) !== String(Qt.color(Theme.menu.item.hover)), "the glass highlight is not the opaque hover");
+            // Every list's plate, on glass or not.
+            compare(String(plate.color), String(Qt.color(Theme.listItem.selected)));
+            compare(String(plate.pressedColor), String(Qt.color(Theme.listItem.selectedPressed)));
             Theme.appearanceInput = JSON.stringify({ glass: "on" });
             try {
-                compare(String(plate.color), String(Qt.color(Theme.glass.glass.highlight)), "glass on draws the glass highlight");
+                compare(String(plate.color), String(Qt.color(Theme.listItem.selected)), "glass on draws the same plate");
             } finally {
                 Theme.appearanceInput = "";
             }
             verify(plate.target === items[0], "the highlighted entry holds the cursor");
-            compare(String(items[0].background.color), "#00000000", "the entry draws no fill of its own");
+            compare(items[0].background, null, "the entry draws no fill of its own");
+            const accent = String(Qt.color(Theme.listItem.selectedForeground));
+            compare(String(items[0].contentItem.children[1].color), accent, "the entry under the plate draws its text in the accent");
+            compare(String(items[1].contentItem.children[1].color), String(Qt.color(Theme.menu.item.foreground)), "an entry the plate is not on keeps its text");
             mouseMove(items[1], 10, 5);
             compare(menu.currentIndex, 0, "the first reading after a key moves nothing");
             mouseMove(items[1], 12, 5);
             compare(menu.currentIndex, 1, "a moved pointer highlights the entry under it");
+            compare(String(items[1].contentItem.children[1].color), accent, "the pointed entry takes the accent");
+            compare(String(items[0].contentItem.children[1].color), String(Qt.color(Theme.menu.item.foreground)), "the entry the plate left drops it");
             menu.move(-1);
             compare(menu.currentIndex, 0);
             // The pointer rests where it was: Qt delivers it hover again
@@ -863,10 +868,13 @@ Item {
             compare(list.highlightIndex, 1, "the first reading after a key moves nothing");
             mouseMove(first, 12, 5);
             compare(list.highlightIndex, 0, "a moved pointer highlights the entry under it");
-            compare(String(first.background.color), String(Qt.color(Theme.select.selected)), "the chosen entry keeps its fill");
+            compare(String(first.contentItem.children[1].color), String(Qt.color(Theme.listItem.selectedForeground)), "the pointed entry takes the accent");
+            compare(first.indicator.visible, true, "the chosen entry keeps its check mark");
+            compare(second.indicator.visible, false, "another entry draws no mark");
             keyClick(Qt.Key_Down);
             compare(list.highlightIndex, 1);
-            compare(String(second.background.color), "#00000000", "the highlighted entry draws no fill of its own");
+            compare(second.background, null, "the highlighted entry draws no fill of its own");
+            compare(String(first.contentItem.children[1].color), String(Qt.color(Theme.menu.item.foreground)), "the chosen entry the plate left draws its resting text");
             // The pointer rests where it was: Qt delivers it hover again
             // while the cursor travels, and a resting pointer must not take
             // the highlight back from the key.
@@ -982,10 +990,10 @@ Item {
             return test_the_first_menu_entry_meets_the_border_data();
         }
 
-        // The list opens on the control's edges, as wide as it; the chosen
-        // entry's fill and the highlight on it reach the border at the top
-        // and both sides, and the entry's text starts where the field's
-        // does.
+        // The list opens on the control's edges, as wide as it; the
+        // highlight on the chosen entry reaches the border at the top and
+        // both sides and stays inside the list's corner, and the entry's
+        // text starts where the field's does.
         function test_the_first_select_entry_meets_the_border(data) {
             compare(UnitTheme.override(data.theme), "ok");
             select.choose(0);
@@ -999,18 +1007,15 @@ Item {
             const border = Theme.border.thin;
             compare(popup.anchor.margins.left, 0);
             compare(popup.width, select.width);
-            const fill = boxIn(entry.background, popup);
-            compare(fill.x, border, "the chosen fill meets the left border");
-            compare(fill.x + fill.width, popup.width - border, "the chosen fill meets the right border");
-            if (data.flush) compare(fill.y, border, "the chosen fill meets the top border");
-            else verify(fill.y > border, "a square entry starts below a round corner: " + fill.y);
-            verify(insideCorner(fill, entry.background.radius, popup.width, popup.height, Theme.menu.radius, border), "the fill's corners stay inside the list's corner: " + JSON.stringify(fill));
             const plate = list.contentItem.children.find(child => child.follow !== undefined);
             tryVerify(() => plate.target === entry && plate.height === entry.height, 2000, "the cursor holds the chosen entry");
-            const highlight = boxIn(plate, popup);
-            compare(highlight.x, fill.x);
-            compare(highlight.y, fill.y);
-            compare(highlight.width, fill.width);
+            const fill = boxIn(plate, popup);
+            compare(fill.x, border, "the highlight meets the left border");
+            compare(fill.x + fill.width, popup.width - border, "the highlight meets the right border");
+            if (data.flush) compare(fill.y, border, "the highlight meets the top border");
+            else verify(fill.y > border, "a square entry starts below a round corner: " + fill.y);
+            compare(plate.radius, Theme.menu.item.radius);
+            verify(insideCorner(fill, plate.radius, popup.width, popup.height, Theme.menu.radius, border), "the highlight's corners stay inside the list's corner: " + JSON.stringify(fill));
             const text = entry.contentItem.mapToItem(popup.contentItem, 0, 0);
             compare(text.x, select.contentItem.x, "the entry's text starts where the field's does");
             select.choose(select.currentIndex);
@@ -1188,18 +1193,16 @@ Item {
             return [window, list];
         }
 
-        // The chosen entry and the highlight on it, scrolled half a row
-        // past the top, stay inside a rounded select list's interior.
+        // The highlight on the chosen entry, scrolled half a row past the
+        // top, stays inside a rounded select list's interior.
         function test_a_rounded_select_cuts_a_half_scrolled_choice() {
             const [window, list] = openRoundedSelect();
             const entry = list.itemAtIndex(1);
             const plate = list.contentItem.children.find(child => child.follow !== undefined);
             tryVerify(() => plate.target === entry && plate.y === entry.y && plate.opacity === 1, 2000, "the cursor holds the chosen entry");
             list.contentY = entry.y + entry.height / 2;
-            const fill = drawsInside(entry.background, entry.background.radius, window);
             const highlight = drawsInside(plate, plate.radius, window);
             longSelect.choose(0);
-            verify(fill, "the chosen fill half past the top stays inside the corner");
             verify(highlight, "the highlight half past the top stays inside the corner");
         }
 
@@ -1239,7 +1242,9 @@ Item {
             list.anchors.bottomMargin = margin + 0.3;
             tryVerify(() => list.contentHeight - list.height > 0.2, 1000, "the content passes the view by a fraction: " + (list.contentHeight - list.height));
             compare(bar.visible, false, "no bar for a fraction of a pixel");
-            compare(list.itemAtIndex(0).rightPadding, select.sidePadding - Theme.border.thin, "no strip without a bar");
+            const entry = list.itemAtIndex(1);
+            compare(entry.barRoom, 0, "no strip without a bar");
+            compare(entry.rightPadding, entry.sidePadding, "an entry keeps only its side padding");
             list.anchors.bottomMargin = Qt.binding(() => select.listInset + select.listCover);
             select.choose(select.currentIndex);
         }

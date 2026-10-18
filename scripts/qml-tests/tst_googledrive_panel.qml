@@ -191,6 +191,25 @@ Item {
             compare(root.calls, [], "the fold asks the shell nothing");
         }
 
+        // The fold line and its plate reach into the focus ring's room on
+        // both sides, as its hover box did, and its words stay on the
+        // rows' grid at the column's edge. Column sets only a child's y, so
+        // the line's wrapper keeps the x that reaches out.
+        function test_fold_line_plate_covers_its_reach() {
+            const fold = control(panel.review.notesLine);
+            const column = fold.parent.parent;
+            const ringRoom = Theme.focusRing.width + Theme.focusRing.offset;
+            compare(fold.mapToItem(column, 0, 0).x, -ringRoom, "the line reaches into the ring room");
+            compare(fold.width, column.width + 2 * ringRoom, "on both sides");
+            compare(fold.contentItem.mapToItem(column, 0, 0).x, 0, "the line's content stays on the column's edge");
+            mouseMove(fold, fold.width / 2, fold.height / 2);
+            mouseMove(fold, fold.width / 2 + 1, fold.height / 2);
+            verify(fold.cursor !== null && fold.cursor.placed === fold, "the hover puts the plate on the line");
+            compare(fold.cursor.width, fold.width, "the plate spans the line's reach");
+            compare(String(fold.background.color), "#00000000", "the line draws no fill of its own");
+            compare(root.calls, [], "the hover asks the shell nothing");
+        }
+
         // A click and Return on each action make the same requests.
         function test_return_does_what_a_click_does_data() {
             return [

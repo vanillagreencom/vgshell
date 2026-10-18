@@ -824,7 +824,9 @@ net_wired_rows() { ipc smoke itemValues "$1" vgs.network ListItem text,secondary
 net_wired_listed() { net_wired_rows "$1" | py_reply 'import json,sys; print(json.dumps([[t, s != ""] for t,s in json.load(sys.stdin)]))'; }
 # The System window's ScrollArea holds the pane, so its instance reveals.
 net_reveal() { ipc smoke revealText window vgs.system ListItem enp10s0 | py_reply 'import json,sys; json.load(sys.stdin); print("scrolled")'; }
-net_below() { ipc smoke itemGeometry window vgs.network ListItem enp11s0 | py_reply 'import json,sys; print(json.load(sys.stdin)[1])'; }
+# To a tenth of a pixel: a row still ending its entrance (ListEntrance)
+# reads a fraction of a pixel off its place.
+net_below() { ipc smoke itemGeometry window vgs.network ListItem enp11s0 | py_reply 'import json,sys; print(round(json.load(sys.stdin)[1], 1))'; }
 net_spinners() { ipc smoke itemValues window vgs.network Spinner visible | py_reply 'import json,sys; print(sum(1 for r in json.load(sys.stdin) if r["visible"]))'; }
 net_detail_state() { net_snapshot | py_reply 'import json,sys; d=json.load(sys.stdin)["network"]["detail"]; print(d["interface"] + " " + d["state"])'; }
 # net_details_layout LABEL: opens enp10s0's Details in System while its

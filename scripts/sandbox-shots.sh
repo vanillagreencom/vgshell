@@ -53,7 +53,8 @@
 # as Sound is turned off while shown, the Mouse pane and Keyboard's pane,
 # widget menu and panel source menu; bluetooth is
 # its Bluetooth section, then the Bluetooth dropdown, over the device
-# fakes; vpn is its VPN section, then the VPN dropdown, over the
+# fakes, each also with the pointer on a list row the selection is not on,
+# then the widget's menu with the pointer on an entry; vpn is its VPN section, then the VPN dropdown, over the
 # tailscale and nmcli stand-ins; vpn-locked, taken only when named, is the
 # VPN dropdown while Tailscale's access step is offered: at rest, its
 # header switch under the pointer and under keyboard focus, the switch's
@@ -1417,11 +1418,13 @@ scene_setup_steps() { # MODE
   fi
   step_shot "$1" vgs.themes browserTheming "Install browser theming" browser-theming
 }
-# The Settings window: the list opened from the gear, the pointer on the
+# The Settings window: the list opened from the gear, then with the
+# pointer on a row the selection is not on, the pointer on the
 # gear; a search nothing matches; a plugin page with many grouped settings at its top, with a typed
 # value over its save bar, under the prompt the back button then raises, dragged down
 # its scroll bar, scrolled a third and two thirds down, which match on the
-# settled bar's region, and with its Mode select open; a plugin with keys; the
+# settled bar's region, and with its Label select open, then with the
+# pointer on an entry that is not the choice; a plugin with keys; the
 # automations' page at its Status section; the Jarvis page with its
 # daemon ready; the Scratchpads page at its Pads section, holding one pad; the
 # title's menu open with the pointer on its first entry, and scrolled half
@@ -1437,6 +1440,10 @@ scene_settings() { # MODE
   expect_poll "the Settings window holds the keyboard" true ipc smoke activeFocusIn "$settings_kind" vgs.settings
   expect "the Settings window's root takes the focus for the list image" focused ipc smoke invokeInstance "$settings_kind" vgs.settings focusInstance ""
   take "settings-$1-list"
+  # The pointer resting on a row the selection is not on: the list's one
+  # hover (docs/architecture/design-system.md § Motion).
+  hover_on "the pointer rests on the Plugins list's Bluetooth row" "$settings_kind" vgs.settings ListItem Bluetooth "$settings_surface" && take_posed "settings-$1-list-hover"
+  park_pointer
   ipc smoke invokeInstance "$settings_kind" vgs.settings open '{}' >/dev/null || fail "the Settings search did not regain focus"
   # A search nothing matches: the empty state and its way back.
   type_keys "zzqxv" || fail "typing a search nothing matches failed"
@@ -1520,6 +1527,21 @@ scene_settings() { # MODE
     && hover "$((x - 1))" "$y" && click "$x" "$y"; then
     expect_poll "the Label select opens its list" true ipc smoke readShownDescendant "$settings_kind" vgs.settings Select listOpen
     take_posed "settings-$1-select"
+    # The pointer on Beta, the second entry, which is not the choice. A
+    # window's popup knows no place on the output, so the entry is found
+    # from the field the list opens `select.gap` under: the click point is
+    # the field's centre. A tree whose Select builds its entries on
+    # MenuItem names them so; an older one draws an inline ItemDelegate.
+    local select_entry=QQuickItemDelegate tf_height select_gap entry_height bx by
+    ! tree_has shell/Ui/controls/Select.qml "delegate: MenuItem" || select_entry=MenuItem
+    if tf_height="$(ipc smoke themeValue textField.height)" && select_gap="$(ipc smoke themeValue select.gap)" && entry_height="$(ipc smoke themeValue menu.item.height)" \
+      && read -r bx by < <(python3 -c 'import sys; x, y, f, g, e = map(float, sys.argv[1:]); print(int(x - 120), int(y + f / 2 + g + 1.5 * e))' "$x" "$y" "$tf_height" "$select_gap" "$entry_height") \
+      && settle_hold && hover "$((bx - 6))" "$by" && hover "$bx" "$by" \
+      && expect_poll "the pointer rests on the Label select's Beta entry" true ipc smoke popupItemHovered "$settings_kind" vgs.settings "" "" "$select_entry" Beta; then
+      take_posed "settings-$1-select-hover"
+    else
+      fail "the pointer did not rest on the Label select's Beta entry"
+    fi
     type_keys -k Escape || fail "sending Escape to the Label select failed"
     expect_poll "the Label select closes its list" false ipc smoke readShownDescendant "$settings_kind" vgs.settings Select listOpen
   else
@@ -5960,7 +5982,7 @@ PYKEYBOARD
     expect_poll "System is gone before the keyboard widget shot" hidden system_shown
     park_pointer
     take "system-$1-keyboard-widget"
-    keyboard_shot_right_click || fail "opening the Keyboard widget menu failed"
+    widget_right_click vgs.keyboard || fail "opening the Keyboard widget menu failed"
     expect_poll "the Keyboard widget menu is open for its shot" true ipc smoke readInstance "$(bar_key)" vgs.keyboard frameMenuOpen
     expect "the widget menu includes Keyboard Controls, System settings, Readme and Settings" '["Hide","Keyboard Controls","Keyboard Settings","Readme","Settings"]' ipc smoke readInstance "$(bar_key)" vgs.keyboard frameMenuEntries
     take "system-$1-keyboard-widget-menu"
@@ -5982,9 +6004,11 @@ PYKEYBOARD
   fi
   expect "disabling vgs.system after its shot is allowed" ok ipc shell setPluginEnabled vgs.system false
 }
-keyboard_shot_right_click() {
+# widget_right_click ID: a right click on the centre of plugin ID's bar
+# widget, which opens its menu.
+widget_right_click() { # ID
   local box x y
-  box="$(ipc smoke instanceGeometry "$(bar_key)" vgs.keyboard)" || return 1
+  box="$(ipc smoke instanceGeometry "$(bar_key)" "$1")" || return 1
   [[ $box == \[* ]] || return 1
   read -r x y < <(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); print(int(x+w/2), int(y+h/2))' "$box") || return 1
   hover "$((x - 1))" "$y" && right_click "$x" "$y"
@@ -6022,13 +6046,34 @@ scene_bluetooth() { # MODE
   expect_poll "the Bluetooth section lists the nearby keyboard" 1 bluetooth_nearby
   park_pointer
   take "bluetooth-$1"
+  # The pointer resting on a sidebar row the selection is not on, then on
+  # the Nearby list's second row: each list's one hover.
+  hover_on "the pointer rests on the System sidebar's Shell & Plugins row" window vgs.system ListItem "Shell & Plugins" "window:System Settings" && take_posed "bluetooth-$1-sidebar-hover"
+  park_pointer
   expect "the System window hides" ok ipc shell hide window vgs.system
   expect_poll "the System window is gone" hidden system_shown
   click_centre "$(bar_key)" vgs.bluetooth || fail "the click on the Bluetooth widget failed"
   expect_poll "the Bluetooth widget opens its dropdown" shown bluetooth_shot_panel
   park_pointer
   take "bluetooth-$1-dropdown"
+  expect_poll "the dropdown lists the second nearby device" shown bluetooth_panel_row "Travel Mouse"
+  hover_on "the pointer rests on the dropdown's Travel Mouse row" panel vgs.bluetooth DeviceRow "Travel Mouse" && take_posed "bluetooth-$1-dropdown-hover"
+  park_pointer
   expect "the Bluetooth dropdown hides" ok ipc shell hide panel vgs.bluetooth
+  expect_poll "the Bluetooth dropdown is gone" hidden bluetooth_shot_panel
+  # The widget's menu, opened by the pointer, the pointer on its Readme
+  # entry.
+  widget_right_click vgs.bluetooth || fail "opening the Bluetooth widget menu failed"
+  expect_poll "the Bluetooth widget menu is open for its shot" true ipc smoke readInstance "$(bar_key)" vgs.bluetooth frameMenuOpen
+  if settle_hold && point_item "popup:$(bar_key)" vgs.bluetooth "" "" MenuItem Readme >/dev/null; then
+    ok "the pointer rests on the Bluetooth widget menu's Readme entry"
+    take_posed "bluetooth-$1-menu-hover"
+  else
+    fail "the pointer did not rest on the Bluetooth widget menu's Readme entry"
+  fi
+  type_keys -k Escape || fail "closing the Bluetooth widget menu failed"
+  expect_poll "the Bluetooth widget menu is closed" false ipc smoke readInstance "$(bar_key)" vgs.bluetooth frameMenuOpen
+  park_pointer
   expect "disabling vgs.system after the Bluetooth shot is allowed" ok ipc shell setPluginEnabled vgs.system false
   expect "disabling vgs.bluetooth after its shot is allowed" ok ipc shell setPluginEnabled vgs.bluetooth false
 }
@@ -6104,6 +6149,7 @@ scene_printers() { # MODE
 }
 bluetooth_shot_panel() { [[ $(ipc smoke instanceGeometry panel vgs.bluetooth) != absent ]] && echo shown || echo hidden; }
 # The rows the section's Nearby list draws for the keyboard the setup adds.
+bluetooth_panel_row() { [[ $(ipc smoke itemGeometry panel vgs.bluetooth DeviceRow "$1") == \[* ]] && echo shown || echo absent; }
 bluetooth_nearby() { ipc smoke itemTexts window vgs.bluetooth Section | py_reply 'import json,sys; print(sum(t.count("Desk Keyboard") for t in json.load(sys.stdin) if t[:1] == ["Nearby"]))'; }
 
 scene_power() { # MODE
@@ -7639,6 +7685,9 @@ for scene in "${setups[@]}"; do
       if devices_ready bluetooth-shot && bluetooth_tree="$(devices_system_tree)"; then
         bluetooth_shot_ready=true
         expect "a nearby keyboard joins the mock" "$bluez_adapter_path/dev_00_1B_66_AA_BB_04" bluez add-device 00:1B:66:AA:BB:04 "Desk Keyboard"
+        # A second nearby device, so a row the selection is not on takes
+        # the pointer.
+        expect "a nearby mouse joins the mock" "$bluez_adapter_path/dev_00_1B_66_AA_BB_05" bluez add-device 00:1B:66:AA:BB:05 "Travel Mouse"
       else
         fail "the Bluetooth shot is skipped: its fakes, the device guard or the fakes' system tree failed: ${bluetooth_tree:-unread}"
       fi ;;

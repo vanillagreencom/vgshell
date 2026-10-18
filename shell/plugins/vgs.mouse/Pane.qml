@@ -41,8 +41,10 @@ FocusScope {
 
             Repeater {
                 model: root.deviceRows
+                // A device row here acts on nothing.
                 DeviceRow {
                     width: root.width
+                    clickable: false
                     text: modelData.text
                     secondary: modelData.secondary
                     iconName: modelData.icon

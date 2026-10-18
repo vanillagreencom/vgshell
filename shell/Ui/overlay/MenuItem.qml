@@ -15,10 +15,14 @@ import qs.Ui
 // `checked`, which the author binds. The menu hands every entry its
 // ListCursor as `cursor`: the cursor then draws the highlight, and a hover
 // it lets through emits `pointed` for the menu to highlight the entry. The
-// fill spans the entry, which spans the menu's list; the text inset is the
-// entry's own side padding. `barRoom` is the strip at the entry's end the
-// menu's scroll bar draws over while the entries overflow: the text, the
-// shortcut and the check mark keep clear of it, and the fill still spans it.
+// entry draws no fill of its own. `lit` is whether its icon, text and
+// shortcut draw in `listItem.selectedForeground`, as a list row's do
+// (ListItem.lit): while the plate sits on it, or, without a cursor, while
+// it is `highlighted`. The plate spans the entry, which spans the menu's
+// list; the text inset is the entry's own side padding. `barRoom` is the
+// strip at the entry's end the menu's scroll bar draws over while the
+// entries overflow: the text, the shortcut and the check mark keep clear
+// of it, and the plate still spans it.
 // An entry that `opensSubmenu` draws a chevron at its end in place of the
 // check mark. Its trigger, and that of any entry that `keepsOpen`, such as
 // one that goes back a level, leaves the menu open, so the menu's owner
@@ -34,6 +38,7 @@ T.MenuItem {
     property real barRoom: 0
     property bool opensSubmenu: false
     property bool keepsOpen: opensSubmenu
+    readonly property bool lit: cursor !== null ? cursor.shown && cursor.placed === root : highlighted
 
     signal pointed()
 
@@ -84,14 +89,14 @@ T.MenuItem {
             visible: root.iconName !== ""
             name: root.iconName
             size: Theme.menu.item.icon
-            color: Theme.menu.item.foreground
+            color: root.lit ? Theme.listItem.selectedForeground : Theme.menu.item.foreground
             y: root.inkTop(icon) - parent.y
         }
         Label {
             id: title
             role: "menuItem"
             text: root.text
-            color: Theme.menu.item.foreground
+            color: root.lit ? Theme.listItem.selectedForeground : Theme.menu.item.foreground
             x: parent.lead
             width: Math.max(0, parent.width - parent.lead - parent.tail)
             elide: Text.ElideRight
@@ -102,7 +107,7 @@ T.MenuItem {
             role: "menuItemHint"
             text: root.shortcut
             visible: root.shortcut !== ""
-            color: Theme.menu.item.shortcut
+            color: root.lit ? Theme.listItem.selectedForeground : Theme.menu.item.shortcut
             x: parent.width - width
             y: topForCapCenter(parent.height)
         }
@@ -132,10 +137,5 @@ T.MenuItem {
         color: Theme.menu.item.shortcut
         x: root.indicator.x + root.indicator.painted[2] - painted[2]
         y: root.inkTop(chevron)
-    }
-
-    background: Rectangle {
-        radius: Theme.menu.item.radius
-        color: root.cursor !== null ? "transparent" : root.down ? Theme.rowFill(Theme.menu.item.pressed, true) : root.highlighted || root.hovered ? Theme.rowFill(Theme.menu.item.hover, false) : "transparent"
     }
 }

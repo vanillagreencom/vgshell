@@ -54,7 +54,6 @@ Column {
     // Emitted when the row's action, or an action row click,
     // requests the row's action.
     signal actionRequested()
-    signal pointed(string key)
 
     spacing: Theme.stack.row
     function activate() {
@@ -79,7 +78,6 @@ Column {
         enabled: root.applicable || (root.actionLabel !== "" && root.actionEnabled)
         topPadding: Theme.stack.row
         bottomPadding: Theme.stack.row
-        onPointed: root.pointed(root.rowKey)
         onClicked: root.activate()
         contentItem: Item {
             implicitHeight: body.implicitHeight
@@ -87,7 +85,7 @@ Column {
                 name: row.iconName
                 y: nameText.topForLeadingIcon(height)
                 size: Theme.icon.size.md
-                color: row.highlighted ? Theme.listItem.selectedForeground : Theme.color.textMuted
+                color: row.lit ? Theme.listItem.selectedForeground : Theme.color.textMuted
             }
             Item {
                 id: body
@@ -105,11 +103,12 @@ Column {
                         textFormat: Text.PlainText
                         width: parent.width
                         wrapMode: Text.Wrap
-                        color: row.highlighted ? Theme.listItem.selectedForeground : Theme.color.text
+                        color: row.lit ? Theme.listItem.selectedForeground : Theme.color.text
                     }
                     Label {
                         role: "itemHint"
                         text: row.secondary
+                        color: row.lit ? Theme.listItem.selectedForeground : Theme.text.itemHint.color
                         textFormat: Text.PlainText
                         width: parent.width
                         wrapMode: Text.Wrap

@@ -20,9 +20,10 @@
 # stand-in vgshell in the shell's own PATH directory, which records its argv
 # and runs nothing.
 #
-# A hover in the sidebar moves its plate and not its selection, the shown
-# section's text alone keeps the accent, and the plate returns to the shown
-# section once the pointer leaves the list.
+# A hover in the sidebar moves its plate and not its selection, the row
+# under the plate takes the accent while the shown section's text keeps it,
+# and the plate returns to the shown section once the pointer leaves the
+# list.
 # A mounted section's SaveBar belongs to the holder's footer, stays at the
 # bottom while the body scrolls, takes no room when hidden, and receives
 # Discard and Save through Tab. A copy that exports no footer draws no bar.
@@ -250,10 +251,11 @@ expect "the window returns to the short section after the footer check" ok ipc s
 expect_poll "switching sections removes the previous pending footer" True sys_footer_hidden
 
 # Hover in the sidebar, a navigation list: the plate follows the pointer to
-# a section that is not shown while the selection stays on the shown one,
-# whose text keeps the accent alone; with the pointer off the list the
-# plate is back on the shown section. The hovered reading is the contrast:
-# the same reader sees the plate on another row.
+# a section that is not shown while the selection stays on the shown one;
+# the row under the plate takes the accent and the shown section's text
+# keeps it; with the pointer off the list the plate is back on the shown
+# section, whose text alone keeps the accent. The hovered reading is the
+# contrast: the same reader sees the plate on another row.
 # sys_plate_row: the title of the sidebar row the plate sits on, or none.
 sys_plate_row() {
   ipc smoke descendantGeometry window vgs.system | py_reply '
@@ -294,7 +296,7 @@ if read -r sys_hx sys_hy < <(at_centre "window:System Settings" "$sys_hover_box"
   hover "$((sys_hx - 6))" "$sys_hy"; hover "$sys_hx" "$sys_hy"
   expect_poll "a hover puts the sidebar's plate on Pane Net" "Pane Net" sys_plate_row
   expect "the hover leaves the selection on the shown section" 2 sys_current
-  expect "while Pane Net holds the plate only the shown section's text keeps the accent" '["Pane"]' sys_accent_rows
+  expect "while Pane Net holds the plate its text and the shown section's take the accent" '["Pane", "Pane Net"]' sys_accent_rows
   read -r sys_ox sys_oy < <(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); print(int(x + w - 40), int(y + h / 2))' "$sys_box")
   hover "$sys_ox" "$sys_oy" || fail "moving the pointer off the sidebar failed"
   expect_poll "with the pointer off the list the plate is back on the shown section" Pane sys_plate_row

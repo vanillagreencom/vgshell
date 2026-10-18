@@ -236,11 +236,12 @@ Item {
             return item.data.some(child => child instanceof HoverHandler && child.cursorShape === Qt.PointingHandCursor && child.hovered);
         }
 
-        // Motion is stilled, so a fill the row would draw lands at once.
+        // Motion is stilled, so a fill the row would draw lands at once. A
+        // row draws no hover of its own: its list's cursor draws it.
         function test_list_item_that_takes_no_click_draws_no_hover_or_press() {
             compare(UnitTheme.override({ motion: { scale: 0 } }), "ok");
             verify(showsHand(row), "a row that takes a click shows the hand");
-            tryCompare(row.background, "color", Qt.color(Theme.rowFill(Theme.listItem.hover, false)));
+            compare(String(row.background.color), "#00000000", "a row draws no hover fill of its own");
             const at = still.textStart + 1;
             mouseMove(still, at, still.height / 2);
             tryCompare(still, "hovered", true);

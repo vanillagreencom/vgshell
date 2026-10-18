@@ -178,7 +178,6 @@ FocusScope {
                 iconName: modelData.icon
                 highlighted: index === page.current
                 cursor: plate
-                onPointed: page.current = index
                 onClicked: page.panel.openRow(modelData.id, Qt.MouseFocusReason)
                 trailing: [
                     Badge {

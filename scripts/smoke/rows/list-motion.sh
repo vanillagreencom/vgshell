@@ -77,9 +77,10 @@ expect_poll "the Settings window is gone" 0 window_count Plugins
 # at the first frame whose animation time reaches hover_ceiling_ms, read
 # from the window's frames by the CursorFrames fixture. The pointer moves between the list's first two rows:
 # hover_travel ROW moves it onto row ROW one pixel at a time, as a hand
-# does, until the selection takes the row, then waits for the plate to
-# rest, and prints the milliseconds from the selection to the first frame
-# that moved the plate and to the first frame that shows it at rest, plus
+# does, until the plate takes the row (the list's selection stays where
+# the keys left it), then waits for the plate to rest, and prints the
+# milliseconds from that take to the first frame that moved the plate and
+# to the first frame that shows it at rest, plus
 # `fast` or `slow` from its position on the first frame at the ceiling, or a
 # word naming what it missed: `late` when the first prepared frame after
 # the animation timer advances leaves the plate at its selection-time y.

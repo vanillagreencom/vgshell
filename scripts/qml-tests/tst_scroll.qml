@@ -506,10 +506,11 @@ Item {
             compare(view.overflowing, true);
             tryCompare(view, "width", list.width - 2 * Theme.border.thin);
             // The entries span the list, and each keeps the bar's strip
-            // clear at its end: the bar lies inside it, over no text.
-            const entry = view.itemAtIndex(0);
+            // clear at its end: the bar lies inside it, over no text. The
+            // second entry is not the choice, which draws no check mark.
+            const entry = view.itemAtIndex(1);
             compare(entry.width, view.width);
-            compare(entry.rightPadding, long.sidePadding - Theme.border.thin + Theme.scrollArea.gutter);
+            compare(entry.rightPadding, entry.sidePadding + Theme.scrollArea.gutter);
             const bar = view.children.find(child => child.thumb !== undefined);
             verify(bar !== undefined, "the list holds its bar");
             verify(bar.x >= entry.width - Theme.scrollArea.gutter && bar.x + bar.width <= entry.width, "the bar lies in the entry's end strip: " + bar.x);

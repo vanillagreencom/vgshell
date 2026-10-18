@@ -752,23 +752,36 @@ Item {
                                 model: ["Installed", "Available", "Updates"]
                                 currentIndex: 1
                             }
-                            Disclosure {
-                                property string focusExample: "Disclosure"
+                            // The rows and their cursor, beside the rows' column.
+                            Item {
                                 width: parent.width
-                                text: "Focused disclosure"
-                                secondary: "Expanded"
-                                iconName: "package"
-                                expanded: true
-                                Label { role: "hint"; text: "The disclosure row is the focusable control." }
-                            }
-                            DeviceRow {
-                                property string focusExample: "DeviceRow"
-                                width: parent.width
-                                text: "Focused device"
-                                secondary: "Connected"
-                                iconName: "bluetooth"
-                                battery: 0.5
-                                menuEntries: [ MenuItem { text: "Forget" } ]
+                                height: focusRows.height
+                                ListCursor { id: focusRowsCursor }
+                                Column {
+                                    id: focusRows
+                                    width: parent.width
+                                    spacing: Theme.stack.row
+                                    Disclosure {
+                                        property string focusExample: "Disclosure"
+                                        width: parent.width
+                                        cursor: focusRowsCursor
+                                        text: "Focused disclosure"
+                                        secondary: "Expanded"
+                                        iconName: "package"
+                                        expanded: true
+                                        Label { role: "hint"; text: "The disclosure row is the focusable control." }
+                                    }
+                                    DeviceRow {
+                                        property string focusExample: "DeviceRow"
+                                        width: parent.width
+                                        cursor: focusRowsCursor
+                                        text: "Focused device"
+                                        secondary: "Connected"
+                                        iconName: "bluetooth"
+                                        battery: 0.5
+                                        menuEntries: [ MenuItem { text: "Forget" } ]
+                                    }
+                                }
                             }
                         }
                     }
@@ -841,7 +854,6 @@ Item {
                                             iconName: "list"
                                             cursor: focusListCursor
                                             highlighted: index === focusList.current
-                                            onPointed: focusList.current = index
                                         }
                                     }
                                 }
@@ -961,48 +973,65 @@ Item {
                     }
                     Label { role: "hint"; text: "TabPages shows the open page alone. Ctrl+Tab steps the page from the strip and from a control in the page."; wrapMode: Text.Wrap }
                 }
-                Column {
+                // The rows and their cursor, beside the rows' column.
+                Item {
                     width: parent.width
-                    ListItem { text: "Plugin updates"; secondary: "1 update available"; iconName: "package"; clickable: false; width: parent.width; trailing: [ Badge { text: "new"; tone: "accent" } ] }
-                    Divider { width: parent.width }
-                    ListItem { text: "Workspaces"; secondary: "up to date"; iconName: "layout-grid"; clickable: false; highlighted: true; width: parent.width }
-                    ListItem { text: "Clock"; iconName: "clock"; clickable: false; width: parent.width; trailing: [ Switch { size: "sm"; checked: true } ] }
-                    Disclosure {
+                    height: listRows.height
+                    ListCursor { id: listRowsCursor }
+                    Column {
+                        id: listRows
                         width: parent.width
-                        text: "System"
-                        secondary: "2 updates"
-                        iconName: "package"
-                        expanded: true
-                        trailing: [ Badge { text: "2"; tone: "accent"; anchors.verticalCenter: parent.verticalCenter } ]
-                        Label { role: "code"; text: "linux 6.1 -> 6.2" }
-                        Label { role: "code"; text: "mesa 25.1 -> 25.2" }
-                    }
-                    // The card follows its content's height through
-                    // SurfaceHeight, as a summoned panel's card does.
-                    SurfaceHeight {
-                        width: parent.width
-                        target: grower.implicitHeight
-                        Surface { anchors.fill: parent }
+                        ListItem { text: "Plugin updates"; secondary: "1 update available"; iconName: "package"; clickable: false; width: parent.width; trailing: [ Badge { text: "new"; tone: "accent" } ] }
+                        Divider { width: parent.width }
+                        ListItem { text: "Workspaces"; secondary: "up to date"; iconName: "layout-grid"; clickable: false; highlighted: true; width: parent.width }
+                        ListItem { text: "Clock"; iconName: "clock"; clickable: false; width: parent.width; trailing: [ Switch { size: "sm"; checked: true } ] }
                         Disclosure {
-                            id: grower
                             width: parent.width
-                            text: "Card height"
-                            secondary: "Open it to watch the card grow"
-                            iconName: "info"
-                            Label { role: "hint"; text: "The card animates to its new height while its surface keeps one size."; width: parent.width; wrapMode: Text.Wrap }
+                            cursor: listRowsCursor
+                            text: "System"
+                            secondary: "2 updates"
+                            iconName: "package"
+                            expanded: true
+                            trailing: [ Badge { text: "2"; tone: "accent"; anchors.verticalCenter: parent.verticalCenter } ]
+                            Label { role: "code"; text: "linux 6.1 -> 6.2" }
+                            Label { role: "code"; text: "mesa 25.1 -> 25.2" }
                         }
+                        // The card follows its content's height through
+                        // SurfaceHeight, as a summoned panel's card does.
+                        // The card's fill would cover a plate under it, so the
+                        // row's cursor stands on the card.
+                        SurfaceHeight {
+                            width: parent.width
+                            target: grower.implicitHeight
+                            Surface { anchors.fill: parent }
+                            Item {
+                                width: parent.width
+                                height: grower.height
+                                ListCursor { id: growerCursor }
+                                Disclosure {
+                                    id: grower
+                                    width: parent.width
+                                    cursor: growerCursor
+                                    text: "Card height"
+                                    secondary: "Open it to watch the card grow"
+                                    iconName: "info"
+                                    Label { role: "hint"; text: "The card animates to its new height while its surface keeps one size."; width: parent.width; wrapMode: Text.Wrap }
+                                }
+                            }
+                        }
+                        Disclosure {
+                            width: parent.width
+                            cursor: listRowsCursor
+                            text: "No details"
+                            secondary: "Trailing badge meets the row edge"
+                            iconName: "info"
+                            expandable: false
+                            trailing: [ Badge { text: "ready"; tone: "success"; anchors.verticalCenter: parent.verticalCenter } ]
+                        }
+                        Divider { width: parent.width }
+                        MenuItem { text: "Menu entry"; iconName: "check"; shortcut: "Enter" }
+                        MenuItem { text: "Selected menu entry"; iconName: "palette"; checked: true }
                     }
-                    Disclosure {
-                        width: parent.width
-                        text: "No details"
-                        secondary: "Trailing badge meets the row edge"
-                        iconName: "info"
-                        expandable: false
-                        trailing: [ Badge { text: "ready"; tone: "success"; anchors.verticalCenter: parent.verticalCenter } ]
-                    }
-                    Divider { width: parent.width }
-                    MenuItem { text: "Menu entry"; iconName: "check"; shortcut: "Enter" }
-                    MenuItem { text: "Selected menu entry"; iconName: "palette"; checked: true }
                 }
                 DeviceList {
                     property string focusExample: "Device list"
@@ -1026,7 +1055,7 @@ Item {
                 }
                 Section {
                     title: "List motion"
-                    description: "Move the selection with Up, Down or the pointer."
+                    description: "Up and Down move the selection. The plate follows the pointer."
                     rowSpacing: Theme.stack.group
                 Button {
                     text: "Replay the entrance"
@@ -1062,7 +1091,6 @@ Item {
                                 iconName: ["layout-grid", "clock", "battery", "wifi", "volume-2"][index]
                                 cursor: motionCursor
                                 highlighted: index === motionList.current
-                                onPointed: motionList.current = index
                                 onClicked: motionList.forceActiveFocus()
                             }
                         }

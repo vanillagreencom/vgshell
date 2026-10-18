@@ -51,7 +51,6 @@ Section {
                     text: View.formatWhen(modelData)
                     highlighted: index === root.current
                     cursor: plate
-                    onPointed: root.current = index
                     onClicked: root.current = index
                 }
             }

@@ -187,7 +187,6 @@ FocusScope {
                             cursor: sourceCursor
                             highlighted: index === root.selected
                             focusPolicy: Qt.NoFocus
-                            onPointed: root.select(index)
                             onClicked: { sources.forceActiveFocus(Qt.MouseFocusReason); root.select(index); }
                         }
                     }

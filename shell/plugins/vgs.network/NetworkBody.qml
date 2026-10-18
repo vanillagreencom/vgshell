@@ -409,7 +409,6 @@ FocusScope {
                             highlighted: root.currentKey === modelData.key
                             focusPolicy: Qt.NoFocus
                             enabled: !!root.network.writable && !root.busy
-                            onPointed: root.currentKey = modelData.key
                             onClicked: { root.currentKey = modelData.key; root.activate(modelData); }
                             menuEntries: [
                                 MenuItem { text: "Forget"; iconName: "trash"; enabled: wifiRow.modelData.known; onTriggered: root.action("forget", wifiRow.modelData) },
@@ -433,12 +432,21 @@ FocusScope {
             width: parent.width
             visible: !!root.network.hasWifi && (root.expanded || root.openDetails === root.network.wifiInterface)
             title: "Wi-Fi options"
-            DeviceDetails {
-                device: root.network.wifiInterface
-                label: "Wi-Fi device"
-                stateLine: root.network.wifiInterface
-                glyph: "wifi"
+            // The row and its cursor, beside the section's column: a
+            // positioner would lay the plate out as a row.
+            Item {
+                width: parent.width
+                height: wifiDetails.height
                 visible: root.network.wifiInterface !== ""
+                ListCursor { id: wifiDetailsCursor }
+                DeviceDetails {
+                    id: wifiDetails
+                    cursor: wifiDetailsCursor
+                    device: root.network.wifiInterface
+                    label: "Wi-Fi device"
+                    stateLine: root.network.wifiInterface
+                    glyph: "wifi"
+                }
             }
             Field {
                 width: parent.width
@@ -464,14 +472,27 @@ FocusScope {
             width: parent.width
             title: "Ethernet"
             description: (root.network.ethernet || []).length ? "" : "No Ethernet device detected."
-            Repeater {
-                model: ScriptModel { values: root.network.ethernet || []; objectProp: "name" }
-                DeviceDetails {
-                    required property var modelData
-                    device: modelData.name
-                    label: modelData.name
-                    stateLine: Logic.ethernetText(modelData.state)
-                    glyph: "ethernet-port"
+            // The rows and their cursor, beside the rows' column.
+            Item {
+                width: parent.width
+                height: ethernetRows.height
+                visible: (root.network.ethernet || []).length > 0
+                ListCursor { id: ethernetCursor }
+                Column {
+                    id: ethernetRows
+                    width: parent.width
+                    spacing: Theme.stack.row
+                    Repeater {
+                        model: ScriptModel { values: root.network.ethernet || []; objectProp: "name" }
+                        DeviceDetails {
+                            required property var modelData
+                            cursor: ethernetCursor
+                            device: modelData.name
+                            label: modelData.name
+                            stateLine: Logic.ethernetText(modelData.state)
+                            glyph: "ethernet-port"
+                        }
+                    }
                 }
             }
             RowAction {

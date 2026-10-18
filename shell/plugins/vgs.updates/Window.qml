@@ -56,6 +56,13 @@ FocusScope {
     implicitHeight: Math.floor(Math.min(Theme.size.panel.maxHeight, OverlayState.room(screen).height))
     focus: true
 
+    // The sources' cursor, in the body's scrolling content with the rows:
+    // the plate under the pointer, as every list's (ListItem.lit).
+    ListCursor {
+        id: plate
+        parent: layout.scrollArea.contentItem
+    }
+
     // One inset box: the heading, the scrolling sources, and a footer
     // with Update everything, Refresh and the last log that stays in view
     // while the sources scroll; Pane draws the divider over it while more
@@ -119,6 +126,7 @@ FocusScope {
                     // The column, not `parent`, which is null while the
                     // repeater tears the row down.
                     width: sections.width
+                    cursor: plate
                     text: modelData.label
                     secondary: modelData.secondary
                     iconName: modelData.icon

@@ -423,7 +423,6 @@ FocusScope {
                         cursor: taskCursor
                         highlighted: root.selectedTask === index
                         focusPolicy: Qt.NoFocus
-                        onPointed: root.selectedTask = index
                         onClicked: { root.selectedTask = index; tasksBody.forceActiveFocus(Qt.MouseFocusReason); }
                     }
                 }

@@ -20,10 +20,13 @@ import "ListCursorLogic.js" as Logic
 // answers true: after `disarm()`, which a keyboard step and a rebuilt list
 // call, the pointer must move before it takes the plate again, so a
 // pointer resting over a list that moves under it never takes it from the
-// keyboard. A pick list, whose Enter acts on the row under the pointer,
-// also moves its selection on the row's `pointed`; a navigation list
-// leaves its selection on the page it shows. When the pointer leaves the
-// cursor's parent the plate goes back to the selection: the cursor emits
+// keyboard. A pick list, whose selection is the pick highlight alone, as a
+// menu's or a select's is, also moves its selection on the row's
+// `pointed`; every other list leaves its selection where the keyboard put
+// it, since it also holds the keyboard's place, a preview or a scroll, and
+// the row the plate sits on draws the accent (ListItem.lit). When the
+// pointer leaves the cursor's parent the plate goes back to the
+// selection: the cursor emits
 // `pointerLeft()`, and unless the list then changed its selection, hands
 // it back to the row that held it before the hover took it, through that
 // row's `pointed`. A disarm ends the hover with the selection where the

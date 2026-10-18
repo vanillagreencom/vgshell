@@ -193,6 +193,33 @@ try {
         assert.doesNotMatch(opaque.stdout, /tooltip\./);
     });
 
+    // The selected row's text as it drew before VGS-1860, the accent
+    // badge's text, in a disposable copy judged on the shipped tree: on
+    // the plate laid over the fill glass draws solid, a menu's or a glass
+    // flyout's, dark catalog themes fall short. With the solid glass pair
+    // taken out, the opaque pairs alone miss them.
+    row("control: selected row text judged on the plate over solid glass is a shortfall the opaque pairs miss", dir => {
+        const copy = path.join(dir, "copy");
+        copyCheck(copy);
+        const tokens = path.join(copy, "shell", "Commons", "Tokens.js");
+        const source = fs.readFileSync(tokens, "utf8");
+        const foreground = /selectedForeground: color\("contrastMix\(.*\)"\)\n/g;
+        assert.equal((source.match(foreground) || []).length, 1, "the planted row text matches once");
+        fs.writeFileSync(tokens, source.replace(foreground, 'selectedForeground: color("{badge.tone.accent.foreground}")\n'));
+        const judge = () => spawnSync(NODE, [path.join(copy, "scripts", "check-theme-contrast.js"), path.join(repo, "themes")],
+            { encoding: "utf8", env: env(path.join(dir, "env")) });
+        const drawn = judge();
+        assertStatus(drawn, 1);
+        assert.match(drawn.stdout, /^short    catalog\/nord: listItem\.selectedForeground on listItem\.selected over glass\.fill solid ratio=4\.01 floor=4\.5$/m);
+        assert.match(drawn.stdout, /^short    catalog\/catppuccin-frappe: listItem\.selectedForeground on listItem\.selected over glass\.fill solid ratio=4\.00 floor=4\.5$/m);
+        plant(path.join(copy, "shell", "Commons", "ThemeLogic.js"), [
+            ["        pairs.push([GLASS_PLATE_PAIRS[g][0], GLASS_PLATE_PAIRS[g][1], READABILITY_FLOOR, GLASS_SOLID]);\n", ""]
+        ]);
+        const opaque = judge();
+        assertStatus(opaque, 0);
+        assert.doesNotMatch(opaque.stdout, /listItem\./);
+    });
+
     row("direct package shortfall exits one", dir => {
         fs.mkdirSync(dir, { recursive: true });
         writeTheme(dir, "faint", { color: { textFaint: "#111111" } });
