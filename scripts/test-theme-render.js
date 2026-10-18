@@ -1038,6 +1038,67 @@ const selectionPackages = [
 });
 const selectionDefaults = selectionPackages.find(entry => entry.shipped && entry.pkg.name === "vgs").pkg;
 
+// foot reads six-digit RGB flash colours independently in its two INI palettes.
+const footDir = path.join(themesDir, "targets", "foot");
+const footTemplate = path.join(footDir, "foot.ini");
+const footTarget = selectionRender.acceptTarget(logic, "foot", fs.readFileSync(path.join(footDir, "target.json"), "utf8"));
+assert.equal(footTarget.ok, true);
+function verifyFootFlash(templateFile) {
+    const records = selectionPackages.map(({ pkg, shipped }) => {
+        const rendered = selectionRender.renderTarget(logic, TOKENS, footTarget.target,
+            new Map([["foot.ini", fs.readFileSync(templateFile, "utf8")]]), {
+                values: pkg.values, slots: selectionRender.terminalSource(pkg, selectionDefaults).terminal,
+                curated: new Map(), installed: !shipped
+            });
+        assert.equal(rendered.ok, true);
+        return { name: pkg.name, expected: pkg.values.color.warning.slice(1, 7).toLowerCase(),
+            text: rendered.files.find(file => file.destination === "foot.ini").bytes.toString("utf8") };
+    });
+    const parsed = spawnSync("python3", ["-c", [
+        "import configparser,json,sys",
+        "rows=json.load(sys.stdin)",
+        "for row in rows:",
+        " ini=configparser.ConfigParser(interpolation=None)",
+        " ini.read_string(row.pop('text'))",
+        " row['palettes']={section:dict(ini[section]) for section in ini.sections()}",
+        "json.dump(rows,sys.stdout)"
+    ].join("\n")], { input: JSON.stringify(records), encoding: "utf8",
+        env: { PATH: process.env.PATH, LANG: "C.UTF-8" } });
+    assert.ifError(parsed.error);
+    assert.equal(parsed.status, 0, parsed.stderr);
+    const failures = [];
+    for (const row of JSON.parse(parsed.stdout)) {
+        for (const section of ["colors-dark", "colors-light"]) {
+            const actual = row.palettes[section]?.flash;
+            if (!/^[\da-f]{6}$/i.test(actual ?? "") || actual.toLowerCase() !== row.expected)
+                failures.push({ package: row.name, key: `${section}.flash`, actual: actual ?? null, expected: row.expected });
+        }
+    }
+    assert.deepEqual(failures, []);
+}
+verifyFootFlash(footTemplate);
+const footControlDir = fs.mkdtempSync(path.join(os.tmpdir(), "foot-flash-control-"));
+try {
+    const source = fs.readFileSync(footTemplate, "utf8");
+    for (const section of ["colors-dark", "colors-light"]) {
+        for (const [fault, replacement] of [["missing", ""], ["stock", "flash=7f7f00\n"]]) {
+            const pattern = new RegExp(`(\\[${section}\\][\\s\\S]*?\\n)flash=[^\\n]*\\n`, "g");
+            assert.equal([...source.matchAll(pattern)].length, 1);
+            const changed = source.replace(pattern, (_, prefix) => prefix + replacement);
+            assert.notEqual(changed, source);
+            const copy = path.join(footControlDir, `${section}-${fault}.ini`);
+            fs.writeFileSync(copy, changed);
+            assert.throws(() => verifyFootFlash(copy), error => error.code === "ERR_ASSERTION"
+                && error.actual.some(row => row.key === `${section}.flash`
+                    && row.actual === (fault === "missing" ? null : "7f7f00")));
+            console.log(`test-theme-render: foot-control key=${section}.flash fault=${fault} rejected=true`);
+        }
+    }
+} finally {
+    fs.rmSync(footControlDir, { recursive: true, force: true });
+}
+console.log(`test-theme-render: foot-flash packages=${selectionPackages.length} keys=colors-dark.flash,colors-light.flash role=color.warning controls=missing,stock`);
+
 function verifySelection(pkg, shipped, template) {
     const rendered = selectionRender.renderTarget(logic, TOKENS, selectionTarget.target,
         new Map([["kcolorscheme.colors", template]]), {
