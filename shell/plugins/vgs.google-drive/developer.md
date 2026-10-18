@@ -2,7 +2,7 @@
 
 ## A sync
 
-- One systemd user service, `vgs-google-drive.service`, runs every sync: the hourly timer, Sync now in the window and `start` on the command line all ask for that service, so a sync never runs twice at once. The timer runs hourly while the user is logged in, and once at the next login after a missed hour.
+- One systemd user service, `vgs-google-drive.service`, runs every sync: the hourly timer, Sync now in the popover and `start` on the command line all ask for that service, so a sync never runs twice at once. The timer runs hourly while the user is logged in, and once at the next login after a missed hour.
 - The hourly sync is no setup step. A `pair-add` on a home with neither unit installs both and enables the timer before it writes the pair, under the state lock, and prints install's `installed=` line after `added=<id>`. A `pair-add` on a home whose units exist calls no `systemctl`. A failed install keeps the pair, exits 0, prints `install=failed <refusal>`, and leaves no unit it wrote, so the status record reads `units` `absent` beside the pair until the next `pair-add` or Set up again installs them. Add a folder pair says so on its screen.
 - Every invocation but `install` rewrites stale units, units an earlier runner wrote, to name itself. Units that stay stale, because the user manager refused the rewrite, read `units` `stale`, and Set up again (`tui/setup.sh`) runs `install`.
 - A sync copies each folder pair two ways, and only files that are newer: Drive to this computer, then this computer to Drive.
@@ -20,7 +20,7 @@
 | `removed-locally` | The file was removed on this computer. | The file returns from Drive. | nothing |
 | `removed-on-drive` | The file was removed on Drive. | The file returns to Drive. | nothing |
 | `renamed` | Drive's object id shows that the file has a new name. | Both names exist: the old name returns to Drive. | nothing |
-| `unreadable-on-drive` | The download of the file failed, such as for a shortcut whose target is gone. The record holds rclone's reason; the window gives it in plain words. | The file is not copied and keeps its last baseline. The rest of the pair is synced. | nothing for a dangling shortcut, else you |
+| `unreadable-on-drive` | The download of the file failed, such as for a shortcut whose target is gone. The record holds rclone's reason; the popover gives it in plain words. | The file is not copied and keeps its last baseline. The rest of the pair is synced. | nothing for a dangling shortcut, else you |
 | `duplicate-identical` | Drive holds two or more files with this name in one folder, each with an md5, all with the same md5 and size. | One of them is copied. | nothing |
 | `duplicate-different` | Drive holds two or more files with this name in one folder that are not all the same, Google-native documents included, which have no md5. | One of them is copied. | you when `mine`, else nothing |
 
@@ -30,10 +30,13 @@ A duplicate record holds `mine`, true when the signed-in account, the token's `u
 
 In the status record each of `conflicts` carries `needs`, `you` or `nothing`, from the table, and `needsYou` counts the `you` rows. The `conflicts` attention reason and its key take only the `you` rows, so a note never notifies.
 
-The plugin's judge, `GoogleDriveLogic.parseStatus`, refuses a record whose `needsYou` is not that count, a row with no `needs`, `mine` on a row that is no doubled name, and `owner` other than on a doubled name that is not `mine`. The published `cloud` value carries `needsYou` and lists the rows that need the user first, in each folder pair's group too, before it caps the list, so the cap cuts notes first. Each of its `conflicts`, and each row `conflictRow` makes, carries:
+The plugin's judge, `GoogleDriveLogic.parseStatus`, refuses a record whose `needsYou` is not that count, a row with no `needs`, `mine` on a row that is no doubled name, and `owner` other than on a doubled name that is not `mine`. The published `cloud` value carries `needsYou`, and each of its `pairs` its own `needsYou`. It lists the rows that need the user first before it caps the list, so the cap cuts notes first. Every count a surface shows is a `needsYou`: the bar badge, the headline, the tooltip, the Details sync lines and the Settings chip. Notes are counted only in the popover, on the line they fold into, and no surface calls a note a file to review: `scripts/test-google-drive-logic.js` holds both. Each of its `conflicts` carries:
 
 - `needs`: the record's `you` or `nothing`.
-- `localAction`: whether the row has an action on this computer. It is true for a `both-changed`, `removed-locally`, `removed-on-drive` or `renamed` row whose file is here, and then `dirs` names the folders Open folders opens. A doubled name and a file the download could not copy are fixed in Google Drive, so their rows have no action here, whoever owns the copies.
+- `localAction`: whether the row has an action on this computer. It is true for a `both-changed`, `removed-locally`, `removed-on-drive` or `renamed` row whose file is here. A doubled name and a file the download could not copy are fixed in Google Drive, so their rows have no action here, whoever owns the copies.
+- `copyFolder`: on a `both-changed` row whose local file a download replaced, the folder of the kept copy.
+
+The popover's Show older copy opens `copyFolder` in the file manager, on a row that needs the user and has `localAction`. A note has no action in the popover (`GoogleDriveLogic.conflictRow`).
 
 Each row's line says what happened and what the user does, or that nothing is lost: a doubled name the user owns says how to clear it, one another account owns names that owner when the record does, and a `both-changed` row says whether VGS kept the copy that was here or copied it to Drive.
 
@@ -76,7 +79,7 @@ A locked keyring item at the probe prevents a store call. If the collection lock
 
 ## The plugin
 
-The plugin's IPC: `vgshell ipc call vgs.google-drive invoke <name> ""` with `status`, `sync`, `pause`, `resume`, `refresh` or `open`. The service's header states each answer.
+The plugin's IPC: `vgshell ipc call vgs.google-drive invoke <name> ""` with `status`, `sync`, `pause`, `resume` or `refresh`. The service's header states each answer.
 
 ## The google-drive command
 
