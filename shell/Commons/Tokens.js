@@ -798,11 +798,21 @@ var TOKENS = {
     },
 
     // `height` is a one-line row's; `twoLineHeight` a row with a
-    // secondary line, whose two lines centre on the icon as one block. A
-    // selected or active row draws both lines and its icon in
-    // `selectedForeground`, the accent badge's text, which holds the
-    // readability floor on the `selected` plate over every resting surface
-    // (ThemeLogic.READABILITY_PAIRS).
+    // secondary line, whose two lines centre on the icon as one block. The
+    // row the list's plate, `selected`, sits on, under the pointer or the
+    // selection, and an active row draw both lines and their icon in
+    // `selectedForeground`, which holds the readability floor on that plate
+    // over every resting surface and over solid glass
+    // (ThemeLogic.READABILITY_PAIRS, GLASS_PLATE_PAIRS): the accent badge's
+    // text, moved toward black or white, whichever reads more on it, only
+    // as far as it must to read 4.75:1 on the plate over the raised surface
+    // lifted toward white by Glass.js's dark `solidLift`, 0.05; only a plate
+    // of luminance 0.17 to 0.19, on which no text reads 4.75:1, refuses the
+    // theme. The judge reads a regular weight's
+    // drawn ink (ThemeLogic.drawnTextRatio), up to 5% under the plain
+    // ratio: at 4.7, artzen, catppuccin-frappe and everforest read 4.47 to
+    // 4.49:1, and at 4.75 every theme passes, 19 dark catalog themes moved
+    // (scripts/check-theme-contrast.js on the catalog, 2026-10-18).
     listItem: {
         height: length("{row.height}"),
         twoLineHeight: length("{row.twoLineHeight}"),
@@ -810,11 +820,9 @@ var TOKENS = {
         gap: length("{control.gap}"),
         iconGap: length("{space.lg}"),
         radius: length("{radius.sm}"),
-        hover: color("{color.surfaceHover}"),
-        pressed: color("{color.border}"),
         selected: color("{color.accentSubtle}"),
         selectedPressed: color("alpha({palette.accent}, 0.24)"),
-        selectedForeground: color("{badge.tone.accent.foreground}")
+        selectedForeground: color("contrastMix(contrast(mix(mix(alpha({color.surfaceRaised}, 1), #ffffff, 0.05), alpha({listItem.selected}, 1), 0.14)), {badge.tone.accent.foreground}, mix(mix(alpha({color.surfaceRaised}, 1), #ffffff, 0.05), alpha({listItem.selected}, 1), 0.14), 4.75)")
     },
 
     // A device's row: its battery badge turns `warning` at or below
@@ -899,8 +907,6 @@ var TOKENS = {
             gap: length("{control.gap}"),
             icon: length("mul({text.menuItem.size}, 0.8)"),
             radius: length("{menu.radius}"),
-            hover: color("{color.surfaceHover}"),
-            pressed: color("{color.border}"),
             foreground: color("{color.text}"),
             shortcut: color("{color.textFaint}"),
             check: color("{color.accent}")
@@ -908,10 +914,7 @@ var TOKENS = {
     },
 
     select: {
-        gap: length("{space.xs}"),
-        highlight: color("{color.surfaceHover}"),
-        selected: color("{color.accentSubtle}"),
-        selectedForeground: color("{color.accent}")
+        gap: length("{space.xs}")
     },
 
     // An on-screen display of one level, such as the volume: an icon

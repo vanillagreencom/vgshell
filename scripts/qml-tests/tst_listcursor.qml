@@ -13,8 +13,9 @@ import qs.Unit
 // was disarmed; the plate sits on the row under the pointer, goes back to
 // the selection when the pointer leaves the list or a key disarms it, and
 // a pick list's selection goes back to the row that held it unless a
-// click chose the hovered row; a disabled row takes no plate; an active
-// row keeps the accent on its text, icon and secondary line; a row in a cursor list draws no fill of its own and enters staggered, and stands in place
+// click chose the hovered row; a disabled row takes no plate; the row the
+// plate sits on draws the accent on its text, icon and secondary line, a
+// row the plate left drops it and an active row keeps it; a row in a cursor list draws no fill of its own, a row without a cursor no hover or press fill, and a row enters staggered, and stands in place
 // at once while motion is stilled; a plugin's own background and bezier
 // step are taken.
 Item {
@@ -304,6 +305,12 @@ Item {
             verify(plate.hovered === null, "a disabled row takes no plate");
             compare(root.current, 0, "nor the selection");
             row(2).enabled = true;
+            row(2).clickable = false;
+            mouseMove(row(2), 24, 10);
+            mouseMove(row(2), 26, 10);
+            verify(plate.hovered === null, "a row that takes no click takes no plate");
+            compare(row(2).lit, false, "nor the accent");
+            row(2).clickable = true;
         }
 
         function itemLabel(item, role) {
@@ -315,25 +322,51 @@ Item {
             return null;
         }
 
-        function test_an_active_row_keeps_the_accent_while_another_holds_the_plate() {
+        function test_the_row_under_the_plate_draws_the_accent_and_an_active_row_keeps_it() {
             root.pointerSelects = false;
             row(3).active = true;
             row(3).iconName = "check";
-            row(2).iconName = "check";
+            row(1).iconName = "check";
+            row(0).iconName = "check";
+            const accent = String(Qt.color(Theme.listItem.selectedForeground));
+            compare(String(itemLabel(row(0)).color), accent, "the selection the plate sits on draws the accent");
             plate.arm();
-            mouseMove(row(2), 20, 10);
-            verify(plate.hovered === row(2));
-            const accent = Qt.color(Theme.listItem.selectedForeground);
-            compare(String(itemLabel(row(3)).color), String(accent), "the active row's text keeps the accent");
-            compare(String(row(3).contentItem.children[0].color), String(accent), "the active row's icon keeps the accent");
-            compare(String(itemLabel(row(2)).color), String(Qt.color(Theme.color.text)), "a row holding the plate alone keeps its resting text");
-            compare(String(row(2).contentItem.children[0].color), String(Qt.color(Theme.color.textMuted)));
-            compare(String(itemLabel(row(0)).color), String(accent), "the highlighted row keeps the accent");
-            compare(String(itemLabel(row(3), "itemHint").color), String(accent), "the active row's secondary line takes the selected text colour");
-            compare(String(itemLabel(row(1), "itemHint").color), String(Qt.color(Theme.text.itemHint.color)), "a resting row's secondary line keeps its role's colour");
+            mouseMove(row(1), 20, 10);
+            verify(plate.hovered === row(1));
+            compare(String(itemLabel(row(1)).color), accent, "the pointed row's text takes the accent");
+            compare(String(row(1).contentItem.children[0].color), accent, "the pointed row's icon takes the accent");
+            compare(String(itemLabel(row(1), "itemHint").color), accent, "the pointed row's secondary line takes the accent");
+            compare(String(itemLabel(row(0)).color), String(Qt.color(Theme.color.text)), "the selection the plate left keeps its resting text");
+            compare(String(row(0).contentItem.children[0].color), String(Qt.color(Theme.color.textMuted)), "and its resting icon");
+            compare(root.current, 0, "the pointer moves no selection");
+            compare(String(itemLabel(row(3)).color), accent, "the active row's text keeps the accent");
+            compare(String(row(3).contentItem.children[0].color), accent, "the active row's icon keeps the accent");
+            compare(String(itemLabel(row(3), "itemHint").color), accent, "the active row's secondary line keeps the accent");
+            mouseMove(root, 390, 590);
+            verify(plate.hovered === null);
+            compare(String(itemLabel(row(1)).color), String(Qt.color(Theme.color.text)), "a row the plate left drops the accent");
+            compare(String(itemLabel(row(1), "itemHint").color), String(Qt.color(Theme.text.itemHint.color)), "and its secondary line its role's colour");
+            compare(String(itemLabel(row(0)).color), accent, "the plate back on the selection lights it again");
             row(3).active = false;
             row(3).iconName = "";
-            row(2).iconName = "";
+            row(1).iconName = "";
+            row(0).iconName = "";
+        }
+
+        // A locked list hides its plate: the row under the pointer takes
+        // no accent with no plate under it.
+        function test_a_hidden_plate_lights_no_row() {
+            root.pointerSelects = false;
+            plate.shown = false;
+            plate.arm();
+            mouseMove(row(2), 20, 10);
+            verify(plate.hovered === row(2), "the hover still takes the hidden plate");
+            compare(row(2).lit, false, "a row under a hidden plate is not lit");
+            compare(row(0).lit, false, "nor the selection");
+            compare(String(itemLabel(row(2)).color), String(Qt.color(Theme.color.text)));
+            plate.shown = Qt.binding(() => plate.hovered !== null || plate.target !== null);
+            compare(row(2).lit, true, "a shown plate lights its row");
+            mouseMove(root, 390, 590);
         }
 
         function test_a_row_with_a_cursor_draws_no_fill() {
@@ -348,7 +381,8 @@ Item {
 
         // The plate draws the pressed fill while the row it holds is
         // pressed, and its resting fill again after a release outside the
-        // row; a loose row draws its own pressed fill, apart from hover.
+        // row; a loose row draws no hover or press fill of its own, and a
+        // highlighted loose row presses its selected fill.
         function test_a_pressed_row_presses_the_plate() {
             root.current = 0;
             tryCompare(plate, "target", row(0));
@@ -360,9 +394,11 @@ Item {
             tryCompare(plate, "pressed", false);
             compare(String(plate.background.color), String(Qt.color(Theme.listItem.selected)));
             mouseMove(loose, 20, loose.height / 2);
-            tryCompare(loose.background, "color", Qt.color(Theme.listItem.hover));
+            tryCompare(loose, "hovered", true);
+            compare(String(loose.background.color), "#00000000", "a loose row draws no hover of its own");
             mousePress(loose, 20, loose.height / 2);
-            tryCompare(loose.background, "color", Qt.color(Theme.listItem.pressed));
+            tryCompare(loose, "down", true);
+            compare(String(loose.background.color), "#00000000", "a loose row draws no press of its own");
             mouseRelease(loose, 20, loose.height / 2);
             loose.highlighted = true;
             mousePress(loose, 20, loose.height / 2);

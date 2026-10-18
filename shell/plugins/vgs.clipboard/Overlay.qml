@@ -253,7 +253,6 @@ FocusScope {
                             highlighted: index === root.current
                             Component.onCompleted: if (inView) seen = true
                             onInViewChanged: if (inView) seen = true
-                            onPointed: root.current = index
                             onClicked: {
                                 root.current = index;
                                 root.ask("paste", index);

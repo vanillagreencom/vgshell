@@ -15,23 +15,29 @@ import qs.Ui
 // writes its one selection.
 //
 // A row of a list that declares a ListCursor names it in `cursor`: the
-// cursor then draws the highlight and travels to the row while the pointer
-// is over it or it is `highlighted`, a hover the cursor lets through emits
+// cursor then draws the plate and travels to the row while the pointer is
+// over it or it is `highlighted`, a hover the cursor lets through emits
 // `pointed` for a pick list to select the row, and the row enters through
 // ListEntrance when it is created, unless `enters` is false, as for a view
-// that creates rows as they scroll in. Without a cursor the row's own fill
-// follows hover, press and highlight. The text, icon and untoned secondary
-// line of a row that is `highlighted` or `active`, the page a navigation
-// list shows now, draw in `listItem.selectedForeground`, so the shown page
-// stays marked while the plate sits on another row. Under a rounded theme
-// the side padding grows until the content clears the drawn corner. `textStart` is where the row's text
+// that creates rows as they scroll in. Every list of clickable rows holds a
+// cursor, and no row draws a hover of its own; a row without one fills
+// only while it is `highlighted`. `lit` is whether the row draws its text,
+// icon and untoned secondary line in `listItem.selectedForeground`: while
+// the plate sits on it, its cursor shown, so the pointed row takes the
+// accent and a row the plate left drops it, or, without a cursor, while it
+// is `highlighted`; and while it is `active`, the page a navigation list
+// shows now, so the shown page stays marked while the plate sits on another
+// row. A row that draws its own `contentItem` reads `lit` for the same
+// colours. Under a rounded theme the side padding grows until the content
+// clears the drawn corner. `textStart` is where the row's text
 // starts, its padding plus its icon and icon gap, for content a caller
 // lines up under the text. `secondaryTone` "danger" draws the secondary
 // line in the danger colour, for a state that is a failure, such as a
 // stopped printer; "" draws it in its role's colour.
 // A row a click cannot change, such as a detail line, sets `clickable`
-// false: it draws no hover or press fill and shows no pointing hand, and
-// a trailing control keeps its own hover, pointer, focus and click.
+// false: a hover puts no plate on it, it takes no press and shows no
+// pointing hand, and a trailing control keeps its own hover, pointer, focus
+// and click.
 // `hoverEnabled` stays on, since a control hands its value to each child
 // control that sets none, which would take a trailing RowAction's hover.
 // keyboard-path: a composite list owns keys and writes highlighted; a plain row is not a tab stop
@@ -46,6 +52,7 @@ T.ItemDelegate {
     property bool active: false
     property bool clickable: true
     property bool enters: cursor !== null
+    readonly property bool lit: active || (cursor !== null ? cursor.shown && cursor.placed === root : highlighted)
     readonly property real textStart: leftPadding + (iconName !== "" ? Theme.icon.size.md + Theme.listItem.iconGap : 0)
 
     signal pointed()
@@ -68,6 +75,7 @@ T.ItemDelegate {
     ListCursorRow {
         cursor: root.cursor
         holds: root.highlighted
+        enabled: root.cursor !== null && root.clickable
         onPointed: root.pointed()
     }
 
@@ -80,7 +88,7 @@ T.ItemDelegate {
             visible: root.iconName !== ""
             name: root.iconName
             size: Theme.icon.size.md
-            color: root.highlighted || root.active ? Theme.listItem.selectedForeground : Theme.color.textMuted
+            color: root.lit ? Theme.listItem.selectedForeground : Theme.color.textMuted
             anchors.verticalCenter: parent.verticalCenter
         }
         Column {
@@ -94,14 +102,14 @@ T.ItemDelegate {
                 role: "item"
                 textFormat: Text.PlainText
                 text: root.text
-                color: root.highlighted || root.active ? Theme.listItem.selectedForeground : Theme.color.text
+                color: root.lit ? Theme.listItem.selectedForeground : Theme.color.text
                 width: parent.width
                 elide: Text.ElideRight
             }
             Label {
                 id: secondaryLabel
                 role: "itemHint"
-                color: root.secondaryTone === "danger" ? Theme.color.danger : root.highlighted || root.active ? Theme.listItem.selectedForeground : Theme.text.itemHint.color
+                color: root.secondaryTone === "danger" ? Theme.color.danger : root.lit ? Theme.listItem.selectedForeground : Theme.text.itemHint.color
                 textFormat: Text.PlainText
                 text: root.secondary
                 visible: root.secondary !== ""
@@ -119,9 +127,7 @@ T.ItemDelegate {
 
     background: Rectangle {
         radius: Theme.listItem.radius
-        // Paint the theme state at once: a colour blend from transparent
-        // black can darken the row below both its rest and hover fills.
-        color: root.cursor !== null ? "transparent" : root.highlighted ? (root.down ? Theme.listItem.selectedPressed : Theme.listItem.selected) : root.down ? Theme.rowFill(Theme.listItem.pressed, true) : root.hovered && root.clickable ? Theme.rowFill(Theme.listItem.hover, false) : "transparent"
+        color: root.cursor === null && root.highlighted ? (root.down ? Theme.listItem.selectedPressed : Theme.listItem.selected) : "transparent"
         FocusRing { target: root }
     }
 }

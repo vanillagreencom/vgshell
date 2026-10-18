@@ -259,13 +259,14 @@ Item {
 
         // The notes, folded until the user opens them. The fold line's
         // chevron stands in the rows' icon column and its words in their
-        // text column, so it and every row share one grid: the row takes no
-        // side padding, and its hover box reaches out into the focus ring's
-        // room instead (Pane leaves that room past the content edge), never
-        // pushing the content in. Disclosure would put the chevron at the
-        // end and inset the line by its padding. The line is a Tab stop;
-        // a click, Return, Enter or Space opens and closes it, Right opens
-        // and Left closes, as Disclosure's row does.
+        // text column, so it and every row share one grid: the line and its
+        // cursor reach out into the focus ring's room on both sides (Pane
+        // leaves that room past the content edge), and the line's padding
+        // is that room, so the plate covers the reach and the content stays
+        // on the grid. Disclosure would put the chevron at the end and
+        // inset the line by its padding. The line is a Tab stop; a click,
+        // Return, Enter or Space opens and closes it, Right opens and Left
+        // closes, as Disclosure's row does.
         Column {
             id: notesFold
             property bool expanded: false
@@ -274,22 +275,30 @@ Item {
             visible: root.review.notesLine !== ""
             spacing: Theme.stack.row
 
-            // focus-indicator: ListItem draws its FocusRing for the fold line
-            ListItem {
-                width: parent.width
-                leftPadding: 0
-                rightPadding: 0
-                leftInset: -notesFold.ringRoom
-                rightInset: -notesFold.ringRoom
-                focusPolicy: Qt.StrongFocus
-                iconName: notesFold.expanded ? "chevron-down" : "chevron-right"
-                text: root.review.notesLine
-                onClicked: notesFold.expanded = !notesFold.expanded
-                Keys.onReturnPressed: notesFold.expanded = !notesFold.expanded
-                Keys.onEnterPressed: notesFold.expanded = !notesFold.expanded
-                Keys.onSpacePressed: notesFold.expanded = !notesFold.expanded
-                Keys.onRightPressed: notesFold.expanded = true
-                Keys.onLeftPressed: notesFold.expanded = false
+            // Column sets only a child's y (tst_googledrive_panel.qml reads
+            // the reach), so the wrapper keeps the x that reaches out.
+            Item {
+                x: -notesFold.ringRoom
+                width: parent.width + 2 * notesFold.ringRoom
+                height: foldLine.height
+                ListCursor { id: foldCursor }
+                // focus-indicator: ListItem draws its FocusRing for the fold line
+                ListItem {
+                    id: foldLine
+                    width: parent.width
+                    leftPadding: notesFold.ringRoom
+                    rightPadding: notesFold.ringRoom
+                    cursor: foldCursor
+                    focusPolicy: Qt.StrongFocus
+                    iconName: notesFold.expanded ? "chevron-down" : "chevron-right"
+                    text: root.review.notesLine
+                    onClicked: notesFold.expanded = !notesFold.expanded
+                    Keys.onReturnPressed: notesFold.expanded = !notesFold.expanded
+                    Keys.onEnterPressed: notesFold.expanded = !notesFold.expanded
+                    Keys.onSpacePressed: notesFold.expanded = !notesFold.expanded
+                    Keys.onRightPressed: notesFold.expanded = true
+                    Keys.onLeftPressed: notesFold.expanded = false
+                }
             }
 
             GroupList {

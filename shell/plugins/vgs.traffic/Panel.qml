@@ -212,7 +212,6 @@ Item {
                             text: modelData.name
                             cursor: listCursor
                             highlighted: root.current === index && appList.activeFocus
-                            onPointed: root.currentKey = modelData.key
                             onClicked: {
                                 root.currentKey = modelData.key;
                                 appList.focusReason = Qt.MouseFocusReason;
@@ -220,10 +219,11 @@ Item {
                             }
                             contentItem: RowLayout {
                                 spacing: 0
-                                Label { role: "item"; text: entry.modelData.name; textFormat: Text.PlainText; elide: Text.ElideRight; Layout.fillWidth: true }
-                                Label { role: "itemCode"; text: root.rate(entry.modelData.down); horizontalAlignment: Text.AlignRight; Layout.preferredWidth: table.rateWidth }
-                                Label { role: "itemCode"; text: root.rate(entry.modelData.up); horizontalAlignment: Text.AlignRight; Layout.preferredWidth: table.rateWidth }
-                                Label { role: "itemCode"; text: entry.modelData.connections === null ? "--" : String(entry.modelData.connections); horizontalAlignment: Text.AlignRight; Layout.preferredWidth: table.connectionsWidth }
+                                // The row the plate sits on draws its text in the accent (ListItem.lit).
+                                Label { role: "item"; color: entry.lit ? Theme.listItem.selectedForeground : Theme.text.item.color; text: entry.modelData.name; textFormat: Text.PlainText; elide: Text.ElideRight; Layout.fillWidth: true }
+                                Label { role: "itemCode"; color: entry.lit ? Theme.listItem.selectedForeground : Theme.text.itemCode.color; text: root.rate(entry.modelData.down); horizontalAlignment: Text.AlignRight; Layout.preferredWidth: table.rateWidth }
+                                Label { role: "itemCode"; color: entry.lit ? Theme.listItem.selectedForeground : Theme.text.itemCode.color; text: root.rate(entry.modelData.up); horizontalAlignment: Text.AlignRight; Layout.preferredWidth: table.rateWidth }
+                                Label { role: "itemCode"; color: entry.lit ? Theme.listItem.selectedForeground : Theme.text.itemCode.color; text: entry.modelData.connections === null ? "--" : String(entry.modelData.connections); horizontalAlignment: Text.AlignRight; Layout.preferredWidth: table.connectionsWidth }
                             }
                             // The open overlay of this row, anchored under it,
                             // built with its request so no binding in it reads

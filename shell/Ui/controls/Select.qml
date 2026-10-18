@@ -10,14 +10,16 @@ import qs.Ui
 // `textRole` naming the text; `currentIndex` is the choice. A click, Space
 // or Enter opens the list in its own surface under the control; Up and
 // Down move the highlight there and Enter chooses, a click chooses, and a
-// press outside or Escape closes it (DismissScope). One ListCursor draws the highlight
-// and travels between entries, and a hover moves it once the pointer moves
-// (ListCursor) and scrolls nothing. With the list closed, Up and Down on the focused control
+// press outside or Escape closes it (DismissScope). Each entry is a
+// MenuItem: one ListCursor draws the highlight, as a menu's does, and
+// travels between entries, a hover moves it once the pointer moves
+// (ListCursor) and scrolls nothing, and the chosen entry draws the menu's
+// check mark. With the list closed, Up and Down on the focused control
 // move the choice. The list opens on the control's edges, as wide as it,
-// and its entries fill it inside the menu's border, so a highlight or the
-// chosen entry's fill meets the border at the top and both sides
-// (Theme.menuListInset); an entry's side padding is the control's less
-// that border, so its text starts where the control's does. Under its last
+// and its entries fill it inside the menu's border, so a highlight meets
+// the border at the top and both sides (Theme.menuListInset); an entry's
+// leading padding is the control's less that border, so its text starts
+// where the control's does. Under its last
 // entry the list's own fill runs `listCover` further, the gap above the
 // list plus a field's border, before its bottom border. The entry count,
 // not the page, sets where the entries end, so a field drawn under the list
@@ -255,47 +257,31 @@ T.AbstractButton {
                     onActivated: index => root.choose(index)
                 }
 
-                delegate: T.ItemDelegate {
+                delegate: MenuItem {
                     id: entry
                     required property int index
-                    readonly property bool chosen: index === root.currentIndex
 
                     width: ListView.view.width
-                    implicitHeight: Theme.menu.item.height
                     leftPadding: root.sidePadding - Theme.border.thin
-                    rightPadding: root.sidePadding - Theme.border.thin + (entries.overflowing ? Theme.scrollArea.gutter : 0)
+                    barRoom: entries.overflowing ? Theme.scrollArea.gutter : 0
                     text: root.textAt(index)
+                    checked: index === root.currentIndex
                     highlighted: index === entries.highlightIndex
-                    hoverEnabled: true
-                    PointerCursor {}
-                    Accessible.name: text
+                    cursor: plate
+                    onPointed: entries.highlightIndex = entry.index
                     onClicked: root.choose(index)
-
-                    ListCursorRow {
-                        cursor: plate
-                        holds: entry.highlighted
-                        onPointed: entries.highlightIndex = entry.index
-                    }
-
-                    contentItem: Label {
-                        role: "item"
-                        text: entry.text
-                        color: entry.chosen ? Theme.select.selectedForeground : Theme.menu.item.foreground
-                        verticalAlignment: Text.AlignVCenter
-                        elide: Text.ElideRight
-                    }
-
-                    background: Rectangle {
-                        radius: Theme.menu.item.radius
-                        color: entry.chosen ? Theme.select.selected : "transparent"
-                    }
+                    // The view gives its current item the focus, and a
+                    // MenuItem takes Return and Enter as its own click, so an
+                    // entry hands every key to the list's navigation first,
+                    // which chooses the highlighted entry (layers,
+                    // automations and network smoke rows, 2026-10-18:
+                    // Return chose the view's current entry instead).
+                    Keys.forwardTo: [entries]
                 }
 
                 ListCursor {
                     id: plate
                     parent: entries.contentItem
-                    color: Theme.rowFill(Theme.select.highlight, false)
-                    pressedColor: Theme.rowFill(Theme.menu.item.pressed, true)
                     radius: Theme.menu.item.radius
                 }
 

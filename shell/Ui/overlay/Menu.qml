@@ -5,7 +5,8 @@ import qs.Commons
 import qs.Ui
 
 // A menu of MenuItem entries under the item it is declared in, in its own
-// surface. One ListCursor draws the highlight and travels between entries.
+// surface. One ListCursor draws the highlight and travels between entries,
+// with every list's plate and accent text (ListItem.lit), on glass or not.
 // `open` names its opener: a key opening highlights the checked entry,
 // else the first reachable one; a pointer opening highlights none, and
 // the first Up or Down then lands where a key opening would have. Up and
@@ -246,8 +247,6 @@ Item {
 
                 ListCursor {
                     id: plate
-                    color: Theme.rowFill(Theme.menu.item.hover, false)
-                    pressedColor: Theme.rowFill(Theme.menu.item.pressed, true)
                     radius: Theme.menu.item.radius
                     onPointerLeft: if (!root.keyChose) root.currentIndex = -1
                 }

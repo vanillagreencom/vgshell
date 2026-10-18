@@ -59,13 +59,7 @@ var TOKENS = {
         sheenEnd: ink(0),
         sheenHeight: length(48),
         hairline: ink(0.09),
-        hairlineWidth: length(1),
-        // A row's hover and press on a glass fill: the ink at this alpha,
-        // never an opaque colour, since the translucent fill over some
-        // backdrop matches any opaque colour.
-        highlightAlpha: share(0.08),
-        highlight: color("alpha({text.foreground}, {glass.highlightAlpha})"),
-        highlightPressed: color("alpha({text.foreground}, mul({glass.highlightAlpha}, 2))")
+        hairlineWidth: length(1)
     },
 
     // `wide` for a large card, `tight` for a small or transient surface.
@@ -98,8 +92,7 @@ var LIGHT = {
         fill: "alpha({color.surfaceRaised}, 0.85)",
         solidLift: 0.1,
         sheen: "alpha({text.foreground}, 0.35)",
-        hairline: "alpha({text.foreground}, 0.1)",
-        highlightAlpha: 0.1
+        hairline: "alpha({text.foreground}, 0.1)"
     },
     shadow: {
         wide: { color: "alpha(#000000, 0.2)" },

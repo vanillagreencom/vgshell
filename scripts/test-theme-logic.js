@@ -882,11 +882,11 @@ function verify(judge) {
         assert.deepEqual(plain(readability(judge, segmentedFailure.values).map(row => [row.text, row.surface, row.floor])), rows, JSON.stringify(segmented));
     }
     // A selected list row's text is judged on its translucent plate laid
-    // over each resting surface.
+    // over each resting surface and over the fill glass draws solid.
     const rowFailure = judge.accept(TOKENS, document({ listItem: { selectedForeground: "#3a3a3a" } }));
     assert.equal(rowFailure.ok, true, rowFailure.ok ? "" : judge.refusalLine(rowFailure));
     assert.deepEqual(plain(readability(judge, rowFailure.values).map(row => [row.text, row.surface, row.floor])),
-        READABILITY_SURFACES.map(surface => ["listItem.selectedForeground", "listItem.selected over " + surface, 4.5]));
+        [...READABILITY_SURFACES, "glass.fill solid"].map(surface => ["listItem.selectedForeground", "listItem.selected over " + surface, 4.5]));
 
     // A badge's text on its translucent fill is judged on the fill laid
     // over each resting surface, by the ratio of that blend; an opaque
@@ -1155,65 +1155,22 @@ function verifyGlass(judge, glass = GLASS) {
     const wide = JSON.parse(JSON.stringify(glass.TOKENS));
     wide.window.blurSize.value = 65;
     assert.equal(judge.acceptAppearance(wide, glass.LIGHT, shipped).reason, "range", "a blur size past 64 is refused");
-    verifyGlassHighlight(judge, glass);
 }
 
-// A row's highlight on glass, and its press, read against the glass fill
-// at every backdrop: the shipped dark theme and flexoki-light at a colour
-// difference of 5.0 or more, every catalog theme at 4.0. The themes are
-// read once; the catalog comes from its index, at a floor.
-const HIGHLIGHT_THEMES = (() => {
+// The shipped dark theme, flexoki-light and every catalog theme, read once
+// from the catalog's index.
+const JUDGED_THEMES = (() => {
     const judge = load(judgeFile);
     const index = judge.acceptCatalogIndex(TOKENS, fs.readFileSync(path.join(repo, "themes/catalog/index.json"), "utf8"));
     assert.equal(index.ok, true, index.ok ? "" : judge.refusalLine(index));
     assert.ok(index.entries.length > 10, "the catalog is read");
-    const floors = new Map(index.entries.map(entry => ["catalog/" + entry.name, 4]));
-    floors.set("vgs", 5).set("catalog/flexoki-light", 5);
-    return [...floors].map(([name, floor]) => {
+    const names = new Set(["vgs", "catalog/flexoki-light", ...index.entries.map(entry => "catalog/" + entry.name)]);
+    return [...names].map(name => {
         const theme = judge.accept(TOKENS, fs.readFileSync(path.join(repo, "themes", name, "theme.json"), "utf8"));
         assert.equal(theme.ok, true, name);
-        return { name, floor, values: theme.values };
+        return { name, values: theme.values };
     });
 })();
-
-// The smallest CIE76 colour difference, sRGB to CIELAB under D65, between
-// TINT drawn over FILL and FILL alone, where FILL is drawn over each grey
-// backdrop 0 to 255 and drawn solid, lifted by LIFT. Each composite rounds
-// its channels as a display does.
-function smallestHighlightDifference(judge, fill, lift, tint) {
-    const channels = color => [color.r, color.g, color.b].map(value => value * 255);
-    const over = (top, under) => channels(top).map((value, i) => Math.round(top.a * value + (1 - top.a) * under[i]));
-    const lab = rgb => {
-        const [r, g, b] = rgb.map(value => (value /= 255) <= 0.04045 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4));
-        const f = t => t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116;
-        const [x, y, z] = [(0.4124 * r + 0.3576 * g + 0.1805 * b) / 0.95047, 0.2126 * r + 0.7152 * g + 0.0722 * b, (0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.08883].map(f);
-        return [116 * y - 16, 500 * (x - y), 200 * (y - z)];
-    };
-    const shown = Array.from({ length: 256 }, (_, grey) => over(fill, [grey, grey, grey]));
-    shown.push(channels(judge.liftedOpaque(fill, lift)).map(Math.round));
-    return Math.min(...shown.map(under => {
-        const [p, q] = [lab(over(tint, under)), lab(under)];
-        return Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]);
-    }));
-}
-
-// Holds TINTS(look, theme), by default the glass highlight and its press,
-// over each theme's glass fill; answers each theme's name, mode and
-// smallest difference per tint.
-function verifyGlassHighlight(judge, glass, tints = look => [look.highlight, look.highlightPressed]) {
-    const reached = [];
-    for (const { name, floor, values } of HIGHLIGHT_THEMES) {
-        const look = judge.acceptAppearance(glass.TOKENS, glass.LIGHT, values);
-        assert.equal(look.ok, true, look.ok ? "" : judge.refusalLine(look));
-        const drawn = look.values.glass;
-        reached.push({ name, mode: judge.valueAt(values, "scheme.mode"), smallest: tints(drawn, values).map(tint => {
-            const smallest = smallestHighlightDifference(judge, judge.parseColor(drawn.fill), drawn.solidLift, judge.parseColor(tint));
-            assert.ok(smallest >= floor, `${name}: ${tint} over the glass fill ${drawn.fill} reaches ${smallest.toFixed(2)}, under ${floor}`);
-            return smallest;
-        }) });
-    }
-    return reached;
-}
 
 // Every `family` token of a plugin-owned look, resolved against THEME,
 // is THEME's interface font, so the Fonts page reaches the look's text.
@@ -1855,10 +1812,7 @@ const GLASS_CONTROLS = [
     ["the light fill takes the theme's raised surface", 'fill: "alpha({color.surfaceRaised}, 0.85)"', 'fill: "alpha(#f2f2f2, 0.85)"'],
     ["the dark fill's alpha", 'fill: color("alpha({color.surfaceRaised}, 0.8)")', 'fill: color("alpha({color.surfaceRaised}, 0.85)")'],
     ["the dark lift", "solidLift: share(0.05)", "solidLift: share(0.25)"],
-    ["the light lift", "solidLift: 0.1", "solidLift: 0.05"],
-    ["the dark highlight's alpha", "highlightAlpha: share(0.08)", "highlightAlpha: share(0.02)"],
-    ["the light highlight's alpha", "highlightAlpha: 0.1", "highlightAlpha: 0.03"],
-    ["the pressed highlight's alpha", "mul({glass.highlightAlpha}, 2)", "mul({glass.highlightAlpha}, 0.3)"]
+    ["the light lift", "solidLift: 0.1", "solidLift: 0.05"]
 ];
 const glassControlDir = fs.mkdtempSync(path.join(repo, "tmp", "glass-control-"));
 try {
@@ -1871,17 +1825,6 @@ try {
 } finally {
     fs.rmSync(glassControlDir, { recursive: true, force: true });
 }
-// The same instrument fails the theme's opaque menu hover in place of the
-// glass highlight: some backdrop puts the glass fill on that colour.
-{
-    const judge = load(judgeFile);
-    assert.throws(() => verifyGlassHighlight(judge, GLASS, (look, theme) => [judge.valueAt(theme, "menu.item.hover")]), { code: "ERR_ASSERTION" }, "glass highlight control: the opaque menu hover passed");
-    const reached = verifyGlassHighlight(judge, GLASS);
-    const worst = mode => reached.filter(theme => theme.mode === mode).reduce((low, theme) => Math.min(...theme.smallest) < Math.min(...low.smallest) ? theme : low);
-    const shown = [reached.find(theme => theme.name === "vgs"), reached.find(theme => theme.name === "catalog/flexoki-light"), worst("dark"), worst("light")];
-    console.log(`test-theme-logic: glass highlight smallest dE (highlight/pressed) ${shown.map(theme => `${theme.name}=${theme.smallest.map(value => value.toFixed(2)).join("/")}`).join(" ")}`);
-}
-
 // Each launcher text reads on its own fill. GlassSurface makes the menu
 // opaque and lifted over the card; with glass off it draws the theme's
 // raised surface. The title/detail step compares both drawn inks on the
@@ -1894,7 +1837,7 @@ function launcherMenuFills(judge, look, values) {
 }
 function launcherTextReadings(judge, launcher, menuFills = launcherMenuFills) {
     const out = [];
-    for (const { name, values } of HIGHLIGHT_THEMES) {
+    for (const { name, values } of JUDGED_THEMES) {
         const result = judge.acceptAppearance(launcher.TOKENS, launcher.LIGHT, values);
         assert.equal(result.ok, true, result.ok ? "" : judge.refusalLine(result));
         const look = result.values;
@@ -1954,7 +1897,7 @@ function launcherDetailShortfalls(judge, launcher) {
         fs.writeFileSync(mutant, launcherSource.replace(equalDetail, 'color: color("alpha({text.foreground}, {text.label.rest})") },'));
         const equalReadings = launcherTextReadings(judge, load(mutant));
         assert.throws(() => checkStep(equalReadings), { code: "ERR_ASSERTION" }, "control: detail equal to title fails the measured step");
-        assert.ok(HIGHLIGHT_THEMES.every(({ name }) => equalReadings.some(([theme, role, , ratio]) => theme === name && role === "step" && ratio === 1)), "equal-title control reaches every theme");
+        assert.ok(JUDGED_THEMES.every(({ name }) => equalReadings.some(([theme, role, , ratio]) => theme === name && role === "step" && ratio === 1)), "equal-title control reaches every theme");
     } finally {
         fs.rmSync(launcherControlDir, { recursive: true, force: true });
     }

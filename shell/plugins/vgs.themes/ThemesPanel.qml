@@ -444,7 +444,6 @@ Item {
                     applying: modelData.state === "ok" && root.last.applying === modelData.name
                     applicable: modelData.state === "ok" && root.last.applying === null
                     lines: modelData.state === "shadowed" ? [] : root.linesFor(modelData.name)
-                    onPointed: key => root.currentKey = key
                     onActivated: root.apply(modelData.name)
                 }
             }
@@ -492,7 +491,6 @@ Item {
                     actionEnabled: root.catalogAction === "" && root.last.applying === null
                     lines: root.catalogLines(modelData)
                     busyText: root.catalogBusyLabel(modelData)
-                    onPointed: key => root.currentKey = key
                     onActivated: root.apply(modelData.name)
                     onActionRequested: modelData.installed ? root.downloadCatalogWallpapers(modelData.name) : root.installCatalog(modelData.name)
                 }

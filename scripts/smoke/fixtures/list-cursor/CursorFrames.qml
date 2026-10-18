@@ -5,7 +5,8 @@ import QtQuick
 // `start()` takes the first ListCursor under `host` whose ancestors all
 // show and records, from then on, the wall time and the cursor's y at each
 // change of y and before each scene synchronization, and the wall time,
-// row text and starting y at each selection change. `moves`, `frames` and
+// row text and starting y each time the plate takes another row, the
+// selection's or the one a hover put it on. `moves`, `frames` and
 // `targets` read them, in milliseconds since the epoch.
 Item {
     id: root
@@ -54,9 +55,9 @@ Item {
     Connections {
         target: plate
         function onYChanged() { moves.push([Date.now(), plate.y]); }
-        function onTargetChanged() {
+        function onPlacedChanged() {
             if (targets.length === 0) tick.restart();
-            targets.push([Date.now(), plate.target === null ? "" : String(plate.target.text), plate.y]);
+            targets.push([Date.now(), plate.placed === null ? "" : String(plate.placed.text), plate.y]);
         }
     }
     Connections {
