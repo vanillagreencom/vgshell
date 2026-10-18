@@ -6,7 +6,8 @@
 # claimed.
 # inputs: shell/plugins/vgs.jarvis/* scripts/fixtures/jarvis/* shell/plugins/vgs.bar/* shell/Ui/feedback/VoiceOrb.qml shell/Core/Layers.qml shell/Hosts/AppWindow.qml shell/Hosts/SummonHost.qml scripts/smoke/toplevel/* scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/rows/jarvis-keys.sh scripts/smoke/rows/jarvis.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/diagnostics.sh
 set -euo pipefail
-jarvis_bubble_row_config="$sandbox/jarvis-bubble-row-shell.json"
+jarvis_bubble_snapshots="$(mktemp -d "$sandbox/jarvis-bubble-snapshots.XXXXXX")"
+jarvis_bubble_row_config="$jarvis_bubble_snapshots/shell.json"
 jarvis_bubble_focus_output=false
 jarvis_bubble_row_focus="$(hypr -j activewindow | py_reply 'import json,sys; print(json.load(sys.stdin).get("address", ""))')"
 cp -p -- "$home/.config/vgshell/shell.json" "$jarvis_bubble_row_config"
@@ -18,16 +19,16 @@ jarvis_bubble_abandon() {
   ipc shell hide window vgs.jarvis >/dev/null
   # These snapshots are acquired before each corresponding control plant.
   while read -r before target; do
-    if [[ -f $sandbox/$before ]]; then cp -- "$sandbox/$before" "$target"; fi
+    if [[ -f $before ]]; then cp -- "$before" "$target"; fi
   done <<EOF
-jarvis-bubble-engine-before $repo/shell/plugins/vgs.jarvis/backend/ChainedEngine.js
-jarvis-bubble-backend-before $jarvis_key_backend
-jarvis-bubble-before $repo/shell/plugins/vgs.jarvis/Bubble.qml
-jarvis-bubble-fixture-before $repo/shell/plugins/vgs.jarvis/backend/scripted-fixture.js
-jarvis-key-service-before $jarvis_key_service
+$jarvis_bubble_snapshots/engine $repo/shell/plugins/vgs.jarvis/backend/ChainedEngine.js
+$jarvis_bubble_snapshots/backend $jarvis_key_backend
+$jarvis_bubble_snapshots/bubble $repo/shell/plugins/vgs.jarvis/Bubble.qml
+$jarvis_bubble_snapshots/fixture $repo/shell/plugins/vgs.jarvis/backend/scripted-fixture.js
+$sandbox/jarvis-key-service-before $jarvis_key_service
 EOF
-  if [[ -f $sandbox/jarvis-bubble-focus-before.lua ]]; then
-    cp -- "$sandbox/jarvis-bubble-focus-before.lua" "$home/.config/hypr/hyprland.lua"
+  if [[ -f $jarvis_bubble_snapshots/focus ]]; then
+    cp -- "$jarvis_bubble_snapshots/focus" "$home/.config/hypr/hyprland.lua"
     if [[ $jarvis_bubble_focus_output == true ]]; then
       expect "the bubble row removes its extra focus output" ok hypr output remove SMOKE-JARVIS
     fi
@@ -389,8 +390,10 @@ jarvis_bubble_console_close() {
 }
 
 jarvis_bubble_engine="$repo/shell/plugins/vgs.jarvis/backend/ChainedEngine.js"
-cp -- "$jarvis_bubble_engine" "$sandbox/jarvis-bubble-engine-before"
-cp -- "$jarvis_key_backend" "$sandbox/jarvis-bubble-backend-before"
+cp -- "$jarvis_bubble_engine" "$jarvis_bubble_snapshots/engine.next"
+mv -T -- "$jarvis_bubble_snapshots/engine.next" "$jarvis_bubble_snapshots/engine"
+cp -- "$jarvis_key_backend" "$jarvis_bubble_snapshots/backend.next"
+mv -T -- "$jarvis_bubble_snapshots/backend.next" "$jarvis_bubble_snapshots/backend"
 jarvis_disable
 "$node_bin" "$source_repo/scripts/fixtures/jarvis/scripted.js" --held-approvals "$jarvis_key_backend"
 "$node_bin" "$source_repo/scripts/fixtures/jarvis/scripted.js" --chained-engine "$jarvis_bubble_engine"
@@ -548,7 +551,8 @@ jarvis_enable
 
 jarvis_bubble_begin
 jarvis_bubble_lua="$home/.config/hypr/hyprland.lua"
-cp -- "$jarvis_bubble_lua" "$sandbox/jarvis-bubble-focus-before.lua"
+cp -- "$jarvis_bubble_lua" "$jarvis_bubble_snapshots/focus.next"
+mv -T -- "$jarvis_bubble_snapshots/focus.next" "$jarvis_bubble_snapshots/focus"
 jarvis_bubble_first="$(hypr -j monitors | py_reply 'import json,sys; print(next(m["name"] for m in json.load(sys.stdin) if m["focused"]))')"
 printf '%s\n' 'hl.config({ input = { follow_mouse = 0 }, cursor = { no_warps = true }, misc = { mouse_move_focuses_monitor = false } })' >>"$jarvis_bubble_lua"
 expect "the nested configuration holds monitor focus" ok hypr reload config-only
@@ -562,7 +566,7 @@ expect_poll "the service observes restored monitor focus" "\"$jarvis_bubble_firs
 expect_poll "the restored focused output owns the visual" focused jarvis_bubble_focused
 expect "the nested compositor removes the focus target" ok hypr output remove SMOKE-JARVIS
 jarvis_bubble_focus_output=false
-cp -- "$sandbox/jarvis-bubble-focus-before.lua" "$jarvis_bubble_lua"
+cp -- "$jarvis_bubble_snapshots/focus" "$jarvis_bubble_lua"
 expect "the nested pointer configuration is restored" ok hypr reload config-only
 jarvis_key_talk_up
 jarvis_key_stop
@@ -588,11 +592,13 @@ jarvis_disable
 # disposable plugin copy; the same lost-host assertion must turn red. The
 # words controls keep the caption on the wire and break one bubble rule each.
 jarvis_bubble_file="$repo/shell/plugins/vgs.jarvis/Bubble.qml"
-cp -- "$jarvis_bubble_file" "$sandbox/jarvis-bubble-before"
+cp -- "$jarvis_bubble_file" "$jarvis_bubble_snapshots/bubble.next"
+mv -T -- "$jarvis_bubble_snapshots/bubble.next" "$jarvis_bubble_snapshots/bubble"
 # Row.layoutDirection reverses rendered positions (Qt Quick Row reference).
 # The position reader must reject that reversal, regardless of button copy.
 jarvis_bubble_fixture="$repo/shell/plugins/vgs.jarvis/backend/scripted-fixture.js"
-cp -- "$jarvis_bubble_fixture" "$sandbox/jarvis-bubble-fixture-before"
+cp -- "$jarvis_bubble_fixture" "$jarvis_bubble_snapshots/fixture.next"
+mv -T -- "$jarvis_bubble_snapshots/fixture.next" "$jarvis_bubble_snapshots/fixture"
 for jarvis_bubble_mutant in geometry console console-close focus words lines head generation approval-key approval-button approval-cancel approval-shown approval-caption approval-kind approval-path approval-role approval-order; do
   jarvis_bubble_mutation_file="$jarvis_bubble_file"
   if [[ $jarvis_bubble_mutant == approval-key || $jarvis_bubble_mutant == approval-shown || $jarvis_bubble_mutant == console-close ]]; then
@@ -636,7 +642,7 @@ PY
       geometry expect_poll "control: today's bottom placement fails the same console reader" overlap jarvis_bubble_console
       jarvis_bubble_console_close
       jarvis_disable
-      cp -- "$sandbox/jarvis-bubble-before" "$jarvis_bubble_file"
+      cp -- "$jarvis_bubble_snapshots/bubble" "$jarvis_bubble_file"
       continue ;;
     console-close)
       jarvis_bubble_console_hold
@@ -691,9 +697,9 @@ PY
       esac
       jarvis_key_stop
       jarvis_disable
-      cp -- "$sandbox/jarvis-bubble-before" "$jarvis_bubble_file"
+      cp -- "$jarvis_bubble_snapshots/bubble" "$jarvis_bubble_file"
       cp -- "$sandbox/jarvis-key-service-before" "$jarvis_key_service"
-      cp -- "$sandbox/jarvis-bubble-fixture-before" "$jarvis_bubble_fixture"
+      cp -- "$jarvis_bubble_snapshots/fixture" "$jarvis_bubble_fixture"
       continue ;;
   esac
   jarvis_bubble_begin
@@ -727,7 +733,7 @@ PY
   esac
   jarvis_key_stop
   jarvis_disable
-  cp -- "$sandbox/jarvis-bubble-before" "$jarvis_bubble_file"
+  cp -- "$jarvis_bubble_snapshots/bubble" "$jarvis_bubble_file"
 done
 # Restore the independent bindings in one disposable source copy. Clearing
 # its hold must make the diagnostics row fail. Only that copy's source URI
@@ -825,7 +831,7 @@ jarvis_bubble_binding_control="$(
 expect "control: unrelated failures cannot stand in for the binding warning" 1 printf '%s\n' "$jarvis_bubble_binding_control"
 expected_errors+=("$jarvis_bubble_control_pattern")
 jarvis_disable
-cp -- "$sandbox/jarvis-bubble-before" "$jarvis_bubble_file"
+cp -- "$jarvis_bubble_snapshots/bubble" "$jarvis_bubble_file"
 python3 - "$jarvis_bubble_file" <<'PY'
 from pathlib import Path
 import sys
@@ -848,9 +854,9 @@ jarvis_disable
 # Before the copies go back: its scan would take the source change the
 # rescan below reads.
 jarvis_restore_requirements
-cp -- "$sandbox/jarvis-bubble-before" "$jarvis_bubble_file"
-cp -- "$sandbox/jarvis-bubble-engine-before" "$jarvis_bubble_engine"
-cp -- "$sandbox/jarvis-bubble-backend-before" "$jarvis_key_backend"
+cp -- "$jarvis_bubble_snapshots/bubble" "$jarvis_bubble_file"
+cp -- "$jarvis_bubble_snapshots/engine" "$jarvis_bubble_engine"
+cp -- "$jarvis_bubble_snapshots/backend" "$jarvis_key_backend"
 jarvis_rescan
 jarvis_enable
 jarvis_key_mode hold

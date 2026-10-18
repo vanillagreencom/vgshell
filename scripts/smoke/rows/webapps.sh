@@ -47,6 +47,8 @@ wa_launches="$wa_dir/launches"
 wa_browser_entry="$wa_apps/vgs-smoke-browser.desktop"
 wa_index_s=30
 wa_mime_before=unchanged
+wa_config_saved=false
+wa_snapshots="$(mktemp -d "$sandbox/webapps-snapshots.XXXXXX")"
 source "$repo/scripts/smoke/webapps-browsers.sh"
 
 # wa_list VERB ARG: one of the probe's list verbs on the Web apps field.
@@ -139,12 +141,12 @@ wa_unplant() {
   webapps_shadows_remove
   rm -f -- "${wa_browser_entry:?}"
   case "$wa_mime_before" in
-    kept) mv -f -- "$wa_dir/mimeapps.list.before" "$wa_mime" ;;
+    kept) mv -f -- "$wa_snapshots/mimeapps.list.before" "$wa_mime" ;;
     absent) rm -f -- "${wa_mime:?}" ;;
   esac
   wa_mime_before=unchanged
-  if [[ -f $wa_dir/shell.json.before ]]; then
-    cp -p -- "$wa_dir/shell.json.before" "$wa_user.next"
+  if [[ $wa_config_saved == true ]]; then
+    cp -p -- "$wa_snapshots/shell.json.before" "$wa_user.next"
     mv -T -- "$wa_user.next" "$wa_user"
     expect "the shell reads the kept configuration" ok ipc shell reloadConfig
     expect_poll "the shell has read the kept configuration" true ipc smoke configSettled
@@ -176,10 +178,15 @@ class="\$(python3 -c 'import sys, urllib.parse; u = urllib.parse.urlsplit(sys.ar
 exec $(printf '%q' "$sandbox/display-client") $(printf '%q' "$sandbox/toplevel") "\$class" "Web app"
 EOF
 chmod 755 "$wa_dir/chromium"
-wa_mime_before=absent
-if [[ -e $wa_mime ]]; then cp -p -- "$wa_mime" "$wa_dir/mimeapps.list.before"; wa_mime_before=kept; fi
+if [[ -e $wa_mime ]]; then
+  cp -p -- "$wa_mime" "$wa_snapshots/mimeapps.list.before"
+  wa_mime_before=kept
+else
+  wa_mime_before=absent
+fi
 printf '[Default Applications]\nx-scheme-handler/https=vgs-smoke-browser.desktop\nx-scheme-handler/http=vgs-smoke-browser.desktop\n' >"$wa_mime"
-cp -p -- "$wa_user" "$wa_dir/shell.json.before"
+cp -p -- "$wa_user" "$wa_snapshots/shell.json.before"
+wa_config_saved=true
 spawn "$wa_dir/server.log" python3 -u -m http.server --bind 127.0.0.1 --directory "$wa_dir/site" 0
 wa_server_pid="$spawn_pid"
 expect "spawn makes its log before it returns" present bash -c '[[ -e $1 ]] && echo present' _ "$wa_dir/server.log"
@@ -382,6 +389,6 @@ smoke_row_abandon=()
 rmdir -- "$wa_icons" "${wa_icons%/icons}" 2>/dev/null || true
 expect "the row leaves no web app entry or icon" none wa_planted
 expect "the row leaves no shadow or browser entry" absent wa_world_left
-expect "shell.json is as the row found it" same wa_same "$wa_user" "$wa_dir/shell.json.before"
+expect "shell.json is as the row found it" same wa_same "$wa_user" "$wa_snapshots/shell.json.before"
 expect "Web Apps is off as the row found it" False plugin_enabled "$wa_id"
 rm -rf -- "${wa_dir:?}"

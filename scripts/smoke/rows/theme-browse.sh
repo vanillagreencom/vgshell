@@ -22,7 +22,7 @@ theme_browse_controls_cleanup() {
   fi
 }
 theme_browse_cleanup() {
-  if [[ -f $repo/bin/vgshell.real ]]; then mv -T -- "$repo/bin/vgshell.real" "$repo/bin/vgshell"; fi
+  restore_vgshell
   theme_browse_controls_cleanup
 }
 smoke_row_abandon=(theme_browse_cleanup)
@@ -108,7 +108,6 @@ for _ in \$(seq 1 600); do [[ -e $(printf %q "$download_gate") ]] && break; slee
 printf '{"state":"ok","theme":"%s","wallpapers":"installed","images":2,"sha256":null,"reason":null}\n' "\$4"
 SH
 chmod 755 -- "$slow_download"
-cp -p -- "$repo/bin/vgshell" "$repo/bin/vgshell.real"
 stand_in_vgshell "[[ \${2:-} == wallpapers ]] && exec $(printf %q "$slow_download") \"\$@\""
 # apply_during_download APPLIES DOWNLOADS: after a download started and an
 # apply was asked for, poll every 200 ms for up to 5 s until APPLIES, a
@@ -225,11 +224,10 @@ theme_browse_controls_path="$theme_browse_controls"
 theme_browse_controls_cleanup
 expect "the runner controls release their private directory" absent bash -c '[[ -e $1 ]] && echo present || echo absent' _ "$theme_browse_controls_path"
 rm -f -- "$download_argv"
-mv -T -- "$repo/bin/vgshell.real" "$repo/bin/vgshell"
+restore_vgshell
 
 # A runner that prints no result answers each member as a failure of its
 # own shape.
-cp -p -- "$repo/bin/vgshell" "$repo/bin/vgshell.real"
 stand_in_vgshell 'echo "no result"; exit 2'
 expected_errors+=(
   'theme: vgshell theme catalog reason=output-unreadable exit=2 '
@@ -248,7 +246,7 @@ expect "a set whose runner prints no result is accepted" ok probe theme-set /now
 expect_poll "the unreadable set is a failure with its reason" '[1, "failed", null, null, "output-unreadable"]' answer set state path screen reason
 expect "a download whose runner prints no result is accepted" ok probe theme-wallpapers nord
 expect_poll "the unreadable download is a failure with its reason" '[3, "failed", "nord", null, "output-unreadable"]' answer wallpapers state theme wallpapers reason
-mv -T -- "$repo/bin/vgshell.real" "$repo/bin/vgshell"
+restore_vgshell
 
 rm -r -- "$browse" "$installed/nord"
 expect "disabling the fixture after the browse rows is allowed" ok ipc shell setPluginEnabled acme.probe false

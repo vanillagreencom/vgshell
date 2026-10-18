@@ -42,16 +42,79 @@ revision_rose() { local now; now="$(theme_member revision)" && [[ $now -gt $revi
 # The sandbox copy's vgshell runs BODY for a theme command and the real
 # runner for everything else, so the rows' own ipc calls keep working.
 theme_core_restore=false
+theme_runner_backup=""
+restore_vgshell() {
+  if [[ -n $theme_runner_backup ]]; then
+    mv -T -- "$theme_runner_backup" "$repo/bin/vgshell"
+    theme_runner_backup=""
+  fi
+}
 restore_theme_row() {
-  if [[ -f $repo/bin/vgshell.real ]]; then mv -T -- "$repo/bin/vgshell.real" "$repo/bin/vgshell"; fi
+  restore_vgshell
   if [[ $theme_core_restore == true ]]; then restore_theme_core_config; fi
 }
 smoke_row_abandon=(restore_theme_row)
-cp -p -- "$repo/bin/vgshell" "$repo/bin/vgshell.real"
 stand_in_vgshell() {
-  printf '#!/usr/bin/env bash\nif [[ ${1:-} == theme ]]; then\n%s\nfi\nexec %q "$@"\n' "$1" "$repo/bin/vgshell.real" >"$repo/bin/vgshell.next" \
-    && chmod 755 -- "$repo/bin/vgshell.next" && mv -T -- "$repo/bin/vgshell.next" "$repo/bin/vgshell"
+  local backup next status
+  if [[ -z $theme_runner_backup ]]; then
+    backup="$(mktemp "$repo/bin/vgshell.real.XXXXXX")" || return
+    if cp -p -- "$repo/bin/vgshell" "$backup"; then
+      theme_runner_backup="$backup"
+    else
+      status=$?
+      rm -f -- "${backup:?}"
+      return "$status"
+    fi
+  fi
+  next="$(mktemp "$repo/bin/vgshell.next.XXXXXX")" || return
+  if printf '#!/usr/bin/env bash\nif [[ ${1:-} == theme ]]; then\n%s\nfi\nexec %q "$@"\n' "$1" "$theme_runner_backup" >"$next" \
+      && chmod 755 -- "$next" && mv -T -- "$next" "$repo/bin/vgshell"; then
+    return 0
+  else
+    status=$?
+    rm -f -- "${next:?}"
+    return "$status"
+  fi
 }
+
+theme_runner_snapshot_control() (
+  unset WAYLAND_DISPLAY DISPLAY HYPRLAND_INSTANCE_SIGNATURE
+  local mode="$1" control real_cp status=0
+  real_cp="$(command -v cp)" || return
+  control="$(mktemp -d "$sandbox/theme-runner-control.XXXXXX")" || return
+  trap 'rm -rf -- "${control:?}"' EXIT
+  repo="$control/repo"
+  mkdir -p -- "$repo/bin" "$control/stubs"
+  printf '#!/usr/bin/env bash\nprintf "original\\n"\n' >"$repo/bin/vgshell"
+  chmod 755 -- "$repo/bin/vgshell"
+  cat >"$control/stubs/cp" <<'SH'
+#!/usr/bin/env bash
+if [[ $THEME_SNAPSHOT_MODE == copy-fails ]]; then
+  printf 'partial\n' >"${@: -1}"
+  exit 23
+fi
+exec "$THEME_SNAPSHOT_CP" "$@"
+SH
+  chmod 755 -- "$control/stubs/cp"
+  export THEME_SNAPSHOT_MODE="$mode" THEME_SNAPSHOT_CP="$real_cp"
+  export PATH="$control/stubs:$PATH"
+  theme_runner_backup=""
+  stand_in_vgshell 'echo stand-in; exit 0' || status=$?
+  if [[ $mode == copy-fails ]]; then
+    [[ $status == 23 && -z $theme_runner_backup ]] || return 1
+  else
+    [[ $status == 0 && -n $theme_runner_backup ]] || return 1
+    [[ $("$repo/bin/vgshell" theme) == stand-in ]] || return 1
+    stand_in_vgshell 'echo replacement; exit 0' || return
+    [[ $("$repo/bin/vgshell" theme) == replacement ]] || return 1
+  fi
+  restore_vgshell
+  [[ $("$repo/bin/vgshell" theme) == original && -z $theme_runner_backup ]] || return 1
+  echo restored
+)
+for theme_snapshot_mode in copy-fails copy-succeeds; do
+  expect "the runner snapshot $theme_snapshot_mode preserves the original" restored theme_runner_snapshot_control "$theme_snapshot_mode"
+done
 
 # Preserve the fixture placements and plugin enablement for the panel block.
 cp -p -- "$home/.config/vgshell/shell.json" "$sandbox/theme-core-shell.json"
@@ -188,7 +251,7 @@ expect "a failed start is a failed shell with its reason" "failed failed smoke s
 expect_log "the failed start is logged" 1 'theme: vgshell theme apply reason=start-failed name=smoke'
 expect "no job waits after a failed start" '[]' theme_jobs
 
-mv -T -- "$repo/bin/vgshell.real" "$repo/bin/vgshell"
+restore_vgshell
 expect "the fixture applies vgs with the real runner again" ok probe theme-apply vgs
 expect_poll "the last apply's result reaches the fixture" 3 applies
 expect "the vgs package is applied again" "unchanged unchanged vgs None" applied
@@ -626,7 +689,6 @@ expect "the keyboard-applied theme ends" idle theme_idle
 expect "the fixture applies vgs after the panel keyboard path" "ok theme=vgs state=applied shell=applied" "${shell_env[@]}" "$repo/bin/vgshell" theme apply vgs
 expect "the vgs apply after the panel keyboard path ends" idle theme_idle
 
-cp -p -- "$repo/bin/vgshell" "$repo/bin/vgshell.real"
 catalog_installed="$sandbox/catalog-smoke-installed"
 catalog_wallpapers="$sandbox/catalog-smoke-wallpapers"
 catalog_wallpapers_gate="$sandbox/catalog-smoke-wallpapers-gate"
@@ -773,7 +835,7 @@ click_button "Add from URL" || fail "the click on Add from URL failed"
 expect_poll "Add from URL opens the core theme add TUI" \
   "$(core_words core/theme-add "Add a theme" org.vgs.tui theme add)" recorded
 expect_run_end "the theme add core run ends before later rows" core/theme-add
-mv -T -- "$repo/bin/vgshell.real" "$repo/bin/vgshell"
+restore_vgshell
 
 fixture_target smoke-fails 'accent=@{palette.nope}'
 click_row smoke || fail "the click on the smoke row failed"
@@ -1034,7 +1096,6 @@ expect_poll "reapplying the modified package clears its badge" '[["smoke", "inst
 
 # The gate holds every theme command, polling every 50 ms for at most
 # 10 s, so the panel closes while its apply runs.
-cp -p -- "$repo/bin/vgshell" "$repo/bin/vgshell.real"
 panel_gate="$sandbox/themes-panel-gate"
 stand_in_vgshell "for _ in \$(seq 1 200); do [[ -e $(printf %q "$panel_gate") ]] && break; sleep 0.05; done"
 click_row dawn || fail "the click on the installed dawn row failed"
@@ -1077,7 +1138,7 @@ touch -- "$novel_gate"
 expect_poll "the reopened panel shows a target state it names nowhere" '[["vgs", "shipped", "smoke-novel: The theme action failed. Try again or choose another theme."]]' theme_row vgs
 expect "the panel drops the running apply once it ends" False panel_label "Applying vgs"
 
-mv -T -- "$repo/bin/vgshell.real" "$repo/bin/vgshell"
+restore_vgshell
 click_row vgs || fail "the click on the vgs row with the real runner failed"
 expect_poll "the vgs row applied by the real runner is displayed with no problem" '[["vgs", "shipped", "Displayed"]]' theme_row vgs
 expect_poll "the vgs package is displayed again" vgs ipc smoke themeName
@@ -1317,12 +1378,11 @@ expect_poll "the step's result reaches the fixture" 1 read_service themeSteps
 expect "the step's result is the runner's" "ok c.png scenic None" stepped
 expect_poll "the background follows the fixture's step" "$scenic/backgrounds/c.png ready" background_image
 expected_errors+=('theme: vgshell theme background reason=output-unreadable name=previous exit=2 ')
-cp -p -- "$repo/bin/vgshell" "$repo/bin/vgshell.real"
 stand_in_vgshell 'echo "no result"; exit 2'
 expect "a step whose runner prints no result is accepted" ok probe theme-background previous
 expect_poll "the unreadable step reaches the fixture" 2 read_service themeSteps
 expect "a step with no result is a failure with its reason" "failed None None output-unreadable" stepped
-mv -T -- "$repo/bin/vgshell.real" "$repo/bin/vgshell"
+restore_vgshell
 expect "disabling the fixture after the wallpaper step rows is allowed" ok ipc shell setPluginEnabled acme.probe false
 
 # A state file the runner did not write is logged and draws nothing.
@@ -1454,8 +1514,9 @@ expect_poll "the faint user theme remains applied" '"faint-user"' theme_member c
 notes_first_card "the theme readability notice"
 notes_clear "theme readability"
 
-cp -p -- "$repo/bin/vgshell" "$sandbox/vgshell.notice.real"
-python3 - "$sandbox/vgshell.notice.real" "$repo/bin/vgshell.notice.next" <<'PY'
+stand_in_vgshell ''
+theme_notice_next="$(mktemp "$repo/bin/vgshell.notice.XXXXXX")"
+python3 - "$theme_runner_backup" "$theme_notice_next" <<'PY'
 import pathlib, sys
 source, target = map(pathlib.Path, sys.argv[1:])
 text = source.read_text()
@@ -1466,15 +1527,14 @@ assert changed != text
 target.write_text(changed)
 target.chmod(source.stat().st_mode)
 PY
-mv -T -- "$repo/bin/vgshell.notice.next" "$repo/bin/vgshell"
+mv -T -- "$theme_notice_next" "$repo/bin/vgshell"
 expect "the suppressed-notice apply still runs" ok probe theme-apply faint-user
 expect_poll "the suppressed-notice apply completes" 2 applies
 expect "the suppressed notice leaves no send running" 0 ipc smoke themeNoticeRuns
 expect "the suppressed notice leaves no card" 0 theme_notice_count
 expect "the notice assertion rejects suppressed delivery" 1 theme_notice_assertion_failures
 expect "suppressed delivery keeps the user theme applied" '"faint-user"' theme_member current
-cp -p -- "$sandbox/vgshell.notice.real" "$repo/bin/vgshell.notice.next"
-mv -T -- "$repo/bin/vgshell.notice.next" "$repo/bin/vgshell"
+restore_vgshell
 
 # Qt caches directory listings. Build the finish control in a fresh
 # directory and lend it the real hub through the existing runner reader.
