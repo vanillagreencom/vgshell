@@ -149,7 +149,9 @@ FocusScope {
 
     function updateDraft(key, value) {
         const next = View.clone(draft);
-        next[key] = value;
+        // Qt 6.12 wraps arrays and objects carried by a var signal. The
+        // draft owns plain values, as validation and the engine expect.
+        next[key] = value !== null && typeof value === "object" ? View.clone(value) : value;
         if (key === "start" && next.yearlyEdited !== true) {
             const parts = View.startDateParts(value, Engine);
             if (parts !== null) {
