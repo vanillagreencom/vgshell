@@ -10,13 +10,15 @@
 # the real `vgshell theme apply` under the test-run hook guard, which exercises
 # the target hooks. A light apply after a dark one, then a dark apply after
 # that light one, each sets its colour scheme after every toolkit theme
-# write, and the portal's last colour scheme signal is the applied one,
-# prefer-light then prefer-dark, with no other value after it
-# (docs/architecture/themes.md § Applying). The hooks' gsettings logs each key
-# it sets, the write order; a recorder logs every Settings SettingChanged
-# signal the portal sends. The keyfile backend's file monitor can hand two
-# close writes to a portal backend as one change, whose keys it signals in
-# any order, so the write order comes from the log, not the signals.
+# write, and its last colour scheme write is the applied one, prefer-light
+# then prefer-dark (docs/architecture/themes.md § Applying). At the first
+# 0.2 s read that matches, the last colour scheme the portal has signalled
+# is the applied one; a signal a backend sends after that read is not
+# checked. The hooks' gsettings logs each key and value it sets, the write
+# order; a recorder logs every Settings SettingChanged signal the portal
+# sends. The keyfile backend's file monitor can hand two close writes to a
+# portal backend as one change, whose keys it signals in any order, so the
+# write order comes from the log, not the signals.
 # inputs: packaging/xdg-desktop-portal/hyprland-portals.conf themes/targets/accent-color/* themes/targets/color-scheme/* themes/targets/gtk-theme/* bin/vgshell bin/vgshell-theme-judge bin/lib/theme-* themes/catalog/gruvbox/* themes/catalog/flexoki-light/* shell/Commons/ThemeLogic.js shell/Commons/Tokens.js bin/lib/qml-library.js
 set -euo pipefail
 
@@ -57,7 +59,7 @@ fi
 for tool in sh bash cat readlink dirname mkdir ln flock awk git mktemp mv rm; do
   ln -s -- "$(command -v "$tool")" "$portal_root/bin/$tool"
 done
-printf '#!/bin/sh\n[ "$1" = set ] && printf "%%s\\n" "$3" >>"%s"\nexec "%s" "$@"\n' \
+printf '#!/bin/sh\n[ "$1" = set ] && printf "%%s=%%s\\n" "$3" "$4" >>"%s"\nexec "%s" "$@"\n' \
   "$portal_root/writes.log" "$(command -v gsettings)" >"$portal_root/bin/gsettings"
 chmod +x "$portal_root/bin/gsettings"
 : >"$portal_root/writes.log"
@@ -176,10 +178,9 @@ apply_vgs_default() {
 }
 # An apply's colour scheme order: the GTK theme the portal signalled from
 # line SIGNALS of the recorder log on, the last appearance colour scheme it
-# signalled, the appearance colour schemes it signalled after its last SCHEME
-# (absent when it signalled no SCHEME), and every toolkit theme key set after
-# the last colour scheme from line WRITES of the write log on.
-portal_scheme_order() { # SIGNALS WRITES SCHEME
+# signalled, and, from line WRITES of the write log on, the value of the last
+# colour scheme write and every toolkit theme key set after it.
+portal_scheme_order() { # SIGNALS WRITES
   python3 -c 'import re, sys
 gtk, schemes = "none", []
 for line in open(sys.argv[1]).readlines()[int(sys.argv[2]) - 1:]:
@@ -191,19 +192,15 @@ for line in open(sys.argv[1]).readlines()[int(sys.argv[2]) - 1:]:
         schemes.append(value)
     elif namespace == "org.gnome.desktop.interface" and key == "gtk-theme":
         gtk = value
-after = []
-for key in open(sys.argv[3]).read().split()[int(sys.argv[4]) - 1:]:
+written, after = "none", []
+for line in open(sys.argv[3]).read().splitlines()[int(sys.argv[4]) - 1:]:
+    key, _, value = line.partition("=")
     if key == "color-scheme":
-        after = []
+        written, after = value, []
     elif key in ("gtk-theme", "icon-theme"):
         after.append(key)
-want = sys.argv[5]
-if want in schemes:
-    later = ",".join(schemes[len(schemes) - schemes[::-1].index(want):]) or "none"
-else:
-    later = "absent"
-print("gtk-theme=%s last-color-scheme=%s after-last-%s=%s toolkit-after=%s" % (gtk, schemes[-1] if schemes else "none", want, later, ",".join(after) or "none"))' \
-    "$portal_root/signals.log" "$1" "$portal_root/writes.log" "$2" "$3"
+print("gtk-theme=%s last-color-scheme=%s last-write=%s toolkit-after=%s" % (gtk, schemes[-1] if schemes else "none", written, ",".join(after) or "none"))' \
+    "$portal_root/signals.log" "$1" "$portal_root/writes.log" "$2"
 }
 spawn "$portal_root/signals.log" "${portal_env[@]}" gdbus monitor --session --dest org.freedesktop.portal.Desktop --object-path /org/freedesktop/portal/desktop
 portal_stack_pids+=("$spawn_pid")
@@ -217,11 +214,11 @@ writes_from=$(($(wc -l <"$portal_root/writes.log") + 1))
 expect "the flexoki-light apply runs the real target hooks" "state=applied accent-color=written color-scheme=written gtk-theme=written" apply_theme flexoki-light
 expect_poll "the sandbox light theme sets flexoki-light through the real accent target" "#3584e4" portal_rgb
 expect_poll "the merged Settings portal reads flexoki-light as prefer-light" "2" portal_color_scheme
-expect_poll "the light apply sets its colour scheme after every toolkit theme and the portal signals prefer-light last" "gtk-theme=Adwaita last-color-scheme=2 after-last-2=none toolkit-after=none" portal_scheme_order "$signals_from" "$writes_from" 2
+expect_poll "the light apply sets prefer-light after every toolkit theme and the portal signals prefer-light last" "gtk-theme=Adwaita last-color-scheme=2 last-write=prefer-light toolkit-after=none" portal_scheme_order "$signals_from" "$writes_from"
 signals_from=$(($(wc -l <"$portal_root/signals.log") + 1))
 writes_from=$(($(wc -l <"$portal_root/writes.log") + 1))
 expect "the gruvbox apply after flexoki-light runs the real target hooks" "state=applied accent-color=written color-scheme=written gtk-theme=written" apply_theme gruvbox
-expect_poll "the dark apply after a light one sets its colour scheme after every toolkit theme and the portal signals prefer-dark last" "gtk-theme=Adwaita-dark last-color-scheme=1 after-last-1=none toolkit-after=none" portal_scheme_order "$signals_from" "$writes_from" 1
+expect_poll "the dark apply after a light one sets prefer-dark after every toolkit theme and the portal signals prefer-dark last" "gtk-theme=Adwaita-dark last-color-scheme=1 last-write=prefer-dark toolkit-after=none" portal_scheme_order "$signals_from" "$writes_from"
 for target in "${portal_targets[@]}"; do rm -rf -- "${repo:?}/themes/targets/$target"; done
 rm -rf -- "${installed_themes:?}/gruvbox" "${installed_themes:?}/flexoki-light"
 expect "the portal accent row restores vgs before later rows" "ok theme=vgs state=applied shell=applied" apply_vgs_default
