@@ -4,29 +4,34 @@
 // pure so scripts/test-jarvis-setup-gate.js runs it under node. MISSING is
 // the requirements capability's list: the plugin's declared commands the
 // core's last scan did not find. A missing command is offered as Install on
-// its own status row, which raises the core's requirement notice, and the
-// setup step that needs it is withheld until a scan finds it.
+// its own status row. A required step offers the core's tools action.
 
 // The value a setup reader publishes: its probe's VALUE while every command
-// of REQUIRES is found, else a warning naming the missing commands that
-// offers no action: false for an entry's one action, and none for a named
-// one, which the manifest judge takes only as a name. Set up dictation stays
+// of REQUIRES is found, else a warning naming the missing commands.
+// Set up dictation stays
 // offered: voxtype is the program the core's dictation setup gets ready.
-function setupValue(value, requires, missing) {
+function setupValue(value, requires, missing, required) {
     var lacking = requires.filter(function (command) { return missing.indexOf(command) !== -1; });
     if (lacking.length === 0) return value;
-    var withheld = { tone: "warning", text: "Needs " + lacking.join(" and ") };
-    if (value.action === "dictation") withheld.action = "dictation";
+    var withheld = { tone: "warning", text: "Needs " + lacking.join(" and "),
+        hint: "Review missing or outdated tools in [Setup](page:vgs.jarvis/Setup)" };
+    if (value.action === "dictation") { withheld.action = "dictation"; delete withheld.hint; }
+    else if (required === true) withheld.action = "tools";
     else if (typeof value.action !== "string") withheld.action = false;
     return withheld;
 }
 
-// The commands a named step action needs: the core's dictation setup
-// gets voxtype ready, which it cannot run without.
+// Only required plugin tools divert a named step to Setup's tools action.
+// An optional tool keeps the declared TUI action: its launcher opens the
+// requirement notice for that script. Dictation gets voxtype ready itself.
 var ACTION_REQUIRES = { dictation: ["voxtype"] };
-function actionRequires(value) {
-    return typeof value.action === "string" && Object.prototype.hasOwnProperty.call(ACTION_REQUIRES, value.action)
-        ? ACTION_REQUIRES[value.action] : [];
+function actionRequires(value, manifest) {
+    if (typeof value.action !== "string") return [];
+    if (Object.prototype.hasOwnProperty.call(ACTION_REQUIRES, value.action)) return ACTION_REQUIRES[value.action];
+    var action = manifest.status.setupVoice.actions[value.action];
+    return action === undefined || action.tui === undefined ? [] : manifest.tui[action.tui].requires.filter(function (command) {
+        return manifest.requirements.some(function (requirement) { return requirement.name === command && !requirement.optional; });
+    });
 }
 
 // Whether the voice PROVIDER (voiceProvider) hears the user on this
@@ -102,7 +107,7 @@ var TODO = {
     "brain=model-unavailable": "The local server does not offer this model: [choose another model](page:vgs.jarvis/Settings) under AI model",
     "brain=signed-out": "Sign in to the chosen AI app, then [choose it under AI model](page:vgs.jarvis/Settings)",
     "brain=pi-update": "Jarvis needs Pi 1.1.0 or later: [review all missing or outdated tools under Tools on the Details tab](page:vgs.jarvis/Details), or choose another app under AI model",
-    "brain=accounts-unreadable": "Jarvis could not read your accounts. Open Accounts to check them.",
+    "brain=accounts-unreadable": "Jarvis could not read your accounts. Add a key with Add key to use an AI model.",
     "speech=live-account-unselected": "[Add a provider key beside API keys on the Details tab](page:vgs.jarvis/Details): OpenAI for Realtime, Gemini for Gemini Live or ElevenLabs for ElevenLabs",
     "speech=live-account-unreadable": "Jarvis could not read your voice key: use [Accounts beside Account search on the Details tab](page:vgs.jarvis/Details) to check it",
     "speech=live-key-required": "[Choose a key under Voice key](page:vgs.jarvis/Settings): OpenAI for Realtime, Gemini for Gemini Live or ElevenLabs for ElevenLabs; Add key beside API keys stores a new key",
@@ -139,18 +144,28 @@ function setupActs(cause) {
     return cause.indexOf("speech=live-") !== 0 && cause.indexOf("speech=elevenlabs-") !== 0 && cause !== "speech=always-local-voice";
 }
 var STEP_TODO = { brain: "Add a key or sign in, then [choose an AI model](page:vgs.jarvis/Settings) under AI model" };
-// The required home step stays visible. A daemon refusal states what to
-// change, by its cause; any other cause of the
-// folder or its text takes HOME_STEP_TODO. Its entry declares no action:
-// the user changes the folder or the setting. A changed setting reaches
-// the daemon at once; a change inside the folder does at the next request
-// (jarvisd.js judgeSetup), which the row's info explains.
+// The daemon's home refusal names the change and, for editable user files,
+// the core file action. The service supplies the selected folder's path.
 var HOME_TODO = {
-    "home=link": "Remove the link from the home folder, or [choose another Home folder](page:vgs.jarvis/Settings): Jarvis checks again when you press Talk",
-    "home=path": "Jarvis cannot use this folder: [choose a Home folder](page:vgs.jarvis/Settings) inside your own home directory",
-    "guidance=home-skills-too-large": "Remove unused skills from the home folder so Jarvis can list them"
+    "home=link": { hint: "A file in your Home folder is a shortcut to another place. Jarvis does not follow shortcuts. Replace it with the real file, or choose another [Home folder](page:vgs.jarvis/Settings/home)." },
+    "home=path": { hint: "Jarvis cannot use this folder: choose a [Home folder](page:vgs.jarvis/Settings/home) inside your own home directory" },
+    "home=text": { hint: "AGENTS.md is not plain text. Save it as plain text.", action: "agents" },
+    "home=package": { hint: "A Jarvis file in your Home folder is damaged. Choose another [Home folder in Settings](page:vgs.jarvis/Settings/home)." },
+    "guidance=home-skills-too-large": { text: "Too many skills", hint: "Your Home folder has more skills than Jarvis can list. Remove the skills you do not use.", action: "skills" }
 };
-var HOME_STEP_TODO = "Check that you can open and change the folder, or [choose another Home folder](page:vgs.jarvis/Settings): Jarvis checks again when you press Talk";
+var HOME_STEP_TODO = "Check that you can open and change the folder, or choose another [Home folder](page:vgs.jarvis/Settings/home)";
+var HOME_FILES = { agents: "/AGENTS.md", skills: "/skills/" };
+function homeStep(cause, home) {
+    var value = Object.assign({ tone: "warning", text: "To do" },
+        Object.prototype.hasOwnProperty.call(HOME_TODO, cause) ? HOME_TODO[cause] : { hint: HOME_STEP_TODO });
+    if (value.action !== undefined) {
+        if (home.kind !== "ready") return { tone: "warning", text: "To do", hint: home.kind === "reading"
+            ? "Jarvis is finding the file in your [Home folder](page:vgs.jarvis/Settings/home)"
+            : "Jarvis could not find the file. Check your [Home folder in Settings](page:vgs.jarvis/Settings/home)." };
+        value.file = home.path + HOME_FILES[value.action];
+    }
+    return value;
+}
 var HOME_READY = { tone: "ok", text: "Done" };
 // The home texts over their size budget (JarvisProtocol SETUP_CAUTIONS),
 // by the name the Home folder step gives each. Jarvis loads each whole and
@@ -275,12 +290,13 @@ function muteRefusedNotice(cause) {
 // The installed voice stays verified. Reinstalling it cannot free memory.
 var MEMORY = {
     "speech=local-memory-insufficient": { tone: "warning", text: "Not enough memory",
-        hint: "Close other apps, then turn Jarvis off and on", action: false },
+        hint: "Close other apps, then turn Jarvis off and on in [Settings](page:vgs.jarvis/Settings)", action: false },
     "speech=local-memory-unavailable": { tone: "warning", text: "Memory check failed",
-        hint: "Turn Jarvis off and on", action: false }
+        hint: "Turn Jarvis off and on in [Settings](page:vgs.jarvis/Settings)", action: false }
 };
 // A required step once the daemon stopped: no check runs, none is offered.
-var UNCHECKED = { tone: "warning", text: "Not checked", action: false };
+var UNCHECKED = { tone: "warning", text: "Not checked", action: false,
+    hint: "Jarvis stopped, so it could not check this. Turn Jarvis off and on in [Settings](page:vgs.jarvis/Settings)." };
 // The AI model step declares named actions, Add key ("key") and Sign in
 // ("signIn"), so its value names the one that applies or carries no
 // action: the manifest judge refuses a boolean on it. A Pi below its floor
@@ -321,7 +337,7 @@ function modelStep(value, keys, access) {
 // { kind: "answered", causes } from its status, as { setup, setupHome,
 // setupVoice, setupModel }. No value holds a keyed cause: the service
 // log keeps it.
-function readiness(answer) {
+function readiness(answer, home) {
     switch (answer.kind) {
     case "checking":
         return { setup: CHECKING_SUMMARY, setupHome: HOME_UNCHECKED, setupVoice: CHECKING, setupModel: noAction(CHECKING) };
@@ -350,8 +366,7 @@ function readiness(answer) {
             var name = STEP_NAMES[REQUIRED[step]];
             if (open.indexOf(name) === -1) open.push(name);
             if (REQUIRED[step] === "setupHome") {
-                out.setupHome = { tone: "warning", text: "To do",
-                    hint: Object.prototype.hasOwnProperty.call(HOME_TODO, cause) ? HOME_TODO[cause] : HOME_STEP_TODO };
+                out.setupHome = homeStep(cause, home);
                 return;
             }
             // ElevenLabs's voices are being read: the voice is chosen once
