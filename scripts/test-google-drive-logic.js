@@ -47,7 +47,7 @@ const CONFLICTS = [
 const DRIVE_CONFLICTS = [
     { kind: "unreadable-on-drive", pair: "docs", pairLabel: "Documents", path: "reports/Plan \u2013 first draft.pdf", reason: "failed to open source object: can't read dangling shortcut", since: iso(NOW - HOUR) },
     { kind: "unreadable-on-drive", pair: "docs", pairLabel: "Documents", path: "reports/Second gone.pdf", localPath: "/home/me/gdrive/reports/Second gone.pdf", reason: "failed to open source object: can't read dangling shortcut", since: iso(NOW - HOUR) },
-    { kind: "duplicate-on-drive", pair: "docs", pairLabel: "Documents", path: "reports/Twice listed.txt", localPath: "/home/me/gdrive/reports/Twice listed.txt", since: iso(NOW - HOUR) }
+    { kind: "duplicate-different", pair: "docs", pairLabel: "Documents", path: "reports/Twice listed.txt", localPath: "/home/me/gdrive/reports/Twice listed.txt", since: iso(NOW - HOUR) }
 ];
 function record(over) {
     return Object.assign({

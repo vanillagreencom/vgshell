@@ -12,16 +12,23 @@
 
 ## Conflicts
 
-| Record | Meaning | Result |
-| --- | --- | --- |
-| `both-changed` | The file changed on this computer and on Drive since the last sync, or a new pair holds a different file on each side. | The newer file is on both sides. An older local file is kept under the pair's records. An older Drive file is an earlier revision in Drive. |
-| `removed-locally` | The file was removed on this computer. | The file returns from Drive. |
-| `removed-on-drive` | The file was removed on Drive. | The file returns to Drive. |
-| `renamed` | Drive's object id shows that the file has a new name. | Both names exist: the old name returns to Drive. |
-| `unreadable-on-drive` | The download of the file failed, such as for a shortcut whose target is gone. The record holds rclone's reason; the window gives it in plain words. | The file is not copied and keeps its last baseline. The rest of the pair is synced. |
-| `duplicate-on-drive` | Drive holds two files with this name in one folder. | One of them is copied. |
+| Record | Meaning | Result | Needs |
+| --- | --- | --- | --- |
+| `both-changed` | The file changed on this computer and on Drive since the last sync, or a new pair holds a different file on each side. | The newer file is on both sides. An older local file is kept under the pair's records. An older Drive file is an earlier revision in Drive. | you |
+| `removed-locally` | The file was removed on this computer. | The file returns from Drive. | nothing |
+| `removed-on-drive` | The file was removed on Drive. | The file returns to Drive. | nothing |
+| `renamed` | Drive's object id shows that the file has a new name. | Both names exist: the old name returns to Drive. | nothing |
+| `unreadable-on-drive` | The download of the file failed, such as for a shortcut whose target is gone. The record holds rclone's reason; the window gives it in plain words. | The file is not copied and keeps its last baseline. The rest of the pair is synced. | nothing for a dangling shortcut, else you |
+| `duplicate-identical` | Drive holds two or more files with this name in one folder, each with an md5, all with the same md5 and size. | One of them is copied. | nothing |
+| `duplicate-different` | Drive holds two or more files with this name in one folder that are not all the same, Google-native documents included, which have no md5. | One of them is copied. | you when `mine`, else nothing |
 
-The last two records stand only while the last download met the file: a sync where the file copies removes its record, and the 30-day removal does not apply to them.
+The unreadable and duplicate records stand only while the last download met the file: a sync where the file copies removes its record, and the 30-day removal does not apply to them.
+
+A duplicate record holds `mine`, true when the signed-in account, the token's `user` attribute, owns one of the copies, and, when `mine` is false, `owner`, the first copy's owner Drive names. A copy with no owner, as on a shared drive, and a token that names no account never count as the user's. The runner reads the copies' sizes, md5s and owners with one read-only `rclone lsjson --hash --metadata --drive-metadata-owner read` of each folder that holds a doubled name, only in a sync whose download met one.
+
+In the status record each of `conflicts` carries `needs`, `you` or `nothing`, from the table, and `needsYou` counts the `you` rows. The `conflicts` attention reason and its key take only the `you` rows, so a note never notifies.
+
+An earlier runner recorded a doubled name as `duplicate-on-drive`, with no copy facts. The first invocation of this runner drops those records, logging `migration=pair-state ... dropped=duplicate-on-drive`, since reading the copies needs Google Drive and that step runs without it; the next sync that meets the name records it whole. A status record that an earlier runner notified of stays notified across the new attention key.
 
 A pair that another run holds reads `busy` and copies nothing.
 

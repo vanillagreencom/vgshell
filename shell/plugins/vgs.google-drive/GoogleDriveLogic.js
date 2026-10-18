@@ -14,7 +14,7 @@
 var STATES = ["idle", "running", "paused", "offline", "authorization-required", "error", "not-set-up"];
 var PAIR_STATES = ["idle", "running", "paused", "offline", "authorization-required", "error"];
 var UNITS = ["installed", "absent", "stale"];
-var CONFLICT_KINDS = ["both-changed", "removed-locally", "removed-on-drive", "renamed", "unreadable-on-drive", "duplicate-on-drive"];
+var CONFLICT_KINDS = ["both-changed", "removed-locally", "removed-on-drive", "renamed", "unreadable-on-drive", "duplicate-identical", "duplicate-different"];
 var PRESENCES = ["present", "absent", "locked", "unavailable"];
 // The credential accounts of the manifest's `secrets`, in the order the
 // Setup section lists them (bin/google-drive probe prints the same set).
@@ -80,7 +80,8 @@ var CONFLICT_TEXT = {
     "removed-on-drive": "Removed from Google Drive. The copy here stays.",
     renamed: "Renamed on Google Drive. The old name was copied back to Google Drive.",
     "unreadable-on-drive": "VGS could not copy this file from Google Drive.",
-    "duplicate-on-drive": "Google Drive holds two files with this name. VGS copied one of them."
+    "duplicate-identical": "Google Drive holds two files with this name. VGS copied one of them.",
+    "duplicate-different": "Google Drive holds two files with this name. VGS copied one of them."
 };
 // The line that names the folder of the copy CONFLICT_TEXT speaks of,
 // before that folder's path: the kept older copy, or the copy here.

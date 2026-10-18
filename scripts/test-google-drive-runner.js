@@ -11,7 +11,14 @@
 // the last success; a download that ran to its end past a file Drive could
 // not open ends synced with that file and a doubled name to review and
 // keeps that file's baseline, while a network cause in the same lines, an
-// error that names no file and a fatal exit stay a failure; the exclusions; pair validation; install, start, probe
+// error that names no file and a fatal exit stay a failure; a doubled
+// name is identical or different, and the account's own or not, from one
+// read-only listing of its folder that runs only when the copy met a
+// doubled name; each review record needs the user or nothing, and only
+// the ones that need the user ask for attention or change its key; the
+// earlier doubled-name record is dropped on the first invocation, and a
+// notified status record stays notified across the key's change; the
+// exclusions; pair validation; install, start, probe
 // and status; the probe names a token's account; authorize stores the
 // token Google's consent returns through secret-tool's stdin as the
 // account's one item, named for the account Drive's about read returns,
@@ -120,7 +127,7 @@ function read(file) {
 let worlds = 0;
 // A fresh home, runtime directory, stand-ins and fixture Drive.
 function world(options) {
-    const opts = Object.assign({ secrets: Object.keys(SECRETS), ids: false }, options || {});
+    const opts = Object.assign({ secrets: Object.keys(SECRETS), ids: false, user: null }, options || {});
     const root = path.join(scratch, "w" + (worlds += 1));
     const w = {
         root,
@@ -147,7 +154,8 @@ function world(options) {
         RCLONE_CONFIG_VGSDRIVE_TYPE: "s3"
     };
     fs.symlinkSync(HOST.flock, path.join(w.bin, "flock"));
-    for (const account of opts.secrets) write(path.join(w.stub, "secrets", account), SECRETS[account]);
+    // USER names the token item's account, as authorize stores it.
+    for (const account of opts.secrets) write(path.join(w.stub, "secrets", account === "token" && opts.user !== null ? "token.user." + opts.user : account), SECRETS[account]);
     if (opts.ids) write(path.join(w.stub, "ids"), "");
     // Each item is a file of the store: <account> holds one without a
     // `user` attribute, <account>.user.<address> one with it, and
@@ -278,6 +286,25 @@ for (const item of items) {
 }
 process.stdout.write(JSON.stringify(items));
 `);
+    // A listing of one Drive folder with each copy's metadata, as the
+    // runner asks for a folder that holds a doubled name: the items
+    // \`folder-listings\` maps the folder's remote path to, which the local
+    // backend cannot hold, since a folder there holds a name once; with
+    // \`folder-listing-offline\`, rclone's offline failure instead.
+    write(path.join(w.stub, "folder-listing.js"), `const fs = require("fs");
+const stub = process.argv[2];
+const at = process.argv.slice(3).find(a => a.startsWith("vgsdrive:"));
+const listings = JSON.parse(fs.readFileSync(stub + "/folder-listings", "utf8"));
+if (fs.existsSync(stub + "/folder-listing-offline")) {
+    process.stderr.write(${JSON.stringify(JSON.stringify(OFFLINE_LINE))} + "\\n");
+    process.exit(1);
+}
+if (!Object.hasOwn(listings, at)) {
+    process.stderr.write("stand-in: no folder listing for " + at + "\\n");
+    process.exit(3);
+}
+process.stdout.write(JSON.stringify(listings[at]));
+`);
     // The rclone stand-in: `mode` prints a real failure line instead of
     // running; `block` holds the first copy until `release` is written.
     write(path.join(w.bin, "rclone"), `#!${HOST.bash}
@@ -328,7 +355,8 @@ fi
 # Drive files rclone cannot open and a name Drive holds twice, in the
 # lines rclone v1.75.1 printed for them: the copy leaves out each file
 # \`unreadable\` names, one a line, repeats their errors over three
-# attempts and exits 1, as rclone did; with \`duplicate\` alone it exits 0
+# attempts and exits 1, as rclone did; for each name \`duplicate\` holds,
+# one a line, it prints the notice; with \`duplicate\` alone it exits 0
 # after the notice. The file \`recovered\` names fails in the first attempt
 # alone; \`uncounted\` adds an error no line names a file for to every
 # attempt's count; \`fatal\` ends the copy after one attempt with exit 7.
@@ -338,7 +366,10 @@ if [[ $leg == download && ( -f $stub/unreadable || -f $stub/duplicate ) ]]; then
   excludes=()
   for rel in "\${gone[@]}"; do excludes+=(--exclude "/$rel"); done
   ${JSON.stringify(HOST.rclone)} "$@" "\${excludes[@]}" || exit 9
-  twice() { [[ ! -f $stub/duplicate ]] || printf '2026/10/13 00:03:27 NOTICE: %s: Duplicate object found in source - ignoring\\n' "$(<"$stub/duplicate")" >&2; }
+  twice() {
+    [[ -f $stub/duplicate ]] || return 0
+    while IFS= read -r rel || [[ -n $rel ]]; do printf '2026/10/13 00:03:27 NOTICE: %s: Duplicate object found in source - ignoring\\n' "$rel" >&2; done <"$stub/duplicate"
+  }
   if [[ \${#gone[@]} == 0 ]]; then twice; exit 0; fi
   reason=$(<"$stub/unreadable-reason")
   attempts=3
@@ -365,6 +396,9 @@ if [[ $leg == download && ( -f $stub/unreadable || -f $stub/duplicate ) ]]; then
     printf '2026/10/13 00:04:59 NOTICE: Failed to copy with %s errors: last error was: %s\\n' "$errors" "$reason" >&2
   fi
   exit 1
+fi
+if [[ $3 == lsjson && " $* " == *" --metadata "* && -f $stub/folder-listings ]]; then
+  exec ${JSON.stringify(process.execPath)} "$stub/folder-listing.js" "$stub" "$@"
 fi
 if [[ $3 == lsjson && ( -f $stub/ids || -f $stub/exports ) ]]; then
   set -o pipefail
@@ -1414,14 +1448,52 @@ function caseFailedUploadKeepsBaseline(runner) {
 // Names with a space, an en dash and a no-break space, as Drive allows.
 const UNREADABLE = ["reports/Plan – first draft.pdf", "reports/Second gone.pdf"];
 const DUPLICATE = "reports/Twice listed.txt";
+// Another Google account than the signed-in ACCOUNT, and two md5 values.
+const OTHER = "someone.else@example.com";
+const MD5_ONE = "0f2d7d1a5b3e4c6a8b9d0e1f2a3b4c5d";
+const MD5_TWO = "9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b";
+
+// One copy of a doubled name as the folder listing gives it: OWNER is
+// its `owner` metadata, or null for a copy that names none, as a shared
+// drive's file does; MD5 null for a Google-native document, which rclone
+// lists with Size -1 and no md5.
+function listedCopy(rel, id, size, md5, owner) {
+    const name = rel.slice(rel.lastIndexOf("/") + 1);
+    const item = { Path: name, Name: name, Size: size, MimeType: "text/plain", ModTime: "2026-10-13T00:00:00Z", IsDir: false, ID: id, Metadata: { "content-type": "text/plain" } };
+    if (md5 !== null) item.Hashes = { md5: md5 };
+    if (owner !== null) item.Metadata.owner = owner;
+    return item;
+}
+
+// Each [rel, copies] of NAMES as a name Drive holds twice: the copy leg's
+// notice, and its copies in the listing of its folder. The fixture Drive
+// file the copy leg copies is the caller's.
+function plantDoubled(w, names) {
+    const listings = {};
+    for (const [rel, copies] of names) {
+        const folder = "vgsdrive:Docs" + (rel.includes("/") ? "/" + rel.slice(0, rel.lastIndexOf("/")) : "");
+        listings[folder] = (listings[folder] || []).concat(copies);
+    }
+    write(path.join(w.stub, "duplicate"), names.map(n => n[0]).join("\n") + "\n");
+    write(path.join(w.stub, "folder-listings"), JSON.stringify(listings));
+}
+
+// Two different copies of DUPLICATE the signed-in account owns.
+const MINE_DIFFERENT = [listedCopy(DUPLICATE, "copy-1", 13, MD5_ONE, ACCOUNT), listedCopy(DUPLICATE, "copy-2", 20, MD5_TWO, ACCOUNT)];
 
 function plantUnreadable(w, reason) {
     drive(w, "a.txt", "one\n", 1700000000);
     for (const rel of UNREADABLE) drive(w, rel, "a shortcut to nothing\n", 1700000000);
-    drive(w, DUPLICATE, "listed twice\n", 1700000000);
     write(path.join(w.stub, "unreadable"), UNREADABLE.join("\n") + "\n");
     write(path.join(w.stub, "unreadable-reason"), reason);
-    write(path.join(w.stub, "duplicate"), DUPLICATE);
+    drive(w, DUPLICATE, "listed twice\n", 1700000000);
+    plantDoubled(w, [[DUPLICATE, MINE_DIFFERENT]]);
+}
+
+// The structured fields of a status record's conflict a duplicate or the
+// needs rule decides.
+function marks(c) {
+    return { kind: c.kind, path: c.path, needs: c.needs, mine: c.mine, owner: c.owner };
 }
 
 // A download that copied every file but two Drive could not open, and met
@@ -1430,7 +1502,7 @@ function plantUnreadable(w, reason) {
 // file that failed in the first attempt alone and then copied is not one.
 // A file with no copy here names no local folder.
 function caseUnreadableOnDrive(runner) {
-    const w = world();
+    const w = world({ user: ACCOUNT });
     assert.equal(cli(w, ["install"], runner).status, 0);
     addPair(w, runner);
     plantUnreadable(w, DANGLING_REASON);
@@ -1443,11 +1515,12 @@ function caseUnreadableOnDrive(runner) {
     assert.equal(s.pairs[0].state, "idle");
     assert.equal(s.pairs[0].lastError, null);
     assert.notEqual(s.pairs[0].lastSuccess, null);
-    assert.deepEqual(s.conflicts.map(c => [c.kind, c.path, c.reason, c.localPath]), [
-        ["duplicate-on-drive", DUPLICATE, undefined, path.join(w.mirror, DUPLICATE)],
-        ["unreadable-on-drive", UNREADABLE[0], DANGLING_REASON, undefined],
-        ["unreadable-on-drive", UNREADABLE[1], DANGLING_REASON, undefined]
+    assert.deepEqual(s.conflicts.map(c => [c.kind, c.path, c.reason, c.localPath, c.needs]), [
+        ["unreadable-on-drive", UNREADABLE[0], DANGLING_REASON, undefined, "nothing"],
+        ["unreadable-on-drive", UNREADABLE[1], DANGLING_REASON, undefined, "nothing"],
+        ["duplicate-different", DUPLICATE, undefined, path.join(w.mirror, DUPLICATE), "you"]
     ]);
+    assert.equal(s.needsYou, 1);
     assert.deepEqual(s.attention.reasons, ["conflicts"]);
     return w;
 }
@@ -1469,6 +1542,7 @@ function caseUnreadableClears(runner) {
     assert.deepEqual(status(w, runner).conflicts.map(c => c.since), first.conflicts.map(() => "2000-01-01T00:00:00.000Z"));
     fs.unlinkSync(path.join(w.stub, "unreadable"));
     fs.unlinkSync(path.join(w.stub, "duplicate"));
+    fs.unlinkSync(path.join(w.stub, "folder-listings"));
     runOk(w, runner);
     assert.deepEqual(mirrorFiles(w), ["a.txt", DUPLICATE].concat(UNREADABLE).sort());
     assert.deepEqual(status(w, runner).conflicts, []);
@@ -1501,14 +1575,185 @@ function caseDownloadFailures(runner, only) {
 
 // A clean download that met a name Drive holds twice records it.
 function caseDuplicateOnCleanRun(runner) {
-    const w = world();
+    const w = world({ user: ACCOUNT });
     addPair(w, runner);
     drive(w, DUPLICATE, "listed twice\n", 1700000000);
-    write(path.join(w.stub, "duplicate"), DUPLICATE);
+    plantDoubled(w, [[DUPLICATE, MINE_DIFFERENT]]);
     const out = cli(w, ["run"], runner);
     assert.equal(out.stdout, "pair=docs result=idle\n", out.stderr);
     assert.equal(out.status, 0);
-    assert.deepEqual(status(w, runner).conflicts.map(c => [c.kind, c.path]), [["duplicate-on-drive", DUPLICATE]]);
+    assert.deepEqual(status(w, runner).conflicts.map(marks), [{ kind: "duplicate-different", path: DUPLICATE, needs: "you", mine: true, owner: undefined }]);
+}
+
+// A doubled name's record, from the folder listing alone: identical
+// when every copy has the same md5 and size, else different; mine when
+// the signed-in account owns a copy, compared without case; a record
+// that is not mine names the copies' owner when one is named. USER is
+// the account the token item names, null for a token that names none.
+const DUPLICATE_ROWS = [
+    { name: "identical copies the account owns", user: ACCOUNT, copies: [listedCopy(DUPLICATE, "c1", 13, MD5_ONE, ACCOUNT), listedCopy(DUPLICATE, "c2", 13, MD5_ONE, ACCOUNT)],
+        want: { kind: "duplicate-identical", needs: "nothing", mine: true, owner: undefined } },
+    { name: "different copies the account owns", user: ACCOUNT, copies: MINE_DIFFERENT,
+        want: { kind: "duplicate-different", needs: "you", mine: true, owner: undefined } },
+    { name: "one copy the account owns", user: ACCOUNT, copies: [listedCopy(DUPLICATE, "c1", 13, MD5_ONE, OTHER), listedCopy(DUPLICATE, "c2", 20, MD5_TWO, ACCOUNT.toUpperCase())],
+        want: { kind: "duplicate-different", needs: "you", mine: true, owner: undefined } },
+    { name: "different copies another account owns", user: ACCOUNT, copies: [listedCopy(DUPLICATE, "c1", 13, MD5_ONE, OTHER), listedCopy(DUPLICATE, "c2", 20, MD5_TWO, OTHER)],
+        want: { kind: "duplicate-different", needs: "nothing", mine: false, owner: OTHER } },
+    { name: "identical copies another account owns", user: ACCOUNT, copies: [listedCopy(DUPLICATE, "c1", 13, MD5_ONE, OTHER), listedCopy(DUPLICATE, "c2", 13, MD5_ONE, OTHER)],
+        want: { kind: "duplicate-identical", needs: "nothing", mine: false, owner: OTHER } },
+    { name: "Google-native documents", user: ACCOUNT, copies: [listedCopy(DUPLICATE, "c1", -1, null, ACCOUNT), listedCopy(DUPLICATE, "c2", -1, null, ACCOUNT)],
+        want: { kind: "duplicate-different", needs: "you", mine: true, owner: undefined } },
+    { name: "same md5, another size", user: ACCOUNT, copies: [listedCopy(DUPLICATE, "c1", 13, MD5_ONE, ACCOUNT), listedCopy(DUPLICATE, "c2", 14, MD5_ONE, ACCOUNT)],
+        want: { kind: "duplicate-different", needs: "you", mine: true, owner: undefined } },
+    { name: "a shared drive's copies name no owner", user: ACCOUNT, copies: [listedCopy(DUPLICATE, "c1", 13, MD5_ONE, null), listedCopy(DUPLICATE, "c2", 20, MD5_TWO, null)],
+        want: { kind: "duplicate-different", needs: "nothing", mine: false, owner: undefined } },
+    { name: "the token names no account", user: null, copies: MINE_DIFFERENT,
+        want: { kind: "duplicate-different", needs: "nothing", mine: false, owner: ACCOUNT } }
+];
+
+function caseDuplicateRecords(runner, only) {
+    for (const row of DUPLICATE_ROWS.filter(r => only === undefined || r.name === only)) {
+        const w = world({ user: row.user });
+        assert.equal(cli(w, ["install"], runner).status, 0);
+        addPair(w, runner);
+        drive(w, DUPLICATE, "listed twice\n", 1700000000);
+        plantDoubled(w, [[DUPLICATE, row.copies]]);
+        runOk(w, runner);
+        const s = status(w, runner);
+        assert.deepEqual(s.conflicts.map(marks), [Object.assign({ path: DUPLICATE }, row.want)], row.name);
+        assert.equal(s.needsYou, row.want.needs === "you" ? 1 : 0, row.name);
+        assert.deepEqual(s.attention === null ? [] : s.attention.reasons, row.want.needs === "you" ? ["conflicts"] : [], row.name);
+        const stored = JSON.parse(read(path.join(w.state, "pairs", "docs", "state.json"))).records;
+        assert.deepEqual(stored.map(r => [r.kind, r.mine, r.owner]), [[row.want.kind, row.want.mine, row.want.owner]], row.name + ": the pair record keeps the marks");
+    }
+}
+
+// The folder listing that decides a doubled name is read-only, runs only
+// when the copy met a doubled name, and once per folder that holds one.
+// A listing that fails fails the sync as any other leg does.
+function caseDuplicateListing(runner) {
+    const w = world({ user: ACCOUNT });
+    addPair(w, runner);
+    drive(w, "a.txt", "one\n", 1700000000);
+    runOk(w, runner);
+    const metadataReads = () => rcloneCalls(w).filter(c => c.argv[2] === "lsjson" && c.argv.includes("--metadata"));
+    assert.deepEqual(metadataReads(), [], "no doubled name, no folder listing");
+    const second = "reports/Also twice.txt";
+    const root = "Top twice.txt";
+    for (const rel of [DUPLICATE, second, root]) drive(w, rel, "listed twice\n", 1700000000);
+    plantDoubled(w, [
+        [DUPLICATE, MINE_DIFFERENT],
+        [second, [listedCopy(second, "c3", 5, MD5_ONE, ACCOUNT), listedCopy(second, "c4", 5, MD5_ONE, ACCOUNT)]],
+        [root, [listedCopy(root, "c5", 5, MD5_ONE, OTHER), listedCopy(root, "c6", 7, MD5_TWO, OTHER)]]
+    ]);
+    runOk(w, runner);
+    const reads = metadataReads();
+    assert.deepEqual(reads.map(c => c.argv.slice(2, 11)), [
+        ["lsjson", "--files-only", "--hash", "--hash-type", "md5", "--metadata", "--drive-metadata-owner", "read", "vgsdrive:Docs/reports"],
+        ["lsjson", "--files-only", "--hash", "--hash-type", "md5", "--metadata", "--drive-metadata-owner", "read", "vgsdrive:Docs"]
+    ]);
+    for (const call of reads) assert.equal(call.argv[call.argv.indexOf("--drive-export-formats") + 1], "docx,xlsx,pptx,svg");
+    assert.deepEqual(status(w, runner).conflicts.map(c => [c.path, c.kind, c.needs]).sort(), [
+        [root, "duplicate-different", "nothing"],
+        [second, "duplicate-identical", "nothing"],
+        [DUPLICATE, "duplicate-different", "you"]
+    ].sort());
+    write(path.join(w.stub, "folder-listing-offline"), "");
+    const out = cli(w, ["run"], runner);
+    assert.equal(out.stdout, "pair=docs result=offline\n", out.stderr);
+    assert.equal(status(w, runner).pairs[0].lastError.kind, "offline");
+}
+
+// Whether each kind of review record needs the user, from records as the
+// runner writes them; then a record whose rows all need nothing asks for
+// no attention, one row that needs the user brings the reason back, and a
+// note added beside it keeps the key.
+const NEEDS_ROWS = [
+    [{ kind: "both-changed", path: "b.txt" }, "you"],
+    [{ kind: "removed-locally", path: "l.txt" }, "nothing"],
+    [{ kind: "removed-on-drive", path: "d.txt" }, "nothing"],
+    [{ kind: "renamed", path: "r.txt", to: "r2.txt" }, "nothing"],
+    [{ kind: "unreadable-on-drive", path: "s.lnk", reason: DANGLING_REASON }, "nothing"],
+    [{ kind: "unreadable-on-drive", path: "u.pdf", reason: "failed to open source object: stand-in read error" }, "you"],
+    [{ kind: "duplicate-identical", path: "i.txt", mine: true }, "nothing"],
+    [{ kind: "duplicate-different", path: "m.txt", mine: true }, "you"],
+    [{ kind: "duplicate-different", path: "o.txt", mine: false, owner: OTHER }, "nothing"]
+];
+
+function writeRecords(w, records) {
+    const file = path.join(w.state, "pairs", "docs", "state.json");
+    const state = JSON.parse(read(file));
+    state.records = records.map(r => Object.assign({ since: "2026-10-13T00:00:00.000Z" }, r));
+    write(file, JSON.stringify(state));
+}
+
+function caseNeedsAttention(runner) {
+    const w = world();
+    assert.equal(cli(w, ["install"], runner).status, 0);
+    addPair(w, runner);
+    drive(w, "a.txt", "one\n", 1700000000);
+    runOk(w, runner);
+    writeRecords(w, NEEDS_ROWS.map(row => row[0]));
+    const all = status(w, runner);
+    assert.deepEqual(all.conflicts.map(c => [c.path, c.needs]), NEEDS_ROWS.map(row => [row[0].path, row[1]]));
+    assert.equal(all.needsYou, NEEDS_ROWS.filter(row => row[1] === "you").length);
+    const notes = NEEDS_ROWS.filter(row => row[1] === "nothing").map(row => row[0]);
+    writeRecords(w, notes);
+    const quiet = status(w, runner);
+    assert.equal(quiet.needsYou, 0);
+    assert.equal(quiet.attention, null, "notes alone ask for no attention");
+    const needing = NEEDS_ROWS.find(row => row[0].kind === "both-changed")[0];
+    writeRecords(w, notes.slice(1).concat([needing]));
+    const asked = status(w, runner);
+    assert.equal(asked.needsYou, 1);
+    assert.deepEqual(asked.attention.reasons, ["conflicts"]);
+    writeRecords(w, notes.concat([needing]));
+    assert.equal(status(w, runner).attention.key, asked.attention.key, "a note beside it keeps the key");
+}
+
+// The pair record's earlier doubled-name kind, which said nothing of the
+// copies, is dropped on the first invocation, with no credential or
+// network; the next sync that meets the name records it whole. A status
+// record an earlier runner notified of stays notified across the change
+// of key, so the update raises no notification; one it had not notified
+// of stays not notified.
+const MIGRATION_ROWS = [
+    { name: "notified", notified: true },
+    { name: "not notified", notified: false }
+];
+
+function caseDuplicateMigration(runner, only) {
+    for (const row of MIGRATION_ROWS.filter(r => only === undefined || r.name === only)) {
+        const w = world({ user: ACCOUNT });
+        assert.equal(cli(w, ["install"], runner).status, 0);
+        addPair(w, runner);
+        drive(w, "a.txt", "one\n", 1700000000);
+        runOk(w, runner);
+        const stateFile = path.join(w.state, "pairs", "docs", "state.json");
+        const old = JSON.parse(read(stateFile));
+        old.records = [
+            { kind: "duplicate-on-drive", path: DUPLICATE, since: "2026-10-13T00:00:00.000Z" },
+            { kind: "both-changed", path: "b.txt", since: "2026-10-13T00:00:00.000Z" }
+        ];
+        write(stateFile, JSON.stringify(old));
+        // The earlier runner's record: no needsYou, its key over every row.
+        const earlier = JSON.parse(read(path.join(w.state, "status.json")));
+        delete earlier.needsYou;
+        earlier.attention = { reasons: ["conflicts"], key: "0123456789abcdef", notified: row.notified };
+        write(path.join(w.state, "status.json"), JSON.stringify(earlier));
+        write(path.join(w.state, "control.json"), JSON.stringify({ paused: false, pausedPairs: [], notifiedKey: row.notified ? "0123456789abcdef" : null }));
+        const out = cli(w, ["pairs"], runner);
+        assert.equal(out.status, 0, row.name + ": " + out.stderr);
+        assert.deepEqual(JSON.parse(read(stateFile)).records.map(r => r.kind), ["both-changed"], row.name);
+        assert.equal(rcloneCalls(w).filter(c => c.argv.includes("--metadata")).length, 0, row.name + ": the migration lists nothing");
+        const s = JSON.parse(read(path.join(w.state, "status.json")));
+        assert.deepEqual([s.needsYou, s.attention.reasons, s.attention.notified], [1, ["conflicts"], row.notified], row.name);
+        assert.deepEqual(status(w, runner).attention, s.attention, row.name + ": a later render keeps it");
+        drive(w, DUPLICATE, "listed twice\n", 1700000000);
+        plantDoubled(w, [[DUPLICATE, MINE_DIFFERENT]]);
+        runOk(w, runner);
+        assert.deepEqual(status(w, runner).conflicts.filter(c => c.path === DUPLICATE).map(marks), [{ kind: "duplicate-different", path: DUPLICATE, needs: "you", mine: true, owner: undefined }], row.name);
+    }
 }
 
 // A changed Drive file whose download failed keeps the baseline of the
@@ -1542,11 +1787,11 @@ function caseUnreadableDriveFolderGone(runner) {
     drive(w, UNREADABLE[0], "a shortcut to nothing\n", 1700000000);
     write(path.join(w.stub, "unreadable"), UNREADABLE[0] + "\n");
     write(path.join(w.stub, "unreadable-reason"), DANGLING_REASON);
-    write(path.join(w.stub, "duplicate"), DUPLICATE);
+    plantDoubled(w, [[DUPLICATE, MINE_DIFFERENT]]);
     // An excluded file: the mirror exists and nothing uploads.
     write(path.join(w.mirror, "notes.swp"), "swap\n");
     runOk(w, runner);
-    assert.deepEqual(status(w, runner).conflicts.map(c => c.kind), ["duplicate-on-drive", "unreadable-on-drive"]);
+    assert.deepEqual(status(w, runner).conflicts.map(c => c.kind), ["unreadable-on-drive", "duplicate-different"]);
     fs.rmSync(path.join(w.drive, "Docs"), { recursive: true, force: true });
     write(path.join(w.mirror, "first.txt"), "first\n");
     runOk(w, runner);
@@ -2134,7 +2379,7 @@ async function controls() {
     await mustFail("stale units refresh", mutant("stale units refresh", "if (verb !== \"install\") refreshStaleInstallIfNeeded();", ""), caseStaleUnitsRefresh);
     await mustFail("stale refresh never refuses", mutant("stale refresh never refuses", "if (done.failure !== null) log(\"units=stale refresh=failed \" + done.failure);", "if (done.failure !== null) refuse(done.failure);"), caseStaleUnitsRefresh);
     await mustFail("forbidden argv", mutant("forbidden argv", "const uploadArgs = [\"copy\", \"--update\", pair.local, remotePath(pair)].concat(filterArgs());", "const uploadArgs = [\"copy\", \"--update\", pair.local, remotePath(pair), \"--delete-after\"].concat(filterArgs());"), caseForbiddenRcloneArgv);
-    await mustFail("attention key", mutant("attention key", "conflicts.map(c => [c.kind, c.pair, c.path, c.since]), cause])", "conflicts.map(c => [c.kind, c.pair, c.path, c.since]), lastError])"), caseFailures);
+    await mustFail("attention key", mutant("attention key", "needing.map(c => [c.kind, c.pair, c.path, c.since]), cause])", "needing.map(c => [c.kind, c.pair, c.path, c.since]), lastError])"), caseFailures);
     await mustFail("orphaned copy lock", mutant("orphaned copy lock", "stdio: [\"ignore\", \"pipe\", \"pipe\", lock] });", "stdio: [\"ignore\", \"pipe\", \"pipe\"] });"), caseInterrupted);
     await mustFail("both-changed", mutant("both-changed", "const unedited = base !== undefined", "const unedited = true || base !== undefined"), caseBothChangedKept);
     await mustFail("lock", mutant("lock", "if (out.status === 0) return fd;", "if (out.status === 0 || true) return fd;"), caseBusy);
@@ -2149,7 +2394,18 @@ async function controls() {
     await mustFail("a network cause stays a failure", mutant("a network cause stays a failure", "if (result.kind !== \"rclone-failed\" || result.exit === 7) return null;", "if (result.exit === 7) return null;"), r => caseDownloadFailures(r, "network cause"));
     await mustFail("every counted error names a file", mutant("every counted error names a file", "if (reasons.size !== Number(ATTEMPT_END.exec(lines[last])[1])) return null;", "if (false) return null;"), r => caseDownloadFailures(r, "error naming no file"));
     await mustFail("a fatal exit stays a failure", mutant("a fatal exit stays a failure", "if (result.kind !== \"rclone-failed\" || result.exit === 7) return null;", "if (result.kind !== \"rclone-failed\") return null;"), r => caseDownloadFailures(r, "fatal exit"));
-    await mustFail("a clean download records a doubled name", mutant("a clean download records a doubled name", "if (result.ok) return found;", "if (result.ok) return [];"), caseDuplicateOnCleanRun);
+    await mustFail("a clean download records a doubled name", mutant("a clean download records a doubled name", "if (result.ok) return found;", "if (result.ok) return { unreadable: [], doubled: [] };"), caseDuplicateOnCleanRun);
+    await mustFail("the not-owned flag", mutant("the not-owned flag", "if (typeof record.mine === \"boolean\") kept.mine = record.mine;", ""), r => caseDuplicateRecords(r, "different copies another account owns"));
+    await mustFail("mine needs the account's own copy", mutant("mine needs the account's own copy", "const mine = address !== null && owners.some(o => o !== null && o.toLowerCase() === address.toLowerCase());", "const mine = owners.some(o => o !== null);"), r => caseDuplicateRecords(r, "different copies another account owns"));
+    await mustFail("mine needs a known account", mutant("mine needs a known account", "const mine = address !== null && owners.some(", "const mine = address === null || owners.some("), r => caseDuplicateRecords(r, "the token names no account"));
+    await mustFail("identical needs an md5", mutant("identical needs an md5", "md5s.every(m => m !== null && /^[0-9a-f]{32}$/.test(m) && m === md5s[0])", "md5s.every(m => m === md5s[0])"), r => caseDuplicateRecords(r, "Google-native documents"));
+    await mustFail("identical needs one size", mutant("identical needs one size", " && copies.every(c => c.Size === copies[0].Size);", ";"), r => caseDuplicateRecords(r, "same md5, another size"));
+    await mustFail("folder listing only for a doubled name", mutant("folder listing only for a doubled name", "const folders = new Map();", "const folders = new Map([[\"\", []]]);"), caseDuplicateListing);
+    await mustFail("a dangling shortcut needs nothing", mutant("a dangling shortcut needs nothing", "return DANGLING.test(record.reason) ? \"nothing\" : \"you\";", "return \"you\";"), caseNeedsAttention);
+    await mustFail("only needs-you rows ask for attention", mutant("only needs-you rows ask for attention", "if (needing.length > 0) reasons.push(\"conflicts\");", "if (conflicts.length > 0) reasons.push(\"conflicts\");"), caseNeedsAttention);
+    await mustFail("the key hashes needs-you rows", mutant("the key hashes needs-you rows", "needing.map(c => [c.kind, c.pair, c.path, c.since]), cause])", "conflicts.map(c => [c.kind, c.pair, c.path, c.since]), cause])"), caseNeedsAttention);
+    await mustFail("the earlier doubled-name kind is dropped", mutant("the earlier doubled-name kind is dropped", "    if (oldDuplicates(state)) {", "    if (false) {"), r => caseDuplicateMigration(r, "not notified"));
+    await mustFail("a notified record stays notified", mutant("a notified record stays notified", "&& after.reasons.every(r => earlier.reasons.indexOf(r) !== -1))", "&& false)"), r => caseDuplicateMigration(r, "notified"));
     await mustFail("a failed download keeps the baseline", mutant("a failed download keeps the baseline", "if (held.has(item.Path)) {", "if (false) {"), caseUnreadableKeepsBaseline);
     await mustFail("no download clears the drive records", mutant("no download clears the drive records", "state.records = withDriveRecords(state.records, []);", "void 0;"), caseUnreadableDriveFolderGone);
     await mustFail("drive records outlive the age cut", mutant("drive records outlive the age cut", "if (DRIVE_KINDS.indexOf(r.kind) === -1 && Date.parse(r.since) < cutoff) return false;", "if (Date.parse(r.since) < cutoff) return false;"), caseUnreadableClears);
@@ -2232,6 +2488,10 @@ async function main() {
     caseUnreadableClears();
     caseDownloadFailures();
     caseDuplicateOnCleanRun();
+    caseDuplicateRecords();
+    caseDuplicateListing();
+    caseNeedsAttention();
+    caseDuplicateMigration();
     caseUnreadableKeepsBaseline();
     caseUnreadableDriveFolderGone();
     caseSamePathNoBaseline();

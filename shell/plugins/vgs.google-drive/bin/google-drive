@@ -13,7 +13,10 @@
 //       renders the status record, writes it and prints it as one JSON line
 //       (nothing with --quiet: the service's ExecStopPost).
 //       The record's `attention`, when set, is { reasons, key, notified }:
-//       notified is true once `attention-seen` named that key.
+//       notified is true once `attention-seen` named that key. Each of its
+//       `conflicts` carries `needs`, "you" or "nothing" (needsOf), and
+//       `needsYou` counts the ones that need the user; only those make the
+//       `conflicts` reason and its key.
 //   google-drive attention-seen <key>
 //       records that the plugin notified the user of attention KEY, so no
 //       later render or shell start notifies again; prints `seen=<key>`.
@@ -59,10 +62,10 @@
 // written whole under a temporary name and renamed into place.
 //
 // Before any verb, every invocation runs the rename from the plugin's
-// previous name (the rename section), then the pair list and pair state
-// converters. While a sync of the previous name's service runs, the rename
-// refuses the invocation with `migration=held` and exit 75 and leaves
-// that name's timer enabled. A rename step left for a later invocation,
+// previous name (the rename section), then the pair list, pair state and
+// status record converters. While a sync of the previous name's service
+// runs, the rename refuses the invocation with `migration=held` and exit
+// 75 and leaves that name's timer enabled. A rename step left for a later invocation,
 // such as the keyring step while the keyring is locked, keeps
 // rename.pending in the state directory, logs `migration=held` and lets
 // the verb go on; an account still under the previous name reads as
@@ -494,22 +497,36 @@ function readInventory(id) {
     return read.kind === "ok" && plain(read.value) && plain(read.value.entries) ? read.value.entries : {};
 }
 
+// The pair state's converter steps, oldest first (D107). The first form
+// kept local edits in `localEdits` and Drive-side records in the
+// inventory. The second recorded a doubled Drive name as
+// OLD_DUPLICATE_KIND, which said nothing of its copies.
+const OLD_DUPLICATE_KIND = "duplicate-on-drive";
+
 function oldPairState(value) {
     return plain(value) && Array.isArray(value.localEdits);
+}
+
+function oldDuplicates(value) {
+    return plain(value) && Array.isArray(value.records) && value.records.some(r => plain(r) && r.kind === OLD_DUPLICATE_KIND);
+}
+
+function pairStateOutdated(value) {
+    return oldPairState(value) || oldDuplicates(value);
 }
 
 function migratePairStateIfNeeded(id) {
     const stateFile = path.join(pairDir(id), "state.json");
     const inventoryFile = path.join(pairDir(id), "inventory.json");
     const stateRead = readJson(stateFile);
-    if (stateRead.kind !== "ok" || !oldPairState(stateRead.value)) return;
-    const inventoryRead = readJson(inventoryFile);
-    const state = stateRead.kind === "ok" && plain(stateRead.value) ? Object.assign({}, stateRead.value) : {};
-    const inventory = inventoryRead.kind === "ok" && plain(inventoryRead.value) && plain(inventoryRead.value.entries) ? inventoryRead.value.entries : {};
-    const records = Array.isArray(state.records) ? state.records.slice() : [];
-    const migrationTime = Date.now();
-    const migratedStamp = stampOf(migrationTime);
-    if (Array.isArray(state.localEdits)) {
+    if (stateRead.kind !== "ok" || !pairStateOutdated(stateRead.value)) return;
+    const state = Object.assign({}, stateRead.value);
+    if (oldPairState(state)) {
+        const inventoryRead = readJson(inventoryFile);
+        const inventory = inventoryRead.kind === "ok" && plain(inventoryRead.value) && plain(inventoryRead.value.entries) ? inventoryRead.value.entries : {};
+        const records = Array.isArray(state.records) ? state.records.slice() : [];
+        const migrationTime = Date.now();
+        const migratedStamp = stampOf(migrationTime);
         for (const edit of state.localEdits) {
             if (!plain(edit) || typeof edit.path !== "string" || typeof edit.stored !== "string") continue;
             const slash = edit.stored.indexOf("/");
@@ -523,36 +540,50 @@ function migratePairStateIfNeeded(id) {
             addRecord(records, { kind: "both-changed", path: edit.path, stored: renamed, since: new Date(migrationTime).toISOString() });
         }
         delete state.localEdits;
+        for (const rel of Object.keys(inventory)) {
+            const entry = inventory[rel];
+            if (!plain(entry) || (entry.state !== "removed-on-drive" && entry.state !== "renamed")) continue;
+            addRecord(records, { kind: entry.state, path: rel, since: new Date(migrationTime).toISOString(), to: entry.to });
+            delete entry.state;
+            delete entry.since;
+            delete entry.to;
+        }
+        state.records = records;
+        if (inventoryRead.kind === "ok") writeJson(inventoryFile, { entries: inventory });
     }
-    for (const rel of Object.keys(inventory)) {
-        const entry = inventory[rel];
-        if (!plain(entry) || (entry.state !== "removed-on-drive" && entry.state !== "renamed")) continue;
-        addRecord(records, { kind: entry.state, path: rel, since: new Date(migrationTime).toISOString(), to: entry.to });
-        delete entry.state;
-        delete entry.since;
-        delete entry.to;
+    // A doubled-name record is dropped, not converted: whether its copies
+    // match and who owns them takes a Drive listing, and this step runs
+    // with no credential or network. It holds no kept copy, and the
+    // download leg decides these kinds afresh each run (withDriveRecords),
+    // so the next sync that meets the name records it whole. Dropping adds
+    // no record, so it raises no notification.
+    if (oldDuplicates(state)) {
+        const dropped = state.records.filter(r => plain(r) && r.kind === OLD_DUPLICATE_KIND).length;
+        state.records = state.records.filter(r => !(plain(r) && r.kind === OLD_DUPLICATE_KIND));
+        log("migration=pair-state pair=" + id + " dropped=" + OLD_DUPLICATE_KIND + " count=" + dropped);
     }
-    state.records = records;
     writeJson(stateFile, state);
-    if (inventoryRead.kind === "ok") writeJson(inventoryFile, { entries: inventory });
     log("migration=pair-state pair=" + id + " result=written");
 }
 
+// Whether a pair state was converted, so the caller rewrites the status
+// record, which an earlier runner rendered from the earlier form.
 function migratePairStatesIfNeeded() {
     const root = path.join(stateDir, "pairs");
     let ids;
     try {
         ids = fs.readdirSync(root, { withFileTypes: true }).filter(e => e.isDirectory()).map(e => e.name);
     } catch (e) {
-        if (e.code === "ENOENT") return;
+        if (e.code === "ENOENT") return false;
         throw e;
     }
     const old = ids.some(id => {
         const stateRead = readJson(path.join(pairDir(id), "state.json"));
-        return stateRead.kind === "ok" && oldPairState(stateRead.value);
+        return stateRead.kind === "ok" && pairStateOutdated(stateRead.value);
     });
-    if (!old) return;
+    if (!old) return false;
     withStateLock(() => ids.forEach(migratePairStateIfNeeded));
+    return true;
 }
 
 // ------------------------------------------------------------ credentials
@@ -577,7 +608,7 @@ function searchItem(tool, account, service) {
     if (out.status !== 0) return { kind: "unavailable", reason: out.status === null ? "secret-tool-timeout" : "secret-tool-failed" };
     const lines = out.stdout.split("\n");
     const secret = lines.find(line => line.startsWith("secret = "));
-    if (secret !== undefined && secret.length > "secret = ".length) return { kind: "found", value: secret.slice("secret = ".length) };
+    if (secret !== undefined && secret.length > "secret = ".length) return { kind: "found", value: secret.slice("secret = ".length), user: userAttribute(out.stderr) };
     if (lines.some(line => line.startsWith("label = "))) return { kind: "locked" };
     return { kind: "absent" };
 }
@@ -594,19 +625,22 @@ function readSecret(tool, account) {
     return got;
 }
 
-// { kind: "found", values: { part: value } }, or the first account that
-// failed: { kind: "absent"|"locked"|"unavailable", account, reason? }.
+// { kind: "found", values: { part: value }, address }, address the
+// token's `user` attribute or null, or the first account that failed:
+// { kind: "absent"|"locked"|"unavailable", account, reason? }.
 function readCredential() {
     const tool = which("secret-tool");
     const values = {};
+    let address = null;
     for (const part of CREDENTIAL_PARTS) {
         const account = part;
         if (tool === null) return { kind: "unavailable", account: account, reason: "secret-tool-missing" };
         const got = readSecret(tool, account);
         if (got.kind !== "found") return Object.assign({ account: account }, got);
         values[part] = got.value;
+        if (part === "token") address = got.user;
     }
-    return { kind: "found", values: values };
+    return { kind: "found", values: values, address: address };
 }
 
 // A Google account address as the keyring's `user` attribute and the
@@ -614,6 +648,13 @@ function readCredential() {
 // text on each side.
 function validAddress(value) {
     return typeof value === "string" && value.length <= 254 && /^[^@\s\u0000-\u001f\u007f-\u009f]+@[^@\s\u0000-\u001f\u007f-\u009f]+$/.test(value);
+}
+
+// The item's `user` attribute in secret-tool search's STDERR, when it
+// holds an address, else null.
+function userAttribute(stderr) {
+    const named = String(stderr).split("\n").find(line => line.startsWith("attribute.user = "));
+    return named !== undefined && validAddress(named.slice("attribute.user = ".length)) ? named.slice("attribute.user = ".length) : null;
 }
 
 // Presence without the value: stdout goes nowhere; an item found, locked
@@ -629,8 +670,7 @@ function probeItem(tool, account, service) {
     const lines = out.stderr.split("\n");
     const found = lines.some(line => line.startsWith("attribute."));
     const failure = lines.find(line => line.startsWith("secret-tool: "));
-    const named = lines.find(line => line.startsWith("attribute.user = "));
-    const user = named !== undefined && validAddress(named.slice("attribute.user = ".length)) ? named.slice("attribute.user = ".length) : null;
+    const user = userAttribute(out.stderr);
     if (!found && failure === undefined) return { presence: "absent", user: null };
     if (found && failure === undefined) return { presence: "present", user: user };
     if (found && /locked/i.test(failure)) return { presence: "locked", user: user };
@@ -773,6 +813,8 @@ function addRecord(records, record) {
     if (typeof record.stored === "string") kept.stored = record.stored;
     if (typeof record.to === "string") kept.to = record.to;
     if (typeof record.reason === "string") kept.reason = record.reason;
+    if (typeof record.mine === "boolean") kept.mine = record.mine;
+    if (typeof record.owner === "string") kept.owner = record.owner;
     records.push(kept);
 }
 
@@ -784,12 +826,95 @@ function addRecord(records, record) {
 const FILE_ERROR = /^\S+ \S+ ERROR : (.+?): Failed to copy: (.+)$/;
 const ATTEMPT_END = /^\S+ \S+ ERROR : Attempt \d+\/\d+ failed with (\d+) errors and: /;
 const DUPLICATE = /^\S+ \S+ NOTICE: (.+): Duplicate object found in source - ignoring$/;
+// The reason rclone v1.75.1 gave for a Drive shortcut whose target is
+// gone: "failed to open source object: can't read dangling shortcut".
+const DANGLING = /can't read dangling shortcut/;
 // The record kinds a download leg alone decides, each run afresh.
-const DRIVE_KINDS = ["unreadable-on-drive", "duplicate-on-drive"];
+const DRIVE_KINDS = ["unreadable-on-drive", "duplicate-identical", "duplicate-different"];
 
-// The files the download leg RESULT leaves for review, each one it could
-// not copy and each name Drive holds twice, or null when the copy could
-// not run. rclone "will accumulate errors as it goes along,
+// Whether a review record needs the user, "you", or only tells them what
+// the sync did, "nothing". A doubled name needs the user only when the
+// copies differ and the signed-in account owns one of them; only an
+// owner can remove a copy.
+function needsOf(record) {
+    switch (record.kind) {
+    case "both-changed": return "you";
+    case "removed-locally":
+    case "removed-on-drive":
+    case "renamed":
+    case "duplicate-identical": return "nothing";
+    case "unreadable-on-drive": return DANGLING.test(record.reason) ? "nothing" : "you";
+    case "duplicate-different": return record.mine === true ? "you" : "nothing";
+    }
+    throw new Error("google-drive: review record kind " + JSON.stringify(record.kind) + " is not one this runner writes");
+}
+
+// The md5 a listed Drive item carries, or null; rclone's drive backend
+// lists none for a Google-native document.
+function listedMd5(item) {
+    return plain(item.Hashes) && typeof item.Hashes.md5 === "string" ? item.Hashes.md5 : null;
+}
+
+// The duplicate record of REL from COPIES, the folder listing's items of
+// that name: identical when every copy has an md5 and every copy has the
+// same md5 and size, else different, a Google-native document among
+// them. ADDRESS is the signed-in account's, or null when the token names
+// none. `mine` is true only when a copy's owner is ADDRESS, compared as
+// Google compares addresses, without case: a copy that names no owner,
+// as a shared drive's files do, or an unknown ADDRESS never counts as the
+// user's, so no record claims the user can remove a copy that is not
+// shown to be theirs. A record that is not mine names the first copy's
+// owner that is an address, when one is.
+function duplicateRecord(rel, copies, address) {
+    const md5s = copies.map(listedMd5);
+    const identical = md5s.every(m => m !== null && /^[0-9a-f]{32}$/.test(m) && m === md5s[0]) && copies.every(c => c.Size === copies[0].Size);
+    const owners = copies.map(c => plain(c.Metadata) && validAddress(c.Metadata.owner) ? c.Metadata.owner : null);
+    const mine = address !== null && owners.some(o => o !== null && o.toLowerCase() === address.toLowerCase());
+    const record = { kind: identical ? "duplicate-identical" : "duplicate-different", path: rel, mine: mine };
+    const named = owners.find(o => o !== null);
+    if (!mine && named !== undefined) record.owner = named;
+    return record;
+}
+
+// The records of DOUBLED, the names the download met twice, from one
+// read-only listing per folder that holds one, LIST_FOLDER(folder) being
+// that listing's rclone call: { kind: "read", records } or
+// { kind: "failed", result }, result an rclone failure or null when its
+// answer is not JSON. rclone's listing names every copy (the copy leg's
+// notice is about the one it ignored), so a name it now lists once has
+// changed on Drive since the copy and is left for the next run.
+function duplicateRecords(doubled, listFolder, address) {
+    const folders = new Map();
+    for (const rel of doubled) {
+        const slash = rel.lastIndexOf("/");
+        const folder = slash === -1 ? "" : rel.slice(0, slash);
+        if (!folders.has(folder)) folders.set(folder, []);
+        folders.get(folder).push(rel);
+    }
+    const records = [];
+    for (const [folder, paths] of folders) {
+        const listed = listFolder(folder);
+        if (!listed.ok) return { kind: "failed", result: listed };
+        let items;
+        try {
+            items = JSON.parse(listed.stdout);
+        } catch (_e) {
+            return { kind: "failed", result: null };
+        }
+        if (!Array.isArray(items)) return { kind: "failed", result: null };
+        for (const rel of paths) {
+            const copies = items.filter(item => plain(item) && item.Path === rel.slice(folder === "" ? 0 : folder.length + 1));
+            if (copies.length < 2) log("duplicate=gone copies=" + copies.length);
+            else records.push(duplicateRecord(rel, copies, address));
+        }
+    }
+    return { kind: "read", records: records };
+}
+
+// The files the download leg RESULT leaves for review, { unreadable,
+// doubled }: a record of each file it could not copy, and the path of
+// each name Drive holds twice, or null when the copy could not run.
+// rclone "will accumulate errors as it goes along,
 // and only exit with a non-zero exit code if (after retries) there were
 // still failed transfers", with a log line for every error counted that
 // names its file (rclone.org/docs/#exit-code, `man rclone` of v1.75.1). So
@@ -801,10 +926,10 @@ const DRIVE_KINDS = ["unreadable-on-drive", "duplicate-on-drive"];
 // (failureKind) keeps its kind even when it shows as file errors.
 function downloadReview(result) {
     const lines = result.stderr.split("\n");
-    const found = [];
+    const found = { unreadable: [], doubled: [] };
     for (const line of lines) {
         const twice = DUPLICATE.exec(line);
-        if (twice !== null) addRecord(found, { kind: "duplicate-on-drive", path: twice[1] });
+        if (twice !== null && found.doubled.indexOf(twice[1]) === -1) found.doubled.push(twice[1]);
     }
     if (result.ok) return found;
     if (result.kind !== "rclone-failed" || result.exit === 7) return null;
@@ -817,7 +942,7 @@ function downloadReview(result) {
         if (error !== null) reasons.set(error[1], error[2]);
     }
     if (reasons.size !== Number(ATTEMPT_END.exec(lines[last])[1])) return null;
-    for (const [rel, reason] of reasons) addRecord(found, { kind: "unreadable-on-drive", path: rel, reason: reason });
+    for (const [rel, reason] of reasons) addRecord(found.unreadable, { kind: "unreadable-on-drive", path: rel, reason: reason });
     return found;
 }
 
@@ -877,7 +1002,7 @@ function baselineDiffers(base, entry) {
 function driveDiffers(base, item) {
     if (base === undefined || item === undefined) return false;
     if (base.export) return item.Size !== -1 || Date.parse(item.ModTime) !== base.mtimeMs;
-    const md5 = plain(item.Hashes) && typeof item.Hashes.md5 === "string" ? item.Hashes.md5 : null;
+    const md5 = listedMd5(item);
     return base.size !== item.Size || base.mtimeMs !== Date.parse(item.ModTime) || (base.hash !== null && md5 !== null && base.hash !== md5);
 }
 
@@ -898,7 +1023,7 @@ function classifyBeforeCopy(pair, listing, inventory, records) {
         const file = path.join(pair.local, item.Path);
         const local = localEntry(file);
         if (local === null || local.mtimeMs <= Date.parse(item.ModTime)) continue;
-        const md5 = plain(item.Hashes) && typeof item.Hashes.md5 === "string" ? item.Hashes.md5 : null;
+        const md5 = listedMd5(item);
         const differs = item.Size !== local.size || md5 !== null && md5File(file) !== md5;
         if (differs) addRecord(records, { kind: "both-changed", path: item.Path });
     }
@@ -1003,7 +1128,7 @@ function nextInventory(pair, listing, before, held) {
             continue;
         }
         if (!st.isFile()) continue;
-        const md5 = plain(item.Hashes) && typeof item.Hashes.md5 === "string" ? item.Hashes.md5 : null;
+        const md5 = listedMd5(item);
         const modTime = Date.parse(item.ModTime);
         // rclone's Google Drive backend lists Google-native Docs, Sheets,
         // Slides and Drawings with Size -1. They are exports, so a local
@@ -1059,7 +1184,8 @@ function rcloneFailed(state, result) {
     return failed(state, result.kind, result.exit === null ? {} : { exit: result.exit });
 }
 
-function runPairSync(pair, state, env, secrets, lock) {
+// ADDRESS is the signed-in account's address, or null (duplicateRecord).
+function runPairSync(pair, state, env, secrets, lock, address) {
     const inventory = readInventory(pair.id);
     state.records = pruneConflictStorage(pair.id, state.records || []);
     const stamp = now().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z") + "-" + process.pid;
@@ -1089,11 +1215,21 @@ function runPairSync(pair, state, env, secrets, lock) {
         state.records = classifyDisplaced(pair.id, inventory, state.records);
         const review = downloadReview(downloaded);
         if (review === null) return rcloneFailed(state, downloaded);
-        state.records = withDriveRecords(state.records, review);
-        for (const record of review) if (record.kind === "unreadable-on-drive") held.add(record.path);
+        for (const record of review.unreadable) held.add(record.path);
         // If a later leg fails, the downloaded mirror still agrees with
         // Drive's first listing, so keep that baseline.
         writeJson(path.join(pairDir(pair.id), "inventory.json"), { entries: nextInventory(pair, listing, inventory, held).entries });
+        // The first listing holds every copy's size and md5 but no owner,
+        // so each folder that holds a doubled name gets one read-only
+        // listing that carries all three, and only when the copy met one.
+        // The owner is rclone v1.75.2's `owner` metadata key, which
+        // --drive-metadata-owner read gives (its default, named here); it
+        // gives no key that says whether the account may change a copy.
+        const listFolder = folder => rclone(["lsjson", "--files-only", "--hash", "--hash-type", "md5", "--metadata", "--drive-metadata-owner", "read",
+            remotePath(pair) + (folder === "" ? "" : "/" + folder)].concat(common), env, secrets, lock);
+        const doubled = duplicateRecords(review.doubled, listFolder, address);
+        if (doubled.kind === "failed") return doubled.result === null ? failed(state, "listing-unreadable") : rcloneFailed(state, doubled.result);
+        state.records = withDriveRecords(state.records, review.unreadable.concat(doubled.records));
     }
     const excludes = writeExportExcludeFile(pair, exportPaths(listing, inventory));
     const uploadArgs = ["copy", "--update", pair.local, remotePath(pair)].concat(filterArgs());
@@ -1130,7 +1266,7 @@ function runPair(pair, control) {
         if (credential.kind === "found") {
             const secrets = CREDENTIAL_PARTS.map(part => credential.values[part]);
             const env = rcloneEnv(credential.values);
-            state = runPairSync(pair, state, env, secrets, fd);
+            state = runPairSync(pair, state, env, secrets, fd, credential.address);
         } else {
             const kind = credential.kind === "unavailable" ? credential.reason : "credential-" + credential.kind;
             state = failed(state, kind, { account: credential.account });
@@ -1327,6 +1463,9 @@ function conflictsOf(pair, stored) {
         if (typeof r.stored === "string" && fs.existsSync(path.join(root, r.stored))) out.storedPath = path.join(root, r.stored);
         if (typeof r.to === "string") out.to = r.to;
         if (typeof r.reason === "string") out.reason = r.reason;
+        if (typeof r.mine === "boolean") out.mine = r.mine;
+        if (typeof r.owner === "string") out.owner = r.owner;
+        out.needs = needsOf(r);
         if (r.kind !== "both-changed" || out.storedPath !== undefined || r.stored === undefined) found.push(out);
     }
     return found;
@@ -1370,18 +1509,22 @@ function renderStatus() {
     const standing = pairs.map(p => ({ pair: p, state: p.state === "running" && p.lastError !== null ? failureState(p.lastError.kind) : p.state }));
     const failing = standing.filter(s => s.state === "authorization-required" || s.state === "error").map(s => s.pair)
         .sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+    // Only a review record that needs the user asks for attention: one that
+    // needs nothing, such as a file the sync put back, is a note.
+    const needing = conflicts.filter(c => c.needs === "you");
     const reasons = [];
     if (standing.some(s => s.state === "authorization-required")) reasons.push("authorization-required");
     if (read.error !== null || standing.some(s => s.state === "error")) reasons.push("error");
-    if (conflicts.length > 0) reasons.push("conflicts");
+    if (needing.length > 0) reasons.push("conflicts");
     if (units === "stale") reasons.push("units-stale");
-    // The key changes when a reason, a conflict or the cause of a failure
-    // that needs the user changes, never with the time a failure repeats or
-    // the order pairs run in, so the plugin notifies once per change that
-    // needs the user. The cause is every failing pair's, by pair id.
+    // The key changes when a reason, a conflict that needs the user or the
+    // cause of a failure that needs the user changes, never with the time a
+    // failure repeats, the order pairs run in or a note, so the plugin
+    // notifies once per change that needs the user. The cause is every
+    // failing pair's, by pair id.
     const cause = read.error !== null ? [["pairs-invalid", null, null, read.error]]
         : failing.map(p => [p.lastError.kind, p.id, p.lastError.account || null, p.lastError.detail || null]);
-    const key = crypto.createHash("sha256").update(JSON.stringify([reasons, conflicts.map(c => [c.kind, c.pair, c.path, c.since]), cause])).digest("hex").slice(0, 16);
+    const key = crypto.createHash("sha256").update(JSON.stringify([reasons, needing.map(c => [c.kind, c.pair, c.path, c.since]), cause])).digest("hex").slice(0, 16);
     const lastSuccess = oldest(pairs.map(p => p.lastSuccess));
     return {
         state: state,
@@ -1392,6 +1535,7 @@ function renderStatus() {
         lastError: lastError,
         pairs: pairs,
         conflicts: conflicts,
+        needsYou: needing.length,
         attention: reasons.length === 0 ? null : { reasons: reasons, key: key, notified: control.notifiedKey === key },
         writtenAt: now()
     };
@@ -1408,6 +1552,28 @@ function writeStatus() {
     }
     writeJson(statusFile, status);
     return status;
+}
+
+// The status record's converter step (D107). An earlier runner's record
+// has no `needsYou`, and its attention key hashed every review record,
+// notes included, so the key the plugin was notified of is no key this
+// runner renders. When that record's attention was notified, the attention
+// rendered now counts as notified while every reason it gives is one that
+// record gave: it names the same review records or fewer, so the update
+// raises no notification of its own. REWRITE is whether an earlier step
+// changed what the record renders from.
+function migrateStatusIfNeeded(rewrite) {
+    const earlierForm = read => read.kind === "ok" && plain(read.value) && !hasOwn(read.value, "needsYou");
+    if (!earlierForm(readJson(statusFile)) && !rewrite) return;
+    withStateLock(() => {
+        const read = readJson(statusFile);
+        const earlier = earlierForm(read) && plain(read.value.attention) ? read.value.attention : null;
+        const after = renderStatus().attention;
+        if (earlier !== null && earlier.notified === true && Array.isArray(earlier.reasons) && after !== null
+            && after.reasons.every(r => earlier.reasons.indexOf(r) !== -1))
+            writeJson(controlFile, Object.assign(readControl(), { notifiedKey: after.key }));
+        writeStatus();
+    });
 }
 
 // ------------------------------------------------------------- the rename
@@ -1940,8 +2106,8 @@ const verb = process.argv[2];
 const rest = process.argv.slice(3);
 const renamed = migrateRenameIfNeeded();
 migratePairListIfNeeded();
-migratePairStatesIfNeeded();
-if (renamed) withStateLock(writeStatus);
+const converted = migratePairStatesIfNeeded();
+migrateStatusIfNeeded(renamed || converted);
 if (verb !== "install") refreshStaleInstallIfNeeded();
 switch (verb) {
 case "run": runVerb(rest); break;
