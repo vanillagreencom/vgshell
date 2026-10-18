@@ -5,5 +5,6 @@
   "files": [{ "template": "vesktop.css", "destination": "vesktop.css" }],
   "detect": ["vesktop"],
   "wiring": { "base": "config", "dir": "vesktop/themes", "owned": false, "links": { "vgs.css": "vesktop.css" } },
-  "reload": { "command": ["sh", "-c", "touch -h -c -- \"${XDG_CONFIG_HOME:-$HOME/.config}/vesktop/themes/vgs.css\""], "timeoutMs": 5000 }
+  "reload": { "command": ["sh", "-c", "touch -h -c -- \"${XDG_CONFIG_HOME:-$HOME/.config}/vesktop/themes/vgs.css\""], "timeoutMs": 5000 },
+  "select": {"base": "config", "file": "vesktop/settings/settings.json", "format": "json-array", "key": ["enabledThemes"], "value": "vgs.css"}
 }

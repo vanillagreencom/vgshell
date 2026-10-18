@@ -62,6 +62,9 @@ function keySelected(format, text, key, value) {
     case "jsonc": return jsonSelected(text, jsoncBlanked(text), key, value, refuse);
     case "toml": return tomlSelected(text, key, value, refuse);
     case "yaml": return yamlSelected(text, key, value, refuse);
+    case "qtct": return iniSelected(text, [[key, JSON.stringify(value)], [["Appearance", "custom_palette"], "true"]], refuse);
+    case "json-array": return jsonSelected(text, text, key, value, refuse, true);
+    case "userjs": return userJsSelected(text, key[0]);
     default: throw new Error("theme-select: selectedText: format " + format + " is none of json, jsonc, toml, yaml");
     }
 }
@@ -141,20 +144,27 @@ function withMember(text, object, member) {
 // TEXT, JSON with comments and trailing commas, with each comment and each
 // trailing comma written as spaces, its line breaks kept: plain JSON whose
 // every offset is TEXT's, so a span read from it is TEXT's span.
-function jsoncBlanked(text) {
+function jsoncBlanked(text, preferences = false) {
     const out = text.split("");
     const blank = (from, to) => { for (let i = from; i < to; i++) if (out[i] !== "\n" && out[i] !== "\r") out[i] = " "; };
     // The offset past the string opening at AT, or the text's end for one
     // left open, which JSON.parse then refuses.
     const pastString = (source, at) => {
+        const quote = source[at];
         let i = at + 1;
-        while (i < source.length && source[i] !== "\"") i += source[i] === "\\" ? 2 : 1;
+        while (i < source.length && source[i] !== quote) i += source[i] === "\\" ? 2 : 1;
         return Math.min(i + 1, source.length);
     };
     let i = 0;
     while (i < text.length) {
         if (text[i] === "\"") {
             i = pastString(text, i);
+        } else if (preferences && text[i] === "'") {
+            i = pastString(text, i);
+        } else if (preferences && text[i] === "#") {
+            const end = text.indexOf("\n", i);
+            blank(i, end === -1 ? text.length : end);
+            i = end === -1 ? text.length : end;
         } else if (text.startsWith("//", i)) {
             const end = text.indexOf("\n", i);
             blank(i, end === -1 ? text.length : end);
@@ -179,7 +189,7 @@ function jsoncBlanked(text) {
 // TEXT's. The key's string token is replaced; a missing key is added, with
 // the objects missing on its path, as the first member of the deepest
 // object that exists.
-function jsonSelected(text, plain, key, value, refuse) {
+function jsonSelected(text, plain, key, value, refuse, array = false) {
     let document;
     try {
         document = JSON.parse(plain);
@@ -191,18 +201,94 @@ function jsonSelected(text, plain, key, value, refuse) {
     for (let depth = 0; depth < key.length; depth++) {
         const found = object.members.filter(member => member.key === key[depth]);
         if (found.length > 1) return refuse("duplicate-key");
-        if (found.length === 0) return withMember(text, object, memberText(key.slice(depth), value));
+        if (found.length === 0) return withMember(text, object, memberText(key.slice(depth), array ? [value] : value));
         const span = found[0].value;
         if (depth < key.length - 1) {
             if (span.kind !== "object") return refuse("not-a-table");
             object = span;
             continue;
         }
+        if (array) {
+            if (span.kind !== "array" || span.members.some(member => member.value.kind !== "string")) return refuse("not-an-array");
+            if (span.members.some(member => JSON.parse(text.slice(member.value.start, member.value.end)) === value)) return null;
+            const end = span.end - 1;
+            return text.slice(0, end) + (span.members.length ? ", " : "") + JSON.stringify(value) + text.slice(end);
+        }
         if (span.kind !== "string") return refuse("not-a-string");
         if (JSON.parse(text.slice(span.start, span.end)) === value) return null;
         return text.slice(0, span.start) + JSON.stringify(value) + text.slice(span.end);
     }
     throw new Error("theme-select: jsonSelected: key " + key.join(".") + " walked past its last segment");
+}
+
+// Qt's QSettings reads Appearance/color_scheme_path only while
+// custom_palette is true. Keep both selectors stable across palettes.
+// https://github.com/trialuser02/qt6ct/blob/master/src/qt6ct-qtplugin/qt6ctplatformtheme.cpp
+function iniSelected(text, entries, refuse) {
+    let out = text;
+    const eol = lineBreak(text);
+    for (const [[section, key], value] of entries) {
+        const lines = out.split("\n");
+        const sectionRows = lines.flatMap((line, at) => render.isSectionHeader(line, section) ? [at] : []);
+        if (sectionRows.length > 1) return refuse("duplicate-table");
+        if (sectionRows.length === 0) {
+            out = terminated(out, eol) + "[" + section + "]" + eol + key + "=" + value + eol;
+            continue;
+        }
+        const start = sectionRows[0] + 1;
+        let end = lines.findIndex((line, at) => at >= start && render.opensSection(line));
+        if (end === -1) end = lines.length;
+        const found = [];
+        for (let at = start; at < end; at++) if (render.assignedKey(lines[at]) === key) found.push(at);
+        if (found.length > 1) return refuse("duplicate-key");
+        if (found.length === 0) {
+            lines.splice(start, 0, key + "=" + value + (eol === "\r\n" ? "\r" : ""));
+        } else {
+            const at = found[0];
+            const match = /^(\s*[^=]+=[ \t]*)(.*?)(\r?)$/.exec(lines[at]);
+            if (match[2] === value) continue;
+            lines[at] = match[1] + value + match[3];
+        }
+        out = lines.join("\n");
+    }
+    return out === text ? null : out;
+}
+
+// Mozilla reads user.js at profile startup. Its preference parser permits
+// comments and multiline user_pref calls; it does not execute JavaScript.
+// https://github.com/mozilla-firefox/firefox/blob/main/modules/libpref/parser/src/lib.rs
+function userJsSelected(text, key) {
+    const plain = jsoncBlanked(text, true);
+    const calls = /user_pref\s*\(\s*("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')\s*,\s*(true|false)\s*\)\s*;/y;
+    const replacements = [];
+    let found = false;
+    for (let at = 0; at < plain.length;) {
+        calls.lastIndex = at;
+        const match = calls.exec(plain);
+        if (match !== null && (at === 0 || !/[\w$]/.test(plain[at - 1]))) {
+            const name = match[1].slice(1, -1).replace(/\\(?:x([\da-fA-F]{2})|u([\da-fA-F]{4})|(["'\\nr]))/g,
+                (_, byte, unit, escaped) => byte !== undefined || unit !== undefined ? String.fromCharCode(parseInt(byte ?? unit, 16))
+                    : escaped === "n" ? "\n" : escaped === "r" ? "\r" : escaped);
+            if (name === key) {
+                found = true;
+                if (match[2] === "false") {
+                    const start = at + match[0].lastIndexOf("false");
+                    replacements.push([start, start + 5]);
+                }
+            }
+            at = calls.lastIndex;
+        } else if (plain[at] === '"' || plain[at] === "'") {
+            const quote = plain[at++];
+            while (at < plain.length && plain[at] !== quote) at += plain[at] === "\\" ? 2 : 1;
+            at++;
+        } else {
+            at++;
+        }
+    }
+    if (!found) return terminated(text, lineBreak(text)) + "user_pref(" + JSON.stringify(key) + ", true);" + lineBreak(text);
+    let out = text;
+    for (const [start, end] of replacements.reverse()) out = out.slice(0, start) + "true" + out.slice(end);
+    return out === text ? null : out;
 }
 
 // --- toml and yaml

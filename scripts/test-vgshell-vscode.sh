@@ -300,7 +300,7 @@ chmod a-w -- "$home/.vscode/extensions"
 THEME_PATH="$with_code_codium" tinst "the disable-stops-at-first-editor mutant disables" "$cfg" "$rt_empty" 3 "$any_out" "$any_out" theme apply dusk
 chmod u+w -- "$home/.vscode/extensions"
 check "the disable-stops-at-first-editor mutant leaves VSCodium's extension" turned ids_are "$oss"
-judge_control no-settings-create 'select.selectedText(selection.format, text === undefined && create ? "{}\n" : text,' 'select.selectedText(selection.format, text,'
+judge_control no-settings-create 'select.selectedText(selection.format, text === undefined && create ? ["qtct", "userjs"].includes(selection.format) ? "" : "{}\n" : text,' 'select.selectedText(selection.format, text,'
 fresh no-settings-create
 THEME_PATH="$with_codium" tinst "the no-create mutant applies" "$cfg" "$rt_empty" 0 "$any_out" "" theme apply nord
 check "the no-create mutant writes no settings file" turned test -f "$cfg/VSCodium/User/settings.json"

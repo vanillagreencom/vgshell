@@ -984,8 +984,8 @@ function planTarget(dir, row, slots, font, disabled, configHome, live) {
     }, failed);
     if (!found.ok) return found.entry;
     if (found.value !== null) return skipped(found.value);
-    // A settings file that is absent, or whose key the edit refuses, skips
-    // the target before anything lands, so its application keeps its theme.
+    // A refused selection skips the target before anything lands. Optional
+    // settings use selectionEdits' creation rules; other missing files refuse.
     // An account target's served account directories are read once here,
     // so the entries and the selections land in the same directories, and
     // so are an editors target's detected editors, whose selection names
@@ -1545,23 +1545,27 @@ function dropEntries(name, target, configHome, live) {
 // whether the file is `create`d when absent, and `holds`, whether the file's
 // latin1 text already selects a value. An editor writes no settings file
 // until a setting changes, so an editor's absent file is edited as an empty
-// object and created. Bat never writes its own config; its detected target
-// creates only --theme=vgs in an absent file.
+// object and created. Bat and Mozilla do not create these optional files.
+// Qt configuration and Vencord settings can remain absent until a setting
+// is saved. Their detected targets create only the stable selection.
 function selectionEdits(target, configHome, live, roots, extension, selectionValues) {
     const selection = target.select;
     const app = selection.values !== undefined;
     const value = app ? undefined : latin1(Buffer.from(render.selectValue(target, live, extension), "utf8"));
-    const create = selection.base === render.EDITOR_BASE || selection.format === "bat";
+    const create = selection.base === render.EDITOR_BASE || selection.format === "bat" || ["qtct", "json-array", "userjs"].includes(selection.format);
     const dirs = isAccountTarget(target) ? roots || accountRoots(target, true)
         : selection.base === render.EDITOR_BASE ? roots || detectedEditors(target, configHome).map(editor => editor.user)
+        : selection.format === "userjs" ? includeFiles(target, configHome).map(file => path.dirname(path.dirname(file)))
         : [baseDir(selection.base, configHome)];
     const files = Array.isArray(selection.file) ? selection.file : [selection.file];
     const values = app ? Object.fromEntries(Object.entries(selectionValues).map(([key, value]) => [key, latin1(Buffer.from(value, "utf8"))])) : undefined;
     return dirs.flatMap(root => files.map(file => ({
         file: path.join(root, file),
+        root: isAccountTarget(target) || selection.base === render.EDITOR_BASE || selection.format === "userjs"
+            ? root : path.join(root, file.includes("/") ? file.split("/")[0] : "."),
         create,
         edit: text => app ? select.appSelectedText(selection.format, text === undefined && create ? "" : text, values)
-            : select.selectedText(selection.format, text === undefined && create ? "{}\n" : text, render.selectKeys(target), value),
+            : select.selectedText(selection.format, text === undefined && create ? ["qtct", "userjs"].includes(selection.format) ? "" : "{}\n" : text, render.selectKeys(target), value),
         holds: (text, held) => select.selectedText(selection.format, text, render.selectKeys(target), latin1(Buffer.from(held, "utf8"))) === null
     }))).filter(edit => !Array.isArray(selection.file) || create || existingPath(edit.file) !== undefined);
 }
@@ -1577,8 +1581,8 @@ function selectionRefusal(selections) {
 
 // Keep a landed ENTRY's wiring: its include line in its configuration file,
 // its links in its application's directory, or its generated extension, and
-// its selection in its application's settings file, which is never created
-// but for an editor's. Answers ENTRY,
+// its selection in its application's settings file, with creation confined
+// to selectionEdits' optional-settings contracts. Answers ENTRY,
 // or its failed entry, which keeps the files it landed and so its `dropped`.
 function wire(entry, configHome, live) {
     let failure;
@@ -3121,6 +3125,33 @@ function setupTargetRows(name, target, configHome, live) {
             return unreadable(e.path || configHome, e.code);
         }
     }
+    // Theme files and settings may be siblings (Vencord's themes/ and
+    // settings/). Each selection retains its declared application root.
+    // The nearest root owns nested, independent account configurations.
+    const connectedEntry = file => {
+        const owner = selections.reduce((nearest, selection) => {
+            const root = selection.root;
+            const relative = path.relative(root, file);
+            if (path.isAbsolute(relative) || relative === ".." || relative.startsWith(".." + path.sep)) return nearest;
+            return nearest === undefined || root.length > nearest.root.length ? selection : nearest;
+        }, undefined);
+        return owner?.connected === true;
+    };
+    if (target.select !== undefined && (target.select.values === undefined || selectionValues !== undefined) && !isEditorTarget(target)) {
+        try {
+            selections = selectionEdits(target, configHome, live, undefined, undefined, selectionValues).map(selection => {
+                try {
+                    return { ...selection, connected: selection.edit(latin1(readIfPresent(selection.file))) === null };
+                } catch (e) {
+                    if (typeof e.code !== "string") throw e;
+                    return { ...selection, connected: false, error: e.code };
+                }
+            });
+        } catch (e) {
+            if (typeof e.code !== "string") throw e;
+            return unreadable(e.path || configHome, e.code);
+        }
+    }
     switch (render.wiringForm(target.wiring)) {
     case "include": {
         let files;
@@ -3133,6 +3164,7 @@ function setupTargetRows(name, target, configHome, live) {
         const line = render.wiringLine(target, live);
         const lineText = Buffer.from(line, "utf8").toString("latin1");
         for (const includeFile of files) {
+            if (selections !== undefined && !connectedEntry(includeFile)) continue;
             let text;
             try {
                 text = readIfPresent(includeFile);
@@ -3152,28 +3184,7 @@ function setupTargetRows(name, target, configHome, live) {
         let plan;
         try {
             const dirs = entryDirs(target, configHome);
-            let keep = () => true;
-            if (target.select !== undefined && (target.select.values === undefined || selectionValues !== undefined)) {
-                selections = selectionEdits(target, configHome, live, undefined, undefined, selectionValues).map(selection => {
-                    try {
-                        return { ...selection, connected: selection.edit(latin1(readIfPresent(selection.file))) === null };
-                    } catch (e) {
-                        if (typeof e.code !== "string") throw e;
-                        return { ...selection, connected: false, error: e.code };
-                    }
-                });
-                // Explicit account roots can nest. The nearest settings
-                // ancestor owns the entry even when it selects another theme.
-                keep = dir => {
-                    const owner = selections.reduce((nearest, selection) => {
-                        const root = path.dirname(selection.file);
-                        const relative = path.relative(root, dir);
-                        if (path.isAbsolute(relative) || relative === ".." || relative.startsWith(".." + path.sep)) return nearest;
-                        return nearest === undefined || root.length > path.dirname(nearest.file).length ? selection : nearest;
-                    }, undefined);
-                    return owner?.connected === true;
-                };
-            }
+            const keep = selections === undefined ? () => true : connectedEntry;
             plan = currentEntries(target, dirs, live, keep);
         } catch (e) {
             if (typeof e.code !== "string") throw e;

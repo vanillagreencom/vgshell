@@ -189,7 +189,7 @@ check "setup reports zen's wired include file and line" setup_has_wiring zen "$h
 check "setup reports pywalfox's managed entry" setup_has_wiring pywalfox "$cache/wal/colors.json" null wired
 printf '# owner only\n' >"$home/.zen/legacy.default/chrome/userChrome.css"
 tinst "setup omits an owner file without the include line" "$cfg" "$rt_empty" 0 "$any_out" "" theme setup --json
-check "setup omits an owner file without the include line" test "$(python3 -c 'import json,sys; print(any(r["name"] == "zen" for r in json.load(open(sys.argv[1]))["wiring"]))' "$tmp/out")" == False
+check "setup omits an owner file without the include line" test "$(python3 -c 'import json,sys; print(any(r["file"] == sys.argv[2] for r in json.load(open(sys.argv[1]))["wiring"]))' "$tmp/out" "$home/.zen/legacy.default/chrome/userChrome.css")" == False
 printf '%s\n# owner' "$import_line" >"$home/.zen/legacy.default/chrome/userChrome.css"
 tinst "the text form names setup and wiring" "$cfg" "$rt_empty" 0 "$any_out" "" theme setup
 check "the text form names the command and the state" has_line "setup=chromium command=vgshell-browser-policy state=absent"

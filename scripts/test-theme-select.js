@@ -29,6 +29,18 @@ const DESKTOP = ["activeTheme"];
 // Edits that land: the format, the file's text, the key, the value, the
 // text the file takes, or null when it already selects the value.
 const SELECTED = [
+    ["qtct", '[Appearance]\nstyle=Fusion\ncolor_scheme_path=other.conf\ncustom_palette=false\n[Fonts]\ngeneral=Sans\n', ["Appearance", "color_scheme_path"], "/state/qt5ct.conf", '[Appearance]\nstyle=Fusion\ncolor_scheme_path="/state/qt5ct.conf"\ncustom_palette=true\n[Fonts]\ngeneral=Sans\n'],
+    ["qtct", '# owner\r\n', ["Appearance", "color_scheme_path"], "/state/qt6ct.conf", '# owner\r\n[Appearance]\r\ncustom_palette=true\r\ncolor_scheme_path="/state/qt6ct.conf"\r\n'],
+    ["qtct", '[Appearance]\ncolor_scheme_path="/state/qt5ct.conf"\ncustom_palette=true\n', ["Appearance", "color_scheme_path"], "/state/qt5ct.conf", null],
+    ["json-array", '{"enabledThemes":["other.css"], "owner": true}\n', ["enabledThemes"], "vgs.css", '{"enabledThemes":["other.css", "vgs.css"], "owner": true}\n'],
+    ["json-array", '{"enabledThemes":[], "owner": true}\n', ["enabledThemes"], "vgs.css", '{"enabledThemes":["vgs.css"], "owner": true}\n'],
+    ["json-array", '{"enabledThemes":["vgs.css", "other.css"]}\n', ["enabledThemes"], "vgs.css", null],
+    ["json-array", '{"owner": true}\n', ["enabledThemes"], "vgs.css", '{"enabledThemes": ["vgs.css"], "owner": true}\n'],
+    ["userjs", '// owner\r\nuser_pref("browser.tabs.warnOnClose", false);\r\n', ["toolkit.legacyUserProfileCustomizations.stylesheets"], "true", '// owner\r\nuser_pref("browser.tabs.warnOnClose", false);\r\nuser_pref("toolkit.legacyUserProfileCustomizations.stylesheets", true);\r\n'],
+    ["userjs", '/* user_pref("toolkit.legacyUserProfileCustomizations.stylesheets", false); */\nuser_pref(\n "toolkit.legacyUserProfileCustomizations.stylesheets", false\n);\n', ["toolkit.legacyUserProfileCustomizations.stylesheets"], "true", '/* user_pref("toolkit.legacyUserProfileCustomizations.stylesheets", false); */\nuser_pref(\n "toolkit.legacyUserProfileCustomizations.stylesheets", true\n);\n'],
+    ["userjs", 'user_pref("toolkit.legacyUserProfileCustomizations.stylesheets", true);\n', ["toolkit.legacyUserProfileCustomizations.stylesheets"], "true", null],
+    ["userjs", '# user_pref("toolkit.legacyUserProfileCustomizations.stylesheets", false);\nuser_pref("toolkit.legacyUserProfileCustomizations.stylesheets", true); user_pref(\'toolkit.legacyUserProfileCustomizations.stylesheets\', false);\n', ["toolkit.legacyUserProfileCustomizations.stylesheets"], "true", '# user_pref("toolkit.legacyUserProfileCustomizations.stylesheets", false);\nuser_pref("toolkit.legacyUserProfileCustomizations.stylesheets", true); user_pref(\'toolkit.legacyUserProfileCustomizations.stylesheets\', true);\n'],
+    ["userjs", 'user_pref("other\\x2ekey", true); user_pref("toolkit\\u002elegacyUserProfileCustomizations.stylesheets", false);\n', ["toolkit.legacyUserProfileCustomizations.stylesheets"], "true", 'user_pref("other\\x2ekey", true); user_pref("toolkit\\u002elegacyUserProfileCustomizations.stylesheets", true);\n'],
     ["jsonc", '{\r\n  // The work profile\r\n  "activeTheme" : "stock", /* keep */\r\n  "locale": "caf\u00c3\u00a9",\r\n  "nested": { "activeTheme": "mine", },\r\n}\r\n', DESKTOP, "vgs", '{\r\n  // The work profile\r\n  "activeTheme" : "vgs", /* keep */\r\n  "locale": "caf\u00c3\u00a9",\r\n  "nested": { "activeTheme": "mine", },\r\n}\r\n'],
     ["jsonc", '{\n  /* profile */ "themeOverlay": { "--text-000": "0 0% 100%" },\n  "themes": { "mine": {} },\n}\n', DESKTOP, "vgs", '{\n  "activeTheme": "vgs",\n  /* profile */ "themeOverlay": { "--text-000": "0 0% 100%" },\n  "themes": { "mine": {} },\n}\n'],
     ["jsonc", '/* selected */ { "activeTheme": "vgs", "unknown": [1,], }\n', DESKTOP, "vgs", null],
@@ -110,6 +122,9 @@ const SELECTED = [
 
 // Refused edits: the format, the file's text, the key, the cause.
 const REFUSED = [
+    ["json-array", '{"enabledThemes":"vgs.css"}', ["enabledThemes"], "not-an-array"],
+    ["json-array", '{"enabledThemes":[1]}', ["enabledThemes"], "not-an-array"],
+    ["qtct", '[Appearance]\ncustom_palette=true\ncustom_palette=false\n', ["Appearance", "color_scheme_path"], "duplicate-key"],
     ["json", '{ "theme": "x", }', CLAUDE, "unparseable"],
     ["json", "// c\n{}", CLAUDE, "unparseable"],
     ["json", "[]", CLAUDE, "unparseable"],
@@ -377,6 +392,9 @@ verify(require(renderFile), require(selectFile));
 const S = "theme-select.js";
 const R = "theme-render.js";
 const CONTROLS = [
+    [S, 'case "userjs": return userJsSelected(text, key[0]);', 'case "userjs": return null;'],
+    [S, 'case "json-array": return jsonSelected(text, text, key, value, refuse, true);', 'case "json-array": return null;'],
+    [S, 'case "qtct": return iniSelected(text, [[key, JSON.stringify(value)], [["Appearance", "custom_palette"], "true"]], refuse);', 'case "qtct": return null;'],
     [S, 'case "bat": return batSelected(text, values);', 'case "bat": return null;'],
     [S, 'if (next < distance)', 'if (next > distance)'],
     [S, 'if (next < distance)', 'if (next <= distance)'],
@@ -392,7 +410,7 @@ const CONTROLS = [
     [S, '} else if (text.startsWith("/*", i)) {', '} else if (false) {'],
     [S, 'if (text[i] === "\\"") {\n            i = pastString(text, i);', 'if (false) {\n            i = pastString(text, i);'],
     [S, '        if (plain[i] === "," && "}]".includes(plain[skipSpace(plain, i + 1)])) out[i] = " ";\n', ""],
-    [R, 'const SELECT_FORMATS = ["json", "jsonc", "toml", "yaml"];', 'const SELECT_FORMATS = ["json", "toml", "yaml"];'],
+    [R, 'const SELECT_FORMATS = ["json", "jsonc", "toml", "yaml", "qtct", "json-array", "userjs"];', 'const SELECT_FORMATS = ["json", "toml", "yaml"];'],
     [R, "const segment = isJsonFormat(format) ? JSON_KEY_PATTERN : SECTION_PATTERN;", "const segment = JSON_KEY_PATTERN;"],
     [R, "const segment = isJsonFormat(format) ? JSON_KEY_PATTERN : SECTION_PATTERN;", "const segment = SECTION_PATTERN;"],
     [S, 'function selectedText(format, text, keys, value) {\n    if (text === undefined) return { ok: false, reason: ABSENT, detail: "" };', 'function selectedText(format, text, keys, value) {\n    if (text === undefined) text = "";'],

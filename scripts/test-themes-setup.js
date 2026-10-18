@@ -124,7 +124,20 @@ try {
             selected: '[ui]\ntheme = "vgs"\n', other: '[ui]\ntheme = "other"\n' },
         { name: "yazi", base: config, roots: ["yazi", "yazi-scratchpad"], settings: "theme.toml", values: true,
             lines: [null],
-            selected: '[flavor]\ndark = "vgs"\nlight = "vgs"\n', other: '[flavor]\ndark = "other"\nlight = "other"\n' }
+            selected: '[flavor]\ndark = "vgs"\nlight = "vgs"\n', other: '[flavor]\ndark = "other"\nlight = "other"\n' },
+        ...["qt5ct", "qt6ct"].map(name => ({ name, base: config, roots: [name], settings: name + ".conf",
+            lines: ["Appearance.color_scheme_path = " + path.join(state, "theme", name + ".conf")],
+            emptySelected: '[Appearance]\ncustom_palette=true\ncolor_scheme_path=' + JSON.stringify(path.join(state, "theme", name + ".conf")) + '\n',
+            selected: '[Appearance]\ncolor_scheme_path=' + JSON.stringify(path.join(state, "theme", name + ".conf")) + '\ncustom_palette=true\nstyle=Fusion\n',
+            other: '[Appearance]\ncolor_scheme_path=other.conf\ncustom_palette=false\nstyle=Fusion\n' })),
+        ...["vencord", "vesktop", "equibop"].map(name => ({ name, base: config, roots: [name === "vencord" ? "Vencord" : name], settings: "settings/settings.json",
+            emptySelected: '{\n  "enabledThemes": ["vgs.css"]\n}\n',
+            lines: ["enabledThemes = vgs.css"], selected: '{"enabledThemes":["other.css", "vgs.css"],"owner":true}\n',
+            other: '{"enabledThemes":["other.css"],"owner":true}\n' })),
+        { name: "zen", base: home, roots: [".zen/p0", ".zen/p1"], settings: "user.js",
+            lines: ["toolkit.legacyUserProfileCustomizations.stylesheets = true"],
+            selected: 'user_pref("toolkit.legacyUserProfileCustomizations.stylesheets", true);\n',
+            other: 'user_pref("toolkit.legacyUserProfileCustomizations.stylesheets", false);\n' }
     ];
     for (const name of ["bin", "shell/Commons", ...configurations.map(row => "themes/targets/" + row.name)])
         fs.cpSync(path.join(setupRepo, name), path.join(tree, name), { recursive: true });
@@ -133,6 +146,7 @@ try {
         JSON.parse(fs.readFileSync(path.join(tree, "themes/targets", row.name, "target.json"), "utf8"))]));
     function declaredEntries(row, root, index) {
         const target = targets.get(row.name);
+        if (render.wiringForm(target.wiring) === "include") return [{ kind: "include", file: path.join(row.base, root, target.wiring.file), line: render.wiringLine(target, path.join(state, "theme")) }];
         const wiringBase = target.wiring.base === "account" ? path.join(row.base, root) : row.base;
         const wiringDir = Array.isArray(target.wiring.dir) ? target.wiring.dir[index] : target.wiring.dir;
         return render.entryItems(target, path.join(state, "theme"), index).map(item => ({ ...item,
@@ -142,12 +156,14 @@ try {
         for (const [index, root] of [...new Set([...row.roots, ...(row.nested ?? [])])].entries()) {
             for (const item of declaredEntries(row, root, index)) {
                 fs.mkdirSync(path.dirname(item.file), { recursive: true });
+                if (item.kind === "include") { fs.writeFileSync(item.file, item.line + "\n"); continue; }
                 fs.writeFileSync(item.to, "managed theme\n");
                 if (item.kind === "copy") fs.copyFileSync(item.to, item.file);
                 else fs.symlinkSync(item.to, item.file);
             }
         }
     }
+    fs.writeFileSync(path.join(home, ".zen/profiles.ini"), '[Profile0]\nPath=p0\nIsRelative=1\n[Profile1]\nPath=p1\nIsRelative=1\n');
     const judge = path.join(tree, "bin/vgshell-theme-judge");
     const env = { HOME: home, PATH: path.dirname(process.execPath), XDG_CONFIG_HOME: config,
         XDG_STATE_HOME: path.join(home, ".local/state"), VGS_TEST_RUN: "1" };
@@ -173,12 +189,13 @@ try {
                     for (const [index, root] of roots.entries()) {
                         const file = path.join(row.base, root, row.settings);
                         fs.rmSync(file, { recursive: true, force: true });
+                        fs.mkdirSync(path.dirname(file), { recursive: true });
                         if (connected[index] === "unreadable") fs.mkdirSync(file);
-                        else if (connected[index] === "missing") fs.writeFileSync(file, row.missing ?? "");
-                        else if (connected[index] !== null) fs.writeFileSync(file, connected[index] ? row.selected : row.other);
+                        else if (connected[index] === "missing") { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, row.missing ?? ""); }
+                        else if (connected[index] !== null) { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, connected[index] ? row.selected : row.other); }
                         const unknownValues = row.values && applied !== "valid";
                         if (unknownValues || connected[index] === true)
-                            for (const entry of entryFiles(row, root, index)) expected.push([entry, null, "wired", null]);
+                            for (const entry of declaredEntries(row, root, index).filter(item => entryFiles(row, root, index).includes(item.file))) expected.push([entry.file, entry.line ?? null, "wired", null]);
                         if (!unknownValues && connected[index] === true)
                             for (const line of row.lines) expected.push([file, line, "wired", null]);
                         if (!unknownValues && connected[index] === "unreadable") expected.push([file, null, "unreadable", "EISDIR"]);
@@ -210,7 +227,7 @@ try {
         ["selectionEdits(target, configHome, live, undefined, undefined, selectionValues).map", "selectionEdits(target, configHome, live, undefined, undefined).map"],
         ["return owner?.connected === true;", "return owner !== undefined;"],
         ["return owner?.connected === true;", "return owner?.connected === true && selections.every(item => item.connected);"],
-        ["root.length > path.dirname(nearest.file).length", "selection.connected"],
+        ["root.length > nearest.root.length", "selection.connected"],
         ["for (const [index, dir] of dirs.entries()) {", "for (const [index, dir] of dirs.filter(keep).entries()) {",
             { name: "AssertionError", message: /^yazi: yazi,yazi-scratchpad: valid: false,true\b/ }]
     ];
@@ -221,6 +238,73 @@ try {
         fs.writeFileSync(judge, mutant);
         assert.throws(() => verifyConfigurations("valid"), failure ?? { name: "AssertionError" });
         fs.writeFileSync(judge, source);
+    }
+    // Drive the actual apply owner using shipped selectors. Hooks are disabled
+    // in this disposable tree so the test cannot contact a running application.
+    const native = configurations.filter(row => ["qtct", "json-array", "userjs"].includes(targets.get(row.name).select.format));
+    const commands = path.join(scratch, "commands");
+    const noCommands = path.join(scratch, "no-commands");
+    fs.mkdirSync(commands);
+    fs.mkdirSync(noCommands);
+    for (const row of configurations.filter(row => !native.includes(row))) fs.rmSync(path.join(tree, "themes/targets", row.name), { recursive: true });
+    for (const row of native) {
+        const target = targets.get(row.name);
+        fs.writeFileSync(path.join(tree, "themes/targets", row.name, "target.json"), JSON.stringify({ ...target, reload: null }));
+        for (const command of target.detect) fs.writeFileSync(path.join(commands, command), '#!/bin/sh\nexit 99\n', { mode: 0o755 });
+    }
+    for (const name of ["shell/Core", "config", "themes/vgs"]) fs.cpSync(path.join(setupRepo, name), path.join(tree, name), { recursive: true });
+    const light = JSON.parse(fs.readFileSync(path.join(setupRepo, "themes/catalog/flexoki-light/theme.json"), "utf8"));
+    delete light.backgrounds;
+    fs.mkdirSync(path.join(tree, "themes/flexoki-light"));
+    fs.writeFileSync(path.join(tree, "themes/flexoki-light/theme.json"), JSON.stringify(light));
+    fs.copyFileSync(path.join(setupRepo, "themes/catalog/flexoki-light/terminal.json"), path.join(tree, "themes/flexoki-light/terminal.json"));
+    function verifyApply(only, absent = false, detected = true) {
+        const selectors = [];
+        for (const row of native) for (const root of row.roots) {
+            const file = path.join(row.base, root, row.settings);
+            fs.rmSync(file, { recursive: true, force: true });
+            fs.mkdirSync(path.dirname(file), { recursive: true });
+            // Mozilla does not create user.js. Cover both an existing file and
+            // an absent file in independent profiles, without creating a profile.
+            if (!absent && (row.name !== "zen" || root === row.roots[0])) fs.writeFileSync(file, row.other);
+            selectors.push({ row, file });
+        }
+        let stable;
+        let generated;
+        for (const theme of ["vgs", "flexoki-light", "flexoki-light"]) {
+            const result = spawnSync(process.execPath, [judge, "apply", "json", path.join(config, "vgshell"), state, "held", theme], { env: { ...env, PATH: detected ? commands : noCommands }, encoding: "utf8", timeout: 30000 });
+            assert.equal(result.status, 0, result.stderr);
+            const bytes = [];
+            for (const { row, file } of selectors) {
+                const text = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : undefined;
+                const expected = !detected ? undefined : absent ? row.emptySelected ?? row.selected : row.selected;
+                if (only === undefined || row.name === only) assert.equal(text, expected, row.name + ": apply selects native theme");
+                bytes.push(text);
+            }
+            if (stable) assert.deepEqual(bytes, stable, "theme switches and repeated applies keep every user selector byte-identical");
+            stable = bytes;
+            if (!detected) {
+                for (const target of JSON.parse(result.stdout).targets) assert.deepEqual([target.state, target.reason], ["skipped", "not-detected"]);
+                continue;
+            }
+            const palette = fs.readFileSync(path.join(state, "theme/qt5ct.conf"), "utf8");
+            if (generated !== undefined && theme === "flexoki-light") assert.notEqual(palette, generated, "generated Qt colours change with the theme");
+            generated = theme === "vgs" ? palette : undefined;
+        }
+    }
+    verifyApply(undefined, true, false);
+    verifyApply(undefined, true);
+    verifyApply();
+    for (const row of native) {
+        const file = path.join(tree, "themes/targets", row.name, "target.json");
+        const original = fs.readFileSync(file, "utf8");
+        const mutant = JSON.parse(original);
+        delete mutant.select;
+        const replacement = JSON.stringify(mutant);
+        assert.notEqual(replacement, original);
+        fs.writeFileSync(file, replacement);
+        assert.throws(() => verifyApply(row.name), { name: "AssertionError", message: new RegExp("^" + row.name + ": apply selects native theme") });
+        fs.writeFileSync(file, original);
     }
 } finally {
     fs.rmSync(scratch, { recursive: true, force: true });
