@@ -3567,7 +3567,6 @@ smoke_row() { # NAME [DIR]
   elif [[ $smoke_row_count -gt 0 ]]; then
     fail "$smoke_row_name: its output holds $smoke_row_count Python traceback(s): $smoke_row_out"
   fi
-  ipc_timeout_check "$smoke_row_name" || true
   ipc_oversize_check "$smoke_row_name"
   # A shell crash fails the row it happened in, which leaves the rows after
   # it a fresh shell and no crash reporter window. A row run inside another
@@ -3578,6 +3577,7 @@ smoke_row() { # NAME [DIR]
     done <"$sandbox/rows/$smoke_row_name.crashes"
   fi
   leak_row_end "$smoke_row_name" "$smoke_row_dir"
+  ipc_timeout_check "$smoke_row_name" || true
   printf 'qml-smoke: row-secs row=%s secs=%s\n' "$smoke_row_name" "$((EPOCHSECONDS - smoke_row_started))"
 }
 

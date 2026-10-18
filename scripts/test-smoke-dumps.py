@@ -84,24 +84,27 @@ py_reply 'import sys; sys.exit(23)' < "$2"
 
 
 # The real smoke_row must reject a timeout even when a reader catches its
-# status or runs in a command substitution. Only qs is a transport stub;
-# the call, page loop, poll and row verdict run their production code.
+# status or runs in a command substitution. The call, page loop, poll,
+# leak reading and row verdict run their production code against stand-ins.
 with tempfile.TemporaryDirectory(prefix="smoke-ipc-") as scratch:
     root = Path(scratch)
     production = root / "production.sh"
     names = ("ipc_call_last", "ipc_failed", "ipc_page", "ipc_via", "ipc",
              "ipc_at", "ipc_timeout_check", "ipc_oversize_check", "smoke_row",
-             "reader_stderr", "expect_poll")
+             "reader_stderr", "expect_poll", "now_ms")
     production.write_text("".join(function(name) for name in names))
     stub = root / "qs"
     stub.write_text('''#!/usr/bin/env bash
 set -euo pipefail
 shift 4
 printf '%s|%s\\n' "$1" "$2" >>"$CASE_DIR/calls"
-[[ "$1 $2" != "${CASE_BLOCK:-}" ]] || exec sleep infinity
+if [[ "$1 $2" == "${CASE_BLOCK:-}" ]]; then
+  [[ ${CASE_DEFER:-no} == yes && ! -e $CASE_DIR/block ]] || exec sleep infinity
+fi
 case "$1 $2" in
   'shell ping') echo ok; exit ;;
   'shell listPlugins') echo paged=7; exit ;;
+  'smoke perScreenLayers') echo '[]'; exit ;;
   'smoke reply') printf 'noise\\nanswer\\n'; exit ;;
   'smoke failure') echo refused; exit 17 ;;
 esac
@@ -114,21 +117,35 @@ unset WAYLAND_DISPLAY DISPLAY HYPRLAND_INSTANCE_SIGNATURE
 repo="$1" sandbox="$2" root="$3" want_timeout="$5"
 source "$repo/bin/lib/ipc-reply.sh"
 source "$repo/scripts/smoke/verdict.sh"
+source "$repo/scripts/smoke/leaks.sh"
 source "$4"
 block=""
 [[ $want_timeout != yes ]] || block="$6 $7"
-shell_env=(env -i PATH="$root:$PATH" HOME="$sandbox" XDG_RUNTIME_DIR="$sandbox" CASE_DIR="$sandbox" CASE_BLOCK="$block" VGS_TEST_RUN=1)
+shell_env=(env -i PATH="$root:$PATH" HOME="$sandbox" XDG_RUNTIME_DIR="$sandbox" CASE_DIR="$sandbox" CASE_BLOCK="$block" CASE_DEFER="$8" VGS_TEST_RUN=1)
 printf '%s\\n' "$BASHPID" >"$sandbox/vgshell.lock"
 # The short bound tests timer wiring, independently of the measured default.
 ipc_call_bound_s=0.1
 ipc_last_reply="" ipc_reply_chars=32768 ipc_oversize_log="$sandbox/oversize"
 ipc_timeout_log="$sandbox/ipc-timeout.log"
 smoke_row_drain_s=5
-leak_starts=()
+shell_qs_pid="$BASHPID" timeout_s=1
+shell_start_path="$PATH" shell_start_words=()
+shim="$sandbox/shim"
+mkdir "$shim"
+hypr() {
+  case "$*" in
+    '-j clients') echo '[]' ;;
+    '-j descriptions') echo '[{"name":"general:border_size"}]' ;;
+    '-j layers') echo '{}' ;;
+    '--batch j/getoption general:border_size') echo '{"int":1}' ;;
+    *) return 1 ;;
+  esac
+}
+active_window() { echo '[]'; }
+key_submap() { echo default; }
+devices_guard() { echo stable; }
 devices_check() { return 0; }
 rest_pointer() { return 0; }
-leak_row_start() { leak_starts+=(active); }
-leak_row_end() { leak_starts=(); }
 shell_crash_check() { return 0; }
 smoke_poll_tries() { smoke_poll_n=50; }
 ok() { :; }
@@ -148,6 +165,8 @@ fi
         ("page", 'got="$(ipc shell listPlugins)" || true', "shell", "page", "yes"),
         ("geometry", "row_class=geometry; ipc smoke descendantGeometry window vgs.settings || true", "smoke", "descendantGeometry", "yes"),
         ("preflight", ":", "shell", "ping", "yes"),
+        ("cleanup", 'touch "$sandbox/block"', "smoke", "perScreenLayers", "yes"),
+        ("cleanup-reply", ":", "smoke", "perScreenLayers", "no"),
         ("reply", 'got="$(ipc smoke reply)"; [[ $got == answer ]]', "smoke", "reply", "no"),
         ("status", 'status=0; got="$(ipc smoke failure)" || status=$?; [[ $status == 17 && $got == refused ]]', "smoke", "failure", "no"),
     )
@@ -158,7 +177,8 @@ fi
         (folder / "example.sh").write_text(command + "\n")
         result = subprocess.run(
             ["timeout", "--signal=KILL", "3", BASH, str(child),
-             str(HARNESS.parents[2]), str(folder), str(root), str(helpers), want_timeout, target, method],
+             str(HARNESS.parents[2]), str(folder), str(root), str(helpers), want_timeout, target, method,
+             "yes" if name == "cleanup" else "no"],
             env=ENV, stdin=subprocess.DEVNULL, capture_output=True, text=True)
         assert result.returncode == 0, (name, result.returncode, result.stdout, result.stderr, str(folder))
         # smoke_row consumes this machine-read record to fail the row.
@@ -166,7 +186,9 @@ fi
         expected = "ipc-timeout: target=%s function=%s bound_s=0.1" % (target, method)
         assert records == ([expected] if want_timeout == "yes" else []), (name, records)
         calls = (folder / "calls").read_text().splitlines()
-        assert calls.count(target + "|" + method) == 1, (name, calls)
+        assert calls.count(target + "|" + method) == (2 if method == "perScreenLayers" else 1), (name, calls)
+        if name == "cleanup":
+            assert "result failures=1 behaviour=1" in result.stdout, result.stdout
 
     for case in cases:
         ipc_case(production, case)
@@ -191,3 +213,24 @@ fi
         print("smoke-ipc: control=unbounded-rejected")
     else:
         raise AssertionError("unbounded production copy passed")
+
+    # Keep timeout handling intact but restore its premature placement.
+    needle = '  ipc_timeout_check "$smoke_row_name" || true\n'
+    assert text.count(needle) == 1
+    before_cleanup = text.replace(needle, "")
+    needle = '  leak_row_end "$smoke_row_name" "$smoke_row_dir"\n'
+    assert before_cleanup.count(needle) == 1
+    before_cleanup = before_cleanup.replace(needle, '  ipc_timeout_check "$smoke_row_name" || true\n' + needle)
+    assert before_cleanup != text
+    mutant = root / "premature.sh"
+    mutant.write_text(before_cleanup)
+    cleanup_case = next(case for case in cases if case[0] == "cleanup")
+    try:
+        ipc_case(mutant, cleanup_case)
+    except AssertionError as failure:
+        detail = failure.args[0]
+        assert len(detail) == 5 and detail[1] == 1, detail
+        assert "result failures=0 behaviour=0" in detail[2], detail
+        print("smoke-ipc: control=premature-check-rejected")
+    else:
+        raise AssertionError("premature timeout check passed")
