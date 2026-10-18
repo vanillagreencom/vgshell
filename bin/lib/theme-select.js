@@ -60,13 +60,53 @@ function keySelected(format, text, key, value) {
     switch (format) {
     case "json": return jsonSelected(text, text, key, value, refuse);
     case "jsonc": return jsonSelected(text, jsoncBlanked(text), key, value, refuse);
+    case "zed": return jsonSelected(text, jsoncBlanked(text), key, value, refuse, "modes");
+    case "posh": return poshSelected(text, value);
     case "toml": return tomlSelected(text, key, value, refuse);
     case "yaml": return yamlSelected(text, key, value, refuse);
     case "qtct": return iniSelected(text, [[key, JSON.stringify(value)], [["Appearance", "custom_palette"], "true"]], refuse);
-    case "json-array": return jsonSelected(text, text, key, value, refuse, true);
+    case "json-array": return jsonSelected(text, text, key, value, refuse, "array");
     case "userjs": return userJsSelected(text, key[0]);
     default: throw new Error("theme-select: selectedText: format " + format + " is none of json, jsonc, toml, yaml");
     }
+}
+
+// Only the documented literal bash/zsh eval form is edited. Shell code is
+// never evaluated here; variable expansion and compound forms are refused.
+function poshSelected(text, value) {
+    const lines = text.split("\n");
+    let found = false;
+    for (let at = 0; at < lines.length; at++) {
+        const line = lines[at];
+        if (/^\s*#/.test(line) || !/\boh-my-posh\s+init\b/.test(line)) continue;
+        found = true;
+        const match = /^(\s*eval\s+"\$\(oh-my-posh\s+init\s+(?:bash|zsh))([ \t]+[^\r]*?)?(\)"[ \t]*(?:#[^\r]*)?\r?)$/.exec(line);
+        if (match === null) return { ok: false, reason: "posh-complex", detail: "" };
+        const args = match[2] || "";
+        const words = [...args.matchAll(/\s+(?:--[A-Za-z-]+=)?(?:'[^']*'|"[^"$`\\]*"|[A-Za-z0-9_./~:@%+=,-]+)/g)];
+        if (words.map(word => word[0]).join("") !== args || /[$`]/.test(args))
+            return { ok: false, reason: /[$`]/.test(args) ? "posh-dynamic" : "posh-complex", detail: "" };
+        const configs = words.map((word, index) => ({ word, index })).filter(({ word }) => /^\s+--config(?:=|$)/.test(word[0]));
+        if (configs.length > 1) return { ok: false, reason: "posh-complex", detail: "" };
+        let next = args;
+        const quoted = "'" + value.replace(/'/g, "'\\''") + "'";
+        if (configs.length === 0) next += " --config " + quoted;
+        else {
+            const { word, index } = configs[0];
+            const equal = word[0].indexOf("=");
+            const token = equal === -1 ? words[index + 1] : word;
+            if (token === undefined || (equal === -1 && token[0].trim().startsWith("-")))
+                return { ok: false, reason: "posh-complex", detail: "" };
+            const start = token.index + (equal === -1 ? /^\s*/.exec(token[0])[0].length : equal + 1);
+            const end = token.index + token[0].length;
+            const held = args.slice(start, end).replace(/^(['"])(.*)\1$/, "$2");
+            if (held !== value) next = args.slice(0, start) + quoted + args.slice(end);
+        }
+        lines[at] = match[1] + next + match[3];
+    }
+    if (!found) return { ok: false, reason: "no-posh-init", detail: "" };
+    const changed = lines.join("\n");
+    return changed === text ? null : changed;
 }
 
 // --- json
@@ -189,7 +229,7 @@ function jsoncBlanked(text, preferences = false) {
 // TEXT's. The key's string token is replaced; a missing key is added, with
 // the objects missing on its path, as the first member of the deepest
 // object that exists.
-function jsonSelected(text, plain, key, value, refuse, array = false) {
+function jsonSelected(text, plain, key, value, refuse, selection = "string") {
     let document;
     try {
         document = JSON.parse(plain);
@@ -201,19 +241,23 @@ function jsonSelected(text, plain, key, value, refuse, array = false) {
     for (let depth = 0; depth < key.length; depth++) {
         const found = object.members.filter(member => member.key === key[depth]);
         if (found.length > 1) return refuse("duplicate-key");
-        if (found.length === 0) return withMember(text, object, memberText(key.slice(depth), array ? [value] : value));
+        if (found.length === 0) return withMember(text, object, memberText(key.slice(depth), selection === "array" ? [value] : value));
         const span = found[0].value;
         if (depth < key.length - 1) {
             if (span.kind !== "object") return refuse("not-a-table");
             object = span;
             continue;
         }
-        if (array) {
+        if (selection === "array") {
             if (span.kind !== "array" || span.members.some(member => member.value.kind !== "string")) return refuse("not-an-array");
             if (span.members.some(member => JSON.parse(text.slice(member.value.start, member.value.end)) === value)) return null;
             const end = span.end - 1;
             return text.slice(0, end) + (span.members.length ? ", " : "") + JSON.stringify(value) + text.slice(end);
         }
+        // Zed's native selector can keep a mode plus separate light and dark
+        // names. Preserve that mode and edit only the two theme names.
+        if (selection === "modes" && span.kind === "object")
+            return selectedText("jsonc", text, [key.concat("light"), key.concat("dark")], value);
         if (span.kind !== "string") return refuse("not-a-string");
         if (JSON.parse(text.slice(span.start, span.end)) === value) return null;
         return text.slice(0, span.start) + JSON.stringify(value) + text.slice(span.end);
@@ -929,4 +973,69 @@ function appSelectedText(format, text, values) {
     }
 }
 
-module.exports = { selectedText, appSelectedText, yaziFlavorText };
+// Migrate literal calls to the former VGS helper without reading strings or
+// comments as Lisp. A computed reference to that helper must stay intact.
+function emacsStartupText(text, previous, line) {
+    if (text === undefined) return text;
+    const edits = [];
+    const literal = JSON.stringify(previous);
+    const space = start => {
+        let at = start;
+        while (at < text.length) {
+            if (/\s/.test(text[at])) at++;
+            else if (text[at] === ";") {
+                const end = text.indexOf("\n", at);
+                at = end === -1 ? text.length : end + 1;
+            } else break;
+        }
+        return at;
+    };
+    const conflict = () => { throw new SyntaxError("computed-emacs-loader"); };
+    // Lisp quote and vectors are data. Backquote's comma forms can execute,
+    // so retain the data and refuse a helper reference in an unquote.
+    const form = (start, mode) => {
+        let at = space(start);
+        if (at === text.length) return at;
+        if (text[at] === "'") return form(at + 1, mode === "backquote" ? mode : "data");
+        if (text[at] === "`") return form(at + 1, mode === "data" ? "data" : "backquote");
+        if (text[at] === "," && mode === "backquote") return form(at + (text[at + 1] === "@" ? 2 : 1), "unsafe");
+        if (text.startsWith("#'", at)) return form(at + 2, mode === "data" || mode === "backquote" ? mode : "unsafe");
+        if (text[at] === '"') {
+            let end = at + 1;
+            while (end < text.length && text[end] !== '"') end += text[end] === "\\" ? 2 : 1;
+            end = Math.min(end + 1, text.length);
+            if (mode !== "data" && mode !== "backquote" && text.slice(at, end) === literal) conflict();
+            return end;
+        }
+        if (text[at] === "(" || text[at] === "[") {
+            const close = text[at] === "(" ? ")" : "]";
+            const call = text[at] === "(" ? /^\((load|load-file|load-theme)\s+("(?:\\.|[^"\\])*"|'vgs)(?:\s+(?:nil|t))*\s*\)/.exec(text.slice(at)) : null;
+            if (call !== null && (call[1] === "load-theme" ? call[2] === "'vgs" : call[2] === literal)) {
+                if (mode === "unsafe") conflict();
+                if (mode === "code") edits.push({ start: at, end: at + call[0].length, value: line });
+                return at + call[0].length;
+            }
+            const head = space(at + 1);
+            const quoted = mode !== "backquote" && (text[at] === "[" || /^quote(?=[\s();])/.test(text.slice(head)));
+            const childMode = quoted ? "data" : mode;
+            at++;
+            while ((at = space(at)) < text.length && text[at] !== close) at = form(at, childMode);
+            return Math.min(at + 1, text.length);
+        }
+        // Escaped symbol characters and character literals do not delimit a
+        // form; in particular ?\( must not start a loader-looking list.
+        if (text[at] === "?") return Math.min(at + (text[at + 1] === "\\" ? 3 : 2), text.length);
+        do { at += text[at] === "\\" ? 2 : 1; }
+        while (at < text.length && !/[\s()[\]'"`,;]/.test(text[at]));
+        return at;
+    };
+    try {
+        for (let at = 0; at < text.length;) at = form(at, "code");
+        return replaceSpans(text, edits) ?? text;
+    } catch (e) {
+        if (!(e instanceof SyntaxError)) throw e;
+        return { ok: false, reason: "wiring-conflict", detail: "form=" + e.message };
+    }
+}
+
+module.exports = { selectedText, appSelectedText, yaziFlavorText, emacsStartupText };

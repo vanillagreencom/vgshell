@@ -5,5 +5,6 @@
   "files": [{ "template": "oh-my-posh.json", "destination": "oh-my-posh.json" }],
   "detect": ["oh-my-posh"],
   "wiring": { "base": "config", "dir": "oh-my-posh", "owned": false, "links": { "vgs.omp.json": "oh-my-posh.json" } },
+  "select": { "base": "home", "file": [".bashrc", ".bash_profile", ".profile", ".zshrc"], "format": "posh", "key": ["config"], "value": "vgs.omp.json" },
   "reload": null
 }

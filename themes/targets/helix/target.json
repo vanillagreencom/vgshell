@@ -5,5 +5,6 @@
   "files": [{ "template": "helix.toml", "destination": "helix.toml" }],
   "detect": [["helix", "hx"]],
   "wiring": { "base": "config", "dir": "helix/themes", "owned": false, "links": { "vgs.toml": "helix.toml" } },
-  "reload": { "command": ["sh", "-c", "pkill -USR1 -x -u \"$(id -u)\" 'hx|helix'; [ $? -le 1 ]"], "timeoutMs": 5000 }
+  "select": { "base": "config", "file": "helix/config.toml", "format": "toml", "key": ["theme"], "value": "vgs", "create": true },
+  "reload": { "command": ["sh", "-c", "pkill -USR1 -x -u \"$(id -u)\" 'hx|helix'; [ $? -le 1 ]"], "timeoutMs": 5000, "always": true }
 }

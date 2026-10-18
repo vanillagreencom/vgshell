@@ -49,6 +49,13 @@ function verify(logic) {
 verify(load(file));
 
 const WIRING_ROWS = [
+    ...["no Oh My Posh init line", "dynamic Oh My Posh init form", "complex Oh My Posh init form"].map(reason => [
+        "a disconnected prompt names its cause", wiringReport([{ name: "oh-my-posh", app: "Oh My Posh", file: "/home/alice/.bashrc", line: null, state: "not-wired", reason }]), 0,
+        [{ label: "Oh My Posh", value: "absent", hint: "~/.bashrc: not wired: " + reason }]
+    ]),
+    ...[undefined, null, "", 1].map(reason => ["a disconnected row needs a reason", wiringReport([
+        { name: "oh-my-posh", app: "Oh My Posh", file: "/home/alice/.bashrc", line: null, state: "not-wired", reason }
+    ]), 0, null]),
     ["wired rows map to presence items", wiringReport([
         { name: "kitty", app: "kitty", file: "/home/alice/.config/kitty/kitty.conf", line: "include /home/alice/.local/state/vgshell/theme/kitty.conf", state: "wired" },
         { name: "btop", app: "btop", file: "/home/alice/.config/btop/themes/vgs.theme", line: null, state: "wired" }
@@ -94,48 +101,39 @@ try {
     // paths come from those declarations, so new shipped entries are covered.
     const configurations = [
         { name: "bat", base: config, roots: ["bat"], settings: "config", values: true,
-            lines: [null],
             selected: "--theme=vgs\n", other: "--theme=other\n" },
         { name: "btop", base: config, roots: ["btop"], settings: "btop.conf",
-            lines: ["color_theme = vgs"],
             selected: 'color_theme = "vgs"\n# owner\n', other: 'color_theme = "Default"\n# owner\n', missing: '# owner\n' },
+        { name: "helix", base: config, roots: ["helix"], settings: "config.toml", selected: 'theme = "vgs"\n# owner\n', other: 'theme = "default"\n# owner\n' },
+        { name: "zed", base: config, roots: ["zed"], settings: "settings.json", selected: '{"theme":{"mode":"system","dark":"vgs","light":"vgs"},"owner":true}\n', other: '{"theme":{"mode":"system","dark":"other","light":"vgs"},"owner":true}\n' },
+        { name: "obsidian", base: path.join(home, "vaults"), roots: ["one", "two"], settings: ".obsidian/appearance.json", selected: '{"cssTheme":"vgs","owner":true}\n', other: '{"cssTheme":"other","owner":true}\n' },
         { name: "claude", base: home, roots: [".claude", ".claude-work"], settings: "settings.json",
             nested: [".claude", ".claude/work"], explicit: "CLAUDE_CONFIG_DIR",
-            lines: ["theme = custom:vgs"],
             selected: '{"theme":"custom:vgs","owner":true}\n', other: '{"theme":"dark","owner":true}\n' },
         { name: "codex", base: home, roots: [".codex", ".codex-work"], settings: "config.toml",
             nested: [".codex", ".codex/work"], explicit: "CODEX_HOME",
-            lines: ["tui.theme = vgs"],
             selected: 'owner = true\n[tui]\ntheme = "vgs"\n', other: 'owner = true\n[tui]\ntheme = "other"\n' },
         { name: "hermes", base: home, roots: [".hermes"], settings: "config.yaml",
-            lines: ["display.skin = vgs"],
             selected: 'owner: true\ndisplay:\n  skin: vgs\n', other: 'owner: true\ndisplay:\n  skin: other\n' },
         { name: "omp", base: home, roots: [".omp/agent"], settings: "config.yml",
-            lines: ["theme.dark = vgs", "theme.light = vgs"],
             selected: 'owner: true\ntheme:\n  dark: vgs\n  light: vgs\n', other: 'owner: true\ntheme:\n  dark: other\n  light: other\n' },
         { name: "opencode", base: config, roots: ["opencode"], settings: "tui.json",
-            lines: ["theme = vgs"],
             selected: '{"theme":"vgs","owner":true}\n', other: '{"theme":"other","owner":true}\n' },
         { name: "pi", base: home, roots: [".pi/agent"], settings: "settings.json",
-            lines: ["theme = vgs"],
             selected: '{"theme":"vgs","owner":true}\n', other: '{"theme":"other","owner":true}\n' },
         { name: "television", base: config, roots: ["television"], settings: "config.toml", values: true,
-            lines: [null],
             selected: '[ui]\ntheme = "vgs"\n', other: '[ui]\ntheme = "other"\n' },
         { name: "yazi", base: config, roots: ["yazi", "yazi-scratchpad"], settings: "theme.toml", values: true,
-            lines: [null],
             selected: '[flavor]\ndark = "vgs"\nlight = "vgs"\n', other: '[flavor]\ndark = "other"\nlight = "other"\n' },
         ...["qt5ct", "qt6ct"].map(name => ({ name, base: config, roots: [name], settings: name + ".conf",
-            lines: ["Appearance.color_scheme_path = " + path.join(state, "theme", name + ".conf")],
             emptySelected: '[Appearance]\ncustom_palette=true\ncolor_scheme_path=' + JSON.stringify(path.join(state, "theme", name + ".conf")) + '\n',
             selected: '[Appearance]\ncolor_scheme_path=' + JSON.stringify(path.join(state, "theme", name + ".conf")) + '\ncustom_palette=true\nstyle=Fusion\n',
             other: '[Appearance]\ncolor_scheme_path=other.conf\ncustom_palette=false\nstyle=Fusion\n' })),
         ...["vencord", "vesktop", "equibop"].map(name => ({ name, base: config, roots: [name === "vencord" ? "Vencord" : name], settings: "settings/settings.json",
             emptySelected: '{\n  "enabledThemes": ["vgs.css"]\n}\n',
-            lines: ["enabledThemes = vgs.css"], selected: '{"enabledThemes":["other.css", "vgs.css"],"owner":true}\n',
+            selected: '{"enabledThemes":["other.css", "vgs.css"],"owner":true}\n',
             other: '{"enabledThemes":["other.css"],"owner":true}\n' })),
         { name: "zen", base: home, roots: [".zen/p0", ".zen/p1"], settings: "user.js",
-            lines: ["toolkit.legacyUserProfileCustomizations.stylesheets = true"],
             selected: 'user_pref("toolkit.legacyUserProfileCustomizations.stylesheets", true);\n',
             other: 'user_pref("toolkit.legacyUserProfileCustomizations.stylesheets", false);\n' }
     ];
@@ -144,10 +142,13 @@ try {
     fs.mkdirSync(path.join(state, "theme"), { recursive: true });
     const targets = new Map(configurations.map(row => [row.name,
         JSON.parse(fs.readFileSync(path.join(tree, "themes/targets", row.name, "target.json"), "utf8"))]));
+    fs.mkdirSync(path.join(config, "obsidian"), { recursive: true });
+    fs.writeFileSync(path.join(config, "obsidian/obsidian.json"), JSON.stringify({ vaults: Object.fromEntries(
+        configurations.find(row => row.name === "obsidian").roots.map(root => [root, { path: path.join(home, "vaults", root) }])) }));
     function declaredEntries(row, root, index) {
         const target = targets.get(row.name);
         if (render.wiringForm(target.wiring) === "include") return [{ kind: "include", file: path.join(row.base, root, target.wiring.file), line: render.wiringLine(target, path.join(state, "theme")) }];
-        const wiringBase = target.wiring.base === "account" ? path.join(row.base, root) : row.base;
+        const wiringBase = target.wiring.base === "account" || target.wiring.vaults !== undefined ? path.join(row.base, root) : row.base;
         const wiringDir = Array.isArray(target.wiring.dir) ? target.wiring.dir[index] : target.wiring.dir;
         return render.entryItems(target, path.join(state, "theme"), index).map(item => ({ ...item,
             file: path.join(wiringBase, wiringDir, item.name) }));
@@ -197,7 +198,8 @@ try {
                         if (unknownValues || connected[index] === true)
                             for (const entry of declaredEntries(row, root, index).filter(item => entryFiles(row, root, index).includes(item.file))) expected.push([entry.file, entry.line ?? null, "wired", null]);
                         if (!unknownValues && connected[index] === true)
-                            for (const line of row.lines) expected.push([file, line, "wired", null]);
+                            for (const line of targets.get(row.name).select.values !== undefined ? [null] : render.selectKeys(targets.get(row.name)).map(key =>
+                                key.join(".") + " = " + render.selectValue(targets.get(row.name), path.join(state, "theme")))) expected.push([file, line, "wired", null]);
                         if (!unknownValues && connected[index] === "unreadable") expected.push([file, null, "unreadable", "EISDIR"]);
                     }
                     const actual = readWiring(row.name, explicit).map(item => [item.file, item.line, item.state, item.error ?? null]);
@@ -337,13 +339,11 @@ const CONTROLS = [
     ["any target's row is read", "rows[i].name === TARGET", "true"],
     ["an unknown state is installed", 'case "done": return', 'default: return'],
     ["wiring failures publish an empty list", 'if (code !== 0) return unknown("exited " + String(code));', 'if (code !== 0) return [];'],
-    ["wiring unreadable rows look present", 'value: row.state === "wired" ? "present" : "unavailable"', 'value: "present"'],
+    ["wiring unreadable rows look present", 'value: row.state === "wired" ? "present" : row.state === "not-wired" ? "absent" : "unavailable"', 'value: "present"'],
     ["wiring rows are not capped", 'if (items.length > STATUS_LIST_MAX) {', 'if (false) {']
 ];
 const source = fs.readFileSync(file, "utf8");
-const scratchRoot = path.join(__dirname, "..", "tmp");
-fs.mkdirSync(scratchRoot, { recursive: true });
-const temp = fs.mkdtempSync(path.join(scratchRoot, "themes-setup-control-"));
+const temp = fs.mkdtempSync(path.join(os.tmpdir(), "themes-setup-control-"));
 try {
     for (const [label, needle, replacement] of CONTROLS) {
         assert.equal(source.split(needle).length, 2, `control "${label}": the text to replace must occur once`);

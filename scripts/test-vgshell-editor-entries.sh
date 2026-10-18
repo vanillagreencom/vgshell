@@ -100,7 +100,7 @@ check "every zed colour is #rrggbbaa" colours_are "$zed_link" '[0-9a-f]{8}'
 check "helix's hook signals Helix and tolerates none running" hook_ran_pinned
 rm -f -- "$hook_args"
 THEME_PATH="$with_stubs" tinst "unchanged bytes" "$cfg" "$rt_empty" 0 "ok theme=nord state=unchanged shell=unchanged" "" theme apply nord
-check "unchanged bytes run no helix hook" test ! -e "$hook_args"
+check "unchanged bytes still repair Helix's active selection" hook_ran_pinned
 
 THEME_PATH="$with_stubs" tinst "a package's curated editor files land" "$cfg" "$rt_empty" 0 "$(result written written curated)" "" theme apply --json curated
 check "helix takes the curated theme byte for byte" cmp -s -- "$tree/themes/curated/targets/helix.toml" "$helix_link"

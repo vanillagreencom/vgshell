@@ -41,6 +41,13 @@ const SELECTED = [
     ["userjs", 'user_pref("toolkit.legacyUserProfileCustomizations.stylesheets", true);\n', ["toolkit.legacyUserProfileCustomizations.stylesheets"], "true", null],
     ["userjs", '# user_pref("toolkit.legacyUserProfileCustomizations.stylesheets", false);\nuser_pref("toolkit.legacyUserProfileCustomizations.stylesheets", true); user_pref(\'toolkit.legacyUserProfileCustomizations.stylesheets\', false);\n', ["toolkit.legacyUserProfileCustomizations.stylesheets"], "true", '# user_pref("toolkit.legacyUserProfileCustomizations.stylesheets", false);\nuser_pref("toolkit.legacyUserProfileCustomizations.stylesheets", true); user_pref(\'toolkit.legacyUserProfileCustomizations.stylesheets\', true);\n'],
     ["userjs", 'user_pref("other\\x2ekey", true); user_pref("toolkit\\u002elegacyUserProfileCustomizations.stylesheets", false);\n', ["toolkit.legacyUserProfileCustomizations.stylesheets"], "true", 'user_pref("other\\x2ekey", true); user_pref("toolkit\\u002elegacyUserProfileCustomizations.stylesheets", true);\n'],
+    ["posh", 'export KEEP=1\neval "$(oh-my-posh init bash --config ~/old.json)" # owner\n', ["config"], "/x/vgs.omp.json", 'export KEEP=1\neval "$(oh-my-posh init bash --config \'/x/vgs.omp.json\')" # owner\n'],
+    ["posh", 'eval "$(oh-my-posh init zsh --config=old)"\n', ["config"], "/x/vgs.omp.json", 'eval "$(oh-my-posh init zsh --config=\'/x/vgs.omp.json\')"\n'],
+    ["posh", 'eval "$(oh-my-posh init bash --config \'/x/vgs.omp.json\')"\n', ["config"], "/x/vgs.omp.json", null],
+    ["posh", 'eval "$(oh-my-posh init bash)"\n', ["config"], "/x/vgs.omp.json", 'eval "$(oh-my-posh init bash --config \'/x/vgs.omp.json\')"\n'],
+    ["zed", '{ // owner\n "theme": "old", "font_size": 13,\n}\n', CLAUDE, "vgs", '{ // owner\n "theme": "vgs", "font_size": 13,\n}\n'],
+    ["zed", '{"theme":{"mode":"system", "light":"old", "dark":"dark"}, "keep":true}', CLAUDE, "vgs", '{"theme":{"mode":"system", "light":"vgs", "dark":"vgs"}, "keep":true}'],
+    ["zed", '{"theme":{"mode":"dark", "light":"vgs", "dark":"vgs"}}', CLAUDE, "vgs", null],
     ["jsonc", '{\r\n  // The work profile\r\n  "activeTheme" : "stock", /* keep */\r\n  "locale": "caf\u00c3\u00a9",\r\n  "nested": { "activeTheme": "mine", },\r\n}\r\n', DESKTOP, "vgs", '{\r\n  // The work profile\r\n  "activeTheme" : "vgs", /* keep */\r\n  "locale": "caf\u00c3\u00a9",\r\n  "nested": { "activeTheme": "mine", },\r\n}\r\n'],
     ["jsonc", '{\n  /* profile */ "themeOverlay": { "--text-000": "0 0% 100%" },\n  "themes": { "mine": {} },\n}\n', DESKTOP, "vgs", '{\n  "activeTheme": "vgs",\n  /* profile */ "themeOverlay": { "--text-000": "0 0% 100%" },\n  "themes": { "mine": {} },\n}\n'],
     ["jsonc", '/* selected */ { "activeTheme": "vgs", "unknown": [1,], }\n', DESKTOP, "vgs", null],
@@ -212,6 +219,8 @@ const targetText = fields => JSON.stringify({
 
 // Accepted `select` values, each over the defaults above.
 const ACCEPTED = [
+    { create: true },
+    { format: "zed", key: ["theme"], value: "vgs" },
     {},
     { base: "config", file: "opencode/tui.json" },
     { base: "cache", file: "x/y.json", key: ["a", "b", "c", "d"] },
@@ -227,6 +236,8 @@ const ACCEPTED = [
 
 // Refused target texts and the detail of each target-schema refusal.
 const REFUSED_SCHEMA = [
+    [targetText({ create: "yes" }), "key=select.create"],
+    [targetText({ base: "vault" }), "key=select.base"],
     [JSON.stringify(Object.assign(JSON.parse(targetText({})), { select: "x" })), "key=select"],
     [JSON.stringify(Object.assign(JSON.parse(targetText({})), { select: { base: "home", file: "a.json", format: "json", key: ["theme"] } })), "key=select"],
     [targetText({ extra: 1 }), "key=select"],
@@ -288,6 +299,25 @@ const APP_SELECTED = [
 ];
 
 function verify(render, edit) {
+    const previous = "/home/test/.config/emacs/vgs-theme.el";
+    const line = '(load "/state/emacs.el" nil t)';
+    for (const [before, expected] of [
+        ['(load "' + previous + '" nil t)\n(setq keep t)\n', line + '\n(setq keep t)\n'],
+        ['(load-file "' + previous + '") ; keep\n', line + ' ; keep\n'],
+        ["(load-theme 'vgs t)\n", line + '\n'],
+        ['; (load "' + previous + '")\n(setq keep "vgs-theme.el")\n', '; (load "' + previous + '")\n(setq keep "vgs-theme.el")\n'],
+        ...[
+            "'(load PREVIOUS nil t)", "(quote (load PREVIOUS nil t))",
+            "`(load PREVIOUS nil t)", "'[(load PREVIOUS nil t)]", "[(load PREVIOUS nil t)]",
+            "(quote ; owner\n (load PREVIOUS nil t))"
+        ].map(form => {
+            const data = '(setq saved-form ' + form.replace('PREVIOUS', JSON.stringify(previous)) + ')\n';
+            return [data + '(load "' + previous + '")\n', data + line + '\n'];
+        })
+    ]) assert.equal(edit.emacsStartupText(before, previous, line), expected);
+    for (const form of ['(load (concat PREVIOUS))', '`(owner ,(load PREVIOUS))', '`[,(load PREVIOUS)]',
+        '`(quote ,(load PREVIOUS))', "`'(,(load PREVIOUS))", "#'(lambda () (load PREVIOUS))"])
+        assert.equal(edit.emacsStartupText(form.replace('PREVIOUS', JSON.stringify(previous)), previous, line).reason, 'wiring-conflict');
     for (const [format, text, want] of APP_SELECTED) {
         assert.equal(edit.appSelectedText(format, text, APP_VALUES[format]), want, format + " " + text);
         assert.equal(edit.appSelectedText(format, want ?? text, APP_VALUES[format]), null, format + " must be idempotent");
@@ -393,9 +423,10 @@ const S = "theme-select.js";
 const R = "theme-render.js";
 const CONTROLS = [
     [S, 'case "userjs": return userJsSelected(text, key[0]);', 'case "userjs": return null;'],
-    [S, 'case "json-array": return jsonSelected(text, text, key, value, refuse, true);', 'case "json-array": return null;'],
+    [S, 'case "json-array": return jsonSelected(text, text, key, value, refuse, "array");', 'case "json-array": return null;'],
     [S, 'case "qtct": return iniSelected(text, [[key, JSON.stringify(value)], [["Appearance", "custom_palette"], "true"]], refuse);', 'case "qtct": return null;'],
     [S, 'case "bat": return batSelected(text, values);', 'case "bat": return null;'],
+    [S, 'if (mode === "code") edits.push', 'if (mode !== "unsafe") edits.push'],
     [S, 'if (next < distance)', 'if (next > distance)'],
     [S, 'if (next < distance)', 'if (next <= distance)'],
     [S, 'const rgb = parts[i + 1] === "5"', 'const rgb = false'],
@@ -410,7 +441,7 @@ const CONTROLS = [
     [S, '} else if (text.startsWith("/*", i)) {', '} else if (false) {'],
     [S, 'if (text[i] === "\\"") {\n            i = pastString(text, i);', 'if (false) {\n            i = pastString(text, i);'],
     [S, '        if (plain[i] === "," && "}]".includes(plain[skipSpace(plain, i + 1)])) out[i] = " ";\n', ""],
-    [R, 'const SELECT_FORMATS = ["json", "jsonc", "toml", "yaml", "qtct", "json-array", "userjs"];', 'const SELECT_FORMATS = ["json", "toml", "yaml"];'],
+    [R, 'const SELECT_FORMATS = ["json", "jsonc", "toml", "yaml", "qtct", "json-array", "userjs", "zed", "posh"];', 'const SELECT_FORMATS = ["json", "toml", "yaml", "qtct", "json-array", "userjs", "zed", "posh"];'],
     [R, "const segment = isJsonFormat(format) ? JSON_KEY_PATTERN : SECTION_PATTERN;", "const segment = JSON_KEY_PATTERN;"],
     [R, "const segment = isJsonFormat(format) ? JSON_KEY_PATTERN : SECTION_PATTERN;", "const segment = SECTION_PATTERN;"],
     [S, 'function selectedText(format, text, keys, value) {\n    if (text === undefined) return { ok: false, reason: ABSENT, detail: "" };', 'function selectedText(format, text, keys, value) {\n    if (text === undefined) text = "";'],
@@ -480,9 +511,9 @@ const CONTROLS = [
     [S, '" ".repeat(key.length === 2 && indent === 0 ? 2 : indent)', '" ".repeat(indent)'],
     [R, "![SELECT_KEY, SETUP_KEY, ACCOUNTS_KEY, EDITORS_KEY].includes(key)", "![SETUP_KEY, ACCOUNTS_KEY, EDITORS_KEY].includes(key)"],
     [R, "const select = logic.hasOwn(document, SELECT_KEY) ? selectError(logic, document.select, hasAccounts, hasEditors) : \"\";", "const select = \"\";"],
-    [R, 'if (!hasExactKeys(logic, select, SELECT_KEYS)) return "key=select";', 'if (!logic.isPlainObject(select)) return "key=select";'],
-    [R, 'if (!entryBaseAccepted(select.base, hasAccounts) && !(hasEditors && select.base === EDITOR_BASE)) return "key=select.base";', ""],
-    [R, 'if (!isRelativePath(select.file)) return "key=select.file";', ""],
+    [R, 'Object.keys(select).some(key => ![...SELECT_KEYS, "create"].includes(key))', 'false'],
+    [R, 'if (!entryBaseAccepted(select.base, hasAccounts) && !(hasEditors && select.base === EDITOR_BASE) && select.base !== "vault") return "key=select.base";', ""],
+    [R, '? select.file.every(isRelativePath) : isRelativePath(select.file)', '? true : true'],
     [R, 'if (!SELECT_FORMATS.includes(select.format)) return "key=select.format";', ""],
     [S, 'if (verdict !== null && typeof verdict !== "string") return verdict;', 'if (verdict !== null && typeof verdict !== "string") continue;'],
     [S, "changed === null ? text : changed", "text"],

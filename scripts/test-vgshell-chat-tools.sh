@@ -86,6 +86,7 @@ printf '# owner settings\ncolor_theme = "Default" # choice\nupdate_ms = 1000\n' 
 printf '# owner settings\ncolor_theme = "vgs" # choice\nupdate_ms = 1000\n' >"$tmp/btop-selected.conf"
 printf '/** @name mine */\n' >"$cfg/equibop/themes/mine.css"
 printf 'set -g mouse on\n' >"$cfg/tmux/tmux.conf"
+printf 'eval "$(oh-my-posh init bash --config old.json)"\n' >"$tmp/home/.bashrc"
 registry() { # VAULT_PATH...: an obsidian.json listing each
   local at=0 path body=""
   for path in "$@"; do body+="${body:+,}\"v$at\":{\"path\":\"$path\",\"ts\":1}"; at=$((at + 1)); done

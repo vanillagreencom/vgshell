@@ -30,7 +30,8 @@ const ACCOUNTS_KEY = "accounts";
 // key paths that each take the value. The named terminal apps use
 // `{ base, file, format, values }` for their native colour spans; `file`
 // may name several existing configurations. bin/lib/theme-select.js owns
-// both edits.
+// both edits. Optional `create` permits a detected app's absent settings
+// file. Base `vault` uses the registered roots of the entry's vault wiring.
 const SELECT_KEY = "select";
 // An optional editors target serves every installed editor of one family
 // from one render: each `{ detect, extensions, user }` names the editor's
@@ -50,9 +51,10 @@ const SELECT_KEYS = ["base", "file", "format", "key", "value"];
 const COLOR_SELECT_KEYS = ["base", "file", "format", "values"];
 const COLOR_SELECT_FORMATS = ["starship", "yazi", "bat", "fastfetch", "television"];
 // `jsonc` is JSON with comments and trailing commas, as VS Code-family
-// editors read their settings. The line-exact `toml` edit also handles
+// editors read their settings. Zed keeps its native mode object or string.
+// Posh edits a literal init command's config argument. The line-exact `toml` edit also handles
 // btop.conf's quoted root assignment without parsing unrelated settings.
-const SELECT_FORMATS = ["json", "jsonc", "toml", "yaml", "qtct", "json-array", "userjs"];
+const SELECT_FORMATS = ["json", "jsonc", "toml", "yaml", "qtct", "json-array", "userjs", "zed", "posh"];
 // The longest `key` a line-exact format takes: a root key, or a key in one
 // table or top-level mapping. JSON takes any depth.
 const SELECT_LINE_DEPTH = 2;
@@ -82,7 +84,7 @@ const CURATED_KEYS_KEY = "curatedKeys";
 // files, each a copy of one of the target's files. A null wiring keeps nothing: the target's hook
 // asserts the setting that makes its application read the files.
 const WIRING_KEYS = ["file", "line", "create"];
-const INCLUDE_OPTIONAL_KEYS = ["section", "profiles", "fallbacks", "last"];
+const INCLUDE_OPTIONAL_KEYS = ["section", "profiles", "fallbacks", "last", "init"];
 const ENTRY_BASE_KEYS = ["base", "dir", "owned"];
 const ENTRY_ITEM_KEYS = ["links", "copies"];
 const ENTRY_OPTIONAL_KEYS = ["vaults"];
@@ -355,6 +357,7 @@ function wiringError(logic, wiring) {
         !wiring.fallbacks.every(file => typeof file === "string" && file.split("/").every(segment => DIR_SEGMENT_PATTERN.test(segment))))) return "key=wiring.fallbacks";
     if (logic.hasOwn(wiring, "fallbacks") && logic.hasOwn(wiring, "profiles")) return "key=wiring.fallbacks";
     if (logic.hasOwn(wiring, "last") && (typeof wiring.last !== "boolean" || logic.hasOwn(wiring, "section"))) return "key=wiring.last";
+    if (logic.hasOwn(wiring, "init") && (wiring.init !== "emacs" || ["profiles", "fallbacks", "section"].some(key => logic.hasOwn(wiring, key)))) return "key=wiring.init";
     return "";
 }
 
@@ -555,9 +558,12 @@ function selectError(logic, select, hasAccounts, hasEditors) {
         if (select.format === "bat" && (Object.keys(select.values).length !== 1 || select.values.theme !== "vgs")) return "key=select.values";
         return "";
     }
-    if (!hasExactKeys(logic, select, SELECT_KEYS)) return "key=select";
-    if (!entryBaseAccepted(select.base, hasAccounts) && !(hasEditors && select.base === EDITOR_BASE)) return "key=select.base";
-    if (!isRelativePath(select.file)) return "key=select.file";
+    if (!logic.isPlainObject(select) || SELECT_KEYS.some(key => !logic.hasOwn(select, key)) ||
+        Object.keys(select).some(key => ![...SELECT_KEYS, "create"].includes(key))) return "key=select";
+    if (logic.hasOwn(select, "create") && typeof select.create !== "boolean") return "key=select.create";
+    if (!entryBaseAccepted(select.base, hasAccounts) && !(hasEditors && select.base === EDITOR_BASE) && select.base !== "vault") return "key=select.base";
+    if (!(select.format === "posh" && Array.isArray(select.file) && select.file.length > 0
+        ? select.file.every(isRelativePath) : isRelativePath(select.file))) return "key=select.file";
     if (!SELECT_FORMATS.includes(select.format)) return "key=select.format";
     if (!isKeyPath(select.format, select.key)) {
         const keys = select.key;
@@ -626,6 +632,8 @@ function acceptTarget(logic, name, text) {
     if (document.select?.format === "userjs" && (document.wiring?.profiles === undefined || document.select.base !== "home" ||
         document.select.file !== "user.js" || JSON.stringify(document.select.key) !== '["toolkit.legacyUserProfileCustomizations.stylesheets"]' || document.select.value !== "true"))
         return refused("target-schema", "key=select");
+    if (document.select?.base === "vault" && document.wiring?.vaults === undefined) return refused("target-schema", "key=select.base");
+    if (document.select?.format === "posh" && (form !== "entry" || !isRelativePath(document.select.value))) return refused("target-schema", "key=select.value");
     if (document.select?.format === "yazi") {
         const files = Array.isArray(document.select.file) ? document.select.file : [document.select.file];
         const dirs = Array.isArray(document.wiring?.dir) ? document.wiring.dir : [document.wiring?.dir];

@@ -49,7 +49,7 @@ colours_are_hex6() {
 }
 file_is() { cmp -s -- "$1" <(printf '%s' "$2"); } # FILE TEXT
 client_ran_with_hook() {
-  file_is "$client_args" $'-a\ntrue\n--eval\n(when (custom-theme-enabled-p \'vgs) (load-theme \'vgs t))\n'
+  file_is "$client_args" $'-a\ntrue\n--eval\n'"(load \"$live/emacs.el\" nil t)"$'\n'
 }
 
 tinst "an apply with no editor on PATH skips both" "$cfg" "$rt_empty" 0 "$(result skipped '"not-detected"' skipped '"not-detected"' dusk)" "" theme apply --json dusk
@@ -64,12 +64,12 @@ check "neovim creates no other config file" test "$(find "$cfg" -type f ! -path 
 
 cfg="$tmp/cfg-editors"; mkdir -p "$cfg/vgshell"
 THEME_PATH="$with_stubs" tinst "emacs and neovim land from absent config" "$cfg" "$rt_empty" 0 "$(result written null written null nord)" "" theme apply --json nord
-check "emacs's theme file is created holding the include line" file_is "$cfg/emacs/vgs-theme.el" "(load \"$live/emacs.el\" nil t)"$'\n'
+check "emacs's init file is created holding the include line" file_is "$tmp/home/.emacs.d/init.el" "(load \"$live/emacs.el\" nil t)"$'\n'
 check "emacs takes the accent as #rrggbb" grep -qxF " '(cursor ((t (:background \"#222222\"))))" "$live/emacs.el"
 check "emacs takes the text and background tokens" grep -qxF " '(default ((t (:foreground \"#d7d7d9\" :background \"#000000\"))))" "$live/emacs.el"
 check "emacs takes the shipped slots" grep -qxF " '(ansi-color-red ((t (:foreground \"#f43f5e\" :background \"#f43f5e\"))))" "$live/emacs.el"
 check "every emacs colour is #rrggbb" colours_are_hex6 "$live/emacs.el"
-check "the emacs hook re-loads an enabled vgs theme and tolerates no server" client_ran_with_hook
+check "the emacs hook loads the managed theme and tolerates no server" client_ran_with_hook
 check "neovim's startup plugin file is created" file_is "$nvim_file" "dofile(\"$live/neovim.lua\")"$'\n'
 
 rm -f -- "$client_args"

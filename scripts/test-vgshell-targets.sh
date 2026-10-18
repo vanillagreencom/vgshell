@@ -924,4 +924,289 @@ vim.api.nvim_create_autocmd('ColorScheme', {callback=function() vim.api.nvim_set
 })().catch(error => { console.error(error); process.exitCode = 1; });
 JS
 
+check "editor and prompt stable selectors, startup precedence and original-behavior controls" "$node_bin" - "$repo" <<'JS'
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { spawnSync } = require('node:child_process');
+const repo = process.argv[2];
+const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'vgs-editor-select-'));
+try {
+    const tree = path.join(scratch, 'tree');
+    const names = ['helix', 'zed', 'obsidian', 'emacs', 'oh-my-posh'];
+    for (const name of ['bin', 'shell', 'config', 'themes/vgs', ...names.map(name => 'themes/targets/' + name)])
+        fs.cpSync(path.join(repo, name), path.join(tree, name), { recursive: true });
+    const targets = new Map(names.map(name => [name, JSON.parse(fs.readFileSync(path.join(tree, 'themes/targets', name, 'target.json')))]));
+    const commands = path.join(scratch, 'commands');
+    fs.mkdirSync(commands);
+    for (const name of ['hx', 'zed', 'obsidian', 'emacs', 'oh-my-posh', 'pkill', 'id', 'emacsclient'])
+        fs.writeFileSync(path.join(commands, name), '#!/bin/sh\nprintf "%s\\n" "$@" >> "$HOOK_LOG"\n', { mode: 0o755 });
+    fs.symlinkSync('/bin/sh', path.join(commands, 'sh'));
+    fs.cpSync(path.join(tree, 'themes/vgs'), path.join(tree, 'themes/other'), { recursive: true });
+    const otherFile = path.join(tree, 'themes/other/theme.json');
+    const other = JSON.parse(fs.readFileSync(otherFile));
+    other.name = 'other';
+    other.tokens.palette = { ...other.tokens.palette, accent: '#abcdef' };
+    fs.writeFileSync(otherFile, JSON.stringify(other));
+    let caseNumber = 0;
+    function world() {
+        const home = path.join(scratch, 'home-' + caseNumber++);
+        const config = path.join(home, 'settings');
+        const state = path.join(home, 'state/vgshell');
+        fs.mkdirSync(path.join(config, 'vgshell'), { recursive: true });
+        const env = { HOME: home, PATH: commands, XDG_CONFIG_HOME: config, XDG_STATE_HOME: path.join(home, 'state'),
+            XDG_RUNTIME_DIR: path.join(home, 'runtime'), TMUX_TMPDIR: path.join(home, 'tmux'), TMPDIR: scratch,
+            VGS_TEST_RUN: '1', HOOK_LOG: path.join(home, 'hooks') };
+        function run(verb, theme = 'vgs', status = 0) {
+            const result = spawnSync(process.execPath, [path.join(tree, 'bin/vgshell-theme-judge'), verb, 'json', path.join(config, 'vgshell'), state,
+                ...(verb === 'setup' ? [] : ['held', theme])], { env, encoding: 'utf8', timeout: 30000 });
+            assert.equal(result.status, status, result.stderr + result.stdout);
+            return JSON.parse(result.stdout);
+        }
+        function put(file, text) { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, text); }
+        return { home, config, state, run, put };
+    }
+    const cases = [
+        ['helix', 'helix/config.toml', 'theme = "old" # keep\n[editor]\nline-number = "relative"\n', 'theme = "vgs" # keep\n[editor]\nline-number = "relative"\n'],
+        ['helix', 'helix/config.toml', undefined, 'theme = "vgs"\n'],
+        ['zed', 'zed/settings.json', '{ // owner\n "theme": "old", "buffer_font_size": 13,\n}\n', '{ // owner\n "theme": "vgs", "buffer_font_size": 13,\n}\n'],
+        ['zed', 'zed/settings.json', '{"theme":{"mode":"system", "light":"old", "dark":"old"},"keep":"café"}\n', '{"theme":{"mode":"system", "light":"vgs", "dark":"vgs"},"keep":"café"}\n'],
+        ['zed', 'zed/settings.json', undefined, '{\n  "theme": "vgs"\n}\n']
+    ];
+    function verifyCase(row) {
+        const [name, relative, before, expected] = row;
+        const w = world();
+        const file = path.join(w.config, relative);
+        if (before !== undefined) w.put(file, before);
+        w.run('apply');
+        assert.equal(fs.readFileSync(file, 'utf8'), expected, name);
+        const generated = fs.readFileSync(path.join(w.state, 'theme', name === 'helix' ? 'helix.toml' : 'zed.json'), 'utf8');
+        if (name === 'helix' && before !== undefined) {
+            const hooks = fs.readFileSync(path.join(w.home, 'hooks'), 'utf8');
+            w.put(file, before);
+            w.run('apply');
+            assert.equal(fs.readFileSync(file, 'utf8'), expected);
+            assert.ok(fs.readFileSync(path.join(w.home, 'hooks'), 'utf8').slice(hooks.length).includes('hx|helix'));
+        }
+        w.run('apply', 'other');
+        assert.equal(fs.readFileSync(file, 'utf8'), expected);
+        assert.notEqual(fs.readFileSync(path.join(w.state, 'theme', name === 'helix' ? 'helix.toml' : 'zed.json'), 'utf8'), generated);
+    }
+    function verifyVaults() {
+        const w = world();
+        const vaults = ['one', 'two', 'closed'].map(name => path.join(w.home, name));
+        for (const vault of vaults.slice(0, 2)) w.put(path.join(vault, '.obsidian/appearance.json'), '{"cssTheme":"old", "accentColor":"#123456"}\n');
+        w.put(path.join(w.config, 'obsidian/obsidian.json'), JSON.stringify({ vaults: Object.fromEntries(vaults.map((vault, i) => [i, { path: vault }])) }));
+        fs.rmSync(path.join(vaults[1], '.obsidian/appearance.json'));
+        w.run('apply');
+        const expected = ['{"cssTheme":"vgs", "accentColor":"#123456"}\n', '{\n  "cssTheme": "vgs"\n}\n'];
+        for (const [i, vault] of vaults.slice(0, 2).entries()) assert.equal(fs.readFileSync(path.join(vault, '.obsidian/appearance.json'), 'utf8'), expected[i]);
+        w.run('apply', 'other');
+        for (const [i, vault] of vaults.slice(0, 2).entries()) assert.equal(fs.readFileSync(path.join(vault, '.obsidian/appearance.json'), 'utf8'), expected[i]);
+        assert.equal(fs.existsSync(vaults[2]), false);
+    }
+    function verifyEmacs() {
+        verifyCompiledEmacs();
+        for (const owned of [true, false]) {
+            const w = world();
+            const previous = path.join(w.config, 'emacs/vgs-theme.el');
+            const generated = '(load "' + path.join(w.state, 'theme/emacs.el') + '" nil t)\n';
+            const before = generated + (owned ? '' : '; owner edit\n');
+            const init = path.join(w.config, 'emacs/init.el');
+            const reference = '(load "' + previous + '" nil t)\n';
+            w.put(previous, before);
+            w.put(init, reference + '(setq keep t)\n');
+            w.run('apply');
+            const expected = (owned ? '' : reference) + '(setq keep t)\n' + generated;
+            assert.equal(fs.readFileSync(init, 'utf8'), expected);
+            assert.equal(fs.existsSync(previous), !owned);
+            if (!owned) assert.equal(fs.readFileSync(previous, 'utf8'), before);
+            w.run('apply', 'other');
+            assert.equal(fs.readFileSync(init, 'utf8'), expected);
+            assert.equal(fs.existsSync(previous), !owned);
+        }
+        const w = world();
+        const previous = path.join(w.config, 'emacs/vgs-theme.el');
+        const generated = '(load "' + path.join(w.state, 'theme/emacs.el') + '" nil t)\n';
+        w.put(previous, generated);
+        const init = path.join(w.home, '.emacs.el');
+        fs.mkdirSync(path.join(w.home, '.emacs.d'));
+        w.put(init, '(setq keep t)\n');
+        w.put(path.join(w.home, '.emacs.elc'), 'compiled init\n');
+        fs.chmodSync(path.dirname(previous), 0o500);
+        try {
+            const row = w.run('apply', 'vgs', 3).targets.find(row => row.name === 'emacs');
+            assert.equal(row.state, 'failed');
+            assert.equal(row.reason, 'unwritable');
+            assert.equal(fs.readFileSync(previous, 'utf8'), generated);
+            assert.equal(fs.readFileSync(init, 'utf8'), '(setq keep t)\n');
+            assert.equal(fs.readFileSync(path.join(w.home, '.emacs.elc'), 'utf8'), 'compiled init\n');
+        } finally { fs.chmodSync(path.dirname(previous), 0o700); }
+        const unsafe = world();
+        const helper = path.join(unsafe.config, 'emacs/vgs-theme.el');
+        const initFile = path.join(unsafe.home, '.emacs.el');
+        fs.mkdirSync(path.join(unsafe.home, '.emacs.d'));
+        unsafe.put(helper, '(load "' + path.join(unsafe.state, 'theme/emacs.el') + '" nil t)\n');
+        unsafe.put(initFile, '`(owner ,(load "' + helper + '"))\n');
+        const saved = [helper, initFile].map(file => fs.readFileSync(file));
+        const refused = unsafe.run('apply', 'vgs', 3).targets.find(row => row.name === 'emacs');
+        assert.equal(refused.reason, 'wiring-conflict');
+        for (const [index, file] of [helper, initFile].entries()) assert.deepEqual(fs.readFileSync(file), saved[index]);
+    }
+    function verifyCompiledEmacs() {
+        // startup--xdg-or-homedot chooses the directory before legacy files.
+        // The loaded .elc maps to .el source, then to the bare legacy file:
+        // https://github.com/emacs-mirror/emacs/blob/emacs-30/lisp/startup.el
+        // lread.c reaches native caches only through the matching .elc.
+        for (const [files, directories, relative, owned = true, data = true] of [
+            [['.emacs.el', '.emacs.elc', '.emacs', '.emacs.d/init.el', '.emacs.d/init.elc', 'settings/emacs/init.el', 'settings/emacs/init.elc'], [], '.emacs.el'],
+            [['.emacs', '.emacs.elc', '.emacs.d/init.el', 'settings/emacs/init.el', 'settings/emacs/init.elc'], [], '.emacs'],
+            [['.emacs.d/init.el', '.emacs.d/init.elc', 'settings/emacs/init.el', 'settings/emacs/init.elc'], [], '.emacs.d/init.el'],
+            [['settings/emacs/init.el', 'settings/emacs/init.elc'], [], 'settings/emacs/init.el'],
+            [['.emacs.el', '.emacs.elc', 'settings/emacs/init.el', 'settings/emacs/init.elc'], [], 'settings/emacs/init.el'],
+            [['.emacs.elc', 'settings/emacs/init.el', 'settings/emacs/init.elc'], [], 'settings/emacs/init.el'],
+            [['.emacs.el', '.emacs.elc'], [], 'settings/emacs/init.el'],
+            [['.emacs.el', '.emacs.elc', 'settings/emacs/init.el', 'settings/emacs/init.elc'], ['.emacs.d'], '.emacs.el'],
+            [['settings/emacs/init.el', 'settings/emacs/init.elc'], ['.emacs.d'], '.emacs.d/init.el'],
+            [['.emacs.el', '.emacs.elc'], [], '.emacs.el', false],
+            [['.emacs'], [], '.emacs', false],
+            [['settings/emacs/init.el'], [], 'settings/emacs/init.el'],
+            [['.emacs.el'], ['.emacs.d'], '.emacs.el', true, false],
+            [[], [], '.emacs.d/init.el', false],
+            [['.emacs.elc'], [], '.emacs.el', false],
+            [['.emacs.d/init.elc'], [], '.emacs.d/init.el'],
+            [['settings/emacs/init.elc', '.emacs.el', '.emacs.elc'], [], 'settings/emacs/init.el']
+        ]) {
+            const w = world();
+            const init = path.join(w.home, relative);
+            const compiled = init.replace(/\.el$/, '') + '.elc';
+            const native = path.join(w.home, 'eln-cache/init.eln');
+            const previous = path.join(w.config, 'emacs/vgs-theme.el');
+            const loader = '(load "' + path.join(w.state, 'theme/emacs.el') + '" nil t)\n';
+            const saved = '(setq saved-form \'(load "' + previous + '" nil t))\n';
+            const before = (owned ? (data ? saved : '') + '(load "' + previous + '" nil t)\n' : '') + (data ? '(setq keep t)\n' : '');
+            if (owned) w.put(previous, loader);
+            for (const directory of directories) fs.mkdirSync(path.join(w.home, directory), { recursive: true });
+            for (const file of files) w.put(path.join(w.home, file), file.endsWith('.elc') ? 'compiled owner bytes\n' : before);
+            w.put(native, 'native owner bytes\n');
+            const originals = new Map([...files, 'eln-cache/init.eln'].map(file => [file, fs.readFileSync(path.join(w.home, file))]));
+            const sourceExists = files.includes(relative);
+            const compiledOnly = !sourceExists && files.includes(path.relative(w.home, compiled));
+            const result = w.run('apply', 'vgs', compiledOnly ? 3 : 0);
+            if (compiledOnly) {
+                const row = result.targets.find(row => row.name === 'emacs');
+                assert.equal(row.state, 'failed');
+                assert.equal(row.reason, 'wiring-source-absent');
+                assert.equal(fs.existsSync(init), false);
+                if (owned) assert.equal(fs.readFileSync(previous, 'utf8'), loader);
+            } else {
+                const expected = (sourceExists ? (owned && data ? saved : '') + (data ? '(setq keep t)\n' : '') : '') + loader;
+                assert.equal(fs.readFileSync(init, 'utf8'), expected, relative);
+                assert.equal(fs.existsSync(compiled), false, relative);
+                assert.equal(fs.existsSync(previous), false);
+                const generated = fs.readFileSync(path.join(w.state, 'theme/emacs.el'), 'utf8');
+                assert.match(generated, /^\(mapc #'disable-theme custom-enabled-themes\)\r?$/m);
+                assert.match(generated, /^\(deftheme vgs /m);
+                assert.match(generated, /^\(enable-theme 'vgs\)\r?$/m);
+                assert.ok(fs.readFileSync(path.join(w.home, 'hooks'), 'utf8').includes(loader.trim()));
+                w.put(compiled, 'fresh compiled selector\n');
+                const stat = fs.statSync(compiled);
+                w.run('apply', 'other');
+                assert.equal(fs.readFileSync(init, 'utf8'), expected);
+                assert.equal(fs.readFileSync(compiled, 'utf8'), 'fresh compiled selector\n');
+                assert.equal(fs.statSync(compiled).mtimeMs, stat.mtimeMs);
+            }
+            for (const [file, bytes] of originals) {
+                const absolute = path.join(w.home, file);
+                if (compiledOnly || (absolute !== init && absolute !== compiled))
+                    assert.deepEqual(fs.readFileSync(absolute), bytes, relative + ': preserves ' + file);
+            }
+        }
+        const w = world();
+        const source = path.join(w.config, 'source.el');
+        const init = path.join(w.home, '.emacs.el');
+        fs.mkdirSync(path.join(w.home, '.emacs.d'));
+        const compiled = path.join(w.home, '.emacs.elc');
+        const previous = path.join(w.config, 'emacs/vgs-theme.el');
+        const loader = '(load "' + path.join(w.state, 'theme/emacs.el') + '" nil t)\n';
+        w.put(source, '(load "' + previous + '" nil t)\n');
+        w.put(previous, loader);
+        w.put(compiled, 'compiled old reference\n');
+        fs.symlinkSync(source, init);
+        w.put(path.join(w.home, 'hooks'), '');
+        fs.mkdirSync(w.state, { recursive: true });
+        const before = [source, compiled, previous].map(file => fs.readFileSync(file));
+        fs.chmodSync(w.home, 0o500);
+        try {
+            const result = w.run('apply', 'vgs', 3);
+            assert.deepEqual(result.targets.filter(row => row.state === 'failed').map(row => row.name), ['emacs']);
+            const row = result.targets.find(row => row.name === 'emacs');
+            assert.equal(row.state, 'failed');
+            assert.equal(row.reason, 'unwritable');
+            for (const [index, file] of [source, compiled, previous].entries()) assert.deepEqual(fs.readFileSync(file), before[index]);
+            assert.equal(fs.readlinkSync(init), source);
+        } finally { fs.chmodSync(w.home, 0o700); }
+    }
+    function verifyPosh() {
+        for (const [before, reason] of [
+            ['export KEEP=1\neval "$(oh-my-posh init bash --config old.json)" # keep\n', null],
+            ['eval "$(oh-my-posh init zsh --config old.json)"\n', null],
+            ['# no prompt\nexport KEEP=1\n', 'no Oh My Posh init line'],
+            ['eval "$(oh-my-posh init bash --config "$THEME")"\n', 'dynamic Oh My Posh init form'],
+            ['if true; then eval "$(oh-my-posh init bash --config old.json)"; fi\n', 'complex Oh My Posh init form']
+        ]) {
+            const w = world();
+            const file = path.join(w.home, '.bashrc');
+            w.put(file, before);
+            w.run('apply');
+            const expected = reason ? before : before.replace('old.json', "'" + path.join(w.config, 'oh-my-posh/vgs.omp.json') + "'");
+            assert.equal(fs.readFileSync(file, 'utf8'), expected);
+            const rows = w.run('setup').wiring.filter(row => row.name === 'oh-my-posh');
+            if (reason) assert.ok(rows.some(row => row.state === 'not-wired' && row.reason === reason), JSON.stringify(rows));
+            else assert.ok(rows.some(row => row.state === 'wired' && row.file === file));
+            w.run('apply', 'other');
+            assert.equal(fs.readFileSync(file, 'utf8'), expected);
+        }
+    }
+    for (const row of cases) verifyCase(row);
+    verifyVaults(); verifyEmacs(); verifyPosh();
+    const emacsTemplate = path.join(tree, 'themes/targets/emacs/emacs.el');
+    const template = fs.readFileSync(emacsTemplate, 'utf8');
+    const activation = "(enable-theme 'vgs)";
+    assert.equal(template.split(activation).length, 2);
+    fs.writeFileSync(emacsTemplate, template.replace(activation, '; ' + activation));
+    assert.throws(verifyEmacs, { code: 'ERR_ASSERTION' });
+    fs.writeFileSync(emacsTemplate, template);
+    const judgeFile = path.join(tree, 'bin/vgshell-theme-judge');
+    const judge = fs.readFileSync(judgeFile, 'utf8');
+    const invalidation = 'writing(compiled, key, () => fs.unlinkSync(compiled));';
+    assert.equal(judge.split(invalidation).length, 2);
+    fs.writeFileSync(judgeFile, judge.replace(invalidation, 'void compiled;'));
+    assert.throws(verifyCompiledEmacs, { code: 'ERR_ASSERTION' });
+    fs.writeFileSync(judgeFile, judge);
+    const directoryGuard = 'if (directory === old) {';
+    assert.equal(judge.split(directoryGuard).length, 2);
+    fs.writeFileSync(judgeFile, judge.replace(directoryGuard, 'if (true) {'));
+    assert.throws(verifyCompiledEmacs, { code: 'ERR_ASSERTION' });
+    fs.writeFileSync(judgeFile, judge);
+    const helixFile = path.join(tree, 'themes/targets/helix/target.json');
+    const helix = JSON.parse(JSON.stringify(targets.get('helix')));
+    delete helix.reload.always;
+    fs.writeFileSync(helixFile, JSON.stringify(helix));
+    assert.throws(() => verifyCase(cases[0]), { code: 'ERR_ASSERTION' });
+    fs.writeFileSync(helixFile, JSON.stringify(targets.get('helix')));
+    for (const name of names) {
+        const file = path.join(tree, 'themes/targets', name, 'target.json');
+        const target = JSON.parse(JSON.stringify(targets.get(name)));
+        if (name === 'emacs') target.wiring = { file: 'emacs/vgs-theme.el', line: target.wiring.line, create: true };
+        else delete target.select;
+        fs.writeFileSync(file, JSON.stringify(target));
+        assert.throws(() => name === 'obsidian' ? verifyVaults() : name === 'emacs' ? verifyEmacs() : name === 'oh-my-posh' ? verifyPosh() : verifyCase(cases.find(row => row[0] === name)),
+            { code: 'ERR_ASSERTION' }, name + ': original behavior must fail the same assertion');
+        fs.writeFileSync(file, JSON.stringify(targets.get(name)));
+    }
+} finally { fs.rmSync(scratch, { recursive: true, force: true }); }
+JS
+
 rows_done test-vgshell-targets

@@ -1,8 +1,7 @@
 ;;; emacs.el --- the vgs theme for Emacs  -*- lexical-binding: t -*-
-;; Rendered by vgshell theme apply and loaded by vgs-theme.el in the custom
-;; theme directory, so (load-theme 'vgs t) enables it and loading the theme
-;; again reads this file again.
-;; The include line lives in vgs-theme.el rather than init.el because a lexical-binding cookie must be the first line of a file. The hook asks the Emacs server to reload and runs `true` when no server exists, so a stopped Emacs is not left pending.
+;; A stable final init line and the apply hook load this generated file.
+;; Disable earlier themes so their unassigned faces cannot survive the apply.
+(mapc #'disable-theme custom-enabled-themes)
 (deftheme vgs "The vgs desktop theme.")
 (custom-theme-set-faces
  'vgs
@@ -54,3 +53,4 @@
  '(ansi-color-bright-cyan ((t (:foreground "#@{terminal.color14}" :background "#@{terminal.color14}"))))
  '(ansi-color-bright-white ((t (:foreground "#@{terminal.color15}" :background "#@{terminal.color15}")))))
 (provide-theme 'vgs)
+(enable-theme 'vgs)

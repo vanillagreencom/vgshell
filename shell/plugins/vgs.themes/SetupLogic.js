@@ -84,11 +84,13 @@ function wiring(text, code) {
     for (var i = 0; i < rows.length; i++) {
         var row = rows[i];
         if (row === null || typeof row !== "object" || typeof row.app !== "string" || typeof row.file !== "string") return unknown("printed a malformed row");
-        if (row.state !== "wired" && row.state !== "unreadable") return unknown("named the state " + JSON.stringify(row.state));
+        if (row.state !== "wired" && row.state !== "unreadable" && row.state !== "not-wired") return unknown("named the state " + JSON.stringify(row.state));
         if (row.line !== null && typeof row.line !== "string") return unknown("printed a malformed line");
+        if (row.state === "not-wired" && (typeof row.reason !== "string" || row.reason.trim() === "")) return unknown("printed a malformed reason");
         var file = displayFile(row.file, home);
-        var hint = row.line === null ? file : file + ": " + row.line;
-        items.push({ label: truncated(row.app, LABEL_MAX), value: row.state === "wired" ? "present" : "unavailable", hint: truncated(hint, HINT_MAX), sort: row.app + "\n" + row.file });
+        var detail = row.state === "not-wired" ? "not wired: " + row.reason : row.line;
+        var hint = detail === null ? file : file + ": " + detail;
+        items.push({ label: truncated(row.app, LABEL_MAX), value: row.state === "wired" ? "present" : row.state === "not-wired" ? "absent" : "unavailable", hint: truncated(hint, HINT_MAX), sort: row.app + "\n" + row.file });
     }
     items.sort(function (a, b) { return a.sort < b.sort ? -1 : a.sort > b.sort ? 1 : 0; });
     if (items.length > STATUS_LIST_MAX) {

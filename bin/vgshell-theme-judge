@@ -1012,7 +1012,7 @@ function planTarget(dir, row, slots, font, disabled, configHome, live) {
         const selected = reading(name, dir, () => {
             if (isAccountTarget(target)) roots = accountRoots(target, true);
             const selections = selectionEdits(target, configHome, live, roots, undefined, selectionValues);
-            if (selections.length === 0) return "selection-file-absent";
+            if (selections.length === 0 && target.select.base !== "vault") return target.select.format === "posh" ? "no-posh-init" : "selection-file-absent";
             const refusal = selectionRefusal(selections);
             if (refusal !== null || target.select.format !== "yazi") return refusal;
             const paths = Array.isArray(target.select.file) ? target.select.file : [target.select.file];
@@ -1162,6 +1162,24 @@ function existingPath(file) {
 // its `path` the file's: a read error such as EISDIR carries none of its own.
 function includeFiles(target, configHome) {
     const wiring = target.wiring;
+    if (wiring.init === "emacs") {
+        // startup--xdg-or-homedot chooses the directory first. Choosing XDG
+        // suppresses legacy loading, including a stale .emacs.el or .elc.
+        // https://github.com/emacs-mirror/emacs/blob/emacs-30/lisp/startup.el
+        const old = path.join(os.homedir(), ".emacs.d");
+        const xdg = path.join(configHome, "emacs");
+        const legacy = path.join(os.homedir(), ".emacs");
+        const directory = existingPath(legacy) !== undefined || isDirectory(old) || !isDirectory(xdg) ? old : xdg;
+        if (directory === old) {
+            const source = legacy + ".el";
+            // startup--load-user-init-file maps loaded .elc to .el, then
+            // to the bare source. A derivative alone has no editable source.
+            if (existingPath(source) !== undefined) return [source];
+            if (existingPath(legacy) !== undefined) return [legacy];
+            if (existingPath(source + "c") !== undefined) return [source];
+        }
+        return [path.join(directory, "init.el")];
+    }
     if (wiring.profiles === undefined) {
         const configFile = path.join(configHome, wiring.file);
         if (wiring.fallbacks === undefined || existingPath(configFile) !== undefined) return [configFile];
@@ -1374,12 +1392,97 @@ function editWiring(name, target, configHome, live, edit) {
         if (typeof e.code !== "string") throw e;
         return { reason: "unreadable", failure: key + "=unreadable path=" + e.path + " error=" + e.code };
     }
-    const edited = text => edit(text, Buffer.from(render.wiringLine(target, live), "utf8").toString("latin1"), target.wiring.section, target.wiring.last);
+    const line = Buffer.from(render.wiringLine(target, live), "utf8").toString("latin1");
+    const previous = path.join(configHome, "emacs/vgs-theme.el");
+    let ownedPrevious = false;
+    if (target.wiring.init === "emacs" && edit === render.wiredText) {
+        try {
+            ownedPrevious = fs.lstatSync(previous, { throwIfNoEntry: false })?.isFile() === true &&
+                latin1(readIfPresent(previous)) === line + "\n";
+        } catch (e) { return entryDirsFailure(key, e); }
+    }
+    const edited = text => {
+        const migrated = ownedPrevious ? select.emacsStartupText(text, latin1(Buffer.from(previous, "utf8")), line) : text;
+        if (migrated !== undefined && typeof migrated !== "string") return migrated;
+        const wired = edit(migrated, Buffer.from(render.wiringLine(target, live), "utf8").toString("latin1"), target.wiring.section, target.wiring.last);
+        return wired === null && migrated !== text ? migrated : wired;
+    };
+    if (target.wiring.init === "emacs" && edit === render.wiredText)
+        return editEmacsWiring(key, files[0], edited, ownedPrevious ? { file: previous, bytes: Buffer.from(line + "\n", "latin1") } : null);
     for (const file of files) {
         const failure = editFile(key, file, target.wiring.create, edited);
         if (failure !== null) return failure;
     }
     return null;
+}
+
+// Emacs loads .elc before source, and lread.c's maybe_swap_for_eln only
+// searches native caches from that .elc. Invalidate only this derivative.
+// Retain its bytes until source wiring and the old helper removal succeed.
+function editEmacsWiring(key, file, edit, previous) {
+    const compiled = file.replace(/\.el$/, "") + ".elc";
+    let source;
+    let bytecode;
+    let removed = false;
+    let next;
+    let written = false;
+    try {
+        const bytes = readIfPresent(file);
+        if (bytes !== undefined) {
+            const real = fs.realpathSync(file);
+            source = { real, bytes, mode: fs.statSync(real).mode & 0o7777 };
+        }
+        const stat = fs.lstatSync(compiled, { throwIfNoEntry: false });
+        if (stat !== undefined) {
+            if (source === undefined) refuse(key + "=wiring-source-absent path=" + file, "wiring-source-absent");
+            if (!stat.isFile() && !stat.isSymbolicLink()) refuse(key + "=unreadable path=" + compiled, "unreadable");
+            bytecode = { stat, link: stat.isSymbolicLink() ? fs.readlinkSync(compiled) : null,
+                bytes: stat.isFile() ? fs.readFileSync(compiled) : null };
+        }
+        const before = latin1(source?.bytes);
+        next = edit(before);
+        if (next === null || next === before) return null;
+        if (typeof next !== "string") return { reason: next.reason, failure: key + "=" + next.reason + " path=" + file + " " + next.detail };
+        if (bytecode !== undefined) {
+            const current = fs.lstatSync(compiled);
+            if (current.ino !== bytecode.stat.ino || current.dev !== bytecode.stat.dev ||
+                    (bytecode.link === null ? !fs.readFileSync(compiled).equals(bytecode.bytes) : fs.readlinkSync(compiled) !== bytecode.link))
+                refuse(key + "=changed path=" + compiled, "changed");
+            writing(compiled, key, () => fs.unlinkSync(compiled));
+            removed = true;
+        }
+        throwFailure(editFile(key, file, true, current => current === before ? next : { reason: "changed", detail: "" }));
+        written = true;
+        if (previous !== null) {
+            // The ownership test in editWiring must still hold after the
+            // source write; never remove a user's concurrent helper edit.
+            if (fs.lstatSync(previous.file, { throwIfNoEntry: false })?.isFile() !== true ||
+                    !readIfPresent(previous.file)?.equals(previous.bytes))
+                refuse(key + "=changed path=" + previous.file, "changed");
+            writing(previous.file, key, () => fs.unlinkSync(previous.file));
+        }
+        return null;
+    } catch (e) {
+        // Restore only our own source bytes. A later user save stays theirs.
+        try {
+            if (written && latin1(readIfPresent(file)) === next) {
+                if (source === undefined) fs.unlinkSync(file);
+                else replaceFile(source.real, source.bytes, key, source.mode, Buffer.from(next, "latin1"));
+            }
+            if (removed) {
+                if (bytecode.link !== null) fs.symlinkSync(bytecode.link, compiled);
+                else {
+                    fs.writeFileSync(compiled, bytecode.bytes, { flag: "wx", mode: bytecode.stat.mode & 0o7777 });
+                    fs.chmodSync(compiled, bytecode.stat.mode & 0o7777);
+                }
+            }
+        } catch (rollback) {
+            if (rollback instanceof Refusal) return { reason: rollback.reason, failure: rollback.first };
+            return { reason: "unwritable", failure: key + "=unwritable path=" + (rollback.path || file) + " error=" + rollback.code };
+        }
+        if (e instanceof Refusal) return { reason: e.reason, failure: e.first };
+        return entryDirsFailure(key, e);
+    }
 }
 
 // The directory BASE names, which an entry's `dir` or `vaults` and a
@@ -1406,7 +1509,12 @@ function entryDirs(target, configHome, roots) {
     if (isAccountTarget(target)) return (roots || accountRoots(target, true)).map(root => path.join(root, wiring.dir));
     const base = baseDir(wiring.base, configHome);
     if (wiring.vaults === undefined) return (Array.isArray(wiring.dir) ? wiring.dir : [wiring.dir]).map(dir => path.join(base, dir));
-    const registry = path.join(base, wiring.vaults);
+    return vaultRoots(target, configHome).map(vault => path.join(vault, wiring.dir));
+}
+
+function vaultRoots(target, configHome) {
+    const wiring = target.wiring;
+    const registry = path.join(baseDir(wiring.base, configHome), wiring.vaults);
     let bytes;
     try {
         bytes = readIfPresent(registry);
@@ -1418,8 +1526,7 @@ function entryDirs(target, configHome, roots) {
     const vaults = render.vaultDirs(logic, bytes.toString("utf8"));
     if (vaults === null) throw Object.assign(new Error("unparseable vault registry " + registry), { code: "unparseable", path: registry });
     const first = wiring.dir.split("/")[0];
-    return vaults.filter(vault => fs.statSync(path.join(vault, first), { throwIfNoEntry: false })?.isDirectory() === true)
-        .map(vault => path.join(vault, wiring.dir));
+    return vaults.filter(vault => fs.statSync(path.join(vault, first), { throwIfNoEntry: false })?.isDirectory() === true);
 }
 
 // The failure of target NAME whose entryDirs threw E, keyed by KEY, or a
@@ -1551,11 +1658,14 @@ function dropEntries(name, target, configHome, live) {
 function selectionEdits(target, configHome, live, roots, extension, selectionValues) {
     const selection = target.select;
     const app = selection.values !== undefined;
-    const value = app ? undefined : latin1(Buffer.from(render.selectValue(target, live, extension), "utf8"));
-    const create = selection.base === render.EDITOR_BASE || selection.format === "bat" || ["qtct", "json-array", "userjs"].includes(selection.format);
+    const selectedValue = app ? undefined : render.selectValue(target, live, extension);
+    const value = app ? undefined : latin1(Buffer.from(selection.format === "posh"
+        ? path.join(entryDirs(target, configHome)[0], selectedValue) : selectedValue, "utf8"));
+    const create = selection.base === render.EDITOR_BASE || selection.format === "bat" || selection.create === true || ["qtct", "json-array", "userjs"].includes(selection.format);
     const dirs = isAccountTarget(target) ? roots || accountRoots(target, true)
         : selection.base === render.EDITOR_BASE ? roots || detectedEditors(target, configHome).map(editor => editor.user)
         : selection.format === "userjs" ? includeFiles(target, configHome).map(file => path.dirname(path.dirname(file)))
+        : selection.base === "vault" ? vaultRoots(target, configHome)
         : [baseDir(selection.base, configHome)];
     const files = Array.isArray(selection.file) ? selection.file : [selection.file];
     const values = app ? Object.fromEntries(Object.entries(selectionValues).map(([key, value]) => [key, latin1(Buffer.from(value, "utf8"))])) : undefined;
@@ -1565,9 +1675,10 @@ function selectionEdits(target, configHome, live, roots, extension, selectionVal
             ? root : path.join(root, file.includes("/") ? file.split("/")[0] : "."),
         create,
         edit: text => app ? select.appSelectedText(selection.format, text === undefined && create ? "" : text, values)
-            : select.selectedText(selection.format, text === undefined && create ? ["qtct", "userjs"].includes(selection.format) ? "" : "{}\n" : text, render.selectKeys(target), value),
+            : select.selectedText(selection.format, text === undefined && create ? (["json", "jsonc", "json-array", "zed"].includes(selection.format) ? "{}\n" : "") : text, render.selectKeys(target), value),
         holds: (text, held) => select.selectedText(selection.format, text, render.selectKeys(target), latin1(Buffer.from(held, "utf8"))) === null
-    }))).filter(edit => !Array.isArray(selection.file) || create || existingPath(edit.file) !== undefined);
+    }))).filter(edit => (!Array.isArray(selection.file) || create || existingPath(edit.file) !== undefined) &&
+        (selection.format !== "posh" || edit.edit(latin1(readIfPresent(edit.file)))?.reason !== "no-posh-init"));
 }
 
 // The reason the first of SELECTIONS refuses its file's text, or null.
@@ -3107,6 +3218,7 @@ function setupTargetRows(name, target, configHome, live) {
     const rows = [];
     let selections;
     const unreadable = (file, code) => [{ name, app: target.app, file, line: null, state: "unreadable", error: code }];
+    const disconnected = (file, reason) => ({ name, app: target.app, file, line: null, state: "not-wired", reason });
     let selectionValues;
     if (target.select?.values !== undefined) {
         try {
@@ -3255,7 +3367,14 @@ function setupTargetRows(name, target, configHome, live) {
                         rows.push({ name, app: target.app, file: selection.file, line: keyPath.join(".") + " = " + value, state: "wired" });
                 }
             }
+            if (!connected && target.select.format === "posh") {
+                const reason = selection.edit(latin1(readIfPresent(selection.file)))?.reason;
+                rows.push(disconnected(selection.file, reason === "posh-dynamic" ? "dynamic Oh My Posh init form" :
+                    reason === "posh-complex" ? "complex Oh My Posh init form" : "Oh My Posh selects another theme"));
+            }
         }
+        if (target.select.format === "posh" && selections.length === 0)
+            rows.push(disconnected(os.homedir(), "no Oh My Posh init line"));
     }
     return rows;
 }
