@@ -1099,6 +1099,65 @@ try {
 }
 console.log(`test-theme-render: foot-flash packages=${selectionPackages.length} keys=colors-dark.flash,colors-light.flash role=color.warning controls=missing,stock`);
 
+const BTOP_PROCESS_ROLES = [
+    ["proc_pause_bg", "warning", "#b54040"],
+    ["proc_follow_bg", "info", "#4040b5"],
+    ["proc_banner_bg", "accent", "#7b407b"],
+    ["proc_banner_fg", "onAccent", "#eeeeee"],
+    ["followed_bg", "info", "#4040b5"],
+    ["followed_fg", "onInfo", "#eeeeee"]
+];
+const btopTemplate = fs.readFileSync(path.join(path.dirname(btopFile), "btop.theme"), "utf8");
+const btopTarget = selectionRender.acceptTarget(logic, "btop", btopSource);
+assert.equal(btopTarget.ok, true);
+function verifyBtopProcessStates(template) {
+    for (const { pkg, shipped } of selectionPackages) {
+        const rendered = selectionRender.renderTarget(logic, TOKENS, btopTarget.target,
+            new Map([["btop.theme", template]]), {
+                values: pkg.values, slots: selectionRender.terminalSource(pkg, selectionDefaults).terminal,
+                curated: new Map(), installed: !shipped
+            });
+        assert.equal(rendered.ok, true);
+        const fields = statusFields(rendered.files.find(file => file.destination === "btop.theme").bytes.toString("utf8"), "btop");
+        for (const [field, role] of BTOP_PROCESS_ROLES) {
+            assert.deepEqual({ package: pkg.name, field, color: logic.parseColor(fields.get(field)) },
+                { package: pkg.name, field, color: logic.parseColor(pkg.values.color[role]) });
+        }
+        // btop v1.4.7 src/btop_draw.cpp uses proc_banner_fg for all three
+        // banner fills; selected and followed rows use their own pairs.
+        for (const [foreground, background] of [
+            ["proc_banner_fg", "proc_pause_bg"], ["proc_banner_fg", "proc_follow_bg"],
+            ["proc_banner_fg", "proc_banner_bg"], ["followed_fg", "followed_bg"], ["selected_fg", "selected_bg"]
+        ]) {
+            const ratio = logic.contrastRatio(logic.parseColor(fields.get(foreground)), logic.parseColor(fields.get(background)));
+            assert.ok(ratio >= 4.5, JSON.stringify({ kind: "btop-process-contrast", package: pkg.name, foreground, background, ratio, floor: 4.5 }));
+        }
+    }
+}
+verifyBtopProcessStates(btopTemplate);
+const btopProcessScratch = fs.mkdtempSync(path.join(os.tmpdir(), "btop-process-control-"));
+try {
+    for (const [field, role, stock] of BTOP_PROCESS_ROLES) {
+        const needle = `theme[${field}]="#@{color.${role}}"`;
+        assert.equal(btopTemplate.split(needle).length, 2);
+        for (const [mutation, replacement] of [["missing", ""], ["stock", `theme[${field}]="${stock}"`]]) {
+            const mutant = btopTemplate.replace(needle, replacement);
+            assert.notEqual(mutant, btopTemplate);
+            const file = path.join(btopProcessScratch, `${field}-${mutation}.theme`);
+            fs.writeFileSync(file, mutant, { flag: "wx" });
+            assert.throws(() => verifyBtopProcessStates(fs.readFileSync(file, "utf8")), error => {
+                if (error.code !== "ERR_ASSERTION" || error.actual?.field !== field || error.expected?.field !== field) return false;
+                assert.deepEqual(error.actual.color, mutation === "missing" ? null : logic.parseColor(stock));
+                console.log("test-theme-render: btop-process-control " + JSON.stringify({ mutation, rejected: true, actual: error.actual, expected: error.expected }));
+                return true;
+            });
+        }
+    }
+} finally {
+    fs.rmSync(btopProcessScratch, { recursive: true, force: true });
+}
+console.log(`test-theme-render: btop-process packages=${selectionPackages.length} roles=${BTOP_PROCESS_ROLES.length} text-floor=4.5 controls=missing,stock`);
+
 function verifySelection(pkg, shipped, template) {
     const rendered = selectionRender.renderTarget(logic, TOKENS, selectionTarget.target,
         new Map([["kcolorscheme.colors", template]]), {
