@@ -2280,6 +2280,34 @@ function suite(ctx, configLogic, check) {
 
 suite(load(LOGIC), load(CONFIG), report);
 
+// The Updates service publishes this actionless state for a foreign hook.
+// Exercise its shipped declaration through the manager's actual row projection.
+function verifyUpdatesNoticeOwner(raw) {
+    const assert = require("node:assert/strict");
+    const logic = load(LOGIC);
+    const manifest = logic.validateManifest(raw, "/updates").manifest;
+    const reference = load(PAGE_REFERENCE);
+    const value = { tone: "warning", text: "Foreign hook", hint: reference.fileReference("Hook file", "/etc/pacman.d/hooks/cachyos-reboot-required.hook") };
+    const prior = {};
+    const written = logic.statusWrite(manifest, prior, "rebootNoticeOwner", value);
+    const row = logic.statusRows(manifest, written.ok ? written.values : prior).find(row => row.key === "rebootNoticeOwner");
+    assert.ok(row, "the denied owner reading reaches Details");
+    assert.equal(written.ok, true);
+    assert.deepEqual([row.setup, row.settings, row.setting, row.action], [false, false, "", null]);
+    assert.equal(row.tone, "warning");
+    assert.equal(row.value.text, value.text);
+    assert.equal(row.hint, value.hint);
+    assert.equal(reference.file(reference.parse(row.hint).page), "/etc/pacman.d/hooks/cachyos-reboot-required.hook");
+    assert.equal(manifest.status.rebootNotice.hidden, true, "the actionable setting remains off Details");
+    assert.equal(manifest.schema.rebootNotice.hideEmpty, true, "a denied hook offers no empty selector");
+}
+const updatesManifest = JSON.parse(fs.readFileSync(path.join(PLUGINS_DIR, "vgs.updates/manifest.json"), "utf8"));
+verifyUpdatesNoticeOwner(updatesManifest);
+const withoutNoticeOwner = JSON.parse(JSON.stringify(updatesManifest));
+delete withoutNoticeOwner.status.rebootNoticeOwner;
+require("node:assert/strict").throws(() => verifyUpdatesNoticeOwner(withoutNoticeOwner), require("node:assert/strict").AssertionError,
+    "the baseline declaration without an owner reading fails the denied-row assertion");
+
 // The map the bundled manifests build renames a Cloud Sync user file
 // enabled, disabled and placed, so the rename the shell runs at its first
 // start after the update comes from the shipped manifest. Run once, outside

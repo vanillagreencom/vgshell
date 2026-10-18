@@ -175,7 +175,7 @@ Item {
         if (shell === null) return;
         const notice = Logic.rebootNoticeValue(rebootStep);
         const values = Object.assign(Logic.publishValues(snapshot, checking, Date.now(), currentIntervalMs, checkFailure, aurCommand), Logic.reviewValues(shell.settings, agents),
-            { rebootNotice: notice, rebootNotices: Logic.rebootNoticeChoices(notice) });
+            { rebootNotice: notice, rebootNotices: Logic.rebootNoticeChoices(notice), rebootNoticeOwner: Logic.rebootNoticeOwnerValue(rebootStep) });
         const writes = Logic.statusWrites(reported, values);
         if (writes.length === 0) return;
         const next = Object.assign({}, reported);

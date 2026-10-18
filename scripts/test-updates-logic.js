@@ -608,8 +608,8 @@ function verifyView(logic) {
     [undefined, { hidden: true }],
     [{ state: "needed", reason: "notice-on" }, { tone: "info", text: "CachyOS and VGS", action: "vgsOnly" }],
     [{ state: "ready", reason: "notice-off" }, { tone: "ok", text: "VGS only", action: "both" }],
-    [{ state: "denied", reason: "foreign-file" }, null],
-    [{ state: "denied", reason: "foreign-link" }, null],
+    [{ state: "denied", reason: "foreign-file" }, { hidden: true }],
+    [{ state: "denied", reason: "foreign-link" }, { hidden: true }],
     [{ state: "unknown", reason: "probe-failed" }, null],
     [null, { hidden: true }]
   ];
@@ -643,6 +643,27 @@ function verifyView(logic) {
     ["vgsOnly", undefined, false]
   ];
   for (const [request, value, want] of requestRows) assert.equal(logic.rebootNoticeRequested(request, value), want, "reboot notice request: " + request + " " + JSON.stringify(value));
+  verifyNoticeOwner(logic);
+}
+
+function verifyNoticeOwner(logic) {
+  for (const step of [undefined, null, { state: "absent" }, { state: "needed" }, { state: "ready" }, { state: "unknown" },
+    { state: "denied", reason: "foreign-file" }, { state: "denied", reason: "foreign-link" }]) {
+    const value = logic.rebootNoticeOwnerValue(step);
+    if (!step || step.state !== "denied") {
+      same(value, { hidden: true });
+      continue;
+    }
+    assert.equal(value.hidden, undefined);
+    assert.equal(value.tone, "warning");
+    assert.ok(value.text.length > 0);
+    assert.equal(value.action, undefined, "the foreign hook offers no action");
+    const references = commons["qs.Commons 1.0"].PageReference.references(value.hint).links;
+    assert.equal(references.length, 1);
+    assert.equal(commons["qs.Commons 1.0"].PageReference.file(references[0].page), "/etc/pacman.d/hooks/cachyos-reboot-required.hook");
+    same(logic.rebootNoticeChoices(logic.rebootNoticeValue(step)), [], "a denied hook offers no Settings choice");
+    same(logic.statusWrites({}, { rebootNoticeOwner: value }), [{ key: "rebootNoticeOwner", value: value }]);
+  }
 }
 
 verify(load(file, commons));
@@ -768,10 +789,11 @@ const controls = [
   ["an absent hook hides the reboot notice", 'if (!step || state === "absent") return { hidden: true };', 'if (!step) return { hidden: true };'],
   ["a step with no reading hides the reboot notice", 'if (!step || state === "absent") return { hidden: true };', 'if (state === "absent") return { hidden: true };'],
   ["the CachyOS notice on offers VGS only", 'case "needed": return { tone: "info", text: "CachyOS and VGS", action: "vgsOnly" };', 'case "needed": return { tone: "info", text: "CachyOS and VGS" };'],
-  ["a file or link VGS did not make offers nothing", 'case "denied": return { tone: "warning", text: "Set by another file",', 'case "denied": return { tone: "warning", text: "Set by another file", action: "both",'],
+  ["a file or link VGS did not make offers nothing", 'case "denied": return { hidden: true };', 'case "denied": return { tone: "warning", text: "Foreign hook", action: "both" };'],
   ["VGS only offers both", 'case "ready": return { tone: "ok", text: "VGS only", action: "both" };', 'case "ready": return { tone: "ok", text: "VGS only", action: "vgsOnly" };'],
-  ["the reboot notice is written", '"reviewAgent", "rebootNotice", "rebootNotices"]', '"reviewAgent", "rebootNotices"]'],
-  ["the reboot notice choices are written", '"rebootNotice", "rebootNotices"]', '"rebootNotice"]'],
+  ["the reboot notice is written", '"reviewAgent", "rebootNotice", "rebootNotices", "rebootNoticeOwner"]', '"reviewAgent", "rebootNotices", "rebootNoticeOwner"]'],
+  ["the reboot notice choices are written", '"rebootNotice", "rebootNotices", "rebootNoticeOwner"]', '"rebootNotice", "rebootNoticeOwner"]'],
+  ["the owner reading is written", '"rebootNotices", "rebootNoticeOwner"]', '"rebootNotices"]'],
   ["the notice in place is the first choice", "return [held, value.action].map(", "return [value.action, held].map("],
   ["a notice without a change offers no choice", 'if (value === null || value === undefined || typeof value.action !== "string") return [];', 'if (value === null || value === undefined) return [];'],
   ["a request names the offered change", "&& request === value.action;", "&& request !== \"\";"],

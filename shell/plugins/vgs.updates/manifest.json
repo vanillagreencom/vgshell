@@ -68,6 +68,7 @@
     "reviewAgents": {"type": "choices", "label": "Review agents"},
     "reviewAgent": {"type": "text", "label": "Review agent"},
     "rebootNotices": {"type": "choices", "label": "Reboot notices"},
+    "rebootNoticeOwner": {"type": "state", "label": "Reboot notice"},
     "rebootNotice": {"type": "state", "label": "Reboot notice", "hidden": true, "actions": {"vgsOnly": {"label": "Turn off CachyOS notices outside VGS", "system": "reboot-notice"}, "both": {"label": "Turn on CachyOS notices outside VGS", "undo": "reboot-notice"}}}
   }
 }

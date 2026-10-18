@@ -378,7 +378,7 @@ function statusRecordBytes(values) {
 function statusWrites(previous, next) {
     var before = previous || {};
     var out = [];
-    var keys = ["pending", "lastCheck", "checkState", "checking", "sources", "reviewAgents", "reviewAgent", "rebootNotice", "rebootNotices"];
+    var keys = ["pending", "lastCheck", "checkState", "checking", "sources", "reviewAgents", "reviewAgent", "rebootNotice", "rebootNotices", "rebootNoticeOwner"];
     for (var i = 0; i < keys.length; i++) {
         var key = keys[i];
         if (next[key] === null || next[key] === undefined) continue;
@@ -776,10 +776,16 @@ function rebootNoticeValue(step) {
     switch (state) {
     case "needed": return { tone: "info", text: "CachyOS and VGS", action: "vgsOnly" };
     case "ready": return { tone: "ok", text: "VGS only", action: "both" };
-    case "denied": return { tone: "warning", text: "Set by another file",
-        hint: "VGS did not write " + Commons.PageReference.fileReference("/etc/pacman.d/hooks/cachyos-reboot-required.hook", "/etc/pacman.d/hooks/cachyos-reboot-required.hook") + " and does not change it." };
+    case "denied": return { hidden: true };
     }
     return { tone: "warning", text: "Could not be checked" };
+}
+
+// Details explains a foreign hook; the actionable notice stays with Settings.
+function rebootNoticeOwnerValue(step) {
+    if (!step || step.state !== "denied") return { hidden: true };
+    return { tone: "warning", text: "Set by another file",
+        hint: "VGS did not write " + Commons.PageReference.fileReference("/etc/pacman.d/hooks/cachyos-reboot-required.hook", "/etc/pacman.d/hooks/cachyos-reboot-required.hook") + " and does not change it." };
 }
 
 // The `rebootNotices` choices of the Reboot notice setting for VALUE, the
