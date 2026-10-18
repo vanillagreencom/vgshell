@@ -52,9 +52,10 @@ fixed geometry is what a placement row measures:
                      alone, and a replaced background is how a surface draws a
                      fill or a border on an icon toggle
                      (docs/architecture/design-system.md § Tokens). A
-                     qualified `X.IconButton` is the shared control; outside
-                     shell/Ui an unqualified one beside the plugin's own
-                     IconButton.qml is that file's type and is not judged
+                     qualified `X.IconButton` is the shared control; an
+                     unqualified one beside an IconButton.qml other than
+                     shell/Ui/controls/IconButton.qml, such as a plugin's own,
+                     is that file's type and is not judged
 A value that is more than one literal, such as `2 * inset`, is layout and
 passes. Comments are blanked and strings kept, through scripts/qml_source.py.
 Appearance rules, on a plugin whose manifest declares `appearance` (each
@@ -100,7 +101,7 @@ import sys
 # no bytecode cache beside it.
 sys.dont_write_bytecode = True
 from qml_source import Unreadable, source_lines, source_texts, blank_comments
-from qml_controls import blocks
+from qml_controls import base_type, blocks
 
 # node runs under this environment and nothing inherited beyond it.
 NODE_ENV = {"PATH": os.environ.get("PATH", ""), "LC_ALL": "C"}
@@ -381,13 +382,15 @@ def look_of(looks, path):
     return None
 
 
-def icon_button_backgrounds(path, text, library):
+def icon_button_backgrounds(path, text, shared):
     """The lines of every qs.Ui IconButton in `text` that binds `background`.
-    In qs.Ui (`library`) an unqualified IconButton is the shared control."""
-    local = not library and os.path.isfile(os.path.join(os.path.dirname(path), ICON_BUTTON + ".qml"))
+    `shared` is the shared control's file; an unqualified IconButton beside
+    any other IconButton.qml is that file's type."""
+    sibling = os.path.join(os.path.dirname(path), ICON_BUTTON + ".qml")
+    local = os.path.isfile(sibling) and os.path.realpath(sibling) != os.path.realpath(shared)
     lines = []
     for block in blocks(blank_comments(text, literals=False)):
-        if block.type is None or block.type.rsplit(".", 1)[-1] != ICON_BUTTON:
+        if base_type(block.type, None) != ICON_BUTTON:
             continue
         if local and "." not in block.type:
             continue
@@ -396,9 +399,9 @@ def icon_button_backgrounds(path, text, library):
     return lines
 
 
-def check_tree(root, table, literal, looks, surfaces, findings, notices, library=False):
-    """Check every source file under `root`; answer the file count. `library`
-    marks qs.Ui, whose IconButton.qml is the shared control."""
+def check_tree(root, table, literal, looks, surfaces, findings, notices, shared_icon_button):
+    """Check every source file under `root`; answer the file count.
+    `shared_icon_button` is qs.Ui's IconButton.qml."""
     files = set()
     for path, text in source_texts(root):
         if manifestless_plugin_dir(looks, path) is not None:
@@ -408,7 +411,7 @@ def check_tree(root, table, literal, looks, surfaces, findings, notices, library
             number = code.count("\n", 0, match.start()) + 1
             findings.append(f"window-room {path}:{number} screen-gutter")
         if literal is not None and path.endswith(".qml"):
-            for number in icon_button_backgrounds(path, text, library):
+            for number in icon_button_backgrounds(path, text, shared_icon_button):
                 (findings if literal == "finding" else notices).append(f"icon-button-background {path}:{number} {ICON_BUTTON}.background")
     for look in looks.values():
         if look.file is not None:
@@ -471,7 +474,7 @@ def main(argv):
         for refusal in table.glass_refusals:
             findings.append(f"appearance-refused {table.glass_file}:1 {refusal}")
         for root, literal, plugins in trees:
-            files += check_tree(root, table, literal, plugin_looks(repo, root, plugins), surfaces, findings, notices, library=root == os.path.join(shell, "Ui"))
+            files += check_tree(root, table, literal, plugin_looks(repo, root, plugins), surfaces, findings, notices, os.path.join(shell, "Ui", "controls", ICON_BUTTON + ".qml"))
     except Unreadable as exc:
         print(f"check-design-tokens: unreadable: {exc.path}: {exc.strerror}")
         return 2

@@ -4,8 +4,9 @@ tree, one row per exemption, the notice mode for a plugin directory, and the
 refusals: a token table node cannot load, a Theme.qml without members, and a
 tree with no source file.
 Each row builds a throwaway repository holding the shipped token table, judge,
-Theme.qml and library loader, plants one file, runs the check on it and asserts
-the rule key and the exit status."""
+Theme.qml and library loader, plants one file, or an icon button row's file
+beside an IconButton.qml, runs the check on it and asserts the rule key and
+the exit status."""
 import os
 import shutil
 import subprocess
@@ -47,9 +48,7 @@ ROWS = [
     ("a plugin replaces a checked icon toggle's background", "shell/plugins/acme.widget/Header.qml", "Item {\n    IconButton {\n        checked: true\n        background: Rectangle { color: Theme.button.checked.background }\n    }\n}\n", "icon-button-background"),
     ("a qualified icon button's background replaced in a plugin", "shell/plugins/acme.widget/Header.qml", "Item { Ui.IconButton { checked: true; background: Item {} } }\n", "icon-button-background"),
     ("an icon button's child named background is not a finding", "shell/plugins/acme.widget/Header.qml", "Item { IconButton { checked: true; Item { property int background: 0 } } }\n", None),
-    ("a qs.Ui control replaces an icon button's background", UI, "Item { IconButton { background: Item {} } }\n", "icon-button-background"),
-    ("the shared icon button draws its own background", "shell/Ui/controls/IconButton.qml", "Button { background: Rectangle { radius: Theme.button.radius } }\n", None),
-    ("a plugin's own IconButton type is not the shared control", "shell/plugins/acme.widget/IconButton.qml", "Item { IconButton { background: Item {} } }\n", None),
+    ("an icon button's own text that names background without binding it", "shell/plugins/acme.widget/Header.qml", "Item { IconButton { property bool backgroundShown: true; tone: \"warning\" } }\n", None),
     ("a private bound in a comment", UI, "Item { /* screen.width - 2 * Theme.size.window.gutter */ }\n", None),
     ("a token path that names nothing", UI, "Item { color: Theme.colour.accent }\n", "token-unknown"),
     ("a token under the wrong group", UI, "Item { color: Theme.palette.textMuted }\n", "token-unknown"),
@@ -154,6 +153,31 @@ LOOK_ROWS = [
 ]
 
 
+# Icon button rows that need the shared control's file or a plugin's own
+# beside the planted file: name, {path: text}, expected rule key or None.
+SHARED_ICON_BUTTON = "Button { background: Rectangle { radius: Theme.button.radius } }\n"
+PAIR_ROWS = [
+    ("a qs.Ui control beside the shared icon button replaces its background", {"shell/Ui/controls/IconButton.qml": SHARED_ICON_BUTTON, "shell/Ui/controls/Thing.qml": "Item { IconButton { background: Item {} } }\n"}, "icon-button-background"),
+    ("a plugin's own IconButton type is not the shared control", {"shell/plugins/acme.widget/IconButton.qml": "Item {}\n", "shell/plugins/acme.widget/Header.qml": "Item { IconButton { background: Item {} } }\n"}, None),
+]
+
+
+def run_pair_row(name, files, want):
+    with tempfile.TemporaryDirectory() as tmp:
+        root = build_repo(tmp)
+        for relative, text in files.items():
+            os.makedirs(os.path.dirname(os.path.join(root, relative)), exist_ok=True)
+            with open(os.path.join(root, relative), "w", encoding="utf-8") as fh:
+                fh.write(text)
+        proc = run_check(root)
+        keys = keys_of(proc)
+        if want is None:
+            good = proc.returncode == 0 and not keys and proc.stdout.splitlines()[-1:] == [f"check-design-tokens: ok files={FIXTURE_FILES + len(files)}"]
+        else:
+            good = proc.returncode == 1 and keys == {want} and proc.stdout.splitlines()[-1] == "check-design-tokens: findings=1"
+        return report(name, good, proc)
+
+
 def run_look_row(name, files, want):
     with tempfile.TemporaryDirectory() as tmp:
         root = build_repo(tmp)
@@ -226,7 +250,7 @@ def run_row(name, path, text, want):
 
 
 def main():
-    results = [run_row(*row) for row in ROWS] + [run_look_row(*row) for row in LOOK_ROWS]
+    results = [run_row(*row) for row in ROWS] + [run_pair_row(*row) for row in PAIR_ROWS] + [run_look_row(*row) for row in LOOK_ROWS]
     with tempfile.TemporaryDirectory() as tmp:
         proc = run_check(build_repo(tmp, ("shell/plugins/acme.widget/Look.qml", "Rectangle { property var c: look.nope; radius: Math.min(look.card.radius, height / 2) }\n")))
         results.append(report("a plugin without an appearance takes no look rule and no look radius", proc.returncode == 1 and keys_of(proc) == {"literal-radius"}, proc))
