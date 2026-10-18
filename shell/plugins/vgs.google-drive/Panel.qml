@@ -34,7 +34,11 @@ Item {
     readonly property var cloud: shell === null ? undefined : shell.status.values.cloud
     readonly property bool known: cloud !== undefined && cloud !== null
     readonly property double now: Time.now.getTime()
-    readonly property var header: known ? Logic.panelHeader(cloud, now, Timestamp.text) : null
+    // The header's parts test `header` itself, not `known`: both follow
+    // `cloud`, and a binding that tested `known` ran before `header` took
+    // the new value when the core assigned `shell`, and read null (a
+    // qml-unit run, 2026-10-18).
+    readonly property var header: known ?Logic.panelHeader(cloud, now, Timestamp.text) : null
     readonly property var callout: known ? Logic.problemCallout(cloud, now) : null
     readonly property string body: known ? Logic.panelBody(cloud, now) : ""
     readonly property var review: known ? Logic.reviewView(cloud) : ({ needs: [], notes: [], notesLine: "", moreNeeds: "", moreNotes: "" })
@@ -174,9 +178,9 @@ Item {
                 Icon {
                     id: statusMark
                     y: titleLabel.topForLeadingIcon(height)
-                    name: root.known ? root.header.icon : "cloud"
+                    name: root.header !== null ? root.header.icon : "cloud"
                     size: Theme.icon.size.lg
-                    color: root.known ? root.toneColor(root.header.tone) : Theme.color.textMuted
+                    color: root.header !== null ? root.toneColor(root.header.tone) : Theme.color.textMuted
                 }
                 Label {
                     id: titleLabel
@@ -197,15 +201,15 @@ Item {
                 Label {
                     width: parent.width
                     role: "bodyStrong"
-                    text: root.known ? root.header.headline : "Reading the sync status"
-                    color: root.known ? root.toneColor(root.header.tone) : Theme.color.textMuted
+                    text: root.header !== null ? root.header.headline : "Reading the sync status"
+                    color: root.header !== null ? root.toneColor(root.header.tone) : Theme.color.textMuted
                     wrapMode: Text.Wrap
                 }
                 Label {
                     width: parent.width
-                    visible: root.known
+                    visible: root.header !== null
                     role: "hint"
-                    text: root.known ? root.header.meta : ""
+                    text: root.header !== null ? root.header.meta : ""
                     wrapMode: Text.Wrap
                 }
             }
