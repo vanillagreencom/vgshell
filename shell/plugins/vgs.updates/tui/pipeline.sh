@@ -203,6 +203,12 @@ _updates_error_line='^[[:space:]]*error:[[:space:]]'
 # What the terminal echoes after a [Y/n] or [y/N] question when the user
 # answers it: nothing, for Enter, else a yes or a no.
 _updates_answer='^[[:space:]]*([YyNn]|[Yy][Ee][Ss]|[Nn][Oo])?[[:space:]]*$'
+# The scan line `vgshell pkg run` prints on stdout after its steps however
+# they ended (bin/vgshell-pkg rescanShell, bin/vgshell rescan_if_running).
+# It closes the run's block, as its `rescan=` refusal does, and is never
+# the step's own text; a question its manager left unanswered can precede
+# it on its line.
+_updates_scan_line='(^|[[:space:]])shell=(rescan-started|rescan-queued|not-running)[[:space:]]*$'
 
 # The cause of a failed step from its output in FILE, stdout and stderr in
 # the order the terminal showed them with the answers the user typed, once
@@ -214,7 +220,8 @@ _updates_answer='^[[:space:]]*([YyNn]|[Yy][Ee][Ss]|[Nn][Oo])?[[:space:]]*$'
 # as git's message after a `fetch=` refusal. `vgshell pkg run`'s closing
 # block, a `rescan=` refusal after its steps, is the exception: there the
 # cause is the last error line the steps printed before it, else their last
-# line. Without a key line it is the last error line, else the last line
+# line. Its other closing line, the scan line, is read as no line at all.
+# Without a key line it is the last error line, else the last line
 # that holds text. A question the step printed text after, with no answer
 # echoed, gives that text instead. Sets _updates_cause, and
 # _updates_declined to 1 when the user said no: the `declined=` refusal of
@@ -232,6 +239,10 @@ _updates_cause_of() { # FILE
       tail="${line:0:${#line}-${#BASH_REMATCH[0]}}"
       keyed=1 held="$last" held_fault="$fault" after=""
     elif [[ -n ${line//[[:space:]]/} ]]; then
+      if [[ $line =~ $_updates_scan_line ]]; then
+        line="${line:0:${#line}-${#BASH_REMATCH[0]}}"
+        [[ -n ${line//[[:space:]]/} ]] || continue
+      fi
       if [[ $line =~ \[(Y/n|y/N)\]:?[[:space:]]+(.*[^[:space:]].*)$ ]]; then
         rest="${BASH_REMATCH[2]}"
         [[ $rest =~ $_updates_answer ]] || line="$rest"

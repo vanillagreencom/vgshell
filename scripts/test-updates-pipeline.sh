@@ -97,7 +97,10 @@ stub() { # DIR NAME BODY
 }
 # vgshell answers each read from $FIX; pacman's plan names the elevator in
 # $FIX/elevator; `pkg detect` fails with 5 while $FIX/fail-detect exists.
-# `pkg run` for a manager ID: fails with 9 for $FIX/fail-<id>, after a
+# `pkg run` for a manager ID ends, however its steps ended, with the scan
+# line bin/vgshell-pkg's rescanShell prints on stdout, `shell=rescan-started`,
+# unless its fixture ends on the `rescan=` refusal instead. It fails with 9
+# for $FIX/fail-<id>, after a
 # coloured error line on stderr ending in a carriage return; exits 130, as
 # a Ctrl-C ends it, for $FIX/interrupt-<id>; leaves pacman's question
 # unanswered on stderr, as a no does, for $FIX/decline-<id>, and before its
@@ -110,7 +113,8 @@ stub() { # DIR NAME BODY
 # the same through use-pty-relay, as sudo's use_pty runs pacman. For
 # $FIX/ask-<id> it asks pacman's [Y/n] and reads the answer, for
 # $FIX/ask-default-no-<id> a [y/N]; both then exit 1, as a no does. For
-# $FIX/faulted-<id> it fails as pacman's failed commit does, in its order
+# $FIX/unprefixed-<id> it fails after an error line the error table does
+# not name. For $FIX/faulted-<id> it fails as pacman's failed commit does, in its order
 # and streams: pm_printf's `error: ` line and the conflicting file on
 # stderr, then `Errors occurred, no packages were upgraded.` on stdout
 # (pacman src/pacman/sync.c sync_prepare_execute and src/pacman/util.c
@@ -123,7 +127,25 @@ stub() { # DIR NAME BODY
 # and refuses an offline fetch with git's message for $FIX/offline-<id>.
 # `pkg owner` answers only while $FIX/owner exists, with a new version
 # after its first answer when $FIX/owner-changes does.
-stub "$tree/bin" vgshell 'order() {
+stub "$tree/bin" vgshell 'pkg_run() {
+  case "$5" in pacman|aur) [ ! -e "$FIX/transaction" ] || "$FIX/transaction" "$5" "$@" || exit "$?" ;; esac
+  [ ! -e "$FIX/build-$5" ] || { printf "==> ERROR: A failure occurred in build().\n    Aborting...\n" >&2; exit 4; }
+  [ ! -e "$FIX/interrupt-$5" ] || exit 130
+  [ ! -e "$FIX/fail-$5" ] || { printf "\033[31merror:\033[0m failed to install crush\r\n" >&2; exit 9; }
+  [ ! -e "$FIX/decline-$5" ] || { printf ":: Proceed with installation? [Y/n] " >&2; exit 1; }
+  [ ! -e "$FIX/decline-rescan-$5" ] || { printf ":: Proceed with installation? [Y/n] vgshell: refused: rescan=refused\nthe plugin files changed; run vgshell ipc call shell rescanPlugins\n" >&2; exit 1; }
+  [ ! -e "$FIX/answered-$5" ] || { printf ":: Proceed with installation? [Y/n] error: failed to commit transaction (conflicting files)\n" >&2; exit 1; }
+  [ ! -e "$FIX/rescan-$5" ] || { printf "error: failed to commit transaction (conflicting files)\nvgshell: refused: rescan=refused\nthe plugin files changed; run vgshell ipc call shell rescanPlugins\n" >&2; exit 1; }
+  [ ! -e "$FIX/order-$5" ] || { t=""; for fd in 0 1 2; do [ -t "$fd" ] && t="$t$fd"; done; echo "$t" >"$FIX/terminals"; order; }
+  [ ! -e "$FIX/relay-$5" ] || exec use-pty-relay /bin/sh -c "$(sed -n "/^order() {/,/^}/p" "$0"); order"
+  [ ! -e "$FIX/ask-$5" ] || { printf ":: Proceed with installation? [Y/n] " >&2; read -r answer; exit 1; }
+  [ ! -e "$FIX/ask-default-no-$5" ] || { printf ":: Remove the old kernel? [y/N] " >&2; read -r answer; exit 1; }
+  [ ! -e "$FIX/unprefixed-$5" ] || { printf "mise ERROR Failed to install core:node@22.0.0\n" >&2; exit 1; }
+  [ ! -e "$FIX/faulted-$5" ] || { printf "error: failed to commit transaction (conflicting files)\ncrush: /usr/bin/crush exists in filesystem\n" >&2; printf "Errors occurred, no packages were upgraded.\n"; exit 1; }
+  [ ! -e "$FIX/transcript-gone-$5" ] || { rm -f -- "${VGS_TUI_TRANSCRIPT:?}"; printf "error: failed to install crush\n" >&2; exit 1; }
+  [ ! -e "$FIX/transcript-replaced-$5" ] || { rm -f -- "${VGS_TUI_TRANSCRIPT:?}"; : >"$VGS_TUI_TRANSCRIPT"; printf "error: failed to install crush\n" >&2; exit 1; }
+}
+order() {
   printf "Total Download Size:    952.82 MiB\nTotal Installed Size:  3120.40 MiB\nNet Upgrade Size:        12.04 MiB\n"
   printf "\n:: Proceed with installation? [Y/n] " >&2
   exit 1
@@ -144,21 +166,10 @@ case "$1 $2" in
   "plugin outdated") cat "$FIX/plugins.json" ;;
   "theme outdated") cat "$FIX/themes.json" ;;
   "pkg run")
-    case "$5" in pacman|aur) [ ! -e "$FIX/transaction" ] || "$FIX/transaction" "$5" "$@" || exit "$?" ;; esac
-    [ ! -e "$FIX/build-$5" ] || { printf "==> ERROR: A failure occurred in build().\n    Aborting...\n" >&2; exit 4; }
-    [ ! -e "$FIX/interrupt-$5" ] || exit 130
-    [ ! -e "$FIX/fail-$5" ] || { printf "\033[31merror:\033[0m failed to install crush\r\n" >&2; exit 9; }
-    [ ! -e "$FIX/decline-$5" ] || { printf ":: Proceed with installation? [Y/n] " >&2; exit 1; }
-    [ ! -e "$FIX/decline-rescan-$5" ] || { printf ":: Proceed with installation? [Y/n] vgshell: refused: rescan=refused\nthe plugin files changed; run vgshell ipc call shell rescanPlugins\n" >&2; exit 1; }
-    [ ! -e "$FIX/answered-$5" ] || { printf ":: Proceed with installation? [Y/n] error: failed to commit transaction (conflicting files)\n" >&2; exit 1; }
-    [ ! -e "$FIX/rescan-$5" ] || { printf "error: failed to commit transaction (conflicting files)\nvgshell: refused: rescan=refused\nthe plugin files changed; run vgshell ipc call shell rescanPlugins\n" >&2; exit 1; }
-    [ ! -e "$FIX/order-$5" ] || { t=""; for fd in 0 1 2; do [ -t "$fd" ] && t="$t$fd"; done; echo "$t" >"$FIX/terminals"; order; }
-    [ ! -e "$FIX/relay-$5" ] || exec use-pty-relay /bin/sh -c "$(sed -n "/^order() {/,/^}/p" "$0"); order"
-    [ ! -e "$FIX/ask-$5" ] || { printf ":: Proceed with installation? [Y/n] " >&2; read -r answer; exit 1; }
-    [ ! -e "$FIX/ask-default-no-$5" ] || { printf ":: Remove the old kernel? [y/N] " >&2; read -r answer; exit 1; }
-    [ ! -e "$FIX/faulted-$5" ] || { printf "error: failed to commit transaction (conflicting files)\ncrush: /usr/bin/crush exists in filesystem\n" >&2; printf "Errors occurred, no packages were upgraded.\n"; exit 1; }
-    [ ! -e "$FIX/transcript-gone-$5" ] || { rm -f -- "${VGS_TUI_TRANSCRIPT:?}"; printf "error: failed to install crush\n" >&2; exit 1; }
-    [ ! -e "$FIX/transcript-replaced-$5" ] || { rm -f -- "${VGS_TUI_TRANSCRIPT:?}"; : >"$VGS_TUI_TRANSCRIPT"; printf "error: failed to install crush\n" >&2; exit 1; } ;;
+    st=0
+    ( pkg_run "$@" ) || st=$?
+    [ -e "$FIX/rescan-$5" ] || [ -e "$FIX/decline-rescan-$5" ] || echo "shell=rescan-started"
+    exit "$st" ;;
   "plugin update"|"theme update")
     if [ "$1" = theme ] && [ -x "$FIX/theme-update" ]; then exec "$FIX/theme-update" "$@"; fi
     for id; do :; done
@@ -767,6 +778,10 @@ row_cause_output() {
   touch "$fix/faulted-mise"
   pipeline update.sh
   assert "an error line before stdout is the cause" result_has "mise failed. error: failed to commit transaction (conflicting files)."
+  reset_fix
+  touch "$fix/unprefixed-mise"
+  pipeline update.sh
+  assert "an unprefixed error line before the scan line is the cause" result_has "mise failed. mise ERROR Failed to install core:node@22.0.0."
   reset_fix
   touch "$fix/transcript-gone-mise"
   pipeline update.sh
@@ -1678,6 +1693,8 @@ control key-at-line-start '(^|[[:space:]])(vgshell|vgs-tui):' '(^)(vgshell|vgs-t
 control refusal-cause-held '    _updates_cause="${after:-$value}"' '    _updates_cause="$held"' row_cause
 control rescan-cause-after 'own="${tail:-$held}" _updates_cause="${held_fault:-${held:-${after:-$value}}}"' 'own="${tail:-$held}" _updates_cause="${after:-$value}"' row_cause
 control cause-ignores-error-line 'own="$last" _updates_cause="${fault:-$last}"' 'own="$last" _updates_cause="$last"' row_cause_output
+control scan-line-read '      if [[ $line =~ $_updates_scan_line ]]; then' '      if false; then' row_answer
+control scan-line-cause '      if [[ $line =~ $_updates_scan_line ]]; then' '      if false; then' row_cause_output
 control answer-unread '$rest =~ $_updates_answer && $rest != *[Yy]*' '-z ${rest//[[:space:]]/}' row_answer
 control question-tail-ignored 'own="${tail:-$held}"' 'own="$held"' row_cause
 control question-unread 'if [[ $own =~' 'if false && [[ $own =~' row_cause
