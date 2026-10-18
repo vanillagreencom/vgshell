@@ -109,6 +109,9 @@ if stop_shell && copy_tree startup-migrations \
       printf '#!/bin/sh\nexit 9\n' >"$sandbox/tree-startup-migrations/shell/plugins/$migrations_id/migrate"
     done
     rescan "a rescan after changing queued migration sources completes"
+    # The changed scan also retains the registry's previous manifest map.
+    # Scan again so only the migration owner can retain the old snapshots.
+    rescan "an unchanged rescan while the migration waits completes"
     expect "the scan retains the running migration snapshot" yes migrations_retained "$migrations_running_revision"
     expect "the scan retains the queued migration snapshot" yes migrations_retained "$migrations_queued_revision"
     migrations_release
