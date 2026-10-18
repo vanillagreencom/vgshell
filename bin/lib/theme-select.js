@@ -1,7 +1,7 @@
 // The selection edit bin/vgshell-theme-judge keeps in an application's own
-// settings file: each key a target's `select` names, set to its value,
-// with every other byte of the file kept. Nothing here reads or writes a
-// file. docs/architecture/themes.md § Targets holds the rules.
+// settings file: stable native selectors and the migration of local colours.
+// The generated Yazi flavor retains the migrated customization. Nothing
+// here reads or writes a file. docs/architecture/themes.md holds the rules.
 //
 // TEXT and VALUE are strings in one encoding: the judge reads the file as
 // latin1, one character per byte, and hands over VALUE's UTF-8 bytes the
@@ -470,7 +470,7 @@ function tomlSpans(text) {
             at++;
         }
     };
-    const value = names => {
+    const value = (names, entryStart, root = false) => {
         space(false);
         const start = at;
         let node;
@@ -482,12 +482,13 @@ function tomlSpans(text) {
             space(true);
             while (text[at] !== close) {
                 if (at >= text.length) invalid();
+                const memberStart = at;
                 let child = [String(index++)];
                 if (object) {
                     child = key();
                     if (text[at++] !== "=") invalid();
                 }
-                value(names.concat(child));
+                value(names.concat(child), object ? memberStart : undefined);
                 space(true);
                 if (text[at] === close) break;
                 if (text[at++] !== ",") invalid();
@@ -500,7 +501,7 @@ function tomlSpans(text) {
             if (text.slice(start, at).trim() === "") invalid();
             node = { kind: "literal", start, end: at };
         }
-        records.push({ key: names, ...node });
+        records.push({ key: names, entryStart, root, ...node });
     };
     let table = [];
     const arrayTables = new Map();
@@ -523,9 +524,10 @@ function tomlSpans(text) {
             if (!array && headers.some(header => !header.array && header.key.length === table.length && header.key.every((name, i) => name === table[i]))) invalid();
             headers.push({ key: table, start, end: at, array });
         } else {
+            const entryStart = at;
             const names = key();
             if (text[at++] !== "=") invalid();
-            value(table.concat(names));
+            value(table.concat(names), entryStart, true);
         }
         space(false);
         if (text[at] === "#") while (at < text.length && text[at] !== "\n") at++;
@@ -583,57 +585,161 @@ function tomlColorKey(text, key, value) {
 const STARSHIP_ANSI = /^(?:bright-)?(?:black|red|green|yellow|blue|purple|magenta|cyan|white)$/;
 const STARSHIP_ATTRIBUTE = /^(?:none|bold|italic|underline|dimmed|inverted|blink|hidden|strikethrough|overline)$/;
 
-// Starship styles are space-separated attributes and colours. Its named
-// ANSI colours remain names; the VGS palette supplies their values. Literal
-// and custom-palette colours need an explicit VGS colour to override them.
-// https://starship.rs/advanced-config/#style-strings
-function starshipStyle(style, values) {
+// Fixed xterm defaults, not the applied theme: migrating a literal must not
+// write different names when the theme changes. XTerm-col.ad's named X11
+// colours and explicit color12: https://github.com/ThomasDickey/xterm-snapshots/blob/master/XTerm-col.ad
+const ANSI_REFERENCE = [
+    "000000", "cd0000", "00cd00", "cdcd00", "0000ee", "cd00cd", "00cdcd", "e5e5e5",
+    "7f7f7f", "ff0000", "00ff00", "ffff00", "5c5cff", "ff00ff", "00ffff", "ffffff"
+].map(hex => hex.match(/../g).map(part => parseInt(part, 16)));
+const ANSI_NAMES = ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white"];
+
+function indexedRgb(index) {
+    if (!Number.isInteger(index) || index < 0 || index > 255) throw new SyntaxError("unsupported-colour");
+    if (index < 16) return ANSI_REFERENCE[index];
+    if (index >= 232) return Array(3).fill(8 + (index - 232) * 10);
+    const cube = [0, 95, 135, 175, 215, 255];
+    return [Math.floor((index - 16) / 36), Math.floor((index - 16) / 6) % 6, (index - 16) % 6].map(n => cube[n]);
+}
+
+// Squared Euclidean distance in 8-bit sRGB; equal distances keep the lowest
+// ANSI slot. Existing ANSI references bypass this conversion.
+function nearestAnsi(rgb) {
+    let chosen = 0, distance = Infinity;
+    ANSI_REFERENCE.forEach((candidate, index) => {
+        const next = candidate.reduce((sum, value, at) => sum + (value - rgb[at]) ** 2, 0);
+        if (next < distance) { chosen = index; distance = next; }
+    });
+    return chosen;
+}
+
+function literalAnsi(value) {
+    if (/^\d+$/.test(value)) return Number(value) < 16 ? Number(value) : nearestAnsi(indexedRgb(Number(value)));
+    const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(value);
+    if (hex === null) throw new SyntaxError("unsupported-colour");
+    const full = hex[1].length === 3 ? [...hex[1]].map(c => c + c).join("") : hex[1];
+    return nearestAnsi(full.match(/../g).map(part => parseInt(part, 16)));
+}
+
+function ansiName(slot, bright = "bright-") {
+    return (slot >= 8 ? bright : "") + ANSI_NAMES[slot % 8];
+}
+
+// Remove a declared selection/override, including its inline-table form.
+// The span reader still owns parsing; unrelated settings keep their bytes.
+function tomlWithout(text, prefix) {
+    const { records, headers } = tomlSpans(text);
+    const edits = [];
+    headers.forEach((header, index) => {
+        if (startsWith(header.key, prefix)) edits.push({ start: header.start, end: headers[index + 1]?.start ?? text.length, value: "" });
+    });
+    for (const record of records.filter(record => record.root && startsWith(record.key, prefix))) {
+        if (edits.some(edit => record.start >= edit.start && record.end <= edit.end)) continue;
+        const end = text.indexOf("\n", record.end);
+        edits.push({ start: record.entryStart, end: end === -1 ? text.length : end + 1, value: "" });
+    }
+    const node = records.find(record => !record.root && record.key.length === prefix.length && startsWith(record.key, prefix));
+    if (node !== undefined && !edits.some(edit => node.start >= edit.start && node.end <= edit.end)) {
+        const parent = records.find(record => record.kind === "object" && record.key.length === prefix.length - 1 && startsWith(prefix, record.key));
+        if (parent === undefined) throw new SyntaxError("not-a-table");
+        const siblings = records.filter(record => record.key.length === prefix.length && startsWith(record.key, parent.key)).sort((a, b) => a.start - b.start);
+        const at = siblings.indexOf(node);
+        edits.push({ start: at === siblings.length - 1 && at > 0 ? siblings[at - 1].end : node.entryStart,
+            end: at < siblings.length - 1 ? siblings[at + 1].entryStart : node.end, value: "" });
+    }
+    return replaceSpans(text, edits) ?? text;
+}
+
+// Starship has no palette include. ANSI styles follow the generated
+// terminal palette, as Omarchy's prompt does. Resolve custom names before
+// removing the palette selector so glyphs and text attributes stay intact.
+function starshipStyle(style, palette) {
     return style.replace(/\S+/g, atom => {
         const match = /^(fg:|bg:)?(.*)$/.exec(atom);
         const prefix = match[1] || "";
         const color = match[2];
-        if (color.includes("$") || STARSHIP_ATTRIBUTE.test(color) || STARSHIP_ANSI.test(color)) return atom;
-        return prefix + values[prefix === "bg:" ? "bg" : "fg"];
+        if (color.includes("$") || STARSHIP_ATTRIBUTE.test(color) || STARSHIP_ANSI.test(color) || /^\d+$/.test(color) && Number(color) < 16) return atom;
+        const resolved = palette.get(color) ?? color;
+        return prefix + (STARSHIP_ANSI.test(resolved) ? resolved : ansiName(literalAnsi(resolved)));
     });
 }
 
-function tomlAppSelected(format, text, values) {
+function tomlAppSelected(format, text) {
     const { records } = tomlSpans(text);
+    if (format === "yazi") {
+        const selected = '[flavor]' + lineBreak(text) + 'dark = "vgs"' + lineBreak(text) + 'light = "vgs"' + lineBreak(text);
+        return selected === text ? null : selected;
+    }
+    if (format === "television") {
+        const out = tomlColorKey(tomlWithout(text, ["ui", "theme_overrides"]), ["ui", "theme"], "vgs");
+        return out === text ? null : out;
+    }
+    const paletteName = records.find(record => record.key.length === 1 && record.key[0] === "palette");
+    const name = paletteName === undefined ? undefined : tomlString(text.slice(paletteName.start, paletteName.end));
+    const palette = new Map(records.filter(record => record.key.length === 3 && record.key[0] === "palettes" && record.key[1] === name)
+        .map(record => [record.key[2], tomlString(text.slice(record.start, record.end))]));
     const edits = [];
     for (const record of records) {
         const key = record.key.filter(name => !/^\d+$/.test(name));
         const name = key.at(-1);
-        if (format === "yazi" && (name === "fg" || name === "bg")) {
-            if (record.kind !== "string") throw new SyntaxError("not-a-string");
-            edits.push({ ...record, value: JSON.stringify(values[key.join(".")] ?? values[name]) });
-        } else if (format === "television" && key[0] === "ui" && key[1] === "theme_overrides") {
-            if (record.kind === "object") continue;
-            if (record.kind !== "string" || values[name] === undefined) throw new SyntaxError("unsupported-colour");
-            edits.push({ ...record, value: JSON.stringify(values[name]) });
-        } else if (format === "starship" && record.kind === "string" && key[0] !== "palettes" &&
+        if (format === "starship" && record.kind === "string" && key[0] !== "palettes" &&
             (/(?:^style(?:_|$)|_style$|(?:^|_)format$|(?:^|_)symbol$)/.test(name) || name === "continuation_prompt")) {
             const raw = text.slice(record.contentStart, record.contentEnd);
-            const changed = /(?:^style(?:_|$)|_style$)/.test(name) ? starshipStyle(raw, values)
-                : raw.replace(/\]\(([^()]*)\)/g, (whole, style) => "](" + starshipStyle(style, values) + ")");
+            const changed = /(?:^style(?:_|$)|_style$)/.test(name) ? starshipStyle(raw, palette)
+                : raw.replace(/\]\(([^()]*)\)/g, (whole, style) => "](" + starshipStyle(style, palette) + ")");
             if (changed !== raw) edits.push({ start: record.contentStart, end: record.contentEnd, value: changed });
         }
     }
-    let out = replaceSpans(text, edits) ?? text;
-    switch (format) {
-    case "starship":
-        out = tomlColorKey(out, ["palette"], "vgs");
-        for (const [name, value] of Object.entries(values))
-            if (name !== "fg" && name !== "bg") out = tomlColorKey(out, ["palettes", "vgs", name], value);
-        break;
-    case "yazi":
-        for (const scheme of ["dark", "light"]) out = tomlColorKey(out, ["flavor", scheme], "vgs");
-        break;
-    case "television":
-        out = tomlColorKey(out, ["ui", "theme"], "vgs");
-        break;
-    default: throw new Error("theme-select: unknown TOML app " + format);
-    }
+    const out = tomlWithout(tomlWithout(replaceSpans(text, edits) ?? text, ["palette"]), ["palettes", "vgs"]);
     return out === text ? null : out;
+}
+
+// Generated Yazi flavors retain custom glyphs, matching rules and attributes
+// separately for each configuration. Their colours are regenerated after
+// merging, so last apply's colours cannot override the new theme.
+function yaziFlavorText(base, previous, user, values) {
+    const tree = text => {
+        const result = new Map();
+        const { records, headers } = tomlSpans(text);
+        const containers = records.filter(record => record.kind === "array");
+        for (const record of records) {
+            if (record.kind === "object" || record.key[0] === "flavor" || containers.some(parent => parent.start < record.start && parent.end > record.end)) continue;
+            let node = result;
+            record.key.forEach((name, index) => {
+                if (index === record.key.length - 1) { node.set(name, { raw: text.slice(record.start, record.end).trimEnd() }); return; }
+                if (!node.has(name)) node.set(name, new Map());
+                node = node.get(name);
+                if (!(node instanceof Map)) throw new SyntaxError("not-a-table");
+            });
+        }
+        // Array-of-table indices are parser paths, not TOML member names.
+        const arrays = new Set(headers.filter(header => header.array).map(header => JSON.stringify(header.key.slice(0, -1))));
+        return { result, arrays };
+    };
+    const merged = new Map(), arrays = new Set();
+    const overlay = (into, from) => {
+        for (const [key, value] of from) {
+            if (value instanceof Map && into.get(key) instanceof Map) overlay(into.get(key), value);
+            else into.set(key, value);
+        }
+    };
+    for (const text of [base, previous ?? "", user ?? ""]) {
+        const parsed = tree(text);
+        overlay(merged, parsed.result);
+        for (const key of parsed.arrays) arrays.add(key);
+    }
+    const encode = (node, key) => {
+        if (!(node instanceof Map)) return node.raw;
+        if (arrays.has(JSON.stringify(key))) return "[" + [...node.values()].map((value, i) => encode(value, key.concat(String(i)))).join(", ") + "]";
+        return "{ " + [...node].map(([name, value]) => JSON.stringify(name) + " = " + encode(value, key.concat(name))).join(", ") + " }";
+    };
+    const text = [...merged].map(([name, value]) => JSON.stringify(name) + " = " + encode(value, [name])).join("\n") + "\n";
+    const { records } = tomlSpans(text);
+    return replaceSpans(text, records.filter(record => ["fg", "bg"].includes(record.key.at(-1))).map(record => {
+        if (record.kind !== "string") throw new SyntaxError("not-a-string");
+        const key = record.key.filter(name => !/^\d+$/.test(name));
+        return { ...record, value: JSON.stringify(values[key.join(".")] ?? values[key.at(-1)]) };
+    })) ?? text;
 }
 
 function batSelected(text, values) {
@@ -649,16 +755,7 @@ function batSelected(text, values) {
     return terminated(text, lineBreak(text)) + "--theme=" + values.theme + lineBreak(text);
 }
 
-function ansiColor(value, background) {
-    const hex = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(value);
-    if (hex !== null) return (background ? "48" : "38") + ";2;" + hex.slice(1).map(part => parseInt(part, 16)).join(";");
-    const names = ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white"];
-    const match = /^(light_)?(black|red|green|yellow|blue|magenta|cyan|white)$/.exec(value);
-    if (match === null) throw new SyntaxError("unsupported-colour");
-    return String((match[1] ? 90 : 30) + (background ? 10 : 0) + names.indexOf(match[2]));
-}
-
-function themedSgr(code, foreground, background) {
+function themedSgr(code) {
     const parts = code.split(";");
     const out = [];
     for (let i = 0; i < parts.length; i++) {
@@ -666,16 +763,32 @@ function themedSgr(code, foreground, background) {
         if (n === 38 || n === 48) {
             const count = parts[i + 1] === "2" ? 4 : parts[i + 1] === "5" ? 2 : 0;
             if (count === 0 || i + count >= parts.length) throw new SyntaxError("unsupported-colour");
-            out.push(ansiColor(n === 48 ? background : foreground, n === 48));
+            if (parts[i + 1] === "5" && Number(parts[i + 2]) < 16) {
+                indexedRgb(Number(parts[i + 2]));
+                out.push(...parts.slice(i, i + count + 1));
+                i += count;
+                continue;
+            }
+            const rgb = parts[i + 1] === "5" ? indexedRgb(Number(parts[i + 2])) : parts.slice(i + 2, i + 5).map(Number);
+            if (rgb.some(value => !Number.isInteger(value) || value < 0 || value > 255)) throw new SyntaxError("unsupported-colour");
+            const slot = parts[i + 1] === "5" && Number(parts[i + 2]) < 16 ? Number(parts[i + 2]) : nearestAnsi(rgb);
+            out.push(String((slot >= 8 ? 90 : 30) + (n === 48 ? 10 : 0) + slot % 8));
             i += count;
-        } else if ((n >= 30 && n <= 37) || (n >= 90 && n <= 97)) out.push(ansiColor(foreground, false));
-        else if ((n >= 40 && n <= 47) || (n >= 100 && n <= 107)) out.push(ansiColor(background, true));
-        else out.push(parts[i]);
+        } else out.push(parts[i]);
     }
     return out.join(";");
 }
 
-function fastfetchSelected(text, values) {
+function fastfetchColor(value) {
+    if (/^\u001b\[/.test(value)) return value.replace(/^(\u001b\[)([0-9;]*)(m?)$/, (_, open, code, close) => open + themedSgr(code) + close);
+    if (/^[0-9;]+$/.test(value)) return themedSgr(value);
+    // Named colours and attribute prefixes stay as written. Only a trailing
+    // RGB/index literal needs conversion; fastfetch accepts both forms.
+    return value.replace(/(?:#[0-9a-f]{3}(?:[0-9a-f]{3})?|@\d+)$/i, color => color[0] === "@" && Number(color.slice(1)) < 16 ? color
+        : ansiName(color[0] === "@" ? nearestAnsi(indexedRgb(Number(color.slice(1)))) : literalAnsi(color), "light_"));
+}
+
+function fastfetchSelected(text) {
     const plain = jsoncBlanked(text);
     const document = JSON.parse(plain);
     if (document === null || typeof document !== "object" || Array.isArray(document)) throw new SyntaxError("unparseable");
@@ -688,50 +801,39 @@ function fastfetchSelected(text, values) {
             walk(member.value, key.concat(member.key));
         }
         const name = key.at(-1);
-        if (key.length === 2 && key[0] === "display" && name === "color" && node.kind !== "object") {
-            if (node.kind !== "string" && plain.slice(node.start, node.end) !== "null") throw new SyntaxError("unsupported-colour");
-            edits.push({ ...node, value: JSON.stringify(Object.fromEntries(["keys", "title", "output", "separator"].map(role => [role, values[role]]))) });
-            return;
-        }
-        const role = name === "keyColor" ? "keys" : name === "outputColor" ? "output"
-            : key[0] === "logo" && key[1] === "color" ? "logo"
-            : key[0] === "display" && key[1] === "color" ? name : undefined;
-        if (role !== undefined && values[role] !== undefined && node.kind !== "object" && node.kind !== "array") {
+        const color = name === "keyColor" || name === "outputColor" || name === "color" || key.includes("color");
+        if (color && node.kind !== "object" && node.kind !== "array") {
             if (node.kind !== "string" && plain.slice(node.start, node.end) !== "null") throw new SyntaxError("not-a-string");
-            edits.push({ ...node, value: JSON.stringify(values[role]) });
+            if (node.kind === "string") {
+                const current = JSON.parse(text.slice(node.start, node.end));
+                const changed = fastfetchColor(current);
+                if (changed !== current) edits.push({ ...node, value: JSON.stringify(changed) });
+            }
         } else if (node.kind === "string" && key[0] === "modules" && (name === "key" || name === "format")) {
             const raw = text.slice(node.start + 1, node.end - 1);
-            const color = values[name === "key" ? "keys" : "output"];
             // Keep reset and text attributes; replace only SGR colour codes.
             // fastfetch accepts RGB or ANSI names in {#...} placeholders.
             const changed = raw.replace(/\{#([^{}]+)\}/g, (whole, code) => {
                 if (["keys", "title", "output", "separator"].includes(code)) return whole;
                 if (/^[0-9;]+$/.test(code)) {
-                    return "{#" + themedSgr(code, color, values.bg) + "}";
+                    return "{#" + themedSgr(code) + "}";
                 }
-                const attributes = { reset: 0, bold: 1, bright: 1, dim: 2, italic: 3, underline: 4, blink: 5, inverse: 7, hidden: 8, strike: 9 };
-                const kept = code.split("_").filter(part => Object.hasOwn(attributes, part)).map(part => attributes[part]);
-                return "{#" + kept.concat(ansiColor(color, false)).join(";") + "}";
+                return "{#" + fastfetchColor(code) + "}";
             }).replace(/(?<!\\)((?:\\\\)*)(\\u001[bB]\[)([0-9;]*)(m)/g,
-                (_, literal, open, code, close) => literal + open + themedSgr(code, color, values.bg) + close);
+                (_, literal, open, code, close) => literal + open + themedSgr(code) + close);
             if (changed !== raw) edits.push({ start: node.start + 1, end: node.end - 1, value: changed });
         }
     };
     walk(jsonSpan(plain, 0), []);
-    let out = replaceSpans(text, edits) ?? text;
-    for (const role of ["keys", "title", "output", "separator"]) {
-        const result = jsonSelected(out, jsoncBlanked(out), ["display", "color", role], values[role], cause => { throw new SyntaxError(cause); });
-        if (result !== null) out = result;
-    }
-    return out === text ? null : out;
+    return replaceSpans(text, edits);
 }
 
 function appSelectedText(format, text, values) {
     if (text === undefined) return { ok: false, reason: ABSENT, detail: "" };
     try {
         switch (format) {
-        case "starship": case "yazi": case "television": return tomlAppSelected(format, text, values);
-        case "fastfetch": return fastfetchSelected(text, values);
+        case "starship": case "yazi": case "television": return tomlAppSelected(format, text);
+        case "fastfetch": return fastfetchSelected(text);
         case "bat": return batSelected(text, values);
         default: throw new Error("theme-select: unknown app " + format);
         }
@@ -741,4 +843,4 @@ function appSelectedText(format, text, values) {
     }
 }
 
-module.exports = { selectedText, appSelectedText };
+module.exports = { selectedText, appSelectedText, yaziFlavorText };

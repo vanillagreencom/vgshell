@@ -984,7 +984,21 @@ function planTarget(dir, row, slots, font, disabled, configHome, live) {
             if (isAccountTarget(target)) roots = accountRoots(target, true);
             const selections = selectionEdits(target, configHome, live, roots, undefined, selectionValues);
             if (selections.length === 0) return "selection-file-absent";
-            return selectionRefusal(selections);
+            const refusal = selectionRefusal(selections);
+            if (refusal !== null || target.select.format !== "yazi") return refusal;
+            const paths = Array.isArray(target.select.file) ? target.select.file : [target.select.file];
+            try {
+                paths.forEach((file, index) => {
+                    const destination = render.entryItems(target, live, index).find(item => item.name === "flavor.toml").destination;
+                    const output = rendered.files.find(file => file.destination === destination);
+                    output.bytes = Buffer.from(select.yaziFlavorText(latin1(output.bytes), latin1(readIfPresent(path.join(live, destination))),
+                        latin1(readIfPresent(path.join(baseDir(target.select.base, configHome), file))), selectionValues), "latin1");
+                });
+            } catch (e) {
+                if (e instanceof SyntaxError) return "selection-refused";
+                throw e;
+            }
+            return null;
         }, failed);
         if (!selected.ok) return selected.entry;
         if (selected.value !== null) return skipped(selected.value);
@@ -1389,16 +1403,16 @@ function entryDirsFailure(key, e) {
 // The entry items of TARGET with the render this apply is landing.
 function planEntries(target, dirs, live, files) {
     const bytes = new Map(files.map(file => [file.destination, file.bytes]));
-    const items = render.entryItems(target, live).map(item => {
+    const items = dirs.map((dir, index) => render.entryItems(target, live, index).map(item => {
         const next = bytes.get(item.destination);
         if (next === undefined) throw new Error("vgshell-theme-judge: planEntries: target " + target.name + " has no bytes for " + item.destination);
         return Object.assign({}, item, { newBytes: next });
-    });
+    }));
     return { dirs, items };
 }
 
 function currentEntries(target, dirs, live) {
-    const items = render.entryItems(target, live).map(item => Object.assign({}, item, { newBytes: readIfPresent(item.to) }));
+    const items = dirs.map((dir, index) => render.entryItems(target, live, index).map(item => Object.assign({}, item, { newBytes: readIfPresent(item.to) })));
     return { dirs, items };
 }
 
@@ -1434,9 +1448,9 @@ function keepEntries(name, target, configHome, live, plan) {
     const key = "target=" + name + " reason";
     try {
         if (plan === undefined) plan = currentEntries(target, entryDirs(target, configHome), live);
-        for (const dir of plan.dirs) {
+        for (const [index, dir] of plan.dirs.entries()) {
             writing(dir, key, () => fs.mkdirSync(dir, { recursive: true }));
-            for (const item of plan.items) {
+            for (const item of plan.items[index]) {
                 const file = path.join(dir, item.name);
                 if (entryState(file, item) === "managed") continue;
                 if (item.kind === "link") writing(file, key, () => linkByRename(item.to, file));
@@ -1465,8 +1479,8 @@ function dropEntries(name, target, configHome, live) {
         return entryDirsFailure(key, e);
     }
     try {
-        for (const dir of plan.dirs) {
-            for (const item of plan.items) {
+        for (const [index, dir] of plan.dirs.entries()) {
+            for (const item of plan.items[index]) {
                 const file = path.join(dir, item.name);
                 if (entryState(file, item) === "managed") writing(file, key, () => fs.unlinkSync(file));
             }
@@ -3083,8 +3097,8 @@ function setupTargetRows(name, target, configHome, live) {
             if (typeof e.code !== "string") throw e;
             return unreadable(e.path || configHome, e.code);
         }
-        for (const dir of plan.dirs)
-            for (const item of plan.items) {
+        for (const [index, dir] of plan.dirs.entries())
+            for (const item of plan.items[index]) {
                 const file = path.join(dir, item.name);
                 try {
                     if (entryState(file, item) === "managed") rows.push({ name, app: target.app, file, line: null, state: "wired" });

@@ -10,6 +10,10 @@
     {
       "template": "yazi.tmTheme",
       "destination": "yazi.tmTheme"
+    },
+    {
+      "template": "yazi.toml",
+      "destination": "yazi.scratchpad.toml"
     }
   ],
   "detect": [
@@ -23,7 +27,10 @@
     ],
     "owned": false,
     "links": {
-      "flavor.toml": "yazi.toml",
+      "flavor.toml": [
+        "yazi.toml",
+        "yazi.scratchpad.toml"
+      ],
       "tmtheme.xml": "yazi.tmTheme"
     }
   },
