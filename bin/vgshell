@@ -2121,6 +2121,9 @@ self_repair() {
   printf 'Jarvis restores VGS-owned Home package files on their next check, including package edits.\n' >&2
   confirm_change restore "$root including edited files" "the VGS install stays unchanged" repair
   self_lock_hold
+  if [[ $plan == *'"ensureHelper":true'* ]]; then
+    "$root/bin/vgshell" pkg ensure-helper || return "$?"
+  fi
   words="$(mktemp)" || refuse 1 "repair=temporary-file"
   node -e 'const fs=require("node:fs"); const p=JSON.parse(process.argv[1]); fs.writeFileSync(process.argv[2], p.command.join("\0")+"\0");' "$plan" "$words" || { rm -f -- "$words"; refuse 1 "repair=plan-unreadable"; }
   mapfile -d '' -t command <"$words"

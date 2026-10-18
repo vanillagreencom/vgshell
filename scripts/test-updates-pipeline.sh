@@ -48,7 +48,7 @@ plugin="$tmp/plugin"
 cp -R -- "$repo/shell/plugins/vgs.updates" "$plugin"
 tree="$tmp/tree"
 mkdir -p "$tree/bin/lib" "$tree/shell/Commons"
-cp -- "$repo/bin/lib/tui.sh" "$repo/bin/lib/qml-library.js" "$repo/bin/lib/judge-files.js" "$tree/bin/lib/"
+cp -- "$repo/bin/lib/tui.sh" "$repo/bin/lib/qml-library.js" "$repo/bin/lib/judge-files.js" "$repo/bin/lib/aur-helper.sh" "$tree/bin/lib/"
 cp -- "$repo/shell/Commons/PageReference.js" "$tree/shell/Commons/"
 # This fixture loader observes the real library returned to facts. The
 # existing self verb never draws a window, so the fixture checks that same
@@ -151,6 +151,7 @@ order() {
   exit 1
 }
 case "$1 $2" in
+  "pkg ensure-helper") exec bash "${0%/*}/lib/aur-helper.sh" "$0" ;;
   "plugin settings") cat "$FIX/settings.json" ;;
   "pkg detect") [ ! -e "$FIX/fail-detect" ] || exit 5; cat "$FIX/detect.json" ;;
   "pkg plan")

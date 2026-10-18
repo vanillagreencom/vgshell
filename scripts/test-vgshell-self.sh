@@ -698,8 +698,14 @@ cat >"$repair_package/bin/vgshell-pkg" <<'REPAIR_PKG'
 const fs=require("node:fs"),path=require("node:path");
 const root=path.resolve(__dirname,".."),args=process.argv.slice(2);
 if(args[0]==="owner") console.log(JSON.stringify({manager:"pacman",package:"vgshell",version:"0.1.0"}));
-else if(args[0]==="detect") console.log(JSON.stringify({overlays:[{id:"aur",binary:"paru"}]}));
+else if(args[0]==="detect") console.log(JSON.stringify({overlays:fs.existsSync(path.join(root,"no-helper"))?[]:[{id:"aur",binary:"paru"}]}));
+else if(args[0]==="ensure-helper") {
+ fs.appendFileSync(path.join(root,"helper.json"),JSON.stringify(args)+"\n");
+ if(fs.existsSync(path.join(root,"fail-helper"))) process.exit(8);
+ fs.unlinkSync(path.join(root,"no-helper"));
+}
 else if(args.join(" ")==="run reinstall --manager aur vgshell") {
+ if(fs.existsSync(path.join(root,"no-helper"))) process.exit(9);
  fs.copyFileSync(path.join(root,"baseline-persona"),path.join(root,"packaging/jarvis-home/.agents/skills/jarvis/persona.md"));
  fs.writeFileSync(path.join(root,"reinstall.json"),JSON.stringify(args));
 } else process.exit(99);
@@ -710,5 +716,27 @@ INST_BIN="$repair_package/bin/vgshell" on_terminal y self repair
 check "package repair runs the AUR owner's reinstall" test "$term_status" == 0
 check "package reinstall restores missing Jarvis files" test "$(cat "$repair_package/$repair_persona")" == "$repair_original"
 check "package repair calls the reinstall action" test -s "$repair_package/reinstall.json"
+
+for helper_case in declined failed installed; do
+  touch "$repair_package/no-helper"
+  rm -f -- "$repair_package/helper.json" "$repair_package/reinstall.json" "$repair_package/fail-helper"
+  case "$helper_case" in
+    declined) answer=n; expected=1 ;;
+    failed) answer=y; expected=8; touch "$repair_package/fail-helper" ;;
+    installed) answer=y; expected=0 ;;
+  esac
+  INST_BIN="$repair_package/bin/vgshell" on_terminal "$answer" self repair
+  check "package helper $helper_case returns its status" test "$term_status" == "$expected"
+  if [[ $helper_case == declined ]]; then
+    check "declined repair starts no helper setup" test ! -e "$repair_package/helper.json"
+  else
+    check "package helper $helper_case calls shared helper setup" test -s "$repair_package/helper.json"
+  fi
+  if [[ $helper_case == installed ]]; then
+    check "helper installation precedes package reinstall" test -s "$repair_package/reinstall.json"
+  else
+    check "package helper $helper_case starts no reinstall" test ! -e "$repair_package/reinstall.json"
+  fi
+done
 
 rows_done test-vgshell-self

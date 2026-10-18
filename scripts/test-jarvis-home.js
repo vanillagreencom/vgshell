@@ -1291,7 +1291,7 @@ world(() => {
         ["migration-removes-skills-base", '        fs.rmSync(Core.anchored().child(held.get("skills"), path.basename(OLD_COPY)), { recursive: true, force: true });\n',
             "        void OLD_COPY;\n", "migration"],
         ["package-link", '            if (kind === "link") fail("link");\n            if (kind === "absent") {', '            if (kind === "absent") {', "packageLinks"],
-        ["package-file-link", '        if (kind === "link") fail("link");\n        if (kind !== "file") fail("kind");', '        if (kind !== "file") fail("kind");', "packageLinks"],
+        ["package-file-link", '        if (kind === "absent") return "absent";\n        if (kind === "link") fail("link");', '        if (kind === "absent") return "absent";', "packageLinks"],
         ["record-link", '    if (kind === "link") fail("link");\n    if (kind !== "file") fail("kind");\n    const held = fs.openSync(Core.anchored().child(fd, RECORD)',
             '    if (kind !== "file") fail("kind");\n    const held = fs.openSync(Core.anchored().child(fd, RECORD)', "records"],
         ["record-shape", "!Array.isArray(files) || ", "", "records"],

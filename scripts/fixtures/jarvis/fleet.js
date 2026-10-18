@@ -133,11 +133,15 @@ function finish(){fs.mkdirSync('${path.dirname(canonical)}',{recursive:true});fs
     const original = fs.readFileSync(watched, "utf8");
     const needle = "async function install(tree, folder, automatic, source, signal) {";
     assert.equal(original.split(needle).length, 2);
-    const end = "    });\n}\n\nfunction leased";
+    const end = "\n}\n\nfunction locked";
     assert.equal(original.split(end).length, 2);
-    fs.writeFileSync(watched, original.replace(needle, needle + '\n    require("node:fs").appendFileSync(require("node:path").join(folder, "launches"), "x");\n    try {')
-        .replace('return leased("exec"', 'return await leased("exec"')
-        .replace(end, '    });\n    } finally { require("node:fs").writeFileSync(require("node:path").join(folder, "setup-finished"), ""); }\n}\n\nfunction leased'));
+    const launch = '    return locked(tree, folder, automatic ? "automatic-worker" : "manual-worker", source, signal);';
+    assert.equal(original.split(launch).length, 2);
+    const instrumented = original.replace(needle, needle + '\n    require("node:fs").appendFileSync(require("node:path").join(folder, "launches"), "x");\n    try {')
+        .replace(launch, launch.replace("return locked", "return await locked"))
+        .replace(end, '\n    } finally { require("node:fs").writeFileSync(require("node:path").join(folder, "setup-finished"), ""); }\n}\n\nfunction locked');
+    assert.notEqual(instrumented, original);
+    fs.writeFileSync(watched, instrumented);
     const child = cp.spawn(process.execPath, [path.join(observed, "backend/jarvisd.js"), "--tree", tree], { env, stdio: ["pipe", "pipe", "pipe"] });
     let out = "", err = "";
     child.stdout.on("data", bytes => { out += bytes; });

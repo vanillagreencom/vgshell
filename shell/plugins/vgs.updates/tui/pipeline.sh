@@ -145,19 +145,7 @@ _updates_run() { # ARGV...
   (cd -- "$HOME" && "$@")
 }
 
-# Paru's upstream installation builds the AUR recipe as the user. Plain
-# Arch has no paru repository package; use the same route on CachyOS.
-# https://github.com/Morganamilo/paru#installation
-_updates_install_helper() (
-  local build
-  build="$(mktemp -d)" || return 1
-  trap 'rm -rf -- "${build:?}"' EXIT
-  "$_updates_vgshell" pkg run install --manager pacman base-devel git || return "$?"
-  git clone -- https://aur.archlinux.org/paru.git "$build/paru" || return "$?"
-  cd -- "$build/paru" || return 1
-  makepkg -si || return "$?"
-  command -v paru >/dev/null
-)
+_updates_install_helper() { "$_updates_vgshell" pkg ensure-helper; }
 
 # pacman parses CLI HookDir before configured directories. A configuration
 # ending in our HookDir wins by filename while retaining every other hook.

@@ -480,9 +480,9 @@ function repairPlan(root, dataHome, version, checkout) {
     else if (method === "curl") command = [process.execPath, __filename, "restore", "vanillagreencom/vgshell", dataHome, root, current, "-"];
     else if (method === "package") {
         const target = manager === AUR_PRIMARY ? "aur" : manager;
-        if (target === "aur" && aurHelper() === null) return { kind: "by-hand", method, reason: "no-aur-helper", command: null,
-            notice: "The VGS package needs an AUR helper before its package manager can reinstall it." };
         command = [cli, "pkg", "run", "reinstall", "--manager", target, pkg];
+        if (target === "aur" && aurHelper() === null)
+            return { kind: "run", method, reason: null, command, ensureHelper: true };
     } else return { kind: "by-hand", method, reason: "nix", command: null,
         notice: "Update the Nix configuration that installed VGS, then rebuild it. VGS cannot change that configuration." };
     return { kind: "run", method, reason: null, command };

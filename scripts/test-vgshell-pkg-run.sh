@@ -27,10 +27,11 @@ script_bin="$(command -v script)"
 # The tools the runner and the stubs need, and nothing that changes a
 # package.
 tools="$tmp/tools"; mkdir -p "$tools"
-for tool in bash readlink dirname sleep cat env; do
+for tool in bash readlink dirname sleep cat env mktemp mkdir rm chmod; do
   found="$(command -v "$tool")" || { echo "test-vgshell-pkg-run: status=not-measured missing=$tool"; exit 77; }
   ln -s -- "$found" "$tools/$tool"
 done
+ln -s -- "$node_bin" "$tools/node"
 
 # Stubs, one directory per group so a row's PATH names exactly the ones it
 # offers. Each writes one line per call to $LOG: its name, then each
@@ -95,7 +96,7 @@ make_tree "$tree"
 # status in $status. PKG_TTY=none runs it with no controlling terminal
 # instead, stderr in $tmp/err.
 pkg() {
-  local at="$1" dirs="$2" extra=() cmd
+  local at="$1" dirs="$2" extra=() cmd prefix=()
   shift 2
   while [[ $1 != -- ]]; do extra+=("$1"); shift; done
   shift
@@ -116,7 +117,10 @@ pkg() {
     setsid -w "${env_words[@]}" "$node_bin" "$at/bin/vgshell-pkg" "$@" </dev/null >"$tmp/out" 2>"$tmp/err" || status=$?
   else
     cmd="$(printf '%q ' "${env_words[@]}" "$node_bin" "$at/bin/vgshell-pkg" "$@")"
-    ( cd -- "${PKG_CWD:-.}" && SHELL="$BASH" timeout 30 "$script_bin" -qec "$cmd" /dev/null ) </dev/null >"$tmp/out" 2>&1 || status=$?
+    if [[ -n ${PKG_OS_RELEASE:-} ]]; then
+      prefix=(unshare -rm sh -c 'mount --bind "$1" /etc/os-release && shift && exec "$@"' sh "$PKG_OS_RELEASE")
+    fi
+    ( cd -- "${PKG_CWD:-.}" && SHELL="$BASH" timeout 30 "${prefix[@]}" "$script_bin" -qec "$cmd" /dev/null ) </dev/null >"$tmp/out" 2>&1 || status=$?
   fi
 }
 PKG_ANSWERS=()
@@ -134,10 +138,14 @@ lines() { printf '%s\n' "$@"; }
 
 # Each row takes the tree it runs and answers 0 when every expectation holds.
 row_no_terminal() {
+  PKG_TTY=none pkg "$1" "$sudo_path" -- ensure-helper
+  [[ $status == 1 && "$(head -n 1 "$tmp/err")" == "vgshell: refused: ensure-helper=no-terminal" ]] && log_is "" || return 1
   PKG_TTY=none pkg "$1" "$sudo_path" -- run install --manager pacman foo
   [[ $status == 1 && "$(head -n 1 "$tmp/err")" == "vgshell: refused: run=no-terminal" ]] && log_is ""
 }
 row_shell_process() {
+  pkg "$1" "$sudo_path" VGSHELL_RUNNER_PID=4242 -- ensure-helper
+  [[ $status == 1 ]] && out_has "vgshell: refused: caller=shell verb=ensure-helper" && log_is "" || return 1
   pkg "$1" "$sudo_path" VGSHELL_RUNNER_PID=4242 -- run install --manager pacman foo
   [[ $status == 1 ]] && out_has "vgshell: refused: caller=shell verb=run" && log_is ""
 }
@@ -312,6 +320,38 @@ row_picker_without_fzf() {
   [[ $status == 1 ]] && out_has "vgshell: refused: picker=fzf reason=absent" && log_is ""
 }
 
+# The public operation reaches the shared installer with stand-ins. The
+# build publishes its helper only on success, just as makepkg -si does.
+row_ensure_helper() {
+  local at="$1" failure expected helper_bin="$tmp/helper-bin"
+  mkdir -p "$helper_bin"
+  ln -sf -- "$managers/pacman" "$helper_bin/pacman"
+  stub "$helper_bin" git '[ "${HELPER_FAILURE:-}" != clone ] || exit 6
+for destination; do :; done
+mkdir -p "$destination"
+printf "%s\\n" "$destination" >"$LOG.build"'
+  stub "$helper_bin" makepkg '[ "${HELPER_FAILURE:-}" != build ] || exit 8
+printf "#!/bin/sh\\nexit 0\\n" >"$HELPER_BIN/paru"
+chmod +x "$HELPER_BIN/paru"'
+  while read -r failure expected; do
+    rm -f -- "$helper_bin/paru" "$log.build"
+    PKG_OS_RELEASE="$tmp/os-release-arch" pkg "$at" "$helper_bin:$tmp/elevate-sudo" HELPER_BIN="$helper_bin" HELPER_FAILURE="$failure" -- ensure-helper
+    [[ $status == "$expected" ]] || return 1
+    grep -qxF 'pacman [-S] [--needed] [--] [base-devel] [git]' "$log" || return 1
+    if [[ -f $log.build ]]; then [[ ! -e $(cat "$log.build") ]] || return 1; fi
+    case "$failure" in
+      none) grep -qxF 'makepkg [-si]' "$log" && [[ -x $helper_bin/paru ]] || return 1 ;;
+      clone) ! grep -q '^makepkg ' "$log" || return 1 ;;
+    esac
+  done <<'ROWS'
+clone 6
+build 8
+none 0
+ROWS
+  PKG_OS_RELEASE="$tmp/os-release-arch" pkg "$at" "$helper_bin:$tmp/elevate-sudo" -- ensure-helper
+  [[ $status == 0 ]] && log_is ""
+}
+
 rows=(no_terminal shell_process pacman_install apt_upgrade pacman_ignore aur_ignore ignore_unsupported upgrade_config first_failure doas run0 configured configured_absent
   configured_unknown no_elevator literal_name update update_installs aur_unelevated picker_install picker_remove picker_cancelled
   picker_nothing aur_picker picker_unsupported picker_without_fzf dnf_picker home_directory)
@@ -343,6 +383,7 @@ if unshare -rm true 2>/dev/null; then
     "fzf [--multi] [--preview='paru' '-Siia' {1}] [--preview-label=alt-p: toggle description, alt-j/k: scroll, tab: multi-select] [--preview-label-pos=bottom] [--preview-window=down:65%:wrap] [--bind=alt-p:toggle-preview] [--bind=alt-d:preview-half-page-down,alt-u:preview-half-page-up] [--bind=alt-k:preview-up,alt-j:preview-down] [--color=pointer:green,marker:green]" \
     "paru [-S] [--needed] [--] [aurpkg]")"
   chooser_status=0
+  if row_ensure_helper "$tree"; then ok ensure_helper; else fail "ensure_helper: status=$status out=[$(cat "$tmp/out")]"; fi
 fi
 
 # Controls: each copy removes one rule, and the row that holds it must fail.
@@ -358,6 +399,9 @@ control() {
 }
 control runs-without-terminal bin/lib/judge-files.js 'fs.closeSync(fs.openSync("/dev/tty", "r+"));' ';' no_terminal
 control elevates-in-shell bin/lib/judge-files.js 'if (process.env.VGSHELL_RUNNER_PID !== undefined)' 'if (false)' shell_process
+if [[ $chooser_status == 0 ]]; then
+  control helper-build-skipped bin/lib/aur-helper.sh 'makepkg -si' ':' ensure_helper
+fi
 control no-sudo-session bin/lib/pkg-run.sh $'if [[ $elevator == sudo ]]; then\n  vgs_tui_sudo_session start' $'if false; then\n  vgs_tui_sudo_session start' apt_upgrade
 control runs-past-failure bin/lib/pkg-run.sh '[[ $status -eq 0 ]] || exit "$status"' ':' first_failure
 control shell-string bin/lib/pkg-run.sh '  "${step[@]}" || status=$?' '  bash -c "${step[*]}" || status=$?' literal_name
