@@ -43,6 +43,13 @@ ShellRoot {
             sourceComponent: root.shader === "plasma" ? plasma : orb
             onLoaded: root.plant(item)
         }
+        // QQuickWindow.update requests rendering even without scene changes:
+        // https://doc.qt.io/qt-6/qquickwindow.html#update
+        // Keep the same frame requests in every scene, including the hidden shader.
+        FrameAnimation {
+            running: !root.complete && visual.Window.window !== null
+            onTriggered: visual.Window.window.update()
+        }
         Connections {
             target: visual.Window.window
             function onFrameSwapped() {
