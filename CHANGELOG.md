@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- VS Code, VSCodium and Cursor use the VGS palette for native editor guides, highlights, controls, badges, debugging and workbench colours that previously kept application defaults.
+
 ## 0.1.1 (2026-10-18)
 
 - Each card in the AI Usage panel shows the 5-hour limit last, under the weekly limits. When the weekly limit is at 100 %, the card shows only the weekly limit. When Claude turns away a usage read, the card keeps the last figures and shows no note. A card with no figures yet reads Usage could not be read yet. Before, the 5-hour limit came first, and a turned-away read showed a note that Claude limits how often usage can be read.

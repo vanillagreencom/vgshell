@@ -2659,6 +2659,203 @@ function verifyEditorStyles(render, template) {
 }
 const editorPackages = verifyEditorStyles(require(rendererFile));
 const vscodeTemplate = fs.readFileSync(path.join(repo, "themes/targets/vscode/vscode.json"), "utf8");
+// VS Code 1.138.0 native IDs and roles from VGS-1878's independent inventory.
+// Stock native defaults paint these keys when a generated theme omits them.
+const EDITOR_NATIVE_ROLES = [
+    ["color.textFaint", `git.blame.editorDecorationForeground editorCodeLens.foreground editorGhostText.foreground editor.foldPlaceholderForeground
+        editor.placeholder.foreground editorInlayHint.foreground editorInlayHint.typeForeground
+        editorInlayHint.parameterForeground list.deemphasizedForeground testing.iconUnset testing.iconSkipped
+        testing.iconUnset.retired testing.iconSkipped.retired`.trim().split(/\s+/)],
+    ["color.border", `editor.lineHighlightBorder editorIndentGuide.activeBackground2 editorIndentGuide.activeBackground3
+        editorIndentGuide.activeBackground4 editorIndentGuide.activeBackground5 editorIndentGuide.activeBackground6
+        editorBracketMatch.border textSeparator.foreground textBlockQuote.border editor.compositionBorder
+        editor.snippetFinalTabstopHighlightBorder keybindingLabel.border keybindingLabel.bottomBorder
+        listFilterWidget.noMatchesOutline tree.tableColumnsBorder pickerGroup.border tab.lastPinnedBorder editorGroup.border
+        sideBySideEditor.horizontalBorder sideBySideEditor.verticalBorder activityBarTop.dropBorder chat.requestBorder
+        chat.sessionStateIndicator.unvisitedBorder chat.requestCodeBorder chat.checkpointSeparator simpleFindWidget.sashBorder
+        notebook.cellToolbarSeparator welcomePage.tileBorder`.trim().split(/\s+/)],
+    ["color.infoSubtle", `editor.rangeHighlightBackground editorBracketMatch.background editor.linkedEditingBackground
+        peekViewResult.matchHighlightBackground peekViewEditor.matchHighlightBackground editor.wordHighlightBackground
+        editor.wordHighlightStrongBackground editor.wordHighlightTextBackground editor.findRangeHighlightBackground
+        editor.hoverHighlightBackground editor.snippetTabstopHighlightBackground list.dropBackground list.dropBetweenBackground
+        editorGroup.dropBackground panelSection.dropBackground sideBar.dropBackground editor.stackFrameHighlightBackground
+        editor.focusedStackFrameHighlightBackground notebook.symbolHighlightBackground terminal.hoverHighlightBackground
+        terminal.dropBackground`.trim().split(/\s+/)],
+    ["color.borderSubtle", `editorIndentGuide.background2 editorIndentGuide.background3 editorIndentGuide.background4 editorIndentGuide.background5
+        editorIndentGuide.background6 editorRuler.foreground editorOverviewRuler.border tree.indentGuidesStroke
+        tree.inactiveIndentGuidesStroke chart.guide interactive.inactiveCodeBorder terminalOverviewRuler.border`.trim().split(/\s+/)],
+    ["color.accent", `editorOverviewRuler.rangeHighlightForeground editorOverviewRuler.bracketMatchForeground
+        editorSuggestWidget.focusHighlightForeground editorOverviewRuler.wordHighlightForeground
+        editorOverviewRuler.wordHighlightStrongForeground editorOverviewRuler.wordHighlightTextForeground
+        editorLightBulbAi.foreground editorOverviewRuler.findMatchForeground editorOverviewRuler.selectionHighlightForeground
+        list.focusHighlightForeground progressBar.background quickInputList.focusHighlightForeground profileBadge.background
+        chat.thinkingShimmer markdownAlert.important.foreground settings.settingsHeaderHoverForeground
+        scmGraph.historyItemBaseRefColor terminalOverviewRuler.cursorForeground terminalOverviewRuler.findMatchForeground`.trim().split(/\s+/)],
+    ["color.danger", `editorOverviewRuler.errorForeground editorBracketHighlight.unexpectedBracket.foreground inputValidation.errorBorder
+        list.invalidItemForeground list.errorForeground minimap.errorHighlight activityErrorBadge.background
+        agentsMobileDiff.deletedForeground statusBarItem.errorHoverBackground chat.linesRemovedForeground
+        debugIcon.breakpointForeground debugTokenExpression.error debugIcon.stopForeground debugIcon.disconnectForeground
+        debugExceptionWidget.border extensionIcon.sponsorForeground terminalCommandDecoration.errorBackground testing.iconFailed
+        testing.iconErrored testing.message.error.badgeBackground testing.message.error.badgeBorder testing.iconErrored.retired
+        testing.iconFailed.retired statusBarItem.errorBackground`.trim().split(/\s+/)],
+    ["terminal.color3", `editorBracketHighlight.foreground1 editorBracketPairGuide.background1 editorBracketPairGuide.activeBackground1
+        symbolIcon.classForeground symbolIcon.enumeratorForeground symbolIcon.interfaceForeground debugTokenExpression.type
+        scmGraph.foreground1`.trim().split(/\s+/)],
+    ["terminal.color5", `editorBracketHighlight.foreground2 editorBracketPairGuide.background2 editorBracketPairGuide.activeBackground2
+        symbolIcon.eventForeground charts.purple scmGraph.foreground2 terminalSymbolIcon.aliasForeground`.trim().split(/\s+/)],
+    ["terminal.color4", `editorBracketHighlight.foreground3 editorBracketPairGuide.background3 editorBracketPairGuide.activeBackground3
+        symbolIcon.constructorForeground symbolIcon.functionForeground symbolIcon.methodForeground scmGraph.foreground3
+        terminalSymbolIcon.methodForeground`.trim().split(/\s+/)],
+    ["terminal.color1", `editorBracketHighlight.foreground4 editorBracketPairGuide.background4 editorBracketPairGuide.activeBackground4
+        scmGraph.foreground4`.trim().split(/\s+/)],
+    ["terminal.color2", `editorBracketHighlight.foreground5 editorBracketPairGuide.background5 editorBracketPairGuide.activeBackground5
+        charts.green debugTokenExpression.string scmGraph.foreground5 terminalSymbolIcon.optionValueForeground`.trim().split(/\s+/)],
+    ["terminal.color6", `editorBracketHighlight.foreground6 editorBracketPairGuide.background6 editorBracketPairGuide.activeBackground6
+        symbolIcon.enumeratorMemberForeground debugTokenExpression.boolean debugTokenExpression.number`.trim().split(/\s+/)],
+    ["color.text", `editorGutter.foldingControlForeground peekViewResult.lineForeground peekViewResult.fileForeground
+        symbolIcon.fieldForeground symbolIcon.variableForeground icon.foreground textPreformat.foreground
+        keybindingLabel.foreground pickerGroup.foreground activityBarTop.foreground chat.editedFileForeground
+        debugTokenExpression.value editor.inlineValuesForeground terminalSymbolIcon.argumentForeground`.trim().split(/\s+/)],
+    ["color.surface", `inlineEdit.gutterIndicator.background peekViewTitle.background peekViewResult.background peekViewEditor.background
+        peekViewEditorGutter.background peekViewEditorStickyScroll.background peekViewEditorStickyScrollGutter.background
+        textPreformat.background textBlockQuote.background textCodeBlock.background radio.inactiveHoverBackground
+        agentsNewSessionButton.background panelSectionHeader.background statusBarItem.offlineBackground commandCenter.background
+        agentStatusIndicator.background chat.avatarBackground debugToolBar.background debugView.stateLabelBackground
+        editor.inlineValuesBackground walkThrough.embeddedEditorBackground`.trim().split(/\s+/)],
+    ["color.textHeading", `peekViewTitleLabel.foreground strongForeground settings.headerForeground walkthrough.stepTitle.foreground`.trim().split(/\s+/)],
+    ["color.textMuted", `peekViewTitleDescription.foreground chart.axis activityBarTop.inactiveForeground debugTokenExpression.name
+        extensionIcon.privateForeground terminalCommandDecoration.defaultBackground`.trim().split(/\s+/)],
+    ["listItem.selected", `peekViewResult.selectionBackground menubar.selectionBackground`.trim().split(/\s+/)],
+    ["listItem.selectedForeground", `peekViewResult.selectionForeground menubar.selectionForeground`.trim().split(/\s+/)],
+    ["color.surfaceRaised", `editorStickyScrollHover.background toolbar.hoverBackground toolbar.activeBackground inputOption.hoverBackground
+        keybindingLabel.background quickInputTitle.background agentsNewSessionButton.hoverBackground
+        statusBarItem.activeBackground statusBarItem.hoverBackground statusBarItem.compactHoverBackground
+        statusBarItem.prominentBackground statusBarItem.prominentHoverBackground statusBarItem.remoteHoverBackground
+        statusBarItem.offlineHoverBackground commandCenter.activeBackground editorCommentsWidget.replyInputBackground
+        notebook.cellStatusBarItemHoverBackground terminalStickyScrollHover.background`.trim().split(/\s+/)],
+    ["color.info", `editorHint.foreground editorLink.activeForeground editorLightBulbAutoFix.foreground inputValidation.infoBorder chart.line
+        debugIcon.stepOverForeground debugIcon.stepIntoForeground debugIcon.stepOutForeground debugIcon.stepBackForeground
+        extensionIcon.preReleaseForeground notebookEditorOverviewRuler.runningCellForeground scmGraph.historyItemRemoteRefColor
+        terminal.initialHintForeground terminalSymbolIcon.flagForeground terminalSymbolIcon.optionForeground`.trim().split(/\s+/)],
+    ["color.warning", `editorLightBulb.foreground inputValidation.warningBorder list.warningForeground activityWarningBadge.background
+        agentsMobileDiff.modifiedForeground tab.activeModifiedBorder tab.inactiveModifiedBorder tab.unfocusedActiveModifiedBorder
+        tab.unfocusedInactiveModifiedBorder statusBarItem.warningHoverBackground debugIcon.breakpointCurrentStackframeForeground
+        debugIcon.breakpointStackframeForeground debugView.valueChangedHighlight debugIcon.pauseForeground
+        extensionIcon.starForeground mcpIcon.starForeground settings.modifiedItemIndicator testing.iconQueued
+        testing.iconQueued.retired statusBarItem.warningBackground`.trim().split(/\s+/)],
+    ["color.borderStrong", `inputOption.activeBorder activityBarTop.activeBorder interactive.activeCodeBorder`.trim().split(/\s+/)],
+    ["badge.tone.accent.foreground", `inputOption.activeForeground radio.activeForeground chat.slashCommandForeground`.trim().split(/\s+/)],
+    ["badge.tone.info.background", `inputValidation.infoBackground`.trim().split(/\s+/)],
+    ["badge.tone.warning.background", `inputValidation.warningBackground`.trim().split(/\s+/)],
+    ["badge.tone.danger.background", `inputValidation.errorBackground debugView.exceptionLabelBackground`.trim().split(/\s+/)],
+    ["color.borderControl", `radio.activeBorder radio.inactiveBorder checkbox.selectBorder panelInput.border`.trim().split(/\s+/)],
+    ["color.onWarning", `activityWarningBadge.foreground statusBarItem.warningForeground`.trim().split(/\s+/)],
+    ["color.onDanger", `activityErrorBadge.foreground statusBarItem.errorForeground testing.message.error.badgeForeground`.trim().split(/\s+/)],
+    ["color.success", `agentsMobileDiff.addedForeground chat.linesAddedForeground debugIcon.startForeground debugIcon.restartForeground
+        debugIcon.continueForeground markdownAlert.tip.foreground notebookStatusSuccessIcon.foreground
+        terminalCommandDecoration.successBackground testing.iconPassed testing.runAction testing.iconPassed.retired`.trim().split(/\s+/)],
+    ["color.onAccent", `profileBadge.foreground`.trim().split(/\s+/)],
+    ["badge.tone.success.foreground", `agentsVoice.speakingForeground`.trim().split(/\s+/)],
+    ["badge.tone.success.background", `agentsVoice.speakingBackground`.trim().split(/\s+/)],
+    ["badge.tone.accent.background", `chat.slashCommandBackground inputOption.activeBackground radio.activeBackground`.trim().split(/\s+/)],
+    ["color.textDisabled", `debugIcon.breakpointDisabledForeground debugIcon.breakpointUnverifiedForeground`.trim().split(/\s+/)],
+    ["badge.tone.danger.foreground", `debugView.exceptionLabelForeground inputValidation.errorForeground`.trim().split(/\s+/)],
+    ["color.dangerSubtle", `debugExceptionWidget.background`.trim().split(/\s+/)],
+    ["badge.tone.info.foreground", `inputValidation.infoForeground`.trim().split(/\s+/)],
+    ["badge.tone.warning.foreground", `inputValidation.warningForeground`.trim().split(/\s+/)],
+];
+function verifyEditorNative(template) {
+    const dir = path.join(themesDir, "targets/vscode");
+    const accepted = selectionRender.acceptTarget(logic, "vscode", fs.readFileSync(path.join(dir, "target.json"), "utf8"));
+    assert.equal(accepted.ok, true);
+    const templates = new Map(accepted.target.files.map(file => [file.template,
+        file.template === "vscode.json" ? template : fs.readFileSync(path.join(dir, file.template), "utf8")]));
+    const documents = [];
+    for (const { pkg, shipped } of selectionPackages) {
+        const slots = selectionRender.terminalSource(pkg, selectionDefaults).terminal;
+        const rendered = selectionRender.renderTarget(logic, TOKENS, accepted.target, templates,
+            { values: pkg.values, slots, curated: new Map(), installed: !shipped });
+        assert.equal(rendered.ok, true);
+        const document = JSON.parse(rendered.files.find(file => file.destination === "vscode.json").bytes.toString("utf8"));
+        for (const [role, keys] of EDITOR_NATIVE_ROLES) {
+            const expected = role.startsWith("terminal.") ? slots[role.slice("terminal.".length)] : logic.valueAt(pkg.values, role);
+            assert.notEqual(logic.parseColor(expected), null, role);
+            for (const key of keys) {
+                assert.ok(Object.hasOwn(document.colors, key), JSON.stringify({ kind: "editor-native-missing", key, theme: pkg.name }));
+                assert.equal(document.colors[key], logic.formatColor(logic.parseColor(expected)),
+                    JSON.stringify({ kind: "editor-native-role", key, role, theme: pkg.name }));
+            }
+        }
+        documents.push({ name: pkg.name, colors: document.colors });
+    }
+    return documents;
+}
+const editorNativeDocuments = verifyEditorNative(vscodeTemplate);
+const EDITOR_NATIVE_PAIRS = [
+    ["range", "editor.foreground", "editor.rangeHighlightBackground"],
+    ["range", "peekViewResult.lineForeground", "peekViewResult.matchHighlightBackground"],
+    ["range", "editor.foreground", "peekViewEditor.matchHighlightBackground"],
+    ["selection", "peekViewResult.selectionForeground", "peekViewResult.selectionBackground"],
+    ["selection", "menubar.selectionForeground", "menubar.selectionBackground"],
+    ...["inputValidation.info", "inputValidation.warning", "inputValidation.error"].map(key => ["badge", key + "Foreground", key + "Background"]),
+    ...["inputOption.active", "radio.active", "agentsVoice.speaking", "chat.slashCommand", "debugView.exceptionLabel",
+        "testing.message.error.badge", "statusBarItem.error", "statusBarItem.warning"]
+        .map(key => ["badge", key + "Foreground", key + "Background"]),
+    ...["activityWarningBadge", "activityErrorBadge", "profileBadge"]
+        .map(key => ["badge", key + ".foreground", key + ".background"]),
+    ["resting", "peekViewTitleLabel.foreground", "peekViewTitle.background"],
+    ["resting", "peekViewTitleDescription.foreground", "peekViewTitle.background"],
+    ["resting", "peekViewResult.lineForeground", "peekViewResult.background"],
+    ["resting", "peekViewResult.fileForeground", "peekViewResult.background"],
+    ["resting", "textPreformat.foreground", "textPreformat.background"],
+    ["resting", "keybindingLabel.foreground", "keybindingLabel.background"],
+    ["resting", "editor.inlineValuesForeground", "editor.inlineValuesBackground"]
+];
+const editorNativeMetrics = [];
+for (const { name, colors } of editorNativeDocuments) {
+    const page = logic.parseColor(colors["editor.background"]);
+    const measure = (kind, foreground, background, floor) => {
+        const fg = logic.parseColor(colors[foreground]), bg = logic.parseColor(colors[background]);
+        assert.notEqual(fg, null, foreground);
+        assert.notEqual(bg, null, background);
+        const fill = over(bg, page);
+        const ratio = logic.contrastRatio(over(fg, fill), fill);
+        editorNativeMetrics.push({ kind, name, foreground, background, ratio, floor });
+        if (floor !== null) assert.ok(ratio >= floor,
+            JSON.stringify({ kind: "editor-native-contrast", name, foreground, background, ratio, floor }));
+    };
+    for (const [kind, foreground, background] of EDITOR_NATIVE_PAIRS) measure(kind, foreground, background, 4.5);
+    // Canonical ANSI hues are retained. Surface and overlay pairs are measured
+    // without claiming the page's readability floor for syntax layering.
+    for (const [kind, background] of [["ansi-page", "editor.background"], ["ansi-surface", "peekViewEditor.background"],
+        ["ansi-raised", "editor.lineHighlightBackground"], ["ansi-infoSubtle", "editor.rangeHighlightBackground"]]) {
+        for (const hue of ["Red", "Green", "Yellow", "Blue", "Magenta", "Cyan"])
+            measure(kind, "terminal.ansi" + hue, background, kind === "ansi-page" ? 4.5 : null);
+    }
+}
+const editorNativeMinima = [...new Set(editorNativeMetrics.map(row => row.kind))].map(kind =>
+    editorNativeMetrics.filter(row => row.kind === kind).reduce((low, row) => row.ratio < low.ratio ? row : low));
+console.log("test-theme-render: vscode-native-contrast " + JSON.stringify({ packages: editorNativeDocuments.length, minima: editorNativeMinima }));
+
+const editorNativeControlDir = fs.mkdtempSync(path.join(os.tmpdir(), "vscode-native-control-"));
+try {
+    for (const [label, change, kind] of [
+        ["missing", colors => { delete colors["git.blame.editorDecorationForeground"]; }, "editor-native-missing"],
+        ["stock", colors => { colors["git.blame.editorDecorationForeground"] = "#808080"; }, "editor-native-role"]
+    ]) {
+        const control = JSON.parse(vscodeTemplate);
+        change(control.colors);
+        const file = path.join(editorNativeControlDir, label + ".json");
+        fs.writeFileSync(file, JSON.stringify(control));
+        assert.throws(() => verifyEditorNative(fs.readFileSync(file, "utf8")), error =>
+            error.code === "ERR_ASSERTION" && error.message.includes('"kind":"' + kind + '"') &&
+            error.message.includes('"key":"git.blame.editorDecorationForeground"'));
+    }
+} finally {
+    fs.rmSync(editorNativeControlDir, { recursive: true, force: true });
+}
+console.log(`test-theme-render: vscode-native packages=${editorNativeDocuments.length} required-keys=${EDITOR_NATIVE_ROLES.flatMap(([, keys]) => keys).length} controls=missing,stock`);
+
 const EDITOR_CAPPED = [
     ["arc-blueberry", "#3cec851e", "#3cec853c", "#1f5a42ff", 4.523595968058844],
     ["archwave", "#5ffbf118", "#5ffbf131", "#2d4d62ff", 4.533803398530332],
