@@ -1640,7 +1640,7 @@ control() { # NAME NEEDLE REPLACEMENT ROW [FILE]
   PLUGIN="$copy_dir" QUIET=1 "$4"
   check "the $1 mutant fails $4" test "$red" -gt 0
 }
-control helper-install-skipped '_updates_source paru Paru _updates_run "Installing paru for VGS updates" _updates_install_helper' ':' row_vgs_helper
+control helper-install-skipped '_updates_source paru Paru _updates_run _updates_install_helper' ':' row_vgs_helper
 for row in row_facts_plain row_pipeline_plain; do
   control "secondary-markup-$row" 'Commons.PageReference.plain(errorText(error, true))' 'errorText(error, true)' "$row" UpdatesLogic.js
   check "the $row markup control reaches windowRows" out_has "updates-test: secondary=reached"
