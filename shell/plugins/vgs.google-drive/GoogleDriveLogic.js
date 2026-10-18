@@ -5,7 +5,7 @@
 // record and probe answer, the status values the service publishes from
 // them, and what the bar widget, the window and the notification draw from
 // those values. `headline` is the one statement of where the sync stands:
-// the bar, its tooltip, the window and the Settings `sync` value all read
+// the bar, its tooltip, the window and the Details `sync` value all read
 // it. The runner, bin/google-drive, owns every rule about the sync; this
 // file only reads its answers.
 
@@ -50,7 +50,7 @@ var STATE_VIEW = {
     running: { text: "Syncing", tone: "info", icon: "cloud-sync" },
     paused: { text: "Paused", tone: "info", icon: "cloud-off" },
     offline: { text: "Offline", tone: "warning", icon: "cloud-off" },
-    "authorization-required": { text: "Connect needed", tone: "danger", icon: "cloud-alert" },
+    "authorization-required": { text: "Sign-in needed", tone: "danger", icon: "cloud-alert" },
     error: { text: "Sync failed", tone: "danger", icon: "cloud-alert" },
     "not-set-up": { text: "Not set up", tone: "warning", icon: "cloud" }
 };
@@ -65,8 +65,8 @@ var BADGE_TONES = { ok: "success", info: "info", warning: "warning", danger: "da
 // a sync error.
 var ERROR_TEXT = {
     offline: "Google Drive cannot be reached. VGS tries again at the next sync.",
-    "authorization-refused": "Google Drive did not accept Connect. [Select Connect again on the Google Drive page](page:vgs.google-drive/Setup).",
-    "credential-absent": "A Google Drive key or connection is missing. Add the client ID and secret, then [select Connect on the Google Drive page](page:vgs.google-drive/Setup).",
+    "authorization-refused": "Google did not accept the sign-in. [Sign in again on the Google Drive Setup tab](page:vgs.google-drive/Setup).",
+    "credential-absent": "A Google Cloud key or the sign-in is missing. Add both keys, then [sign in on the Google Drive Setup tab](page:vgs.google-drive/Setup).",
     "credential-locked": "Your keyring is locked. Unlock it to sync.",
     "source-missing": "A Google Drive folder of a folder pair does not exist.",
     "rclone-missing": "rclone is not installed.",
@@ -77,12 +77,8 @@ var ERROR_TEXT = {
     "pairs-invalid": "The folder pair list is not valid, so VGS copies nothing."
 };
 var ERROR_DEFAULT = "The sync stopped with an error. VGS tries again at the next sync.";
-// The Settings page's own words where ERROR_TEXT sends the user to that
-// page: its fields stand below the sync value.
-var PAGE_ERROR_TEXT = {
-    "authorization-refused": "Google Drive did not accept Connect. Select Connect again below.",
-    "credential-absent": "A Google Drive key or connection is missing. Add the client ID and secret, then select Connect below."
-};
+// A missing sign-in, the token's credential-absent.
+var SIGNED_OUT_TEXT = "Google Drive is not signed in. [Sign in on the Google Drive Setup tab](page:vgs.google-drive/Setup).";
 // Each review row's one line: what the sync did, then what the user does,
 // or that nothing is lost and how to clear the note. A variant key is the
 // record's kind, or a kind and its case (conflictVariant). {to} is a
@@ -102,6 +98,12 @@ var CONFLICT_TEXT = {
     "duplicate-different": "Google Drive has different files with this name, and VGS copied only one of them. In Google Drive, rename one so VGS copies both, or delete the one you do not need.",
     "duplicate-different-shared": "Google Drive has different files with this name, and VGS copied only one of them. Only {owner}, who shared them with you, can remove one.",
     "duplicate-different-unowned": "Google Drive has different files with this name, and VGS copied only one of them. Only their owner can remove one."
+};
+// Why a limit a row's line states holds, by the line's variant: a line
+// that states a limit has an info that says why
+// (docs/architecture/design-system.md § Copy).
+var CONFLICT_INFO = {
+    "both-changed-kept": "VGS deletes a kept copy after 30 days, so old copies do not fill your disk. To keep the copy for longer, move it out of its folder."
 };
 // The line that names the folder of the copy CONFLICT_TEXT speaks of,
 // before that folder's path: the copy a download displaced, or the
@@ -182,10 +184,17 @@ var PROBLEM_TEXT = {
     probe: "VGS could not check the Google Drive keys."
 };
 
-var SCHEDULE_HINT = "VGS syncs Google Drive every hour while you are logged in.";
-var NO_PAIRS_HINT = "Add a folder pair to choose what VGS keeps in step with Google Drive.";
 var REVIEW_HINT = "Open the Google Drive window to review them.";
-var UNUSED_KEY_HINT = "No folder pair uses this key now.";
+
+// The Google Drive folder and the folder on this computer a pair joins,
+// as a pair's second line shows them.
+var PAIR_ARROW = " ⇄ ";
+// A row's printable label and secondary line, PluginLogic.STATUS_LABEL_MAX
+// and STATUS_TEXT_MAX: the runner admits a 64-character label and paths of
+// any length, and a longer value is refused whole, so each is cut with an
+// ellipsis.
+var ROW_LABEL_MAX = 60;
+var ROW_TEXT_MAX = 200;
 
 function hasOwn(object, key) {
     return Object.prototype.hasOwnProperty.call(object, key);
@@ -217,7 +226,7 @@ function errorOk(value) {
 }
 
 function pairOk(p) {
-    return isObject(p) && !hasOwn(p, "direction") && isText(p.id) && isText(p.label) && isText(p.remote)
+    return isObject(p) && !hasOwn(p, "direction") && isText(p.id) && isText(p.label) && isText(p.remote) && isText(p.local) && p.local.charAt(0) === "/"
         && PAIR_STATES.indexOf(p.state) !== -1 && isTime(p.lastSuccess) && isTime(p.staleAfter) && errorOk(p.lastError);
 }
 
@@ -308,13 +317,11 @@ function badgeTone(tone) {
     return BADGE_TONES[tone];
 }
 
-// ERROR as a sentence; ON_PAGE true for the Settings page, which names
-// its own fields below instead of sending the user to itself.
-function errorText(error, onPage) {
+// ERROR as a sentence. A sentence that sends the user to a step links
+// the Setup tab, which the Details tab's sync value opens as well.
+function errorText(error) {
     if (error === null) return "";
-    if (error.kind === "credential-absent" && error.account === "token")
-        return "Google Drive is not connected. " + (onPage === true ? "Select Connect below." : "[Select Connect on the Google Drive page](page:vgs.google-drive/Setup).");
-    if (onPage === true && hasOwn(PAGE_ERROR_TEXT, error.kind)) return PAGE_ERROR_TEXT[error.kind];
+    if (error.kind === "credential-absent" && error.account === "token") return SIGNED_OUT_TEXT;
     return hasOwn(ERROR_TEXT, error.kind) ? ERROR_TEXT[error.kind] : ERROR_DEFAULT;
 }
 
@@ -344,7 +351,7 @@ function reasonText(reason) {
 
 function problemText(operation, firstLine) {
     if (operation === "") return "";
-    if (operation === "start" && firstLine.indexOf("units=absent") !== -1) return "Set up hourly sync first.";
+    if (operation === "start" && firstLine.indexOf("units=absent") !== -1) return "Set up the hourly sync again first.";
     return hasOwn(PROBLEM_TEXT, operation) ? PROBLEM_TEXT[operation] : "VGS could not reach the Google Drive sync.";
 }
 
@@ -392,9 +399,10 @@ function needsFirst(conflicts) {
 }
 
 // The published `cloud` data the widget and the window draw: the record
-// with times as epoch milliseconds, each pair with `review`, the count of
-// its own files to review, `needsYou`, the record's count of rows that
-// need the user, the review list needs-first and capped, and the last
+// with times as epoch milliseconds, each pair with its folder on this
+// computer, `local`, and `review` and `needsYou`, the counts of its own
+// files to review and of those that need the user, `needsYou`, the
+// record's count of rows that need the user, the review list needs-first and capped, and the last
 // failed request. Each conflict carries the record's `needs`,
 // `localAction`, whether it has an action on this computer, the folders
 // Open folders opens, `copyFolder` when its folder line names one, a
@@ -422,8 +430,9 @@ function cloudValue(record, problem) {
         staleAfter: msOf(record.staleAfter),
         lastError: publishedError(record.lastError),
         pairs: record.pairs.map(function (p) {
-            var review = record.conflicts.filter(function (c) { return c.pair === p.id; }).length;
-            return { id: p.id, label: p.label, remote: p.remote, state: p.state, lastSuccess: msOf(p.lastSuccess), staleAfter: msOf(p.staleAfter), lastError: publishedError(p.lastError), review: review };
+            var own = record.conflicts.filter(function (c) { return c.pair === p.id; });
+            return { id: p.id, label: p.label, remote: p.remote, local: p.local, state: p.state, lastSuccess: msOf(p.lastSuccess), staleAfter: msOf(p.staleAfter), lastError: publishedError(p.lastError),
+                review: own.length, needsYou: own.filter(function (c) { return c.needs === "you"; }).length };
         }),
         conflicts: conflicts,
         conflictCount: record.conflicts.length,
@@ -444,16 +453,18 @@ function needsLine(count) {
 }
 
 // Where the whole sync stands: { text, tone, icon, cause }, or null before
-// the first record. CLOUD is the published `cloud` value. Hourly sync not
-// set up comes first, then no folder pair, then Connect needed or a
-// failed sync, of the whole sync or of any pair, since the runner ranks a
-// running pair above another pair's failure; then files to review, then
-// the state, an idle one by the data's age. `cause` is the state,
-// `no-pairs` or `review`.
+// the first record. CLOUD is the published `cloud` value. No folder pair
+// comes first, then a folder pair whose hourly units are absent, which an
+// install at its add could not finish, then Sign-in needed or a failed
+// sync, of the whole sync or of any pair, since the runner ranks a running
+// pair above another pair's failure; then files to review, then the
+// state, an idle one by the data's age. `cause` is the state, `no-pairs`
+// or `review`. With no folder pair nothing asks for the hourly sync: the
+// first pair installs it (bin/google-drive pairAddVerb).
 function headline(cloud, now) {
     if (cloud === undefined || cloud === null) return null;
     if (cloud.state === "not-set-up")
-        return cloud.units === "absent" ? withCause(STATE_VIEW["not-set-up"], "not-set-up") : withCause(NO_PAIRS, "no-pairs");
+        return cloud.pairs.length > 0 ? withCause(STATE_VIEW["not-set-up"], "not-set-up") : withCause(NO_PAIRS, "no-pairs");
     var danger = DANGER_STATES.filter(function (state) {
         return cloud.state === state || cloud.pairs.some(function (p) { return p.state === state; });
     });
@@ -469,24 +480,25 @@ function withCause(view, cause) {
     return { text: view.text, tone: view.tone, icon: view.icon, cause: cause };
 }
 
-// The Settings page's sentence that gives HEAD's cause, or "": what to do
-// with files to review, or the last error behind a failure or an offline
-// sync.
+// The sentence the Details `sync` value gives for HEAD's cause, or "":
+// what to do with files to review, the hourly sync a folder pair waits
+// for, or the last error behind a failure or an offline sync.
 function headlineHint(cloud, head) {
     if (head.cause === "review") return REVIEW_HINT;
-    if (head.tone === "danger" || head.cause === "offline") return errorText(cloud.lastError, true);
+    if (head.cause === "not-set-up") return SCHEDULE_HINTS.failed;
+    if (head.tone === "danger" || head.cause === "offline") return errorText(cloud.lastError);
     return "";
 }
 
 // What PAIR reads as wherever a pair shows, the window's badge, the
-// tooltip and the Settings status: its state, and an idle pair by its own
-// files to review before the data's age, in the headline's review tone.
+// tooltip and the Details sync lines: its state, and an idle pair by its
+// own files to review before the data's age, in the headline's review tone.
 function pairView(pair, now) {
     if (pair.state === "idle" && pair.review > 0) return { text: reviewLine(pair.review), tone: "warning", icon: "cloud-alert" };
     return stateView(pair.state, pair.staleAfter, now);
 }
 
-// Each pair's line as the Settings status and the tooltip show it: its
+// Each pair's line as the Details sync value and the tooltip show it: its
 // label and pairView, never a file name.
 function pairLines(pairs, now) {
     return pairs.map(function (p) {
@@ -504,92 +516,192 @@ function syncValue(cloud, now) {
     return value;
 }
 
+// The `schedule` value's hint by what it reads.
+var SCHEDULE_HINTS = {
+    on: "Google Drive syncs every hour while you are logged in, also while VGS is closed",
+    off: "Google Drive syncs every hour while you are logged in. The hourly sync turns on with your first folder pair.",
+    stale: "The hourly sync is from an earlier version of VGS. Select Set up again to update it.",
+    failed: "VGS could not turn on the hourly sync. Select Set up again beside Hourly sync."
+};
+
+// Whether the hourly units UNITS want Set up again: while they are out of
+// date, or absent beside a folder pair, whose add could not install them.
+// With no folder pair they are absent until the first add installs them
+// (bin/google-drive pairAddVerb), so nothing asks for a step there.
+function setupOffered(units, hasPairs) {
+    if (UNITS.indexOf(units) === -1) throw new Error("google-drive: units " + JSON.stringify(units) + " is not one of " + UNITS.join(", "));
+    return units === "stale" || (units === "absent" && hasPairs);
+}
+
 // The `schedule` value: whether the hourly units are what install writes
-// now, with Set up hourly sync while they are not.
-function scheduleValue(units) {
-    if (units === "installed") return { tone: "ok", text: "On", hint: SCHEDULE_HINT };
-    if (units === "absent") return { tone: "warning", text: "Not set up", action: true, hint: SCHEDULE_HINT };
-    if (units === "stale") return { tone: "warning", text: "Needs setup", action: true, hint: SCHEDULE_HINT };
-    throw new Error("google-drive: units " + JSON.stringify(units) + " is not one of " + UNITS.join(", "));
+// now, with Set up again while setupOffered.
+function scheduleValue(units, hasPairs) {
+    if (!setupOffered(units, hasPairs)) return units === "installed" ? { tone: "ok", text: "On", hint: SCHEDULE_HINTS.on } : { tone: "info", text: "Off", hint: SCHEDULE_HINTS.off };
+    return units === "stale" ? { tone: "warning", text: "Out of date", action: true, hint: SCHEDULE_HINTS.stale } : { tone: "warning", text: "Not on", action: true, hint: SCHEDULE_HINTS.failed };
 }
 
-// A pair's second line, in the window row and the Settings Folder pairs
-// line: its Google Drive folder, or Both ways when that folder carries
-// the pair's own name, where repeating it would say nothing.
-function pairDrive(pair) {
-    return pair.remote === pair.label ? "Both ways" : pair.remote;
+// TEXT cut to MAX characters with an ellipsis.
+function cut(text, max) {
+    return text.length <= max ? text : text.slice(0, max - 1) + "\u2026";
 }
 
-// The `pairs` value of CLOUD: each pair's label and pairDrive line, with Add a
-// folder pair while there is none and Remove a folder pair once one
-// exists; while the runner cannot read the list it offers Reset, the one
-// change the runner accepts in that state.
-function pairsValue(cloud) {
-    if (!pairListValid(cloud)) return { tone: "danger", text: "Not readable", hint: pairListResetHint(cloud.lastError), action: "reset" };
-    var pairs = cloud.pairs;
-    if (pairs.length === 0) return { tone: "warning", text: "None", action: "add", hint: NO_PAIRS_HINT };
-    return {
-        tone: "ok",
-        text: pairs.length === 1 ? "1 folder pair" : pairs.length + " folder pairs",
-        lines: pairs.map(function (p) { return p.label + ": " + pairDrive(p); }).slice(0, LINES_MAX),
-        action: "remove"
-    };
+// A pair's second line, in the window row and the Settings row: its Google
+// Drive folder and its folder on this computer, the second under HOME
+// written from `~`.
+function pairFolders(pair, home) {
+    var local = home !== "" && (pair.local === home || pair.local.indexOf(home + "/") === 0) ? "~" + pair.local.slice(home.length) : pair.local;
+    return "Drive/" + pair.remote + PAIR_ARROW + local;
 }
+
+// What a pair's Settings row says of it: its files that need the user as
+// a warning, which the page draws as a chip, else its state.
+function pairState(pair, now) {
+    if (pair.needsYou > 0) return { tone: "warning", text: needsLine(pair.needsYou) };
+    var view = stateView(pair.state, pair.staleAfter, now);
+    return { tone: view.tone, text: view.text };
+}
+
+// The row the Settings list holds while the runner cannot read the pair
+// list: it holds no pair then, and the repair is the Details tab's.
+var UNREADABLE_ROW = { id: "unreadable", label: "The folder pair list cannot be read", secondary: "VGS copies nothing until you start the list again",
+    state: { tone: "danger", text: "Not readable" }, actions: [] };
+
+// The `pairs` rows value of CLOUD (PluginLogic, a `rows` entry): one row
+// per pair, its label, its folders and its state, each with Remove, whose
+// TUI takes the pair's id. While the runner cannot read the pair list it
+// holds no pair and refuses every change but the repair, so the list holds
+// UNREADABLE_ROW alone, with no Remove. HOME is the user's home folder.
+function pairsValue(cloud, now, home) {
+    if (!pairListValid(cloud)) return [UNREADABLE_ROW];
+    return cloud.pairs.slice(0, LINES_MAX).map(function (p) {
+        return { id: p.id, label: cut(p.label, ROW_LABEL_MAX), secondary: cut(pairFolders(p, home), ROW_TEXT_MAX), state: pairState(p, now), actions: ["remove"] };
+    });
+}
+
+// The `pairList` value: hidden while the runner reads the pair list, else
+// why it cannot, with Start the list again, the one change it accepts then.
+function pairListValue(cloud) {
+    if (pairListValid(cloud)) return { hidden: true };
+    return { tone: "danger", text: "Not readable", hint: pairListResetHint(cloud.lastError), action: true };
+}
+
+// The `firstPair` step: done once a pair exists; while the runner cannot
+// read the list, no add can finish it, so it says where the repair is.
+// Until the probe's PRESENCE, null before its first answer, has a sign-in
+// it waits for one, so the steps read in the order a new user takes them:
+// the keys, the sign-in, then the first pair, whose sync needs both. The
+// Settings tab's Add a folder pair stays open throughout.
+function firstPairValue(cloud, presence) {
+    if (!pairListValid(cloud))
+        return { tone: "warning", text: "The folder pair list cannot be read", available: false, hint: "[Start the list again on the Details tab](page:vgs.google-drive/Details), then add a folder pair" };
+    if (cloud.pairs.length > 0) return { tone: "ok", text: "A folder pair is ready" };
+    if (presence !== null && presence.token.presence !== "present")
+        return { tone: "info", text: "Sign-in needed", available: false, hint: "Sign in to Google first" };
+    return { tone: "warning", text: "No folder pair yet", action: true };
+}
+
+// Each key's hint and explanation on the Setup tab, by account.
+var KEY_ITEMS = [
+    { label: "Client ID", account: "client-id", hint: "Ends in .apps.googleusercontent.com",
+        info: "The first key of your Google Cloud client. In Google Cloud, open Clients and select your client. Copy the Client ID there and paste it here." },
+    { label: "Client secret", account: "client-secret", hint: "Starts with GOCSPX-. Google shows it only once.",
+        info: "The second key of your Google Cloud client. Google shows it once, in the window that opens when you create the client. Copy it from there. Lost it? In Google Cloud, open your client, select Add secret and paste the new secret here." }
+];
 
 // The `keys` presence list: the client ID and secret, each with the
 // account the masked field stores.
 function keyItems(presence) {
-    return [["Client ID", "client-id"], ["Client secret", "client-secret"]].map(function (pair) {
-        var account = pair[1];
-        return { label: pair[0], value: presence[account].presence, secret: account };
+    return KEY_ITEMS.map(function (item) {
+        return { label: item.label, value: presence[item.account].presence, hint: item.hint, info: item.info, secret: item.account };
     });
 }
 
-// The `account` connection value from the probe's PRESENCE and RECORD.
-function signInValue(presence, record) {
-    var states = ["client-id", "client-secret", "token"].map(function (a) { return presence[a].presence; });
-    if (states.indexOf("locked") !== -1) return { tone: "warning", text: "Keyring locked", hint: "Unlock your keyring to sync." };
-    if (states.indexOf("unavailable") !== -1) return { tone: "warning", text: "Unknown", hint: "VGS cannot read your keyring." };
-    if (states[0] !== "present" || states[1] !== "present") return { tone: "info", text: "Not connected", hint: "Add the client ID and secret first." };
-    if (states[2] !== "present") return { tone: "warning", text: "Not connected", action: "signIn" };
-    var refused = record !== null && record.pairs.some(function (p) {
+// The presences of the client ID and secret and the token, in that order.
+function presences(presence) {
+    return ACCOUNTS.map(function (a) { return presence[a].presence; });
+}
+
+// The keyring's state when it cannot answer for STATES, or null: locked
+// first, since an unlock answers it.
+function keyringView(states) {
+    if (states.indexOf("locked") !== -1) return { tone: "warning", text: "Keyring locked", hint: "Unlock your keyring so VGS can read the keys" };
+    if (states.indexOf("unavailable") !== -1) return { tone: "warning", text: "Keyring not readable", hint: "VGS cannot read your keyring" };
+    return null;
+}
+
+// The `cloudKeys` step: done while both keys are stored. A key is added
+// on its own line under the step, so the step names no action of its own.
+function cloudKeysValue(presence) {
+    var states = presences(presence).slice(0, 2);
+    var keyring = keyringView(states);
+    if (keyring !== null) return Object.assign({ available: false }, keyring);
+    if (states[0] === "present" && states[1] === "present") return { tone: "ok", text: "Both keys are in your keyring" };
+    return { tone: "warning", text: "Add the Client ID and the Client secret" };
+}
+
+// Whether Google refused the stored sign-in of a pair of RECORD.
+function signInRefused(record) {
+    return record !== null && record.pairs.some(function (p) {
         return p.state === "authorization-required" && p.lastError !== null && p.lastError.kind === "authorization-refused";
     });
-    if (refused) return { tone: "danger", text: "Connect refused", action: "reconnect", hint: "Google Drive did not accept Connect." };
+}
+
+// The `connection` step, Sign in to Google, from the probe's PRESENCE and
+// RECORD: not available until both keys are stored, Sign in while no
+// sign-in is, Sign in again once Google refused it, else done.
+function connectionValue(presence, record) {
+    var states = presences(presence);
+    var keyring = keyringView(states);
+    if (keyring !== null) return Object.assign({ available: false }, keyring);
+    if (states[0] !== "present" || states[1] !== "present")
+        return { tone: "info", text: "Keys needed", available: false, hint: "Add the Client ID and the Client secret first" };
+    if (states[2] !== "present") return { tone: "warning", text: "Not signed in", action: "signIn" };
+    if (signInRefused(record)) return { tone: "danger", text: "Google did not accept the sign-in", action: "again" };
+    return { tone: "ok", text: "Signed in" };
+}
+
+// The `account` Details value: the Google account signed in, by its
+// address as the token names it, with Sign out, which the manifest draws
+// as plain text while it needs nothing; a sign-in Google refused, or none,
+// says where to sign in.
+function accountValue(presence, record) {
+    var states = presences(presence);
+    var keyring = keyringView(states);
+    if (keyring !== null) return keyring;
+    if (states[2] !== "present") return { tone: "info", text: "Not signed in", hint: "[Sign in on the Setup tab](page:vgs.google-drive/Setup)" };
+    if (signInRefused(record)) return { tone: "danger", text: "Sign-in refused", hint: "[Sign in again on the Setup tab](page:vgs.google-drive/Setup)", action: true };
     var user = presence.token.user;
-    var named = user === undefined ? "" : "Connected as " + user + ".";
-    return { tone: "ok", text: "Connected", hint: named !== "" && named.length <= HINT_MAX ? named : "Connected.", action: "signOut" };
+    return { tone: "ok", text: user !== undefined && user.length <= ROW_TEXT_MAX ? user : "Signed in", action: true };
 }
 
 // The values the service publishes (the manifest's `status`): from the
-// record, `sync`, the headline; `schedule`, the hourly units; `pairs`;
-// `cloud`, the data the widget and the window draw; and `lastSync`, the
-// time of the last complete sync, or null to clear it. From the probe,
-// the key list and connection. RECORD and PRESENCE are null
-// until their first answer, which leaves their values out. HELD is the
-// heldReason the runner last held the rename for, "" for none: while it
-// holds, `sync` says why, with or without a record.
-function statusValues(record, presence, problem, held, now) {
+// record, `sync`, the headline; `schedule`, the hourly units; `pairs`,
+// the Settings rows; `pairList`, the repair of a list the runner cannot
+// read; `firstPair`; `cloud`, the data the widget and the window draw; and
+// `lastSync`, the time of the last complete sync, or null to clear it.
+// From the probe, the key list, its step, the sign-in step and the
+// account. RECORD and PRESENCE are null until their first answer, which
+// leaves their values out. HELD is the heldReason the runner last held the
+// rename for, "" for none: while it holds, `sync` says why, with or
+// without a record. HOME is the user's home folder, which a pair's
+// folders are written from.
+function statusValues(record, presence, problem, held, now, home) {
     var values = {};
     if (record !== null) {
         var cloud = cloudValue(record, problem);
         values.sync = syncValue(cloud, now);
-        values.schedule = scheduleValue(record.units);
-        values.pairs = pairsValue(cloud);
-        values.firstPair = pairListValid(cloud) && cloud.pairs.length > 0
-            ? { tone: "ok", text: "A folder pair is ready", action: false }
-            : { tone: "warning", text: "Add your first folder pair", action: pairListValid(cloud) };
-        if (!pairListValid(cloud)) values.firstPair.hint = "Choose Start the folder pair list again under [Folder pairs](page:vgs.google-drive/Details)";
+        values.schedule = scheduleValue(record.units, cloud.pairs.length > 0);
+        values.pairs = pairsValue(cloud, now, home);
+        values.pairList = pairListValue(cloud);
+        values.firstPair = firstPairValue(cloud, presence);
         values.cloud = cloud;
         values.lastSync = cloud.lastSuccess;
     }
     if (presence !== null) {
         values.keys = keyItems(presence);
-        values.account = signInValue(presence, record);
-        values.connection = Object.assign({}, values.account, { action: values.account.action === "signIn" || values.account.action === "reconnect" });
-        // Connecting belongs to the required step. This row keeps account
-        // maintenance beside its fact on Details.
-        if (values.account.action === "signIn") delete values.account.action;
+        values.cloudKeys = cloudKeysValue(presence);
+        values.connection = connectionValue(presence, record);
+        values.account = accountValue(presence, record);
     }
     if (held !== "") {
         if (!hasOwn(HELD_VIEW, held)) throw new Error("google-drive: held reason " + JSON.stringify(held) + " is not one of " + Object.keys(HELD_VIEW).join(", "));
@@ -652,12 +764,12 @@ function windowStatus(cloud, now, timeText) {
 }
 
 // One folder pair's row in the window: { id, label, secondary, icon, text,
-// tone }, its pairDrive line, since a ListItem's secondary line elides and
-// the long form does not fit beside the state and Remove, and its pairView
-// as a Badge tone.
-function pairRow(pair, now) {
+// tone }, its pairFolders line from HOME, which a ListItem's secondary
+// line elides where it does not fit beside the state and Remove, and its
+// pairView as a Badge tone.
+function pairRow(pair, now, home) {
     var view = pairView(pair, now);
-    return { id: pair.id, label: pair.label, secondary: pairDrive(pair), icon: "folder-sync", text: view.text, tone: badgeTone(view.tone) };
+    return { id: pair.id, label: pair.label, secondary: pairFolders(pair, home), icon: "folder-sync", text: view.text, tone: badgeTone(view.tone) };
 }
 
 // The CONFLICT_TEXT key of a published CONFLICT other than a file not
@@ -670,18 +782,20 @@ function conflictVariant(conflict) {
     return conflict.kind + (conflict.owner !== undefined ? "-shared" : "-unowned");
 }
 
-// One conflict's row in the window: { label, detail, folder, dirs, needs,
-// localAction }, its path, its one line (conflictVariant, or for a file
-// not copied the line of its reason), the line that names the folder of
+// One conflict's row in the window: { label, detail, info, folder, dirs,
+// needs, localAction }, its path, its one line (conflictVariant, or for a
+// file not copied the line of its reason), why a limit that line states
+// holds (CONFLICT_INFO, "" for none), the line that names the folder of
 // the copy the detail speaks of ("" for none), the folders Open folders
 // opens, and the published `needs` and `localAction`. The window wraps
 // each line, so none is cut.
 function conflictRow(conflict) {
-    var what = conflict.kind === "unreadable-on-drive" ? conflict.why : CONFLICT_TEXT[conflictVariant(conflict)]
+    var variant = conflict.kind === "unreadable-on-drive" ? "" : conflictVariant(conflict);
+    var what = variant === "" ? conflict.why : CONFLICT_TEXT[variant]
         .replace("{to}", function () { return conflict.to; })
         .replace("{owner}", function () { return conflict.owner; });
     var folder = conflict.copyFolder === undefined ? "" : CONFLICT_FOLDER_TEXT[conflict.kind] + conflict.copyFolder;
-    return { label: conflict.path, detail: what, folder: folder, dirs: conflict.dirs, needs: conflict.needs, localAction: conflict.localAction };
+    return { label: conflict.path, detail: what, info: hasOwn(CONFLICT_INFO, variant) ? CONFLICT_INFO[variant] : "", folder: folder, dirs: conflict.dirs, needs: conflict.needs, localAction: conflict.localAction };
 }
 
 // The review list by folder pair, in the order the list first names each:
@@ -702,7 +816,7 @@ function conflictGroups(conflicts) {
 }
 
 // Whether a run would copy PAIR: not paused, and not waiting for a key or
-// Connect only the user can add. A locked keyring is not one: the run
+// a sign-in only the user can add. A locked keyring is not one: the run
 // reads the keyring again, so Sync now stays the way to retry after an
 // unlock.
 function pairCanSync(pair) {
@@ -711,21 +825,21 @@ function pairCanSync(pair) {
 }
 
 // The window's footer for CLOUD, undefined before the first value:
-// { primary, pause, add }. Once the hourly units are installed the primary
-// is Resume while the sync is paused with a folder pair, since a run then
-// copies nothing, else Sync now, enabled only when a sync can start: no
-// sync runs and a folder pair can sync (pairCanSync); the headline already
-// says why it cannot. Else it is Set up hourly sync. `pause` is Pause or
-// Resume while a folder pair exists and the primary is not Resume, else
-// null; `add`, the footer's Add a folder pair, shows only beside a folder
-// pair, since the empty pair list offers its own.
+// { primary, pause, add }. The primary is Set up hourly sync again while
+// setupOffered, else Resume while the sync is paused with a folder pair,
+// since a run then copies nothing, else Sync now, enabled only when a sync
+// can start: no sync runs and a folder pair can sync (pairCanSync); the
+// headline already says why it cannot. `pause` is Pause or Resume while a
+// folder pair exists and the primary is not Resume, else null; `add`, the
+// footer's Add a folder pair, shows only beside a folder pair, since the
+// empty pair list offers its own.
 function footerView(cloud) {
     var known = cloud !== undefined && cloud !== null;
     var hasPairs = known && cloud.pairs.length > 0;
     var canSync = known && cloud.state !== "running" && cloud.pairs.some(pairCanSync);
     var resume = { text: "Resume", icon: "play", action: "resume" };
-    var primary = known && cloud.units !== "installed"
-        ? { text: "Set up hourly sync", icon: "cloud-cog", action: "setup", enabled: true }
+    var primary = known && setupOffered(cloud.units, hasPairs)
+        ? { text: "Set up hourly sync again", icon: "cloud-cog", action: "setup", enabled: true }
         : hasPairs && cloud.paused ? Object.assign({ enabled: true }, resume)
         : { text: "Sync now", icon: "refresh-cw", action: "sync", enabled: canSync };
     var pause = !hasPairs || primary.action === "resume" ? null : cloud.paused ? resume : { text: "Pause", icon: "pause", action: "pause" };
@@ -744,13 +858,13 @@ function notification(record) {
     if (record.attention === null) return null;
     var reasons = record.attention.reasons;
     if (reasons.indexOf("authorization-required") !== -1)
-        return { title: "Google Drive needs Connect", message: errorText(record.lastError === null ? { kind: "authorization-refused" } : record.lastError), tone: "danger" };
+        return { title: "Google Drive needs a sign-in", message: errorText(record.lastError === null ? { kind: "authorization-refused" } : record.lastError), tone: "danger" };
     if (reasons.indexOf("error") !== -1)
         return { title: "Google Drive sync failed", message: errorText(record.lastError), tone: "danger" };
     if (reasons.indexOf("conflicts") !== -1)
         return { title: "Google Drive needs you", message: needsLine(record.needsYou) + ". Open the Google Drive window to see what to do.", tone: "warning" };
     if (reasons.indexOf("units-stale") !== -1)
-        return { title: "Google Drive needs setup", message: "[Select Set up hourly sync in Google Drive Details](page:vgs.google-drive/Details).", tone: "warning" };
+        return { title: "Google Drive needs setup", message: "The hourly sync is out of date. [Set it up again on the Google Drive Details tab](page:vgs.google-drive/Details).", tone: "warning" };
     return null;
 }
 

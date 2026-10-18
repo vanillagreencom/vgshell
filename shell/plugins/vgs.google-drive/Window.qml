@@ -5,23 +5,25 @@ import "GoogleDriveLogic.js" as Logic
 
 // The Google Drive window: where the sync stands, from the status the service
 // publishes. Its subtitle is the headline (GoogleDriveLogic.headline, which
-// the bar and the Settings page also read) in its tone's colour, then the
+// the bar and the Details tab also read) in its tone's colour, then the
 // last complete sync, the first file to review, the pause and the last
-// problem. Folder pairs lists
-// each pair by its label, Google Drive folder and state, an idle pair by its own files to review, with Remove, which opens
-// the remove TUI for that pair; while the folder pair list is invalid, it
+// problem. Folder pairs lists each pair by its label, its Google Drive
+// folder and its folder here, and its state, an idle pair by its own files
+// to review, with Remove, which opens the remove TUI for that pair; while the folder pair list is invalid, it
 // offers the reset TUI, which keeps the damaged list and starts an empty
 // one. To review lists each file VGS kept or restored,
 // a change on both sides, a local deletion, a Drive deletion or a Drive rename, and each file
 // it could not copy from Drive or Drive holds twice, under its folder
 // pair's label, the files that need the user first, each with one line
 // that says what happened and what to do, the folder that holds the copy
-// it speaks of, and Open folders, which opens the folders that hold its
+// it speaks of, an info beside a line that states a limit, which says why
+// it holds, and Open folders, which opens the folders that hold its
 // versions and shows only for a file whose fix is on this computer. A
 // file that needs the user leads with a warning-coloured exclamation
 // mark, a note with a muted check (GoogleDriveLogic.conflictRow `needs`). The footer holds Sync now, enabled only when a sync can
-// start, Resume while the sync is paused, or Set up hourly sync while the
-// hourly sync is not set up, over Pause or Resume and Add a folder pair
+// start, Resume while the sync is paused, or Set up hourly sync again
+// while its units are out of date or a folder pair's add could not
+// install them, over Pause or Resume and Add a folder pair
 // while a folder pair exists (GoogleDriveLogic.footerView).
 // It runs nothing itself: Sync now, Pause and Resume ask the service
 // through the plugin's own IPC, setup opens the plugin's floating TUIs,
@@ -135,7 +137,7 @@ FocusScope {
             Section {
                 title: "Folder pairs"
                 Repeater {
-                    model: root.known ? root.cloud.pairs.map(p => Logic.pairRow(p, root.now)) : []
+                    model: root.known ? root.cloud.pairs.map(p => Logic.pairRow(p, root.now, Paths.home)) : []
                     ListItem {
                         id: pairRow
                         required property var modelData
@@ -241,12 +243,27 @@ FocusScope {
                                                     text: conflictRow.modelData.label
                                                     wrapMode: Text.Wrap
                                                 }
-                                                Label {
+                                                // A line that states a limit
+                                                // ends in the info that says
+                                                // why it holds.
+                                                Row {
                                                     width: parent.width
-                                                    role: "itemHint"
-                                                    textFormat: Text.PlainText
-                                                    text: conflictRow.modelData.detail
-                                                    wrapMode: Text.Wrap
+                                                    spacing: Theme.space.xs
+                                                    Label {
+                                                        id: conflictDetail
+                                                        width: parent.width - (limitInfo.visible ? limitInfo.width + parent.spacing : 0)
+                                                        role: "itemHint"
+                                                        textFormat: Text.PlainText
+                                                        text: conflictRow.modelData.detail
+                                                        wrapMode: Text.Wrap
+                                                    }
+                                                    InfoButton {
+                                                        id: limitInfo
+                                                        visible: conflictRow.modelData.info !== ""
+                                                        y: conflictDetail.topForLeadingIcon(height)
+                                                        title: "Kept copies"
+                                                        info: conflictRow.modelData.info
+                                                    }
                                                 }
                                                 Label {
                                                     width: parent.width

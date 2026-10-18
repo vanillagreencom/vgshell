@@ -30,7 +30,9 @@ Open the Google Drive page in Settings and select Setup. Take the steps in their
 
 The Settings tab lists each folder pair with its two folders and its state. Add a folder pair, under the list, adds another pair. Remove, beside a pair on the Settings tab or in the Google Drive window, stops the sync of that pair after you confirm. Its files stay on this computer and in Google Drive.
 
-If the folder pair list cannot be read, select Start the folder pair list again. VGS keeps the damaged list beside a new empty list.
+If the folder pair list cannot be read, the Details tab says why beside Folder pair list. Select Start the folder pair list again there. VGS keeps the damaged list beside a new empty list.
+
+Hourly sync, on the Details tab, reads On once the first folder pair has turned it on. If VGS could not turn it on, or it is from an earlier version of VGS, select Set up again beside it.
 
 The Details tab shows the Google account, with Sign out beside it. Sign out stops the sync and removes the sign-in from your keyring. Your files stay on this computer and in Google Drive. When Google refuses the sign-in, sign in again under Sign in to Google on the Setup tab.
 

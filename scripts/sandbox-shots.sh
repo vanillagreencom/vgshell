@@ -140,7 +140,7 @@
 # when named; jarvis-causes plants each Jarvis start cause and
 # captures its bar widget tooltip and Setup section, taken only when named;
 # googledrive is Google Drive's bar widget, its tooltip, its window and every
-# screen of its Settings page in each state the plugin's runner reaches
+# screen of its page's Settings, Setup and Details tabs in each state the plugin's runner reaches
 # over a local rclone remote and a keyring stand-in, from first run to a
 # damaged folder pair list and a home in the layout of the plugin's name
 # before the rename, which the plugin moves at its start, each shot once the
@@ -6934,9 +6934,10 @@ console.log(fields.map(f => String(read[f])).join(" "));' "$tree/bin/lib/qml-lib
 # cs_shots MODE STATE CAUSE [KIND]: once the code reads the published
 # values as CAUSE, and the last error as KIND when given, the bar with
 # the widget and its tooltip unless the code hides it, the Google Drive
-# window, and every screen of the Google Drive Settings page.
+# window, and every screen of the Google Drive page's Settings, Setup and
+# Details tabs, each image named for its tab.
 cs_shots() {
-  local m="$1" s="$2" want="$3" fields=(cause) hidden box name f at y page=2
+  local m="$1" s="$2" want="$3" fields=(cause) hidden box name f at y tab page=2
   if [[ $# -gt 3 ]]; then want+=" $4"; fields+=(kind); fi
   expect "Google Drive reads its record again ($s)" ok ipc vgs.google-drive invoke refresh ""
   expect_poll "Google Drive's code reads the published values as $s" "$want" cs_code "${fields[@]}"
@@ -6978,7 +6979,9 @@ cs_shots() {
   expect_poll "the Google Drive window is gone ($s)" 0 window_count "Google Drive"
   expect "the Settings window opens ($s)" ok ipc shell summon "$settings_kind" vgs.settings '{}'
   expect_poll "the Settings window maps ($s)" 1 settings_count
-  plugin_page_shots "$m" vgs.google-drive "googledrive-$m-$s-page" setup
+  for tab in settings setup details; do
+    plugin_page_shots "$m" vgs.google-drive "googledrive-$m-$s-page-$tab" "$tab"
+  done
   box="$(one_window Plugins)"
   for f in "$SHOT_DIR/googledrive-$m-$s-page"*.png; do
     name="${f##*/}"
@@ -7130,8 +7133,14 @@ SH
   expect "Google Drive's widget is placed for its images" ok ipc shell setPluginPlaced vgs.google-drive true
   csr status || fail "googledrive scene: first status"
 
-  # Nothing installed, no folder pair, no key.
-  cs_shots "$m" 1-first-run not-set-up
+  # Nothing installed, no folder pair, no key. A tree whose first folder
+  # pair installs the hourly sync reads no folder pair; an earlier one
+  # reads the hourly sync as not set up.
+  if tree_has shell/plugins/vgs.google-drive/manifest.json '"setupGuide"'; then
+    cs_shots "$m" 1-first-run no-pairs
+  else
+    cs_shots "$m" 1-first-run not-set-up
+  fi
   # Hourly sync on and two folder pairs, no key or sign-in.
   csr install || fail "googledrive scene: install"
   cs_pairs

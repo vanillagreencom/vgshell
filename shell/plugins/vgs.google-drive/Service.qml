@@ -17,9 +17,9 @@ import "GoogleDriveLogic.js" as Logic
 // The service asks the runner to render it afresh at start and after each
 // of its setup TUIs ends, which also reads a run cut short as interrupted.
 // The keys are probed at start, after each write the core makes from the
-// Settings page's masked fields, after a Connect or Sign out TUI ends and
+// Settings page's masked fields, after a Sign in or Sign out TUI ends and
 // when the pair list changes. The probe's account address reaches the
-// published account value alone, which the Settings page draws and the
+// published account value alone, which the Details tab draws and the
 // `status` IPC answer returns with every published value; never the bar,
 // the window or a log line.
 //
@@ -32,7 +32,7 @@ import "GoogleDriveLogic.js" as Logic
 //     open      opens the Google Drive window; shell.surfaces.summon's reply
 // A request that fails is logged and shown in the window as `problem`. An
 // answer the runner holds for the rename from the plugin's previous name
-// (Logic.RUNNER_HELD) is no failure: the Settings sync value says why it
+// (Logic.RUNNER_HELD) is no failure: the Details sync value says why it
 // waits, and status and probe are asked again on the `held` timer until
 // the runner answers them.
 Item {
@@ -179,7 +179,7 @@ Item {
 
     function publish() {
         if (shell === null) return;
-        const values = Logic.statusValues(record, presence, Logic.problemText(problem, problemLine), heldReason, Date.now());
+        const values = Logic.statusValues(record, presence, Logic.problemText(problem, problemLine), heldReason, Date.now(), Paths.home);
         const next = Object.assign({}, reported);
         for (const key of Logic.changedKeys(reported, values)) {
             const value = values[key] === undefined ? null : values[key];

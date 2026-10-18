@@ -7,12 +7,14 @@
 // pins the headline's words and tone; every surface (the bar's tone, icon
 // and count, the tooltip's title, the window's subtitle and the Settings
 // `sync` value) must read that one headline. The words are pinned because
-// the issue (VGS-1314) makes them the contract of the four surfaces. A
+// the issue (VGS-1314) makes them the contract of the four surfaces. The
+// Settings and Setup values (VGS-1744) are held by their tones, actions
+// and structure, never their words. A
 // review row is held by its structured fields alone (VGS-1727): its needs
 // mark, its local-action flag, its folders, and which case of its kind
 // its line takes, never its words. The
-// tooltip and the Settings lines never carry a file name, and the Google
-// account a connection stored reaches the connection hint alone.
+// tooltip and the Details lines never carry a file name, and the Google
+// account a sign-in stored reaches the account value alone.
 // Controls edit a copy of the logic, one rule each, and require this suite
 // to fail on it.
 "use strict";
@@ -23,6 +25,8 @@ const path = require("node:path");
 const { load } = require("../bin/lib/qml-library.js");
 
 const file = path.join(__dirname, "..", "shell", "plugins", "vgs.google-drive", "GoogleDriveLogic.js");
+const MANIFEST = path.join(__dirname, "..", "shell", "plugins", "vgs.google-drive", "manifest.json");
+const Core = load(path.join(__dirname, "..", "shell", "Core", "PluginLogic.js"));
 const Timestamp = load(path.join(__dirname, "..", "shell", "Commons", "Timestamp.js"));
 const same = (got, want, message) => assert.deepEqual(JSON.parse(JSON.stringify(got)), JSON.parse(JSON.stringify(want)), message || "");
 
@@ -34,8 +38,9 @@ const ADDRESS = "a.person@example.com";
 // A record as bin/google-drive renderStatus writes it: a account pair that
 // synced an hour ago, an account pair whose connection Google refused, and one
 // conflict of each kind.
-const DOCS = { id: "docs", label: "Documents", remote: "Docs", state: "idle", lastSuccess: iso(NOW - HOUR), staleAfter: iso(NOW + HOUR), lastError: null, changes: { added: 1, updated: 0 } };
-const INBOX = { id: "inbox", label: "Agent uploads", remote: "Inbox", state: "authorization-required", lastSuccess: iso(NOW - 2 * HOUR), staleAfter: iso(NOW), lastError: { kind: "authorization-refused", at: iso(NOW - 60000), exit: 1 }, changes: null };
+const HOME = "/home/me";
+const DOCS = { id: "docs", label: "Documents", remote: "Docs", local: "/home/me/gdrive", state: "idle", lastSuccess: iso(NOW - HOUR), staleAfter: iso(NOW + HOUR), lastError: null, changes: { added: 1, updated: 0 } };
+const INBOX = { id: "inbox", label: "Agent uploads", remote: "Inbox", local: "/home/me/outbox", state: "authorization-required", lastSuccess: iso(NOW - 2 * HOUR), staleAfter: iso(NOW), lastError: { kind: "authorization-refused", at: iso(NOW - 60000), exit: 1 }, changes: null };
 // A new name longer than a window row, with no space to break at.
 const RENAMED_TO = "Quarterly-planning-notes-for-the-agent-uploads-review-with-every-attachment-from-the-October-meeting.txt";
 // Each carries `needs` as bin/google-drive needsOf decides it.
@@ -94,9 +99,9 @@ function probe(over) {
 // The bar's tone for each headline tone, stated here apart from the logic.
 const BAR = { ok: "calm", info: "calm", warning: "warning", danger: "danger" };
 
-const SIGNED_OUT = "Google Drive is not connected. [Select Connect on the Google Drive page](page:vgs.google-drive/Setup).";
-const SIGNED_OUT_PAGE = "Google Drive is not connected. Select Connect below.";
-const REFUSED_PAGE = "Google Drive did not accept Connect. Select Connect again below.";
+// The sentences that send the user to the Setup tab's sign-in step, read
+// from the logic: their words are not this suite's to pin.
+const SETUP_LINK = "](page:vgs.google-drive/Setup)";
 const INVALID = "The folder pair list is not valid, so VGS copies nothing.";
 const signedOut = { kind: "credential-absent", account: "token" };
 // The pair list the runner could not read: it reads no pair and refuses
@@ -112,16 +117,25 @@ const RESUME = ["resume", true];
 // renderStatus): its own state reads paused.
 const PAUSED_DOCS = Object.assign({}, DOCS, { state: "paused" });
 
+// The Details sync hint of a row that sends the user to the Setup tab's
+// sign-in step, and of one whose folder pair waits for the hourly sync,
+// which says what the schedule value says. A row may instead name the
+// error whose sentence its hint is, so the published error keeps the
+// account it names.
+const LINKED = { linksSetup: true };
+const SETUP_AGAIN = { schedule: "failed" };
+
 // One row per state of the sync: the record, then the headline's text,
 // tone and icon every surface must show, the window footer's primary, the
-// Settings hint, and whether the bar hides its icon.
+// Details hint, and whether the bar hides its icon.
 const STATES = [
-    ["first run", { state: "not-set-up", units: "absent", lastSuccess: null, staleAfter: null, lastError: null, pairs: [], conflicts: [], attention: null }, "Not set up", "warning", "cloud", SETUP, undefined, true],
-    ["no keys", well({ state: "authorization-required", pairs: [Object.assign({}, DOCS, { state: "authorization-required", lastError: { kind: "credential-absent", account: "client-id" } })], lastError: { kind: "credential-absent", account: "client-id", pair: "docs" } }), "Connect needed", "danger", "cloud-alert", NO_SYNC, "A Google Drive key or connection is missing. Add the client ID and secret, then select Connect below."],
+    ["first run", { state: "not-set-up", units: "absent", lastSuccess: null, staleAfter: null, lastError: null, pairs: [], conflicts: [], attention: null }, "No folder pairs", "warning", "cloud", NO_SYNC, undefined, true],
+    ["a folder pair whose hourly sync did not install", well({ state: "not-set-up", units: "absent" }), "Not set up", "warning", "cloud", SETUP, SETUP_AGAIN],
+    ["no keys", well({ state: "authorization-required", pairs: [Object.assign({}, DOCS, { state: "authorization-required", lastError: { kind: "credential-absent", account: "client-id" } })], lastError: { kind: "credential-absent", account: "client-id", pair: "docs" } }), "Sign-in needed", "danger", "cloud-alert", NO_SYNC, LINKED],
     ["no folder pair", { state: "not-set-up", units: "installed", lastSuccess: null, staleAfter: null, lastError: null, pairs: [], conflicts: [], attention: null }, "No folder pairs", "warning", "cloud", NO_SYNC, undefined, true],
     ["pair list not readable", invalid(), "Sync failed", "danger", "cloud-alert", NO_SYNC, INVALID, false],
-    ["signed out", well({ state: "authorization-required", pairs: [Object.assign({}, DOCS, { state: "authorization-required", lastError: signedOut })], lastError: Object.assign({ pair: "docs" }, signedOut) }), "Connect needed", "danger", "cloud-alert", NO_SYNC, SIGNED_OUT_PAGE],
-    ["syncing while another pair needs a connection", record({ state: "running", pairs: [Object.assign({}, DOCS, { state: "running" }), INBOX], conflicts: [] }), "Connect needed", "danger", "cloud-alert", NO_SYNC, REFUSED_PAGE],
+    ["signed out", well({ state: "authorization-required", pairs: [Object.assign({}, DOCS, { state: "authorization-required", lastError: signedOut })], lastError: Object.assign({ pair: "docs" }, signedOut) }), "Sign-in needed", "danger", "cloud-alert", NO_SYNC, { error: signedOut }],
+    ["syncing while another pair needs a sign-in", record({ state: "running", pairs: [Object.assign({}, DOCS, { state: "running" }), INBOX], conflicts: [] }), "Sign-in needed", "danger", "cloud-alert", NO_SYNC, LINKED],
     ["syncing while another pair failed", well({ state: "running", pairs: [Object.assign({}, DOCS, { state: "running" }), Object.assign({}, INBOX, { state: "error", lastError: { kind: "source-missing" } })], lastError: { kind: "source-missing", pair: "inbox" }, conflicts: CONFLICTS.slice(0, 1) }), "Sync failed", "danger", "cloud-alert", NO_SYNC, "A Google Drive folder of a folder pair does not exist."],
     ["empty review", well(), "Up to date", "ok", "cloud-check", SYNC, undefined],
     ["data old", well({ staleAfter: iso(NOW) }), "Out of date", "warning", "cloud-alert", SYNC, undefined],
@@ -131,12 +145,12 @@ const STATES = [
     ["every pair paused on its own", well({ state: "paused", pairs: [PAUSED_DOCS] }), "Paused", "info", "cloud-off", NO_SYNC, undefined],
     ["error", well({ state: "error", lastError: { kind: "source-missing", pair: "docs" } }), "Sync failed", "danger", "cloud-alert", SYNC, "A Google Drive folder of a folder pair does not exist."],
     ["offline", well({ state: "offline", lastError: { kind: "offline", pair: "docs" } }), "Offline", "warning", "cloud-off", SYNC, "Google Drive cannot be reached. VGS tries again at the next sync."],
-    ["keyring locked", well({ state: "authorization-required", pairs: [Object.assign({}, DOCS, { state: "authorization-required", lastError: { kind: "credential-locked", account: "client-id" } })], lastError: { kind: "credential-locked", account: "client-id", pair: "docs" } }), "Connect needed", "danger", "cloud-alert", SYNC, "Your keyring is locked. Unlock it to sync."],
-    ["connection needed", record({ conflicts: [] }), "Connect needed", "danger", "cloud-alert", SYNC, REFUSED_PAGE],
+    ["keyring locked", well({ state: "authorization-required", pairs: [Object.assign({}, DOCS, { state: "authorization-required", lastError: { kind: "credential-locked", account: "client-id" } })], lastError: { kind: "credential-locked", account: "client-id", pair: "docs" } }), "Sign-in needed", "danger", "cloud-alert", SYNC, "Your keyring is locked. Unlock it to sync."],
+    ["sign-in needed", record({ conflicts: [] }), "Sign-in needed", "danger", "cloud-alert", SYNC, LINKED],
     ["set up with files to review", well({ conflicts: CONFLICTS.slice(0, 2) }), "2 files to review", "warning", "cloud-alert", SYNC, "Open the Google Drive window to review them."],
     ["one file to review", well({ conflicts: CONFLICTS.slice(1, 2) }), "1 file to review", "warning", "cloud-alert", SYNC, "Open the Google Drive window to review them."],
     ["files to review while paused", well({ state: "paused", paused: true, pairs: [PAUSED_DOCS], conflicts: CONFLICTS.slice(0, 2) }), "2 files to review", "warning", "cloud-alert", RESUME, "Open the Google Drive window to review them."],
-    ["connection needed with files to review", record(), "Connect needed", "danger", "cloud-alert", SYNC, REFUSED_PAGE]
+    ["sign-in needed with files to review", record(), "Sign-in needed", "danger", "cloud-alert", SYNC, LINKED]
 ];
 
 function verify(L) {
@@ -214,7 +228,7 @@ function verify(L) {
         ["running", "running", null, "Syncing", "info"],
         ["paused", "paused", null, "Paused", "info"],
         ["offline", "offline", null, "Offline", "warning"],
-        ["connection", "authorization-required", null, "Connect needed", "danger"],
+        ["sign-in", "authorization-required", null, "Sign-in needed", "danger"],
         ["failed", "error", null, "Sync failed", "danger"]
     ];
     for (const [label, state, staleAfter, text, tone] of pairStates) {
@@ -229,8 +243,12 @@ function verify(L) {
         const cloud = L.cloudValue(rec, "");
         const head = L.headline(cloud, NOW);
         same([head.text, head.tone, head.icon], [text, tone, icon], label + ": headline");
-        const sync = L.statusValues(rec, null, "", "", NOW).sync;
-        same([sync.text, sync.tone, sync.hint], [text, tone, hint], label + ": the Settings sync value");
+        const sync = L.statusValues(rec, null, "", "", NOW, HOME).sync;
+        same([sync.text, sync.tone], [text, tone], label + ": the Details sync value");
+        if (hint === LINKED) assert.ok(typeof sync.hint === "string" && sync.hint.includes(SETUP_LINK), label + ": the Details hint links the Setup tab: " + sync.hint);
+        else if (hint !== undefined && hint.error !== undefined) same(sync.hint, L.errorText(hint.error), label + ": the Details hint is the sentence of the record's own error");
+        else if (hint === SETUP_AGAIN) same(sync.hint, L.scheduleValue(rec.units, true).hint, label + ": the Details hint says what Hourly sync says");
+        else assert.equal(sync.hint, hint, label + ": the Details hint");
         const window = L.windowStatus(cloud, NOW, Timestamp.text);
         same([window.text, window.tone], [text, tone], label + ": the window subtitle");
         const foot = L.footerView(cloud).primary;
@@ -248,60 +266,85 @@ function verify(L) {
 
     // The published values of the record and the probe.
     const presence = L.parseProbe(JSON.stringify(probe())).presence;
-    const values = L.statusValues(good.record, presence, "", "", NOW);
-    same(Object.keys(values).sort(), ["account", "cloud", "connection", "firstPair", "keys", "lastSync", "pairs", "schedule", "sync"]);
-    same(values.sync.lines, ["Documents: 3 files to review", "Agent uploads: Connect needed"], "a line per pair, each by its own state and files");
+    const values = L.statusValues(good.record, presence, "", "", NOW, HOME);
+    same(Object.keys(values).sort(), ["account", "cloud", "cloudKeys", "connection", "firstPair", "keys", "lastSync", "pairList", "pairs", "schedule", "sync"]);
+    same(values.sync.lines, ["Documents: 3 files to review", "Agent uploads: Sign-in needed"], "a line per pair, each by its own state and files");
     assert.equal(values.lastSync, NOW - HOUR);
-    same(Object.keys(L.statusValues(null, null, "", "", NOW)), [], "nothing is published before the first answers");
-    same(Object.keys(L.statusValues(null, presence, "", "", NOW)).sort(), ["account", "connection", "keys"]);
+    same(Object.keys(L.statusValues(null, null, "", "", NOW, HOME)), [], "nothing is published before the first answers");
+    same(Object.keys(L.statusValues(null, presence, "", "", NOW, HOME)).sort(), ["account", "cloudKeys", "connection", "keys"]);
 
-    for (const [label, record, expected] of [
-        ["first pair missing", well({ state: "not-set-up", pairs: [] }), ["warning", true]],
-        ["first pair exists", good.record, ["ok", false]]
-    ]) {
-        const first = L.statusValues(record, null, "", "", NOW).firstPair;
-        same([first.tone, first.action], expected, label);
-    }
-    const disconnected = L.parseProbe(JSON.stringify(probe({ token: { presence: "absent" } }))).presence;
-    const disconnectedValues = L.statusValues(good.record, disconnected, "", "", NOW);
-    same([disconnectedValues.connection.action, disconnectedValues.account.action], [true, undefined], "only the connection step offers Connect");
+    // A state value as a page reads it: its tone, the action it names, null
+    // for none, and whether it says the user cannot act on it.
+    const step = v => [v.tone, v.action === undefined || v.action === false ? null : v.action, v.available === false];
 
-    // schedule: the hourly units.
-    const hourly = "VGS syncs Google Drive every hour while you are logged in.";
-    same(L.scheduleValue("installed"), { tone: "ok", text: "On", hint: hourly });
-    same(L.scheduleValue("absent"), { tone: "warning", text: "Not set up", action: true, hint: hourly });
-    same(L.scheduleValue("stale"), { tone: "warning", text: "Needs setup", action: true, hint: hourly });
-    same(values.schedule, L.scheduleValue("installed"));
+    // firstPair: To do with Add while no pair, done with one, and not
+    // available while the list cannot be read, linking its repair, or
+    // while no sign-in is stored, so it follows the sign-in step.
+    const signedOutProbe = L.parseProbe(JSON.stringify(probe({ token: { presence: "absent" } }))).presence;
+    for (const [label, rec, p, want] of [
+        ["no folder pair, signed in", well({ state: "not-set-up", pairs: [] }), presence, ["warning", true, false]],
+        ["no folder pair before the probe answers", well({ state: "not-set-up", pairs: [] }), null, ["warning", true, false]],
+        ["no folder pair, no sign-in", well({ state: "not-set-up", pairs: [] }), signedOutProbe, ["info", null, true]],
+        ["a folder pair, no sign-in", good.record, signedOutProbe, ["ok", null, false]],
+        ["a folder pair", good.record, presence, ["ok", null, false]],
+        ["an unreadable list", invalid(), presence, ["warning", null, true]]
+    ]) same(step(L.statusValues(rec, p, "", "", NOW, HOME).firstPair), want, "first pair: " + label);
+    assert.ok(L.statusValues(invalid(), null, "", "", NOW, HOME).firstPair.hint.includes("](page:vgs.google-drive/Details)"), "an unreadable list's step links its repair");
 
-    // pairs: each pair's Drive folder, Add while none, Remove once one exists.
-    const pairsOf = rec => L.pairsValue(L.cloudValue(rec, ""));
-    const genericPairListProblem = L.errorText({ kind: "pairs-invalid" });
-    same(pairsOf(well({ state: "not-set-up", pairs: [] })), { tone: "warning", text: "None", action: "add", hint: "Add a folder pair to choose what VGS keeps in step with Google Drive." });
-    same(values.pairs, { tone: "ok", text: "2 folder pairs", lines: ["Documents: Docs", "Agent uploads: Inbox"], action: "remove" });
-    same(pairsOf(well()).text, "1 folder pair");
-    // A pair's second line, the same in the window row and the Settings
-    // line: its Drive folder, or Both ways where that folder carries its name.
-    const pairDrives = [
-        ["a Drive folder named as the pair", "Documents", "Both ways"],
-        ["a differing Drive folder", "Docs", "Docs"],
-        ["a nested Drive folder", "Work/Documents", "Work/Documents"]
+    // schedule: Set up again only while the units are out of date, or
+    // absent beside a folder pair, whose add could not install them; with
+    // no pair nothing asks for setup (VGS-1744).
+    const SCHEDULES = [
+        ["installed", "installed", true, ["ok", null, false]],
+        ["installed, no pair", "installed", false, ["ok", null, false]],
+        ["out of date", "stale", true, ["warning", true, false]],
+        ["out of date, no pair", "stale", false, ["warning", true, false]],
+        ["absent beside a pair", "absent", true, ["warning", true, false]],
+        ["absent, no pair", "absent", false, ["info", null, false]]
     ];
-    for (const [label, remote, line] of pairDrives) {
-        const rec = well({ pairs: [Object.assign({}, DOCS, { remote })] });
-        assert.equal(L.pairRow(L.cloudValue(rec, "").pairs[0], NOW).secondary, line, label + ": the window row");
-        same(pairsOf(rec).lines, ["Documents: " + line], label + ": the Settings line");
+    for (const [label, units, hasPairs, want] of SCHEDULES) same(step(L.scheduleValue(units, hasPairs)), want, "schedule: " + label);
+    assert.throws(() => L.scheduleValue("maybe", true), /units "maybe"/);
+    same(values.schedule, L.scheduleValue("installed", true));
+    same(L.statusValues(well({ state: "not-set-up", units: "absent", pairs: [] }), null, "", "", NOW, HOME).schedule, L.scheduleValue("absent", false), "the schedule reads the record's pairs");
+
+    // pairs: one Settings row per pair, by its id, with Remove, its two
+    // folders, the local one from `~` under the home folder, and its state:
+    // a warning, which the page draws as a chip, only while its files need
+    // the user, else its own state's tone.
+    same(values.pairs.map(r => [r.id, r.label, r.actions]), [["docs", "Documents", ["remove"]], ["inbox", "Agent uploads", ["remove"]]]);
+    same(values.pairs.map(r => r.secondary), ["Drive/Docs ⇄ ~/gdrive", "Drive/Inbox ⇄ ~/outbox"]);
+    same(values.pairs.map(r => r.state.tone), ["warning", "danger"], "a file that needs the user, and a sign-in");
+    const rowState = rec => L.statusValues(rec, null, "", "", NOW, HOME).pairs[0].state;
+    for (const [label, rec, tone] of [
+        ["nothing to review", well(), "ok"],
+        ["notes alone", well({ conflicts: CONFLICTS.slice(1, 2) }), "ok"],
+        ["a file that needs the user", well({ conflicts: CONFLICTS.slice(0, 1) }), "warning"],
+        ["paused", well({ state: "paused", paused: true, pairs: [PAUSED_DOCS] }), "info"],
+        ["paused with a file that needs the user", well({ state: "paused", paused: true, pairs: [PAUSED_DOCS], conflicts: CONFLICTS.slice(0, 1) }), "warning"],
+        ["never synced", well({ pairs: [Object.assign({}, DOCS, { lastSuccess: null, staleAfter: null })] }), "info"]
+    ]) assert.equal(rowState(rec).tone, tone, "pair row state: " + label);
+    assert.ok(rowState(well({ conflicts: CONFLICTS.slice(0, 1) })).text.startsWith("1 "), "the chip counts the files that need the user");
+    assert.ok(rowState(well({ conflicts: [CONFLICTS[0], DRIVE_CONFLICTS[2], CONFLICTS[1]] })).text.startsWith("2 "), "notes add nothing to the count");
+    const folders = [
+        ["under the home folder", "/home/me/Drive/Docs", HOME, "Drive/Docs ⇄ ~/Drive/Docs"],
+        ["outside the home folder", "/srv/share/Docs", HOME, "Drive/Docs ⇄ /srv/share/Docs"],
+        ["a sibling that shares the home folder's name", "/home/meow/Docs", HOME, "Drive/Docs ⇄ /home/meow/Docs"],
+        ["no home folder known", "/home/me/Drive/Docs", "", "Drive/Docs ⇄ /home/me/Drive/Docs"]
+    ];
+    for (const [label, local, home, line] of folders) {
+        const rec = well({ pairs: [Object.assign({}, DOCS, { local })] });
+        same(L.statusValues(rec, null, "", "", NOW, home).pairs[0].secondary, line, label + ": the Settings row");
+        assert.equal(L.pairRow(L.cloudValue(rec, "").pairs[0], NOW, home).secondary, line, label + ": the window row");
     }
-    const invalidPairs = pairsOf(invalid());
-    assert.equal(invalidPairs.tone, "danger", "an unreadable list is danger");
-    assert.equal(invalidPairs.text, "Not readable", "an unreadable list states that it is not readable");
-    assert.equal(invalidPairs.action, "reset", "an unreadable list offers the repair the runner accepts");
-    assert.ok(invalidPairs.hint.length <= L.HINT_MAX, "an unreadable list hint stays under its ceiling");
-    assert.ok(invalidPairs.hint.includes("docs"), "a pair detail names its pair id");
-    assert.ok(invalidPairs.hint !== genericPairListProblem, "a known detail is not the generic sentence");
-    assert.ok(!invalidPairs.hint.includes("rule=") && !invalidPairs.hint.includes("pairs-file=") && !invalidPairs.hint.includes("pair="), "keyed detail is hidden");
-    assert.equal(L.pairListValid(L.cloudValue(invalid(), "")), false);
-    assert.equal(L.pairListValid(L.cloudValue(well(), "")), true);
+    same(L.statusValues(well({ state: "not-set-up", pairs: [] }), null, "", "", NOW, HOME).pairs, [], "no pair, no row");
+    const unreadable = L.statusValues(invalid(), null, "", "", NOW, HOME).pairs;
+    same(unreadable.map(r => [r.state.tone, r.actions]), [["danger", []]], "an unreadable list holds one row that says so, which offers no Remove");
+
+    // pairList: hidden while the runner reads the list, else its repair.
+    same(values.pairList, { hidden: true });
+    const genericPairListProblem = L.errorText({ kind: "pairs-invalid" });
     const pairProblems = [
+        ["a pair rule", "pair=docs rule=repository-inside", "docs"],
         ["not JSON", "pairs-file=not-json", "file is damaged"],
         ["unreadable", "pairs-file=unreadable-EACCES", "read"],
         ["wrong shape", "pairs-file=shape", "list"],
@@ -310,10 +353,8 @@ function verify(L) {
     ];
     const seenPairProblemText = new Set();
     for (const [label, detail, word] of pairProblems) {
-        const value = pairsOf(invalid(detail));
-        assert.equal(value.tone, "danger", label + ": tone");
-        assert.equal(value.text, "Not readable", label + ": text");
-        assert.equal(value.action, "reset", label + ": action");
+        const value = L.statusValues(invalid(detail), null, "", "", NOW, HOME).pairList;
+        same(step(value), ["danger", true, false], label + ": the repair is offered");
         assert.ok(value.hint.length <= L.HINT_MAX, label + ": hint ceiling");
         assert.ok(value.hint.includes(word), label + ": sentence category");
         assert.ok(value.hint !== genericPairListProblem, label + ": known detail is not generic");
@@ -321,30 +362,67 @@ function verify(L) {
         seenPairProblemText.add(value.hint.split(". ")[0]);
     }
     assert.equal(seenPairProblemText.size, pairProblems.length, "each pair-list problem class has its own sentence");
-    const unknownPairProblem = pairsOf(invalid("not-a-runner-detail"));
-    assert.equal(unknownPairProblem.action, "reset", "an unknown detail still offers reset");
+    const unknownPairProblem = L.statusValues(invalid("not-a-runner-detail"), null, "", "", NOW, HOME).pairList;
+    assert.equal(unknownPairProblem.action, true, "an unknown detail still offers the repair");
     assert.ok(unknownPairProblem.hint.includes(genericPairListProblem), "an unknown detail falls back to the generic sentence");
-    assert.ok(unknownPairProblem.hint.length <= L.HINT_MAX, "the unknown detail hint stays under its ceiling");
+    assert.equal(L.pairListValid(L.cloudValue(invalid(), "")), false);
+    assert.equal(L.pairListValid(L.cloudValue(well(), "")), true);
 
-    // keys: the client ID and secret.
-    same(values.keys, [{ label: "Client ID", value: "present", secret: "client-id" }, { label: "Client secret", value: "present", secret: "client-secret" }]);
+    // keys: the client ID and secret, each with its own hint and info.
+    same(values.keys.map(k => [k.secret, k.value]), [["client-id", "present"], ["client-secret", "present"]]);
+    for (const key of values.keys) assert.ok(key.hint !== "" && key.info !== "" && key.hint !== key.info, key.secret + ": its own hint and info");
+    assert.notEqual(values.keys[0].info, values.keys[1].info, "each key explains itself");
 
-    // account: the connection.
+    // The Setup steps and the Details account from the probe: the keys,
+    // then the sign-in, which waits for both keys, then the account.
     const withUser = (user, extra) => L.parseProbe(JSON.stringify(probe(Object.assign({ "token": user === undefined ? {} : { user } }, extra || {})))).presence;
-    const signIn = [
-        ["keyring locked", withUser(undefined, { "token": { presence: "locked" } }), null, { tone: "warning", text: "Keyring locked", hint: "Unlock your keyring to sync." }],
-        ["keyring unreadable", withUser(undefined, { "client-id": { presence: "unavailable" } }), null, { tone: "warning", text: "Unknown", hint: "VGS cannot read your keyring." }],
-        ["no client", withUser(undefined, { "client-secret": { presence: "absent" }, "token": { presence: "absent" } }), null, { tone: "info", text: "Not connected", hint: "Add the client ID and secret first." }],
-        ["no connection", withUser(undefined, { "token": { presence: "absent" } }), null, { tone: "warning", text: "Not connected", action: "signIn" }],
-        ["refused", withUser(ADDRESS), good.record, { tone: "danger", text: "Connect refused", action: "reconnect", hint: "Google Drive did not accept Connect." }],
-        ["connected with the account", withUser(ADDRESS), null, { tone: "ok", text: "Connected", hint: "Connected as " + ADDRESS + ".", action: "signOut" }],
-        ["connected, account too long for a hint", withUser("a".repeat(200) + "@example.com"), null, { tone: "ok", text: "Connected", hint: "Connected.", action: "signOut" }]
+    const SIGN_INS = [
+        // label, presence, record, keys step, sign-in step, account
+        ["sign-in locked", withUser(undefined, { "token": { presence: "locked" } }), null, ["ok", null, false], ["warning", null, true], ["warning", null, false]],
+        ["keys locked", withUser(ADDRESS, { "client-id": { presence: "locked" } }), null, ["warning", null, true], ["warning", null, true], ["warning", null, false]],
+        ["keyring unreadable", withUser(undefined, { "client-id": { presence: "unavailable" } }), null, ["warning", null, true], ["warning", null, true], ["warning", null, false]],
+        ["no keys", withUser(undefined, { "client-id": { presence: "absent" }, "client-secret": { presence: "absent" }, "token": { presence: "absent" } }), null, ["warning", null, false], ["info", null, true], ["info", null, false]],
+        ["one key", withUser(undefined, { "client-secret": { presence: "absent" }, "token": { presence: "absent" } }), null, ["warning", null, false], ["info", null, true], ["info", null, false]],
+        ["no sign-in", withUser(undefined, { "token": { presence: "absent" } }), null, ["ok", null, false], ["warning", "signIn", false], ["info", null, false]],
+        ["sign-in refused", withUser(ADDRESS), good.record, ["ok", null, false], ["danger", "again", false], ["danger", true, false]],
+        ["signed in", withUser(ADDRESS), well(), ["ok", null, false], ["ok", null, false], ["ok", true, false]]
     ];
-    for (const [label, p, rec, want] of signIn) same(L.signInValue(p, rec), want, "account: " + label);
-    same(values.account, { tone: "danger", text: "Connect refused", action: "reconnect", hint: "Google Drive did not accept Connect." });
-    // The account reaches the connection hint alone.
-    for (const key of Object.keys(values).filter(k => k !== "account"))
-        assert.ok(!JSON.stringify(values[key]).includes(ADDRESS), "the account shows in " + key);
+    for (const [label, p, rec, keys, signIn, account] of SIGN_INS) {
+        const v = L.statusValues(rec, p, "", "", NOW, HOME);
+        same(step(v.cloudKeys), keys, label + ": the keys step");
+        same(step(v.connection), signIn, label + ": the sign-in step");
+        same(step(v.account), account, label + ": the account");
+    }
+    // The account names the address its token carries, as its value; one
+    // too long for a value names none.
+    assert.equal(L.statusValues(well(), withUser(ADDRESS), "", "", NOW, HOME).account.text, ADDRESS);
+    const long = "a".repeat(200) + "@example.com";
+    assert.ok(!JSON.stringify(L.statusValues(well(), withUser(long), "", "", NOW, HOME).account).includes(long), "an address past the value's ceiling is left out");
+    // A step that is not done and that the user cannot act on says why.
+    for (const [label, p, rec] of SIGN_INS) {
+        const v = L.statusValues(rec, p, "", "", NOW, HOME);
+        for (const key of ["cloudKeys", "connection"])
+            if (v[key].available === false) assert.ok(typeof v[key].hint === "string" && v[key].hint !== "", label + ": " + key + " says why it waits");
+    }
+    // The account reaches the account value alone.
+    const signedInValues = L.statusValues(well(), withUser(ADDRESS), "", "", NOW, HOME);
+    for (const key of Object.keys(signedInValues).filter(k => k !== "account"))
+        assert.ok(!JSON.stringify(signedInValues[key]).includes(ADDRESS), "the account shows in " + key);
+
+    // Every value the service publishes is one the core takes for the
+    // plugin's own manifest (PluginLogic.statusWrite), in every world.
+    const manifest = Core.validateManifest(JSON.parse(fs.readFileSync(MANIFEST, "utf8")), path.dirname(MANIFEST));
+    assert.equal(manifest.ok, true, manifest.error);
+    const longLabel = Object.assign({}, DOCS, { label: "L".repeat(64), remote: "R/".repeat(90) + "R", local: "/srv/" + "x".repeat(300) });
+    const worlds = [good.record, well(), invalid(), well({ state: "not-set-up", units: "absent", pairs: [] }), well({ state: "not-set-up", units: "absent" }), well({ units: "stale" }),
+        well({ pairs: [longLabel] }), well({ conflicts: CONFLICTS.concat(DRIVE_CONFLICTS) })];
+    for (const rec of worlds) for (const [, p] of SIGN_INS.map(r => [r[0], r[1]]).concat([["long address", withUser(long)]])) {
+        const v = L.statusValues(rec, p, "", "", NOW, HOME);
+        for (const key of Object.keys(v)) {
+            const written = Core.statusWrite(manifest.manifest, {}, key, v[key]);
+            assert.equal(written.ok, true, key + ": " + written.error + " " + JSON.stringify(v[key]));
+        }
+    }
 
     // The window's data: times as milliseconds, each conflict with the
     // folders Open folders opens, the list capped under the ceiling.
@@ -370,7 +448,7 @@ function verify(L) {
     // The tooltip: pairs and states, never a file name; the count of files
     // to review when the headline does not say it.
     const tip = L.widgetTooltip(cloud, NOW, Timestamp.text);
-    same(tip.details.split("\n"), ["Documents: 3 files to review", "Agent uploads: Connect needed", "4 files to review", "Last sync " + Timestamp.text(NOW - HOUR, NOW)]);
+    same(tip.details.split("\n"), ["Documents: 3 files to review", "Agent uploads: Sign-in needed", "4 files to review", "Last sync " + Timestamp.text(NOW - HOUR, NOW)]);
     same(L.widgetTooltip(L.cloudValue(well({ conflicts: CONFLICTS.slice(0, 2) }), ""), NOW, Timestamp.text).details.split("\n"), ["Documents: 2 files to review", "Last sync " + Timestamp.text(NOW - HOUR, NOW)], "the headline says the whole count once");
     same(L.widgetTooltip(undefined, NOW, Timestamp.text), { title: "Google Drive", details: "" });
     for (const text of [tip.title, tip.details].concat(values.sync.lines))
@@ -382,7 +460,7 @@ function verify(L) {
     same(subtitle(L.windowStatus(cloud, NOW, Timestamp.text)), [
         ["Last complete sync " + Timestamp.text(NOW - HOUR, NOW), ""],
         ["First file to review: taxes/2025.xlsx", ""],
-        ["Google Drive did not accept Connect. [Select Connect again on the Google Drive page](page:vgs.google-drive/Setup).", "danger"]
+        [L.errorText({ kind: "authorization-refused" }), "danger"]
     ]);
     same(subtitle(L.windowStatus(L.cloudValue(well({ state: "paused", paused: true, lastSuccess: null, staleAfter: null }), "VGS could not pause the Google Drive sync."), NOW, Timestamp.text)), [
         ["No complete sync yet", ""], ["The hourly sync copies nothing until you resume it.", ""], ["VGS could not pause the Google Drive sync.", "danger"]
@@ -393,26 +471,28 @@ function verify(L) {
     same(L.windowStatus(L.cloudValue(well({ state: "offline", lastError: { kind: "offline" } }), ""), NOW, Timestamp.text).lines[1], { text: "Google Drive cannot be reached. VGS tries again at the next sync.", tone: "" });
     // A pair's badge: its own files to review, a state that needs the
     // user or stops the sync before them, and Up to date only with none.
-    same(L.pairRow(cloud.pairs[0], NOW), { id: "docs", label: "Documents", secondary: "Docs", icon: "folder-sync", text: "3 files to review", tone: "warning" });
+    same(L.pairRow(cloud.pairs[0], NOW, HOME), { id: "docs", label: "Documents", secondary: "Drive/Docs \u21c4 ~/gdrive", icon: "folder-sync", text: "3 files to review", tone: "warning" });
     same(L.cloudValue(good.record, "").pairs.map(p => p.review), [3, 1]);
-    const badge = rec => { const p = L.pairRow(L.cloudValue(rec, "").pairs[0], NOW); return [p.text, p.tone]; };
+    const badge = rec => { const p = L.pairRow(L.cloudValue(rec, "").pairs[0], NOW, HOME); return [p.text, p.tone]; };
     same(badge(well()), ["Up to date", "success"]);
     same(badge(well({ conflicts: DRIVE_CONFLICTS.slice(0, 1) })), ["1 file to review", "warning"]);
     same(badge(well({ conflicts: CONFLICTS.slice(2, 3) })), ["Up to date", "success"], "another pair's file");
     same(badge(well({ state: "paused", paused: true, pairs: [PAUSED_DOCS], conflicts: CONFLICTS.slice(0, 1) })), ["Paused", "info"]);
-    same(L.pairRow(cloud.pairs[1], NOW), { id: "inbox", label: "Agent uploads", secondary: "Inbox", icon: "folder-sync", text: "Connect needed", tone: "danger" });
-    // The footer: one primary, Resume while paused; Pause or Resume and
-    // Add a folder pair only while a folder pair exists, since the empty
-    // pair list offers Add.
+    same(L.pairRow(cloud.pairs[1], NOW, HOME), { id: "inbox", label: "Agent uploads", secondary: "Drive/Inbox \u21c4 ~/outbox", icon: "folder-sync", text: "Sign-in needed", tone: "danger" });
+    // The footer: one primary, Set up hourly sync again while the schedule
+    // offers it, Resume while paused; Pause or Resume and Add a folder pair
+    // only while a folder pair exists, since the empty pair list offers Add.
+    const SETUP_FOOT = { text: "Set up hourly sync again", icon: "cloud-cog", action: "setup", enabled: true };
     const footer = rec => L.footerView(rec === undefined ? undefined : L.cloudValue(rec, ""));
     const footers = [
         ["before the first value", undefined, { primary: { text: "Sync now", icon: "refresh-cw", action: "sync", enabled: false }, pause: null, add: false }],
-        ["first run", well({ state: "not-set-up", units: "absent", pairs: [] }), { primary: { text: "Set up hourly sync", icon: "cloud-cog", action: "setup", enabled: true }, pause: null, add: false }],
+        ["first run", well({ state: "not-set-up", units: "absent", pairs: [] }), { primary: { text: "Sync now", icon: "refresh-cw", action: "sync", enabled: false }, pause: null, add: false }],
+        ["a folder pair whose units did not install", well({ state: "not-set-up", units: "absent" }), { primary: SETUP_FOOT, pause: { text: "Pause", icon: "pause", action: "pause" }, add: true }],
         ["no folder pair", well({ state: "not-set-up", pairs: [] }), { primary: { text: "Sync now", icon: "refresh-cw", action: "sync", enabled: false }, pause: null, add: false }],
-        ["units stale with a pair", well({ units: "stale" }), { primary: { text: "Set up hourly sync", icon: "cloud-cog", action: "setup", enabled: true }, pause: { text: "Pause", icon: "pause", action: "pause" }, add: true }],
+        ["units stale with a pair", well({ units: "stale" }), { primary: SETUP_FOOT, pause: { text: "Pause", icon: "pause", action: "pause" }, add: true }],
         ["set up", well(), { primary: { text: "Sync now", icon: "refresh-cw", action: "sync", enabled: true }, pause: { text: "Pause", icon: "pause", action: "pause" }, add: true }],
         ["paused", well({ state: "paused", paused: true, pairs: [PAUSED_DOCS] }), { primary: { text: "Resume", icon: "play", action: "resume", enabled: true }, pause: null, add: true }],
-        ["units stale while paused", well({ units: "stale", state: "paused", paused: true, pairs: [PAUSED_DOCS] }), { primary: { text: "Set up hourly sync", icon: "cloud-cog", action: "setup", enabled: true }, pause: { text: "Resume", icon: "play", action: "resume" }, add: true }]
+        ["units stale while paused", well({ units: "stale", state: "paused", paused: true, pairs: [PAUSED_DOCS] }), { primary: SETUP_FOOT, pause: { text: "Resume", icon: "play", action: "resume" }, add: true }]
     ];
     for (const [label, rec, want] of footers) same(footer(rec), want, "footer: " + label);
     // Each review row by its fields: its needs mark and local-action flag
@@ -448,6 +528,9 @@ function verify(L) {
         const [published, row] = rowOf(c);
         same([published.needs, published.localAction, published.dirs], [needs, local, dirs], label + ": the published row");
         same([row.needs, row.localAction, row.dirs, row.folder !== ""], [needs, local, dirs, folder], label + ": the window row");
+        // Only the line that states how long VGS keeps a copy has the info
+        // that says why.
+        assert.equal(row.info !== "", label === "a change on both sides with the copy that was here kept", label + ": the limit's info");
         assert.equal(row.label, c.path, label + ": the row names its file");
         assert.ok(typeof row.detail === "string" && row.detail !== "", label + ": the row has its line");
         details[label] = row.detail;
@@ -493,7 +576,7 @@ function verify(L) {
     assert.ok(heavyCloud.conflicts.length < L.CONFLICTS_MAX, "the byte ceiling cuts the list");
     assert.equal(heavyCloud.conflicts[0].needs, "you", "the byte ceiling keeps the row that needs the user");
     // The notification: one per reason in order of need.
-    same(L.notification(good.record), { title: "Google Drive needs Connect", message: "Google Drive did not accept Connect. [Select Connect again on the Google Drive page](page:vgs.google-drive/Setup).", tone: "danger" });
+    same(L.notification(good.record), { title: "Google Drive needs a sign-in", message: L.errorText({ kind: "authorization-refused" }), tone: "danger" });
     // The conflicts reason counts the rows that need the user: four rows,
     // one of which needs the user, notify as that one row alone does, and
     // two that need the user do not.
@@ -502,21 +585,19 @@ function verify(L) {
     same(asked(CONFLICTS), asked(CONFLICTS.slice(0, 1)), "the notes raise no count");
     assert.notEqual(asked(CONFLICTS).message, asked([CONFLICTS[0], DRIVE_CONFLICTS[2]]).message, "the count is the rows that need the user");
     same(L.notification(record({ lastError: { kind: "offline" }, attention: { reasons: ["error"], key: "k", notified: false } })).tone, "danger");
-    same(L.notification(record({ attention: { reasons: ["units-stale"], key: "k", notified: false } })), { title: "Google Drive needs setup", message: "[Select Set up hourly sync in Google Drive Details](page:vgs.google-drive/Details).", tone: "warning" });
+    const stale = L.notification(record({ attention: { reasons: ["units-stale"], key: "k", notified: false } }));
+    assert.equal(stale.tone, "warning");
+    assert.ok(stale.message.includes("](page:vgs.google-drive/Details)"), "out-of-date units link the Details tab, which holds Set up again");
     assert.equal(L.notification(record({ attention: null })), null);
-    same(L.notification(record({ lastError: Object.assign({ pair: "docs" }, signedOut) })).message, SIGNED_OUT, "a missing token is a connection");
-    assert.equal(L.errorText({ kind: "credential-absent", account: "token" }), "Google Drive is not connected. [Select Connect on the Google Drive page](page:vgs.google-drive/Setup).");
-    assert.equal(L.errorText({ kind: "credential-absent", account: "client-id" }), "A Google Drive key or connection is missing. Add the client ID and secret, then [select Connect on the Google Drive page](page:vgs.google-drive/Setup).");
-    // The Settings page names its own fields instead of sending the user to itself.
-    assert.equal(L.errorText({ kind: "credential-absent", account: "token" }, true), "Google Drive is not connected. Select Connect below.");
-    assert.equal(L.errorText({ kind: "credential-absent", account: "client-id" }, true), "A Google Drive key or connection is missing. Add the client ID and secret, then select Connect below.");
-    assert.equal(L.errorText({ kind: "authorization-refused" }, true), REFUSED_PAGE);
+    same(L.notification(record({ lastError: Object.assign({ pair: "docs" }, signedOut) })).message, L.errorText(signedOut), "a missing token is a sign-in");
+    // Each sentence that asks for a key or a sign-in links the Setup tab,
+    // where those steps are, the Details sync value's included.
     for (const error of [signedOut, { kind: "credential-absent", account: "client-id" }, { kind: "authorization-refused" }])
-        assert.ok(!L.errorText(error, true).includes("page:"), "the on-page text holds no page reference");
-    assert.equal(L.errorText({ kind: "offline" }, true), L.errorText({ kind: "offline" }), "a sentence that names no place reads the same on the page");
+        assert.ok(L.errorText(error).includes(SETUP_LINK), JSON.stringify(error) + ": links the Setup tab");
+    assert.notEqual(L.errorText(signedOut), L.errorText({ kind: "credential-absent", account: "client-id" }), "a missing sign-in is no missing key");
 
     // A failed request reads as a sentence.
-    assert.equal(L.problemText("start", "start exit=1 google-drive: refused: units=absent"), "Set up hourly sync first.");
+    assert.notEqual(L.problemText("start", "start exit=1 google-drive: refused: units=absent"), L.problemText("start", "start exit=1 google-drive: refused: busy"), "absent units name their own fix");
     assert.equal(L.problemText("pause", "pause exit=1 google-drive: refused: state-lock=timeout"), "VGS could not pause the Google Drive sync.");
     assert.equal(L.problemText("", ""), "");
 
@@ -549,36 +630,48 @@ function verify(L) {
 verify(load(file));
 
 const controls = [
-    ["first pair cannot finish empty", 'pairListValid(cloud) && cloud.pairs.length > 0', 'pairListValid(cloud)'],
-    ["connection offers Connect when missing", 'values.account.action === "signIn" || values.account.action === "reconnect"', 'false'],
-    ["account maintenance cannot offer Connect", 'if (values.account.action === "signIn") delete values.account.action;', 'if (false) delete values.account.action;'],
+    ["the first pair waits for a sign-in", 'if (presence !== null && presence.token.presence !== "present")\n        return', 'if (false)\n        return'],
+    ["first pair cannot finish empty", 'if (cloud.pairs.length > 0) return { tone: "ok", text: "A folder pair is ready" };', 'return { tone: "ok", text: "A folder pair is ready" };'],
+    ["the sign-in step offers Sign in while none is stored", 'text: "Not signed in", action: "signIn" };', 'text: "Not signed in" };'],
+    ["the sign-in step waits for both keys", 'if (states[0] !== "present" || states[1] !== "present")\n        return { tone: "info", text: "Keys needed"', 'if (false)\n        return { tone: "info", text: "Keys needed"'],
+    ["a sign-in that waits for the keys says the user cannot act there", 'text: "Keys needed", available: false,', 'text: "Keys needed",'],
+    ["the keys step needs both keys", 'if (states[0] === "present" && states[1] === "present") return { tone: "ok"', 'if (states[0] === "present") return { tone: "ok"'],
+    ["the account is the token's address", 'text: user !== undefined && user.length <= ROW_TEXT_MAX ? user : "Signed in"', 'text: "Signed in"'],
+    ["an address past the value's ceiling is left out", 'user !== undefined && user.length <= ROW_TEXT_MAX ? user', 'user !== undefined ? user'],
 
-    ["the missing-key text links to Setup", "then [select Connect on the Google Drive page](page:vgs.google-drive/Setup).", "then select Connect on the Google Drive page."],
+    ["the missing-key text links to Setup", "then [sign in on the Google Drive Setup tab](page:vgs.google-drive/Setup).", "then sign in on the Google Drive Setup tab."],
     ["the judge refuses an unknown state", "if (STATES.indexOf(doc.state) === -1) return", "if (false) return"],
     ["the judge needs attention.notified", "\n        && typeof doc.attention.notified === \"boolean\")", ")"],
     ["a both-changed stored path is absolute", "&& (c.kind !== \"both-changed\" || !hasOwn(c, \"storedPath\") || (isText(c.storedPath) && c.storedPath.charAt(0) === \"/\"))", ""],
     ["an address holds one @", " && value.split(\"@\").length === 2", ""],
     ["only a token's row carries a user", '(c.account !== "token" || !isAddress(c.user))', "!isAddress(c.user)"],
     ["idle data reads by its age", "return now < staleAfter ? CURRENT : OUT_OF_DATE;", "return CURRENT;"],
-    ["units absent read not set up, not no folder pair", "return cloud.units === \"absent\" ?", "return false ?"],
+    ["a pair whose units are absent reads not set up", "return cloud.pairs.length > 0 ? withCause(", "return false ? withCause("],
     ["a connection needed or a failure wins over files to review", "if (danger.length > 0) return", "if (false) return"],
     ["another pair's failure wins over a running sync", "return cloud.state === state || cloud.pairs.some(function (p) { return p.state === state; });", "return cloud.state === state;"],
     ["a missing token reads as a connection", "if (error.kind === \"credential-absent\" && error.account === \"token\")", "if (false)"],
     ["the published error keeps its account", "return isText(error.account) ? { kind: error.kind, account: error.account } : { kind: error.kind };", "return { kind: error.kind };"],
     ["the published pair-list error keeps its detail", "if (error.kind === \"pairs-invalid\" && isText(error.detail)) return { kind: error.kind, detail: error.detail };\n    ", ""],
-    ["an unreadable pair list offers Reset", "hint: pairListResetHint(cloud.lastError), action: \"reset\"", "hint: pairListResetHint(cloud.lastError)"],
-    ["an unreadable pair list takes its repair path", "if (!pairListValid(cloud)) return { tone: \"danger\"", "if (false) return { tone: \"danger\""],
+    ["an unreadable pair list offers its repair", "hint: pairListResetHint(cloud.lastError), action: true };", "hint: pairListResetHint(cloud.lastError) };"],
+    ["an unreadable pair list shows its repair", "if (pairListValid(cloud)) return { hidden: true };", "return { hidden: true };"],
+    ["an unreadable pair list says so on Settings", "if (!pairListValid(cloud)) return [UNREADABLE_ROW];", ""],
     ["an unreadable pair list keeps the bar", "(cloud.pairs.length === 0 && pairListValid(cloud))", "cloud.pairs.length === 0"],
     ["files to review win over the state", "if (cloud.conflictCount > 0) return {", "if (false) return {"],
     ["the bar reads the headline", "var head = headline(cloud, now);\n    return { hidden: false", "var head = stateView(cloud.state, cloud.staleAfter, now);\n    return { hidden: false"],
     ["the tooltip reads the headline", "var head = headline(cloud, now);\n    var lines = pairLines(cloud.pairs, now);", "var head = stateView(cloud.state, cloud.staleAfter, now);\n    var lines = pairLines(cloud.pairs, now);"],
     ["the window reads the headline", "var head = headline(cloud, now);\n    var lines = [{", "var head = stateView(cloud.state, cloud.staleAfter, now);\n    var lines = [{"],
     ["the Settings sync value reads the headline", "var head = headline(cloud, now);\n    var value = {", "var head = stateView(cloud.state, cloud.staleAfter, now);\n    var value = {"],
-    ["Set up hourly sync while the units are absent", "text: \"Not set up\", action: true,", "text: \"Not set up\","],
-    ["Sign in again for a refused connection", "if (refused) return", "if (false) return"],
-    ["the account reaches the connection hint", "var named = user === undefined ? \"\" : \"Connected as \" + user + \".\";", "var named = \"\";"],
-    ["a hint over its ceiling falls back", "named !== \"\" && named.length <= HINT_MAX ? named", "named !== \"\" ? named"],
+    ["Set up again for units absent beside a pair", "return units === \"stale\" || (units === \"absent\" && hasPairs);", "return units === \"stale\";"],
+    ["no Set up again for units absent with no pair", "return units === \"stale\" || (units === \"absent\" && hasPairs);", "return units !== \"installed\";"],
+    ["Sign in again for a refused sign-in", "if (signInRefused(record)) return { tone: \"danger\", text: \"Google did not accept", "if (false) return { tone: \"danger\", text: \"Google did not accept"],
     ["a locked keyring comes first", "if (states.indexOf(\"locked\") !== -1) return", "if (false) return"],
+    ["a row's chip counts the files that need the user", "if (pair.needsYou > 0) return", "if (pair.review > 0) return"],
+    ["a pair counts the files that need the user", "needsYou: own.filter(function (c) { return c.needs === \"you\"; }).length", "needsYou: own.length"],
+    ["a row's label is cut to its ceiling", "label: cut(p.label, ROW_LABEL_MAX)", "label: p.label"],
+    ["a row's folders are cut to their ceiling", "secondary: cut(pairFolders(p, home), ROW_TEXT_MAX)", "secondary: pairFolders(p, home)"],
+    ["a folder under the home folder reads from ~", "pair.local.indexOf(home + \"/\") === 0", "pair.local.indexOf(home) === 0"],
+    ["no home folder writes the whole path", "var local = home !== \"\" && (", "var local = ("],
+    ["a line that states a limit has its info", "info: hasOwn(CONFLICT_INFO, variant) ? CONFLICT_INFO[variant] : \"\"", "info: \"\""],
     ["the review list stays under its ceiling", "while (value.conflicts.length > 0 && JSON.stringify(value).length > CLOUD_BYTES_MAX) value.conflicts.pop();", ""],
     ["a cleared key is written as null", "if (!hasOwn(next, k) && previous[k] !== null) keys.push(k);", ""],
     ["the tooltip names pairs, not files", "var lines = pairLines(cloud.pairs, now);\n    if (cloud.conflictCount > 0 && head.cause", "var lines = pairLines(cloud.pairs, now).concat(cloud.conflicts.map(function (c) { return c.path; }));\n    if (cloud.conflictCount > 0 && head.cause"],
@@ -589,9 +682,8 @@ const controls = [
     ["the footer offers Add only beside a folder pair", "add: hasPairs }", "add: true }"],
     ["Resume is the primary while paused", ": hasPairs && cloud.paused ? Object.assign({ enabled: true }, resume)", ": false ? Object.assign({ enabled: true }, resume)"],
     ["the pause slot is empty beside a Resume primary", "!hasPairs || primary.action === \"resume\" ? null", "!hasPairs ? null"],
-    ["the Settings page names its own fields", "return errorText(cloud.lastError, true);", "return errorText(cloud.lastError);"],
     ["Pause needs a folder pair", "var pause = !hasPairs ||", "var pause = !known ||"],
-    ["Set up hourly sync while the units are not installed", "var primary = known && cloud.units !== \"installed\"", "var primary = false"],
+    ["the footer offers Set up again as the schedule does", "var primary = known && setupOffered(cloud.units, hasPairs)", "var primary = false"],
     ["the window says a pause", "    if (cloud.paused)\n", "    if (false)\n"],
     ["the window names the first file to review", "if (cloud.conflicts.length > 0) lines.push({ text: \"First file to review: \"", "if (false) lines.push({ text: \"First file to review: \""],
     ["a file not copied carries its reason", " && (c.kind !== \"unreadable-on-drive\" || isText(c.reason))", ""],
@@ -626,8 +718,7 @@ const controls = [
     ["a connection notifies first", "if (reasons.indexOf(\"authorization-required\") !== -1)\n", "if (false)\n"],
     ["no file to review draws no count", "cloud.conflictCount > 0 ? String(cloud.conflictCount) : \"\"", "String(cloud.conflictCount)"],
     ["no folder pair hides the icon", "if (cloud === undefined || cloud === null || (cloud.pairs.length === 0 && pairListValid(cloud))) return", "if (cloud === undefined || cloud === null) return"],
-    ["a Drive folder named as the pair reads Both ways", "return pair.remote === pair.label ? \"Both ways\" : pair.remote;", "return pair.remote;"],
-    ["the account key list is published", "values.keys = keyItems(presence);", "values.account = signInValue(presence, record);"]
+    ["the account key list is published", "values.keys = keyItems(presence);", "values.keys = [];"]
 ];
 
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "test-google-drive-logic-"));

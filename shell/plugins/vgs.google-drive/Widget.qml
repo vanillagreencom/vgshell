@@ -6,7 +6,7 @@ import "GoogleDriveLogic.js" as Logic
 // The Google Drive icon in the bar. It draws the status the service
 // publishes and runs nothing itself: nothing until a folder pair exists,
 // then the headline's icon and tone (GoogleDriveLogic.headline, which the
-// window and the Settings page also read), calm while the sync is fine,
+// window and the Details tab also read), calm while the sync is fine,
 // with the count of files to review and a spinner while a sync runs. The
 // tooltip's title is the headline; its lines name each folder pair by its
 // label and state, and the last sync's time in the shell's one wording of
