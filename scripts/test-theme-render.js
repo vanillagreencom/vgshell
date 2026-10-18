@@ -2793,8 +2793,8 @@ function verifyEditorNative(template) {
 const editorNativeDocuments = verifyEditorNative(vscodeTemplate);
 const EDITOR_NATIVE_PAIRS = [
     ["range", "editor.foreground", "editor.rangeHighlightBackground"],
-    ["range", "peekViewResult.lineForeground", "peekViewResult.matchHighlightBackground"],
-    ["range", "editor.foreground", "peekViewEditor.matchHighlightBackground"],
+    ["peek-overlay", "peekViewResult.lineForeground", "peekViewResult.matchHighlightBackground", "peekViewResult.background", null],
+    ["peek-overlay", "editor.foreground", "peekViewEditor.matchHighlightBackground", "peekViewEditor.background", null],
     ["selection", "peekViewResult.selectionForeground", "peekViewResult.selectionBackground"],
     ["selection", "menubar.selectionForeground", "menubar.selectionBackground"],
     ...["inputValidation.info", "inputValidation.warning", "inputValidation.error"].map(key => ["badge", key + "Foreground", key + "Background"]),
@@ -2814,17 +2814,20 @@ const EDITOR_NATIVE_PAIRS = [
 const editorNativeMetrics = [];
 for (const { name, colors } of editorNativeDocuments) {
     const page = logic.parseColor(colors["editor.background"]);
-    const measure = (kind, foreground, background, floor) => {
+    const measure = (kind, foreground, background, floor, below = "editor.background") => {
         const fg = logic.parseColor(colors[foreground]), bg = logic.parseColor(colors[background]);
         assert.notEqual(fg, null, foreground);
         assert.notEqual(bg, null, background);
-        const fill = over(bg, page);
+        const backdrop = logic.parseColor(colors[below]);
+        assert.notEqual(backdrop, null, below);
+        const fill = over(bg, over(backdrop, page));
         const ratio = logic.contrastRatio(over(fg, fill), fill);
-        editorNativeMetrics.push({ kind, name, foreground, background, ratio, floor });
+        editorNativeMetrics.push({ kind, name, foreground, background, below, ratio, floor });
         if (floor !== null) assert.ok(ratio >= floor,
             JSON.stringify({ kind: "editor-native-contrast", name, foreground, background, ratio, floor }));
     };
-    for (const [kind, foreground, background] of EDITOR_NATIVE_PAIRS) measure(kind, foreground, background, 4.5);
+    for (const [kind, foreground, background, below, floor = 4.5] of EDITOR_NATIVE_PAIRS)
+        measure(kind, foreground, background, floor, below);
     // Canonical ANSI hues are retained. Surface and overlay pairs are measured
     // without claiming the page's readability floor for syntax layering.
     for (const [kind, background] of [["ansi-page", "editor.background"], ["ansi-surface", "peekViewEditor.background"],
