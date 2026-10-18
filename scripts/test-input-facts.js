@@ -6,10 +6,13 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const os = require("node:os");
+const vm = require("node:vm");
 const { load } = require("../bin/lib/qml-library.js");
 const tree = path.resolve(__dirname, "..");
 const stateFile = path.join(tree, "shell/Core/HyprlandState.js");
 const dispatchFile = path.join(tree, "shell/Core/Dispatch.js");
+const compositorFile = path.join(tree, "shell/Core/Compositor.qml");
 const same = (got, want, name) => assert.deepEqual(JSON.parse(JSON.stringify(got)), want, name);
 const answer = (call, name) => {
     let result;
@@ -146,6 +149,8 @@ const batch = (extra = {}) => {
 const target = (kind, id, window) => ({ ok: true, target: Object.assign({ kind, id }, window === undefined ? {} : { window }), cursor });
 
 function dispatchChecks(dispatch) {
+    const inputTarget = (text, point, protectedKeyboard, catalog) => dispatch.inputTarget(text, point, protectedKeyboard, catalog,
+        name => entries.find(entry => [entry.id, entry.startupClass].includes(name.toLowerCase())) || null, []);
     same(dispatch.INPUT_STATE_REQUEST, "j/clients;j/activewindow;j/monitors;j/layers;j/cursorpos", "one compositor snapshot owns every input fact");
     const rows = [
         ["focused application", {}, null, false, target("application", "editor", "0xabc")],
@@ -177,7 +182,7 @@ function dispatchChecks(dispatch) {
         ["TUI tall protects pointer", { clients: [client({ class: "org.vgs.tui.tall" })] }, { x: 150, y: 150 }, false, { ok: true, target: { kind: "vgs", id: "org.vgs.tui.tall", terminal: true }, cursor }]
     ];
     for (const [name, world, point, keyboardProtected, want] of rows)
-        same(dispatch.inputTarget(batch(world), point, keyboardProtected, entries), want, name);
+        same(inputTarget(batch(world), point, keyboardProtected, entries), want, name);
     const refused = [
         ["unread cursor", { cursor: {} }, null, false, "observation"],
         ["unknown keyboard protection", {}, null, null, "observation"],
@@ -210,15 +215,115 @@ function dispatchChecks(dispatch) {
         ["no application class", { clients: [client({ class: "" })] }, null, false, "target"]
     ];
     for (const [name, world, point, keyboardProtected, reason] of refused)
-        same(answer(() => dispatch.inputTarget(batch(world), point, keyboardProtected, entries), name), { ok: false, error: "refused: input=" + reason }, name);
-    assert.equal(dispatch.inputTarget("{}", null, false, entries).ok, false, "a partial batch cannot establish a target");
-    same(answer(() => dispatch.inputTarget(batch(), null, false, null), "unread desktop entries"), { ok: false, error: "refused: input=observation" }, "unread desktop entries");
+        same(answer(() => inputTarget(batch(world), point, keyboardProtected, entries), name), { ok: false, error: "refused: input=" + reason }, name);
+    assert.equal(inputTarget("{}", null, false, entries).ok, false, "a partial batch cannot establish a target");
+    same(answer(() => inputTarget(batch(), null, false, null), "unread desktop entries"), { ok: false, error: "refused: input=observation" }, "unread desktop entries");
+}
+
+function applicationChecks(dispatch) {
+    const application = { id: "portal", startupClass: "portal-dialog", terminal: false, command: ["/usr/lib/portal"] };
+    const terminal = { id: "ghostty", startupClass: "com.mitchellh.ghostty", terminal: true, command: ["/usr/bin/ghostty", "--new-window"] };
+    const custom = client({ class: "com.ghostty.scratchpad", pid: 123 });
+    const identity = { address: "0xabc", pid: 123, class: custom.class, executable: "/usr/bin/ghostty" };
+    const lookup = name => name === "portal-dialog" ? application : null;
+    const rows = [
+        ["NoDisplay entry through the full index", client({ class: "portal-dialog" }), [], [], target("application", "portal", "0xabc")],
+        ["custom terminal class through executable", custom, [terminal], [identity], target("terminal", "ghostty", "0xabc")],
+        ["entry command basename", custom, [{ ...terminal, command: ["ghostty"] }], [identity], target("terminal", "ghostty", "0xabc")],
+        ["application executable", custom, [{ ...application, command: ["ghostty"] }], [identity], target("application", "portal", "0xabc")],
+        ["class match precedes executable", client({ class: "portal-dialog", pid: 123 }), [terminal],
+            [{ ...identity, class: "portal-dialog" }], target("application", "portal", "0xabc")]
+    ];
+    for (const [name, window, catalog, identities, want] of rows)
+        same(dispatch.inputTarget(batch({ clients: [window] }), null, false, catalog, lookup, identities), want, name);
+    const refused = [
+        ["unknown executable", [terminal], [{ ...identity, executable: "/usr/bin/unknown" }], custom],
+        ["unresolved executable", [terminal], [], custom],
+        ["reused window address", [terminal], [{ ...identity, address: "0xdef" }], custom],
+        ["reused pid", [terminal], [{ ...identity, pid: 124 }], custom],
+        ["changed class", [terminal], [{ ...identity, class: "old-class" }], custom],
+        ["missing client pid", [terminal], [identity], { ...custom, pid: undefined }],
+        ["malformed client pid", [terminal], [identity], { ...custom, pid: "123" }],
+        ["unresolved executable path", [terminal], [{ ...identity, executable: "ghostty" }], custom],
+        ["ambiguous terminal category", [terminal, { ...terminal, id: "application", terminal: false }], [identity], custom],
+        ["executable name is case sensitive", [terminal], [{ ...identity, executable: "/usr/bin/Ghostty" }], custom]
+    ];
+    for (const [name, catalog, identities, window] of refused)
+        same(dispatch.inputTarget(batch({ clients: [window] }), null, false, catalog, lookup, identities),
+            { ok: false, error: "refused: input=unknown-application" }, name);
+}
+
+function executableChecks(dispatch) {
+    const window = { address: "0xabc", pid: 123, class: "scratchpad", mapped: true };
+    const identity = { address: "0xabc", pid: 123, class: "scratchpad" };
+    same(dispatch.inputExecutableClients(JSON.stringify([window])), { ok: true, clients: [identity] }, "only client identity is retained");
+    for (const input of ["not json", "null", "{}"])
+        same(dispatch.inputExecutableClients(input), { ok: false }, "unread clients: " + input);
+    for (const extra of [{ pid: 0 }, { pid: -1 }, { pid: "123" }, { pid: 1.5 }, { mapped: false }, { address: "bad" }, { class: null }])
+        same(dispatch.inputExecutableClients(JSON.stringify([{ ...window, ...extra }])), { ok: true, clients: [] }, "invalid client: " + JSON.stringify(extra));
+    const crowded = Array.from({ length: 257 }, (_, i) => ({ ...window, pid: i + 1, address: "0x" + (i + 1).toString(16) }));
+    const read = dispatch.inputExecutableClients(JSON.stringify(crowded));
+    assert.equal(read.clients.length, 256, "the retained client set has a fixed ceiling");
+    assert.equal(read.clients[255].pid, 256, "the last admitted client survives");
+    same(dispatch.inputExecutableReply([identity], "/usr/bin/ghostty\n"), { ok: true, clients: [{ ...identity, executable: "/usr/bin/ghostty" }] }, "readlink result retains client identity");
+    same(dispatch.inputExecutableReply([identity], "\n"), { ok: true, clients: [] }, "a client exiting before readlink remains unknown");
+    for (const input of ["", "/usr/bin/ghostty", "/usr/bin/ghostty\n\n"])
+        same(dispatch.inputExecutableReply([identity], input), { ok: false }, "partial executable reply: " + JSON.stringify(input));
+}
+
+function executableOwnerChecks(source) {
+    const method = [...source.matchAll(/^    function refreshInputExecutables\(\) \{\n[\s\S]*?^    \}/gm)];
+    const handlers = [...source.matchAll(/^        id: executable(?:Clients|Paths)\n[\s\S]*?        onReadDone: \([^\n]+\) => \{\n([\s\S]*?)^        \}/gm)];
+    assert.equal(method.length, 1, "one production cache invalidator");
+    assert.equal(handlers.length, 2, "both production cache readers are exercised");
+    const reads = [], paths = [];
+    const root = { inputExecutableEpoch: 1, inputExecutables: ["old"] };
+    const scope = vm.createContext({ root, inputExecutableEpoch: 1, inputExecutables: root.inputExecutables,
+        Dispatch: load(dispatchFile), executableClients: { read: (...args) => reads.push(args) },
+        executablePaths: { read: (...args) => paths.push(args) } });
+    // QML methods resolve singleton properties as unqualified names.
+    Object.defineProperties(scope, {
+        inputExecutableEpoch: { get: () => root.inputExecutableEpoch, set: value => { root.inputExecutableEpoch = value; }, configurable: true },
+        inputExecutables: { get: () => root.inputExecutables, set: value => { root.inputExecutables = value; }, configurable: true }
+    });
+    vm.runInContext(method[0][0], scope);
+    vm.runInContext("refreshInputExecutables()", scope);
+    same(root.inputExecutables, [], "window lifecycle invalidates before an asynchronous read");
+    assert.equal(root.inputExecutableEpoch, 2, "lifecycle advances the observation generation");
+    same(reads, [[["hyprctl", "-j", "clients"], 2]], "one client snapshot per refresh");
+    const clientsDone = vm.runInContext("(epoch, text, failure) => {" + handlers[0][1] + "}", scope);
+    const pathsDone = vm.runInContext("(request, text, failure) => {" + handlers[1][1] + "}", scope);
+    const client = { address: "0xabc", pid: 123, class: "scratchpad", mapped: true };
+    clientsDone(1, JSON.stringify([client]), "");
+    clientsDone(2, JSON.stringify([client]), "failed");
+    assert.equal(paths.length, 0, "stale or failed snapshots start no lookup");
+    clientsDone(2, JSON.stringify([client]), "");
+    assert.equal(paths.length, 1, "current clients start one executable batch");
+    same(paths[0][0].slice(-1), ["/proc/123/exe"], "only validated numeric pid becomes a path argument");
+    const request = paths[0][1];
+    vm.runInContext("refreshInputExecutables()", scope);
+    pathsDone(request, "/usr/bin/ghostty\n", "");
+    same(root.inputExecutables, [], "a late executable reply cannot repopulate an invalidated cache");
+    pathsDone({ ...request, epoch: 3 }, "/usr/bin/ghostty\n", "failed");
+    same(root.inputExecutables, [], "a failed current lookup cannot classify a client");
+    pathsDone({ ...request, epoch: 3 }, "/proc/123/exe\n", "");
+    same(root.inputExecutables, [], "a client that exits or denies executable access remains unknown");
+    pathsDone({ ...request, epoch: 3 }, "/usr/bin/ghostty\n", "");
+    assert.equal(root.inputExecutables[0].executable, "/usr/bin/ghostty", "only the current completed batch is published");
 }
 
 stateChecks(load(stateFile));
 keyFactsChecks(load(stateFile));
 dispatchChecks(load(dispatchFile));
+applicationChecks(load(dispatchFile));
+executableChecks(load(dispatchFile));
+executableOwnerChecks(fs.readFileSync(compositorFile, "utf8"));
 const controls = [
+    [dispatchFile, applicationChecks, "NoDisplay lookup", "lookup(target.class) || undefined", "undefined"],
+    [dispatchFile, applicationChecks, "executable matching", "entry === undefined && Array.isArray(executables)", "false"],
+    [dispatchFile, executableChecks, "executable cache bound", ".slice(0, INPUT_EXECUTABLE_LIMIT)", ".slice()"],
+    [compositorFile, executableOwnerChecks, "immediate cache invalidation", "inputExecutables = [];", "inputExecutables = inputExecutables;"],
+    [compositorFile, executableOwnerChecks, "stale executable reply", 'request.epoch !== root.inputExecutableEpoch || failure !== ""', 'failure !== ""'],
     [stateFile, stateChecks, "required translation map", "requireTranslation && ", "false && "],
     [stateFile, stateChecks, "read keyboard devices", "devices === null || ", ""],
     [stateFile, stateChecks, "key request list", "!Array.isArray(keys) || ", ""],
@@ -292,8 +397,7 @@ const controls = [
     [dispatchFile, dispatchChecks, "bottom rectangle edge", "p.y < r.y + r.h", "p.y <= r.y + r.h"]
 ];
 
-fs.mkdirSync(path.join(tree, "tmp"), { recursive: true });
-const temporary = fs.mkdtempSync(path.join(tree, "tmp/input-facts-"));
+const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "input-facts-"));
 try {
     // Copies preserve the production import graph. No source is edited.
     fs.cpSync(path.join(tree, "shell/Core"), path.join(temporary, "shell/Core"), { recursive: true });
@@ -306,7 +410,7 @@ try {
         assert.notEqual(changed, source, name + ": mutation changes bytes");
         const copy = path.join(temporary, path.relative(tree, file));
         fs.writeFileSync(copy, changed);
-        const library = load(copy);
+        const library = file === compositorFile ? changed : load(copy);
         assert.throws(() => check(library), assert.AssertionError, name + ": must fail an assertion");
         fs.writeFileSync(copy, source);
         console.log("  ok    control: " + name);

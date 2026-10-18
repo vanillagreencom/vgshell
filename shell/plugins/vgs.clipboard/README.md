@@ -22,4 +22,6 @@ The Keys rows on the plugin's Settings page change `SUPER+CTRL+V`, `SUPER+C`, `S
 
 In a terminal, the copy and paste keys send Ctrl+Shift+C and Ctrl+Shift+V. kitty, Ghostty, foot and Alacritty copy and paste with those keys at their default settings.
 
+VGS recognizes dialogs and custom terminal windows through the application's desktop entry. If VGS cannot identify the application, it sends no key and shows a message.
+
 [developer.md](developer.md) states what is recorded, where it is kept and the plugin's IPC functions.

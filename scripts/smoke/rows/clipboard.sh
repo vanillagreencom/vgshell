@@ -195,11 +195,14 @@ clip_window() {
 }
 # clip_entry ID NAME CATEGORIES: a desktop entry that names the helper
 # window's class, which the core reads its kind from.
-clip_entry() { printf '[Desktop Entry]\nType=Application\nName=%s\nExec=true\nStartupWMClass=%s\nCategories=%s\n' "$2" "$1" "$3" >"$home/.local/share/applications/$1.desktop"; }
+clip_entry() { printf '[Desktop Entry]\nType=Application\nName=%s\nExec=%s\nStartupWMClass=%s\nCategories=%s\nNoDisplay=%s\n' "$2" "${4:-true}" "$1" "$3" "${5:-false}" >"$home/.local/share/applications/$1.desktop"; }
 
 mkdir -p "$home/.local/share/applications"
 clip_entry smoke.clipboard-terminal "Clipboard terminal" "System;TerminalEmulator;"
 clip_entry smoke.clipboard-app "Clipboard application" "Utility;"
+clip_entry smoke.clipboard-hidden "Clipboard dialog" "Utility;" true true
+cp -- "$sandbox/toplevel" "$sandbox/clipboard-custom-terminal"
+clip_entry smoke.clipboard-executable "Custom terminal" "System;TerminalEmulator;" "$sandbox/clipboard-custom-terminal"
 hypr_lua_save clipboard
 printf '%s\n' 'hl.config({ input = { resolve_binds_by_sym = true } })' >>"$home/.config/hypr/hyprland.lua"
 expect "the nested instance reloads with typed keys reaching binds" ok hypr reload config-only
@@ -463,6 +466,35 @@ if clip_window "$sandbox/clipboard-keys-terminal.log" smoke.clipboard-terminal "
   close_toplevel "$clip_keys_pid" "the shortcuts' terminal helper exits 0 on SIGTERM"
 fi
 
+# A class named only by NoDisplay, then a terminal whose class no entry
+# names. Each assertion reads the actual key and modifiers from the client.
+if clip_window "$sandbox/clipboard-hidden.log" smoke.clipboard-hidden "Clipboard dialog"; then
+  clip_hidden_pid="$toplevel_pid"
+  for clip_hidden_key in c v x; do
+    clip_from="$(clip_lines "$sandbox/clipboard-hidden.log")"
+    clip_press "$clip_hidden_key" || fail "NoDisplay: typing SUPER+$clip_hidden_key failed"
+    case $clip_hidden_key in c) clip_hidden_code=46;; v) clip_hidden_code=47;; x) clip_hidden_code=45;; esac
+    expect_poll "SUPER+$clip_hidden_key reaches the NoDisplay application with Ctrl alone" "[[4, $clip_hidden_code]]" clip_chords_of "$sandbox/clipboard-hidden.log" "$clip_from"
+  done
+  close_toplevel "$clip_hidden_pid" "the NoDisplay helper exits 0 on SIGTERM"
+fi
+if spawn_display "$sandbox/clipboard-custom.log" "${shell_env[@]}" -- "$sandbox/clipboard-custom-terminal" smoke.clipboard-custom "Custom terminal"; then
+  clip_custom_pid="$spawn_pid"
+  expect_poll "the custom-class terminal has the keyboard" '["smoke.clipboard-custom", "Custom terminal"]' active_window
+  for clip_custom_key in c v; do
+    clip_from="$(clip_lines "$sandbox/clipboard-custom.log")"
+    clip_press "$clip_custom_key" || fail "custom terminal: typing SUPER+$clip_custom_key failed"
+    case $clip_custom_key in c) clip_custom_code=46;; v) clip_custom_code=47;; esac
+    expect_poll "SUPER+$clip_custom_key reaches the executable-matched terminal with Ctrl and Shift" "[[5, $clip_custom_code]]" clip_chords_of "$sandbox/clipboard-custom.log" "$clip_from"
+  done
+  clip_from="$(clip_lines "$sandbox/clipboard-custom.log")"
+  clip_press x || fail "custom terminal: typing SUPER+X failed"
+  expect "SUPER+X sends the custom-class terminal no key" none clip_no_key "$sandbox/clipboard-custom.log" "$clip_from"
+  close_toplevel "$clip_custom_pid" "the custom-class terminal helper exits 0 on SIGTERM"
+else
+  fail "the custom-class terminal maps"
+fi
+
 # An application, then the launcher's search field over it: a layer, which
 # has the keyboard while Hyprland's active window is still the application.
 clip_launcher_before="$(plugin_enabled vgs.launcher)" || clip_launcher_before=unread
@@ -556,6 +588,7 @@ expect_poll "the disabled history leaves no service" False record_exists vgs.cli
 expect_poll "the disabled history holds no registration" '[[], []]' clip_lent
 expect_poll "the disabled history leaves no watcher" 0 clip_watchers
 notes_off "clipboard"
-rm -f -- "$home/.local/share/applications/smoke.clipboard-terminal.desktop" "$home/.local/share/applications/smoke.clipboard-app.desktop"
+rm -f -- "$home/.local/share/applications/smoke.clipboard-terminal.desktop" "$home/.local/share/applications/smoke.clipboard-app.desktop" \
+  "$home/.local/share/applications/smoke.clipboard-hidden.desktop" "$home/.local/share/applications/smoke.clipboard-executable.desktop"
 hypr_lua_restore clipboard || fail "the clipboard row puts the harness hyprland.lua back"
 expect "the nested instance reloads the harness hyprland.lua" ok hypr reload config-only

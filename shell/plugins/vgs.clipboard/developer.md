@@ -6,7 +6,7 @@
 
 `SUPER+CTRL+V` opens the history on the focused monitor. The entries are on the left: pinned entries first, then the newest. The selected entry shows on the right. Typing goes to the search field and shows only the entries that hold the text, in upper or lower case. The list shows 50 entries. The search reads the first 8192 characters of an entry.
 
-A paste puts the entry on the clipboard, closes the history and sends the paste key to the application: Ctrl+Shift+V to a terminal, Ctrl+V to any other application. VGS reads which application has the keyboard from its desktop entry. When VGS cannot name the application, it sends no key and shows a message. The entry stays on the clipboard for the user to paste.
+A paste puts the entry on the clipboard, closes the history and sends the paste key to the application: Ctrl+Shift+V to a terminal, Ctrl+V to any other application. VGS identifies the window through its desktop entry, including NoDisplay entries. For a custom window class, the core matches the window process's executable to a desktop entry's command basename. When VGS cannot name the application, it sends no key and shows a message. The entry stays on the clipboard for the user to paste.
 
 Up, Down, Page Up, Page Down, Ctrl+Home and Ctrl+End move the selection. Escape clears the search, then closes the history.
 
@@ -19,7 +19,7 @@ Up, Down, Page Up, Page Down, Ctrl+Home and Ctrl+End move the selection. Escape 
 | A terminal, or the window of a VGS floating TUI | Ctrl+Shift+C | Ctrl+Shift+V | no key |
 | Another application, or a VGS surface | Ctrl+C | Ctrl+V | Ctrl+X |
 
-Ctrl+Shift+C and Ctrl+Shift+V are the clipboard keys of kitty, Ghostty, foot and Alacritty at their default settings. A window that no desktop entry names receives no key, and a message shows. `ClipboardHistory.chord` holds the table.
+Ctrl+Shift+C and Ctrl+Shift+V are the clipboard keys of kitty, Ghostty, foot and Alacritty at their default settings. A window whose class and executable match no desktop entry receives no key, and a message shows. A wrapper command whose `TryExec` alone names the real application remains unresolved: Quickshell 0.3.1 has no public `TryExec` accessor. `ClipboardHistory.chord` holds the table.
 
 ## Recorded copies
 

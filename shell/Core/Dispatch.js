@@ -339,13 +339,38 @@ function windowState(text) {
 // including pass-through gaps: hyprctl exposes no input-region geometry.
 var INPUT_STATE_REQUEST = "j/clients;j/activewindow;j/monitors;j/layers;j/cursorpos";
 
+// The executable index is rebuilt on window lifecycle events, never on a key
+// press. Excess windows remain unknown rather than growing retained state.
+var INPUT_EXECUTABLE_LIMIT = 256;
+
+function inputExecutableClients(text) {
+    var clients;
+    try { clients = JSON.parse(text); } catch (e) { return { ok: false }; }
+    if (!Array.isArray(clients)) return { ok: false };
+    return { ok: true, clients: clients.filter(function (c) {
+        return c && c.mapped && Number.isInteger(c.pid) && c.pid > 0
+            && typeof c.address === "string" && /^0x[0-9a-f]+$/.test(c.address)
+            && typeof c.class === "string";
+    }).slice(0, INPUT_EXECUTABLE_LIMIT).map(function (c) {
+        return { address: c.address, pid: c.pid, class: c.class };
+    }) };
+}
+
+function inputExecutableReply(clients, text) {
+    var lines = text.split("\n");
+    if (lines.pop() !== "" || lines.length !== clients.length) return { ok: false };
+    return { ok: true, clients: clients.map(function (client, i) {
+        return lines[i][0] === "/" ? Object.assign({}, client, { executable: lines[i] }) : null;
+    }).filter(function (client) { return client !== null; }) };
+}
+
 // A shell window's target. A floating TUI's window carries `terminal`: a
 // caller that sends it a key must know that it reads Ctrl+C as an interrupt.
 function shellWindowTarget(windowClass) {
     return HyprlandLayer.tuiClass(windowClass) ? { kind: "vgs", id: windowClass, terminal: true } : { kind: "vgs", id: windowClass };
 }
 
-function inputTarget(text, point, keyboardProtected, entries) {
+function inputTarget(text, point, keyboardProtected, entries, lookup, executables) {
     var read = jsonReplies(text, [["clients", "array"], ["active", "object"], ["monitors", "array"],
         ["layers", "object"], ["cursor", "object"]], "input state");
     if (!read.ok) return read;
@@ -353,7 +378,7 @@ function inputTarget(text, point, keyboardProtected, entries) {
     var refusal = function (error) { return { ok: false, error: "refused: input=" + error }; };
     var rect = function (r) { return r && [r.x, r.y, r.w, r.h].every(Number.isFinite) && r.w > 0 && r.h > 0; };
     var contains = function (r, p) { return p.x >= r.x && p.x < r.x + r.w && p.y >= r.y && p.y < r.y + r.h; };
-    if (!Number.isFinite(cursor.x) || !Number.isFinite(cursor.y) || typeof keyboardProtected !== "boolean" || !Array.isArray(entries))
+    if (!Number.isFinite(cursor.x) || !Number.isFinite(cursor.y) || typeof keyboardProtected !== "boolean" || !Array.isArray(entries) || typeof lookup !== "function")
         return refusal("observation");
     var target = null;
     var lowerLayer = null;
@@ -401,7 +426,28 @@ function inputTarget(text, point, keyboardProtected, entries) {
     if (target === null && lowerLayer !== null) return { ok: true, target: { kind: "vgs", id: lowerLayer }, cursor: cursor };
     if (target === null || typeof target.class !== "string" || target.class === "") return refusal("target");
     if (HyprlandLayer.inputProtectedClass(target.class)) return { ok: true, target: shellWindowTarget(target.class), cursor: cursor };
-    var entry = entries.find(function (e) { return [e.id, e.startupClass].indexOf(target.class.toLowerCase()) !== -1; });
+    // DesktopEntries.heuristicLookup includes NoDisplay entries, unlike its
+    // applications model (Quickshell v0.3.1 src/core/desktopentry.cpp:447–463,
+    // 582). The owner supplies that lookup; all callers share this decision.
+    var entry = lookup(target.class) || undefined;
+    if (entry === undefined && Array.isArray(executables)) {
+        // The lifecycle index binds an executable to the complete client
+        // identity. A reused pid or address alone cannot classify a window.
+        var identity = executables.find(function (e) {
+            return Number.isInteger(target.pid) && target.pid > 0 && e.pid === target.pid
+                && e.address === target.address && e.class === target.class;
+        });
+        if (identity !== undefined && typeof identity.executable === "string" && identity.executable[0] === "/") {
+            var basename = function (value) { return typeof value === "string" ? value.slice(value.lastIndexOf("/") + 1) : ""; };
+            var binary = basename(identity.executable);
+            var matches = entries.filter(function (e) {
+                return binary !== "" && Array.isArray(e.command) && basename(e.command[0]) === binary;
+            });
+            // Entries for one executable can name several launch modes.
+            // Mixed terminal categories cannot prove which chord is safe.
+            if (matches.length > 0 && matches.every(function (e) { return e.terminal === matches[0].terminal; })) entry = matches[0];
+        }
+    }
     if (entry === undefined) return refusal("unknown-application");
     return { ok: true, target: { kind: entry.terminal ? "terminal" : "application", id: entry.id,
         window: target.address }, cursor: cursor };

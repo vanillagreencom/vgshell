@@ -39,6 +39,51 @@ Singleton {
     // singleton is built, the index is filled before an observation's reply.
     readonly property var desktopApplications: DesktopEntries.applications
 
+    // v0.3.1 DesktopEntry.command is parsed argv; heuristicLookup searches the
+    // complete index, including NoDisplay StartupWMClass (upstream
+    // src/core/desktopentry.hpp:71 and desktopentry.cpp:447–463,582).
+    function inputEntry(entry) {
+        return entry === null ? null : { id: entry.id.replace(/\.desktop$/, "").toLowerCase(),
+            startupClass: entry.startupClass.toLowerCase(), terminal: entry.categories.indexOf("TerminalEmulator") !== -1,
+            command: Array.from(entry.command) };
+    }
+
+    property var inputExecutables: []
+    property int inputExecutableEpoch: 0
+
+    function refreshInputExecutables() {
+        ++inputExecutableEpoch;
+        inputExecutables = [];
+        executableClients.read(["hyprctl", "-j", "clients"], inputExecutableEpoch);
+    }
+
+    Component.onCompleted: Qt.callLater(root.refreshInputExecutables)
+
+    HyprctlReader {
+        id: executableClients
+        label: "input-clients"
+        onReadDone: (epoch, text, failure) => {
+            if (epoch !== root.inputExecutableEpoch || failure !== "") return;
+            const read = Dispatch.inputExecutableClients(text);
+            if (!read.ok || read.clients.length === 0) return;
+            // GNU readlink -m emits a path for every argument, even after a
+            // client exits. One process resolves the set; unresolved /proc
+            // paths are removed before publication below (readlink --help).
+            executablePaths.read(["readlink", "-m", "--"].concat(read.clients.map(client => "/proc/" + client.pid + "/exe")),
+                { epoch: epoch, clients: read.clients });
+        }
+    }
+
+    HyprctlReader {
+        id: executablePaths
+        label: "input-executables"
+        onReadDone: (request, text, failure) => {
+            if (request.epoch !== root.inputExecutableEpoch || failure !== "") return;
+            const read = Dispatch.inputExecutableReply(request.clients, text);
+            if (read.ok) root.inputExecutables = read.clients.filter(client => client.executable !== "/proc/" + client.pid + "/exe");
+        }
+    }
+
     // Host-owned raw QQuickWindows supply activation, including layer focus
     // absent from Hyprland's activewindow reply. Each host releases its record.
     function inputSurface(window) {
@@ -69,9 +114,9 @@ Singleton {
         onReadDone: (request, text, failure) => {
             if (root.inputObservation === null) return;
             const protectedKeyboard = root.inputSurfaces.some(record => record.window !== null && record.window.visible && record.window.active);
-            const entries = root.desktopApplications.values.map(entry => ({ id: entry.id.replace(/\.desktop$/, "").toLowerCase(),
-                startupClass: entry.startupClass.toLowerCase(), terminal: entry.categories.indexOf("TerminalEmulator") !== -1 }));
-            root.finishInput(failure === "" ? Dispatch.inputTarget(text, root.inputObservation.point, protectedKeyboard, entries)
+            const entries = root.desktopApplications.values.map(root.inputEntry);
+            root.finishInput(failure === "" ? Dispatch.inputTarget(text, root.inputObservation.point, protectedKeyboard, entries,
+                name => root.inputEntry(DesktopEntries.heuristicLookup(name)), root.inputExecutables)
                 : { ok: false, error: "refused: input=read-failed " + failure });
         }
     }
@@ -318,6 +363,10 @@ Singleton {
         target: Hyprland
         function onFocusedMonitorChanged() { root.askAgain(); }
         function onRawEvent(event) {
+            // Invalidate before any asynchronous read: a closed client's pid
+            // or address may be reused while an older read is still running.
+            if (event.name === "openwindow" || event.name === "closewindow" || event.name === "configreloaded")
+                root.refreshInputExecutables();
             if (event.name === "openlayer" || event.name === "closelayer") {
                 root.layersMoved = true;
                 Hyprland.refreshMonitors();
