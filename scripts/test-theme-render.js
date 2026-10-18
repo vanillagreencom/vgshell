@@ -1038,6 +1038,287 @@ const selectionPackages = [
 });
 const selectionDefaults = selectionPackages.find(entry => entry.shipped && entry.pkg.name === "vgs").pkg;
 
+// Emacs 31.1 shipped faces use these independently listed VGS-1877 roles.
+// Theme specs replace defface attributes; retain native display conditions,
+// non-colour attributes and nested box/underline geometry in the template.
+const EMACS_ROLES = [
+    ["color.text", [
+        "bookmark-face.distant-foreground", "bookmark-face.foreground", "completions-common-part.foreground",
+        "cua-global-mark.foreground", "custom-button-mouse.foreground", "custom-button-pressed-unraised.foreground",
+        "custom-button-pressed.foreground", "custom-button.foreground", "custom-comment.foreground",
+        "custom-rogue.foreground", "custom-set.foreground", "custom-variable-obsolete.foreground",
+        "custom-variable-tag.foreground", "diff-file-header.foreground", "diff-header.foreground",
+        "ebrowse-tree-mark.foreground", "edmacro-label.foreground", "elisp-major-mode-name.foreground",
+        "elisp-unknown-call.foreground", "emacs-authors-author.foreground", "emacs-authors-descriptor.foreground",
+        "epa-mark.foreground", "erts-mode-specification-name.foreground", "erts-mode-specification-value.foreground",
+        "gomoku-X.foreground", "header-line.foreground", "help-key-binding.foreground",
+        "hexl-ascii-region.foreground", "highlight.foreground", "ido-subdir.foreground",
+        "image-dired-thumb-header-file-size.foreground", "info-menu-star.foreground", "info-node.foreground",
+        "isearch-fail.foreground", "message-header-cc.foreground", "message-header-name.foreground",
+        "message-header-newsgroups.foreground", "message-header-other.foreground", "message-header-to.foreground",
+        "message-header-xheader.foreground", "newsticker-feed-face.foreground", "newsticker-old-item-face.foreground",
+        "newsticker-treeview-face.foreground", "rcirc-my-nick.foreground", "rcirc-server.foreground",
+        "speedbar-button-face.foreground", "speedbar-directory-face.foreground", "speedbar-file-face.foreground",
+        "speedbar-selected-face.foreground", "speedbar-separator-face.foreground", "speedbar-tag-face.foreground",
+        "tab-bar-tab-highlight.foreground", "tab-bar-tab.foreground", "tab-bar.foreground",
+        "tab-line-highlight.foreground", "tab-line-tab.foreground", "tab-line.foreground",
+        "table-cell.foreground", "tool-bar.foreground", "tooltip.foreground",
+        "tty-menu-disabled-face.foreground", "tty-menu-enabled-face.foreground", "vera-font-lock-interface.foreground",
+        "whitespace-hspace.foreground", "whitespace-space.foreground", "whitespace-tab.foreground",
+        "widget-field.foreground", "widget-single-line-field.foreground", "window-tool-bar-button-checked-hover.foreground",
+        "window-tool-bar-button-checked.foreground", "window-tool-bar-button-disabled.foreground", "diff-refine-added.foreground",
+        "diff-refine-removed.foreground", "ebrowse-progress.foreground", "edebug-disabled-breakpoint.foreground",
+        "elisp-symbol-at-mouse.foreground", "line-number-major-tick.foreground", "line-number-minor-tick.foreground",
+        "newsticker-enclosure-face.foreground", "nobreak-space.foreground", "separator-line.foreground",
+        "speedbar-highlight-face.foreground", "tab-bar-tab-inactive.foreground", "tab-line-tab-current.foreground",
+        "tab-line-tab-inactive.foreground", "trailing-whitespace.foreground", "tty-menu-selected-face.foreground",
+        "window-tool-bar-button-hover.foreground", "window-tool-bar-button.foreground",
+    ]],
+    ["color.textFaint", [
+        "breakpoint-disabled.foreground", "custom-comment-tag.foreground", "newsticker-extra-face.foreground",
+        "todo-comment.foreground", "transient-key-noop.foreground", "whitespace-newline.foreground",
+    ]],
+    ["color.border", [
+        "confusingly-reordered.underline.color", "help-key-binding.box.color", "mode-line-highlight.box.color",
+        "speedbar-separator-face.overline.color",
+    ]],
+    ["color.surface", [
+        "cua-global-mark.background", "custom-comment.background", "custom-rogue.background",
+        "custom-set.background", "diff-refine-added.background", "diff-refine-removed.background",
+        "ebrowse-progress.background", "edebug-disabled-breakpoint.background", "help-key-binding.background",
+        "hexl-ascii-region.background", "line-number-major-tick.background", "line-number-minor-tick.background",
+        "newsticker-enclosure-face.background", "speedbar-highlight-face.background", "tool-bar.background",
+        "tty-menu-disabled-face.background", "tty-menu-enabled-face.background", "tty-menu-selected-face.background",
+        "whitespace-hspace.background", "whitespace-space.background",
+    ]],
+    ["color.surfaceRaised", [
+        "custom-button-mouse.background", "custom-button-pressed.background", "custom-button.background",
+        "diff-file-header.background", "diff-header.background", "elisp-symbol-at-mouse.background",
+        "header-line.background", "separator-line.background", "speedbar-separator-face.background",
+        "tab-bar-tab-highlight.background", "tab-bar-tab-inactive.background", "tab-bar-tab.background",
+        "tab-bar.background", "tab-line-highlight.background", "tab-line-tab-current.background",
+        "tab-line-tab-inactive.background", "tab-line-tab.background", "tab-line.background",
+        "table-cell.background", "tooltip.background", "whitespace-tab.background",
+        "widget-field.background", "widget-single-line-field.background", "window-tool-bar-button-checked-hover.background",
+        "window-tool-bar-button-checked.background", "window-tool-bar-button-disabled.background", "window-tool-bar-button-hover.background",
+        "window-tool-bar-button.background", "highlight.background",
+    ]],
+    ["badge.tone.accent.background", [
+        "custom-changed.background", "custom-modified.background", "custom-themed.background",
+        "ido-indicator.background", "match.background", "newsticker-treeview-selection-face.background",
+        "org-dispatcher-highlight.background", "reb-match-0.background", "reb-match-1.background",
+        "reb-match-2.background", "reb-match-3.background", "secondary-selection.background",
+        "show-paren-match.background",
+    ]],
+    ["badge.tone.accent.foreground", [
+        "custom-changed.foreground", "custom-modified.foreground", "custom-themed.foreground",
+        "ido-indicator.foreground", "match.foreground", "org-dispatcher-highlight.foreground",
+        "secondary-selection.foreground", "show-paren-match.foreground", "newsticker-treeview-selection-face.foreground",
+        "reb-match-0.foreground", "reb-match-1.foreground", "reb-match-2.foreground",
+        "reb-match-3.foreground",
+    ]],
+    ["color.textHeading", [
+        "custom-group-tag-1.foreground", "custom-group-tag.foreground", "info-title-1.foreground",
+        "info-title-2.foreground", "message-header-subject.foreground",
+    ]],
+    ["badge.tone.danger.background", [
+        "custom-invalid.background", "diff-error.background", "diff-removed.background",
+        "dired-broken-symlink.background", "ediff-current-diff-A.background", "ediff-fine-diff-A.background",
+        "ert-test-result-unexpected.background", "image-dired-thumb-flagged.background", "package-mark-delete-line.background",
+        "smerge-refined-removed.background", "smerge-upper.background",
+    ]],
+    ["badge.tone.danger.foreground", [
+        "custom-invalid.foreground", "diff-error.foreground", "dired-broken-symlink.foreground",
+        "diff-removed.foreground", "ediff-current-diff-A.foreground", "ediff-fine-diff-A.foreground",
+        "ert-test-result-unexpected.foreground", "image-dired-thumb-flagged.foreground", "package-mark-delete-line.foreground",
+        "smerge-refined-removed.foreground", "smerge-upper.foreground",
+    ]],
+    ["color.success", [
+        "custom-state.foreground", "ido-only-match.foreground", "todo-done-sep.foreground",
+        "todo-done.foreground", "transient-key-stay.foreground",
+    ]],
+    ["color.warning", [
+        "diary.foreground", "flymake-warning.underline.color", "flyspell-duplicate.underline.color",
+        "newsticker-immortal-item-face.foreground", "newsticker-treeview-immortal-face.foreground", "todo-diary-expired.foreground",
+        "todo-nondiary.foreground", "transient-key-return.foreground",
+    ]],
+    ["badge.tone.success.background", [
+        "diff-added.background", "ediff-current-diff-B.background", "ediff-fine-diff-B.background",
+        "ert-test-result-expected.background", "package-mark-install-line.background", "smerge-lower.background",
+        "smerge-refined-added.background",
+    ]],
+    ["badge.tone.warning.background", [
+        "diff-changed-unspecified.background", "diff-refine-changed.background", "ediff-current-diff-C.background",
+        "ediff-fine-diff-C.background", "holiday.background", "image-dired-thumb-mark.background",
+        "smerge-base.background",
+    ]],
+    ["terminal.color3", [
+        "ebrowse-member-attribute.foreground", "rcirc-other-nick.foreground", "vera-font-lock-number.foreground",
+    ]],
+    ["terminal.color4", [
+        "ebrowse-root-class.foreground", "vera-font-lock-function.foreground", "which-func.foreground",
+    ]],
+    ["badge.tone.info.background", [
+        "ediff-current-diff-Ancestor.background", "ediff-fine-diff-Ancestor.background",
+    ]],
+    ["terminal.color6", [
+        "elisp-rx.foreground", "elisp-symbol-role-definition.foreground", "elisp-symbol-role.foreground",
+        "escape-glyph.foreground", "homoglyph.foreground", "nobreak-hyphen.foreground",
+        "rcirc-bright-nick.foreground",
+    ]],
+    ["terminal.color2", [
+        "epa-string.foreground", "landmark-font-lock-face-X.foreground", "message-mml.foreground",
+        "todo-category-string.foreground",
+    ]],
+    ["color.accent", [
+        "erc-fill-wrap-merge-indicator-face.foreground", "transient-key-stack.foreground",
+    ]],
+    ["color.info", [
+        "eshell-prompt.foreground", "flymake-note.underline.color", "link-visited.foreground",
+        "rcirc-prompt.foreground", "transient-key-recurse.foreground",
+    ]],
+    ["color.danger", [
+        "flymake-error.underline.color", "flyspell-incorrect.underline.color", "rcirc-server-prefix.foreground",
+        "todo-top-priority.foreground", "transient-key-exit.foreground",
+    ]],
+    ["badge.tone.warning.foreground", [
+        "image-dired-thumb-mark.foreground", "diff-changed-unspecified.foreground", "diff-refine-changed.foreground",
+        "ediff-current-diff-C.foreground", "ediff-fine-diff-C.foreground", "holiday.foreground",
+        "smerge-base.foreground",
+    ]],
+    ["terminal.color1", [
+        "landmark-font-lock-face-O.foreground",
+    ]],
+    ["color.textMuted", [
+        "message-separator.foreground",
+    ]],
+    ["color.infoSubtle", [
+        "nobreak-space.background", "trailing-whitespace.background",
+    ]],
+    ["terminal.color5", [
+        "prolog-builtin-face.foreground", "rcirc-nick-in-message.foreground",
+    ]],
+    ["listItem.selectedForeground", [
+        "region.foreground",
+    ]],
+    ["color.borderControl", [
+        "widget-field.box.color",
+    ]],
+    ["listItem.selected", [
+        "region.background",
+    ]],
+    ["badge.tone.success.foreground", [
+        "diff-added.foreground", "ediff-current-diff-B.foreground", "ediff-fine-diff-B.foreground",
+        "ert-test-result-expected.foreground", "package-mark-install-line.foreground", "smerge-lower.foreground",
+        "smerge-refined-added.foreground",
+    ]],
+    ["badge.tone.info.foreground", [
+        "ediff-current-diff-Ancestor.foreground", "ediff-fine-diff-Ancestor.foreground",
+    ]],
+];
+const emacsDir = path.join(themesDir, "targets", "emacs");
+const emacsTemplate = fs.readFileSync(path.join(emacsDir, "emacs.el"), "utf8");
+const emacsTarget = selectionRender.acceptTarget(logic, "emacs", fs.readFileSync(path.join(emacsDir, "target.json"), "utf8"));
+assert.equal(emacsTarget.ok, true);
+function emacsFaceSpecs(text) {
+    // Read the generated native data, including conditional and default specs.
+    const tokens = text.slice(text.indexOf("(custom-theme-set-faces")).match(/;[^\n]*|"(?:\\.|[^"\\])*"|[()']|[^\s()';"]+/g)
+        .filter(token => !token.startsWith(";"));
+    let cursor = 0;
+    function read() {
+        const token = tokens[cursor++];
+        assert.notEqual(token, undefined);
+        if (token === "'") return read();
+        if (token !== "(") return token.startsWith('"') ? JSON.parse(token) : token;
+        const list = [];
+        while (tokens[cursor] !== ")") list.push(read());
+        cursor++;
+        return list;
+    }
+    const form = read();
+    assert.equal(form[0], "custom-theme-set-faces");
+    return new Map(form.slice(2).map(([face, specs]) => [face, specs.map(([display, ...tail]) => {
+        const attrs = tail.length === 1 && Array.isArray(tail[0]) ? tail[0] : tail;
+        const values = new Map();
+        for (let index = 0; index < attrs.length; index += 2) values.set(attrs[index], attrs[index + 1]);
+        return { display, values };
+    })]));
+}
+function verifyEmacsFaces(template, packages = selectionPackages) {
+    const pairs = [];
+    const ansi = [];
+    for (const { pkg, shipped } of packages) {
+        const slots = selectionRender.terminalSource(pkg, selectionDefaults).terminal;
+        const rendered = selectionRender.renderTarget(logic, TOKENS, emacsTarget.target,
+            new Map([["emacs.el", template]]), { values: pkg.values, slots, curated: new Map(), installed: !shipped });
+        assert.equal(rendered.ok, true);
+        const faces = emacsFaceSpecs(rendered.files.find(file => file.destination === "emacs.el").bytes.toString("utf8"));
+        for (const [role, keys] of EMACS_ROLES) {
+            const value = role.startsWith("terminal.") ? slots[role.slice(9)] :
+                role.split(".").reduce((current, key) => current[key], pkg.values);
+            // Emacs takes opaque hex6: the renderer flattens alpha on the page.
+            const expected = logic.formatColor(over(logic.parseColor(value), logic.parseColor(pkg.values.color.background))).slice(0, 7);
+            for (const key of keys) {
+                const [face, attribute, field] = key.split(".");
+                const actual = (faces.get(face) || []).flatMap(({ values }) => {
+                    const value = values.get(":" + attribute);
+                    if (field === undefined) return value === undefined ? [] : [value];
+                    if (typeof value === "string") return /^#[0-9a-f]{6}$/i.test(value) ? [value] : [];
+                    const index = value?.indexOf(":" + field) ?? -1;
+                    return index < 0 ? [] : [value[index + 1]];
+                });
+                assert.ok(actual.length > 0, JSON.stringify({ kind: "emacs-key", theme: pkg.name, key }));
+                for (const value of actual) assert.equal(value.toLowerCase(), expected.slice(0, 7).toLowerCase(),
+                    JSON.stringify({ kind: "emacs-role", theme: pkg.name, key, role }));
+            }
+        }
+        // Only the issue's explicit foreground/background companions own a
+        // contrast floor. breakpoint-disabled and isearch-fail keep native named
+        // backgrounds outside that contract. Overlays can replace any background.
+        const ownedKeys = new Set(EMACS_ROLES.flatMap(([, keys]) => keys));
+        for (const [face, specs] of faces) {
+            if (!ownedKeys.has(face + ".foreground") || !ownedKeys.has(face + ".background")) continue;
+            for (const { values } of specs) {
+                const foreground = values.get(":foreground"), background = values.get(":background");
+                if (!foreground || !background) continue;
+                const ratio = logic.contrastRatio(logic.parseColor(foreground), logic.parseColor(background));
+                pairs.push({ theme: pkg.name, face, ratio });
+                assert.ok(ratio >= 4.5, JSON.stringify({ kind: "emacs-contrast", theme: pkg.name, face, ratio, floor: 4.5 }));
+            }
+        }
+        for (const [surface, face] of [["background", "default"], ["surface", "tool-bar"], ["surfaceRaised", "tab-bar"]]) {
+            const background = faces.get(face).find(spec => spec.values.has(":background")).values.get(":background");
+            for (const name of ["red", "green", "yellow", "blue", "magenta", "cyan"]) {
+                const foreground = faces.get("ansi-color-" + name)[0].values.get(":foreground");
+                const ratio = logic.contrastRatio(logic.parseColor(foreground), logic.parseColor(background));
+                ansi.push({ theme: pkg.name, surface, name, ratio });
+                if (surface === "background") assert.ok(ratio >= 4.5,
+                    JSON.stringify({ kind: "emacs-ansi-contrast", theme: pkg.name, name, ratio, floor: 4.5 }));
+            }
+        }
+    }
+    return { pairs, ansi };
+}
+const emacsMetrics = verifyEmacsFaces(emacsTemplate);
+const emacsScratch = fs.mkdtempSync(path.join(os.tmpdir(), "emacs-face-control-"));
+try {
+    const needle = ':distant-foreground "#@{color.text}"';
+    assert.ok(emacsTemplate.includes(needle));
+    const file = path.join(emacsScratch, "emacs.el");
+    fs.writeFileSync(file, emacsTemplate.replaceAll(needle, ""), { flag: "wx" });
+    assert.throws(() => verifyEmacsFaces(fs.readFileSync(file, "utf8"), [{ pkg: selectionDefaults, shipped: true }]),
+        error => error instanceof assert.AssertionError && error.message.includes('"kind":"emacs-key"') &&
+            error.message.includes('"key":"bookmark-face.distant-foreground"'));
+} finally {
+    fs.rmSync(emacsScratch, { recursive: true, force: true });
+}
+console.log(`test-theme-render: emacs packages=${selectionPackages.length} keys=${EMACS_ROLES.flatMap(([, keys]) => keys).length} pairs=${emacsMetrics.pairs.length} controls=bookmark-distant-foreground`);
+console.log("test-theme-render: emacs-native-background-exclusions=breakpoint-disabled,isearch-fail scope=issue-owned-companions");
+console.log("test-theme-render: emacs-min " + JSON.stringify(emacsMetrics.pairs.reduce((least, row) => row.ratio < least.ratio ? row : least)));
+for (const surface of ["background", "surface", "surfaceRaised"])
+    console.log("test-theme-render: emacs-ansi-min " + JSON.stringify(emacsMetrics.ansi.filter(row => row.surface === surface)
+        .reduce((least, row) => row.ratio < least.ratio ? row : least)));
+
 // foot reads six-digit RGB flash colours independently in its two INI palettes.
 const footDir = path.join(themesDir, "targets", "foot");
 const footTemplate = path.join(footDir, "foot.ini");
