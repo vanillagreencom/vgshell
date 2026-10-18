@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- The key hints in the clipboard history, the Jarvis confirmation card and VGS Components show their words as plain theme text beside the key chips. Before, each word sat in a black box with a dark halo that matched no theme.
+- The key hints in the clipboard history, the Jarvis confirmation card and VGS Components show their words as plain theme text beside the key chips. Before, each word sat in a box with a halo that matched no theme.
 - VS Code, VSCodium and Cursor use the VGS palette for native editor guides, highlights, controls, badges, debugging and workbench colours that previously kept application defaults.
 
 ## 0.1.1 (2026-10-18)
