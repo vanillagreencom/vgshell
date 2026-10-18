@@ -1683,23 +1683,59 @@ function stopOldUnits(names) {
     holdRename("reason=old-service-" + started + (restored === null ? "" : " restore=" + restored));
 }
 
-// A disabled plugin must also stop an install left by an interrupted
-// rename. Disable every timer before stopping services, and try every
-// unit even when one fails, so a failed stop cannot leave a timer armed.
+const DISABLED_STOP_POST = "[Service]\nExecStopPost=\n";
+
+function disabledStopPostFile(name) {
+    return path.join(runtimeDir, "systemd", "user", name + ".d", "90-vgs-google-drive-migrate.conf");
+}
+
+function clearDisabledStopPost(scheduling) {
+    if (runtimeDir === "") return;
+    let changed = false;
+    for (const name of [OLD_SERVICE, SERVICE]) {
+        const file = disabledStopPostFile(name);
+        if (!exists(file)) continue;
+        fs.unlinkSync(file);
+        changed = true;
+    }
+    if (changed) {
+        const failure = systemctlFailure(["daemon-reload"], scheduling);
+        if (failure !== null) holdRename("reason=stop-post-reload-failed");
+    }
+}
+
+// Shipped services, including an earlier engine's units, run status in
+// ExecStopPost. That runner can take the state lock and enable its timer.
+// systemctl(1) daemon-reload reloads all unit files; systemd service.c's
+// service_enter_stop_post reads the reloaded ExecStopPost command list.
+// Keep the overrides on a failed stop, so its continuing stop job cannot
+// run that earlier runner after this invocation releases its locks.
 function stopDisabledUnits() {
+    if (lockDir === "") refuse("runtime-dir=unset");
     const names = [OLD_TIMER, TIMER, OLD_SERVICE, SERVICE].filter(name => exists(path.join(unitDir, name)));
     const failures = [];
-    for (const name of names) {
+    for (const name of names.filter(name => name.endsWith(".timer"))) {
+        const failure = systemctlFailure(["disable", "--now", name], "disabled");
+        if (failure !== null) failures.push(failure);
+    }
+    const services = names.filter(name => name.endsWith(".service"));
+    for (const name of services) writeAtomic(disabledStopPostFile(name), DISABLED_STOP_POST, 0o644);
+    if (services.length > 0) {
+        const reloaded = systemctlFailure(["daemon-reload"], "disabled");
+        if (reloaded !== null) holdRename("reason=stop-post-reload-failed");
+    }
+    for (const name of services) {
         const failure = systemctlFailure(["disable", "--now", name], "disabled");
         if (failure !== null) failures.push(failure);
     }
     const bin = which("systemctl");
-    for (const name of names.filter(name => name.endsWith(".service"))) {
+    for (const name of services) {
         if (bin === null) continue;
         const out = run(bin, ["--user", "is-active", name], { timeout: 10000, killSignal: "SIGKILL" });
         if (UNIT_ENDED.indexOf(String(out.stdout || "").trim()) === -1) failures.push("service=not-ended");
     }
     if (failures.length > 0) holdRename("reason=disabled-stop-failed");
+    clearDisabledStopPost("disabled");
 }
 
 // Moves FROM to TO. A floating TUI makes the new state directory for its
@@ -1796,12 +1832,14 @@ function moveKeyringItems() {
 // ran, so the caller rewrites the status record, which names stored
 // copies by their full path.
 function migrateRenameIfNeeded(scheduling = "enabled") {
+    if (scheduling === "enabled") clearDisabledStopPost(scheduling);
+    const stopPostPending = runtimeDir !== "" && [OLD_SERVICE, SERVICE].some(name => exists(disabledStopPostFile(name)));
+    if (scheduling === "disabled" && (renameNeeded() || stopPostPending)) stopDisabledUnits();
     if (!renameNeeded()) return false;
     withStateLock(() => {
         if (!renameNeeded()) return;
         const units = oldUnitFiles();
-        if (scheduling === "disabled") stopDisabledUnits();
-        else if (units.length > 0) stopOldUnits(units);
+        if (scheduling === "enabled" && units.length > 0) stopOldUnits(units);
         if (!exists(RENAME_PENDING)) writeJson(RENAME_PENDING, { held: {} });
         // moveTree logs each entry it leaves.
         const moved = OLD_DIRS.map(dirs => moveTree(dirs[0], dirs[1])).every(Boolean);

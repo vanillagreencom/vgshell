@@ -236,17 +236,37 @@ process.stdout.write(JSON.stringify({ user: { emailAddress: mode === "bad" ? "tw
     // timer while \`fire-on-disable\` exists starts the previous sync first,
     // as the timer elapsing just before the disable would. \`reset-failed\`
     // exits 1, as systemctl does for a unit its manager no longer holds.
+    write(path.join(w.stub, "stop-post.js"), `const fs = require("fs");
+const cp = require("child_process");
+const stub = ${JSON.stringify(w.stub)};
+const service = process.argv[2];
+if (!fs.existsSync(stub + "/stop-post-commands")) process.exit(0);
+const command = JSON.parse(fs.readFileSync(stub + "/stop-post-commands", "utf8"))[service];
+if (!command || fs.existsSync(stub + "/suppressed-" + service)) process.exit(0);
+fs.appendFileSync(stub + "/stop-post-executed", service + "\\n");
+const out = cp.spawnSync(command[0], command.slice(1), { env: process.env, stdio: "ignore", timeout: 3000, killSignal: "SIGKILL" });
+process.exit(out.status === null ? 1 : out.status);
+`);
     write(path.join(w.bin, "systemctl"), `#!${HOST.bash}
 stub=${JSON.stringify(w.stub)}
 printf '%s\\n' "$*" >>"$stub/systemctl.calls"
 [[ ! -f $stub/systemctl-fail ]] || exit 1
+reload_overrides() {
+  for service in vgs-cloud-sync.service vgs-google-drive.service; do
+    override=${JSON.stringify(w.run)}/systemd/user/$service.d/90-vgs-google-drive-migrate.conf
+    if [[ -f $override && $(<"$override") == $'[Service]\\nExecStopPost=' ]]; then : >"$stub/suppressed-$service"
+    else /usr/bin/rm -f "$stub/suppressed-$service"; fi
+  done
+}
 case $2 in
+  daemon-reload) reload_overrides ;;
   enable)
     units=()
     [[ -f $stub/enabled ]] && mapfile -t units <"$stub/enabled"
     for unit in "\${units[@]}"; do [[ $unit == "$4" ]] && exit 0; done
     printf '%s\\n' "$4" >>"$stub/enabled" ;;
   disable)
+    reload_overrides
     if [[ $4 == vgs-cloud-sync.timer && -f $stub/fire-on-disable && ! -e $stub/fired ]]; then : >"$stub/fired"; : >"$stub/old-run"; fi
     units=()
     [[ -f $stub/enabled ]] && mapfile -t units <"$stub/enabled"
@@ -255,10 +275,17 @@ case $2 in
     if [[ $4 == vgs-cloud-sync.service ]]; then
       [[ ! -f $stub/stop-fail ]] || exit 1
       [[ ! -f $stub/stop-unconfirmed ]] || exit 0
-      [[ ! -f $stub/old-run ]] || : >"$stub/old-run-stopped"
+      was_active=false
+      if [[ -f $stub/old-run ]]; then : >"$stub/old-run-stopped"; was_active=true; fi
       /usr/bin/rm -f "$stub/old-run"
+      if [[ $was_active == true ]]; then ${JSON.stringify(process.execPath)} "$stub/stop-post.js" "$4" || exit 1; fi
     fi
-    if [[ $4 == vgs-google-drive.service ]]; then /usr/bin/rm -f "$stub/new-run"; fi ;;
+    if [[ $4 == vgs-google-drive.service ]]; then
+      was_active=false
+      [[ ! -f $stub/new-run ]] || was_active=true
+      /usr/bin/rm -f "$stub/new-run"
+      if [[ $was_active == true ]]; then ${JSON.stringify(process.execPath)} "$stub/stop-post.js" "$4" || exit 1; fi
+    fi ;;
   is-active)
     if [[ $3 == vgs-cloud-sync.service ]]; then
       [[ -d ${JSON.stringify(path.join(w.home, ".local", "state", "vgshell", "cloud-sync"))} ]] || : >"$stub/moved-early"
@@ -2128,6 +2155,14 @@ function caseRenameMigration(runner, only) {
             { account: "token", presence: "present", needed: true, user: ACCOUNT }
         ] }) + "\n");
 
+        if (row.name === "previous service idle") {
+            for (const name of ["vgs-cloud-sync.service", "vgs-google-drive.service"])
+                write(path.join(w.run, "systemd", "user", name + ".d", "90-vgs-google-drive-migrate.conf"), "[Service]\nExecStopPost=\n");
+            assert.equal(cli(w, ["probe"], runner).status, 0);
+            for (const name of ["vgs-cloud-sync.service", "vgs-google-drive.service"])
+                assert.equal(fs.existsSync(path.join(w.run, "systemd", "user", name + ".d", "90-vgs-google-drive-migrate.conf")), false);
+        }
+
         const places = [w.home, path.join(w.stub, "secrets"), path.join(w.stub, "old-secrets")];
         const before = snapshot(places);
         const calls = ["systemctl.calls", "secret-tool.calls"].map(name => read(path.join(w.stub, name)));
@@ -2153,8 +2188,11 @@ function caseDisabledMigration(runner, only) {
             write(path.join(w.stub, "enabled"), "vgs-cloud-sync.timer\nvgs-google-drive.timer\n");
             write(path.join(w.stub, "new-run"), "");
         } },
-        { name: "locked keyring", plant: w => write(path.join(w.stub, "old-secrets", "token.locked"), ""),
-            release: w => fs.unlinkSync(path.join(w.stub, "old-secrets", "token.locked")) },
+        { name: "locked keyring", plant: w => {
+            for (const account of CREDENTIAL_ACCOUNTS) write(path.join(w.stub, "old-secrets", account + ".locked"), "");
+        }, release: w => {
+            for (const account of CREDENTIAL_ACCOUNTS) fs.unlinkSync(path.join(w.stub, "old-secrets", account + ".locked"));
+        } },
         ...["stop-fail", "stop-unconfirmed"].map(marker => ({ name: marker, plant: w => {
             write(path.join(w.stub, "old-run"), "");
             write(path.join(w.stub, marker), "");
@@ -2163,7 +2201,15 @@ function caseDisabledMigration(runner, only) {
     for (const row of rows.filter(row => only === undefined || row.name === only)) {
         const w = world({ secrets: [] });
         const old = plantOldLayout(w);
+        const oldEngine = path.join(old.data, "engine", "0000000000000000", OLD_NAME);
+        write(oldEngine, read(runner || RUNNER), 0o755);
+        const partialEngine = path.join(w.env.XDG_DATA_HOME, "vgshell", "google-drive", "engine", "partial", "google-drive");
+        const oldStatus = [process.execPath, oldEngine, "status", "--quiet"];
+        const partialStatus = [process.execPath, partialEngine, "status", "--quiet"];
+        write(partialEngine, read(runner || RUNNER), 0o755);
+        write(path.join(w.stub, "stop-post-commands"), JSON.stringify({ "vgs-cloud-sync.service": oldStatus, "vgs-google-drive.service": partialStatus }));
         row.plant(w);
+        if (row.name === "partial new install") write(path.join(w.env.XDG_CONFIG_HOME, "systemd", "user", "vgs-google-drive.service"), "[Service]\nExecStopPost=" + partialStatus.map(word => JSON.stringify(word)).join(" ") + "\n");
         const before = snapshot(Object.values(old));
         let out;
         if (runner === undefined) {
@@ -2175,9 +2221,11 @@ function caseDisabledMigration(runner, only) {
             if (row.stopHeld) {
                 assert.deepEqual(snapshot(Object.values(old)), before);
                 assert.ok(fs.existsSync(path.join(w.stub, "old-secrets", "token.user." + ACCOUNT)));
+                assert.ok(fs.existsSync(path.join(w.run, "systemd", "user", "vgs-cloud-sync.service.d", "90-vgs-google-drive-migrate.conf")));
             } else {
                 assert.ok(fs.existsSync(path.join(w.state, "rename.pending")));
                 assert.ok(fs.existsSync(path.join(w.stub, "old-secrets", "token.user." + ACCOUNT)));
+                assert.equal(fs.existsSync(path.join(w.stub, "secret-tool.calls")), false);
             }
             row.release(w);
             out = cli(w, ["migrate", "disabled"], runner);
@@ -2186,6 +2234,9 @@ function caseDisabledMigration(runner, only) {
         assert.deepEqual(enabledUnits(w), [], row.name);
         assert.equal(fs.existsSync(path.join(w.stub, "old-run")), false);
         assert.equal(fs.existsSync(path.join(w.stub, "new-run")), false);
+        assert.equal(fs.existsSync(path.join(w.stub, "stop-post-executed")), false, row.name);
+        for (const name of ["vgs-cloud-sync.service", "vgs-google-drive.service"])
+            assert.equal(fs.existsSync(path.join(w.run, "systemd", "user", name + ".d", "90-vgs-google-drive-migrate.conf")), false);
         if (row.name === "active old service") assert.ok(fs.existsSync(path.join(w.stub, "old-run-stopped")));
         for (const dir of Object.values(old)) assert.equal(fs.existsSync(dir), false, row.name + ": " + dir);
         for (const name of ["vgs-cloud-sync.service", "vgs-cloud-sync.timer"])
@@ -2453,6 +2504,7 @@ async function controls() {
     await mustFail("rename keeps the previous setup log", mutant("rename keeps the previous setup log", "if (path.basename(to) === \"setup.log\")", "if (false)"), r => caseRenameMigration(r, "previous service idle"));
     await mustFail("rename installs the units", mutant("rename installs the units", "const installed = writeInstall(false, scheduling);", "const installed = { changed: 0, failure: null };"), r => caseRenameMigration(r, "previous service idle"));
     await mustFail("disabled rename never enables timers", mutant("disabled rename never enables timers", 'if (scheduling === "enabled" && failure === null', 'if (failure === null'), r => caseDisabledMigration(r, "disabled"));
+    await mustFail("disabled rename suppresses installed stop-post", mutant("disabled rename suppresses installed stop-post", 'const DISABLED_STOP_POST = "[Service]\\nExecStopPost=\\n";', 'const DISABLED_STOP_POST = "[Service]\\n# ExecStopPost=\\n";'), r => caseDisabledMigration(r, "partial new install"));
     await mustFail("rename resumes a held keyring", mutant("rename resumes a held keyring", "writeJson(RENAME_PENDING, { held: keyring.held });", "fs.rmSync(RENAME_PENDING, { force: true });"), r => caseRenameMigration(r, "keyring locked"));
     await mustFail("stale units refresh", mutant("stale units refresh", "if (verb !== \"install\") refreshStaleInstallIfNeeded();", ""), caseStaleUnitsRefresh);
     await mustFail("stale refresh never refuses", mutant("stale refresh never refuses", "if (done.failure !== null) log(\"units=stale refresh=failed \" + done.failure);", "if (done.failure !== null) refuse(done.failure);"), caseStaleUnitsRefresh);
