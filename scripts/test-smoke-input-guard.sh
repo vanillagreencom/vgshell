@@ -448,7 +448,10 @@ for row in "${startup_cases[@]}"; do
   [[ -n $index ]] || { fail "startup: no helper named $name"; continue; }
   dir="$(mktemp -d "$tmp/startup.XXXXXX")" || exit 1
   make_world "$dir" || exit 1
-  status="$(run_world "$dir" "$units/check.sh" "$(helper_unit "$index")" "$(expand "$dir" 'env -i PATH=@bin XDG_RUNTIME_DIR=@rt WAYLAND_DISPLAY=wayland-1')" "$(expand "$dir" "$call")")"
+  if ! status="$(run_world "$dir" "$units/check.sh" "$(helper_unit "$index")" "$(expand "$dir" 'env -i PATH=@bin XDG_RUNTIME_DIR=@rt WAYLAND_DISPLAY=wayland-1')" "$(expand "$dir" "$call")")"; then
+    fail "startup: $name: run_world-failed"
+    continue
+  fi
   if [[ $status == 0 && -e $dir/calls && $(<"$dir/calls") == "tool=vgshell args="*" display=wayland-1 runtime=$dir/rt" \
     && $(<"$dir/test-run") == 1 && $(<"$dir/client-env") == "instance=$instance xdisplay= wayland-socket=" ]]; then
     ok "startup: $name accepts its complete producer prefix and test-run marker"
