@@ -56,7 +56,7 @@
 # started, a tree whose Updates Reboot answer runs systemctl itself asks
 # for no save, a tree whose Do not resume calls nothing offers the resume
 # again after a shell restart, and a tree that takes a refused `dismiss`
-# as the answer drops the offer with no line.
+# as the answer drops the offer and says nothing.
 # No latency ceiling. Reads poll once per nested IPC round trip.
 # The home's Jarvis package is the copy VGS writes there; the row adds only
 # the stand-in command beside it.
@@ -589,7 +589,7 @@ if edit_tree jarvis-session-dismiss-silent shell/plugins/vgs.jarvis/SessionStart
   expect_poll "control: the copy offers the record's resume" '{"unlock": null}' session_offer
   expect "control: the copy's Do not resume is taken" ok ipc vgs.jarvis invoke dismiss-resume ''
   expect_poll "control: a copy that takes the refusal as the answer reads the failure" '["Not started", "Jarvis did not start"]' session_row
-  expect "control: that copy drops the offer with no line" null session_offer
+  expect "control: that copy says nothing of the refusal" 0 session_line_count
 fi
 
 copy_tree jarvis-session-resume-twice
