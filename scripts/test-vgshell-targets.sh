@@ -307,12 +307,12 @@ font_values() { # FILE SEPARATOR KEY
 rows = [line.partition(sys.argv[2]) for line in open(sys.argv[1]).read().split("\n") if line and not line.startswith("#")]
 print(json.dumps([value.strip() for key, _, value in rows if key.strip() == sys.argv[3]]))' "$1" "$2" "$3"
 }
-recorded_font() { python3 -c 'import json,sys; d = json.load(open(sys.argv[1])); print(json.dumps([len(d), d.get("terminalFont")]))' "$record"; }
+recorded_font() { python3 -c 'import json,sys; d = json.load(open(sys.argv[1])); print(json.dumps(d.get("terminalFont")))' "$record"; }
 font_follow() { # NAME OUTCOME STATE TARGETS_JSON
   tinst "$1" "$cfg" "$rt_empty" 0 "{\"state\":\"$3\",\"shell\":\"unchanged\",\"targets\":$4,\"theme\":\"nord\",\"reason\":null,\"follow\":\"$2\"}" "" theme follow --json
 }
 font_targets="$(terminals "unchanged null" "$written" "$written" "unchanged null")"
-check "a record without a terminal font holds four keys" test "$(recorded_font)" == '[4, null]'
+check "a record without a terminal font holds none" test "$(recorded_font)" == 'null'
 font_user '"Fira Code"'
 : >"$signals"
 font_follow "a terminal font follows into kitty and Ghostty alone" reapplied applied "$font_targets"
@@ -321,7 +321,7 @@ check "ghostty.conf clears the families before it and sets the font" test "$(fon
 check "the font leaves every other kitty line" test "$(grep -v '^font_family ' "$live/kitty.conf")" == "$(cat "$tmp/kitty-plain.conf")"
 check "the font leaves every other Ghostty line" test "$(grep -v 'font-family\|^# An empty value' "$live/ghostty.conf")" == "$(cat "$tmp/ghostty-plain.conf")"
 check "the font signals ghostty and kitty" signalled "$both_signals"
-check "the record holds the font the targets were rendered with" test "$(recorded_font)" == '[5, "Fira Code"]'
+check "the record holds the font the targets were rendered with" test "$(recorded_font)" == '"Fira Code"'
 font_follow "a follow with the recorded font is current" current unchanged "[]"
 font_user '"Iosevka Term"'
 font_follow "another font follows" reapplied applied "$font_targets"
@@ -335,7 +335,7 @@ font_user '"Fira Code\nmap ctrl+a launch sh"'
 font_follow "a refused font follows as no font" reapplied applied "$font_targets"
 check "a refused font leaves kitty.conf as it was without one" cmp -s -- "$tmp/kitty-plain.conf" "$live/kitty.conf"
 check "a refused font leaves ghostty.conf as it was without one" cmp -s -- "$tmp/ghostty-plain.conf" "$live/ghostty.conf"
-check "the record of a render without a font holds none" test "$(recorded_font)" == '[4, null]'
+check "the record of a render without a font holds none" test "$(recorded_font)" == 'null'
 # The must-fail controls, each from nord applied without a font.
 judge_control font-unjudged 'return value !== undefined && logic.appearanceRefusal("terminalFont", value) === "" ? value : null;' 'return value !== undefined ? value : null;'
 tinst "the font-unjudged mutant follows the refused font" "$cfg" "$rt_empty" 0 "$any_out" "" theme follow
@@ -354,13 +354,13 @@ unset THEME_BIN
 printf '{}\n' >"$user_file"
 tinst "nord applies without a font for the follow control" "$cfg" "$rt_empty" 0 "$any_out" "" theme apply nord
 font_user '"Fira Code"'
-judge_control font-unfollowed 'if (samePackage && terminalFont(shellConfig(configDir, key)) === recordedFont) return settled("current");' 'if (samePackage) return settled("current");'
+judge_control font-unfollowed 'if (samePackage && targetsDigest(key) === applied.targets && terminalFont(shellConfig(configDir, key)) === recordedFont) return settled("current");' 'if (samePackage) return settled("current");'
 font_follow "the font-unfollowed mutant takes a new font as current" current unchanged "[]"
 unset THEME_BIN
 font_follow "the font follows for the record control" reapplied applied "$font_targets"
 judge_control font-unrecorded 'if (font !== null) record.terminalFont = font;' ''
 tinst "the font-unrecorded mutant applies nord" "$cfg" "$rt_empty" 0 "$any_out" "" theme apply nord
-check "the font-unrecorded mutant's record holds no font" test "$(recorded_font)" == '[4, null]'
+check "the font-unrecorded mutant's record holds no font" test "$(recorded_font)" == 'null'
 unset THEME_BIN
 tinst "nord applies with the font for the removal" "$cfg" "$rt_empty" 0 "$any_out" "" theme apply nord
 printf '{}\n' >"$user_file"

@@ -22,7 +22,7 @@ follow_line() { printf 'ok follow=%s theme=%s state=%s' "$1" "$2" "$3"; } # OUTC
 record_is() { # NAME FILE
   python3 -c 'import hashlib,json,sys
 d = json.load(open(sys.argv[1]))
-sys.exit(0 if list(d) == ["schemaVersion", "name", "file", "package"] and d["schemaVersion"] == 1 and d["name"] == sys.argv[2] and d["file"] == hashlib.sha256(open(sys.argv[3], "rb").read()).hexdigest() and len(d["package"]) == 64 else 1)' "$record" "$1" "$2"
+sys.exit(0 if set(d) - {"terminalFont"} == {"schemaVersion", "name", "file", "package", "targets"} and d["schemaVersion"] == 2 and d["name"] == sys.argv[2] and d["file"] == hashlib.sha256(open(sys.argv[3], "rb").read()).hexdigest() and len(d["package"]) == 64 and isinstance(d["targets"], str) and len(d["targets"]) == 64 else 1)' "$record" "$1" "$2"
 }
 digest() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["package"])' "$record"; }
 # `vgshell theme list --json`'s `modified` for CFG's theme file, as JSON.
@@ -37,6 +37,83 @@ tinst "dusk applies" "$cfg" "$rt_empty" 0 "ok theme=dusk state=applied shell=app
 check "apply records the package with the hash of the bytes it wrote" record_is dusk "$file"
 tinst "follow of an unchanged package is current" "$cfg" "$rt_empty" 0 "$(follow_line current dusk unchanged)" "" theme follow
 tinst "follow --json prints the structured result" "$cfg" "$rt_empty" 0 '{"state":"unchanged","shell":"unchanged","targets":[],"theme":"dusk","reason":null,"follow":"current"}' "" theme follow --json
+
+# VGS upgrades replace shipped target files while package bytes stay fixed.
+# A changed template must repair every wired target, then settle current.
+target_dir first "$(target_json first hex6 '[]' 'include=@{state}/first.conf' true)" 'first-v1'
+target_dir second "$(target_json second hex6 '[]' 'include=@{state}/second.conf' true)" 'second-v1'
+tinst "apply wires the upgrade fixture targets" "$cfg" "$rt_empty" 0 "$any_out" "" theme apply dusk
+before="$(digest)"
+while IFS='|' read -r change want state_want; do
+  case $change in
+    template) printf 'first-v2' >"$tree/themes/targets/first/first.conf"; printf 'stale' >"$state/theme/second.conf" ;;
+    definition) target_dir first "$(target_json first hex6 '[]' 'changed=@{state}/first.conf' true)" 'first-v2' ;;
+    unchanged) ;;
+  esac
+  snapshot="$(stat -c '%i:%Y' "$record" "$state/theme")"
+  tinst "target upgrade $change follows as $want" "$cfg" "$rt_empty" 0 "$(follow_line "$want" dusk "$state_want")" "" theme follow </dev/null
+  check "target upgrade $change keeps package digest" test "$(digest)" == "$before"
+  check "target upgrade $change keeps second target rendered" grep -qxF 'second-v1' "$state/theme/second.conf"
+  if [[ $want == current ]]; then
+    check "unchanged target upgrade replaces no state" test "$(stat -c '%i:%Y' "$record" "$state/theme")" == "$snapshot"
+  fi
+done <<'EOF'
+unchanged|current|unchanged
+template|reapplied|applied
+unchanged|current|unchanged
+definition|reapplied|unchanged
+unchanged|current|unchanged
+EOF
+check "template upgrade writes the rendered file" grep -qxF 'first-v2' "$state/theme/first.conf"
+check "definition upgrade repairs the wiring" grep -qxF "changed=$state/theme/first.conf" "$cfg/first/first.conf"
+
+# Previous VGS versions produce schema 1. First read converts it in place;
+# the unknown target digest forces one follow before the current no-op.
+while IFS='|' read -r reader font; do
+  printf '{"appearance":{"terminalFont":%s}}\n' "$font" >"$cfg/vgshell/shell.json"
+  python3 - "$record" "$font" <<'PY_RECORD'
+import json,sys
+p=sys.argv[1]
+d=json.load(open(p)); d['schemaVersion']=1; del d['targets']
+font=json.loads(sys.argv[2])
+if font is None: d.pop('terminalFont', None)
+else: d['terminalFont']=font
+with open(p,'w') as f: json.dump(d,f)
+PY_RECORD
+  cp -- "$record" "$tmp/previous-record.json"
+  exec 7>>"$cfg/vgshell/theme.lock"
+  flock 7
+  tinst "list migration refuses a held theme lock" "$cfg" "$rt_empty" 75 "" "vgshell: refused: themes=busy" theme list
+  check "busy migration keeps the previous record" cmp -s "$record" "$tmp/previous-record.json"
+  exec 7>&-
+  tinst "schema 1 first $reader migrates" "$cfg" "$rt_empty" 0 "$any_out" "" theme "$reader"
+  check "first $reader persists current schema" json_is "$record" 'd["schemaVersion"] == 2 and "targets" in d'
+  check "first $reader preserves the recorded font" json_is "$record" "d.get('terminalFont') == $([[ $font == null ]] && echo None || echo "$font")"
+  if [[ $reader == list ]]; then
+    check "list migration marks unknown targets" json_is "$record" 'd["targets"] is None'
+    tinst "migrated record re-renders once" "$cfg" "$rt_empty" 0 "$(follow_line reapplied dusk unchanged)" "" theme follow
+  fi
+  check "migration retains recorded package and file bytes" record_is dusk "$file"
+  tinst "migrated record then settles current" "$cfg" "$rt_empty" 0 "$(follow_line current dusk unchanged)" "" theme follow
+done <<'EOF'
+list|null
+list|"Fira Code"
+follow|"Fira Code"
+follow|null
+EOF
+rm -- "$cfg/vgshell/shell.json"
+
+# The control removes only target comparison and keeps the package/font
+# comparison intact. Its changed template must remain stale.
+judge_control target-digest 'targetsDigest(key) === applied.targets && ' ''
+printf 'first-control' >"$tree/themes/targets/first/first.conf"
+printf 'first-control' >"$tmp/tree-target-digest/themes/targets/first/first.conf"
+tinst "target-digest mutant misses template-only upgrade" "$cfg" "$rt_empty" 0 "$(follow_line current dusk unchanged)" "" theme follow
+check "target-digest mutant leaves the old rendered bytes" grep -qxF 'first-v2' "$state/theme/first.conf"
+unset THEME_BIN
+tinst "real follow repairs the control template" "$cfg" "$rt_empty" 0 "$(follow_line reapplied dusk applied)" "" theme follow
+rm -r -- "${tree:?}/themes/targets/first" "${tree:?}/themes/targets/second"
+tinst "follow records removed target definitions" "$cfg" "$rt_empty" 0 "$any_out" "" theme follow
 
 # A shipped package changed under an unedited theme file, as a VGS update
 # changes it: the file is unmodified until the follow, and the follow
@@ -174,7 +251,7 @@ tinst "the record mutant applies fern" "$cfg" "$rt_empty" 0 "$any_out" "" theme 
 check "the record mutant's apply leaves no record" test ! -e "$record"
 
 fern_changed '#222222'
-judge_control current 'if (samePackage && terminalFont(shellConfig(configDir, key)) === recordedFont) return settled("current");' 'return settled("current");'
+judge_control current 'if (samePackage && targetsDigest(key) === applied.targets && terminalFont(shellConfig(configDir, key)) === recordedFont) return settled("current");' 'return settled("current");'
 tinst "the current mutant takes a changed package as current" "$cfg" "$rt_empty" 0 "$(follow_line current fern unchanged)" "" theme follow
 
 fern_changed '#232323'

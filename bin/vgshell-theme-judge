@@ -34,9 +34,9 @@
 //       every hook whose reload declares `last` after the rest.
 //   vgshell-theme-judge follow <text|json> <config-dir> <state-dir> <held|busy|failed> [<name>]
 //       apply again the package <state-dir>/applied.json records when its
-//       content or the user's terminal font changed, over whatever the
-//       theme file holds, under the same lock verdict; with NAME, only when
-//       the record names that package.
+//       content, shipped targets or the user's terminal font changed, over
+//       whatever the theme file holds, under the same lock verdict; with
+//       NAME, only when the record names that package.
 //   vgshell-theme-judge reload <text|json> <config-dir> <state-dir> <held|busy|failed>
 //       run the hook of every target <state-dir>/reload-pending.json lists
 //       again, under the same lock verdict.
@@ -172,7 +172,7 @@ const logic = load(path.join(repo, "shell", "Commons", "ThemeLogic.js"));
 const tokens = load(path.join(repo, "shell", "Commons", "Tokens.js")).TOKENS;
 const accountRule = load(path.join(repo, "shell", "Commons", "AccountDirectories.js"));
 const { spawnSync } = require("child_process");
-const { Refusal, refuse, main, readJson, readConfig, readUserConfig, writing, replaceFile, linkByRename, editFile, onPath } = require(path.join(__dirname, "lib", "judge-files.js"));
+const { Refusal, refuse, main, readJson, readConfig, readUserConfig, writing, replaceFile, linkByRename, lockFile, editFile, onPath } = require(path.join(__dirname, "lib", "judge-files.js"));
 const render = require(path.join(__dirname, "lib", "theme-render.js"));
 const backgrounds = require(path.join(__dirname, "lib", "theme-backgrounds.js"));
 const select = require(path.join(__dirname, "lib", "theme-select.js"));
@@ -773,22 +773,51 @@ function packageDigest(row, key) {
     return hash.digest("hex");
 }
 
-// The apply <state-dir>/applied.json records, `{ schemaVersion: 1, name,
-// file, package }`: the package's name, the sha256 of the theme.json bytes
-// it wrote to the theme file and its packageDigest, and `terminalFont`, the
-// user's terminal font the targets were rendered with, present only when
-// there was one. Null when absent. KEY leads the refusal for a file that
-// cannot be read or parsed, or is no such record.
-function readApplied(stateDir, key) {
+// Target definitions and templates are flat files in each target directory.
+// Bundled toolkit assets live below those directories and are not rendered.
+function targetsDigest(key) {
+    const base = path.join(SHIPPED, TARGETS);
+    const parts = [];
+    try {
+        for (const name of childDirs(base) || []) {
+            const dir = path.join(base, name);
+            for (const file of fs.readdirSync(dir).sort()) {
+                const source = path.join(dir, file);
+                if (fs.statSync(source).isFile()) parts.push([name + "/" + file, sha256(fs.readFileSync(source))]);
+            }
+        }
+    } catch (e) {
+        refuse(key + "=unreadable path=" + (e.path || base) + " error=" + e.code, "unreadable");
+    }
+    return sha256(JSON.stringify(parts));
+}
+
+// This owner converts saved versions before judging only the current form
+// (D107). A migrated record has no known target digest, so follow renders
+// once before recording it. List takes the same lock and reads again before
+// conversion, so it cannot overwrite a concurrent apply's newer record.
+function readApplied(configDir, stateDir, key, locked = false) {
     const file = path.join(stateDir, APPLIED_FILE);
-    const doc = readJson(file, key, true);
+    let doc = readJson(file, key, true);
     if (doc === null) return null;
+    const migrate = logic.isPlainObject(doc) && doc.schemaVersion === 1 && !Object.hasOwn(doc, "targets");
+    if (migrate && !locked) {
+        const hold = lockFile(path.join(configDir, THEME_LOCK), false);
+        themeLock(key, hold.state, configDir);
+        try {
+            return readApplied(configDir, stateDir, key, true);
+        } finally {
+            hold.release();
+        }
+    }
+    if (migrate) doc = Object.assign({}, doc, { schemaVersion: 2, targets: null });
     const isDigest = value => typeof value === "string" && SHA256_HEX.test(value);
     const hasFont = logic.isPlainObject(doc) && Object.hasOwn(doc, "terminalFont");
-    const shaped = logic.isPlainObject(doc) && Object.keys(doc).length === (hasFont ? 5 : 4) && doc.schemaVersion === 1 &&
-        logic.isPackageName(doc.name) && isDigest(doc.file) && isDigest(doc.package) &&
+    const shaped = logic.isPlainObject(doc) && Object.keys(doc).length === (hasFont ? 6 : 5) && doc.schemaVersion === 2 &&
+        logic.isPackageName(doc.name) && isDigest(doc.file) && isDigest(doc.package) && (doc.targets === null || isDigest(doc.targets)) &&
         (!hasFont || logic.appearanceRefusal("terminalFont", doc.terminalFont) === "");
     if (!shaped) refuse(key + "=malformed path=" + file, "malformed");
+    if (migrate) replaceFile(file, JSON.stringify(doc) + "\n", key);
     return doc;
 }
 
@@ -817,7 +846,7 @@ function modified(file, resolved, applied) {
 
 function list(format, configDir, stateDir) {
     const { rows, resolved } = packageSet(configDir, "themes");
-    const applied = readApplied(stateDir, "themes");
+    const applied = readApplied(configDir, stateDir, "themes");
     const file = themeFile(path.join(configDir, "theme.json"));
     const current = file.state === "loaded" ? resolved.get(file.name) : undefined;
     const packages = rows.map(row => ({
@@ -1631,6 +1660,7 @@ function applyTo(result, failures, configDir, stateDir, lock, name, keepBackgrou
     // Taken before anything moves too, for the record written after the
     // theme file.
     const digest = packageDigest(row, key);
+    const targetDigest = targetsDigest(key);
 
     const stage = path.join(stateDir, "next-theme");
     const aside = path.join(stateDir, "old-theme");
@@ -1701,7 +1731,7 @@ function applyTo(result, failures, configDir, stateDir, lock, name, keepBackgrou
     }
     // Once the theme file holds the package's bytes, so a follow never
     // takes bytes this apply did not write for its own.
-    const record = { schemaVersion: 1, name, file: sha256(row.files.theme), package: digest };
+    const record = { schemaVersion: 2, name, file: sha256(row.files.theme), package: digest, targets: targetDigest };
     if (font !== null) record.terminalFont = font;
     replaceFile(path.join(stateDir, APPLIED_FILE), JSON.stringify(record) + "\n", key);
     // Last, so each application re-reads files that are all in place.
@@ -1766,18 +1796,18 @@ function apply(format, configDir, stateDir, lock, name) {
 
 // --- follow
 
-// Apply again the package applied.json records once its content or the
-// user's terminal font changed, over whatever the theme file holds. RESULT's
-// `follow` is `none` with no record, or with ONLY, a name, when the record
+// Apply again the package applied.json records once its content, the shipped
+// targets or the user's terminal font changed, over whatever the theme file
+// holds. RESULT's `follow` is `none` with no record, or with ONLY, a name, when the record
 // names another package; `unavailable` when the name
 // no longer resolves to an accepted package; `current` when the package's
-// digest and the terminal font are the recorded ones; `reapplied` once
+// digest, target digest and terminal font are the recorded ones; `reapplied` once
 // applyTo runs for it, whose result RESULT then carries. A package that did
 // not change keeps its background state: only its targets render again.
 function followTo(result, failures, configDir, stateDir, lock, only) {
     const key = "follow=applied reason";
     themeLock(key, lock, configDir);
-    const applied = readApplied(stateDir, key);
+    const applied = readApplied(configDir, stateDir, key, true);
     const settled = outcome => {
         result.follow = outcome;
         result.state = "unchanged";
@@ -1788,7 +1818,7 @@ function followTo(result, failures, configDir, stateDir, lock, only) {
     if (row === undefined || row.state !== "ok") return settled("unavailable");
     const samePackage = packageDigest(row, key) === applied.package;
     const recordedFont = applied.terminalFont === undefined ? null : applied.terminalFont;
-    if (samePackage && terminalFont(shellConfig(configDir, key)) === recordedFont) return settled("current");
+    if (samePackage && targetsDigest(key) === applied.targets && terminalFont(shellConfig(configDir, key)) === recordedFont) return settled("current");
     result.follow = "reapplied";
     applyTo(result, failures, configDir, stateDir, lock, applied.name, samePackage);
 }
