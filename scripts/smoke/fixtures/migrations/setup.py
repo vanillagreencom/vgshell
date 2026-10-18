@@ -40,8 +40,13 @@ for plugin in ids:
 config_path = home / ".config/vgshell/shell.json"
 config = json.loads(config_path.read_text())
 config["plugins"] = [row for row in config.get("plugins", []) if not row["id"].startswith("acme.migrate-")]
-config["plugins"].extend({"id": "acme.migrate-former" if plugin.endswith("d-clean") else plugin,
-                          "enabled": plugin.endswith("e-enabled")} for plugin in ids)
+configured = lambda plugin: "acme.migrate-former" if plugin.endswith("d-clean") else plugin
+config["plugins"].extend({"id": configured(plugin)} for plugin in ids)
+# The production enablement judge uses disabledPlugins. A plugins[] row
+# alone enables a third-party service; no per-row enabled field exists.
+config["disabledPlugins"] = [plugin for plugin in config.get("disabledPlugins", [])
+                             if not plugin.startswith("acme.migrate-")]
+config["disabledPlugins"].extend(configured(plugin) for plugin in ids if not plugin.endswith("e-enabled"))
 staged = config_path.with_suffix(".migration.json")
 staged.write_text(json.dumps(config))
 staged.replace(config_path)
