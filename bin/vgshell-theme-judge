@@ -1647,6 +1647,9 @@ function applyTo(result, failures, configDir, stateDir, lock, name, keepBackgrou
     const live = path.join(stateDir, "theme");
     const effective = shellConfig(configDir, key);
     const font = terminalFont(effective);
+    // An upgrade during planning must leave an earlier digest, so the next
+    // follow still detects the replacement template and renders it again.
+    const targetDigest = targetsDigest(key);
     const targets = planTargets(row, source.terminal, font, disabledTargets(effective), configHome, live, key);
     const wiredBefore = readWired(stateDir, key);
     const dropped = droppedWired(wiredBefore, new Set(targets.map(entry => entry.name)));
@@ -1660,7 +1663,6 @@ function applyTo(result, failures, configDir, stateDir, lock, name, keepBackgrou
     // Taken before anything moves too, for the record written after the
     // theme file.
     const digest = packageDigest(row, key);
-    const targetDigest = targetsDigest(key);
 
     const stage = path.join(stateDir, "next-theme");
     const aside = path.join(stateDir, "old-theme");

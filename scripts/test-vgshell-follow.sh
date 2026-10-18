@@ -67,6 +67,47 @@ EOF
 check "template upgrade writes the rendered file" grep -qxF 'first-v2' "$state/theme/first.conf"
 check "definition upgrade repairs the wiring" grep -qxF "changed=$state/theme/first.conf" "$cfg/first/first.conf"
 
+# A package manager can replace a template after the renderer read it.
+# The read boundary keeps those bytes while completing the source upgrade.
+cat >"$tmp/upgrade-read.js" <<'JS'
+const fs = require('node:fs');
+const target = process.env.VGS_TEST_UPGRADE_FILE;
+const read = fs.readFileSync;
+let replaced = false;
+fs.readFileSync = function(file, encoding) {
+    const bytes = read.apply(this, arguments);
+    if (!replaced && file === target && encoding === 'utf8') {
+        replaced = true;
+        fs.writeFileSync(target + '.upgrade', 'first-upgraded');
+        fs.renameSync(target + '.upgrade', target);
+    }
+    return bytes;
+};
+JS
+while IFS='|' read -r mode outcome state_want rendered; do
+  unset THEME_BIN
+  if [[ $mode == late-control ]]; then
+    judge_control late-digest 'targets: targetDigest };' 'targets: targetsDigest(key) };'
+  fi
+  upgrade_bin="${THEME_BIN:-$tree/bin/vgshell}"
+  upgrade_template="${upgrade_bin%/bin/vgshell}/themes/targets/first/first.conf"
+  printf 'first-v2' >"$upgrade_template"
+  inst_env=(NODE_OPTIONS="--require=$tmp/upgrade-read.js" VGS_TEST_UPGRADE_FILE="$upgrade_template")
+  tinst "$mode apply reads the old template during upgrade" "$cfg" "$rt_empty" 0 "$any_out" "" theme apply dusk </dev/null
+  inst_env=()
+  check "$mode upgrade replaced the source after its old read" grep -qxF first-upgraded "$upgrade_template"
+  check "$mode apply rendered the bytes from before replacement" grep -qxF first-v2 "$state/theme/first.conf"
+  tinst "$mode follow observes the upgrade during planning" "$cfg" "$rt_empty" 0 "$(follow_line "$outcome" dusk "$state_want")" "" theme follow </dev/null
+  check "$mode follow leaves the expected rendered bytes" grep -qxF "$rendered" "$state/theme/first.conf"
+  tinst "$mode second follow is current" "$cfg" "$rt_empty" 0 "$(follow_line current dusk unchanged)" "" theme follow </dev/null
+done <<'EOF'
+real|reapplied|applied|first-upgraded
+late-control|current|unchanged|first-v2
+EOF
+unset THEME_BIN
+printf 'first-v2' >"$tree/themes/targets/first/first.conf"
+tinst "restore the target after the ordering control" "$cfg" "$rt_empty" 0 "$any_out" "" theme apply dusk
+
 # Previous VGS versions produce schema 1. First read converts it in place;
 # the unknown target digest forces one follow before the current no-op.
 while IFS='|' read -r reader font; do
