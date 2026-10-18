@@ -1264,11 +1264,6 @@ print(0 if most <= 0 or travel <= 0 else round((max(0, min(want, most)) - a["con
 page_reported() { # ID
   ipc smoke readInstance "$settings_kind" vgs.settings plugins | python3 -c 'import json,sys; r=[p for p in json.load(sys.stdin) if p["id"] == sys.argv[1]]; print(len(r) == 1 and len(r[0]["status"]) > 0 and all(s["report"] == "reported" for s in r[0]["status"]))' "$1"
 }
-# The number of status rows the Settings window holds for plugin ID, or
-# `absent`: a status entry whose value is unreported still holds its row.
-page_status_rows() { # ID
-  ipc smoke readInstance "$settings_kind" vgs.settings plugins | py_reply 'import json,sys; r=[p for p in json.load(sys.stdin) if p["id"] == sys.argv[1]]; print(len(r[0]["status"]) if len(r) == 1 else "absent")' "$1"
-}
 # `ready` once the Jarvis service's first child has answered hello, as the
 # probe reads it (jarvisProcess in scripts/smoke/Probe.qml); a restart
 # never counts.
@@ -3432,14 +3427,27 @@ voice_enable_notice_closed() {
 # The capability's state as Voice reads it: its daemon and what Voice
 # shows of its own dictation.
 voice_daemon() { ipc smoke readInstance service vgs.voice dictationState | py_reply 'import json,sys; d=json.load(sys.stdin); print(d["daemon"], d["phase"])'; }
+# A failed Voice state must not produce an image labelled as that state.
+# The scene keeps running so its stand-ins and enablement are restored.
+voice_take() { # NAME
+  if [[ $failures == "$voice_scene_failures" ]]; then take "$1"; fi
+}
 
 # Voice's on-screen display over the bare desktop: Voice records through
 # the core over the voxtype stand-in, or on a tree from before that a
 # stand-in status stream holds recording, and the stand-in bridge prints a
 # frame every 50 ms, then both are removed with the plugin disabled.
 scene_voice() { # MODE
+  local voice_scene_failures="$failures" rejected
+  rejected="$(
+    failures=$((failures + 1))
+    take() { printf 'captured\n'; }
+    voice_take "voice-$1-osd"
+  )"
+  expect "control: a failed Voice state requests no capture" "" echo "$rejected"
   if voice_dictates; then
     voice_stand_ins
+    : >"$voice_model_installed"
   else
     cat >"$shim/voxtype" <<'EOF'
 #!/usr/bin/env bash
@@ -3459,7 +3467,7 @@ EOF
   expect_poll "Voice draws its plasma orb while recording" 1 ipc smoke layerItemsWith vgs.voice Plasma active true
   expect_poll "the stand-in's frames reach Voice" true voice_level_flowing
   park_pointer
-  take "voice-$1-osd"
+  voice_take "voice-$1-osd"
   expect "disabling vgs.voice after its display is allowed" ok ipc shell setPluginEnabled vgs.voice false
   expect_poll "Voice's display is gone" 0 ipc smoke layerItemsWith vgs.voice Plasma active true
   voice_stand_ins_removed
@@ -4881,6 +4889,7 @@ EOF
 # the section draws its chip. Enablement, stand-ins and the package script
 # are put back, and the Settings window is hidden again.
 scene_voice-setup() { # MODE
+  local voice_scene_failures="$failures"
   local voice_found settings_found notes_found=True silence_found=false pkg_real="$sandbox/voice-setup-vgshell-pkg.real" systemctl_saved="$sandbox/voice-setup-systemctl.saved" stood=() command before notifies=false missing_chip="Requirements missing" missing_press=voice_setup_press
   voice_setup_key=vgs.voice/setup
   if voice_dictates; then
@@ -4952,7 +4961,7 @@ EOF_PKG
   expect_poll "Voice's notice maps its surface" 1 layer_count vgs:notice
   expect_poll "Voice's notice holds the keyboard" true ipc smoke noticeFocused
   park_pointer
-  take "voice-setup-$1-dialog"
+  voice_take "voice-setup-$1-dialog"
   type_keys -k Escape || fail "sending Escape to Voice's notice failed"
   expect_poll "Escape closes Voice's notice" 0 layer_count vgs:notice
   voice_setup_page "Voice's page without voxtype" "voice-setup-$1-page-missing" "$missing_chip"
@@ -4975,13 +4984,14 @@ EOF
   rescan "the voxtype stand-in is scanned"
   expect_poll "Voice finds the voxtype stand-in" true ipc smoke readInstance service vgs.voice voxtypePresent
   if voice_dictates; then
-    expect_poll "the core starts its daemon once voxtype is found" "ready idle" voice_daemon
+    expect_poll "the core waits for the missing fixture model" "absent idle" voice_daemon
     expect_poll "Voice offers Set up while the model is missing" setup voice_setup_wanted
     voice_setup_page "Voice's page with Set up offered" "voice-setup-$1-page-needed" "Setup needed"
   fi
   terminal_stand_in
   voice_setup_launcher_ready
   before="$(voice_setup_run)" || before=unread
+  : >"$voice_model_installed"
   voice_setup_press "the Voice setup run"
   expect_poll "the Set up run ends with code 0" 0 voice_setup_code "$before"
   if grep -qF '"toasts"' "$tree/shell/plugins/vgs.voice/manifest.json"; then
@@ -4998,7 +5008,7 @@ EOF
     for _ in $(seq 1 10); do [[ $(voice_setup_toasts) == 0 ]] || break; sleep 0.2; done
   fi
   park_pointer
-  take "voice-setup-$1-done"
+  voice_take "voice-setup-$1-done"
 
   # The toast or the notification goes before the page's shot and the next
   # mode's dialog, so no shot holds it twice; the notification leaves the
@@ -5101,12 +5111,9 @@ voice_setup_page() { # LABEL SHOT CHIP
   expect_poll "$1: the Settings window maps" 1 settings_count
   expect_poll "$1: Voice's page is shown" '"vgs.voice"' settings_page
   if [[ $3 == none ]]; then
-    # The published hidden setup state is the one entry Voice's page
-    # draws, so the page draws no status row once it lands.
-    expect_poll "$1: Voice's hidden setup state is reported" 0 page_status_rows vgs.voice
-  else
-    expect_poll "$1: Voice's status is reported" True page_reported vgs.voice
+    expect_poll "$1: Voice publishes setup and otherService without voxtype" '["otherService", "setup"]' voice_setup_status_keys
   fi
+  expect_poll "$1: Voice's status is reported" True page_reported vgs.voice
   page_setup
   if grep -qF '"group": "Setup"' "$tree/shell/plugins/vgs.voice/manifest.json"; then
     expect_poll "$1: the Setup section's chip reads $3" "$3" voice_setup_chip
@@ -5114,9 +5121,10 @@ voice_setup_page() { # LABEL SHOT CHIP
   voice_setup_reveal || fail "$1: the Setup tab's sections could not be scrolled into view"
   expect_poll "$1: the Setup tab's sections, their buttons included, are in view" in-view voice_setup_in_view
   park_pointer
-  take "$2"
+  voice_take "$2"
   settings_close
 }
+voice_setup_status_keys() { ipc smoke readInstance "$settings_kind" vgs.settings plugins | py_reply 'import json,sys; r=[p for p in json.load(sys.stdin) if p["id"] == "vgs.voice"]; print(json.dumps(sorted(s["key"] for s in r[0]["status"])) if len(r) == 1 else "absent")'; }
 # voice_setup_span: the Setup tab's shown sections, Status, Setup and
 # Requirements, as one span, [top, bottom, contentY, height] as the
 # probe's sectionSpan reads each: the least top and the greatest bottom;
@@ -5199,6 +5207,7 @@ voice_elsewhere_end() {
   voice_elsewhere_pid=""
 }
 scene_voice-elsewhere() { # MODE
+  local voice_scene_failures="$failures"
   local voice_found settings_found stood=() command before stops=false
   tree_has shell/plugins/vgs.voice/manifest.json '"stop-other"' && stops=true
   voice_found="$(plugin_enabled vgs.voice)" || voice_found=unread
