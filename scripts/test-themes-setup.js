@@ -97,9 +97,18 @@ try {
     const home = path.join(scratch, "home");
     const config = path.join(home, ".config");
     const state = path.join(home, ".local/state/vgshell");
+    const kdeColors = '[ColorEffects:Disabled]\nIntensityEffect=2\n[Colors:View]\nBackgroundNormal=#010203\n[Colors:Header][Inactive]\nForegroundNormal=#aabbcc\n';
+    const kdeKept = '# owner\r\n[General]\r\nColorScheme=Vgs\r\nfont=Sans\r\n[KDE]\r\nLookAndFeelPackage=owner.desktop\r\nSingleClick=false\r\n[WM]\r\nactiveBackground=#998877\r\n';
     // Settings stay independent of the declarations under test. Managed entry
     // paths come from those declarations, so new shipped entries are covered.
     const configurations = [
+        { name: "kcolorscheme", base: config, roots: ["."], settings: "kdeglobals",
+            emptySelected: '[General]\nColorScheme=Vgs\n', kept: kdeKept,
+            sourceText: '[General]\nName=Vgs\n' + kdeColors + '[WM]\nactiveBackground=#112233\n',
+            curatedSource: '[General]\r\nName=Curated\r\n' + kdeColors.replace(/\n/g, '\r\n').slice(0, -2),
+            selected: kdeColors.replace(/\n/g, '\r\n') + kdeKept,
+            other: '# owner\r\n[Colors:View]\r\nBackgroundNormal=#123456\r\n[ColorEffects:Disabled]\r\nIntensityEffect=2\r\n[Colors:Header][Inactive]\r\nForegroundNormal=#abcdef\r\n[General]\r\nColorScheme=Other\r\nfont=Sans\r\n[KDE]\r\nLookAndFeelPackage=owner.desktop\r\nSingleClick=false\r\n',
+            localColors: '[Colors:View]\r\nBackgroundNormal=#123456\r\n[ColorEffects:Disabled]\r\nIntensityEffect=2\r\n[Colors:Header][Inactive]\r\nForegroundNormal=#abcdef\r\n' },
         { name: "bat", base: config, roots: ["bat"], settings: "config", values: true,
             selected: "--theme=vgs\n", other: "--theme=other\n" },
         { name: "btop", base: config, roots: ["btop"], settings: "btop.conf",
@@ -148,7 +157,8 @@ try {
     function declaredEntries(row, root, index) {
         const target = targets.get(row.name);
         if (render.wiringForm(target.wiring) === "include") return [{ kind: "include", file: path.join(row.base, root, target.wiring.file), line: render.wiringLine(target, path.join(state, "theme")) }];
-        const wiringBase = target.wiring.base === "account" || target.wiring.vaults !== undefined ? path.join(row.base, root) : row.base;
+        const wiringBase = target.wiring.base === "account" || target.wiring.vaults !== undefined ? path.join(row.base, root)
+            : { home, config }[target.wiring.base];
         const wiringDir = Array.isArray(target.wiring.dir) ? target.wiring.dir[index] : target.wiring.dir;
         return render.entryItems(target, path.join(state, "theme"), index).map(item => ({ ...item,
             file: path.join(wiringBase, wiringDir, item.name) }));
@@ -158,7 +168,7 @@ try {
             for (const item of declaredEntries(row, root, index)) {
                 fs.mkdirSync(path.dirname(item.file), { recursive: true });
                 if (item.kind === "include") { fs.writeFileSync(item.file, item.line + "\n"); continue; }
-                fs.writeFileSync(item.to, "managed theme\n");
+                fs.writeFileSync(item.to, item.destination === targets.get(row.name).select.source ? row.sourceText : "managed theme\n");
                 if (item.kind === "copy") fs.copyFileSync(item.to, item.file);
                 else fs.symlinkSync(item.to, item.file);
             }
@@ -217,6 +227,17 @@ try {
         }
     }
     for (const applied of ["absent", "theme-only", "invalid", "valid"]) verifyConfigurations(applied);
+    const kde = configurations.find(row => row.name === "kcolorscheme");
+    const kdeSettings = path.join(kde.base, kde.settings);
+    const kdeSource = path.join(state, "theme", targets.get(kde.name).select.source);
+    fs.rmSync(kdeSettings, { recursive: true, force: true });
+    fs.writeFileSync(kdeSettings, kde.selected);
+    for (const replacement of [undefined, '[Colors:View]\nBackgroundNormal=#ffffff\n']) {
+        fs.rmSync(kdeSource);
+        if (replacement !== undefined) fs.writeFileSync(kdeSource, replacement);
+        assert.deepEqual(readWiring(kde.name), [], "KDE setup needs the actual generated colour groups");
+        fs.writeFileSync(kdeSource, kde.sourceText);
+    }
     // An incomplete expected inventory must not hide a declared managed file.
     assert.throws(() => verifyConfigurations("valid", (row, root, index) => row.name === "pi"
         ? [path.join(row.base, root, "themes/vgs.json")]
@@ -243,7 +264,7 @@ try {
     }
     // Drive the actual apply owner using shipped selectors. Hooks are disabled
     // in this disposable tree so the test cannot contact a running application.
-    const native = configurations.filter(row => ["qtct", "json-array", "userjs"].includes(targets.get(row.name).select.format));
+    const native = configurations.filter(row => ["qtct", "json-array", "userjs", "kcolorscheme"].includes(targets.get(row.name).select.format));
     const commands = path.join(scratch, "commands");
     const noCommands = path.join(scratch, "no-commands");
     fs.mkdirSync(commands);
@@ -260,7 +281,9 @@ try {
     fs.mkdirSync(path.join(tree, "themes/flexoki-light"));
     fs.writeFileSync(path.join(tree, "themes/flexoki-light/theme.json"), JSON.stringify(light));
     fs.copyFileSync(path.join(setupRepo, "themes/catalog/flexoki-light/terminal.json"), path.join(tree, "themes/flexoki-light/terminal.json"));
-    function verifyApply(only, absent = false, detected = true) {
+    fs.mkdirSync(path.join(tree, "themes/flexoki-light/targets"));
+    fs.writeFileSync(path.join(tree, "themes/flexoki-light/targets", targets.get(kde.name).select.source), kde.curatedSource);
+    function verifyApply(only, absent = false, detected = true, kdeSelected = false) {
         const selectors = [];
         for (const row of native) for (const root of row.roots) {
             const file = path.join(row.base, root, row.settings);
@@ -268,20 +291,40 @@ try {
             fs.mkdirSync(path.dirname(file), { recursive: true });
             // Mozilla does not create user.js. Cover both an existing file and
             // an absent file in independent profiles, without creating a profile.
-            if (!absent && (row.name !== "zen" || root === row.roots[0])) fs.writeFileSync(file, row.other);
+            if (!absent && (row.name !== "zen" || root === row.roots[0])) fs.writeFileSync(file,
+                row.sourceText !== undefined ? (kdeSelected ? row.kept : row.kept.replace('ColorScheme=Vgs', 'ColorScheme=Other')) + row.localColors : row.other);
             selectors.push({ row, file });
         }
         let stable;
         let generated;
+        let previousFiles;
+        function homeFiles(dir = home) {
+            return fs.readdirSync(dir).sort().flatMap(name => {
+                const file = path.join(dir, name);
+                const stat = fs.lstatSync(file);
+                return stat.isDirectory() ? homeFiles(file) : [[path.relative(home, file),
+                    stat.isSymbolicLink() ? { link: fs.readlinkSync(file) } : fs.readFileSync(file).toString("hex")]];
+            });
+        }
         for (const theme of ["vgs", "flexoki-light", "flexoki-light"]) {
             const result = spawnSync(process.execPath, [judge, "apply", "json", path.join(config, "vgshell"), state, "held", theme], { env: { ...env, PATH: detected ? commands : noCommands }, encoding: "utf8", timeout: 30000 });
             assert.equal(result.status, 0, result.stderr);
             const bytes = [];
             for (const { row, file } of selectors) {
                 const text = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : undefined;
-                const expected = !detected ? undefined : absent ? row.emptySelected ?? row.selected : row.selected;
+                let expected = !detected ? undefined : absent ? row.emptySelected ?? row.selected : row.selected;
+                if (detected && row.sourceText !== undefined) {
+                    const source = fs.readFileSync(path.join(state, "theme", targets.get(row.name).select.source), "utf8");
+                    if (theme === "flexoki-light") assert.equal(source, row.curatedSource, "curated KDE bytes retain their missing final newline");
+                    // Compare native groups with the generated artifact. The
+                    // curated scheme ends at EOF; the shipped one ends at WM.
+                    const groups = source.match(/^\[(?:Colors|ColorEffects):[\s\S]*/m)?.[0].split(/^\[WM\]/m)[0];
+                    assert.match(groups ?? "", /^\[Colors:View\]/m);
+                    expected = groups.split(/\r?\n/).filter(line => line.trim() !== "" && !/^\s*[#;]/.test(line)).join(absent ? "\n" : "\r\n")
+                        + (absent ? "\n" + row.emptySelected : "\r\n" + row.kept);
+                }
                 if (only === undefined || row.name === only) assert.equal(text, expected, row.name + ": apply selects native theme");
-                bytes.push(text);
+                if (row.sourceText === undefined) bytes.push(text);
             }
             if (stable) assert.deepEqual(bytes, stable, "theme switches and repeated applies keep every user selector byte-identical");
             stable = bytes;
@@ -292,11 +335,16 @@ try {
             const palette = fs.readFileSync(path.join(state, "theme/qt5ct.conf"), "utf8");
             if (generated !== undefined && theme === "flexoki-light") assert.notEqual(palette, generated, "generated Qt colours change with the theme");
             generated = theme === "vgs" ? palette : undefined;
+            const files = homeFiles();
+            if (theme === "flexoki-light" && previousFiles !== undefined) assert.deepEqual(files, previousFiles,
+                "repeated apply leaves every file and link in the temporary HOME unchanged");
+            previousFiles = theme === "flexoki-light" ? files : undefined;
         }
     }
     verifyApply(undefined, true, false);
     verifyApply(undefined, true);
     verifyApply();
+    verifyApply("kcolorscheme", false, true, true);
     for (const row of native) {
         const file = path.join(tree, "themes/targets", row.name, "target.json");
         const original = fs.readFileSync(file, "utf8");

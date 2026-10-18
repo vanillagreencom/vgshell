@@ -42,11 +42,11 @@ function terminated(text, lineEnd) {
 // FORMAT, `json`, `jsonc`, `toml` or `yaml`: the new text, null when every key
 // already holds VALUE, or a refusal. Each key is set in order in the text
 // the key before it left, and any key refused refuses the whole edit.
-function selectedText(format, text, keys, value) {
+function selectedText(format, text, keys, value, source) {
     if (text === undefined) return { ok: false, reason: ABSENT, detail: "" };
     let changed = null;
     for (const key of keys) {
-        const verdict = keySelected(format, changed === null ? text : changed, key, value);
+        const verdict = keySelected(format, changed === null ? text : changed, key, value, source);
         if (verdict !== null && typeof verdict !== "string") return verdict;
         if (verdict !== null) changed = verdict;
     }
@@ -55,7 +55,7 @@ function selectedText(format, text, keys, value) {
 
 // The text TEXT takes so that KEY holds VALUE in FORMAT: the new text, null
 // when KEY already holds VALUE, or a refusal.
-function keySelected(format, text, key, value) {
+function keySelected(format, text, key, value, source) {
     const refuse = cause => ({ ok: false, reason: REFUSED, detail: "format=" + format + " cause=" + cause + " key=" + key.join(".") });
     switch (format) {
     case "json": return jsonSelected(text, text, key, value, refuse);
@@ -65,6 +65,16 @@ function keySelected(format, text, key, value) {
     case "toml": return tomlSelected(text, key, value, refuse);
     case "yaml": return yamlSelected(text, key, value, refuse);
     case "qtct": return iniSelected(text, [[key, JSON.stringify(value)], [["Appearance", "custom_palette"], "true"]], refuse);
+    case "kcolorscheme": {
+        if (source === undefined) return refuse("source-absent");
+        const colors = kdeColorGroups(source).removed;
+        if (colors === "") return refuse("source-colours-absent");
+        const kept = kdeColorGroups(text).text;
+        const selected = iniSelected(kept, [[key, value]], refuse);
+        if (selected !== null && typeof selected !== "string") return selected;
+        const next = terminated(colors.replace(/\r?\n/g, lineBreak(text)), lineBreak(text)) + (selected ?? kept);
+        return next === text ? null : next;
+    }
     case "json-array": return jsonSelected(text, text, key, value, refuse, "array");
     case "userjs": return userJsSelected(text, key[0]);
     default: throw new Error("theme-select: selectedText: format " + format + " is none of json, jsonc, toml, yaml");
@@ -296,6 +306,21 @@ function iniSelected(text, entries, refuse) {
         out = lines.join("\n");
     }
     return out === text ? null : out;
+}
+
+// KDE applies a scheme by replacing its native colour groups, including
+// nested [Colors:Header][Inactive]. Direct KColorScheme readers need these
+// groups in kdeglobals even when the platform palette selects a scheme file.
+// https://github.com/KDE/plasma-workspace/blob/master/kcms/colors/colorsapplicator.cpp
+function kdeColorGroups(text) {
+    let colors = false;
+    let kept = "", removed = "";
+    for (const line of (text ?? "").match(/[^\n]*\n|[^\n]+$/g) ?? []) {
+        if (/^[ \t]*\[/.test(line)) colors = /^[ \t]*\[(?:Colors|ColorEffects):[^\]\r\n]+\]/.test(line);
+        if (colors && !/^\s*(?:[#;]|$)/.test(line)) removed += line;
+        else kept += line;
+    }
+    return { text: kept, removed };
 }
 
 // Mozilla reads user.js at profile startup. Its preference parser permits

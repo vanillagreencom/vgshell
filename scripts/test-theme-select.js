@@ -25,10 +25,18 @@ const OMP = [["theme", "dark"], ["theme", "light"]];
 // VS Code-family editors read one flat key holding a dot.
 const EDITOR = ["workbench.colorTheme"];
 const DESKTOP = ["activeTheme"];
+const KDE_COLORS = '[Colors:View]\nBackgroundNormal=#010203\n[ColorEffects:Disabled]\nIntensityEffect=2\n[Colors:Header][Inactive]\nForegroundNormal=#aabbcc\n';
+const KDE_SOURCE = '[General]\nName=Vgs\n' + KDE_COLORS + '[WM]\nactiveBackground=#112233\n';
 
 // Edits that land: the format, the file's text, the key, the value, the
 // text the file takes, or null when it already selects the value.
 const SELECTED = [
+    ["kcolorscheme", '# owner\n[General]\nColorScheme=Vgs\n[KDE]\nLookAndFeelPackage=owner.desktop\n[Colors:View]\nBackgroundNormal=#123456\n', ["General", "ColorScheme"], "Vgs", KDE_COLORS + '# owner\n[General]\nColorScheme=Vgs\n[KDE]\nLookAndFeelPackage=owner.desktop\n', KDE_SOURCE],
+    ["kcolorscheme", KDE_COLORS + '[General]\nColorScheme=Vgs\n[KDE]\nLookAndFeelPackage=owner.desktop\n', ["General", "ColorScheme"], "Vgs", null, KDE_SOURCE],
+    ["kcolorscheme", '[General]\r\nColorScheme=Old\r\n[WM]\r\nactiveBackground=#a1b2c3\r\n', ["General", "ColorScheme"], "Vgs", KDE_COLORS.replace(/\n/g, '\r\n') + '[General]\r\nColorScheme=Vgs\r\n[WM]\r\nactiveBackground=#a1b2c3\r\n', KDE_SOURCE],
+    ["kcolorscheme", '# owner\n[General]\nColorScheme=Old\nfont=Sans\n', ["General", "ColorScheme"], "Vgs", KDE_COLORS + '# owner\n[General]\nColorScheme=Vgs\nfont=Sans\n', KDE_COLORS.slice(0, -1)],
+    ["kcolorscheme", '; owner\r\n[General]\r\nColorScheme=Old\r\n[KDE]\r\nLookAndFeelPackage=owner.desktop\r\n', ["General", "ColorScheme"], "Vgs", KDE_COLORS.replace(/\n/g, '\r\n') + '; owner\r\n[General]\r\nColorScheme=Vgs\r\n[KDE]\r\nLookAndFeelPackage=owner.desktop\r\n', KDE_COLORS.replace(/\n/g, '\r\n').slice(0, -2)],
+    ["kcolorscheme", KDE_COLORS + '[General]\nColorScheme=Vgs\n', ["General", "ColorScheme"], "Vgs", null, KDE_COLORS.slice(0, -1)],
     ["qtct", '[Appearance]\nstyle=Fusion\ncolor_scheme_path=other.conf\ncustom_palette=false\n[Fonts]\ngeneral=Sans\n', ["Appearance", "color_scheme_path"], "/state/qt5ct.conf", '[Appearance]\nstyle=Fusion\ncolor_scheme_path="/state/qt5ct.conf"\ncustom_palette=true\n[Fonts]\ngeneral=Sans\n'],
     ["qtct", '# owner\r\n', ["Appearance", "color_scheme_path"], "/state/qt6ct.conf", '# owner\r\n[Appearance]\r\ncustom_palette=true\r\ncolor_scheme_path="/state/qt6ct.conf"\r\n'],
     ["qtct", '[Appearance]\ncolor_scheme_path="/state/qt5ct.conf"\ncustom_palette=true\n', ["Appearance", "color_scheme_path"], "/state/qt5ct.conf", null],
@@ -129,6 +137,8 @@ const SELECTED = [
 
 // Refused edits: the format, the file's text, the key, the cause.
 const REFUSED = [
+    ["kcolorscheme", '[General]\nColorScheme=Vgs\n', ["General", "ColorScheme"], "source-absent"],
+    ["kcolorscheme", '[General]\nColorScheme=Vgs\n', ["General", "ColorScheme"], "source-colours-absent", '[General]\nName=Vgs\n'],
     ["json-array", '{"enabledThemes":"vgs.css"}', ["enabledThemes"], "not-an-array"],
     ["json-array", '{"enabledThemes":[1]}', ["enabledThemes"], "not-an-array"],
     ["qtct", '[Appearance]\ncustom_palette=true\ncustom_palette=false\n', ["Appearance", "color_scheme_path"], "duplicate-key"],
@@ -219,6 +229,7 @@ const targetText = fields => JSON.stringify({
 
 // Accepted `select` values, each over the defaults above.
 const ACCEPTED = [
+    { format: "kcolorscheme", source: "probe.conf", key: ["General", "ColorScheme"], value: "Vgs" },
     { create: true },
     { format: "zed", key: ["theme"], value: "vgs" },
     {},
@@ -236,6 +247,9 @@ const ACCEPTED = [
 
 // Refused target texts and the detail of each target-schema refusal.
 const REFUSED_SCHEMA = [
+    [targetText({ source: "probe.conf" }), "key=select.source"],
+    [targetText({ format: "kcolorscheme", key: ["General", "ColorScheme"] }), "key=select.source"],
+    [targetText({ format: "kcolorscheme", source: "other.conf", key: ["General", "ColorScheme"] }), "key=select.source"],
     [targetText({ create: "yes" }), "key=select.create"],
     [targetText({ base: "vault" }), "key=select.base"],
     [JSON.stringify(Object.assign(JSON.parse(targetText({})), { select: "x" })), "key=select"],
@@ -376,10 +390,10 @@ function verify(render, edit) {
     assert.equal(rendered.values.bg, "#102030");
     target.select.values.fg = "@{unknown}";
     assert.equal(render.selectValues(logic, tokens, target, { values, slots: {} }).reason, "placeholder");
-    for (const [format, text, key, value, want] of SELECTED)
-        assert.equal(edit.selectedText(format, text, [key], value), want, format + " " + JSON.stringify(text));
-    for (const [format, text, key, cause] of REFUSED)
-        assert.deepEqual(edit.selectedText(format, text, [key], "vgs"),
+    for (const [format, text, key, value, want, source] of SELECTED)
+        assert.equal(edit.selectedText(format, text, [key], value, source), want, format + " " + JSON.stringify(text));
+    for (const [format, text, key, cause, source] of REFUSED)
+        assert.deepEqual(edit.selectedText(format, text, [key], "vgs", source),
             { ok: false, reason: "selection-refused", detail: "format=" + format + " cause=" + cause + " key=" + key.join(".") }, format + " " + JSON.stringify(text));
     for (const [format, text, keys, value, want] of SELECTED_KEYS)
         assert.equal(edit.selectedText(format, text, keys, value), want, format + " " + JSON.stringify(text));
@@ -422,6 +436,9 @@ verify(require(renderFile), require(selectFile));
 const S = "theme-select.js";
 const R = "theme-render.js";
 const CONTROLS = [
+    [S, 'terminated(colors.replace(/\\r?\\n/g, lineBreak(text)), lineBreak(text))', 'colors.replace(/\\r?\\n/g, lineBreak(text))'],
+    [S, 'const colors = kdeColorGroups(source).removed;', 'const colors = "";'],
+    [S, 'const selected = iniSelected(kept, [[key, value]], refuse);', 'const selected = iniSelected(kept, [[key, value], [["KDE", "LookAndFeelPackage"], ""]], refuse);'],
     [S, 'case "userjs": return userJsSelected(text, key[0]);', 'case "userjs": return null;'],
     [S, 'case "json-array": return jsonSelected(text, text, key, value, refuse, "array");', 'case "json-array": return null;'],
     [S, 'case "qtct": return iniSelected(text, [[key, JSON.stringify(value)], [["Appearance", "custom_palette"], "true"]], refuse);', 'case "qtct": return null;'],
@@ -441,10 +458,10 @@ const CONTROLS = [
     [S, '} else if (text.startsWith("/*", i)) {', '} else if (false) {'],
     [S, 'if (text[i] === "\\"") {\n            i = pastString(text, i);', 'if (false) {\n            i = pastString(text, i);'],
     [S, '        if (plain[i] === "," && "}]".includes(plain[skipSpace(plain, i + 1)])) out[i] = " ";\n', ""],
-    [R, 'const SELECT_FORMATS = ["json", "jsonc", "toml", "yaml", "qtct", "json-array", "userjs", "zed", "posh"];', 'const SELECT_FORMATS = ["json", "toml", "yaml", "qtct", "json-array", "userjs", "zed", "posh"];'],
+    [R, 'const SELECT_FORMATS = ["json", "jsonc", "toml", "yaml", "qtct", "json-array", "userjs", "zed", "posh", "kcolorscheme"];', 'const SELECT_FORMATS = ["json", "toml", "yaml", "qtct", "json-array", "userjs", "zed", "posh", "kcolorscheme"];'],
     [R, "const segment = isJsonFormat(format) ? JSON_KEY_PATTERN : SECTION_PATTERN;", "const segment = JSON_KEY_PATTERN;"],
     [R, "const segment = isJsonFormat(format) ? JSON_KEY_PATTERN : SECTION_PATTERN;", "const segment = SECTION_PATTERN;"],
-    [S, 'function selectedText(format, text, keys, value) {\n    if (text === undefined) return { ok: false, reason: ABSENT, detail: "" };', 'function selectedText(format, text, keys, value) {\n    if (text === undefined) text = "";'],
+    [S, 'function selectedText(format, text, keys, value, source) {\n    if (text === undefined) return { ok: false, reason: ABSENT, detail: "" };', 'function selectedText(format, text, keys, value, source) {\n    if (text === undefined) text = "";'],
     [S, "    } catch (e) {\n        return refuse(\"unparseable\");", "    } catch (e) {\n        return text;"],
     [S, 'if (document === null || typeof document !== "object" || Array.isArray(document)) return refuse("unparseable");', 'if (document === null) return refuse("unparseable");'],
     [S, '        if (found.length > 1) return refuse("duplicate-key");\n        if (found.length === 0) return withMember', "        if (found.length === 0) return withMember"],
@@ -511,7 +528,7 @@ const CONTROLS = [
     [S, '" ".repeat(key.length === 2 && indent === 0 ? 2 : indent)', '" ".repeat(indent)'],
     [R, "![SELECT_KEY, SETUP_KEY, ACCOUNTS_KEY, EDITORS_KEY].includes(key)", "![SETUP_KEY, ACCOUNTS_KEY, EDITORS_KEY].includes(key)"],
     [R, "const select = logic.hasOwn(document, SELECT_KEY) ? selectError(logic, document.select, hasAccounts, hasEditors) : \"\";", "const select = \"\";"],
-    [R, 'Object.keys(select).some(key => ![...SELECT_KEYS, "create"].includes(key))', 'false'],
+    [R, 'Object.keys(select).some(key => ![...SELECT_KEYS, "create", "source"].includes(key))', 'false'],
     [R, 'if (!entryBaseAccepted(select.base, hasAccounts) && !(hasEditors && select.base === EDITOR_BASE) && select.base !== "vault") return "key=select.base";', ""],
     [R, '? select.file.every(isRelativePath) : isRelativePath(select.file)', '? true : true'],
     [R, 'if (!SELECT_FORMATS.includes(select.format)) return "key=select.format";', ""],

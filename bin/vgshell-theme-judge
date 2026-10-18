@@ -1671,11 +1671,12 @@ function selectionEdits(target, configHome, live, roots, extension, selectionVal
     const values = app ? Object.fromEntries(Object.entries(selectionValues).map(([key, value]) => [key, latin1(Buffer.from(value, "utf8"))])) : undefined;
     return dirs.flatMap(root => files.map(file => ({
         file: path.join(root, file),
-        root: isAccountTarget(target) || selection.base === render.EDITOR_BASE || selection.format === "userjs"
+        root: selection.format === "kcolorscheme" ? os.homedir()
+            : isAccountTarget(target) || selection.base === render.EDITOR_BASE || selection.format === "userjs"
             ? root : path.join(root, file.includes("/") ? file.split("/")[0] : "."),
         create,
         edit: text => app ? select.appSelectedText(selection.format, text === undefined && create ? "" : text, values)
-            : select.selectedText(selection.format, text === undefined && create ? (["json", "jsonc", "json-array", "zed"].includes(selection.format) ? "{}\n" : "") : text, render.selectKeys(target), value),
+            : select.selectedText(selection.format, text === undefined && create ? (["json", "jsonc", "json-array", "zed"].includes(selection.format) ? "{}\n" : "") : text, render.selectKeys(target), value, selectionValues?.scheme),
         holds: (text, held) => select.selectedText(selection.format, text, render.selectKeys(target), latin1(Buffer.from(held, "utf8"))) === null
     }))).filter(edit => (!Array.isArray(selection.file) || create || existingPath(edit.file) !== undefined) &&
         (selection.format !== "posh" || edit.edit(latin1(readIfPresent(edit.file)))?.reason !== "no-posh-init"));
@@ -3220,6 +3221,15 @@ function setupTargetRows(name, target, configHome, live) {
     const unreadable = (file, code) => [{ name, app: target.app, file, line: null, state: "unreadable", error: code }];
     const disconnected = (file, reason) => ({ name, app: target.app, file, line: null, state: "not-wired", reason });
     let selectionValues;
+    if (target.select?.format === "kcolorscheme") {
+        try {
+            const scheme = readIfPresent(path.join(live, target.select.source));
+            if (scheme !== undefined) selectionValues = { scheme: latin1(scheme) };
+        } catch (e) {
+            if (typeof e.code !== "string") throw e;
+            return unreadable(e.path || live, e.code);
+        }
+    }
     if (target.select?.values !== undefined) {
         try {
             const theme = readIfPresent(path.join(live, "theme.json"));

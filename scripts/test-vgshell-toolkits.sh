@@ -67,7 +67,7 @@ theme_pkg "$tree/themes/dusk" '{ "schemaVersion": 1, "name": "dusk", "tokens": {
 theme_pkg "$tree/themes/curated" '{ "schemaVersion": 1, "name": "curated", "tokens": {} }'
 mkdir -p "$tree/themes/curated/targets"
 printf '[ColorScheme]\nactive_colors=#123456\n' >"$tree/themes/curated/targets/qt6ct.conf"
-printf '[General]\nName=Curated\n' >"$tree/themes/curated/targets/kcolorscheme.colors"
+printf '[General]\nName=Curated\n[Colors:View]\nBackgroundNormal=#123456\n' >"$tree/themes/curated/targets/kcolorscheme.colors"
 printf 'teal\n' >"$tree/themes/curated/targets/accent-color.name"
 # flexoki-light, a light package with a blue accent: the tree copy's
 # catalog package, copied beside the shipped packages so every tree copy

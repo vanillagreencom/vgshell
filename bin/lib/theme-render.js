@@ -32,6 +32,8 @@ const ACCOUNTS_KEY = "accounts";
 // may name several existing configurations. bin/lib/theme-select.js owns
 // both edits. Optional `create` permits a detected app's absent settings
 // file. Base `vault` uses the registered roots of the entry's vault wiring.
+// KDE's `source` names the rendered colour-scheme destination whose native
+// colour groups also belong in kdeglobals.
 const SELECT_KEY = "select";
 // An optional editors target serves every installed editor of one family
 // from one render: each `{ detect, extensions, user }` names the editor's
@@ -54,7 +56,7 @@ const COLOR_SELECT_FORMATS = ["starship", "yazi", "bat", "fastfetch", "televisio
 // editors read their settings. Zed keeps its native mode object or string.
 // Posh edits a literal init command's config argument. The line-exact `toml` edit also handles
 // btop.conf's quoted root assignment without parsing unrelated settings.
-const SELECT_FORMATS = ["json", "jsonc", "toml", "yaml", "qtct", "json-array", "userjs", "zed", "posh"];
+const SELECT_FORMATS = ["json", "jsonc", "toml", "yaml", "qtct", "json-array", "userjs", "zed", "posh", "kcolorscheme"];
 // The longest `key` a line-exact format takes: a root key, or a key in one
 // table or top-level mapping. JSON takes any depth.
 const SELECT_LINE_DEPTH = 2;
@@ -559,8 +561,9 @@ function selectError(logic, select, hasAccounts, hasEditors) {
         return "";
     }
     if (!logic.isPlainObject(select) || SELECT_KEYS.some(key => !logic.hasOwn(select, key)) ||
-        Object.keys(select).some(key => ![...SELECT_KEYS, "create"].includes(key))) return "key=select";
+        Object.keys(select).some(key => ![...SELECT_KEYS, "create", "source"].includes(key))) return "key=select";
     if (logic.hasOwn(select, "create") && typeof select.create !== "boolean") return "key=select.create";
+    if (select.format === "kcolorscheme" ? !isRelativePath(select.source) : logic.hasOwn(select, "source")) return "key=select.source";
     if (!entryBaseAccepted(select.base, hasAccounts) && !(hasEditors && select.base === EDITOR_BASE) && select.base !== "vault") return "key=select.base";
     if (!(select.format === "posh" && Array.isArray(select.file) && select.file.length > 0
         ? select.file.every(isRelativePath) : isRelativePath(select.file))) return "key=select.file";
@@ -629,6 +632,8 @@ function acceptTarget(logic, name, text) {
     if (select !== "") return refused("target-schema", select);
     if (document.select?.format === "qtct" && (JSON.stringify(document.select.key) !== '["Appearance","color_scheme_path"]'))
         return refused("target-schema", "key=select.key");
+    if (document.select?.format === "kcolorscheme" && (!destinations.has(document.select.source) ||
+        JSON.stringify(document.select.key) !== '["General","ColorScheme"]')) return refused("target-schema", "key=select.source");
     if (document.select?.format === "userjs" && (document.wiring?.profiles === undefined || document.select.base !== "home" ||
         document.select.file !== "user.js" || JSON.stringify(document.select.key) !== '["toolkit.legacyUserProfileCustomizations.stylesheets"]' || document.select.value !== "true"))
         return refused("target-schema", "key=select");
@@ -1041,7 +1046,9 @@ function renderTarget(logic, tokens, target, templates, input) {
     }
     const destinations = target.files.map(file => file.destination);
     const extension = stampFrom === undefined ? undefined : extensionOf(target, rendered.get(stampFrom).bytes);
-    return { ok: true, files: destinations.map(destination => rendered.get(destination)), dropped: destinations.filter(destination => dropped.includes(destination)), extension, selectionValues: selection?.values };
+    const selectionValues = target.select?.format === "kcolorscheme"
+        ? { scheme: rendered.get(target.select.source).bytes.toString("latin1") } : selection?.values;
+    return { ok: true, files: destinations.map(destination => rendered.get(destination)), dropped: destinations.filter(destination => dropped.includes(destination)), extension, selectionValues };
 }
 
 // The stamp of an extension whose `stamp` file holds BYTES: the first 32
