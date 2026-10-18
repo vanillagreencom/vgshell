@@ -160,13 +160,6 @@ var TOKENS = {
 
     button: {
         size: length(32),
-        pressed: ink(0.14),
-        hover: ink(0.09),
-        checked: ink(0.06),
-        rest: ink(0),
-        border: ink(0.07),
-        borderRest: ink(0),
-        borderWidth: length(1),
         pressScale: share(0.9)
     },
 

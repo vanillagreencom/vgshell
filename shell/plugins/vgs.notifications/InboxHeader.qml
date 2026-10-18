@@ -39,16 +39,6 @@ Item {
     // own rounded end: the controls inset is the square-corner floor.
     readonly property real titleInset: Math.max(textColumn, Math.ceil(Inset.clearing(look.header.controlsInset, look.radius.full, width, height, look.radius.clearance, titles.y)))
 
-    // The header icons draw only their glyph and keyboard focus ring.
-    component IconBox: Item {
-        id: box
-
-        required property var look
-        required property Item button
-        property real radius: look.radius.full
-        FocusRing { target: box.button }
-    }
-
     implicitWidth: look.header.width
     implicitHeight: look.header.height
     opacity: shown ? 1 : 0
@@ -104,7 +94,6 @@ Item {
         x: Math.round(titles.x + title.width + header.look.header.titleGap - glyphStart)
         y: Math.round(titles.y + title.y + (title.height - height) / 2)
         size: "sm"
-        background: IconBox { look: header.look; button: gear }
         iconName: "settings"
         label: "Settings"
         // The subtitle sits under the gear's line.
@@ -127,7 +116,6 @@ Item {
             IconButton {
                 id: soundIcon
                 size: "sm"
-                background: IconBox { look: header.look; button: soundIcon }
                 iconName: header.sound ? "volume-2" : "volume-off"
                 label: header.sound ? "Mute sound" : "Unmute sound"
                 Accessible.name: "Notification sound" + (header.sound ? ", on" : ", off")
@@ -138,7 +126,6 @@ Item {
             IconButton {
                 id: dndIcon
                 size: "sm"
-                background: IconBox { look: header.look; button: dndIcon }
                 iconName: header.dnd ? "bell-off" : "bell"
                 label: header.dnd ? "Allow notifications" : "Do not disturb"
                 Accessible.name: "Do Not Disturb" + (header.dnd ? ", on" : ", off")
@@ -149,7 +136,6 @@ Item {
             IconButton {
                 id: historyIcon
                 size: "sm"
-                background: IconBox { look: header.look; button: historyIcon }
                 iconName: "rotate-ccw-clock"
                 label: header.history ? "Show unread" : "Show history"
                 Accessible.name: "History" + (header.history ? ", open" : ", closed")

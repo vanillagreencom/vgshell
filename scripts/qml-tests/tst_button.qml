@@ -6,7 +6,8 @@ import qs.Ui
 import qs.Unit
 
 // Button: the variant's fill and text, the hover and pressed fills, a
-// click by pointer and by keyboard, the checked fill, the disabled opacity,
+// click by pointer and by keyboard, the checked fill, an icon toggle that
+// draws no fill or border, the disabled opacity,
 // the focus ring for keyboard focus, an unknown variant, and a theme
 // change that moves the fill and keeps the text readable. An icon
 // button's tooltip opens under it, or to its right when its side says so,
@@ -237,6 +238,41 @@ Item {
             iconOnly.focus = false;
             mouseMove(root, 0, root.height - 1);
             tryVerify(() => String(iconOnly.contentItem.color) === String(Qt.color(Theme.color.textMuted)));
+        }
+
+        // An icon toggle draws no fill and no border in any state: on at
+        // rest, under the pointer, under keyboard focus and pressed. Its
+        // glyph is the accent, or its tone's colour when a tone is set.
+        function test_checked_icon_button_draws_no_fill_or_border() {
+            const bare = state => {
+                compare(checkedIcon.background.color.a, 0, state + ": no fill");
+                verify(checkedIcon.background.border.width === 0 || checkedIcon.background.border.color.a === 0, state + ": no border");
+            };
+            const glyph = (want, state) => tryVerify(() => String(checkedIcon.contentItem.color) === String(Qt.color(want)), 1000, state + ": glyph " + checkedIcon.contentItem.color);
+            checkedIcon.checked = true;
+            mouseMove(root, root.width - 1, root.height - 1);
+            glyph(Theme.color.accent, "rest");
+            bare("rest");
+            mouseMove(checkedIcon, checkedIcon.width / 2, checkedIcon.height / 2);
+            tryCompare(checkedIcon, "hovered", true);
+            glyph(Theme.color.accent, "hover");
+            bare("hover");
+            mousePress(checkedIcon, checkedIcon.width / 2, checkedIcon.height / 2);
+            tryCompare(checkedIcon, "down", true);
+            bare("pressed");
+            mouseRelease(checkedIcon, checkedIcon.width / 2, checkedIcon.height / 2);
+            compare(checkedIcon.checked, false, "a click turns the toggle off");
+            checkedIcon.checked = true;
+            mouseMove(root, root.width - 1, root.height - 1);
+            checkedIcon.focus = false;
+            checkedIcon.forceActiveFocus(Qt.TabFocusReason);
+            tryCompare(checkedIcon, "visualFocus", true);
+            bare("focus");
+            checkedIcon.focus = false;
+            checkedIcon.tone = "warning";
+            glyph(Theme.color.warning, "warning tone");
+            bare("warning tone");
+            checkedIcon.tone = "";
         }
 
         function test_theme_change_keeps_the_text_readable() {

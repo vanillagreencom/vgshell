@@ -107,16 +107,24 @@ expect "the bare field shows no list" 0 read_launcher visibleRowsHeight
 shader_ok() { ipc smoke launcherShader overlay vgs.launcher | py_reply 'import json,re,sys; d=json.loads(sys.stdin.read()); print(bool(re.search(r"/vgshell-sources-[0-9]+/[0-9a-f]+/shaders/edgelight\.frag\.qsb$", d["url"])) and d["compiled"])'; }
 render expect_poll "the edge light's shader compiled from the published revision" True shader_ok
 
-# The private Categories icon follows the shared icon button's hover rule.
-launcher_icon_hover_value() { # REST: reject the old hover fill
+# The private Categories icon follows the shared icon toggle's rule: no
+# fill or border in any state, its glyph brighter on hover and the accent
+# while the categories show. Its first child is the glyph's box, which has
+# no colour; a fill drawn under the glyph is a first child with one.
+launcher_icon_bare_value() { # hovered|any: reject a fill under the glyph
   py_reply 'import json,sys
 rows = json.load(sys.stdin)
 button = next((v for v in rows if v.get("label") == "Categories"), None)
-want = json.loads(sys.argv[1])
-print("absent" if button is None else "ok" if button.get("hovered") is True and button.get("children.0.color") == want else "filled-or-unhovered")' "$1"
+hover_ok = sys.argv[1] == "any" or button is not None and button.get("hovered") is True
+print("absent" if button is None else "ok" if hover_ok and button.get("children.0.color") is None else "filled-or-unhovered")' "$1"
 }
-launcher_icon_hover() {
-  ipc smoke itemValues overlay vgs.launcher IconButton label,hovered,children.0.color | launcher_icon_hover_value "$(look_at button.rest)"
+launcher_icon_bare() { # hovered|any
+  ipc smoke itemValues overlay vgs.launcher IconButton label,hovered,children.0.color | launcher_icon_bare_value "$1"
+}
+# The colour as #rrggbb, or #aarrggbb below full alpha, the form itemValues prints.
+launcher_colour() { python3 -c 'import json,sys; c=json.loads(sys.argv[1]).lower(); print("#"+c[3:] if len(c)==9 and c.startswith("#ff") else c)' "$1"; }
+launcher_glyph_colour() {
+  ipc smoke itemValues overlay vgs.launcher MenuGlyph color | py_reply 'import json,sys; v=json.load(sys.stdin); print(v[0]["color"].lower() if v else "absent")'
 }
 launcher_point_categories() {
   local rect x y
@@ -125,9 +133,9 @@ launcher_point_categories() {
   hover "$((x + 1))" "$y" && hover "$x" "$y"
 }
 launcher_point_categories || fail "the Categories icon hover failed"
-expect_poll "the Categories icon draws no hover fill" ok launcher_icon_hover
+expect_poll "the Categories icon draws no hover fill" ok launcher_icon_bare hovered
 expect_poll "the Categories glyph brightens on hover" "$(look_at menuGlyph.active)" ipc smoke readDescendant overlay vgs.launcher MenuGlyph emphasis
-expect "control: the old Categories hover fill is refused" filled-or-unhovered launcher_icon_hover_value "$(look_at button.rest)" < <(python3 -c 'import json,sys; print(json.dumps([{ "label": "Categories", "hovered": True, "children.0.color": json.loads(sys.argv[1]) }]))' "$(look_at button.hover)")
+expect "control: the old Categories hover fill is refused" filled-or-unhovered launcher_icon_bare_value hovered <<<'[{"label": "Categories", "hovered": true, "children.0.color": "#17ffffff"}]'
 hover 10 "$((mon_h - 10))" || fail "moving off Categories failed"
 
 # Typing searches every row and application; Enter launches the first.
@@ -193,10 +201,13 @@ expect_poll "the toggled launcher maps" 1 layer_count vgs:overlay
 focused
 type_keys -M ctrl -k b -m ctrl || fail "sending Ctrl+B failed"
 expect_poll "Ctrl+B shows the categories" True launcher_has_row menu System
+expect_poll "the open Categories glyph draws in the accent" "$(launcher_colour "$(look_at palette.accent)")" launcher_glyph_colour
+expect "the open Categories icon draws no fill" ok launcher_icon_bare any
 expect "Packages is hidden while vgs.updates is disabled" False launcher_has_row menu Packages
 expect "the categories list Settings, which always-on Plugins declares" True launcher_has_row menu Settings
 type_keys -M ctrl -k b -m ctrl || fail "sending Ctrl+B failed"
 expect_poll "Ctrl+B hides them again" '[]' launcher_rows
+expect_poll "the closed Categories glyph leaves the accent for the foreground" "$(launcher_colour "$(look_at text.foreground)")" launcher_glyph_colour
 expect "a route by alias opens its menu" ok ipc shell summon overlay vgs.launcher '{"menu":"power-menu"}'
 expect_poll "the alias resolved to the system menu" '"system"' read_launcher activeMenu
 expect_poll "the submenu lists its actions" True launcher_has_row action Reboot

@@ -1,8 +1,9 @@
 import QtQuick
 import qs.Ui
 
-// A round ghost button: a press squish and a pointer cursor. Hover leaves
-// the background clear; the caller brightens its glyph.
+// A ghost icon button: a press squish and a pointer cursor. It draws no
+// fill or border in any state; the caller dims its glyph at rest,
+// brightens it on hover and draws it in the accent while `checked`.
 Item {
     id: button
 
@@ -15,20 +16,6 @@ Item {
 
     width: look.button.size
     height: look.button.size
-
-    Rectangle {
-        anchors.fill: parent
-        radius: button.look.radius.full
-        color: mouse.pressed ? button.look.button.pressed : button.checked ? button.look.button.checked : button.look.button.rest
-        border.width: button.look.button.borderWidth
-        border.color: button.checked ? button.look.button.border : button.look.button.borderRest
-        Behavior on color {
-            ColorAnim { duration: button.look.motion.duration.short4; curve: button.look.motion.curve.standard }
-        }
-        Behavior on border.color {
-            ColorAnim { duration: button.look.motion.duration.short4; curve: button.look.motion.curve.standard }
-        }
-    }
 
     Item {
         id: inner

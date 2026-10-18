@@ -584,7 +584,6 @@ f share/vgshell/shell/plugins/vgs.launcher/Anim.qml
 f share/vgshell/shell/plugins/vgs.launcher/Appearance.js
 f share/vgshell/shell/plugins/vgs.launcher/Caret.qml
 f share/vgshell/shell/plugins/vgs.launcher/ChevronGlyph.qml
-f share/vgshell/shell/plugins/vgs.launcher/ColorAnim.qml
 f share/vgshell/shell/plugins/vgs.launcher/ContextMenu.qml
 f share/vgshell/shell/plugins/vgs.launcher/EdgeLight.qml
 f share/vgshell/shell/plugins/vgs.launcher/FileSearch.qml

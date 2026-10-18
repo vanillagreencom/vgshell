@@ -1392,8 +1392,15 @@ header_label() { ipc smoke itemValues panel vgs.notifications IconButton label,A
 header_icon() { ipc smoke readMatchingDescendant panel vgs.notifications IconButton label "$(header_label "$1")" "$2"; }
 header_icon_state() { ipc smoke itemValues panel vgs.notifications IconButton label,iconName,checked,Accessible.name | py_reply 'import json,sys; print(next((json.dumps([v["iconName"], v["checked"], v["Accessible.name"]]) for v in json.load(sys.stdin) if v["Accessible.name"].split(",")[0] == sys.argv[1]), "absent"))' "$1"; }
 header_signals() { ipc smoke itemValues panel vgs.notifications IconButton Accessible.name,checked | py_reply 'import json,sys; c = {v["Accessible.name"].split(",")[0]: v["checked"] for v in json.load(sys.stdin)}; print(json.dumps([c.get("Notification sound"), c.get("Do Not Disturb")]))'; }
-header_tone() { # NAME: actual glyph colour and any background colour
-  ipc smoke itemValues panel vgs.notifications IconButton Accessible.name,contentItem.color,background.color | py_reply 'import json,sys; print(next((json.dumps([v["contentItem.color"], v.get("background.color")]) for v in json.load(sys.stdin) if v["Accessible.name"].split(",")[0] == sys.argv[1]), "absent"))' "$1"
+header_tone() { # NAME: actual glyph colour and any visible background fill or border colour
+  ipc smoke itemValues panel vgs.notifications IconButton Accessible.name,contentItem.color,background.color,background.border.color,background.border.width | py_reply 'import json,sys
+# itemValues prints #rrggbb for an opaque colour and #aarrggbb below it.
+def seen(c): return c is not None and (len(c) == 7 or int(c[1:3], 16) > 0)
+def drawn(v):
+    if seen(v.get("background.color")): return v["background.color"]
+    if (v.get("background.border.width") or 0) > 0 and seen(v.get("background.border.color")): return v["background.border.color"]
+    return None
+print(next((json.dumps([v["contentItem.color"], drawn(v)]) for v in json.load(sys.stdin) if v["Accessible.name"].split(",")[0] == sys.argv[1]), "absent"))' "$1"
 }
 note_warning="$(ipc smoke themeValue color.warning)" || fail "the warning token is unreadable"
 note_accent="$(ipc smoke themeValue color.accent)" || fail "the accent token is unreadable"
@@ -2057,13 +2064,14 @@ needle = '        objectName: "notificationSettingsGear"\n'
 assert text.count(needle) == 1, "the settings gear occurs once"
 text = text.replace(needle, needle + '        visible: false\n')
 # The Sound state control: the Sound icon loses its
-# checked state. The second control restores the old filled checked box.
+# checked state. The second control gives Do Not Disturb the old filled
+# checked box.
 for line in ('                checked: !header.sound\n',):
     assert text.count(line) == 1, "the Sound icon's line occurs once: " + line
     text = text.replace(line, "")
-needle = "    component IconBox: Item {\n"
+needle = "                checked: header.dnd\n"
 assert text.count(needle) == 1
-text = text.replace(needle, "    component IconBox: Rectangle {\n        color: button.checked ? button.tokens.pressed : button.tokens.background\n")
+text = text.replace(needle, needle + "                background: Rectangle { color: dndIcon.checked ? dndIcon.tokens.pressed : dndIcon.tokens.background }\n")
 path.write_text(text)
 PY
 rescan "a rescan builds the drawer without a visible gear"

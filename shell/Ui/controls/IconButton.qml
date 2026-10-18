@@ -4,11 +4,14 @@ import qs.Ui
 
 // A square button with one icon and no text. `label` is what a screen
 // reader says for it and what its action tooltip says; a button without
-// one is logged, since an icon alone names nothing. Hover draws no fill.
-// The ghost variant is the default. A ghost button's
-// icon rests in `color.textMuted` and takes the variant's foreground on
-// hover, focus, press or checked; a filled variant's icon keeps its
-// foreground, which its fill is chosen to carry. The rest colour is
+// one is logged, since an icon alone names nothing. Hover, press and
+// checked draw no fill and no border: they show on the glyph alone, and a
+// filled variant keeps its own fill in every state. The ghost variant is
+// the default. A ghost button's icon rests in `color.textMuted` and takes
+// the variant's foreground on hover, focus or press; a checked button's
+// icon is the accent, `button.checked.foreground`; a filled variant's icon
+// keeps its foreground, which its fill is chosen to carry. A `tone` sets
+// the icon in every state. Press dims the icon. The rest colour is
 // opaque, not a faded foreground: an icon's stroke overlaps itself at its
 // joins, so an icon drawn translucent shows each overlap brighter. A
 // disabled button fades once on the whole control; one a `disabledReason`
@@ -41,11 +44,9 @@ Button {
     background: Rectangle {
         implicitHeight: root.controlHeight
         radius: Theme.button.radius
-        color: root.lock.faded(root.down ? (root.checked ? Theme.button.checked.pressed : root.tokens.pressed)
-            : root.checked ? Theme.button.checked.background : root.tokens.background)
+        color: root.lock.faded(root.tokens.background)
         border.width: Theme.button.border
-        border.color: root.lock.faded(root.checked ? Theme.button.checked.border : root.tokens.border)
-        Behavior on color { ColorAnimation { duration: Theme.motion.duration.fast; easing.type: Theme.motion.easing.standard } }
+        border.color: root.lock.faded(root.tokens.border)
         FocusRing { target: root }
     }
 

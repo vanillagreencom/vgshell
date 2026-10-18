@@ -1145,6 +1145,7 @@ Item {
                         anchors.centerIn: parent
                         look: root.look
                         open: root.showCategories
+                        color: menuButton.checked ? root.look.palette.accent : root.look.text.foreground
                         emphasis: menuButton.hovered || root.showCategories ? root.look.menuGlyph.active : root.look.menuGlyph.idle
                     }
                 }

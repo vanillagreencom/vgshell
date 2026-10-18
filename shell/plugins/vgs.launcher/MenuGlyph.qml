@@ -1,12 +1,13 @@
 import QtQuick
 
 // The drawn menu glyph: two bars of unequal length that turn into a close
-// cross while `open`.
+// cross while `open`, drawn in `color` at `emphasis`.
 Item {
     id: glyph
 
     required property var look
     property bool open: false
+    property color color: look.text.foreground
     property real emphasis: look.menuGlyph.idle
     property real openAmount: open ? 1 : 0
     Behavior on openAmount {
@@ -23,7 +24,7 @@ Item {
         width: glyph.width
         height: glyph.bar
         radius: glyph.look.radius.full
-        color: glyph.look.text.foreground
+        color: glyph.color
         opacity: glyph.emphasis
         y: glyph.height / 2 - glyph.gap - height / 2 + glyph.gap * glyph.openAmount
         rotation: 45 * glyph.openAmount
@@ -32,7 +33,7 @@ Item {
         width: glyph.width * (glyph.look.menuGlyph.short + (1 - glyph.look.menuGlyph.short) * glyph.openAmount)
         height: glyph.bar
         radius: glyph.look.radius.full
-        color: glyph.look.text.foreground
+        color: glyph.color
         opacity: glyph.emphasis
         x: glyph.width - width
         y: glyph.height / 2 + glyph.gap - height / 2 - glyph.gap * glyph.openAmount
