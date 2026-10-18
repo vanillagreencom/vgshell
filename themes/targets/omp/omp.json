@@ -15,6 +15,7 @@
     "selectedBg": "#@{color.surfaceHover}",
     "userMessageBg": "#@{color.surfaceRaised}",
     "userMessageText": "#@{color.text}",
+    "assistantMessageText": "#@{color.text}",
     "customMessageBg": "#@{color.surface}",
     "customMessageText": "#@{color.warning}",
     "customMessageLabel": "#@{color.accent}",

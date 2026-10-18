@@ -1195,6 +1195,48 @@ try {
 }
 console.log(`test-theme-render: gemini packages=${selectionPackages.length} controls=${geminiControls.length}`);
 
+// Oh My Pi reads assistantMessageText for plain reply prose; an omitted key
+// inherits the terminal foreground instead of the generated theme's text.
+const ompDir = path.join(themesDir, "targets", "omp");
+const ompTemplate = fs.readFileSync(path.join(ompDir, "omp.json"), "utf8");
+const ompTarget = selectionRender.acceptTarget(logic, "omp", fs.readFileSync(path.join(ompDir, "target.json"), "utf8"));
+assert.equal(ompTarget.ok, true);
+function verifyOmpAssistant(template, packages = selectionPackages) {
+    for (const { pkg, shipped } of packages) {
+        const rendered = selectionRender.renderTarget(logic, TOKENS, ompTarget.target,
+            new Map([["omp.json", template]]), {
+                values: pkg.values, slots: selectionRender.terminalSource(pkg, selectionDefaults).terminal,
+                curated: new Map(), installed: !shipped
+            });
+        assert.equal(rendered.ok, true);
+        const output = rendered.files.find(file => file.destination === "omp.json");
+        assert.notEqual(output, undefined);
+        const document = JSON.parse(output.bytes);
+        assert.equal(document.colors.assistantMessageText, pkg.values.color.text.slice(0, 7).toLowerCase(),
+            `${pkg.name}: colors.assistantMessageText`);
+        assert.ok(logic.contrastRatio(logic.parseColor(document.colors.assistantMessageText),
+            logic.parseColor(pkg.values.color.background)) >= 4.5, pkg.name);
+    }
+}
+verifyOmpAssistant(ompTemplate);
+const ompScratch = fs.mkdtempSync(path.join(os.tmpdir(), "omp-assistant-control-"));
+try {
+    for (const [name, value] of [["missing", undefined], ["stock", "#123456"]]) {
+        const document = JSON.parse(ompTemplate);
+        assert.ok(Object.hasOwn(document.colors, "assistantMessageText"));
+        if (value === undefined) delete document.colors.assistantMessageText;
+        else document.colors.assistantMessageText = value;
+        const file = path.join(ompScratch, `${name}.json`);
+        fs.writeFileSync(file, JSON.stringify(document), { flag: "wx" });
+        assert.throws(() => verifyOmpAssistant(fs.readFileSync(file, "utf8"), [{ pkg: selectionDefaults, shipped: true }]),
+            error => error instanceof assert.AssertionError && error.actual === value &&
+                error.expected === selectionDefaults.values.color.text.slice(0, 7).toLowerCase());
+    }
+} finally {
+    fs.rmSync(ompScratch, { recursive: true, force: true });
+}
+console.log(`test-theme-render: omp-assistant packages=${selectionPackages.length} controls=missing,stock text-floor=4.5`);
+
 // Kitty consumes these colour options as text/fill pairs and window borders.
 // Judge rendered values so readable text cannot hide an unmarked state.
 const kittyDir = path.join(themesDir, "targets", "kitty");
