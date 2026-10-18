@@ -1602,6 +1602,36 @@ const ZEN_NATIVE_SCOPES = [
         "--zen-welcome-tile-bg": "color.surfaceRaised",
     }],
  ];
+// Same-release dependent occurrences keep their native expression and priority.
+const ZEN_NATIVE_DEPENDENTS = [
+    [[":host(:is(.anonymous-content-host, notification-message)), :root"], "--button-background-color", "var(--in-content-button-background)", true],
+    [["dialog::part(dialog-button)"], "--button-background-color-active", "color-mix(in srgb, var(--button-background-color) 80%, transparent)", false],
+    [["dialog::part(dialog-button)"], "--button-background-color-hover", "color-mix(in srgb, var(--button-background-color) 90%, transparent)", false],
+    [[":host(:is(.anonymous-content-host, notification-message)), :root"], "--button-background-color-primary", "var(--in-content-primary-button-background)", true],
+    [["menupopup, panel"], "--panel-background-color", "var(--arrowpanel-background)", false],
+    [[".zen-sidebar-notification-body", "& .zen-sidebar-notification-link-container", "&[special]"], "--specia-color-2", "color-mix(in srgb, var(--zen-primary-color), currentColor 90%)", false],
+    [[".zen-sidebar-notification-body", "& .zen-sidebar-notification-link-container", "&[special]"], "--special-color", "color-mix(in srgb, var(--zen-primary-color), currentColor 50%)", false],
+    [["zen-workspace"], "--tab-background-color-selected", "light-dark( color-mix(in srgb, rgba(255, 255, 255, 0.8) 98%, var(--zen-primary-color)), color-mix(in srgb, rgba(255, 255, 255, 0.18) 95%, var(--zen-primary-color)) )", true],
+    [["tab-group[split-view-group]", "& .tab-group-container", "& > .tabbrowser-tab"], "--tab-background-color-selected", "var(--zen-split-view-active-tab-bg)", false],
+    [["#customization-container"], "--toolbar-background-color", "var(--arrowpanel-background)", false],
+    [[".tabbrowser-tab[zen-essential=\"true\"]", "@media -moz-pref(\"zen.theme.essentials-favicon-bg\")", "&[visuallyselected] > .tab-stack > .tab-background"], "--zen-essential-tab-selected-bg", "light-dark(rgba(255, 255, 255, 0.85), color-mix(in srgb, var(--zen-primary-color), rgba(132, 132, 132, 0.85) 40%))", false],
+    [[".tabbrowser-tab[zen-essential=\"true\"]", "@media -moz-pref(\"zen.theme.essentials-favicon-bg\")", "&[visuallyselected] > .tab-stack > .tab-background"], "--zen-essential-tab-selected-bg-hover", "light-dark(rgba(255, 255, 255, 0.8), color-mix(in srgb, var(--zen-primary-color), rgba(132, 132, 132, 0.85) 30%))", false],
+    [[":host(:is(.anonymous-content-host, notification-message)), :root"], "--zen-themed-toolbar-bg-transparent", "light-dark(var(--zen-branding-bg), #171717)", false],
+];
+// These unmodified native intermediates connect split tabs to the owned text root.
+const ZEN_NATIVE_INHERITED = [
+    ["--zen-split-view-active-tab-bg", "color-mix( in srgb, var(--zen-toolbar-element-bg), transparent 40% )"],
+    ["--zen-toolbar-element-bg", "light-dark( color-mix(in oklch, var(--toolbox-textcolor) 8%, transparent), color-mix(in oklch, var(--toolbox-textcolor) 15%, transparent) )"],
+];
+const ZEN_NATIVE_FEED_ROLES = {
+    "--button-background-color": "color.surfaceRaised",
+    "--in-content-button-background": "color.surfaceRaised",
+    "--in-content-primary-button-background": "color.accent",
+    "--arrowpanel-background": "color.surface",
+    "--zen-primary-color": "color.accentPressed",
+    "--toolbox-textcolor": "color.text",
+    "--zen-branding-bg": "color.background"
+};
 const ZEN_COLOUR_GUARD = "@media not (forced-colors: active)";
 function zenDeclarations(text) {
     text = text.replace(/\r\n/g, "\n").replace(/\/\*[\s\S]*?\*\//g, "");
@@ -1657,12 +1687,37 @@ function verifyZenNative(template, packages = selectionPackages) {
             for (const [key, role] of Object.entries(roles)) {
                 const expectedContexts = [ZEN_COLOUR_GUARD, ...contexts];
                 const rows = declarations.filter(row => row.key === key && JSON.stringify(row.contexts) === JSON.stringify(expectedContexts));
-                const expected = (key === "--zen-sidebar-notification-outline" ? "1px solid " : "") + roleColour(role);
-                if (rows.length !== 1 || !rows[0].important || rows[0].value.toLowerCase() !== expected)
-                    failures.push({ kind: rows.length ? "zen-native-role" : "zen-native-missing", theme: pkg.name,
+                const dependent = ZEN_NATIVE_DEPENDENTS.find(([scope, field]) => field === key && JSON.stringify(scope) === JSON.stringify(contexts));
+                const expected = dependent ? dependent[2] : (key === "--zen-sidebar-notification-outline" ? "1px solid " : "") + roleColour(role);
+                const important = dependent ? dependent[3] : true;
+                if (rows.length !== 1 || rows[0].important !== important || rows[0].value !== expected)
+                    failures.push({ kind: !rows.length ? "zen-native-missing" : dependent ? "zen-native-dependent" : "zen-native-role", theme: pkg.name,
                         key, contexts: expectedContexts, role, actual: rows.map(row => ({ value: row.value, important: row.important })), expected });
             }
         }
+        // This checks the release fixture's reference graph against generated
+        // palette roots, not CSS colour evaluation or the browser's full cascade.
+        const nativeReferences = expression => [...expression.matchAll(/var\((--[\w-]+)/g)].map(match => match[1]);
+        const inherited = new Map(ZEN_NATIVE_INHERITED);
+        const reached = new Set();
+        function reachRoot(key) {
+            if (reached.has(key)) return;
+            reached.add(key);
+            if (Object.hasOwn(ZEN_NATIVE_FEED_ROLES, key)) {
+                const role = ZEN_NATIVE_FEED_ROLES[key], expected = roleColour(role);
+                const roots = declarations.filter(row => row.key === key && /^#[\da-f]{6}$/.test(row.value));
+                if (!roots.length || roots.some(row => row.value !== expected || !row.important))
+                    failures.push({ kind: "zen-native-root", theme: pkg.name, key, role, expected, actual: roots });
+            } else if (inherited.has(key)) {
+                const replacements = declarations.filter(row => row.key === key);
+                if (replacements.length)
+                    failures.push({ kind: "zen-native-preserved", theme: pkg.name, key, actual: replacements, expected: inherited.get(key) });
+                for (const reference of nativeReferences(inherited.get(key))) reachRoot(reference);
+            } else failures.push({ kind: "zen-native-unowned-feed", theme: pkg.name, key });
+        }
+        for (const [, , expression] of ZEN_NATIVE_DEPENDENTS)
+            for (const reference of nativeReferences(expression)) reachRoot(reference);
+        for (const key of Object.keys(ZEN_NATIVE_FEED_ROLES)) assert.ok(reached.has(key), key);
         for (const row of declarations) {
             // The stock release owns every non-inventory transform/category.
             if (row.contexts.includes(ZEN_COLOUR_GUARD) ? !required.has(row.key) : required.has(row.key))
@@ -1691,7 +1746,11 @@ try {
         ["stock-role", "--zen-branding-dark", "#101010 !important", "zen-native-role"],
         ["component-format", "--zen-sidebar-notification-outline", "#@{color.border} !important", "zen-native-role"],
         ["state-scope", "&[zen-private-window='true']", "&[zen-private-window='false']", "zen-native-missing"],
-        ["forced-colours", ZEN_COLOUR_GUARD, "@media (forced-colors: active)", "zen-native-missing"]
+        ["forced-colours", ZEN_COLOUR_GUARD, "@media (forced-colors: active)", "zen-native-missing"],
+        ["dialog-transform", "color-mix(in srgb, var(--button-background-color) 90%, transparent)", "#@{color.surfaceRaised}", "zen-native-dependent"],
+        ["panel-alias", "    --panel-background-color: var(--arrowpanel-background);", "    --panel-background-color: #@{color.surface} !important;", "zen-native-dependent"],
+        ["native-palette-root", "--zen-primary-color", "#101010 !important", "zen-native-root"],
+        ["native-intermediate", ZEN_COLOUR_GUARD + " {", ZEN_COLOUR_GUARD + " {\n :root { --zen-toolbar-element-bg: #@{color.surface}; }", "zen-native-preserved"]
     ];
     for (const [label, key, replacement, kind] of controls) {
         const pattern = key.startsWith("--") ? new RegExp("^([ \t]*)" + key + ":[^\n]*\n", "gm") : null;
@@ -1715,7 +1774,7 @@ for (const background of [...new Set(zenMetrics.map(row => row.background))]) {
     const minimum = zenMetrics.filter(row => row.background === background).reduce((a, b) => a.contrast < b.contrast ? a : b);
     console.log("test-theme-render: zen-minimum " + JSON.stringify({ ...minimum, floor: 4.5 }));
 }
-console.log(`test-theme-render: zen-native packages=${selectionPackages.length} required=${new Set(ZEN_NATIVE_SCOPES.flatMap(([, roles]) => Object.keys(roles))).size} declarations=${ZEN_NATIVE_SCOPES.reduce((sum, [, roles]) => sum + Object.keys(roles).length, 0)}`);
+console.log(`test-theme-render: zen-native packages=${selectionPackages.length} required=${new Set(ZEN_NATIVE_SCOPES.flatMap(([, roles]) => Object.keys(roles))).size} declarations=${ZEN_NATIVE_SCOPES.reduce((sum, [, roles]) => sum + Object.keys(roles).length, 0)} native-dependents=${ZEN_NATIVE_DEPENDENTS.length} inherited=${ZEN_NATIVE_INHERITED.length}`);
 
 // foot reads six-digit RGB flash colours independently in its two INI palettes.
 const footDir = path.join(themesDir, "targets", "foot");

@@ -123,7 +123,7 @@ toolbar .toolbarbutton-1 > .toolbarbutton-icon {
   fill: #@{color.accent} !important;
 }
 
-/* Zen 1.23b native roots. Leave dependent transforms and content previews native. */
+/* Zen 1.23b roots and unchanged native dependents; preserve previews and categories. */
 @media not (forced-colors: active) {
   :root {
     --background-color-canvas: #@{color.surface} !important;
@@ -145,15 +145,15 @@ toolbar .toolbarbutton-1 > .toolbarbutton-icon {
   }
   dialog::part(dialog-button) {
     --button-background-color: #@{color.surfaceRaised} !important;
-    --button-background-color-active: #@{color.surfaceRaised} !important;
-    --button-background-color-hover: #@{color.surfaceRaised} !important;
+    --button-background-color-active: color-mix(in srgb, var(--button-background-color) 80%, transparent);
+    --button-background-color-hover: color-mix(in srgb, var(--button-background-color) 90%, transparent);
     --button-background-color-primary: #@{color.accent} !important;
   }
   :host(:is(.anonymous-content-host, notification-message)), :root {
-    --button-background-color: #@{color.surfaceRaised} !important;
+    --button-background-color: var(--in-content-button-background) !important;
     --button-background-color-active: #@{color.surfaceRaised} !important;
     --button-background-color-hover: #@{color.surfaceRaised} !important;
-    --button-background-color-primary: #@{color.accent} !important;
+    --button-background-color-primary: var(--in-content-primary-button-background) !important;
     --in-content-button-background: #@{color.surfaceRaised} !important;
     --in-content-button-background-hover: #@{color.surfaceRaised} !important;
     --input-text-background-color: #@{color.surfaceRaised} !important;
@@ -166,7 +166,7 @@ toolbar .toolbarbutton-1 > .toolbarbutton-icon {
     --zen-dialog-background: #@{color.surfaceRaised} !important;
     --zen-input-border-color: #@{color.borderControl} !important;
     --zen-sidebar-notification-outline: 1px solid #@{color.border} !important;
-    --zen-themed-toolbar-bg-transparent: #@{color.surface} !important;
+    --zen-themed-toolbar-bg-transparent: light-dark(var(--zen-branding-bg), #171717);
     --zen-toolbar-element-bg-hover: #@{color.surfaceRaised} !important;
     --zen-branding-bg: #@{color.background} !important;
     --zen-branding-bg-reverse: #@{color.text} !important;
@@ -207,13 +207,13 @@ toolbar .toolbarbutton-1 > .toolbarbutton-icon {
     }
   }
   menupopup, panel {
-    --panel-background-color: #@{color.surface} !important;
+    --panel-background-color: var(--arrowpanel-background);
   }
   .zen-sidebar-notification-body {
     & .zen-sidebar-notification-link-container {
       &[special] {
-        --specia-color-2: #@{color.accent} !important;
-        --special-color: #@{color.accent} !important;
+        --specia-color-2: color-mix(in srgb, var(--zen-primary-color), currentColor 90%);
+        --special-color: color-mix(in srgb, var(--zen-primary-color), currentColor 50%);
       }
     }
   }
@@ -224,12 +224,12 @@ toolbar .toolbarbutton-1 > .toolbarbutton-icon {
     }
   }
   zen-workspace {
-    --tab-background-color-selected: #@{color.surfaceRaised} !important;
+    --tab-background-color-selected: light-dark( color-mix(in srgb, rgba(255, 255, 255, 0.8) 98%, var(--zen-primary-color)), color-mix(in srgb, rgba(255, 255, 255, 0.18) 95%, var(--zen-primary-color)) ) !important;
   }
   tab-group[split-view-group] {
     & .tab-group-container {
       & > .tabbrowser-tab {
-        --tab-background-color-selected: #@{color.surfaceRaised} !important;
+        --tab-background-color-selected: var(--zen-split-view-active-tab-bg);
       }
     }
   }
@@ -237,7 +237,7 @@ toolbar .toolbarbutton-1 > .toolbarbutton-icon {
     --tab-background-color-selected: #@{color.surfaceRaised} !important;
   }
   #customization-container {
-    --toolbar-background-color: #@{color.surface} !important;
+    --toolbar-background-color: var(--arrowpanel-background);
   }
   :host(:is(.anonymous-content-host, notification-message)), :root {
     &[zen-private-window='true'] {
@@ -279,8 +279,8 @@ toolbar .toolbarbutton-1 > .toolbarbutton-icon {
   .tabbrowser-tab[zen-essential="true"] {
     @media -moz-pref("zen.theme.essentials-favicon-bg") {
       &[visuallyselected] > .tab-stack > .tab-background {
-        --zen-essential-tab-selected-bg: #@{color.surfaceRaised} !important;
-        --zen-essential-tab-selected-bg-hover: #@{color.surfaceRaised} !important;
+        --zen-essential-tab-selected-bg: light-dark(rgba(255, 255, 255, 0.85), color-mix(in srgb, var(--zen-primary-color), rgba(132, 132, 132, 0.85) 40%));
+        --zen-essential-tab-selected-bg-hover: light-dark(rgba(255, 255, 255, 0.8), color-mix(in srgb, var(--zen-primary-color), rgba(132, 132, 132, 0.85) 30%));
       }
     }
   }
