@@ -270,6 +270,7 @@ Singleton {
             }
             r.manifest.__revision = entry.revision;
             r.manifest.__loadUrl = entry.loadUrl;
+            r.manifest.__migrate = entry.migrate === true;
             next[r.manifest.id] = r.manifest;
             nextMissing[r.manifest.id] = entry.missing;
         }
@@ -295,6 +296,7 @@ Singleton {
         if (isChanged) root.manifests = next;
         // `scanned` gates every slot key, so it moves after the map.
         root.scanned = true;
+        Plugins.startMigrations();
         if (isChanged) changed();
         // One line per completed scan, the smoke's readback for a scan that
         // changed nothing and so leaves no other trace.

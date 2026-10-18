@@ -112,6 +112,7 @@ hyprland-consent-decline
 notices-control
 hidpi
 start-order
+startup-migrations
 overlay-capture
 # After overlay-capture, which restores the harness hyprland.lua: the key
 # capture rows append their own binds and restore it again.

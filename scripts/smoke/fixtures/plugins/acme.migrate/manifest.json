@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "acme.migrate",
+  "name": "Startup migration fixture",
+  "version": "0.1.0",
+  "author": "acme",
+  "description": "Exercises disabled bundled startup migration without a service or sync.",
+  "kinds": ["service"],
+  "entryPoints": { "service": "Service.qml" },
+  "capabilities": []
+}

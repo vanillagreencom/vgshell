@@ -1,6 +1,7 @@
 pragma Singleton
 import QtQuick
 import Quickshell
+import Quickshell.Io
 import Quickshell.Hyprland
 import Quickshell.Wayland
 import qs.Commons
@@ -61,6 +62,83 @@ Singleton {
     // with the drag, and dies with the widget.
     property QtObject barPressGrab: null
 
+    // Startup-only work stays separate from plugin instances and never
+    // holds a host's build. The queue owns each immutable scan snapshot.
+    property bool migrationsStarted: false
+    property var migrationQueue: []
+    property var migration: null
+
+    function startMigrations() {
+        if (migrationsStarted || !Config.ready || !Registry.scanned) return;
+        migrationsStarted = true;
+        migrationQueue = Object.keys(Registry.manifests).sort().filter(id => {
+            const manifest = Registry.manifests[id];
+            return manifest.__migrate && Registry.sourceOf(manifest) === "bundled" && !Registry.isEnabled(id);
+        }).map(id => {
+            const manifest = Registry.manifests[id];
+            return { id: id, revision: manifest.__revision, loadUrl: manifest.__loadUrl };
+        });
+        runMigration();
+    }
+
+    function runMigration() {
+        if (migration !== null) return;
+        // A user can enable a later entry while an earlier hook waits.
+        // Its service owns migration once enabled, so drop that attempt.
+        while (migrationQueue.length > 0 && Registry.isEnabled(migrationQueue[0].id))
+            migrationQueue = migrationQueue.slice(1);
+        if (migrationQueue.length === 0) return;
+        migration = migrationQueue[0];
+        migrationQueue = migrationQueue.slice(1);
+        migrationProcess.completion = null;
+        migrationProcess.timedOut = false;
+        migrationProcess.command = [decodeURIComponent(migration.loadUrl.replace(/^file:\/\//, "")) + "/migrate", "disabled"];
+        migrationProcess.running = true;
+    }
+
+    Process {
+        id: migrationProcess
+        property var completion: null
+        property bool timedOut: false
+        // Quickshell 0.3.1 Process: null parsers close both output channels;
+        // hook output can contain secrets and must never reach the log.
+        // https://quickshell.org/docs/v0.3.1/types/Quickshell.Io/Process/
+        stdout: null
+        stderr: null
+        // Process::onFinished emits exited before runningChanged;
+        // onErrorOccurred(FailedToStart) emits only runningChanged.
+        // v0.3.1/src/io/process.cpp is the source for this ordering.
+        onExited: (code, status) => { completion = { code: code, status: status }; }
+        onStarted: migrationDeadline.start()
+        onRunningChanged: {
+            if (running || root.migration === null) return;
+            migrationDeadline.stop();
+            const failure = timedOut ? "timeout" : completion === null ? "start-failed"
+                : completion.code !== 0 || completion.status !== 0 ? "exit-failed" : "";
+            if (failure !== "") console.error("plugins: migration id=" + root.migration.id + " failure=" + failure);
+            root.migration = null;
+            Qt.callLater(root.runMigration);
+        }
+    }
+
+    Timer {
+        id: migrationDeadline
+        // Runner child-wait bounds (VGS-1841): moveKeyringItems covers
+        // CREDENTIAL_PARTS + OLD_ACCOUNTS, nine accounts; moveKeyringItem
+        // has six 10 s probes/searches plus 30 s store and clear: 1080 s.
+        // stopDisabledUnits: eight 10 s calls, 80 s. writeInstall and old
+        // unit removal: three 10 s calls, 30 s. withStateLock: 30 s.
+        // Total 1220 s. Add one lock period (30 s) for local overhead;
+        // the margin is policy, not a measured duration.
+        interval: (1220 + 30) * 1000
+        onTriggered: {
+            migrationProcess.timedOut = true;
+            // Process.signal targets this owned child only. Quickshell
+            // also kills its owned Process on teardown (0.3.1 reference).
+            migrationProcess.signal(9);
+        }
+    }
+
     // The source revisions of every instance the core built, which a scan
     // keeps on disk while the instance lives.
     function liveRevisions() {
@@ -68,6 +146,8 @@ Singleton {
         for (const hostKey of Object.keys(built))
             for (const row of built[hostKey])
                 if (row.origin === "core") out[row.revision] = true;
+        for (const queued of migrationQueue) out[queued.revision] = true;
+        if (migration !== null) out[migration.revision] = true;
         return Object.keys(out);
     }
 
@@ -78,7 +158,7 @@ Singleton {
     Connections {
         target: Config
         function onEffectiveChanged() { root.reconcile(); }
-        function onReadyChanged() { Qt.callLater(root.giveFirstPresence); }
+        function onReadyChanged() { Qt.callLater(root.giveFirstPresence); Qt.callLater(root.startMigrations); }
     }
     Connections {
         target: Registry
