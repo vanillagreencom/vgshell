@@ -3621,7 +3621,7 @@ function detail(gate) {
 // voiceStep keeps the last Voice step value, which shapes Local voice.
 let voiceStep = null;
 function addSetup(answer, check) {
-  const values = gate.readiness(answer);
+  const values = gate.readiness(answer, { kind: "empty" });
   values.setupVoice = gate.voiceCheck(values.setupVoice, check);
   voiceStep = values.setupVoice;
   for (const key of ["setup", "setupVoice", "setupModel"]) rows.push([key, values[key]]);
@@ -3665,6 +3665,25 @@ jarvis_plant_cause() { # CAUSE PHASE
   done < <(jarvis_cause_status_rows "$1" "$2")
   [[ $failed == 0 ]] && echo ok || return 1
 }
+# The target revision's own Home refusal value, through its held provider.
+# The old revision ignores the path argument and offers its original hint.
+jarvis_plant_home_cause() { # CAUSE
+  local rows key value reply failed=0
+  rows="$(node - "$repo" "$1" "$home/Screenshot Home" <<'JSHOME'
+const path = require("node:path");
+const [tree, cause, home] = process.argv.slice(2);
+const { load } = require(path.join(tree, "bin/lib/qml-library.js"));
+const gate = load(path.join(tree, "shell/plugins/vgs.jarvis/SetupGate.js"));
+const values = gate.readiness({ kind: "answered", causes: [cause] }, { kind: "ready", path: home });
+for (const key of ["setup", "setupHome"]) console.log(key + "\t" + JSON.stringify(values[key]));
+JSHOME
+)" || return 1
+  while IFS=$'\t' read -r key value; do
+    reply="$(ipc smoke heldStatusSet "$key" "$value")" || reply=unread
+    [[ $reply == ok ]] || { printf '%s=%s\n' "$key" "$reply"; failed=1; }
+  done <<<"$rows"
+  [[ $failed == 0 ]] && echo ok || return 1
+}
 scene_jarvis-setup() { # MODE
   local accounts_before="$sandbox/jarvis-backups-accounts-before"
   if jarvis_ships_backups; then
@@ -3687,6 +3706,12 @@ scene_jarvis-setup() { # MODE
   page_setup
   expect_poll "the Jarvis Setup section draws its rows" True jarvis_setup_drawn
   jarvis_anchor_shot "jarvis-setup-$1" SectionHeader Setup
+  expect "the Jarvis status provider is held for Home refusal shots" held ipc smoke holdStatus service vgs.jarvis
+  for home_case in "text|home=text" "skills|guidance=home-skills-too-large"; do
+    IFS='|' read -r home_slug home_cause <<<"$home_case"
+    expect "the selected revision publishes its $home_slug Home refusal" ok jarvis_plant_home_cause "$home_cause"
+    jarvis_anchor_shot "jarvis-setup-$1-home-$home_slug" SectionHeader Setup
+  done
   settings_tab_click Settings || fail "the click on the Settings tab failed"
   expect_poll "the Jarvis page shows Settings" 0 settings_tab
   if jarvis_ships_backups; then

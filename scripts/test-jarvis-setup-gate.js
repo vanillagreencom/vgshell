@@ -415,13 +415,14 @@ const READINESS = [
 const DONE_ACTION = { setupVoice: false, setupModel: undefined };
 // The home folder's causes: Home.js's and Guidance.js's. One without a hint
 // of its own takes the step's.
-const HOME_CAUSES = ["home=link", "home=path", "home=unwritable", "guidance=home-skills-too-large"];
+const HOME_CAUSES = ["home=link", "home=path", "home=unwritable", "home=text", "home=package", "guidance=home-skills-too-large"];
 // Each brain cause asks for its own action.
 const BRAIN_CAUSES = ["brain=unselected", "brain=account-unavailable", "brain=model-required", "brain=accounts-unreadable", "brain=signed-out",
     "brain=pi-update"];
 // The TUI each of the AI model's named actions opens, from the manifest.
 const MODEL_TUI = { key: "add-key", signIn: "sign-in" };
 const plain = value => JSON.parse(JSON.stringify(value));
+const readiness = (gate, answer) => gate.readiness(answer, { kind: "ready", path: "/home/user/Fixture" });
 // The voice the daemon hears of: [label, the settings a user changed over the
 // manifest's own, the stored cloud voice keys the account reader holds or
 // undefined while it has no answer, the voice]. A fresh settings file holds
@@ -863,7 +864,7 @@ function verifyModelConsumers(gate, serviceSource, accountsSource) {
     for (const row of MODEL) {
         const values = row.keys === undefined ? {} : { keys: row.keys.map(key => ({ label: "Fixture key", ...key })) };
         if (row.keys !== undefined) assert.equal(judge.statusWrite(manifest, {}, "keys", values.keys).ok, true);
-        const shell = { settings: { voiceAccount: "" }, requirements: { missing: [] }, status: { values, set: (key, value) => {
+        const shell = { manifest, settings: { voiceAccount: "" }, requirements: { missing: [] }, status: { values, set: (key, value) => {
             const accepted = judge.statusWrite(manifest, values, key, value);
             assert.equal(accepted.ok, true, row.name + ": accepted status " + key);
             values[key] = value;
@@ -875,7 +876,7 @@ function verifyModelConsumers(gate, serviceSource, accountsSource) {
                 brains: [], voiceAccounts: [], search: { found: row.apps.length, partial: "" } }), refreshed: () => {} };
         vm.runInNewContext(publishAccounts[0],
             { root, Gate: gate, Words: words, Providers: { probeFailure: () => "jarvis-accounts: probe=failed" }, console: { warn: () => {} } });
-        vm.runInNewContext("(" + publishSetup[0] + ")", { Gate: gate, shell, dictationState: null, accountReader: root, localRuntime: { setupCause: "", republish: () => {} }, voiceStep: null, sessionState: null, sessionStart: { result: null }, shellSetupCauses: [], setupAnswer: { kind: "checking" } })(row.answer);
+        vm.runInNewContext("(" + publishSetup[0] + ")", { Gate: gate, shell, homePathRead: { kind: "ready", path: "/home/user/Fixture" }, dictationState: null, accountReader: root, localRuntime: { setupCause: "", republish: () => {} }, voiceStep: null, sessionState: null, sessionStart: { result: null }, shellSetupCauses: [], setupAnswer: { kind: "checking" } })(row.answer);
         try {
             assert.deepEqual([values.setupModel.tone, values.setupModel.action], row.want, row.name);
             const entry = judge.statusRows(manifest, values).find(item => item.key === "setupModel");
@@ -885,7 +886,7 @@ function verifyModelConsumers(gate, serviceSource, accountsSource) {
             assert.equal(setupRow.button === null ? undefined : setupRow.button.name, MODEL_TUI[row.want[1]], row.name + ": Settings link");
             // A signed-out app replaces the cause's hint with its own.
             if (row.answer === UNSELECTED) {
-                const unselected = gate.readiness(UNSELECTED).setupModel.hint;
+                const unselected = readiness(gate, UNSELECTED).setupModel.hint;
                 const hint = settings.statusView(setupRow.entry, String).hint;
                 if (row.want[1] !== "signIn")
                     assert.equal(hint, "Choose an AI model in [Settings > Jarvis > AI model](page:vgs.jarvis/Settings)", row.name + ": Setup AI model hint");
@@ -951,7 +952,7 @@ function verifyVoice(gate, serviceSource, accountsSource) {
             const settings = { ...plain(manifest.settings), ...changed };
             assert.equal(helloSettings(gate, serviceSource, require(providersFile), manifest, settings, { voiceKeys: offered, providers: {} }, label).voiceProvider, want, label);
         }
-        assert.equal(plain(gate.readiness({ kind: "answered", causes: [] })).setup.tone, "ok", "no cause, as a fresh install with its local voice set up: ready");
+        assert.equal(plain(readiness(gate, { kind: "answered", causes: [] })).setup.tone, "ok", "no cause, as a fresh install with its local voice set up: ready");
         // The Voice provider takes its four options and nothing else, and a
         // value a settings file already holds reads as it is.
         const provider = value => judge.settingRefusal(manifest, "voiceProvider", value);
@@ -975,7 +976,7 @@ function verifyVoice(gate, serviceSource, accountsSource) {
         const linked = {};
         for (const [label, offered, voiceProvider, want] of VOICE_KEY) {
             const values = {};
-            const shell = { settings: { voiceAccount: "openai-1", voiceProvider }, configure: { set: () => "ok" }, status: { values, set: (key, value) => {
+            const shell = { manifest, settings: { voiceAccount: "openai-1", voiceProvider }, configure: { set: () => "ok" }, status: { values, set: (key, value) => {
                 assert.equal(judge.statusWrite(manifest, values, key, value).ok, true, label + ": accepted status " + key);
                 values[key] = value;
                 return "ok";
@@ -1056,7 +1057,7 @@ function verifyVoice(gate, serviceSource, accountsSource) {
         const previewed = voiceProvider => {
             let value = null;
             const root = { accountReader: { voiceKeys: undefined }, sessionState: { engine: { kind: "duplex" } },
-                shell: { settings: { ...plain(manifest.settings), voiceProvider }, status: { set: (key, row) => { value = row; return "ok"; } } } };
+                shell: { manifest, settings: { ...plain(manifest.settings), voiceProvider }, status: { set: (key, row) => { value = row; return "ok"; } } } };
             vm.runInNewContext("(function() { with(root) { return (" + preview[0] + ").call(root); } })()",
                 { root, Gate: gate, Session: { previewRefusal: () => null } });
             assert.equal(judge.statusWrite(manifest, {}, "voicePreview", value).ok, true, voiceProvider + ": accepted status voicePreview");
@@ -1080,7 +1081,7 @@ function verifyVoiceConsumers(gate) {
         ["realtime", ["brain=unselected"], ["success", false]],
         ["local", ["brain=unselected", "speech=local-not-set-up"], ["warning", true]]
     ]) {
-        const values = { ...plain(gate.readiness({ kind: "answered", causes })),
+        const values = { ...plain(readiness(gate, { kind: "answered", causes })),
             localRuntime: { tone: "warning", text: "Not set up", action: true } };
         values.setupVoice = gate.voiceCheck(values.setupVoice, null);
         const row = { status: judge.statusRows(manifest, values) };
@@ -1105,7 +1106,7 @@ function keyedCauses(value, fields) {
 
 function verifyReadiness(gate) {
     for (const [label, answer, tone, todo, declared, model] of READINESS) {
-        const got = plain(gate.readiness(answer));
+        const got = plain(readiness(gate, answer));
         assert.deepEqual(Object.keys(got).sort(), ["setup", "setupHome", "setupModel", "setupVoice"], label);
         assert.deepEqual(got.setupHome, { tone: "ok", text: "Done" }, label + ": the checked Home folder stays visible as Done");
         assert.equal(got.setup.tone, tone, label + ": the summary");
@@ -1122,18 +1123,18 @@ function verifyReadiness(gate) {
                 label + ": a plain hint, no keyed cause on screen");
         }
     }
-    const lines = BRAIN_CAUSES.map(cause => plain(gate.readiness({ kind: "answered", causes: [cause] })).setupModel.hint);
-    const localNotReady = plain(gate.readiness({ kind: "answered", causes: ["speech=local-not-ready"] })).setupVoice;
+    const lines = BRAIN_CAUSES.map(cause => plain(readiness(gate, { kind: "answered", causes: [cause] })).setupModel.hint);
+    const localNotReady = plain(readiness(gate, { kind: "answered", causes: ["speech=local-not-ready"] })).setupVoice;
     assert.equal(localNotReady.hint, "Set up the local voice again", "local voice setup-broken words");
-    const localReadyTimeout = plain(gate.readiness({ kind: "answered", causes: ["speech=local-ready-timeout"] })).setupVoice;
+    const localReadyTimeout = plain(readiness(gate, { kind: "answered", causes: ["speech=local-ready-timeout"] })).setupVoice;
     assert.deepEqual([localReadyTimeout.text, localReadyTimeout.hint], ["Timed out",
         "Local voice timed out: [turn Jarvis off and on again, or set it up again](page:vgs.jarvis/Setup)"], "local voice timeout words");
-    const probeTimeout = plain(gate.readiness({ kind: "answered", causes: ["setup=probe-timeout"] }));
+    const probeTimeout = plain(readiness(gate, { kind: "answered", causes: ["setup=probe-timeout"] }));
     assert.equal(typeof probeTimeout.setup.hint === "string" && probeTimeout.setup.hint !== "" && !/=/.test(probeTimeout.setup.hint), true,
         "probe timeout: the ready summary carries its caution");
     assert.deepEqual(probeTimeout.setupVoice, { tone: "ok", text: "Done", action: false }, "probe timeout: the voice step offers no setup");
     for (const cause of ["speech=local-memory-insufficient", "speech=local-memory-unavailable"]) {
-        const got = plain(gate.readiness({ kind: "answered", causes: [cause] }));
+        const got = plain(readiness(gate, { kind: "answered", causes: [cause] }));
         assert.deepEqual([got.setup.tone, got.setupVoice.tone, got.setupVoice.action, got.setupModel.tone],
             ["warning", "warning", false, "ok"], "memory refuses capture without reinstall action");
         assert.equal(got.setupVoice.lines, undefined, "recovery is no state badge");
@@ -1143,47 +1144,45 @@ function verifyReadiness(gate) {
     assert.equal(new Set(lines).size, BRAIN_CAUSES.length, "each brain cause says its own hint");
     for (const cause of ["speech=live-account-unselected", "speech=live-account-unreadable", "speech=live-key-required", "speech=always-local-voice",
         "speech=elevenlabs-voice"]) {
-        const got = plain(gate.readiness({ kind: "answered", causes: [cause] }));
+        const got = plain(readiness(gate, { kind: "answered", causes: [cause] }));
         assert.deepEqual([got.setupVoice.tone, got.setupVoice.action, typeof got.setupVoice.hint], ["warning", false, "string"],
             "Realtime voice setup never starts local model installation");
         assert.deepEqual(got.setupModel, { tone: "ok", text: "Done" });
     }
     // Before the daemon answers nothing reads ready or to do.
-    const checking = plain(gate.readiness({ kind: "checking" }));
+    const checking = plain(readiness(gate, { kind: "checking" }));
     assert.deepEqual([checking.setup.tone, checking.setup.action], ["info", undefined], "checking: setup");
     for (const key of ["setupVoice", "setupModel"])
         assert.deepEqual([checking[key].tone, checking[key].action], ["info", DONE_ACTION[key]], "checking: " + key);
-    assert.equal(gate.readiness({ kind: "checking" }).setupVoice, gate.CHECKING);
-    assert.equal(gate.readiness({ kind: "answered", causes: ["speech=local-loading"] }).setupVoice, gate.LOADING);
-    assert.equal(gate.readiness({ kind: "answered", causes: ["speech=local-loading"] }).setup, gate.LOADING_SUMMARY);
+    assert.equal(readiness(gate, { kind: "checking" }).setupVoice, gate.CHECKING);
+    assert.equal(readiness(gate, { kind: "answered", causes: ["speech=local-loading"] }).setupVoice, gate.LOADING);
+    assert.equal(readiness(gate, { kind: "answered", causes: ["speech=local-loading"] }).setup, gate.LOADING_SUMMARY);
     // ElevenLabs's voices being read load; a read that failed is to do.
-    assert.equal(gate.readiness({ kind: "answered", causes: ["speech=elevenlabs-voices-reading"] }).setupVoice, gate.LOADING,
+    assert.equal(readiness(gate, { kind: "answered", causes: ["speech=elevenlabs-voices-reading"] }).setupVoice, gate.LOADING,
         "ElevenLabs voices being read: loading");
-    assert.notEqual(gate.readiness({ kind: "answered", causes: ["speech=elevenlabs-voice"] }).setupVoice.hint,
-        gate.readiness({ kind: "answered", causes: ["speech=elevenlabs-voices-reading"] }).setupVoice.hint, "a failed read says so");
+    assert.notEqual(readiness(gate, { kind: "answered", causes: ["speech=elevenlabs-voice"] }).setupVoice.hint,
+        readiness(gate, { kind: "answered", causes: ["speech=elevenlabs-voices-reading"] }).setupVoice.hint, "a failed read says so");
     assert.notEqual(gate.LOADING, gate.CHECKING, "loading and initial checking have distinct values");
     for (const causes of [["speech=local-loading"], ["speech=local-loading", "brain=unselected"]]) {
-        const loading = plain(gate.readiness({ kind: "answered", causes }));
+        const loading = plain(readiness(gate, { kind: "answered", causes }));
         assert.deepEqual([loading.setupVoice.tone, loading.setupVoice.action], ["info", false]);
         assert.equal(loading.setup.tone, causes.length === 1 ? "info" : "warning");
         assert.equal(loading.setup.action, undefined);
         assert.deepEqual([loading.setupModel.tone, loading.setupModel.action], causes.length === 1 ? ["ok", undefined] : ["warning", "key"]);
     }
     // A stopped daemon runs no check: its steps claim none and offer none.
-    const stopped = plain(gate.readiness({ kind: "stopped" }));
+    const stopped = plain(readiness(gate, { kind: "stopped" }));
     assert.deepEqual(Object.keys(stopped).sort(), ["setup", "setupHome", "setupModel", "setupVoice"], "stopped");
     assert.deepEqual([stopped.setupHome, checking.setupHome], [{ tone: "warning", text: "Not checked" }, { tone: "warning", text: "Not checked" }], "Home stays pending before the daemon checks it");
-    // A refused home folder is the one step to do, with what to change and
-    // no action of its own; the voice and the AI model stay done.
-    const homeHints = HOME_CAUSES.map(cause => {
-        const got = plain(gate.readiness({ kind: "answered", causes: [cause] }));
+    // A refused home folder is the step to do. Editable user files offer
+    // the named file action; the voice and AI model stay done.
+    HOME_CAUSES.forEach(cause => {
+        const got = plain(readiness(gate, { kind: "answered", causes: [cause] }));
         assert.deepEqual([got.setup.tone, got.setupHome.tone, got.setupHome.action, got.setupHome.lines, got.setupVoice.tone, got.setupModel.tone],
-            ["warning", "warning", undefined, undefined, "ok", "ok"], cause);
+            ["warning", "warning", cause === "home=text" ? "agents" : cause === "guidance=home-skills-too-large" ? "skills" : undefined, undefined, "ok", "ok"], cause);
         assert.equal(typeof got.setupHome.hint === "string" && got.setupHome.hint !== "" && !/=/.test(got.setupHome.hint), true,
             cause + ": a plain hint, no keyed cause on screen");
-        return got.setupHome.hint;
     });
-    assert.equal(new Set(homeHints).size, HOME_CAUSES.length, "each home cause says its own hint");
     // The Copilot Memory row shows for a usable GitHub Copilot account alone.
     const account = (provider, value) => ({ provider, value });
     for (const [label, accounts, shown] of [
@@ -1198,10 +1197,10 @@ function verifyReadiness(gate) {
     assert.deepEqual([stopped.setup.lines, typeof stopped.setup.hint], [undefined, "string"], "stopped: the summary says why as its hint");
     for (const key of ["setupVoice", "setupModel"])
         assert.deepEqual([stopped[key].tone === checking[key].tone, stopped[key].action], [false, DONE_ACTION[key]], "stopped: " + key);
-    assert.throws(() => gate.readiness({ kind: "answered", causes: ["voice=missing"] }), /^Error: jarvis-setup: cause=voice=missing/);
+    assert.throws(() => readiness(gate, { kind: "answered", causes: ["voice=missing"] }), /^Error: jarvis-setup: cause=voice=missing/);
     const manifest = judge.validateManifest(JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8")), path.dirname(file)).manifest;
     const piFloor = manifest.requirements.find(row => row.name === "pi").floor;
-    const piHint = gate.readiness({ kind: "answered", causes: ["brain=pi-update"] }).setupModel.hint;
+    const piHint = readiness(gate, { kind: "answered", causes: ["brain=pi-update"] }).setupModel.hint;
     assert.equal(piHint.includes(piFloor), true, "Pi recovery names the required version");
     // An optional step reads its reader's state, in the info tone while it
     // is not ok. The Local voice row offers no action: it is a state of the
@@ -1211,7 +1210,7 @@ function verifyReadiness(gate) {
     // entry, the reader's value, the voice the daemon runs or null for an
     // optional step, the Voice step's value, the published [tone, text,
     // action]].
-    const voiceTodo = gate.voiceCheck(gate.readiness({ kind: "answered", causes: ["speech=local-not-set-up"] }).setupVoice, null);
+    const voiceTodo = gate.voiceCheck(readiness(gate, { kind: "answered", causes: ["speech=local-not-set-up"] }).setupVoice, null);
     const voiceDone = gate.voiceCheck(gate.DONE, null);
     for (const [label, key, value, provider, voice, want] of [
         ["browser ready", "browser", READY, null, null, ["ok", "Private browser ready", false]],
@@ -1247,7 +1246,7 @@ function verifyReadiness(gate) {
     // After a failed start the Voice step reads Not checked and offers no
     // action, so the Local voice row adds no line and offers none either.
     for (const [label, cause] of FAILED_STARTS) {
-        const voice = plain(gate.voiceCheck(gate.readiness({ kind: "problem", cause }).setupVoice, null));
+        const voice = plain(gate.voiceCheck(readiness(gate, { kind: "problem", cause }).setupVoice, null));
         const got = plain(gate.localVoiceStep(LOCAL_ABSENT, "local", voice));
         assert.equal(voice.action, undefined, label + ": the Voice step offers no action");
         assert.deepEqual([got.lines, got.action], [undefined, undefined], label + ": the Local voice row adds no line and offers no setup");
@@ -1267,11 +1266,11 @@ function verifyReadiness(gate) {
     assert.equal(judge.statusRows(manifest, { copilotMemory: plain(gate.copilotMemory([])) }).some(entry => entry.key === "copilotMemory"), false,
         "no Copilot account, no row");
     for (const answer of answers)
-        for (const [key, value] of Object.entries(plain(gate.readiness(answer))))
+        for (const [key, value] of Object.entries(plain(readiness(gate, answer))))
             assert.equal(judge.statusWrite(manifest, {}, key, key === "setupVoice" ? gate.voiceCheck(value, null) : value).ok, true,
                 "the manifest judge accepts " + key + " for " + JSON.stringify(answer));
     const published = {
-        ...plain(gate.readiness({ kind: "answered", causes: ["speech=local-memory-insufficient"] })),
+        ...plain(readiness(gate, { kind: "answered", causes: ["speech=local-memory-insufficient"] })),
         browser: plain(gate.optionalStep(ABSENT)),
         input: plain(gate.optionalStep(INPUT_ABSENT))
     };
@@ -1510,7 +1509,7 @@ function verifyElevenLabsRow(gate, serviceSource) {
     const hints = new Set();
     for (const [label, facts, want] of ELEVEN_ROWS) {
         const values = {};
-        const shell = { settings: { voiceAccount: facts.account }, status: { set: (key, value) => {
+        const shell = { manifest, settings: { voiceAccount: facts.account }, status: { set: (key, value) => {
             assert.equal(judge.statusWrite(manifest, values, key, value).ok, true, label + ": the ElevenLabs voices row is accepted");
             values[key] = value;
             return "ok";
@@ -1535,7 +1534,7 @@ function verifyElevenLabsRow(gate, serviceSource) {
     }
     assert.equal(hints.size, 5, "the ElevenLabs voices row: each state words its own hint");
     // The failed read reads as the Voice step does.
-    assert.equal(gate.elevenLabsStep(ELEVEN_ROWS[5][1]).hint, gate.readiness({ kind: "answered", causes: ["speech=elevenlabs-voice"] }).setupVoice.hint,
+    assert.equal(gate.elevenLabsStep(ELEVEN_ROWS[5][1]).hint, readiness(gate, { kind: "answered", causes: ["speech=elevenlabs-voice"] }).setupVoice.hint,
         "the ElevenLabs voices row: a failed read reads as the Setup tab does");
 }
 
@@ -1546,7 +1545,7 @@ function verifyVoiceRoute(gate, serviceSource) {
     const sentences = new Set();
     for (const option of manifest.schema.voiceProvider.options) {
         const values = {};
-        const shell = { settings: { voiceProvider: option.value }, status: { set: (key, value) => {
+        const shell = { manifest, settings: { voiceProvider: option.value }, status: { set: (key, value) => {
             assert.equal(judge.statusWrite(manifest, values, key, value).ok, true, option.value + ": the Voice provider hint is accepted");
             values[key] = value;
             return "ok";
@@ -1575,7 +1574,7 @@ function verifyOneSessionJudgement(gate, only) {
         for (const reason of reasons) assert.ok(Object.hasOwn(gate.SESSION_ROWS, state + " " + reason), state + " " + reason + ": a row of the contract is judged");
     for (const block of ["no-home", "no-account", "not-app", "package"]) assert.ok(Object.hasOwn(gate.SESSION_BLOCKS, block), block + ": a block is judged");
     for (const causes of [[], ["setup=probe-timeout"], ["brain=unselected"], ["speech=local-loading"]]) {
-        const setup = plain(gate.readiness({ kind: "answered", causes })).setup;
+        const setup = plain(readiness(gate, { kind: "answered", causes })).setup;
         for (const result of results)
             for (const wanted of [true, false]) {
                 const session = plain(gate.sessionStart(wanted, result));
@@ -1614,7 +1613,7 @@ function verifyHintStops(gate) {
         { kind: "answered", causes: ["setup=probe-timeout", ...Array.from(protocol.SETUP_CAUTIONS)] }, { kind: "answered", causes: ["guidance=agents-over-budget"] },
         ...START_CAUSES.flatMap(([, cause]) => [{ kind: "problem", cause }, { kind: "problem", cause, action: gate.RETRYING_START }])];
     for (const answer of answers)
-        for (const [key, value] of Object.entries(plain(gate.readiness(answer)))) {
+        for (const [key, value] of Object.entries(plain(readiness(gate, answer)))) {
             take(JSON.stringify(answer) + " " + key, value);
             take(JSON.stringify(answer) + " voiceCheck", gate.voiceCheck(value, null));
         }
@@ -1637,7 +1636,7 @@ function verifyHintStops(gate) {
             const session = gate.sessionStart(wanted, result);
             take("sessionStart " + JSON.stringify(result), session);
             for (const answer of [{ kind: "answered", causes: [] }, { kind: "answered", causes: ["setup=probe-timeout"] }])
-                take("sessionSummary " + JSON.stringify(result), gate.sessionSummary(gate.readiness(answer).setup, session));
+                take("sessionSummary " + JSON.stringify(result), gate.sessionSummary(readiness(gate, answer).setup, session));
         }
     for (const value of ["present", "absent", "locked", "unavailable"]) hints.push(["keyHint " + value, words.keyHint({ label: "fixture / test", value })]);
     for (const state of ["signed-in", "found", "unchecked", "verifying", "verified", "locked", "unavailable"])
@@ -1666,13 +1665,13 @@ function verifyOverBudget(gate, serviceSource) {
     const cautions = Array.from(protocol.SETUP_CAUTIONS);
     assert.deepEqual(cautions, Object.keys(OVER_BUDGET_FILES), "each caution the wire carries names its file here");
     for (const cause of cautions) {
-        const got = plain(gate.readiness({ kind: "answered", causes: [cause] }));
+        const got = plain(readiness(gate, { kind: "answered", causes: [cause] }));
         assert.deepEqual([got.setup, got.setupHome.tone, got.setupHome.text, got.setupVoice.tone, got.setupModel.tone],
             [{ tone: "ok", text: "Ready" }, "ok", "Done", "ok", "ok"], cause + ": over its budget reads Ready");
         assert.equal(typeof got.setupHome.hint === "string" && got.setupHome.hint.includes(OVER_BUDGET_FILES[cause]), true, cause + ": the caution names the file");
         assert.equal(judge.statusWrite(manifest, {}, "setupHome", got.setupHome).ok, true, cause + ": the judge accepts the Home folder step");
     }
-    const all = plain(gate.readiness({ kind: "answered", causes: ["setup=probe-timeout", ...cautions, "brain=unselected"] }));
+    const all = plain(readiness(gate, { kind: "answered", causes: ["setup=probe-timeout", ...cautions, "brain=unselected"] }));
     assert.deepEqual([all.setup.tone, all.setupHome.tone, all.setupHome.text, all.setupModel.tone], ["warning", "ok", "Done", "warning"],
         "texts over their budget beside a step to do: that step alone is open");
     assert.deepEqual(cautions.filter(cause => !all.setupHome.hint.includes(OVER_BUDGET_FILES[cause])), [], "the caution names every text over its budget");
@@ -1698,12 +1697,111 @@ function verifyOverBudget(gate, serviceSource) {
     }
 }
 
+// Production path and editor-completion callbacks, with no filesystem or
+// desktop access. The Home gate owns refusal; this code only opens its path.
+function verifyHomeActions(gate, source) {
+    const personalityFile = source.match(/^    function personalityFile\(\) \{\n[\s\S]*?^    \}/m);
+    assert.ok(personalityFile, "the service exposes the selected-home file");
+    for (const home of [{ kind: "empty" }, { kind: "reading" }, { kind: "failed" },
+        { kind: "ready", path: "/home/user/My folder/é#%notes" }]) {
+        const context = { homePathRead: home };
+        vm.runInNewContext(personalityFile[0], context);
+        assert.equal(context.personalityFile(), home.kind === "ready" ? home.path + "/AGENTS.md" : "refused: home=none",
+            home.kind + ": the refused home does not need a ready-home message");
+        for (const [cause, action, suffix] of [["home=text", "agents", "/AGENTS.md"],
+            ["guidance=home-skills-too-large", "skills", "/skills/"]]) {
+            const value = plain(gate.readiness({ kind: "answered", causes: [cause] }, home).setupHome);
+            assert.equal(value.action, home.kind === "ready" ? action : undefined, cause + ": action follows path readiness");
+            assert.equal(value.file, home.kind === "ready" ? home.path + suffix : undefined, cause + ": the selected path");
+            assert.equal(judge.statusWrite(manifest, {}, "setupHome", value).ok, true, cause + ": accepted file action");
+            if (home.kind === "ready")
+                assert.deepEqual(plain(judge.statusActionRequest(manifest, "vgs.jarvis", true, { setupHome: value }, "setupHome")),
+                    { ok: true, kind: "file", path: home.path + suffix }, cause + ": the core opens the selected file");
+        }
+    }
+    const resolve = source.match(/^    function resolveHomePath\(\) \{\n[\s\S]*?^    \}/m);
+    assert.ok(resolve, "the service starts a selected-home path read");
+    for (const selectedHome of ["", "~/new"]) {
+        const published = [];
+        const context = { selectedHome, shell: {}, homePathRead: { kind: "ready", path: "/home/user/old" },
+            homePathProbe: { running: true }, setupAnswer: { kind: "answered", causes: ["home=text"] } };
+        context.publishSetup = answer => published.push(plain(gate.readiness(answer, context.homePathRead).setupHome));
+        vm.runInNewContext("(" + resolve[0] + ")", context)();
+        assert.equal(published.length, 1, "a changed home publishes before the old helper ends");
+        assert.equal(published[0].action, undefined, "a changed home removes the old file action immediately");
+        assert.equal(published[0].file, undefined, "a changed home never opens the previous file");
+    }
+    const finish = source.match(/^    function homePathFinished\(\) \{\n[\s\S]*?^    \}/m);
+    assert.ok(finish, "the service completes its path read");
+    for (const [selected, code, timedOut, expected] of [["~/old", 0, false, "stale"], ["~/new", 0, false, "ready"],
+        ["~/new", 1, false, "failed"], ["~/new", 0, true, "failed"]]) {
+        const calls = [];
+        const context = { selectedHome: "~/new", homePathProbe: { selected, code, timedOut, output: "/home/user/new \n" },
+            homePathDeadline: { stop: () => {} }, resolveHomePath: () => calls.push("resolve"),
+            shell: {}, setupAnswer: {}, publishSetup: () => calls.push("publish"), homePathRead: { kind: "reading" } };
+        vm.runInNewContext("(" + finish[0] + ")", context)();
+        assert.equal(context.homePathRead.kind, expected === "stale" ? "reading" : expected, expected + ": path result");
+        assert.deepEqual(calls, expected === "stale" ? ["resolve"] : ["publish"], expected + ": a stale result cannot publish");
+        if (expected === "ready") assert.equal(context.homePathRead.path, "/home/user/new ", "a trailing filename space is preserved");
+    }
+    const end = source.match(/^    onHomeEditEndedAtChanged: (.*)$/m);
+    assert.ok(end, "the service handles edit completion");
+    const calls = [];
+    const context = { homeEditEndedAt: null, hello: () => calls.push("hello") };
+    vm.runInNewContext(end[1], context);
+    assert.deepEqual(calls, [], "no edit has ended");
+    context.homeEditEndedAt = "2026-10-18T00:00:00Z";
+    vm.runInNewContext(end[1], context);
+    assert.deepEqual(calls, ["hello"], "edit completion requests a fresh home judgement without Talk");
+    const publishSetup = source.match(/^    function publishSetup\(answer\) \{\n[\s\S]*?^    \}/m);
+    assert.ok(publishSetup, "the service publishes the Voice step");
+    const missingCases = [[[], "status"], [["gum"], "tools"], [["uv"], "status"], [["curl"], "status"],
+        [["unshare"], "tools"], [["python3"], "tools"], [["uv", "curl"], "status"], [["uv", "gum"], "tools"]];
+    const setupTui = manifest.status.setupVoice.actions.setup.tui;
+    for (const command of manifest.tui[setupTui].requires)
+        assert.ok(missingCases.some(([missing]) => missing.includes(command)), command + ": the selected Voice action dependency is covered");
+    for (const [missing, expected] of missingCases) {
+        const label = missing.join("+") || "all present";
+        const values = {};
+        const shell = { manifest, settings: { voiceAccount: "", startAtBoot: false }, requirements: { missing },
+            status: { values, set: (key, value) => {
+                assert.equal(judge.statusWrite(manifest, values, key, value).ok, true, label + ": accepted " + key);
+                values[key] = value;
+                return "ok";
+            } } };
+        vm.runInNewContext("(" + publishSetup[0] + ")", { Gate: gate, shell, homePathRead: { kind: "empty" }, dictationState: null,
+            accountReader: { modelAccess: { kind: "checking" } }, localRuntime: { setupCause: "", republish: () => {} },
+            voiceStep: null, sessionState: null, sessionStart: { result: null }, setupAnswer: { kind: "checking" } })(
+            { kind: "answered", causes: ["speech=local-not-ready"] });
+        const requirements = judge.requirementRows(manifest, missing, {});
+        const row = settingsRows(settings.setupSections(judge.listedTuis(manifest), judge.statusRows(manifest, values), requirements, jarvisOn))
+            .find(item => item.key === "setupVoice");
+        assert.equal(row.button?.kind, expected, label + ": the Voice step keeps a usable route");
+        if (expected === "status") {
+            assert.equal(row.button.name, setupTui, label + ": the declared setup action stays offered");
+            const action = judge.statusActionRequest(manifest, "vgs.jarvis", true, values, "setupVoice");
+            assert.deepEqual(plain(action), { ok: true, kind: "tui", name: setupTui }, label + ": the setup press opens the declared terminal");
+            const request = judge.tuiRunFor(manifest, true, "/snapshot", { launcher: "present", busy: [], run: "fixture" }, action.name, missing);
+            assert.equal(request.ok, true, label + ": the setup request is accepted");
+            if (missing.length > 0) assert.deepEqual(plain(request), { ok: true, kind: "install", commands: missing },
+                label + ": the notice names the missing optional commands");
+            else assert.equal(request.key, "vgs.jarvis/setup-local", label + ": the launcher starts the selected setup terminal");
+        }
+    }
+    for (const answer of [{ kind: "stopped" }, { kind: "problem", cause: "jarvis: hello=timeout" }]) {
+        const values = readiness(gate, answer);
+        for (const key of ["setupModel", "setupVoice"])
+            assert.equal(pageReference.parse(values[key].hint).page, "vgs.jarvis", key + ": a stopped check links Settings");
+    }
+}
+
 function verify(gate) {
+    verifyHomeActions(gate, fs.readFileSync(serviceFile, "utf8"));
     verifyOverBudget(gate, fs.readFileSync(serviceFile, "utf8"));
     verifySession(gate);
     verifyOneSessionJudgement(gate);
     for (const check of [{ kind: "ready" }, { kind: "done", result: "ready" }]) {
-        const value = gate.voiceCheck(gate.readiness({ kind: "answered", causes: ["speech=local-ready-timeout"] }).setupVoice, check);
+        const value = gate.voiceCheck(readiness(gate, { kind: "answered", causes: ["speech=local-ready-timeout"] }).setupVoice, check);
         assert.deepEqual(plain(value), { tone: "warning", text: "Timed out",
             hint: "Local voice timed out: [turn Jarvis off and on again, or set it up again](page:vgs.jarvis/Setup)",
             action: "setup" }, "voice setup cause survives microphone check");
@@ -1758,7 +1856,7 @@ function verify(gate) {
         assert.equal(judge.statusWrite(judged, {}, "browserDriver", plain(gate.flooredValue("agent-browser", missing, outdated))).ok, true, "the manifest judge accepts the driver row");
     // Neither fact installs or updates its tool: Settings holds the
     // tool and its install action beside the feature.
-    const update = judge.statusActionRequest(judged, "vgs.jarvis", true, { setupModel: plain(gate.readiness({ kind: "answered", causes: ["brain=pi-update"] })).setupModel }, "setupModel");
+    const update = judge.statusActionRequest(judged, "vgs.jarvis", true, { setupModel: plain(readiness(gate, { kind: "answered", causes: ["brain=pi-update"] })).setupModel }, "setupModel");
     assert.deepEqual(plain(update), { ok: false, answer: "refused: action=setupModel reason=not-offered" }, "a Pi below its floor offers no step on the AI model row");
     assert.deepEqual(plain(judge.statusActionRequest(judged, "vgs.jarvis", true, { browserDriver: plain(gate.flooredValue("agent-browser", [], ["agent-browser"])) }, "browserDriver")),
         { ok: false, answer: "refused: action=browserDriver reason=undeclared" }, "the driver row declares no step");
@@ -1798,7 +1896,7 @@ function verify(gate) {
         assert.equal(typeof words.title, "string", label + ": title");
         assert.equal(typeof words.action, "string", label + ": action");
         assert.equal(words.lines.length, 1, label + ": detail line");
-        const setup = gate.readiness({ kind: "problem", cause }).setup;
+        const setup = readiness(gate, { kind: "problem", cause }).setup;
         assert.deepEqual([setup.text, setup.hint], [words.title, words.action], label + ": the start failure summary says its state and hint");
         assert.deepEqual([setup.lines, keyedCauses(setup, ["text", "hint"])], [undefined, []], label + ": the start failure summary draws no keyed cause");
     }
@@ -1808,7 +1906,7 @@ function verify(gate) {
     for (const cause of ["jarvis: daemon=exit code=1 status=0 " + "x".repeat(240), "jarvis: protocol=bad\u0001line"]) {
         const words = gate.startCause(cause);
         const daemon = gate.startStatus(cause, false);
-        const setup = gate.readiness({ kind: "problem", cause }).setup;
+        const setup = readiness(gate, { kind: "problem", cause }).setup;
         assert.equal(judge.statusWrite(manifest, {}, "daemon", daemon).ok, true, "daemon accepts bounded cause line");
         assert.equal(judge.statusWrite(manifest, {}, "setup", setup).ok, true, "setup accepts bounded cause line");
         assert.equal(words.lines[0].length <= 200 && !/[\u0000-\u001f]/.test(words.lines[0]), true, "cause line is bounded and printable");
@@ -1858,8 +1956,8 @@ const CONTROLS = [
         "timeout: the row draws no keyed cause"],
     ["the Local voice row reads as a setup the Voice step does not offer", 'if (voice.action === "setup") {', 'if (voice.action === "setup" || voice.tone === "warning") {',
         "dictation setup leaves local voice maintenance available: the browser and input read optional"],
-    ["a home hint names a path with no page", '"home=path": "Jarvis cannot use this folder: [choose a Home folder](page:vgs.jarvis/Settings) inside your own home directory"',
-        '"home=path": "Jarvis cannot use this folder. Choose a folder inside your own home directory in Settings > Home."', "the Settings path has the one form"],
+    ["a home hint names a path with no page", '"home=path": { hint: "Jarvis cannot use this folder: choose a [Home folder](page:vgs.jarvis/Settings/home) inside your own home directory" }',
+        '"home=path": { hint: "Jarvis cannot use this folder. Choose a folder inside your own home directory in Settings > Home." }', "the Settings path has the one form"],
     ["the voices hint names the Voice field in plain words", 'var ELEVENLABS_READY = "[Choose one in the Voice list](page:vgs.jarvis/Settings/voice)";', 'var ELEVENLABS_READY = "Choose one in the Voice list";',
         "the voices hint links the Voice field"],
     ["a failed check names another reader's action", '" Press " + setup.label + " to set it up', '" Press Set up local voice to set it up', "the hint names"],
@@ -1872,7 +1970,7 @@ const CONTROLS = [
     ["a starting recording offers setup", 'if (cause === "speech=local-loading" || cause === "speech=dictation-starting" || cause === "speech=elevenlabs-voices-reading") {', 'if (cause === "speech=local-loading" || cause === "speech=elevenlabs-voices-reading") {', "daemon starting"],
     ["a voice list being read reads as a failed one", 'if (cause === "speech=local-loading" || cause === "speech=dictation-starting" || cause === "speech=elevenlabs-voices-reading") {', 'if (cause === "speech=local-loading" || cause === "speech=dictation-starting") {', "ElevenLabs voices being read"],
     ["missing voxtype is not named", 'var ACTION_REQUIRES = { dictation: ["voxtype"] };', "var ACTION_REQUIRES = {};", "voxtype missing"],
-    ["missing voxtype withholds Set up dictation", 'if (value.action === "dictation") withheld.action = "dictation";', 'if (false) withheld.action = "dictation";', "voxtype missing"],
+    ["missing voxtype withholds Set up dictation", 'if (value.action === "dictation") { withheld.action = "dictation"; delete withheld.hint; }', 'if (false) withheld.action = "dictation";', "voxtype missing"],
     ["another voxtype offers setup", '"speech=dictation-elsewhere": { tone:',
         '"speech=dictation-elsewhere": { action: "dictation", tone:', "another voxtype"],
     ["the holder omits a missing engine name", 'if (!setup.compiled) lines.push(', 'if (false) lines.push(', "the holder names"],
@@ -1937,8 +2035,9 @@ const CONTROLS = [
     ["the fleet row offers no setup", 'if (tool !== null) return DONE;\n    return { tone: "info", text: "Optional", action: true };', 'if (tool !== null) return DONE;\n    return { tone: "info", text: "Optional", action: false };'],
     ["a missing command does not withhold setup", "return missing.indexOf(command) !== -1; });", "return false; });"],
     ["the withheld step keeps its action", 'else if (typeof value.action !== "string") withheld.action = false;', 'else withheld.action = value.action;'],
-    ["a withheld named action reads false", 'if (value.action === "dictation") withheld.action = "dictation";\n    else if (typeof value.action !== "string") withheld.action = false;', 'withheld.action = false;', "accepted status setupVoice"],
+    ["a withheld named action reads false", 'if (value.action === "dictation") { withheld.action = "dictation"; delete withheld.hint; }', 'if (value.action === "dictation") withheld.action = false;', "accepted status setupVoice"],
     ["any missing command withholds setup", "var lacking = requires.filter(", "var lacking = missing.filter("],
+    ["optional Voice tools hide its setup action", 'requirement.name === command && !requirement.optional', 'requirement.name === command'],
     ["the withheld text names every required command", 'lacking.join(" and ")', 'requires.join(" and ")'],
     ["the Realtime voice offers the local install action", 'return cause.indexOf("speech=live-") !== 0 && ', 'return true && '],
     ["Always mode offers the local install action", ' && cause !== "speech=always-local-voice";', ";"],
@@ -1959,10 +2058,10 @@ const CONTROLS = [
     ["a wire-defect title overflows the chip", 'title: "Jarvis message error"', 'title: "Jarvis and its daemon could not understand each other"', "fits the Setup status chip"],
     ["a home cause marks no step", 'if (REQUIRED[step] === "setupHome") {', 'if (false) {'],
     ["a home text cause marks the voice step", 'guidance: "setupHome", ', 'guidance: "setupVoice", '],
-    ["the home causes share one hint", "hint: Object.prototype.hasOwnProperty.call(HOME_TODO, cause) ? HOME_TODO[cause] : HOME_STEP_TODO };", "hint: HOME_STEP_TODO };"],
+    ["the home causes share one reading", "out.setupHome = homeStep(cause, home);", "out.setupHome = { tone: \"warning\", text: \"To do\", hint: HOME_STEP_TODO };"],
     ["the completed Home folder step disappears", 'var HOME_READY = { tone: "ok", text: "Done" };', "var HOME_READY = { hidden: true };"],
     ["the unchecked Home folder reads Done", 'var HOME_UNCHECKED = { tone: "warning", text: "Not checked" };', 'var HOME_UNCHECKED = { tone: "ok", text: "Done" };'],
-    ["the home folder step offers an action", 'out.setupHome = { tone: "warning", text: "To do",', 'out.setupHome = { tone: "warning", text: "To do", action: true,'],
+    ["the home folder action loses its path", 'value.file = home.path + HOME_FILES[value.action];', ""],
     ["any account shows Copilot Memory", 'account.provider === "copilot" && ', ""],
     ["a signed-out Copilot shows Copilot Memory", ' && account.value === "present"; })', "; })"],
     ["a command below its floor reads as installed", 'if (outdated.indexOf(command) !== -1) return { tone: "warning", text: "Needs an update" };', ""],
@@ -2040,7 +2139,7 @@ const CONTROLS = [
     ["the missing tmux hint links Settings", 'under Tools](page:vgs.jarvis/Details)" }', 'under Tools](page:vgs.jarvis/Settings)" }', "the session hint links Details"],
     ["a one-sentence hint ends with a full stop", 'hint: "A preview of the Realtime voice may cost money", action: true }', 'hint: "A preview of the Realtime voice may cost money.", action: true }',
         "ends as the copy rule says"],
-    ["a longer hint leaves its last full stop off", 'Open Accounts to check them."', 'Open Accounts to check them"',
+    ["a longer hint leaves its last full stop off", 'Add a key with Add key to use an AI model."', 'Add a key with Add key to use an AI model"',
         "ends as the copy rule says"],
     ["the stopped notice takes the hint's one sentence as it is", "message: sentence(problem.action),", "message: problem.action,", "notice's message ends as a sentence"],
     ["joined hints run on with no full stop between them", "hints.map(sentence).join", "hints.join", "keeps the summary and its caution, a sentence of its own"]
@@ -2105,6 +2204,10 @@ try {
     for (const [label, needle, replacement, check] of [
         ["elevenlabs-row-offers-unread", "answer: setupAnswer, voices: voiceOffers }", "answer: setupAnswer, voices: 0 }", verifyElevenLabsRow],
         ["elevenlabs-row-key-unread", "keys: accountReader.voiceKeys, account: shell.settings.voiceAccount", "keys: [], account: shell.settings.voiceAccount", verifyElevenLabsRow],
+        ["home-editor-no-recheck", 'if (homeEditEndedAt !== null) hello()', 'if (false && homeEditEndedAt !== null) hello()', verifyHomeActions],
+        ["home-path-not-invalidated", 'homePathRead = { kind: selectedHome === "" ? "empty" : "reading" };', 'if (false) homePathRead = { kind: selectedHome === "" ? "empty" : "reading" };', verifyHomeActions],
+        ["home-path-stale", 'if (homePathProbe.selected !== selectedHome) { resolveHomePath(); return; }', 'if (false && homePathProbe.selected !== selectedHome) { resolveHomePath(); return; }', verifyHomeActions],
+        ["home-path-failed-accepted", 'homePathRead = homePathProbe.code === 0 && !homePathProbe.timedOut', 'homePathRead = true || homePathProbe.code === 0 && !homePathProbe.timedOut', verifyHomeActions],
         ["voice-route-fixed", 'Gate.voiceRoute(shell.settings.voiceProvider)', 'Gate.voiceRoute("local")', verifyVoiceRoute]]) {
         assert.equal(serviceSource.split(needle).length, 2, label + ": the text to replace must occur once");
         assert.throws(() => check(load(file), serviceSource.replace(needle, replacement)), assert.AssertionError, label + " must turn red");
@@ -2446,7 +2549,7 @@ function drawnTwice(rows) {
 function verifyScreensOnce(gate) {
     const tuis = judge.listedTuis(manifest);
     for (const [label, provider, causes, local, browser, input, offering, localTone] of ONCE) {
-        const values = plain(gate.readiness({ kind: "answered", causes }));
+        const values = plain(readiness(gate, { kind: "answered", causes }));
         values.setupVoice = gate.voiceCheck(values.setupVoice, null);
         values.setupModel = gate.modelStep(values.setupModel, [{ value: "absent" }], { kind: "absent" });
         Object.assign(values, plain({ localRuntime: gate.localVoiceStep(local, provider, values.setupVoice), browser: gate.optionalStep(browser), input: gate.optionalStep(input),
@@ -2467,7 +2570,7 @@ function verifyScreensOnce(gate) {
     }
     // Its control: the Voice step's and the Local voice row's setup both
     // offered, as a Local voice entry that declares its own setup would.
-    const both = plain(gate.readiness({ kind: "answered", causes: ["speech=local-not-set-up"] }));
+    const both = plain(readiness(gate, { kind: "answered", causes: ["speech=local-not-set-up"] }));
     both.setupVoice = gate.voiceCheck(both.setupVoice, null);
     both.localRuntime = LOCAL_ABSENT;
     const bothStatus = judge.statusRows(localSetupManifest(), both);
@@ -2483,7 +2586,7 @@ function verifyOneLocalVoiceTask(gate, step) {
         for (const [localLabel, reading] of LOCAL_VOICE_TASK.local)
             for (const provider of LOCAL_VOICE_TASK.providers) {
                 const label = voiceLabel + " / " + localLabel + " / " + provider;
-                const values = plain(gate.readiness(answer));
+                const values = plain(readiness(gate, answer));
                 values.setupVoice = plain(gate.voiceCheck(values.setupVoice, null));
                 const local = typeof reading === "string" ? gate.checkFailure(reading, manifest.status.localRuntime) : reading;
                 values.localRuntime = plain(step(local, provider, values.setupVoice));
@@ -2531,10 +2634,10 @@ function verifyCheckFailures(gate) {
             if (kind !== "timeout") continue;
             assert.equal(value.tone, "info", key + " timeout: the check remains informational");
             assert.equal(settings.declaresStep(row), false, key + " timeout: the optional state stays off Setup");
-            const completed = { ...plain(gate.readiness({ kind: "answered", causes: [] })), [key]: value };
+            const completed = { ...plain(readiness(gate, { kind: "answered", causes: [] })), [key]: value };
             assert.equal(settings.setupNeeds(judge.statusRows(manifest, completed), [], true).open, false,
                 key + " timeout: a completed required setup keeps its warning clear");
-            const unchecked = { ...plain(gate.readiness({ kind: "checking" })), [key]: value };
+            const unchecked = { ...plain(readiness(gate, { kind: "checking" })), [key]: value };
             assert.equal(settings.setupNeeds(judge.statusRows(manifest, unchecked), [], true).open, true,
                 key + " timeout: required setup still warns before its checks answer");
             assert.deepEqual(keyedCauses(value, ["text", "hint", "lines"]), [], key + " timeout: the row draws no keyed cause");
@@ -2543,7 +2646,7 @@ function verifyCheckFailures(gate) {
     // Jarvis takes a request while its setup check has timed out, so the
     // summary is Ready, and neither its caution nor the Local voice row
     // asks for a restart beside it (VGS-1520's one judgement).
-    const probeTimeout = plain(gate.readiness({ kind: "answered", causes: ["setup=probe-timeout"] })).setup;
+    const probeTimeout = plain(readiness(gate, { kind: "answered", causes: ["setup=probe-timeout"] })).setup;
     const timedOutRow = plain(gate.localVoiceStep(gate.checkFailure("timeout", manifest.status.localRuntime), "local", voiceDone));
     assert.deepEqual([probeTimeout.tone, probeTimeout.text], ["ok", "Ready"], "probe timeout: the summary is Ready");
     assert.equal(timedOutRow.hint.includes(gate.START_RESTART), false, "probe timeout: the Local voice row asks for no restart beside Ready");
@@ -2565,12 +2668,12 @@ function verifyDictation(gate, serviceSource) {
     for (const [label, voice, state, missing, cause, expect, offered, names] of DICTATION) {
         assert.equal(gate.dictationCause(voice, state), cause, label + ": the cause");
         const values = {};
-        const shell = { settings: { voiceAccount: "" }, requirements: { missing }, status: { values, set: (key, value) => {
+        const shell = { manifest, settings: { voiceAccount: "" }, requirements: { missing }, status: { values, set: (key, value) => {
             assert.equal(judge.statusWrite(manifest, values, key, value).ok, true, label + ": accepted status " + key);
             values[key] = value;
             return "ok";
         } } };
-        vm.runInNewContext("(" + publishSetup[0] + ")", { Gate: gate, shell, dictationState: state === null ? null : Object.assign({ setup: null }, state), accountReader: { modelAccess: { kind: "checking" } },
+        vm.runInNewContext("(" + publishSetup[0] + ")", { Gate: gate, shell, homePathRead: { kind: "ready", path: "/home/user/Fixture" }, dictationState: state === null ? null : Object.assign({ setup: null }, state), accountReader: { modelAccess: { kind: "checking" } },
             localRuntime: { setupCause: "", republish: () => {} }, voiceStep: null, sessionState: null, sessionStart: { result: null }, setupAnswer: { kind: "checking" } })({ kind: "answered", causes: cause === "" ? [] : [cause] });
         const voice_ = plain(values.setupVoice);
         if (expect === "withheld")
@@ -2653,7 +2756,7 @@ function verifyOneReadiness(gate) {
     const sets = [[], [shellCause], ...daemonCauses.map(cause => [cause]), ...daemonCauses.map(cause => [shellCause, cause])];
     const keys = { talk: "Super+Right Alt", mute: "Super+Shift+Right Alt", stop: "Super+Alt+Period", confirm: "Super+Alt+Y" };
     for (const causes of sets) {
-        const status = plain(gate.readiness({ kind: "answered", causes }));
+        const status = plain(readiness(gate, { kind: "answered", causes }));
         const configured = causes.every(cause => cause === shellCause || cause === "speech=local-loading");
         const state = Object.assign(plain(session.initial()), { gate: configured ? { kind: "up" } : { kind: "down", reason: "unconfigured" } });
         assert.equal(session.validate(state), true, causes.join(",") + ": a Session record");
@@ -2674,7 +2777,7 @@ function verifyWordedText(gate) {
     const up = { daemon: { tone: "info", text: "Jarvis is ready; microphone is off" }, audio: { tone: "ok", text: "Device list ready" },
         detail: { phase: session.phaseOf(state), seq: 1, state } };
     for (const [label, answer] of READINESS) {
-        const status = plain(gate.readiness(answer));
+        const status = plain(readiness(gate, answer));
         const bar = widget.view(Object.assign({}, up, status), keys, "hold");
         assert.deepEqual(keyedCauses(bar, ["tooltip", "tooltipDetails"]), [], label + ": the bar tooltip draws no keyed cause");
     }
@@ -2684,7 +2787,7 @@ function verifyWordedText(gate) {
             const daemon = plain(gate.startStatus(cause, retrying));
             assert.deepEqual(daemon.lines, [gate.startCause(cause).lines[0]], label + ": the Daemon row keeps the cause");
             assert.equal(judge.statusWrite(manifest, {}, "daemon", daemon).ok, true, label + ": the daemon value fits its entry");
-            const setup = plain(gate.readiness(retrying ? { kind: "problem", cause, action: gate.RETRYING_START } : { kind: "problem", cause }));
+            const setup = plain(readiness(gate, retrying ? { kind: "problem", cause, action: gate.RETRYING_START } : { kind: "problem", cause }));
             const bar = widget.view(Object.assign({ daemon, detail: null }, setup), keys, "hold");
             assert.equal(bar.state, "problem", label + ": the bar reads a problem");
             assert.deepEqual(keyedCauses(bar, ["tooltip", "tooltipDetails"]), [], label + " retrying=" + retrying + ": the bar tooltip draws no keyed cause");
@@ -2727,13 +2830,13 @@ function verifyPathForm(gate) {
         ["speech=always-local-voice", "vgs.jarvis", "Settings"],
         ["speech=dictation-elsewhere", "vgs.voice", "Details"],
         ["speech=dictation-device", "vgs.voice", "Settings"],
-        ["home=link", "vgs.jarvis", "Settings"],
-        ["home=path", "vgs.jarvis", "Settings"]]) {
-        const values = gate.readiness({ kind: "answered", causes: [cause] });
+        ["home=link", "vgs.jarvis", "Settings/home"],
+        ["home=path", "vgs.jarvis", "Settings/home"]]) {
+        const values = readiness(gate, { kind: "answered", causes: [cause] });
         const hint = Object.entries(values).find(([key, value]) => key !== "setup" && value.hint !== undefined)[1].hint;
         const reference = pageReference.parse(hint);
         assert.deepEqual([reference.page, reference.tab], [page, tab], cause + ": the converted hint links its tab");
-        assert.ok(hint.length <= judge.STATUS_HINT_MAX && oneSentence(hint), cause + ": a converted hint fits as one sentence");
+        assert.ok(judge.hintFits(hint), cause + ": a converted hint fits the status reading");
     }
     // The session hints link the Jarvis session row and the Tools section,
     // both on Details.
@@ -2743,7 +2846,7 @@ function verifyPathForm(gate) {
         const reference = pageReference.parse(sessionHint);
         assert.deepEqual([reference.page, reference.tab], ["vgs.jarvis", "Details"], name + ": the session hint links Details");
     }
-    const hint =gate.readiness({ kind: "answered", causes: ["brain=unselected"] }).setupModel.hint;
+    const hint =readiness(gate, { kind: "answered", causes: ["brain=unselected"] }).setupModel.hint;
     assert.equal(hint, "Choose an AI model in [Settings > Jarvis > AI model](page:vgs.jarvis/Settings)", "Setup AI model hint links the field's tab");
     const source = fs.readFileSync(path.join(path.dirname(file), "SessionStart.qml"), "utf8");
     const publish = source.match(/^    function publish\(\) \{\n[\s\S]*?^    \}/m);
@@ -2751,14 +2854,14 @@ function verifyPathForm(gate) {
     for (const block of ["no-home", "no-account", "not-app"]) {
         const values = {};
         const result = { kind: "answer", state: "running", reason: "resumed", detail: "", names: null, unapplied: block };
-        const shell = { settings: { startAtBoot: true }, status: { set: (key, value) => { values[key] = plain(value); return "ok"; } } };
+        const shell = { manifest, settings: { startAtBoot: true }, status: { set: (key, value) => { values[key] = plain(value); return "ok"; } } };
         vm.runInNewContext("(" + publish[0] + ")", { shell, result, offered: false, dismissFailed: false, pollOver: false, lastRead: "", Gate: gate, PageReference: pageReference })();
         assert.deepEqual(values.sessionStart.lines, [pageReference.plain(gate.SESSION_BLOCKS[block])], block + ": unapplied badges draw the reference's words");
         assert.equal(pageReference.parse(gate.sessionStart(true, { kind: "blocked", block }).hint).page, "vgs.jarvis", block + ": the blocked hint keeps its link");
     }
     // The service hands the row a Do not resume the package did not answer.
     const values = {};
-    const shell = { settings: { startAtBoot: false }, status: { set: (key, value) => { values[key] = plain(value); return "ok"; } } };
+    const shell = { manifest, settings: { startAtBoot: false }, status: { set: (key, value) => { values[key] = plain(value); return "ok"; } } };
     const record = { kind: "answer", state: "stopped", reason: "ended", detail: "", names: null, restart: { unlock: null, steps: [] } };
     vm.runInNewContext("(" + publish[0] + ")", { shell, result: record, offered: true, dismissFailed: true, pollOver: false, lastRead: "", Gate: gate, PageReference: pageReference })();
     assert.deepEqual(values.sessionStart.lines, [gate.SESSION_NOT_DISMISSED], "the service's row says Do not resume was not saved");
@@ -2796,9 +2899,9 @@ function verifyVoiceStepRepublish(gate, serviceSource) {
     assert.ok(publishSetup, "Service.qml declares publishSetup");
     const values = {};
     const calls = [];
-    const context = { Gate: gate, dictationState: null, accountReader: { modelAccess: { kind: "checking" } }, sessionState: null, setupAnswer: { kind: "checking" },
-        voiceStep: gate.readiness({ kind: "checking" }).setupVoice, sessionStart: { result: null },
-        shell: { settings: { voiceAccount: "", startAtBoot: false }, requirements: { missing: [] }, status: { values, set: (key, value) => { values[key] = value; return "ok"; } } } };
+    const context = { Gate: gate, homePathRead: { kind: "ready", path: "/home/user/Fixture" }, dictationState: null, accountReader: { modelAccess: { kind: "checking" } }, sessionState: null, setupAnswer: { kind: "checking" },
+        voiceStep: readiness(gate, { kind: "checking" }).setupVoice, sessionStart: { result: null },
+        shell: { manifest, settings: { voiceAccount: "", startAtBoot: false }, requirements: { missing: [] }, status: { values, set: (key, value) => { values[key] = value; return "ok"; } } } };
     context.localRuntime = { setupCause: "", republish: () => calls.push(plain(context.voiceStep)) };
     const publish = vm.runInNewContext("(" + publishSetup[0] + ")", context);
     for (const [label, answer, republished] of [
@@ -2817,8 +2920,8 @@ function verifyVoiceStepRepublish(gate, serviceSource) {
     // element's handler, read from the source: its shape, not its run).
     context.sessionStart.result = { kind: "answer", state: "blocked", reason: "tmux-missing", detail: "", names: null };
     publish({ kind: "answered", causes: [] });
-    assert.deepEqual(plain(values.setup), plain(gate.sessionSummary(gate.readiness({ kind: "answered", causes: [] }).setup,
+    assert.deepEqual(plain(values.setup), plain(gate.sessionSummary(readiness(gate, { kind: "answered", causes: [] }).setup,
         gate.sessionStart(false, context.sessionStart.result))), "the published summary names a session that cannot start");
-    assert.notDeepEqual(plain(values.setup), plain(gate.readiness({ kind: "answered", causes: [] }).setup), "the session changes the published summary");
+    assert.notDeepEqual(plain(values.setup), plain(readiness(gate, { kind: "answered", causes: [] }).setup), "the session changes the published summary");
     assert.match(serviceSource, /^ {4}Jarvis\.SessionStart \{[^\n]*onResultChanged: root\.publishShellSetup\(\)/m, "each session answer publishes the summary again");
 }

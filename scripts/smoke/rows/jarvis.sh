@@ -823,9 +823,11 @@ jarvis_rescan
 jarvis_shell_status() {
   ipc smoke jarvisProcess | py_reply '
 import json,sys
-want = {"ready": {"tone":"ok", "text":"Ready"},
-        "missing": {"tone":"warning", "text":"Unavailable", "hint":"[Review all missing or outdated tools on Setup](page:vgs.jarvis/Setup) to enable shell commands"}}[sys.argv[1]]
-print("matched" if json.load(sys.stdin)["status"].get("shell") == want else "pending")
+row=json.load(sys.stdin)["status"].get("shell",{})
+ok=row.get("tone")=={"ready":"ok","missing":"warning"}[sys.argv[1]]
+if sys.argv[1]=="missing":
+    ok=ok and "bwrap" in row.get("text","").split() and "page:vgs.jarvis/Setup" in row.get("hint","")
+print("matched" if ok else "pending")
 ' "$1"
 }
 jarvis_shell_assertion() {

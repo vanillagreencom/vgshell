@@ -67,10 +67,11 @@ const SETTING_CAUSES = [
 ];
 const OVERFLOW = { tone: "danger", text: "capture-overflow" };
 const ARMED = { capture: { kind: "open", gen: 1, op: 2, mode: "armed" } };
-const VOICE_LOADING = SetupGate.readiness({ kind: "answered", causes: ["speech=local-loading"] });
-const VOICE_READY = SetupGate.readiness({ kind: "answered", causes: [] });
-const VOICE_CHECKING = SetupGate.readiness({ kind: "checking" });
-const PROBE_TIMEOUT = SetupGate.readiness({ kind: "answered", causes: ["setup=probe-timeout"] });
+const setupReadiness = answer => SetupGate.readiness(answer, { kind: "ready", path: "/home/user/Fixture" });
+const VOICE_LOADING = setupReadiness({ kind: "answered", causes: ["speech=local-loading"] });
+const VOICE_READY = setupReadiness({ kind: "answered", causes: [] });
+const VOICE_CHECKING = setupReadiness({ kind: "checking" });
+const PROBE_TIMEOUT = setupReadiness({ kind: "answered", causes: ["setup=probe-timeout"] });
 const up = (regions, extra) => Object.assign({ daemon: READY, audio: DEVICES, detail: detail(regions) }, extra);
 
 const MUTE = "Click or press Super+Shift+Right Alt to mute.";
@@ -231,8 +232,8 @@ function callView(view, values, keys = KEYS, mode = "hold") {
 }
 
 function verify(view) {
-    const loading = SetupGate.readiness({ kind: "answered", causes: ["speech=local-loading"] });
-    const checking = SetupGate.readiness({ kind: "checking" });
+    const loading = setupReadiness({ kind: "answered", causes: ["speech=local-loading"] });
+    const checking = setupReadiness({ kind: "checking" });
     for (const [label, values, want] of [
         ["speech loading", up(down("unconfigured"), loading), ["loading", "loader", "info"]],
         ["loading admitted", up({}, loading), ["loading", "loader", "info"]],
@@ -242,12 +243,12 @@ function verify(view) {
         ["loading with audio danger", up(down("unconfigured"), { ...loading, audio: OVERFLOW }), ["problem", "circle-alert", "danger"]],
         ["checking setup with Session fault", up({ fault: { kind: "error", reason: "brain=stream-error", retry: 0 } }, loading), ["problem", "circle-alert", "danger"]],
         ["loading while muted", up({ ...down("unconfigured"), ...MUTED }, loading), ["muted", "mic-off", "neutral"]],
-        ["loading with missing model", up(down("unconfigured"), SetupGate.readiness({ kind: "answered", causes: ["speech=local-loading", "brain=unselected"] })), ["off", "power-off", "neutral"]],
+        ["loading with missing model", up(down("unconfigured"), setupReadiness({ kind: "answered", causes: ["speech=local-loading", "brain=unselected"] })), ["off", "power-off", "neutral"]],
         ["missing command with no setup action", up(down("unconfigured"), { setupVoice: { tone: "warning", action: false }, setupModel: MODEL_DONE }), ["off", "power-off", "neutral"]],
         ["missing command while model checks", up(down("unconfigured"), { setupVoice: { tone: "warning", action: false }, setupModel: checking.setupModel }), ["off", "power-off", "neutral"]],
         ["checking tone with setup action", up(down("unconfigured"), { setupVoice: { tone: "info", action: true }, setupModel: MODEL_DONE }), ["off", "power-off", "neutral"]],
         ["unpublished model while voice checks", up(down("unconfigured"), { setupVoice: loading.setupVoice }), ["off", "power-off", "neutral"]],
-        ["both steps done with gate down", up(down("unconfigured"), SetupGate.readiness({ kind: "answered", causes: [] })), ["off", "power-off", "neutral"]],
+        ["both steps done with gate down", up(down("unconfigured"), setupReadiness({ kind: "answered", causes: [] })), ["off", "power-off", "neutral"]],
         ["loading while locked", up(down("locked"), loading), ["off", "power-off", "neutral"]]
     ]) {
         let out;
@@ -316,14 +317,14 @@ function verify(view) {
     for (const [label, values, pattern, keys = KEYS, mode = "hold"] of REFUSALS)
         assert.throws(() => callView(view, values, keys, mode), error => pattern.test(error.message), label);
     for (const cause of ["speech=local-memory-insufficient", "speech=local-memory-unavailable"]) {
-        const status = SetupGate.readiness({ kind: "answered", causes: [cause] });
+        const status = setupReadiness({ kind: "answered", causes: [cause] });
         const got = callView(view, up(down("unconfigured"), status));
         assert.deepEqual([got.state, got.icon, got.tone], ["off", "power-off", "neutral"]);
         assert.equal(got.tooltip.startsWith(status.setupVoice.text), true);
         assert.equal(got.tooltipDetails[0].includes(status.setupVoice.hint), true, "the widget carries the published recovery explanation");
     }
     for (const causes of [["home=link", "brain=unselected"], ["guidance=home-skills-too-large", "speech=local-loading"]]) {
-        const status = SetupGate.readiness({ kind: "answered", causes });
+        const status = setupReadiness({ kind: "answered", causes });
         const got = callView(view, up(down("unconfigured"), status));
         assert.deepEqual([got.state, got.icon, got.tone], ["off", "power-off", "neutral"], causes[0]);
         assert.equal(got.tooltipDetails[0].includes(status.setupHome.hint), true, causes[0] + ": the widget says what to change in the home folder");
@@ -337,12 +338,12 @@ function verify(view) {
         }
     }
     for (const [cause, state, title, details] of SETTING_CAUSES) {
-        const status = SetupGate.readiness({ kind: "answered", causes: [cause] });
+        const status = setupReadiness({ kind: "answered", causes: [cause] });
         const values = state === "off" ? up(down("unconfigured"), status) : up({}, status);
         const got = callView(view, values);
         assert.deepEqual(copy([got.state, got.tooltip, got.tooltipDetails]), [state, title, details], cause);
     }
-    const idle = callView(view, up(down("unconfigured"), { ...SetupGate.readiness({ kind: "answered", causes: ["brain=unselected"] }), setupHome: { tone: "ok", text: "Done", hint: "fixture" } }));
+    const idle = callView(view, up(down("unconfigured"), { ...setupReadiness({ kind: "answered", causes: ["brain=unselected"] }), setupHome: { tone: "ok", text: "Done", hint: "fixture" } }));
     assert.equal(idle.tooltipDetails.join(" ").includes("fixture"), false);
     verifySession(view);
 }

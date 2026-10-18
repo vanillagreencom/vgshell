@@ -47,6 +47,9 @@ Item {
     readonly property string voiceChoice: shell === null ? "" : shell.settings.voiceProvider
     onVoiceChoiceChanged: publishVoiceRoute()
     property var homeMessage: ({ homes: [], current: "" })
+    property var homePathRead: ({ kind: "empty" })
+    readonly property string selectedHome: shell === null ? "" : shell.settings.home
+    onSelectedHomeChanged: resolveHomePath()
     // The request handlers, built on the first request; see requestHandlers().
     property var requests: null
     property var bubbles: []
@@ -79,6 +82,10 @@ Item {
     property var taskPrompts: []
     property var taskResponse: null
     readonly property bool taskTuiRunning: shell !== null && shell.tui.state.task.running
+    // File actions publish their editor's completion in the plugin's edit
+    // state (TuiRunner.editFor). A folder open has no editor run.
+    readonly property var homeEditEndedAt: shell === null ? null : shell.tui.state.edit.endedAt
+    onHomeEditEndedAtChanged: if (homeEditEndedAt !== null) hello()
     readonly property string daemon: String(Qt.resolvedUrl("backend/jarvisd.js")).replace(/^file:\/\//, "")
     // The core's one recording (D106), which the local voice's final words
     // come from (D064): a new copy after each change, and the cause the
@@ -205,11 +212,11 @@ Item {
         const merged = answer.kind === "answered" && setupCause !== "" && answer.causes.indexOf(setupCause) === -1
             ? { kind: "answered", causes: [setupCause].concat(answer.causes) }
             : answer;
-        const values = Gate.readiness(merged);
+        const values = Gate.readiness(merged, homePathRead);
         values.setup = Gate.sessionSummary(values.setup, Gate.sessionStart(shell.settings.startAtBoot, sessionStart.result));
         values.setupVoice = Gate.dictationSetup(values.setupVoice, dictationState);
         values.setupVoice = Gate.voiceCheck(values.setupVoice, sessionState === null ? null : sessionState.check);
-        values.setupVoice = Gate.setupValue(values.setupVoice, Gate.actionRequires(values.setupVoice), shell.requirements.missing);
+        values.setupVoice = Gate.setupValue(values.setupVoice, Gate.actionRequires(values.setupVoice, shell.manifest), shell.requirements.missing, true);
         values.setupModel = Gate.modelStep(values.setupModel, shell.status.values["keys"], accountReader.modelAccess);
         for (const key of Object.keys(values)) {
             const reply = shell.status.set(key, values[key]);
@@ -469,10 +476,30 @@ Item {
         return "ok";
     }
 
-    // The path of AGENTS.md in the home the daemon judged ready.
+    // The read-only folder command uses Home.resolve, the daemon's path
+    // owner, even while that folder's contents fail its setup check.
+    function resolveHomePath() {
+        homePathRead = { kind: selectedHome === "" ? "empty" : "reading" };
+        if (shell !== null) publishSetup(setupAnswer);
+        if (homePathProbe.running || selectedHome === "") return;
+        homePathProbe.selected = selectedHome;
+        homePathProbe.code = -1;
+        homePathProbe.output = "";
+        homePathProbe.timedOut = false;
+        homePathProbe.running = true;
+        homePathDeadline.restart();
+    }
+
+    function homePathFinished() {
+        homePathDeadline.stop();
+        if (homePathProbe.selected !== selectedHome) { resolveHomePath(); return; }
+        homePathRead = homePathProbe.code === 0 && !homePathProbe.timedOut && homePathProbe.output.endsWith("\n")
+            ? { kind: "ready", path: homePathProbe.output.slice(0, -1) } : { kind: "failed" };
+        if (shell !== null) publishSetup(setupAnswer);
+    }
+
     function personalityFile() {
-        if (shell === null || homeMessage.current === "") return "refused: home=none";
-        return Quickshell.env("HOME") + homeMessage.current.slice(1) + "/AGENTS.md";
+        return homePathRead.kind === "ready" ? homePathRead.path + "/AGENTS.md" : "refused: home=none";
     }
 
     // The ElevenLabs voices row: the user's step until a key is chosen, then
@@ -623,9 +650,9 @@ Item {
     function shellStatus(availability) {
         const value = availability.kind === "available" ? { tone: "ok", text: "Ready" }
             : availability.kind === "checking" ? { tone: "info", text: "Checking" }
-            : { tone: "warning", text: "Unavailable", hint: availability.reason === "bwrap-missing"
+            : { tone: "warning", text: availability.reason === "bwrap-missing" ? "Needs bwrap" : "Unavailable", hint: availability.reason === "bwrap-missing"
                 ? "[Review all missing or outdated tools on Setup](page:vgs.jarvis/Setup) to enable shell commands"
-                : availability.reason === "public-runtime" ? "Jarvis could not prepare shell commands: turn Jarvis off and on again"
+                : availability.reason === "public-runtime" ? "Jarvis could not prepare shell commands: turn Jarvis off and on again in [Settings](page:vgs.jarvis/Settings)"
                 : "This system cannot run protected shell commands" };
         const result = shell.status.set("shell", value);
         if (result !== "ok") throw new Error("jarvis: " + result);
@@ -1166,6 +1193,30 @@ Item {
     }
     Jarvis.BrowserRuntime { shell: root.shell }
     Jarvis.FleetRuntime { id: fleetRuntime; shell: root.shell }
+    Process {
+        id: homePathProbe
+        property string selected: ""
+        property string output: ""
+        property int code: -1
+        property bool timedOut: false
+        command: ["node", fleetRuntime.program, "--tree", Quickshell.shellDir + "/..", "folder", selected]
+        clearEnvironment: true
+        environment: ({ PATH: Quickshell.env("PATH"), HOME: Quickshell.env("HOME"), LANG: "C.UTF-8" })
+        stdout: StdioCollector { onStreamFinished: homePathProbe.output = text }
+        stderr: StdioCollector {}
+        // As in LocalRuntime: failed starts end through runningChanged;
+        // successful exits supply their code before the end handler.
+        onExited: (code, status) => homePathProbe.code = status === 0 ? code : -1
+        onRunningChanged: if (!running) root.homePathFinished()
+    }
+    Timer {
+        id: homePathDeadline
+        // The folder probe is read-only. Reuse the local setup reader's
+        // bound so a stuck helper cannot keep the file action waiting.
+        interval: 10000
+        repeat: false
+        onTriggered: { homePathProbe.timedOut = true; homePathProbe.running = false; }
+    }
     // The Setup summary names a session that cannot start.
     Jarvis.SessionStart { id: sessionStart; shell: root.shell; onResultChanged: root.publishShellSetup() }
     Jarvis.PowerWait { shell: root.shell; session: sessionStart; focusedOutput: root.focusedOutput }

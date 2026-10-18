@@ -887,6 +887,72 @@ cp -- "$sandbox/setup-fleet-service-original" "$setup_service"
 jarvis_rescan
 expect "restore the previous home after the fleet refresh case" ok ipc smoke invokeInstance window vgs.settings applySetting "$setup_fleet_before"
 rm -rf -- "${setup_fleet_home:?}"
+# File actions use the shell's selected path even when the daemon refuses
+# its contents. Keep this daemon's test home aligned with the shell's scratch
+# HOME. The ordinary J09 launcher still owns its isolated children.
+jarvis_disable
+cp -- "$setup_service" "$sandbox/setup-home-service-original"
+setup_home_lease="$sandbox/setup-home-lease.sh"
+python3 - "$setup_home_lease" "$home" "$setup_service" "$sandbox/jarvis-world/lease.sh" <<'PYHOME'
+from pathlib import Path
+import json,shlex,sys
+lease=Path(sys.argv[1])
+lease.write_text('\n'.join(['#!/bin/bash','set -euo pipefail','exec 3<&0',
+    'exec bash "$1" "$2" -- bash -c \'export HOME="$1"; shift; exec node "$@" <&3 3<&-\' jarvis-home '+shlex.quote(sys.argv[2])+' "$3" --tree "$4"','']))
+lease.chmod(0o700)
+p=Path(sys.argv[3]); source=p.read_text(); old=json.dumps(sys.argv[4])
+assert source.count(old)==1
+changed=source.replace(old,json.dumps(str(lease)))
+assert changed!=source
+p.write_text(changed)
+PYHOME
+jarvis_rescan
+jarvis_enable
+setup_home_dir="$home/Setup file é#%notes"
+setup_home_setting='{"id":"vgs.jarvis","key":"home","value":"~/old/../Setup file é#%notes/"}'
+expect "select a home whose path needs the canonical resolver" ok ipc smoke invokeInstance window vgs.settings applySetting "$setup_home_setting"
+setup_home_path() {
+  ipc smoke readInstance service vgs.jarvis homePathRead | py_reply 'import json,sys
+r=json.load(sys.stdin)
+print(r.get("path","pending") if r.get("kind")=="ready" else "pending")'
+}
+setup_home_tone() { status_row vgs.jarvis setupHome | py_reply 'import json,sys; print(json.load(sys.stdin)["value"]["tone"])'; }
+setup_home_value() {
+  status_row vgs.jarvis setupHome | py_reply 'import json,sys
+v=json.load(sys.stdin)["value"]
+print(json.dumps([v.get("action"),v.get("file")]))'
+}
+expect_poll "the shared resolver preserves file characters and removes dot segments" "$setup_home_dir" setup_home_path
+expect_poll "the new scratch home is ready before the edit case" ok setup_home_tone
+setup_readers_idle "before the home file edit"
+printf '\377not plain text\n' >"$setup_home_dir/AGENTS.md"
+expect "an explicit home judgement refuses the non-text file" '' ipc smoke invokeInstance service vgs.jarvis hello ''
+expect_poll "the refused home offers its selected AGENTS file" "$(words agents "$setup_home_dir/AGENTS.md")" setup_home_value
+: >"$sandbox/run-hold"
+forget_record
+expect "Open AGENTS uses the core file action" ok settings_act vgs.jarvis setupHome
+expect_poll "the editor receives the refused home's exact file" "$(words vgs.jarvis/edit "$core_vgshell" edit "$setup_home_dir/AGENTS.md")" recorded_tail
+printf '# Instructions\nUse plain text.\n' >"$setup_home_dir/AGENTS.md"
+rm -f -- "${sandbox:?}/run-hold"
+expect_run_end "the shared file editor run ends" vgs.jarvis/edit
+expect_poll "editor completion judges the saved home without Talk" ok setup_home_tone
+expect_poll "the saved home no longer offers an Open action" '[null, null]' setup_home_value
+# A skill-count refusal opens the folder selected by that same resolver.
+python3 - "$setup_home_dir/skills/own" <<'PYSKILLS'
+from pathlib import Path
+import sys
+folder=Path(sys.argv[1]); folder.mkdir(parents=True,exist_ok=True)
+for index in range(257):
+    (folder/('entry-%s.md'%index)).write_text('# Skill\nSynthetic skill.\n')
+PYSKILLS
+expect "the daemon judges the oversized skill set" '' ipc smoke invokeInstance service vgs.jarvis hello ''
+expect_poll "the refused skill set offers the selected skills folder" "$(words skills "$setup_home_dir/skills/")" setup_home_value
+expect "restore the earlier home after the file actions" ok ipc smoke invokeInstance window vgs.settings applySetting "$setup_fleet_before"
+jarvis_disable
+cp -- "$sandbox/setup-home-service-original" "$setup_service"
+jarvis_rescan
+jarvis_enable
+rm -rf -- "${setup_home_dir:?}"
 settings_page_close vgs.jarvis
 jarvis_disable
 rm -f -- "${setup_marker:?}"
