@@ -288,10 +288,16 @@ printf 'fixture\n' >"$seed/shell/Core/Probe.js"
 g -C "$seed" add -A; g -C "$seed" commit -q -m four; g -C "$seed" push -q "$upstream" main
 main_commit="$(g -C "$upstream" rev-parse main)"
 compare_fixture "$built_commit" "$main_commit"
-INST_BIN="$tmp/bound-vgshell" inst "a vgshell-git package without an AUR helper is behind and takes no step" "$cfg" "$rt_empty" 0 "$(status_json "$version_text" package vgshell-git "$built" "$main_commit" true none no-aur-helper null)" "" self status --json
-INST_BIN="$tmp/bound-vgshell" inst "the text form names the step and its reason" "$cfg" "$rt_empty" 0 "version=$version_text method=package package=vgshell-git current=$built latest=$main_commit behind=true step=none reason=no-aur-helper" "" self status
+INST_BIN="$tmp/bound-vgshell" inst "a vgshell-git package without an AUR helper offers helper installation" "$cfg" "$rt_empty" 0 "$(status_json "$version_text" package vgshell-git "$built" "$main_commit" true install-helper null null)" "" self status --json
+INST_BIN="$tmp/bound-vgshell" inst "the text form names helper installation" "$cfg" "$rt_empty" 0 "version=$version_text method=package package=vgshell-git current=$built latest=$main_commit behind=true step=install-helper" "" self status
 printf '#!/bin/sh\nexit 99\n' >"$stubs/paru"; chmod +x "$stubs/paru"
-INST_BIN="$tmp/bound-vgshell" inst "a vgshell-git package with an AUR helper takes the rebuild" "$cfg" "$rt_empty" 0 "$(status_json "$version_text" package vgshell-git "$built" "$main_commit" true rebuild null null)" "" self status --json
+for helper in paru yay; do
+  rm -f -- "${stubs:?}/paru" "${stubs:?}/yay"
+  printf '#!/bin/sh\nexit 99\n' >"$stubs/$helper"; chmod +x "$stubs/$helper"
+  INST_BIN="$tmp/bound-vgshell" inst "a vgshell-git package with $helper takes the rebuild" "$cfg" "$rt_empty" 0 "$(status_json "$version_text" package vgshell-git "$built" "$main_commit" true rebuild null null)" "" self status --json
+done
+rm -f -- "${stubs:?}/yay"
+printf '#!/bin/sh\nexit 99\n' >"$stubs/paru"; chmod +x "$stubs/paru"
 # Answers whose files GitHub may have cut short, or that cannot prove the
 # installed tree unchanged, read behind; an answer GitHub could not give
 # is the report's error, exit 0. `stall` sends 200 and its headers, then

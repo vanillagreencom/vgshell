@@ -130,14 +130,15 @@ function normalizePkg(probe) {
 }
 
 // The steps `vgshell self status` names an update by, each with the reasons
-// it may carry: `self` and `rebuild` run, and `none` runs nothing, with the
-// reason when VGS is behind.
-var SELF_STEPS = { self: [null], rebuild: [null], none: [null, "no-aur-helper", "package-manager", "nix"] };
+// it may carry: `self`, `rebuild` and `install-helper` run, and `none` runs
+// nothing, with the reason when VGS is behind.
+var SELF_STEPS = { self: [null], rebuild: [null], "install-helper": [null], none: [null, "no-aur-helper", "package-manager", "nix"] };
 
 // The VGS row from `vgshell self status --json` and FAILED, the
 // rebuild-failed.json record a failed vgshell-git rebuild of
 // tui/pipeline.sh left, or null. VGS counts one update only when its step
-// runs, `self` or `rebuild`. Its `note` is one of:
+// runs. Its `note` is one of:
+//   { kind: "installHelper" }   install paru before rebuilding VGS
 //   { kind: "reason", reason }   behind, and the step is `none` for REASON
 //   { kind: "rebuildFailed", conflict }
 //                                the rebuild of this same installed version
@@ -156,7 +157,8 @@ function normalizeSelf(probe, checkedAt, failed) {
     var runs = behind && row.step !== "none";
     var packages = behind ? [{ name: row.package || "vgs", old: row.current === undefined ? null : row.current, new: row.latest === undefined ? null : row.latest }] : [];
     var note = null;
-    if (behind && row.reason !== null) note = { kind: "reason", reason: row.reason };
+    if (behind && row.step === "install-helper") note = { kind: "installHelper" };
+    else if (behind && row.reason !== null) note = { kind: "reason", reason: row.reason };
     else if (behind && row.step === "rebuild" && isPlainObject(failed) && failed.current === row.current)
         note = { kind: "rebuildFailed", conflict: failed.conflict };
     return sourceRow("vgs", runs ? 1 : 0, packages, checkedAt, null, note);
@@ -344,8 +346,7 @@ function publishValues(snapshot, checking, now, intervalMs, checkFailure, aurCom
 // with no AUR helper still updates when the `aurCommand` setting holds a
 // word: Update everything then runs those words for the AUR
 // (tui/pipeline.sh), so its reason reads `package-manager`. `vgshell-git`
-// keeps `no-aur-helper`: its rebuild runs `<helper> -S vgshell-git`, which
-// needs paru or yay. The VGS row's one package carries the status's
+// keeps its helper installation action. The VGS row's one package carries the status's
 // package name (normalizeSelf). The setting is read here, not in the
 // snapshot, so a change to it shows without a new check.
 function publishedNote(row, aurCommand) {
@@ -971,18 +972,19 @@ function rowReading(row) {
     var note = row.note === undefined ? null : row.note;
     if (note !== null) {
         switch (note.kind) {
+        case "installHelper": return { secondary: "A new version is out", badge: "New", badgeTone: "info", updatable: row.count > 0, actionText: "Install paru and update", detail: "VGS needs an AUR helper to update. This action installs paru, then updates VGS. The update window asks for your password if needed." };
         case "reason":
             if (!hasOwn(SELF_REASON_TEXT, note.reason)) throw new Error("updates: self reason " + JSON.stringify(note.reason) + " has no text");
             return { secondary: "A new version is out", badge: "New", badgeTone: "info", updatable: false, detail: SELF_REASON_TEXT[note.reason] };
         case "rebuildFailed": return { secondary: "The last update failed", badge: "Update failed", badgeTone: "danger", updatable: row.count > 0, detail: rebuildFailedText(note) };
-        default: throw new Error("updates: row note " + JSON.stringify(note.kind) + " is not one of reason, rebuildFailed");
+        default: throw new Error("updates: row note " + JSON.stringify(note.kind) + " is not one of installHelper, reason, rebuildFailed");
         }
     }
     return { secondary: row.count === 0 ? "Up to date" : countText(row.count, "update"), badge: badgeText(row.count), badgeTone: row.count > 0 ? "accent" : "neutral", updatable: row.count > 0, detail: "" };
 }
 
 // The window's rows, one per published source in the service's order:
-// { key, source, label, icon, secondary, badge, badgeTone, updatable,
+// { key, source, label, icon, secondary, badge, badgeTone, updatable, actionText,
 // detail, lines, more }. `detail` is rowReading's, `lines` the packages
 // the shared status lists, `more` the `+N more` it omitted, "" for none. A
 // source with an error keeps its row and names the error; only a source
@@ -1004,6 +1006,7 @@ function windowRows(values) {
             badge: reading.badge,
             badgeTone: reading.badgeTone,
             updatable: reading.updatable,
+            actionText: reading.actionText,
             detail: reading.detail,
             lines: packages.map(packageLine),
             more: typeof row.more === "number" && row.more > 0 ? "+" + row.more + " more" : ""

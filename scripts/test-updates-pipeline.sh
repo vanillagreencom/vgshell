@@ -290,8 +290,13 @@ done; exit 0; fi
 [ ! -e "$FIX/conflict-paru" ] || { printf "\033[1;34m::\033[0m quickshell-\033[2m0.3.1-1\033[0m and quickshell-git-\033[2mr120.g1a2b3c4-1\033[0m are in conflict. Remove quickshell-git? [y/N] error: unresolvable package conflicts detected\nerror: failed to prepare transaction (conflicting dependencies)\n" >&2; exit 1; }
 [ ! -e "$FIX/interrupt-paru" ] || { sudo /usr/bin/true; exit 130; }
 [ ! -e "$FIX/fail-paru" ] || { sudo /usr/bin/true; exit 7; }'
+stub "$stubs" git '[ ! -e "$FIX/fail-helper-git" ] || exit 6
+for dest; do :; done
+mkdir -p -- "$dest"
+printf "%s\n" "$dest" >"$FIX/helper-build"'
+stub "$stubs" makepkg '[ ! -e "$FIX/fail-helper-makepkg" ] || exit 8'
 stub "$stubs" less ''
-for tool in bash env readlink dirname mkdir chmod mv rm script flock sleep cat id sed tee diff ln stty; do
+for tool in bash env readlink dirname mkdir chmod mv rm script flock sleep cat id sed tee diff ln stty mktemp; do
   found="$(command -v "$tool")" || { echo "test-updates-pipeline: status=not-measured missing=$tool"; exit 77; }
   ln -s -- "$(readlink -f -- "$found")" "$tools/$tool"
 done
@@ -867,6 +872,39 @@ row_vgs_only() {
   assert "a VGS rebuild alone restarts the running shell" has_call "vgshell restart"
   assert "a VGS rebuild alone upgrades no other package" test "$(grep -c -e 'pkg run' -e '^pacman -[^Q]' "$tmp/seq")" == 0
 }
+# The new helper step runs through stand-ins only. Each failing producer
+# prevents the following build and VGS rebuild, and scratch is removed.
+row_vgs_helper() {
+  local failure expected
+  while read -r failure expected; do
+    reset_fix
+    self_json package '"vgshell-git"' install-helper
+    printf '{"primary":{"id":"pacman","binary":"pacman"},"overlays":[],"sources":[]}\n' >"$fix/detect.json"
+    [[ $failure == none ]] || touch "$fix/fail-$failure"
+    pipeline update-source.sh vgs
+    assert "helper $failure exits $expected" test "$status" == "$expected"
+    assert "helper $failure installs prerequisites through package runner" has_call "vgshell pkg run install --manager pacman base-devel git"
+    if [[ $failure == none ]]; then
+      assert "helper success builds paru before VGS" before "makepkg -si" "paru -S vgshell-git"
+      assert "helper success clones the official AUR recipe" grep -q '^git clone -- https://aur.archlinux.org/paru.git ' "$tmp/seq"
+    else
+      assert "helper $failure prevents VGS rebuild" no_call "paru -S vgshell-git"
+    fi
+    if [[ -f $fix/helper-build ]]; then
+      assert "helper $failure removes its build directory" test ! -e "$(cat "$fix/helper-build")"
+    fi
+  done <<'ROWS'
+none 0
+pacman 1
+helper-git 1
+helper-makepkg 1
+ROWS
+  reset_fix
+  self_json package '"vgshell-git"' install-helper
+  pipeline update-source.sh vgs
+  assert "a helper found since status skips installation" no_call "vgshell pkg run install --manager pacman base-devel git"
+  assert "a helper found since status rebuilds VGS" has_call "paru -S vgshell-git"
+}
 row_vgs_git() {
   reset_fix
   self_json package '"vgshell-git"' rebuild
@@ -897,8 +935,7 @@ row_vgs_step() {
     assert "$name rebuilds nothing" no_call "paru -S"
     assert "$name plans its reason" out_has "$plan"
   done <<'ROWS'
-package|"vgshell-git"|no-aur-helper|paru||VGS: the vgshell-git package is behind, and no AUR helper is here to update it
-package|"vgshell-git"|no-aur-helper||pikaur -Sua|VGS: the vgshell-git package is behind, and no AUR helper is here to update it
+package|"vgshell-git"||paru||VGS: current
 package|"vgshell"|no-aur-helper|||VGS: the vgshell package is behind, and no AUR helper is here to update it
 package|"vgshell"|no-aur-helper||pikaur -Sua|VGS: the vgshell package updates with its package manager
 package|"vgshell"|package-manager|paru||VGS: the vgshell package updates with its package manager
@@ -1348,7 +1385,7 @@ row_pipeline_plain() {
 }
 row_facts_plain; row_pipeline_plain
 row_full; row_trusted; row_snapshot; row_failure; row_failed_end; row_cause; row_system_failed; row_hangup; row_stopped; row_interrupted; row_reboot; row_reboot_core; row_reboot_unread; row_orphans; row_yes
-row_declined; row_busy; row_aur_command; row_aur_failure; row_doas; row_vgs_only; row_vgs_git; row_vgs_step; row_rebuild_failed; row_source; row_recheck_failure; row_log
+row_declined; row_busy; row_aur_command; row_aur_failure; row_doas; row_vgs_only; row_vgs_helper; row_vgs_git; row_vgs_step; row_rebuild_failed; row_source; row_recheck_failure; row_log
 row_review_off; row_review_no_agent; row_review_none_pending; row_review_clean; row_review_start_stable; row_review_flagged; row_review_no_verdict; row_review_no_helper; row_review_custom; row_review_install
 row_review_install_links; row_review_split
 
@@ -1364,6 +1401,7 @@ control() { # NAME NEEDLE REPLACEMENT ROW [FILE]
   PLUGIN="$copy_dir" QUIET=1 "$4"
   check "the $1 mutant fails $4" test "$red" -gt 0
 }
+control helper-install-skipped '_updates_source paru Paru _updates_run "Installing paru for VGS updates" _updates_install_helper' ':' row_vgs_helper
 for row in row_facts_plain row_pipeline_plain; do
   control "secondary-markup-$row" 'Commons.PageReference.plain(errorText(error, true))' 'errorText(error, true)' "$row" UpdatesLogic.js
   check "the $row markup control reaches windowRows" out_has "updates-test: secondary=reached"
@@ -1384,9 +1422,8 @@ control aur-unguarded '      vgs_tui_sudo_session guard' '      :' row_aur_failu
 control session-ignores-elevator 'if [[ $elevator == sudo ]]; then session=1; fi' 'if command -v sudo >/dev/null; then session=1; fi' row_doas
 control snapshot-ignores-elevator '_updates_snapshot "$snapshot_tool" "$elevator" || status=$?' '_updates_snapshot "$snapshot_tool" sudo || status=$?' row_doas
 control rebuild-unguarded 'if [[ $upgrades == 1 || $rebuild == 1 ]]; then replaces=1; fi' 'if [[ $upgrades == 1 ]]; then replaces=1; fi' row_vgs_only
-control rebuild-by-package '[[ $vgs_step == rebuild ]]; then rebuild=1' '[[ $vgs_package == vgshell-git ]]; then rebuild=1' row_vgs_step
+control rebuild-by-package '[[ $vgs_step == rebuild || $vgs_step == install-helper ]]; then rebuild=1' '[[ $vgs_package == vgshell-git ]]; then rebuild=1' row_vgs_step
 control release-aur-command-unread '&& $aur_here == 1 ]]; then vgs_reason=package-manager' '&& false ]]; then vgs_reason=package-manager' row_vgs_step
-control git-aur-command-read '&& $vgs_package == vgshell && $aur_here' '&& $aur_here' row_vgs_step
 control rebuild-unrecorded 'if [[ $_updates_outcome == failed ]]; then _updates_rebuild_failed' 'if false; then _updates_rebuild_failed' row_rebuild_failed
 control conflict-versioned 'conflict="\"$(_updates_json_text "${BASH_REMATCH[2]%-*-*}")\""' 'conflict="\"$(_updates_json_text "${BASH_REMATCH[2]}")\""' row_rebuild_failed
 control record-kept '      rm -f -- "${state:?}/rebuild-failed.json"' '      :' row_rebuild_failed

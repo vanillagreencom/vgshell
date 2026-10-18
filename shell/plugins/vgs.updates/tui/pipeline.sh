@@ -51,7 +51,8 @@
 #  12. the AUR, last, so no PKGBUILD runs under the update's credential:
 #      the `aurCommand` setting's words, else `vgshell pkg run upgrade
 #      --manager aur`, then `<helper> -S vgshell-git` when the status names
-#      the step `rebuild`, since an AUR helper rebuilds a -git package only
+#      the step `rebuild`, installing paru from its AUR recipe first for
+#      `install-helper`, since an AUR helper rebuilds a -git package only
 #      when its recipe's version changes. A rebuild removes the record
 #      $(updates_state_dir)/rebuild-failed.json before it runs and, when it
 #      fails, writes it: `{ current, helper, exit, conflict }`, the package
@@ -145,6 +146,20 @@ _updates_run() { # LABEL ARGV...
   shift
   (cd -- "$HOME" && "$@")
 }
+
+# Paru's upstream installation builds the AUR recipe as the user. Plain
+# Arch has no paru repository package; use the same route on CachyOS.
+# https://github.com/Morganamilo/paru#installation
+_updates_install_helper() (
+  local build
+  build="$(mktemp -d)" || return 1
+  trap 'rm -rf -- "${build:?}"' EXIT
+  "$_updates_vgshell" pkg run install --manager pacman base-devel git || return "$?"
+  git clone -- https://aur.archlinux.org/paru.git "$build/paru" || return "$?"
+  cd -- "$build/paru" || return 1
+  makepkg -si || return "$?"
+  command -v paru >/dev/null
+)
 
 # FILE's text without SGR escapes, and of each line only what follows its
 # last carriage return, as the terminal showed it.
@@ -978,17 +993,19 @@ updates_main() {
         error) _updates_diagnostic "VGS: $value"; vgs_tui_warn "Could not check VGS for updates." ;;
       esac
     done <<<"$facts"
-    # The status and this run each read `vgshell pkg detect`; a helper gone
-    # between the two reads rebuilds nothing.
-    if [[ $vgs_step == rebuild && -z $aur_binary ]]; then vgs_step=none vgs_reason=no-aur-helper; fi
+    # The status and this run each read `vgshell pkg detect`; use this
+    # run's helper state before choosing whether installation is needed.
+    if [[ $vgs_step == rebuild && -z $aur_binary ]]; then vgs_step=install-helper; fi
+    if [[ $vgs_step == install-helper && -n $aur_binary ]]; then vgs_step=rebuild; fi
     # With no AUR helper, the `aurCommand` words run the AUR step (aur_here),
     # and they update the release `vgshell` package from the AUR, as
     # UpdatesLogic.publishedNote tells the Updates window. `vgshell-git`
-    # keeps `no-aur-helper`: its rebuild runs `<helper> -S vgshell-git`.
+    # installs its helper first: its rebuild runs `<helper> -S vgshell-git`.
     if [[ $vgs_step:$vgs_reason == none:no-aur-helper && $vgs_package == vgshell && $aur_here == 1 ]]; then vgs_reason=package-manager; fi
     case "$vgs_step:$vgs_reason" in
       self:) plan+=("VGS: update VGS") ;;
       rebuild:) plan+=("VGS: rebuild the VGS package after AUR updates") ;;
+      install-helper:) plan+=("VGS: install paru, then rebuild the VGS package") ;;
       none:no-aur-helper) plan+=("VGS: the $vgs_package package is behind, and no AUR helper is here to update it") ;;
       none:package-manager) plan+=("VGS: the $vgs_package package updates with its package manager") ;;
       none:nix) plan+=("VGS: its flake updates it") ;;
@@ -1036,7 +1053,7 @@ updates_main() {
   # rebuild. The orphans follow the upgrades alone.
   local upgrades=0 rebuild=0 replaces=0
   if _updates_in aur "${run[@]}" || { [[ -n $primary ]] && _updates_in "$primary" "${run[@]}"; }; then upgrades=1; fi
-  if _updates_in vgs "${run[@]}" && [[ $vgs_step == rebuild ]]; then rebuild=1; fi
+  if _updates_in vgs "${run[@]}" && [[ $vgs_step == rebuild || $vgs_step == install-helper ]]; then rebuild=1; fi
   if [[ $upgrades == 1 || $rebuild == 1 ]]; then replaces=1; fi
   local snapshot_line="" snapshot_tool=""
   if [[ $replaces == 1 ]]; then
@@ -1088,7 +1105,11 @@ updates_main() {
       else box_review_aur="Review: the AUR is not reviewed without paru or yay"
       fi
     fi
-    if [[ $rebuild == 1 ]]; then review_rebuild=1; fi
+    if [[ $rebuild == 1 ]]; then
+      if [[ -n $aur_binary ]]; then review_rebuild=1
+      else box_review_aur="Review: the AUR is not reviewed without paru or yay"
+      fi
+    fi
     if [[ $primary == pacman ]] && _updates_in pacman "${run[@]}"; then review_repo=1; fi
     if [[ -n $primary && $primary != pacman ]] && _updates_in "$primary" "${run[@]}"; then review_line="Review: VGS reviews Arch packages only"; fi
     if [[ $review_aur == 1 || $review_repo == 1 || $review_rebuild == 1 ]]; then
@@ -1204,6 +1225,12 @@ updates_main() {
       else
         if [[ ${#_updates_skip_aur[@]} -gt 0 ]]; then ignore=(--ignore "${_updates_skip_aur[@]}"); fi
         _updates_source aur AUR "$_updates_vgshell" pkg run upgrade --manager aur "${ignore[@]}"
+      fi
+    fi
+    if [[ $rebuild_run == 1 && $vgs_step == install-helper ]]; then
+      _updates_source paru Paru _updates_run "Installing paru for VGS updates" _updates_install_helper
+      if [[ $_updates_outcome == installed ]]; then aur_binary=paru
+      else rebuild_run=0; _updates_results+=("VGS package skipped. Paru was not installed.")
       fi
     fi
     if [[ $rebuild_run == 1 ]]; then

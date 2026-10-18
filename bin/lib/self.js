@@ -399,7 +399,8 @@ function behind(method, pkg, current, latest, fact) {
 const AUR_PRIMARY = packageTable.managerRow("aur").requires;
 
 // What an Update runs for an install that is behind: `self` is `vgshell
-// self update`, `rebuild` the AUR helper's rebuild of vgshell-git, and
+// self update`, `install-helper` installs paru before that rebuild,
+// `rebuild` the AUR helper's rebuild of vgshell-git, and
 // `none` names the reason VGS runs nothing: an AUR package with no helper
 // to update it, a package the system's packages update (the AUR helper's
 // upgrade for the AUR release package, the primary manager's elsewhere),
@@ -408,6 +409,7 @@ function update(method, pkg, manager, helper) {
     if (method === "checkout" || method === "curl") return { step: "self", reason: null };
     if (method === "nix") return { step: "none", reason: "nix" };
     if (method !== "package") throw new Error("self.js: method=" + method + " has no update step");
+    if (manager === AUR_PRIMARY && pkg === "vgshell-git" && helper === null) return { step: "install-helper", reason: null };
     if (manager === AUR_PRIMARY && helper === null) return { step: "none", reason: "no-aur-helper" };
     if (manager === AUR_PRIMARY && pkg === "vgshell-git") return { step: "rebuild", reason: null };
     return { step: "none", reason: "package-manager" };

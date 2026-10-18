@@ -141,7 +141,7 @@ FocusScope {
                             id: update
                             anchors.verticalCenter: parent.verticalCenter
                             visible: source.modelData.updatable
-                            text: "Update"
+                            text: source.modelData.actionText === undefined ? "Update" : source.modelData.actionText
                             onClicked: root.run("source", source.modelData.source)
                         }
                     ]

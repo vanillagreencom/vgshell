@@ -19,7 +19,7 @@
 //   facts <loader> self             `vgshell self status --json`
 //       `error <refusal>` when the status names one; else `package <name>`
 //       when a package owns the tree, `current <version>`, `step
-//       self|rebuild|none` and `reason <reason>` when a step of none
+//       self|rebuild|install-helper|none` and `reason <reason>` when a step of none
 //       names one
 //   facts <loader> owner            `vgshell pkg owner <path>`
 //       `version <version>`
@@ -139,7 +139,7 @@ case "self": {
         line("error", answer.error);
         break;
     }
-    const reasons = { self: [null], rebuild: [null], none: [null, "no-aur-helper", "package-manager", "nix"] };
+    const reasons = logic().SELF_STEPS;
     if (answer.error !== null || !Object.hasOwn(reasons, answer.step) || !reasons[answer.step].includes(answer.reason)
         || typeof answer.current !== "string" || (answer.package !== null && typeof answer.package !== "string"))
         refuse("self=malformed", 1);

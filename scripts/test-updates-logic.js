@@ -292,16 +292,18 @@ function verifySelf(logic) {
   const rows = [
     ["a checkout behind runs self update", Object.assign({}, SELF_CURRENT, { behind: true, step: "self" }), null, 1, null, { updatable: true, badgeTone: "accent" }],
     ["vgshell-git behind with a helper rebuilds", rebuild, null, 1, null, { updatable: true, badgeTone: "accent" }],
+    ["vgshell-git behind without a helper installs one", Object.assign({}, git, { behind: true, step: "install-helper", reason: null }), conflict, 1, { kind: "installHelper" }, { updatable: true, badgeTone: "info" }],
     ["a failed rebuild of this version shows its cause", rebuild, conflict, 1, failedRebuild, { updatable: true, badgeTone: "danger" }],
     ["a failed rebuild with no conflict line", rebuild, Object.assign({}, conflict, { exit: 2, conflict: null }), 1, { kind: "rebuildFailed", conflict: null }, { updatable: true, badgeTone: "danger" }],
     ["a record of another version is stale", rebuild, Object.assign({}, conflict, { current: "0.1.0.r2400.g0000000" }), 1, null, { updatable: true, badgeTone: "accent" }],
     ["a rebuilt package drops the record", Object.assign({}, git, { behind: false, step: "none", reason: null }), conflict, 0, null, { updatable: false, badgeTone: "neutral" }],
-    ["vgshell-git without a helper", Object.assign({}, git, { behind: true, step: "none", reason: "no-aur-helper" }), conflict, 0, { kind: "reason", reason: "no-aur-helper" }, { updatable: false, badgeTone: "info" }],
+    ["the release package without a helper", Object.assign({}, git, { package: "vgshell", behind: true, step: "none", reason: "no-aur-helper" }), conflict, 0, { kind: "reason", reason: "no-aur-helper" }, { updatable: false, badgeTone: "info" }],
     ["the release package updates with the system", Object.assign({}, git, { package: "vgshell", current: "0.1.0", latest: "0.2.0", behind: true, step: "none", reason: "package-manager" }), null, 0, { kind: "reason", reason: "package-manager" }, { updatable: false, badgeTone: "info" }],
     ["a Nix tree updates with its flake", Object.assign({}, git, { method: "nix", package: null, current: "0.1.0", latest: "0.2.0", behind: true, step: "none", reason: "nix" }), null, 0, { kind: "reason", reason: "nix" }, { updatable: false, badgeTone: "info" }],
     ["a compare GitHub cannot answer", unanswered, conflict, null, null, { updatable: false, badgeTone: "warning" }],
     ["a step the status does not name", Object.assign({}, rebuild, { step: "later" }), null, null, null, { updatable: false, badgeTone: "warning" }],
-    ["a reason on a step that runs", Object.assign({}, rebuild, { reason: "nix" }), null, null, null, { updatable: false, badgeTone: "warning" }]
+    ["a reason on a step that runs", Object.assign({}, rebuild, { reason: "nix" }), null, null, null, { updatable: false, badgeTone: "warning" }],
+    ["a reason on helper setup is refused", Object.assign({}, rebuild, { step: "install-helper", reason: "no-aur-helper" }), null, null, null, { updatable: false, badgeTone: "warning" }]
   ];
   const seen = {};
   for (const [name, status, record, count, note, want] of rows) {
@@ -322,9 +324,13 @@ function verifySelf(logic) {
   // update and from up to date, and a failed rebuild names its cause.
   const current = seen["a rebuilt package drops the record"].secondary;
   const update = seen["vgshell-git behind with a helper rebuilds"];
+  const setup = seen["vgshell-git behind without a helper installs one"];
+  assert.notEqual(setup.actionText, update.actionText, "helper setup names its own action");
+  same(logic.tuiRequest("source", setup.source), { name: "update-source", args: ["vgs"] }, "helper setup uses the existing floating TUI");
+  same([setup.values.pending, logic.widgetView(setup.values, true).hidden], [1, false], "helper setup counts as an available update");
   const failed = seen["a failed rebuild of this version shows its cause"];
   const unreached = seen["a compare GitHub cannot answer"];
-  const noted = ["vgshell-git without a helper", "the release package updates with the system", "a Nix tree updates with its flake", "a failed rebuild of this version shows its cause", "a compare GitHub cannot answer"];
+  const noted = ["the release package without a helper", "the release package updates with the system", "a Nix tree updates with its flake", "a failed rebuild of this version shows its cause", "a compare GitHub cannot answer"];
   for (const name of noted) assert.ok(![current, update.secondary].includes(seen[name].secondary), name + " reads apart from an update and from up to date");
   assert.equal(new Set(noted.map(name => seen[name].detail)).size, noted.length, "each VGS detail is its own");
   // A failed rebuild names the conflicting package, and the helper and its
@@ -340,7 +346,7 @@ function verifySelf(logic) {
   // The `aurCommand` setting is read when the service publishes, not in the
   // snapshot. Each row: [name, package, aurCommand, published reason].
   const helperless = Object.assign({}, git, { behind: true, step: "none", reason: "no-aur-helper" });
-  const reasonDetail = { "package-manager": seen["the release package updates with the system"].detail, "no-aur-helper": seen["vgshell-git without a helper"].detail };
+  const reasonDetail = { "package-manager": seen["the release package updates with the system"].detail, "no-aur-helper": seen["the release package without a helper"].detail };
   for (const [name, pkg, aurCommand, reason] of [
     ["the release package with no helper and no AUR command", "vgshell", "", "no-aur-helper"],
     ["a blank AUR command runs nothing", "vgshell", " \t", "no-aur-helper"],
@@ -362,7 +368,7 @@ function verifySelf(logic) {
   assert.equal(unreached.detail, logic.errorText(unanswered.error, true), "a compare GitHub cannot answer names its cause");
   // A behind tree no step here installs names the new version in the
   // summary, though it counts none; up to date is the control.
-  for (const name of ["vgshell-git without a helper", "the release package updates with the system", "a Nix tree updates with its flake"]) {
+  for (const name of ["the release package without a helper", "the release package updates with the system", "a Nix tree updates with its flake"]) {
     assert.equal(logic.summaryText(seen[name].values), "New VGS version", name + " summary");
     assert.equal(seen[name].values.checkState.text, "New VGS version", name + " check state");
     same(logic.widgetView(seen[name].values, true).hidden, false, name + " shows under hideWhenCurrent");
@@ -695,6 +701,7 @@ const controls = [
   ["the status's step and reason are narrowed", "if (!hasOwn(SELF_STEPS, row.step) || SELF_STEPS[row.step].indexOf(row.reason) < 0) return", "if (false) return"],
   ["the status's error decides the VGS row", "if (row.error !== null && row.error !== undefined) return sourceRow(\"vgs\", null, [], checkedAt, row.error);", ""],
   ["a reason makes the VGS note", "if (behind && row.reason !== null) note = { kind: \"reason\", reason: row.reason };", "if (false) note = null;"],
+  ["helper setup keeps its own action through the snapshot", 'if (behind && row.step === "install-helper") note = { kind: "installHelper" };', 'if (false) note = null;'],
   ["a failed rebuild makes the VGS note", "else if (behind && row.step === \"rebuild\" && isPlainObject(failed)", "else if (false && isPlainObject(failed)"],
   ["a record of another version is stale", "failed.current === row.current", "true"],
   ["the snapshot keeps the note", "row.error === undefined ? null : row.error, row.note));", "row.error === undefined ? null : row.error, null));"],
