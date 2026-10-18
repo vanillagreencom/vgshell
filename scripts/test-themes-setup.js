@@ -90,57 +90,61 @@ try {
     const home = path.join(scratch, "home");
     const config = path.join(home, ".config");
     const state = path.join(home, ".local/state/vgshell");
-    // Each row describes the settings and managed entries of one shipped
-    // producer. Multiple roots are independent configurations of that app.
+    // Settings stay independent of the declarations under test. Managed entry
+    // paths come from those declarations, so new shipped entries are covered.
     const configurations = [
         { name: "bat", base: config, roots: ["bat"], settings: "config", values: true,
-            entries: ["themes/vgs.tmTheme"], lines: [null],
+            lines: [null],
             selected: "--theme=vgs\n", other: "--theme=other\n" },
         { name: "btop", base: config, roots: ["btop"], settings: "btop.conf",
-            entries: ["themes/vgs.theme"], lines: ["color_theme = vgs"],
+            lines: ["color_theme = vgs"],
             selected: 'color_theme = "vgs"\n# owner\n', other: 'color_theme = "Default"\n# owner\n', missing: '# owner\n' },
         { name: "claude", base: home, roots: [".claude", ".claude-work"], settings: "settings.json",
             nested: [".claude", ".claude/work"], explicit: "CLAUDE_CONFIG_DIR",
-            entries: ["themes/vgs.json"], lines: ["theme = custom:vgs"],
+            lines: ["theme = custom:vgs"],
             selected: '{"theme":"custom:vgs","owner":true}\n', other: '{"theme":"dark","owner":true}\n' },
         { name: "codex", base: home, roots: [".codex", ".codex-work"], settings: "config.toml",
             nested: [".codex", ".codex/work"], explicit: "CODEX_HOME",
-            entries: ["themes/vgs.tmTheme"], lines: ["tui.theme = vgs"],
+            lines: ["tui.theme = vgs"],
             selected: 'owner = true\n[tui]\ntheme = "vgs"\n', other: 'owner = true\n[tui]\ntheme = "other"\n' },
         { name: "hermes", base: home, roots: [".hermes"], settings: "config.yaml",
-            entries: ["skins/vgs.yaml"], lines: ["display.skin = vgs"],
+            lines: ["display.skin = vgs"],
             selected: 'owner: true\ndisplay:\n  skin: vgs\n', other: 'owner: true\ndisplay:\n  skin: other\n' },
         { name: "omp", base: home, roots: [".omp/agent"], settings: "config.yml",
-            entries: ["themes/vgs.json"], lines: ["theme.dark = vgs", "theme.light = vgs"],
+            lines: ["theme.dark = vgs", "theme.light = vgs"],
             selected: 'owner: true\ntheme:\n  dark: vgs\n  light: vgs\n', other: 'owner: true\ntheme:\n  dark: other\n  light: other\n' },
         { name: "opencode", base: config, roots: ["opencode"], settings: "tui.json",
-            entries: ["themes/vgs.json"], lines: ["theme = vgs"],
+            lines: ["theme = vgs"],
             selected: '{"theme":"vgs","owner":true}\n', other: '{"theme":"other","owner":true}\n' },
         { name: "pi", base: home, roots: [".pi/agent"], settings: "settings.json",
-            entries: ["themes/vgs.json"], lines: ["theme = vgs"],
+            lines: ["theme = vgs"],
             selected: '{"theme":"vgs","owner":true}\n', other: '{"theme":"other","owner":true}\n' },
         { name: "television", base: config, roots: ["television"], settings: "config.toml", values: true,
-            entries: ["themes/vgs.toml"], lines: [null],
+            lines: [null],
             selected: '[ui]\ntheme = "vgs"\n', other: '[ui]\ntheme = "other"\n' },
         { name: "yazi", base: config, roots: ["yazi", "yazi-scratchpad"], settings: "theme.toml", values: true,
-            entries: ["flavors/vgs.yazi/flavor.toml", "flavors/vgs.yazi/tmtheme.xml"], lines: [null],
+            lines: [null],
             selected: '[flavor]\ndark = "vgs"\nlight = "vgs"\n', other: '[flavor]\ndark = "other"\nlight = "other"\n' }
     ];
     for (const name of ["bin", "shell/Commons", ...configurations.map(row => "themes/targets/" + row.name)])
         fs.cpSync(path.join(setupRepo, name), path.join(tree, name), { recursive: true });
     fs.mkdirSync(path.join(state, "theme"), { recursive: true });
+    const targets = new Map(configurations.map(row => [row.name,
+        JSON.parse(fs.readFileSync(path.join(tree, "themes/targets", row.name, "target.json"), "utf8"))]));
+    function declaredEntries(row, root, index) {
+        const target = targets.get(row.name);
+        const wiringBase = target.wiring.base === "account" ? path.join(row.base, root) : row.base;
+        const wiringDir = Array.isArray(target.wiring.dir) ? target.wiring.dir[index] : target.wiring.dir;
+        return render.entryItems(target, path.join(state, "theme"), index).map(item => ({ ...item,
+            file: path.join(wiringBase, wiringDir, item.name) }));
+    }
     for (const row of configurations) {
-        const target = JSON.parse(fs.readFileSync(path.join(tree, "themes/targets", row.name, "target.json"), "utf8"));
         for (const [index, root] of [...new Set([...row.roots, ...(row.nested ?? [])])].entries()) {
-            const items = render.entryItems(target, path.join(state, "theme"), index);
-            for (const entry of row.entries) {
-                const item = items.find(item => item.name === path.basename(entry));
-                assert.ok(item, row.name + ": declared entry " + entry);
-                const file = path.join(row.base, root, entry);
-                fs.mkdirSync(path.dirname(file), { recursive: true });
+            for (const item of declaredEntries(row, root, index)) {
+                fs.mkdirSync(path.dirname(item.file), { recursive: true });
                 fs.writeFileSync(item.to, "managed theme\n");
-                if (item.kind === "copy") fs.copyFileSync(item.to, file);
-                else fs.symlinkSync(item.to, file);
+                if (item.kind === "copy") fs.copyFileSync(item.to, item.file);
+                else fs.symlinkSync(item.to, item.file);
             }
         }
     }
@@ -152,7 +156,7 @@ try {
         assert.equal(result.status, 0, result.stderr);
         return JSON.parse(result.stdout).wiring.filter(row => row.name === name);
     }
-    function verifyConfigurations(applied) {
+    function verifyConfigurations(applied, entryFiles = (row, root, index) => declaredEntries(row, root, index).map(item => item.file)) {
         for (const name of ["theme.json", "terminal.json"]) fs.rmSync(path.join(state, "theme", name), { force: true });
         if (applied !== "absent") fs.copyFileSync(path.join(setupRepo, "themes/vgs/theme.json"), path.join(state, "theme/theme.json"));
         if (applied === "valid") fs.copyFileSync(path.join(setupRepo, "themes/vgs/terminal.json"), path.join(state, "theme/terminal.json"));
@@ -174,7 +178,7 @@ try {
                         else if (connected[index] !== null) fs.writeFileSync(file, connected[index] ? row.selected : row.other);
                         const unknownValues = row.values && applied !== "valid";
                         if (unknownValues || connected[index] === true)
-                            for (const entry of row.entries) expected.push([path.join(row.base, root, entry), null, "wired", null]);
+                            for (const entry of entryFiles(row, root, index)) expected.push([entry, null, "wired", null]);
                         if (!unknownValues && connected[index] === true)
                             for (const line of row.lines) expected.push([file, line, "wired", null]);
                         if (!unknownValues && connected[index] === "unreadable") expected.push([file, null, "unreadable", "EISDIR"]);
@@ -194,6 +198,11 @@ try {
         }
     }
     for (const applied of ["absent", "theme-only", "invalid", "valid"]) verifyConfigurations(applied);
+    // An incomplete expected inventory must not hide a declared managed file.
+    assert.throws(() => verifyConfigurations("valid", (row, root, index) => row.name === "pi"
+        ? [path.join(row.base, root, "themes/vgs.json")]
+        : declaredEntries(row, root, index).map(item => item.file)),
+    { name: "AssertionError", message: /^pi: \.pi\/agent: valid: true\b/ });
     // Each control retains the selection operation in the disposable judge.
     // The complete behavior table must fail when values or isolation are lost.
     const source = fs.readFileSync(judge, "utf8");
