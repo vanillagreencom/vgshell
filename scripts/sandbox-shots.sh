@@ -120,8 +120,8 @@
 # page with every tool it requires found or stood in and no Setup tab: its
 # Settings tab, then Details with its Actions row, which holds Update
 # everything, taken only when named; clone-voice is the
-# Jarvis page's Settings tab at its Local voice section and its Setup tab
-# at its Input step, over a ready Large local voice, with the Cloned voice
+# Jarvis page's Settings and Details tabs at their Local voice sections,
+# over a ready Large local voice, with the Cloned voice
 # off and not set up, with the clone setup's floating terminal at its first
 # consent question beside the Settings window, set up with the setting on, and after Remove recording,
 # or once in a tree without the Cloned voice, taken only when named;
@@ -3921,9 +3921,8 @@ open(os.path.join(sys.argv[2],"scenario.json"),"w").write(json.dumps({"start": "
 # CloneRuntime.qml), so no model, recording or tier is judged. The local
 # voice is the Large tier, ready: its marker, the world's local-mode at
 # ready and setup-local's own choices for a card its pick takes as Large.
-# Each Setup tab shot is anchored at the input step, which both trees draw
-# just before where the Cloned voice step goes, so a tree without it is
-# shot at the same place. The consent shots run the real tui/clone-voice.sh
+# Details holds the optional Cloned voice state and its action; Settings
+# holds its switch. The consent shots run the real tui/clone-voice.sh
 # under gum in a kitty, as dictation-setup does, and close it at its first
 # question, before any download. The clone setup has no launcher entry,
 # so the manager's openTui refuses it as undeclared (listedTuiRequest in
@@ -3987,11 +3986,11 @@ d=json.load(sys.stdin)
 detail=d.get("status",{}).get("detail") if isinstance(d,dict) else None
 print(json.dumps(detail["state"]["settings"].get("clonedVoice", False)) if isinstance(detail,dict) else "none")'
 }
-# clone_step LABEL: the Setup tab step LABEL's chip texts.
+# clone_step KEY: the Details row KEY's chip texts.
 clone_step() {
-  ipc smoke setupRows "$settings_kind" vgs.settings | py_reply 'import json,sys
+  ipc smoke settingRows "$settings_kind" vgs.settings | py_reply 'import json,sys
 t=sys.stdin.read(); r=json.loads(t) if t.startswith("[") else []
-v=next((x for x in r if x["label"]==sys.argv[1]),None)
+v=next((x for x in r if x["key"]==sys.argv[1]),None)
 print("absent" if v is None else " / ".join(c[0] for c in v["chips"]))' "$1"
 }
 # clone_offers LABEL: whether the page shows an enabled RowAction LABEL.
@@ -4171,14 +4170,13 @@ clone_key() {
   expect_poll "the terminal holds the keyboard for $label" '"org.vgs.tui"' active_class
   type_keys "$@" || { fail "clone-voice: typing $label failed"; return 1; }
 }
-# The Jarvis page shown again on the Setup tab, its daemon still running.
+# The Jarvis page shown again on Details, its daemon still running.
 clone_page_show() { # LABEL
   expect "the Settings window opens $1" ok ipc shell summon "$settings_kind" vgs.settings '{}'
   expect_poll "the Settings window maps $1" 1 settings_count
   expect "the window opens the Jarvis page $1" ok ipc smoke invokeInstance "$settings_kind" vgs.settings openPlugin vgs.jarvis
   expect_poll "the Jarvis page is shown $1" '"vgs.jarvis"' settings_page
-  page_setup
-  expect_poll "the Jarvis Setup tab draws its steps $1" True jarvis_setup_drawn
+  page_details
 }
 clone_settings_tab() { # LABEL
   settings_tab_click Settings || fail "the click on the Settings tab failed $1"
@@ -4372,7 +4370,7 @@ clone_steps() { # MODE
 clone_box_holds() { python3 -c 'import json,sys; a,b=(json.loads(v) for v in sys.argv[1:3]); print(str(a[0]<=b[0] and a[1]<=b[1] and a[0]+a[2]>=b[0]+b[2] and a[1]+a[3]>=b[1]+b[3]).lower())' "$1" "$2" 2>/dev/null || echo unread; }
 scene_clone-voice() { # MODE
   local mode="$1" state="$home/.local/state/vgshell/jarvis" data="$home/.local/share/vgshell/jarvis" world="$sandbox/jarvis-world"
-  local auto step setup_label remove_label kitty_bin gum_bin command covered
+  local auto setup_label remove_label kitty_bin gum_bin command covered
   jarvis_setup_requirements || fail "the Jarvis requirement stand-ins are not written"
   mkdir -p -- "$state" "$data/local/venv/bin"
   cp -- "$checkout/scripts/fixtures/jarvis-local-speech/standin.py" "$data/local/venv/bin/python"
@@ -4407,20 +4405,21 @@ open(os.path.join(sys.argv[2],"scenario.json"),"w").write(json.dumps({"start": "
     expect_poll "the Jarvis Setup tab draws its steps before the Cloned voice" True jarvis_setup_drawn
     clone_anchor_shot "clone-voice-$mode-before-setup" Field "$(jarvis_input_label)"
   else
-    { read -r step && read -r setup_label && read -r remove_label; } < <(python3 -c 'import json,sys
+    { read -r setup_label && read -r remove_label; } < <(python3 -c 'import json,sys
 row=json.load(open(sys.argv[1]))["status"]["clonedVoiceSetup"]
-print(row["label"]); print(row["actions"]["setup"]["label"]); print(row["actions"]["remove"]["label"])' "$repo/shell/plugins/vgs.jarvis/manifest.json") ||
+print(row["actions"]["setup"]["label"]); print(row["actions"]["remove"]["label"])' "$repo/shell/plugins/vgs.jarvis/manifest.json") ||
       fail "the manifest names no Cloned voice step, Set up or Remove action"
     # off: no recording, the setting off.
-    expect_poll "the Cloned voice step reads Not set up" "Not set up" clone_step "$step"
+    page_details
+    expect_poll "the Cloned voice step reads Not set up" "Not set up" clone_step clonedVoiceSetup
     expect_poll "the Cloned voice step offers $setup_label" shown clone_offers "$setup_label"
-    clone_anchor_shot "clone-voice-$mode-off-setup" Field "$(jarvis_input_label)"
+    clone_anchor_shot "clone-voice-$mode-off-details" SectionHeader "Local voice"
     clone_settings_tab "with the Cloned voice off"
     expect_poll "the daemon holds the Cloned voice off" false clone_daemon_setting
     expect_poll "the Local voice field reads the Large pick" false jarvis_tier_list_open "$auto"
     clone_anchor_shot "clone-voice-$mode-off-settings" SectionHeader "Local voice"
     # consent: the real clone setup at its first question, over the
-    # Settings tab, then opened by the step's button over the Setup tab,
+    # Settings tab, then opened by the row's button over Details,
     # each moved beside the Settings window (clone_arrange_consent),
     # then alone once the Settings window closes; then its later steps.
     if kitty_bin="$(command -v kitty)" && gum_bin="$(command -v gum)"; then
@@ -4438,23 +4437,23 @@ print(row["label"]); print(row["actions"]["setup"]["label"]); print(row["actions
           clone_record "clone-voice-$mode-consent-settings" tui settings
           clone_tui_close "over the Settings tab"
         fi
-        page_setup
+        page_details
         rm -f -- "${sandbox:?}/clone-voice-confirm" "${sandbox:?}/clone-voice-confirms"
         settings_press --type RowAction "$setup_label" || fail "the click on $setup_label failed"
-        clone_consent_shown "from the Setup tab"
-        clone_arrange_consent "from the Setup tab"
+        clone_consent_shown "from Details"
+        clone_arrange_consent "from Details"
         if [[ $(clone_asking) == asking && $(clone_tui_windows) == 1 ]]; then
-          clone_window_log "$mode" "setup-tab-button"
+          clone_window_log "$mode" "details-tab-button"
           park_pointer
-          take_posed "clone-voice-$mode-consent-setup"
-          clone_record "clone-voice-$mode-consent-setup" tui settings
+          take_posed "clone-voice-$mode-consent-details"
+          clone_record "clone-voice-$mode-consent-details" tui settings
           # A terminal that holds the whole Settings window draws the same
           # frame once that window closes, which shot.sh refuses as stale;
-          # the sheet then crops the terminal from consent-setup.
+          # the sheet then crops the terminal from consent-details.
           covered="$(clone_box_holds "$(clone_box tui)" "$(clone_box settings)")"
           settings_close
           if [[ $covered == true ]]; then
-            printf 'clone-voice: consent-tui=covered mode=%s crop=clone-voice-%s-consent-setup\n' "$mode" "$mode"
+            printf 'clone-voice: consent-tui=covered mode=%s crop=clone-voice-%s-consent-details\n' "$mode" "$mode"
           else
             clone_tui_shot "clone-voice-$mode-consent-tui"
           fi
@@ -4468,7 +4467,7 @@ print(row["label"]); print(row["actions"]["setup"]["label"]); print(row["actions
       fail "clone-voice: kitty or gum is missing, so the consent question is not drawn"
     fi
     terminal_stand_in
-    if [[ $(settings_count) == 1 ]]; then page_setup; else clone_page_show "for the cloned state"; fi
+    if [[ $(settings_count) == 1 ]]; then page_details; else clone_page_show "for the cloned state"; fi
     # cloned: a clone setup run ended with the recording and its marker
     # present, then the setting turned on.
     hold_runs
@@ -4483,14 +4482,14 @@ print(row["label"]); print(row["actions"]["setup"]["label"]); print(row["actions
     expect_poll "no stand-in terminal window is left after the clone setup" 0 clone_tui_windows
     clone_setting true
     expect_poll "the daemon holds the Cloned voice on" true clone_daemon_setting
-    expect_poll "the Cloned voice step reads Ready" Ready clone_step "$step"
+    expect_poll "the Cloned voice step reads Ready" Ready clone_step clonedVoiceSetup
     expect_poll "the Cloned voice step offers $remove_label" shown clone_offers "$remove_label"
-    clone_anchor_shot "clone-voice-$mode-cloned-setup" Field "$(jarvis_input_label)"
+    clone_anchor_shot "clone-voice-$mode-cloned-details" SectionHeader "Local voice"
     clone_settings_tab "with the Cloned voice on"
     clone_anchor_shot "clone-voice-$mode-cloned-settings" SectionHeader "Local voice"
     # removed: Remove recording's run ended; the page reports whether the
     # runtime turned the setting off.
-    page_setup
+    page_details
     hold_runs
     forget_record
     settings_press --type RowAction "$remove_label" || fail "the click on $remove_label failed"
@@ -4500,9 +4499,9 @@ print(row["label"]); print(row["actions"]["setup"]["label"]); print(row["actions
     release_runs
     expect_run_end "the stand-in recording removal run ends" vgs.jarvis/clone-voice-remove
     expect_poll "no stand-in terminal window is left after the removal" 0 clone_tui_windows
-    expect_poll "the Cloned voice step reads Not set up after the removal" "Not set up" clone_step "$step"
+    expect_poll "the Cloned voice step reads Not set up after the removal" "Not set up" clone_step clonedVoiceSetup
     expect_poll "the Cloned voice step offers $setup_label again" shown clone_offers "$setup_label"
-    clone_anchor_shot "clone-voice-$mode-removed-setup" Field "$(jarvis_input_label)"
+    clone_anchor_shot "clone-voice-$mode-removed-details" SectionHeader "Local voice"
     clone_settings_tab "after the removal"
     printf 'clone-voice: removed-setting mode=%s value=%s\n' "$mode" "$(clone_daemon_setting)"
     clone_anchor_shot "clone-voice-$mode-removed-settings" SectionHeader "Local voice"
