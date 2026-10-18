@@ -1176,6 +1176,7 @@ f share/vgshell/themes/targets/ghostty/target.json
 f share/vgshell/themes/targets/gtk-theme/Adwaita-dark/gtk-3.0/gtk.css
 f share/vgshell/themes/targets/gtk-theme/gtk-theme.name
 f share/vgshell/themes/targets/gtk-theme/target.json
+f share/vgshell/themes/targets/gum/glamour.json
 f share/vgshell/themes/targets/gum/gum.env
 f share/vgshell/themes/targets/gum/target.json
 f share/vgshell/themes/targets/helix/helix.toml

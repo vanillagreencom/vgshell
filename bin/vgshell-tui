@@ -52,7 +52,9 @@
 #     is parsed and never sourced: every line must be a colour name of
 #     gum_colour_line below with #rrggbb, or empty for no colour, which
 #     drops gum's own default for that key, or a bold name of
-#     gum_bold_line with true, or no line is exported and a warning names
+#     gum_bold_line with true, or a declared formatter selector naming
+#     gum.glamour.json in the generated theme directory; otherwise no line is
+#     exported and a warning names
 #     the first bad line. With no gum.env, as before any theme apply, the
 #     lines are `vgshell-theme-judge gum-default`'s, under the same rule:
 #     the shipped vgs accent and bold on the selection and no colour
@@ -147,7 +149,8 @@ source "$lib"
 # The one rule a gum.env line passes: a colour name gum reads, the
 # library's rule, or one of the library's own VGS_TUI_ colours, with
 # #rrggbb or nothing; or a bold name gum reads with true, since gum refuses
-# to start on any other bold value. Classes are spelled out, since a range
+# to start on any other bold value; or one of the two native formatter
+# selectors with the generated filename. Classes are spelled out, since a range
 # follows the user's locale.
 gum_colour_line="^($_vgs_tui_gum_colours|VGS_TUI_$_vgs_tui_upper+)=(#$_vgs_tui_hex{6})?\$"
 gum_bold_line="^($_vgs_tui_gum_bolds)=true\$"
@@ -314,10 +317,17 @@ await_record() {
 # else warns and exports none. SOURCE, `path=<file>` or `default=gum`, names
 # them in the warning.
 export_gum_lines() { # SOURCE
-  local line n=0 keys=() values=() i
+  local line n=0 keys=() values=() i value
   while IFS= read -r line || [[ -n $line ]]; do
     n=$((n + 1))
-    if [[ $line =~ $gum_colour_line || $line =~ $gum_bold_line ]]; then
+    value="${line#*=}"
+    if [[ ${line%%=*} =~ ^($_vgs_tui_gum_paths)$ && $value == gum.glamour.json && -f ${gum_env%/*}/gum.glamour.json && ! -L ${gum_env%/*}/gum.glamour.json ]]; then
+      # GLAMOUR_STYLE affects every Glamour consumer in this environment.
+      # Activate it only for this presented TUI and its children, alongside
+      # Gum's Markdown selector; never write a session-wide environment.
+      keys+=("${line%%=*}")
+      values+=("${gum_env%/*}/gum.glamour.json")
+    elif [[ $line =~ $gum_colour_line || $line =~ $gum_bold_line ]]; then
       keys+=("${line%%=*}")
       values+=("${line#*=}")
     else

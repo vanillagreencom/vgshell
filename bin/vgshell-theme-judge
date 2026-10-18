@@ -127,17 +127,19 @@
 //       theme-asset cache.
 //   vgshell-theme-judge gum-default
 //       print the gum environment bin/vgshell-tui present exports while
-//       no apply has written gum.env: the shipped gum target's one file,
+//       no apply has written gum.env: the shipped gum target's gum.env,
 //       rendered against the shipped `vgs` package, with only the
 //       selection kept. A *_FOREGROUND key whose template value is
 //       `@{color.accent}` or `@{color.onAccent}` gets the accent and its
 //       stem's _BOLD=true after it, and VGS_TUI_ACCENT, the logo's, keeps
-//       the accent; every other gum key is printed
+//       the accent; the formatter selectors are left out because their
+//       generated file does not exist before an apply. Every other gum key
+//       is printed
 //       empty, `KEY=`, which drops gum's own default so the terminal's
 //       background and text show; the other VGS_TUI_ keys are left out, so
 //       the library uses the terminal's ANSI colours. Exit 0 with the lines
 //       on stdout; 1 on a refusal, `gum-default reason=<key>`: `files
-//       count=<n>` for a gum target with other than one file,
+//       count=<n>` for a gum target without exactly one gum.env output,
 //       `template-line line=<n>` for a template line that is no
 //       `KEY=VALUE`, `unreadable`, `terminal-fallback` for a `vgs` without
 //       terminal slots, or the judge's own reason for a refused target,
@@ -482,6 +484,7 @@ function selectionTemplate(text, key) {
         const names = m === null ? null : render.placeholderNames(m[2]);
         if (names === null) refuse(key + "=template-line line=" + (at + 1), "template-line");
         const name = m[1];
+        if (name === "GUM_FORMAT_THEME" || name === "GLAMOUR_STYLE") return [];
         if (name === LIBRARY_ACCENT) return [line];
         if (name.startsWith(LIBRARY_PREFIX)) return [];
         if (name.endsWith(SELECTION_SUFFIX) && names.length === 1 && SELECTION_TOKENS.includes(names[0]))
@@ -509,12 +512,14 @@ function gumDefault() {
     const dir = path.join(SHIPPED, TARGETS, GUM_TARGET);
     const judged = readOrRefuse(dir, () => readTarget(dir));
     if (!judged.verdict.ok) refuse(key + "=" + judged.verdict.reason, judged.verdict.reason, 1, render.refusalLine(GUM_TARGET, judged.verdict));
-    const files = judged.verdict.target.files;
+    const files = judged.verdict.target.files.filter(file => file.destination === "gum.env");
     if (files.length !== 1) refuse(key + "=files count=" + files.length, "files");
     const template = selectionTemplate(judged.templates.get(files[0].template), key);
-    const rendered = renderDefault({ verdict: judged.verdict, templates: new Map([[files[0].template, template]]) }, defaults);
+    const templates = new Map(judged.templates);
+    templates.set(files[0].template, template);
+    const rendered = renderDefault({ verdict: judged.verdict, templates }, defaults);
     if (!rendered.ok) refuse(key + "=" + rendered.reason, rendered.reason, 1, render.refusalLine(GUM_TARGET, rendered));
-    process.stdout.write(rendered.files[0].bytes);
+    process.stdout.write(rendered.files.find(file => file.destination === "gum.env").bytes);
 }
 
 // --- catalog

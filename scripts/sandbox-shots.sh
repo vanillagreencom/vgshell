@@ -4237,7 +4237,8 @@ clone_prepare_world() { # MODE
     fi
   fi
   if [[ -f $home/.local/state/vgshell/theme/gum.env ]]; then
-    mkdir -p -- "$clone_world/state/vgshell/theme" && cp -- "$home/.local/state/vgshell/theme/gum.env" "$clone_world/state/vgshell/theme/gum.env" ||
+    mkdir -p -- "$clone_world/state/vgshell/theme" &&
+      cp -- "$home/.local/state/vgshell/theme/gum.env" "$home/.local/state/vgshell/theme/gum.glamour.json" "$clone_world/state/vgshell/theme/" ||
       fail "clone-voice: gum's theme is not copied to the world"
   fi
 }

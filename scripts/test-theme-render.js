@@ -1776,6 +1776,97 @@ for (const background of [...new Set(zenMetrics.map(row => row.background))]) {
 }
 console.log(`test-theme-render: zen-native packages=${selectionPackages.length} required=${new Set(ZEN_NATIVE_SCOPES.flatMap(([, roles]) => Object.keys(roles))).size} declarations=${ZEN_NATIVE_SCOPES.reduce((sum, [, roles]) => sum + Object.keys(roles).length, 0)} native-dependents=${ZEN_NATIVE_DEPENDENTS.length} inherited=${ZEN_NATIVE_INHERITED.length}`);
 
+// Gum 2.0.2 reads separate Markdown and code selectors. Both must select
+// the generated Glamour 2.0.1 document, including its native Chroma fields.
+const gumDir = path.join(themesDir, "targets", "gum");
+const gumTarget = selectionRender.acceptTarget(logic, "gum", fs.readFileSync(path.join(gumDir, "target.json"), "utf8"));
+assert.equal(gumTarget.ok, true);
+const gumTemplates = new Map(gumTarget.target.files.map(file => [file.template, fs.readFileSync(path.join(gumDir, file.template), "utf8")]));
+const GUM_ROLES = [
+    ["heading.color", "color.textHeading"], ["hr.color", "color.borderStrong"], ["link.color", "color.info"],
+    ["code.color", "color.text"], ["code.background_color", "color.surfaceRaised"], ["document.color", "color.text"],
+    ["h1.color", "color.onAccent"], ["h1.background_color", "color.accent"], ["h6.color", "color.textHeading"],
+    ["link_text.color", "color.info"], ["image.color", "color.info"], ["image_text.color", "color.textMuted"],
+    ["code_block.color", "color.text"], ["code_block.chroma.text.color", "color.text"],
+    ["code_block.chroma.error.color", "color.onDanger"], ["code_block.chroma.error.background_color", "color.danger"],
+    ["code_block.chroma.comment.color", "color.textFaint"], ["code_block.chroma.comment_preproc.color", "terminal.color1"],
+    ["code_block.chroma.keyword.color", "terminal.color5"], ["code_block.chroma.keyword_reserved.color", "terminal.color5"],
+    ["code_block.chroma.keyword_namespace.color", "terminal.color5"], ["code_block.chroma.keyword_type.color", "terminal.color3"],
+    ["code_block.chroma.operator.color", "color.textMuted"], ["code_block.chroma.punctuation.color", "color.textMuted"],
+    ["code_block.chroma.name.color", "color.text"], ["code_block.chroma.name_builtin.color", "terminal.color6"],
+    ["code_block.chroma.name_tag.color", "terminal.color1"], ["code_block.chroma.name_attribute.color", "terminal.color3"],
+    ["code_block.chroma.name_class.color", "terminal.color3"], ["code_block.chroma.name_decorator.color", "terminal.color3"],
+    ["code_block.chroma.name_function.color", "terminal.color4"], ["code_block.chroma.literal_number.color", "terminal.color3"],
+    ["code_block.chroma.literal_string.color", "terminal.color2"], ["code_block.chroma.literal_string_escape.color", "terminal.color3"],
+    ["code_block.chroma.generic_deleted.color", "color.danger"], ["code_block.chroma.generic_inserted.color", "color.success"],
+    ["code_block.chroma.generic_subheading.color", "color.textHeading"], ["code_block.chroma.background.background_color", "color.background"]
+];
+const gumValue = (document, field) => field.split(".").reduce((value, key) => value?.[key], document);
+function verifyGumNative(templates, packages = selectionPackages) {
+    const minima = new Map();
+    for (const { pkg, shipped } of packages) {
+        const slots = selectionRender.terminalSource(pkg, selectionDefaults).terminal;
+        const rendered = selectionRender.renderTarget(logic, TOKENS, gumTarget.target, templates,
+            { values: pkg.values, slots, curated: new Map(), installed: !shipped });
+        assert.equal(rendered.ok, true);
+        const files = new Map(rendered.files.map(file => [file.destination, file.bytes.toString("utf8")]));
+        const env = Object.fromEntries(files.get("gum.env").trimEnd().split("\n").map(line => [line.slice(0, line.indexOf("=")), line.slice(line.indexOf("=") + 1)]));
+        const failures = [];
+        const expected = role => gumValue(role.startsWith("terminal.") ? { terminal: slots } : pkg.values, role).slice(0, 7).toLowerCase();
+        if (env.GUM_PAGER_BORDER_FOREGROUND !== expected("color.borderStrong")) failures.push({ kind: "gum-role", field: "GUM_PAGER_BORDER_FOREGROUND" });
+        for (const field of ["GUM_FORMAT_THEME", "GLAMOUR_STYLE"])
+            if (env[field] !== "gum.glamour.json" || !files.has(env[field])) failures.push({ kind: "gum-selector", field });
+        const style = JSON.parse(files.get("gum.glamour.json") || "null");
+        for (const [field, role] of GUM_ROLES)
+            if (gumValue(style, field) !== expected(role)) failures.push({ kind: "gum-role", field });
+        assert.deepEqual(failures, [], pkg.name);
+        const measure = (kind, field, foreground, background, floor) => {
+            const ratio = logic.contrastRatio(logic.parseColor(foreground), logic.parseColor(background));
+            if (floor !== undefined) assert.ok(ratio >= floor, `${pkg.name}: ${field} ${ratio} < ${floor}`);
+            if (!minima.has(kind) || ratio < minima.get(kind).ratio) minima.set(kind, { ratio, package: pkg.name, field });
+        };
+        measure("ordinary", "document", style.document.color, env.BACKGROUND, 4.5);
+        measure("ordinary", "inline-code", style.code.color, style.code.background_color, 4.5);
+        measure("ordinary", "code-block", style.code_block.chroma.text.color, style.code_block.chroma.background.background_color, 4.5);
+        measure("h1", "h1", style.h1.color, style.h1.background_color, 4.5);
+        measure("error", "error", style.code_block.chroma.error.color, style.code_block.chroma.error.background_color, 4.5);
+        for (const [field, role] of GUM_ROLES.filter(([, role]) => role.startsWith("terminal."))) {
+            measure("ansi-background", field, gumValue(style, field), style.code_block.chroma.background.background_color, 4.5);
+            // ANSI families retain their canonical slots. Their contrast is
+            // not guaranteed on every resting surface; no wash is invented.
+            for (const surface of ["background", "surfaceSunken", "surface", "surfaceRaised"])
+                measure("ansi-surfaces", `${field}/${surface}`, gumValue(style, field), pkg.values.color[surface]);
+        }
+    }
+    return minima;
+}
+const gumMinima = verifyGumNative(gumTemplates);
+const gumScratch = fs.mkdtempSync(path.join(os.tmpdir(), "gum-native-control-"));
+try {
+    for (const [name, mutate, field] of [
+        ["missing-pager", templates => templates.set("gum.env", templates.get("gum.env").replace(/^GUM_PAGER_BORDER_FOREGROUND=.*\n/m, "")), "GUM_PAGER_BORDER_FOREGROUND"],
+        ["stock-heading", templates => {
+            const style = JSON.parse(templates.get("glamour.json"));
+            style.heading.color = "#123456";
+            templates.set("glamour.json", JSON.stringify(style));
+        }, "heading.color"]
+    ]) {
+        const templates = new Map(gumTemplates);
+        mutate(templates);
+        assert.notDeepEqual(templates, gumTemplates);
+        const dir = path.join(gumScratch, name);
+        fs.mkdirSync(dir);
+        for (const [file, text] of templates) fs.writeFileSync(path.join(dir, file), text, { flag: "wx" });
+        const copy = new Map([...templates.keys()].map(file => [file, fs.readFileSync(path.join(dir, file), "utf8")]));
+        assert.throws(() => verifyGumNative(copy, [{ pkg: selectionDefaults, shipped: true }]),
+            error => error instanceof assert.AssertionError && error.actual?.some(failure => failure.kind === "gum-role" && failure.field === field));
+    }
+} finally {
+    fs.rmSync(gumScratch, { recursive: true, force: true });
+}
+for (const [kind, minimum] of gumMinima) console.log(`test-theme-render: gum-native minimum=${kind} ${JSON.stringify(minimum)}`);
+console.log(`test-theme-render: gum-native packages=${selectionPackages.length} controls=missing-pager,stock-heading`);
+
 // foot reads six-digit RGB flash colours independently in its two INI palettes.
 const footDir = path.join(themesDir, "targets", "foot");
 const footTemplate = path.join(footDir, "foot.ini");

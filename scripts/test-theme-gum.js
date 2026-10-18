@@ -23,7 +23,7 @@
 // without its no-gum.env branch, a stand-in judge that hands back the full
 // vgs render, and one that hands back the no-theme environment without its
 // bold lines, must each fail the absent row. The judge's verb must
-// refuse a gum target with two files, planted in a copy of the themes
+// refuse a gum target without gum.env, planted in a copy of the themes
 // directory beside a copy of the judge.
 "use strict";
 const assert = require("node:assert/strict");
@@ -59,14 +59,15 @@ const defaults = themePackage("vgs", true);
 const judged = render.acceptTarget(logic, "gum", fs.readFileSync(path.join(targetDir, "target.json"), "utf8"));
 assert.equal(judged.ok, true, judged.ok ? "" : render.refusalLine("gum", judged));
 const target = judged.target;
-assert.deepEqual(target.files.map(f => f.destination), ["gum.env"]);
+assert.deepEqual(target.files.map(f => f.destination), ["gum.env", "gum.glamour.json"]);
 const template = fs.readFileSync(path.join(targetDir, "gum.env"), "utf8");
+const templates = new Map(target.files.map(file => [file.template, fs.readFileSync(path.join(targetDir, file.template), "utf8")]));
 
 const rendered = (pkg, text) => {
-    const result = render.renderTarget(logic, TOKENS, target, new Map([["gum.env", text]]),
+    const result = render.renderTarget(logic, TOKENS, target, new Map([...templates, ["gum.env", text]]),
         { values: pkg.values, slots: render.terminalSource(pkg, defaults).terminal, curated: new Map(), installed: false });
     assert.equal(result.ok, true, result.ok ? "" : render.refusalLine("gum", result));
-    return result.files[0].bytes.toString("utf8");
+    return result.files.find(file => file.destination === "gum.env").bytes.toString("utf8");
 };
 
 // The active write line uses the accent fill. Its text must meet the
@@ -93,10 +94,17 @@ const childPath = path.dirname(process.execPath) + path.delimiter + process.env.
 // Runs present, BIN, on TEXT as the state directory's gum.env, or with
 // none for null, and answers the run of ARGV. The child gets its own HOME,
 // state and runtime directories, never the developer's.
-const present = (root, text, bin, argv) => {
+const present = (root, text, bin, argv, style = "regular") => {
     const state = path.join(root, "state");
     fs.mkdirSync(path.join(state, "vgshell", "theme"), { recursive: true });
     if (text !== null) fs.writeFileSync(path.join(state, "vgshell", "theme", "gum.env"), text);
+    const styleFile = path.join(state, "vgshell", "theme", "gum.glamour.json");
+    if (style === "regular") fs.writeFileSync(styleFile, "{}\n");
+    if (style === "symlink") {
+        const outside = path.join(root, "outside.json");
+        fs.writeFileSync(outside, "{}\n");
+        fs.symlinkSync(outside, styleFile);
+    }
     const run = spawnSync(bin, ["present", "--presentation", "plain", "--", ...argv], {
         encoding: "utf8",
         env: { PATH: childPath, HOME: root, XDG_STATE_HOME: state, XDG_RUNTIME_DIR: root }
@@ -116,7 +124,11 @@ const presented = (root, text, bin = presenter) => {
     if (text === null) return seen;
     const lines = text.split("\n");
     assert.equal(lines.pop(), "", "gum.env ends in a newline");
-    for (const line of lines) assert.ok(seen.has(line), `present did not export ${line}`);
+    for (const line of lines) {
+        const exported = /^(GUM_FORMAT_THEME|GLAMOUR_STYLE)=gum\.glamour\.json$/.test(line)
+            ? line.replace(/=gum\.glamour\.json$/, "=" + path.join(root, "state", "vgshell", "theme", "gum.glamour.json")) : line;
+        assert.ok(seen.has(exported), `present did not export ${exported}`);
+    }
     return seen;
 };
 
@@ -142,6 +154,39 @@ const EXPECTED = [
 
 const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "theme-gum-")));
 try {
+    const selectors = "FOREGROUND=#123456\nGUM_FORMAT_THEME=gum.glamour.json\nGLAMOUR_STYLE=gum.glamour.json\n";
+    presented(path.join(root, "selectors with spaces"), selectors);
+    const forwarded = present(path.join(root, "forwarded"), selectors, presenter,
+        ["/bin/bash", "-c", 'source "$VGS_TUI_LIB"; vgs_tui_gum_env styles; printf "%s\\n" "${styles[@]}"']);
+    assert.equal(forwarded.status, 0, forwarded.stderr);
+    assert.equal(forwarded.stderr, "");
+    for (const key of ["GUM_FORMAT_THEME", "GLAMOUR_STYLE"])
+        assert.ok(forwarded.stdout.split("\n").includes(`${key}=${path.join(root, "forwarded", "state", "vgshell", "theme", "gum.glamour.json")}`));
+
+    // One malformed assignment rejects the whole set, including colors
+    // and a valid selector before it. Text never becomes a shell command.
+    const injected = path.join(root, "injected");
+    const invalid = [
+        ["traversal", "GLAMOUR_STYLE=../gum.glamour.json", "regular"],
+        ["absolute", `GLAMOUR_STYLE=${path.join(root, "outside.json")}`, "regular"],
+        ["stock", "GLAMOUR_STYLE=dark", "regular"],
+        ["empty", "GLAMOUR_STYLE=", "regular"],
+        ["quoted", 'GLAMOUR_STYLE="gum.glamour.json"', "regular"],
+        ["command", `GLAMOUR_STYLE=$(touch ${injected})`, "regular"],
+        ["separator", `GLAMOUR_STYLE=gum.glamour.json;touch ${injected}`, "regular"],
+        ["other-selector", "GUM_FORMAT_OTHER=gum.glamour.json", "regular"],
+        ["malformed", "GLAMOUR_STYLE gum.glamour.json", "regular"],
+        ["missing", "GLAMOUR_STYLE=gum.glamour.json", "missing"],
+        ["symlink", "GLAMOUR_STYLE=gum.glamour.json", "symlink"]
+    ];
+    for (const [name, assignment, style] of invalid) {
+        const run = present(path.join(root, `invalid-${name}`),
+            `FOREGROUND=#123456\nGUM_FORMAT_THEME=gum.glamour.json\n${assignment}\n`, presenter, ["env"], style);
+        assert.equal(run.status, 0, name);
+        assert.match(run.stderr.split("\n")[0], /^vgshell-tui: gum-env=rejected line=[23] path=/, name);
+        assert.deepEqual(run.stdout.split("\n").filter(line => /^(GUM_|GLAMOUR_STYLE=|FOREGROUND=)/.test(line)), [], name);
+        assert.equal(fs.existsSync(injected), false, name);
+    }
     let lines = 0;
     for (const [dir, shipped, expected] of EXPECTED) {
         const name = path.basename(dir);
@@ -175,6 +220,8 @@ try {
         for (const key of emptied) assert.equal(env.get(key), "", `no gum.env: ${key} is ${env.get(key)}, not empty`);
         for (const key of SELECTION) assert.equal(env.get(key), VGS_ACCENT, `no gum.env: ${key} is ${env.get(key)}, not the accent`);
         assert.equal(env.get("GUM_CHOOSE_HEADER_FOREGROUND"), "", "no gum.env: the choose header has a colour");
+        for (const key of ["GUM_FORMAT_THEME", "GLAMOUR_STYLE"])
+            assert.equal(env.has(key), false, `no gum.env: ${key}`);
         const bolds = [...env].filter(([key]) => key.endsWith("_BOLD")).map(([key, value]) => key + "=" + value).sort();
         assert.deepEqual(bolds, BOLD_STEMS.map(stem => stem + "_BOLD=true").sort(), "no gum.env: the bold keys");
     };
@@ -229,7 +276,7 @@ try {
         assert.deepEqual(exported, [], `${name} judge: present exported a colour`);
     }
 
-    // The verb refuses a gum target with other than one file, and prints
+    // The verb refuses a gum target without gum.env, and prints
     // nothing: a tree whose copy of the judge reads a planted gum target
     // beside the shipped vgs package; bin/lib and shell/ are links.
     const tree = path.join(root, "two");
@@ -248,7 +295,7 @@ try {
         { encoding: "utf8", env: { PATH: childPath, HOME: root } });
     assert.equal(refused.status, 1, refused.stderr);
     assert.equal(refused.stdout, "");
-    assert.equal(refused.stderr.split("\n")[0], "vgshell: refused: gum-default reason=files count=2");
+    assert.equal(refused.stderr.split("\n")[0], "vgshell: refused: gum-default reason=files count=0");
 
     // Control: a `$(...)` value fails the check and runs nothing.
     const planted = path.join(root, "planted");

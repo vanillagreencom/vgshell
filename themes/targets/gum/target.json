@@ -2,7 +2,10 @@
   "app": "gum",
   "runsCode": false,
   "encoder": "hex6",
-  "files": [{ "template": "gum.env", "destination": "gum.env" }],
+  "files": [
+    { "template": "gum.env", "destination": "gum.env" },
+    { "template": "glamour.json", "destination": "gum.glamour.json" }
+  ],
   "detect": ["gum"],
   "wiring": null,
   "reload": null
