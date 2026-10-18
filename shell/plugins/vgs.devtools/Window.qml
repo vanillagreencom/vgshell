@@ -169,6 +169,7 @@ Item {
                                 width: section.width
                                 row: modelData
                                 look: root.look
+                                info: modelData.networkRetry === true && root.shell !== null ? root.shell.manifest.status.checks.info : ""
                                 function focusIfTarget() {
                                     if (root.targetRow !== modelData.key) return;
                                     Qt.callLater(() => {
@@ -249,6 +250,7 @@ Item {
                                 width: infoSection.width
                                 row: modelData
                                 look: root.look
+                                info: modelData.networkRetry === true && root.shell !== null ? root.shell.manifest.status.checks.info : ""
                                 onPageActivated: (page, tab) => root.shell.surfaces.openPage(page, tab)
                                 onActed: (action, channel) => root.act(modelData, action, channel)
                             }

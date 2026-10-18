@@ -480,7 +480,7 @@ function toolRow(section, row, write, catalog) {
 // with an Update action while it is behind and ENTRY, the Update group's
 // first TUI key, is listed.
 function vgsRow(answer, entry) {
-    var out = { key: "vgs/self", section: "vgs", id: "self", name: "VGS", icon: "layers", brand: "", tile: "accent", secondary: "", chips: [], channels: [], actions: [], lines: [] };
+    var out = { key: "vgs/self", section: "vgs", id: "self", name: "VGS", icon: "layers", brand: "", tile: "accent", secondary: "", chips: [], channels: [], actions: [], lines: [], networkRetry: answer !== null && (answer.value === null || answer.value.error !== null) };
     if (answer === null) {
         out.secondary = "Checking";
         return out;

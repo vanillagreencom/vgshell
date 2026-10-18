@@ -23,6 +23,7 @@ Item {
     // repeater tears the row down.
     required property var row
     required property var look
+    property string info: ""
 
     signal acted(var action, string channel)
     signal pageActivated(string page, string tab)
@@ -133,6 +134,13 @@ Item {
         x: root.stacked ? texts.x : root.width - implicitWidth
         y: root.stacked ? texts.y + texts.implicitHeight + root.look.row.gap : Math.round((root.height - implicitHeight) / 2)
         spacing: root.look.row.actionGap
+
+        InfoButton {
+            anchors.verticalCenter: parent.verticalCenter
+            title: root.view.name
+            info: root.info
+            visible: info !== ""
+        }
 
         Repeater {
             model: root.view.chips

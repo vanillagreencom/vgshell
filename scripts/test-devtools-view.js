@@ -311,6 +311,14 @@ function verify(logic) {
 
     // The VGS row.
     const vgs = (answer, entry) => { const v = logic.vgsRow(answer, entry); return [v.secondary, v.chips, v.actions, v.lines]; };
+    // bin/vgshell self status produces both a failed query and a report
+    // whose latest-version check failed. Both rows state the retry wait.
+    for (const [answer, waiting] of [
+        [null, false], [ok(self({})), false],
+        [{ value: null, error: "fetch=failed" }, true],
+        [ok(self({ error: "latest=timeout" })), true],
+        [ok(self({ behind: true })), false]
+    ]) assert.equal(logic.vgsRow(answer, "").networkRetry, waiting, "only a failed network query needs the wait explanation");
     same(vgs(null, ""), ["Checking", [], [], []]);
     same(vgs({ value: null, error: "exit=1" }, "x"), ["State unknown", [{ text: "Unknown", tone: "danger" }], [], ["The check failed. Open Dev Tools again after 10 minutes to retry."]]);
     same(vgs(ok(self({ behind: true })), "acme.updates/update"),
@@ -438,6 +446,7 @@ const CONTROLS = [
     ["passing checks give no retry instruction", 'text: "All checks passed" };', 'text: "All checks passed", hint: RETRY_LOCAL };'],
     ["failed checks give the retry instruction", 'text: "Checks failed", hint: network && local ? RETRY_BOTH : network ? RETRY_NETWORK : RETRY_LOCAL };', 'text: "Checks failed" };'],
     ["a failed update check waits", 'network && local ? RETRY_BOTH : network ? RETRY_NETWORK : RETRY_LOCAL', 'RETRY_LOCAL'],
+    ["a failed Catalog query explains the wait", 'networkRetry: answer !== null && (answer.value === null || answer.value.error !== null)', 'networkRetry: false'],
     ["a missing mise offers no action", 'text: "Not installed" }', 'text: "Not installed", action: true }'],
     ["open skips a fresh remote", 'if (trigger !== "open" || !QUERIES[name].network) return true;', "return true;"],
     ["the list follows the launchers", 'return name === "launchers" ? "catalog" : "";', 'return "";'],
