@@ -26,7 +26,7 @@ if(fs.existsSync('require-consumed') && fs.readFileSync('${marker}','utf8')!=='{
 if(fs.existsSync('require-released') && (fs.existsSync('.vgs-package.json') || fs.existsSync('.claude/agents/owned.md'))) process.exit(44);
 if(fs.existsSync('fail')) process.exit(43);
 if(fs.existsSync('hold')) {
- const child=cp.spawn(process.execPath,['-e',"const fs=require('node:fs');fs.writeFileSync('descendant',fs.readFileSync('/proc/self/stat','utf8').split(' ')[0]);setInterval(()=>{},1000)"],{detached:true,env:{},stdio:'ignore'});
+ const child=cp.spawn(process.execPath,['-e',"const fs=require('node:fs');const pid=fs.readFileSync('/proc/self/stat','utf8').split(' ')[0];if(fs.existsSync('delay-pid')){fs.writeFileSync('descendant','');const publish=()=>{if(fs.existsSync('pid-read'))fs.writeFileSync('descendant',pid);else setTimeout(publish,10)};publish()}else fs.writeFileSync('descendant',pid);setInterval(()=>{},1000)"],{detached:true,env:{},stdio:'ignore'});
  child.unref();
  const next=()=>{if(fs.existsSync('hold'))setTimeout(next,10);else finish()};next();
 } else finish();
@@ -92,10 +92,17 @@ function finish(){fs.mkdirSync('${path.dirname(canonical)}',{recursive:true});fs
     assert.equal(count(failed), 2, "manual retry uses the same installer");
     const cancelled = home();
     fs.writeFileSync(path.join(cancelled, "hold"), "");
+    // Hold publication until the reader has observed the create/write gap.
+    fs.writeFileSync(path.join(cancelled, "delay-pid"), "");
     const controller = new AbortController();
     const pending = install(cancelled, true, controller.signal);
-    await wait(() => fs.existsSync(path.join(cancelled, "descendant")));
-    const descendant = fs.readFileSync(path.join(cancelled, "descendant"), "utf8");
+    let descendant;
+    await wait(() => {
+        if (!fs.existsSync(path.join(cancelled, "descendant"))) return false;
+        descendant = fs.readFileSync(path.join(cancelled, "descendant"), "utf8");
+        if (descendant === "") fs.writeFileSync(path.join(cancelled, "pid-read"), "");
+        return /^[0-9]+$/.test(descendant);
+    });
     const busy = await install(home(), false);
     assert.equal(busy.kind, "exited");
     assert.equal(busy.code, 75, "manual and automatic attempts share serialization");
