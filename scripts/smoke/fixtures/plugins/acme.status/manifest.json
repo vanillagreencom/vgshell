@@ -13,7 +13,7 @@
   "schema": { "device": { "type": "string", "label": "Device", "optionsFrom": "devices", "allowCustom": true } },
   "status": {
     "devices": { "type": "choices", "label": "Devices" },
-    "token": { "type": "presence", "label": "Token", "setup": true, "group": "Sync", "hint": "Needed for the fixture's sync, which [its manifest](file:vgshell/plugins/acme.status/manifest.json) declares", "action": { "label": "Set up token", "tui": "setup" } },
+    "token": { "type": "presence", "label": "Token", "setup": true, "group": "Sync", "hint": "Needed for the fixture's sync, which [its manifest](file:vgshell%2Fplugins%2Facme.status%2Fmanifest.json) declares", "action": { "label": "Set up token", "tui": "setup" } },
     "check": { "type": "state", "label": "Check", "setup": true, "action": { "label": "Check again", "tui": "setup" } },
     "pending": { "type": "count", "label": "Pending", "group": "Sync" },
     "lastCheck": { "type": "time", "label": "Last check" },
