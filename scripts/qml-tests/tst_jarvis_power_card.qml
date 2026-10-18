@@ -139,6 +139,8 @@ Item {
             verify(bound !== undefined, "the wait's bound");
             verify(bound.running, "the bound runs while the wait is held");
             verify(bound.interval > heldWait.waitMs, "the bound comes after the helper's");
+            // The bound's keyed line; ignoreWarning fails the case without it.
+            ignoreWarning("jarvis-power: bound verb=reboot");
             bound.triggered();
             compare(root.detached[root.detached.length - 1], ["systemctl", "reboot"]);
             compare(heldWait.verb, "", "the wait ended");
