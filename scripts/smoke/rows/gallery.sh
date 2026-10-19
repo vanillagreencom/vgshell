@@ -153,9 +153,8 @@ expect "the slim list's touchpad scroll is on again" false ipc smoke setViewTouc
 # § Pointer): the same swipe with the pointer over a tab strip, a list
 # view that fits and stays
 # interactive, scrolls the page that holds the strip. The pointer lies at
-# the strip's right end, past its tabs, so it leaves the arrow for the
-# cursor rows below. The slim list's swipe above is its control: a view
-# that takes the deltas leaves the page.
+# the strip's right end, past its tabs. The slim list's swipe above is its
+# control: a view that takes the deltas leaves the page.
 tabs_swipe() {
   local strip page x y after
   strip="$(view_at_rest window vgs.gallery Installed)" || return 1
@@ -186,7 +185,7 @@ expect "a two-finger swipe down over a tab strip scrolls the page that holds it"
 # the swipe's angle steps both alike, `per-notch`. The control loads a copy
 # of the carousel without its touchpad step, which reads the swipe by the
 # notch, and the check refuses it. The pointer then goes back to where the
-# tab strip's swipe left it, over the arrow the cursor rows below start on.
+# tab strip's swipe left it.
 carousel_rest="$pointer_at"
 mkdir -p "$repo/shell/Core/CarouselSwipeControl"
 carousel_box='    readonly property var windowBox: { const at = mapToItem(null, 0, 0); return [at.x, at.y, width, height]; }'
@@ -497,6 +496,15 @@ render expect_poll "the pixel reader rejects the hidden shader control" False or
 expect "the orb control is released" ok ipc smoke popupDrop orb-control
 rm -r -- "${repo:?}/shell/Core/VoiceOrbControl" || fail "removing the orb control failed"
 if [[ $(ipc smoke scrollTo window vgs.gallery 0) == \[* ]] && offset="$(gallery_offset Buttons)" && [[ $(ipc smoke scrollTo window vgs.gallery "$offset") == \[* ]]; then
+  # The scrolls above move controls under the resting pointer, and which
+  # one ends there depends on the window's capped height, so the hand
+  # reading starts from the disabled button, which draws no hand.
+  cursor_off_hand() { [[ $(cursor_shape) != pointer ]] && echo off-hand || echo hand; }
+  if read -r x y < <(at_centre "window:VGS Components" "$(gallery_box Button Disabled)") && hover "$x" "$y"; then
+    expect_poll "the pointer on the disabled button shows no hand" off-hand cursor_off_hand
+  else
+    fail "resting the pointer on the disabled button failed"
+  fi
   expect_cursor "an enabled button shows the hand" pointer "window:VGS Components" "$(gallery_box Button Small)"
   expect_cursor "a disabled button shows the arrow" default "window:VGS Components" "$(gallery_box Button Disabled)"
   if offset="$(gallery_offset Choices)" && [[ $(ipc smoke scrollTo window vgs.gallery "$offset") == \[* ]]; then

@@ -9,7 +9,7 @@ Item {
     property int opened: 0
     property string lastPayload: ""
     property bool sizing: false
-    property int sizingRows: 7
+    property int sizingRows: 5
     implicitWidth: 200
     implicitHeight: 120
     // A payload may name a file close() creates, and may ask open() to throw.
@@ -18,7 +18,7 @@ Item {
         opened += 1;
         lastPayload = payloadJson;
         sizing = payload.sizing === true;
-        sizingRows = payload.rows === undefined ? 7 : payload.rows;
+        sizingRows = payload.rows === undefined ? 5 : payload.rows;
         if (payload.fail === true) throw new Error("probe open refused");
     }
     function close() {
@@ -32,6 +32,10 @@ Item {
     function anchorGeometry() { const p = menuAnchor.mapToGlobal(0, 0); return JSON.stringify([p.x, p.y, menuAnchor.width, menuAnchor.height]); }
     // The real window host receives the same small request while the Pane
     // owns its title, source rows and footer, as in the shipped Updates.
+    // Five rows keep the Pane under the window cap (OverlayState.windowRoom)
+    // at the smoke's 1755x933 output, where seven asked for 576 px against
+    // a 559 px cap (surfaces row, nested run, 2026-10-18); `rows` asks for
+    // more.
     Pane {
         id: sizingPane
         visible: root.sizing
