@@ -216,15 +216,21 @@ FocusScope {
                 hint: root.diskSleep === null ? "" : root.diskSleep.hint
                 info: root.diskSleep === null ? "" : root.diskSleep.info
 
-                Badge {
-                    text: root.diskSleep === null ? "" : root.diskSleep.value.text
-                    tone: root.diskSleep === null ? "info" : root.diskSleep.tone
-                }
+                Row {
+                    spacing: Theme.stack.inline
 
-                RowAction {
-                    visible: root.diskSleep !== null && root.diskSleep.action !== null && root.diskSleep.action.offered
-                    text: root.diskSleep === null || root.diskSleep.action === null ? "" : root.diskSleep.action.label
-                    onClicked: root.allowDiskSleep()
+                    Badge {
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: root.diskSleep === null ? "" : root.diskSleep.value.text
+                        tone: root.diskSleep === null ? "info" : root.diskSleep.tone
+                    }
+
+                    RowAction {
+                        anchors.verticalCenter: parent.verticalCenter
+                        visible: root.diskSleep !== null && root.diskSleep.action !== null && root.diskSleep.action.offered
+                        text: root.diskSleep === null || root.diskSleep.action === null ? "" : root.diskSleep.action.label
+                        onClicked: root.allowDiskSleep()
+                    }
                 }
             }
         }
