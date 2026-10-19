@@ -2989,6 +2989,9 @@ scene_panels() { # MODE
   click_in window:Updates window vgs.updates ListItem System || fail "the click on the window's System row failed"
   park_pointer
   take "panels-$1-updates-open"
+  # The open System row pushes VGS below the fold of a window at its cap
+  # (OverlayState.windowRoom).
+  [[ $(ipc smoke revealText window vgs.updates ListItem VGS) =~ ^[0-9.]+$|^unscrolled$ ]] || fail "the window's VGS row was not revealed"
   hover_on "the pointer rests on the window's VGS row" window vgs.updates ListItem VGS window:Updates && take_posed "panels-$1-updates-hover"
   park_pointer
   expect "the Updates window hides" ok ipc shell hide window vgs.updates
