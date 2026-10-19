@@ -6,7 +6,7 @@
 # exists; the release pins the tarball's sum.
 
 pkgname=vgshell
-pkgver=0.1.1
+pkgver=0.1.2
 pkgrel=1
 pkgdesc='Desktop shell for Hyprland, built on Quickshell'
 arch=('any')
@@ -109,7 +109,7 @@ optdepends=(
   'microsoft-edge-stable-bin: opens a calendar day in a Microsoft Edge profile'
 )
 source=("vgshell-$pkgver.tar.gz::$url/releases/download/v$pkgver/vgshell-$pkgver.tar.gz")
-sha256sums=('55bc005fa39c9077e5c0e824838d176a4fa681a292fa91510352f1642a767d6e')
+sha256sums=('SKIP')
 install=vgshell.install
 
 package() {

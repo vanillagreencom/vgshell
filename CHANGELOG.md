@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.1.2 (2026-10-19)
+
+- The shortcut editor shows how long key listening has left, keeps its actions in place and can reset a shortcut from any editor state. Unsaved changes offer Discard and Save, and the focused setting stays visible when the save bar appears.
+- VGS windows open with their top at 20 % of the display height and grow down to a 60 % height cap. Long pages scroll inside the cap, and changing tabs keeps the window's top in place.
+- Automations can repeat every chosen number of minutes or hours. History builds only the visible rows and keeps existing rows when a run arrives, so a long history no longer freezes the window.
+- Repeated failed automation runs keep one failure notification. After a shell restart or a new login, a run cannot replace another application's notification.
+- The Arch curl installer can install the VGS Quickshell engine when it is missing.
+- Zed receives copied theme files in the directory it watches, so theme changes reach the editor.
 - In the folder list that Browse opens, such as for an automation's Working directory, the folder that Enter opens is marked, and the mark moves with Up and Down. When the pointer leaves the list, the mark goes back to that folder. Before, Up and Down moved to a folder that showed no mark.
 - The key hints in the clipboard history, the Jarvis confirmation card and VGS Components show their words as plain theme text beside the key chips. Before, each word sat in a box with a halo that matched no theme.
 - VS Code, VSCodium and Cursor use the VGS palette for native editor guides, highlights, controls, badges, debugging and workbench colours that previously kept application defaults.
