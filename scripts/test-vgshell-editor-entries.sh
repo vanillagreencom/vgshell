@@ -2,7 +2,7 @@
 # The editor targets on the entry wiring, helix and zed, through
 # `vgshell theme apply`: each renders its hand-written lines with its encoder
 # into a document its application parses, is skipped when its command is not
-# on PATH, keeps its links in its application's theme directory, takes a package's curated file where the target accepts it, and
+# on PATH, keeps its managed entries in its application's theme directory, takes a package's curated file where the target accepts it, and
 # helix runs its reload hook. Every command is a stub on the rows' PATH, sh
 # included, under a temporary HOME and XDG_RUNTIME_DIR, so no row signals an
 # editor or reaches the developer's session. The controls at the end apply a
@@ -65,6 +65,7 @@ result() { # HELIX ZED: each `state` or `state:reason`
   printf '{"state":"applied","shell":"applied","targets":[%s],"theme":"%s","reason":null}' "$out" "$3"
 }
 links_to() { [[ -L $1 && "$(readlink -- "$1")" == "$2" ]]; } # PATH TARGET
+copies_from() { [[ -f $1 && ! -L $1 ]] && cmp -s -- "$1" "$2"; } # PATH SOURCE
 # Every colour of a document: each `"#..."` string in it.
 colours() { grep -oE '"#[^"]*"' -- "$1"; }
 colours_are() { # FILE REGEX: every colour matches, and there is one
@@ -87,7 +88,7 @@ check "an undetected helix runs no hook" test ! -e "$hook_args"
 
 THEME_PATH="$with_stubs" tinst "both editors land" "$cfg" "$rt_empty" 0 "$(result written written nord)" "" theme apply --json nord
 check "helix's link names its state file" links_to "$helix_link" "$live/helix.toml"
-check "zed's link names its state file" links_to "$zed_link" "$live/zed.json"
+check "zed's copy matches its state file" copies_from "$zed_link" "$live/zed.json"
 check "helix's theme is TOML" toml_parses "$helix_link"
 check "helix takes the accent as #rrggbb" grep -qxF 'special = "#222222"' "$helix_link"
 check "helix takes the background token" grep -qxF '"ui.background" = { bg = "#000000" }' "$helix_link"
@@ -125,7 +126,7 @@ cfg="$tmp/cfg-upstream"; mkdir -p "$cfg/vgshell"; helix_link="$cfg/helix/themes/
 rm -f -- "$hook_args"
 THEME_PATH="$with_upstream" tinst "hx and zed alone detect helix and zed" "$cfg" "$rt_empty" 0 "$(result written written dawn)" "" theme apply --json dawn
 check "an hx-detected helix's link names its state file" links_to "$helix_link" "$live/helix.toml"
-check "a zed-detected zed's link names its state file" links_to "$zed_link" "$live/zed.json"
+check "a zed-detected zed's copy matches its state file" copies_from "$zed_link" "$live/zed.json"
 check "an hx-detected helix's hook signals Helix" hook_ran_pinned
 check "detection ran no upstream editor" test ! -e "$tmp/ran-hx" -a ! -e "$tmp/ran-zed"
 
@@ -141,12 +142,12 @@ check "the helix hex8 mutant's colours are not #rrggbb" turned colours_are "$hel
 tree_control zed-encoder themes/targets/zed/target.json '"encoder": "hex8"' '"encoder": "hex6"'
 control_cfg zed-encoder
 THEME_PATH="$with_stubs" tinst "the zed hex6 mutant applies" "$cfg" "$rt_empty" 0 "$any_out" "" theme apply dusk
-check "the zed hex6 mutant's theme is linked" test -s "$zed_link"
+check "the zed hex6 mutant's theme is copied" test -s "$zed_link"
 check "the zed hex6 mutant's colours are not #rrggbbaa" turned colours_are "$zed_link" '[0-9a-f]{8}'
 tree_control zed-appearance themes/targets/zed/zed.json '"appearance": "@{scheme.mode}"' '"appearance": "dark"'
 control_cfg zed-appearance
 THEME_PATH="$with_stubs" tinst "the fixed-appearance zed mutant applies flexoki-light" "$cfg" "$rt_empty" 0 "$any_out" "" theme apply flexoki-light
-check "the fixed-appearance zed mutant's theme is linked" test -s "$zed_link"
+check "the fixed-appearance zed mutant's theme is copied" test -s "$zed_link"
 check "the fixed-appearance zed mutant does not mark flexoki-light light" turned json_value "$zed_link" 'd["themes"][0]["appearance"]' light
 tree_control helix-arch-only themes/targets/helix/target.json '"detect": [["helix", "hx"]]' '"detect": ["helix"]'
 control_cfg helix-arch-only
@@ -155,7 +156,7 @@ check "the Arch-only helix mutant links no theme under hx" turned links_to "$hel
 tree_control zed-arch-only themes/targets/zed/target.json '"detect": [["zeditor", "zed"]]' '"detect": ["zeditor"]'
 control_cfg zed-arch-only
 THEME_PATH="$with_upstream" tinst "the Arch-only zed mutant applies under zed" "$cfg" "$rt_empty" 0 "$any_out" "" theme apply dawn
-check "the Arch-only zed mutant links no theme under zed" turned links_to "$zed_link" "$live/zed.json"
+check "the Arch-only zed mutant lands no theme under zed" test ! -e "$zed_link"
 judge_control apply-all-of 'render.detected(target.detect, onPath)' 'target.detect.flat().every(onPath)'
 control_cfg apply-all-of
 THEME_PATH="$with_upstream" tinst "the all-of apply mutant applies under hx" "$cfg" "$rt_empty" 0 "$any_out" "" theme apply dawn
