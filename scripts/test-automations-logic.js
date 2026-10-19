@@ -2,9 +2,9 @@
 // The automations judge, shell/plugins/vgs.automations/AutomationsLogic.js,
 // under node: the recurrence judge and its presets, the schedule compiler's
 // OnCalendar= expressions and cron fields, the summary line, the next
-// occurrences, the runner's guard, the store and guard-state judges, the
-// unit and crontab text, the run records and history rows, pruning, and the
-// notifications a run sends. Every expected value is written out by hand.
+// occurrences, the runner's guard, the store, guard-state and streak
+// judges, the unit and crontab text, the run records and history rows,
+// pruning, and the notifications a run sends with its failure streak. Every expected value is written out by hand.
 //
 // The preview rows compare the judge's next ten occurrences with
 // `systemd-analyze calendar --iterations` on the expressions it compiles,
@@ -347,24 +347,62 @@ function verify(logic) {
 
     // Notifications: an error always; a start and a success only when asked.
     const failed = Object.assign(ended("backup", "1767225600000-1", 1000, "failed"), { exitCode: 3, snippet: "disk <full> & gone", transcript: "/r/t.log" });
-    same(logic.notificationFor("end", automation({}), failed), { summary: "Back up failed", body: "The automation failed. Open Automations to read its output.", urgency: "critical", icon: "circle-x", tone: "danger", click: "open", open: "/r/t.log" });
-    same(logic.notificationFor("end", automation({}), Object.assign({}, failed, { outcome: "timeout", durationMs: 61000, snippet: "" })).body, "Timed out after 1m 1s");
-    same(logic.notificationFor("end", automation({}), Object.assign({}, failed, { outcome: "failed-start", reason: "directory=ENOENT path=/x", snippet: "" })).body, "The work folder is unavailable. Choose another folder in Automations.");
-    same(logic.notificationFor("end", automation({}), Object.assign({}, failed, { signal: "SIGKILL", exitCode: null, snippet: "" })).body, "The automation was stopped. Open Automations to read its output.");
-    same(logic.notificationFor("end", automation({ notifyEveryRun: true }), failed).icon, "circle-x", "an error is an error with the toggle on");
+    same(logic.notificationFor("end", automation({}), failed, null), { summary: "Back up failed", body: "The automation failed. Open Automations to read its output.", urgency: "critical", icon: "circle-x", tone: "danger", click: "open", open: "/r/t.log" });
+    same(logic.notificationFor("end", automation({}), Object.assign({}, failed, { outcome: "timeout", durationMs: 61000, snippet: "" }), null).body, "Timed out after 1m 1s");
+    same(logic.notificationFor("end", automation({}), Object.assign({}, failed, { outcome: "failed-start", reason: "directory=ENOENT path=/x", snippet: "" }), null).body, "The work folder is unavailable. Choose another folder in Automations.");
+    same(logic.notificationFor("end", automation({}), Object.assign({}, failed, { signal: "SIGKILL", exitCode: null, snippet: "" }), null).body, "The automation was stopped. Open Automations to read its output.");
+    same(logic.notificationFor("end", automation({ notifyEveryRun: true }), failed, null).icon, "circle-x", "an error is an error with the toggle on");
     const good = Object.assign({}, failed, { outcome: "succeeded", durationMs: 4200 });
-    same(logic.notificationFor("end", automation({}), good), null, "no success notification without the toggle");
+    same(logic.notificationFor("end", automation({}), good, null), null, "no success notification without the toggle");
     for (const [durationMs, text] of [[1500, "2s"], [61000, "1m 1s"], [3661000, "1h 1m"], [345600000, "4d 0h"]])
-        assert.equal(logic.notificationFor("end", automation({ notifyEveryRun: true }), Object.assign({}, good, { durationMs })).body, "Finished in " + text);
-    same(logic.notificationFor("end", automation({ notifyEveryRun: true }), good), { summary: "Back up finished", body: "Finished in 4s", urgency: "low", icon: "circle-check", tone: "success", click: "open", open: "/r/t.log" });
+        assert.equal(logic.notificationFor("end", automation({ notifyEveryRun: true }), Object.assign({}, good, { durationMs }), null).body, "Finished in " + text);
+    same(logic.notificationFor("end", automation({ notifyEveryRun: true }), good, null), { summary: "Back up finished", body: "Finished in 4s", urgency: "low", icon: "circle-check", tone: "success", click: "open", open: "/r/t.log" });
     same(logic.notificationFor("start", automation({}), started("backup", "1767225600000-1", 1)), null, "no start notification without the toggle");
     same(logic.notificationFor("start", automation({ notifyEveryRun: true, command: "a < b" }), started("backup", "1767225600000-1", 1)), { summary: "Back up started", body: "The automation is running.", urgency: "low", icon: "play", tone: "warning", click: "none", open: "" });
     assert.throws(() => logic.notificationFor("middle", automation({}), failed), /is not start or end/);
-    same(logic.notifySendArgs(logic.notificationFor("end", automation({}), failed), 17), [
+    same(logic.notifySendArgs(logic.notificationFor("end", automation({}), failed, null), 17), [
         "--app-name=Automations", "--urgency=critical", "--print-id",
         "--hint=string:x-vgs-icon:circle-x", "--hint=string:x-vgs-tone:danger", "--hint=string:x-vgs-click:open",
         "--hint=string:x-vgs-open:/r/t.log", "--replace-id=17", "--", "Back up failed", "The automation failed. Open Automations to read its output."]);
     same(logic.notifySendArgs({ summary: "-s", body: "--b", urgency: "low", icon: "play", tone: "warning", click: "none", open: "" }, null).slice(-3), ["--", "-s", "--b"], "the text follows --");
+
+    // A failure streak: one critical notice, each later failure replaces it
+    // and counts since the first, and the first success replaces it with
+    // recovered. The runner sends each notice with the streak's noticeId.
+    const failedAt = (iso, extra) => Object.assign(ended("backup", at(iso) + "-1", at(iso), "failed"), { transcript: "/r/t.log" }, extra);
+    const first = failedAt("2026-01-01T09:00:00Z");
+    const second = failedAt("2026-01-01T09:10:00Z");
+    const third = failedAt("2026-01-01T09:20:00Z", { outcome: "timeout", durationMs: 61000 });
+    const sent = [];
+    let streak = null;
+    for (const rec of [first, second, third]) {
+        const n = logic.notificationFor("end", automation({}), rec, streak);
+        sent.push(logic.notifySendArgs(n, streak === null ? null : streak.noticeId));
+        streak = logic.streakAfter(rec, streak, 41);
+    }
+    same(sent.map(args => args.filter(a => /^--(urgency|replace-id)=/.test(a))), [["--urgency=critical"], ["--urgency=critical", "--replace-id=41"], ["--urgency=critical", "--replace-id=41"]], "one critical notice, then two replacements of it");
+    same(sent.map(args => args.slice(-2)), [
+        ["Back up failed", "The automation failed. Open Automations to read its output."],
+        ["Back up failed", "Failed 2 times since 09:00\nThe automation failed. Open Automations to read its output."],
+        ["Back up failed", "Failed 3 times since 09:00\nTimed out after 1m 1s"]
+    ]);
+    same(streak, { noticeId: 41, failures: 3, since: at("2026-01-01T09:00:00Z") });
+    const recovered = Object.assign({}, first, { outcome: "succeeded", startedAt: at("2026-01-01T09:30:00Z"), durationMs: 4200 });
+    same(logic.notifySendArgs(logic.notificationFor("end", automation({}), recovered, streak), streak.noticeId).filter(a => !a.startsWith("--hint")), ["--app-name=Automations", "--urgency=low", "--print-id", "--replace-id=41", "--", "Back up recovered", "Finished in 4s after 3 failed runs"]);
+    same(logic.notificationFor("end", automation({ notifyEveryRun: true }), recovered, streak).summary, "Back up recovered", "recovered outranks finished");
+    same(logic.notificationFor("end", automation({}), recovered, { noticeId: 41, failures: 1, since: first.startedAt }).body, "Finished in 4s after 1 failed run");
+    same(logic.streakAfter(recovered, streak, 41), null, "a success ends the streak");
+    same(logic.notificationFor("end", automation({}), Object.assign({}, second, { startedAt: at("2026-01-03T08:00:00Z") }), { noticeId: 41, failures: 2, since: first.startedAt }).body.split("\n")[0], "Failed 3 times since Thu 1 Jan 2026 09:00", "a streak from another day names its day");
+    same(logic.streakAfter(first, null, null), { noticeId: null, failures: 1, since: first.startedAt }, "no printed id opens a streak with no notice to replace");
+    same(logic.parseStreak(JSON.stringify(streak)), { ok: true, streak: { noticeId: 41, failures: 3, since: at("2026-01-01T09:00:00Z") } });
+    for (const [text, error] of [
+        ["{", "streak: not-json"],
+        ["[]", "streak: want=object"],
+        ['{"noticeId":41,"failures":1,"since":0,"x":1}', "streak.x: unknown"],
+        ['{"noticeId":0,"failures":1,"since":0}', "streak.noticeId: want=id|null"],
+        ['{"noticeId":null,"failures":0,"since":0}', "streak.failures: want=count"],
+        ['{"noticeId":null,"failures":1}', "streak.since: want=ms"]
+    ]) same(logic.parseStreak(text), { ok: false, error: error }, "streak refused: " + text);
 
     // List rows, status and the refresh.
     const listed = logic.listRows({ version: 1, automations: [automation({}), automation({ id: "off", name: "Off", enabled: false }), automation({ id: "done", name: "Done", schedule: UNTIL })] },
@@ -653,7 +691,15 @@ const CONTROLS = [
     ["a success notifies only when asked", "if (automation.notifyEveryRun !== true) return null;\n        return { summary: automation.name + \" finished\"", "return { summary: automation.name + \" finished\""],
     ["an error is red with circle-x", "urgency: \"critical\", icon: \"circle-x\", tone: \"danger\"", "urgency: \"critical\", icon: \"circle-check\", tone: \"success\""],
     ["the text follows --", "return args.concat([\"--\", n.summary, n.body]);", "return args.concat([n.summary, n.body]);"],
-    ["a finish replaces the start", "if (isWhole(replaceId) && replaceId > 0) args.push(\"--replace-id=\" + replaceId);", ""],
+    ["a repeated failure counts since the first", "var body = streak === null ? failureLine(rec) :", "var body = true ? failureLine(rec) :"],
+    ["the first success after a failure recovers", "if (streak !== null)\n            return { summary: automation.name + \" recovered\"", "if (false)\n            return { summary: automation.name + \" recovered\""],
+    ["a streak keeps its first failure's time", "since: streak === null ? rec.startedAt : streak.since", "since: rec.startedAt"],
+    ["a streak counts its failures", "failures: streak === null ? 1 : streak.failures + 1,", "failures: 1,"],
+    ["a streak keeps its notice", "noticeId: isWhole(noticeId) && noticeId > 0 ? noticeId : null,", "noticeId: null,"],
+    ["a success ends the streak", "if (rec.outcome === \"succeeded\") return null;", ""],
+    ["a streak from another day names its day", "return sameDay ? pad2(since.getHours())", "return true ? pad2(since.getHours())"],
+    ["a streak needs its failure count", "if (!isWhole(doc.failures) || doc.failures < 1) return", "if (false) return"],
+    ["a finish replaces the start","if (isWhole(replaceId) && replaceId > 0) args.push(\"--replace-id=\" + replaceId);", ""],
     ["a paused automation has no next run", "nextRun: a.enabled && next.length > 0 ? next[0] : null,", "nextRun: next.length > 0 ? next[0] : null,"],
     ["a success clears its own operation's failure alone", "if (failure === \"\") delete next[operation];", "if (failure === \"\") next = {};"],
     ["a failure is kept until its operation succeeds", "else next[operation] = String(failure).slice(0, 200);", "else next = { list: String(failure) };"],

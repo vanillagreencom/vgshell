@@ -1133,23 +1133,70 @@ function failureLine(rec) {
 }
 
 // The notification a run event sends, or null when it sends none: an error
-// always, the start and a success only under notifyEveryRun. Each carries
-// the VGS hints vgs.notifications reads (shell/plugins/vgs.notifications/developer.md § Hints): a Lucide
+// always, the start and a success only under notifyEveryRun, and the first
+// success after a failure always, as recovered. Each carries the VGS hints
+// vgs.notifications reads (shell/plugins/vgs.notifications/developer.md § Hints): a Lucide
 // icon, a design-system status tone, the transcript to open and what a
-// click does. `event` is start (with the started record) or end (with the
-// ended one).
-function notificationFor(event, automation, rec) {
+// click does. `event` is start (with the started record) or end
+// (with the ended one and the automation's failure streak before it, null
+// for none); a failure after the first of a streak counts the failures since
+// the first one.
+function notificationFor(event, automation, rec, streak) {
     if (event === "start") {
         if (automation.notifyEveryRun !== true) return null;
         return { summary: automation.name + " started", body: "The automation is running.", urgency: "low", icon: "play", tone: "warning", click: "none", open: "" };
     }
     if (event !== "end") throw new Error("automations: notification event " + JSON.stringify(event) + " is not start or end");
+    var finished = "Finished in " + Commons.Duration.format(Math.round(rec.durationMs / 1000));
     if (rec.outcome === "succeeded") {
+        if (streak !== null)
+            return { summary: automation.name + " recovered", body: finished + " after " + streak.failures + (streak.failures === 1 ? " failed run" : " failed runs"), urgency: "low", icon: "circle-check", tone: "success", click: "open", open: rec.transcript };
         if (automation.notifyEveryRun !== true) return null;
-        return { summary: automation.name + " finished", body: "Finished in " + Commons.Duration.format(Math.round(rec.durationMs / 1000)), urgency: "low", icon: "circle-check", tone: "success", click: "open", open: rec.transcript };
+        return { summary: automation.name + " finished", body: finished, urgency: "low", icon: "circle-check", tone: "success", click: "open", open: rec.transcript };
     }
-    var body = failureLine(rec);
+    var body = streak === null ? failureLine(rec) : "Failed " + (streak.failures + 1) + " times since " + sinceText(streak.since, rec.startedAt) + "\n" + failureLine(rec);
     return { summary: automation.name + " failed", body: body, urgency: "critical", icon: "circle-x", tone: "danger", click: "open", open: rec.transcript };
+}
+
+// When a streak began, as its notice reads it: the time alone on the day
+// of `nowMs`, else the day too.
+function sinceText(sinceMs, nowMs) {
+    var since = new Date(sinceMs);
+    var now = new Date(nowMs);
+    var sameDay = since.getFullYear() === now.getFullYear() && since.getMonth() === now.getMonth() && since.getDate() === now.getDate();
+    return sameDay ? pad2(since.getHours()) + ":" + pad2(since.getMinutes()) : formatWhen(sinceMs);
+}
+
+// The failure streak an automation's run leaves: none after a success,
+// else one failure more than `streak`, whose notice is now `noticeId`.
+function streakAfter(rec, streak, noticeId) {
+    if (rec.outcome === "succeeded") return null;
+    return {
+        noticeId: isWhole(noticeId) && noticeId > 0 ? noticeId : null,
+        failures: streak === null ? 1 : streak.failures + 1,
+        since: streak === null ? rec.startedAt : streak.since
+    };
+}
+
+// The runner's per-automation streak file, `{ noticeId, failures, since }`:
+// the open failure notice's id (null when notify-send printed none), the
+// failed runs in a row and when the first of them started, in ms. The
+// runner writes it after a failed run and removes it after a success, so
+// no file is no streak.
+function parseStreak(text) {
+    var doc;
+    try {
+        doc = JSON.parse(String(text));
+    } catch (e) {
+        return { ok: false, error: "streak: not-json" };
+    }
+    if (!isPlainObject(doc)) return { ok: false, error: "streak: want=object" };
+    var unknown = unknownKey(doc, ["noticeId", "failures", "since"], "streak");
+    if (unknown !== "") return { ok: false, error: unknown };
+    if (doc.noticeId !== null && (!isWhole(doc.noticeId) || doc.noticeId < 1)) return { ok: false, error: "streak.noticeId: want=id|null" };
+    if (!isWhole(doc.failures) || doc.failures < 1) return { ok: false, error: "streak.failures: want=count" };
+    if (!isWhole(doc.since) || doc.since < 0) return { ok: false, error: "streak.since: want=ms" };
+    return { ok: true, streak: { noticeId: doc.noticeId, failures: doc.failures, since: doc.since } };
 }
 
 // notify-send's argv for a notification, replacing `replaceId` when it is

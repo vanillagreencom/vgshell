@@ -4,7 +4,8 @@
 // stand-in crontab, the runner (success, a non-zero exit, a timeout that
 // ends the command's process group, a failed start, the transcript cap, the
 // records it writes before and after the command), the notifications it
-// sends through a stand-in notify-send, run-now through a stand-in
+// sends through a stand-in notify-send and the failure streak that keeps
+// one notice open across runs, run-now through a stand-in
 // systemd-run, the scheduled trigger's guard, history with a running and a
 // vanished run, clear and pruning with the plugin's historyDays setting, the
 // cron startup line that catches up a missed occurrence, a
@@ -67,7 +68,8 @@ function write(file, text, mode) {
 // The stand-ins: each appends its argv, one JSON list a line, to
 // $STUB/<name>.calls. systemctl answers show-environment with
 // $STUB/systemd (up or down); systemd-run runs the argv after `--`;
-// notify-send prints the next id; crontab keeps the table in $STUB/crontab;
+// notify-send prints the id it replaces, as a notification server keeps
+// it, else the next one; crontab keeps the table in $STUB/crontab;
 // loginctl answers $STUB/linger.
 const STUBS = {
     systemctl: `#!/usr/bin/env bash
@@ -87,6 +89,7 @@ shift
     "notify-send": `#!/usr/bin/env bash
 printf '%s\\n' "$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1:]))' "$@")" >>"$STUB/notify-send.calls"
 n=$(( $(wc -l <"$STUB/notify-send.calls") + 40 ))
+for a in "$@"; do case "$a" in --replace-id=*) n=\${a#--replace-id=} ;; esac; done
 printf '%s\\n' "$n"
 `,
     crontab: `#!/usr/bin/env bash
@@ -261,6 +264,49 @@ const CASES = {
             ["--app-name=Automations", "--urgency=low", "--print-id", "--hint=string:x-vgs-icon:play", "--hint=string:x-vgs-tone:warning", "--hint=string:x-vgs-click:none", "--", "Job started", "The automation is running."],
             ["--app-name=Automations", "--urgency=low", "--print-id", "--hint=string:x-vgs-icon:circle-check", "--hint=string:x-vgs-tone:success", "--hint=string:x-vgs-click:open", "--hint=string:x-vgs-open:" + rec.transcript, "--replace-id=41", "--", "Job finished", "Finished in 0s"]
         ]);
+    },
+
+    "repeated failures replace one notice and a success recovers it"(engine) {
+        const w = world();
+        const flag = path.join(w.root, "fail");
+        const streakFile = id => path.join(w.home, ".local", "state", "vgshell", "automations", "streak", id + ".json");
+        const sends = () => calls(w, "notify-send").map(c => [c.filter(a => /^--(urgency|replace-id)=/.test(a)), c.slice(-2)[0], c.slice(-1)[0].split("\n")[0]]);
+        write(flag, "");
+        const quiet = add(w, engine, { name: "Pull", command: "test ! -e " + JSON.stringify(flag) });
+        for (let k = 0; k < 3; k++) assert.equal(manual(w, engine, quiet).status, 1);
+        const firstStart = Math.min(...runFiles(w).filter(n => n.endsWith(".ended.json")).map(n => JSON.parse(fs.readFileSync(path.join(w.runs, n), "utf8")).startedAt));
+        same(JSON.parse(fs.readFileSync(streakFile(quiet), "utf8")), { noticeId: 41, failures: 3, since: firstStart }, "the open failure notice is kept per automation");
+        fs.rmSync(flag);
+        assert.equal(manual(w, engine, quiet).status, 0);
+        assert.equal(fs.existsSync(streakFile(quiet)), false, "a success closes the streak");
+        const failure = "The automation failed. Open Automations to read its output.";
+        const quietSends = sends();
+        same(quietSends.map(([flags, summary]) => [flags, summary]), [
+            [["--urgency=critical"], "Pull failed"],
+            [["--urgency=critical", "--replace-id=41"], "Pull failed"],
+            [["--urgency=critical", "--replace-id=41"], "Pull failed"],
+            [["--urgency=low", "--replace-id=41"], "Pull recovered"]
+        ]);
+        same([quietSends[0][2], quietSends[1][2].replace(/since .*/, "since"), quietSends[2][2].replace(/since .*/, "since")], [failure, "Failed 2 times since", "Failed 3 times since"]);
+        // With notifyEveryRun the start takes the open notice's place, so a
+        // run still shows one notice.
+        fs.rmSync(path.join(w.stub, "notify-send.calls"));
+        write(flag, "");
+        const loud = add(w, engine, { name: "Loud", command: "test ! -e " + JSON.stringify(flag), notifyEveryRun: true });
+        assert.equal(manual(w, engine, loud).status, 1);
+        fs.rmSync(flag);
+        assert.equal(manual(w, engine, loud).status, 0);
+        same(sends().map(([flags, summary]) => [flags, summary]), [
+            [["--urgency=low"], "Loud started"],
+            [["--urgency=critical", "--replace-id=41"], "Loud failed"],
+            [["--urgency=low", "--replace-id=41"], "Loud started"],
+            [["--urgency=low", "--replace-id=41"], "Loud recovered"]
+        ]);
+        write(flag, "");
+        assert.equal(manual(w, engine, loud).status, 1);
+        assert.equal(fs.existsSync(streakFile(loud)), true);
+        assert.equal(cli(w, engine, ["remove", loud]).status, 0);
+        assert.equal(fs.existsSync(streakFile(loud)), false, "remove drops the streak");
     },
 
     "a timeout ends the command's whole process group"(engine) {
@@ -608,8 +654,13 @@ const CONTROLS = [
     ["a disabled timer is stopped", "edit, disable, enable and remove follow the store", "if (timersGone.length > 0) systemctl([\"disable\", \"--now\"].concat(timersGone));", ""],
     ["the started record comes before the command", "a run that succeeds writes both records and its transcript", "writeAtomic(path.join(runsDir, Logic.runFile(id, runId, \"started\")), JSON.stringify(started) + \"\\n\", 0o600);", ""],
     ["a record lands by rename", "a run that succeeds writes both records and its transcript", "    fs.renameSync(temp, file);\n}", "}"],
-    ["an error notifies", "a failing run sends the error notification whatever the toggle", "notify(Logic.notificationFor(\"end\", automation, ended), noticeId, env);", ""],
-    ["the finish replaces the start", "notifyEveryRun sends the start, then replaces it with the finish", "notify(Logic.notificationFor(\"end\", automation, ended), noticeId, env);", "notify(Logic.notificationFor(\"end\", automation, ended), null, env);"],
+    ["an error notifies", "a failing run sends the error notification whatever the toggle", "notify(Logic.notificationFor(\"end\", automation, ended, streak), shown, env)", "null"],
+    ["the finish replaces the start", "notifyEveryRun sends the start, then replaces it with the finish", "ended, streak), shown, env)", "ended, streak), null, env)"],
+    ["the start replaces the open failure notice", "repeated failures replace one notice and a success recovers it", "streak === null ? null : streak.noticeId, env);", "null, env);"],
+    ["the end reads the streak", "repeated failures replace one notice and a success recovers it", "Logic.notificationFor(\"end\", automation, ended, streak)", "Logic.notificationFor(\"end\", automation, ended, null)"],
+    ["the runner keeps the streak", "repeated failures replace one notice and a success recovers it", "else writeAtomic(streakFile(id), JSON.stringify(streak) + \"\\n\", 0o600);", "else return;"],
+    ["the runner closes the streak", "repeated failures replace one notice and a success recovers it", "if (streak === null) fs.rmSync(streakFile(id), { force: true });\n    else", "if (streak === null) return;\n    else"],
+    ["remove drops the streak", "repeated failures replace one notice and a success recovers it", "    fs.rmSync(streakFile(id), { force: true });\n    process.stdout.write(\"removed=\"", "    process.stdout.write(\"removed=\""],
     ["the timeout signals the group", "a timeout ends the command's whole process group", "process.kill(-child.pid, sig);", "process.kill(child.pid, sig);"],
     ["the timeout fires", "a timeout ends the command's whole process group", "timedOut = true;\n        signalGroup(\"SIGTERM\");", "timedOut = true;"],
     ["a timed-out run waits for its group", "a timed-out run ends after a descendant that ignores SIGTERM", "if (!timedOut) return finish(ending);", "return finish(ending);"],

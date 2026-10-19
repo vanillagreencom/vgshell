@@ -19,8 +19,9 @@
 //       prints `enabled=<id>` or `disabled=<id>`. Adding or enabling marks
 //       every occurrence until now handled, so none from before runs.
 //   automations --tree <dir> remove <id>
-//       drops the automation, its units, its guard state and every run of
-//       it that is not running; prints `removed=<id>`.
+//       drops the automation, its units, its guard state, its failure
+//       streak and every run of it that is not running; prints
+//       `removed=<id>`.
 //   automations --tree <dir> run-now <id>
 //       starts one run outside the schedule and returns: through
 //       `systemd-run --user` when the systemd user manager answers, so the
@@ -53,12 +54,12 @@
 //
 // Files: the store is $XDG_CONFIG_HOME/vgshell/automations/automations.json;
 // the units are $XDG_CONFIG_HOME/systemd/user/vgs-automation-<id>.timer
-// and .service; the runs, the guard states and the locks are under
-// $XDG_STATE_HOME/vgshell/automations/ (runs/, guard/, locks/); the runner the
-// units start is a copy of this file and the judge under
-// $XDG_DATA_HOME/vgshell/automations/engine/<hash>/, since the shell runs this
-// file from a snapshot a restart removes. Every file is written whole under
-// a temporary name and renamed into place.
+// and .service; the runs, the guard states, the failure streaks and the
+// locks are under $XDG_STATE_HOME/vgshell/automations/ (runs/, guard/,
+// streak/, locks/); the runner the units start is a copy of this file and
+// the judge under $XDG_DATA_HOME/vgshell/automations/engine/<hash>/, since
+// the shell runs this file from a snapshot a restart removes. Every file
+// is written whole under a temporary name and renamed into place.
 //
 // A verb that changes the store runs under $XDG_STATE_HOME/vgshell/automations/
 // locks/store.lock through flock. A run holds locks/<id>.lock through
@@ -75,9 +76,9 @@
 // `flock=missing`, `flock=failed exit=<n>`, `run=busy id=<id>`,
 // `settings=failed exit=<n>`, `home=unset`. The runner logs
 // `automations: skipped=<id> reason=<reason>`, `automations: notify=failed
-// ...` and `automations: prune=skipped ...` lines on stderr, which systemd
-// keeps in the journal; it exits 0 when the run succeeded or was skipped,
-// 1 when it failed.
+// ...`, `automations: streak=refused ...` and `automations: prune=skipped
+// ...` lines on stderr, which systemd keeps in the journal; it exits 0 when
+// the run succeeded or was skipped, 1 when it failed.
 "use strict";
 const childProcess = require("child_process");
 const crypto = require("crypto");
@@ -133,6 +134,7 @@ const unitDir = path.join(configHome, "systemd", "user");
 const automationsState = path.join(stateHome, "vgshell", "automations");
 const runsDir = path.join(automationsState, "runs");
 const guardDir = path.join(automationsState, "guard");
+const streakDir = path.join(automationsState, "streak");
 const lockDir = path.join(automationsState, "locks");
 const storeLock = path.join(lockDir, "store.lock");
 const engineRoot = path.join(dataHome, "vgshell", "automations", "engine");
@@ -208,6 +210,27 @@ function guardFile(id) {
 
 function markHandled(id, ms) {
     writeAtomic(guardFile(id), JSON.stringify({ handledThrough: ms }) + "\n", 0o600);
+}
+
+function streakFile(id) {
+    return path.join(streakDir, id + ".json");
+}
+
+// The automation's failure streak, or null for none. A file the judge
+// refuses is logged and read as none: the streak decides only which notice
+// a run replaces, so a bad file costs one extra notice, never the run.
+function readStreak(id) {
+    const text = readText(streakFile(id));
+    if (text === null) return null;
+    const judged = Logic.parseStreak(text);
+    if (judged.ok) return judged.streak;
+    log("streak=refused path=" + streakFile(id) + " detail=" + judged.error.replace(/\s+/g, "-"));
+    return null;
+}
+
+function writeStreak(id, streak) {
+    if (streak === null) fs.rmSync(streakFile(id), { force: true });
+    else writeAtomic(streakFile(id), JSON.stringify(streak) + "\n", 0o600);
 }
 
 function readJsonArg(flag, words, key) {
@@ -548,6 +571,7 @@ function removeVerb(words) {
     sync();
     clearRuns(id);
     fs.rmSync(guardFile(id), { force: true });
+    fs.rmSync(streakFile(id), { force: true });
     process.stdout.write("removed=" + id + "\n");
 }
 
@@ -787,7 +811,11 @@ function execute(automation, trigger, slot, startedAt, refusal) {
     };
     fs.mkdirSync(runsDir, { recursive: true });
     writeAtomic(path.join(runsDir, Logic.runFile(id, runId, "started")), JSON.stringify(started) + "\n", 0o600);
-    const noticeId = notify(Logic.notificationFor("start", automation, started), null, env);
+    // The automation's one notice while a streak is open: the start
+    // replaces the open failure notice, and the end replaces the start, or
+    // that notice when no start was sent.
+    const streak = readStreak(id);
+    const shown = notify(Logic.notificationFor("start", automation, started), streak === null ? null : streak.noticeId, env);
     const shell = os.userInfo().shell;
     const transcript = Transcript(transcriptFile, [
         "vgs.automations run " + runId,
@@ -821,7 +849,7 @@ function execute(automation, trigger, slot, startedAt, refusal) {
             snippet: outcome === "succeeded" ? "" : Logic.snippetOf(stderrLines, stdoutLines)
         });
         writeAtomic(path.join(runsDir, Logic.runFile(id, runId, "ended")), JSON.stringify(ended) + "\n", 0o600);
-        notify(Logic.notificationFor("end", automation, ended), noticeId, env);
+        writeStreak(id, Logic.streakAfter(ended, streak, notify(Logic.notificationFor("end", automation, ended, streak), shown, env)));
         const days = settingsDays();
         if (days.ok) prune(days.days, id);
         else log("prune=skipped " + days.error);

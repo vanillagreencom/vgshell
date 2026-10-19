@@ -8,7 +8,7 @@ Saving an automation writes a timer and a service for it under `~/.config/system
 
 At each run the runner starts the command in the user's login shell and stops it at its timeout. It saves a transcript, each output line with its time, and a record of the outcome under `~/.local/state/vgshell/automations/runs/`.
 
-A failure sends a red notification with the last error lines. With "notify on every run" on, a start and a green finish notification come too. Under the VGS notifications, a click on a finish or failure notification opens the transcript in the user's `$EDITOR`, or with `xdg-open`.
+A failure sends a red notification. Each failure after it replaces that notification and counts the failures since the first one, and the first success after them replaces it with a green recovered notification. The runner keeps the open failure notification's id per automation under `~/.local/state/vgshell/automations/streak/`. With "notify on every run" on, a start and a green finish notification come too, and while runs fail the start replaces the failure notification. Under the VGS notifications, a click on a finish or failure notification opens the transcript in the user's `$EDITOR`, or with `xdg-open`.
 
 The editor uses presets first, then Custom for every N minutes, hours, days, weeks, months or years. Once is stored as a schedule that ends after one run.
 
