@@ -227,7 +227,7 @@ FocusScope {
 
                     RowAction {
                         anchors.verticalCenter: parent.verticalCenter
-                        visible: root.diskSleep !== null && root.diskSleep.action !== null && root.diskSleep.action.offered
+                        visible: root.diskSleep !== null && (root.presence.diskSleepInstall === "present" || (root.diskSleep.action !== null && root.diskSleep.action.offered))
                         text: root.diskSleep === null || root.diskSleep.action === null ? "" : root.diskSleep.action.label
                         onClicked: root.allowDiskSleep()
                     }

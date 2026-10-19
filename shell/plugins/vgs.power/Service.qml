@@ -59,6 +59,9 @@ Item {
     readonly property var profilesBus: ["--system", "--dest", profilesInterface, "--object-path", "/org/freedesktop/UPower/PowerProfiles"]
     readonly property bool profilesMissing: shell !== null && shell.requirements.missing.indexOf(profilesInterface) !== -1
     readonly property var diskSleepStep: shell === null ? undefined : shell.system.state["disk-sleep"]
+    // Details runs the declared system action directly; only the pane's
+    // IPC route can open the missing tool's install.
+    readonly property bool diskSleepInstall: diskSleepStep !== undefined && diskSleepStep.state === "needed" && diskSleepStep.reason === "hdparm-missing"
 
     onShellChanged: {
         if (shell === null || registered) return;
@@ -66,7 +69,7 @@ Item {
         shell.ipc.handle("profile", arg => root.profileRequest(arg));
         // The step resolves hdparm in safe system directories; the scan
         // can miss an installed command outside the session's PATH.
-        shell.ipc.handle("disk-sleep", () => root.diskSleepStep !== undefined && root.diskSleepStep.reason === "hdparm-missing"
+        shell.ipc.handle("disk-sleep", () => root.diskSleepInstall
             ? root.shell.requirements.offer(["hdparm"]) : root.shell.status.act("diskSleep"));
         shell.shortcut.register("power-saver", "Use the power saver profile", () => root.setProfile("power-saver", true));
         shell.shortcut.register("balanced", "Use the balanced profile", () => root.setProfile("balanced", true));
@@ -104,7 +107,10 @@ Item {
         report("battery", battery.present ? "present" : "absent");
         report("profiles", battery.present && profile.available ? "present" : "absent");
         report("profileRule", Logic.profileRuleText(battery.present));
-        if (diskSleepStep !== undefined) report("diskSleep", diskSleepValue());
+        if (diskSleepStep !== undefined) {
+            report("diskSleepInstall", diskSleepInstall ? "present" : "absent");
+            report("diskSleep", diskSleepValue());
+        }
     }
 
     // The core probes the step once for all holders. Publish nothing until
@@ -113,7 +119,7 @@ Item {
         switch (diskSleepStep.state) {
         case "absent": return { hidden: true };
         case "ready": return { tone: "ok", text: "Allowed", action: false };
-        case "needed": return { tone: "warning", text: "Not allowed", action: true };
+        case "needed": return { tone: "warning", text: "Not allowed", action: !diskSleepInstall };
         case "nixos": return { tone: "warning", text: "Needs your NixOS configuration", action: true };
         case "denied": return { tone: "warning", text: "Managed elsewhere", action: false, hint: "Another disk sleep rule is already installed" };
         case "unknown": return { tone: "warning", text: "Could not check", action: false, hint: "VGS could not read the hard disk setup" };
