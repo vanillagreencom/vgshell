@@ -5,21 +5,22 @@ import qs.Ui
 // qs.Ui, which draws every alternative key of the shortcut in one field and
 // sends a pressed or typed key and a removal, with the manifest's keys
 // under it, or none for a pad's key, and two buttons of its own after the
-// field's, each in its own place whether shown or not: the reset button,
-// shown while the keys in effect are not the manifest's that the line
-// under the field names, closes the text entry and ends a capture, then
-// sends undefined, which removes the shell.json entry so the manifest's
-// key or list of keys applies and the field shows its keys at once; the
+// field's, each in its own place whether shown or not, the reset last, so a
+// row whose keys are the manifest's leaves no gap between its icons: the
 // add button, shown while the field can listen and the text entry is
-// closed, edits a new alternative and listens for it. While a user Hyprland
-// bind holds one of the keys, the conflict line under the field names the
-// file and line that bind sits on, as a link that opens that line in the
-// user's editor, and three buttons under that line resolve it in one
+// closed, edits a new alternative and listens for it; the reset button,
+// shown while the keys in effect are not the manifest's that the line under
+// the field names, closes the text entry and ends a capture, then sends
+// undefined, which removes the shell.json entry so the manifest's key or
+// list of keys applies and the field shows its keys at once. While a user
+// Hyprland bind holds one of the keys, the conflict line under the field
+// names the file and line that bind sits on, as a link that opens that line
+// in the user's editor, and three buttons under that line resolve it in one
 // click: Remove my line asks the page to confirm, then the key capture
 // takes that line out of the user's file and reloads Hyprland, so the
 // plugin's bind keeps the key; Pick another key starts a capture for that
-// key; Use my binding removes that key from the shortcut, unbinding it
-// when it was the only one, so the user's own bind keeps the key. After a
+// key; Use my binding removes that key from the shortcut, unbinding it when
+// it was the only one, so the user's own bind keeps the key. After a
 // removal the line under the field says which line went, and Undo puts it
 // back. The field then shows what the configuration holds again. The
 // removal's undo record lives in the key capture until the undo; a field
@@ -175,6 +176,13 @@ BindField {
 
     actions: [
         IconButton {
+            iconName: "plus"
+            label: "Add another key"
+            size: "sm"
+            visible: root.editable && root.capture !== null && !root.shortcutField.typing
+            onClicked: root.shortcutField.add()
+        },
+        IconButton {
             iconName: "rotate-ccw"
             label: "Reset to " + root.defaultLabel
             size: "sm"
@@ -184,13 +192,6 @@ BindField {
                 root.shortcutField.stopTyping();
                 root.applyKey(undefined);
             }
-        },
-        IconButton {
-            iconName: "plus"
-            label: "Add another key"
-            size: "sm"
-            visible: root.editable && root.capture !== null && !root.shortcutField.typing
-            onClicked: root.shortcutField.add()
         }
     ]
 }

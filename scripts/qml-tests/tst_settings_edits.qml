@@ -6,32 +6,32 @@ import qs.Ui
 import qs.Unit
 import "../../shell/plugins/vgs.settings"
 
-// The Settings page's unsaved edits: a text field keeps what is typed
-// until it is saved and joins the page's set (EditSet) meanwhile. Enter
-// writes the field it is pressed in, a loss of focus writes nothing, a
-// refused text stays, an accepted one draws what the configuration holds,
-// and a read-only field and a hidden custom row hold no edit. The set
-// saves every field, says when an accepted write of an edit leaves it
-// empty, whether its save or Enter in the field sent it, and forgets a
-// destroyed field. A Keys row's typed key waits the same way, returns to
-// its text entry when its owner refuses it and leaves a read-only row; a
-// key the row sends without its text entry is no edit. A Keys row offers
-// its reset while the keys in effect are not every default key, one or a
-// list, and the reset sends undefined; from the text entry or a capture it
-// closes them first, so the default keys show at once. The reset and the
-// add button keep their places as they come and go, and the add button
-// hides while the text entry is open. A plugin page draws one Keys row per
-// shortcut, every alternative key in its one field: Delete on one writes
-// the keys left, the add button and a pressed combo write the list with
-// the new key, Use my binding removes the key a user bind holds, and the
-// reset sends undefined. A refused key returns to the row's text entry
-// whether the field or a caller sent it, and a refused removal or list
-// opens none. A field that declares `shownWhen` is drawn only while its
-// presence entry reads present, and a plugin whose fields only wait keeps
-// its Turn on hint while it is off. The owner here stands in for the
-// page: it records each write and takes it or refuses it; the page's
-// capture names keys with the core's judge and says a user bind holds
-// Right Ctrl when asked.
+// The Settings page's unsaved edits: a text field keeps what is typed until
+// it is saved and joins the page's set (EditSet) meanwhile. Enter writes
+// the field it is pressed in, a loss of focus writes nothing, a refused
+// text stays, an accepted one draws what the configuration holds, and a
+// read-only field and a hidden custom row hold no edit. The set saves every
+// field, says when an accepted write of an edit leaves it empty, whether
+// its save or Enter in the field sent it, and forgets a destroyed field. A
+// Keys row's typed key waits the same way, returns to its text entry when
+// its owner refuses it and leaves a read-only row; a key the row sends
+// without its text entry is no edit. A Keys row offers its reset while the
+// keys in effect are not every default key, one or a list, and the reset
+// sends undefined; from the text entry or a capture it closes them first,
+// so the default keys show at once. The add button and the reset keep their
+// places as they come and go, the reset last, so a row with the default
+// keys leaves no gap between its icons, and the add button hides while the
+// text entry is open. A plugin page draws one Keys row per shortcut, every
+// alternative key in its one field: Delete on one writes the keys left, the
+// add button and a pressed combo write the list with the new key, Use my
+// binding removes the key a user bind holds, and the reset sends undefined.
+// A refused key returns to the row's text entry whether the field or a
+// caller sent it, and a refused removal or list opens none. A field that
+// declares `shownWhen` is drawn only while its presence entry reads
+// present, and a plugin whose fields only wait keeps its Turn on hint while
+// it is off. The owner here stands in for the page: it records each write
+// and takes it or refuses it; the page's capture names keys with the core's
+// judge and says a user bind holds Right Ctrl when asked.
 Item {
     id: root
     width: 480
@@ -268,9 +268,9 @@ Item {
             field.destroy();
         }
 
-        // The reset and the add button, each in its place whatever shows:
-        // the reset while the keys differ from the default, the add button
-        // while the text entry is closed.
+        // The add button and the reset, each in its place whatever shows:
+        // the add button while the text entry is closed, the reset after it
+        // while the keys differ from the default.
         function test_key_row_buttons_keep_their_places() {
             const original = { shortcut: "spare", key: "SUPER+K", default: "SUPER+N", description: "Spare" };
             const field = createTemporaryObject(disposableKey, root, { width: 600, capture: pageCapture, bind: original });
@@ -292,7 +292,7 @@ Item {
                 compare(reset.visible, resetShown, why);
                 compare(add.visible, addShown, why);
                 compare(JSON.stringify([left(reset), left(add)]), JSON.stringify(at), why);
-                verify(left(add) >= left(reset) + reset.width, why + ": the add button stands after the reset");
+                verify(left(reset) >= left(add) + add.width, why + ": the reset stands after the add button");
             }
             field.shortcutField.stopTyping();
         }
