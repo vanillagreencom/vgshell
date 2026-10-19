@@ -18,6 +18,11 @@ FocusScope {
     property string place: "automations"
     property bool editorOpen: false
     property var automations: []
+    // The newest `history --json` rows, and the ones the History page
+    // shows. The page builds every row again whenever historyRows changes,
+    // so it takes historyAnswer only while it is shown, and once more when
+    // the History tab opens.
+    property var historyAnswer: []
     property var historyRows: []
     property var draft: View.blankDraft(Date.now(), Engine)
     property var previewRows: []
@@ -72,7 +77,10 @@ FocusScope {
         else if (editorOpen) editor.focusName();
         else automationList.focusList();
     }
-    onPlaceChanged: Qt.callLater(focusPage)
+    onPlaceChanged: {
+        showHistory();
+        Qt.callLater(focusPage);
+    }
 
     function setNotice(tone, text, detail) {
         notice = { tone: tone, text: text, detail: detail || "" };
@@ -127,9 +135,14 @@ FocusScope {
     function refreshHistory() {
         runJson(["history", "--json"], (ok, doc) => {
             if (!ok) return;
-            historyRows = doc.rows;
+            historyAnswer = doc.rows;
+            showHistory();
             followTestRun();
         });
+    }
+
+    function showHistory() {
+        if (place === "history" && historyRows !== historyAnswer) historyRows = historyAnswer;
     }
 
     function filteredHistoryGroups(id) {
@@ -259,7 +272,7 @@ FocusScope {
 
     function followTestRun() {
         if (testStartedAt === 0 || draft.id === "") return;
-        const rows = historyRows.filter(row => row.automation === draft.id && row.startedAt >= testStartedAt - 1000);
+        const rows = historyAnswer.filter(row => row.automation === draft.id && row.startedAt >= testStartedAt - 1000);
         if (rows.length === 0) return;
         const row = rows[0];
         testRun = row;
@@ -376,12 +389,22 @@ FocusScope {
     Timer { id: previewSoon; interval: 200; onTriggered: root.updatePreview() }
     Timer { id: historyFollow; interval: 500; onTriggered: root.refreshHistory() }
     Timer { id: listSoon; interval: 250; onTriggered: root.refreshList() }
+    // A run's start, its end and the prune after it each change the runs
+    // folder's count; one quiet spell lists and reads the history once.
+    Timer {
+        id: runsSoon
+        interval: 250
+        onTriggered: {
+            root.refreshHistory();
+            root.refreshList();
+        }
+    }
 
     FolderListModel {
         folder: root.listRunsDir === "" ? "" : "file://" + root.listRunsDir
         nameFilters: ["*.json"]
         showDirs: false
-        onCountChanged: if (root.listRunsDir !== "" && String(folder) === "file://" + root.listRunsDir) { root.refreshHistory(); root.refreshList(); }
+        onCountChanged: if (root.listRunsDir !== "" && String(folder) === "file://" + root.listRunsDir) runsSoon.restart()
     }
 
     LazyLoader {

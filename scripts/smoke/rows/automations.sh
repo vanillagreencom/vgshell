@@ -26,7 +26,9 @@
 # Repeat every list, its summary and its preview's 10-minute gaps read
 # back), pauses, runs, removes and clears through the
 # nested seat's pointer and keyboard alone, the CLI only reading each
-# result back; and the control, a copy of the plugin whose service lists
+# result back, its History page building no row while another tab shows,
+# though the window has read the run, and listing the run once its tab
+# opens; and the control, a copy of the plugin whose service lists
 # neither after a run file lands nor after the store changes and whose
 # window's engine door drops every write and skips the transcript TUI,
 # leaves the count as it was after the engine pauses the automation, Last
@@ -239,6 +241,10 @@ expect_poll "the CLI reads the enabled state" true auto_row_value smoke-ui enabl
 # in the transcript TUI, which the stand-in terminal records only.
 expect "the row's Run now starts a run" ok ui_click_in_row "Smoke UI" IconButton "Run now"
 expect_poll "the run reaches the history rows" 1 auto_history_count smoke-ui
+ui_answer_runs() { ipc smoke readInstance window vgs.automations historyAnswer | py_reply 'import json,sys; print(sum(r["automation"] == sys.argv[1] for r in json.load(sys.stdin)))' "$1"; }
+ui_history_rows_built() { ipc smoke itemValues window vgs.automations HistoryRow visible | py_reply 'import json,sys; t=sys.stdin.read(); print(len(json.loads(t)) if t.startswith("[") else t.strip())'; }
+expect_poll "the window reads the run" 1 ui_answer_runs smoke-ui
+expect "the hidden History page builds no row" 0 ui_history_rows_built
 expect "the History tab opens" ok ui_click Label History
 forget_record
 expect_poll "a click on the history row opens its transcript TUI" "$(words vgs.automations/transcript tui/transcript.sh)" ui_history_opens_transcript "Smoke UI"
