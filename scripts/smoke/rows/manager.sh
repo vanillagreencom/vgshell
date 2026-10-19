@@ -1,9 +1,9 @@
 # The Settings plugin, vgs.settings, the plugin manager's user interface.
 # Always on, it binds SUPER+M and refuses every disable; shown here, its
-# plug sits last in every bar and opens a Hyprland window centred on its
-# monitor's work area, growing for its titled content within the output
-# room, and `size.window.width` wide or clamped on a narrower
-# monitor, which takes the keyboard. The pointer shows the hand over the
+# plug sits last in every bar and opens a Hyprland window centred across
+# its monitor with its top at the pinned top, growing for its titled
+# content up to the cap, and `size.window.width` wide or clamped on a
+# narrower monitor, which takes the keyboard. The pointer shows the hand over the
 # list's controls, the I-beam over its search field and the arrow over its
 # heading. The window lists every plugin, itself included, and opens a page
 # per plugin whose settings, keys and enablement it writes through the
@@ -19,7 +19,7 @@
 # page draws neither button, and each requirement row reads back with its
 # state and purpose. rows/settings.sh continues with the same window and
 # takes the plug off the bar again.
-# inputs: shell/plugins/vgs.bar/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Ui/controls/BindField.qml shell/Core/Plugins.qml shell/Core/TuiRunner.qml shell/Core/Notices.qml shell/Hosts/AppWindow.qml shell/Ui/foundation/PointerCursor.qml scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* config/shell.json shell/Core/Capabilities.qml shell/Core/Registry.qml scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/layout/TabPages.qml shell/Ui/layout/Tabs.qml shell/Ui/layout/Pane.qml shell/Ui/layout/ScrollArea.qml shell/Commons/ClearingInset.qml shell/Commons/Inset.js shell/Ui/controls/RowAction.qml
+# inputs: shell/plugins/vgs.bar/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Ui/controls/BindField.qml shell/Core/Plugins.qml shell/Core/TuiRunner.qml shell/Core/Notices.qml shell/Hosts/AppWindow.qml shell/Ui/foundation/PointerCursor.qml scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* config/shell.json shell/Core/Capabilities.qml shell/Core/Registry.qml scripts/smoke/rows/plugins.sh scripts/smoke/rows/hyprland-consent.sh bin/vgshell-tui shell/Ui/layout/TabPages.qml shell/Ui/layout/Tabs.qml shell/Ui/layout/Pane.qml shell/Ui/layout/ScrollArea.qml shell/Commons/ClearingInset.qml shell/Commons/Inset.js shell/Ui/controls/RowAction.qml shell/Commons/Tokens.js shell/Core/HyprlandLayer.js shell/Ui/overlay/OverlayState.qml
 set -euo pipefail
 # rows/status.sh removes a monitor just before this row, and its bar's
 # layer can outlive the removal, so the reading waits for the settled set.
@@ -74,33 +74,34 @@ user_key() { python3 -c 'import json,sys; rows=[r for r in json.load(open(sys.ar
 settings_binds() { hypr -j binds | py_reply 'import json,sys; print(json.dumps(sorted([b["modmask"], b["key"]] for b in json.load(sys.stdin) if b["description"] == "vgs.settings:toggle" and b.get("submap", "") in ("", "default"))))'; }
 # window_fits MONITOR [MODE]: [] when the Settings window on MONITOR is
 # min(size.window.width, the monitor's width less the edges Hyprland
-# reserves and size.window.gutter a side) wide, the larger of its
-# tall-height request and its titled Pane content, capped by the height
-# less the reserved edges and the gutter a side, and centred on the
-# monitor's work area, its box less the space the bar reserves and
-# general:float_gaps, where Hyprland centres a floating window, within one
-# pixel; else the
-# misfits. The monitor, the clients and the gaps come from one batched
-# request, which the compositor answers from one state. Given MODE, the
-# mode a row holds, a monitor at another mode reads
+# reserves and size.window.gutter a side) wide, as tall as its titled Pane
+# content up to the cap, `size.window.tallHeightShare` of the monitor's
+# height or the room from the pinned top to the monitor's bottom less the
+# reserved bottom and the gutter when that is less, centred across the
+# monitor and with its top at `size.window.topShare` of the monitor's
+# height, each rounded half up as the window rule's `rint` rounds it,
+# within one pixel; else the misfits. The monitor and the clients come
+# from one batched request, which the compositor answers from one state.
+# Given MODE, the mode a row holds, a monitor at another mode reads
 # ["mode=<WxH> want=<MODE>"] and no window is measured against it.
 window_fits() {
-  local width share gutter panes
+  local width share top gutter panes
   width="$(ipc smoke themeValue size.window.width)" || return
   share="$(ipc smoke themeValue size.window.tallHeightShare)" || return
+  top="$(ipc smoke themeValue size.window.topShare)" || return
   gutter="$(ipc smoke themeValue size.window.gutter)" || return
   panes="$(ipc smoke titledPaneContent window vgs.settings)" || return
-  hypr --batch 'j/monitors; j/clients; j/getoption general:float_gaps' | py_reply '
+  hypr --batch 'j/monitors; j/clients' | py_reply '
 import json, math, sys
 text = sys.stdin.read()
 decoder, at, parts = json.JSONDecoder(), 0, []
-while len(parts) < 3:
+while len(parts) < 2:
     while text[at].isspace(): at += 1
     part, at = decoder.raw_decode(text, at)
     parts.append(part)
-monitors, clients, gaps = parts
-name, held, klass, (width, share, gutter) = sys.argv[1], sys.argv[2], sys.argv[3], (json.loads(a) for a in sys.argv[4:7])
-panes = json.loads(sys.argv[7])
+monitors, clients = parts
+name, held, klass, (width, share, top_share, gutter) = sys.argv[1], sys.argv[2], sys.argv[3], (json.loads(a) for a in sys.argv[4:8])
+panes = json.loads(sys.argv[8])
 requests = [p["requestedHeight"] for p in panes if p["container"] == "window"]
 if not requests:
     print(json.dumps(["titled window Pane absent"])); sys.exit()
@@ -116,16 +117,14 @@ boxes = [c["at"] + c["size"] for c in clients if c["class"] == klass and c["titl
 if len(boxes) != 1:
     print(json.dumps(["windows=%d" % len(boxes)])); sys.exit()
 x, y, w, h = boxes[0]
-top, right, bottom, left = (int(v) for v in gaps["css"].split())
 rl, rt, rr, rb = m["reserved"]
-area_x, area_y = m["x"] + rl + left, m["y"] + rt + top
-area_w, area_h = mw - rl - rr - left - right, mh - rt - rb - top - bottom
+top = math.floor(top_share * mh + 0.5)
 want_w = math.floor(min(width, mw - rl - rr - 2 * gutter))
-want_h = math.floor(min(max(math.floor(share * mh), max(requests)), mh - rt - rb - 2 * gutter))
+want_h = min(math.floor(min(share * mh, mh - rb - gutter - top)), math.ceil(max(requests)))
 out = []
-for key, got, want in (("w", w, want_w), ("h", h, want_h), ("x", x, area_x + (area_w - want_w) / 2), ("y", y, area_y + (area_h - want_h) / 2)):
+for key, got, want in (("w", w, want_w), ("h", h, want_h), ("x", x, m["x"] + math.floor((mw - want_w) / 2 + 0.5)), ("y", y, m["y"] + top)):
     if abs(got - want) > 1: out.append("%s=%s want=%s" % (key, got, want))
-print(json.dumps(out))' "$1" "${2:-}" "$shell_class" "$width" "$share" "$gutter" "$panes"
+print(json.dumps(out))' "$1" "${2:-}" "$shell_class" "$width" "$share" "$top" "$gutter" "$panes"
 }
 first_monitor() { hypr -j monitors | py_reply 'import json,sys; print(json.load(sys.stdin)[0]["name"])'; }
 
@@ -178,13 +177,13 @@ PY
 geometry expect_poll "the gear and its icon sit on the bar's vertical centre" '[]' gear_centred
 
 # The gear opens the window on its bar's monitor, the focused one, centred
-# on its work area, and the window takes the keyboard: typed letters reach
+# across it at the pinned top, and the window takes the keyboard: typed letters reach
 # its search field.
 click_centre "$(bar_key)" vgs.settings || fail "the click on the gear failed"
 expect_poll "the gear opens the Settings window" open settings_open
 expect_poll "the Settings window is one window" 1 window_count Plugins
 main_monitor="$(first_monitor)" || fail "the first monitor's name is unreadable"
-geometry expect_poll "the window is the token width, grows for its titled content within the screen cap and centres on the work area" '[]' window_fits "$main_monitor"
+geometry expect_poll "the window is the token width, grows for its titled content up to the cap, centred across at the pinned top" '[]' window_fits "$main_monitor"
 expect_poll "the window takes the keyboard when it opens" true ipc smoke activeFocusIn window vgs.settings
 listed_names() { ipc smoke itemTexts window vgs.settings ListItem | py_reply 'import json,sys; print(json.dumps([t[0] for t in json.load(sys.stdin)]))'; }
 type_keys probe || fail "typing into the Settings search failed"
@@ -1110,7 +1109,7 @@ bar_width() { one_layer vgs:bar | py_reply 'import json,sys; print(json.load(sys
 expect_poll "the bar follows the narrow monitor" "$narrow_width" bar_width
 expect "the gear opens the window on the narrow monitor" ok ipc smoke invokeInstance "$(bar_key)" vgs.settings toggle ''
 expect_poll "the window maps on the narrow monitor" 1 window_count Plugins
-geometry expect_poll "a monitor narrower than the width token keeps the gutters, grows within the screen cap and centres" '[]' window_fits "$main_monitor" "$narrow_mode"
+geometry expect_poll "a monitor narrower than the width token keeps the gutters, grows up to the cap and centres across at the pinned top" '[]' window_fits "$main_monitor" "$narrow_mode"
 clamped_width() { settings_layer | py_reply 'import json,sys; print(json.load(sys.stdin)[2])'; }
 geometry expect "the clamped window is the monitor's width less two gutters" "$((narrow_width - 2 * gutter))" clamped_width
 # Control: the monitor's own mode comes back under the held row. The window

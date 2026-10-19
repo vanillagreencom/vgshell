@@ -55,7 +55,7 @@ function assertLockedTwins(applied, label) {
 // `#aarrggbb`; `hyprland.glow` is the glow tokens as Theme publishes them.
 const glowTokens = { color: "#ff1a1020", colorEnd: "#ff202428", angle: 45, inactive: "#00101010", range: 35, renderPower: 2 };
 const glassWindow = { opacity: 0.9, inactiveOpacity: 0.8, blurSize: 6, blurPasses: 3, shadowRange: 20, shadowPower: 2, shadowColor: "#73000000" };
-const theme = { colours, hyprland: { border: { size: 4 }, window: { radius: 8, roundingPower: 3, groupRadius: 8 }, motion: { preset: "snappy" }, shadow: { color: "#99000088" }, glow: glowTokens }, glass: glassWindow, groups: { borders: true, radius: true, motion: false, glass: false, glow: false }, motionScale: 2, tuiMargins: { bar: 30, gutter: 10 }, tuiCell: { width: 10, height: 22 } };
+const theme = { colours, hyprland: { border: { size: 4 }, window: { radius: 8, roundingPower: 3, groupRadius: 8 }, motion: { preset: "snappy" }, shadow: { color: "#99000088" }, glow: glowTokens }, glass: glassWindow, groups: { borders: true, radius: true, motion: false, glass: false, glow: false }, motionScale: 2, tuiMargins: { bar: 30, gutter: 10 }, tuiCell: { width: 10, height: 22 }, windowTopShare: 0.2 };
 // The floating TUIs' window rules as the layer writes them, byte for byte:
 // in the Lua literal `\\.` is the regex `\.`, a literal dot. Each size is
 // the class's share of the output, at least its cells and the padding's 2
@@ -103,11 +103,26 @@ function tuiSize(line, width, height) {
     });
 }
 // The shell's application window rule, byte for byte: no size, so each
-// window keeps the size it asks for.
+// window keeps the size it asks for, and a place, so each maps centred
+// across with its top at the theme's share of the output's height.
 const APP_SECTION = [
-    "-- Application windows: the shell's windows float, centred, at the size they ask.",
-    "hl.window_rule({ name = \"vgs:window\", match = { class = \"^org\\\\.vgs\\\\.shell$\" }, float = true, center = true })"
+    "-- Application windows: the shell's windows float at the size they ask, centred across, their top at a share of the output's height.",
+    "hl.window_rule({ name = \"vgs:window\", match = { class = \"^org\\\\.vgs\\\\.shell$\" }, float = true, move = { \"rint((monitor_w-window_w)/2)\", \"rint(monitor_h*0.2)\" } })"
 ];
+// The place an application window rule's `move` expressions give a window
+// of WIDTH on an output of MONITOR_W by MONITOR_H, as [x, y] from the
+// output's corner: each expression is evaluated as muParser 2.3.5 does
+// for the functions it holds, `rint` being floor(v + 0.5)
+// (muParserTemplateMagic.h). An expression with any other text is refused,
+// not evaluated.
+function appWindowPlace(line, monitorW, monitorH, width) {
+    const place = / move = \{ "([^"]*)", "([^"]*)" \} \}\)$/.exec(line);
+    assert.ok(place !== null, "the application window rule ends with its two move expressions: " + line);
+    return place.slice(1).map(text => {
+        assert.match(text, /^(?:rint\(|monitor_[wh]|window_w|[0-9]+(?:\.[0-9]+)?|[*/()-])+$/, "a move expression holds only what appWindowPlace evaluates, and no space: " + text);
+        return new Function("rint", "monitor_w", "monitor_h", "window_w", "return " + text + ";")(v => Math.floor(v + 0.5), monitorW, monitorH, width);
+    });
+}
 // The shell's windows' opacity rule while window glass is written, byte for
 // byte: an absolute 1 active and inactive, so Hyprland's window opacity
 // leaves the glass they draw themselves.
@@ -987,6 +1002,26 @@ function verify(logic, configLogic, layer, shellText) {
     ].forEach(([label, cell, error]) => {
         assert.throws(() => layer.render([], Object.assign({}, theme, { tuiCell: cell }), "vgs", 1), error, label + " is refused");
     });
+    // A top share Theme never publishes is refused by name, never written.
+    [
+        ["absent share", undefined, /windowTopShare must be a finite number from 0 to 1, got undefined/],
+        ["negative share", -0.1, /windowTopShare must be a finite number from 0 to 1, got -0\.1/],
+        ["share past the output", 1.5, /windowTopShare must be a finite number from 0 to 1, got 1\.5/],
+        ["NaN share", NaN, /windowTopShare must be a finite number from 0 to 1, got null/],
+        ["string share", "0.2", /windowTopShare must be a finite number from 0 to 1, got "0\.2"/]
+    ].forEach(([label, share, error]) => {
+        assert.throws(() => layer.render([], Object.assign({}, theme, { windowTopShare: share }), "vgs", 1), error, label + " is refused");
+    });
+    // The application window rule's place on outputs, worked by hand: a
+    // 600 px window on 1920 by 1080 sits at x (1920 - 600) / 2 = 660 with
+    // its top at 0.2 * 1080 = 216; a 601 px window on 1366 by 1067 at
+    // (1366 - 601) / 2 = 382.5, rounded to 383, with its top at 213.4,
+    // rounded to 213, so neither is a half pixel; at a 0.25 share, 1366
+    // by 768 puts it at 192.
+    const appRule = height => lines(layer.render([], Object.assign({}, theme, { windowTopShare: height }), "vgs", 1)).find(line => line.startsWith("hl.window_rule({ name = \"vgs:window\""));
+    same(appWindowPlace(appRule(0.2), 1920, 1080, 600), [660, 216], "a window maps centred across with its top at 0.2 of a 1080 px output");
+    same(appWindowPlace(appRule(0.2), 1366, 1067, 601), [383, 213], "an odd room and a fractional top round to whole pixels");
+    same(appWindowPlace(appRule(0.25), 1366, 768, 600), [383, 192], "the top follows the theme's share");
     // The default class's 80 columns and 2 of padding at 8.2 px are 672.4
     // px, and its 36 rows and 1 of padding at 19.5 px are 721.5 px.
     assert.ok(lines(layer.render([], Object.assign({}, theme, { tuiCell: { width: 8.2, height: 19.5 } }), "vgs", 1)).includes("hl.window_rule({ name = \"vgs:tui\", match = { class = \"^org\\\\.vgs\\\\.tui$\" }, float = true, center = true, suppress_event = \"maximize\", size = { \"min(max(monitor_w*0.4,673),max(monitor_w-20,min(673,monitor_w-8)))\", \"min(max(monitor_h*0.5,722),max(monitor_h-50,min(722,monitor_h-38)))\" } })"), "a floor is its cells and the padding's at the cell, rounded up to a whole pixel");
@@ -1792,8 +1827,8 @@ const CONTROLS = [
     [layerFile, "zero gaps are a workspace rule", "\"hl.workspace_rule({ workspace = \\\"\\\", gaps_in = 0, gaps_out = 0 })\"", "\"hl.config({ general = { gaps_in = 0, gaps_out = 0 } })\""],
     [layerFile, "the gap rule matches every workspace", "workspace = \\\"\\\", gaps_in", "workspace = \\\"s[false]\\\", gaps_in"],
     [layerFile, "appearance owner sorted", "}).sort(function (a, b) { return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; });", "});"],
-    [layerFile, "floating TUI rules written", "[\"\"], tuiWindowLines(theme.tuiMargins, theme.tuiCell, theme.hyprland.border.size), [\"\"], appWindowLines(theme.groups.glass));", "[\"\"], appWindowLines(theme.groups.glass));"],
-    [layerFile, "floating TUI rules after appearance", "var lines = [\"\"].concat(groups, [\"\"], tuiWindowLines(theme.tuiMargins, theme.tuiCell, theme.hyprland.border.size), [\"\"], appWindowLines(theme.groups.glass));", "var lines = [\"\"].concat(tuiWindowLines(theme.tuiMargins, theme.tuiCell, theme.hyprland.border.size), [\"\"], groups, [\"\"], appWindowLines(theme.groups.glass));"],
+    [layerFile, "floating TUI rules written", "[\"\"], tuiWindowLines(theme.tuiMargins, theme.tuiCell, theme.hyprland.border.size), [\"\"], appWindowLines(theme.groups.glass, theme.windowTopShare));", "[\"\"], appWindowLines(theme.groups.glass, theme.windowTopShare));"],
+    [layerFile, "floating TUI rules after appearance", "var lines = [\"\"].concat(groups, [\"\"], tuiWindowLines(theme.tuiMargins, theme.tuiCell, theme.hyprland.border.size), [\"\"], appWindowLines(theme.groups.glass, theme.windowTopShare));", "var lines = [\"\"].concat(tuiWindowLines(theme.tuiMargins, theme.tuiCell, theme.hyprland.border.size), [\"\"], groups, [\"\"], appWindowLines(theme.groups.glass, theme.windowTopShare));"],
     [layerFile, "floating TUI width keeps the gutter", "var across = luaNumber(2 * tuiMargin(margins, \"gutter\"));", "var across = luaNumber(0 * tuiMargin(margins, \"gutter\"));"],
     [layerFile, "floating TUI height keeps the bar", "var down = luaNumber(tuiMargin(margins, \"bar\") + 2 * tuiMargin(margins, \"gutter\"));", "var down = luaNumber(0 * tuiMargin(margins, \"bar\") + 2 * tuiMargin(margins, \"gutter\"));"],
     [layerFile, "floating TUI size is clamped", "return \"\\\"min(max(\" + axis + \"*\" + luaNumber(share) + \",\" + floor + \"),max(\" + axis + \"-\" + margin + \",min(\" + floor + \",\" + axis + \"-\" + hard + \")))\\\"\";", "return \"\\\"max(\" + axis + \"*\" + luaNumber(share) + \",\" + floor + \")\\\"\";"],
@@ -1816,8 +1851,8 @@ const CONTROLS = [
     [layerFile, "floating TUI class escapes each dot", ".join(\"\\\\\\\\.\")", ".join(\".\")"],
     [layerFile, "floating TUI class anchored", "return \"\\\"^\" + appId.split(\".\").join(\"\\\\\\\\.\") + \"$\\\"\";", "return \"\\\"\" + appId.split(\".\").join(\"\\\\\\\\.\") + \"\\\"\";"],
     [layerFile, "floating TUI refuses a client's maximize", "center = true, suppress_event = \\\"maximize\\\", size = { ", "center = true, size = { "],
-    [layerFile, "application window rule written", "tuiWindowLines(theme.tuiMargins, theme.tuiCell, theme.hyprland.border.size), [\"\"], appWindowLines(theme.groups.glass));", "tuiWindowLines(theme.tuiMargins, theme.tuiCell, theme.hyprland.border.size));"],
-    [layerFile, "application window rule after the TUIs", "tuiWindowLines(theme.tuiMargins, theme.tuiCell, theme.hyprland.border.size), [\"\"], appWindowLines(theme.groups.glass));", "appWindowLines(theme.groups.glass), [\"\"], tuiWindowLines(theme.tuiMargins, theme.tuiCell, theme.hyprland.border.size));"],
+    [layerFile, "application window rule written", "tuiWindowLines(theme.tuiMargins, theme.tuiCell, theme.hyprland.border.size), [\"\"], appWindowLines(theme.groups.glass, theme.windowTopShare));", "tuiWindowLines(theme.tuiMargins, theme.tuiCell, theme.hyprland.border.size));"],
+    [layerFile, "application window rule after the TUIs", "tuiWindowLines(theme.tuiMargins, theme.tuiCell, theme.hyprland.border.size), [\"\"], appWindowLines(theme.groups.glass, theme.windowTopShare));", "appWindowLines(theme.groups.glass, theme.windowTopShare), [\"\"], tuiWindowLines(theme.tuiMargins, theme.tuiCell, theme.hyprland.border.size));"],
     [layerFile, "session lock restore written", "keyPassthroughLines(), [\"\"], sessionLockLines());", "keyPassthroughLines());"],
     [layerFile, "user binds' recorder written", "[\"\"], userBindLines(), [\"\"], overlayCaptureLines(plan)", "[\"\"], overlayCaptureLines(plan)"],
     [layerFile, "user binds' recorder records the user's call sites", "binds.rows[#binds.rows + 1] = { file = ", "local _ = { file = "],
@@ -1839,6 +1874,10 @@ const CONTROLS = [
     [layerFile, "key pass-through leaves when the layer runs", "        \"    passthrough.\" + p.verbs.leave + \"()\",\n        \"end\"", "        \"end\""],
     [layerFile, "key pass-through timeout", "timeoutMs: 10000,", "timeoutMs: 60000,"],
     [layerFile, "session lock restore allowed", "misc = { allow_session_lock_restore = true }", "misc = { allow_session_lock_restore = false }"],
+    [layerFile, "application windows map at the theme's top share", "rint(monitor_h*\" + windowTopShare(top) + \")", "rint(monitor_h*0.2)"],
+    [layerFile, "application windows' top is a whole pixel", "rint(monitor_h*\" + windowTopShare(top) + \")", "(monitor_h*\" + windowTopShare(top) + \")"],
+    [layerFile, "application windows centre across", "rint((monitor_w-window_w)/2)", "0"],
+    [layerFile, "an application window's top share is judged", "if (typeof value !== \"number\" || !isFinite(value) || value < 0 || value > 1)", "if (false)"],
     [layerFile, "application window class is the shell's app-id", "match = { class = \" + classLiteral(APP_WINDOW.appId) + \" }", "match = { class = \" + classLiteral(\"org.quickshell\") + \" }"],
     [shellFile, "shell.qml sets the shell's app-id", "//@ pragma AppId org.vgs.shell\n", ""],
     [shellFile, "shell.qml's app-id is the layer's", "//@ pragma AppId org.vgs.shell\n", "//@ pragma AppId org.vgs.other\n"],

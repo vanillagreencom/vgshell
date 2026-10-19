@@ -357,6 +357,53 @@ function verifyPads(lib, report) {
 }
 failures += verifyPads(ctx, true);
 
+// A window's place: the resize and the move of one window as one hyprctl
+// batch in each dialect, each half refused by its own dispatcher's rule,
+// no `;` or `[` in either half, which hyprctl's batch splitter reads, and
+// each of the batch's two replies judged, since the batch exits 0 whatever
+// they say.
+function verifyPlace(lib, report) {
+    let bad = 0;
+    const row = (name, got, want) => {
+        if (JSON.stringify(got) !== JSON.stringify(want)) bad += 1;
+        if (report) check(name, got, want);
+    };
+    row("place: a Lua session batches the resize, then the move", lib.placeWindowRequest("0xabc", 660, 216, 600, 648, true), { ok: true, argv: ["hyprctl", "--batch",
+        'dispatch hl.dsp.window.resize({ x = 600, y = 648, relative = false, window = "address:0xabc" }) ; dispatch hl.dsp.window.move({ x = 660, y = 216, relative = false, window = "address:0xabc" })'] });
+    row("place: a classic session batches the resize, then the move", lib.placeWindowRequest("0xabc", -40, 0, "600", 431, false), { ok: true, argv: ["hyprctl", "--batch",
+        "dispatch resizewindowpixel exact 600 431,address:0xabc ; dispatch movewindowpixel exact -40 0,address:0xabc"] });
+    for (const lua of [true, false]) {
+        const r = lib.placeWindowRequest("0xabc", 660, 216, 600, 648, lua);
+        const halves = r.ok ? r.argv[2].split(" ; ") : [];
+        row("place: " + (lua ? "lua" : "classic") + " halves hold no batch separator or bracket", halves.length === 2 && halves.every(h => !/[;[\]]/.test(h)), true);
+    }
+    // rows: [name, args, want]
+    const refusals = [
+        ["an address that is no window", ["active", 0, 0, 600, 648], 'refused: dispatcher=resizeWindow argument=0 value="active"'],
+        ["a zero height", ["0xabc", 0, 0, 600, 0], "refused: dispatcher=resizeWindow argument=2 value=0"],
+        ["a width that carries a batch command", ["0xabc", 0, 0, "600;dispatch exit", 648], 'refused: dispatcher=resizeWindow argument=1 value="600;dispatch exit"'],
+        ["a fractional y", ["0xabc", 0, 216.5, 600, 648], "refused: dispatcher=moveWindow argument=2 value=216.5"],
+        ["an x that carries a bracket", ["0xabc", "[0]", 0, 600, 648], 'refused: dispatcher=moveWindow argument=1 value="[0]"']
+    ];
+    for (const [name, args, want] of refusals)
+        for (const lua of [true, false]) {
+            const r = lib.placeWindowRequest(...args, lua);
+            row("place refusal " + (lua ? "lua: " : "classic: ") + name, r.ok ? "accepted" : r.error, want);
+        }
+    // rows: [name, queue answer, want]
+    const answers = [
+        ["both halves answered ok", "ok\n\n\nok", "ok"],
+        ["a refused resize", "Invalid dispatcher\n\n\nok", 'refused: place="Invalid dispatcher\\n\\n\\nok"'],
+        ["a refused move", "ok\n\n\nerror: no window", 'refused: place="ok\\n\\n\\nerror: no window"'],
+        ["a lone ok", "ok", 'refused: place="ok"'],
+        ["a transport that did not start", "dispatch-start=failed", 'refused: place="dispatch-start=failed"']
+    ];
+    for (const [name, answer, want] of answers) row("place answer: " + name, lib.placeWindowAnswer(answer), want);
+    row("place: a window's place is no plugin dispatcher", lib.PLUGIN_DISPATCHERS.indexOf("placeWindow"), -1);
+    return bad;
+}
+failures += verifyPlace(ctx, true);
+
 // Each control removes one reveal rule from a copy of Dispatch.js and keeps
 // the text around it; verifyReveal must fail on every copy.
 const fs = require("fs");
@@ -430,6 +477,26 @@ try {
             lib.DISPATCHERS[name][dialect] = () => dialect === "lua" ? "hl.dsp.no_op()" : "nop";
             check("control " + dialect + " drops " + name, verifyDispatch(lib, false) > 0, true);
         }
+    }
+    // Each place control removes one rule from a copy; verifyPlace must
+    // fail on every copy.
+    const placeControls = [
+        ["the halves are one batch", 'argv: ["hyprctl", "--batch", "dispatch " + resize.request + " ; dispatch " + move.request]', 'argv: ["hyprctl", "dispatch", resize.request]'],
+        ["the resize runs before the move", '"dispatch " + resize.request + " ; dispatch " + move.request', '"dispatch " + move.request + " ; dispatch " + resize.request'],
+        ["the resize is judged", "if (!resize.ok) return resize;", ""],
+        ["the move is judged", "if (!move.ok) return move;", ""],
+        ["the resize's reply is judged", 'replies.parts[0] === "ok" && replies.parts[1] === "ok"', 'replies.parts[1] === "ok"'],
+        ["the move's reply is judged", 'replies.parts[0] === "ok" && replies.parts[1] === "ok"', 'replies.parts[0] === "ok"'],
+        ["the batch answers two replies", "var replies = batchReplies(answer, 2, \"place\");", "var replies = { ok: true, parts: [\"ok\", \"ok\"] };"]
+    ];
+    for (const [name, needle, replacement] of placeControls) {
+        if (source.split(needle).length !== 2) { check("control place " + name + " matches once", false, true); continue; }
+        const mutant = path.join(scratch, "Dispatch.js");
+        fs.writeFileSync(mutant, source.replace(needle, () => replacement));
+        let bad;
+        try { bad = verifyPlace(require("../bin/lib/qml-library.js").load(mutant), false); }
+        catch (e) { bad = 1; }
+        check("control place " + name + " fails the place rows", bad > 0, true);
     }
     // Each switch control removes one rule from a copy; the first sends the
     // switch through `hyprctl dispatch`, which a Lua session refuses.

@@ -124,6 +124,7 @@ Singleton {
             const out = {};
             for (const name of Dispatch.PLUGIN_DISPATCHERS)
                 out[name] = (...args) => Compositor.send(name, args);
+            out.placeWindow = (address, x, y, width, height) => Compositor.placeWindow(address, x, y, width, height);
             out.reveal = (addresses, awaitSender) => Compositor.reveal(addresses, awaitSender);
             out.padWorkspace = name => Dispatch.padWorkspace(name);
             out.onScreen = (window, monitors) => Dispatch.onScreen(window, monitors);

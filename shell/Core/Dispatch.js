@@ -122,6 +122,39 @@ var DISPATCHERS = {
 // every one above. Capabilities.qml builds the provider from this list.
 var PLUGIN_DISPATCHERS = Object.keys(DISPATCHERS);
 
+// ------------------------------------------------------- window place
+
+// Size and place a floating window in one request: resizeWindow to WIDTH by
+// HEIGHT, then moveWindow to X, Y, each judged and built as its dispatcher
+// is, joined as one `hyprctl --batch` of two dispatches. Hyprland 0.56.2's
+// floating resize keeps the window's centre (DefaultFloatingAlgorithm.cpp
+// resizeTarget), so a resize alone moves the top by half the height's
+// change. Two separate requests let the animation tick and a frame draw
+// between them, and the top visibly travels out and back. A batch runs both
+// commands in one socket callback (HyprCtl.cpp dispatchBatch, run from
+// hyprCtlFDTick), and the animation ticks and the renderer run from other
+// event-loop sources, so only the final box is drawn, under any animation
+// setting. dispatchBatch splits the text at each `;` outside `[]`, which
+// neither dispatcher's text holds. { ok: true, argv } or { ok: false,
+// error } with the refusing dispatcher's keyed line.
+function placeWindowRequest(address, x, y, width, height, usingLua) {
+    var resize = request("resizeWindow", [address, width, height], usingLua);
+    if (!resize.ok) return resize;
+    var move = request("moveWindow", [address, x, y], usingLua);
+    if (!move.ok) return move;
+    return { ok: true, argv: ["hyprctl", "--batch", "dispatch " + resize.request + " ; dispatch " + move.request] };
+}
+
+// The queue's answer to a place: `ok` when the batch answered `ok` to the
+// resize and to the move, else a keyed line holding the whole answer. A
+// batch exits 0 whatever its commands answer (hyprctl main.cpp), so each
+// reply is judged.
+function placeWindowAnswer(answer) {
+    var replies = batchReplies(answer, 2, "place");
+    if (replies.ok && replies.parts[0] === "ok" && replies.parts[1] === "ok") return "ok";
+    return "refused: place=" + JSON.stringify(String(answer));
+}
+
 // ---------------------------------------------------- key pass-through
 
 // The key capture pass-through's requests, which the core's key capture

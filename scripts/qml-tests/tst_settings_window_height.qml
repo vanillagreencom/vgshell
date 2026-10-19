@@ -8,16 +8,19 @@ import "../../shell/plugins/vgs.settings"
 
 // The Plugins window's height: the content and chrome of the page it
 // shows, up to a cap, the share of the screen's height
-// `size.window.tallHeightShare` names, or the screen less
-// `size.window.gutter` a side when that is less. A plugin page is measured
-// on the tab it shows, so each tab fits its view with no room below and no
-// scroll, and a tab change takes the other tab's height; the list is
-// measured with its rows. A page past the cap takes the cap and scrolls.
-// While the window shows, a page change asks the compositor for the
-// window's client and resizes it to that height, keeping its width; the
-// dispatch's effect is read back in the settings smoke row. The resize
-// keeps to the room of the screen the client is on, which a page change
-// finds by the name of the client's monitor. The shell here stands in for
+// `size.window.tallHeightShare` names, or the room under the window's
+// pinned top, `size.window.topShare` of the screen's height, to the screen
+// less `size.window.gutter` at its bottom, when that is less. A plugin page
+// is measured on the tab it shows, so each tab fits its view with no room
+// below and no scroll, and a tab change takes the other tab's height; the
+// list is measured with its rows. A page past the cap takes the cap and
+// scrolls, and its Pane takes the cap too, so the window host maps it
+// there. While the window shows, a page change asks the compositor for
+// the window's client and places it, at its own top-left and width, at
+// that height in one request; the request's effect is read back in the
+// settings smoke row. The height keeps to the screen the client is on,
+// which a page change finds by the name of the client's monitor, and to
+// the room below the client's top. The shell here stands in for
 // the window's capabilities: a manager whose rows the test names, the
 // screen the window opened on, of a fixed size, beside the screen of the
 // client's monitor, a key capture and a compositor whose window reads the
@@ -113,8 +116,8 @@ Item {
 
     QtObject {
         id: fakeCompositor
-        // The window reads waiting on an answer, and each resize and move
-        // asked for, in order.
+        // The window reads waiting on an answer, and each place asked for,
+        // in order.
         property var reads: []
         property var calls: []
         // A window state each read takes at once, or null to hold reads
@@ -124,12 +127,8 @@ Item {
             if (sync !== null) done(sync);
             else reads = reads.concat([done]);
         }
-        function resizeWindow(address, width, height) {
-            calls = calls.concat([["resize", address, width, height]]);
-            return "ok";
-        }
-        function moveWindow(address, x, y) {
-            calls = calls.concat([["move", address, x, y]]);
+        function placeWindow(address, x, y, width, height) {
+            calls = calls.concat([["place", address, x, y, width, height]]);
             return "ok";
         }
         // The floating Plugins client, as one j/clients entry, with FIELDS
@@ -174,9 +173,12 @@ Item {
         name: "settingsWindowHeight"
         when: windowShown
 
-        // The cap, read from the tokens alone.
+        // The cap on the screen the window opened on, read from the tokens
+        // alone: the share of its height, or the room from the pinned top
+        // to its bottom less the gutter.
         function cap() {
-            return Math.floor(Math.min(Theme.size.window.tallHeightShare * root.screen.height, root.screen.height - 2 * Theme.size.window.gutter));
+            const top = Math.round(Theme.size.window.topShare * root.screen.height);
+            return Math.floor(Math.min(Theme.size.window.tallHeightShare * root.screen.height, root.screen.height - Theme.size.window.gutter - top));
         }
 
         function descendants(item) {
@@ -252,6 +254,7 @@ Item {
             const window = opened('{"plugin":"acme.long"}');
             const p = parts(window);
             compare(window.implicitHeight, cap());
+            compare(p.pane.cappedHeight, cap(), "the page's Pane takes the cap, the height the window host maps it at");
             verify(p.page.scrollArea.contentHeight > p.page.scrollArea.height, "the page's content runs past its view");
             verify(p.page.scrollArea.overflowing, "a long page scrolls");
         }
@@ -276,11 +279,10 @@ Item {
             compare(window.implicitHeight, height, "a return to Settings takes the Settings height");
         }
 
-        // The one client of the shell's app-id titled Plugins is resized to
-        // the new page's height at its own width, then moved back to its
-        // top-left, which Hyprland's resize does not keep; a client already
-        // that tall is left alone.
-        function test_a_page_change_while_shown_resizes_the_window_client() {
+        // The one client of the shell's app-id titled Plugins is placed at
+        // the new page's height, at its own top-left and width, in one
+        // request; a client already that tall is left alone.
+        function test_a_page_change_while_shown_places_the_window_client() {
             const window = opened('{"plugin":"acme.detailed"}');
             const p = parts(window);
             const settingsHeight = window.implicitHeight;
@@ -289,86 +291,72 @@ Item {
             waitForRendering(window);
             tryVerify(() => fakeCompositor.reads.length === 1, 1000, "the page change asks for the windows once");
             const client = (title, appClass, address, height) => fakeCompositor.client({ class: appClass, title: title, address: address, size: [512, height] });
-            // An even step from Details' height, so the resize asks for it exactly.
-            const before = window.implicitHeight - 2 * Math.floor((window.implicitHeight - settingsHeight) / 2);
-            fakeCompositor.answer([client("Plugins", "kitty", "0xa", before), client("Plugins", "org.vgs.shell", "0xb", before), client("Other", "org.vgs.shell", "0xc", before)]);
+            fakeCompositor.answer([client("Plugins", "kitty", "0xa", settingsHeight), client("Plugins", "org.vgs.shell", "0xb", settingsHeight), client("Other", "org.vgs.shell", "0xc", settingsHeight)], 2000);
             verify(window.implicitHeight > settingsHeight, "Details is taller than Settings");
-            verify(60 + window.implicitHeight <= 1000, "the grown window fits above the work area's bottom");
-            compare(fakeCompositor.calls, [["resize", "0xb", 512, window.implicitHeight], ["move", "0xb", 70, 60]], "the Plugins client takes Details' height at its width and keeps its top-left");
+            verify(window.implicitHeight <= Theme.size.window.tallHeightShare * 2000, "Details fits under the 2000 px monitor's cap");
+            compare(fakeCompositor.calls, [["place", "0xb", 70, 60, 512, window.implicitHeight]], "the Plugins client takes Details' height at its top-left and width");
             p.tabs.currentIndex = 0;
             waitForRendering(window);
             tryVerify(() => fakeCompositor.reads.length === 1, 1000, "the return asks for the windows once");
-            fakeCompositor.answer([client("Plugins", "org.vgs.shell", "0xb", window.mapHeight)]);
-            compare(fakeCompositor.calls.length, 2, "a client already at the page's height is neither resized nor moved");
+            fakeCompositor.answer([client("Plugins", "org.vgs.shell", "0xb", window.implicitHeight)], 2000);
+            compare(fakeCompositor.calls.length, 1, "a client already at the page's height is not placed again");
         }
 
-        // A page past the cap resizes the window to its full height up to
-        // the screen's room, the height the window host maps it at, not to
-        // the cap.
-        function test_a_long_page_resizes_the_window_to_the_room() {
+        // A page past the cap places the window at the cap of the screen
+        // the client is on, `size.window.tallHeightShare` of its height,
+        // and the page scrolls inside: the owner's directive of
+        // 2026-10-18 (VGS-1891) replaced the room as the bound.
+        function test_a_long_page_places_the_window_at_the_cap() {
             const window = opened('{"plugin":"acme.short"}');
             fakeCompositor.reads = [];
             compare(window.openPlugin("acme.long", Qt.TabFocusReason), "ok");
             waitForRendering(window);
             tryVerify(() => fakeCompositor.reads.length === 1, 1000, "the page change asks for the windows once");
             const p = parts(window);
-            const room = root.screen.height - 2 * Theme.size.window.gutter;
-            const wanted = Math.min(room, Math.ceil(p.pane.uncappedHeight));
-            verify(wanted > cap(), "the long page runs past the cap: " + wanted + " > " + cap());
+            const share = Math.floor(Theme.size.window.tallHeightShare * 1000);
+            verify(Math.ceil(p.pane.uncappedHeight) > share, "the long page runs past the client screen's cap: " + p.pane.uncappedHeight + " > " + share);
+            verify(60 + share <= 1000 - Theme.size.window.gutter, "the cap fits below the client's top");
             compare(window.implicitHeight, cap(), "the window's own request stays at the cap");
-            fakeCompositor.answer([fakeCompositor.client({ size: [512, wanted - 600] })], 2000);
-            compare(fakeCompositor.calls, [["resize", "0xb", 512, wanted], ["move", "0xb", 70, 60]], "the window takes the long page's height, up to the room");
+            fakeCompositor.answer([fakeCompositor.client({ size: [512, 300] })]);
+            compare(fakeCompositor.calls, [["place", "0xb", 70, 60, 512, share]], "the window takes the cap, not the long page's height");
         }
 
-        // The work area bounds a grown window: one that would pass its
-        // bottom rises by the overflow alone, one above its top moves down
-        // to it, and a page taller than the area takes the area's height at
-        // its top. Hyprland's resize moves the box by half the height's
-        // change, so an odd change asks one pixel more, or one less at the
-        // area's bound, and a client one pixel past the page by that
-        // rounding is left alone.
-        function test_a_grown_window_stays_on_its_monitor_data() {
-            // bottom: the monitor's bottom, its top 40 px reserved, so the
-            // window keeps from y 40 + gutter to bottom - gutter; at: the
-            // client's y before; from: the client's height before, as a
-            // step from the expected height `to`, the page's own unless at
-            // the bound; overflows: whether at + the page's height passes
-            // the bottom; y: the top-left's y after, given the bottom and
-            // the height asked; null when nothing is asked.
+        // The window keeps its top: a page change moves only its bottom
+        // edge. The room below the top bounds the height, so a window the
+        // user dragged low keeps its top and takes the room left under it,
+        // and one dragged above the room's top keeps that top too.
+        function test_a_window_keeps_its_top_data() {
+            // bottom: the monitor's bottom, its top 40 px reserved; at: the
+            // client's y; from: the client's height before, as a step from
+            // the page's height; low: whether the room under `at` is less
+            // than the page, so the height is that room; placed: whether a
+            // place is asked.
             return [
-                { tag: "rises by its overflow", bottom: 1000, at: 480, from: -200, to: 0, bound: false, overflows: true, y: (bottom, height) => bottom - height },
-                { tag: "moves down to the work area's top", bottom: 2000, at: 10, from: -200, to: 0, bound: false, overflows: false, y: () => 40 + Theme.size.window.gutter },
-                { tag: "takes the work area at its top", bottom: 300, at: 480, from: -100, to: 0, bound: true, overflows: true, y: (bottom, height) => bottom - height },
-                { tag: "an odd step asks one pixel more", bottom: 2000, at: 480, from: -101, to: 1, bound: false, overflows: false, y: () => 480 },
-                { tag: "an odd step at the bound asks one pixel less", bottom: 300, at: 480, from: -101, to: -1, bound: true, overflows: true, y: (bottom, height) => bottom - height },
-                { tag: "one pixel past by rounding is left alone", bottom: 2000, at: 480, from: 1, to: null, bound: false, overflows: false, y: null }
+                { tag: "takes its page's height at its top", bottom: 2000, at: 480, from: -200, low: false, placed: true },
+                { tag: "keeps a top above the room's top", bottom: 2000, at: 10, from: -200, low: false, placed: true },
+                { tag: "dragged low takes the room under its top", bottom: 1000, at: 888, from: -40, low: true, placed: true },
+                { tag: "one pixel past its page is placed exactly", bottom: 2000, at: 480, from: 1, low: false, placed: true },
+                { tag: "at its page's height is left alone", bottom: 2000, at: 480, from: 0, low: false, placed: false }
             ];
         }
-        function test_a_grown_window_stays_on_its_monitor(data) {
+        function test_a_window_keeps_its_top(data) {
             const window = opened('{"plugin":"acme.detailed"}');
             const p = parts(window);
             fakeCompositor.reads = [];
             p.tabs.currentIndex = 1;
             waitForRendering(window);
             tryVerify(() => fakeCompositor.reads.length === 1, 1000, "the page change asks for the windows once");
-            const gutter = Theme.size.window.gutter;
-            const bottom = data.bottom - gutter;
-            const page = data.bound ? bottom - 40 - gutter : window.mapHeight;
-            verify(data.bound ? window.mapHeight > page : window.mapHeight < bottom - 40 - gutter, "the fixture's Details " + (data.bound ? "runs past" : "fits") + " the work area: " + window.mapHeight);
-            compare(data.at + page > bottom, data.overflows, "the window at y " + data.at + " " + (data.overflows ? "passes" : "stays above") + " the work area's bottom less the gutter");
-            fakeCompositor.answer([fakeCompositor.client({ at: [70, data.at], size: [512, page + data.from] })], data.bottom);
-            if (data.to === null) {
-                compare(fakeCompositor.calls, []);
-                return;
-            }
-            const height = page + data.to;
-            compare(fakeCompositor.calls, [["resize", "0xb", 512, height], ["move", "0xb", 70, data.y(bottom, height)]]);
+            const page = window.implicitHeight;
+            const under = data.bottom - Theme.size.window.gutter - data.at;
+            compare(under < page, data.low, "the room under y " + data.at + ", " + under + ", against the page's " + page);
+            const height = data.low ? under : page;
+            fakeCompositor.answer([fakeCompositor.client({ at: [70, data.at], size: [512, height + data.from] })], data.bottom);
+            compare(fakeCompositor.calls, data.placed ? [["place", "0xb", 70, data.at, 512, height]] : []);
         }
 
         // The client's own monitor bounds it, not the screen the window
         // opened on: a client dragged to a 1440 px monitor stacked below
-        // the 1080 px one keeps its place there, where the opening screen's
-        // room would have moved it back up.
+        // the 1080 px one keeps its place there.
         function test_a_window_on_another_monitor_keeps_to_that_monitor() {
             const window = opened('{"plugin":"acme.detailed"}');
             const p = parts(window);
@@ -376,12 +364,12 @@ Item {
             p.tabs.currentIndex = 1;
             waitForRendering(window);
             tryVerify(() => fakeCompositor.reads.length === 1, 1000, "the page change asks for the windows once");
-            const height = window.mapHeight;
+            const height = window.implicitHeight;
             const at = 1080 + 60;
             verify(at + height > 1080 - Theme.size.window.gutter, "Details at y " + at + " passes the opening screen's room: " + height);
             verify(at + height <= 1080 + 1440 - Theme.size.window.gutter, "Details at y " + at + " fits the lower monitor's room: " + height);
             fakeCompositor.answer([fakeCompositor.client({ at: [70, at], size: [512, height - 200] })], 1440, { y: 1080 });
-            compare(fakeCompositor.calls, [["resize", "0xb", 512, height], ["move", "0xb", 70, at]]);
+            compare(fakeCompositor.calls, [["place", "0xb", 70, at, 512, height]]);
         }
 
         // A client whose monitor no screen of the shell names is left alone,
@@ -394,7 +382,7 @@ Item {
             p.tabs.currentIndex = 1;
             waitForRendering(window);
             tryVerify(() => fakeCompositor.reads.length === 1, 1000, "the page change asks for the windows once");
-            fakeCompositor.answer([fakeCompositor.client({ size: [512, window.mapHeight - 200] })], undefined, { name: "HDMI-A-1" });
+            fakeCompositor.answer([fakeCompositor.client({ size: [512, window.implicitHeight - 200] })], undefined, { name: "HDMI-A-1" });
             compare(fakeCompositor.calls, []);
         }
 
@@ -413,7 +401,7 @@ Item {
             p.tabs.currentIndex = 1;
             waitForRendering(window);
             tryVerify(() => fakeCompositor.reads.length === 1, 1000, "the page change asks for the windows once");
-            fakeCompositor.answer([fakeCompositor.client(Object.assign({ size: [512, window.mapHeight - 200] }, data.fields))]);
+            fakeCompositor.answer([fakeCompositor.client(Object.assign({ size: [512, window.implicitHeight - 200] }, data.fields))]);
             compare(fakeCompositor.calls, []);
         }
 
@@ -425,17 +413,17 @@ Item {
             const p = parts(window);
             p.tabs.currentIndex = 1;
             waitForRendering(window);
-            const details = window.mapHeight;
+            const details = window.implicitHeight;
             p.tabs.currentIndex = 0;
             waitForRendering(window);
-            verify(window.mapHeight < details, "Details is the taller tab: " + window.mapHeight + " < " + details);
+            verify(window.implicitHeight < details, "Details is the taller tab: " + window.implicitHeight + " < " + details);
             fakeCompositor.calls = [];
             fakeCompositor.sync = fakeCompositor.state([fakeCompositor.client({ size: [512, details - 200] })], 2000);
             p.tabs.currentIndex = 1;
             window.fitWindow();
             const calls = fakeCompositor.calls;
             fakeCompositor.sync = null;
-            compare(calls, [["resize", "0xb", 512, details], ["move", "0xb", 70, 60]]);
+            compare(calls, [["place", "0xb", 70, 60, 512, details]]);
         }
 
         function test_a_short_list_takes_its_content_height() {
@@ -471,6 +459,7 @@ Item {
             const window = opened('{}');
             const p = listParts(window);
             compare(window.implicitHeight, cap());
+            compare(p.pane.cappedHeight, cap(), "the list's Pane takes the cap, the height the window host maps it at");
             verify(p.page.scrollArea.contentHeight > p.page.scrollArea.height, "the list runs past its view");
             verify(p.page.scrollArea.overflowing, "a long list scrolls");
         }

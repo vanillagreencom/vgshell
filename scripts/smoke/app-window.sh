@@ -57,27 +57,37 @@ window_keyboard() { ipc smoke windowFocused window "$1"; }
 
 # The address of the one shell window titled TITLE, or windows=<n>.
 window_address() { window_of "$1" address | python3 -c 'import json,sys; t=sys.stdin.read().strip(); print(json.loads(t)[0] if t.startswith("[") else t)'; }
-# `centred` when the one shell window titled TITLE has its centre within
-# 1 px of its monitor's work area centre, the monitor's box less its
-# reserved space and general:float_gaps, where Hyprland v0.56.2 centres a
-# floating window; else both centres.
-window_centred() { # TITLE
-  local clients monitors gaps
-  clients="$(hypr -j clients)" && monitors="$(hypr -j monitors)" && gaps="$(hypr -j getoption general:float_gaps)" || return 1
+# `placed` when the one shell window titled TITLE sits where the `vgs:window`
+# rule and the window host put it: its centre across within 1 px of its
+# monitor's, its top within 1 px of `size.window.topShare` of the
+# monitor's height, rounded half up as the rule's `rint` rounds it, and its
+# bottom at or above the monitor's bottom less the reserved bottom edge and
+# `size.window.gutter`, the room's (OverlayState.windowRoom); else the
+# readings that miss. SHARE stands in for the token, for the control.
+window_placed() { # TITLE [SHARE]
+  local clients monitors share gutter
+  clients="$(hypr -j clients)" && monitors="$(hypr -j monitors)" || return 1
+  share="${2:-$(ipc smoke themeValue size.window.topShare)}" && gutter="$(ipc smoke themeValue size.window.gutter)" || return 1
   python3 -c '
-import json, sys
-clients, monitors, gaps = (json.loads(a) for a in sys.argv[1:4])
-cs = [c for c in clients if c["class"] == sys.argv[4] and c["title"] == sys.argv[5] and c["mapped"]]
+import json, math, sys
+clients, monitors, share, gutter = (json.loads(a) for a in sys.argv[1:5])
+cs = [c for c in clients if c["class"] == sys.argv[5] and c["title"] == sys.argv[6] and c["mapped"]]
 if len(cs) != 1: print("windows=%d" % len(cs)); sys.exit()
 c = cs[0]
 m = next(m for m in monitors if m["id"] == c["monitor"])
-top, right, bottom, left = (int(v) for v in gaps["css"].split())
-rl, rt, rr, rb = m["reserved"]
-area_x = (m["x"] + rl + left + m["x"] + m["width"] / m["scale"] - rr - right) / 2
-area_y = (m["y"] + rt + top + m["y"] + m["height"] / m["scale"] - rb - bottom) / 2
-at_x, at_y = c["at"][0] + c["size"][0] / 2, c["at"][1] + c["size"][1] / 2
-print("centred" if abs(at_x - area_x) <= 1 and abs(at_y - area_y) <= 1 else "centre=%g,%g work-area-centre=%g,%g" % (at_x, at_y, area_x, area_y))' "$clients" "$monitors" "$gaps" "$shell_class" "$1"
+mw, mh = m["width"] / m["scale"], m["height"] / m["scale"]
+x, y, w, h = c["at"] + c["size"]
+top = m["y"] + math.floor(share * mh + 0.5)
+bottom = m["y"] + mh - m["reserved"][3] - gutter
+out = []
+if abs(x + w / 2 - (m["x"] + mw / 2)) > 1: out.append("centre-x=%g want=%g" % (x + w / 2, m["x"] + mw / 2))
+if abs(y - top) > 1: out.append("top=%g want=%g" % (y, top))
+if y + h > bottom + 1: out.append("bottom=%g room-bottom=%g" % (y + h, bottom))
+print(" ".join(out) or "placed")' "$clients" "$monitors" "$share" "$gutter" "$shell_class" "$1"
 }
+# window_misplaced TITLE SHARE: `not-placed` when window_placed reads the
+# window anywhere but placed at SHARE, else `placed`.
+window_misplaced() { local r; r="$(window_placed "$1" "$2")" || return; [[ $r == placed ]] && echo placed || echo not-placed; }
 
 # The border the readings look for: a size and two colours no theme draws,
 # with no rounding, so the middle of a window's left edge shows the border
@@ -139,7 +149,8 @@ window_move_delta() { printf '[%s, %s]\n' "$window_move_dx" "$window_move_dy"; }
 
 # app_window_rows TITLE ID: the one shell window titled TITLE, plugin ID's
 # `window`, open and just mapped, is a Hyprland window: one client of the
-# shell's class, floating and centred by the `vgs:window` rule and focused;
+# shell's class, floating and placed by the `vgs:window` rule, centred across
+# at the pinned top, and ending inside the room, and focused;
 # its border is 4 px of the active colour while it is focused and of the
 # inactive colour while the toplevel helper is; a move dispatch moves it
 # and a focus dispatch focuses it; an Escape typed while the helper has the
@@ -152,7 +163,8 @@ app_window_rows() {
   local title="$1" id="$2" address at_before keys_before
   expect_poll "$title is one client of the shell's class titled $title" 1 window_count "$title"
   expect_poll "the $title window floats" '[true]' window_of "$title" floating
-  geometry expect_poll "the $title window is centred on its monitor's work area" centred window_centred "$title"
+  geometry expect_poll "the $title window is centred across its monitor at the pinned top and ends inside the room" placed window_placed "$title"
+  geometry expect "control: the $title window read against a top share of 0.35 is not placed" not-placed window_misplaced "$title" 0.35
   expect_poll "the $title window is focused" "[\"$shell_class\", \"$title\"]" active_window
   expect_poll "the shell reads the $title window holding the keyboard" true window_keyboard "$id"
   window_border_on

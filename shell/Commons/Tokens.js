@@ -317,14 +317,16 @@ var TOKENS = {
             lg: length(480),
             maxHeight: length(600)
         },
-        // A window-like panel centred on its monitor: `width` wide, never
-        // closer than `gutter` to either side of a narrower monitor, and
-        // `heightShare` of the monitor's height tall, or `tallHeightShare`
-        // for a window whose pages run long, the Plugins window.
+        // A window-like panel: `width` wide, never closer than `gutter` to
+        // either side of a narrower monitor, and `heightShare` of the
+        // monitor's height tall. A shell window maps with its top at
+        // `topShare` of its monitor's height and grows down to at most
+        // `tallHeightShare` of it, the Plugins window's pages included.
         window: {
             width: length(600),
             heightShare: share(0.5),
-            tallHeightShare: share(0.65),
+            topShare: share(0.2),
+            tallHeightShare: share(0.6),
             gutter: length("{space.lg}")
         }
     },

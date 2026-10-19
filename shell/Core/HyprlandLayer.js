@@ -99,9 +99,10 @@ var TUI_PADDING = { columns: 2, rows: 1 };
 // shell.qml's `//@ pragma AppId` line sets and Quickshell 0.3.1 gives no
 // window its own, so the class is the shell's and the title names the
 // window. The layer writes one window rule, named `rule`, that floats the
-// shell's windows and centres them; each keeps the size it asks for. While
-// window glass is written, a second, named `glassRule`, holds their
-// opacity at 1 (appWindowLines).
+// shell's windows, centred across and with their top at the theme's
+// `size.window.topShare` of the output's height; each keeps the size it
+// asks for. While window glass is written, a second, named `glassRule`,
+// holds their opacity at 1 (appWindowLines).
 var APP_WINDOW = { appId: "org.vgs.shell", rule: "vgs:window", glassRule: "vgs:window-glass" };
 
 // Whether a window class is a floating TUI's, whose window is a terminal.
@@ -684,6 +685,29 @@ function tuiWindowLines(margins, cell, border) {
     }));
 }
 
+// TOP is the theme's `size.window.topShare`, refused unless it is a
+// finite number from 0 to 1. The window rule places each shell window
+// once, at map: centred across the output and with its top at TOP of the
+// output's height, so a window grows downward from one top whatever height
+// it asks (docs/architecture/design-system.md § Layout). Hyprland 0.56.2
+// evaluates a `move` rule's two expressions with muParser against the
+// monitor's logical size and the window's asked size, then adds the
+// monitor's position (Window.cpp calculateSingleExpr,
+// DefaultFloatingAlgorithm.cpp newTarget), and a whitespace separates the
+// two, so neither holds a space. muParser 2.3.5's `rint` is
+// `floor(v + 0.5)` (muParserTemplateMagic.h), which is JavaScript's
+// Math.round for these positive values, so OverlayState.windowRoom
+// reads the same whole-pixel top and no odd size leaves a half pixel.
+// The bar is a top layer, so the output's width is the work area's and
+// centring across the output centres in it. The rule stands before the
+// user's lines, so a user's own later `move` or `center` rule for the class
+// wins: in Hyprland 0.56.2 each clears the other (WindowRuleApplicator.cpp).
+function windowTopShare(value) {
+    if (typeof value !== "number" || !isFinite(value) || value < 0 || value > 1)
+        throw new Error("HyprlandLayer: windowTopShare must be a finite number from 0 to 1, got " + JSON.stringify(value));
+    return String(value);
+}
+
 // GLASS is whether the window glass group is written (theme.groups.glass).
 // The shell's windows draw their own glass, AppWindow.qml's glass fill as
 // their colour, and the surfaces in them draw the solid glass, which must
@@ -694,11 +718,11 @@ function tuiWindowLines(margins, cell, border) {
 // inactive window's (Hyprland 0.56.2 WindowRule.cpp parseOpacityRule; the
 // wiki's window-rules page, `opacity`). It stands at the top level, before
 // the user's lines, so a user's own later opacity rule for the class wins.
-function appWindowLines(glass) {
+function appWindowLines(glass, top) {
     var match = "match = { class = " + classLiteral(APP_WINDOW.appId) + " }";
     var lines = [
-        "-- Application windows: the shell's windows float, centred, at the size they ask.",
-        "hl.window_rule({ name = \"" + APP_WINDOW.rule + "\", " + match + ", float = true, center = true })"
+        "-- Application windows: the shell's windows float at the size they ask, centred across, their top at a share of the output's height.",
+        "hl.window_rule({ name = \"" + APP_WINDOW.rule + "\", " + match + ", float = true, move = { \"rint((monitor_w-window_w)/2)\", \"rint(monitor_h*" + windowTopShare(top) + ")\" } })"
     ];
     if (glass)
         lines.push(
@@ -1411,8 +1435,9 @@ function appliedLines(values, paths) {
 // theme's colours and Hyprland tokens, `glass`, the window glass values
 // (Theme.glass.window), `groups`, whether each of
 // APPLIED_GROUPS is written, `tuiMargins`, the bar and the gutter
-// tuiWindowLines keeps the floating TUIs inside, and
-// `tuiCell`, the terminal cell it counts their smallest size in. After
+// tuiWindowLines keeps the floating TUIs inside,
+// `tuiCell`, the terminal cell it counts their smallest size in, and
+// `windowTopShare`, where appWindowLines puts the shell windows' top. After
 // the header comes appliedLines: the APPLIED_GROUPS the theme writes, in
 // order, then each section's `hl.config` options line under its heading.
 // A group the theme leaves to the user is a comment after it, naming the
@@ -1454,7 +1479,7 @@ function render(sections, theme, themeName, highestScale, touchpads, touchpadFai
     });
     if (switches.groups.noGaps.enabled) groups = groups.concat(noGapsLines());
     else groups.push(disabledGroupLine("noGaps", switches.groups.noGaps.setting));
-    var lines = [""].concat(groups, [""], tuiWindowLines(theme.tuiMargins, theme.tuiCell, theme.hyprland.border.size), [""], appWindowLines(theme.groups.glass));
+    var lines = [""].concat(groups, [""], tuiWindowLines(theme.tuiMargins, theme.tuiCell, theme.hyprland.border.size), [""], appWindowLines(theme.groups.glass, theme.windowTopShare));
     if (theme.groups.surfaceBlur === true) lines = lines.concat([""], surfaceBlurLines());
     if (tapTrackerWanted(plan)) lines = lines.concat([""], tapTrackerLines());
     lines = lines.concat([""], userBindLines(), [""], overlayCaptureLines(plan), [""], keyPassthroughLines(), [""], sessionLockLines());

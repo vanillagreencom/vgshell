@@ -8,8 +8,9 @@ import qs.Ui
 // toplevel. Its class is the shell's one app-id, which shell.qml's AppId
 // pragma sets, and its title is the plugin's manifest name, so the user's
 // window rules and keybinds find it; the Hyprland layer's `vgs:window` rule
-// floats it and centres it. It draws no border and no radius of its own, so
-// Hyprland's decoration is the frame. Its colour is the raised surface, and
+// floats it, centred across its output with its top at
+// `size.window.topShare` of the output's height. It draws no border and
+// no radius of its own, so Hyprland's decoration is the frame. Its colour is the raised surface, and
 // while Hyprland's window glass is on, the glass fill, through which
 // Hyprland blurs what lies behind the window; the layer's
 // `vgs:window-glass` rule keeps Hyprland's window opacity from fading it
@@ -17,7 +18,8 @@ import qs.Ui
 // colour is not transparent and draws solid. The window maps once the plugin is
 // built, at the larger of the plugin's request and its window Pane's
 // content height, capped at that Pane's maximumHeight when it sets one and
-// bounded by the output's room. Quickshell sends a floating window
+// bounded by the room under that top (OverlayState.windowRoom), so it ends
+// inside the work area. Quickshell sends a floating window
 // no size change once it is shown, so that size is the first request only,
 // and the plugin fills whatever size Hyprland gives the window after. A
 // close through Hyprland, such as its killactive key, is `dismissed`, which
@@ -38,7 +40,7 @@ FloatingWindow {
     screen: request ? request.screen : null
     visible: false
     implicitWidth: slot.instance ? Math.max(1, slot.instance.implicitWidth) : 1
-    implicitHeight: slot.instance ? Math.max(1, Math.min(Math.max(slot.instance.implicitHeight, paneHeight(slot.instance)), OverlayState.room(screen).height)) : 1
+    implicitHeight: slot.instance ? Math.max(1, Math.min(Math.max(slot.instance.implicitHeight, paneHeight(slot.instance)), OverlayState.windowRoom(screen).height)) : 1
     // The glass fill while window glass is on (ThemeLogic `hyprland.glass`),
     // so the window takes glass exactly when other windows do. The surface
     // is requested non-opaque, since the colour may turn translucent after

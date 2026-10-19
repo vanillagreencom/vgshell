@@ -248,6 +248,27 @@ Item {
             Hyprland.monitors = {};
         }
 
+        // The room under a shell window's pinned top: the top at
+        // `size.window.topShare` of the output's height, rounded to a whole
+        // pixel as the window rule's `rint` rounds it, and the height from
+        // there to the room's bottom, which the output's reserved bottom
+        // edge and the gutter keep from the output's bottom; with no output
+        // there is no bound.
+        function test_a_window_room_starts_at_the_pinned_top() {
+            const gutter = Theme.size.window.gutter;
+            const share = Theme.size.window.topShare;
+            // 0.2 of 1067 is 213.4, so the top rounds down to 213; 0.2 of
+            // 1083 is 216.6, so it rounds up to 217.
+            compare(share, 0.2, "the worked figures below read the default share");
+            const output = { name: "one", width: 1366, height: 1067 };
+            compare(OverlayState.windowRoom(output), { top: 213, height: 1067 - gutter - 213 });
+            compare(OverlayState.windowRoom({ name: "one", width: 1366, height: 1083 }).top, 217);
+            Hyprland.monitors = { one: { lastIpcObject: { reserved: { length: 4, 0: 0, 1: 40, 2: 0, 3: 30 } } } };
+            compare(OverlayState.windowRoom(output), { top: 213, height: 1067 - 30 - gutter - 213 }, "a reserved bottom edge shortens the room; the reserved top leaves the top where it is");
+            Hyprland.monitors = {};
+            compare(OverlayState.windowRoom(null), { top: 0, height: Infinity });
+        }
+
         function test_menu_width_follows_its_widest_entry() {
             let window = null;
             for (let i = 0; i < menu.resources.length; i++)

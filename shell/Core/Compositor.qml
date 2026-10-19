@@ -11,9 +11,10 @@ import "Dispatch.js" as Dispatch
 // text: Hyprland answers a refused dispatcher with exit 0 and an error
 // sentence, so exit status alone says nothing. One process drains a bounded
 // queue of hyprctl argument lists, preserving each request until all of its
-// completion signals land: a dispatch is `hyprctl dispatch <request>`, and
-// a keyboard layout switch, which is no dispatcher, its own argv from
-// Dispatch.switchLayoutRequest.
+// completion signals land: a dispatch is `hyprctl dispatch <request>`, a
+// window's place two dispatches in one `hyprctl --batch` from
+// Dispatch.placeWindowRequest, and a keyboard layout switch, which is no
+// dispatcher, its own argv from Dispatch.switchLayoutRequest.
 // `reveal` brings an application's window into view; its decisions, and
 // the Hyprland facts they rest on, are Dispatch.js's.
 Singleton {
@@ -182,6 +183,22 @@ Singleton {
     // logs a refusal.
     function togglePad(name, screen, done) {
         return enqueueRequest(Dispatch.padRequest(name, screen, Hyprland.usingLua), done, typeof done === "function");
+    }
+
+    // Size and place a floating window in one request
+    // (Dispatch.placeWindowRequest). Returns `ok` once the request is
+    // accepted, or the keyed refusal; once it ran, an answer other than
+    // `ok` to either half is logged as Dispatch.placeWindowAnswer words it.
+    function placeWindow(address, x, y, width, height) {
+        const r = Dispatch.placeWindowRequest(address, x, y, width, height, Hyprland.usingLua);
+        if (!r.ok) {
+            console.error("compositor: " + r.error);
+            return r.error;
+        }
+        return enqueue(r.argv, answer => {
+            const judged = Dispatch.placeWindowAnswer(answer);
+            if (judged !== "ok") console.error("compositor: " + judged);
+        }, true);
     }
 
     function enqueueRequest(r, done, judged) {

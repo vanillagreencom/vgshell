@@ -1,7 +1,7 @@
 # xdph selections, live previews and public ScreenCast application requests
 # run in the nested compositor with an isolated bus and device-free PipeWire.
 # No latency ceiling. State readbacks poll every 200 ms through expect_poll.
-# inputs: shell/plugins/vgs.capture/* shell/plugins/vgs.settings/* shell/Core/qmldir shell/Core/ScreencopyPreview.qml shell/Core/Capabilities.qml shell/Core/IpcRegistry.qml shell/Hosts/AppWindow.qml shell/Hosts/SummonHost.qml shell/Hosts/PluginSlot.qml shell/Commons/* shell/Ui/* bin/vgshell-share-picker bin/vgshell bin/lib/ipc-reply.sh scripts/smoke/fixtures/share-picker/* scripts/smoke/fixtures/plugins/acme.screencopy/* scripts/smoke/toplevel/* themes/catalog/flexoki-light/theme.json
+# inputs: shell/plugins/vgs.capture/* shell/plugins/vgs.settings/* shell/Core/qmldir shell/Core/ScreencopyPreview.qml shell/Core/Capabilities.qml shell/Core/IpcRegistry.qml shell/Hosts/AppWindow.qml shell/Hosts/SummonHost.qml shell/Hosts/PluginSlot.qml shell/Commons/* shell/Ui/* bin/vgshell-share-picker bin/vgshell bin/lib/ipc-reply.sh scripts/smoke/fixtures/share-picker/* scripts/smoke/fixtures/plugins/acme.screencopy/* scripts/smoke/toplevel/* themes/catalog/flexoki-light/theme.json shell/Ui/overlay/OverlayState.qml shell/Commons/Tokens.js shell/Core/HyprlandLayer.js
 set -euo pipefail
 for share_required in /usr/lib/xdg-desktop-portal /usr/lib/xdg-desktop-portal-hyprland /usr/lib/xdg-permission-store /usr/bin/hyprland-share-picker /usr/bin/bwrap; do
   if [[ ! -x $share_required ]]; then not_measured share-picker missing="$share_required"; return 0; fi
@@ -531,11 +531,12 @@ for share_size in standard minimum; do
           type_keys -k Tab || fail "share-picker: reaching the next slider failed"
         done
         if [[ $share_size == standard && $share_mode == dark ]]; then
-          # The smallest output whose work area less the gutter a side,
-          # the window's room, holds the compact Area: its height, the
-          # bar's reserved top (monitor_size's third field) and a gutter a
-          # side.
-          share_minimum_mode="$(share_read sharingHeight | py_reply 'import math,sys; gutter=2*float(sys.argv[3]); bar=float(sys.argv[5].split()[2]); margin=bar+gutter; print("%dx%d" % (math.ceil(float(sys.argv[4])+gutter),math.ceil(float(sys.stdin.read())-2*(float(sys.argv[1])+float(sys.argv[2]))+margin)))' "$(ipc smoke themeValue row.height)" "$(ipc smoke themeValue stack.row)" "$(ipc smoke themeValue size.window.gutter)" "$(ipc smoke themeValue size.window.width)" "$(monitor_size)")"
+          # The smallest output whose room under the pinned top holds the
+          # compact Area (OverlayState.windowRoom): from the top, at
+          # `size.window.topShare` of the output's height rounded half up,
+          # to the output's bottom less a gutter, as wide as the window and
+          # a gutter a side.
+          share_minimum_mode="$(share_read sharingHeight | py_reply 'import math,sys; row,stack,gutter,width,share=(float(a) for a in sys.argv[1:6]); compact=math.ceil(float(sys.stdin.read())-2*(row+stack)); height=next(h for h in range(compact, 4*compact) if h-gutter-math.floor(share*h+0.5) >= compact); print("%dx%d" % (math.ceil(width+2*gutter), height))' "$(ipc smoke themeValue row.height)" "$(ipc smoke themeValue stack.row)" "$(ipc smoke themeValue size.window.gutter)" "$(ipc smoke themeValue size.window.width)" "$(ipc smoke themeValue size.window.topShare)")"
           printf 'share-picker: minimum-output=%s full-area-height=%s\n' "$share_minimum_mode" "$(share_read sharingHeight)"
         fi
       fi

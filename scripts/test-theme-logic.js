@@ -269,12 +269,13 @@ const DEFAULTS = [
     ["voiceOrb.tone.danger", "#f43f5eff"],
     ["voiceOrb.tone.muted", "#aaaaabff"],
     ["bar.item.iconGap", 8],
-    // A window-like panel: 600 px wide, half its monitor tall, or 0.65 of
-    // it for a window whose pages run long, mul(4, 3) = 12 from a narrower
-    // monitor's sides.
+    // A window-like panel: 600 px wide, half its monitor tall, its top at
+    // 0.2 of its monitor's height and at most 0.6 of it tall,
+    // mul(4, 3) = 12 from a narrower monitor's sides.
     ["size.window.width", 600],
     ["size.window.heightShare", 0.5],
-    ["size.window.tallHeightShare", 0.65],
+    ["size.window.topShare", 0.2],
+    ["size.window.tallHeightShare", 0.6],
     ["size.window.gutter", 12],
     // Nine 36 px entries before a menu scrolls: mul(36, 9) = 324.
     ["menu.maxHeight", 324],

@@ -10,6 +10,9 @@ FocusScope {
 
     // The Settings panel: its rows, its notice and its navigation.
     required property Item panel
+    // The cap on this page's Pane, which the window host maps the window
+    // at for a long page: Window.maxHeight, or 0 for none.
+    property alias maximumHeight: layout.maximumHeight
     property string query: ""
     // The index in `shown` the keyboard has highlighted.
     property int current: 0

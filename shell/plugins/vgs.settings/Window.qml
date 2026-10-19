@@ -5,19 +5,19 @@ import "Steps.js" as Steps
 
 // The Plugins window: every plugin the manager lists, and one page per
 // plugin, drawn from its manager row alone. The window host builds it as a
-// Hyprland window titled Plugins, which Hyprland floats, centres, frames
-// and focuses like any other window. It asks to be `size.window.width`
-// wide, or the screen's room's width when that is less, and as tall as the
-// page it shows, the list or a plugin page's shown tab, up to
-// `size.window.tallHeightShare` of the monitor's height, or the room's
-// height when that is less; the room is the screen's work area under the
-// bar less `size.window.gutter` a side (OverlayState.room), read from the
-// screen its `screens` capability gives. The window host maps it at the
-// larger of that and the page's full height, up to the screen's room;
-// once it shows, each change of the shown page, the list, another
-// plugin's page or another tab, resizes it by the same rule through its
-// `compositor` capability, keeping its width. A change inside a page, such
-// as a rescan's rows, keeps the size.
+// Hyprland window titled Plugins, which Hyprland floats, frames and
+// focuses like any other window, its top at `size.window.topShare` of the
+// monitor's height. It asks to be `size.window.width` wide, or the
+// screen's room's width when that is less, and as tall as the page it
+// shows, the list or a plugin page's shown tab, up to
+// `size.window.tallHeightShare` of the monitor's height, or the room under
+// that top when that is less (OverlayState.windowRoom), read from the
+// screen its `screens` capability gives; each page's Pane takes the same
+// cap, so the window host maps it at that height. Once it shows, each
+// change of the shown page, the list, another plugin's page or another
+// tab, resizes it by the same rule through its `compositor` capability,
+// keeping its width and its top, so only its bottom edge moves. A change
+// inside a page, such as a rescan's rows, keeps the size.
 // The pages fill whatever size the window has, and a page taller than it
 // scrolls, with the scroll area's edge cue. The list page and the plugin page
 // sit side by side and slide on `motion.duration.normal`, so a
@@ -105,8 +105,9 @@ FocusScope {
     property Item initialFocus: pending !== null || removal !== null ? prompt : page === "" ? list.initialFocus : detail.initialFocus
 
     implicitWidth: Math.floor(Math.min(Theme.size.window.width, OverlayState.room(screen).width))
-    // The tallest the window opens.
-    readonly property real maxHeight: screen === null ? Theme.size.panel.maxHeight : Math.floor(Math.min(Theme.size.window.tallHeightShare * screen.height, OverlayState.room(screen).height))
+    // The tallest the window opens, which each page takes as its
+    // maximumHeight, so the window host maps a long page at it too.
+    readonly property real maxHeight: screen === null ? Theme.size.panel.maxHeight : Math.floor(Math.min(Theme.size.window.tallHeightShare * screen.height, OverlayState.windowRoom(screen).height))
     // The shown page's height. It sizes the window only as it maps: the
     // window host calls open() before it shows the window, Quickshell 0.3.1
     // polishes the item tree just before it maps (proxywindow.cpp
@@ -114,12 +115,6 @@ FocusScope {
     // implicit size only while hidden (floatingwindow.cpp trySetHeight), so
     // fitWindow() asks Hyprland for it after a page change.
     implicitHeight: Math.min(maxHeight, Math.ceil(page === "" ? list.fitHeight : detail.fitHeight))
-    // The height the window host maps the window at, so a page is as tall
-    // reached after the map as at it: the host's rule
-    // (shell/Hosts/AppWindow.qml implicitHeight, VGS-1111) takes the larger
-    // of implicitHeight and the shown Pane's full height, the page's
-    // fitHeight, up to the screen's room.
-    readonly property int mapHeight: Math.floor(Math.min(OverlayState.room(screen).height, Math.max(implicitHeight, Math.ceil(page === "" ? list.fitHeight : detail.fitHeight))))
     // The page shown, as a page change resizes the window: the list, or a
     // plugin id and its tab.
     readonly property string shownPage: page === "" ? "" : page + "/" + detail.tab
@@ -135,17 +130,20 @@ FocusScope {
     // The core tells each plugin while its page is the one shown.
     onPageChanged: shell.manager.viewPage(page)
 
-    // Resize the shown window to mapHeight within the room OverlayState
-    // gives the screen its client is on, the work area under the bar less
-    // the gutter, once Hyprland answers and the shown page is laid out, so
-    // the last change wins. Hyprland owns a mapped window's size, and its
-    // floating resize keeps the window's centre, not its corner (v0.56.2
-    // src/layout/algorithm/floating/default/DefaultFloatingAlgorithm.cpp:198-203,
-    // resizeTarget), so a move to the old top-left follows each resize,
-    // through the same queue: the top-left stays unless the grown window
-    // would pass the bottom of that room, when it rises by that overflow
-    // alone, never above the room's top; x never changes. The settings
-    // smoke row reads both back. The window is the one client
+    // Resize the shown window to the shown page's height once Hyprland
+    // answers and the page is laid out, so the last change wins. Hyprland
+    // owns a mapped window's size, and its floating resize keeps the
+    // window's centre, not its top (v0.56.2
+    // src/layout/algorithm/floating/default/DefaultFloatingAlgorithm.cpp:198-208,
+    // resizeTarget), so the resize and a move back to the client's own
+    // top-left go as one request through the `compositor` capability's
+    // placeWindow, and no frame draws the box between them: the top and
+    // the width stay and only the bottom edge moves. The height is the
+    // page's, up to `size.window.tallHeightShare` of the height of the
+    // screen the client is on now, and up to the bottom of that screen's
+    // room (OverlayState.room) from the client's top, so a window the user
+    // dragged low keeps its top and its page scrolls. The settings smoke
+    // row reads the top and the height back. The window is the one client
     // of the shell's app-id, `org.vgs.shell`, which shell.qml's AppId pragma
     // and HyprlandLayer.APP_WINDOW own and a plugin cannot import, titled
     // with this plugin's name, as the window host titles it.
@@ -182,35 +180,20 @@ FocusScope {
                 console.warn("settings: resize screen=none monitor=" + monitors[0].name);
                 return;
             }
-            // The room's top and bottom in global logical pixels: a
-            // ShellScreen's x and y are its output's logical position, the
-            // space of a client's `at`. The room keeps `size.window.gutter`
-            // free inside the work area, since Hyprland draws the border
-            // outside the window's box.
+            // The room's bottom in global logical pixels: a ShellScreen's y
+            // is its output's logical position, the space of a client's
+            // `at`. The room keeps `size.window.gutter` free inside the work
+            // area, since Hyprland draws the border outside the window's box.
             const room = OverlayState.room(screen);
-            const top = Math.ceil(screen.y + room.y);
             const bottom = Math.floor(screen.y + room.y + room.height);
-            // The rounded room bounds the height too, so a page never asks
-            // for more than fits under the bar.
-            let height = Math.min(root.mapHeight, bottom - top);
-            // A workaround for Hyprland's centre-keeping floating resize,
-            // which moves the box by half the height's change (v0.56.2
-            // DefaultFloatingAlgorithm.cpp:198-203): an odd change leaves a
-            // half pixel the configure rounds to one more pixel (909 asked,
-            // 910 drawn in the settings smoke row), so an odd change asks
-            // one pixel more, or one less at the bound. It ends when
-            // Hyprland resizes a floating window at its corner or rounds
-            // the box itself.
-            if ((height - client.size[1]) % 2 !== 0) height += height < bottom - top ? 1 : -1;
-            if (client.size[1] === height) return;
-            const y = Math.max(top, Math.min(client.at[1], bottom - height));
-            const resized = shell.compositor.resizeWindow(client.address, client.size[0], height);
-            if (!Reply.isOk(resized)) {
-                console.warn("settings: resize " + resized);
+            const height = Math.min(Math.ceil(root.page === "" ? list.fitHeight : detail.fitHeight), Math.floor(Theme.size.window.tallHeightShare * screen.height), bottom - client.at[1]);
+            if (height < 1) {
+                console.warn("settings: resize top=" + client.at[1] + " bottom=" + bottom);
                 return;
             }
-            const moved = shell.compositor.moveWindow(client.address, client.at[0], y);
-            if (!Reply.isOk(moved)) console.warn("settings: move " + moved);
+            if (client.size[1] === height) return;
+            const placed = shell.compositor.placeWindow(client.address, client.at[0], client.at[1], client.size[0], height);
+            if (!Reply.isOk(placed)) console.warn("settings: place " + placed);
         });
     }
 
@@ -591,6 +574,7 @@ FocusScope {
             ListPage {
                 id: list
                 panel: root
+                maximumHeight: root.maxHeight
                 width: root.width
                 height: root.height
                 visible: root.page === "" || slide.running
@@ -600,6 +584,7 @@ FocusScope {
             PluginPage {
                 id: detail
                 panel: root
+                maximumHeight: root.maxHeight
                 row: root.current
                 x: root.width
                 width: root.width

@@ -34,24 +34,30 @@
 # provider field offers ElevenLabs in words.
 # The window takes the shown page's height on each page or tab change at
 # its top-left corner, and every listed plugin's Details ends inside it or
-# shows the scroll area's bottom edge cue.
-# The plugin list, the tallest page, maps with its frame inside the work
-# area under the bar, which the box the room gave without the reserved
-# area, the control, does not; the list fills that room, so the check
-# judges a window the room bounds.
-# inputs: shell/Ui/overlay/OverlayState.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/plugins/vgs.settings/* shell/Ui/layout/ScrollArea.qml shell/Ui/layout/TouchpadScroll.qml shell/Ui/layout/TouchpadScrollLogic.js shell/Commons/Reply.js shell/plugins/vgs.notifications/* scripts/smoke/fixtures/plugins/acme.status/* scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* shell/Core/Dispatch.js shell/Core/Compositor.qml shell/Core/Config.qml shell/Core/PluginStatus.qml bin/vgshell-scan shell/Core/TuiRunner.qml shell/Commons/SettingValues.js shell/Core/Capabilities.qml shell/Core/Registry.qml shell/Core/Plugins.qml shell/Hosts/SummonHost.qml shell/Hosts/SummonLayer.qml shell/Hosts/AppWindow.qml shell/plugins/vgs.bar/manifest.json shell/plugins/vgs.jarvis/manifest.json shell/plugins/vgs.gallery/manifest.json shell/plugins/vgs.themes/manifest.json shell/plugins/vgs.devtools/manifest.json shell/Core/Notices.qml bin/lib/qml-library.js scripts/smoke/rows/manager.sh scripts/smoke/rows/status.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh bin/vgshell-tui shell/Ui/layout/TabPages.qml shell/Ui/layout/Tabs.qml shell/Ui/foundation/KeyNav.qml shell/Ui/controls/RowAction.qml shell/Ui/controls/Field.qml shell/Ui/controls/FormRow.qml shell/Ui/controls/InfoButton.qml shell/Ui/feedback/Dialog.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Commons/DesktopLaunch.js shell/Ui/layout/SurfaceHeight.qml shell/plugins/vgs.bar/* shell/Commons/Paths.qml shell/Ui/controls/Select.qml scripts/smoke/fixtures/browsers/* scripts/smoke/rows/bar.sh shell/plugins/*/manifest.json shell/Ui/layout/SectionHeader.qml shell/Ui/layout/Section.qml shell/plugins/vgs.sounds/* shell/plugins/vgs.system/* shell/Hosts/PaneHost.qml shell/Hosts/PluginSlot.qml shell/shell.qml scripts/smoke/Probe.qml
+# shows the scroll area's bottom edge cue; a page past the cap holds the
+# window at the cap and scrolls.
+# The plugin list, the tallest page, maps with its top at the pinned top
+# and its height at the cap, its frame inside the work area under the bar,
+# which a box the room gave without the reserved area, the control, does
+# not. The window keeps that top at each tab of a plugin page, read from
+# Hyprland at each tab and during each change and in the frames the nested
+# output draws through each change with slowed window animations; the same
+# change sent as two requests, the control, draws a frame with the top
+# moved.
+# inputs: shell/Ui/overlay/OverlayState.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/plugins/vgs.settings/* shell/Ui/layout/ScrollArea.qml shell/Ui/layout/TouchpadScroll.qml shell/Ui/layout/TouchpadScrollLogic.js shell/Commons/Reply.js shell/plugins/vgs.notifications/* scripts/smoke/fixtures/plugins/acme.status/* scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* shell/Core/Dispatch.js shell/Core/Compositor.qml shell/Core/Config.qml shell/Core/PluginStatus.qml bin/vgshell-scan shell/Core/TuiRunner.qml shell/Commons/SettingValues.js shell/Core/Capabilities.qml shell/Core/Registry.qml shell/Core/Plugins.qml shell/Hosts/SummonHost.qml shell/Hosts/SummonLayer.qml shell/Hosts/AppWindow.qml shell/plugins/vgs.bar/manifest.json shell/plugins/vgs.jarvis/manifest.json shell/plugins/vgs.gallery/manifest.json shell/plugins/vgs.themes/manifest.json shell/plugins/vgs.devtools/manifest.json shell/Core/Notices.qml bin/lib/qml-library.js scripts/smoke/rows/manager.sh scripts/smoke/rows/status.sh scripts/smoke/rows/capabilities.sh scripts/smoke/rows/plugins.sh bin/vgshell-tui shell/Ui/layout/TabPages.qml shell/Ui/layout/Tabs.qml shell/Ui/foundation/KeyNav.qml shell/Ui/controls/RowAction.qml shell/Ui/controls/Field.qml shell/Ui/controls/FormRow.qml shell/Ui/controls/InfoButton.qml shell/Ui/feedback/Dialog.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Commons/DesktopLaunch.js shell/Ui/layout/SurfaceHeight.qml shell/plugins/vgs.bar/* shell/Commons/Paths.qml shell/Ui/controls/Select.qml scripts/smoke/fixtures/browsers/* scripts/smoke/rows/bar.sh shell/plugins/*/manifest.json shell/Ui/layout/SectionHeader.qml shell/Ui/layout/Section.qml shell/plugins/vgs.sounds/* shell/plugins/vgs.system/* shell/Hosts/PaneHost.qml shell/Hosts/PluginSlot.qml shell/shell.qml scripts/smoke/Probe.qml shell/Commons/Tokens.js shell/Core/HyprlandLayer.js
 set -euo pipefail
 click_centre "$(bar_key)" vgs.settings || fail "the click on the gear failed"
 expect_poll "the gear's click opens the Settings window" open settings_open
 
 # The window opens on the plugin list, the tallest page, which the window
-# host maps up to the room OverlayState gives the screen: the work area
-# Hyprland leaves under the bar less the window gutter a side. Hyprland
-# centres a floating window on its monitor's work area (v0.56.2
-# DefaultFloatingAlgorithm.cpp, newTarget), so the window's frame stays
-# below the bar. The control hands the judge the box the room gave before
-# it read the reserved area: the monitor's height less the gutter a side,
-# centred as Hyprland centres it, which draws its frame under the bar.
+# host maps at the cap, `size.window.tallHeightShare` of the monitor's
+# height, or the room under the pinned top when that is less
+# (OverlayState.windowRoom). The layer's window rule maps it with its top
+# at `size.window.topShare` of the monitor's height, so the window's frame
+# stays below the bar and above the bottom edge. The control hands the
+# judge the box the room gave before it read the reserved area: the
+# monitor's height less the gutter a side, centred on the work area, which
+# draws its frame under the bar.
 # plugins_monitor: the Plugins window's monitor in logical pixels, as
 # {"y", "height", "top", "bottom"}: its position, its height (the mode's
 # width on an odd transform) and its reserved top and bottom edges.
@@ -79,7 +85,8 @@ frame_room() {
 }
 # old_room_box: the Plugins client's x and width, at the height the room
 # gave without the reserved area, the monitor's height less the gutter a
-# side, centred on the work area's middle as Hyprland centres it.
+# side, centred on the work area's middle as Hyprland's `center` rule
+# places a window.
 old_room_box() {
   local box mon gutter
   box="$(one_window Plugins)" || return
@@ -90,31 +97,43 @@ old_room_box() {
   [[ $gutter =~ ^[0-9]+$ ]] || { printf 'gutter-%s\n' "$gutter"; return; }
   printf '%s\n' "$box" | py_reply 'import json,sys; x,y,w,h=json.load(sys.stdin); m=json.loads(sys.argv[1]); g=int(sys.argv[2]); tall=m["height"] - 2 * g; middle=m["y"] + m["top"] + (m["height"] - m["top"] - m["bottom"]) / 2; print(json.dumps([x, middle - tall / 2, w, tall]))' "$mon" "$gutter"
 }
-# work_area MONITOR GUTTER: the height of monitor MONITOR's ([id], as
-# window_of reads it) work area less GUTTER at its top and bottom, whose
-# height is the mode's width on an odd transform, from j/monitors apart
-# from Window.qml's room.
-work_area() {
-  hypr -j monitors | py_reply 'import json,math,sys; m=[m for m in json.load(sys.stdin) if m["id"] == json.loads(sys.argv[1])[0]]; g=int(sys.argv[2]); print(math.floor(m[0]["y"] + (m[0]["width"] if m[0]["transform"] % 2 == 1 else m[0]["height"]) / m[0]["scale"] - m[0]["reserved"][3] - g) - math.ceil(m[0]["y"] + m[0]["reserved"][1] + g) if len(m) == 1 else "monitors=%d" % len(m))' "$1" "$2"
-}
-# list_fills_room: `fills` when the Plugins client is as tall as its
-# monitor's work area less the gutter a side, within a pixel, so the room
-# bounds it and a room blind to the reserved area would map it taller;
-# else the two heights.
-list_fills_room() {
-  local client monitor gutter area
-  client="$(one_window Plugins)" || return
-  [[ $client == \[* ]] || { printf 'client-%s\n' "$client"; return; }
-  monitor="$(window_of Plugins monitor)" || return
-  [[ $monitor == \[* ]] || { printf 'monitor-%s\n' "$monitor"; return; }
+# pinned_box: the Plugins window's [top, height] wanted on its monitor,
+# from the tokens and j/monitors apart from OverlayState: the top at
+# `size.window.topShare` of the monitor's height, rounded half up as the
+# window rule's `rint` rounds it, and at most `size.window.tallHeightShare`
+# of that height, or the room from the top to the monitor's bottom less
+# the reserved bottom and the gutter when that is less; else a state word.
+pinned_box() {
+  local mon top cap gutter
+  mon="$(plugins_monitor)" || return
+  [[ $mon == \{* ]] || { printf '%s\n' "$mon"; return; }
+  top="$(ipc smoke themeValue size.window.topShare)" || return
+  cap="$(ipc smoke themeValue size.window.tallHeightShare)" || return
   gutter="$(ipc smoke themeValue size.window.gutter)" || return
-  [[ $gutter =~ ^[0-9]+$ ]] || { printf 'gutter-%s\n' "$gutter"; return; }
-  area="$(work_area "$monitor" "$gutter")" || return
-  [[ $area =~ ^[0-9]+$ ]] || { printf 'area-%s\n' "$area"; return; }
-  printf '%s\n' "$client" | py_reply 'import json,sys; h=json.load(sys.stdin)[3]; a=int(sys.argv[1]); print("fills" if abs(h - a) <= 1 else json.dumps([h, a]))' "$area"
+  printf '%s\n' "$mon" | py_reply 'import json,math,sys; m=json.load(sys.stdin); s,c,g=float(sys.argv[1]),float(sys.argv[2]),int(sys.argv[3]); top=math.floor(s * m["height"] + 0.5); print(json.dumps([top, min(math.floor(c * m["height"]), math.floor(m["height"] - m["bottom"] - g) - top)]))' "$top" "$cap" "$gutter"
+}
+# pinned_now: the Plugins client's [top, height], its top in its
+# monitor's logical pixels, as Hyprland holds them now.
+pinned_now() {
+  local box mon
+  box="$(one_window Plugins)" || return
+  [[ $box == \[* ]] || { printf 'client-%s\n' "$box"; return; }
+  mon="$(plugins_monitor)" || return
+  [[ $mon == \{* ]] || { printf '%s\n' "$mon"; return; }
+  printf '%s\n' "$box" | py_reply 'import json,sys; x,y,w,h=json.load(sys.stdin); m=json.loads(sys.argv[1]); print(json.dumps([y - m["y"], h]))' "$mon"
 }
 plugins_monitor_reserves_top() { plugins_monitor | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["top"] > 0))'; }
-expect_poll "the plugin list fills the work area less the gutter a side" fills list_fills_room
+# pinned_match: `pinned` once the Plugins client holds pinned_box's top
+# and height, else both readings.
+pinned_match() {
+  local want now
+  want="$(pinned_box)" || return
+  now="$(pinned_now)" || return
+  [[ $now == "$want" ]] && echo pinned || echo "now=$now want=$want"
+}
+expect_poll "the plugin list maps at the pinned top, at the cap" pinned pinned_match
+pinned_list="$(pinned_box)" || pinned_list=unread
+[[ $pinned_list == \[* ]] || fail "the Plugins window's pinned top and cap: got $pinned_list"
 expect "the plugin list maps with its frame below the bar and above the bottom edge" inside frame_room
 expect "the bar reserves a top edge on the window's monitor" true plugins_monitor_reserves_top
 old_box="$(old_room_box)" || old_box=unread
@@ -418,34 +437,28 @@ expect_poll "the page change back returns the body to its top" '[0]' page_top
 # tab change resizes its Hyprland client to the page's height, at its width
 # and its top-left corner, and the window's content takes the client's
 # height, so no part of it is blank. VPN's window takes each tab's height
-# up to the screen's room, the window host's map rule (the window's mapHeight), and
-# returns on Settings. Then every plugin the manager lists is judged on
+# up to the cap, the window's implicitHeight, and returns on Settings. Then every plugin the manager lists is judged on
 # Details by one judge: its last row ends inside the window, or the scroll
 # area's bottom edge cue shows. The shared scroll fixture's description
 # deliberately exceeds the room. Windows fits without a cue, so the cue reads both
 # ways. The control gives the judge a client one pixel shorter than its
 # measured last row, without a cue: the judge reads it cut.
 # fit_state: the Plugins client as [x, y, w, h], its height target, the
-# window's mapHeight within its work_area, and where the shown page ends
-# (Probe paneEnd), as one object; a state word while one is absent.
+# window's implicitHeight, and where the shown page ends (Probe paneEnd),
+# as one object; a state word while one is absent.
 fit_state() {
-  local client target monitor gutter area
+  local client target
   client="$(one_window Plugins)" || return
   [[ $client == \[* ]] || { printf 'client-%s\n' "$client"; return; }
-  target="$(ipc smoke readInstance window vgs.settings mapHeight)" || return
+  target="$(ipc smoke readInstance window vgs.settings implicitHeight)" || return
   [[ $target =~ ^[0-9]+$ ]] || { printf 'target-%s\n' "$target"; return; }
-  monitor="$(window_of Plugins monitor)" || return
-  [[ $monitor == \[* ]] || { printf 'monitor-%s\n' "$monitor"; return; }
-  gutter="$(ipc smoke themeValue size.window.gutter)" || return
-  [[ $gutter =~ ^[0-9]+$ ]] || { printf 'gutter-%s\n' "$gutter"; return; }
-  area="$(work_area "$monitor" "$gutter")" || return
-  [[ $area =~ ^[0-9]+$ ]] || { printf 'area-%s\n' "$area"; return; }
-  ipc smoke paneEnd window vgs.settings | py_reply 'import json,sys; print(json.dumps({"client": json.loads(sys.argv[1]), "target": min(int(sys.argv[2]), int(sys.argv[3])), "end": json.load(sys.stdin)}))' "$client" "$target" "$area"
+  ipc smoke paneEnd window vgs.settings | py_reply 'import json,sys; print(json.dumps({"client": json.loads(sys.argv[1]), "target": int(sys.argv[2]), "end": json.load(sys.stdin)}))' "$client" "$target"
 }
-# fit_settled: `settled` once the client is its target, or one pixel from
-# it where Window.qml evens out an odd resize step, and the window's
-# content is the client's height, else those three.
-fit_settled() { fit_state | py_reply 'import json,sys; d=json.load(sys.stdin); h=d["client"][3]; e=d["end"]; print("settled" if abs(h - d["target"]) <= 1 and e["height"] == h else json.dumps([h, d["target"], e["height"]]))'; }
+# fit_settled: `settled` once the client is its target and the window's
+# content is the client's height, else those three. An odd height change
+# asks the exact height: the resize and the move go as one request, so no
+# half-pixel top reaches a configure.
+fit_settled() { fit_state | py_reply 'import json,sys; d=json.load(sys.stdin); h=d["client"][3]; e=d["end"]; print("settled" if h == d["target"] and e["height"] == h else json.dumps([h, d["target"], e["height"]]))'; }
 # fit_judge READING [HEIGHT CUE]: one plugin's Details from its fit_state
 # READING: `fits` when its last row ends inside the window's height, `cued`
 # when it ends below it and the bottom cue shows, else `cut`. HEIGHT and
@@ -461,7 +474,7 @@ print("fits" if d["end"]["lastRowBottom"] <= height else "cued" if cue else "cut
 fit_field() { printf '%s\n' "$1" | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps(d[sys.argv[1]][sys.argv[2]] if sys.argv[1] == "end" else d["client"][int(sys.argv[2])]))' "$2" "$3"; }
 # fit_change BEFORE AFTER: [same top-left, same width, target height] from
 # BEFORE's client to AFTER's, independent of which tab is taller.
-fit_change() { printf '%s\n' "$2" | py_reply 'import json,sys; a=json.loads(sys.argv[1])["client"]; d=json.load(sys.stdin); b=d["client"]; print(json.dumps([a[:2] == b[:2], a[2] == b[2], abs(b[3] - d["target"]) <= 1]))' "$1"; }
+fit_change() { printf '%s\n' "$2" | py_reply 'import json,sys; a=json.loads(sys.argv[1])["client"]; d=json.load(sys.stdin); b=d["client"]; print(json.dumps([a[:2] == b[:2], a[2] == b[2], b[3] == d["target"]]))' "$1"; }
 fit_client() { fit_state | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["client"]))'; }
 expect "the window opens the VPN page" ok ipc smoke invokeInstance window vgs.settings openPlugin vgs.vpn
 expect_poll "the VPN page opens on Settings" 0 settings_tab
@@ -498,8 +511,10 @@ for fit_id in $fit_ids; do
   esac
 done
 expect "the deliberate scroll fixture's Details exceed the window and show the bottom cue" cued fit_judge "$overflow_details"
-overflow_past_cap() { printf '%s\n' "$1" | py_reply 'import json,sys; d=json.load(sys.stdin); print(d["client"][3] > d["end"]["implicitHeight"])'; }
-expect "the window takes the deliberate fixture's Details past the cap, to the room" True overflow_past_cap "$overflow_details"
+# overflow_height READING: the client's height in READING against the cap
+# pinned_box reads, as [height, cap].
+overflow_height() { printf '%s\n' "$1" | py_reply 'import json,sys; d=json.load(sys.stdin); print(json.dumps([d["client"][3], json.loads(sys.argv[1])[1]]))' "$pinned_list"; }
+expect "the window holds the deliberate fixture's Details at the cap" "$(printf '%s\n' "$pinned_list" | py_reply 'import json,sys; c=json.load(sys.stdin)[1]; print(json.dumps([c, c]))')" overflow_height "$overflow_details"
 expect "the deliberate scroll fixture's Details show the bottom cue" true fit_field "$overflow_details" end cueBelow
 overflow_cut_height="$(fit_field "$overflow_details" client 3)" || overflow_cut_height=unread
 expect "control: the same overflowing fixture without its bottom cue is cut" cut fit_judge "$overflow_details" "$overflow_cut_height" false
@@ -656,6 +671,216 @@ expect "Details draws no Settings editor" '[0, 0]' page_fields_of acme.status
 settings_tab_click Settings || fail "the click on the status fixture's Settings tab failed"
 expect_poll "the status fixture shows Settings for its field count" Settings settings_tab_text
 expect_poll "Settings draws the choices setting only" '[1, 0]' page_fields_of acme.status
+
+# The pinned top (VGS-1891). The status fixture's page has three tabs of
+# three heights. Each change between them keeps the window's top at the
+# pinned top, `size.window.topShare` of the monitor's height, and moves
+# only its bottom edge: Hyprland reads that top at each tab and in reads
+# polled through each change, and so does every frame the nested output
+# draws through each change. Hyprland reports goal positions alone, so the
+# drawn top is read from frames: window animations on, slowed to two
+# seconds (`speed = 20`, in tenths of a second), and the app-window rows'
+# 4 px border with no rounding, a column one pixel wide two pixels inside
+# the window's left border captured with grim through each change, the
+# border's run in each frame giving the drawn top and height. Ten such
+# captures took 298 ms in the nested sandbox on cachy, AMD Ryzen 9 9950X,
+# on 2026-10-18 at a 1-minute load of 14, so a two-second change yields
+# dozens of frames; a change's frames must include one drawn between its
+# two heights, so the reading saw the animation. The control sends the same change as two requests, a
+# resize and then a move back, Settings' code before VGS-1891: a frame
+# between them draws the top moved, which the same reading must see. An
+# odd height change through one batch draws exactly the height asked, at
+# the top. The block restores hyprland.lua and Hyprland's animations by a
+# reload, and leaves the page on Settings at its height.
+pin_socket="$(shot_socket "$rt_dir" "$nested_socket" "$host_socket")" || fail "the nested socket for the pinned-top frames is unresolved"
+hypr_animations() { hypr -j getoption animations:enabled | py_reply 'import json,sys; print(int(json.load(sys.stdin)["bool"]))'; }
+# pin_batch REQUEST: Hyprland's replies to one `hyprctl --batch` REQUEST,
+# joined by commas.
+pin_batch() { hypr --batch "$1" | py_reply 'import sys; print(",".join(p.strip() for p in sys.stdin.read().split("\n\n\n")))'; }
+# pin_frames_start DIR: two loops into DIR until DIR/stop exists, each
+# bounded so a failed row never leaves one running: grim captures of the
+# one-pixel column at layout x PIN_X from the monitor's top, PIN_Y, PIN_H
+# tall, one file a frame, and the Plugins client's box from j/clients, one
+# line a read. pin_frames_stop DIR ends both.
+pin_frames_start() { # DIR
+  mkdir -p -- "$1"
+  (
+    n=0
+    while [[ ! -e $1/stop && $n -lt 1200 ]]; do
+      shot_grim "$pin_socket" "$rt_dir" -g "$pin_x,$pin_y 1x$pin_h" -t ppm "$1/frame-$(printf '%05d' "$n").ppm" 2>/dev/null || true
+      n=$((n + 1))
+    done
+  ) &
+  pin_frames_pid=$!
+  (
+    n=0
+    while [[ ! -e $1/stop && $n -lt 1200 ]]; do
+      one_window Plugins >>"$1/goals" 2>/dev/null || true
+      n=$((n + 1))
+    done
+  ) &
+  pin_goals_pid=$!
+}
+pin_frames_stop() { # DIR
+  : >"$1/stop"
+  wait "$pin_frames_pid" "$pin_goals_pid" || true
+}
+# pin_read DIR [ALL]: the drawn [top, height] of the newest whole frame in
+# DIR, its top from the monitor's top, or with ALL every frame's in order,
+# and the goal reads, as {"frames": [...], "goals": [[top, height], ...]}.
+# A frame with no border run reads null. The border run is the longest run
+# of the border's red or blue in the column; Hyprland draws the 4 px border
+# outside the window's box, so the box's top is the run's first row plus 4
+# and its height the run's length less 8.
+pin_read() { # DIR [ALL]
+  python3 - "$1" "${2:-}" "$pin_y" <<'PY'
+import glob, json, os, sys
+folder, every, origin = sys.argv[1], sys.argv[2] == "all", int(sys.argv[3])
+def drawn(path):
+    try:
+        data = open(path, "rb").read()
+    except OSError:
+        return None
+    head = data.split(b"\n", 3)
+    if len(head) != 4 or head[0] != b"P6" or head[2] != b"255":
+        return None
+    width, height = (int(v) for v in head[1].split())
+    pixels = head[3]
+    if width != 1 or len(pixels) != 3 * height:
+        return None
+    best, start = (0, -1), None
+    for row in range(height + 1):
+        border = row < height and pixels[3 * row:3 * row + 3] in (b"\xff\x00\x00", b"\x00\x00\xff")
+        if border and start is None:
+            start = row
+        elif not border and start is not None:
+            if row - start > best[0]:
+                best = (row - start, start)
+            start = None
+    return None if best[0] <= 8 else [best[1] + 4, best[0] - 8]
+frames = sorted(glob.glob(os.path.join(folder, "frame-*.ppm")))
+if not every:
+    print(json.dumps(drawn(frames[-2]) if len(frames) >= 2 else "frames=%d" % len(frames)))
+    sys.exit()
+goals = []
+if os.path.exists(os.path.join(folder, "goals")):
+    for line in open(os.path.join(folder, "goals")):
+        try:
+            x, y, w, h = json.loads(line)
+            goals.append([y - origin, h])
+        except (ValueError, TypeError):
+            pass
+print(json.dumps({"frames": [drawn(f) for f in frames], "goals": goals}))
+PY
+}
+# pin_judge READING TOP BEFORE AFTER: one change's frames and goal reads
+# from pin_read ... all, against the pinned TOP and the heights BEFORE and
+# AFTER the change, as {"frames": n, "unread": frames with no border run,
+# "between": frames drawn at a height between BEFORE and AFTER, "moved":
+# the first three frame tops other than TOP, "goals": n, "goalsMoved": the
+# first three goal tops other than TOP}.
+pin_judge() { # READING TOP BEFORE AFTER
+  printf '%s\n' "$1" | py_reply '
+import json, sys
+d = json.load(sys.stdin)
+top, before, after = (int(v) for v in sys.argv[1:4])
+low, high = min(before, after), max(before, after)
+frames = [f for f in d["frames"] if f is not None]
+print(json.dumps({"frames": len(d["frames"]), "unread": len(d["frames"]) - len(frames),
+    "between": sum(1 for f in frames if low < f[1] < high),
+    "moved": [f[0] for f in frames if f[0] != top][:3],
+    "goals": len(d["goals"]), "goalsMoved": [g[0] for g in d["goals"] if g[0] != top][:3]}))' "$2" "$3" "$4"
+}
+pin_field() { printf '%s\n' "$1" | py_reply 'import json,sys; v=json.load(sys.stdin)[sys.argv[1]]; print(json.dumps(v))' "$2"; }
+pin_some() { printf '%s\n' "$1" | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)[sys.argv[1]] > 0))' "$2"; }
+# pin_settled DIR [HEIGHT]: `settled` once Hyprland holds the client at
+# the pinned top at HEIGHT, the window's implicitHeight without it, and
+# the newest frame draws it there, else the three readings.
+pin_settled() { # DIR [HEIGHT]
+  local goal frame want="${2:-}"
+  [[ -n $want ]] || want="$(ipc smoke readInstance window vgs.settings implicitHeight)" || return
+  goal="$(pinned_now)" || return
+  frame="$(pin_read "$1")" || return
+  python3 -c 'import json,sys; g,f,want=json.loads(sys.argv[1]),json.loads(sys.argv[2]),[int(sys.argv[3]),int(sys.argv[4])]; print("settled" if g == want and f == want else json.dumps([g, f, want]))' "$goal" "$frame" "$pin_top" "$want"
+}
+pin_top_now() { pinned_now | py_reply 'import json,sys; print(json.load(sys.stdin)[0])'; }
+pin_height() { pinned_now | py_reply 'import json,sys; print(json.load(sys.stdin)[1])'; }
+# pin_change NAME TO_TAB: one tab change watched from start to rest: the
+# frames and goal reads through it judged against the pinned top, the
+# height before and the shown tab's height after.
+pin_change() { # NAME TO_TAB
+  local dir="$sandbox/pinned-frames/$1" before after reading verdict
+  before="$(pin_height)" || before=unread
+  pin_frames_start "$dir"
+  expect_poll "$1: the frame reader reads the window at rest before the change" "[$pin_top, $before]" pin_read "$dir"
+  settings_tab_click "$2" || fail "$1: the click on the $2 tab failed"
+  expect_poll "$1: the page shows $2" "$2" settings_tab_text
+  expect_poll "$1: Hyprland holds and the output draws the window at the pinned top at $2's height" settled pin_settled "$dir"
+  pin_frames_stop "$dir"
+  after="$(pin_height)" || after=unread
+  reading="$(pin_read "$dir" all)" || reading='{"frames": [], "goals": []}'
+  verdict="$(pin_judge "$reading" "$pin_top" "$before" "$after")" || verdict='{}'
+  printf '  pinned  %s: before=%s after=%s %s\n' "$1" "$before" "$after" "$verdict"
+  expect "$1: the window changes height" true python3 -c 'import sys; print("true" if sys.argv[1] != sys.argv[2] else "false")' "$before" "$after"
+  expect "$1: every frame drawn through the change draws the top at the pinned top" '[]' pin_field "$verdict" moved
+  expect "$1: every frame read the window's border" 0 pin_field "$verdict" unread
+  expect "$1: frames were drawn between the two heights" true pin_some "$verdict" between
+  expect "$1: every Hyprland read through the change holds the pinned top" '[]' pin_field "$verdict" goalsMoved
+  expect "$1: Hyprland was read through the change" true pin_some "$verdict" goals
+}
+expect "the status fixture's page shows Settings for the pinned top" Settings settings_tab_text
+pin_box="$(pinned_box)" || pin_box=unread
+[[ $pin_box == \[* ]] || fail "the pinned top's reading: got $pin_box"
+pin_top="$(printf '%s\n' "$pin_box" | py_reply 'import json,sys; print(json.load(sys.stdin)[0])')" || pin_top=unread
+expect_poll "the window holds the pinned top on Settings" "$pin_top" pin_top_now
+window_border_on
+pin_client="$(one_window Plugins)" || pin_client=unread
+read -r pin_x pin_y pin_h < <(python3 -c 'import json,sys; c=json.loads(sys.argv[1]); m=json.loads(sys.argv[2]); print(c[0] - 2, m["y"], int(m["height"]))' "$pin_client" "$(plugins_monitor)") || fail "the frame column is unreadable: client=$pin_client"
+expect "window animations are on for the pinned-top frames" ok hypr eval 'hl.config({ animations = { enabled = true } })'
+expect "window animations take two seconds for the pinned-top frames" ok hypr eval 'hl.animation({ leaf = "windows", enabled = true, speed = 20, bezier = "default" })'
+expect "Hyprland's window animations are on" 1 hypr_animations
+pin_change "Settings to Setup" Setup
+pin_change "Setup to Details" Details
+pin_details="$(pin_height)" || pin_details=unread
+pin_change "Details to Settings" Settings
+pin_settings="$(pin_height)" || pin_settings=unread
+# The control: Details' height as two requests from Settings' box, a
+# resize and, once a frame draws the top moved, the move back.
+pin_address="$(window_address Plugins)" || pin_address=unread
+pin_left="$(one_window Plugins | py_reply 'import json,sys; print(json.load(sys.stdin)[0])')" || pin_left=unread
+pin_global_top=$((pin_y + pin_top))
+pin_control="$sandbox/pinned-frames/control"
+pin_frames_start "$pin_control"
+expect_poll "control: the frame reader reads the window at rest" "[$pin_top, $pin_settings]" pin_read "$pin_control"
+pin_moved() { pin_read "$pin_control" | py_reply 'import json,sys; f=json.load(sys.stdin); print("moved" if isinstance(f, list) and f[0] != int(sys.argv[1]) else json.dumps(f))' "$pin_top"; }
+pin_width="$(one_window Plugins | py_reply 'import json,sys; print(json.load(sys.stdin)[2])')" || pin_width=unread
+expect "control: the resize alone answers ok" ok hypr dispatch "hl.dsp.window.resize({ x = $pin_width, y = $pin_details, relative = false, window = \"address:$pin_address\" })"
+expect_poll "control: a frame after the resize alone draws the top moved" moved pin_moved
+expect "control: the move back answers ok" ok hypr dispatch "hl.dsp.window.move({ x = $pin_left, y = $pin_global_top, relative = false, window = \"address:$pin_address\" })"
+expect_poll "control: the window comes to rest at the pinned top" settled pin_settled "$pin_control" "$pin_details"
+pin_frames_stop "$pin_control"
+pin_control_verdict="$(pin_judge "$(pin_read "$pin_control" all)" "$pin_top" "$pin_settings" "$pin_details")" || pin_control_verdict='{}'
+printf '  pinned  control: %s\n' "$pin_control_verdict"
+expect "control: the two requests draw frames with the top moved" true python3 -c 'import json,sys; print("true" if json.loads(sys.argv[1]).get("moved") else "false")' "$pin_control_verdict"
+# An odd height change through one batch, as placeWindow sends it: Hyprland
+# holds, Qt lays out and the output draws exactly the height asked, at the
+# pinned top; the batch back to Settings' height keeps the top too.
+pin_odd=$((pin_settings + 101))
+pin_odd_dir="$sandbox/pinned-frames/odd"
+pin_frames_start "$pin_odd_dir"
+expect_poll "odd: the frame reader reads the window at rest" "[$pin_top, $pin_details]" pin_read "$pin_odd_dir"
+expect "odd: one batch resizes by an odd step and moves back" ok,ok pin_batch "dispatch hl.dsp.window.resize({ x = $pin_width, y = $pin_odd, relative = false, window = \"address:$pin_address\" }) ; dispatch hl.dsp.window.move({ x = $pin_left, y = $pin_global_top, relative = false, window = \"address:$pin_address\" })"
+expect_poll "odd: Hyprland holds and the output draws the asked height at the pinned top" settled pin_settled "$pin_odd_dir" "$pin_odd"
+pin_content() { ipc smoke paneEnd window vgs.settings | py_reply 'import json,sys; print(json.load(sys.stdin)["height"])'; }
+expect_poll "odd: the window's content takes the asked height" "$pin_odd" pin_content
+expect "odd: the batch back to Settings' height answers ok twice" ok,ok pin_batch "dispatch hl.dsp.window.resize({ x = $pin_width, y = $pin_settings, relative = false, window = \"address:$pin_address\" }) ; dispatch hl.dsp.window.move({ x = $pin_left, y = $pin_global_top, relative = false, window = \"address:$pin_address\" })"
+expect_poll "odd: the window comes to rest at Settings' height" settled pin_settled "$pin_odd_dir" "$pin_settings"
+pin_frames_stop "$pin_odd_dir"
+pin_odd_verdict="$(pin_judge "$(pin_read "$pin_odd_dir" all)" "$pin_top" "$pin_details" "$pin_odd")" || pin_odd_verdict='{}'
+printf '  pinned  odd: %s\n' "$pin_odd_verdict"
+expect "odd: every frame through both batches draws the top at the pinned top" '[]' pin_field "$pin_odd_verdict" moved
+window_border_off
+expect_poll "Hyprland's window animations are off again after the reload" 0 hypr_animations
 
 # Required status actions are links beside their step. The control values
 # withhold the action. The manager refuses them and starts no terminal.

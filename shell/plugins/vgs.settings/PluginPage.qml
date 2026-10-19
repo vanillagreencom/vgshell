@@ -13,6 +13,9 @@ FocusScope {
 
     // The Settings panel: its rows, its replies and its navigation.
     required property Item panel
+    // The cap on this page's Pane, which the window host maps the window
+    // at for a long page: Window.maxHeight, or 0 for none.
+    property alias maximumHeight: layout.maximumHeight
     // The manager row this page draws, or null.
     property var row: null
 

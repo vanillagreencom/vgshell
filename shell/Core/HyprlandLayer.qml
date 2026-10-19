@@ -83,7 +83,8 @@ Scope {
         groups: Theme.appearanceState.hyprland,
         motionScale: Theme.motion.scale,
         tuiMargins: { bar: Theme.bar.height, gutter: Theme.size.window.gutter },
-        tuiCell: { width: Math.ceil(terminalCell.averageCharacterWidth), height: Math.ceil(terminalCell.lineSpacing) }
+        tuiCell: { width: Math.ceil(terminalCell.averageCharacterWidth), height: Math.ceil(terminalCell.lineSpacing) },
+        windowTopShare: Theme.size.window.topShare
     })
     // Layer.render's arguments, or null before its inputs are read.
     readonly property var renderInputs: inputsReady ? [sections, themeAppearance, Theme.name, highestMonitorScale, Capabilities.hyprland.touchpads, Capabilities.hyprland.devicesFailure, Registry.monitorRuleOwnerId] : null

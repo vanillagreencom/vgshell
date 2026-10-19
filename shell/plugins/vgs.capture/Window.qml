@@ -24,7 +24,9 @@ FocusScope {
     readonly property var initialFocus: sharing ? tabs : captureControls.item === null ? null : captureControls.item.initialFocus
     readonly property real areaHeight: 4 * Theme.row.height + 3 * Theme.stack.row
     readonly property real sharingHeight: 2 * pane.contentInset + pane.headerHeight + pane.headerBodyGap + hint.implicitHeight + imageBox.height + sources.height + areaHeight + 3 * Theme.stack.group + pane.gap + pane.footerHeight
-    readonly property bool compactArea: sharingHeight > OverlayState.room(shell === null ? null : shell.screens.current).height
+    // The window host maps a window no taller than the room under the
+    // pinned top (OverlayState.windowRoom), so Area compacts past that.
+    readonly property bool compactArea: sharingHeight > OverlayState.windowRoom(shell === null ? null : shell.screens.current).height
     implicitWidth: Theme.size.window.width
     // The host maps once. Reserve Area's controls before the first tab opens.
     // https://quickshell.org/docs/v0.3.1/guide/size-position/

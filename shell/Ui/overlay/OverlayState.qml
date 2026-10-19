@@ -41,11 +41,7 @@ QtObject {
     // The room an output leaves a surface, as { x, y, width, height } in
     // the output's own logical pixels: its work area, the output less the
     // edges Hyprland reserves for exclusive layers such as the bar, less
-    // `size.window.gutter` a side; no bound without an output. Hyprland
-    // centres a floating window on that work area (v0.56.2
-    // src/layout/algorithm/floating/default/DefaultFloatingAlgorithm.cpp,
-    // newTarget), so a window no taller than this room maps below the bar.
-    // The reserved edges are j/monitors' `reserved`, [left, top, right,
+    // `size.window.gutter` a side; no bound without an output. The reserved edges are j/monitors' `reserved`, [left, top, right,
     // bottom], from Quickshell's monitor object, whose lastIpcObject "is not
     // updated unless the monitor object is fetched again from Hyprland"
     // (https://quickshell.org/docs/v0.3.1/types/Quickshell.Hyprland/HyprlandMonitor);
@@ -72,6 +68,21 @@ QtObject {
             width: Math.max(1, output.width - reserved[0] - reserved[2] - gutter),
             height: Math.max(1, output.height - reserved[1] - reserved[3] - gutter)
         };
+    }
+
+    // The room under a shell window's pinned top on `output`, as { top,
+    // height } in the output's own logical pixels: the top the Hyprland
+    // layer's window rule maps every shell window at, `size.window.topShare`
+    // of the output's height rounded as that rule's `rint` rounds it
+    // (HyprlandLayer.appWindowLines), and the height from there to the
+    // bottom of room(output), so a window no taller ends inside the work
+    // area; no bound without an output. Every window's map height and the
+    // Plugins window's resize read it here.
+    function windowRoom(output) {
+        if (output === null || output === undefined) return { top: 0, height: Infinity };
+        const top = Math.round(Theme.size.window.topShare * output.height);
+        const below = room(output);
+        return { top: top, height: Math.max(1, below.y + below.height - top) };
     }
 
     // The widest an overlay anchored to `item` may draw: `cap`, and never
