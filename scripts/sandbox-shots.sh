@@ -2618,7 +2618,14 @@ settled_box() {
 launcher_file_listed() { launcher_rows | python3 -c 'import json,sys; t=sys.stdin.read(); print(t.startswith("[") and any(r[0] == "file" and r[1] == sys.argv[1] for r in json.loads(t)))' "$1"; }
 launcher_listed() { launcher_rows | python3 -c 'import json,sys; t=sys.stdin.read(); print(t.startswith("[") and len(json.loads(t)) > 2)'; }
 scene_launcher() { # MODE
-  local second motion
+  local second motion devtools
+  # Dev Tools publishes its whole catalog, including unavailable tools.
+  # A preceding scene must not add those providers to the fixed app fixture.
+  devtools="$(plugin_enabled vgs.devtools)" || return 1
+  if [[ $devtools == True ]]; then
+    expect "Dev Tools is disabled for the fixed launcher fixture" ok ipc shell setPluginEnabled vgs.devtools false
+    expect_poll "the Dev Tools provider is gone" False record_exists vgs.devtools
+  fi
   expect "the launcher summons" ok ipc vgs.launcher invoke summon '{}'
   expect_poll "the launcher maps its overlay" 1 layer_count vgs:overlay
   expect_poll "the launcher holds the keyboard" true ipc smoke activeFocusIn overlay vgs.launcher
@@ -2673,6 +2680,10 @@ PYLAUNCHER
   park_pointer
   type_keys -k Escape -k Escape -k Escape || fail "sending Escape failed"
   expect_poll "the launcher closes" 0 layer_count vgs:overlay
+  if [[ $devtools == True ]]; then
+    expect "Dev Tools is restored after the launcher fixture" ok ipc shell setPluginEnabled vgs.devtools true
+    expect_poll "Dev Tools is built again" True record_exists vgs.devtools
+  fi
 }
 
 notify() { # APP SUMMARY BODY ACTIONS HINTS: prints the id
@@ -2816,7 +2827,8 @@ scene_notifications() { # MODE
   solid_png "$home/white.png" 640 360 255 255 255 || fail "the white desktop image was not written"
   bg_state_names "$home/white.png" || fail "the white desktop's state file was not written"
   expect_poll "the white desktop image is ready" "$home/white.png ready" background_image_on "$main_name"
-  expect_poll "the desktop draws white" ffffff pixel 100 100
+  # On the narrow output (100,100) is a card's shadow, not the desktop.
+  expect_poll "the desktop draws white" ffffff pixel 2 "$((mon_h - 2))"
   take "notifications-$1-icons-inbox-white"
   bg_state_names "$repo/themes/vgs/backgrounds/black.png" || fail "the black desktop's state file was not written"
   expect_poll "the black desktop image is ready again" "$repo/themes/vgs/backgrounds/black.png ready" background_image_on "$main_name"
@@ -2829,10 +2841,56 @@ scene_notifications() { # MODE
   expect_poll "no toast is left" 0 on_screen
 }
 
+# Scroll through the bar's own buttons before using a widget's geometry:
+# clipped widgets keep their boxes, but take no pointer input there.
+bar_widget_reveal() { # ID
+  local action x y box rect previous=""
+  smoke_poll_tries 200 1
+  for _ in $(seq 1 "$smoke_poll_n"); do
+    box="$(ipc smoke instanceGeometry "$(bar_key)" "$1")" || return 1
+    if [[ $box == \[* && $box == "$previous" ]]; then
+      action="$(ipc smoke barParticipationGeometry "$(bar_key)" | py_reply 'import json,sys
+data=json.load(sys.stdin)
+for section in data["sections"]:
+    for widget in section["drop"]["widgets"]:
+        if widget["locator"]["id"] != sys.argv[1]: continue
+        shown=section["drop"].get("shown")
+        x, width=widget["x"], widget["width"]
+        side=section["section"]
+        if shown is not None and x < shown["x"] - 0.5: print("bar-zone-" + side + "-start")
+        elif shown is not None and x + width > shown["x"] + shown["width"] + 0.5: print("bar-zone-" + side + "-end")
+        else: print("ready")
+        sys.exit()
+print("absent")' "$1")" || return 1
+      case $action in
+        ready) return 0 ;;
+        bar-zone-*-start|bar-zone-*-end)
+          # The bar is a mount, not a passive Layers entry.
+          rect="$(ipc smoke descendantGeometry "$(bar_key)" vgs.bar | py_reply 'import json,sys
+rows=json.load(sys.stdin)
+print(json.dumps(next((r["box"] for r in rows if r["name"] == sys.argv[1] and r["visible"]), None)))' "$action")" || return 1
+          [[ $rect == \[* ]] || return 1
+          read -r x y <<<"$(centre_of "$rect")" || return 1
+          hover "$((x + 1))" "$y" || return 1
+          if [[ $(ipc smoke readMatchingDescendant "$(bar_key)" vgs.bar BarItem objectName "$action" hovered) != true ]]; then
+            sleep 0.2
+            continue
+          fi
+          click "$x" "$y" || return 1
+          box="" ;;
+        *) return 1 ;;
+      esac
+    fi
+    previous="$box"
+    sleep 0.2
+  done
+  return 1
+}
 # hover_widget LABEL ID: the pointer on the centre of bar widget ID,
 # arriving by two motions.
 hover_widget() {
   local at x y
+  bar_widget_reveal "$2" || { fail "$1: widget $2 could not be revealed"; return 1; }
   at="$(centre_of "$(ipc smoke instanceGeometry "$(bar_key)" "$2")")" || at=none
   if [[ $at == none ]]; then fail "$1: widget $2 has no box"; return 1; fi
   read -r x y <<<"$at"
@@ -2911,6 +2969,7 @@ PY
 }
 scene_panels() { # MODE
   warden_status calm calm
+  bar_widget_reveal vgs.agent-warden || fail "the shield could not be revealed"
   click_in vgs:bar "$(bar_key)" vgs.agent-warden BarItem "Agent Warden" || fail "the click on the shield failed"
   expect_poll "the shield opens the warden's panel" True warden_panel_lines
   park_pointer
@@ -2922,6 +2981,7 @@ scene_panels() { # MODE
   expect "the warden's panel hides" ok ipc shell hide panel vgs.agent-warden
   expect_poll "the warden's panel is gone" absent warden_panel_texts
   warden_status calm calm
+  bar_widget_reveal vgs.updates || fail "the updates widget could not be revealed"
   click_centre "$(bar_key)" vgs.updates || fail "the click on the updates widget failed"
   expect_poll "the widget opens the Updates window" open updates_window
   park_pointer

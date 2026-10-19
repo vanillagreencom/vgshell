@@ -86,6 +86,70 @@ pathlib.Path(sys.argv[2]).write_text(text.replace(needle, ""))
 PY
 if click_case "$click_mutant"; then fail "control: a click without a pointer move reached the mapped window"; else ok "control: a click without a pointer move misses the mapped window"; fi
 
+# Bar geometry includes clipped widgets. Drive the real reveal helper
+# against the probe's section/drop contract, recording the scroll button
+# it presses; the nested scene proves event delivery and tooltip drawing.
+bar_helper="$tmp/bar-helper.sh"
+sed -n '/^bar_widget_reveal() {/,/^}/p; /^centre_of() {/p' "$repo/scripts/sandbox-shots.sh" >"$bar_helper"
+bar_reveal_case() { # HELPER SIDE X BUTTON
+  local helper="$1" side="$2" x="$3" button="$4"
+  rm -f -- "$tmp/bar-clicks" "$tmp/bar-ready" "$tmp/bar-hovered" "$tmp/bar-target"
+  env -i PATH="$tmp/bin:$PATH" T="$tmp" SIDE="$side" X="$x" "$BASH" -c '
+set -euo pipefail
+source "$1"
+bar_key() { echo bar; }
+smoke_poll_tries() { smoke_poll_n=6; }
+py_reply() { python3 -c "$@"; }
+ipc() {
+  case $2 in
+    instanceGeometry) echo "[100, 0, 32, 28]"; return ;;
+    descendantGeometry)
+      [[ $3 == bar && $4 == vgs.bar ]] || return 1
+      printf "[{\"name\":\"bar-zone-%s-%s\",\"visible\":true,\"box\":[10,0,20,28]}]\n" "$SIDE" "$([[ $X == 80 ]] && echo start || echo end)"
+      return ;;
+    readMatchingDescendant)
+      [[ $3 == bar && $4 == vgs.bar && $5 == BarItem && $6 == objectName && $8 == hovered ]] || return 1
+      [[ -f $T/bar-hovered ]] || return 1
+      printf "%s\n" "$7" >"$T/bar-target"
+      echo true; return ;;
+    barParticipationGeometry) ;;
+    *) return 1 ;;
+  esac
+  python3 - "$SIDE" "$X" "$T/bar-ready" <<"PYBAR"
+import json, os, sys
+side, x, ready=sys.argv[1:]
+drop={"widgets": [{"locator": {"id": "test.widget"}, "x": 120 if os.path.exists(ready) else int(x), "width": 32}]}
+if side != "center": drop["shown"]={"x": 100, "width": 80}
+print(json.dumps({"sections": [{"section": side, "drop": drop}]}))
+PYBAR
+}
+hover() { [[ $1 == 21 && $2 == 14 ]] && : >"$T/bar-hovered"; }
+click() { [[ $1 == 20 && $2 == 14 ]] && cat "$T/bar-target" >>"$T/bar-clicks" && : >"$T/bar-ready"; }
+bar_widget_reveal test.widget
+' _ "$helper" || return 1
+  if [[ $button == none ]]; then [[ ! -e $tmp/bar-clicks ]]
+  else [[ -f $tmp/bar-clicks && $(cat "$tmp/bar-clicks") == "$button" ]]; fi
+}
+while read -r side x button; do
+  if bar_reveal_case "$bar_helper" "$side" "$x" "$button"; then ok "bar reveal: $side at $x presses $button"; else fail "bar reveal: $side at $x presses $button"; fi
+done <<'BARCASES'
+left 80 bar-zone-left-start
+left 180 bar-zone-left-end
+right 80 bar-zone-right-start
+right 180 bar-zone-right-end
+right 120 none
+center 80 none
+BARCASES
+bar_mutant="$tmp/bar-mutant.sh"
+python3 - "$bar_helper" "$bar_mutant" <<'PY'
+import pathlib, sys
+text=pathlib.Path(sys.argv[1]).read_text()
+needle='print("bar-zone-" + side + "-start")'
+assert text.count(needle) == 1
+pathlib.Path(sys.argv[2]).write_text(text.replace(needle, 'print("ready")'))
+PY
+if bar_reveal_case "$bar_mutant" right 80 bar-zone-right-start; then fail "control: a clipped widget is accepted without scrolling"; else ok "control: a clipped widget is rejected without scrolling"; fi
+
 # Pointer targets and reserved space use logical dimensions at every scale.
 size_helper="$tmp/size-helper.sh"
 sed -n '/^monitor_size() {/p; /^bar_settled_judge() {/,/^}/p' "$repo/scripts/smoke/harness.sh" >"$size_helper"
