@@ -24,14 +24,23 @@ FocusScope {
     readonly property var initialFocus: sharing ? tabs : captureControls.item === null ? null : captureControls.item.initialFocus
     readonly property real areaHeight: 4 * Theme.row.height + 3 * Theme.stack.row
     readonly property real compactAreaHeight: 2 * Theme.row.height + Theme.stack.row
-    // The window host maps a window no taller than the one cap on a shell
-    // window's height (OverlayState.windowRoom). Past it Area compacts, then
-    // the preview gives up height down to `size.preview.minHeight`, so the
-    // sources and Area's controls stay in view; only then the body scrolls.
+    readonly property var hints: ["Choose what the app can see.", "Drag over the preview, or adjust the area below."]
+    // The window host maps once, at the Screens tab open() switches to, no
+    // taller than the one cap on a shell window's height
+    // (OverlayState.windowRoom); a shown floating window takes no later size
+    // (AppWindow). So the height holds every tab's choices: the taller of
+    // the two hints, the longer of the screen and window lists at
+    // `listItem.twoLineHeight` a row, or the open list's own height when
+    // that is more, and Area's controls. Past the cap Area compacts, then the
+    // preview gives up height down to `size.preview.minHeight`; only then
+    // the body scrolls.
+    // https://quickshell.org/docs/v0.3.1/guide/size-position/
     readonly property real windowCap: OverlayState.windowRoom(shell === null ? null : shell.screens.current).height
     // The pane's height outside its body, as Pane.bodyRoom subtracts it.
     readonly property real bodyChrome: 2 * pane.contentInset + pane.headerHeight + pane.bodyGap + Math.max(pane.gap, pane.stickyGap) + pane.footerHeight
-    readonly property real choicesHeight: bodyChrome + hint.implicitHeight + sources.height + 3 * Theme.stack.group
+    readonly property real hintRoom: Math.max(hint.implicitHeight, otherHint.implicitHeight)
+    readonly property real sourcesRoom: Math.max(sources.height, Math.max(screens.length, request.windows.length) * Theme.listItem.twoLineHeight)
+    readonly property real choicesHeight: bodyChrome + hintRoom + sourcesRoom + 3 * Theme.stack.group
     readonly property real fullPreviewHeight: Math.min(Theme.size.panel.sm, pane.contentWidth * 9 / 16)
     readonly property real fullHeight: choicesHeight + fullPreviewHeight + areaHeight
     readonly property bool compactArea: fullHeight > windowCap
@@ -39,8 +48,6 @@ FocusScope {
     readonly property real previewHeight: Math.max(Theme.size.preview.minHeight, Math.min(fullPreviewHeight, windowCap - choicesHeight - areaRoom))
     readonly property real sharingHeight: choicesHeight + previewHeight + areaRoom
     implicitWidth: Theme.size.window.width
-    // The host maps once. Reserve Area's controls before the first tab opens.
-    // https://quickshell.org/docs/v0.3.1/guide/size-position/
     implicitHeight: sharing ? sharingHeight : Theme.size.panel.maxHeight
     focus: true
 
@@ -111,7 +118,18 @@ FocusScope {
                 width: parent.width
                 role: "hint"
                 wrapMode: Text.Wrap
-                text: root.tab === 2 ? "Drag over the preview, or adjust the area below." : "Choose what the app can see."
+                text: root.hints[root.tab === 2 ? 1 : 0]
+            }
+            // Measures the hint the open tab does not show. A hidden Text
+            // still lays out its wrapped lines, and Column skips it (Qt
+            // 6.12.0 offscreen run, 2026-10-19).
+            Label {
+                id: otherHint
+                visible: false
+                width: parent.width
+                role: "hint"
+                wrapMode: Text.Wrap
+                text: root.hints[root.tab === 2 ? 0 : 1]
             }
             // One live stream shows the selected source. The capability lends
             // its component so plugins create no Wayland capture objects.

@@ -92,10 +92,11 @@ share_area_check() { expect "Area keeps its preview, selection, sliders and acti
 # share_sources_shown: True when every source row of the open tab shows in
 # the unscrolled body.
 share_sources_shown() {
-  local rows scroll
+  local rows scroll sources
   rows="$(ipc smoke descendantGeometry window vgs.capture)" || return
   scroll="$(ipc smoke itemValues window vgs.capture ScrollArea contentY,contentHeight,height)" || return
-  py_dumps "$rows" "$scroll" "$(share_read rows)" <<'PY'
+  sources="$(share_read rows)" || return
+  py_dumps "$rows" "$scroll" "$sources" <<'PY'
 import json,sys
 rows,scroll,sources=map(json.loads,sys.argv[1:])
 viewport=next(r for r in rows if r['type']=='ScrollArea' and r['visible'])
@@ -534,10 +535,60 @@ PY
 share_area_evidence="$source_repo/tmp/ui-shots/VGS-1164"
 SHOT_DIR="$(shot_dir_under "$source_repo" "$share_area_evidence")"
 share_original_mode="$(first_mode)"
+# share_evidence_theme MODE: publish the dark (vgs) or light
+# (flexoki-light) evidence theme and wait for the shell to read it.
+share_evidence_theme() {
+  if [[ $1 == dark ]]; then
+    printf '{"schemaVersion":1,"name":"vgs","tokens":{}}\n' >"$share_theme.next"; share_theme_name=vgs
+  else
+    cp -- "$repo/themes/catalog/flexoki-light/theme.json" "$share_theme.next"; share_theme_name=flexoki-light
+  fi
+  mv -T -- "$share_theme.next" "$share_theme"
+  expect_poll "evidence publishes $1" "$share_theme_name" ipc smoke themeName
+}
+# share_area_outputs: set share_minimum_mode, share_full_mode and
+# share_short_mode from the open Area tab. They are the smallest outputs
+# whose cap (OverlayState.windowRoom) holds the picker's height with the
+# compact Area and the shortest preview, `size.preview.minHeight`, and with
+# the full Area and the full preview, and the smallest whose cap holds a
+# row less than the Area tab draws with the compact Area and the shortest
+# preview. The picker's height reserves the longer of the screen and window
+# lists (sourcesRoom), so the Area tab draws less than that height by the
+# rows it does not show. The cap is `size.window.tallHeightShare` of the
+# output's height, or from the top, at `size.window.topShare` of that
+# height rounded half up, to the output's bottom less a gutter when that
+# is less; each output is as wide as the window and a gutter a side. A
+# failed read or computation leaves the three empty and fails by name.
+share_area_outputs() {
+  local name value rows modes values=()
+  share_minimum_mode="" share_full_mode="" share_short_mode=""
+  for name in row.height stack.row size.window.gutter size.window.width size.window.topShare size.window.tallHeightShare size.preview.minHeight; do
+    if ! value="$(ipc smoke themeValue "$name")" || [[ ! $value =~ ^[0-9]+(\.[0-9]+)?$ ]]; then fail "share-picker: reading theme value $name failed: [$value]"; return 1; fi
+    values+=("$value")
+  done
+  for name in fullHeight fullPreviewHeight sourcesRoom; do
+    if ! value="$(share_read "$name")" || [[ ! $value =~ ^[0-9]+(\.[0-9]+)?$ ]]; then fail "share-picker: reading $name failed: [$value]"; return 1; fi
+    values+=("$value")
+  done
+  if ! rows="$(ipc smoke descendantGeometry window vgs.capture)" || [[ $rows != \[* ]]; then fail "share-picker: reading the Area tab's geometry failed"; return 1; fi
+  modes="$(py_dumps "${values[@]}" "$rows" <<'PY'
+import json,math,sys
+row,stack,gutter,width,top,cap,preview_min,full,preview,room=(float(a) for a in sys.argv[1:11])
+drawn=sum(r['box'][3] for r in json.loads(sys.argv[11]) if r['type']=='ListItem' and r['visible'])
+def least(need): return next(h for h in range(need, 4*need) if math.floor(min(cap*h, h-gutter-math.floor(top*h+0.5))) >= need)
+minimum=math.ceil(full-2*(row+stack)-preview+preview_min)
+print(" ".join("%dx%d" % (math.ceil(width+2*gutter), least(need)) for need in (minimum, math.ceil(full), minimum-math.ceil(room-drawn)-math.ceil(row))))
+PY
+)" || { fail "share-picker: computing the Area outputs failed"; return 1; }
+  if [[ ! $modes =~ ^([0-9]+x[0-9]+)\ ([0-9]+x[0-9]+)\ ([0-9]+x[0-9]+)$ ]]; then fail "share-picker: computing the Area outputs gave [$modes]"; return 1; fi
+  share_minimum_mode="${BASH_REMATCH[1]}" share_full_mode="${BASH_REMATCH[2]}" share_short_mode="${BASH_REMATCH[3]}"
+}
 # The standard output, where Area compacts and its preview shrinks to fit
-# the cap, the smallest output whose cap holds the compact Area with the
-# shortest preview, the smallest whose cap holds the full Area, and one a
-# row too short for the compact Area, where the body scrolls.
+# the cap, then the outputs share_area_outputs derives there: the smallest
+# whose cap holds the compact Area with the shortest preview, the smallest
+# whose cap holds the full Area, and one a row too short for the compact
+# Area, where the body scrolls. A size the derivation did not give is
+# skipped; its failure is already recorded.
 for share_size in standard minimum full short; do
   case $share_size in
     standard) share_mode_size=1755x933; share_area_expect=fits;;
@@ -545,17 +596,12 @@ for share_size in standard minimum full short; do
     full) share_mode_size="$share_full_mode"; share_area_expect=fits;;
     short) share_mode_size="$share_short_mode"; share_area_expect=scrolls;;
   esac
+  [[ -n $share_mode_size ]] || continue
   hold_mode "Area evidence output" "$share_output" "$share_mode_size"
   for share_version in before after; do
     if [[ $share_version == before ]]; then share_control_start share-area-height-control; else share_control_restore share-area-height-control; fi
     for share_mode in dark light; do
-      if [[ $share_mode == dark ]]; then
-        printf '{"schemaVersion":1,"name":"vgs","tokens":{}}\n' >"$share_theme.next"; share_theme_name=vgs
-      else
-        cp -- "$repo/themes/catalog/flexoki-light/theme.json" "$share_theme.next"; share_theme_name=flexoki-light
-      fi
-      mv -T -- "$share_theme.next" "$share_theme"
-      expect_poll "Area evidence publishes $share_mode" "$share_theme_name" ipc smoke themeName
+      share_evidence_theme "$share_mode"
       rest_pointer || fail "share-picker: parking the Area pointer before its launch failed"
       share_launch "area-$share_size-$share_version-$share_mode"
       share_arg switchTab 2; share_set_region
@@ -579,20 +625,8 @@ for share_size in standard minimum full short; do
           type_keys -k Tab || fail "share-picker: reaching the next slider failed"
         done
         if [[ $share_size == standard && $share_mode == dark ]]; then
-          # The smallest outputs whose cap holds the compact Area with the
-          # shortest preview, `size.preview.minHeight`, and the full Area with
-          # the full preview, and the smallest whose cap holds a row less than
-          # the first (OverlayState.windowRoom): `size.window.tallHeightShare`
-          # of the output's height, or from the top, at `size.window.topShare`
-          # of that height rounded half up, to the output's bottom less a
-          # gutter when that is less; as wide as the window and a gutter a
-          # side.
-          read -r share_minimum_mode share_full_mode share_short_mode < <(share_read fullHeight | py_reply 'import math,sys
-row,stack,gutter,width,top,cap,preview,preview_min=(float(a) for a in sys.argv[1:9]); full=float(sys.stdin.read())
-def least(need): return next(h for h in range(need, 4*need) if math.floor(min(cap*h, h-gutter-math.floor(top*h+0.5))) >= need)
-minimum=math.ceil(full-2*(row+stack)-preview+preview_min)
-print(" ".join("%dx%d" % (math.ceil(width+2*gutter), least(need)) for need in (minimum, math.ceil(full), minimum-math.ceil(row))))' "$(ipc smoke themeValue row.height)" "$(ipc smoke themeValue stack.row)" "$(ipc smoke themeValue size.window.gutter)" "$(ipc smoke themeValue size.window.width)" "$(ipc smoke themeValue size.window.topShare)" "$(ipc smoke themeValue size.window.tallHeightShare)" "$(share_read fullPreviewHeight)" "$(ipc smoke themeValue size.preview.minHeight)")
-          printf 'share-picker: minimum-output=%s full-output=%s short-output=%s full-area-height=%s\n' "$share_minimum_mode" "$share_full_mode" "$share_short_mode" "$(share_read fullHeight)"
+          share_area_outputs
+          printf 'share-picker: minimum-output=%s full-output=%s short-output=%s\n' "$share_minimum_mode" "$share_full_mode" "$share_short_mode"
         fi
       fi
       ipc smoke descendantGeometry window vgs.capture >"$share_area_evidence/$share_size-$share_version-$share_mode-geometry.json"
@@ -605,6 +639,51 @@ print(" ".join("%dx%d" % (math.ceil(width+2*gutter), least(need)) for need in (m
   done
   release_mode "Area evidence restores output" "$share_output" "$share_original_mode"
 done
+# A request listing eight windows, more rows than the output has screens,
+# on an output tall enough that the picker maps under its cap. The window
+# maps once, at the Screens tab, so every tab shows its sources unscrolled
+# only when that map reserves the longer list. The control sizes the map
+# by the open tab alone, as before the reserve, and the same reading must
+# fail on its Windows tab.
+copy_tree share-sources-room-control
+edit_tree share-sources-room-control shell/plugins/vgs.capture/Window.qml \
+  'readonly property real choicesHeight: bodyChrome + hintRoom + sourcesRoom + 3 * Theme.stack.group' \
+  'readonly property real choicesHeight: bodyChrome + hint.implicitHeight + sources.height + 3 * Theme.stack.group'
+share_short_list="$share_window_list"
+for share_listed in 1 2 3 4 5 6; do share_window_list+="$((80 + share_listed))[HC>]smoke.share-listed[HT>]Listed window $share_listed[HE>]$share_listed[HA>]"; done
+share_mode_size=1440x2160
+hold_mode "Tall output" "$share_output" "$share_mode_size"
+for share_version in before after; do
+  if [[ $share_version == before ]]; then share_control_start share-sources-room-control; else share_control_restore share-sources-room-control; fi
+  for share_mode in dark light; do
+    share_evidence_theme "$share_mode"
+    rest_pointer || fail "share-picker: parking the tall pointer before its launch failed"
+    share_launch "tall-$share_version-$share_mode"
+    # Hyprland gives the window its one size at the map: wait for it before
+    # a tab changes the height the window asks for.
+    expect_poll "the tall output's picker maps" 1 window_count Capture
+    if [[ $share_version == before ]]; then
+      share_arg switchTab 1
+      share_sources_room_control() { (failures=0 behaviour_failures=0; expect "the tall output's Windows tab shows every source row unscrolled" True share_sources_shown >"$share_world/sources-room-control-$share_mode.log"; echo "$failures"); }
+      expect "control: a map sized by the Screens tab fails the same Windows tab reading" 1 share_sources_room_control
+      sed 's/^/  CONTROL  /' "$share_world/sources-room-control-$share_mode.log"
+    else
+      for share_tab in 0 2 1; do
+        share_arg switchTab "$share_tab"
+        expect "$share_mode tall output tab $share_tab shows every source row unscrolled" True share_sources_shown
+      done
+    fi
+    expect_poll "the tall output's window preview builds" true share_read previewReady
+    ipc smoke descendantGeometry window vgs.capture >"$share_area_evidence/tall-$share_version-$share_mode-geometry.json"
+    ipc smoke itemValues window vgs.capture ScrollArea contentY,contentHeight,height >"$share_area_evidence/tall-$share_version-$share_mode-scroll.json"
+    rest_pointer || fail "share-picker: parking tall evidence pointer failed"
+    shot "tall-$share_version-$share_mode" || fail "share-picker: tall evidence failed"
+    share_click Button Cancel
+    expect_poll "the tall output's caller cancels" True share_cancelled "tall-$share_version-$share_mode"
+  done
+done
+share_window_list="$share_short_list"
+release_mode "Tall output restores" "$share_output" "$share_original_mode"
 cc -Wall -Wextra -Werror "$share_fixture/consume.c" -o "$share_world/consume" $(pkg-config --cflags --libs libpipewire-0.3) || { fail "share-picker: consumer build failed"; return 0; }
 mkdir -p -- "$home/.config/xdg-desktop-portal"
 printf '[preferred]\ndefault=hyprland\n' >"$home/.config/xdg-desktop-portal/portals.conf"
