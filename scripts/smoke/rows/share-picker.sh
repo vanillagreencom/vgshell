@@ -678,7 +678,10 @@ for share_version in before after; do
     ipc smoke itemValues window vgs.capture ScrollArea contentY,contentHeight,height >"$share_area_evidence/tall-$share_version-$share_mode-scroll.json"
     rest_pointer || fail "share-picker: parking tall evidence pointer failed"
     shot "tall-$share_version-$share_mode" || fail "share-picker: tall evidence failed"
-    share_click Button Cancel
+    # The pointer helpers address the base output's size, and on the tall
+    # output Cancel sits below it, so the keys close the picker.
+    share_keyboard "tall-$share_version-$share_mode"
+    type_keys -k Escape || fail "share-picker: closing tall evidence failed"
     expect_poll "the tall output's caller cancels" True share_cancelled "tall-$share_version-$share_mode"
   done
 done
