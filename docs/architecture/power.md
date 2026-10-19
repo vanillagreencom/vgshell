@@ -22,7 +22,7 @@ Today the code holds the idle source, the dim, the screensaver, the lock, the lo
 | Session Sleep and Hibernate actions | `vgs.power` | launcher rows, offered only while logind answers yes | VGS-1908 |
 | Power button and lid | logind, set by `vgs.power` through system steps | the action the key or the lid takes | VGS-1909 |
 | Wake sources | `vgs.power` through a system step and BlueZ | only keyboards, pointers and the power button wake the machine | VGS-1910 |
-| Wake on LAN | `vgs.power` through NetworkManager | on or off per wired connection | VGS-1911 |
+| Wake on LAN | `vgs.power` through NetworkManager | on or off per wired connection | holds |
 | Disk sleep | `vgs.power` through a system step | spins down idle rotational disks | holds |
 | Power profiles, battery alerts | `vgs.power` | as today | holds |
 
@@ -101,7 +101,7 @@ The power button and the lid must act while the shell is down: a laptop closed i
 - Never restart `systemd-logind` to apply a drop-in. Designed: VGS-1909 states the reload route it measured.
 - Do allow wake only from USB keyboards and pointers, the hubs on the path to one of them, Bluetooth controllers and the power button. A device plugged into an enabled hub during sleep still wakes the machine, because a hub that may wake signals a port connect; VGS accepts this. Designed: VGS-1910 ships the udev rule and its step.
 - Do allow Bluetooth wake only on paired keyboards and pointers, through BlueZ's per-device `WakeAllowed`, written by `vgs.power` once the wake step reads ready. Designed: VGS-1910.
-- Do set Wake on LAN on the NetworkManager connection, which reapplies it at each link up. Designed: VGS-1911.
+- Do set Wake on LAN on the NetworkManager connection, which reapplies it at each link up; never through `ethtool`. `scripts/smoke/rows/power.sh` pins the writes with a stand-in `nmcli`.
 - Do offer disk sleep only while a rotational disk exists; the step's probe reads `absent` without one. `scripts/test-vgshell-system.sh` pins the probe and `scripts/smoke/rows/power.sh` pins the offer.
 
 ## The canonical example

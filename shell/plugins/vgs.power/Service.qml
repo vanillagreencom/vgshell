@@ -1,5 +1,6 @@
 import QtQuick
 import Quickshell.Io
+import Quickshell.Networking
 import Quickshell.Services.UPower
 import qs.Commons
 import "PowerLogic.js" as Logic
@@ -59,6 +60,28 @@ Item {
     readonly property var profilesBus: ["--system", "--dest", profilesInterface, "--object-path", "/org/freedesktop/UPower/PowerProfiles"]
     readonly property bool profilesMissing: shell !== null && shell.requirements.missing.indexOf(profilesInterface) !== -1
     readonly property var diskSleepStep: shell === null ? undefined : shell.system.state["disk-sleep"]
+    // Wake on LAN is a setting of each wired NetworkManager connection,
+    // which NetworkManager hands the device when it activates the
+    // connection (act_stage2_config in src/core/devices/nm-device-ethernet.c,
+    // NetworkManager main), so a connection already up takes a new value at
+    // its next activation. The wired
+    // devices come from Quickshell.Networking (Quickshell 0.3.1
+    // NetworkDevice.type and .connected); it lists no connections, so one
+    // nmcli run lists them and one more writes each wired one. NetworkManager
+    // adds a wired connection when a wired device appears or connects with
+    // none saved, so each such change writes every wired connection again.
+    readonly property bool nmcliPresent: shell !== null && shell.requirements.missing.indexOf("nmcli") === -1
+    readonly property var wiredDevices: Networking.devices.values.filter(d => d.type === DeviceType.Wired)
+    readonly property bool ethernetPresent: nmcliPresent && wiredDevices.length > 0
+    readonly property string wakeKey: JSON.stringify({
+        present: ethernetPresent,
+        on: shell !== null && shell.settings.wakeOnLan === true,
+        wired: wiredDevices.map(d => d.name + ":" + d.connected).sort()
+    })
+    // The wired connections still to write, and whether a change arrived
+    // while a list or a write ran: one more pass follows.
+    property var wakeQueue: []
+    property bool wakeStale: false
 
     onShellChanged: {
         if (shell === null || registered) return;
@@ -73,12 +96,17 @@ Item {
         shell.shortcut.register("performance", "Use the performance profile", () => root.setProfile("performance", true));
         profileWatch.running = true;
         publish();
+        writeWakeOnLan();
         checkNotices();
     }
     onViewKeyChanged: publish()
     onDiskSleepStepChanged: publish()
     onNoticeKeyChanged: checkNotices()
     onSourceKeyChanged: observeSource()
+    onEthernetPresentChanged: publish()
+    onWakeKeyChanged: {
+        if (registered) writeWakeOnLan();
+    }
     onProfilesMissingChanged: {
         if (registered && !profilesMissing) readProfiles();
     }
@@ -104,6 +132,7 @@ Item {
         report("battery", battery.present ? "present" : "absent");
         report("profiles", battery.present && profile.available ? "present" : "absent");
         report("profileRule", Logic.profileRuleText(battery.present));
+        report("ethernet", ethernetPresent ? "present" : "absent");
         if (diskSleepStep !== undefined) {
             const install = diskSleepNeedsInstall();
             report("diskSleepInstall", install ? "present" : "absent");
@@ -200,6 +229,48 @@ Item {
     function sendNotice(notice) {
         const reply = shell.notify.send(Logic.noticePayload(notice));
         if (reply !== "ok") console.warn("power: notify " + reply);
+    }
+
+    function writeWakeOnLan() {
+        if (!ethernetPresent) return;
+        if (wakeLister.running || wakeWriter.running) {
+            wakeStale = true;
+            return;
+        }
+        wakeStale = false;
+        wakeLister.running = true;
+    }
+
+    function writeNextConnection() {
+        if (wakeQueue.length === 0) {
+            if (wakeStale) writeWakeOnLan();
+            return;
+        }
+        const uuid = wakeQueue[0];
+        wakeQueue = wakeQueue.slice(1);
+        wakeWriter.command = ["nmcli", "connection", "modify", uuid, "802-3-ethernet.wake-on-lan", shell.settings.wakeOnLan === true ? "magic" : "ignore"];
+        wakeWriter.running = true;
+    }
+
+    // nmcli's terse table escapes a colon inside a field; a UUID and a
+    // connection type hold none, so each line splits on its one colon.
+    Process {
+        id: wakeLister
+        command: ["nmcli", "-t", "-f", "UUID,TYPE", "connection", "show"]
+        stdout: StdioCollector { id: wakeListerOut; waitForEnd: true }
+        onExited: code => {
+            if (code !== 0) console.warn("power: wired connection list exit=" + code);
+            root.wakeQueue = code !== 0 ? [] : wakeListerOut.text.split("\n").map(line => line.split(":")).filter(f => f.length === 2 && f[1] === "802-3-ethernet").map(f => f[0]);
+            root.writeNextConnection();
+        }
+    }
+
+    Process {
+        id: wakeWriter
+        onExited: code => {
+            if (code !== 0) console.warn("power: wake on lan write exit=" + code);
+            root.writeNextConnection();
+        }
     }
 
     // The watch ends with the shell: setpriv hands gdbus the parent-death

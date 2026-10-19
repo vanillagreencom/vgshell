@@ -72,9 +72,11 @@ FocusScope {
     }
 
     // A number's presets, with the stored value as one more choice when no
-    // preset holds it, as the Settings page offers a custom value.
+    // preset holds it, as the Settings page offers a custom value. A
+    // boolean has none: its switch reads the value.
     function choicesOf(key) {
         const entry = schema[key];
+        if (entry.type === "boolean") return [];
         if (entry.type === "enum") return entry.options.map(option => ({ label: option.label, value: option.value }));
         const value = shell.settings[key];
         const choices = entry.presets.map(preset => ({ label: SettingValues.presetText(entry, preset), value: preset.value }));
@@ -176,8 +178,12 @@ FocusScope {
 
                         // The binding comes back after a choice, so the
                         // control shows the value the configuration holds.
+                        // The row's slot is as tall as all its children,
+                        // shown or not (FormRow `slot`), so a hidden
+                        // control takes no height.
                         SegmentedControl {
                             visible: field.entry.type === "enum"
+                            height: visible ? implicitHeight : 0
                             model: field.choices.map(choice => choice.label)
                             currentIndex: field.current
                             Accessible.name: field.entry.label
@@ -187,8 +193,21 @@ FocusScope {
                             }
                         }
 
+                        Switch {
+                            visible: field.entry.type === "boolean"
+                            height: visible ? implicitHeight : 0
+                            size: "sm"
+                            checked: root.shell !== null && root.shell.settings[field.modelData] === true
+                            Accessible.name: field.entry.label
+                            onToggled: {
+                                root.configure(field.modelData, checked);
+                                checked = Qt.binding(() => root.shell !== null && root.shell.settings[field.modelData] === true);
+                            }
+                        }
+
                         Select {
                             visible: field.entry.type === "number"
+                            height: visible ? implicitHeight : 0
                             width: parent.width
                             model: field.choices
                             textRole: "label"

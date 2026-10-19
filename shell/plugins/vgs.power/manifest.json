@@ -76,13 +76,25 @@
       },
       "optional": false,
       "purpose": "Reads and sets the power profile"
+    },
+    {
+      "command": "nmcli",
+      "packages": {
+        "pacman": "networkmanager",
+        "apt": "network-manager",
+        "dnf": "NetworkManager",
+        "nix": "networkmanager"
+      },
+      "optional": true,
+      "purpose": "Sets Wake on LAN on the wired connections"
     }
   ],
   "settings": {
     "lowThreshold": 20,
     "criticalThreshold": 10,
     "chargerProfile": "performance",
-    "batteryProfile": "balanced"
+    "batteryProfile": "balanced",
+    "wakeOnLan": false
   },
   "schema": {
     "lowThreshold": {
@@ -152,6 +164,13 @@
       ],
       "group": "Power profiles",
       "shownWhen": "profiles"
+    },
+    "wakeOnLan": {
+      "type": "boolean",
+      "label": "Wake on LAN",
+      "description": "Let another device on the wired network wake this computer from sleep",
+      "group": "Network",
+      "shownWhen": "ethernet"
     }
   },
   "menu": {
@@ -206,6 +225,11 @@
     "profiles": {
       "type": "presence",
       "label": "Power profiles",
+      "hidden": true
+    },
+    "ethernet": {
+      "type": "presence",
+      "label": "Wired network",
       "hidden": true
     },
     "profileRule": {

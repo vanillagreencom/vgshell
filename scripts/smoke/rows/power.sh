@@ -63,7 +63,12 @@
 # sets the profile and remembers no setting, a source change keeps that
 # pick, and with a battery a pick remembers the current source's; a
 # profile service that starts after the plugin is read; and so is one a
-# scan finds while the watch reports nothing, as after a package install. Two orders of a profile write
+# scan finds while the watch reports nothing, as after a package install;
+# with no wired device the service publishes ethernet absent and neither
+# the section nor the Settings tab draws Wake on LAN; with the mock's wired
+# devices it draws in both, off writes ignore and a click on its switch
+# writes magic to each wired connection the nmcli stand-in lists, never the
+# Wi-Fi one, and the field hides again once the devices go. Two orders of a profile write
 # are held with the barrier: a profile asked for while a write runs is
 # written next, and after a write the daemon refuses the mark returns to
 # the daemon's profile. Controls build fixture
@@ -75,7 +80,8 @@
 # acme.power-once reads the service only on the watch's first line and
 # not when a scan stops listing it, so it never reads one that starts
 # later, while acme.power-quiet, the same watch with that scan's read
-# kept, reads it after the scan. A control that asserts something did
+# kept, reads it after the scan; acme.power-wol publishes ethernet present
+# with no wired device and writes magic while the setting is off. A control that asserts something did
 # not happen waits for the line its fixture logs when it decides not to,
 # then reads once. Polls use expect_poll's reads 0.2 s apart.
 # Disk sleep stays hidden without a rotational disk. With fake hardware,
@@ -93,7 +99,7 @@
 # directory, stops the mock process groups it spawned, and restarts the
 # shell because Quickshell keeps that singleton in the process after the
 # plugin is disabled.
-# inputs: shell/plugins/vgs.power/* shell/plugins/vgs.settings/* shell/plugins/vgs.system/* shell/Hosts/PaneHost.qml shell/Core/IdleRegistry.qml shell/Ui/controls/FormRow.qml shell/Ui/controls/Field.qml shell/Ui/controls/Select.qml shell/Ui/controls/SegmentedControl.qml shell/Ui/controls/RowAction.qml shell/Ui/layout/Section.qml shell/Ui/layout/SectionHeader.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Commons/SettingValues.js shell/Core/Registry.qml shell/Core/Capabilities.qml shell/Core/PluginStatus.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Notices.qml shell/Core/Notifier.qml shell/Hosts/NoticeHost.qml shell/Hosts/SummonHost.qml bin/vgshell-scan scripts/smoke/rows/device-fakes.sh scripts/smoke/power-fakes.sh bin/vgshell-system config/system/udev/69-vgs-disk-sleep.rules scripts/smoke/rows/system-steps.sh
+# inputs: shell/plugins/vgs.power/* shell/plugins/vgs.settings/* shell/plugins/vgs.system/* shell/Hosts/PaneHost.qml shell/Core/IdleRegistry.qml shell/Ui/controls/FormRow.qml shell/Ui/controls/Field.qml shell/Ui/controls/Select.qml shell/Ui/controls/SegmentedControl.qml shell/Ui/controls/Switch.qml shell/Ui/controls/RowAction.qml shell/Ui/layout/Section.qml shell/Ui/layout/SectionHeader.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Commons/SettingValues.js shell/Core/Registry.qml shell/Core/Capabilities.qml shell/Core/PluginStatus.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Notices.qml shell/Core/Notifier.qml shell/Hosts/NoticeHost.qml shell/Hosts/SummonHost.qml bin/vgshell-scan scripts/smoke/rows/device-fakes.sh scripts/smoke/power-fakes.sh bin/vgshell-system config/system/udev/69-vgs-disk-sleep.rules scripts/smoke/rows/system-steps.sh scripts/smoke/fixtures/devices/network.py
 set -euo pipefail
 source "$repo/scripts/smoke/power-fakes.sh"
 
@@ -112,6 +118,7 @@ power_busenv_dir="$home/.config/vgshell/plugins/acme.power-busenv"
 power_once_dir="$home/.config/vgshell/plugins/acme.power-once"
 power_quiet_dir="$home/.config/vgshell/plugins/acme.power-quiet"
 power_order_dir="$home/.config/vgshell/plugins/acme.power-order"
+power_wol_dir="$home/.config/vgshell/plugins/acme.power-wol"
 power_notify_calls="$sandbox/power-notify-send.calls"
 power_gdbus_calls="$sandbox/power-gdbus.calls"
 power_set_hold="$sandbox/power-set.hold"
@@ -285,6 +292,101 @@ for file_name, old, new in zip(edits[0::3], edits[1::3], edits[2::3]):
 PY_MUTANT
 }
 
+# Wake on LAN over the nmcli stand-in and the NetworkManager mock's wired
+# fakes (scripts/smoke/fixtures/devices/network.py wired and unwired). The
+# stand-in lists two wired connections and a Wi-Fi one, answers a write to
+# either wired one and refuses any other call.
+power_wol_wired='["wol-wired-a", "wol-wired-b"]'
+power_wol_net() { python3 "$repo/scripts/smoke/fixtures/devices/network.py" "unix:path=$rt_dir/system-bus" "$1"; }
+power_wol_presence() { ipc smoke statusValues "${power_id:-vgs.power}" | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin).get("ethernet")))'; }
+power_nmcli_count() { device_calls nmcli | py_reply 'import json,sys; print(len(json.load(sys.stdin)))'; }
+# power_wol_writes FROM: each connection the Wake on LAN writes since
+# nmcli call FROM reached, with the sorted values they wrote to it.
+power_wol_writes() { device_calls nmcli | py_reply 'import json,sys
+out = {}
+for c in json.load(sys.stdin)[int(sys.argv[1]):]:
+    if c[:2] == ["connection", "modify"] and c[3:4] == ["802-3-ethernet.wake-on-lan"]:
+        out.setdefault(c[2], set()).add(c[4])
+print(json.dumps({k: sorted(v) for k, v in sorted(out.items())}))' "$1"; }
+power_wol_written() { python3 -c 'import json,sys; print(json.dumps({k: [sys.argv[2]] for k in json.loads(sys.argv[1])}))' "$power_wol_wired" "$1"; }
+# power_wol_pane: whether Power's section draws the Wake on LAN field, and
+# its switch's state when it does.
+power_wol_pane() { ipc smoke itemValues window "${power_id:-vgs.power}" Switch checked,visible,Accessible.name | py_reply 'import json,sys
+rows = [r for r in json.load(sys.stdin) if r["visible"] and r["Accessible.name"] == "Wake on LAN"]
+print("hidden" if not rows else "on" if rows[0]["checked"] else "off")'; }
+# power_wol_page: whether Power's Settings tab draws the Wake on LAN field,
+# anchored on the tab's own Show in bar row as power_battery_fields is.
+power_wol_page() { ipc smoke itemTexts window vgs.settings Field | py_reply 'import json,re,sys
+anchor = re.search(r"showInBar: \"([^\"]+)\"", open(sys.argv[1]).read()).group(1).lower()
+drawn = {t.lower() for row in json.load(sys.stdin) for t in row}
+print(("shown" if "wake on lan" in drawn else "hidden") if anchor in drawn else "page-absent")' "$repo/shell/Commons/SettingValues.js"; }
+# power_wol_click: bring Wake on LAN's switch into view and click it. The
+# System window holds the page's scroll area, so the reveal goes through
+# it; the field sits under the fold.
+power_wol_click() {
+  ipc smoke revealScopedText window vgs.system Field "Wake on LAN" Switch "" | py_reply 'import json,sys; value=json.load(sys.stdin); sys.exit(0 if type(value) in (int,float) else 1)' || { echo "power_wol_click: the System page does not scroll to Wake on LAN" >&2; return 1; }
+  click_scoped_in "window:System Settings" window vgs.power Field "Wake on LAN" Switch ""
+}
+
+power_wake_on_lan() {
+  local base
+  device_reply nmcli 0 $'wol-wired-a:802-3-ethernet\nwol-wifi:802-11-wireless\nwol-wired-b:802-3-ethernet' -t -f UUID,TYPE connection show
+  for base in wol-wired-a wol-wired-b; do
+    device_reply nmcli 0 "" connection modify "$base" 802-3-ethernet.wake-on-lan magic
+    device_reply nmcli 0 "" connection modify "$base" 802-3-ethernet.wake-on-lan ignore
+  done
+  expect "enabling vgs.power for Wake on LAN is allowed" ok ipc shell setPluginEnabled vgs.power true
+  expect_poll "with no wired device the service publishes ethernet absent" '"absent"' power_wol_presence
+  expect "System Settings opens on Power's section for Wake on LAN" ok ipc shell summon window vgs.system '{"pane":"vgs.power"}'
+  expect_poll "Power's section is mounted for Wake on LAN" '["vgs.power"]' window_panes
+  expect "with no wired device the section draws no Wake on LAN field" hidden power_wol_pane
+  base="$(power_nmcli_count)" || { fail "power: the nmcli record is unreadable"; base=0; }
+  power_wol_net wired >/dev/null || fail "power: the mock adds its wired devices"
+  expect_poll "with a wired device the service publishes ethernet present" '"present"' power_wol_presence
+  expect_poll "off writes ignore to each wired connection and nothing to the Wi-Fi one" "$(power_wol_written ignore)" power_wol_writes "$base"
+  expect_poll "with a wired device the section draws Wake on LAN off" off power_wol_pane
+  base="$(power_nmcli_count)" || { fail "power: the nmcli record is unreadable"; base=0; }
+  power_wol_click || fail "the click on Wake on LAN's switch failed"
+  expect_poll "a click on Wake on LAN's switch stores it on" true power_setting wakeOnLan
+  expect_poll "on writes magic to each wired connection" "$(power_wol_written magic)" power_wol_writes "$base"
+  expect_poll "the section draws Wake on LAN on" on power_wol_pane
+  base="$(power_nmcli_count)" || { fail "power: the nmcli record is unreadable"; base=0; }
+  power_wol_click || fail "the second click on Wake on LAN's switch failed"
+  expect_poll "a second click stores Wake on LAN off" false power_setting wakeOnLan
+  expect_poll "off again writes ignore to each wired connection" "$(power_wol_written ignore)" power_wol_writes "$base"
+  expect "Settings opens on Power's Settings tab with a wired device" ok ipc shell summon window vgs.settings '{"plugin":"vgs.power","tab":"Settings"}'
+  expect_poll "with a wired device Settings draws Wake on LAN" shown power_wol_page
+  power_wol_net unwired >/dev/null || fail "power: the mock removes its wired devices"
+  expect_poll "with the wired devices gone the service publishes ethernet absent" '"absent"' power_wol_presence
+  expect_poll "with the wired devices gone Settings draws no Wake on LAN" hidden power_wol_page
+  expect_poll "with the wired devices gone the section draws no Wake on LAN" hidden power_wol_pane
+  expect "the Settings window hides after Wake on LAN" ok ipc shell hide window vgs.settings
+  expect "System Settings hides after Wake on LAN" ok ipc shell hide window vgs.system
+  expect "disabling vgs.power after Wake on LAN is allowed" ok ipc shell setPluginEnabled vgs.power false
+
+  # Control: acme.power-wol reads ethernet present without a wired device
+  # and writes magic whatever the setting holds, so each reader above sees
+  # what it rules out.
+  power_install_fixture acme.power-wol "$power_wol_dir" Service.qml \
+    'readonly property bool ethernetPresent: nmcliPresent && wiredDevices.length > 0' \
+    'readonly property bool ethernetPresent: nmcliPresent' \
+    Service.qml \
+    'shell.settings.wakeOnLan === true ? "magic" : "ignore"' \
+    '"magic"'
+  base="$(power_nmcli_count)" || { fail "power: the nmcli record is unreadable"; base=0; }
+  rescan "rescan after adding the Wake on LAN fixture answers ok"
+  expect "enabling the Wake on LAN fixture is allowed" ok ipc shell setPluginEnabled acme.power-wol true
+  power_id=acme.power-wol
+  expect_poll "control: with no wired device the fixture publishes ethernet present" '"present"' power_wol_presence
+  expect_poll "control: off in the fixture writes magic" "$(power_wol_written magic)" power_wol_writes "$base"
+  expect "System Settings opens on the fixture's section" ok ipc shell summon window vgs.system '{"pane":"acme.power-wol"}'
+  expect_poll "control: with no wired device the fixture's section draws Wake on LAN" off power_wol_pane
+  expect "System Settings hides after the fixture's section" ok ipc shell hide window vgs.system
+  unset power_id
+  expect "disabling the Wake on LAN fixture is allowed" ok ipc shell setPluginEnabled acme.power-wol false
+  power_move_away "$power_wol_dir"
+  rescan "rescan after removing the Wake on LAN fixture answers ok"
+}
 
 power_main() {
   devices_ready power || return 0
@@ -711,6 +813,7 @@ import Quickshell.Io
   expect "disabling the quiet fixture is allowed" ok ipc shell setPluginEnabled acme.power-quiet false
   power_move_away "$power_quiet_dir"
   rescan "rescan after removing the once and quiet fixtures answers ok"
+  power_wake_on_lan
 
   expect "restoring vgs.system's enablement is allowed" ok ipc shell setPluginEnabled vgs.system "$([[ $power_system_was == True ]] && echo true || echo false)"
   power_restore_stand notify-send "$power_notify_stood"

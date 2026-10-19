@@ -6168,10 +6168,16 @@ power_shot_pages() { # MODE SUFFIX
 # the screensaver, and power-<mode>-pane-no-profiles once a scan misses the
 # profiles service, which offers its install, then Power's page in that
 # state; the profiles mock then starts again, for Power's page with it and
-# the scene's later shots.
+# the scene's later shots. The NetworkManager mock's wired devices stand
+# for the whole section, so a tree that ships Wake on LAN draws it, over a
+# stand-in list of one wired connection, and power-<mode>-pane-wake shows
+# it scrolled into view.
 power_shot_pane() { # MODE
-  local plugins="$home/.config/vgshell/plugins"
+  local plugins="$home/.config/vgshell/plugins" value wake
   power_stage_owners "$plugins"
+  device_reply nmcli 0 'shot-wired:802-3-ethernet' -t -f UUID,TYPE connection show
+  for value in magic ignore; do device_reply nmcli 0 "" connection modify shot-wired 802-3-ethernet.wake-on-lan "$value"; done
+  expect "Power's section has two wired fake devices" ok python3 "$repo/scripts/smoke/fixtures/devices/network.py" "unix:path=$rt_dir/system-bus" wired
   tree_rescan "the idle stage owner fixtures are scanned"
   expect "the dim owner fixture enables for the Power section shots" ok ipc shell setPluginEnabled acme.power-dim true
   expect "the away owner fixture enables for the Power section shots" ok ipc shell setPluginEnabled acme.power-away true
@@ -6179,8 +6185,17 @@ power_shot_pane() { # MODE
   expect "the System window summons on Power's section" ok ipc shell summon window vgs.system '{"pane":"vgs.power"}'
   expect_poll "Power's section is mounted" '["vgs.power"]' window_panes
   expect_poll "Power's section draws three timeline rows and no warning" "3 0" power_shot_timeline
+  wake=no
+  grep -q '"wakeOnLan"' "$tree/shell/plugins/vgs.power/manifest.json" && wake=yes
+  [[ $wake == no ]] || expect_poll "Power's section draws Wake on LAN" shown power_shot_wake
   park_pointer
   take "power-$1-pane"
+  if [[ $wake == yes ]]; then
+    ipc smoke revealScopedText window vgs.system Field "Wake on LAN" Switch "" >/dev/null || fail "the System page does not scroll to Wake on LAN"
+    park_pointer
+    take "power-$1-pane-wake"
+    ipc smoke revealText window vgs.system FormRow Dim >/dev/null || fail "the System page does not scroll back to the timeline"
+  fi
   power_stage_setting "$home/.config/vgshell/shell.json" lockAfter 120
   expect_poll "Power's section warns on the lock row" "3 1" power_shot_timeline
   park_pointer
@@ -6201,6 +6216,7 @@ power_shot_pane() { # MODE
   tree_rescan "a scan finds the profiles service again"
   expect_poll "Power's service reads the profiles service again" True power_shot_profiles
   power_shot_pages "$1" ""
+  expect "Power's section's wired fake devices go" ok python3 "$repo/scripts/smoke/fixtures/devices/network.py" "unix:path=$rt_dir/system-bus" unwired
   expect "disabling vgs.system after Power's section is allowed" ok ipc shell setPluginEnabled vgs.system false
   expect "the dim owner fixture disables" ok ipc shell setPluginEnabled acme.power-dim false
   expect "the away owner fixture disables" ok ipc shell setPluginEnabled acme.power-away false
@@ -6211,6 +6227,7 @@ power_shot_pane() { # MODE
 power_shot_timeline() { ipc smoke itemValues window vgs.power LinkText text,parent.parent.warning | py_reply 'import json,sys
 rows = [r for r in json.load(sys.stdin) if "](page:" in r["text"]]
 print(len(rows), sum(r["parent.parent.warning"] != "" for r in rows))'; }
+power_shot_wake() { ipc smoke itemValues window vgs.power Switch visible,Accessible.name | py_reply 'import json,sys; print("shown" if any(r["visible"] and r["Accessible.name"] == "Wake on LAN" for r in json.load(sys.stdin)) else "hidden")'; }
 power_shot_install() { [[ $(ipc smoke windowGeometry window vgs.power RowAction "Install power profiles") == \[* ]] && echo shown || echo hidden; }
 power_shot_panel() { [[ $(ipc smoke instanceGeometry panel vgs.power) != absent ]] && echo shown || echo hidden; }
 power_shot_level() { ipc smoke statusValues vgs.power | py_reply 'import json,sys; print(json.load(sys.stdin)["power"]["battery"]["level"])'; }

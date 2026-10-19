@@ -18,7 +18,7 @@ Power shows the battery level and the power profile in the bar, and switches the
 
 ## Settings
 
-The battery rows show only on a machine with a battery. The two profile rows also need the power profiles service, which is optional: without it, Power's section in System Settings offers to install it. Without a battery, Power sets one profile from the bar, and Details says so. The same settings show in Power's section of System Settings.
+The battery rows show only on a machine with a battery. The two profile rows also need the power profiles service, which is optional: without it, Power's section in System Settings offers to install it. Wake on LAN shows only on a machine with NetworkManager and a wired network device. Without a battery, Power sets one profile from the bar, and Details says so. The same settings show in Power's section of System Settings.
 
 | Setting | What it changes |
 | --- | --- |
@@ -26,3 +26,4 @@ The battery rows show only on a machine with a battery. The two profile rows als
 | Critical battery alert | The battery level that sends an urgent alert while discharging. |
 | When charging | The profile to use after you connect power. |
 | On battery | The profile to use after you disconnect power. |
+| Wake on LAN | Whether another device on the wired network can wake the computer from sleep. Power saves it on every wired connection, and on one added later; a connection in use takes it the next time it connects. |
