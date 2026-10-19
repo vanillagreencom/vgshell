@@ -42,6 +42,9 @@
 # acme.capture exercises the bandwhich-capture state, scoped Allow, the
 # core/system launch and re-probe after run completion and plugin scans.
 # Its getcap and setcap stand-ins read and write fixture text only.
+# disk-sleep reads fake whole-disk rotational attributes and rule bytes;
+# its hdparm dependency is false(1), which no probe runs. This row never
+# applies disk-sleep and sends no disk command, even through a stand-in.
 # inputs: scripts/smoke/fixtures/plugins/acme.system/* scripts/smoke/fixtures/plugins/acme.capture/* scripts/smoke/fixtures/system/capture/* shell/Core/SystemSteps.qml bin/vgshell-system bin/vgshell config/system/* scripts/smoke/fixtures/devices/* shell/plugins/vgs.settings/* shell/Commons/Reply.js scripts/smoke/fixtures/plugins/acme.status/* bin/vgshell-tui bin/lib/tui.sh shell/Core/PluginLogic.js shell/Core/ConfigLogic.js scripts/smoke/rows/device-fakes.sh
 set -euo pipefail
 devices_ready system-steps || return 0
@@ -60,6 +63,27 @@ system_question="Run these commands as root?"
 # the key help line in the terminal's own text colour, with no theme.
 system_prompt="$system_question"$'\n\n\e[22m\e[39m←→ choose • Enter confirm • y Yes • n No\e[0m'
 expect "the sandbox copy's system steps resolve in the fakes' tree" prefixed devices_system_tree
+# Shared with the Power row and its screenshot scene. No disk node exists.
+system_disk_fixture() {
+  local unused_binary
+  unused_binary="$(type -P false)" || return 1
+  mkdir -p "$devices_sysfs_root/block/sda/queue"
+  printf '1\n' >"$devices_sysfs_root/block/sda/queue/rotational"
+  ln -sfn -- "$unused_binary" "$devices_system_root/usr/bin/hdparm"
+  ln -sfn -- "$unused_binary" "$shim/hdparm"
+}
+system_disk_state() {
+  "${sandbox_env[@]}" "$repo/bin/vgshell" system status --json | py_reply 'import json,sys; s=json.load(sys.stdin)["steps"]["disk-sleep"]; print(s["state"] + " " + s["reason"])'
+}
+mkdir -p "$devices_sysfs_root/block"
+expect "disk sleep reads no fake rotational disk absent" "absent no-disk" system_disk_state
+system_disk_fixture || { fail "system steps: the disk fixture could not be planted"; return 0; }
+expect "disk sleep reads the fake rotational disk needed" "needed not-set-up" system_disk_state
+printf '0\n' >"$devices_sysfs_root/block/sda/queue/rotational"
+expect "disk sleep hides when the fake whole disk is nonrotational" "absent no-disk" system_disk_state
+rm -rf -- "${devices_sysfs_root:?}/block/sda"
+rm -f -- "${devices_system_root:?}/usr/bin/hdparm"
+rm -f -- "${shim:?}/hdparm"
 # The Fedora repository step resolves only inside this isolated system
 # tree. Without its package manager it cannot touch a host repository.
 system_engine_repository() {

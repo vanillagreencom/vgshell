@@ -86,7 +86,7 @@
 # directory, stops the mock process groups it spawned, and restarts the
 # shell because Quickshell keeps that singleton in the process after the
 # plugin is disabled.
-# inputs: shell/plugins/vgs.power/* shell/plugins/vgs.settings/* shell/plugins/vgs.system/* shell/Hosts/PaneHost.qml shell/Core/IdleRegistry.qml shell/Ui/controls/FormRow.qml shell/Ui/controls/Field.qml shell/Ui/controls/Select.qml shell/Ui/controls/SegmentedControl.qml shell/Ui/controls/RowAction.qml shell/Ui/layout/Section.qml shell/Ui/layout/SectionHeader.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Commons/SettingValues.js shell/Core/Registry.qml shell/Core/Capabilities.qml shell/Core/PluginStatus.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Notices.qml shell/Core/Notifier.qml shell/Hosts/NoticeHost.qml shell/Hosts/SummonHost.qml bin/vgshell-scan scripts/smoke/rows/device-fakes.sh scripts/smoke/power-fakes.sh
+# inputs: shell/plugins/vgs.power/* shell/plugins/vgs.settings/* shell/plugins/vgs.system/* shell/Hosts/PaneHost.qml shell/Core/IdleRegistry.qml shell/Ui/controls/FormRow.qml shell/Ui/controls/Field.qml shell/Ui/controls/Select.qml shell/Ui/controls/SegmentedControl.qml shell/Ui/controls/RowAction.qml shell/Ui/layout/Section.qml shell/Ui/layout/SectionHeader.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Commons/SettingValues.js shell/Core/Registry.qml shell/Core/Capabilities.qml shell/Core/PluginStatus.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Notices.qml shell/Core/Notifier.qml shell/Hosts/NoticeHost.qml shell/Hosts/SummonHost.qml bin/vgshell-scan scripts/smoke/rows/device-fakes.sh scripts/smoke/power-fakes.sh bin/vgshell-system config/system/udev/69-vgs-disk-sleep.rules scripts/smoke/rows/system-steps.sh
 set -euo pipefail
 source "$repo/scripts/smoke/power-fakes.sh"
 
@@ -217,6 +217,13 @@ power_pane_pick() {
   click_scoped_in "window:System Settings" window vgs.power Field "$1" "$2" "$3"
 }
 power_install_shown() { [[ $(ipc smoke windowGeometry window vgs.power RowAction "Install power profiles") == \[* ]] && echo yes || echo no; }
+# The declared status identifies the Field without pinning its copy.
+power_disk_drawn() { ipc smoke itemValues window vgs.power Field label,visible | py_reply 'import json,sys
+label = json.load(open(sys.argv[1]))["status"]["diskSleep"]["label"]
+print(sum(row["visible"] and row["label"] == label for row in json.load(sys.stdin)))' "$repo/shell/plugins/vgs.power/manifest.json"; }
+power_disk_action() { status_rows vgs.power | py_reply 'import json,sys
+row = next((row for row in json.load(sys.stdin) if row["key"] == "diskSleep"), None)
+print("absent" if row is None else str(row["action"] is not None and row["action"]["offered"]))'; }
 power_profiles_presence() { ipc smoke statusValues vgs.power | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin).get("profiles")))'; }
 # power_timeline: the idle timeline as the pane draws it, top to bottom:
 # each row's page reference, which LinkText reads as the link's words and
@@ -388,6 +395,30 @@ EOF_STAND
   expect_poll "the timeline reads each stage in order with its default time, a link to its field and no warning" "$power_timeline_defaults" power_timeline
   expect_poll "with a battery and the profiles service the section draws Power's four fields" "$power_battery_keys" power_pane_fields
   expect "with the profiles service present the section offers no install" no power_install_shown
+  expect_poll "with no rotational disk the pane draws no Disk sleep row" 0 power_disk_drawn
+  system_disk_fixture || { fail "power: the disk fixture could not be planted"; return 0; }
+  rescan "rescan after adding the rotational disk answers ok"
+  expect_poll "the disk step reads needed with the fake rotational disk" "needed not-set-up" system_disk_state
+  expect_poll "the pane draws the Disk sleep state for the needed step" 1 power_disk_drawn
+  expect_poll "the needed Disk sleep state offers Allow" True power_disk_action
+  terminal_stand_in
+  terminal_ready "disk sleep"
+  hold_runs
+  forget_record
+  power_disk_label="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["status"]["diskSleep"]["label"])' "$repo/shell/plugins/vgs.power/manifest.json")"
+  power_disk_allow="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["status"]["diskSleep"]["action"]["label"])' "$repo/shell/plugins/vgs.power/manifest.json")"
+  power_pane_pick "$power_disk_label" RowAction "$power_disk_allow" || fail "the click on Disk sleep Allow failed"
+  expect_poll "Disk sleep Allow hands the terminal its closed system step" \
+    "$(core_words core/system "System setup" org.vgs.tui system apply disk-sleep)" recorded
+  release_runs
+  expect_run_end "the disk sleep core/system run ends" core/system
+  # The terminal is a recorder, so no root step or hdparm runs.
+  printf '0\n' >"$devices_sysfs_root/block/sda/queue/rotational"
+  rescan "rescan after removing rotational hardware answers ok"
+  expect_poll "with no rotational disk the step reads absent" "absent no-disk" system_disk_state
+  expect_poll "with no rotational disk the Disk sleep row disappears" 0 power_disk_drawn
+  rm -rf -- "${devices_sysfs_root:?}/block/sda"
+  rm -f -- "${devices_system_root:?}/usr/bin/hdparm" "${shim:?}/hdparm"
   click_in "window:System Settings" window vgs.power LinkText "[After 5 minutes](page:acme.power-away/Settings/lockAfter)" || fail "the click on the lock row's time failed"
   expect_poll "the lock row's link opens Settings at the lock owner's field" '"acme.power-away" "lockAfter"' power_settings_reveal
   expect "Settings hides after the timeline link" ok ipc shell hide window vgs.settings

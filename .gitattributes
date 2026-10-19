@@ -27,3 +27,4 @@ themes/targets/television/* text eol=lf
 themes/targets/ghostty/* text eol=lf
 themes/targets/neovim/* text eol=lf
 themes/targets/pi/* text eol=lf
+config/system/udev/69-vgs-disk-sleep.rules text eol=lf

@@ -25,6 +25,7 @@ FocusScope {
     readonly property var presence: shell === null ? ({}) : shell.status.values
     readonly property string profilesService: "org.freedesktop.UPower.PowerProfiles"
     readonly property bool profilesMissing: shell !== null && shell.requirements.missing.indexOf(profilesService) !== -1
+    readonly property var diskSleep: shell === null ? null : shell.status.rows.find(row => row.key === "diskSleep" && row.report === "reported") || null
     // The schema's groups in the order their first entry appears, each with
     // its keys in key order.
     readonly property var groups: {
@@ -85,6 +86,13 @@ FocusScope {
         const reply = shell.requirements.offer([profilesService]);
         problem = reply === "ok" || reply === "satisfied" ? "" : "VGS could not open the install for the power profiles service.";
         if (problem !== "") console.warn("power pane: requirements " + reply);
+    }
+
+    function allowDiskSleep() {
+        const reply = shell.requirements.missing.indexOf("hdparm") !== -1
+            ? shell.requirements.offer(["hdparm"]) : shell.status.act("diskSleep");
+        problem = reply === "ok" || reply === "satisfied" ? "" : "VGS could not open the disk sleep setup.";
+        if (problem !== "") console.warn("power pane: disk sleep " + reply);
     }
 
     function configure(key, value) {
@@ -193,6 +201,31 @@ FocusScope {
                             }
                         }
                     }
+                }
+            }
+        }
+
+        Section {
+            visible: root.diskSleep !== null
+            width: content.width
+            title: "Hard disks"
+
+            Field {
+                width: content.width
+                inline: true
+                label: root.diskSleep === null ? "" : root.diskSleep.label
+                hint: root.diskSleep === null ? "" : root.diskSleep.hint
+                info: root.diskSleep === null ? "" : root.diskSleep.info
+
+                Badge {
+                    text: root.diskSleep === null ? "" : root.diskSleep.value.text
+                    tone: root.diskSleep === null ? "info" : root.diskSleep.tone
+                }
+
+                RowAction {
+                    visible: root.diskSleep !== null && root.diskSleep.action !== null && root.diskSleep.action.offered
+                    text: root.diskSleep === null || root.diskSleep.action === null ? "" : root.diskSleep.action.label
+                    onClicked: root.allowDiskSleep()
                 }
             }
         }

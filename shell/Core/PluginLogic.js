@@ -309,7 +309,7 @@ var STATUS_ACTION_REASONS = ["undeclared", "disabled", "not-offered", "row-chang
 // prints them, and the states a probe reads each one in. The script is the
 // table's owner; scripts/test-vgshell-system.sh reads its status back against
 // this list.
-var SYSTEM_STEPS = ["apple-displays", "i2c-dev", "service-bluetooth", "service-tailscaled", "service-cups", "tailscale-operator", "greeter", "bandwhich-capture", "reboot-notice", "voxtype-engine", "vgs-quickshell-repository"];
+var SYSTEM_STEPS = ["apple-displays", "disk-sleep", "i2c-dev", "service-bluetooth", "service-tailscaled", "service-cups", "tailscale-operator", "greeter", "bandwhich-capture", "reboot-notice", "voxtype-engine", "vgs-quickshell-repository"];
 var SYSTEM_STATES = ["ready", "needed", "denied", "absent", "unknown", "nixos"];
 // A probe's reason: a short key of lower case letters and dashes.
 var SYSTEM_REASON_PATTERN = /^[a-z][a-z-]{0,39}$/;
