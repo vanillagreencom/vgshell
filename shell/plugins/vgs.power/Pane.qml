@@ -89,8 +89,7 @@ FocusScope {
     }
 
     function allowDiskSleep() {
-        const reply = shell.requirements.missing.indexOf("hdparm") !== -1
-            ? shell.requirements.offer(["hdparm"]) : shell.status.act("diskSleep");
+        const reply = shell.ipc.call("disk-sleep", "");
         problem = reply === "ok" || reply === "satisfied" ? "" : "VGS could not open the disk sleep setup.";
         if (problem !== "") console.warn("power pane: disk sleep " + reply);
     }
