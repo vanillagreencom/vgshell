@@ -22,7 +22,9 @@
 # the popover, no Google Drive window, whose Needs you lists that file and
 # whose notes fold into one line a click unfolds; its Sync now is held
 # while a run holds its copy, and asks systemd to start the one service,
-# which the systemctl stand-in logs, and runs no rclone; a click outside
+# which the systemctl stand-in logs, and runs no rclone; a click on the
+# file's name, a link, hands the terminal the core editor on that file
+# and closes the popover; a click outside
 # it and Escape close it, and its gear opens the plugin's page; with the
 # download client ID missing it hides its footer and its callout's fix
 # opens the Setup tab; an invalid pair list publishes its repair to the
@@ -47,7 +49,7 @@
 # read of the record leaves a pause the runner writes unpublished. The row
 # ends with the pair removed, the units gone and the plugin disabled, as
 # it found it, and its stand-ins removed. No latency reading.
-# inputs: shell/plugins/vgs.google-drive/* shell/plugins/vgs.settings/* shell/plugins/vgs.notifications/* shell/Commons/PageReference.js shell/Ui/feedback/Callout.qml shell/Ui/layout/ListItem.qml shell/Ui/layout/Pane.qml shell/Hosts/SummonPopup.qml shell/Hosts/PluginSlot.qml shell/Commons/WatchedFile.qml shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml bin/vgshell-tui
+# inputs: shell/plugins/vgs.google-drive/* shell/plugins/vgs.settings/* shell/plugins/vgs.notifications/* shell/Commons/PageReference.js shell/Ui/feedback/LinkText.qml shell/Ui/feedback/Callout.qml shell/Ui/layout/ListItem.qml shell/Ui/layout/Pane.qml shell/Hosts/SummonPopup.qml shell/Hosts/PluginSlot.qml shell/Commons/WatchedFile.qml shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml bin/vgshell-tui
 set -euo pipefail
 cs_dir="$sandbox/googledrive"
 cs_stub="$cs_dir/stub"
@@ -494,12 +496,12 @@ SH
   cs_open_popover "the popover"
   expect "no Google Drive window exists" 0 window_count "Google Drive"
   expect_poll "Needs you lists the file that needs the user, and eight notes fold" '[["a.txt"], 8]' cs_panel_review
-  expect_poll "Needs you draws the file" drawn cs_panel_drawn Label a.txt
-  expect "a folded note is not drawn" absent cs_panel_drawn Label n1.txt
+  expect_poll "Needs you draws the file's name as a link" drawn cs_panel_drawn LinkText a.txt
+  expect "a folded note is not drawn" absent cs_panel_drawn LinkText n1.txt
   expect "the popover offers Sync now with a folder pair" '[true, true]' cs_panel_footer
   expect "the notes line is clicked" ok cs_panel_press ListItem "8 notes · nothing was lost"
   expect_poll "the notes line unfolds the notes" true cs_notes_open
-  expect_poll "an unfolded note is drawn" drawn cs_panel_drawn Label n1.txt
+  expect_poll "an unfolded note draws its name as a link" drawn cs_panel_drawn LinkText n1.txt
 
   # Sync now is held while a run holds its copy, then asks systemd to
   # start the one service.
@@ -514,8 +516,19 @@ SH
   expect_poll "Sync now asks systemd to start the one service" '[["--user", "start", "--no-block", "vgs-google-drive.service"]]' cs_systemctl
   expect "Sync now runs no rclone of its own" "$copies" cs_copies
 
+  # A click on the name of the file that needs the user opens that file,
+  # which is on this computer, in the core editor through the core's one
+  # file route, and closes the popover. The record is cleared first, so a
+  # click that opens nothing reads `absent`.
+  forget_record
+  expect "the file's name is clicked" ok cs_panel_press LinkText a.txt
+  expect_poll "the name hands the terminal the core editor on the file" "$(words core/edit "$core_vgshell" edit "$cs_mirror/a.txt")" recorded_tail
+  expect_poll "the name closes the popover" hidden cs_panel_shown
+  expect_run_end "the file's editor run ends" core/edit
+
   # A click outside the popover and Escape each close it; its gear opens
   # the plugin's page and closes it.
+  cs_open_popover "the popover for a click outside"
   rest_pointer
   click 10 "$((mon_h - 10))" || fail "googledrive: the click outside the popover failed"
   expect_poll "a click outside closes the popover" hidden cs_panel_shown

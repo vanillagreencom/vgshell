@@ -34,9 +34,10 @@ The plugin's judge, `GoogleDriveLogic.parseStatus`, refuses a record whose `need
 
 - `needs`: the record's `you` or `nothing`.
 - `localAction`: whether the row has an action on this computer. It is true for a `both-changed`, `removed-locally`, `removed-on-drive` or `renamed` row whose file is here. A doubled name and a file the download could not copy are fixed in Google Drive, so their rows have no action here, whoever owns the copies.
+- `localPath`: the record's path of the file on this computer, on every row but a file the download could not copy with no earlier copy here.
 - `copyFolder`: on a `both-changed` row whose local file a download replaced, the folder of the kept copy.
 
-The popover's Show older copy opens `copyFolder` in the file manager, on a row that needs the user and has `localAction`. A note has no action in the popover (`GoogleDriveLogic.conflictRow`).
+The popover's Show older copy opens `copyFolder` in the file manager, on a row that needs the user and has `localAction`. A note has no action in the popover (`GoogleDriveLogic.conflictRow`). Each row's file name, a note's included, is a link while the row carries `localPath`: a click opens that file in the core editor through the core's file route, `shell.tui.edit`, and closes the popover. A row with no `localPath` draws its name as plain text.
 
 Each row's line says what happened and what the user does, or that nothing is lost: a doubled name the user owns says how to clear it, one another account owns names that owner when the record does, and a `both-changed` row says whether VGS kept the copy that was here or copied it to Drive.
 

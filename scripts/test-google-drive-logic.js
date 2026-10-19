@@ -11,8 +11,8 @@
 // surfaces. The Settings and Setup values (VGS-1744) are held by their
 // tones, actions and structure, never their words. A review row is held by
 // its structured fields alone (VGS-1727): its needs mark, its local-action
-// flag, its action, and which case of its kind its line takes, never its
-// words. The popover (VGS-1745) is held by its structure: its header's
+// flag, its action, the file its name opens (VGS-1935), and which case of
+// its kind its line takes, never its words. The popover (VGS-1745) is held by its structure: its header's
 // parts, which problem callout shows and where its fix goes, whether its
 // body speaks, the rows in Needs you and in the folded notes with the
 // counts, and when its footer shows and lets Sync now start. The tooltip,
@@ -593,28 +593,29 @@ function verify(L) {
         L.footerView(L.cloudValue(well({ state: "running", pairs: [Object.assign({}, DOCS, { state: "running" })] }), "")).sync.reason, "a pause and a running sync each give their own reason");
 
     // Each review row by its fields: its needs mark and local-action flag
-    // as the record and its kind give them, its name and place, and its
-    // action: Show older copy only on a row that needs the user and whose
-    // copy VGS kept here.
+    // as the record and its kind give them, its name and place, the file
+    // its name opens, and its action: Show older copy only on a row that
+    // needs the user and whose copy VGS kept here.
     const KEPT = "/home/me/.local/state/vgshell/google-drive/pairs/docs/conflicts/20261010T110000Z-7/taxes";
     const UNKNOWN_REASON = Object.assign({}, DRIVE_CONFLICTS[0], { path: "reports/Held.pdf", reason: "failed to open source object: stand-in cause", needs: "you" });
     const ROWS = [
-        // label, record row, needs, local action, the action's folder or null
-        ["a change on both sides with the copy that was here kept", CONFLICTS[0], "you", true, KEPT],
-        ["a change on both sides uploaded from here", Object.assign({}, CONFLICTS[0], { storedPath: undefined }), "you", true, null],
-        ["a kept copy on a row that needs nothing", Object.assign({}, CONFLICTS[0], { needs: "nothing" }), "nothing", true, null],
-        ["a Drive deletion put back", CONFLICTS[1], "nothing", true, null],
-        ["a Drive rename", CONFLICTS[2], "nothing", true, null],
-        ["a local deletion put back", CONFLICTS[3], "nothing", true, null],
-        ["a dangling shortcut never copied", DRIVE_CONFLICTS[0], "nothing", false, null],
-        ["a dangling shortcut with an earlier copy here", DRIVE_CONFLICTS[1], "nothing", false, null],
-        ["a file not copied for another reason", UNKNOWN_REASON, "you", false, null],
-        ["identical copies, the user's", doubled("a.pdf", true, true), "nothing", false, null],
-        ["different copies, the user's", doubled("b.pdf", false, true), "you", false, null],
-        ["identical copies shared by an owner", doubled("c.pdf", true, false, OWNER), "nothing", false, null],
-        ["different copies shared by an owner", doubled("d.pdf", false, false, OWNER), "nothing", false, null],
-        ["identical copies, no owner named", doubled("e.pdf", true, false), "nothing", false, null],
-        ["different copies, no owner named", doubled("f.pdf", false, false), "nothing", false, null]
+        // label, record row, needs, local action, the action's folder or
+        // null, the file the row's name opens or null
+        ["a change on both sides with the copy that was here kept", CONFLICTS[0], "you", true, KEPT, "/home/me/gdrive/taxes/2025.xlsx"],
+        ["a change on both sides uploaded from here", Object.assign({}, CONFLICTS[0], { storedPath: undefined }), "you", true, null, "/home/me/gdrive/taxes/2025.xlsx"],
+        ["a kept copy on a row that needs nothing", Object.assign({}, CONFLICTS[0], { needs: "nothing" }), "nothing", true, null, "/home/me/gdrive/taxes/2025.xlsx"],
+        ["a Drive deletion put back", CONFLICTS[1], "nothing", true, null, "/home/me/gdrive/old.txt"],
+        ["a Drive rename", CONFLICTS[2], "nothing", true, null, "/home/me/outbox/a.txt"],
+        ["a local deletion put back", CONFLICTS[3], "nothing", true, null, "/home/me/gdrive/taxes/receipts.pdf"],
+        ["a dangling shortcut never copied", DRIVE_CONFLICTS[0], "nothing", false, null, null],
+        ["a dangling shortcut with an earlier copy here", DRIVE_CONFLICTS[1], "nothing", false, null, "/home/me/gdrive/reports/Second gone.pdf"],
+        ["a file not copied for another reason", UNKNOWN_REASON, "you", false, null, null],
+        ["identical copies, the user's", doubled("a.pdf", true, true), "nothing", false, null, "/home/me/gdrive/legal/a.pdf"],
+        ["different copies, the user's", doubled("b.pdf", false, true), "you", false, null, "/home/me/gdrive/legal/b.pdf"],
+        ["identical copies shared by an owner", doubled("c.pdf", true, false, OWNER), "nothing", false, null, "/home/me/gdrive/legal/c.pdf"],
+        ["different copies shared by an owner", doubled("d.pdf", false, false, OWNER), "nothing", false, null, "/home/me/gdrive/legal/d.pdf"],
+        ["identical copies, no owner named", doubled("e.pdf", true, false), "nothing", false, null, "/home/me/gdrive/legal/e.pdf"],
+        ["different copies, no owner named", doubled("f.pdf", false, false), "nothing", false, null, "/home/me/gdrive/legal/f.pdf"]
     ];
     const rowOf = c => {
         const judgedRow = L.parseStatus(JSON.stringify(well({ conflicts: [c] })));
@@ -623,10 +624,13 @@ function verify(L) {
         return [published, L.conflictRow(published)];
     };
     const details = {}, needsMarks = new Set(), noteMarks = new Set();
-    for (const [label, c, needs, local, folder] of ROWS) {
+    for (const [label, c, needs, local, folder, opens] of ROWS) {
         const [published, row] = rowOf(c);
         same([published.needs, published.localAction], [needs, local], label + ": the published row");
         same([row.needs, row.action === null ? null : row.action.folder], [needs, folder], label + ": the popover row");
+        // The name opens the file while it is on this computer, and is
+        // plain text while it is not.
+        assert.equal(row.file, opens, label + ": the file the name opens");
         (needs === "you" ? needsMarks : noteMarks).add(row.icon);
         // Only the line that states how long VGS keeps a copy has the info
         // that says why.
@@ -796,6 +800,9 @@ const controls = [
     ["the fold line counts the record's notes", "var noteCount = cloud.conflictCount - cloud.needsYou;", "var noteCount = notes.length;"],
     ["the notes the list leaves out are counted", "notesRest = noteCount - notes.length;", "notesRest = 0;"],
     ["Needs you holds only the rows that need the user", "var needs = rows.filter(function (r) { return r.needs === \"you\"; });", "var needs = rows;"],
+    ["a row's name opens its file here", "file: conflict.localPath !== undefined ? conflict.localPath : null,", "file: null,"],
+    ["a row with no file here opens none", "conflict.localPath !== undefined ? conflict.localPath : null", "conflict.localPath !== undefined ? conflict.localPath : conflict.path"],
+    ["the file here is published", "if (c.localPath !== undefined) out.localPath = c.localPath;", ""],
     ["Show older copy only on a row that needs the user", "var action = needs && conflict.localAction && conflict.copyFolder !== undefined", "var action = conflict.copyFolder !== undefined"],
     ["a row names its pair and folders", "return [conflict.pairLabel].concat(at <= 0 ? [] : conflict.path.slice(0, at).split(\"/\")).join(PLACE_MARK);", "return conflict.pairLabel;"],
     ["the Settings sync value reads the headline", "var head = headline(cloud, now);\n    var value = {", "var head = stateView(cloud.state, cloud.staleAfter, now);\n    var value = {"],

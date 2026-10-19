@@ -10,8 +10,9 @@ import "../../shell/plugins/vgs.google-drive/GoogleDriveLogic.js" as Logic
 // one folder pair whose hourly sync is out of date (so the callout shows
 // its fix), one file that needs the user with a kept copy, and two notes.
 // Tab and Backtab reach every control in reading order, each with its
-// focus ring: the gear, the callout's fix, the kept-copy info, Show older
-// copy, the notes fold line, Pause and Sync now. On the fold line Return,
+// focus ring: the gear, the callout's fix, the file's name link, the
+// kept-copy info, Show older copy, the notes fold line, Pause and Sync
+// now. On the fold line Return,
 // Enter and Space toggle the notes, Right opens and Left closes them. Return
 // on each action asks the stub shell exactly what a click asks. The slot
 // that hosts a summoned plugin is a stand-in naming the plugin's Settings
@@ -122,7 +123,9 @@ Item {
             verify(gear !== null, "the gear shows");
             const info = find(panel, item => "infoOpen" in item);
             verify(info !== null, "the kept-copy info shows");
-            return [gear, control(panel.callout.action.label), info, control(panel.review.needs[0].action.label),
+            const name = find(panel, item => "linkBox" in item && item.text === panel.review.needs[0].name);
+            verify(name !== null, "the file's name shows as a link");
+            return [gear, control(panel.callout.action.label), name, info, control(panel.review.needs[0].action.label),
                 control(panel.review.notesLine), control(panel.footer.pause.text), control(panel.footer.sync.text)];
         }
 
@@ -215,9 +218,10 @@ Item {
             return [
                 { tag: "gear", which: 0 },
                 { tag: "callout fix", which: 1 },
-                { tag: "show older copy", which: 3 },
-                { tag: "pause", which: 5 },
-                { tag: "sync now", which: 6 }
+                { tag: "file name", which: 2 },
+                { tag: "show older copy", which: 4 },
+                { tag: "pause", which: 6 },
+                { tag: "sync now", which: 7 }
             ];
         }
 
@@ -234,15 +238,17 @@ Item {
             compare([root.calls, root.settingsOpened], clicked);
         }
 
-        // The requests themselves, held apart from the panel's code.
+        // The requests themselves, held apart from the panel's code: the
+        // name opens the stub record's file and closes the popover.
         function test_each_action_asks_its_owner() {
             const order = stops();
             const folder = panel.review.needs[0].action.folder;
             const rows = [
                 [1, [["openPage", "vgs.google-drive", "Details"], ["hide", "panel"]]],
-                [3, [["edit", folder + "/"]]],
-                [5, [["ipc", "pause", ""]]],
-                [6, [["ipc", "sync", ""]]]
+                [2, [["edit", "/home/me/gdrive/taxes/2025.xlsx"], ["hide", "panel"]]],
+                [4, [["edit", folder + "/"]]],
+                [6, [["ipc", "pause", ""]]],
+                [7, [["ipc", "sync", ""]]]
             ];
             for (const [which, wanted] of rows) {
                 root.calls = [];

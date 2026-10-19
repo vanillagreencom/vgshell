@@ -399,12 +399,14 @@ function needsFirst(conflicts) {
 // the user, `needsYou`, the record's count of rows that need the user,
 // the review list needs-first and capped, and the last failed request.
 // Each conflict carries the record's `needs`, `localAction`, whether it
-// has an action on this computer, `copyFolder`, the folder of a kept
-// copy, a file not copied `why`, its line from rclone's reason, and a
-// doubled name `mine` and, when the record names one, `owner`.
+// has an action on this computer, `localPath`, the file on this computer
+// while the runner names one, `copyFolder`, the folder of a kept copy, a
+// file not copied `why`, its line from rclone's reason, and a doubled
+// name `mine` and, when the record names one, `owner`.
 function cloudValue(record, problem) {
     var conflicts = needsFirst(record.conflicts).slice(0, CONFLICTS_MAX).map(function (c) {
         var out = { kind: c.kind, pairLabel: c.pairLabel, path: c.path, since: msOf(c.since), needs: c.needs, localAction: hasLocalAction(c) };
+        if (c.localPath !== undefined) out.localPath = c.localPath;
         var copy = copyFolder(c);
         if (copy !== undefined) out.copyFolder = copy;
         if (c.kind === "renamed") out.to = c.to;
@@ -846,14 +848,16 @@ function placeOf(conflict) {
     return [conflict.pairLabel].concat(at <= 0 ? [] : conflict.path.slice(0, at).split("/")).join(PLACE_MARK);
 }
 
-// One conflict's row in the popover: { name, place, detail, info, icon,
-// needs, action }, its file's name, its place (placeOf), its one line
-// (conflictVariant, or for a file not copied the line of its reason), why
-// a limit that line states holds (CONFLICT_INFO, "" for none), its mark,
-// the published `needs`, and its action on this computer, or null: Show
-// older copy, which opens the folder of the copy VGS kept, on a row that
-// needs the user and has a local action. A note has none: its fix, if
-// any, is in Google Drive. The popover wraps each line, so none is cut.
+// One conflict's row in the popover: { name, file, place, detail, info,
+// icon, needs, action }, its file's name, the file its name opens, the
+// published `localPath`, or null while the file is not on this computer,
+// its place (placeOf), its one line (conflictVariant, or for a file not
+// copied the line of its reason), why a limit that line states holds
+// (CONFLICT_INFO, "" for none), its mark, the published `needs`, and its
+// action on this computer, or null: Show older copy, which opens the
+// folder of the copy VGS kept, on a row that needs the user and has a
+// local action. A note has none: its fix, if any, is in Google Drive. The
+// popover wraps each line, so none is cut.
 function conflictRow(conflict) {
     var variant = conflict.kind === "unreadable-on-drive" ? "" : conflictVariant(conflict);
     var what = variant === "" ? conflict.why : CONFLICT_TEXT[variant]
@@ -861,7 +865,7 @@ function conflictRow(conflict) {
         .replace("{owner}", function () { return conflict.owner; });
     var needs = conflict.needs === "you";
     var action = needs && conflict.localAction && conflict.copyFolder !== undefined ? { label: "Show older copy", folder: conflict.copyFolder } : null;
-    return { name: conflict.path.slice(conflict.path.lastIndexOf("/") + 1), place: placeOf(conflict), detail: what, info: hasOwn(CONFLICT_INFO, variant) ? CONFLICT_INFO[variant] : "",
+    return { name: conflict.path.slice(conflict.path.lastIndexOf("/") + 1), file: conflict.localPath !== undefined ? conflict.localPath : null, place: placeOf(conflict), detail: what, info: hasOwn(CONFLICT_INFO, variant) ? CONFLICT_INFO[variant] : "",
         icon: needs ? NEEDS_ICON : hasOwn(NOTE_ICONS, conflict.kind) ? NOTE_ICONS[conflict.kind] : NOTE_ICON, needs: conflict.needs, action: action };
 }
 
