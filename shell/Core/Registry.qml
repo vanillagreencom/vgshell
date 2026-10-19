@@ -549,13 +549,15 @@ Singleton {
     // not built while another plugin holds a capability it needs or the
     // monitor rules (buildRefusal), each failed build of one of its kinds,
     // once per cause, then each problem the Hyprland layer reports for it,
-    // then each of its launcher rows another plugin listed first.
+    // then each of its launcher rows another plugin listed first, then each
+    // of its idle stages skipped.
     readonly property var managerRows: {
         const config = Config.effective;
         const descriptions = Capabilities.shortcutDescriptions;
         const failures = Plugins.failedBuilds;
         const problems = hyprlandProblems;
         const menuConflicts = menu.conflicts;
+        const idleProblems = Capabilities.idleProblems;
         const holder = panesHolderId();
         return Object.keys(manifests).sort().map(id => {
             const m = manifests[id];
@@ -571,6 +573,8 @@ Singleton {
                 if (problem.id === id) errors.push(problem.error);
             for (const conflict of menuConflicts)
                 if (conflict.plugin === id) errors.push(menuConflictText(conflict));
+            for (const problem of idleProblems)
+                if (problem.plugin === id) errors.push(problem.error);
             const settings = Logic.settingsFor(config, m);
             const values = PluginStatus.valuesOf(id);
             return {
@@ -626,7 +630,8 @@ Singleton {
         const unknown = scanned ? Logic.unknownIds(Config.effective, manifests) : [];
         const watchError = coreWatchError === "" ? [] : [{ dir: Quickshell.shellDir, error: coreWatchError }];
         const extra = hyprlandProblems.map(p => ({ dir: p.dir, error: p.error }))
-            .concat(menu.conflicts.map(c => ({ dir: manifests[c.plugin].__sourceDir, error: menuConflictText(c) })));
+            .concat(menu.conflicts.map(c => ({ dir: manifests[c.plugin].__sourceDir, error: menuConflictText(c) })))
+            .concat(Capabilities.idleProblems.map(p => ({ dir: manifests[p.plugin].__sourceDir, error: p.error })));
         return JSON.stringify({ plugins: rows, errors: errors.concat(extra, watchError), collisions: collisions, unknown: unknown, scanError: scanError, scanned: scanned, config: { ready: Config.ready, shipped: Config.shippedState, user: Config.userState } });
     }
 

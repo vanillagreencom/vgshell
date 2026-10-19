@@ -119,7 +119,14 @@ var SOUNDS = [
 
 // Every key a manifest may carry. An unknown key is refused, so a misspelt
 // key fails loudly instead of being carried and ignored.
-var MANIFEST_KEYS = ["schemaVersion", "id", "formerIds", "name", "version", "author", "description", "license", "icon", "kinds", "entryPoints", "capabilities", "capabilityKinds", "systemSteps", "settings", "schema", "defaultSection", "pane", "appearance", "hyprland", "requirements", "status", "tui", "menu", "secrets", "sounds", "alwaysOn", "setupGuide"];
+var MANIFEST_KEYS = ["schemaVersion", "id", "formerIds", "name", "version", "author", "description", "license", "icon", "kinds", "entryPoints", "capabilities", "capabilityKinds", "systemSteps", "settings", "schema", "idleStages", "defaultSection", "pane", "appearance", "hyprland", "requirements", "status", "tui", "menu", "secrets", "sounds", "alwaysOn", "setupGuide"];
+
+// The stages of the idle path in the order they are meant to fire
+// (docs/architecture/power.md). A manifest's `idleStages` names each one the
+// plugin owns: `seconds` the number setting that holds its time, 0 for
+// Never, and `enabled`, optional, a boolean setting that turns it off.
+var IDLE_STAGES = ["dim", "screensaver", "lock", "displayOff", "sleep"];
+var IDLE_STAGE_KEYS = ["seconds", "enabled"];
 
 // What one entry of a manifest's `requirements`, and of the core's own
 // config/requirements.json, may carry: an external command the plugin runs
@@ -4052,6 +4059,92 @@ function menuRows(manifests, enabledIds, config) {
     return { rows: ordered, conflicts: conflicts };
 }
 
+// The first defect of a manifest's `idleStages`, or "": each key a stage
+// of IDLE_STAGES, each value { seconds, enabled? } naming a number schema
+// entry whose `min` is 0 or more and a boolean one, and capability idle,
+// whose watch runs the stage.
+function idleStagesError(idleStages, capabilities, schema) {
+    if (!isPlainObject(idleStages) || Object.keys(idleStages).length === 0)
+        return "idleStages must be a non-empty object";
+    if (capabilities.indexOf("idle") === -1)
+        return "idleStages needs capability idle";
+    var stages = Object.keys(idleStages);
+    for (var i = 0; i < stages.length; i++) {
+        var at = "idleStages." + stages[i];
+        var entry = idleStages[stages[i]];
+        if (IDLE_STAGES.indexOf(stages[i]) === -1)
+            return at + " is not one of " + IDLE_STAGES.join(", ");
+        if (!isPlainObject(entry))
+            return at + " must be an object";
+        var keys = Object.keys(entry);
+        for (var k = 0; k < keys.length; k++)
+            if (IDLE_STAGE_KEYS.indexOf(keys[k]) === -1)
+                return at + " has unknown key " + JSON.stringify(keys[k]);
+        var seconds = typeof entry.seconds === "string" && hasOwn(schema, entry.seconds) ? schema[entry.seconds] : null;
+        if (seconds === null || seconds.type !== "number" || !(seconds.min >= 0))
+            return at + ".seconds must name a number schema entry with a min of 0 or more";
+        if (entry.enabled !== undefined && !(typeof entry.enabled === "string" && hasOwn(schema, entry.enabled) && schema[entry.enabled].type === "boolean"))
+            return at + ".enabled must name a boolean schema entry";
+    }
+    return "";
+}
+
+// The idle stages the enabled plugins own under CONFIG: { stages, problems }.
+// `stages` follows IDLE_STAGES, frozen, one { stage, plugin, setting,
+// seconds, before } per stage a plugin of ENABLED_IDS that MANIFESTS holds
+// declares: `setting` the schema entry that holds its time, `seconds` its
+// effective value, 0 for Never and while its `enabled` setting is false,
+// and `before` idleStagesBefore's verdict. A stage two plugins declare is
+// the first's by id; each later declarer, and a stage whose stored value
+// does not fit its schema entry, is one of `problems`, { plugin, error },
+// and the stage's entry is left out for the latter.
+function idleStages(manifests, enabledIds, config) {
+    var owners = Object.create(null);
+    var problems = [];
+    var skipped = function (stage, plugin, why) {
+        problems.push({ plugin: plugin, error: "idle: stage " + stage + " of " + plugin + " skipped: " + why });
+    };
+    var declarers = enabledIds.filter(function (id) { return hasOwn(manifests, id); }).sort();
+    declarers.forEach(function (plugin) {
+        Object.keys(manifests[plugin].idleStages).forEach(function (stage) {
+            if (owners[stage] !== undefined) skipped(stage, plugin, "already owned by " + owners[stage]);
+            else owners[stage] = plugin;
+        });
+    });
+    var stages = [];
+    IDLE_STAGES.forEach(function (stage) {
+        var plugin = owners[stage];
+        if (plugin === undefined) return;
+        var manifest = manifests[plugin];
+        var entry = manifest.idleStages[stage];
+        var settings = settingsFor(config, manifest);
+        var names = entry.enabled === undefined ? [entry.seconds] : [entry.seconds, entry.enabled];
+        for (var n = 0; n < names.length; n++) {
+            var unfit = settingError(manifest.schema[names[n]], settings[names[n]]);
+            if (unfit !== "") {
+                skipped(stage, plugin, names[n] + " " + unfit);
+                return;
+            }
+        }
+        var on = entry.enabled === undefined || settings[entry.enabled] === true;
+        stages.push({ stage: stage, plugin: plugin, setting: entry.seconds, seconds: on ? settings[entry.seconds] : 0 });
+    });
+    return { stages: frozenJson(idleStagesBefore(stages)), problems: problems };
+}
+
+// The one judge of idle stage order: each of STAGES, in IDLE_STAGES order,
+// with `before`, the earlier stages whose time is later than its own, so it
+// fires first. A Never stage fires before none and none fires before it;
+// two stages at one time fire together, neither before the other.
+function idleStagesBefore(stages) {
+    return stages.map(function (entry, i) {
+        var before = entry.seconds === 0 ? [] : stages.slice(0, i)
+            .filter(function (earlier) { return earlier.seconds > entry.seconds; })
+            .map(function (earlier) { return earlier.stage; });
+        return { stage: entry.stage, plugin: entry.plugin, setting: entry.setting, seconds: entry.seconds, before: before };
+    });
+}
+
 // Dynamic rows published by the provider row MENU_ID, read from VALUES, the
 // publishing plugin's status values. Each row id is nested under MENU_ID; a
 // non-menu row carries ITEM, the id handed back to the shortcut handler.
@@ -4192,7 +4285,7 @@ function formerIdClaims(manifests, sourceOf) {
 // (arrays, the latter's entries normalRequirements' shape),
 // `capabilityKinds` (an object, {} when undeclared), `settings`,
 // `schema`, `status`, `sounds` and `tui` (objects, `tui` normalTui's shape),
-// `menu` (an object, {} when undeclared), `fieldRows` (fieldRows'),
+// `menu` and `idleStages` (objects, {} when undeclared), `fieldRows` (fieldRows'),
 // `defaultSection` only when declared, and
 // `hyprland` only when declared, as { binds, layerRules, appearance,
 // options } with every bind's key normalised by ConfigLogic.hyprlandKey.
@@ -4314,6 +4407,11 @@ function validateManifest(raw, sourceDir) {
         return { ok: false, error: badSchema };
     if (capabilities.indexOf("configure") !== -1 && Object.keys(schema).length === 0)
         return { ok: false, error: "capability configure needs a schema" };
+    if (raw.idleStages !== undefined) {
+        var badIdle = idleStagesError(raw.idleStages, capabilities, schema);
+        if (badIdle !== "")
+            return { ok: false, error: badIdle };
+    }
     if (raw.defaultSection !== undefined) {
         if (raw.kinds.indexOf("bar-widget") === -1)
             return { ok: false, error: "defaultSection needs kind bar-widget" };
@@ -4387,6 +4485,7 @@ function validateManifest(raw, sourceDir) {
     manifest.schema = clone(schema);
     manifest.status = raw.status === undefined ? {} : clone(raw.status);
     manifest.sounds = raw.sounds === undefined ? {} : clone(raw.sounds);
+    manifest.idleStages = raw.idleStages === undefined ? {} : clone(raw.idleStages);
     if (raw.pane !== undefined) manifest.pane = clone(raw.pane);
     manifest.systemSteps = raw.systemSteps === undefined ? [] : raw.systemSteps.slice();
     manifest.fieldRows = fieldRows(manifest.schema, manifest.status);

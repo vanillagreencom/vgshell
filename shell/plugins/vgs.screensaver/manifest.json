@@ -10,6 +10,7 @@
   "kinds": ["service", "cover"],
   "entryPoints": { "service": "Service.qml", "cover": "Cover.qml" },
   "capabilities": ["idle", "ipc", "manager", "requirements", "session", "shortcut", "status"],
+  "idleStages": { "screensaver": { "seconds": "idleSeconds", "enabled": "idleEnabled" } },
   "requirements": [
     { "command": "ttfx", "packages": { "aur": "ttfx" }, "optional": false, "install": "on-request", "purpose": "Animates the screensaver text art" },
     { "command": "magick", "packages": { "pacman": "imagemagick", "apt": "imagemagick", "dnf": "ImageMagick", "nix": "imagemagick" }, "optional": false, "purpose": "Converts an image into screensaver text art" },

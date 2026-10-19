@@ -14,8 +14,19 @@ Scope {
     property var watches: ({})
     property int serial: 0
 
+    // The enabled manifests' idle stages, PluginLogic.idleStages' answer:
+    // its `stages` are lent below, and Registry reports its `problems`
+    // beside the Hyprland layer's.
+    readonly property var stageRecord: Logic.idleStages(Registry.manifests, Registry.enabledIds, Config.effective)
+
+    // `stages` is the core's read-only idle stage record (D056, D109): a
+    // frozen list, replaced whole when a manifest or the configuration
+    // changes, so a binding that reads it follows it.
     function provider(ctx) {
-        return { watch: (seconds, onChange) => root.watch(ctx, seconds, onChange) };
+        return Object.freeze({
+            watch: (seconds, onChange) => root.watch(ctx, seconds, onChange),
+            get stages() { return root.stageRecord.stages; }
+        });
     }
 
     // idle: `onChange(isIdle)` each time the user has given no input for

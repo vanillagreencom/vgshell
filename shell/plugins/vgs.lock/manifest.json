@@ -23,6 +23,11 @@
     "shortcut",
     "status"
   ],
+  "idleStages": {
+    "lock": {
+      "seconds": "idleLockSeconds"
+    }
+  },
   "settings": {
     "idleLockSeconds": 300,
     "lockBeforeSleep": true

@@ -35,6 +35,10 @@ Item {
     // Each idle state the idle watch reported, in order, and its disposer.
     property var idleChanges: []
     property var idleDisposer: null
+    // The core's idle stage record as JSON, bound, and whether every entry
+    // of it is frozen.
+    readonly property string idleStages: shell === null ? "" : JSON.stringify(shell.idle.stages)
+    readonly property bool idleStagesFrozen: shell !== null && Object.isFrozen(shell.idle.stages) && shell.idle.stages.every(Object.isFrozen)
     readonly property bool hasAgent: shell !== null && shell.polkit.agent !== null
     readonly property bool agentRegistered: shell !== null && shell.polkit.registered
     readonly property int screenCount: shell === null ? -1 : shell.screens.all.length

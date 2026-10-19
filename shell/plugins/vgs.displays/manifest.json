@@ -10,6 +10,7 @@
   "kinds": ["service", "bar-widget", "panel", "pane"],
   "entryPoints": { "service": "Service.qml", "bar-widget": "Widget.qml", "panel": "Panel.qml", "pane": "Pane.qml" },
   "capabilities": ["configure", "idle", "ipc", "layers", "monitors", "requirements", "screens", "shortcut", "status", "surfaces", "system"],
+  "idleStages": { "dim": { "seconds": "dimAfterSeconds" } },
   "defaultSection": "right",
   "pane": { "group": "Hardware", "order": 20 },
   "requirements": [

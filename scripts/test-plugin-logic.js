@@ -790,6 +790,92 @@ function suite(ctx, configLogic, check) {
     check("appearance is not exclusive", ctx.EXCLUSIVE_CAPABILITIES.indexOf("appearance"), -1);
     check("panes is a known capability on a window", ctx.validateManifest(Object.assign({}, svc, { kinds: ["window"], entryPoints: { window: "Window.qml" }, capabilities: ["panes"] }), "/p").ok, true);
     check("panes needs kind window", ctx.validateManifest(Object.assign({}, svc, { capabilities: ["panes"] }), "/p").error, "capability panes needs kind window");
+    // idleStages refusals: [name, idleStages, capabilities, the refusal's
+    // path, null for accepted], over a service with a number `after`, from
+    // 0, an unbounded number `gap` and a boolean `on`.
+    const idleRaw = (idleStages, capabilities) => Object.assign({}, svc, { capabilities: capabilities, idleStages: idleStages,
+        settings: { after: 60, gap: 4, on: true },
+        schema: { after: { type: "number", label: "After", min: 0 }, gap: { type: "number", label: "Gap" }, on: { type: "boolean", label: "On" } } });
+    for (const [name, idleStages, capabilities, want] of [
+        ["a stage and its time", { lock: { seconds: "after" } }, ["idle"], null],
+        ["a stage with an enabled setting", { screensaver: { seconds: "after", enabled: "on" } }, ["idle"], null],
+        ["every stage of the set", { dim: { seconds: "after" }, screensaver: { seconds: "after" }, lock: { seconds: "after" }, displayOff: { seconds: "after" }, sleep: { seconds: "after" } }, ["idle"], null],
+        ["a list", [], ["idle"], "idleStages"],
+        ["no stage", {}, ["idle"], "idleStages"],
+        ["no capability idle", { lock: { seconds: "after" } }, [], "idleStages"],
+        ["a stage outside the set", { nap: { seconds: "after" } }, ["idle"], "idleStages.nap"],
+        ["an inherited name", { constructor: { seconds: "after" } }, ["idle"], "idleStages.constructor"],
+        ["a stage that is no object", { lock: "after" }, ["idle"], "idleStages.lock"],
+        ["an unknown key", { lock: { seconds: "after", after: "gap" } }, ["idle"], "idleStages.lock"],
+        ["no time", { lock: { enabled: "on" } }, ["idle"], "idleStages.lock.seconds"],
+        ["a time with no schema entry", { lock: { seconds: "x" } }, ["idle"], "idleStages.lock.seconds"],
+        ["a boolean time", { lock: { seconds: "on" } }, ["idle"], "idleStages.lock.seconds"],
+        ["a time with no min", { lock: { seconds: "gap" } }, ["idle"], "idleStages.lock.seconds"],
+        ["an enabled setting that is no boolean", { lock: { seconds: "after", enabled: "gap" } }, ["idle"], "idleStages.lock.enabled"],
+        ["an enabled setting with no schema entry", { lock: { seconds: "after", enabled: "x" } }, ["idle"], "idleStages.lock.enabled"]
+    ]) {
+        const r = ctx.validateManifest(idleRaw(idleStages, capabilities), "/p");
+        check("idleStages: " + name, r.ok ? null : r.error.slice(0, want.length + 1), want === null ? null : want + " ");
+    }
+    check("idleStages: a manifest without the key reads none", ctx.validateManifest(svc, "/p").manifest.idleStages, {});
+    // The record over plugins that each own the stages given: [name, plugins
+    // as [id, { stage: [seconds, enabled] }], the record as [stage, plugin,
+    // seconds, before]]. Ids are handed unsorted.
+    const stageOwner = (id, stages) => {
+        const settings = {}, schema = {}, idleStages = {};
+        for (const [stage, [seconds, enabled]] of Object.entries(stages)) {
+            settings[stage + "Seconds"] = seconds;
+            schema[stage + "Seconds"] = { type: "number", label: stage + " time", min: 0 };
+            idleStages[stage] = { seconds: stage + "Seconds" };
+            if (enabled === undefined) continue;
+            settings[stage + "On"] = enabled;
+            schema[stage + "On"] = { type: "boolean", label: stage + " on" };
+            idleStages[stage].enabled = stage + "On";
+        }
+        return ctx.validateManifest(Object.assign({}, svc, { id: id, capabilities: ["idle"], settings: settings, schema: schema, idleStages: idleStages }), "/p").manifest;
+    };
+    const stageRecord = (plugins, config) => {
+        const manifests = Object.create(null);
+        for (const [id, stages] of plugins) manifests[id] = stageOwner(id, stages);
+        return ctx.idleStages(manifests, plugins.map(p => p[0]), config || { version: 2, plugins: [] });
+    };
+    const stageRows = record => record.stages.map(s => [s.stage, s.plugin, s.seconds, s.before]);
+    for (const [name, plugins, want] of [
+        ["the lock before the screensaver", [["acme.lock", { lock: [120] }], ["acme.saver", { screensaver: [300] }]],
+            [["screensaver", "acme.saver", 300, []], ["lock", "acme.lock", 120, ["screensaver"]]]],
+        ["display off before the dim", [["acme.power", { displayOff: [60] }], ["acme.dim", { dim: [300] }]],
+            [["dim", "acme.dim", 300, []], ["displayOff", "acme.power", 60, ["dim"]]]],
+        ["a Never stage fires before none and none before it", [["acme.a", { dim: [0], screensaver: [60], lock: [0] }]],
+            [["dim", "acme.a", 0, []], ["screensaver", "acme.a", 60, []], ["lock", "acme.a", 0, []]]],
+        ["a stage turned off reads Never", [["acme.a", { screensaver: [300, false], lock: [120] }]],
+            [["screensaver", "acme.a", 0, []], ["lock", "acme.a", 120, []]]],
+        ["a stage turned on reads its time", [["acme.a", { screensaver: [300, true], lock: [120] }]],
+            [["screensaver", "acme.a", 300, []], ["lock", "acme.a", 120, ["screensaver"]]]],
+        ["two stages at one time fire together", [["acme.a", { dim: [60], screensaver: [60] }]],
+            [["dim", "acme.a", 60, []], ["screensaver", "acme.a", 60, []]]],
+        ["a late stage before two earlier ones", [["acme.a", { sleep: [100], dim: [300], screensaver: [200] }]],
+            [["dim", "acme.a", 300, []], ["screensaver", "acme.a", 200, ["dim"]], ["sleep", "acme.a", 100, ["dim", "screensaver"]]]],
+        ["the first by id owns a stage two declare", [["acme.b", { lock: [60] }], ["acme.a", { lock: [600] }]],
+            [["lock", "acme.a", 600, []]]]
+    ])
+        check("idleStages: " + name, stageRows(stageRecord(plugins)), want);
+    const contested = stageRecord([["acme.b", { lock: [60] }], ["acme.a", { lock: [600] }]]);
+    check("idleStages: the later declarer of a stage is a problem", contested.problems.map(p => p.plugin), ["acme.b"]);
+    check("idleStages: the record is frozen", Object.isFrozen(contested.stages) && Object.isFrozen(contested.stages[0]) && Object.isFrozen(contested.stages[0].before), true);
+    check("idleStages: a plugin not enabled owns no stage", stageRows(ctx.idleStages({ "acme.a": stageOwner("acme.a", { lock: [60] }) }, [], { version: 2, plugins: [] })), []);
+    const unfit = stageRecord([["acme.a", { dim: [60], lock: [120] }]], { version: 2, plugins: [{ id: "acme.a", lockSeconds: "soon" }] });
+    check("idleStages: a stored time that does not fit leaves its stage out", stageRows(unfit), [["dim", "acme.a", 60, []]]);
+    check("idleStages: a stored time that does not fit is a problem", unfit.problems.map(p => p.plugin), ["acme.a"]);
+    // The bundled owners, read from their shipped manifests: their defaults
+    // fire in order, and the lock set to Never fires before none.
+    const bundledStages = Object.create(null);
+    for (const id of ["vgs.displays", "vgs.lock", "vgs.screensaver"])
+        bundledStages[id] = ctx.validateManifest(JSON.parse(fs.readFileSync(path.join(PLUGINS_DIR, id, "manifest.json"), "utf8")), "/p").manifest;
+    const bundledRows = config => ctx.idleStages(bundledStages, Object.keys(bundledStages), config).stages.map(s => [s.stage, s.plugin, s.setting, s.seconds, s.before]);
+    check("idleStages: the bundled defaults read no before", bundledRows({ version: 2, plugins: [] }),
+        [["dim", "vgs.displays", "dimAfterSeconds", 120, []], ["screensaver", "vgs.screensaver", "idleSeconds", 150, []], ["lock", "vgs.lock", "idleLockSeconds", 300, []]]);
+    check("idleStages: the bundled lock set to Never reads 0", bundledRows({ version: 2, plugins: [{ id: "vgs.lock", idleLockSeconds: 0 }, { id: "vgs.screensaver", idleSeconds: 600 }] }),
+        [["dim", "vgs.displays", "dimAfterSeconds", 120, []], ["screensaver", "vgs.screensaver", "idleSeconds", 600, []], ["lock", "vgs.lock", "idleLockSeconds", 0, []]]);
     // capabilityKinds rows: [name, capabilities, capabilityKinds, want], over
     // a plugin of kinds pane, service and window. A refusal pins the start of
     // the error text, as manifestRows does.
@@ -2342,6 +2428,17 @@ require("node:assert/strict").throws(() => verifyUpdatesNoticeOwner(withoutNotic
 // judge's own place in a temporary tree, beside the other judge, the icon
 // set, the package-manager table and the Hyprland layer's table they import.
 const CONTROLS = [
+    ["idleStages is a manifest key", '"schema", "idleStages", "defaultSection"', '"schema", "defaultSection"'],
+    ["idle stages need capability idle", 'if (capabilities.indexOf("idle") === -1)\n        return "idleStages needs', 'if (false)\n        return "idleStages needs'],
+    ["a stage outside the set goes unjudged", "if (IDLE_STAGES.indexOf(stages[i]) === -1)", "if (false)"],
+    ["a stage's time needs no min", "!(seconds.min >= 0)", "false"],
+    ["a stage's enabled setting goes unjudged", "if (entry.enabled !== undefined && !(", "if (false && !("],
+    ["the record takes the enabled ids in the order given", "var declarers = enabledIds.filter(function (id) { return hasOwn(manifests, id); }).sort();", "var declarers = enabledIds.filter(function (id) { return hasOwn(manifests, id); });"],
+    ["a stage turned off keeps its time", "seconds: on ? settings[entry.seconds] : 0", "seconds: settings[entry.seconds]"],
+    ["a stored time that does not fit is lent", 'if (unfit !== "") {\n                skipped(', 'if (false) {\n                skipped('],
+    ["two stages at one time fire one before the other", "earlier.seconds > entry.seconds", "earlier.seconds >= entry.seconds"],
+    ["a Never stage fires before later ones", "var before = entry.seconds === 0 ? [] : stages", "var before = stages"],
+    ["the record is not frozen", "stages: frozenJson(idleStagesBefore(stages))", "stages: idleStagesBefore(stages)"],
     ["joined presets refuse a combined atom", "preset.value.indexOf(entry.separator) !== -1", "false"],
     ["manifest invokes page judge", 'if (badPlacement !== "") return { ok: false, error: badPlacement };', 'if (false) return { ok: false, error: badPlacement };'],
     ["manifest drops its page rows' judge", 'if (badRows !== "") return { ok: false, error: badRows };', 'if (false) return { ok: false, error: badRows };'],

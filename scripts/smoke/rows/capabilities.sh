@@ -6,7 +6,7 @@
 # a row holds the capability, so no row starts the host's voxtype; the
 # daemon the core starts for the holder is the stand-in. The row puts the
 # stand-ins away again and leaves the fixture disabled.
-# inputs: scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/fixtures/plugins/acme.dictation/* scripts/smoke/fixtures/voxtype/* shell/Core/Dictation.qml shell/Core/DictationModel.js shell/Core/Capabilities.qml shell/Core/ShortcutRegistry.qml shell/Core/IpcRegistry.qml shell/Core/IdleRegistry.qml shell/Core/SessionLock.qml shell/Core/NotificationHub.qml shell/Core/Compositor.qml shell/Core/Dispatch.js scripts/smoke/rows/plugins.sh
+# inputs: scripts/smoke/fixtures/plugins/acme.probe/* scripts/smoke/fixtures/plugins/acme.bare/* scripts/smoke/fixtures/plugins/acme.dictation/* scripts/smoke/fixtures/voxtype/* shell/Core/Dictation.qml shell/Core/DictationModel.js shell/Core/Capabilities.qml shell/Core/ShortcutRegistry.qml shell/Core/IpcRegistry.qml shell/Core/IdleRegistry.qml shell/Core/PluginLogic.js shell/Core/Registry.qml shell/plugins/vgs.lock/manifest.json shell/Core/SessionLock.qml shell/Core/NotificationHub.qml shell/Core/Compositor.qml shell/Core/Dispatch.js scripts/smoke/rows/plugins.sh
 set -euo pipefail
 lent() { ipc shell lent | py_reply 'import json,sys; d=json.load(sys.stdin); v=d
 for k in sys.argv[1].split("."): v=v.get(k) if isinstance(v, dict) else None
@@ -166,6 +166,76 @@ type_keys -k Shift_L || fail "typing a key for the idle watch failed"
 expect_poll "a key reports the seat active again" '["idle", "active"]' idle_changes
 expect "the disposer drops the watch" ok probe idle-unwatch
 expect "the lending record lists no watch after the disposer" '[]' idle_watches
+
+# idle stages: shell.idle.stages, the core's record of the stage each
+# enabled plugin declares, read bound by the fixture as [stage, plugin,
+# setting, seconds, before]. vgs.lock is enabled here but never built,
+# because the fixture holds the exclusive lock, so it locks nothing; the
+# fixture is not rebuilt while vgs.lock is enabled, so the lock cannot pass
+# to it. vgs.displays and vgs.screensaver build services that reach the
+# panels and ttfx, which this row has no stand-ins for:
+# scripts/test-plugin-logic.js reads all three bundled stages from their
+# shipped manifests.
+idle_stages() { read_service idleStages | py_reply 'import json,sys; print(json.dumps([[s["stage"], s["plugin"], s["setting"], s["seconds"], s["before"]] for s in json.loads(json.load(sys.stdin))]))'; }
+idle_problems() { ipc shell listPlugins | py_reply 'import json,sys; print(json.dumps(sorted(e["error"].split(" skipped:")[0] for e in json.load(sys.stdin)["errors"] if e["error"].startswith("idle: "))))'; }
+lock_row() { # KEY VALUE: one value of vgs.lock's plugins row, null removes it
+  python3 - "$home/.config/vgshell/shell.json" "$1" "$2" <<'PY'
+import json, os, sys
+path, key, value = sys.argv[1], sys.argv[2], json.loads(sys.argv[3])
+config = json.load(open(path))
+rows = config.setdefault("plugins", [])
+row = next((r for r in rows if r.get("id") == "vgs.lock"), None)
+if row is None:
+    row = {"id": "vgs.lock"}
+    rows.append(row)
+if value is None:
+    row.pop(key, None)
+else:
+    row[key] = value
+json.dump(config, open(path + ".tmp", "w"), indent=2)
+os.replace(path + ".tmp", path)
+PY
+}
+probe_stages() { # declare|drop: the fixture copy's own idle stages
+  python3 - "$home/.config/vgshell/plugins/acme.probe/manifest.json" "$1" <<'PY'
+import json, os, sys
+p, action = sys.argv[1], sys.argv[2]
+d = json.load(open(p))
+if action == "declare":
+    d["idleStages"] = {"screensaver": {"seconds": "delay", "enabled": "accent"}, "lock": {"seconds": "size"}}
+else:
+    del d["idleStages"]
+json.dump(d, open(p + ".tmp", "w"))
+os.replace(p + ".tmp", p)
+PY
+}
+expect "no enabled plugin owns an idle stage" '[]' idle_stages
+expect "vgs.lock starts disabled" False plugin_enabled vgs.lock
+expect "enabling vgs.lock while the fixture holds the lock is allowed" ok ipc shell setPluginEnabled vgs.lock true
+expect_poll "the record lists the bundled lock stage at its default" '[["lock", "vgs.lock", "idleLockSeconds", 300, []]]' idle_stages
+expect "the fixture alone holds the lock" '["acme.probe"]' lent holders.lock
+expect "the fixture reads every entry frozen" true read_service idleStagesFrozen
+lock_row idleLockSeconds 0
+expect_poll "the bundled lock set to 0 reads Never" '[["lock", "vgs.lock", "idleLockSeconds", 0, []]]' idle_stages
+lock_row idleLockSeconds null
+expect_poll "the bundled lock reads its default again" '[["lock", "vgs.lock", "idleLockSeconds", 300, []]]' idle_stages
+expect "disabling vgs.lock before the fixture declares stages is allowed" ok ipc shell setPluginEnabled vgs.lock false
+expect_poll "the disabled lock owns no stage" '[]' idle_stages
+probe_stages declare
+rescan "a rescan after the fixture declares idle stages answers ok"
+expect_poll "a lock due first fires before the screensaver" '[["screensaver", "acme.probe", "delay", 800, []], ["lock", "acme.probe", "size", 12, ["screensaver"]]]' idle_stages
+expect "the fixture turns its screensaver stage off" ok probe set 'accent=false'
+expect_poll "a stage turned off reads Never and nothing fires before it" '[["screensaver", "acme.probe", "delay", 0, []], ["lock", "acme.probe", "size", 12, []]]' idle_stages
+expect "the fixture turns its screensaver stage on again" ok probe unset accent
+expect "no idle stage is a problem before a second declarer" '[]' idle_problems
+expect "enabling vgs.lock beside the fixture's lock stage is allowed" ok ipc shell setPluginEnabled vgs.lock true
+expect_poll "vgs.lock, the second declarer of the lock, is reported" '["idle: stage lock of vgs.lock"]' idle_problems
+expect "the first declarer by id keeps the lock stage" '[["screensaver", "acme.probe", "delay", 800, []], ["lock", "acme.probe", "size", 12, ["screensaver"]]]' idle_stages
+expect "disabling vgs.lock again is allowed" ok ipc shell setPluginEnabled vgs.lock false
+expect_poll "the disabled declarer is no problem" '[]' idle_problems
+probe_stages drop
+rescan "a rescan after the fixture drops its idle stages answers ok"
+expect_poll "the record is empty again" '[]' idle_stages
 
 # dictation_stand_ins on|off: the voxtype and wtype stand-ins in the shell's
 # stand-in directory, swapped whole. `on` returns 1 unless the shell then

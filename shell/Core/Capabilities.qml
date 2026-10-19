@@ -49,6 +49,9 @@ Singleton {
     readonly property alias monitors: monitorState
     readonly property alias keyCapture: shortcuts.keyCapture
 
+    // Each idle stage the core skipped, { plugin, error }, for the plugin
+    // manager's errors (IdleRegistry.stageRecord).
+    readonly property var idleProblems: idleWatches.stageRecord.problems
     readonly property bool notificationsHeld: holderIds("notifications").length > 0
     // `<plugin id>:<name>` -> the description each registered shortcut
     // carries, for the plugin manager's Keys rows.
