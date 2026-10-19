@@ -64,6 +64,10 @@ Item {
         if (shell === null || registered) return;
         registered = true;
         shell.ipc.handle("profile", arg => root.profileRequest(arg));
+        // The step resolves hdparm in safe system directories; the scan
+        // can miss an installed command outside the session's PATH.
+        shell.ipc.handle("disk-sleep", () => root.diskSleepStep !== undefined && root.diskSleepStep.reason === "hdparm-missing"
+            ? root.shell.requirements.offer(["hdparm"]) : root.shell.status.act("diskSleep"));
         shell.shortcut.register("power-saver", "Use the power saver profile", () => root.setProfile("power-saver", true));
         shell.shortcut.register("balanced", "Use the balanced profile", () => root.setProfile("balanced", true));
         shell.shortcut.register("performance", "Use the performance profile", () => root.setProfile("performance", true));
