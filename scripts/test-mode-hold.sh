@@ -69,13 +69,19 @@ source "$2"
 # The stub state carries a prefix: a local of the subject shadows a global
 # of the same name inside every function it calls, the stub hypr included.
 repo="$1"; stub_dir="$3"; stub_reply="$4"; stub_call="$6"
-# A call ending in -unallocated runs over a nested compositor log that
-# holds the allocation failure nested_output_unallocated reads.
-if [[ $stub_call == *-unallocated ]]; then
-  mkdir -p "$stub_dir/hypr/stub"
-  echo "ERR from aquamarine ]: Output WAYLAND-1: pending state rejected: swapchain failed reconfiguring" >"$stub_dir/hypr/stub/hyprland.log"
-  stub_call="${stub_call%-unallocated}"
-fi
+# A call ending in -unallocated logs WAYLAND-1'\''s allocation failure at
+# each reload, -other WAYLAND-2'\''s, and -earlier holds WAYLAND-1'\''s in the
+# log before the call; every other call runs over an empty log.
+stub_log="$stub_dir/hypr/stub/hyprland.log" stub_reject=""
+mkdir -p "$stub_dir/hypr/stub"
+: >"$stub_log"
+reject_line() { echo "ERR from aquamarine ]: Output $1: pending state rejected: swapchain failed reconfiguring"; }
+case "$stub_call" in
+  *-unallocated) stub_reject=WAYLAND-1 ;;
+  *-other) stub_reject=WAYLAND-2 ;;
+  *-earlier) reject_line WAYLAND-1 >"$stub_log" ;;
+esac
+stub_call="${stub_call%-unallocated}" stub_call="${stub_call%-other}" stub_call="${stub_call%-earlier}"
 IFS=, read -r -a stub_plan <<<"$5"
 mode_hold_file="$stub_dir/monitor-hold.lua"
 rt_dir="$stub_dir"
@@ -104,6 +110,7 @@ hypr() {
       case "$command" in
         "reload config-only")
           if [[ $effective_reply == config-error ]]; then printf "ok"; else printf "%s" "$effective_reply"; fi
+          [[ -z $stub_reject ]] || reject_line "$stub_reject" >>"$stub_log"
           [[ $effective_reply != ok ]] || tail -n 1 "$mode_hold_file" >>"$stub_dir/rules" ;;
         j/configerrors)
           if [[ $effective_reply == config-error ]]; then printf "[\"invalid rule\"]"; else printf "[]"; fi ;;
@@ -302,6 +309,8 @@ cases=(
   "a hold after a product failure that cannot take its mode fails too|hold-after-behaviour|ok|1755x933 scale=1.5|status=0 failures=2 held=[] state=none file=absent|1"
   "an allocation failure stops a hold unmeasured|hold-unallocated|ok|1755x933 scale=1.5|qml-smoke: status=not-measured nested-output=mode-unavailable output=WAYLAND-1 want=[3510x1866 scale=2] got=[1755x933 scale=1.5]|1"
   "an allocation failure preserves an earlier product failure|hold-after-behaviour-unallocated|ok|1755x933 scale=1.5|qml-smoke: failed=1|1"
+  "an allocation failure logged before the hold excuses nothing|hold-earlier|ok|1755x933 scale=1.5|status=0 failures=1 held=[] state=none file=absent|1"
+  "another output's allocation failure excuses nothing|hold-other|ok|1755x933 scale=1.5|status=0 failures=1 held=[] state=none file=absent|1"
   "a hold that cannot take a readable mode fails|hold|ok|1755x933 scale=1.5|status=0 failures=1 held=[] state=none file=absent|1"
   "a release that cannot take its base fails|release-only|ok|1700x900 scale=1|status=0 failures=1 held=[] state=none file=absent|1"
   "an unreadable output fails instead of being excused|hold-unallocated|ok|unreadable|status=0 failures=1 held=[] state=none file=absent|1"
@@ -415,7 +424,7 @@ controls=(
   "configuration errors are accepted|[[ \$reply != '[]' ]]|[[ \$reply == never ]]|configuration errors fail instead of being excused"
   "an unreadable output is excused|[[ \$got != unreadable ]]|true|an unreadable output fails instead of being excused"
   "an unavailable mode excuses an earlier product failure|if [[ \$failures -gt 0 ]]; then|if false; then|an allocation failure preserves an earlier product failure"
-  "an unavailable mode is excused without an allocation failure|  nested_output_unallocated \"\$rt_dir\"/hypr/*/hyprland.log |  true |a hold that cannot take a readable mode fails"
+  "an unavailable mode is excused without an allocation failure|  nested_output_unallocated_since \"\$1\" \"\$size\" \"\$log\" |  true |a hold that cannot take a readable mode fails"
   "mode application omits configuration reload|reload config-only ; j/configerrors|j/configerrors|a hold the output takes at once is held"
   "take_mode defers mode application until a frame|reply=\"\$(hypr_reload_errors)\"|reply=\"\$(output_mode \"\$output\" \"\$mode\" \"\$scale\")\"|a hold the output takes at once is held"
   "an unavailable mode uses a product failure|  exit 77|  return 0|an allocation failure stops a hold unmeasured"

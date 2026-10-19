@@ -32,6 +32,7 @@
       "calibration_runs": [
         {
           "run": "shader-cost-1792390024-2/run-1/voiceorb",
+          "cpu_some_pct": 0.2,
           "readings": {
             "1": {
               "cpu_sync_ms": 0.0,
@@ -63,6 +64,7 @@
         },
         {
           "run": "shader-cost-1792390024-2/run-2/voiceorb",
+          "cpu_some_pct": 0.2,
           "readings": {
             "1": {
               "cpu_sync_ms": 0.0,
@@ -94,6 +96,7 @@
         },
         {
           "run": "shader-cost-1792390024-2/run-3/voiceorb",
+          "cpu_some_pct": 0.3,
           "readings": {
             "1": {
               "cpu_sync_ms": 0.0,
@@ -157,6 +160,7 @@
       "calibration_runs": [
         {
           "run": "shader-cost-1792390024-2/run-1/plasma",
+          "cpu_some_pct": 0.2,
           "readings": {
             "1": {
               "cpu_sync_ms": 0.0,
@@ -188,6 +192,7 @@
         },
         {
           "run": "shader-cost-1792390024-2/run-2/plasma",
+          "cpu_some_pct": 0.2,
           "readings": {
             "1": {
               "cpu_sync_ms": 0.0,
@@ -219,6 +224,7 @@
         },
         {
           "run": "shader-cost-1792390024-2/run-3/plasma",
+          "cpu_some_pct": 0.2,
           "readings": {
             "1": {
               "cpu_sync_ms": 0.0,

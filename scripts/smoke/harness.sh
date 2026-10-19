@@ -793,7 +793,9 @@ for _ in $(seq 1 200); do
   sleep 0.1
 done
 if [[ -z $nested_socket ]]; then
-  [[ -z $sink_exit ]] || sink_not_measured
+  # A dead sink takes the compositor down with it, so the sink is read
+  # again here whichever check ended the wait, and named first.
+  sink_alive || sink_not_measured
   printf 'qml-smoke: status=not-measured missing=nested-compositor\n'
   tail -n 20 "$sandbox/hyprland.log"
   exit 77
@@ -885,7 +887,7 @@ nested_monitor_readings="${monitors_record# }"
 if [[ $monitors -gt 0 ]]; then
   printf 'qml-smoke: nested-monitor-ready secs=%s bound_secs=%d\n' "$nested_monitor_ready_secs" "$nested_monitor_wait_secs"
   ok "nested compositor lists $monitors monitor(s): $monitors_seen"
-elif [[ -n $sink_exit ]]; then
+elif ! sink_alive; then
   sink_not_measured
 elif [[ -n $compositor_gone ]]; then
   printf 'qml-smoke: status=not-measured missing=nested-compositor secs=%s\n' "$nested_monitor_ready_secs"

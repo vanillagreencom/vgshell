@@ -51,6 +51,7 @@ def fixture(root):
             stem = root / f"scale-{scale}-{mode}"
             stem.with_suffix(".log").write_text(log(gpu))
             stem.with_suffix(".json").write_text(json.dumps(dict(STATE, scale=scale)))
+            stem.with_suffix(".cpu").write_text("0.5\n")
 
 
 class ShaderReadings(unittest.TestCase):
@@ -67,6 +68,28 @@ class ShaderReadings(unittest.TestCase):
                 "cpu_sync_ms": 2, "cpu_render_ms": 2, "gpu_cost_ms": 0.2, "presentation_ms": 32})
             self.assertEqual(set(result["readings"]), {"1", "2"})
             self.assertAlmostEqual(result["calibration_runs"][0]["costly_control"]["2"]["gpu_cost_ms"], 0.9)
+            self.assertEqual(result["calibration_runs"][0]["cpu_some_pct"], 0.5)
+
+    def test_calibration_pressure(self):
+        # Each run records its scenes' highest CPU pressure; one scene
+        # that could not read it makes the run's unmeasured, and a reading
+        # in another form fails.
+        cases = (
+            ("highest scene", {"scale-2-costly": "1.7"}, 1.7, None),
+            ("an unmeasured scene", {"scale-1-off": "unmeasured", "scale-2-on": "3.0"}, "unmeasured", None),
+            ("an unreadable reading", {"scale-1-on": "high"}, None, "cpu-pressure=unreadable"),
+        )
+        for label, files, want, error in cases:
+            with self.subTest(label), tempfile.TemporaryDirectory() as scratch:
+                root = Path(scratch)
+                fixture(root)
+                for stem, value in files.items():
+                    (root / f"{stem}.cpu").write_text(value + "\n")
+                if error:
+                    with self.assertRaisesRegex(ValueError, error):
+                        reader.calibrate([root])
+                else:
+                    self.assertEqual(reader.calibrate([root])["calibration_runs"][0]["cpu_some_pct"], want)
 
     def test_sample_and_attribution_rules(self):
         cases = (

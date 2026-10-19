@@ -76,6 +76,13 @@ read_count() {
 nested_output_unallocated() {
   grep -q -s -E 'Output WAYLAND-[0-9]+: pending state rejected: swapchain failed reconfiguring' -- "$@"
 }
+# nested_output_unallocated_since OUTPUT OFFSET LOG: true when LOG, past its
+# first OFFSET bytes, holds that rejection for OUTPUT itself, so neither an
+# earlier rejection nor another output's is read as this output's.
+nested_output_unallocated_since() {
+  [[ -f $3 ]] || return 1
+  grep -q -F -e "Output $1: pending state rejected: swapchain failed reconfiguring" < <(tail -c "+$(($2 + 1))" -- "$3")
+}
 
 # smoke_verdict FAILURES BEHAVIOUR_FAILURES LOG...: prints the run's
 # closing line and returns its exit status. A run whose failures are all

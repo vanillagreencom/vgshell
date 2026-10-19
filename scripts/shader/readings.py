@@ -14,7 +14,10 @@ busy host delays do not set it. The report's GPU cost is paired
 on-minus-off GPU frame time, not CPU time or presentation interval.
 Calibration reads one directory per pass, derives each ceiling from the
 highest reading over every pass and writes the shader's record into the
-file, keeping every other shader's; check mode judges one directory.
+file, keeping every other shader's; each calibration run records the
+highest CPU pressure (cpu_some_pct) its scenes ran under, read from each
+scene's .cpu file, or `unmeasured` when a scene could not read it. Check
+mode judges one directory.
 Software devices exit 77; absent samples fail.
 """
 import argparse
@@ -177,6 +180,18 @@ def check(root, baseline):
     return dict(record(run, ceilings), readings=run["readings"], costly_control=run["costly_control"])
 
 
+def pressure(root):
+    """The highest cpu_some_pct over one pass's scenes, `unmeasured` when
+    any scene could not read it."""
+    values = [(root / f"scale-{scale}-{mode}.cpu").read_text().strip()
+              for scale in (1, 2) for mode in ("off", "on", "costly")]
+    if "unmeasured" in values:
+        return "unmeasured"
+    if not all(re.fullmatch(r"[0-9]+\.[0-9]", value) for value in values):
+        raise ValueError(f"cpu-pressure=unreadable root={root}")
+    return max(float(value) for value in values)
+
+
 def calibrate(roots):
     """Derive each ceiling as twice the highest reading over every pass and
     scale; the costly shader of every pass must exceed the GPU ceiling."""
@@ -184,6 +199,7 @@ def calibrate(roots):
     for root in roots:
         run = measure(root, runs[0] if runs else None)
         run["run"] = "/".join(root.parts[-3:])
+        run["cpu_some_pct"] = pressure(root)
         runs.append(run)
     readings = {scale: {name: max(run["readings"][scale][name] for run in runs) for name in READINGS}
                 for scale in ("1", "2")}
@@ -191,7 +207,8 @@ def calibrate(roots):
     for run in runs:
         prove_control(run, ceilings, f" run={run['run']}")
     return dict(record(runs[0], ceilings), readings=readings, calibration_runs=[
-        {"run": run["run"], "readings": run["readings"], "costly_control": run["costly_control"]}
+        {"run": run["run"], "cpu_some_pct": run["cpu_some_pct"],
+         "readings": run["readings"], "costly_control": run["costly_control"]}
         for run in runs])
 
 

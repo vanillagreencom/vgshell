@@ -27,7 +27,8 @@
 # compositor logs as `Output WAYLAND-<n>: pending state rejected: swapchain
 # failed reconfiguring` (a bare GBM allocation failure, which passing runs
 # log for the headless output, is not that fault), or a held mode the
-# output did not take beside that fault (nested-output=mode-unavailable);
+# output did not take while it logged that fault for itself
+# (nested-output=mode-unavailable);
 # that is not a pass. A sink that exits later fails the row it ended in as
 # sink=exited.
 # scripts/smoke/verdict.sh holds the verdict. Exit 1 when a check failed.

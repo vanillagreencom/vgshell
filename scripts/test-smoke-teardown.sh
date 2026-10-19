@@ -323,29 +323,47 @@ source "$functions"
 sandbox="$case_dir/sandbox" rt_dir="$case_dir/runtime"
 mkdir -- "$sandbox" "$rt_dir"
 echo "sink: listening" >"$sandbox/sink.log"
+# Each stand-in leads its own process group, as spawn's setsid gives the
+# real sink, so the teardown's group signals reach it; the running one
+# says it is ready once its trap is set, and marks the TERM it gets.
 if [[ $mode == exited ]]; then
-  sh -c 'echo "sink: refused: stand-in" >>"$1"; exit 7' _ "$sandbox/sink.log" &
+  setsid sh -c 'echo "sink: refused: stand-in" >>"$1"; exit 7' _ "$sandbox/sink.log" >/dev/null 2>&1 &
 else
-  sleep 30 &
+  setsid sh -c 'trap "echo termed >\"\$1\"; exit 0" TERM; : >"$1.ready"; while :; do sleep 0.1; done' _ "$case_dir/termed" >/dev/null 2>&1 &
 fi
 sink_pid=$! sink_exit=""
 pgids+=("$sink_pid")
-[[ $mode != exited ]] || while kill -0 "$sink_pid" 2>/dev/null; do sleep 0.05; done
+if [[ $mode == exited ]]; then
+  while kill -0 "$sink_pid" 2>/dev/null; do sleep 0.05; done
+else
+  while [[ ! -e $case_dir/termed.ready ]]; do sleep 0.05; done
+fi
 exit 0
 SH
-  # sink_case TEARDOWN MODE: the child's stdout.
+  # sink_case TEARDOWN MODE: the child's stdout; sink_dir is the case's
+  # directory, made before the call.
   sink_case() {
-    local dir
-    dir="$(mktemp -d "$tmp/sink-case.XXXXXX")" || return 1
-    timeout -k 2 20 env -i PATH="$PATH" "$BASH" "$tmp/sink-child.sh" "$1" "$tmp/sink-alive.sh" "$dir" "$2" 2>/dev/null
+    timeout -k 2 20 env -i PATH="$PATH" "$BASH" "$tmp/sink-child.sh" "$1" "$tmp/sink-alive.sh" "$sink_dir" "$2" 2>/dev/null
   }
   want_sink='qml-smoke: sink=exited status=7 last=[sink: refused: stand-in]'
+  sink_dir="$(mktemp -d "$tmp/sink-case.XXXXXX")"
   got="$(sink_case "$teardown" exited)" || got="exit=$?"
   if [[ $got == "$want_sink" ]]; then ok "the teardown prints a sink that exited with its status"; else fail "the teardown prints a sink that exited with its status: got [$got]"; fi
+  sink_dir="$(mktemp -d "$tmp/sink-case.XXXXXX")"
+  started=$EPOCHREALTIME
   got="$(sink_case "$teardown" running)" || got="exit=$?"
+  elapsed_ms=$(( (${EPOCHREALTIME/./} - ${started/./}) / 1000 ))
   if [[ -z $got ]]; then ok "the teardown prints nothing for a sink that runs"; else fail "the teardown prints nothing for a sink that runs: got [$got]"; fi
+  # The stand-in took the teardown's TERM and the child's stdout closed
+  # with it, well inside the stand-in's own life.
+  if [[ -e $sink_dir/termed && $elapsed_ms -lt 10000 ]]; then
+    ok "the teardown's group signal ends a running sink"
+  else
+    fail "the teardown's group signal ends a running sink: termed=$([[ -e $sink_dir/termed ]] && echo yes || echo no) elapsed_ms=$elapsed_ms"
+  fi
   sink_line="$(grep -F 'qml-smoke: %s' -- "$teardown")" || sink_line=""
   if [[ -n $sink_line ]] && mutate "$sink_line" '    :' "$tmp/mutant-sink.sh"; then
+    sink_dir="$(mktemp -d "$tmp/sink-case.XXXXXX")"
     got="$(sink_case "$tmp/mutant-sink.sh" exited)" || got="exit=$?"
     if [[ $got == "$want_sink" ]]; then fail "control: a teardown without the sink line left the sink case green"; else ok "control: a teardown without the sink line"; fi
   else

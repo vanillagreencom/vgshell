@@ -116,15 +116,31 @@ take_mode() {
   [[ $got != unreadable ]] || return 1
   return 77
 }
-# mode_unavailable OUTPUT WANT READING: a readable output that did not take
-# its requested mode. The one sandbox cause left is a nested output that
-# could not allocate its buffers (nested_output_unallocated): the run then
+# mode_log_mark: the nested compositor's log as `SIZE PATH`, its size now,
+# or `0 none` before the compositor wrote one; a hold reads it before its
+# take_mode, so mode_unavailable reads only what that take_mode logged.
+mode_log_mark() {
+  local log
+  for log in "$rt_dir"/hypr/*/hyprland.log; do
+    [[ -f $log ]] || continue
+    printf '%s %s\n' "$(stat -c %s -- "$log")" "$log"
+    return
+  done
+  echo "0 none"
+}
+# mode_unavailable OUTPUT WANT READING MARK: a readable output that did not
+# take its requested mode, MARK being mode_log_mark's reading before its
+# take_mode. The one sandbox cause left is OUTPUT itself rejecting a state
+# because it could not allocate its buffers, logged after MARK
+# (nested_output_unallocated_since): the run then
 # stops before a product check uses its geometry, as not measured, which
 # scripts/main-run.sh consumes; earlier failures keep the closing
 # verdict's classification. Any other cause is the hold's own defect, so
 # it returns and its caller fails the hold.
 mode_unavailable() {
-  nested_output_unallocated "$rt_dir"/hypr/*/hyprland.log || return 0
+  local size log
+  read -r size log <<<"$4"
+  nested_output_unallocated_since "$1" "$size" "$log" || return 0
   if [[ $failures -gt 0 ]]; then
     printf 'qml-smoke: nested-output=mode-unavailable output=%s want=[%s] %s\n' "$1" "$2" "$3"
     smoke_verdict "$failures" "$behaviour_failures" "$rt_dir"/hypr/*/hyprland.log || exit $?
@@ -143,7 +159,7 @@ mode_unavailable() {
 # inner hold that does not take gives the outer hold its rule and mode
 # again.
 hold_mode() {
-  local label="$1" output="$2" want="$3 scale=${4:-1}" taken previous_rule="" status=0
+  local label="$1" output="$2" want="$3 scale=${4:-1}" taken mark previous_rule="" status=0
   local row_class=hold
   if [[ ${#mode_hold[@]} -gt 0 ]]; then
     previous_rule="$(cat -- "$mode_hold_file")" || { fail "$label: the held rule is unreadable"; return 0; }
@@ -153,6 +169,7 @@ hold_mode() {
     rm -f -- "$mode_hold_file.next" || fail "$label: the partial hold file $mode_hold_file.next is not removed"
     return 0
   fi
+  mark="$(mode_log_mark)"
   if taken="$(take_mode "$output" "$3" "${4:-1}")"; then
     if [[ -n $previous_rule ]]; then
       mode_hold_parents+=("${mode_hold[0]}" "${mode_hold[1]}" "$previous_rule")
@@ -161,7 +178,7 @@ hold_mode() {
     ok "$label: $output reads $want, $taken"
   else
     status=$?
-    [[ $status != 77 ]] || mode_unavailable "$output" "$want" "$taken"
+    [[ $status != 77 ]] || mode_unavailable "$output" "$want" "$taken" "$mark"
     fail "$label: $output does not read $want: $taken"
     if [[ -n $previous_rule ]]; then
       printf '%s\n' "$previous_rule" >"$mode_hold_file" || fail "$label: the outer hold file is not restored"
@@ -221,12 +238,13 @@ release_mode() {
       return 0
     fi
   fi
-  local output="${mode_hold[0]:-$2}" want="${mode_hold[1]:-$3 scale=${4:-1}}"
+  local output="${mode_hold[0]:-$2}" want="${mode_hold[1]:-$3 scale=${4:-1}}" mark
+  mark="$(mode_log_mark)"
   if taken="$(take_mode "$output" "${want% scale=*}" "${want##*scale=}")"; then
     ok "$1: $output reads $want, $taken"
   else
     status=$?
-    [[ $status != 77 ]] || mode_unavailable "$output" "$want" "$taken"
+    [[ $status != 77 ]] || mode_unavailable "$output" "$want" "$taken" "$mark"
     fail "$1: $output does not read $want: $taken"
   fi
   if ((${#mode_hold[@]} == 0)); then

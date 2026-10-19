@@ -7,7 +7,8 @@
 # measures one, voiceorb or plasma.
 # Calibration measures N passes, 1 by default, in one sandbox and derives
 # each shader's ceilings as twice its highest reading over every pass and
-# scale, written as that shader's record in FILE beside the others.
+# scale, written as that shader's record in FILE beside the others, with
+# each pass's highest scene CPU pressure (cpu_some_pct) beside its readings.
 # Each CPU, GPU, and presentation stream discards 120 warmup readings and
 # keeps 600 samples; a reading is their 90th percentile. GPU timestamps
 # keep compositor pacing out of GPU cost.

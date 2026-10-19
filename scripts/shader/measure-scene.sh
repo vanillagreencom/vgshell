@@ -6,10 +6,11 @@
 
 # measure_scene SCALE SCENE STEM: one standalone layer, VGS_SHADER_MODE
 # SCENE and VGS_SHADER_NAME shader, until its result reads complete or
-# timeout_s passes. Writes STEM.launch.log, the instance log as STEM.log
-# and the result as STEM.json, reaps the layer and ends its process
-# group's lease, and sets scene_cpu_some_pct to cpu_some_pct of the
-# scene's window. Exits 1, with the cause, when the layer leaves no
+# timeout_s passes. Writes STEM.launch.log, the instance log as STEM.log,
+# the result as STEM.json and cpu_some_pct of the scene's window as
+# STEM.cpu, which scripts/shader/readings.py records with a calibration,
+# reaps the layer and ends its process group's lease, and sets
+# scene_cpu_some_pct to that reading. Exits 1, with the cause, when the layer leaves no
 # instance, exits other than by the TERM it is sent, or never completes its
 # samples.
 measure_scene() {
@@ -29,6 +30,7 @@ measure_scene() {
     sleep 0.2
   done
   scene_cpu_some_pct="$(cpu_some_pct "$start_us" "$(cpu_some_us)" "$(( $(now_ms) - start_ms ))")"
+  printf '%s\n' "$scene_cpu_some_pct" >"$stem.cpu"
   # Read the flushed instance log by the scene's own pid, not its stdout.
   # The listing answers none or unlisted when no instance names the pid.
   if ! instance="$(qs_list --all | py_reply 'import json,sys; print(next((i["id"] for i in json.load(sys.stdin) if i["pid"] == int(sys.argv[1])), "unlisted"))' "$scene_pid")" \
