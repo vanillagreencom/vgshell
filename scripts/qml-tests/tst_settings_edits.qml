@@ -17,7 +17,10 @@ import "../../shell/plugins/vgs.settings"
 // its text entry when its owner refuses it and leaves a read-only row; a
 // key the row sends without its text entry is no edit. A Keys row offers
 // its reset while the keys in effect are not every default key, one or a
-// list, and the reset sends undefined. A plugin page draws one Keys row per
+// list, and the reset sends undefined; from the text entry or a capture it
+// closes them first, so the default keys show at once. The reset and the
+// add button keep their places as they come and go, and the add button
+// hides while the text entry is open. A plugin page draws one Keys row per
 // shortcut, every alternative key in its one field: Delete on one writes
 // the keys left, the add button and a pressed combo write the list with
 // the new key, Use my binding removes the key a user bind holds, and the
@@ -263,6 +266,62 @@ Item {
                 tryCompare(box(), "width", expected);
             }
             field.destroy();
+        }
+
+        // The reset and the add button, each in its place whatever shows:
+        // the reset while the keys differ from the default, the add button
+        // while the text entry is closed.
+        function test_key_row_buttons_keep_their_places() {
+            const original = { shortcut: "spare", key: "SUPER+K", default: "SUPER+N", description: "Spare" };
+            const field = createTemporaryObject(disposableKey, root, { width: 600, capture: pageCapture, bind: original });
+            const reset = field.actions.find(item => item.iconName === "rotate-ccw");
+            const add = field.actions.find(item => item.iconName === "plus");
+            const left = item => item.mapToItem(field, 0, 0).x;
+            verify(waitForPolish(root.Window.window));
+            const at = [left(reset), left(add)];
+            // [why, set up the row, reset shown, add shown]
+            for (const [why, setUp, resetShown, addShown] of [
+                ["keys other than the default", () => {}, true, true],
+                ["the default keys", () => { field.bind = Object.assign({}, original, { key: "SUPER+N" }); }, false, true],
+                ["the text entry open", () => field.shortcutField.startTyping(), true, false]
+            ]) {
+                field.shortcutField.stopTyping();
+                field.bind = original;
+                setUp();
+                verify(waitForPolish(root.Window.window));
+                compare(reset.visible, resetShown, why);
+                compare(add.visible, addShown, why);
+                compare(JSON.stringify([left(reset), left(add)]), JSON.stringify(at), why);
+            }
+            field.shortcutField.stopTyping();
+        }
+
+        // A reset from the text entry, a capture or a new key's capture
+        // leaves them, so the field shows the default keys the page writes
+        // back at once.
+        function test_reset_shows_the_default_keys_from_any_state() {
+            const original = { shortcut: "spare", key: "SUPER+K", default: "SUPER+N", description: "Spare" };
+            const field = createTemporaryObject(disposableKey, root, { width: 600, capture: pageCapture, bind: original });
+            field.applyKey.connect(key => { if (key === undefined) field.bind = Object.assign({}, original, { key: "SUPER+N" }); });
+            const reset = field.actions.find(item => item.iconName === "rotate-ccw");
+            const shown = () => descendants(field).filter(item => String(item).indexOf("KeyCaps") === 0 && item.visible).map(item => item.caps.join("+"));
+            const sf = field.shortcutField;
+            // [why, the state the reset starts from]
+            for (const [why, enter] of [
+                ["the text entry", () => { sf.startTyping(); for (const c of "SUPER+J") keyClick(c); }],
+                ["a capture", () => { sf.forceActiveFocus(Qt.TabFocusReason); sf.edit(0); }],
+                ["a new key's capture", () => sf.add()]
+            ]) {
+                field.bind = original;
+                enter();
+                verify(sf.typing || sf.capturing, why);
+                reset.clicked();
+                compare(sf.typing, false, why);
+                compare(sf.capturing, false, why);
+                compare(sf.adding, false, why);
+                compare(JSON.stringify(shown()), JSON.stringify(["Super+N"]), why);
+                compare(unsaved.edited, false, why);
+            }
         }
 
         function test_settings_bind_explanation_uses_the_shared_label_tooltip() {

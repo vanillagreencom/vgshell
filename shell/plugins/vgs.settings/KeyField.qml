@@ -4,11 +4,14 @@ import qs.Ui
 // One row of a plugin's Keys section, one per shortcut: the bind row of
 // qs.Ui, which draws every alternative key of the shortcut in one field and
 // sends a pressed or typed key and a removal, with the manifest's keys
-// under it, or none for a pad's key, and buttons of its own, shown only
-// where they change something. The add button edits a new alternative and
-// listens for it. The reset button, shown while the keys in effect are
-// not the manifest's, sends undefined, which removes the shell.json entry
-// so the manifest's key or list of keys applies. While a user Hyprland
+// under it, or none for a pad's key, and two buttons of its own after the
+// field's, each in its own place whether shown or not: the reset button,
+// shown while the keys in effect are not the manifest's that the line
+// under the field names, closes the text entry and ends a capture, then
+// sends undefined, which removes the shell.json entry so the manifest's
+// key or list of keys applies and the field shows its keys at once; the
+// add button, shown while the field can listen and the text entry is
+// closed, edits a new alternative and listens for it. While a user Hyprland
 // bind holds one of the keys, the conflict line under the field names the
 // file and line that bind sits on, as a link that opens that line in the
 // user's editor, and three buttons under that line resolve it in one
@@ -176,13 +179,17 @@ BindField {
             label: "Reset to " + root.defaultLabel
             size: "sm"
             visible: root.editable && root.defaultKeys.length > 0 && JSON.stringify(root.keys) !== JSON.stringify(root.defaultKeys)
-            onClicked: root.applyKey(undefined)
+            onClicked: {
+                root.shortcutField.cancel();
+                root.shortcutField.stopTyping();
+                root.applyKey(undefined);
+            }
         },
         IconButton {
             iconName: "plus"
             label: "Add another key"
             size: "sm"
-            visible: root.editable && root.capture !== null
+            visible: root.editable && root.capture !== null && !root.shortcutField.typing
             onClicked: root.shortcutField.add()
         }
     ]

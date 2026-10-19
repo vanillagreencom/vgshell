@@ -7,8 +7,8 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // A confirmation card: a title, a message, the content declared inside it
 // and its actions, flush right, wrapping to a further line rather than
 // passing the text's left edge. It is a card, not a window: the host places it in
-// its own surface and owns its lifetime, so `accepted` and `rejected`
-// report the answer and the dialog hides nothing. Its card takes the
+// its own surface and owns its lifetime, so `accepted`, `discarded` and
+// `rejected` report the answer and the dialog hides nothing. Its card takes the
 // presses and the hover that land on it and that no control in it takes,
 // and the wheel while `modal` holds, so nothing under it answers, such as a
 // scrim that rejects the dialog on a click away. A page reference in the
@@ -16,16 +16,18 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // before the actions, and activating it emits `messagePageActivated`.
 //
 // `actions` is a list of `{ label, role, variant, enabled, focused }`. `role` is
-// `accept` or `cancel`, and pressing the action emits `accepted` or
-// `rejected`; an unknown role is logged and read as `cancel`, so a mistyped
-// action never accepts. `variant` names a Button variant, by default
-// `primary` for an accept action and `tertiary` for a cancel action;
-// `enabled` is true unless stated false. The first accept action is the
-// accept action. `focused: true` names the action that takes the focus in
-// the accept action's place, such as a cancel action a destructive accept
-// action should not hold. A dialog with actions always offers a way out: at least
-// one of them has role `cancel`, with the label its caller chose for the
-// message, and a list without one is logged.
+// `accept`, `discard` or `cancel`, and pressing the action emits `accepted`,
+// `discarded` or `rejected`; `discard` answers by dropping what the dialog
+// asks about, as an unsaved edit's Discard does. An unknown role is logged
+// and read as `cancel`, so a mistyped action never accepts. `variant` names
+// a Button variant, by default `primary` for an accept action and
+// `tertiary` for the others; `enabled` is true unless stated false. The
+// first accept action is the accept action. `focused: true` names the
+// action that takes the focus in the accept action's place, such as a
+// cancel action a destructive accept action should not hold. A dialog with
+// actions always offers a way out: Escape while `modal` holds, else an
+// action of role `cancel`, with the label its caller chose for the
+// message; a dialog that is not modal with no such action is logged.
 //
 // The accept action, or the action marked `focused`, takes the focus each
 // time the dialog does, or `initialFocus` when set: an enabled item of the content that takes typing,
@@ -62,12 +64,13 @@ FocusScope {
         return height > 0 ? height * Theme.dialog.maxHeightShare : Theme.size.panel.maxHeight;
     }
     signal accepted()
+    signal discarded()
     signal rejected()
     signal messagePageActivated(string page, string tab)
 
     function entryOf(action) {
         let role = action.role;
-        if (role !== "accept" && role !== "cancel") {
+        if (role !== "accept" && role !== "cancel" && role !== "discard") {
             console.error("Dialog: no action role named " + JSON.stringify(role));
             role = "cancel";
         }
@@ -81,9 +84,10 @@ FocusScope {
         };
     }
 
-    // `list` as given, logged when it has actions and none of role `cancel`.
+    // `list` as given, logged when it has actions and no way out: it is not
+    // modal, so Escape does not reject, and no action has role `cancel`.
     function dismissable(list) {
-        if (list.length > 0 && !list.some(entry => entry.role === "cancel"))
+        if (list.length > 0 && !modal && !list.some(entry => entry.role === "cancel"))
             console.error("Dialog: no action of role cancel among " + JSON.stringify(list.map(entry => entry.label)));
         return list;
     }
@@ -106,7 +110,9 @@ FocusScope {
         const entry = entries[index];
         const answers = !busy && entry !== undefined && entry.enabled;
         if (!answers) return;
-        if (entry.role === "accept") accepted(); else rejected();
+        if (entry.role === "accept") accepted();
+        else if (entry.role === "discard") discarded();
+        else rejected();
     }
 
     // Hand the focus to the action marked `focused`, else the accept action,

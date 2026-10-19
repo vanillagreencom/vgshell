@@ -13,8 +13,9 @@ import qs.Unit
 // and Shift+Tab, in either form a keymap reports it, cycling the enabled
 // actions with the ring and never leaving
 // the dialog; a press answering with the action's role; the default
-// variant per role and an unknown role read as cancel; actions with no
-// cancel action logged, and with one, or no action at all, not; `busy` and a
+// variant per role and an unknown role read as cancel; a discard action
+// answering `discarded`; actions with no way out, no cancel action and not
+// modal, logged, and with one, modal, or no action at all, not; `busy` and a
 // disabled action answering nothing and fading; content under the message;
 // an initial focus field taking the focus and the typing, its Enter and
 // Escape answering and Tab cycling through it; a Select listed in
@@ -554,21 +555,54 @@ Item {
             held.destroy();
         }
 
-        // expected-log: Dialog: no action of role cancel among ["Go"] -- the test builds a dialog with no cancel action on purpose
-        function test_actions_without_a_cancel_action_are_logged() {
-            const stuck = Qt.createQmlObject("import qs.Ui\nDialog { actions: [{ label: \"Go\", role: \"accept\" }] }", root);
+        // expected-log: Dialog: no action of role cancel among ["Go"] -- the test builds a dialog with no way out on purpose
+        function test_actions_without_a_way_out_are_logged() {
+            const stuck = Qt.createQmlObject("import qs.Ui\nDialog { modal: false; actions: [{ label: \"Go\", role: \"accept\" }] }", root);
             compare(stuck.entries.length, 1);
             compare(stuck.acceptIndex, 0);
             stuck.destroy();
         }
 
-        // Any log fails the file, so these two build clean or not at all.
-        function test_a_cancel_action_or_no_action_is_not_logged() {
-            for (const actions of ["[{ label: \"Go\", role: \"accept\" }, { label: \"Close\", role: \"cancel\" }]", "[]"]) {
-                const fine = Qt.createQmlObject("import qs.Ui\nDialog { actions: " + actions + " }", root);
+        // Any log fails the file, so these build clean or not at all: a
+        // cancel action or no action in either mode, and a modal dialog,
+        // which Escape rejects, with none.
+        function test_a_way_out_or_no_action_is_not_logged() {
+            // [actions, modal]
+            for (const [actions, modal] of [
+                ["[{ label: \"Go\", role: \"accept\" }, { label: \"Close\", role: \"cancel\" }]", true],
+                ["[{ label: \"Go\", role: \"accept\" }, { label: \"Close\", role: \"cancel\" }]", false],
+                ["[]", true],
+                ["[]", false],
+                ["[{ label: \"Discard\", role: \"discard\" }, { label: \"Save\", role: \"accept\" }]", true]
+            ]) {
+                const fine = Qt.createQmlObject("import qs.Ui\nDialog { modal: " + modal + "; actions: " + actions + " }", root);
                 compare(fine.entries.length, actions === "[]" ? 0 : 2);
                 fine.destroy();
             }
+        }
+
+        // A discard action answers `discarded` alone and draws tertiary, as
+        // a save bar's Discard does; Escape still rejects.
+        function test_a_discard_action_answers_discarded() {
+            const asks = Qt.createQmlObject("import qs.Ui\nDialog { title: \"Save your changes?\"; actions: [{ label: \"Discard\", role: \"discard\" }, { label: \"Save\", role: \"accept\" }] }", root);
+            const spies = ["accepted", "discarded", "rejected"].map(name => {
+                const spy = Qt.createQmlObject("import QtTest\nSignalSpy { signalName: \"" + name + "\" }", root);
+                spy.target = asks;
+                return spy;
+            });
+            const counts = () => JSON.stringify(spies.map(spy => spy.count));
+            const [discard, save] = asks.buttons();
+            compare(discard.variant, "tertiary");
+            compare(save.variant, "primary");
+            mouseClick(discard);
+            compare(counts(), "[0,1,0]");
+            mouseClick(save);
+            compare(counts(), "[1,1,0]");
+            asks.forceActiveFocus();
+            keyClick(Qt.Key_Escape);
+            compare(counts(), "[1,1,1]");
+            for (const spy of spies) spy.destroy();
+            asks.destroy();
         }
 
         function test_busy_disables_the_actions_and_answers_nothing() {

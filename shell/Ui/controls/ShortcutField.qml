@@ -25,13 +25,18 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // shows a notice and the capture goes on; Tab and Shift+Tab end the capture
 // and move the focus, as everywhere else. A combo equal to the key in
 // effect ends the capture and changes nothing. A capture whose
-// pass-through Hyprland refused says Hyprland's own shortcuts still run, and
-// one Hyprland ended after its timeout says so. With no `capture` the box
-// only types. The keyboard
-// button swaps the box for a text field that takes the combo as `MOD+KEY`,
-// for a key the capture cannot name, the key in effect selected so typing
-// replaces it; Enter there types it, and Escape first restores the key in
-// effect, as a text field's `escapeReverts` does, then goes back to the box.
+// pass-through Hyprland refused says Hyprland's own shortcuts still run.
+// While Hyprland passes the keys through, the box counts down the seconds
+// its pass-through has left, `remaining`, at its trailing end; a capture
+// Hyprland ends, on its timeout or otherwise, returns the box to its keys
+// with no message and ends a new alternative's edit. A notice leaves with
+// the focus and when the field is hidden. With no `capture` the box only
+// types. The keyboard
+// button swaps the box for a text field of the same width that takes the
+// combo as `MOD+KEY`, for a key the capture cannot name, the key in effect
+// selected so typing replaces it; Enter there types it, and Escape first
+// restores the key in effect, as a text field's `escapeReverts` does, then
+// goes back to the box, as a second press on the keyboard button does.
 // A loss of focus leaves the entry open on its text and sends nothing:
 // `edited` says the entry holds a text other than the key in effect,
 // `acceptTyped()` sends it as Enter does, `startTyping(text)` opens the
@@ -40,7 +45,13 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // changes: `committed(key, index)` reports a captured combo, written as the
 // text field's judge writes it, `typed(text, index)` a typed one as
 // entered, and `cleared(index)` the clear button or Delete, which removes
-// that alternative. `conflict` is a hint drawn under the box in
+// that alternative. The buttons keep one place each in one order, shown or
+// not, so the box keeps one width as they come and go: the keyboard, on
+// every editable field and checked while the text entry is open; the clear
+// button, while the alternative edited holds a key and the text entry is
+// closed, so it never shows for a new alternative's edit; then the
+// caller's `actions`, each in its own place.
+// `conflict` is a hint drawn under the box in
 // the warning colour; it never blocks a combo. With `pluginId` and
 // `shortcut` naming the plugin bind the keys belong to, `found` is the
 // capture's `conflicts` answer for the first alternative another holder
@@ -110,6 +121,14 @@ FocusScope {
     // The modifiers held while capturing, in the order a key writes them.
     property var held: []
     property string notice: ""
+    // The seconds Hyprland's pass-through has left, counted from the moment
+    // the capture reports Hyprland's submap current, when Hyprland's own
+    // timer starts (HyprlandLayer.js KEY_PASSTHROUGH, KeyCapture.qml
+    // `submapChanged`); 0 while none counts. A begin for the holder already
+    // capturing, as a click on another alternative sends, changes nothing in
+    // the core (KeyCapture.qml `begin`), so it restarts no count.
+    readonly property bool counting: capturing && capture.passthrough === true
+    property int remaining: 0
     // What the line under the box says: the notice, else the failed
     // pass-through while it captures, else the conflict.
     readonly property string hint: notice !== "" ? notice
@@ -284,13 +303,36 @@ FocusScope {
         stopTyping();
     }
 
-    onActiveFocusChanged: if (!activeFocus && !typing) adding = false
+    onActiveFocusChanged: {
+        if (activeFocus) return;
+        notice = "";
+        if (!typing) adding = false;
+    }
+    // `visible` reads false under a hidden ancestor too, as a page left for
+    // the list is (https://doc.qt.io/qt-6/qml-qtquick-item.html#visible-prop).
+    onVisibleChanged: if (!visible) notice = ""
 
+    // Hyprland ends a capture by itself on its timeout and when its submap
+    // changes; the box then shows the keys again, the new alternative's edit
+    // with them.
     onCapturingChanged: {
         if (capturing) return;
         held = [];
-        if (capture !== null && capture.ended.item === root && capture.ended.reason === "timeout")
-            notice = "Listening stopped after " + Math.round(capture.timeoutMs / 1000) + " s. Press Return or click the field to listen again.";
+        if (capture !== null && capture.ended.item === root && ["timeout", "compositor"].indexOf(capture.ended.reason) !== -1)
+            adding = false;
+    }
+
+    onCountingChanged: {
+        remaining = counting ? Math.ceil(capture.timeoutMs / 1000) : 0;
+        if (counting) countdown.restart();
+        else countdown.stop();
+    }
+
+    Timer {
+        id: countdown
+        interval: 1000
+        repeat: true
+        onTriggered: root.remaining = Math.max(0, root.remaining - 1)
     }
 
     // Idle rows need the glyph and its reserved space, not a button's
@@ -304,6 +346,8 @@ FocusScope {
         required property string iconName
         required property string label
         property bool inUse: false
+        // A toggle on: the glyph and the button draw in the checked accent.
+        property bool checked: false
         readonly property alias button: control.item
         signal clicked()
 
@@ -315,7 +359,7 @@ FocusScope {
         Icon {
             name: tool.iconName
             size: Theme.button.size.sm.icon
-            color: Theme.color.textMuted
+            color: tool.checked ? Theme.button.checked.foreground : Theme.color.textMuted
             x: Math.floor((tool.width - size) / 2)
             y: Math.floor((tool.height - size) / 2)
             visible: !control.active
@@ -330,6 +374,7 @@ FocusScope {
                 iconName: tool.iconName
                 label: tool.label
                 size: "sm"
+                checked: tool.checked
                 focus: true
                 onClicked: tool.clicked()
             }
@@ -359,7 +404,9 @@ FocusScope {
                 implicitWidth: Math.max(Theme.size.panel.sm / 2, implicitContentWidth + leftPadding + rightPadding)
                 implicitHeight: Math.max(Theme.textField.height, groupFlow.implicitHeight + 2 * root.inset)
                 leftPadding: root.sidePadding
-                rightPadding: root.sidePadding
+                // The countdown takes its room out of the box's content, so
+                // it widens the box only where a combo's caps fill it.
+                rightPadding: root.sidePadding + (countdownLabel.visible ? countdownLabel.width + Theme.space.sm : 0)
                 enabled: root.editable
                 focusPolicy: root.editable ? Qt.StrongFocus : Qt.NoFocus
                 hoverEnabled: true
@@ -406,6 +453,17 @@ FocusScope {
                     border.color: root.capturing || focusRing.visible ? Theme.textField.focus : box.hovered ? Theme.textField.hover : Theme.textField.borderColor
                     // Resetting retained focus must clear the drawn border immediately.
                     FocusRing { id: focusRing; target: box }
+                }
+
+                Label {
+                    id: countdownLabel
+                    objectName: "listeningCountdown"
+                    role: "item"
+                    x: box.width - root.sidePadding - width
+                    anchors.verticalCenter: parent.verticalCenter
+                    color: Theme.textField.placeholder
+                    text: root.remaining + " s"
+                    visible: root.counting
                 }
 
                 // The flow's implicit width is its widest line, which is
@@ -500,24 +558,39 @@ FocusScope {
                     iconName: "keyboard"
                     label: "Type the keys"
                     inUse: root.visible && (root.activeFocus || toolsHover.hovered)
-                    visible: root.editable && !root.typing
-                    onClicked: root.startTyping()
+                    visible: root.editable; checked: root.typing
+                    onClicked: root.typing ? root.stopTyping() : root.startTyping()
                 }
+                // Hidden at opacity 0, so its place stays in the Row.
                 ToolSlot {
+                    readonly property bool shown: root.key !== "" && !root.typing
                     iconName: "x"
                     label: root.keys.length > 1 ? "Remove " + KeyNavLogic.keyCaps(root.key).join("+") : "Unbind"
                     inUse: root.visible && (root.activeFocus || toolsHover.hovered)
-                    visible: root.editable; enabled: root.editable && root.key !== ""
-                    opacity: root.key === "" ? 0 : 1
+                    visible: root.editable; enabled: root.editable && shown
+                    opacity: shown ? 1 : 0
                     onClicked: root.cleared(root.editing)
                 }
-                Row {
+                // Each caller action keeps its place in its order while its
+                // state hides it, so every bind row keeps one input width;
+                // a Row would pack the shown ones together
+                // (https://doc.qt.io/qt-6/qml-qtquick-row.html).
+                Item {
                     id: actionRow
-                    spacing: Theme.textField.gap
-                    // Reserve caller actions even when their current state
-                    // hides them, so all bind rows keep one input width.
+                    readonly property real spacing: Theme.textField.gap
                     width: children.reduce((sum, child) => sum + child.width, 0)
                         + Math.max(0, children.length - 1) * spacing
+                    height: children.reduce((most, child) => Math.max(most, child.height), 0)
+                    onChildrenChanged: place()
+                    onWidthChanged: place()
+
+                    function place() {
+                        let x = 0;
+                        for (const child of children) {
+                            child.x = x;
+                            x += child.width + spacing;
+                        }
+                    }
                 }
             }
         }

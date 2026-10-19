@@ -631,20 +631,13 @@ FocusScope {
             { label: "Remove line", role: "accept" },
             { label: "Cancel", role: "cancel", focused: true }
         ] : [
-            { label: "Save", role: "accept" },
-            { label: "Cancel", role: "cancel" }
+            { label: "Discard", role: "discard" },
+            { label: "Save", role: "accept" }
         ]
-        tabItems: removing ? [] : [discardChanges]
         onVisibleChanged: if (visible) forceActiveFocus()
         onAccepted: removing ? root.answerRemoval(true) : root.answer("save")
+        onDiscarded: root.answer("discard")
+        // Escape and the scrim stay on the page.
         onRejected: removing ? root.answerRemoval(false) : root.answer("cancel")
-
-        Button {
-            id: discardChanges
-            visible: !prompt.removing
-            text: "Discard"
-            variant: "tertiary"
-            onClicked: root.answer("discard")
-        }
     }
 }

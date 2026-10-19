@@ -702,6 +702,10 @@ FocusScope {
                         visible: page.row !== null && page.row.binds.length > 0
                         title: "Keys"
                         description: "Select a shortcut and press its new keys"
+                        // design-system.md § Copy: a line that states a time
+                        // says why the limit exists.
+                        info: page.panel === null || !page.panel.capture ? ""
+                            : "VGS listens for " + Math.round(page.panel.capture.timeoutMs / 1000) + " seconds at most after you select a shortcut, so a shortcut field can never hold your keyboard."
 
                         Repeater {
                             model: ScriptModel {

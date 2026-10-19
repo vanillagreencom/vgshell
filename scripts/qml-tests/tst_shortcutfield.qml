@@ -10,11 +10,15 @@ import qs.Unit
 // key commits the combo the judge names unless it is the key in effect,
 // Escape, Tab and a focus loss end it, a held key's repeat does nothing, an
 // unnamed key and a bare text key keep it with a notice, a refused
-// pass-through and a timeout say so, the caps clear a rounded corner as a
+// pass-through says so, the caps clear a rounded corner as a
 // text field does and stand as far from the left border as from the top;
-// the keyboard button types a
-// combo instead, the clear button unbinds, a read-only field asks nothing,
-// and the field is one Tab stop. A shortcut's alternative keys draw as one
+// the box counts down Hyprland's pass-through from the moment it starts,
+// and a click while it listens restarts no count; a capture Hyprland ends
+// leaves no message and ends a new alternative's edit; a notice leaves
+// with the focus and the field; the keyboard button types a
+// combo instead and closes the entry again, in the place it keeps, the
+// clear button unbinds and hides while the entry is open, a read-only
+// field asks nothing, and the field is one Tab stop. A shortcut's alternative keys draw as one
 // group each with a separator between them, in one box that grows to hold
 // them at any width, with no button over a cap; a click on one, or Left and Right, picks the one edited, a combo
 // and Delete name it, and add() edits a new one after the last. The
@@ -31,6 +35,7 @@ Item {
         property Item holder: null
         property var calls: []
         property bool failed: false
+        property bool passthrough: false
         property var ended: ({ item: null, reason: "" })
         readonly property int timeoutMs: 10000
         function begin(item) { calls = calls.concat(["begin"]); holder = item; return "ok"; }
@@ -103,6 +108,7 @@ Item {
             capture.holder = null;
             capture.calls = [];
             capture.failed = false;
+            capture.passthrough = false;
             capture.ended = { item: null, reason: "" };
             root.events = [];
             root.escapes = 0;
@@ -487,16 +493,126 @@ Item {
             compare(field.hint, "");
         }
 
-        function test_a_timeout_is_named() {
+        // A capture Hyprland ends on its timeout leaves no message, and none
+        // comes back when the field is hidden and shown again, as a page left
+        // for the list and opened again is.
+        function test_a_timeout_leaves_no_message() {
             arm();
             capture.ended = { item: field, reason: "timeout" };
             capture.holder = null;
-            compare(field.notice, "Listening stopped after 10 s. Press Return or click the field to listen again.");
+            compare(field.capturing, false);
+            compare(field.hint, "");
+            column.visible = false;
+            column.visible = true;
+            compare(field.hint, "");
+            compare(JSON.stringify(field.caps), '["SUPER","M"]');
+        }
+
+        // The count starts when the capture reports Hyprland's submap
+        // current, ticks each second, keeps its time over a click while the
+        // field listens, takes no width from the box and goes with the
+        // capture. The tick is a real one-second timer: the case claims its
+        // wiring, not its accuracy.
+        function test_listening_counts_down_from_the_pass_through() {
+            const b = box(field);
+            const width = b.width;
+            const count = () => descendant(field, item => item.objectName === "listeningCountdown");
             arm();
+            compare(count().visible, false, "no count before Hyprland passes the keys");
+            capture.passthrough = true;
+            compare(count().visible, true);
+            compare(count().text, "10 s");
+            verify(waitForPolish(root.Window.window));
+            compare(b.width, width, "the count widens no box");
+            tryCompare(count(), "text", "9 s", 2500);
+            mouseClick(b);
+            compare(field.capturing, true);
+            compare(JSON.stringify(capture.calls), '["begin","begin"]');
+            compare(count().text, "9 s", "a click while listening restarts no count");
+            keyClick(Qt.Key_Escape);
+            compare(count().visible, false);
+        }
+
+        // A notice goes when the focus leaves the field and when the field
+        // is hidden while another item holds the focus.
+        function test_a_notice_leaves_with_the_focus_and_the_field() {
+            arm();
+            keyClick(Qt.Key_T);
+            verify(field.notice !== "");
+            after.forceActiveFocus(Qt.TabFocusReason);
             compare(field.notice, "");
-            capture.ended = { item: readOnly, reason: "timeout" };
-            capture.holder = null;
+            compare(field.hint, "");
+            field.notice = "This key has no name here; type it with the keyboard button.";
+            column.visible = false;
             compare(field.notice, "");
+        }
+
+        function tool(f, iconName) { return descendant(f, item => item.button !== undefined && item.iconName === iconName); }
+        function slotX(item) { return item.mapToItem(root, 0, 0).x; }
+
+        // The keyboard keeps its place, checked, while the entry is open,
+        // and a second press closes the entry; the clear button keeps its
+        // place, hidden, and the entry takes the box's width.
+        function test_the_tools_keep_their_places_while_typing() {
+            const keyboard = tool(field, "keyboard");
+            const clear = tool(field, "x");
+            verify(waitForPolish(root.Window.window));
+            const at = [slotX(keyboard), slotX(clear)];
+            const width = box(field).width;
+            compare(clear.opacity, 1);
+            press(field, "Type the keys");
+            compare(field.typing, true);
+            verify(waitForPolish(root.Window.window));
+            compare(keyboard.visible, true, "the keyboard keeps its slot");
+            compare(keyboard.checked, true);
+            compare(JSON.stringify([slotX(keyboard), slotX(clear)]), JSON.stringify(at));
+            compare(clear.opacity, 0, "no unbind while the entry is open");
+            compare(clear.enabled, false);
+            compare(descendant(field, item => item.escapeReverts === true).width, width);
+            for (const c of "SUPER+K") keyClick(c);
+            press(field, "Type the keys");
+            compare(field.typing, false, "a second press closes the entry");
+            compare(JSON.stringify(root.events), "[]", "and drops the typed text");
+            compare(keyboard.checked, false);
+            compare(clear.opacity, 1);
+        }
+
+        // The checked glyph stays in the accent while the field has no
+        // focus and no pointer, when the slot draws its glyph alone.
+        function test_an_idle_open_entry_keeps_the_keyboard_checked() {
+            const keyboard = tool(field, "keyboard");
+            field.startTyping();
+            after.forceActiveFocus(Qt.TabFocusReason);
+            mouseMove(before);
+            tryCompare(keyboard, "button", null);
+            const glyph = descendant(keyboard, item => item.name === "keyboard" && item.visible);
+            verify(glyph !== null);
+            compare(Qt.colorEqual(glyph.color, Theme.button.checked.foreground), true);
+            field.stopTyping();
+            compare(Qt.colorEqual(glyph.color, Theme.color.textMuted), true);
+        }
+
+        // A new alternative's edit ends with a capture Hyprland ends, so the
+        // clear button follows the keys shown; a move to the keyboard keeps
+        // it, so the new alternative can be typed.
+        function test_a_new_alternative_follows_how_its_capture_ends() {
+            const clear = tool(pair, "x");
+            // [why, end the capture, still adding]
+            for (const [why, end, adding] of [
+                ["a timeout", () => { capture.ended = { item: pair, reason: "timeout" }; capture.holder = null; }, false],
+                ["Hyprland", () => { capture.ended = { item: pair, reason: "compositor" }; capture.holder = null; }, false],
+                ["the keyboard", () => press(pair, "Type the keys"), true]
+            ]) {
+                pair.stopTyping();
+                pair.add();
+                compare(pair.capturing, true, why);
+                compare(clear.opacity, 0, why + ": no unbind for the new alternative");
+                end();
+                compare(pair.capturing, false, why);
+                compare(pair.adding, adding, why);
+                compare(pair.editing, adding ? 2 : 1, why);
+                if (!adding) compare(clear.opacity, 1, why + ": the keys shown can be removed");
+            }
         }
 
         // Under a pill theme the first cap starts past the inset, by
