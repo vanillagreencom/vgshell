@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- In the folder list that Browse opens, such as for an automation's Working directory, the folder that Enter opens is marked, and the mark moves with Up and Down. When the pointer leaves the list, the mark goes back to that folder. Before, Up and Down moved to a folder that showed no mark.
 - The key hints in the clipboard history, the Jarvis confirmation card and VGS Components show their words as plain theme text beside the key chips. Before, each word sat in a box with a halo that matched no theme.
 - VS Code, VSCodium and Cursor use the VGS palette for native editor guides, highlights, controls, badges, debugging and workbench colours that previously kept application defaults.
 

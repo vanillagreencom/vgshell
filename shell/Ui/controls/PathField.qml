@@ -156,8 +156,11 @@ Item {
                 acceptedButtons: Qt.NoButton
                 focus: true
                 TouchpadScroll { view: list }
-                // The rows' cursor, in the view's content with its rows.
+                // The rows' cursor, in the view's content with its rows. The
+                // keyboard's row, the view's current one, holds it; a key
+                // step or a new listing takes it back from a resting pointer.
                 ListCursor { id: plate; parent: list.contentItem }
+                onCurrentIndexChanged: plate.disarm()
                 delegate: ListItem {
                     required property int index
                     property string filePath: root.entryPath(index)
@@ -166,6 +169,7 @@ Item {
                     text: fileName
                     iconName: "folder"
                     cursor: plate
+                    highlighted: index === ListView.view.currentIndex
                     // The view creates rows as they scroll in.
                     enters: false
                     onClicked: root.openFolder(filePath)

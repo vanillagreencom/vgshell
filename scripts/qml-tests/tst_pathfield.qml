@@ -22,6 +22,61 @@ Item {
         name: "pathfield"
         when: windowShown
 
+        function descendants(item) {
+            const out = [];
+            const stack = [item];
+            while (stack.length > 0) {
+                const at = stack.pop();
+                out.push(at);
+                for (const child of at.children) stack.push(child);
+            }
+            return out;
+        }
+        function titleOf(row) { return descendants(row.contentItem).find(child => child.role === "item" && child.text === row.text); }
+
+        function test_the_keyboards_folder_row_holds_the_plate_and_opens_on_enter() {
+            UnitTheme.reset();
+            compare(UnitTheme.override({ motion: { scale: 0 } }), "ok");
+            path.openFolder("/usr");
+            const picker = path.children.find(child => child.toggle !== undefined && child.opened !== undefined);
+            picker.open();
+            const window = picker.resources.find(child => child.anchor !== undefined);
+            const list = descendants(window.contentItem).find(child => child.itemAtIndex !== undefined);
+            const home = descendants(window.contentItem).find(child => child.text === "Home");
+            // The stand-in model lists no rows to a view, so the view takes
+            // its row count; each row reads its folder from the model, as
+            // on the shell.
+            const folders = list.model;
+            folders.setFiles(["/usr/bin", "/usr/lib", "/usr/share"], "drop");
+            list.model = folders.count;
+            tryVerify(() => list.itemAtIndex(2) !== null, 1000, "the list builds its rows");
+            const plate = descendants(list.contentItem).find(child => child.follow !== undefined && child.placed !== undefined);
+            window.requestActivate();
+            list.forceActiveFocus();
+            tryCompare(list, "activeFocus", true);
+            wait(0);
+            keyClick(Qt.Key_Down);
+            keyClick(Qt.Key_Down);
+            const row = list.itemAtIndex(2);
+            compare(list.currentIndex, 2);
+            verify(plate.placed === row, "the plate sits on the keyboard's row");
+            compare(plate.opacity, 1);
+            compare(String(titleOf(row).color), String(Qt.color(Theme.listItem.selectedForeground)), "the keyboard's row takes the accent");
+            compare(String(titleOf(list.itemAtIndex(0)).color), String(Qt.color(Theme.color.text)), "another row keeps its resting text");
+            mouseMove(list.itemAtIndex(0), 20, 5);
+            mouseMove(list.itemAtIndex(0), 21, 5);
+            verify(plate.placed === list.itemAtIndex(0), "a moved pointer takes the plate");
+            compare(list.currentIndex, 2, "the pointer moves no keyboard row");
+            mouseMove(home, 5, 5);
+            verify(plate.placed === row, "the plate goes back to the keyboard's row when the pointer leaves");
+            keyClick(Qt.Key_Return);
+            compare(path.currentFolder, "/usr/share");
+            picker.close();
+            root.Window.window.requestActivate();
+            tryCompare(root.Window, "active", true);
+            UnitTheme.reset();
+        }
+
         function test_unfocused_path_draws_ellipsis_and_keeps_folder_data() {
             return [{tag: "dark", light: false}, {tag: "light", light: true}];
         }
