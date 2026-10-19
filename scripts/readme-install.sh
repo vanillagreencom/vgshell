@@ -26,7 +26,7 @@
 # empty script. Each fence is one alternative the README offers, in the
 # image of its channel:
 #   - aur, curl and checkout commands in an archlinux:latest image prepared
-#     once per run: base-devel, git, sudo, quickshell, hyprland, nodejs and
+#     once per run: base-devel, git, sudo, hyprland, nodejs and
 #     python, the unprivileged user `user` with passwordless sudo inside the
 #     container alone, and the AUR helper named by the README when a curl,
 #     checkout or aur command is measured. The commands run as `user`, with HOME and the
@@ -40,12 +40,9 @@
 #     sudo inside the container alone. The commands run as `user`, with the
 #     same HOME and XDG_RUNTIME_DIR. dnf's prompts default to no, so every
 #     prompt there gets `y`, the answer the README tells the user to give.
-# A command passes on exit 0. A command whose vgshell arguments are `run`
-# passes when it exits 78 refusing `preflight=hyprland`, since no Hyprland
-# runs in a container: with `have=unknown` in the Arch image, where hyprctl
-# is installed, and `have=none` in the Nix image, whose package leaves
-# Hyprland to the session. Quickshell's row comes first in the floor, so
-# that refusal proves the installed Quickshell met it.
+# A command passes on exit 0. A command whose vgshell arguments are `start`
+# passes when it exits 69 refusing `hyprland=unreachable`, since no Hyprland
+# session runs in a container.
 #
 # Each command is ended after `command_seconds`, a bound for a prompt the
 # empty answers do not satisfy, not a budget. On 2026-09-29, with podman
@@ -99,7 +96,7 @@ not_measured() { # REASON [DETAIL...]
 
 case "${1:-}" in
   "") ;;
-  -h|--help) sed -n '2,72{s/^# \{0,1\}//;p}' "$self"; exit 0 ;;
+  -h|--help) sed -n '2,70{s/^# \{0,1\}//;p}' "$self"; exit 0 ;;
   *) refuse 2 "argument=$1" ;;
 esac
 [[ $# -le 1 ]] || refuse 2 "argument=$2"
@@ -223,7 +220,7 @@ helper="$1"
 # host user, so pacman downloads as root.
 sed -i 's/^DownloadUser/#DownloadUser/' /etc/pacman.conf
 if grep -q '^DownloadUser' /etc/pacman.conf; then echo 'pacman.conf keeps DownloadUser' >&2; exit 1; fi
-pacman -Syu --noconfirm --needed base-devel git sudo quickshell hyprland nodejs python
+pacman -Syu --noconfirm --needed base-devel git sudo hyprland nodejs python
 rm -rf /var/cache/pacman/pkg/download-*
 useradd -m -u 1000 user
 printf 'user ALL=(ALL) NOPASSWD: ALL\n' >/etc/sudoers.d/user
@@ -273,18 +270,17 @@ unpublished=()
 current_block=""
 container=""
 user=""
-want_have=""
 run_block_start() { # BLOCK
   local image
   if [[ ${block_image[$1]} == nix ]]; then
     pull "$nix_image"
-    image="$nix_image" user=root want_have=none
+    image="$nix_image" user=root
   elif [[ ${block_image[$1]} == fedora ]]; then
     prepare_fedora
-    image="$fedora_prepared" user=user want_have=unknown
+    image="$fedora_prepared" user=user
   else
     prepare_arch
-    image="$prepared" user=user want_have=unknown
+    image="$prepared" user=user
   fi
   container="vgs-readme-install-$1.$$"
   containers+=("$container")
@@ -324,9 +320,9 @@ for row in "${rows[@]}"; do
   podman exec --user "$user" --workdir "$home" -e HOME="$home" -e XDG_RUNTIME_DIR="$runtime" -e PARU_PAGER=cat -- "$container" \
     bash -c "$wrapper" _ "$command_seconds" "$command" >"$log" 2>&1 || status=$?
   seconds=$((SECONDS - started))
-  if [[ $vgshell == run ]]; then
-    grep -q -E "^vgshell: refused: preflight=hyprland have=$want_have need=" -- "$log" && [[ $status -eq 78 ]] ||
-      refuse 1 "line=$line exit=$status want=78-preflight=hyprland-have=$want_have command=$command" "$(tail -n 40 -- "$log")"
+  if [[ $vgshell == start ]]; then
+    grep -q -E $'^vgshell: refused: hyprland=unreachable\r?$' -- "$log" && [[ $status -eq 69 ]] ||
+      refuse 1 "line=$line exit=$status want=69-hyprland=unreachable command=$command" "$(tail -n 40 -- "$log")"
   elif [[ $status -eq 124 ]]; then
     refuse 1 "line=$line timeout=$command_seconds command=$command" "$(tail -n 40 -- "$log")"
   else

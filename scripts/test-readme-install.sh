@@ -147,9 +147,8 @@ EOF
 cat >"$stubs/nix" <<'EOF'
 #!/usr/bin/env bash
 if [[ $* == *--version ]]; then echo "vgshell $STUB_VERSION"; exit 0; fi
-if [[ $* == *'-- start' ]]; then exit 0; fi
-echo 'vgshell: refused: preflight=hyprland have=none need=0.56' >&2
-exit 78
+echo 'vgshell: refused: hyprland=unreachable' >&2
+exit 69
 EOF
 home="$tmp/home"
 mkdir -p -- "$home/vgshell/bin"
@@ -160,9 +159,8 @@ if [[ $* == *'version --json' ]]; then
   exit 0
 fi
 if [[ $* == *--version ]]; then echo "vgshell ${STUB_DISPLAY:-${STUB_DESCRIBE:-$STUB_VERSION}}"; exit 0; fi
-if [[ ${1:-} == start ]]; then exit 0; fi
-echo 'vgshell: refused: preflight=hyprland have=unknown need=0.56' >&2
-exit 78
+echo 'vgshell: refused: hyprland=unreachable' >&2
+exit 69
 EOF
 chmod 755 "$home/vgshell/bin/vgshell"
 mkdir -p "$home/.local/bin"
