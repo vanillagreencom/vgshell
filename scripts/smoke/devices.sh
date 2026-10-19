@@ -591,6 +591,15 @@ PY
 # makes it before the first shell starts; a row that applies a step adds
 # its own sudo and stat to usr/bin.
 devices_system_root="$sandbox/system-root"
+# A wake-capable USB root hub in the existing sysfs fake. Removing it leaves
+# the baseline device world with no USB wake policy to apply.
+devices_usb_wake() { # enabled|disabled|remove
+  local device="$devices_sysfs_root/bus/usb/devices/usb99"
+  if [[ $1 == remove ]]; then rm -rf -- "$device"; return; fi
+  mkdir -p "$device/power"
+  printf '09\n' >"$device/bDeviceClass"
+  printf '%s\n' "$1" >"$device/power/wakeup"
+}
 devices_system_tree() {
   local tool found bin="$devices_system_root/usr/bin"
   if grep -q -x -F -- "prefix=$devices_system_root" "$repo/bin/vgshell-system"; then echo prefixed; return 0; fi

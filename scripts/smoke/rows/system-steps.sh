@@ -84,6 +84,14 @@ expect "disk sleep hides when the fake whole disk is nonrotational" "absent no-d
 rm -rf -- "${devices_sysfs_root:?}/block/sda"
 rm -f -- "${devices_system_root:?}/usr/bin/hdparm"
 rm -f -- "${shim:?}/hdparm"
+devices_usb_wake disabled
+system_wake_status() {
+  "${sandbox_env[@]}" "$repo/bin/vgshell" system status --json | py_reply 'import json,sys; s=json.load(sys.stdin)["steps"]["wake-sources"]; print(s["state"] + " " + s["reason"])'
+}
+expect "a disabled fake USB hub needs the wake step" "needed wake-mismatch" system_wake_status
+devices_usb_wake enabled
+expect "live fake USB wake permissions make the step ready without a rule" "ready granted" system_wake_status
+devices_usb_wake remove
 # The Fedora repository step resolves only inside this isolated system
 # tree. Without its package manager it cannot touch a host repository.
 system_engine_repository() {

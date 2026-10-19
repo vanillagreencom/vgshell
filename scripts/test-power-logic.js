@@ -5,16 +5,16 @@
 // choice, the setting a bar pick remembers, low-battery latches and the
 // notice each latch sends, and Wake on LAN's flag values, wired
 // connection list and write rule.
-// Controls edit one rule at a time in a copy of the logic under repo tmp
+// Controls edit one rule at a time in an exclusively owned temporary copy
 // and require this suite to fail on each copy.
 "use strict";
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const { load } = require("../bin/lib/qml-library.js");
 
 const file = path.join(__dirname, "..", "shell", "plugins", "vgs.power", "PowerLogic.js");
-const controlRoot = path.join(__dirname, "..", "tmp", "test-power-logic-controls");
 const same = (got, want, message) => assert.deepEqual(JSON.parse(JSON.stringify(got)), want, message);
 
 function device(overrides) {
@@ -29,6 +29,47 @@ function device(overrides) {
 }
 
 function verify(logic) {
+    const wakeDevices = [
+        ["keyboard", 1344, 0, true],
+        ["mouse", 1408, 0, true],
+        ["keyboard and pointer", 1472, 0, true],
+        ["gamepad", 1288, 0, false],
+        ["headset", 1028, 0, false],
+        ["LE keyboard", 0, 961, true],
+        ["LE mouse", 0, 962, true],
+        ["LE tablet", 0, 965, true],
+        ["LE pen", 0, 967, true],
+        ["LE touchpad", 0, 969, true],
+        ["LE gamepad", 0, 964, false],
+        ["unclassified HID", 0, 960, false]
+    ];
+    for (const [label, deviceClass, appearance, allowed] of wakeDevices)
+        same(logic.bluetoothWakeReading(0, `({'WakeAllowed': <false>, 'Class': <uint32 ${deviceClass}>, 'Appearance': <uint16 ${appearance}>},)`),
+            { state: "supported", current: false, allowed }, "Bluetooth wake: " + label);
+    same(logic.bluetoothWakeReading(0, "({'WakeAllowed': <true>, 'Class': <uint32 1288>},)"),
+        { state: "supported", current: true, allowed: false }, "Bluetooth wake: a gamepad's enabled state must change");
+    same(logic.bluetoothWakeReading(0, "({'Class': <uint32 1344>},)"), { state: "unsupported" }, "Bluetooth wake: absent WakeAllowed is unsupported");
+    same(logic.bluetoothWakeReading(1, ""), { state: "failed", reason: "read-failed" }, "Bluetooth wake: denied read remains failed");
+    same(logic.bluetoothWakeReading(0, "garbage"), { state: "failed", reason: "read-invalid" }, "Bluetooth wake: malformed output cannot be ready");
+    same(logic.bluetoothWakeReading(0, "({'WakeAllowed': <'false'>, 'Class': <uint32 1344>},)"),
+        { state: "failed", reason: "read-invalid" }, "Bluetooth wake: typed WakeAllowed must be boolean");
+    same(logic.bluetoothWakeReading(0, "({'Alias': <\"'WakeAllowed': <true>, 'Class': <uint32 1344>\">, 'Class': <uint32 1288>, 'WakeAllowed': <false>},)"),
+        { state: "supported", current: false, allowed: false }, "Bluetooth wake: device name cannot supply a field");
+    same(logic.bluetoothWakeReading(0, "({'ServiceData': <{'Class': <uint32 1344>, 'WakeAllowed': <true>}>, 'Class': <uint32 1288>, 'WakeAllowed': <false>},)"),
+        { state: "supported", current: false, allowed: false }, "Bluetooth wake: nested service data cannot supply a field");
+    assert.equal(logic.wakeSourcesValue(null, { state: "checking" }), null, "Wake sources waits for the system probe");
+    for (const state of ["needed", "nixos"])
+        assert.equal(logic.wakeSourcesValue({ state, reason: "wake-mismatch" }, { state: "ready" }).action, true, "Wake setup offers the declared action: " + state);
+    for (const state of ["absent", "denied", "unknown"])
+        assert.equal(logic.wakeSourcesValue({ state, reason: "sysfs-unreadable" }, { state: "ready" }).available, false, "Wake setup preserves unavailable probe: " + state);
+    for (const error of ["Error: GDBus.Error:org.freedesktop.DBus.Error.AccessDenied: Rejected send message", "GDBus.Error:org.bluez.Error.NotAuthorized: Not authorized"])
+        same(logic.bluetoothWakeFailure("write-failed", error), { state: "failed", reason: "permission-denied" }, "Bluetooth wake: explicit denial category");
+    same(logic.bluetoothWakeFailure("read-invalid", ""), { state: "failed", reason: "read-invalid" }, "Bluetooth wake: invalid read keeps its cause");
+    const refusedWake = logic.wakeSourcesValue({ state: "ready" }, { state: "failed", reason: "permission-denied" });
+    assert.equal(refusedWake.available, false, "A denied Bluetooth write is unavailable");
+    assert.equal(refusedWake.action, undefined, "A denied Bluetooth write cannot offer root setup as a fix");
+    assert.ok(refusedWake.hint.length > 0, "A denied Bluetooth write gives its reason");
+    assert.equal(logic.wakeSourcesValue({ state: "ready" }, { state: "ready" }).tone, "ok", "USB and Bluetooth converge to ready");
     assert.equal(logic.batteryPresent(device()), true, "a present laptop battery is present");
     assert.equal(logic.batteryPresent(device({ isPresent: false })), false, "an absent battery is not present");
     assert.equal(logic.batteryPresent(device({ isLaptopBattery: false })), false, "a UPS display device is not a laptop battery");
@@ -216,6 +257,7 @@ function verify(logic) {
 verify(load(file));
 
 const CONTROLS = [
+    ["gamepad wake is disabled", "return { state: \"supported\", current: fields.WakeAllowed === \"true\", allowed: allowed };", "return { state: \"supported\", current: fields.WakeAllowed === \"true\", allowed: true };"],
     ["one notice per threshold latches low", "if (!next.low) out.push({ threshold: \"low\", urgency: \"normal\", level: n });\n        next.low = true;", "if (!next.low) out.push({ threshold: \"low\", urgency: \"normal\", level: n });\n        next.low = false;"],
     ["source change applies the new source", "var key = onBattery === true ? \"batteryProfile\" : \"chargerProfile\";", "var key = onBattery === true ? \"chargerProfile\" : \"chargerProfile\";"],
     ["charging reads the device state", "return onBattery !== true && device.state === STATE.Charging;", "return onBattery !== true;"],
@@ -239,8 +281,7 @@ const CONTROLS = [
 ];
 
 const source = fs.readFileSync(file, "utf8");
-fs.rmSync(controlRoot, { recursive: true, force: true });
-fs.mkdirSync(controlRoot, { recursive: true });
+const controlRoot = fs.mkdtempSync(path.join(os.tmpdir(), "test-power-logic-controls-"));
 try {
     for (const [label, needle, replacement] of CONTROLS) {
         assert.equal(source.split(needle).length, 2, `control "${label}": the text to replace must occur once`);

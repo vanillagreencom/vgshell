@@ -103,7 +103,7 @@
 # directory, stops the mock process groups it spawned, and restarts the
 # shell because Quickshell keeps that singleton in the process after the
 # plugin is disabled.
-# inputs: shell/plugins/vgs.power/* shell/plugins/vgs.settings/* shell/plugins/vgs.system/* shell/Hosts/PaneHost.qml shell/Core/IdleRegistry.qml shell/Ui/controls/FormRow.qml shell/Ui/controls/Field.qml shell/Ui/controls/Select.qml shell/Ui/controls/SegmentedControl.qml shell/Ui/controls/Switch.qml shell/Ui/controls/InfoButton.qml shell/Ui/controls/RowAction.qml shell/Ui/layout/Section.qml shell/Ui/layout/SectionHeader.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Commons/SettingValues.js shell/Core/Registry.qml shell/Core/Capabilities.qml shell/Core/PluginStatus.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Notices.qml shell/Core/Notifier.qml shell/Hosts/NoticeHost.qml shell/Hosts/SummonHost.qml bin/vgshell-scan scripts/smoke/rows/device-fakes.sh scripts/smoke/power-fakes.sh bin/vgshell-system config/system/udev/69-vgs-disk-sleep.rules scripts/smoke/rows/system-steps.sh scripts/smoke/fixtures/devices/network.py
+# inputs: shell/plugins/vgs.power/* shell/plugins/vgs.settings/* shell/plugins/vgs.system/* shell/Hosts/PaneHost.qml shell/Core/IdleRegistry.qml shell/Ui/controls/FormRow.qml shell/Ui/controls/Field.qml shell/Ui/controls/Select.qml shell/Ui/controls/SegmentedControl.qml shell/Ui/controls/Switch.qml shell/Ui/controls/InfoButton.qml shell/Ui/controls/RowAction.qml shell/Ui/layout/Section.qml shell/Ui/layout/SectionHeader.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Commons/SettingValues.js shell/Core/Registry.qml shell/Core/Capabilities.qml shell/Core/PluginStatus.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Notices.qml shell/Core/Notifier.qml shell/Hosts/NoticeHost.qml shell/Hosts/SummonHost.qml bin/vgshell-scan scripts/smoke/rows/device-fakes.sh scripts/smoke/power-fakes.sh bin/vgshell-system config/system/udev/69-vgs-disk-sleep.rules scripts/smoke/rows/system-steps.sh scripts/smoke/fixtures/devices/network.py shell/Core/SystemSteps.qml config/system/udev/* scripts/smoke/fixtures/devices/*
 set -euo pipefail
 source "$repo/scripts/smoke/power-fakes.sh"
 
@@ -187,7 +187,7 @@ power_notify_tones() { [[ -s $power_notify_calls ]] && py_reply 'import json,sys
 power_service_buses() { [[ -s $power_gdbus_calls ]] && py_reply 'import json,sys
 runs = [json.loads(line) for line in sys.stdin]
 print(json.dumps(sorted({a for run in runs if run[:1] == ["monitor"] or "org.freedesktop.DBus.Properties.GetAll" in run for a in run if a in ("--system", "--session", "--address")})))' <"$power_gdbus_calls" || echo '[]'; }
-power_reads() { [[ -s $power_gdbus_calls ]] && py_reply 'import json,sys; print(sum("org.freedesktop.DBus.Properties.GetAll" in json.loads(line) for line in sys.stdin))' <"$power_gdbus_calls" || echo 0; }
+power_reads() { [[ -s $power_gdbus_calls ]] && py_reply 'import json,sys; runs=[json.loads(line) for line in sys.stdin]; print(sum("org.freedesktop.DBus.Properties.GetAll" in run and "org.freedesktop.UPower.PowerProfiles" in run for run in runs))' <"$power_gdbus_calls" || echo 0; }
 power_has_read() { local n; n="$(power_reads)" || return; [[ $n -gt 0 ]] && echo yes || echo no; }
 power_status_active() { power_status | py_reply 'import json,sys; print(json.load(sys.stdin)["profile"]["active"])'; }
 power_profile_list() { ipc smoke itemValues panel vgs.power TileGroup model,currentIndex | py_reply 'import json,sys; print(json.dumps([[[m["text"] for m in r["model"]], r["currentIndex"]] for r in json.load(sys.stdin)]))'; }
@@ -199,7 +199,12 @@ power_battery_field() { ipc smoke itemTexts panel vgs.power Field | py_reply 'im
 # the stand-in recorded them.
 power_set_writes() { [[ -s $power_gdbus_calls ]] && py_reply 'import json,sys
 runs = [json.loads(line) for line in sys.stdin]
-print(json.dumps([run[-1][2:-2] for run in runs if "org.freedesktop.DBus.Properties.Set" in run]))' <"$power_gdbus_calls" || echo '[]'; }
+print(json.dumps([run[-1][2:-2] for run in runs if "org.freedesktop.DBus.Properties.Set" in run and "org.freedesktop.UPower.PowerProfiles" in run]))' <"$power_gdbus_calls" || echo '[]'; }
+power_wake_step() { ipc smoke readInstance service vgs.power wakeStep | py_reply 'import json,sys; print(json.load(sys.stdin)["state"])'; }
+power_bluetooth_wake() { ipc smoke readInstance service vgs.power bluetoothWake | py_reply 'import json,sys; print(json.load(sys.stdin)["state"])'; }
+power_wake_writes() { [[ -s $power_gdbus_calls ]] && py_reply 'import json,sys
+runs=[json.loads(line) for line in sys.stdin]
+print(json.dumps(sorted({(run[run.index("--object-path")+1], run[-1]) for run in runs if "org.freedesktop.DBus.Properties.Set" in run and "WakeAllowed" in run})))' <"$power_gdbus_calls" || echo '[]'; }
 power_exists() { [[ -e $1 ]] && echo yes || echo no; }
 # power_battery_fields: which of the four battery settings Power's Settings
 # tab draws, as the sorted schema keys whose label a Field of the Settings
@@ -396,6 +401,17 @@ power_wake_on_lan() {
 
 power_main() {
   devices_ready power || return 0
+  expect "Power's system step resolves in the fake tree" prefixed devices_system_tree
+  devices_usb_wake disabled
+  local mac name class allowed path
+  while read -r mac name class allowed; do
+    path="$(bluez add-device "$mac" "$name")" || { fail "power: adding $name failed"; return 0; }
+    expect "the $name fake is paired with a wake policy mismatch" updated bluez update "$path" org.bluez.Device1 "{\"Paired\":true,\"Class\":$class,\"Appearance\":0,\"WakeAllowed\":$allowed}"
+  done <<'WAKE_DEVICES'
+02:19:10:00:00:01 WakeKeyboard 1344 false
+02:19:10:00:00:02 WakeMouse 1408 false
+02:19:10:00:00:03 WakeGamepad 1288 true
+WAKE_DEVICES
   power_was_enabled="$(plugin_enabled vgs.power)" || { fail "power: vgs.power's enabled state is unreadable"; return 0; }
   power_was_placed="$(bar_widget_ids | py_reply 'import json,sys; print("True" if any("vgs.power" in ids for ids in json.load(sys.stdin)) else "False")')" || { fail "power: vgs.power's placement is unreadable"; return 0; }
 
@@ -408,7 +424,7 @@ EOF_STAND
   power_stand gdbus <<EOF_STAND
 #!/usr/bin/env bash
 python3 -c 'import json,sys; print(json.dumps(sys.argv[1:]))' "\$@" >>"$power_gdbus_calls"
-if [[ " \$* " == *" org.freedesktop.DBus.Properties.Set "* ]]; then
+if [[ " \$* " == *" org.freedesktop.DBus.Properties.Set "* && " \$* " == *" org.freedesktop.UPower.PowerProfiles "* ]]; then
   if mv -T -- "$power_set_hold" "$power_set_held" 2>/dev/null; then
     until [[ -e "$power_set_release" ]]; do sleep 0.05; done
   elif mv -T -- "$power_set_refuse" "$power_set_refused" 2>/dev/null; then
@@ -437,6 +453,18 @@ EOF_STAND
   expect "placing vgs.power in the bar is allowed" ok ipc shell setPluginPlaced vgs.power true
   expect_poll "the Power service publishes the initial discharging battery" 51 power_level
   expect_poll "the Power service reports profiles available" True power_profile_available
+  expect_poll "the fake USB hub keeps wake setup needed" needed power_wake_step
+  expect "Power writes no Bluetooth wake permissions before setup is ready" '[]' power_wake_writes
+  devices_usb_wake enabled
+  rescan "rescan after the fake USB wake permission changes answers ok"
+  expect_poll "the live USB wake permission makes Power's step ready" ready power_wake_step
+  expect_poll "Power finishes the paired Bluetooth wake policy" ready power_bluetooth_wake
+  expect "Power enables keyboard and mouse wake and disables gamepad wake" '[["/org/bluez/hci0/dev_02_19_10_00_00_01", "<true>"], ["/org/bluez/hci0/dev_02_19_10_00_00_02", "<true>"], ["/org/bluez/hci0/dev_02_19_10_00_00_03", "<false>"]]' power_wake_writes
+  for mac in 02:19:10:00:00:01 02:19:10:00:00:02 02:19:10:00:00:03; do
+    expect "the Bluetooth wake fixture $mac is removed" removed bluez remove-device "$mac"
+  done
+  devices_usb_wake remove
+  rescan "rescan after removing the wake fixtures answers ok"
   expect "the service's watch and reads name the system bus and no address" '["--system"]' power_service_buses
   expect "the first enable does not apply the remembered battery profile" power-saver power_profile_get
   expect_poll "the widget draws the 51 percent battery text" '[["51%"], []]' power_texts

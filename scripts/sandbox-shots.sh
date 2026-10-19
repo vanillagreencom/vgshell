@@ -6112,6 +6112,7 @@ bluetooth_nearby() { ipc smoke itemTexts window vgs.bluetooth Section | py_reply
 
 scene_power() { # MODE
   devices_ready power-shot || return 0
+  devices_usb_wake disabled
   power_start_mocks shots-power balanced
   tree_rescan "the Power shots' fake daemon is scanned"
   expect "the power shot starts with a discharging battery object" "/org/freedesktop/UPower/devices/mock_BAT0" power_add_battery 64.0 7200
@@ -6149,6 +6150,7 @@ scene_power() { # MODE
   expect "Power's widget is unplaced after its shot" ok ipc shell setPluginPlaced vgs.power false
   expect "Power disables after its shot" ok ipc shell setPluginEnabled vgs.power false
   power_stop_mocks
+  devices_usb_wake remove
 }
 # Power's Settings window page while it is on, power-<mode>-page-<tab>SUFFIX
 # for its Settings, Setup and Details tabs, every screen of each, where the
@@ -6175,6 +6177,29 @@ power_shot_pages() { # MODE SUFFIX
 # write the nmcli stand-in refuses, over a stand-in list of one wired
 # connection, and a second click, whose write the stand-in takes, turns it
 # off and clears the error.
+power_shot_pane_pages() { # NAME
+  local name="$1"
+  # The System window has separate navigation and content scroll areas.
+  # Revealing a content field selects the latter without a new probe API.
+  ipc smoke revealText window vgs.system FormRow Dim >/dev/null || { fail "Power's section did not reveal its first field"; return; }
+  expect_poll "Power's section is at its top" True power_shot_pane_coverage top
+  take "$name"
+  ipc smoke revealText window vgs.system Field "Wake sources" >/dev/null || { fail "Power's section did not reveal its wake field"; return; }
+  expect_poll "Power's top and end shots cover the section with overlap" True power_shot_pane_coverage end
+  take "$name-end"
+  ipc smoke revealText window vgs.system FormRow Dim >/dev/null || fail "Power's section did not return to its top"
+}
+
+power_shot_pane_coverage() { # top|end
+  ipc smoke viewHolding window vgs.system "Wake sources" | py_reply 'import json,sys
+d=json.load(sys.stdin)
+if not isinstance(d,dict) or not all(k in d for k in ("contentY","contentHeight","height")):
+    print("unreadable")
+else:
+    y,ch,h=(float(d[k]) for k in ("contentY","contentHeight","height"))
+    print(y==0 if sys.argv[1]=="top" else y+h+1>=ch and y<=h-40)' "$1"
+}
+
 power_shot_pane() { # MODE
   local plugins="$home/.config/vgshell/plugins" wake
   power_stage_owners "$plugins"
@@ -6190,7 +6215,7 @@ power_shot_pane() { # MODE
   grep -q '"wakeOnLan"' "$tree/shell/plugins/vgs.power/manifest.json" && wake=yes
   [[ $wake == no ]] || expect_poll "Power's section draws Wake on LAN off" off power_wol_field
   park_pointer
-  take "power-$1-pane"
+  power_shot_pane_pages "power-$1-pane"
   if [[ $wake == yes ]]; then
     power_revealed "$(ipc smoke revealScopedText window vgs.system Field "Wake on LAN" Switch "")" || fail "the System page does not scroll to Wake on LAN"
     park_pointer
@@ -6210,7 +6235,7 @@ power_shot_pane() { # MODE
   power_stage_setting "$home/.config/vgshell/shell.json" lockAfter 120
   expect_poll "Power's section warns on the lock row" "3 1" power_shot_timeline
   park_pointer
-  take "power-$1-pane-warning"
+  power_shot_pane_pages "power-$1-pane-warning"
   power_stage_setting "$home/.config/vgshell/shell.json" lockAfter null
   expect_poll "Power's section has no warning again" "3 0" power_shot_timeline
   power_stop_mock "$power_profiles_pid"
@@ -6219,7 +6244,7 @@ power_shot_pane() { # MODE
   tree_rescan "a scan misses the stopped profiles service"
   expect_poll "Power's section offers the profiles service's install" shown power_shot_install
   park_pointer
-  take "power-$1-pane-no-profiles"
+  power_shot_pane_pages "power-$1-pane-no-profiles"
   expect "the System window hides after Power's section" ok ipc shell hide window vgs.system
   expect_poll "the System window is gone after Power's section" hidden system_shown
   power_shot_pages "$1" -no-profiles

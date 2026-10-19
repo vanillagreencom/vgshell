@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell.Io
 import Quickshell.Networking
+import Quickshell.Bluetooth
 import Quickshell.Services.UPower
 import qs.Commons
 import "PowerLogic.js" as Logic
@@ -45,6 +46,18 @@ Item {
     property bool profileReadStale: false
     // The newest profile asked for while a write ran: it is written next.
     property string profileWanted: ""
+    property var bluetoothWake: ({ state: "checking" })
+    property var bluetoothWakeQueue: []
+    property var wakeRun: null
+    property int wakeGeneration: 0
+    readonly property var wakeStep: shell === null ? null : shell.system.state["wake-sources"]
+    // Quickshell 0.3.1: Bluetooth.devices is an ObjectModel; values and
+    // each device's paired/dbusPath/icon/wakeAllowed are bindable. Reading
+    // them here reconciles on device/property changes, without a poll.
+    // https://quickshell.org/docs/v0.3.1/types/Quickshell.Bluetooth/BluetoothDevice
+    readonly property string bluetoothKey: JSON.stringify(Bluetooth.devices.values.map(device => ({
+        path: device.dbusPath, paired: device.paired, icon: device.icon, wakeAllowed: device.wakeAllowed
+    })))
     readonly property bool upowerReady: UPower.displayDevice !== null && UPower.displayDevice.ready === true
     readonly property var battery: Logic.batteryView(UPower.displayDevice, UPower.onBattery)
     readonly property var view: ({ battery: battery, profile: profile })
@@ -100,12 +113,16 @@ Item {
         shell.shortcut.register("balanced", "Use the balanced profile", () => root.setProfile("balanced", true));
         shell.shortcut.register("performance", "Use the performance profile", () => root.setProfile("performance", true));
         profileWatch.running = true;
+        syncWake();
         publish();
         observeWake();
         checkNotices();
     }
     onViewKeyChanged: publish()
     onDiskSleepStepChanged: publish()
+    onWakeStepChanged: syncWake()
+    onBluetoothKeyChanged: syncWake()
+    onBluetoothWakeChanged: publish()
     onNoticeKeyChanged: checkNotices()
     onSourceKeyChanged: observeSource()
     onEthernetPresentChanged: publish()
@@ -141,6 +158,7 @@ Item {
             report("diskSleepInstall", install ? "present" : "absent");
             report("diskSleep", diskSleepValue(install));
         }
+        report("wakeSources", Logic.wakeSourcesValue(wakeStep, bluetoothWake));
     }
 
     // Read the probe synchronously: its changed handler can run before
@@ -162,6 +180,57 @@ Item {
         case "unknown": return { tone: "warning", text: "Could not check", action: false, hint: "VGS could not read the hard disk setup" };
         }
         throw new Error("power: disk-sleep state=" + diskSleepStep.state);
+    }
+
+    // Only the ready system step authorizes Bluetooth changes. Each
+    // source change replaces the remaining work; an old GetAll result can
+    // never start a Set after the step or the paired device list changes.
+    function syncWake() {
+        wakeGeneration++;
+        bluetoothWakeQueue = JSON.parse(bluetoothKey).filter(device => device.paired).map(device => device.path);
+        bluetoothWake = { state: "checking" };
+        if (!wakeStep || wakeStep.state !== "ready") {
+            bluetoothWakeQueue = [];
+            wakeDevice.running = false;
+        }
+        publish();
+        Qt.callLater(root.pumpWake);
+    }
+
+    function pumpWake() {
+        if (!registered || !wakeStep || wakeStep.state !== "ready" || wakeDevice.running) return;
+        if (wakeRun !== null && wakeRun.generation !== wakeGeneration) wakeRun = null;
+        if (wakeRun === null) {
+            if (bluetoothWakeQueue.length === 0) {
+                if (bluetoothWake.state !== "failed") bluetoothWake = { state: "ready" };
+                return;
+            }
+            const path = bluetoothWakeQueue[0];
+            bluetoothWakeQueue = bluetoothWakeQueue.slice(1);
+            wakeRun = { path: path, phase: "read", generation: wakeGeneration };
+        }
+        const run = wakeRun;
+        const args = run.phase === "read" ? ["--method", "org.freedesktop.DBus.Properties.GetAll", "org.bluez.Device1"]
+            : ["--method", "org.freedesktop.DBus.Properties.Set", "org.bluez.Device1", "WakeAllowed", run.allowed ? "<true>" : "<false>"];
+        wakeDevice.command = ["gdbus", "call", "--system", "--dest", "org.bluez", "--object-path", run.path].concat(args);
+        wakeDevice.exitCode = null;
+        wakeDevice.running = true;
+    }
+
+    function finishWake(code) {
+        const run = wakeRun;
+        wakeRun = null;
+        if (run === null) return;
+        if (run.generation === wakeGeneration && wakeStep && wakeStep.state === "ready") {
+            const reading = run.phase === "read" ? Logic.bluetoothWakeReading(code, wakeOutput.text)
+                : { state: code === 0 ? "written" : "failed", reason: "write-failed" };
+            if (reading.state === "failed") {
+                bluetoothWake = Logic.bluetoothWakeFailure(reading.reason, wakeErrors.text);
+            } else if (reading.state === "supported" && reading.current !== reading.allowed) {
+                wakeRun = { path: run.path, phase: "write", allowed: reading.allowed, generation: wakeGeneration };
+            }
+        }
+        Qt.callLater(root.pumpWake);
     }
 
     function report(key, value) {
@@ -345,6 +414,21 @@ Item {
             console.warn("power: profile watch ended exit=" + code);
             root.profile = Logic.profileView("");
         }
+    }
+
+    // gdbus has its own bounded call timeout. The device run belongs to
+    // this service; destroying the service also ends its Process child.
+    Process {
+        id: wakeDevice
+        property var exitCode: null
+        clearEnvironment: true
+        environment: ({ PATH: null, DBUS_SYSTEM_BUS_ADDRESS: null, LC_ALL: "C" })
+        stdout: StdioCollector { id: wakeOutput; waitForEnd: true }
+        stderr: StdioCollector { id: wakeErrors; waitForEnd: true }
+        onExited: code => { exitCode = code; }
+        // FailedToStart emits runningChanged without exited in 0.3.1.
+        // https://quickshell.org/docs/v0.3.1/types/Quickshell.Io/Process
+        onRunningChanged: if (!running) root.finishWake(exitCode === null ? -1 : exitCode)
     }
 
     Process {

@@ -33,7 +33,7 @@
   "capabilityKinds": {
     "system": ["service"]
   },
-  "systemSteps": ["disk-sleep"],
+  "systemSteps": ["disk-sleep", "wake-sources"],
   "defaultSection": "right",
   "pane": {
     "group": "Hardware",
@@ -75,7 +75,7 @@
         "nix": "glib"
       },
       "optional": false,
-      "purpose": "Reads and sets the power profile"
+      "purpose": "Reads and sets the power profile and Bluetooth wake permission"
     },
     {
       "command": "nmcli",
@@ -87,6 +87,12 @@
       },
       "optional": true,
       "purpose": "Sets Wake on LAN on the wired connections"
+    },
+    {
+      "dbus": { "bus": "system", "name": "org.bluez", "label": "Bluetooth service" },
+      "packages": { "pacman": "bluez", "apt": "bluez", "dnf": "bluez", "nix": "bluez" },
+      "optional": true,
+      "purpose": "Limits Bluetooth wake to keyboards and pointing devices"
     }
   ],
   "settings": {
@@ -213,6 +219,14 @@
         "label": "Allow",
         "system": "disk-sleep"
       }
+    },
+    "wakeSources": {
+      "type": "state",
+      "label": "Wake sources",
+      "setup": true,
+      "group": "Wake",
+      "hint": "For USB and Bluetooth, only keyboards and pointing devices can wake the computer. The power button and connecting a USB device during sleep can also wake it. Wake on LAN is controlled separately.",
+      "action": { "label": "Allow", "system": "wake-sources" }
     },
     "power": {
       "type": "data",

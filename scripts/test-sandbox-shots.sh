@@ -1975,6 +1975,7 @@ power_scene_case() {
     set -euo pipefail
     source "$1"
     devices_ready() { :; }
+    devices_usb_wake() { :; }
     power_start_mocks() { daemon=up; }
     tree_rescan() { [[ ${daemon:-} == up ]] && scanned=yes; }
     ipc() {
