@@ -19,7 +19,7 @@ FocusScope {
     property bool editorOpen: false
     property var automations: []
     // The newest `history --json` rows, and the ones the History page
-    // shows. The page builds every row again whenever historyRows changes,
+    // shows. The page places its rows again whenever historyRows changes,
     // so it takes historyAnswer only while it is shown, and once more when
     // the History tab opens.
     property var historyAnswer: []

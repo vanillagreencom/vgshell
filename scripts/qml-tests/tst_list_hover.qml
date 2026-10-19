@@ -6,6 +6,7 @@ import qs.Unit
 import "../../shell/plugins/vgs.settings" as Settings
 import "../../shell/plugins/vgs.updates" as Updates
 import "../../shell/plugins/vgs.automations" as Automations
+import "../../shell/plugins/vgs.automations/AutomationsViewLogic.js" as AutomationsView
 
 // One hover on every list (design-system.md § Motion), on shipped lists:
 // the pointer over a row puts the list's one plate on it and draws the
@@ -51,10 +52,10 @@ Item {
         id: historyPanel
         property var shell: null
         readonly property var automations: []
-        readonly property var groups: [{ label: "Today", rows: Array.from({ length: 14 }, (unused, index) => ({
-            id: "run" + index, name: "Backup " + index, transcript: "/runs/" + index, outcome: "succeeded",
+        readonly property var groups: AutomationsView.historyGroups(Array.from({ length: 14 }, (unused, index) => ({
+            automation: "backup", run: "run" + index, name: "Backup " + index, transcript: "/runs/" + index, outcome: "succeeded",
             tone: "success", icon: "check", startedAt: 1792300000000 - index * 60000, durationMs: 1000
-        })) }]
+        })), 0)
         function filteredHistoryGroups(id) { return groups; }
     }
 
@@ -146,9 +147,12 @@ Item {
         function test_a_history_row_at_the_edge_takes_the_plate_and_scrolls_nothing() {
             const area = descendants(historyPage).find(child => child.contentY !== undefined && child.reveal !== undefined);
             verify(area !== undefined, "the page scrolls its body");
-            const rows = descendants(historyPage).filter(child => child.row !== undefined && child.cursorItem !== undefined);
-            compare(rows.length, 14, "a row per run");
             tryVerify(() => area.contentHeight > area.height, 1000, "the runs overflow the page");
+            // The page builds its rows once laid out, and the plate fades
+            // in on the selection then.
+            tryCompare(cursorOf(historyPage), "opacity", 1, 1000, "the plate shows on the selection");
+            const rows = descendants(historyPage).filter(child => child.row !== undefined && child.cursorItem !== undefined);
+            verify(rows.length > 0, "the rows in view are built");
             compare(area.contentY, 0);
             const edge = rows.find(row => {
                 const top = row.mapToItem(area, 0, 0).y;

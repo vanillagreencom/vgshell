@@ -27,8 +27,9 @@
 # back), pauses, runs, removes and clears through the
 # nested seat's pointer and keyboard alone, the CLI only reading each
 # result back, its History page building no row while another tab shows,
-# though the window has read the run, and listing the run once its tab
-# opens; and the control, a copy of the plugin whose service lists
+# though the window has read the runs, listing the runs once its tab
+# opens, and its Down, Up, Return and Enter moving the drawn selection
+# and opening the run it shows; and the control, a copy of the plugin whose service lists
 # neither after a run file lands nor after the store changes and whose
 # window's engine door drops every write and skips the transcript TUI,
 # leaves the count as it was after the engine pauses the automation, Last
@@ -237,24 +238,48 @@ expect_poll "the CLI reads the disabled state" false auto_row_value smoke-ui ena
 expect "a second click resumes it" ok ui_click_in_row "Smoke UI" Switch ""
 expect_poll "the CLI reads the enabled state" true auto_row_value smoke-ui enabled
 
-# Run now from the row, then the History tab opens the run's transcript
-# in the transcript TUI, which the stand-in terminal records only.
+# Run now from the row twice, then the History tab opens a run's
+# transcript in the transcript TUI, which the stand-in terminal records
+# only.
 expect "the row's Run now starts a run" ok ui_click_in_row "Smoke UI" IconButton "Run now"
 expect_poll "the run reaches the history rows" 1 auto_history_count smoke-ui
+expect "a second Run now starts a second run" ok ui_click_in_row "Smoke UI" IconButton "Run now"
+expect_poll "the second run reaches the history rows" 2 auto_history_count smoke-ui
 ui_answer_runs() { ipc smoke readInstance window vgs.automations historyAnswer | py_reply 'import json,sys; print(sum(r["automation"] == sys.argv[1] for r in json.load(sys.stdin)))' "$1"; }
 ui_history_rows_built() { ipc smoke itemValues window vgs.automations HistoryRow visible | py_reply 'import json,sys; t=sys.stdin.read(); print(len(json.loads(t)) if t.startswith("[") else t.strip())'; }
-expect_poll "the window reads the run" 1 ui_answer_runs smoke-ui
+expect_poll "the window reads both runs" 2 ui_answer_runs smoke-ui
 expect "the hidden History page builds no row" 0 ui_history_rows_built
 expect "the History tab opens" ok ui_click Label History
 forget_record
 expect_poll "a click on the history row opens its transcript TUI" "$(words vgs.automations/transcript tui/transcript.sh)" ui_history_opens_transcript "Smoke UI"
+
+# The keyboard: Down and Up move the drawn selection between the two runs,
+# newest first as the window read them, and Return and Enter open the run
+# the selection shows.
+ui_history_selected() { ipc smoke itemValues window vgs.automations HistoryRow highlighted,row.transcript | py_reply 'import json,sys; print(json.dumps([r["row.transcript"] for r in json.load(sys.stdin) if r["highlighted"]]))'; }
+ui_answer_transcript() { ipc smoke readInstance window vgs.automations historyAnswer | py_reply 'import json,sys; print(json.dumps([json.load(sys.stdin)[int(sys.argv[1])]["transcript"]]))' "$1"; }
+ui_opened_transcript() { recorded_tail | py_reply 'import json,sys; t=sys.stdin.read().strip(); print(json.dumps(json.loads(t)[2:]) if t.startswith("[") else t)'; }
+newest_transcript="$(ui_answer_transcript 0)" || fail "the newest run's transcript is unreadable"
+older_transcript="$(ui_answer_transcript 1)" || fail "the older run's transcript is unreadable"
+expect_poll "the History page holds the keys" true ipc smoke activeFocusWithin window vgs.automations HistoryPage
+expect "the newest run holds the selection" "$newest_transcript" ui_history_selected
+expect "Down moves the selection" ok ui_keys -k Down
+expect_poll "Down selects the older run" "$older_transcript" ui_history_selected
+forget_record
+expect "Return opens the selected run" ok ui_keys -k Return
+expect_poll "Return hands the TUI the older run's transcript" "$older_transcript" ui_opened_transcript
+expect "Up moves the selection back" ok ui_keys -k Up
+expect_poll "Up selects the newest run" "$newest_transcript" ui_history_selected
+forget_record
+expect "Enter opens the selected run" ok ui_keys -k KP_Enter
+expect_poll "Enter hands the TUI the newest run's transcript" "$newest_transcript" ui_opened_transcript
 
 # Clear history: the button asks, Escape keeps the runs, Return clears.
 expect "Clear history asks first" ok ui_click Button "Clear history"
 expect_poll "the question shows" '"clear"' ui_confirm
 expect "Escape dismisses the question" ok ui_keys -k Escape
 expect_poll "the question is gone" '""' ui_confirm
-expect "the dismissed question clears nothing" 1 auto_history_count smoke-ui
+expect "the dismissed question clears nothing" 2 auto_history_count smoke-ui
 # The question's Dialog sits over a scrim that dismisses it on a click
 # away; a click on the card's empty space, 3 px below its top edge in the
 # padding above the title, leaves it open. The control turns the card's own

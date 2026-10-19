@@ -124,10 +124,14 @@ function run(view, logic) {
     assert.equal(view.validation(templated, logic, now).ok, true);
 
     same(view.historyGroups([
-        { startedAt: Date.parse("2026-01-06T09:00:00Z"), name: "B" },
-        { startedAt: Date.parse("2026-01-05T09:00:00Z"), name: "A" },
-        { startedAt: Date.parse("2025-12-01T09:00:00Z"), name: "old" }
-    ], Date.parse("2026-01-01T00:00:00Z")).map(g => [g.key, g.rows.length]), [["2026-01-06", 1], ["2026-01-05", 1]]);
+        { startedAt: Date.parse("2026-01-06T09:00:00Z"), automation: "b", run: "2", name: "B" },
+        { startedAt: Date.parse("2026-01-06T08:59:00Z"), automation: "b", run: "1", name: "B" },
+        { startedAt: Date.parse("2026-01-05T09:00:00Z"), automation: "a", run: "1", name: "A" },
+        { startedAt: Date.parse("2025-12-01T09:00:00Z"), automation: "a", run: "0", name: "old" }
+    ], Date.parse("2026-01-01T00:00:00Z")).map(g => [g.key, g.start, g.rows.map(r => r.name), g.at]), [
+        ["2026-01-06", 0, ["B", "B"], { "b@2": 0, "b@1": 1 }],
+        ["2026-01-05", 2, ["A"], { "a@1": 0 }]
+    ], "each day places its rows among every day's rows and by key within the day");
 
     assert.match(view.presetLabel("monthly-weekday", "2026-01-30", logic), /last Friday/);
     assert.equal(view.firstOccurrence(JSON.stringify({ occurrences: [1, 2] })), 1);

@@ -362,18 +362,29 @@ function historySecondary(row) {
         ? "Running" : Commons.Duration.format(Math.round(row.durationMs / 1000)));
 }
 
+// A history row's identity across reads: the engine's own record key.
+function historyKey(row) {
+    return row.automation + "@" + row.run;
+}
+
+// The rows from `sinceMs` on, by day: each day's `start` is its first
+// row's place among every day's rows, and `at` maps a row's historyKey to
+// its place in the day.
 function historyGroups(rows, sinceMs) {
     var out = [];
     var byKey = {};
+    var count = 0;
     for (var i = 0; i < rows.length; i++) {
         if (rows[i].startedAt < sinceMs) continue;
         var at = new Date(rows[i].startedAt);
         var key = at.getFullYear() + "-" + (at.getMonth() + 1 < 10 ? "0" : "") + (at.getMonth() + 1) + "-" + (at.getDate() < 10 ? "0" : "") + at.getDate();
         if (byKey[key] === undefined) {
-            byKey[key] = { key: key, label: longDate(key), rows: [] };
+            byKey[key] = { key: key, label: longDate(key), start: count, rows: [], at: {} };
             out.push(byKey[key]);
         }
+        byKey[key].at[historyKey(rows[i])] = byKey[key].rows.length;
         byKey[key].rows.push(rows[i]);
+        count += 1;
     }
     return out;
 }

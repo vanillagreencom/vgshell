@@ -6,9 +6,7 @@ ListItem {
     id: root
 
     required property var row
-    property int index: 0
     property Item cursorItem: null
-    property Item scrollArea: null
 
     signal openRequested(string transcript)
 
@@ -18,11 +16,6 @@ ListItem {
     secondary: View.historySecondary(row)
     cursor: cursorItem
     onClicked: root.openRequested(row.transcript)
-    onHighlightedChanged: if (highlighted && scrollArea !== null) {
-        const top = root.mapToItem(scrollArea.contentItem, 0, 0).y;
-        if (top < scrollArea.contentY) scrollArea.contentY = top;
-        else if (top + root.height > scrollArea.contentY + scrollArea.height) scrollArea.contentY = top + root.height - scrollArea.height;
-    }
     trailing: [
         Badge { text: View.outcomeLabel(root.row.outcome); tone: root.row.tone; iconName: root.row.icon; size: "sm"; anchors.verticalCenter: parent.verticalCenter }
     ]
