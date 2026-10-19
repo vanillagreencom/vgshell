@@ -4,7 +4,7 @@
   "encoder": "hex8",
   "files": [{ "template": "zed.json", "destination": "zed.json" }],
   "detect": [["zeditor", "zed"]],
-  "wiring": { "base": "config", "dir": "zed/themes", "owned": false, "links": { "vgs.json": "zed.json" } },
+  "wiring": { "base": "config", "dir": "zed/themes", "owned": false, "copies": { "vgs.json": "zed.json" } },
   "select": { "base": "config", "file": "zed/settings.json", "format": "zed", "key": ["theme"], "value": "vgs", "create": true },
   "reload": null
 }

@@ -982,6 +982,13 @@ try {
         w.run('apply');
         assert.equal(fs.readFileSync(file, 'utf8'), expected, name);
         const generated = fs.readFileSync(path.join(w.state, 'theme', name === 'helix' ? 'helix.toml' : 'zed.json'), 'utf8');
+        const zedTheme = path.join(w.config, 'zed/themes/vgs.json');
+        if (name === 'zed') {
+            assert.ok(fs.lstatSync(zedTheme).isFile());
+            assert.equal(fs.readFileSync(zedTheme, 'utf8'), generated);
+            fs.unlinkSync(zedTheme);
+            fs.symlinkSync(path.join(w.state, 'theme/zed.json'), zedTheme);
+        }
         if (name === 'helix' && before !== undefined) {
             const hooks = fs.readFileSync(path.join(w.home, 'hooks'), 'utf8');
             w.put(file, before);
@@ -992,6 +999,10 @@ try {
         w.run('apply', 'other');
         assert.equal(fs.readFileSync(file, 'utf8'), expected);
         assert.notEqual(fs.readFileSync(path.join(w.state, 'theme', name === 'helix' ? 'helix.toml' : 'zed.json'), 'utf8'), generated);
+        if (name === 'zed') {
+            assert.ok(fs.lstatSync(zedTheme).isFile());
+            assert.equal(fs.readFileSync(zedTheme, 'utf8'), fs.readFileSync(path.join(w.state, 'theme/zed.json'), 'utf8'));
+        }
     }
     function verifyVaults() {
         const w = world();
@@ -1175,6 +1186,13 @@ try {
     }
     for (const row of cases) verifyCase(row);
     verifyVaults(); verifyEmacs(); verifyPosh();
+    const zedFile = path.join(tree, 'themes/targets/zed/target.json');
+    const zed = JSON.parse(JSON.stringify(targets.get('zed')));
+    zed.wiring.links = zed.wiring.copies;
+    delete zed.wiring.copies;
+    fs.writeFileSync(zedFile, JSON.stringify(zed));
+    assert.throws(() => verifyCase(cases.find(row => row[0] === 'zed')), { code: 'ERR_ASSERTION' });
+    fs.writeFileSync(zedFile, JSON.stringify(targets.get('zed')));
     const emacsTemplate = path.join(tree, 'themes/targets/emacs/emacs.el');
     const template = fs.readFileSync(emacsTemplate, 'utf8');
     const activation = "(enable-theme 'vgs)";
