@@ -75,7 +75,7 @@ run() {
   }
   smoke_finish() {
     local status=0
-    smoke_verdict "$failures" "$behaviour_failures" "$stalled_render" "$mode_resets" "$sandbox/hyprland.log" || status=$?
+    smoke_verdict "$failures" "$behaviour_failures" "$sandbox/hyprland.log" || status=$?
     exit "$status"
   }
   source "$hypr_call"
@@ -137,13 +137,6 @@ row_class=geometry
 expect "the nested instance reloads" ok hypr reload config-only
 echo ROW-KEPT-RUNNING
 SH
-cat >"$tmp/rows/held.sh" <<'SH'
-held_mode_state() { echo HELD-MODE-READ >&2; echo reset; }
-held_mode_host_sized() { echo HELD-MODE-READ >&2; return 1; }
-mode_hold=(WAYLAND-1 "480x720 scale=1")
-expect "the nested instance reloads" ok hypr reload config-only
-echo ROW-KEPT-RUNNING
-SH
 
 stall_line() { printf '  FAIL  the nested compositor stopped answering: hyprctl %s: %s; the run ends here' "$1" "$2"; }
 silent_line="$(stall_line 'reload config-only' 'no answer within 1s')"
@@ -198,7 +191,6 @@ cases=(
   "a stall in a pipeline ends the run|silent|pipeline|plain|1|6000|$monitors_line~qml-smoke: failed=1|ROW-KEPT-RUNNING"
   "a stall in a process substitution ends the run|silent|process|plain|1|6000|$monitors_line~qml-smoke: failed=1|ROW-KEPT-RUNNING"
   "a stall in a geometry row is a behaviour failure|silent|geometry|plain|1|6000|$silent_line~qml-smoke: failed=1|ROW-KEPT-RUNNING~status=not-measured"
-  "a stall while a mode is held reads no hold|silent|held|plain|1|6000|$silent_line~qml-smoke: failed=1|ROW-KEPT-RUNNING~HELD-MODE-READ~status=not-measured"
   "a stall in a harness sourced inside a subshell ends the subshell only|silent|expect|subshell|0|6000|$silent_line~qml-smoke: failed=1~PARENT-CONTINUED status=1|ROW-KEPT-RUNNING"
 )
 for row in "${cases[@]}"; do
@@ -227,7 +219,6 @@ controls=(
   "the call is unbounded@timeout -k 2 \"\$hypr_bound_s\" hyprctl@hyprctl@a call that never returns ends the run"
   "a stall does not signal the harness shell@kill -USR1 -- \"\$harness_pid\"@:@a call that never returns ends the run"
   "a stall keeps the row's class@  row_class=behaviour@  :@a stall in a geometry row is a behaviour failure"
-  "a stall reads the held mode@  mode_hold=()@  :@a stall while a mode is held reads no hold"
   "the harness shell is named by \$\$@harness_pid=\$BASHPID@harness_pid=\$\$@a stall in a harness sourced inside a subshell ends the subshell only"
   "a call after a stall reaches hyprctl@[[ ! -e \$sandbox/compositor-stalled ]] || return 1@:@a stall in a command substitution ends the run and later calls return at once"
   "the bound's kill is no stall@\$status -eq 124 || \$status -eq 137@\$status -eq 124@a call that outlives the bound's TERM ends the run"

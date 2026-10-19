@@ -22,7 +22,7 @@ scripts/validate unit --full                 # one whole area; unit needs Qt and
 scripts/validate package                     # the Arch recipes in a rootless podman container
 ```
 
-Exit 77 means a check could not run and is not a pass. The `qml` area is the nested sandbox and needs `WAYLAND_DISPLAY` and `XDG_RUNTIME_DIR`; `scripts/qml-smoke.sh` runs it alone. A new check is a row in `scripts/validate` with its must-fail control beside it.
+Exit 77 means a check could not run and is not a pass. The `qml` area is the nested sandbox and needs `XDG_RUNTIME_DIR` and a render node that is not AMD's, and no `WAYLAND_DISPLAY`; `scripts/qml-smoke.sh` runs it alone. A new check is a row in `scripts/validate` with its must-fail control beside it.
 
 A run that must outlive a tool call starts detached with HUP, INT and QUIT at their defaults and records its own pid: `setsid env --default-signal=HUP,INT,QUIT bash -c 'echo $$ >tmp/run.pid; exec scripts/validate offline' </dev/null >tmp/run.log 2>&1 &`. Under `nohup` or a bare `&` those signals start ignored, and the signal rows of `scripts/test-gpu-fence.sh` and `scripts/test-vgshell-tui.sh` fail. Wait with `tail --pid=PID -f /dev/null` on the recorded pid, never on `$!`, which `setsid` can leave at once, and never on a `pgrep -f` hit, which can match the caller's own shell.
 

@@ -1,71 +1,7 @@
-# Sourced by scripts/sandbox-shots.sh and scripts/smoke/harness.sh; reads
-# where the host compositor shows the nested compositor's window.
-#
-# The nested Hyprland is one xdg toplevel of the host, class aquamarine,
-# owned by the nested compositor's process. The host sends that window frame
-# callbacks only while it draws it, unless a host rule gives it
-# render_unfocused. A shot
-# records this state so its evidence says whether the nested window was
-# hidden when it was taken.
-#
-# The reads are the host's `hyprctl -j clients` and `hyprctl -j monitors`,
-# read-only requests on the host instance the caller's
-# HYPRLAND_INSTANCE_SIGNATURE names. Nothing here dispatches, sets a
-# property or changes focus on the host.
-
-# host_window_state STABLE_ID: one word for the host window whose stableId
-# is STABLE_ID, as host_nested_windows lists it.
-#   shown       visible on a workspace a host monitor shows, special or not
-#   hidden      on a workspace no host monitor shows, or not visible there,
-#               as a background group tab is (`visible: false`)
-#   absent      the host lists no window with STABLE_ID
-#   unreadable  no host instance in the environment, a read failed or a
-#               reply is not the JSON the reads expect; returns 1
-host_window_state() {
-  local clients monitors
-  if [[ -z ${HYPRLAND_INSTANCE_SIGNATURE:-} ]]; then echo unreadable; return 1; fi
-  clients="$(timeout 2 hyprctl -j clients 2>/dev/null)" || { echo unreadable; return 1; }
-  monitors="$(timeout 2 hyprctl -j monitors 2>/dev/null)" || { echo unreadable; return 1; }
-  python3 -c '
-import json, sys
-stable_id, clients, monitors = sys.argv[1], sys.argv[2], sys.argv[3]
-try:
-    clients, monitors = json.loads(clients), json.loads(monitors)
-    owned = [c for c in clients if c["stableId"] == stable_id]
-    shown = {m["activeWorkspace"]["id"] for m in monitors} | {m["specialWorkspace"]["id"] for m in monitors}
-    drawn = any(c["visible"] and c["workspace"]["id"] in shown for c in owned)
-except (ValueError, KeyError, TypeError):
-    print("unreadable"); sys.exit(1)
-print("shown" if drawn else "hidden" if owned else "absent")
-' "$1" "$clients" "$monitors"
-}
-
-# host_nested_windows: one machine-read line for each host window of a
-# nested sandbox. Aquamarine's nested Wayland backend gives those toplevels
-# class aquamarine. The pids are host pids, so a caller inside the fence's
-# pid namespace tells its own window by a stableId it did not list before
-# its launch.
-host_nested_windows() {
-  local clients
-  if [[ -z ${HYPRLAND_INSTANCE_SIGNATURE:-} ]]; then echo unreadable; return 1; fi
-  clients="$(timeout 2 hyprctl -j clients 2>/dev/null)" || { echo unreadable; return 1; }
-  python3 -c '
-import json, sys
-try:
-    rows = []
-    for c in json.loads(sys.argv[1]):
-        if c["class"] != "aquamarine":
-            continue
-        size = c["size"]
-        rows.append("%s pid=%s size=%sx%s workspace=%s mapped=%s" % (
-            c["stableId"], c["pid"], size[0], size[1],
-            c["workspace"]["name"], str(c["mapped"]).lower()))
-except (ValueError, KeyError, TypeError, IndexError):
-    print("unreadable"); sys.exit(1)
-for row in rows:
-    print(row)
-' "$clients"
-}
+# Sourced by scripts/sandbox-shots.sh, scripts/smoke/harness.sh and
+# scripts/test-smoke-display-record.sh; defines display_record_program, the
+# display recorder the harness runs.
+set -euo pipefail
 
 # The harness runs this program as one of its owned process groups. Linux
 # notifications wake readers of owned original logs. It never writes
@@ -282,7 +218,6 @@ class Record:
         self.observations = set()
         self.fact_counts = collections.Counter()
         self.request_counts = collections.Counter()
-        self.ipc_counts = collections.Counter()
         self.monitor_counts = collections.Counter()
         self.bound = False
         self.configure_seen = False
@@ -305,7 +240,6 @@ class Record:
             "logHistory": "single acquired original regular-log writer inherited by actual launch; byte offsets preserve local order; reuse requires prior local owner end and new empty acquisition; unexpected truncate, replacement or notification overflow make history incomplete; close-write is context only; ordinary readers do not end observation",
             "diagnosticBinding": "owned nested launch original regular log with WAYLAND_DEBUG=client; diagnostic text has no connection identity; inherited child diagnostic output is not independently attributed",
             "validity": "collector terminal describes local receipt only; completeness.json also requires successful finalization and retention",
-            "hostAttribution": "UNATTRIBUTED; no host process/window join",
             "helperLaunchIdentity": "unresolved separate input"})
         with (self.directory / "ready").open("w") as ready:
             ready.write("ready\n")
@@ -635,15 +569,13 @@ class Record:
                                                required=s["registration"]["required"] if "registration" in s else False)
                                           for s in self.streams.values()],
                                  problems=sorted(self.problems))
-                elif command == "host":
-                    self.subscribe("host-UNATTRIBUTED", args[0])
                 elif command == "bind":
                     signature, path, pid, wayland = args
                     if self.bound:
                         raise ValueError("ambiguous-nested-binding")
                     self.bound = True
                     self.emit("harness", "nested-binding", dict(signature=signature, socket=path,
-                              namespacePid=pid, waylandSocket=wayland, hostJoin="UNATTRIBUTED"))
+                              namespacePid=pid, waylandSocket=wayland))
                     self.subscribe("nested-ipc", path)
                 elif command == "mark":
                     if args[0] in ("display-request", "display-reply"):
@@ -760,7 +692,6 @@ class Record:
             relevant = (name.startswith((b"monitor", b"openwindow", b"closewindow", b"movewindow"))
                         or name in (b"configreloaded", b"focusedmon", b"moveworkspace", b"moveworkspacev2"))
             if relevant:
-                self.ipc_counts[source] += 1
                 if name.startswith(b"monitor"):
                     self.monitor_counts[source] += 1
                 self.emit(source, "ipc-observation", line.decode(errors="replace"))
@@ -829,7 +760,7 @@ class Record:
                 continue
             if state["ended"]:
                 continue
-            # Snapshot the kernel's queued byte count. A busy host socket
+            # Snapshot the kernel's queued byte count. A busy socket
             # cannot extend this drain with later arrivals. FIONREAD is a
             # Linux pipe/socket read, inside the existing Linux sandbox.
             queued = array.array("i", [0])
@@ -916,8 +847,6 @@ class Record:
                 limit="owned launch diagnostic output only; protocol connection identity unresolved")
             facts["nested-monitor-ipc"] = dict(status="observed" if self.monitor_counts["nested-ipc"] else "not-observed",
                 observationCount=self.monitor_counts["nested-ipc"], limit="public socket2 receipt only; no upstream delivery acknowledgement")
-            facts["unattributed-host-context"] = dict(status="observed" if self.ipc_counts["host-UNATTRIBUTED"] else "not-observed",
-                observationCount=self.ipc_counts["host-UNATTRIBUTED"], attribution="UNATTRIBUTED")
             for registration in self.registrations.values():
                 if registration["state"] == "pending":
                     self.problems.add("registration:launch-missing:" + registration["key"])

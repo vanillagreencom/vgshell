@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 # Drive scripts/smoke/verdict.sh, the nested smoke's closing verdict, with
-# the counters smoke_finish hands it, mode resets among them, and fixture
-# compositor logs, and fail, which writes those counters and prints a mode
-# reset apart from a failure, with the hold's state and its host-size
-# reading stubbed, a row not_measured records beside them, and read_count,
-# the count a row adds to, with a stub reader. No case needs a sandbox.
+# the counters smoke_finish hands it and fixture compositor logs, and fail,
+# which writes those counters by the row's class whatever the held mode
+# reads, a row not_measured records beside them, and read_count, the count
+# a row adds to, with a stub reader. No case needs a sandbox.
 # Each verdict case pins the exit status and the first line the verdict
 # prints. The controls at the end plant one defect per rule in a
 # copy of the file and require the case that rule owns to go red.
@@ -57,95 +56,76 @@ fail() { failures=$((failures + 1)); printf '  FAIL  %s\n' "$*"; }
 # run_case FILE ROW: true when the verdict FILE defines gives the row's
 # status and first line. The caller's shell options are the harness's.
 run_case() {
-  local file="$1" label failures_n behaviour stalled resets logs want_status want_line out status=0 names=() paths=() name
-  IFS='|' read -r label failures_n behaviour stalled resets logs want_status want_line <<<"$2"
+  local file="$1" label failures_n behaviour logs want_status want_line out status=0 names=() paths=() name
+  IFS='|' read -r label failures_n behaviour logs want_status want_line <<<"$2"
   read -r -a names <<<"$logs"
   for name in "${names[@]}"; do paths+=("$tmp/$name.log"); done
   out="$(env -i PATH="$PATH" bash -c 'set -euo pipefail; source "$1"; shift; smoke_verdict "$@"' _ \
-    "$file" "$failures_n" "$behaviour" "$stalled" "$resets" "${paths[@]}")" || status=$?
+    "$file" "$failures_n" "$behaviour" "${paths[@]}")" || status=$?
   [[ $status -eq $want_status && ${out%%$'\n'*} == "$want_line" ]] && return 0
   printf '        %s: status=%s want=%s first line: %s\n' "$label" "$status" "$want_status" "${out%%$'\n'*}"
   return 1
 }
 
-# Rows: label | failures | behaviour failures | stalled render | mode
-# resets | fixture logs, space-delimited, `missing` naming none written |
-# status | first line.
+# Rows: label | failures | behaviour failures | fixture logs,
+# space-delimited, `missing` naming none written | status | first line.
 cases=(
-  "a clean run passes|0|0|false|0|passing|0|qml-smoke: ok"
-  "all-geometry failure with a passing log fails|3|0|false|0|passing|1|qml-smoke: failed=3"
-  "all-geometry failure with the nested output's fault is not measured|3|0|false|0|fault|77|qml-smoke: status=not-measured nested-compositor=buffer-allocation-failed failed=3"
-  "the fault in a second log is read|3|0|false|0|passing fault|77|qml-smoke: status=not-measured nested-compositor=buffer-allocation-failed failed=3"
-  "a behaviour failure with the fault fails|3|1|false|0|fault|1|qml-smoke: failed=3"
-  "all-geometry failure with no readable log fails|3|0|false|0|missing|1|qml-smoke: failed=3"
-  "all-geometry failure with an undrawn render row is not measured|3|0|true|0|passing|77|qml-smoke: status=not-measured nested-window=not-drawn failed=3"
-  "a behaviour failure with an undrawn render row fails|3|1|true|0|passing|1|qml-smoke: failed=3"
-  "every failure after a held mode's reset is not measured|2|0|false|2|passing|77|qml-smoke: status=not-measured nested-output=mode-reset failed=2"
-  "a geometry failure beside mode-reset rows fails|3|0|false|2|passing|1|qml-smoke: failed=1 mode-resets=2"
-  "a behaviour failure beside mode-reset rows fails|3|1|false|2|passing|1|qml-smoke: failed=1 mode-resets=2"
+  "a clean run passes|0|0|passing|0|qml-smoke: ok"
+  "all-geometry failure with a passing log fails|3|0|passing|1|qml-smoke: failed=3"
+  "all-geometry failure with the nested output's fault is not measured|3|0|fault|77|qml-smoke: status=not-measured nested-compositor=buffer-allocation-failed failed=3"
+  "the fault in a second log is read|3|0|passing fault|77|qml-smoke: status=not-measured nested-compositor=buffer-allocation-failed failed=3"
+  "a behaviour failure with the fault fails|3|1|fault|1|qml-smoke: failed=3"
+  "all-geometry failure with no readable log fails|3|0|missing|1|qml-smoke: failed=3"
 )
 for row in "${cases[@]}"; do
   if run_case "$verdict" "$row"; then ok "${row%%|*}"; else fail "${row%%|*}"; fi
 done
 
 # run_tally FILE ROW: true when fail, as the file FILE defines it, counts one
-# failed row as the row wants, printed as failures, behaviour failures and
-# mode resets, starts its line with the row's word, and the verdict on that
-# tally exits with the row's status. scripts/main-run.sh reports every line
-# that starts `  FAIL` as a failure, so the word is the line's machine-read
-# part. held_mode_state and held_mode_host_sized are the harness's
-# readings of the monitor; stubs answer the row's state in their place.
+# failed row as the row wants, printed as failures and behaviour failures,
+# starts its line with the row's word, never asks the held mode, and the
+# verdict on that tally exits with the row's status. scripts/main-run.sh
+# reports every line that starts `  FAIL` as a failure, so the word is the
+# line's machine-read part. held_mode_state is the harness's reading of the
+# monitor; a stub in its place reads the row's state and marks that it was
+# asked.
 run_tally() {
-  local file="$1" label class hold state host want_counts want_status want_word out status=0
-  IFS='|' read -r label class hold state host want_counts want_status want_word <<<"$2"
+  local file="$1" label class hold state want_counts want_status want_word out status=0
+  IFS='|' read -r label class hold state want_counts want_status want_word <<<"$2"
   out="$(env -i PATH="$PATH" bash -c '
 set -euo pipefail
 source "$1"
-stub_state="$4" stub_host="$5"
-held_mode_state() { printf "%s\n" "$stub_state"; }
-held_mode_host_sized() { [[ $stub_host == host ]]; }
+stub_state="$4" asked_mark="$5.asked"
+held_mode_state() { : >"$asked_mark"; printf "%s\n" "$stub_state"; }
 row_class="$2"
 [[ $3 == none ]] || mode_hold=(WAYLAND-1 "480x720 scale=1")
-if [[ $3 == base || $3 == inner ]]; then
-  mode_hold_run_base=true
-  mode_hold=(WAYLAND-1 "3510x1866 scale=2")
-  mode_hold_window=1250x720
-fi
-if [[ $3 == inner ]]; then
-  mode_hold_parents=(WAYLAND-1 "3510x1866 scale=2" 1250x720 "parent rule")
-fi
-fail "a row" >"$6"
-read -r word _ <"$6"
-printf "%s %s %s %s\n" "$failures" "$behaviour_failures" "$mode_resets" "$word"
-smoke_verdict "$failures" "$behaviour_failures" "$stalled_render" "$mode_resets" /dev/null >/dev/null' _ \
-    "$file" "$class" "$hold" "$state" "$host" "$tmp/tally-line")" || status=$?
-  [[ $status -eq $want_status && $out == "$want_counts $want_word" ]] && return 0
-  printf '        %s: status=%s want=%s counts: %s want %s %s\n' "$label" "$status" "$want_status" "$out" "$want_counts" "$want_word"
+[[ $3 != base ]] || mode_hold_run_base=true
+rm -f -- "$5.asked"
+fail "a row" >"$5"
+read -r word _ <"$5"
+asked=no
+[[ ! -e $5.asked ]] || asked=yes
+printf "%s %s %s asked=%s\n" "$failures" "$behaviour_failures" "$word" "$asked"
+smoke_verdict "$failures" "$behaviour_failures" /dev/null >/dev/null' _ \
+    "$file" "$class" "$hold" "$state" "$tmp/tally-line")" || status=$?
+  [[ $status -eq $want_status && $out == "$want_counts $want_word asked=no" ]] && return 0
+  printf '        %s: status=%s want=%s counts: %s want %s %s asked=no\n' "$label" "$status" "$want_status" "$out" "$want_counts" "$want_word"
   return 1
 }
 
-# Rows: label | row class | hold, `none`, `held`, `base` or `inner` | the state the stub
-# held_mode_state reads | whether the stub held_mode_host_sized reads the
-# host window's own size, `host` or `other` | failures, behaviour failures
-# and mode resets | verdict status | the first word fail prints. A row with
-# no hold gets stubs reading `reset` and `host`, which fail must not ask.
+# Rows: label | row class | hold, `none`, `held` or `base` | the state the
+# stub held_mode_state reads | failures and behaviour failures | verdict
+# status | the first word fail prints.
 tallies=(
-  "a behaviour row failing with no hold is behaviour|behaviour|none|reset|host|1 1 0|1|FAIL"
-  "a geometry row failing with no hold is geometry|geometry|none|reset|host|1 0 0|1|FAIL"
-  "a row failing while the mode holds is behaviour|behaviour|held|held|other|1 1 0|1|FAIL"
-  "a row failing after the held mode's reset is a mode reset|behaviour|held|reset|other|1 0 1|77|SKIP"
-  "a row failing on an unreadable hold is behaviour|behaviour|held|unreadable|other|1 1 0|1|FAIL"
-  "a hold row failing after the held mode's reset is behaviour|hold|held|reset|other|1 1 0|1|FAIL"
-  "a hold row failing at the host window's own size is a mode reset|hold|held|reset|host|1 0 1|77|SKIP"
-  "a behaviour row under the run base stays behaviour at host size|behaviour|base|reset|host|1 1 0|1|FAIL"
-  "a behaviour row under the run base stays behaviour after another reset|behaviour|base|reset|other|1 1 0|1|FAIL"
-  "a behaviour row under the held run base is behaviour|behaviour|base|held|other|1 1 0|1|FAIL"
-  "a behaviour row under an unreadable run base is behaviour|behaviour|base|unreadable|other|1 1 0|1|FAIL"
-  "a geometry row under the reset run base is not measured|geometry|base|reset|host|1 0 1|77|SKIP"
-  "a render row under the reset run base is not measured|render|base|reset|other|1 0 1|77|SKIP"
-  "a hold row under the run base stays behaviour at host size|hold|base|reset|host|1 1 0|1|FAIL"
-  "an inner temporary hold keeps its reset policy above the run base|behaviour|inner|reset|other|1 0 1|77|SKIP"
-  "an inner hold row keeps host-size classification above the run base|hold|inner|reset|host|1 0 1|77|SKIP"
+  "a behaviour row failing with no hold is behaviour|behaviour|none|reset|1 1|1|FAIL"
+  "a geometry row failing with no hold is geometry|geometry|none|reset|1 0|1|FAIL"
+  "a render row failing with no hold is render|render|none|reset|1 0|1|FAIL"
+  "an operation failure is behaviour|operation|none|reset|1 1|1|FAIL"
+  "a row failing while the mode holds is behaviour|behaviour|held|held|1 1|1|FAIL"
+  "a row failing after the held mode's reset is behaviour|behaviour|held|reset|1 1|1|FAIL"
+  "a geometry row failing after the held mode's reset is geometry|geometry|held|reset|1 0|1|FAIL"
+  "a hold row failing after the held mode's reset is behaviour|hold|held|reset|1 1|1|FAIL"
+  "a render row under the reset run base is render|render|base|reset|1 0|1|FAIL"
 )
 for row in "${tallies[@]}"; do
   if run_tally "$verdict" "$row"; then ok "${row%%|*}"; else fail "${row%%|*}"; fi
@@ -162,7 +142,7 @@ set -euo pipefail
 source "$1"
 not_measured device-fakes missing=python-dbusmock >/dev/null
 for ((i = 0; i < $2; i++)); do fail "a row" >/dev/null; done
-smoke_verdict "$failures" "$behaviour_failures" "$stalled_render" "$mode_resets" /dev/null' _ \
+smoke_verdict "$failures" "$behaviour_failures" /dev/null' _ \
     "$file" "$failed")" || status=$?
   [[ $status -eq $want_status && ${out%%$'\n'*} == "$want_line" ]] && return 0
   printf '        %s: status=%s want=%s first line: %s\n' "$label" "$status" "$want_status" "${out%%$'\n'*}"
@@ -211,9 +191,10 @@ for row in "${counts[@]}"; do
   if run_count "$verdict" "$row"; then ok "${row%%|*}"; else fail "${row%%|*}"; fi
 done
 
-# Drive the real scope and action through command substitution. The
-# compositor resets after preparation. The startup base keeps independent
-# failures visible before and after the refusal; the row still cleans up.
+# Drive the real scope and action through command substitution. The nested
+# output leaves the held mode after the coordinates were sampled: the
+# pointer step is refused and fails the row, independent failures before
+# and after it stay visible, and the row still cleans up.
 run_observation() {
   local file="$1" label position want_count dir out status=0
   IFS='|' read -r label position want_count <<<"$2"
@@ -237,7 +218,7 @@ source "$2/scripts/smoke/mode-hold.sh"
 source "$3/operations.sh"
 sandbox="$3" stub_position="$4"
 mode_hold=(WAYLAND-1 "3510x1866 scale=2")
-mode_hold_window=1250x720 mode_hold_run_base=true
+mode_hold_run_base=true
 mon_w=1755 mon_h=933 shell_env=()
 pointer_at=before dependent=false cleaned=false
 : >"$sandbox/cleanup-owned"
@@ -265,9 +246,9 @@ rm -- "${sandbox:?}/cleanup-owned"
 [[ ! -e $sandbox/cleanup-owned ]] || exit 1
 if [[ $stub_position == after || $stub_position == both ]]; then fail independent-after; fi
 [[ $cleaned == true && $dependent == false && $pointer_at == before && ! -e $sandbox/sent ]] || exit 1
-[[ $failures == "$5" && $behaviour_failures == "$5" && $mode_resets == 0 && ${#not_measured_rows[@]} == 1 ]] || exit 1
+[[ $failures == "$5" && $behaviour_failures == "$5" && ${#not_measured_rows[@]} == 0 ]] || exit 1
 status=0
-smoke_verdict "$failures" "$behaviour_failures" "$stalled_render" "$mode_resets" /dev/null || status=$?
+smoke_verdict "$failures" "$behaviour_failures" /dev/null || status=$?
 [[ $status == 1 ]] || exit 1
 echo observation=continued
 ' _ "$file" "$repo" "$dir" "$position" "$want_count")" || status=$?
@@ -278,10 +259,12 @@ echo observation=continued
   printf '        %s: status=%s visible=%s wanted=%s output=[%s]\n' "$label" "$status" "$visible" "$want_count" "$out"
   return 1
 }
+# Rows: label | where the independent failure goes | the FAIL lines, the
+# refused step's among them.
 observations=(
-  'an independent failure before a refused action remains a failure|before|1'
-  'an independent failure after a refused action remains a failure|after|1'
-  'independent failures before and after a refused action remain failures|both|2'
+  'an independent failure before a refused action remains a failure|before|2'
+  'an independent failure after a refused action remains a failure|after|2'
+  'independent failures before and after a refused action remain failures|both|3'
 )
 for row in "${observations[@]}"; do
   if run_observation "$verdict" "$row"; then ok "${row%%|*}"; else fail "${row%%|*}"; fi
@@ -307,25 +290,14 @@ mutate() {
 # field holds no `|`, the separator.
 controls=(
   "a reset suppresses independent failures|fail() {|fail() { if [[ \$(held_mode_state) == reset ]]; then return 0; fi|independent failures before and after a refused action remain failures"
-  "the run base excuses behaviour|\$mode_hold_run_base == false|true|a behaviour row under the run base stays behaviour at host size"
-  "fail counts no mode reset|  mode_resets=\$((mode_resets + 1))|  mode_resets=\$((mode_resets + 0))|a row failing after the held mode's reset is a mode reset"
-  "fail also counts a mode reset as behaviour|left the held mode \${mode_hold[1]}\"|left the held mode \${mode_hold[1]}\"; behaviour_failures=\$((behaviour_failures + 1))|a row failing after the held mode's reset is a mode reset"
-  "fail asks the hold with no mode held|\${#mode_hold[@]} -gt 0 ]] &&|\${#mode_hold[@]} -ge 0 ]] &&|a behaviour row failing with no hold is behaviour"
-  "fail excuses a hold row's reset|\$row_class != hold &&|\$row_class != never &&|a hold row failing after the held mode's reset is behaviour"
-  "fail excuses an unreadable hold|\$(held_mode_state) == reset|\$(held_mode_state) != held|a row failing on an unreadable hold is behaviour"
-  "fail excuses a mode that holds|\$(held_mode_state) == reset|\$(held_mode_state) != unreadable|a row failing while the mode holds is behaviour"
-  "a mode reset is not read|if [[ \$mode_resets -eq \$failures ]]; then|if [[ \$mode_resets -eq -1 ]]; then|every failure after a held mode's reset is not measured"
-  "a mode reset excuses other failures|\$mode_resets -eq \$failures|\$mode_resets -gt 0|a geometry failure beside mode-reset rows fails"
-  "fail reads no host-sized output|held_mode_host_sized; }; then|false; }; then|a hold row failing at the host window's own size is a mode reset"
-  "a mode reset prints as a failure|printf '  SKIP  %s: not measured: %s\\n' \"\$message\"|printf '  FAIL  %s: not measured: %s\\n' \"\$message\"|a row failing after the held mode's reset is a mode reset"
-  "the failing line counts mode resets as failures|\"\$((failures - mode_resets))\"|\"\$failures\"|a geometry failure beside mode-reset rows fails"
+  "a reset excuses a failure|fail() {|fail() { if [[ \${#mode_hold[@]} -gt 0 && \$(held_mode_state) == reset ]]; then failures=\$((failures + 1)); return 0; fi|a row failing after the held mode's reset is behaviour"
+  "a geometry failure counts as behaviour|[[ \$row_class == geometry |[[ \$row_class == never |a geometry row failing with no hold is geometry"
+  "a render failure counts as behaviour|\$row_class == render ]]|\$row_class == never ]]|a render row failing with no hold is render"
   "the excuse reads any GBM allocation failure|'Output WAYLAND-[0-9]+: pending state rejected: swapchain failed reconfiguring'|'Failed to allocate a GBM buffer'|all-geometry failure with a passing log fails"
   "the nested output's fault is not read|nested_output_unallocated \"\$@\"; then|false; then|all-geometry failure with the nested output's fault is not measured"
   "a behaviour failure is excused by the fault|if [[ \$behaviour_failures -eq 0 ]] && nested_output_unallocated|if nested_output_unallocated|a behaviour failure with the fault fails"
   "a not-measured row is not read|\$failures -eq 0 && \${#not_measured_rows[@]} -gt 0|\$failures -eq 0 && \${#not_measured_rows[@]} -gt 9|a not-measured row in a run with no failure is not measured"
   "a not-measured row excuses a failure|if [[ \$failures -eq 0 && \${#not_measured_rows[@]}|if [[ \${#not_measured_rows[@]}|a failure beside a not-measured row fails"
-  "an undrawn render row is not read|\$stalled_render == true|\$stalled_render == never|all-geometry failure with an undrawn render row is not measured"
-  "a behaviour failure is excused by an undrawn row|\$behaviour_failures -eq 0 && \$stalled_render|\$stalled_render|a behaviour failure with an undrawn render row fails"
   "a state word is read as a count|\$read_count_status -eq 0 && \$read_count_got =~ ^[0-9]+\$ ]]|\$read_count_status -eq 0 ]]|a probe's state word fails the row, which goes on"
   "a failed reader's count is kept|\$read_count_status -eq 0 && \$read_count_got =~|\$read_count_got =~|a count from a failed reader fails the row"
 )

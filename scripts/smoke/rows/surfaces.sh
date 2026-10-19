@@ -541,7 +541,7 @@ menu_marker_centre() {
   [[ $box == \[* ]] || { echo "$box"; return 1; }
   layer="$(surface_box vgs:panel)" || return 1
   read -r px py < <(python3 -c 'import json,sys; b=json.loads(sys.argv[1]); l=json.loads(sys.argv[2]); print(int(l[0] + b[0] + b[2] / 2), int(l[1] + b[1] + b[3] / 2))' "$box" "$layer") || return 1
-  socket="$(shot_socket "$rt_dir" "$nested_socket" "$host_socket")" || return 1
+  socket="$(shot_socket "$rt_dir" "$nested_socket")" || return 1
   shot_grim "$socket" "$rt_dir" -o "$screen_name" -t ppm - | python3 -c '
 import sys
 panel = (int(sys.argv[1]), int(sys.argv[2]))
@@ -739,7 +739,7 @@ popup_geometry() { ipc smoke invokeInstance "$1" acme.surfaces geometry ''; }
 popup_marker_geometry() { ipc smoke invokeInstance "$1" acme.surfaces smokeMarkerGeometry ''; }
 popup_marker_box() {
   local socket
-  socket="$(shot_socket "$rt_dir" "$nested_socket" "$host_socket")" || return 1
+  socket="$(shot_socket "$rt_dir" "$nested_socket")" || return 1
   shot_grim "$socket" "$rt_dir" -o "$screen_name" -t ppm - | python3 -c '
 import sys
 data = sys.stdin.buffer.read().split(b"\n", 3)
@@ -850,7 +850,7 @@ PY
 popup_swatch_fade() {
   local box socket frame="$sandbox/surfaces-swatch.ppm"
   box="$(ipc smoke invokeInstance panel acme.surfaces smokeSwatchGeometry '')" || return 1
-  socket="$(shot_socket "$rt_dir" "$nested_socket" "$host_socket")" || return 1
+  socket="$(shot_socket "$rt_dir" "$nested_socket")" || return 1
   shot_grim "$socket" "$rt_dir" -o "$screen_name" -t ppm "$frame" || return 1
   python3 - "$frame" "$box" <<'PY'
 import json, sys
@@ -946,9 +946,7 @@ coordinate_observation surfaces-flyout-follow flyout_follow_check
 # A neighbour that changes width moves the widget with no widget added or
 # removed, and the flyout, open and still, follows it.
 flyout_widget_x() { ipc smoke invokeInstance "bar:$screen_name" acme.surfaces geometry '' | py_reply 'import json,sys; print(json.load(sys.stdin)[0])'; }
-# One render call holds the growth, so the bar frame the growth draws
-# counts and a flyout left behind fails rather than reading as a stalled
-# sandbox.
+# One render call holds the growth.
 flyout_grow_check() {
   local flyout_rest_x
   flyout_rest_x="$(flyout_widget_x)" || return $?
@@ -977,7 +975,7 @@ expect_poll "Escape closes an anchored panel the plugin leaves unaccepted" absen
 # the ten rows the harness's rest point (rest_pointer) leaves, and the check
 # holds while that row keeps one shape.
 surf_menu_ref="$sandbox/surfaces-menu-ref.ppm"
-surf_menu_grab() { local socket; socket="$(shot_socket "$rt_dir" "$nested_socket" "$host_socket")" && shot_grim "$socket" "$rt_dir" -o "$screen_name" -t ppm "$1"; }
+surf_menu_grab() { local socket; socket="$(shot_socket "$rt_dir" "$nested_socket")" && shot_grim "$socket" "$rt_dir" -o "$screen_name" -t ppm "$1"; }
 # surf_menu_still: `still` once a frame equals the one before it.
 surf_menu_still() {
   surf_menu_grab "$surf_menu_ref.next" || return 1
@@ -1058,9 +1056,10 @@ type_keys -k Escape || fail "sending Escape to the bar menu failed"
 expect_poll "Escape closes the bar menu" false ipc smoke readInstance "bar:$screen_name" acme.surfaces frameMenuOpen
 remove_tail_widget
 
-# surfaces-coordinate-reset: the nested compositor resets after fresh
-# sampling. The same observation owner must refuse before delivery, skip
-# its dependent marker, and keep ordinary failures on both sides visible.
+# surfaces-coordinate-reset: the nested output leaves its held mode after
+# fresh sampling. The pointer step must be refused before delivery, its
+# dependent marker skipped, the row failed, and ordinary failures on both
+# sides kept visible.
 surf_reset_action() {
   local point x y device="${mode_hold[1]% scale=*}" reply
   point="$(surf_menu_point)" || return $?
@@ -1076,16 +1075,16 @@ surf_reset_action() {
 surf_reset_proof() {
   local result=0
   (
-    failures=0 behaviour_failures=0 mode_resets=0
+    failures=0 behaviour_failures=0
     not_measured_rows=()
     row_class=behaviour
     local surf_reset_induced=false surf_reset_dependent=false before_pointer="$pointer_at" status=0
     fail "control: independent failure before the coordinate reset"
     coordinate_observation surfaces-coordinate-reset surf_reset_action
     fail "control: independent failure after the coordinate reset"
-    [[ $surf_reset_induced == true && $surf_reset_dependent == false && $pointer_at == "$before_pointer" && ${#not_measured_rows[@]} == 1 ]] || return 1
-    [[ $failures == 2 && $behaviour_failures == 2 && $mode_resets == 0 ]] || return 1
-    smoke_verdict "$failures" "$behaviour_failures" "$stalled_render" "$mode_resets" /dev/null || status=$?
+    [[ $surf_reset_induced == true && $surf_reset_dependent == false && $pointer_at == "$before_pointer" && ${#not_measured_rows[@]} == 0 ]] || return 1
+    [[ $failures == 3 && $behaviour_failures == 3 ]] || return 1
+    smoke_verdict "$failures" "$behaviour_failures" /dev/null || status=$?
     [[ $status == 1 ]] || return 1
   ) >"$sandbox/surfaces-coordinate-reset-control.log" || result=$?
   [[ $result == 0 ]] || return "$result"
@@ -1093,9 +1092,9 @@ surf_reset_proof() {
 }
 expect "surfaces-coordinate-reset: invalid coordinates stop and independent failures remain" reset-proof=refused-independent-failures-retained surf_reset_proof
 sed 's/^/  CONTROL  /' "$sandbox/surfaces-coordinate-reset-control.log"
-# The proof's subshell changed the compositor, not the parent hold. Restore
-# through its existing owner before any later observation samples geometry.
-hold_restore || fail "the coordinate reset proof restores its held mode"
+# The proof's subshell changed the compositor, not the parent hold. The
+# held rule is taken again before any later observation samples geometry.
+take_mode "${mode_hold[0]}" "${mode_hold[1]% scale=*}" "${mode_hold[1]##*scale=}" >/dev/null || fail "the coordinate reset proof restores its held mode"
 
 expect "the unanchored panel opens for a nested menu" ok ipc shell summon panel acme.surfaces '{}'
 expect_poll "the parent panel is mapped" 1 layer_count vgs:panel

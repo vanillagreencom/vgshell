@@ -709,7 +709,7 @@ chmod +x "$TMP_ROOT/fence-stand-in" "$TMP_ROOT/runner"
 
 # Entry points: the script and the arguments each case hands it, one of
 # them holding a space.
-entry_points=(qml-smoke.sh sandbox-shots.sh measure-shader.sh qml-unit.sh jarvis-selftest.sh)
+entry_points=(qml-smoke.sh sandbox-shots.sh measure-shader.sh qml-unit.sh jarvis-selftest.sh test-smoke-sink.sh)
 entry_words() {
   case "$1" in
     qml-smoke.sh) words=(--timeout "6 0" --keep) ;;
@@ -717,6 +717,7 @@ entry_words() {
     measure-shader.sh) words=(--calibrate "out file.json" --keep) ;;
     qml-unit.sh) words=(--ui "$TMP_ROOT/u i") ;;
     jarvis-selftest.sh) words=(--type "two words" --brain stand-in --model "test model") ;;
+    test-smoke-sink.sh) words=() ;;
     *) printf '        no words for entry point: %s\n' "$1"; return 1 ;;
   esac
 }
@@ -810,15 +811,14 @@ needs="$(sed -n 's/^qml-smoke: status=not-measured missing=//p' <<<"$needs")"
 IFS=, read -r -a needed <<<"$needs"
 mkdir -p "$TMP_ROOT/bin-harness" "$TMP_ROOT/run" "$TMP_ROOT/harness-tree/scripts/smoke" "$TMP_ROOT/harness-tree/bin"
 for tool in "${needed[@]}"; do
-  # The two variables it names beside its tools are set below.
-  [[ $tool != WAYLAND_DISPLAY && $tool != XDG_RUNTIME_DIR ]] || continue
+  # The variable it names beside its tools is set below.
+  [[ $tool != XDG_RUNTIME_DIR ]] || continue
   printf '#!/bin/sh\necho "%s" >>"%s"\n' "$tool" "$TMP_ROOT/started" >"$TMP_ROOT/bin-harness/$tool"
   chmod +x "$TMP_ROOT/bin-harness/$tool"
 done
 for tool in Hyprland qs dbus-daemon; do
   [[ -x $TMP_ROOT/bin-harness/$tool ]] || fail "the harness's own list of tools no longer names $tool: the reader of its missing line is broken (read: $needs)"
 done
-python3 -c 'import socket, sys; socket.socket(socket.AF_UNIX).bind(sys.argv[1])' "$TMP_ROOT/run/wayland-test"
 for file in "$repo"/scripts/smoke/*; do
   [[ ${file##*/} == gpu-fence.sh ]] || ln -s -- "$file" "$TMP_ROOT/harness-tree/scripts/smoke/${file##*/}"
 done
@@ -843,7 +843,7 @@ else
     : >"$TMP_ROOT/fence.log"; : >"$TMP_ROOT/started"
     echo "$2" >"$TMP_ROOT/fence-answer"
     status=0
-    env -i PATH="$TMP_ROOT/bin-harness" HOME="$TMP_ROOT" WAYLAND_DISPLAY=wayland-test XDG_RUNTIME_DIR="$TMP_ROOT/run" \
+    env -i PATH="$TMP_ROOT/bin-harness" HOME="$TMP_ROOT" XDG_RUNTIME_DIR="$TMP_ROOT/run" \
       "$BASH" -c 'repo="$1"; source "$2"' _ "$TMP_ROOT/harness-tree" "$1" >"$TMP_ROOT/out" 2>"$TMP_ROOT/err" || status=$?
   }
   # pkg-config answers the harness's own prerequisite check, which comes

@@ -405,7 +405,7 @@ expect "control: dropping Remember fails the xdph assertion" False share_matches
 cp -- "$share_world/picker.saved" "$repo/bin/vgshell-share-picker"
 # The original picker sees private /tmp: upstream's QSettings path is fixed there.
 SHOT_DIR="$(shot_dir_under "$source_repo" "$share_evidence")"
-SHOT_SOCKET="$(shot_socket "$rt_dir" "$nested_socket" "$host_socket")"
+SHOT_SOCKET="$(shot_socket "$rt_dir" "$nested_socket")"
 SHOT_RUNTIME_DIR="$rt_dir"; SHOT_OUTPUT="$share_output"
 mkdir -p -- "$home/.config/qt6ct"
 share_before_count() { hypr -j clients | py_reply 'import json,os,sys
@@ -491,7 +491,6 @@ PY
 share_area_evidence="$source_repo/tmp/ui-shots/VGS-1164"
 SHOT_DIR="$(shot_dir_under "$source_repo" "$share_area_evidence")"
 share_original_mode="$(first_mode)"
-share_area_settle() { take_mode "$share_output" "$share_mode_size" 1 >/dev/null && rest_pointer; }
 for share_size in standard minimum; do
   if [[ $share_size == standard ]]; then
     share_mode_size=1755x933
@@ -509,7 +508,7 @@ for share_size in standard minimum; do
       fi
       mv -T -- "$share_theme.next" "$share_theme"
       expect_poll "Area evidence publishes $share_mode" "$share_theme_name" ipc smoke themeName
-      share_area_settle || { fail "share-picker: the Area output did not settle"; return 0; }
+      rest_pointer || fail "share-picker: parking the Area pointer before its launch failed"
       share_launch "area-$share_size-$share_version-$share_mode"
       share_arg switchTab 2; share_set_region
       expect_poll "Area evidence preview builds" true share_read previewReady
@@ -543,7 +542,7 @@ for share_size in standard minimum; do
       ipc smoke descendantGeometry window vgs.capture >"$share_area_evidence/$share_size-$share_version-$share_mode-geometry.json"
       ipc smoke itemValues window vgs.capture ScrollArea contentY,contentHeight,height >"$share_area_evidence/$share_size-$share_version-$share_mode-scroll.json"
       rest_pointer || fail "share-picker: parking evidence pointer failed"
-      shot_held "$share_size-$share_version-$share_mode" held_mode_state share_area_settle || fail "share-picker: Area evidence failed"
+      shot "$share_size-$share_version-$share_mode" || fail "share-picker: Area evidence failed"
       type_keys -k Escape || fail "share-picker: closing Area evidence failed"
       expect_poll "Area evidence caller cancels" True share_cancelled "area-$share_size-$share_version-$share_mode"
     done

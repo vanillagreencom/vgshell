@@ -7,7 +7,7 @@ A desktop shell for Hyprland, built on Quickshell 0.3.1. A small fixed core star
 ## Commands
 
 - `scripts/validate [AREA]`: run only checks affected by changes from the newest commit holding what last passed AREA in this worktree, else the default branch's merge base, including uncommitted files. `--changed BASE` selects a fix round; `--list` previews commands; `--full` opts into the whole area. `unit` needs Qt and no Wayland session; `package` needs rootless podman and the Arch mirrors; `qml` needs the nested sandbox. Exit 77 means a check could not run and is not a pass.
-- `scripts/qml-smoke.sh`: the nested sandbox row alone. It needs `WAYLAND_DISPLAY` and `XDG_RUNTIME_DIR` set.
+- `scripts/qml-smoke.sh`: the nested sandbox row alone. It needs `XDG_RUNTIME_DIR` and a non-AMD render node.
 - `scripts/landing-times.py [--last N]`: the median time from open (first commit or PR creation) to landing on `main` over the last N landings (pushes and pull requests), plus the median wait from ready to land.
 - `bin/vgshell`: the runner (`run`, `restart`), the plugin manager and the theme commands (`theme list`, `theme apply <name>`, `theme reload`, `theme background next`, `theme add <git url>`, `theme update <name>`, `theme remove <name>`; `theme apply vgs` restores the defaults). Run it with no arguments for the command list.
 

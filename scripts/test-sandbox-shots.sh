@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
 # Drive scripts/smoke/shot.sh, the sandbox capture helpers, with no
-# sandbox: plain Unix sockets stand in for the host and nested Wayland
-# sockets, and a stub grim on PATH writes the image each case needs. A stub
-# hyprctl on PATH answers for the host compositor, so the cases of
-# scripts/smoke/host-window.sh read a planted host world. Each
-# case pins the exit status and the first line on stderr. The controls at
+# sandbox: plain Unix sockets stand in for the caller's and the nested
+# Wayland sockets, and a stub grim on PATH writes the image each case
+# needs. Each case pins the exit status and the first line on stderr. The controls at
 # the end plant one defect per guard in a copy of the file and require the
 # case that guard owns to go red. The scene cases drive
 # scripts/sandbox-shots.sh itself up to its harness, in a scratch git
@@ -120,8 +118,8 @@ PY
   if size_case "$size_mutant"; then fail "control: $reader physical sizes passed the scale-2 pointer case"; else ok "control: $reader physical sizes fail the scale-2 pointer case"; fi
 done
 
-# The host's runtime dir with its socket, and the sandbox's beneath it, as
-# the harness makes them.
+# The caller's runtime dir with its socket, and the sandbox's beneath it,
+# as the harness makes them.
 host="$tmp/run"; rt="$host/vs.test"
 mkdir -p "$rt" "$tmp/bin" "$tmp/checkout/tmp"
 python3 - "$host/wayland-1" "$host/wayland-2" "$rt/wayland-1" <<'PY'
@@ -159,56 +157,19 @@ case "$(cat "$here/mode")" in
 esac
 SH
 chmod 755 "$tmp/bin/grim"
-# The stub hyprctl answers `-j clients` and `-j monitors` from the host
-# world below, and fails after printing an empty list for the request a
-# fail-<request> file beside it names. Two host monitors: DP-1 shows
-# workspace 1, DP-2 shows workspace 2 and the special workspace -98.
-# Windows: pid 41 on workspace 1, 42 on workspace 3, 43 on the shown
-# special workspace, 44 on the special workspace -99 no monitor shows, 45
-# on workspace 1 as a background group tab, which Hyprland lists with
-# `visible: false` and `hidden: false`, 46 with no `visible` key and 47
-# as a non-nested window.
-cat >"$tmp/bin/hyprctl" <<'SH'
-#!/usr/bin/env bash
-here="${0%/*}"
-[[ $1 == -j && ( $2 == clients || $2 == monitors ) && $# -eq 2 ]] || exit 2
-if [[ -e $here/fail-$2 ]]; then echo '[]'; exit 1; fi
-cat -- "$here/host-$2.json"
-SH
-chmod 755 "$tmp/bin/hyprctl"
-python3 - "$tmp/bin" <<'PY'
-import json, sys
-here = sys.argv[1]
-def monitor(name, active, special):
-    return {"name": name, "activeWorkspace": {"id": active, "name": str(active)}, "specialWorkspace": {"id": special, "name": "special:shown" if special else ""}}
-def window(pid, workspace, visible=True, cls="aquamarine"):
-    return {"stableId": f"stable-{pid}", "pid": pid, "class": cls, "mapped": True, "hidden": False,
-            "visible": visible, "size": [800 + pid, 600 + pid], "workspace": {"id": workspace, "name": str(workspace)}}
-unkeyed = window(46, 1)
-del unkeyed["visible"]
-json.dump([monitor("DP-1", 1, 0), monitor("DP-2", 2, -98)], open(f"{here}/host-monitors.json", "w"))
-json.dump([window(41, 1), window(42, 3), window(43, -98), window(44, -99), window(45, 1, visible=False), unkeyed, window(47, 1, cls="ghostty")], open(f"{here}/host-clients.json", "w"))
-PY
 hash_a="$(printf 'image-a' | sha256sum | cut -d' ' -f1)"
-# The hold cases run the real shot over the stub grim's fixed-b image.
-# Their reader, hold, prints the hold's state, `reset` on the reads named
-# in $D/resets (`1` for the first, `1 2` for the first two), and appends
-# `read` to $D/log; their settle appends `settle` to the same log, so a
-# case reads the order of the two around each capture. image_b_row NAME
-# is the shots.tsv line of a settled fixed-b shot with no shot before it.
-held_stubs='echo fixed-b >"$T/bin/mode"; hold() { local n; n=$(( $(cat "$D/reads" 2>/dev/null || echo 0) + 1 )); echo "$n" >"$D/reads"; echo read >>"$D/log"; if [[ " $(cat "$D/resets" 2>/dev/null) " == *" $n "* ]]; then echo reset; else echo held; fi; }; settle() { echo settle >>"$D/log"; }; image_b_row() { printf "%s\t%s\t-\tsettled\t-\t-" "$1" "$(printf image-b | sha256sum | cut -d" " -f1)"; }; '
-
 # run_case FILE LABEL SNIPPET STATUS LINE: true when the helper FILE gives
 # the status and first stderr line. The snippet runs with the helper
 # sourced, in an empty environment holding a marker that must never reach
-# grim: T the test dir, RT the sandbox's runtime dir, HOST the host's, D
-# an empty dir under the checkout's tmp/, and SHOT_DIR, SHOT_SOCKET and
-# SHOT_RUNTIME_DIR and SHOT_OUTPUT set for `shot`.
+# grim: T the test dir, RT the sandbox's runtime dir, HOST the caller's,
+# which XDG_RUNTIME_DIR names, D an empty dir under the checkout's tmp/,
+# and SHOT_DIR, SHOT_SOCKET and SHOT_RUNTIME_DIR and SHOT_OUTPUT set for
+# `shot`.
 run_case() {
   local file="$1" label="$2" snippet="$3" want_status="$4" want_line="$5" err status=0 dir
   dir="$tmp/checkout/tmp/case-$RANDOM$RANDOM"
   mkdir -p "$dir"
-  env -i PATH="$tmp/bin:$PATH" HOST_MARKER=live T="$tmp" RT="$rt" HOST="$host" D="$dir" HASH_A="$hash_a" \
+  env -i PATH="$tmp/bin:$PATH" HOST_MARKER=live T="$tmp" RT="$rt" HOST="$host" XDG_RUNTIME_DIR="$host" D="$dir" HASH_A="$hash_a" \
     SHOT_DIR="$dir" SHOT_SOCKET="$rt/wayland-1" SHOT_RUNTIME_DIR="$rt" SHOT_OUTPUT=WAYLAND-1 \
     bash -c 'set -euo pipefail; source "$1"; eval "$2"' _ "$file" "$snippet" >"$dir/out" 2>"$dir/err" || status=$?
   err="$(head -n 1 "$dir/err")"
@@ -220,63 +181,41 @@ run_case() {
 # Cases, four fields each: label, snippet, status, first stderr line.
 cases=(
   "the nested socket resolves"
-  '[[ $(shot_socket "$RT" wayland-1 "$HOST/wayland-1") == "$RT/wayland-1" ]]' 0 ""
-  "the host socket is refused"
-  'shot_socket "$HOST" wayland-1 "$HOST/wayland-1"' 1 "shot: refused: reason=host-socket value=$host/wayland-1"
-  "a link to the host socket is refused"
-  'shot_socket "$RT" wayland-9 "$HOST/wayland-1"' 1 "shot: refused: reason=host-socket value=$host/wayland-1"
-  "the host's runtime dir is refused"
-  'shot_socket "$HOST" wayland-2 "$HOST/wayland-1"' 1 "shot: refused: reason=host-runtime-dir value=$host"
+  '[[ $(shot_socket "$RT" wayland-1) == "$RT/wayland-1" ]]' 0 ""
+  "the caller's runtime dir is refused"
+  'shot_socket "$HOST" wayland-1' 1 "shot: refused: reason=caller-runtime-dir value=$host"
+  "a link out of the sandbox's runtime dir is refused"
+  'shot_socket "$RT" wayland-9' 1 "shot: refused: reason=outside-runtime-dir value=$host/wayland-1"
+  "a caller with no runtime dir named is refused"
+  'unset XDG_RUNTIME_DIR; shot_socket "$RT" wayland-1' 1 "shot: refused: reason=caller-runtime-dir-unnamed value=$rt"
   "a path for a socket name is refused"
-  'shot_socket "$RT" ../wayland-1 "$HOST/wayland-1"' 1 "shot: refused: reason=socket-not-a-name value=../wayland-1"
+  'shot_socket "$RT" ../wayland-1' 1 "shot: refused: reason=socket-not-a-name value=../wayland-1"
   "a file that is no socket is refused"
-  'shot_socket "$RT" wayland-file "$HOST/wayland-1"' 1 "shot: refused: reason=not-a-socket value=$rt/wayland-file"
+  'shot_socket "$RT" wayland-file' 1 "shot: refused: reason=not-a-socket value=$rt/wayland-file"
   "an output dir under tmp/ is made"
   '[[ $(shot_dir_under "$T/checkout" "$T/checkout/tmp/shots/a") == "$T/checkout/tmp/shots/a" ]]' 0 ""
   "an output dir outside tmp/ is refused"
   'shot_dir_under "$T/checkout" "$T/elsewhere"' 1 "shot: refused: reason=out-dir-outside-tmp value=$tmp/elsewhere"
   "a new settled capture is taken"
-  'echo fixed-b >"$T/bin/mode"; shot one >/dev/null; want="$(printf "one\t%s\t-\tsettled\t-\t-" "$(printf image-b | sha256sum | cut -d" " -f1)")"; [[ $(cat "$D/shots.tsv") == "$want" && $(cat "$D/one.png") == image-b ]]' 0 ""
+  'echo fixed-b >"$T/bin/mode"; shot one >/dev/null; want="$(printf "one\t%s\t-\tsettled\t-" "$(printf image-b | sha256sum | cut -d" " -f1)")"; [[ $(cat "$D/shots.tsv") == "$want" && $(cat "$D/one.png") == image-b ]]' 0 ""
   "a capture equal to the previous shot is stale"
   'echo fixed-a >"$T/bin/mode"; shot_last_name=before; shot_last_hash="$HASH_A"; SHOT_SETTLE_S=1 shot two' 1 "shot: stale name=two previous=before sha256=$hash_a"
   "a capture that keeps changing is taken as animated"
   'echo counter >"$T/bin/mode"; SHOT_SETTLE_S=1 shot three >/dev/null; [[ $(cut -f1,4 "$D/shots.tsv") == $(printf "three\tanimated") ]]' 0 ""
-  "a grim that never returns reads as no frame"
-  'echo hang >"$T/bin/mode"; SHOT_GRIM_TIMEOUT_S=1 shot four' 2 "shot: capture-failed name=four grim-status=timeout"
+  "a grim that never returns fails the shot"
+  'echo hang >"$T/bin/mode"; SHOT_GRIM_TIMEOUT_S=1 shot four' 1 "shot: capture-failed name=four grim-status=timeout"
   "grim sees only the nested socket"
   'echo fixed-b >"$T/bin/mode"; shot five >/dev/null; grep -qx WAYLAND_DISPLAY=wayland-1 "$T/bin/env.log"; grep -qx "XDG_RUNTIME_DIR=$RT" "$T/bin/env.log"; ! grep -q HOST_MARKER "$T/bin/env.log"' 0 ""
   "a layout pixel on a scale-2 output reads its colour"
   'echo pixel-scale2 >"$T/bin/mode"; [[ $(shot_pixel "$RT/wayland-1" "$RT" 10 20) == 336699 ]]' 0 ""
-  "a capture under a hold held before and after is taken"
-  "$held_stubs"'shot_held six hold settle >/dev/null; [[ $(cat "$D/log") == $(printf "settle\nread") && $(cat "$D/shots.tsv") == "$(image_b_row six)" && -e $D/six.png ]]' 0 ""
-  "a held mode is settled before the capture"
-  "$held_stubs"'echo 1 >"$D/resets"; settle() { echo settle >>"$D/log"; : >"$D/settled"; }; hold() { echo read >>"$D/log"; [[ -e $D/settled ]] && echo held || echo reset; }; shot_held seven hold settle >/dev/null; [[ $(cat "$D/log") == $(printf "settle\nread") && -e $D/seven.png ]]' 0 ""
-  "a hold that cannot be settled refuses the shot untaken"
-  "$held_stubs"'settle() { return 1; }; s=0; shot_held eight hold settle || s=$?; [[ ! -e $D/eight.png && ! -e $D/shots.tsv && ! -e $D/log ]] || exit 9; exit "$s"' 3 "shot: refused: reason=hold-not-settled value=eight"
-  "a hold left during the capture is settled and the shot retaken once"
-  "$held_stubs"'echo 1 >"$D/resets"; shot_held eightb hold settle >/dev/null; [[ $(cat "$D/log") == $(printf "settle\nread\nsettle\nread") && $(cat "$D/shots.tsv") == "$(image_b_row eightb)" && -e $D/eightb.png ]]' 0 "shot: refused: reason=hold-left-after value=reset"
-  "a hold left during the retaken capture too refuses the shot"
-  "$held_stubs"'echo "1 2" >"$D/resets"; s=0; shot_held eightc hold settle >/dev/null || s=$?; [[ ! -e $D/eightc.png && ! -e $D/shots.tsv && $(grep -c settle "$D/log") == 2 ]] || exit 9; exit "$s"' 4 "shot: refused: reason=hold-left-after value=reset"
-  "a capture after which the hold reader reads a reset is refused"
-  "$held_stubs"'echo 1 >"$D/resets"; s=0; shot_last_name=before; shot_last_hash=prior; SHOT_HOLD_READER=hold shot eightd >/dev/null || s=$?; [[ ! -e $D/eightd.png && ! -e $D/shots.tsv && $shot_last_name == before && $shot_last_hash == prior ]] || exit 9; exit "$s"' 4 "shot: refused: reason=hold-left-after value=reset"
   "a capture of its own output is taken while another output has no size"
   'echo unsized-layout >"$T/bin/mode"; shot nine >/dev/null; [[ $(cat "$D/nine.png") == image-b ]]' 0 ""
   "a shot with no output named is refused"
   'echo fixed-b >"$T/bin/mode"; SHOT_OUTPUT= shot ten' 1 "shot: refused: reason=output-unnamed value=ten"
-  "a shot records the window state read around it"
-  'echo fixed-b >"$T/bin/mode"; state() { echo hidden; }; SHOT_WINDOW_READER=state shot eleven >/dev/null; [[ $(cut -f5 "$D/shots.tsv") == hidden ]]' 0 ""
-  "a window state that changes during a shot reads changed"
-  'echo fixed-b >"$T/bin/mode"; state() { if [[ -e $D/read ]]; then echo shown; else : >"$D/read"; echo hidden; fi; }; SHOT_WINDOW_READER=state shot twelve >/dev/null; [[ $(cut -f5 "$D/shots.tsv") == changed ]]' 0 ""
-  "a window reader that fails leaves its word"
-  'echo fixed-b >"$T/bin/mode"; state() { echo unreadable; return 1; }; SHOT_WINDOW_READER=state shot thirteen >/dev/null; [[ $(cut -f5 "$D/shots.tsv") == unreadable ]]' 0 ""
-  "a shot in the required window state is taken"
-  'echo fixed-b >"$T/bin/mode"; state() { echo hidden; }; SHOT_WINDOW_READER=state SHOT_WINDOW_REQUIRE=hidden shot fourteen >/dev/null; [[ $(cut -f1,5 "$D/shots.tsv") == $(printf "fourteen\thidden") && -e $D/fourteen.png ]]' 0 ""
-  "a shot in another window state is refused"
-  'echo fixed-b >"$T/bin/mode"; state() { echo shown; }; s=0; SHOT_WINDOW_READER=state SHOT_WINDOW_REQUIRE=hidden shot fifteen >/dev/null || s=$?; [[ ! -e $D/shots.tsv && ! -e $D/fifteen.png ]] || exit 9; exit "$s"' 1 "shot: refused: reason=window-state value=shown"
   "a shot records clean chrome"
-  'echo fixed-b >"$T/bin/mode"; chrome() { echo clean; }; SHOT_CHROME_READER=chrome shot sixteen >/dev/null; [[ $(cut -f1,6 "$D/shots.tsv") == $(printf "sixteen\tclean") && -e $D/sixteen.png ]]' 0 ""
+  'echo fixed-b >"$T/bin/mode"; chrome() { echo clean; }; SHOT_CHROME_READER=chrome shot sixteen >/dev/null; [[ $(cut -f1,5 "$D/shots.tsv") == $(printf "sixteen\tclean") && -e $D/sixteen.png ]]' 0 ""
   "a shot with required clean chrome is taken"
-  'echo fixed-b >"$T/bin/mode"; chrome() { echo clean; }; SHOT_CHROME_READER=chrome SHOT_CHROME_REQUIRE=clean shot seventeen >/dev/null; [[ $(cut -f1,6 "$D/shots.tsv") == $(printf "seventeen\tclean") && -e $D/seventeen.png ]]' 0 ""
+  'echo fixed-b >"$T/bin/mode"; chrome() { echo clean; }; SHOT_CHROME_READER=chrome SHOT_CHROME_REQUIRE=clean shot seventeen >/dev/null; [[ $(cut -f1,5 "$D/shots.tsv") == $(printf "seventeen\tclean") && -e $D/seventeen.png ]]' 0 ""
   "a shot with tooltip chrome is refused"
   'echo fixed-b >"$T/bin/mode"; chrome() { echo tooltip; }; s=0; SHOT_CHROME_READER=chrome SHOT_CHROME_REQUIRE=clean shot eighteen >/dev/null || s=$?; [[ ! -e $D/shots.tsv && ! -e $D/eighteen.png ]] || exit 9; exit "$s"' 1 "shot: refused: reason=chrome value=tooltip"
 )
@@ -325,40 +264,28 @@ run_controls() {
 # Controls, four fields each: label, text, replacement, and the case that
 # must go red.
 controls=(
-  "the host socket is not compared"
-  '[[ $path != "$host_real" ]] ||' 'true ||' "a link to the host socket is refused"
-  "the host's runtime dir is not compared"
-  '[[ $rt_real != "$(dirname -- "$host_real")" ]] ||' 'true ||' "the host's runtime dir is refused"
+  "the caller's runtime dir is not compared"
+  '[[ $rt_real != "$(readlink -f -- "$XDG_RUNTIME_DIR")" ]] ||' 'true ||' "the caller's runtime dir is refused"
+  "a socket outside the sandbox's runtime dir is taken"
+  '[[ $path == "$rt_real/$name" ]] ||' 'true ||' "a link out of the sandbox's runtime dir is refused"
+  "an unnamed caller runtime dir is accepted"
+  '[[ -n ${XDG_RUNTIME_DIR:-} ]] ||' 'true ||' "a caller with no runtime dir named is refused"
   "a socket name may be a path"
   '[[ -n $name && $name != */* && $name != . && $name != .. ]] ||' '[[ -n $name ]] ||' "a path for a socket name is refused"
   "the output dir may lie outside tmp/"
   '[[ $dir == "$root"/* ]] ||' 'true ||' "an output dir outside tmp/ is refused"
   "a capture is not compared with the previous shot"
   'if [[ $hash != "$shot_last_hash" ]]; then' 'if true; then' "a capture equal to the previous shot is stale"
-  "a grim timeout reads as an error"
-  '[[ $status -eq 124 ]] && return 2' 'true' "a grim that never returns reads as no frame"
+  "a grim timeout is not named"
+  '[[ $status -eq 124 ]] && echo timeout' '[[ $status -eq 0 ]] && echo timeout' "a grim that never returns fails the shot"
   "grim inherits the caller's environment"
   'env -i PATH="$PATH"' 'env PATH="$PATH"' "grim sees only the nested socket"
   "a layout pixel uses the output scale"
   '-s 1 -g "$3,$4 1x1"' '-g "$3,$4 1x1"' "a layout pixel on a scale-2 output reads its colour"
-  "the hold is not settled before the capture"
-  'if ! "$settle"; then' 'if false; then' "a held mode is settled before the capture"
-  "a capture the hold left is not retaken"
-  '4) [[ $attempt -eq 2 ]] && return 4' '4) return 4' "a hold left during the capture is settled and the shot retaken once"
-  "the hold is not read after the capture"
-  'if [[ $hold != held ]]; then' 'if false; then' "a capture after which the hold reader reads a reset is refused"
   "the capture takes the whole layout"
   '-o "$3" -t png "$4"' '-t png "$4"' "a capture of its own output is taken while another output has no size"
   "an unnamed output goes on to grim"
   '[[ -n ${SHOT_OUTPUT:-} ]] ||' 'true ||' "a shot with no output named is refused"
-  "the window state read is not recorded"
-  '"$kind" "$window" "$chrome" >>' '"$kind" - "$chrome" >>' "a shot records the window state read around it"
-  "the window state after the shot is not compared"
-  '[[ $window_after == "$window_before" ]] ||' 'true ||' "a window state that changes during a shot reads changed"
-  "a failing window reader ends the shot"
-  '$SHOT_WINDOW_READER || true' '$SHOT_WINDOW_READER' "a window reader that fails leaves its word"
-  "the required window state is not compared"
-  'if [[ -n ${SHOT_WINDOW_REQUIRE:-} && $window != "$SHOT_WINDOW_REQUIRE" ]]; then' 'if false; then' "a shot in another window state is refused"
   "the required chrome state is not compared"
   'if [[ -n ${SHOT_CHROME_REQUIRE:-} && $chrome != "$SHOT_CHROME_REQUIRE" ]]; then' 'if false; then' "a shot with tooltip chrome is refused"
 )
@@ -583,7 +510,7 @@ JS
 # Exercise the actual embedded collector against owned original logs and public
 # socket-shaped fixtures. This proves recording and failure states, not
 # Hyprland delivery or QML notification wiring, which the smoke observes.
-source "$repo/scripts/smoke/host-window.sh"
+source "$repo/scripts/smoke/display-record.sh"
 display_record_program >"$tmp/display-record.py"
 if node "$tmp/probe-display-control.cjs" "$repo/scripts/smoke/Probe.qml" --packets >"$tmp/probe-display-packets.jsonl" &&
    python3 - "$tmp/display-record.py" "$tmp" "$repo/scripts/smoke/harness.sh" "$tmp/probe-display-packets.jsonl" <<'PY'
@@ -901,12 +828,11 @@ def complete_case(name, source=text, omission=None, changed=False, context=False
     with server(name, source) as (directory, recorder, child, request):
         request('scope', 'shader-context' if context else 'display-smoke', 'fixture', '0', *([] if context else ['displays-modes']))
         connections = []
-        for owner in ('host', 'nested'):
-            listener = socket.socket(socket.AF_UNIX)
-            listener.bind(str(directory / owner)); listener.listen()
-            request('host', str(directory / owner)) if owner == 'host' else request('bind', 'fixture', str(directory / owner), '71', 'wayland')
-            peer, _ = listener.accept(); peer.sendall(b'monitoradded>>FIXTURE\n')
-            connections.extend((peer, listener))
+        listener = socket.socket(socket.AF_UNIX)
+        listener.bind(str(directory / 'nested')); listener.listen()
+        request('bind', 'fixture', str(directory / 'nested'), '71', 'wayland')
+        peer, _ = listener.accept(); peer.sendall(b'monitoradded>>FIXTURE\n')
+        connections.extend((peer, listener))
         with (directory / 'wayland.log').open('wb', buffering=0) as writer:
             key = request('log', 'wayland', str(writer.name), f'/proc/{os.getpid()}/fd/{writer.fileno()}')
             request('launched', 'wayland', key, str(os.getpid()), str(writer.name))
@@ -1281,163 +1207,6 @@ for name, data, problem in (('partial', b'{"kind":', 'record:partial-final-recor
 PY
 then ok "display collector preserves streams and rejects missing, interrupted, partial, truncated and overflow records"; else fail "display collector contract"; fi
 
-# The host window reader, scripts/smoke/host-window.sh, against the stub
-# hyprctl's host world. Cases and controls have the shape of the capture
-# helper's above.
-window_helper="$repo/scripts/smoke/host-window.sh"
-# shellcheck disable=SC2016
-window_cases=(
-  "a window on a monitor's active workspace is shown"
-  'HYPRLAND_INSTANCE_SIGNATURE=x; [[ $(host_window_state stable-41) == shown ]]' 0 ""
-  "a window on a workspace no monitor shows is hidden"
-  'HYPRLAND_INSTANCE_SIGNATURE=x; [[ $(host_window_state stable-42) == hidden ]]' 0 ""
-  "a window on a shown special workspace is shown"
-  'HYPRLAND_INSTANCE_SIGNATURE=x; [[ $(host_window_state stable-43) == shown ]]' 0 ""
-  "a window on a hidden special workspace is hidden"
-  'HYPRLAND_INSTANCE_SIGNATURE=x; [[ $(host_window_state stable-44) == hidden ]]' 0 ""
-  "a background group tab is hidden"
-  'HYPRLAND_INSTANCE_SIGNATURE=x; [[ $(host_window_state stable-45) == hidden ]]' 0 ""
-  "a window listed without the keys the reader needs is unreadable"
-  'HYPRLAND_INSTANCE_SIGNATURE=x; s=0; out="$(host_window_state stable-46)" || s=$?; [[ $out == unreadable && $s -eq 1 ]]' 0 ""
-  "a stableId the host does not list is absent"
-  'HYPRLAND_INSTANCE_SIGNATURE=x; [[ $(host_window_state stable-99) == absent ]]' 0 ""
-  "no host instance is unreadable"
-  's=0; out="$(host_window_state stable-41)" || s=$?; [[ $out == unreadable && $s -eq 1 ]]' 0 ""
-  "a failed clients read is unreadable"
-  'HYPRLAND_INSTANCE_SIGNATURE=x; s=0; mkdir -p "$D/bin"; cp -- "$T/bin/hyprctl" "$T/bin/host-clients.json" "$T/bin/host-monitors.json" "$D/bin/"; : >"$D/bin/fail-clients"; out="$(PATH="$D/bin:$PATH" host_window_state stable-41)" || s=$?; [[ $out == unreadable && $s -eq 1 ]]' 0 ""
-  "a failed monitors read is unreadable"
-  'HYPRLAND_INSTANCE_SIGNATURE=x; s=0; mkdir -p "$D/bin"; cp -- "$T/bin/hyprctl" "$T/bin/host-clients.json" "$T/bin/host-monitors.json" "$D/bin/"; : >"$D/bin/fail-monitors"; out="$(PATH="$D/bin:$PATH" host_window_state stable-41)" || s=$?; [[ $out == unreadable && $s -eq 1 ]]' 0 ""
-  "nested host windows list only aquamarine clients"
-  'HYPRLAND_INSTANCE_SIGNATURE=x; printf -v want "%s\n%s\n%s\n%s\n%s\n%s" "stable-41 pid=41 size=841x641 workspace=1 mapped=true" "stable-42 pid=42 size=842x642 workspace=3 mapped=true" "stable-43 pid=43 size=843x643 workspace=-98 mapped=true" "stable-44 pid=44 size=844x644 workspace=-99 mapped=true" "stable-45 pid=45 size=845x645 workspace=1 mapped=true" "stable-46 pid=46 size=846x646 workspace=1 mapped=true"; [[ $(host_nested_windows) == "$want" ]]' 0 ""
-  "nested host windows exclude non-aquamarine clients"
-  'HYPRLAND_INSTANCE_SIGNATURE=x; out="$(host_nested_windows)"; [[ $out != *"pid=47"* && $out != *ghostty* ]]' 0 ""
-  "nested host windows without a host instance are unreadable"
-  's=0; out="$(host_nested_windows)" || s=$?; [[ $out == unreadable && $s -eq 1 ]]' 0 ""
-  "nested host windows with a failed clients read are unreadable"
-  'HYPRLAND_INSTANCE_SIGNATURE=x; s=0; mkdir -p "$D/bin"; cp -- "$T/bin/hyprctl" "$T/bin/host-clients.json" "$T/bin/host-monitors.json" "$D/bin/"; : >"$D/bin/fail-clients"; out="$(PATH="$D/bin:$PATH" host_nested_windows)" || s=$?; [[ $out == unreadable && $s -eq 1 ]]' 0 ""
-  "nested host windows missing stableId are unreadable"
-  'HYPRLAND_INSTANCE_SIGNATURE=x; s=0; mkdir -p "$D/bin"; cp -- "$T/bin/hyprctl" "$T/bin/host-clients.json" "$T/bin/host-monitors.json" "$D/bin/"; python3 -c "import json,sys; p=sys.argv[1]; data=json.load(open(p)); del data[0]['\''stableId'\'']; json.dump(data, open(p, '\''w'\''))" "$D/bin/host-clients.json"; out="$(PATH="$D/bin:$PATH" host_nested_windows)" || s=$?; [[ $out == unreadable && $s -eq 1 ]]' 0 ""
-  "nested host windows with a later window missing stableId print nothing else"
-  'HYPRLAND_INSTANCE_SIGNATURE=x; s=0; mkdir -p "$D/bin"; cp -- "$T/bin/hyprctl" "$T/bin/host-clients.json" "$T/bin/host-monitors.json" "$D/bin/"; python3 -c "import json,sys; p=sys.argv[1]; data=json.load(open(p)); del data[2]['\''stableId'\'']; json.dump(data, open(p, '\''w'\''))" "$D/bin/host-clients.json"; out="$(PATH="$D/bin:$PATH" host_nested_windows)" || s=$?; [[ $out == unreadable && $s -eq 1 ]]' 0 ""
-)
-run_cases "$window_helper" window_cases
-# shellcheck disable=SC2016
-window_controls=(
-  "the stableId is not matched"
-  'c["stableId"] == stable_id' 'True' "a stableId the host does not list is absent"
-  "an active workspace does not count as shown"
-  '{m["activeWorkspace"]["id"] for m in monitors} | ' '' "a window on a monitor's active workspace is shown"
-  "a shown special workspace does not count as shown"
-  ' | {m["specialWorkspace"]["id"] for m in monitors}' '' "a window on a shown special workspace is shown"
-  "a background group tab counts as shown"
-  'c["visible"] and ' '' "a background group tab is hidden"
-  "a reply without the expected keys is not caught"
-  'except (ValueError, KeyError, TypeError):' 'except (ValueError, TypeError):' "a window listed without the keys the reader needs is unreadable"
-  "a missing host instance is read"
-  $'host_window_state() {\n  local clients monitors\n  if [[ -z ${HYPRLAND_INSTANCE_SIGNATURE:-} ]]; then echo unreadable; return 1; fi' $'host_window_state() {\n  local clients monitors\n  true' "no host instance is unreadable"
-  "a failed clients read is parsed"
-  $'host_window_state() {\n  local clients monitors\n  if [[ -z ${HYPRLAND_INSTANCE_SIGNATURE:-} ]]; then echo unreadable; return 1; fi\n  clients="$(timeout 2 hyprctl -j clients 2>/dev/null)" || { echo unreadable; return 1; }' $'host_window_state() {\n  local clients monitors\n  if [[ -z ${HYPRLAND_INSTANCE_SIGNATURE:-} ]]; then echo unreadable; return 1; fi\n  clients="$(timeout 2 hyprctl -j clients 2>/dev/null)" || true' "a failed clients read is unreadable"
-  "a failed monitors read is parsed"
-  'monitors="$(timeout 2 hyprctl -j monitors 2>/dev/null)" || { echo unreadable; return 1; }' 'monitors="$(timeout 2 hyprctl -j monitors 2>/dev/null)" || true' "a failed monitors read is unreadable"
-  "nested windows are not filtered by class"
-  $'        if c["class"] != "aquamarine":\n            continue' $'        if False:\n            continue' "nested host windows list only aquamarine clients"
-  "nested windows ignore a missing host instance"
-  $'host_nested_windows() {\n  local clients\n  if [[ -z ${HYPRLAND_INSTANCE_SIGNATURE:-} ]]; then echo unreadable; return 1; fi' $'host_nested_windows() {\n  local clients\n  true' "nested host windows without a host instance are unreadable"
-  "nested windows parse a failed clients read"
-  $'host_nested_windows() {\n  local clients\n  if [[ -z ${HYPRLAND_INSTANCE_SIGNATURE:-} ]]; then echo unreadable; return 1; fi\n  clients="$(timeout 2 hyprctl -j clients 2>/dev/null)" || { echo unreadable; return 1; }' $'host_nested_windows() {\n  local clients\n  if [[ -z ${HYPRLAND_INSTANCE_SIGNATURE:-} ]]; then echo unreadable; return 1; fi\n  clients="$(timeout 2 hyprctl -j clients 2>/dev/null)" || true' "nested host windows with a failed clients read are unreadable"
-  "nested windows missing stableId is not caught"
-  'except (ValueError, KeyError, TypeError, IndexError):' 'except (ValueError, TypeError, IndexError):' "nested host windows missing stableId are unreadable"
-  "nested windows print rows before the whole reply parses"
-  $'        rows.append("%s pid=%s size=%sx%s workspace=%s mapped=%s" % (' $'        print("%s pid=%s size=%sx%s workspace=%s mapped=%s" % (' "nested host windows with a later window missing stableId print nothing else"
-)
-run_controls "$window_helper" window_cases window_controls
-
-# The shot runner's reader of its own nested window: scripts/sandbox-shots.sh's
-# nested_window_id and nested_window_state over the harness's
-# host_windows_since and the real host-window.sh, against the stub host
-# world. compositor_pid=2 is an in-fence pid the host lists for no window.
-shots_window_helper="$tmp/shots-window-helper.sh"
-{
-  sed -n '/^host_windows_since() {/,/^}/p' "$repo/scripts/smoke/harness.sh"
-  sed -n '/^nested_window_id() {/,/^}/p; /^nested_window_state() {/,/^}/p' "$repo/scripts/sandbox-shots.sh"
-  cat -- "$window_helper"
-} >"$shots_window_helper"
-shots_window_setup='HYPRLAND_INSTANCE_SIGNATURE=x; compositor_pid=2; before() { host_nested_windows | grep -v -e "^$1 " -e "^${2:-none} "; }; '
-# shellcheck disable=SC2016
-shots_window_cases=(
-  "the runner reads its new hidden host window by stableId"
-  "$shots_window_setup"'host_windows_before="$(before stable-42)"; nested_window="$(nested_window_id)"; [[ $nested_window == stable-42 && $(nested_window_state) == hidden ]]' 0 ""
-  "the runner reads its new shown host window by stableId"
-  "$shots_window_setup"'host_windows_before="$(before stable-41)"; nested_window="$(nested_window_id)"; [[ $nested_window == stable-41 && $(nested_window_state) == shown ]]' 0 ""
-  "the runner takes the first-made of several new host windows"
-  "$shots_window_setup"'host_windows_before="$(before stable-41 stable-42)"; eval "listed_$(declare -f host_nested_windows)"; host_nested_windows() { listed_host_nested_windows | tac; }; nested_window="$(nested_window_id)"; [[ $nested_window == stable-41 && $(nested_window_state) == shown ]]' 0 ""
-  "no new host window leaves the runner's window unreadable"
-  "$shots_window_setup"'host_windows_before="$(host_nested_windows)"; s=0; nested_window="$(nested_window_id)" || s=$?; [[ $s -eq 1 ]] || exit 9; nested_window=""; s=0; out="$(nested_window_state)" || s=$?; [[ $out == unreadable && $s -eq 1 ]]' 0 ""
-)
-run_cases "$shots_window_helper" shots_window_cases
-# shellcheck disable=SC2016
-shots_window_controls=(
-  "the runner keys its window on the in-fence pid"
-  'host_window_state "$nested_window"' 'host_window_state "$compositor_pid"' "the runner reads its new hidden host window by stableId"
-  "the runner takes the last-made of several new windows"
-  '[[ -z $id || $entry < $id ]]' '[[ -z $id || $entry > $id ]]' "the runner takes the first-made of several new host windows"
-  "the runner reads a window when none is new"
-  '[[ $new != none ]] || return 1' 'true' "no new host window leaves the runner's window unreadable"
-)
-run_controls "$shots_window_helper" shots_window_cases shots_window_controls
-
-# The harness names a nested backend start where aquamarine has announced
-# neither the host pointer nor a host window for the nested compositor.
-harness_helper="$tmp/harness-backend-helper.sh"
-python3 - "$repo/scripts/smoke/harness.sh" "$harness_helper" <<'PY'
-import sys
-text = open(sys.argv[1]).read()
-blocks = []
-for name in ("host_windows_since", "nested_mice", "nested_backend_unannounced"):
-    start = text.index(name + "() {")
-    end = text.index("\n}\n", start) + 3
-    blocks.append(text[start:end])
-open(sys.argv[2], "w").write("\n".join(blocks))
-PY
-# shellcheck disable=SC2016,SC2034
-harness_cases=(
-  "backend unannounced accepts no wl_pointer and no host window"
-  'host_pointer=wl_pointer; host_windows_before="old pid=1 size=1x1 workspace=1 mapped=true"; host_nested_windows() { printf "%s\n" "$host_windows_before"; }; hypr() { printf "%s\n" "{\"mice\":[]}"; }; nested_backend_unannounced; [[ $nested_mice_seen == none && $host_windows_new == none ]]' 0 ""
-  "backend rejects wl_pointer"
-  'host_pointer=wl_pointer; host_windows_before="old pid=1 size=1x1 workspace=1 mapped=true"; host_nested_windows() { printf "%s\n" "$host_windows_before"; }; hypr() { printf "%s\n" "{\"mice\":[{\"name\":\"wl_pointer\"}]}"; }; if nested_backend_unannounced; then exit 1; fi; [[ $nested_mice_seen == wl_pointer && $host_windows_new == none ]]' 0 ""
-  "backend rejects a new host window"
-  'host_pointer=wl_pointer; host_windows_before="old pid=1 size=1x1 workspace=1 mapped=true"; host_nested_windows() { printf "%s\n%s\n" "$host_windows_before" "new pid=2 size=2x2 workspace=2 mapped=true"; }; hypr() { printf "%s\n" "{\"mice\":[]}"; }; if nested_backend_unannounced; then exit 1; fi; [[ $nested_mice_seen == none && $host_windows_new == "new pid=2 size=2x2 workspace=2 mapped=true" ]]' 0 ""
-  "backend rejects unreadable host windows"
-  'host_pointer=wl_pointer; host_windows_before="old pid=1 size=1x1 workspace=1 mapped=true"; host_nested_windows() { echo unreadable; return 1; }; hypr() { printf "%s\n" "{\"mice\":[]}"; }; if nested_backend_unannounced; then exit 1; fi; [[ $nested_mice_seen == none && $host_windows_new == unreadable ]]' 0 ""
-  "backend rejects unreadable before windows"
-  'host_pointer=wl_pointer; host_windows_before=unreadable; host_nested_windows() { echo unreadable; return 1; }; hypr() { printf "%s\n" "{\"mice\":[]}"; }; if nested_backend_unannounced; then exit 1; fi; [[ $nested_mice_seen == none && $host_windows_new == unreadable ]]' 0 ""
-  "backend rejects unreadable devices"
-  'host_pointer=wl_pointer; host_windows_before="old pid=1 size=1x1 workspace=1 mapped=true"; host_nested_windows() { printf "%s\n" "$host_windows_before"; }; hypr() { return 1; }; if nested_backend_unannounced; then exit 1; fi; [[ $nested_mice_seen == unreadable && $host_windows_new == unreadable ]]' 0 ""
-  "backend accepts mouse name that only contains wl_pointer"
-  'host_pointer=wl_pointer; host_windows_before="old pid=1 size=1x1 workspace=1 mapped=true"; host_nested_windows() { printf "%s\n" "$host_windows_before"; }; hypr() { printf "%s\n" "{\"mice\":[{\"name\":\"wl_pointer-virtual\"}]}"; }; nested_backend_unannounced; [[ $nested_mice_seen == wl_pointer-virtual && $host_windows_new == none ]]' 0 ""
-  "backend unannounced accepts a host that showed no nested window before"
-  'host_pointer=wl_pointer; host_windows_before=""; host_nested_windows() { :; }; hypr() { printf "%s\n" "{\"mice\":[]}"; }; nested_backend_unannounced; [[ $nested_mice_seen == none && $host_windows_new == none ]]' 0 ""
-  "host windows since prints only new windows"
-  'host_windows_before="old pid=1 size=1x1 workspace=1 mapped=true"; host_nested_windows() { printf "%s\n%s\n" "$host_windows_before" "new pid=2 size=2x2 workspace=2 mapped=false"; }; [[ $(host_windows_since) == "new pid=2 size=2x2 workspace=2 mapped=false" ]]' 0 ""
-  "host windows since prints none"
-  'host_windows_before="old pid=1 size=1x1 workspace=1 mapped=true"; host_nested_windows() { printf "%s\n" "$host_windows_before"; }; [[ $(host_windows_since) == none ]]' 0 ""
-)
-run_cases "$harness_helper" harness_cases
-# shellcheck disable=SC2016,SC2034
-harness_controls=(
-  "backend ignores the host pointer"
-  '[[ ,$nested_mice_seen, != *,"$host_pointer",* ]] || return 1' 'true || return 1' "backend rejects wl_pointer"
-  "backend ignores new host windows"
-  '[[ $host_windows_new == none ]] || return 1' 'true || return 1' "backend rejects a new host window"
-  "backend treats unreadable host windows as none"
-  'current="$(host_nested_windows)" || { echo unreadable; return 1; }' 'current="$(host_nested_windows)" || current=' "backend rejects unreadable host windows"
-  "backend treats a substring mouse as the host pointer"
-  '[[ ,$nested_mice_seen, != *,"$host_pointer",* ]] || return 1' '[[ $nested_mice_seen != *"$host_pointer"* ]] || return 1' "backend accepts mouse name that only contains wl_pointer"
-  "an empty before-reading counts as unreadable"
-  '${host_windows_before-unreadable}' '${host_windows_before:-unreadable}' "backend unannounced accepts a host that showed no nested window before"
-)
-run_controls "$harness_helper" harness_cases harness_controls
-
 # Drive the real screensaver missing-tool branch and the real scene loop
 # and verdict, without a compositor. Capture's scene stands for the frame
 # producer; the test proves the runner still reaches it after screensaver.
@@ -1459,7 +1228,7 @@ PY
     set -euo pipefail
     SHOT_DIR="$1/shots"
     auth_log="$1/auth.log"
-    failures=0 undrawn=0 unmeasured=0
+    failures=0 unmeasured=0
     mode_list=(dark)
     scenes=(screensaver capture)
     enable_ids=() disable_ids=()
@@ -1467,7 +1236,7 @@ PY
     set_mode() { :; }
     scene_desktop() { :; }
     capture_state_record() { :; }
-    take() { printf "frame\n" >"$SHOT_DIR/$1.png"; printf "%s\ts\tp\tsettled\thidden\tclean\n" "$1" >>"$SHOT_DIR/shots.tsv"; }
+    take() { printf "frame\n" >"$SHOT_DIR/$1.png"; printf "%s\ts\tp\tsettled\tclean\n" "$1" >>"$SHOT_DIR/shots.tsv"; }
     scene_capture() { take "capture-$1-panel"; }
     ok() { :; }
     fail() { failures=$((failures + 1)); }

@@ -59,9 +59,7 @@ magick "${shot_base[@]}" -fill '#222222' -draw 'rectangle 1000,600 1399,899' "$r
 magick "${shot_base[@]}" -fill '#222222' -draw 'rectangle 2400,1400 2559,1599' "$run_dir/edge.png"
 magick "${shot_base[@]}" "$run_dir/clock.png"
 magick -size 1280x800 xc:'#111111' "$run_dir/small.png"
-magick "${shot_base[@]}" -fill '#222222' -draw 'rectangle 1000,600 1399,899' "$run_dir/shown.png"
 cp -- "$run_dir/centre.png" "$run_dir/tooltip.png"
-cp -- "$run_dir/centre.png" "$run_dir/absent-window.png"
 # item: the centre box, which items.tsv records. bad: a shot whose
 # items.tsv line has no width. dim: the centre box on a flat colour over
 # the whole output, the bar band included, as a lock screen or a scrim
@@ -77,16 +75,14 @@ printf 'item\t1000\t600\t400\t300\nbad\t1000\t600\t0\t300\n' >"$run_dir/items.ts
 magick -size 2560x1600 xc:'#000000' -fill '#eeeeee' -draw 'rectangle 1200,20 1239,35' -fill white -draw 'rectangle 2555,1596 2559,1599' -fill '#222222' -draw 'rectangle 2000,60 2399,459' "$run_dir/black-panel.png"
 for scene in scene panels bar settings capture; do printf '%s\tdark\tsrc\t100\t100\t111111\n' "$scene"; done >"$run_dir/desktop.tsv"
 printf 'black\tdark\tsrc\t100\t100\t000000\nsplit\tdark\tsrc\t100\t100\t111111\nsplit\tlight\tsrc\t100\t100\t000000\n' >>"$run_dir/desktop.tsv"
-for name in 00-desktop panel centre edge clock small item bad dim dim-empty black-panel; do printf '%s\tsha\tprev\tsettled\thidden\tclean\n' "$name"; done >"$run_dir/shots.tsv"
-printf 'shown\tsha\tprev\tsettled\tshown\tclean\n' >>"$run_dir/shots.tsv"
-printf 'tooltip\tsha\tprev\tsettled\thidden\ttooltip\n' >>"$run_dir/shots.tsv"
-printf 'absent-window\tsha\tprev\tsettled\tabsent\tclean\n' >>"$run_dir/shots.tsv"
+for name in 00-desktop panel centre edge clock small item bad dim dim-empty black-panel; do printf '%s\tsha\tprev\tsettled\tclean\n' "$name"; done >"$run_dir/shots.tsv"
+printf 'tooltip\tsha\tprev\tsettled\ttooltip\n' >>"$run_dir/shots.tsv"
 # A run whose desktop has no bar band.
 flat_dir="$checkout/tmp/flat"
 mkdir -p "$flat_dir"
 magick -size 2560x1600 xc:'#111111' "$flat_dir/00-desktop.png"
 cp -- "$run_dir/centre.png" "$flat_dir/"
-printf '00-desktop\ts\tp\tsettled\thidden\tclean\ncentre\ts\tp\tsettled\thidden\tclean\n' >"$flat_dir/shots.tsv"
+printf '00-desktop\ts\tp\tsettled\tclean\ncentre\ts\tp\tsettled\tclean\n' >"$flat_dir/shots.tsv"
 
 # The table each case runs over: image, shot, crop and scene per row, the
 # scene `scene` when the row names none, as it is no concern of --from.
@@ -96,7 +92,6 @@ table() { # ROW...
   for row; do IFS=' ' read -r image shot crop scene <<<"$row"; printf '%s\t%s\t%s\t%s\n' "$image" "${scene:-scene}" "$shot" "$crop"; done
 }
 pass_rows=(
-  "p.absent.webp absent-window full"
   "p.full.webp centre full"
   "p.bar.webp clock bar"
   "p.black.webp black-panel content black"
@@ -112,8 +107,7 @@ pass_rows=(
 # recorded box and the box on dim's backdrop grow by 32 a side; the edge's
 # box is clamped on the right and the bottom.
 # In the order the directory's glob lists them.
-pass_sizes="p.absent.webp 2560x1600
-p.backdrop.webp 464x364
+pass_sizes="p.backdrop.webp 464x364
 p.bar.webp 2560x56
 p.black.webp 464x492
 p.centre.webp 464x364
@@ -165,7 +159,6 @@ cases=(
   "a malformed table is refused" "p.a.webp centre zoom" "--from $run_dir --out $out_ok" 1 "readme-shots: refused: table=docs/images/plugins/shots.tsv"
   "a run without shots.tsv is refused" "p.a.webp centre full" "--from $checkout/tmp --out $out_ok" 1 "readme-shots: refused: from=$checkout/tmp"
   "a shot the run lacks is refused" "p.a.webp absent full" "--from $run_dir --out $out_ok" 1 "readme-shots: refused: shot=absent"
-  "a shot taken with the window shown is refused" "p.a.webp shown full" "--from $run_dir --out $out_ok" 1 "readme-shots: refused: shot-window=shown"
   "a shot with tooltip chrome is refused" "p.a.webp tooltip full" "--from $run_dir --out $out_ok" 1 "readme-shots: refused: shot-chrome=tooltip"
   "a shot of another size is refused" "p.a.webp small full" "--from $run_dir --out $out_ok" 1 "readme-shots: refused: shot-size=small"
   "a desktop with no bar band is refused" "p.a.webp centre full" "--from $flat_dir --out $out_ok" 1 "readme-shots: refused: bar=$flat_dir/00-desktop.png"
@@ -216,7 +209,6 @@ chmod +x "$checkout/scripts/sandbox-shots.sh"
 # The table without --from: two rows share each of the scenes panels and
 # bar, so each scene must reach the sandbox once, in the table's order.
 sandbox_rows=(
-  "p.absent.webp absent-window full panels"
   "p.full.webp centre full panels"
   "p.bar.webp clock bar bar"
   "p.panel.webp panel content panels"
@@ -341,9 +333,6 @@ controls=(
   "a posed shot is accepted for a README image"
   '[[ $chrome == clean ]] || stop shot-chrome "$1" "chrome=${chrome:-unlisted}"' 'true || stop shot-chrome "$1" "chrome=${chrome:-unlisted}"'
   "a shot with tooltip chrome is refused"
-  "a shown host window is accepted for a README image"
-  '[[ $state == hidden || $state == absent ]] || stop shot-window "$1" "state=${state:-unlisted}"' 'true || stop shot-window "$1" "state=${state:-unlisted}"'
-  "a shot taken with the window shown is refused"
   "a failed sandbox run does not end the command"
   '[[ $status -eq 0 || $status -eq 77 ]] || exit "$status"' '[[ $status -eq 0 || $status -eq 77 ]] || true "$status"'
   sandbox-1

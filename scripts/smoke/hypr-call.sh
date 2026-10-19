@@ -3,7 +3,7 @@
 # caller of the nested compositor's hyprctl, its bound, and the end of the
 # run when the compositor stops answering, and arms that end on USR1 in the
 # shell that sources it. It reads the caller's shell_env, signature and
-# sandbox, fail, mode_hold and row_class from verdict.sh, and smoke_finish,
+# sandbox, fail and row_class from verdict.sh, and smoke_finish,
 # which the caller defines before the first call.
 #
 # hyprctl bounds its read but not its connect, so once a stopped compositor's
@@ -50,14 +50,12 @@ compositor_stalled() {
   kill -USR1 -- "$harness_pid"
 }
 
-# smoke_stalled: the run's end after a stall. No held mode is read, since
-# fail would ask the stopped compositor for it, and the failure counts as
+# smoke_stalled: the run's end after a stall. The failure counts as
 # behaviour, so the verdict never excuses it as a sandbox fault or exit 77.
 # The EXIT trap (teardown.sh) then stops the nested compositor and removes
 # the sandbox.
 smoke_stalled() {
   trap '' USR1
-  mode_hold=()
   row_class=behaviour
   fail "the nested compositor stopped answering: $(<"$sandbox/compositor-stalled"); the run ends here"
   smoke_finish

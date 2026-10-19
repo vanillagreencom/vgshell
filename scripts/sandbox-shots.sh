@@ -3,7 +3,7 @@
 #
 # Usage: scripts/sandbox-shots.sh [--out DIR] [--rev REV] [--modes LIST]
 #                                 [--size WxH] [--scale N]
-#                                 [--theme-card NAME] [--hidden]
+#                                 [--theme-card NAME]
 #                                 [--preview-themes LIST] [--preview-wallpaper NAME=PATH]...
 #                                 [--dotfiles DIR] [--pages LIST] [--enable LIST] [--disable LIST]
 #                                 [--info LIST] [--click PANE]
@@ -13,10 +13,11 @@
 #
 # The sandbox is the smoke's own (scripts/smoke/harness.sh): its own HOME,
 # runtime dir, buses and nested compositor, with the shell started inside
-# it. grim is pointed at the nested compositor's socket alone
-# (scripts/smoke/shot.sh refuses the host socket), so nothing is captured
-# or started on the live desktop. It needs the smoke's prerequisites,
-# WAYLAND_DISPLAY and XDG_RUNTIME_DIR included, plus grim.
+# it, which draws to the harness's own sink (scripts/smoke/sink/sink.c).
+# grim is pointed at the nested compositor's socket alone
+# (scripts/smoke/shot.sh refuses the caller's runtime dir), so nothing is
+# captured or started on the live desktop. It needs the smoke's
+# prerequisites, XDG_RUNTIME_DIR included, plus grim.
 #
 
 # SCENE is gallery, settings, wide-settings, focus, focus-open, flyout-titles, plugin-pages, manager, launcher,
@@ -233,19 +234,11 @@
 # --scale is 1, the default, or 2: at 2 the harness holds the nested
 # output at double its mode and scale 2 before the shell starts
 # (shell_output_scale in scripts/smoke/harness.sh), so the layout keeps its
-# logical size and the shell draws each PNG in device pixels. A configure
-# the host sends the nested window, such as a resize or a refocus, resets
-# a held mode (held_mode_state in scripts/smoke/mode-hold.sh), so before
-# each shot and each hover under a held mode, this one or --size's, the
-# run takes the mode again and puts the pointer back where the scene left
-# it (settle_hold), and a shot after whose capture the output no longer
-# reads the mode is taken once more (shot_held in scripts/smoke/shot.sh);
-# a mode that cannot be taken again, or a second reset in that capture,
-# fails the shot. Another value is refused as
-# `sandbox-shots: refused: scale=<value>`.
+# logical size and the shell draws each PNG in device pixels. Another
+# value is refused as `sandbox-shots: refused: scale=<value>`.
 # --size WxH holds the nested output at W by H logical pixels, at the run's
-# scale, for every scene, so a shot's width does not depend on the host's
-# window; another shape is refused as `sandbox-shots: refused: size=<value>`.
+# scale, for every scene, in place of the sink's 1920x1080; another shape
+# is refused as `sandbox-shots: refused: size=<value>`.
 # --theme-card NAME is the catalog theme the theme-browser scene selects,
 # frankenstein by default. A name other than lowercase letters, digits and
 # hyphens is refused as `sandbox-shots: refused: theme-card=<value>`, and
@@ -301,15 +294,11 @@
 # answers, over the J09 world the harness prepares for every sandbox
 # (scripts/smoke/harness.sh), so the child reaches no audio, account,
 # network or desktop, and disables it again.
-# --hidden refuses every shot not taken with the nested window hidden on
-# the host (SHOT_WINDOW_REQUIRE in scripts/smoke/shot.sh), so a run that
-# exits 0 proves each shot's frame arrived while the window was hidden.
 #
 # PNGs go to DIR, which must lie under this checkout's tmp/; the default is
 # tmp/sandbox-shots/<UTC time>[-REV][-x2]. shots.tsv beside them lists each shot
-# with the sha256 of its file, how it was proved current, whether the host
-# showed the nested window while it was taken, and whether the shot had
-# chrome such as a tooltip or focus ring (shot.sh). desktop.tsv records
+# with the sha256 of its file, how it was proved current, and whether the
+# shot had chrome such as a tooltip or focus ring (shot.sh). desktop.tsv records
 # each scene's sampled desktop
 # before its surfaces open: scene, mode, source commit, x, y and RGB hex.
 # --check-desktop-pair compares those records and exits 1 if a sample
@@ -319,19 +308,11 @@
 # scripts/readme-shots.sh's item crop cuts: the theme browser's tabs,
 # selected card and name in its installed shot. Each shot is of the
 # nested compositor's first output alone, which the harness sized (grim
-# -o), so an output a scene adds never enters a capture. The last line
-# counts the shots taken with the window hidden as hidden=N; the host
-# window's state is the one read this runner makes of the host compositor
-# (scripts/smoke/host-window.sh).
+# -o), so an output a scene adds never enters a capture.
 #
 # A scene with a missing tool names itself not measured and leaves the
-# other scenes running. Exit 0 when every shot was taken.
-# Exit 77 when a prerequisite is missing
-# or when every failure was a grim that got no frame from the nested
-# compositor (nested-window=not-drawn: the host sends a hidden window no
-# frame callbacks unless a host window rule gives class aquamarine
-# render_unfocused, docs/architecture/validation.md § Faults). Exit 1
-# when any other step or shot failed.
+# other scenes running. Exit 0 when every shot was taken. Exit 77 when a
+# prerequisite is missing. Exit 1 when any step or shot failed.
 set -euo pipefail
 
 desktop_pair_check() { # BEFORE_DIR AFTER_DIR
@@ -390,7 +371,6 @@ info_entries=()
 click_pane=""
 enable_ids=()
 disable_ids=()
-require_window=""
 scenes=()
 title_inventory=false
 while [[ $# -gt 0 ]]; do
@@ -409,7 +389,6 @@ while [[ $# -gt 0 ]]; do
     --click) click_pane="$2"; shift 2 ;;
     --enable) enable_arg="$2"; shift 2 ;;
     --disable) disable_arg="$2"; shift 2 ;;
-    --hidden) require_window=hidden; shift ;;
     --timeout) timeout_s="$2"; shift 2 ;;
     --keep) keep=true; shift ;;
     --title-inventory) title_inventory=true; shift ;;
@@ -788,45 +767,12 @@ has_sudo=false
 settings_count() { surface_count "$settings_surface"; }
 
 SHOT_RUNTIME_DIR="$rt_dir"
-if ! SHOT_SOCKET="$(shot_socket "$rt_dir" "$nested_socket" "$host_socket")"; then
+if ! SHOT_SOCKET="$(shot_socket "$rt_dir" "$nested_socket")"; then
   fail "the nested socket is not safe to capture"
   exit 1
 fi
 ok "grim captures only $SHOT_SOCKET"
-# Each shot records whether the host showed the nested window while it was
-# taken, read from the host compositor by read-only requests. The
-# fence's pid namespace hides the nested compositor's host pid, so its
-# window is an aquamarine stableId the host lists now and did not list
-# before the harness started the compositor (host_windows_since). Other
-# sandboxes that started since add windows too. Hyprland gives each new
-# window the next value of one counter that starts at 0x18000000 and
-# prints it as hex (src/desktop/view/window/WindowMetadata.cpp), so every
-# id has eight digits, string order is creation order, and the lowest new
-# id is the first window made after that read: this run's, unless another
-# compositor made its window between that read and this one's. With no
-# new window each shot records unreadable.
-source "$checkout/scripts/smoke/host-window.sh"
 source "$checkout/scripts/smoke/webapps-browsers.sh"
-nested_window_id() {
-  local new entry id=""
-  local -a entries
-  new="$(host_windows_since)" || return 1
-  [[ $new != none ]] || return 1
-  IFS=';' read -ra entries <<<"$new"
-  for entry in "${entries[@]}"; do
-    entry="${entry%% *}"
-    if [[ -z $id || $entry < $id ]]; then id="$entry"; fi
-  done
-  printf '%s\n' "$id"
-}
-nested_window_state() {
-  [[ -n $nested_window ]] || { echo unreadable; return 1; }
-  host_window_state "$nested_window"
-}
-nested_window="$(nested_window_id)" || nested_window=""
-printf 'shots: nested-window=%s\n' "${nested_window:-unknown}"
-SHOT_WINDOW_READER=nested_window_state
-SHOT_WINDOW_REQUIRE="$require_window"
 # Hyprland's own notice that it was not started through start-hyprland
 # would sit over the top right of every shot.
 expect "the nested compositor's notices are dismissed" ok hypr dismissnotify
@@ -850,38 +796,7 @@ fi
 read -r mon_w mon_h bar_reserved < <(hypr -j monitors | python3 -c 'import json,sys; m=json.load(sys.stdin)[0]; print(round(m["width"] / m["scale"]), round(m["height"] / m["scale"]), m["reserved"][1])')
 run_w="$mon_w" run_h="$mon_h"
 
-undrawn=0
 unmeasured=0
-# hold_left: what the output reads in place of the held mode.
-hold_left() {
-  echo "${mode_hold[0]} reads $(mode_scale_of "${mode_hold[0]}" || echo unreadable), not the held ${mode_hold[1]}; a host resize or refocus, or another writer, reset it"
-}
-# settle_hold: the output reads the run's held mode, if it holds one,
-# before a shot or a hover. A host configure of the nested window resets
-# the mode at any moment, and the reset stays until a rule takes the mode
-# again (held_mode_state in scripts/smoke/mode-hold.sh), so every shot and
-# hover after it would meet the reset output. A reset is taken again
-# through hold_restore, and the pointer goes back to pointer_at, where the
-# scene left it, since the reset moved it and the restore does not.
-# Returns 1, printing why, when the mode cannot be taken again or the
-# output cannot be read.
-settle_hold() {
-  local state restored x y
-  [[ ${#mode_hold[@]} -gt 0 ]] || return 0
-  state="$(held_mode_state)"
-  case $state in
-    held) return 0 ;;
-    reset) printf '  reset %s; the held mode is taken again\n' "$(hold_left)" ;;
-    *) printf '  reset %s reads %s\n' "${mode_hold[0]}" "$state"; return 1 ;;
-  esac
-  if ! restored="$(hold_restore)"; then
-    printf '        %s\n' "$restored"
-    return 1
-  fi
-  [[ -n $pointer_at ]] || return 0
-  read -r x y <<<"$pointer_at"
-  hover "$x" "$y" || { echo "        the pointer did not go back to $pointer_at"; return 1; }
-}
 shot_chrome_read() { ipc smoke shotChrome false; }
 shot_chrome_clear() { ipc smoke shotChrome true; }
 # clean_shot_chrome: the shot chrome cleared and polled until it reads
@@ -898,35 +813,22 @@ clean_shot_chrome() {
   printf '%s\n' "$state"
   return 1
 }
-# take_raw NAME: one shot. While the run holds a mode, shot_held settles it
-# first and takes the shot once more when the output left it while shot
-# waited for a settled frame, so a PNG never shows a reset output under a
-# held mode's name.
+# take_raw NAME: one shot.
 take_raw() { # NAME
-  local status=0
-  if [[ ${#mode_hold[@]} -eq 0 ]]; then
-    shot "$1" || status=$?
-  else
-    shot_held "$1" held_mode_state settle_hold || status=$?
-  fi
-  case $status in
-    0)
-      if [[ $title_inventory == true ]]; then
-        local inventory
-        if inventory="$(ipc smoke titleInventory)"; then
-          printf 'sandbox-shots: title-inventory source=%s shot=%s phase=after-frame value=%s\n' "$capture_source" "$1" "$inventory"
-          printf '%s\t%s\n' "$1" "$inventory" >>"$SHOT_DIR/title-inventory.tsv"
-          expect "the $1 titled panes keep their last row reachable" True py_reply 'import json,sys; rows=json.load(sys.stdin); print(isinstance(rows,list) and all(row["end"]["lastRowVisible"] and row["end"]["footerFits"] for row in rows))' <<<"$inventory"
-        else
-          fail "the $1 titled pane inventory is unreadable"
-        fi
+  if shot "$1"; then
+    if [[ $title_inventory == true ]]; then
+      local inventory
+      if inventory="$(ipc smoke titleInventory)"; then
+        printf 'sandbox-shots: title-inventory source=%s shot=%s phase=after-frame value=%s\n' "$capture_source" "$1" "$inventory"
+        printf '%s\t%s\n' "$1" "$inventory" >>"$SHOT_DIR/title-inventory.tsv"
+        expect "the $1 titled panes keep their last row reachable" True py_reply 'import json,sys; rows=json.load(sys.stdin); print(isinstance(rows,list) and all(row["end"]["lastRowVisible"] and row["end"]["footerFits"] for row in rows))' <<<"$inventory"
+      else
+        fail "the $1 titled pane inventory is unreadable"
       fi
-      ;;
-    2) undrawn=$((undrawn + 1)); fail "grim got no frame from the nested compositor for $1" ;;
-    3) fail "shot $1 not taken: the held mode could not be taken again" ;;
-    4) fail "shot $1 not accepted: $(hold_left)" ;;
-    *) fail "shot $1 failed" ;;
-  esac
+    fi
+  else
+    fail "shot $1 failed"
+  fi
 }
 take_posed() { # NAME
   SHOT_CHROME_READER=shot_chrome_read SHOT_CHROME_REQUIRE= take_raw "$1"
@@ -971,11 +873,7 @@ window_point() {
   rect="$(ipc smoke windowGeometry "$2" "$3" "$4" "$5")" && [[ $rect == \[* ]] || return 1
   at_centre "$1" "$rect"
 }
-# The hover helpers and park_pointer settle the held mode first: an item's
-# position read on a reset output is not where it sits once the mode is
-# taken again for the shot.
 hover_on() {
-  settle_hold || { fail "$1: the held mode could not be taken again"; return 1; }
   if [[ -z ${6:-} ]]; then
     if ! point_item "$2" "$3" "$4" "$5" >/dev/null; then fail "$1: $4 \"$5\" under $2 $3 never reported the pointer"; return 1; fi
   elif ! point_item "$6" "$2" "$3" "$4" "$5" >/dev/null; then
@@ -987,7 +885,6 @@ hover_on() {
 # that has no hover state; the caller proves the state the hover drives.
 hover_text() {
   local label="$1" rect at="" x y
-  settle_hold || { fail "$label: the held mode could not be taken again"; return 1; }
   for _ in $(seq 1 25); do
     rect="$(ipc smoke itemGeometry "$2" "$3" "$4" "$5")" && at="$(centre_of "$rect")" && [[ $at != none ]] && break
     at=""; sleep 0.2
@@ -998,17 +895,13 @@ hover_text() {
   ok "$label"
 }
 park_pointer() {
-  if settle_hold; then
-    hover "$((mon_w - 2))" "$((mon_h - 2))" || fail "parking the pointer failed"
-  else
-    fail "parking the pointer: the held mode could not be taken again"
-  fi
+  hover "$((mon_w - 2))" "$((mon_h - 2))" || fail "parking the pointer failed"
 }
 # narrow_begin: the nested output holds a mode 480 by 720 logical pixels at
 # the run's scale, and the pointer helpers take that size, until
 # narrow_end gives the run's mode back. At scale 2 the run's mode is the
-# one the harness held before the shell started, since the monitor may
-# read a reset one by now; at scale 1 it is the monitor's own mode.
+# one the harness held before the shell started; at scale 1 it is the
+# monitor's own mode.
 narrow_main_mode=""
 narrow_begin() {
   if [[ $scale == 2 ]]; then
@@ -1536,7 +1429,7 @@ scene_settings() { # MODE
     ! tree_has shell/Ui/controls/Select.qml "delegate: MenuItem" || select_entry=MenuItem
     if tf_height="$(ipc smoke themeValue textField.height)" && select_gap="$(ipc smoke themeValue select.gap)" && entry_height="$(ipc smoke themeValue menu.item.height)" \
       && read -r bx by < <(python3 -c 'import sys; x, y, f, g, e = map(float, sys.argv[1:]); print(int(x - 120), int(y + f / 2 + g + 1.5 * e))' "$x" "$y" "$tf_height" "$select_gap" "$entry_height") \
-      && settle_hold && hover "$((bx - 6))" "$by" && hover "$bx" "$by" \
+      && hover "$((bx - 6))" "$by" && hover "$bx" "$by" \
       && expect_poll "the pointer rests on the Label select's Beta entry" true ipc smoke popupItemHovered "$settings_kind" vgs.settings "" "" "$select_entry" Beta; then
       take_posed "settings-$1-select-hover"
     else
@@ -3549,7 +3442,6 @@ scene_voice-keys() { # MODE
   # The icon draws no text, so hover_on's text reading cannot find it; the
   # pointer goes to its centre.
   if [[ $(ipc smoke windowGeometry "$settings_kind" vgs.settings InfoButton "About $voice_keys_first") == \[* ]]; then
-    settle_hold || fail "the held mode could not be taken again for the info icon"
     if read -r x y < <(window_point "$settings_surface" "$settings_kind" vgs.settings InfoButton "About $voice_keys_first") && hover "$((x - 4))" "$y" && hover "$x" "$y"; then
       for _ in $(seq 1 10); do [[ $(shot_chrome_read) == tooltip ]] && break; sleep 0.2; done
       take_posed "voice-keys-$1-info"
@@ -5732,7 +5624,7 @@ displays_output_rule="hl.monitor({ output = \"$displays_output\", mode = \"5120x
 displays_second_output() { ipc smoke readInstance service vgs.displays outputs | py_reply 'import json,sys; m=[o for o in json.load(sys.stdin) if o["name"]==sys.argv[1]]; print("%dx%d@%d,%d scale=%g transform=%d" % (m[0]["width"], m[0]["height"], m[0]["x"], m[0]["y"], m[0]["scale"], m[0]["transform"]) if m else "absent")' "$displays_output"; }
 # displays_output_taken: the Displays shot's second monitor rule applied
 # again, then the compositor's reading of that monitor as WxH@X,Y scale=S
-# transform=T. A nested Wayland output comes up at the host window's size
+# transform=T. A nested Wayland output comes up at the sink's 1920x1080
 # and takes a rule's mode only once it exists, as take_mode in
 # scripts/smoke/mode-hold.sh applies it, so each poll applies the rule.
 displays_output_taken() {
@@ -6065,7 +5957,7 @@ scene_bluetooth() { # MODE
   # entry.
   widget_right_click vgs.bluetooth || fail "opening the Bluetooth widget menu failed"
   expect_poll "the Bluetooth widget menu is open for its shot" true ipc smoke readInstance "$(bar_key)" vgs.bluetooth frameMenuOpen
-  if settle_hold && point_item "popup:$(bar_key)" vgs.bluetooth "" "" MenuItem Readme >/dev/null; then
+  if point_item "popup:$(bar_key)" vgs.bluetooth "" "" MenuItem Readme >/dev/null; then
     ok "the pointer rests on the Bluetooth widget menu's Readme entry"
     take_posed "bluetooth-$1-menu-hover"
   else
@@ -6636,7 +6528,6 @@ print("absent" if box is None else "%d %d" % (box[0] + box[2] / 2, box[1] + box[
 # disabled control never reports.
 vpn_locked_hover() { # LABEL TYPE NAME
   local at x y
-  settle_hold || { fail "$1: the held mode could not be taken again"; return 1; }
   at="$(vpn_locked_point "$2" "$3")" || at=unreadable
   [[ $at =~ ^[0-9]+\ [0-9]+$ ]] || { fail "$1: no shown $2 \"$3\" in the VPN flyout: $at"; return 1; }
   read -r x y <<<"$at"
@@ -8290,7 +8181,6 @@ tui_edges_open() { # LABEL BG
   expect "$1: no TUI window is open" 0 tui_edges_windows
   expect "$1: the widget opens its flyout" ok ipc smoke invokeInstance "$(bar_key)" vgs.sysmon toggle ''
   expect_poll "$1: the System Monitor flyout is built" '"System Monitor"' ipc smoke readDescendant panel vgs.sysmon Pane title
-  settle_hold || { fail "$1: the held mode could not be taken again"; return 1; }
   click_item panel vgs.sysmon Button "See all" || { fail "$1: See all could not be clicked"; return 1; }
   expect_poll "$1: the floating TUI window maps" 1 tui_edges_windows
   expect "$1: the launcher refused no launch" none tui_edges_refused
@@ -8365,7 +8255,6 @@ EOF
   [[ $bg =~ ^[0-9a-f]{6}$ ]] || { fail "tui-edges: the applied btop.theme names no main_bg"; return; }
   expect "btop alone: Ghostty's theme is not written" absent tui_edges_file "$state/ghostty.conf"
   tui_edges_open "btop alone" "$bg" || return
-  settle_hold || { fail "btop alone: the held mode could not be taken again"; return; }
   band="$(tui_edges_read band)"
   before_box="$(tui_edges_box)"
   printf 'sandbox-shots: tui-edges mode=%s case=btop-alone window=%s band=%s main_bg=%s\n' "$mode" "${before_box#* }" "$band" "$bg"
@@ -8381,7 +8270,6 @@ EOF
   expect "btop and Ghostty: Ghostty's background is btop's" "#$bg" sed -n 's/^background = \(#[0-9a-fA-F]*\)$/\L\1/p' "$state/ghostty.conf"
   expect "btop and Ghostty: Ghostty's configuration reads the theme" present tui_edges_file "$home/.config/ghostty/config.ghostty" "config-file = ?$state/ghostty.conf"
   tui_edges_open "btop and Ghostty" "$bg" || return
-  settle_hold || { fail "btop and Ghostty: the held mode could not be taken again"; return; }
   box="$(tui_edges_box)"
   expect "btop and Ghostty: the window has the first window's size" "${before_box#* }" echo "${box#* }"
   printf 'sandbox-shots: tui-edges mode=%s case=btop-and-ghostty window=%s band=%s\n' "$mode" "${box#* }" "$(tui_edges_read band)"
@@ -8400,7 +8288,6 @@ EOF
   expect "btop light: flexoki-light applies, its reloads refused" 3 echo "$status"
   expect "btop light: the applied main_bg is flexoki-light's palette.background" "$light" sed -n 's/^theme\[main_bg\]="#\([0-9a-fA-F]*\)"$/\L\1/p' "$state/btop.theme"
   tui_edges_open "btop light" "$light" || return
-  settle_hold || { fail "btop light: the held mode could not be taken again"; return; }
   expect_poll "btop light: the Used meter is flexoki-light's terminal.color1 #$used" held tui_edges_read meter "$used"
   names=("$light")
   for key in inactive_fg process_start process_mid process_end; do names+=("$(tui_edges_key "$state/btop.theme" "$key")"); done
@@ -8548,10 +8435,6 @@ done
 # No scene may authenticate against the host user: harness.sh's sentinels
 # log any call, and a logged one fails the run (rows/auth-sentinel.sh).
 if [[ -s $auth_log ]]; then fail "a scene reached an authentication sentinel: $(tr '\n' ';' <"$auth_log")"; else ok "no scene reached an authentication sentinel"; fi
-echo "sandbox-shots: dir=$SHOT_DIR shots=$(wc -l <"$SHOT_DIR/shots.tsv" 2>/dev/null || echo 0) failures=$failures hidden=$(awk -F '\t' '$5 == "hidden"' "$SHOT_DIR/shots.tsv" 2>/dev/null | wc -l)"
-if [[ $failures -gt 0 && $failures -eq $undrawn ]]; then
-  printf 'sandbox-shots: status=not-measured nested-window=not-drawn\n'
-  exit 77
-fi
+echo "sandbox-shots: dir=$SHOT_DIR shots=$(wc -l <"$SHOT_DIR/shots.tsv" 2>/dev/null || echo 0) failures=$failures"
 [[ $failures -eq 0 ]] || exit 1
 [[ $unmeasured -eq 0 ]] || exit 77

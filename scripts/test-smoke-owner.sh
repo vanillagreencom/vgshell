@@ -27,7 +27,7 @@
 # It reads that the sandbox's qs, nested Hyprland and both D-Bus daemons
 # ran before the signal, and that no process naming the sandbox and no
 # sandbox directory is left after. It needs the nested sandbox's
-# environment: WAYLAND_DISPLAY, XDG_RUNTIME_DIR and the fleet slot.
+# environment: XDG_RUNTIME_DIR and the fleet slot.
 #
 # Exit 0 when every case and control holds, 1 otherwise, 77 when unshare
 # or bubblewrap cannot make a namespace here.
@@ -69,9 +69,7 @@ for pid in filter(str.isdigit, os.listdir("/proc")):
 }
 
 if [[ ${1-} == --live ]]; then
-  for need in WAYLAND_DISPLAY XDG_RUNTIME_DIR; do
-    [[ -n ${!need:-} ]] || { echo "test-smoke-owner: status=not-measured missing=$need"; exit 77; }
-  done
+  [[ -n ${XDG_RUNTIME_DIR:-} ]] || { echo "test-smoke-owner: status=not-measured missing=XDG_RUNTIME_DIR"; exit 77; }
   # shell_runs TEXT: TEXT, the processes naming the sandbox, holds its qs,
   # its nested Hyprland and both D-Bus daemons.
   shell_runs() {

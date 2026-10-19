@@ -114,7 +114,7 @@ show_all_pixels() {
   local rows surface socket geometry
   rows="$(ipc smoke descendantGeometry overlay vgs.themes)" &&
     surface="$(surface_box vgs:overlay)" &&
-    socket="$(shot_socket "$rt_dir" "$nested_socket" "$host_socket")" || return 1
+    socket="$(shot_socket "$rt_dir" "$nested_socket")" || return 1
   # The probe answers boxes in the overlay window's coordinates; the
   # layer's position on the layout places them for grim.
   geometry="$(python3 -c '

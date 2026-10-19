@@ -4,13 +4,6 @@
 # spawn and its process-group leases, the hold's readers, and the runner's
 # `shader`, the shader the scene draws.
 
-# scene_attempts: how many times measure_held_scene measures one scene
-# whose output left the held mode. Each reset needs a host configure of
-# the nested window during the scene (held_mode_state in
-# scripts/smoke/mode-hold.sh); the bound ends a run whose host keeps
-# configuring the window.
-scene_attempts=3
-
 # measure_scene SCALE SCENE STEM: one standalone layer, VGS_SHADER_MODE
 # SCENE and VGS_SHADER_NAME shader, until its result reads complete or
 # timeout_s passes. Writes STEM.launch.log, the instance log as STEM.log
@@ -59,39 +52,18 @@ measure_scene() {
 }
 
 # measure_held_scene SCALE SCENE STEM: measure_scene under the held mode.
-# At scale 2 the held mode is double the host window's size, which no
-# host configure equals, so only the hold's rule puts it back; the scene
-# applies none, and a scene after which the output still reads the held
-# mode ran under it from start to end. The scale-1 hold is the window's
-# own size, which a host resize away and back restores without the rule
-# (held_mode_state in scripts/smoke/mode-hold.sh), and the reading after
-# the scene cannot see that. The scale stays 1 and the layer's size is
-# fixed, so only the frames around the two changes are affected, and the
-# 90th-percentile reading absorbs a few such frames. A scene after which
-# the output reads a reset is
-# discarded: the runner prints `shader-cost: mode-reset scene=<scene>
-# scale=<n> got=[<reading>] attempt=<k>`, hold_restore takes the hold
-# again and the scene runs again, up to scene_attempts times. Past the
-# bound, smoke_verdict counts the reset and the run exits 77 with
-# `nested-output=mode-reset` when it is the only failure. A hold that
-# cannot be taken again, or an output that cannot be read, fails.
+# The scene applies no monitor rule, so a scene after which the output
+# still reads the held mode ran under it from start to end. One after
+# which the output reads another mode, or cannot be read, fails with
+# `shader-cost: failed output=<state> scene=<scene> scale=<n> got=[<reading>]`.
 measure_held_scene() {
-  local scale="$1" scene="$2" stem="$3" attempt state got
-  for ((attempt = 1; ; attempt++)); do
-    measure_scene "$scale" "$scene" "$stem"
-    state="$(held_mode_state)" || { echo 'shader-cost: failed output=unreadable'; exit 1; }
-    case "$state" in
-      held) break ;;
-      reset) ;;
-      *) printf 'shader-cost: failed output=%s\n' "$state"; exit 1 ;;
-    esac
+  local scale="$1" scene="$2" stem="$3" state got
+  measure_scene "$scale" "$scene" "$stem"
+  state="$(held_mode_state)"
+  if [[ $state != held ]]; then
     got="$(mode_scale_of "${mode_hold[0]}")" || got=unreadable
-    printf 'shader-cost: mode-reset scene=%s scale=%s got=[%s] attempt=%s\n' "$scene" "$scale" "$got" "$attempt"
-    if ((attempt >= scene_attempts)); then
-      smoke_verdict "$((failures + 1))" "$behaviour_failures" "$stalled_render" "$((mode_resets + 1))" "$sandbox/hyprland.log"
-      exit $?
-    fi
-    hold_restore || { printf 'shader-cost: failed output=not-restored scene=%s scale=%s\n' "$scene" "$scale"; exit 1; }
-  done
+    printf 'shader-cost: failed output=%s scene=%s scale=%s got=[%s]\n' "$state" "$scene" "$scale" "$got"
+    exit 1
+  fi
   printf 'shader-cost: scene=%s scale=%s samples=600 cpu_some_pct=%s log=%s\n' "$scene" "$scale" "$scene_cpu_some_pct" "$stem.log"
 }

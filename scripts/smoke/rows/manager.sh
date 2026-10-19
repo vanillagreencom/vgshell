@@ -1083,10 +1083,9 @@ expect_poll "the window is gone after the shortcut" 0 window_count Plugins
 # holds a mode derived from the current logical output size and the window
 # width token, and the window keeps `size.window.gutter` a side
 # and the tall share of the monitor's height, centred on it; the mode it had is then
-# restored, so later rows meet the monitor they read at the start. The host
-# can reset a held mode under the rows (held_mode_state in mode-hold.sh): the
-# window check reads the mode with the window and names a reset rather than
-# measuring the window against it.
+# restored, so later rows meet the monitor they read at the start. The
+# window check reads the mode with the window and names a monitor that left
+# the held mode rather than measuring the window against it.
 width="$(ipc smoke themeValue size.window.width)" || fail "the width token is unreadable"
 gutter="$(ipc smoke themeValue size.window.gutter)" || fail "the gutter token is unreadable"
 main_state="$(base_mode_scale "$main_monitor")" || fail "the monitor's base mode and scale are unreadable"
@@ -1114,10 +1113,9 @@ expect_poll "the window maps on the narrow monitor" 1 window_count Plugins
 geometry expect_poll "a monitor narrower than the width token keeps the gutters, grows within the screen cap and centres" '[]' window_fits "$main_monitor" "$narrow_mode"
 clamped_width() { settings_layer | py_reply 'import json,sys; print(json.load(sys.stdin)[2])'; }
 geometry expect "the clamped window is the monitor's width less two gutters" "$((narrow_width - 2 * gutter))" clamped_width
-# Control: the monitor's own mode comes back under the held row, as a host
-# configure brings it. The window check names the reset instead of
-# measuring the window against the monitor it now reads, and the hold reads
-# reset, the state that excuses a failing row as not measured.
+# Control: the monitor's own mode comes back under the held row. The window
+# check names the reset instead of measuring the window against the monitor
+# it now reads, and the hold reads reset.
 expect "the monitor's own mode comes back under the held row" ok output_mode "$main_monitor" "$main_mode" "$main_scale"
 expect_poll "the window check names the mode reset under the held row" "[\"mode=$main_mode want=$narrow_mode\"]" window_fits "$main_monitor" "$narrow_mode"
 expect "the hold reads the reset" reset held_mode_state

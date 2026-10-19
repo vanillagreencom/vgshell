@@ -7,26 +7,26 @@
 #
 # The sandbox is built from the repository alone: its own HOME, XDG dirs and
 # runtime dir, a minimal compositor config, no user state. It never touches
-# the live session: the nested compositor gets its own runtime dir, the
-# shell is addressed through that runtime dir, and teardown kills only the
-# process groups this run created.
+# the live session: the nested compositor gets its own runtime dir and
+# draws to the harness's own sink compositor (scripts/smoke/sink/sink.c),
+# which configures each output once at 1920x1080 and paces frames at its
+# own 240 Hz, so no host display or lit monitor is needed. The shell is
+# addressed through that runtime dir, and teardown kills only the process
+# groups this run created. It needs XDG_RUNTIME_DIR and a render node in
+# the GPU fence, and no WAYLAND_DISPLAY.
 #
 # Exit 0 when every check passed. Exit 77 when a prerequisite is missing,
-# naming it; when the nested compositor still lists a monitor with no size
-# at the bound scripts/smoke/harness.sh names from its launch,
-# nested-monitor=unsized, since it configures no bar there;
-# when the nested compositor's Wayland backend announced no output,
-# nested-backend=unannounced, once Hyprland lists only FALLBACK, no
-# wl_pointer and the host shows no new nested window;
-# or when a run whose only failures are geometry or render rows
-# met a sandbox fault: the nested window's output rejected a state because
-# its buffers could not be allocated, which the nested compositor logs as
-# `Output WAYLAND-<n>: pending state rejected: swapchain failed
-# reconfiguring` (a bare GBM allocation failure, which passing runs log for
-# the headless output, is not that fault), or the host withheld frame
-# callbacks so the shell never drew again; that is not a pass. A run whose
-# every failure came after the nested output left a mode a row held,
-# nested-output=mode-reset, is not a pass either.
+# naming it, the sink's build (missing=sink-helper-build) and the render
+# node it names (missing=render-node) among them; when the nested
+# compositor still lists a monitor with no size at the bound
+# scripts/smoke/harness.sh names from its launch, nested-monitor=unsized,
+# since it configures no bar there; or when a run whose only failures are
+# geometry or render rows met a sandbox fault: the nested output rejected a
+# state because its buffers could not be allocated, which the nested
+# compositor logs as `Output WAYLAND-<n>: pending state rejected: swapchain
+# failed reconfiguring` (a bare GBM allocation failure, which passing runs
+# log for the headless output, is not that fault); that is not a pass. A
+# sink that exits during the run fails the row it ended in as sink=exited.
 # scripts/smoke/verdict.sh holds the verdict. Exit 1 when a check failed.
 # Failed or interrupted rows retain bounded logs and probe dumps beside a
 # redirected run log, or under tmp/qml-smoke when stdout is not a file.

@@ -1,5 +1,5 @@
 # Sourced by qml-smoke.sh; owns the sandbox and shared readers.
-# inputs: scripts/smoke/user-config.sh scripts/smoke/verdict.sh scripts/smoke/mode-hold.sh scripts/smoke/tree.sh scripts/smoke/shot.sh scripts/smoke/app-window.sh scripts/smoke/host-window.sh scripts/smoke/leaks.sh bin/lib/ipc-reply.sh scripts/smoke/teardown.sh scripts/smoke/evidence.py scripts/smoke/hypr-call.sh scripts/smoke/devices.sh scripts/smoke/gpu-fence.sh scripts/smoke/Probe.qml scripts/smoke/pointer/* scripts/smoke/toplevel/* scripts/smoke/lock/* scripts/smoke/keyboard/* scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/fixtures/devices/stand-in.py scripts/smoke/fixtures/devices/rfkill.json scripts/fixtures/jarvis/prepare.js scripts/fixtures/jarvis/audio.js scripts/fixtures/jarvis/keys-world.js scripts/fixtures/jarvis/accounts-world.js scripts/lib/jarvis-env.sh
+# inputs: scripts/smoke/user-config.sh scripts/smoke/verdict.sh scripts/smoke/mode-hold.sh scripts/smoke/tree.sh scripts/smoke/shot.sh scripts/smoke/app-window.sh scripts/smoke/display-record.sh scripts/smoke/leaks.sh bin/lib/ipc-reply.sh scripts/smoke/teardown.sh scripts/smoke/evidence.py scripts/smoke/hypr-call.sh scripts/smoke/devices.sh scripts/smoke/gpu-fence.sh scripts/smoke/Probe.qml scripts/smoke/pointer/* scripts/smoke/toplevel/* scripts/smoke/sink/* scripts/smoke/lock/* scripts/smoke/keyboard/* scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/fixtures/devices/stand-in.py scripts/smoke/fixtures/devices/rfkill.json scripts/fixtures/jarvis/prepare.js scripts/fixtures/jarvis/audio.js scripts/fixtures/jarvis/keys-world.js scripts/fixtures/jarvis/accounts-world.js scripts/lib/jarvis-env.sh
 set -euo pipefail
 source "$repo/scripts/smoke/verdict.sh"
 source "$repo/scripts/smoke/mode-hold.sh"
@@ -7,7 +7,7 @@ source "$repo/scripts/smoke/tree.sh"
 source "$repo/scripts/smoke/user-config.sh"
 source "$repo/scripts/smoke/shot.sh"
 source "$repo/scripts/smoke/app-window.sh"
-source "$repo/scripts/smoke/host-window.sh"
+source "$repo/scripts/smoke/display-record.sh"
 source "$repo/bin/lib/ipc-reply.sh"
 missing=()
 # fd, fzf and file are the launcher file search helper's, which rows/launcher.sh runs;
@@ -21,16 +21,9 @@ done
 imagemagick="$(command -v magick 2>/dev/null || command -v convert 2>/dev/null)" || missing+=("magick")
 if command -v pkg-config >/dev/null 2>&1 && ! pkg-config --exists wayland-client; then missing+=("wayland-client.pc"); fi
 if command -v pkg-config >/dev/null 2>&1 && ! pkg-config --exists xkbcommon; then missing+=("xkbcommon.pc"); fi
-[[ -n ${WAYLAND_DISPLAY:-} ]] || missing+=("WAYLAND_DISPLAY")
 [[ -n ${XDG_RUNTIME_DIR:-} ]] || missing+=("XDG_RUNTIME_DIR")
 if [[ ${#missing[@]} -gt 0 ]]; then
   printf 'qml-smoke: status=not-measured missing=%s\n' "$(IFS=,; echo "${missing[*]}")"
-  exit 77
-fi
-host_socket="$WAYLAND_DISPLAY"
-[[ $host_socket == /* ]] || host_socket="$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY"
-if [[ ! -S $host_socket ]]; then
-  printf 'qml-smoke: status=not-measured missing=host-wayland-socket path=%s\n' "$host_socket"
   exit 77
 fi
 # The caller entered scripts/smoke/gpu-fence.sh before it sourced this
@@ -44,24 +37,11 @@ sandbox=""
 rt_dir=""
 source_repo="$repo"
 pgids=()
-# geometry and hold_check run a row under that class (row_class in
+# geometry, hold_check and render run a row under that class (row_class in
 # scripts/smoke/verdict.sh).
 geometry() { local row_class=geometry; "$@"; }
 hold_check() { local previous="$row_class"; row_class=hold; "$@"; row_class="$previous"; }
-# A render row that fails while the bar windows swapped no frame measured
-# the sandbox, not the shell.
-render() {
-  local row_class=render before after failed_before="$failures" status=0
-  before="$(ipc smoke frames)" || before=""
-  "$@" || status=$?
-  [[ $status == 0 ]] || return "$status"
-  [[ $failures -eq $failed_before ]] && return
-  after="$(ipc smoke frames)" || after=""
-  if [[ -z $before || -z $after || $before == "$after" ]]; then
-    stalled_render=true
-    printf '        no frame was drawn during the row (frames=%s)\n' "${after:-unreadable}"
-  fi
-}
+render() { local row_class=render; "$@"; }
 image_text_magenta_count() { # SURFACE HOST_KEY ID COPY_NAME INDEX
   local surface="$1" host_key="$2" id="$3" copy_name="$4" index="$5" rows window sample geometry threshold device_size socket count
   rows="$(ipc smoke imageTextItems "$host_key" "$id" "$copy_name")" || return
@@ -81,7 +61,7 @@ threshold=max(1, (device * device) // 5)
 print("%d,%d %dx%d|%d|%d" % (round(window[0]+x), round(window[1]+y), round(w), round(h), threshold, device))' "$window" "$index" <<<"$rows")" || return 1
   if [[ $sample != *'|'* ]]; then printf '%s\n' "$sample"; return; fi
   IFS='|' read -r geometry threshold device_size <<<"$sample"
-  socket="$(shot_socket "$rt_dir" "$nested_socket" "$host_socket")" || return 1
+  socket="$(shot_socket "$rt_dir" "$nested_socket")" || return 1
   count="$(shot_grim "$socket" "$rt_dir" -g "$geometry" -t ppm - | python3 -c 'import sys
 data=sys.stdin.buffer.read().split(b"\n",3)
 if len(data)!=4 or data[0]!=b"P6" or data[2]!=b"255": print("unreadable"); sys.exit(1)
@@ -250,17 +230,6 @@ LUA
 # on every load, so a reload applies the held rule again.
 mode_hold_file="$rt_dir/monitor-hold.lua"
 printf 'local hold_file = "%s"\nlocal hold = io.open(hold_file)\nif hold then hold:close(); dofile(hold_file) end\n' "$mode_hold_file" >>"$home/.config/hypr/hyprland.lua"
-# The host's own pointer reaches the nested compositor as one mouse, the
-# Wayland backend's wl_pointer, whenever the host shows the nested window
-# and the host's pointer crosses it; its motion and presses then land
-# between a row's hover and its click. Detached, it moves nothing here, so
-# the pointer helper's virtual pointer is the sandbox's one pointer. The
-# seat keeps its pointer capability, since a detached device stays listed.
-# Read on 2026-10-05 with Hyprland 0.56.2: under `enabled = false` the
-# helper's own virtual pointer, which is not libinput's either, moved the
-# cursor no more (`hyprctl cursorpos`).
-host_pointer="wl_pointer"
-printf 'hl.device({ name = "%s", enabled = false })\n' "$host_pointer" >>"$home/.config/hypr/hyprland.lua"
 # The consent row wires this file, so later rows compare it with the
 # harness's own text.
 cp -- "$home/.config/hypr/hyprland.lua" "$sandbox/hyprland-harness.lua"
@@ -478,29 +447,40 @@ shell_start_path="$shim:$shell_host_path"
 shell_start_words=(MALLOC_CONF=junk:free PATH="$shell_start_path" VGS_NOTIFICATIONS_SLACK_TEST_SECRET_TOOL_DIR="$shim")
 
 # The test helpers, built from the repository into the sandbox, each with
-# the client code wayland-scanner generates from the one protocol file
-# vendored beside it. Each is only ever run with the nested socket in its
-# environment. click: one click through the nested compositor's virtual
-# pointer protocol. toplevel: one xdg toplevel with a given app-id, so a
-# row reads back how the nested compositor places a window of that class.
+# the code wayland-scanner generates from the protocol files it names. Each
+# client is only ever run with the nested socket in its environment.
+# click: one click through the nested compositor's virtual pointer
+# protocol. toplevel: one xdg toplevel with a given app-id, so a row reads
+# back how the nested compositor places a window of that class.
 # lock-client: a second session-lock client, which rows/lock.sh starts and
 # stops by pid in place of another locker; it runs no authentication.
 # keyboard: physical keycodes with explicit modifier transitions.
-# build_helper NAME KEY SOURCE PROTOCOL_XML [PACKAGES...]; a failed build exits 77 as
-# missing=KEY-helper-build.
+# build_helper NAME KEY SOURCE PROTOCOL_XML... [PACKAGES...]: each argument
+# after SOURCE that ends in .xml is a protocol file, every other one a
+# pkg-config package. A helper whose packages name wayland-server is a
+# compositor and gets server headers; every other one is a wayland-client.
+# A failed build exits 77 as missing=KEY-helper-build.
 build_helper() {
-  local protocol flags
-  protocol="$(basename -- "$4" .xml)"
-  flags="$(pkg-config --cflags --libs wayland-client "${@:5}")" || {
-    printf 'qml-smoke: status=not-measured missing=%s-helper-packages\n' "$2"
+  local name="$1" key="$2" source="$3" role=client arg protocols=() packages=() code=() flags
+  shift 3
+  for arg in "$@"; do
+    if [[ $arg == *.xml ]]; then protocols+=("$arg"); else packages+=("$arg"); fi
+  done
+  for arg in "${packages[@]}"; do [[ $arg != wayland-server ]] || role=server; done
+  [[ $role == server ]] || packages=(wayland-client "${packages[@]}")
+  flags="$(pkg-config --cflags --libs "${packages[@]}")" || {
+    printf 'qml-smoke: status=not-measured missing=%s-helper-packages\n' "$key"
     exit 77
   }
+  for arg in "${protocols[@]}"; do code+=("$(basename -- "$arg" .xml)-protocol.c"); done
   if ! (cd "$sandbox" \
-        && wayland-scanner client-header "$4" "$protocol-client-protocol.h" \
-        && wayland-scanner private-code "$4" "$protocol-protocol.c" \
-        && cc -o "$1" "$3" "$protocol-protocol.c" -I. $flags) >"$sandbox/$1-build.log" 2>&1; then
-    printf 'qml-smoke: status=not-measured missing=%s-helper-build\n' "$2"
-    cat "$sandbox/$1-build.log"
+        && for arg in "${protocols[@]}"; do
+             wayland-scanner "$role-header" "$arg" "$(basename -- "$arg" .xml)-$role-protocol.h" \
+               && wayland-scanner private-code "$arg" "$(basename -- "$arg" .xml)-protocol.c" || exit 1
+           done \
+        && cc -o "$name" "$source" "${code[@]}" -I. $flags) >"$sandbox/$name-build.log" 2>&1; then
+    printf 'qml-smoke: status=not-measured missing=%s-helper-build\n' "$key"
+    cat "$sandbox/$name-build.log"
     exit 77
   fi
 }
@@ -508,6 +488,24 @@ build_helper click pointer "$repo/scripts/smoke/pointer/click.c" "$repo/scripts/
 build_helper toplevel toplevel "$repo/scripts/smoke/toplevel/toplevel.c" "$repo/scripts/smoke/toplevel/xdg-shell.xml"
 build_helper lock-client lock-client "$repo/scripts/smoke/lock/lock-client.c" "$repo/scripts/smoke/lock/ext-session-lock-v1.xml"
 build_helper keyboard keyboard "$repo/scripts/smoke/keyboard/keyboard.c" "$repo/scripts/smoke/keyboard/virtual-keyboard-unstable-v1.xml" xkbcommon
+# sink: the compositor the nested Hyprland draws to (scripts/smoke/sink/sink.c),
+# over the xdg-shell file the toplevel helper uses and the system's
+# linux-dmabuf protocol file. It names the fence's first render node as the
+# dmabuf main device, the node the nested compositor then renders on, and
+# reads that node's render modifiers through EGL inside the fence.
+if ! wayland_protocols="$(pkg-config --variable=pkgdatadir wayland-protocols)" || [[ -z $wayland_protocols ]]; then
+  printf 'qml-smoke: status=not-measured missing=sink-helper-packages\n'
+  exit 77
+fi
+build_helper sink sink "$repo/scripts/smoke/sink/sink.c" "$repo/scripts/smoke/toplevel/xdg-shell.xml" "$wayland_protocols/stable/linux-dmabuf/linux-dmabuf-v1.xml" wayland-server egl gbm libdrm
+render_node=""
+for candidate in /dev/dri/renderD*; do
+  [[ -c $candidate ]] && { render_node="$candidate"; break; }
+done
+if [[ -z $render_node ]]; then
+  printf 'qml-smoke: status=not-measured missing=render-node\n'
+  exit 77
+fi
 
 # The authentication helpers under a process tree: pam_unix's unix_chkpwd,
 # polkit's polkit-agent-helper-1 (its name cut to 15 bytes in /proc), sudo
@@ -723,22 +721,45 @@ display_record_scope() {
   display_record_call scope "$display_scope" "$self" "${#argv[@]}" "${argv[@]}" "${display_rows[@]}" >/dev/null || true
 }
 display_record_scope
-display_record_call host "${XDG_RUNTIME_DIR}/hypr/${HYPRLAND_INSTANCE_SIGNATURE:-missing}/.socket2.sock" >/dev/null || true
 display_record_call mark run-inputs "${argv[*]:-}" "${sandbox_env[@]}" "${shell_start_words[@]}" >/dev/null || true
 cp -- "$home/.config/hypr/hyprland.lua" "$display_record_dir/hyprland.lua"
 printf 'qml-smoke: display-record=%s\n' "$display_record_dir/events.jsonl"
+# The sink is the nested compositor's display, in place of the live
+# session's. Its socket exists only once it listens (sink.c), and its name
+# is no wayland-* name, which the nested socket wait below takes for the
+# nested compositor's own.
+sink_socket="$rt_dir/vgs-sink"
+spawn "$sandbox/sink.log" "${sandbox_env[@]}" "$sandbox/sink" "$sink_socket" "$render_node"
+sink_pid="$spawn_pid"
+for _ in $(seq 1 200); do
+  [[ ! -S $sink_socket ]] || break
+  kill -0 "$sink_pid" 2>/dev/null || break
+  sleep 0.05
+done
+if [[ ! -S $sink_socket ]]; then
+  printf 'qml-smoke: status=not-measured missing=sink log=%s\n' "$sandbox/sink.log"
+  tail -n 5 -- "$sandbox/sink.log" || true
+  exit 77
+fi
+# sink_check: fails the run's current row once, keyed sink=exited, when
+# the sink has exited: the nested compositor then draws to a closed
+# display, and the rows after it fail for that.
+sink_exited=""
+sink_check() {
+  [[ -z $sink_exited ]] || return 0
+  kill -0 "$sink_pid" 2>/dev/null && return 0
+  sink_exited=1
+  row_class=operation fail "sink=exited log=$sandbox/sink.log last=[$(tail -n 1 -- "$sandbox/sink.log" 2>/dev/null)]"
+}
 # The nested compositor carries the words start_shell gives a shell and
 # the sandbox's buses, so a shell `vgshell restart` relaunches through its
 # dispatch finds the same stand-ins and reaches no bus of the user's
 # (rows/start-order.sh). It sets the Wayland and Hyprland variables of its
 # children itself.
-# The fence uses a private pid namespace, so the host window for this run
-# is the aquamarine stableId that appears after the compositor starts.
-host_windows_before="$(host_nested_windows)" || host_windows_before=unreadable
 display_stream_kind=wayland
 spawn "$sandbox/hyprland.log" "${sandbox_env[@]}" "${shell_start_words[@]}" \
   DBUS_SESSION_BUS_ADDRESS="unix:path=$rt_dir/bus" DBUS_SYSTEM_BUS_ADDRESS="unix:path=$rt_dir/system-bus" \
-  WAYLAND_DEBUG=client WAYLAND_DISPLAY="$host_socket" Hyprland --config "$home/.config/hypr/hyprland.lua"
+  WAYLAND_DEBUG=client WAYLAND_DISPLAY="$sink_socket" Hyprland --config "$home/.config/hypr/hyprland.lua"
 compositor_pid="$spawn_pid"
 display_record_call mark compositor-launch "$compositor_pid" >/dev/null || true
 compositor_started_ns="$(date +%s%N)"
@@ -779,6 +800,7 @@ shell_env=("${sandbox_env[@]}" WAYLAND_DISPLAY="$nested_socket" HYPRLAND_INSTANC
 # Defined before hypr-call.sh, whose stall handler ends the run through it
 # from the first call on.
 smoke_finish() {
+sink_check
 if [[ $failures -gt 0 ]]; then
   echo "--- instance log tail"; tail -n 40 "${instance_log:-$sandbox/qs.log}" 2>/dev/null || true
   # Hyprland ends its log without a newline; sed adds the one the verdict
@@ -786,7 +808,7 @@ if [[ $failures -gt 0 ]]; then
   echo "--- nested compositor log tail"; tail -n 40 "$rt_dir"/hypr/*/hyprland.log 2>/dev/null | sed '$a\' || true
 fi
 local status=0
-smoke_verdict "$failures" "$behaviour_failures" "$stalled_render" "$mode_resets" "$rt_dir"/hypr/*/hyprland.log || status=$?
+smoke_verdict "$failures" "$behaviour_failures" "$rt_dir"/hypr/*/hyprland.log || status=$?
 display_record_close "$status" smoke_finish || true
 [[ $status -eq 0 ]] || exit "$status"
 }
@@ -796,11 +818,10 @@ source "$repo/scripts/smoke/hypr-call.sh"
 # compositor lists monitors and every one has a size, so no bar is built
 # for the placeholder screen Qt invents when a compositor has no output
 # yet, nor for the 0x0 FALLBACK monitor Hyprland lists when no output is
-# ready two seconds after launch, as when the host is slow to configure
-# the nested window. Hyprland configures no layer surface on a monitor
-# with no size, so a bar there would never lay out or reserve space.
-# sized_monitors prints the monitor count, or 0 while any listed monitor
-# has no size, then each monitor as NAME:WxH.
+# ready two seconds after launch. Hyprland configures no layer surface on
+# a monitor with no size, so a bar there would never lay out or reserve
+# space. sized_monitors prints the monitor count, or 0 while any listed
+# monitor has no size, then each monitor as NAME:WxH.
 sized_monitors() {
   hypr -j monitors | python3 -c 'import json,sys; ms=json.load(sys.stdin); print(len(ms) if ms and all(m["width"] > 0 and m["height"] > 0 for m in ms) else 0, ",".join("%s:%dx%d" % (m["name"], m["width"], m["height"]) for m in ms))'
 }
@@ -808,52 +829,6 @@ nested_elapsed_secs() {
   local now_ns="$1" waited_ms
   waited_ms=$(((now_ns - compositor_started_ns) / 1000000))
   printf '%s.%02d' "$((waited_ms / 1000))" "$((waited_ms % 1000 / 10))"
-}
-# Aquamarine 0.15.1's Wayland backend announces devices and output and
-# sends its window's first commit only after it reads a host event once
-# ready. A start that read every host event while starting gets none, so
-# the state is permanent: Hyprland lists FALLBACK only from its 2 s launch
-# fallback timer. Upstream aquamarine 7bb8bdf (#415) fixes it. The check
-# reads the state once, at the first FALLBACK reading, so it also ends a
-# start whose host answered nothing in the 2 s before it; once the host's
-# aquamarine carries the fix, only such a start should reach it. On host
-# cachy on 2026-10-11, one start of `qml-smoke.sh --first-bar-runs 1` at
-# load 14.95 kept this state, FALLBACK:0x0 from 2.38 s, no wl_pointer and
-# no host window, for the whole 60 s bound; this check named one start of
-# ten in `--first-bar-runs 10` at load 13.87 at 2.30 s.
-# host_windows_before is empty when the host showed no nested window.
-host_windows_since() {
-  local current
-  if [[ ${host_windows_before-unreadable} == unreadable ]]; then echo unreadable; return 1; fi
-  current="$(host_nested_windows)" || { echo unreadable; return 1; }
-  [[ $current != unreadable ]] || { echo unreadable; return 1; }
-  python3 - "$host_windows_before" "$current" <<'PY'
-import sys
-before, current = sys.argv[1:]
-before_ids = {line.split(" ", 1)[0] for line in before.splitlines() if line}
-new = [line for line in current.splitlines() if line and line.split(" ", 1)[0] not in before_ids]
-print(";".join(new) if new else "none")
-PY
-}
-nested_mice() {
-  local devices
-  devices="$(hypr -j devices)" || { echo unreadable; return 1; }
-  python3 -c '
-import json, sys
-try:
-    mice = [m["name"] for m in json.loads(sys.argv[1])["mice"]]
-except (ValueError, KeyError, TypeError):
-    print("unreadable"); sys.exit(1)
-print(",".join(mice) if mice else "none")
-' "$devices"
-}
-nested_backend_unannounced() {
-  nested_mice_seen=unreadable
-  host_windows_new=unreadable
-  nested_mice_seen="$(nested_mice)" || return 1
-  host_windows_new="$(host_windows_since)" || return 1
-  [[ $host_windows_new == none ]] || return 1
-  [[ ,$nested_mice_seen, != *,"$host_pointer",* ]] || return 1
 }
 # nested_monitor_wait_secs bounds the wait from the compositor's launch,
 # and every start prints how long it waited, keyed secs=. A 10 s bound
@@ -863,7 +838,7 @@ nested_backend_unannounced() {
 # Twelve starts of `qml-smoke.sh --first-bar-runs 12` on cachy, the same
 # day at 12:57Z and host load 9.1, each read 0.33 to 0.34 s. No start
 # came late in that run, so 60 s is not a measured late time: it is 180
-# times the reading, and a window the host never sizes still ends as
+# times the reading, and a monitor that never gets a size still ends as
 # exit 77 after it.
 nested_monitor_wait_secs=60
 monitors=-1
@@ -871,8 +846,6 @@ monitors_seen=""
 monitors_record=""
 monitors_record_last=$'\001'
 compositor_gone=""
-nested_backend_unannounced_seen=""
-nested_backend_unannounced_checked=""
 while :; do
   if read -r monitors monitors_seen < <(sized_monitors 2>/dev/null); then
     if [[ $monitors_seen != "$monitors_record_last" ]]; then
@@ -880,13 +853,6 @@ while :; do
       monitors_record_last="$monitors_seen"
     fi
     if [[ $monitors -gt 0 ]]; then break; fi
-    if [[ -z $nested_backend_unannounced_checked && $monitors_seen == FALLBACK:* && $monitors_seen != *,* ]]; then
-      nested_backend_unannounced_checked=1
-      if nested_backend_unannounced; then
-        nested_backend_unannounced_seen=1
-        break
-      fi
-    fi
   fi
   kill -0 "$compositor_pid" 2>/dev/null || { compositor_gone=1; break; }
   (($(date +%s%N) - compositor_started_ns < nested_monitor_wait_secs * 1000000000)) || break
@@ -902,16 +868,9 @@ elif [[ -n $compositor_gone ]]; then
   printf 'qml-smoke: status=not-measured missing=nested-compositor secs=%s\n' "$nested_monitor_ready_secs"
   tail -n 20 "$sandbox/hyprland.log"
   exit 77
-elif [[ -n $nested_backend_unannounced_seen ]]; then
-  printf 'qml-smoke: status=not-measured nested-backend=unannounced monitors=%s mice=%s host_new_windows=none secs=%s\n' "$monitors_seen" "$nested_mice_seen" "$nested_monitor_ready_secs"
-  printf 'qml-smoke: nested-monitor-readings monitors=%s\n' "$nested_monitor_readings"
-  echo "the nested compositor's Wayland backend (aquamarine 0.15.1) announced no output and sent the host no window, so no monitor will get a size; the host's aquamarine needs upstream 7bb8bdf (#415). Run the smoke again"
-  exit 77
 elif [[ -n $monitors_seen ]]; then
   printf 'qml-smoke: status=not-measured nested-monitor=unsized monitors=%s secs=%s bound_secs=%d\n' "$monitors_seen" "$nested_monitor_ready_secs" "$nested_monitor_wait_secs"
-  nested_mice_line="$(nested_mice)" || nested_mice_line=unreadable
-  host_windows_line="$(host_windows_since)" || host_windows_line=unreadable
-  printf 'qml-smoke: nested-monitor-readings monitors=%s mice=%s host_new_windows=%s\n' "$nested_monitor_readings" "$nested_mice_line" "$host_windows_line"
+  printf 'qml-smoke: nested-monitor-readings monitors=%s\n' "$nested_monitor_readings"
   echo "the nested compositor still listed a monitor with no size $nested_monitor_ready_secs s after its launch, at the $nested_monitor_wait_secs s bound, so it would configure no bar; FALLBACK is Hyprland's placeholder when no output is ready. Run the smoke again"
   exit 77
 else
@@ -943,19 +902,6 @@ except (ValueError, KeyError, TypeError):
   fi
 }
 nested_xwayland_check
-# hl.device takes a name no device carries without an error, so the run
-# reads that the device it detaches is the compositor's one mouse before
-# the pointer helper adds its own; the backend adds it once the host's
-# seat announces a pointer.
-mice_seen=""
-for _ in $(seq 1 50); do
-  mice_seen="$(hypr -j devices 2>/dev/null | python3 -c 'import json,sys; print(json.dumps([m["name"] for m in json.load(sys.stdin)["mice"]]))' 2>/dev/null)" || mice_seen=unreadable
-  [[ $mice_seen == "[\"$host_pointer\"]" ]] && break
-  sleep 0.2
-done
-if [[ $mice_seen == "[\"$host_pointer\"]" ]]; then ok "the nested compositor's one mouse is the host's pointer, which it detaches: $host_pointer"
-else fail "the nested compositor's one mouse is the host's pointer, which it detaches: got $mice_seen want [\"$host_pointer\"]"
-fi
 # The shipped bar carries its clock and workspaces as built-ins, so the
 # widget rows use a third-party widget placed in the user file before the
 # shell starts. The launcher and the notifications, first-party and so
@@ -1356,39 +1302,29 @@ latency_busy_reason() {
 # pointer_at: `X Y`, the layout position where the last click, hover,
 # right_click, middle_click, drag, wheel or swipe that succeeded left the
 # pointer, empty before any.
-# A reset mode shrinks the layout under a pointer it no longer covers, and
-# the mode taken again does not move the pointer back; a caller puts it
-# back from here (settle_hold in scripts/sandbox-shots.sh).
 pointer_at=""
-# coordinate_observation LABEL CALLBACK...: prepare before fresh sampling,
-# then run only dependent actions and checks in the row shell. The callback
-# must return each action's status explicitly: Bash disables errexit when
-# it is called in a condition. Cleanup belongs after this scope.
+# coordinate_observation LABEL CALLBACK...: run dependent actions and checks
+# in the row shell, and fail the row as an operation failure when one of
+# them returns another status than 0. Inside it a command expect or
+# expect_poll runs that fails returns its status, so no later dependent
+# step runs. The callback must return each action's status explicitly:
+# Bash disables errexit when it is called in a condition. Cleanup belongs
+# after this scope.
 coordinate_observation() {
   local label="$1" status=0 coordinate_scope=true
   shift
-  if coordinate_mode_prepare; then
-    "$@" || status=$?
-  else
-    status=$?
+  "$@" || status=$?
+  if [[ $status != 0 ]]; then
+    local row_class=operation
+    fail "$label: coordinate operation failed status=$status"
   fi
-  case "$status" in
-    0) ;;
-    77) not_measured "$label" "held-mode-unavailable" ;;
-    *) local row_class=operation; fail "$label: coordinate operation failed status=$status" ;;
-  esac
   return 0
 }
 # pointer_dispatch X Y WIDTH HEIGHT [ACTION...]: one shared delivery owner.
-# The final check never restores a mode after a caller sampled coordinates.
-# Unscoped callers receive the refusal too; their own failure handling stays.
-# The reset refusal is said here, once per refused step, and not in
-# coordinate_mode_check, whose reset coordinate_mode_prepare then restores.
+# A step whose held mode no longer stands is refused (coordinate_mode_check
+# in mode-hold.sh), since the caller sampled its coordinates under the hold.
 pointer_dispatch() {
-  local status=0
-  coordinate_mode_check || status=$?
-  [[ $status != 77 ]] || printf 'coordinate-mode: reset output=%s want=[%s] pointer-step=refused\n' "${mode_hold[0]}" "${mode_hold[1]}" >&2
-  [[ $status == 0 ]] || return "$status"
+  coordinate_mode_check || return 1
   nested_input_check "$sandbox/click" || return 1
   "${shell_env[@]}" "$sandbox/click" "$@" >/dev/null || return 1
 }
@@ -1556,28 +1492,11 @@ control_hovered() {
 # starts the count again. Returns 1 when the control is absent at the
 # first reading or never reports the pointer; a control absent at a later
 # reading is being laid out again, and the count starts again.
-# A move that pointer_dispatch refuses with 77 sent nothing: the output
-# left the mode the run holds, which a host configure of the nested
-# window does while its size differs from the hold (held_mode_state in
-# mode-hold.sh), and the box was read under that other layout. The helper
-# restores the hold through coordinate_mode_prepare, its existing owner,
-# and reads the box again, as for a box that moved, at most
-# point_item_restores times a call; it returns 77 past that, and the
-# restore's status when the hold cannot be restored (VGS-1711). Each
-# restore that holds prints `coordinate-mode: restored output=<name>
-# want=[<state>] by=point_item restores=<n>` on stderr, so the log pairs
-# the refused step pointer_dispatch reports with its restore. Inside a
-# coordinate_observation it restores nothing and returns the 77: the
-# observation sampled other points under the old layout, and it records
-# the step not measured.
 # notifications.sh rests the pointer through it on the cards whose hover
 # pauses a clock or shows actions: the held toast, the actionable toast,
 # the hover geometry card and the restored toast.
-# Each restore is a configuration reload, which take_mode bounds; two
-# resets in one call already mean the host keeps moving the window.
-point_item_restores=2
 point_item() { # LOOKUP [DX DY]
-  local n=4 lookup rect seen="" x="" y="" px hovered held=0 i status restores=0
+  local n=4 lookup rect seen="" x="" y="" px hovered held=0 i
   [[ $1 == vgs:* || $1 == window:* ]] && n=5
   [[ $1 == popup:* ]] && n=6
   [[ $1 == scoped:* ]] && n=7
@@ -1596,17 +1515,7 @@ point_item() { # LOOKUP [DX DY]
       read -r x y < <(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); dx,dy=sys.argv[2:]; print(int(x + (w / 2 if dx == "-" else float(dx))), int(y + (h / 2 if dy == "-" else float(dy))))' "$rect" "${1:--}" "${2:--}") || return 1
     fi
     px=$((x + i % 2))
-    status=0
-    hover "$px" "$y" || status=$?
-    if [[ $status == 77 && ${coordinate_scope:-false} != true ]]; then
-      (( restores < point_item_restores )) || return 77
-      restores=$((restores + 1))
-      # The caller reads X Y from stdout, so the restore speaks on stderr.
-      coordinate_mode_prepare >&2 || return $?
-      printf 'coordinate-mode: restored output=%s want=[%s] by=point_item restores=%s\n' "${mode_hold[0]}" "${mode_hold[1]}" "$restores" >&2
-      held=0; seen=""; continue
-    fi
-    [[ $status == 0 ]] || return "$status"
+    hover "$px" "$y" || return 1
     hovered="$(control_hovered "${lookup[@]}")" || return 1
     if [[ $hovered == true ]]; then held=$((held + 1)); else held=0; fi
     if [[ $held -ge 2 && $(control_box "${lookup[@]}") == "$seen" ]]; then printf '%s %s\n' "$px" "$y"; return; fi
@@ -1894,7 +1803,7 @@ x,y,w,h=orb["box"]
 print("%d,%d %dx%d|%s" % (round(window[0]+x),round(window[1]+y),round(w),round(h),orb["ink"][1:7]))' "$window" "$2" <<<"$rows")" || return 1
   if [[ $sample != *'|'* ]]; then printf '%s\n' "$sample"; return; fi
   IFS='|' read -r geometry colour <<<"$sample"
-  socket="$(shot_socket "$rt_dir" "$nested_socket" "$host_socket")" || return 1
+  socket="$(shot_socket "$rt_dir" "$nested_socket")" || return 1
   count="$(shot_grim "$socket" "$rt_dir" -g "$geometry" -t ppm - | python3 -c 'import sys
 data=sys.stdin.buffer.read().split(b"\n",3)
 if len(data)!=4 or data[0]!=b"P6" or data[2]!=b"255": print("unreadable"); sys.exit(1)
@@ -2661,7 +2570,7 @@ background_image_on() { ipc smoke images "background:$1" vgs.themes | py_reply '
 background_source_size() { ipc smoke images "background:$1" vgs.themes | py_reply 'import json,sys; r=json.load(sys.stdin); print("%dx%d" % tuple(int(v) for v in r[0][4]) if len(r)==1 else "images=%d" % len(r))'; }
 
 # shell_output_scale is the first shell's density, 1 or 2. Capture callers
-# without shell_output_size keep the host's logical layout. Validation
+# without shell_output_size keep the output's own layout. Validation
 # supplies shell_output_size and marks its acquired bottom hold for the
 # sandbox lifetime, so a row's release cannot discard that layout.
 # shell_output_mode records the acquired device mode at scale 2 for capture
@@ -2751,7 +2660,7 @@ at_centre() {
 # as rrggbb, through grim given the nested socket alone (shot.sh).
 pixel() {
   local socket
-  socket="$(shot_socket "$rt_dir" "$nested_socket" "$host_socket")" || return 1
+  socket="$(shot_socket "$rt_dir" "$nested_socket")" || return 1
   shot_pixel "$socket" "$rt_dir" "$1" "$2"
 }
 # click_in SURFACE HOST_KEY ID TYPE TEXT: one click on the centre of the
@@ -3736,6 +3645,7 @@ PY
       if [[ $smoke_row_line == crash=* ]]; then fail "$smoke_row_name: the shell crashed: $smoke_row_line"; else printf '%s\n' "$smoke_row_line"; fi
     done <"$sandbox/rows/$smoke_row_name.crashes"
   fi
+  sink_check
   leak_row_end "$smoke_row_name" "$smoke_row_dir"
   ipc_timeout_check "$smoke_row_name" || true
   printf 'qml-smoke: row-secs row=%s secs=%s\n' "$smoke_row_name" "$((EPOCHSECONDS - smoke_row_started))"

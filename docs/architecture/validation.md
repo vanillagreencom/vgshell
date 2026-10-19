@@ -14,7 +14,7 @@ A check that could not run says so, and that is never a pass: exit 77 in [AGENTS
 
 Only selection cuts the time a fix round costs. A row that runs when it cannot prove it is unaffected keeps the coverage a skipped row would silently lose.
 
-The sandbox shares the host's files, devices, PAM, polkit, faillock and sudo timestamp. Namespaces do not confine them. A check that reaches one changes the owner's machine, and a capture through the host socket records the owner's desktop.
+The sandbox shares the host's files, devices, PAM, polkit, faillock and sudo timestamp. Namespaces do not confine them. A check that reaches one changes the owner's machine.
 
 Rows share one sandbox. A row that leaves state changes what a later row reads, so a scoped run and a full run disagree. A wait on time passes on a fast machine and fails on a loaded one. A command that fails outside every check loses every later check in its row, and an unbound variable ends the run with every later row unreported.
 
@@ -45,8 +45,8 @@ A broken environment that reads as a pass hides the regression the check exists 
 - Do assert the argv a stand-in recorded, never the effect of the script it stands in for. Review holds it.
 - Never add a device fake or a device-command stand-in in a row; `scripts/smoke/devices.sh` owns them. Review holds it.
 - Do start a device row behind the guard in `scripts/smoke/devices.sh`, which records the row not measured when it reads a leak to the host. `scripts/smoke/rows/device-fakes.sh` holds the guard.
-- Do capture the sandbox only through `scripts/smoke/shot.sh`, which refuses the host socket and an output outside `tmp/`. `scripts/test-sandbox-shots.sh` holds it.
-- Never dispatch to the host compositor, change its focus or open one of its workspaces from a run; read it only. Review holds it.
+- Do capture the sandbox only through `scripts/smoke/shot.sh`, which refuses a socket outside the sandbox's runtime dir and an output outside `tmp/`. `scripts/test-sandbox-shots.sh` holds it.
+- Never reach the host compositor from a run: the sandbox reads, dispatches to and draws on no live session. Review holds it.
 - Do run every input tool, `wtype`, `$sandbox/click`, `$sandbox/keyboard` and `wl-copy`, only after `nested_input_check` in `scripts/smoke/harness.sh`. It refuses, with no tool call, an environment that does not name the socket the harness started. `scripts/test-smoke-input-guard.sh` holds it for each helper that runs one.
 - Never return a secret, or data derived from one, from a sandbox reader; a reader returns state and geometry. Review holds it.
 - Never hold the shared sandbox slot gate above its load limit with a lane's own stress load. A proof under load runs once, with the smallest load that reproduces the failure, inside the lane's own slot run, and a Done-when never asks for repeated load runs. Review holds it.
@@ -54,6 +54,7 @@ A broken environment that reads as a pass hides the regression the check exists 
 ### Nested sandbox
 
 - Do start and stop the sandbox only through `scripts/smoke/harness.sh`. `scripts/test-smoke-teardown.sh` holds the teardown.
+- Do draw the nested compositor to the harness's own sink compositor, `scripts/smoke/sink/sink.c`, which the harness starts in the GPU fence before the compositor and stops with it. The sandbox needs no host display or lit monitor and puts no window on the live desktop: the sink configures each output once, at 1920x1080, sends no input, and paces frames at its own 240 Hz. `scripts/test-smoke-sink.sh` holds the sink.
 - Do retain a failed or interrupted row's shell instance logs, nested compositor logs, row output and probe dumps before removing the sandbox, including fence cleanup after a killed runner. `scripts/smoke/evidence.py` owns the retained set: each file's last 1 MiB, at most 8 MiB per row including its index. Copies land in `smoke-evidence-<sandbox>/<row>/` beside the redirected run log (`qml.log` for a main run or the lane validation log), under `tmp/qml-smoke/` for a terminal run, or in the run directory named by `qml-smoke.sh --log-dir`. Passing rows retain nothing. A copy failure reports its cause and preserves the run's verdict. `scripts/test-smoke-evidence.py` holds the copy and both cleanup paths.
 - Do wait on a state the shell or the compositor reports, never on time. Review holds it.
 - Do bound each smoke IPC call at 10 seconds in `scripts/smoke/harness.sh::ipc_call_last`. Expiry kills the call and fails its row as an operation failure, with the target, function and bound. `scripts/test-smoke-dumps.py` holds it, including a reader that catches the failure and a paged reply.
@@ -67,8 +68,8 @@ The IPC bound uses the `scripts/qml-smoke.sh --rows bar,displays-modes,themes` r
 
 ### Faults
 
-- Do report a sandbox fault as not measured, and let it excuse only a row that reads geometry or a drawn frame; every other failure is behaviour. `scripts/smoke/verdict.sh` holds the verdict and `scripts/test-smoke-verdict.sh` its controls.
-- Do restore a held mode a host configure reset before a pointer step reads its target again, and fail the step when the restore cannot hold it; only a `coordinate_observation` records such a step not measured. `point_item` in `scripts/smoke/harness.sh` restores it through `coordinate_mode_prepare`, and `scripts/test-mode-hold.sh` holds it.
+- Do report a sandbox fault as not measured, and let it excuse only a row that reads geometry or a drawn frame; every other failure is behaviour. The one such fault is a nested output that cannot allocate its buffers. A sink that exits fails the row it ended in as `sink=exited`. `scripts/smoke/verdict.sh` holds the verdict and `scripts/test-smoke-verdict.sh` its controls.
+- Never excuse a failure on a held mode that no longer stands; the sink resets no hold. A pointer step whose held mode no longer stands sends nothing and fails its row. `pointer_dispatch` in `scripts/smoke/harness.sh` refuses it through `coordinate_mode_check`, and `scripts/test-mode-hold.sh` holds it.
 - Never excuse a run on a log line that names no output; passing runs log it too. `scripts/test-smoke-verdict.sh` holds it.
 - Do run a not-measured check again, and report a second sighting. Review holds it.
 
@@ -115,7 +116,7 @@ The IPC bound uses the `scripts/qml-smoke.sh --rows bar,displays-modes,themes` r
 
 ## Revisit when
 
-CI gains a Wayland-capable runner, the sandbox gains its own PAM, polkit and session, a check needs host state the sandbox cannot reproduce, the reference machine changes, or a regression lands that an unselected row would have caught.
+CI gains a runner with a DRM render node, the sandbox gains its own PAM, polkit and session, a check needs host state the sandbox cannot reproduce, the reference machine changes, or a regression lands that an unselected row would have caught.
 
 ## Not governed
 

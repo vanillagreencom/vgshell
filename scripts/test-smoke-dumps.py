@@ -147,6 +147,7 @@ devices_guard() { echo stable; }
 devices_check() { return 0; }
 rest_pointer() { return 0; }
 shell_crash_check() { return 0; }
+sink_check() { :; }
 smoke_poll_tries() { smoke_poll_n=50; }
 ok() { :; }
 smoke_row example "$sandbox"

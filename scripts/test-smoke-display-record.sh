@@ -4,7 +4,7 @@
 # harness itself. Each case runs a driver bash that holds the harness's
 # spawn, display_record_call and display_record_arm and arms one recorder:
 # a stub that exits before it writes, a stub whose healthy start takes two
-# seconds, and the real recorder from scripts/smoke/host-window.sh in a
+# seconds, and the real recorder from scripts/smoke/display-record.sh in a
 # directory whose control socket path is longer than the 108 bytes of
 # sun_path. Each case pins the driver's exit status and its keyed line.
 #
@@ -31,7 +31,7 @@ failures=0
 ok() { printf '  ok    %s\n' "$*"; }
 fail() { failures=$((failures + 1)); printf '  FAIL  %s\n' "$*"; }
 
-source "$repo/scripts/smoke/host-window.sh"
+source "$repo/scripts/smoke/display-record.sh"
 display_record_program >"$tmp/recorder.py"
 
 # extract SOURCE OUT: the harness functions the driver runs, each from its

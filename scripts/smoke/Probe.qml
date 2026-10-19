@@ -404,7 +404,6 @@ Scope {
     property Item rememberedNetworkShare: null
     property var networkOriginalShell: null
     property int builds: 0
-    property int frames: 0
     property int holdMarkers: 0
     property var holdMarker: null
     Component {
@@ -609,7 +608,6 @@ Scope {
             required property var modelData
             target: modelData
             function onFrameSwapped() {
-                root.frames += 1;
                 if (root.presentedWindows.indexOf(modelData) !== -1) return;
                 root.presentedWindows = root.presentedWindows.concat([modelData]);
                 root.note(["frame", root.presentedWindows.length]);
@@ -2047,7 +2045,6 @@ Scope {
             return String(root.instancesUnder(hostKey, id));
         }
         function pluginInstances(hostKey: string, id: string): int { return root.instancesUnder(hostKey, id); }
-        function frames(): int { return root.frames; }
         function holdMarkerCount(): int { return root.holdMarkers; }
         function holdMarkerStart(): string {
             if (root.holdMarker !== null) return "held";

@@ -3868,7 +3868,7 @@ fade_card_sample() { # PNG
   view="$(<"$view_file")" || return
   surface="$(<"$surface_file")" || return
   ink="$(<"$ink_file")" || return
-  socket="$(shot_socket "$rt_dir" "$nested_socket" "$host_socket")" || return
+  socket="$(shot_socket "$rt_dir" "$nested_socket")" || return
   output="$(first_name)" || return
   if ! shot_grim "$socket" "$rt_dir" -o "$output" -t png "$1"; then
     echo capture-unreadable
@@ -3919,7 +3919,7 @@ fade_state_hovered() { ipc smoke itemValues panel vgs.notifications Notification
 fade_state_pressed() { ipc smoke itemValues panel vgs.notifications QQuickMouseArea pressed | py_reply 'import json,sys;print(any(v["pressed"] for v in json.load(sys.stdin)))'; }
 fade_output() { # PNG
   local socket output status
-  socket="$(shot_socket "$rt_dir" "$nested_socket" "$host_socket")" || {
+  socket="$(shot_socket "$rt_dir" "$nested_socket")" || {
     status=$?
     printf 'notification-capture: output=failed status=%s path=%s\n' "$status" "$1" >&2
     return "$status"

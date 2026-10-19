@@ -6,20 +6,20 @@
 # `ok`, records the rule from the hold file. `hypr -j monitors` lists
 # WAYLAND-1 at the mode and scale the case plans for the reloads so far,
 # so the real monitor_rule, reload reader and mode_scale_of run. A stub sleep keeps the
-# 5 s polls instant. Each case pins the exit status, the tallies, mode
-# resets among them, the hold's state as held_mode_state reads it, the
-# window size the hold records, the rules applied and the typed
-# not-measured diagnostic. Startup and capture cases execute their source
+# 5 s polls instant. Each case pins the exit status, the tallies, the
+# hold's state as held_mode_state reads it, the rules applied and the
+# typed not-measured diagnostic. Startup and capture cases execute their source
 # operations and require a checked monitor before the shell stand-in runs.
 # Run-base cases suspend that startup hold for a row and put it back, at
 # the row's end and through the row's early-end command.
 # A second table runs
 # whole_scale_mode, the mode and scale a hold above scale 1 takes, and
-# pins its output and exit status. A third runs held_mode_host_sized, whether
-# a taken hold reads the host window's own size, over the stub monitor. The
-# controls at the end plant one
-# defect per rule in a copy of the file and require the case that rule
-# owns to go red.
+# pins its output and exit status. A third reads base_mode_scale. The
+# controls after them plant one defect per rule in a copy of the file and
+# require the case that rule owns to go red. The coordinate cases at the
+# end run the pointer steps of scripts/smoke/harness.sh and the Surfaces
+# row's reader under a held mode, and refuse a step once the output left
+# it.
 #
 # Exit 0 when every case and control holds, 1 otherwise.
 set -euo pipefail
@@ -76,9 +76,8 @@ ok() { printf "ok %s\n" "$*"; }
 sleep() { :; }
 py_reply() { python3 -c "$@"; }
 # The plan names, for each rule applied, what the monitor then reads:
-# `take` is the rule'\''s own mode and scale, anything else that reading,
-# as the host'\''s configure leaves it. The last entry stands for every
-# later rule. Before any rule, the output reads its own mode at scale 1.
+# `take` is the rule'\''s own mode and scale, anything else that reading.
+# The last entry stands for every later rule. Before any rule, the output reads its own mode at scale 1.
 hypr() {
   local rules=0 reading rule command effective_reply="$stub_reply" separator="" commands=()
   if [[ $effective_reply == error-once ]]; then
@@ -138,7 +137,7 @@ start_shell() {
     *)
       if [[ $shell_output_scale == 1 ]]; then [[ $reading == "1755x933 scale=1" ]];
       else [[ $reading == "3510x1866 scale=2" ]]; fi || exit 1
-      [[ $mode_hold_run_base == true && $mode_hold_window == 1250x720 ]] || exit 1 ;;
+      [[ $mode_hold_run_base == true ]] || exit 1 ;;
   esac
   printf "shell-started reading=[%s]\n" "$reading"
 }
@@ -148,7 +147,7 @@ startup() {
   source "$stub_dir/startup.sh"
 }
 check_base() {
-  [[ ${mode_hold[*]} == "WAYLAND-1 3510x1866 scale=2" && $mode_hold_window == 1250x720 && ${#mode_hold_parents[@]} -eq 0 && $(held_mode_state) == held ]] || failures=$((failures + 1))
+  [[ ${mode_hold[*]} == "WAYLAND-1 3510x1866 scale=2" && ${#mode_hold_parents[@]} -eq 0 && $(held_mode_state) == held ]] || failures=$((failures + 1))
   cmp -s -- "$mode_hold_file" "$stub_dir/base.lua" || failures=$((failures + 1))
 }
 status=0
@@ -161,11 +160,11 @@ case "$stub_call" in
     check_base
     hold_mode "reserved parent" WAYLAND-1 3510x1866 2 155
     cp -- "$mode_hold_file" "$stub_dir/reserved.lua"
-    [[ ${#mode_hold_parents[@]} -eq 4 ]] || failures=$((failures + 1))
+    [[ ${#mode_hold_parents[@]} -eq 3 ]] || failures=$((failures + 1))
     if [[ $stub_call == run-base-error ]]; then stub_reply=error-once; fi
     hold_mode "nested child" WAYLAND-1 1440x900 1 40
     if [[ $stub_call != run-base-error ]]; then release_mode "nested release" WAYLAND-1 1250x720; fi
-    [[ ${mode_hold[*]} == "WAYLAND-1 3510x1866 scale=2" && $mode_hold_window == 1250x720 && ${#mode_hold_parents[@]} -eq 4 && $(held_mode_state) == held ]] || failures=$((failures + 1))
+    [[ ${mode_hold[*]} == "WAYLAND-1 3510x1866 scale=2" && ${#mode_hold_parents[@]} -eq 3 && $(held_mode_state) == held ]] || failures=$((failures + 1))
     cmp -s -- "$mode_hold_file" "$stub_dir/reserved.lua" || failures=$((failures + 1))
     release_mode "reserved release" WAYLAND-1 1250x720
     check_base
@@ -178,7 +177,7 @@ case "$stub_call" in
     startup 2
     cp -- "$mode_hold_file" "$stub_dir/base.lua"
     suspend_run_base "the displays row"
-    [[ ! -e $mode_hold_file && ${#mode_hold[@]} -eq 0 && -z $mode_hold_window && $mode_hold_run_base == false ]] || failures=$((failures + 1))
+    [[ ! -e $mode_hold_file && ${#mode_hold[@]} -eq 0 && $mode_hold_run_base == false ]] || failures=$((failures + 1))
     if [[ $stub_call == run-base-suspend ]]; then
       [[ ${smoke_row_abandon[*]} == "resume_run_base the displays row" ]] || failures=$((failures + 1))
       release_mode "the row release" WAYLAND-1 1755x933
@@ -196,7 +195,7 @@ case "$stub_call" in
     cp -- "$mode_hold_file" "$stub_dir/stacked.lua"
     suspend_run_base "the displays row"
     cmp -s -- "$mode_hold_file" "$stub_dir/stacked.lua" || failures=$((failures + 1))
-    [[ ${mode_hold[*]} == "WAYLAND-1 1440x900 scale=1" && ${#mode_hold_parents[@]} -eq 4 && $mode_hold_run_base == true && ${#smoke_row_abandon[@]} -eq 0 ]] || failures=$((failures + 1))
+    [[ ${mode_hold[*]} == "WAYLAND-1 1440x900 scale=1" && ${#mode_hold_parents[@]} -eq 3 && $mode_hold_run_base == true && ${#smoke_row_abandon[@]} -eq 0 ]] || failures=$((failures + 1))
     release_mode "the stacked release" WAYLAND-1 1250x720 ;;
   suspend-no-base)
     smoke_row_abandon=()
@@ -205,7 +204,7 @@ case "$stub_call" in
     suspend_run_base "the displays row"
     resume_run_base "the displays row"
     cmp -s -- "$mode_hold_file" "$stub_dir/temporary.lua" || failures=$((failures + 1))
-    [[ ${mode_hold[*]} == "WAYLAND-1 3510x1866 scale=2" && $mode_hold_window == 1755x933 && $mode_hold_run_base == false && ${#smoke_row_abandon[@]} -eq 0 ]] || failures=$((failures + 1))
+    [[ ${mode_hold[*]} == "WAYLAND-1 3510x1866 scale=2" && $mode_hold_run_base == false && ${#smoke_row_abandon[@]} -eq 0 ]] || failures=$((failures + 1))
     release_mode "the temporary release" WAYLAND-1 1755x933 ;;
   capture-1|capture-2|capture-size-1|capture-size-2)
     # Capture has no validation size assignment. Run the same density block.
@@ -225,11 +224,6 @@ case "$stub_call" in
   take-missing) take_mode WAYLAND-1 3510x1866 2 || status=$? ;;
   release-only) release_mode "the release" WAYLAND-1 3510x1866 2 ;;
   hold) hold_mode "the case" WAYLAND-1 3510x1866 2 ;;
-  restore)
-    printf "%s\n" "$(monitor_rule WAYLAND-1 3510x1866 2)" >"$mode_hold_file"
-    mode_hold=(WAYLAND-1 "3510x1866 scale=2")
-    hold_restore || status=$? ;;
-  restore-none) hold_restore || status=$? ;;
   hold-release)
     expect() { :; }
     expect_poll() { :; }
@@ -239,7 +233,7 @@ case "$stub_call" in
     expect() { local label="$1" want="$2" got; shift 2; got="$("$@")"; [[ $got == "$want" ]] || failures=$((failures + 1)); }
     expect_poll() { expect "$@"; }
     check_hold() {
-      [[ ${mode_hold[1]} == "$1" && $mode_hold_window == 1755x933 && $(held_mode_state) == held ]] || failures=$((failures + 1))
+      [[ ${mode_hold[1]} == "$1" && $(held_mode_state) == held ]] || failures=$((failures + 1))
       local rule
       rule="$(tail -n 1 "$mode_hold_file")"
       [[ $rule =~ mode\ =\ \"([0-9x]+)\".*scale\ =\ ([0-9.]+) ]]
@@ -259,7 +253,7 @@ case "$stub_call" in
 esac
 file=absent; [[ -f $mode_hold_file ]] && file=present
 state=none; [[ ${#mode_hold[@]} -eq 0 ]] || state="$(held_mode_state)"
-printf "result status=%s failures=%s resets=%s held=[%s] window=[%s] state=%s file=%s\n" "$status" "$failures" "$mode_resets" "${mode_hold[*]:-}" "$mode_hold_window" "$state" "$file"
+printf "result status=%s failures=%s held=[%s] state=%s file=%s\n" "$status" "$failures" "${mode_hold[*]:-}" "$state" "$file"
 ' _ "$repo" "$file" "$dir" "$reply" "$plan" "$call")" || status=$?
   got_state="$(grep -m 1 '^result ' <<<"$out")" || got_state=""
   got_rules=0; [[ -f $dir/rules ]] && got_rules="$(wc -l <"$dir/rules")"
@@ -294,43 +288,36 @@ printf "result status=%s failures=%s resets=%s held=[%s] window=[%s] state=%s fi
 
 # Rows: label | call | reload reply | readings after each rule, comma
 # separated | result or typed diagnostic | rules applied.
-# The output reads 1755x933 at scale 1 before any rule, the size a taken
-# hold records as the host window's.
+# The output reads 1755x933 at scale 1 before any rule.
 cases=(
-  "an unavailable mode preserves an earlier product failure|hold-after-behaviour|ok|1755x933 scale=1.5|qml-smoke: failed=1|3"
-  "an unavailable mode preserves an earlier geometry failure|hold-after-geometry|ok|1755x933 scale=1.5|qml-smoke: failed=1|3"
-  "an unavailable mode preserves an earlier render failure|hold-after-render|ok|1755x933 scale=1.5|qml-smoke: failed=1|3"
-  "a hold that cannot take a readable mode stops unmeasured|hold|ok|1755x933 scale=1.5|qml-smoke: status=not-measured nested-output=mode-unavailable output=WAYLAND-1 want=[3510x1866 scale=2] attempts=3 got=[1755x933 scale=1.5]|3"
-  "a release that cannot take its base stops unmeasured|release-only|ok|1700x900 scale=1|qml-smoke: status=not-measured nested-output=mode-unavailable output=WAYLAND-1 want=[3510x1866 scale=2] attempts=3 got=[1700x900 scale=1]|3"
-  "an unreadable output fails instead of being excused|hold|ok|unreadable|status=0 failures=1 resets=0 held=[] window=[] state=none file=absent|3"
-  "an unreadable hold file fails before reload|take-missing|ok|take|status=1 failures=0 resets=0 held=[] window=[] state=none file=absent|0"
-  "configuration errors fail instead of being excused|hold|config-error|take|status=0 failures=1 resets=0 held=[] window=[] state=none file=absent|0"
-  "a hold the output takes at once is held|hold|ok|take|status=0 failures=0 resets=0 held=[WAYLAND-1 3510x1866 scale=2] window=[1755x933] state=held file=present|1"
-  "a hold the host resets once is applied again and held|hold|ok|1755x933 scale=1.5,take|status=0 failures=0 resets=0 held=[WAYLAND-1 3510x1866 scale=2] window=[1755x933] state=held file=present|2"
-  "a refused rule fails at once|hold|error|take|status=0 failures=1 resets=0 held=[] window=[] state=none file=absent|0"
-  "a restore after a reset takes the held mode and scale|restore|ok|1755x933 scale=1.5,take|status=0 failures=0 resets=0 held=[WAYLAND-1 3510x1866 scale=2] window=[] state=held file=present|2"
-  "a restore the host always resets fails after the bound|restore|ok|1755x933 scale=1.5|status=77 failures=0 resets=0 held=[WAYLAND-1 3510x1866 scale=2] window=[] state=reset file=present|3"
-  "a release empties the recorded window size|hold-release|ok|take|status=0 failures=0 resets=0 held=[] window=[] state=none file=absent|2"
-  "a restore with no hold is refused|restore-none|ok|take|status=1 failures=0 resets=0 held=[] window=[] state=none file=absent|0"
-  "nested holds restore each parent and its scale|nested|ok|take|status=0 failures=0 resets=0 held=[] window=[] state=none file=absent|6"
-  "startup takes validation mode at density 1 from the host floor|startup-1|ok|take|status=0 failures=0 resets=0 held=[WAYLAND-1 1755x933 scale=1] window=[1250x720] state=held file=present|1"
-  "startup takes validation mode at density 2 from the host floor|startup-2|ok|take|status=0 failures=0 resets=0 held=[WAYLAND-1 3510x1866 scale=2] window=[1250x720] state=held file=present|1"
-  "startup recovers one delayed host configure|startup-2|ok|1250x720 scale=1,take|status=0 failures=0 resets=0 held=[WAYLAND-1 3510x1866 scale=2] window=[1250x720] state=held file=present|2"
-  "startup refuses a readable mode after its bound|startup-1|ok|1250x720 scale=1|qml-smoke: status=not-measured nested-output=mode-unavailable output=WAYLAND-1 want=[1755x933 scale=1] attempts=3 got=[1250x720 scale=1]|3"
-  "startup fails an unreadable monitor before shell launch|startup-1|ok|unreadable|qml-smoke: startup-output=WAYLAND-1 reason=hold-not-taken|3"
+  "an unavailable mode preserves an earlier product failure|hold-after-behaviour|ok|1755x933 scale=1.5|qml-smoke: failed=1|1"
+  "an unavailable mode preserves an earlier geometry failure|hold-after-geometry|ok|1755x933 scale=1.5|qml-smoke: failed=1|1"
+  "an unavailable mode preserves an earlier render failure|hold-after-render|ok|1755x933 scale=1.5|qml-smoke: failed=1|1"
+  "a hold that cannot take a readable mode stops unmeasured|hold|ok|1755x933 scale=1.5|qml-smoke: status=not-measured nested-output=mode-unavailable output=WAYLAND-1 want=[3510x1866 scale=2] got=[1755x933 scale=1.5]|1"
+  "a release that cannot take its base stops unmeasured|release-only|ok|1700x900 scale=1|qml-smoke: status=not-measured nested-output=mode-unavailable output=WAYLAND-1 want=[3510x1866 scale=2] got=[1700x900 scale=1]|1"
+  "an unreadable output fails instead of being excused|hold|ok|unreadable|status=0 failures=1 held=[] state=none file=absent|1"
+  "an unreadable hold file fails before reload|take-missing|ok|take|status=1 failures=0 held=[] state=none file=absent|0"
+  "configuration errors fail instead of being excused|hold|config-error|take|status=0 failures=1 held=[] state=none file=absent|0"
+  "a hold the output takes at once is held|hold|ok|take|status=0 failures=0 held=[WAYLAND-1 3510x1866 scale=2] state=held file=present|1"
+  "a refused rule fails at once|hold|error|take|status=0 failures=1 held=[] state=none file=absent|0"
+  "a release ends the hold|hold-release|ok|take|status=0 failures=0 held=[] state=none file=absent|2"
+  "nested holds restore each parent and its scale|nested|ok|take|status=0 failures=0 held=[] state=none file=absent|6"
+  "startup takes validation mode at density 1 from the host floor|startup-1|ok|take|status=0 failures=0 held=[WAYLAND-1 1755x933 scale=1] state=held file=present|1"
+  "startup takes validation mode at density 2 from the host floor|startup-2|ok|take|status=0 failures=0 held=[WAYLAND-1 3510x1866 scale=2] state=held file=present|1"
+  "startup refuses a readable mode it never takes|startup-1|ok|1250x720 scale=1|qml-smoke: status=not-measured nested-output=mode-unavailable output=WAYLAND-1 want=[1755x933 scale=1] got=[1250x720 scale=1]|1"
+  "startup fails an unreadable monitor before shell launch|startup-1|ok|unreadable|qml-smoke: startup-output=WAYLAND-1 reason=hold-not-taken|1"
   "startup fails a reload error before shell launch|startup-1|error|take|qml-smoke: startup-output=WAYLAND-1 reason=hold-not-taken|0"
   "startup fails configuration errors before shell launch|startup-1|config-error|take|qml-smoke: startup-output=WAYLAND-1 reason=hold-not-taken|0"
-  "run base and complete reserved parents survive nested release|run-base|ok|take|status=0 failures=0 resets=0 held=[WAYLAND-1 3510x1866 scale=2] window=[1250x720] state=held file=present|7"
-  "nested acquisition recovers a delayed host reset and restores reserved parents|run-base|ok|take,take,take,1250x720 scale=1,take|status=0 failures=0 resets=0 held=[WAYLAND-1 3510x1866 scale=2] window=[1250x720] state=held file=present|8"
-  "failed nested acquisition restores the reserved parent without a phantom stack entry|run-base-error|ok|take|status=0 failures=1 resets=0 held=[WAYLAND-1 3510x1866 scale=2] window=[1250x720] state=held file=present|6"
-  "a suspended run base leaves the configuration and comes back marked|run-base-suspend|ok|take|status=0 failures=0 resets=0 held=[WAYLAND-1 3510x1866 scale=2] window=[1250x720] state=held file=present|3"
-  "a row that ends early puts the suspended run base back|run-base-abandon|ok|take|status=0 failures=0 resets=0 held=[WAYLAND-1 3510x1866 scale=2] window=[1250x720] state=held file=present|2"
-  "a run base under a stacked hold is not suspended|run-base-stacked|ok|take|status=0 failures=1 resets=0 held=[WAYLAND-1 3510x1866 scale=2] window=[1250x720] state=held file=present|3"
-  "with no run base suspend and resume change nothing|suspend-no-base|ok|take|status=0 failures=0 resets=0 held=[] window=[] state=none file=absent|2"
-  "capture density 1 keeps the host layout without a run base|capture-1|ok|take|status=0 failures=0 resets=0 held=[] window=[] state=none file=absent|0"
-  "capture density 2 releases its ordinary hold|capture-2|ok|take|status=0 failures=0 resets=0 held=[] window=[] state=none file=absent|2"
-  "capture explicit size at density 1 keeps ordinary release|capture-size-1|ok|take|status=0 failures=0 resets=0 held=[] window=[] state=none file=absent|2"
-  "capture explicit size at density 2 keeps ordinary release|capture-size-2|ok|take|status=0 failures=0 resets=0 held=[] window=[] state=none file=absent|4"
+  "run base and complete reserved parents survive nested release|run-base|ok|take|status=0 failures=0 held=[WAYLAND-1 3510x1866 scale=2] state=held file=present|7"
+  "failed nested acquisition restores the reserved parent without a phantom stack entry|run-base-error|ok|take|status=0 failures=1 held=[WAYLAND-1 3510x1866 scale=2] state=held file=present|6"
+  "a suspended run base leaves the configuration and comes back marked|run-base-suspend|ok|take|status=0 failures=0 held=[WAYLAND-1 3510x1866 scale=2] state=held file=present|3"
+  "a row that ends early puts the suspended run base back|run-base-abandon|ok|take|status=0 failures=0 held=[WAYLAND-1 3510x1866 scale=2] state=held file=present|2"
+  "a run base under a stacked hold is not suspended|run-base-stacked|ok|take|status=0 failures=1 held=[WAYLAND-1 3510x1866 scale=2] state=held file=present|3"
+  "with no run base suspend and resume change nothing|suspend-no-base|ok|take|status=0 failures=0 held=[] state=none file=absent|2"
+  "capture density 1 keeps the output's layout without a run base|capture-1|ok|take|status=0 failures=0 held=[] state=none file=absent|0"
+  "capture density 2 releases its ordinary hold|capture-2|ok|take|status=0 failures=0 held=[] state=none file=absent|2"
+  "capture explicit size at density 1 keeps ordinary release|capture-size-1|ok|take|status=0 failures=0 held=[] state=none file=absent|2"
+  "capture explicit size at density 2 keeps ordinary release|capture-size-2|ok|take|status=0 failures=0 held=[] state=none file=absent|4"
 )
 for row in "${cases[@]}"; do
   if run_case "$subject" "$row"; then ok "${row%%|*}"; else fail "${row%%|*}"; fi
@@ -355,9 +342,7 @@ printf "status=%s out=[%s]\n" "$status" "$out"
   return 1
 }
 
-# Rows: label | own mode | what whole_scale_mode prints and returns. The
-# modes are the nested window's sizes on host cachy (1755x933, 1756x933)
-# and the window rule's floor (1250x720).
+# Rows: label | own mode | what whole_scale_mode prints and returns.
 scale_cases=(
   "a mode scale 3 divides keeps its size at scale 3|1755x933|status=0 out=[1755x933 3]"
   "a mode scale 2 divides keeps its size at scale 2|1250x720|status=0 out=[1250x720 2]"
@@ -369,46 +354,6 @@ scale_cases=(
 )
 for row in "${scale_cases[@]}"; do
   if scale_case "$subject" "$row"; then ok "${row%%|*}"; else fail "${row%%|*}"; fi
-done
-
-# sized_case FILE ROW: true when held_mode_host_sized, as FILE defines it,
-# answers the row's word for a hold of the row's mode and recorded window
-# size, while a stub hypr lists WAYLAND-1 at the row's reading, so the
-# real mode_scale_of runs. `unreadable` lists no monitor.
-sized_case() {
-  local label held window reading want got status=0
-  IFS='|' read -r label held window reading want <<<"$2"
-  got="$(env -i PATH="$PATH" "$BASH" -c '
-set -euo pipefail
-source "$1/scripts/smoke/verdict.sh"
-source "$2"
-stub_reading="$5"
-hypr() {
-  if [[ $stub_reading == unreadable ]]; then echo "[]"; return 0; fi
-  printf "[{\"name\": \"WAYLAND-1\", \"width\": %s, \"height\": %s, \"scale\": %s}]\n" \
-    "${stub_reading%%x*}" "$(r="${stub_reading#*x}"; echo "${r% scale=*}")" "${stub_reading##*scale=}"
-}
-mode_hold=(WAYLAND-1 "$3")
-mode_hold_window="$4"
-if held_mode_host_sized; then echo true; else echo false; fi
-' _ "$repo" "$1" "$held" "$window" "$reading")" || status=$?
-  [[ $status -eq 0 && $got == "$want" ]] && return 0
-  printf '        %s: exit=%s got [%s] want [%s]\n' "$label" "$status" "$got" "$want"
-  return 1
-}
-
-# Rows: label | held mode and scale | recorded window size | what the
-# monitor reads | whether the hold reads host-sized.
-sized_cases=(
-  "the window's size under another held mode is host-sized|3510x1866 scale=2|1755x933|1755x933 scale=1.5|true"
-  "the held mode is not host-sized|3510x1866 scale=2|1755x933|3510x1866 scale=2|false"
-  "another size is not host-sized|3510x1866 scale=2|1755x933|1700x900 scale=1|false"
-  "a hold at the window's own size is never host-sized|1755x933 scale=3|1755x933|1755x933 scale=1|false"
-  "an unreadable monitor is not host-sized|3510x1866 scale=2|1755x933|unreadable|false"
-  "no recorded window size is not host-sized|3510x1866 scale=2||1755x933 scale=1|false"
-)
-for row in "${sized_cases[@]}"; do
-  if sized_case "$subject" "$row"; then ok "${row%%|*}"; else fail "${row%%|*}"; fi
 done
 
 # base_case FILE ROW: the base of a temporary hold comes from its matching
@@ -466,25 +411,17 @@ controls=(
   "take_mode defers mode application until a frame|reply=\"\$(hypr_reload_errors)\"|reply=\"\$(output_mode \"\$output\" \"\$mode\" \"\$scale\")\"|a hold the output takes at once is held"
   "an unavailable mode uses a product failure|  exit 77|  return 0|a hold that cannot take a readable mode stops unmeasured"
   "an unreadable hold file is excused|if [[ ! -r \$mode_hold_file ]]; then|if false; then|an unreadable hold file fails before reload"
-  "take_mode applies the rule once|attempt <= mode_attempts; attempt++|attempt <= 1; attempt++|a hold the host resets once is applied again and held"
-  "take_mode applies the rule past the bound|mode_attempts=3|mode_attempts=4|a hold that cannot take a readable mode stops unmeasured"
-  "hold_mode records no window size|    mode_hold_window=\"\$window\"|    mode_hold_window=\"\"|a hold the output takes at once is held"
-  "release_mode keeps the window size|  mode_hold_window=\"\"|  mode_hold_window=\"\$mode_hold_window\"|a release empties the recorded window size"
-  "held_mode_host_sized always answers true|held_mode_host_sized() {|held_mode_host_sized() { return 0|the held mode is not host-sized"
-  "held_mode_host_sized reads a hold at the window's own size|[[ \$mode_hold_window != \"\${mode_hold[1]% scale=*}\" ]]|true|a hold at the window's own size is never host-sized"
   "a refused reload is accepted|if reload.strip() != \"ok\":|if False:|a refused rule fails at once"
-  "hold_restore drops the held scale|take_mode \"\${mode_hold[0]}\" \"\${mode_hold[1]% scale=*}\" \"\${mode_hold[1]##*scale=}\"|take_mode \"\${mode_hold[0]}\" \"\${mode_hold[1]% scale=*}\" \"1\"|a restore after a reset takes the held mode and scale"
+  "a failed inner hold leaves the outer mode|      take_mode \"\${mode_hold[0]}\" \"\${mode_hold[1]% scale=*}\" \"\${mode_hold[1]##*scale=}\" >/dev/null|      true|failed nested acquisition restores the reserved parent without a phantom stack entry"
   "a release drops every parent|if [[ \${#mode_hold_parents[@]} -gt 0 ]]; then|if false; then|nested holds restore each parent and its scale"
   "the fixture base ignores a matching outer hold|base_mode_scale() {|base_mode_scale() { mode_scale_of \"\$1\"; return|a reset output keeps its matching outer hold as the fixture base"
   "the fixture base takes another output's hold|\${mode_hold[0]} == \"\$1\"|true|another output's hold does not replace the fixture base"
-  "hold_restore runs with no hold|if [[ \${#mode_hold[@]} -eq 0 ]]; then|if [[ \${#mode_hold[@]} -eq -1 ]]; then|a restore with no hold is refused"
   "whole_scale_mode takes only a scale that divides|tw=\$((w - w % s)) th=\$((h - h % s))|tw=\$((w % s ? 0 : w)) th=\$((h % s ? 0 : h))|a mode no scale divides is trimmed by the fewest pixels"
   "whole_scale_mode takes the first scale tried|trim < best_trim))|trim < -1))|a mode no scale divides is trimmed by the fewest pixels"
   "whole_scale_mode reads a mode inside other text|=~ ^([1-9][0-9]*)x([1-9][0-9]*)\$ ]]|=~ ([1-9][0-9]*)x([1-9][0-9]*) ]]|a mode with trailing text is refused"
   "whole_scale_mode keeps a side trimmed to nothing|((tw == 0 |((tw == -1 |a mode a scale trims to nothing is refused"
   "suspend_run_base registers no restore for an early end|  smoke_row_abandon=(resume_run_base \"\$1\")|  smoke_row_abandon=()|a row that ends early puts the suspended run base back"
-  "resume_run_base does not mark the run base|    mode_hold_run_base=true|    :|a suspended run base leaves the configuration and comes back marked"
-  "resume_run_base keeps the window size hold_mode read|    mode_hold_window=\"\$base_window\"|    :|a suspended run base leaves the configuration and comes back marked"
+  "resume_run_base does not mark the run base|mode_hold_run_base=true|mode_hold_run_base=false|a suspended run base leaves the configuration and comes back marked"
   "suspend_run_base leaves the hold file in place|  if ! rm -f -- \"\$mode_hold_file\"; then|  if false; then|a suspended run base leaves the configuration and comes back marked"
   "suspend_run_base takes a run base under a stacked hold|\${#mode_hold_parents[@]} -ne 0|\${#mode_hold_parents[@]} -lt 0|a run base under a stacked hold is not suspended"
   "suspend_run_base takes a temporary hold|[[ \$mode_hold_run_base == true ]]|true|with no run base suspend and resume change nothing"
@@ -496,22 +433,21 @@ for i in "${!controls[@]}"; do
   row="" runner=""
   for candidate in "${cases[@]}"; do [[ ${candidate%%|*} == "$target" ]] && row="$candidate" runner=run_case; done
   for candidate in "${scale_cases[@]}"; do [[ ${candidate%%|*} == "$target" ]] && row="$candidate" runner=scale_case; done
-  for candidate in "${sized_cases[@]}"; do [[ ${candidate%%|*} == "$target" ]] && row="$candidate" runner=sized_case; done
   for candidate in "${base_cases[@]}"; do [[ ${candidate%%|*} == "$target" ]] && row="$candidate" runner=base_case; done
   if [[ -z $row ]]; then fail "control: $label names no case: $target"; continue; fi
   if "$runner" "$mutant" "$row" >/dev/null 2>&1; then fail "control: $label left '$target' green"; else ok "control: $label"; fi
 done
 
-# Execute extracted harness, Surfaces and Jarvis widget operations. Only
-# the compositor and pointer executable are stand-ins. Their file state
-# survives the real helpers' command substitutions.
+# Execute extracted harness and Surfaces operations. Only the compositor
+# and pointer executable are stand-ins. Their file state survives the real
+# helpers' command substitutions.
 coordinate_case() {
-  local mode_file="$1" harness_file="$2" surface_file="$3" row_file="${5:-$repo/scripts/smoke/rows/jarvis-widget.sh}" phase action path expected_status attempts skipped sampled expected_args dir out status=0
-  IFS='|' read -r phase action path expected_status attempts skipped sampled expected_args <<<"$4"
+  local mode_file="$1" harness_file="$2" surface_file="$3" phase action path expected_status sent skipped sampled expected_args dir out status=0
+  IFS='|' read -r phase action path expected_status sent skipped sampled expected_args <<<"$4"
   dir="$(mktemp -d "$tmp/coordinate.XXXXXX")" || return 1
-  python3 - "$harness_file" "$surface_file" "$row_file" "$dir/operations.sh" <<'PYEXTRACT' || return 1
+  python3 - "$harness_file" "$surface_file" "$dir/operations.sh" <<'PYEXTRACT' || return 1
 import pathlib,sys
-harness,surfaces,row,out=map(pathlib.Path,sys.argv[1:])
+harness,surfaces,out=map(pathlib.Path,sys.argv[1:])
 def extract(path,names):
     text=path.read_text()
     result=[]
@@ -523,11 +459,6 @@ def extract(path,names):
     return result
 parts=extract(harness,("coordinate_observation","pointer_dispatch","nested_input_check","click","hover","right_click","middle_click","drag","wheel","swipe","rest_pointer","point_item","click_item","expect","expect_poll","reader_stderr","smoke_poll_tries","geometry","render"))
 parts+=extract(surfaces,("layout_size","layout_click","surf_menu_point","flyout_widget_x","flyout_grow_check"))
-parts+=extract(row,("jarvis_widget_link_box","jarvis_widget_link_drawn","jarvis_widget_link_hover","jarvis_widget_link_click_once","jarvis_widget_link_click"))
-# point_item reads its restore bound from a global the harness sets.
-bound=[line for line in harness.read_text().splitlines() if line.startswith("point_item_restores=")]
-assert len(bound)==1
-parts+=bound
 out.write_text("\n".join(parts)+"\n")
 PYEXTRACT
   out="$(env -i PATH="$PATH" "$BASH" -c '
@@ -543,8 +474,6 @@ mon_w=1755 mon_h=933 screen_name=WAYLAND-1
 nested_socket=wayland-1 rt_dir="$stub_dir"
 shell_env=(env -i PATH="$PATH" WAYLAND_DISPLAY="$stub_dir/wayland-1")
 mode_hold=(WAYLAND-1 "3510x1866 scale=2")
-mode_hold_window=1250x720
-# A temporary hold also must not excuse a failed operation.
 mode_hold_run_base=false
 smoke_poll_bound_ms=400 smoke_control_poll_bound_ms=400
 pointer_at=before dependent=false continued=false
@@ -555,17 +484,12 @@ py_reply() { python3 -c "$@"; }
 held_json='\''[{"name":"WAYLAND-1","width":3510,"height":1866,"scale":2,"x":0,"y":0},{"name":"FAR","width":800,"height":600,"scale":1,"x":1755,"y":0}]'\''
 reset_json='\''[{"name":"WAYLAND-1","width":1250,"height":720,"scale":1,"x":0,"y":0}]'\''
 printf "%s\n" "$held_json" >"$stub_dir/monitors"
-case "$stub_phase" in recover|unavailable|reload-error|rule-missing) printf "%s\n" "$reset_json" >"$stub_dir/monitors" ;; unreadable) echo "[]" >"$stub_dir/monitors" ;; esac
+[[ $stub_phase != reset-first ]] || printf "%s\n" "$reset_json" >"$stub_dir/monitors"
 monitor_rule WAYLAND-1 3510x1866 2 >"$mode_hold_file"
-[[ $stub_phase != rule-missing ]] || rm -- "${mode_hold_file:?}"
+# A pointer step reloads nothing; a reload is counted for the rows.
 hypr() {
   if [[ $1 == --batch ]]; then
     echo reload >>"$stub_dir/reloads"
-    # On the jarvis path a restore leaves the pointer off the widget, and
-    # the tooltip closes until a hover on the widget opens it again.
-    [[ $stub_path != jarvis ]] || : >"$stub_dir/tooltip-closed"
-    if [[ $stub_phase == reload-error ]]; then printf "error\n\n\n[]\n"; return; fi
-    [[ $stub_phase == unavailable ]] || printf "%s\n" "$held_json" >"$stub_dir/monitors"
     printf "ok\n\n\n[]\n"
   else cat "$stub_dir/monitors"; fi
 }
@@ -579,29 +503,11 @@ POINTER
 chmod +x "$sandbox/click"
 [[ $stub_phase != helper-error ]] || : >"$stub_dir/helper-error"
 [[ $stub_phase != helper-unavailable ]] || : >"$stub_dir/helper-unavailable"
-# reset-again: the host configures the window again before every read of
-# the box, so each restore the reload made is undone before the step.
-control_box() {
-  [[ $stub_phase != reset-again ]] || printf "%s\n" "$reset_json" >"$stub_dir/monitors"
-  [[ $1 != popup:* || ! -e $stub_dir/tooltip-closed ]] || { echo absent; return; }
-  echo "[100, 200, 2, 4]"
-}
-control_hovered() {
-  [[ $1 == popup:* ]] || rm -f -- "${stub_dir:?}/tooltip-closed"
-  echo true
-}
+control_box() { echo "[100, 200, 2, 4]"; }
+control_hovered() { echo true; }
 ipc() {
-  if [[ -e $stub_dir/tooltip-closed ]]; then
-    case "$*" in
-      *Tooltip\ shown*) echo false; return ;;
-      *popupItem*) echo absent; return ;;
-    esac
-  fi
   case "$*" in
     *acme.surfaces-tail*grow*) : >"$stub_dir/grown"; echo grown ;;
-    *underlined*) echo "[{\"line\": 0, \"left\": 10, \"right\": 30}]" ;;
-    *linePitch*) echo 16 ;;
-    *Tooltip\ shown*) echo true ;;
     *geometry*)
       mode_scale_of WAYLAND-1 >"$stub_dir/sample" || return 1
       if [[ -e $stub_dir/grown ]]; then echo "[0, 200, 2, 4]"; else echo "[100, 200, 2, 4]"; fi ;;
@@ -609,7 +515,7 @@ ipc() {
   esac
 }
 # The no-commit fixture leaves a marker behind. Its intended failure must
-# not gain a position failure from a baseline in an earlier layout.
+# not gain a position failure.
 popup_marker_follows() { echo left-behind; }
 flyout_rest_x=900
 deliver() {
@@ -638,54 +544,29 @@ observe() {
   esac
   dependent=true
 }
-# The unscoped path runs click_item outside every coordinate_observation,
-# where point_item restores the hold itself. Its row pins the status, the
-# clicks sent, the reloads, and the stderr lines that pair each refused
-# step with its restore.
+reloads=0
+# The unscoped path runs click_item outside every coordinate_observation.
+# Its row pins the status, the clicks sent, the reloads and the refused
+# steps on stderr.
 if [[ $stub_path == unscoped ]]; then
-  status=0 clicks=0 reloads=0
+  status=0 clicks=0
   click_item bar id Control text 2>"$stub_dir/stderr" || status=$?
   cat -- "$stub_dir/stderr" >&2
   [[ ! -e $stub_dir/sent ]] || clicks="$(grep -c -x -E "[0-9]+ [0-9]+ 1755 933" -- "$stub_dir/sent" || :)"
   [[ ! -e $stub_dir/reloads ]] || reloads="$(wc -l <"$stub_dir/reloads")"
-  restored="$(grep -c -x -E "coordinate-mode: restored output=WAYLAND-1 want=\[3510x1866 scale=2\] by=point_item restores=[0-9]+" -- "$stub_dir/stderr" || :)"
   refused="$(grep -c -x -E "coordinate-mode: reset output=WAYLAND-1 want=\[3510x1866 scale=2\] pointer-step=refused" -- "$stub_dir/stderr" || :)"
-  got="status=$status clicks=$clicks reloads=$reloads restored=$restored refused=$refused"
-  [[ $got == "status=$7 clicks=$8 reloads=$9 restored=${10} refused=${11}" ]] || { echo "got $got"; exit 1; }
-  exit 0
-fi
-# The jarvis path runs the link hover and the link click of the Jarvis
-# widget row with the output reset before each step, outside every
-# coordinate_observation, as the row runs them. The restore in the click
-# step closes the tooltip, so the click opens it again before it clicks.
-if [[ $stub_path == jarvis ]]; then
-  jarvis_widget_key=bar
-  jarvis_widget_link_text="Set it up in [Settings > Jarvis](page:vgs.jarvis/Setup)."
-  jarvis_steps() {
-    printf "%s\n" "$reset_json" >"$stub_dir/monitors"
-    jarvis_widget_link_hover || return $?
-    printf "%s\n" "$reset_json" >"$stub_dir/monitors"
-    jarvis_widget_link_click
-  }
-  status=0 clicks=0 reloads=0
-  jarvis_steps 2>"$stub_dir/stderr" || status=$?
-  cat -- "$stub_dir/stderr" >&2
-  [[ ! -e $stub_dir/sent ]] || clicks="$(grep -c -x -E "[0-9]+ [0-9]+ 1755 933" -- "$stub_dir/sent" || :)"
-  [[ ! -e $stub_dir/reloads ]] || reloads="$(wc -l <"$stub_dir/reloads")"
-  restored="$(grep -c -x -E "coordinate-mode: restored output=WAYLAND-1 want=\[3510x1866 scale=2\] by=point_item restores=[0-9]+" -- "$stub_dir/stderr" || :)"
-  refused="$(grep -c -x -E "coordinate-mode: reset output=WAYLAND-1 want=\[3510x1866 scale=2\] pointer-step=refused" -- "$stub_dir/stderr" || :)"
-  got="status=$status clicks=$clicks reloads=$reloads restored=$restored refused=$refused failures=$failures"
-  [[ $got == "status=$7 clicks=$8 reloads=$9 restored=${10} refused=${11} failures=0" ]] || { echo "got $got"; exit 1; }
+  got="status=$status clicks=$clicks reloads=$reloads refused=$refused"
+  [[ $got == "status=$7 clicks=$8 reloads=0 refused=$9" ]] || { echo "got $got"; exit 1; }
   exit 0
 fi
 coordinate_observation coordinates observe 2>"$stub_dir/stderr" && continued=true || exit 1
 cat -- "$stub_dir/stderr" >&2
-# A step refused under a reset says so on stderr, once; a reset the
-# preparation restores, and every other refusal, says nothing of a reset.
+# A step refused under a reset says so on stderr, once; every other
+# refusal says nothing of a reset.
 refusals="$(grep -c -E "^coordinate-mode: reset output=WAYLAND-1 want=\[3510x1866 scale=2\] " -- "$stub_dir/stderr" || :)"
 if [[ $stub_phase == reset ]]; then [[ $refusals == 1 ]]; else [[ $refusals == 0 ]]; fi || exit 1
 rm -- "${stub_dir:?}/cleanup-owned"
-[[ $continued == true && ${coordinate_scope:-false} == false && ! -e $stub_dir/cleanup-owned ]] || exit 1
+[[ $continued == true && ${coordinate_scope:-false} == false && ! -e $stub_dir/cleanup-owned && ! -e $stub_dir/reloads ]] || exit 1
 sampled=0 sent=0 skipped=${#not_measured_rows[@]} status=0
 if [[ -e $stub_dir/sample ]]; then
   sampled=1
@@ -695,24 +576,25 @@ if [[ -e $stub_dir/sent ]]; then sent="$(wc -l <"$stub_dir/sent")"; fi
 [[ $sent == "$8" && $skipped == "$9" && $sampled == "${10}" ]] || exit 1
 [[ -z ${11} || $(cat "$stub_dir/sent") == "${11}" ]] || exit 1
 if [[ $stub_action == flyout_grow_check ]]; then
-  [[ $dependent == true && $failures == 1 && $behaviour_failures == 1 && $mode_resets == 0 && $pointer_at == before && -e $stub_dir/grown ]] || exit 1
+  [[ $dependent == true && $failures == 1 && $behaviour_failures == 1 && $pointer_at == before && -e $stub_dir/grown ]] || exit 1
 elif [[ $7 == 0 ]]; then
   [[ $dependent == true && $failures == 0 && $pointer_at != before ]] || exit 1
   if [[ $stub_action == layout_click ]]; then
     [[ $(cat "$stub_dir/sent") == "101 202 2555 933" && $pointer_at == "101 202" ]] || exit 1
   fi
 else
-  [[ $dependent == false && $pointer_at == before ]] || exit 1
-  if [[ $7 == 77 ]]; then [[ $failures == 0 ]]; else [[ $failures == 1 && $behaviour_failures == 1 && $mode_resets == 0 ]]; fi || exit 1
+  [[ $dependent == false && $pointer_at == before && $failures == 1 && $behaviour_failures == 1 ]] || exit 1
 fi
-smoke_verdict "$failures" "$behaviour_failures" "$stalled_render" "$mode_resets" /dev/null || status=$?
+smoke_verdict "$failures" "$behaviour_failures" /dev/null || status=$?
 [[ $status == "$7" ]]
-' _ "$repo" "$mode_file" "$dir" "$phase" "$action" "$path" "$expected_status" "$attempts" "$skipped" "$sampled" "$expected_args" 2>&1)" || status=$?
+' _ "$repo" "$mode_file" "$dir" "$phase" "$action" "$path" "$expected_status" "$sent" "$skipped" "$sampled" "$expected_args" 2>&1)" || status=$?
   if [[ $status == 0 ]]; then return 0; fi
   printf '        coordinate %s: %s\n' "$4" "$out"
   return 1
 }
-# One table covers each mode state, action and shell status path.
+# One table covers each mode state, action and shell status path. Rows:
+# phase | action | path | verdict status | steps sent | rows not measured
+# | whether the box was sampled under the hold | the arguments sent.
 coordinate_cases=(
   'held|click|direct|0|1|0|1|101 202 1755 933'
   'held|hover|direct|0|1|0|1|101 202 1755 933 move'
@@ -722,86 +604,68 @@ coordinate_cases=(
   'held|wheel|direct|0|1|0|1|101 202 1755 933 wheel 3'
   'held|swipe|direct|0|1|0|1|101 202 1755 933 swipe 3'
   'held|layout_click|direct|0|1|0|1|101 202 2555 933'
-  'recover|click|direct|0|1|0|1'
-  'recover|flyout_grow_check|direct|1|0|0|1'
-  'unavailable|click|direct|77|0|1|0'
-  'unreadable|click|direct|1|0|0|0'
-  'reload-error|click|direct|1|0|0|0'
-  'rule-missing|click|direct|1|0|0|0'
+  'held|flyout_grow_check|direct|1|0|0|1'
   'helper-error|click|direct|1|1|0|1'
   'helper-unavailable|click|direct|1|1|0|1'
   'helper-error|click|expect|1|1|0|1'
   'helper-error|click|poll|1|1|0|1'
   'reset-unreadable|click|direct|1|0|0|1'
-  'reset|click|direct|77|0|1|1'
-  'reset|hover|direct|77|0|1|1'
-  'reset|right_click|direct|77|0|1|1'
-  'reset|middle_click|direct|77|0|1|1'
-  'reset|drag|direct|77|0|1|1'
-  'reset|wheel|direct|77|0|1|1'
-  'reset|swipe|direct|77|0|1|1'
-  'reset|layout_click|direct|77|0|1|1'
-  'reset|click|expect|77|0|1|1'
-  'reset|click|poll|77|0|1|1'
-  'reset|click|substitution|77|0|1|1'
-  'reset|click|chain|77|0|1|1'
-  'reset|click_item|expect|77|0|1|1'
+  'reset|click|direct|1|0|0|1'
+  'reset|hover|direct|1|0|0|1'
+  'reset|right_click|direct|1|0|0|1'
+  'reset|middle_click|direct|1|0|0|1'
+  'reset|drag|direct|1|0|0|1'
+  'reset|wheel|direct|1|0|0|1'
+  'reset|swipe|direct|1|0|0|1'
+  'reset|layout_click|direct|1|0|0|1'
+  'reset|click|expect|1|0|0|1'
+  'reset|click|poll|1|0|0|1'
+  'reset|click|substitution|1|0|0|1'
+  'reset|click|chain|1|0|0|1'
+  'reset|click_item|expect|1|0|0|1'
 )
 for row in "${coordinate_cases[@]}"; do
   if coordinate_case "$subject" "$repo/scripts/smoke/harness.sh" "$repo/scripts/smoke/rows/surfaces.sh" "$row"; then ok "coordinate $row"; else fail "coordinate $row"; fi
 done
-# point_item outside a coordinate_observation, with the output reset
-# before the first step. Rows: phase | click_item | unscoped | status |
-# clicks sent | reloads | restored lines | refused lines. A reset the
-# reload restores sends one click; a reload error returns the restore's
-# status; a host that resets the output after every restore ends the call
-# with 77 after point_item_restores reloads.
-restore_cases=(
-  'recover|click_item|unscoped|0|1|1|1|1'
-  'reload-error|click_item|unscoped|1|0|1|0|1'
-  'reset-again|click_item|unscoped|77|0|2|2|3'
+# point_item outside a coordinate_observation. Rows: phase | click_item |
+# unscoped | status | clicks sent | refused lines. A held output takes one
+# click; an output that left the hold before the first step takes none,
+# and the refused step returns 1 with no reload.
+unscoped_cases=(
+  'held|click_item|unscoped|0|1|0'
+  'reset-first|click_item|unscoped|1|0|1'
 )
-for row in "${restore_cases[@]}"; do
-  if coordinate_case "$subject" "$repo/scripts/smoke/harness.sh" "$repo/scripts/smoke/rows/surfaces.sh" "$row"; then ok "restore $row"; else fail "restore $row"; fi
+for row in "${unscoped_cases[@]}"; do
+  if coordinate_case "$subject" "$repo/scripts/smoke/harness.sh" "$repo/scripts/smoke/rows/surfaces.sh" "$row"; then ok "unscoped $row"; else fail "unscoped $row"; fi
 done
-# The Jarvis widget row's link hover and link click. Rows: phase | action |
-# path | status | clicks sent | reloads | restored lines | refused lines.
-# A reset before each step is restored by its point_item, and the steps
-# send one click.
-jarvis_cases=(
-  'held|jarvis|jarvis|0|1|2|2|2'
-)
-for row in "${jarvis_cases[@]}"; do
-  if coordinate_case "$subject" "$repo/scripts/smoke/harness.sh" "$repo/scripts/smoke/rows/surfaces.sh" "$row"; then ok "jarvis $row"; else fail "jarvis $row"; fi
-done
-# Keep delivery intact while removing the actual final check in scratch.
+# Keep delivery intact while removing the final mode check in scratch.
 python3 - "$repo/scripts/smoke/harness.sh" "$tmp/unguarded-harness.sh" <<'PYMUTATE'
 import pathlib,sys
 source,out=map(pathlib.Path,sys.argv[1:])
 text=source.read_text()
-old='  coordinate_mode_check || status=$?\n'
+old='  coordinate_mode_check || return 1\n'
 assert text.count(old)==1
 changed=text.replace(old,'')
 assert changed!=text and '"$sandbox/click" "$@"' in changed
 out.write_text(changed)
 PYMUTATE
-if coordinate_case "$subject" "$tmp/unguarded-harness.sh" "$repo/scripts/smoke/rows/surfaces.sh" 'reset|click|direct|77|0|1|1' >/dev/null; then
+if coordinate_case "$subject" "$tmp/unguarded-harness.sh" "$repo/scripts/smoke/rows/surfaces.sh" 'reset|click|direct|1|0|0|1' >/dev/null; then
   fail 'control: removing the final mode check permits a forbidden action'
 else
   ok 'control: removing the final mode check permits a forbidden action'
 fi
 # Keep the refusal itself while removing only its stderr reason in scratch.
-python3 - "$repo/scripts/smoke/harness.sh" "$tmp/silent-harness.sh" <<'PYMUTATE'
+python3 - "$subject" "$tmp/silent-hold.sh" <<'PYMUTATE'
 import pathlib,sys
 source,out=map(pathlib.Path,sys.argv[1:])
 text=source.read_text()
-old="  [[ $status != 77 ]] || printf 'coordinate-mode: reset "
+old="    reset) printf 'coordinate-mode: reset "
 assert text.count(old)==1
-changed=text.replace(old,"  [[ $status != 77 ]] || : printf 'coordinate-mode: reset ")
-assert changed!=text and '[[ $status == 0 ]] || return "$status"' in changed
+changed=text.replace(old,"    reset) : printf 'coordinate-mode: reset ")
+assert changed!=text
 out.write_text(changed)
 PYMUTATE
-if coordinate_case "$subject" "$tmp/silent-harness.sh" "$repo/scripts/smoke/rows/surfaces.sh" 'reset|click|direct|77|0|1|1' >/dev/null; then
+if coordinate_case "$tmp/silent-hold.sh" "$repo/scripts/smoke/harness.sh" "$repo/scripts/smoke/rows/surfaces.sh" 'reset|click|direct|1|0|0|1' >/dev/null; then
   fail 'control: a reset refusal with no stderr reason'
 else
   ok 'control: a reset refusal with no stderr reason'

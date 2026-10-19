@@ -309,7 +309,7 @@ jarvis_widget_link_hover() {
   point_item "$jarvis_widget_key" vgs.jarvis BarItem "" >/dev/null || return
   expect_poll "the unconfigured widget opens its tooltip" true ipc smoke readDescendant "$jarvis_widget_key" vgs.jarvis Tooltip shown
 }
-jarvis_widget_link_click_once() {
+jarvis_widget_link_click() {
   local spans pitch offset dx dy
   spans="$(ipc smoke popupItemRead "$jarvis_widget_key" vgs.jarvis "" "" LinkText "$jarvis_widget_link_text" underlined)" || return
   pitch="$(ipc smoke popupItemRead "$jarvis_widget_key" vgs.jarvis "" "" LinkText "$jarvis_widget_link_text" linePitch)" || return
@@ -318,14 +318,6 @@ jarvis_widget_link_click_once() {
   offset="$(python3 -c 'import json,sys; s=json.loads(sys.argv[1])[0]; p=float(sys.argv[2]); print((s["left"]+s["right"])/2, s["line"]*p+p/2)' "$spans" "$pitch")" || return
   read -r dx dy <<<"$offset" || return 1
   click_item popup:"$jarvis_widget_key" vgs.jarvis "" "" LinkText "$jarvis_widget_link_text" "$dx" "$dy"
-}
-# A restore inside the click can leave the pointer off the widget, and the
-# tooltip closes; a closed link is opened again by the hover, once.
-jarvis_widget_link_click() {
-  jarvis_widget_link_click_once && return
-  [[ $(jarvis_widget_link_drawn) == absent ]] || return 1
-  jarvis_widget_link_hover || return
-  jarvis_widget_link_click_once
 }
 jarvis_notice_close
 settings_page_open vgs.jarvis

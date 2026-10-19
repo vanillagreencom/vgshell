@@ -63,7 +63,7 @@ print("drawn" if any(v["visible"] and v["text"]==sys.argv[1] and box[2]>0 and bo
 }
 jarvis_follow_up_shot() { # NAME
   local path="$sandbox/jarvis-follow-up-$1.png" socket output
-  socket="$(shot_socket "$rt_dir" "$nested_socket" "$host_socket")" &&
+  socket="$(shot_socket "$rt_dir" "$nested_socket")" &&
     output="$(first_name)" &&
     shot_grim "$socket" "$rt_dir" -o "$output" -t png "$path" || { fail "the $1 follow-up capture is written"; return 0; }
   printf 'jarvis-follow-up: shot=%s\n' "$path"

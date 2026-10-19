@@ -353,12 +353,11 @@ SCENE = ROOT / "shader/measure-scene.sh"
 
 
 class ShaderRunner(unittest.TestCase):
-    def held_scene(self, text, states, restores="ok", prior_failures=0):
+    def held_scene(self, text, state):
         """Drive measure_held_scene from TEXT with its sandbox stubbed:
-        measure_scene counts each measurement, held_mode_state answers the
-        next of STATES after each one and hold_restore answers RESTORES.
-        Returns the run, how many times the scene was measured and the
-        hold restored, and the scratch HOME the scene's log is under."""
+        measure_scene counts each measurement and held_mode_state answers
+        STATE after it. Returns the run, how many times the scene was
+        measured, and the scratch HOME the scene's log is under."""
         with tempfile.TemporaryDirectory() as scratch:
             subject = Path(scratch) / "measure-scene.sh"
             subject.write_text(text)
@@ -366,58 +365,43 @@ class ShaderRunner(unittest.TestCase):
 set -euo pipefail
 source "$1"
 source "$2"
-home="$HOME"; states="$3"; restores="$4"
-failures="$5"; behaviour_failures="$5"; sandbox="$HOME"
+home="$HOME"; stub_state="$3"; sandbox="$HOME"
 mode_hold=(WAYLAND-1 "3510x1866 scale=2")
-count() { local n=0; [[ -f $home/$1 ]] && n="$(<"$home/$1")"; echo $((n + 1)) >"$home/$1"; echo $((n + 1)); }
-measure_scene() { count measured >/dev/null; scene_cpu_some_pct=1.5; }
-held_mode_state() { local n; n="$(<"$home/measured")"; IFS=, read -r -a all <<<"$states"; echo "${all[n - 1]:-${all[-1]}}"; }
+measure_scene() { local n=0; [[ -f $home/measured ]] && n="$(<"$home/measured")"; echo $((n + 1)) >"$home/measured"; scene_cpu_some_pct=1.5; }
+held_mode_state() { echo "$stub_state"; }
 mode_scale_of() { echo "1755x933 scale=1.5"; }
-hold_restore() { count restored >/dev/null; [[ $restores == ok ]] || { echo 'hold-restore: not-held output=WAYLAND-1'; return 1; }; }
 measure_held_scene 2 on "$HOME/scale-2-on"
 """
             result = subprocess.run(
-                ["bash", "-c", script, "_", str(ROOT / "smoke/verdict.sh"), str(subject), states, restores, str(prior_failures)],
+                ["bash", "-c", script, "_", str(ROOT / "smoke/verdict.sh"), str(subject), state],
                 env={"PATH": "/usr/bin:/bin", "HOME": scratch, "LC_ALL": "C"},
                 text=True, capture_output=True, check=False)
-            counts = [int((Path(scratch) / name).read_text()) if (Path(scratch) / name).exists() else 0
-                      for name in ("measured", "restored")]
-            return result, counts, scratch
+            measured = Path(scratch) / "measured"
+            return result, int(measured.read_text()) if measured.exists() else 0, scratch
 
-    RESET = "shader-cost: mode-reset scene=on scale=2 got=[1755x933 scale=1.5] attempt=%d"
     MEASURED = "shader-cost: scene=on scale=2 samples=600 cpu_some_pct=1.5 log=%s/scale-2-on.log"
 
     def held_cases(self):
-        """Rows: states after each measurement, restore answer, earlier
-        failures, exit status, measurements, restores, lines printed
-        before the last and the last line."""
+        """Rows: the state after the measurement, exit status,
+        measurements and the last line printed."""
         return (
-            ("held", "ok", 0, 0, 1, 0, [], self.MEASURED),
-            ("reset,held", "ok", 0, 0, 2, 1, [self.RESET % 1], self.MEASURED),
-            ("reset", "ok", 0, 77, 3, 2, [self.RESET % 1, self.RESET % 2, self.RESET % 3,
-                                          "qml-smoke: status=not-measured nested-output=mode-reset failed=1"],
-             "the nested output left a mode a row held: the host sent the nested window its size again, "
-             "as it does when it resizes or refocuses it or when another window on its host workspace closes; "
-             "leave the nested window alone during the run, then run the smoke again"),
-            ("reset", "failed", 0, 1, 1, 1, [self.RESET % 1, "hold-restore: not-held output=WAYLAND-1"],
-             "shader-cost: failed output=not-restored scene=on scale=2"),
-            ("unreadable", "ok", 0, 1, 1, 0, [], "shader-cost: failed output=unreadable"),
-            ("reset", "ok", 1, 1, 3, 2, [self.RESET % 1, self.RESET % 2, self.RESET % 3], "qml-smoke: failed=1 mode-resets=1"),
+            ("held", 0, 1, self.MEASURED),
+            ("reset", 1, 1, "shader-cost: failed output=reset scene=on scale=2 got=[1755x933 scale=1.5]"),
+            ("unreadable", 1, 1, "shader-cost: failed output=unreadable scene=on scale=2 got=[1755x933 scale=1.5]"),
         )
 
     def assert_held_case(self, text, case):
-        states, restores, prior, status, measured, restored, before, last = case
-        result, counts, home = self.held_scene(text, states, restores, prior)
+        state, status, measured, last = case
+        result, count, home = self.held_scene(text, state)
         self.assertEqual(result.returncode, status, result.stdout + result.stderr)
-        self.assertEqual(counts, [measured, restored], result.stdout)
+        self.assertEqual(count, measured, result.stdout)
         lines = result.stdout.splitlines()
-        self.assertEqual(lines[:-1], before)
         self.assertEqual(lines[-1], last % home if last == self.MEASURED else last)
 
     def test_held_scene(self):
         text = SCENE.read_text()
         for case in self.held_cases():
-            with self.subTest(states=case[0], restores=case[1], prior=case[2]):
+            with self.subTest(state=case[0]):
                 self.assert_held_case(text, case)
 
     def test_held_scene_mutants_turn_red(self):
@@ -425,11 +409,8 @@ measure_held_scene 2 on "$HOME/scale-2-on"
         # the case it names must fail.
         cases = self.held_cases()
         plants = (
-            ("no measurement again", "scene_attempts=3", "scene_attempts=1", cases[1]),
-            ("a reset is not counted", '"$((mode_resets + 1))"', '"$mode_resets"', cases[2]),
-            ("a failed restore is ignored", "hold_restore || {", "hold_restore || true || {", cases[3]),
-            ("an unreadable output passes", "      *) printf 'shader-cost: failed output=%s\\n' \"$state\"; exit 1 ;;",
-             "      *) break ;;", cases[4]),
+            ("a reset is measured", "  if [[ $state != held ]]; then", "  if false; then", cases[1]),
+            ("a reset passes", "    exit 1\n  fi", "    :\n  fi", cases[1]),
         )
         text = SCENE.read_text()
         for name, old, new, case in plants:

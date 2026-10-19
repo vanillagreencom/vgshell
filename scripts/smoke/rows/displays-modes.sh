@@ -285,13 +285,8 @@ expect_poll "Quickshell's focused monitor is $output again after the off steps" 
 
 # Colour: the nested panel has no EDID, so sRGB is the one colour mode it
 # offers. An sRGB rule goes through trial, Keep and reload with no error
-# from Hyprland for its colour fields. The rule takes the window's own
-# mode at the whole scale whole_scale_mode picks for it: a host configure
-# of the nested window, which another sandbox's window on the host can
-# cause at any time, leaves a rule at the window's size as it is, and
-# moves the doubled trial mode to the window's size at scale 1.5
-# (held_mode_state in mode-hold.sh) before the trial's 15 s are up. The
-# service holds no panel reading, so a first HDR trial finds the panels
+# from Hyprland for its colour fields. The rule takes the output's own
+# mode at the whole scale whole_scale_mode picks for it. The service holds no panel reading, so a first HDR trial finds the panels
 # unread and asks for them, and the judge then refuses HDR before it
 # reaches Hyprland.
 colour_mode_scale="$(whole_scale_mode "$base")"

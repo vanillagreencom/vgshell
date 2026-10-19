@@ -1,9 +1,7 @@
 # Sourced by harness.sh and by scripts/test-smoke-verdict.sh; defines the
 # failure tally the rows write, the count reading that fails a row in
 # place of ending the run, and the smoke's closing verdict, and reads no
-# sandbox state of its own: fail asks held_mode_state and
-# held_mode_host_sized, which mode-hold.sh defines, only while a row holds
-# a mode.
+# sandbox state of its own.
 
 failures=0
 # A row that reads positions, sizes or reserved space from the compositor
@@ -11,35 +9,21 @@ failures=0
 # draws a frame runs under `render`; a row that reads the held mode itself,
 # whose failure is the hold misbehaving, runs under `hold`; every other
 # failure counts as behaviour, `hold` included. Only a run whose failures
-# are all geometry or render can be excused by a sandbox fault: the
-# compositor's buffers, or a host that withholds frame callbacks from the
-# nested window.
+# are all geometry or render can be excused by a sandbox fault: the nested
+# output's buffers.
 behaviour_failures=0
-stalled_render=false
 row_class=behaviour
 # A mode a row holds on a nested output, as (OUTPUT STATE), STATE its mode
 # and scale as mode_scale_of in mode-hold.sh reads them, empty when no row
-# holds one, and mode_hold_window, the output's own WxH before the hold,
-# the host window's size, empty when no row holds one; hold_mode,
-# release_mode, suspend_run_base and resume_run_base alone write them. A
-# row that fails after the output left the held mode counts in
-# mode_resets and never as behaviour, unless it
-# runs under `hold`: it measured an output the sandbox reset
-# (held_mode_state in mode-hold.sh). A row that fails while the output
-# reads the host window's own size in place of a held mode of another
-# size counts in mode_resets under every class, `hold` included: the
-# output read the held mode once the hold began, so a host configure
-# moved it back (held_mode_host_sized). These excuses apply to temporary
-# holds. The persistent startup base excuses only geometry and render.
+# holds one; hold_mode, release_mode, suspend_run_base and resume_run_base
+# alone write it.
 mode_hold=()
-mode_hold_window=""
 # The mode owner keeps complete parents here. The harness marks its
 # acquired bottom hold for the sandbox lifetime without copying its state;
 # a row that tests monitor rules suspends it and holds it again at its end
 # (suspend_run_base in mode-hold.sh).
 mode_hold_parents=()
 mode_hold_run_base=false
-mode_resets=0
 # A row that could not measure on this host, as `ROW:REASON` words, which
 # not_measured alone writes: a prerequisite the row needs is missing, or a
 # guard read the shell reaching past the sandbox (scripts/smoke/devices.sh).
@@ -51,25 +35,8 @@ not_measured() {
   not_measured_rows+=("$1:$2")
   printf '  SKIP  %s: not measured: %s\n' "$1" "$2"
 }
-# mode_reset MESSAGE REASON: one failed row counted as a mode reset and
-# printed in not_measured's form, never as `  FAIL`: scripts/main-run.sh
-# reports every line that starts `  FAIL` as a failure.
-mode_reset() {
-  local message="$1" reason="$2"
-  failures=$((failures + 1))
-  mode_resets=$((mode_resets + 1))
-  printf '  SKIP  %s: not measured: %s\n' "$message" "$reason"
-}
 # fail MESSAGE: one failed row, counted by its class and printed.
-# The operation class records a failed helper or prerequisite, which a
-# mode reset cannot excuse.
 fail() {
-  if [[ $row_class != operation && ${#mode_hold[@]} -gt 0 ]] &&
-    [[ $mode_hold_run_base == false || ${#mode_hold_parents[@]} -gt 0 || $row_class == geometry || $row_class == render ]] &&
-    { [[ $row_class != hold && $(held_mode_state) == reset ]] || held_mode_host_sized; }; then
-    mode_reset "$*" "${mode_hold[0]} left the held mode ${mode_hold[1]}"
-    return
-  fi
   failures=$((failures + 1))
   [[ $row_class == geometry || $row_class == render ]] || behaviour_failures=$((behaviour_failures + 1))
   printf '  FAIL  %s\n' "$*"
@@ -110,21 +77,16 @@ nested_output_unallocated() {
   grep -q -s -E 'Output WAYLAND-[0-9]+: pending state rejected: swapchain failed reconfiguring' -- "$@"
 }
 
-# smoke_verdict FAILURES BEHAVIOUR_FAILURES STALLED_RENDER MODE_RESETS LOG...:
-# prints the run's closing line and returns its exit status. MODE_RESETS
-# counts the failures of rows that ran after the nested output left a mode
-# they held (hold_mode in mode-hold.sh); a run whose every failure is one of
-# them measured an output the sandbox reset, not the shell, and reports
-# not-measured. A run whose failures are all geometry, render or mode-reset
-# rows met a sandbox fault when a render row drew no frame, or when the
-# nested window's output could not allocate its buffers; it reports
-# not-measured, which is never a pass, and names the cause. Any behaviour
-# failure is a failure. A run with no failure whose not_measured_rows
-# holds a row is not measured, and its line names each row and reason. A
-# failing run with mode resets names them apart from the other failures.
+# smoke_verdict FAILURES BEHAVIOUR_FAILURES LOG...: prints the run's
+# closing line and returns its exit status. A run whose failures are all
+# geometry or render rows met a sandbox fault when the nested output could
+# not allocate its buffers; it reports not-measured, which is never a pass,
+# and names the cause. Any behaviour failure is a failure. A run with no
+# failure whose not_measured_rows holds a row is not measured, and its line
+# names each row and reason.
 smoke_verdict() {
-  local failures="$1" behaviour_failures="$2" stalled_render="$3" mode_resets="$4"
-  shift 4
+  local failures="$1" behaviour_failures="$2"
+  shift 2
   if [[ $failures -eq 0 && ${#not_measured_rows[@]} -gt 0 ]]; then
     printf 'qml-smoke: status=not-measured rows=%s\n' "$(IFS=,; echo "${not_measured_rows[*]}")"
     return 77
@@ -133,24 +95,10 @@ smoke_verdict() {
     echo "qml-smoke: ok"
     return 0
   fi
-  if [[ $mode_resets -eq $failures ]]; then
-    printf 'qml-smoke: status=not-measured nested-output=mode-reset failed=%s\n' "$failures"
-    echo "the nested output left a mode a row held: the host sent the nested window its size again, as it does when it resizes or refocuses it or when another window on its host workspace closes; leave the nested window alone during the run, then run the smoke again"
-    return 77
-  fi
-  if [[ $behaviour_failures -eq 0 && $stalled_render == true ]]; then
-    printf 'qml-smoke: status=not-measured nested-window=not-drawn failed=%s\n' "$failures"
-    echo "the nested window stopped drawing; enable render_unfocused for class aquamarine in the host Hyprland window rules, or keep the window visible, then run the smoke again"
-    return 77
-  fi
   if [[ $behaviour_failures -eq 0 ]] && nested_output_unallocated "$@"; then
     printf 'qml-smoke: status=not-measured nested-compositor=buffer-allocation-failed failed=%s\n' "$failures"
     return 77
   fi
-  if [[ $mode_resets -gt 0 ]]; then
-    printf 'qml-smoke: failed=%s mode-resets=%s\n' "$((failures - mode_resets))" "$mode_resets"
-  else
-    echo "qml-smoke: failed=$failures"
-  fi
+  echo "qml-smoke: failed=$failures"
   return 1
 }

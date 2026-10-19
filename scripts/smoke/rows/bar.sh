@@ -690,8 +690,7 @@ PY
   # which enables each of them. The sandbox's stand-ins draw narrower than
   # his live widgets, which run into the clock at his 2560 logical pixels,
   # so the row narrows the bar to 1600, where the stand-ins run into it
-  # too, with a reserved area at the monitor's own mode, which no host
-  # configure resets (held_mode_state). System Monitor and Network Traffic
+  # too, with a reserved area at the monitor's own mode. System Monitor and Network Traffic
   # hold One line, the widths the walks below count widgets by; their
   # Stacked default draws narrower.
   zone_right='["vgs.vpn","vgs.network","vgs.bluetooth","vgs.sound","vgs.displays","vgs.keyboard","vgs.settings","vgs.agent-warden","vgs.ai-usage","vgs.capture","vgs.jarvis","vgs.power","vgs.traffic","vgs.updates","vgs.voice","vgs.sysmon"]'
@@ -1465,12 +1464,10 @@ start_shell "$repo" "$sandbox/bar-hide-restarted.log" || fail "the shell returns
 expect_poll "a restart ends the hide on every screen" "$bar_hide_shown" bar_hide_mapped
 expect "the nested compositor removes the second screen" ok hypr output remove "$bar_hide_output"
 expect_poll "one bar per monitor after the second screen goes" "$monitors/$monitors $monitors" bar_hide_mapped
-# The second screen's add and remove can move the nested output off the
-# mode the harness holds, and every later pointer dispatch refuses a reset
-# hold (coordinate_mode_check), so the hold is taken again here.
+# The sink configures each output once, so the second screen's add and
+# remove leave the first output in the mode the harness holds, which every
+# later pointer dispatch requires (coordinate_mode_check).
 if [[ ${#mode_hold[@]} -gt 0 ]]; then
-  printf '  bar_hide_mode state=%s\n' "$(held_mode_state)"
-  if [[ $(held_mode_state) != held ]]; then hold_restore || fail "the held mode returns after the second screen"; fi
   expect "the held mode stands after the second screen" held held_mode_state
 fi
 

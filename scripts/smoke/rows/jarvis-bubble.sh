@@ -91,7 +91,7 @@ jarvis_bubble_pixels() {
   local box colour socket geometry count
   box="$(control_box vgs:layer vgs.jarvis VoiceOrb active true)" &&
     colour="$(ipc smoke themeValue voiceOrb.tone.accent | py_reply 'import json,sys; print(json.load(sys.stdin)[-6:])')" &&
-    socket="$(shot_socket "$rt_dir" "$nested_socket" "$host_socket")" || return 1
+    socket="$(shot_socket "$rt_dir" "$nested_socket")" || return 1
   [[ $box == \[* ]] || { echo absent; return; }
   geometry="$(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); print("%d,%d %dx%d"%(x,y,w,h))' "$box")" || return 1
   count="$(shot_grim "$socket" "$rt_dir" -g "$geometry" -t ppm - | python3 -c '
