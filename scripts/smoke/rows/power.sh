@@ -217,7 +217,7 @@ power_pane_list_open() { ipc smoke itemValues window vgs.power Select listOpen |
 # power_pane_pick FIELD TYPE TEXT: bring the TYPE reading TEXT inside the
 # Field labelled FIELD into view and click it.
 power_pane_pick() {
-  [[ $(ipc smoke revealScopedText window vgs.power Field "$1" "$2" "$3") != absent ]] || { echo "power_pane_pick: no $2 $3 in $1" >&2; return 1; }
+  [[ $(ipc smoke revealScopedText window vgs.system Field "$1" "$2" "$3") != absent ]] || { echo "power_pane_pick: no $2 $3 in $1" >&2; return 1; }
   click_scoped_in "window:System Settings" window vgs.power Field "$1" "$2" "$3"
 }
 power_install_shown() { [[ $(ipc smoke windowGeometry window vgs.power RowAction "Install power profiles") == \[* ]] && echo yes || echo no; }
@@ -225,8 +225,8 @@ power_install_shown() { [[ $(ipc smoke windowGeometry window vgs.power RowAction
 power_disk_drawn() { ipc smoke itemValues window vgs.power Field label,visible | py_reply 'import json,sys
 label = json.load(open(sys.argv[1]))["status"]["diskSleep"]["label"]
 print(sum(row["visible"] and row["label"] == label for row in json.load(sys.stdin)))' "$repo/shell/plugins/vgs.power/manifest.json"; }
-power_disk_action() { status_rows vgs.power | py_reply 'import json,sys
-row = next((row for row in json.load(sys.stdin) if row["key"] == "diskSleep"), None)
+power_disk_action() { ipc smoke readInstance window vgs.power diskSleep | py_reply 'import json,sys
+row = json.load(sys.stdin)
 print("absent" if row is None else str(row["action"] is not None and row["action"]["offered"]))'; }
 power_profiles_presence() { ipc smoke statusValues vgs.power | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin).get("profiles")))'; }
 # power_timeline: the idle timeline as the pane draws it, top to bottom:
