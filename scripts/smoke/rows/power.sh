@@ -48,7 +48,9 @@
 # opens in Settings at that field; no row warns until the lock is set
 # below the screensaver, and then the lock row alone does; the section
 # draws all four of Power's own fields with a battery and the profiles
-# service, and no install offer for it; a
+# service, and no install offer for it; a click on an On battery segment
+# and Down and Return in Low battery alert's list store the value picked
+# and the control marks it; a
 # plug change applies the remembered charger profile; removing the display
 # battery hides the widget's battery part again; Power's Settings tab draws
 # its four battery fields with a battery, none with no battery and all
@@ -59,9 +61,9 @@
 # once a profiles service starts; with no
 # battery a bar pick
 # sets the profile and remembers no setting, a source change keeps that
-# pick, and with a battery a pick remembers the current source's; and a
-# profile service that starts after the
-# plugin is read. Two orders of a profile write
+# pick, and with a battery a pick remembers the current source's; a
+# profile service that starts after the plugin is read; and so is one a
+# scan finds while the watch reports nothing, as after a package install. Two orders of a profile write
 # are held with the barrier: a profile asked for while a write runs is
 # written next, and after a write the daemon refuses the mark returns to
 # the daemon's profile. Controls build fixture
@@ -70,8 +72,10 @@
 # charging icon while the service publishes charging, acme.power-order
 # drops a profile asked for while a write runs and starts no read after a
 # refused write, acme.power-busenv is the address control above, and
-# acme.power-once reads the service only on the watch's first line, so it
-# never reads one that starts later. A control that asserts something did
+# acme.power-once reads the service only on the watch's first line and
+# not when a scan stops listing it, so it never reads one that starts
+# later, while acme.power-quiet, the same watch with that scan's read
+# kept, reads it after the scan. A control that asserts something did
 # not happen waits for the line its fixture logs when it decides not to,
 # then reads once. Polls use expect_poll's reads 0.2 s apart.
 # The row disables vgs.power, starts the mocks, then restarts the shell
@@ -82,7 +86,7 @@
 # directory, stops the mock process groups it spawned, and restarts the
 # shell because Quickshell keeps that singleton in the process after the
 # plugin is disabled.
-# inputs: shell/plugins/vgs.power/* shell/plugins/vgs.settings/* shell/plugins/vgs.system/* shell/Hosts/PaneHost.qml shell/Core/IdleRegistry.qml shell/Ui/controls/FormRow.qml shell/Ui/controls/Field.qml shell/Ui/controls/Select.qml shell/Ui/controls/SegmentedControl.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Commons/SettingValues.js shell/Core/Registry.qml shell/Core/Capabilities.qml shell/Core/PluginStatus.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Notices.qml shell/Core/Notifier.qml shell/Hosts/NoticeHost.qml shell/Hosts/SummonHost.qml bin/vgshell-scan scripts/smoke/rows/device-fakes.sh scripts/smoke/power-fakes.sh
+# inputs: shell/plugins/vgs.power/* shell/plugins/vgs.settings/* shell/plugins/vgs.system/* shell/Hosts/PaneHost.qml shell/Core/IdleRegistry.qml shell/Ui/controls/FormRow.qml shell/Ui/controls/Field.qml shell/Ui/controls/Select.qml shell/Ui/controls/SegmentedControl.qml shell/Ui/controls/RowAction.qml shell/Ui/layout/Section.qml shell/Ui/layout/SectionHeader.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Commons/SettingValues.js shell/Core/Registry.qml shell/Core/Capabilities.qml shell/Core/PluginStatus.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Notices.qml shell/Core/Notifier.qml shell/Hosts/NoticeHost.qml shell/Hosts/SummonHost.qml bin/vgshell-scan scripts/smoke/rows/device-fakes.sh scripts/smoke/power-fakes.sh
 set -euo pipefail
 source "$repo/scripts/smoke/power-fakes.sh"
 
@@ -99,6 +103,7 @@ power_relatch_dir="$home/.config/vgshell/plugins/acme.power-relatch"
 power_nocharge_dir="$home/.config/vgshell/plugins/acme.power-nocharge"
 power_busenv_dir="$home/.config/vgshell/plugins/acme.power-busenv"
 power_once_dir="$home/.config/vgshell/plugins/acme.power-once"
+power_quiet_dir="$home/.config/vgshell/plugins/acme.power-quiet"
 power_order_dir="$home/.config/vgshell/plugins/acme.power-order"
 power_notify_calls="$sandbox/power-notify-send.calls"
 power_gdbus_calls="$sandbox/power-gdbus.calls"
@@ -200,6 +205,17 @@ power_pane_fields() { ipc smoke itemTexts window vgs.power Field | py_reply 'imp
 schema = json.load(open(sys.argv[1]))["schema"]
 drawn = {t.lower() for row in json.load(sys.stdin) for t in row}
 print(json.dumps(sorted(k for k in json.loads(sys.argv[2]) if schema[k]["label"].lower() in drawn)))' "$repo/shell/plugins/vgs.power/manifest.json" "$power_battery_keys"; }
+# power_pane_choices TYPE: the currentIndex of each shown TYPE control of
+# the mounted pane, top to bottom: the SegmentedControls of When charging
+# and On battery, or the Selects of Low and Critical battery alert.
+power_pane_choices() { ipc smoke itemValues window vgs.power "$1" currentIndex,visible | py_reply 'import json,sys; print(json.dumps([r["currentIndex"] for r in json.load(sys.stdin) if r["visible"]]))'; }
+power_pane_list_open() { ipc smoke itemValues window vgs.power Select listOpen | py_reply 'import json,sys; print(any(r["listOpen"] for r in json.load(sys.stdin)))'; }
+# power_pane_pick FIELD TYPE TEXT: bring the TYPE reading TEXT inside the
+# Field labelled FIELD into view and click it.
+power_pane_pick() {
+  [[ $(ipc smoke revealScopedText window vgs.power Field "$1" "$2" "$3") != absent ]] || { echo "power_pane_pick: no $2 $3 in $1" >&2; return 1; }
+  click_scoped_in "window:System Settings" window vgs.power Field "$1" "$2" "$3"
+}
 power_install_shown() { [[ $(ipc smoke windowGeometry window vgs.power RowAction "Install power profiles") == \[* ]] && echo yes || echo no; }
 power_profiles_presence() { ipc smoke statusValues vgs.power | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin).get("profiles")))'; }
 # power_timeline: the idle timeline as the pane draws it, top to bottom:
@@ -379,6 +395,25 @@ EOF_STAND
   expect_poll "with the lock set below the screensaver the lock row alone warns" '[["[After 2 minutes](page:acme.power-dim/Settings/dimAfter)", false], ["[After 150 seconds](page:acme.power-away/Settings/saverAfter)", false], ["[After 2 minutes](page:acme.power-away/Settings/lockAfter)", true]]' power_timeline
   power_stage_setting "$home/.config/vgshell/shell.json" lockAfter null
   expect_poll "the lock's default time clears the warning" "$power_timeline_defaults" power_timeline
+  # The section's own writes: a segment and a list entry, each picked as a
+  # user picks it, then the segment back, so the battery profile the later
+  # bar picks are judged against is the one the panel stored.
+  expect "before the pane's pick the battery profile is Performance" '"performance"' power_setting batteryProfile
+  expect "before the pane's pick both profile controls mark Performance" '[2, 2]' power_pane_choices SegmentedControl
+  power_pane_pick "On battery" Label "Power saver" || fail "the click on On battery's Power saver failed"
+  expect_poll "a click on On battery's Power saver stores it" '"power-saver"' power_setting batteryProfile
+  expect_poll "On battery marks Power saver and When charging keeps Performance" '[2, 0]' power_pane_choices SegmentedControl
+  power_pane_pick "On battery" Label "Performance" || fail "the click on On battery's Performance failed"
+  expect_poll "a click on On battery's Performance stores it" '"performance"' power_setting batteryProfile
+  expect_poll "On battery marks Performance again" '[2, 2]' power_pane_choices SegmentedControl
+  expect "before the pane's pick the low alert holds no stored value" null power_setting lowThreshold
+  expect "before the pane's pick the alert lists mark 20 and 10 percent" '[1, 1]' power_pane_choices Select
+  power_pane_pick "Low battery alert" Select "20%" || fail "the click on Low battery alert's list failed"
+  expect_poll "Low battery alert's list opens" True power_pane_list_open
+  type_keys -k Down -k Return || fail "typing Down and Return in Low battery alert's list failed"
+  expect_poll "Return closes Low battery alert's list" False power_pane_list_open
+  expect_poll "Down and Return in the list store 25 percent" 25 power_setting lowThreshold
+  expect_poll "Low battery alert marks 25 percent and Critical keeps 10" '[2, 1]' power_pane_choices Select
   expect "System Settings hides after Power's section" ok ipc shell hide window vgs.system
   expect "disabling the dim owner fixture is allowed" ok ipc shell setPluginEnabled acme.power-dim false
   expect "disabling the away owner fixture is allowed" ok ipc shell setPluginEnabled acme.power-away false
@@ -554,10 +589,13 @@ import Quickshell.Io
   expect_poll "the later profile mock releases its bus name" false power_bus_has org.freedesktop.UPower.PowerProfiles
   power_install_fixture acme.power-once "$power_once_dir" Service.qml \
     'stdout: SplitParser { onRead: () => root.readProfiles() }' \
-    'stdout: SplitParser { onRead: line => { if (line.indexOf("Monitoring signals") === 0) root.readProfiles(); else console.warn("power: control ignored watch line=" + line); } }'
+    'stdout: SplitParser { onRead: line => { if (line.indexOf("Monitoring signals") === 0) root.readProfiles(); else console.warn("power: control ignored watch line=" + line); } }' \
+    Service.qml \
+    'if (registered && !profilesMissing) readProfiles();' \
+    'if (registered && !profilesMissing) console.warn("power: control skipped scan read");'
   # Before the mock starts the watch prints that the name has no owner, so
   # the wait is for a line the daemon's start or its first signal causes.
-  expected_errors+=('power: control ignored watch line=')
+  expected_errors+=('power: control ignored watch line=' 'power: control skipped scan read$')
   : >"$power_gdbus_calls"
   rescan "rescan after adding the once fixture answers ok"
   expect "enabling the once fixture is allowed" ok ipc shell setPluginEnabled acme.power-once true
@@ -566,10 +604,37 @@ import Quickshell.Io
   power_start_profiles power-once balanced
   expect_log "control: the once fixture ignores a watch line the started service causes" 1 'power: control ignored watch line=.*(is owned by|PropertiesChanged)'
   expect "control: a service read once is not read after it starts" False power_profile_available
+  rescan "a scan finds the service the once fixture's watch did not report"
+  expect_log "control: the once fixture skips the read the scan owes" 1 'power: control skipped scan read$'
+  expect "control: with no read on the scan a quiet watch leaves the profiles unavailable" False power_profile_available
   unset power_id
   expect "disabling the once fixture is allowed" ok ipc shell setPluginEnabled acme.power-once false
   power_move_away "$power_once_dir"
-  rescan "rescan after removing the once fixture answers ok"
+
+  # A package install makes the name activatable and changes no owner, so
+  # the watch prints nothing. The sandbox bus has no service directory, so
+  # acme.power-quiet stands for that silence: it is the once fixture with
+  # the scan's read kept, and the scan alone must read the service.
+  power_stop_mock "$power_profiles_pid"
+  power_profiles_pid=""
+  expect_poll "the once profile mock releases its bus name" false power_bus_has org.freedesktop.UPower.PowerProfiles
+  power_install_fixture acme.power-quiet "$power_quiet_dir" Service.qml \
+    'stdout: SplitParser { onRead: () => root.readProfiles() }' \
+    'stdout: SplitParser { onRead: line => { if (line.indexOf("Monitoring signals") === 0) root.readProfiles(); else console.warn("power: quiet ignored watch line=" + line); } }'
+  expected_errors+=('power: quiet ignored watch line=')
+  : >"$power_gdbus_calls"
+  rescan "rescan after adding the quiet fixture answers ok"
+  expect "enabling the quiet fixture is allowed" ok ipc shell setPluginEnabled acme.power-quiet true
+  power_id=acme.power-quiet
+  expect_poll "the quiet fixture reads the absent service" yes power_has_read
+  power_start_profiles power-quiet balanced
+  expect_log "the quiet fixture ignores a watch line the started service causes" 1 'power: quiet ignored watch line=.*(is owned by|PropertiesChanged)'
+  rescan "a scan finds the service the quiet fixture's watch did not report"
+  expect_poll "a scan that stops listing the profiles service reads it" True power_profile_available
+  unset power_id
+  expect "disabling the quiet fixture is allowed" ok ipc shell setPluginEnabled acme.power-quiet false
+  power_move_away "$power_quiet_dir"
+  rescan "rescan after removing the once and quiet fixtures answers ok"
 
   expect "restoring vgs.system's enablement is allowed" ok ipc shell setPluginEnabled vgs.system "$([[ $power_system_was == True ]] && echo true || echo false)"
   power_restore_stand notify-send "$power_notify_stood"

@@ -61,8 +61,10 @@
 # header switch under the pointer and under keyboard focus, the switch's
 # unlock mark under keyboard focus, and Sign in under the pointer over a
 # signed-out tailnet; power is its flyout over the sandbox's fake
-# battery and power profile daemon, its System Settings section over two
-# idle stage owner fixtures, then the flyout over the daemon with no battery;
+# battery and power profile daemon, its Settings page's tabs, its System
+# Settings section over two idle stage owner fixtures, the section and the
+# page's tabs with no profiles service, then the flyout over the daemon
+# with no battery;
 # keyhints is the
 # Key Hints window over the Launcher's, Settings' and Themes' shortcuts and
 # its own; ai-usage is AI Usage's dropdown opened from its bar widget over
@@ -6125,7 +6127,7 @@ scene_power() { # MODE
   park_pointer
   take "power-$1-panel"
   expect "Power's panel hides" ok ipc shell hide panel vgs.power
-  [[ -f $tree/shell/plugins/vgs.power/Pane.qml ]] && power_shot_pane "$1"
+  if [[ -f $tree/shell/plugins/vgs.power/Pane.qml ]]; then power_shot_pane "$1"; else power_shot_pages "$1" ""; fi
   notes_on "Power notice shots"
   power_discharging 19.0 1800
   expect_poll "Power sends its low battery notice" 1 notes_on_screen
@@ -6148,12 +6150,25 @@ scene_power() { # MODE
   expect "Power disables after its shot" ok ipc shell setPluginEnabled vgs.power false
   power_stop_mocks
 }
+# Power's Settings window page while it is on, power-<mode>-page-<tab>SUFFIX
+# for its Settings, Setup and Details tabs, every screen of each, where the
+# tree's Settings is a window. A tree that ships Power's section takes them
+# in power_shot_pane, while System is on and the page offers it.
+power_shot_pages() { # MODE SUFFIX
+  local tab
+  [[ $manager_scene == settings ]] || return 0
+  expect "the Settings window opens for Power's page" ok ipc shell summon "$settings_kind" vgs.settings '{}'
+  expect_poll "the Settings window maps for Power's page" 1 settings_count
+  for tab in settings setup details; do plugin_page_shots "$1" vgs.power "power-$1-page-$tab$2" "$tab"; done
+  settings_close
+}
 # Power's section in System Settings over two idle stage owner fixtures at
 # the shipped owners' default times: power-<mode>-pane with the battery and
 # the profiles service, power-<mode>-pane-warning with the lock set below
 # the screensaver, and power-<mode>-pane-no-profiles once a scan misses the
-# profiles service, which offers its install; the profiles mock then
-# starts again for the scene's later shots.
+# profiles service, which offers its install, then Power's page in that
+# state; the profiles mock then starts again, for Power's page with it and
+# the scene's later shots.
 power_shot_pane() { # MODE
   local plugins="$home/.config/vgshell/plugins"
   power_stage_owners "$plugins"
@@ -6174,15 +6189,18 @@ power_shot_pane() { # MODE
   expect_poll "Power's section has no warning again" "3 0" power_shot_timeline
   power_stop_mock "$power_profiles_pid"
   power_profiles_pid=""
+  expect_poll "the stopped profiles mock leaves the bus" false power_bus_has org.freedesktop.UPower.PowerProfiles
   tree_rescan "a scan misses the stopped profiles service"
   expect_poll "Power's section offers the profiles service's install" shown power_shot_install
   park_pointer
   take "power-$1-pane-no-profiles"
-  power_start_profiles shots-power-again balanced
-  tree_rescan "a scan finds the profiles service again"
-  expect_poll "Power's section drops the install offer" hidden power_shot_install
   expect "the System window hides after Power's section" ok ipc shell hide window vgs.system
   expect_poll "the System window is gone after Power's section" hidden system_shown
+  power_shot_pages "$1" -no-profiles
+  power_start_profiles shots-power-again balanced
+  tree_rescan "a scan finds the profiles service again"
+  expect_poll "Power's service reads the profiles service again" True power_shot_profiles
+  power_shot_pages "$1" ""
   expect "disabling vgs.system after Power's section is allowed" ok ipc shell setPluginEnabled vgs.system false
   expect "the dim owner fixture disables" ok ipc shell setPluginEnabled acme.power-dim false
   expect "the away owner fixture disables" ok ipc shell setPluginEnabled acme.power-away false
@@ -6196,6 +6214,7 @@ print(len(rows), sum(r["parent.parent.warning"] != "" for r in rows))'; }
 power_shot_install() { [[ $(ipc smoke windowGeometry window vgs.power RowAction "Install power profiles") == \[* ]] && echo shown || echo hidden; }
 power_shot_panel() { [[ $(ipc smoke instanceGeometry panel vgs.power) != absent ]] && echo shown || echo hidden; }
 power_shot_level() { ipc smoke statusValues vgs.power | py_reply 'import json,sys; print(json.load(sys.stdin)["power"]["battery"]["level"])'; }
+power_shot_profiles() { ipc smoke statusValues vgs.power | py_reply 'import json,sys; print(json.load(sys.stdin)["power"]["profile"]["available"])'; }
 power_shot_battery() { ipc smoke statusValues vgs.power | py_reply 'import json,sys; print(json.load(sys.stdin)["power"]["battery"]["present"])'; }
 
 # The core's requirement notice, raised by enabling the acme.needs

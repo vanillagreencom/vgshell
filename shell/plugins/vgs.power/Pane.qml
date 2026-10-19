@@ -99,31 +99,29 @@ FocusScope {
     implicitHeight: content.implicitHeight
     focus: true
 
-    // Each Repeater delegate sizes from this column's id, not its parent:
-    // the holder's teardown unparents a delegate while its bindings still
-    // run, and a parent read there is a TypeError the log keeps (the
-    // system-window row's log check).
+    // Each Repeater delegate sizes from an id, not its parent: the
+    // holder's teardown unparents a delegate while its bindings still run,
+    // and a parent read there is a TypeError the log keeps (the
+    // system-window row's log check). Each Section measures its own
+    // `stack.heading` above it, less this column's spacing, which is the
+    // problem line's space.
     Column {
         id: content
         width: root.width
         spacing: Theme.stack.group
 
-        SectionHeader {
-            width: parent.width
-            text: "Idle timeline"
+        Section {
+            id: timeline
+            width: content.width
+            title: "Idle timeline"
             description: "Each time counts from your last input. Select a time to change it."
-        }
-
-        Column {
-            width: parent.width
-            spacing: Theme.stack.row
 
             Repeater {
                 model: root.stages
 
                 FormRow {
                     required property var modelData
-                    width: content.width
+                    width: timeline.width
                     label: root.stageText[modelData.stage].label
                     warning: root.beforeText(modelData)
 
@@ -137,7 +135,7 @@ FocusScope {
 
             Label {
                 visible: root.stages.length === 0
-                width: parent.width
+                width: timeline.width
                 role: "hint"
                 text: "Nothing happens when you stop using the computer."
                 wrapMode: Text.Wrap
@@ -147,61 +145,51 @@ FocusScope {
         Repeater {
             model: root.groups
 
-            Column {
+            Section {
                 id: group
                 required property var modelData
                 readonly property var keys: modelData.keys.filter(key => root.shown(key))
                 visible: keys.length > 0
                 width: content.width
-                spacing: Theme.stack.group
+                title: modelData.name
 
-                SectionHeader {
-                    width: parent.width
-                    text: group.modelData.name
-                }
+                Repeater {
+                    model: group.keys
 
-                Column {
-                    width: parent.width
-                    spacing: Theme.stack.row
+                    Field {
+                        id: field
+                        required property string modelData
+                        readonly property var entry: root.schema[modelData]
+                        readonly property var choices: root.shell === null ? [] : root.choicesOf(modelData)
+                        readonly property int current: root.shell === null ? -1 : choices.findIndex(choice => choice.value === root.shell.settings[modelData])
+                        width: content.width
+                        inline: true
+                        label: entry.label
+                        hint: entry.description
 
-                    Repeater {
-                        model: group.keys
-
-                        Field {
-                            id: field
-                            required property string modelData
-                            readonly property var entry: root.schema[modelData]
-                            readonly property var choices: root.shell === null ? [] : root.choicesOf(modelData)
-                            readonly property int current: root.shell === null ? -1 : choices.findIndex(choice => choice.value === root.shell.settings[modelData])
-                            width: content.width
-                            inline: true
-                            label: entry.label
-                            hint: entry.description
-
-                            // The binding comes back after a choice, so the
-                            // control shows the value the configuration holds.
-                            SegmentedControl {
-                                visible: field.entry.type === "enum"
-                                model: field.choices.map(choice => choice.label)
-                                currentIndex: field.current
-                                Accessible.name: field.entry.label
-                                onActivated: index => {
-                                    root.configure(field.modelData, field.choices[index].value);
-                                    currentIndex = Qt.binding(() => field.current);
-                                }
+                        // The binding comes back after a choice, so the
+                        // control shows the value the configuration holds.
+                        SegmentedControl {
+                            visible: field.entry.type === "enum"
+                            model: field.choices.map(choice => choice.label)
+                            currentIndex: field.current
+                            Accessible.name: field.entry.label
+                            onActivated: index => {
+                                root.configure(field.modelData, field.choices[index].value);
+                                currentIndex = Qt.binding(() => field.current);
                             }
+                        }
 
-                            Select {
-                                visible: field.entry.type === "number"
-                                width: parent.width
-                                model: field.choices
-                                textRole: "label"
-                                currentIndex: field.current
-                                Accessible.name: field.entry.label
-                                onActivated: index => {
-                                    root.configure(field.modelData, field.choices[index].value);
-                                    currentIndex = Qt.binding(() => field.current);
-                                }
+                        Select {
+                            visible: field.entry.type === "number"
+                            width: parent.width
+                            model: field.choices
+                            textRole: "label"
+                            currentIndex: field.current
+                            Accessible.name: field.entry.label
+                            onActivated: index => {
+                                root.configure(field.modelData, field.choices[index].value);
+                                currentIndex = Qt.binding(() => field.current);
                             }
                         }
                     }
@@ -209,16 +197,11 @@ FocusScope {
             }
         }
 
-        Column {
+        Section {
             visible: root.profilesMissing
-            width: parent.width
-            spacing: Theme.stack.group
-
-            SectionHeader {
-                width: parent.width
-                text: "Power profiles"
-                description: "Install the power profiles service to switch between power saver, balanced and performance."
-            }
+            width: content.width
+            title: "Power profiles"
+            description: "Install the power profiles service to switch between power saver, balanced and performance."
 
             RowAction {
                 text: "Install power profiles"

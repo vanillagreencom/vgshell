@@ -22,6 +22,15 @@ import "PowerLogic.js" as Logic
 // is not, and monitor writes each line to a pipe as it happens (runs on
 // GLib 2.88.3 against a mock daemon on a private bus), so the argv names no
 // address.
+//
+// Installing the daemon's package adds only its D-Bus activation file,
+// which makes the name activatable and changes no owner, so the watch
+// prints nothing, while bin/vgshell-scan counts an activatable name as
+// present. When a scan stops listing the service as missing, one more read
+// runs: its GetAll, a method call to an activatable name, starts the
+// daemon, and the watch then reports the new owner (dbus-daemon 1.16.2, a
+// private bus with a service directory and python-dbusmock 0.38.1 as the
+// activated daemon, 2026-10-19).
 Item {
     id: root
 
@@ -48,6 +57,7 @@ Item {
     readonly property string sourceKey: JSON.stringify({ ready: upowerReady, onBattery: UPower.onBattery })
     readonly property string profilesInterface: "org.freedesktop.UPower.PowerProfiles"
     readonly property var profilesBus: ["--system", "--dest", profilesInterface, "--object-path", "/org/freedesktop/UPower/PowerProfiles"]
+    readonly property bool profilesMissing: shell !== null && shell.requirements.missing.indexOf(profilesInterface) !== -1
 
     onShellChanged: {
         if (shell === null || registered) return;
@@ -63,6 +73,9 @@ Item {
     onViewKeyChanged: publish()
     onNoticeKeyChanged: checkNotices()
     onSourceKeyChanged: observeSource()
+    onProfilesMissingChanged: {
+        if (registered && !profilesMissing) readProfiles();
+    }
     Component.onCompleted: observeSource()
 
     Connections {

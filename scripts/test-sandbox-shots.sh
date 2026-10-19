@@ -1963,7 +1963,8 @@ fi
 
 # Drive the Power scene's setup order without starting a sandbox. The
 # plugin check must read a scan made after the fake daemon owns its name.
-# The tree ships Power's section, whose shots follow the panel's.
+# The tree ships Power's section, whose shots, its page's among them,
+# follow the panel's.
 power_scene="$tmp/power-scene.sh"
 catalog_extract scene_power "$power_scene"
 power_tree="$tmp/power-tree"
