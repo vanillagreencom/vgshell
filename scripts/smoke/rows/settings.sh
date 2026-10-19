@@ -686,12 +686,16 @@ expect_poll "Settings draws the choices setting only" '[1, 0]' page_fields_of ac
 # captures took 298 ms in the nested sandbox on cachy, AMD Ryzen 9 9950X,
 # on 2026-10-18 at a 1-minute load of 14, so a two-second change yields
 # dozens of frames; a change's frames must include one drawn between its
-# two heights, so the reading saw the animation. The control sends the same change as two requests, a
-# resize and then a move back, Settings' code before VGS-1891: a frame
-# between them draws the top moved, which the same reading must see. An
-# odd height change through one batch draws exactly the height asked, at
-# the top. The block restores hyprland.lua and Hyprland's animations by a
-# reload, and leaves the page on Settings at its height.
+# two heights, so the reading saw the animation. Frames that stop short,
+# a frame with no border run or none between the heights, are judged by
+# the CPU pressure of the window they were captured in: not measured
+# above latency_pressure_limit, failed at or below it. The control sends
+# the same change as two requests, a resize and then a move back,
+# Settings' code before VGS-1891: a frame between them draws the top
+# moved, which the same reading must see. An odd height change through
+# one batch draws exactly the height asked, at the top. The block
+# restores hyprland.lua and Hyprland's animations by a reload, and leaves
+# the page on Settings at its height.
 pin_socket="$(shot_socket "$rt_dir" "$nested_socket" "$host_socket")" || fail "the nested socket for the pinned-top frames is unresolved"
 hypr_animations() { hypr -j getoption animations:enabled | py_reply 'import json,sys; print(int(json.load(sys.stdin)["bool"]))'; }
 # pin_batch REQUEST: Hyprland's replies to one `hyprctl --batch` REQUEST,
@@ -701,9 +705,12 @@ pin_batch() { hypr --batch "$1" | py_reply 'import sys; print(",".join(p.strip()
 # bounded so a failed row never leaves one running: grim captures of the
 # one-pixel column at layout x PIN_X from the monitor's top, PIN_Y, PIN_H
 # tall, one file a frame, and the Plugins client's box from j/clients, one
-# line a read. pin_frames_stop DIR ends both.
+# line a read. pin_frames_stop DIR ends both and sets pin_frames_pressure
+# to the cpu_some_pct of the window between them.
 pin_frames_start() { # DIR
   mkdir -p -- "$1"
+  pin_frames_cpu_us="$(cpu_some_us)"
+  pin_frames_ms="$(now_ms)"
   (
     n=0
     while [[ ! -e $1/stop && $n -lt 1200 ]]; do
@@ -724,6 +731,7 @@ pin_frames_start() { # DIR
 pin_frames_stop() { # DIR
   : >"$1/stop"
   wait "$pin_frames_pid" "$pin_goals_pid" || true
+  pin_frames_pressure="$(cpu_some_pct "$pin_frames_cpu_us" "$(cpu_some_us)" "$(($(now_ms) - pin_frames_ms))")"
 }
 # pin_read DIR [ALL]: the drawn [top, height] of the newest whole frame in
 # DIR, its top from the monitor's top, or with ALL every frame's in order,
@@ -793,6 +801,35 @@ print(json.dumps({"frames": len(d["frames"]), "unread": len(d["frames"]) - len(f
 }
 pin_field() { printf '%s\n' "$1" | py_reply 'import json,sys; v=json.load(sys.stdin)[sys.argv[1]]; print(json.dumps(v))' "$2"; }
 pin_some() { printf '%s\n' "$1" | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)[sys.argv[1]] > 0))' "$2"; }
+# pin_frames_check NAME VERDICT CPU_SOME_PCT: one window's frames, judged
+# from pin_judge's VERDICT by the CPU pressure of the window they were
+# captured in. A frame that draws the top off the pinned top fails at any
+# pressure. Frames with no border run, or none drawn between the two
+# heights, stop short of the change: not measured above
+# latency_pressure_limit, failed at or below it.
+pin_frames_check() { # NAME VERDICT CPU_SOME_PCT
+  local short
+  expect "$1: every frame drawn through the change draws the top at the pinned top" '[]' pin_field "$2" moved
+  short="$(printf '%s\n' "$2" | py_reply '
+import json, sys
+d = json.load(sys.stdin)
+unread, between = d.get("unread"), d.get("between")
+if not isinstance(unread, int) or not isinstance(between, int):
+    print("unreadable")
+else:
+    print(",".join(word for word, short in (("unread=%d" % unread, unread != 0), ("between=0", between == 0)) if short) or "none")')" || short=unreadable
+  case "$short" in
+    none) ok "$1: every frame read the window's border, and frames were drawn between the two heights" ;;
+    *=*)
+      case "$(latency_pressure_verdict 0 "$3" 0)" in
+        unmeasured) not_measured settings "${1// /-}-frames-$short-cpu_some_pct=$3-above-$latency_pressure_limit" ;;
+        within) fail "$1: the frames stop short of the change: $short cpu_some_pct=$3" ;;
+        *) fail "$1: the frames stop short and the CPU pressure is unread: $short cpu_some_pct=$3" ;;
+      esac
+      ;;
+    *) fail "$1: the frame verdict is unreadable: $2" ;;
+  esac
+}
 # pin_settled DIR [HEIGHT]: `settled` once Hyprland holds the client at
 # the pinned top at HEIGHT, the window's implicitHeight without it, and
 # the newest frame draws it there, else the three readings.
@@ -820,18 +857,15 @@ pin_change() { # NAME TO_TAB
   after="$(pin_height)" || after=unread
   reading="$(pin_read "$dir" all)" || reading='{"frames": [], "goals": []}'
   verdict="$(pin_judge "$reading" "$pin_top" "$before" "$after")" || verdict='{}'
-  printf '  pinned  %s: before=%s after=%s %s\n' "$1" "$before" "$after" "$verdict"
+  printf '  pinned  %s: before=%s after=%s cpu_some_pct=%s %s\n' "$1" "$before" "$after" "$pin_frames_pressure" "$verdict"
   expect "$1: the window changes height" true python3 -c 'import sys; print("true" if sys.argv[1] != sys.argv[2] else "false")' "$before" "$after"
-  expect "$1: every frame drawn through the change draws the top at the pinned top" '[]' pin_field "$verdict" moved
-  expect "$1: every frame read the window's border" 0 pin_field "$verdict" unread
-  expect "$1: frames were drawn between the two heights" true pin_some "$verdict" between
+  pin_frames_check "$1" "$verdict" "$pin_frames_pressure"
   expect "$1: every Hyprland read through the change holds the pinned top" '[]' pin_field "$verdict" goalsMoved
   expect "$1: Hyprland was read through the change" true pin_some "$verdict" goals
 }
 expect "the status fixture's page shows Settings for the pinned top" Settings settings_tab_text
-pin_box="$(pinned_box)" || pin_box=unread
-[[ $pin_box == \[* ]] || fail "the pinned top's reading: got $pin_box"
-pin_top="$(printf '%s\n' "$pin_box" | py_reply 'import json,sys; print(json.load(sys.stdin)[0])')" || pin_top=unread
+pin_box_top() { pinned_box | py_reply 'import json,sys; print(json.load(sys.stdin)[0])'; }
+read_count pin_top "the pinned top's reading" pin_box_top
 expect_poll "the window holds the pinned top on Settings" "$pin_top" pin_top_now
 window_border_on
 pin_client="$(one_window Plugins)" || pin_client=unread
@@ -841,9 +875,9 @@ expect "window animations take two seconds for the pinned-top frames" ok hypr ev
 expect "Hyprland's window animations are on" 1 hypr_animations
 pin_change "Settings to Setup" Setup
 pin_change "Setup to Details" Details
-pin_details="$(pin_height)" || pin_details=unread
+read_count pin_details "Details' height" pin_height
 pin_change "Details to Settings" Settings
-pin_settings="$(pin_height)" || pin_settings=unread
+read_count pin_settings "Settings' height" pin_height
 # The control: Details' height as two requests from Settings' box, a
 # resize and, once a frame draws the top moved, the move back.
 pin_address="$(window_address Plugins)" || pin_address=unread
@@ -877,8 +911,29 @@ expect "odd: the batch back to Settings' height answers ok twice" ok,ok pin_batc
 expect_poll "odd: the window comes to rest at Settings' height" settled pin_settled "$pin_odd_dir" "$pin_settings"
 pin_frames_stop "$pin_odd_dir"
 pin_odd_verdict="$(pin_judge "$(pin_read "$pin_odd_dir" all)" "$pin_top" "$pin_details" "$pin_odd")" || pin_odd_verdict='{}'
-printf '  pinned  odd: %s\n' "$pin_odd_verdict"
-expect "odd: every frame through both batches draws the top at the pinned top" '[]' pin_field "$pin_odd_verdict" moved
+printf '  pinned  odd: cpu_some_pct=%s %s\n' "$pin_frames_pressure" "$pin_odd_verdict"
+pin_frames_check odd "$pin_odd_verdict" "$pin_frames_pressure"
+# Planted verdicts: frames that stop short are not measured only under
+# pressure, and a moved top or an unreadable verdict fails at any.
+pin_frames_check_cases() {
+  local verdict pressure expected
+  while IFS='|' read -r verdict pressure expected; do
+    [[ $(failures=0; behaviour_failures=0; not_measured_rows=()
+         pin_frames_check planted "$verdict" "$pressure" >"$sandbox/pinned-frames-control.log" 2>&1
+         printf '%s %s' "$failures" "${#not_measured_rows[@]}") == "$expected" ]] || { printf '%s|%s\n' "$verdict" "$pressure"; return; }
+  done <<'CASES'
+{"unread": 0, "between": 5, "moved": []}|0.0|0 0
+{"unread": 2, "between": 5, "moved": []}|40.0|0 1
+{"unread": 2, "between": 5, "moved": []}|0.0|1 0
+{"unread": 0, "between": 0, "moved": []}|40.0|0 1
+{"unread": 0, "between": 0, "moved": []}|0.0|1 0
+{"unread": 0, "between": 0, "moved": []}|unmeasured|1 0
+{"unread": 0, "between": 5, "moved": [30]}|40.0|1 0
+{}|40.0|2 0
+CASES
+  echo ok
+}
+expect "control: frames that stop short are not measured only under CPU pressure" ok pin_frames_check_cases
 window_border_off
 expect_poll "Hyprland's window animations are off again after the reload" 0 hypr_animations
 
