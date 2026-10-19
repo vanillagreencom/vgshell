@@ -81,6 +81,7 @@ Recommends:     btop
 Recommends:     bluez
 Recommends:     brightnessctl
 Recommends:     ppd-service
+Recommends:     hdparm
 Recommends:     cronie
 Recommends:     ddcutil
 Recommends:     libcap
