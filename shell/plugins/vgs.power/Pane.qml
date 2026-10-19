@@ -23,6 +23,7 @@ FocusScope {
     readonly property var stages: shell === null ? [] : shell.idle.stages
     readonly property var schema: shell === null ? ({}) : shell.manifest.schema
     readonly property var presence: shell === null ? ({}) : shell.status.values
+    readonly property var wakeRow: shell === null ? null : shell.status.rows.find(row => row.key === "wakeSources") || null
     readonly property string profilesService: "org.freedesktop.UPower.PowerProfiles"
     readonly property bool profilesMissing: shell !== null && shell.requirements.missing.indexOf(profilesService) !== -1
     // The schema's groups in the order their first entry appears, each with
@@ -93,6 +94,12 @@ FocusScope {
         problem = reply === "ok" ? "" : "VGS could not save this setting.";
         if (reply !== "ok") console.warn("power pane: configure " + key + " " + reply);
         return reply;
+    }
+
+    function allowWake() {
+        const reply = shell.status.act("wakeSources");
+        problem = reply === "ok" ? "" : "VGS could not open wake source setup.";
+        if (reply !== "ok") console.warn("power pane: wake sources " + reply);
     }
 
     implicitWidth: Theme.size.window.width
@@ -206,6 +213,33 @@ FocusScope {
             RowAction {
                 text: "Install power profiles"
                 onClicked: root.installProfiles()
+            }
+        }
+
+        Section {
+            width: content.width
+            title: "Wake"
+
+            Field {
+                width: content.width
+                inline: true
+                label: "Wake sources"
+                hint: root.wakeRow === null ? "" : root.wakeRow.hint
+
+                Row {
+                    spacing: Theme.stack.inline
+                    Badge {
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: root.wakeRow === null || root.wakeRow.value === null ? "Checking" : root.wakeRow.value
+                        tone: root.wakeRow === null || root.wakeRow.tone === "" ? "info" : root.wakeRow.tone
+                    }
+                    RowAction {
+                        anchors.verticalCenter: parent.verticalCenter
+                        visible: root.wakeRow !== null && root.wakeRow.action !== null && root.wakeRow.action.offered
+                        text: root.wakeRow === null || root.wakeRow.action === null ? "Allow" : root.wakeRow.action.label
+                        onClicked: root.allowWake()
+                    }
+                }
             }
         }
 

@@ -240,3 +240,56 @@ function sourceObserved(previous, ready, onBattery, batteryPresent) {
     if (state.onBattery === (onBattery === true)) return { state: state, apply: false };
     return { state: { ready: true, onBattery: onBattery === true }, apply: batteryPresent === true };
 }
+
+// BlueZ 5.87 exposes WakeAllowed only when the device supports wake
+// (src/device.c, dev_property_wake_allowed_exist). GetAll also supplies
+// Class/Appearance, which Quickshell 0.3.1 does not expose. Icon alone
+// loses the combined keyboard/pointing class (src/dbus-common.c).
+function bluetoothWakeReading(code, text) {
+    if (code !== 0) return { state: "failed", reason: "read-failed" };
+    // Remove string values before looking for primitive top-level fields.
+    // Device-provided names and nested service data cannot become fields.
+    var source = String(text).replace(/'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"/g, function (token) {
+        return /^'(?:WakeAllowed|Class|Appearance)'$/.test(token) ? token : "''";
+    });
+    if (!/^\(\{[\s\S]*\},\)\s*$/.test(source)) return { state: "failed", reason: "read-invalid" };
+    var fields = {}, depth = 0, match;
+    var tokens = /[{}]|'(WakeAllowed|Class|Appearance)': <([^<>]*)>/g;
+    while ((match = tokens.exec(source)) !== null) {
+        if (match[0] === "{") depth++;
+        else if (match[0] === "}") depth--;
+        else if (depth === 1) fields[match[1]] = match[2];
+    }
+    if (!hasOwn(fields, "WakeAllowed")) return { state: "unsupported" };
+    if (fields.WakeAllowed !== "true" && fields.WakeAllowed !== "false") return { state: "failed", reason: "read-invalid" };
+    var kind = hasOwn(fields, "Class") ? /^(?:uint32 )?(\d+)$/.exec(fields.Class) : null;
+    var appearance = hasOwn(fields, "Appearance") ? /^(?:uint16 )?(\d+)$/.exec(fields.Appearance) : null;
+    if ((hasOwn(fields, "Class") && kind === null) || (hasOwn(fields, "Appearance") && appearance === null))
+        return { state: "failed", reason: "read-invalid" };
+    var deviceClass = kind === null ? 0 : Number(kind[1]);
+    var look = appearance === null ? 0 : Number(appearance[1]);
+    var allowed = deviceClass !== 0 ? (deviceClass & 0x1f00) === 0x0500 && (deviceClass & 0xc0) !== 0
+        : (look & 0xffc0) === 0x03c0 && [1, 2, 5, 7, 9].indexOf(look & 0x3f) !== -1;
+    return { state: "supported", current: fields.WakeAllowed === "true", allowed: allowed };
+}
+
+function wakeSourcesValue(step, bluetooth) {
+    if (!step) return null;
+    if (step.state === "needed" || step.state === "nixos")
+        return { tone: "info", text: "Setup needed", action: true };
+    if (step.state !== "ready") return { tone: "info", text: "Not available", available: false,
+        hint: "VGS could not check wake permissions (" + step.reason + ")." };
+    if (bluetooth.state === "failed") return { tone: "info", text: "Not available", available: false,
+        hint: bluetooth.reason === "permission-denied" ? "The Bluetooth service denied permission to change wake sources."
+            : bluetooth.reason === "write-failed" ? "The Bluetooth service could not change wake permission."
+            : "VGS could not read Bluetooth wake permission." };
+    return { tone: bluetooth.state === "ready" ? "ok" : "info", text: bluetooth.state === "ready" ? "Ready" : "Checking" };
+}
+
+function bluetoothWakeFailure(reason, stderr) {
+    // dbus-daemon's denied Set and BlueZ's explicit authorization refusal
+    // are permission failures, never a reason to run the root setup again.
+    var permissionErrors = ["org.freedesktop.DBus.Error.AccessDenied", "org.bluez.Error.NotAuthorized"];
+    return { state: "failed", reason: permissionErrors.some(function (name) { return String(stderr).indexOf(name) !== -1; })
+        ? "permission-denied" : reason };
+}

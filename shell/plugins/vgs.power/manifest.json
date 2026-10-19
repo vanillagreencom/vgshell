@@ -27,8 +27,11 @@
     "requirements",
     "shortcut",
     "status",
+    "system",
     "surfaces"
   ],
+  "systemSteps": ["wake-sources"],
+  "capabilityKinds": { "system": ["service"] },
   "defaultSection": "right",
   "pane": {
     "group": "Hardware",
@@ -59,7 +62,13 @@
         "nix": "glib"
       },
       "optional": false,
-      "purpose": "Reads and sets the power profile"
+      "purpose": "Reads and sets the power profile and Bluetooth wake permission"
+    },
+    {
+      "dbus": { "bus": "system", "name": "org.bluez", "label": "Bluetooth service" },
+      "packages": { "pacman": "bluez", "apt": "bluez", "dnf": "bluez", "nix": "bluez" },
+      "optional": true,
+      "purpose": "Limits Bluetooth wake to keyboards and pointing devices"
     }
   ],
   "settings": {
@@ -163,6 +172,14 @@
     }
   },
   "status": {
+    "wakeSources": {
+      "type": "state",
+      "label": "Wake sources",
+      "setup": true,
+      "group": "Wake",
+      "hint": "Only keyboards, pointing devices and the power button wake the computer. Connecting a USB device during sleep can also wake it.",
+      "action": { "label": "Allow", "system": "wake-sources" }
+    },
     "power": {
       "type": "data",
       "label": "Power"
