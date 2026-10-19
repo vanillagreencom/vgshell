@@ -686,10 +686,12 @@ expect_poll "Settings draws the choices setting only" '[1, 0]' page_fields_of ac
 # captures took 298 ms in the nested sandbox on cachy, AMD Ryzen 9 9950X,
 # on 2026-10-18 at a 1-minute load of 14, so a two-second change yields
 # dozens of frames; a change's frames must include one drawn between its
-# two heights, so the reading saw the animation. Frames that stop short,
-# a frame with no border run or none between the heights, are judged by
-# the CPU pressure of the window they were captured in: not measured
-# above latency_pressure_limit, failed at or below it. The control sends
+# two heights, so the reading saw the animation. Frames that miss the
+# in-between heights are judged by the CPU pressure of the window they
+# were captured in: not measured above latency_pressure_limit, failed at
+# or below it. Pressure can make grim capture fewer frames but cannot
+# blank a captured one, so a captured frame with no border run fails at
+# any pressure, as a frame that draws the top moved does. The control sends
 # the same change as two requests, a resize and then a move back,
 # Settings' code before VGS-1891: a frame between them draws the top
 # moved, which the same reading must see. An odd height change through
@@ -802,32 +804,41 @@ print(json.dumps({"frames": len(d["frames"]), "unread": len(d["frames"]) - len(f
 pin_field() { printf '%s\n' "$1" | py_reply 'import json,sys; v=json.load(sys.stdin)[sys.argv[1]]; print(json.dumps(v))' "$2"; }
 pin_some() { printf '%s\n' "$1" | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)[sys.argv[1]] > 0))' "$2"; }
 # pin_frames_check NAME VERDICT CPU_SOME_PCT: one window's frames, judged
-# from pin_judge's VERDICT by the CPU pressure of the window they were
-# captured in. A frame that draws the top off the pinned top fails at any
-# pressure. Frames with no border run, or none drawn between the two
-# heights, stop short of the change: not measured above
-# latency_pressure_limit, failed at or below it.
+# from pin_judge's VERDICT. A frame that draws the top off the pinned top,
+# or a captured frame with no border run (the window unmapped, doubled,
+# shifted or covered in its column), fails at any pressure. Frames that
+# include none drawn between the two heights stop short of the change and
+# are judged by the CPU pressure of the window they were captured in: not
+# measured above latency_pressure_limit, failed at or below it.
 pin_frames_check() { # NAME VERDICT CPU_SOME_PCT
-  local short
+  local counts unread between
   expect "$1: every frame drawn through the change draws the top at the pinned top" '[]' pin_field "$2" moved
-  short="$(printf '%s\n' "$2" | py_reply '
+  counts="$(printf '%s\n' "$2" | py_reply '
 import json, sys
 d = json.load(sys.stdin)
-unread, between = d.get("unread"), d.get("between")
-if not isinstance(unread, int) or not isinstance(between, int):
-    print("unreadable")
+counts = [d.get("unread"), d.get("between")]
+if all(type(n) is int for n in counts):
+    print(*counts)
 else:
-    print(",".join(word for word, short in (("unread=%d" % unread, unread != 0), ("between=0", between == 0)) if short) or "none")')" || short=unreadable
-  case "$short" in
-    none) ok "$1: every frame read the window's border, and frames were drawn between the two heights" ;;
-    *=*)
-      case "$(latency_pressure_verdict 0 "$3" 0)" in
-        unmeasured) not_measured settings "${1// /-}-frames-$short-cpu_some_pct=$3-above-$latency_pressure_limit" ;;
-        within) fail "$1: the frames stop short of the change: $short cpu_some_pct=$3" ;;
-        *) fail "$1: the frames stop short and the CPU pressure is unread: $short cpu_some_pct=$3" ;;
-      esac
-      ;;
-    *) fail "$1: the frame verdict is unreadable: $2" ;;
+    print("unreadable")')" || counts=unreadable
+  if [[ ! $counts =~ ^[0-9]+\ [0-9]+$ ]]; then
+    fail "$1: the frame verdict is unreadable: $2"
+    return
+  fi
+  read -r unread between <<<"$counts"
+  if ((unread == 0)); then
+    ok "$1: every captured frame reads the window's border run"
+  else
+    fail "$1: $unread frames read no border run"
+  fi
+  if ((between != 0)); then
+    ok "$1: frames were drawn between the two heights"
+    return
+  fi
+  case "$(latency_pressure_verdict 0 "$3" 0)" in
+    unmeasured) not_measured settings "${1// /-}-frames-between=0-cpu_some_pct=$3-above-$latency_pressure_limit" ;;
+    within) fail "$1: no frame was drawn between the two heights: cpu_some_pct=$3" ;;
+    *) fail "$1: no frame was drawn between the two heights and the CPU pressure is unread: cpu_some_pct=$3" ;;
   esac
 }
 # pin_settled DIR [HEIGHT]: `settled` once Hyprland holds the client at
@@ -913,8 +924,9 @@ pin_frames_stop "$pin_odd_dir"
 pin_odd_verdict="$(pin_judge "$(pin_read "$pin_odd_dir" all)" "$pin_top" "$pin_details" "$pin_odd")" || pin_odd_verdict='{}'
 printf '  pinned  odd: cpu_some_pct=%s %s\n' "$pin_frames_pressure" "$pin_odd_verdict"
 pin_frames_check odd "$pin_odd_verdict" "$pin_frames_pressure"
-# Planted verdicts: frames that stop short are not measured only under
-# pressure, and a moved top or an unreadable verdict fails at any.
+# Planted verdicts: frames that miss the in-between heights are not
+# measured only under pressure, and a moved top, a frame with no border
+# run or an unreadable verdict fails at any.
 pin_frames_check_cases() {
   local verdict pressure expected
   while IFS='|' read -r verdict pressure expected; do
@@ -923,8 +935,9 @@ pin_frames_check_cases() {
          printf '%s %s' "$failures" "${#not_measured_rows[@]}") == "$expected" ]] || { printf '%s|%s\n' "$verdict" "$pressure"; return; }
   done <<'CASES'
 {"unread": 0, "between": 5, "moved": []}|0.0|0 0
-{"unread": 2, "between": 5, "moved": []}|40.0|0 1
+{"unread": 2, "between": 5, "moved": []}|40.0|1 0
 {"unread": 2, "between": 5, "moved": []}|0.0|1 0
+{"unread": 2, "between": 0, "moved": []}|40.0|1 1
 {"unread": 0, "between": 0, "moved": []}|40.0|0 1
 {"unread": 0, "between": 0, "moved": []}|0.0|1 0
 {"unread": 0, "between": 0, "moved": []}|unmeasured|1 0
@@ -933,7 +946,7 @@ pin_frames_check_cases() {
 CASES
   echo ok
 }
-expect "control: frames that stop short are not measured only under CPU pressure" ok pin_frames_check_cases
+expect "control: frames that miss the in-between heights are not measured only under CPU pressure, and unread frames fail at any" ok pin_frames_check_cases
 window_border_off
 expect_poll "Hyprland's window animations are off again after the reload" 0 hypr_animations
 

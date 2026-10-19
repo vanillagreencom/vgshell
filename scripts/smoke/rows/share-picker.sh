@@ -38,7 +38,7 @@ share_tabs_width_check() { expect "the page tabs fill the content width equally"
 # Area compacted to two columns of sliders and every control inside the
 # scrolled content.
 share_area_fits() {
-  local rows scroll aspect current window monitor border shares
+  local rows scroll aspect current window monitor border top_share cap_share gutter
   rows="$(ipc smoke descendantGeometry window vgs.capture)" || return
   scroll="$(ipc smoke itemValues window vgs.capture ScrollArea contentY,contentHeight,height)" || return
   aspect="$(share_read previewRect)" || return
@@ -46,10 +46,12 @@ share_area_fits() {
   window="$(surface_box window:Capture)" || return
   monitor="$(hypr -j monitors)" || return
   border="$(window_border_size)" || return
-  shares="[$(ipc smoke themeValue size.window.topShare),$(ipc smoke themeValue size.window.tallHeightShare),$(ipc smoke themeValue size.window.gutter)]" || return
-  py_dumps "$rows" "$scroll" "$aspect" "$current" "$window" "$monitor" "$border" "$shares" <<'PY'
+  top_share="$(ipc smoke themeValue size.window.topShare)" || return
+  cap_share="$(ipc smoke themeValue size.window.tallHeightShare)" || return
+  gutter="$(ipc smoke themeValue size.window.gutter)" || return
+  py_dumps "$rows" "$scroll" "$aspect" "$current" "$window" "$monitor" "$border" "$top_share" "$cap_share" "$gutter" <<'PY'
 import json,math,sys
-rows,scroll,aspect,current,window,monitors,border,(top_share,cap_share,gutter)=map(json.loads,sys.argv[1:])
+rows,scroll,aspect,current,window,monitors,border,top_share,cap_share,gutter=map(json.loads,sys.argv[1:])
 monitor=next(m for m in monitors if m['name']==current['name'])
 left,top,right,bottom=monitor['reserved']
 mw,mh=monitor['width']/monitor['scale'],monitor['height']/monitor['scale']
