@@ -58,8 +58,8 @@ expect "control: a bar with no reserved space leaves the bar set unsettled" "uns
 # a file whose path it prints. With every plugin listed the reply is past
 # the kernel's limit for one argument, so a reader takes it as a file.
 settings_geometry() {
-  ipc smoke descendantGeometry window vgs.settings >"$sandbox/settings-geometry.json" || return
-  printf '%s\n' "$sandbox/settings-geometry.json"
+  ipc smoke descendantGeometry window vgs.settings >"$sandbox/rows/manager.settings-geometry.json" || return
+  printf '%s\n' "$sandbox/rows/manager.settings-geometry.json"
 }
 settings_rows() { ipc smoke readInstance window vgs.settings plugins; }
 settings_page() { ipc smoke readInstance window vgs.settings page; }

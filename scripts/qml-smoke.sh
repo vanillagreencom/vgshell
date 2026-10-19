@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Run the shell inside a nested Hyprland sandbox and check it end to end.
 #
-# Usage: scripts/qml-smoke.sh [--timeout SECONDS] [--keep] [--rows NAME[,NAME...]]
+# Usage: scripts/qml-smoke.sh [--timeout SECONDS] [--keep] [--rows NAME[,NAME...]] [--log-dir DIR]
 #        scripts/qml-smoke.sh --first-bar-runs N [--plugin-set smoke|default] [--timeout SECONDS]
 #        scripts/qml-smoke.sh --list-rows
 #
@@ -28,6 +28,10 @@
 # every failure came after the nested output left a mode a row held,
 # nested-output=mode-reset, is not a pass either.
 # scripts/smoke/verdict.sh holds the verdict. Exit 1 when a check failed.
+# Failed or interrupted rows retain bounded logs and probe dumps beside a
+# redirected run log, or under tmp/qml-smoke when stdout is not a file.
+# --log-dir names that run's log directory explicitly. Each row retains at
+# most 8 MiB; scripts/smoke/evidence.py owns the retained set and byte caps.
 #
 # --first-bar-runs N, N a positive integer, measures the first bar alone:
 # it starts the sandbox N times, runs no row, and prints one line per run,
@@ -154,6 +158,7 @@ fi
 argv=("$@")
 timeout_s=60
 keep=false
+smoke_log_dir=""
 first_bar_runs=""
 plugin_set=smoke
 qml_smoke_only=""
@@ -163,6 +168,9 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --timeout) timeout_s="$2"; shift 2 ;;
     --keep) keep=true; shift ;;
+    --log-dir)
+      if [[ $# -lt 2 || -z $2 ]]; then printf 'qml-smoke: refused: argument=--log-dir value=missing\n' >&2; exit 2; fi
+      smoke_log_dir="$(realpath -m -- "$2")"; shift 2 ;;
     --first-bar-runs)
       if [[ $# -lt 2 || ! $2 =~ ^[1-9][0-9]*$ ]]; then printf 'qml-smoke: refused: argument=--first-bar-runs value=%s\n' "${2-}" >&2; exit 2; fi
       first_bar_runs="$2"; shift 2 ;;
@@ -327,7 +335,18 @@ source "$repo/scripts/smoke/harness.sh"
 # smoke_row (harness.sh) sources each row and fails one whose output holds
 # a traceback. The step after hyprland-consent runs whatever --rows names.
 for qml_smoke_row in "${qml_smoke_rows[@]}"; do
-  if qml_smoke_wanted "$qml_smoke_row"; then smoke_row "$qml_smoke_row"; fi
+  if qml_smoke_wanted "$qml_smoke_row"; then
+    qml_smoke_failures_before=$failures
+    qml_smoke_leak_before="$BASHPID-$((leak_seq + 1))"
+    printf '%s\n' "$qml_smoke_row" "${instance_log:-}" "$qml_smoke_leak_before" >"$sandbox/evidence/active" || true
+    smoke_row "$qml_smoke_row"
+    if ((failures > qml_smoke_failures_before)); then
+      printf '%s\n' "$BASHPID-$leak_seq" >>"$sandbox/evidence/active" || true
+      mv -- "$sandbox/evidence/active" "$sandbox/evidence/failed/$qml_smoke_row" || true
+    else
+      rm -f -- "$sandbox/evidence/active" || true
+    fi
+  fi
   if [[ $qml_smoke_row == hyprland-consent ]]; then
     # bar.sh read the startup latencies; the cursor rows need the log.
     if compositor_logs_on; then ok "the nested compositor logs from here on"; else fail "the nested compositor's logs did not turn on"; fi

@@ -1342,7 +1342,7 @@ for bar_participation_case in hidden zero-width zero-height; do
   bar_participation_state shown
   geometry expect_poll "shown geometry returns after $bar_participation_case" '[]' bar_participation shown
 done
-bar_participation_before="$sandbox/bar-participation-before.json"
+bar_participation_before="$sandbox/rows/bar.participation-before.json"
 ipc smoke barParticipationGeometry "$(bar_key)" >"$bar_participation_before" || fail "shown participation geometry is unreadable before Hide"
 expect "the mapped bar hides through its shipped toggle" ok ipc vgs.bar invoke toggle ''
 expect_poll "the hidden bar unmaps its window" '[]' bar_participation shown hidden

@@ -498,9 +498,9 @@ expect_poll "the page shows Settings for the backup models" 0 settings_tab
 page_backups() { ipc smoke invokeInstance window vgs.settings listItems '{"id":"vgs.jarvis","key":"fallbacks"}' | py_reply 'import json,sys; t=sys.stdin.read(); print(json.dumps([i["name"] for i in json.loads(t)]) if t.startswith("[") else t)'; }
 page_backup_gap() { # [trailing|hairline]
   local rows gap
-  ipc smoke descendantGeometry window vgs.settings >"$sandbox/jarvis-page-geometry.json" || return
+  ipc smoke descendantGeometry window vgs.settings >"$sandbox/rows/jarvis-page.geometry.json" || return
   gap="$(ipc smoke themeValue groupList.gap)" || return
-  python3 - "$sandbox/jarvis-page-geometry.json" "$gap" "${1:-}" <<'PY'
+  python3 - "$sandbox/rows/jarvis-page.geometry.json" "$gap" "${1:-}" <<'PY'
 import json, sys
 text = open(sys.argv[1]).read()
 if not text.startswith("[") or not sys.argv[2][:1].isdigit():

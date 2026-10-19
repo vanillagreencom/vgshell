@@ -258,6 +258,11 @@ release() {
   fi
   while IFS= read -r path; do
     [[ $path == /* ]] && [[ -e $path || -L $path ]] || continue
+    # A SIGKILL can bypass the harness's teardown. Its private metadata
+    # lets the same copier retain the active row before ledger removal.
+    if [[ -f $path/evidence/destination ]]; then
+      python3 "${self%/*}/evidence.py" "$path" || true
+    fi
     chmod -R u+rwX -- "$path" 2>/dev/null || note "cleanup=chmod-failed path=$path"
     rm -rf -- "${path:?}" 2>/dev/null || note "cleanup=rm-failed path=$path"
   done <"$fence_dir/ledger"

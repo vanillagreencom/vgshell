@@ -3353,7 +3353,7 @@ place_gap=$((note_stack_top + note_card_gap))
 place_count=19
 # Every reading goes to python as a file under place_dir, never as an
 # argument: a page's items run past the kernel's limit for one argument.
-place_dir="$sandbox/notification-position"
+place_dir="$sandbox/rows/notifications.position"
 mkdir -p -- "$place_dir"
 place_verdict() { # WANT NEWEST OLDER CARDS_FILE WINDOWS_FILE
   python3 - "$1" "$4" "$5" "$place_gap" "$monitors" "$2" "$3" <<'PY'
@@ -3685,7 +3685,7 @@ except (ValueError,TypeError,KeyError,StopIteration): print("malformed")
 ' <<<"$reply")" || return
   case "$expected" in
     malformed|insufficient-coverage|'')
-      printf '%s\n' "$reply" >"$sandbox/fade-inventory-failure.json" || return
+      printf '%s\n' "$reply" >"$sandbox/rows/notifications.fade-inventory-failure.json" || return
       printf 'notification-capture: inventory=%s\n' "${expected:-missing}" >&2
       return 1 ;;
   esac
@@ -3754,12 +3754,39 @@ fade_wait_panel_frame_before() { # COUNT DEADLINE_MS
   done
   return 1
 }
-fade_read_geometry() { # ITEMS_FILE
-  if ! ipc smoke descendantGeometry panel vgs.notifications >"$1"; then
+fade_probe_file() { # SAMPLE_NAME
+  printf '%s/rows/notifications.probes/%s\n' "$sandbox" "$1"
+}
+# Raw replies are born in the row-owned directory, including partial and
+# invalid replies. Both cleanup owners retain it before deleting the sandbox.
+fade_read_probe() { # SAMPLE_NAME COMMAND [ARG...]
+  local file
+  file="$(fade_probe_file "$1")" || return
+  shift
+  [[ -d ${file%/*} ]] || mkdir -p -- "${file%/*}" || return
+  "$@" >"$file"
+}
+fade_read_geometry() { # SAMPLE_NAME
+  local items
+  items="$(fade_probe_file "$1")" || return
+  if ! fade_read_probe "$1" ipc smoke descendantGeometry panel vgs.notifications; then
     echo 'notification-capture: read=descendantGeometry failed' >&2
     return 1
   fi
-  [[ $(<"$1") == \[* ]] || { echo 'notification-capture: read=descendantGeometry failed' >&2; return 1; }
+  [[ $(<"$items") == \[* ]] || { echo 'notification-capture: read=descendantGeometry failed' >&2; return 1; }
+}
+fade_read_context() { # SAMPLE_NAME
+  local view surface ink
+  fade_read_geometry "$1-items.json" || return
+  fade_read_probe "$1-view.json" fade_current_view || return
+  view="$(fade_probe_file "$1-view.json")" || return
+  [[ $(<"$view") == \{* ]] || { echo 'notification-capture: read=view failed' >&2; return 1; }
+  fade_read_probe "$1-surface.json" surface_box vgs:panel || return
+  surface="$(fade_probe_file "$1-surface.json")" || return
+  [[ $(<"$surface") == \[* ]] || { echo 'notification-capture: read=surface failed' >&2; return 1; }
+  fade_read_probe "$1-ink.json" look_at text.foreground || return
+  ink="$(fade_probe_file "$1-ink.json")" || return
+  [[ $(<"$ink") == '"#'* ]] || { echo 'notification-capture: read=ink failed' >&2; return 1; }
 }
 fade_capture_geometry_same() { # BEFORE AFTER
   local same
@@ -3780,8 +3807,10 @@ except (OSError,ValueError): print("unreadable")
 }
 # The tray reservation can change card heights until its fade has drawn.
 # A layout is settled only when it is unchanged across a drawn panel frame.
-fade_capture_layout() { # ITEMS_FILE
-  local previous="$1-previous.json" frames same
+fade_capture_layout() { # SAMPLE_NAME
+  local previous="$1-previous.json" items_file previous_file frames same
+  items_file="$(fade_probe_file "$1")" || return
+  previous_file="$(fade_probe_file "$previous")" || return
   fade_read_geometry "$previous" || return
   frames="$(fade_panel_frames_read)" || return
   smoke_poll_tries 200
@@ -3789,9 +3818,9 @@ fade_capture_layout() { # ITEMS_FILE
     fade_wait_panel_frame_after "$frames" || return
     frames="$fade_panel_frame_count"
     fade_read_geometry "$1" || return
-    same="$(fade_capture_geometry_same "$previous" "$1")" || return
+    same="$(fade_capture_geometry_same "$previous_file" "$items_file")" || return
     [[ $same != True ]] || return 0
-    cp -- "$1" "$previous" || return
+    cp -- "$items_file" "$previous_file" || return
   done
   echo 'notification-capture: layout=unsettled' >&2
   return 1
@@ -3829,12 +3858,16 @@ print(json.dumps({"count": count, "ink": ink, "title": title["text"], "box": [le
 ' "$@"
 }
 fade_card_sample() { # PNG
-  local items="${1%.png}-items.json" view surface ink socket output
-  ipc smoke descendantGeometry panel vgs.notifications >"$items" || return
-  view="$(fade_current_view)" || return
-  surface="$(surface_box vgs:panel)" || return
-  ink="$(look_at text.foreground)" || return
-  [[ $view == \{* && $surface == \[* ]] || { echo no-card-view; return; }
+  local sample="${1##*/}" items view_file surface_file ink_file view surface ink socket output
+  sample="${sample%.png}"
+  fade_read_context "$sample" || return
+  items="$(fade_probe_file "$sample-items.json")" || return
+  view_file="$(fade_probe_file "$sample-view.json")" || return
+  surface_file="$(fade_probe_file "$sample-surface.json")" || return
+  ink_file="$(fade_probe_file "$sample-ink.json")" || return
+  view="$(<"$view_file")" || return
+  surface="$(<"$surface_file")" || return
+  ink="$(<"$ink_file")" || return
   socket="$(shot_socket "$rt_dir" "$nested_socket" "$host_socket")" || return
   output="$(first_name)" || return
   if ! shot_grim "$socket" "$rt_dir" -o "$output" -t png "$1"; then
@@ -3975,27 +4008,29 @@ top,bottom=(vy,vy+band) if edge=="top" else (vy+vh-band,vy+vh)
 print(0<view["contentY"]<view["contentHeight"]-view["height"] and min(cy+ch,bottom)>max(cy,top))
 PY_ACTIVE_INTERSECTION
 }
-fade_active_read_context() { # SUMMARY EDGE ITEMS VIEW_FILE SURFACE_FILE INK_FILE
-  local summary="$1" edge="$2" items="$3" view_file="$4" surface_file="$5" ink_file="$6" view surface ink
+fade_active_read_context() { # SUMMARY EDGE SAMPLE_NAME
+  local summary="$1" edge="$2" sample="$3" items view_file view
   fade_inventory || return
   [[ $summary == "$fade_middle" ]] || { echo 'notification-capture: selected-inventory-changed' >&2; return 1; }
-  fade_read_geometry "$items" || return
-  view="$(fade_current_view)" || { echo 'notification-capture: read=view failed' >&2; return 1; }
-  [[ $view == \{* ]] || { echo 'notification-capture: read=view failed' >&2; return 1; }
-  surface="$(surface_box vgs:panel)" || { echo 'notification-capture: read=surface failed' >&2; return 1; }
-  [[ $surface == \[* ]] || { echo 'notification-capture: read=surface failed' >&2; return 1; }
-  ink="$(look_at text.foreground)" || { echo 'notification-capture: read=ink failed' >&2; return 1; }
-  [[ $ink == '"#'* ]] || { echo 'notification-capture: read=ink failed' >&2; return 1; }
+  fade_read_context "$sample" || return
+  items="$(fade_probe_file "$sample-items.json")" || return
+  view_file="$(fade_probe_file "$sample-view.json")" || return
+  view="$(<"$view_file")" || return
   [[ $(fade_active_intersection "$items" "$view" "$summary" "$edge" "$(fade_band "$edge")") == True ]] || { echo 'notification-capture: insufficient-fade-intersection' >&2; return 1; }
-  printf '%s\n' "$view" >"$view_file" || return
-  printf '%s\n' "$surface" >"$surface_file" || return
-  printf '%s\n' "$ink" >"$ink_file" || return
 }
-fade_active_settled_capture() { # PREFIX SUMMARY EDGE ITEMS VIEW_FILE SURFACE_FILE INK_FILE
-  local prefix="$1" summary="$2" edge="$3" items="$4" view_file="$5" surface_file="$6" ink_file="$7"
-  local next_items="$prefix-next-items.json" next_view="$prefix-next-view.json" next_surface="$prefix-next-surface.json" next_ink="$prefix-next-ink.json" next_png="$prefix-next.png"
+fade_active_settled_capture() { # PREFIX SUMMARY EDGE
+  local prefix="$1" summary="$2" edge="$3" probe="${1##*/}" items view_file surface_file ink_file
+  local next_items next_view next_surface next_ink next_png="$prefix-next.png"
   local deadline_ms frames same paint last_unsettled=layout
-  fade_active_read_context "$summary" "$edge" "$items" "$view_file" "$surface_file" "$ink_file" || return
+  items="$(fade_probe_file "$probe-items.json")" || return
+  view_file="$(fade_probe_file "$probe-view.json")" || return
+  surface_file="$(fade_probe_file "$probe-surface.json")" || return
+  ink_file="$(fade_probe_file "$probe-ink.json")" || return
+  next_items="$(fade_probe_file "$probe-next-items.json")" || return
+  next_view="$(fade_probe_file "$probe-next-view.json")" || return
+  next_surface="$(fade_probe_file "$probe-next-surface.json")" || return
+  next_ink="$(fade_probe_file "$probe-next-ink.json")" || return
+  fade_active_read_context "$summary" "$edge" "$probe" || return
   fade_output "$prefix.png" || return
   frames="$(fade_panel_frames_read)" || return
   smoke_poll_tries 1
@@ -4004,7 +4039,7 @@ fade_active_settled_capture() { # PREFIX SUMMARY EDGE ITEMS VIEW_FILE SURFACE_FI
     fade_wait_panel_frame_before "$frames" "$deadline_ms" || { last_unsettled=panel-frame-pending; break; }
     frames="$fade_panel_frame_count"
     (( $(now_ms) < deadline_ms )) || break
-    fade_active_read_context "$summary" "$edge" "$next_items" "$next_view" "$next_surface" "$next_ink" || return
+    fade_active_read_context "$summary" "$edge" "$probe-next" || return
     (( $(now_ms) < deadline_ms )) || break
     fade_output "$next_png" || return
     (( $(now_ms) < deadline_ms )) || break
@@ -4036,10 +4071,14 @@ fade_active_settled_capture() { # PREFIX SUMMARY EDGE ITEMS VIEW_FILE SURFACE_FI
 fade_active_pair() { # PREFIX SUMMARY EDGE
   # The pair runs row waits through $(); controls fail on planted output paths.
   local smoke_poll_scope=$((BASH_SUBSHELL))
-  local prefix="$1" summary="$2" edge="$3" items="$1-items.json" restore_items="$1-restored-items.json"
-  local view_file="$1-view.json" surface_file="$1-surface.json" ink_file="$1-ink.json"
+  local prefix="$1" summary="$2" edge="$3" probe="${1##*/}" items restore_items view_file surface_file ink_file
   local view surface ink rc=0 status sample restored same saved
-  fade_active_settled_capture "$prefix" "$summary" "$edge" "$items" "$view_file" "$surface_file" "$ink_file" || return
+  items="$(fade_probe_file "$probe-items.json")" || return
+  restore_items="$(fade_probe_file "$probe-restored-items.json")" || return
+  view_file="$(fade_probe_file "$probe-view.json")" || return
+  surface_file="$(fade_probe_file "$probe-surface.json")" || return
+  ink_file="$(fade_probe_file "$probe-ink.json")" || return
+  fade_active_settled_capture "$prefix" "$summary" "$edge" || return
   view="$(<"$view_file")" || return
   surface="$(<"$surface_file")" || return
   ink="$(<"$ink_file")" || return
@@ -4051,7 +4090,7 @@ fade_active_pair() { # PREFIX SUMMARY EDGE
     rc=$status
   }
   fade_output "$prefix-restored.png" || return
-  fade_read_geometry "$restore_items" || return
+  fade_read_geometry "$probe-restored-items.json" || return
   same="$(fade_capture_geometry_same "$items" "$restore_items")" || return
   [[ $same == True ]] || { echo 'notification-capture: card-geometry-changed' >&2; return 1; }
   saved="$(fade_active_value "$prefix-restored.png" "$prefix.png" "$restore_items" "$view" "$surface" "$ink" "$summary" "$edge" "$(fade_band "$edge")" "$mon_w" "$mon_h")" || return
@@ -4115,7 +4154,7 @@ for action in rows[8]["actions"]: print(json.dumps(action))' <<<"$fade_inventory
 a=json.load(sys.stdin);print(a["label"]+(" (Delete)" if a["id"]=="dismiss" else " (Left/Right, then Enter)"))' <<<"$action")" || return
     # The card the selection left keeps its reservation until its tray
     # fades out, then rewraps and moves the cards under it.
-    fade_capture_layout "$sandbox/fade-shortcut-$1-$action_index-items.json" || return
+    fade_capture_layout "fade-shortcut-$1-$action_index-items.json" || return
     rect="$(ipc smoke scopedWindowGeometry panel vgs.notifications NotificationCard "$fade_middle" PillButton "$label")" || return
     [[ $rect == \[* ]] || { echo 'notification-shortcut: action-pill-absent' >&2; return 1; }
     read -r x y < <(at_centre vgs:panel "$rect") || return
@@ -4156,11 +4195,15 @@ fade_failed_capture() {
 }
 # This proves the settle judge rejects paint that differs: faded against unmasked.
 fade_reference_reads_unsettled() { # PREFIX SUMMARY EDGE
-  local prefix="$1" summary="$2" edge="$3" view surface ink value
-  view="$(<"$prefix-view.json")" || return
-  surface="$(<"$prefix-surface.json")" || return
-  ink="$(<"$prefix-ink.json")" || return
-  value="$(fade_active_value "$prefix-reference.png" "$prefix.png" "$prefix-items.json" "$view" "$surface" "$ink" "$summary" "$edge" "$(fade_band "$edge")" "$mon_w" "$mon_h")" || return
+  local prefix="$1" summary="$2" edge="$3" probe="${1##*/}" items view_file surface_file ink_file view surface ink value
+  items="$(fade_probe_file "$probe-items.json")" || return
+  view_file="$(fade_probe_file "$probe-view.json")" || return
+  surface_file="$(fade_probe_file "$probe-surface.json")" || return
+  ink_file="$(fade_probe_file "$probe-ink.json")" || return
+  view="$(<"$view_file")" || return
+  surface="$(<"$surface_file")" || return
+  ink="$(<"$ink_file")" || return
+  value="$(fade_active_value "$prefix-reference.png" "$prefix.png" "$items" "$view" "$surface" "$ink" "$summary" "$edge" "$(fade_band "$edge")" "$mon_w" "$mon_h")" || return
   [[ $value == \{* ]] || { printf 'notification-capture: control-paint=%s\n' "$value" >&2; return 1; }
   fade_paint_same "$value"
 }
@@ -4222,7 +4265,7 @@ try: print(json.load(sys.stdin)["contentY"]==0)
 except (ValueError,KeyError,TypeError): print("unsettled")'; }
 panel_sheet_shot() { # MODE NAME
   local path="$sandbox/panel-sheet-$1-$2.png"
-  fade_capture_layout "$sandbox/panel-sheet-$1-$2-items.json" || return
+  fade_capture_layout "panel-sheet-$1-$2-items.json" || return
   fade_output "$path" || return
   printf 'panel-sheet: %s\n' "$path" >&2
 }
@@ -4236,7 +4279,7 @@ panel_sheet_card() { # MODE SUMMARY
   hover "$x" "$y" || return
   want="$(python3 -c 'import json,sys;print(json.dumps([sys.argv[1]]))' "$2")" || return
   expect_poll "the $1 sheet hovers the card $2" "$want" panel_hovered_faces
-  fade_capture_layout "$sandbox/panel-sheet-$1-settle-items.json"
+  fade_capture_layout "panel-sheet-$1-settle-items.json"
 }
 # One sweep frame: the pointer DY below the top of RECT, which the card
 # OWNER's slot alone then holds.
@@ -5388,7 +5431,7 @@ expect "the notification frame observer loads" ok ipc smoke runnerLoad "$repo/sh
 panel_latency_record() { ipc smoke runnerRecord; }
 panel_latency_ready() { panel_latency_record | py_reply 'import json,sys;v=json.load(sys.stdin);print(v is not None and v["first"]>=0)'; }
 panel_latency_sampled() { panel_latency_record | py_reply 'import json,sys,time;v=json.load(sys.stdin);print(v is not None and int(time.time()*1000)-v["started"]>=700)'; }
-panel_latency_dir="$sandbox/notification-panel-latency"
+panel_latency_dir="$sandbox/rows/notifications.panel-latency"
 mkdir -p -- "$panel_latency_dir"
 panel_latency_open_pressure() {
     cpu_some_pct "$panel_latency_open_cpu" "$(cpu_some_us)" "$(( $(now_ms)-panel_latency_open_start ))"

@@ -438,11 +438,11 @@ nk_view_settled() {
 # `cut-bottom=selected` where the view kept its place. Where the
 # instrument could not reach that reading it prints the step that failed.
 # The view before and after and the reading go to
-# $sandbox/room-shrink.txt, which nk_room_shrink_readings prints. It
+# $sandbox/rows/notifications-keys.room-shrink.txt, which nk_room_shrink_readings prints. It
 # leaves the inbox closed and the fixture enabled.
 nk_room_shrink() {
   local shown x y focused=False selected=none fit=unread capped=unread before after reply reading
-  rm -f -- "${sandbox:?}/room-shrink.txt"
+  rm -f -- "${sandbox:?}/rows/notifications-keys.room-shrink.txt"
   nk_press >/dev/null || { echo open-failed; return; }
   shown="$(long_inbox_shown)"
   [[ $shown == shown ]] || { echo "$shown"; return; }
@@ -477,7 +477,7 @@ nk_room_shrink() {
   after="$(nk_view_settled)" || after=unread
   [[ $after == \{* ]] || { echo "view-after=$after"; return; }
   reading="$(panel_fit selected)" || reading=unread
-  printf 'before=%s after=%s reading=%s' "$before" "$after" "$reading" >"$sandbox/room-shrink.txt"
+  printf 'before=%s after=%s reading=%s' "$before" "$after" "$reading" >"$sandbox/rows/notifications-keys.room-shrink.txt"
   nk_press >/dev/null || { echo close-failed; return; }
   nk_layer_gone || { echo close-still-open; return; }
   python3 -c 'import json,sys; before,after=map(json.loads,sys.argv[1:3]); print(sys.argv[3] if after["height"] < before["height"] else "view-not-shorter")' "$before" "$after" "$reading"
@@ -524,7 +524,7 @@ nk_second_press_unlatched() {
   reading="$(nk_second_press)" || return
   if [[ $reading =~ ^round=[1-5]\ inbox=open\ service=\"\"$ ]]; then echo second-panel-closed; else echo "$reading"; fi
 }
-nk_room_shrink_readings() { if [[ -f $sandbox/room-shrink.txt ]]; then cat -- "$sandbox/room-shrink.txt"; else echo "none read"; fi; }
+nk_room_shrink_readings() { if [[ -f $sandbox/rows/notifications-keys.room-shrink.txt ]]; then cat -- "$sandbox/rows/notifications-keys.room-shrink.txt"; else echo "none read"; fi; }
 # PRESSES LABEL: five presses from a closed inbox, each read before the next.
 nk_presses() {
   local want=open n

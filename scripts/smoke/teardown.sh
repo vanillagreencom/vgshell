@@ -46,6 +46,9 @@ cleanup() {
       printf 'qml-smoke: cleanup=recorder-finalization-failed path=%s\n' "${display_record_dir:-unavailable}" >&2
     fi
   fi
+  if [[ -n $sandbox && -f $sandbox/evidence/destination ]]; then
+    python3 "${source_repo:?}/scripts/smoke/evidence.py" "$sandbox" || true
+  fi
   # The read-only prefix row takes the write bits off part of the sandbox
   # and gives them back only at its end, and rm -rf cannot empty a directory
   # without them. A kept sandbox gets them back too, so plain rm -rf

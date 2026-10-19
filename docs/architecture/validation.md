@@ -54,6 +54,7 @@ A broken environment that reads as a pass hides the regression the check exists 
 ### Nested sandbox
 
 - Do start and stop the sandbox only through `scripts/smoke/harness.sh`. `scripts/test-smoke-teardown.sh` holds the teardown.
+- Do retain a failed or interrupted row's shell instance logs, nested compositor logs, row output and probe dumps before removing the sandbox, including fence cleanup after a killed runner. `scripts/smoke/evidence.py` owns the retained set: each file's last 1 MiB, at most 8 MiB per row including its index. Copies land in `smoke-evidence-<sandbox>/<row>/` beside the redirected run log (`qml.log` for a main run or the lane validation log), under `tmp/qml-smoke/` for a terminal run, or in the run directory named by `qml-smoke.sh --log-dir`. Passing rows retain nothing. A copy failure reports its cause and preserves the run's verdict. `scripts/test-smoke-evidence.py` holds the copy and both cleanup paths.
 - Do wait on a state the shell or the compositor reports, never on time. Review holds it.
 - Do bound each smoke IPC call at 10 seconds in `scripts/smoke/harness.sh::ipc_call_last`. Expiry kills the call and fails its row as an operation failure, with the target, function and bound. `scripts/test-smoke-dumps.py` holds it, including a reader that catches the failure and a paged reply.
 - Never let a reader raise; answer a state word for absent, partial, missing or empty input. `scripts/check-smoke-readers.py` refuses a reader outside `py_reply`, and the harness fails a row on any Python traceback.

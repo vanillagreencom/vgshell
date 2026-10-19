@@ -1,5 +1,5 @@
 # Sourced by qml-smoke.sh; owns the sandbox and shared readers.
-# inputs: scripts/smoke/user-config.sh scripts/smoke/verdict.sh scripts/smoke/mode-hold.sh scripts/smoke/tree.sh scripts/smoke/shot.sh scripts/smoke/app-window.sh scripts/smoke/host-window.sh scripts/smoke/leaks.sh bin/lib/ipc-reply.sh scripts/smoke/teardown.sh scripts/smoke/hypr-call.sh scripts/smoke/devices.sh scripts/smoke/gpu-fence.sh scripts/smoke/Probe.qml scripts/smoke/pointer/* scripts/smoke/toplevel/* scripts/smoke/lock/* scripts/smoke/keyboard/* scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/fixtures/devices/stand-in.py scripts/smoke/fixtures/devices/rfkill.json scripts/fixtures/jarvis/prepare.js scripts/fixtures/jarvis/audio.js scripts/fixtures/jarvis/keys-world.js scripts/fixtures/jarvis/accounts-world.js scripts/lib/jarvis-env.sh
+# inputs: scripts/smoke/user-config.sh scripts/smoke/verdict.sh scripts/smoke/mode-hold.sh scripts/smoke/tree.sh scripts/smoke/shot.sh scripts/smoke/app-window.sh scripts/smoke/host-window.sh scripts/smoke/leaks.sh bin/lib/ipc-reply.sh scripts/smoke/teardown.sh scripts/smoke/evidence.py scripts/smoke/hypr-call.sh scripts/smoke/devices.sh scripts/smoke/gpu-fence.sh scripts/smoke/Probe.qml scripts/smoke/pointer/* scripts/smoke/toplevel/* scripts/smoke/lock/* scripts/smoke/keyboard/* scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/fixtures/devices/stand-in.py scripts/smoke/fixtures/devices/rfkill.json scripts/fixtures/jarvis/prepare.js scripts/fixtures/jarvis/audio.js scripts/fixtures/jarvis/keys-world.js scripts/fixtures/jarvis/accounts-world.js scripts/lib/jarvis-env.sh
 set -euo pipefail
 source "$repo/scripts/smoke/verdict.sh"
 source "$repo/scripts/smoke/mode-hold.sh"
@@ -144,6 +144,20 @@ sandbox="$(mktemp -d "${TMPDIR:-/tmp}/vgshell-smoke.XXXXXX")"
 # Keep the runtime path short to leave room for Hyprland's IPC socket names.
 rt_dir="$(mktemp -d "$XDG_RUNTIME_DIR/vs.XXXXXX")"
 [[ $keep == true ]] || printf '%s\n' "$rt_dir" >>"$VGSHELL_FENCE_LEDGER"
+# Metadata stays inside the sandbox. Only failed or interrupted top-level
+# rows cause either cleanup owner to make a retained evidence directory.
+if mkdir -p -- "$sandbox/evidence/failed"; then
+  printf '%s\n' "$rt_dir" >"$sandbox/evidence/runtime" || true
+  if [[ -n ${smoke_log_dir:-} ]]; then
+    printf '%s\n' "$smoke_log_dir" >"$sandbox/evidence/destination" || true
+  elif [[ -f /proc/self/fd/1 ]]; then
+    smoke_log_owner=$BASHPID
+    smoke_log_file="$(readlink -f "/proc/$smoke_log_owner/fd/1")" || smoke_log_file=""
+    [[ -z $smoke_log_file ]] || printf '%s\n' "${smoke_log_file%/*}" >"$sandbox/evidence/destination" || true
+  else
+    printf '%s\n' "$source_repo/tmp/qml-smoke" >"$sandbox/evidence/destination" || true
+  fi
+fi
 home="$sandbox/home"; mkdir -p "$home/.config/hypr"
 
 # Add the observer to a copy; the live checkout never imports test code.

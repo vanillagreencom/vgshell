@@ -937,7 +937,7 @@ disp_windows_preserved() { # BEFORE
     sleep 0.2
     reading="$(disp_window_state)" || return 1
     if [[ $reading != "$1" ]]; then
-      printf '{"before":%s,"after":%s}\n' "$1" "$reading" >"$sandbox/displays-removal-state.json"
+      printf '{"before":%s,"after":%s}\n' "$1" "$reading" >"$sandbox/rows/displays.removal-state.json"
       printf '  display-removal before=%s after=%s\n' "$1" "$reading" >&2
       echo False
       return
@@ -1046,7 +1046,7 @@ disp_bar_hidden_check() {
 expect "the existing probe owns the removed bar lifetime observer on the surviving bar" ok \
   ipc smoke popupLoad displays-bar-lifetime "$disp_lifetime_dir/BarLifetime.qml" "bar:$disp_main" vgs.bar "{\"output\":\"$disp_output\"}"
 expect "the observer starts on the real visible bar owner" watching disp_lifetime_state
-rm -f -- "$sandbox/displays-removal-state.json"
+rm -f -- "$sandbox/rows/displays.removal-state.json"
 disp_windows_before="$(disp_window_state)"
 # Keep the restore and output removal adjacent: an extra compositor read
 # here can let the old window finish deletion and hide the lifetime fault.
