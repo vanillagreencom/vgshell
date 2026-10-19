@@ -7,7 +7,7 @@ A desktop shell for Hyprland, built on Quickshell 0.3.1. A small fixed core star
 ## Commands
 
 - `scripts/validate [AREA]`: run only checks affected by changes from the newest commit holding what last passed AREA in this worktree, else the default branch's merge base, including uncommitted files. `--changed BASE` selects a fix round; `--list` previews commands; `--full` opts into the whole area. `unit` needs Qt and no Wayland session; `package` needs rootless podman and the Arch mirrors; `qml` needs the nested sandbox. Exit 77 means a check could not run and is not a pass.
-- `scripts/qml-smoke.sh`: the nested sandbox row alone. It needs `WAYLAND_DISPLAY` and `XDG_RUNTIME_DIR` in the environment.
+- `scripts/qml-smoke.sh`: the nested sandbox row alone. It needs `WAYLAND_DISPLAY` and `XDG_RUNTIME_DIR` set.
 - `scripts/landing-times.py [--last N]`: the median time from open (first commit or PR creation) to landing on `main` over the last N landings (pushes and pull requests), plus the median wait from ready to land.
 - `bin/vgshell`: the runner (`run`, `restart`), the plugin manager and the theme commands (`theme list`, `theme apply <name>`, `theme reload`, `theme background next`, `theme add <git url>`, `theme update <name>`, `theme remove <name>`; `theme apply vgs` restores the defaults). Run it with no arguments for the command list.
 
@@ -22,11 +22,11 @@ A desktop shell for Hyprland, built on Quickshell 0.3.1. A small fixed core star
 - Validate the final relevant diff once. After fixes, use `--changed <last-validated-commit>` and reuse results for unchanged inputs; do not repeat a full suite at commit, push or PR submission. Unknown source inputs select the full area rather than silently skipping coverage. Shared workflow gate requirements do not apply here.
 - A lane runs the fast areas `scripts/validate` selects and, of the nested smoke, only the rows its change names with the rows those read. A batch run, `scripts/main-run.sh`, runs the full unit and qml areas on main, reports and gates nothing; the nightly run is `nightly.yml` plus `scripts/main-run.sh qml`, the area a hosted runner cannot run. A lane whose files no other landing lane shares lands without an order: `docs/decisions/D100-validation-selects-by-inputs.md`.
 
-- Hyprland is the only compositor. No compositor abstraction and no second compositor: `docs/decisions/D001-hyprland-only.md`.
+- Hyprland is the only compositor; no compositor abstraction: D001.
 - Never start a second shell against the live session. Kill only a PID you started or whose /proc cwd is in your worktree. Validation runs in the nested sandbox only.
 - A change that adds a surface, a service or a plugin adds its validation row under `scripts/smoke/rows/` in the same PR.
 - No manual commands: a user-facing setup step is automatic or one click, a step that asks or elevates runs in a floating TUI or the requirement notice that button starts, a secret goes into a masked field VGS stores in libsecret, and the interface shows no command except a by-hand requirement notice for a step VGS cannot run on this system. A plugin README keeps commands behind Show command details. `scripts/check-user-commands.py` enforces the text: `docs/decisions/D061-no-manual-commands.md`.
-- Follow `docs/decisions/D075-consumer-features-need-no-developer-setup.md` for automated setup and user-only steps with a clear Settings path. Features without that path do not ship.
+- Setup automates every step it can; a step only the user can take needs a clear Settings path or the feature does not ship: D075.
 - Before writing or changing code, load the code-quality skill. Before writing a plugin, load the vgs-plugin skill.
 
 ## Read when
@@ -40,6 +40,7 @@ A desktop shell for Hyprland, built on Quickshell 0.3.1. A small fixed core star
 - Before touching a password field, a stored token or any text that could carry a secret: `docs/architecture/secrets.md`.
 - Before touching a theme package, its judge, a theme target, apply, follow or reload, the theme catalog, a wallpaper download, the wallpaper state or the background, `ThemeRunner` or a theme view: `docs/architecture/themes.md`.
 - Before touching the licence, `VERSION`, a package recipe, the installer, `vgshell self` or an update: `docs/architecture/distribution.md`.
+- Before touching an idle stage, an inhibitor, an energy setting, a wake source or a power key: `docs/architecture/power.md`.
 - Before touching the Jarvis daemon, its wire, a brain or a tool executor: `docs/architecture/jarvis.md`; before any path by which content or a credential leaves it: `docs/architecture/jarvis-outbound.md`.
 - Before touching `scripts/validate`, a row, its inputs or its verdict, a test's environment, the nested sandbox and its harness, a fault the smoke excuses, a latency or resident-size budget, or a Jarvis test: `docs/architecture/validation.md`.
 - Before writing a plugin, running validation, regenerating the README's plugin table or images, or changing a licence: `DEVELOPMENT.md`.
