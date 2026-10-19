@@ -6,9 +6,12 @@
 const { assert, fs, path, tree, world, mutant } = require("./fixtures/jarvis/policy.js");
 const childFile = path.join(tree, "shell/plugins/vgs.jarvis/backend/Child.js");
 
+// A killed grandchild may remain a zombie until its new parent reaps it.
+// kill(pid, 0) tests existence, so it cannot judge whether it still runs.
+const runningStat = stat => stat.split(") ").at(-1).split(" ")[0] !== "Z";
 const alive = pid => {
-    try { process.kill(pid, 0); return true; }
-    catch (error) { if (error.code === "ESRCH") return false; throw error; }
+    try { return runningStat(fs.readFileSync("/proc/" + pid + "/stat", "utf8")); }
+    catch (error) { if (error.code === "ENOENT") return false; throw error; }
 };
 const groupOf = pid => Number(fs.readFileSync("/proc/" + pid + "/stat", "utf8").split(") ").at(-1).split(" ")[2]);
 
@@ -37,6 +40,10 @@ world(() => {
         + `require("node:fs").writeFileSync(${JSON.stringify(marker(name))},String(s.pid));s.unref();`;
     const cleanup = [];
     const cases = [
+        ["process-state", async () => {
+            for (const [state, expected] of [["R", true], ["S", true], ["T", true], ["Z", false]])
+                assert.equal(runningStat("17 (fixture ) name) " + state + " 12 34"), expected);
+        }],
         ["exited", async Child => {
             const result = await Child.run(node, script('process.stdout.write(JSON.stringify(process.env));process.stderr.write("e");process.exit(3)'), base);
             assert.equal(result.kind, "exited");
