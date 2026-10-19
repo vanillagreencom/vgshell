@@ -230,7 +230,7 @@ FocusScope {
                     spacing: Theme.stack.inline
                     Badge {
                         anchors.verticalCenter: parent.verticalCenter
-                        text: root.wakeRow === null || root.wakeRow.value === null ? "Checking" : root.wakeRow.value
+                        text: root.wakeRow === null || root.wakeRow.value === null ? "Checking" : root.wakeRow.value.text
                         tone: root.wakeRow === null || root.wakeRow.tone === "" ? "info" : root.wakeRow.tone
                     }
                     RowAction {
