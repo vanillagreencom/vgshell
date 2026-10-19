@@ -5296,7 +5296,9 @@ Scope {
     function frame() {
         if (reading === null || panel === null || view === null) return;
         const elapsed = Date.now() - reading.started;
-        if (elapsed > 1000) return;
+        // Record until the shell polls past the motion window of the open,
+        // however late its first full frame lands.
+        if (reading.first >= 0 && elapsed > reading.first + 1000) return;
         const wanted = reading.operation === "inbox" ? 50 : 100;
         if (!panel.opened || panel.rows.length !== wanted || view.height <= 0 || view.width <= 0) return;
         // Geometry is required once for each operation. The unchanged
@@ -5430,7 +5432,9 @@ QML
 expect "the notification frame observer loads" ok ipc smoke runnerLoad "$repo/shell/NotificationLatencyProbe.qml"
 panel_latency_record() { ipc smoke runnerRecord; }
 panel_latency_ready() { panel_latency_record | py_reply 'import json,sys;v=json.load(sys.stdin);print(v is not None and v["first"]>=0)'; }
-panel_latency_sampled() { panel_latency_record | py_reply 'import json,sys,time;v=json.load(sys.stdin);print(v is not None and int(time.time()*1000)-v["started"]>=700)'; }
+# The motion window runs 400 ms from the first full frame; the extra 300 ms
+# holds the frame crossing its end.
+panel_latency_sampled() { panel_latency_record | py_reply 'import json,sys,time;v=json.load(sys.stdin);print(v is not None and int(time.time()*1000)-v["started"]>=v["first"]+700)'; }
 panel_latency_dir="$sandbox/rows/notifications.panel-latency"
 mkdir -p -- "$panel_latency_dir"
 panel_latency_open_pressure() {
@@ -5445,6 +5449,18 @@ pressure=[json.loads((root/f'{state}-pressure-{i}.json').read_text())['openCpuSo
 median=statistics.median(samples)
 print(f'{median}\t{min(pressure[i] for i,value in enumerate(samples) if value==median)}')
 PYMEDIAN
+}
+# panel_latency_motion_check READING FIRST_MS LAST_MS CPU_SOME_PCT: an
+# open's frames reach 400 ms past its first full frame. Frames that stop
+# short under CPU pressure are not measured, as a latency reading is.
+panel_latency_motion_check() {
+    local short=$(( $2 + 400 - $3 ))
+    if ((short <= 0)); then ok "$1 records frames through its motion window"; return; fi
+    case "$(latency_pressure_verdict "$short" "$4" 0)" in
+        unmeasured) not_measured notifications "$1-cpu_some_pct=$4-above-$latency_pressure_limit" ;;
+        over) fail "$1 frames stop $short ms short of its motion window" ;;
+        *) fail "$1 motion reading unavailable: first_ms=$2 last_ms=$3 cpu_some_pct=$4" ;;
+    esac
 }
 panel_latency_retry() {
     (( $1 == 3 )) && [[ $(latency_pressure_verdict "$2" "$3" 139) == over ]]
@@ -5484,9 +5500,10 @@ for panel_latency_state in loaded refused; do
     done
 done
 : >"$panel_latency_dir/pressure-checks.tsv"
+: >"$panel_latency_dir/motion-checks.tsv"
 python3 - "$panel_latency_dir" <<'PYVERDICT' || fail "the hundred-row notification panel misses its latency or frame-gap bound"
 import json,pathlib,statistics,sys
-root=pathlib.Path(sys.argv[1]);failed=[];checks=[]
+root=pathlib.Path(sys.argv[1]);failed=[];checks=[];motion=[]
 for state in ('loaded','refused'):
     trials=range(1,6) if (root/f'{state}-pressure-5.json').exists() else range(1,4)
     pressure=[json.loads((root/f'{state}-pressure-{i}.json').read_text())['hostCpuSomePct'] for i in trials]
@@ -5512,10 +5529,11 @@ for state in ('loaded','refused'):
         if any(v.get('retained') is not True for v in readings):failed.append(f'{state}-{action}-retention')
         if any(v.get('firstConstructed')!=v.get('firstVisible') for v in readings):failed.append(f'{state}-{action}-offscreen')
         if action=='open':
-            # Include the frame interval crossing the window's endpoint. Require
-            # observed frames through that endpoint, not just a few samples.
-            if any(len(v['frames'])<2 or v['frames'][0]!=v['first'] or v['frames'][-1]<v['first']+400
+            if any(len(v['frames'])<2 or v['frames'][0]!=v['first']
                 or any(b<a for a,b in zip(v['frames'],v['frames'][1:])) for v in readings):failed.append(f'{state}-motion-window')
+            # Whether the frames reach the window's end is judged against each
+            # open's own pressure, as its latency is.
+            motion+=[(f'{state}-open-{i+1}-motion',v['first'],v['frames'][-1],open_pressure[i]) for i,v in enumerate(readings) if v['frames']]
             if any(v.get('firstAnimations',{}).get('edgeFrameRunning') is not True
                 or v.get('firstAnimations',{}).get('motionScale')!=1 for v in readings):failed.append(f'{state}-motion-inactive')
             gaps=[b-a for v in readings for a,b in zip(v['frames'],v['frames'][1:]) if a<v['first']+400]
@@ -5534,11 +5552,15 @@ for state in ('loaded','refused'):
     print(f'notification-panel-latency: store={state} host_cpu_some_pct={pressure}')
     print(f'notification-panel-latency: store={state} open_cpu_some_pct={open_pressure}')
 (root/'pressure-checks.tsv').write_text(''.join(f'{name}\t{ms}\t{pressure:.1f}\t{bound}\n' for name,ms,pressure,bound in checks))
+(root/'motion-checks.tsv').write_text(''.join(f'{name}\t{first}\t{last}\t{pressure:.1f}\n' for name,first,last,pressure in motion))
 if failed:raise SystemExit('notification-panel-latency: failed='+','.join(failed))
 PYVERDICT
 while IFS=$'\t' read -r panel_latency_reading panel_latency_ms panel_latency_pressure panel_latency_bound; do
     latency_pressure_check notifications "$panel_latency_reading" "$panel_latency_ms" "$panel_latency_pressure" "$panel_latency_bound"
 done <"$panel_latency_dir/pressure-checks.tsv"
+while IFS=$'\t' read -r panel_latency_reading panel_latency_first panel_latency_last panel_latency_pressure; do
+    panel_latency_motion_check "$panel_latency_reading" "$panel_latency_first" "$panel_latency_last" "$panel_latency_pressure"
+done <"$panel_latency_dir/motion-checks.tsv"
 panel_latency_pressure_control() {
     (failures=0; behaviour_failures=0; not_measured_rows=();
      latency_pressure_check notifications planted-panel-open 140 0.0 139 >"$sandbox/panel-latency-pressure-control.log"
@@ -5554,6 +5576,34 @@ panel_latency_open_stall_control() {
      printf '%s %s\n' "$failures" "${#not_measured_rows[@]}")
 }
 expect "control: a stall inside the open window is not measured" "0 1" panel_latency_open_stall_control
+# Frames cut off 700 ms after the start, as a recording that ignores a slow
+# open cuts them: pressure excuses the short window, a quiet host does not.
+panel_latency_motion_cases() {
+    local first last pressure expected
+    while read -r first last pressure expected; do
+        [[ $(failures=0; behaviour_failures=0; not_measured_rows=();
+             panel_latency_motion_check planted-open-motion "$first" "$last" "$pressure" >"$sandbox/panel-latency-motion-control.log"
+             printf '%s %s' "$failures" "${#not_measured_rows[@]}") == "$expected" ]] || return 1
+    done <<'CASES'
+550 700 40.0 0 1
+550 700 0.0 1 0
+250 700 0.0 0 0
+CASES
+    echo ok
+}
+expect "control: a short motion window is not measured only under pressure" ok panel_latency_motion_cases
+panel_latency_sampled_cases() {
+    local first age expected
+    while read -r first age expected; do
+        [[ $(panel_latency_record() { printf '{"started":%s,"first":%s}' "$(( $(now_ms) - age ))" "$first"; }
+             panel_latency_sampled) == "$expected" ]] || return 1
+    done <<'CASES'
+550 1000 False
+550 1300 True
+CASES
+    echo ok
+}
+expect "control: a slow open is sampled through its motion window" ok panel_latency_sampled_cases
 panel_latency_retry_control() {
     (panel_latency_dir="$sandbox/panel-latency-retry-control"
      mkdir -p -- "$panel_latency_dir"
