@@ -5636,10 +5636,10 @@ scene_themes_panel() { # MODE
   park_pointer
   take "panels-$1-themes"
   ipc smoke revealText panel vgs.themes ListItem vgs >/dev/null || fail "the themes panel did not reveal its vgs row for the hover"
-  hover_on "the pointer rests on the themes panel's vgs row" panel vgs.themes ListItem vgs vgs:panel && take_posed "panels-$1-themes-hover"
+  hover_on "the pointer rests on the themes panel's vgs row" panel vgs.themes ListItem vgs && take_posed "panels-$1-themes-catalog"
   park_pointer
   ipc smoke scrollTo panel vgs.themes 100000 >/dev/null || fail "the themes panel did not scroll to its catalog"
-  take "panels-$1-themes-catalog"
+  take "panels-$1-themes-catalog-overview"
   ipc smoke scrollTo panel vgs.themes 0 >/dev/null || fail "the themes panel did not scroll to its top"
   rm -f -- "$themes_gate"
   { themes_answer_write 3 "$themes_failed" && themes_stand_in; } || fail "the themes panel's stand-in runner could not be written"
