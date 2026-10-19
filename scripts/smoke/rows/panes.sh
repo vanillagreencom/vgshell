@@ -11,7 +11,9 @@
 # control.
 # The row sets vgs.system and every enabled shipped section aside first, so
 # the holder lists its fixtures alone, and puts each back as it found it.
-# inputs: scripts/smoke/fixtures/plugins/acme.pane/* scripts/smoke/fixtures/plugins/acme.panehost/* shell/Hosts/PaneHost.qml shell/Hosts/PluginSlot.qml shell/Core/Capabilities.qml shell/Core/Registry.qml shell/Core/Plugins.qml shell/plugins/vgs.system/* shell/plugins/*/manifest.json shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Core/PluginLogic.js shell/Core/ConfigLogic.js scripts/smoke/rows/start-order.sh
+# Last, the shipped holder lists Power's section under Hardware and mounts
+# it, and vgs.power and vgs.system are put back as the row found them.
+# inputs: scripts/smoke/fixtures/plugins/acme.pane/* scripts/smoke/fixtures/plugins/acme.panehost/* shell/Hosts/PaneHost.qml shell/Hosts/PluginSlot.qml shell/Core/Capabilities.qml shell/Core/Registry.qml shell/Core/Plugins.qml shell/plugins/vgs.system/* shell/plugins/vgs.power/* shell/plugins/*/manifest.json shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Core/PluginLogic.js shell/Core/ConfigLogic.js scripts/smoke/rows/start-order.sh
 set -euo pipefail
 
 pane_file="$home/.config/vgshell/shell.json"
@@ -325,3 +327,17 @@ rm -rf -- "${home:?}/.config/vgshell/plugins/acme.panehost" "${home:?}/.config/v
 rescan "rescan after removing the pane fixtures answers ok"
 expect_poll "the pane fixture is gone after restore" absent plugin_enabled acme.pane
 expect_poll "each shipped section the row set aside is enabled again" "$pane_aside" shipped_panes_enabled
+
+pane_power_was="$(plugin_enabled vgs.power)" || { fail "vgs.power's enabled state is unreadable"; pane_power_was=False; }
+pane_system_was="$(plugin_enabled vgs.system)" || { fail "vgs.system's enabled state is unreadable"; pane_system_was=False; }
+# The groups System Settings lists vgs.power under, from the holder's list.
+pane_power_groups() { ipc smoke readInstance window vgs.system panes | py_reply 'import json,sys; print(json.dumps([r["group"] for r in json.load(sys.stdin) if r["id"] == "vgs.power"]))'; }
+expect "enabling vgs.power for its section is allowed" ok ipc shell setPluginEnabled vgs.power true
+expect "enabling System Settings for Power's section is allowed" ok ipc shell setPluginEnabled vgs.system true
+expect "System Settings summons on Power's section" ok ipc shell summon window vgs.system '{"pane":"vgs.power"}'
+expect_poll "System Settings lists Power under Hardware" '["Hardware"]' pane_power_groups
+expect_poll "System Settings mounts Power's section" '["vgs.power"]' window_panes
+expect "System Settings hides after Power's section" ok ipc shell hide window vgs.system
+expect_poll "hiding System Settings drops Power's section" '[]' window_panes
+expect "vgs.power's enablement is put back" ok ipc shell setPluginEnabled vgs.power "$([[ $pane_power_was == True ]] && echo true || echo false)"
+expect "vgs.system's enablement is put back" ok ipc shell setPluginEnabled vgs.system "$([[ $pane_system_was == True ]] && echo true || echo false)"

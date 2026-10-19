@@ -4,21 +4,24 @@
   "name": "Power",
   "version": "0.1.0",
   "author": "VanillaGreen",
-  "description": "Show battery level and choose the power profile.",
+  "description": "Show battery level, choose the power profile and see what happens while you are away.",
   "license": "MIT",
   "icon": "battery-medium",
   "kinds": [
     "service",
     "bar-widget",
-    "panel"
+    "panel",
+    "pane"
   ],
   "entryPoints": {
     "service": "Service.qml",
     "bar-widget": "Widget.qml",
-    "panel": "Panel.qml"
+    "panel": "Panel.qml",
+    "pane": "Pane.qml"
   },
   "capabilities": [
     "configure",
+    "idle",
     "ipc",
     "notify",
     "requirements",
@@ -27,6 +30,10 @@
     "surfaces"
   ],
   "defaultSection": "right",
+  "pane": {
+    "group": "Hardware",
+    "order": 50
+  },
   "requirements": [
     {
       "dbus": {
@@ -40,7 +47,7 @@
         "dnf": "ppd-service",
         "nix": "power-profiles-daemon"
       },
-      "optional": false,
+      "optional": true,
       "purpose": "The power profiles service, which switches the power profile"
     },
     {
@@ -116,7 +123,7 @@
         { "value": "performance", "label": "Performance" }
       ],
       "group": "Power profiles",
-      "shownWhen": "battery"
+      "shownWhen": "profiles"
     },
     "batteryProfile": {
       "type": "enum",
@@ -128,7 +135,7 @@
         { "value": "performance", "label": "Performance" }
       ],
       "group": "Power profiles",
-      "shownWhen": "battery"
+      "shownWhen": "profiles"
     }
   },
   "menu": {
@@ -163,6 +170,11 @@
     "battery": {
       "type": "presence",
       "label": "Battery",
+      "hidden": true
+    },
+    "profiles": {
+      "type": "presence",
+      "label": "Power profiles",
       "hidden": true
     },
     "profileRule": {

@@ -62,3 +62,50 @@ power_stop_mocks() {
   power_upower_pid=""
   power_profiles_pid=""
 }
+
+# power_stage_owners: two plugins that declare idle stages at the times the
+# shipped owners default to, dim at 120 s (vgs.displays), screensaver at
+# 150 s (vgs.screensaver) and lock at 300 s (vgs.lock), and run nothing,
+# each service an empty item, so the core's stage record holds the stages
+# and no watch starts. acme.power-dim owns the dim, acme.power-away the
+# screensaver and the lock. Both go under PLUGINS; the caller rescans,
+# enables them and removes them.
+power_stage_owners() { # PLUGINS
+  power_stage_owner "$1/acme.power-dim" '{ "schemaVersion": 1, "id": "acme.power-dim", "name": "Dim Owner", "version": "0.1.0", "author": "acme", "description": "smoke fixture that declares the dim stage",
+  "kinds": ["service"], "entryPoints": { "service": "Service.qml" }, "capabilities": ["idle"],
+  "idleStages": { "dim": { "seconds": "dimAfter" } },
+  "settings": { "dimAfter": 120 },
+  "schema": { "dimAfter": { "type": "number", "label": "Dim after", "min": 0, "max": 3600, "step": 30, "unit": "seconds" } } }'
+  power_stage_owner "$1/acme.power-away" '{ "schemaVersion": 1, "id": "acme.power-away", "name": "Away Owner", "version": "0.1.0", "author": "acme", "description": "smoke fixture that declares the screensaver and lock stages",
+  "kinds": ["service"], "entryPoints": { "service": "Service.qml" }, "capabilities": ["idle"],
+  "idleStages": { "screensaver": { "seconds": "saverAfter", "enabled": "saverOn" }, "lock": { "seconds": "lockAfter" } },
+  "settings": { "saverOn": true, "saverAfter": 150, "lockAfter": 300 },
+  "schema": {
+    "saverOn": { "type": "boolean", "label": "Start the screensaver" },
+    "saverAfter": { "type": "number", "label": "Screensaver after", "min": 0, "max": 3600, "step": 30, "unit": "seconds" },
+    "lockAfter": { "type": "number", "label": "Lock after", "min": 0, "max": 3600, "step": 30, "unit": "seconds" } } }'
+}
+power_stage_owner() { # DIR MANIFEST
+  mkdir -p -- "$1"
+  printf '%s\n' "$2" >"$1/manifest.json"
+  printf 'import QtQuick\nItem { property var shell: null }\n' >"$1/Service.qml"
+}
+# power_stage_setting CONFIG KEY VALUE: one value of acme.power-away's
+# plugins row in the shell configuration CONFIG; null removes it.
+power_stage_setting() { python3 - "$@" <<'PY_STAGE'
+import json, os, sys
+path, key, value = sys.argv[1], sys.argv[2], json.loads(sys.argv[3])
+config = json.load(open(path))
+rows = config.setdefault("plugins", [])
+row = next((r for r in rows if r.get("id") == "acme.power-away"), None)
+if row is None:
+    row = {"id": "acme.power-away"}
+    rows.append(row)
+if value is None:
+    row.pop(key, None)
+else:
+    row[key] = value
+json.dump(config, open(path + ".tmp", "w"), indent=2)
+os.replace(path + ".tmp", path)
+PY_STAGE
+}

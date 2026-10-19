@@ -28,10 +28,10 @@
 # shell read on a machine with the variable unset; its runs name
 # `--address`, and the stand-in still lands them on the sandbox bus.
 #
-# Rows: before the mocks start, the first enable raises a requirement
-# notice for org.freedesktop.UPower.PowerProfiles; after the mocks own that
-# name, enabling vgs.power raises no notice and the requirement reads
-# present. Those two readings are each other's control. The first real
+# Rows: before the mocks start, the requirement for
+# org.freedesktop.UPower.PowerProfiles reads missing and the first enable
+# raises no notice, since the service is optional; after the mocks own that
+# name, the requirement reads present. The first real
 # enable sees a discharging battery and a power-saver profile without
 # applying the remembered battery profile; the widget draws the 51 % text
 # and a non-charging icon; with a charging display battery,
@@ -40,11 +40,24 @@
 # thresholds; the panel draws the battery level, state and time left in
 # one Field, lists the profiles the daemon offers as icon tiles with the
 # active one marked, and follows the daemon to a shorter list; keyboard
-# selection in the panel chooses Performance and writes the current source setting; a
+# selection in the panel chooses Performance and writes the current source setting;
+# Power's section in System Settings draws the idle timeline of two stage
+# owner fixtures built at run time, acme.power-dim and acme.power-away,
+# one row per stage of the core's record in its order with its default
+# time and a page reference to the field that sets it, which a real click
+# opens in Settings at that field; no row warns until the lock is set
+# below the screensaver, and then the lock row alone does; the section
+# draws all four of Power's own fields with a battery and the profiles
+# service, and no install offer for it; a
 # plug change applies the remembered charger profile; removing the display
 # battery hides the widget's battery part again; Power's Settings tab draws
 # its four battery fields with a battery, none with no battery and all
-# four again once the display battery is back; with no battery a bar pick
+# four again once the display battery is back; with a battery and no
+# profiles service the section and the Settings tab draw the two alert
+# fields alone; once a scan misses the service the section offers its
+# install, whose press raises the requirement notice for it; all four show
+# once a profiles service starts; with no
+# battery a bar pick
 # sets the profile and remembers no setting, a source change keeps that
 # pick, and with a battery a pick remembers the current source's; and a
 # profile service that starts after the
@@ -64,12 +77,12 @@
 # The row disables vgs.power, starts the mocks, then restarts the shell
 # before the first enable, so Quickshell's connect-once UPower singleton
 # binds to the mock no matter what earlier rows left. The row restores
-# notify-send and gdbus, vgs.power's
-# enablement and placement, moves fixture copies out of the plugin
+# notify-send and gdbus, vgs.power's and vgs.system's
+# enablement and vgs.power's placement, moves fixture copies out of the plugin
 # directory, stops the mock process groups it spawned, and restarts the
 # shell because Quickshell keeps that singleton in the process after the
 # plugin is disabled.
-# inputs: shell/plugins/vgs.power/* shell/plugins/vgs.settings/* shell/Commons/SettingValues.js shell/Core/Registry.qml shell/Core/Capabilities.qml shell/Core/PluginStatus.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Notices.qml shell/Core/Notifier.qml shell/Hosts/NoticeHost.qml shell/Hosts/SummonHost.qml bin/vgshell-scan scripts/smoke/rows/device-fakes.sh scripts/smoke/power-fakes.sh
+# inputs: shell/plugins/vgs.power/* shell/plugins/vgs.settings/* shell/plugins/vgs.system/* shell/Hosts/PaneHost.qml shell/Core/IdleRegistry.qml shell/Ui/controls/FormRow.qml shell/Ui/controls/Field.qml shell/Ui/controls/Select.qml shell/Ui/controls/SegmentedControl.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Commons/SettingValues.js shell/Core/Registry.qml shell/Core/Capabilities.qml shell/Core/PluginStatus.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Notices.qml shell/Core/Notifier.qml shell/Hosts/NoticeHost.qml shell/Hosts/SummonHost.qml bin/vgshell-scan scripts/smoke/rows/device-fakes.sh scripts/smoke/power-fakes.sh
 set -euo pipefail
 source "$repo/scripts/smoke/power-fakes.sh"
 
@@ -79,6 +92,9 @@ power_notify_stood=""
 power_gdbus_stood=""
 power_was_enabled=""
 power_was_placed=""
+power_system_was=""
+power_dim_dir="$home/.config/vgshell/plugins/acme.power-dim"
+power_away_dir="$home/.config/vgshell/plugins/acme.power-away"
 power_relatch_dir="$home/.config/vgshell/plugins/acme.power-relatch"
 power_nocharge_dir="$home/.config/vgshell/plugins/acme.power-nocharge"
 power_busenv_dir="$home/.config/vgshell/plugins/acme.power-busenv"
@@ -176,6 +192,23 @@ schema = json.load(open(sys.argv[1]))["schema"]
 anchor = re.search(r"showInBar: \"([^\"]+)\"", open(sys.argv[3]).read()).group(1).lower()
 drawn = {t.lower() for row in json.load(sys.stdin) for t in row}
 print(json.dumps(sorted(k for k in json.loads(sys.argv[2]) if schema[k]["label"].lower() in drawn)) if anchor in drawn else "page-absent")' "$repo/shell/plugins/vgs.power/manifest.json" "$power_battery_keys" "$repo/shell/Commons/SettingValues.js"; }
+power_alert_keys='["criticalThreshold", "lowThreshold"]'
+# power_pane_fields: which of the same four settings Power's section in
+# System Settings draws, as the sorted keys whose label a Field of the
+# mounted pane shows.
+power_pane_fields() { ipc smoke itemTexts window vgs.power Field | py_reply 'import json,sys
+schema = json.load(open(sys.argv[1]))["schema"]
+drawn = {t.lower() for row in json.load(sys.stdin) for t in row}
+print(json.dumps(sorted(k for k in json.loads(sys.argv[2]) if schema[k]["label"].lower() in drawn)))' "$repo/shell/plugins/vgs.power/manifest.json" "$power_battery_keys"; }
+power_install_shown() { [[ $(ipc smoke windowGeometry window vgs.power RowAction "Install power profiles") == \[* ]] && echo yes || echo no; }
+power_profiles_presence() { ipc smoke statusValues vgs.power | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin).get("profiles")))'; }
+# power_timeline: the idle timeline as the pane draws it, top to bottom:
+# each row's page reference, which LinkText reads as the link's words and
+# target, and whether the row draws a warning. A timeline row is the
+# FormRow holding its LinkText in its control slot.
+power_timeline() { ipc smoke itemValues window vgs.power LinkText text,parent.parent.warning | py_reply 'import json,sys
+print(json.dumps([[r["text"], r["parent.parent.warning"] != ""] for r in json.load(sys.stdin) if "](page:" in r["text"]]))'; }
+power_settings_reveal() { echo "$(ipc smoke readInstance window vgs.settings page) $(ipc smoke readDescendant window vgs.settings PluginPage revealing)"; }
 power_battery_presence() { ipc smoke statusValues vgs.power | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin).get("battery")))'; }
 power_hold_next_set() {
   power_unlink "$power_set_held"
@@ -250,10 +283,8 @@ EOF_STAND
   rescan "rescan before the PowerProfiles mock starts answers ok"
   expect "the power profiles service is missing before its mock starts" missing power_requirement_state
   expect "enabling vgs.power without the PowerProfiles bus name is allowed" ok ipc shell setPluginEnabled vgs.power true
-  expect_poll "enabling without the PowerProfiles bus name raises its requirement notice" '["vgs.power", ["org.freedesktop.UPower.PowerProfiles"], ["org.freedesktop.UPower.PowerProfiles"], false]' notice_shown
-  expect_poll "the PowerProfiles requirement notice holds the keyboard" true ipc smoke noticeFocused
-  type_keys -k Escape || fail "sending Escape to the PowerProfiles requirement notice failed"
-  expect_poll "Escape closes the PowerProfiles requirement notice" null notice_shown
+  # The enable decides its notice before it answers (Notices.enabled).
+  expect "enabling without the optional PowerProfiles bus name raises no notice" null notice_shown
   expect "disabling vgs.power after the missing-service proof is allowed" ok ipc shell setPluginEnabled vgs.power false
   power_start_mocks power power-saver
   expect "the mock starts with a discharging battery object" "/org/freedesktop/UPower/devices/mock_BAT0" power_add_battery
@@ -326,6 +357,34 @@ EOF_STAND
   power_on_battery false
   expect_poll "plugging in applies the remembered charger profile" performance power_profile_get
   expect "the Power panel closes" ok ipc shell hide panel vgs.power
+
+  power_system_was="$(plugin_enabled vgs.system)" || { fail "power: vgs.system's enabled state is unreadable"; power_system_was=False; }
+  power_move_away "$power_dim_dir"
+  power_move_away "$power_away_dir"
+  power_stage_owners "$home/.config/vgshell/plugins"
+  rescan "rescan after adding the stage owner fixtures answers ok"
+  expect "enabling the dim owner fixture is allowed" ok ipc shell setPluginEnabled acme.power-dim true
+  expect "enabling the away owner fixture is allowed" ok ipc shell setPluginEnabled acme.power-away true
+  expect "enabling System Settings for Power's section is allowed" ok ipc shell setPluginEnabled vgs.system true
+  expect "System Settings opens on Power's section" ok ipc shell summon window vgs.system '{"pane":"vgs.power"}'
+  expect_poll "Power's section is mounted" '["vgs.power"]' window_panes
+  power_timeline_defaults='[["[After 2 minutes](page:acme.power-dim/Settings/dimAfter)", false], ["[After 150 seconds](page:acme.power-away/Settings/saverAfter)", false], ["[After 5 minutes](page:acme.power-away/Settings/lockAfter)", false]]'
+  expect_poll "the timeline reads each stage in order with its default time, a link to its field and no warning" "$power_timeline_defaults" power_timeline
+  expect_poll "with a battery and the profiles service the section draws Power's four fields" "$power_battery_keys" power_pane_fields
+  expect "with the profiles service present the section offers no install" no power_install_shown
+  click_in "window:System Settings" window vgs.power LinkText "[After 5 minutes](page:acme.power-away/Settings/lockAfter)" || fail "the click on the lock row's time failed"
+  expect_poll "the lock row's link opens Settings at the lock owner's field" '"acme.power-away" "lockAfter"' power_settings_reveal
+  expect "Settings hides after the timeline link" ok ipc shell hide window vgs.settings
+  power_stage_setting "$home/.config/vgshell/shell.json" lockAfter 120
+  expect_poll "with the lock set below the screensaver the lock row alone warns" '[["[After 2 minutes](page:acme.power-dim/Settings/dimAfter)", false], ["[After 150 seconds](page:acme.power-away/Settings/saverAfter)", false], ["[After 2 minutes](page:acme.power-away/Settings/lockAfter)", true]]' power_timeline
+  power_stage_setting "$home/.config/vgshell/shell.json" lockAfter null
+  expect_poll "the lock's default time clears the warning" "$power_timeline_defaults" power_timeline
+  expect "System Settings hides after Power's section" ok ipc shell hide window vgs.system
+  expect "disabling the dim owner fixture is allowed" ok ipc shell setPluginEnabled acme.power-dim false
+  expect "disabling the away owner fixture is allowed" ok ipc shell setPluginEnabled acme.power-away false
+  power_move_away "$power_dim_dir"
+  power_move_away "$power_away_dir"
+  rescan "rescan after removing the stage owner fixtures answers ok"
 
   expect "Settings opens on Power's Settings tab" ok ipc shell summon window vgs.settings '{"plugin":"vgs.power","tab":"Settings"}'
   expect_poll "with a battery Settings draws Power's four battery fields" "$power_battery_keys" power_battery_fields
@@ -465,12 +524,28 @@ import Quickshell.Io
   expect "re-enabling vgs.power without the profile daemon starts clean" ok ipc shell setPluginEnabled vgs.power true
   expect_poll "the service reads the absent profile daemon" yes power_has_read
   expect "without the profile daemon the service reports profiles unavailable" False power_profile_available
+  expect_poll "with a battery and no profiles service the service publishes profiles absent" '"absent"' power_profiles_presence
+  expect "System Settings opens on Power's section with no profiles service" ok ipc shell summon window vgs.system '{"pane":"vgs.power"}'
+  expect_poll "Power's section is mounted with no profiles service" '["vgs.power"]' window_panes
+  expect_poll "with no profiles service the section draws the alert fields and no profile field" "$power_alert_keys" power_pane_fields
+  expect "Settings opens on Power's Settings tab with no profiles service" ok ipc shell summon window vgs.settings '{"plugin":"vgs.power","tab":"Settings"}'
+  expect_poll "with no profiles service Settings draws the alert fields and no profile field" "$power_alert_keys" power_battery_fields
+  expect "the Settings window hides after the profile fields" ok ipc shell hide window vgs.settings
+  rescan "rescan after the profile mock stops answers ok"
+  expect_poll "with the profiles service missing the section offers its install" yes power_install_shown
+  click_in "window:System Settings" window vgs.power RowAction "Install power profiles" || fail "the click on Install power profiles failed"
+  expect_poll "Install power profiles raises the requirement notice for the service" '["vgs.power", ["org.freedesktop.UPower.PowerProfiles"], ["org.freedesktop.UPower.PowerProfiles"], false]' notice_shown
+  expect_poll "the profiles service notice holds the keyboard" true ipc smoke noticeFocused
+  type_keys -k Escape || fail "sending Escape to the profiles service notice failed"
+  expect_poll "Escape closes the profiles service notice" null notice_shown
   expect "the unavailable profile panel opens" ok ipc shell summon panel vgs.power '{}'
   expect_poll "the unavailable profile panel says profiles are unavailable" True power_label_has "Power profiles are not available."
   power_start_profiles power-later performance
   expect_poll "a profile service that starts after the plugin is read" True power_profile_available
   expect_poll "the later service's active profile is read" performance power_status_active
   expect_poll "the open panel lists the later service's profiles" '[[["Power saver", "Balanced", "Performance"], 2]]' power_profile_list
+  expect_poll "with the later service Power's section draws its four fields" "$power_battery_keys" power_pane_fields
+  expect "System Settings hides after the later service" ok ipc shell hide window vgs.system
   expect "the Power panel closes after the later service" ok ipc shell hide panel vgs.power
   expect "disabling vgs.power after the later service check is allowed" ok ipc shell setPluginEnabled vgs.power false
 
@@ -496,6 +571,7 @@ import Quickshell.Io
   power_move_away "$power_once_dir"
   rescan "rescan after removing the once fixture answers ok"
 
+  expect "restoring vgs.system's enablement is allowed" ok ipc shell setPluginEnabled vgs.system "$([[ $power_system_was == True ]] && echo true || echo false)"
   power_restore_stand notify-send "$power_notify_stood"
   power_restore_stand gdbus "$power_gdbus_stood"
   power_stop_mocks

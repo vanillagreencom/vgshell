@@ -1963,10 +1963,14 @@ fi
 
 # Drive the Power scene's setup order without starting a sandbox. The
 # plugin check must read a scan made after the fake daemon owns its name.
+# The tree ships Power's section, whose shots follow the panel's.
 power_scene="$tmp/power-scene.sh"
 catalog_extract scene_power "$power_scene"
+power_tree="$tmp/power-tree"
+mkdir -p "$power_tree/shell/plugins/vgs.power"
+: >"$power_tree/shell/plugins/vgs.power/Pane.qml"
 power_scene_case() {
-  env -i PATH="$PATH" "$BASH" -c '
+  env -i PATH="$PATH" tree="$power_tree" "$BASH" -c '
     set -euo pipefail
     source "$1"
     devices_ready() { :; }
@@ -1991,11 +1995,12 @@ power_scene_case() {
     notes_clear() { :; }
     notes_off() { :; }
     power_stop_mocks() { :; }
+    power_shot_pane() { take "power-$1-pane"; }
     fail() { exit 1; }
     take() { printf "%s\n" "$1"; }
     scene_power dark
   ' _ "$1" >"$tmp/power-scene.out" &&
-    [[ $(<"$tmp/power-scene.out") == $'power-dark-bar\npower-dark-panel\npower-dark-notice-low\npower-dark-notice-critical\npower-dark-panel-no-battery' ]]
+    [[ $(<"$tmp/power-scene.out") == $'power-dark-bar\npower-dark-panel\npower-dark-pane\npower-dark-notice-low\npower-dark-notice-critical\npower-dark-panel-no-battery' ]]
 }
 if power_scene_case "$power_scene"; then ok "Power scans its fake daemon before enable and captures both notices and its panel with no battery"; else fail "Power scene order or captures failed"; fi
 power_mutant="$tmp/power-scene-mutant.sh"

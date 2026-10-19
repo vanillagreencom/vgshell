@@ -61,7 +61,6 @@
         pkgs.nodejs
         pkgs.pipewire
         pkgs.playerctl
-        pkgs.power-profiles-daemon
         pkgs.pulseaudio
         pkgs.python3
         pkgs.qrencode

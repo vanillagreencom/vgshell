@@ -61,7 +61,8 @@
 # header switch under the pointer and under keyboard focus, the switch's
 # unlock mark under keyboard focus, and Sign in under the pointer over a
 # signed-out tailnet; power is its flyout over the sandbox's fake
-# battery and power profile daemon, then over the daemon with no battery;
+# battery and power profile daemon, its System Settings section over two
+# idle stage owner fixtures, then the flyout over the daemon with no battery;
 # keyhints is the
 # Key Hints window over the Launcher's, Settings' and Themes' shortcuts and
 # its own; ai-usage is AI Usage's dropdown opened from its bar widget over
@@ -6124,6 +6125,7 @@ scene_power() { # MODE
   park_pointer
   take "power-$1-panel"
   expect "Power's panel hides" ok ipc shell hide panel vgs.power
+  [[ -f $tree/shell/plugins/vgs.power/Pane.qml ]] && power_shot_pane "$1"
   notes_on "Power notice shots"
   power_discharging 19.0 1800
   expect_poll "Power sends its low battery notice" 1 notes_on_screen
@@ -6146,6 +6148,52 @@ scene_power() { # MODE
   expect "Power disables after its shot" ok ipc shell setPluginEnabled vgs.power false
   power_stop_mocks
 }
+# Power's section in System Settings over two idle stage owner fixtures at
+# the shipped owners' default times: power-<mode>-pane with the battery and
+# the profiles service, power-<mode>-pane-warning with the lock set below
+# the screensaver, and power-<mode>-pane-no-profiles once a scan misses the
+# profiles service, which offers its install; the profiles mock then
+# starts again for the scene's later shots.
+power_shot_pane() { # MODE
+  local plugins="$home/.config/vgshell/plugins"
+  power_stage_owners "$plugins"
+  tree_rescan "the idle stage owner fixtures are scanned"
+  expect "the dim owner fixture enables for the Power section shots" ok ipc shell setPluginEnabled acme.power-dim true
+  expect "the away owner fixture enables for the Power section shots" ok ipc shell setPluginEnabled acme.power-away true
+  expect "enabling vgs.system for Power's section is allowed" ok ipc shell setPluginEnabled vgs.system true
+  expect "the System window summons on Power's section" ok ipc shell summon window vgs.system '{"pane":"vgs.power"}'
+  expect_poll "Power's section is mounted" '["vgs.power"]' window_panes
+  expect_poll "Power's section draws three timeline rows and no warning" "3 0" power_shot_timeline
+  park_pointer
+  take "power-$1-pane"
+  power_stage_setting "$home/.config/vgshell/shell.json" lockAfter 120
+  expect_poll "Power's section warns on the lock row" "3 1" power_shot_timeline
+  park_pointer
+  take "power-$1-pane-warning"
+  power_stage_setting "$home/.config/vgshell/shell.json" lockAfter null
+  expect_poll "Power's section has no warning again" "3 0" power_shot_timeline
+  power_stop_mock "$power_profiles_pid"
+  power_profiles_pid=""
+  tree_rescan "a scan misses the stopped profiles service"
+  expect_poll "Power's section offers the profiles service's install" shown power_shot_install
+  park_pointer
+  take "power-$1-pane-no-profiles"
+  power_start_profiles shots-power-again balanced
+  tree_rescan "a scan finds the profiles service again"
+  expect_poll "Power's section drops the install offer" hidden power_shot_install
+  expect "the System window hides after Power's section" ok ipc shell hide window vgs.system
+  expect_poll "the System window is gone after Power's section" hidden system_shown
+  expect "disabling vgs.system after Power's section is allowed" ok ipc shell setPluginEnabled vgs.system false
+  expect "the dim owner fixture disables" ok ipc shell setPluginEnabled acme.power-dim false
+  expect "the away owner fixture disables" ok ipc shell setPluginEnabled acme.power-away false
+  rm -rf -- "${plugins:?}/acme.power-dim" "${plugins:?}/acme.power-away"
+  tree_rescan "a scan drops the idle stage owner fixtures"
+}
+# The timeline rows Power's section draws and how many of them warn.
+power_shot_timeline() { ipc smoke itemValues window vgs.power LinkText text,parent.parent.warning | py_reply 'import json,sys
+rows = [r for r in json.load(sys.stdin) if "](page:" in r["text"]]
+print(len(rows), sum(r["parent.parent.warning"] != "" for r in rows))'; }
+power_shot_install() { [[ $(ipc smoke windowGeometry window vgs.power RowAction "Install power profiles") == \[* ]] && echo shown || echo hidden; }
 power_shot_panel() { [[ $(ipc smoke instanceGeometry panel vgs.power) != absent ]] && echo shown || echo hidden; }
 power_shot_level() { ipc smoke statusValues vgs.power | py_reply 'import json,sys; print(json.load(sys.stdin)["power"]["battery"]["level"])'; }
 power_shot_battery() { ipc smoke statusValues vgs.power | py_reply 'import json,sys; print(json.load(sys.stdin)["power"]["battery"]["present"])'; }

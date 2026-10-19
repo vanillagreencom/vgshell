@@ -73,13 +73,17 @@ Item {
     }
 
     // `battery` is the presence the Settings page shows the battery fields
-    // by (their shownWhen); `profileRule` the Details line that says how
-    // the profile is set on this machine. The status capability keeps a
-    // value it already holds, so a repeat write changes nothing.
+    // by (their shownWhen), and `profiles` the one it shows the two
+    // per-source profile fields by: a battery to switch on and a profiles
+    // service to switch, since the service is optional. `profileRule` is
+    // the Details line that says how the profile is set on this machine.
+    // The status capability keeps a value it already holds, so a repeat
+    // write changes nothing.
     function publish() {
         if (shell === null) return;
         report("power", root.view);
         report("battery", battery.present ? "present" : "absent");
+        report("profiles", battery.present && profile.available ? "present" : "absent");
         report("profileRule", Logic.profileRuleText(battery.present));
     }
 
