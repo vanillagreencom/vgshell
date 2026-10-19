@@ -80,7 +80,7 @@ QtObject {
     // when that is less, so a window no taller ends inside the work area;
     // whole pixels, and no bound without an output. Every window's map
     // height, the Plugins window's resize and the share picker's compact
-    // Area read it here.
+    // Area and preview height read it here.
     function windowRoom(output) {
         if (output === null || output === undefined) return { top: 0, height: Infinity };
         const top = Math.round(Theme.size.window.topShare * output.height);

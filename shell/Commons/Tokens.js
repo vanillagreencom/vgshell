@@ -317,6 +317,11 @@ var TOKENS = {
             lg: length(480),
             maxHeight: length(600)
         },
+        // The shortest a live source preview gives up height to, so the
+        // choices around it stay in view in a window at its cap.
+        preview: {
+            minHeight: length(120)
+        },
         // A window-like panel: `width` wide, never closer than `gutter` to
         // either side of a narrower monitor, and `heightShare` of the
         // monitor's height tall. Every shell window maps with its top at

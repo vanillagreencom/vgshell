@@ -23,14 +23,25 @@ FocusScope {
     readonly property rect previewRect: previewReady ? preview.item.contentRect : Qt.rect(0, 0, imageBox.width, imageBox.height)
     readonly property var initialFocus: sharing ? tabs : captureControls.item === null ? null : captureControls.item.initialFocus
     readonly property real areaHeight: 4 * Theme.row.height + 3 * Theme.stack.row
-    readonly property real sharingHeight: 2 * pane.contentInset + pane.headerHeight + pane.headerBodyGap + hint.implicitHeight + imageBox.height + sources.height + areaHeight + 3 * Theme.stack.group + pane.gap + pane.footerHeight
+    readonly property real compactAreaHeight: 2 * Theme.row.height + Theme.stack.row
     // The window host maps a window no taller than the one cap on a shell
-    // window's height (OverlayState.windowRoom), so Area compacts past it.
-    readonly property bool compactArea: sharingHeight > OverlayState.windowRoom(shell === null ? null : shell.screens.current).height
+    // window's height (OverlayState.windowRoom). Past it Area compacts, then
+    // the preview gives up height down to `size.preview.minHeight`, so the
+    // sources and Area's controls stay in view; only then the body scrolls.
+    readonly property real windowCap: OverlayState.windowRoom(shell === null ? null : shell.screens.current).height
+    // The pane's height outside its body, as Pane.bodyRoom subtracts it.
+    readonly property real bodyChrome: 2 * pane.contentInset + pane.headerHeight + pane.bodyGap + Math.max(pane.gap, pane.stickyGap) + pane.footerHeight
+    readonly property real choicesHeight: bodyChrome + hint.implicitHeight + sources.height + 3 * Theme.stack.group
+    readonly property real fullPreviewHeight: Math.min(Theme.size.panel.sm, pane.contentWidth * 9 / 16)
+    readonly property real fullHeight: choicesHeight + fullPreviewHeight + areaHeight
+    readonly property bool compactArea: fullHeight > windowCap
+    readonly property real areaRoom: compactArea ? compactAreaHeight : areaHeight
+    readonly property real previewHeight: Math.max(Theme.size.preview.minHeight, Math.min(fullPreviewHeight, windowCap - choicesHeight - areaRoom))
+    readonly property real sharingHeight: choicesHeight + previewHeight + areaRoom
     implicitWidth: Theme.size.window.width
     // The host maps once. Reserve Area's controls before the first tab opens.
     // https://quickshell.org/docs/v0.3.1/guide/size-position/
-    implicitHeight: sharing ? sharingHeight - (compactArea ? 2 * (Theme.row.height + Theme.stack.row) : 0) : Theme.size.panel.maxHeight
+    implicitHeight: sharing ? sharingHeight : Theme.size.panel.maxHeight
     focus: true
 
     function open(payloadJson) {
@@ -107,7 +118,7 @@ FocusScope {
             Rectangle {
                 id: imageBox
                 width: parent.width
-                height: Math.min(Theme.size.panel.sm, width * 9 / 16)
+                height: root.previewHeight
                 color: Theme.color.background
                 radius: Theme.surface.radius
                 clip: true
@@ -200,13 +211,14 @@ FocusScope {
                 width: pane.contentWidth
                 visible: root.tab === 2 && root.current !== null
                 columns: root.compactArea ? 2 : 1
-                spacing: Theme.stack.row
+                columnSpacing: Theme.stack.group
+                rowSpacing: Theme.stack.row
                 Repeater {
                     model: [{ key: "x", label: "Left" }, { key: "y", label: "Top" }, { key: "width", label: "Width" }, { key: "height", label: "Height" }]
                     FormRow {
                         id: areaField
                         required property var modelData
-                        width: (areaControls.width - (areaControls.columns - 1) * areaControls.spacing) / areaControls.columns
+                        width: (areaControls.width - (areaControls.columns - 1) * areaControls.columnSpacing) / areaControls.columns
                         label: modelData.label + " · " + root.region[modelData.key]
                         Slider {
                             width: Math.min(areaField.valueRoom, Theme.control.maxWidth)

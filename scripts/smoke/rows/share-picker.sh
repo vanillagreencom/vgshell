@@ -28,17 +28,18 @@ hint=next(r for r in rows if r["type"]=="Label" and r.get("role")=="hint" and r[
 print(len(tabs)==3 and abs(strip["box"][2]-hint["box"][2])<1 and all(abs(t["box"][2]-tabs[0]["box"][2])<1 for t in tabs) and abs(tabs[-1]["box"][0]+tabs[-1]["box"][2]-strip["box"][0]-strip["box"][2])<1)'
 }
 share_tabs_width_check() { expect "the page tabs fill the content width equally" True share_tabs_span; }
-# share_area_fits: True when Area draws its full preview, selection, four
-# sliders and actions inside a window that ends inside its cap
-# (OverlayState.windowRoom): from the top at `size.window.topShare` of the
-# output's height, rounded half up as the window rule's `rint` rounds it,
-# `size.window.tallHeightShare` of that height, or to the work area's
-# bottom less the gutter when that is less. The body fits unscrolled with
-# every control in view, or, only in a window at the cap, scrolls with the
-# Area compacted to two columns of sliders and every control inside the
-# scrolled content.
+# share_area_fits fits|scrolls: True when Area draws its preview,
+# selection, four sliders and actions inside a window that ends inside its
+# cap (OverlayState.windowRoom): from the top at `size.window.topShare` of
+# the output's height, rounded half up as the window rule's `rint` rounds
+# it, `size.window.tallHeightShare` of that height, or to the work area's
+# bottom less the gutter when that is less. `fits`: the body fits
+# unscrolled with every control in view and a preview no shorter than
+# `size.preview.minHeight`. `scrolls`: in a window at the cap, the Area
+# compacted to two columns of sliders and the preview at that minimum, the
+# body scrolls with every control inside the scrolled content.
 share_area_fits() {
-  local rows scroll aspect current window monitor border top_share cap_share gutter
+  local rows scroll aspect current window monitor border top_share cap_share gutter preview_min
   rows="$(ipc smoke descendantGeometry window vgs.capture)" || return
   scroll="$(ipc smoke itemValues window vgs.capture ScrollArea contentY,contentHeight,height)" || return
   aspect="$(share_read previewRect)" || return
@@ -49,9 +50,10 @@ share_area_fits() {
   top_share="$(ipc smoke themeValue size.window.topShare)" || return
   cap_share="$(ipc smoke themeValue size.window.tallHeightShare)" || return
   gutter="$(ipc smoke themeValue size.window.gutter)" || return
-  py_dumps "$rows" "$scroll" "$aspect" "$current" "$window" "$monitor" "$border" "$top_share" "$cap_share" "$gutter" <<'PY'
+  preview_min="$(ipc smoke themeValue size.preview.minHeight)" || return
+  py_dumps "$rows" "$scroll" "$aspect" "$current" "$window" "$monitor" "$border" "$top_share" "$cap_share" "$gutter" "$preview_min" "\"$1\"" <<'PY'
 import json,math,sys
-rows,scroll,aspect,current,window,monitors,border,top_share,cap_share,gutter=map(json.loads,sys.argv[1:])
+rows,scroll,aspect,current,window,monitors,border,top_share,cap_share,gutter,preview_min,expected=map(json.loads,sys.argv[1:])
 monitor=next(m for m in monitors if m['name']==current['name'])
 left,top,right,bottom=monitor['reserved']
 mw,mh=monitor['width']/monitor['scale'],monitor['height']/monitor['scale']
@@ -82,10 +84,28 @@ print(len(actions)==2 and len(sliders)==4 and len(selection)==1
       and inside(selection[0]['box'],image['box'])
       and aspect['width']>0 and aspect['height']>0
       and abs(aspect['width']/aspect['height']-current['width']/current['height'])<0.01
-      and (fits or (window[3]>=cap-1 and compact)))
+      and (fits and image['box'][3]>=preview_min-1 if expected=='fits' else
+           not fits and window[3]>=cap-1 and compact and abs(image['box'][3]-preview_min)<1 if expected=='scrolls' else False))
 PY
 }
-share_area_check() { expect "Area keeps the full preview, selection, sliders and actions, and scrolls only at its cap with the Area compacted" True share_area_fits; }
+share_area_check() { expect "Area keeps its preview, selection, sliders and actions in view ($1), and scrolls only at its cap with the Area compacted and the preview at its minimum" True share_area_fits "$1"; }
+# share_sources_shown: True when every source row of the open tab shows in
+# the unscrolled body.
+share_sources_shown() {
+  local rows scroll
+  rows="$(ipc smoke descendantGeometry window vgs.capture)" || return
+  scroll="$(ipc smoke itemValues window vgs.capture ScrollArea contentY,contentHeight,height)" || return
+  py_dumps "$rows" "$scroll" "$(share_read rows)" <<'PY'
+import json,sys
+rows,scroll,sources=map(json.loads,sys.argv[1:])
+viewport=next(r for r in rows if r['type']=='ScrollArea' and r['visible'])
+items=[r for r in rows if r['type']=='ListItem' and r['visible']]
+def inside(a,b):
+    x,y,w,h=a; X,Y,W,H=b
+    return w>0 and h>0 and x>=X-1 and y>=Y-1 and x+w<=X+W+1 and y+h<=Y+H+1
+print(len(scroll)==1 and scroll[0]['contentY']==0 and len(items)==len(sources)>0 and all(inside(r['box'],viewport['box']) for r in items))
+PY
+}
 share_arg() { ipc smoke invokeInstance window vgs.capture "$1" "${2:-}" >/dev/null; }
 share_args() { ipc smoke invokeInstanceArgs window vgs.capture "$1" "$2" >/dev/null; }
 share_mapped() { ipc smoke instanceGeometry window vgs.capture | py_reply 'import json,sys; s=sys.stdin.read().strip(); print(s != "absent" and len(json.loads(s)) == 4)'; }
@@ -469,6 +489,7 @@ for share_mode in dark light; do
     share_shot_kind=after
     expect_poll "$share_mode $share_tab has preview content" true share_read previewReady
     expect "$share_mode $share_tab tabs span the content width" True share_tabs_span
+    expect "$share_mode $share_tab shows every source row unscrolled" True share_sources_shown
     rest_pointer || fail "share-picker: parking pointer failed"
     shot "$share_mode-$share_tab" || fail "share-picker: After $share_mode $share_tab failed"
     if [[ $share_tab == area ]]; then
@@ -477,7 +498,7 @@ for share_mode in dark light; do
       # that matches the one before it.
       share_args setRegion '{"args":["x",64]}'
       expect_poll "$share_mode Area's left slider moves its region edge" 64 share_region_x
-      share_area_check
+      share_area_check fits
       shot "$share_mode-area-controls" || fail "share-picker: After $share_mode Area controls failed"
     fi
   done
@@ -497,28 +518,32 @@ copy_tree share-area-height-control
 python3 - "$sandbox/tree-share-area-height-control/shell/plugins/vgs.capture/Window.qml" <<'PY'
 import pathlib,sys
 p=pathlib.Path(sys.argv[1]); assert not p.is_symlink(); s=p.read_text()
-old='implicitHeight: sharing ? sharingHeight - (compactArea ? 2 * (Theme.row.height + Theme.stack.row) : 0) : Theme.size.panel.maxHeight'
+old='implicitHeight: sharing ? sharingHeight : Theme.size.panel.maxHeight'
 assert s.count(old)==1
 s=s.replace(old,'implicitHeight: Theme.size.panel.maxHeight',1)
-old='height: Math.min(Theme.size.panel.sm, width * 9 / 16)'
+old='height: root.previewHeight'
 assert s.count(old)==1
 s=s.replace(old,'height: Math.min(Theme.size.panel.sm, width * 9 / 16, Math.max(Theme.size.control.lg, pane.bodyRoom - hint.implicitHeight - sources.height - Theme.stack.group * 2))',1)
-s=s.replace('Grid {\n                id: areaControls','Column {\n                id: areaControls',1)
-s=s.replace('                columns: root.compactArea ? 2 : 1\n','',1)
-s=s.replace('width: (areaControls.width - (areaControls.columns - 1) * areaControls.spacing) / areaControls.columns','width: areaControls.width',1)
+for old,new in (('Grid {\n                id: areaControls','Column {\n                id: areaControls'),
+                ('                columns: root.compactArea ? 2 : 1\n                columnSpacing: Theme.stack.group\n                rowSpacing: Theme.stack.row\n','                spacing: Theme.stack.row\n'),
+                ('width: (areaControls.width - (areaControls.columns - 1) * areaControls.columnSpacing) / areaControls.columns','width: areaControls.width')):
+    assert s.count(old)==1
+    s=s.replace(old,new,1)
 assert s!=p.read_text(); p.write_text(s)
 PY
 share_area_evidence="$source_repo/tmp/ui-shots/VGS-1164"
 SHOT_DIR="$(shot_dir_under "$source_repo" "$share_area_evidence")"
 share_original_mode="$(first_mode)"
-# The standard output, where Area compacts and scrolls at the cap, the
-# smallest output whose cap holds the compact Area, and the smallest whose
-# cap holds the full Area.
-for share_size in standard minimum full; do
+# The standard output, where Area compacts and its preview shrinks to fit
+# the cap, the smallest output whose cap holds the compact Area with the
+# shortest preview, the smallest whose cap holds the full Area, and one a
+# row too short for the compact Area, where the body scrolls.
+for share_size in standard minimum full short; do
   case $share_size in
-    standard) share_mode_size=1755x933;;
-    minimum) share_mode_size="$share_minimum_mode";;
-    full) share_mode_size="$share_full_mode";;
+    standard) share_mode_size=1755x933; share_area_expect=fits;;
+    minimum) share_mode_size="$share_minimum_mode"; share_area_expect=fits;;
+    full) share_mode_size="$share_full_mode"; share_area_expect=fits;;
+    short) share_mode_size="$share_short_mode"; share_area_expect=scrolls;;
   esac
   hold_mode "Area evidence output" "$share_output" "$share_mode_size"
   for share_version in before after; do
@@ -536,12 +561,12 @@ for share_size in standard minimum full; do
       share_arg switchTab 2; share_set_region
       expect_poll "Area evidence preview builds" true share_read previewReady
       if [[ $share_version == before ]]; then
-        share_area_control() { (failures=0 behaviour_failures=0; share_area_check >"$share_world/area-control-$share_size-$share_mode.log"; echo "$failures"); }
+        share_area_control() { (failures=0 behaviour_failures=0; share_area_check "$share_area_expect" >"$share_world/area-control-$share_size-$share_mode.log"; echo "$failures"); }
         expect "control: the old fixed height fails the same Area geometry assertion" 1 share_area_control
         sed 's/^/  CONTROL  /' "$share_world/area-control-$share_size-$share_mode.log"
         ipc smoke scrollTo window vgs.capture 100000 >/dev/null
       else
-        share_area_check
+        share_area_check "$share_area_expect"
         # Move each real slider with the keyboard and read all rectangles again.
         rest_pointer || fail "share-picker: parking Area pointer failed"
         type_keys -k Tab -k Tab || fail "share-picker: reaching Area sliders failed"
@@ -550,21 +575,24 @@ for share_size in standard minimum full; do
           share_moved_value() { share_read region | py_reply 'import json,sys; print(json.load(sys.stdin)[sys.argv[1]])' "$share_slider"; }
           case $share_slider in x) share_slider_value=33;; y) share_slider_value=49;; width) share_slider_value=161;; height) share_slider_value=121;; esac
           expect "the $share_slider slider moves its region edge" "$share_slider_value" share_moved_value
-          share_area_check
+          share_area_check "$share_area_expect"
           type_keys -k Tab || fail "share-picker: reaching the next slider failed"
         done
         if [[ $share_size == standard && $share_mode == dark ]]; then
-          # The smallest outputs whose cap holds the compact and the full
-          # Area (OverlayState.windowRoom): `size.window.tallHeightShare` of
-          # the output's height, or from the top, at `size.window.topShare`
+          # The smallest outputs whose cap holds the compact Area with the
+          # shortest preview, `size.preview.minHeight`, and the full Area with
+          # the full preview, and the smallest whose cap holds a row less than
+          # the first (OverlayState.windowRoom): `size.window.tallHeightShare`
+          # of the output's height, or from the top, at `size.window.topShare`
           # of that height rounded half up, to the output's bottom less a
           # gutter when that is less; as wide as the window and a gutter a
           # side.
-          read -r share_minimum_mode share_full_mode < <(share_read sharingHeight | py_reply 'import math,sys
-row,stack,gutter,width,top,cap=(float(a) for a in sys.argv[1:7]); area=float(sys.stdin.read())
+          read -r share_minimum_mode share_full_mode share_short_mode < <(share_read fullHeight | py_reply 'import math,sys
+row,stack,gutter,width,top,cap,preview,preview_min=(float(a) for a in sys.argv[1:9]); full=float(sys.stdin.read())
 def least(need): return next(h for h in range(need, 4*need) if math.floor(min(cap*h, h-gutter-math.floor(top*h+0.5))) >= need)
-print(" ".join("%dx%d" % (math.ceil(width+2*gutter), least(need)) for need in (math.ceil(area-2*(row+stack)), math.ceil(area))))' "$(ipc smoke themeValue row.height)" "$(ipc smoke themeValue stack.row)" "$(ipc smoke themeValue size.window.gutter)" "$(ipc smoke themeValue size.window.width)" "$(ipc smoke themeValue size.window.topShare)" "$(ipc smoke themeValue size.window.tallHeightShare)")
-          printf 'share-picker: minimum-output=%s full-output=%s full-area-height=%s\n' "$share_minimum_mode" "$share_full_mode" "$(share_read sharingHeight)"
+minimum=math.ceil(full-2*(row+stack)-preview+preview_min)
+print(" ".join("%dx%d" % (math.ceil(width+2*gutter), least(need)) for need in (minimum, math.ceil(full), minimum-math.ceil(row))))' "$(ipc smoke themeValue row.height)" "$(ipc smoke themeValue stack.row)" "$(ipc smoke themeValue size.window.gutter)" "$(ipc smoke themeValue size.window.width)" "$(ipc smoke themeValue size.window.topShare)" "$(ipc smoke themeValue size.window.tallHeightShare)" "$(share_read fullPreviewHeight)" "$(ipc smoke themeValue size.preview.minHeight)")
+          printf 'share-picker: minimum-output=%s full-output=%s short-output=%s full-area-height=%s\n' "$share_minimum_mode" "$share_full_mode" "$share_short_mode" "$(share_read fullHeight)"
         fi
       fi
       ipc smoke descendantGeometry window vgs.capture >"$share_area_evidence/$share_size-$share_version-$share_mode-geometry.json"
