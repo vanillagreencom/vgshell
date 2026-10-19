@@ -139,6 +139,7 @@ A schema-built Settings page gives every plugin a full page with no UI code and 
 ### Settings pages
 
 - Do show a bind row with no info icon where it has a hint line, as a Settings key row has: its explanation opens in the shared tooltip over that line on label hover and keyboard focus while it fits one line there. A longer one, and that of a bind row with no hint line, as in Key Hints, opens in the row's info icon's dialog, since a tooltip there would lie on the bind under it.
+- Do give each icon of a bind row one condition the user sees on the row, and keep its place, shown or not, so the row keeps one width: the keyboard on every editable row, checked while the typed entry is open; the clear button while the key edited holds a key and the typed entry is closed; on a Settings key row, the add button while the typed entry is closed, and last the reset while the keys differ from the default line under the row, so a row with the default keys leaves no gap between its icons. While the row listens, the box counts down the seconds Hyprland passes the keys through, and the end of listening shows no message. `ShortcutField` and the Settings `KeyField` state the conditions in their headers; `scripts/qml-tests/tst_shortcutfield.qml` and `tst_settings_edits.qml` pin them.
 
 - Do put a switch on its label's row in the value column, never below the label; review holds it.
 - Do give a plugin page one tab per kind of item, and declare each item's place in the manifest, never infer it from its label, group or plugin name:

@@ -4,7 +4,8 @@
 # nested instance alone: a commit, Escape (the submap's own bind), a focus
 # loss to a toplevel helper that maps over the window, the window's close,
 # a `hyprctl reload` of the nested instance, the 10 s timeout (the field
-# names it when it fires, polled every 200 ms) and a
+# counts it down while Hyprland passes the keys and ends with no message,
+# polled every 200 ms) and a
 # SIGKILL of the shell, whose window then closes. Each path has a control:
 # a tree copy with that exit removed holds the submap after the same exit
 # is ordered, and the row resets it by hand. The commit control drops the
@@ -34,11 +35,14 @@ kp_key_marker() { # LABEL
   type_keys -k F9 || fail "$1: typing the marker key failed"
   expect_poll "$1: the marker key after the exit is processed" "$kp_markers" kp_marker_count
 }
-kp_timeout_notice() {
+# kp_counting: `counting` while the capturing field counts down Hyprland's
+# pass-through with time left, else the fields' readings.
+kp_counting() { ipc smoke itemValues window vgs.settings ShortcutField capturing,counting,remaining | py_reply 'import json,sys; f=[f for f in json.load(sys.stdin) if f["capturing"]]; print("counting" if len(f) == 1 and f[0]["counting"] and 0 < f[0]["remaining"] <= 10 else json.dumps(f))'; }
+kp_timeout_end() {
   local got=""
   for _ in $(seq 1 150); do # a failure bound well past the 10 s timer
-    got="$(settings_key_field notice)" || return
-    [[ $got == '"Listening stopped after 10 s. Press Return or click the field to listen again."' ]] && { echo noticed; return; }
+    got="$(settings_key_field capturing)" || return
+    [[ $got == false ]] && { echo ended; return; }
     sleep 0.2
   done
   printf '%s\n' "$got"
@@ -149,10 +153,10 @@ expect_poll "reload: the layer's run leaves the submap" default key_submap
 expect_poll "reload: the field sees the capture end" false settings_key_field capturing
 
 kp_timeout "timeout"
-expect "timeout: the field reports its 10 s timeout" noticed kp_timeout_notice
-expect "timeout: the timer leaves the submap after the field reports it" default key_submap
-expect_poll "timeout: the field sees the capture end" false settings_key_field capturing
-expect_poll "timeout: the field says listening stopped" '"Listening stopped after 10 s. Press Return or click the field to listen again."' settings_key_field notice
+expect_poll "timeout: the field counts down Hyprland's pass-through" counting kp_counting
+expect "timeout: the field sees the capture end" ended kp_timeout_end
+expect "timeout: the timer leaves the submap" default key_submap
+expect "timeout: the field ends with no message" '""' settings_key_field hint
 
 kp_kill "SIGKILL"
 expect_poll "SIGKILL: the window close hook leaves the submap" default key_submap

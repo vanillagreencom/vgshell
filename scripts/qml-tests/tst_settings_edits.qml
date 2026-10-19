@@ -6,29 +6,32 @@ import qs.Ui
 import qs.Unit
 import "../../shell/plugins/vgs.settings"
 
-// The Settings page's unsaved edits: a text field keeps what is typed
-// until it is saved and joins the page's set (EditSet) meanwhile. Enter
-// writes the field it is pressed in, a loss of focus writes nothing, a
-// refused text stays, an accepted one draws what the configuration holds,
-// and a read-only field and a hidden custom row hold no edit. The set
-// saves every field, says when an accepted write of an edit leaves it
-// empty, whether its save or Enter in the field sent it, and forgets a
-// destroyed field. A Keys row's typed key waits the same way, returns to
-// its text entry when its owner refuses it and leaves a read-only row; a
-// key the row sends without its text entry is no edit. A Keys row offers
-// its reset while the keys in effect are not every default key, one or a
-// list, and the reset sends undefined. A plugin page draws one Keys row per
-// shortcut, every alternative key in its one field: Delete on one writes
-// the keys left, the add button and a pressed combo write the list with
-// the new key, Use my binding removes the key a user bind holds, and the
-// reset sends undefined. A refused key returns to the row's text entry
-// whether the field or a caller sent it, and a refused removal or list
-// opens none. A field that declares `shownWhen` is drawn only while its
-// presence entry reads present, and a plugin whose fields only wait keeps
-// its Turn on hint while it is off. The owner here stands in for the
-// page: it records each write and takes it or refuses it; the page's
-// capture names keys with the core's judge and says a user bind holds
-// Right Ctrl when asked.
+// The Settings page's unsaved edits: a text field keeps what is typed until
+// it is saved and joins the page's set (EditSet) meanwhile. Enter writes
+// the field it is pressed in, a loss of focus writes nothing, a refused
+// text stays, an accepted one draws what the configuration holds, and a
+// read-only field and a hidden custom row hold no edit. The set saves every
+// field, says when an accepted write of an edit leaves it empty, whether
+// its save or Enter in the field sent it, and forgets a destroyed field. A
+// Keys row's typed key waits the same way, returns to its text entry when
+// its owner refuses it and leaves a read-only row; a key the row sends
+// without its text entry is no edit. A Keys row offers its reset while the
+// keys in effect are not every default key, one or a list, and the reset
+// sends undefined; from the text entry or a capture it closes them first,
+// so the default keys show at once. The add button and the reset keep their
+// places as they come and go, the reset last, so a row with the default
+// keys leaves no gap between its icons, and the add button hides while the
+// text entry is open. A plugin page draws one Keys row per shortcut, every
+// alternative key in its one field: Delete on one writes the keys left, the
+// add button and a pressed combo write the list with the new key, Use my
+// binding removes the key a user bind holds, and the reset sends undefined.
+// A refused key returns to the row's text entry whether the field or a
+// caller sent it, and a refused removal or list opens none. A field that
+// declares `shownWhen` is drawn only while its presence entry reads
+// present, and a plugin whose fields only wait keeps its Turn on hint while
+// it is off. The owner here stands in for the page: it records each write
+// and takes it or refuses it; the page's capture names keys with the core's
+// judge and says a user bind holds Right Ctrl when asked.
 Item {
     id: root
     width: 480
@@ -263,6 +266,63 @@ Item {
                 tryCompare(box(), "width", expected);
             }
             field.destroy();
+        }
+
+        // The add button and the reset, each in its place whatever shows:
+        // the add button while the text entry is closed, the reset after it
+        // while the keys differ from the default.
+        function test_key_row_buttons_keep_their_places() {
+            const original = { shortcut: "spare", key: "SUPER+K", default: "SUPER+N", description: "Spare" };
+            const field = createTemporaryObject(disposableKey, root, { width: 600, capture: pageCapture, bind: original });
+            const reset = field.actions.find(item => item.iconName === "rotate-ccw");
+            const add = field.actions.find(item => item.iconName === "plus");
+            const left = item => item.mapToItem(field, 0, 0).x;
+            verify(waitForPolish(root.Window.window));
+            const at = [left(reset), left(add)];
+            // [why, set up the row, reset shown, add shown]
+            for (const [why, setUp, resetShown, addShown] of [
+                ["keys other than the default", () => {}, true, true],
+                ["the default keys", () => { field.bind = Object.assign({}, original, { key: "SUPER+N" }); }, false, true],
+                ["the text entry open", () => field.shortcutField.startTyping(), true, false]
+            ]) {
+                field.shortcutField.stopTyping();
+                field.bind = original;
+                setUp();
+                verify(waitForPolish(root.Window.window));
+                compare(reset.visible, resetShown, why);
+                compare(add.visible, addShown, why);
+                compare(JSON.stringify([left(reset), left(add)]), JSON.stringify(at), why);
+                verify(left(reset) >= left(add) + add.width, why + ": the reset stands after the add button");
+            }
+            field.shortcutField.stopTyping();
+        }
+
+        // A reset from the text entry, a capture or a new key's capture
+        // leaves them, so the field shows the default keys the page writes
+        // back at once.
+        function test_reset_shows_the_default_keys_from_any_state() {
+            const original = { shortcut: "spare", key: "SUPER+K", default: "SUPER+N", description: "Spare" };
+            const field = createTemporaryObject(disposableKey, root, { width: 600, capture: pageCapture, bind: original });
+            field.applyKey.connect(key => { if (key === undefined) field.bind = Object.assign({}, original, { key: "SUPER+N" }); });
+            const reset = field.actions.find(item => item.iconName === "rotate-ccw");
+            const shown = () => descendants(field).filter(item => String(item).indexOf("KeyCaps") === 0 && item.visible).map(item => item.caps.join("+"));
+            const sf = field.shortcutField;
+            // [why, the state the reset starts from]
+            for (const [why, enter] of [
+                ["the text entry", () => { sf.startTyping(); for (const c of "SUPER+J") keyClick(c); }],
+                ["a capture", () => { sf.forceActiveFocus(Qt.TabFocusReason); sf.edit(0); }],
+                ["a new key's capture", () => sf.add()]
+            ]) {
+                field.bind = original;
+                enter();
+                verify(sf.typing || sf.capturing, why);
+                reset.clicked();
+                compare(sf.typing, false, why);
+                compare(sf.capturing, false, why);
+                compare(sf.adding, false, why);
+                compare(JSON.stringify(shown()), JSON.stringify(["Super+N"]), why);
+                compare(unsaved.edited, false, why);
+            }
         }
 
         function test_settings_bind_explanation_uses_the_shared_label_tooltip() {

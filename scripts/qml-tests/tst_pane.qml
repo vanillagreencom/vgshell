@@ -119,6 +119,33 @@ Item {
         }
     }
 
+    // A fitted pane at its cap whose save bar appears under the body once
+    // `dirty` is set, as a Settings page's does after an edit, beside a
+    // field outside the pane.
+    Component {
+        id: editedFields
+        Item {
+            id: host
+            width: 300
+            height: 300
+            property bool dirty: false
+            property alias pane: layer
+            property alias last: lastField
+            property alias outside: outsideField
+            TextField { id: outsideField; x: 250; width: 40 }
+            Pane {
+                id: layer
+                width: 240
+                container: "panel"
+                fitToContent: true
+                maximumHeight: 200
+                Repeater { model: 6; TextField { width: layer.contentWidth } }
+                TextField { id: lastField; width: layer.contentWidth }
+                footer: [ SaveBar { width: layer.contentWidth; dirty: host.dirty } ]
+            }
+        }
+    }
+
     // A panel whose body overflows under its footer, so both dividers can
     // show at once.
     Component {
@@ -583,6 +610,35 @@ Item {
             compare(fitted.implicitHeight, 120);
             compare(fitted.scrollArea.height, 120 - 2 * fitted.contentInset - headerSlot(fitted).height - fitted.headerGap + 2 * fitted.ringRoom);
             verify(fitted.scrollArea.overflowing, "the capped pane scrolls its body");
+        }
+
+        // A save bar that appears under the body at its end keeps the
+        // focused field there in view, and moves no body that the focus
+        // lies outside.
+        function test_a_shrinking_body_keeps_its_focused_field_in_view() {
+            // [why, the field that takes the focus, the body moves to it]
+            for (const [why, focusOf, follows] of [
+                ["the focus on the body's last field", made => made.last, true],
+                ["the focus outside the pane", made => made.outside, false]
+            ]) {
+                const made = createTemporaryObject(editedFields, root);
+                const scroll = made.pane.scrollArea;
+                verify(scroll.overflowing, why + ": the body scrolls");
+                scroll.contentY = scroll.contentHeight - scroll.height;
+                focusOf(made).forceActiveFocus();
+                verify(focusOf(made).activeFocus, why + ": the field holds the focus");
+                const atEnd = scroll.contentY;
+                const tall = scroll.height;
+                made.dirty = true;
+                tryVerify(() => scroll.height < tall, 1000, why + ": the save bar takes the body's room");
+                const top = made.last.mapToItem(scroll, 0, 0).y;
+                if (follows) {
+                    verify(top >= 0 && top + made.last.height <= scroll.height,
+                        why + ": the field lies in the view, " + top + " + " + made.last.height + " in " + scroll.height);
+                } else {
+                    compare(scroll.contentY, atEnd, why);
+                }
+            }
         }
 
         // A 4 px pad under a 20 px corner: the content's top stands 4 in,

@@ -16,9 +16,9 @@
 # page. Open summons the fixture's window and asks nothing. With an
 # edit pending, the Details tab by a click and by Ctrl+Tab, the back
 # button, Escape, a jump to another plugin, a deep link to another page and
-# a hide by the shell each raise one prompt: Escape, a press beside the
-# card and Cancel stay, Discard leaves without a write and Save writes and
-# leaves; a deep link to the page shown asks nothing, and a second hide
+# a hide by the shell each raise one prompt whose actions are Discard and
+# Save, side by side with no Cancel: Escape and a press beside the card
+# stay, Discard leaves without a write and Save writes and leaves; a deep link to the page shown asks nothing, and a second hide
 # raises no second prompt. A close through Hyprland asks nothing and writes
 # nothing, and a plugin disabled under an edit drops it. On the Settings
 # plugin's own page a key typed as text waits the same way, as the page's
@@ -80,6 +80,9 @@ us_page() { ipc smoke readInstance window vgs.settings page; }
 # us_prompt: True while the window draws its prompt.
 us_prompt() { ipc smoke dialogCard window vgs.settings | py_reply 'import json,sys; print(json.load(sys.stdin)["shown"])'; }
 us_prompt_press() { click_scoped_in window:Plugins window vgs.settings Dialog "$us_prompt_title" Button "$1"; }
+# us_prompt_actions: the texts the prompt draws past its title and message,
+# its actions in their order.
+us_prompt_actions() { ipc smoke itemTexts window vgs.settings Dialog | py_reply 'import json,sys; t=json.load(sys.stdin)[0]; print(json.dumps([x for x in t if x != sys.argv[1] and not x.endswith(" has unsaved changes.")]))' "$us_prompt_title"; }
 us_bar_press() { click_scoped_in window:Plugins window vgs.settings SaveBar "Unsaved changes" Button "$1"; }
 us_line() { [[ $(ipc smoke windowGeometry window vgs.settings Label "$1") == absent ]] && echo absent || echo drawn; }
 # us_refused ID: whether the window holds a refusal for plugin ID's page.
@@ -304,9 +307,15 @@ expect "hiding the window Open summoned is allowed" ok ipc shell hide window "$u
 expect_poll "the window Open summoned is gone" 0 window_count Unsaved
 expect "a jump to another plugin is held" "refused: unsaved=$us_id" ipc smoke invokeInstance window vgs.settings openPlugin vgs.settings
 expect_poll "the jump asks about the unsaved edit" True us_prompt
-us_prompt_press Cancel || fail "the click on the prompt's Cancel failed"
-expect_poll "Cancel closes the prompt" False us_prompt
-expect "Cancel stays on the page" "\"$us_id\"" us_page
+expect "the prompt offers Discard and Save with no Cancel" '["Discard", "Save"]' us_prompt_actions
+if us_box="$(surface_box window:Plugins)" && read -r us_x us_y < <(python3 -c 'import json,sys; b=json.loads(sys.argv[1]); print(int(b[0] + 12), int(b[1] + 12))' "$us_box"); then
+  hover "$((us_x + 1))" "$us_y" || fail "moving the pointer beside the jump's prompt failed"
+  click "$us_x" "$us_y" || fail "the press beside the jump's prompt failed"
+else
+  fail "the Settings window's box is unreadable for the press beside the jump's prompt"
+fi
+expect_poll "a press beside the jump's prompt closes it" False us_prompt
+expect "a press beside the jump's prompt stays on the page" "\"$us_id\"" us_page
 expect "a deep link to the page shown is allowed" ok ipc shell summon window vgs.settings "{\"plugin\":\"$us_id\"}"
 expect "a deep link to the page shown asks nothing" False us_prompt
 expect "a deep link to the page shown keeps the edit" 60 us_text gap
@@ -330,8 +339,8 @@ type_keys -k Escape || fail "sending Escape to the hide's prompt failed"
 expect_poll "one Escape closes the prompt after two hides" False us_prompt
 sleep 0.5 # A second prompt queued behind the first would show within a frame.
 expect "no second prompt follows" False us_prompt
-expect "the window stays open after Cancel" 1 window_count Plugins
-expect "Cancel keeps the edit under the held hide" 61 us_text gap
+expect "the window stays open after Escape" 1 window_count Plugins
+expect "Escape keeps the edit under the held hide" 61 us_text gap
 expect "the plugin's toggle is held too" "refused: held=vgs.settings" ipc vgs.settings invoke toggle ''
 expect_poll "the toggle asks about the unsaved edit" True us_prompt
 us_prompt_press Save || fail "the click on Save for the toggle failed"

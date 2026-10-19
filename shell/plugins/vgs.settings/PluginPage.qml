@@ -702,6 +702,10 @@ FocusScope {
                         visible: page.row !== null && page.row.binds.length > 0
                         title: "Keys"
                         description: "Select a shortcut and press its new keys"
+                        // design-system.md § Copy: a line that states a time
+                        // says why the limit exists.
+                        info: page.panel === null || !page.panel.capture ? ""
+                            : "While a shortcut field listens, your other shortcuts do not work. The field stops listening after " + Math.round(page.panel.capture.timeoutMs / 1000) + " seconds, so your shortcuts always start to work again."
 
                         Repeater {
                             model: ScriptModel {
