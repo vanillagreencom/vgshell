@@ -698,7 +698,7 @@ expect_poll "Settings draws the choices setting only" '[1, 0]' page_fields_of ac
 # one batch draws exactly the height asked, at the top. The block
 # restores hyprland.lua and Hyprland's animations by a reload, and leaves
 # the page on Settings at its height.
-pin_socket="$(shot_socket "$rt_dir" "$nested_socket" "$host_socket")" || fail "the nested socket for the pinned-top frames is unresolved"
+pin_socket="$(shot_socket "$rt_dir" "$nested_socket")" || fail "the nested socket for the pinned-top frames is unresolved"
 hypr_animations() { hypr -j getoption animations:enabled | py_reply 'import json,sys; print(int(json.load(sys.stdin)["bool"]))'; }
 # pin_batch REQUEST: Hyprland's replies to one `hyprctl --batch` REQUEST,
 # joined by commas.
