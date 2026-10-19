@@ -17,7 +17,7 @@
 # - configures each toplevel once, at 1920x1080 (configure);
 # - pings after the first buffer commit (ping);
 # - releases every committed buffer, the last ones included (release);
-# - paces frame callbacks no faster than its 240 Hz clock (pacing): 30 callbacks
+# - paces frame callbacks no faster than its 60 Hz clock (pacing): 30 callbacks
 #   take at least 28 periods, a floor no load can break;
 # - holds the same open file descriptors after the probe left as before
 #   it came (fds).
@@ -31,8 +31,8 @@
 # Every process runs without WAYLAND_DISPLAY, DISPLAY and
 # HYPRLAND_INSTANCE_SIGNATURE, and the probe only with the sink's own
 # socket; the suite signals only the sinks it started. A missing build
-# tool exits 77 through build_helper, and a fence with no render node as
-# `missing=render-node`.
+# package exits 77 through build_helper, and a fence with no render node as
+# `missing=render-node`; a sink or probe that does not compile fails.
 #
 # Exit 0 when every case and control holds, 1 otherwise.
 set -euo pipefail
@@ -65,7 +65,27 @@ xdg_xml="$repo/scripts/smoke/toplevel/xdg-shell.xml"
 dmabuf_xml="$wayland_protocols/stable/linux-dmabuf/linux-dmabuf-v1.xml"
 sandbox="$tmp/build"
 mkdir -- "$sandbox"
-build_helper probe probe "$repo/scripts/fixtures/sink/probe.c" "$xdg_xml" "$dmabuf_xml"
+# built LABEL NAME KEY SOURCE ARGS...: build_helper in a subshell. A
+# missing package ends a suite that has failed nothing as not measured; a
+# compile error, or a missing package once a check has failed, fails LABEL
+# and returns 1, so a sink.c or probe.c that does not compile goes red and
+# no FAIL already printed turns into 77.
+built() {
+  local label="$1" out status=0
+  shift
+  out="$(build_helper "$@")" || status=$?
+  [[ $status != 0 ]] || return 0
+  if [[ $out != *-helper-build* && $failures -eq 0 ]]; then
+    printf '%s\n' "$out"
+    exit 77
+  fi
+  fail "$label: $(head -n 4 <<<"$out")"
+  return 1
+}
+if ! built "the probe compiles" probe probe "$repo/scripts/fixtures/sink/probe.c" "$xdg_xml" "$dmabuf_xml"; then
+  echo "test-smoke-sink: failed=$failures"
+  exit 1
+fi
 probe="$sandbox/probe"
 render_node=""
 for candidate in /dev/dri/renderD*; do
@@ -76,11 +96,11 @@ if [[ -z $render_node ]]; then
   exit 77
 fi
 
-# build_sink DIR SOURCE: DIR/sink built from SOURCE.
+# build_sink LABEL DIR SOURCE: DIR/sink built from SOURCE, through built.
 build_sink() {
   mkdir -p -- "$1"
   local sandbox="$1"
-  build_helper sink sink "$2" "$xdg_xml" "$dmabuf_xml" wayland-server egl gbm libdrm
+  built "$3" sink sink "$2" "$xdg_xml" "$dmabuf_xml" wayland-server egl gbm libdrm
 }
 
 fd_count() { local fds=("/proc/$1/fd"/*); echo "${#fds[@]}"; }
@@ -139,17 +159,18 @@ broken_rules() {
   grep -qx 'ping committed=1' <<<"$lines" || echo ping
   # Two mapping commits and the 30 framed ones.
   [[ $(grep -c '^release ' <<<"$lines") == 32 ]] || echo release
-  # Each callback takes its own expiry of the 240 Hz clock, the first one
+  # Each callback takes its own expiry of the 60 Hz clock, the first one
   # possibly one that expired just before the first framed commit: 28
   # periods, floored to whole milliseconds.
   frames_ms="$(sed -n 's/^frames 30 ms=\([0-9]*\)$/\1/p' <<<"$lines")" || frames_ms=""
-  [[ -n $frames_ms && $frames_ms -ge 116 ]] || echo pacing
+  [[ -n $frames_ms && $frames_ms -ge 466 ]] || echo pacing
   [[ $(sed -n 's/^fds-after //p' <<<"$lines") == "$(sed -n 's/^fds-before //p' <<<"$lines")" ]] || echo fds
 }
 
-build_sink "$tmp/real" "$repo/scripts/smoke/sink/sink.c"
 real_sink="$tmp/real/sink"
-if ! run_sink "$real_sink" "$tmp/real"; then
+if ! build_sink "$tmp/real" "$repo/scripts/smoke/sink/sink.c" "the sink compiles"; then
+  :
+elif ! run_sink "$real_sink" "$tmp/real"; then
   fail "the sink listens on its socket: $(tail -n 3 -- "$tmp/real/sink.err")"
 else
   broken="$(broken_rules "$tmp/real/probe.out")"
@@ -185,7 +206,7 @@ controls=(
   "a sink with no interval ping|ping|wl_resource_for_each(wm_base, &wm_bases) xdg_wm_base_send_ping(wm_base, wl_display_next_serial(display));|(void)wm_base;"
   "a sink that configures on every commit|configure|if (surface->toplevel && !surface->configured) {|if (surface->toplevel) {"
   "a sink that keeps the file descriptors it receives|fds|			close(args[index].h);|			(void)args[index].h;"
-  "a sink that paces frames at 960 Hz|pacing|#define SINK_FRAME_NS (1000000000L / 240)|#define SINK_FRAME_NS (1000000000L / 960)"
+  "a sink that paces frames at 240 Hz|pacing|#define SINK_FRAME_NS (1000000000L / 60)|#define SINK_FRAME_NS (1000000000L / 240)"
   "a sink that never releases a buffer|release|			wl_buffer_send_release(surface->buffer);|			(void)surface->buffer;"
   "a sink that names its own filesystem's device|feedback|	main_device = device.st_rdev;|	main_device = device.st_dev;"
   "a sink whose format table names no explicit modifier|feedback|(struct format_entry){SINK_FORMATS[f], 0, modifiers[m]};|(struct format_entry){SINK_FORMATS[f], 0, 0x00ffffffffffffffULL};"
@@ -210,7 +231,7 @@ PY
     fail "control: $label could not be planted"
     continue
   fi
-  build_sink "$dir" "$dir/sink.c"
+  build_sink "$dir" "$dir/sink.c" "control: $label could not be built" || continue
   if ! run_sink "$dir/sink" "$dir"; then
     fail "control: $label never listens: $(tail -n 3 -- "$dir/sink.err")"
     continue

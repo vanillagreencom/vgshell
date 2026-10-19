@@ -1094,7 +1094,7 @@ expect "surfaces-coordinate-reset: invalid coordinates stop and independent fail
 sed 's/^/  CONTROL  /' "$sandbox/surfaces-coordinate-reset-control.log"
 # The proof's subshell changed the compositor, not the parent hold. The
 # held rule is taken again before any later observation samples geometry.
-take_mode "${mode_hold[0]}" "${mode_hold[1]% scale=*}" "${mode_hold[1]##*scale=}" >/dev/null || fail "the coordinate reset proof restores its held mode"
+surf_reset_taken="$(take_mode "${mode_hold[0]}" "${mode_hold[1]% scale=*}" "${mode_hold[1]##*scale=}")" || fail "the coordinate reset proof restores its held mode: $surf_reset_taken"
 
 expect "the unanchored panel opens for a nested menu" ok ipc shell summon panel acme.surfaces '{}'
 expect_poll "the parent panel is mapped" 1 layer_count vgs:panel

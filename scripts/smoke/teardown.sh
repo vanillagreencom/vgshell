@@ -2,8 +2,11 @@
 # scripts/test-smoke-teardown.sh. Defines cleanup, the smoke's teardown, and
 # arms it on EXIT. It reads the caller's pgids (the process groups spawn
 # recorded), keep (true under --keep), sandbox and rt_dir (empty until made)
-# and the optional source_tree (a caller's export of another tree). It needs
-# no Wayland session and no tool the harness checks for.
+# and the optional source_tree (a caller's export of another tree). Once
+# harness.sh has started the sink and defined sink_alive, a sink that has
+# exited is printed as `qml-smoke: sink=exited ...` before the groups are
+# signalled, whichever runner sourced the harness. It needs no Wayland
+# session and no tool the harness checks for.
 #
 # Bash runs the EXIT trap on TERM, INT and HUP as well. A second of those
 # signals that arrives during the trap ends the shell there and leaves the
@@ -33,6 +36,9 @@ cleanup() {
     if ! display_record_close "$original_status" cleanup; then
       printf 'qml-smoke: cleanup=recorder-close-failed path=%s\n' "${display_record_dir:-unavailable}" >&2
     fi
+  fi
+  if declare -F sink_alive >/dev/null && ! sink_alive; then
+    printf 'qml-smoke: %s\n' "$sink_exit"
   fi
   for pg in "${pgids[@]}"; do
     [[ $pg == "${display_record_pid:-}" ]] || kill -TERM -- "-$pg" 2>/dev/null || true

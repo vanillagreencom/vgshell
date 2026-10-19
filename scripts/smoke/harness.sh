@@ -731,25 +731,43 @@ printf 'qml-smoke: display-record=%s\n' "$display_record_dir/events.jsonl"
 sink_socket="$rt_dir/vgs-sink"
 spawn "$sandbox/sink.log" "${sandbox_env[@]}" "$sandbox/sink" "$sink_socket" "$render_node"
 sink_pid="$spawn_pid"
-for _ in $(seq 1 200); do
-  [[ ! -S $sink_socket ]] || break
-  kill -0 "$sink_pid" 2>/dev/null || break
-  sleep 0.05
-done
-if [[ ! -S $sink_socket ]]; then
-  printf 'qml-smoke: status=not-measured missing=sink log=%s\n' "$sandbox/sink.log"
+# sink_alive: true while the sink runs. Once it has exited, sink_exit
+# holds `sink=exited status=<its wait status, 128+N for signal N>
+# last=[<its last log line>]` and it returns 1. It reads the status in the
+# shell that started the sink, so a caller never runs it in a subshell;
+# scripts/smoke/evidence.py retains sink.log beside a failed row.
+sink_exit=""
+sink_alive() {
+  [[ -z $sink_exit ]] || return 1
+  kill -0 "$sink_pid" 2>/dev/null && return 0
+  local status=0
+  wait "$sink_pid" 2>/dev/null || status=$?
+  sink_exit="sink=exited status=$status last=[$(tail -n 1 -- "$sandbox/sink.log" 2>/dev/null)]"
+  return 1
+}
+# sink_not_measured: the start's end as a keyed 77 once the sink is gone,
+# with its log's tail.
+sink_not_measured() {
+  printf 'qml-smoke: status=not-measured missing=sink %s\n' "${sink_exit:-sink=running socket=absent}"
   tail -n 5 -- "$sandbox/sink.log" || true
   exit 77
-fi
-# sink_check: fails the run's current row once, keyed sink=exited, when
-# the sink has exited: the nested compositor then draws to a closed
-# display, and the rows after it fail for that.
-sink_exited=""
+}
+for _ in $(seq 1 200); do
+  [[ ! -S $sink_socket ]] || break
+  sink_alive || break
+  sleep 0.05
+done
+[[ -S $sink_socket ]] || { sink_alive || true; sink_not_measured; }
+# sink_check: fails the run's current row once with sink_exit when the
+# sink has exited: the nested compositor then draws to a closed display,
+# and the rows after it fail for that. teardown.sh prints the same line
+# for every runner.
+sink_reported=""
 sink_check() {
-  [[ -z $sink_exited ]] || return 0
-  kill -0 "$sink_pid" 2>/dev/null && return 0
-  sink_exited=1
-  row_class=operation fail "sink=exited log=$sandbox/sink.log last=[$(tail -n 1 -- "$sandbox/sink.log" 2>/dev/null)]"
+  sink_alive && return 0
+  [[ -z $sink_reported ]] || return 0
+  sink_reported=1
+  row_class=operation fail "$sink_exit"
 }
 # The nested compositor carries the words start_shell gives a shell and
 # the sandbox's buses, so a shell `vgshell restart` relaunches through its
@@ -771,9 +789,11 @@ for _ in $(seq 1 200); do
   done
   [[ -n $nested_socket ]] && break
   kill -0 "$compositor_pid" 2>/dev/null || break
+  sink_alive || break
   sleep 0.1
 done
 if [[ -z $nested_socket ]]; then
+  [[ -z $sink_exit ]] || sink_not_measured
   printf 'qml-smoke: status=not-measured missing=nested-compositor\n'
   tail -n 20 "$sandbox/hyprland.log"
   exit 77
@@ -855,6 +875,7 @@ while :; do
     if [[ $monitors -gt 0 ]]; then break; fi
   fi
   kill -0 "$compositor_pid" 2>/dev/null || { compositor_gone=1; break; }
+  sink_alive || break
   (($(date +%s%N) - compositor_started_ns < nested_monitor_wait_secs * 1000000000)) || break
   sleep 0.2
 done
@@ -864,6 +885,8 @@ nested_monitor_readings="${monitors_record# }"
 if [[ $monitors -gt 0 ]]; then
   printf 'qml-smoke: nested-monitor-ready secs=%s bound_secs=%d\n' "$nested_monitor_ready_secs" "$nested_monitor_wait_secs"
   ok "nested compositor lists $monitors monitor(s): $monitors_seen"
+elif [[ -n $sink_exit ]]; then
+  sink_not_measured
 elif [[ -n $compositor_gone ]]; then
   printf 'qml-smoke: status=not-measured missing=nested-compositor secs=%s\n' "$nested_monitor_ready_secs"
   tail -n 20 "$sandbox/hyprland.log"
@@ -2602,7 +2625,10 @@ if [[ -n ${shell_output_size:-} || $shell_output_scale == 2 ]]; then
       printf 'qml-smoke: startup-output=%s reason=monitor-unread\n' "$scaled_output"
       exit 1
     fi
-    [[ $startup_reading == "${mode_hold[1]}" ]] || mode_unavailable "$scaled_output" "${mode_hold[1]}" "got=[$startup_reading]"
+    if [[ $startup_reading != "${mode_hold[1]}" ]]; then
+      printf 'qml-smoke: startup-output=%s reason=mode-left want=[%s] got=[%s]\n' "$scaled_output" "${mode_hold[1]}" "$startup_reading"
+      exit 1
+    fi
     startup_device="${startup_reading% scale=*}"
     startup_scale="${startup_reading##*scale=}"
     printf 'qml-smoke: startup-output=%s device=%s scale=%s logical=%sx%s\n' "$scaled_output" "$startup_device" "$startup_scale" \

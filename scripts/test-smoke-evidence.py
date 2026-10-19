@@ -23,6 +23,7 @@ def fixture(root, failed=True, oversized=False, row="example"):
     instance = runtime / "quickshell/by-id/example/log.log"
     instance.write_bytes(b"instance\n")
     (runtime / "hypr/example/hyprland.log").write_bytes(b"compositor\n")
+    (sandbox / "sink.log").write_bytes(b"sink\n")
     (sandbox / ("rows/" + row + ".out")).write_bytes(b"probe dump\n")
     (sandbox / ("rows/" + row + ".dumps/nested/reading.json")).write_bytes(b'{"frame":7}\n')
     (sandbox / "leaks/1-1/layers").write_bytes(b'{"geometry":[0,0,10,10]}\n')
@@ -42,6 +43,7 @@ def snapshot(output, row="example"):
     folder = folders[0]
     assert (folder / "instance-example.log").read_bytes() == b"instance\n"
     assert (folder / "compositor-example.log").read_bytes() == b"compositor\n"
+    assert (folder / "sink.log").read_bytes() == b"sink\n"
     assert (folder / ("row/" + row + ".out")).read_bytes() == b"probe dump\n"
     assert (folder / ("row/" + row + ".dumps/nested/reading.json")).read_bytes() == b'{"frame":7}\n'
     assert (folder / "probes/1-1/layers").read_bytes() == b'{"geometry":[0,0,10,10]}\n'

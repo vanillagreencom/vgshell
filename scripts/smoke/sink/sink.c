@@ -8,8 +8,14 @@
  * Listens on SOCKET, an absolute path, and serves exactly the globals the
  * backend binds, at the versions it binds them: wl_seat 9, xdg_wm_base 6,
  * wl_compositor 6, wl_shm 1 and zwp_linux_dmabuf_v1 4. It never reads,
- * imports or draws a buffer; it opens MAIN_DEVICE only while it reads the
- * render formats there, before it listens.
+ * imports or draws a buffer. It reads the render formats through EGL on
+ * MAIN_DEVICE before it listens; the GPU driver then keeps its own
+ * descriptors to that node and its control nodes for the sink's whole
+ * life: renderD128 once, nvidia0 five times and nvidiactl twice, at 77.7
+ * MB resident, read from /proc/<pid>/fd and status after listen inside the
+ * fence on cachy (NVIDIA 615.78.08) on 2026-10-19. The sink runs only inside
+ * scripts/smoke/gpu-fence.sh, which keeps every amdgpu node out of its
+ * reach (docs/decisions/D099-no-amdgpu-node-in-validation-runs.md).
  *
  * - The seat states a pointer and a keyboard and never sends an input
  *   event, so no input but the harness's virtual devices reaches the
@@ -61,12 +67,11 @@
  * output's own mode leaves whole logical pixels. */
 #define SINK_WIDTH 1920
 #define SINK_HEIGHT 1080
-/* 240 Hz. At 60 Hz, `qml-smoke.sh --rows bar` on cachy on 2026-10-19
- * (load 14) failed 41 checks: the default-set shell's GUI thread went
- * silent for 12 s after its first frame and answered no ping for 60 s.
- * The same row at 240 Hz passed in 266 s, as main's batch runs do on the
- * host's own display. */
-#define SINK_FRAME_NS (1000000000L / 240)
+/* 60 Hz. `qml-smoke.sh --rows bar` at this rate, the run that started at
+ * 2026-10-19T05:57:47Z on cachy (AMD Ryzen 9 9950X), passed its bar row in
+ * 249 s with its reconcile reading at cpu_some_pct=0.0 and its first bar
+ * at 677 ms. */
+#define SINK_FRAME_NS (1000000000L / 60)
 /* aquamarine 0.15.1 queues a new output's requests and its announcement
  * in createOutput and sends them only once its display fd turns readable
  * (CWaylandBackend::dispatchEvents). The first output's start and every
@@ -444,7 +449,8 @@ static bool add_timer(struct wl_event_loop *loop, long interval_ns, wl_event_loo
  * render node NODE renders SINK_FORMATS with, those it can only sample
  * (external_only) left out: aquamarine 0.15.1 reads the table and no
  * tranche flag. Returns the step that failed, NULL once the table is
- * written. The device and EGL are released before it returns. */
+ * written. It closes its own descriptor and terminates its EGL display;
+ * the driver's descriptors stay open (see the header). */
 static const char *make_format_table(const char *node) {
 	PFNEGLQUERYDMABUFMODIFIERSEXTPROC query_modifiers;
 	struct format_entry entries[256];

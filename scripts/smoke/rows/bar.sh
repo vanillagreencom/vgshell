@@ -1055,7 +1055,10 @@ except (ValueError,KeyError,TypeError,StopIteration): print("unreadable")' "$@"
   # which needs no such room.
   zone_width() {
     local logical="$((${zone_mode%x*} / zone_scale))"
-    ((logical >= $1)) || mode_unavailable "$zone_monitor" "$1 logical pixels of bar" "monitor=$logical"
+    if ((logical < $1)); then
+      fail "the monitor's $logical logical pixels leave no room for a bar $1 wide"
+      return 0
+    fi
     [[ ${#mode_hold[@]} -eq 0 ]] || release_mode "the nested compositor gives the monitor its own mode back" "$zone_monitor" "$zone_mode" "$zone_scale"
     hold_mode "the nested compositor reserves the monitor's right edge for a bar $1 logical pixels wide" "$zone_monitor" "$zone_mode" "$zone_scale" "$((logical - $1))"
     zone_bar_w="$1"

@@ -10,7 +10,9 @@
 # case pins the exit status, whether the sandbox and the runtime dir are gone
 # or kept, that the export and the recorded process group are gone, and that
 # stderr is empty. The controls at the end plant one defect per rule in a
-# copy of the teardown and require the case that rule owns to go red.
+# copy of the teardown and require the case that rule owns to go red. The
+# sink cases run the teardown with harness.sh's own sink_alive over a
+# stand-in sink and pin the line it prints for a sink that exited.
 #
 # The child gets an explicit environment. Its sandbox and runtime dir are
 # never under the host's XDG_RUNTIME_DIR. The suite signals only the process
@@ -302,6 +304,54 @@ for i in "${!controls[@]}"; do
     ok "control: $label"
   fi
 done
+
+# A sink that exited before the teardown: a child sources the teardown
+# and harness.sh's own sink_alive, starts a stand-in sink that exits 7 or
+# keeps running, and exits; its teardown prints the sink's exit with its
+# status once, and nothing for a sink that still runs. The control drops
+# the teardown's sink line.
+if ! sink_alive_text="$(sed -n '/^sink_alive() {/,/^}/p' "$repo/scripts/smoke/harness.sh")" || [[ $sink_alive_text != "sink_alive() {"*$'\n}' ]]; then
+  fail "sink exit: sink_alive is not extracted from harness.sh"
+else
+  printf '%s\n' "$sink_alive_text" >"$tmp/sink-alive.sh"
+  cat >"$tmp/sink-child.sh" <<'SH'
+set -euo pipefail
+teardown="$1" functions="$2" case_dir="$3" mode="$4"
+sandbox="" rt_dir="" pgids=() keep=false
+source "$teardown"
+source "$functions"
+sandbox="$case_dir/sandbox" rt_dir="$case_dir/runtime"
+mkdir -- "$sandbox" "$rt_dir"
+echo "sink: listening" >"$sandbox/sink.log"
+if [[ $mode == exited ]]; then
+  sh -c 'echo "sink: refused: stand-in" >>"$1"; exit 7' _ "$sandbox/sink.log" &
+else
+  sleep 30 &
+fi
+sink_pid=$! sink_exit=""
+pgids+=("$sink_pid")
+[[ $mode != exited ]] || while kill -0 "$sink_pid" 2>/dev/null; do sleep 0.05; done
+exit 0
+SH
+  # sink_case TEARDOWN MODE: the child's stdout.
+  sink_case() {
+    local dir
+    dir="$(mktemp -d "$tmp/sink-case.XXXXXX")" || return 1
+    timeout -k 2 20 env -i PATH="$PATH" "$BASH" "$tmp/sink-child.sh" "$1" "$tmp/sink-alive.sh" "$dir" "$2" 2>/dev/null
+  }
+  want_sink='qml-smoke: sink=exited status=7 last=[sink: refused: stand-in]'
+  got="$(sink_case "$teardown" exited)" || got="exit=$?"
+  if [[ $got == "$want_sink" ]]; then ok "the teardown prints a sink that exited with its status"; else fail "the teardown prints a sink that exited with its status: got [$got]"; fi
+  got="$(sink_case "$teardown" running)" || got="exit=$?"
+  if [[ -z $got ]]; then ok "the teardown prints nothing for a sink that runs"; else fail "the teardown prints nothing for a sink that runs: got [$got]"; fi
+  sink_line="$(grep -F 'qml-smoke: %s' -- "$teardown")" || sink_line=""
+  if [[ -n $sink_line ]] && mutate "$sink_line" '    :' "$tmp/mutant-sink.sh"; then
+    got="$(sink_case "$tmp/mutant-sink.sh" exited)" || got="exit=$?"
+    if [[ $got == "$want_sink" ]]; then fail "control: a teardown without the sink line left the sink case green"; else ok "control: a teardown without the sink line"; fi
+  else
+    fail "control: a teardown without the sink line"
+  fi
+fi
 
 if [[ $failures -gt 0 ]]; then
   echo "test-smoke-teardown: failed=$failures"

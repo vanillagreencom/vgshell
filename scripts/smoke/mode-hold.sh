@@ -91,9 +91,9 @@ print(json.dumps([e for e in json.loads(errors) if e]))'
 # Then mode_scale_of reads the output every 200 ms for up to 5 s. Prints
 # `got=[<reading>]`, the last reading `unreadable` when the monitor cannot
 # be read, and returns 0 when the output reads `MODE scale=SCALE`, 77 when
-# a readable output never takes it, and 1 when the rule file, reload or
-# read fails. A reload hyprctl does not answer `ok` prints its reply and
-# returns 1.
+# a readable output never takes it, which mode_unavailable judges, and 1
+# when the rule file, reload or read fails. A reload hyprctl does not
+# answer `ok` prints its reply and returns 1.
 take_mode() {
   local output="$1" mode="$2" scale="$3" reply got=""
   if [[ ! -r $mode_hold_file ]]; then
@@ -116,11 +116,15 @@ take_mode() {
   [[ $got != unreadable ]] || return 1
   return 77
 }
-# mode_unavailable OUTPUT WANT READING: stop before a product check uses
-# geometry from a readable output that could not take its requested mode.
-# scripts/main-run.sh consumes status=not-measured; no new FAIL line is
-# emitted. Earlier failures keep the closing verdict's classification.
+# mode_unavailable OUTPUT WANT READING: a readable output that did not take
+# its requested mode. The one sandbox cause left is a nested output that
+# could not allocate its buffers (nested_output_unallocated): the run then
+# stops before a product check uses its geometry, as not measured, which
+# scripts/main-run.sh consumes; earlier failures keep the closing
+# verdict's classification. Any other cause is the hold's own defect, so
+# it returns and its caller fails the hold.
 mode_unavailable() {
+  nested_output_unallocated "$rt_dir"/hypr/*/hyprland.log || return 0
   if [[ $failures -gt 0 ]]; then
     printf 'qml-smoke: nested-output=mode-unavailable output=%s want=[%s] %s\n' "$1" "$2" "$3"
     smoke_verdict "$failures" "$behaviour_failures" "$rt_dir"/hypr/*/hyprland.log || exit $?
@@ -134,8 +138,8 @@ mode_unavailable() {
 # hold, or the caller's mode with no reserved area when no outer hold
 # exists. The rule goes into mode_hold_file, which every load of the
 # configuration runs, and take_mode reloads it now. The hold begins once
-# the monitor reads both. A readable output that never takes the mode
-# stops the run as not measured before any product fit check runs. An
+# the monitor reads both. A mode the output does not take fails the hold,
+# unless mode_unavailable reads the nested output's allocation failure. An
 # inner hold that does not take gives the outer hold its rule and mode
 # again.
 hold_mode() {
@@ -161,7 +165,7 @@ hold_mode() {
     fail "$label: $output does not read $want: $taken"
     if [[ -n $previous_rule ]]; then
       printf '%s\n' "$previous_rule" >"$mode_hold_file" || fail "$label: the outer hold file is not restored"
-      take_mode "${mode_hold[0]}" "${mode_hold[1]% scale=*}" "${mode_hold[1]##*scale=}" >/dev/null || fail "$label: the outer hold is not restored"
+      taken="$(take_mode "${mode_hold[0]}" "${mode_hold[1]% scale=*}" "${mode_hold[1]##*scale=}")" || fail "$label: the outer hold is not restored: $taken"
     else
       rm -f -- "$mode_hold_file" || fail "$label: the hold file $mode_hold_file of a hold never taken is not removed"
     fi
@@ -264,10 +268,8 @@ suspend_run_base() {
 }
 # resume_run_base LABEL: the run base suspend_run_base took out, held again
 # through hold_mode and marked as the run base; then the row's
-# smoke_row_abandon is emptied. A readable
-# output that does not take the base stops the run as not measured in
-# hold_mode; any other base that does not take fails there and is not
-# marked. With no base suspended it does nothing.
+# smoke_row_abandon is emptied. A base that does not take fails in
+# hold_mode and is not marked. With no base suspended it does nothing.
 resume_run_base() {
   [[ ${#mode_hold_suspended[@]} -gt 0 ]] || return 0
   local output="${mode_hold_suspended[0]}" want="${mode_hold_suspended[1]}"

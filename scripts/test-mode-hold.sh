@@ -69,6 +69,13 @@ source "$2"
 # The stub state carries a prefix: a local of the subject shadows a global
 # of the same name inside every function it calls, the stub hypr included.
 repo="$1"; stub_dir="$3"; stub_reply="$4"; stub_call="$6"
+# A call ending in -unallocated runs over a nested compositor log that
+# holds the allocation failure nested_output_unallocated reads.
+if [[ $stub_call == *-unallocated ]]; then
+  mkdir -p "$stub_dir/hypr/stub"
+  echo "ERR from aquamarine ]: Output WAYLAND-1: pending state rejected: swapchain failed reconfiguring" >"$stub_dir/hypr/stub/hyprland.log"
+  stub_call="${stub_call%-unallocated}"
+fi
 IFS=, read -r -a stub_plan <<<"$5"
 mode_hold_file="$stub_dir/monitor-hold.lua"
 rt_dir="$stub_dir"
@@ -217,7 +224,7 @@ case "$stub_call" in
       release_mode "capture release" WAYLAND-1 1250x720
     elif [[ $shell_output_scale == 2 ]]; then release_mode "density release" WAYLAND-1 1250x720; fi ;;
 
-  hold-after-behaviour|hold-after-geometry|hold-after-render)
+  hold-after-behaviour)
     row_class="${stub_call#hold-after-}"
     fail "product failure"
     hold_mode "the case" WAYLAND-1 3510x1866 2 ;;
@@ -288,23 +295,25 @@ printf "result status=%s failures=%s held=[%s] state=%s file=%s\n" "$status" "$f
 
 # Rows: label | call | reload reply | readings after each rule, comma
 # separated | result or typed diagnostic | rules applied.
-# The output reads 1755x933 at scale 1 before any rule.
+# The output reads 1755x933 at scale 1 before any rule. The rows that a
+# 77 from take_mode must not excuse run over the allocation failure, the
+# one cause mode_unavailable excuses.
 cases=(
-  "an unavailable mode preserves an earlier product failure|hold-after-behaviour|ok|1755x933 scale=1.5|qml-smoke: failed=1|1"
-  "an unavailable mode preserves an earlier geometry failure|hold-after-geometry|ok|1755x933 scale=1.5|qml-smoke: failed=1|1"
-  "an unavailable mode preserves an earlier render failure|hold-after-render|ok|1755x933 scale=1.5|qml-smoke: failed=1|1"
-  "a hold that cannot take a readable mode stops unmeasured|hold|ok|1755x933 scale=1.5|qml-smoke: status=not-measured nested-output=mode-unavailable output=WAYLAND-1 want=[3510x1866 scale=2] got=[1755x933 scale=1.5]|1"
-  "a release that cannot take its base stops unmeasured|release-only|ok|1700x900 scale=1|qml-smoke: status=not-measured nested-output=mode-unavailable output=WAYLAND-1 want=[3510x1866 scale=2] got=[1700x900 scale=1]|1"
-  "an unreadable output fails instead of being excused|hold|ok|unreadable|status=0 failures=1 held=[] state=none file=absent|1"
+  "a hold after a product failure that cannot take its mode fails too|hold-after-behaviour|ok|1755x933 scale=1.5|status=0 failures=2 held=[] state=none file=absent|1"
+  "an allocation failure stops a hold unmeasured|hold-unallocated|ok|1755x933 scale=1.5|qml-smoke: status=not-measured nested-output=mode-unavailable output=WAYLAND-1 want=[3510x1866 scale=2] got=[1755x933 scale=1.5]|1"
+  "an allocation failure preserves an earlier product failure|hold-after-behaviour-unallocated|ok|1755x933 scale=1.5|qml-smoke: failed=1|1"
+  "a hold that cannot take a readable mode fails|hold|ok|1755x933 scale=1.5|status=0 failures=1 held=[] state=none file=absent|1"
+  "a release that cannot take its base fails|release-only|ok|1700x900 scale=1|status=0 failures=1 held=[] state=none file=absent|1"
+  "an unreadable output fails instead of being excused|hold-unallocated|ok|unreadable|status=0 failures=1 held=[] state=none file=absent|1"
   "an unreadable hold file fails before reload|take-missing|ok|take|status=1 failures=0 held=[] state=none file=absent|0"
-  "configuration errors fail instead of being excused|hold|config-error|take|status=0 failures=1 held=[] state=none file=absent|0"
+  "configuration errors fail instead of being excused|hold-unallocated|config-error|take|status=0 failures=1 held=[] state=none file=absent|0"
   "a hold the output takes at once is held|hold|ok|take|status=0 failures=0 held=[WAYLAND-1 3510x1866 scale=2] state=held file=present|1"
-  "a refused rule fails at once|hold|error|take|status=0 failures=1 held=[] state=none file=absent|0"
+  "a refused rule fails at once|hold-unallocated|error|take|status=0 failures=1 held=[] state=none file=absent|0"
   "a release ends the hold|hold-release|ok|take|status=0 failures=0 held=[] state=none file=absent|2"
   "nested holds restore each parent and its scale|nested|ok|take|status=0 failures=0 held=[] state=none file=absent|6"
   "startup takes validation mode at density 1 from the host floor|startup-1|ok|take|status=0 failures=0 held=[WAYLAND-1 1755x933 scale=1] state=held file=present|1"
   "startup takes validation mode at density 2 from the host floor|startup-2|ok|take|status=0 failures=0 held=[WAYLAND-1 3510x1866 scale=2] state=held file=present|1"
-  "startup refuses a readable mode it never takes|startup-1|ok|1250x720 scale=1|qml-smoke: status=not-measured nested-output=mode-unavailable output=WAYLAND-1 want=[1755x933 scale=1] got=[1250x720 scale=1]|1"
+  "startup fails a readable mode it never takes before shell launch|startup-1|ok|1250x720 scale=1|qml-smoke: startup-output=WAYLAND-1 reason=hold-not-taken|1"
   "startup fails an unreadable monitor before shell launch|startup-1|ok|unreadable|qml-smoke: startup-output=WAYLAND-1 reason=hold-not-taken|1"
   "startup fails a reload error before shell launch|startup-1|error|take|qml-smoke: startup-output=WAYLAND-1 reason=hold-not-taken|0"
   "startup fails configuration errors before shell launch|startup-1|config-error|take|qml-smoke: startup-output=WAYLAND-1 reason=hold-not-taken|0"
@@ -405,14 +414,14 @@ controls=(
   "release discards the protected run base|elif [[ \$mode_hold_run_base != true ]]; then|else|run base and complete reserved parents survive nested release"
   "configuration errors are accepted|[[ \$reply != '[]' ]]|[[ \$reply == never ]]|configuration errors fail instead of being excused"
   "an unreadable output is excused|[[ \$got != unreadable ]]|true|an unreadable output fails instead of being excused"
-  "an unavailable mode excuses an earlier product failure|if [[ \$failures -gt 0 ]]; then|if false; then|an unavailable mode preserves an earlier product failure"
-  "an unavailable mode checks only earlier behaviour failures|if [[ \$failures -gt 0 ]]; then|if [[ \$behaviour_failures -gt 0 ]]; then|an unavailable mode preserves an earlier geometry failure"
+  "an unavailable mode excuses an earlier product failure|if [[ \$failures -gt 0 ]]; then|if false; then|an allocation failure preserves an earlier product failure"
+  "an unavailable mode is excused without an allocation failure|  nested_output_unallocated \"\$rt_dir\"/hypr/*/hyprland.log |  true |a hold that cannot take a readable mode fails"
   "mode application omits configuration reload|reload config-only ; j/configerrors|j/configerrors|a hold the output takes at once is held"
   "take_mode defers mode application until a frame|reply=\"\$(hypr_reload_errors)\"|reply=\"\$(output_mode \"\$output\" \"\$mode\" \"\$scale\")\"|a hold the output takes at once is held"
-  "an unavailable mode uses a product failure|  exit 77|  return 0|a hold that cannot take a readable mode stops unmeasured"
+  "an unavailable mode uses a product failure|  exit 77|  return 0|an allocation failure stops a hold unmeasured"
   "an unreadable hold file is excused|if [[ ! -r \$mode_hold_file ]]; then|if false; then|an unreadable hold file fails before reload"
   "a refused reload is accepted|if reload.strip() != \"ok\":|if False:|a refused rule fails at once"
-  "a failed inner hold leaves the outer mode|      take_mode \"\${mode_hold[0]}\" \"\${mode_hold[1]% scale=*}\" \"\${mode_hold[1]##*scale=}\" >/dev/null|      true|failed nested acquisition restores the reserved parent without a phantom stack entry"
+  "a failed inner hold leaves the outer mode|      taken=\"\$(take_mode \"\${mode_hold[0]}\" \"\${mode_hold[1]% scale=*}\" \"\${mode_hold[1]##*scale=}\")\"|      taken=ok|failed nested acquisition restores the reserved parent without a phantom stack entry"
   "a release drops every parent|if [[ \${#mode_hold_parents[@]} -gt 0 ]]; then|if false; then|nested holds restore each parent and its scale"
   "the fixture base ignores a matching outer hold|base_mode_scale() {|base_mode_scale() { mode_scale_of \"\$1\"; return|a reset output keeps its matching outer hold as the fixture base"
   "the fixture base takes another output's hold|\${mode_hold[0]} == \"\$1\"|true|another output's hold does not replace the fixture base"

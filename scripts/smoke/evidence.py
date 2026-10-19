@@ -48,6 +48,7 @@ def retain(sandbox):
         candidates += [(p, "compositor-" + p.parent.name + ".log")
                        for p in sorted(runtime.glob("hypr/*/hyprland.log"))]
         candidates.append((sandbox / "hyprland.log", "compositor-launch.log"))
+        candidates.append((sandbox / "sink.log", "sink.log"))
         candidates.append((sandbox / "rows" / (row + ".out"), "row/" + row + ".out"))
         for entry in sorted((sandbox / "rows").glob(row + ".*")):
             if entry.is_dir() and not entry.is_symlink():
