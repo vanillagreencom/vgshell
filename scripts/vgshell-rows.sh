@@ -291,7 +291,9 @@ judge_control() { tree_control "$1" bin/vgshell-theme-judge "$2" "$3"; } # NAME 
 mkdir -p "$tmp/home"
 git_env=(env -i PATH="$PATH" HOME="$tmp/home" GIT_CONFIG_NOSYSTEM=1
   GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.invalid GIT_COMMITTER_NAME=test GIT_COMMITTER_EMAIL=test@example.invalid)
-g() { "${git_env[@]}" git -c init.defaultBranch=main "$@"; }
+# Throwaway fixture repositories need no maintenance. A detached repack can
+# outlive its commit and race later rows cloning the fixture's objects.
+g() { "${git_env[@]}" git -c init.defaultBranch=main -c gc.auto=0 -c maintenance.auto=false "$@"; }
 # A theme source: a work tree at $tmp/tsrc/NAME and its bare repository at
 # $tmp/tsrc/NAME.git, holding one commit.
 theme_source() { # NAME THEME_JSON_TEXT [TERMINAL_JSON_TEXT]: an empty THEME_JSON_TEXT writes none
