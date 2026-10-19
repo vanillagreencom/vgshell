@@ -292,6 +292,7 @@ Item {
                 compare(reset.visible, resetShown, why);
                 compare(add.visible, addShown, why);
                 compare(JSON.stringify([left(reset), left(add)]), JSON.stringify(at), why);
+                verify(left(add) >= left(reset) + reset.width, why + ": the add button stands after the reset");
             }
             field.shortcutField.stopTyping();
         }
