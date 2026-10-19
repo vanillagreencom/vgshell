@@ -6,7 +6,7 @@ Read before touching the idle path, a stage of dim, screensaver, display off, lo
 
 The idle path is a set of stages. Each stage has one owner, and each owner holds its own watch on the core's idle source, `shell/Core/IdleRegistry.qml`, lent through capability `idle` ([D062](../decisions/D062-native-lock-and-polkit-plugins.md)). A watch counts from the later of the last input the seat saw and the watch's own creation, since Hyprland starts a notification's timer when the shell creates it. No owner reads another owner's setting, so any order of values has a defined result. `vgs.power` is the one energy plugin. The choice is [D109](../decisions/D109-idle-path-one-owner-per-stage.md).
 
-Today the code holds the idle source, the dim, the screensaver, the lock and the lock before sleep. Every other row below is designed: the named child item adds its code and its pin, and until then no code holds it.
+Today the code holds the idle source, the dim, the screensaver, the lock, the lock before sleep and disk sleep. Every other row below is designed: the named child item adds its code and its pin, and until then no code holds it.
 
 | Stage | Owner | What it does | State |
 |---|---|---|---|
@@ -23,7 +23,7 @@ Today the code holds the idle source, the dim, the screensaver, the lock and the
 | Power button and lid | logind, set by `vgs.power` through system steps | the action the key or the lid takes | VGS-1909 |
 | Wake sources | `vgs.power` through a system step and BlueZ | only keyboards, pointers and the power button wake the machine | VGS-1910 |
 | Wake on LAN | `vgs.power` through NetworkManager | on or off per wired connection | VGS-1911 |
-| Disk sleep | `vgs.power` through a system step | spins down idle rotational disks | VGS-1912 |
+| Disk sleep | `vgs.power` through a system step | spins down idle rotational disks | holds |
 | Power profiles, battery alerts | `vgs.power` | as today | holds |
 
 The greeter's Suspend button is a separate surface before login, outside the user session and outside this path. `vgs.greeter` owns it.
@@ -102,7 +102,7 @@ The power button and the lid must act while the shell is down: a laptop closed i
 - Do allow wake only from USB keyboards and pointers, the hubs on the path to one of them, Bluetooth controllers and the power button. A device plugged into an enabled hub during sleep still wakes the machine, because a hub that may wake signals a port connect; VGS accepts this. Designed: VGS-1910 ships the udev rule and its step.
 - Do allow Bluetooth wake only on paired keyboards and pointers, through BlueZ's per-device `WakeAllowed`, written by `vgs.power` once the wake step reads ready. Designed: VGS-1910.
 - Do set Wake on LAN on the NetworkManager connection, which reapplies it at each link up. Designed: VGS-1911.
-- Do offer disk sleep only while a rotational disk exists; the step's probe reads `absent` without one. Designed: VGS-1912.
+- Do offer disk sleep only while a rotational disk exists; the step's probe reads `absent` without one. `scripts/test-vgshell-system.sh` pins the probe and `scripts/smoke/rows/power.sh` pins the offer.
 
 ## The canonical example
 

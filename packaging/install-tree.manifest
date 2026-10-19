@@ -44,6 +44,7 @@ f share/vgshell/config/shell.json
 f share/vgshell/config/system/greeter/hyprland.lua
 f share/vgshell/config/system/greeter/vgs-greeter.pam
 f share/vgshell/config/system/udev/60-vgs-apple-displays.rules
+f share/vgshell/config/system/udev/69-vgs-disk-sleep.rules
 f share/vgshell/config/voxtype/config.toml
 f share/vgshell/config/voxtype/sounds/bloop/LICENSE
 f share/vgshell/config/voxtype/sounds/bloop/error.wav

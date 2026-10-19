@@ -32,6 +32,8 @@ root="$tmp/root"; bin="$root/usr/bin"
 vgs="$tmp/vgshell"; helper="$vgs/bin/vgshell-system"
 rule_src="$vgs/config/system/udev/60-vgs-apple-displays.rules"
 rule="$root/etc/udev/rules.d/60-vgs-apple-displays.rules"
+disk_rule="$root/etc/udev/rules.d/69-vgs-disk-sleep.rules"
+disk_rule_src="$vgs/config/system/udev/69-vgs-disk-sleep.rules"
 records="$root/var/lib/vgshell/system"
 hidraw="$root/dev/hidraw0"
 greeter_src="$vgs/config/system/greeter"
@@ -46,6 +48,7 @@ cp -- "$repo/bin/vgshell-pkg" "$vgs/bin/vgshell-pkg"
 cp -R -- "$repo/bin/lib" "$vgs/bin/lib"
 cp -- "$repo/shell/Core/PackageManagers.js" "$vgs/shell/Core/PackageManagers.js"
 cp -- "$repo/config/system/udev/60-vgs-apple-displays.rules" "$rule_src"
+cp -- "$repo/config/system/udev/69-vgs-disk-sleep.rules" "$disk_rule_src"
 cp -R -- "$repo/config/system/greeter" "$greeter_src"
 cp -- "$repo/shell/plugins/vgs.greeter/Greeter.qml" "$vgs/shell/plugins/vgs.greeter/Greeter.qml"
 cp -- "$repo/shell/greeter.qml" "$vgs/shell/greeter.qml"
@@ -229,7 +232,7 @@ fresh() {
   rm -rf -- "${root:?}/etc" "${root:?}/sys" "${root:?}/dev" "${root:?}/var" "${root:?}/proc" "${root:?}/run" "${root:?}/usr/share" "$tmp/units"
   mkdir -p "$root/etc/udev/rules.d" "$root/etc/greetd" "$root/etc/pam.d" "$root/etc/systemd/system" "$root/dev" "$root/var/lib" "$root/proc/sys/kernel/random" "$tmp/units"
   chmod 0755 "$root/etc" "$root/etc/udev" "$root/etc/udev/rules.d" "$root/etc/greetd" "$root/etc/pam.d" "$root/etc/systemd" "$root/etc/systemd/system" "$root/var" "$root/var/lib"
-  mkdir -p "$root/sys/class/hidraw/hidraw0/device" "$root/sys/class/hidraw/hidraw1/device"
+  mkdir -p "$root/sys/block" "$root/sys/class/hidraw/hidraw0/device" "$root/sys/class/hidraw/hidraw1/device"
   printf 'DRIVER=hid-generic\nHID_ID=0003:000005AC:00009243\nHID_NAME=Apple Inc. Pro Display XDR\n' >"$root/sys/class/hidraw/hidraw0/device/uevent"
   printf 'HID_ID=0003:0000046D:0000C52B\n' >"$root/sys/class/hidraw/hidraw1/device/uevent"
   : >"$hidraw"; : >"$root/dev/hidraw1"; chmod 0000 "$hidraw"; chmod 0600 "$root/dev/hidraw1"
@@ -244,9 +247,20 @@ fresh() {
   rm -f -- "$tmp"/{sudo.log,udevadm.log,systemctl.log,modprobe.log,tailscale.log,gum.log,gum-hook,foreign,sudo-exit,udev-fail,other-rule,i2c-rule,tailscaled-down,before-tree,after-tree,no-greeter,getent-fail,owners,greeter-name}
   printf '0\n' >"$tmp/gum-answer"
   rm -f -- "${bin:?}/voxtype" "${tmp:?}/voxtype-compiled" "${tmp:?}/voxtype.log"
+  rm -f -- "${bin:?}/hdparm"
+  rm -f -- "${root:?}/usr/sbin/hdparm"
   rm -f -- "$bin/bandwhich" "$tmp/capture-caps" "$tmp/wrapper-caps" "$tmp/capture-probes" "$tmp/getcap-fail" "$tmp/setcap-fail" "$tmp/setcap.log"
 }
 capture_fixture() { printf '#!/bin/sh\nexit 64\n' >"$bin/bandwhich"; chmod 0755 "$bin/bandwhich"; }
+disk_fixture() {
+  local executable_dir="${1:-$bin}"
+  mkdir -p "$root/sys/block/sda/queue" "$root/sys/block/sda/sda1/queue"
+  printf '1\n' >"$root/sys/block/sda/queue/rotational"
+  printf '1\n' >"$root/sys/block/sda/sda1/queue/rotational"
+  mkdir -p "$executable_dir"
+  printf '#!/bin/sh\nexit 97\n' >"$executable_dir/hdparm"
+  chmod 0755 "$executable_dir/hdparm"
+}
 # NixOS activation publishes its generated wrapper directory through bin.
 capture_wrapper="$root/run/wrappers/wrappers.fixture/bandwhich"
 capture_wrapper_fixture() {
@@ -319,7 +333,7 @@ last_out_is() { test "$(tail -n 1 "$tmp/out")" == "$1"; }
 sudo_calls() { cat -- "$tmp/sudo.log" 2>/dev/null; }
 no_sudo() { test ! -e "$tmp/sudo.log"; }
 state_json() { # STATE-REASON per step, table order
-  printf '{"steps":{"apple-displays":{"state":"%s","reason":"%s"},"i2c-dev":{"state":"%s","reason":"%s"},"service-bluetooth":{"state":"%s","reason":"%s"},"service-tailscaled":{"state":"%s","reason":"%s"},"service-cups":{"state":"%s","reason":"%s"},"tailscale-operator":{"state":"%s","reason":"%s"},"greeter":{"state":"%s","reason":"%s"},"bandwhich-capture":{"state":"absent","reason":"bandwhich-missing"},"reboot-notice":{"state":"absent","reason":"hook-missing"},"voxtype-engine":{"state":"absent","reason":"command-missing"},"vgs-quickshell-repository":{"state":"absent","reason":"command-missing"}}}' "$@"
+  printf '{"steps":{"apple-displays":{"state":"%s","reason":"%s"},"disk-sleep":{"state":"absent","reason":"no-disk"},"i2c-dev":{"state":"%s","reason":"%s"},"service-bluetooth":{"state":"%s","reason":"%s"},"service-tailscaled":{"state":"%s","reason":"%s"},"service-cups":{"state":"%s","reason":"%s"},"tailscale-operator":{"state":"%s","reason":"%s"},"greeter":{"state":"%s","reason":"%s"},"bandwhich-capture":{"state":"absent","reason":"bandwhich-missing"},"reboot-notice":{"state":"absent","reason":"hook-missing"},"voxtype-engine":{"state":"absent","reason":"command-missing"},"vgs-quickshell-repository":{"state":"absent","reason":"command-missing"}}}' "$@"
 }
 step_state() { # STEP: the state status --json reads for it
   "${row_env[@]}" "$vgs/bin/vgshell" system status --json </dev/null 2>/dev/null |
@@ -534,6 +548,48 @@ run_tty "an unattended apply is still asked" 1 apply apple-displays
 check "the unattended apply asked gum" test -e "$tmp/gum.log"
 check "the unattended decline runs no sudo" no_sudo
 tty_env=()
+
+# Disk sleep reads only sysfs and installed bytes; no command opens a disk.
+fresh
+check "disk sleep with no disks reads absent" test "$(step_state disk-sleep)" == "absent no-disk"
+disk_fixture
+printf '0\n' >"$root/sys/block/sda/queue/rotational"
+check "a nonrotational whole disk hides disk sleep even with a rotational partition" test "$(step_state disk-sleep)" == "absent no-disk"
+printf '1\n' >"$root/sys/block/sda/queue/rotational"
+check "a rotational disk needs setup" test "$(step_state disk-sleep)" == "needed not-set-up"
+rm -- "${bin:?}/hdparm"
+check "a rotational disk without hdparm keeps setup visible" test "$(step_state disk-sleep)" == "needed hdparm-missing"
+run "disk sleep cannot apply without hdparm" 1 "vgs-system: refused: command=missing name=hdparm" apply disk-sleep
+check "missing hdparm never asks sudo" no_sudo
+disk_fixture
+run_tty "disk sleep applies using stand-ins" 0 apply disk-sleep
+check "disk sleep installs the shipped bytes" cmp -s -- "$disk_rule_src" "$disk_rule"
+check "disk sleep reads installed bytes ready without running hdparm" test "$(step_state disk-sleep)" == "ready granted"
+check "disk sleep reloads and triggers only rotational whole disks" test "$(cat "$tmp/udevadm.log")" == "$(printf '%s\n' 'control --reload' 'trigger --subsystem-match=block --property-match=DEVTYPE=disk --attr-match=queue/rotational=1 --action=change --settle')"
+run_tty "disk sleep undo removes its owned rule" 0 undo disk-sleep
+check "disk sleep undo removes its rule and record" test ! -e "$disk_rule" -a ! -e "$records/disk-sleep"
+check "disk sleep after undo needs setup" test "$(step_state disk-sleep)" == "needed not-set-up"
+printf 'foreign rule\n' >"$disk_rule"
+tree_snapshot >"$tmp/before-tree"
+run "disk sleep refuses a foreign rule" 1 "vgs-system: refused: destination=foreign path=$disk_rule" apply disk-sleep
+tree_snapshot >"$tmp/after-tree"
+check "disk sleep foreign refusal writes nothing" untouched
+rm -- "$disk_rule"
+ln -s /dev/null "$disk_rule"
+run "disk sleep refuses a destination symlink" 1 "vgs-system: refused: destination=symlink path=$disk_rule" apply disk-sleep
+fresh; disk_fixture
+run_tty "disk sleep applies before an external edit" 0 apply disk-sleep
+printf 'edited rule\n' >"$disk_rule"
+run "disk sleep undo refuses an edited rule" 1 "vgs-system: refused: destination=foreign path=$disk_rule" undo disk-sleep
+check "disk sleep keeps the edited rule and its record" test -e "$disk_rule" -a -e "$records/disk-sleep"
+check "the disk rule runs only fixed hdparm arguments on whole rotational disks" test "$(awk '!/^[[:space:]]*(#|$)/' "$disk_rule_src")" == 'ACTION=="add|change", SUBSYSTEM=="block", ENV{DEVTYPE}=="disk", ATTR{queue/rotational}=="1", RUN+="/usr/bin/hdparm -S 241 $devnode"'
+fresh; disk_fixture "$root/usr/sbin"
+check "Debian's sbin hdparm package satisfies disk sleep" test "$(step_state disk-sleep)" == "needed not-set-up"
+run_tty "disk sleep renders the sbin package location" 0 apply disk-sleep
+check "the installed rule uses the absolute sbin path without its fake prefix" grep -qxF 'ACTION=="add|change", SUBSYSTEM=="block", ENV{DEVTYPE}=="disk", ATTR{queue/rotational}=="1", RUN+="/usr/sbin/hdparm -S 241 $devnode"' "$disk_rule"
+check "disk sleep reads the rendered sbin bytes ready" test "$(step_state disk-sleep)" == "ready granted"
+run_tty "disk sleep undo owns the rendered sbin rule" 0 undo disk-sleep
+check "sbin undo removes its rule and record" test ! -e "$disk_rule" -a ! -e "$records/disk-sleep"
 
 # apple-displays: the rule's bytes, the record's bytes and each root command.
 fresh
@@ -1265,6 +1321,14 @@ control() { # NAME NEEDLE REPLACEMENT
   place "$copy"
   fresh
 }
+control disk-rotational-blind '      1) found=1 ;;' '      0|1) found=1 ;;'
+disk_fixture
+printf '0\n' >"$root/sys/block/sda/queue/rotational"
+check "the disk-rotational-blind control exposes disk sleep for a nonrotational disk" test "$(step_state disk-sleep)" == "needed not-set-up"
+control disk-bytes-blind '    if [[ $sum == "$disk_rule_sum" ]]; then set_probe ready granted; return; fi' '    if true; then set_probe ready granted; return; fi'
+disk_fixture
+printf 'foreign rule\n' >"$disk_rule"
+check "the disk-bytes-blind control reads foreign bytes ready" test "$(step_state disk-sleep)" == "ready granted"
 control description-missing '[apply:tailscale-operator]=' '[apply:missing]='
 check "the missing-description control fails the step coverage check" test "$(descriptions_complete "$helper" && echo green || echo red)" == red
 control description-unused '  vgs_tui_step "${step_description[$verb:$step]}"' '  vgs_tui_step "$step"'

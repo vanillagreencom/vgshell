@@ -58,6 +58,7 @@ Item {
     readonly property string profilesInterface: "org.freedesktop.UPower.PowerProfiles"
     readonly property var profilesBus: ["--system", "--dest", profilesInterface, "--object-path", "/org/freedesktop/UPower/PowerProfiles"]
     readonly property bool profilesMissing: shell !== null && shell.requirements.missing.indexOf(profilesInterface) !== -1
+    readonly property var diskSleepStep: shell === null ? undefined : shell.system.state["disk-sleep"]
 
     onShellChanged: {
         if (shell === null || registered) return;
@@ -71,6 +72,7 @@ Item {
         checkNotices();
     }
     onViewKeyChanged: publish()
+    onDiskSleepStepChanged: publish()
     onNoticeKeyChanged: checkNotices()
     onSourceKeyChanged: observeSource()
     onProfilesMissingChanged: {
@@ -98,6 +100,21 @@ Item {
         report("battery", battery.present ? "present" : "absent");
         report("profiles", battery.present && profile.available ? "present" : "absent");
         report("profileRule", Logic.profileRuleText(battery.present));
+        if (diskSleepStep !== undefined) report("diskSleep", diskSleepValue());
+    }
+
+    // The core probes the step once for all holders. Publish nothing until
+    // that reading arrives, so Details keeps its standard Checking state.
+    function diskSleepValue() {
+        switch (diskSleepStep.state) {
+        case "absent": return { hidden: true };
+        case "ready": return { tone: "ok", text: "Allowed", action: false };
+        case "needed": return { tone: "warning", text: "Not allowed", action: true };
+        case "nixos": return { tone: "warning", text: "Needs your NixOS configuration", action: true };
+        case "denied": return { tone: "warning", text: "Managed elsewhere", action: false, hint: "Another disk sleep rule is already installed" };
+        case "unknown": return { tone: "warning", text: "Could not check", action: false, hint: "VGS could not read the hard disk setup" };
+        }
+        throw new Error("power: disk-sleep state=" + diskSleepStep.state);
     }
 
     function report(key, value) {

@@ -27,14 +27,30 @@
     "requirements",
     "shortcut",
     "status",
-    "surfaces"
+    "surfaces",
+    "system"
   ],
+  "capabilityKinds": {
+    "system": ["service"]
+  },
+  "systemSteps": ["disk-sleep"],
   "defaultSection": "right",
   "pane": {
     "group": "Hardware",
     "order": 50
   },
   "requirements": [
+    {
+      "command": "hdparm",
+      "packages": {
+        "pacman": "hdparm",
+        "apt": "hdparm",
+        "dnf": "hdparm",
+        "nix": "hdparm"
+      },
+      "optional": true,
+      "purpose": "Lets idle hard disks stop spinning"
+    },
     {
       "dbus": {
         "bus": "system",
@@ -163,6 +179,16 @@
     }
   },
   "status": {
+    "diskSleep": {
+      "type": "state",
+      "label": "Disk sleep",
+      "hint": "Stop hard disks after 30 minutes without use",
+      "info": "The delay lets a hard disk stop when you leave it unused, without stopping it during short pauses. Opening a file on a stopped disk can take longer while it starts again.",
+      "action": {
+        "label": "Allow",
+        "system": "disk-sleep"
+      }
+    },
     "power": {
       "type": "data",
       "label": "Power"

@@ -13,6 +13,15 @@
 #                        /etc/udev/rules.d/60-vgs-apple-displays.rules, then
 #                        `udevadm control --reload` and
 #                        `udevadm trigger --subsystem-match=hidraw --action=change --settle`
+#   disk-sleep           install config/system/udev/69-vgs-disk-sleep.rules in
+#                        /etc/udev/rules.d, reload udev and trigger a change on
+#                        whole rotational disks; a resolved absolute hdparm -S 241
+#                        sets their standby timeout to 30 minutes. Its probe
+#                        compares installed rule bytes only: hdparm cannot
+#                        read this timeout, and the probe performs no drive
+#                        action. Undo removes the rule but cannot restore an
+#                        unreadable previous timer; it stays programmed until
+#                        the device is reinitialized.
 #   i2c-dev              `modprobe i2c-dev`, then `udevadm settle`; the ddcutil package's
 #                        own udev rule and modules-load.d file grant the access and
 #                        load it at boot
@@ -220,11 +229,22 @@ sys="$prefix/sys"
 dev="$prefix/dev"
 boot_id_file="$prefix/proc/sys/kernel/random/boot_id"
 
+# hdparm -S only sets ATA IDLE's standby timeout; hdparm -C reads the
+# current power state, not the timer. hdparm 9.65 source, process_dev's
+# set_standby and process_args's SET_PARM('S'):
+# https://sources.debian.org/src/hdparm/9.65%2Bds-1/hdparm.c/
+# The disk-sleep probe therefore compares installed rule bytes only. It
+# neither opens a drive nor verifies that its firmware accepted the timer.
+disk_rule_source="$install_root/config/system/udev/69-vgs-disk-sleep.rules"
+disk_rule_dest="$rules_dir/69-vgs-disk-sleep.rules"
+
 # The closed table, in the order status prints it.
-steps=(apple-displays i2c-dev service-bluetooth service-tailscaled service-cups tailscale-operator greeter bandwhich-capture reboot-notice voxtype-engine vgs-quickshell-repository)
+steps=(apple-displays disk-sleep i2c-dev service-bluetooth service-tailscaled service-cups tailscale-operator greeter bandwhich-capture reboot-notice voxtype-engine vgs-quickshell-repository)
 declare -A step_description=(
   [apply:apple-displays]='Give this desktop access to Apple display controls. This lets VGS change their brightness.'
   [undo:apple-displays]='Remove the Apple display access rule that VGS added. This removes the brightness access from that rule.'
+  [apply:disk-sleep]='Allow hard disks to sleep after 30 minutes without disk activity. This installs a disk rule and applies it to connected hard disks.'
+  [undo:disk-sleep]='Remove the disk sleep rule that VGS installed. This leaves the timer already set on each disk unchanged.'
   [apply:i2c-dev]='Enable brightness controls for external displays. This lets VGS change their brightness.'
   [undo:i2c-dev]='Remove the display control access that VGS enabled during this start of the computer. This removes that access to external display controls.'
   [apply:service-bluetooth]='Start Bluetooth and enable it when the computer starts. This lets VGS connect your Bluetooth devices.'
@@ -378,6 +398,30 @@ display_adapter() { # PATH
     dir="${dir%/*}"
   done
   return 1
+}
+
+probe_disk_sleep() {
+  local entry rotational found=0
+  [[ -d $sys/block && -r $sys/block && -x $sys/block ]] || { set_probe unknown sysfs-unreadable; return; }
+  # /sys/block lists whole devices; partitions live below each device.
+  for entry in "$sys"/block/*; do
+    [[ -d $entry ]] || continue
+    rotational="$(<"$entry/queue/rotational")" || { set_probe unknown sysfs-unreadable; return; }
+    case "$rotational" in
+      1) found=1 ;;
+      0) ;;
+      *) set_probe unknown sysfs-unreadable; return ;;
+    esac
+  done
+  ((found == 1)) || { set_probe absent no-disk; return; }
+  command -v hdparm >/dev/null || { set_probe needed hdparm-missing; return; }
+  [[ -f $disk_rule_source && ! -L $disk_rule_source ]] || { set_probe unknown source-missing; return; }
+  render_disk_rule
+  if [[ -f $disk_rule_dest && ! -L $disk_rule_dest ]]; then
+    sha256_of "$disk_rule_dest"
+    if [[ $sum == "$disk_rule_sum" ]]; then set_probe ready granted; return; fi
+  fi
+  set_probe needed not-set-up
 }
 
 probe_i2c_dev() {
@@ -595,8 +639,18 @@ owned_by() { # DIR UID
 # Sets sum to TEXT's sha256 as a file holds it: TEXT and one newline, the
 # bytes `tee` writes from a here-string.
 text_sum() { # TEXT
-  sum="$(sha256sum <<<"$1")" || refuse 1 "hash=failed text=greeter"
+  sum="$(sha256sum <<<"$1")" || refuse 1 "hash=failed text=rendered"
   sum="${sum%% *}"
+}
+
+# The udev executable follows the same safe system path lookup as every
+# root command. The fixture prefix locates files, never a shipped RUN.
+render_disk_rule() {
+  local hdparm
+  program hdparm hdparm
+  disk_rule_text="$(<"$disk_rule_source")" || refuse 1 "source=unreadable path=$disk_rule_source"
+  disk_rule_text="${disk_rule_text//\/usr\/bin\/hdparm/${hdparm#"$prefix"}}"
+  text_sum "$disk_rule_text"; disk_rule_sum="$sum"
 }
 
 # Whether the files the greeter step reads from the install tree are there.
@@ -815,6 +869,7 @@ probe_voxtype_engine() {
 probe() { # STEP
   case "$1" in
     apple-displays) probe_apple_displays ;;
+    disk-sleep) probe_disk_sleep ;;
     i2c-dev) probe_i2c_dev ;;
     service-bluetooth|service-tailscaled) unit_of "$1"; probe_service "$unit" ;;
     service-cups) probe_cups ;;
@@ -858,6 +913,11 @@ nixos_snippet() { # STEP
       awk '!/^[[:space:]]*(#|$)/ { print "  " $0 }' "$rule_source"
       printf "'';\n"
       ;;
+    disk-sleep)
+      printf 'services.udev.extraRules = %s\n' "''"
+      awk '!/^[[:space:]]*(#|$)/ { gsub("/usr/bin/hdparm", "${pkgs.hdparm}/bin/hdparm"); print "  " $0 }' "$disk_rule_source"
+      printf "'';\n"
+      ;;
     voxtype-engine) printf 'environment.systemPackages = [ pkgs.voxtype ];\n' ;;
     i2c-dev) printf 'boot.kernelModules = [ "i2c-dev" ];\n' ;;
     service-bluetooth) printf 'hardware.bluetooth.enable = true;\n' ;;
@@ -895,7 +955,7 @@ read_record() { # STEP
   trusted "$record_dir" || refuse 1 "untrusted=$record_dir"
   trusted "$file" && [[ -f $file ]] || refuse 1 "record=untrusted path=$file"
   case "$1" in
-    apple-displays) allowed=' uid rule ' ;;
+    apple-displays|disk-sleep) allowed=' uid rule ' ;;
     i2c-dev) allowed=' uid loaded boot ' ;;
     service-*) allowed=' uid enabled started boot ' ;;
     tailscale-operator) allowed=' uid operator previous ' ;;
@@ -1022,6 +1082,36 @@ apply_apple_displays() {
     cmd "$install" -m 0644 -o root -g root -T -- "$rule_source" "$rule_dest"
   fi
   udev_reload
+}
+
+apply_disk_sleep() {
+  local hash recorded="" udevadm
+  [[ -f $disk_rule_source && ! -L $disk_rule_source ]] || refuse 1 "source=missing path=$disk_rule_source"
+  trusted "$rules_dir" || refuse 1 "untrusted=$rules_dir"
+  render_disk_rule
+  hash="$disk_rule_sum"
+  if read_record disk-sleep; then recorded="${record[rule]}"; fi
+  dest_state_of "$disk_rule_dest" "$recorded"
+  record_put disk-sleep "uid=$uid"$'\n'"rule=$hash"
+  if [[ $dest_state == none || $sum != "$hash" ]]; then
+    put_text "$disk_rule_dest" "$disk_rule_text"
+  fi
+  program udevadm udevadm
+  cmd "$udevadm" control --reload
+  cmd "$udevadm" trigger --subsystem-match=block --property-match=DEVTYPE=disk --attr-match=queue/rotational=1 --action=change --settle
+}
+
+undo_disk_sleep() {
+  local rm udevadm
+  trusted "$rules_dir" || refuse 1 "untrusted=$rules_dir"
+  dest_state_of "$disk_rule_dest" "${record[rule]}"
+  if [[ $dest_state == own ]]; then
+    program rm rm
+    cmd "$rm" -f -- "$disk_rule_dest"
+    program udevadm udevadm
+    cmd "$udevadm" control --reload
+  fi
+  record_drop disk-sleep
 }
 
 apply_i2c_dev() {
@@ -1313,6 +1403,7 @@ undo_tailscale_operator() {
 plan() { # VERB STEP
   case "$2" in
     apple-displays) "$1_apple_displays" ;;
+    disk-sleep) "$1_disk_sleep" ;;
     i2c-dev) "$1_i2c_dev" ;;
     service-bluetooth|service-tailscaled|service-cups) "$1_service" "$2" ;;
     tailscale-operator) "$1_tailscale_operator" ;;

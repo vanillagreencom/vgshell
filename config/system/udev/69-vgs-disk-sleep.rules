@@ -1,0 +1,5 @@
+# ATA standby timeout: hdparm(8) -S 241 is 30 minutes. No shell is run.
+# https://sources.debian.org/src/hdparm/9.65%2Bds-1/hdparm.8/
+# Whole rotational disks only; add covers boot/hotplug, change covers apply.
+# vgshell-system renders hdparm's absolute system path before installation.
+ACTION=="add|change", SUBSYSTEM=="block", ENV{DEVTYPE}=="disk", ATTR{queue/rotational}=="1", RUN+="/usr/bin/hdparm -S 241 $devnode"
