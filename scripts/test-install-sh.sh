@@ -688,6 +688,7 @@ arch_os="$tmp/os-arch"; printf 'NAME="Arch Linux"\nID=arch\n' >"$arch_os"
 pm_all="$tmp/pm-all"; mkdir -p "$pm_all"
 for pm in pacman apt-get dnf5 dnf nix; do stub "$pm_all" "$pm" "" 1; done
 low="$tmp/low"; mkdir -p "$low"
+stub "$low" qs "Quickshell 0.3.0"
 stub "$low" Hyprland "Hyprland 0.55.2 built from branch fixture"
 stub "$low" nmcli "nmcli tool, version 1.56.0"
 stub "$low" qrencode "qrencode version 4.1.1"
@@ -697,7 +698,7 @@ floor_rows() {
   RUN_PATH="$low:$pm_all:$tools_nogit" run "$installer" --version 0.1.0
   RUN_WRAP=()
   check "a floor miss exits 78" test "$status" = 78
-  check "a missing tool is named with have=none" err_has "install.sh: refused: floor=quickshell have=none need=0.3.1"
+  check "an installed engine below the floor names its version" err_has "install.sh: refused: floor=quickshell have=0.3.0 need=0.3.1"
   check "a tool below its floor names its version" err_has "install.sh: refused: floor=hyprland have=0.55.2 need=0.56"
   check "every miss is named, not the first alone" err_has "install.sh: refused: floor=git have=none need=present"
   check "the missing launcher is named with have=none" err_has "install.sh: refused: floor=xdg-terminal-exec have=none need=present"
@@ -913,8 +914,29 @@ git_rows() {
   run "$installer" --git
   check "a second --git refuses" refused 1 "install.sh: refused: git=exists path=$d/git"
 }
+arch_engine_row() { # BIN ENGINE: the curl --git route installs a missing engine but refuses an old one
+  local engine="$2" path="$tmp/engine-$2" tool
+  mkdir -p "$path"
+  for tool in "$stubs"/*; do
+    [[ ${tool##*/} == qs ]] || cp -- "$tool" "$path/"
+  done
+  [[ $engine == none ]] || stub "$path" qs "Quickshell $engine"
+  new_home "arch-engine-$engine"
+  git config --file "$h/.gitconfig" url."file://$bare".insteadOf https://github.com/vanillagreencom/vgshell.git
+  RUN_PATH="$path:$install_managers:$tools" run "$1" --git
+  if [[ $engine == none ]]; then
+    [[ $status == 0 && -f $d/git/bin/vgshell && -f $h/.fixture-engine-installed ]] &&
+      grep -qxF aur "$install_log" && grep -qxF vgshell-quickshell "$install_log"
+  else
+    refused 78 "install.sh: refused: floor=quickshell have=$engine need=0.3.1" &&
+      [[ ! -e $install_log && ! -e $d/git ]]
+  fi
+}
 echo "git"
 row_job git_rows
+for engine in none 0.3.0; do
+  row_job check "Arch curl install with engine=$engine" arch_engine_row "$installer" "$engine"
+done
 rows_join
 
 uninstall_rows() {
@@ -1066,6 +1088,8 @@ row_job rule running-shell running_row 'if [[ $tree == "$(readlink -f -- "$data"
 row_job rule keep-foreign-link keep_foreign_row '[[ $state != ours ]] || rm -f -- "$link"' 'rm -f -- "$link"'
 row_job rule keep-lock lock_kept_row '^(current|git|\.self-update-.*|[0-9]+' '^(current|git|\.self\.lock|\.self-update-.*|[0-9]+'
 row_job rule floor-need drift_row 'quickshell 0.3.1   ^Quickshell' 'quickshell 0.3.0   ^Quickshell'
+copy_with arch-missing-engine "$installer" '[[ $tool != quickshell || $manager != pacman ]] || continue' '[[ $tool != quickshell || $manager != pacman ]] || :'
+row_job control "a copy that refuses Arch's missing engine before the AUR group" arch_engine_row none
 row_job rule requirement-package drift_row 'dnf=util-linux-core' 'dnf=util-linux'
 row_job rule debian-floor-package debian_floor_row 'quickshell apt=quickshell dnf=vgshell-quickshell nix=quickshell' 'quickshell dnf=vgshell-quickshell nix=quickshell'
 row_job rule runtime-packages packages_row 'runtime_install() { # TREE' 'runtime_install() { return 0 # TREE'

@@ -274,10 +274,14 @@ EOF
     local tool need pattern probe out line have status start manager="" binary="" m family release bins elevate args pkg
     local -a argv lines misses=() names=() unread=() unpackaged=()
     mkdir -m 700 -- "$tmp/runtime" || refuse 1 "runtime=failed path=$tmp/runtime"
+    read -r manager binary <<<"$(primary_manager)" || true
     while read -r tool need pattern probe; do
       [[ -n $tool ]] || continue
       read -ra argv <<<"$probe"
       if ! command -v -- "${argv[0]}" >/dev/null; then
+        # Arch's runtime AUR group supplies the missing engine. Installed
+        # engines still pass through the version floor below.
+        [[ $tool != quickshell || $manager != pacman ]] || continue
         misses+=("$tool none $need")
         continue
       fi
@@ -311,7 +315,6 @@ EOF
     done
     if ((${#unread[@]} > 0)); then printf '%s\n' "${unread[@]}" >&2; fi
     ((${#names[@]} > 0)) || exit 78
-    read -r manager binary <<<"$(primary_manager)" || true
     if [[ -z $manager ]]; then
       printf 'No supported package manager found: install %s with your distribution'"'"'s package manager.\n' "${names[*]}" >&2
       printf '%s\n' "$supported" >&2
