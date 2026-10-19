@@ -9,11 +9,10 @@ import "Steps.js" as Steps
 // focuses like any other window, its top at `size.window.topShare` of the
 // monitor's height. It asks to be `size.window.width` wide, or the
 // screen's room's width when that is less, and as tall as the page it
-// shows, the list or a plugin page's shown tab, up to
-// `size.window.tallHeightShare` of the monitor's height, or the room under
-// that top when that is less (OverlayState.windowRoom), read from the
-// screen its `screens` capability gives; each page's Pane takes the same
-// cap, so the window host maps it at that height. Once it shows, each
+// shows, the list or a plugin page's shown tab, up to the one cap on a
+// shell window's height (OverlayState.windowRoom), read from the screen
+// its `screens` capability gives; each page's Pane takes the same cap, so
+// the window host maps it at that height. Once it shows, each
 // change of the shown page, the list, another plugin's page or another
 // tab, resizes it by the same rule through its `compositor` capability,
 // keeping its width and its top, so only its bottom edge moves. A change
@@ -107,7 +106,7 @@ FocusScope {
     implicitWidth: Math.floor(Math.min(Theme.size.window.width, OverlayState.room(screen).width))
     // The tallest the window opens, which each page takes as its
     // maximumHeight, so the window host maps a long page at it too.
-    readonly property real maxHeight: screen === null ? Theme.size.panel.maxHeight : Math.floor(Math.min(Theme.size.window.tallHeightShare * screen.height, OverlayState.windowRoom(screen).height))
+    readonly property real maxHeight: screen === null ? Theme.size.panel.maxHeight : OverlayState.windowRoom(screen).height
     // The shown page's height. It sizes the window only as it maps: the
     // window host calls open() before it shows the window, Quickshell 0.3.1
     // polishes the item tree just before it maps (proxywindow.cpp
@@ -139,8 +138,8 @@ FocusScope {
     // top-left go as one request through the `compositor` capability's
     // placeWindow, and no frame draws the box between them: the top and
     // the width stay and only the bottom edge moves. The height is the
-    // page's, up to `size.window.tallHeightShare` of the height of the
-    // screen the client is on now, and up to the bottom of that screen's
+    // page's, up to the cap of the screen the client is on now
+    // (OverlayState.windowRoom), and up to the bottom of that screen's
     // room (OverlayState.room) from the client's top, so a window the user
     // dragged low keeps its top and its page scrolls. The settings smoke
     // row reads the top and the height back. The window is the one client
@@ -186,7 +185,7 @@ FocusScope {
             // area, since Hyprland draws the border outside the window's box.
             const room = OverlayState.room(screen);
             const bottom = Math.floor(screen.y + room.y + room.height);
-            const height = Math.min(Math.ceil(root.page === "" ? list.fitHeight : detail.fitHeight), Math.floor(Theme.size.window.tallHeightShare * screen.height), bottom - client.at[1]);
+            const height = Math.min(Math.ceil(root.page === "" ? list.fitHeight : detail.fitHeight), OverlayState.windowRoom(screen).height, bottom - client.at[1]);
             if (height < 1) {
                 console.warn("settings: resize top=" + client.at[1] + " bottom=" + bottom);
                 return;

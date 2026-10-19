@@ -70,19 +70,22 @@ QtObject {
         };
     }
 
-    // The room under a shell window's pinned top on `output`, as { top,
-    // height } in the output's own logical pixels: the top the Hyprland
-    // layer's window rule maps every shell window at, `size.window.topShare`
-    // of the output's height rounded as that rule's `rint` rounds it
-    // (HyprlandLayer.appWindowLines), and the height from there to the
-    // bottom of room(output), so a window no taller ends inside the work
-    // area; no bound without an output. Every window's map height and the
-    // Plugins window's resize read it here.
+    // The room a shell window takes on `output`, as { top, height } in the
+    // output's own logical pixels: the top the Hyprland layer's window rule
+    // maps every shell window at, `size.window.topShare` of the output's
+    // height rounded as that rule's `rint` rounds it
+    // (HyprlandLayer.appWindowLines), and the one cap on every shell
+    // window's height, `size.window.tallHeightShare` of the output's
+    // height, or the height from that top to the bottom of room(output)
+    // when that is less, so a window no taller ends inside the work area;
+    // whole pixels, and no bound without an output. Every window's map
+    // height, the Plugins window's resize and the share picker's compact
+    // Area read it here.
     function windowRoom(output) {
         if (output === null || output === undefined) return { top: 0, height: Infinity };
         const top = Math.round(Theme.size.window.topShare * output.height);
         const below = room(output);
-        return { top: top, height: Math.max(1, below.y + below.height - top) };
+        return { top: top, height: Math.max(1, Math.floor(Math.min(Theme.size.window.tallHeightShare * output.height, below.y + below.height - top))) };
     }
 
     // The widest an overlay anchored to `item` may draw: `cap`, and never

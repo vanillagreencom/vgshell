@@ -61,33 +61,35 @@ window_address() { window_of "$1" address | python3 -c 'import json,sys; t=sys.s
 # rule and the window host put it: its centre across within 1 px of its
 # monitor's, its top within 1 px of `size.window.topShare` of the
 # monitor's height, rounded half up as the rule's `rint` rounds it, and its
-# bottom at or above the monitor's bottom less the reserved bottom edge and
-# `size.window.gutter`, the room's (OverlayState.windowRoom); else the
-# readings that miss. SHARE stands in for the token, for the control.
-window_placed() { # TITLE [SHARE]
-  local clients monitors share gutter
+# bottom at or above the cap's (OverlayState.windowRoom): that top plus
+# `size.window.tallHeightShare` of the monitor's height, or the monitor's
+# bottom less the reserved bottom edge and `size.window.gutter` when that
+# is higher; else the readings that miss. SHARE and CAP stand in for the
+# top's and the cap's tokens, for the controls.
+window_placed() { # TITLE [SHARE [CAP]]
+  local clients monitors share cap gutter
   clients="$(hypr -j clients)" && monitors="$(hypr -j monitors)" || return 1
-  share="${2:-$(ipc smoke themeValue size.window.topShare)}" && gutter="$(ipc smoke themeValue size.window.gutter)" || return 1
+  share="${2:-$(ipc smoke themeValue size.window.topShare)}" && cap="${3:-$(ipc smoke themeValue size.window.tallHeightShare)}" && gutter="$(ipc smoke themeValue size.window.gutter)" || return 1
   python3 -c '
 import json, math, sys
-clients, monitors, share, gutter = (json.loads(a) for a in sys.argv[1:5])
-cs = [c for c in clients if c["class"] == sys.argv[5] and c["title"] == sys.argv[6] and c["mapped"]]
+clients, monitors, share, cap, gutter = (json.loads(a) for a in sys.argv[1:6])
+cs = [c for c in clients if c["class"] == sys.argv[6] and c["title"] == sys.argv[7] and c["mapped"]]
 if len(cs) != 1: print("windows=%d" % len(cs)); sys.exit()
 c = cs[0]
 m = next(m for m in monitors if m["id"] == c["monitor"])
 mw, mh = m["width"] / m["scale"], m["height"] / m["scale"]
 x, y, w, h = c["at"] + c["size"]
 top = m["y"] + math.floor(share * mh + 0.5)
-bottom = m["y"] + mh - m["reserved"][3] - gutter
+bottom = min(m["y"] + mh - m["reserved"][3] - gutter, top + math.floor(cap * mh))
 out = []
 if abs(x + w / 2 - (m["x"] + mw / 2)) > 1: out.append("centre-x=%g want=%g" % (x + w / 2, m["x"] + mw / 2))
 if abs(y - top) > 1: out.append("top=%g want=%g" % (y, top))
-if y + h > bottom + 1: out.append("bottom=%g room-bottom=%g" % (y + h, bottom))
-print(" ".join(out) or "placed")' "$clients" "$monitors" "$share" "$gutter" "$shell_class" "$1"
+if y + h > bottom + 1: out.append("bottom=%g cap-bottom=%g" % (y + h, bottom))
+print(" ".join(out) or "placed")' "$clients" "$monitors" "$share" "$cap" "$gutter" "$shell_class" "$1"
 }
-# window_misplaced TITLE SHARE: `not-placed` when window_placed reads the
-# window anywhere but placed at SHARE, else `placed`.
-window_misplaced() { local r; r="$(window_placed "$1" "$2")" || return; [[ $r == placed ]] && echo placed || echo not-placed; }
+# window_misplaced TITLE SHARE [CAP]: `not-placed` when window_placed reads
+# the window anywhere but placed at SHARE and CAP, else `placed`.
+window_misplaced() { local r; r="$(window_placed "$@")" || return; [[ $r == placed ]] && echo placed || echo not-placed; }
 
 # The border the readings look for: a size and two colours no theme draws,
 # with no rounding, so the middle of a window's left edge shows the border
@@ -150,7 +152,7 @@ window_move_delta() { printf '[%s, %s]\n' "$window_move_dx" "$window_move_dy"; }
 # app_window_rows TITLE ID: the one shell window titled TITLE, plugin ID's
 # `window`, open and just mapped, is a Hyprland window: one client of the
 # shell's class, floating and placed by the `vgs:window` rule, centred across
-# at the pinned top, and ending inside the room, and focused;
+# at the pinned top, and ending inside its cap, and focused;
 # its border is 4 px of the active colour while it is focused and of the
 # inactive colour while the toplevel helper is; a move dispatch moves it
 # and a focus dispatch focuses it; an Escape typed while the helper has the
@@ -163,8 +165,9 @@ app_window_rows() {
   local title="$1" id="$2" address at_before keys_before
   expect_poll "$title is one client of the shell's class titled $title" 1 window_count "$title"
   expect_poll "the $title window floats" '[true]' window_of "$title" floating
-  geometry expect_poll "the $title window is centred across its monitor at the pinned top and ends inside the room" placed window_placed "$title"
+  geometry expect_poll "the $title window is centred across its monitor at the pinned top and ends inside its cap" placed window_placed "$title"
   geometry expect "control: the $title window read against a top share of 0.35 is not placed" not-placed window_misplaced "$title" 0.35
+  geometry expect "control: the $title window read against a height share of 0.05 is not placed" not-placed window_misplaced "$title" "" 0.05
   expect_poll "the $title window is focused" "[\"$shell_class\", \"$title\"]" active_window
   expect_poll "the shell reads the $title window holding the keyboard" true window_keyboard "$id"
   window_border_on

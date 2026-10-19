@@ -7,7 +7,7 @@
 **Research**: [VGS-582](https://linear.app/vanillagreen/issue/VGS-582)
 **Refines**: [D032](D032-settings-plugin-and-manifest-settings-convention.md)
 
-**Decision**: Kind `window` is a Hyprland toplevel built as a Quickshell `FloatingWindow` under the shell's one app class, floated by one core rule in the generated layer, centred across its output with its top pinned at `size.window.topShare` of the output's height, and mapped no taller than the room under that top (`OverlayState.windowRoom`). Every other surface is a transient overlay that closes on an outside click.
+**Decision**: Kind `window` is a Hyprland toplevel built as a Quickshell `FloatingWindow` under the shell's one app class, floated by one core rule in the generated layer, centred across its output with its top pinned at `size.window.topShare` of the output's height, and mapped no taller than the one cap every shell window shares, `size.window.tallHeightShare` of the output's height or the room under that top when that is less (`OverlayState.windowRoom`). Every other surface is a transient overlay that closes on an outside click.
 
 **Why**: Only a toplevel gets Hyprland's border, focus, keybinds and rules with no VGS code imitating them. One rule on one class keeps [D028](D028-one-generated-hyprland-layer.md) and [D033](D033-floating-tuis-are-core.md) whole. `scripts/smoke/app-window.sh` reads a window's rules back.
 

@@ -55,9 +55,10 @@ FocusScope {
     readonly property var built: {
         if (presented) return groups;
         // A row with its gap is no shorter than a field with the group gap,
-        // so this many rows fill the screen's room and the window's first
-        // size request is unchanged.
-        let rows = Math.ceil(OverlayState.room(screen).height / (Theme.textField.height + Theme.stack.group));
+        // so this many rows fill the cap the window host maps every window
+        // at (OverlayState.windowRoom) and the window's first size request
+        // is unchanged.
+        let rows = Math.ceil(OverlayState.windowRoom(screen).height / (Theme.textField.height + Theme.stack.group));
         const first = [];
         for (let i = 0; i < groups.length && rows > 0; rows -= groups[i++].binds.length) first.push(groups[i]);
         return first;

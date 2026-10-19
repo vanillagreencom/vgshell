@@ -319,9 +319,9 @@ var TOKENS = {
         },
         // A window-like panel: `width` wide, never closer than `gutter` to
         // either side of a narrower monitor, and `heightShare` of the
-        // monitor's height tall. A shell window maps with its top at
+        // monitor's height tall. Every shell window maps with its top at
         // `topShare` of its monitor's height and grows down to at most
-        // `tallHeightShare` of it, the Plugins window's pages included.
+        // `tallHeightShare` of it (OverlayState.windowRoom).
         window: {
             width: length(600),
             heightShare: share(0.5),

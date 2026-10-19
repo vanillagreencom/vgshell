@@ -248,23 +248,26 @@ Item {
             Hyprland.monitors = {};
         }
 
-        // The room under a shell window's pinned top: the top at
-        // `size.window.topShare` of the output's height, rounded to a whole
-        // pixel as the window rule's `rint` rounds it, and the height from
-        // there to the room's bottom, which the output's reserved bottom
-        // edge and the gutter keep from the output's bottom; with no output
-        // there is no bound.
+        // The room a shell window takes: the top at `size.window.topShare`
+        // of the output's height, rounded to a whole pixel as the window
+        // rule's `rint` rounds it, and the height `size.window.tallHeightShare`
+        // of the output's height in whole pixels, or from that top to the
+        // room's bottom, which the output's reserved bottom edge and the
+        // gutter keep from the output's bottom, when that is less; with no
+        // output there is no bound.
         function test_a_window_room_starts_at_the_pinned_top() {
             const gutter = Theme.size.window.gutter;
-            const share = Theme.size.window.topShare;
-            // 0.2 of 1067 is 213.4, so the top rounds down to 213; 0.2 of
-            // 1083 is 216.6, so it rounds up to 217.
-            compare(share, 0.2, "the worked figures below read the default share");
+            compare([Theme.size.window.topShare, Theme.size.window.tallHeightShare], [0.2, 0.6], "the worked figures below read the default shares");
+            // 0.2 of 1067 is 213.4, so the top rounds down to 213, and 0.6
+            // of it is 640.2, so the cap is 640; 0.2 of 1083 is 216.6, so
+            // the top rounds up to 217. 0.2 of 720 is 144, and 0.6 of it
+            // 432, short of the 576 less the gutter under that top.
             const output = { name: "one", width: 1366, height: 1067 };
-            compare(OverlayState.windowRoom(output), { top: 213, height: 1067 - gutter - 213 });
+            compare(OverlayState.windowRoom(output), { top: 213, height: 640 });
             compare(OverlayState.windowRoom({ name: "one", width: 1366, height: 1083 }).top, 217);
-            Hyprland.monitors = { one: { lastIpcObject: { reserved: { length: 4, 0: 0, 1: 40, 2: 0, 3: 30 } } } };
-            compare(OverlayState.windowRoom(output), { top: 213, height: 1067 - 30 - gutter - 213 }, "a reserved bottom edge shortens the room; the reserved top leaves the top where it is");
+            compare(OverlayState.windowRoom({ name: "one", width: 1280, height: 720 }), { top: 144, height: 432 });
+            Hyprland.monitors = { one: { lastIpcObject: { reserved: { length: 4, 0: 0, 1: 40, 2: 0, 3: 300 } } } };
+            compare(OverlayState.windowRoom(output), { top: 213, height: 1067 - 300 - gutter - 213 }, "a reserved bottom edge past the cap shortens the room; the reserved top leaves the top where it is");
             Hyprland.monitors = {};
             compare(OverlayState.windowRoom(null), { top: 0, height: Infinity });
         }

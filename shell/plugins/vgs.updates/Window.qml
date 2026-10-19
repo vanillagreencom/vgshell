@@ -53,7 +53,7 @@ FocusScope {
     }
 
     implicitWidth: Math.floor(Math.min(Theme.size.panel.lg, OverlayState.room(screen).width))
-    implicitHeight: Math.floor(Math.min(Theme.size.panel.maxHeight, OverlayState.room(screen).height))
+    implicitHeight: Math.floor(Math.min(Theme.size.panel.maxHeight, OverlayState.windowRoom(screen).height))
     focus: true
 
     // The sources' cursor, in the body's scrolling content with the rows:

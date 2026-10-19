@@ -73,7 +73,7 @@ Item {
     }
 
     implicitWidth: Math.floor(Math.min(look.window.width, OverlayState.room(screen).width))
-    implicitHeight: Math.floor(Math.min(look.window.maxHeight, OverlayState.room(screen).height))
+    implicitHeight: Math.floor(Math.min(look.window.maxHeight, OverlayState.windowRoom(screen).height))
 
     Pane {
         id: pane

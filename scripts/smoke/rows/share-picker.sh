@@ -28,8 +28,17 @@ hint=next(r for r in rows if r["type"]=="Label" and r.get("role")=="hint" and r[
 print(len(tabs)==3 and abs(strip["box"][2]-hint["box"][2])<1 and all(abs(t["box"][2]-tabs[0]["box"][2])<1 for t in tabs) and abs(tabs[-1]["box"][0]+tabs[-1]["box"][2]-strip["box"][0]-strip["box"][2])<1)'
 }
 share_tabs_width_check() { expect "the page tabs fill the content width equally" True share_tabs_span; }
+# share_area_fits: True when Area draws its full preview, selection, four
+# sliders and actions inside a window that ends inside its cap
+# (OverlayState.windowRoom): from the top at `size.window.topShare` of the
+# output's height, rounded half up as the window rule's `rint` rounds it,
+# `size.window.tallHeightShare` of that height, or to the work area's
+# bottom less the gutter when that is less. The body fits unscrolled with
+# every control in view, or, only in a window at the cap, scrolls with the
+# Area compacted to two columns of sliders and every control inside the
+# scrolled content.
 share_area_fits() {
-  local rows scroll aspect current window monitor border
+  local rows scroll aspect current window monitor border shares
   rows="$(ipc smoke descendantGeometry window vgs.capture)" || return
   scroll="$(ipc smoke itemValues window vgs.capture ScrollArea contentY,contentHeight,height)" || return
   aspect="$(share_read previewRect)" || return
@@ -37,12 +46,16 @@ share_area_fits() {
   window="$(surface_box window:Capture)" || return
   monitor="$(hypr -j monitors)" || return
   border="$(window_border_size)" || return
-  py_dumps "$rows" "$scroll" "$aspect" "$current" "$window" "$monitor" "$border" <<'PY'
-import json,sys
-rows,scroll,aspect,current,window,monitors,border=map(json.loads,sys.argv[1:])
+  shares="[$(ipc smoke themeValue size.window.topShare),$(ipc smoke themeValue size.window.tallHeightShare),$(ipc smoke themeValue size.window.gutter)]" || return
+  py_dumps "$rows" "$scroll" "$aspect" "$current" "$window" "$monitor" "$border" "$shares" <<'PY'
+import json,math,sys
+rows,scroll,aspect,current,window,monitors,border,(top_share,cap_share,gutter)=map(json.loads,sys.argv[1:])
 monitor=next(m for m in monitors if m['name']==current['name'])
 left,top,right,bottom=monitor['reserved']
-room=[monitor['x']+left,monitor['y']+top,monitor['width']/monitor['scale']-left-right,monitor['height']/monitor['scale']-top-bottom]
+mw,mh=monitor['width']/monitor['scale'],monitor['height']/monitor['scale']
+room=[monitor['x']+left,monitor['y']+top,mw-left-right,mh-top-bottom]
+pinned=monitor['y']+math.floor(top_share*mh+0.5)
+cap=math.floor(min(cap_share*mh,monitor['y']+mh-bottom-gutter-pinned))
 frame=[window[0]-border,window[1]-border,window[2]+2*border,window[3]+2*border]
 preview=next(r for r in rows if r['type']=='ScreencopyPreview')
 image_index=rows[preview['parent']]['parent']; image=rows[image_index]
@@ -54,18 +67,23 @@ hint=next(r for r in rows if r['type']=='Label' and r.get('role')=='hint' and r[
 def inside(a,b):
     x,y,w,h=a; X,Y,W,H=b
     return w>0 and h>0 and x>=X-1 and y>=Y-1 and x+w<=X+W+1 and y+h<=Y+H+1
+fits=len(scroll)==1 and scroll[0]['contentY']==0 and scroll[0]['contentHeight']<=scroll[0]['height']+1
+vx,vy,vw,_=viewport['box']
+# The scrolled content in the window's coordinates: what the body reaches.
+reach=viewport['box'] if fits else [vx,vy-scroll[0]['contentY'],vw,scroll[0]['contentHeight']] if len(scroll)==1 else [0,0,0,0]
+compact=len({round(r['box'][0]) for r in sliders})==2 and len({round(r['box'][1]) for r in sliders})==2
 print(len(actions)==2 and len(sliders)==4 and len(selection)==1
-      and inside(frame,room)
+      and inside(frame,room) and window[1]+window[3]<=pinned+cap+1
       and actions[0]['parent']==actions[1]['parent'] and inside(rows[actions[0]['parent']]['box'],rows[0]['box'])
-      and all(inside(r['box'],rows[0]['box']) for r in [image,hint,*actions,*sliders])
-      and all(inside(r['box'],viewport['box']) for r in [image,hint,*sliders])
+      and all(inside(r['box'],rows[0]['box']) for r in actions)
+      and all(inside(r['box'],reach) for r in [image,hint,*sliders])
       and inside(selection[0]['box'],image['box'])
       and aspect['width']>0 and aspect['height']>0
       and abs(aspect['width']/aspect['height']-current['width']/current['height'])<0.01
-      and len(scroll)==1 and scroll[0]['contentY']==0 and scroll[0]['contentHeight']<=scroll[0]['height']+1)
+      and (fits or (window[3]>=cap-1 and compact)))
 PY
 }
-share_area_check() { expect "Area keeps the full preview, selection, sliders and actions without scrolling" True share_area_fits; }
+share_area_check() { expect "Area keeps the full preview, selection, sliders and actions, and scrolls only at its cap with the Area compacted" True share_area_fits; }
 share_arg() { ipc smoke invokeInstance window vgs.capture "$1" "${2:-}" >/dev/null; }
 share_args() { ipc smoke invokeInstanceArgs window vgs.capture "$1" "$2" >/dev/null; }
 share_mapped() { ipc smoke instanceGeometry window vgs.capture | py_reply 'import json,sys; s=sys.stdin.read().strip(); print(s != "absent" and len(json.loads(s)) == 4)'; }
@@ -491,12 +509,15 @@ PY
 share_area_evidence="$source_repo/tmp/ui-shots/VGS-1164"
 SHOT_DIR="$(shot_dir_under "$source_repo" "$share_area_evidence")"
 share_original_mode="$(first_mode)"
-for share_size in standard minimum; do
-  if [[ $share_size == standard ]]; then
-    share_mode_size=1755x933
-  else
-    share_mode_size="$share_minimum_mode"
-  fi
+# The standard output, where Area compacts and scrolls at the cap, the
+# smallest output whose cap holds the compact Area, and the smallest whose
+# cap holds the full Area.
+for share_size in standard minimum full; do
+  case $share_size in
+    standard) share_mode_size=1755x933;;
+    minimum) share_mode_size="$share_minimum_mode";;
+    full) share_mode_size="$share_full_mode";;
+  esac
   hold_mode "Area evidence output" "$share_output" "$share_mode_size"
   for share_version in before after; do
     if [[ $share_version == before ]]; then share_control_start share-area-height-control; else share_control_restore share-area-height-control; fi
@@ -531,13 +552,17 @@ for share_size in standard minimum; do
           type_keys -k Tab || fail "share-picker: reaching the next slider failed"
         done
         if [[ $share_size == standard && $share_mode == dark ]]; then
-          # The smallest output whose room under the pinned top holds the
-          # compact Area (OverlayState.windowRoom): from the top, at
-          # `size.window.topShare` of the output's height rounded half up,
-          # to the output's bottom less a gutter, as wide as the window and
-          # a gutter a side.
-          share_minimum_mode="$(share_read sharingHeight | py_reply 'import math,sys; row,stack,gutter,width,share=(float(a) for a in sys.argv[1:6]); compact=math.ceil(float(sys.stdin.read())-2*(row+stack)); height=next(h for h in range(compact, 4*compact) if h-gutter-math.floor(share*h+0.5) >= compact); print("%dx%d" % (math.ceil(width+2*gutter), height))' "$(ipc smoke themeValue row.height)" "$(ipc smoke themeValue stack.row)" "$(ipc smoke themeValue size.window.gutter)" "$(ipc smoke themeValue size.window.width)" "$(ipc smoke themeValue size.window.topShare)")"
-          printf 'share-picker: minimum-output=%s full-area-height=%s\n' "$share_minimum_mode" "$(share_read sharingHeight)"
+          # The smallest outputs whose cap holds the compact and the full
+          # Area (OverlayState.windowRoom): `size.window.tallHeightShare` of
+          # the output's height, or from the top, at `size.window.topShare`
+          # of that height rounded half up, to the output's bottom less a
+          # gutter when that is less; as wide as the window and a gutter a
+          # side.
+          read -r share_minimum_mode share_full_mode < <(share_read sharingHeight | py_reply 'import math,sys
+row,stack,gutter,width,top,cap=(float(a) for a in sys.argv[1:7]); area=float(sys.stdin.read())
+def least(need): return next(h for h in range(need, 4*need) if math.floor(min(cap*h, h-gutter-math.floor(top*h+0.5))) >= need)
+print(" ".join("%dx%d" % (math.ceil(width+2*gutter), least(need)) for need in (math.ceil(area-2*(row+stack)), math.ceil(area))))' "$(ipc smoke themeValue row.height)" "$(ipc smoke themeValue stack.row)" "$(ipc smoke themeValue size.window.gutter)" "$(ipc smoke themeValue size.window.width)" "$(ipc smoke themeValue size.window.topShare)" "$(ipc smoke themeValue size.window.tallHeightShare)")
+          printf 'share-picker: minimum-output=%s full-output=%s full-area-height=%s\n' "$share_minimum_mode" "$share_full_mode" "$(share_read sharingHeight)"
         fi
       fi
       ipc smoke descendantGeometry window vgs.capture >"$share_area_evidence/$share_size-$share_version-$share_mode-geometry.json"

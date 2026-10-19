@@ -18,8 +18,8 @@ import qs.Ui
 // colour is not transparent and draws solid. The window maps once the plugin is
 // built, at the larger of the plugin's request and its window Pane's
 // content height, capped at that Pane's maximumHeight when it sets one and
-// bounded by the room under that top (OverlayState.windowRoom), so it ends
-// inside the work area. Quickshell sends a floating window
+// bounded by the one cap on a shell window's height
+// (OverlayState.windowRoom), so it ends inside the work area. Quickshell sends a floating window
 // no size change once it is shown, so that size is the first request only,
 // and the plugin fills whatever size Hyprland gives the window after. A
 // close through Hyprland, such as its killactive key, is `dismissed`, which
