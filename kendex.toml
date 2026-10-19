@@ -456,15 +456,15 @@ researcher = [
     "github",
     "linear",
 ]
-reviewer-arch = ["reviewer"]
-reviewer-correctness = ["reviewer"]
+reviewer-arch = ["reviewer", "code-quality"]
+reviewer-correctness = ["reviewer", "code-quality"]
 reviewer-doc = ["reviewer"]
-reviewer-error = ["reviewer"]
+reviewer-error = ["reviewer", "code-quality"]
 reviewer-perf = ["reviewer"]
-reviewer-quality = ["reviewer"]
+reviewer-quality = ["reviewer", "code-quality"]
 reviewer-safety = ["reviewer"]
 reviewer-security = ["reviewer"]
-reviewer-test = ["reviewer"]
+reviewer-test = ["reviewer", "code-quality"]
 scout = [
     "github",
     "linear",
