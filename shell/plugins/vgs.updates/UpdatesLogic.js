@@ -941,8 +941,9 @@ function widgetTooltip(values, now, timeText) {
 // new are commit ids.
 function packageLine(pkg) {
     if (typeof pkg.behind === "number") return pkg.name + ": " + countText(pkg.behind, "commit") + " behind";
-    if (pkg.old !== null && pkg.new !== null) return pkg.name + " " + pkg.old + " → " + pkg.new;
-    if (pkg.new !== null) return pkg.name + " → " + pkg.new;
+    var next = pkg.new !== null && /-git$/.test(pkg.name) ? "latest commit" : pkg.new;
+    if (pkg.old !== null && next !== null) return pkg.name + " " + pkg.old + " → " + next;
+    if (next !== null) return pkg.name + " → " + next;
     return pkg.name;
 }
 

@@ -184,6 +184,7 @@ case "$1 $2" in
   "ipc call")
     case "$5" in
       check)
+        if [ -e "$FIX/real-ipc" ]; then exec "$FIX/real-ipc" "$@"; fi
         if [ -e "$FIX/ipc-check-refuses" ]; then echo "refused: ipc=check reason=test"; exit 8; fi
         echo started ;;
       review)
@@ -208,6 +209,10 @@ stub "$stubs" gum 'case "$1" in
     for q; do :; done
     case "$q" in "Start the update?"*) f=start ;; Remove*) f=orphans ;; *Reboot*) f=reboot ;; Skip*) f=skip ;; Continue*) f=continue ;; *) f=other ;; esac
     st=0; [ ! -e "$FIX/answer-$f" ] || read -r st <"$FIX/answer-$f"; exit "$st" ;;
+  choose)
+    st=0; [ ! -e "$FIX/review-choice-exit" ] || read -r st <"$FIX/review-choice-exit"
+    [ "$st" = 0 ] || exit "$st"
+    if [ -e "$FIX/answer-review" ]; then cat "$FIX/answer-review"; else echo Yes; fi ;;
   style) while [ "$#" -gt 0 ] && [ "$1" != -- ]; do shift; done; [ "$#" -gt 0 ] && shift; for a; do printf "%s\n" "$a"; done ;;
 esac'
 # sudo refuses every authorization and every command while
@@ -316,6 +321,18 @@ SH
 done
 # flock records its call and runs the real one.
 stub "$stubs" flock "exec '$tools/flock' \"\$@\""
+# The real vgshell IPC command judges qs output and emits its keyed
+# multiline refusal. Its instance lock names this still-live suite.
+stub "$stubs" qs 'if [ -e "$FIX/qs-reply" ]; then cat "$FIX/qs-reply"; exit 0; fi
+if [ -e "$FIX/ipc-check-pending" ]; then
+  [ -e "$FIX/ipc-persistent" ] || rm -- "$FIX/ipc-check-pending"
+  echo "Target not found."
+  exit 0
+fi
+echo "updates-target-reached" >>"$CALLS"
+echo started'
+stub "$stubs" sleep 'if [ "$1" = 0.2 ] && [ -e "$FIX/fast-sleep" ]; then exit 0; fi
+exec "${0%/*}/../tools/sleep" "$@"'
 stub "$stubs" pikaur ''
 stub "$stubs" df 'a=99999999999; [ ! -e "$FIX/avail" ] || read -r a <"$FIX/avail"; printf "  Avail\n%s\n" "$a"'
 stub "$stubs" hyprctl 'exit 1'
@@ -353,7 +370,7 @@ mkdir -p -- "$dest"
 printf "%s\n" "$dest" >"$FIX/helper-build"'
 stub "$stubs" makepkg '[ ! -e "$FIX/fail-helper-makepkg" ] || exit 8'
 stub "$stubs" less ''
-for tool in bash env readlink dirname mkdir chmod mv rm script flock sleep cat id sed tee diff ln stty mktemp stat tail head timeout grep awk; do
+for tool in bash env readlink dirname mkdir chmod mv rm cp date script flock sleep cat id sed tee diff ln stty mktemp stat tail head timeout grep awk; do
   found="$(command -v "$tool")" || { echo "test-updates-pipeline: status=not-measured missing=$tool"; exit 77; }
   ln -s -- "$(readlink -f -- "$found")" "$tools/$tool"
 done
@@ -452,15 +469,16 @@ third_party() {
 # in $status, and the calls, but for the free-space and reboot probes and
 # the plan box, in $tmp/seq. PIPE_PATH puts a directory before the stubs.
 pipeline() {
-  local script_path="${PLUGIN:-$plugin}/tui/$1"
+  local script_path="${PLUGIN:-$plugin}/tui/$1" bound=()
   shift
   : >"$calls"
   status=0
+  [[ -z ${PIPE_DEADLINE:-} ]] || bound=(timeout "$PIPE_DEADLINE")
   "${base_env[@]}" PATH="${PIPE_PATH:+$PIPE_PATH:}$stubs:$tools" VGS_TUI_LIB="$tree/bin/lib/tui.sh" VGS_PLUGIN_ID=vgs.updates VGS_PLUGIN_DIR="${PLUGIN:-$plugin}" \
     XDG_STATE_HOME="$state" XDG_RUNTIME_DIR="$rt" HYPRLAND_INSTANCE_SIGNATURE=session CALLS="$calls" FIX="$fix" TERMINAL_OUT="$tmp/out" UPDATES_TEST_SECONDARY="${UPDATES_TEST_SECONDARY:-0}" \
-    script -qec "$(printf '%q ' "$tools/stty" cols "${PIPE_COLUMNS:-80}") && $(printf '%q ' "$BASH" "$script_path" "$@")" /dev/null <"$tmp/terminal-input" {terminal_input}>&- >"$tmp/out" 2>&1 || status=$?
+    "${bound[@]}" script -qec "$(printf '%q ' "$tools/stty" cols "${PIPE_COLUMNS:-80}") && $(printf '%q ' "$BASH" "$script_path" "$@")" /dev/null <"$tmp/terminal-input" {terminal_input}>&- >"$tmp/out" 2>&1 || status=$?
   local filtered=0
-  grep -v -e '^df ' -e '^uname ' -e '^gum style' -e '^flock ' -e '^pacman-conf --config ' -e '^yay --show ' -e '^$' -e $'^\e\\[22m' "$calls" |
+  grep -v -e '^df ' -e '^uname ' -e '^gum style' -e '^flock ' -e '^sleep ' -e '^pacman-conf --config ' -e '^yay --show ' -e '^$' -e $'^\e\\[22m' "$calls" |
     sed -E "s/ --config \/tmp\/vgs-updates-hooks\.[^ ]+\/pacman\.conf//g; s/ ${confirm_margins[*]}//" >"$tmp/seq" || filtered=$?
   # grep -v exits 1 when every call is filtered out, and above 1 when it failed.
   [[ $filtered -le 1 ]] || { echo "test-updates-pipeline: calls=unreadable exit=$filtered" >&2; exit 1; }
@@ -932,6 +950,57 @@ row_recheck_failure() {
   assert "a refused recheck is kept in diagnostics" diag_has "updates: recheck=failed exit=8 reply=refused: ipc=check reason=test"
   assert "a refused recheck still reaches the reboot check" grep -qxF "uname -r" "$calls"
 }
+# A package transaction replaces the command tree. The restarted core is
+# ready before its Updates service, as ServiceGate permits. The first call
+# observes the missing target; its completion releases the fixture's
+# registration barrier, and the next call reaches the new service.
+row_recheck_replaced_tree() {
+  reset_fix
+  settings "" false false
+  self_json package '"vgshell-git"' rebuild
+  touch "$fix/owner" "$fix/owner-changes" "$fix/running"
+  ln -s -- "$repo/bin/vgshell" "$fix/real-ipc"
+  printf '%s\n' "$$" >"$rt/vgshell.lock"
+  local replacement="$tmp/tree-next" previous="$tmp/tree-previous"
+  cp -R -- "$tree" "$replacement"
+  {
+    printf '#!%s\n' "$BASH"
+    printf '[[ ! -e %q ]] || exit 0\n' "$fix/tree-replaced"
+    printf 'mv -- %q %q\nmv -- %q %q\n' "$tree" "$previous" "$replacement" "$tree"
+    printf ': >%q\n: >%q\n' "$fix/tree-replaced" "$fix/ipc-check-pending"
+  } >"$fix/transaction"
+  chmod +x "$fix/transaction"
+  pipeline update.sh
+  assert "the package transaction replaced the command tree" test -d "$previous"
+  assert "the replacement run restarts the shell" has_call "vgshell restart"
+  assert "the replacement path starts no review session" no_call "$review_call"
+  assert "the recheck reaches the replacement's Updates service" has_call "updates-target-reached"
+  assert "a missing target during registration is not a failed recheck" test ! -e "$state/vgshell/updates/diagnostics.log"
+  rm -rf -- "${tree:?}"
+  mv -- "$previous" "$tree"
+}
+
+# The CLI distinguishes a missing service, an unavailable instance and a
+# rejected request. Fake sleep advances only the startup wait, not a clock
+# in the product; the persistent case must consume its existing ceiling.
+row_recheck_cli() {
+  local reply pending expected
+  while IFS='|' read -r reply pending expected; do
+    reset_fix
+    ln -s -- "$repo/bin/vgshell" "$fix/real-ipc"
+    printf '%s\n' "$$" >"$rt/vgshell.lock"
+    touch "$fix/fast-sleep"
+    [[ -z $reply ]] || printf '%s\n' "$reply" >"$fix/qs-reply"
+    [[ $pending != persistent ]] || touch "$fix/ipc-check-pending" "$fix/ipc-persistent"
+    PIPE_DEADLINE=20 pipeline update-source.sh flatpak
+    assert "the recheck finishes its CLI response class" test "$status" == 0
+    assert "the CLI class makes only its allowed calls" test "$(grep -c '^qs ipc ' "$calls")" == "$expected"
+    assert "a refused CLI response retains a diagnostic" grep -q '^updates: recheck=failed exit=69 ' "$state/vgshell/updates/diagnostics.log"
+  done <<'ROWS'
+Function not found.||1
+|persistent|301
+ROWS
+}
 row_declined() {
   reset_fix
   echo 1 >"$fix/answer-start"
@@ -1366,6 +1435,44 @@ row_review_clean() {
   assert "a clean verdict runs the AUR step as it is" has_call "vgshell pkg run upgrade --manager aur"
   assert "the review directory is removed" test ! -e "$dir"
 }
+# gum choose emits the submitted label only on success. Escape and runtime
+# failure emit no choice and exit 1; Ctrl-C exits 130 (gum 2.0.2
+# choose/command.go and main.go). They must never become a submitted No.
+row_review_choice() {
+  local answer code
+  while IFS='|' read -r answer code; do
+    reset_fix
+    third_party
+    printf '%s\n' "$answer" >"$fix/answer-review"
+    printf '%s\n' "$code" >"$fix/review-choice-exit"
+    printf 'verdict clean\n' >"$fix/verdict"
+    PIPE_PATH="$agents" pipeline update.sh
+    assert "the review choice preserves the producer status" test "$status" == "$code"
+    assert "the review choice has visible yes/no and selects no" grep -q '^gum choose --padding .* --selected No -- Yes No$' "$tmp/seq"
+    if [[ $code != 0 ]]; then
+      assert "an unsubmitted choice starts no review" no_call "$review_call"
+      assert "an unsubmitted choice changes no packages" no_call 'vgshell pkg run'
+      continue
+    fi
+    if [[ $answer == Yes ]]; then
+      assert "yes starts the review session" has_call "claude --model opus --effort medium --permission-mode default"
+      assert "yes fetches the package files for review" has_call "paru -G tool-bin"
+    else
+      assert "no starts no review session" no_call "$review_call"
+      assert "no runs no agent" no_call claude
+      assert "no fetches no review files" no_call 'paru -G'
+      assert "no needs no second bypass confirmation" no_call 'gum confirm --default=false -- Continue'
+    fi
+    assert "either answer upgrades official packages" has_call "vgshell pkg run upgrade --manager pacman"
+    assert "either answer upgrades non-official packages" has_call "vgshell pkg run upgrade --manager aur"
+  done <<'ROWS'
+Yes|0
+No|0
+|1
+|130
+|2
+ROWS
+}
 # r3b: separate runs use separate private directories under one stable
 # start directory, so the agent's folder trust sees the same path.
 row_review_start_stable() {
@@ -1641,8 +1748,8 @@ row_pipeline_plain() {
 }
 row_facts_plain; row_pipeline_plain
 row_full; row_trusted; row_snapshot; row_failure; row_failed_end; row_cause; row_system_failed; row_order; row_answer; row_cause_output; row_stopped; row_interrupted; row_reboot; row_reboot_core; row_reboot_unread; row_orphans; row_yes
-row_declined; row_busy; row_aur_command; row_aur_failure; row_doas; row_vgs_only; row_vgs_helper; row_vgs_git; row_vgs_step; row_rebuild_failed; row_source; row_recheck_failure; row_reboot_deferred; row_helper_configs; row_log
-row_review_off; row_review_no_agent; row_review_none_pending; row_review_clean; row_review_start_stable; row_review_flagged; row_review_no_verdict; row_review_no_helper; row_review_custom; row_review_install
+row_declined; row_busy; row_aur_command; row_aur_failure; row_doas; row_vgs_only; row_vgs_helper; row_vgs_git; row_vgs_step; row_rebuild_failed; row_source; row_recheck_failure; row_recheck_replaced_tree; row_recheck_cli; row_reboot_deferred; row_helper_configs; row_log
+row_review_off; row_review_no_agent; row_review_none_pending; row_review_choice; row_review_clean; row_review_start_stable; row_review_flagged; row_review_no_verdict; row_review_no_helper; row_review_custom; row_review_install
 row_review_install_links; row_review_split
 
 # Controls: each runs one row against a plugin copy whose FILE, relative
@@ -1687,6 +1794,7 @@ control no-recovery "trap '_updates_failed \$?' ERR" ':' row_stopped
 control no-reboot-check '  _updates_reboot "${_updates_core[@]}"' '  :' row_reboot
 control later-powers '    1) echo "Reboot later to run the updated system." ;;' '    1) "$_updates_vgshell" power reboot ;;' row_reboot
 control no-success-recheck '  _updates_recheck "$ended"' '  :' row_reboot
+control recheck-before-service 'local reply status polls=0' 'local reply status polls=300' row_recheck_replaced_tree
 control no-failure-recheck '  _updates_recheck failed' '  :' row_stopped
 control source-stops-run '  "$@" || status=$?' '  "$@"' row_failure
 # The step's stderr split from stdout through a pipe, as before VGS-1839.
@@ -1740,6 +1848,7 @@ control unknown-source-unchecked '_updates_refuse 2 "source=$only reason=unknown
 control review-ignores-toggle 'if (s.reviewThirdParty !== true) return' 'if (false) return' row_review_off UpdatesLogic.js
 control review-ignores-path 'return table.REVIEW_AGENTS.map(row => row.id).filter(onPath);' 'return table.REVIEW_AGENTS.map(row => row.id);' row_review_no_agent bin/facts
 control review-without-packages 'if [[ ${#reviewed[@]} -gt 0 ]]; then' 'if true; then' row_review_none_pending
+control review-without-consent '      No) return 0 ;;' '      No) ;;' row_review_choice
 control verdict-before-unlock '  flock "$lock"' '  :' row_review_clean
 control review-starts-from-run-dir 'cd -- "${dir%/*}"' 'cd -- "$dir"' row_review_start_stable tui/review.sh
 control prompt-placeholder-kept 'prompt="${prompt//\{review_dir\}/$dir}"' 'prompt="$prompt"' row_review_clean tui/review.sh

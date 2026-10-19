@@ -576,8 +576,26 @@ _updates_orphans() {
 }
 
 _updates_recheck() {
-  local reply status=0
-  reply="$("$_updates_vgshell" ipc call "$VGS_PLUGIN_ID" invoke check '' 2>&1)" || status=$?
+  local reply status polls=0 line unavailable
+  # restart waits for core `shell guarded`, while ServiceGate builds the
+  # plugin services after the bars. A package rescan can also replace this
+  # service. Wait for its registered check handler, not just the core PID.
+  while :; do
+    status=0
+    reply="$("$_updates_vgshell" ipc call "$VGS_PLUGIN_ID" invoke check '' 2>&1)" || status=$?
+    if [[ $status == 0 && ( $reply == started || $reply == queued ) ]]; then return 0; fi
+    # bin/vgshell emits its keyed refusal after qs's output, followed by
+    # an explanation. Consume that CLI contract, not the bare qs message.
+    unavailable=0
+    while IFS= read -r line; do
+      case "$line" in
+        "vgshell: refused: ipc=$VGS_PLUGIN_ID.invoke reason=target-not-found"|'vgshell: refused: shell=not-running '*) unavailable=1 ;;
+      esac
+    done <<<"$reply"
+    if [[ $status != 69 || $unavailable != 1 ]] || ((polls >= 300)); then break; fi
+    sleep 0.2
+    polls=$((polls + 1))
+  done
   if [[ $status -ne 0 || ( $reply != started && $reply != queued ) ]]; then
     _updates_diagnostic "updates: recheck=failed exit=$status reply=${reply%%$'\n'*}"
   fi
@@ -925,9 +943,19 @@ _updates_review_run() { # NAME...
 # and either answer goes on. LISTED is 0 when the packages could not be
 # listed, which is no verdict.
 _updates_review() { # LISTED
-  local status flag flags=() name line order=()
+  local status choice flag flags=() name line order=()
   local -A concerns=()
   if [[ $1 == 1 ]]; then
+    status=0
+    # gum confirm uses exit 1 for both No and Escape/errors. The existing
+    # choice owner emits a value only for a submitted selection.
+    choice="$(vgs_tui_choose --header "Review the non-official packages with $_updates_review_label?" --selected No -- Yes No)" || status=$?
+    [[ $status == 0 ]] || exit "$status"
+    case "$choice" in
+      Yes) ;;
+      No) return 0 ;;
+      *) exit 1 ;;
+    esac
     vgs_tui_step "Reviewing third-party packages in a second window"
     _updates_review_run "${_updates_review_aur[@]}" "${_updates_review_repo[@]}"
   else
@@ -1234,7 +1262,7 @@ updates_main() {
           review=1
           for name in "${reviewed[@]:0:6}"; do listing+="${listing:+, }$name"; done
           if [[ ${#reviewed[@]} -gt 6 ]]; then listing+=", and $((${#reviewed[@]} - 6)) more"; fi
-          review_line="Review: $_updates_review_label checks ${#reviewed[@]} third-party package$([[ ${#reviewed[@]} == 1 ]] || echo s): $listing"
+          review_line="Optional review: $_updates_review_label checks ${#reviewed[@]} third-party package$([[ ${#reviewed[@]} == 1 ]] || echo s): $listing"
         fi
       else
         review=2

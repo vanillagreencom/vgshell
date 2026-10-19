@@ -462,6 +462,19 @@ function verifyView(logic) {
     { key: "later", source: "later", label: "later", icon: "package", secondary: "1 update", badge: "1", badgeTone: "accent", updatable: true, detail: "", lines: ["x"], more: "" }
   ]);
   same(logic.windowRows({}), []);
+  for (const [source, pkg, line] of [
+    ["aur", { name: "kendex-git", old: "1:r1621.bf9bed514-1", new: "latest-commit" }, "kendex-git 1:r1621.bf9bed514-1 → latest commit"],
+    ["vgs", { name: "vgshell-git", old: "abc123", new: "def456" }, "vgshell-git abc123 → latest commit"],
+    ["pacman", { name: "another-git", old: null, new: "r10.abc-1" }, "another-git → latest commit"],
+    ["aur", { name: "release", old: "1", new: "2" }, "release 1 → 2"],
+    ["aur", { name: "tool-git-extra", old: "1", new: "2" }, "tool-git-extra 1 → 2"],
+    ["aur", { name: "unknown-git", old: "1", new: null }, "unknown-git"]
+  ]) {
+    const value = { sources: [{ source, count: 1, packages: [pkg], checkedAt: today, error: null }] };
+    const raw = JSON.stringify(value);
+    same(logic.windowRows(value)[0].lines, [line]);
+    assert.equal(JSON.stringify(value), raw, "display formatting preserves the raw package versions");
+  }
   // Under a failed source, the heading repeats no row and counts the
   // sources that could not be checked: here AUR and Plugins.
   const failedSource = Object.assign({}, values, { checkState: { tone: "warning", text: "AUR failed", hint: logic.errorText(sources[1].error) } });
@@ -669,6 +682,7 @@ function verifyNoticeOwner(logic) {
 verify(load(file, commons));
 
 const controls = [
+  ["git update rows show the commit target", 'pkg.new !== null && /-git$/.test(pkg.name) ? "latest commit" : pkg.new', 'pkg.new'],
   ["a missing launcher needs installation repair", 'if (/reason=launcher-missing/.test(reply))', 'if (false)'],
     ["diagnostics stay out of display text", 'function errorText(reason, inWindow) {', 'function errorText(reason, inWindow) { return String(reason);'],
   ["package rows count", "total += snapshot.sources[i].count;", "total += 0;"],
