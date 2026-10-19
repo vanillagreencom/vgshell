@@ -78,6 +78,10 @@
 # kept, reads it after the scan. A control that asserts something did
 # not happen waits for the line its fixture logs when it decides not to,
 # then reads once. Polls use expect_poll's reads 0.2 s apart.
+# Disk sleep stays hidden without a rotational disk. With fake hardware,
+# its Allow action opens the closed system step even while the PATH
+# scanner misses hdparm and the system probe finds it in safe directories.
+# The terminal records the request without running that step.
 # The row disables vgs.power, starts the mocks, then restarts the shell
 # before the first enable, so Quickshell's connect-once UPower singleton
 # binds to the mock no matter what earlier rows left. The row restores
@@ -152,7 +156,7 @@ power_restore_stand() {
 }
 
 power_widget() { ipc smoke readInstance "$(bar_key)" "${power_id:-vgs.power}" "$1"; }
-power_requirement_state() { ipc shell listPlugins | py_reply 'import json,sys; p=[p for p in json.load(sys.stdin)["plugins"] if p["id"]=="vgs.power"][0]; print([r["state"] for r in p["requirements"] if r["name"]=="org.freedesktop.UPower.PowerProfiles"][0])'; }
+power_requirement_state() { ipc shell listPlugins | py_reply 'import json,sys; p=[p for p in json.load(sys.stdin)["plugins"] if p["id"]=="vgs.power"][0]; print(next((r["state"] for r in p["requirements"] if r["name"]==sys.argv[1]), "undeclared"))' "${1:-org.freedesktop.UPower.PowerProfiles}"; }
 power_status() { ipc smoke statusValues "${power_id:-vgs.power}" | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin).get("power"), sort_keys=True, separators=(",", ":")))'; }
 power_status_charging() { power_status | py_reply 'import json,sys; print(json.load(sys.stdin)["battery"]["charging"])'; }
 power_status_dump() { power_status; }
@@ -397,7 +401,19 @@ EOF_STAND
   expect "with the profiles service present the section offers no install" no power_install_shown
   expect_poll "with no rotational disk the pane draws no Disk sleep row" 0 power_disk_drawn
   system_disk_fixture || { fail "power: the disk fixture could not be planted"; return 0; }
+  # The scanner reads the session PATH, while the system step resolves its
+  # safe system directories. Hide only private PATH links to reproduce a
+  # session PATH that omits the directory containing an installed hdparm.
+  [[ $shell_host_path == "$sandbox/host-path" && -d $shell_host_path && ! -L $shell_host_path ]] || { fail "power: the scanner PATH is not sandbox-owned"; return 0; }
+  power_hdparm_saved=""
+  if [[ -e $shell_host_path/hdparm || -L $shell_host_path/hdparm ]]; then
+    [[ -L $shell_host_path/hdparm ]] || { fail "power: the private hdparm PATH entry is not a link"; return 0; }
+    power_hdparm_saved="$(mktemp -d "$sandbox/power-hdparm.XXXXXX")" || { fail "power: the private hdparm link could not be kept"; return 0; }
+    mv -T -- "$shell_host_path/hdparm" "$power_hdparm_saved/hdparm"
+  fi
+  rm -f -- "${shim:?}/hdparm"
   rescan "rescan after adding the rotational disk answers ok"
+  expect_poll "the session PATH scanner misses the installed hdparm" missing power_requirement_state hdparm
   expect_poll "the disk step reads needed with the fake rotational disk" "needed not-set-up" system_disk_state
   expect_poll "the pane draws the Disk sleep state for the needed step" 1 power_disk_drawn
   expect_poll "the needed Disk sleep state offers Allow" True power_disk_action
@@ -419,6 +435,10 @@ EOF_STAND
   expect_poll "with no rotational disk the Disk sleep row disappears" 0 power_disk_drawn
   rm -rf -- "${devices_sysfs_root:?}/block/sda"
   rm -f -- "${devices_system_root:?}/usr/bin/hdparm" "${shim:?}/hdparm"
+  if [[ -n $power_hdparm_saved ]]; then
+    mv -T -- "$power_hdparm_saved/hdparm" "$shell_host_path/hdparm"
+    rmdir -- "$power_hdparm_saved"
+  fi
   click_in "window:System Settings" window vgs.power LinkText "[After 5 minutes](page:acme.power-away/Settings/lockAfter)" || fail "the click on the lock row's time failed"
   expect_poll "the lock row's link opens Settings at the lock owner's field" '"acme.power-away" "lockAfter"' power_settings_reveal
   expect "Settings hides after the timeline link" ok ipc shell hide window vgs.settings
