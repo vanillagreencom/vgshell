@@ -375,12 +375,14 @@ expect "the two bounded numbers draw sliders" 2 sliders
 # right inset. Unit mutations in tst_pane, tst_scroll and tst_spacing are
 # the controls for these geometry rules. `[]` is the pass.
 page_alignment() {
-  local rows label_w label_gap inset
+  local rows label_w label_gap inset ring_width ring_offset
   rows="$(settings_geometry)" || return
   label_w="$(ipc smoke themeValue field.labelWidth)" || return
   label_gap="$(ipc smoke themeValue field.labelGap)" || return
   inset="$(ipc smoke themeValue inset.window)" || return
-  ring="$(( $(ipc smoke themeValue focusRing.width) + $(ipc smoke themeValue focusRing.offset) ))" || return
+  ring_width="$(ipc smoke themeValue focusRing.width)" || return
+  ring_offset="$(ipc smoke themeValue focusRing.offset)" || return
+  ring=$((ring_width + ring_offset))
   python3 - "$rows" "$label_w" "$label_gap" "$inset" "$1" "$2" "$ring" "${3:-}" <<'PY'
 import json, sys
 sys.argv[1] = open(sys.argv[1]).read()

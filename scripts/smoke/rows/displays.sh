@@ -829,11 +829,16 @@ disp_bl_holds() { device_reply brightnessctl 0 "$disp_bl,backlight,$1,$1%,100" -
 # True once the service's rescan inputs held still for 1.5 s, past its
 # 1 s debounce, and the helper is idle, so no list an earlier change
 # started lands on a later reading; `moving` while they change.
+disp_revisions() {
+  local system requirements
+  system="$(disp_read systemRevision)" && requirements="$(disp_read requirementsRevision)" || return 1
+  echo "$system $requirements"
+}
 disp_settled() {
   local before after
-  before="$(disp_read systemRevision) $(disp_read requirementsRevision)" || return 1
+  before="$(disp_revisions)" || return 1
   sleep 1.5
-  after="$(disp_read systemRevision) $(disp_read requirementsRevision)" || return 1
+  after="$(disp_revisions)" || return 1
   if [[ $before != "$after" ]]; then echo moving; return 0; fi
   disp_idle
 }

@@ -113,10 +113,12 @@ press_system() { type_keys -M logo -k period -m logo; }
 # the detail's room when that is more; else both. The room is the page's
 # ScrollArea height less the focus ring's room above and below it.
 sys_pane_fits() { # ID
-  local box implicit rows ring
+  local box implicit rows ring ring_width ring_offset
   box="$(ipc smoke instanceGeometry window "$1")" && implicit="$(ipc smoke readInstance window "$1" implicitHeight)" && rows="$(ipc smoke descendantGeometry window vgs.system)" || return 1
   [[ $box == \[* && $rows == \[* ]] || { echo "pane=$box window=${rows:0:20}"; return; }
-  ring="$(( $(ipc smoke themeValue focusRing.width) + $(ipc smoke themeValue focusRing.offset) ))" || return 1
+  ring_width="$(ipc smoke themeValue focusRing.width)" || return 1
+  ring_offset="$(ipc smoke themeValue focusRing.offset)" || return 1
+  ring=$((ring_width + ring_offset))
   py_dumps "$box" "$implicit" "$rows" "$ring" <<'PY'
 import json, sys
 box, implicit, rows, ring = json.loads(sys.argv[1]), float(sys.argv[2]), json.loads(sys.argv[3]), float(sys.argv[4])

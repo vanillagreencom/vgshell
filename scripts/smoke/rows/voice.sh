@@ -322,10 +322,14 @@ voice_osd_click_begin() {
 }
 voice_osd_click_result() {
   local got
-  got="$(voice_client_events '^button 272 pressed$') $(voice_client_events '^button 272 released$')" || return 1
+  got="$(voice_client_counts)" || return 1
   [[ $got == "$voice_click_want" ]] && echo ok || echo "got=[$got] want=[$voice_click_want]"
 }
-voice_client_counts() { echo "$(voice_client_events '^button 272 pressed$') $(voice_client_events '^button 272 released$')"; }
+voice_client_counts() {
+  local down up
+  down="$(voice_client_events '^button 272 pressed$')" && up="$(voice_client_events '^button 272 released$')" || return 1
+  echo "$down $up"
+}
 voice_osd_click_assertion() {
   (failures=0 behaviour_failures=0
    expect_poll "a click under the orb reaches the client" ok voice_osd_click_result >"$sandbox/voice-osd-click-assertion.log"
