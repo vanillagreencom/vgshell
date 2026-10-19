@@ -1,0 +1,8 @@
+# Every hub stays wake-enabled: plugging a device into any USB port may wake.
+ACTION!="add|change", GOTO="vgs_wake_end"
+SUBSYSTEM!="usb", GOTO="vgs_wake_end"
+ENV{DEVTYPE}=="usb_device", ATTR{power/wakeup}=="enabled|disabled", ATTR{power/wakeup}="disabled"
+ENV{DEVTYPE}=="usb_device", ATTR{bDeviceClass}=="09|e0", ATTR{power/wakeup}=="enabled|disabled", ATTR{power/wakeup}="enabled"
+# The boot HID interface belongs to the USB device whose wake permission matters.
+ENV{DEVTYPE}=="usb_interface", ATTR{bInterfaceClass}=="03", ATTR{bInterfaceSubClass}=="01", ATTR{bInterfaceProtocol}=="01|02", ATTR{../power/wakeup}=="enabled|disabled", ATTR{../power/wakeup}="enabled"
+LABEL="vgs_wake_end"

@@ -60,6 +60,14 @@ system_question="Run these commands as root?"
 # the key help line in the terminal's own text colour, with no theme.
 system_prompt="$system_question"$'\n\n\e[22m\e[39m←→ choose • Enter confirm • y Yes • n No\e[0m'
 expect "the sandbox copy's system steps resolve in the fakes' tree" prefixed devices_system_tree
+devices_usb_wake disabled
+system_wake_status() {
+  "${sandbox_env[@]}" "$repo/bin/vgshell" system status --json | py_reply 'import json,sys; s=json.load(sys.stdin)["steps"]["wake-sources"]; print(s["state"] + " " + s["reason"])'
+}
+expect "a disabled fake USB hub needs the wake step" "needed wake-mismatch" system_wake_status
+devices_usb_wake enabled
+expect "live fake USB wake permissions make the step ready without a rule" "ready granted" system_wake_status
+devices_usb_wake remove
 # The Fedora repository step resolves only inside this isolated system
 # tree. Without its package manager it cannot touch a host repository.
 system_engine_repository() {

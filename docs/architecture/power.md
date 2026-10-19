@@ -6,7 +6,7 @@ Read before touching the idle path, a stage of dim, screensaver, display off, lo
 
 The idle path is a set of stages. Each stage has one owner, and each owner holds its own watch on the core's idle source, `shell/Core/IdleRegistry.qml`, lent through capability `idle` ([D062](../decisions/D062-native-lock-and-polkit-plugins.md)). A watch counts from the later of the last input the seat saw and the watch's own creation, since Hyprland starts a notification's timer when the shell creates it. No owner reads another owner's setting, so any order of values has a defined result. `vgs.power` is the one energy plugin. The choice is [D109](../decisions/D109-idle-path-one-owner-per-stage.md).
 
-Today the code holds the idle source, the dim, the screensaver, the lock and the lock before sleep. Every other row below is designed: the named child item adds its code and its pin, and until then no code holds it.
+Today the code holds the idle source, the dim, the screensaver, the lock, the lock before sleep and wake sources. Every other row below is designed: the named child item adds its code and its pin, and until then no code holds it.
 
 | Stage | Owner | What it does | State |
 |---|---|---|---|
@@ -21,7 +21,7 @@ Today the code holds the idle source, the dim, the screensaver, the lock and the
 | Resume | `vgs.power` | turns the panels on and restarts its own watches after a wake from sleep | VGS-1906 |
 | Session Sleep and Hibernate actions | `vgs.power` | launcher rows, offered only while logind answers yes | VGS-1908 |
 | Power button and lid | logind, set by `vgs.power` through system steps | the action the key or the lid takes | VGS-1909 |
-| Wake sources | `vgs.power` through a system step and BlueZ | only keyboards, pointers and the power button wake the machine | VGS-1910 |
+| Wake sources | `vgs.power` through a system step and BlueZ | keyboards, pointers, the power button and USB connection changes can wake the machine | holds |
 | Wake on LAN | `vgs.power` through NetworkManager | on or off per wired connection | VGS-1911 |
 | Disk sleep | `vgs.power` through a system step | spins down idle rotational disks | VGS-1912 |
 | Power profiles, battery alerts | `vgs.power` | as today | holds |
@@ -99,8 +99,9 @@ The power button and the lid must act while the shell is down: a laptop closed i
 
 - Do set the power button and the lid as logind drop-ins written by a system step, never as a shell bind over a key logind ignores. Designed: VGS-1909 adds a step that takes one value from the closed set its row in `bin/vgshell-system` names, the one owner of that set, pinned by `scripts/test-vgshell-system.sh`.
 - Never restart `systemd-logind` to apply a drop-in. Designed: VGS-1909 states the reload route it measured.
-- Do allow wake only from USB keyboards and pointers, the hubs on the path to one of them, Bluetooth controllers and the power button. A device plugged into an enabled hub during sleep still wakes the machine, because a hub that may wake signals a port connect; VGS accepts this. Designed: VGS-1910 ships the udev rule and its step.
-- Do allow Bluetooth wake only on paired keyboards and pointers, through BlueZ's per-device `WakeAllowed`, written by `vgs.power` once the wake step reads ready. Designed: VGS-1910.
+- Do enable USB wake on devices with a HID boot keyboard or mouse interface, every USB hub including root hubs, and Bluetooth controllers. Disable it on other wake-capable USB devices. `config/system/udev/90-vgs-wake.rules` writes only `power/wakeup`, with no helper or topology reconciliation. The `wake-sources` system step probes the live attributes, reloads the rule and triggers USB change events on apply and undo. `scripts/test-vgshell-system.sh` pins the probe and ownership refusal; `scripts/smoke/rows/system-steps.sh` reads the step in the fake system tree.
+- Do accept that connecting a device to any USB port during sleep can wake the machine. Linux v6.17 [hub.c, lines 3992–4001](https://github.com/torvalds/linux/blob/v6.17/drivers/usb/core/hub.c#L3992-L4001) arms connect and disconnect wake for every superspeed hub port; [xhci-hub.c, lines 1731 and 1795–1807](https://github.com/torvalds/linux/blob/v6.17/drivers/usb/host/xhci-hub.c#L1795-L1807) applies the root hub's wake permission to port connection events. A device's own remote wake permission is separate: [driver.c, lines 1548–1572](https://github.com/torvalds/linux/blob/v6.17/drivers/usb/core/driver.c#L1548-L1572) reads `device_may_wakeup`, and [hub.c, lines 3509–3517](https://github.com/torvalds/linux/blob/v6.17/drivers/usb/core/hub.c#L3509-L3517) enables device remote wake accordingly. OTG wake signals can bypass that permission, as the same code notes. Hardware acceptance remains the owner's live check after the hold ends.
+- Do allow Bluetooth wake only on paired keyboards and pointers, through BlueZ's per-device `WakeAllowed`, written by `vgs.power` once the wake step reads ready. `scripts/smoke/rows/power.sh` pins the writes over stand-in devices on the private bus.
 - Do set Wake on LAN on the NetworkManager connection, which reapplies it at each link up. Designed: VGS-1911.
 - Do offer disk sleep only while a rotational disk exists; the step's probe reads `absent` without one. Designed: VGS-1912.
 
@@ -114,7 +115,7 @@ The power button and the lid must act while the shell is down: a laptop closed i
 - Quickshell can own a D-Bus object, so VGS can honour `org.freedesktop.ScreenSaver` inhibits.
 - A stage must draw a window, which would restart every watch, or must know another stage's state beyond the stage record.
 - A panel stays dark, or goes dark again over an unlocked session, after a wake from sleep; or an Apple panel stays lit under DPMS off.
-- A device plugged in during sleep wakes the machine often enough that the owner asks to stop it.
+- A device connected or disconnected during sleep wakes the machine often enough that the owner asks to stop it.
 - The owner asks for a stay-awake toggle.
 - A measured time from a sleep request to a secure lock nears the delay budget `vgs.lock` reads from logind.
 - VGS targets a laptop's keyboard backlight, a display on a connector logind does not count for the lid, or a game that a gamepad keeps busy while the seat reads idle.

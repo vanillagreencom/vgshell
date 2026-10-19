@@ -13,6 +13,9 @@
 #                        /etc/udev/rules.d/60-vgs-apple-displays.rules, then
 #                        `udevadm control --reload` and
 #                        `udevadm trigger --subsystem-match=hidraw --action=change --settle`
+#   wake-sources         install config/system/udev/90-vgs-wake.rules, then reload
+#                        udev and trigger USB change events; enables keyboards,
+#                        mice, Bluetooth controllers and every USB hub
 #   i2c-dev              `modprobe i2c-dev`, then `udevadm settle`; the ddcutil package's
 #                        own udev rule and modules-load.d file grant the access and
 #                        load it at boot
@@ -182,6 +185,8 @@ lib_dir="$bin_dir/lib"
 rule_source="${bin_dir%/*}/config/system/udev/60-vgs-apple-displays.rules"
 rules_dir="$prefix/etc/udev/rules.d"
 rule_dest="$rules_dir/60-vgs-apple-displays.rules"
+wake_rule_source="${bin_dir%/*}/config/system/udev/90-vgs-wake.rules"
+wake_rule_dest="$rules_dir/90-vgs-wake.rules"
 record_dir="$prefix/var/lib/vgshell/system"
 # The CachyOS reboot hook pacman runs from its system hook directory, and
 # the same name in /etc/pacman.d/hooks, pacman's default HookDir, which
@@ -221,10 +226,12 @@ dev="$prefix/dev"
 boot_id_file="$prefix/proc/sys/kernel/random/boot_id"
 
 # The closed table, in the order status prints it.
-steps=(apple-displays i2c-dev service-bluetooth service-tailscaled service-cups tailscale-operator greeter bandwhich-capture reboot-notice voxtype-engine vgs-quickshell-repository)
+steps=(apple-displays i2c-dev service-bluetooth service-tailscaled service-cups tailscale-operator greeter bandwhich-capture reboot-notice voxtype-engine vgs-quickshell-repository wake-sources)
 declare -A step_description=(
   [apply:apple-displays]='Give this desktop access to Apple display controls. This lets VGS change their brightness.'
   [undo:apple-displays]='Remove the Apple display access rule that VGS added. This removes the brightness access from that rule.'
+  [apply:wake-sources]='Allow keyboards, mice and the power button to wake the computer. Connecting a device to any USB port can also wake it.'
+  [undo:wake-sources]='Remove the wake rule that VGS added. USB devices return to the remaining system wake rules.'
   [apply:i2c-dev]='Enable brightness controls for external displays. This lets VGS change their brightness.'
   [undo:i2c-dev]='Remove the display control access that VGS enabled during this start of the computer. This removes that access to external display controls.'
   [apply:service-bluetooth]='Start Bluetooth and enable it when the computer starts. This lets VGS connect your Bluetooth devices.'
@@ -363,6 +370,36 @@ probe_apple_displays() {
   elif ((denied == 1)); then set_probe needed hidraw-denied
   else set_probe ready granted
   fi
+}
+
+probe_wake_sources() {
+  local entry interface class wake interface_class subclass protocol expected found=0
+  for entry in "$sys"/bus/usb/devices/*; do
+    # Interfaces have no bDeviceClass; empty wakeup means no wake support.
+    [[ -f $entry/bDeviceClass && -f $entry/power/wakeup ]] || continue
+    [[ -r $entry/bDeviceClass && -r $entry/power/wakeup ]] || { set_probe unknown sysfs-unreadable; return; }
+    class="$(<"$entry/bDeviceClass")" || { set_probe unknown sysfs-unreadable; return; }
+    wake="$(<"$entry/power/wakeup")" || { set_probe unknown sysfs-unreadable; return; }
+    [[ -n $wake ]] || continue
+    found=1 expected=disabled
+    case "$class" in
+      09|e0) expected=enabled ;;
+      *)
+        for interface in "$entry"/*:*; do
+          [[ -f $interface/bInterfaceClass ]] || continue
+          [[ -r $interface/bInterfaceClass && -r $interface/bInterfaceSubClass && -r $interface/bInterfaceProtocol ]] || { set_probe unknown sysfs-unreadable; return; }
+          interface_class="$(<"$interface/bInterfaceClass")" && subclass="$(<"$interface/bInterfaceSubClass")" && protocol="$(<"$interface/bInterfaceProtocol")" || { set_probe unknown sysfs-unreadable; return; }
+          if [[ $interface_class == 03 && $subclass == 01 && $protocol == 0[12] ]]; then
+            expected=enabled
+            break
+          fi
+        done
+        ;;
+    esac
+    case "$wake" in enabled|disabled) ;; *) set_probe unknown sysfs-unreadable; return ;; esac
+    [[ $wake == "$expected" ]] || { set_probe needed wake-mismatch; return; }
+  done
+  if ((found)); then set_probe ready granted; else set_probe absent no-device; fi
 }
 
 # Whether the i2c adapter at sysfs PATH serves a display: an ancestor's
@@ -815,6 +852,7 @@ probe_voxtype_engine() {
 probe() { # STEP
   case "$1" in
     apple-displays) probe_apple_displays ;;
+    wake-sources) probe_wake_sources ;;
     i2c-dev) probe_i2c_dev ;;
     service-bluetooth|service-tailscaled) unit_of "$1"; probe_service "$unit" ;;
     service-cups) probe_cups ;;
@@ -853,9 +891,11 @@ detect_or_refuse() {
 
 nixos_snippet() { # STEP
   case "$1" in
-    apple-displays)
+    apple-displays|wake-sources)
       printf 'services.udev.extraRules = %s\n' "''"
-      awk '!/^[[:space:]]*(#|$)/ { print "  " $0 }' "$rule_source"
+      local source="$rule_source"
+      [[ $1 != wake-sources ]] || source="$wake_rule_source"
+      awk '!/^[[:space:]]*(#|$)/ { print "  " $0 }' "$source"
       printf "'';\n"
       ;;
     voxtype-engine) printf 'environment.systemPackages = [ pkgs.voxtype ];\n' ;;
@@ -895,7 +935,7 @@ read_record() { # STEP
   trusted "$record_dir" || refuse 1 "untrusted=$record_dir"
   trusted "$file" && [[ -f $file ]] || refuse 1 "record=untrusted path=$file"
   case "$1" in
-    apple-displays) allowed=' uid rule ' ;;
+    apple-displays|wake-sources) allowed=' uid rule ' ;;
     i2c-dev) allowed=' uid loaded boot ' ;;
     service-*) allowed=' uid enabled started boot ' ;;
     tailscale-operator) allowed=' uid operator previous ' ;;
@@ -984,11 +1024,11 @@ record_drop() { # STEP
   cmd "$rm" -f -- "$record_dir/$1"
 }
 
-udev_reload() {
+udev_reload() { # SUBSYSTEM
   local udevadm
   program udevadm udevadm
   cmd "$udevadm" control --reload
-  cmd "$udevadm" trigger --subsystem-match=hidraw --action=change --settle
+  cmd "$udevadm" trigger "--subsystem-match=$1" --action=change --settle
 }
 
 # Refuses PATH when it is a symbolic link: no destination is followed.
@@ -1005,23 +1045,29 @@ dest_state_of() { # DEST HASH
   [[ -n $2 && $sum == "$2" ]] || refuse 1 "destination=foreign path=$1" "a file VGS did not write is never overwritten"
   dest_state=own
 }
-rule_dest_state() { dest_state_of "$rule_dest" "$1"; } # HASH
+udev_rule_of() { # STEP
+  case "$1" in
+    apple-displays) source="$rule_source" destination="$rule_dest" subsystem=hidraw ;;
+    wake-sources) source="$wake_rule_source" destination="$wake_rule_dest" subsystem=usb ;;
+  esac
+}
 
-apply_apple_displays() {
-  local hash recorded="" install
-  [[ -f $rule_source && ! -L $rule_source ]] || refuse 1 "source=missing path=$rule_source"
+apply_udev_rule() { # STEP
+  local hash recorded="" install source destination subsystem
+  udev_rule_of "$1"
+  [[ -f $source && ! -L $source ]] || refuse 1 "source=missing path=$source"
   trusted "$rules_dir" || refuse 1 "untrusted=$rules_dir"
-  sha256_of "$rule_source"
+  sha256_of "$source"
   hash="$sum"
-  if read_record apple-displays; then recorded="${record[rule]}"; fi
+  if read_record "$1"; then recorded="${record[rule]}"; fi
   # Leaves sum at the destination's hash when the file there is VGS's.
-  rule_dest_state "$recorded"
-  record_put apple-displays "uid=$uid"$'\n'"rule=$hash"
+  dest_state_of "$destination" "$recorded"
+  record_put "$1" "uid=$uid"$'\n'"rule=$hash"
   if [[ $dest_state == none || $sum != "$hash" ]]; then
     program install install
-    cmd "$install" -m 0644 -o root -g root -T -- "$rule_source" "$rule_dest"
+    cmd "$install" -m 0644 -o root -g root -T -- "$source" "$destination"
   fi
-  udev_reload
+  udev_reload "$subsystem"
 }
 
 apply_i2c_dev() {
@@ -1272,15 +1318,16 @@ undo_reboot_notice() {
   record_drop reboot-notice
 }
 
-undo_apple_displays() {
-  local rm
-  rule_dest_state "${record[rule]}"
+undo_udev_rule() { # STEP
+  local rm source destination subsystem
+  udev_rule_of "$1"
+  dest_state_of "$destination" "${record[rule]}"
   if [[ $dest_state == own ]]; then
     program rm rm
-    cmd "$rm" -f -- "$rule_dest"
-    udev_reload
+    cmd "$rm" -f -- "$destination"
+    udev_reload "$subsystem"
   fi
-  record_drop apple-displays
+  record_drop "$1"
 }
 
 undo_i2c_dev() {
@@ -1312,7 +1359,7 @@ undo_tailscale_operator() {
 # Calls VERB's plan for STEP in the current mode.
 plan() { # VERB STEP
   case "$2" in
-    apple-displays) "$1_apple_displays" ;;
+    apple-displays|wake-sources) "$1_udev_rule" "$2" ;;
     i2c-dev) "$1_i2c_dev" ;;
     service-bluetooth|service-tailscaled|service-cups) "$1_service" "$2" ;;
     tailscale-operator) "$1_tailscale_operator" ;;

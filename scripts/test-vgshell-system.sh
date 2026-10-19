@@ -32,6 +32,8 @@ root="$tmp/root"; bin="$root/usr/bin"
 vgs="$tmp/vgshell"; helper="$vgs/bin/vgshell-system"
 rule_src="$vgs/config/system/udev/60-vgs-apple-displays.rules"
 rule="$root/etc/udev/rules.d/60-vgs-apple-displays.rules"
+wake_src="$vgs/config/system/udev/90-vgs-wake.rules"
+wake_rule="$root/etc/udev/rules.d/90-vgs-wake.rules"
 records="$root/var/lib/vgshell/system"
 hidraw="$root/dev/hidraw0"
 greeter_src="$vgs/config/system/greeter"
@@ -46,6 +48,7 @@ cp -- "$repo/bin/vgshell-pkg" "$vgs/bin/vgshell-pkg"
 cp -R -- "$repo/bin/lib" "$vgs/bin/lib"
 cp -- "$repo/shell/Core/PackageManagers.js" "$vgs/shell/Core/PackageManagers.js"
 cp -- "$repo/config/system/udev/60-vgs-apple-displays.rules" "$rule_src"
+cp -- "$repo/config/system/udev/90-vgs-wake.rules" "$wake_src"
 cp -R -- "$repo/config/system/greeter" "$greeter_src"
 cp -- "$repo/shell/plugins/vgs.greeter/Greeter.qml" "$vgs/shell/plugins/vgs.greeter/Greeter.qml"
 cp -- "$repo/shell/greeter.qml" "$vgs/shell/greeter.qml"
@@ -106,6 +109,12 @@ printf '%s\n' "\$*" >>"$tmp/udevadm.log"
 [ -e "$tmp/udev-fail" ] && exit 1
 if [ "\$1" = trigger ]; then
   if [ -e "$rule" ] || [ -e "$tmp/other-rule" ]; then chmod 0600 "$hidraw"; else chmod 0000 "$hidraw"; fi
+  if [ "\$2" = --subsystem-match=usb ] && [ -f "$tmp/wake-expected" ]; then
+    while read -r device state; do
+      [ -e "$wake_rule" ] || state=disabled
+      printf '%s\\n' "\$state" >"$root/sys/bus/usb/devices/\$device/power/wakeup"
+    done <"$tmp/wake-expected"
+  fi
 fi
 exit 0
 EOF
@@ -245,6 +254,35 @@ fresh() {
   printf '0\n' >"$tmp/gum-answer"
   rm -f -- "${bin:?}/voxtype" "${tmp:?}/voxtype-compiled" "${tmp:?}/voxtype.log"
   rm -f -- "$bin/bandwhich" "$tmp/capture-caps" "$tmp/wrapper-caps" "$tmp/capture-probes" "$tmp/getcap-fail" "$tmp/setcap-fail" "$tmp/setcap.log"
+  rm -f -- "$tmp/wake-expected"
+}
+wake_fixture() {
+  local device class state interface protocol
+  while read -r device class state interface protocol; do
+    mkdir -p "$root/sys/bus/usb/devices/$device/power"
+    printf '%s\n' "$class" >"$root/sys/bus/usb/devices/$device/bDeviceClass"
+    printf '%s\n' "$state" >"$root/sys/bus/usb/devices/$device/power/wakeup"
+    printf '%s %s\n' "$device" "$state" >>"$tmp/wake-expected"
+    [[ $interface != - ]] || continue
+    mkdir -p "$root/sys/bus/usb/devices/$device/$device:$interface"
+    printf '03\n' >"$root/sys/bus/usb/devices/$device/$device:$interface/bInterfaceClass"
+    printf '%s\n' "$([[ $protocol == 00 ]] && echo 00 || echo 01)" >"$root/sys/bus/usb/devices/$device/$device:$interface/bInterfaceSubClass"
+    printf '%s\n' "$protocol" >"$root/sys/bus/usb/devices/$device/$device:$interface/bInterfaceProtocol"
+  done <<'USB_DEVICES'
+usb1 09 enabled - -
+1-1 09 enabled - -
+1-2 e0 enabled - -
+1-3 00 enabled 1.1 01
+1-4 00 enabled 1.0 02
+1-5 00 disabled 1.0 00
+1-6 00 disabled - -
+USB_DEVICES
+  # No wake capability, a non-USB wake source, and ACPI are not changed.
+  mkdir -p "$root/sys/bus/usb/devices/1-7/power" "$root/sys/bus/pci/devices/0000:00:01.0/power" "$root/proc/acpi"
+  printf '00\n' >"$root/sys/bus/usb/devices/1-7/bDeviceClass"
+  : >"$root/sys/bus/usb/devices/1-7/power/wakeup"
+  printf 'enabled\n' >"$root/sys/bus/pci/devices/0000:00:01.0/power/wakeup"
+  printf 'XHC enabled\n' >"$root/proc/acpi/wakeup"
 }
 capture_fixture() { printf '#!/bin/sh\nexit 64\n' >"$bin/bandwhich"; chmod 0755 "$bin/bandwhich"; }
 # NixOS activation publishes its generated wrapper directory through bin.
@@ -319,7 +357,7 @@ last_out_is() { test "$(tail -n 1 "$tmp/out")" == "$1"; }
 sudo_calls() { cat -- "$tmp/sudo.log" 2>/dev/null; }
 no_sudo() { test ! -e "$tmp/sudo.log"; }
 state_json() { # STATE-REASON per step, table order
-  printf '{"steps":{"apple-displays":{"state":"%s","reason":"%s"},"i2c-dev":{"state":"%s","reason":"%s"},"service-bluetooth":{"state":"%s","reason":"%s"},"service-tailscaled":{"state":"%s","reason":"%s"},"service-cups":{"state":"%s","reason":"%s"},"tailscale-operator":{"state":"%s","reason":"%s"},"greeter":{"state":"%s","reason":"%s"},"bandwhich-capture":{"state":"absent","reason":"bandwhich-missing"},"reboot-notice":{"state":"absent","reason":"hook-missing"},"voxtype-engine":{"state":"absent","reason":"command-missing"},"vgs-quickshell-repository":{"state":"absent","reason":"command-missing"}}}' "$@"
+  printf '{"steps":{"apple-displays":{"state":"%s","reason":"%s"},"i2c-dev":{"state":"%s","reason":"%s"},"service-bluetooth":{"state":"%s","reason":"%s"},"service-tailscaled":{"state":"%s","reason":"%s"},"service-cups":{"state":"%s","reason":"%s"},"tailscale-operator":{"state":"%s","reason":"%s"},"greeter":{"state":"%s","reason":"%s"},"bandwhich-capture":{"state":"absent","reason":"bandwhich-missing"},"reboot-notice":{"state":"absent","reason":"hook-missing"},"voxtype-engine":{"state":"absent","reason":"command-missing"},"vgs-quickshell-repository":{"state":"absent","reason":"command-missing"},"wake-sources":{"state":"absent","reason":"no-device"}}}' "$@"
 }
 step_state() { # STEP: the state status --json reads for it
   "${row_env[@]}" "$vgs/bin/vgshell" system status --json </dev/null 2>/dev/null |
@@ -534,6 +572,70 @@ run_tty "an unattended apply is still asked" 1 apply apple-displays
 check "the unattended apply asked gum" test -e "$tmp/gum.log"
 check "the unattended decline runs no sudo" no_sudo
 tty_env=()
+
+# Wake probes read the live USB attributes, including a composite keyboard's
+# second interface and a hub with no keyboard behind it, with no rule installed.
+fresh
+wake_fixture
+check "correct live USB wake permissions read ready without a rule" test "$(step_state wake-sources)" == "ready granted"
+while read -r device state; do
+  if [[ $state == enabled ]]; then wrong=disabled; else wrong=enabled; fi
+  printf '%s\n' "$wrong" >"$root/sys/bus/usb/devices/$device/power/wakeup"
+  check "a wrong live wake permission on $device reads needed" test "$(step_state wake-sources)" == "needed wake-mismatch"
+  printf '%s\n' "$state" >"$root/sys/bus/usb/devices/$device/power/wakeup"
+done <"$tmp/wake-expected"
+cp -- "$wake_src" "$wake_rule"
+printf 'disabled\n' >"$root/sys/bus/usb/devices/1-3/power/wakeup"
+check "rule presence does not make a disabled keyboard ready" test "$(step_state wake-sources)" == "needed wake-mismatch"
+rm -- "$wake_rule"
+printf 'enabled\n' >"$root/sys/bus/usb/devices/1-3/power/wakeup"
+chmod 0000 "$root/sys/bus/usb/devices/1-3/1-3:1.1/bInterfaceProtocol"
+check "an unreadable USB interface reads unknown" test "$(step_state wake-sources)" == "unknown sysfs-unreadable"
+chmod 0644 "$root/sys/bus/usb/devices/1-3/1-3:1.1/bInterfaceProtocol"
+printf 'broken\n' >"$root/sys/bus/usb/devices/1-3/power/wakeup"
+check "a malformed wake attribute reads unknown" test "$(step_state wake-sources)" == "unknown sysfs-unreadable"
+printf 'disabled\n' >"$root/sys/bus/usb/devices/1-3/power/wakeup"
+run_tty "apply wake-sources installs the rule" 0 apply wake-sources
+check "wake apply reports live attributes ready" last_out_is "ok system=wake-sources state=ready"
+check "wake apply copies the shipped rule" cmp -s -- "$wake_src" "$wake_rule"
+check "wake apply reloads and triggers USB changes only" test "$(cat "$tmp/udevadm.log")" == $'control --reload\ntrigger --subsystem-match=usb --action=change --settle'
+wake_hash="$(sha256sum <"$wake_src")"; wake_hash="${wake_hash%% *}"
+check "wake apply records the owned rule hash" test "$(cat "$records/wake-sources")" == "$(printf 'uid=%s\nrule=%s' "$uid" "$wake_hash")"
+check "wake setup preserves PCI wake" test "$(cat "$root/sys/bus/pci/devices/0000:00:01.0/power/wakeup")" == enabled
+check "wake setup preserves ACPI wake" test "$(cat "$root/proc/acpi/wakeup")" == "XHC enabled"
+: >"$tmp/udevadm.log"
+run_tty "undo wake-sources removes the owned rule" 0 undo wake-sources
+check "wake undo removes only its rule and record" test ! -e "$wake_rule" -a ! -e "$records/wake-sources"
+check "wake undo reloads and triggers USB changes" test "$(cat "$tmp/udevadm.log")" == $'control --reload\ntrigger --subsystem-match=usb --action=change --settle'
+fresh
+wake_fixture
+printf 'disabled\n' >"$root/sys/bus/usb/devices/usb1/power/wakeup"
+printf 'foreign\n' >"$wake_rule"
+run "wake apply refuses a foreign rule before asking" 1 "vgs-system: refused: destination=foreign path=$wake_rule" apply wake-sources
+check "a foreign wake rule stays unchanged without sudo" no_sudo
+check "a foreign wake rule keeps its bytes" test "$(cat "$wake_rule")" == foreign
+rm -- "$wake_rule"
+run_tty "wake apply before an external edit" 0 apply wake-sources
+printf '# foreign edit\n' >>"$wake_rule"
+run "wake undo refuses an edited rule" 1 "vgs-system: refused: destination=foreign path=$wake_rule" undo wake-sources
+check "wake undo preserves the edited rule and ownership record" test -e "$wake_rule" -a -e "$records/wake-sources"
+check "the wake rule changes only USB wake attributes" python3 - "$wake_src" <<'PY_WAKE_RULE'
+import re, sys
+text = open(sys.argv[1]).read()
+assignments = []
+for line in text.splitlines():
+    if not line.strip() or line.startswith('#'):
+        continue
+    for token in line.split(','):
+        match = re.fullmatch(r'\s*([^=!]+)="[^"]*"\s*', token)
+        if match:
+            assignments.append(match[1])
+assert set(assignments) == {'GOTO', 'LABEL', 'ATTR{power/wakeup}', 'ATTR{../power/wakeup}'}
+assert 'ENV{DEVTYPE}=="usb_device", ATTR{power/wakeup}=="enabled|disabled", ATTR{power/wakeup}="disabled"' in text
+assert 'ATTR{bDeviceClass}=="09|e0"' in text
+assert 'ATTR{bInterfaceClass}=="03", ATTR{bInterfaceSubClass}=="01", ATTR{bInterfaceProtocol}=="01|02"' in text
+assert 'SUBSYSTEM!="usb", GOTO="vgs_wake_end"' in text
+PY_WAKE_RULE
 
 # apple-displays: the rule's bytes, the record's bytes and each root command.
 fresh
@@ -1284,6 +1386,10 @@ control undeclared-step '      known_step "$1" || bad_invocation' '      true ||
 run "the undeclared-step mutant accepts a step outside the table" 1 "vgs-system: refused: internal=probe step=etc-shadow" apply etc-shadow
 control file-presence '    opens_rw "$node" || denied=1' '    [[ -e $node ]] || denied=1'
 check "the file-presence mutant reads a closed node ready" test "$(step_state apple-displays)" == "ready granted"
+control wake-mismatch-blind '    [[ $wake == "$expected" ]] ||' '    true ||'
+wake_fixture
+printf 'disabled\n' >"$root/sys/bus/usb/devices/1-3/power/wakeup"
+check "control: dropping the live wake comparison rejects the needed contract" test "$(step_state wake-sources)" == "ready granted"
 control cups-socket-blind '  if systemctl is-active --quiet cups.socket; then set_probe ready socket-active; fi' '  :'
 touch "$tmp/units/cups.socket.active"
 check "the cups-socket-blind mutant reads printing the socket serves needed" test "$(step_state service-cups)" == "needed inactive"

@@ -22,7 +22,7 @@ one line and exiting 1 with `world=failed reason=<key>` on a D-Bus error:
                               or records the call and confirms nothing
                               until a row sets it. Prints the mode.
   update PATH IFACE JSON      set the properties of JSON, an object of
-                              booleans and strings, on PATH and emit their
+                              booleans, strings and Class/Appearance integers, on PATH and emit their
                               change, as BlueZ does. Prints `updated`.
   props PATH IFACE            the properties as one JSON object.
   calls PATH METHOD           how many times METHOD was called on PATH.
@@ -172,11 +172,13 @@ def plant_network(bus):
     ap.UpdateProperties(NM_ACCESS_POINT, {"RsnFlags": dbus.UInt32(AP_SEC_WPA2_PSK)})
 
 
-def wire(value):
+def wire(value, key):
     if isinstance(value, bool):
         return dbus.Boolean(value)
     if isinstance(value, str):
         return dbus.String(value)
+    if isinstance(value, int) and key in ("Class", "Appearance"):
+        return dbus.UInt16(value) if key == "Appearance" else dbus.UInt32(value)
     refuse("update-value type=" + type(value).__name__)
 
 
@@ -238,7 +240,7 @@ def drive(bus, verb, args):
         return args[0]
     if verb == "update" and len(args) == 3:
         values = json.loads(args[2])
-        dbus.Interface(bus.get_object(BLUEZ, args[0]), MOCK).UpdateProperties(args[1], {k: wire(v) for k, v in values.items()})
+        dbus.Interface(bus.get_object(BLUEZ, args[0]), MOCK).UpdateProperties(args[1], {k: wire(v, k) for k, v in values.items()})
         return "updated"
     if verb == "props" and len(args) == 2:
         props = dbus.Interface(bus.get_object(BLUEZ, args[0]), dbus.PROPERTIES_IFACE).GetAll(args[1])
