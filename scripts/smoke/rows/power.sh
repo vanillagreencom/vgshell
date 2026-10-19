@@ -82,6 +82,9 @@
 # its Allow action opens the closed system step even while the PATH
 # scanner misses hdparm and the system probe finds it in safe directories.
 # The terminal records the request without running that step.
+# Without hdparm in those directories, the normalized status withholds
+# Details' direct setup action; the pane still offers Allow, whose click
+# opens the existing requirement notice instead.
 # The row disables vgs.power, starts the mocks, then restarts the shell
 # before the first enable, so Quickshell's connect-once UPower singleton
 # binds to the mock no matter what earlier rows left. The row restores
@@ -228,6 +231,7 @@ print(sum(row["visible"] and row["label"] == label for row in json.load(sys.stdi
 power_disk_action() { ipc smoke readInstance window vgs.power diskSleep | py_reply 'import json,sys
 row = json.load(sys.stdin)
 print("absent" if row is None else str(row["action"] is not None and row["action"]["offered"]))'; }
+power_disk_allow_shown() { [[ $(ipc smoke scopedWindowGeometry window vgs.power Field "$power_disk_label" RowAction "$power_disk_allow") == \[* ]] && echo yes || echo no; }
 power_profiles_presence() { ipc smoke statusValues vgs.power | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin).get("profiles")))'; }
 # power_timeline: the idle timeline as the pane draws it, top to bottom:
 # each row's page reference, which LinkText reads as the link's words and
@@ -412,6 +416,25 @@ EOF_STAND
     mv -T -- "$shell_host_path/hdparm" "$power_hdparm_saved/hdparm"
   fi
   rm -f -- "${shim:?}/hdparm"
+  power_disk_label="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["status"]["diskSleep"]["label"])' "$repo/shell/plugins/vgs.power/manifest.json")"
+  power_disk_allow="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["status"]["diskSleep"]["action"]["label"])' "$repo/shell/plugins/vgs.power/manifest.json")"
+  rm -f -- "${devices_system_root:?}/usr/bin/hdparm"
+  rescan "rescan with hdparm absent from the safe system directories answers ok"
+  expect_poll "the scanner reads the absent hdparm missing" missing power_requirement_state hdparm
+  expect_poll "the disk step reads needed with hdparm missing" "needed hdparm-missing" system_disk_state
+  expect_poll "the missing-tool status withholds Details' direct Disk sleep action" False power_disk_action
+  expect_poll "the pane still offers Disk sleep Allow to install hdparm" yes power_disk_allow_shown
+  if power_pane_pick "$power_disk_label" RowAction "$power_disk_allow"; then
+    ok "the real scoped Disk sleep install Allow click completed"
+  else
+    fail "the click on Disk sleep install Allow failed"
+  fi
+  expect_poll "Disk sleep Allow raises the requirement notice for hdparm" '["vgs.power", ["hdparm"], ["hdparm"], false]' notice_shown
+  expect_poll "the hdparm requirement notice holds the keyboard" true ipc smoke noticeFocused
+  type_keys -k Escape || fail "sending Escape to the hdparm requirement notice failed"
+  expect_poll "Escape closes the hdparm requirement notice" null notice_shown
+  system_disk_fixture || { fail "power: the disk dependency fixture could not be restored"; return 0; }
+  rm -f -- "${shim:?}/hdparm"
   rescan "rescan after adding the rotational disk answers ok"
   expect_poll "the session PATH scanner misses the installed hdparm" missing power_requirement_state hdparm
   expect_poll "the disk step reads needed with the fake rotational disk" "needed not-set-up" system_disk_state
@@ -421,9 +444,11 @@ EOF_STAND
   terminal_ready "disk sleep"
   hold_runs
   forget_record
-  power_disk_label="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["status"]["diskSleep"]["label"])' "$repo/shell/plugins/vgs.power/manifest.json")"
-  power_disk_allow="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["status"]["diskSleep"]["action"]["label"])' "$repo/shell/plugins/vgs.power/manifest.json")"
-  power_pane_pick "$power_disk_label" RowAction "$power_disk_allow" || fail "the click on Disk sleep Allow failed"
+  if power_pane_pick "$power_disk_label" RowAction "$power_disk_allow"; then
+    ok "the real scoped Disk sleep system Allow click completed"
+  else
+    fail "the click on Disk sleep Allow failed"
+  fi
   expect_poll "Disk sleep Allow hands the terminal its closed system step" \
     "$(core_words core/system "System setup" org.vgs.tui system apply disk-sleep)" recorded
   release_runs
