@@ -32,7 +32,8 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // continues past, and it stays at rest; the area draws no line or tint of
 // its own over the band, which would end the band in a colour other than
 // the page's. The bar and the focus ring lie outside the mask, so they
-// never fade.
+// never fade. The window's focused item, while it lies in the content,
+// scrolls into view when the focus moves to it and when the area shrinks.
 Flickable {
     id: root
 
@@ -123,16 +124,35 @@ Flickable {
         return true;
     }
 
+    // Reveal the window's focused item when it lies in the content.
+    function revealFocus() {
+        if (root.Window.window === null) return;
+        const item = root.Window.window.activeFocusItem;
+        if (item !== null && item !== root && contentItem !== null && KeyNavLogic.contains(contentItem, item))
+            reveal(item);
+    }
+
     Connections {
         target: root === null ? null : root.Window.window
         function onActiveFocusItemChanged() {
-            if (root === null || root.Window.window === null) return;
-            const item = root.Window.window.activeFocusItem;
-            if (item !== null && item !== root && root.contentItem !== null && KeyNavLogic.contains(root.contentItem, item)) {
-                root.reveal(item);
-                return;
-            }
+            if (root !== null) root.revealFocus();
         }
+    }
+
+    // The window signals only a move of the focus, and Flickable keeps
+    // contentY when its own height changes, so a footer that appears under
+    // the area, such as a page's save bar, would cover a focused row at the
+    // bottom: test_a_shrinking_body_keeps_its_focused_field_in_view in
+    // scripts/qml-tests/tst_pane.qml fails without this handler. A growing
+    // area covers nothing, so only a shrink reveals.
+    QtObject {
+        id: laidOut
+        property real height: 0
+    }
+    onHeightChanged: {
+        const shrank = height < laidOut.height;
+        laidOut.height = height;
+        if (shrank) revealFocus();
     }
 
     HoverHandler { id: hover }

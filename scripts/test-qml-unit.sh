@@ -506,6 +506,7 @@ mutations=(
   "a pane without a footer draws a viewport line over its clipped body|layout/ScrollArea.qml|    ScrollBar {|    Rectangle { parent: root; anchors.left: contentClip.left; anchors.right: contentClip.right; anchors.bottom: contentClip.bottom; height: Theme.divider.thickness; color: Theme.color.borderStrong; visible: root.fadeBelow > 0 } ScrollBar {|tst_pane.qml"
   "the scroll area never fades its content|layout/ScrollArea.qml|layer.enabled: root.visible && height > 0 && root.overflowing && !root.barHeld|layer.enabled: false|tst_scroll.qml"
   "the scroll area fades its bottom edge at the end|layout/ScrollArea.qml|fadeStrength(contentHeight - height - contentY)|fadeStrength(fadeExtent)|tst_scroll.qml"
+  "a shrinking scroll area leaves its focused field covered|layout/ScrollArea.qml|if (shrank) revealFocus();|{}|tst_pane.qml"
   "the scroll area reveals an item into the fade band|layout/ScrollArea.qml|Theme.focusRing.offset + Theme.focusRing.width + fadeExtent|Theme.focusRing.offset + Theme.focusRing.width|tst_scroll.qml"
   "a menu arrow reveals its entry into the fade band|foundation/KeyNav.qml|const margin = flickable.fadeExtent === undefined ? 0 : flickable.fadeExtent;|const margin = 0;|tst_overlays.qml"
   "a menu arrow scrolls past the content's end|foundation/KeyNav.qml|flickable.contentY = Math.max(0, Math.min(flickable.contentHeight - flickable.height, y));|flickable.contentY = y;|tst_overlays.qml"
