@@ -5,7 +5,8 @@
 // ends the command's process group, a failed start, the transcript cap, the
 // records it writes before and after the command), the notifications it
 // sends through a stand-in notify-send and the failure streak that keeps
-// one notice open across runs, run-now through a stand-in
+// one notice open across runs on the notification server a stand-in
+// busctl names, run-now through a stand-in
 // systemd-run, the scheduled trigger's guard, history with a running and a
 // vanished run, clear and pruning with the plugin's historyDays setting, the
 // cron startup line that catches up a missed occurrence, a
@@ -41,9 +42,9 @@ const Logic = load(path.join(pluginDir, "AutomationsLogic.js"), modules);
 const scratch = path.join(repo, "tmp", "test-automations-engine-" + process.pid);
 // The host tools a case may run: the engine's own, the ones vgshell plugin
 // settings needs, and the ones the commands under test use. systemctl,
-// systemd-run, loginctl, crontab and notify-send are stand-ins alone.
+// systemd-run, loginctl, crontab, notify-send and busctl are stand-ins alone.
 const TOOLS = ["bash", "sh", "env", "flock", "sleep", "yes", "head", "cat", "python3", "systemd-analyze", "dirname", "readlink", "basename", "mkdir", "rm", "mv", "cp", "ls", "id", "date", "sed", "grep", "tr", "mktemp", "true", "false", "realpath", "stat", "sort", "uname", "wc", "cut", "awk", "touch", "chmod", "ln", "find", "tail", "tee", "kill", "setsid", "printf", "test"];
-const FORBIDDEN = ["systemctl", "systemd-run", "loginctl", "crontab", "notify-send"];
+const FORBIDDEN = ["systemctl", "systemd-run", "loginctl", "crontab", "notify-send", "busctl"];
 
 // ------------------------------------------------------------ the world
 
@@ -69,8 +70,10 @@ function write(file, text, mode) {
 // $STUB/<name>.calls. systemctl answers show-environment with
 // $STUB/systemd (up or down); systemd-run runs the argv after `--`;
 // notify-send prints the id it replaces, as a notification server keeps
-// it, else the next one; crontab keeps the table in $STUB/crontab;
-// loginctl answers $STUB/linger.
+// it, else the next one; busctl answers the session bus's id from
+// $STUB/bus and the owner of org.freedesktop.Notifications from
+// $STUB/owner, refusing as busctl does when the file is empty; crontab
+// keeps the table in $STUB/crontab; loginctl answers $STUB/linger.
 const STUBS = {
     systemctl: `#!/usr/bin/env bash
 printf '%s\\n' "$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1:]))' "$@")" >>"$STUB/systemctl.calls"
@@ -92,6 +95,15 @@ n=$(( $(wc -l <"$STUB/notify-send.calls") + 40 ))
 for a in "$@"; do case "$a" in --replace-id=*) n=\${a#--replace-id=} ;; esac; done
 printf '%s\\n' "$n"
 `,
+    busctl: `#!/usr/bin/env bash
+case "$*" in
+  "--user --json=short call org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus GetId") v=$(<"$STUB/bus") ;;
+  "--user --json=short call org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus GetNameOwner s org.freedesktop.Notifications") v=$(<"$STUB/owner") ;;
+  *) echo "busctl stand-in: unexpected $*" >&2; exit 2 ;;
+esac
+[[ -n $v ]] || { echo "Call failed: Could not get owner of name 'org.freedesktop.Notifications': no such name" >&2; exit 1; }
+printf '{"type":"s","data":["%s"]}\\n' "$v"
+`,
     crontab: `#!/usr/bin/env bash
 printf '%s\\n' "$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1:]))' "$@")" >>"$STUB/crontab.calls"
 case "$1" in
@@ -105,6 +117,9 @@ printf '%s\\n' "$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1:]))' 
 cat "$STUB/linger"
 `
 };
+
+// The session bus every world starts on.
+const BUS = "4b1d2c3e4f5a6b7c8d9e0f1a2b3c4d5e";
 
 let worlds = 0;
 // A fresh home, stand-ins and PATH. `stubs` names the stand-ins present;
@@ -128,6 +143,8 @@ function world(options) {
     fs.symlinkSync(process.execPath, path.join(tools, "node"));
     write(path.join(stub, "systemd"), opts.systemd + "\n");
     write(path.join(stub, "linger"), opts.linger + "\n");
+    write(path.join(stub, "bus"), BUS + "\n");
+    write(path.join(stub, "owner"), ":1.7\n");
     const home = path.join(root, "home");
     return {
         root, stub, home,
@@ -275,7 +292,7 @@ const CASES = {
         const quiet = add(w, engine, { name: "Pull", command: "test ! -e " + JSON.stringify(flag) });
         for (let k = 0; k < 3; k++) assert.equal(manual(w, engine, quiet).status, 1);
         const firstStart = Math.min(...runFiles(w).filter(n => n.endsWith(".ended.json")).map(n => JSON.parse(fs.readFileSync(path.join(w.runs, n), "utf8")).startedAt));
-        same(JSON.parse(fs.readFileSync(streakFile(quiet), "utf8")), { noticeId: 41, failures: 3, since: firstStart }, "the open failure notice is kept per automation");
+        same(JSON.parse(fs.readFileSync(streakFile(quiet), "utf8")), { notice: { id: 41, server: BUS + " :1.7" }, failures: 3, since: firstStart }, "the open failure notice is kept per automation");
         fs.rmSync(flag);
         assert.equal(manual(w, engine, quiet).status, 0);
         assert.equal(fs.existsSync(streakFile(quiet)), false, "a success closes the streak");
@@ -307,6 +324,39 @@ const CASES = {
         assert.equal(fs.existsSync(streakFile(loud)), true);
         assert.equal(cli(w, engine, ["remove", loud]).status, 0);
         assert.equal(fs.existsSync(streakFile(loud)), false, "remove drops the streak");
+    },
+
+    "a notice from another notification server is never replaced"(engine) {
+        const w = world();
+        const owner = path.join(w.stub, "owner");
+        const streakFile = id => path.join(w.home, ".local", "state", "vgshell", "automations", "streak", id + ".json");
+        const replaced = () => calls(w, "notify-send").map(c => c.filter(a => a.startsWith("--replace-id=")));
+        const notice = id => JSON.parse(fs.readFileSync(streakFile(id), "utf8")).notice;
+        const failing = add(w, engine, { name: "Pull", command: "false" });
+        assert.equal(manual(w, engine, failing).status, 1);
+        same(notice(failing), { id: 41, server: BUS + " :1.7" });
+        // A restarted shell owns the name under a new unique name on the
+        // same bus, and hands out ids from 1 again.
+        write(owner, ":1.9\n");
+        assert.equal(manual(w, engine, failing).status, 1);
+        same(notice(failing), { id: 42, server: BUS + " :1.9" }, "the notice is the new server's");
+        // A fresh bus, after a new login or a reboot, can give the shell
+        // the unique name the old bus gave it.
+        write(path.join(w.stub, "bus"), "0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f\n");
+        assert.equal(manual(w, engine, failing).status, 1);
+        // No server owns the name: nothing to check the notice against.
+        write(owner, "");
+        assert.equal(manual(w, engine, failing).status, 1);
+        same(notice(failing), null, "a notice from an unknown server is none");
+        assert.equal(JSON.parse(fs.readFileSync(streakFile(failing), "utf8")).failures, 4);
+        same(replaced(), [[], [], [], []], "no failure replaced a notice of another server");
+        // The shell restarts while a run is live: the end does not replace
+        // the start.
+        fs.rmSync(path.join(w.stub, "notify-send.calls"));
+        write(owner, ":1.7\n");
+        const loud = add(w, engine, { name: "Loud", command: "echo :1.11 > " + JSON.stringify(owner), notifyEveryRun: true });
+        assert.equal(manual(w, engine, loud).status, 0);
+        same(replaced(), [[], []], "the end replaced nothing of the new server");
     },
 
     "a timeout ends the command's whole process group"(engine) {
@@ -656,7 +706,11 @@ const CONTROLS = [
     ["a record lands by rename", "a run that succeeds writes both records and its transcript", "    fs.renameSync(temp, file);\n}", "}"],
     ["an error notifies", "a failing run sends the error notification whatever the toggle", "notify(Logic.notificationFor(\"end\", automation, ended, streak), shown, env)", "null"],
     ["the finish replaces the start", "notifyEveryRun sends the start, then replaces it with the finish", "ended, streak), shown, env)", "ended, streak), null, env)"],
-    ["the start replaces the open failure notice", "repeated failures replace one notice and a success recovers it", "streak === null ? null : streak.noticeId, env);", "null, env);"],
+    ["the start replaces the open failure notice", "repeated failures replace one notice and a success recovers it", "streak === null ? null : streak.notice, env);", "null, env);"],
+    ["a notice is replaced on its own server alone", "a notice from another notification server is never replaced", "Logic.notifySendArgs(n, Logic.replaceIdFor(notice, server))", "Logic.notifySendArgs(n, notice === null ? null : notice.id)"],
+    ["the server names the name's owner", "a notice from another notification server is never replaced", "ask(\"GetNameOwner\", [\"s\", \"org.freedesktop.Notifications\"])", "JSON.stringify({ type: \"s\", data: [\":1.7\"] })"],
+    ["the server names the bus", "a notice from another notification server is never replaced", "Logic.notificationServer(ask(\"GetId\", [])", "Logic.notificationServer(JSON.stringify({ type: \"s\", data: [\"b\"] })"],
+    ["a notice keeps its server", "repeated failures replace one notice and a success recovers it", "{ id: id, server: server }", "{ id: id, server: \"s\" }"],
     ["the end reads the streak", "repeated failures replace one notice and a success recovers it", "Logic.notificationFor(\"end\", automation, ended, streak)", "Logic.notificationFor(\"end\", automation, ended, null)"],
     ["the runner keeps the streak", "repeated failures replace one notice and a success recovers it", "else writeAtomic(streakFile(id), JSON.stringify(streak) + \"\\n\", 0o600);", "else return;"],
     ["the runner closes the streak", "repeated failures replace one notice and a success recovers it", "if (streak === null) fs.rmSync(streakFile(id), { force: true });\n    else", "if (streak === null) return;\n    else"],

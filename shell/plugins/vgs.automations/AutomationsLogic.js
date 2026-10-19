@@ -1168,18 +1168,25 @@ function sinceText(sinceMs, nowMs) {
 }
 
 // The failure streak an automation's run leaves: none after a success,
-// else one failure more than `streak`, whose notice is now `noticeId`.
-function streakAfter(rec, streak, noticeId) {
+// else one failure more than `streak`, whose notice is now `notice`.
+function streakAfter(rec, streak, notice) {
     if (rec.outcome === "succeeded") return null;
     return {
-        noticeId: isWhole(noticeId) && noticeId > 0 ? noticeId : null,
+        notice: isNotice(notice) ? notice : null,
         failures: streak === null ? 1 : streak.failures + 1,
         since: streak === null ? rec.startedAt : streak.since
     };
 }
 
-// The runner's per-automation streak file, `{ noticeId, failures, since }`:
-// the open failure notice's id (null when notify-send printed none), the
+// A notice the runner can replace: `{ id, server }`, the id notify-send
+// printed and the server that handed it out, as notificationServer names it.
+function isNotice(value) {
+    return isPlainObject(value) && unknownKey(value, ["id", "server"], "notice") === ""
+        && isWhole(value.id) && value.id > 0 && typeof value.server === "string" && value.server !== "";
+}
+
+// The runner's per-automation streak file, `{ notice, failures, since }`:
+// the open failure notice (null when there is none to replace), the
 // failed runs in a row and when the first of them started, in ms. The
 // runner writes it after a failed run and removes it after a success, so
 // no file is no streak.
@@ -1191,12 +1198,50 @@ function parseStreak(text) {
         return { ok: false, error: "streak: not-json" };
     }
     if (!isPlainObject(doc)) return { ok: false, error: "streak: want=object" };
-    var unknown = unknownKey(doc, ["noticeId", "failures", "since"], "streak");
+    var unknown = unknownKey(doc, ["notice", "failures", "since"], "streak");
     if (unknown !== "") return { ok: false, error: unknown };
-    if (doc.noticeId !== null && (!isWhole(doc.noticeId) || doc.noticeId < 1)) return { ok: false, error: "streak.noticeId: want=id|null" };
+    if (doc.notice !== null && !isNotice(doc.notice)) return { ok: false, error: "streak.notice: want={id,server}|null" };
     if (!isWhole(doc.failures) || doc.failures < 1) return { ok: false, error: "streak.failures: want=count" };
     if (!isWhole(doc.since) || doc.since < 0) return { ok: false, error: "streak.since: want=ms" };
-    return { ok: true, streak: { noticeId: doc.noticeId, failures: doc.failures, since: doc.since } };
+    return { ok: true, streak: { notice: doc.notice, failures: doc.failures, since: doc.since } };
+}
+
+// The notification server notify-send reaches, from busctl --json=short's
+// replies to org.freedesktop.DBus GetId and to GetNameOwner of
+// org.freedesktop.Notifications: "<bus id> <unique name>", or null when a
+// reply is missing or not one string. A notice id names a notification of
+// one server process alone (Quickshell's NotificationServer counts ids from
+// 1 in each). A unique name is never reused on one bus, and the bus id is
+// new for each bus daemon (the D-Bus specification, § Message Bus Names and
+// § org.freedesktop.DBus.GetId), so the pair changes on a shell restart, a
+// new session bus at login and a reboot, where the unique name alone can
+// recur on a fresh bus.
+function notificationServer(busReply, ownerReply) {
+    var bus = busctlString(busReply);
+    var owner = busctlString(ownerReply);
+    return bus === null || owner === null ? null : bus + " " + owner;
+}
+
+// The one string a busctl --json=short call reply carries,
+// `{"type":"s","data":["..."]}`, or null.
+function busctlString(reply) {
+    if (reply === null) return null;
+    var doc;
+    try {
+        doc = JSON.parse(String(reply));
+    } catch (e) {
+        return null;
+    }
+    if (!isPlainObject(doc) || doc.type !== "s" || !Array.isArray(doc.data) || doc.data.length !== 1) return null;
+    var value = doc.data[0];
+    return typeof value === "string" && value !== "" && !/\s/.test(value) ? value : null;
+}
+
+// The id a notification replaces: the notice's, when the server that
+// handed it out still owns the name, else null, since another server's
+// same id names a notification another application may have open.
+function replaceIdFor(notice, server) {
+    return notice !== null && server !== null && notice.server === server ? notice.id : null;
 }
 
 // notify-send's argv for a notification, replacing `replaceId` when it is

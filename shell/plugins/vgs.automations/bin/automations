@@ -76,9 +76,10 @@
 // `flock=missing`, `flock=failed exit=<n>`, `run=busy id=<id>`,
 // `settings=failed exit=<n>`, `home=unset`. The runner logs
 // `automations: skipped=<id> reason=<reason>`, `automations: notify=failed
-// ...`, `automations: streak=refused ...` and `automations: prune=skipped
-// ...` lines on stderr, which systemd keeps in the journal; it exits 0 when
-// the run succeeded or was skipped, 1 when it failed.
+// ...`, `automations: notify-server=...`, `automations: streak=refused ...`
+// and `automations: prune=skipped ...` lines on stderr, which systemd keeps
+// in the journal; it exits 0 when the run succeeded or was skipped, 1 when
+// it failed.
 "use strict";
 const childProcess = require("child_process");
 const crypto = require("crypto");
@@ -673,21 +674,45 @@ function sessionEnvironment() {
     return env;
 }
 
-// Sends one notification and answers its id, or null when none was sent.
-function notify(n, replaceId, env) {
-    if (n === null) return replaceId;
+// The notification server notify-send reaches now, as
+// Logic.notificationServer names it, or null when busctl cannot say. A
+// notice is replaced only on the server that showed it, so null replaces
+// none.
+function notificationServer(env) {
+    const bin = which("busctl");
+    if (bin === null) {
+        log("notify-server=missing");
+        return null;
+    }
+    const ask = (method, args) => {
+        const out = run(bin, ["--user", "--json=short", "call", "org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus", method].concat(args), { env: env, timeout: 5000 });
+        if (out.status === 0) return out.stdout;
+        log("notify-server=failed method=" + method + " exit=" + out.status + " detail=" + JSON.stringify(firstLine(out.stderr)));
+        return null;
+    };
+    return Logic.notificationServer(ask("GetId", []), ask("GetNameOwner", ["s", "org.freedesktop.Notifications"]));
+}
+
+// Sends one notification, replacing `notice` when its server still owns
+// the name, and answers the notice it leaves, `{ id, server }`, or null
+// when none was sent or its server is unknown. With nothing to send,
+// `notice` stands. The server is read just before notify-send; a restart
+// between the two is the one window this leaves.
+function notify(n, notice, env) {
+    if (n === null) return notice;
     const bin = which("notify-send");
     if (bin === null) {
         log("notify=missing summary=" + JSON.stringify(n.summary));
         return null;
     }
-    const out = run(bin, Logic.notifySendArgs(n, replaceId), { env: env, timeout: 10000 });
+    const server = notificationServer(env);
+    const out = run(bin, Logic.notifySendArgs(n, Logic.replaceIdFor(notice, server)), { env: env, timeout: 10000 });
     if (out.status !== 0) {
         log("notify=failed exit=" + out.status + " detail=" + JSON.stringify(firstLine(out.stderr)));
         return null;
     }
     const id = Number(firstLine(out.stdout).trim());
-    return Number.isInteger(id) && id > 0 ? id : null;
+    return Number.isInteger(id) && id > 0 && server !== null ? { id: id, server: server } : null;
 }
 
 // The transcript: a header, one timestamped line per line of output with
@@ -815,7 +840,7 @@ function execute(automation, trigger, slot, startedAt, refusal) {
     // replaces the open failure notice, and the end replaces the start, or
     // that notice when no start was sent.
     const streak = readStreak(id);
-    const shown = notify(Logic.notificationFor("start", automation, started), streak === null ? null : streak.noticeId, env);
+    const shown = notify(Logic.notificationFor("start", automation, started), streak === null ? null : streak.notice, env);
     const shell = os.userInfo().shell;
     const transcript = Transcript(transcriptFile, [
         "vgs.automations run " + runId,

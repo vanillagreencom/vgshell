@@ -4,7 +4,9 @@
 // OnCalendar= expressions and cron fields, the summary line, the next
 // occurrences, the runner's guard, the store, guard-state and streak
 // judges, the unit and crontab text, the run records and history rows,
-// pruning, and the notifications a run sends with its failure streak. Every expected value is written out by hand.
+// pruning, the notifications a run sends with its failure streak and the
+// notification server a notice is replaced on. Every expected value is
+// written out by hand.
 //
 // The preview rows compare the judge's next ten occurrences with
 // `systemd-analyze calendar --iterations` on the expressions it compiles,
@@ -368,7 +370,10 @@ function verify(logic) {
 
     // A failure streak: one critical notice, each later failure replaces it
     // and counts since the first, and the first success replaces it with
-    // recovered. The runner sends each notice with the streak's noticeId.
+    // recovered. The runner sends each notice replacing the streak's notice
+    // on the server that owns the name now.
+    const SERVER = "4b1d2c3e4f5a6b7c8d9e0f1a2b3c4d5e :1.7";
+    const notice = { id: 41, server: SERVER };
     const failedAt = (iso, extra) => Object.assign(ended("backup", at(iso) + "-1", at(iso), "failed"), { transcript: "/r/t.log" }, extra);
     const first = failedAt("2026-01-01T09:00:00Z");
     const second = failedAt("2026-01-01T09:10:00Z");
@@ -377,8 +382,8 @@ function verify(logic) {
     let streak = null;
     for (const rec of [first, second, third]) {
         const n = logic.notificationFor("end", automation({}), rec, streak);
-        sent.push(logic.notifySendArgs(n, streak === null ? null : streak.noticeId));
-        streak = logic.streakAfter(rec, streak, 41);
+        sent.push(logic.notifySendArgs(n, logic.replaceIdFor(streak === null ? null : streak.notice, SERVER)));
+        streak = logic.streakAfter(rec, streak, notice);
     }
     same(sent.map(args => args.filter(a => /^--(urgency|replace-id)=/.test(a))), [["--urgency=critical"], ["--urgency=critical", "--replace-id=41"], ["--urgency=critical", "--replace-id=41"]], "one critical notice, then two replacements of it");
     same(sent.map(args => args.slice(-2)), [
@@ -386,23 +391,52 @@ function verify(logic) {
         ["Back up failed", "Failed 2 times since 09:00\nThe automation failed. Open Automations to read its output."],
         ["Back up failed", "Failed 3 times since 09:00\nTimed out after 1m 1s"]
     ]);
-    same(streak, { noticeId: 41, failures: 3, since: at("2026-01-01T09:00:00Z") });
+    same(streak, { notice: { id: 41, server: SERVER }, failures: 3, since: at("2026-01-01T09:00:00Z") });
     const recovered = Object.assign({}, first, { outcome: "succeeded", startedAt: at("2026-01-01T09:30:00Z"), durationMs: 4200 });
-    same(logic.notifySendArgs(logic.notificationFor("end", automation({}), recovered, streak), streak.noticeId).filter(a => !a.startsWith("--hint")), ["--app-name=Automations", "--urgency=low", "--print-id", "--replace-id=41", "--", "Back up recovered", "Finished in 4s after 3 failed runs"]);
+    same(logic.notifySendArgs(logic.notificationFor("end", automation({}), recovered, streak), logic.replaceIdFor(streak.notice, SERVER)).filter(a => !a.startsWith("--hint")), ["--app-name=Automations", "--urgency=low", "--print-id", "--replace-id=41", "--", "Back up recovered", "Finished in 4s after 3 failed runs"]);
     same(logic.notificationFor("end", automation({ notifyEveryRun: true }), recovered, streak).summary, "Back up recovered", "recovered outranks finished");
-    same(logic.notificationFor("end", automation({}), recovered, { noticeId: 41, failures: 1, since: first.startedAt }).body, "Finished in 4s after 1 failed run");
-    same(logic.streakAfter(recovered, streak, 41), null, "a success ends the streak");
-    same(logic.notificationFor("end", automation({}), Object.assign({}, second, { startedAt: at("2026-01-03T08:00:00Z") }), { noticeId: 41, failures: 2, since: first.startedAt }).body.split("\n")[0], "Failed 3 times since Thu 1 Jan 2026 09:00", "a streak from another day names its day");
-    same(logic.streakAfter(first, null, null), { noticeId: null, failures: 1, since: first.startedAt }, "no printed id opens a streak with no notice to replace");
-    same(logic.parseStreak(JSON.stringify(streak)), { ok: true, streak: { noticeId: 41, failures: 3, since: at("2026-01-01T09:00:00Z") } });
+    same(logic.notificationFor("end", automation({}), recovered, { notice: notice, failures: 1, since: first.startedAt }).body, "Finished in 4s after 1 failed run");
+    same(logic.streakAfter(recovered, streak, notice), null, "a success ends the streak");
+    same(logic.notificationFor("end", automation({}), Object.assign({}, second, { startedAt: at("2026-01-03T08:00:00Z") }), { notice: notice, failures: 2, since: first.startedAt }).body.split("\n")[0], "Failed 3 times since Thu 1 Jan 2026 09:00", "a streak from another day names its day");
+    same(logic.streakAfter(first, null, null), { notice: null, failures: 1, since: first.startedAt }, "no notice opens a streak with none to replace");
+    same(logic.parseStreak(JSON.stringify(streak)), { ok: true, streak: { notice: { id: 41, server: SERVER }, failures: 3, since: at("2026-01-01T09:00:00Z") } });
+    same(logic.parseStreak('{"notice":null,"failures":1,"since":0}'), { ok: true, streak: { notice: null, failures: 1, since: 0 } });
     for (const [text, error] of [
         ["{", "streak: not-json"],
         ["[]", "streak: want=object"],
-        ['{"noticeId":41,"failures":1,"since":0,"x":1}', "streak.x: unknown"],
-        ['{"noticeId":0,"failures":1,"since":0}', "streak.noticeId: want=id|null"],
-        ['{"noticeId":null,"failures":0,"since":0}', "streak.failures: want=count"],
-        ['{"noticeId":null,"failures":1}', "streak.since: want=ms"]
+        ['{"notice":null,"failures":1,"since":0,"x":1}', "streak.x: unknown"],
+        ['{"notice":41,"failures":1,"since":0}', "streak.notice: want={id,server}|null"],
+        ['{"notice":{"id":0,"server":"b :1.7"},"failures":1,"since":0}', "streak.notice: want={id,server}|null"],
+        ['{"notice":{"id":41},"failures":1,"since":0}', "streak.notice: want={id,server}|null"],
+        ['{"notice":{"id":41,"server":""},"failures":1,"since":0}', "streak.notice: want={id,server}|null"],
+        ['{"notice":{"id":41,"server":"b :1.7","x":1},"failures":1,"since":0}', "streak.notice: want={id,server}|null"],
+        ['{"notice":null,"failures":0,"since":0}', "streak.failures: want=count"],
+        ['{"notice":null,"failures":1}', "streak.since: want=ms"]
     ]) same(logic.parseStreak(text), { ok: false, error: error }, "streak refused: " + text);
+
+    // The notification server: the bus id and the name's owner from
+    // busctl --json=short. A notice is replaced on its own server alone: a
+    // restarted shell has a new unique name on the same bus, and a fresh
+    // bus (a new login or a reboot) a new bus id though it may hand out the
+    // same unique name again.
+    const reply = value => JSON.stringify({ type: "s", data: [value] });
+    same(logic.notificationServer(reply("4b1d2c3e4f5a6b7c8d9e0f1a2b3c4d5e"), reply(":1.7")), SERVER);
+    for (const [bus, owner, why] of [
+        [null, reply(":1.7"), "no bus id"],
+        [reply("4b1d"), null, "no owner"],
+        ["s \"4b1d\"", reply(":1.7"), "not json"],
+        [JSON.stringify({ type: "u", data: [7] }), reply(":1.7"), "not a string"],
+        [JSON.stringify({ type: "s", data: ["a", "b"] }), reply(":1.7"), "two values"],
+        [reply(""), reply(":1.7"), "an empty id"],
+        [reply("a b"), reply(":1.7"), "a space would join two pairs alike"]
+    ]) same(logic.notificationServer(bus, owner), null, "no server: " + why);
+    for (const [server, want, why] of [
+        [SERVER, 41, "the same server"],
+        ["4b1d2c3e4f5a6b7c8d9e0f1a2b3c4d5e :1.9", null, "a restarted shell on the same bus"],
+        ["0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f :1.7", null, "a fresh bus handing out the same unique name"],
+        [null, null, "an unknown server"]
+    ]) same(logic.replaceIdFor(notice, server), want, "replace: " + why);
+    same(logic.replaceIdFor(null, SERVER), null, "no notice replaces none");
 
     // List rows, status and the refresh.
     const listed = logic.listRows({ version: 1, automations: [automation({}), automation({ id: "off", name: "Off", enabled: false }), automation({ id: "done", name: "Done", schedule: UNTIL })] },
@@ -695,7 +729,10 @@ const CONTROLS = [
     ["the first success after a failure recovers", "if (streak !== null)\n            return { summary: automation.name + \" recovered\"", "if (false)\n            return { summary: automation.name + \" recovered\""],
     ["a streak keeps its first failure's time", "since: streak === null ? rec.startedAt : streak.since", "since: rec.startedAt"],
     ["a streak counts its failures", "failures: streak === null ? 1 : streak.failures + 1,", "failures: 1,"],
-    ["a streak keeps its notice", "noticeId: isWhole(noticeId) && noticeId > 0 ? noticeId : null,", "noticeId: null,"],
+    ["a streak keeps its notice", "notice: isNotice(notice) ? notice : null,", "notice: null,"],
+    ["a notice names its server", "&& isWhole(value.id) && value.id > 0 && typeof value.server === \"string\" && value.server !== \"\";", "&& isWhole(value.id) && value.id > 0;"],
+    ["a notice is replaced on its own server alone", "return notice !== null && server !== null && notice.server === server ? notice.id : null;", "return notice !== null ? notice.id : null;"],
+    ["the server is the bus and the owner", "return bus === null || owner === null ? null : bus + \" \" + owner;", "return owner === null ? null : owner;"],
     ["a success ends the streak", "if (rec.outcome === \"succeeded\") return null;", ""],
     ["a streak from another day names its day", "return sameDay ? pad2(since.getHours())", "return true ? pad2(since.getHours())"],
     ["a streak needs its failure count", "if (!isWhole(doc.failures) || doc.failures < 1) return", "if (false) return"],
