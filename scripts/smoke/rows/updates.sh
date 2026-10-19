@@ -541,15 +541,15 @@ exec {updates_abandoned_out}<&-
 SH
 (
   failures=0 behaviour_failures=0
+  trap 'printf "%s\n" "$?" "$failures" >"$sandbox/row-abandoned.failures"; source "$row_plants/updates-after-abandoned.sh"; touch "$sandbox/row-abandoned.drained"' EXIT
   smoke_row updates-abandoned "$row_plants" >"$sandbox/row-plant-updates-abandoned.log" 2>&1
-  printf '%s\n' "$failures" >"$sandbox/row-abandoned.failures"
-  failures=0 behaviour_failures=0
   smoke_row updates-after-abandoned "$row_plants" >"$sandbox/row-plant-updates-after-abandoned.log" 2>&1
-  printf '%s\n' "$failures" >"$sandbox/row-after-abandoned.failures"
+  touch "$sandbox/row-after-abandoned.ran"
 ) &
 wait "$!" || :
-expect "control: the bare failure and its failing abandon each fail under the planted row" 2 cat "$sandbox/row-abandoned.failures"
-expect "control: the later row finds no stand-in or held press alive" 0 cat "$sandbox/row-after-abandoned.failures"
+expect "control: failed restoration ends the run with the original status and both failures" $'1\n2' cat "$sandbox/row-abandoned.failures"
+expect "control: failed restoration reaches no later row" absent bash -c '[[ -e $1 || -e $2 ]] && echo present || echo absent' _ "$sandbox/row-after-abandoned.ran" "$sandbox/row-plant-updates-after-abandoned.log"
+expect "control: the failed row drained its stand-in and held press before exiting" present bash -c '[[ -e $1 ]] && echo present || echo absent' _ "$sandbox/row-abandoned.drained"
 expect "control: the first failure names its command and source location" 1 grep -c -E -- '^  FAIL  updates-abandoned: .*command=\[false\] at=.*/updates-abandoned.sh:[0-9]+,' "$sandbox/row-plant-updates-abandoned.log"
 expect "control: a bare copy failure in abandon names its command and source location" 1 grep -c -E -- '^  FAIL  updates-abandoned: abandon failed .*command=\[cp.*\] at=.*/updates-abandoned.sh:[0-9]+$' "$sandbox/row-plant-updates-abandoned.log"
 expect "control: abandon runs nothing after its failed copy" absent bash -c '[[ -e $1 ]] && echo present || echo absent' _ "$sandbox/abandon-went-on"

@@ -473,7 +473,7 @@ rows=(
   "tools|smoke hyprctl bound controls|scripts/test-smoke-hypr-bound.sh|scripts/smoke/hypr-call.sh scripts/smoke/verdict.sh scripts/test-smoke-hypr-bound.sh"
   "tools|mode hold controls|scripts/test-mode-hold.sh|scripts/smoke/mode-hold.sh scripts/smoke/verdict.sh scripts/smoke/harness.sh scripts/qml-smoke.sh scripts/sandbox-shots.sh scripts/smoke/rows/surfaces.sh"
   "tools|smoke row readers|python3 scripts/check-smoke-readers.py|scripts/smoke/rows/* scripts/smoke/*.sh bin/lib/ipc-reply.sh scripts/smoke/rows.list"
-  "tools|smoke dump transport controls|python3 scripts/test-smoke-dumps.py|scripts/test-smoke-dumps.py scripts/smoke/harness.sh scripts/smoke/leaks.sh scripts/smoke/verdict.sh bin/vgshell bin/lib/ipc-reply.sh"
+  "tools|smoke dump transport controls|python3 scripts/test-smoke-dumps.py|scripts/test-smoke-dumps.py scripts/smoke/harness.sh scripts/smoke/rows/start-order.sh scripts/smoke/leaks.sh scripts/smoke/verdict.sh bin/vgshell bin/lib/ipc-reply.sh"
   "tools|smoke row reader controls|python3 scripts/test-check-smoke-readers.py|scripts/check-smoke-readers.py scripts/smoke/rows/* scripts/smoke/*.sh bin/lib/ipc-reply.sh scripts/smoke/rows.list"
   "tools|compositor reveal barrier controls|python3 scripts/test-compositor-reveal.py|scripts/test-compositor-reveal.py scripts/smoke/rows/compositor-reveal.sh scripts/smoke/harness.sh"
   "tools|secret-tool stand-in stdin order controls|scripts/test-secret-tool-stand-in.sh|scripts/test-secret-tool-stand-in.sh scripts/smoke/harness.sh"

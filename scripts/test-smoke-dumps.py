@@ -99,10 +99,14 @@ set -euo pipefail
 shift 4
 printf '%s|%s\\n' "$1" "$2" >>"$CASE_DIR/calls"
 if [[ "$1 $2" == "${CASE_BLOCK:-}" ]]; then
-  [[ ${CASE_DEFER:-no} == yes && ! -e $CASE_DIR/block ]] || exec sleep infinity
+  if [[ ${CASE_DEFER:-no} != yes || -e $CASE_DIR/block ]]; then
+    rm -f -- "$CASE_DIR/block"
+    exec sleep infinity
+  fi
 fi
 case "$1 $2" in
   'shell ping') echo ok; exit ;;
+  'shell guarded') echo true; exit ;;
   'shell listPlugins') echo paged=7; exit ;;
   'smoke perScreenLayers') echo '[]'; exit ;;
   'smoke reply') printf 'noise\\nanswer\\n'; exit ;;
@@ -235,3 +239,120 @@ fi
         print("smoke-ipc: control=premature-check-rejected")
     else:
         raise AssertionError("premature timeout check passed")
+
+    # Exercise start-order's snapshot, teardown and holdUntil boundary with
+    # the real row runner. Stand-ins own the shell and compositor effects.
+    row_source = (HARNESS.parent / "rows/start-order.sh").read_text()
+    prefix, _ = row_source.split("# restart_over TREE", 1)
+    plant = re.search(r"(?ms)^plant\(\).*?^}\n", row_source)
+    assert plant
+    restore_helpers = root / "restore-helpers.sh"
+    restore_helpers.write_text(production.read_text() + function("expect"))
+    observer = root / "world.py"
+    observer.write_text('''import json, pathlib, sys
+root = pathlib.Path(sys.argv[1])
+def state(path):
+    if path.is_symlink(): return ["link", str(path.readlink())]
+    if path.is_dir(): return ["dir", {p.name: state(p) for p in sorted(path.iterdir())}]
+    if path.exists(): return ["file", path.read_text(), path.stat().st_mode & 0o777]
+    return ["absent"]
+paths = json.loads((root / "paths.json").read_text())
+print(json.dumps([state(root / path) for path in paths]))
+''')
+    restore_child = root / "restore-child.sh"
+    setup = '''home="$sandbox/home" dev_state="$sandbox/dev-state" rt_dir="$sandbox"
+record_exists() { echo True; }
+holder_state() { echo running; }
+stop_holder_bound_s=1
+stop_shell() {
+  if [[ ${start_order_restore_started:-false} == true && $restore_fault == stop ]]; then return 73; fi
+  echo stopped >"$sandbox/shell.state"
+  rm -f -- "$sandbox/block"
+}
+start_shell() {
+  if [[ ${start_order_restore_started:-false} == true && $restore_fault == start ]]; then return 74; fi
+  cat -- "$home/.config/vgshell/shell.json" >"$sandbox/shell.state"
+  ipc shell ping >/dev/null
+}
+default_set_prepare() {
+  local path
+  for path in "${start_order_paths[@]}"; do
+    rm -rf -- "$path"
+    echo default >"$path"
+  done
+}
+restore_fault="${9:-none}"
+smoke_row start-order "$sandbox"
+smoke_row successor "$sandbox"
+printf 'restored failures=%s\n' "$failures"
+'''
+    original_child = child.read_text()
+    marker = 'smoke_row example "$sandbox"'
+    assert original_child.count(marker) == 1
+    restore_child.write_text(original_child.split(marker, 1)[0].replace('mkdir "$shim"', 'mkdir -p "$shim"') + setup)
+
+    def restore_case(row_prefix, fault="none"):
+        folder = Path(tempfile.mkdtemp(prefix="restore-", dir=root))
+        paths = ["home/.config/vgshell/shell.json",
+                 "home/.config/vgshell/plugins/acme.locker",
+                 "home/.config/vgshell/plugins/acme.contention",
+                 "shim/mise", "shim/docker", "shim/podman", "shim/pacman",
+                 "dev-state", "home/.local/state/vgshell/updates/status.json",
+                 "shell.state"]
+        (folder / "paths.json").write_text(json.dumps(paths))
+        for path in paths:
+            (folder / path).parent.mkdir(parents=True, exist_ok=True)
+        for path in (paths[0], paths[6], paths[8], paths[9]):
+            (folder / path).write_text("incoming\n")
+        for path in (paths[1], paths[7]):
+            (folder / path).mkdir()
+            (folder / path / "fixture").write_text("incoming\n")
+        (folder / paths[3]).symlink_to("pacman")
+        before = subprocess.check_output([shutil.which("python3"), str(observer), str(folder)], env=ENV)
+        (folder / "start-order.sh").write_text(row_prefix + plant.group() + '''
+stop_shell
+default_set_prepare
+start_shell "$repo" "$sandbox/default.log"
+touch "$sandbox/block"
+ipc shell ping || true
+plant restart
+echo unreachable >"$sandbox/after-plant"
+''')
+        (folder / "successor.sh").write_text('python3 "$root/world.py" "$sandbox" >"$sandbox/successor.world"\n')
+        result = subprocess.run(
+            ["timeout", "--signal=KILL", "10", BASH, str(restore_child),
+             str(HARNESS.parents[2]), str(folder), str(root), str(restore_helpers),
+             "yes", "shell", "ping", "yes", fault],
+            env=ENV, stdin=subprocess.DEVNULL, capture_output=True, text=True)
+        assert (folder / "rows/start-order.ipc-timeout.log").exists(), (result.returncode, result.stdout, result.stderr)
+        assert not (folder / "after-plant").exists(), result.stdout
+        records = (folder / "rows/start-order.ipc-timeout.log").read_text().splitlines()
+        assert records == ["ipc-timeout: target=shell function=ping bound_s=0.1"], records
+        assert "ipc-timeout-latched: target=smoke function=holdUntil" in result.stdout, result.stdout
+        assert "status=124," in result.stdout, result.stdout
+        if fault != "none":
+            assert result.returncode == 124, (result.returncode, result.stdout, result.stderr)
+            assert not (folder / "successor.world").exists(), result.stdout
+        else:
+            assert result.returncode == 0, (result.returncode, result.stdout, result.stderr)
+            assert (folder / "successor.world").read_bytes() == before, "successor inherited changed world"
+            assert "restored failures=0" not in result.stdout, result.stdout
+        print("smoke-ipc: restore-case=%s\n%s" % (fault, result.stdout))
+        return result
+
+    restore_case(prefix)
+    for fault in ("stop", "start"):
+        restore_case(prefix, fault)
+    print("smoke-ipc: restoration=incoming-world failure=124 failed-restore=ends-run")
+
+    needle = 'smoke_row_abandon=(start_order_restore)\n'
+    assert prefix.count(needle) == 1
+    pre_fix = prefix.replace(needle, "")
+    assert pre_fix != prefix
+    try:
+        restore_case(pre_fix)
+    except AssertionError as failure:
+        assert failure.args == ("successor inherited changed world",), failure
+        print("smoke-ipc: control=missing-restoration-rejected successor=leaked-world")
+    else:
+        raise AssertionError("missing start-order restoration passed")

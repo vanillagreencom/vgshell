@@ -50,11 +50,36 @@ start_order_paths=(
   "$dev_state" "$home/.local/state/vgshell/updates/status.json"
 )
 for i in "${!start_order_paths[@]}"; do
-  if [[ -e ${start_order_paths[i]} ]]; then
+  if [[ -e ${start_order_paths[i]} || -L ${start_order_paths[i]} ]]; then
     cp -a -- "${start_order_paths[i]}" "$start_order_saved/$i"
   fi
 done
 start_order_vpn_before="$(record_exists vgs.vpn)"
+# Stop the default-set readers before restoring their files. Restoration
+# gets its own bounded transport; the failed row's IPC latch stays sticky.
+start_order_restore_started=false
+start_order_restore() {
+  [[ $start_order_restore_started == false ]] || return 1
+  start_order_restore_started=true
+  local ipc_timeout_log="$sandbox/rows/start-order.restore.ipc-timeout.log" i
+  local start_order_restore_failures=$failures
+  : >"$ipc_timeout_log"
+  stop_shell || return
+  for i in "${!start_order_paths[@]}"; do
+    rm -rf -- "${start_order_paths[i]}" || return
+    if [[ -e $start_order_saved/$i || -L $start_order_saved/$i ]]; then
+      cp -a -- "$start_order_saved/$i" "${start_order_paths[i]}" || return
+    fi
+  done
+  cmp -s -- "$start_order_saved/0" "${start_order_paths[0]}" || return
+  ok "the row restores its incoming configuration"
+  start_shell "$repo" "$sandbox/start-order-final-qs.log" || return
+  expect_poll "the row restores its incoming VPN service enablement" "$start_order_vpn_before" record_exists vgs.vpn
+  expect "the row leaves the sandbox's own guarded shell" true ipc shell guarded
+  [[ $failures == "$start_order_restore_failures" && ! -s $ipc_timeout_log ]] || return 1
+  rm -rf -- "$start_order_saved"
+}
+smoke_row_abandon=(start_order_restore)
 for fixture in acme.locker acme.contention; do
   rm -rf -- "$home/.config/vgshell/plugins/$fixture"
   mkdir -p -- "$home/.config/vgshell/plugins/$fixture"
@@ -403,27 +428,5 @@ if bar_hidden no-deadline && edit_tree no-deadline shell/Core/ServiceGate.qml \
   expect "control: a gate with no deadline never releases past a bar that never presents" unreleased release_reason
 fi
 
-# Stop the default-set readers before restoring their files. Later rows
-# keep the plugin enablement and stand-ins they had before this row.
-if stop_shell; then
-  for i in "${!start_order_paths[@]}"; do
-    rm -rf -- "${start_order_paths[i]}"
-    if [[ -e $start_order_saved/$i ]]; then
-      cp -a -- "$start_order_saved/$i" "${start_order_paths[i]}"
-    fi
-  done
-  if cmp -s -- "$start_order_saved/0" "${start_order_paths[0]}"; then
-    ok "the row restores its incoming configuration"
-  else
-    fail "the row restores its incoming configuration"
-  fi
-  if start_shell "$repo" "$sandbox/start-order-final-qs.log"; then
-    expect_poll "the row restores its incoming VPN service enablement" "$start_order_vpn_before" record_exists vgs.vpn
-    expect "the row leaves the sandbox's own guarded shell" true ipc shell guarded
-  else
-    fail "start-order leaves the sandbox's own shell for the rows after it"
-  fi
-else
-  fail "start-order stops the default-set shell before restoring its files"
-fi
-rm -rf -- "$start_order_saved"
+start_order_restore
+smoke_row_abandon=()

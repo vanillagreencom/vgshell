@@ -1614,7 +1614,10 @@ ipc_call_last() {
   local vgshell="$1" out status
   shift
   ipc_last_reply=""
-  [[ ! -s $ipc_timeout_log ]] || return 124
+  if [[ -s $ipc_timeout_log ]]; then
+    printf 'ipc-timeout-latched: target=%s function=%s\n' "$1" "$2" >&2
+    return 124
+  fi
   out="$("${shell_env[@]}" timeout --signal=KILL "$ipc_call_bound_s" "$vgshell" ipc call "$@" 2>>"$sandbox/ipc.log")" || status=$?
   status="${status:-0}"
   if [[ $status -eq 124 || $status -eq 137 ]]; then
@@ -3677,6 +3680,8 @@ PY
   leak_row_end "$smoke_row_name" "$smoke_row_dir"
   ipc_timeout_check "$smoke_row_name" || true
   printf 'qml-smoke: row-secs row=%s secs=%s\n' "$smoke_row_name" "$((EPOCHSECONDS - smoke_row_started))"
+  # A failed restoration leaves no valid starting world for a later row.
+  [[ $smoke_row_abandon_status == 0 ]] || exit "$smoke_row_source_status"
 }
 
 # What rows read whichever rows the run holds, set once the first shell is
