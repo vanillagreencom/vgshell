@@ -1,11 +1,27 @@
-# Helpers for sandbox UPower and PowerProfiles fakes. Call only after the
-# harness has set shell_env and spawn. Every D-Bus call uses the sandbox
-# system bus through shell_env.
+# Helpers for sandbox UPower and PowerProfiles fakes, the judge of a reveal
+# in Power's section and the readers of its Wake on LAN field. Call only
+# after the harness has set shell_env and spawn. Every D-Bus call uses the sandbox system bus through
+# shell_env.
 power_upower_pid="${power_upower_pid:-}"
 power_profiles_pid="${power_profiles_pid:-}"
 power_supply_added="${power_supply_added:-false}"
 
 power_call() { "${shell_env[@]}" gdbus call --system "$@"; }
+# power_revealed REPLY: whether a probe reveal (revealText,
+# revealScopedText) scrolled its area, which it answers with the new
+# offset. It answers `absent` for no such item and `unscrolled` for one no
+# shown area holds, both with exit 0, and Power's section scrolls in the
+# System window, so neither is a reveal there.
+power_revealed() { [[ $1 =~ ^[0-9]+(\.[0-9]+)?$ ]]; }
+# power_wol_field [ID]: whether the section of ID (vgs.power) draws the Wake
+# on LAN field, and its switch's state when it does.
+power_wol_field() { ipc smoke itemValues window "${1:-vgs.power}" Switch checked,visible,Accessible.name | py_reply 'import json,sys
+rows = [r for r in json.load(sys.stdin) if r["visible"] and r["Accessible.name"] == "Wake on LAN"]
+print("hidden" if not rows else "on" if rows[0]["checked"] else "off")'; }
+# power_wol_error [ID]: whether that field draws an error line.
+power_wol_error() { ipc smoke itemValues window "${1:-vgs.power}" Field label,error | py_reply 'import json,sys
+rows = [r for r in json.load(sys.stdin) if r["label"] == "Wake on LAN"]
+print("absent" if not rows else "error" if rows[0]["error"] != "" else "clear")'; }
 power_unlink() { python3 - "$1" <<'PY_UNLINK'
 import pathlib, sys
 pathlib.Path(sys.argv[1]).unlink(missing_ok=True)

@@ -63,24 +63,29 @@ Item {
     // Wake on LAN is a setting of each wired NetworkManager connection,
     // which NetworkManager hands the device when it activates the
     // connection (act_stage2_config in src/core/devices/nm-device-ethernet.c,
-    // NetworkManager main), so a connection already up takes a new value at
-    // its next activation. The wired
-    // devices come from Quickshell.Networking (Quickshell 0.3.1
-    // NetworkDevice.type and .connected); it lists no connections, so one
-    // nmcli run lists them and one more writes each wired one. NetworkManager
-    // adds a wired connection when a wired device appears or connects with
-    // none saved, so each such change writes every wired connection again.
+    // NetworkManager 1.58.1), so a connection already up takes a new value
+    // at its next activation. The wired devices come from
+    // Quickshell.Networking (Quickshell 0.3.1 NetworkDevice.type,
+    // .connected and .nmManaged, as vgs.network reads them); a device
+    // NetworkManager does not manage activates none of its connections, so
+    // it does not count. Quickshell lists no connections, so a pass lists
+    // them with one nmcli run, then reads each wired one and writes it only
+    // when it holds another value. Logic.wakeObserved decides when a pass
+    // runs.
     readonly property bool nmcliPresent: shell !== null && shell.requirements.missing.indexOf("nmcli") === -1
-    readonly property var wiredDevices: Networking.devices.values.filter(d => d.type === DeviceType.Wired)
+    readonly property var wiredDevices: Networking.devices.values.filter(d => d.type === DeviceType.Wired && d.nmManaged)
     readonly property bool ethernetPresent: nmcliPresent && wiredDevices.length > 0
-    readonly property string wakeKey: JSON.stringify({
-        present: ethernetPresent,
-        on: shell !== null && shell.settings.wakeOnLan === true,
-        wired: wiredDevices.map(d => d.name + ":" + d.connected).sort()
-    })
-    // The wired connections still to write, and whether a change arrived
-    // while a list or a write ran: one more pass follows.
+    readonly property bool wakeOn: shell !== null && shell.settings.wakeOnLan === true
+    readonly property string wakeWired: wiredDevices.map(d => d.name + ":" + d.connected).sort().join(",")
+    readonly property string wakeKey: JSON.stringify({ present: ethernetPresent, on: wakeOn, wired: wakeWired })
+    property var wakeState: Logic.wakeInitial()
+    // One pass: its flag value, the wired connections still to read, the
+    // one read or written now, the first step that failed, and whether a
+    // reading asked for a pass while this one ran: one more pass follows.
+    property string wakeTarget: ""
     property var wakeQueue: []
+    property string wakeConnection: ""
+    property string wakeFailure: ""
     property bool wakeStale: false
 
     onShellChanged: {
@@ -96,7 +101,7 @@ Item {
         shell.shortcut.register("performance", "Use the performance profile", () => root.setProfile("performance", true));
         profileWatch.running = true;
         publish();
-        writeWakeOnLan();
+        observeWake();
         checkNotices();
     }
     onViewKeyChanged: publish()
@@ -104,9 +109,7 @@ Item {
     onNoticeKeyChanged: checkNotices()
     onSourceKeyChanged: observeSource()
     onEthernetPresentChanged: publish()
-    onWakeKeyChanged: {
-        if (registered) writeWakeOnLan();
-    }
+    onWakeKeyChanged: observeWake()
     onProfilesMissingChanged: {
         if (registered && !profilesMissing) readProfiles();
     }
@@ -231,45 +234,102 @@ Item {
         if (reply !== "ok") console.warn("power: notify " + reply);
     }
 
+    function observeWake() {
+        if (!registered) return;
+        const result = Logic.wakeObserved(wakeState, ethernetPresent, wakeOn, wakeWired);
+        wakeState = result.state;
+        if (result.write) writeWakeOnLan();
+    }
+
     function writeWakeOnLan() {
-        if (!ethernetPresent) return;
-        if (wakeLister.running || wakeWriter.running) {
+        if (wakeLister.running || wakeReader.running || wakeWriter.running) {
             wakeStale = true;
             return;
         }
         wakeStale = false;
+        wakeTarget = Logic.wakeTarget(wakeOn);
+        wakeFailure = "";
+        wakeLister.completion = null;
         wakeLister.running = true;
     }
 
-    function writeNextConnection() {
+    // A failed step ends that connection's part of the pass; the others
+    // still run, and the field shows the first failure until a pass ends
+    // with none.
+    function wakeFailed(step, code) {
+        console.warn("power: wake-on-lan step=" + step + " connection=" + (wakeConnection || "-") + " code=" + code);
+        if (wakeFailure === "") wakeFailure = step;
+    }
+
+    function readNextConnection() {
         if (wakeQueue.length === 0) {
+            wakeConnection = "";
+            const text = Logic.wakeProblemText(wakeFailure);
+            report("wakeOnLanProblem", text === "" ? null : text);
             if (wakeStale) writeWakeOnLan();
             return;
         }
-        const uuid = wakeQueue[0];
+        wakeConnection = wakeQueue[0];
         wakeQueue = wakeQueue.slice(1);
-        wakeWriter.command = ["nmcli", "connection", "modify", uuid, "802-3-ethernet.wake-on-lan", shell.settings.wakeOnLan === true ? "magic" : "ignore"];
-        wakeWriter.running = true;
+        wakeReader.completion = null;
+        wakeReader.command = ["nmcli", "-g", "802-3-ethernet.wake-on-lan", "connection", "show", wakeConnection];
+        wakeReader.running = true;
     }
 
-    // nmcli's terse table escapes a colon inside a field; a UUID and a
-    // connection type hold none, so each line splits on its one colon.
+    // The exit code of a run that ended on its own, -1 for one a signal
+    // ended or that never started, which leaves `completion` null.
+    function codeOf(completion) {
+        return completion === null || completion.status !== 0 ? -1 : completion.code;
+    }
+
+    // Each run ends on runningChanged: a command that fails to start emits
+    // only that (shell/Core/SystemSteps.qml), so no exit recorded is a
+    // failed start, and the pass goes on.
     Process {
         id: wakeLister
+        property var completion: null
         command: ["nmcli", "-t", "-f", "UUID,TYPE", "connection", "show"]
         stdout: StdioCollector { id: wakeListerOut; waitForEnd: true }
-        onExited: code => {
-            if (code !== 0) console.warn("power: wired connection list exit=" + code);
-            root.wakeQueue = code !== 0 ? [] : wakeListerOut.text.split("\n").map(line => line.split(":")).filter(f => f.length === 2 && f[1] === "802-3-ethernet").map(f => f[0]);
-            root.writeNextConnection();
+        onExited: (code, status) => { wakeLister.completion = { code: code, status: status }; }
+        onRunningChanged: {
+            if (running) return;
+            const code = root.codeOf(completion);
+            if (code !== 0) root.wakeFailed("list", code);
+            root.wakeQueue = code === 0 ? Logic.wiredConnections(wakeListerOut.text) : [];
+            root.readNextConnection();
+        }
+    }
+
+    Process {
+        id: wakeReader
+        property var completion: null
+        stdout: StdioCollector { id: wakeReaderOut; waitForEnd: true }
+        onExited: (code, status) => { wakeReader.completion = { code: code, status: status }; }
+        onRunningChanged: {
+            if (running) return;
+            const code = root.codeOf(completion);
+            if (code !== 0) {
+                root.wakeFailed("read", code);
+                root.readNextConnection();
+            } else if (wakeReaderOut.text.trim() === root.wakeTarget) {
+                root.readNextConnection();
+            } else {
+                wakeWriter.completion = null;
+                wakeWriter.command = ["nmcli", "connection", "modify", root.wakeConnection, "802-3-ethernet.wake-on-lan", root.wakeTarget];
+                wakeWriter.running = true;
+            }
         }
     }
 
     Process {
         id: wakeWriter
-        onExited: code => {
-            if (code !== 0) console.warn("power: wake on lan write exit=" + code);
-            root.writeNextConnection();
+        property var completion: null
+        onExited: (code, status) => { wakeWriter.completion = { code: code, status: status }; }
+        onRunningChanged: {
+            if (running) return;
+            const code = root.codeOf(completion);
+            if (code !== 0) root.wakeFailed("write", code);
+            root.readNextConnection();
         }
     }
 

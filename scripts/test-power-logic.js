@@ -3,7 +3,8 @@
 // battery presence, battery and profile views, icon bands, time text,
 // the profile view read from the daemon's reply, source-change profile
 // choice, the setting a bar pick remembers, low-battery latches and the
-// notice each latch sends.
+// notice each latch sends, and Wake on LAN's flag values, wired
+// connection list and write rule.
 // Controls edit one rule at a time in a copy of the logic under repo tmp
 // and require this suite to fail on each copy.
 "use strict";
@@ -168,6 +169,38 @@ function verify(logic) {
     same(logic.sourceObserved({ ready: false, onBattery: false }, true, true, true), { state: { ready: true, onBattery: true }, apply: false }, "sourceObserved: seeds the first ready reading without applying");
     same(logic.sourceObserved({ ready: true, onBattery: true }, true, false, true), { state: { ready: true, onBattery: false }, apply: true }, "sourceObserved: later source changes apply");
     same(logic.sourceObserved({ ready: true, onBattery: false }, true, true, false), { state: { ready: true, onBattery: true }, apply: false }, "sourceObserved: a source change with no battery (a UPS) records the source and keeps the bar pick");
+
+    // NetworkManager's flag names: magic arms the card, none disarms it.
+    assert.equal(logic.wakeTarget(true), "magic", "wakeTarget: on is magic");
+    assert.equal(logic.wakeTarget(false), "none", "wakeTarget: off is none, never ignore");
+    same(logic.wiredConnections("aa-1:802-3-ethernet\nbb-2:802-11-wireless\ncc-3:802-3-ethernet\n\nweird\\:x:802-3-ethernet\n"), ["aa-1", "cc-3"], "wiredConnections: the wired rows alone, a line with an escaped colon skipped");
+    same(logic.wiredConnections(""), [], "wiredConnections: no rows");
+
+    const wired = "enp10s0:true";
+    const at = (present, on, devices) => ({ ready: true, present: present, on: on, wired: devices });
+    // [label, previous, present, on, wired, write]
+    const WAKE_READINGS = [
+        ["the first reading with the setting off writes nothing", logic.wakeInitial(), true, false, wired, false],
+        ["the first reading with the setting on writes", logic.wakeInitial(), true, true, wired, true],
+        ["the first reading with no wired device writes nothing", logic.wakeInitial(), false, true, "", false],
+        ["a device change with the setting never set writes nothing", at(true, false, wired), true, false, wired + ",enp11s0:false", false],
+        ["a device that appears while on writes", at(false, true, ""), true, true, wired, true],
+        ["a device change while on writes", at(true, true, wired), true, true, "enp10s0:false", true],
+        ["a turn on writes", at(true, false, wired), true, true, wired, true],
+        ["a turn off writes", at(true, true, wired), true, false, wired, true],
+        ["a reading with nothing changed writes nothing", at(true, true, wired), true, true, wired, false],
+        ["a change with no wired device writes nothing", at(false, false, ""), false, true, "", false]
+    ];
+    for (const [label, previous, present, on, devices, write] of WAKE_READINGS) {
+        const result = logic.wakeObserved(previous, present, on, devices);
+        assert.equal(result.write, write, "wakeObserved: " + label);
+        same(result.state, at(present, on, devices), "wakeObserved: " + label + " records the reading");
+    }
+
+    assert.equal(logic.wakeProblemText(""), "", "wakeProblemText: a pass that failed nowhere has no text");
+    for (const failure of ["list", "read", "write"])
+        assert.ok(logic.wakeProblemText(failure).length > 0, "wakeProblemText: a failed " + failure + " has text");
+    assert.throws(() => logic.wakeProblemText("other"), "wakeProblemText: an unknown failure is refused");
 }
 
 verify(load(file));
@@ -187,6 +220,10 @@ const CONTROLS = [
     ["a bar pick with no battery remembers nothing", "if (batteryPresent !== true) return \"\";", "if (false) return \"\";"],
     ["a bar pick remembers the current source's profile", "return onBattery === true ? \"batteryProfile\" : \"chargerProfile\";\n}", "return \"chargerProfile\";\n}"],
     ["a source change with no battery applies nothing", "return { state: { ready: true, onBattery: onBattery === true }, apply: batteryPresent === true };", "return { state: { ready: true, onBattery: onBattery === true }, apply: true };"],
+    ["off writes none", "    off: \"none\"\n", "    off: \"ignore\"\n"],
+    ["the first reading writes only while on", "if (state.ready !== true) return { state: next, write: next.present && next.on };", "if (state.ready !== true) return { state: next, write: next.present };"],
+    ["a device change writes only while on", "write: next.present && (changed || (next.on && moved))", "write: next.present && (changed || moved)"],
+    ["a wired list keeps the wired rows alone", "fields.length === 2 && fields[0] !== \"\" && fields[1] === \"802-3-ethernet\"", "fields.length === 2 && fields[0] !== \"\""],
     ["first ready source reading does not apply", "if (state.ready !== true) return { state: { ready: true, onBattery: onBattery === true }, apply: false };", "if (state.ready !== true) return { state: { ready: true, onBattery: onBattery === true }, apply: true };"]
 ];
 

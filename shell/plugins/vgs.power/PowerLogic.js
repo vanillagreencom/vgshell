@@ -3,9 +3,10 @@
 // Pure decisions for vgs.power: whether the display device is a laptop
 // battery, the battery and profile view published as plugin status, icon
 // bands, time text, profile mapping, low-battery latches, the profile
-// to apply when the power source changes and the setting a bar pick
-// remembers. QML owns UPower, the gdbus runs
-// that reach the power profiles daemon, settings writes, IPC and notices.
+// to apply when the power source changes, the setting a bar pick
+// remembers, and Wake on LAN's value, connection list and write rule.
+// QML owns UPower, the gdbus and nmcli runs that reach the power profiles
+// daemon and NetworkManager, settings writes, IPC and notices.
 
 var PROFILE = {
     saver: "power-saver",
@@ -239,4 +240,61 @@ function sourceObserved(previous, ready, onBattery, batteryPresent) {
     if (state.ready !== true) return { state: { ready: true, onBattery: onBattery === true }, apply: false };
     if (state.onBattery === (onBattery === true)) return { state: state, apply: false };
     return { state: { ready: true, onBattery: onBattery === true }, apply: batteryPresent === true };
+}
+
+// Wake on LAN as NetworkManager's 802-3-ethernet.wake-on-lan flags. Off is
+// `none`: NetworkManager applies it as an ethtool call with no wake option,
+// which turns Wake on LAN off, while `ignore` makes no call and leaves the
+// network card armed. nmcli takes `none` and prints it back as `none`
+// (wake_on_lan_enable in src/core/devices/nm-device-ethernet.c,
+// nmp_ethtool_ioctl_set_wake_on_lan in src/libnm-platform/nmp-ethtool-ioctl.c
+// and the wake-on-lan entry of src/libnmc-setting/nm-meta-setting-desc.c,
+// NetworkManager 1.58.1).
+var WAKE = {
+    on: "magic",
+    off: "none"
+};
+
+function wakeTarget(on) {
+    return on === true ? WAKE.on : WAKE.off;
+}
+
+// The UUIDs of the wired connections in nmcli's terse UUID,TYPE table.
+// nmcli escapes a colon inside a field; a UUID and a connection type hold
+// none, so each line splits on its one colon.
+function wiredConnections(text) {
+    return String(text).split("\n").map(function (line) { return line.split(":"); })
+        .filter(function (fields) { return fields.length === 2 && fields[0] !== "" && fields[1] === "802-3-ethernet"; })
+        .map(function (fields) { return fields[0]; });
+}
+
+function wakeInitial() {
+    return { ready: false, present: false, on: false, wired: "" };
+}
+
+// Whether a Wake on LAN reading starts a pass over the wired connections.
+// VGS writes no connection until the user sets the switch, so a value set
+// outside VGS stays: the first reading writes only while the setting is on,
+// which only the user turns on; a later change of the setting writes; and
+// while it is on, so does a change of the wired devices, since
+// NetworkManager adds a connection for a device that appears or connects
+// with none. The setting cannot tell an off the user chose from the
+// default, so after a restart a connection added while off is not written.
+function wakeObserved(previous, present, on, wired) {
+    var state = previous && typeof previous === "object" ? previous : wakeInitial();
+    var next = { ready: true, present: present === true, on: on === true, wired: String(wired) };
+    if (state.ready !== true) return { state: next, write: next.present && next.on };
+    var changed = state.on !== next.on;
+    var moved = state.present !== next.present || state.wired !== next.wired;
+    return { state: next, write: next.present && (changed || (next.on && moved)) };
+}
+
+// What the Wake on LAN field says after a pass that failed at `failure`:
+// listing the connections, reading one or writing one; "" for none.
+function wakeProblemText(failure) {
+    if (failure === "") return "";
+    if (failure === "list") return "VGS could not read the wired connections.";
+    if (failure === "read") return "VGS could not read Wake on LAN on a wired connection.";
+    if (failure === "write") return "VGS could not save Wake on LAN on a wired connection.";
+    throw new Error("wakeProblemText: failure " + JSON.stringify(failure) + " has no text");
 }

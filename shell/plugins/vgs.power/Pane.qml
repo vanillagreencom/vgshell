@@ -12,7 +12,9 @@ import qs.Ui
 // `setting`, and the record's `before` verdict as the row's warning; then
 // this plugin's own settings, one section per schema group in manifest
 // order, each field drawn while its `shownWhen` presence reads present, as
-// the Settings page draws it, and written through `configure`. While the
+// the Settings page draws it, with its info, and written through
+// `configure`; a field whose setting the service applies elsewhere shows
+// the service's last failure to apply it as its error line. While the
 // last scan misses the optional power profiles service, the section offers
 // its install, which raises the core's requirement notice.
 FocusScope {
@@ -24,6 +26,9 @@ FocusScope {
     readonly property var schema: shell === null ? ({}) : shell.manifest.schema
     readonly property var presence: shell === null ? ({}) : shell.status.values
     readonly property string profilesService: "org.freedesktop.UPower.PowerProfiles"
+    // The status text the service publishes when it could not apply a
+    // setting, by setting key.
+    readonly property var applyProblems: ({ wakeOnLan: "wakeOnLanProblem" })
     readonly property bool profilesMissing: shell !== null && shell.requirements.missing.indexOf(profilesService) !== -1
     readonly property var diskSleep: shell === null ? null : shell.status.rows.find(row => row.key === "diskSleep" && row.report === "reported") || null
     // The schema's groups in the order their first entry appears, each with
@@ -175,6 +180,8 @@ FocusScope {
                         inline: true
                         label: entry.label
                         hint: entry.description
+                        info: entry.info ?? ""
+                        error: root.applyProblems[modelData] === undefined ? "" : root.presence[root.applyProblems[modelData]] ?? ""
 
                         // The binding comes back after a choice, so the
                         // control shows the value the configuration holds.

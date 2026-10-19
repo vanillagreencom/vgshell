@@ -169,6 +169,7 @@
       "type": "boolean",
       "label": "Wake on LAN",
       "description": "Let another device on the wired network wake this computer from sleep",
+      "info": "Turn this on to let another device on the same wired network wake this computer from sleep. A wired connection that is in use gets the change the next time it connects, for example after you restart the computer or connect the cable again.",
       "group": "Network",
       "shownWhen": "ethernet"
     }
@@ -230,6 +231,11 @@
     "ethernet": {
       "type": "presence",
       "label": "Wired network",
+      "hidden": true
+    },
+    "wakeOnLanProblem": {
+      "type": "text",
+      "label": "Wake on LAN",
       "hidden": true
     },
     "profileRule": {
