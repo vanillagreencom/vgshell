@@ -14,7 +14,7 @@ VGS uses a summoned panel to give the list keyboard focus.
 - Super+Shift+N does what a click on the newest notification you have not dismissed in the panel does, also after it leaves the screen. A notification with no action shows No action. Change or clear both keys under Keys on the plugin's Settings page.
 - The panel shows the notifications received since the last Mark all read that you have not dismissed there. The History icon shows the saved ones, and shows the unread ones again.
 - History keeps every notification that leaves the screen for 24 hours, at most the newest 100, and shows every one. Clear history or a restart of the computer removes them sooner.
-- Mark all read marks the current notifications as read and closes the panel. Clear history removes the saved ones.
+- Mark all read marks every notification as read, closes every popup on screen and closes the panel; the History keeps them all. Clear history removes the saved ones.
 - The Do Not Disturb icon keeps new notifications in History without showing them on screen. They play no VGS sound.
 - The Sound icon turns the VGS notification sound on or off. The sound plays only when you select one in System Settings → Sounds.
 - With Sound off or Do Not Disturb on, the sound an app plays for its own notification, such as the Slack chime, is muted too, from its first moment. The app's calls and media keep playing.

@@ -1995,14 +1995,39 @@ click_pill "Mark all read" || fail "the click on Mark all read failed"
 expect_poll "Mark all read closes the panel" '""' read_notes panelMode
 read_before_set() { state_at readBefore | python3 -c 'import sys; print(float(sys.stdin.read()) > 0)'; }
 expect_poll "Mark all read persists its cutoff" True read_before_set
-expect_poll "the live toast stayed through the panel" True has_row live "While open"
+expect_poll "the toast held through the panel left with Mark all read" False has_row live "While open"
+expect_poll "no toast is left after Mark all read" 0 on_screen
 expect_poll "the panel's rows went with it" '[]' row_summaries panel
-expect "dismissing the toast held through the panel is allowed" ok notes dismiss-all
-expect_poll "no toast is left before the inbox opens again" 0 on_screen
 all_rows() { ipc smoke modelRows vgs.notifications rows key | py_reply 'import json,sys; print(len(json.load(sys.stdin)))'; }
 expect_poll "every exit has played before the inbox opens again" 0 all_rows
 expect "the inbox opens again" ok notes inbox
 expect_poll "an inbox after Mark all read is caught up" '"No unread notifications"' panel_subtitle
+expect "the inbox closes again" ok notes close
+expect_poll "the closed panel reads no mode" '""' read_notes panelMode
+
+# Mark all read with a stack on screen: eight notifications, one already off
+# the screen, leave no popup, no unread entry and nothing for Super+N to
+# show, and the history keeps all eight. The control is main before this
+# change, where the seven popups stay.
+history_before="$(note_status history)"
+# The even ones are critical, which stay until closed, so a popup left on
+# screen cannot pass as expired.
+for i in $(seq 1 8); do notify smoke-mark 0 "Mark all $i" "" '[]' "{\"urgency\": <byte $((i % 2 == 0 ? 2 : 1))>}" 0 >/dev/null; done
+expect_poll "the newest notification of the stack shows" True has_row live "Mark all 8"
+expect "one popup is dismissed before Mark all read" ok notes dismiss-latest
+expect_poll "seven popups still show" 7 on_screen
+expect "the inbox opens over the stack" ok notes inbox
+expect_poll "the inbox lists all eight" 8 panel_count
+click_pill "Mark all read" || fail "the click on Mark all read with a stack on screen failed"
+expect_poll "Mark all read with a stack closes the panel" '""' read_notes panelMode
+expect_poll "Mark all read leaves no popup of the stack" 0 on_screen
+expect_poll "every popup of the stack has gone from the model" 0 all_rows
+expect "the inbox of the key opens" ok notes inbox
+expect_poll "the inbox has nothing to show after Mark all read" 0 panel_count
+expect_poll "the inbox reads no unread notification" '"No unread notifications"' panel_subtitle
+expect "the inbox closes before the history is read" ok notes close
+expect_poll "the history gained all eight" "$((history_before + 8))" history_count
+for i in $(seq 1 8); do expect "Mark all read keeps \"Mark all $i\" in the history" True in_history "Mark all $i"; done
 expect "the history panel opens" ok notes history
 kept="$(note_status history)"
 expect_poll "the history lists every kept notification" "$kept" panel_count

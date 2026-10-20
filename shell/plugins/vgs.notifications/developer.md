@@ -9,7 +9,7 @@ The service registers `vgs.notifications:inbox`. The manifest binds it to `SUPER
 | `inbox` | none | toggles the Inbox; `ok` |
 | `history` | none | opens the History; `ok` |
 | `close` | none | closes the panel; `ok` |
-| `mark-read` | none | as the button; `ok` |
+| `mark-read` | none | as the button: every notification is read, every toast on screen leaves into the History, and the panel closes; `ok` |
 | `clear-history` | none | as the button; `ok` |
 | `silence` | `on`, `off`, `toggle`, or empty to read it | Do Not Disturb: `on` or `off`, or `refused: silence=<arg> want=on\|off\|toggle` |
 | `sound` | `on`, `off`, `toggle`, or empty to read it | `on` or `off`, or `refused: sound=<arg> want=on\|off\|toggle` |

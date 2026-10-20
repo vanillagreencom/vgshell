@@ -307,11 +307,7 @@ Item {
             store.setSound(judged.on);
             return store.sound ? "on" : "off";
         });
-        shell.ipc.handle("dismiss-all", () => {
-            const keys = root.rowKeys(() => true);
-            for (const key of keys) root.leave(key, "dismiss");
-            return keys.length === 0 ? "none" : "ok";
-        });
+        shell.ipc.handle("dismiss-all", () => root.dismissAll() === 0 ? "none" : "ok");
         shell.ipc.handle("dismiss-latest", () => root.onLatest(key => root.leave(key, "dismiss")));
         shell.ipc.handle("invoke-latest", () => root.onLatest(key => root.choose(key, "open")));
         shell.ipc.handle("status", () => root.status());
@@ -348,6 +344,13 @@ Item {
             if (row.leaving === "" && pick(row)) out.push(row.key);
         }
         return out;
+    }
+
+    // Every toast on screen leaves into the history; how many did.
+    function dismissAll() {
+        const keys = rowKeys(() => true);
+        for (const key of keys) leave(key, "dismiss");
+        return keys.length;
     }
 
     function onLatest(act) {
@@ -1010,9 +1013,11 @@ Item {
         bumpPanel();
     }
 
-    // Mark read: everything so far is read, and the panel closes.
+    // Mark read: everything so far is read, so every toast on screen leaves
+    // with the inbox and the panel closes. The history keeps every one.
     function markRead() {
         store.setReadBefore(Date.now());
+        dismissAll();
         closePanel();
         bumpPanel();
     }
