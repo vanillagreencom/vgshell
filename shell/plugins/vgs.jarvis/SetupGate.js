@@ -136,7 +136,7 @@ var CAUTION = {
 var DICTATION = {
     "speech=dictation-absent": { tone: "warning", text: "To do", hint: "Set up dictation so the local voice can hear you", action: "dictation" },
     "speech=dictation-failed": { tone: "warning", text: "To do", hint: "Set up dictation again", action: "dictation" },
-    "speech=dictation-elsewhere": { tone: "warning", text: "Another voxtype runs", hint: "Stop the other voxtype beside [Other dictation service in Voice Details](page:vgs.voice/Details)" },
+    "speech=dictation-elsewhere": { tone: "warning", text: "Another voxtype runs", hint: "Stop the other voxtype beside [Other dictation service in Voice Setup](page:vgs.voice/Setup)" },
     "speech=dictation-device": { tone: "warning", text: "Dictation uses another microphone", hint: "The local voice hears the system default microphone: choose it with [Configure in Settings > Voice](page:vgs.voice/Settings)" }
 };
 // Causes whose step the voice setup action cannot complete: the user

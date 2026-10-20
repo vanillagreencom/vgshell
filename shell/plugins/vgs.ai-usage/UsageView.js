@@ -232,8 +232,10 @@ function widget(usage, settings, now) {
         tone: used !== null && given.colourByUsage !== false && used >= WARNING_PERCENT ? "warning" : "normal", text: text, tooltip: tooltip };
 }
 
-// The Settings row of PROVIDER's sign-in: a state value, whose action, Sign
-// in, applies while none of its accounts is signed in.
+// The Setup step of PROVIDER's sign-in: a state value, whose action, Sign
+// in, applies while none of its accounts is signed in. A sign-in the user
+// cannot mend here reads Not available, its hint saying why
+// (PluginLogic.statusDeclarationFits).
 function signIn(usage, provider) {
     var rows = (usage === null || usage === undefined ? [] : usage.accounts)
         .filter(function (row) { return row.provider === provider && row.state !== "signed-out"; });
@@ -241,9 +243,9 @@ function signIn(usage, provider) {
     if (plans.some(function (row) { return row.state === "ok" || row.state === "stale" || row.state === "limited"; }))
         return { tone: "ok", text: plans.length === 1 ? "Signed in" : "Signed in to " + plans.length + " accounts" };
     if (plans.some(function (row) { return row.state === "expired"; }))
-        return { tone: "warning", text: EXPIRED[provider] };
-    if (plans.length > 0) return { tone: "danger", text: "Usage could not be read" };
-    if (rows.length > 0) return { tone: "info", text: NO_PLAN };
+        return { tone: "warning", text: EXPIRED[provider], available: false, hint: "VGS reads the sign-in again once the tool refreshes it" };
+    if (plans.length > 0) return { tone: "danger", text: "Usage could not be read", available: false, hint: "VGS tries again at the next check" };
+    if (rows.length > 0) return { tone: "info", text: NO_PLAN, available: false, hint: "Only an account with a plan has limits to show" };
     return { tone: "info", text: "Not signed in", action: true };
 }
 

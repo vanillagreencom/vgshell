@@ -18,6 +18,11 @@ var HINT_MAX = 200;
 // The text of the `browserTheming` value for a report that failed or does
 // not parse, which the service reads to log the report's stderr.
 var UNKNOWN_TEXT = "Browser theme setup could not be checked. Open Plugins to check Themes.";
+// A browser theming state the user cannot act on reads Not available on
+// Setup, its hint saying why and what changes that
+// (PluginLogic.statusDeclarationFits). Each Settings open asks for a scan,
+// which checks the setup again.
+var RECHECK_HINT = "VGS checks again each time you open Settings";
 
 // The `browserTheming` status value, a `state`, for TEXT, the setup
 // report's stdout, and CODE, its exit code, null for a report that did not
@@ -32,7 +37,7 @@ var UNKNOWN_TEXT = "Browser theme setup could not be checked. Open Plugins to ch
 function browserTheming(text, code) {
     var unknown = function (why) {
         console.warn("themes: setup=" + why);
-        return { tone: "info", text: UNKNOWN_TEXT };
+        return { tone: "info", text: UNKNOWN_TEXT, available: false, hint: RECHECK_HINT };
     };
     if (code === null) return unknown("did not start");
     if (code !== 0) return unknown("exited " + code);
@@ -47,11 +52,11 @@ function browserTheming(text, code) {
     var row = null;
     for (var i = 0; i < rows.length; i++)
         if (rows[i] !== null && typeof rows[i] === "object" && rows[i].name === TARGET) row = rows[i];
-    if (row === null) return { tone: "info", text: "This version of VGS does not support browser themes" };
+    if (row === null) return { tone: "info", text: "This version of VGS does not support browser themes", available: false, hint: "A VGS update that ships browser themes adds this step" };
     switch (row.state) {
     case "done": return { tone: "ok", text: "Browser theme support is installed" };
     case "absent": return { tone: "info", text: "Browser themes are not installed", action: true };
-    case "not-detected": return { tone: "info", text: "No Chromium-family browser found" };
+    case "not-detected": return { tone: "info", text: "No Chromium-family browser found", available: false, hint: "Install Chromium, Chrome, Edge or Brave, then open Settings again" };
     }
     return unknown("named the state " + JSON.stringify(row.state) + ", not one of " + STATES.join(", "));
 }

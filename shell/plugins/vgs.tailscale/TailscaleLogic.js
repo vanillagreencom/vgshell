@@ -279,7 +279,7 @@ function stepOffered(step) { return step === "needed" || step === "nixos"; }
 // two system steps' states, each "" while it has no reading, before the
 // core's first probe ends. The line is null, which clears the entry, while
 // a step it reads has no reading. A missing command offers no step: the
-// Review action of the page's Details Tools section installs it, and the
+// Review action of the page's Optional tools step installs it, and the
 // requirement is optional, so the line reads info. A step Tailscale needs
 // reads warning while its action is offered; a state the user cannot
 // change here reads info.
@@ -349,9 +349,9 @@ function unread() {
 // service is off, or the administrator holds Tailscale.
 function lockReason(tailscale, step) {
     if (tailscale.writable) return "";
-    if (tailscale.state === "missing") return "Tailscale is not installed, so choose Review all missing or outdated tools under [Tools in Tailscale Details](page:vgs.tailscale/Details) to use it.";
+    if (tailscale.state === "missing") return "Tailscale is not installed, so choose Review all missing or outdated tools under [Optional tools in Tailscale Setup](page:vgs.tailscale/Setup) to use it.";
     var cause = tailscale.state === "service-off" ? "The Tailscale service is off" : "The administrator holds Tailscale";
-    return step === "" ? cause + "; review [Tailscale service in Tailscale Details](page:vgs.tailscale/Details)." : cause + " until you choose " + step + " beside [Tailscale service in Tailscale Details](page:vgs.tailscale/Details).";
+    return step === "" ? cause + "; review [Tailscale service in Tailscale Setup](page:vgs.tailscale/Setup)." : cause + " until you choose " + step + " beside [Tailscale service in Tailscale Setup](page:vgs.tailscale/Setup).";
 }
 
 // The backend probe hides the icon without removing its saved placement.
@@ -373,6 +373,9 @@ function statusWrites(connectionLine, setupLine, tailscaleValue) {
         setupValue = { tone: setupLine.tone, text: setupLine.text };
         if (setupLine.hint !== "") setupValue.hint = setupLine.hint;
         if (setupLine.action !== "") setupValue.action = setupLine.action;
+        // A required Setup step the user cannot act on here reads Not
+        // available, its hint saying why (PluginLogic.statusDeclarationFits).
+        else if (setupLine.tone !== "ok") setupValue.available = false;
     }
     var tailscale = Object.assign({}, tailscaleValue, { exitNodes: tailscaleValue.exitNodes.slice(), peers: tailscaleValue.peers.slice(), accounts: tailscaleValue.accounts.slice() });
     while (Commons.SettingValues.utf8Bytes(JSON.stringify(tailscale)) > STATUS_DATA_BYTES) {

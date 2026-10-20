@@ -2965,7 +2965,7 @@ function verifyPathForm(gate) {
         ["speech=live-key-required", "vgs.jarvis", "Settings"],
         ["speech=local-ready-timeout", "vgs.jarvis", "Setup"],
         ["speech=always-local-voice", "vgs.jarvis", "Settings"],
-        ["speech=dictation-elsewhere", "vgs.voice", "Details"],
+        ["speech=dictation-elsewhere", "vgs.voice", "Setup"],
         ["speech=dictation-device", "vgs.voice", "Settings"],
         ["home=link", "vgs.jarvis", "Settings/home"],
         ["home=path", "vgs.jarvis", "Settings/home"]]) {

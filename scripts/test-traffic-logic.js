@@ -200,6 +200,9 @@ test("capture-state-actions", api => {
     // optional capture step reads info in every state but done.
     for (const [state, tone, action] of [["ready","ok",false], ["needed","info",true], ["nixos","info",true], ["absent","info",false], ["denied","info",false], ["unknown","info",false]]) {
         const result = api.capture({ state }); assert.equal(result.tone, tone); assert.equal(result.action, action);
+        // A state that offers no step reads Not available, with its why.
+        const waits = state !== "ready" && !action;
+        assert.deepEqual([result.available, typeof result.hint], waits ? [false, "string"] : [undefined, "undefined"], "Not available with a hint: " + state);
     }
     captureUnread(api);
 });
@@ -236,7 +239,8 @@ const controls = [
     ["ipv6-loopback-counted", 'host === "::1"', 'host === "::2"', api => assert.equal(Object.keys(api.parseSockets(socketBefore)).includes("14"), false)],
     ["unknown-as-zero", 'return "--";', 'return "0 B/s";', api => assert.equal(api.formatRate(null), "--")],
     ["capture-optional-tone", 'tone: state === "ready" ? "ok" : "info",', 'tone: state === "ready" ? "ok" : state === "absent" ? "info" : "warning",', api => assert.equal(api.capture({ state: "needed" }).tone, "info")],
-    ["capture-action", 'action: state === "needed" || state === "nixos"', 'action: false', api => assert.equal(api.capture({ state: "needed" }).action, true)],
+    ["capture-action", 'const action = state === "needed" || state === "nixos";', 'const action = false;', api => assert.equal(api.capture({ state: "needed" }).action, true)],
+    ["capture-waits-on-the-user", 'if (state !== "ready" && !action) Object.assign(', 'if (false) Object.assign(', api => assert.equal(api.capture({ state: "absent" }).available, false)],
     ["capture-unread-unknown", '    if (!step) return null;\n    const state = step.state;', '    const state = step ? step.state : "unknown";', captureUnread]
 ];
 for (const [name, old, replacement, verify] of controls) {

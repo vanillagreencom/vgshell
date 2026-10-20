@@ -1067,7 +1067,11 @@ function displaysValue(resolved, runs) {
 }
 
 // A system step's reading as the `state` value of its access entry: TEXTS
-// names the sentence for `absent` and `denied`, which differ per step.
+// names the sentence for `absent` and `denied`, which differ per step, and
+// `connect`, what to connect for an `absent` one. A state the user cannot
+// act on here reads Not available on Setup, its hint saying why and what
+// changes that (PluginLogic.statusDeclarationFits); the core probes the
+// steps again after each plugin scan, which each Settings open asks for.
 // null, which clears the entry, while the step has no reading: Settings
 // reads an entry with no value as not checked yet.
 function stepState(step, texts) {
@@ -1077,9 +1081,9 @@ function stepState(step, texts) {
     case "ready": return { tone: "ok", text: "Allowed", action: false };
     case "needed": return { tone: "warning", text: "Needs your permission", action: true };
     case "nixos": return { tone: "warning", text: "Needs your NixOS configuration", action: true };
-    case "absent": return { tone: "info", text: texts.absent, action: false };
-    case "denied": return { tone: "danger", text: texts.denied, action: false };
-    case "unknown": return { tone: "warning", text: "Access could not be checked", action: false };
+    case "absent": return { tone: "info", text: texts.absent, action: false, available: false, hint: texts.connect };
+    case "denied": return { tone: "danger", text: texts.denied, action: false, available: false, hint: "The system holds this access, and VGS leaves it as it is" };
+    case "unknown": return { tone: "warning", text: "Access could not be checked", action: false, available: false, hint: "VGS checks again each time you open Settings" };
     }
     throw new Error("displays: step state " + JSON.stringify(state) + " is not one of " + STEP_STATES.join(", "));
 }
@@ -1130,11 +1134,13 @@ function statusValues(resolved, backends, runs, steps, missing, assignmentsError
         assignments: { entries: resolved === null ? [] : resolved.assignments, error: assignmentsError },
         appleAccess: stepState(steps === null ? null : steps["apple-displays"], {
             absent: "No Apple display connected",
-            denied: "Apple display access is blocked on this system"
+            denied: "Apple display access is blocked on this system",
+            connect: "Connect an Apple display to allow its brightness control"
         }),
         ddcAccess: stepState(steps === null ? null : steps["i2c-dev"], {
             absent: "No external display connected",
-            denied: "DDC access isn't supported on this system"
+            denied: "DDC access isn't supported on this system",
+            connect: "Connect an external display to allow its brightness control"
         }),
         ddcTool: toolState(missing, TOOL_COMMANDS.ddcTool, true),
         backlightTool: toolState(missing, TOOL_COMMANDS.backlightTool, backends !== null && backends.backlight.state === "missing")

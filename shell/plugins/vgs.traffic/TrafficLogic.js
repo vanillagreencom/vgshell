@@ -203,14 +203,21 @@ function commandLine(text) {
 }
 
 // The capture step: See all is optional, so a step not done reads info,
-// with its action while one is offered, and ok once it is. null, which
-// clears the entry, while the step has no reading, before the core's first
-// probe ends.
+// with its action while one is offered, and ok once it is. A state that
+// offers no action reads Not available on Setup, its hint saying why and
+// what changes that (PluginLogic.statusDeclarationFits); the core probes
+// the step again after each plugin scan, which each Settings open asks
+// for. null, which clears the entry, while the step has no reading, before
+// the core's first probe ends.
+const CAPTURE_HINTS = { absent: "Install bandwhich under Optional tools first", denied: "VGS allows capture only for a bandwhich it trusts",
+    unknown: "VGS checks again each time you open Settings" };
 function capture(step) {
     if (!step) return null;
     const state = step.state;
     const text = { ready: "Ready", needed: "Access needed", nixos: "Access needed", absent: "bandwhich is not installed",
         denied: "Installed tool is not trusted", unknown: "Capture access could not be checked" };
-    return { tone: state === "ready" ? "ok" : "info",
-        text: text[state] || text.unknown, action: state === "needed" || state === "nixos" };
+    const action = state === "needed" || state === "nixos";
+    const value = { tone: state === "ready" ? "ok" : "info", text: text[state] || text.unknown, action: action };
+    if (state !== "ready" && !action) Object.assign(value, { available: false, hint: CAPTURE_HINTS[state] || CAPTURE_HINTS.unknown });
+    return value;
 }

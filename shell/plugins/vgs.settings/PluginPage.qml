@@ -835,7 +835,7 @@ FocusScope {
                                             readonly property bool tools: requiredEntry.modelData.tools === true
                                             entry: tools ? requiredEntry.modelData.entry : page.statusEntry(requiredEntry.modelData.key)
                                             setup: true
-                                            action: page.row === null ? null : tools ? Steps.requirementStep(page.row.requirements).button
+                                            action: page.row === null ? null : tools ? requiredEntry.modelData.button
                                                 : entry === null ? null : Steps.lineAction(Steps.stepButton(entry, page.row.requirements), Steps.stepOpen(entry), page.plugin)
                                             asideAction: entry === null || tools || !page.plugin.enabled ? null : Steps.asideButton(entry)
                                         }
@@ -1034,28 +1034,15 @@ FocusScope {
 
                     Section {
                         id: toolsSection
-                        // The optional tools and the action that installs
-                        // the missing or outdated ones (Steps.toolsReview).
+                        // The optional tools, as readings: Setup's Optional
+                        // tools step installs the missing or outdated ones.
                         readonly property var tools: page.row === null ? [] : Steps.detailRequirements(page.row.requirements)
-                        readonly property var review: Steps.toolsReview(tools)
                         width: parent.width
                         title: "Tools"
                         visible: tools.length > 0
                         Repeater {
                             model: toolsSection.tools
                             RequirementRow { required property var modelData; width: toolsSection.width; requirement: modelData }
-                        }
-                        // Review sits in the value column under the chips,
-                        // with its refusal beside it: the page head's line
-                        // has scrolled away at the foot of a long tab.
-                        Field {
-                            width: toolsSection.width
-                            visible: toolsSection.review !== null; inline: true
-                            error: toolsSection.review === null ? "" : page.replyFor(toolsSection.review, null)
-                            RowAction {
-                                text: toolsSection.review === null ? "" : toolsSection.review.label
-                                onClicked: page.press(toolsSection.review, null)
-                            }
                         }
                     }
                 }

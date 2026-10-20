@@ -1420,7 +1420,9 @@ function statusValues(listed) {
     switch (listed.linger) {
     case "yes": linger = { tone: "ok", text: "Automations run while you are logged out" }; break;
     case "no": linger = { tone: "info", text: "Automations run only while you are logged in", action: true }; break;
-    case "unknown": linger = { tone: "info", text: "Could not check whether automations run while logged out" }; break;
+    // An unanswered check offers no action, so its Setup step reads Not
+    // available, its hint saying what changes that.
+    case "unknown": linger = { tone: "info", text: "Could not check whether automations run while logged out", available: false, hint: "VGS checks again when an automation runs or changes" }; break;
     default: throw new Error("automations: linger " + JSON.stringify(listed.linger) + " is not one of " + LINGER_STATES.join(", "));
     }
     return {

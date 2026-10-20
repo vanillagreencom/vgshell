@@ -91,6 +91,7 @@
     "setup": {
       "type": "state",
       "label": "Tailscale service",
+      "setup": true,
       "group": "Tailscale",
       "actions": {
         "enable": {

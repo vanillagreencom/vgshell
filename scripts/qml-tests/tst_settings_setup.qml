@@ -195,7 +195,7 @@ Item {
                 { tag: "required steps done", id: "acme.done", setup: true },
                 { tag: "required tools missing", id: "acme.required", setup: true },
                 { tag: "required tools present", id: "acme.present", setup: true },
-                { tag: "optional only", id: "acme.optional", setup: false },
+                { tag: "optional work and tools", id: "acme.optional", setup: true },
                 { tag: "nothing required", id: "acme.plain", setup: false },
                 { tag: "settings screen", id: "acme.settings", setup: false },
                 { tag: "task screen", id: "acme.tasks", setup: false }
@@ -300,7 +300,8 @@ Item {
         // Settings holds only values the user changes: the feature's
         // switch, with no chip, status line, tools line or action. The
         // feature's state keeps its action beside it on Details, and its
-        // missing tool is listed there with the action that installs it.
+        // missing tool is listed there as a reading; Setup's Optional tools
+        // step holds the action that installs it.
         function test_settings_draws_no_chip_and_the_optional_action_stays_beside_its_fact() {
             const window = opened(); window.openPlugin("acme.optional", Qt.OtherFocusReason);
             compare(pageOf(window).tab, "Settings");
@@ -309,7 +310,7 @@ Item {
             compare(onTab(window, StatusLine).length, 0, "the Settings tab draws no status line");
             compare(onTab(window, RowAction).length, 0, "the Settings tab draws no free action");
             compare(onTab(window, RequirementRow).length, 0, "the Settings tab draws no tool");
-            tabsOf(window).currentIndex = 1;
+            tabsOf(window).currentIndex = 2;
             compare(pageOf(window).tab, "Details");
             compare(onTab(window, StatusRow).map(row => row.entry.label), ["Feature state", "Health"]);
             const fact = onTab(window, StatusRow).find(row => row.entry.key === "featureState");
@@ -320,10 +321,22 @@ Item {
             mouseClick(action());
             compare(fakeManager.acts, [["acme.optional", "featureState"]], "the action takes its status entry's route");
             compare(onTab(window, RequirementRow).map(row => row.requirement.name), ["optional-tool"], "Details lists the optional tool");
-            const review = onTab(window, RowAction).find(item => item.text === "Review all missing or outdated tools");
-            verify(review !== undefined, "Details offers the install of the missing optional tool");
-            const chip = descendants(onTab(window, RequirementRow)[0]).find(item => item instanceof Badge);
-            compare(review.mapToItem(null, 0, 0).x, chip.mapToItem(null, 0, 0).x, "Review starts the value column, under the tools' chips");
+            compare(onTab(window, RowAction).filter(item => item.text === Steps.REVIEW_LABEL).length, 0, "Details offers no install");
+            window.openPlugin("acme.optional", Qt.OtherFocusReason, "Setup");
+            compare(pageOf(window).tab, "Setup");
+            const step = onTab(window, Field).find(item => item.label === "Optional tools");
+            verify(step !== undefined, "Setup draws the Optional tools step");
+            compare(descendants(step).filter(item => item instanceof Badge && item.visible).map(chip => [chip.text, chip.tone]), [["Optional", "neutral"]]);
+            const review = descendants(step).find(item => item instanceof RowAction && item.visible);
+            verify(review !== undefined, "the Optional tools step offers the install of the missing optional tool");
+            compare(review.text, Steps.REVIEW_LABEL);
+            // The tab's pages slide: click once the link holds still.
+            let last = null;
+            tryVerify(() => {
+                const at = review.mapToItem(null, 0, 0), still = last !== null && at.x === last.x && at.y === last.y;
+                last = at;
+                return review.height > 0 && still;
+            }, 3000, "the Setup tab has settled");
             mouseClick(review);
             compare(fakeManager.installs, ["acme.optional"]);
             const field = onTab(window, Field).find(item => descendants(item).includes(review));

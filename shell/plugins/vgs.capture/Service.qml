@@ -105,8 +105,12 @@ Item {
             shell.status.set("cameras", event.devices.cameras);
         }
         const report = event.languages;
+        // A list the user cannot mend here reads Not available on Setup, its
+        // hint naming what changes it (PluginLogic.statusDeclarationFits): a
+        // change of the languages probes again.
         shell.status.set("languages", report.missing === undefined
-            ? { tone: "danger", text: report.invalid ? "The language list is not valid" : "Installed languages could not be read" }
+            ? { tone: "danger", text: report.invalid ? "The language list is not valid" : "Installed languages could not be read", available: false,
+                hint: report.invalid ? "Choose the [languages](page:vgs.capture/Settings/ocrLanguages) again" : "VGS checks again when you change the [languages](page:vgs.capture/Settings/ocrLanguages)" }
             : report.missing.length > 0
             ? { tone: "warning", text: ("Missing: " + report.missing.join(", ")).slice(0, 200), action: true }
             : { tone: "ok", text: "Ready" });

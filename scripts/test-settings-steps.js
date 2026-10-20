@@ -94,17 +94,9 @@ function verify(logic, producer) {
     same(logic.setupTab(sections, []), true, "completed required steps keep Setup");
     same(logic.setupTab([], requirements([])), true, "present required tools keep Setup");
     const optionalOnly = requirements(["optional-tool"]).filter(row => row.optional);
-    same(logic.setupTab([], optionalOnly), false, "optional tools never create Setup");
+    same(items(logic.setupSections(screens, [], optionalOnly)).map(item => item.key), ["optional-tools"], "optional tools alone create Setup, with their one step");
     same(logic.requirementStep(optionalOnly), null, "optional tools never create the Tools step");
     same(logic.detailRequirements(requirements([])).map(row => row.name), ["optional-tool", "org.example.Tool", "automatic-tool"], "every optional tool is on Details");
-    for (const [label, missing, want] of [
-        ["a missing optional tool", ["optional-tool"], REVIEW],
-        ["a missing required tool alone", ["required-a"], null],
-        ["every tool present", [], null]
-    ]) {
-        const review = logic.toolsReview(logic.detailRequirements(requirements(missing)));
-        same(review === null ? null : review.label, want, "Details Tools: " + label);
-    }
     for (const [label, values, missing, enabled, expected] of [
         ["all required work ready", allDone, [], true, false],
         ["only Home blocked", Object.assign({}, allDone, { home: blocked }), [], true, true],
@@ -116,21 +108,29 @@ function verify(logic, producer) {
         ["Home blocked by a missing tool", Object.assign({}, allDone, { home: toolBlocked }), ["required-a"], true, true],
         ["disabled plugin", {}, ["required-a"], false, false]
     ]) same(logic.setupNeeds(rows(values), requirements(missing), enabled), { open: expected }, "readiness: " + label);
-    for (const [label, missing, want] of [
-        ["present", [], [true, "Tools", "Done", "success", null]],
-        ["missing", ["required-a", "required-b", "optional-tool"], [false, "Tools", "To do", "warning", [REVIEW, true]]]
+    // The two tools steps: [name, missing tools, the Tools step and the
+    // Optional tools step, each [done, chip, tone, Review] or null, and
+    // the tools each names].
+    const toolSteps = missing => ["required-tools", "optional-tools"].map(key => items(logic.setupSections(screens, [], requirements(missing))).find(item => item.key === key) || null);
+    const toolReading = item => item === null ? null : ((view) => [item.label, view.text, view.tone, item.button === null ? null : [item.button.label, item.button.enabled]])(logic.stepView(item.entry, String, on));
+    for (const [label, missing, want, named] of [
+        ["every tool present", [], [["Tools", "Done", "success", null], ["Optional tools", "Done", "success", null]], [null, null]],
+        ["a required tool missing", ["required-a"], [["Tools", "To do", "warning", [REVIEW, true]], ["Optional tools", "Done", "success", null]], ["required-a (missing)", null]],
+        ["an optional tool missing", ["optional-tool"], [["Tools", "Done", "success", null], ["Optional tools", "Optional", "neutral", [REVIEW, true]]], [null, "optional-tool (missing)"]],
+        ["both missing", ["required-a", "required-b", "optional-tool"], [["Tools", "To do", "warning", [REVIEW, true]], ["Optional tools", "Optional", "neutral", [REVIEW, true]]],
+            ["required-a (missing), required-b (missing)", "optional-tool (missing)"]]
     ]) {
-        const step = logic.requirementStep(requirements(missing));
-        assert.notEqual(step, null, "Tools: " + label);
-        same([step.done, step.label, step.text, step.tone, step.button === null ? null : [step.button.label, step.button.enabled]], want, "Tools: " + label);
-        if (missing.length) same(step.hint, "required-a (missing), required-b (missing)", "Tools names only required tools");
+        const steps = toolSteps(missing);
+        same(steps.map(toolReading), want, "tools steps " + label);
+        named.forEach((hint, i) => { if (hint !== null) same(steps[i].entry.hint, hint, "tools steps " + label + ": each names its own tools"); });
     }
+    same(logic.setupNeeds([], requirements(["optional-tool"]), true), { open: false }, "a missing optional tool raises no Setup needed");
     const outdated = requirements([]).map(row => Object.assign({}, row, { state: row.name === "required-b" ? "outdated" : "present" }));
     same(logic.requirementStep(outdated).done, false, "outdated required tools stay open");
     same(logic.requirementStep(outdated).hint, "required-b (outdated)", "Tools identifies outdated tools");
     same(logic.setupNeeds(status0, outdated, true), { open: true }, "outdated required tools warn");
-    same(items(logic.setupSections(screens, status0, requirements(["required-a"]))).map(item => item.key), ["required-tools", "model", "home", "account", "connection", "connectionKeys"], "pending Tools precede completed required steps");
-    same(items(logic.setupSections(screens, status0, requirements([]))).map(item => item.key), ["model", "home", "account", "connection", "connectionKeys", "required-tools"], "completed Tools retain their one step");
+    same(items(logic.setupSections(screens, status0, requirements(["required-a"]))).map(item => item.key), ["required-tools", "model", "home", "account", "connection", "connectionKeys", "optional-tools"], "pending Tools precede completed required steps");
+    same(items(logic.setupSections(screens, status0, requirements([]))).map(item => item.key), ["model", "home", "account", "connection", "connectionKeys", "required-tools", "optional-tools"], "completed Tools retain their one step");
     const openRows = rows(Object.assign({}, allDone, { home: blocked, model: { tone: "warning", text: "Needs a key", action: true, lines: ["Open Settings"] } }));
     same(items(logic.setupSections(screens, rows(Object.assign({}, allDone, { home: blocked })))).map(item => item.key), ["home", "model", "account", "connection", "connectionKeys"], "Home-only blocker is first");
     const model = openRows.find(entry => entry.key === "model"), view = logic.stepView(model, String, on);
@@ -147,7 +147,7 @@ function verify(logic, producer) {
         const button = item.tools === true ? item.button : logic.lineAction(item.button, logic.stepOpen(item.entry), plugin);
         return [item.key, button === null ? null : [button.label, button.enabled]];
     });
-    same(stepOffers({}, ["required-a"], off), [["model", [TURN_ON, true]], ["home", [TURN_ON, true]], ["account", [TURN_ON, true]], ["connection", [TURN_ON, true]], ["required-tools", [REVIEW, true]]],
+    same(stepOffers({}, ["required-a"], off), [["model", [TURN_ON, true]], ["home", [TURN_ON, true]], ["account", [TURN_ON, true]], ["connection", [TURN_ON, true]], ["required-tools", [REVIEW, true]], ["optional-tools", null]],
         "off: every To do step offers Turn on Fixture");
     same(stepOffers(Object.assign({}, allDone, { model: { tone: "warning", text: "Needs a key", action: true } }), [], on).find(([key]) => key === "model"), ["model", ["Set model", true]],
         "on: an offered step draws its own action");
@@ -186,13 +186,13 @@ function verify(logic, producer) {
     const accountOpen = { tone: "warning", text: "Signed out", action: "signIn" };
     for (const [name, values, missing, plugin, reading, order] of [
         ["by its value, between To do and Done", Object.assign({}, allDone, { model: { tone: "warning", text: "Needs a key", action: true }, account: accountOpen, home: unavailable }), [], on,
-            ["unavailable", "neutral"], ["model", "account", "home", "connection", "connectionKeys", "required-tools"]],
+            ["unavailable", "neutral"], ["model", "account", "home", "connection", "connectionKeys", "required-tools", "optional-tools"]],
         ["by its value, after a pending Tools step", Object.assign({}, allDone, { account: accountOpen, home: unavailable }), ["required-a"], on,
-            ["unavailable", "neutral"], ["account", "required-tools", "home", "model", "connection", "connectionKeys"]],
+            ["unavailable", "neutral"], ["account", "required-tools", "home", "model", "connection", "connectionKeys", "optional-tools"]],
         ["after a failed build", {}, ["required-a"], failed,
-            ["unavailable", "neutral"], ["required-tools", "model", "home", "account", "connection", "connectionKeys"]],
+            ["unavailable", "neutral"], ["required-tools", "model", "home", "account", "connection", "connectionKeys", "optional-tools"]],
         ["while refused", {}, ["required-a"], refused,
-            ["unavailable", "neutral"], ["required-tools", "model", "home", "account", "connection", "connectionKeys"]]
+            ["unavailable", "neutral"], ["required-tools", "model", "home", "account", "connection", "connectionKeys", "optional-tools"]]
     ]) {
         const status = rows(values), home = status.find(entry => entry.key === "home");
         same([logic.stepReading(home, plugin), logic.stepView(home, String, plugin).tone], reading, "Not available " + name + ": the chip");
@@ -430,7 +430,7 @@ verify(load(file), load(producerFile));
 verifyPage(fs.readFileSync(pageFile, "utf8"));
 const controls = [
     ["optional-on-Setup", 'return entry.setup === "required" || entry.setup === "optional"; }', 'return entry.setup === "required" || entry.setup === "optional" || entry.setting !== ""; }', "optional entries never draw on Setup"],
-    ["an optional step reads To do", 'return entry.setup === "optional" ? "optional" : "todo";', 'return "todo";', "optional step open beside a done required step: the chip"],
+    ["an optional step reads To do", 'return entry.setup === "optional" ? "optional" : "todo";', 'return "todo";', "tools steps an optional tool missing"],
     ["an optional step the user cannot act on reads Optional", 'if (!stepOpen(entry)) return "unavailable";', 'if (!stepOpen(entry) && entry.setup !== "optional") return "unavailable";', "optional step not available: the chip"],
     ["an optional step raises Setup needed", 'stepReading(entry, plugin) === "todo"; })', 'stepReading(entry, plugin) !== "done" && stepReading(entry, plugin) !== "unavailable"; })', "optional step open beside a done required step: Setup needed"],
     ["an optional step sorts with To do", 'optional: 2, done: 3 };', 'optional: 0, done: 3 };', "optional step open beside a required step To do: the order"],
@@ -447,16 +447,17 @@ const controls = [
     ["a refusal reads To do", 'return line.startsWith("build failed: ") || line.startsWith("refused: ");', 'return line.startsWith("build failed: ");', "Setup needed refused"],
     ["a tools step offers nothing", 'return requiredLacking(requirements).length > 0 ? reviewButton() : null;', 'return null;', "tools: a missing required tool"],
     ["a tools step offers Review with no required tool lacking", 'return requiredLacking(requirements).length > 0 ? reviewButton() : null;', 'return reviewButton();', "tools: a missing optional tool alone"],
-    ["optional tool creates Setup", 'requirements.some(function (row) { return !row.optional; })', 'requirements.length > 0', "optional tools never create Setup"],
-    ["optional tool becomes required Tools", 'requirements.filter(function (row) { return !row.optional; })', 'requirements.slice()', "optional tools never create the Tools step"],
-    ["ready tools drop Tools", 'if (required.length === 0) return null;', 'if (required.length === 0 || required.every(function (row) { return row.state === "present"; })) return null;', "Tools: present"],
+    ["optional tools create no step", '[toolsStep(required, false), toolsStep(required, true)]', '[toolsStep(required, false)]', "optional tools alone create Setup"],
+    ["optional tool becomes required Tools", 'var rows = requirements.filter(function (row) { return row.optional === optional; });', 'var rows = optional ? requirements.filter(function (row) { return row.optional; }) : requirements.slice();', "optional tools alone create Setup"],
+    ["the optional tools step names the required tools", 'var lacking = rows.filter(requirementApplies);', 'var lacking = requirements.filter(requirementApplies);', "tools steps a required tool missing"],
+    ["ready tools drop their step", 'if (rows.length === 0) return null;', 'if (rows.length === 0 || rows.every(function (row) { return row.state === "present"; })) return null;', "tools steps every tool present"],
     ["optional tool warns", 'return !row.optional && requirementApplies(row);', 'return requirementApplies(row);', "only optional tool missing"],
     ["disabled plugin warns", 'open: enabled && (', 'open: (', "disabled plugin"],
     ["outdated tool passes", 'return requirement.state !== "present";', 'return requirement.state === "missing";', "outdated required tools stay open"],
-    ["pending chip leaks status words", 'view.text = chip.text;', 'view.text = entry.value.text;', "pending chip keeps explanation"],
-    ["completed chip stays pending", 'view.text = chip.text;', 'view.text = STEP_CHIPS.todo.text;', "completed chip uses two-state vocabulary"],
+    ["pending chip leaks status words", 'view.text = chip.text;', 'view.text = entry.value.text;', "tools steps every tool present"],
+    ["completed chip stays pending", 'view.text = chip.text;', 'view.text = STEP_CHIPS.todo.text;', "tools steps every tool present"],
     ["open steps follow completed ones", 'return rank(a.entry) - rank(b.entry) || a.index - b.index;', 'return rank(b.entry) - rank(a.entry) || a.index - b.index;', "Home-only blocker is first"],
-    ["pending Tools follow completed steps", 'if (!tools.done && firstDone !== -1)', 'if (false)', "pending Tools precede completed required steps"],
+    ["pending Tools follow completed steps", 'if (after !== -1) items.splice(after, 0, toolItem);', 'if (false) items.splice(after, 0, toolItem);', "pending Tools precede completed required steps"],
     ["keys leave their required step", 'keyList.step === entry.key', 'false', "optional entries never draw on Setup"],
     ["unoffered action is drawn", 'entry.action === null || !entry.action.offered', 'entry.action === null', "after a failed build no step draws an action"],
     ["a primary status action uses a separate screen reply", 'return { kind: "status", key: entry.key', 'return { kind: "tui", key: entry.key', "on: a step whose screen lacks an optional tool offers its own action"],
@@ -472,8 +473,6 @@ const controls = [
     ["a Details fact offers no Turn on while the plugin is off", 'action: lineAction(stepButton(entry), entry.action !== null, plugin)', 'action: lineAction(stepButton(entry), false, plugin)', "Details: off: a former Settings entry offers Turn on"],
     ["a Details fact draws its declared action dead", 'action: lineAction(stepButton(entry), entry.action !== null, plugin)', 'action: lineAction(stepButton(entry) || (entry.action === null ? null : { kind: "status", key: "dead", name: "", label: entry.action.label, tone: "", enabled: false, reason: "" }), entry.action !== null, plugin)', "Details: on: a fact whose feature is set up offers nothing"],
     ["optional tools leave Details", 'return requirements.filter(function (entry) { return entry.optional; });', 'return requirements.filter(function (entry) { return entry.optional && entry.name === "automatic-tool"; });', "every optional tool is on Details"],
-    ["Details Tools offers no Review", 'return requirements.some(requirementApplies) ? reviewButton() : null;', 'return null;', "Details Tools: a missing optional tool"],
-    ["Details Tools offers Review with every optional tool present", 'return requirements.some(requirementApplies) ? reviewButton() : null;', 'return reviewButton();', "Details Tools: a missing required tool alone"],
     ["an unreported step names no wait", 'if (entry.report !== "reported" && plugin.enabled)', 'if (false)', "on, unreported: the step stays To do and names the wait"],
     ["a start error reads as a wait", 'plugin.error !== "" ? plugin.error : ', '', "Not available after a failed build: the step draws the plain line alone"],
     ["a step that could not start keeps the declaration's hint", 'if (entry.report !== "reported" && reading === "unavailable") {', 'if (false) {', "Not available after a failed build: the step draws the plain line alone"],

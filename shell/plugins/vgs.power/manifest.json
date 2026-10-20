@@ -254,6 +254,7 @@
     "diskSleep": {
       "type": "state",
       "label": "Disk sleep",
+      "setup": "optional",
       "hint": "Stop hard disks after 30 minutes without use",
       "info": "A hard disk stops after you leave it unused. Opening a file on a stopped disk takes longer while it starts again.",
       "action": {

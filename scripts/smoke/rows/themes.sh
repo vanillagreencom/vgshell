@@ -526,7 +526,7 @@ expected_errors+=('settings: vgs\.themes/browserTheming refused: action=browserT
 settings_page_open vgs.themes
 settings_setup
 browser_theming_location() { ipc smoke setupRows window vgs.settings | py_reply 'import json,sys; print(json.dumps([[row["key"], row["chips"]] for row in json.load(sys.stdin) if row["key"]=="browserTheming"]))'; }
-expect_poll "browser theming is an optional Setup step" '[["browserTheming", [["Optional", "neutral"]]]]' browser_theming_location
+expect_poll "browser theming with no target shipped is a Not available Setup step" '[["browserTheming", [["Not available", "neutral"]]]]' browser_theming_location
 expect_poll "a tree that ships no target reads browser theming not shipped" '"This version of VGS does not support browser themes"' browser_text
 expect "the manager refuses the install while no target ships" "refused: action=browserTheming reason=not-offered" settings_act vgs.themes browserTheming
 expect "chromium resolves to the device stand-in on the shell's PATH" "$shim/chromium" shell_resolves chromium

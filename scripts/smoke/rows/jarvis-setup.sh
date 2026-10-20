@@ -129,7 +129,7 @@ setup_once() {
 import json,sys
 rows=json.load(sys.stdin)
 forbidden={"setup", "clonedVoiceSetup", "browser", "input", "localRuntime", "keys", "copilotMemory", "setupFleet"}
-violations=[r["key"] for r in rows if r["key"] in forbidden or r["chips"] not in ([["To do","warning"]], [["Done","success"]])]
+violations=[r["key"] for r in rows if r["key"] in forbidden or r["chips"] not in ([["To do","warning"]], [["Done","success"]]) and not (r["key"] == "optional-tools" and r["chips"] == [["Optional","neutral"]])]
 if sum(b["text"] == "Set up local voice" for r in rows for b in r["buttons"]) > 1: violations.append("setup-local-repeated")
 print(json.dumps(violations) if rows else "absent")
 '

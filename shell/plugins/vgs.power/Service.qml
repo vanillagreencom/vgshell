@@ -217,15 +217,18 @@ Item {
     }
 
     // The core probes the step once for all holders. Publish nothing until
-    // that reading arrives, so Details keeps its standard Checking state.
+    // that reading arrives, so Setup keeps its standard Checking state. A
+    // state the user cannot act on here reads Not available, its hint
+    // saying why (PluginLogic.statusDeclarationFits).
     function diskSleepValue(install) {
         switch (diskSleepStep.state) {
         case "absent": return { hidden: true };
         case "ready": return { tone: "ok", text: "Allowed", action: false };
-        case "needed": return { tone: "warning", text: "Not allowed", action: !install };
+        case "needed": return install ? { tone: "warning", text: "Not allowed", action: false, available: false, hint: "Install hdparm under Optional tools first" }
+            : { tone: "warning", text: "Not allowed", action: true };
         case "nixos": return { tone: "warning", text: "Needs your NixOS configuration", action: true };
-        case "denied": return { tone: "warning", text: "Managed elsewhere", action: false, hint: "Another disk sleep rule is already installed" };
-        case "unknown": return { tone: "warning", text: "Could not check", action: false, hint: "VGS could not read the hard disk setup" };
+        case "denied": return { tone: "warning", text: "Managed elsewhere", action: false, available: false, hint: "Another disk sleep rule is already installed" };
+        case "unknown": return { tone: "warning", text: "Could not check", action: false, available: false, hint: "VGS could not read the hard disk setup" };
         }
         throw new Error("power: disk-sleep state=" + diskSleepStep.state);
     }

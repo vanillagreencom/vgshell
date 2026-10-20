@@ -513,7 +513,7 @@ function verify(logic) {
   same(values.displays.items[1], { id: STUDIO_A, device: KEY_A, label: "Apple Studio Display", backend: "hidraw", state: "ready", percent: 30, outputs: ["DP-2"], assigned: true });
   same(values.assignments, { entries: resolved.assignments, error: null });
   same(values.appleAccess, { tone: "warning", text: "Needs your permission", action: true });
-  same(values.ddcAccess, { tone: "danger", text: "DDC access isn't supported on this system", action: false });
+  same(values.ddcAccess, { tone: "danger", text: "DDC access isn't supported on this system", action: false, available: false, hint: "The system holds this access, and VGS leaves it as it is" });
   same(values.ddcTool, { tone: "warning", text: "Not installed" });
   same(values.backlightTool, { tone: "ok", text: "Installed" });
   same([logic.toolCommand("ddcTool"), logic.toolCommand("backlightTool"), logic.toolCommand("appleAccess")], ["ddcutil", "brightnessctl", ""],
@@ -521,14 +521,15 @@ function verify(logic) {
   const noTool = { ddc: { state: "ready" }, backlight: { state: "missing" } };
   same(logic.statusValues(resolved, noTool, logic.emptyRuns(), steps, ["brightnessctl"], null, "ready").backlightTool,
     { tone: "warning", text: "Not installed" }, "a backlight that needs brightnessctl shows the step, with no action");
-  const texts = { absent: "absent text", denied: "denied text" };
+  const texts = { absent: "absent text", denied: "denied text", connect: "connect text" };
+  // A state that offers no action reads Not available on Setup, with a hint.
   const stepStates = [
     ["ready", { tone: "ok", text: "Allowed", action: false }],
     ["needed", { tone: "warning", text: "Needs your permission", action: true }],
     ["nixos", { tone: "warning", text: "Needs your NixOS configuration", action: true }],
-    ["absent", { tone: "info", text: "absent text", action: false }],
-    ["denied", { tone: "danger", text: "denied text", action: false }],
-    ["unknown", { tone: "warning", text: "Access could not be checked", action: false }]
+    ["absent", { tone: "info", text: "absent text", action: false, available: false, hint: "connect text" }],
+    ["denied", { tone: "danger", text: "denied text", action: false, available: false, hint: "The system holds this access, and VGS leaves it as it is" }],
+    ["unknown", { tone: "warning", text: "Access could not be checked", action: false, available: false, hint: "VGS checks again each time you open Settings" }]
   ];
   for (const [state, want] of stepStates) same(logic.stepState({ state: state, reason: "r" }, texts), want, "stepState: " + state);
   same([logic.stepState(null, texts), logic.stepState(undefined, texts)], [null, null], "a step with no reading publishes nothing");

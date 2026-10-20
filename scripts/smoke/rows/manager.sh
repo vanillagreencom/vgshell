@@ -870,19 +870,19 @@ release_runs
 expect_run_end "the add's run ends" core/plugin-add
 expect_poll "the add's terminal closes" 0 tui_windows
 
-# Required tools share one Setup step. An optional tool without a field
-# reference remains a Details fact and supplies no Setup action. A
+# Required tools share one Setup step, and optional tools the Optional
+# tools step, whose Review installs the missing optional one. A
 # temporary manifest makes that tool required and adds two required
 # actionless steps. The real rows supply the spacing proof and controls.
 # The Tools link opens the existing requirement notice over Settings.
 settings_show acme.bare
 settings_setup
 # The required shell command is complete. The missing optional command
-# gives Setup neither another row nor an install action.
+# gives the Optional tools step its one install action.
 manager_tools() { ipc smoke itemTexts window vgs.settings Field | py_reply 'import json,sys; print(json.dumps([row for row in json.load(sys.stdin) if row and row[0] == "Tools"]))'; }
 manager_tool_links() { ipc smoke itemTexts window vgs.settings RowAction | py_reply 'import json,sys; print(json.dumps([row for row in json.load(sys.stdin) if row and "tools" in row[0].lower()]))'; }
 expect_poll "Setup combines the present required tool into one Done step" '[["Tools", "Done", "Every required tool is installed"]]' manager_tools
-expect "the missing optional tool gives Setup no tool action" '[]' manager_tool_links
+expect "the missing optional tool gives the Optional tools step its Review" '[["Review all missing or outdated tools"]]' manager_tool_links
 settings_details
 expect_poll "Details draws the optional tool's purpose" drawn settings_label "A command no sandbox has"
 manager_required_manifest="$bare/manifest.json"

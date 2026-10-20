@@ -202,7 +202,7 @@ tailscale_switch_focus() {
   type_keys -k Tab || return 1
   echo moving
 }
-tailscale_setup_field() { ipc smoke settingRows window vgs.settings | py_reply 'import json,sys; rows=[row for row in json.load(sys.stdin) if row["key"]=="setup"]; print(json.dumps([[row["field"], [[button["text"], button["enabled"]] for button in row["buttons"]]] for row in rows]))'; }
+tailscale_setup_field() { ipc smoke setupRows window vgs.settings | py_reply 'import json,sys; rows=[row for row in json.load(sys.stdin) if row["key"]=="setup"]; print(json.dumps([[row["chips"], [[button["text"], button["enabled"]] for button in row["buttons"]]] for row in rows]))'; }
 tailscale_body_state() { tailscale_body "$1" tailscale | py_reply 'import json,sys; print(json.load(sys.stdin)["state"])'; }
 tailscale_exit_rows() { tailscale_body window exitRows | py_reply 'import json,sys; print(json.dumps([[r["text"], r["badge"]] for r in json.load(sys.stdin)]))'; }
 tailscale_placed() { bar_widget_ids | py_reply 'import json,sys; print(any("vgs.tailscale" in ids for ids in json.load(sys.stdin)))'; }
@@ -425,8 +425,8 @@ expect "the poll waits the setting's 30 s while no view is open" 30000 tailscale
 expect_poll "the core reads the operator step needed" "needed operator-unset" tailscale_step tailscale-operator
 expect_poll "an unset operator offers Allow" allow tailscale_setup
 settings_page_open vgs.tailscale
-settings_details
-expect_poll "Details keeps the offered Allow action beside the Tailscale reading" '[["", [["Let my login control Tailscale", true]]]]' tailscale_setup_field
+settings_setup
+expect_poll "Setup offers Allow on the Tailscale service step, To do" '[[[["To do", "warning"]], [["Let my login control Tailscale", true]]]]' tailscale_setup_field
 settings_page_close vgs.tailscale
 expect "changes wait for Allow" false tailscale_value writable
 # The flyout's header switch is locked until Allow: it says why on hover.

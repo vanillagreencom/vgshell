@@ -17,6 +17,7 @@ const cp = require("node:child_process");
 const crypto = require("node:crypto");
 const { load } = require("../bin/lib/qml-library.js");
 const modules = { "qs.Commons 1.0": { Duration: load(path.join(__dirname, "..", "shell", "Commons", "Duration.js")) } };
+const Judge = load(path.join(__dirname, "..", "shell", "Core", "PluginLogic.js"));
 const Endpoint = require("./fixtures/ai-usage/endpoint.js");
 
 const tree = path.resolve(__dirname, "..");
@@ -872,13 +873,20 @@ usage.read(process.argv[2], process.env, { origin: process.argv[3], copilotOrigi
             assert.deepEqual(barOf(settings), want, JSON.stringify(settings));
         assert.notEqual(View.widget(bar, { barShows: "left" }, NOW).tooltip, View.widget(bar, {}, NOW).tooltip, "the tooltip names the share shown");
 
-        const row = (usage, provider) => { const r = View.signIn(usage, provider); return [r.tone, r.action === true]; };
-        assert.deepEqual(row(null, "claude"), ["info", true], "no sign-in offers Sign in");
-        assert.deepEqual(row(first, "claude"), ["ok", false]);
-        assert.deepEqual(row(only("no-plan"), "codex"), ["info", false], "an API-key sign-in is no failure and offers nothing");
-        assert.deepEqual(row(View.merge(first, reading("failed", []), NOW), "claude"), ["ok", false], "stale figures stay signed in");
-        assert.deepEqual(row(View.merge(null, reading("failed", []), NOW), "claude"), ["danger", false]);
-        assert.deepEqual(row(View.merge(null, reading("limited", []), NOW), "claude"), ["ok", false], "a limited account stays signed in");
+        // [tone, offers Sign in, Not available]: a sign-in the user cannot
+        // mend here reads Not available on Setup.
+        const row = (usage, provider) => { const r = View.signIn(usage, provider); return [r.tone, r.action === true, r.available === false]; };
+        assert.deepEqual(row(null, "claude"), ["info", true, false], "no sign-in offers Sign in");
+        assert.deepEqual(row(first, "claude"), ["ok", false, false]);
+        assert.deepEqual(row(only("no-plan"), "codex"), ["info", false, true], "an API-key sign-in is no failure and offers nothing");
+        assert.deepEqual(row(View.merge(first, reading("failed", []), NOW), "claude"), ["ok", false, false], "stale figures stay signed in");
+        assert.deepEqual(row(View.merge(null, reading("failed", []), NOW), "claude"), ["danger", false, true]);
+        assert.deepEqual(row(View.merge(null, reading("limited", []), NOW), "claude"), ["ok", false, false], "a limited account stays signed in");
+        assert.deepEqual(row(View.merge(null, reading("expired", []), NOW), "claude"), ["warning", false, true], "an expired sign-in waits on its tool");
+        // Each sign-in value is one the core takes for the Setup step.
+        const judged = Judge.validateManifest(JSON.parse(fs.readFileSync(path.join(__dirname, "..", "shell", "plugins", "vgs.ai-usage", "manifest.json"), "utf8")), "/vgs.ai-usage").manifest;
+        for (const usage of [null, first, only("no-plan"), View.merge(null, reading("failed", []), NOW), View.merge(null, reading("expired", []), NOW)])
+            assert.equal(Judge.statusWrite(judged, {}, "claude", View.signIn(usage, "claude")).ok, true, "the status judge admits the sign-in: " + JSON.stringify(View.signIn(usage, "claude")));
         assert.equal(View.signIn(View.merge(null, reading("expired", []), NOW), "claude").text, View.EXPIRED.claude);
 
         // A card's title is the provider's name alone; its account line is

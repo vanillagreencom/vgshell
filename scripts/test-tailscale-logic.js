@@ -17,6 +17,8 @@ const file = path.join(__dirname, "../shell/plugins/vgs.tailscale/TailscaleLogic
 const commons = { "qs.Commons 1.0": { SettingValues: load(path.join(__dirname, "../shell/Commons/SettingValues.js")) } };
 const core = load(path.join(__dirname, "../shell/Core/PluginLogic.js"));
 const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, "../shell/plugins/vgs.tailscale/manifest.json"), "utf8"));
+// The manifest as the core judges it, which the status judge reads.
+const judged = core.validateManifest(manifest, path.join(__dirname, "../shell/plugins/vgs.tailscale")).manifest;
 const serviceSource = fs.readFileSync(path.join(__dirname, "../shell/plugins/vgs.tailscale/Service.qml"), "utf8");
 const fixtures = path.join(__dirname, "fixtures/tailscale");
 const text = name => fs.readFileSync(path.join(fixtures, name), "utf8");
@@ -173,10 +175,13 @@ function suite(logic, service = serviceSource) {
         assert.equal(shown.hint === "", tone === "ok", "a hint on every line but Ready: " + JSON.stringify(context));
         const written = logic.statusWrites({ tone: "ok", text: "" }, shown, logic.unread())[1][1];
         assert.equal(written.hint, shown.hint === "" ? undefined : shown.hint, "the published setup value keeps the hint");
+        // A line that is not Ready and offers no step reads Not available on Setup.
+        assert.equal(written.available, action === "" && tone !== "ok" ? false : undefined, "an unoffered line is Not available: " + JSON.stringify(context));
+        assert.equal(core.statusWrite(judged, {}, "setup", written).ok, true, "the status judge admits the setup value: " + JSON.stringify(context));
     }
-    // The line draws in the Tailscale service row on Details, above the
-    // Tools section's Review action, so it links no page.
-    assert.equal(PageReference.parse(logic.setup({ missing: true }).hint).page, "", "the Details line links no page");
+    // The line draws in the Tailscale service step on Setup, beside the
+    // Optional tools step's Review action, so it links no page.
+    assert.equal(PageReference.parse(logic.setup({ missing: true }).hint).page, "", "the Setup line links no page");
     // Before the core's first probe a step has no reading (""): the setup
     // line is null, so its entry is unreported, never Ready or Not checked.
     // A missing command needs no step reading and still reads Not installed.
@@ -223,7 +228,7 @@ function suite(logic, service = serviceSource) {
         assert.ok(step === "" || reason.includes(step), "names the step: " + JSON.stringify(reason));
         for (const offered of [step, ""]) {
             const link = PageReference.parse(logic.lockReason(tailscale, offered));
-            assert.deepEqual([link.page, link.tab], [manifest.id, "Details"], "offered and unoffered reasons open the Tailscale service row on Details");
+            assert.deepEqual([link.page, link.tab], [manifest.id, "Setup"], "offered and unoffered reasons open the Tailscale service step on Setup");
         }
     }
     // Distinct lock causes retain distinct reasons.
@@ -317,7 +322,8 @@ try {
         ["a writable value gives no reason", 'if (tailscale.writable) return "";', ''],
         ["a service that is off is told apart", 'tailscale.state === "service-off" ? "The', 'false ? "The'],
         ["the reason names the step", 'return step === "" ? cause +', 'return true ? cause +'],
-        ["a blocked service opens its Details row", 'cause + "; review [Tailscale service in Tailscale Details](page:vgs.tailscale/Details)."', 'cause + "; review [Tailscale in Setup](page:vgs.tailscale/Setup)."'],
+        ["an unoffered setup line waits on the user", '        else if (setupLine.tone !== "ok") setupValue.available = false;\n', ''],
+        ["a blocked service opens its Setup step", 'cause + "; review [Tailscale service in Tailscale Setup](page:vgs.tailscale/Setup)."', 'cause + "; review [Tailscale in Details](page:vgs.tailscale/Details)."'],
         ["a target equal to the peer id", "{ id: peer.ID, target: target,", "{ id: peer.ID, target: peer.ID,"],
         ["a Mullvad node goes by its IPv4", "if (isMullvad(peer)) return address;", ""],
         ["the DNS name comes before the host name", 'if (dns !== "") return dns;', ""],

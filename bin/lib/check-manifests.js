@@ -193,12 +193,9 @@ function restatedHint(manifest) {
 }
 
 // The plugins whose Details steps their own lanes move, by the issue that
-// removes each from this list once it has. VGS-1958 moves Power's once
-// VGS-1905 lands and VPN's once VGS-1928 lands.
+// removes each from this list once it has.
 const DETAIL_STEPS_HELD = {
-    "vgs.jarvis": "VGS-1953",
-    "vgs.power": "VGS-1958",
-    "vgs.vpn": "VGS-1958"
+    "vgs.jarvis": "VGS-1953"
 };
 
 let refused = 0;

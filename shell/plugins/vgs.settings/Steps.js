@@ -79,13 +79,9 @@ function rowsEntries(status, settings) {
 }
 function detailRequirements(requirements) { return requirements.filter(function (entry) { return entry.optional; }); }
 // The action that opens the plugin's notice for every missing or outdated
-// tool, the one install action of Setup's Tools step and of Details' Tools
-// section.
+// tool, the one install action of Setup's Tools and Optional tools steps.
 var REVIEW_LABEL = "Review all missing or outdated tools";
 function reviewButton() { return { kind: "tools", key: "tools", name: "", label: REVIEW_LABEL, tone: "", icon: "", enabled: true, reason: "" }; }
-// The Review action Details' Tools section offers for REQUIREMENTS, its
-// optional tools, while one is missing or outdated, else null.
-function toolsReview(requirements) { return requirements.some(requirementApplies) ? reviewButton() : null; }
 // REQUIREMENTS by title, each that is missing or outdated marked so.
 function toolsText(requirements) {
     return requirements.map(function (row) { return row.title + (row.state === "outdated" ? " (outdated)" : row.state === "missing" ? " (missing)" : ""); }).join(", ");
@@ -94,20 +90,28 @@ function toolsText(requirements) {
 function requiredLacking(requirements) {
     return requirements.filter(function (row) { return !row.optional && requirementApplies(row); });
 }
-function requirementStep(requirements) {
-    var required = requirements.filter(function (row) { return !row.optional; });
-    if (required.length === 0) return null;
-    var lacking = requiredLacking(required);
-    var chip = STEP_CHIPS[lacking.length === 0 ? "done" : "todo"];
-    return { done: lacking.length === 0, label: "Tools", text: chip.text, tone: chip.tone,
-        hint: lacking.length === 0 ? "Every required tool is installed" : toolsText(lacking),
+// The one step of REQUIREMENTS' required tools, Tools, while OPTIONAL is
+// false, else of their optional tools, Optional tools: { done, optional,
+// label, text, tone, hint, button }, Done while every one is present and
+// current, else To do, or Optional for the optional tools, naming the
+// missing or outdated ones and offering Review. Null while the plugin
+// declares no such tool.
+function toolsStep(requirements, optional) {
+    var rows = requirements.filter(function (row) { return row.optional === optional; });
+    if (rows.length === 0) return null;
+    var lacking = rows.filter(requirementApplies);
+    var chip = STEP_CHIPS[lacking.length === 0 ? "done" : optional ? "optional" : "todo"];
+    return { done: lacking.length === 0, optional: optional, label: optional ? "Optional tools" : "Tools", text: chip.text, tone: chip.tone,
+        hint: lacking.length === 0 ? (optional ? "Every optional tool is installed" : "Every required tool is installed") : toolsText(lacking),
         button: lacking.length === 0 ? null : reviewButton() };
 }
+function requirementStep(requirements) { return toolsStep(requirements, false); }
 // The Setup section of a plugin's STATUS rows and REQUIREMENTS for
 // PLUGIN, { enabled, failed }: its steps, To do, then Not available, then
 // Optional, then Done (stepReading), each in manifest order with its key
-// lists, and the one Tools step, To do before the first step that is not,
-// else last. REQUIREMENTS and PLUGIN are omitted where neither applies.
+// lists, and the Tools and Optional tools steps, each before the first
+// step that reads after it, else last. REQUIREMENTS and PLUGIN are
+// omitted where neither applies.
 function setupSections(tuis, status, requirements, plugin) {
     var required = requirements === undefined ? [] : requirements;
     var rank = function (entry) { return STEP_RANKS[stepReading(entry, plugin)]; };
@@ -122,16 +126,16 @@ function setupSections(tuis, status, requirements, plugin) {
             items.push({ key: keyList.key, slot: keyList.key, keys: true, entry: keyList, label: keyList.label, step: false, button: null, aside: null });
         });
     });
-    var tools = requirementStep(required);
-    if (tools !== null) {
-        var toolEntry = { key: "required-tools", label: tools.label, type: "state", setup: "required", report: "reported", tone: tools.tone,
-            value: { text: "" }, hint: tools.hint, info: "", link: null, action: null, aside: null };
+    [toolsStep(required, false), toolsStep(required, true)].forEach(function (tools) {
+        if (tools === null) return;
+        var toolEntry = { key: tools.optional ? "optional-tools" : "required-tools", label: tools.label, type: "state", setup: tools.optional ? "optional" : "required",
+            report: "reported", tone: tools.tone, value: { text: "" }, hint: tools.hint, info: "", link: null, action: null, aside: null };
         var toolItem = { key: toolEntry.key, slot: toolEntry.key + ":" + tools.done, keys: false, tools: true, entry: toolEntry,
             label: tools.label, step: true, button: tools.button, aside: null };
-        var firstDone = items.findIndex(function (item) { return !item.keys && rank(item.entry) !== STEP_RANKS.todo; });
-        if (!tools.done && firstDone !== -1) items.splice(firstDone, 0, toolItem);
+        var after = items.findIndex(function (item) { return !item.keys && rank(item.entry) > rank(toolEntry); });
+        if (after !== -1) items.splice(after, 0, toolItem);
         else items.push(toolItem);
-    }
+    });
     return items.length === 0 ? [] : [{ title: "Setup", items: items, buttons: [] }];
 }
 // Whether a plugin, on while ENABLED, needs setup, the one reading of the
