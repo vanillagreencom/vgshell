@@ -7280,6 +7280,9 @@ cs_gone_row() {
       [[ $(cs_panel_shown) == hidden || $(ipc smoke readInstance panel vgs.google-drive goneFiles 2>/dev/null) == \[\"* ]] && break
       sleep 0.2
     done
+    # The row's new line grows the body below the fold the scroll left.
+    ipc smoke scrollTo panel vgs.google-drive 1000000 >/dev/null 2>&1 || true
+    sleep 0.6
     take "googledrive-$m-$s-popover-gone"
     box="$(ipc smoke instanceGeometry panel vgs.google-drive)" || box=absent
     [[ $box != \[* ]] || record_item "googledrive-$m-$s-popover-gone" "$box"
