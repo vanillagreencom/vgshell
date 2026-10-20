@@ -102,14 +102,6 @@ Item {
                         { markup: " and a text too long for its lines ends at a whole word or image." }
                     ]
                 }
-                // A word that acts, as the pointer finds it.
-                Label {
-                    id: hoveredWord
-                    role: "itemHint"
-                    text: "Show all under the pointer"
-                    TextUnderline { label: hoveredWord; visible: true }
-                }
-
                 }
                 Section {
                     title: "Buttons"
@@ -187,6 +179,17 @@ Item {
                     Field { label: "Pressed"; inline: true; width: parent.width; RowAction { text: "Pressed"; down: true } }
                     Field { label: "Disabled"; inline: true; width: parent.width; RowAction { text: "Disabled"; enabled: false } }
                     Field { label: "Danger"; inline: true; width: parent.width; RowAction { text: "Remove"; tone: "danger" } }
+                    // A word that acts, as the pointer finds it.
+                    Field {
+                        label: "Word under the pointer"
+                        inline: true
+                        width: parent.width
+                        Label {
+                            id: hoveredWord
+                            text: "Show all"
+                            TextUnderline { label: hoveredWord; visible: true }
+                        }
+                    }
                     Field {
                         label: "Side by side"
                         inline: true
