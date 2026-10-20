@@ -65,8 +65,11 @@ elif mode in ("cancel", "cli-timeout", "timeout-world"):
     assert process.stdout.readline().strip() == "locked"
     record = {"root": os.environ.get("JARVIS_TEST_ROOT")}
     if mode == "cli-timeout":
+        # spawnSync closes its captured pipes on timeout. Do not let a late
+        # readiness print end this fixture before it records ignored cleanup.
         Path(sys.argv[3]).write_text(json.dumps(record))
-    print(json.dumps(record), flush=True)
+    else:
+        print(json.dumps(record), flush=True)
     # This real wait exposes ignored cancellation. The marker can only be
     # emitted when the fixture survives until its own, unrequested exit.
     time.sleep(2)

@@ -506,7 +506,9 @@ async function main() {
         }
         const termOwner = mutationFile("ignored-owner-signal", 'kill -KILL "$owner"', 'kill -TERM "$owner"');
         await assert.rejects(cancellation(termOwner, "SIGTERM"), assert.AssertionError);
-        assert.throws(() => cliTimeout(termOwner), assert.AssertionError);
+        assert.throws(() => cliTimeout(termOwner), error => error instanceof assert.AssertionError
+            && error.actual === true && error.expected === undefined);
+        console.log("  ok    control=ignored-owner-signal cli-timeout=expired");
         clearRuntime();
         controls++;
         const wrongCli = mutationFile("cli-subshell", '    _jarvis_env_run "$@"', '    jarvis_env_run "$@"');
