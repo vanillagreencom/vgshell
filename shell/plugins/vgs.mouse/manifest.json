@@ -26,17 +26,17 @@
     "touchpadEnabled": true
   },
   "schema": {
-    "sensitivity": { "type": "number", "label": "Pointer speed", "description": "Speed offset from -1 to 1; 0 keeps the default speed", "min": -1, "max": 1, "step": 0.05, "group": "Pointer" },
-    "accelProfile": { "type": "enum", "label": "Acceleration", "description": "How pointer speed changes while you move", "options": [{ "value": "adaptive", "label": "Adaptive" }, { "value": "flat", "label": "Flat" }], "group": "Pointer" },
-    "naturalScroll": { "type": "boolean", "label": "Natural scroll", "description": "Move content in the same direction as your fingers", "group": "Pointer" },
+    "sensitivity": { "type": "number", "label": "Pointer speed", "description": "0 keeps the default speed", "min": -1, "max": 1, "step": 0.05, "group": "Pointer" },
+    "accelProfile": { "type": "enum", "label": "Acceleration", "info": "Adaptive speeds the pointer up when you move it fast. Flat keeps one speed.", "options": [{ "value": "adaptive", "label": "Adaptive" }, { "value": "flat", "label": "Flat" }], "group": "Pointer" },
+    "naturalScroll": { "type": "boolean", "label": "Natural scroll", "group": "Pointer" },
     "leftHanded": { "type": "boolean", "label": "Left-handed", "description": "Swap the main and secondary mouse buttons", "group": "Pointer" },
-    "scrollFactor": { "type": "number", "label": "Scroll speed", "description": "How fast the wheel scrolls", "min": 0, "max": 2, "step": 0.05, "unit": "×", "group": "Pointer" },
-    "tapToClick": { "type": "boolean", "label": "Tap to click", "description": "Tap the touchpad to click", "group": "Touchpad" },
-    "touchpadNaturalScroll": { "type": "boolean", "label": "Natural scroll", "description": "Move content in the same direction as your fingers", "group": "Touchpad" },
-    "disableWhileTyping": { "type": "boolean", "label": "Disable while typing", "description": "Ignore touchpad movement while you type", "group": "Touchpad" },
+    "scrollFactor": { "type": "number", "label": "Scroll speed", "min": 0, "max": 2, "step": 0.05, "unit": "×", "group": "Pointer" },
+    "tapToClick": { "type": "boolean", "label": "Tap to click", "group": "Touchpad" },
+    "touchpadNaturalScroll": { "type": "boolean", "label": "Natural scroll", "group": "Touchpad" },
+    "disableWhileTyping": { "type": "boolean", "label": "Disable while typing", "group": "Touchpad" },
     "clickMethod": { "type": "boolean", "label": "Two-finger right-click", "group": "Touchpad" },
-    "touchpadScrollFactor": { "type": "number", "label": "Touchpad scroll speed", "description": "How fast the touchpad scrolls", "min": 0, "max": 2, "step": 0.05, "unit": "×", "group": "Touchpad" },
-    "touchpadEnabled": { "type": "boolean", "label": "Touchpad", "description": "Turn the touchpad on or off", "group": "Touchpad" }
+    "touchpadScrollFactor": { "type": "number", "label": "Touchpad scroll speed", "min": 0, "max": 2, "step": 0.05, "unit": "×", "group": "Touchpad" },
+    "touchpadEnabled": { "type": "boolean", "label": "Touchpad", "group": "Touchpad" }
   },
   "hyprland": {
     "options": {

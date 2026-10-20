@@ -35,8 +35,8 @@
     "smart": {"type": "boolean", "label": "Click to select a window or display", "tooltip": "In an area capture, a click takes the window or display under it and a drag takes an area.", "group": "Screenshots"},
     "cursor": {"type": "boolean", "label": "Include pointer", "group": "Screenshots"},
     "processing": {"type": "enum", "label": "After capture", "options": [{"value": "save-copy", "label": "Save and copy"}, {"value": "copy", "label": "Copy only"}, {"value": "save", "label": "Save only"}], "group": "Screenshots"},
-    "folder": {"type": "string", "label": "Screenshot folder", "description": "Empty uses Screenshots in your Pictures folder", "presets": [{"value": "", "label": "Pictures / Screenshots"}], "allowCustom": true, "group": "Folders"},
-    "recordFolder": {"type": "string", "label": "Recording folder", "description": "Empty uses Screencasts in your Videos folder", "presets": [{"value": "", "label": "Videos / Screencasts"}], "allowCustom": true, "group": "Folders"},
+    "folder": {"type": "string", "label": "Screenshot folder", "presets": [{"value": "", "label": "Pictures / Screenshots"}], "allowCustom": true, "group": "Folders"},
+    "recordFolder": {"type": "string", "label": "Recording folder", "presets": [{"value": "", "label": "Videos / Screencasts"}], "allowCustom": true, "group": "Folders"},
     "audio": {"type": "enum", "label": "Audio", "options": [{"value": "none", "label": "None"}, {"value": "desktop", "label": "Desktop"}, {"value": "microphone", "label": "Microphone"}, {"value": "both", "label": "Desktop and microphone"}], "group": "Recording"},
     "quality": {"type": "enum", "label": "Quality", "options": [{"value": "medium", "label": "Medium"}, {"value": "high", "label": "High"}, {"value": "very_high", "label": "Very high"}, {"value": "ultra", "label": "Ultra"}], "group": "Recording"},
     "frameRate": {"type": "number", "label": "Frames per second", "min": 1, "max": 240, "step": 1, "group": "Recording"},
@@ -47,10 +47,10 @@
     "webcam": {"type": "boolean", "label": "Include camera", "group": "Recording"},
     "webcamDevice": {"type": "string", "label": "Camera", "optionsFrom": "cameras", "group": "Recording"},
     "postProcess": {"type": "boolean", "label": "Clean up recordings", "description": "Removes the first tenth of a second and evens out the volume", "group": "Recording"},
-    "ocrLanguages": {"type": "string", "label": "Text languages", "description": "Capture reads text in the languages you choose", "group": "Text", "presets": [{"value": "eng", "label": "English"}, {"value": "deu", "label": "German"}, {"value": "fra", "label": "French"}, {"value": "spa", "label": "Spanish"}, {"value": "ita", "label": "Italian"}, {"value": "por", "label": "Portuguese"}, {"value": "nld", "label": "Dutch"}, {"value": "pol", "label": "Polish"}, {"value": "rus", "label": "Russian"}, {"value": "ukr", "label": "Ukrainian"}, {"value": "chi_sim", "label": "Chinese, simplified"}, {"value": "jpn", "label": "Japanese"}, {"value": "kor", "label": "Korean"}], "allowCustom": true, "separator": "+"},
-    "viewer": {"type": "string", "label": "Image viewer", "description": "Opens a saved screenshot", "group": "Open with", "presets": [{"value": "imv %f", "label": "imv"}], "allowCustom": true},
-    "editor": {"type": "string", "label": "Image editor", "description": "Edits a saved screenshot", "group": "Open with", "presets": [{"value": "satty --filename %f --output-filename %f", "label": "Satty"}], "allowCustom": true},
-    "player": {"type": "string", "label": "Video player", "description": "Plays a saved recording", "group": "Open with", "presets": [{"value": "mpv %f", "label": "mpv"}], "allowCustom": true}
+    "ocrLanguages": {"type": "string", "label": "Text languages", "group": "Text", "presets": [{"value": "eng", "label": "English"}, {"value": "deu", "label": "German"}, {"value": "fra", "label": "French"}, {"value": "spa", "label": "Spanish"}, {"value": "ita", "label": "Italian"}, {"value": "por", "label": "Portuguese"}, {"value": "nld", "label": "Dutch"}, {"value": "pol", "label": "Polish"}, {"value": "rus", "label": "Russian"}, {"value": "ukr", "label": "Ukrainian"}, {"value": "chi_sim", "label": "Chinese, simplified"}, {"value": "jpn", "label": "Japanese"}, {"value": "kor", "label": "Korean"}], "allowCustom": true, "separator": "+"},
+    "viewer": {"type": "string", "label": "Image viewer", "group": "Open with", "presets": [{"value": "imv %f", "label": "imv"}], "allowCustom": true},
+    "editor": {"type": "string", "label": "Image editor", "group": "Open with", "presets": [{"value": "satty --filename %f --output-filename %f", "label": "Satty"}], "allowCustom": true},
+    "player": {"type": "string", "label": "Video player", "group": "Open with", "presets": [{"value": "mpv %f", "label": "mpv"}], "allowCustom": true}
   },
   "hyprland": { "binds": [
     { "shortcut": "screenshot", "key": "PRINT", "info": "Takes a screenshot of the screen that has focus right away." },
@@ -61,12 +61,12 @@
     { "shortcut": "text", "key": "SUPER+CTRL+PRINT", "info": "Lets you drag over an area, reads the text in it and copies that text." }
   ] },
   "status": {
-    "sharing": {"type": "state", "label": "VGS picker", "group": "Screen sharing", "hint": "Use the VGS picker to choose what you share. Its setup stops a running screen share.", "action": {"label": "Set up screen sharing", "tui": "setup-sharing"}},
+    "sharing": {"type": "state", "label": "VGS picker", "group": "Screen sharing", "hint": "Setup stops a running screen share", "info": "The picker lets you choose what to share when an app asks to share your screen.", "action": {"label": "Set up screen sharing", "tui": "setup-sharing"}},
     "capture": {"type": "data", "label": "Capture state"},
     "recording": {"type": "state", "label": "Recording"},
     "audioSources": {"type": "choices", "label": "Audio sources"},
     "cameras": {"type": "choices", "label": "Cameras"},
-    "languages": {"type": "state", "label": "Language data", "group": "Text", "hint": "Capture reads text in the [languages you choose](page:vgs.capture/Settings/ocrLanguages). English comes with Capture. Other languages need their language data.", "action": {"label": "Install languages", "tui": "install-languages"}}
+    "languages": {"type": "state", "label": "Language data", "group": "Text", "hint": "English comes with Capture. Other [languages you choose](page:vgs.capture/Settings/ocrLanguages) need their language data.", "action": {"label": "Install languages", "tui": "install-languages"}}
   },
   "tui": {
     "setup-sharing": { "script": "tui/setup-sharing.sh", "title": "Set up screen sharing", "requires": ["systemctl", "busctl"] },

@@ -37,19 +37,18 @@
     "showCount": {
       "type": "boolean",
       "label": "Show count",
-      "description": "Show the number of running agents or problems beside the shield",
+      "info": "Shows the number of running agents or problems beside the shield.",
       "group": "Display"
     },
     "hideWhenIdle": {
       "type": "boolean",
       "label": "Hide when idle",
-      "description": "Hide the shield when no agents run and no problems need attention",
+      "description": "Idle means no agents run and no problems need attention",
       "group": "Display"
     },
     "notify": {
       "type": "enum",
       "label": "Notifications",
-      "description": "Choose alerts for problems, all events or none",
       "options": [{ "value": "problems", "label": "Problems" }, { "value": "everything", "label": "Everything" }, { "value": "off", "label": "Off" }],
       "group": "Notifications"
     }
@@ -60,10 +59,10 @@
     { "command": "notify-send", "packages": { "pacman": "libnotify", "apt": "libnotify-bin", "dnf": "libnotify", "nix": "libnotify" }, "optional": false, "purpose": "Sends Agent Warden alerts" }
   ],
   "status": {
-    "warden": {"type": "state", "label": "Warden", "hint": "Checks whether AI agents stay within their memory and process limits", "info": "Shows whether Agent Warden is watching your AI agents and whether any of them needs your attention."},
-    "setup": {"type": "state", "label": "Warden setup", "hint": "Set up Agent Warden to watch your AI agents", "action": {"label": "Set up", "tui": "setup"}, "setup": true},
-    "agents": {"type": "count", "label": "Agents running", "info": "How many AI agents run now."},
-    "lastCheck": {"type": "time", "label": "Last check", "info": "When Agent Warden last checked your agents. If it stops changing, open the Agent Warden panel and choose Start checks."},
+    "warden": {"type": "state", "label": "Warden", "info": "Shows whether Agent Warden watches your agents and whether any needs your attention."},
+    "setup": {"type": "state", "label": "Warden setup", "action": {"label": "Set up", "tui": "setup"}, "setup": true},
+    "agents": {"type": "count", "label": "Agents running"},
+    "lastCheck": {"type": "time", "label": "Last check", "info": "If this time stops changing, open the Agent Warden panel and choose Start checks."},
     "detail": {"type": "data", "label": "Detail"}
   },
   "hyprland": {

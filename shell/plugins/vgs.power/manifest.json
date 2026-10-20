@@ -107,7 +107,6 @@
     "lowThreshold": {
       "type": "number",
       "label": "Low battery alert",
-      "description": "Send an alert when the battery falls to this level",
       "unit": "%",
       "min": 1,
       "max": 50,
@@ -129,7 +128,6 @@
     "criticalThreshold": {
       "type": "number",
       "label": "Critical battery alert",
-      "description": "Send an urgent alert when the battery falls to this level",
       "unit": "%",
       "min": 1,
       "max": 30,
@@ -151,7 +149,6 @@
     "chargerProfile": {
       "type": "enum",
       "label": "When charging",
-      "description": "Use this profile after you connect power",
       "options": [
         { "value": "power-saver", "label": "Power saver" },
         { "value": "balanced", "label": "Balanced" },
@@ -163,7 +160,6 @@
     "batteryProfile": {
       "type": "enum",
       "label": "On battery",
-      "description": "Use this profile after you disconnect power",
       "options": [
         { "value": "power-saver", "label": "Power saver" },
         { "value": "balanced", "label": "Balanced" },
@@ -175,8 +171,8 @@
     "wakeOnLan": {
       "type": "boolean",
       "label": "Wake on LAN",
-      "description": "Let another device on the wired network wake this computer from sleep",
-      "info": "Turn this on to let another device on the same wired network wake this computer from sleep. A wired connection that is in use gets the change the next time it connects, for example after you restart the computer or connect the cable again.",
+      "description": "A connection in use gets the change the next time it connects",
+      "info": "Lets another device on the same wired network wake this computer from sleep.",
       "group": "Network",
       "shownWhen": "ethernet",
       "problem": "wakeOnLanProblem"
@@ -216,7 +212,7 @@
       "type": "state",
       "label": "Disk sleep",
       "hint": "Stop hard disks after 30 minutes without use",
-      "info": "The delay lets a hard disk stop when you leave it unused, without stopping it during short pauses. Opening a file on a stopped disk can take longer while it starts again.",
+      "info": "A hard disk stops after you leave it unused. Opening a file on a stopped disk takes longer while it starts again.",
       "action": {
         "label": "Allow",
         "system": "disk-sleep"
@@ -227,7 +223,8 @@
       "label": "Wake sources",
       "setup": true,
       "group": "Wake",
-      "hint": "For USB and Bluetooth, only keyboards and pointing devices can wake the computer. The power button and connecting a USB device during sleep can also wake it. Wake on LAN is controlled separately.",
+      "hint": "Only keyboards and pointing devices can wake the computer through USB or Bluetooth. The power button and a USB device you connect also wake it.",
+      "info": "Wake on LAN has its own switch in the Network group.",
       "action": { "label": "Allow", "system": "wake-sources" }
     },
     "power": {

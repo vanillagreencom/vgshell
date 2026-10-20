@@ -59,7 +59,6 @@
     "showDisconnected": {
       "type": "boolean",
       "label": "Show disconnected icon",
-      "description": "Keep the network icon in the bar while disconnected",
       "group": "Display"
     }
   }

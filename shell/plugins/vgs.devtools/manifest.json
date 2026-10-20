@@ -33,13 +33,12 @@
   "schema": {
     "showInLauncher": {
       "type": "boolean",
-      "label": "Show full catalog in launcher",
-      "description": "Show each Dev Tools catalog row in the launcher"
+      "label": "Show full catalog in launcher"
     },
     "writeLaunchers": {
       "type": "boolean",
       "label": "Add tool commands to the terminal",
-      "description": "Add tool commands to the terminal and install a tool the first time you run one"
+      "description": "Also installs a tool the first time you run it"
     }
   },
   "requirements": [
@@ -49,12 +48,12 @@
     "mise": {
       "type": "state",
       "label": "Tool manager",
-      "hint": "mise manages the developer tools"
+      "info": "mise installs and updates your developer tools."
     },
     "checks": {
       "type": "state",
       "label": "Checks",
-      "info": "Update checks wait 10 minutes before they can run again. This avoids repeated requests to the services that supply tool versions. Local tool checks can run again as soon as you reopen Dev Tools."
+      "info": "Update checks wait 10 minutes before they run again. This limits requests to the services that supply tool versions. Local checks run again when you reopen Dev Tools."
     },
     "installed": {
       "type": "count",
@@ -67,7 +66,7 @@
     "missingRequirements": {
       "type": "count",
       "label": "Missing tools",
-      "hint": "Install these tools from the VGS section in Dev Tools"
+      "hint": "Install them in the VGS section of Dev Tools"
     },
     "catalog": {
       "type": "data",

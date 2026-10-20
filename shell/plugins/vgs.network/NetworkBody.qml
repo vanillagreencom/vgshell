@@ -453,7 +453,6 @@ FocusScope {
                 visible: root.expanded
                 label: "Auto-join"
                 inline: true
-                hint: "Allow this Wi-Fi device to join saved networks automatically."
                 control: Switch {
                     objectName: "network-autojoin"
                     size: "sm"

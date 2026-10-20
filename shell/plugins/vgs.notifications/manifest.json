@@ -38,15 +38,15 @@
     "glass": true
   },
   "schema": {
-    "glass": {"type": "boolean", "label": "VGlass", "description": "Draw notifications as frosted glass with a moving edge light", "info": "Turn on VGlass to draw notifications as frosted glass. This switch works only while [VGlass in Appearance > Windows](page:vgs.windows) is set to Each surface decides. Its other choices turn glass on or off for every glass surface."},
-    "slackPhotos": {"type": "boolean", "label": "Slack photos", "group": "Slack", "description": "Show sender photos from your Slack workspace", "info": "Select [Set up Slack photos on the Details tab](page:vgs.notifications/Details). VGS fills app details. Sign in if asked. Choose your workspace. Review permissions. Create and install the app. Allow access. Copy the User OAuth Token. Sign in to the workspace in the Slack desktop app. Under Slack tokens, select Add key for it and paste the token. This adds photos, workspace icons and custom emoji."},
+    "glass": {"type": "boolean", "label": "VGlass", "description": "Works only while [VGlass in Appearance > Windows](page:vgs.windows) is set to Each surface decides", "info": "VGlass draws notifications as frosted glass with a moving edge light."},
+    "slackPhotos": {"type": "boolean", "label": "Slack photos", "group": "Slack", "info": "Shows the sender photo and workspace icon from Slack on a notification. Add a Slack token for each workspace under Slack tokens."},
     "duration": {"type": "number", "label": "Notification duration", "description": "Set the minimum time for normal notifications", "min": 2, "max": 30, "step": 1, "unit": "seconds"},
     "position": {"type": "enum", "label": "Position", "options": [{"value": "top-left", "label": "Top left"}, {"value": "top-center", "label": "Top center"}, {"value": "top-right", "label": "Top right"}, {"value": "bottom-left", "label": "Bottom left"}, {"value": "bottom-center", "label": "Bottom center"}, {"value": "bottom-right", "label": "Bottom right"}]},
-    "customEmoji": {"type": "boolean", "label": "Slack custom emoji", "description": "Show custom emoji in Slack notifications", "group": "Slack"}
+    "customEmoji": {"type": "boolean", "label": "Slack custom emoji", "group": "Slack"}
   },
   "status": {
     "panelRevision": {"type": "count", "label": "Panel revision", "hidden": true},
-    "slackTokens": {"type": "presenceList", "label": "Slack tokens", "hint": "Connect each workspace to show sender photos", "info": "Select [Set up Slack photos on the Details tab](page:vgs.notifications/Details) to open Slack app creation with the app details filled. Complete the workspace and access steps. Then add the User OAuth Token of each workspace here. VGS stores the token in your keyring. The token adds sender photos, workspace icons and custom emoji.", "setting": "slackPhotos"}
+    "slackTokens": {"type": "presenceList", "label": "Slack tokens", "hint": "Connect each workspace to show sender photos", "info": "Select [Set up Slack photos on the Details tab](page:vgs.notifications/Details) to create the Slack app. Then add its User OAuth Token for each workspace. VGS stores the token in your keyring.", "setting": "slackPhotos"}
   },
   "secrets": {
     "service": "vgs-notifications",

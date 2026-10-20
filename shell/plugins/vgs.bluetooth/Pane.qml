@@ -175,7 +175,6 @@ FocusScope {
             width: parent.width
             label: "Hide when off"
             inline: true
-            hint: "Hide the bar icon while Bluetooth is off."
             error: root.problem
             Switch {
                 size: "sm"

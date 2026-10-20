@@ -36,7 +36,6 @@
     "idleLockSeconds": {
       "type": "number",
       "label": "Lock when inactive",
-      "description": "Time without input before the session locks",
       "min": 0,
       "max": 86400,
       "step": 30,
@@ -57,7 +56,6 @@
     "lockBeforeSleep": {
       "type": "boolean",
       "label": "Lock before sleep",
-      "description": "Lock the session before the computer sleeps",
       "group": "Lock"
     }
   },
@@ -69,13 +67,11 @@
     },
     "sleep": {
       "type": "state",
-      "label": "Before sleep",
-      "hint": "The computer waits for the lock before it sleeps"
+      "label": "Before sleep"
     },
     "lastSleep": {
       "type": "state",
-      "label": "Last sleep",
-      "hint": "Whether the session locked before the computer last slept"
+      "label": "Last sleep"
     }
   },
   "requirements": [

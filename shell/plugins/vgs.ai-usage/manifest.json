@@ -22,16 +22,16 @@
   ],
   "settings": { "refreshMinutes": 15, "view": "full", "sort": "provider", "barNumber": "most-used", "barShows": "used", "colourByUsage": true, "showClaude": true, "showCodex": true, "showCopilot": true, "hidden": [], "aiGateway": false },
   "schema": {
-    "refreshMinutes": {"type": "number", "label": "Check interval", "description": "Time between usage checks", "min": 5, "max": 120, "step": 5, "unit": "minutes"},
+    "refreshMinutes": {"type": "number", "label": "Check interval", "min": 5, "max": 120, "step": 5, "unit": "minutes"},
     "view": {"type": "enum", "label": "View", "options": [{"value": "compact", "label": "Compact"}, {"value": "full", "label": "Full"}]},
     "sort": {"type": "string", "label": "Sort accounts", "presets": [{"value": "provider", "label": "Provider"}, {"value": "email", "label": "Email"}, {"value": "most-left", "label": "Most room first"}]},
-    "barNumber": {"type": "string", "label": "Bar number", "group": "Bar", "description": "How the bar figures one number from each account's highest limit", "presets": [{"value": "average", "label": "Average"}, {"value": "most-left", "label": "Most left"}, {"value": "most-used", "label": "Most used"}]},
+    "barNumber": {"type": "string", "label": "Bar number", "group": "Bar", "description": "Uses the highest limit of each account", "presets": [{"value": "average", "label": "Average"}, {"value": "most-left", "label": "Most left"}, {"value": "most-used", "label": "Most used"}]},
     "barShows": {"type": "string", "label": "Bar shows", "group": "Bar", "presets": [{"value": "used", "label": "Used"}, {"value": "left", "label": "Left"}]},
-    "colourByUsage": {"type": "boolean", "label": "Colour by usage", "group": "Bar", "description": "Show the bar number in the warning colour from 80 % used"},
+    "colourByUsage": {"type": "boolean", "label": "Colour by usage", "group": "Bar", "description": "Uses the warning colour from 80 % used"},
     "showClaude": {"type": "boolean", "label": "Claude Code", "group": "Providers"},
     "showCodex": {"type": "boolean", "label": "Codex", "group": "Providers"},
     "showCopilot": {"type": "boolean", "label": "Copilot", "group": "Providers"},
-    "aiGateway": {"type": "boolean", "label": "AI Gateway credits", "group": "Providers", "description": "Show credit figures from your AI Gateway key, which you create in the Vercel dashboard", "link": {"text": "Vercel dashboard", "url": "https://vercel.com/dashboard"}, "info": "In the Vercel dashboard, open AI Gateway, then API keys, then Create key. Turn on AI Gateway credits. Then, under AI Gateway key, select Add key and paste the key into the masked field. The key unlocks AI Gateway credit figures."},
+    "aiGateway": {"type": "boolean", "label": "AI Gateway credits", "group": "Providers", "description": "Needs a key from the Vercel dashboard", "link": {"text": "Vercel dashboard", "url": "https://vercel.com/dashboard"}, "info": "In the Vercel dashboard, open AI Gateway, then API keys, then Create key. Turn on AI Gateway credits. Then, under AI Gateway key, select Add key and paste the key into the masked field."},
     "hidden": {"type": "list", "label": "Hidden accounts", "items": {"account": {"type": "string", "label": "Account", "optionsFrom": "accounts", "placeholder": "Choose an account"}}, "defaults": {"account": ""}}
   },
   "tui": {
@@ -42,9 +42,9 @@
   "status": {
     "usage": {"type": "data", "label": "Usage"},
     "accounts": {"type": "choices", "label": "Accounts", "hidden": true},
-    "claude": {"type": "state", "label": "Claude Code", "group": "Sign-in", "hint": "Sign in to show your Claude Code plan limits", "action": {"label": "Sign in", "tui": "sign-in-claude"}},
-    "codex": {"type": "state", "label": "Codex", "group": "Sign-in", "hint": "Sign in to show your Codex plan limits", "action": {"label": "Sign in", "tui": "sign-in-codex"}},
-    "gatewayKey": {"type": "presenceList", "label": "AI Gateway key", "hint": "This key shows your AI Gateway credits", "info": "In Vercel, open AI Gateway, then API keys, then Create key. Add the key here to show AI Gateway credit figures. VGS stores the key in your keyring.", "setting": "aiGateway"}
+    "claude": {"type": "state", "label": "Claude Code", "group": "Sign-in", "hint": "Sign in to show your plan limits", "action": {"label": "Sign in", "tui": "sign-in-claude"}},
+    "codex": {"type": "state", "label": "Codex", "group": "Sign-in", "hint": "Sign in to show your plan limits", "action": {"label": "Sign in", "tui": "sign-in-codex"}},
+    "gatewayKey": {"type": "presenceList", "label": "AI Gateway key", "info": "Create the key in Vercel under AI Gateway, then API keys. VGS stores the key in your keyring.", "setting": "aiGateway"}
   },
   "secrets": { "service": "vgs-ai-usage", "label": "VGS AI Usage AI Gateway key" }
 }

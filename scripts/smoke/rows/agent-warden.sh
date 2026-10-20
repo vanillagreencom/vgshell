@@ -74,11 +74,8 @@ warden_detail_drawn() { ipc smoke itemTexts window vgs.settings Field | py_reply
 warden_setup_drawn() { ipc smoke itemTexts window vgs.settings Field | py_reply 'import json,sys; r=[r for r in json.load(sys.stdin) if r and r[0] == "Warden setup"]; print(json.dumps(r[0] if len(r) == 1 else "rows=%d" % len(r)))'; }
 no_show_command() { ipc smoke itemTexts window vgs.settings PluginPage | py_reply 'import json,sys; print(str(not any("Show command" in r for r in json.load(sys.stdin))).lower())'; }
 warden_tools_drawn() { ipc smoke setupRows window vgs.settings | py_reply 'import json,sys; rows=[r for r in json.load(sys.stdin) if r["key"]=="required-tools"]; print(json.dumps([rows[0]["chips"], rows[0]["lines"], [b["text"] for b in rows[0]["buttons"]]]) if len(rows)==1 else "rows=%d" % len(rows))'; }
-warden_hint="Checks whether AI agents stay within their memory and process limits"
-warden_info="Shows whether Agent Warden is watching your AI agents and whether any of them needs your attention."
-warden_setup_hint="Set up Agent Warden to watch your AI agents"
-# The Warden setup step's own hint while vsys is missing, which replaces
-# warden_setup_hint on the drawn step.
+warden_info="Shows whether Agent Warden watches your agents and whether any needs your attention."
+# The Warden setup step's own hint while vsys is missing.
 warden_vsys_hint="Install vsys first. Agent Warden needs it."
 # info_label TEXT: whether an open info dialog draws TEXT.
 info_label() { ipc smoke popupItemGeometry window vgs.settings "" "" Label "$1" | py_reply 'import sys; print("shown" if sys.stdin.read().strip().startswith("[") else "absent")'; }
@@ -309,9 +306,9 @@ expect_poll "the Settings window is gone" 0 window_count Plugins
 settings_page_open vgs.agent-warden
 settings_setup
 expect_poll "a checking warden with vsys present offers no Set up" '[["setup", "Set up", false]]' offered_actions vgs.agent-warden
-expect_poll "the Warden setup row draws Done, its hint and no action" "$(words "Warden setup" Done "$warden_setup_hint")" warden_setup_drawn
+expect_poll "the Warden setup row draws Done and no action" "$(words "Warden setup" Done)" warden_setup_drawn
 settings_details
-expect_poll "the Warden reading draws Running, its hint and no step" "$(words Warden Running "$warden_hint")" warden_detail_drawn
+expect_poll "the Warden reading draws Running and no step" "$(words Warden Running)" warden_detail_drawn
 settings_press --type InfoButton "About Warden" Field Warden || fail "the click on the Warden row's info icon failed"
 expect_poll "the Warden info dialog opens with its title and text" "shown|shown" warden_info_dialog
 info_close_click Warden || fail "the click on the Warden info dialog's Close button failed"
@@ -542,7 +539,7 @@ expect_run_end "the setup run ends" vgs.agent-warden/setup
 settings_page_open vgs.agent-warden
 settings_setup
 expect_poll "a warden not set up offers Set up" '[["setup", "Set up", true]]' offered_actions vgs.agent-warden
-expect_poll "the Warden setup row draws To do with Set up and its state explanation" "$(words "Warden setup" "To do" "Set up" "$warden_setup_hint" "Not set up")" warden_setup_drawn
+expect_poll "the Warden setup row draws To do with Set up and its state explanation" "$(words "Warden setup" "To do" "Set up" "Not set up")" warden_setup_drawn
 expect "the page draws no Show command control" true no_show_command
 forget_record
 settings_press --type RowAction "Set up" || fail "the click on the Settings page's Set up failed"

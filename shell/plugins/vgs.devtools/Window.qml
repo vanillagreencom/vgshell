@@ -196,7 +196,6 @@ Item {
                 Field {
                     width: parent.width
                     label: "Show full catalog in launcher"
-                    hint: "Show each Dev Tools catalog row in launcher search."
                     inline: true
                     Switch {
                         size: "sm"
