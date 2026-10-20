@@ -700,7 +700,8 @@ PY
   cp -- "$home/.config/vgshell/shell.json" "$offbar_saved"
   offbar_key="$(bar_key)" || fail "the bar for the off-bar drags is unreadable"
   offbar_unchanged() { if cmp -s -- "$home/.config/vgshell/shell.json" "$offbar_saved"; then echo unchanged; else echo changed; fi; }
-  # offbar_box ID: ID's box once two readings 200 ms apart match.
+  # offbar_box ID: ID's box once two readings 200 ms apart match, else
+  # `unsettled`.
   offbar_box() {
     local box previous=""
     for _ in $(seq 1 25); do
@@ -711,11 +712,12 @@ PY
     done
     echo unsettled
   }
-  # offbar_grab X Y W H FILE: that layout box of the nested output as a PPM.
+  # offbar_grab X Y W H FILE: that layout box of the nested output as a
+  # PPM; grim's stderr goes to the sandbox's grim.log, as shot_grab's does.
   offbar_grab() {
     local socket
     socket="$(shot_socket "$rt_dir" "$nested_socket")" || return 1
-    shot_grim "$socket" "$rt_dir" -g "$1,$2 $3x$4" -t ppm "$5" 2>/dev/null
+    shot_grim "$socket" "$rt_dir" -g "$1,$2 $3x$4" -t ppm "$5" 2>>"$sandbox/grim.log"
   }
   # offbar_copy ID X Y: {"copy", "hidden"} for a drag of ID held at (X, Y):
   # whether, within 2 px of the pointer less the pickup, three in four of
@@ -728,8 +730,8 @@ PY
   offbar_copy() {
     local w h opacity
     read -r w h < <(py_reply 'import json,sys; b=json.load(sys.stdin); print(round(b[2]), round(b[3]))' <<<"$offbar_start") || return 1
-    offbar_grab "$(($2 - offbar_pick_x - 2))" "$(($3 - offbar_pick_y - 2))" "$((w + 4))" "$((h + 4))" "$sandbox/offbar-held.ppm" || return 1
-    opacity="$(ipc smoke readInstance "$offbar_key" "$1" opacity)" || return 1
+    offbar_grab "$(($2 - offbar_pick_x - 2))" "$(($3 - offbar_pick_y - 2))" "$((w + 4))" "$((h + 4))" "$sandbox/offbar-held.ppm" || { echo "capture=held-failed"; return 1; }
+    opacity="$(ipc smoke readInstance "$offbar_key" "$1" opacity)" || { echo "opacity=unread"; return 1; }
     python3 - "$sandbox/offbar-rest.ppm" "$sandbox/offbar-held.ppm" "$opacity" <<'PY'
 import collections, json, sys
 def read(path):
@@ -754,27 +756,32 @@ PY
   }
   # offbar_drag LABEL ID LEG X Y: a drag of ID from its centre, LEG along
   # the bar, then to (X, Y), held there while the copy is read, then
-  # released. offbar_start holds ID's box before the drag.
+  # released. offbar_start holds ID's box before the drag. Each failed step
+  # prints `offbar: STEP=CAUSE id=ID` on stderr; grim's own words are in
+  # the sandbox's grim.log.
+  offbar_step() { printf 'offbar: %s id=%s\n' "$1" "$2" >&2; }
   offbar_drag() {
-    local label="$1" id="$2" x y w h line out_fd in_fd pid
-    nested_input_check "$sandbox/click" || return 1
-    offbar_start="$(offbar_box "$id")" || return 1
-    read -r x y offbar_pick_x offbar_pick_y w h < <(py_reply 'import json,sys; b=json.load(sys.stdin); x,y=int(b[0]+b[2]/2),int(b[1]+b[3]/2); print(x, y, x-round(b[0]), y-round(b[1]), round(b[2]), round(b[3]))' <<<"$offbar_start") || return 1
-    [[ $x =~ ^[0-9]+$ && $y =~ ^[0-9]+$ ]] || return 1
+    local label="$1" id="$2" x y w h line out_fd in_fd pid status
+    nested_input_check "$sandbox/click" || { offbar_step input=refused "$id"; return 1; }
+    offbar_start="$(offbar_box "$id")" || { offbar_step box=unread "$id"; return 1; }
+    read -r x y offbar_pick_x offbar_pick_y w h < <(py_reply 'import json,sys; b=json.load(sys.stdin); x,y=int(b[0]+b[2]/2),int(b[1]+b[3]/2); print(x, y, x-round(b[0]), y-round(b[1]), round(b[2]), round(b[3]))' <<<"$offbar_start") || { offbar_step "box=unparsed value=[$offbar_start]" "$id"; return 1; }
+    [[ $x =~ ^[0-9]+$ && $y =~ ^[0-9]+$ ]] || { offbar_step "box=unusable value=[$offbar_start]" "$id"; return 1; }
     # The widget at rest with the pointer away, so the capture holds no
     # pointer and no hover.
-    rest_pointer || return 1
-    offbar_grab "$((x - offbar_pick_x))" "$((y - offbar_pick_y))" "$w" "$h" "$sandbox/offbar-rest.ppm" || return 1
-    hover "$((x + 1))" "$y" || return 1
+    rest_pointer || { offbar_step pointer=rest-failed "$id"; return 1; }
+    offbar_grab "$((x - offbar_pick_x))" "$((y - offbar_pick_y))" "$w" "$h" "$sandbox/offbar-rest.ppm" || { offbar_step "capture=rest-failed log=$sandbox/grim.log" "$id"; return 1; }
+    hover "$((x + 1))" "$y" || { offbar_step hover=failed "$id"; return 1; }
     coproc offbar_held { "${shell_env[@]}" "$sandbox/click" "$x" "$y" "$mon_w" "$mon_h" drag "$((x + $3))" "$y" "$4" "$5" hold; }
     out_fd="${offbar_held[0]}" in_fd="${offbar_held[1]}" pid="$offbar_held_PID"
-    read -r -t 10 line <&"$out_fd" || return 1
-    [[ $line == "holding $4 $5" ]] || return 1
+    read -r -t 10 line <&"$out_fd" || { offbar_step hold=no-reply "$id"; return 1; }
+    [[ $line == "holding $4 $5" ]] || { offbar_step "hold=unexpected value=[$line]" "$id"; return 1; }
     geometry expect_poll "$label: one copy of the widget draws under the pointer off the bar, and the held widget draws nothing" '{"copy": true, "hidden": true}' offbar_copy "$id" "$4" "$5"
     printf '\n' >&"$in_fd"
     exec {in_fd}>&-
-    read -r -t 10 line <&"$out_fd" || return 1
-    wait "$pid" || return 1
+    read -r -t 10 line <&"$out_fd" || { offbar_step release=no-reply "$id"; return 1; }
+    status=0
+    wait "$pid" || status=$?
+    ((status == 0)) || { offbar_step "click=failed status=$status" "$id"; return 1; }
     exec {out_fd}<&-
     pointer_at="$4 $5"
   }
@@ -782,8 +789,11 @@ PY
   # 250 ms apart of ID's box and the question's Cancel button: [] when
   # each box is offbar_start and each button the first one, below the
   # widget, else the readings that are not; `closed` with no question.
+  # A failed read fails the reader, and a reading with an empty half
+  # prints `readings=N`, the count of whole readings, so a missing read
+  # never compares equal to [].
   offbar_still() {
-    local t0 now target i rows=""
+    local t0 now target i widget button rows=""
     for _ in $(seq 1 50); do
       [[ $(ipc smoke readInstance "$offbar_key" "$1" frameDialogOpen) == true ]] && break
       sleep 0.1
@@ -793,12 +803,18 @@ PY
     for ((i = 0; i <= 8; i++)); do
       target=$((t0 + i * 250000)) now="${EPOCHREALTIME/./}"
       ((now >= target)) || sleep "$(printf '0.%06d' "$((target - now))")"
-      rows+="$(ipc smoke instanceGeometry "$offbar_key" "$1") $(ipc smoke popupItemGeometry "$offbar_key" "$1" "" "" Button Cancel)"$'\n'
+      widget="$(ipc smoke instanceGeometry "$offbar_key" "$1")" || { echo "offbar: still=widget-unread reading=$i" >&2; return 1; }
+      button="$(ipc smoke popupItemGeometry "$offbar_key" "$1" "" "" Button Cancel)" || { echo "offbar: still=cancel-unread reading=$i" >&2; return 1; }
+      rows+="$widget $button"$'\n'
     done
     py_reply 'import json,sys
 start=json.loads(sys.argv[1]); out=[]; first=None
 near=lambda a,b: isinstance(a,list) and isinstance(b,list) and all(abs(p-q)<=1 for p,q in zip(a,b))
-for i,line in enumerate(l for l in sys.stdin.read().splitlines() if l.strip()):
+lines=sys.stdin.read().rstrip("\n").split("\n")
+whole=[l for l in lines if " " in l and all(l.split(" ",1))]
+if len(lines)!=9 or len(whole)!=9:
+    print("readings=%d" % len(whole)); sys.exit()
+for i,line in enumerate(lines):
     widget,button=(json.loads(v) if v.startswith("[") else v for v in line.split(" ",1))
     first=first if first is not None else button
     if not near(widget,start) or not near(button,first) or not isinstance(button,list) or button[1]<widget[1]+widget[3]:
