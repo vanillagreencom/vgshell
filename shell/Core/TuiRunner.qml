@@ -211,10 +211,13 @@ Scope {
         if (!route.ok) return route.answer;
         if (route.kind === "folder") return openFolder(route.path);
         const file = route.args[0];
-        const probe = fileProbeComponent.createObject(root, {
-            path: file.charAt(0) === "/" ? file : Paths.configHome + "/" + file,
-            route: route, owner: owner, done: done === undefined ? null : done
-        });
+        const probe = fileProbeComponent.createObject(root, { path: file.charAt(0) === "/" ? file : Paths.configHome + "/" + file });
+        // Assigned after creation: createObject's initial properties turn
+        // the route's `args` into a list tuiArgsValid does not read as an
+        // array.
+        probe.route = route;
+        probe.owner = owner;
+        probe.done = done === undefined ? null : done;
         probe.running = true;
         return "ok";
     }
