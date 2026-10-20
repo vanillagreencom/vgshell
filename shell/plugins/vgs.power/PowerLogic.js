@@ -268,33 +268,37 @@ function wiredConnections(text) {
         .map(function (fields) { return fields[0]; });
 }
 
+// The state between Wake on LAN readings: the last reading's wired
+// devices, and the setting the last pass wrote, false before any pass.
 function wakeInitial() {
-    return { ready: false, present: false, on: false, wired: "" };
+    return { present: false, wired: "", written: false };
 }
 
 // Whether a Wake on LAN reading starts a pass over the wired connections.
 // VGS writes no connection until the user sets the switch, so a value set
-// outside VGS stays: the first reading writes only while the setting is on,
-// which only the user turns on; a later change of the setting writes; and
-// while it is on, so does a change of the wired devices, since
-// NetworkManager adds a connection for a device that appears or connects
-// with none. The setting cannot tell an off the user chose from the
-// default, so after a restart a connection added while off is not written.
+// outside VGS stays. A pass runs while a wired device is present, when the
+// setting differs from the one the last pass wrote, which holds a change
+// made while no device was present until one is, and, while the setting
+// is on, when the wired devices change, since NetworkManager adds a
+// connection for a device that appears or connects with none. Before any
+// pass, written reads off, so the first pass runs once the setting is on;
+// the setting cannot tell an off the user chose from the default, so after a
+// restart a connection added while off is not written.
 function wakeObserved(previous, present, on, wired) {
-    var state = previous && typeof previous === "object" ? previous : wakeInitial();
-    var next = { ready: true, present: present === true, on: on === true, wired: String(wired) };
-    if (state.ready !== true) return { state: next, write: next.present && next.on };
-    var changed = state.on !== next.on;
-    var moved = state.present !== next.present || state.wired !== next.wired;
-    return { state: next, write: next.present && (changed || (next.on && moved)) };
+    var reading = { present: present === true, on: on === true, wired: String(wired) };
+    var moved = previous.present !== reading.present || previous.wired !== reading.wired;
+    var write = reading.present && (reading.on !== previous.written || (reading.on && moved));
+    return { state: { present: reading.present, wired: reading.wired, written: write ? reading.on : previous.written }, write: write };
 }
 
 // What the Wake on LAN field says after a pass that failed at `failure`:
-// listing the connections, reading one or writing one; "" for none.
-function wakeProblemText(failure) {
+// listing the connections, reading one or writing one, with the step that
+// starts a new pass from where the switch is now (`on`); "" for none.
+function wakeProblemText(failure, on) {
     if (failure === "") return "";
-    if (failure === "list") return "VGS could not read the wired connections.";
-    if (failure === "read") return "VGS could not read Wake on LAN on a wired connection.";
-    if (failure === "write") return "VGS could not save Wake on LAN on a wired connection.";
+    var retry = on === true ? " Turn Wake on LAN off and on to try again." : " Turn Wake on LAN on and off to try again.";
+    if (failure === "list") return "VGS could not read the wired connections." + retry;
+    if (failure === "read") return "VGS could not read Wake on LAN on a wired connection." + retry;
+    if (failure === "write") return "VGS could not save Wake on LAN on a wired connection." + retry;
     throw new Error("wakeProblemText: failure " + JSON.stringify(failure) + " has no text");
 }

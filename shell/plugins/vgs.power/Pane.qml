@@ -13,10 +13,12 @@ import qs.Ui
 // this plugin's own settings, one section per schema group in manifest
 // order, each field drawn while its `shownWhen` presence reads present, as
 // the Settings page draws it, with its info, and written through
-// `configure`; a field whose setting the service applies elsewhere shows
-// the service's last failure to apply it as its error line. While the
-// last scan misses the optional power profiles service, the section offers
-// its install, which raises the core's requirement notice.
+// `configure`. A field whose setting the service applies elsewhere also
+// shows the service's last failure to apply it as its error line, which
+// only this section draws: the Settings page shows no plugin status on a
+// field. While the last scan misses the optional power profiles service,
+// the section offers its install, which raises the core's requirement
+// notice.
 FocusScope {
     id: root
 

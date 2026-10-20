@@ -264,7 +264,7 @@ Item {
     function readNextConnection() {
         if (wakeQueue.length === 0) {
             wakeConnection = "";
-            const text = Logic.wakeProblemText(wakeFailure);
+            const text = Logic.wakeProblemText(wakeFailure, wakeOn);
             report("wakeOnLanProblem", text === "" ? null : text);
             if (wakeStale) writeWakeOnLan();
             return;

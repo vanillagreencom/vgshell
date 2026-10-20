@@ -301,9 +301,9 @@ PY_MUTANT
 # fakes (scripts/smoke/fixtures/devices/network.py wired, unmanage and
 # unwired). The stand-in lists two wired connections and a Wi-Fi one;
 # wol-wired-a reads NetworkManager's default and wol-wired-b magic, as set
-# outside VGS. It refuses the first write of magic to wol-wired-a, as
-# polkit does after a dismissed prompt, takes none on either, and answers
-# no other call.
+# outside VGS. It refuses each write of magic to wol-wired-a, as polkit
+# does after a dismissed prompt, takes none on either, and answers no
+# other call.
 power_wol_net() { python3 "$repo/scripts/smoke/fixtures/devices/network.py" "unix:path=$rt_dir/system-bus" "$1"; }
 power_wol_presence() { ipc smoke statusValues "${power_id:-vgs.power}" | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin).get("ethernet")))'; }
 power_nmcli_count() { device_calls nmcli | py_reply 'import json,sys; print(len(json.load(sys.stdin)))'; }
@@ -373,11 +373,11 @@ power_wake_on_lan() {
     'd.type === DeviceType.Wired && d.nmManaged' \
     'd.type === DeviceType.Wired' \
     PowerLogic.js \
-    'if (state.ready !== true) return { state: next, write: next.present && next.on };' \
-    'if (state.ready !== true) return { state: next, write: next.present };' \
+    'return { present: false, wired: "", written: false };' \
+    'return { present: false, wired: "", written: null };' \
     PowerLogic.js \
-    'write: next.present && (changed || (next.on && moved))' \
-    'write: next.present && (changed || moved)'
+    '(reading.on && moved)' \
+    'moved'
   base="$(power_nmcli_count)" || { fail "power: the nmcli record is unreadable"; base=0; }
   rescan "rescan after adding the Wake on LAN fixture answers ok"
   expect "enabling the Wake on LAN fixture is allowed" ok ipc shell setPluginEnabled acme.power-wol true
