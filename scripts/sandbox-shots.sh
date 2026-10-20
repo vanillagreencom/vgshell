@@ -155,7 +155,7 @@
 # notes folded and unfolded and every
 # screen of its page's Settings, Setup and Details tabs in each state the plugin's runner reaches,
 # and, with keys stored, the Setup tab with the pointer on its guide link
-# and on its Replace link
+# and on its Replace link, and with Tab's focus on each
 # over a local rclone remote and a keyring stand-in, from first run to a
 # damaged folder pair list and a home in the layout of the plugin's name
 # before the rename, which the plugin moves at its start, each shot once the
@@ -175,7 +175,8 @@
 # shell/Core/Toasts.qml and else its card in vgs.notifications with
 # Silence off: the clipboard's paste failure, a transient message, its
 # unsaved history, a lasting one, a lasting one whose message holds a page
-# reference and, where its card draws the reference as a link, Settings on
+# reference, with the pointer on its card and, where its card draws the
+# reference as a link, Settings on
 # that page after a click on the card, and the lock's warning that the computer slept unlocked, sent
 # through the lock's own unlock path, taken only when named; page-links is
 # the acme.surfaces panel with a FormRow message holding a page reference
@@ -195,9 +196,11 @@
 # shot named <scene>-<mode>-narrow-*; theme-browser and wallpaper-browser
 # are the vgs.themes browsers, taken only when named: the theme view
 # loaded, with the pointer on a card, with a filter no card matches, with
+# the pointer on its Clear filter, with
 # a refused card's failure line, on the chosen catalog card, on it
 # installed and with its wallpaper offer; the wallpaper view on its Theme
-# source, with the pointer on a card, with a typed filter, on its download
+# source, with the pointer on a card, on its This monitor scope word and
+# on its Show all source line, with a typed filter, on its download
 # card, on All and with a missing image's failure line, rounded with a
 # user control radius of 6.
 # Each leaves vgs and the mode's theme applied. The default is every
@@ -910,6 +913,39 @@ link_hover_shot() {
   hover_on "the pointer rests on the $2 link" "$settings_kind" vgs.settings RowAction "$2" "$settings_surface" && take_posed "$1"
   park_pointer
 }
+# link_focus_shot NAME TEXT: the Settings window with Tab's focus on the
+# RowAction link TEXT of the shown page, up to 40 presses, each waiting up
+# to 1 s for the focused item's reading to move.
+link_focus_shot() {
+  local want="[\"RowAction\",\"$2\"]" at before
+  park_pointer
+  at="$(ipc smoke activeFocusItem "$settings_kind" vgs.settings)" || at=unreadable
+  for _ in $(seq 1 40); do
+    [[ $at == "$want" ]] && break
+    before="$at"
+    type_keys -k Tab || { fail "Tab in the Settings window failed"; return 1; }
+    for _ in $(seq 1 10); do
+      at="$(ipc smoke activeFocusItem "$settings_kind" vgs.settings)" || at=unreadable
+      [[ $at != "$before" ]] && break
+      sleep 0.1
+    done
+  done
+  if [[ $at != "$want" ]]; then fail "Tab never reached the $2 link: $at"; return 1; fi
+  ok "Tab reaches the $2 link"
+  take_posed "$1"
+}
+# word_hover_shot NAME TEXT: the theme browser with the pointer on its
+# word TEXT, a Label in a MouseArea; on a tree that ships TextUnderline,
+# once the word reads its underline shown.
+word_hover_shot() {
+  hover_text "the pointer rests on the $2 word" overlay vgs.themes Label "$2" || return
+  if [[ -f $tree/shell/Ui/foundation/TextUnderline.qml ]]; then
+    expect_poll "the $2 word draws its underline" True word_underlined
+  fi
+  take_posed "$1"
+  park_pointer
+}
+word_underlined() { ipc smoke itemValues overlay vgs.themes TextUnderline visible | py_reply 'import json,sys; print(any(r.get("visible") is True for r in json.load(sys.stdin)))'; }
 # narrow_begin: the nested output holds a mode 480 by 720 logical pixels at
 # the run's scale, and the pointer helpers take that size, until
 # narrow_end gives the run's mode back. At scale 2 the run's mode is the
@@ -2462,6 +2498,7 @@ scene_theme-browser() { # MODE
   type_keys zzqx || fail "typing the theme browser's empty filter failed"
   expect_poll "the theme browser's filter matches no card" 0 theme_view_count
   take "theme-browser-$1-empty"
+  word_hover_shot "theme-browser-$1-empty-hover-action" "Clear filter"
   type_keys -k Escape || fail "clearing the theme browser's filter failed"
   type_keys mismatch || fail "typing the refused package's name failed"
   expect_poll "the theme browser selects the refused package" '"mismatch"' ipc smoke readDescendant overlay vgs.themes ThemeView selectedName
@@ -2572,6 +2609,8 @@ PYRADIUS
   park_pointer
   wallpaper_look "$name" "$look"
   take "wallpaper-browser-$1"
+  word_hover_shot "wallpaper-browser-$1-hover-scope" "This monitor"
+  word_hover_shot "wallpaper-browser-$1-hover-source" "Show all"
   wallpaper_look "$name" "$look"
   hover_card "the pointer rests on the wallpaper browser's next card" && take_posed "wallpaper-browser-$1-hover"
   park_pointer
@@ -7007,6 +7046,12 @@ scene_plugin-messages() { # MODE
   # A click on the card opens Settings on the page its link names, and the
   # card leaves.
   if ! "$messages_toasts"; then
+    if point_item vgs:layer vgs.notifications NotificationCard summary "Clipboard history is off" >/dev/null; then
+      ok "the pointer rests on the page reference card"
+      take_posed "plugin-messages-$1-page-reference-hover"
+    else
+      fail "the page reference card never reported the pointer"
+    fi
     click_item vgs:layer vgs.notifications NotificationCard summary "Clipboard history is off" 24 - || fail "the click on the page reference card failed"
     expect_poll "the page reference card opens Settings on the Clipboard page" '"vgs.clipboard"' settings_page
     expect_poll "the page reference card leaves" 0 messages_shown
@@ -7404,6 +7449,8 @@ cs_shots() {
     at="$(ipc smoke scrollTo "$settings_kind" vgs.settings 0)" && [[ $at == "["* ]] || fail "the Google Drive Setup tab did not scroll to its top: ${at:-no reply}"
     link_hover_shot "googledrive-$m-$s-page-setup-hover-guide" "Open the step-by-step guide"
     link_hover_shot "googledrive-$m-$s-page-setup-hover-replace" Replace
+    link_focus_shot "googledrive-$m-$s-page-setup-focus-guide" "Open the step-by-step guide"
+    link_focus_shot "googledrive-$m-$s-page-setup-focus-replace" Replace
   fi
   box="$(one_window Plugins)"
   for f in "$SHOT_DIR/googledrive-$m-$s-page"*.png; do
