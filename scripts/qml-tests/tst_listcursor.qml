@@ -261,10 +261,16 @@ Item {
         }
 
         // The pointer crosses from the third row through a gap to the fourth,
-        // a pixel at a time, while the rows' source publishes the same rows
-        // again at every step: the plate sits on the row it left or the row
-        // it entered at every step, never on the selection.
-        function test_a_republished_list_keeps_the_plate_while_the_pointer_crosses_a_gap() {
+        // a pixel at a time, with the rows' source publishing the same rows
+        // again at every step or not at all: the plate sits on the row it
+        // left or the row it entered at every step, never on the selection.
+        function test_the_plate_stays_on_the_pointer_while_it_crosses_a_gap_data() {
+            return [
+                { tag: "republished at every step", republish: true },
+                { tag: "not republished", republish: false }
+            ];
+        }
+        function test_the_plate_stays_on_the_pointer_while_it_crosses_a_gap(data) {
             root.pointerSelects = false;
             rows.spacing = 2;
             const x = 20;
@@ -275,13 +281,35 @@ Item {
             verify(plate.hovered === row(2), "the third row takes the plate");
             for (let y = top + 1; y <= bottom; y++) {
                 mouseMove(holder, x, y);
-                root.published = [y];
+                if (data.republish) root.published = [y];
                 const on = plate.placed === row(2) ? 2 : plate.placed === row(3) ? 3 : root.rowIndex(plate.placed);
                 verify(on === 2 || on === 3, "at y " + y + " the plate sits on row " + on);
                 compare(plate.y, rows.y + plate.placed.y, "the plate stands on its row at y " + y);
             }
             verify(plate.placed === row(3), "the plate ends on the fourth row");
             compare(root.current, 0, "the selection stays");
+        }
+
+        // A key step takes the plate back to the selection; a rebuild while
+        // the pointer has not moved since leaves it there, and a reading at
+        // the same place takes nothing.
+        function test_a_rebuild_after_a_key_step_leaves_the_plate_on_the_selection() {
+            root.pointerSelects = false;
+            plate.arm();
+            mouseMove(row(2), 20, 10);
+            verify(plate.hovered === row(2));
+            plate.disarm();
+            root.current = 1;
+            verify(plate.placed === row(1), "the key step puts the plate on the selection");
+            root.published = ["after a key"];
+            mouseMove(row(2), 20, 10);
+            verify(plate.hovered === null, "the resting pointer takes no row after the rebuild");
+            verify(plate.placed === row(1), "the plate stays on the selection");
+            compare(plate.armed, false);
+            mouseMove(row(2), 22, 10);
+            mouseMove(row(2), 24, 10);
+            verify(plate.hovered === row(2), "a moved pointer takes the row again");
+            mouseMove(root, 390, 590);
         }
 
         // A rebuild that moves the hovered row out from under the resting

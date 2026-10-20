@@ -1158,6 +1158,7 @@ mutations=(
   "a resting pointer takes the selection|layout/ListCursor.qml|const moved = Logic.pointerMoved(state.last, point);|const moved = true;|tst_listcursor.qml"
   "a key leaves the pointer armed|layout/ListCursor.qml|state.last = null;|state.last = null; state.armed = true;|tst_listcursor.qml"
   "a rebuild drops the hovered row in place|layout/ListCursor.qml|function rebuilt() {|function rebuilt() { disarm();|tst_listcursor.qml"
+  "a rebuild arms a resting pointer|layout/ListCursor.qml|function rebuilt() {|function rebuilt() { arm(); return;|tst_listcursor.qml"
   "a rebuild keeps a row it moved|layout/ListCursor.qml|if (state.rest !== null && (at.x !== state.rest.at.x|if (false && (at.x !== state.rest.at.x|tst_listcursor.qml"
   "the list cursor draws over its rows|layout/ListCursor.qml|    z: -1|    z: 1|tst_listcursor.qml"
   "a cursor in a painting parent is not refused|layout/ListCursor.qml|if (parent !== null && parent.color !== undefined && parent.color.a > 0)|if (false)|tst_listcursor.qml"
