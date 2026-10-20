@@ -13,12 +13,15 @@ import "NotificationLogic.js" as Logic
 // the hold names silent before it links it, so the chime's first sample is
 // silent however late the shell reacts; this writes that hold, naming the
 // apps of every notification the service keeps or arms, and the rule
-// keeps it only while this instance's writer lives. The shell then frees
-// a stream the rule held for an app no notification armed, such as a
-// call, as soon as WirePlumber links it. Every other stream keeps the
+// keeps it only while this instance's writer lives. The shell keeps a
+// stream the rule held muted while it waits for its app's notification,
+// which can reach the shell after the chime starts, and frees it once the
+// arm's time passes with none, as a call. Every other stream keeps the
 // reaction: `arm` names the app of a notification that arrived, and a
-// stream of that app that then starts to play is muted until it pauses
-// (NotificationLogic.appSoundStep).
+// stream of that app that then starts to play is muted until it pauses.
+// A muted stream that pauses stays muted until it plays again, so a chime
+// the app plays on a stream it keeps open is silent from its first sample
+// too (NotificationLogic.appSoundStep).
 //
 // The mute is the stream's softMute: WirePlumber 0.5 keeps a stream's
 // `mute` and volumes for every later stream of the same app
@@ -54,10 +57,10 @@ Item {
     property var arms: ({})
     // The output streams of the last snapshot, each { node, since, judged,
     // freeing, wrote }, bound so their properties stay current: judged once
-    // the rule's verdict on it was read, freeing while a stream the rule
-    // held waits for its link to be freed, wrote once this instance wrote
-    // to it. A snapshot, never a binding on the live model, as vgs.sound's
-    // Audio.qml explains.
+    // the rule's verdict on it was read, freeing while the shell's own
+    // stream the rule held waits for its link to be freed, wrote once this
+    // instance wrote to it. A snapshot, never a binding on the live model,
+    // as vgs.sound's Audio.qml explains.
     property var streams: []
     // Node id -> { node, phase, until, level }: the streams under a mute;
     // level is the volume the stream last reported, so only a change mutes
@@ -72,8 +75,8 @@ Item {
     // The hold as last sent to the rule, { at, apps, roles }, at when the
     // first write for this rule and this writer started; null while none
     // is sent. A stream that appears once a write started counts as held
-    // before the write lands: freeing a stream the rule did not hold
-    // writes the mute it has and changes nothing.
+    // before the write lands: the shell writes the mute of a stream it
+    // counts as held itself, so one the rule did not hold is muted the same.
     property var ruleHold: null
     // none, sending, confirmed (pw-metadata exited 0 for the current
     // writer's pid) or failed (the retries ran out).
@@ -166,13 +169,13 @@ Item {
         schedule();
     }
 
-    // A stream the rule held is freed once it is linked: WirePlumber sends
-    // the rule's softMute before it links the stream, on its one
-    // connection, so a lift written once the link shows reaches the stream
-    // after that mute. One written as soon as the stream shows can reach it
-    // first and leave it muted: the shell judged a call within the same
-    // millisecond as the rule held it (nested sandbox, WirePlumber 0.5.18,
-    // VGS-1424).
+    // A stream the rule held as the shell's own is freed once it is
+    // linked: WirePlumber sends the rule's softMute before it links the
+    // stream, on its one connection, so a lift written once the link shows
+    // reaches the stream after that mute. One written as soon as the
+    // stream shows can reach it first and leave it muted: the shell judged
+    // a stream within the same millisecond as the rule held it (nested
+    // sandbox, WirePlumber 0.5.18, VGS-1424).
     function freeLinked() {
         const linked = Pipewire.linkGroups.values.filter(g => g !== null).map(g => g.source);
         for (const entry of streams) {

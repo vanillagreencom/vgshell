@@ -28,6 +28,9 @@
 # already plays: "with Sound off the call is heard" failed, reading silent,
 # and "the chime that opens with the notification is held" failed, the
 # held list naming the call beside the chime until the hold ran out.
+# Control run on 2026-10-20, host cachy, through this row on the tree at
+# 6dda32697, the production files before VGS-1950: "not one 1 ms window of
+# Smoke Knock's 50 chimes is heard" failed, reading heard ms=1741.
 # A scoped retry runs `scripts/qml-smoke.sh --rows <row-list>`, where
 # <row-list> is
 # `bar,hyprland-consent,plugins,capabilities,session,status,notifications,
@@ -4740,8 +4743,9 @@ fi
 # Smoke Ping, an app no earlier notification named, until after it ends,
 # a 5 s recording from before its notification is silent from its first
 # sample, its player exiting 0 with its stream read under the rule's soft
-# mute; Smoke Ping's call after it is freed at once and plays at its own
-# level, its mute and soft mute off. A writer killed while its shell is
+# mute; Smoke Ping's call after it is freed once the arm's time passes
+# with no notification and plays at its own level, its mute and soft mute
+# off. A writer killed while its shell is
 # stopped leaves the chime the rule held to the rule, which lifts it; the
 # shell then starts a new writer, holds that chime again, writes the hold
 # under the new pid and holds a later chime. A WirePlumber restart brings
@@ -5121,8 +5125,8 @@ else: print("faint ms=%d" % heard)' "$1"
   expect "with the shell stopped the chime played: the rule held its stream" True python3 -c 'import sys; print("[false, true]" in sys.argv[1])' "$app_take_props"
   expect "with Sound off and the shell stopped the chime is silent from its first sample" silent app_take_heard "$app_take_file"
   # A stream Smoke Ping opens after its chime, as a call: the rule holds
-  # it, and the shell frees it once it is linked, since no notification
-  # armed it.
+  # it, and the shell frees it once the arm's time passes with no
+  # notification of Smoke Ping.
   spawn "$sandbox/smoke-ping-call.log" "${shell_env[@]}" pw-cat --playback --target vgs-smoke-headphones --volume 0.5 -P '{ application.name = "Smoke Ping" node.name = "smoke-ping-call" }' "$app_tone"
   app_ping_call="$spawn_pid"
   expect_poll "Smoke Ping's call after its chime plays at its own level" own app_own vgs-smoke-headphones
@@ -5166,6 +5170,183 @@ else: print("faint ms=%d" % heard)' "$1"
   expect_poll "the shell writes the hold again for the rule that came back" '[true, "pw-cli", true, ["notification", "event"]]' rule_holds "smoke ping"
   expect_poll "the service reads the rule that came back running" '"running"' rule_phase
   kill -- "-$app_ping_later" 2>/dev/null || true
+  # app_heard_ms WAV: the 1 ms windows heard in a take.
+  app_heard_ms() { python3 -c 'import struct,sys
+d = open(sys.argv[1], "rb").read()[44:]
+n = len(d) // 2
+x = struct.unpack("<%dh" % n, d[:n * 2])
+print(sum(1 for i in range(n // 48) if max(abs(v) for v in x[i * 48:(i + 1) * 48]) > 100))' "$1"; }
+  # A chime that plays before its notification reaches the shell, as
+  # Slack's can: on the owner's desktop its stream showed before or in the
+  # same second as the notification, and one stream played three
+  # messages' chimes (Jarvis reading, VGS-1950). Smoke Knock plays through
+  # pipewire-pulse, started here on the private PipeWire with no host
+  # fragment, and keeps its stream as Chromium does: opened paused,
+  # unpaused for each chime, paused once the chime drained, and open for
+  # the next. Its first notification names it in the hold, as Slack's kept
+  # notifications name Slack. Then 50 chimes under Do Not Disturb, each
+  # round's notification sent before its chime, once the chime started or
+  # once it ended, in turn, while the speakers are recorded: not one 1 ms
+  # window is heard. With both states back the same stream is heard.
+  knock_conf="$sandbox/knock-pulse"
+  mkdir -p -- "$knock_conf"
+  cat >"$knock_conf/pipewire-pulse.conf" <<'CONF'
+context.spa-libs = {
+    audio.convert.* = audioconvert/libspa-audioconvert
+    support.*       = support/libspa-support
+}
+context.modules = [
+    { name = libpipewire-module-protocol-native }
+    { name = libpipewire-module-client-node }
+    { name = libpipewire-module-adapter }
+    { name = libpipewire-module-metadata }
+    { name = libpipewire-module-protocol-pulse args = { server.address = [ "unix:native" ] } }
+]
+CONF
+  spawn "$sandbox/knock-pulse.log" "${shell_env[@]}" PIPEWIRE_CONFIG_DIR="$knock_conf" pipewire-pulse
+  knock_pulse="$spawn_pid"
+  knock_server() { if [[ -S $rt_dir/pulse/native ]]; then echo up; else echo down; fi; }
+  expect_poll "pipewire-pulse serves the private PipeWire" up knock_server
+  # The player: `ready` once its stream is open and paused, then for each
+  # `play` line on its command file `playing N` once the stream is
+  # unpaused with the chime queued and `played N` once it drained and is
+  # paused again.
+  cat >"$sandbox/knock-player.py" <<'PY'
+import ctypes, sys, time, wave
+pa = ctypes.CDLL("libpulse.so.0")
+P = ctypes.c_void_p
+for name, res, args in [
+    ("pa_threaded_mainloop_new", P, []), ("pa_threaded_mainloop_get_api", P, [P]),
+    ("pa_threaded_mainloop_start", ctypes.c_int, [P]), ("pa_threaded_mainloop_lock", None, [P]),
+    ("pa_threaded_mainloop_unlock", None, [P]), ("pa_context_new", P, [P, ctypes.c_char_p]),
+    ("pa_context_connect", ctypes.c_int, [P, ctypes.c_char_p, ctypes.c_int, P]),
+    ("pa_context_get_state", ctypes.c_int, [P]), ("pa_stream_new", P, [P, ctypes.c_char_p, P, P]),
+    ("pa_stream_connect_playback", ctypes.c_int, [P, ctypes.c_char_p, P, ctypes.c_int, P, P]),
+    ("pa_stream_get_state", ctypes.c_int, [P]),
+    ("pa_stream_write", ctypes.c_int, [P, P, ctypes.c_size_t, P, ctypes.c_int64, ctypes.c_int]),
+    ("pa_stream_cork", P, [P, ctypes.c_int, P, P]), ("pa_stream_drain", P, [P, P, P]),
+    ("pa_operation_get_state", ctypes.c_int, [P]), ("pa_operation_unref", None, [P])]:
+    f = getattr(pa, name); f.restype = res; f.argtypes = args
+class Spec(ctypes.Structure):
+    _fields_ = [("format", ctypes.c_int), ("rate", ctypes.c_uint32), ("channels", ctypes.c_uint8)]
+app, sink, wav, commands = sys.argv[1:5]
+w = wave.open(wav); data = w.readframes(w.getnframes())
+loop = pa.pa_threaded_mainloop_new()
+ctx = pa.pa_context_new(pa.pa_threaded_mainloop_get_api(loop), app.encode())
+pa.pa_context_connect(ctx, None, 0, None)
+pa.pa_threaded_mainloop_start(loop)
+def locked(call):
+    pa.pa_threaded_mainloop_lock(loop)
+    try: return call()
+    finally: pa.pa_threaded_mainloop_unlock(loop)
+def until(read, want, what, failed=()):
+    for _ in range(1000):
+        state = locked(read)
+        if state == want: return
+        if state in failed: sys.exit("%s=failed state=%d" % (what, state))
+        time.sleep(0.01)
+    sys.exit("%s=timeout" % what)
+def run(start):
+    op = locked(start)
+    until(lambda: pa.pa_operation_get_state(op), 1, "operation")
+    locked(lambda: pa.pa_operation_unref(op))
+# PA_CONTEXT_READY 4, PA_STREAM_READY 2, PA_STREAM_START_CORKED 0x1, PA_SAMPLE_S16LE 3.
+until(lambda: pa.pa_context_get_state(ctx), 4, "context", (5, 6))
+spec = Spec(3, w.getframerate(), w.getnchannels())
+stream = locked(lambda: pa.pa_stream_new(ctx, b"chime", ctypes.byref(spec), None))
+locked(lambda: pa.pa_stream_connect_playback(stream, sink.encode(), None, 0x1, None, None))
+until(lambda: pa.pa_stream_get_state(stream), 2, "stream", (3, 4))
+print("ready", flush=True)
+plays = 0
+for line in open(commands):
+    if line.strip() != "play": continue
+    plays += 1
+    locked(lambda: pa.pa_stream_write(stream, data, len(data), None, 0, 0))
+    run(lambda: pa.pa_stream_cork(stream, 0, None, None))
+    print("playing %d" % plays, flush=True)
+    run(lambda: pa.pa_stream_drain(stream, None, None))
+    run(lambda: pa.pa_stream_cork(stream, 1, None, None))
+    print("played %d" % plays, flush=True)
+PY
+  # knock_said LINE: `seen` once the player printed LINE, `missing` after
+  # 10 s, `exited` once the player is gone without it.
+  knock_said() { # LINE
+    local _
+    for _ in $(seq 1 200); do
+      if grep -qx -- "$1" "$sandbox/knock-player.log" 2>/dev/null; then echo seen; return; fi
+      kill -0 "$knock_player" 2>/dev/null || { echo exited; return; }
+      sleep 0.05
+    done
+    echo missing
+  }
+  knock_note() { notify "Smoke Knock" 0 "Knock $1" "" '[]' '{"desktop-entry": <"smoke-knock">}' 0 >/dev/null; }
+  # knock_rounds N: N chimes, each round's notification sent before its
+  # chime, once the chime started or once it ended, in turn; the rounds
+  # played, or where one stopped.
+  knock_rounds() { # N
+    local i said
+    for i in $(seq 1 "$1"); do
+      if (( i % 3 == 0 )); then knock_note "$i" || { echo "round=$i notify=failed"; return; }; fi
+      printf 'play\n' >&"$knock_fd"
+      if ! said="$(knock_said "playing $i")" || [[ $said != seen ]]; then echo "round=$i playing=$said"; return; fi
+      if (( i % 3 == 1 )); then knock_note "$i" || { echo "round=$i notify=failed"; return; }; fi
+      if ! said="$(knock_said "played $i")" || [[ $said != seen ]]; then echo "round=$i played=$said"; return; fi
+      if (( i % 3 == 2 )); then knock_note "$i" || { echo "round=$i notify=failed"; return; }; fi
+    done
+    echo "played=$1"
+  }
+  # knock_take WAV: `silent` for a take of at least 15 s with no 1 ms
+  # window heard, else what it read.
+  knock_take() { # WAV
+    local heard samples
+    heard="$(app_heard_ms "$1")" || return 1
+    samples=$(( ($(stat -c %s -- "$1") - 44) / 2 ))
+    if (( samples < 15 * 48000 )); then echo "short samples=$samples"; elif (( heard == 0 )); then echo silent; else echo "heard ms=$heard"; fi
+  }
+  # knock_record START|STOP: the speakers recorded into knock_take_file.
+  knock_record() { # start|stop
+    if [[ $1 == start ]]; then
+      spawn "$sandbox/knock-take.log" "${shell_env[@]}" pw-record --target vgs-smoke-speakers -P '{ node.name = "app-take-recorder" stream.capture.sink = true }' --channels 1 --format s16 --rate 48000 "$knock_take_file"
+      knock_rec="$spawn_pid"
+      expect_poll "Smoke Knock: the recording runs" True app_recording
+      return
+    fi
+    kill -INT -- "-$knock_rec" 2>/dev/null || true
+    for _ in $(seq 1 30); do kill -0 "$knock_rec" 2>/dev/null || break; sleep 0.1; done
+  }
+  expect "Do Not Disturb turns on for Smoke Knock" on notes silence on
+  knock_note first || fail "Smoke Knock's first notification was not sent"
+  expect_poll "the hold names Smoke Knock" '[true, "pw-cli", true, ["notification", "event"]]' rule_holds "smoke knock"
+  knock_cmd="$sandbox/knock.cmd"
+  rm -f -- "${knock_cmd:?}"
+  mkfifo -- "$knock_cmd"
+  # Read and write, so the open waits for no reader.
+  exec {knock_fd}<>"$knock_cmd"
+  spawn "$sandbox/knock-player.log" "${shell_env[@]}" python3 "$sandbox/knock-player.py" "Smoke Knock" vgs-smoke-speakers "$app_short" "$knock_cmd"
+  knock_player="$spawn_pid"
+  expect "Smoke Knock's stream opens paused" seen knock_said ready
+  knock_take_file="$sandbox/knock-take.wav"
+  knock_record start
+  expect "Smoke Knock plays 50 chimes on one stream" played=50 knock_rounds 50
+  knock_record stop
+  expect "not one 1 ms window of Smoke Knock's 50 chimes is heard" silent knock_take "$knock_take_file"
+  # The control: with Do Not Disturb off and Sound on, the same stream's
+  # chimes are heard.
+  expect "Do Not Disturb turns off after Smoke Knock" off notes silence off
+  expect "Sound turns on for Smoke Knock's control" on notes sound on
+  expect_poll "with Sound on nothing is watched for Smoke Knock" null app_held
+  knock_take_file="$sandbox/knock-control.wav"
+  knock_record start
+  printf 'play\n' >&"$knock_fd"
+  expect "the control's chime plays" seen knock_said "played 51"
+  knock_record stop
+  expect "with Sound on Smoke Knock's chime is heard" True python3 -c 'import sys; print(int(sys.argv[1]) >= 250)' "$(app_heard_ms "$knock_take_file")"
+  expect "Sound turns off again after Smoke Knock" off notes sound off
+  exec {knock_fd}>&-
+  kill -- "-$knock_player" "-$knock_pulse" 2>/dev/null || true
+  for _ in $(seq 1 50); do kill -0 "$knock_pulse" 2>/dev/null || break; sleep 0.1; done
+  # The rows after this one found no pulse server.
+  expect "pipewire-pulse stops after Smoke Knock" down knock_server
   # The shell's own sound player under a mute: the sounds fixture plays
   # its event through the core's player, here the real pw-play over the
   # stand-in, a child of the shell. The rule holds it for its role; the
@@ -5179,12 +5360,6 @@ else: print("faint ms=%d" % heard)' "$1"
   expect "enabling the sounds fixture for the shell's own sound is allowed" ok ipc shell setPluginEnabled acme.sounds true
   expect_poll "the sounds fixture builds for the shell's own sound" True record_exists acme.sounds
   printf '#!/usr/bin/env bash\nexec %q "$@"\n' "$(command -v pw-play)" | sentinel_stand_over "$shim/pw-play"
-  # app_heard_ms WAV: the 1 ms windows heard in a take.
-  app_heard_ms() { python3 -c 'import struct,sys
-d = open(sys.argv[1], "rb").read()[44:]
-n = len(d) // 2
-x = struct.unpack("<%dh" % n, d[:n * 2])
-print(sum(1 for i in range(n // 48) if max(abs(v) for v in x[i * 48:(i + 1) * 48]) > 100))' "$1"; }
   app_own_take="$sandbox/app-own-sound.wav"
   spawn "$sandbox/app-own-sound.log" "${shell_env[@]}" pw-record --target vgs-smoke-speakers -P '{ node.name = "app-take-recorder" stream.capture.sink = true }' --channels 1 --format s16 --rate 48000 "$app_own_take"
   app_own_rec="$spawn_pid"
