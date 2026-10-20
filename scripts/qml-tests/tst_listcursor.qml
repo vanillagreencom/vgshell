@@ -33,7 +33,13 @@ Item {
     // The rows' source, published again as a status write anywhere in the
     // shell publishes the Settings plugin rows again with the same rows.
     property var published: []
-    onPublishedChanged: plate.rebuilt()
+    // How far the rows move before the list calls rebuilt(), as the run
+    // history places its rows in a handler that runs first.
+    property real shiftOnPublish: 0
+    onPublishedChanged: {
+        rows.y += shiftOnPublish;
+        plate.rebuilt();
+    }
 
     Item {
         id: holder
@@ -129,6 +135,7 @@ Item {
             root.current = 0;
             rows.y = 20;
             rows.spacing = 0;
+            root.shiftOnPublish = 0;
             root.pointerSelects = true;
             plate.disarm();
             mouseMove(root, 390, 590);
@@ -339,6 +346,25 @@ Item {
             verify(plate.placed === row(0), "the plate is back on the selection");
             compare(plate.y, rows.y + row(0).y);
             root.count = 4;
+            leftSpy.clear();
+            mouseMove(root, 390, 590);
+            compare(leftSpy.count, 0, "the removed row's hover ended, so leaving hands nothing back");
+        }
+
+        // The rows move before the list calls rebuilt(), as the run history
+        // places them: the moved row no longer holds the pointer's reading,
+        // so the plate goes back to the selection.
+        function test_a_row_moved_before_the_rebuild_returns_the_plate() {
+            root.pointerSelects = false;
+            plate.arm();
+            mouseMove(row(2), 20, 10);
+            verify(plate.hovered === row(2));
+            root.shiftOnPublish = 40;
+            root.published = ["moved first"];
+            verify(plate.hovered === null, "the row moved off the pointer lets the plate go");
+            verify(plate.placed === row(0), "the plate is back on the selection");
+            compare(plate.y, rows.y + row(0).y, "and stands on it");
+            compare(plate.armed, false, "a resting pointer takes no row");
             mouseMove(root, 390, 590);
         }
 

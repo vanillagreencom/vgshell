@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Templates as T
+import Quickshell
 import qs.Commons
 import qs.Ui
 import "Session.js" as Session
@@ -409,7 +410,10 @@ FocusScope {
                 width: tasksBody.width
                 Repeater {
                     id: taskList
-                    model: root.taskRows
+                    // Keyed by the task's id, so a republished list keeps
+                    // each task's row and the hovered row keeps the plate
+                    // (ListCursor.rebuilt).
+                    model: ScriptModel { values: root.taskRows; objectProp: "id" }
                     // keyboard-path: Tasks owns the cursor through KeyNav; its footer acts on the selection
                     ListItem {
                         required property var modelData

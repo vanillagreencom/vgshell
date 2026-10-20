@@ -118,7 +118,7 @@ Item {
         if (state.armed) return true;
         if (moved) {
             state.armed = true;
-            state.rest = null;
+            state.resting = false;
         }
         return moved;
     }
@@ -133,19 +133,27 @@ Item {
     // publishes them again: the next placement lands at once, and a resting
     // pointer takes no other row until it moves from the last place a hover
     // read, so a moving pointer takes the row under it at its next reading.
-    // The row a hover holds keeps the plate while it stands where it stood,
-    // so a source that publishes the same rows leaves the plate where the
-    // pointer is; a row the rebuild moves or removes hands the plate back to
-    // the selection.
+    // The row a hover holds keeps the plate while it still holds that
+    // reading, so a source that publishes the same rows leaves the plate
+    // where the pointer is; a row the rebuild moves off the reading or
+    // removes, before this call or after it, hands the plate back to the
+    // selection.
     function rebuilt() {
         snap();
         state.armed = false;
-        state.rest = state.hovered === null ? null : { row: state.hovered, at: offsetOf(chainOf(state.hovered) ?? []) };
+        if (state.hovered === null) return;
+        if (holdsLast(state.hovered)) state.resting = true;
+        else state.endHover();
+    }
+
+    // Whether `row` holds the last scene point a hover read.
+    function holdsLast(row) {
+        return state.last !== null && row.contains(row.mapFromItem(null, state.last.x, state.last.y));
     }
 
     // The next hover moves the selection without the pointer moving first,
     // as after a click that rebuilt the list under the pointer.
-    function arm() { state.armed = true; state.rest = null; }
+    function arm() { state.armed = true; state.resting = false; }
 
     // The place, 0 first, of a row that arrives among the others that
     // arrive in the same turn.
@@ -169,9 +177,9 @@ Item {
         property bool armed: false
         // The last scene point a hover read; null after a disarm.
         property var last: null
-        // The hovered row and its place in the cursor's parent at the last
-        // `rebuilt()`, until the pointer moves: null for none.
-        property var rest: null
+        // Whether the hover holds its row through a `rebuilt()` while the
+        // pointer has not moved since.
+        property bool resting: false
         property int arrivals: 0
 
         function settle() { snapping = false; }
@@ -179,7 +187,7 @@ Item {
             hovering = false;
             hovered = null;
             restore = null;
-            rest = null;
+            resting = false;
         }
         function endArrivals() { arrivals = 0; }
     }
@@ -261,30 +269,25 @@ Item {
         }
     }
 
-    // The place of a chain's row in the cursor's parent.
-    function offsetOf(chain) {
+    function place() {
+        const chain = root.chain;
+        if (chain.length === 0) return;
+        // A row a rebuild left under the resting pointer moved off its
+        // reading, or was destroyed: the hover ends, so the plate goes back
+        // to the selection and a later leave hands nothing back.
+        if (state.resting && state.hovered === null) state.endHover();
+        else if (state.resting && !holdsLast(state.hovered)) {
+            state.endHover();
+            return;
+        }
         let x = 0, y = 0;
         for (const at of chain) {
             x += at.x;
             y += at.y;
         }
-        return Qt.point(x, y);
-    }
-
-    function place() {
-        const chain = root.chain;
-        if (chain.length === 0) return;
-        const at = offsetOf(chain);
-        if (state.rest !== null && state.rest.row !== chain[0]) state.rest = null;
-        if (state.rest !== null && (at.x !== state.rest.at.x || at.y !== state.rest.at.y)) {
-            // The rebuild moved the hovered row out from under the
-            // resting pointer: the plate goes back to the selection.
-            state.endHover();
-            return;
-        }
-        root.x = at.x;
+        root.x = x;
         root.width = chain[0].width;
-        move(travel, "y", at.y, root.motion.travel.duration);
+        move(travel, "y", y, root.motion.travel.duration);
         move(resize, "height", chain[0].height, root.motion.resize.duration);
     }
 
