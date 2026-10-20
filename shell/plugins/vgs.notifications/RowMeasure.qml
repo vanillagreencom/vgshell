@@ -54,9 +54,6 @@ ColumnLayout {
         }
     }
     readonly property int badgeStatus: badgeImage.status
-    function topForLeadingIcon(iconHeight) {
-        return (rowCard.summary.length > 0 ? summaryRow.y + titleText.y : bodyText.y) + titleText.topForLeadingIcon(iconHeight);
-    }
     readonly property real measuredHeight: (rowCard.summary.length > 0 ? Math.max(titleText.implicitHeight,
         rowCard.showsBadge ? rowCard.look.badge.size + Math.max(0, (titleMetrics.height - rowCard.look.badge.size) / 2) : 0) : 0)
         + (rowCard.singleLine ? 0 : bodyText.implicitHeight)

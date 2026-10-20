@@ -10,8 +10,10 @@ import "NotificationLogic.js" as Logic
 // person as a circle that fills the slot; `thumbnail`, the image `source`
 // cropped to the square with the slot's corner radius; `icon`, the
 // application icon `source` drawn at the slot's icon size;
-// `glyph`, the Lucide icon `glyph` names at the slot's glyph size in
-// `glyphColor`, the x-vgs-icon hint's.
+// `glyph`, the Lucide icon `glyph` names at the same icon size in
+// `glyphColor`, the x-vgs-icon hint's. Every kind is centred in the square,
+// whatever the card's text, so a symbol and an application icon share one
+// size and one centre.
 Item {
     id: slot
 
@@ -27,9 +29,6 @@ Item {
     property string carried: ""
     property string glyph: ""
     property color glyphColor: look.text.foreground
-    // Only the application and status icons follow the first text line.
-    // Images and faces retain the slot's media placement.
-    property real leadingIconCenter: height / 2
     readonly property var spec: look.media
     // False while the image or icon the slot draws failed to load, so the
     // card leaves the slot out.
@@ -79,8 +78,7 @@ Item {
 
     Image {
         id: icon
-        anchors.horizontalCenter: parent.horizontalCenter
-        y: Math.round(slot.leadingIconCenter - height / 2)
+        anchors.centerIn: parent
         width: slot.spec.icon
         height: slot.spec.icon
         visible: slot.kind === "icon"
@@ -94,11 +92,10 @@ Item {
 
     Icon {
         id: glyphIcon
-        anchors.horizontalCenter: parent.horizontalCenter
-        y: Math.round(slot.leadingIconCenter - height / 2)
+        anchors.centerIn: parent
         visible: slot.kind === "glyph"
         name: slot.kind === "glyph" ? slot.glyph : ""
-        size: slot.spec.glyph
+        size: slot.spec.icon
         stroke: slot.look.card.glyphStroke
         color: slot.glyphColor
     }

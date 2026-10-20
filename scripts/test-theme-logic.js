@@ -1703,17 +1703,7 @@ const LED_LINES = [
         file: "shell/Ui/overlay/MenuItem.qml", icon: "id: icon\n",
         binding: "y: root.inkTop(icon) - parent.y",
         centred: "anchors.verticalCenter: parent.verticalCenter"
-    },
-    {
-        file: "shell/plugins/vgs.notifications/NotificationCard.qml", item: "MediaSlot", icon: "id: mediaSlot",
-        binding: "leadingIconCenter: textBlock.y + textBlock.topForLeadingIcon(0) - mediaSlot.y",
-        centred: "leadingIconCenter: height / 2"
-    },
-    ...["icon", "glyphIcon"].map(icon => ({
-        file: "shell/plugins/vgs.notifications/MediaSlot.qml", item: icon === "icon" ? "Image" : "Icon", icon: `id: ${icon}\n`,
-        binding: "y: Math.round(slot.leadingIconCenter - height / 2)",
-        centred: "anchors.verticalCenter: parent.verticalCenter"
-    }))
+    }
 ];
 for (const site of LED_LINES) {
     const binding = site.binding || `${site.label}.topForLeadingIcon(height)`;
@@ -1746,12 +1736,6 @@ const FLYOUT_READING = /Label \{\s*id: entryReading\s*visible: false\s*text: ent
 assert.match(contextMenuSource, FLYOUT_READING, "the launcher flyout reads its entry text in the entry's own font");
 assert.doesNotMatch(contextMenuSource.replace("font: entryText.font", "role: \"item\""), FLYOUT_READING,
     "control: a flyout reading in a text role's font must fail the check");
-
-const rowMeasureSource = fs.readFileSync(path.join(repo, "shell/plugins/vgs.notifications/RowMeasure.qml"), "utf8");
-const SUMMARY_ICON_TOP = /function topForLeadingIcon\(iconHeight\) \{\s*return \(rowCard\.summary\.length > 0 \? summaryRow\.y \+ titleText\.y : bodyText\.y\) \+ titleText\.topForLeadingIcon\(iconHeight\);/;
-assert.match(rowMeasureSource, SUMMARY_ICON_TOP, "notification icons use the shared label placement for summary and body-only cards");
-assert.doesNotMatch(rowMeasureSource.replace("titleText.topForLeadingIcon(iconHeight)", "Math.round((titleMetrics.height - iconHeight) / 2)"), SUMMARY_ICON_TOP,
-    "control: notification icons placed on a line box must fail the check");
 
 // Each token control edits a copy of the shipped table, and the verifier
 // it names must fail on that copy.

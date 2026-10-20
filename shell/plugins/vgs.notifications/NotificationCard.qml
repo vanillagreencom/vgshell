@@ -163,6 +163,7 @@ Item {
 
         MediaSlot {
             id: mediaSlot
+            objectName: "notificationMediaSlot"
             Layout.preferredWidth: implicitWidth
             Layout.preferredHeight: implicitHeight
             Layout.alignment: Qt.AlignVCenter
@@ -176,7 +177,6 @@ Item {
             carried: card.image
             glyph: card.hintIcon
             glyphColor: card.hintTone === "" ? card.look.text.foreground : card.look.tone[card.hintTone]
-            leadingIconCenter: textBlock.y + textBlock.topForLeadingIcon(0) - mediaSlot.y
         }
 
         RowMeasure {

@@ -198,10 +198,10 @@ var TOKENS = {
     // media starts its text at the same x, `card.pad + size + card.gapIcon`
     // in, and a one-line card is as tall as a card of a summary and one
     // body line. An image is cropped to the square with corners of
-    // `radius`, an application icon is drawn `icon` wide and a hinted
-    // Lucide icon `glyph` wide, both on the first text line's capitals;
+    // `radius`; an application icon and a hinted Lucide icon are both drawn
+    // `icon` wide, centred in it, so a symbol matches an application icon;
     // people fill it as faces.
-    media: { size: length(40), icon: length(40), radius: length(8), glyph: length(28) },
+    media: { size: length(40), icon: length(40), radius: length(8) },
 
     // The people a notification names, as faces in the media slot, laid
     // out by the AvatarGroup of qs.Ui: one alone fills the slot; two to

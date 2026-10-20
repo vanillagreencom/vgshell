@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Notification icons stand on the middle of the card, on cards of one body line and of several, and a symbol icon, such as an automation failure or the passwordless sudo lock, draws at the size of an application icon. Before, symbol icons were smaller, and icons sat at the top of a card with several lines.
+
 ## 0.1.2 (2026-10-19)
 
 - The shortcut editor shows how long key listening has left, keeps its actions in place and can reset a shortcut from any editor state. Unsaved changes offer Discard and Save, and the focused setting stays visible when the save bar appears.
