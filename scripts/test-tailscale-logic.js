@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 // The Tailscale section's decisions under the same loader as QML, over the
 // `tailscale status --json` shapes in scripts/fixtures/tailscale/: running,
-// stopped, logged out and a tailnet with Mullvad nodes, and the CLI's
-// access-denied and service-off texts. The field names are the ones one
+// stopped, logged out, a tailnet with Mullvad nodes and the design's
+// stand-in tailnet (sheet.json), the CLI's access-denied and service-off
+// texts, the `switch --list --json` arrays and the `exit-node suggest`
+// texts the packaged CLI prints. The field names are the ones one
 // read of a live tailnet gave; every name, address, key and account is
 // made up. Every mutation changes production behavior; the suite must
 // turn red on it.
@@ -86,19 +88,68 @@ function suite(logic, service = serviceSource) {
         }
     }
 
-    // Every command's argv, and the refusals.
-    const accountsJson = JSON.stringify([
-        { id: "f1a0", nickname: "", tailnet: "fixture.example", account: "owner@fixture.example", selected: true },
-        { id: "f1a1", nickname: "", tailnet: "second.example", account: "owner@second.example", selected: false }
-    ], null, 2);
-    const listed = plain(logic.accounts(0, accountsJson));
+    // The design's stand-in tailnet (sheet.json): own exit nodes, Mullvad
+    // by country then city with each country's best node, and the peers.
+    const sheet = read("sheet.json");
+    assert.deepEqual(sheet.exitNodes.own, [
+        { id: "nSHEET0003CNTRL", target: "attic-nas.tail-fixture.ts.net", name: "attic-nas", os: "linux", icon: "laptop", online: true, active: false },
+        { id: "nSHEET0002CNTRL", target: "gateway.tail-fixture.ts.net", name: "gateway", os: "linux", icon: "server", online: true, active: false }
+    ]);
+    assert.deepEqual(sheet.exitNodes.countries.map(country => [country.code, country.name, country.best, country.cities.map(city => [city.name, city.id, city.active])]), [
+        ["DE", "Germany", { id: "nSHEET0021CNTRL", city: "Frankfurt" }, [["Berlin", "nSHEET0020CNTRL", false], ["Frankfurt", "nSHEET0021CNTRL", false]]],
+        ["SE", "Sweden", { id: "nSHEET0024CNTRL", city: "Stockholm" },
+            [["Gothenburg", "nSHEET0022CNTRL", false], ["Malmö", "nSHEET0023CNTRL", false], ["Stockholm", "nSHEET0024CNTRL", true]]],
+        ["CH", "Switzerland", { id: "nSHEET0025CNTRL", city: "Zurich" }, [["Zurich", "nSHEET0025CNTRL", false]]],
+        ["US", "United States", { id: "nSHEET0029CNTRL", city: "New York" },
+            [["Ashburn", "nSHEET0026CNTRL", false], ["Chicago", "nSHEET0027CNTRL", false], ["Los Angeles", "nSHEET0028CNTRL", false], ["New York", "nSHEET0029CNTRL", false]]]
+    ]);
+    assert.equal(sheet.exitNodes.cityCount, 10);
+    assert.deepEqual(sheet.exit, { id: "nSHEET0024CNTRL", name: "Stockholm, Sweden" });
+    // Best available ranks only online nodes: an offline node of higher
+    // rank loses the country.
+    const offlineBest = plain(logic.exitNodes([
+        { ID: "mA", Tags: mullvadTag, TailscaleIPs: ["100.64.2.1"], Online: false, ExitNodeOption: true, Location: { Country: "Sweden", CountryCode: "SE", City: "Stockholm", CityCode: "STO", Priority: 100 } },
+        { ID: "mB", Tags: mullvadTag, TailscaleIPs: ["100.64.2.2"], Online: true, ExitNodeOption: true, Location: { Country: "Sweden", CountryCode: "SE", City: "Malmö", CityCode: "MMA", Priority: 10 } }
+    ]));
+    assert.deepEqual(offlineBest.countries[0].best, { id: "mB", city: "Malmö" });
+    assert.deepEqual(sheet.devices, {
+        rows: [
+            { id: "nSHEET0003CNTRL", name: "attic-nas", os: "linux", icon: "laptop", address: "100.64.0.3", dnsName: "attic-nas.tail-fixture.ts.net", online: true },
+            { id: "nSHEET0002CNTRL", name: "gateway", os: "linux", icon: "server", address: "100.64.0.2", dnsName: "gateway.tail-fixture.ts.net", online: true },
+            { id: "nSHEET0004CNTRL", name: "pixel", os: "android", icon: "smartphone", address: "100.64.0.4", dnsName: "pixel.tail-fixture.ts.net", online: true },
+            { id: "nSHEET0007CNTRL", name: "ipad", os: "iOS", icon: "smartphone", address: "100.64.0.7", dnsName: "ipad.tail-fixture.ts.net", online: false },
+            { id: "nSHEET0009CNTRL", name: "old-laptop", os: "windows", icon: "laptop", address: "100.64.0.9", dnsName: "old-laptop.tail-fixture.ts.net", online: false }
+        ],
+        count: 5,
+        online: 3
+    });
+    assert.equal(logic.devicesLine(sheet.devices), "3 of 5 online");
+
+    // `tailscale exit-node suggest` has no JSON form: its text names the
+    // node's DNS name, or no suggestion (runExitNodeSuggest,
+    // cmd/tailscale/cli/exitnode.go at tailscale v1.104.1, the packaged CLI).
+    assert.deepEqual(plain(logic.suggested(0, text("suggest.txt"))), { name: "se-sto-wg-001.mullvad.ts.net", fault: "" });
+    assert.deepEqual(plain(logic.suggested(0, text("suggest-none.txt"))), { name: "", fault: "" });
+    for (const [code, stdout, fault] of [[1, text("suggest.txt"), "failed"], [-1, "", "failed"], [0, "", "unread"], [0, "Suggested exit node:\n", "unread"]])
+        assert.deepEqual(plain(logic.suggested(code, stdout)), { name: "", fault: fault }, JSON.stringify([code, stdout]));
+    assert.deepEqual(plain(logic.suggestion(logic.suggested(0, text("suggest.txt")).name, sheet)), { id: "nSHEET0024CNTRL", name: "Stockholm, Sweden" });
+    assert.equal(logic.suggestion("", sheet), null);
+    assert.equal(logic.suggestion("se-sto-wg-001.mullvad.ts.net", running), null, "a name no listed node holds suggests nothing");
+
+    // Every command's argv, and the refusals. The accounts are what
+    // `tailscale switch --list --json` prints (listProfilesJSON,
+    // cmd/tailscale/cli/switch.go at tailscale v1.104.1).
+    const listed = plain(logic.accounts(0, text("accounts.json")));
     const accounts = listed.rows;
     assert.equal(listed.fault, "");
     assert.deepEqual(accounts, [
-        { id: "f1a0", tailnet: "fixture.example", account: "owner@fixture.example", current: true },
-        { id: "f1a1", tailnet: "second.example", account: "owner@second.example", current: false }
+        { id: "a1b2", tailnet: "example.com", account: "amelie@example.com", current: true },
+        { id: "c3d4", tailnet: "example.org", account: "amelie@example.org", current: false }
     ]);
-    for (const [code, stdout, fault] of [[1, accountsJson, "failed"], [0, "", "json"], [0, "{}", "json"]])
+    assert.deepEqual(plain(logic.accounts(0, text("accounts-signed-out.json"))),
+        { rows: [{ id: "c3d4", tailnet: "example.org", account: "amelie@example.org", current: false }], fault: "" });
+    assert.deepEqual(plain(logic.accounts(0, "[]")), { rows: [], fault: "" });
+    for (const [code, stdout, fault] of [[1, text("accounts.json"), "failed"], [0, "", "json"], [0, "{}", "json"]])
         assert.deepEqual(plain(logic.accounts(code, stdout)), { rows: [], fault: fault });
     const held = state => ({ state: state, targets: running.targets, accounts: accounts });
     for (const [request, state, want] of [
@@ -111,9 +162,9 @@ function suite(logic, service = serviceSource) {
         [{ kind: "exit-node", id: "" }, "running", { argv: ["tailscale", "set", "--exit-node="] }],
         [{ kind: "exit-node", id: "gateway.tail-fixture.ts.net" }, "running", { refusal: "refused: exit-node=absent" }],
         [{ kind: "exit-node", id: "nFIXTURE0002CNTRL" }, "stopped", { refusal: "refused: action=exit-node state=stopped" }],
-        [{ kind: "switch", id: "f1a1" }, "running", { argv: ["tailscale", "switch", "f1a1"] }],
-        [{ kind: "switch", id: "owner@second.example" }, "running", { refusal: "refused: account=absent" }],
-        [{ kind: "switch", id: "f1a1" }, "service-off", { refusal: "refused: action=switch state=service-off" }],
+        [{ kind: "switch", id: "c3d4" }, "running", { argv: ["tailscale", "switch", "c3d4"] }],
+        [{ kind: "switch", id: "amelie@example.org" }, "running", { refusal: "refused: account=absent" }],
+        [{ kind: "switch", id: "c3d4" }, "service-off", { refusal: "refused: action=switch state=service-off" }],
         [{ kind: "login" }, "signed-out", { argv: ["tailscale", "login", "--timeout", "0"] }],
         [{ kind: "login" }, "unavailable", { refusal: "refused: action=login state=unavailable" }],
         [{ kind: "restart" }, "running", { refusal: "refused: action=unknown" }],
@@ -135,8 +186,13 @@ function suite(logic, service = serviceSource) {
     assert.deepEqual(plain(logic.pollStep(idle, "refresh")).effects, ["start", "arm"]);
     assert.throws(() => logic.pollStep(idle, "later"));
     assert.equal(logic.WATCHDOG_MS, 10000);
-    for (const [open, seconds, want] of [[false, 10, 10000], [false, 30, 30000], [false, 60, 60000], [true, 30, 3000], [true, 60, 3000]])
-        assert.equal(logic.pollInterval(open, "running", seconds), want);
+    // The leased rate while a view is open or Tailscale is starting, and
+    // the setting's once the state leaves `starting`.
+    for (const [open, state, seconds, want] of [
+        [false, "running", 10, 10000], [false, "running", 30, 30000], [false, "running", 60, 60000], [true, "running", 30, 3000], [true, "running", 60, 3000],
+        [false, "starting", 30, 3000], [false, "starting", 60, 3000], [true, "starting", 60, 3000],
+        [false, "stopped", 30, 30000], [false, "signed-out", 60, 60000], [false, "checking", 30, 30000]
+    ]) assert.equal(logic.pollInterval(open, state, seconds), want, JSON.stringify([open, state, seconds]));
 
     // The CLI's failure texts.
     assert.equal(logic.failureKind(text("access-denied.txt")), "access-denied");
@@ -274,9 +330,10 @@ function suite(logic, service = serviceSource) {
     const crowd = [];
     for (let i = 0; i < 300; i++) {
         crowd.push({ ID: "n" + String(i).padStart(63, "0"), DNSName: String(i).padStart(4, "0") + "." + "d".repeat(248) + ".", HostName: wide,
-            TailscaleIPs: ["100.64.1." + (i % 250)], Online: true, ExitNodeOption: true, ExitNode: i === 299 });
+            TailscaleIPs: ["100.64.1." + (i % 250)], Online: i % 3 !== 0, ExitNodeOption: true, ExitNode: i === 299 });
+        // City "9ww…" sorts last of the 300, past the 160 kept.
         crowd.push({ ID: "m" + i, DNSName: wide, HostName: wide, Tags: mullvadTag, TailscaleIPs: ["100.64.2." + (i % 250)], Online: true,
-            ExitNodeOption: true, Location: { City: i + wide, Country: wide, Priority: i } });
+            ExitNodeOption: true, ExitNode: i === 9, Location: { City: i + wide, Country: wide, Priority: i } });
     }
     const peers = {};
     crowd.forEach((peer, index) => { peers["nodekey:" + index] = peer; });
@@ -285,16 +342,30 @@ function suite(logic, service = serviceSource) {
     const cities = largest.exitNodes.countries.reduce((all, country) => all.concat(country.cities), []);
     assert.equal(cities.length, logic.CITY_MAX);
     assert.equal(largest.exitNodes.cityCount, 300);
+    assert.deepEqual(cities.filter(city => city.active).map(city => city.id), ["m9"], "the city in use is kept past the bound");
     assert.equal(largest.exitNodes.own.length, logic.PEER_MAX);
-    assert.equal(largest.exitNodes.own.filter(row => row.active).length, 1, "the node in use is kept");
+    assert.deepEqual(largest.exitNodes.own.filter(row => row.active).map(row => row.id), ["n" + "299".padStart(63, "0")], "the node in use is kept");
     assert.equal(largest.devices.rows.length, logic.PEER_MAX);
-    assert.equal(largest.devices.count, 300);
+    assert.deepEqual([largest.devices.count, largest.devices.online], [300, 200], "the counts cover every device, kept or not");
     const manyAccounts = plain(logic.accounts(0, JSON.stringify(Array.from({ length: 40 }, (_, i) => ({ id: "a".repeat(63) + (i % 10), tailnet: wide, account: wide, selected: false }))))).rows;
     assert.equal(manyAccounts.length, logic.ACCOUNT_MAX);
     const bigValue = plain(logic.published(false, largest, ready, { accounts: manyAccounts, action: "exit-node", login: "opened", problem: wide.slice(0, 200) }));
     const written = logic.statusWrites({ tone: "ok", text: "" }, denied, bigValue, largest.devices, largest.exitNodes);
     const bytes = Buffer.byteLength(JSON.stringify(Object.fromEntries(written)));
     assert.ok(bytes < STATUS_MAX_BYTES, "the largest status is " + bytes + " bytes, the ceiling " + STATUS_MAX_BYTES);
+    // Each data value within its own budget, and the budgets together
+    // under the ceiling, so every mix of old and new values fits.
+    const writtenValues = Object.fromEntries(written);
+    for (const [key, budget] of [["tailscale", logic.TAILSCALE_BYTES], ["devices", logic.DEVICES_BYTES], ["exitNodes", logic.EXIT_NODES_BYTES]]) {
+        const size = Buffer.byteLength(JSON.stringify(writtenValues[key]));
+        assert.ok(size <= budget, key + " is " + size + " bytes, its budget " + budget);
+    }
+    assert.ok(logic.TAILSCALE_BYTES + logic.DEVICES_BYTES + logic.EXIT_NODES_BYTES < STATUS_MAX_BYTES);
+    // The bound drops rows and keeps the counts and the city in use.
+    assert.ok(writtenValues.devices.rows.length < largest.devices.rows.length, "the largest devices value is cut to its budget");
+    assert.deepEqual([writtenValues.devices.count, writtenValues.devices.online], [300, 200]);
+    assert.equal(writtenValues.exitNodes.cityCount, 300);
+    assert.deepEqual(writtenValues.exitNodes.countries.reduce((all, country) => all.concat(country.cities), []).filter(city => city.active).map(city => city.id), ["m9"]);
 
     // Execute the production writer against the core judge, including
     // shrink/grow transitions and a null setup that clears its state entry.
@@ -361,7 +432,17 @@ try {
         ["absent service hides", ' || tailscale.backendPresent === false', ''],
         ["exit node uses a distinct icon", '(tailscale.exit === null ? "route" : "earth-lock")', '"route"'],
         ["starting spins", 'tailscale.state === "starting" || ', ''],
-        ["access needed warns", ' || !tailscale.writable', '']
+        ["access needed warns", ' || !tailscale.writable', ''],
+        ["a starting state polls fast", 'return open || state === "starting" ? FAST_POLL_MS', 'return open ? FAST_POLL_MS'],
+        ["the suggested name drops its final dot", 'return { name: found[1].replace(/\\.$/, "").toLowerCase(), fault: "" };', 'return { name: found[1].toLowerCase(), fault: "" };'],
+        ["no suggestion is read, not unread", 'if (lines.indexOf("No exit node suggestion is available.") !== -1) return { name: "", fault: "" };', ''],
+        ["the selected account is the current one", 'current: item.selected === true', 'current: false'],
+        ["a device carries its DNS name", 'dnsName: dnsLine(peer), online: peer.Online === true', 'dnsName: "", online: peer.Online === true'],
+        ["the city in use survives the bound", 'var kept = keepActive(all, CITY_MAX);', 'var kept = all.slice(0, CITY_MAX);'],
+        ["best available is the highest ranked", 'if (country.best === null || beats(ranked, country.best.node))', 'if (country.best === null)'],
+        ["best available ranks online nodes first", 'var ranked = { active: false, online: node.online, rank: node.rank };', 'var ranked = { active: false, online: true, rank: node.rank };'],
+        ["the devices value keeps its budget", 'while (bytes(devicesOut) > DEVICES_BYTES', 'while (bytes(devicesOut) > 2 * DEVICES_BYTES'],
+        ["the online count covers every device", 'online: all.filter(function (row) { return row.online; }).length', 'online: all.slice(0, PEER_MAX).filter(function (row) { return row.online; }).length']
     ]) {
         assert.equal(source.split(needle).length - 1, 1, name + " mutation must match once");
         const mutant = path.join(scratch, "TailscaleLogic.js");

@@ -1,0 +1,2 @@
+Suggested exit node: se-sto-wg-001.mullvad.ts.net.
+To accept this suggestion, use `tailscale set --exit-node=se-sto-wg-001.mullvad.ts.net.`.

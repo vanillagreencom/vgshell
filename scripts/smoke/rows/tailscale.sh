@@ -6,9 +6,10 @@
 # step probe reads the same `tailscale` through a link the row adds to the
 # fakes' system tree and removes. The row stands over the tailscale
 # stand-in with a wrapper that records each call through it and then, on
-# the row's markers alone, holds one poll open, answers as a daemon that
-# is off, refuses one `set` or one sign-in with the CLI's access-denied
-# text, or prints a sign-in address and waits.
+# the row's markers alone, holds one poll or one suggestion read open,
+# answers as a daemon that is off or as one `tailscale logout` signed out,
+# refuses one `set` or one sign-in with the CLI's access-denied text, or
+# prints a sign-in address and waits.
 #
 # Rows: the service publishes the fixture's state to the widget, the
 # flyout and the pane; an unset operator offers Allow and locks the
@@ -29,6 +30,28 @@
 # records is one the service started; a held poll is killed 10 s after its
 # start while a refresh arrives every second; sign-in hands the printed
 # address to the xdg-open stand-in; a daemon that is off offers Enable.
+#
+# The flyout, over the design's stand-in tailnet (fixtures sheet.json,
+# accounts.json, suggest.txt; design VGS-1923 § 4 and its VGS-1937
+# revision), by keys alone: the main view's title, switch, state line,
+# account, this device, network devices, exit node and footer, and no
+# Check every in any view; the account row's list, then Add account and
+# Sign out on Tab; Sign out's confirmation on Cancel, where Cancel sends
+# nothing and Sign out hands `tailscale logout` to the stand-in and the
+# flyout then reads signed out with Sign in offered; Copy on this device
+# reads Copied while CopyText confirms and leaves the IPv4 address on the
+# sandbox clipboard; Open admin console hands the admin address to the
+# xdg-open stand-in, and with xdg-open missing raises its requirement
+# notice; the Exit nodes view with Recommended, None, your exit nodes and
+# Mullvad by country, a search, no match, a country's view, Back and
+# Escape back to the Exit node row, and an offline node of your own
+# refused with no `set`; the other states' rows: checking, off, starting,
+# waiting for approval, service off and not answering. No view opens on
+# Sign out. `exit-node suggest` runs when the chooser opens and when the
+# state turns running, a second ask while one runs answers busy, and a
+# held one is killed 10 s after its start while an ask arrives every
+# second. The poll runs every 3 s while Tailscale is starting, with no view
+# open, and at the setting's 30 s once it runs.
 # Controls, a copy of the plugin whose widget polls on its own, whose
 # refresh restarts the watchdog and which does not know the access-denied
 # text: the stand-in records a call the service did not start, the held
@@ -37,11 +60,12 @@
 # pointer off the locked switch reads its reason closed, and the lock's Space reads no change, so neither reader always
 # passes.
 #
-# The held poll's wait is the service's own 10 s watchdog, read on the
-# wall clock with a refresh every second; the row accepts 9 s to 20 s,
-# since a refresh that moved the deadline would hold it past any bound.
-# Every other reading is expect_poll's: 25 reads 0.2 s apart.
-# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.tailscale/* shell/plugins/vgs.system/* shell/plugins/vgs.settings/* scripts/fixtures/tailscale/* scripts/smoke/fixtures/devices/* shell/Commons/SettingValues.js shell/Commons/qmldir shell/Ui/layout/DeviceList.qml shell/Core/SystemSteps.qml shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/plugins/vgs.vpn/manifest.json shell/Core/Config.qml shell/Core/Registry.qml shell/Core/ConfigLogic.js shell/Hosts/PaneHost.qml bin/vgshell-system bin/vgshell-tui scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh shell/Ui/controls/RowAction.qml shell/Ui/controls/Switch.qml shell/Ui/controls/DisabledReason.qml shell/Ui/controls/UnlockMark.qml shell/Ui/layout/Pane.qml shell/Ui/overlay/Tooltip.qml shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Ui/foundation/KeyNavLogic.js themes/vgs/theme.json themes/catalog/flexoki-light/theme.json
+# The held poll's and the held suggestion's wait is the service's own 10 s
+# deadline, read on the wall clock with a refresh or an ask every second;
+# the row accepts 9 s to 20 s, since a request that moved the deadline
+# would hold it past any bound. Every other reading is expect_poll's, 0.2 s
+# apart.
+# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.tailscale/* shell/plugins/vgs.system/* shell/plugins/vgs.settings/* scripts/fixtures/tailscale/* scripts/smoke/fixtures/devices/* shell/Commons/SettingValues.js shell/Commons/qmldir shell/Ui/layout/DeviceList.qml shell/Core/SystemSteps.qml shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/plugins/vgs.vpn/manifest.json shell/Core/Config.qml shell/Core/Registry.qml shell/Core/ConfigLogic.js shell/Hosts/PaneHost.qml bin/vgshell-system bin/vgshell-tui scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh shell/Ui/controls/RowAction.qml shell/Ui/controls/Switch.qml shell/Ui/controls/DisabledReason.qml shell/Ui/controls/UnlockMark.qml shell/Ui/layout/Pane.qml shell/Ui/overlay/Tooltip.qml shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Ui/foundation/KeyNavLogic.js shell/Ui/feedback/CopyText.qml shell/Ui/feedback/Dialog.qml shell/Ui/feedback/EmptyState.qml shell/Ui/foundation/Scrim.qml shell/Ui/layout/Disclosure.qml shell/Ui/layout/ListItem.qml shell/Ui/layout/DeviceRow.qml shell/Ui/layout/Section.qml shell/Ui/controls/RowActions.qml shell/Ui/controls/TextField.qml shell/Hosts/NoticeHost.qml themes/vgs/theme.json themes/catalog/flexoki-light/theme.json
 set -euo pipefail
 devices_ready tailscale || return 0
 tailscale_saved="$sandbox/tailscale-shell-before.json"
@@ -53,6 +77,8 @@ tailscale_system_link="$devices_system_root/usr/bin/tailscale"
 mkdir -p -- "$tailscale_dir"
 cp -- "$tailscale_fixtures/service-off.txt" "$tailscale_dir/service-off.text"
 cp -- "$tailscale_fixtures/access-denied.txt" "$tailscale_dir/access-denied.text"
+cp -- "$tailscale_fixtures/logged-out.json" "$tailscale_dir/signed-out.status"
+cp -- "$tailscale_fixtures/accounts-signed-out.json" "$tailscale_dir/signed-out.accounts"
 {
   printf '#!/usr/bin/env bash\ndir=%q saved=%q url=%q\n' "$tailscale_dir" "$(sentinel_saved "$shim/tailscale")" "$tailscale_login_url"
   cat <<'EOF'
@@ -67,6 +93,26 @@ if [[ "$*" == "status --json" ]]; then
     cat -- "$dir/service-off.text" >&2
     exit 1
   fi
+  if [[ -e $dir/signed-out ]]; then
+    "$saved" "$@" >/dev/null 2>&1 || true
+    cat -- "$dir/signed-out.status"
+    exit 0
+  fi
+elif [[ "$*" == "switch --list --json" && -e $dir/signed-out ]]; then
+  "$saved" "$@" >/dev/null 2>&1 || true
+  cat -- "$dir/signed-out.accounts"
+  exit 0
+elif [[ "$*" == "exit-node suggest" ]] && mv -- "$dir/suggest-hang" "$dir/suggest-hang.taken" 2>/dev/null; then
+  "$saved" "$@" >/dev/null 2>&1 || true
+  echo $$ >"$dir/suggest-hang.pid.next" && mv -f -- "$dir/suggest-hang.pid.next" "$dir/suggest-hang.pid"
+  exec sleep 60
+elif [[ "$*" == "logout" ]]; then
+  # tailscaled removes the signed-out account and lands on a new empty
+  # profile that needs a login (LocalBackend.Logout, ipn/ipnlocal/local.go
+  # at tailscale v1.104.1, the packaged CLI).
+  "$saved" "$@" || exit
+  : >"$dir/signed-out"
+  exit 0
 elif [[ "$*" == "login --timeout 0" ]]; then
   "$saved" "$@" >/dev/null 2>&1 || true
   if mv -- "$dir/login-denied" "$dir/login-denied.taken" 2>/dev/null; then
@@ -204,14 +250,16 @@ tailscale_switch_focus() {
 }
 tailscale_setup_field() { ipc smoke setupRows window vgs.settings | py_reply 'import json,sys; rows=[row for row in json.load(sys.stdin) if row["key"]=="setup"]; print(json.dumps([[row["chips"], [[button["text"], button["enabled"]] for button in row["buttons"]]] for row in rows]))'; }
 tailscale_body_state() { tailscale_body "$1" tailscale | py_reply 'import json,sys; print(json.load(sys.stdin)["state"])'; }
-tailscale_exit_rows() { tailscale_body window exitRows | py_reply 'import json,sys; print(json.dumps([[r["text"], r["badge"]] for r in json.load(sys.stdin)]))'; }
 tailscale_placed() { bar_widget_ids | py_reply 'import json,sys; print(any("vgs.tailscale" in ids for ids in json.load(sys.stdin)))'; }
 tailscale_interval() { ipc smoke readInstance service vgs.tailscale pollInterval; }
 tailscale_polls() { ipc smoke readInstance service vgs.tailscale pollsStarted; }
 tailscale_status_calls() { device_calls tailscale | py_reply 'import json,sys; print(sum(1 for c in json.load(sys.stdin) if c == ["status", "--json"]))'; }
 tailscale_call_count() { device_calls "$1" | py_reply 'import json,sys; print(len(json.load(sys.stdin)))'; }
 # The commands that change Tailscale, from call N of the stand-in's record.
-tailscale_changes() { device_calls tailscale | py_reply 'import json,sys; print(json.dumps([c for c in json.load(sys.stdin)[int(sys.argv[1]):] if c[:1] not in (["status"], ["get"]) and c != ["switch", "--list"]]))' "$1"; }
+tailscale_changes() { device_calls tailscale | py_reply 'import json,sys; print(json.dumps([c for c in json.load(sys.stdin)[int(sys.argv[1]):] if c[:1] not in (["status"], ["get"]) and c not in (["switch", "--list", "--json"], ["exit-node", "suggest"])]))' "$1"; }
+# The `exit-node suggest` calls the stand-in recorded from call N.
+tailscale_suggest_calls() { device_calls tailscale | py_reply 'import json,sys; print(sum(1 for c in json.load(sys.stdin)[int(sys.argv[1]):] if c == ["exit-node", "suggest"]))' "$1"; }
+tailscale_suggests() { ipc smoke readInstance service vgs.tailscale suggestsStarted; }
 tailscale_argv_ids() { device_calls tailscale | py_reply 'import json,sys; print(sum(1 for c in json.load(sys.stdin)[int(sys.argv[1]):] for word in c if "nFIXTURE" in word))' "$1"; }
 # The `status --json` calls the stand-in recorded since BEFORE against the
 # polls the service started: `none` while the service is the only caller,
@@ -313,6 +361,142 @@ tailscale_enter_pane() { # LABEL
   type_keys -k Return
   expect_poll "$1: Enter moves the keys into the Tailscale section" true ipc smoke activeFocusWithin window vgs.tailscale TailscaleBody
 }
+# tailscale_drawn HOST TYPE NAME: the texts the TYPE whose objectName is
+# NAME draws under HOST's Tailscale instance, in tree order, as one JSON
+# list; `hidden` while it is not shown, `absent` with no such item. TYPE is
+# the probe's type name, such as DeviceList or Disclosure.
+tailscale_drawn() { # HOST TYPE NAME
+  local values texts
+  values="$(ipc smoke itemValues "$1" vgs.tailscale "$2" objectName,visible)" || return 1
+  texts="$(ipc smoke itemTexts "$1" vgs.tailscale "$2")" || return 1
+  python3 -c 'import json,sys
+values, texts = sys.argv[1], sys.argv[2]
+if values == "absent" or texts == "absent": print("absent"); sys.exit()
+named = [(value, drawn) for value, drawn in zip(json.loads(values), json.loads(texts)) if value["objectName"] == sys.argv[3]]
+shown = [drawn for value, drawn in named if value["visible"]]
+print(json.dumps(shown[0]) if shown else "hidden" if named else "absent")' "$values" "$texts" "$3"
+}
+# tailscale_shown_of HOST TYPE NAME: `shown` or `hidden` for that item.
+tailscale_shown_of() {
+  local drawn
+  drawn="$(tailscale_drawn "$@")" || return 1
+  case "$drawn" in hidden|absent) echo "$drawn" ;; *) echo shown ;; esac
+}
+tailscale_label() { tailscale_drawn panel Label "$1"; }
+tailscale_title() { ipc smoke paneHeader panel vgs.tailscale | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["title"]))'; }
+# tailscale_rows_of TYPE:NAME...: `shown` or `hidden` for each, as one list.
+tailscale_rows_of() {
+  local row out=()
+  for row; do out+=("$(tailscale_shown_of panel "${row%%:*}" "${row#*:}")") || return 1; done
+  words "${out[@]}"
+}
+tailscale_own_online() { ipc smoke statusValues vgs.tailscale | py_reply 'import json,sys; print(json.dumps([[n["name"], n["online"]] for n in json.load(sys.stdin)["exitNodes"]["own"]]))'; }
+# [the published suggestion, the service's suggestFault].
+tailscale_suggest_reading() {
+  local value fault
+  value="$(tailscale_value suggestion)" || return 1
+  fault="$(ipc smoke readInstance service vgs.tailscale suggestFault)" || return 1
+  printf '[%s, %s]\n' "$value" "$fault"
+}
+tailscale_sign_out_look() { ipc smoke itemValues panel vgs.tailscale RowAction objectName,tone,markName | py_reply 'import json,sys; print(json.dumps([[r["tone"], r["markName"]] for r in json.load(sys.stdin) if r["objectName"] == "tailscale-sign-out"]))'; }
+tailscale_held() { [[ -e $tailscale_dir/hang.pid ]] && echo held || echo waiting; }
+tailscale_view() { ipc smoke readInstance panel vgs.tailscale view; }
+tailscale_focus() { ipc smoke activeFocusItem "${1:-panel}" vgs.tailscale; }
+# The flyout's header switch as [shown, checked, enabled]; [false] while
+# the Pane holds none or hides it.
+tailscale_header_switch() {
+  ipc smoke itemValues panel vgs.tailscale Switch visible,checked,enabled,Accessible.name | py_reply 'import json,sys
+shown = [s for s in json.load(sys.stdin) if s["Accessible.name"] == "Tailscale" and s["visible"]]
+print(json.dumps([True, shown[0]["checked"], shown[0]["enabled"]] if shown else [False]))'
+}
+# How many shown texts in the flyout's Pane read "Check every".
+tailscale_check_every() { ipc smoke itemTextCount "${1:-panel}" vgs.tailscale Pane "Check every"; }
+# tailscale_tab LABEL WANT [HOST]: one Tab, then the keys on WANT, as
+# activeFocusItem reads it.
+tailscale_tab() { # LABEL WANT [HOST]
+  type_keys -k Tab || { fail "$1: Tab failed"; return 0; }
+  expect_poll "$1" "$2" tailscale_focus "${3:-panel}"
+}
+# tailscale_tab_to WANT [HOST]: each poll sends at most one Tab until the
+# keys are on WANT.
+tailscale_tab_to() { # WANT [HOST]
+  if [[ $(tailscale_focus "${2:-panel}") == "$1" ]]; then echo reached; return; fi
+  type_keys -k Tab || return 1
+  echo moving
+}
+# tailscale_tab_until WANT: Tab, up to 20 presses, each waiting up to 1 s
+# for the keys to move, until they are on WANT: `reached`, else where
+# they stopped.
+tailscale_tab_until() { # WANT
+  local at before
+  at="$(tailscale_focus)" || return 1
+  for _ in $(seq 1 20); do
+    if [[ $at == "$1" ]]; then echo reached; return; fi
+    before="$at"
+    type_keys -k Tab || return 1
+    for _ in $(seq 1 10); do
+      at="$(tailscale_focus)" || return 1
+      [[ $at == "$before" ]] || break
+      sleep 0.1
+    done
+  done
+  if [[ $at == "$1" ]]; then echo reached; else echo "at $at"; fi
+}
+tailscale_key() { type_keys -k "$1" || fail "tailscale: the key $1 failed"; }
+# [CopyText's confirming, this device's drawn texts], read together: the
+# confirmation lasts Theme.codeLine.confirm, 1.5 s.
+tailscale_copy_reading() {
+  local confirming drawn
+  confirming="$(ipc smoke readDescendant panel vgs.tailscale CopyText confirming)" || return 1
+  drawn="$(tailscale_drawn panel DeviceList tailscale-this-device)" || return 1
+  printf '[%s, %s]\n' "$confirming" "$drawn"
+}
+# The nested clipboard's text, read after the input check.
+tailscale_clipboard() { nested_input_check wl-paste || return 1; "${shell_env[@]}" wl-paste --no-newline; }
+tailscale_offered() { notice_shown | py_reply 'import json,sys; v=json.load(sys.stdin); print(json.dumps(None if v is None else v[:2]))'; }
+# tailscale_sheet_as STATE: the design's tailnet with BackendState STATE
+# as the stand-in's status answer, and the poll asked for it.
+tailscale_sheet_as() { # STATE
+  local doc
+  doc="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); d["BackendState"]=sys.argv[2]; print(json.dumps(d))' "$tailscale_fixtures/sheet.json" "$1")" || return 1
+  device_reply tailscale 0 "$doc" status --json
+  tailscale_refresh
+}
+# Holds the next suggestion read open and asks for another every second
+# until the held process is gone: `killed` when that takes 9 s to 20 s,
+# with the time in $tailscale_dir/suggest-hang.ms, `killed ms=<n>` outside
+# it, `postponed` when the process outlives 20 s, `unheld` when no read
+# took the marker, `not-busy` when an ask during the read answered other
+# than busy, `restarted` when the service started a second read meanwhile.
+tailscale_suggest_hang() {
+  local pid start elapsed started reply extra=0
+  rm -f -- "${tailscale_dir:?}/suggest-hang.pid" "${tailscale_dir:?}/suggest-hang.taken"
+  : >"$tailscale_dir/suggest-hang"
+  started="$(tailscale_suggests)" || return 1
+  reply="$(ipc vgs.tailscale invoke suggest "")" || return 1
+  [[ $reply == ok ]] || { rm -f -- "${tailscale_dir:?}/suggest-hang"; echo "suggest=$reply"; return 0; }
+  for _ in $(seq 1 100); do
+    if [[ -e $tailscale_dir/suggest-hang.pid ]]; then break; fi
+    sleep 0.1
+  done
+  [[ -e $tailscale_dir/suggest-hang.pid ]] || { rm -f -- "${tailscale_dir:?}/suggest-hang"; echo unheld; return 0; }
+  pid="$(<"$tailscale_dir/suggest-hang.pid")"
+  start="$(now_ms)"
+  while kill -0 "$pid" 2>/dev/null; do
+    elapsed=$(($(now_ms) - start))
+    if ((elapsed >= 20000)); then echo postponed; return 0; fi
+    reply="$(ipc vgs.tailscale invoke suggest "")" || return 1
+    # An ask that lands after the kill starts the next read, which is no
+    # second read in flight.
+    if [[ $reply == ok ]] && ! kill -0 "$pid" 2>/dev/null; then extra=1; break; fi
+    [[ $reply == busy ]] || { echo "not-busy reply=$reply"; return 0; }
+    sleep 1
+  done
+  elapsed=$(($(now_ms) - start))
+  printf '%s\n' "$elapsed" >"$tailscale_dir/suggest-hang.ms"
+  (($(tailscale_suggests) == started + 1 + extra)) || { echo restarted; return 0; }
+  if ((elapsed >= 9000)); then echo killed; else echo "killed ms=$elapsed"; fi
+}
 tailscale_leave_pane() { # LABEL
   type_keys -k Escape
   type_keys -k Escape
@@ -320,10 +504,12 @@ tailscale_leave_pane() { # LABEL
   expect_poll "$1: Escape closes System" hidden tailscale_shown window
 }
 
-# The world: a running tailnet with Mullvad nodes, two accounts, a running
-# daemon and no operator, so the operator step reads needed.
+# The world: a running tailnet with Mullvad nodes, two accounts, no
+# suggested exit node, a running daemon and no operator, so the operator
+# step reads needed.
 tailscale_use mullvad.json
-device_reply tailscale 0 "$(<"$tailscale_fixtures/accounts.txt")" switch --list
+device_reply tailscale 0 "$(<"$tailscale_fixtures/accounts.json")" switch --list --json
+device_reply tailscale 0 "$(<"$tailscale_fixtures/suggest-none.txt")" exit-node suggest
 device_reply tailscale 0 "" get operator
 device_reply tailscale 0 "" down
 device_reply tailscale 0 "" up
@@ -335,7 +521,7 @@ expect "the core's system steps resolve in the fakes' tree" prefixed devices_sys
 ln -sfn -- "$shim/tailscale" "$tailscale_system_link"
 expect "the shell resolves tailscale to the stand-in" "$shim/tailscale" shell_resolves tailscale
 expect "the shell resolves xdg-open to the stand-in" "$shim/xdg-open" shell_resolves xdg-open
-expected_errors+=('tailscale: poll killed after 10000 ms' 'tailscale: (exit-node|login) failed kind=(access-denied|other) ')
+expected_errors+=('tailscale: poll killed after 10000 ms' 'tailscale: (exit-node|login) failed kind=(access-denied|other) ' 'tailscale: refused: exit-node=offline')
 # Start from real pre-split user documents, with both system steps already
 # complete. Read the effective manager rows for both shipped plugins after
 # each fresh startup; a disabled service cannot publish setup until enabled.
@@ -397,13 +583,25 @@ tailscale_status_before="$(tailscale_status_calls)" || { fail "tailscale: the ta
 tailscale_calls_before="$(tailscale_call_count tailscale)" || { fail "tailscale: the tailscale stand-in's calls are unreadable"; return 0; }
 tailscale_opens_before="$(tailscale_call_count xdg-open)" || { fail "tailscale: the xdg-open stand-in's calls are unreadable"; return 0; }
 
+# The first poll is held, so the flyout opens before any answer: Checking.
+rm -f -- "${tailscale_dir:?}/hang.pid" "${tailscale_dir:?}/hang.taken"
+: >"$tailscale_dir/hang"
 expect "Tailscale enables over the stand-ins" ok ipc shell setPluginEnabled vgs.tailscale true
 expect_poll "Tailscale's service is built" True record_exists vgs.tailscale
+rest_pointer || fail "tailscale: moving the pointer off the flyout failed"
+expect "the flyout opens before Tailscale answers" ok ipc shell summon panel vgs.tailscale '{"source":"smoke"}'
+expect_poll "the first poll is held" held tailscale_held
+expect_poll "the checking flyout's state line reads Checking Tailscale" '["Checking Tailscale"]' tailscale_label tailscale-state
+expect "the checking flyout draws no header switch" '[false]' tailscale_header_switch
+for tailscale_row in Disclosure:tailscale-account DeviceList:tailscale-this-device Disclosure:tailscale-network-devices ListItem:tailscale-exit-row; do
+  expect "the checking flyout draws no ${tailscale_row#*:}" hidden tailscale_shown_of panel "${tailscale_row%%:*}" "${tailscale_row#*:}"
+done
+expect "the checking flyout closes" ok ipc shell hide panel vgs.tailscale
 rescan "a scan probes the system steps over the linked stand-in"
 expect_poll "the service publishes the running tailnet" '"running"' tailscale_value state
-expect "the service publishes this device" '{"name": "desk", "address": "100.64.0.1"}' tailscale_value device
+expect "the service publishes this device" '{"name": "desk", "address": "100.64.0.1", "dnsName": "desk.tail-fixture.ts.net"}' tailscale_value device
 expect "the service publishes the exit node in use" '{"id": "nFIXTURE0013CNTRL", "name": "Zurich, Switzerland"}' tailscale_value exit
-expect_poll "the service publishes both accounts" '["f1a0", "f1a1"]' tailscale_account_ids
+expect_poll "the service publishes both accounts" '["a1b2", "c3d4"]' tailscale_account_ids
 expect_poll "Tailscale's widget is placed" True tailscale_placed
 expect_poll "the widget draws the exit node from the shared record" '"earth-lock"' ipc smoke readDescendant "$(bar_key)" vgs.tailscale BarItem iconName
 expect_poll "the running Tailscale backend shows its widget" true tailscale_widget
@@ -435,6 +633,8 @@ expect "the flyout opens on a locked switch" ok ipc shell summon panel vgs.tails
 expect_poll "Tailscale's flyout is shown on a locked switch" shown tailscale_shown panel
 expect_poll "the locked switch draws its unlock mark named for Allow" drawn tailscale_mark panel "Let my login control Tailscale"
 expect "the locked switch's reason names Allow's step" True tailscale_reason_names panel "Let my login control Tailscale"
+expect "the locked flyout keeps the state line" '["Connected through Zurich, Switzerland"]' tailscale_label tailscale-state
+expect "the locked flyout offers Allow as its step" '["Let my login control Tailscale"]' tailscale_drawn panel RowAction tailscale-setup
 tailscale_reason="$(tailscale_body panel lockReason)" || tailscale_reason=unread
 expect_poll "the pointer on the locked switch opens its reason" "$tailscale_reason" tailscale_switch_tip
 expect "the locked header reason covers no connection text or control" free tailscale_tip_cover panel
@@ -528,11 +728,10 @@ type_keys -k space
 expect_poll "Space on the switch runs up" '[["down"], ["up"]]' tailscale_changes "$tailscale_calls_before"
 tailscale_use mullvad.json
 expect_poll "the pane reads the running tailnet again" running tailscale_body_state window
-expect_poll "the exit nodes list the tailnet's node, then one Mullvad node a city" \
-  '[["None", ""], ["gateway", ""], ["Stockholm, Sweden", ""], ["Zurich, Switzerland", "In use"]]' tailscale_exit_rows
-type_keys -k Tab
-expect_poll "Tab reaches the exit nodes" true ipc smoke activeFocusWithin window vgs.tailscale DeviceList
-type_keys -k Down
+expect_poll "the pane's chooser lists None, the tailnet's node, then Mullvad by country" \
+  "$(words None "Use this computer's own connection" "Your exit nodes" gateway Online Mullvad Sweden Stockholm Switzerland Zurich "In use")" tailscale_drawn window ExitNodes ""
+expect "the pane draws Check every once" 1 tailscale_check_every window
+expect_poll "Tab reaches the tailnet's exit node in the pane's chooser" reached tailscale_tab_to '["DeviceRow","gateway"]' window
 type_keys -k Return
 expect_poll "Enter on a node sets it by its DNS name" \
   '[["down"], ["up"], ["set", "--exit-node=gateway.tail-fixture.ts.net"]]' tailscale_changes "$tailscale_calls_before"
@@ -560,14 +759,297 @@ expect_poll "every status call the stand-in recorded is the service's" none tail
 # A held poll: killed at the watchdog while a refresh arrives every second.
 expect "a held poll is killed by the 10 s watchdog under refreshes" killed tailscale_hang
 if [[ -e $tailscale_dir/hang.ms ]]; then printf '        the held poll ended %s ms after its start\n' "$(<"$tailscale_dir/hang.ms")"; fi
-expect "the service counts one killed poll" 1 ipc smoke readInstance service vgs.tailscale pollsKilled
+expect "the service counts the held first poll and this one killed" 2 ipc smoke readInstance service vgs.tailscale pollsKilled
 expect_poll "the refresh that waited reads the tailnet again" '"running"' tailscale_value state
+
+# Starting: with no view open the poll runs every 3 s, and at the setting's
+# 30 s once Tailscale runs; the turn to running reads the suggestion once.
+device_reply tailscale 0 "$(<"$tailscale_fixtures/accounts.json")" switch --list --json
+device_reply tailscale 0 "$(<"$tailscale_fixtures/suggest.txt")" exit-node suggest
+device_reply xdg-open 0 "" https://login.tailscale.com/admin
+device_reply tailscale 0 "" set --exit-node=attic-nas.tail-fixture.ts.net
+device_reply tailscale 0 "" logout
+expect_poll "no view holds a lease before the starting reading" 30000 tailscale_interval
+tailscale_suggests_before="$(tailscale_suggests)" || { fail "tailscale: the suggestion count is unreadable"; return 0; }
+tailscale_calls_mark="$(tailscale_call_count tailscale)" || { fail "tailscale: the tailscale stand-in's calls are unreadable"; return 0; }
+expect "a refresh reads Tailscale starting" ok tailscale_sheet_as Starting
+expect_poll "the service publishes starting" '"starting"' tailscale_value state
+expect_poll "a starting state polls every 3 s with no view open" 3000 tailscale_interval
+expect "the starting poll starts two polls within 10 s" grew tailscale_polls_grow
+expect "no suggestion is read while Tailscale is starting" 0 tailscale_suggest_calls "$tailscale_calls_mark"
+tailscale_use sheet.json
+expect_poll "the poll reads the design's tailnet running" '"running"' tailscale_value state
+expect_poll "the poll returns to the setting's 30 s once Tailscale runs" 30000 tailscale_interval
+expect_poll "the turn to running reads the suggestion once" 1 tailscale_suggest_calls "$tailscale_calls_mark"
+expect "the service started one suggestion read" "$((tailscale_suggests_before + 1))" tailscale_suggests
+expect_poll "the service publishes the suggested exit node" '{"id": "nSHEET0024CNTRL", "name": "Stockholm, Sweden"}' tailscale_value suggestion
+expect "the running poll starts nothing for 4 s" still tailscale_polls_still
+# One suggestion read at a time, killed at its deadline while asks arrive.
+expect "a held suggestion read answers busy to every ask and is killed by the 10 s deadline" killed tailscale_suggest_hang
+if [[ -e $tailscale_dir/suggest-hang.ms ]]; then printf '        the held suggestion read ended %s ms after its start\n' "$(<"$tailscale_dir/suggest-hang.ms")"; fi
+expect_poll "a suggestion read the deadline killed names none" null tailscale_value suggestion
+device_reply tailscale 0 "$(<"$tailscale_fixtures/suggest-none.txt")" exit-node suggest
+expect "an ask reads the suggestion again" ok ipc vgs.tailscale invoke suggest ""
+expect_poll "no suggestion is read as none, not as a fault" '[null, ""]' tailscale_suggest_reading
+device_reply tailscale 0 "$(<"$tailscale_fixtures/suggest.txt")" exit-node suggest
+expect "an ask reads the suggestion back" ok ipc vgs.tailscale invoke suggest ""
+expect_poll "the suggestion returns" '[{"id": "nSHEET0024CNTRL", "name": "Stockholm, Sweden"}, ""]' tailscale_suggest_reading
+
+# The denied sign-in above left its problem, which the views draw until
+# the next change starts; one change that ends clears it. The control
+# copy at the end reads `set --exit-node=` failing again.
+device_reply tailscale 0 "" set --exit-node=
+expect "a change that ends clears the denied sign-in's problem" '""' tailscale_problem_after exit-node action '""'
+device_reply tailscale 1 "" set --exit-node=
+
+# The flyout's main view, the design's stand-in tailnet, by keys alone.
+rest_pointer || fail "tailscale: moving the pointer off the flyout failed"
+expect "the design flyout opens" ok ipc shell summon panel vgs.tailscale '{"source":"smoke"}'
+expect_poll "the design flyout is shown" shown tailscale_shown panel
+expect_poll "the flyout opens on its header switch" '["Switch",""]' tailscale_focus
+expect "the main view is titled Tailscale" '"Tailscale"' tailscale_title
+expect "the header switch is shown and on" '[true, true, true]' tailscale_header_switch
+expect_poll "the state line names the exit node" '["Connected through Stockholm, Sweden"]' tailscale_label tailscale-state
+expect "the account row reads the account and tailnet, closed" '["amelie@example.com", "example.com"]' tailscale_drawn panel Disclosure tailscale-account
+expect "this device reads its name, address and Copy" "$(words desk "This device · 100.64.0.1" Copy)" tailscale_drawn panel DeviceList tailscale-this-device
+expect "the network devices row reads 3 of 5 online, closed" '["Network devices", "3 of 5 online"]' tailscale_drawn panel Disclosure tailscale-network-devices
+expect "the exit node row reads the node in use" '["Exit node", "Stockholm, Sweden"]' tailscale_drawn panel ListItem tailscale-exit-row
+expect "the footer offers Open admin console" '["Open admin console"]' tailscale_drawn panel Button tailscale-admin-console
+expect "the footer offers Tailscale settings" '["Tailscale settings"]' tailscale_drawn panel Button tailscale-settings
+expect "the main view draws no Check every" 0 tailscale_check_every
+expect "the main view draws no Sign out while the account row is closed" hidden tailscale_shown_of panel RowAction tailscale-sign-out
+# The Pane's Settings gear follows the header switch (Pane.qml), as the
+# v2-tailscale-flyout sheet draws it; this device's Copy is a Tab stop of
+# its own after the row.
+tailscale_tab "Tab reaches the header's Settings gear" '["IconButton","Settings"]'
+tailscale_tab "Tab reaches the account row" '["ListItem","amelie@example.com"]'
+tailscale_tab "Tab reaches this device" '["DeviceRow","desk"]'
+tailscale_tab "Tab reaches this device's Copy" '["RowAction","Copy"]'
+tailscale_tab "Tab reaches the network devices row" '["ListItem","Network devices"]'
+tailscale_tab "Tab reaches the exit node row" '["ListItem","Exit node"]'
+tailscale_tab "Tab reaches Open admin console" '["Button","Open admin console"]'
+tailscale_tab "Tab reaches Tailscale settings" '["Button","Tailscale settings"]'
+
+# Open admin console hands the admin address to the xdg-open stand-in.
+tailscale_opens_mark="$(tailscale_call_count xdg-open)" || { fail "tailscale: the xdg-open stand-in's calls are unreadable"; return 0; }
+type_keys -M shift -k Tab -m shift || fail "tailscale: Shift+Tab failed"
+expect_poll "Shift+Tab returns to Open admin console" '["Button","Open admin console"]' tailscale_focus
+tailscale_key Return
+expect_poll "Open admin console hands the admin address to xdg-open" '[["https://login.tailscale.com/admin"]]' tailscale_opens "$tailscale_opens_mark"
+
+# Copy: this device's address on the clipboard, Copied while it confirms.
+expect "the flyout closes before Copy" ok ipc shell hide panel vgs.tailscale
+expect "the flyout opens for Copy" ok ipc shell summon panel vgs.tailscale '{"source":"smoke"}'
+expect_poll "the reopened flyout opens on its header switch" '["Switch",""]' tailscale_focus
+tailscale_tab "Tab reaches the gear for Copy" '["IconButton","Settings"]'
+tailscale_tab "Tab reaches the account row for Copy" '["ListItem","amelie@example.com"]'
+tailscale_tab "Tab reaches this device for Copy" '["DeviceRow","desk"]'
+tailscale_key Return
+expect_poll "Copy reads Copied while CopyText confirms" "[true, $(words desk "This device · 100.64.0.1" Copied)]" tailscale_copy_reading
+expect_poll "the nested clipboard holds this device's IPv4 address" 100.64.0.1 tailscale_clipboard
+expect_poll "Copy reads Copy again once the confirmation ends" "[false, $(words desk "This device · 100.64.0.1" Copy)]" tailscale_copy_reading
+# The network devices, opened by keys.
+tailscale_tab "Tab reaches this device's Copy before the network devices" '["RowAction","Copy"]'
+tailscale_tab "Tab reaches the network devices row to open it" '["ListItem","Network devices"]'
+tailscale_key space
+expect_poll "the network devices list each peer with its address, online first" \
+  "$(words "Network devices" "3 of 5 online" attic-nas 100.64.0.3 Copy gateway 100.64.0.2 Copy pixel 100.64.0.4 Copy ipad "100.64.0.7 · Offline" Copy old-laptop "100.64.0.9 · Offline" Copy)" \
+  tailscale_drawn panel Disclosure tailscale-network-devices
+tailscale_tab "Tab reaches the network devices' list" '["DeviceRow","attic-nas"]'
+# Each device's Copy is a Tab stop of its own, so the count of presses is
+# the list's, not the claim.
+expect "Tab reaches the exit node row after the devices" reached tailscale_tab_until '["ListItem","Exit node"]'
+
+# The Exit nodes view: Recommended, None, your exit nodes, Mullvad by
+# country, read on its open; search, no match, a country, Back and Escape.
+tailscale_suggests_before="$(tailscale_suggests)" || { fail "tailscale: the suggestion count is unreadable"; return 0; }
+tailscale_key Return
+expect_poll "Enter on the exit node row opens the Exit nodes view" '"exit-nodes"' tailscale_view
+expect_poll "the Exit nodes view opens on its search field" '["TextField",""]' tailscale_focus
+expect_poll "the chooser's opening reads the suggestion" "$((tailscale_suggests_before + 1))" tailscale_suggests
+expect "the view is titled Exit nodes" '["Exit nodes"]' tailscale_label tailscale-view-title
+expect "the view draws Back" drawn tailscale_mark panel Back
+expect "the view hides the header switch" '[false]' tailscale_header_switch
+expect_poll "the chooser lists Recommended, None, your exit nodes and Mullvad by country" \
+  "$(words "Stockholm, Sweden" Recommended "In use" None "Use this computer's own connection" "Your exit nodes" attic-nas Online gateway Online Mullvad Germany "2 cities" Sweden "3 cities" "In use" Switzerland Zurich "United States" "4 cities")" \
+  tailscale_drawn panel ExitNodes tailscale-exit-nodes
+expect "the Exit nodes view draws no Check every" 0 tailscale_check_every
+type_keys zur || fail "tailscale: typing the search failed"
+expect_poll "a search shows the matching city flat" '["Zurich, Switzerland"]' tailscale_drawn panel ExitNodes tailscale-exit-nodes
+type_keys -k BackSpace -k BackSpace -k BackSpace xyz || fail "tailscale: retyping the search failed"
+expect_poll "a search no node matches offers Clear search" "$(words "No exit node matches “xyz”." "Clear search")" tailscale_drawn panel ExitNodes tailscale-exit-nodes
+tailscale_tab "Tab reaches Clear search" '["Button","Clear search"]'
+tailscale_key Return
+expect_poll "Clear search returns the keys to the empty search field" '["TextField",""]' tailscale_focus
+expect_poll "the cleared search lists every row again" \
+  "$(words "Stockholm, Sweden" Recommended "In use" None "Use this computer's own connection" "Your exit nodes" attic-nas Online gateway Online Mullvad Germany "2 cities" Sweden "3 cities" "In use" Switzerland Zurich "United States" "4 cities")" \
+  tailscale_drawn panel ExitNodes tailscale-exit-nodes
+tailscale_key Down
+expect_poll "Down from the search field reaches Recommended" '["DeviceRow","Stockholm, Sweden"]' tailscale_focus
+tailscale_tab "Tab reaches your exit nodes" '["DeviceRow","attic-nas"]'
+tailscale_tab "Tab reaches the Mullvad countries" '["QQuickFocusScope",null]'
+tailscale_key Down
+expect_poll "Down moves to Sweden" '"SE"' ipc smoke readMatchingDescendant panel vgs.tailscale QQuickFocusScope objectName tailscale-exit-countries currentKey
+tailscale_key Return
+expect_poll "Enter on Sweden opens its country view" '"country"' tailscale_view
+expect "the country view is titled Sweden" '["Sweden"]' tailscale_label tailscale-view-title
+expect_poll "the country view lists Best available, then each city" "$(words "Best available" "Stockholm now" Gothenburg Malmö Stockholm "In use")" tailscale_drawn panel DeviceList tailscale-exit-cities
+expect_poll "the country view takes the keys on Best available" '["DeviceRow","Best available"]' tailscale_focus
+expect "the country view draws no Check every" 0 tailscale_check_every
+tailscale_key Escape
+expect_poll "Escape leaves the country view for the Exit nodes view" '"exit-nodes"' tailscale_view
+expect_poll "the keys return to the Mullvad countries" '["QQuickFocusScope",null]' tailscale_focus
+expect "the countries keep Sweden" '"SE"' ipc smoke readMatchingDescendant panel vgs.tailscale QQuickFocusScope objectName tailscale-exit-countries currentKey
+tailscale_key Escape
+expect_poll "Escape leaves the Exit nodes view" '"main"' tailscale_view
+expect_poll "Escape returns the keys to the exit node row" '["ListItem","Exit node"]' tailscale_focus
+tailscale_key Return
+expect_poll "Enter opens the Exit nodes view again" '"exit-nodes"' tailscale_view
+expect_poll "the search field takes the keys again" '["TextField",""]' tailscale_focus
+# The gear sits between the title row's Back and the search field.
+type_keys -M shift -k Tab -m shift || fail "tailscale: Shift+Tab failed"
+expect_poll "Shift+Tab from the search field reaches the gear" '["IconButton","Settings"]' tailscale_focus
+type_keys -M shift -k Tab -m shift || fail "tailscale: Shift+Tab failed"
+expect_poll "Shift+Tab reaches Back" '["IconButton","Back"]' tailscale_focus
+tailscale_key Return
+expect_poll "Back leaves the Exit nodes view" '"main"' tailscale_view
+expect_poll "Back returns the keys to the exit node row" '["ListItem","Exit node"]' tailscale_focus
+
+# An offline exit node of your own is refused and no `set` runs; an
+# online one is set by its DNS name and the view returns to the main view.
+tailscale_offline="$(python3 -c 'import json,sys
+status = json.load(open(sys.argv[1]))
+for peer in status["Peer"].values():
+    if peer["HostName"] == "gateway": peer["Online"] = False
+print(json.dumps(status))' "$tailscale_fixtures/sheet.json")" || { fail "tailscale: the offline-node fixture is unreadable"; return 0; }
+device_reply tailscale 0 "$tailscale_offline" status --json
+expect "a refresh reads gateway offline" ok tailscale_refresh
+expect_poll "the service publishes gateway offline" '[["attic-nas", true], ["gateway", false]]' tailscale_own_online
+tailscale_calls_mark="$(tailscale_call_count tailscale)" || { fail "tailscale: the tailscale stand-in's calls are unreadable"; return 0; }
+tailscale_key Return
+expect_poll "Enter opens the Exit nodes view for the offline node" '"exit-nodes"' tailscale_view
+expect_poll "your exit nodes read gateway offline" "$(words "Stockholm, Sweden" Recommended "In use" None "Use this computer's own connection" "Your exit nodes" attic-nas Online gateway Offline Mullvad Germany "2 cities" Sweden "3 cities" "In use" Switzerland Zurich "United States" "4 cities")" \
+  tailscale_drawn panel ExitNodes tailscale-exit-nodes
+tailscale_key Down
+tailscale_tab "Tab reaches your exit nodes for the offline node" '["DeviceRow","attic-nas"]'
+tailscale_key Down
+expect_poll "Down reaches the offline gateway" '["DeviceRow","gateway"]' tailscale_focus
+tailscale_key Return
+expect_poll "the offline node is refused with its sentence" '["This exit node is offline."]' tailscale_label tailscale-exit-problem
+expect "the refused node leaves the Exit nodes view open" '"exit-nodes"' tailscale_view
+expect "no set reaches the stand-in for the offline node" '[]' tailscale_changes "$tailscale_calls_mark"
+tailscale_key Up
+expect_poll "Up reaches attic-nas" '["DeviceRow","attic-nas"]' tailscale_focus
+tailscale_key Return
+expect_poll "Enter on attic-nas sets it by its DNS name" '[["set", "--exit-node=attic-nas.tail-fixture.ts.net"]]' tailscale_changes "$tailscale_calls_mark"
+expect_poll "the ended change returns to the main view" '"main"' tailscale_view
+expect_poll "the keys return to the exit node row after the change" '["ListItem","Exit node"]' tailscale_focus
+expect "the change leaves no problem" '""' tailscale_value problem
+tailscale_use sheet.json
+expect "a refresh reads gateway online again" ok tailscale_refresh
+expect_poll "the service publishes gateway online again" '[["attic-nas", true], ["gateway", true]]' tailscale_own_online
+
+# The other states the flyout draws.
+expect "a refresh reads Tailscale off" ok tailscale_sheet_as Stopped
+expect_poll "the off flyout's state line reads Off" '["Off"]' tailscale_label tailscale-state
+expect "the off flyout's switch is shown and off" '[true, false, true]' tailscale_header_switch
+expect "the off flyout keeps the account and this device" '["shown", "shown"]' tailscale_rows_of Disclosure:tailscale-account DeviceList:tailscale-this-device
+expect "the off flyout draws no network devices and no exit node" '["hidden", "hidden"]' tailscale_rows_of Disclosure:tailscale-network-devices ListItem:tailscale-exit-row
+expect "a refresh reads Tailscale starting with the flyout open" ok tailscale_sheet_as Starting
+expect_poll "the starting flyout's state line reads Starting" '["Starting"]' tailscale_label tailscale-state
+expect "the starting flyout's switch is shown and on" '[true, true, true]' tailscale_header_switch
+expect "the starting flyout keeps the account and this device" '["shown", "shown"]' tailscale_rows_of Disclosure:tailscale-account DeviceList:tailscale-this-device
+expect "the starting flyout draws no network devices and no exit node" '["hidden", "hidden"]' tailscale_rows_of Disclosure:tailscale-network-devices ListItem:tailscale-exit-row
+expect "a refresh reads Tailscale waiting for approval" ok tailscale_sheet_as NeedsMachineAuth
+expect_poll "the approval flyout's state line reads Waiting for approval" '["Waiting for approval"]' tailscale_label tailscale-state
+expect "the approval flyout draws no header switch" '[false]' tailscale_header_switch
+expect "the approval flyout names the tailnet's admin" '["An admin of example.com must approve this device."]' tailscale_label tailscale-state-hint
+expect "the approval flyout offers Open admin console" '["Open admin console"]' tailscale_drawn panel RowAction tailscale-approval-console
+expect "the approval flyout draws no account, device or exit node row" '["hidden", "hidden", "hidden", "hidden"]' tailscale_rows_of Disclosure:tailscale-account DeviceList:tailscale-this-device Disclosure:tailscale-network-devices ListItem:tailscale-exit-row
+device_reply tailscale 1 "" status --json
+expect "a refresh reads Tailscale not answering" ok tailscale_refresh
+expect_poll "the flyout's state line reads Not answering" '["Not answering"]' tailscale_label tailscale-state
+expect "the not answering flyout draws no header switch" '[false]' tailscale_header_switch
+expect "the not answering flyout says why" '["Tailscale did not answer."]' tailscale_label tailscale-state-hint
+expect "the not answering flyout offers Try again" '["Try again"]' tailscale_drawn panel RowAction tailscale-try-again
+tailscale_use sheet.json
+expect "a refresh reads the running tailnet for the account row" ok tailscale_refresh
+expect_poll "the flyout reads the running tailnet again" '["Connected through Stockholm, Sweden"]' tailscale_label tailscale-state
+expect "the flyout closes after the other states" ok ipc shell hide panel vgs.tailscale
+
+# Admin console without xdg-open: refused, and its requirement notice.
+[[ $shell_host_path == "$sandbox/host-path" && -d $shell_host_path && ! -L $shell_host_path ]] || { fail "tailscale: the scanner PATH is not sandbox-owned"; return 0; }
+tailscale_host_xdg=""
+if [[ -e $shell_host_path/xdg-open || -L $shell_host_path/xdg-open ]]; then
+  [[ -L $shell_host_path/xdg-open ]] || { fail "tailscale: the private xdg-open PATH entry is not a link"; return 0; }
+  tailscale_host_xdg="$tailscale_dir/host-xdg-open"
+  mv -T -- "$shell_host_path/xdg-open" "$tailscale_host_xdg"
+fi
+mv -- "$shim/xdg-open" "$tailscale_dir/hidden-xdg-open"
+rescan "the scan reads xdg-open missing"
+expect "Open admin console without xdg-open is refused" "refused: admin-console=missing-tool" tailscale_act admin-console
+expect_poll "the refusal raises the requirement notice for xdg-open" '["vgs.tailscale", ["xdg-open"]]' tailscale_offered
+expect_poll "the xdg-open notice holds the keyboard" true ipc smoke noticeFocused
+tailscale_key Escape
+expect_poll "Not now closes the xdg-open notice" null tailscale_offered
+mv -- "$tailscale_dir/hidden-xdg-open" "$shim/xdg-open"
+[[ -z $tailscale_host_xdg ]] || mv -T -- "$tailscale_host_xdg" "$shell_host_path/xdg-open"
+rescan "the scan finds the xdg-open stand-in again"
+expect "the shell resolves xdg-open to the stand-in again" "$shim/xdg-open" shell_resolves xdg-open
+
+# Sign out: Add account and Sign out after the account list, a
+# confirmation on Cancel, then `tailscale logout` and the signed-out view.
+rest_pointer || fail "tailscale: moving the pointer off the flyout failed"
+expect "the flyout opens for Sign out" ok ipc shell summon panel vgs.tailscale '{"source":"smoke"}'
+expect_poll "the flyout opens on its header switch, not Sign out" '["Switch",""]' tailscale_focus
+tailscale_tab "Tab reaches the gear before the account row" '["IconButton","Settings"]'
+tailscale_tab "Tab reaches the account row to open it" '["ListItem","amelie@example.com"]'
+tailscale_key space
+expect_poll "the account row lists both accounts, then Add account and Sign out" \
+  "$(words amelie@example.com example.com amelie@example.com example.com "In use" amelie@example.org example.org "Add account" "Sign out")" \
+  tailscale_drawn panel Disclosure tailscale-account
+expect "Sign out takes the danger tone and the log-out mark" '[["danger", "log-out"]]' tailscale_sign_out_look
+tailscale_tab "Tab reaches the account list" '["DeviceRow","amelie@example.com"]'
+tailscale_tab "Tab reaches Add account after the account list" '["RowAction","Add account"]'
+tailscale_tab "Tab reaches Sign out after Add account" '["RowAction","Sign out"]'
+tailscale_tab "Tab leaves Sign out for this device" '["DeviceRow","desk"]'
+type_keys -M shift -k Tab -m shift || fail "tailscale: Shift+Tab failed"
+expect_poll "Shift+Tab returns to Sign out" '["RowAction","Sign out"]' tailscale_focus
+tailscale_calls_mark="$(tailscale_call_count tailscale)" || { fail "tailscale: the tailscale stand-in's calls are unreadable"; return 0; }
+tailscale_key Return
+expect_poll "Sign out opens its confirmation" \
+  "$(words "Sign out of example.com?" "This computer leaves example.com until you sign in again. An admin of example.com may need to approve this computer again." Cancel "Sign out")" \
+  tailscale_drawn panel Dialog tailscale-sign-out-prompt
+expect_poll "the confirmation opens on Cancel" '["Button","Cancel"]' tailscale_focus
+tailscale_key Return
+expect_poll "Cancel closes the confirmation" hidden tailscale_shown_of panel Dialog tailscale-sign-out-prompt
+expect_poll "Cancel returns the keys to Sign out" '["RowAction","Sign out"]' tailscale_focus
+expect "Cancel sends nothing" '[]' tailscale_changes "$tailscale_calls_mark"
+tailscale_key Return
+expect_poll "Sign out opens its confirmation again on Cancel" '["Button","Cancel"]' tailscale_focus
+tailscale_tab "Tab reaches the confirmation's Sign out" '["Button","Sign out"]'
+tailscale_key Return
+expect_poll "the confirmation's Sign out hands tailscale logout to the stand-in" '[["logout"]]' tailscale_changes "$tailscale_calls_mark"
+expect_poll "the flyout reads signed out" '["Signed out"]' tailscale_label tailscale-state
+expect_poll "the signed-out flyout offers Sign in" '["Sign in"]' tailscale_drawn panel Button tailscale-sign-in
+expect "the signed-out flyout says what Sign in does" '["Sign in to connect this computer to your tailnet."]' tailscale_label tailscale-state-hint
+expect "the signed-out flyout draws no header switch" '[false]' tailscale_header_switch
+expect_poll "the signed-out account row lists the other account and Add account, no Sign out" \
+  "$(words Accounts "Not signed in" amelie@example.org example.org "Add account")" tailscale_drawn panel Disclosure tailscale-account
+expect "the signed-out view draws no Check every" 0 tailscale_check_every
+expect "the signed-out flyout closes" ok ipc shell hide panel vgs.tailscale
+expect "the signed-out flyout opens again" ok ipc shell summon panel vgs.tailscale '{"source":"smoke"}'
+expect_poll "the signed-out flyout opens on its body, not Sign out" '["TailscaleBody",null]' tailscale_focus
+expect "the signed-out flyout closes again" ok ipc shell hide panel vgs.tailscale
+rm -f -- "${tailscale_dir:?}/signed-out"
+device_reply tailscale 0 "$(<"$tailscale_fixtures/accounts.json")" switch --list --json
 
 # Sign-in: the printed address goes to the xdg-open stand-in.
 tailscale_use logged-out.json
 expect "a refresh reads the signed-out daemon" ok tailscale_refresh
 expect_poll "the service publishes signed out" '"signed-out"' tailscale_value state
 rm -f -- "${tailscale_dir:?}/login-release"
+tailscale_opens_before="$(tailscale_call_count xdg-open)" || { fail "tailscale: the xdg-open stand-in's calls are unreadable"; return 0; }
 expect "sign-in starts" ok tailscale_act login
 expect_poll "the sign-in address reaches the xdg-open stand-in alone" "[[\"$tailscale_login_url\"]]" tailscale_opens "$tailscale_opens_before"
 expect_poll "the sign-in wait spins the bar icon" true ipc smoke readDescendant "$(bar_key)" vgs.tailscale BarItem spinning
@@ -587,6 +1069,14 @@ expect_poll "the service publishes the daemon off" '"service-off"' tailscale_val
 expect_poll "a stopped daemon offers Enable" enable tailscale_setup
 expect_poll "the stopped daemon draws route-off" '"route-off"' tailscale_icon
 expect_poll "the stopped daemon uses the warning tone" true tailscale_warning
+rest_pointer || fail "tailscale: moving the pointer off the flyout failed"
+expect "the flyout opens over the stopped daemon" ok ipc shell summon panel vgs.tailscale '{"source":"smoke"}'
+expect_poll "the service-off flyout's state line names the service" '["The Tailscale service is off."]' tailscale_label tailscale-state
+expect "the service-off flyout's switch is shown and off" '[true, false, true]' tailscale_header_switch
+expect "the service-off switch draws its unlock mark named for Enable" drawn tailscale_mark panel Enable
+expect "the service-off flyout says what Enable does" '["The Tailscale service is off. Enable turns it on."]' tailscale_label tailscale-setup-hint
+expect "the service-off flyout offers Enable" '["Enable"]' tailscale_drawn panel RowAction tailscale-setup
+expect "the service-off flyout closes" ok ipc shell hide panel vgs.tailscale
 device_reply systemctl 0 not-found show --property=LoadState --value tailscaled.service
 rescan "a scan probes an absent tailscaled service"
 expect_poll "the core reports the Tailscale backend absent" 'absent unit-missing' tailscale_step service-tailscaled
