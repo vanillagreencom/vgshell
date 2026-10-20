@@ -217,27 +217,30 @@ function verify(logic) {
     same(logic.wiredConnections("aa-1:802-3-ethernet\nbb-2:802-11-wireless\ncc-3:802-3-ethernet\n\nweird\\:x:802-3-ethernet\n"), ["aa-1", "cc-3"], "wiredConnections: the wired rows alone, a line with an escaped colon skipped");
     same(logic.wiredConnections(""), [], "wiredConnections: no rows");
 
-    // Each row starts at wakeInitial and feeds its readings, [present, on,
+    // Each row restores its chosen marker and feeds readings, [present, on,
     // wired devices], in order; writes holds whether each one starts a pass.
     const W = "enp10s0:true", P = true, A = false, ON = true, OFF = false;
-    // [label, readings, writes]
+    // [label, chosen, readings, writes]
     const WAKE_READINGS = [
-        ["the first reading with the setting off writes nothing", [[P, OFF, W]], [false]],
-        ["the first reading with the setting on writes", [[P, ON, W]], [true]],
-        ["the first reading with no wired device writes nothing", [[A, ON, ""]], [false]],
-        ["a device change with the setting never set writes nothing", [[P, OFF, W], [P, OFF, W + ",enp11s0:false"]], [false, false]],
-        ["a device that appears after a turn on writes", [[A, OFF, ""], [A, ON, ""], [P, ON, W]], [false, false, true]],
-        ["a device that comes back while on writes", [[P, ON, W], [A, ON, ""], [P, ON, W]], [true, false, true]],
-        ["a device change while on writes", [[P, ON, W], [P, ON, "enp10s0:false"]], [true, true]],
-        ["a turn on writes", [[P, OFF, W], [P, ON, W]], [false, true]],
-        ["a turn off writes", [[P, ON, W], [P, OFF, W]], [true, true]],
-        ["a device change after a turn off writes nothing", [[P, ON, W], [P, OFF, W], [P, OFF, W + ",enp11s0:false"]], [true, true, false]],
-        ["a reading with nothing changed writes nothing", [[P, ON, W], [P, ON, W]], [true, false]],
-        ["a turn off with no wired device writes once one comes back", [[P, ON, W], [A, ON, ""], [A, OFF, ""], [P, OFF, W]], [true, false, false, true]],
-        ["a turn on and off with no wired device writes nothing once one appears", [[P, OFF, W], [A, OFF, ""], [A, ON, ""], [A, OFF, ""], [P, OFF, W]], [false, false, false, false, false]]
+        ["the first reading with the setting off writes nothing", false, [[P, OFF, W]], [false]],
+        ["the first reading with the setting on writes", false, [[P, ON, W]], [true]],
+        ["the first reading with no wired device writes nothing", false, [[A, ON, ""]], [false]],
+        ["a device change with the setting never set writes nothing", false, [[P, OFF, W], [P, OFF, W + ",enp11s0:false"]], [false, false]],
+        ["a device that appears after a turn on writes", false, [[A, OFF, ""], [A, ON, ""], [P, ON, W]], [false, false, true]],
+        ["a device that comes back while on writes", false, [[P, ON, W], [A, ON, ""], [P, ON, W]], [true, false, true]],
+        ["a device change while on writes", false, [[P, ON, W], [P, ON, "enp10s0:false"]], [true, true]],
+        ["a turn on writes", false, [[P, OFF, W], [P, ON, W]], [false, true]],
+        ["a turn off writes", false, [[P, ON, W], [P, OFF, W]], [true, true]],
+        ["a device change after a turn off writes", false, [[P, ON, W], [P, OFF, W], [P, OFF, W + ",enp11s0:false"]], [true, true, true]],
+        ["a restart with a chosen Off writes a connection added later", true, [[P, OFF, W], [P, OFF, W + ",enp11s0:false"]], [true, true]],
+        ["a restart with a chosen Off waits for a wired device", true, [[A, OFF, ""], [P, OFF, W]], [false, true]],
+        ["a chosen Off with nothing changed writes nothing", true, [[P, OFF, W], [P, OFF, W]], [true, false]],
+        ["a reading with nothing changed writes nothing", false, [[P, ON, W], [P, ON, W]], [true, false]],
+        ["a turn off with no wired device writes once one comes back", false, [[P, ON, W], [A, ON, ""], [A, OFF, ""], [P, OFF, W]], [true, false, false, true]],
+        ["a turn on and off with no wired device writes nothing once one appears", false, [[P, OFF, W], [A, OFF, ""], [A, ON, ""], [A, OFF, ""], [P, OFF, W]], [false, false, false, false, false]]
     ];
-    for (const [label, readings, writes] of WAKE_READINGS) {
-        let state = logic.wakeInitial();
+    for (const [label, chosen, readings, writes] of WAKE_READINGS) {
+        let state = logic.wakeInitial(chosen);
         const got = readings.map(([present, on, devices]) => {
             const result = logic.wakeObserved(state, present, on, devices);
             state = result.state;
@@ -273,9 +276,10 @@ const CONTROLS = [
     ["a bar pick remembers the current source's profile", "return onBattery === true ? \"batteryProfile\" : \"chargerProfile\";\n}", "return \"chargerProfile\";\n}"],
     ["a source change with no battery applies nothing", "return { state: { ready: true, onBattery: onBattery === true }, apply: batteryPresent === true };", "return { state: { ready: true, onBattery: onBattery === true }, apply: true };"],
     ["off writes none", "    off: \"none\"\n", "    off: \"ignore\"\n"],
-    ["the first pass waits for the setting on", "return { present: false, wired: \"\", written: false };", "return { present: false, wired: \"\", written: null };"],
+    ["the first pass waits for the setting on", "return { present: false, wired: \"\", written: false, chosen: chosen === true };", "return { present: false, wired: \"\", written: null, chosen: chosen === true };"],
     ["the state keeps the setting the last pass wrote", "written: write ? reading.on : previous.written", "written: reading.on"],
-    ["a device change writes only while on", "(reading.on && moved)", "moved"],
+    ["a device change waits for a chosen value", "(previous.chosen && moved)", "moved"],
+    ["a restart restores the chosen marker", "chosen: chosen === true", "chosen: false"],
     ["a wired list keeps the wired rows alone", "fields.length === 2 && fields[0] !== \"\" && fields[1] === \"802-3-ethernet\"", "fields.length === 2 && fields[0] !== \"\""],
     ["first ready source reading does not apply", "if (state.ready !== true) return { state: { ready: true, onBattery: onBattery === true }, apply: false };", "if (state.ready !== true) return { state: { ready: true, onBattery: onBattery === true }, apply: true };"]
 ];

@@ -100,7 +100,8 @@
     "criticalThreshold": 10,
     "chargerProfile": "performance",
     "batteryProfile": "balanced",
-    "wakeOnLan": false
+    "wakeOnLan": false,
+    "wakeOnLanChosen": false
   },
   "schema": {
     "lowThreshold": {

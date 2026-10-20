@@ -269,26 +269,26 @@ function wiredConnections(text) {
 }
 
 // The state between Wake on LAN readings: the last reading's wired
-// devices, and the setting the last pass wrote, false before any pass.
-function wakeInitial() {
-    return { present: false, wired: "", written: false };
+// devices, the setting the last pass wrote, and whether a pass has ever
+// started from the user's choice, restored from the plugin's settings.
+function wakeInitial(chosen) {
+    return { present: false, wired: "", written: false, chosen: chosen === true };
 }
 
 // Whether a Wake on LAN reading starts a pass over the wired connections.
 // VGS writes no connection until the user sets the switch, so a value set
 // outside VGS stays. A pass runs while a wired device is present, when the
 // setting differs from the one the last pass wrote, which holds a change
-// made while no device was present until one is, and, while the setting
-// is on, when the wired devices change, since NetworkManager adds a
-// connection for a device that appears or connects with none. Before any
-// pass, written reads off, so the first pass runs once the setting is on;
-// the setting cannot tell an off the user chose from the default, so after a
-// restart a connection added while off is not written.
+// made while no device was present until one is. Once chosen, either
+// value is reapplied when wired devices change, since NetworkManager adds
+// a connection for a device that appears or connects with none. The saved
+// marker keeps a chosen Off distinct from the untouched default at restart.
 function wakeObserved(previous, present, on, wired) {
     var reading = { present: present === true, on: on === true, wired: String(wired) };
     var moved = previous.present !== reading.present || previous.wired !== reading.wired;
-    var write = reading.present && (reading.on !== previous.written || (reading.on && moved));
-    return { state: { present: reading.present, wired: reading.wired, written: write ? reading.on : previous.written }, write: write };
+    var write = reading.present && (reading.on !== previous.written || (previous.chosen && moved));
+    return { state: { present: reading.present, wired: reading.wired, written: write ? reading.on : previous.written,
+        chosen: previous.chosen || write }, write: write };
 }
 
 // What the Wake on LAN field says after a pass that failed at `failure`:

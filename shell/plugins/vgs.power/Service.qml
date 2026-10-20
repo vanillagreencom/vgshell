@@ -103,6 +103,7 @@ Item {
 
     onShellChanged: {
         if (shell === null || registered) return;
+        wakeState = Logic.wakeInitial(shell.settings.wakeOnLanChosen);
         registered = true;
         shell.ipc.handle("profile", arg => root.profileRequest(arg));
         // The step resolves hdparm in safe system directories; the scan
@@ -307,7 +308,13 @@ Item {
         if (!registered) return;
         const result = Logic.wakeObserved(wakeState, ethernetPresent, wakeOn, wakeWired);
         wakeState = result.state;
-        if (result.write) writeWakeOnLan();
+        if (result.write) {
+            if (shell.settings.wakeOnLanChosen !== true) {
+                const saved = shell.configure.set("wakeOnLanChosen", true);
+                if (saved !== "ok") console.warn("power: configure " + saved);
+            }
+            writeWakeOnLan();
+        }
     }
 
     function writeWakeOnLan() {
