@@ -18,10 +18,17 @@
 //       notified is true once `attention-seen` named that key. Each of its
 //       `conflicts` carries `needs`, "you" or "nothing" (needsOf), and
 //       `needsYou` counts the ones that need the user; only those make the
-//       `conflicts` reason and its key.
+//       `conflicts` reason and its key. Each conflict also carries `key`,
+//       16 hex digits of the whole record (conflictKey), and the record's
+//       `dismissed` lists the dismissed keys that name a current row.
 //   google-drive attention-seen <key>
 //       records that the plugin notified the user of attention KEY, so no
 //       later render or shell start notifies again; prints `seen=<key>`.
+//   google-drive dismiss <key>
+//       hides the conflict row KEY, one that needs nothing, from the
+//       popover until its record changes; prints `dismissed=<key>`. A key
+//       that names no current row, or a row that needs the user, is
+//       refused with `dismiss=unknown` or `dismiss=needs-you`.
 //   google-drive probe
 //       the presence of every credential account, read without unlocking
 //       the store, as one JSON line; a token's row carries `user`, the
@@ -57,12 +64,12 @@
 //
 // Files: the pair list is $XDG_CONFIG_HOME/vgshell/google-drive/pairs.json;
 // the units are $XDG_CONFIG_HOME/systemd/user/vgs-google-drive.service and
-// .timer; status.json, control.json (pause and the notified attention
-// key) and pairs/<id>/ (state.json, inventory.json, conflicts/) are under
-// $XDG_STATE_HOME/vgshell/google-drive/; the locks are under
-// $XDG_RUNTIME_DIR/vgshell/google-drive/; the copy the units run is
-// $XDG_DATA_HOME/vgshell/google-drive/engine/<hash>/google-drive, since the
-// shell runs this file from a snapshot a restart removes. Every file is
+// .timer; status.json, control.json (pause, the notified attention key and
+// the dismissed conflict keys) and pairs/<id>/ (state.json, inventory.json,
+// conflicts/) are under $XDG_STATE_HOME/vgshell/google-drive/; the locks
+// are under $XDG_RUNTIME_DIR/vgshell/google-drive/; the copy the units run
+// is $XDG_DATA_HOME/vgshell/google-drive/engine/<hash>/google-drive, since
+// the shell runs this file from a snapshot a restart removes. Every file is
 // written whole under a temporary name and renamed into place.
 //
 // Before any verb, every invocation runs the rename from the plugin's
@@ -138,7 +145,7 @@ const FAILURE_STATES = {
     "authorization-refused": "authorization-required",
     offline: "offline"
 };
-const USAGE = "usage: google-drive run [--pair <id>] | status [--quiet] | attention-seen <key> | probe | authorize | sign-out | install | start | pause [--pair <id>] | resume [--pair <id>] | pairs [--lines] | pairs-reset | pair-add --definition <json> | pair-remove <id>";
+const USAGE = "usage: google-drive run [--pair <id>] | status [--quiet] | attention-seen <key> | dismiss <key> | probe | authorize | sign-out | install | start | pause [--pair <id>] | resume [--pair <id>] | pairs [--lines] | pairs-reset | pair-add --definition <json> | pair-remove <id>";
 
 function bad(first) {
     process.stderr.write("google-drive: refused: " + first + "\n" + USAGE + "\n");
@@ -467,17 +474,23 @@ function readPairs() {
 
 // ---------------------------------------------------------- pause record
 
-// { paused, pausedPairs, notifiedKey }: notifiedKey is the attention key
-// the plugin last notified of, or null.
+// { paused, pausedPairs, notifiedKey, dismissed }: notifiedKey is the
+// attention key the plugin last notified of, or null; dismissed the
+// conflict keys the user dismissed (dismissVerb). A record with no list,
+// as every record before dismissals has, or a list that is not keys,
+// dismisses nothing: the rows show again, and nothing else is lost.
 function readControl() {
     const read = readJson(controlFile);
-    if (read.kind === "ok" && plain(read.value) && typeof read.value.paused === "boolean" && Array.isArray(read.value.pausedPairs))
-        return { paused: read.value.paused, pausedPairs: read.value.pausedPairs, notifiedKey: typeof read.value.notifiedKey === "string" ? read.value.notifiedKey : null };
-    if (read.kind === "absent") return { paused: false, pausedPairs: [], notifiedKey: null };
+    if (read.kind === "ok" && plain(read.value) && typeof read.value.paused === "boolean" && Array.isArray(read.value.pausedPairs)) {
+        const dismissed = read.value.dismissed;
+        return { paused: read.value.paused, pausedPairs: read.value.pausedPairs, notifiedKey: typeof read.value.notifiedKey === "string" ? read.value.notifiedKey : null,
+            dismissed: Array.isArray(dismissed) && dismissed.every(k => typeof k === "string" && CONFLICT_KEY.test(k)) ? dismissed : [] };
+    }
+    if (read.kind === "absent") return { paused: false, pausedPairs: [], notifiedKey: null, dismissed: [] };
     // A pause record that cannot be read holds every run back, so a pause
     // the user set is never lost to a damaged file.
     log("control=" + (read.kind === "bad" ? read.reason : "shape") + " paused=assumed");
-    return { paused: true, pausedPairs: [], notifiedKey: null };
+    return { paused: true, pausedPairs: [], notifiedKey: null, dismissed: [] };
 }
 
 function isPaused(control, id) {
@@ -819,7 +832,17 @@ function addRecord(records, record) {
     if (typeof record.reason === "string") kept.reason = record.reason;
     if (typeof record.mine === "boolean") kept.mine = record.mine;
     if (typeof record.owner === "string") kept.owner = record.owner;
+    if (typeof record.version === "string") kept.version = record.version;
     records.push(kept);
+}
+
+// A conflict row's key: 16 hex digits of PAIR's stored RECORD whole, so a
+// change to any of its facts, or the record going and coming back with a
+// new `since`, makes a new key that no dismissal names.
+const CONFLICT_KEY = /^[0-9a-f]{16}$/;
+function conflictKey(pairId, record) {
+    const facts = [pairId, record.kind, record.path, record.since, record.stored, record.to, record.reason, record.mine, record.owner, record.version];
+    return crypto.createHash("sha256").update(JSON.stringify(facts.map(f => f === undefined ? null : f))).digest("hex").slice(0, 16);
 }
 
 // rclone v1.75.1's lines about one Drive file, after its date and time, as
@@ -868,13 +891,17 @@ function listedMd5(item) {
 // as a shared drive's files do, or an unknown ADDRESS never counts as the
 // user's, so no record claims the user can remove a copy that is not
 // shown to be theirs. A record that is not mine names the first copy's
-// owner that is an address, when one is.
+// owner that is an address, when one is. `version` hashes every copy's
+// md5, size and modification time, in an order the listing's does not
+// change, so an edit to any copy changes the row's key.
 function duplicateRecord(rel, copies, address) {
     const md5s = copies.map(listedMd5);
     const identical = md5s.every(m => m !== null && /^[0-9a-f]{32}$/.test(m) && m === md5s[0]) && copies.every(c => c.Size === copies[0].Size);
     const owners = copies.map(c => plain(c.Metadata) && validAddress(c.Metadata.owner) ? c.Metadata.owner : null);
     const mine = address !== null && owners.some(o => o !== null && o.toLowerCase() === address.toLowerCase());
-    const record = { kind: identical ? "duplicate-identical" : "duplicate-different", path: rel, mine: mine };
+    const facts = copies.map((c, i) => JSON.stringify([md5s[i], c.Size === undefined ? null : c.Size, c.ModTime === undefined ? null : c.ModTime])).sort();
+    const version = crypto.createHash("sha256").update(JSON.stringify(facts)).digest("hex").slice(0, 16);
+    const record = { kind: identical ? "duplicate-identical" : "duplicate-different", path: rel, mine: mine, version: version };
     const named = owners.find(o => o !== null);
     if (!mine && named !== undefined) record.owner = named;
     return record;
@@ -1277,6 +1304,7 @@ function runPair(pair, control) {
         }
         state.startedAt = null;
         withStateLock(() => {
+            carryDismissals(pair.id, readPairState(pair.id).records || [], state.records || []);
             writePairState(pair.id, state);
             writeStatus();
         });
@@ -1284,6 +1312,22 @@ function runPair(pair, control) {
     } finally {
         fs.closeSync(fd);
     }
+}
+
+// The converter step of a doubled name's `version` (D107). A record
+// written before records held one gets it at the first sync that lists
+// the copies again, since only Drive's listing gives it, and that changes
+// the row's key. A dismissal of the record BEFORE carries to the record
+// AFTER that only adds the version, as nothing the user saw changed.
+function carryDismissals(pairId, before, after) {
+    const control = readControl();
+    const carried = [];
+    for (const old of before) {
+        if (old.version !== undefined || control.dismissed.indexOf(conflictKey(pairId, old)) === -1) continue;
+        const next = after.find(r => r.version !== undefined && conflictKey(pairId, Object.assign({}, r, { version: undefined })) === conflictKey(pairId, old));
+        if (next !== undefined) carried.push(conflictKey(pairId, next));
+    }
+    if (carried.length > 0) writeJson(controlFile, Object.assign(control, { dismissed: control.dismissed.concat(carried) }));
 }
 
 // ----------------------------------------------------------------- units
@@ -1476,6 +1520,7 @@ function conflictsOf(pair, stored) {
         if (typeof r.mine === "boolean") out.mine = r.mine;
         if (typeof r.owner === "string") out.owner = r.owner;
         out.needs = needsOf(r);
+        out.key = conflictKey(pair.id, r);
         if (r.kind !== "both-changed" || out.storedPath !== undefined || r.stored === undefined) found.push(out);
     }
     return found;
@@ -1520,7 +1565,7 @@ function renderStatus() {
     const failing = standing.filter(s => s.state === "authorization-required" || s.state === "error").map(s => s.pair)
         .sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
     // Only a review record that needs the user asks for attention: one that
-    // needs nothing, such as a file the sync put back, is a note.
+    // needs nothing, such as a file the sync put back, needs no action.
     const needing = conflicts.filter(c => c.needs === "you");
     const reasons = [];
     if (standing.some(s => s.state === "authorization-required")) reasons.push("authorization-required");
@@ -1529,13 +1574,16 @@ function renderStatus() {
     if (units === "stale") reasons.push("units-stale");
     // The key changes when a reason, a conflict that needs the user or the
     // cause of a failure that needs the user changes, never with the time a
-    // failure repeats, the order pairs run in or a note, so the plugin
-    // notifies once per change that needs the user. The cause is every
-    // failing pair's, by pair id.
+    // failure repeats, the order pairs run in or a row that needs nothing, so
+    // the plugin notifies once per change that needs the user. The cause is
+    // every failing pair's, by pair id.
     const cause = read.error !== null ? [["pairs-invalid", null, null, read.error]]
         : failing.map(p => [p.lastError.kind, p.id, p.lastError.account || null, p.lastError.detail || null]);
     const key = crypto.createHash("sha256").update(JSON.stringify([reasons, needing.map(c => [c.kind, c.pair, c.path, c.since]), cause])).digest("hex").slice(0, 16);
     const lastSuccess = oldest(pairs.map(p => p.lastSuccess));
+    // The dismissals that still name a row. While the pair list cannot be
+    // read no row is known, so every dismissal stands.
+    const dismissed = read.error !== null ? control.dismissed : control.dismissed.filter(k => conflicts.some(c => c.key === k));
     return {
         state: state,
         paused: control.paused,
@@ -1546,6 +1594,7 @@ function renderStatus() {
         pairs: pairs,
         conflicts: conflicts,
         needsYou: needing.length,
+        dismissed: dismissed,
         attention: reasons.length === 0 ? null : { reasons: reasons, key: key, notified: control.notifiedKey === key },
         writtenAt: now()
     };
@@ -1553,13 +1602,17 @@ function renderStatus() {
 
 // Called under the state lock. A settled record that needs nothing clears
 // the notified key, so a cause that returns after a recovery notifies
-// again; a render while a pair runs leaves it.
+// again; a render while a pair runs leaves it. A dismissal that names no
+// row is dropped, so the list stays as long as the rows it hides and an
+// old dismissal never hides a later record.
 function writeStatus() {
     const status = renderStatus();
     if (status.attention === null && !status.pairs.some(p => p.state === "running")) {
         const control = readControl();
         if (control.notifiedKey !== null) writeJson(controlFile, Object.assign(control, { notifiedKey: null }));
     }
+    const control = readControl();
+    if (control.dismissed.length !== status.dismissed.length) writeJson(controlFile, Object.assign(control, { dismissed: status.dismissed }));
     writeJson(statusFile, status);
     return status;
 }
@@ -1935,6 +1988,24 @@ function attentionSeenVerb(words) {
     process.stdout.write("seen=" + words[0] + "\n");
 }
 
+// The popover's Dismiss on a row that needs nothing. A sync can change the
+// row between the popover's read and the click, so a key that names no
+// row now is refused rather than kept; a row that needs the user stays,
+// since its fix is still the user's.
+function dismissVerb(words) {
+    if (words.length !== 1 || !CONFLICT_KEY.test(words[0])) bad("key=" + (words[0] || "missing"));
+    const key = words[0];
+    withStateLock(() => {
+        const row = renderStatus().conflicts.find(c => c.key === key);
+        if (row === undefined) refuse("dismiss=unknown key=" + key);
+        if (row.needs === "you") refuse("dismiss=needs-you key=" + key);
+        const control = readControl();
+        if (control.dismissed.indexOf(key) === -1) writeJson(controlFile, Object.assign(control, { dismissed: control.dismissed.concat([key]) }));
+        writeStatus();
+    });
+    process.stdout.write("dismissed=" + key + "\n");
+}
+
 function probeVerb(words) {
     if (words.length !== 0) bad("argument=" + words[0]);
     migrateCredentialsIfNeeded();
@@ -2099,7 +2170,7 @@ function pauseVerb(words, paused) {
         const next = only === null
             ? { paused: paused, pausedPairs: paused ? control.pausedPairs : [], notifiedKey: control.notifiedKey }
             : { paused: control.paused, pausedPairs: control.pausedPairs.filter(id => id !== only).concat(paused ? [only] : []), notifiedKey: control.notifiedKey };
-        writeJson(controlFile, next);
+        writeJson(controlFile, Object.assign(next, { dismissed: control.dismissed }));
         writeStatus();
     });
     process.stdout.write((paused ? "paused=" : "resumed=") + (only === null ? "all" : only) + "\n");
@@ -2202,6 +2273,7 @@ switch (verb) {
 case "run": runVerb(rest); break;
 case "status": statusVerb(rest); break;
 case "attention-seen": attentionSeenVerb(rest); break;
+case "dismiss": dismissVerb(rest); break;
 case "probe": probeVerb(rest); break;
 case "authorize": authorizeVerb(rest); break;
 case "sign-out": signOutVerb(rest); break;

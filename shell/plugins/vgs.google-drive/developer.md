@@ -28,22 +28,31 @@ The unreadable and duplicate records stand only while the last download met the 
 
 A duplicate record holds `mine`, true when the signed-in account, the token's `user` attribute, owns one of the copies, and, when `mine` is false, `owner`, the first copy's owner Drive names. A copy with no owner, as on a shared drive, and a token that names no account never count as the user's. The runner reads the copies' sizes, md5s and owners with one read-only `rclone lsjson --hash --metadata --drive-metadata-owner read` of each folder that holds a doubled name, only in a sync whose download met one.
 
-In the status record each of `conflicts` carries `needs`, `you` or `nothing`, from the table, and `needsYou` counts the `you` rows. The `conflicts` attention reason and its key take only the `you` rows, so a note never notifies.
+In the status record each of `conflicts` carries `needs`, `you` or `nothing`, from the table, and `needsYou` counts the `you` rows. The `conflicts` attention reason and its key take only the `you` rows, so a row that needs no action never notifies.
 
-The plugin's judge, `GoogleDriveLogic.parseStatus`, refuses a record whose `needsYou` is not that count, a row with no `needs`, `mine` on a row that is no doubled name, and `owner` other than on a doubled name that is not `mine`. The published `cloud` value carries `needsYou`, and each of its `pairs` its own `needsYou`. It lists the rows that need the user first before it caps the list, so the cap cuts notes first. Every count a surface shows is a `needsYou`: the bar badge, the headline, the tooltip, the Details sync lines and the Settings chip. Notes are counted only in the popover, on the line they fold into, and no surface calls a note a file to review: `scripts/test-google-drive-logic.js` holds both. Each of its `conflicts` carries:
+Each row also carries `key`, 16 hex digits of a hash of its whole record: the pair, the kind, the path, `since`, the kept copy, the rename target, rclone's reason, `mine`, `owner` and, for a doubled name, `version`, a hash of each Drive copy's md5, size and modification time from the folder listing the runner reads. A change to any of these, or a record that goes and comes back with a new `since`, makes a new key.
 
+The plugin's judge, `GoogleDriveLogic.parseStatus`, refuses a record whose `needsYou` is not that count, a row with no `needs` or `key`, a `dismissed` that is not a list of keys, `mine` on a row that is no doubled name, and `owner` other than on a doubled name that is not `mine`. The published `cloud` value carries `needsYou`, and each of its `pairs` its own `needsYou`. It leaves out each dismissed row, then lists the rows that need the user first before it caps the list, so the cap cuts the rows that need no action first; `conflictCount` counts the rows it did not leave out. Every count a surface shows is a `needsYou`: the bar badge, the headline, the tooltip, the Details sync lines and the Settings chip. The rows that need no action are counted only in the popover, on the line they fold into, "2 files need no action · nothing was lost", and no surface counts them as files that need the user: `scripts/test-google-drive-logic.js` holds both. Each of its `conflicts` carries:
+
+- `key`: the record's key.
 - `needs`: the record's `you` or `nothing`.
 - `localAction`: whether the row has an action on this computer. It is true for a `both-changed`, `removed-locally`, `removed-on-drive` or `renamed` row whose file is here. A doubled name and a file the download could not copy are fixed in Google Drive, so their rows have no action here, whoever owns the copies.
 - `localPath`: the record's path of the file on this computer, on every row but a file the download could not copy with no earlier copy here.
 - `copyFolder`: on a `both-changed` row whose local file a download replaced, the folder of the kept copy.
 
-The popover's Show older copy opens `copyFolder` in the file manager, on a row that needs the user and has `localAction`. A note has no action in the popover (`GoogleDriveLogic.conflictRow`). Each row's file name, a note's included, is a link while the row carries `localPath`: a click opens that file through the core's file route, `shell.tui.edit`: a text file in the core editor, any other file in its default application. The popover closes once the file opened. A file that is no longer on this computer opens nothing, and its row says "This file is no longer on this computer." and stays. A row with no `localPath` draws its name as plain text.
+The popover's Show older copy opens `copyFolder` in the file manager, on a row that needs the user and has `localAction`. Each row that needs no action offers Dismiss instead (`GoogleDriveLogic.conflictRow`), and a row that needs the user never does, since its fix is still the user's. Each row's file name, in both lists, is a link while the row carries `localPath`: a click opens that file through the core's file route, `shell.tui.edit`: a text file in the core editor, any other file in its default application. The popover closes once the file opened. A file that is no longer on this computer opens nothing, and its row says "This file is no longer on this computer." and stays. A row with no `localPath` draws its name as plain text.
 
-Each row's line says what happened and what the user does, or that nothing is lost: a doubled name the user owns says how to clear it, one another account owns names that owner when the record does, and a `both-changed` row says whether VGS kept the copy that was here or copied it to Drive.
+Each row's line says what happened and what the user does, or that nothing is lost: a doubled name the user owns says how to remove it from the list, one another account owns names that owner when the record does, and a `both-changed` row says whether VGS kept the copy that was here or copied it to Drive.
 
 An earlier runner recorded a doubled name as `duplicate-on-drive`, with no copy facts. The first invocation of this runner drops those records, logging `migration=pair-state ... dropped=duplicate-on-drive`, since reading the copies needs Google Drive and that step runs without it; the next sync that meets the name records it whole. A status record that an earlier runner notified of stays notified across the new attention key.
 
 A pair that another run holds reads `busy` and copies nothing.
+
+### Dismissed rows
+
+Dismiss asks the service's `dismiss` IPC, which runs `google-drive dismiss <key>`. Under the state lock the runner adds the key to `dismissed` in `control.json` and writes the status record again, whose `dismissed` lists the kept keys; the row leaves the popover then, and the fold line goes with the last row. The runner refuses a key that names no current row, `dismiss=unknown`, and a row that needs the user, `dismiss=needs-you`. There is no undo and no list of dismissed rows: the record stays, so a change to it shows the row again under its new key. At each status write the runner drops a dismissed key that names no current row, so the list never outgrows the rows and an old dismissal never hides a later record. While the pair list cannot be read no row is known, and the runner drops none.
+
+A `control.json` with no `dismissed`, as every one before dismissals, dismisses nothing, so it needs no converter step. A doubled name recorded before records held `version` gets one at the next sync that lists its copies, which changes its key; that sync carries a dismissal of the earlier key to the new one, since only the version was added.
 
 ## Credentials
 
@@ -56,7 +65,7 @@ A pair that another run holds reads `busy` and copies nothing.
 
 - `~/.config/vgshell/google-drive/pairs.json`: the folder pairs, `{ pairs: [{ id, label, remote, local }] }`. Add a folder pair and Remove a folder pair change it through `pair-add` and `pair-remove`, which judge every pair. Start the folder pair list again runs `pairs-reset`, which keeps a damaged list beside a new empty list.
 - `~/.local/state/vgshell/google-drive/status.json`: the status record the plugin's service watches and publishes. Its `units` is `installed`, both units as install writes them now; `absent`, neither; or `stale`, anything else. Each of its `pairs` carries the pair's `remote`, the Drive folder, and `local`, the folder on this computer. The service watches the file only after its first `status` call, which writes the record whole.
-- `~/.local/state/vgshell/google-drive/control.json`: the pause record and the attention key last notified, so both survive a restart.
+- `~/.local/state/vgshell/google-drive/control.json`: the pause record, the attention key last notified and the dismissed row keys, so all three survive a restart.
 - `~/.local/state/vgshell/google-drive/pairs/<id>/`: each pair's state, inventory and conflict copies.
 - `~/.local/state/vgshell/google-drive/setup.log`: what the setup windows logged. `setup.before-rename.log` beside it holds the earlier name's log when a setup window had begun this one before the rename below.
 - `~/.local/state/vgshell/google-drive/rename.pending`: present from the rename's first move until its last step ends. It names each keyring account still held under the earlier name.
@@ -80,7 +89,7 @@ A locked keyring item at the probe prevents a store call. If the collection lock
 
 ## The plugin
 
-The plugin's IPC: `vgshell ipc call vgs.google-drive invoke <name> ""` with `status`, `sync`, `pause`, `resume` or `refresh`. The service's header states each answer.
+The plugin's IPC: `vgshell ipc call vgs.google-drive invoke <name> ""` with `status`, `sync`, `pause`, `resume` or `refresh`, and `vgshell ipc call vgs.google-drive invoke dismiss <key>`. The service's header states each answer.
 
 ## The google-drive command
 

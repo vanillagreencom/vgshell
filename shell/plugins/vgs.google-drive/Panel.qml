@@ -16,10 +16,15 @@ import "GoogleDriveLogic.js" as Logic
 // means (panelBody). Needs you lists each file that needs the user, its
 // name, its folder pair and folders, its one line and, for a change on
 // both sides whose copy VGS kept, Show older copy, which opens that
-// copy's folder in the file manager. The notes, the files that need
-// nothing, fold into one line that unfolds in place; a note has no
-// action, since its fix is in Google Drive (reviewView). A row's name,
-// in Needs you and in the notes, is a link that opens the file through
+// copy's folder in the file manager. The files that need no action fold
+// into one line that unfolds in place, and each of their rows offers
+// Dismiss, which asks the service to hide the row until its record
+// changes; the row leaves when the runner writes the record again, and
+// the fold line goes with the last row (reviewView). A Dismiss pressed
+// from the keyboard hands the focus to the fold line, or from the last
+// row to the stop after it, so the keyboard keeps its place when the row
+// leaves. A row's name, in Needs you and in the rows that need no
+// action, is a link that opens the file through
 // the core's one file route (a text file in the core editor, any other
 // in its default application) and closes the popover; a file that is no
 // longer on this computer says so on its row and keeps it. A name is plain
@@ -66,6 +71,11 @@ Item {
     // Sync now, Pause or Resume through the service; answers its reply.
     function ask(name) {
         return answered(shell.ipc.call(name, ""), "VGS could not reach the Google Drive sync.");
+    }
+
+    // Dismiss through the service: the row of KEY, which needs no action.
+    function dismiss(key) {
+        return answered(shell.ipc.call("dismiss", key), "VGS could not remove the file from the list.");
     }
 
     // A callout's fix: the plugin's own TUI or a tab of its page. A fix
@@ -131,6 +141,9 @@ Item {
         property bool gone: false
         signal showFolder(string folder)
         signal openFile(string file)
+        // KEYBOARD is the action when Tab, Backtab or a shortcut gave it
+        // its focus, else null.
+        signal dismiss(string key, Item keyboard)
         spacing: Theme.listItem.iconGap
 
         Icon {
@@ -204,10 +217,19 @@ Item {
                 text: "This file is no longer on this computer."
                 wrapMode: Text.Wrap
             }
+            // visualFocus holds only while Tab, Backtab or a shortcut gave
+            // the action its focus (Qt Quick Templates, Control.visualFocus),
+            // so only a Dismiss pressed from the keyboard moves the focus.
             RowAction {
+                id: rowAction
                 visible: reviewRow.modelData.action !== null
                 text: reviewRow.modelData.action === null ? "" : reviewRow.modelData.action.label
-                onClicked: reviewRow.showFolder(reviewRow.modelData.action.folder)
+                onClicked: {
+                    const action = reviewRow.modelData.action;
+                    if (action.kind === "folder") reviewRow.showFolder(action.folder);
+                    else if (action.kind === "dismiss") reviewRow.dismiss(action.key, rowAction.visualFocus ? rowAction : null);
+                    else throw new Error("google-drive panel: row action " + JSON.stringify(action.kind) + " is not one conflictRow makes");
+                }
             }
         }
     }
@@ -317,16 +339,16 @@ Item {
             }
         }
 
-        // The notes, folded until the user opens them. The fold line's
-        // chevron stands in the rows' icon column and its words in their
-        // text column, so it and every row share one grid: the line and its
-        // cursor reach out into the focus ring's room on both sides (Pane
-        // leaves that room past the content edge), and the line's padding
-        // is that room, so the plate covers the reach and the content stays
-        // on the grid. Disclosure would put the chevron at the end and
-        // inset the line by its padding. The line is a Tab stop; a click,
-        // Return, Enter or Space opens and closes it, Right opens and Left
-        // closes, as Disclosure's row does.
+        // The files that need no action, folded until the user opens them.
+        // The fold line's chevron stands in the rows' icon column and its
+        // words in their text column, so it and every row share one grid:
+        // the line and its cursor reach out into the focus ring's room on
+        // both sides (Pane leaves that room past the content edge), and the
+        // line's padding is that room, so the plate covers the reach and the
+        // content stays on the grid. Disclosure would put the chevron at the
+        // end and inset the line by its padding. The line is a Tab stop; a
+        // click, Return, Enter or Space opens and closes it, Right opens and
+        // Left closes, as Disclosure's row does.
         Column {
             id: notesFold
             property bool expanded: false
@@ -371,6 +393,15 @@ Item {
                         width: notesList.width
                         gone: root.goneFiles.indexOf(modelData.file) !== -1
                         onOpenFile: file => root.openFile(file)
+                        // The fold line stays while another row does; the
+                        // last row takes it along, so the focus moves on to
+                        // the stop after the action (Item.nextItemInFocusChain,
+                        // tst_googledrive_panel.qml reads both).
+                        onDismiss: (key, keyboard) => {
+                            const last = root.review.notes.length === 1 && root.review.moreNotes === "";
+                            if (keyboard !== null) (last ? keyboard.nextItemInFocusChain(true) : foldLine).forceActiveFocus(Qt.TabFocusReason);
+                            root.dismiss(key);
+                        }
                     }
                 }
             }

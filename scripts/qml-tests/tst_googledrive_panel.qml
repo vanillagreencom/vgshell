@@ -59,17 +59,18 @@ Item {
         // A status record as bin/google-drive writes it, with times read
         // from the clock the panel reads (test-google-drive-logic.js holds
         // the same shapes): the both-changed row whose older copy VGS kept
-        // needs the user; a removal on each side is a note.
-        function cloud() {
+        // needs the user; a removal on each side is a note. DISMISSED is
+        // the record's dismissed keys, none when not given.
+        function cloud(dismissed) {
             const now = Time.now.getTime(), hour = 3600 * 1000;
             const iso = ms => new Date(ms).toISOString();
             const pair = { id: "docs", label: "Documents", remote: "Docs", local: "/home/me/gdrive", state: "idle", lastSuccess: iso(now - hour), staleAfter: iso(now + hour), lastError: null, changes: { added: 1, updated: 0 } };
             const conflicts = [
-                { kind: "both-changed", pair: "docs", pairLabel: "Documents", path: "taxes/2025.xlsx", localPath: "/home/me/gdrive/taxes/2025.xlsx", storedPath: "/home/me/.local/state/vgshell/google-drive/pairs/docs/conflicts/20261010T110000Z-7/taxes/2025.xlsx", since: iso(now - hour), needs: "you" },
-                { kind: "removed-on-drive", pair: "docs", pairLabel: "Documents", path: "old.txt", localPath: "/home/me/gdrive/old.txt", since: iso(now - hour), needs: "nothing" },
-                { kind: "removed-locally", pair: "docs", pairLabel: "Documents", path: "taxes/receipts.pdf", localPath: "/home/me/gdrive/taxes/receipts.pdf", since: iso(now - hour), needs: "nothing" }
+                { kind: "both-changed", pair: "docs", pairLabel: "Documents", path: "taxes/2025.xlsx", localPath: "/home/me/gdrive/taxes/2025.xlsx", storedPath: "/home/me/.local/state/vgshell/google-drive/pairs/docs/conflicts/20261010T110000Z-7/taxes/2025.xlsx", since: iso(now - hour), needs: "you", key: "00000000000000a1" },
+                { kind: "removed-on-drive", pair: "docs", pairLabel: "Documents", path: "old.txt", localPath: "/home/me/gdrive/old.txt", since: iso(now - hour), needs: "nothing", key: "00000000000000a2" },
+                { kind: "removed-locally", pair: "docs", pairLabel: "Documents", path: "taxes/receipts.pdf", localPath: "/home/me/gdrive/taxes/receipts.pdf", since: iso(now - hour), needs: "nothing", key: "00000000000000a3" }
             ];
-            const record = { state: "idle", paused: false, units: "stale", lastSuccess: iso(now - hour), staleAfter: iso(now + hour), lastError: null, pairs: [pair], conflicts: conflicts, needsYou: 1, attention: { reasons: ["conflicts", "units-stale"], key: "0123456789abcdef", notified: false }, writtenAt: iso(now) };
+            const record = { state: "idle", paused: false, units: "stale", lastSuccess: iso(now - hour), staleAfter: iso(now + hour), lastError: null, pairs: [pair], conflicts: conflicts, needsYou: 1, dismissed: dismissed || [], attention: { reasons: ["conflicts", "units-stale"], key: "0123456789abcdef", notified: false }, writtenAt: iso(now) };
             const parsed = Logic.parseStatus(JSON.stringify(record));
             verify(parsed.ok, "the stub record is one the runner writes: " + JSON.stringify(parsed));
             return Logic.cloudValue(parsed.record, "");
@@ -268,6 +269,51 @@ Item {
             tabTo(order[0]);
             keyClick(Qt.Key_Return);
             compare(root.settingsOpened, 1, "the gear opens the Settings page");
+        }
+
+        // Dismiss on the first row that needs no action asks the service to
+        // dismiss that row's key, by Return and by a click. An action that
+        // holds the keyboard focus hands it to the fold line, which stays
+        // when the row leaves. Tab reaches the action first, since the body
+        // scrolls to what takes the focus and the row sits below the window.
+        function test_dismiss_asks_the_service_and_keeps_the_keyboard() {
+            const fold = control(panel.review.notesLine);
+            tabTo(fold);
+            keyClick(Qt.Key_Return);
+            compare(panel.notesOpen, true, "the fold opens");
+            waitForRendering(panel);
+            const key = panel.review.notes[0].action.key;
+            const dismiss = find(panel, item => "focusPolicy" in item && item.text === panel.review.notes[0].action.label);
+            verify(dismiss !== null, "the first row that needs no action draws its Dismiss");
+            root.calls = [];
+            tabTo(dismiss);
+            keyClick(Qt.Key_Return);
+            compare(root.calls, [["ipc", "dismiss", key]], "Return asks the service to dismiss the row's key");
+            compare(focused(), fold, "Return hands the focus to the fold line");
+            tabTo(dismiss);
+            waitForRendering(panel);
+            root.calls = [];
+            mouseClick(dismiss);
+            compare(root.calls, [["ipc", "dismiss", key]], "a click asks what Return asks");
+        }
+
+        // Return on the last row's Dismiss moves the focus on to Pause, the
+        // stop after the fold, which keeps it when the runner's record takes
+        // the row and the fold line away.
+        function test_dismiss_on_the_last_row_moves_the_focus_on() {
+            panel.shell = Object.assign(shell(), { status: { values: { cloud: cloud(["00000000000000a2"]) } } });
+            const fold = control(panel.review.notesLine);
+            tabTo(fold);
+            keyClick(Qt.Key_Return);
+            waitForRendering(panel);
+            const dismiss = find(panel, item => "focusPolicy" in item && item.text === panel.review.notes[0].action.label);
+            tabTo(dismiss);
+            keyClick(Qt.Key_Return);
+            const pause = control(panel.footer.pause.text);
+            compare(focused(), pause, "Return hands the focus to Pause");
+            panel.shell = Object.assign(shell(), { status: { values: { cloud: cloud(["00000000000000a2", "00000000000000a3"]) } } });
+            compare(panel.review.notesLine, "", "the fold line goes with the last row");
+            compare(focused(), pause, "Pause keeps the focus");
         }
 
         // The route answers `reason=missing` for a file that is gone: the

@@ -1793,6 +1793,86 @@ function caseNeedsAttention(runner) {
     assert.equal(status(w, runner).attention.key, asked.attention.key, "a note beside it keeps the key");
 }
 
+// Dismiss (VGS-1936): the popover's Dismiss keeps a row's key in the pause
+// record, and the record lists it while the row stands, across renders, a
+// pause and a pair list that cannot be read; a row that needs the user, a
+// key that names no row and a key that is no key are refused. A change to
+// the row makes a new key and drops the old one. A doubled name's key
+// follows its copies, and a dismissal of a record written before records
+// held `version` carries to the sync that adds it.
+function caseDismiss(runner) {
+    const w = world({ user: ACCOUNT });
+    assert.equal(cli(w, ["install"], runner).status, 0);
+    addPair(w, runner);
+    drive(w, "a.txt", "one\n", 1700000000);
+    runOk(w, runner);
+    writeRecords(w, [{ kind: "removed-on-drive", path: "a.txt" }, { kind: "both-changed", path: "a.txt" }]);
+    const controlFile = path.join(w.state, "control.json");
+    const kept = () => JSON.parse(read(controlFile)).dismissed;
+    const first = status(w, runner);
+    const note = first.conflicts.find(c => c.needs === "nothing"), needing = first.conflicts.find(c => c.needs === "you");
+    assert.ok(/^[0-9a-f]{16}$/.test(note.key) && note.key !== needing.key, "each row has its own key");
+    assert.deepEqual(first.dismissed, []);
+    const REFUSED = [
+        ["a row that needs the user", needing.key, 1, /^google-drive: refused: dismiss=needs-you key=/m],
+        ["a key that names no row", "ffffffffffffffff", 1, /^google-drive: refused: dismiss=unknown key=ffffffffffffffff$/m],
+        ["a key that is no key", "a.txt", 2, /^google-drive: refused: key=a\.txt$/m]
+    ];
+    for (const [label, key, code, line] of REFUSED) {
+        const out = cli(w, ["dismiss", key], runner);
+        assert.equal(out.status, code, label + ": " + out.stderr);
+        assert.match(out.stderr, line, label);
+    }
+    assert.deepEqual(status(w, runner).dismissed, [], "a refusal keeps nothing");
+    const dismissed = cli(w, ["dismiss", note.key], runner);
+    assert.equal(dismissed.status, 0, dismissed.stderr);
+    assert.equal(dismissed.stdout, "dismissed=" + note.key + "\n");
+    assert.deepEqual([JSON.parse(read(path.join(w.state, "status.json"))).dismissed, kept()], [[note.key], [note.key]], "the dismiss rewrites the record");
+    assert.deepEqual(status(w, runner).dismissed, [note.key], "a render of the same row keeps it");
+    for (const verb of ["pause", "resume"]) assert.equal(cli(w, [verb], runner).status, 0);
+    assert.deepEqual(kept(), [note.key], "a pause keeps it");
+    const pairsFile = path.join(w.home, ".config", "vgshell", "google-drive", "pairs.json");
+    const pairs = read(pairsFile);
+    write(pairsFile, "{\"pairs\": [");
+    assert.equal(cli(w, ["status", "--quiet"], runner).status, 0);
+    assert.deepEqual(kept(), [note.key], "a pair list that cannot be read drops nothing");
+    write(pairsFile, pairs);
+    writeRecords(w, [{ kind: "removed-on-drive", path: "a.txt", since: "2026-10-14T00:00:00.000Z" }, { kind: "both-changed", path: "a.txt" }]);
+    const changed = status(w, runner);
+    assert.notEqual(changed.conflicts.find(c => c.needs === "nothing").key, note.key, "a changed row has a new key");
+    assert.deepEqual([changed.dismissed, kept()], [[], []], "the old key is dropped");
+
+    // A doubled name: identical copies another account owns, which need
+    // nothing.
+    writeRecords(w, []);
+    drive(w, DUPLICATE, "listed twice\n", 1700000000);
+    const copies = modTime => [listedCopy(DUPLICATE, "c1", 13, MD5_ONE, OTHER), listedCopy(DUPLICATE, "c2", 13, MD5_ONE, OTHER)]
+        .map(c => Object.assign(c, { ModTime: modTime }));
+    plantDoubled(w, [[DUPLICATE, copies("2026-10-13T00:00:00Z")]]);
+    runOk(w, runner);
+    const doubled = () => status(w, runner).conflicts.find(c => c.path === DUPLICATE);
+    const before = doubled();
+    assert.equal(before.needs, "nothing");
+    runOk(w, runner);
+    assert.equal(doubled().key, before.key, "a sync of the same copies keeps the key");
+    plantDoubled(w, [[DUPLICATE, copies("2026-10-15T00:00:00Z")]]);
+    runOk(w, runner);
+    assert.notEqual(doubled().key, before.key, "a changed copy makes a new key");
+    // The record as a runner before `version` wrote it, dismissed; the next
+    // sync adds the version and keeps the dismissal.
+    const stateFile = path.join(w.state, "pairs", "docs", "state.json");
+    const state = JSON.parse(read(stateFile));
+    for (const r of state.records) delete r.version;
+    write(stateFile, JSON.stringify(state));
+    const unversioned = doubled();
+    assert.equal(cli(w, ["dismiss", unversioned.key], runner).status, 0);
+    runOk(w, runner);
+    const versioned = status(w, runner);
+    const row = versioned.conflicts.find(c => c.path === DUPLICATE);
+    assert.notEqual(row.key, unversioned.key, "the sync adds the version");
+    assert.deepEqual([versioned.dismissed, kept()], [[row.key], [row.key]], "the dismissal carries to the versioned record");
+}
+
 // The pair record's earlier doubled-name kind, which said nothing of the
 // copies, is dropped on the first invocation, with no credential or
 // network; the next sync that meets the name records it whole. A status
@@ -2583,6 +2663,13 @@ async function controls() {
     await mustFail("identical needs one size", mutant("identical needs one size", " && copies.every(c => c.Size === copies[0].Size);", ";"), r => caseDuplicateRecords(r, "same md5, another size"));
     await mustFail("folder listing only for a doubled name", mutant("folder listing only for a doubled name", "const folders = new Map();", "const folders = new Map([[\"\", []]]);"), caseDuplicateListing);
     await mustFail("a dangling shortcut needs nothing", mutant("a dangling shortcut needs nothing", "return DANGLING.test(record.reason) ? \"nothing\" : \"you\";", "return \"you\";"), caseNeedsAttention);
+    await mustFail("dismiss keeps the key", mutant("dismiss keeps the key", "if (control.dismissed.indexOf(key) === -1) writeJson(controlFile, Object.assign(control, { dismissed: control.dismissed.concat([key]) }));", ""), caseDismiss);
+    await mustFail("dismiss refuses a row that needs the user", mutant("dismiss refuses a row that needs the user", "if (row.needs === \"you\") refuse(", "if (false) refuse("), caseDismiss);
+    await mustFail("a stale key is dropped", mutant("a stale key is dropped", "if (control.dismissed.length !== status.dismissed.length) writeJson(", "if (false) writeJson("), caseDismiss);
+    await mustFail("an unreadable pair list drops nothing", mutant("an unreadable pair list drops nothing", "const dismissed = read.error !== null ? control.dismissed : ", "const dismissed = false ? control.dismissed : "), caseDismiss);
+    await mustFail("a pause keeps the dismissals", mutant("a pause keeps the dismissals", "writeJson(controlFile, Object.assign(next, { dismissed: control.dismissed }));", "writeJson(controlFile, next);"), caseDismiss);
+    await mustFail("the key follows the copies", mutant("the key follows the copies", "mine: mine, version: version };", "mine: mine };"), caseDismiss);
+    await mustFail("a dismissal carries to the versioned record", mutant("a dismissal carries to the versioned record", "if (carried.length > 0) writeJson(", "if (false) writeJson("), caseDismiss);
     await mustFail("only needs-you rows ask for attention", mutant("only needs-you rows ask for attention", "if (needing.length > 0) reasons.push(\"conflicts\");", "if (conflicts.length > 0) reasons.push(\"conflicts\");"), caseNeedsAttention);
     await mustFail("the key hashes needs-you rows", mutant("the key hashes needs-you rows", "needing.map(c => [c.kind, c.pair, c.path, c.since]), cause])", "conflicts.map(c => [c.kind, c.pair, c.path, c.since]), cause])"), caseNeedsAttention);
     await mustFail("the earlier doubled-name kind is dropped", mutant("the earlier doubled-name kind is dropped", "    if (oldDuplicates(state)) {", "    if (false) {"), r => caseDuplicateMigration(r, "not notified"));
@@ -2678,6 +2765,7 @@ async function main() {
     caseDuplicateRecords();
     caseDuplicateListing();
     caseNeedsAttention();
+    caseDismiss();
     caseDuplicateMigration();
     caseUnreadableKeepsBaseline();
     caseUnreadableDriveFolderGone();

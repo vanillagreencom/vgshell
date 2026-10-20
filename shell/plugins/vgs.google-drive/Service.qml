@@ -28,6 +28,9 @@ import "GoogleDriveLogic.js" as Logic
 //     sync      Sync now: starts the service through systemd; `ok`
 //     pause     pauses every pair; `ok`
 //     resume    resumes every pair; `ok`
+//     dismiss   with a review row's key as its argument, hides that row,
+//               one that needs nothing, until its record changes
+//               (bin/google-drive dismiss); `ok`
 //     refresh   renders the record and probes the keys again; `ok`
 // A request that fails is logged and shown in the popover as `problem`. An
 // answer the runner holds for the rename from the plugin's previous name
@@ -75,9 +78,10 @@ Item {
         if (shell === null || registered) return;
         registered = true;
         shell.ipc.handle("status", () => JSON.stringify(shell.status.values));
-        shell.ipc.handle("sync", () => root.act("start"));
-        shell.ipc.handle("pause", () => root.act("pause"));
-        shell.ipc.handle("resume", () => root.act("resume"));
+        shell.ipc.handle("sync", () => root.act(["start"]));
+        shell.ipc.handle("pause", () => root.act(["pause"]));
+        shell.ipc.handle("resume", () => root.act(["resume"]));
+        shell.ipc.handle("dismiss", key => root.act(["dismiss", key]));
         shell.ipc.handle("refresh", () => {
             root.refresh();
             root.probe();
@@ -148,9 +152,11 @@ Item {
         if (code === Logic.RUNNER_HELD) held.restart();
     }
 
-    // start, pause or resume; the runner's record write shows its effect.
-    function act(operation) {
-        client.request([operation], (ok, out, line, code) => {
+    // start, pause, resume or dismiss, the runner's verb and its
+    // arguments; the runner's record write shows its effect.
+    function act(args) {
+        const operation = args[0];
+        client.request(args, (ok, out, line, code) => {
             if (root.heldAnswer(code, line)) return;
             if (ok) root.succeeded(operation);
             else root.failed(operation, line);

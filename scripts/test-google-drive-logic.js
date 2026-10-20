@@ -22,6 +22,7 @@
 // to fail on it.
 "use strict";
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -67,10 +68,16 @@ const DRIVE_CONFLICTS = [
 // conflictsOf): IDENTICAL or not, MINE, and OWNER when given.
 const OWNER = "colleague@example.com";
 const doubled = (name, identical, mine, owner) => Object.assign({ kind: identical ? "duplicate-identical" : "duplicate-different", pair: "docs", pairLabel: "Documents", path: "legal/" + name, localPath: "/home/me/gdrive/legal/" + name, since: iso(NOW - HOUR), mine: mine, needs: !identical && mine ? "you" : "nothing" }, owner === undefined ? {} : { owner: owner });
+// A row's key as the runner writes one, 16 hex digits of a hash of the
+// whole row, so two rows that differ in any fact have two keys. The logic
+// only reads it.
+const keyOf = c => crypto.createHash("sha256").update(JSON.stringify(c)).digest("hex").slice(0, 16);
+const keyed = c => Object.prototype.hasOwnProperty.call(c, "key") ? c : Object.assign({ key: keyOf(c) }, c);
 // A record's `needsYou` is its count of rows that need the user, unless
-// OVER names it.
+// OVER names it, and each row carries its key unless it names one.
 function record(over) {
     const r = recordOf(over);
+    if (Array.isArray(r.conflicts)) r.conflicts = r.conflicts.map(c => c !== null && typeof c === "object" ? keyed(c) : c);
     if (!Object.prototype.hasOwnProperty.call(over || {}, "needsYou")) r.needsYou = r.conflicts.filter(c => c.needs === "you").length;
     return r;
 }
@@ -84,6 +91,7 @@ function recordOf(over) {
         lastError: { kind: "authorization-refused", at: iso(NOW - 60000), pair: "inbox", exit: 1 },
         pairs: [DOCS, INBOX],
         conflicts: CONFLICTS,
+        dismissed: [],
         attention: { reasons: ["authorization-required", "conflicts"], key: "0123456789abcdef", notified: false },
         writtenAt: iso(NOW)
     }, over || {});
@@ -192,7 +200,11 @@ function verify(L) {
         ["an owner on a row that is no doubled name", JSON.stringify(record({ conflicts: [Object.assign({}, CONFLICTS[1], { owner: OWNER })] })), "status=conflicts"],
         ["no needs-you count", JSON.stringify(record({ needsYou: undefined })), "status=needsYou"],
         ["a needs-you count as text", JSON.stringify(record({ needsYou: "1" })), "status=needsYou"],
-        ["a needs-you count that counts the notes", JSON.stringify(record({ needsYou: CONFLICTS.length })), "status=needsYou"]
+        ["a needs-you count that counts the notes", JSON.stringify(record({ needsYou: CONFLICTS.length })), "status=needsYou"],
+        ["a row with no key", JSON.stringify(record({ conflicts: [Object.assign({}, CONFLICTS[1], { key: undefined })] })), "status=conflicts"],
+        ["a key that is no key", JSON.stringify(record({ conflicts: [Object.assign({}, CONFLICTS[1], { key: "old.txt" })] })), "status=conflicts"],
+        ["no dismissed list", JSON.stringify(record({ dismissed: undefined })), "status=dismissed"],
+        ["a dismissal that is no key", JSON.stringify(record({ dismissed: ["old.txt"] })), "status=dismissed"]
     ];
     for (const [label, text, error] of bad) same(L.parseStatus(text), { ok: false, error }, label);
     // The runner's doubled-name records (bin/google-drive duplicateRecord,
@@ -604,7 +616,8 @@ function verify(L) {
     // Each review row by its fields: its needs mark and local-action flag
     // as the record and its kind give them, its name and place, the file
     // its name opens, and its action: Show older copy only on a row that
-    // needs the user and whose copy VGS kept here.
+    // needs the user and whose copy VGS kept here, and Dismiss, naming the
+    // row's key, on every row that needs nothing.
     const KEPT = "/home/me/.local/state/vgshell/google-drive/pairs/docs/conflicts/20261010T110000Z-7/taxes";
     const UNKNOWN_REASON = Object.assign({}, DRIVE_CONFLICTS[0], { path: "reports/Held.pdf", reason: "failed to open source object: stand-in cause", needs: "you" });
     const ROWS = [
@@ -636,7 +649,9 @@ function verify(L) {
     for (const [label, c, needs, local, folder, opens] of ROWS) {
         const [published, row] = rowOf(c);
         same([published.needs, published.localAction], [needs, local], label + ": the published row");
-        same([row.needs, row.action === null ? null : row.action.folder], [needs, folder], label + ": the popover row");
+        const action = needs === "nothing" ? { kind: "dismiss", key: keyOf(c) } : folder === null ? null : { kind: "folder", folder: folder };
+        same([row.needs, row.action === null ? null : Object.assign({ kind: row.action.kind }, row.action.kind === "folder" ? { folder: row.action.folder } : { key: row.action.key })],
+            [needs, action], label + ": the popover row");
         // The name opens the file while it is on this computer, and is
         // plain text while it is not.
         assert.equal(row.file, opens, label + ": the file the name opens");
@@ -691,6 +706,33 @@ function verify(L) {
     same([oneAndEightView.needs.length, oneAndEightView.notes.length, L.widgetView(oneAndEight, NOW).badge], [1, 8, "1"]);
     assert.ok(oneAndEightView.notesLine.startsWith("8 "), "the fold line counts eight notes: " + oneAndEightView.notesLine);
     same(L.reviewView(L.cloudValue(well({ conflicts: CONFLICTS.slice(0, 1) }), "")).notesLine, "", "no note, no fold line");
+    // Dismissal (VGS-1936): a dismissed row that needs nothing leaves the
+    // list and the fold line's count while the record names its key, so a
+    // sync that writes the same record again keeps it out; a change to the
+    // row makes a new key, which shows it again, before and after the
+    // runner drops the old key. A row that needs the user shows whatever
+    // the list names, and the fold line goes with the last row.
+    const NEED = keyed(CONFLICTS[0]), GONE = keyed(CONFLICTS[1]), STAYS = keyed(CONFLICTS[3]);
+    const CHANGED = keyed(Object.assign({}, CONFLICTS[1], { since: iso(NOW) }));
+    const LATER = { lastSuccess: iso(NOW), staleAfter: iso(NOW + 2 * HOUR), writtenAt: iso(NOW + 1) };
+    const DISMISSALS = [
+        // label, record fields, published paths, rows the fold line counts
+        ["a dismissed row leaves the list", { conflicts: [NEED, GONE, STAYS], dismissed: [GONE.key] }, [NEED.path, STAYS.path], 1],
+        ["a sync with the same record keeps it out", Object.assign({ conflicts: [NEED, GONE, STAYS], dismissed: [GONE.key] }, LATER), [NEED.path, STAYS.path], 1],
+        ["a changed record shows it again", Object.assign({ conflicts: [NEED, CHANGED, STAYS], dismissed: [GONE.key] }, LATER), [NEED.path, CHANGED.path, STAYS.path], 2],
+        ["the old key dropped, it still shows", Object.assign({ conflicts: [NEED, CHANGED, STAYS], dismissed: [] }, LATER), [NEED.path, CHANGED.path, STAYS.path], 2],
+        ["a row that needs the user is never dismissed", { conflicts: [NEED, GONE], dismissed: [NEED.key] }, [NEED.path, GONE.path], 1],
+        ["every row dismissed, no fold line", { conflicts: [GONE, STAYS], dismissed: [GONE.key, STAYS.key] }, [], 0]
+    ];
+    for (const [label, over, paths, folded] of DISMISSALS) {
+        const judgedDismissal = L.parseStatus(JSON.stringify(well(over)));
+        assert.equal(judgedDismissal.ok, true, label + ": " + judgedDismissal.error);
+        const dismissalCloud = L.cloudValue(judgedDismissal.record, "");
+        const dismissalView = L.reviewView(dismissalCloud);
+        same(dismissalCloud.conflicts.map(c => c.path), paths, label + ": the published list");
+        same([dismissalView.notes.length, dismissalView.notesLine === "" ? 0 : Number(dismissalView.notesLine.split(" ")[0])], [folded, folded], label + ": the fold line");
+        same([dismissalCloud.needsYou, L.widgetView(dismissalCloud, NOW).badge], [over.conflicts.includes(NEED) ? 1 : 0, over.conflicts.includes(NEED) ? "1" : ""], label + ": the count of files that need the user");
+    }
     const notes = Array.from({ length: L.CONFLICTS_MAX + 5 }, (_, i) => Object.assign({}, CONFLICTS[1], { path: "n" + i + ".txt" }));
     const overCap = L.cloudValue(well({ conflicts: notes.concat([CONFLICTS[0]]) }), "");
     assert.equal(overCap.conflicts.length, L.CONFLICTS_MAX);
@@ -806,14 +848,14 @@ const controls = [
     ["a gone file reads as a failure to open", "return / reason=missing$/.test(reply) ? \"gone\" : \"failed\";", "return \"failed\";"],
     ["a note hides the up-to-date sentence", "if (cloud.conflictCount > 0 || problemCallout(", "if (problemCallout("],
     ["up to date counts the folder pairs", "return (n === 1 ? \"Your folder pair matches Google Drive.\" : \"Your \" + n + \" folder pairs match Google Drive.\")", "return \"Your folder pairs match Google Drive.\""],
-    ["no surface calls a note to review", "notes\") + \" · nothing was lost\"", "notes\") + \" to review\""],
+    ["no surface calls a row that needs no action to review", "need no action\") + \" · nothing was lost\"", "need no action\") + \" to review\""],
     ["the fold line counts the record's notes", "var noteCount = cloud.conflictCount - cloud.needsYou;", "var noteCount = notes.length;"],
     ["the notes the list leaves out are counted", "notesRest = noteCount - notes.length;", "notesRest = 0;"],
     ["Needs you holds only the rows that need the user", "var needs = rows.filter(function (r) { return r.needs === \"you\"; });", "var needs = rows;"],
     ["a row's name opens its file here", "file: conflict.localPath !== undefined ? conflict.localPath : null,", "file: null,"],
     ["a row with no file here opens none", "conflict.localPath !== undefined ? conflict.localPath : null", "conflict.localPath !== undefined ? conflict.localPath : conflict.path"],
     ["the file here is published", "if (c.localPath !== undefined) out.localPath = c.localPath;", ""],
-    ["Show older copy only on a row that needs the user", "var action = needs && conflict.localAction && conflict.copyFolder !== undefined", "var action = conflict.copyFolder !== undefined"],
+    ["Show older copy only on a row that needs the user", "var action = !needs ? { kind: \"dismiss\"", "var action = !needs && conflict.copyFolder === undefined ? { kind: \"dismiss\""],
     ["a row names its pair and folders", "return [conflict.pairLabel].concat(at <= 0 ? [] : conflict.path.slice(0, at).split(\"/\")).join(PLACE_MARK);", "return conflict.pairLabel;"],
     ["the Settings sync value reads the headline", "var head = headline(cloud, now);\n    var value = {", "var head = stateView(cloud.state, cloud.staleAfter, now);\n    var value = {"],
     ["Set up again for units absent beside a pair", "return units === \"stale\" || (units === \"absent\" && hasPairs);", "return units === \"stale\";"],
@@ -854,8 +896,15 @@ const controls = [
     ["the earlier doubled-name kind is refused", "\"duplicate-different\"];\nvar DUPLICATE_KINDS", "\"duplicate-different\", \"duplicate-on-drive\"];\nvar DUPLICATE_KINDS"],
     ["the needs-you count is judged", "if (doc.needsYou !== doc.conflicts.filter(function (c) { return c.needs === \"you\"; }).length) return", "if (false) return"],
     ["the popover's data carries the needs-you count", "needsYou: record.needsYou,", ""],
-    ["rows that need the user come first", "needsFirst(record.conflicts).slice(0, CONFLICTS_MAX)", "record.conflicts.slice(0, CONFLICTS_MAX)"],
-    ["the cap cuts after the sort", "needsFirst(record.conflicts).slice(0, CONFLICTS_MAX)", "needsFirst(record.conflicts.slice(0, CONFLICTS_MAX))"],
+    ["rows that need the user come first", "needsFirst(shown).slice(0, CONFLICTS_MAX)", "shown.slice(0, CONFLICTS_MAX)"],
+    ["the cap cuts after the sort", "needsFirst(shown).slice(0, CONFLICTS_MAX)", "needsFirst(shown.slice(0, CONFLICTS_MAX))"],
+    ["a dismissed row leaves the list", "return c.needs === \"you\" || record.dismissed.indexOf(c.key) === -1;", "return true;"],
+    ["a row that needs the user is never dismissed", "return c.needs === \"you\" || record.dismissed.indexOf(c.key) === -1;", "return record.dismissed.indexOf(c.key) === -1;"],
+    ["the fold line counts the rows not dismissed", "conflictCount: shown.length,", "conflictCount: record.conflicts.length,"],
+    ["a row carries its key", "        out.key = c.key;\n", ""],
+    ["a row needs its key", " && isText(c.key) && CONFLICT_KEY.test(c.key)", ""],
+    ["the dismissed list is judged", "if (!Array.isArray(doc.dismissed) ||", "if (false &&"],
+    ["a row that needs nothing offers Dismiss", "var action = !needs ? { kind: \"dismiss\"", "var action = false ? { kind: \"dismiss\""],
     ["a row carries the record's needs", "needs: c.needs, localAction:", "needs: \"you\", localAction:"],
     ["a fix in Google Drive has no local action", "return LOCAL_ACTION_KINDS.indexOf(conflict.kind) !== -1 && conflict.localPath !== undefined;", "return conflict.localPath !== undefined;"],
     ["the local-action flag is published", "localAction: hasLocalAction(c) };", "localAction: true };"],

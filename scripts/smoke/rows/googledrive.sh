@@ -20,7 +20,10 @@
 # the terminal the remove TUI for that pair; with one file that needs the
 # user and eight notes the bar counts 1, and a click on the bar icon opens
 # the popover, no Google Drive window, whose Needs you lists that file and
-# whose notes fold into one line a click unfolds; its Sync now is held
+# whose eight files that need no action fold into one line a click
+# unfolds; a click on Dismiss under the first of them has the runner keep
+# its key, takes the row out of the published list and the fold line's
+# count, and the row stays out across a shell restart; its Sync now is held
 # while a run holds its copy, and asks systemd to start the one service,
 # which the systemctl stand-in logs, and runs no rclone; a click on the
 # file's name, a link, hands the terminal the core editor on that file
@@ -44,11 +47,12 @@
 # takes the headline as its tooltip title over the published labels and
 # states, never a file name. Must-fail controls:
 # runner copies with a dry-run copy, with every displaced file taken as
-# the runner's own and with the pair lock always granted each fail their
-# check in a world of their own; a plugin copy whose service drops every
-# read of the record leaves a pause the runner writes unpublished. The row
-# ends with the pair removed, the units gone and the plugin disabled, as
-# it found it, and its stand-ins removed. No latency reading.
+# the runner's own, with the pair lock always granted and with a dismiss
+# that keeps no key each fail their check in a world of their own; a
+# plugin copy whose service drops every read of the record leaves a pause
+# the runner writes unpublished. The row ends with the pair removed, the
+# units gone and the plugin disabled, as it found it, and its stand-ins
+# removed. No latency reading.
 # inputs: shell/plugins/vgs.google-drive/* shell/plugins/vgs.settings/* shell/plugins/vgs.notifications/* shell/Commons/PageReference.js shell/Ui/feedback/LinkText.qml shell/Ui/feedback/Callout.qml shell/Ui/layout/ListItem.qml shell/Ui/layout/Pane.qml shell/Hosts/SummonPopup.qml shell/Hosts/PluginSlot.qml shell/Commons/WatchedFile.qml shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml bin/vgshell-tui
 set -euo pipefail
 cs_dir="$sandbox/googledrive"
@@ -115,6 +119,13 @@ cs_account() { cs_values | py_reply 'import json,sys; v=json.load(sys.stdin); a=
 # A row action of the Settings list: the manager's answer to ROW's
 # ROW_ACTION of entry KEY, as the row's button hands it to the window.
 settings_row_act() { ipc smoke invokeInstanceArgs window vgs.settings act "{\"args\":[\"$1\",\"$2\",\"$3\",\"$4\"]}"; }
+# The dismissed keys the runner's record holds; whether the published
+# list holds the row of KEY, `listed` or `absent`; the key of the first
+# row the popover folds, the one whose Dismiss is drawn first.
+cs_record_dismissed() { cs status | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["dismissed"]))'; }
+cs_published_has() { cs_values | py_reply 'import json,sys; c=json.load(sys.stdin).get("cloud", {}).get("conflicts", []); print("listed" if any(x["key"] == sys.argv[1] for x in c) else "absent")' "$1"; }
+cs_first_folded_key() { ipc smoke readInstance panel vgs.google-drive review | py_reply 'import json,sys; r=json.load(sys.stdin)["notes"]; print(r[0]["action"]["key"] if r and r[0]["action"] and r[0]["action"]["kind"] == "dismiss" else "none")'; }
+cs_folded_count() { ipc smoke readInstance panel vgs.google-drive review | py_reply 'import json,sys; print(len(json.load(sys.stdin)["notes"]))'; }
 cs_published_conflicts() { cs_values | py_reply 'import json,sys; c=json.load(sys.stdin).get("cloud", {}).get("conflicts", []); print(json.dumps(sorted([x["kind"], x["path"]] for x in c)))'; }
 cs_keys() { cs_values | py_reply 'import json,sys; v=json.load(sys.stdin); print(json.dumps([[k["secret"], k["value"]] for k in v.get("keys", [])]))'; }
 cs_lent() { ipc shell lent | py_reply 'import json,sys; d=json.load(sys.stdin); r=d["status"].get("vgs.google-drive"); print(json.dumps([sorted(r["keys"]) if r else None, "vgs.google-drive" in d["ipcTargets"]]))'; }
@@ -237,6 +248,12 @@ check_removed() {
   expect "the file Drive removed stays" "added on Drive" cs_read b.txt
   expect "the file Drive removed returns to Drive" "added on Drive" cat -- "$cs_drive/b.txt"
   expect "the record reads removed-on-drive" "$want" cs_conflicts
+}
+check_dismiss() {
+  local key
+  key="$(cs status | py_reply 'import json,sys; print(next((c["key"] for c in json.load(sys.stdin)["conflicts"] if c["path"] == "b.txt"), "none"))')" || key=none
+  expect "the runner dismisses the Drive deletion's row" "dismissed=$key" cs dismiss "$key"
+  expect "the runner keeps the dismissal across a render" "[\"$key\"]" cs_record_dismissed
 }
 check_removed_locally() {
   cs_put local-gone.txt "drive copy"
@@ -514,7 +531,7 @@ SH
   expect_poll "Needs you draws the file's name as a link" drawn cs_panel_drawn LinkText a.txt
   expect "a folded note is not drawn" absent cs_panel_drawn LinkText n1.txt
   expect "the popover offers Sync now with a folder pair" '[true, true]' cs_panel_footer
-  expect "the notes line is clicked" ok cs_panel_press ListItem "8 notes · nothing was lost"
+  expect "the notes line is clicked" ok cs_panel_press ListItem "8 files need no action · nothing was lost"
   expect_poll "the notes line unfolds the notes" true cs_notes_open
   expect_poll "an unfolded note draws its name as a link" drawn cs_panel_drawn LinkText n1.txt
 
@@ -546,7 +563,7 @@ SH
   # a PDF note opens in its default application, through `gio open`, and
   # starts no editor, and closes the popover as the editor's file does.
   cs_open_popover "the popover for a gone file"
-  expect "the notes line is clicked for the gone file" ok cs_panel_press ListItem "8 notes · nothing was lost"
+  expect "the notes line is clicked for the gone file" ok cs_panel_press ListItem "8 files need no action · nothing was lost"
   expect_poll "the notes line unfolds for the gone file" true cs_notes_open
   # The last notes sit below the popover's fold, so the body scrolls to
   # them before a click lands on one.
@@ -640,6 +657,24 @@ SH
   expect_run_end "the Settings remove run ends" vgs.google-drive/remove-pair
   settings_page_close vgs.google-drive
 
+  # Dismiss under the first file that needs no action has the runner keep
+  # its key, and the row leaves the published list and the fold line; the
+  # pause section's restart below reads it still out.
+  local dismissed_key folded
+  cs_open_popover "the popover for Dismiss"
+  expect "the fold line is clicked for Dismiss" ok cs_panel_press ListItem "8 files need no action · nothing was lost"
+  expect_poll "the fold line unfolds for Dismiss" true cs_notes_open
+  expect_poll "the first Dismiss holds its box" stable cs_item_settled RowAction Dismiss
+  dismissed_key="$(cs_first_folded_key)" || dismissed_key=none
+  folded="$(cs_folded_count)" || folded=0
+  expect "the first folded row is listed before Dismiss" listed cs_published_has "$dismissed_key"
+  expect "Dismiss is clicked" ok cs_panel_press RowAction Dismiss
+  expect_poll "the runner keeps the dismissed key" "[\"$dismissed_key\"]" cs_record_dismissed
+  expect_poll "the dismissed row leaves the published list" absent cs_published_has "$dismissed_key"
+  expect_poll "the fold line counts one row fewer" "$((folded - 1))" cs_folded_count
+  expect "the popover hides after Dismiss" ok ipc shell hide panel vgs.google-drive
+  expect_poll "the popover is gone after Dismiss" hidden cs_panel_shown
+
   # Pause stops the next run's copy and survives a restart.
   cs_put d.txt "while paused"
   expect "Pause through the service" ok ipc vgs.google-drive invoke pause ""
@@ -651,6 +686,8 @@ SH
   expect_poll "after a restart the service publishes the pause" true cs_value cloud.paused
   expect_poll "after a restart the sync still names the file that needs the user" '["warning", "1 file needs you"]' cs_sync
   expect_poll "after a restart the pair reads paused" '["Documents: Paused"]' cs_value sync.lines
+  expect_poll "after a restart the dismissed row stays out of the published list" absent cs_published_has "$dismissed_key"
+  expect "after a restart the runner still keeps the dismissed key" "[\"$dismissed_key\"]" cs_record_dismissed
   expect "Resume through the service" ok ipc vgs.google-drive invoke resume ""
   expect_poll "the service publishes the resume" false cs_value cloud.paused
   expect "a resumed run copies the add" "pair=docs result=idle exit=0" cs_answer run
@@ -666,6 +703,7 @@ SH
   expect "control: every displaced file taken as the runner's own fails the both-changed check" red control_red both-changed "const unedited = base !== undefined" "const unedited = true || base !== undefined" check_copy check_local_edit
   expect "control: drive.file creates a second shared folder" red control_red full-drive-scope 'const DRIVE_SCOPE = "drive";' 'const DRIVE_SCOPE = "drive.file";' check_shared_folder
   expect "control: a lock always granted fails the lock check" red control_red lock "if (out.status === 0) return fd;" "if (out.status === 0 || true) return fd;" check_copy check_lock
+  expect "control: a dismiss that keeps no key fails the dismiss check" red control_red dismiss 'if (control.dismissed.indexOf(key) === -1) writeJson(controlFile, Object.assign(control, { dismissed: control.dismissed.concat([key]) }));' '' check_copy check_removed check_dismiss
 
   # Control: a plugin copy whose service drops every read of the record
   # leaves a pause the runner writes unpublished.

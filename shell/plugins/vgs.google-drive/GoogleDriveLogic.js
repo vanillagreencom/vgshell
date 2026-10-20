@@ -19,6 +19,8 @@ var DUPLICATE_KINDS = ["duplicate-identical", "duplicate-different"];
 // Whether a review record needs the user or only says what the sync did
 // (bin/google-drive needsOf decides it; this file only reads it).
 var NEEDS = ["you", "nothing"];
+// A review row's key, bin/google-drive conflictKey: a dismissal names it.
+var CONFLICT_KEY = /^[0-9a-f]{16}$/;
 // The kinds whose row has an action on this computer: each leaves the file
 // here, where the user checks it or deletes it. A name Drive holds twice
 // and a file the download could not copy are fixed in Google Drive, so
@@ -80,19 +82,19 @@ var ERROR_DEFAULT = "The sync stopped with an error. VGS tries again at the next
 // A missing sign-in, the token's credential-absent.
 var SIGNED_OUT_TEXT = "Google Drive is not signed in. [Sign in on the Google Drive Setup tab](page:vgs.google-drive/Setup).";
 // Each review row's one line: what the sync did, then what the user does,
-// or that nothing is lost and how to clear the note. A variant key is the
-// record's kind, or a kind and its case (conflictVariant). {to} is a
-// Drive rename's new name, {owner} the address that owns a doubled name's
-// copies. VGS keeps a displaced copy for 30 days (bin/google-drive
-// KEEP_MS); Drive keeps an earlier revision of an upload under its own
-// retention (developer.md).
+// or that nothing is lost and how to remove the row from the list. A
+// variant key is the record's kind, or a kind and its case
+// (conflictVariant). {to} is a Drive rename's new name, {owner} the address
+// that owns a doubled name's copies. VGS keeps a displaced copy for 30 days
+// (bin/google-drive KEEP_MS); Drive keeps an earlier revision of an upload
+// under its own retention (developer.md).
 var CONFLICT_TEXT = {
     "both-changed-kept": "Changed here and on Google Drive. The Google Drive version is here now. Compare it with the copy that was here, which VGS keeps for 30 days.",
     "both-changed": "Changed here and on Google Drive. The copy here was newer, so VGS copied it to Google Drive. If you need the other version, open the file's version history in Google Drive.",
     "removed-locally": "Removed here. VGS put it back from Google Drive, so nothing is lost. If you do not want it, delete it here and in Google Drive.",
     "removed-on-drive": "Removed from Google Drive. VGS put it back from this computer, so nothing is lost. If you do not want it, delete it here and in Google Drive.",
     renamed: "Renamed to {to} on Google Drive. VGS deletes no file, so both names are now here and on Google Drive. If you do not want this name, delete it here and in Google Drive.",
-    "duplicate-identical": "Google Drive has identical copies of this file, so nothing is lost. To clear this note, keep one copy in Google Drive and delete the others.",
+    "duplicate-identical": "Google Drive has identical copies of this file, so nothing is lost. To remove it from this list, keep one copy in Google Drive and delete the others.",
     "duplicate-identical-shared": "Google Drive has identical copies of this file, so nothing is lost. Only {owner}, who shared them with you, can remove a copy.",
     "duplicate-identical-unowned": "Google Drive has identical copies of this file, so nothing is lost. Only their owner can remove a copy.",
     "duplicate-different": "Google Drive has different files with this name, and VGS copied only one of them. In Google Drive, rename one so VGS copies both, or delete the one you do not need.",
@@ -105,8 +107,9 @@ var CONFLICT_TEXT = {
 var CONFLICT_INFO = {
     "both-changed-kept": "VGS deletes a kept copy after 30 days, so old copies do not fill your disk. To keep the copy for longer, move it out of its folder."
 };
-// A review row's mark: a file that needs the user, else a note by its
-// kind, a doubled name, a file not copied, or a file the sync kept.
+// A review row's mark: a file that needs the user, else a file that
+// needs no action by its kind, a doubled name, a file not copied, or a
+// file the sync kept.
 var NEEDS_ICON = "file-exclamation-point";
 var NOTE_ICONS = { "duplicate-identical": "copy", "duplicate-different": "copy", "unreadable-on-drive": "link-2-off" };
 var NOTE_ICON = "file-check";
@@ -182,7 +185,8 @@ var PROBLEM_TEXT = {
     pause: "VGS could not pause the Google Drive sync.",
     resume: "VGS could not resume the Google Drive sync.",
     status: "VGS could not read the Google Drive status.",
-    probe: "VGS could not check the Google Drive keys."
+    probe: "VGS could not check the Google Drive keys.",
+    dismiss: "VGS could not remove the file from the list."
 };
 
 // Where a file that needs the user is shown: the bar icon's popover.
@@ -241,7 +245,7 @@ function conflictOk(c) {
         && ((c.kind === "unreadable-on-drive" && !hasOwn(c, "localPath")) || (isText(c.localPath) && c.localPath.charAt(0) === "/"))
         && (c.kind !== "both-changed" || !hasOwn(c, "storedPath") || (isText(c.storedPath) && c.storedPath.charAt(0) === "/"))
         && (c.kind !== "renamed" || isText(c.to)) && (c.kind !== "unreadable-on-drive" || isText(c.reason)) && isTime(c.since)
-        && NEEDS.indexOf(c.needs) !== -1
+        && NEEDS.indexOf(c.needs) !== -1 && isText(c.key) && CONFLICT_KEY.test(c.key)
         && (duplicate ? typeof c.mine === "boolean" : !hasOwn(c, "mine"))
         && (!hasOwn(c, "owner") || (duplicate && c.mine === false && isAddress(c.owner)));
 }
@@ -265,6 +269,7 @@ function parseStatus(text) {
     if (!Array.isArray(doc.pairs) || !doc.pairs.every(pairOk)) return { ok: false, error: "status=pairs" };
     if (!Array.isArray(doc.conflicts) || !doc.conflicts.every(conflictOk)) return { ok: false, error: "status=conflicts" };
     if (doc.needsYou !== doc.conflicts.filter(function (c) { return c.needs === "you"; }).length) return { ok: false, error: "status=needsYou" };
+    if (!Array.isArray(doc.dismissed) || !doc.dismissed.every(function (k) { return isText(k) && CONFLICT_KEY.test(k); })) return { ok: false, error: "status=dismissed" };
     if (doc.attention !== null && !(isObject(doc.attention) && Array.isArray(doc.attention.reasons) && isText(doc.attention.key)
         && typeof doc.attention.notified === "boolean"))
         return { ok: false, error: "status=attention" };
@@ -388,7 +393,7 @@ function copyFolder(conflict) {
 
 // CONFLICTS with the rows that need the user first, each part in the
 // record's order, so neither the review list's cap nor its byte ceiling
-// cuts a row that needs the user while a note stands.
+// cuts a row that needs the user while a row that needs nothing stands.
 function needsFirst(conflicts) {
     return conflicts.filter(function (c) { return c.needs === "you"; }).concat(conflicts.filter(function (c) { return c.needs !== "you"; }));
 }
@@ -397,15 +402,20 @@ function needsFirst(conflicts) {
 // with times as epoch milliseconds, each pair with its folder on this
 // computer, `local`, and `needsYou`, the count of its own files that need
 // the user, `needsYou`, the record's count of rows that need the user,
-// the review list needs-first and capped, and the last failed request.
-// Each conflict carries the record's `needs`, `localAction`, whether it
+// the review list needs-first and capped, `conflictCount`, the count of
+// its rows, and the last failed request. The review list and its count
+// leave out each row that needs nothing whose key the record's `dismissed`
+// names; a row that needs the user is never left out. Each conflict
+// carries its `key`, the record's `needs`, `localAction`, whether it
 // has an action on this computer, `localPath`, the file on this computer
 // while the runner names one, `copyFolder`, the folder of a kept copy, a
 // file not copied `why`, its line from rclone's reason, and a doubled
 // name `mine` and, when the record names one, `owner`.
 function cloudValue(record, problem) {
-    var conflicts = needsFirst(record.conflicts).slice(0, CONFLICTS_MAX).map(function (c) {
+    var shown = record.conflicts.filter(function (c) { return c.needs === "you" || record.dismissed.indexOf(c.key) === -1; });
+    var conflicts = needsFirst(shown).slice(0, CONFLICTS_MAX).map(function (c) {
         var out = { kind: c.kind, pairLabel: c.pairLabel, path: c.path, since: msOf(c.since), needs: c.needs, localAction: hasLocalAction(c) };
+        out.key = c.key;
         if (c.localPath !== undefined) out.localPath = c.localPath;
         var copy = copyFolder(c);
         if (copy !== undefined) out.copyFolder = copy;
@@ -430,7 +440,7 @@ function cloudValue(record, problem) {
                 needsYou: own.filter(function (c) { return c.needs === "you"; }).length };
         }),
         conflicts: conflicts,
-        conflictCount: record.conflicts.length,
+        conflictCount: shown.length,
         needsYou: record.needsYou,
         problem: problem
     };
@@ -449,8 +459,8 @@ function needsLine(count) {
 // install at its add could not finish, then Sign-in needed or a failed
 // sync, of the whole sync or of any pair, since the runner ranks a running
 // pair above another pair's failure; then the files that need the user,
-// then the state, an idle one by the data's age. A note, a row that needs
-// nothing, never raises the headline. `cause` is the state, `no-pairs` or
+// then the state, an idle one by the data's age. A row that needs
+// nothing never raises the headline. `cause` is the state, `no-pairs` or
 // `needs-you`. With no folder pair nothing asks for the hourly sync: the
 // first pair installs it (bin/google-drive pairAddVerb).
 function headline(cloud, now) {
@@ -718,11 +728,11 @@ var BAR_TONES = { ok: "calm", info: "calm", warning: "warning", danger: "danger"
 
 // The bar widget: { hidden, icon, tone, spinning, badge }, the headline's
 // icon and tone (calm, warning or danger), and badge the count of files
-// that need the user as BarItem's `count` text, "" for none: a note never
-// counts. The icon is hidden until a folder pair exists, so a bar that
-// places it before setup shows nothing to act on, but not while the pair
-// list cannot be read. CLOUD is the published value, undefined before the
-// first.
+// that need the user as BarItem's `count` text, "" for none: a row that
+// needs nothing never counts. The icon is hidden until a folder pair
+// exists, so a bar that places it before setup shows nothing to act on, but
+// not while the pair list cannot be read. CLOUD is the published value,
+// undefined before the first.
 function widgetView(cloud, now) {
     if (cloud === undefined || cloud === null || (cloud.pairs.length === 0 && pairListValid(cloud))) return { hidden: true, icon: "cloud", tone: "calm", spinning: false, badge: "" };
     var head = headline(cloud, now);
@@ -862,26 +872,30 @@ function placeOf(conflict) {
 // its place (placeOf), its one line (conflictVariant, or for a file not
 // copied the line of its reason), why a limit that line states holds
 // (CONFLICT_INFO, "" for none), its mark, the published `needs`, and its
-// action on this computer, or null: Show older copy, which opens the
-// folder of the copy VGS kept, on a row that needs the user and has a
-// local action. A note has none: its fix, if any, is in Google Drive. The
-// popover wraps each line, so none is cut.
+// action, or null: { kind: "folder", label, folder }, Show older copy,
+// which opens the folder of the copy VGS kept, on a row that needs the
+// user and has a local action; { kind: "dismiss", label, key }, Dismiss,
+// on every row that needs nothing, which hides it until its record
+// changes. A row that needs the user has no Dismiss, since its fix is
+// still the user's. The popover wraps each line, so none is cut.
 function conflictRow(conflict) {
     var variant = conflict.kind === "unreadable-on-drive" ? "" : conflictVariant(conflict);
     var what = variant === "" ? conflict.why : CONFLICT_TEXT[variant]
         .replace("{to}", function () { return conflict.to; })
         .replace("{owner}", function () { return conflict.owner; });
     var needs = conflict.needs === "you";
-    var action = needs && conflict.localAction && conflict.copyFolder !== undefined ? { label: "Show older copy", folder: conflict.copyFolder } : null;
+    var action = !needs ? { kind: "dismiss", label: "Dismiss", key: conflict.key }
+        : conflict.localAction && conflict.copyFolder !== undefined ? { kind: "folder", label: "Show older copy", folder: conflict.copyFolder } : null;
     return { name: conflict.path.slice(conflict.path.lastIndexOf("/") + 1), file: conflict.localPath !== undefined ? conflict.localPath : null, place: placeOf(conflict), detail: what, info: hasOwn(CONFLICT_INFO, variant) ? CONFLICT_INFO[variant] : "",
         icon: needs ? NEEDS_ICON : hasOwn(NOTE_ICONS, conflict.kind) ? NOTE_ICONS[conflict.kind] : NOTE_ICON, needs: conflict.needs, action: action };
 }
 
 // The popover's review: { needs, notes, notesLine, moreNeeds, moreNotes },
-// the rows that need the user and the notes, each in the published order;
-// the line the notes fold into, "" with none; and the line that counts
-// each part's rows the published list leaves out (cloudValue's cap), ""
-// when it holds them all. The counts are the record's, not the list's.
+// the rows that need the user and the rows that need no action, each in
+// the published order; the line the rows that need no action fold into,
+// "" with none; and the line that counts each part's rows the published
+// list leaves out (cloudValue's cap), "" when it holds them all. The
+// counts are the record's less its dismissed rows, not the list's.
 function reviewView(cloud) {
     var rows = cloud.conflicts.map(conflictRow);
     var needs = rows.filter(function (r) { return r.needs === "you"; });
@@ -891,9 +905,9 @@ function reviewView(cloud) {
     return {
         needs: needs,
         notes: notes,
-        notesLine: noteCount === 0 ? "" : (noteCount === 1 ? "1 note" : noteCount + " notes") + " · nothing was lost",
+        notesLine: noteCount === 0 ? "" : (noteCount === 1 ? "1 file needs no action" : noteCount + " files need no action") + " · nothing was lost",
         moreNeeds: needsRest <= 0 ? "" : needsRest === 1 ? "1 more file needs you" : needsRest + " more files need you",
-        moreNotes: notesRest <= 0 ? "" : notesRest === 1 ? "1 more note" : notesRest + " more notes"
+        moreNotes: notesRest <= 0 ? "" : notesRest === 1 ? "1 more file needs no action" : notesRest + " more files need no action"
     };
 }
 
