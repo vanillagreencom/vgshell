@@ -34,7 +34,7 @@
     "tapToClick": { "type": "boolean", "label": "Tap to click", "description": "Tap the touchpad to click", "group": "Touchpad" },
     "touchpadNaturalScroll": { "type": "boolean", "label": "Natural scroll", "description": "Move content in the same direction as your fingers", "group": "Touchpad" },
     "disableWhileTyping": { "type": "boolean", "label": "Disable while typing", "description": "Ignore touchpad movement while you type", "group": "Touchpad" },
-    "clickMethod": { "type": "boolean", "label": "Two-finger right-click", "description": "Click with two fingers to right-click", "group": "Touchpad" },
+    "clickMethod": { "type": "boolean", "label": "Two-finger right-click", "group": "Touchpad" },
     "touchpadScrollFactor": { "type": "number", "label": "Touchpad scroll speed", "description": "How fast the touchpad scrolls", "min": 0, "max": 2, "step": 0.05, "unit": "×", "group": "Touchpad" },
     "touchpadEnabled": { "type": "boolean", "label": "Touchpad", "description": "Turn the touchpad on or off", "group": "Touchpad" }
   },

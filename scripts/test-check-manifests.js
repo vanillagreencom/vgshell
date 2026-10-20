@@ -8,7 +8,7 @@
 // reads from the shipped icon set, the bar widget settings order (a valid
 // order passes; layout not first, layout outside Readings, the shared
 // Readings fields out of order and an ungrouped field, which the page
-// draws before Readings, are refused), a Setup guide whose README holds
+// draws before Readings, are refused), a hint that repeats its label, a Setup guide whose README holds
 // no heading of its anchor, and the base listing: a directory without a manifest is not a plugin, an absent or
 // unreadable base exits 2. Each row asserts the printed verdict line and the
 // exit status. The check runs in a child node with an explicit environment.
@@ -168,6 +168,19 @@ widgetRow("a bar widget with labelStyle after refreshSeconds is refused", [["lay
 // The Settings page draws ungrouped fields before every group, wherever
 // the schema lists them.
 widgetRow("a bar widget with an ungrouped field, drawn before Readings, is refused", [["layout", "Readings"], ["refreshSeconds", "Readings"], ["show", null]], 1, "settings order schema.show:");
+// A hint says what its label does not: one whose every meaningful word
+// stands in the label is refused, in a schema description and a status hint;
+// a hint that adds a word passes.
+const hinted = (label, hint) => Object.assign({}, good, { capabilities: ["status"], settings: { show: true },
+    schema: { show: { type: "boolean", label: label, description: hint } },
+    status: { fact: { type: "text", label: label, hint: hint } } });
+function hintRow(name, label, hint, wantStatus, wantLine) {
+    row(name, tmp => { const d = path.join(tmp, "a"); plugin(d, hinted(label, hint), true); return ["--", d]; }, wantStatus, wantLine, wantStatus === 0 ? "repeats its label" : "ok       acme.one");
+}
+hintRow("a hint that adds a word to its label passes", "Show seconds", "Show the seconds in the clock", 0, "ok       acme.one");
+hintRow("a hint that repeats its label is refused", "Show seconds", "Show the seconds", 1, "schema.show.description: repeats its label");
+hintRow("a hint that repeats its label in the plural is refused", "Show seconds", "Show second", 1, "schema.show.description: repeats its label");
+row("a status hint that repeats its label is refused", tmp => { const d = path.join(tmp, "a"); plugin(d, Object.assign({}, hinted("Show seconds", "Needed to sync"), { schema: {}, settings: {}, status: { fact: { type: "text", label: "Clock seconds", hint: "The clock seconds" } } }), true); return ["--", d]; }, 1, "status.fact.hint: repeats its label", "ok       acme.one");
 // Permission bits bind only a non-root uid.
 if (process.getuid() !== 0) {
     row("a plugin directory the scan cannot read exits 2", tmp => { plugin(path.join(tmp, "a"), good, true); plugin(path.join(tmp, "locked"), good, true); fs.chmodSync(path.join(tmp, "locked"), 0o000); return ["--base", tmp]; }, 2, tmp => "check-manifests: unreadable: " + path.join(tmp, "locked") + ": cannot read manifest: Permission denied");

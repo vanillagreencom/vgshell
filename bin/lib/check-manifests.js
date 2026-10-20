@@ -27,6 +27,10 @@
 // share: every field grouped, `layout` first in group "Readings", and the
 // Readings fields starting with the shared ones it offers in
 // READINGS_ORDER, so like widgets show their Settings pages in one order.
+// A schema entry's `description` and a status entry's `hint` say something
+// its label does not (docs/architecture/design-system.md § Copy): a hint
+// whose every word, bar the small words of a sentence, stands in its label
+// is refused.
 // Prints one line per plugin. Exit 0 when every manifest is
 // valid, 1 when any is refused, 2 when a directory or file cannot be read or
 // the invocation is bad, each as one keyed line:
@@ -158,6 +162,31 @@ function readingsOrderDefect(manifest) {
     return "";
 }
 
+// The words that carry no meaning of their own in a hint.
+const SMALL_WORDS = new Set(["a", "an", "the", "to", "of", "in", "on", "at", "for", "and", "or", "your", "you", "it", "its", "is", "are", "be", "this", "that", "with", "as", "by", "from", "when", "while", "if", "so"]);
+
+// The words of TEXT that carry meaning, lower case with a plural s dropped.
+function meaningWords(text) {
+    return (text.toLowerCase().match(/[\p{L}\p{N}]+/gu) || []).filter(word => !SMALL_WORDS.has(word)).map(word => word.replace(/s$/, ""));
+}
+
+// The refusal for a manifest's hints that restate their labels, as
+// "schema.KEY.description: cause", or "".
+function restatedHint(manifest) {
+    const entries = [["schema", "description", manifest.schema], ["status", "hint", manifest.status]];
+    for (const [table, field, declared] of entries) {
+        for (const key of Object.keys(declared)) {
+            const entry = declared[key];
+            if (typeof entry.label !== "string" || typeof entry[field] !== "string") continue;
+            const hint = meaningWords(entry[field]);
+            const label = meaningWords(entry.label);
+            if (hint.length > 0 && hint.every(word => label.indexOf(word) !== -1))
+                return table + "." + key + "." + field + ": repeats its label; keep a hint only where the user cannot act without it";
+        }
+    }
+    return "";
+}
+
 let refused = 0;
 const seen = {};
 const defaultKeys = {};
@@ -249,6 +278,12 @@ for (const { dir, text } of manifests()) {
     const orderDefect = readingsOrderDefect(r.manifest);
     if (orderDefect !== "") {
         console.log("refused  " + dir + ": settings order " + orderDefect);
+        refused += 1;
+        missing = true;
+    }
+    const restated = restatedHint(r.manifest);
+    if (restated !== "") {
+        console.log("refused  " + dir + ": hint " + restated);
         refused += 1;
         missing = true;
     }
