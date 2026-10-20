@@ -17,11 +17,12 @@ import "ListCursorLogic.js" as Logic
 // The list owns its selection, which the keyboard moves. A row hands the
 // cursor itself through `follow(row, holds)` while it holds the
 // selection. A hover takes the plate, `hovered`, only once `hoverTakes`
-// answers true: after `disarm()`, which a keyboard step and a rebuilt list
-// call, the pointer must move before it takes the plate again, so a
-// pointer resting over a list that moves under it never takes it from the
-// keyboard. A pick list, whose selection is the pick highlight alone, as a
-// menu's or a select's is, also moves its selection on the row's
+// answers true: after `disarm()`, which a keyboard step calls, or
+// `rebuilt()`, which a list calls when its rows change, the pointer must
+// move before it takes the plate again, so a pointer resting over a list
+// that moves under it never takes it from the keyboard. A pick list, whose
+// selection is the pick highlight alone, as a menu's or a select's is,
+// also moves its selection on the row's
 // `pointed`; every other list leaves its selection where the keyboard put
 // it, since it also holds the keyboard's place, a preview or a scroll, and
 // the row the plate sits on draws the accent (ListItem.lit). When the
@@ -66,7 +67,7 @@ Item {
     // The row the plate sits on.
     readonly property Item placed: state.hovered !== null ? state.hovered : state.target
     // Whether a hover moves the selection: the pointer has moved since the
-    // last `disarm()`.
+    // last `disarm()` or `rebuilt()`.
     readonly property alias armed: state.armed
     property bool shown: state.hovered !== null || state.target !== null
     // A press on the row under the pointer chooses it: leaving the list
@@ -112,10 +113,13 @@ Item {
 
     // Whether a hover at `point`, in scene coordinates, moves the selection.
     function hoverTakes(point) {
-        if (state.armed) return true;
         const moved = Logic.pointerMoved(state.last, point);
         state.last = Qt.point(point.x, point.y);
-        if (moved) state.armed = true;
+        if (state.armed) return true;
+        if (moved) {
+            state.armed = true;
+            state.rest = null;
+        }
         return moved;
     }
 
@@ -125,9 +129,23 @@ Item {
         if (state.hovering) state.endHover();
     }
 
+    // The list rebuilt its rows under the pointer, as when its source
+    // publishes them again: the next placement lands at once, and a resting
+    // pointer takes no other row until it moves from the last place a hover
+    // read, so a moving pointer takes the row under it at its next reading.
+    // The row a hover holds keeps the plate while it stands where it stood,
+    // so a source that publishes the same rows leaves the plate where the
+    // pointer is; a row the rebuild moves or removes hands the plate back to
+    // the selection.
+    function rebuilt() {
+        snap();
+        state.armed = false;
+        state.rest = state.hovered === null ? null : { row: state.hovered, at: offsetOf(chainOf(state.hovered) ?? []) };
+    }
+
     // The next hover moves the selection without the pointer moving first,
     // as after a click that rebuilt the list under the pointer.
-    function arm() { state.armed = true; }
+    function arm() { state.armed = true; state.rest = null; }
 
     // The place, 0 first, of a row that arrives among the others that
     // arrive in the same turn.
@@ -149,8 +167,11 @@ Item {
         property QtObject restore: null
         property bool snapping: false
         property bool armed: false
-        // The last scene point a hover read since the cursor was disarmed.
+        // The last scene point a hover read; null after a disarm.
         property var last: null
+        // The hovered row and its place in the cursor's parent at the last
+        // `rebuilt()`, until the pointer moves: null for none.
+        property var rest: null
         property int arrivals: 0
 
         function settle() { snapping = false; }
@@ -158,6 +179,7 @@ Item {
             hovering = false;
             hovered = null;
             restore = null;
+            rest = null;
         }
         function endArrivals() { arrivals = 0; }
     }
@@ -239,17 +261,30 @@ Item {
         }
     }
 
-    function place() {
-        const chain = root.chain;
-        if (chain.length === 0) return;
+    // The place of a chain's row in the cursor's parent.
+    function offsetOf(chain) {
         let x = 0, y = 0;
         for (const at of chain) {
             x += at.x;
             y += at.y;
         }
-        root.x = x;
+        return Qt.point(x, y);
+    }
+
+    function place() {
+        const chain = root.chain;
+        if (chain.length === 0) return;
+        const at = offsetOf(chain);
+        if (state.rest !== null && state.rest.row !== chain[0]) state.rest = null;
+        if (state.rest !== null && (at.x !== state.rest.at.x || at.y !== state.rest.at.y)) {
+            // The rebuild moved the hovered row out from under the
+            // resting pointer: the plate goes back to the selection.
+            state.endHover();
+            return;
+        }
+        root.x = at.x;
         root.width = chain[0].width;
-        move(travel, "y", y, root.motion.travel.duration);
+        move(travel, "y", at.y, root.motion.travel.duration);
         move(resize, "height", chain[0].height, root.motion.resize.duration);
     }
 

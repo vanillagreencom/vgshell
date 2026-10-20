@@ -99,7 +99,7 @@ FocusScope {
     }
 
     onGroupsChanged: placeDays()
-    onFlatRowsChanged: { plate.disarm(); plate.snap(); current = Math.max(0, Math.min(current, flatRows.length - 1)); }
+    onFlatRowsChanged: { plate.rebuilt(); current = Math.max(0, Math.min(current, flatRows.length - 1)); }
     Component.onCompleted: placeDays()
 
     Keys.onUpPressed: move(-1)

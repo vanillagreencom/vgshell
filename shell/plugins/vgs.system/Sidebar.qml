@@ -52,13 +52,13 @@ FocusScope {
 
     Keys.onPressed: event => { event.accepted = handleKey(event); }
 
-    // The rows change under a resting pointer: it takes no row until it
-    // moves, and the cursor lands on the row the keyboard keeps. The
-    // selected entry keeps the selection wherever it now sits; one that
+    // The rows change under a resting pointer: it takes no other row until
+    // it moves, the pointed row keeps the plate while it stands, and else
+    // the cursor lands on the row the keyboard keeps (ListCursor.rebuilt).
+    // The selected entry keeps the selection wherever it now sits; one that
     // left the list hands it to the entry at its place.
     onShownChanged: {
-        plate.disarm();
-        plate.snap();
+        plate.rebuilt();
         const at = indexOf(currentKey);
         selectIndex(at !== -1 ? at : Math.max(0, Math.min(current, shown.length)));
     }

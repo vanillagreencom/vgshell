@@ -58,15 +58,15 @@ FocusScope {
     }
 
     // Read the filter's rows from the service. The rows change under a
-    // resting pointer: it takes no row until it moves, and the cursor lands
-    // on the row the keyboard keeps.
+    // resting pointer: it takes no other row until it moves, the pointed row
+    // keeps the plate while it stands, and else the cursor lands on the row
+    // the keyboard keeps (ListCursor.rebuilt).
     function refresh() {
         if (shell === null) return;
         const reply = shell.ipc.call("rows", filter);
         let answer = null;
         try { answer = JSON.parse(reply); } catch (e) { console.error("clipboard: rows answered " + reply.slice(0, 80)); }
-        cursorPlate.disarm();
-        cursorPlate.snap();
+        cursorPlate.rebuilt();
         rows = answer === null ? [] : answer.rows;
         total = answer === null ? 0 : answer.total;
         imagesDir = answer === null ? "" : answer.images;

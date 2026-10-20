@@ -99,8 +99,7 @@ FocusScope {
     }
 
     onTaskRowsChanged: {
-        taskCursor.disarm();
-        taskCursor.snap();
+        taskCursor.rebuilt();
         selectedTask = Math.max(0, Math.min(selectedTask, taskRows.length - 1));
     }
     Keys.onPressed: event => {

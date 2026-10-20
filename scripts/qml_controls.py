@@ -34,6 +34,9 @@ class Block:
         self.parent = parent
         self.children = []
         self.own = []
+        # The line of each character of `own`, for a rule that reports a
+        # binding inside the block.
+        self.own_lines = []
 
     def own_text(self):
         return "".join(self.own)
@@ -65,6 +68,7 @@ def blocks(code):
             if ch == ";":
                 segment_start = i + 1
             current.own.append(ch)
+            current.own_lines.append(line)
     return found
 
 

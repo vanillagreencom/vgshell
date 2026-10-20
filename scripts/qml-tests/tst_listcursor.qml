@@ -11,7 +11,9 @@ import qs.Unit
 // when no row holds it, and follows a row through the items between; a
 // hover moves the selection only once the pointer moved since the cursor
 // was disarmed; the plate sits on the row under the pointer, goes back to
-// the selection when the pointer leaves the list or a key disarms it, and
+// the selection when the pointer leaves the list or a key disarms it, stays
+// through a rebuild that leaves its row in place, while the pointer crosses
+// a gap, and goes back when a rebuild moves or removes the row, and
 // a pick list's selection goes back to the row that held it unless a
 // click chose the hovered row; a disabled row takes no plate; the row the
 // plate sits on draws the accent on its text, icon and secondary line, a
@@ -28,6 +30,10 @@ Item {
     // Whether a hover moves the selection, as in a pick list; a
     // navigation list leaves it to the keyboard.
     property bool pointerSelects: true
+    // The rows' source, published again as a status write anywhere in the
+    // shell publishes the Settings plugin rows again with the same rows.
+    property var published: []
+    onPublishedChanged: plate.rebuilt()
 
     Item {
         id: holder
@@ -103,6 +109,11 @@ Item {
         }
     }
 
+    function rowIndex(item) {
+        for (let i = 0; i < repeater.count; i++) if (repeater.itemAt(i) === item) return i;
+        return item === null ? "none" : "outside";
+    }
+
     SignalSpy { id: pointed; signalName: "pointed" }
     SignalSpy { id: leftSpy; target: plate; signalName: "pointerLeft" }
 
@@ -117,6 +128,7 @@ Item {
             root.current = -1;
             root.current = 0;
             rows.y = 20;
+            rows.spacing = 0;
             root.pointerSelects = true;
             plate.disarm();
             mouseMove(root, 390, 590);
@@ -246,6 +258,60 @@ Item {
             compare(plate.y, rows.y + row(0).y, "the plate is back on the selection");
             compare(leftSpy.count, 1);
             compare(root.current, 0);
+        }
+
+        // The pointer crosses from the third row through a gap to the fourth,
+        // a pixel at a time, while the rows' source publishes the same rows
+        // again at every step: the plate sits on the row it left or the row
+        // it entered at every step, never on the selection.
+        function test_a_republished_list_keeps_the_plate_while_the_pointer_crosses_a_gap() {
+            root.pointerSelects = false;
+            rows.spacing = 2;
+            const x = 20;
+            const top = rows.y + row(2).y + row(2).height / 2;
+            const bottom = rows.y + row(3).y + row(3).height / 2;
+            mouseMove(holder, x, top - 1);
+            mouseMove(holder, x, top);
+            verify(plate.hovered === row(2), "the third row takes the plate");
+            for (let y = top + 1; y <= bottom; y++) {
+                mouseMove(holder, x, y);
+                root.published = [y];
+                const on = plate.placed === row(2) ? 2 : plate.placed === row(3) ? 3 : root.rowIndex(plate.placed);
+                verify(on === 2 || on === 3, "at y " + y + " the plate sits on row " + on);
+                compare(plate.y, rows.y + plate.placed.y, "the plate stands on its row at y " + y);
+            }
+            verify(plate.placed === row(3), "the plate ends on the fourth row");
+            compare(root.current, 0, "the selection stays");
+        }
+
+        // A rebuild that moves the hovered row out from under the resting
+        // pointer, or removes it, hands the plate back to the selection, and
+        // the row now under the pointer takes it only once the pointer moves.
+        function test_a_rebuild_that_moves_or_removes_the_hovered_row_returns_the_plate() {
+            root.pointerSelects = false;
+            plate.arm();
+            mouseMove(row(2), 20, 10);
+            verify(plate.hovered === row(2));
+            root.published = ["moved"];
+            verify(plate.hovered === row(2), "a rebuild that leaves the row in place keeps the plate");
+            rows.y = 60;
+            verify(plate.hovered === null, "the moved row lets the plate go");
+            verify(plate.placed === row(0), "the plate is back on the selection");
+            compare(plate.y, 60, "and stands on it");
+            compare(plate.armed, false, "a resting pointer takes no row");
+            mouseMove(row(2), 22, 10);
+            mouseMove(row(2), 24, 10);
+            verify(plate.hovered === row(2), "the moved pointer takes the row under it");
+            rows.y = 20;
+            mouseMove(row(3), 20, 10);
+            verify(plate.hovered === row(3));
+            root.published = ["removed"];
+            root.count = 3;
+            tryVerify(() => plate.hovered === null, 1000, "the removed row lets the plate go");
+            verify(plate.placed === row(0), "the plate is back on the selection");
+            compare(plate.y, rows.y + row(0).y);
+            root.count = 4;
+            mouseMove(root, 390, 590);
         }
 
         // A pick list: a hover moves the selection, and leaving hands it back

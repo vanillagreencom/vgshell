@@ -44,11 +44,12 @@ FocusScope {
 
     Keys.onPressed: event => { event.accepted = handleKey(event); }
 
-    // The rows change under a resting pointer: it takes no row until it
-    // moves, and the cursor lands on the row the keyboard keeps.
+    // The rows change under a resting pointer, as each status write in the
+    // shell publishes them again: it takes no other row until it moves, the
+    // pointed row keeps the plate while it stands, and else the cursor lands
+    // on the row the keyboard keeps (ListCursor.rebuilt).
     onShownChanged: {
-        plate.disarm();
-        plate.snap();
+        plate.rebuilt();
         current = Math.max(0, Math.min(current, shown.length - 1));
     }
 

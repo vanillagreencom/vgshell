@@ -105,6 +105,17 @@ ROWS = [
     ("a ListCursor that binds its own parent passes", body("    Column { ListCursor { parent: other } }\n"), None, None),
     ("a ListCursor in a Pane that binds its own parent passes", body("    Pane {\n        ListCursor {\n            id: plate\n            parent: list\n        }\n    }\n"), None, None),
     ("a parent named in a child of the cursor does not place it", body("    Column { ListCursor { Item { parent: other } } }\n"), "cursor-positioner", 5),
+    # A list row that draws its own hover, where the list's ListCursor
+    # draws the one hover.
+    ("a planted list whose rows fill on hover", body("    Repeater {\n        model: 3\n        T.ItemDelegate {\n            PointerCursor {}\n            background: Rectangle { color: parent.hovered ? \"#222\" : \"transparent\" }\n        }\n    }\n"), "row-hover", 9),
+    ("a ListItem whose background reads the hover", body("    ListItem { background: Rectangle { radius: 4; color: hovered ? \"#222\" : \"transparent\" } }\n"), "row-hover", 5),
+    ("a row filled from its own MouseArea's hover", body("    ListItem {\n        MouseArea { id: area; hoverEnabled: true; PointerCursor {} }\n        background: Rectangle { color: area.containsMouse ? \"#222\" : \"transparent\" }\n    }\n"), "row-hover", 7),
+    ("a qualified row's border reads the hover", "import QtQuick\nimport qs.Ui as Ui\nItem {\n    Ui.MenuItem { Rectangle { border.color: hovered ? \"#222\" : \"#000\" } }\n}\n", "row-hover", 4),
+    ("a Disclosure whose title reads the hover", body("    Disclosure {\n        Label { color: parent.hovered ? \"#fff\" : \"#888\" }\n    }\n"), "row-hover", 6),
+    ("a hover colour in a comment is no finding", body("    ListItem {\n        // color: hovered ? \"#222\" : \"#000\"\n    }\n"), None, None),
+    ("a row that colours itself by lit passes", body("    ListItem { cursor: plate; Label { color: parent.lit ? \"#fff\" : \"#000\" } }\n"), None, None),
+    ("a button's hover fill is no list row", body("    T.Button {\n        PointerCursor {}\n        background: Rectangle { color: parent.hovered ? \"#222\" : \"#000\" }\n    }\n"), None, None),
+    ("a row that reads the hover for no colour passes", body("    ListItem { property bool shown: hovered }\n"), None, None),
 ]
 
 SCROLL_ROWS = [
@@ -218,15 +229,16 @@ def run_impostor_owner_row():
 def run_repository_floor():
     """The repository's own trees pass and the parser found what they hold:
     142 QML files and 31 elements that take a click when this row was
-    written, 7 views when the drag rule was added, and 16 ListCursor elements
-    when the positioner rule was added. A count under the floor names the extractor as broken, not the
+    written, 7 views when the drag rule was added, 16 ListCursor elements
+    when the positioner rule was added, and 62 list rows when the row-hover
+    rule was added. A count under the floor names the extractor as broken, not the
     tree as sparse. shell/Ui/foundation/PointerCursor.qml names the hand, so
     the pass also holds the one real owner exempt."""
     proc = subprocess.run([sys.executable, CHECK], capture_output=True, text=True, check=False, env=ENV)
     fields = dict(part.split("=", 1) for part in proc.stdout.strip().split()[2:] if "=" in part) if proc.returncode == 0 else {}
-    good = proc.returncode == 0 and int(fields.get("files", 0)) >= 100 and int(fields.get("clickable", 0)) >= 25 and int(fields.get("views", 0)) >= 7 and int(fields.get("cursors", 0)) >= 15
+    good = proc.returncode == 0 and int(fields.get("files", 0)) >= 100 and int(fields.get("clickable", 0)) >= 25 and int(fields.get("views", 0)) >= 7 and int(fields.get("cursors", 0)) >= 15 and int(fields.get("rows", 0)) >= 50
     if proc.returncode == 0 and not good:
-        print(f"  the extractor is broken: it found files={fields.get('files')} clickable={fields.get('clickable')} views={fields.get('views')} cursors={fields.get('cursors')}")
+        print(f"  the extractor is broken: it found files={fields.get('files')} clickable={fields.get('clickable')} views={fields.get('views')} cursors={fields.get('cursors')} rows={fields.get('rows')}")
     return report("the repository's trees pass above the coverage floor", good, proc)
 
 

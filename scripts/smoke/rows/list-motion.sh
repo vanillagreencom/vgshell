@@ -4,8 +4,9 @@
 # contrast that proves the reader sees motion; at motion.scale 0 it lands at
 # once, with no reading between; at the shipped motion a hover moves the
 # Settings list's plate on its first frame and rests it within a ceiling
-# the old travel misses, and the launcher's selection goes back to the
-# keys' row when the pointer leaves the list. The rows run with the launcher disabled as the rows
+# the old travel misses, a rebuild of the Settings rows under a resting
+# pointer leaves the plate on the pointed row, and the launcher's selection
+# goes back to the keys' row when the pointer leaves the list. The rows run with the launcher disabled as the rows
 # before left it, and leave it so, with the default theme.
 # inputs: shell/Ui/layout/ListCursor* shell/Ui/layout/ListItem.qml shell/Commons/Tokens.js scripts/smoke/fixtures/list-cursor/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/plugins/vgs.launcher/*
 set -euo pipefail
@@ -230,6 +231,17 @@ if [[ -n ${hover_name[0]:-} && -n ${hover_name[1]:-} ]]; then
   expect_poll "the old travel reaches the list motion" 250 ipc smoke themeValue motion.list.travel.duration
   render expect "under the old 250 ms travel the same reader reads the plate resting late" slow hover_verdict
 fi
+# The plugin rows published again under the resting pointer, as every
+# status write in the shell publishes them: enabling the launcher, which
+# its readings below need, does it. The disarmed cursor proves the list
+# took the rebuild; the plate stays on the row the last hover reading left
+# the pointer on, not the keys' row.
+hover_rest_y="$(cursor_y window vgs.settings)" || hover_rest_y=""
+expect "enabling the launcher for the list motion is allowed" ok ipc shell setPluginEnabled vgs.launcher true
+if [[ -n ${hover_name[0]:-} && -n ${hover_name[1]:-} ]]; then
+  expect_poll "enabling the launcher rebuilds the Settings list under the resting pointer" false ipc smoke readShownDescendant window vgs.settings ListCursor armed
+  expect "the Settings list's plate stays on the pointed row through the rebuild" "$hover_rest_y" cursor_y window vgs.settings
+fi
 expect "the probe drops the cursor frame trace" ok ipc smoke popupDrop cursor-frames
 rest_pointer || fail "moving the pointer off the Settings list failed"
 expect "hiding the Settings window after the hover travel is allowed" ok ipc shell hide window vgs.settings
@@ -237,7 +249,6 @@ expect_poll "the Settings window is gone after the hover travel" 0 window_count 
 
 # The launcher's list: Ctrl+B lists the categories and the first Down
 # gives the list its cursor, on the first row.
-expect "enabling the launcher for the list motion is allowed" ok ipc shell setPluginEnabled vgs.launcher true
 launcher_categories() {
   expect "the launcher summons for the list motion" ok ipc shell summon overlay vgs.launcher '{}'
   expect_poll "the launcher holds the keyboard for the list motion" true ipc smoke activeFocusIn overlay vgs.launcher

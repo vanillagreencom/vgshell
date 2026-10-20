@@ -18,8 +18,7 @@ Section {
     rowSpacing: Theme.stack.row
 
     onOccurrencesChanged: {
-        plate.disarm();
-        plate.snap();
+        plate.rebuilt();
         current = Math.max(0, Math.min(current, occurrences.length - 1));
     }
 

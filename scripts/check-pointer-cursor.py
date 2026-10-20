@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Enforce the pointer rules docs/architecture/design-system.md § Pointer states,
-and where a list's ListCursor sits (§ Motion).
+and where a list's ListCursor sits and who draws a list's hover (§ Motion).
 
 Every element of shipped QML that takes a click shows the pointing hand
 through `PointerCursor` from qs.Ui, the one owner of the hand. Each view
-disables mouse dragging and declares its touchpad scroll handler, and no
-list lays out the plate under its pointer as a row:
+disables mouse dragging and declares its touchpad scroll handler, no list
+row draws a hover of its own, and no list lays out the plate under its
+pointer as a row:
   cursor-missing   an element that takes a click declares no PointerCursor
                    among its direct children. A TapHandler holds no
                    children, so it takes one among its parent's. The
@@ -28,6 +29,12 @@ list lays out the plate under its pointer as a row:
                    use. No marker exempts it.
   touchpad-scroll an element of DRAG_VIEWS that has no direct TouchpadScroll
                    child with `view` bound to the view's own `id`. Qualified
+                   component names count too. No marker exempts it.
+  row-hover        a colour binding that reads `hovered` or `containsMouse`
+                   in a list row, a block of LIST_ROWS or any block inside
+                   one: the row draws a hover of its own, where the list's
+                   ListCursor draws the one hover under the row the pointer
+                   is on and the row reads `lit` for its colours. Qualified
                    component names count too. No marker exempts it.
   cursor-positioner a ListCursor declared as a direct child of a positioner
                    or layout of POSITIONERS, or of a qs.Ui component that
@@ -53,9 +60,9 @@ detail names the view type and has `id=<id>` and
 `required="TouchpadScroll { view: <id> }"` fields; the control suite reads
 these fields. A view without an id uses `<missing>` and `<view-id>`.
 The pass is
-`check-pointer-cursor: ok files=<n> clickable=<n> exempt=<n> views=<n> cursors=<n>`,
-`views` counting the elements of DRAG_VIEWS read and `cursors` the ListCursor
-elements. Exit 0 when clean, 1 on
+`check-pointer-cursor: ok files=<n> clickable=<n> exempt=<n> views=<n> cursors=<n> rows=<n>`,
+`views` counting the elements of DRAG_VIEWS read, `cursors` the ListCursor
+elements and `rows` the elements of LIST_ROWS. Exit 0 when clean, 1 on
 any finding, 2 when a directory or file cannot be read, printed as
 `check-pointer-cursor: unreadable: <path>: <strerror>`, and so does a qs.Ui
 file the positioner reading cannot open. A tree the walk
@@ -79,6 +86,11 @@ COMPONENT = "PointerCursor"
 # content with the left mouse button unless told otherwise.
 DRAG_VIEWS = frozenset(("Flickable", "ListView", "GridView", "TableView", "TreeView", "HorizontalHeaderView", "VerticalHeaderView"))
 OWN_PARENT = re.compile(r"(?:^|[;\n])\s*parent\s*:")
+# The rows of a list: the template's delegate and the qs.Ui rows, whose
+# list draws its hover through its ListCursor.
+LIST_ROWS = frozenset(("ItemDelegate", "ListItem", "MenuItem", "Disclosure"))
+COLOUR_BINDING = re.compile(r"(?:^|[;\n])\s*((?:[A-Za-z_]\w*\.)?color\s*:[^;\n]*)")
+HOVER_STATE = re.compile(r"\b(?:hovered|containsMouse)\b")
 
 LITERAL = re.compile(r"\bQt\.PointingHandCursor\b")
 EXEMPT = re.compile(r"^\s*//\s*pointer-cursor-exempt:\s*\S")
@@ -88,6 +100,25 @@ SCROLL_VIEW = re.compile(r"(?:^|[;\n])\s*view\s*:\s*([A-Za-z_]\w*)\s*(?=;|\n|$)"
 
 def declares_cursor(block):
     return any(child.type == COMPONENT for child in block.children)
+
+
+def subtree(block):
+    out = [block]
+    for at in out:
+        out.extend(at.children)
+    return out
+
+
+def hover_colours(row):
+    """The lines in `row` and the blocks inside it that bind a colour to
+    the pointer's hover."""
+    lines = set()
+    for block in subtree(row):
+        own = block.own_text()
+        for match in COLOUR_BINDING.finditer(own):
+            if HOVER_STATE.search(match.group(1)):
+                lines.add(block.own_lines[match.start(1)])
+    return lines
 
 
 def check_tree(root, findings, counts, positioners):
@@ -103,6 +134,7 @@ def check_tree(root, findings, counts, positioners):
         files += 1
         alias = template_alias(code)
         raw_lines = text.split("\n")
+        hover_lines = set()
         for block in blocks(blank_comments(text, literals=False)):
             if block.type is None:
                 continue
@@ -120,6 +152,11 @@ def check_tree(root, findings, counts, positioners):
                     for child in block.children
                 ):
                     findings.append(f'touchpad-scroll {path}:{block.line} {block.type} id={name or "<missing>"} required="TouchpadScroll {{ view: {name or "<view-id>"} }}"')
+            if base_type(block.type, None) in LIST_ROWS:
+                counts["rows"] += 1
+                for line in sorted(hover_colours(block) - hover_lines):
+                    hover_lines.add(line)
+                    findings.append(f"row-hover {path}:{line} {block.type}: the row colours itself by the pointer's hover; the list's ListCursor draws the one hover and the row reads lit")
             if base_type(block.type, None) == "ListCursor":
                 counts["cursors"] += 1
                 holder = block.parent.type if block.parent is not None else None
@@ -144,7 +181,7 @@ def check_tree(root, findings, counts, positioners):
 def main(argv):
     roots = argv[1:] or list(DEFAULT_ROOTS)
     findings = []
-    counts = {"files": 0, "clickable": 0, "exempt": 0, "views": 0, "cursors": 0}
+    counts = {"files": 0, "clickable": 0, "exempt": 0, "views": 0, "cursors": 0, "rows": 0}
     try:
         try:
             positioners = POSITIONERS | qs_ui_positioners(REPO)
@@ -160,7 +197,7 @@ def main(argv):
     if findings:
         print(f"check-pointer-cursor: findings={len(findings)}")
         return 1
-    print(f"check-pointer-cursor: ok files={counts['files']} clickable={counts['clickable']} exempt={counts['exempt']} views={counts['views']} cursors={counts['cursors']}")
+    print(f"check-pointer-cursor: ok files={counts['files']} clickable={counts['clickable']} exempt={counts['exempt']} views={counts['views']} cursors={counts['cursors']} rows={counts['rows']}")
     return 0
 
 

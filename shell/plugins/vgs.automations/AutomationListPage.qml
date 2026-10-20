@@ -40,7 +40,7 @@ FocusScope {
     function toggleCurrent() { const id = currentId(); if (id !== "") toggleRequested(id, !rows[current].enabled); }
     function removeCurrent() { const id = currentId(); if (id !== "") removeRequested(id); }
 
-    onRowsChanged: { plate.disarm(); plate.snap(); clamp(); }
+    onRowsChanged: { plate.rebuilt(); clamp(); }
 
     Keys.onUpPressed: move(-1)
     Keys.onDownPressed: move(1)
