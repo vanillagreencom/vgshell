@@ -6701,7 +6701,11 @@ scene_tailscale() { # MODE
   tailscale_shot_finish
 }
 tailscale_shot_end() { ipc smoke revealText window vgs.system Field "Check every" | py_reply 'import sys; s=sys.stdin.read().strip(); print("scrolled" if s.replace(".", "", 1).isdigit() else s)'; }
-tailscale_shot_panel() { [[ $(ipc smoke instanceGeometry panel vgs.tailscale) != absent ]] && echo shown || echo hidden; }
+tailscale_shot_panel() {
+  local geometry
+  geometry="$(ipc smoke instanceGeometry panel vgs.tailscale)" || return $?
+  [[ $geometry != absent ]] && echo shown || echo hidden
+}
 tailscale_shot_read() { ipc smoke readDescendant window vgs.tailscale TailscaleBody tailscale | py_reply 'import json,sys; v=json.load(sys.stdin); print(json.dumps([v["state"], len(v["accounts"])]))'; }
 # VPN reads a running Tailscale tailnet and saved NetworkManager profiles
 # from the device stand-ins. The core's system tree holds no tailscale,
@@ -6885,7 +6889,11 @@ vpn_locked_wait() { # LOCKED LABEL WANT CMD...
   done
   printf 'sandbox-shots: vpn-locked tree=%s step=%s want=%s read=%s\n' "${rev:-checkout}" "$label" "$want" "$got"
 }
-vpn_locked_panel() { [[ $(ipc smoke instanceGeometry panel "$locked_id") != absent ]] && echo shown || echo hidden; }
+vpn_locked_panel() {
+  local geometry
+  geometry="$(ipc smoke instanceGeometry panel "$locked_id")" || return $?
+  [[ $geometry != absent ]] && echo shown || echo hidden
+}
 network_shot_shown() { [[ $(ipc smoke instanceGeometry window vgs.network) != absent ]] && echo shown || echo hidden; }
 network_shot_other_reveal() { ipc smoke revealText window vgs.system Button 'Other Network…' | py_reply 'import json,sys; json.load(sys.stdin); print("scrolled")'; }
 network_shot_cancel_reveal() { ipc smoke revealText window vgs.system Button Cancel | py_reply 'import json,sys; json.load(sys.stdin); print("scrolled")'; }

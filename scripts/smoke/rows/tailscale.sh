@@ -356,8 +356,14 @@ expect_poll "the service publishes both accounts" '["f1a0", "f1a1"]' tailscale_a
 expect_poll "Tailscale's widget is placed" True tailscale_placed
 expect_poll "the widget draws the exit node from the shared record" '"earth-lock"' ipc smoke readDescendant "$(bar_key)" vgs.tailscale BarItem iconName
 expect_poll "the running Tailscale backend shows its widget" true tailscale_widget
-tailscale_use running.json
+tailscale_no_exit="$(python3 -c 'import json,sys
+status = json.load(open(sys.argv[1]))
+for peer in status["Peer"].values():
+    peer["ExitNode"] = False
+print(json.dumps(status))' "$tailscale_fixtures/running.json")" || { fail "tailscale: the no-exit fixture is unreadable"; return 0; }
+device_reply tailscale 0 "$tailscale_no_exit" status --json
 expect "a refresh reads a tailnet without an exit node" ok tailscale_refresh
+expect_poll "the tailnet publishes no selected exit node" null tailscale_value exit
 expect_poll "the tailnet without an exit node draws route" '"route"' tailscale_icon
 tailscale_use mullvad.json
 expect "a refresh restores the exit node" ok tailscale_refresh

@@ -150,6 +150,54 @@ pathlib.Path(sys.argv[2]).write_text(text.replace(needle, 'print("ready")'))
 PY
 if bar_reveal_case "$bar_mutant" right 80 bar-zone-right-start; then fail "control: a clipped widget is accepted without scrolling"; else ok "control: a clipped widget is rejected without scrolling"; fi
 
+# These readiness readers consume instanceGeometry's machine replies. A
+# failed ipc_via operation prints ipc-failed and exits 1, not shown.
+panel_helper="$tmp/panel-helper.sh"
+python3 - "$repo/scripts/sandbox-shots.sh" "$panel_helper" <<'PY'
+import pathlib, sys
+source = pathlib.Path(sys.argv[1]).read_text()
+parts = []
+for name in ("tailscale_shot_panel", "vpn_locked_panel"):
+    needle = name + "() {\n"
+    assert source.count(needle) == 1
+    start = source.index(needle)
+    end = source.index("\n}\n", start) + 3
+    parts.append(source[start:end])
+pathlib.Path(sys.argv[2]).write_text("\n".join(parts))
+PY
+panel_case() { # HELPER
+  local helper="$1" reader response expected_status expected_state status state
+  for reader in tailscale_shot_panel vpn_locked_panel; do
+    while IFS='|' read -r response expected_status expected_state; do
+      status=0
+      state="$(env -i PATH="$PATH" REPLY="$response" STATUS="$expected_status" "$BASH" -c '
+set -euo pipefail
+source "$1"
+locked_id=vgs.tailscale
+ipc() { printf "%s\n" "$REPLY"; return "$STATUS"; }
+"$2"
+' _ "$helper" "$reader")" || status=$?
+      [[ $status -eq $expected_status && $state == "$expected_state" ]] || return 1
+    done <<'PANELCASES'
+[100,0,32,28]|0|shown
+absent|0|hidden
+ipc-failed|1|
+PANELCASES
+  done
+}
+if panel_case "$panel_helper"; then ok "backend panel readers distinguish shown, absent and failed IPC"; else fail "backend panel reader accepts unavailable geometry"; fi
+panel_mutant="$tmp/panel-mutant.sh"
+python3 - "$panel_helper" "$panel_mutant" <<'PY'
+import pathlib, sys
+source = pathlib.Path(sys.argv[1]).read_text()
+needle = ' || return $?'
+assert source.count(needle) == 2
+changed = source.replace(needle, ' || :')
+assert changed != source
+pathlib.Path(sys.argv[2]).write_text(changed)
+PY
+if panel_case "$panel_mutant"; then fail "control: dropping backend panel IPC statuses stayed green"; else ok "control: dropping backend panel IPC statuses fails"; fi
+
 # Pointer targets and reserved space use logical dimensions at every scale.
 size_helper="$tmp/size-helper.sh"
 sed -n '/^monitor_size() {/p; /^bar_settled_judge() {/,/^}/p' "$repo/scripts/smoke/harness.sh" >"$size_helper"
