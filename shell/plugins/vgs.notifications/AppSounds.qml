@@ -280,6 +280,17 @@ Item {
         else holdWriter.send();
     }
 
+    // Existing streams have one adoption decision, above. The rule only
+    // registers these for writer-death cleanup; another mute on metadata
+    // arrival could land after this instance already released the stream.
+    function holdEntry(pid) {
+        const entry = JSON.parse(Logic.holdEntry(pid, ruleHold.apps));
+        // PipeWire's object.serial increments per object, unlike reusable
+        // node ids (https://docs.pipewire.org/group__pw__keys.html).
+        entry.streams = Object.keys(holds).map(id => props(holds[id].node)["object.serial"]);
+        return JSON.stringify(entry);
+    }
+
     // A write that failed is sent again after the supervision's delays;
     // once they run out the hold stays unconfirmed and the shell mutes by
     // reaction alone.
@@ -401,7 +412,7 @@ Item {
         function send() {
             if (root.ruleHold === null || !writer.running) return;
             sentPid = writer.processId;
-            command = Logic.guardedArgv(Quickshell.processId, ["pw-metadata", "-n", Logic.SOUND_RULE_METADATA, "0", "hold", Logic.holdEntry(sentPid, root.ruleHold.apps), "Spa:String:JSON"]);
+            command = Logic.guardedArgv(Quickshell.processId, ["pw-metadata", "-n", Logic.SOUND_RULE_METADATA, "0", "hold", root.holdEntry(sentPid), "Spa:String:JSON"]);
             running = true;
         }
         clearEnvironment: true

@@ -7,8 +7,9 @@
 --   subject 0, `version`: the version this script was loaded with, its
 --     component argument, which the shell compares with its own.
 --   subject 0, `hold`: written by the shell while mute is on (AppSounds.qml),
---     JSON { "pid": N, "apps": [names], "roles": [media.role values] },
---     names and roles in lower case.
+--     JSON { "pid": N, "apps": [names], "roles": [media.role values],
+--       "streams": [object.serial strings] }, names and roles in lower
+--     case. streams names exactly the shell's existing tracked holds.
 -- The hold counts only while a PipeWire client whose pipewire.sec.pid is
 -- N exists: the shell's persistent pw-cli writer, which dies with the
 -- shell's mute. When that client goes, the hold is cleared and every
@@ -81,14 +82,17 @@ local function parse_hold(value)
   if pid == nil or pid <= 0 then
     return nil, "pid"
   end
-  local apps, roles = set_of(parsed.apps), set_of(parsed.roles)
+  local apps, roles, streams = set_of(parsed.apps), set_of(parsed.roles), set_of(parsed.streams)
   if apps == nil then
     return nil, "apps"
   end
   if roles == nil then
     return nil, "roles"
   end
-  return { pid = tostring(pid), apps = apps, roles = roles }
+  if streams == nil then
+    return nil, "streams"
+  end
+  return { pid = tostring(pid), apps = apps, roles = roles, streams = streams }
 end
 
 clients_om = ObjectManager { Interest { type = "client" } }
@@ -249,10 +253,10 @@ metadata:activate(Features.ALL, function(m, e)
     hold = parsed
     if holder_present(hold.pid) then
       for node in nodes_om:iterate() do
-        -- An already-playing call is not a notification sound. A paused
-        -- stream is held before its next chime, even if Notify is late.
-        if node.properties["pulse.corked"] == "true" and matches(node.properties) then
-          node:set_param("Props", Pod.Object { "Spa:Pod:Object:Param:Props", "Props", softMute = true })
+        -- AppSounds already muted these streams and tracks their release.
+        -- Do not judge their later corked state or write another mute:
+        -- either can differ by the time this asynchronous write arrives.
+        if hold.streams[node.properties["object.serial"]] then
           held[node.id] = { node = node, pid = hold.pid }
         end
       end
