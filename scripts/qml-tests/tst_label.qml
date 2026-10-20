@@ -253,6 +253,34 @@ Item {
             fuzzyCompare(eyebrow.topForCapCenter(Theme.badge.size.sm.height) + eyebrow.capCentre, Theme.badge.size.sm.height / 2, 1);
         }
 
+        function test_a_link_icon_centres_on_its_words_data() {
+            const rows = [];
+            for (const scale of [1, 2])
+                for (const text of ["Remove", "Sign out", "Remove key", "42%", "", "Remove\nready", "Remove\nready\nnow"])
+                    rows.push({ tag: JSON.stringify(text) + " at " + scale + "x", text: text, scale: scale });
+            return rows;
+        }
+
+        function test_a_link_icon_centres_on_its_words(data) {
+            const screen = Qt.application.screens[data.scale - 1];
+            const scene = ledScene.createObject(null, { screen: screen, x: screen.virtualX + 10, y: screen.virtualY + 10, visible: true });
+            const label = scene.text;
+            const mark = scene.mark;
+            label.text = data.text;
+            mark.y = Qt.binding(() => label.topForLeadingIcon(mark.height, 0, true));
+            const ink = scene.metrics.tightBoundingRect(data.text);
+            const centre = data.text === "42%" ? label.baselineOffset - scene.metrics.capitalHeight / 2
+                : data.text === "" || label.lineCount > 1 ? label.baselineOffset - scene.metrics.xHeight / 2
+                : label.baselineOffset + ink.y + ink.height / 2;
+            const ratio = label.Screen.devicePixelRatio;
+            const error = Math.abs(mark.y + (mark.painted[1] + mark.painted[3]) / 2 - centre) * ratio;
+            const deviceTop = mark.mapToItem(scene.contentItem, 0, 0).y * ratio;
+            scene.destroy();
+            compare(ratio, data.scale);
+            verify(error <= 0.5, "link icon is " + error + " device px from its chosen centre");
+            fuzzyCompare(deviceTop, Math.round(deviceTop), 0.001);
+        }
+
         // expected-log: theme: font=No Such Family VGS unavailable; drawing JetBrains Mono -- the eyebrow names an absent family on purpose
         // expected-log: theme: font=No Such Family VGS unavailable; drawing Inter Variable -- the body names an absent family on purpose
         function test_theme_change_moves_the_role() {

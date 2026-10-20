@@ -19,13 +19,17 @@ import qs.Commons
 // in capitals, or text with no lowercase letter, such as "CPU" or "42%".
 // Empty text reads as mixed case unless the role draws in capitals, so an
 // empty field's icon stands where its typed text will read.
-// `topForLeadingIcon(iconHeight, origin)` gives the top, from the label
+// `topForLeadingIcon(iconHeight, origin, link)` gives the top, from the label
 // top, that puts an icon leading the first line on the centre the eye
 // levels it with: the x-height centre for mixed case, whose ink sits
 // mostly between the baseline and the x-height, and the capital centre
 // for a capitals line. The icon's top lands on a device pixel of the
 // frame the label top sits `origin` into (default 0, a label top on a
 // whole pixel).
+// A true `link` centres a single mixed-case line on its glyph ink instead:
+// FontMetrics.tightBoundingRect is relative to the baseline (Qt 6.12.0,
+// qml-unit measurement VGS-1966). Empty, capitals and wrapped lines keep
+// their existing reading, so a link never changes a block's placement.
 // `capTop()` is how far below the label top the first line's capitals
 // start, `inkAbove()` how far below it the first line's ink starts, its
 // glyphs' highest ink for a one-line label and the capital top for a
@@ -112,9 +116,17 @@ Text {
         return Math.round((boxHeight / 2 + metrics.capitalHeight / 2) * Screen.devicePixelRatio) / Screen.devicePixelRatio - metrics.ascent;
     }
 
-    function topForLeadingIcon(iconHeight, origin) {
-        const at = origin === undefined ? 0 : origin;
+    function topForLeadingIcon(iconHeight, origin, link) {
         const centre = capitalsLine ? capCentre : xCentre;
+        if (link === true && !capitalsLine && text !== "" && lineCount === 1) {
+            const ink = metrics.tightBoundingRect(text);
+            return leadingIconTop(iconHeight, origin, baselineOffset + ink.y + ink.height / 2);
+        }
+        return leadingIconTop(iconHeight, origin, centre);
+    }
+
+    function leadingIconTop(iconHeight, origin, centre) {
+        const at = origin === undefined ? 0 : origin;
         return Math.round((at + centre - iconHeight / 2) * Screen.devicePixelRatio) / Screen.devicePixelRatio - at;
     }
 

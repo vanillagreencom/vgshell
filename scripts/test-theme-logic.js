@@ -1659,6 +1659,8 @@ for (const view of ["ThemeView.qml", "WallpaperView.qml"]) {
 // The FormRow QML test verifies its rendered geometry.
 const LED_LINES = [
     { file: "shell/Ui/feedback/SaveBar.qml", label: "savedText", icon: 'name: "check"' },
+    { file: "shell/Ui/controls/TitleButton.qml", label: "label", icon: 'name: "chevron-down"' },
+    { file: "shell/Ui/feedback/Callout.qml", label: "titleLabel", icon: "name: root.iconName" },
     { file: "shell/plugins/vgs.sysmon/Reading.qml", label: "titleLabel", icon: "name: root.iconName" },
     { file: "shell/plugins/vgs.themes/WallpaperView.qml", label: "sourceText", icon: "color: sourceText.color" },
     { file: "shell/plugins/vgs.themes/ThemeRow.qml", label: "nameText", icon: "name: row.iconName" },
@@ -1694,8 +1696,13 @@ const LED_LINES = [
     },
     {
         file: "shell/Ui/controls/RowAction.qml", icon: "id: mark\n",
-        binding: "y: label.y + label.topForLeadingIcon(height, label.y)",
+        binding: "y: label.y + label.topForLeadingIcon(height, label.y, true)",
         centred: "y: Math.round(parent.half - height / 2)"
+    },
+    {
+        file: "shell/plugins/vgs.google-drive/Panel.qml", icon: "id: mark\n",
+        binding: "y: nameLabel.topForLeadingIcon(height, 0, reviewRow.linked && nameLabel.lineCount === 1)",
+        centred: "anchors.verticalCenter: parent.verticalCenter"
     },
     {
         file: "shell/Ui/overlay/MenuItem.qml", icon: "id: icon\n",

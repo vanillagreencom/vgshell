@@ -14,7 +14,7 @@ import qs.Unit
 // and Enter activate it; the danger tone draws its own colour, an unknown
 // tone is logged and drawn as accent; a narrow action elides its text; a
 // danger action leads with its trash mark in every theme, centred on the
-// text's x-height, or with the mark its `markName` names, and an accent action
+// text's glyph ink, or with the mark its `markName` names, and an accent action
 // never does; an action that removes its row's item draws the trash mark
 // alone in the danger colour, in a box no smaller than a text action's,
 // under a ring as clear of the mark on its right as on its left, its text
@@ -336,18 +336,35 @@ Item {
             compare(mark(action).visible, false);
         }
 
-        // The mark centres on the text's x-height centre, read from the
-        // drawn text's baseline and the font's x-height, within half a
-        // pixel and on a whole pixel; the same reading rejects the capital
-        // centre the box keeps.
-        function test_the_danger_mark_centres_on_the_x_height() {
-            const xCentre = label(danger).y + label(danger).baselineOffset - body.xHeight / 2;
-            const capCentre = label(danger).y + label(danger).baselineOffset - body.capitalHeight / 2;
-            const off = (top, centre) => Math.abs(top + mark(danger).height / 2 - centre);
-            verify(off(mark(danger).y, xCentre) <= 0.5, "the mark is " + off(mark(danger).y, xCentre) + " px off the x-height centre");
-            compare(mark(danger).y, Math.round(mark(danger).y), "the mark sits on a whole pixel");
-            fuzzyCompare(capCentre, danger.height / 2, 0.01);
-            verify(off(Math.round(danger.height / 2 - mark(danger).height / 2), xCentre) > 0.5, "control: the capital centre reads as level");
+        function test_the_danger_mark_centres_on_its_words_data() {
+            const rows = [];
+            for (const scale of [1, 2])
+                for (const text of ["Remove", "Sign out", "42%"])
+                    rows.push({ tag: text + " at " + scale + "x", text: text, scale: scale });
+            return rows;
+        }
+
+        function test_the_danger_mark_centres_on_its_words(data) {
+            const screen = Qt.application.screens[data.scale - 1];
+            const window = scaledWindow.createObject(null, { screen: screen, x: screen.virtualX + 10, y: screen.virtualY + 10, visible: true });
+            const item = Qt.createQmlObject('import qs.Ui\nRowAction { x: 8; y: 8; tone: "danger" }', window.contentItem);
+            item.text = data.text;
+            item.markName = data.text === "Sign out" ? "log-out" : "trash";
+            const words = label(item);
+            const glyph = mark(item);
+            const metrics = Qt.createQmlObject('import QtQuick\nFontMetrics {}', window.contentItem);
+            metrics.font = words.font;
+            const ink = metrics.tightBoundingRect(data.text);
+            const centre = words.y + words.baselineOffset + (data.text === "42%" ? -metrics.capitalHeight / 2 : ink.y + ink.height / 2);
+            const ratio = words.Screen.devicePixelRatio;
+            const error = Math.abs(glyph.y + (glyph.painted[1] + glyph.painted[3]) / 2 - centre) * ratio;
+            const top = glyph.mapToItem(window.contentItem, 0, 0).y * ratio;
+            const capError = Math.abs(words.y + words.baselineOffset - metrics.capitalHeight / 2 - item.height / 2);
+            window.destroy();
+            compare(ratio, data.scale);
+            verify(error <= 0.5, "mark is " + error + " device px off its words' centre");
+            fuzzyCompare(top, Math.round(top), 0.001);
+            fuzzyCompare(capError, 0, 0.01, "the control's capital-centred box stays unchanged");
         }
 
         // A danger action that removes nothing leads with the mark its
@@ -356,7 +373,7 @@ Item {
             compare(mark(signOut).visible, true);
             compare(mark(signOut).name, "log-out");
             compare(mark(danger).name, "trash", "a danger action with no icon keeps the trash mark");
-            compare([mark(signOut).x, mark(signOut).y], [mark(danger).x, mark(danger).y]);
+            compare(mark(signOut).x, mark(danger).x);
             compare(label(signOut).visible, true);
             compare(label(signOut).text, "Sign out");
             compare(label(signOut).x, mark(signOut).width + Theme.rowAction.iconGap);

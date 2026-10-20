@@ -403,7 +403,7 @@ while [[ $# -gt 0 ]]; do
     --title-inventory) title_inventory=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
 
-    sysmon|tui-edges|gallery|settings|info-dialog|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|voice-keys|jarvis-console|jarvis-audit|jarvis-setup|jarvis-home-repair|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes|jarvis-restart|plugin-messages|page-links|tooltip-link|traffic|ai-usage|ai-usage-states|devtools|system|appearance|sounds|network|tailscale|tailscale-starting|tailscale-locked|vpn|vpn-locked|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|googledrive|tooltips|screensaver|theme-previews|setup-tab|updates|clone-voice|displays-override) scenes+=("$1"); shift ;;
+    link-icons|sysmon|tui-edges|gallery|settings|info-dialog|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|voice-keys|jarvis-console|jarvis-audit|jarvis-setup|jarvis-home-repair|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes|jarvis-restart|plugin-messages|page-links|tooltip-link|traffic|ai-usage|ai-usage-states|devtools|system|appearance|sounds|network|tailscale|tailscale-starting|tailscale-locked|vpn|vpn-locked|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|googledrive|tooltips|screensaver|theme-previews|setup-tab|updates|clone-voice|displays-override) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -596,7 +596,7 @@ scene_ships() {
     dialog|by-hand|reset) [[ -f $tree/shell/Hosts/NoticeHost.qml ]] ;;
     lock) ships_plugin vgs.lock ;;
     polkit) ships_plugin vgs.polkit ;;
-    googledrive) [[ $manager_scene == settings ]] && ships_plugin vgs.google-drive && tree_has shell/plugins/vgs.google-drive/GoogleDriveLogic.js "function headline(" ;;
+    googledrive|link-icons) [[ $manager_scene == settings ]] && ships_plugin vgs.google-drive && tree_has shell/plugins/vgs.google-drive/GoogleDriveLogic.js "function headline(" ;;
     greeter) ships_plugin vgs.greeter && [[ -f $tree/shell/greeter.qml ]] ;;
     narrow) scene_ships bar && scene_ships panels && scene_ships devtools && scene_ships dialog && scene_ships launcher && scene_ships notifications && scene_ships gallery ;;
     *) printf 'sandbox-shots: refused: scene=%s reason=unknown\n' "$1" >&2; exit 2 ;;
@@ -8810,6 +8810,52 @@ scene_flyout-titles() { # MODE
     expect "$label closes after its title shot" ok ipc shell hide panel "$id"
     expect "$label disables after its title shot" ok ipc shell setPluginEnabled "$id" false
   done
+}
+
+# The real Settings actions, with only key presence stood in. The runner
+# reads and publishes the Google Drive rows; no credential or sync runs.
+link_icons_keys_ready() {
+  ipc vgs.google-drive invoke status '' | py_reply 'import json,sys; row=json.load(sys.stdin); print(isinstance(row,dict) and row.get("cloudKeys",{}).get("tone")=="ok")'
+}
+scene_link-icons() { # MODE
+  local mode="$1" id tab image
+  sentinel_stand_over "$shim/secret-tool" <<'LINKKEYS'
+#!/usr/bin/env bash
+if [[ ${1:-} == search ]]; then
+  if [[ ${3:-} == vgs-google-drive && ${5:-} =~ ^(client-id|client-secret|token)$ ]]; then
+    printf '[/1]\nlabel = Sandbox key\nsecret = sandbox\n'
+    printf 'attribute.service = vgs-google-drive\nattribute.account = %s\n' "$5" >&2
+    [[ $5 != token ]] || printf 'attribute.user = sandbox@example.com\n' >&2
+  fi
+  exit 0
+fi
+[[ ${1:-} != lookup ]] || exit 1
+exit 1
+LINKKEYS
+  automations_stand_ins "$sandbox/link-icons-systemd"
+  mkdir -p "$home/.config/vgshell/plugins/acme.probe"
+  cp -R -- "$fixtures/acme.probe/." "$home/.config/vgshell/plugins/acme.probe/"
+  tree_rescan "the link icon fixture is scanned"
+  expect "Settings enables for link icon shots" ok ipc shell setPluginEnabled vgs.settings true
+  expect "Google Drive enables for link icon shots" ok ipc shell setPluginEnabled vgs.google-drive true
+  close_notices
+  expect "Settings opens for link icon shots" ok ipc shell summon "$settings_kind" vgs.settings '{}'
+  expect_poll "Settings maps for link icon shots" 1 settings_count
+  expect_poll "Google Drive publishes its stored key presence" True link_icons_keys_ready
+  for tab in setup details manage; do
+    id=vgs.google-drive
+    [[ $tab != manage ]] || id=acme.probe
+    image="link-icons-$mode-$tab"
+    if [[ $tab == manage ]]; then
+      plugin_page_shots "$mode" "$id" "$image" details
+    else
+      plugin_page_shots "$mode" "$id" "$image" "$tab"
+    fi
+  done
+  settings_close
+  expect "Google Drive disables after link icon shots" ok ipc shell setPluginEnabled vgs.google-drive false
+  automations_stand_ins_restore "$sandbox/link-icons-systemd"
+  sentinel_restore "$shim/secret-tool"
 }
 
 # The first shot is the bare desktop; every later shot must differ from the

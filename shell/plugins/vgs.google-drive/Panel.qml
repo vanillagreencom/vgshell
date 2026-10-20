@@ -148,7 +148,7 @@ Item {
 
         Icon {
             id: mark
-            y: nameLabel.topForLeadingIcon(height)
+            y: nameLabel.topForLeadingIcon(height, 0, reviewRow.linked && nameLabel.lineCount === 1)
             name: reviewRow.modelData.icon
             size: Theme.icon.size.md
             color: reviewRow.modelData.needs === "you" ? Theme.color.warning : Theme.color.textMuted
