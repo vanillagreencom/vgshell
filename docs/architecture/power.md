@@ -73,7 +73,7 @@ The power button and the lid must act while the shell is down: a laptop closed i
 ### Idle source and stages
 
 - Do create every idle watch through `shell.idle.watch`, and release it through the disposer it returns. A plugin cannot import `Quickshell.Wayland`, which `scripts/check-plugin-boundary.py` refuses; `scripts/smoke/rows/capability-release.sh` pins the release.
-- Do keep `respectInhibitors: true` on every watch, as § Window events and the idle count sets out. Review holds it.
+- Do keep `respectInhibitors: true` on every idle stage watch, as § Window events and the idle count sets out. A watch that clears a fact on input and starts no stage ignores inhibitors. Review holds it.
 - Never read another stage owner's setting or status; read another stage's time only from `shell.idle.stages`. Gap: `vgs.screensaver` reads `vgs.lock`'s `idleLockSeconds` through capability `manager` for its `lockOrder` reading. Designed: VGS-1902 adds the record with its rows in `scripts/test-plugin-logic.js`, and VGS-1904 moves `lockOrder` onto it.
 - Do judge stage order in one place, the core record; the pane and the screensaver show its verdict and never compute their own. Designed: VGS-1902.
 - Do keep the Cover and the lock surface on layer surfaces, so showing them does not restart another watch. Gap: no row checks it; VGS-1904 adds the check that the lock still engages on time while the Cover runs.

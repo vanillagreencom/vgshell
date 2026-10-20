@@ -20,6 +20,8 @@ function check(name, got, want) {
 
 // rows: [dispatcher, args, lua request, classic request]
 const formRows = [
+    ["displayPower", ["on"], 'hl.dsp.dpms({ action = "enable" })', "dpms on"],
+    ["displayPower", ["off"], 'hl.dsp.dpms({ action = "disable" })', "dpms off"],
     ["focusWorkspace", [2], "hl.dsp.focus({ workspace = \"2\" })", "workspace 2"],
     ["focusWorkspace", ["e+1"], "hl.dsp.focus({ workspace = \"e+1\" })", "workspace e+1"],
     ["focusWindow", ["0x55d0ac920c60"], "hl.dsp.focus({ window = \"address:0x55d0ac920c60\" })", "focuswindow address:0x55d0ac920c60"],
@@ -50,6 +52,10 @@ const formRows = [
 
 // rows: [name, dispatcher, args, want error]
 const refusalRows = [
+    ...["", "toggle", "enable", "disable", "ON", "off DP-1", 'off" })', null, true, 1, {}].map(value =>
+        ["power state " + JSON.stringify(value), "displayPower", [value], "refused: dispatcher=displayPower argument=0 value=" + JSON.stringify(value)]),
+    ["power names no output", "displayPower", ["off", "DP-1"], "refused: dispatcher=displayPower arguments=2 want=1"],
+    ["power needs a state", "displayPower", [], "refused: dispatcher=displayPower arguments=0 want=1"],
     ["unknown dispatcher", "exec", ["x"], "refused: dispatcher=exec unknown"],
     ["prototype name is unknown", "constructor", [], "refused: dispatcher=constructor unknown"],
     ["too few arguments", "moveWindowToWorkspace", ["0xabc"], "refused: dispatcher=moveWindowToWorkspace arguments=1 want=2"],
@@ -112,7 +118,7 @@ function verifyDispatch(lib, report, forms = formRows) {
     for (const name of lib.PLUGIN_DISPATCHERS)
         row("plugin dispatcher " + name + " has a form row", forms.some(r => r[0] === name), true);
     row("the provider exposes every supported operation", lib.PLUGIN_DISPATCHERS.slice().sort(),
-        ["closeWindow", "floatWindow", "focusMonitor", "focusWindow", "focusWorkspace", "fullscreenWindow", "lockActiveGroup", "moveCursor", "moveWindow", "moveWindowToWorkspace", "resizeWindow", "sendShortcut", "toggleSpecialWorkspace"]);
+        ["closeWindow", "displayPower", "floatWindow", "focusMonitor", "focusWindow", "focusWorkspace", "fullscreenWindow", "lockActiveGroup", "moveCursor", "moveWindow", "moveWindowToWorkspace", "resizeWindow", "sendShortcut", "toggleSpecialWorkspace"]);
     for (const [name, dispatcher, args, want] of refusalRows) {
         for (const lua of [true, false]) {
             const r = lib.request(dispatcher, args, lua);
@@ -122,6 +128,14 @@ function verifyDispatch(lib, report, forms = formRows) {
     return bad;
 }
 verifyDispatch(ctx, true);
+// These replies come from the queue, including transport failure words.
+for (const [text, want] of [
+    ['[{"dpmsStatus":true},{"dpmsStatus":true}]', { ok: true, on: true, off: false }],
+    ['[{"dpmsStatus":false},{"dpmsStatus":false}]', { ok: true, on: false, off: true }],
+    ['[{"dpmsStatus":true},{"dpmsStatus":false}]', { ok: true, on: false, off: false }],
+    ...['[]', '{}', 'null', '[null]', '[{}]', '[{"dpmsStatus":"false"}]', '[{"dpmsStatus":true},{}]', '', 'ok', 'exit=1'].map(text =>
+        [text, { ok: false, error: "refused: display-power=monitors " + JSON.stringify(text) }])
+]) check("power reading " + text, ctx.displayPowerState(text), want);
 check("control: a plugin dispatcher without form rows fails coverage", verifyDispatch(ctx, false, formRows.filter(r => r[0] !== "moveCursor")), 1);
 
 function verifyMonitorEval(lib, report) {
@@ -447,6 +461,7 @@ try {
         ["window address", "var ADDRESS = /^0x[0-9a-fA-F]+$/;", "var ADDRESS = /.*/;"],
         ["selector syntax", "var WORKSPACE = /^[A-Za-z0-9_.:+-]+$/;", "var WORKSPACE = /.*/;"],
         ["special name", "var SPECIAL = /^[A-Za-z0-9_-]+$/;", "var SPECIAL = /.*/;"],
+        ["power state enum", "var DISPLAY_POWER = /^(on|off)$/;", "var DISPLAY_POWER = /.*/;"],
         ["action enum", "var ACTION = /^(toggle|set|unset)$/;", "var ACTION = /.*/;"],
         ["fullscreen mode", "var FULLSCREEN_MODE = /^(fullscreen|maximized)$/;", "var FULLSCREEN_MODE = /.*/;"],
         ["decimal integer", "/^-?(0|[1-9][0-9]*)$/.test(value)", "true"],
@@ -469,7 +484,7 @@ try {
     }
     // One dropped effect per new dispatcher, in each dialect. Mutate the
     // table in a separately loaded copy, never the live judge or its file.
-    for (const name of ["fullscreenWindow", "floatWindow", "lockActiveGroup", "moveWindow", "resizeWindow", "focusMonitor", "moveCursor", "sendShortcut"]) {
+    for (const name of ["displayPower", "fullscreenWindow", "floatWindow", "lockActiveGroup", "moveWindow", "resizeWindow", "focusMonitor", "moveCursor", "sendShortcut"]) {
         for (const dialect of ["lua", "classic"]) {
             const mutant = path.join(scratch, "Dispatch.js");
             fs.writeFileSync(mutant, source);

@@ -58,7 +58,7 @@ Item {
             const session = reader.session;
             try { data.change(session); } catch (e) {}
             verify(Object.isFrozen(session));
-            compare(Object.keys(session).join(","), "locked");
+            compare(Object.keys(session).sort().join(","), "displaysOff,locked");
             compare(session.lock, undefined);
             compare(session.unlock, undefined);
             compare(session.locked, false);

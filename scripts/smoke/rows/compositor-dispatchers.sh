@@ -13,7 +13,7 @@
 # request before it, and the harness's own Lua read agrees with it once.
 # A shim that holds each dispatch for a second shows that a read asked in
 # the lock's own turn waits for it.
-# inputs: scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/Compositor.qml shell/Core/Dispatch.js shell/Core/Capabilities.qml scripts/smoke/toplevel/* scripts/smoke/rows/capabilities.sh
+# inputs: scripts/smoke/fixtures/plugins/acme.probe/* shell/Core/Compositor.qml shell/Core/Dispatch.js shell/Core/HyprlandLayer.js shell/Core/Capabilities.qml scripts/smoke/toplevel/* scripts/smoke/rows/capabilities.sh
 set -euo pipefail
 
 dispatch_client() { # ADDRESS FIELD
@@ -24,6 +24,11 @@ print("absent" if c is None else json.dumps(c[sys.argv[2]]))' "$1" "$2"
 dispatch_monitor() {
   hypr -j monitors | py_reply 'import json,sys
 print(next((m["name"] for m in json.load(sys.stdin) if m["focused"]), "absent"))'
+}
+dispatch_power() { # true|false: every nested output has this status
+  hypr -j monitors | py_reply 'import json,sys
+ms = json.load(sys.stdin)
+print(bool(ms) and all(m["dpmsStatus"] is (sys.argv[1] == "true") for m in ms))' "$1"
 }
 dispatch_cursor() {
   hypr -j cursorpos | py_reply 'import json,sys
@@ -209,6 +214,23 @@ exec "$hyprctl_bin" "\$@"
 EOF
 chmod 755 "$shim/hyprctl.dispatch-slow"
 
+cat >"$shim/hyprctl.power-trace" <<EOF
+#!/usr/bin/env bash
+if [[ \${1:-} == dispatch && \${2:-} == *dpms* ]]; then
+  printf '%s\n' "\$2" >>"$sandbox/power-dispatched.log"
+fi
+exec "$hyprctl_bin" "\$@"
+EOF
+chmod 755 "$shim/hyprctl.power-trace"
+: >"$sandbox/power-dispatched.log"
+dispatch_power_calls() { wc -l <"$sandbox/power-dispatched.log"; }
+expect "all nested outputs start powered on" True dispatch_power true
+dispatch_noop_control "displayPower off" True dispatch_power false
+expect "one request turns off all nested outputs" ok probe dispatch "displayPower off"
+expect_poll "every nested output confirms power off" True dispatch_power false
+type_keys -k Shift_L || fail "the nested wake key could not be sent"
+expect_poll "a nested key wakes every output through Hyprland" True dispatch_power true
+
 if open_toplevel "$sandbox/dispatch-target.log" smoke.dispatch target; then
   dispatch_target_pid="$toplevel_pid"
   dispatch_target="$(toplevel_address "$dispatch_target_pid")"
@@ -224,6 +246,13 @@ if open_toplevel "$sandbox/dispatch-target.log" smoke.dispatch target; then
       dispatch_move_start_x dispatch_move_start_y dispatch_move_x dispatch_move_y \
       dispatch_resize_start_w dispatch_resize_start_h dispatch_resize_w dispatch_resize_h \
       dispatch_cursor_start_x dispatch_cursor_start_y dispatch_cursor_x dispatch_cursor_y <<<"$dispatch_plan_line"
+    # A distinct cursor request behind on proves the queue-owned monitor
+    # read has completed before we assert no DPMS was sent.
+    shim_hyprctl power-trace
+    dispatch_completed_state "on while every output is on sends no power dispatch" "displayPower on" True dispatch_power true
+    expect "redundant on never reaches the transport" 0 dispatch_power_calls
+    shim_hyprctl real
+    expect "the other dispatch window regains focus after the sentinel" ok probe dispatch "focusWindow $dispatch_other"
     expect_poll "the other window is focused before addressed operations" '["smoke.dispatch", "other"]' active_window
     expect_poll "the target starts tiled" false dispatch_client "$dispatch_target" floating
     dispatch_noop_control "floatWindow $dispatch_target set" true dispatch_client "$dispatch_target" floating
@@ -332,4 +361,4 @@ else
   fail "the target dispatch window maps"
 fi
 expect "the dispatch row returns to workspace 1" ok probe dispatch "focusWorkspace 1"
-rm -f -- "${shim:?}/hyprctl.dispatch-noop" "${shim:?}/hyprctl.dispatch-slow"
+rm -f -- "${shim:?}/hyprctl.dispatch-noop" "${shim:?}/hyprctl.dispatch-slow" "${shim:?}/hyprctl.power-trace"

@@ -16,6 +16,7 @@ var ADDRESS = /^0x[0-9a-fA-F]+$/;
 var SPECIAL = /^[A-Za-z0-9_-]+$/;
 var ACTION = /^(toggle|set|unset)$/;
 var FULLSCREEN_MODE = /^(fullscreen|maximized)$/;
+var DISPLAY_POWER = /^(on|off)$/;
 // Classic movecursor uses std::stoi. Keep numeric arguments in its signed
 // 32-bit range in both dialects, with decimal spelling safe in Lua too.
 var INTEGER = {
@@ -40,6 +41,11 @@ var MONITOR_EVAL = /^[\x09\x0a\x0d\x20-\x7e]+$/;
 
 // name -> { args: [pattern per argument], lua(args), classic(args) }
 var DISPATCHERS = {
+    displayPower: {
+        args: [DISPLAY_POWER],
+        lua: function (a) { return "hl.dsp.dpms({ action = \"" + (a[0] === "on" ? "enable" : "disable") + "\" })"; },
+        classic: function (a) { return "dpms " + a[0]; }
+    },
     focusWorkspace: {
         args: [WORKSPACE],
         lua: function (a) { return "hl.dsp.focus({ workspace = \"" + a[0] + "\" })"; },
@@ -121,6 +127,18 @@ var DISPATCHERS = {
 // The dispatchers a plugin may call through its compositor capability:
 // every one above. Capabilities.qml builds the provider from this list.
 var PLUGIN_DISPATCHERS = Object.keys(DISPATCHERS);
+
+// A power reading must cover every current output with a boolean status.
+// Empty, partial and failed hyprctl replies establish neither on nor off.
+function displayPowerState(text) {
+    var monitors;
+    try { monitors = JSON.parse(text); } catch (e) { monitors = null; }
+    if (!Array.isArray(monitors) || monitors.length === 0 || monitors.some(function (m) {
+        return m === null || typeof m !== "object" || typeof m.dpmsStatus !== "boolean";
+    })) return { ok: false, error: "refused: display-power=monitors " + JSON.stringify(text) };
+    return { ok: true, on: monitors.every(function (m) { return m.dpmsStatus; }),
+        off: monitors.every(function (m) { return !m.dpmsStatus; }) };
+}
 
 // ------------------------------------------------------- window place
 

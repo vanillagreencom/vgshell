@@ -3,6 +3,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import Quickshell.Hyprland
+import Quickshell.Wayland
 import "Dispatch.js" as Dispatch
 
 // The one place the shell dispatches to Hyprland. Dispatch.js builds every
@@ -32,6 +33,10 @@ Singleton {
     property string reply: ""
     property var queue: []
     property var completion: null
+    // One queue slot owns all phases of a panel-power request.
+    property var pendingPower: null
+    property var powerOffRecord: null
+    readonly property bool displaysOff: powerOffRecord !== null
     property var inputSurfaces: []
     property var inputObservation: null
     // Quickshell 0.3.1 builds its desktop entry index on the first read of
@@ -161,7 +166,84 @@ Singleton {
     // Send one dispatcher Dispatch.js knows. Returns `ok` once the request
     // is accepted, or the keyed refusal; the reply is judged when it lands.
     function send(name, args) {
-        return enqueueRequest(Dispatch.request(name, args, Hyprland.usingLua), null);
+        const r = Dispatch.request(name, args, Hyprland.usingLua);
+        if (name !== "displayPower" || !r.ok) return enqueueRequest(r, null);
+        const power = { state: args[0], request: r.request, phase: args[0] === "on" ? "before" : "dispatch" };
+        return enqueue(power.phase === "before" ? ["hyprctl", "-j", "monitors"] : ["hyprctl", "dispatch", r.request], null, true, power);
+    }
+
+    function clearDisplaysOff() {
+        const record = powerOffRecord;
+        powerOffRecord = null;
+        if (record !== null) record.monitor.destroy();
+    }
+
+    function confirmDisplaysOff() {
+        if (powerOffRecord !== null) return;
+        const monitor = powerWakeComponent.createObject(root);
+        if (monitor === null) {
+            console.error("compositor: display-power=wake-monitor-failed");
+            return;
+        }
+        powerOffRecord = { monitor: monitor };
+    }
+
+    Component {
+        id: powerWakeComponent
+        IdleMonitor {
+            property bool armed: false
+            // Quickshell 0.3.1's zero timeout reports idle immediately;
+            // its next non-idle change reports activity. This monitor lives
+            // only while displaysOff is true and clears that fact on input.
+            // It starts no idle stage; inhibitors must not hide the key
+            // press that already wakes Hyprland.
+            // https://quickshell.org/docs/v0.3.1/types/Quickshell.Wayland/IdleMonitor
+            timeout: 0
+            respectInhibitors: false
+            onIsIdleChanged: {
+                if (isIdle) armed = true;
+                else if (armed && root.powerOffRecord !== null && root.powerOffRecord.monitor === this) root.clearDisplaysOff();
+            }
+        }
+    }
+
+    function startPowerPhase(argv, phase) {
+        pendingPower.phase = phase;
+        pending = argv;
+        reply = "";
+        completion = null;
+        proc.command = argv;
+        proc.running = true;
+    }
+
+    // Keep prerequisite and confirmation reads inside the request's queue
+    // slot. A redundant DPMS on makes a panel modeset again, so only the
+    // queue-owned j/monitors read may decide to skip it.
+    function powerAnswered(answer, transportOk) {
+        const power = pendingPower;
+        if (!transportOk) {
+            console.error("compositor: display-power=transport " + answer);
+            return false;
+        }
+        if (power.phase === "dispatch") {
+            if (answer !== "ok") {
+                console.error("compositor: display-power=dispatch " + JSON.stringify(answer));
+                return false;
+            }
+            if (power.state === "on") { clearDisplaysOff(); return false; }
+            startPowerPhase(["hyprctl", "-j", "monitors"], "after");
+            return true;
+        }
+        const read = Dispatch.displayPowerState(answer);
+        if (!read.ok) { console.error("compositor: " + read.error); return false; }
+        if (power.phase === "before") {
+            if (read.on) { clearDisplaysOff(); return false; }
+            startPowerPhase(["hyprctl", "dispatch", power.request], "dispatch");
+            return true;
+        }
+        if (read.off) confirmDisplaysOff();
+        else clearDisplaysOff();
+        return false;
     }
 
     // Enter or leave the key capture pass-through submap, `enter`,
@@ -257,13 +339,13 @@ Singleton {
         }
     }
 
-    function enqueue(argv, done, judged) {
+    function enqueue(argv, done, judged, power) {
         if (queue.length >= Dispatch.QUEUE_LIMIT) {
             const error = "refused: dispatch-queue=full limit=" + Dispatch.QUEUE_LIMIT + " request=" + JSON.stringify(argv);
             console.error("compositor: " + error);
             return error;
         }
-        queue = queue.concat([{ argv: argv, done: typeof done === "function" ? done : null, judged: judged === true }]);
+        queue = queue.concat([{ argv: argv, done: typeof done === "function" ? done : null, judged: judged === true, power: power || null }]);
         drain();
         return "ok";
     }
@@ -273,6 +355,7 @@ Singleton {
         pending = queue[0].argv;
         pendingDone = queue[0].done;
         pendingJudged = queue[0].judged;
+        pendingPower = queue[0].power;
         queue = queue.slice(1);
         completion = null;
         reply = "";
@@ -503,10 +586,13 @@ Singleton {
                 console.error("compositor: dispatch-start=failed request=" + JSON.stringify(root.pending));
             const done = root.pendingDone;
             const argv = root.pending;
-            const answer = root.completion === null ? "dispatch-start=failed" : root.completion.code !== 0 ? "exit=" + root.completion.code + (root.reply === "" ? "" : " reply=" + JSON.stringify(root.reply)) : root.reply;
+            const transportOk = root.completion !== null && root.completion.code === 0 && root.completion.status === 0;
+            const answer = root.completion === null ? "dispatch-start=failed" : !transportOk ? "exit=" + root.completion.code + " status=" + root.completion.status + (root.reply === "" ? "" : " reply=" + JSON.stringify(root.reply)) : root.reply;
+            if (root.pendingPower !== null && root.powerAnswered(answer, transportOk)) return;
             root.pending = null;
             root.pendingDone = null;
             root.pendingJudged = false;
+            root.pendingPower = null;
             if (done !== null) root.deliver(done, answer, JSON.stringify(argv));
             root.drain();
         }
