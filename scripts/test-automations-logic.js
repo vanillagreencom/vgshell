@@ -713,7 +713,7 @@ const CONTROLS = [
     ["an unavailable scheduler is not an invalid schedule", 'scheduler=none|systemctl=|systemd-run=|crontab=', 'systemctl=|systemd-run=|crontab='],
     ["diagnostics stay out of display text", 'function failureText(reason) {', 'function failureText(reason) { return String(reason);'],
     ["weekdays compile to their names", "weekdays = orderedWeekdays(s.weekdays).map(function (w) { return SYSTEMD_WEEKDAYS[WEEKDAYS.indexOf(w)]; }).join(\",\") + \" \";", "weekdays = \"\";"],
-    ["every time of day compiles", "return s.times.map(function (time) { return weekdays + date + \" \" + time + \":00\"; });", "return [weekdays + date + \" \" + s.times[0] + \":00\"];"],
+    ["every time of day compiles", "return s.times.map(function (time) { return weekdays + date + \" \" + time + \":00\" + calendarZoneSuffix(s); });", "return [weekdays + date + \" \" + s.times[0] + \":00\" + calendarZoneSuffix(s)];"],
     ["a monthly date compiles to its day", "date = \"*-*-\" + pad2(s.monthly.day);", "date = \"*-*-*\";"],
     ["a week of the month compiles to its seven days", "\"*-*-\" + pad2((s.monthly.week - 1) * 7 + 1) + \"..\" + pad2(Math.min(31, s.monthly.week * 7));", "\"*-*-*\";"],
     ["the last week compiles to the month's end", "date = s.monthly.week === -1 ? \"*-*~07/1\"", "date = s.monthly.week === -1 ? \"*-*-*\""],
@@ -813,9 +813,7 @@ fs.rmSync(temp, { recursive: true, force: true });
 fs.mkdirSync(temp, { recursive: true });
 try {
     for (const [label, needle, replacement] of CONTROLS) {
-        const expectedMatches = label === "notifications round duration to seconds" ? 3
-            : label === "every time of day compiles" ? 3
-                : 2;
+        const expectedMatches = label === "notifications round duration to seconds" ? 3 : 2;
         assert.equal(source.split(needle).length, expectedMatches, `control "${label}": the text to replace must occur once`);
         const mutant = path.join(temp, "AutomationsLogic.js");
         fs.writeFileSync(mutant, source.split(needle).join(replacement));
