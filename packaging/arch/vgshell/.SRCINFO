@@ -100,6 +100,6 @@ pkgbase = vgshell
 	optdepends = vivaldi: opens a calendar day in a Vivaldi profile
 	optdepends = microsoft-edge-stable-bin: opens a calendar day in a Microsoft Edge profile
 	source = vgshell-0.1.2.tar.gz::https://github.com/vanillagreencom/vgshell/releases/download/v0.1.2/vgshell-0.1.2.tar.gz
-	sha256sums = SKIP
+	sha256sums = 45b1358972f7fc0ec25688462bbd585953a4980fef35142be96067f1a5b6c06e
 
 pkgname = vgshell
