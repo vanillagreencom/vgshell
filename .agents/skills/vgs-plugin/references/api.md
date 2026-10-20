@@ -367,6 +367,12 @@ A flat entry's `link`, `{ text, url }`, draws `text`, words its `description` ho
 
 `problem` names a `text` status entry of the same plugin, `hidden` or drawn. The Settings field shows its published text as an error under the control. An empty or unreported value draws no error. A plugin's own view reads the same schema key and status value. A `list` and a `list` item field may not declare it. [`PluginLogic.fieldProblems`](../../../../shell/Core/PluginLogic.js) resolves the text for the manager row's `fieldProblems`.
 
+### Split plugins
+
+`splitFrom` names the plugin a bundled plugin split from. The manifest judge owns its shape: one dotted id, different from `id` and every `formerIds` entry. The source may still ship. Keep the declaration for as long as the target ships ([D110](../../../../docs/decisions/D110-tailscale-and-vpn-split.md)).
+
+Before publishing the scan, and on each user-file read after renames, the core copies the source's disable, a bar entry before every source entry, and the source values of only the target's declared settings. It does this only while the target is absent from `plugins[]`, `disabledPlugins` and `bar.layout`, and always adds a target `plugins[]` row, bare when no source values exist. That row preserves later independent enable and hide choices. An absent user file's first write records bare rows for every bundled split target it names nowhere. An installed plugin's declaration is accepted and logged once per changed scan, and copies nothing. No configuration version changes. Gap: the `bin/` readers do not apply splits, so command-line reads and edits see the saved source configuration until the shell has read and written it.
+
 ### Hyprland appearance
 
 `hyprland.appearance` is an object for a plugin that has capability `theme`. It maps `noGaps` to a boolean setting key in the same manifest schema. The first enabled plugin by id that declares appearance owns the switch. A later declaration is reported as a Hyprland problem and ignored. The core's default is no gaps off. The theme's borders, radius and motion follow the user's Appearance values instead (capability `appearance`): each holds over a user's own Hyprland lines unless the user keeps their own value, and window animations are written only once the user turns them on. `noGaps` writes zero gaps as a workspace rule, which holds over a user's later `general` gaps; only a later workspace rule that sets gaps overrides it.

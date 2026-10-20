@@ -7,7 +7,7 @@
 # plugin's former id and places its widget names the plugin by its new id
 # before the scan publishes it, so the plugin is never built; a copy that
 # renames after the scan publishes is its control, and builds it.
-# inputs: scripts/smoke/fixtures/plugins/vgs.fixture-renamed/* shell/Core/Config.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Registry.qml shell/Core/Plugins.qml shell/Core/Capabilities.qml shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.bar/manifest.json shell/plugins/vgs.bar/Bar.qml shell/plugins/vgs.bar/Service.qml bin/vgshell shell/Commons/WatchedFile.qml bin/vgshell-plugin-judge scripts/smoke/rows/capability-release.sh
+# inputs: scripts/smoke/fixtures/plugins/vgs.fixture-renamed/* scripts/smoke/fixtures/plugins/vgs.fixture-split/* shell/Core/Config.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Registry.qml shell/Core/Plugins.qml shell/Core/Capabilities.qml shell/plugins/vgs.settings/Window.qml shell/plugins/vgs.bar/manifest.json shell/plugins/vgs.bar/Bar.qml shell/plugins/vgs.bar/Service.qml bin/vgshell shell/Commons/WatchedFile.qml bin/vgshell-plugin-judge scripts/smoke/rows/capability-release.sh
 set -euo pipefail
 config_user_state() { ipc shell listPlugins | py_reply 'import json,sys; print(json.load(sys.stdin)["config"]["user"])'; }
 expected_errors+=('config: user file unreadable at ')
@@ -193,6 +193,53 @@ if copy_tree configuration-renames-late && edit_tree configuration-renames-late 
     expect_log "control: a shell that renames after the scan publishes builds the plugin its user disabled" 1 'renamed-fixture: built'
   fi
   config_renamed_restore
+fi
+
+# A bundled split must take its source's saved values before the map can
+# build it. A background builds in the publication turn, so the late-map
+# control exposes the transient enable even though the file is copied later.
+config_plant_split() {
+  cp -R -- "$repo/scripts/smoke/fixtures/plugins/vgs.fixture-split" "$sandbox/tree-$1/shell/plugins/vgs.fixture-split" || return
+  python3 - "$home/.config/vgshell/shell.json" <<'PYDATA'
+import json, os, sys
+p = sys.argv[1]
+d = json.load(open(p))
+d["disabledPlugins"] = d.get("disabledPlugins", []) + ["acme.tick"]
+d["plugins"] = [r for r in d.get("plugins", []) if r["id"] != "acme.tick"] + [{"id": "acme.tick", "format": "split-saved"}]
+json.dump(d, open(p + ".tmp", "w"), indent=2)
+os.replace(p + ".tmp", p)
+PYDATA
+}
+config_split_read() {
+  python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); ids=("acme.tick", "vgs.fixture-split"); print(json.dumps([[i for i in d.get("disabledPlugins", []) if i in ids], [e["id"] for s in ("left", "center", "right") for e in d["bar"]["layout"].get(s, []) if e["id"] in ids], [r for r in d.get("plugins", []) if r["id"] == "vgs.fixture-split"]]))' "$home/.config/vgshell/shell.json"
+}
+if copy_tree configuration-split; then
+  stop_shell || :
+  config_plant_split configuration-split || fail "planting the split fixture and source configuration failed"
+  if start_shell "$sandbox/tree-configuration-split" "$sandbox/configuration-split-qs.log"; then
+    expect_log "the shell publishes the scan holding the split" 1 'plugins: scan complete changed=true'
+    expect_poll "the split receives the source disable, placement and declared setting before building" '[["acme.tick", "vgs.fixture-split"], ["vgs.fixture-split", "acme.tick"], [{"id": "vgs.fixture-split", "format": "split-saved"}]]' config_split_read
+    expect "the split disabled before publication never builds" 0 log_lines 'split-fixture: built'
+    expect "the user can enable the split independently" ok ipc shell setPluginEnabled vgs.fixture-split true
+    expect_log "the enabled split builds with the copied setting" 1 'split-fixture: built format=split-saved'
+    expect "a later source disable is accepted" ok ipc shell setPluginEnabled acme.tick false
+    expect "the later source disable leaves the split enabled" '[["acme.tick"], ["vgs.fixture-split", "acme.tick"], [{"id": "vgs.fixture-split", "format": "split-saved"}]]' config_split_read
+    stop_shell || :
+    if start_shell "$sandbox/tree-configuration-split" "$sandbox/configuration-split-restart-qs.log"; then
+      expect_log "a restart keeps the independently enabled split" 1 'split-fixture: built format=split-saved'
+    fi
+  fi
+  configuration_control_restore
+fi
+if copy_tree configuration-splits-late && edit_tree configuration-splits-late shell/Core/Registry.qml \
+    $'        if (isChanged) renameUserFile(next);\n        if (isChanged) root.manifests = next;\n        // `scanned` gates every slot key, so it moves after the map.\n        root.scanned = true;\n' \
+    $'        if (isChanged) root.manifests = next;\n        // `scanned` gates every slot key, so it moves after the map.\n        root.scanned = true;\n        if (isChanged) renameUserFile(next);\n'; then
+  stop_shell || :
+  config_plant_split configuration-splits-late || fail "control: planting the split fixture failed"
+  if start_shell "$sandbox/tree-configuration-splits-late" "$sandbox/configuration-splits-late-qs.log"; then
+    expect_log "control: splitting after publication builds the disabled source's target with defaults" 1 'split-fixture: built format=default'
+  fi
+  configuration_control_restore
 fi
 
 # Read the saved undeclared field from runtime settings in a disposable
