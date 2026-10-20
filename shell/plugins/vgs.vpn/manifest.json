@@ -79,6 +79,17 @@
       "purpose": "Chooses a VPN file to import"
     },
     {
+      "command": "busctl",
+      "packages": {
+        "pacman": "systemd",
+        "apt": "systemd",
+        "dnf": "systemd",
+        "nix": "systemd"
+      },
+      "optional": true,
+      "purpose": "Checks for NetworkManager's OpenVPN plugin before an OpenVPN import"
+    },
+    {
       "dbus": {
         "bus": "system",
         "name": "org.freedesktop.NetworkManager.openvpn",
@@ -115,7 +126,8 @@
       },
       "requires": [
         "nmcli",
-        "gum"
+        "gum",
+        "busctl"
       ]
     }
   }

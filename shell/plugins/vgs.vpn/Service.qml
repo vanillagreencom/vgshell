@@ -309,7 +309,7 @@ Item {
     }
     function importFile() {
         if (profiles.state !== "available") return "refused: import=unavailable";
-        const needed = ["nmcli", "gum"].filter(command => shell.requirements.missing.indexOf(command) !== -1);
+        const needed = ["nmcli", "gum", "busctl"].filter(command => shell.requirements.missing.indexOf(command) !== -1);
         // The notice opens the import once it installs what is missing, so
         // a notice that shows is the press's answer.
         if (needed.length > 0)

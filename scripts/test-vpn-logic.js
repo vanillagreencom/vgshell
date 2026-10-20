@@ -294,6 +294,7 @@ function suite(logic, service = serviceSource) {
         ["available", [], "ok", undefined, [], 1],
         ["available", ["gum"], "ok", undefined, [[["gum"], "import"]], 0],
         ["available", ["nmcli", "gum"], "ok", undefined, [[["nmcli", "gum"], "import"]], 0],
+        ["available", ["busctl"], "ok", undefined, [[["busctl"], "import"]], 0],
         ["available", ["gum"], "refused: notices=full limit=8", "refused: import=missing-tool", [[["gum"], "import"]], 0],
         ["not-running", [], "ok", "refused: import=unavailable", [], 0]
     ]) {
@@ -307,7 +308,8 @@ function suite(logic, service = serviceSource) {
         assert.equal(refreshed, launched);
         if (launched) assert.deepEqual(launches[0], ["import", []]);
     }
-    assert.ok(Object.prototype.hasOwnProperty.call(manifest.tui, "import"));
+    // The import offers every tool its TUI requires.
+    assert.deepEqual(manifest.tui.import.requires.slice().sort(), ["busctl", "gum", "nmcli"]);
 
     // Publish bounded profile lists through the production service callback.
     assert.equal(logic.line("a<b>\u0007c\n"), "ab>c");
