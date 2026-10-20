@@ -40,6 +40,15 @@ Item {
     // stepped with a required tool, whose Home a missing tool blocks.
     readonly property var toolStepped: Object.assign({}, stepped, { requirements: PluginLogic.normalRequirements([{ command: "required-a", purpose: "Basic work" }]) })
     readonly property var homeBlocked: ({ model: ready, home: { tone: "warning", text: "Needs its tool", action: "tools" }, health: ready })
+    // An optional step declared before a required one.
+    readonly property var optionalStepped: ({
+        requirements: [], tui: { connect: { requires: [] } },
+        status: {
+            extra: { type: "state", label: "Extra", setup: "optional", action: { label: "Connect", tui: "connect" } },
+            model: { type: "state", label: "Model", setup: true, action: { label: "Sign in", tui: "connect" } }
+        }
+    })
+    readonly property var extraOpen: ({ tone: "info", text: "Not set up", action: true })
     readonly property var optional: ({
         requirements: PluginLogic.normalRequirements([{ command: "optional-tool", optional: true, purpose: "Optional work" }]),
         tui: { configure: { requires: [] } },
@@ -94,6 +103,8 @@ Item {
             pluginRow("acme.failed", stepped, {}, [], { errors: ["build failed: service: file:///fixture/Service.qml:12: No such type"] }),
             pluginRow("acme.refused", stepped, {}, [], { errors: ["refused: capability=acme.audio held-by=acme.other"] }),
             pluginRow("acme.toolstep", toolStepped, homeBlocked, ["required-a"], {}),
+            pluginRow("acme.optstep", optionalStepped, { extra: root.extraOpen, model: ready }, [], {}),
+            pluginRow("acme.optreq", optionalStepped, { extra: root.extraOpen, model: { tone: "warning", text: "Account missing", action: true } }, [], {}),
             pluginRow("acme.off", stepped, todo, [], { enabled: false }),
             pluginRow("acme.optional", optional, { featureState: { tone: "warning", text: "Not configured", action: true }, health: ready }, ["optional-tool"],
                 { schema: { feature: { type: "boolean", label: "Feature" } }, settings: { feature: false } }),
@@ -205,6 +216,8 @@ Item {
                 { tag: "not available after a failed build", id: "acme.failed", warning: false },
                 { tag: "not available while refused", id: "acme.refused", warning: false },
                 { tag: "blocked by a missing tool", id: "acme.toolstep", warning: true },
+                { tag: "an optional step open", id: "acme.optstep", warning: false },
+                { tag: "an optional step beside a required step To do", id: "acme.optreq", warning: true },
                 { tag: "missing required tools", id: "acme.required", warning: true },
                 { tag: "tools present", id: "acme.present", warning: false },
                 { tag: "off", id: "acme.off", warning: false }
@@ -247,6 +260,19 @@ Item {
             compare(shown(window, RowAction).map(action => action.text), data.actions);
             compare(onTab(window, Button).length, 0, "Setup draws no boxed action");
             compare(shown(window, RequirementRow).length, 0, "Setup has no separate requirement rows");
+        }
+        // An optional step reads Optional in the neutral tone, after a
+        // required step To do and before a Done one, with its own action.
+        function test_setup_draws_an_optional_step_data() {
+            return [{ tag: "beside a done required step", id: "acme.optstep", labels: ["Extra", "Model"], chips: [["Optional", "neutral"], ["Done", "success"]], actions: ["Connect"] },
+                { tag: "beside a required step To do", id: "acme.optreq", labels: ["Model", "Extra"], chips: [["To do", "warning"], ["Optional", "neutral"]], actions: ["Sign in", "Connect"] }];
+        }
+        function test_setup_draws_an_optional_step(data) {
+            const window = opened(); window.openPlugin(data.id, Qt.OtherFocusReason, "Setup");
+            compare(pageOf(window).tab, "Setup");
+            compare(shown(window, Field).map(field => field.label).filter(label => ["Extra", "Model"].indexOf(label) !== -1), data.labels);
+            compare(shown(window, Badge).map(chip => [chip.text, chip.tone]), data.chips);
+            compare(shown(window, RowAction).map(action => action.text), data.actions);
         }
         // [tag, plugin, the chip tone of each step in drawn order, the step
         // labels in that order, the steps that draw an action].

@@ -908,7 +908,7 @@ PYREQUIRED
 rescan "a rescan loads the fixture's required steps and required missing tool"
 expect_poll "the temporary fixture declares the capability its status entries need" '[["status"]]' row_of acme.bare capabilities
 manager_required_status() { settings_rows | py_reply 'import json,sys; rows=[row for row in json.load(sys.stdin) if row["id"] == "acme.bare"]; print(json.dumps([[entry["key"], entry["setup"], entry["report"]] for entry in rows[0]["status"]]) if len(rows) == 1 else "fixture-absent")'; }
-expect_poll "the current manager row holds both required unreported steps" '[["first", true, "unreported"], ["second", true, "unreported"]]' manager_required_status
+expect_poll "the current manager row holds both required unreported steps" '[["first", "required", "unreported"], ["second", "required", "unreported"]]' manager_required_status
 settings_show acme.bare
 settings_setup
 expect_poll "the missing required tool is one To do step" '[["Tools", "To do", "Review all missing or outdated tools", "vgs-smoke-absent (missing)"]]' manager_tools

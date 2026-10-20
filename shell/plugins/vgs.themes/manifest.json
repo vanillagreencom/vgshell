@@ -40,7 +40,7 @@
     "noWindowGaps": {"type": "boolean", "label": "No window gaps", "description": "Applies to tiled windows on every workspace", "group": "Hyprland"}
   },
   "status": {
-    "browserTheming": {"type": "state", "label": "Browser theming", "group": "Browsers", "hint": "Let the selected theme change the colours of Chromium, Chrome, Edge and Brave", "action": {"label": "Install browser theming", "tui": "browser-policy"}},
+    "browserTheming": {"type": "state", "label": "Browser theming", "setup": "optional", "group": "Browsers", "hint": "Let the selected theme change the colours of Chromium, Chrome, Edge and Brave", "action": {"label": "Install browser theming", "tui": "browser-policy"}},
     "themeWiring": {"type": "presenceList", "label": "Theme files", "hint": "Open the file and line VGS added for each app", "info": "The list shows up to 32 rows. The last row gives the number of files left out."}
   },
   "tui": {

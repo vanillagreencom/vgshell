@@ -93,7 +93,7 @@ function setupPublished(state) {
     var value = { tone: state.tone, text: state.text };
     if (state.lines !== undefined && state.lines.length > 0) value.lines = state.lines;
     value.action = state.action === "setup";
-    if (state.action === "stop") value.hint = "Choose Stop the other voxtype under [Other dictation service](page:vgs.voice/Details)";
+    if (state.action === "stop") value.hint = "Choose Stop the other voxtype on the Other dictation service step";
     return value;
 }
 

@@ -112,8 +112,9 @@
 # stops the dictation. A right click opens the widget menu, which reads
 # Hide, Voxtype Settings, Readme, Settings, and Voxtype Settings hands the terminal
 # Configure.
-# A refused start opens the existing correction: Setup for an absent or
-# failed daemon, Settings at Other dictation service for a foreign one.
+# A refused start opens the existing correction on Setup: dictation's own
+# step for an absent or failed daemon, Other dictation service for a
+# foreign one.
 # A failed-state start reports pending while it retries. The open page
 # follows the actual result, including a continuing child failure.
 # Without voxtype, a click on the widget starts no recording and offers
@@ -1115,9 +1116,9 @@ voice_enabled_notice() { # LABEL
   expect_poll "$1: enabling Voice without voxtype raises the notice for voxtype and its bridge" "$voice_asked" notice_shown
   voice_notice_escape "$1"
 }
-# Details holds the action for another dictation service, beside its
-# reading and on no Settings field.
-voice_other_service() { ipc smoke settingRows window vgs.settings | py_reply 'import json,sys; rows=[r for r in json.load(sys.stdin) if r["key"]=="otherService"]; print(json.dumps([rows[0]["field"], [[b["text"],b["enabled"]] for b in rows[0]["buttons"]]]) if len(rows)==1 else "rows=%d" % len(rows))'; }
+# Setup holds the step for another dictation service: its chip and the
+# action it offers.
+voice_other_service() { ipc smoke setupRows window vgs.settings | py_reply 'import json,sys; rows=[r for r in json.load(sys.stdin) if r["key"]=="otherService"]; print(json.dumps([rows[0]["chips"], [[b["text"],b["enabled"]] for b in rows[0]["buttons"]]]) if len(rows)==1 else "rows=%d" % len(rows))'; }
 voice_offered_actions() { offered_actions vgs.voice | py_reply 'import json,sys; print(json.dumps([row for row in json.load(sys.stdin) if row[2]]))'; }
 # The Voice row of the Plugins list: its required Setup mark and the
 # absence of the removed optional-tool icon.
@@ -1457,8 +1458,8 @@ voice_stop_other() { # LABEL
   settings_page_close vgs.voice
   expect "$1: a start beside the other daemon is refused" "refused: dictation=daemon-elsewhere" voice_toggle
   expect_poll "$1: the foreign daemon refusal opens the correction window" 1 window_count Plugins
-  expect_poll "$1: the foreign daemon refusal opens Voice Details" '"vgs.voice/Details"' ipc smoke readInstance window vgs.settings shownPage
-  expect_poll "$1: Details offers Stop beside Other dictation service" '["", [["Stop the other voxtype", true]]]' voice_other_service
+  expect_poll "$1: the foreign daemon refusal opens Voice Setup" '"vgs.voice/Setup"' ipc smoke readInstance window vgs.settings shownPage
+  expect_poll "$1: Setup offers Stop on the Other dictation service step" '[[["To do", "warning"]], [["Stop the other voxtype", true]]]' voice_other_service
   voice_stop_other_before="$(voice_stop_other_end)" || voice_stop_other_before=unread
   forget_record
   hold_runs

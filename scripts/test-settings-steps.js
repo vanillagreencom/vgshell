@@ -4,9 +4,11 @@
 // stays open; a step the user cannot act on, by its value or because its
 // plugin could not start, reads neutral after the open steps and raises no Setup needed; a
 // step a missing required tool blocks offers the one install action on its
-// own row. Settings draws only values and their stored key lists, and
-// optional work, its action and its tools belong on Details. Required
-// tools form one persistent step. Every To do step and every Details fact
+// own row. An optional step reads Optional, follows the required steps
+// that are not done and raises no Setup needed. Settings draws only
+// values and their stored key lists; a fact with an action and the
+// optional tools stand on Details. Required tools form one persistent
+// step. Every To do step and every Details fact
 // that holds work draws an action that takes a press, with the plugin on
 // and off; a fact whose feature is set up draws none.
 // Expected placements and actions are independent data. The source check
@@ -256,6 +258,43 @@ function verify(logic, producer) {
         same(button === null ? null : [button.kind, button.enabled], want, "step action owner: " + name);
     }
 
+    // An optional step, declared before a required one: Setup reads it
+    // Optional in the neutral tone after the required steps that are not
+    // done and before the Done ones, offers its own action, and raises
+    // neither Setup needed nor the tab's mark, which read setupNeeds; the
+    // required step beside it still raises them. Done, it reads Done; one
+    // the user cannot act on reads Not available; a hidden value takes it
+    // off Setup. [name, values, its reading, its chip, Setup needed, the
+    // step order].
+    const optionalStatus = {
+        extra: { type: "state", label: "Extra", setup: "optional", action: { label: "Configure feature", tui: "feature" } },
+        need: { type: "state", label: "Need", setup: true, action: { label: "Set model", tui: "required" } }
+    };
+    const optionalManifest = Object.assign({}, manifest, { status: optionalStatus });
+    const optionalRows = values => producer.statusRows(optionalManifest, values);
+    const extraOpen = { tone: "info", text: "Not set up", action: true };
+    const needOpen = { tone: "warning", text: "Needs a key", action: true };
+    for (const [name, values, reading, chip, needed, order] of [
+        ["open beside a done required step", { extra: extraOpen, need: ready }, "optional", ["Optional", "neutral"], false, ["extra", "need"]],
+        ["open beside a required step To do", { extra: extraOpen, need: needOpen }, "optional", ["Optional", "neutral"], true, ["need", "extra"]],
+        ["unreported", { need: ready }, "optional", ["Optional", "neutral"], false, ["extra", "need"]],
+        ["done", { extra: ready, need: ready }, "done", ["Done", "success"], false, ["extra", "need"]],
+        ["not available", { extra: unavailable, need: ready }, "unavailable", ["Not available", "neutral"], false, ["extra", "need"]]
+    ]) {
+        const current = optionalRows(values), extra = current.find(entry => entry.key === "extra"), view = logic.stepView(extra, String, on);
+        same([logic.stepReading(extra, on), view.text, view.tone], [reading].concat(chip), "optional step " + name + ": the chip");
+        same(logic.setupNeeds(current, [], true).open, needed, "optional step " + name + ": Setup needed");
+        same(items(logic.setupSections(screens, current, [], on)).map(item => item.key), order, "optional step " + name + ": the order");
+    }
+    const extraStep = values => optionalRows(values).find(entry => entry.key === "extra");
+    const extraOffer = (values, plugin) => { const b = logic.lineAction(logic.stepButton(extraStep(values)), logic.stepOpen(extraStep(values)), plugin); return b === null ? null : b.label; };
+    same([extraOffer({ extra: extraOpen }, on), extraOffer({ extra: extraOpen }, off), extraOffer({ extra: ready }, on)], ["Configure feature", TURN_ON, null],
+        "optional step: its own action while on, Turn on while off, none once done");
+    same([producer.statusWrite(optionalManifest, {}, "extra", { hidden: true }).ok, producer.statusWrite(optionalManifest, {}, "need", { hidden: true }).ok], [true, false],
+        "optional step: a hidden value is admitted on an optional step alone");
+    same(items(logic.setupSections(screens, optionalRows({ extra: { hidden: true }, need: ready }), [], on)).map(item => item.key), ["need"], "optional step: a hidden value takes it off Setup");
+    same(logic.detailEntries(optionalRows({})).map(entry => entry.key), [], "optional step: Details draws no step");
+
     // The status value judge: [name, the manifest, entry, value, admitted].
     const noRequiredTool = Object.assign({}, manifest, { requirements: manifest.requirements.filter(row => row.optional) });
     for (const [name, judged, key, value, admitted] of [
@@ -264,6 +303,7 @@ function verify(logic, producer) {
         ["tools on a Details fact", manifest, "fact", toolBlocked, false],
         ["Not available on a required step", manifest, "home", unavailable, true],
         ["Not available on a Details fact", manifest, "fact", unavailable, false],
+        ["Not available on an optional step", optionalManifest, "extra", unavailable, true],
         ["Not available on a done step", manifest, "home", Object.assign({}, unavailable, { tone: "ok" }), false],
         ["Not available with an action", manifest, "model", Object.assign({}, unavailable, { action: true }), false],
         ["Not available with tools", manifest, "home", Object.assign({}, unavailable, { action: "tools" }), false],
@@ -389,13 +429,18 @@ function verifyPage(source) { assert.doesNotMatch(setupBody(source), /\bButton\s
 verify(load(file), load(producerFile));
 verifyPage(fs.readFileSync(pageFile, "utf8"));
 const controls = [
-    ["optional-on-Setup", 'return entry.setup === true;', 'return entry.setup === true || entry.setting !== "";', "optional entries never draw on Setup"],
+    ["optional-on-Setup", 'return entry.setup === "required" || entry.setup === "optional"; }', 'return entry.setup === "required" || entry.setup === "optional" || entry.setting !== ""; }', "optional entries never draw on Setup"],
+    ["an optional step reads To do", 'return entry.setup === "optional" ? "optional" : "todo";', 'return "todo";', "optional step open beside a done required step: the chip"],
+    ["an optional step the user cannot act on reads Optional", 'if (!stepOpen(entry)) return "unavailable";', 'if (!stepOpen(entry) && entry.setup !== "optional") return "unavailable";', "optional step not available: the chip"],
+    ["an optional step raises Setup needed", 'stepReading(entry, plugin) === "todo"; })', 'stepReading(entry, plugin) !== "done" && stepReading(entry, plugin) !== "unavailable"; })', "optional step open beside a done required step: Setup needed"],
+    ["an optional step sorts with To do", 'optional: 2, done: 3 };', 'optional: 0, done: 3 };', "optional step open beside a required step To do: the order"],
+    ["an optional step sorts after Done", 'optional: 2, done: 3 };', 'optional: 4, done: 3 };', "optional step open beside a done required step: the order"],
     ["Details duplicates required step", '!declaresStep(entry) && ', '', "Details lists each former Settings entry"],
     ["blocked required work marked done", 'return entry.report !== "reported" || (entry.tone !== "success" && entry.value.available !== false);', 'return entry.report !== "reported";', "only Home blocked"],
     ["unknown required work marked done", 'return entry.report !== "reported" || (entry.tone !== "success" && entry.value.available !== false);', 'return entry.report === "reported" && entry.tone !== "success";', "Home not reported"],
     ["Not available counts as open", '(entry.tone !== "success" && entry.value.available !== false)', 'entry.tone !== "success"', "readiness: only Home not available"],
-    ["Not available sorts with To do", 'var STEP_RANKS = { todo: 0, unavailable: 1, done: 2 };', 'var STEP_RANKS = { todo: 0, unavailable: 0, done: 2 };', "Not available by its value, between To do and Done: the order"],
-    ["Not available sorts with Done", 'var STEP_RANKS = { todo: 0, unavailable: 1, done: 2 };', 'var STEP_RANKS = { todo: 0, unavailable: 2, done: 2 };', "Not available by its value, after a pending Tools step: the order"],
+    ["Not available sorts with To do", 'var STEP_RANKS = { todo: 0, unavailable: 1,', 'var STEP_RANKS = { todo: 0, unavailable: 0,', "Not available by its value, between To do and Done: the order"],
+    ["Not available sorts with Done", 'var STEP_RANKS = { todo: 0, unavailable: 1,', 'var STEP_RANKS = { todo: 0, unavailable: 3,', "Not available by its value, after a pending Tools step: the order"],
     ["Not available reads To do", 'unavailable: { text: "Not available", tone: "neutral" }', 'unavailable: { text: "Not available", tone: "warning" }', "Not available by its value, between To do and Done: the chip"],
     ["a failed build reads To do", 'if (entry.report !== "reported" && plugin !== undefined && plugin.enabled && plugin.failed) return "unavailable";', '', "Not available after a failed build: the chip"],
     ["Setup needed ignores a failed build", 'var plugin = { enabled: enabled, failed: failed === true };', 'var plugin = { enabled: enabled, failed: false };', "Setup needed after a failed build"],
@@ -446,7 +491,10 @@ const producerControls = [
         "judge: tools on a plugin with no required tool"],
     ["tools on a Details fact passes", 'return entry.setup === true && manifest.requirements.some(function (row) { return !row.optional; });', 'return manifest.requirements.some(function (row) { return !row.optional; });',
         "judge: tools on a Details fact"],
-    ["Not available on a Details fact passes", 'value.available === false && (entry.setup !== true || ', 'value.available === false && (false || ', "judge: Not available on a Details fact"],
+    ["Not available on a Details fact passes", 'value.available === false && (setupStep(entry) === "" || ', 'value.available === false && (false || ', "judge: Not available on a Details fact"],
+    ["Not available on an optional step is refused", 'value.available === false && (setupStep(entry) === "" || ', 'value.available === false && (entry.setup !== true || ', "judge: Not available on an optional step"],
+    ["an optional step is never hidden", '        if (entry.setup === true && statusStateHidden(value)) return false;', '        if (setupStep(entry) !== "" && statusStateHidden(value)) return false;', "optional step: a hidden value is admitted on an optional step alone"],
+    ["an optional step is no step", '            setup: setupStep(entry),', '            setup: entry.setup === true ? "required" : "",', "optional step open beside a done required step: the chip"],
     ["Not available with an action passes", ' || (value.action !== undefined && value.action !== false) || ', ' || ', "judge: Not available with an action"],
     ["Not available with no hint passes", ' || value.aside === true\n            || value.hint === undefined))', ' || value.aside === true))', "judge: Not available with no hint"],
     ["available true passes", '&& (value.available === undefined || value.available === false);', ';', "judge: available true"],

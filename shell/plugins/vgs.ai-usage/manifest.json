@@ -42,8 +42,8 @@
   "status": {
     "usage": {"type": "data", "label": "Usage"},
     "accounts": {"type": "choices", "label": "Accounts", "hidden": true},
-    "claude": {"type": "state", "label": "Claude Code", "group": "Sign-in", "hint": "Sign in to show your plan limits", "action": {"label": "Sign in", "tui": "sign-in-claude"}},
-    "codex": {"type": "state", "label": "Codex", "group": "Sign-in", "hint": "Sign in to show your plan limits", "action": {"label": "Sign in", "tui": "sign-in-codex"}},
+    "claude": {"type": "state", "label": "Claude Code", "setup": "optional", "group": "Sign-in", "hint": "Sign in to show your plan limits", "action": {"label": "Sign in", "tui": "sign-in-claude"}},
+    "codex": {"type": "state", "label": "Codex", "setup": "optional", "group": "Sign-in", "hint": "Sign in to show your plan limits", "action": {"label": "Sign in", "tui": "sign-in-codex"}},
     "gatewayKey": {"type": "presenceList", "label": "AI Gateway key", "hint": "Add the key to show your AI Gateway credit figures", "info": "Create the key in Vercel under AI Gateway, then API keys. VGS stores the key in your keyring.", "setting": "aiGateway"}
   },
   "secrets": { "service": "vgs-ai-usage", "label": "VGS AI Usage AI Gateway key" }

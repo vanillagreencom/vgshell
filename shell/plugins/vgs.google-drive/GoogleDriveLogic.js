@@ -535,10 +535,12 @@ function setupOffered(units, hasPairs) {
     return units === "stale" || (units === "absent" && hasPairs);
 }
 
-// The `schedule` value: whether the hourly units are what install writes
-// now, with Set up again while setupOffered.
+// The `schedule` Setup step: whether the hourly units are what install
+// writes now, with Set up again while setupOffered. Before the first
+// folder pair, which installs them, the user has nothing to do here, so
+// the step reads Not available, its hint saying what turns it on.
 function scheduleValue(units, hasPairs) {
-    if (!setupOffered(units, hasPairs)) return units === "installed" ? { tone: "ok", text: "On", hint: SCHEDULE_HINTS.on } : { tone: "info", text: "Off", hint: SCHEDULE_HINTS.off };
+    if (!setupOffered(units, hasPairs)) return units === "installed" ? { tone: "ok", text: "On", hint: SCHEDULE_HINTS.on } : { tone: "info", text: "Off", hint: SCHEDULE_HINTS.off, available: false };
     return units === "stale" ? { tone: "warning", text: "Out of date", action: true, hint: SCHEDULE_HINTS.stale } : { tone: "warning", text: "Not on", action: true, hint: SCHEDULE_HINTS.failed };
 }
 
@@ -564,7 +566,7 @@ function pairState(pair, now) {
 }
 
 // The row the Settings list holds while the runner cannot read the pair
-// list: it holds no pair then, and the repair is the Details tab's.
+// list: it holds no pair then, and the repair is the Setup tab's.
 var UNREADABLE_ROW = { id: "unreadable", label: "The folder pair list cannot be read", secondary: "VGS copies nothing until you start the list again",
     state: { tone: "danger", text: "Not readable" }, actions: [] };
 
@@ -580,22 +582,24 @@ function pairsValue(cloud, now, home) {
     });
 }
 
-// The `pairList` value: hidden while the runner reads the pair list, else
-// why it cannot, with Start the list again, the one change it accepts then.
+// The `pairList` Setup step: done while the runner reads the pair list,
+// else why it cannot, with Start the list again, the one change it accepts
+// then. A required step stays on Setup once done, so it is never hidden.
 function pairListValue(cloud) {
-    if (pairListValid(cloud)) return { hidden: true };
+    if (pairListValid(cloud)) return { tone: "ok", text: "Readable" };
     return { tone: "danger", text: "Not readable", hint: pairListResetHint(cloud.lastError), action: true };
 }
 
 // The `firstPair` step: done once a pair exists; while the runner cannot
-// read the list, no add can finish it, so it says where the repair is.
+// read the list, no add can finish it, so it names the repair, the
+// `pairList` step.
 // Until the probe's PRESENCE, null before its first answer, has a sign-in
 // it waits for one, so the steps read in the order a new user takes them:
 // the keys, the sign-in, then the first pair, whose sync needs both. The
 // Settings tab's Add a folder pair stays open throughout.
 function firstPairValue(cloud, presence) {
     if (!pairListValid(cloud))
-        return { tone: "warning", text: "The folder pair list cannot be read", available: false, hint: "[Start the list again on the Details tab](page:vgs.google-drive/Details), then add a folder pair" };
+        return { tone: "warning", text: "The folder pair list cannot be read", available: false, hint: "Select Start the folder pair list again, then add a folder pair" };
     if (cloud.pairs.length > 0) return { tone: "ok", text: "A folder pair is ready" };
     if (presence !== null && presence.token.presence !== "present")
         return { tone: "info", text: "Sign-in needed", available: false, hint: "Sign in to Google first" };
@@ -650,7 +654,8 @@ function signInRefused(record) {
 
 // The `connection` step, Sign in to Google, from the probe's PRESENCE and
 // RECORD: not available until both keys are stored, Sign in while no
-// sign-in is, Sign in again once Google refused it, else done.
+// sign-in is, Sign in again once Google refused it, else done, with Sign
+// out.
 function connectionValue(presence, record) {
     var states = presences(presence);
     var keyring = keyringView(states);
@@ -659,21 +664,22 @@ function connectionValue(presence, record) {
         return { tone: "info", text: "Keys needed", available: false, hint: "Add the Client ID and the Client secret first" };
     if (states[2] !== "present") return { tone: "warning", text: "Not signed in", action: "signIn" };
     if (signInRefused(record)) return { tone: "danger", text: "Google did not accept the sign-in", action: "again" };
-    return { tone: "ok", text: "Signed in" };
+    return { tone: "ok", text: "Signed in", action: "signOut", hint: SIGN_OUT_HINT };
 }
+var SIGN_OUT_HINT = "Sign out stops the sync. Your files stay here and in Google Drive.";
 
-// The `account` Details value: the Google account signed in, by its
-// address as the token names it, with Sign out, which the manifest draws
-// as plain text while it needs nothing; a sign-in Google refused, or none,
-// says where to sign in.
+// The `account` Details reading: the Google account signed in, by its
+// address as the token names it, which the manifest draws as plain text
+// while it needs nothing; a sign-in Google refused, or none, says where to
+// sign in. Sign out is the `connection` step's.
 function accountValue(presence, record) {
     var states = presences(presence);
     var keyring = keyringView(states);
     if (keyring !== null) return keyring;
     if (states[2] !== "present") return { tone: "info", text: "Not signed in", hint: "[Sign in on the Setup tab](page:vgs.google-drive/Setup)" };
-    if (signInRefused(record)) return { tone: "danger", text: "Sign-in refused", hint: "[Sign in again on the Setup tab](page:vgs.google-drive/Setup)", action: true };
+    if (signInRefused(record)) return { tone: "danger", text: "Sign-in refused", hint: "[Sign in again on the Setup tab](page:vgs.google-drive/Setup)" };
     var user = presence.token.user;
-    return { tone: "ok", text: user !== undefined && user.length <= ROW_TEXT_MAX ? user : "Signed in", action: true };
+    return { tone: "ok", text: user !== undefined && user.length <= ROW_TEXT_MAX ? user : "Signed in" };
 }
 
 // The values the service publishes (the manifest's `status`): from the
@@ -776,8 +782,8 @@ var CALLOUTS = {
     "keys-missing": { tone: "danger", title: "Google Drive needs its keys", text: "Add the Client ID and the Client secret, then sign in. Your files are safe here and in Google Drive.", action: { label: "Add the keys", tab: "Setup" } },
     "keyring-locked": { tone: "danger", title: "Your keyring is locked", text: "VGS cannot read the Google Drive keys. Unlock your keyring, then select Sync now.", action: null },
     offline: { tone: "warning", title: "Google Drive cannot be reached", text: "Your files stay as the last complete sync left them. VGS tries again at the next sync.", action: null },
-    "not-set-up": { tone: "warning", title: "The hourly sync is not on", text: "VGS could not turn on the hourly sync, so Google Drive does not sync. Select Set up again beside Hourly sync.", action: { label: "Open Details", tab: "Details" } },
-    stale: { tone: "warning", title: "The hourly sync is out of date", text: SCHEDULE_HINTS.stale, action: { label: "Open Details", tab: "Details" } }
+    "not-set-up": { tone: "warning", title: "The hourly sync is not on", text: "VGS could not turn on the hourly sync, so Google Drive does not sync. Select Set up again beside Hourly sync.", action: { label: "Open Setup", tab: "Setup" } },
+    stale: { tone: "warning", title: "The hourly sync is out of date", text: SCHEDULE_HINTS.stale, action: { label: "Open Setup", tab: "Setup" } }
 };
 var PAIRS_STOPPED = "VGS copies nothing until you start the list again.";
 // A failed sync's fix by its error kind, where one place holds it.
@@ -954,7 +960,7 @@ function notification(record) {
     if (reasons.indexOf("conflicts") !== -1)
         return { title: "Google Drive needs you", message: needsLine(record.needsYou) + ". " + NEEDS_HINT, tone: "warning" };
     if (reasons.indexOf("units-stale") !== -1)
-        return { title: "Google Drive needs setup", message: "The hourly sync is out of date. [Set it up again on the Google Drive Details tab](page:vgs.google-drive/Details).", tone: "warning" };
+        return { title: "Google Drive needs setup", message: "The hourly sync is out of date. [Set it up again on the Google Drive Setup tab](page:vgs.google-drive/Setup).", tone: "warning" };
     return null;
 }
 

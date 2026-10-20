@@ -27,7 +27,7 @@
   ],
   "status": {
     "scheduler": {"type": "state", "label": "Scheduler"},
-    "linger": {"type": "state", "label": "Scheduled runs", "group": "While logged out", "action": {"label": "Enable while logged out", "tui": "linger"}},
+    "linger": {"type": "state", "label": "Scheduled runs", "setup": "optional", "group": "While logged out", "action": {"label": "Enable while logged out", "tui": "linger"}},
     "active": {"type": "count", "label": "Scheduled automations"},
     "nextRun": {"type": "text", "label": "Next run"},
     "lastRuns": {"type": "state", "label": "Last runs", "hint": "Select a failure alert to open its output"},

@@ -163,8 +163,8 @@ Item {
         publish("model", value);
     }
 
-    // The required step stays visible. The other service's Stop action
-    // belongs beside its fact on Details.
+    // Both required steps stay visible on Setup: dictation's own, and the
+    // other service's, whose Stop the stop case of the first names.
     function publishSetup() {
         publish("setup", VoiceLogic.setupPublished(setupValue));
         publish("otherService", setupValue.action === "stop"
@@ -287,7 +287,7 @@ Item {
         if (answer !== "ok") console.warn("voice: start " + answer);
         if (answer === "refused: dictation=daemon-failed" || answer === "refused: dictation=daemon-absent" || answer === "refused: dictation=daemon-elsewhere" || answer === "refused: dictation=daemon-starting") {
             refreshSetup();
-            shell.surfaces.openPage(VoiceLogic.HOLDER, setupValue.action === "stop" ? "Details" : "Setup");
+            shell.surfaces.openPage(VoiceLogic.HOLDER, "Setup");
         }
         return answer;
     }

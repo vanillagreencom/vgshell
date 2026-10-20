@@ -252,7 +252,7 @@ Item {
             const order = stops();
             const folder = panel.review.needs[0].action.folder;
             const rows = [
-                [1, [["openPage", "vgs.google-drive", "Details"], ["hide", "panel"]]],
+                [1, [["openPage", "vgs.google-drive", "Setup"], ["hide", "panel"]]],
                 [2, [["edit", "/home/me/gdrive/taxes/2025.xlsx"], ["hide", "panel"]]],
                 [4, [["edit", folder + "/"]]],
                 [6, [["ipc", "pause", ""]]],

@@ -12,8 +12,8 @@
 #
 # Rows: the service publishes its declared status, its record and IPC
 # target go with a disable, and it reads the stand-in keyring's presence
-# into the key list, the sign-in step and the account, which names the
-# address its token carries; with no folder pair nothing offers the hourly
+# into the key list, the sign-in step, which offers Sign out once signed
+# in, and the account, which names the address its token carries; with no folder pair nothing offers the hourly
 # sync's setup, the first pair's add installs the units, and a pair whose
 # units are gone offers Set up again, whose press hands the terminal the
 # setup TUI; the Settings list holds one row per pair, whose Remove hands
@@ -31,7 +31,7 @@
 # it and Escape close it, and its gear opens the plugin's page; with the
 # download client ID missing it hides its footer and its callout's fix
 # opens the Setup tab; an invalid pair list publishes its repair to the
-# Details tab and the popover, whose fix hands the terminal the reset TUI,
+# Setup tab and the popover, whose fix hands the terminal the reset TUI,
 # and one row that says so to the Settings list, and
 # the runner keeps the damaged file beside an empty list, whose Add hands
 # the terminal the add TUI; a Drive-side add and change reach the mirror after one run; a
@@ -111,9 +111,8 @@ cs_sign_in() { cs_state connection action; }
 # actions it offers; and each row's second line.
 cs_pairs() { cs_values | py_reply 'import json,sys; v=json.load(sys.stdin).get("pairs"); print(json.dumps(None if v is None else [[r["id"], r["state"]["tone"], r.get("actions", [])] for r in v]))'; }
 cs_pair_lines() { cs_values | py_reply 'import json,sys; v=json.load(sys.stdin).get("pairs"); print(json.dumps(None if v is None else [r.get("secondary") for r in v], ensure_ascii=False))'; }
-# The Details repair of the pair list: `hidden` while the list reads, else
-# its tone, text and action.
-cs_pair_list() { cs_values | py_reply 'import json,sys; v=json.load(sys.stdin).get("pairList"); print("hidden" if v == {"hidden": True} else json.dumps(v if v is None else [v["tone"], v["text"], v.get("action")]))'; }
+# The Setup repair of the pair list: its tone, text and action.
+cs_pair_list() { cs_state pairList action; }
 # The account: its text and the action it offers.
 cs_account() { cs_values | py_reply 'import json,sys; v=json.load(sys.stdin); a=v.get("account"); print(json.dumps(None if a is None else [a["text"], a.get("action")]))'; }
 # A row action of the Settings list: the manager's answer to ROW's
@@ -453,7 +452,7 @@ SH
   expect_poll "with no pair and no unit the sync reads no folder pairs" '["warning", "No folder pairs"]' cs_sync
   expect_poll "with no pair and no unit the hourly sync asks for no setup" '["info", "Off", null]' cs_schedule
   expect_poll "with no folder pair the Settings list holds no row" '[]' cs_pairs
-  expect_poll "a pair list that reads hides its repair" hidden cs_pair_list
+  expect_poll "a pair list that reads is done and offers no repair" '["ok", "Readable", null]' cs_pair_list
   expect_poll "with no folder pair the widget is hidden" false cs_widget_shown
   expect_poll "with no key stored every key reads absent" '[["client-id", "absent"], ["client-secret", "absent"]]' cs_keys
   expect_poll "with no key stored the sign-in step waits for the keys" '["info", "Keys needed", null]' cs_sign_in
@@ -464,8 +463,8 @@ SH
   printf 'a.person@example.com' >"$cs_stub/secrets/token.user"
   expect "the service reads the keys again on request" ok ipc vgs.google-drive invoke refresh ""
   expect_poll "the stored keys read present" '[["client-id", "present"], ["client-secret", "present"]]' cs_keys
-  expect_poll "with a sign-in stored the sign-in step is done" '["ok", "Signed in", null]' cs_sign_in
-  expect_poll "the account is the address its token carries, with Sign out" '["a.person@example.com", true]' cs_account
+  expect_poll "with a sign-in stored the sign-in step is done and offers Sign out" '["ok", "Signed in", "signOut"]' cs_sign_in
+  expect_poll "the account is the address its token carries, with no action" '["a.person@example.com", null]' cs_account
 
   # The hourly sync is no step (D061, VGS-1744): with no folder pair the
   # Settings page offers no setup for it, the first pair's add installs
@@ -734,7 +733,7 @@ SH
   expect "the pair is removed" removed=docs cs pair-remove docs
   printf '{"pairs": [' >"$cs_home/.config/vgshell/google-drive/pairs.json"
   expect "the service reads the damaged pair list" ok ipc vgs.google-drive invoke refresh ""
-  expect_poll "the damaged pair list offers its repair on Details" '["danger", "Not readable", true]' cs_pair_list
+  expect_poll "the damaged pair list offers its repair on Setup" '["danger", "Not readable", true]' cs_pair_list
   expect_poll "the Settings list says the list cannot be read and offers no Remove" '[["unreadable", "danger", []]]' cs_pairs
   cs_open_popover "the popover for the damaged pair list"
   forget_record
@@ -744,7 +743,7 @@ SH
   expect_poll "the repair closes the popover" hidden cs_panel_shown
   settings_page_open vgs.google-drive
   forget_record
-  expect "the Details pair-list repair is pressed" ok settings_act vgs.google-drive pairList
+  expect "the Setup pair-list repair is pressed" ok settings_act vgs.google-drive pairList
   expect_poll "Settings hands the terminal the reset TUI" "$(words vgs.google-drive/reset-pairs tui/reset-pairs.sh)" recorded_tail
   expect_run_end "the Settings reset run ends" vgs.google-drive/reset-pairs
   settings_page_close vgs.google-drive
@@ -753,7 +752,7 @@ SH
   expect "the new pair list is empty" '{"pairs": []}' cs_pairs_json
   expect "the service reads the empty pair list" ok ipc vgs.google-drive invoke refresh ""
   expect_poll "the empty pair list holds no row" '[]' cs_pairs
-  expect_poll "the empty pair list hides its repair" hidden cs_pair_list
+  expect_poll "the empty pair list is done and offers no repair" '["ok", "Readable", null]' cs_pair_list
   settings_page_open vgs.google-drive
   forget_record
   expect "Add under the empty list is pressed" ok settings_act vgs.google-drive pairs

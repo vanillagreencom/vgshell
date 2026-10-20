@@ -3,25 +3,31 @@
 // One page judge owns placement and required readiness. The manifest judge
 // validates every reference before these manager rows reach the page.
 function requirementApplies(requirement) { return requirement.state !== "present"; }
-function declaresStep(entry) { return entry.setup === true; }
-// Whether ENTRY, a required step, waits on the user: unreported, or
-// published as not done by a value that does not say the user cannot act
-// on it (`available: false`, PluginLogic.statusDeclarationFits).
+// Whether ENTRY, a manager status row, is a Setup step, required or
+// optional (PluginLogic.setupStep).
+function declaresStep(entry) { return entry.setup === "required" || entry.setup === "optional"; }
+// Whether ENTRY, a step, waits on the user: unreported, or published as
+// not done by a value that does not say the user cannot act on it
+// (`available: false`, PluginLogic.statusDeclarationFits).
 function stepOpen(entry) { return entry.report !== "reported" || (entry.tone !== "success" && entry.value.available !== false); }
-// What required step ENTRY reads for PLUGIN, { enabled, failed }, `failed`
-// true while it could not start (startFailed): "todo" while it waits on
-// the user, "done", or "unavailable" while the user cannot act on it,
-// because its value says so or because the plugin, on, could not start,
-// which turning it off and on does not change: a failed build stays failed
-// per source revision (Plugins.failedBuilds), and a refusal lasts while
-// another plugin holds what it needs. PLUGIN is omitted where no start
-// error applies.
+// What step ENTRY reads for PLUGIN, { enabled, failed }, `failed` true
+// while it could not start (startFailed): "done"; "unavailable" while the
+// user cannot act on it, because its value says so or because the plugin,
+// on, could not start, which turning it off and on does not change: a
+// failed build stays failed per source revision (Plugins.failedBuilds),
+// and a refusal lasts while another plugin holds what it needs; else
+// "optional" for an optional step, which never waits on the user, and
+// "todo" for a required one. PLUGIN is omitted where no start error
+// applies.
 function stepReading(entry, plugin) {
     if (entry.report === "reported" && entry.tone === "success") return "done";
     if (entry.report !== "reported" && plugin !== undefined && plugin.enabled && plugin.failed) return "unavailable";
-    return stepOpen(entry) ? "todo" : "unavailable";
+    if (!stepOpen(entry)) return "unavailable";
+    return entry.setup === "optional" ? "optional" : "todo";
 }
-var STEP_RANKS = { todo: 0, unavailable: 1, done: 2 };
+// Required steps the user can act on, then those they cannot, then the
+// optional ones, then every Done step.
+var STEP_RANKS = { todo: 0, unavailable: 1, optional: 2, done: 3 };
 // The line that says why a plugin, on, does not run, of its manager row's
 // ERRORS (Registry.managerRows): its first refusal or failed build, ""
 // while neither applies.
@@ -33,7 +39,8 @@ function startError(errors) {
 function startFailed(errors) { return startError(errors) !== ""; }
 // The chip of each reading, its word and its tone. The words are declared
 // here alone (docs/architecture/design-system.md § Settings pages).
-var STEP_CHIPS = { todo: { text: "To do", tone: "warning" }, done: { text: "Done", tone: "success" }, unavailable: { text: "Not available", tone: "neutral" } };
+var STEP_CHIPS = { todo: { text: "To do", tone: "warning" }, done: { text: "Done", tone: "success" }, unavailable: { text: "Not available", tone: "neutral" },
+    optional: { text: "Optional", tone: "neutral" } };
 // The line an unreported step draws while its plugin is on and starting.
 var CHECKING_LINE = "Checking…";
 // What a Setup step draws of ENTRY for PLUGIN, { enabled, name, error,
@@ -97,8 +104,8 @@ function requirementStep(requirements) {
         button: lacking.length === 0 ? null : reviewButton() };
 }
 // The Setup section of a plugin's STATUS rows and REQUIREMENTS for
-// PLUGIN, { enabled, failed }: its required steps, To do, then Not
-// available, then Done (stepReading), each in manifest order with its key
+// PLUGIN, { enabled, failed }: its steps, To do, then Not available, then
+// Optional, then Done (stepReading), each in manifest order with its key
 // lists, and the one Tools step, To do before the first step that is not,
 // else last. REQUIREMENTS and PLUGIN are omitted where neither applies.
 function setupSections(tuis, status, requirements, plugin) {
@@ -117,7 +124,7 @@ function setupSections(tuis, status, requirements, plugin) {
     });
     var tools = requirementStep(required);
     if (tools !== null) {
-        var toolEntry = { key: "required-tools", label: tools.label, type: "state", setup: true, report: "reported", tone: tools.tone,
+        var toolEntry = { key: "required-tools", label: tools.label, type: "state", setup: "required", report: "reported", tone: tools.tone,
             value: { text: "" }, hint: tools.hint, info: "", link: null, action: null, aside: null };
         var toolItem = { key: toolEntry.key, slot: toolEntry.key + ":" + tools.done, keys: false, tools: true, entry: toolEntry,
             label: tools.label, step: true, button: tools.button, aside: null };
@@ -132,7 +139,8 @@ function setupSections(tuis, status, requirements, plugin) {
 // STATUS reads To do, or a required tool of REQUIREMENTS is missing or
 // outdated. FAILED, startFailed of the plugin's errors, is true while it
 // could not start. A step that reads Not available, by its value or while
-// the plugin could not start, raises neither (stepReading).
+// the plugin could not start, and an optional step raise neither
+// (stepReading).
 function setupNeeds(status, requirements, enabled, failed) {
     var plugin = { enabled: enabled, failed: failed === true };
     return { open: enabled && (status.some(function (entry) { return declaresStep(entry) && stepReading(entry, plugin) === "todo"; })

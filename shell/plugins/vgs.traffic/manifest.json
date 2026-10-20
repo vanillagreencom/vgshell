@@ -53,7 +53,7 @@
   },
   "status": {
     "traffic": {"type": "data", "label": "Traffic"},
-    "capture": {"type": "state", "label": "Traffic capture", "group": "See all traffic", "hint": "Let See all show the traffic of every app and protocol", "info": "Allowing it lets every account on this computer see network traffic through bandwhich.", "action": {"label": "Allow traffic capture", "system": "bandwhich-capture"}}
+    "capture": {"type": "state", "label": "Traffic capture", "setup": "optional", "group": "See all traffic", "hint": "Let See all show the traffic of every app and protocol", "info": "Allowing it lets every account on this computer see network traffic through bandwhich.", "action": {"label": "Allow traffic capture", "system": "bandwhich-capture"}}
   },
   "systemSteps": [
     "bandwhich-capture"

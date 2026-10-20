@@ -31,6 +31,11 @@
 // its label does not (docs/architecture/design-system.md § Copy): a hint
 // whose every word, bar the small words of a sentence, stands in its label
 // is refused.
+// No status entry the plugin page draws on Details offers an action
+// (PluginLogic.detailSteps): a step stands on Setup
+// (docs/architecture/design-system.md § Settings pages). A plugin in
+// DETAIL_STEPS_HELD keeps its Details steps until the issue named beside it
+// moves them.
 // Prints one line per plugin. Exit 0 when every manifest is
 // valid, 1 when any is refused, 2 when a directory or file cannot be read or
 // the invocation is bad, each as one keyed line:
@@ -187,6 +192,15 @@ function restatedHint(manifest) {
     return "";
 }
 
+// The plugins whose Details steps their own lanes move, by the issue that
+// removes each from this list once it has. VGS-1958 moves Power's once
+// VGS-1905 lands and VPN's once VGS-1928 lands.
+const DETAIL_STEPS_HELD = {
+    "vgs.jarvis": "VGS-1953",
+    "vgs.power": "VGS-1958",
+    "vgs.vpn": "VGS-1958"
+};
+
 let refused = 0;
 const seen = {};
 const defaultKeys = {};
@@ -284,6 +298,12 @@ for (const { dir, text } of manifests()) {
     const restated = restatedHint(r.manifest);
     if (restated !== "") {
         console.log("refused  " + dir + ": hint " + restated);
+        refused += 1;
+        missing = true;
+    }
+    const detailSteps = ctx.detailSteps(r.manifest);
+    if (detailSteps.length > 0 && DETAIL_STEPS_HELD[r.manifest.id] === undefined) {
+        console.log("refused  " + dir + ": status." + detailSteps[0] + " offers an action on Details; a step stands on Setup (setup true or \"optional\")");
         refused += 1;
         missing = true;
     }

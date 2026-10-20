@@ -1757,7 +1757,7 @@ mutations=(
   "Details with no Setup stays hidden|../plugins/vgs.settings/PluginPage.qml|onParentChanged: if (parent === setupPage) visible = true|onParentChanged: {}|tst_settings_setup.qml"
   "Setup drops its tab warning|../plugins/vgs.settings/PluginPage.qml|warningTabs: page.setupNeeded ? [\"Setup\"] : []|warningTabs: []|tst_settings_setup.qml"
   "Setup retains warning when complete|../plugins/vgs.settings/PluginPage.qml|warningTabs: page.setupNeeded ? [\"Setup\"] : []|warningTabs: [\"Setup\"]|tst_settings_setup.qml"
-  "an optional feature's action appears on Setup|../plugins/vgs.settings/Steps.js|return entry.setup === true;|return [entry.setup === true, entry.action !== null].some(Boolean);|tst_settings_setup.qml"
+  "an optional feature's action appears on Setup|../plugins/vgs.settings/Steps.js|entry.setup === \"optional\"; }|[entry.setup === \"optional\", entry.action !== null].some(Boolean); }|tst_settings_setup.qml"
   "actionless Home does not warn|../plugins/vgs.settings/Steps.js|declaresStep(entry) && stepReading(entry, plugin) === \"todo\";|declaresStep(entry) && stepReading(entry, plugin) === \"todo\" && entry.action !== null && entry.action.offered;|tst_settings_setup.qml"
   "Setup shows published chip words|../plugins/vgs.settings/Steps.js|view.text = chip.text;|view.text = entry.value.text;|tst_settings_setup.qml"
   "a Not available step reads To do|../plugins/vgs.settings/Steps.js|view.tone = chip.tone;|view.tone = chip.tone === \"neutral\" ? \"warning\" : chip.tone;|tst_settings_setup.qml"

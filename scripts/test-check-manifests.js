@@ -9,7 +9,8 @@
 // order passes; layout not first, layout outside Readings, the shared
 // Readings fields out of order and an ungrouped field, which the page
 // draws before Readings, are refused), a hint that repeats its label, a Setup guide whose README holds
-// no heading of its anchor, and the base listing: a directory without a manifest is not a plugin, an absent or
+// no heading of its anchor, a Details entry that offers an action (a Setup step, a hidden entry and a
+// held plugin's pass), and the base listing: a directory without a manifest is not a plugin, an absent or
 // unreadable base exits 2. Each row asserts the printed verdict line and the
 // exit status. The check runs in a child node with an explicit environment.
 // The permission rows need a uid that permissions bind; under euid 0 the
@@ -125,6 +126,23 @@ row("an icon outside the shipped set is refused offline with the judge's line", 
 // without its capability refuses the manifest with the judge's line.
 row("a status declaration with its capability passes offline", tmp => { const d = path.join(tmp, "a"); plugin(d, Object.assign({ capabilities: ["status"], status: { token: { type: "presence", label: "Token", hint: "Needed to sync" } } }, good), true); return ["--", d]; }, 0, "ok       acme.one");
 row("a status declaration without its capability is refused offline with the judge's line", tmp => { const d = path.join(tmp, "a"); plugin(d, Object.assign({ status: { token: { type: "presence", label: "Token" } } }, good), true); return ["--", d]; }, 1, "status needs capability status", "ok       acme.one");
+// A status entry the page draws on Details offers no action: a step stands
+// on Setup. [name, the entry, the plugin id, exit, the line it prints].
+// A file action needs no script on disk, so each row's plugin is its
+// manifest and its entry point.
+const fileAction = { label: "Open notes", file: "~/notes.md" };
+for (const [name, entry, id, status, line] of [
+    ["a Details entry with an action is refused", { type: "state", label: "Notes", action: fileAction }, "acme.one", 1, "status.notes offers an action on Details"],
+    ["a Details entry with actions is refused", { type: "state", label: "Notes", actions: { a: fileAction, b: { label: "Open log", file: "~/log.txt" } } }, "acme.one", 1, "status.notes offers an action on Details"],
+    ["an optional Setup step with an action passes", { type: "state", label: "Notes", setup: "optional", action: fileAction }, "acme.one", 0, "ok       acme.one"],
+    ["a required Setup step with an action passes", { type: "state", label: "Notes", setup: true, action: fileAction }, "acme.one", 0, "ok       acme.one"],
+    ["a hidden entry with an action passes", { type: "state", label: "Notes", hidden: true, action: fileAction }, "acme.one", 0, "ok       acme.one"],
+    ["a held plugin keeps its Details step", { type: "state", label: "Notes", action: fileAction }, "vgs.jarvis", 0, "ok       vgs.jarvis"]
+]) row("detail steps: " + name, tmp => {
+    const d = path.join(tmp, "a");
+    plugin(d, Object.assign({}, good, { id: id, capabilities: ["status", "tui"], status: { notes: entry } }), true);
+    return ["--", d];
+}, status, line);
 row("a missing directory exits 2", tmp => ["--", path.join(tmp, "missing")], 2, tmp => "check-manifests: unreadable: " + path.join(tmp, "missing", "manifest.json") + ": ENOENT");
 row("a directory named like an option after -- is a plugin directory", tmp => { const d = path.join(tmp, "--base"); plugin(d, good, true); return ["--", d]; }, 0, "ok       acme.one");
 row("a base lists every plugin under it", tmp => { plugin(path.join(tmp, "a"), good, true); plugin(path.join(tmp, "b"), Object.assign({}, good, { id: "acme.two" }), true); return ["--base", tmp]; }, 0, "ok       acme.two");

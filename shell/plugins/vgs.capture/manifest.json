@@ -61,12 +61,12 @@
     { "shortcut": "text", "key": "SUPER+CTRL+PRINT", "info": "Lets you drag over an area, reads the text in it and copies that text." }
   ] },
   "status": {
-    "sharing": {"type": "state", "label": "VGS picker", "group": "Screen sharing", "hint": "Setup stops a running screen share", "info": "The picker lets you choose what to share when an app asks to share your screen.", "action": {"label": "Set up screen sharing", "tui": "setup-sharing"}},
+    "sharing": {"type": "state", "label": "Screen sharing picker", "setup": "optional", "group": "Screen sharing", "hint": "Setup stops a running screen share", "info": "The picker lets you choose what to share when an app asks to share your screen.", "action": {"label": "Set up screen sharing", "tui": "setup-sharing"}},
     "capture": {"type": "data", "label": "Capture state"},
     "recording": {"type": "state", "label": "Recording"},
     "audioSources": {"type": "choices", "label": "Audio sources"},
     "cameras": {"type": "choices", "label": "Cameras"},
-    "languages": {"type": "state", "label": "Language data", "group": "Text", "hint": "Each [language you choose](page:vgs.capture/Settings/ocrLanguages) other than English needs its language data", "action": {"label": "Install languages", "tui": "install-languages"}}
+    "languages": {"type": "state", "label": "Language data", "setup": "optional", "group": "Text", "hint": "Each [language you choose](page:vgs.capture/Settings/ocrLanguages) other than English needs its language data", "action": {"label": "Install languages", "tui": "install-languages"}}
   },
   "tui": {
     "setup-sharing": { "script": "tui/setup-sharing.sh", "title": "Set up screen sharing", "requires": ["systemctl", "busctl"] },

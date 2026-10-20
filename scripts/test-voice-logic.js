@@ -140,8 +140,8 @@ function verifyStartCorrection(source, manifest) {
     ["failed setup read", "failed", null, "refused: dictation=daemon-failed", "Setup", "setup"],
     ["missing model", "absent", readsMissing, "refused: dictation=daemon-absent", "Setup", "setup"],
     ["absent daemon", "absent", readsReady, "refused: dictation=daemon-absent", "Setup", "setup"],
-    ["foreign daemon", "elsewhere", readsReady, "refused: dictation=daemon-elsewhere", "Details", "stop"],
-    ["foreign daemon before setup", "elsewhere", readsMissing, "refused: dictation=daemon-elsewhere", "Details", "stop"],
+    ["foreign daemon", "elsewhere", readsReady, "refused: dictation=daemon-elsewhere", "Setup", "stop"],
+    ["foreign daemon before setup", "elsewhere", readsMissing, "refused: dictation=daemon-elsewhere", "Setup", "stop"],
     ["ready daemon", "ready", readsReady, "ok", "", ""],
     ["another holder", "ready", readsReady, "refused: dictation=busy holder=acme.dictation", "", ""],
     ["transcribing", "ready", readsReady, "refused: dictation=engine-busy state=transcribing", "", ""],
@@ -310,11 +310,12 @@ function verify(logic) {
     same((steps.stepButton(row, voxtypeMissing) || {}).kind, "tools", label + ": the step's row offers Review");
   }
   // Another voxtype in the daemon's place: the step offers no action of
-  // its own, and its hint opens Details, where Stop the other voxtype is.
+  // its own, and its hint names the Setup step that offers Stop the other
+  // voxtype beside it, by its declared label.
   const stop = logic.setupPublished(logic.setupState(readsMissing, "elsewhere"));
   same([Object.keys(stop), stop.tone, stop.action], [["tone", "text", "lines", "action", "hint"], "warning", false], "setupPublished: another voxtype offers no Setup action");
-  const stopTarget = pageReference.parse(stop.hint);
-  same([stopTarget.page, stopTarget.tab], ["vgs.voice", "Details"], "setupPublished: another voxtype's hint opens Details");
+  const otherService = voiceJudged.manifest.status.otherService;
+  same([otherService.setup, stop.hint.includes(otherService.label)], [true, true], "setupPublished: another voxtype's hint names the Setup step that stops it");
   for (const [name, reads, daemon, action] of [["a missing model offers Set up", readsMissing, "ready", true], ["ready offers nothing", readsReady, "ready", false]]) {
     const value = logic.setupPublished(logic.setupState(reads, daemon));
     same([value.action, Object.hasOwn(value, "hint")], [action, false], `setupPublished: ${name}`);
@@ -564,7 +565,7 @@ function verifyRequirements(raw) {
   const published = publishedSetup(absent);
   same(pluginLogic.requirementRows(judged.manifest, missing, {}).filter(row => row.name === "voxtype").map(row => row.state), ["missing"], "voxtype is one requirement, missing");
   same(pluginLogic.statusRows(judged.manifest, published).map(row => row.key), ["setup", "otherService"], "the page has no duplicate dictation-tool presence row");
-  same(pluginLogic.statusRows(judged.manifest, published).filter(row => row.setup).map(row => [row.key, row.tone, row.action.offered]), [["setup", "warning", false]], "without voxtype the required step stays visible and pending");
+  same(pluginLogic.statusRows(judged.manifest, published).filter(row => row.setup).map(row => [row.key, row.tone, row.action.offered]), [["setup", "warning", false], ["otherService", "success", false]], "without voxtype the required step stays visible and pending, beside the other service's done step");
 }
 const shipped = JSON.parse(fs.readFileSync(manifestFile, "utf8"));
 verifyRequirements(shipped);
@@ -605,7 +606,7 @@ const startControls = [
   ["the pending correction is not opened", ' || answer === "refused: dictation=daemon-starting"', ""],
   ["the correction is not opened", "            shell.surfaces.openPage(", "            if (false) shell.surfaces.openPage("],
   ["the correction uses stale Ready", "            refreshSetup();\n            shell.surfaces.openPage(", "            if (false) refreshSetup();\n            shell.surfaces.openPage("],
-  ["the foreign daemon opens Setup", 'setupValue.action === "stop" ? "Details" : "Setup"', 'setupValue.action === "stop" ? "Setup" : "Setup"']
+  ["the correction opens Details", '            refreshSetup();\n            shell.surfaces.openPage(VoiceLogic.HOLDER, "Setup");', '            refreshSetup();\n            shell.surfaces.openPage(VoiceLogic.HOLDER, "Details");']
 ];
 const startTemp = fs.mkdtempSync(path.join(require("node:os").tmpdir(), "voice-start-control-"));
 try {

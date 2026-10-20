@@ -39,7 +39,7 @@ AI Usage shows how much of your Claude Code, Codex and Copilot plan limits you h
 | Providers | Show or hide Claude Code, Codex and Copilot in the panel and bar total. |
 | Hidden accounts | Hide selected accounts from the panel and bar total. The choices are the signed-in accounts, each shown as its provider and email, or the GitHub login for Copilot. An account that has neither shows the provider alone. A new item reads Choose an account and hides nothing until you choose one. A hidden account that is later signed out stays in the list and shows as unavailable. |
 
-Sign in for Claude Code and Codex is under Sign-in on the Details tab and opens the tool's own sign-in in a terminal window.
+Sign in for Claude Code and Codex is on the Setup tab, as optional steps, and opens the tool's own sign-in in a terminal window.
 
 When a Claude Code or Copilot sign-in has expired, open that tool once to refresh it.
 

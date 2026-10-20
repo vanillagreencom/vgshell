@@ -35,16 +35,16 @@
   "setupGuide": {"title": "Google Drive needs keys from your own Google account", "text": "It is free and takes about 5 minutes in Google Cloud.", "link": "Open the step-by-step guide", "readme": "get-your-google-drive-keys"},
   "status": {
     "sync": {"type": "state", "label": "Google Drive sync", "info": "VGS copies each folder pair both ways. Newer files win, and VGS never deletes a file. It keeps an older copy on this computer for 30 days, so old copies do not fill your disk. Google Drive keeps an older copy in the file's version history for 30 days, up to 100 versions: Google sets that limit. To keep a version longer, open the version history in Google Drive and select Keep forever."},
-    "pairList": {"type": "state", "label": "Folder pair list", "action": {"label": "Start the folder pair list again", "tui": "reset-pairs"}},
     "lastSync": {"type": "time", "label": "Last sync"},
-    "schedule": {"type": "state", "label": "Hourly sync", "plain": true, "action": {"label": "Set up again", "tui": "setup"}},
-    "account": {"type": "state", "label": "Account", "plain": true, "hint": "Sign out stops the sync. Your files stay here and in Google Drive.", "action": {"label": "Sign out", "tui": "sign-out", "tone": "danger", "icon": "log-out"}},
+    "account": {"type": "state", "label": "Account", "plain": true},
     "pairs": {"type": "rows", "label": "Folder pairs", "settings": true, "icon": "folder-sync", "hint": "Each pair keeps one Google Drive folder and one folder on this computer the same. Remove stops the sync of a pair and deletes no file.", "action": {"label": "Add a folder pair", "tui": "add-pair"}, "rowActions": {"remove": {"label": "Remove", "tui": "remove-pair", "tone": "danger"}}},
     "cloud": {"type": "data", "label": "Google Drive status"},
     "cloudKeys": {"type": "state", "label": "Google Cloud keys", "setup": true, "hint": "Paste the two keys of your Google Cloud client. VGS keeps them in your keyring.", "info": "Google Drive signs in through a client you make in your own Google Cloud account. The client has two keys, a Client ID and a Client secret. The guide at the top of this tab shows each step to make them."},
     "keys": {"type": "presenceList", "label": "Keys", "step": "cloudKeys"},
-    "connection": {"type": "state", "label": "Sign in to Google", "setup": true, "hint": "Google opens in your browser and asks you to allow access to Google Drive", "info": "Sign in lets VGS read and change the files in your Google Drive. It copies only your folder pairs and never deletes a file. Google says it has not verified the app. It is your own app, so select Advanced, then Go to VGS.", "actions": {"signIn": {"label": "Sign in", "tui": "connect"}, "again": {"label": "Sign in again", "tui": "connect"}}},
-    "firstPair": {"type": "state", "label": "First folder pair", "setup": true, "hint": "Choose the first folders to keep on this computer and in Google Drive. The hourly sync turns on with them.", "action": {"label": "Add a folder pair", "tui": "add-pair"}}
+    "connection": {"type": "state", "label": "Sign in to Google", "setup": true, "hint": "Google opens in your browser and asks you to allow access to Google Drive", "info": "Sign in lets VGS read and change the files in your Google Drive. It copies only your folder pairs and never deletes a file. Google says it has not verified the app. It is your own app, so select Advanced, then Go to VGS.", "actions": {"signIn": {"label": "Sign in", "tui": "connect"}, "again": {"label": "Sign in again", "tui": "connect"}, "signOut": {"label": "Sign out", "tui": "sign-out", "tone": "danger", "icon": "log-out"}}},
+    "firstPair": {"type": "state", "label": "First folder pair", "setup": true, "hint": "Choose the first folders to keep on this computer and in Google Drive. The hourly sync turns on with them.", "action": {"label": "Add a folder pair", "tui": "add-pair"}},
+    "pairList": {"type": "state", "label": "Folder pair list", "setup": true, "action": {"label": "Start the folder pair list again", "tui": "reset-pairs"}},
+    "schedule": {"type": "state", "label": "Hourly sync", "setup": true, "action": {"label": "Set up again", "tui": "setup"}}
   },
   "secrets": { "service": "vgs-google-drive", "label": "VGS Google Drive" }
 }

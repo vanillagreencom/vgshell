@@ -91,6 +91,13 @@ function suite(ctx, configLogic, check) {
         ["required setup flag type", { ready: { type: "state", label: "Ready", setup: "yes" } }, false, false],
         ["hidden required step", { ready: { type: "state", label: "Ready", hidden: true, setup: true } }, false, false],
         ["required step value type", { ready: { type: "count", label: "Ready", setup: true } }, false, false],
+        ["optional state step", { extra: { type: "state", label: "Extra", setup: "optional", action: { label: "Fix", tui: "fix" } } }, false, true],
+        ["optional presence step", { extra: { type: "presence", label: "Extra", setup: "optional" } }, false, true],
+        ["optional setup flag spelt in another case", { extra: { type: "state", label: "Extra", setup: "Optional" } }, false, false],
+        ["hidden optional step", { extra: { type: "state", label: "Extra", hidden: true, setup: "optional" } }, false, false],
+        ["optional step value type", { extra: { type: "count", label: "Extra", setup: "optional" } }, false, false],
+        ["optional step beside a field", { extra: { type: "presenceList", label: "Extra", setup: "optional", setting: "mode" } }, true, false],
+        ["key list beside an optional step", { extra: { type: "state", label: "Extra", setup: "optional" }, keys: { type: "presenceList", label: "Keys", step: "extra" } }, true, false],
         ["connection keys", { ...requiredStatus, keys: { type: "presenceList", label: "Keys", step: "ready" } }, true, true],
         ["key step reference", { keys: { type: "presenceList", label: "Keys", step: "missing" } }, true, false],
         ["key step refers to required work", { ready: { type: "state", label: "Ready" }, keys: { type: "presenceList", label: "Keys", step: "ready" } }, true, false],
@@ -273,6 +280,7 @@ function suite(ctx, configLogic, check) {
         ["plain that is no boolean", m => { m.status.account.plain = "yes"; }, "status.account.plain must be a boolean"],
         ["a plain list of rows", m => { m.status.pairs.plain = true; }, "status.pairs.plain needs a state entry that is no Setup step"],
         ["a plain Setup step", m => { m.status.signIn.plain = true; }, "status.signIn.plain needs a state entry that is no Setup step"],
+        ["a plain optional Setup step", m => { m.status.signIn.plain = true; m.status.signIn.setup = "optional"; }, "status.signIn.plain needs a state entry that is no Setup step"],
         ["a guide that is no object", m => { m.setupGuide = "read me"; }, "setupGuide must be an object"],
         ["a guide with an unknown key", m => { m.setupGuide.url = "https://example.com"; }, "setupGuide has unknown key \"url\""],
         ["a guide with no title", m => { delete m.setupGuide.title; }, "setupGuide.title must be a printable line"],
@@ -2434,7 +2442,7 @@ function verifyUpdatesNoticeOwner(raw) {
     const row = logic.statusRows(manifest, written.ok ? written.values : prior).find(row => row.key === "rebootNoticeOwner");
     assert.ok(row, "the denied owner reading reaches Details");
     assert.equal(written.ok, true);
-    assert.deepEqual([row.setup, row.settings, row.setting, row.action], [false, false, "", null]);
+    assert.deepEqual([row.setup, row.settings, row.setting, row.action], ["", false, "", null]);
     assert.equal(row.tone, "warning");
     assert.equal(row.value.text, value.text);
     assert.equal(row.hint, value.hint);
@@ -2513,7 +2521,7 @@ const CONTROLS = [
     ["keys name a required step", 'typeof entry.step !== "string" || !hasOwn(status, entry.step) || status[entry.step].setup !== true', 'false'],
     ["key association holds keys", 'if (entry.type !== "presenceList") return at + ".step needs a key list";', 'if (false) return at + ".step needs a key list";'],
     ["connection keys declare nothing Setup never draws", 'if (undrawn !== undefined) return at + "." + undrawn', 'if (false) return at + "." + undrawn'],
-    ["status has one place", '(entry.setup === true ? 1 : 0) + (entry.setting !== undefined ? 1 : 0) + (entry.step !== undefined ? 1 : 0) > 1', 'false'],
+    ["status has one place", '(setupStep(entry) !== "" ? 1 : 0) + (entry.setting !== undefined ? 1 : 0) + (entry.step !== undefined ? 1 : 0) > 1', 'false'],
     ["a row action may open no tui", "if (entry.rowActions[names[i]].tui === undefined)", "if (false)"],
     ["a row action may open a listed screen", "if (isPlainObject(tui[entry.rowActions[names[i]].tui].entry))", "if (false)"],
     ["a published row needs no id", 'return typeof row.id === "string" && tuiArgsValid([row.id])', "return true"],
@@ -2847,7 +2855,7 @@ const CONTROLS = [
     ["a guide heads a Setup step", "if (!Object.keys(status).some(function (key) { return status[key].setup === true; }))\n        return \"setupGuide needs", "if (false)\n        return \"setupGuide needs"],
     ["a guide links its README section", "url: readme === \"\" ? \"\" : readme + \"#\" + guide.readme", "url: readme"],
     ["plain is a status entry key", "\"icon\", \"rowActions\", \"plain\"];", "\"icon\", \"rowActions\"];"],
-    ["plain needs a state that is no Setup step", "if (entry.type !== \"state\" || entry.setup === true)\n                return at + \".plain", "if (false)\n                return at + \".plain"],
+    ["plain needs a state that is no Setup step", "if (entry.type !== \"state\" || setupStep(entry) !== \"\")\n                return at + \".plain", "if (false)\n                return at + \".plain"],
     ["a plain state draws as text only while it needs nothing", "if (entry.plain === true && STATUS_ROW_CHIP_TONES.indexOf(value.tone) === -1) return \"\";", "if (entry.plain === true) return \"\";"],
     ["a plain state draws as text", "if (entry.plain === true && STATUS_ROW_CHIP_TONES.indexOf(value.tone) === -1) return \"\";", ""],
     ["alwaysOn is a boolean", "if (typeof raw.alwaysOn !== \"boolean\")", "if (false)"],

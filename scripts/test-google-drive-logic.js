@@ -338,18 +338,19 @@ function verify(L) {
         ["a folder pair", good.record, presence, ["ok", null, false]],
         ["an unreadable list", invalid(), presence, ["warning", null, true]]
     ]) same(step(L.statusValues(rec, p, "", "", NOW, HOME).firstPair), want, "first pair: " + label);
-    assert.ok(L.statusValues(invalid(), null, "", "", NOW, HOME).firstPair.hint.includes("](page:vgs.google-drive/Details)"), "an unreadable list's step links its repair");
+    assert.ok(L.statusValues(invalid(), null, "", "", NOW, HOME).firstPair.hint.includes("Start the folder pair list again"), "an unreadable list's step names its repair");
 
     // schedule: Set up again only while the units are out of date, or
     // absent beside a folder pair, whose add could not install them; with
-    // no pair nothing asks for setup (VGS-1744).
+    // no pair nothing asks for setup (VGS-1744), so the step reads Not
+    // available.
     const SCHEDULES = [
         ["installed", "installed", true, ["ok", null, false]],
         ["installed, no pair", "installed", false, ["ok", null, false]],
         ["out of date", "stale", true, ["warning", true, false]],
         ["out of date, no pair", "stale", false, ["warning", true, false]],
         ["absent beside a pair", "absent", true, ["warning", true, false]],
-        ["absent, no pair", "absent", false, ["info", null, false]]
+        ["absent, no pair", "absent", false, ["info", null, true]]
     ];
     for (const [label, units, hasPairs, want] of SCHEDULES) same(step(L.scheduleValue(units, hasPairs)), want, "schedule: " + label);
     assert.throws(() => L.scheduleValue("maybe", true), /units "maybe"/);
@@ -388,8 +389,8 @@ function verify(L) {
     const unreadable = L.statusValues(invalid(), null, "", "", NOW, HOME).pairs;
     same(unreadable.map(r => [r.state.tone, r.actions]), [["danger", []]], "an unreadable list holds one row that says so, which offers no Remove");
 
-    // pairList: hidden while the runner reads the list, else its repair.
-    same(values.pairList, { hidden: true });
+    // pairList: done while the runner reads the list, else its repair.
+    same(step(values.pairList), ["ok", null, false]);
     const genericPairListProblem = L.errorText({ kind: "pairs-invalid" });
     const pairProblems = [
         ["a pair rule", "pair=docs rule=repository-inside", "docs"],
@@ -432,8 +433,8 @@ function verify(L) {
         ["no keys", withUser(undefined, { "client-id": { presence: "absent" }, "client-secret": { presence: "absent" }, "token": { presence: "absent" } }), null, ["warning", null, false], ["info", null, true], ["info", null, false]],
         ["one key", withUser(undefined, { "client-secret": { presence: "absent" }, "token": { presence: "absent" } }), null, ["warning", null, false], ["info", null, true], ["info", null, false]],
         ["no sign-in", withUser(undefined, { "token": { presence: "absent" } }), null, ["ok", null, false], ["warning", "signIn", false], ["info", null, false]],
-        ["sign-in refused", withUser(ADDRESS), good.record, ["ok", null, false], ["danger", "again", false], ["danger", true, false]],
-        ["signed in", withUser(ADDRESS), well(), ["ok", null, false], ["ok", null, false], ["ok", true, false]]
+        ["sign-in refused", withUser(ADDRESS), good.record, ["ok", null, false], ["danger", "again", false], ["danger", null, false]],
+        ["signed in", withUser(ADDRESS), well(), ["ok", null, false], ["ok", "signOut", false], ["ok", null, false]]
     ];
     for (const [label, p, rec, keys, signIn, account] of SIGN_INS) {
         const v = L.statusValues(rec, p, "", "", NOW, HOME);
@@ -555,8 +556,8 @@ function verify(L) {
         ["a pair list that cannot be read", invalid(), ["danger", "tui:reset-pairs"]],
         ["offline", STATE_OF("offline", { kind: "offline" }), ["warning", null]],
         ["offline with a file that needs you", Object.assign(STATE_OF("offline", { kind: "offline" }), { conflicts: CONFLICTS.slice(0, 1), needsYou: 1 }), ["warning", null]],
-        ["a folder pair whose hourly sync did not install", well({ state: "not-set-up", units: "absent" }), ["warning", "tab:Details"]],
-        ["an hourly sync out of date", well({ units: "stale" }), ["warning", "tab:Details"]]
+        ["a folder pair whose hourly sync did not install", well({ state: "not-set-up", units: "absent" }), ["warning", "tab:Setup"]],
+        ["an hourly sync out of date", well({ units: "stale" }), ["warning", "tab:Setup"]]
     ];
     for (const [label, rec, want] of CALLOUT_ROWS) same(callout(rec), want, "callout: " + label);
     const titleOf = rec => L.problemCallout(L.cloudValue(rec, ""), NOW).title;
@@ -760,7 +761,7 @@ function verify(L) {
     same(L.notification(record({ lastError: { kind: "offline" }, attention: { reasons: ["error"], key: "k", notified: false } })).tone, "danger");
     const stale = L.notification(record({ attention: { reasons: ["units-stale"], key: "k", notified: false } }));
     assert.equal(stale.tone, "warning");
-    assert.ok(stale.message.includes("](page:vgs.google-drive/Details)"), "out-of-date units link the Details tab, which holds Set up again");
+    assert.ok(stale.message.includes("](page:vgs.google-drive/Setup)"), "out-of-date units link the Setup tab, which holds Set up again");
     assert.equal(L.notification(record({ attention: null })), null);
     same(L.notification(record({ lastError: Object.assign({ pair: "docs" }, signedOut) })).message, L.errorText(signedOut), "a missing token is a sign-in");
     // Each sentence that asks for a key or a sign-in links the Setup tab,
@@ -826,7 +827,7 @@ const controls = [
     ["the published error keeps its account", "return isText(error.account) ? { kind: error.kind, account: error.account } : { kind: error.kind };", "return { kind: error.kind };"],
     ["the published pair-list error keeps its detail", "if (error.kind === \"pairs-invalid\" && isText(error.detail)) return { kind: error.kind, detail: error.detail };\n    ", ""],
     ["an unreadable pair list offers its repair", "hint: pairListResetHint(cloud.lastError), action: true };", "hint: pairListResetHint(cloud.lastError) };"],
-    ["an unreadable pair list shows its repair", "if (pairListValid(cloud)) return { hidden: true };", "return { hidden: true };"],
+    ["an unreadable pair list shows its repair", 'if (pairListValid(cloud)) return { tone: "ok", text: "Readable" };', 'return { tone: "ok", text: "Readable" };'],
     ["an unreadable pair list says so on Settings", "if (!pairListValid(cloud)) return [UNREADABLE_ROW];", ""],
     ["an unreadable pair list keeps the bar", "(cloud.pairs.length === 0 && pairListValid(cloud))", "cloud.pairs.length === 0"],
     ["files that need the user win over the state", "if (cloud.needsYou > 0) return {", "if (false) return {"],

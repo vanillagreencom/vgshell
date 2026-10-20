@@ -206,8 +206,8 @@ var STATUS_STATE_TONES = { ok: "success", info: "info", warning: "warning", dang
 // a required step of a plugin with a required tool, STATUS_TOOLS_ACTION
 // while a missing or outdated required tool blocks the step, whose page
 // then offers Review all missing or outdated tools on the step's row.
-// `available: false` says a required step that is not done offers the
-// user no action and does not wait on the user, so its page reads it Not
+// `available: false` says a Setup step that is not done offers the user
+// no action and does not wait on the user, so its page reads it Not
 // available and raises no Setup needed; its `hint`, which it must carry,
 // says why and what will change that.
 // `lines` is the further printable lines a state that names several things
@@ -776,7 +776,7 @@ function statusError(status, capabilities, tui, system) {
         if (entry.plain !== undefined) {
             if (typeof entry.plain !== "boolean")
                 return at + ".plain must be a boolean when present";
-            if (entry.type !== "state" || entry.setup === true)
+            if (entry.type !== "state" || setupStep(entry) !== "")
                 return at + ".plain needs a state entry that is no Setup step, whose chip reads Done or To do";
         }
         if (entry.action !== undefined && entry.actions !== undefined)
@@ -1445,18 +1445,21 @@ function statusWrite(manifest, values, key, value) {
 // for an entry that declares an action, a name only for an entry whose
 // `actions` hold it, STATUS_TOOLS_ACTION only for a required step of a
 // manifest that declares a required tool, `aside` only for an entry that
-// declares one and `available: false` only for a required step that is
-// not done, offers no action or aside, and carries its own `hint`, since
-// the declaration's hint names the action the step offers elsewhere, a
-// `presenceList` item carries `secret` only for a manifest that declares
-// `secrets`, and a `rows` row names in `actions` only the entry's
-// `rowActions`. A `state` value carries `file` exactly while the action it
-// offers is a file action declared `file: true`, whose path it is.
+// declares one and `available: false` only for a Setup step, required or
+// optional, that is not done, offers no action or aside, and carries its
+// own `hint`, since the declaration's hint names the action the step
+// offers elsewhere, a `presenceList` item carries `secret` only for a
+// manifest that declares `secrets`, and a `rows` row names in `actions`
+// only the entry's `rowActions`. A required step is never hidden, since
+// Setup keeps it after completion; an optional step is hidden while it
+// does not apply, such as a repair with nothing to repair. A `state` value
+// carries `file` exactly while the action it offers is a file action
+// declared `file: true`, whose path it is.
 function statusDeclarationFits(manifest, entry, value) {
     if (entry.type === "state") {
         if (entry.setup === true && statusStateHidden(value)) return false;
         if (value.aside !== undefined && entry.aside === undefined) return false;
-        if (value.available === false && (entry.setup !== true || value.tone === "ok" || (value.action !== undefined && value.action !== false) || value.aside === true
+        if (value.available === false && (setupStep(entry) === "" || value.tone === "ok" || (value.action !== undefined && value.action !== false) || value.aside === true
             || value.hint === undefined)) return false;
         if ((value.file !== undefined) !== statusValueOffersFile(entry, value)) return false;
         if (value.action === STATUS_TOOLS_ACTION) return entry.setup === true && manifest.requirements.some(function (row) { return !row.optional; });
@@ -1677,8 +1680,8 @@ function statusActionIcon(action) {
 // statusDisplayable admits whose `state` value is not hidden (statusStateHidden),
 // in manifest key order, as { key, type, label,
 // group, setup, setting, step, settings, icon, hint, info, link, secrets,
-// declaredTuis, systemStep, action, aside, report, value, tone }, `tone`
-// statusRowTone's. `group`, `hint`,
+// declaredTuis, systemStep, action, aside, report, value, tone }, `setup`
+// setupStep's and `tone` statusRowTone's. `group`, `hint`,
 // `info` and `icon` are "" when the manifest omits them; a reported
 // `state` value's own `hint` and `info` stand in the entry's.
 // `link`, the words of the declared hint that open an https address, is
@@ -1711,7 +1714,7 @@ function statusRows(manifest, values) {
             type: entry.type,
             label: entry.label,
             group: entry.group === undefined ? "" : entry.group,
-            setup: entry.setup === true,
+            setup: setupStep(entry),
             setting: entry.setting === undefined ? "" : entry.setting,
             step: entry.step === undefined ? "" : entry.step,
             settings: entry.settings === true,
@@ -5652,8 +5655,11 @@ function idleWatchRefusal(seconds, onChange) {
 
 // The first defect of where STATUS's entries draw on a plugin page, or ""
 // (docs/architecture/design-system.md § Settings pages). `setup` makes a
-// displayed state or presence a required step of Setup, and `step` puts a
-// key list beside its step there, its items alone under the step, so it
+// displayed state or presence a step of Setup: `true` a required step,
+// one the plugin needs to work, and "optional" (SETUP_OPTIONAL) a step
+// the plugin works without, which reads Optional until it is done and
+// never marks the plugin as needing setup. `step` puts a
+// key list beside its required step there, its items alone under the step, so it
 // declares no hint, info or link of its own. Settings holds only values the user
 // changes, so `setting` takes only a stored key list, the presenceList of
 // a manifest that declares `secrets` (SECRETS), whose masked field is one,
@@ -5665,8 +5671,8 @@ function pagePlacementError(status, schema, secrets) {
     var keys = Object.keys(status);
     for (var i = 0; i < keys.length; i++) {
         var entry = status[keys[i]], at = "status." + keys[i];
-        if (entry.setup !== undefined && typeof entry.setup !== "boolean") return at + ".setup must be a boolean";
-        if (entry.setup === true && (entry.hidden === true || ["state", "presence"].indexOf(entry.type) === -1)) return at + ".setup needs a displayed state or presence";
+        if (entry.setup !== undefined && typeof entry.setup !== "boolean" && entry.setup !== SETUP_OPTIONAL) return at + ".setup must be true, false or \"" + SETUP_OPTIONAL + "\"";
+        if (setupStep(entry) !== "" && (entry.hidden === true || ["state", "presence"].indexOf(entry.type) === -1)) return at + ".setup needs a displayed state or presence";
         if (typeof entry.settings !== "boolean" && entry.settings !== undefined) return at + ".settings must be a boolean";
         if (entry.settings === true) {
             if (entry.type !== "rows" || (entry.action === undefined && entry.rowActions === undefined)) return at + ".settings needs a rows entry the user changes through its action or rowActions; Settings draws only values the user changes";
@@ -5683,9 +5689,32 @@ function pagePlacementError(status, schema, secrets) {
             var undrawn = ["hint", "info", "link"].find(function (key) { return entry[key] !== undefined; });
             if (undrawn !== undefined) return at + "." + undrawn + " is never drawn: Setup draws a key list's items alone under the step it serves, whose own hint and info explain it";
         }
-        if ((entry.setup === true ? 1 : 0) + (entry.setting !== undefined ? 1 : 0) + (entry.step !== undefined ? 1 : 0) > 1) return at + " declares more than one page placement";
+        if ((setupStep(entry) !== "" ? 1 : 0) + (entry.setting !== undefined ? 1 : 0) + (entry.step !== undefined ? 1 : 0) > 1) return at + " declares more than one page placement";
     }
     return "";
+}
+
+// What Setup step status entry ENTRY declares: "required" for `setup:
+// true`, "optional" for `setup: "optional"`, else "" for no step
+// (pagePlacementError).
+var SETUP_OPTIONAL = "optional";
+function setupStep(entry) {
+    return entry.setup === true ? "required" : entry.setup === SETUP_OPTIONAL ? "optional" : "";
+}
+
+// The keys of MANIFEST's status entries that a plugin page draws on
+// Details, by the page's placement (shell/plugins/vgs.settings/Steps.js
+// detailEntries), and that offer an `action`, `actions` or an `aside`:
+// steps, which belong on Setup (docs/architecture/design-system.md §
+// Settings pages), in manifest order. A `rows` list keeps its actions on
+// whichever tab holds it. bin/lib/check-manifests.js refuses a bundled
+// manifest with one.
+function detailSteps(manifest) {
+    return Object.keys(manifest.status).filter(function (key) {
+        var entry = manifest.status[key];
+        return statusDisplayable(entry) && setupStep(entry) === "" && entry.setting === undefined && entry.step === undefined && entry.type !== "rows"
+            && (entry.action !== undefined || entry.actions !== undefined || entry.aside !== undefined);
+    });
 }
 
 // A manifest's `setupGuide`: the callout a plugin page draws at the top of
