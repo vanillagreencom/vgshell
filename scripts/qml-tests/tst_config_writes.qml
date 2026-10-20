@@ -177,6 +177,53 @@ Item {
             compare(Config.effective, { version: 2, disabledPlugins: ["acme.new"] });
         }
 
+        readonly property var splitClaims: [{ from: "acme.source", to: "acme.split", keys: ["keep"] }]
+
+        function test_split_after_rename_writes_once_and_repeated_reads_do_nothing() {
+            finishNextRead(Config.userPath, JSON.stringify({ version: 2, disabledPlugins: ["acme.old"], plugins: [{ id: "acme.old", keep: false, retired: 1 }] }));
+            let saves = 0;
+            const counted = () => { saves += 1; };
+            watched(Config.userPath).saved.connect(counted);
+            Config.adoptRenames({ "acme.old": "acme.source" }, splitClaims);
+            const want = { version: 2, disabledPlugins: ["acme.source", "acme.split"], plugins: [{ id: "acme.source", keep: false, retired: 1 }, { id: "acme.split", keep: false }] };
+            fileHolds(want);
+            Config.adoptRenames({ "acme.old": "acme.source" }, splitClaims);
+            finishNextRead(Config.userPath, JSON.stringify(want));
+            compare(saves, 1);
+            watched(Config.userPath).saved.disconnect(counted);
+            compare(Config.effective, want);
+        }
+
+        function test_every_user_read_splits_before_publishing_once() {
+            Config.adoptRenames({}, splitClaims);
+            const disabled = createTemporaryObject(disabledSeenComponent, root);
+            let saves = 0;
+            const counted = () => { saves += 1; };
+            watched(Config.userPath).saved.connect(counted);
+            const bytes = JSON.stringify({ version: 2, disabledPlugins: ["acme.source"] });
+            finishNextRead(Config.userPath, bytes);
+            const want = { version: 2, disabledPlugins: ["acme.source", "acme.split"], plugins: [{ id: "acme.split" }] };
+            compare(disabled.seen, [["acme.source", "acme.split"]]);
+            fileHolds(want);
+            // A later external edit can again predate this declaration.
+            finishNextRead(Config.userPath, bytes + "\n");
+            compare(saves, 2);
+            watched(Config.userPath).saved.disconnect(counted);
+            compare(Config.effective, want);
+        }
+
+        function test_missing_file_marks_every_split_without_copying_new_disables() {
+            Config.adoptRenames({}, splitClaims.concat([{ from: "acme.other", to: "acme.another", keys: [] }]));
+            watched(Config.userPath).read();
+            view(Config.userPath).failRead(1); // FileViewError.FileNotFound in the stand-in.
+            compare(Config.userState, "absent");
+            compare(Config.writeUser({ version: 2, disabledPlugins: ["acme.source"] }), "ok");
+            const want = { version: 2, disabledPlugins: ["acme.source"], plugins: [{ id: "acme.split" }, { id: "acme.another" }] };
+            fileHolds(want);
+            finishNextRead(Config.userPath, JSON.stringify(want));
+            compare(Config.effective, want);
+        }
+
         function test_write_from_a_write_handler_keeps_both() {
             const adds = createTemporaryObject(addsComponent, root);
             compare(Config.writeUser({ version: 2, outer: 1 }), "ok");

@@ -248,6 +248,41 @@ function renamePlugins(config, renames) {
     return renamed ? { config: out, renamed: true } : same;
 }
 
+// A split is recorded by its target's first reference in the user file.
+// Always add a plugins[] row with a copied disable or placement, so a later
+// enable or hide cannot repeat the split (D110). MARK_ONLY is for the first
+// write of an absent file: that edit is new user intent, not saved history.
+function splitPlugins(config, splits, markOnly) {
+    var same = { config: config, split: false };
+    if (!isPlainObject(config) || !Array.isArray(splits) || splits.length === 0) return same;
+    var out = clone(config), changed = false;
+    var layout = isPlainObject(out.bar) && isPlainObject(out.bar.layout) ? out.bar.layout : {};
+    splits.forEach(function (claim) {
+        var rows = out.plugins || [], disabled = out.disabledPlugins || [];
+        if (rows.some(function (row) { return row.id === claim.to; }) || disabled.indexOf(claim.to) !== -1 ||
+            SECTIONS.some(function (section) { return (layout[section] || []).some(function (row) { return row.id === claim.to; }); })) return;
+        var target = { id: claim.to };
+        if (!markOnly) {
+            var source = rows.filter(function (row) { return row.id === claim.from; })[0];
+            claim.keys.forEach(function (key) { if (source && hasOwn(source, key)) target[key] = clone(source[key]); });
+            if (disabled.indexOf(claim.from) !== -1) disabled.push(claim.to);
+            SECTIONS.forEach(function (section) {
+                if (!Array.isArray(layout[section])) return;
+                var placed = [];
+                layout[section].forEach(function (row) {
+                    if (row.id === claim.from) placed.push({ id: claim.to });
+                    placed.push(row);
+                });
+                layout[section] = placed;
+            });
+        }
+        rows.push(target);
+        out.plugins = rows;
+        changed = true;
+    });
+    return changed ? { config: out, split: true } : same;
+}
+
 // Merge the shipped defaults with the user file. Every top-level key in the
 // user file replaces the shipped key whole, except `plugins`, whose entries
 // merge by id with the user entry winning, and `disabledPlugins`, which is

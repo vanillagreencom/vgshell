@@ -325,6 +325,11 @@ function suite(ctx, configLogic, check) {
         ["schemaVersion 2", { schemaVersion: 2 }, "schemaVersion must be 1"],
         ["id without namespace", { id: "bar" }, "id must be dotted"],
         ["id with uppercase", { id: "vgs.Bar" }, "id must be dotted"],
+        ["splitFrom a dotted source", { splitFrom: "acme.source" }, null],
+        ...[null, [], {}, 4, true, "", "source", "acme.source/child", "acme..source"].map(value =>
+            ["splitFrom invalid " + JSON.stringify(value), { splitFrom: value }, "splitFrom must be dotted"]),
+        ["splitFrom own id", { splitFrom: "vgs.bar" }, "splitFrom must differ"],
+        ["splitFrom a former id", { splitFrom: "acme.source", formerIds: ["acme.source"] }, "splitFrom must differ"],
         ["formerIds naming two earlier ids", { formerIds: ["vgs.old-bar", "acme.bar"] }, null],
         ["formerIds not a list", { formerIds: "vgs.old-bar" }, "formerIds must be a non-empty list"],
         ["formerIds empty", { formerIds: [] }, "formerIds must be a non-empty list"],
@@ -1168,7 +1173,7 @@ function suite(ctx, configLogic, check) {
         ["a scan with no declaration renames nothing", [plain, plainAt("acme.shipped", "/bundled/acme.shipped")], { renames: {}, ignored: [] }],
         ["an empty scan renames nothing", [], { renames: {}, ignored: [] }],
     ])
-        check("formerIdClaims: " + name, ctx.formerIdClaims(scanOrder(manifests), claimSource), want);
+        check("formerIdClaims: " + name, ctx.formerIdClaims(scanOrder(manifests), claimSource), Object.assign({}, want, { splits: [] }));
     // A plugin the user removed leaves its plugins[] row; an installed
     // plugin that names that id in formerIds takes no rename, so the opt-in
     // `plugin add` asks for still holds and the plugin stays off.
@@ -1180,6 +1185,39 @@ function suite(ctx, configLogic, check) {
         check("formerIdClaims: an installed claim of a leftover row renames nothing", renamed, { config: leftover, renamed: false });
         check("formerIdClaims: an installed plugin claiming a leftover row stays off", ctx.isEnabled(renamed.config, installed, "vgs.bar"), false);
     }
+
+    // A source may still ship: splits copy only bundled declarations, and
+    // the ignored record gives Registry one log for an installed claim.
+    const splitManifest = Object.assign({}, plain, { id: "acme.split", splitFrom: "acme.plain", settings: { keep: false, count: 1 } });
+    for (const source of ["bundled", "installed"]) {
+        const claims = ctx.formerIdClaims(scanOrder([plain, splitManifest]), () => source);
+        check("split claims: " + source, claims, source === "bundled"
+            ? { renames: {}, ignored: [], splits: [{ from: "acme.plain", to: "acme.split", keys: ["keep", "count"] }] }
+            : { renames: {}, ignored: [{ id: "acme.split", reason: "installed", formerIds: [], splitFrom: "acme.plain" }], splits: [] });
+    }
+    const splits = [{ from: "acme.source", to: "acme.split", keys: ["keep", "count"] }];
+    const sourceRow = { id: "acme.source", keep: false, count: 0, retired: 9, keys: { toggle: "SUPER+S" } };
+    const splitRows = [
+        ["no source reference still records the split", { version: 2 }, { version: 2, plugins: [{ id: "acme.split" }] }],
+        ["source settings copy only declared keys, including falsy values", { plugins: [sourceRow] }, { plugins: [sourceRow, { id: "acme.split", keep: false, count: 0 }] }],
+        ["a disable alone also gains the marker", { disabledPlugins: ["acme.source"] }, { disabledPlugins: ["acme.source", "acme.split"], plugins: [{ id: "acme.split" }] }],
+        ["every placement copies immediately before its source", { bar: { layout: { left: [{ id: "acme.source" }], center: [{ id: "acme.other" }, { id: "acme.source" }], right: [{ id: "acme.source" }, { id: "acme.source" }] } } }, { bar: { layout: { left: [{ id: "acme.split" }, { id: "acme.source" }], center: [{ id: "acme.other" }, { id: "acme.split" }, { id: "acme.source" }], right: [{ id: "acme.split" }, { id: "acme.source" }, { id: "acme.split" }, { id: "acme.source" }] } }, plugins: [{ id: "acme.split" }] }],
+        ...[{ plugins: [{ id: "acme.split", keep: true }] }, { disabledPlugins: ["acme.split"] }, ...["left", "center", "right"].map(section => ({ bar: { layout: { [section]: [{ id: "acme.split" }] } } }))].map(user => ["target already named " + JSON.stringify(user), user, user]),
+    ];
+    for (const [name, user, want] of splitRows) {
+        const before = JSON.stringify(user);
+        const result = configLogic.splitPlugins(user, splits);
+        check("splitPlugins: " + name, result.config, want);
+        check("splitPlugins leaves input: " + name, JSON.stringify(user), before);
+        check("splitPlugins repeated read: " + name, configLogic.splitPlugins(result.config, splits), { config: want, split: false });
+    }
+    const splitTarget = Object.assign({}, splitManifest, { id: "acme.split" });
+    const copiedDisable = configLogic.splitPlugins({ disabledPlugins: ["acme.source"] }, splits).config;
+    const enabledSplit = ctx.withEnabled(copiedDisable, splitTarget, true, copiedDisable);
+    check("splitPlugins: enabling the target survives a re-read", configLogic.splitPlugins(enabledSplit, splits).config.disabledPlugins, ["acme.source"]);
+    const firstWrite = ctx.withEnabled(null, Object.assign({}, plain, { id: "acme.source" }), false, {});
+    const marked = configLogic.splitPlugins(firstWrite, splits, true).config;
+    check("splitPlugins: missing file then source disable survives restart", configLogic.splitPlugins(marked, splits).config, { version: 2, disabledPlugins: ["acme.source"], plugins: [{ id: "acme.split" }] });
 
     // renamePlugins rows: [name, user file, rename map, want file, want
     // renamed]. A plugins[] row, a disabledPlugins entry and a layout entry
@@ -2445,6 +2483,7 @@ require("node:assert/strict").throws(() => verifyUpdatesNoticeOwner(withoutNotic
 // judge's own place in a temporary tree, beside the other judge, the icon
 // set, the package-manager table and the Hyprland layer's table they import.
 const CONTROLS = [
+    ["splitFrom refuses its own id", "raw.splitFrom === raw.id ||", "false ||", "validateManifest:"],
     ["idleStages is a manifest key", '"schema", "idleStages", "defaultSection"', '"schema", "defaultSection"'],
     ["idle stages need capability idle", 'if (capabilities.indexOf("idle") === -1)\n        return "idleStages needs', 'if (false)\n        return "idleStages needs'],
     ["a stage outside the set goes unjudged", "if (IDLE_STAGES.indexOf(stages[i]) === -1)", "if (false)"],
@@ -2965,6 +3004,7 @@ const CONTROLS = [
 
 // The controls on ConfigLogic.js, the configuration judge PluginLogic.js imports.
 const CONFIG_CONTROLS = [
+    ["a split always records its target", "        rows.push(target);", "        if (source) rows.push(target);", "splitPlugins:"],
     ["appearance is an object", "if (config.appearance !== undefined && !isPlainObject(config.appearance))", "if (false)"],
     ["packages is an object", "if (!isPlainObject(config.packages))\n            return \"packages must be an object\";", "if (false)\n            return \"packages must be an object\";"],
     ["welcome is an object", "        if (!isPlainObject(config.welcome))\n            return \"welcome must be an object\";\n", ""],
@@ -3008,7 +3048,7 @@ try {
     const sources = { [LOGIC]: fs.readFileSync(LOGIC, "utf8"), [CONFIG]: fs.readFileSync(CONFIG, "utf8") };
     const copyOf = file => path.join(temp, "shell", "Core", path.basename(file));
     for (const [file, controls] of [[LOGIC, CONTROLS], [CONFIG, CONFIG_CONTROLS]]) {
-        for (const [label, needle, replacement] of controls) {
+        for (const [label, needle, replacement, filter] of controls) {
             const count = sources[file].split(needle).length - 1;
             if (count !== 1) { report("control: " + label + ": the text to replace occurs once", count, 1); continue; }
             for (const [other, text] of Object.entries(sources)) fs.writeFileSync(copyOf(other), text);
@@ -3019,7 +3059,7 @@ try {
             const configLogic = load(copyOf(CONFIG));
             let red = 0;
             try {
-                suite(ctx, configLogic, (name, got, want) => { if (JSON.stringify(got) !== JSON.stringify(want)) red += 1; });
+                suite(ctx, configLogic, (name, got, want) => { if ((!filter || name.includes(filter)) && JSON.stringify(got) !== JSON.stringify(want)) red += 1; });
             } catch (e) {
                 red += 1;
             }

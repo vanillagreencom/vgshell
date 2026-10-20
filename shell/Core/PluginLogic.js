@@ -120,7 +120,7 @@ var SOUNDS = [
 
 // Every key a manifest may carry. An unknown key is refused, so a misspelt
 // key fails loudly instead of being carried and ignored.
-var MANIFEST_KEYS = ["schemaVersion", "id", "formerIds", "name", "version", "author", "description", "license", "icon", "kinds", "entryPoints", "capabilities", "capabilityKinds", "systemSteps", "settings", "schema", "idleStages", "defaultSection", "pane", "appearance", "hyprland", "requirements", "status", "tui", "menu", "secrets", "sounds", "alwaysOn", "setupGuide"];
+var MANIFEST_KEYS = ["schemaVersion", "id", "formerIds", "splitFrom", "name", "version", "author", "description", "license", "icon", "kinds", "entryPoints", "capabilities", "capabilityKinds", "systemSteps", "settings", "schema", "idleStages", "defaultSection", "pane", "appearance", "hyprland", "requirements", "status", "tui", "menu", "secrets", "sounds", "alwaysOn", "setupGuide"];
 
 // The stages of the idle path in the order they are meant to fire
 // (docs/architecture/power.md). A manifest's `idleStages` names each one the
@@ -4276,16 +4276,23 @@ function instanceCapabilities(manifest, kind) {
 // holds the shipped manifests to one claimant per former id and no former
 // id that a shipped plugin holds. Registry logs IGNORED and hands RENAMES
 // to Config.adoptRenames, which renames the user file by it
-// (ConfigLogic.renamePlugins).
+// (ConfigLogic.renamePlugins). SPLITS holds each bundled splitFrom claim
+// as { from, to, keys }, the target settings keys alone. An installed
+// splitFrom is included in its one ignored record, never in SPLITS.
 function formerIdClaims(manifests, sourceOf) {
-    var renames = {}, ignored = [];
+    var renames = {}, ignored = [], splits = [];
     Object.keys(manifests).forEach(function (id) {
-        var formerIds = manifests[id].formerIds;
-        if (!Array.isArray(formerIds)) return;
+        var manifest = manifests[id];
+        var formerIds = manifest.formerIds || [];
+        if (formerIds.length === 0 && manifest.splitFrom === undefined) return;
         if (sourceOf(manifests[id]) !== "bundled") {
-            ignored.push({ id: id, reason: "installed", formerIds: formerIds.slice() });
+            var entry = { id: id, reason: "installed", formerIds: formerIds.slice() };
+            if (manifest.splitFrom !== undefined) entry.splitFrom = manifest.splitFrom;
+            ignored.push(entry);
             return;
         }
+        if (manifest.splitFrom !== undefined)
+            splits.push({ from: manifest.splitFrom, to: id, keys: Object.keys(manifest.settings) });
         formerIds.forEach(function (former) {
             if (hasOwn(manifests, former))
                 ignored.push({ id: id, reason: "scanned", formerIds: [former] });
@@ -4295,7 +4302,7 @@ function formerIdClaims(manifests, sourceOf) {
                 renames[former] = id;
         });
     });
-    return { renames: renames, ignored: ignored };
+    return { renames: renames, ignored: ignored, splits: splits };
 }
 
 // Validate one manifest object. Returns { ok: true, manifest } with the
@@ -4337,6 +4344,12 @@ function validateManifest(raw, sourceDir) {
             if (raw.formerIds.indexOf(former) !== f)
                 return { ok: false, error: "formerIds lists " + former + " twice" };
         }
+    }
+    if (raw.splitFrom !== undefined) {
+        if (typeof raw.splitFrom !== "string" || !ID_PATTERN.test(raw.splitFrom))
+            return { ok: false, error: "splitFrom must be dotted and author-namespaced" };
+        if (raw.splitFrom === raw.id || (raw.formerIds || []).indexOf(raw.splitFrom) !== -1)
+            return { ok: false, error: "splitFrom must differ from id and formerIds" };
     }
     var required = ["name", "version", "author", "description"];
     for (var i = 0; i < required.length; i++) {

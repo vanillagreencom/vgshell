@@ -309,9 +309,13 @@ Singleton {
     // an installed plugin's once, as the scan logs a collision.
     function renameUserFile(next) {
         const claims = Logic.formerIdClaims(next, m => root.sourceOf(m));
-        for (const entry of claims.ignored)
-            console.warn("plugins: former id claim ignored id=" + entry.id + " reason=" + entry.reason + " formerIds=" + entry.formerIds.join(","));
-        Config.adoptRenames(claims.renames);
+        for (const entry of claims.ignored) {
+            if (entry.formerIds.length > 0)
+                console.warn("plugins: former id claim ignored id=" + entry.id + " reason=" + entry.reason + " formerIds=" + entry.formerIds.join(","));
+            if (entry.splitFrom !== undefined)
+                console.warn("plugins: split claim ignored id=" + entry.id + " reason=" + entry.reason + " splitFrom=" + entry.splitFrom);
+        }
+        Config.adoptRenames(claims.renames, claims.splits);
     }
 
     function applyCoreRevision(line) {
