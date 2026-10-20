@@ -229,34 +229,44 @@ Scope {
     }
 
     // What `gio info` read of a file, COMPLETION its { code, status }, null
-    // for a read that never started, OUTPUT its standard output: `missing`
-    // for a path gio finds nothing at, `unreadable` for a read that failed
-    // to start or to say, `not-a-file` for what is neither a file nor a
-    // folder, `program` for a type that runs when opened, `editor` for a
+    // for a read that never started, OUTPUT its standard output, ERRORS its
+    // standard error, in the C locale: `missing` for a path gio finds
+    // nothing at, `unreadable` for a read that failed to start, to run or
+    // to say, such as one the folder's permissions refuse, `not-a-file` for what is neither a file nor a
+    // folder, `program` for a type that runs when opened, by the canonical
+    // name gio reads, never an alias, such as a Windows or Linux
+    // executable, a Windows shortcut or installer, or a Java or Flatpak bundle,
+    // since a notification's sender chooses the path of a link on its
+    // card and a default application would run it, `editor` for a
     // text type, every text/* type and the text formats the shared MIME
     // database files elsewhere, and `default` for the rest, which open in
     // their default application, a folder in the file manager. gio reads
     // the type from the content when the name says none, so a text file
     // with no extension is text.
-    function fileKind(completion, output) {
+    function fileKind(completion, output, errors) {
         if (completion === null) return "unreadable";
-        if (completion.status !== 0 || completion.code !== 0) return "missing";
+        if (completion.status !== 0 || completion.code !== 0)
+            return /No such file or directory|Not a directory/.test(errors) ? "missing" : "unreadable";
         const kind = /^\s*standard::type: (\d+)$/m.exec(output);
         const type = /^\s*standard::content-type: (\S+)$/m.exec(output);
         if (kind === null || type === null) return "unreadable";
         if (kind[1] !== "1" && kind[1] !== "2") return "not-a-file";
-        const programs = ["application/x-executable", "application/x-pie-executable", "application/x-sharedlib", "application/vnd.appimage", "application/x-ms-dos-executable", "application/x-msdos-program"];
+        const programs = ["application/x-executable", "application/x-pie-executable", "application/x-sharedlib", "application/vnd.appimage",
+            "application/x-ms-dos-executable", "application/x-msdos-program", "application/x-msdownload", "application/vnd.microsoft.portable-executable",
+            "application/x-bat", "application/x-msi", "application/x-ms-shortcut", "application/java-archive", "application/x-java-archive", "application/x-java-jnlp-file",
+            "application/vnd.flatpak", "application/vnd.flatpak.ref", "application/vnd.flatpak.repo"];
         if (programs.indexOf(type[1]) !== -1) return "program";
-        const texts = ["application/json", "application/toml", "application/x-shellscript", "application/xml", "application/yaml", "application/x-yaml", "application/javascript", "application/x-desktop", "application/x-zerosize"];
+        const texts = ["application/json", "application/toml", "application/x-shellscript", "application/xml", "application/yaml", "application/x-yaml", "application/javascript", "application/x-desktop", "application/x-zerosize",
+            "application/x-perl", "application/x-ruby", "application/x-php", "application/x-powershell", "application/sql"];
         return type[1].indexOf("text/") === 0 || texts.indexOf(type[1]) !== -1 ? "editor" : "default";
     }
 
-    // The end of the read of PROBE's file, COMPLETION and OUTPUT as
+    // The end of the read of PROBE's file, COMPLETION, OUTPUT and ERRORS as
     // fileKind takes them: the editor, the default application or a
     // refusal, whose answer goes to the probe's `done` or, without one,
     // to the log.
-    function fileProbed(probe, completion, output) {
-        const kind = fileKind(completion, output);
+    function fileProbed(probe, completion, output, errors) {
+        const kind = fileKind(completion, output, errors);
         let answer;
         if (kind === "editor") answer = openEditor(probe.route, probe.owner);
         else if (kind === "default") answer = Capabilities.runDetached(DesktopLaunch.open(probe.path));
@@ -507,12 +517,17 @@ Scope {
             property var done: null
             property var completion: null
             command: ["gio", "info", "-a", "standard::type,standard::content-type", "--", probe.path]
+            environment: ({ LC_ALL: "C" })
             stdout: StdioCollector { id: probeOutput }
+            stderr: StdioCollector { id: probeErrors }
             onExited: (code, status) => { probe.completion = { code: code, status: status }; }
             onRunningChanged: {
                 if (running) return;
-                root.fileProbed(probe, probe.completion, probeOutput.text);
-                probe.destroy();
+                try {
+                    root.fileProbed(probe, probe.completion, probeOutput.text, probeErrors.text);
+                } finally {
+                    probe.destroy();
+                }
             }
         }
     }

@@ -883,7 +883,7 @@ for (const [label, needle, replacement] of [
 // folder check, the file read and runDetached.
 function editSuite(source, logic, check) {
     const functions = ["edit(path, line, done)", "editFor(id, path)", "guarded(ctx, done)", "openPath(path, line, owner, done)", "openEditor(route, owner)",
-        "fileKind(completion, output)", "fileProbed(probe, completion, output)", "recordStarted(launch, args)", "openFolder(path)", "folderChecked(path, completion)"]
+        "fileKind(completion, output, errors)", "fileProbed(probe, completion, output, errors)", "recordStarted(launch, args)", "openFolder(path)", "folderChecked(path, completion)"]
         .map(header => runnerFunction(source, header)).join("");
     // STEPS run in order in one context, each [busy keys, call, the end of
     // the check the call starts: a folder check's { code, status }, a file
@@ -919,7 +919,7 @@ function editSuite(source, logic, check) {
                 createObject: (parent, props) => {
                     seen.probes.push(props.path);
                     const process = Object.assign({}, props);
-                    Object.defineProperty(process, "running", { set: () => sandbox.fileProbed(process, end.completion, end.output) });
+                    Object.defineProperty(process, "running", { set: () => sandbox.fileProbed(process, end.completion, end.output, end.errors) });
                     return process;
                 },
             },
@@ -937,8 +937,9 @@ function editSuite(source, logic, check) {
     // What `gio info -a standard::type,standard::content-type` prints for a
     // file of content type TYPE, a folder with KIND "2".
     const info = (type, kind) => ({ completion: { code: 0, status: 0 }, output: "type: regular\nuri: file:///x\nattributes:\n  standard::type: " + (kind || "1") + "\n  standard::content-type: " + type + "\n" });
-    const gone = { completion: { code: 2, status: 0 }, output: "" };
-    const unstarted = { completion: null, output: "" };
+    const gone = { completion: { code: 2, status: 0 }, output: "", errors: "gio: file:///x: Error when getting information for file \u201c/x\u201d: No such file or directory" };
+    const denied = { completion: { code: 2, status: 0 }, output: "", errors: "gio: file:///x: Error when getting information for file \u201c/x\u201d: Permission denied" };
+    const unstarted = { completion: null, output: "", errors: "" };
     const none = { started: [], checks: [], probes: [], opened: [], done: [], logs: 0 };
     const want = fields => Object.assign({ answers: [] }, none, fields);
     const a = "/home/me/.config/hypr/a.lua";
@@ -960,6 +961,8 @@ function editSuite(source, logic, check) {
             want({ answers: ["ok"], probes: [a], done: ["refused: file=\"" + a + "\" reason=missing"] })],
         ["edit of a missing file with no done logs the reason", [[[], "edit(\"/home/me/a.pdf\")", gone]],
             want({ answers: ["ok"], probes: ["/home/me/a.pdf"], logs: 1 })],
+        ["a read that cannot see the file opens nothing and is no gone file", [[[], "edit(\"/home/me/a.pdf\", undefined, finished)", denied]],
+            want({ answers: ["ok"], probes: ["/home/me/a.pdf"], done: ["refused: file=\"/home/me/a.pdf\" reason=unreadable"] })],
         ["a read that never started opens nothing", [[[], "edit(\"/home/me/a.pdf\", undefined, finished)", unstarted]],
             want({ answers: ["ok"], probes: ["/home/me/a.pdf"], done: ["refused: file=\"/home/me/a.pdf\" reason=unreadable"] })],
         ["a program is never opened", [[[], "edit(\"/home/me/a.bin\", undefined, finished)", info("application/x-executable")]],
@@ -1002,16 +1005,19 @@ function editSuite(source, logic, check) {
         ["application/x-shellscript", "editor"], ["application/yaml", "editor"], ["application/xml", "editor"], ["application/x-zerosize", "editor"],
         ["application/pdf", "default"], ["application/vnd.oasis.opendocument.spreadsheet", "default"], ["image/png", "default"], ["image/svg+xml", "default"],
         ["video/mp4", "default"], ["application/zip", "default"], ["application/octet-stream", "default"],
-        ["application/x-executable", "program"], ["application/x-pie-executable", "program"], ["application/vnd.appimage", "program"],
+        ["application/x-executable", "program"], ["application/x-pie-executable", "program"], ["application/vnd.appimage", "program"], ["application/x-sharedlib", "program"],
+        ["application/x-msdownload", "program"], ["application/vnd.microsoft.portable-executable", "program"], ["application/x-bat", "program"], ["application/x-msi", "program"],
+        ["application/x-ms-shortcut", "program"], ["application/java-archive", "program"], ["application/x-java-jnlp-file", "program"], ["application/vnd.flatpak.ref", "program"],
+        ["application/x-perl", "editor"], ["application/x-ruby", "editor"], ["application/x-powershell", "editor"], ["text/x-python", "editor"], ["application/x-desktop", "editor"],
     ];
     const kinds = vm.createContext({ end: null });
-    vm.runInContext(runnerFunction(source, "fileKind(completion, output)"), kinds);
+    vm.runInContext(runnerFunction(source, "fileKind(completion, output, errors)"), kinds);
     for (const [type, want] of typeRows) {
         kinds.end = info(type);
-        check("TuiRunner fileKind: " + type, vm.runInContext("fileKind(end.completion, end.output)", kinds), want);
+        check("TuiRunner fileKind: " + type, vm.runInContext("fileKind(end.completion, end.output, end.errors)", kinds), want);
     }
     kinds.end = { completion: { code: 0, status: 0 }, output: "attributes:\n" };
-    check("TuiRunner fileKind: output with no type is unreadable", vm.runInContext("fileKind(end.completion, end.output)", kinds), "unreadable");
+    check("TuiRunner fileKind: output with no type is unreadable", vm.runInContext("fileKind(end.completion, end.output, end.errors)", kinds), "unreadable");
 }
 editSuite(RUNNER, load(LOGIC), report);
 // Each control drops one rule from a copy of TuiRunner: the editor reading
@@ -1021,7 +1027,8 @@ for (const [label, needle, replacement] of [
     ["the editor drops the started-arguments comparison", "return Logic.tuiArgsShownAnswer(named.key, named.label, answer, route.args, startedArgs);", "return Logic.tuiShownAnswer(named.label, answer);"],
     ["the folder check admits a /-suffixed file", "if (completion === null || completion.status !== 0 || completion.code !== 0) {", "if (false) {"],
     ["every file opens in the editor", "return type[1].indexOf(\"text/\") === 0 || texts.indexOf(type[1]) !== -1 ? \"editor\" : \"default\";", "return \"editor\";"],
-    ["a file gio cannot find still opens", "if (completion.status !== 0 || completion.code !== 0) return \"missing\";", ""],
+    ["a file gio cannot find still opens", "return /No such file or directory|Not a directory/.test(errors) ? \"missing\" : \"unreadable\";", ""],
+    ["a read that failed for another cause reads as gone", "return /No such file or directory|Not a directory/.test(errors) ? \"missing\" : \"unreadable\";", "return \"missing\";"],
     ["a program opens in its default application", "if (programs.indexOf(type[1]) !== -1) return \"program\";", ""]
 ]) {
     report("control: " + label + ": the text to replace occurs once", RUNNER.split(needle).length - 1, 1);
