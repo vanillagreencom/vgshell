@@ -92,6 +92,14 @@ local function parse_hold(value)
 end
 
 clients_om = ObjectManager { Interest { type = "client" } }
+-- ObjectManager includes pre-existing nodes (WirePlumber 0.5.18 Lua API,
+-- lua_object_manager_api.html); mute can turn on after a stream opens.
+nodes_om = ObjectManager {
+  Interest {
+    type = "node",
+    Constraint { "media.class", "=", "Stream/Output/Audio", type = "pw-global" },
+  },
+}
 
 local function holder_present(pid)
   for client in clients_om:iterate() do
@@ -239,9 +247,20 @@ metadata:activate(Features.ALL, function(m, e)
       return
     end
     hold = parsed
+    if holder_present(hold.pid) then
+      for node in nodes_om:iterate() do
+        -- An already-playing call is not a notification sound. A paused
+        -- stream is held before its next chime, even if Notify is late.
+        if node.properties["pulse.corked"] == "true" and matches(node.properties) then
+          node:set_param("Props", Pod.Object { "Spa:Pod:Object:Param:Props", "Props", softMute = true })
+          held[node.id] = { node = node, pid = hold.pid }
+        end
+      end
+    end
     log:info("hold: pid=" .. parsed.pid)
   end)
   m:set(0, "version", "Spa:String", tostring(version))
 end)
 
 clients_om:activate()
+nodes_om:activate()

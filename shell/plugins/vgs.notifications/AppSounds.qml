@@ -144,15 +144,15 @@ Item {
         return latest;
     }
 
-    // The rule's verdict counts on a stream's first step with properties,
-    // the first the rule could have matched.
-    function judge(node) {
+    // OPEN includes a paused stream present when the hold is written:
+    // the rule adopts it then, although it predates the hold.
+    function judge(node, open) {
         const entry = streams.find(e => e.node === node);
         if (entry === undefined) return;
         let ruled = "";
-        if (!entry.judged && Object.keys(props(node)).length > 0) {
+        if ((!entry.judged || open === true) && Object.keys(props(node)).length > 0) {
             entry.judged = true;
-            ruled = Logic.ruleHeld(ruleHold, props(node), entry.since, Logic.shellPlayer(props(node), shellSounds));
+            ruled = Logic.ruleHeld(ruleHold, props(node), open === true ? ruleHold.at : entry.since, Logic.shellPlayer(props(node), shellSounds));
         }
         const id = String(node.id);
         const held = Logic.hasOwn(holds, id) && holds[id].node === node ? holds[id] : null;
@@ -270,6 +270,10 @@ Item {
         if (!ruleRunning || !writer.running || !scanned) return;
         if (ruleHold === null) holdTries = 0;
         ruleHold = { at: ruleHold === null ? Date.now() : ruleHold.at, apps: holdNames, roles: Logic.HOLD_ROLES };
+        // A playing call keeps playing; an already-open paused chime
+        // enters the same rest phase as one the rule held when it opened.
+        for (const entry of streams)
+            if (corked(entry.node) === true) judge(entry.node, true);
         holdState = "sending";
         holdRetry.stop();
         if (holdWriter.running) holdWriter.again = true;

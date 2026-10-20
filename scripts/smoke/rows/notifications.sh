@@ -5329,25 +5329,27 @@ PY
   # knock_rounds N: N chimes, each round's notification sent before its
   # chime, once the chime started or once it ended, in turn; the rounds
   # played, or where one stopped.
-  knock_rounds() { # N
-    local i said
-    for i in $(seq 1 "$1"); do
-      if (( i % 3 == 0 )); then knock_note "$i" || { echo "round=$i notify=failed"; return; }; fi
+  knock_rounds() { # N [OFFSET] [late]
+    local round i said
+    for round in $(seq 1 "$1"); do
+      i=$((round + ${2:-0}))
+      if [[ ${3:-} != late ]] && (( i % 3 == 0 )); then knock_note "$i" || { echo "round=$i notify=failed"; return; }; fi
       printf 'play\n' >&"$knock_fd"
       if ! said="$(knock_said "playing $i")" || [[ $said != seen ]]; then echo "round=$i playing=$said"; return; fi
-      if (( i % 3 == 1 )); then knock_note "$i" || { echo "round=$i notify=failed"; return; }; fi
+      if [[ ${3:-} == late ]] || (( i % 3 == 1 )); then knock_note "$i" || { echo "round=$i notify=failed"; return; }; fi
       if ! said="$(knock_said "played $i")" || [[ $said != seen ]]; then echo "round=$i played=$said"; return; fi
-      if (( i % 3 == 2 )); then knock_note "$i" || { echo "round=$i notify=failed"; return; }; fi
+      if [[ ${3:-} != late ]] && (( i % 3 == 2 )); then knock_note "$i" || { echo "round=$i notify=failed"; return; }; fi
     done
     echo "played=$1"
   }
-  # knock_take WAV: `silent` for a take of at least 15 s with no 1 ms
+  # knock_take WAV [SECONDS]: `silent` for a take of at least SECONDS
+  # (default 15) with no 1 ms
   # window heard, else what it read.
   knock_take() { # WAV
     local heard samples
     heard="$(app_heard_ms "$1")" || return 1
     samples=$(( ($(stat -c %s -- "$1") - 44) / 2 ))
-    if (( samples < 15 * 48000 )); then echo "short samples=$samples"; elif (( heard == 0 )); then echo silent; else echo "heard ms=$heard"; fi
+    if (( samples < ${2:-15} * 48000 )); then echo "short samples=$samples"; elif (( heard == 0 )); then echo silent; else echo "heard ms=$heard"; fi
   }
   # knock_record START|STOP: the speakers recorded into knock_take_file.
   knock_record() { # start|stop
@@ -5360,9 +5362,10 @@ PY
     kill -INT -- "-$knock_rec" 2>/dev/null || true
     for _ in $(seq 1 30); do kill -0 "$knock_rec" 2>/dev/null || break; sleep 0.1; done
   }
-  expect "Do Not Disturb turns on for Smoke Knock" on notes silence on
+  expect "Do Not Disturb turns off before Smoke Knock opens" off notes silence off
+  expect "Sound turns on before Smoke Knock opens" on notes sound on
+  expect_poll "nothing is watched before Smoke Knock opens" null app_held
   knock_note first || fail "Smoke Knock's first notification was not sent"
-  expect_poll "the hold names Smoke Knock" '[true, "pw-cli", true, ["notification", "event"]]' rule_holds "smoke knock"
   knock_cmd="$sandbox/knock.cmd"
   rm -f -- "${knock_cmd:?}"
   mkfifo -- "$knock_cmd"
@@ -5371,9 +5374,18 @@ PY
   spawn "$sandbox/knock-player.log" "${shell_env[@]}" python3 "$sandbox/knock-player.py" "Smoke Knock" vgs-smoke-speakers "$app_short" "$knock_cmd"
   knock_player="$spawn_pid"
   expect "Smoke Knock's stream opens paused" seen knock_said ready
+  # The same stream predates mute, as Slack's reused stream can. Every
+  # notification follows the player's acknowledgement that sound started.
+  expect "Do Not Disturb turns on after Smoke Knock opens" on notes silence on
+  expect_poll "the hold names Smoke Knock" '[true, "pw-cli", true, ["notification", "event"]]' rule_holds "smoke knock"
+  knock_take_file="$sandbox/knock-open-take.wav"
+  knock_record start
+  expect "Smoke Knock plays 20 late-notification chimes on its already-open stream" played=20 knock_rounds 20 0 late
+  knock_record stop
+  expect "not one 1 ms window of Smoke Knock's 20 already-open chimes is heard" silent knock_take "$knock_take_file" 10
   knock_take_file="$sandbox/knock-take.wav"
   knock_record start
-  expect "Smoke Knock plays 50 chimes on one stream" played=50 knock_rounds 50
+  expect "Smoke Knock plays 50 chimes on one stream" played=50 knock_rounds 50 20
   knock_record stop
   expect "not one 1 ms window of Smoke Knock's 50 chimes is heard" silent knock_take "$knock_take_file"
   # The control: with Do Not Disturb off and Sound on, the same stream's
@@ -5384,7 +5396,7 @@ PY
   knock_take_file="$sandbox/knock-control.wav"
   knock_record start
   printf 'play\n' >&"$knock_fd"
-  expect "the control's chime plays" seen knock_said "played 51"
+  expect "the control's chime plays" seen knock_said "played 71"
   knock_record stop
   expect "with Sound on Smoke Knock's chime is heard" True python3 -c 'import sys; print(int(sys.argv[1]) >= 250)' "$(app_heard_ms "$knock_take_file")"
   expect "Sound turns off again after Smoke Knock" off notes sound off
