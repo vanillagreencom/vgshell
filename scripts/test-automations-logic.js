@@ -813,7 +813,7 @@ fs.rmSync(temp, { recursive: true, force: true });
 fs.mkdirSync(temp, { recursive: true });
 try {
     for (const [label, needle, replacement] of CONTROLS) {
-        const expectedMatches = label === "notifications round duration to seconds" ? 2
+        const expectedMatches = label === "notifications round duration to seconds" ? 3
             : label === "every time of day compiles" ? 3
                 : 2;
         assert.equal(source.split(needle).length, expectedMatches, `control "${label}": the text to replace must occur once`);

@@ -131,7 +131,7 @@ expect "the host's PATH alone resolves no stand-in crontab" True python3 -c 'imp
 expect "the engine adds an automation" added=nightly auto_last add --definition "$failing"
 expect "its timer and service are under the sandbox home" '["vgs-automation-nightly.service", "vgs-automation-nightly.timer"]' auto_units
 expect "the add reloads the manager and enables the timer" '["daemon-reload", "enable"]' auto_verbs
-expect "the add's sync read the stand-in crontab twice" '["-l","-l"]' crontab_calls
+expect "the add's sync read the stand-in crontab twice" '["-l", "-l"]' crontab_calls
 expect_poll "the service lists the engine's store change with no IPC call" 1 auto_status active
 expect_poll "no run has failed yet" ok auto_status_tone lastRuns
 
