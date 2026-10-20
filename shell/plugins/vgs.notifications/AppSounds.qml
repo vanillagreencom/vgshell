@@ -144,15 +144,15 @@ Item {
         return latest;
     }
 
-    // The rule's verdict counts on a stream's first step with properties,
-    // the first the rule could have matched.
-    function judge(node) {
+    // OPEN includes a paused stream present when the hold is written:
+    // the rule adopts it then, although it predates the hold.
+    function judge(node, open) {
         const entry = streams.find(e => e.node === node);
         if (entry === undefined) return;
         let ruled = "";
-        if (!entry.judged && Object.keys(props(node)).length > 0) {
+        if ((!entry.judged || open === true) && Object.keys(props(node)).length > 0) {
             entry.judged = true;
-            ruled = Logic.ruleHeld(ruleHold, props(node), entry.since, Logic.shellPlayer(props(node), shellSounds));
+            ruled = Logic.ruleHeld(ruleHold, props(node), open === true ? ruleHold.at : entry.since, Logic.shellPlayer(props(node), shellSounds));
         }
         const id = String(node.id);
         const held = Logic.hasOwn(holds, id) && holds[id].node === node ? holds[id] : null;
@@ -270,10 +270,25 @@ Item {
         if (!ruleRunning || !writer.running || !scanned) return;
         if (ruleHold === null) holdTries = 0;
         ruleHold = { at: ruleHold === null ? Date.now() : ruleHold.at, apps: holdNames, roles: Logic.HOLD_ROLES };
+        // A playing call keeps playing; an already-open paused chime
+        // enters the same rest phase as one the rule held when it opened.
+        for (const entry of streams)
+            if (corked(entry.node) === true) judge(entry.node, true);
         holdState = "sending";
         holdRetry.stop();
         if (holdWriter.running) holdWriter.again = true;
         else holdWriter.send();
+    }
+
+    // Existing streams have one adoption decision, above. The rule only
+    // registers these for writer-death cleanup; another mute on metadata
+    // arrival could land after this instance already released the stream.
+    function holdEntry(pid) {
+        const entry = JSON.parse(Logic.holdEntry(pid, ruleHold.apps));
+        // PipeWire's object.serial increments per object, unlike reusable
+        // node ids (https://docs.pipewire.org/group__pw__keys.html).
+        entry.streams = Object.keys(holds).map(id => props(holds[id].node)["object.serial"]);
+        return JSON.stringify(entry);
     }
 
     // A write that failed is sent again after the supervision's delays;
@@ -397,7 +412,7 @@ Item {
         function send() {
             if (root.ruleHold === null || !writer.running) return;
             sentPid = writer.processId;
-            command = Logic.guardedArgv(Quickshell.processId, ["pw-metadata", "-n", Logic.SOUND_RULE_METADATA, "0", "hold", Logic.holdEntry(sentPid, root.ruleHold.apps), "Spa:String:JSON"]);
+            command = Logic.guardedArgv(Quickshell.processId, ["pw-metadata", "-n", Logic.SOUND_RULE_METADATA, "0", "hold", root.holdEntry(sentPid), "Spa:String:JSON"]);
             running = true;
         }
         clearEnvironment: true

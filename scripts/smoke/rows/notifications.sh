@@ -4891,6 +4891,87 @@ except (OSError, TypeError, StopIteration):
 print(json.dumps([sys.argv[1] in (h.get("apps") or []), comm, ppid == sys.argv[2], h.get("roles")]))' "$1" "$shell_qs_pid"
   }
   rule_phase() { note_status soundRule.phase; }
+  # Run the shipped rule's metadata and holder-removal callbacks with the
+  # stream state fixed on each side of metadata delivery. No clock race:
+  # the excluded stream is already paused when the callback sees it.
+  lua - "$rule_shipped" <<'LUA'
+local file = assert(io.open(arg[1]))
+local source = file:read("*a"); file:close()
+local function check(text)
+  for _, case in ipairs({
+    { name = "still paused", serial = "adopted", corked = "true", lifted = 2 },
+    { name = "already resumed", serial = "adopted", corked = "false", lifted = 2 },
+    { name = "paused after the shell decision", serial = "excluded", corked = "true", lifted = 0 },
+    { name = "node id reused", serial = "replacement", corked = "true", lifted = 0 },
+  }) do
+    local writes = {}
+    local node = { id = 7, properties = {
+      ["application.name"] = "Smoke Knock", ["object.serial"] = case.serial,
+      ["pulse.corked"] = case.corked,
+    } }
+    function node:set_param(_, value) table.insert(writes, value) end
+    function node:iterate_params()
+      local value = { mute = false }
+      return function() local next = value; value = nil; return next end
+    end
+    local client = { properties = { ["pipewire.sec.pid"] = "42" } }
+    local managers, changed = {}, nil
+    local identity = function(value) return value end
+    local env = setmetatable({
+      Log = { open_topic = function() return { info = function() end, warning = error } end },
+      Interest = identity, Constraint = identity, EventInterest = identity,
+      Features = { ALL = 1 }, Pod = { Object = identity },
+      require = function(name)
+        assert(name == "common-utils")
+        return { parseParam = identity }
+      end,
+      Json = { Raw = function()
+        return { is_object = function() return true end, parse = function()
+          return { pid = 42, apps = { "smoke knock" }, roles = {}, streams = { "adopted" } }
+        end }
+      end },
+      ObjectManager = function(interests)
+        local kind = interests[1].type
+        local manager = { callbacks = {} }
+        function manager:connect(name, callback) self.callbacks[name] = callback end
+        function manager:activate() end
+        function manager:iterate()
+          local members, i = kind == "client" and { client } or { node }, 0
+          return function() i = i + 1; return members[i] end
+        end
+        managers[kind] = manager
+        return manager
+      end,
+      SimpleEventHook = function() return { register = function() end } end,
+      ImplMetadata = function()
+        return {
+          activate = function(self, _, callback) callback(self) end,
+          connect = function(_, name, callback) assert(name == "changed"); changed = callback end,
+          set = function() end,
+        }
+      end,
+    }, { __index = _G })
+    assert(load(text, "sound-rule", "t", env))()
+    changed(nil, 0, "hold", nil, "fixture")
+    assert(#writes == 0, case.name .. ": existing streams receive no delayed mute")
+    managers.client.callbacks["object-removed"](nil, client)
+    assert(#writes == case.lifted, case.name .. ": cleanup follows the shell's exact serials")
+    if case.lifted > 0 then
+      assert(writes[1].softMute == false and writes[2].mute == false, case.name .. ": lift restores own mute")
+    end
+  end
+end
+check(source)
+-- Control: restore the independent paused-state decision and delayed mute.
+local before = 'if hold.streams[node.properties["object.serial"]] then'
+local first, last = source:find(before, 1, true)
+assert(first and not source:find(before, last + 1, true), "one adoption guard")
+local old = source:sub(1, first - 1) .. 'if node.properties["pulse.corked"] == "true" and matches(node.properties) then\n' ..
+  '          node:set_param("Props", Pod.Object { "Spa:Pod:Object:Param:Props", "Props", softMute = true })' .. source:sub(last + 1)
+local passed, failure = pcall(check, old)
+assert(not passed and tostring(failure):find("existing streams receive no delayed mute", 1, true), "old adoption must fail its own assertion")
+print("notifications: adoption-order=pass control=old-paused-snapshot-rejected")
+LUA
   # Replay both stdout delivery orders through the shipped removal handler.
   # This checks its dispatch decision; the restart below checks the real hold.
   node - "$repo/shell/plugins/vgs.notifications" "$repo" <<'JS'
@@ -4923,6 +5004,20 @@ assert.equal(match[1].split(guard).length, 2);
 const old = match[1].replace(guard, 'if (read.removed === 0 || read.removed !== rule.metadataId) return;');
 assert.throws(() => check(old), assert.AssertionError);
 console.log('notifications: removal-order=pass control=old-id-guard-rejected');
+const appSounds = fs.readFileSync(dir + '/AppSounds.qml', 'utf8');
+const entry = appSounds.match(/function holdEntry\(pid\) \{([\s\S]*?)\n    \}/);
+assert.ok(entry, 'exercise the existing-stream hold writer');
+const context = { Logic: logic, ruleHold: { apps: ['smoke knock'] }, holds: {
+    7: { node: { properties: { 'object.serial': '9007199254740993' } } }
+}, props(node) { return node.properties; } };
+vm.createContext(context);
+vm.runInContext('function holdEntry(pid) {' + entry[1] + '\n}', context);
+assert.deepEqual(JSON.parse(context.holdEntry(42)), {
+    pid: 42, apps: ['smoke knock'], roles: ['notification', 'event'], streams: ['9007199254740993']
+}, 'the writer sends exact tracked serials without numeric conversion');
+context.holds = {};
+assert.deepEqual(JSON.parse(context.holdEntry(42)).streams, [], 'no tracked streams is an empty admission set');
+console.log('notifications: existing-stream-entry=pass');
 JS
   # The restarts of WirePlumber the shell asked of the systemctl stand-in.
   rule_restarts() { device_calls systemctl | py_reply 'import json,sys; print(sum(1 for c in json.load(sys.stdin) if c == ["--user", "restart", "wireplumber.service"]))'; }
@@ -5034,7 +5129,7 @@ p.kill(); p.wait()
 print(p.pid)'
   }
   rule_ghost_pid="$(rule_ghost)" || rule_ghost_pid=0
-  "${shell_env[@]}" pw-metadata -n vgs-notification-sounds 0 hold "{\"pid\": $rule_ghost_pid, \"apps\": [\"smoke chat\"], \"roles\": []}" Spa:String:JSON >/dev/null 2>&1 || fail "the late hold could not be written"
+  "${shell_env[@]}" pw-metadata -n vgs-notification-sounds 0 hold "{\"pid\": $rule_ghost_pid, \"apps\": [\"smoke chat\"], \"roles\": [], \"streams\": []}" Spa:String:JSON >/dev/null 2>&1 || fail "the late hold could not be written"
   expect_poll "a hold naming a holder that went is refused and cleared" null rule_meta hold
   # The chime's own level, read with nothing armed and nothing muted.
   app_play smoke-chat-reference vgs-smoke-speakers 0.5
@@ -5329,25 +5424,27 @@ PY
   # knock_rounds N: N chimes, each round's notification sent before its
   # chime, once the chime started or once it ended, in turn; the rounds
   # played, or where one stopped.
-  knock_rounds() { # N
-    local i said
-    for i in $(seq 1 "$1"); do
-      if (( i % 3 == 0 )); then knock_note "$i" || { echo "round=$i notify=failed"; return; }; fi
+  knock_rounds() { # N [OFFSET] [late]
+    local round i said
+    for round in $(seq 1 "$1"); do
+      i=$((round + ${2:-0}))
+      if [[ ${3:-} != late ]] && (( i % 3 == 0 )); then knock_note "$i" || { echo "round=$i notify=failed"; return; }; fi
       printf 'play\n' >&"$knock_fd"
       if ! said="$(knock_said "playing $i")" || [[ $said != seen ]]; then echo "round=$i playing=$said"; return; fi
-      if (( i % 3 == 1 )); then knock_note "$i" || { echo "round=$i notify=failed"; return; }; fi
+      if [[ ${3:-} == late ]] || (( i % 3 == 1 )); then knock_note "$i" || { echo "round=$i notify=failed"; return; }; fi
       if ! said="$(knock_said "played $i")" || [[ $said != seen ]]; then echo "round=$i played=$said"; return; fi
-      if (( i % 3 == 2 )); then knock_note "$i" || { echo "round=$i notify=failed"; return; }; fi
+      if [[ ${3:-} != late ]] && (( i % 3 == 2 )); then knock_note "$i" || { echo "round=$i notify=failed"; return; }; fi
     done
     echo "played=$1"
   }
-  # knock_take WAV: `silent` for a take of at least 15 s with no 1 ms
+  # knock_take WAV [SECONDS]: `silent` for a take of at least SECONDS
+  # (default 15) with no 1 ms
   # window heard, else what it read.
   knock_take() { # WAV
     local heard samples
     heard="$(app_heard_ms "$1")" || return 1
     samples=$(( ($(stat -c %s -- "$1") - 44) / 2 ))
-    if (( samples < 15 * 48000 )); then echo "short samples=$samples"; elif (( heard == 0 )); then echo silent; else echo "heard ms=$heard"; fi
+    if (( samples < ${2:-15} * 48000 )); then echo "short samples=$samples"; elif (( heard == 0 )); then echo silent; else echo "heard ms=$heard"; fi
   }
   # knock_record START|STOP: the speakers recorded into knock_take_file.
   knock_record() { # start|stop
@@ -5360,9 +5457,10 @@ PY
     kill -INT -- "-$knock_rec" 2>/dev/null || true
     for _ in $(seq 1 30); do kill -0 "$knock_rec" 2>/dev/null || break; sleep 0.1; done
   }
-  expect "Do Not Disturb turns on for Smoke Knock" on notes silence on
+  expect "Do Not Disturb turns off before Smoke Knock opens" off notes silence off
+  expect "Sound turns on before Smoke Knock opens" on notes sound on
+  expect_poll "nothing is watched before Smoke Knock opens" null app_held
   knock_note first || fail "Smoke Knock's first notification was not sent"
-  expect_poll "the hold names Smoke Knock" '[true, "pw-cli", true, ["notification", "event"]]' rule_holds "smoke knock"
   knock_cmd="$sandbox/knock.cmd"
   rm -f -- "${knock_cmd:?}"
   mkfifo -- "$knock_cmd"
@@ -5371,9 +5469,18 @@ PY
   spawn "$sandbox/knock-player.log" "${shell_env[@]}" python3 "$sandbox/knock-player.py" "Smoke Knock" vgs-smoke-speakers "$app_short" "$knock_cmd"
   knock_player="$spawn_pid"
   expect "Smoke Knock's stream opens paused" seen knock_said ready
+  # The same stream predates mute, as Slack's reused stream can. Every
+  # notification follows the player's acknowledgement that sound started.
+  expect "Do Not Disturb turns on after Smoke Knock opens" on notes silence on
+  expect_poll "the hold names Smoke Knock" '[true, "pw-cli", true, ["notification", "event"]]' rule_holds "smoke knock"
+  knock_take_file="$sandbox/knock-open-take.wav"
+  knock_record start
+  expect "Smoke Knock plays 20 late-notification chimes on its already-open stream" played=20 knock_rounds 20 0 late
+  knock_record stop
+  expect "not one 1 ms window of Smoke Knock's 20 already-open chimes is heard" silent knock_take "$knock_take_file" 10
   knock_take_file="$sandbox/knock-take.wav"
   knock_record start
-  expect "Smoke Knock plays 50 chimes on one stream" played=50 knock_rounds 50
+  expect "Smoke Knock plays 50 chimes on one stream" played=50 knock_rounds 50 20
   knock_record stop
   expect "not one 1 ms window of Smoke Knock's 50 chimes is heard" silent knock_take "$knock_take_file"
   # The control: with Do Not Disturb off and Sound on, the same stream's
@@ -5384,7 +5491,7 @@ PY
   knock_take_file="$sandbox/knock-control.wav"
   knock_record start
   printf 'play\n' >&"$knock_fd"
-  expect "the control's chime plays" seen knock_said "played 51"
+  expect "the control's chime plays" seen knock_said "played 71"
   knock_record stop
   expect "with Sound on Smoke Knock's chime is heard" True python3 -c 'import sys; print(int(sys.argv[1]) >= 250)' "$(app_heard_ms "$knock_take_file")"
   expect "Sound turns off again after Smoke Knock" off notes sound off
