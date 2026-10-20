@@ -10,6 +10,7 @@
 // the suite must fail on every copy. Exit 1 when a row or a control fails.
 "use strict";
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 const { load } = require("../bin/lib/qml-library.js");
 
@@ -60,6 +61,7 @@ function suite(pads, check) {
         ["a list inside a list is refused", withItems({ inner: { type: "list", label: "Inner", items: { on: { type: "boolean", label: "On" } }, defaults: { on: true } } }), "schema.pads.items.inner must not be a list"],
         ["an item field that hides is refused", withItems({ screen: { type: "string", label: "Screen", optionsFrom: "screens", hideEmpty: true } }), "schema.pads.items.screen.hideEmpty is refused: an item draws every field"],
         ["an item field that waits on a presence is refused", withItems({ screen: { type: "boolean", label: "Screen", shownWhen: "screens" } }), "schema.pads.items.screen.shownWhen is refused: an item draws every field"],
+        ["an item field with a setting problem is refused", withItems({ screen: { type: "boolean", label: "Screen", problem: "failure" } }), "schema.pads.items.screen.problem is refused: a problem names a setting, not a list item"],
         ["a default naming no field is refused", Object.assign({}, entry, { defaults: Object.assign({ extra: 1 }, defaults) }), "schema.pads.defaults.extra names no item field"],
         ["an item field the flat judge refuses is refused", withItems({ label: { type: "string", label: "Label" } }), "schema.pads.items: schema.label with type string must declare presets or optionsFrom"],
         ["an item field without a default is refused", withItems({ on: { type: "boolean", label: "On" } }), "schema.pads.items: schema.on has no default in settings"],
@@ -192,6 +194,7 @@ const CONTROLS = [
     ["every rendered field has its type", "if (items[field].type !== FIELDS[field])", "if (false)"],
     ["an item field never hides", "if (isPlainObject(entry.items[fields[i]]) && entry.items[fields[i]].hideEmpty !== undefined)", "if (false)"],
     ["an item field never waits on a presence", "if (isPlainObject(entry.items[fields[i]]) && entry.items[fields[i]].shownWhen !== undefined)", "if (false)"],
+    ["an item field never declares a setting problem", "if (isPlainObject(entry.items[fields[i]]) && entry.items[fields[i]].problem !== undefined)", "if (false)"],
     ["enum options are the core's", "return ENUMS[field].indexOf(option.value) === -1; });", "return false; });"],
     ["shares keep their bounds", "!(items[field].min >= SHARES[field][0] && items[field].max <= SHARES[field][1])", "false"],
     ["a pad shortcut needs declared pads", "isPlainObject(declared) && typeof declared.pads === \"string\" && ", "isPlainObject(declared) && "],
@@ -209,8 +212,7 @@ const CONTROLS = [
     ["a refused pad keeps its bind", "            out.binds.push({ shortcut: shortcut, key: key === null ? null : key.key });\n        });\n        if (!CLASS.test", "        });\n        if (!CLASS.test"]
 ];
 
-fs.mkdirSync(path.join(__dirname, "..", "tmp"), { recursive: true });
-const temp = fs.mkdtempSync(path.join(__dirname, "..", "tmp", "pads-control-"));
+const temp = fs.mkdtempSync(path.join(os.tmpdir(), "pads-control-"));
 try {
     const source = fs.readFileSync(PADS, "utf8");
     for (const [label, needle, replacement] of CONTROLS) {

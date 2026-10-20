@@ -146,7 +146,7 @@ FIELDS = (
 EXEMPT = (
     ("schemaVersion",), ("id",), ("version",), ("license",), ("icon",), ("kinds",), ("entryPoints",),
     ("capabilities",), ("capabilityKinds",), ("systemSteps",), ("settings",), ("defaultSection",), ("pane", "order"), ("appearance",), ("alwaysOn",), ("formerIds",), ("idleStages",),
-    ("schema", "*", "type"), ("schema", "*", "optionsFrom"), ("schema", "*", "link", "url"), ("schema", "*", "defaults"), ("schema", "*", "presets", "*", "value"), ("schema", "*", "separator"), ("schema", "*", "allowCustom"), ("schema", "*", "hideEmpty"), ("schema", "*", "shownWhen"), ("schema", "*", "format"), ("schema", "*", "unit"), ("schema", "*", "min"), ("schema", "*", "max"), ("schema", "*", "step"),
+    ("schema", "*", "type"), ("schema", "*", "optionsFrom"), ("schema", "*", "link", "url"), ("schema", "*", "defaults"), ("schema", "*", "presets", "*", "value"), ("schema", "*", "separator"), ("schema", "*", "allowCustom"), ("schema", "*", "hideEmpty"), ("schema", "*", "shownWhen"), ("schema", "*", "problem"), ("schema", "*", "format"), ("schema", "*", "unit"), ("schema", "*", "min"), ("schema", "*", "max"), ("schema", "*", "step"),
     ("status", "*", "setup"), ("status", "*", "setting"), ("status", "*", "step"),
     ("status", "*", "type"), ("status", "*", "hidden"), ("status", "*", "link", "url"),
     ("status", "*", "action", "tui"), ("status", "*", "action", "system"), ("status", "*", "action", "undo"), ("status", "*", "action", "tone"), ("status", "*", "action", "icon"), ("status", "*", "action", "dictation"), ("status", "*", "action", "file"),

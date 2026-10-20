@@ -536,6 +536,14 @@ function suite(ctx, configLogic, check) {
         ["a shownWhen that is no string", { capabilities: ["status"], status: { battery: { type: "presence", label: "Battery" } }, settings: { a: true }, schema: { a: { type: "boolean", label: "A", shownWhen: ["battery"] } } }, "schema.a.shownWhen must name a presence status entry"],
         ["a list that is shown when", { capabilities: ["status"], status: { battery: { type: "presence", label: "Battery" } }, settings: { a: [] }, schema: { a: { type: "list", label: "A", shownWhen: "battery", items: { on: { type: "boolean", label: "On" } }, defaults: { on: true } } } }, "schema.a.shownWhen needs a flat setting"],
         ["a list item field that is shown when", { capabilities: ["status"], status: { battery: { type: "presence", label: "Battery" } }, settings: { a: [] }, schema: { a: { type: "list", label: "A", items: { on: { type: "boolean", label: "On", shownWhen: "battery" } }, defaults: { on: true } } } }, "schema.a.items.on.shownWhen is refused: an item draws every field"],
+        ["a field with hidden failure text", { capabilities: ["status"], status: { failure: { type: "text", label: "Failure", hidden: true } }, settings: { a: true }, schema: { a: { type: "boolean", label: "A", problem: "failure" } } }, null],
+        ["a field with drawn failure text", { capabilities: ["status"], status: { failure: { type: "text", label: "Failure" } }, settings: { a: 20 }, schema: { a: { type: "number", label: "A", presets: [{ value: 20 }], problem: "failure" } } }, null],
+        ["a problem naming no status entry", { capabilities: ["status"], status: { failure: { type: "text", label: "Failure" } }, settings: { a: true }, schema: { a: { type: "boolean", label: "A", problem: "missing" } } }, "schema.a.problem must name a text status entry"],
+        ["a problem without status", { settings: { a: true }, schema: { a: { type: "boolean", label: "A", problem: "failure" } } }, "schema.a.problem must name a text status entry"],
+        ["a problem that is no string", { capabilities: ["status"], status: { failure: { type: "text", label: "Failure" } }, settings: { a: true }, schema: { a: { type: "boolean", label: "A", problem: ["failure"] } } }, "schema.a.problem must name a text status entry"],
+        ["a problem naming a presence entry", { capabilities: ["status"], status: { failure: { type: "presence", label: "Failure" } }, settings: { a: true }, schema: { a: { type: "boolean", label: "A", problem: "failure" } } }, "schema.a.problem must name a text status entry"],
+        ["a list with a problem", { capabilities: ["status"], status: { failure: { type: "text", label: "Failure" } }, settings: { a: [] }, schema: { a: { type: "list", label: "A", problem: "failure", items: { on: { type: "boolean", label: "On" } }, defaults: { on: true } } } }, "schema.a.problem needs a flat setting"],
+        ["a list item field with a problem", { capabilities: ["status"], status: { failure: { type: "text", label: "Failure" } }, settings: { a: [] }, schema: { a: { type: "list", label: "A", items: { on: { type: "boolean", label: "On", problem: "failure" } }, defaults: { on: true } } } }, "schema.a.items.on.problem is refused: a problem names a setting, not a list item"],
         ["a placeholder that is not a string", { capabilities: ["status"], status: { devices: { type: "choices", label: "Devices" } }, settings: { a: "" }, schema: { a: { type: "string", label: "A", optionsFrom: "devices", placeholder: 3 } } }, "schema.a.placeholder must be a printable line"],
         ["an empty placeholder", { capabilities: ["status"], status: { devices: { type: "choices", label: "Devices" } }, settings: { a: "" }, schema: { a: { type: "string", label: "A", optionsFrom: "devices", placeholder: "" } } }, "schema.a.placeholder must be a printable line"],
         ["a placeholder with a newline", { capabilities: ["status"], status: { devices: { type: "choices", label: "Devices" } }, settings: { a: "" }, schema: { a: { type: "string", label: "A", optionsFrom: "devices", placeholder: "Choose\na device" } } }, "schema.a.placeholder must be a printable line"],
@@ -701,6 +709,15 @@ function suite(ctx, configLogic, check) {
         ["one entry present", { battery: "present", lid: "absent" }, ["lid"]],
         ["a presence that is not present", { battery: "unavailable", lid: "present" }, ["low"]],
     ]) check("withheldFields: " + name, ctx.withheldFields(gated, values), want);
+    // Power's service reports a failure, clears it after success, and loses
+    // its status when disabled. Each transition must reach the same field.
+    const problems = { schema: { wake: { type: "boolean", label: "Wake", problem: "failure" }, kept: { type: "boolean", label: "Kept" } } };
+    for (const [name, values, want] of [
+        ["reported failure", { failure: "failed" }, { wake: "failed" }],
+        ["successful pass", { failure: "" }, { wake: "" }],
+        ["before publish or after disable", {}, { wake: "" }],
+        ["unmapped status", { failure: "failed", other: "other failure" }, { wake: "failed" }],
+    ]) check("fieldProblems: " + name, ctx.fieldProblems(problems, values), want);
     // Capture declares atomic presets but keeps joined and custom strings.
     const joined = { type: "string", label: "Languages", separator: "+", allowCustom: true, presets: [{ value: "eng" }, { value: "deu" }, { value: "fra" }] };
     for (const [name, patch, value, accepted] of [
@@ -2825,7 +2842,13 @@ const CONTROLS = [
     ["hideEmpty is a schema entry key", ", \"placeholder\", \"hideEmpty\"];", ", \"placeholder\"];"],
     ["hideEmpty needs optionsFrom", "if (entry.optionsFrom === undefined)\n                return at + \".hideEmpty needs optionsFrom\";", "if (false)\n                return at + \".hideEmpty needs optionsFrom\";"],
     ["hideEmpty is a boolean", "if (typeof entry.hideEmpty !== \"boolean\")", "if (false)"],
-    ["shownWhen is a schema entry key", "\"group\", \"shownWhen\", \"items\"", "\"group\", \"items\""],
+    ["shownWhen is a schema entry key", "\"group\", \"shownWhen\", \"problem\"", "\"group\", \"problem\""],
+    ["problem is a schema entry key", "\"shownWhen\", \"problem\", \"items\"", "\"shownWhen\", \"items\""],
+    ["problem needs a flat setting", "if (entry.type === \"list\")\n                return at + \".problem needs a flat setting\";", "if (false)\n                return at + \".problem needs a flat setting\";"],
+    ["problem is a string", "if (typeof entry.problem !== \"string\" || ", "if ("],
+    ["problem names a text entry", " || status[entry.problem].type !== \"text\")", ")"],
+    ["problem carries its published text", "hasOwn(values, problem) ? values[problem] : \"\"", "hasOwn(values, problem) ? \"\" : \"\""],
+    ["an unreported problem is empty", "hasOwn(values, problem) ? values[problem] : \"\"", "values[problem]"],
     ["shownWhen needs a flat setting", "if (entry.type === \"list\")\n                return at + \".shownWhen needs a flat setting\";", "if (false)\n                return at + \".shownWhen needs a flat setting\";"],
     ["shownWhen is a string", "if (typeof entry.shownWhen !== \"string\" || ", "if ("],
     ["shownWhen names a presence entry", " || status[entry.shownWhen].type !== \"presence\")", ")"],

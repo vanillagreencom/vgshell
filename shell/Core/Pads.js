@@ -45,6 +45,8 @@ function listEntryError(entry, at, status, schemaError) {
             return at + ".items." + fields[i] + ".hideEmpty is refused: an item draws every field";
         if (isPlainObject(entry.items[fields[i]]) && entry.items[fields[i]].shownWhen !== undefined)
             return at + ".items." + fields[i] + ".shownWhen is refused: an item draws every field";
+        if (isPlainObject(entry.items[fields[i]]) && entry.items[fields[i]].problem !== undefined)
+            return at + ".items." + fields[i] + ".problem is refused: a problem names a setting, not a list item";
     }
     var extra = Object.keys(entry.defaults).filter(function (key) { return !hasOwn(entry.items, key); });
     if (extra.length > 0)

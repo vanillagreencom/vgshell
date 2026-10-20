@@ -366,6 +366,7 @@ CONTROLS = [
     ("an enum option's label is read", '("schema", "*", "options", "*", "label"), ', '("schema", "*", "options", "*"), '),
     ("a list item's enum option label is read", '("schema", "*", "items", "*", "options", "*", "label"), ', '("schema", "*", "items", "*", "options", "*"), '),
     ("every admitted manifest key is classified", '("license",), ("icon",), ("kinds",)', '("license",), ("kinds",)'),
+    ("a field problem status name is classified as data", '("schema", "*", "problem"), ', ''),
     ("a hold flag is classified as data", '("hyprland", "binds", "*", "hold"), ', ''),
     ("a tap flag is classified as data", '("hyprland", "binds", "*", "tap"), ', ''),
     ("a clause after or", "|\\b(?:or|then)\\s+)(", ")("),

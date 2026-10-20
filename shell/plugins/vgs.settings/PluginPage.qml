@@ -228,6 +228,7 @@ FocusScope {
         property alias spec: editor.spec
         property alias value: editor.value
         property alias choices: editor.choices
+        property alias problem: editor.problem
         property alias editable: editor.editable
         property alias edits: editor.edits
         // A key/value row: the row under it stands by ink (Field).
@@ -541,6 +542,7 @@ FocusScope {
                                 spec: page.row.schema[modelData]
                                 value: page.row.settings[modelData]
                                 choices: page.row.settingChoices[modelData] || []
+                                problem: spec.problem === undefined ? "" : page.row.fieldProblems[modelData]
                                 editable: page.editable
                                 edits: unsaved
                                 onApply: v => { if (page !== null && page.row !== null) page.panel.writeSetting(pluginId, key, v); }
@@ -601,6 +603,7 @@ FocusScope {
                                     spec: page.row.schema[modelData]
                                     value: page.row.settings[modelData]
                                     choices: page.row.settingChoices[modelData] || []
+                                    problem: spec.problem === undefined ? "" : page.row.fieldProblems[modelData]
                                     editable: page.editable
                                     edits: unsaved
                                     onApply: v => { if (page !== null && page.row !== null) page.panel.writeSetting(pluginId, key, v); }

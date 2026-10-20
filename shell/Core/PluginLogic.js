@@ -54,13 +54,14 @@ var EXCLUSIVE_CAPABILITIES = ["lock", "polkit", "bluetoothAgent", "panes"];
 // "", which then means nothing is chosen; `hideEmpty` leaves an
 // `optionsFrom` field off the page while nothing is offered for it;
 // `shownWhen` names a `presence` status entry of the same plugin and
-// places the field only while that entry reads present; `link`
+// places the field only while that entry reads present; `problem` names a
+// `text` status entry whose value draws as the field's error; `link`
 // makes part of the description open an https address or another plugin's
 // page; `tooltip` is the few words a label that is not plain needs, shown
 // on hover and keyboard focus of the label. Pads.js judges a
 // `list`.
 var SETTING_TYPES = ["string", "number", "boolean", "enum", "list"];
-var SCHEMA_ENTRY_KEYS = ["type", "label", "description", "info", "tooltip", "link", "options", "optionsFrom", "presets", "separator", "allowCustom", "format", "unit", "min", "max", "step", "group", "shownWhen", "items", "defaults", "placeholder", "hideEmpty"];
+var SCHEMA_ENTRY_KEYS = ["type", "label", "description", "info", "tooltip", "link", "options", "optionsFrom", "presets", "separator", "allowCustom", "format", "unit", "min", "max", "step", "group", "shownWhen", "problem", "items", "defaults", "placeholder", "hideEmpty"];
 var NUMBER_BOUND_KEYS = ["min", "max", "step"];
 var PRESET_KEYS = ["value", "label"];
 var OPTION_KEYS = ["value", "label"];
@@ -526,6 +527,13 @@ function schemaError(schema, settings, status) {
                 return at + ".shownWhen needs a flat setting";
             if (typeof entry.shownWhen !== "string" || !hasOwn(status, entry.shownWhen) || status[entry.shownWhen].type !== "presence")
                 return at + ".shownWhen must name a presence status entry";
+        }
+        // A list draws a section, not the flat Field that owns an error line.
+        if (entry.problem !== undefined) {
+            if (entry.type === "list")
+                return at + ".problem needs a flat setting";
+            if (typeof entry.problem !== "string" || !hasOwn(status, entry.problem) || status[entry.problem].type !== "text")
+                return at + ".problem must name a text status entry";
         }
         if (entry.presets !== undefined && entry.optionsFrom !== undefined)
             return at + " must not declare both presets and optionsFrom";
@@ -1521,6 +1529,18 @@ function withheldFields(manifest, values) {
         var entry = manifest.schema[key];
         return entry.shownWhen !== undefined && !(hasOwn(values, entry.shownWhen) && values[entry.shownWhen] === "present");
     });
+}
+
+// The error text of each field that declares `problem`, from the plugin's
+// published status, including hidden entries statusRows does not draw.
+// An unreported entry or one cleared by its service draws no error.
+function fieldProblems(manifest, values) {
+    var out = {};
+    Object.keys(manifest.schema).forEach(function (key) {
+        var problem = manifest.schema[key].problem;
+        if (problem !== undefined) out[key] = hasOwn(values, problem) ? values[problem] : "";
+    });
+    return frozenJson(out);
 }
 
 // The badge tone Settings draws a reported status value with: the
