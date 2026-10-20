@@ -34,19 +34,19 @@ function suite(logic, service = serviceSource) {
 
     // The recorded shapes.
     assert.equal(running.state, "running");
-    assert.deepEqual(running.device, { name: "desk", address: "100.64.0.1" });
+    assert.deepEqual(running.device, { name: "desk", address: "100.64.0.1", dnsName: "desk.tail-fixture.ts.net" });
     assert.equal(running.tailnet, "fixture.example");
     assert.equal(running.account, "owner@fixture.example");
     assert.deepEqual(running.exit, { id: "nFIXTURE0002CNTRL", name: "gateway" });
-    assert.deepEqual(running.peers.map(row => [row.name, row.online]),
+    assert.deepEqual(running.devices.rows.map(row => [row.name, row.online]),
         [["100.64.0.4", true], ["attic box", true], ["gateway", true], ["laptop", true], ["backup", false]]);
-    assert.equal(running.peerCount, 5);
+    assert.equal(running.devices.count, 5);
     const stopped = read("stopped.json");
     assert.equal(stopped.state, "stopped");
     assert.equal(stopped.exit, null);
     const loggedOut = read("logged-out.json");
     assert.equal(loggedOut.state, "signed-out");
-    assert.deepEqual([loggedOut.peers, loggedOut.exitNodes, loggedOut.account, loggedOut.tailnet], [[], [], "", ""]);
+    assert.deepEqual([loggedOut.devices.rows, loggedOut.exitNodes.own, loggedOut.exitNodes.countries, loggedOut.account, loggedOut.tailnet], [[], [], [], "", ""]);
     assert.equal(plain(logic.snapshot(1, "", text("service-off.txt"))).state, "service-off");
     for (const [code, stdout] of [[1, ""], [-1, text("running.json")], [0, "not json"], [0, "[]"], [0, '{"BackendState":"Future"}']])
         assert.equal(logic.snapshot(code, stdout, "").state, "unavailable");
@@ -62,22 +62,23 @@ function suite(logic, service = serviceSource) {
         [{ ID: "nE", DNSName: "ch-zrh-wg-012.mullvad.ts.net.", Tags: mullvadTag, TailscaleIPs: ["fd7a:115c:a1e0::c"] }, ""],
         [{ ID: "nF", TailscaleIPs: null }, ""]
     ]) assert.equal(logic.exitTarget(peer), want, "target of " + peer.ID);
-    assert.deepEqual(running.exitNodes.map(row => [row.id, row.target, row.active]), [
+    assert.deepEqual(running.exitNodes.own.map(row => [row.id, row.target, row.active]), [
         ["nFIXTURE0004CNTRL", "100.64.0.4", false], ["nFIXTURE0003CNTRL", "attic box", false],
         ["nFIXTURE0002CNTRL", "gateway.tail-fixture.ts.net", true]
     ]);
     // One Mullvad node a city: the one in use, else the highest ranked.
-    assert.deepEqual(mullvad.exitNodes.map(row => [row.id, row.target, row.place]), [
-        ["nFIXTURE0002CNTRL", "gateway.tail-fixture.ts.net", ""],
-        ["nFIXTURE0011CNTRL", "100.64.0.11", "Stockholm, Sweden"], ["nFIXTURE0013CNTRL", "100.64.0.13", "Zurich, Switzerland"]
+    assert.deepEqual(mullvad.exitNodes.own.map(row => [row.id, row.target]), [["nFIXTURE0002CNTRL", "gateway.tail-fixture.ts.net"]]);
+    assert.deepEqual(mullvad.exitNodes.countries.map(country => [country.name, country.cities.map(city => [city.id, city.target, city.name])]), [
+        ["Sweden", [["nFIXTURE0011CNTRL", "100.64.0.11", "Stockholm"]]], ["Switzerland", [["nFIXTURE0013CNTRL", "100.64.0.13", "Zurich"]]]
     ]);
     assert.deepEqual(mullvad.exit, { id: "nFIXTURE0013CNTRL", name: "Zurich, Switzerland" });
-    assert.deepEqual(mullvad.peers.map(row => row.name), ["gateway", "laptop"]);
+    assert.deepEqual(mullvad.devices.rows.map(row => row.name), ["gateway", "laptop"]);
     const unaddressed = plain(logic.exitNodes([{ ID: "nG", ExitNodeOption: true, Tags: mullvadTag, TailscaleIPs: ["fd7a:115c:a1e0::d"] }]));
-    assert.deepEqual(unaddressed, { rows: [], count: 0 });
+    assert.deepEqual(unaddressed, { own: [], countries: [], cityCount: 0, targets: {}, exit: null });
+    const listedNodes = snapshot => snapshot.exitNodes.own.concat(...snapshot.exitNodes.countries.map(country => country.cities));
     for (const snapshot of [running, mullvad]) {
-        const data = { state: "running", exitNodes: snapshot.exitNodes, accounts: [] };
-        for (const node of snapshot.exitNodes) {
+        const data = { state: "running", targets: snapshot.targets, accounts: [] };
+        for (const node of listedNodes(snapshot)) {
             assert.notEqual(node.target, node.id);
             const argv = plain(logic.command({ kind: "exit-node", id: node.id }, data)).argv;
             assert.deepEqual(argv, ["tailscale", "set", "--exit-node=" + node.target]);
@@ -86,16 +87,20 @@ function suite(logic, service = serviceSource) {
     }
 
     // Every command's argv, and the refusals.
-    const listed = plain(logic.accounts(0, text("accounts.txt")));
+    const accountsJson = JSON.stringify([
+        { id: "f1a0", nickname: "", tailnet: "fixture.example", account: "owner@fixture.example", selected: true },
+        { id: "f1a1", nickname: "", tailnet: "second.example", account: "owner@second.example", selected: false }
+    ], null, 2);
+    const listed = plain(logic.accounts(0, accountsJson));
     const accounts = listed.rows;
     assert.equal(listed.fault, "");
     assert.deepEqual(accounts, [
         { id: "f1a0", tailnet: "fixture.example", account: "owner@fixture.example", current: true },
         { id: "f1a1", tailnet: "second.example", account: "owner@second.example", current: false }
     ]);
-    for (const [code, stdout, fault] of [[1, text("accounts.txt"), "failed"], [0, "", "header"], [0, "owner@fixture.example *\n", "header"]])
+    for (const [code, stdout, fault] of [[1, accountsJson, "failed"], [0, "", "json"], [0, "{}", "json"]])
         assert.deepEqual(plain(logic.accounts(code, stdout)), { rows: [], fault: fault });
-    const held = state => ({ state: state, exitNodes: running.exitNodes, accounts: accounts });
+    const held = state => ({ state: state, targets: running.targets, accounts: accounts });
     for (const [request, state, want] of [
         [{ kind: "connect" }, "stopped", { argv: ["tailscale", "up"] }],
         [{ kind: "connect" }, "running", { refusal: "refused: action=connect state=running" }],
@@ -131,7 +136,7 @@ function suite(logic, service = serviceSource) {
     assert.throws(() => logic.pollStep(idle, "later"));
     assert.equal(logic.WATCHDOG_MS, 10000);
     for (const [open, seconds, want] of [[false, 10, 10000], [false, 30, 30000], [false, 60, 60000], [true, 30, 3000], [true, 60, 3000]])
-        assert.equal(logic.pollInterval(open, seconds), want);
+        assert.equal(logic.pollInterval(open, "running", seconds), want);
 
     // The CLI's failure texts.
     assert.equal(logic.failureKind(text("access-denied.txt")), "access-denied");
@@ -173,7 +178,7 @@ function suite(logic, service = serviceSource) {
         // names why goes in the hint under it, which every line but Ready
         // carries and the published value keeps.
         assert.equal(shown.hint === "", tone === "ok", "a hint on every line but Ready: " + JSON.stringify(context));
-        const written = logic.statusWrites({ tone: "ok", text: "" }, shown, logic.unread())[1][1];
+        const written = logic.statusWrites({ tone: "ok", text: "" }, shown, logic.unread(), logic.emptySnapshot("checking").devices, logic.emptySnapshot("checking").exitNodes)[1][1];
         assert.equal(written.hint, shown.hint === "" ? undefined : shown.hint, "the published setup value keeps the hint");
         // A line that is not Ready and offers no step reads Not available on Setup.
         assert.equal(written.available, action === "" && tone !== "ok" ? false : undefined, "an unoffered line is Not available: " + JSON.stringify(context));
@@ -191,7 +196,7 @@ function suite(logic, service = serviceSource) {
         { missing: false, state: "service-off", service: "", operator: "" }
     ]) assert.equal(logic.setup(context), null, "no step reading, no setup line: " + JSON.stringify(context));
     assert.deepEqual([logic.setup({ missing: true, state: "checking", service: "", operator: "" }).tone], ["info"], "a missing command needs no step reading");
-    assert.deepEqual(plain(logic.statusWrites({ tone: "ok", text: "" }, null, logic.unread())[1]), ["setup", null], "a null line clears the setup entry");
+    assert.deepEqual(plain(logic.statusWrites({ tone: "ok", text: "" }, null, logic.unread(), logic.emptySnapshot("checking").devices, logic.emptySnapshot("checking").exitNodes)[1]), ["setup", null], "a null line clears the setup entry");
     const unoffered = ["absent", "denied", "unknown"].map(service => logic.setup({ missing: false, state: "service-off", service: service, operator: "unknown" }).hint);
     assert.equal(new Set(unoffered).size, unoffered.length, "each service state that offers no step names its own why");
 
@@ -277,22 +282,25 @@ function suite(logic, service = serviceSource) {
     crowd.forEach((peer, index) => { peers["nodekey:" + index] = peer; });
     const largest = plain(logic.snapshot(0, JSON.stringify({ BackendState: "Running", Self: { HostName: wide, UserID: 1, TailscaleIPs: ["100.64.0.1"] },
         CurrentTailnet: { Name: wide }, User: { 1: { LoginName: wide } }, Peer: peers }), ""));
-    assert.equal(largest.exitNodes.length, logic.EXIT_MAX);
-    assert.equal(largest.exitCount, 600);
-    assert.equal(largest.exitNodes.filter(row => row.active).length, 1, "the node in use is kept");
-    assert.equal(largest.peers.length, logic.PEER_MAX);
-    assert.equal(largest.peerCount, 300);
-    const manyAccounts = plain(logic.accounts(0, "ID  Tailnet  Account\n" + Array.from({ length: 40 }, (_, i) => "a".repeat(63) + (i % 10) + "  " + wide + "  " + wide).join("\n"))).rows;
+    const cities = largest.exitNodes.countries.reduce((all, country) => all.concat(country.cities), []);
+    assert.equal(cities.length, logic.CITY_MAX);
+    assert.equal(largest.exitNodes.cityCount, 300);
+    assert.equal(largest.exitNodes.own.length, logic.PEER_MAX);
+    assert.equal(largest.exitNodes.own.filter(row => row.active).length, 1, "the node in use is kept");
+    assert.equal(largest.devices.rows.length, logic.PEER_MAX);
+    assert.equal(largest.devices.count, 300);
+    const manyAccounts = plain(logic.accounts(0, JSON.stringify(Array.from({ length: 40 }, (_, i) => ({ id: "a".repeat(63) + (i % 10), tailnet: wide, account: wide, selected: false }))))).rows;
     assert.equal(manyAccounts.length, logic.ACCOUNT_MAX);
-    const bytes = Buffer.byteLength(JSON.stringify(logic.published(false, largest, ready, { accounts: manyAccounts, action: "exit-node", login: "opened", problem: wide.slice(0, 200) })));
-    assert.ok(bytes < STATUS_MAX_BYTES, "the largest tailscale value is " + bytes + " bytes, the ceiling " + STATUS_MAX_BYTES);
+    const bigValue = plain(logic.published(false, largest, ready, { accounts: manyAccounts, action: "exit-node", login: "opened", problem: wide.slice(0, 200) }));
+    const written = logic.statusWrites({ tone: "ok", text: "" }, denied, bigValue, largest.devices, largest.exitNodes);
+    const bytes = Buffer.byteLength(JSON.stringify(Object.fromEntries(written)));
+    assert.ok(bytes < STATUS_MAX_BYTES, "the largest status is " + bytes + " bytes, the ceiling " + STATUS_MAX_BYTES);
 
     // Execute the production writer against the core judge, including
     // shrink/grow transitions and a null setup that clears its state entry.
     const publishBody = /function publish\(\) \{([\s\S]*?)\n    \}\n    onPublishedChanged/.exec(service);
     assert.ok(publishBody);
-    const publish = new Function("shell", "connection", "setup", "published", "Logic", publishBody[1]);
-    const big = plain(logic.published(false, largest, ready, { accounts: manyAccounts, action: "exit-node", login: "opened", problem: wide.slice(0, 200) }));
+    const publish = new Function("shell", "connection", "setup", "published", "snapshot", "Logic", publishBody[1]);
     let values = {};
     const shell = { status: { set(key, value) {
         const result = core.statusWrite(manifest, values, key, value);
@@ -301,15 +309,15 @@ function suite(logic, service = serviceSource) {
         assert.ok(Buffer.byteLength(JSON.stringify(values)) <= STATUS_MAX_BYTES);
         return "ok";
     } } };
-    for (const [data, setupLine] of [[big, ready], [shown, denied], [big, denied], [shown, null]]) {
-        const original = JSON.stringify(data);
-        publish(shell, { tone: data.tone, text: data.text }, setupLine, data, logic);
-        assert.equal(JSON.stringify(data), original);
-        assert.equal(values.tailscale.peerCount, data.peerCount);
-        assert.equal(values.tailscale.exitCount, data.exitCount);
-        assert.deepEqual(values.tailscale.exitNodes.filter(row => row.active), data.exitNodes.filter(row => row.active));
-        for (const row of values.tailscale.exitNodes) assert.deepEqual(row, data.exitNodes.find(input => input.id === row.id));
-        assert.deepEqual(Object.keys(values), setupLine === null ? ["connection", "tailscale"] : ["connection", "setup", "tailscale"]);
+    for (const [data, snap, setupLine] of [[bigValue, largest, ready], [shown, running, denied], [bigValue, largest, denied], [shown, running, null]]) {
+        const original = JSON.stringify([data, snap]);
+        publish(shell, { tone: data.tone, text: data.text }, setupLine, data, snap, logic);
+        assert.equal(JSON.stringify([data, snap]), original);
+        assert.equal(values.devices.count, snap.devices.count);
+        assert.equal(values.exitNodes.cityCount, snap.exitNodes.cityCount);
+        assert.deepEqual(values.exitNodes.own.filter(row => row.active), snap.exitNodes.own.filter(row => row.active));
+        for (const row of values.exitNodes.own) assert.deepEqual(row, snap.exitNodes.own.find(input => input.id === row.id));
+        assert.deepEqual(Object.keys(values), setupLine === null ? ["connection", "tailscale", "devices", "exitNodes"] : ["connection", "setup", "tailscale", "devices", "exitNodes"]);
     }
 }
 
@@ -324,14 +332,14 @@ try {
         ["the reason names the step", 'return step === "" ? cause +', 'return true ? cause +'],
         ["an unoffered setup line waits on the user", '        else if (setupLine.tone !== "ok") setupValue.available = false;\n', ''],
         ["a blocked service opens its Setup step", 'cause + "; review [Tailscale service in Tailscale Setup](page:vgs.tailscale/Setup)."', 'cause + "; review [Tailscale in Details](page:vgs.tailscale/Details)."'],
-        ["a target equal to the peer id", "{ id: peer.ID, target: target,", "{ id: peer.ID, target: peer.ID,"],
+        ["a target equal to the peer id", "targets[peer.ID] = { target: target,", "targets[peer.ID] = { target: peer.ID,"],
         ["a Mullvad node goes by its IPv4", "if (isMullvad(peer)) return address;", ""],
         ["the DNS name comes before the host name", 'if (dns !== "") return dns;', ""],
         ["the first IPv4, not the first address", "/^\\d{1,3}(\\.\\d{1,3}){3}$/.test(addresses[i])", "true"],
         ["one poll in flight", "if (state.flight) return { state: { flight: true,", "if (false) return { state: { flight: true,"],
         ["a refresh does not arm the watchdog", 'again: state.again || event === "refresh" }, effects: [] };', 'again: state.again || event === "refresh" }, effects: ["arm"] };'],
         ["the watchdog kills a poll in flight", 'effects: state.flight ? ["kill"] : [] };', "effects: [] };"],
-        ["an open view polls fast", "return open ? OPEN_POLL_MS : idleSeconds * 1000;", "return idleSeconds * 1000;"],
+        ["an open view polls fast", "return open || state === \"starting\" ? FAST_POLL_MS : idleSeconds * 1000;", "return idleSeconds * 1000;"],
         ["access denied is told apart", '{ kind: "access-denied", pattern: /access denied/i }', '{ kind: "access-denied", pattern: /prefs denied/i }'],
         ["a needed operator offers Allow", 'for you without a password.", "allow");', 'for you without a password.", "");'],
         ["a missing optional tool reads info", 'if (context.missing) return setupState("info"', 'if (context.missing) return setupState("warning"'],
@@ -344,10 +352,10 @@ try {
         ["an operator with no reading reads Ready", '    if (context.operator === "") return null;\n', ''],
         ["a service with no reading reads Not checked", '        if (context.service === "") return null;\n', ''],
         ["an exit node goes by its target", '"--exit-node=" + node.target]', '"--exit-node=" + node.id]'],
-        ["the exit nodes are bounded", "var rows = all.slice(0, EXIT_MAX);", "var rows = all.slice(0);"],
-        ["the node in use survives the bound", "rows[rows.length - 1] = active;", ""],
-        ["one Mullvad node a city", "(row.active || rank > held.rank)", "false"],
-        ["the node in use keeps its city", "!held.row.active && ", ""],
+        ["the exit nodes are bounded", "var kept = rows.slice(0, max);", "var kept = rows.slice(0);"],
+        ["the node in use survives the bound", "kept[kept.length - 1] = active;", ""],
+        ["one Mullvad node a city", "return a.rank > held.rank;", "return false;"],
+        ["the node in use keeps its city", "if (a.active !== held.active) return a.active;", ""],
         ["only an https sign-in page opens", "/https:\\/\\/[^\\s\"'<>]+/", "/[a-z]+:\\/\\/[^\\s\"'<>]+/"],
         ["a drawn line holds no markup start", "\\u007f<]/g", "\\u007f]/g"],
         ["absent service hides", ' || tailscale.backendPresent === false', ''],

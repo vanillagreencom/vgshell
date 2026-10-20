@@ -3,32 +3,72 @@ import qs.Commons
 import qs.Ui
 import "TailscaleLogic.js" as Logic
 
-// The body the flyout and the System pane share. It draws the `tailscale` value
+// The Tailscale flyout's main view, which the System pane also mounts
+// (`expanded`). It draws the `tailscale`, `devices` and `exitNodes` values
 // the service publishes and asks the service for every change through the
 // plugin's own IPC; it starts no process. While it is open it holds a
 // lease, which makes the service's poll fast. The setup step, Enable or
-// Allow, is the `setup` status entry's action as the core's
-// status rows offer it (`status.rows`), run through `status.act`. While
-// Tailscale takes no change, its controls say why (`lockReason`), and the
-// connection switch's unlock mark runs the same step.
+// Allow, is the `setup` status entry's action as the core's status rows
+// offer it (`status.rows`), run through `status.act`. While Tailscale
+// takes no change, its controls say why (`lockReason`), and the connection
+// switch's unlock mark runs the same step.
 //
-// Tab moves from the connection switch to the exit nodes and, in the
-// pane, the accounts. Up and Down move inside a list, and Enter chooses.
+// Rows, top to bottom: the account, a disclosure whose list switches
+// accounts and ends with Add account and Sign out; this device, whose
+// Copy puts its address on the clipboard through CopyText; the network
+// devices, a disclosure of their addresses; and the Exit node row, which
+// asks the host for the exit node chooser (`exitNodesRequested`). Sign out
+// asks first, in a Dialog over a Scrim drawn over `promptPane`, the
+// flyout's own Pane, so the title row and the footer take no input while
+// it waits; the shared ModalDialog is a layer surface, and Hyprland ends
+// the flyout's popup grab when one maps (NetworkBody.qml header). With no
+// `promptPane`, as in the System pane, it draws over the body.
+//
+// Tab moves from the connection switch through the account row, its list,
+// Add account and Sign out while it is expanded, this device, the network
+// devices row and its list while expanded, and the Exit node row. Up and
+// Down move inside a list, and Enter chooses. Nothing opens with the
+// keyboard on Sign out.
 FocusScope {
     id: root
 
     property var shell: null
-    // The pane's extra sections: this device, accounts, devices, the poll.
+    // The System pane's rows: the state line, the connection switch, the
+    // exit node chooser inline and the poll setting.
     property bool expanded: false
+    // The Pane the sign-out confirmation covers, null for the body, and
+    // the corner its scrim follows: the body draws none.
+    property Pane promptPane: null
+    readonly property real promptCorner: promptPane === null ? 0 : promptPane.cornerRadius
     property string leaseId: ""
     property bool leased: false
     // The line a refused request left, "" for none.
     property string localProblem: ""
+    // Whether the sign-out confirmation shows.
+    property bool signingOut: false
+    // The row whose address the last copy took, which reads Copied while
+    // the copy confirms.
+    property string copiedKey: ""
+    // The exit node a change runs for, null while none does.
+    property var pendingExit: null
 
-    readonly property var tailscale: shell === null || !shell.status.values.tailscale ? Logic.unread() : shell.status.values.tailscale
+    // The host shows the exit node chooser.
+    signal exitNodesRequested()
+    // A chosen exit node is in use, or was already.
+    signal exitChosen()
+
+    readonly property var values: shell === null ? ({}) : shell.status.values
+    readonly property var tailscale: values.tailscale ? values.tailscale : Logic.unread()
+    readonly property var devices: values.devices ? values.devices : Logic.emptySnapshot("checking").devices
+    readonly property var exitNodes: values.exitNodes ? values.exitNodes : Logic.emptySnapshot("checking").exitNodes
     readonly property bool busy: tailscale.action !== ""
     readonly property bool switchable: ["running", "starting", "stopped"].indexOf(tailscale.state) !== -1
     readonly property bool reached: switchable || tailscale.state === "signed-out" || tailscale.state === "needs-approval"
+    readonly property bool signedOut: tailscale.state === "signed-out"
+    readonly property bool connected: tailscale.state === "running"
+    readonly property var currentAccount: tailscale.accounts.find(row => row.current) || null
+    readonly property bool accountShown: switchable || (signedOut && tailscale.accounts.length > 0)
+    readonly property bool deviceShown: switchable && tailscale.device.address !== ""
     // The setup step the core offers now, { label, hint }, else null.
     // `hint` is the sentence that says what the step does.
     readonly property var setupAction: {
@@ -40,21 +80,18 @@ FocusScope {
     // the switch's unlock mark, the setup step, null while none is offered.
     readonly property string lockReason: Logic.lockReason(tailscale, setupAction === null ? "" : setupAction.label)
     readonly property var unlock: setupAction === null ? null : ({ label: setupAction.label, run: () => root.runSetup() })
-    readonly property var exitRows: [{ key: "", text: "None", secondary: "Use this computer's own connection", iconName: "globe-off",
-        badge: tailscale.exit === null ? "In use" : "", badgeTone: "success" }].concat(tailscale.exitNodes.map(node => ({
-            key: node.id, text: node.place !== "" ? node.place : node.name,
-            secondary: node.place !== "" ? node.name : node.online ? "Online" : "Offline", iconName: "globe",
-            badge: node.active ? "In use" : "", badgeTone: "success" })))
-    readonly property var accountRows: tailscale.accounts.map(row => ({ key: row.id, text: row.account, secondary: row.tailnet,
-        iconName: "user", badge: row.current ? "In use" : "", badgeTone: "success" }))
+    readonly property string stateHint: Logic.stateHint(tailscale)
+    readonly property string problemText: localProblem !== "" ? localProblem : tailscale.problem
+    readonly property var signOut: Logic.signOutPrompt(tailscale.tailnet)
     readonly property var pollChoices: [10, 30, 60]
     // The connection switch while it can be used, else the body, from
     // which Tab reaches the setup step: no view opens on a step that
     // changes the system (design-system.md § Keyboard), nor on a locked
-    // switch.
+    // switch, nor on Sign out.
     readonly property Item initialFocus: connectField.visible && toggle.enabled && root.lockReason === "" ? toggle : root
+    readonly property bool prompting: signingOut && !signedOut && reached
 
-    implicitHeight: content.implicitHeight
+    implicitHeight: Math.max(content.implicitHeight, prompting && promptPane === null ? prompt.implicitHeight + 2 * Theme.dialog.margin : 0)
 
     // Qt moves Tab only from an item that is a Tab stop. The body is none,
     // so its own Tab would start from the window's first stop and leave
@@ -67,25 +104,76 @@ FocusScope {
     function open() {
         if (leaseId === "") leaseId = String(root);
         if (shell !== null && !leased) leased = shell.ipc.call("lease", JSON.stringify({ id: leaseId, open: true })) === "ok";
+        // Each opening starts with the disclosures closed, the account's
+        // open while signed out, where it lists the accounts to switch to.
+        accountRow.expanded = signedOut;
+        devicesRow.expanded = false;
+        signingOut = false;
+        localProblem = "";
+        if (expanded) suggest();
     }
     function close() {
+        signingOut = false;
         if (!leased || shell === null) return;
         shell.ipc.call("lease", JSON.stringify({ id: leaseId, open: false }));
         leased = false;
     }
     Component.onDestruction: close()
 
-    function answered(reply, refusal) {
-        localProblem = reply === "ok" ? "" : reply === "busy" ? "A Tailscale change is still in progress." : refusal;
+    function answered(reply) {
+        localProblem = Logic.replyText(reply);
         if (reply !== "ok" && reply !== "busy") console.warn("tailscale: " + reply);
         return reply;
     }
     function request(kind, id) {
-        return answered(shell.ipc.call("action", JSON.stringify({ kind: kind, id: id })), "Tailscale cannot do this now.");
+        return answered(shell.ipc.call("action", JSON.stringify({ kind: kind, id: id })));
     }
     function runSetup() {
-        return answered(shell.status.act("setup"), "VGS could not open the setup step.");
+        const reply = shell.status.act("setup");
+        localProblem = reply === "ok" ? "" : "VGS could not open the setup step.";
+        if (reply !== "ok") console.warn("tailscale: setup " + reply);
+        return reply;
     }
+    // Asks the service to read the suggested exit node; the chooser shows
+    // Recommended once it is read.
+    function suggest() {
+        if (shell === null) return;
+        const reply = shell.ipc.call("suggest", "");
+        if (reply !== "ok" && reply !== "busy") console.info("tailscale: " + reply);
+    }
+    function copy(key, address) {
+        copiedKey = key;
+        copier.copy(address);
+    }
+    function chooseExit(id) {
+        if (id === (tailscale.exit === null ? "" : tailscale.exit.id)) {
+            exitChosen();
+            return;
+        }
+        if (request("exit-node", id) === "ok") pendingExit = id;
+    }
+    onBusyChanged: {
+        if (busy || pendingExit === null) return;
+        pendingExit = null;
+        if (tailscale.problem === "") exitChosen();
+    }
+    function focusExitRow() { exitRow.forceActiveFocus(Qt.TabFocusReason); }
+
+    function askSignOut() {
+        signingOut = true;
+        Qt.callLater(() => { if (root.prompting) prompt.takeFocus(); });
+    }
+    function endSignOut(confirmed) {
+        signingOut = false;
+        if (confirmed) {
+            request("logout", "");
+            root.forceActiveFocus();
+        } else {
+            signOutAction.forceActiveFocus(Qt.TabFocusReason);
+        }
+    }
+
+    CopyText { id: copier }
 
     Column {
         id: content
@@ -97,7 +185,7 @@ FocusScope {
             width: parent.width
             role: "body"
             textFormat: Text.PlainText
-            visible: root.tailscale.state !== "missing"
+            visible: root.expanded && root.tailscale.state !== "missing"
             text: root.tailscale.text
             wrapMode: Text.Wrap
         }
@@ -107,7 +195,7 @@ FocusScope {
             visible: text !== ""
             role: "hint"
             color: Theme.color.danger
-            text: root.localProblem !== "" ? root.localProblem : root.tailscale.problem
+            text: root.problemText
             wrapMode: Text.Wrap
         }
         Label {
@@ -152,10 +240,20 @@ FocusScope {
                 }
             }
         }
+        Label {
+            objectName: "tailscale-state-hint"
+            width: parent.width
+            visible: text !== "" && !(root.signedOut && root.tailscale.login !== "idle")
+            role: "hint"
+            textFormat: Text.PlainText
+            text: root.stateHint
+            wrapMode: Text.Wrap
+        }
         Button {
             objectName: "tailscale-sign-in"
-            visible: root.tailscale.state === "signed-out" && root.tailscale.login === "idle"
+            visible: root.signedOut && root.tailscale.login === "idle"
             disabledReason: root.lockReason
+            variant: "primary"
             text: "Sign in"
             iconName: "log-in"
             onClicked: root.request("login", "")
@@ -175,88 +273,186 @@ FocusScope {
                 onClicked: root.request("cancel-login", "")
             }
         }
-        Section {
-            width: parent.width
-            visible: root.tailscale.state === "running"
-            title: "Exit node"
-            description: root.tailscale.exitCount > root.tailscale.exitNodes.length
-                ? "Showing " + root.tailscale.exitNodes.length + " of " + root.tailscale.exitCount + " exit nodes." : ""
+        RowAction {
+            objectName: "tailscale-approval-console"
+            visible: root.tailscale.state === "needs-approval"
+            text: "Open admin console"
+            onClicked: root.request("admin-console", "")
+        }
+        RowAction {
+            objectName: "tailscale-try-again"
+            visible: root.tailscale.state === "unavailable"
+            text: "Try again"
+            onClicked: root.shell.ipc.call("refresh", "")
+        }
 
-            DeviceList {
-                id: exitList
-                objectName: "tailscale-exit-nodes"
+        // The rows and their one cursor, beside the column that holds
+        // them: a positioner would lay the plate out as a row.
+        Item {
+            width: parent.width
+            height: rowColumn.implicitHeight
+            visible: root.accountShown || root.deviceShown
+
+            ListCursor { id: rowCursor }
+
+            Column {
+                id: rowColumn
                 width: parent.width
-                enabled: !root.busy
-                disabledReason: root.lockReason
-                rows: root.exitRows
-                onActed: key => { if (key !== (root.tailscale.exit === null ? "" : root.tailscale.exit.id)) root.request("exit-node", key); }
-            }
-        }
-        Section {
-            width: parent.width
-            visible: root.expanded && root.reached
-            title: "This device"
 
-            Repeater {
-                model: [["Name", root.tailscale.device.name], ["Address", root.tailscale.device.address], ["Network", root.tailscale.tailnet], ["Account", root.tailscale.account]]
+                Disclosure {
+                    id: accountRow
+                    objectName: "tailscale-account"
+                    width: parent.width
+                    visible: root.accountShown
+                    cursor: rowCursor
+                    iconName: "user"
+                    text: root.signedOut ? "Accounts" : root.tailscale.account !== "" ? root.tailscale.account
+                        : root.currentAccount !== null ? root.currentAccount.account : "Account"
+                    secondary: root.signedOut ? "Not signed in" : root.tailscale.tailnet
 
-                Field {
-                    id: deviceRow
-                    required property var modelData
-                    width: root.width
-                    visible: modelData[1] !== ""
-                    label: modelData[0]
-                    inline: true
-
-                    Label { role: "value"; textFormat: Text.PlainText; text: deviceRow.modelData[1]; elide: Text.ElideRight }
-                }
-            }
-        }
-        Section {
-            width: parent.width
-            visible: root.expanded && root.reached
-            title: "Accounts"
-            rowSpacing: Theme.stack.group
-
-            DeviceList {
-                objectName: "tailscale-accounts"
-                width: parent.width
-                visible: root.accountRows.length > 0
-                enabled: !root.busy
-                disabledReason: root.lockReason
-                rows: root.accountRows
-                onActed: key => { if (!root.tailscale.accounts.some(row => row.id === key && row.current)) root.request("switch", key); }
-            }
-            RowAction {
-                visible: root.tailscale.login === "idle" && root.tailscale.state !== "signed-out"
-                disabledReason: root.lockReason
-                text: "Add account"
-                onClicked: root.request("login", "")
-            }
-        }
-        Section {
-            width: parent.width
-            visible: root.expanded && root.tailscale.peers.length > 0
-            title: "Devices"
-            description: root.tailscale.peerCount > root.tailscale.peers.length
-                ? "Showing " + root.tailscale.peers.length + " of " + root.tailscale.peerCount + " devices." : ""
-
-            Repeater {
-                model: root.tailscale.peers
-
-                Field {
-                    id: peerRow
-                    required property var modelData
-                    width: root.width
-                    label: modelData.name
-                    inline: true
-
-                    Label {
-                        role: "value"
-                        textFormat: Text.PlainText
-                        text: peerRow.modelData.online ? peerRow.modelData.address : "Offline"
+                    DeviceList {
+                        objectName: "tailscale-accounts"
+                        width: parent.width
+                        visible: rows.length > 0
+                        disabledReason: root.lockReason
+                        rows: Logic.accountRows(root.tailscale.accounts)
+                        onActed: key => { if (!root.tailscale.accounts.some(row => row.id === key && row.current)) root.request("switch", key); }
+                    }
+                    RowActions {
+                        RowAction {
+                            objectName: "tailscale-add-account"
+                            visible: root.tailscale.login === "idle"
+                            disabledReason: root.lockReason
+                            text: "Add account"
+                            onClicked: root.request("login", "")
+                        }
+                        RowAction {
+                            id: signOutAction
+                            objectName: "tailscale-sign-out"
+                            visible: !root.signedOut
+                            disabledReason: root.lockReason
+                            text: "Sign out"
+                            tone: "danger"
+                            markName: "log-out"
+                            onClicked: root.askSignOut()
+                        }
                     }
                 }
+                DeviceList {
+                    objectName: "tailscale-this-device"
+                    width: parent.width
+                    visible: root.deviceShown
+                    rows: [{ key: "self", text: root.tailscale.device.name, secondary: "This device · " + root.tailscale.device.address, iconName: "laptop" }]
+                    actionOf: row => ({ text: copier.confirming && root.copiedKey === "self" ? "Copied" : "Copy" })
+                    onActed: key => root.copy("self", root.tailscale.device.address)
+                }
+                Disclosure {
+                    id: devicesRow
+                    objectName: "tailscale-network-devices"
+                    width: parent.width
+                    visible: root.connected
+                    expandable: root.devices.rows.length > 0
+                    cursor: rowCursor
+                    iconName: "network"
+                    text: "Network devices"
+                    secondary: Logic.devicesLine(root.devices)
+
+                    DeviceList {
+                        id: deviceList
+                        objectName: "tailscale-devices"
+                        width: parent.width
+                        rows: Logic.deviceRows(root.devices)
+                        actionOf: row => row.address === "" ? null : ({ text: copier.confirming && root.copiedKey === row.key ? "Copied" : "Copy" })
+                        onActed: key => {
+                            const row = deviceList.rows.find(entry => entry.key === key);
+                            if (row !== undefined && row.address !== "") root.copy(key, row.address);
+                        }
+                    }
+                    Row {
+                        visible: root.devices.count > root.devices.rows.length
+                        spacing: Theme.stack.inline
+
+                        Label {
+                            anchors.verticalCenter: parent.verticalCenter
+                            role: "hint"
+                            text: "Showing " + root.devices.rows.length + " of " + root.devices.count + " devices."
+                        }
+                        InfoButton {
+                            anchors.verticalCenter: parent.verticalCenter
+                            title: "Network devices"
+                            info: "The list shows the first " + root.devices.rows.length + " devices, so it opens quickly. Open admin console to see every device."
+                        }
+                    }
+                }
+                // focus-indicator: ListItem draws its FocusRing for the row
+                ListItem {
+                    id: exitRow
+                    objectName: "tailscale-exit-row"
+                    width: parent.width
+                    visible: root.connected && !root.expanded
+                    focusPolicy: Qt.StrongFocus
+                    cursor: rowCursor
+                    iconName: root.tailscale.exit === null ? "globe" : "earth-lock"
+                    text: "Exit node"
+                    secondary: Logic.exitLine(root.tailscale)
+                    onClicked: root.exitNodesRequested()
+                    Keys.onReturnPressed: root.exitNodesRequested()
+                    Keys.onEnterPressed: root.exitNodesRequested()
+                    Keys.onSpacePressed: root.exitNodesRequested()
+                    trailing: [
+                        Icon {
+                            anchors.verticalCenter: parent.verticalCenter
+                            name: "chevron-right"
+                            size: Theme.icon.size.md
+                            color: Theme.color.textMuted
+                        }
+                    ]
+                }
+            }
+        }
+
+        // The System pane holds the chooser inline, its country view under
+        // a Back row in place of the search field.
+        Section {
+            width: parent.width
+            visible: root.expanded && root.connected
+            title: "Exit node"
+            rowSpacing: Theme.stack.group
+
+            Row {
+                visible: inlineChooser.country !== ""
+                spacing: Theme.control.gap
+
+                IconButton {
+                    anchors.verticalCenter: parent.verticalCenter
+                    iconName: "chevron-left"
+                    label: "Back"
+                    onClicked: inlineChooser.country = ""
+                }
+                Label {
+                    anchors.verticalCenter: parent.verticalCenter
+                    role: "h3"
+                    text: inlineChooser.countryName
+                }
+            }
+            TextField {
+                id: inlineSearch
+                width: parent.width
+                visible: inlineChooser.country === ""
+                leadingIcon: "search"
+                placeholderText: "Search countries, cities and devices"
+            }
+            ExitNodes {
+                id: inlineChooser
+                width: parent.width
+                tailscale: root.tailscale
+                exitNodes: root.exitNodes
+                query: inlineSearch.text
+                pending: root.busy ? root.pendingExit : null
+                disabledReason: root.lockReason
+                onCountryOpened: code => inlineChooser.country = code
+                onChose: id => root.chooseExit(id)
+                onClearRequested: inlineSearch.text = ""
             }
         }
         Field {
@@ -270,8 +466,32 @@ FocusScope {
                 objectName: "tailscale-poll"
                 model: root.pollChoices.map(seconds => seconds + " s")
                 currentIndex: root.shell === null ? 1 : root.pollChoices.indexOf(root.shell.settings.pollSeconds)
-                onActivated: index => root.answered(root.shell.configure.set("pollSeconds", root.pollChoices[index]), "VGS could not save this setting.")
+                onActivated: index => {
+                    const reply = root.shell.configure.set("pollSeconds", root.pollChoices[index]);
+                    root.localProblem = reply === "ok" ? "" : "VGS could not save this setting.";
+                }
             }
         }
+    }
+
+    Scrim {
+        visible: root.prompting
+        parent: root.promptPane === null ? root : root.promptPane
+        radius: root.promptCorner
+        onClicked: prompt.takeFocus()
+    }
+    Dialog {
+        id: prompt
+        objectName: "tailscale-sign-out-prompt"
+        parent: root.promptPane === null ? root : root.promptPane
+        z: 1
+        visible: root.prompting
+        anchors.centerIn: parent
+        width: Math.min(implicitWidth, parent.width - 2 * Theme.dialog.margin)
+        title: root.signOut.title
+        message: root.signOut.message
+        actions: [{ label: "Cancel", role: "cancel", focused: true }, { label: "Sign out", role: "accept", variant: "danger" }]
+        onAccepted: root.endSignOut(true)
+        onRejected: root.endSignOut(false)
     }
 }

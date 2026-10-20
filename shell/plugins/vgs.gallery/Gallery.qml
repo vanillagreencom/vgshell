@@ -427,6 +427,17 @@ Item {
                     }
                 }
                 CodeLine { width: parent.width; text: "~/.config/vgshell/shell.json"; copyLabel: "Copy the path" }
+                // CopyText draws nothing: its RowAction reads Copied while it confirms.
+                Field {
+                    label: "Copy text"
+                    inline: true
+                    width: parent.width
+                    RowAction {
+                        text: galleryCopy.confirming ? "Copied" : "Copy"
+                        onClicked: galleryCopy.copy("100.64.0.1")
+                        CopyText { id: galleryCopy }
+                    }
+                }
                 LinkText { width: parent.width; role: "body"; text: "Open hyprland.lua to inspect the line VGS adds."; link: "hyprland.lua" }
                 EmptyState { width: parent.width; iconName: "search-x"; text: "No plugin matches \"zzqx\""; actionText: "Clear search" }
                 SaveBar { width: parent.width; dirty: true }

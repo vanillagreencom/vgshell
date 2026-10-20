@@ -76,7 +76,7 @@
         "nix": "xdg-utils"
       },
       "optional": true,
-      "purpose": "Opens the Tailscale sign-in page in your browser"
+      "purpose": "Opens the Tailscale sign-in page and admin console in your browser"
     }
   ],
   "systemSteps": [
@@ -107,6 +107,14 @@
     "tailscale": {
       "type": "data",
       "label": "Tailscale"
+    },
+    "devices": {
+      "type": "data",
+      "label": "Network devices"
+    },
+    "exitNodes": {
+      "type": "data",
+      "label": "Exit nodes"
     }
   },
   "splitFrom": "vgs.vpn"
