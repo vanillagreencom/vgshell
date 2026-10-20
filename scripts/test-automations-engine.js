@@ -734,15 +734,29 @@ const CASES = {
         same(JSON.parse(cli(world({ linger: "yes" }), engine, ["list", "--json"]).stdout).linger, "yes");
     },
 
-    "a UTC month-end timer runs at midnight UTC in Pacific time"(engine) {
+    "cron scopes mixed local and UTC schedules across the November clock change"(engine) {
         const slot = Date.parse("2026-11-01T00:00:00Z");
-        const w = world({ timezone: "America/Los_Angeles", nowMs: slot });
+        const w = world({ systemd: "down", timezone: "America/Los_Angeles", nowMs: slot });
         const schedule = { frequency: "monthly", interval: 1, monthly: { by: "date", day: 1 }, times: ["00:00"], start: "2026-11-01", end: { type: "never" }, zone: "utc" };
         const id = add(w, engine, { name: "UTC month end", schedule: schedule });
         const preview = cli(w, engine, ["preview", "--schedule", JSON.stringify(schedule), "--count", "3", "--after", String(Date.parse("2026-10-31T00:00:00Z"))]);
         same(JSON.parse(preview.stdout).occurrences, [slot, Date.parse("2026-12-01T00:00:00Z"), Date.parse("2027-01-01T00:00:00Z")], "CLI preview keeps the UTC month edge across Pacific month ends");
-        const timer = fs.readFileSync(path.join(w.units, "vgs-automation-utc-month-end.timer"), "utf8");
-        assert.match(timer, /\nOnCalendar=\*-\*-01 00:00:00 UTC\n/);
+        const localSchedule = { frequency: "monthly", interval: 1, monthly: { by: "date", day: 1 }, times: ["00:00"], start: "2026-11-01", end: { type: "never" } };
+        add(w, engine, { name: "Local month start", schedule: localSchedule });
+        const managedTable = fs.readFileSync(path.join(w.stub, "crontab"), "utf8");
+        write(path.join(w.stub, "crontab"), "MAILTO=me\n" + managedTable + "5 * * * * user-after\n");
+        const table = fs.readFileSync(path.join(w.stub, "crontab"), "utf8").split("\n");
+        const begin = table.indexOf(Logic.CRON_BEGIN);
+        const end = table.indexOf(Logic.CRON_END);
+        assert.ok(begin >= 0 && end > begin, "sync keeps one managed block");
+        same(table.slice(0, begin), ["MAILTO=me"]);
+        const managed = table.slice(begin + 1, end);
+        const localLine = managed.findIndex(line => line.startsWith("0 0 1 * * ") && line.endsWith("'local-month-start'"));
+        const utcZone = managed.indexOf("CRON_TZ=UTC");
+        const utcLine = managed.findIndex(line => line.startsWith("0 0 1 * * ") && line.endsWith("'utc-month-end'"));
+        const restoredZone = managed.indexOf("CRON_TZ=");
+        assert.ok(localLine >= 0 && localLine < utcZone && utcZone < utcLine && utcLine < restoredZone, "local timing precedes UTC, then the daemon timezone is restored inside VGS markers");
+        same(table.slice(end + 1), ["5 * * * * user-after", ""], "the user's later entry stays after the managed block");
         write(path.join(w.home, ".local", "state", "vgshell", "automations", "guard", id + ".json"), JSON.stringify({ handledThrough: Date.parse("2026-10-01T00:00:00Z") }));
         const run = cli(w, engine, ["run", "--scheduled", id]);
         assert.equal(run.status, 0, run.stderr);

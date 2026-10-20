@@ -232,8 +232,9 @@ function verify(logic) {
         "30 8 * * * env 'X=1' '/bin/runner' 'run' 'local'",
         "0 17 * * * env 'X=1' '/bin/runner' 'run' 'local'",
         "CRON_TZ=UTC",
-        "0 9 * * * env 'X=1' '/bin/runner' 'run' 'backup'"
-    ], "cron keeps local entries before switching the managed block to UTC");
+        "0 9 * * * env 'X=1' '/bin/runner' 'run' 'backup'",
+        "CRON_TZ="
+    ], "cron scopes UTC entries and restores the daemon timezone after them");
     process.env.TZ = "UTC";
     assert.throws(() => logic.nextOccurrences(schedule({}), 0, 51), /is not 1\.\.50/);
     same(logic.latestOccurrence(BIWEEKLY, at("2026-01-15T00:00:00Z")), at("2026-01-08T09:00:00Z"), "the latest skips the off week");
@@ -720,6 +721,7 @@ const CONTROLS = [
     ["yearly compiles to its day", "date = \"*-\" + pad2(s.yearly.month) + \"-\" + pad2(s.yearly.day);", "date = \"*-*-\" + pad2(s.yearly.day);"],
     ["cron numbers Sunday 0", "return String((WEEKDAYS.indexOf(w) + 1) % 7); }).join(\",\");", "return String(WEEKDAYS.indexOf(w)); }).join(\",\");"],
     ["cron states the month of a yearly rule", "tail = s.yearly.day + \" \" + s.yearly.month + \" *\";", "tail = s.yearly.day + \" * *\";"],
+    ["cron restores the daemon timezone after UTC jobs", "return local.concat(utc.length === 0 ? [] : [\"CRON_TZ=UTC\"], utc, utc.length === 0 ? [] : [\"CRON_TZ=\"]);", "return local.concat(utc.length === 0 ? [] : [\"CRON_TZ=UTC\"], utc);"],
     ["an interval counts weeks from the start's Monday", "case \"weekly\": return ((mondayNumber(y, m, d) - mondayNumber(start.y, start.m, start.d)) / 7) % n === 0;", "case \"weekly\": return true;"],
     ["an interval counts days from the start", "case \"daily\": return (day - first) % n === 0;", "case \"daily\": return true;"],
     ["an interval counts months from the start", "case \"monthly\": return ((y * 12 + m) - (start.y * 12 + start.m)) % n === 0;", "case \"monthly\": return true;"],

@@ -936,7 +936,7 @@ function cronLines(automations, argvFor, environment) {
         for (var f = 0; f < fields.length; f++) out.push(fields[f] + " " + command);
         if (automations[i].catchUp) out.push("@reboot " + command);
     }
-    return local.concat(utc.length === 0 ? [] : ["CRON_TZ=UTC"], utc);
+    return local.concat(utc.length === 0 ? [] : ["CRON_TZ=UTC"], utc, utc.length === 0 ? [] : ["CRON_TZ="]);
 }
 
 // The user's crontab with the managed block replaced by `lines`, or
