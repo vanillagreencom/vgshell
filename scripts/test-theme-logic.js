@@ -1662,7 +1662,11 @@ const LED_LINES = [
     { file: "shell/Ui/controls/TitleButton.qml", label: "label", icon: 'name: "chevron-down"' },
     { file: "shell/Ui/feedback/Callout.qml", label: "titleLabel", icon: "name: root.iconName" },
     { file: "shell/plugins/vgs.sysmon/Reading.qml", label: "titleLabel", icon: "name: root.iconName" },
-    { file: "shell/plugins/vgs.themes/WallpaperView.qml", label: "sourceText", icon: "color: sourceText.color" },
+    {
+        file: "shell/plugins/vgs.themes/WallpaperView.qml", icon: "color: sourceText.color",
+        binding: "y: sourceText.y + sourceText.topForLeadingIcon(height, sourceText.y, true)",
+        centred: "anchors.verticalCenter: parent.verticalCenter"
+    },
     { file: "shell/plugins/vgs.themes/ThemeRow.qml", label: "nameText", icon: "name: row.iconName" },
     {
         file: "shell/plugins/vgs.system/Window.qml", icon: "id: icon\n",

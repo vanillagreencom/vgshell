@@ -8817,6 +8817,38 @@ scene_flyout-titles() { # MODE
 link_icons_keys_ready() {
   ipc vgs.google-drive invoke status '' | py_reply 'import json,sys; row=json.load(sys.stdin); print(isinstance(row,dict) and row.get("cloudKeys",{}).get("tone")=="ok")'
 }
+link_icons_source_shots() { # MODE
+  local mode="$1" theme source
+  expect "Themes enables for the source link shots" ok ipc shell setPluginEnabled vgs.themes true
+  expect "the wallpaper browser opens for the source link" ok ipc shell summon overlay vgs.themes '{"view":"wallpapers"}'
+  expect_poll "the wallpaper source link is loaded" true ipc smoke readDescendant overlay vgs.themes WallpaperView loaded
+  expect_poll "the wallpaper source starts on its theme" '"theme"' ipc smoke readDescendant overlay vgs.themes WallpaperView source
+  theme="$(ipc smoke themeName)" || { fail "the source link theme is unreadable"; return; }
+  source="$(ipc smoke readDescendant overlay vgs.themes WallpaperView source)" || { fail "the source link state is unreadable"; return; }
+  park_pointer
+  take "link-icons-$mode-source"
+  word_hover_shot "link-icons-$mode-source-hover" "Show all"
+  printf '%s\t%s\t%s\t%s\t%s\n' "link-icons-$mode-source" "$mode" "$capture_source" "$theme" "$source" >>"$SHOT_DIR/link-view-states.tsv"
+  expect "the wallpaper browser closes after source link shots" ok ipc shell hide overlay vgs.themes
+}
+link_icons_review_shots() { # MODE
+  local original
+  original="$(declare -f cs_shots)" || { fail "the Google Drive capture helper is absent"; return; }
+  # Keep the existing runner's complete state sequence, capturing only the
+  # real review popover. The original scene and its helper stay unchanged.
+  cs_shots() {
+    local mode="$1" state="$2" want="$3" fields=(cause) theme
+    if [[ $# -gt 3 ]]; then want+=" $4"; fields+=(kind); fi
+    expect "Google Drive reads its record for $state" ok ipc vgs.google-drive invoke refresh ''
+    expect_poll "Google Drive publishes $state for link shots" "$want" cs_code "${fields[@]}"
+    [[ $state == 8-review ]] || return 0
+    cs_popover "$mode" "$state"
+    theme="$(ipc smoke themeName)" || { fail "the review link theme is unreadable"; return; }
+    printf '%s\t%s\t%s\t%s\t%s\n' "googledrive-$mode-$state-popover" "$mode" "$capture_source" "$theme" "$want" >>"$SHOT_DIR/link-view-states.tsv"
+  }
+  scene_googledrive "$1"
+  eval "$original"
+}
 scene_link-icons() { # MODE
   local mode="$1" id tab image
   sentinel_stand_over "$shim/secret-tool" <<'LINKKEYS'
@@ -8856,6 +8888,8 @@ LINKKEYS
   expect "Google Drive disables after link icon shots" ok ipc shell setPluginEnabled vgs.google-drive false
   automations_stand_ins_restore "$sandbox/link-icons-systemd"
   sentinel_restore "$shim/secret-tool"
+  link_icons_source_shots "$mode"
+  link_icons_review_shots "$mode"
 }
 
 # The first shot is the bare desktop; every later shot must differ from the
