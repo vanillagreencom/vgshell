@@ -94,7 +94,58 @@ tailscale_icon() { ipc smoke readDescendant "$(bar_key)" vgs.tailscale BarItem i
 tailscale_use() { device_reply tailscale 0 "$(<"$tailscale_fixtures/$1")" status --json; }
 tailscale_value() { ipc smoke statusValues vgs.tailscale | py_reply 'import json,sys; v=json.load(sys.stdin).get("tailscale"); print("unpublished" if v is None else json.dumps(v[sys.argv[1]]))' "$1"; }
 tailscale_setup() { ipc smoke statusValues vgs.tailscale | py_reply 'import json,sys; v=json.load(sys.stdin).get("setup"); print("unpublished" if v is None else v.get("action", "none"))'; }
-tailscale_step() { ipc shell lent | py_reply 'import json,sys; s=json.load(sys.stdin)["system"]["steps"][sys.argv[1]]; print(s["state"] + " " + s["reason"])' "$1"; }
+tailscale_step() {
+  ipc shell lent | py_reply 'import json,sys
+system = json.load(sys.stdin).get("system") or {}
+steps = system.get("steps") or {}
+step = steps.get(sys.argv[1])
+if step is None:
+    print("unpublished")
+else:
+    print(step["state"] + " " + step["reason"])' "$1"
+}
+tailscale_step_cases() {
+  (
+    local snapshot want got
+    [[ $# -eq 0 ]] || source "$1" || return 2
+    while IFS='|' read -r snapshot want; do
+      got="$(ipc() { printf '%s\n' "$snapshot"; }; tailscale_step service-tailscaled)" || return 1
+      [[ $got == "$want" ]] || return 1
+    done <<'TAILSCALE_STEPS'
+{}|unpublished
+{"system":null}|unpublished
+{"system":{}}|unpublished
+{"system":{"steps":null}}|unpublished
+{"system":{"steps":{}}}|unpublished
+{"system":{"steps":{"service-tailscaled":null}}}|unpublished
+{"system":{"steps":{"service-tailscaled":{"state":"ready","reason":"active"}}}}|ready active
+TAILSCALE_STEPS
+  )
+}
+tailscale_step_control() {
+  (
+    local scratch status=0
+    scratch="$(mktemp -d)" || return 1
+    [[ -d $scratch && ! -L $scratch ]] || return 1
+    trap 'rm -rf -- "${scratch:?}"' EXIT
+    python3 - "${BASH_SOURCE[0]}" "$scratch/step.sh" <<'PY'
+import pathlib, sys
+source = pathlib.Path(sys.argv[1]).read_text()
+start = source.index("tailscale_step() {\n")
+body = source[start:source.index("\n}\n", start) + 3]
+needle = "if step is None:"
+assert body.count(needle) == 1
+changed = body.replace(needle, "if step is None and False:")
+assert changed != body
+pathlib.Path(sys.argv[2]).write_text(changed)
+PY
+    [[ $? -eq 0 ]] || return 1
+    tailscale_step_cases "$scratch/step.sh" >"$scratch/control.log" 2>&1 || status=$?
+    [[ $status -eq 1 ]]
+  )
+}
+if tailscale_step_cases; then ok "the step reader waits for unpublished system, steps and named step, then preserves ready state and reason"; else fail "the step reader cannot distinguish unpublished from ready"; fi
+if tailscale_step_control; then ok "control: direct indexing of an unpublished step fails its reader cases"; else fail "control: direct indexing of an unpublished step stayed green"; fi
 tailscale_shown() { [[ $(ipc smoke instanceGeometry "$1" vgs.tailscale) != absent ]] && echo shown || echo hidden; }
 tailscale_body() { ipc smoke readDescendant "$1" vgs.tailscale TailscaleBody "$2"; }
 tailscale_reason_names() { tailscale_body "$1" lockReason | py_reply 'import json,sys; print(sys.argv[1] in json.load(sys.stdin))' "$2"; }
