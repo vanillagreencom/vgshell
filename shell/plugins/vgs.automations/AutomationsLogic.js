@@ -5,10 +5,11 @@
 // model and its presets, the schedule compiler (systemd OnCalendar= and the
 // cron fallback's fields), the occurrences the preview shows and the
 // runner's guard reads, the summary line, the unit and crontab text, the
-// run records and history rows, pruning, the notifications a run sends, and
-// the status the service publishes. bin/automations owns processes, files
-// and systemctl; Service.qml owns timers and status writes. Both load this
-// file, so the preview, the units and the guard cannot disagree.
+// run records and history rows, pruning, the notifications a run sends, the
+// scheduled run's wait for the network, and the status the service
+// publishes. bin/automations owns processes, files and systemctl;
+// Service.qml owns timers and status writes. Both load this file, so the
+// preview, the units and the guard cannot disagree.
 //
 // Times are local wall-clock times, as systemd reads an OnCalendar=
 // expression without a zone and cron reads its fields. A time a daylight
@@ -1253,6 +1254,64 @@ function notifySendArgs(n, replaceId) {
     if (n.open !== "") args.push("--hint=string:x-vgs-open:" + n.open);
     if (isWhole(replaceId) && replaceId > 0) args.push("--replace-id=" + replaceId);
     return args.concat(["--", n.summary, n.body]);
+}
+
+// ------------------------------------------------------------- network
+
+// A scheduled run waits while NetworkManager reads a State other than
+// NM_STATE_CONNECTED_GLOBAL (NetworkManager's nm-dbus-interface.h), since a
+// slot missed in a suspend fires within a second of the resume, before
+// NetworkManager has the network back. The engine cannot tell from a
+// command whether it needs the network, so the wait is bounded: a command
+// that needs none starts at most NETWORK_WAIT_MS late, and one that needs
+// it runs at the bound and fails with its own error. One busctl wait for
+// NetworkManager's StateChanged lasts at most NETWORK_POLL_SECONDS, and the
+// State is read again after each, so a change between a read and the next
+// wait costs at most that.
+var NM_STATE_CONNECTED_GLOBAL = 70;
+var NETWORK_WAIT_MS = 60000;
+var NETWORK_POLL_SECONDS = 5;
+
+// NetworkManager's State from busctl --json=short get-property's reply,
+// `{"type":"u","data":70}`, or null.
+function nmState(reply) {
+    var doc;
+    try {
+        doc = JSON.parse(String(reply));
+    } catch (e) {
+        return null;
+    }
+    return isPlainObject(doc) && doc.type === "u" && isWhole(doc.data) ? doc.data : null;
+}
+
+// The seconds of the next busctl wait after `waitedMs` of waiting: at
+// least 1 while time remains, 0 once the bound is reached.
+function networkWaitSeconds(waitedMs) {
+    var remaining = NETWORK_WAIT_MS - waitedMs;
+    return remaining <= 0 ? 0 : Math.min(NETWORK_POLL_SECONDS, Math.ceil(remaining / 1000));
+}
+
+// The transcript header line and the runner's stderr line (empty when the
+// run neither waited nor failed to wait) for how the wait ended: `kind`
+// absent (no NetworkManager on the system bus, `exit` busctl's status, or
+// null when busctl is missing), online, offline (the bound reached) or
+// failed (a busctl wait exited `exit`), after `waitedMs`, with the last
+// State read, null when none was.
+function networkLines(outcome) {
+    var waited = Math.round(outcome.waitedMs / 1000) + "s";
+    var after = outcome.waitedMs > 0 ? " after " + waited : "";
+    switch (outcome.kind) {
+    case "absent":
+        return { transcript: "network: no NetworkManager" + after + (outcome.exit === null ? " (no busctl)" : " (busctl exit=" + outcome.exit + ")"), log: outcome.waitedMs > 0 ? "network=absent waited=" + waited + " exit=" + outcome.exit : "" };
+    case "online":
+        return { transcript: "network: online" + after + " (NetworkManager state " + outcome.state + ")", log: outcome.waitedMs > 0 ? "network=online waited=" + waited : "" };
+    case "offline":
+        return { transcript: "network: still offline" + after + " (state " + outcome.state + "); ran anyway", log: "network=offline waited=" + waited + " state=" + outcome.state };
+    case "failed":
+        return { transcript: "network: wait failed exit=" + outcome.exit + after + " (state " + outcome.state + "); ran anyway", log: "network=wait-failed exit=" + outcome.exit + " waited=" + waited + " state=" + outcome.state };
+    default:
+        throw new Error("automations: network outcome " + JSON.stringify(outcome.kind) + " is not absent, online, offline or failed");
+    }
 }
 
 // --------------------------------------------------------------- status

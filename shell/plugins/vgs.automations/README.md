@@ -15,6 +15,7 @@ Automations runs your commands on a schedule. It keeps each run's output and sen
 - Run now, a history of every run with its outcome and transcript, and clearing one automation's history or all of it.
 - A failed run sends a notification. A click on it opens the transcript. When more runs fail after it, that one notification shows how many runs failed and since when, and the next run that succeeds replaces it with a recovered notification.
 - A run continues when VGS closes.
+- A scheduled run waits up to a minute for the network while the computer is offline, such as just after it wakes from sleep.
 
 ## Setup
 

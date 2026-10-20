@@ -50,7 +50,8 @@
 //   automations --tree <dir> run --scheduled|--manual <id>
 //       the runner, which the units, the crontab lines and run-now start
 //       under the automation's lock; a scheduled trigger runs only what
-//       AutomationsLogic.guard allows.
+//       AutomationsLogic.guard allows, and first waits while NetworkManager
+//       reads offline, at most AutomationsLogic.NETWORK_WAIT_MS.
 //
 // Files: the store is $XDG_CONFIG_HOME/vgshell/automations/automations.json;
 // the units are $XDG_CONFIG_HOME/systemd/user/vgs-automation-<id>.timer
@@ -76,10 +77,11 @@
 // `flock=missing`, `flock=failed exit=<n>`, `run=busy id=<id>`,
 // `settings=failed exit=<n>`, `home=unset`. The runner logs
 // `automations: skipped=<id> reason=<reason>`, `automations: notify=failed
-// ...`, `automations: notify-server=...`, `automations: streak=refused ...`
-// and `automations: prune=skipped ...` lines on stderr, which systemd keeps
-// in the journal; it exits 0 when the run succeeded or was skipped, 1 when
-// it failed.
+// ...`, `automations: notify-server=...`, `automations: streak=refused ...`,
+// `automations: network=... id=<id>` after a scheduled run waited for the
+// network, and `automations: prune=skipped ...` lines on stderr, which
+// systemd keeps in the journal; it exits 0 when the run succeeded or was
+// skipped, 1 when it failed.
 "use strict";
 const childProcess = require("child_process");
 const crypto = require("crypto");
@@ -784,14 +786,14 @@ function runVerb(words) {
     // nothing ran.
     const text = readText(storeFile);
     const judged = text === null ? { ok: true, store: Logic.emptyStore() } : Logic.parseStore(text);
-    if (!judged.ok) return execute(standIn(id), trigger, null, now, "store=" + judged.error.replace(/\s+/g, "-"));
+    if (!judged.ok) return execute(standIn(id), trigger, null, now, "store=" + judged.error.replace(/\s+/g, "-"), null);
     const at = Logic.indexOfAutomation(judged.store, id);
     if (at === -1) {
         log("skipped=" + id + " reason=unknown");
         process.exit(1);
     }
     const automation = judged.store.automations[at];
-    if (trigger === "manual") return execute(automation, trigger, null, now, "");
+    if (trigger === "manual") return execute(automation, trigger, null, now, "", null);
     if (!automation.enabled) {
         log("skipped=" + id + " reason=paused");
         return;
@@ -800,7 +802,7 @@ function runVerb(words) {
     let handled = null;
     if (guardText !== null) {
         const state = Logic.parseGuardState(guardText);
-        if (!state.ok) return execute(automation, trigger, null, now, "guard=" + state.error.replace(/\s+/g, "-") + " path=" + guardFile(id));
+        if (!state.ok) return execute(automation, trigger, null, now, "guard=" + state.error.replace(/\s+/g, "-") + " path=" + guardFile(id), null);
         handled = state.handledThrough;
     }
     const decision = Logic.guard(automation.schedule, now, handled, automation.catchUp);
@@ -809,7 +811,38 @@ function runVerb(words) {
         log("skipped=" + id + " reason=" + decision.reason);
         return;
     }
-    execute(automation, trigger, decision.slot, now, "");
+    // The run starts once the wait ends, so its records and transcript
+    // show when the command began.
+    const network = Logic.networkLines(waitForNetwork(sessionEnvironment()));
+    if (network.log !== "") log(network.log + " id=" + id);
+    execute(automation, trigger, decision.slot, Date.now(), "", network.transcript);
+}
+
+// Waits while NetworkManager reads offline, on its own StateChanged signal
+// and at most Logic.NETWORK_WAIT_MS, and answers how the wait ended, as
+// Logic.networkLines reads it. busctl get-property fails while no
+// NetworkManager owns its name on the system bus, and busctl wait exits 0
+// whether the signal came or its timeout passed, so the State is read
+// again after each wait. A wait that fails, a busctl without the verb or a
+// bus error, ends the wait.
+function waitForNetwork(env) {
+    const bin = which("busctl");
+    if (bin === null) return { kind: "absent", exit: null, state: null, waitedMs: 0 };
+    const nm = ["org.freedesktop.NetworkManager", "/org/freedesktop/NetworkManager", "org.freedesktop.NetworkManager"];
+    const began = Date.now();
+    // 0 until the first wait, so a run that waited for nothing reads so.
+    let waitedMs = 0;
+    for (;;) {
+        const read = run(bin, ["--system", "--json=short", "get-property"].concat(nm, ["State"]), { env: env, timeout: 5000 });
+        const state = read.status === 0 ? Logic.nmState(read.stdout) : null;
+        if (state === null) return { kind: "absent", exit: read.status, state: null, waitedMs: waitedMs };
+        if (state === Logic.NM_STATE_CONNECTED_GLOBAL) return { kind: "online", state: state, waitedMs: waitedMs };
+        const seconds = Logic.networkWaitSeconds(waitedMs);
+        if (seconds === 0) return { kind: "offline", state: state, waitedMs: waitedMs };
+        const wait = run(bin, ["--system", "--json=short", "wait", "--timeout=" + seconds].concat(nm, ["StateChanged"]), { env: env, timeout: seconds * 1000 + 5000 });
+        waitedMs = Math.max(1, Date.now() - began);
+        if (wait.status !== 0) return { kind: "failed", exit: wait.status, state: state, waitedMs: waitedMs };
+    }
 }
 
 // The automation a run whose store was refused reports under: its id as
@@ -821,8 +854,10 @@ function standIn(id) {
 // One run: its started record, its transcript, the command under the
 // login shell with its timeout, its ended record, its notifications and
 // the prune of its automation's history. A non-empty `refusal` ends it as
-// failed to start before anything runs.
-function execute(automation, trigger, slot, startedAt, refusal) {
+// failed to start before anything runs. `network`, a scheduled run's wait
+// for the network as Logic.networkLines words it, heads the transcript
+// after the trigger; null for a manual run or a refused start.
+function execute(automation, trigger, slot, startedAt, refusal, network) {
     const id = automation.id;
     const runId = startedAt + "-" + process.pid;
     const transcriptFile = path.join(runsDir, Logic.runFile(id, runId, "log"));
@@ -848,9 +883,8 @@ function execute(automation, trigger, slot, startedAt, refusal) {
         "command: " + automation.command,
         "directory: " + directory,
         "shell: " + (shell || "none") + " -l -c",
-        "trigger: " + trigger + (slot === null ? "" : " for " + new Date(slot).toString()),
-        "started: " + new Date(startedAt).toString()
-    ]);
+        "trigger: " + trigger + (slot === null ? "" : " for " + new Date(slot).toString())
+    ].concat(network === null ? [] : [network], ["started: " + new Date(startedAt).toString()]));
     const stderrLines = [];
     const stdoutLines = [];
     // The snippet's candidates: the last lines of each stream, each cut to

@@ -7,8 +7,10 @@
 # run. No call can reach the
 # host's systemd user manager or the user's crontab: the sandbox's runtime
 # directory and session bus are its own, and every command the plugin runs
-# resolves to a stand-in first. The row drives the engine, bin/automations,
-# as the shell's service runs it, with the shell's environment.
+# resolves to a stand-in first, save busctl, which reaches the sandbox's
+# own session and system buses alone. The row drives the engine,
+# bin/automations, as the shell's service runs it, with the shell's
+# environment.
 #
 # Rows: the service publishes its declared status, and its start with no
 # automation runs no systemctl verb but show-environment; crontab resolves
@@ -34,10 +36,14 @@
 # window's engine door drops every write and skips the transcript TUI,
 # leaves the count as it was after the engine pauses the automation, Last
 # runs as it was after the next failing run, and the store, the history
-# and the TUI record as they were after the same clicks and keys. The row
-# ends with the plugin disabled, its stand-ins removed and the shim files
-# they covered restored.
-# inputs: shell/plugins/vgs.automations/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml bin/vgshell-tui shell/Ui/feedback/Dialog.qml shell/Commons/Duration.js shell/Commons/qmldir shell/Ui/controls/RowAction.qml
+# and the TUI record as they were after the same clicks and keys. Then a
+# scheduled run of a slot missed in a suspend waits while the sandbox's
+# NetworkManager mock reads disconnected and starts once the row sets it
+# online, and three failing runs and a success keep one notice, the
+# notify-send stand-in's later calls each replacing the first's id. The
+# row ends with the plugin disabled, the mock's State as the row found it,
+# its stand-ins removed and the shim files they covered restored.
+# inputs: shell/plugins/vgs.automations/* shell/plugins/vgs.settings/* shell/Commons/Reply.js shell/Core/PluginStatus.qml shell/Core/TuiRunner.qml bin/vgshell-tui shell/Ui/feedback/Dialog.qml shell/Commons/Duration.js shell/Commons/qmldir shell/Ui/controls/RowAction.qml shell/Core/NotificationHub.qml scripts/smoke/rows/capabilities.sh
 set -euo pipefail
 auto_stub="$sandbox/automations-stub"
 # The systemctl stand-in fails daemon-reload while $auto_stub/fail-reload
@@ -467,6 +473,86 @@ expect "the control's clear removes no run" 1 auto_history_count nightly
 rm -r -- "$auto_copy"
 rescan "the shipped plugin is scanned again"
 expect_poll "the shipped service lists the paused automation" 0 auto_status active
+
+auto_runs_dir="$(automations list --json | py_reply 'import json,sys; print(json.load(sys.stdin)["runsDir"])')" || fail "the engine's runs directory is unreadable"
+auto_guard_dir="${auto_runs_dir%/runs}/guard"
+
+# A missed slot waits for the network: the sandbox's NetworkManager mock
+# (scripts/smoke/devices.sh) reads disconnected, 20, through its own
+# SetGlobalConnectionState, which also sends NetworkManager's StateChanged;
+# a scheduled run of a slot 5 minutes back, the guard planted as a resume
+# leaves it, starts nothing until the row sets it online, 70, and the run's
+# started record and transcript then show the start after that. The mock
+# gets back the State the row found.
+nm_state() { "${shell_env[@]}" busctl --system --json=short get-property org.freedesktop.NetworkManager /org/freedesktop/NetworkManager org.freedesktop.NetworkManager State | py_reply 'import json,sys; print(json.load(sys.stdin)["data"])'; }
+nm_set() { "${shell_env[@]}" busctl --system call org.freedesktop.NetworkManager /org/freedesktop/NetworkManager org.freedesktop.DBus.Mock SetGlobalConnectionState u "$1" && echo ok; }
+auto_records() { # ID KIND: how many KIND records, started or ended, ID's runs left
+  python3 -c 'import glob,sys; print(len(glob.glob(sys.argv[1] + "/" + sys.argv[2] + "@*." + sys.argv[3] + ".json")))' "$auto_runs_dir" "$1" "$2"
+}
+# auto_waited_run ONLINE_AT: the one ended run of smoke-net as its
+# trigger, its outcome, whether it started at or after ONLINE_AT (ms) and
+# the first two words of its transcript's network line.
+auto_waited_run() {
+  python3 - "$auto_runs_dir" "$1" <<'PY'
+import glob, json, re, sys
+ended = [json.load(open(f)) for f in glob.glob(sys.argv[1] + "/smoke-net@*.ended.json")]
+if len(ended) != 1:
+    print("ended=%d" % len(ended))
+    raise SystemExit
+rec = ended[0]
+line = re.search(r"^# network: (\S+ \S+)", open(rec["transcript"]).read(), re.M)
+print(json.dumps([rec["trigger"], rec["outcome"], rec["startedAt"] >= int(sys.argv[2]), line.group(1) if line else None]))
+PY
+}
+if devices_ready automations; then
+  nm_found="$(nm_state)" || fail "the NetworkManager mock's State is unreadable"
+  expect "the NetworkManager mock reads disconnected" ok nm_set 20
+  missed="$("${shell_env[@]}" python3 -c 'import time; print(time.strftime("%H:%M", time.localtime(time.time() - 300)))')" || fail "the missed slot's time is unreadable"
+  expect "the engine adds a scheduled automation" added=smoke-net auto_last add --definition '{"name": "Smoke net", "command": "true", "catchUp": true, "schedule": {"frequency": "daily", "interval": 1, "times": ["'"$missed"'"], "start": "2026-01-01", "end": {"type": "never"}}}'
+  printf '{"handledThrough": 0}\n' >"$auto_guard_dir/smoke-net.json"
+  spawn "$sandbox/automations-net.err" "${shell_env[@]}" PATH="$shell_path" "$auto_engine" --tree "$repo" run --scheduled smoke-net
+  # The runner reads the State and waits on the signal in well under this
+  # hold, so the reading below finds it waiting, not unstarted.
+  sleep 1.5
+  expect "no run starts while NetworkManager reads disconnected" 0 auto_records smoke-net started
+  online_at="$(date +%s%3N)"
+  expect "the NetworkManager mock reads online" ok nm_set 70
+  expect_poll "the waiting run ends once the network is up" 1 auto_records smoke-net ended
+  expect "the missed run started after the network came up, its transcript naming the wait" '["scheduled", "succeeded", true, "online after"]' auto_waited_run "$online_at"
+  expect "the runner logs its wait to the journal" 1 grep -c '^automations: network=online waited=[0-9]*s id=smoke-net$' "$sandbox/automations-net.err"
+  expect "the NetworkManager mock gets back the State the row found" ok nm_set "$nm_found"
+  expect "the engine removes the network automation" removed=smoke-net auto_last remove smoke-net
+fi
+
+# One notice for a failing automation: three failing runs and a success,
+# whose notify-send calls show the second and third failure and the
+# recovered notice each replacing the id the stand-in printed for the
+# first. A notice is replaced only on the server that showed it, so this
+# needs the shell to own org.freedesktop.Notifications on the sandbox's
+# session bus, which it holds from the capabilities row's notification
+# server on (shell/Core/NotificationHub.qml).
+auto_notifications_owned() { "${shell_env[@]}" busctl --user --json=short call org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus NameHasOwner s org.freedesktop.Notifications; }
+auto_manual() { if automations run --manual "$1"; then echo exit=0; else echo "exit=$?"; fi; }
+# auto_notices_since N: each notify-send call after the first N as its
+# urgency, the id it replaces (null for none) and its summary.
+auto_notices_since() {
+  python3 - "$auto_stub/notify-send.calls" "$1" <<'PY'
+import json, sys
+calls = [json.loads(line) for line in open(sys.argv[1])][int(sys.argv[2]):]
+flag = lambda call, name: next((a.split("=", 1)[1] for a in call if a.startswith("--" + name + "=")), None)
+print(json.dumps([[flag(c, "urgency"), flag(c, "replace-id"), c[-2]] for c in calls]))
+PY
+}
+expect "the shell owns the sandbox's notification server name" '{"type":"b","data":[true]}' auto_notifications_owned
+auto_streak_flag="$sandbox/automations-streak-fails"
+: >"$auto_streak_flag"
+expect "the engine adds an automation that fails while the flag exists" added=smoke-streak auto_last add --definition '{"name": "Smoke streak", "command": "test ! -e '"$auto_streak_flag"'", "schedule": {"frequency": "weekly", "interval": 2, "weekdays": ["mon"], "times": ["03:00"], "start": "2026-01-05", "end": {"type": "never"}}}'
+auto_sent_before="$(python3 -c 'import os,sys; print(sum(1 for _ in open(sys.argv[1])) if os.path.exists(sys.argv[1]) else 0)' "$auto_stub/notify-send.calls")" || fail "the notify-send calls are unreadable"
+for auto_round in 1 2 3; do expect "failing run $auto_round" exit=1 auto_manual smoke-streak; done
+rm -- "$auto_streak_flag"
+expect "the run after the failures succeeds" exit=0 auto_manual smoke-streak
+expect "the failures keep one notice, replaced each time, and the success replaces it as recovered" '[["critical", null, "Smoke streak failed"], ["critical", "7", "Smoke streak failed"], ["critical", "7", "Smoke streak failed"], ["low", "7", "Smoke streak recovered"]]' auto_notices_since "$auto_sent_before"
+expect "the engine removes the failing automation" removed=smoke-streak auto_last remove smoke-streak
 
 expect "the engine removes the automation" removed=nightly auto_last remove nightly
 expect "its units are gone" '[]' auto_units

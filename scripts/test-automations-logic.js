@@ -4,9 +4,10 @@
 // OnCalendar= expressions and cron fields, the summary line, the next
 // occurrences, the runner's guard, the store, guard-state and streak
 // judges, the unit and crontab text, the run records and history rows,
-// pruning, the notifications a run sends with its failure streak and the
-// notification server a notice is replaced on. Every expected value is
-// written out by hand.
+// pruning, the notifications a run sends with its failure streak, the
+// notification server a notice is replaced on, and a scheduled run's
+// bounded wait for NetworkManager. Every expected value is written out by
+// hand.
 //
 // The preview rows compare the judge's next ten occurrences with
 // `systemd-analyze calendar --iterations` on the expressions it compiles,
@@ -438,6 +439,36 @@ function verify(logic) {
     ]) same(logic.replaceIdFor(notice, server), want, "replace: " + why);
     same(logic.replaceIdFor(null, SERVER), null, "no notice replaces none");
 
+    // A scheduled run's wait for the network: NetworkManager's State from
+    // busctl --json=short get-property, each bounded wait's seconds, and
+    // the transcript and journal lines of how the wait ended.
+    same(logic.nmState(JSON.stringify({ type: "u", data: 70 })), 70);
+    for (const [reply, why] of [
+        ["", "no reply"],
+        ["u 70", "not json"],
+        [JSON.stringify({ type: "u", data: [70] }), "a StateChanged signal's list"],
+        [JSON.stringify({ type: "s", data: "70" }), "not a number"],
+        [JSON.stringify({ type: "u", data: 7.5 }), "not whole"]
+    ]) same(logic.nmState(reply), null, "no state: " + why);
+    for (const [waitedMs, want] of [[0, 5], [57000, 3], [59500, 1], [60000, 0], [61000, 0]]) same(logic.networkWaitSeconds(waitedMs), want, "the wait after " + waitedMs + " ms");
+    let waited = 0;
+    for (let s = logic.networkWaitSeconds(waited); s > 0; s = logic.networkWaitSeconds(waited)) waited += s * 1000;
+    same(waited, 60000, "back-to-back waits end at the bound");
+    for (const [outcome, log] of [
+        [{ kind: "absent", exit: null, state: null, waitedMs: 0 }, ""],
+        [{ kind: "absent", exit: 1, state: null, waitedMs: 0 }, ""],
+        [{ kind: "absent", exit: 1, state: null, waitedMs: 5000 }, "network=absent waited=5s exit=1"],
+        [{ kind: "online", state: 70, waitedMs: 0 }, ""],
+        [{ kind: "online", state: 70, waitedMs: 7400 }, "network=online waited=7s"],
+        [{ kind: "offline", state: 20, waitedMs: 60200 }, "network=offline waited=60s state=20"],
+        [{ kind: "failed", exit: 1, state: 20, waitedMs: 3 }, "network=wait-failed exit=1 waited=0s state=20"]
+    ]) {
+        const lines = logic.networkLines(outcome);
+        same(lines.log, log, "the journal line of " + JSON.stringify(outcome));
+        assert.match(lines.transcript, /^network: /, "the transcript line of " + JSON.stringify(outcome));
+    }
+    assert.throws(() => logic.networkLines({ kind: "late", waitedMs: 0 }), /network outcome "late"/);
+
     // List rows, status and the refresh.
     const listed = logic.listRows({ version: 1, automations: [automation({}), automation({ id: "off", name: "Off", enabled: false }), automation({ id: "done", name: "Done", schedule: UNTIL })] },
         [{ automation: "backup", run: "r2", outcome: "failed", tone: "danger", startedAt: 5, endedAt: 6, transcript: "/t2" }, { automation: "backup", run: "r1", outcome: "succeeded", tone: "success", startedAt: 1, endedAt: 2, transcript: "/t1" }],
@@ -741,6 +772,9 @@ const CONTROLS = [
     ["a success clears its own operation's failure alone", "if (failure === \"\") delete next[operation];", "if (failure === \"\") next = {};"],
     ["a failure is kept until its operation succeeds", "else next[operation] = String(failure).slice(0, 200);", "else next = { list: String(failure) };"],
     ["the Engine status names a failure", "if (hasOwn(failures, ENGINE_OPERATIONS[i])) return { tone: \"danger\", text: failureText(failures[ENGINE_OPERATIONS[i]]) };", "if (false) return null;"],
+    ["the network wait ends at its bound", "return remaining <= 0 ? 0 : Math.min(NETWORK_POLL_SECONDS, Math.ceil(remaining / 1000));", "return Math.min(NETWORK_POLL_SECONDS, Math.max(1, Math.ceil(remaining / 1000)));"],
+    ["a signal's list is no State", "doc.type === \"u\" && isWhole(doc.data) ? doc.data : null;", "doc.type === \"u\" ? doc.data : null;"],
+    ["a run that waited is logged", "log: outcome.waitedMs > 0 ? \"network=online waited=\" + waited : \"\"", "log: \"\""],
     ["a failing last run is reported", "if (rows[i].lastRun !== null && OUTCOMES[rows[i].lastRun.outcome].error) failing.push(rows[i].name);", ""]
 ];
 

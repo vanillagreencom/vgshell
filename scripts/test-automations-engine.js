@@ -72,7 +72,10 @@ function write(file, text, mode) {
 // notify-send prints the id it replaces, as a notification server keeps
 // it, else the next one; busctl answers the session bus's id from
 // $STUB/bus and the owner of org.freedesktop.Notifications from
-// $STUB/owner, refusing as busctl does when the file is empty; crontab
+// $STUB/owner, refusing as busctl does when the file is empty, and
+// NetworkManager's State on the system bus from $STUB/nm, absent while the
+// file is empty; its wait for StateChanged returns when $STUB/nm changes,
+// as the signal would, or after its timeout with no output; crontab
 // keeps the table in $STUB/crontab; loginctl answers $STUB/linger.
 const STUBS = {
     systemctl: `#!/usr/bin/env bash
@@ -96,7 +99,20 @@ for a in "$@"; do case "$a" in --replace-id=*) n=\${a#--replace-id=} ;; esac; do
 printf '%s\\n' "$n"
 `,
     busctl: `#!/usr/bin/env bash
+nm="org.freedesktop.NetworkManager /org/freedesktop/NetworkManager org.freedesktop.NetworkManager"
 case "$*" in
+  "--system --json=short get-property $nm State")
+    v=$(<"$STUB/nm")
+    [[ -n $v ]] || { echo "Failed to get property State on interface org.freedesktop.NetworkManager: The name org.freedesktop.NetworkManager was not provided by any .service files" >&2; exit 1; }
+    printf '{"type":"u","data":%s}\\n' "$v"; exit 0 ;;
+  "--system --json=short wait --timeout="*" $nm StateChanged")
+    was=$(<"$STUB/nm")
+    for ((i = 0; i < \${4#--timeout=} * 20; i++)); do
+      v=$(<"$STUB/nm")
+      [[ $v == "$was" ]] || { printf '{"type":"u","data":[%s]}\\n' "$v"; exit 0; }
+      sleep 0.05
+    done
+    exit 0 ;;
   "--user --json=short call org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus GetId") v=$(<"$STUB/bus") ;;
   "--user --json=short call org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus GetNameOwner s org.freedesktop.Notifications") v=$(<"$STUB/owner") ;;
   *) echo "busctl stand-in: unexpected $*" >&2; exit 2 ;;
@@ -145,6 +161,7 @@ function world(options) {
     write(path.join(stub, "linger"), opts.linger + "\n");
     write(path.join(stub, "bus"), BUS + "\n");
     write(path.join(stub, "owner"), ":1.7\n");
+    write(path.join(stub, "nm"), "");
     const home = path.join(root, "home");
     return {
         root, stub, home,
@@ -487,6 +504,56 @@ const CASES = {
         assert.equal(cli(w, engine, ["run", "--scheduled", id]).first, "automations: skipped=job reason=paused");
     },
 
+    "a missed run waits for NetworkManager to read online"(engine) {
+        const w = world();
+        const nm = path.join(w.stub, "nm");
+        // A daily slot five minutes back that the machine slept through:
+        // the guard last handled a slot before it, and the resume fires
+        // the trigger while NetworkManager reads disconnected (20).
+        const missed = new Date(Date.now() - 5 * 60 * 1000);
+        const time = String(missed.getUTCHours()).padStart(2, "0") + ":" + String(missed.getUTCMinutes()).padStart(2, "0");
+        const id = add(w, engine, { name: "Pull", schedule: { frequency: "daily", interval: 1, times: [time], start: "2026-01-01", end: { type: "never" } }, catchUp: true });
+        write(path.join(w.home, ".local", "state", "vgshell", "automations", "guard", id + ".json"), JSON.stringify({ handledThrough: 0 }));
+        write(nm, "20\n");
+        const errFile = path.join(w.root, "runner.err");
+        const err = fs.openSync(errFile, "w");
+        childProcess.spawn(engine, ["--tree", repo, "run", "--scheduled", id], { env: w.env, cwd: w.home, stdio: ["ignore", "ignore", err] });
+        fs.closeSync(err);
+        childProcess.spawnSync("sleep", ["1.5"]);
+        same(runFiles(w), [], "no run starts while NetworkManager reads offline");
+        const online = Date.now();
+        write(nm, "70\n");
+        waitFor(() => runFiles(w).some(n => n.endsWith(".ended.json")), "the run after the network came up");
+        const rec = ended(w, id);
+        same([rec.trigger, rec.outcome, rec.startedAt >= online], ["scheduled", "succeeded", true], "the run started once NetworkManager read online");
+        assert.match(fs.readFileSync(rec.transcript, "utf8"), /\n# network: online after \d+s \(NetworkManager state 70\)\n# started: /);
+        assert.match(fs.readFileSync(errFile, "utf8"), /^automations: network=online waited=\d+s id=pull$/m);
+    },
+
+    "a run with nothing to wait for starts at once"(engine) {
+        // [the run, $STUB/nm, the stand-ins, the transcript's network line].
+        for (const [trigger, state, stubs, line] of [
+            ["scheduled", "70", FORBIDDEN, /\n# network: online \(NetworkManager state 70\)\n/],
+            ["scheduled", "", FORBIDDEN, /\n# network: no NetworkManager \(busctl exit=1\)\n/],
+            ["scheduled", "20", FORBIDDEN.filter(name => name !== "busctl"), /\n# network: no NetworkManager \(no busctl\)\n/],
+            ["manual", "20", FORBIDDEN, null]
+        ]) {
+            const w = world({ stubs: stubs });
+            const id = add(w, engine, { schedule: { frequency: "daily", interval: 1, times: ["00:00"], start: "2026-01-01", end: { type: "never" } }, catchUp: true });
+            write(path.join(w.home, ".local", "state", "vgshell", "automations", "guard", id + ".json"), JSON.stringify({ handledThrough: 0 }));
+            write(path.join(w.stub, "nm"), state + "\n");
+            const began = Date.now();
+            const out = cli(w, engine, ["run", "--" + trigger, id]);
+            const rec = ended(w, id);
+            const transcript = fs.readFileSync(rec.transcript, "utf8");
+            const label = trigger + " with " + JSON.stringify(state) + " and " + stubs.length + " stand-ins";
+            same([out.status, rec.trigger, rec.startedAt - began < 5000], [0, trigger, true], label + " starts at once");
+            if (line === null) assert.doesNotMatch(transcript, /\n# network: /, label);
+            else assert.match(transcript, line, label);
+            assert.doesNotMatch(out.stderr, /network=/, label + " logs no wait");
+        }
+    },
+
     "an every-10-minutes automation runs its latest slot once per trigger"(engine) {
         const w = world();
         const TEN = 10 * 60 * 1000;
@@ -721,7 +788,10 @@ const CONTROLS = [
     ["a long line ending in a break is split too", "output with no line break reaches the transcript in pieces", "        for (let at = 0; at < line.length; at += Logic.TRANSCRIPT_LINE_MAX) onLine(line.slice(at, at + Logic.TRANSCRIPT_LINE_MAX));\n        if (line === \"\") onLine(line);", "        onLine(line);"],
     ["a long line is split into pieces", "output with no line break reaches the transcript in pieces", "        while (pending.length > Logic.TRANSCRIPT_LINE_MAX) {", "        while (false) {"],
     ["a missing directory fails the start", "a missing working directory is a failed start", "return finish({ started: false, timedOut: false, exitCode: null, signal: null, reason: \"directory=\" + e.code + \" path=\" + directory });", "directory; // unchecked"],
-    ["a refused store fails the start", "a refused store is a failed start the user is told of", "if (!judged.ok) return execute(standIn(id), trigger, null, now, \"store=\" + judged.error.replace(/\\s+/g, \"-\"));", "if (!judged.ok) process.exit(1);"],
+    ["a refused store fails the start", "a refused store is a failed start the user is told of", "if (!judged.ok) return execute(standIn(id), trigger, null, now, \"store=\" + judged.error.replace(/\\s+/g, \"-\"), null);", "if (!judged.ok) process.exit(1);"],
+    ["a scheduled run waits for the network", "a missed run waits for NetworkManager to read online", "Logic.networkLines(waitForNetwork(sessionEnvironment()))", "Logic.networkLines({ kind: \"absent\", exit: null, state: null, waitedMs: 0 })"],
+    ["a run starts after its wait", "a missed run waits for NetworkManager to read online", "execute(automation, trigger, decision.slot, Date.now(), \"\", network.transcript);", "execute(automation, trigger, decision.slot, now, \"\", network.transcript);"],
+    ["the wait reads the State again after each wait", "a missed run waits for NetworkManager to read online", "if (wait.status !== 0) return { kind: \"failed\", exit: wait.status, state: state, waitedMs: waitedMs };", "return { kind: \"offline\", state: state, waitedMs: waitedMs };"],
     ["the transcript keeps its cap", "the transcript stops at its cap and the run goes on", "if (body + bytes > Logic.TRANSCRIPT_MAX_BYTES) {", "if (false) {"],
     ["the footer follows the cap", "the transcript stops at its cap and the run goes on", "put(footer.map(line => \"# \" + line + \"\\n\").join(\"\"));", ""],
     ["a scheduled trigger asks the guard", "a scheduled trigger runs only what the guard allows", "if (!decision.run) {\n        log(\"skipped=\" + id + \" reason=\" + decision.reason);\n        return;\n    }", ""],
