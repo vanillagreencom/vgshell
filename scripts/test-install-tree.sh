@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Controls for the shared system installer and the install tree manifest
-# checker. The suite installs into repo-local scratch directories, never the
-# live prefix. Each refusal row asserts the keyed first line a packager acts on.
+# checker. The suite installs into scratch directories outside the worktree, never
+# the live prefix. Each refusal row asserts the keyed first line a packager acts on.
 set -euo pipefail
 
 if ! node_bin="$(node -e 'process.stdout.write(process.execPath)')"; then
@@ -13,7 +13,7 @@ fi
   exit 77
 }
 repo="$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/.." && pwd -P)"
-tmp="$repo/tmp/test-install-tree.$$"
+tmp="$(mktemp -d "${TMPDIR:-/tmp}/test-install-tree.XXXXXX")"
 failures=0
 unavailable=false
 generator_missing=false
@@ -24,8 +24,6 @@ cleanup() {
   [[ -z $autostart_root ]] || rm -rf -- "${autostart_root:?}"
 }
 trap cleanup EXIT
-rm -rf -- "$tmp"
-mkdir -p -- "$tmp"
 export TMPDIR="$tmp"
 
 ok() { printf '  ok    %s\n' "$*"; }
@@ -88,7 +86,7 @@ cp -- "$repo/scripts/fixtures/jarvis/browser.py" "$browser_standins/agent-browse
 cp -- "$repo/scripts/fixtures/jarvis/browser-gum.py" "$browser_standins/gum"
 chmod 700 "$browser_standins/agent-browser" "$browser_standins/gum"
 run_capture "$tmp/browser.out" "$tmp/browser.err" status env -i PATH=/usr/bin:/bin \
-  JARVIS_TEST_SCRATCH_ROOT="${JARVIS_TEST_SCRATCH_ROOT:-$repo/tmp}" \
+  JARVIS_TEST_SCRATCH_ROOT="${JARVIS_TEST_SCRATCH_ROOT:-$tmp}" \
   "$repo/scripts/lib/jarvis-env.sh" "$browser_standins" -- node \
   "$repo/scripts/test-jarvis-browser-setup.js" --inside "$dest/usr/share/vgshell"
 if [[ $status == 77 ]]; then
@@ -104,7 +102,7 @@ check "installed guidance composes every consumer without source-tree files" tes
 setup_standins="$tmp/setup-standins"
 mkdir -p -- "$setup_standins"
 run_capture "$tmp/setup.out" "$tmp/setup.err" status env -i PATH=/usr/bin:/bin \
-  JARVIS_TEST_SCRATCH_ROOT="${JARVIS_TEST_SCRATCH_ROOT:-$repo/tmp}" \
+  JARVIS_TEST_SCRATCH_ROOT="${JARVIS_TEST_SCRATCH_ROOT:-$tmp}" \
   "$repo/scripts/lib/jarvis-env.sh" "$setup_standins" -- python3 \
   "$repo/scripts/fixtures/jarvis-setup/installed.py" "$dest/usr/share/vgshell"
 if [[ $status != 0 ]]; then cat -- "$tmp/setup.err" >&2; fi
