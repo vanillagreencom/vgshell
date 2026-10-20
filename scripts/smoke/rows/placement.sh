@@ -220,7 +220,7 @@ placement_bar_far_left() {
 # which the drop has written or the cancel has written nothing.
 # `left` once the bar's window no longer holds the keyboard, polled as
 # expect_poll polls, or `kept` at the bound: the drag's focus grab hands the
-# bar the keyboard until the release.
+# bar the keyboard until the release, or until the remove question takes it.
 placement_keyboard_left() {
   local at
   smoke_poll_tries 200 1

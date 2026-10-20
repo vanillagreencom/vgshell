@@ -873,10 +873,20 @@ print(json.dumps(out))' "$offbar_start" <<<"$rows"
   }
   # offbar_repeat ID LEG: the 20 drags of ID, each from its centre, LEG
   # along the bar, then to the release point, with Escape closing each
-  # question before the next drag.
+  # question before the next drag. A drag counts only from the bug's
+  # precondition: `N:not-focused` when the window does not hold the
+  # keyboard within 5 s before drag N, and `N:question-open` when Escape
+  # leaves drag N's question open, so the next reading is its own.
   offbar_repeat() {
-    local id="$1" leg="$2" n box x y reading misses=()
+    local id="$1" leg="$2" n box x y reading focused misses=()
     for n in $(seq 1 20); do
+      focused=""
+      for _ in $(seq 1 50); do
+        focused="$(active_window)" || focused=""
+        [[ $focused == '["smoke.other", "Other window"]' ]] && break
+        sleep 0.1
+      done
+      [[ $focused == '["smoke.other", "Other window"]' ]] || { misses+=("$n:not-focused"); continue; }
       box="$(ipc smoke instanceGeometry "$offbar_key" "$id")" || { misses+=("$n:box-unread"); continue; }
       read -r x y < <(py_reply 'import json,sys; b=json.load(sys.stdin); print(int(b[0]+b[2]/2), int(b[1]+b[3]/2))' <<<"$box") || { misses+=("$n:box-unparsed"); continue; }
       hover "$((x + 1))" "$y" || { misses+=("$n:hover-failed"); continue; }
@@ -891,6 +901,7 @@ print(json.dumps(out))' "$offbar_start" <<<"$rows"
         [[ $(ipc smoke readInstance "$offbar_key" "$id" frameDialogOpen) == false ]] && break
         sleep 0.1
       done
+      [[ $(ipc smoke readInstance "$offbar_key" "$id" frameDialogOpen) == false ]] || misses+=("$n:question-open")
     done
     python3 -c 'import json,sys; print(json.dumps(sys.argv[1:]))' "${misses[@]}"
   }
