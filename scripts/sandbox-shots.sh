@@ -7262,10 +7262,24 @@ PY
   expect "enabling vgs.screensaver is allowed" ok ipc shell setPluginEnabled vgs.screensaver true
   expect "reload config for the screensaver shot" ok ipc shell reloadConfig
   expect_poll "vgs.screensaver is built" True record_exists vgs.screensaver
+  park_pointer
   expect "starting the screensaver for the shot is allowed" ok ipc vgs.screensaver invoke start ''
   expect_poll "the screensaver cover is shown for the shot" 1 layer_count vgs:cover
   sleep 8
-  take "screensaver-$1-cover"
+  local state mapped
+  state="$(ipc smoke statusValues vgs.screensaver | py_reply 'import json,sys; print(json.load(sys.stdin).get("state", {}).get("text", "absent"))')" || state=unreadable
+  if [[ $state != Running ]]; then
+    fail "screensaver status not Running at capture time: $state"
+    return
+  fi
+  ok "screensaver status is Running at capture time"
+  mapped="$(layer_count vgs:cover)" || mapped=unreadable
+  if [[ $mapped != 1 ]]; then
+    fail "screensaver cover not mapped at capture time: $mapped"
+    return
+  fi
+  ok "screensaver cover is mapped at capture time"
+  SHOT_CHROME_READER=shot_chrome_read SHOT_CHROME_REQUIRE=clean take_raw "screensaver-$1-cover"
   expect "stopping the screensaver after the shot is allowed" ok ipc vgs.screensaver invoke stop ''
   expect_poll "the screensaver cover is gone after the shot" 0 layer_count vgs:cover
   expect "disabling vgs.screensaver after the shot is allowed" ok ipc shell setPluginEnabled vgs.screensaver false
