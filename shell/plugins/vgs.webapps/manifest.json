@@ -31,12 +31,11 @@
     "apps": {
       "type": "list",
       "label": "Web apps",
-      "description": "Each web app opens its site in its own window. Find it in the launcher by its name.",
+      "description": "Find each web app in the launcher by its name",
       "items": {
         "url": {
           "type": "string",
           "label": "Address",
-          "description": "The web address of the site",
           "presets": [
             { "value": "", "label": "No address" },
             { "value": "https://mail.google.com/", "label": "Gmail" },
@@ -52,7 +51,6 @@
         "title": {
           "type": "string",
           "label": "Name",
-          "description": "The name the launcher shows",
           "presets": [
             { "value": "", "label": "The site's own name" }
           ],
@@ -61,7 +59,7 @@
         "icon": {
           "type": "string",
           "label": "Icon",
-          "description": "The site's own icon, or the full path or web address of an image",
+          "description": "The full path or web address of an image",
           "presets": [
             { "value": "", "label": "The site's own icon" }
           ],

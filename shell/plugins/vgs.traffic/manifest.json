@@ -45,15 +45,15 @@
   },
   "schema": {
     "layout": {"type": "enum", "label": "Layout", "options": [{"value": "Stacked", "label": "Stacked"}, {"value": "One line", "label": "One line"}], "description": "Stacked shows two readings on two short lines", "group": "Readings"},
-    "labelStyle": {"type": "enum", "label": "Labels", "options": [{"value": "icons", "label": "Icons"}, {"value": "text", "label": "Text"}], "description": "Shows an icon or a short name before each reading", "group": "Readings"},
+    "labelStyle": {"type": "enum", "label": "Labels", "options": [{"value": "icons", "label": "Icons"}, {"value": "text", "label": "Text"}], "group": "Readings"},
     "refreshSeconds": {"type": "number", "label": "Refresh interval", "min": 1, "max": 10, "step": 1, "unit": "seconds", "group": "Readings"},
     "show": {"type": "enum", "label": "Speeds shown", "options": [{"value": "both", "label": "Both"}, {"value": "download", "label": "Download"}, {"value": "upload", "label": "Upload"}], "group": "Display"},
-    "kbDecimals": {"type": "number", "label": "KB/s decimals", "description": "Digits after the decimal point for speeds in KB/s", "min": 0, "max": 2, "step": 1, "group": "Display"},
-    "mbDecimals": {"type": "number", "label": "MB/s decimals", "description": "Digits after the decimal point for speeds in MB/s and GB/s", "min": 0, "max": 2, "step": 1, "group": "Display"}
+    "kbDecimals": {"type": "number", "label": "KB/s decimals", "min": 0, "max": 2, "step": 1, "group": "Display"},
+    "mbDecimals": {"type": "number", "label": "MB/s decimals", "description": "Also used for speeds in GB/s", "min": 0, "max": 2, "step": 1, "group": "Display"}
   },
   "status": {
     "traffic": {"type": "data", "label": "Traffic"},
-    "capture": {"type": "state", "label": "Traffic capture", "group": "See all traffic", "hint": "Let See all show the traffic of every app and protocol", "info": "See all shows every app and protocol. Allowing it lets every account on this computer see network traffic through bandwhich.", "action": {"label": "Allow traffic capture", "system": "bandwhich-capture"}}
+    "capture": {"type": "state", "label": "Traffic capture", "group": "See all traffic", "hint": "Let See all show the traffic of every app and protocol", "info": "Allowing it lets every account on this computer see network traffic through bandwhich.", "action": {"label": "Allow traffic capture", "system": "bandwhich-capture"}}
   },
   "systemSteps": [
     "bandwhich-capture"

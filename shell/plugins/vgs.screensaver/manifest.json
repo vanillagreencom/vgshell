@@ -49,7 +49,7 @@
     "art": {
       "type": "string",
       "label": "Art",
-      "description": "The VGS logo shows until you choose Custom… and type the full path of a PNG or SVG image or a text file",
+      "description": "Choose Custom… to type the full path of a PNG or SVG image or a text file",
       "presets": [{ "value": "", "label": "VGS logo" }],
       "allowCustom": true,
       "group": "Screensaver"

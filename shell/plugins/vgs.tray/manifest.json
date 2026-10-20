@@ -19,18 +19,17 @@
     "pinned": {
       "type": "list",
       "label": "Pinned icons",
-      "description": "These icons always show in the bar. The others wait behind the arrow.",
+      "description": "The other icons wait behind the arrow",
       "items": {
-        "item": { "type": "string", "label": "Icon", "description": "The app whose tray icon stays in the bar", "optionsFrom": "items", "placeholder": "Choose an app" }
+        "item": { "type": "string", "label": "Icon", "optionsFrom": "items", "placeholder": "Choose an app" }
       },
       "defaults": { "item": "" }
     },
     "hidden": {
       "type": "list",
       "label": "Hidden icons",
-      "description": "These icons never show in the bar",
       "items": {
-        "item": { "type": "string", "label": "Icon", "description": "The app whose tray icon stays out of the bar", "optionsFrom": "items", "placeholder": "Choose an app" }
+        "item": { "type": "string", "label": "Icon", "optionsFrom": "items", "placeholder": "Choose an app" }
       },
       "defaults": { "item": "" }
     }

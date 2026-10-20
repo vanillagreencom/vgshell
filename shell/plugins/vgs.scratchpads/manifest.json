@@ -30,12 +30,12 @@
     "pads": {
       "type": "list",
       "label": "Pads",
-      "description": "Each pad holds one app. Set its key under [Keys](page:vgs.scratchpads/Settings).",
+      "description": "Set the key of each pad under [Keys](page:vgs.scratchpads/Settings)",
       "items": {
         "command": {
           "type": "string",
           "label": "App",
-          "description": "The command that starts the app",
+          "info": "Choose a terminal, or type the command that starts another app.",
           "presets": [
             { "value": "xdg-terminal-exec --app-id=org.vgs.pad", "label": "Terminal" },
             { "value": "xdg-terminal-exec --app-id=org.vgs.pad.2", "label": "Second terminal" },
@@ -46,7 +46,8 @@
         "class": {
           "type": "string",
           "label": "Window class",
-          "description": "The app-id of the window the pad holds. Each pad needs its own.",
+          "description": "Each pad needs its own window class",
+          "info": "The app-id the app gives its window. It must match the app in App.",
           "presets": [
             { "value": "org.vgs.pad", "label": "org.vgs.pad, for Terminal" },
             { "value": "org.vgs.pad.2", "label": "org.vgs.pad.2, for Second terminal" },

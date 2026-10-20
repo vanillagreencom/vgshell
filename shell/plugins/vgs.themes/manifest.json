@@ -36,12 +36,12 @@
     "noWindowGaps": false
   },
   "schema": {
-    "placement": {"type": "enum", "label": "Panel position", "description": "Where the panel opens when you use its shortcut", "options": [{"value": "top-left", "label": "Top left"}, {"value": "top", "label": "Top"}, {"value": "top-right", "label": "Top right"}, {"value": "left", "label": "Left"}, {"value": "center", "label": "Center"}, {"value": "right", "label": "Right"}, {"value": "bottom-left", "label": "Bottom left"}, {"value": "bottom", "label": "Bottom"}, {"value": "bottom-right", "label": "Bottom right"}]},
-    "noWindowGaps": {"type": "boolean", "label": "No window gaps", "description": "Remove the space around and between tiled windows on every workspace", "group": "Hyprland"}
+    "placement": {"type": "enum", "label": "Panel position", "options": [{"value": "top-left", "label": "Top left"}, {"value": "top", "label": "Top"}, {"value": "top-right", "label": "Top right"}, {"value": "left", "label": "Left"}, {"value": "center", "label": "Center"}, {"value": "right", "label": "Right"}, {"value": "bottom-left", "label": "Bottom left"}, {"value": "bottom", "label": "Bottom"}, {"value": "bottom-right", "label": "Bottom right"}]},
+    "noWindowGaps": {"type": "boolean", "label": "No window gaps", "description": "Applies to tiled windows on every workspace", "group": "Hyprland"}
   },
   "status": {
     "browserTheming": {"type": "state", "label": "Browser theming", "group": "Browsers", "hint": "Let the selected theme change the colours of Chromium, Chrome, Edge and Brave", "action": {"label": "Install browser theming", "tui": "browser-policy"}},
-    "themeWiring": {"type": "presenceList", "label": "Theme files", "hint": "Open the file and line VGS added for each app", "info": "Each link opens the app's theme file. The list shows up to 32 rows to keep this page short. When more files are connected, the last row gives the number left out."}
+    "themeWiring": {"type": "presenceList", "label": "Theme files", "hint": "Open the file and line VGS added for each app", "info": "The list shows up to 32 rows. The last row gives the number of files left out."}
   },
   "tui": {
     "browser-policy": {

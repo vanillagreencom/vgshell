@@ -47,17 +47,17 @@
   "status": {
     "readings": {"type": "data", "label": "Readings"},
     "gpus": {"type": "choices", "label": "Graphics cards"},
-    "graphics": {"type": "state", "label": "Graphics card", "group": "GPU", "hint": "The graphics card the GPU readings come from"},
+    "graphics": {"type": "state", "label": "Graphics card", "group": "GPU"},
     "cpuSensors": {"type": "choices", "label": "CPU temperature sensors"}
   },
   "schema": {
     "layout": {"type": "enum", "label": "Layout", "options": [{"value": "Stacked", "label": "Stacked"}, {"value": "One line", "label": "One line"}], "description": "Stacked shows two readings on two short lines", "group": "Readings"},
-    "labelStyle": {"type": "enum", "label": "Labels", "options": [{"value": "icons", "label": "Icons"}, {"value": "text", "label": "Text"}], "description": "Shows an icon or a short name before each reading", "group": "Readings"},
+    "labelStyle": {"type": "enum", "label": "Labels", "options": [{"value": "icons", "label": "Icons"}, {"value": "text", "label": "Text"}], "group": "Readings"},
     "refreshSeconds": {"type": "number", "label": "Refresh interval", "min": 1, "max": 10, "step": 1, "unit": "seconds", "group": "Readings"},
-    "temperatureUnit": {"type": "enum", "label": "Temperature unit", "options": [{"value": "Celsius", "label": "Celsius"}, {"value": "Fahrenheit", "label": "Fahrenheit"}], "description": "Sets the unit for CPU and GPU temperatures", "group": "Readings"},
+    "temperatureUnit": {"type": "enum", "label": "Temperature unit", "options": [{"value": "Celsius", "label": "Celsius"}, {"value": "Fahrenheit", "label": "Fahrenheit"}], "description": "Used for CPU and GPU temperatures", "group": "Readings"},
     "showCpu": {"type": "boolean", "label": "CPU", "group": "CPU"},
     "cpuTemperature": {"type": "boolean", "label": "CPU temperature", "group": "CPU"},
-    "cpuSensor": {"type": "string", "label": "CPU temperature sensor", "optionsFrom": "cpuSensors", "description": "Automatic keeps the CPU sensor selected by the system", "group": "CPU"},
+    "cpuSensor": {"type": "string", "label": "CPU temperature sensor", "optionsFrom": "cpuSensors", "description": "Automatic uses the sensor the system selects", "group": "CPU"},
     "showMemory": {"type": "boolean", "label": "Memory", "group": "Memory"},
     "showSwap": {"type": "boolean", "label": "Swap use", "group": "Memory"},
     "memoryUnit": {"type": "enum", "label": "Memory unit", "group": "Memory", "options": [{"value": "percent", "label": "Percent"}, {"value": "used", "label": "Used"}]},

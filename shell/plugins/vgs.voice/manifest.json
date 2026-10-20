@@ -31,14 +31,14 @@
     "osd": "plasma"
   },
   "schema": {
-    "osd": {"type": "enum", "label": "On-screen display", "description": "Shown at the bottom of the focused screen while you dictate", "options": [{"value": "plasma", "label": "Plasma"}, {"value": "ring", "label": "Ring"}, {"value": "off", "label": "Off"}], "group": "Display"}
+    "osd": {"type": "enum", "label": "On-screen display", "info": "Shown at the bottom of the focused screen while you dictate.", "options": [{"value": "plasma", "label": "Plasma"}, {"value": "ring", "label": "Ring"}, {"value": "off", "label": "Off"}], "group": "Display"}
   },
   "hyprland": {
     "binds": [
       {
         "shortcut": "toggle",
         "key": "SUPER+CTRL+X",
-        "info": "A key combination that turns dictation on and off. Press it once to start, speak, and press it again to stop. VGS then types what you said into the field that has focus."
+        "info": "Press once to start dictating, speak, and press again to stop. VGS types what you said into the focused field."
       },
       {
         "shortcut": "tap",
@@ -47,13 +47,13 @@
           "code:105"
         ],
         "tap": true,
-        "info": "One key, tapped on its own, turns dictation on and off. A quick tap starts and the next tap stops. Hold the key, or press it with other keys, and it does its usual job, so a key such as Right Ctrl can do both."
+        "info": "Tap this key on its own to start or stop dictation. Held, or pressed with other keys, it keeps its usual job."
       },
       {
         "shortcut": "talk",
         "key": "F9",
         "hold": true,
-        "info": "Push to talk. Hold the key while you speak; dictation stops when you let go, and VGS types what you said into the field that has focus."
+        "info": "Hold the key while you speak. Dictation stops when you let go, and VGS types what you said into the focused field."
       }
     ]
   },

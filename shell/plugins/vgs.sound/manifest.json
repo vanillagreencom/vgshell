@@ -22,7 +22,7 @@
     "volumeStep": {
       "type": "number",
       "label": "Volume step",
-      "description": "How much the volume keys and the mouse wheel change the volume",
+      "description": "Used by the volume keys and the mouse wheel",
       "unit": "%",
       "presets": [{ "value": 2 }, { "value": 5 }, { "value": 10 }]
     }
