@@ -1354,24 +1354,32 @@ function pageTarget(hintPage) {
     return { page: reference.page, tab: reference.tab };
 }
 
-// What the service does with shell.tui.run's reply to an `open` click:
-// { leave, notice }. `ok` lets the card leave. A refusal keeps the card, so
-// its file stays one click away, and `notice` is the shell.notify.send
-// options of the notification that says why, transient since the kept card
-// is the lasting record. Any other refusal names the reply.
+// What the service does with the end of a click that opens a file:
+// shell.tui.run's reply to an `open` click, or the `done` answer of
+// shell.surfaces.openPage for a card's file reference: { leave, notice }.
+// `ok` lets the card leave. A refusal keeps the card, so its file stays one
+// click away, and `notice` is the shell.notify.send options of the
+// notification that says why, transient since the kept card is the lasting
+// record. A refusal of the core's file route names its file, `file="<path>"`.
+// Any other refusal names the reply.
 function openOutcome(reply) {
     var text = String(reply);
     if (text === "ok") return { leave: true, notice: null };
-    var match = /^refused: tui=\S+ reason=(\S+)$/.exec(text);
+    var match = /^refused: (?:tui=\S+|file=".*") reason=(\S+)$/.exec(text);
     return { leave: false, notice: Object.assign(openNotice(match === null ? "" : match[1]), { transient: true }) };
 }
 
 // The words of an open refused for REASON: `busy` while another
 // notification's file is open, since the open TUI is one key whatever the
-// file, and `launcher-missing` with no terminal to open it in.
+// file, and `busy-other` while the core's editor holds another file,
+// `launcher-missing` with no terminal to open it in, and `missing`,
+// `not-a-folder`, `unreadable` and `program` when the core's file route
+// finds nothing it opens at the path. `missing` says it in the words the
+// Google Drive popover's row uses.
 function openNotice(reason) {
     switch (reason) {
     case "busy":
+    case "busy-other":
         return { title: "Another file is open", message: "Close the open file window and try this notification again.", tone: "warning", icon: "file-lock" };
     case "launcher-missing":
         return { title: "The file did not open", message: "The setup window could not open. VGS is missing its terminal launcher, xdg-terminal-exec. Reinstall VGS to restore it.", tone: "danger", icon: "square-terminal" };
@@ -1381,6 +1389,14 @@ function openNotice(reason) {
         return { title: "The file did not open", message: "VGS cannot open notification files. Reinstall VGS to restore this feature.", tone: "danger", icon: "file-x" };
     case "args":
         return { title: "The file did not open", message: "VGS could not use the file path in this notification.", tone: "danger", icon: "file-x" };
+    case "missing":
+        return { title: "The file did not open", message: "This file is no longer on this computer.", tone: "danger", icon: "file-x" };
+    case "not-a-folder":
+        return { title: "The folder did not open", message: "This folder is no longer on this computer.", tone: "danger", icon: "file-x" };
+    case "unreadable":
+        return { title: "The file did not open", message: "VGS could not read this file.", tone: "danger", icon: "file-x" };
+    case "program":
+        return { title: "The file did not open", message: "VGS does not run programs from a notification.", tone: "danger", icon: "file-x" };
     default:
         return { title: "The file did not open", message: "Try this notification again.", tone: "danger", icon: "file-x" };
     }

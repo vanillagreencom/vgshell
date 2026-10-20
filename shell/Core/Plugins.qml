@@ -365,9 +365,13 @@ Singleton {
             openSettings: () => root.openSettingsPage(root.frameFacts(id, item).page),
             // The widget leaves a refused reference's words as words, so
             // the reply is logged here once, as capability `surfaces`'
-            // openPage logs it.
-            openPage: (page, tab) => {
-                const reply = root.openReference(page, tab);
+            // openPage logs it. `done`, when given, is the open's end as
+            // openReference hands it, dropped once the widget is gone.
+            openPage: (page, tab, done) => {
+                if (done !== undefined && typeof done !== "function") throw new Error("refused: openPage done=not-a-function");
+                const reply = root.openReference(page, tab, done === undefined ? undefined : answer => {
+                    if (Logic.hasOwn(built, hostKey) && rowFor(hostKey, item) !== undefined) done(answer);
+                });
                 if (reply !== "ok") console.warn("plugins: " + id + " openPage " + reply);
                 return reply;
             },
@@ -985,10 +989,17 @@ Singleton {
     // PAGE and TAB as LinkText hands them on: a file reference's path
     // through the core edit route (TuiRunner.edit), any other page as
     // openSettingsPage opens it. A bar widget's openPage and capability
-    // `surfaces`' openPage open a reference here.
-    function openReference(page, tab) {
+    // `surfaces`' openPage open a reference here. Answers the route's reply;
+    // DONE, when given, receives the answer the open ends in once the reply
+    // is `ok`, as TuiRunner.edit hands it a file's or folder's, and at once
+    // for a Settings page, whose reply is its end. A refused reply ends no
+    // DONE.
+    function openReference(page, tab, done) {
         const file = PageReference.file(page);
-        return file !== "" ? Capabilities.tuis.edit(file) : openSettingsPage(page, tab);
+        if (file !== "") return Capabilities.tuis.edit(file, undefined, done);
+        const reply = openSettingsPage(page, tab);
+        if (reply === "ok" && done !== undefined) done(reply);
+        return reply;
     }
 
     function navigateOverlay(direction) {

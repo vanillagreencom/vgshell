@@ -195,13 +195,14 @@ Singleton {
         // the manager's window on a plugin's page, never another plugin's
         // surface, or a cited file through the core edit route; the caller
         // leaves a refused reference's words as words, so the reply is
-        // logged here once.
+        // logged here once. `done`, when given, receives the open's end as
+        // Plugins.openReference hands it, dropped with the instance.
         surfaces: ctx => ({
             summon: (kind, payloadJson, anchor) => root.surfaceRoute(ctx, "summon", kind, payloadJson, anchor),
             hide: kind => root.surfaceRoute(ctx, "hide", kind, "", null),
             toggle: (kind, payloadJson, anchor) => root.surfaceRoute(ctx, "toggle", kind, payloadJson, anchor),
-            openPage: (page, tab) => {
-                const reply = Plugins.openReference(page, tab);
+            openPage: (page, tab, done) => {
+                const reply = Plugins.openReference(page, tab, tuis.guarded(ctx, done));
                 if (reply !== "ok") console.warn("surfaces: openPage " + reply);
                 return reply;
             }

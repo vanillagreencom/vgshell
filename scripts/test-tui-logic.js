@@ -883,7 +883,7 @@ for (const [label, needle, replacement] of [
 // folder check, the file read and runDetached.
 function editSuite(source, logic, check) {
     const functions = ["edit(path, line, done)", "editFor(id, path)", "guarded(ctx, done)", "openPath(path, line, owner, done)", "openEditor(route, owner)",
-        "fileKind(completion, output, errors)", "fileProbed(probe, completion, output, errors)", "recordStarted(launch, args)", "openFolder(path)", "folderChecked(path, completion)"]
+        "fileKind(completion, output, errors)", "fileProbed(probe, completion, output, errors)", "recordStarted(launch, args)", "openFolder(path, done)", "folderChecked(path, completion, done)"]
         .map(header => runnerFunction(source, header)).join("");
     // STEPS run in order in one context, each [busy keys, call, the end of
     // the check the call starts: a folder check's { code, status }, a file
@@ -911,7 +911,7 @@ function editSuite(source, logic, check) {
                 createObject: (parent, props) => {
                     seen.checks.push(props.path);
                     const process = { path: props.path };
-                    Object.defineProperty(process, "running", { set: () => sandbox.folderChecked(process.path, end) });
+                    Object.defineProperty(process, "running", { set: () => sandbox.folderChecked(process.path, end, process.done) });
                     return process;
                 },
             },
@@ -993,6 +993,12 @@ function editSuite(source, logic, check) {
             want({ answers: ["ok"], checks: ["/home/me/.local/share/vgs/"], opened: [["gio", "open", "/home/me/.local/share/vgs/"]] })],
         ["a /-suffixed path to a file opens nothing and is logged", [[[], "edit(\"/home/me/.bashrc/\")", notFolder]],
             want({ answers: ["ok"], checks: ["/home/me/.bashrc/"], logs: 1 })],
+        ["a folder that is a folder answers its done ok once the file manager started", [[[], "edit(\"~/.local/share/vgs/\", undefined, finished)", folder]],
+            want({ answers: ["ok"], checks: ["/home/me/.local/share/vgs/"], opened: [["gio", "open", "/home/me/.local/share/vgs/"]], done: ["ok"] })],
+        ["a /-suffixed path to a file answers its done not-a-folder and opens nothing", [[[], "edit(\"/home/me/.bashrc/\", undefined, finished)", notFolder]],
+            want({ answers: ["ok"], checks: ["/home/me/.bashrc/"], done: ["refused: file=\"/home/me/.bashrc/\" reason=not-a-folder"] })],
+        ["a folder check that never started answers its done unreadable", [[[], "edit(\"/home/me/Docs/\", undefined, finished)", null]],
+            want({ answers: ["ok"], checks: ["/home/me/Docs/"], done: ["refused: file=\"/home/me/Docs/\" reason=unreadable"] })],
         ["a folder check that never started opens nothing and is logged", [[[], "editFor(\"acme.tui\", \"acme/\")", null]],
             want({ answers: ["ok"], checks: ["/home/me/.config/acme/"], logs: 1 })],
         ["a refused path starts nothing", [[[], "edit(\"a/../x\")", null]],
@@ -1025,7 +1031,8 @@ editSuite(RUNNER, load(LOGIC), report);
 // whatever the check found.
 for (const [label, needle, replacement] of [
     ["the editor drops the started-arguments comparison", "return Logic.tuiArgsShownAnswer(named.key, named.label, answer, route.args, startedArgs);", "return Logic.tuiShownAnswer(named.label, answer);"],
-    ["the folder check admits a /-suffixed file", "if (completion === null || completion.status !== 0 || completion.code !== 0) {", "if (false) {"],
+    ["the folder check admits a /-suffixed file", "else if (completion.status !== 0 || completion.code !== 0) answer", "else if (false) answer"],
+    ["a folder's end never reaches its done", "check.done = done === undefined ? null : done;", ""],
     ["every file opens in the editor", "return type[1].indexOf(\"text/\") === 0 || texts.indexOf(type[1]) !== -1 ? \"editor\" : \"default\";", "return \"editor\";"],
     ["a file gio cannot find still opens", "return /No such file or directory|Not a directory/.test(errors) ? \"missing\" : \"unreadable\";", ""],
     ["a read that failed for another cause reads as gone", "return /No such file or directory|Not a directory/.test(errors) ? \"missing\" : \"unreadable\";", "return \"missing\";"],
@@ -1039,6 +1046,79 @@ for (const [label, needle, replacement] of [
         red += 1;
     }
     report("control: the edit rows fail when " + label, red > 0, true);
+}
+
+// Plugins.openReference opens what an activated reference names and hands
+// its caller the route's real answer: a file reference's path goes to the
+// core edit route with the caller's `done`, which receives the answer the
+// open ends in (a gone file's `reason=missing`, an editor busy with another
+// file's `reason=busy-other`) and nothing before it; a Settings page's `ok`
+// is its end, so its `done` is called at once; a refused reply ends no
+// `done`. This is the one route a bar widget's openPage, capability
+// `surfaces`' openPage, and the notice host open a reference by.
+// openReference runs as Plugins.qml holds it, against stand-ins for the
+// core edit route and the Settings page.
+const PLUGINS = fs.readFileSync(path.join(CORE, "Plugins.qml"), "utf8");
+function referenceSuite(source, check) {
+    const pageReference = load(path.join(__dirname, "..", "shell", "Commons", "PageReference.js"));
+    const functions = runnerFunction(source, "openReference(page, tab, done)");
+    const gone = "refused: file=\"/home/me/a.pdf\" reason=missing";
+    const busy = "refused: tui=core/edit reason=busy-other";
+    // STEP runs against a route that answers EDIT to the edit and PAGE to
+    // the Settings page; ENDS is the answers the file route then ends in.
+    const scenario = (call, edit, page, ends) => {
+        const seen = { edits: [], pages: [], done: [], atCall: null };
+        let route = null;
+        const sandbox = vm.createContext({
+            PageReference: pageReference,
+            Capabilities: { tuis: { edit: (file, line, done) => { seen.edits.push([file, line, typeof done]); route = done; return edit; } } },
+            openSettingsPage: (name, tab) => { seen.pages.push([name, tab]); return page; },
+            finished: answer => seen.done.push(answer),
+        });
+        vm.runInContext(functions, sandbox);
+        const reply = vm.runInContext(call, sandbox);
+        const atCall = seen.done.slice();
+        for (const end of ends) route(end);
+        return { reply: reply, edits: seen.edits, pages: seen.pages, atCall: atCall, done: seen.done };
+    };
+    const file = "file:%2Fhome%2Fme%2Fa.pdf";
+    const rows = [
+        ["a gone file's end reaches the caller's done, after the call", "openReference(\"" + file + "\", \"\", finished)", "ok", "ok", [gone],
+            { reply: "ok", edits: [["/home/me/a.pdf", undefined, "function"]], pages: [], atCall: [], done: [gone] }],
+        ["a busy editor's end reaches the caller's done", "openReference(\"" + file + "\", \"\", finished)", "ok", "ok", [busy],
+            { reply: "ok", edits: [["/home/me/a.pdf", undefined, "function"]], pages: [], atCall: [], done: [busy] }],
+        ["an opened file's end reaches the caller's done", "openReference(\"" + file + "\", \"\", finished)", "ok", "ok", ["ok"],
+            { reply: "ok", edits: [["/home/me/a.pdf", undefined, "function"]], pages: [], atCall: [], done: ["ok"] }],
+        ["a file the route refuses at once answers the reply and ends no done", "openReference(\"" + file + "\", \"\", finished)", "refused: edit=a/../x reason=parent", "ok", [],
+            { reply: "refused: edit=a/../x reason=parent", edits: [["/home/me/a.pdf", undefined, "function"]], pages: [], atCall: [], done: [] }],
+        ["a file with no done hands the route none", "openReference(\"" + file + "\", \"\")", "ok", "ok", [],
+            { reply: "ok", edits: [["/home/me/a.pdf", undefined, "undefined"]], pages: [], atCall: [], done: [] }],
+        ["a Settings page's ok is its end, so its done is called at once", "openReference(\"acme.models\", \"Setup\", finished)", "ok", "ok", [],
+            { reply: "ok", edits: [], pages: [["acme.models", "Setup"]], atCall: ["ok"], done: ["ok"] }],
+        ["a Settings page that is refused ends no done", "openReference(\"acme.models\", \"\", finished)", "ok", "unknown: acme.models", [],
+            { reply: "unknown: acme.models", edits: [], pages: [["acme.models", ""]], atCall: [], done: [] }],
+        ["a Settings page with no done answers its reply", "openReference(\"acme.models\", \"\")", "ok", "ok", [],
+            { reply: "ok", edits: [], pages: [["acme.models", ""]], atCall: [], done: [] }],
+    ];
+    for (const [name, call, edit, page, ends, expected] of rows)
+        check("Plugins openReference: " + name, scenario(call, edit, page, ends), expected);
+}
+referenceSuite(PLUGINS, report);
+// Each control drops one hand-over from a copy of Plugins: a file's open
+// that is handed no done, and a Settings page that ends no done.
+for (const [label, needle, replacement] of [
+    ["a file's open is handed no done", "return Capabilities.tuis.edit(file, undefined, done);", "return Capabilities.tuis.edit(file);"],
+    ["a Settings page ends no done", "if (reply === \"ok\" && done !== undefined) done(reply);", ""],
+    ["a refused Settings page still ends its done", "if (reply === \"ok\" && done !== undefined) done(reply);", "if (done !== undefined) done(reply);"],
+]) {
+    report("control: " + label + ": the text to replace occurs once", PLUGINS.split(needle).length - 1, 1);
+    let red = 0;
+    try {
+        referenceSuite(PLUGINS.replace(needle, () => replacement), (name, got, want) => { if (JSON.stringify(got) !== JSON.stringify(want)) red += 1; });
+    } catch (e) {
+        red += 1;
+    }
+    report("control: the openReference rows fail when " + label, red > 0, true);
 }
 
 // Notices holds a plugin's script request while the notice for its lacking

@@ -831,6 +831,21 @@ Item {
         return Logic.actionsFor(offered(key), Logic.senderWindows(windows(), entry).length > 0);
     }
 
+    // The end of a click that opens a file, REPLY the answer of the open TUI
+    // or of the core's file route (NotificationLogic.openOutcome): the card
+    // leaves, else it stays and a notice says why. True when it left.
+    function openEnded(key, reply) {
+        const outcome = Logic.openOutcome(reply);
+        if (outcome.leave) {
+            leaveChosen(key, "invoke");
+            return true;
+        }
+        console.warn("notifications: open " + reply);
+        const sent = shell.notify.send(outcome.notice);
+        if (sent !== "ok") console.error("notifications: notice " + sent);
+        return false;
+    }
+
     // A choice on a card, a toast's or an inbox row's: open, action:<id> or
     // dismiss. An open on a card whose VGS hints name a page or a click
     // (NotificationLogic.clickRoute) opens the hinted Settings page, opens
@@ -838,9 +853,11 @@ Item {
     // choice goes as NotificationLogic.choicePlan says: an open runs the
     // primary action, the sender's default, else its first. Then the row
     // leaves, bar a page the core refuses, which keeps the row (the core
-    // logs its reply), and an open the TUI refuses, which keeps the row and
-    // shows why (NotificationLogic.openOutcome); its history entry stays
-    // (leaveChosen).
+    // logs its reply), and a file that did not open, whether the TUI refuses
+    // it or the core's file route ends without opening it (a file that is
+    // gone, an editor busy with another file), which keeps the row and
+    // shows why (NotificationLogic.openOutcome) when the open ends; its
+    // history entry stays (leaveChosen).
     // The sender's window comes into view through the core's reveal, which
     // after a delivered action first gives the sender the chance to raise
     // it itself. Logs what the choice reached, with no content. A card
@@ -853,22 +870,11 @@ Item {
         const route = Logic.clickRoute(choice, entry);
         if (route === "page") {
             const target = Logic.pageTarget(entry.hintPage);
-            if (shell.surfaces.openPage(target.page, target.tab) !== "ok") return false;
-            leaveChosen(key, "invoke");
-            return true;
+            // A file reference ends after the core read the file, so the
+            // card leaves or stays at that end, not at the click.
+            return shell.surfaces.openPage(target.page, target.tab, end => openEnded(key, end)) === "ok";
         }
-        if (route === "open") {
-            const reply = shell.tui.run("open", [entry.hintOpen]);
-            const outcome = Logic.openOutcome(reply);
-            if (outcome.leave) {
-                leaveChosen(key, "invoke");
-                return true;
-            }
-            console.warn("notifications: open " + reply);
-            const sent = shell.notify.send(outcome.notice);
-            if (sent !== "ok") console.error("notifications: notice " + sent);
-            return false;
-        }
+        if (route === "open") return openEnded(key, shell.tui.run("open", [entry.hintOpen]));
         if (route === "dismiss") {
             leaveChosen(key, "dismiss");
             return true;

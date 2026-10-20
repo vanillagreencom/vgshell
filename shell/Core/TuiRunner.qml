@@ -173,7 +173,7 @@ Scope {
     // edit: the one route that opens a cited file or folder, a file
     // reference's (PageReference), a notice's link or `shell.tui.edit`'s,
     // through openPath. `done`, when given, receives the answer the open
-    // ends in, as openPath says.
+    // ends in, as openPath says, for a folder too.
     function edit(path, line, done) {
         return openPath(path, line, undefined, done);
     }
@@ -203,13 +203,14 @@ Scope {
     // `ok`; one for another file while that editor is open raises it and
     // answers `reason=busy-other`, as runFor does, so a caller that leaves
     // once its file opened stays. Answers `ok` once the read starts, or the
-    // refusal of a path editRoute judged; a file's own end, `ok`, one of
-    // those answers or `refused: file=<path> reason=missing`, goes to
-    // DONE, when given, else to the log when it is no `ok`.
+    // refusal of a path editRoute judged, which ends no DONE; the end of any
+    // other open, `ok` or the refusal `refused: file=<path> reason=missing`
+    // and its kin, goes to DONE, when given, else to the log when it is no
+    // `ok`.
     function openPath(path, line, owner, done) {
         const route = Logic.editRoute(path, line, Paths.home, Paths.configHome);
         if (!route.ok) return route.answer;
-        if (route.kind === "folder") return openFolder(route.path);
+        if (route.kind === "folder") return openFolder(route.path, done);
         const file = route.args[0];
         const probe = fileProbeComponent.createObject(root, { path: file.charAt(0) === "/" ? file : Paths.configHome + "/" + file });
         // Assigned after creation: createObject's initial properties turn
@@ -283,25 +284,28 @@ Scope {
     // trailing `/`, so a path naming a file would open that file in its
     // default application, and a notification's sender chooses the path of
     // a link on its card. Answers `ok` once the check starts, as
-    // runDetached answers once gio starts; a path that is no folder opens
-    // nothing and is logged (folderChecked).
-    function openFolder(path) {
+    // runDetached answers once gio starts; the check's end goes to DONE, when
+    // given, else to the log (folderChecked).
+    function openFolder(path, done) {
         const check = folderCheckComponent.createObject(root, { path: path });
+        check.done = done === undefined ? null : done;
         check.running = true;
         return "ok";
     }
 
     // The end of the folder check of PATH, COMPLETION its { code, status },
     // null for a check that never started: exit 0 opens the folder, any
-    // other end opens nothing.
-    function folderChecked(path, completion) {
-        if (completion === null || completion.status !== 0 || completion.code !== 0) {
-            const end = completion === null ? "start=failed" : "code=" + completion.code + " status=" + completion.status;
-            console.warn("tui: folder=" + JSON.stringify(path) + " reason=not-a-folder " + end);
-            return;
-        }
-        const answer = Capabilities.runDetached(DesktopLaunch.open(path));
-        if (answer !== "ok") console.error("tui: folder=" + JSON.stringify(path) + " " + answer);
+    // other end opens nothing and answers `refused: file=<path>
+    // reason=not-a-folder`, or `reason=unreadable` for a check that never
+    // started. The answer goes to DONE, when not null, else to the log when
+    // it is no `ok`.
+    function folderChecked(path, completion, done) {
+        let answer;
+        if (completion === null) answer = "refused: file=" + JSON.stringify(path) + " reason=unreadable";
+        else if (completion.status !== 0 || completion.code !== 0) answer = "refused: file=" + JSON.stringify(path) + " reason=not-a-folder";
+        else answer = Capabilities.runDetached(DesktopLaunch.open(path));
+        if (done !== null) done(answer);
+        else if (answer !== "ok") console.warn("tui: " + answer);
     }
 
     // The state a request is judged against, with the id a launch gets:
@@ -496,12 +500,13 @@ Scope {
         Process {
             id: check
             property string path: ""
+            property var done: null
             property var completion: null
             command: ["test", "-d", check.path]
             onExited: (code, status) => { check.completion = { code: code, status: status }; }
             onRunningChanged: {
                 if (running) return;
-                root.folderChecked(check.path, check.completion);
+                root.folderChecked(check.path, check.completion, check.done);
                 check.destroy();
             }
         }

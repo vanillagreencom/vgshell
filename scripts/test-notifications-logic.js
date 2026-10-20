@@ -688,6 +688,13 @@ function verify(logic) {
         [pluginLogic.tuiRun(openManifest, false, "/x", runner, "open", ["/file"]).answer, "The file did not open", "danger", "Enable Notifications in [Plugins](page:vgs.notifications) and try again."],
         [pluginLogic.tuiRun(openManifest, true, "/x", runner, "missing", []).answer, "The file did not open", "danger", "VGS cannot open notification files. Reinstall VGS to restore this feature."],
         [pluginLogic.tuiRun(openManifest, true, "/x", runner, "open", [null]).answer, "The file did not open", "danger", "VGS could not use the file path in this notification."],
+        // The core's file route ends a card's file reference with these
+        // (TuiRunner.fileProbed, folderChecked, the editor's busy-other).
+        ["refused: file=\"/home/me/Docs/a b.pdf\" reason=missing", "The file did not open", "danger", "This file is no longer on this computer."],
+        ["refused: tui=core/edit reason=busy-other", "Another file is open", "warning", "Close the open file window and try this notification again."],
+        ["refused: file=\"/home/me/Docs/\" reason=not-a-folder", "The folder did not open", "danger", "This folder is no longer on this computer."],
+        ["refused: file=\"/home/me/a.pdf\" reason=unreadable", "The file did not open", "danger", "VGS could not read this file."],
+        ["refused: file=\"/home/me/a.bin\" reason=program", "The file did not open", "danger", "VGS does not run programs from a notification."],
         ["refused: tui=open reason=future-private-reason", "The file did not open", "danger", "Try this notification again."],
         ["error: private-path=/owner/file", "The file did not open", "danger", "Try this notification again."]
     ];
@@ -696,7 +703,7 @@ function verify(logic) {
         const outcome = logic.openOutcome(reply);
         same([outcome.leave, outcome.notice.title, outcome.notice.tone, outcome.notice.message, outcome.notice.transient], [false, title, tone, message, true], "open reply: " + reply);
         same(pluginLogic.notifyOptions(outcome.notice).ok, true, "the core accepts the published notice for " + reply);
-        assert.doesNotMatch(JSON.stringify(outcome.notice), /reason=|tui=|private-path|future-private-reason/, "the published notice contains no diagnostic reply");
+        assert.doesNotMatch(JSON.stringify(outcome.notice), /reason=|tui=|file=|private-path|future-private-reason|Docs/, "the published notice contains no diagnostic reply");
     }
     const hinted = logic.entryOf(Object.assign({}, fields, { hints: HINT_ROWS[2][1] }), 1000, null);
     assert.equal(logic.entryChanged(hinted, logic.updatedEntry(hinted, Object.assign({}, fields, { hints: HINT_ROWS[3][1] }))), true, "a replacement with other hints is a change");

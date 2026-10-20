@@ -435,6 +435,52 @@ expect "a click on the kept card opens its file, its entry kept" kept notes choo
 expect_poll "the kept card's click hands the open TUI its own file" "$(words vgs.notifications/open tui/open.sh "$hint_other")" recorded_tail
 expect_poll "the kept card leaves once its file opens" none key_of "Hinted other"
 wait_for "the open notice leaves when its lifetime ends" '[]' 12 open_notices
+# A card whose x-vgs-page hint names a file (shell.surfaces.openPage) leaves
+# when the core's file route ends in an open, not at the click: a gone file
+# or an editor busy with another file keeps the card, and a notification the
+# plugin sends says why (VGS-1948). The file is read by the real `gio info`
+# and a text file reaches the stand-in terminal as the core editor.
+page_text="$sandbox/page-text.log"
+page_busy="$sandbox/page-busy.log"
+page_gone="$sandbox/page-gone.log"
+printf 'text\n' >"$page_text"
+printf 'busy\n' >"$page_busy"
+file_card() { # SUMMARY PATH
+  notify smoke-app 0 "$1" "" '[]' "{\"x-vgs-page\": <\"$(python3 -c 'import sys,urllib.parse; print("[the log](file:" + urllib.parse.quote(sys.argv[1], safe="") + ")")' "$2")\">}" 0 >/dev/null
+}
+open_lines() { plugin_cards Notifications | py_reply 'import json,sys; print(json.dumps([[r[0], r[1]] for r in json.load(sys.stdin)]))'; }
+forget_record
+file_card "Gone file" "$page_gone"
+expect_poll "a card that names a file shows" True has_row live "Gone file"
+expect "a click on the card of a file that is gone is allowed" ok notes invoke-latest
+expect_poll "the gone file says so in a notification" '[["The file did not open", "This file is no longer on this computer."]]' open_lines
+expect_log "the gone file is logged" 1 'notifications: open refused: file=.*page-gone\.log.* reason=missing'
+expected_errors+=('notifications: open refused: file=.*page-gone\.log.* reason=missing')
+expect "the gone file keeps its card" True has_row live "Gone file"
+expect "the gone file starts no editor" absent recorded
+wait_for "the gone file's notice leaves when its lifetime ends" '[]' 12 open_lines
+hold_runs
+file_card "Text file" "$page_text"
+expect_poll "the card of a text file shows" True has_row live "Text file"
+expect "a click on it is allowed" ok notes invoke-latest
+expect_poll "the click hands the terminal the core editor on the file" "$(words core/edit "$core_vgshell" edit "$page_text")" recorded_tail
+expect_poll "the card leaves once its file opens" none key_of "Text file"
+forget_record
+file_card "Busy file" "$page_busy"
+expect_poll "the card of a second file shows while the editor holds the first" True has_row live "Busy file"
+expect "a click on it while the editor is busy is allowed" ok notes invoke-latest
+expect_poll "the busy editor says why in a notification" '[["Another file is open", "Close the open file window and try this notification again."]]' open_lines
+expect_log "the busy editor is logged" 1 'notifications: open refused: tui=core/edit reason=busy-other'
+expected_errors+=('notifications: open refused: tui=core/edit reason=busy-other')
+expect "the busy editor keeps the card" True has_row live "Busy file"
+expect "the busy editor reaches no terminal" absent recorded
+release_runs
+expect_run_end "the first file's editor run ends" core/edit
+expect "a click on the kept card opens its file, its entry kept" kept notes choose "{\"key\": \"$(key_of "Busy file")\", \"choice\": \"open\"}"
+expect_poll "the kept card's click hands the terminal the editor on its own file" "$(words core/edit "$core_vgshell" edit "$page_busy")" recorded_tail
+expect_poll "the kept card leaves once its file opens" none key_of "Busy file"
+expect_run_end "the second file's editor run ends" core/edit
+wait_for "the busy editor's notice leaves when its lifetime ends" '[]' 12 open_lines
 forget_record
 notify smoke-app 0 "Hinted start" "" '[]' '{"x-vgs-icon": <"play">, "x-vgs-tone": <"warning">, "x-vgs-click": <"none">}' 0 >/dev/null
 expect_poll "a none card shows" '["play", "warning", "", "none"]' hint_roles "Hinted start"
