@@ -539,6 +539,10 @@ SH
   cs_open_popover "the popover for a gone file"
   expect "the notes line is clicked for the gone file" ok cs_panel_press ListItem "8 notes · nothing was lost"
   expect_poll "the notes line unfolds for the gone file" true cs_notes_open
+  # The last notes sit below the popover's fold, so the body scrolls to
+  # them before a click lands on one.
+  ipc smoke scrollTo panel vgs.google-drive 99999 >/dev/null || fail "googledrive: the popover did not scroll to its last notes"
+  expect_poll "the last note draws its name as a link" drawn cs_panel_drawn LinkText n6.pdf
   forget_record
   gio_before="$(cs_gio_count)"
   mv -- "$cs_mirror/n5.txt" "$cs_mirror/n5.txt.away"
