@@ -11,6 +11,7 @@
       "center": [{ "id": "vgs.bar/center-clock" }],
       "right": [
         { "id": "vgs.sudo" },
+        { "id": "vgs.tailscale" },
         { "id": "vgs.vpn" },
         { "id": "vgs.network" },
         { "id": "vgs.bluetooth" },

@@ -21,7 +21,7 @@
 #
 
 # SCENE is gallery, settings, wide-settings, focus, focus-open, flyout-titles, plugin-pages, manager, launcher,
-# notifications, bar, panels, devtools, system, network, vpn, vpn-locked, bluetooth, power, dialog, by-hand, reset, lock, polkit,
+# notifications, bar, panels, devtools, system, network, tailscale, tailscale-starting, tailscale-locked, vpn, vpn-locked, bluetooth, power, dialog, by-hand, reset, lock, polkit,
 # greeter, narrow, theme-browser, wallpaper-browser, automations, googledrive, tooltips, capture,
 # info-dialog, keyhints, clipboard, voice, voice-setup, voice-elsewhere, dictation-setup, jarvis-console, jarvis-audit, jarvis-setup, elevenlabs-voices, jarvis-fleet, outdated, jarvis-causes, jarvis-restart, plugin-messages, page-links, tooltip-link, traffic, ai-usage, ai-usage-states, sysmon, tui-edges, appearance, sounds, setup-tab, updates, clone-voice, displays-override or theme-previews. settings takes the
 # automations', the Jarvis, the AI Usage and the Tray pages among the plugin pages,
@@ -403,7 +403,7 @@ while [[ $# -gt 0 ]]; do
     --title-inventory) title_inventory=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
 
-    sysmon|tui-edges|gallery|settings|info-dialog|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|voice-keys|jarvis-console|jarvis-audit|jarvis-setup|jarvis-home-repair|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes|jarvis-restart|plugin-messages|page-links|tooltip-link|traffic|ai-usage|ai-usage-states|devtools|system|appearance|sounds|network|vpn|vpn-locked|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|googledrive|tooltips|screensaver|theme-previews|setup-tab|updates|clone-voice|displays-override) scenes+=("$1"); shift ;;
+    sysmon|tui-edges|gallery|settings|info-dialog|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|voice-keys|jarvis-console|jarvis-audit|jarvis-setup|jarvis-home-repair|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes|jarvis-restart|plugin-messages|page-links|tooltip-link|traffic|ai-usage|ai-usage-states|devtools|system|appearance|sounds|network|tailscale|tailscale-starting|tailscale-locked|vpn|vpn-locked|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|googledrive|tooltips|screensaver|theme-previews|setup-tab|updates|clone-voice|displays-override) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -584,8 +584,10 @@ scene_ships() {
     appearance) ships_plugin vgs.system vgs.motion vgs.windows vgs.ui ;;
     sounds) ships_plugin vgs.system vgs.sounds vgs.notifications vgs.voice vgs.jarvis ;;
     network) ships_plugin vgs.system vgs.network ;;
+    tailscale) ships_plugin vgs.system vgs.tailscale ;;
+    tailscale-starting|tailscale-locked) ships_plugin vgs.tailscale ;;
     vpn) ships_plugin vgs.system vgs.vpn ;;
-    vpn-locked) ships_plugin vgs.vpn ;;
+    vpn-locked) ships_plugin vgs.vpn && ! ships_plugin vgs.tailscale ;;
     bluetooth) ships_plugin vgs.system vgs.bluetooth ;;
     printers) ships_plugin vgs.system vgs.printers ;;
     power) ships_plugin vgs.power ;;
@@ -605,7 +607,7 @@ if [[ ${#scenes[@]} -eq 0 ]]; then
     scenes=(gallery)
     [[ -z $manager_scene ]] || scenes+=("$manager_scene")
   else
-    for scene in gallery settings focus launcher notifications bar panels ai-usage devtools system network vpn bluetooth power dialog lock polkit greeter automations screensaver narrow; do
+    for scene in gallery settings focus launcher notifications bar panels ai-usage devtools system network tailscale vpn bluetooth power dialog lock polkit greeter automations screensaver narrow; do
       if scene_ships "$scene"; then scenes+=("$scene"); fi
     done
   fi
@@ -6623,31 +6625,117 @@ scene_network() { # MODE
   device_reply_clear nmcli
   device_reply_clear systemctl
 }
+backend_widget_shots() { # NAME MODE
+  park_pointer
+  take "$1-$2-bar"
+  hover_widget "the pointer rests on the $1 widget" "vgs.$1" || return
+  expect_poll "the $1 tooltip opens over its backend fixture" true tooltip_opened "vgs.$1"
+  take_posed "$1-$2-tooltip"
+  park_pointer
+  expect_poll "the $1 tooltip closes" false tooltip_opened "vgs.$1"
+}
+tailscale_shot_prepare() {
+  devices_ready tailscale-shot || return 1
+  device_reply tailscale 0 "$(<"$repo/scripts/fixtures/tailscale/mullvad.json")" status --json
+  device_reply tailscale 0 "$(<"$repo/scripts/fixtures/tailscale/accounts.txt")" switch --list
+  device_reply tailscale 0 "$(id -un)" get operator
+  device_reply systemctl 0 "" is-active --quiet tailscaled.service
+  expect "Tailscale enables for its shot" ok ipc shell setPluginEnabled vgs.tailscale true
+  tree_rescan "the Tailscale shot reads the running daemon"
+}
+tailscale_starting_ink() {
+  local spinner foreground
+  spinner="$(ipc smoke readDescendant "$(bar_key)" vgs.tailscale Spinner color)" || return 1
+  foreground="$(ipc smoke readDescendant "$(bar_key)" vgs.tailscale BarItem foreground)" || return 1
+  printf 'tailscale-starting-ink: spinner=%s foreground=%s\n' "$spinner" "$foreground" >&2
+  [[ $spinner == \"*\" && $foreground == \"*\" && $spinner == "$foreground" ]] && echo matched || echo different
+}
+tailscale_starting_shot() { # MODE
+  local starting
+  starting="$(python3 -c 'import json,sys; value=json.load(open(sys.argv[1])); value["BackendState"]="Starting"; print(json.dumps(value))' "$repo/scripts/fixtures/tailscale/running.json")" || { fail "the starting Tailscale fixture is unreadable"; return; }
+  device_reply tailscale 0 "$starting" status --json
+  expect "Tailscale refreshes over its starting fixture" ok ipc vgs.tailscale invoke refresh ""
+  expect_poll "the starting Tailscale widget spins" true ipc smoke readDescendant "$(bar_key)" vgs.tailscale BarItem spinning
+  expect "the starting Tailscale spinner uses its bar foreground" matched tailscale_starting_ink
+  park_pointer
+  take "tailscale-$1-starting-widget"
+  device_reply tailscale 0 "$(<"$repo/scripts/fixtures/tailscale/mullvad.json")" status --json
+  expect "Tailscale restores its running fixture" ok ipc vgs.tailscale invoke refresh ""
+  expect_poll "the restored Tailscale widget stops spinning" false ipc smoke readDescendant "$(bar_key)" vgs.tailscale BarItem spinning
+}
+tailscale_shot_finish() {
+  expect "Tailscale disables after its shot" ok ipc shell setPluginEnabled vgs.tailscale false
+  device_reply_clear tailscale
+  device_reply_clear systemctl
+}
+scene_tailscale-starting() { # MODE
+  tailscale_shot_prepare || return 0
+  tailscale_starting_shot "$1"
+  tailscale_shot_finish
+}
+scene_tailscale() { # MODE
+  tailscale_shot_prepare || return 0
+  expect "System enables for the Tailscale shot" ok ipc shell setPluginEnabled vgs.system true
+  expect "the Tailscale pane summons" ok ipc shell summon window vgs.system '{"pane":"vgs.tailscale"}'
+  expect_poll "the Tailscale pane reads its fixture" '["running", 2]' tailscale_shot_read
+  park_pointer
+  take "tailscale-$1-pane"
+  expect "the last Tailscale setting scrolls into the pane" scrolled tailscale_shot_end
+  park_pointer
+  take "tailscale-$1-pane-end"
+  expect "the Tailscale System window closes" ok ipc shell hide window vgs.system
+  click_centre "$(bar_key)" vgs.tailscale || fail "the click on the Tailscale widget failed"
+  expect_poll "the Tailscale dropdown opens" shown tailscale_shot_panel
+  park_pointer
+  take "tailscale-$1-dropdown"
+  expect "the Tailscale dropdown hides" ok ipc shell hide panel vgs.tailscale
+  backend_widget_shots tailscale "$1"
+  tailscale_starting_shot "$1"
+  expect "System disables after the Tailscale shot" ok ipc shell setPluginEnabled vgs.system false
+  tailscale_shot_finish
+}
+tailscale_shot_end() { ipc smoke revealText window vgs.system Field "Check every" | py_reply 'import sys; s=sys.stdin.read().strip(); print("scrolled" if s.replace(".", "", 1).isdigit() else s)'; }
+tailscale_shot_panel() { [[ $(ipc smoke instanceGeometry panel vgs.tailscale) != absent ]] && echo shown || echo hidden; }
+tailscale_shot_read() { ipc smoke readDescendant window vgs.tailscale TailscaleBody tailscale | py_reply 'import json,sys; v=json.load(sys.stdin); print(json.dumps([v["state"], len(v["accounts"])]))'; }
 # VPN reads a running Tailscale tailnet and saved NetworkManager profiles
 # from the device stand-ins. The core's system tree holds no tailscale,
 # so the operator step reads absent and no setup step shows.
 scene_vpn() { # MODE
+  local scroll
   devices_ready vpn-shot || return 0
   device_reply nmcli 0 $'Home tunnel:wireguard:activated\nOffice VPN:vpn:deactivated' -t -f NAME,TYPE,STATE connection show
-  device_reply tailscale 0 "$(<"$repo/scripts/fixtures/vpn/mullvad.json")" status --json
-  device_reply tailscale 0 "$(<"$repo/scripts/fixtures/vpn/accounts.txt")" switch --list
+  device_reply tailscale 0 "$(<"$repo/scripts/fixtures/tailscale/mullvad.json")" status --json
+  device_reply tailscale 0 "$(<"$repo/scripts/fixtures/tailscale/accounts.txt")" switch --list
   expect "VPN enables for its shot" ok ipc shell setPluginEnabled vgs.vpn true
   expect "System enables for the VPN shot" ok ipc shell setPluginEnabled vgs.system true
   expect "VPN's pane summons" ok ipc shell summon window vgs.system '{"pane":"vgs.vpn"}'
   expect_poll "VPN's pane is mounted" shown vpn_shot_shown
-  expect_poll "VPN's pane reads the stand-in's tailnet" '["running", 2]' vpn_shot_read
+  if ! ships_plugin vgs.tailscale; then
+    expect_poll "the pre-split pane reads the tailnet" '["running", 2]' vpn_shot_read
+  fi
   expect_poll "VPN's pane lists the saved profile stand-ins" '[["Home tunnel", "wireguard", true], ["Office VPN", "vpn", false]]' vpn_shot_profiles window
-  expect "the saved VPN profiles scroll into the pane" scrolled vpn_shot_reveal window vgs.system
   park_pointer
   take "vpn-$1-pane"
+  scroll="$(vpn_shot_reveal window vgs.system)" || { fail "the VPN pane end is unreadable"; return; }
+  case "$scroll" in
+    moved) park_pointer; take "vpn-$1-pane-end" ;;
+    fits) ok "the complete VPN pane fits its first frame" ;;
+    *) fail "the VPN pane end is unreadable: $scroll" ;;
+  esac
   expect "the VPN System window closes" ok ipc shell hide window vgs.system
   click_centre "$(bar_key)" vgs.vpn || fail "the click on the VPN widget failed"
   expect_poll "the VPN widget opens its dropdown" shown vpn_shot_panel
   expect_poll "VPN's dropdown lists the saved profile stand-ins" '[["Home tunnel", "wireguard", true], ["Office VPN", "vpn", false]]' vpn_shot_profiles panel
-  expect "the saved VPN profiles scroll into the dropdown" scrolled vpn_shot_reveal panel vgs.vpn
   park_pointer
   take "vpn-$1-dropdown"
+  scroll="$(vpn_shot_reveal panel vgs.vpn)" || { fail "the VPN dropdown end is unreadable"; return; }
+  case "$scroll" in
+    moved) park_pointer; take "vpn-$1-dropdown-end" ;;
+    fits) ok "the complete VPN dropdown fits its first frame" ;;
+    *) fail "the VPN dropdown end is unreadable: $scroll" ;;
+  esac
   expect "the VPN dropdown hides" ok ipc shell hide panel vgs.vpn
+  backend_widget_shots vpn "$1"
   expect "VPN disables after its shot" ok ipc shell setPluginEnabled vgs.vpn false
   expect "System disables after the VPN shot" ok ipc shell setPluginEnabled vgs.system false
   device_reply_clear tailscale
@@ -6657,7 +6745,7 @@ vpn_shot_panel() { [[ $(ipc smoke instanceGeometry panel vgs.vpn) != absent ]] &
 vpn_shot_shown() { [[ $(ipc smoke instanceGeometry window vgs.vpn) != absent ]] && echo shown || echo hidden; }
 vpn_shot_read() { ipc smoke readDescendant window vgs.vpn VpnBody vpn | py_reply 'import json,sys; v=json.load(sys.stdin); print(json.dumps([v["state"], len(v["accounts"])]))'; }
 vpn_shot_profiles() { ipc smoke readDescendant "$1" vgs.vpn VpnBody profileRows | py_reply 'import json,sys; print(json.dumps([[r["name"],r["type"],r["active"]] for r in json.load(sys.stdin)]))'; }
-vpn_shot_reveal() { ipc smoke revealText "$1" "$2" SectionHeader "VPN profiles" | py_reply 'import sys; s=sys.stdin.read().strip(); print("scrolled" if s.replace(".", "", 1).isdigit() else s)'; }
+vpn_shot_reveal() { ipc smoke revealText "$1" "$2" SectionHeader "VPN profiles" | py_reply 'import json,sys; value=json.load(sys.stdin); print(("moved" if value > 0 else "fits") if type(value) in (int,float) else value)'; }
 # The VPN flyout while Tailscale's access step is offered: no operator, so
 # the core's tailscale-operator step reads needed through the stand-in
 # linked into the fakes' system tree, as rows/vpn.sh links it. A tree whose
@@ -6665,68 +6753,71 @@ vpn_shot_reveal() { ipc smoke revealText "$1" "$2" SectionHeader "VPN profiles" 
 # switchUnlock) is held to the reason's tooltip and the mark's focus; an
 # older tree, whose switch and Sign in are plainly disabled, takes the
 # same shots in the same poses and logs what it reads instead.
-scene_vpn-locked() { # MODE
+scene_vpn-locked() { backend_locked_shots "$1" vgs.vpn VpnBody vpn; }
+scene_tailscale-locked() { backend_locked_shots "$1" vgs.tailscale TailscaleBody tailscale; }
+backend_locked_shots() { # MODE ID BODY DATA
+  local locked_id="$2" locked_body="$3" locked_data="$4" locked_name="${2#vgs.}"
   local locked=false link="$devices_system_root/usr/bin/tailscale"
-  tree_has shell/plugins/vgs.vpn/Panel.qml switchUnlock && locked=true
-  devices_ready vpn-locked-shot || return 0
+  tree_has "shell/plugins/$locked_id/Panel.qml" switchUnlock && locked=true
+  devices_ready backend-locked-shot || return 0
   device_reply nmcli 0 "" -t -f NAME,TYPE,STATE connection show
-  device_reply tailscale 0 "$(<"$repo/scripts/fixtures/vpn/mullvad.json")" status --json
-  device_reply tailscale 0 "$(<"$repo/scripts/fixtures/vpn/accounts.txt")" switch --list
+  device_reply tailscale 0 "$(<"$repo/scripts/fixtures/tailscale/mullvad.json")" status --json
+  device_reply tailscale 0 "$(<"$repo/scripts/fixtures/tailscale/accounts.txt")" switch --list
   device_reply tailscale 0 "" get operator
   device_reply systemctl 0 "" is-active --quiet tailscaled.service
   expect "the core's system steps resolve in the fakes' tree for the locked VPN shot" prefixed devices_system_tree
   ln -sfn -- "$shim/tailscale" "$link"
-  expect "VPN enables for its locked shot" ok ipc shell setPluginEnabled vgs.vpn true
-  expect_poll "VPN's widget is built for its locked shot" True record_exists vgs.vpn
+  expect "VPN enables for its locked shot" ok ipc shell setPluginEnabled "$locked_id" true
+  expect_poll "VPN's widget is built for its locked shot" True record_exists "$locked_id"
   tree_rescan "a scan probes Tailscale's access step for the locked VPN shot"
   expect_poll "an unset operator offers Allow for the locked VPN shot" allow vpn_locked_setup
-  click_centre "$(bar_key)" vgs.vpn || fail "the click on the VPN widget failed for its locked shot"
-  expect_poll "the VPN widget opens its locked dropdown" shown vpn_shot_panel
+  click_centre "$(bar_key)" "$locked_id" || fail "the click on the VPN widget failed for its locked shot"
+  expect_poll "the VPN widget opens its locked dropdown" shown vpn_locked_panel
   expect_poll "the locked dropdown reads the running tailnet" '"running"' vpn_locked_state
-  take "vpn-locked-$1-flyout"
+  take "${locked_name}-locked-$1-flyout"
 
   if vpn_locked_hover "the pointer rests on the locked header switch" Switch ""; then
     vpn_locked_wait "$locked" "the pointer opens the switch's reason" open vpn_locked_tip
-    take_posed "vpn-locked-$1-switch-hover"
+    take_posed "${locked_name}-locked-$1-switch-hover"
   fi
 
   park_pointer
   if vpn_locked_tab_to '["Switch",""]'; then
-    vpn_locked_wait "$locked" "Tab reaches the locked header switch" '["Switch",""]' ipc smoke activeFocusItem panel vgs.vpn
+    vpn_locked_wait "$locked" "Tab reaches the locked header switch" '["Switch",""]' ipc smoke activeFocusItem panel "$locked_id"
     vpn_locked_wait "$locked" "keyboard focus opens the switch's reason" open vpn_locked_tip
-    take_posed "vpn-locked-$1-switch-focus"
+    take_posed "${locked_name}-locked-$1-switch-focus"
     if type_keys -k Tab; then
-      vpn_locked_wait "$locked" "Tab reaches the switch's unlock mark" '["IconButton","Let my login control Tailscale"]' ipc smoke activeFocusItem panel vgs.vpn
-      take_posed "vpn-locked-$1-mark-focus"
+      vpn_locked_wait "$locked" "Tab reaches the switch's unlock mark" '["IconButton","Let my login control Tailscale"]' ipc smoke activeFocusItem panel "$locked_id"
+      take_posed "${locked_name}-locked-$1-mark-focus"
     else
       fail "Tab from the locked header switch failed"
     fi
   fi
 
-  expect "the locked dropdown hides before sign-in" ok ipc shell hide panel vgs.vpn
-  device_reply tailscale 0 "$(<"$repo/scripts/fixtures/vpn/logged-out.json")" status --json
-  expect "VPN refreshes over the signed-out stand-in" ok ipc vgs.vpn invoke refresh ""
+  expect "the locked dropdown hides before sign-in" ok ipc shell hide panel "$locked_id"
+  device_reply tailscale 0 "$(<"$repo/scripts/fixtures/tailscale/logged-out.json")" status --json
+  expect "VPN refreshes over the signed-out stand-in" ok ipc "$locked_id" invoke refresh ""
   expect_poll "VPN publishes the signed-out tailnet" '"signed-out"' vpn_locked_published
-  click_centre "$(bar_key)" vgs.vpn || fail "the click on the VPN widget failed for its locked sign-in shot"
-  expect_poll "the VPN widget opens its signed-out dropdown" shown vpn_shot_panel
+  click_centre "$(bar_key)" "$locked_id" || fail "the click on the VPN widget failed for its locked sign-in shot"
+  expect_poll "the VPN widget opens its signed-out dropdown" shown vpn_locked_panel
   expect_poll "the locked dropdown reads the signed-out tailnet" '"signed-out"' vpn_locked_state
-  if vpn_locked_hover "the pointer rests on the locked Sign in" Button vpn-sign-in; then
+  if vpn_locked_hover "the pointer rests on the locked Sign in" Button "${locked_name}-sign-in"; then
     vpn_locked_wait "$locked" "the pointer opens Sign in's reason" open vpn_locked_tip
-    take_posed "vpn-locked-$1-sign-in-hover"
+    take_posed "${locked_name}-locked-$1-sign-in-hover"
   fi
 
   park_pointer
-  expect "the signed-out dropdown hides" ok ipc shell hide panel vgs.vpn
-  expect "VPN disables after its locked shot" ok ipc shell setPluginEnabled vgs.vpn false
+  expect "the signed-out dropdown hides" ok ipc shell hide panel "$locked_id"
+  expect "VPN disables after its locked shot" ok ipc shell setPluginEnabled "$locked_id" false
   rm -f -- "$link"
   device_reply_clear tailscale
   device_reply_clear nmcli
   device_reply_clear systemctl
   tree_rescan "a scan finds no Tailscale after the locked VPN shot"
 }
-vpn_locked_setup() { ipc smoke statusValues vgs.vpn | py_reply 'import json,sys; v=json.load(sys.stdin).get("setup"); print("unpublished" if v is None else v.get("action", "none"))'; }
-vpn_locked_published() { ipc smoke statusValues vgs.vpn | py_reply 'import json,sys; v=json.load(sys.stdin).get("vpn"); print("unpublished" if v is None else json.dumps(v["state"]))'; }
-vpn_locked_state() { ipc smoke readDescendant panel vgs.vpn VpnBody vpn | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["state"]))'; }
+vpn_locked_setup() { ipc smoke statusValues "$locked_id" | py_reply 'import json,sys; v=json.load(sys.stdin).get("setup"); print("unpublished" if v is None else v.get("action", "none"))'; }
+vpn_locked_published() { ipc smoke statusValues "$locked_id" | py_reply 'import json,sys; v=json.load(sys.stdin).get(sys.argv[1]); print("unpublished" if v is None else json.dumps(v["state"]))' "$locked_data"; }
+vpn_locked_state() { ipc smoke readDescendant panel "$locked_id" "$locked_body" "$locked_data" | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["state"]))'; }
 vpn_locked_tip() { [[ $(shot_chrome_read) == *tooltip* ]] && echo open || echo closed; }
 # vpn_locked_point TYPE NAME: `X Y`, where the pointer rests on the first
 # shown TYPE under the VPN flyout whose objectName is NAME, enabled or not:
@@ -6737,7 +6828,7 @@ vpn_locked_tip() { [[ $(shot_chrome_read) == *tooltip* ]] && echo open || echo c
 # itemGeometry hands point_item for a panel item, so they are layout
 # positions; `absent` without such an item.
 vpn_locked_point() { # TYPE NAME
-  ipc smoke descendantGeometry panel vgs.vpn | py_reply '
+  ipc smoke descendantGeometry panel "$locked_id" | py_reply '
 import json, sys
 items, (kind, name) = json.load(sys.stdin), sys.argv[1:]
 at = next((i for i, item in enumerate(items) if item["type"] == kind and item.get("name", "") == name and item["visible"]), None)
@@ -6762,13 +6853,13 @@ vpn_locked_hover() { # LABEL TYPE NAME
 # tree's disabled switch takes no focus, so this ends at the bound there.
 vpn_locked_tab_to() { # WANT
   local at before
-  at="$(ipc smoke activeFocusItem panel vgs.vpn)" || at=unreadable
+  at="$(ipc smoke activeFocusItem panel "$locked_id")" || at=unreadable
   for _ in $(seq 1 8); do
     [[ $at == "$1" ]] && return 0
     before="$at"
     type_keys -k Tab || { fail "Tab in the locked VPN dropdown failed"; return 1; }
     for _ in $(seq 1 10); do
-      at="$(ipc smoke activeFocusItem panel vgs.vpn)" || at=unreadable
+      at="$(ipc smoke activeFocusItem panel "$locked_id")" || at=unreadable
       [[ $at != "$before" ]] && break
       sleep 0.1
     done
@@ -6788,6 +6879,7 @@ vpn_locked_wait() { # LOCKED LABEL WANT CMD...
   done
   printf 'sandbox-shots: vpn-locked tree=%s step=%s want=%s read=%s\n' "${rev:-checkout}" "$label" "$want" "$got"
 }
+vpn_locked_panel() { [[ $(ipc smoke instanceGeometry panel "$locked_id") != absent ]] && echo shown || echo hidden; }
 network_shot_shown() { [[ $(ipc smoke instanceGeometry window vgs.network) != absent ]] && echo shown || echo hidden; }
 network_shot_other_reveal() { ipc smoke revealText window vgs.system Button 'Other Network…' | py_reply 'import json,sys; json.load(sys.stdin); print("scrolled")'; }
 network_shot_cancel_reveal() { ipc smoke revealText window vgs.system Button Cancel | py_reply 'import json,sys; json.load(sys.stdin); print("scrolled")'; }

@@ -1,5 +1,5 @@
 ---
-applyTo: "shell/Core/SecretWriter.qml,shell/plugins/vgs.jarvis/backend/Secrets.js,shell/plugins/vgs.network/**,shell/plugins/vgs.vpn/**,shell/plugins/vgs.polkit/**,shell/plugins/vgs.lock/**,shell/plugins/vgs.greeter/**,shell/plugins/vgs.clipboard/**,bin/vgshell-lock"
+applyTo: "shell/Core/SecretWriter.qml,shell/plugins/vgs.jarvis/backend/Secrets.js,shell/plugins/vgs.network/**,shell/plugins/vgs.vpn/**,shell/plugins/vgs.tailscale/**,shell/plugins/vgs.polkit/**,shell/plugins/vgs.lock/**,shell/plugins/vgs.greeter/**,shell/plugins/vgs.clipboard/**,bin/vgshell-lock"
 excludeAgent: "cloud-agent"
 ---
 

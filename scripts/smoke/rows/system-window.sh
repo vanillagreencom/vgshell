@@ -38,7 +38,7 @@
 # sidebar lists its fixtures alone, and leaves the user file, vgs.system's
 # and each shipped section's enablement, the plugins directory and the
 # shell's PATH directory as it found them.
-# inputs: shell/plugins/vgs.sound/* shell/plugins/vgs.bluetooth/* shell/plugins/vgs.network/* shell/plugins/vgs.vpn/* shell/plugins/vgs.displays/* shell/plugins/vgs.mouse/* shell/plugins/vgs.keyboard/* shell/plugins/vgs.motion/* shell/plugins/vgs.windows/* shell/plugins/vgs.ui/* shell/plugins/vgs.power/* shell/plugins/vgs.sounds/* shell/plugins/vgs.printers/* shell/plugins/vgs.fonts/* config/shell.json shell/plugins/vgs.system/* shell/Ui/layout/ListCursor* shell/Ui/layout/ListItem.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/plugins/*/manifest.json scripts/smoke/fixtures/plugins/acme.pane/* shell/Hosts/PaneHost.qml shell/Hosts/AppWindow.qml shell/Core/Capabilities.qml shell/Core/Config.qml shell/Commons/WatchedFile.qml scripts/smoke/rows/hyprland-consent.sh shell/Ui/layout/Pane.qml shell/Ui/layout/ScrollArea.qml shell/Ui/feedback/SaveBar.qml shell/Commons/ClearingInset.qml shell/Commons/Inset.js
+# inputs: shell/plugins/vgs.sound/* shell/plugins/vgs.bluetooth/* shell/plugins/vgs.network/* shell/plugins/vgs.tailscale/* shell/plugins/vgs.vpn/* shell/plugins/vgs.displays/* shell/plugins/vgs.mouse/* shell/plugins/vgs.keyboard/* shell/plugins/vgs.motion/* shell/plugins/vgs.windows/* shell/plugins/vgs.ui/* shell/plugins/vgs.power/* shell/plugins/vgs.sounds/* shell/plugins/vgs.printers/* shell/plugins/vgs.fonts/* config/shell.json shell/plugins/vgs.system/* shell/Ui/layout/ListCursor* shell/Ui/layout/ListItem.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/plugins/*/manifest.json scripts/smoke/fixtures/plugins/acme.pane/* shell/Hosts/PaneHost.qml shell/Hosts/AppWindow.qml shell/Core/Capabilities.qml shell/Core/Config.qml shell/Commons/WatchedFile.qml scripts/smoke/rows/hyprland-consent.sh shell/Ui/layout/Pane.qml shell/Ui/layout/ScrollArea.qml shell/Ui/feedback/SaveBar.qml shell/Commons/ClearingInset.qml shell/Commons/Inset.js
 set -euo pipefail
 
 sys_file="$home/.config/vgshell/shell.json"
@@ -628,7 +628,7 @@ if devices_ready system-window; then
   sys_family="$(python3 - "$repo/shell/plugins" <<'PY'
 import glob, json, os, sys
 ids = sorted(doc["id"] for path in glob.glob(os.path.join(sys.argv[1], "*", "manifest.json")) for doc in [json.load(open(path))] if "pane" in doc["kinds"])
-required = {"vgs.sound", "vgs.displays", "vgs.bluetooth", "vgs.network", "vgs.vpn", "vgs.mouse", "vgs.keyboard"}
+required = {"vgs.sound", "vgs.displays", "vgs.bluetooth", "vgs.network", "vgs.tailscale", "vgs.vpn", "vgs.mouse", "vgs.keyboard"}
 assert required <= set(ids), "shipped System sections are missing"
 assert "vgs.system" not in ids, "the holder is not a section"
 print(json.dumps(ids))

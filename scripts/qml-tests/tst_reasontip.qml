@@ -4,8 +4,8 @@ import Quickshell
 import qs.Commons
 import qs.Ui
 import qs.Unit
-import "../../shell/plugins/vgs.vpn" as Vpn
-import "../../shell/plugins/vgs.vpn/VpnLogic.js" as VpnLogic
+import "../../shell/plugins/vgs.tailscale" as Tailscale
+import "../../shell/plugins/vgs.tailscale/TailscaleLogic.js" as TailscaleLogic
 
 // A disabled control's reason (DisabledReason, Tooltip's "clear" side)
 // opens where it covers no text, icon or Tab stop of its window, inside
@@ -247,10 +247,10 @@ Item {
             switchName: "Tailscale"
             switchDisabledReason: "The administrator holds Tailscale until you choose Let my login control Tailscale."
             switchUnlock: ({ label: "Let my login control Tailscale", run: () => {} })
-            Vpn.VpnBody {
+            Tailscale.TailscaleBody {
                 id: repeatedBody
                 width: repeatedPane.contentWidth
-                shell: ({ settings: { pollSeconds: 30 }, status: { values: { vpn: Object.assign(VpnLogic.unread(), { state: "running", text: "Connected through Zurich, Switzerland" }) }, rows: [{ key: "setup", action: { offered: true, label: "Let my login control Tailscale" }, hint: "The administrator holds Tailscale. After this step, VGS connects and disconnects for you without a password." }] } })
+                shell: ({ settings: { pollSeconds: 30 }, status: { values: { tailscale: Object.assign(TailscaleLogic.unread(), { state: "running", text: "Connected through Zurich, Switzerland" }) }, rows: [{ key: "setup", action: { offered: true, label: "Let my login control Tailscale" }, hint: "The administrator holds Tailscale. After this step, VGS connects and disconnects for you without a password." }] } })
             }
         }
     }
@@ -518,9 +518,9 @@ Item {
             request.send();
             compare(UnitTheme.override(JSON.parse(request.responseText).tokens), "ok");
             repeated.visible = true;
-            const repeatedHint = descendants(repeatedBody).find(item => item.objectName === "vpn-setup-hint");
-            const repeatedState = descendants(repeatedBody).find(item => item.objectName === "vpn-state");
-            const repeatedAction = descendants(repeatedBody).find(item => item.objectName === "vpn-setup");
+            const repeatedHint = descendants(repeatedBody).find(item => item.objectName === "tailscale-setup-hint");
+            const repeatedState = descendants(repeatedBody).find(item => item.objectName === "tailscale-state");
+            const repeatedAction = descendants(repeatedBody).find(item => item.objectName === "tailscale-setup");
             compare(repeatedHint.opacity, 1);
             const control = repeatedPane.headerSwitch;
             const tip = openReason(control);

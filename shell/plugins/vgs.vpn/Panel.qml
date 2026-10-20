@@ -2,15 +2,13 @@ import QtQuick
 import qs.Commons
 import qs.Ui
 
-// The VPN flyout: the connection switch, sign-in and the exit nodes
-// (VpnBody.qml), and a button that opens the VPN section of System.
+// The saved VPN profile flyout, with a path to its System Settings section.
 Item {
     id: root
 
     property var shell: null
     property var payload: ({})
-    // The header switch while it can be used, else where the body opens.
-    readonly property Item initialFocus: layout.headerSwitch !== null && layout.headerSwitch.enabled && body.lockReason === "" ? layout.headerSwitch : body.initialFocus
+    readonly property Item initialFocus: body.initialFocus
 
     implicitWidth: Theme.size.panel.lg
     implicitHeight: layout.implicitHeight
@@ -36,14 +34,6 @@ Item {
         fitToContent: true
         maximumHeight: Theme.size.panel.maxHeight
         title: "VPN"
-        switchShown: body.switchable
-        switchChecked: body.vpn.state !== "stopped"
-        switchEnabled: !body.busy
-        switchDisabledReason: body.lockReason
-        switchUnlock: body.unlock
-        switchName: "Tailscale"
-        onSwitchToggled: checked => body.request(checked ? "connect" : "disconnect", "")
-
         footer: [Button { text: "VPN settings"; variant: "tertiary"; iconName: "settings"; onClicked: root.openSettings() }]
 
         VpnBody {

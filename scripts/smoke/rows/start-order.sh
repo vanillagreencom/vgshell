@@ -54,6 +54,7 @@ for i in "${!start_order_paths[@]}"; do
     cp -a -- "${start_order_paths[i]}" "$start_order_saved/$i"
   fi
 done
+start_order_tailscale_before="$(record_exists vgs.tailscale)"
 start_order_vpn_before="$(record_exists vgs.vpn)"
 # Stop the default-set readers before restoring their files. Restoration
 # gets its own bounded transport; the failed row's IPC latch stays sticky.
@@ -74,6 +75,7 @@ start_order_restore() {
   cmp -s -- "$start_order_saved/0" "${start_order_paths[0]}" || return
   ok "the row restores its incoming configuration"
   start_shell "$repo" "$sandbox/start-order-final-qs.log" || return
+  expect_poll "the row restores its incoming Tailscale service enablement" "$start_order_tailscale_before" record_exists vgs.tailscale
   expect_poll "the row restores its incoming VPN service enablement" "$start_order_vpn_before" record_exists vgs.vpn
   expect "the row leaves the sandbox's own guarded shell" true ipc shell guarded
   [[ $failures == "$start_order_restore_failures" && ! -s $ipc_timeout_log ]] || return 1

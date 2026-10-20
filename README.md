@@ -7,7 +7,7 @@ A desktop shell for Hyprland, built on Quickshell. It draws the bar, panels and 
 ## Features
 
 - A Plugins window on SUPER+M holds every plugin's settings, shortcuts and on/off switch.
-- System Settings on SUPER+PERIOD holds Sound, Displays, Bluetooth, Network, VPN, Mouse and Keyboard.
+- System Settings on SUPER+PERIOD holds Sound, Displays, Bluetooth, Network, Tailscale, VPN, Mouse and Keyboard.
 - Ships the [plugins](#plugins) listed below.
 - Themes change the colours, wallpaper and window borders in one click.
 - Updates installs system, VGS, plugin and theme updates, and an AI agent can review third-party packages before they install.
@@ -96,13 +96,14 @@ VGS starts with Hyprland and draws the bar, panels and windows on each screen. E
 | [Passwordless Sudo](shell/plugins/vgs.sudo/README.md) | Turn passwordless sudo on and off from the bar. |
 | [System Monitor](shell/plugins/vgs.sysmon/README.md) | See CPU, memory and graphics card use. |
 | [System Settings](shell/plugins/vgs.system/README.md) | Sound, displays, network and other system settings in one window. |
+| [Tailscale](shell/plugins/vgs.tailscale/README.md) | Connect this computer to your tailnet and choose an exit node. |
 | [Themes](shell/plugins/vgs.themes/README.md) | Choose themes and wallpapers. |
 | [Network Traffic](shell/plugins/vgs.traffic/README.md) | See network speed and traffic per app. |
 | [Tray](shell/plugins/vgs.tray/README.md) | Show the tray icons of your apps in the bar, with their menus. |
 | [UI](shell/plugins/vgs.ui/README.md) | Set the corner radius of buttons and inputs. |
 | [Updates](shell/plugins/vgs.updates/README.md) | Update your system, VGS, plugins, themes and tools. |
 | [Voice](shell/plugins/vgs.voice/README.md) | Dictate into the focused field and see the recording state in the bar. |
-| [VPN](shell/plugins/vgs.vpn/README.md) | Connect Tailscale or a saved VPN profile. |
+| [VPN](shell/plugins/vgs.vpn/README.md) | Connect your saved VPN and WireGuard profiles. |
 | [Web Apps](shell/plugins/vgs.webapps/README.md) | Turn a website into an app with its own window. |
 | [Windows](shell/plugins/vgs.windows/README.md) | Set the corners and borders of windows and flyouts, and VGlass. |
 
