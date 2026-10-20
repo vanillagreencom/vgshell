@@ -991,7 +991,7 @@ mutations=(
   "a reason covers a Tab stop to cover less text|overlay/Tooltip.qml|scene.obstacles.some(each => each.control && covered(place, each) > 0) ? 1 : 0|0|tst_reasontip.qml"
   "a reason ignores text that repeats its cause|overlay/Tooltip.qml|item.repeatsReason === true|false|tst_reasontip.qml"
   "a reason tries the repeat text centre before its anchor edges|overlay/Tooltip.qml|[across[2], across[1], hold(repeat.x + (repeat.width - w) / 2, room.x, w, room.width)]|[hold(repeat.x + (repeat.width - w) / 2, room.x, w, room.width), across[2], across[1]]|tst_reasontip.qml"
-  "covered Setup text stays at full strength|../plugins/vgs.vpn/VpnBody.qml|opacity: OverlayState.coveredReason === setupHint ? Theme.opacity.disabled : 1|opacity: 1|tst_reasontip.qml"
+  "covered Setup text stays at full strength|../plugins/vgs.tailscale/TailscaleBody.qml|opacity: OverlayState.coveredReason === setupHint ? Theme.opacity.disabled : 1|opacity: 1|tst_reasontip.qml"
   "an unlock mark's reason opens under it, over the hint|controls/UnlockMark.qml|        tooltipSide: \"clear\"|        tooltipSide: \"below\"|tst_reasontip.qml"
   "an unlock mark's reason covers the toggle it explains|overlay/Tooltip.qml|const owner = holders.find(item => item.activeFocusOnTab === true);|const owner = undefined;|tst_reasontip.qml"
   "a reason covers an icon|overlay/Tooltip.qml|if (Array.isArray(item.painted) && item.stroke !== undefined) return \"image\";|if (false) return \"image\";|tst_reasontip.qml"

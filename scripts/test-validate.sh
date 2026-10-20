@@ -540,7 +540,7 @@ recipe_plan=$'node scripts/check-packaging.js\nnode scripts/test-check-packaging
 # An Arch recipe is also the README's source for the AUR commands.
 # The release suite's parity rows build the Arch recipes' host side.
 arch_recipe_plan=$'node scripts/check-packaging.js\nnode scripts/test-check-packaging.js\n'"$readme_rows"$'scripts/test-vgshell-requirements.sh\nscripts/test-release.sh\nscripts/test-publish-aur.sh\n'"$repo_plan"
-settings_core_prefix=$'node scripts/test-vpn-logic.js\nnode scripts/test-plugin-logic.js\nnode scripts/test-pads.js\nnode scripts/test-plugin-status.js\nnode scripts/test-plugin-menu.js\nnode scripts/test-key-capture.js\nnode scripts/test-tui-logic.js\nnode scripts/test-ipc-logic.js\nnode scripts/test-notice-logic.js\nnode scripts/test-hyprland-layer.js\nnode scripts/test-hyprland-state.js\nnode scripts/test-input-facts.js\n'
+settings_core_prefix=$'node scripts/test-tailscale-logic.js\nnode scripts/test-vpn-logic.js\nnode scripts/test-plugin-logic.js\nnode scripts/test-pads.js\nnode scripts/test-plugin-status.js\nnode scripts/test-plugin-menu.js\nnode scripts/test-key-capture.js\nnode scripts/test-tui-logic.js\nnode scripts/test-ipc-logic.js\nnode scripts/test-notice-logic.js\nnode scripts/test-hyprland-layer.js\nnode scripts/test-hyprland-state.js\nnode scripts/test-input-facts.js\n'
 settings_theme_rows=$'bin/vgshell-theme-judge packages themes\n'
 settings_plugin_rows=$'node scripts/test-launcher-model.js\nnode scripts/test-themes-setup.js\nnode scripts/test-notifications-logic.js\nnode scripts/test-greeter-logic.js\nnode scripts/test-polkit-model.js\nnode scripts/test-bluetooth-logic.js\nnode scripts/test-displays-logic.js\nnode scripts/test-screensaver-logic.js\n'
 settings_catalog_rows=$'node scripts/test-check-devtools-catalog.js\n'
@@ -1292,12 +1292,12 @@ smoke_fixture() { # DIR [VARIANT]
       printf '# Run by launcher.sh.\n' >"$dir/scripts/smoke/rows/launcher-part.sh" ;;&
     slow-malformed) printf 'stale sixty\n' >>"$dir/scripts/smoke/rows.secs" ;;
   esac
-  if [[ $variant == vpn-values || $variant == vpn-values-control ]]; then
-    python3 - "$repo" "$dir" "$variant" <<'PYVPNINPUT'
+  if [[ $variant == tailscale-values || $variant == tailscale-values-control ]]; then
+    python3 - "$repo" "$dir" "$variant" <<'PYTAILSCALEINPUT'
 import glob, pathlib, re, sys
 repo, target = map(pathlib.Path, sys.argv[1:3])
 variant = sys.argv[3]
-source = (repo / 'scripts/smoke/rows/vpn.sh').read_text()
+source = (repo / 'scripts/smoke/rows/tailscale.sh').read_text()
 lines = re.findall(r'^# inputs: (.+)$', source, re.M)
 assert len(lines) == 1
 inputs = lines[0]
@@ -1314,17 +1314,17 @@ for pattern in inputs.split():
             if not path.exists():
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text('# neutral input\n')
-if variant == 'vpn-values-control':
+if variant == 'tailscale-values-control':
     edge = 'shell/Commons/SettingValues.js '
     assert inputs.count(edge) == 1
     inputs = inputs.replace(edge, '')
-(target / 'scripts/smoke/rows/vpn.sh').write_text('# inputs: ' + inputs + '\n')
+(target / 'scripts/smoke/rows/tailscale.sh').write_text('# inputs: ' + inputs + '\n')
 (target / 'scripts/smoke/rows/device-fakes.sh').write_text('# inputs: scripts/smoke/fixtures/devices/*\n')
 row_list = target / 'scripts/smoke/rows.list'
 text = row_list.read_text()
 assert text.count('start-order\n') == 1
-row_list.write_text(text.replace('start-order\n', 'device-fakes\nvpn\nstart-order\n'))
-PYVPNINPUT
+row_list.write_text(text.replace('start-order\n', 'device-fakes\ntailscale\nstart-order\n'))
+PYTAILSCALEINPUT
   fi
   "${base_env[@]}" git -C "$dir" add -A
   "${base_env[@]}" git -C "$dir" commit -q -m smoke-rows
@@ -1337,8 +1337,8 @@ smoke_notify="scripts/qml-smoke.sh --rows $smoke_core,notifications,notification
 smoke_none="scripts/qml-smoke.sh --rows $smoke_core,$smoke_always,$smoke_tail"
 # name|changed paths|scope|wanted plan|mutant|fixture variant
 smoke_cases=(
-  "the shared byte counter selects its VPN runtime consumer|shell/Commons/SettingValues.js|changed|scripts/qml-smoke.sh --rows $smoke_core,$smoke_always,device-fakes,vpn,$smoke_tail||vpn-values"
-  "control: losing the VPN byte counter input skips its runtime consumer|shell/Commons/SettingValues.js|changed|$smoke_none||vpn-values-control"
+  "the shared byte counter selects its Tailscale runtime consumer|shell/Commons/SettingValues.js|changed|scripts/qml-smoke.sh --rows $smoke_core,$smoke_always,device-fakes,tailscale,$smoke_tail||tailscale-values"
+  "control: losing the Tailscale byte counter input skips its runtime consumer|shell/Commons/SettingValues.js|changed|$smoke_none||tailscale-values-control"
   "one plugin selects the core rows, its own and the rows that always run|shell/plugins/acme.launcher/Panel.qml|changed|$smoke_launcher||rows"
   "control: a row with no input line no longer runs|shell/plugins/acme.launcher/Panel.qml|changed|scripts/qml-smoke.sh --rows $smoke_core,launcher,stale,twice,blank,lost,$smoke_tail|missing|rows"
   "control: a row whose glob matches nothing no longer runs|shell/plugins/acme.launcher/Panel.qml|changed|scripts/qml-smoke.sh --rows $smoke_core,launcher,bare,twice,blank,lost,$smoke_tail|matches-nothing|rows"
@@ -2046,7 +2046,7 @@ fi
 # refused run stops before the fence, which would log its call. The
 # controls are copies: one that follows the named rows' lines alone, which
 # loses base and seat, and one for each refusal, which lists the rows.
-for dir in runner-reads runner-deep-control runner-refusal-control runner-short runner-short-control; do
+for dir in runner-reads runner-deep-control runner-refusal-control runner-short runner-short-control runner-filter runner-filter-control; do
   mkdir -p "$tmp/$dir/scripts/smoke/rows"
   cp -- "$repo/scripts/qml-smoke.sh" "$tmp/$dir/scripts/qml-smoke.sh"
   cp -- "$repo/scripts/smoke/row-inputs.sh" "$tmp/$dir/scripts/smoke/row-inputs.sh"
@@ -2065,6 +2065,27 @@ for dir in runner-reads runner-deep-control runner-refusal-control runner-short 
   printf 'sandbox=%q\nfailures=0\nleak_seq=0\n' "$tmp/$dir/sandbox" >"$tmp/$dir/scripts/smoke/harness.sh"
   printf '%s\n' 'smoke_row() { printf "row=%s\n" "$1"; }' 'compositor_logs_on() { :; }' 'ok() { :; }' 'smoke_finish() { :; }' >>"$tmp/$dir/scripts/smoke/harness.sh"
 done
+# The existing filtered-PATH owner receives these tools and any earlier filter.
+for dir in runner-filter runner-filter-control; do
+  printf 'printf "%%s\\n" "${shell_hidden_commands[@]}" >%q\n' "$tmp/$dir/filter" >>"$tmp/$dir/scripts/smoke/harness.sh"
+done
+d="$tmp/runner-filter"
+status=0
+"${base_env[@]}" bash -c 'shell_hidden_commands=(preexisting); source "$1" --rows top' _ "$d/scripts/qml-smoke.sh" >"$d/run.log" 2>&1 || status=$?
+if [[ $status == 0 && $(grep -cx -E 'preexisting|tailscale|nmcli' "$d/filter") == 3 ]]; then
+  ok "backend absence keeps host tools hidden and retains earlier filters"
+else
+  fail "the runner did not hand the backend tool filter to the harness"
+fi
+d="$tmp/runner-filter-control"
+plant "$d/scripts/qml-smoke.sh" ' claude codex tailscale nmcli)' ' claude codex)'
+status=0
+"${base_env[@]}" bash -c 'shell_hidden_commands=(preexisting); source "$1" --rows top' _ "$d/scripts/qml-smoke.sh" >"$d/run.log" 2>&1 || status=$?
+if [[ $status == 0 && $(grep -cx -E 'preexisting|tailscale|nmcli' "$d/filter") == 1 ]]; then
+  ok "control: dropping the backend filter exposes both host tools"
+else
+  fail "control: the runner filter removal did not reach the harness"
+fi
 d="$tmp/runner-reads"
 smoke_deep=(bar hyprland-consent seat session base own top start-order auth-sentinel)
 status=0

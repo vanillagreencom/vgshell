@@ -476,7 +476,8 @@ fit_field() { printf '%s\n' "$1" | py_reply 'import json,sys; d=json.load(sys.st
 # BEFORE's client to AFTER's, independent of which tab is taller.
 fit_change() { printf '%s\n' "$2" | py_reply 'import json,sys; a=json.loads(sys.argv[1])["client"]; d=json.load(sys.stdin); b=d["client"]; print(json.dumps([a[:2] == b[:2], a[2] == b[2], b[3] == d["target"]]))' "$1"; }
 fit_client() { fit_state | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["client"]))'; }
-expect "the window opens the VPN page" ok ipc smoke invokeInstance window vgs.settings openPlugin vgs.vpn
+for vpn_page in vgs.tailscale vgs.vpn; do
+expect "the window opens the VPN page" ok ipc smoke invokeInstance window vgs.settings openPlugin "$vpn_page"
 expect_poll "the VPN page opens on Settings" 0 settings_tab
 expect_poll "the window takes the VPN Settings height" settled fit_settled
 vpn_settings="$(fit_state)" || vpn_settings=unread
@@ -493,6 +494,7 @@ expect_poll "VPN's Settings tab shows again" 0 settings_tab
 expect_poll "the window takes the VPN Settings height again" settled fit_settled
 vpn_settings_box="$(printf '%s\n' "$vpn_settings" | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["client"]))')" || vpn_settings_box=unread
 expect "the window returns to the VPN Settings box" "$vpn_settings_box" fit_client
+done
 fit_ids="$(settings_rows | py_reply 'import json,sys; print(" ".join(r["id"] for r in json.load(sys.stdin)))')" || fit_ids=""
 [[ " $fit_ids " == *" vgs.windows "* && " $fit_ids " == *" acme.settings-scroll "* ]] || fail "the manager lists Windows and the deliberate scroll fixture for the Details judge: got $fit_ids"
 overflow_details=unread

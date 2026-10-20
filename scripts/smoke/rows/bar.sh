@@ -1,4 +1,4 @@
-# inputs: shell/plugins/vgs.launcher/* shell/plugins/vgs.tray/* scripts/smoke/fixtures/tray/* scripts/smoke/fixtures/devices/hid-world.json scripts/smoke/fixtures/devices/hid-fake.py config/shell.json shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/plugins/vgs.sound/* shell/plugins/vgs.network/* shell/plugins/vgs.bluetooth/* shell/plugins/vgs.displays/* shell/plugins/vgs.keyboard/* shell/plugins/vgs.vpn/* shell/plugins/vgs.sudo/* shell/plugins/vgs.mouse/* shell/plugins/vgs.bar/* scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/fixtures/plugins/acme.idle/* shell/Hosts/BarHost.qml shell/Ui/controls/BarItem.qml shell/Ui/BarWidget.qml shell/Core/Plugins.qml shell/Core/Config.qml shell/Commons/Workspaces.qml shell/Commons/Time.qml shell/plugins/*/manifest.json shell/Core/Capabilities.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Commons/Tokens.js shell/plugins/vgs.settings/* shell/plugins/vgs.agent-warden/* shell/plugins/vgs.ai-usage/* shell/plugins/vgs.capture/* shell/plugins/vgs.jarvis/* shell/plugins/vgs.power/* shell/plugins/vgs.traffic/* shell/plugins/vgs.updates/* shell/plugins/vgs.voice/* shell/plugins/vgs.sysmon/* shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/SummonPopup.qml shell/Commons/DesktopLaunch.js shell/Commons/AnchorTracker.qml scripts/smoke/fixtures/plugins/acme.tiplink/* shell/Ui/overlay/Tooltip.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Hosts/NoticeHost.qml shell/Core/KeyCapture.qml shell/Core/HyprlandLayer.qml
+# inputs: shell/plugins/vgs.launcher/* shell/plugins/vgs.tray/* scripts/smoke/fixtures/tray/* scripts/smoke/fixtures/devices/hid-world.json scripts/smoke/fixtures/devices/hid-fake.py config/shell.json shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/plugins/vgs.sound/* shell/plugins/vgs.network/* shell/plugins/vgs.bluetooth/* shell/plugins/vgs.displays/* shell/plugins/vgs.keyboard/* shell/plugins/vgs.tailscale/* shell/plugins/vgs.vpn/* shell/plugins/vgs.sudo/* shell/plugins/vgs.mouse/* shell/plugins/vgs.bar/* scripts/smoke/fixtures/plugins/acme.tick/* scripts/smoke/fixtures/plugins/acme.idle/* shell/Hosts/BarHost.qml shell/Ui/controls/BarItem.qml shell/Ui/BarWidget.qml shell/Core/Plugins.qml shell/Core/Config.qml shell/Commons/Workspaces.qml shell/Commons/Time.qml shell/plugins/*/manifest.json shell/Core/Capabilities.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Commons/Tokens.js shell/plugins/vgs.settings/* shell/plugins/vgs.agent-warden/* shell/plugins/vgs.ai-usage/* shell/plugins/vgs.capture/* shell/plugins/vgs.jarvis/* shell/plugins/vgs.power/* shell/plugins/vgs.traffic/* shell/plugins/vgs.updates/* shell/plugins/vgs.voice/* shell/plugins/vgs.sysmon/* shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Hosts/SummonPopup.qml shell/Commons/DesktopLaunch.js shell/Commons/AnchorTracker.qml scripts/smoke/fixtures/plugins/acme.tiplink/* shell/Ui/overlay/Tooltip.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Hosts/NoticeHost.qml shell/Core/KeyCapture.qml shell/Core/HyprlandLayer.qml
 set -euo pipefail
 expect "instance guard accepts the runner's shell" true ipc shell guarded
 
@@ -490,7 +490,7 @@ fi
 
 # Declaration and effective placement use one independent expected contract.
 # Runtime reads permit first-presence additions outside the requested group.
-fresh_want='{"left":["vgs.launcher","vgs.bar/left-workspaces","vgs.tray"],"center":["vgs.bar/center-clock"],"right":["vgs.sudo","vgs.vpn","vgs.network","vgs.bluetooth","vgs.sound","vgs.displays","vgs.keyboard","vgs.settings"]}'
+fresh_want='{"left":["vgs.launcher","vgs.bar/left-workspaces","vgs.tray"],"center":["vgs.bar/center-clock"],"right":["vgs.sudo","vgs.tailscale","vgs.vpn","vgs.network","vgs.bluetooth","vgs.sound","vgs.displays","vgs.keyboard","vgs.settings"]}'
 fresh_bar_declared() {
   py_reply 'import json,sys
 config=json.load(sys.stdin); want=json.loads(sys.argv[1])
@@ -549,13 +549,13 @@ for host,rows in hosts.items():
         for ident in ids:
             visible,box=rows.get(ident,(False,None))
             if box is None: failures.append(ident+":missing"); continue
-            # Displays draws only for a matching ready display. Keyboard
-            # draws only with multiple layouts. Both records remain required.
-            if ident in ("vgs.displays","vgs.keyboard") and not visible: continue
-            if not visible or box[2]<=0 or box[3]<=0: failures.append(ident+":not-drawn"); continue
+            # Every placed widget must construct a readable box. Its
+            # plugin owns visibility; only visible widgets enter draw/order.
+            if not visible: continue
+            if box[2]<=0 or box[3]<=0: failures.append(ident+":not-drawn"); continue
             if not inside(box,rows[section]) or not inside(box,rows["bar"]): failures.append(ident+":outside-section")
             drawn.append((box[0],ident))
-        expected=[ident for ident in ids if ident not in ("vgs.displays","vgs.keyboard") or rows.get(ident,(False,None))[0]]
+        expected=[ident for ident in ids if rows.get(ident,(False,None))[0]]
         if [ident for _,ident in sorted(drawn)]!=expected: failures.append(section+":order")
     launcher=rows.get("vgs.launcher",(False,None))[1]
     if launcher is not None:
@@ -927,7 +927,7 @@ print(len(boxes)==1 and boxes[0][0]<=x<boxes[0][0]+boxes[0][2] and boxes[0][1]<=
   fi
   # A zone that would run into its neighbour clips to the room from its
   # bar edge to the centre, less the gap, and scrolls by whole widgets
-  # (Bar.qml's Zone). The owner's own layout, 16 widgets in the right
+  # (Bar.qml's Zone). The owner's layout, split by backend, in the right
   # section with every System Monitor reading on, over the default set,
   # which enables each of them. The sandbox's stand-ins draw narrower than
   # his live widgets, which run into the clock at his 2560 logical pixels,
@@ -935,7 +935,7 @@ print(len(boxes)==1 and boxes[0][0]<=x<boxes[0][0]+boxes[0][2] and boxes[0][1]<=
   # too, with a reserved area at the monitor's own mode. System Monitor and Network Traffic
   # hold One line, the widths the walks below count widgets by; their
   # Stacked default draws narrower.
-  zone_right='["vgs.vpn","vgs.network","vgs.bluetooth","vgs.sound","vgs.displays","vgs.keyboard","vgs.settings","vgs.agent-warden","vgs.ai-usage","vgs.capture","vgs.jarvis","vgs.power","vgs.traffic","vgs.updates","vgs.voice","vgs.sysmon"]'
+  zone_right='["vgs.tailscale","vgs.vpn","vgs.network","vgs.bluetooth","vgs.sound","vgs.displays","vgs.keyboard","vgs.settings","vgs.agent-warden","vgs.ai-usage","vgs.capture","vgs.jarvis","vgs.power","vgs.traffic","vgs.updates","vgs.voice","vgs.sysmon"]'
   # zone_plant [N]: the owner's layout in the user file, the first N of
   # his right widgets alone when N is given, the rest off the bar;
   # zone_planted names those placed.

@@ -3,15 +3,12 @@ import qs.Commons
 import qs.Ui
 import "VpnLogic.js" as Logic
 
-// The VPN icon in the bar: connected, off, or an exit node in use, as
-// VpnLogic.barView decides from the `vpn` value the service publishes. It
-// starts no process. A click opens or closes the flyout under it. It is
-// hidden while Tailscale is not installed and stays placed. The bar takes
-// no keyboard focus: the System window's VPN section is the keyboard path.
+// Saved profile state supplies the shield. The icon hides while the
+// backend is unavailable or no profile is saved; its placement stays.
 BarWidget {
     id: widget
 
-    readonly property var view: Logic.barView(shell === null ? null : shell.status.values.vpn || null, shell === null ? null : shell.status.values.profiles || null)
+    readonly property var view: Logic.barView(shell === null ? null : shell.status.values.profiles || null)
 
     visible: view.shown
     implicitWidth: view.shown ? button.implicitWidth : 0

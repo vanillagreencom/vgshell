@@ -1,0 +1,112 @@
+{
+  "schemaVersion": 1,
+  "id": "vgs.tailscale",
+  "name": "Tailscale",
+  "version": "0.1.0",
+  "author": "VanillaGreen",
+  "description": "Connect this computer to your tailnet and choose an exit node.",
+  "license": "MIT",
+  "icon": "route",
+  "kinds": [
+    "service",
+    "bar-widget",
+    "panel",
+    "pane"
+  ],
+  "entryPoints": {
+    "service": "Service.qml",
+    "bar-widget": "Widget.qml",
+    "panel": "Panel.qml",
+    "pane": "Pane.qml"
+  },
+  "capabilities": [
+    "configure",
+    "ipc",
+    "requirements",
+    "run",
+    "status",
+    "surfaces",
+    "system"
+  ],
+  "defaultSection": "right",
+  "pane": {
+    "group": "Connectivity",
+    "order": 30
+  },
+  "settings": {
+    "pollSeconds": 30
+  },
+  "schema": {
+    "pollSeconds": {
+      "type": "number",
+      "label": "Check every",
+      "description": "How often VGS reads Tailscale while its flyout and System Settings section are closed",
+      "unit": "seconds",
+      "presets": [
+        {
+          "value": 10
+        },
+        {
+          "value": 30
+        },
+        {
+          "value": 60
+        }
+      ],
+      "group": "Updates"
+    }
+  },
+  "requirements": [
+    {
+      "command": "tailscale",
+      "packages": {
+        "pacman": "tailscale",
+        "dnf": "tailscale",
+        "nix": "tailscale"
+      },
+      "optional": true,
+      "purpose": "Reads and controls your Tailscale connection"
+    },
+    {
+      "command": "xdg-open",
+      "packages": {
+        "pacman": "xdg-utils",
+        "apt": "xdg-utils",
+        "dnf": "xdg-utils",
+        "nix": "xdg-utils"
+      },
+      "optional": true,
+      "purpose": "Opens the Tailscale sign-in page in your browser"
+    }
+  ],
+  "systemSteps": [
+    "service-tailscaled",
+    "tailscale-operator"
+  ],
+  "status": {
+    "connection": {
+      "type": "state",
+      "label": "Connection"
+    },
+    "setup": {
+      "type": "state",
+      "label": "Tailscale service",
+      "group": "Tailscale",
+      "actions": {
+        "enable": {
+          "label": "Enable",
+          "system": "service-tailscaled"
+        },
+        "allow": {
+          "label": "Let my login control Tailscale",
+          "system": "tailscale-operator"
+        }
+      }
+    },
+    "tailscale": {
+      "type": "data",
+      "label": "Tailscale"
+    }
+  },
+  "splitFrom": "vgs.vpn"
+}

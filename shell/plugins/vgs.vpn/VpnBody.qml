@@ -3,69 +3,26 @@ import qs.Commons
 import qs.Ui
 import "VpnLogic.js" as Logic
 
-// The body the flyout and the System pane share. It draws the `vpn` value
-// the service publishes and asks the service for every change through the
-// plugin's own IPC; it starts no process. While it is open it holds a
-// lease, which makes the service's poll fast. The setup step, Enable or
-// Allow, is the `setup` status entry's action as the core's
-// status rows offer it (`status.rows`), run through `status.act`. While
-// Tailscale takes no change, its controls say why (`lockReason`), and the
-// connection switch's unlock mark runs the same step.
-//
-// Tab moves from the connection switch to the exit nodes and, in the
-// pane, the accounts. Up and Down move inside a list, and Enter chooses.
+// The existing profile list, shared by the flyout and System Settings.
 FocusScope {
     id: root
-
     property var shell: null
-    // The pane's extra sections: this device, accounts, devices, the poll.
     property bool expanded: false
     property string leaseId: ""
     property bool leased: false
-    // The line a refused request left, "" for none.
     property string localProblem: ""
-
-    readonly property var vpn: shell === null || !shell.status.values.vpn ? Logic.unread() : shell.status.values.vpn
     readonly property var profiles: shell === null || !shell.status.values.profiles ? Object.assign(Logic.emptyProfiles(), { action: "", problem: "" }) : shell.status.values.profiles
     readonly property var profileRows: profiles.rows
-    readonly property bool busy: vpn.action !== ""
-    readonly property bool switchable: ["running", "starting", "stopped"].indexOf(vpn.state) !== -1
-    readonly property bool reached: switchable || vpn.state === "signed-out" || vpn.state === "needs-approval"
-    // The setup step the core offers now, { label, hint }, else null.
-    // `hint` is the sentence that says what the step does.
-    readonly property var setupAction: {
-        if (shell === null) return null;
-        const row = shell.status.rows.find(r => r.key === "setup");
-        return row === undefined || row.action === null || !row.action.offered ? null : { label: row.action.label, hint: row.hint };
-    }
-    // Why the controls cannot change Tailscale now, "" while they can, and
-    // the switch's unlock mark, the setup step, null while none is offered.
-    readonly property string lockReason: Logic.lockReason(vpn, setupAction === null ? "" : setupAction.label)
-    readonly property var unlock: setupAction === null ? null : ({ label: setupAction.label, run: () => root.runSetup() })
-    readonly property var exitRows: [{ key: "", text: "None", secondary: "Use this computer's own connection", iconName: "globe-off",
-        badge: vpn.exit === null ? "In use" : "", badgeTone: "success" }].concat(vpn.exitNodes.map(node => ({
-            key: node.id, text: node.place !== "" ? node.place : node.name,
-            secondary: node.place !== "" ? node.name : node.online ? "Online" : "Offline", iconName: "globe",
-            badge: node.active ? "In use" : "", badgeTone: "success" })))
-    readonly property var accountRows: vpn.accounts.map(row => ({ key: row.id, text: row.account, secondary: row.tailnet,
-        iconName: "user", badge: row.current ? "In use" : "", badgeTone: "success" }))
     readonly property var pollChoices: [10, 30, 60]
-    // The connection switch while it can be used, else the body, from
-    // which Tab reaches the setup step: no view opens on a step that
-    // changes the system (design-system.md § Keyboard), nor on a locked
-    // switch.
-    readonly property Item initialFocus: connectField.visible && toggle.enabled && root.lockReason === "" ? toggle : root
-
+    readonly property Item initialFocus: root
     implicitHeight: content.implicitHeight
 
-    // Qt moves Tab only from an item that is a Tab stop. The body is none,
-    // so its own Tab would start from the window's first stop and leave
-    // the section.
+    // Qt starts Tab traversal at the window's first stop from a body
+    // that is not itself a Tab stop; move from this section explicitly.
     Keys.onTabPressed: event => {
         nextItemInFocusChain(true).forceActiveFocus(Qt.TabFocusReason);
         event.accepted = true;
     }
-
     function open() {
         if (leaseId === "") leaseId = String(root);
         if (shell !== null && !leased) leased = shell.ipc.call("lease", JSON.stringify({ id: leaseId, open: true })) === "ok";
@@ -82,25 +39,18 @@ FocusScope {
         if (reply !== "ok" && reply !== "busy") console.warn("vpn: " + reply);
         return reply;
     }
-    function request(kind, id) {
-        return answered(shell.ipc.call("action", JSON.stringify({ kind: kind, id: id })), "Tailscale cannot do this now.");
-    }
-    function runSetup() {
-        return answered(shell.status.act("setup"), "VGS could not open the setup step.");
-    }
 
     Column {
         id: content
         width: root.width
         spacing: Theme.stack.group
-
         Label {
             objectName: "vpn-state"
             width: parent.width
+            visible: root.profiles.state !== "available"
             role: "body"
             textFormat: Text.PlainText
-            visible: root.vpn.state !== "missing"
-            text: root.vpn.text
+            text: root.shell === null || !root.shell.status.values.connection ? "" : root.shell.status.values.connection.text
             wrapMode: Text.Wrap
         }
         Label {
@@ -109,157 +59,8 @@ FocusScope {
             visible: text !== ""
             role: "hint"
             color: Theme.color.danger
-            text: root.localProblem !== "" ? root.localProblem : root.profiles.problem !== "" ? root.profiles.problem : root.vpn.problem
+            text: root.localProblem !== "" ? root.localProblem : root.profiles.problem
             wrapMode: Text.Wrap
-        }
-        Label {
-            id: setupHint
-            objectName: "vpn-setup-hint"
-            readonly property bool repeatsReason: true
-            opacity: OverlayState.coveredReason === setupHint ? Theme.opacity.disabled : 1
-            width: parent.width
-            visible: setupStep.visible && text !== ""
-            role: "hint"
-            textFormat: Text.PlainText
-            text: root.setupAction === null ? "" : root.setupAction.hint
-            wrapMode: Text.Wrap
-        }
-        RowAction {
-            id: setupStep
-            objectName: "vpn-setup"
-            visible: root.vpn.state !== "missing" && root.setupAction !== null
-            text: root.setupAction === null ? "" : root.setupAction.label
-            onClicked: root.runSetup()
-        }
-        Field {
-            id: connectField
-            width: parent.width
-            visible: root.expanded && root.switchable
-            label: "Tailscale"
-            inline: true
-
-            Switch {
-                id: toggle
-                objectName: "vpn-toggle"
-                size: "sm"
-                Accessible.name: "Tailscale"
-                checked: root.vpn.state !== "stopped"
-                enabled: !root.busy
-                disabledReason: root.lockReason
-                unlock: root.unlock
-                onToggled: {
-                    const wanted = checked;
-                    checked = Qt.binding(() => root.vpn.state !== "stopped");
-                    root.request(wanted ? "connect" : "disconnect", "");
-                }
-            }
-        }
-        Button {
-            objectName: "vpn-sign-in"
-            visible: root.vpn.state === "signed-out" && root.vpn.login === "idle"
-            disabledReason: root.lockReason
-            text: "Sign in"
-            iconName: "log-in"
-            onClicked: root.request("login", "")
-        }
-        Row {
-            visible: root.vpn.login !== "idle"
-            spacing: Theme.control.gap
-
-            Label {
-                anchors.verticalCenter: parent.verticalCenter
-                role: "hint"
-                text: root.vpn.login === "opened" ? "Finish the sign-in in your browser." : "Opening the sign-in page"
-            }
-            RowAction {
-                anchors.verticalCenter: parent.verticalCenter
-                text: "Cancel"
-                onClicked: root.request("cancel-login", "")
-            }
-        }
-        Section {
-            width: parent.width
-            visible: root.vpn.state === "running"
-            title: "Exit node"
-            description: root.vpn.exitCount > root.vpn.exitNodes.length
-                ? "Showing " + root.vpn.exitNodes.length + " of " + root.vpn.exitCount + " exit nodes." : ""
-
-            DeviceList {
-                id: exitList
-                objectName: "vpn-exit-nodes"
-                width: parent.width
-                enabled: !root.busy
-                disabledReason: root.lockReason
-                rows: root.exitRows
-                onActed: key => { if (key !== (root.vpn.exit === null ? "" : root.vpn.exit.id)) root.request("exit-node", key); }
-            }
-        }
-        Section {
-            width: parent.width
-            visible: root.expanded && root.reached
-            title: "This device"
-
-            Repeater {
-                model: [["Name", root.vpn.device.name], ["Address", root.vpn.device.address], ["Network", root.vpn.tailnet], ["Account", root.vpn.account]]
-
-                Field {
-                    id: deviceRow
-                    required property var modelData
-                    width: root.width
-                    visible: modelData[1] !== ""
-                    label: modelData[0]
-                    inline: true
-
-                    Label { role: "value"; textFormat: Text.PlainText; text: deviceRow.modelData[1]; elide: Text.ElideRight }
-                }
-            }
-        }
-        Section {
-            width: parent.width
-            visible: root.expanded && root.reached
-            title: "Accounts"
-            rowSpacing: Theme.stack.group
-
-            DeviceList {
-                objectName: "vpn-accounts"
-                width: parent.width
-                visible: root.accountRows.length > 0
-                enabled: !root.busy
-                disabledReason: root.lockReason
-                rows: root.accountRows
-                onActed: key => { if (!root.vpn.accounts.some(row => row.id === key && row.current)) root.request("switch", key); }
-            }
-            RowAction {
-                visible: root.vpn.login === "idle" && root.vpn.state !== "signed-out"
-                disabledReason: root.lockReason
-                text: "Add account"
-                onClicked: root.request("login", "")
-            }
-        }
-        Section {
-            width: parent.width
-            visible: root.expanded && root.vpn.peers.length > 0
-            title: "Devices"
-            description: root.vpn.peerCount > root.vpn.peers.length
-                ? "Showing " + root.vpn.peers.length + " of " + root.vpn.peerCount + " devices." : ""
-
-            Repeater {
-                model: root.vpn.peers
-
-                Field {
-                    id: peerRow
-                    required property var modelData
-                    width: root.width
-                    label: modelData.name
-                    inline: true
-
-                    Label {
-                        role: "value"
-                        textFormat: Text.PlainText
-                        text: peerRow.modelData.online ? peerRow.modelData.address : "Offline"
-                    }
-                }
-            }
         }
         Section {
             width: parent.width
@@ -290,11 +91,10 @@ FocusScope {
         }
         Field {
             width: parent.width
-            visible: root.expanded && root.vpn.state !== "missing"
+            visible: root.expanded && root.profiles.state === "available"
             label: "Check every"
-            hint: "How often VGS reads Tailscale while this section is closed."
+            hint: "How often VGS reads your VPN profiles while its flyout and this section are closed"
             inline: true
-
             SegmentedControl {
                 objectName: "vpn-poll"
                 model: root.pollChoices.map(seconds => seconds + " s")

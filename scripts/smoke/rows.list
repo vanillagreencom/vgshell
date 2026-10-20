@@ -170,6 +170,7 @@ bluetooth
 # After system-window, which leaves vgs.system as this row finds it, and
 # over the device fakes' stand-ins; it reads no state another section
 # leaves.
+tailscale
 vpn
 # After system-window, which leaves vgs.system as this row finds it, and
 # over the device fakes' CUPS stand-ins; it reads no state another

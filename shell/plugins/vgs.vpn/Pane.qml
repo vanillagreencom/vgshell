@@ -2,9 +2,7 @@ import QtQuick
 import qs.Commons
 import qs.Ui
 
-// The VPN section of the System window, mounted in the holder of the
-// `panes` capability, which draws its title and scrolls it: VpnBody.qml
-// with this device, the accounts, the other devices and the poll setting.
+// Saved VPN profiles and their update setting in System Settings.
 FocusScope {
     id: root
 

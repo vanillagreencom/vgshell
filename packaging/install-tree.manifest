@@ -741,6 +741,13 @@ f share/vgshell/shell/plugins/vgs.system/Service.qml
 f share/vgshell/shell/plugins/vgs.system/Sidebar.qml
 f share/vgshell/shell/plugins/vgs.system/Window.qml
 f share/vgshell/shell/plugins/vgs.system/manifest.json
+f share/vgshell/shell/plugins/vgs.tailscale/Pane.qml
+f share/vgshell/shell/plugins/vgs.tailscale/Panel.qml
+f share/vgshell/shell/plugins/vgs.tailscale/Service.qml
+f share/vgshell/shell/plugins/vgs.tailscale/TailscaleBody.qml
+f share/vgshell/shell/plugins/vgs.tailscale/TailscaleLogic.js
+f share/vgshell/shell/plugins/vgs.tailscale/Widget.qml
+f share/vgshell/shell/plugins/vgs.tailscale/manifest.json
 f share/vgshell/shell/plugins/vgs.themes/Background.qml
 f share/vgshell/shell/plugins/vgs.themes/Browser.qml
 f share/vgshell/shell/plugins/vgs.themes/BrowserData.qml

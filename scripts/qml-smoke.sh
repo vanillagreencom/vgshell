@@ -330,7 +330,7 @@ fi
 # sign-ins AI Usage reads (harness.sh's shell_hidden_commands); a row that
 # needs one present stands its own stand-in for it.
 # shellcheck disable=SC2034 # the harness sourced below reads it
-shell_hidden_commands=(vsys vgshell-browser-policy tesseract voxtype voxtype-audio-bridge claude codex)
+shell_hidden_commands+=(vsys vgshell-browser-policy tesseract voxtype voxtype-audio-bridge claude codex tailscale nmcli)
 # The Bar's width checks need a validation layout independent of the host.
 # shellcheck disable=SC2034 # the harness sourced below reads it
 shell_output_size=1755x933
