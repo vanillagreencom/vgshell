@@ -5,8 +5,11 @@ import "VpnLogic.js" as Logic
 
 // One owner of the NetworkManager profile readers, actions and deadlines.
 // Views hold a lease for the fast poll and use the plugin's IPC:
-// lease {id,open}, action {kind,id} for profile-up/profile-down,
-// import-wireguard, refresh and open. No Tailscale action is registered.
+// lease {id,open}; action {kind,id} with the profile's uuid for
+// profile-up, profile-down, profile-remove and profile-details; import,
+// refresh and open. nmcli's output stays in this file: VpnLogic parses
+// the fields a view shows and drops the rest, and a log line names the
+// operation, its completion and its exit code alone.
 Item {
     id: root
     property var shell: null
@@ -21,14 +24,23 @@ Item {
         DBUS_SYSTEM_BUS_ADDRESS: Quickshell.env("DBUS_SYSTEM_BUS_ADDRESS") || null,
         DBUS_SESSION_BUS_ADDRESS: Quickshell.env("DBUS_SESSION_BUS_ADDRESS") || null, XDG_RUNTIME_DIR: Quickshell.env("XDG_RUNTIME_DIR") })
     readonly property bool profilesMissing: shell === null || shell.requirements.missing.indexOf("nmcli") !== -1
-    property var profileSnapshot: Logic.emptyProfiles()
-    property string profileAction: ""
-    property string profileOperation: ""
+    readonly property bool openvpnMissing: shell !== null && shell.requirements.missing.indexOf(Logic.OPENVPN_PLUGIN) !== -1
+    property var listing: Logic.emptyProfiles("reading")
+    // Per uuid: { service, server } from the one detail read of the
+    // current uuid set, the address while activated, and the failure the
+    // last `up` left, which stays until an `up` succeeds, the profile is
+    // seen activated or it leaves the list.
+    property var detailMap: ({})
+    property string detailsRead: ""
+    property var addresses: ({})
+    property var failures: ({})
+    property var addressQueue: []
+    property var profileAction: null
     property string profileProblem: ""
-    readonly property var profiles: Object.assign({}, profilesMissing ? Logic.emptyProfiles() : profileSnapshot,
-        { action: profileAction, problem: profileProblem })
+    readonly property var profiles: Logic.compose(profilesMissing ? Logic.emptyProfiles("missing") : listing,
+        detailMap, addresses, failures, openvpnMissing, profileAction, profileProblem)
 
-    readonly property var connection: Logic.connection(profilesMissing, profiles)
+    readonly property var connection: Logic.connection(profiles)
 
     function publish() {
         if (shell === null) return;
@@ -46,7 +58,7 @@ Item {
             registered = true;
             shell.ipc.handle("lease", arg => root.lease(arg));
             shell.ipc.handle("action", arg => root.actProfile(JSON.parse(arg)));
-            shell.ipc.handle("import-wireguard", () => root.importWireguard());
+            shell.ipc.handle("import", () => root.importFile());
             shell.ipc.handle("refresh", () => root.refresh());
             shell.ipc.handle("open", arg => shell.surfaces.summon("panel", arg || "{}"));
             refresh();
@@ -55,7 +67,7 @@ Item {
     }
     onScansChanged: refresh()
     onProfilesMissingChanged: {
-        if (profilesMissing) profileSnapshot = Logic.emptyProfiles();
+        if (profilesMissing) listing = Logic.emptyProfiles("reading");
         else readProfiles();
     }
     function refresh() {
@@ -79,6 +91,9 @@ Item {
     function codeOf(completion) {
         return completion === null || completion.status !== 0 ? -1 : completion.code;
     }
+    function completionWord(code) {
+        return code === -1 ? "interrupted" : code === 0 ? "invalid-reply" : "failed";
+    }
 
     function readProfiles() {
         if (!registered || profilesMissing) return;
@@ -86,6 +101,25 @@ Item {
         profilesReader.completion = null;
         profilesReader.running = true;
         profilesDeadline.restart();
+    }
+
+    // A new list keeps only what still applies to its rows, then reads the
+    // details of a changed uuid set and the address of each activated
+    // profile that has none yet: an address lands a moment after
+    // activation, so the next poll asks again.
+    function listed(next) {
+        listing = next;
+        const rows = next.state === "available" ? next.rows : [];
+        const kept = (map, keep) => {
+            const out = {};
+            for (const row of rows) if (map[row.uuid] !== undefined && keep(row)) out[row.uuid] = map[row.uuid];
+            return out;
+        };
+        failures = kept(failures, row => row.state !== "activated");
+        addresses = kept(addresses, row => row.state === "activated");
+        if (next.state !== "available") return;
+        if (Logic.detailsKey(next) !== detailsRead) readDetails();
+        for (const row of rows) if (row.state === "activated" && addresses[row.uuid] === undefined) queueAddress(row.uuid);
     }
 
     Timer {
@@ -105,7 +139,7 @@ Item {
         id: profilesReader
         property var completion: null
         property bool again: false
-        command: ["nmcli", "-t", "-f", "NAME,TYPE,STATE", "connection", "show"]
+        command: ["nmcli", "-t", "-f", "NAME,UUID,TYPE,STATE", "connection", "show"]
         clearEnvironment: true
         environment: root.nmcliEnvironment
         stdout: StdioCollector { id: profilesText; waitForEnd: true }
@@ -115,25 +149,122 @@ Item {
             if (running) return;
             profilesDeadline.stop();
             const code = root.codeOf(completion);
-            root.profileSnapshot = Logic.profiles(code, profilesText.text);
-            if (root.profileSnapshot.state === "unavailable") {
-                const diagnostic = "vpn: operation=profile-read completion=" + (code === -1 ? "interrupted" : code === 0 ? "invalid-reply" : "failed") + " code=" + code;
+            const next = Logic.list(code, profilesText.text);
+            if (next.state !== "available") {
+                const diagnostic = "vpn: operation=profile-read completion=" + root.completionWord(code) + " code=" + code;
                 // An optional availability read can fail normally. nmcli's
                 // 1 is unspecified; 8 means NetworkManager is not running.
                 // https://networkmanager.dev/docs/api/latest/nmcli.html#exit_status
                 if (code === 1 || code === 8) console.log(diagnostic);
                 else console.warn(diagnostic);
             }
+            root.listed(next);
             if (again) { again = false; root.readProfiles(); }
+        }
+    }
+
+    // One process reads the service and server of every listed profile.
+    // A failed read leaves the set unread, so the next list asks again.
+    function readDetails() {
+        if (detailsReader.running) { detailsReader.again = true; return; }
+        const key = Logic.detailsKey(listing);
+        if (key === "") {
+            detailMap = {};
+            detailsRead = "";
+            return;
+        }
+        detailsReader.key = key;
+        detailsReader.completion = null;
+        detailsReader.command = Logic.detailsArgv(key);
+        detailsReader.running = true;
+        detailsDeadline.restart();
+    }
+    Timer {
+        id: detailsDeadline
+        interval: Logic.WATCHDOG_MS
+        onTriggered: detailsReader.signal(9)
+    }
+    Process {
+        id: detailsReader
+        property var completion: null
+        property bool again: false
+        property string key: ""
+        clearEnvironment: true
+        environment: root.nmcliEnvironment
+        stdout: StdioCollector { id: detailsText; waitForEnd: true }
+        stderr: StdioCollector { waitForEnd: true }
+        onExited: (code, status) => { detailsReader.completion = { code: code, status: status }; }
+        onRunningChanged: {
+            if (running) return;
+            detailsDeadline.stop();
+            const code = root.codeOf(completion);
+            const read = Logic.details(code, detailsText.text, key);
+            if (read === null) {
+                console.warn("vpn: operation=profile-details completion=" + root.completionWord(code) + " code=" + code);
+            } else {
+                root.detailMap = read;
+                root.detailsRead = key;
+            }
+            if (again || (read !== null && Logic.detailsKey(root.listing) !== key)) { again = false; root.readDetails(); }
+        }
+    }
+
+    function queueAddress(uuid) {
+        if (addressQueue.indexOf(uuid) === -1 && !(addressReader.running && addressReader.uuid === uuid))
+            addressQueue = addressQueue.concat([uuid]);
+        readAddress();
+    }
+    function readAddress() {
+        if (addressReader.running || addressQueue.length === 0) return;
+        addressReader.uuid = addressQueue[0];
+        addressQueue = addressQueue.slice(1);
+        addressReader.completion = null;
+        addressReader.command = Logic.addressArgv(addressReader.uuid);
+        addressReader.running = true;
+        addressDeadline.restart();
+    }
+    Timer {
+        id: addressDeadline
+        interval: Logic.WATCHDOG_MS
+        onTriggered: addressReader.signal(9)
+    }
+    Process {
+        id: addressReader
+        property var completion: null
+        property string uuid: ""
+        clearEnvironment: true
+        environment: root.nmcliEnvironment
+        stdout: StdioCollector { id: addressText; waitForEnd: true }
+        stderr: StdioCollector { waitForEnd: true }
+        onExited: (code, status) => { addressReader.completion = { code: code, status: status }; }
+        onRunningChanged: {
+            if (running) return;
+            addressDeadline.stop();
+            const code = root.codeOf(completion);
+            const found = Logic.address(code, addressText.text);
+            const row = root.listing.rows.find(candidate => candidate.uuid === uuid);
+            if (found === null) {
+                console.warn("vpn: operation=profile-address completion=" + root.completionWord(code) + " code=" + code);
+            } else if (found !== "" && row !== undefined && row.state === "activated") {
+                const next = Object.assign({}, root.addresses);
+                next[uuid] = found;
+                root.addresses = next;
+            }
+            root.readAddress();
         }
     }
 
     function actProfile(request) {
         const plan = Logic.profileCommand(request, profiles);
         if (plan.refusal !== undefined) return plan.refusal;
+        if (plan.address !== undefined) {
+            const row = listing.rows.find(candidate => candidate.uuid === plan.address);
+            if (row !== undefined && row.state === "activated") queueAddress(plan.address);
+            return "ok";
+        }
         if (profileActor.running) return "busy";
-        profileAction = request.id;
-        profileOperation = request.kind;
+        const row = profiles.rows.find(candidate => candidate.uuid === request.id);
+        profileAction = { kind: request.kind, uuid: row.uuid, name: row.name };
         profileProblem = "";
         profileActor.completion = null;
         profileActor.command = plan.argv;
@@ -151,30 +282,39 @@ Item {
         property var completion: null
         clearEnvironment: true
         environment: root.nmcliEnvironment
-        stdout: StdioCollector { waitForEnd: true }
-        stderr: StdioCollector { waitForEnd: true }
+        stdout: StdioCollector { id: actorText; waitForEnd: true }
+        stderr: StdioCollector { id: actorErrors; waitForEnd: true }
         onExited: (code, status) => { profileActor.completion = { code: code, status: status }; }
         onRunningChanged: {
             if (running) return;
             profileActionDeadline.stop();
             const code = root.codeOf(completion);
-            if (code !== 0) {
-                console.warn("vpn: operation=" + root.profileOperation + " completion=" + (code === -1 ? "interrupted" : "failed") + " code=" + code);
-                root.profileProblem = code === -1 ? "NetworkManager did not answer." : "NetworkManager could not change this connection.";
+            const action = root.profileAction;
+            const output = actorText.text + "\n" + actorErrors.text;
+            const failed = action.kind === "profile-remove" ? Logic.removeOutcome(code, output) === "failed" : code !== 0;
+            if (code !== 0) console.warn("vpn: operation=" + action.kind + " completion=" + (code === -1 ? "interrupted" : "failed") + " code=" + code);
+            if (action.kind === "profile-up") {
+                const next = Object.assign({}, root.failures);
+                if (code === 0) delete next[action.uuid];
+                else {
+                    const row = root.profiles.rows.find(candidate => candidate.uuid === action.uuid);
+                    next[action.uuid] = Logic.upFailure(code, output, row === undefined ? { type: "", service: "" } : row);
+                }
+                root.failures = next;
             }
-            root.profileOperation = "";
-            root.profileAction = "";
+            if (failed) root.profileProblem = Logic.problem(action.kind, action.name, code);
+            root.profileAction = null;
             root.readProfiles();
         }
     }
-    function importWireguard() {
+    function importFile() {
         if (profiles.state !== "available") return "refused: import=unavailable";
         const needed = ["nmcli", "gum"].filter(command => shell.requirements.missing.indexOf(command) !== -1);
         // The notice opens the import once it installs what is missing, so
         // a notice that shows is the press's answer.
         if (needed.length > 0)
-            return shell.requirements.offer(needed, "import-wireguard") === "ok" ? "ok" : "refused: import=missing-tool";
-        return shell.tui.run("import-wireguard", [], () => root.readProfiles());
+            return shell.requirements.offer(needed, "import") === "ok" ? "ok" : "refused: import=missing-tool";
+        return shell.tui.run("import", [], () => root.readProfiles());
     }
 
 }

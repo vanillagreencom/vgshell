@@ -1,0 +1,2 @@
+Error: unknown connection '00000000-0000-0000-0000-000000000000'.
+Error: cannot delete unknown connection(s): uuid '00000000-0000-0000-0000-000000000000'.

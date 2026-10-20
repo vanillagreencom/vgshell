@@ -1,62 +1,136 @@
 import QtQuick
 import qs.Commons
 import qs.Ui
+import "VpnLogic.js" as Logic
 
-Item {
+// One saved profile: a Disclosure whose row names it, its type and state
+// (VpnLogic.rowView) and ends with its switch, and a spinner before the
+// switch while a change runs. The switch stays a Tab stop with its reason
+// while it cannot be used. Expanded, it shows the Type row, with Install
+// plugin after the value while the OpenVPN plugin is missing, the Server
+// row when the profile names one, the Address row while connected and,
+// in System Settings, Remove profile at the content edge, `stack.group`
+// under the details: a remove action with no row of its own leads its text
+// with the trash mark (docs/architecture/design-system.md § Settings pages).
+Disclosure {
     id: root
 
     required property var modelData
-    property bool busy: false
-    readonly property real inset: Theme.controlPadding(Theme.listItem.paddingX, Theme.listItem.radius, height, lines.implicitHeight)
+    property var profiles: ({})
+    property bool removable: false
+    readonly property var view: Logic.rowView(modelData, profiles)
+    readonly property Item removeAction: remove
 
-    signal toggleRequested(bool active)
+    signal toggleRequested(bool wanted)
+    signal installRequested()
+    signal removeRequested()
+    signal detailsOpened()
 
-    objectName: "vpn-profile:" + modelData.id
-    implicitHeight: Theme.listItem.twoLineHeight
+    objectName: "vpn-profile:" + modelData.uuid
+    text: modelData.name
+    secondary: view.secondary
+    iconName: view.connected ? "shield-check" : "shield"
+    onExpandedChanged: if (expanded) detailsOpened()
 
-    Icon {
-        id: icon
-        x: root.inset
-        anchors.verticalCenter: parent.verticalCenter
-        name: root.modelData.type === "wireguard" ? "waypoints" : "shield"
-        size: Theme.icon.size.md
-        color: Theme.color.textMuted
+    trailing: [
+        Spinner {
+            objectName: "vpn-profile-spinner:" + root.modelData.uuid
+            anchors.verticalCenter: parent.verticalCenter
+            visible: root.view.busy
+        },
+        Switch {
+            id: toggle
+            objectName: "vpn-profile-toggle:" + root.modelData.uuid
+            anchors.verticalCenter: parent.verticalCenter
+            size: "sm"
+            Accessible.name: root.modelData.name
+            checked: root.view.switchOn
+            disabledReason: root.view.reason
+            onToggled: {
+                const wanted = checked;
+                checked = Qt.binding(() => root.view.switchOn);
+                root.toggleRequested(wanted);
+            }
+        }
+    ]
+
+    // A failure's secondary line draws in the danger colour (ListItem
+    // `secondaryTone`), on the Disclosure's own row.
+    Binding {
+        target: root.focusItem
+        property: "secondaryTone"
+        value: root.view.danger ? "danger" : ""
     }
+
     Column {
-        id: lines
-        x: icon.x + icon.width + Theme.listItem.iconGap
-        width: Math.max(0, toggle.x - x - Theme.listItem.gap)
-        anchors.verticalCenter: parent.verticalCenter
-        spacing: Theme.row.lineGap
+        width: parent.width
+        spacing: Theme.stack.group
 
-        Label {
+        Column {
+            objectName: root.expanded ? "vpn-details:" + root.modelData.uuid : ""
             width: parent.width
-            role: "item"
-            textFormat: Text.PlainText
-            text: root.modelData.name
-            elide: Text.ElideRight
+            spacing: Theme.stack.row
+
+            Field {
+                width: parent.width
+                inline: true
+                label: "Type"
+                Row {
+                    spacing: Theme.rowAction.gap
+                    Label {
+                        id: typeValue
+                        objectName: "vpn-type:" + root.modelData.uuid
+                        role: "value"
+                        textFormat: Text.PlainText
+                        text: root.view.type
+                    }
+                    RowAction {
+                        objectName: "vpn-install-plugin:" + root.modelData.uuid
+                        // On the value's line: a RowAction's box is centred on its
+                        // capitals' centre and holds its underline (RowAction.qml).
+                        y: typeValue.capCentre - height / 2
+                        visible: root.view.installPlugin
+                        text: "Install plugin"
+                        onClicked: root.installRequested()
+                    }
+                }
+            }
+            Field {
+                width: parent.width
+                visible: root.modelData.server !== ""
+                inline: true
+                label: "Server"
+                Label {
+                    objectName: "vpn-server:" + root.modelData.uuid
+                    width: parent.width
+                    role: "value"
+                    textFormat: Text.PlainText
+                    text: root.modelData.server
+                    elide: Text.ElideRight
+                }
+            }
+            Field {
+                width: parent.width
+                visible: root.modelData.address !== ""
+                inline: true
+                label: "Address"
+                Label {
+                    objectName: "vpn-address:" + root.modelData.uuid
+                    width: parent.width
+                    role: "value"
+                    textFormat: Text.PlainText
+                    text: root.modelData.address
+                    elide: Text.ElideRight
+                }
+            }
         }
-        Label {
-            width: parent.width
-            role: "itemHint"
-            textFormat: Text.PlainText
-            text: root.modelData.type === "wireguard" ? "WireGuard" : "VPN"
-            elide: Text.ElideRight
-        }
-    }
-    Switch {
-        id: toggle
-        objectName: "vpn-profile-toggle:" + root.modelData.id
-        x: parent.width - root.inset - width
-        anchors.verticalCenter: parent.verticalCenter
-        size: "sm"
-        Accessible.name: root.modelData.name
-        checked: root.modelData.active
-        enabled: !root.busy
-        onToggled: {
-            const wanted = checked;
-            checked = Qt.binding(() => root.modelData.active);
-            root.toggleRequested(wanted);
+        RowAction {
+            id: remove
+            objectName: "vpn-remove:" + root.modelData.uuid
+            visible: root.removable
+            tone: "danger"
+            text: "Remove profile"
+            onClicked: root.removeRequested()
         }
     }
 }

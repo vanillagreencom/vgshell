@@ -1,0 +1,21 @@
+connection.uuid:2e8f4d1a-7c6b-4f3e-8a29-6d5b4c3a2f10
+vpn.service-type:org.freedesktop.NetworkManager.openconnect
+vpn.data:authtype = password, cookie-flags = 2, gateway = vpn.example.edu, gateway-flags = 2, protocol = anyconnect, xmlconfig-flags = 0
+
+connection.uuid:5b1c0a9e-2f43-4d7a-9a51-0c3e6e1d2b84
+vpn.service-type:org.freedesktop.NetworkManager.l2tp
+vpn.data:gateway = l2tp.example.net, password-flags = 2, user = fixture-user
+
+connection.uuid:76ceb7f0-0f5b-4315-9f38-2af0937bb726
+vpn.service-type:org.freedesktop.NetworkManager.vpnc
+vpn.data:IPSec ID = grp, IPSec gateway = ipsec.example.net, Xauth username = fixture-user
+
+connection.uuid:95ea5c2d-312f-4a84-8fd1-9ebc0a4a7581
+vpn.service-type:org.freedesktop.NetworkManager.openvpn
+vpn.data:ca = /home/fixture/.local/share/networkmanagement/certificates/nm-openvpn/office-ca.pem, challenge-response-flags = 2, connection-type = password, dev = tun, password-flags = 1, remote = vpn.example.com\, vpn2.example.com:1195, username = fixture-user
+
+connection.uuid:9d76b882-ead1-4c49-8675-7be6431d5f71
+wireguard.peers:xTIBA5rboUvnH4htodjb6e697QjLERt1NAB4mZqp8Dg= allowed-ips=10.20.0.0/24 endpoint=203.0.113.10:51820, HIgo9xNzJMWLKASShiTqIybxZ0U3wGLiUeJ1PKf8ykw= allowed-ips=10.30.0.0/24 endpoint=[2001:db8::2]:51820
+
+connection.uuid:c41d7e02-58b3-4a6f-9e1d-3f2a0b8c7d65
+wireguard.peers:HIgo9xNzJMWLKASShiTqIybxZ0U3wGLiUeJ1PKf8ykw= allowed-ips=10.30.0.0/24 endpoint=[2001:db8::1]:51820

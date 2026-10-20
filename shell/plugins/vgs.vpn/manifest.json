@@ -65,7 +65,7 @@
         "nix": "networkmanager"
       },
       "optional": true,
-      "purpose": "Reads and controls saved VPN and WireGuard profiles"
+      "purpose": "Reads, connects, imports and removes your VPN profiles"
     },
     {
       "command": "gum",
@@ -76,7 +76,22 @@
         "nix": "gum"
       },
       "optional": true,
-      "purpose": "Chooses a WireGuard configuration file"
+      "purpose": "Chooses a VPN file to import"
+    },
+    {
+      "dbus": {
+        "bus": "system",
+        "name": "org.freedesktop.NetworkManager.openvpn",
+        "label": "OpenVPN plugin"
+      },
+      "packages": {
+        "pacman": "networkmanager-openvpn",
+        "apt": "network-manager-openvpn",
+        "dnf": "NetworkManager-openvpn",
+        "nix": "networkmanager-openvpn"
+      },
+      "optional": true,
+      "purpose": "Imports and connects OpenVPN profiles"
     }
   ],
   "status": {
@@ -90,11 +105,11 @@
     }
   },
   "tui": {
-    "import-wireguard": {
-      "script": "tui/import-wireguard.sh",
-      "title": "Import WireGuard",
+    "import": {
+      "script": "tui/import.sh",
+      "title": "Import a VPN file",
       "entry": {
-        "label": "Import WireGuard",
+        "label": "Import a VPN file",
         "icon": "file-input",
         "group": "VPN"
       },

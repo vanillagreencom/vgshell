@@ -1,0 +1,8 @@
+Home tunnel:9d76b882-ead1-4c49-8675-7be6431d5f71:wireguard:activated
+Office VPN:95ea5c2d-312f-4a84-8fd1-9ebc0a4a7581:vpn:
+Travel L2TP:5b1c0a9e-2f43-4d7a-9a51-0c3e6e1d2b84:vpn:
+Campus AnyConnect:2e8f4d1a-7c6b-4f3e-8a29-6d5b4c3a2f10:vpn:
+Branch IPsec:76ceb7f0-0f5b-4315-9f38-2af0937bb726:vpn:
+Lab tunnel:c41d7e02-58b3-4a6f-9e1d-3f2a0b8c7d65:wireguard:
+base:3aaeecc2-3e57-4189-9c34-a96d9a427b1e:dummy:activated
+Fixture Wi-Fi:0f3e2d1c-4b5a-4968-8776-5a4b3c2d1e0f:802-11-wireless:activated

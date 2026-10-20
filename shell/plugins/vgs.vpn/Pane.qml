@@ -2,7 +2,9 @@ import QtQuick
 import qs.Commons
 import qs.Ui
 
-// Saved VPN profiles and their update setting in System Settings.
+// System Settings › VPN: the profiles with Remove profile, Import a VPN
+// file, the empty and NetworkManager-absent states and the Updates section
+// (VpnBody with `expanded`).
 FocusScope {
     id: root
 

@@ -1,8 +1,11 @@
 import QtQuick
 import qs.Commons
 import qs.Ui
+import "VpnLogic.js" as Logic
 
-// The saved VPN profile flyout, with a path to its System Settings section.
+// The VPN flyout: its header says what is connected, the body lists the
+// profiles (VpnBody), and VPN settings opens the System Settings section.
+// No header switch: one switch cannot say which profile it moves.
 Item {
     id: root
 
@@ -34,7 +37,17 @@ Item {
         fitToContent: true
         maximumHeight: Theme.size.panel.maxHeight
         title: "VPN"
-        footer: [Button { text: "VPN settings"; variant: "tertiary"; iconName: "settings"; onClicked: root.openSettings() }]
+        subtitle: [
+            Label {
+                objectName: "vpn-subtitle"
+                width: layout.headerWidth
+                role: "body"
+                textFormat: Text.PlainText
+                wrapMode: Text.Wrap
+                text: Logic.summary(body.profiles)
+            }
+        ]
+        footer: [Button { objectName: "vpn-settings"; text: "VPN settings"; variant: "tertiary"; iconName: "settings"; onClicked: root.openSettings() }]
 
         VpnBody {
             id: body
