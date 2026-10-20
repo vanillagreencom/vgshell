@@ -69,7 +69,7 @@
 # devices it draws in both and writes nothing until a click on its switch,
 # which writes magic only to a wired connection the nmcli stand-in reads
 # another value from, never the Wi-Fi one; a write the stand-in refuses
-# shows under the switch until a later pass succeeds; a second click
+# shows under the switch in both views until a later pass succeeds; a second click
 # writes none to each wired connection; and the field hides again once
 # NetworkManager no longer manages the devices. Two orders of a profile write
 # are held with the barrier: a profile asked for while a write runs is
@@ -329,6 +329,12 @@ anchor = re.search(r"showInBar: \"([^\"]+)\"", open(sys.argv[1]).read()).group(1
 drawn = {t.lower() for row in json.load(sys.stdin) for t in row}
 print(("shown" if "wake on lan" in drawn else "hidden") if anchor in drawn else "page-absent")' "$repo/shell/Commons/SettingValues.js"; }
 power_wol_click() { power_pane_pick "Wake on LAN" Switch ""; }
+power_wol_settings_click() {
+  local label
+  label="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["schema"]["wakeOnLan"]["label"])' "$repo/shell/plugins/vgs.power/manifest.json")" || return 1
+  power_revealed "$(ipc smoke revealScopedText window vgs.settings Field "$label" Switch "")" || return 1
+  click_scoped_in "window:Plugins" window vgs.settings Field "$label" Switch ""
+}
 
 power_wake_on_lan() {
   local base conn
@@ -346,9 +352,13 @@ power_wake_on_lan() {
   power_wol_net wired >/dev/null || fail "power: the mock adds its wired devices"
   expect_poll "with a wired device the service publishes ethernet present" '"present"' power_wol_presence
   expect_poll "with a wired device the section draws Wake on LAN off" off power_wol_field
-  power_wol_click || fail "the click on Wake on LAN's switch failed"
+  expect "Settings opens on Power's Settings tab with a wired device" ok ipc shell summon window vgs.settings '{"plugin":"vgs.power","tab":"Settings"}'
+  expect_poll "with a wired device Settings draws Wake on LAN" shown power_wol_page
+  power_wol_settings_click || fail "the click on Wake on LAN's Settings switch failed"
   expect_poll "a click on Wake on LAN's switch stores it on" true power_setting wakeOnLan
-  expect_poll "the refused write shows under the switch" error power_wol_error
+  expect_poll "the refused write shows under the Settings switch" error power_wol_error vgs.settings
+  expect "System Settings opens on the refused Wake on LAN write" ok ipc shell summon window vgs.system '{"pane":"vgs.power"}'
+  expect_poll "the refused write shows under the System Settings switch" error power_wol_error
   # The error is published once the pass ends, so every write before it,
   # those the devices' arrival would have made included, is on record.
   expect "nothing is written before the switch is set, and on writes magic only where a connection holds another value" \
@@ -356,12 +366,13 @@ power_wake_on_lan() {
   base="$(power_nmcli_count)" || { fail "power: the nmcli record is unreadable"; base=0; }
   power_wol_click || fail "the second click on Wake on LAN's switch failed"
   expect_poll "a second click stores Wake on LAN off" false power_setting wakeOnLan
-  expect_poll "a pass the stand-in takes clears the error" clear power_wol_error
+  expect_poll "a pass the stand-in takes clears the System Settings error" clear power_wol_error
   expect "off writes none to each wired connection and nothing to the Wi-Fi one" \
     '{"wol-wired-a": ["none"], "wol-wired-b": ["none"]}' power_wol_writes "$base"
   expect_poll "the section draws Wake on LAN off again" off power_wol_field
-  expect "Settings opens on Power's Settings tab with a wired device" ok ipc shell summon window vgs.settings '{"plugin":"vgs.power","tab":"Settings"}'
+  expect "Settings opens on Power's Settings tab after the successful write" ok ipc shell summon window vgs.settings '{"plugin":"vgs.power","tab":"Settings"}'
   expect_poll "with a wired device Settings draws Wake on LAN" shown power_wol_page
+  expect_poll "a pass the stand-in takes clears the Settings error" clear power_wol_error vgs.settings
   power_wol_net unmanage >/dev/null || fail "power: the mock marks its wired devices unmanaged"
   expect_poll "with only unmanaged wired devices the service publishes ethernet absent" '"absent"' power_wol_presence
   expect_poll "with only unmanaged wired devices Settings draws no Wake on LAN" hidden power_wol_page

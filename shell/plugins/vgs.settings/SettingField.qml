@@ -39,6 +39,8 @@ Column {
     property var spec: ({})
     property var value
     property var choices: []
+    // The manager row resolves the schema's problem from plugin status.
+    property string problem: ""
     property bool editable: true
     property var edits: null
     property bool customChosen: false
@@ -191,6 +193,7 @@ Column {
         labelTooltip: root.tooltipText
         hint: root.customVisible ? "" : root.hintText
         hintLink: root.customVisible ? "" : root.linkText
+        error: root.problem
         inline: true
         onHintLinkActivated: root.openDescriptionLink()
         onHintPageActivated: (page, tab) => root.openDescriptionPage(page, tab)

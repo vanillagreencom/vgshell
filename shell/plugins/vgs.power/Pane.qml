@@ -14,9 +14,8 @@ import qs.Ui
 // order, each field drawn while its `shownWhen` presence reads present, as
 // the Settings page draws it, with its info, and written through
 // `configure`. A field whose setting the service applies elsewhere also
-// shows the service's last failure to apply it as its error line, which
-// only this section draws: the Settings page shows no plugin status on a
-// field. While the last scan misses the optional power profiles service,
+// shows the service's last failure through the schema's `problem`, as
+// the Settings page does. While the last scan misses the optional power profiles service,
 // the section offers its install, which raises the core's requirement
 // notice.
 FocusScope {
@@ -29,9 +28,6 @@ FocusScope {
     readonly property var presence: shell === null ? ({}) : shell.status.values
     readonly property var wakeRow: shell === null ? null : shell.status.rows.find(row => row.key === "wakeSources") || null
     readonly property string profilesService: "org.freedesktop.UPower.PowerProfiles"
-    // The status text the service publishes when it could not apply a
-    // setting, by setting key.
-    readonly property var applyProblems: ({ wakeOnLan: "wakeOnLanProblem" })
     readonly property bool profilesMissing: shell !== null && shell.requirements.missing.indexOf(profilesService) !== -1
     readonly property var diskSleep: shell === null ? null : shell.status.rows.find(row => row.key === "diskSleep" && row.report === "reported") || null
     // The schema's groups in the order their first entry appears, each with
@@ -190,7 +186,7 @@ FocusScope {
                         label: entry.label
                         hint: entry.description
                         info: entry.info ?? ""
-                        error: root.applyProblems[modelData] === undefined ? "" : root.presence[root.applyProblems[modelData]] ?? ""
+                        error: entry.problem === undefined ? "" : root.presence[entry.problem] ?? ""
 
                         // The binding comes back after a choice, so the
                         // control shows the value the configuration holds.

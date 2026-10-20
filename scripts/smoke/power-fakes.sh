@@ -18,10 +18,25 @@ power_revealed() { [[ $1 =~ ^[0-9]+(\.[0-9]+)?$ ]]; }
 power_wol_field() { ipc smoke itemValues window "${1:-vgs.power}" Switch checked,visible,Accessible.name | py_reply 'import json,sys
 rows = [r for r in json.load(sys.stdin) if r["visible"] and r["Accessible.name"] == "Wake on LAN"]
 print("hidden" if not rows else "on" if rows[0]["checked"] else "off")'; }
-# power_wol_error [ID]: whether that field draws an error line.
-power_wol_error() { ipc smoke itemValues window "${1:-vgs.power}" Field label,error | py_reply 'import json,sys
-rows = [r for r in json.load(sys.stdin) if r["label"] == "Wake on LAN"]
-print("absent" if not rows else "error" if rows[0]["error"] != "" else "clear")'; }
+# power_wol_error [ID]: whether the Wake on LAN Field of the pane or
+# Settings page draws the published problem, or has cleared it. Read the
+# Field's visible text as well as its error so an undrawn binding fails.
+power_wol_error() {
+  local id="${1:-vgs.power}" status texts
+  status="$(ipc smoke statusValues vgs.power)" || return 1
+  texts="$(ipc smoke itemTexts window "$id" Field)" || return 1
+  ipc smoke itemValues window "$id" Field label,error | py_reply 'import json,sys
+label = json.load(open(sys.argv[1]))["schema"]["wakeOnLan"]["label"].casefold()
+rows = json.load(sys.stdin)
+texts = json.loads(sys.argv[3])
+problem = json.loads(sys.argv[2]).get("wakeOnLanProblem", "")
+fields = [(r, t) for r, t in zip(rows, texts) if r.get("label", "").casefold() == label] if isinstance(rows, list) and isinstance(texts, list) else []
+if len(fields) != 1:
+    print("absent")
+else:
+    field, drawn = fields[0]
+    print("error" if isinstance(problem, str) and problem != "" and field.get("error") == problem and problem in drawn else "clear" if problem == "" and field.get("error") == "" else "mismatch")' "$repo/shell/plugins/vgs.power/manifest.json" "$status" "$texts"
+}
 power_unlink() { python3 - "$1" <<'PY_UNLINK'
 import pathlib, sys
 pathlib.Path(sys.argv[1]).unlink(missing_ok=True)
