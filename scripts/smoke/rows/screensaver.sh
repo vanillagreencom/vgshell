@@ -3,7 +3,7 @@
 # expect_poll's 0.2 s cadence. Measured row runtime on host cachy on
 # 2026-10-05 under the nested sandbox: under 20 s. The conversion
 # deadline checks add an unmeasured wait.
-# inputs: shell/plugins/vgs.screensaver/* shell/plugins/vgs.screensaver/bin/transcode-ascii shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Hosts/BackgroundHost.qml scripts/smoke/fixtures/screensaver-ttfx scripts/smoke/rows/capability-release.sh scripts/smoke/rows/lock.sh
+# inputs: shell/plugins/vgs.screensaver/* shell/plugins/vgs.screensaver/bin/transcode-ascii shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Compositor.qml shell/Hosts/BackgroundHost.qml scripts/smoke/toplevel/* scripts/smoke/mode-hold.sh scripts/smoke/fixtures/screensaver-ttfx scripts/smoke/rows/capability-release.sh scripts/smoke/rows/lock.sh scripts/smoke/rows/capabilities.sh
 set -euo pipefail
 # lock is exclusive: acme.probe can hold it and block vgs.lock from building.
 # Free it for this row, then restore acme.probe and vgs.lock to their starting
@@ -29,7 +29,8 @@ art_status() { ipc smoke statusValues vgs.screensaver | py_reply 'import json,sy
 art_setting() { python3 -c 'import json,sys; row=next((r for r in json.load(open(sys.argv[1])).get("plugins",[]) if r.get("id")=="vgs.screensaver"),{}); print(row.get("art",""))' "$ss_config"; }
 cover_count() { layer_count vgs:cover; }
 output_count() { hypr -j monitors | py_reply 'import json,sys; print(len(json.load(sys.stdin)))'; }
-standin_alive() { pgrep -f -- "$shim/ttfx" >/dev/null && echo yes || echo no; }
+standin_alive() { pgrep -P "$shell_qs_pid" -f -- "$shim/ttfx" >/dev/null && echo yes || echo no; }
+ss_effect_count() { local count; count="$(pgrep -c -P "$shell_qs_pid" -f -- "$shim/ttfx")" || [[ $count == 0 ]]; printf '%s\n' "$count"; }
 set_screensaver() { # JSON
   python3 - "$ss_config" "$1" <<'PY'
 import json, os, sys
@@ -59,9 +60,9 @@ expect "enabling lock for lock order status is allowed" ok ipc shell setPluginEn
 set_screensaver '{"idleEnabled": true, "idleSeconds": 2}'
 expect "lock order reload before ok status" ok ipc shell reloadConfig
 expect_poll "lock order reads lock time as ok" '["ok", "Lock follows at 300 s"]' lock_order
-set_screensaver '{"idleEnabled": true, "idleSeconds": 300}'
+set_screensaver '{"idleEnabled": true, "idleSeconds": 301}'
 expect "lock order reload before warning status" ok ipc shell reloadConfig
-expect_poll "lock order warns when screensaver is not before lock" '["warning", "Lock follows at 300 s"]' lock_order
+expect_poll "lock order warns when lock is before screensaver" '["warning", "Lock follows at 300 s"]' lock_order
 expect "disabling lock clears lock order" ok ipc shell setPluginEnabled vgs.lock false
 expect_poll "lock order is absent with lock disabled" absent lock_order
 set_screensaver '{"idleSeconds": 2}'
@@ -88,14 +89,39 @@ expect_poll "cover is gone after keyboard input" 0 layer_count vgs:cover
 expect_poll "status says off" Off state_text
 screensaver_output=SMOKE-SCREENSAVER
 base_outputs="$(output_count)"
-expect "the nested compositor adds a monitor for screensaver focus" ok hypr output create headless "$screensaver_output"
+# A headless output can stay unsized on NVIDIA; the harness sink gives
+# the second Cover a drawable Wayland output.
+expect "the nested compositor adds a monitor for screensaver focus" ok hypr output create wayland "$screensaver_output"
 expect_poll "the added monitor is visible to the shell" "$((base_outputs + 1))" output_count
+ss_output_sized() { unscaled_mode_of "$screensaver_output" >/dev/null && echo sized; }
+expect_poll "the added monitor has usable geometry before starting covers" sized ss_output_sized
 expect "on demand starts on every output" ok ipc vgs.screensaver invoke start ''
 expect_poll "one cover maps per output with two outputs" "$(output_count)" cover_count
 sleep 2
 expect "two-output covers stay running after focus settles" Running state_text
-type_keys -k Escape || fail "typing Escape to close the two-output screensaver failed"
-expect_poll "two-output covers are gone after keyboard input" 0 layer_count vgs:cover
+expect "enabling the dispatch fixture while lock is disabled is allowed" ok ipc shell setPluginEnabled acme.probe true
+expect_poll "the dispatch fixture is built for display power" True record_exists acme.probe
+expect_poll "every cover stays mapped after the dispatch fixture is enabled" "$((base_outputs + 1))" cover_count
+expect_poll "each output has a running ttfx child before display off" "$((base_outputs + 1))" ss_effect_count
+expect "the core queues display off while covers run" ok probe dispatch "displayPower off"
+expect_poll "display off is confirmed through session" true ipc smoke readInstance service vgs.screensaver displaysOff
+expect_poll "display off stops the screensaver service" Off state_text
+expect_poll "display off removes every cover" 0 cover_count
+expect_poll "display off ends every ttfx child" no standin_alive
+ss_starts_off="$(wc -l <"$ss_log")"
+expect "an explicit screensaver start is refused while displays stay off" 'refused: screensaver=displays-off' ipc vgs.screensaver invoke start ''
+set_screensaver '{"idleEnabled": true, "idleSeconds": 1}'
+expect "reload arms the idle screensaver behind dark displays" ok ipc shell reloadConfig
+sleep 2 # Cross the one-second idle notification while sending no input.
+expect "idle start keeps the screensaver off behind dark displays" Off state_text
+expect "idle start leaves no ttfx child behind dark displays" no standin_alive
+expect "neither start launched ttfx behind dark displays" "$ss_starts_off" wc -l <"$ss_log"
+expect "display off still holds after both start paths" true ipc smoke readInstance service vgs.screensaver displaysOff
+type_keys -k Shift_L || fail "waking the nested displays after the screensaver check failed"
+expect_poll "input clears the display off fact" false ipc smoke readInstance service vgs.screensaver displaysOff
+set_screensaver '{"idleEnabled": false}'
+expect "reload restores manual screensaver start" ok ipc shell reloadConfig
+expect "disabling the dispatch fixture releases lock again" ok ipc shell setPluginEnabled acme.probe false
 expect "the nested compositor removes the screensaver focus monitor" ok hypr output remove "$screensaver_output"
 expect_poll "the removed screensaver monitor is gone" "$base_outputs" output_count
 ss_cover_host="cover:$(hypr -j monitors | py_reply 'import json,sys; print(json.load(sys.stdin)[0]["name"])')"
@@ -377,19 +403,32 @@ idle_start() { # LABEL
   idle_started_ms="$(now_ms)"
 }
 ms_since_idle() { echo $(( $(now_ms) - idle_started_ms )); }
-measure_idle_order() { # LABEL WANT_COVER_FIRST yes|no
-  local label="$1" want_cover_first="$2" deadline cover_ms="" lock_ms="" covers="" lock=""
-  deadline=$(( $(now_ms) + 8000 ))
+measure_idle_order() { # LABEL WANT_COVER_FIRST yes|no [window]
+  local label="$1" want_cover_first="$2" control="${3:-}" deadline cover_ms="" lock_ms="" covers="" lock="" window_pid=""
+  deadline=$(( $(now_ms) + 10000 ))
   while (( $(now_ms) < deadline )); do
     covers="$(cover_count)" || covers=unread
     lock="$(session_lock)" || lock=unread
-    if [[ -z $cover_ms && $covers == "$(output_count)" ]]; then cover_ms="$(ms_since_idle)"; fi
+    if [[ -z $cover_ms && $covers == "$(output_count)" ]]; then
+      cover_ms="$(ms_since_idle)"
+      if [[ $control == window ]]; then
+        open_toplevel "$sandbox/screensaver-window-control.log" smoke.screensaver-control "Idle restart control" || { fail "$label: control window maps"; return; }
+        window_pid="$toplevel_pid"
+      fi
+    fi
     if [[ -z $lock_ms && $lock == locked ]]; then lock_ms="$(ms_since_idle)"; break; fi
     sleep 0.2
   done
   printf 'screensaver-order: label=%s cover_ms=%s lock_ms=%s covers=%s lock=%s\n' "$label" "${cover_ms:-none}" "${lock_ms:-none}" "$covers" "$lock"
+  [[ -z $window_pid ]] || close_toplevel "$window_pid" "$label: the control window exits"
   if [[ -z $lock_ms ]]; then fail "$label: the session locks on idle"; return; fi
-  if [[ $lock_ms -lt 3500 ]]; then fail "$label: lock waits at least 3.5 s from idle start"; else ok "$label: lock waits at least 3.5 s from idle start (t=${lock_ms}ms)"; fi
+  if [[ $control == window ]]; then
+    if (( lock_ms > 6500 )); then ok "$label: mapping a window fails the 6.5 s lock deadline (t=${lock_ms}ms)"; else fail "$label: mapping a window must delay the lock past 6.5 s (t=${lock_ms}ms)"; fi
+  elif (( lock_ms >= 4500 && lock_ms <= 6500 )); then
+    ok "$label: the 5 s lock stays within 4.5..6.5 s (t=${lock_ms}ms)"
+  else
+    fail "$label: the 5 s lock stays within 4.5..6.5 s (t=${lock_ms}ms)"
+  fi
   if [[ $want_cover_first == yes ]]; then
     if [[ -z $cover_ms ]]; then fail "$label: cover maps before lock"; return; fi
     if [[ $cover_ms -lt 1500 ]]; then fail "$label: cover waits at least 1.5 s from idle start"; else ok "$label: cover waits at least 1.5 s from idle start (t=${cover_ms}ms)"; fi
@@ -416,7 +455,7 @@ os.replace(path + ".next", path)
 PYSETLOCK
 }
 expect "enabling lock for ordering is allowed" ok ipc shell setPluginEnabled vgs.lock true
-set_lock_seconds 4
+set_lock_seconds 5
 set_screensaver '{"idleEnabled": true, "idleSeconds": 2}'
 expect "reload for lock ordering" ok ipc shell reloadConfig
 rescan "rescan after enabling lock for ordering answers ok"
@@ -430,13 +469,17 @@ measure_idle_order "lock ordering" yes
 expect_poll "cover is gone under lock" 0 layer_count vgs:cover
 expect_poll "ttfx stand-in is gone under lock" no standin_alive
 release "screensaver lock-order"
-set_lock_seconds 4
+idle_start "window mapping control"
+measure_idle_order "control window restarts idle" yes window
+release "screensaver window mapping control"
+set_lock_seconds 5
 set_screensaver '{"idleEnabled": true, "idleSeconds": 6}'
 expect "reload for lock-before-screensaver control" ok ipc shell reloadConfig
+expect_poll "the record warns when the lock time is below the screensaver" '["warning", "Lock follows at 5 s"]' lock_order
 idle_start "lock-before-screensaver control"
 measure_idle_order "control lock before screensaver" no
 release "screensaver lock-before-screensaver control"
-set_lock_seconds 4
+set_lock_seconds 5
 set_screensaver '{"idleEnabled": true, "idleSeconds": 2}'
 expect "reload for dismissal before lock" ok ipc shell reloadConfig
 idle_start "dismissal before lock"
@@ -444,7 +487,7 @@ expect_poll "dismissal maps cover before lock" "$(output_count)" cover_count
 while (( $(ms_since_idle) < 3000 )); do sleep 0.1; done
 type_keys -k Escape || fail "typing Escape before the lock failed"
 expect_poll "dismissal removed cover" 0 layer_count vgs:cover
-while (( $(ms_since_idle) < 5500 )); do sleep 0.1; done
+while (( $(ms_since_idle) < 6500 )); do sleep 0.1; done
 expect "dismissal prevents lock at the original deadline" unlocked session_lock
 expect_poll "dismissal lets lock run after activity restarts idle" locked session_lock
 release "screensaver dismissal restart"

@@ -13,7 +13,7 @@ Today the code holds the idle source, the dim, the screensaver, the lock, the lo
 | Idle source | core `IdleRegistry` | one `IdleMonitor` per watch, inhibitors obeyed | holds |
 | Stage record | core | the stages in order with each one's time, read-only | VGS-1902 |
 | Dim | `vgs.displays` | lowers each panel's brightness, puts it back on input | holds |
-| Screensaver | `vgs.screensaver` | shows the Cover, a layer surface per screen, never while locked | holds; stops while the panels are off: VGS-1904 |
+| Screensaver | `vgs.screensaver` | shows the Cover, a layer surface per screen, never while locked or while the panels are off | holds |
 | Lock | `vgs.lock` | locks once; input does not unlock | holds |
 | Lock before sleep | `vgs.lock` | holds a logind delay inhibitor and locks on `PrepareForSleep` | holds |
 | Display off | `vgs.power` | turns every panel off after idle, and sooner while locked | VGS-1905 |
@@ -74,10 +74,10 @@ The power button and the lid must act while the shell is down: a laptop closed i
 
 - Do create every idle watch through `shell.idle.watch`, and release it through the disposer it returns. A plugin cannot import `Quickshell.Wayland`, which `scripts/check-plugin-boundary.py` refuses; `scripts/smoke/rows/capability-release.sh` pins the release.
 - Do keep `respectInhibitors: true` on every idle stage watch, as § Window events and the idle count sets out. A watch that clears a fact on input and starts no stage ignores inhibitors. Review holds it.
-- Never read another stage owner's setting or status; read another stage's time only from `shell.idle.stages`. Gap: `vgs.screensaver` reads `vgs.lock`'s `idleLockSeconds` through capability `manager` for its `lockOrder` reading. Designed: VGS-1902 adds the record with its rows in `scripts/test-plugin-logic.js`, and VGS-1904 moves `lockOrder` onto it.
+- Never read another stage owner's setting or status; read another stage's time only from `shell.idle.stages`. The screensaver's `lockOrder` reading uses the record's lock time and `before` verdict; `scripts/smoke/rows/screensaver.sh` pins it.
 - Do judge stage order in one place, the core record; the pane and the screensaver show its verdict and never compute their own. Designed: VGS-1902.
-- Do keep the Cover and the lock surface on layer surfaces, so showing them does not restart another watch. Gap: no row checks it; VGS-1904 adds the check that the lock still engages on time while the Cover runs.
-- Do stop the Cover and its effect while `shell.session.displaysOff` is true, and start none while it is. Designed: VGS-1904 pins it in `scripts/smoke/rows/screensaver.sh`.
+- Do keep the Cover and the lock surface on layer surfaces, so showing them does not restart another watch. `scripts/smoke/rows/screensaver.sh` checks the lock's deadline while the Cover runs.
+- Do stop the Cover and its effect while `shell.session.displaysOff` is true, and start none while it is. `scripts/smoke/rows/screensaver.sh` pins it.
 - Never create an idle inhibitor or an idle pause in a plugin. A stay-awake pause, if one is added, is core-owned and lent through capability `idle` with a disposer. Review holds it.
 - Do honour Wayland idle inhibitors, through Hyprland, and Hyprland's own `idle_inhibit` window rules, which the user writes. VGS ships no such rule. VGS does not honour `org.freedesktop.ScreenSaver` inhibits, because Quickshell 0.3.1 cannot own a D-Bus object ([D085](../decisions/D085-bluetooth-agent-core-lent-over-bluetoothctl.md)), and does not read logind idle inhibitors. Review holds it.
 

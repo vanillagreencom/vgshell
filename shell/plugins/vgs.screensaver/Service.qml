@@ -21,6 +21,7 @@ Item {
     property bool convertCancelled: false
 
     readonly property bool locked: shell !== null && shell.session.locked
+    readonly property bool displaysOff: shell !== null && shell.session.displaysOff
     readonly property bool idleEnabled: shell !== null && shell.settings.idleEnabled === true
     readonly property int idleSeconds: shell === null ? 150 : shell.settings.idleSeconds
     readonly property int requirementsRevision: shell === null ? 0 : shell.requirements.revision
@@ -28,7 +29,7 @@ Item {
     readonly property string convertedArt: Paths.stateDir + "/screensaver-art.txt"
     readonly property string legacyArt: Paths.configDir + "/screensaver.txt"
     readonly property string movedArt: Paths.configDir + "/screensaver-art.txt"
-    readonly property string managerKey: shell === null ? "" : JSON.stringify(shell.manager.plugins)
+    readonly property var stages: shell === null ? [] : shell.idle.stages
 
     onShellChanged: {
         if (shell === null) return;
@@ -53,16 +54,18 @@ Item {
         if (Logic.retryArtAfterScan(art, artProblem) && !artConvert.running) Qt.callLater(root.updateArt);
     }
     onLockedChanged: if (locked) stop()
+    onDisplaysOffChanged: if (displaysOff) stop()
     onRunningChanged: { publishState(); watchActivity(); }
     onArtChanged: updateArt()
     onArtProblemChanged: publishArt()
     onArtInUseChanged: publishArtFile()
-    onManagerKeyChanged: publishLockOrder()
+    onStagesChanged: publishLockOrder()
     Component.onDestruction: stopArtConversion(false)
 
     function start() {
         if (shell === null) return "refused: screensaver=not-ready";
         if (locked) return "refused: screensaver=locked";
+        if (displaysOff) return "refused: screensaver=displays-off";
         effectFailed = false;
         running = true;
         return "ok";
@@ -148,7 +151,7 @@ Item {
 
     function migratedArt() {
         if (shell === null) return;
-        const reply = shell.manager.setSetting("vgs.screensaver", "art", movedArt);
+        const reply = shell.configure.set("art", movedArt);
         if (reply !== "ok") console.warn("screensaver: art migration " + reply);
     }
 
@@ -210,22 +213,24 @@ Item {
 
     function publishLockOrder() {
         if (shell === null) return;
-        const plugins = shell.manager.plugins || [];
-        const lock = plugins.find(row => row.id === "vgs.lock" && row.enabled === true);
+        const stages = shell.idle.stages;
+        const lock = stages.find(row => row.stage === "lock");
+        const screensaver = stages.find(row => row.stage === "screensaver");
         if (lock === undefined) {
             publish("lockOrder", null);
             return;
         }
-        const seconds = Number(lock.settings.idleLockSeconds || 0);
+        const seconds = lock.seconds;
         if (seconds <= 0) {
             publish("lockOrder", { tone: "warning", text: "Lock is off" });
             return;
         }
-        if (!idleEnabled) {
+        if (screensaver === undefined || screensaver.seconds === 0) {
             publish("lockOrder", { tone: "info", text: "Idle start is off" });
             return;
         }
-        publish("lockOrder", { tone: idleSeconds < seconds ? "ok" : "warning", text: "Lock follows at " + seconds + " s" });
+        // The core owns stage order; equal times are not a before verdict.
+        publish("lockOrder", { tone: lock.before.includes("screensaver") ? "warning" : "ok", text: "Lock follows at " + seconds + " s" });
     }
 
     function refreshEffects() {

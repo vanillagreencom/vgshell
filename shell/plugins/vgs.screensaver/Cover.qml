@@ -20,7 +20,7 @@ Item {
     property real firstX: 0
     property real firstY: 0
 
-    readonly property bool shown: shell !== null && shell.status.values.state !== undefined && shell.status.values.state.text === "Running" && !(shell.session.locked)
+    readonly property bool shown: shell !== null && shell.status.values.state !== undefined && shell.status.values.state.text === "Running" && !shell.session.locked && !shell.session.displaysOff
     readonly property bool canRun: shell !== null && Logic.ttfxReady(shell.requirements.missing)
     readonly property int frameRate: shell === null || shell.settings.frameRate === undefined ? 30 : shell.settings.frameRate
     readonly property string selectedEffect: shell === null ? "random" : shell.settings.effect
@@ -81,6 +81,8 @@ Item {
         restartDelay.stop();
         if (effect.running) {
             intentionalStop = true;
+            // Process.running=false sends SIGTERM (Quickshell 0.3.1):
+            // https://quickshell.org/docs/v0.3.1/types/Quickshell.Io/Process/#running
             effect.running = false;
         }
     }
