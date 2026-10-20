@@ -223,8 +223,8 @@
       "label": "Wake sources",
       "setup": true,
       "group": "Wake",
-      "hint": "Only keyboards and pointing devices can wake the computer through USB or Bluetooth. The power button and a USB device you connect also wake it.",
-      "info": "Wake on LAN has its own switch in the Network group.",
+      "hint": "Only keyboards and pointing devices can wake the computer through USB or Bluetooth",
+      "info": "The power button and a USB device you connect during sleep also wake the computer.",
       "action": { "label": "Allow", "system": "wake-sources" }
     },
     "power": {

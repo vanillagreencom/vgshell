@@ -40,7 +40,7 @@
   "schema": {
     "glass": {"type": "boolean", "label": "VGlass", "description": "Works only while [VGlass in Appearance > Windows](page:vgs.windows) is set to Each surface decides", "info": "VGlass draws notifications as frosted glass with a moving edge light."},
     "slackPhotos": {"type": "boolean", "label": "Slack photos", "group": "Slack", "info": "Shows the sender photo and workspace icon from Slack on a notification. Add a Slack token for each workspace under Slack tokens."},
-    "duration": {"type": "number", "label": "Notification duration", "description": "Set the minimum time for normal notifications", "min": 2, "max": 30, "step": 1, "unit": "seconds"},
+    "duration": {"type": "number", "label": "Notification duration", "description": "Urgent notifications stay until you close them, and a sender can ask for more time", "min": 2, "max": 30, "step": 1, "unit": "seconds"},
     "position": {"type": "enum", "label": "Position", "options": [{"value": "top-left", "label": "Top left"}, {"value": "top-center", "label": "Top center"}, {"value": "top-right", "label": "Top right"}, {"value": "bottom-left", "label": "Bottom left"}, {"value": "bottom-center", "label": "Bottom center"}, {"value": "bottom-right", "label": "Bottom right"}]},
     "customEmoji": {"type": "boolean", "label": "Slack custom emoji", "group": "Slack"}
   },

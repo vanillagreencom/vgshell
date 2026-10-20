@@ -66,7 +66,7 @@
     "recording": {"type": "state", "label": "Recording"},
     "audioSources": {"type": "choices", "label": "Audio sources"},
     "cameras": {"type": "choices", "label": "Cameras"},
-    "languages": {"type": "state", "label": "Language data", "group": "Text", "hint": "English comes with Capture. Other [languages you choose](page:vgs.capture/Settings/ocrLanguages) need their language data.", "action": {"label": "Install languages", "tui": "install-languages"}}
+    "languages": {"type": "state", "label": "Language data", "group": "Text", "hint": "Each [language you choose](page:vgs.capture/Settings/ocrLanguages) other than English needs its language data", "action": {"label": "Install languages", "tui": "install-languages"}}
   },
   "tui": {
     "setup-sharing": { "script": "tui/setup-sharing.sh", "title": "Set up screen sharing", "requires": ["systemctl", "busctl"] },

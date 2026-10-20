@@ -54,7 +54,7 @@
     "layout": {"type": "enum", "label": "Layout", "options": [{"value": "Stacked", "label": "Stacked"}, {"value": "One line", "label": "One line"}], "description": "Stacked shows two readings on two short lines", "group": "Readings"},
     "labelStyle": {"type": "enum", "label": "Labels", "options": [{"value": "icons", "label": "Icons"}, {"value": "text", "label": "Text"}], "group": "Readings"},
     "refreshSeconds": {"type": "number", "label": "Refresh interval", "min": 1, "max": 10, "step": 1, "unit": "seconds", "group": "Readings"},
-    "temperatureUnit": {"type": "enum", "label": "Temperature unit", "options": [{"value": "Celsius", "label": "Celsius"}, {"value": "Fahrenheit", "label": "Fahrenheit"}], "description": "Used for CPU and GPU temperatures", "group": "Readings"},
+    "temperatureUnit": {"type": "enum", "label": "Temperature unit", "options": [{"value": "Celsius", "label": "Celsius"}, {"value": "Fahrenheit", "label": "Fahrenheit"}], "group": "Readings"},
     "showCpu": {"type": "boolean", "label": "CPU", "group": "CPU"},
     "cpuTemperature": {"type": "boolean", "label": "CPU temperature", "group": "CPU"},
     "cpuSensor": {"type": "string", "label": "CPU temperature sensor", "optionsFrom": "cpuSensors", "description": "Automatic uses the sensor the system selects", "group": "CPU"},
