@@ -74,7 +74,9 @@ function write(file, text, mode) {
 // $STUB/bus and the owner of org.freedesktop.Notifications from
 // $STUB/owner, refusing as busctl does when the file is empty, and
 // NetworkManager's State on the system bus from $STUB/nm, absent while the
-// file is empty; its wait for StateChanged reads the State, then appends
+// file is empty, ended by SIGTERM when it reads `kill` and hung past any
+// bound when it reads `hang`, as a system bus slow to answer just after a
+// resume leaves it; its wait for StateChanged reads the State, then appends
 // its --timeout word to $STUB/nm-waits and returns when $STUB/nm changes,
 // as the signal would, or after its timeout with no output; crontab
 // keeps the table in $STUB/crontab; loginctl answers $STUB/linger.
@@ -104,6 +106,9 @@ nm="org.freedesktop.NetworkManager /org/freedesktop/NetworkManager org.freedeskt
 case "$*" in
   "--system --json=short get-property $nm State")
     v=$(<"$STUB/nm")
+    [[ $v == kill ]] && kill -TERM $$
+    # exec, so the runner's bound kills the process holding the pipes.
+    [[ $v == hang ]] && exec sleep 30
     [[ -n $v ]] || { echo "Failed to get property State on interface org.freedesktop.NetworkManager: The name org.freedesktop.NetworkManager was not provided by any .service files" >&2; exit 1; }
     printf '{"type":"u","data":%s}\\n' "$v"; exit 0 ;;
   "--system --json=short wait --timeout="*" $nm StateChanged")
@@ -540,12 +545,18 @@ const CASES = {
         assert.ok(waited !== null && Number(waited[1]) < 60, "the wait counts the time it spent, not the jump: " + fs.readFileSync(err, "utf8"));
     },
 
-    "a run with nothing to wait for starts at once"(engine) {
+    "a run with nothing to wait for starts at once, past a hung read at its bound"(engine) {
         // [the run, $STUB/nm, the stand-ins, the wait's outcome as the
-        // runner hands it to the judge, null for none].
+        // runner hands it to the judge, null for none]. A read that ends
+        // without an exit status fails the wait; the run starts once the
+        // read's bound has passed, when one killed it. The killed read comes
+        // before the hung one, so a control the killed read fails does not
+        // spend the bound.
         for (const [trigger, state, stubs, outcome] of [
             ["scheduled", "70", FORBIDDEN, { kind: "online", state: 70, waitedMs: 0 }],
             ["scheduled", "", FORBIDDEN, { kind: "absent", call: { verb: "get-property", exit: 1, signal: null, timeoutS: null, detail: "Failed to get property State on interface org.freedesktop.NetworkManager: The name org.freedesktop.NetworkManager was not provided by any .service files" }, waitedMs: 0 }],
+            ["scheduled", "kill", FORBIDDEN, { kind: "failed", call: { verb: "get-property", exit: null, signal: "SIGTERM", timeoutS: null, detail: "" }, state: null, waitedMs: 0 }],
+            ["scheduled", "hang", FORBIDDEN, { kind: "failed", call: { verb: "get-property", exit: null, signal: "SIGTERM", timeoutS: 5, detail: "" }, state: null, waitedMs: 0 }],
             ["scheduled", "20", FORBIDDEN.filter(name => name !== "busctl"), { kind: "no-busctl", waitedMs: 0 }],
             ["manual", "20", FORBIDDEN, null]
         ]) {
@@ -557,9 +568,11 @@ const CASES = {
             const out = cli(w, engine, ["run", "--" + trigger, id]);
             const rec = ended(w, id);
             const label = trigger + " with " + JSON.stringify(state) + " and " + stubs.length + " stand-ins";
-            same([out.status, rec.trigger, rec.startedAt - began < 5000, waits(w)], [0, trigger, true, 0], label + " starts at once");
-            same(fs.readFileSync(rec.transcript, "utf8").split("\n").filter(line => line.startsWith("# network: ")), outcome === null ? [] : ["# " + Logic.networkLines(outcome).transcript], label);
-            assert.doesNotMatch(out.stderr, /network=/, label + " logs no wait");
+            const bound = outcome !== null && outcome.call !== undefined && outcome.call.timeoutS !== null ? outcome.call.timeoutS * 1000 : 0;
+            same([out.status, rec.trigger, rec.startedAt - began < bound + 5000, waits(w)], [0, trigger, true, 0], label + " starts at once");
+            const lines = outcome === null ? null : Logic.networkLines(outcome);
+            same(fs.readFileSync(rec.transcript, "utf8").split("\n").filter(line => line.startsWith("# network: ")), lines === null ? [] : ["# " + lines.transcript], label);
+            same(out.stderr.split("\n").filter(line => line.includes("network=")), lines === null || lines.log === "" ? [] : ["automations: " + lines.log + " id=" + id], label + " journal line");
         }
     },
 
@@ -825,6 +838,7 @@ const CONTROLS = [
     ["a scheduled run waits for the network", "a missed run waits for NetworkManager to read online", "Logic.networkLines(waitForNetwork(sessionEnvironment()))", "Logic.networkLines({ kind: \"no-busctl\", waitedMs: 0 })"],
     ["a run starts after its wait", "a missed run waits for NetworkManager to read online", "execute(automation, trigger, decision.slot, Date.now(), \"\", network.transcript);", "execute(automation, trigger, decision.slot, now, \"\", network.transcript);"],
     ["the wait reads the State again after each wait", "a missed run waits for NetworkManager to read online", "if (wait.out.status !== 0) return { kind: \"failed\", call: wait.ending, state: state, waitedMs: waitedMs };", "return { kind: \"offline\", state: state, waitedMs: waitedMs };"],
+    ["a read with no exit status fails the wait", "a run with nothing to wait for starts at once, past a hung read at its bound", "if (read.out.status === null) return { kind: \"failed\", call: read.ending, state: state, waitedMs: waitedMs };", ""],
     ["the wait is measured on the monotonic clock", "a wall-clock jump during the wait leaves it to NetworkManager", "return Number(process.hrtime.bigint() / 1000000n);", "return Date.now();"],
     ["the transcript keeps its cap", "the transcript stops at its cap and the run goes on", "if (body + bytes > Logic.TRANSCRIPT_MAX_BYTES) {", "if (false) {"],
     ["the footer follows the cap", "the transcript stops at its cap and the run goes on", "put(footer.map(line => \"# \" + line + \"\\n\").join(\"\"));", ""],
