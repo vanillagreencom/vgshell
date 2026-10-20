@@ -32,7 +32,7 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // removes no item, the Lucide mark `markName` names, such as `log-out` for
 // a sign-out; an accent action draws no mark, whatever `markName` holds. The
 // mark sits on the control's edge, centred where the text's leading icon
-// centres (Label.topForLeadingIcon).
+// centres between the link's highest ink and baseline (Label.topForLeadingIcon).
 // `removesItem` is for an action that removes the one item its row
 // shows, where the row names what goes: it draws the trash mark alone, in
 // the danger colour whatever `tone` holds, with no underline. Its mark
@@ -129,7 +129,7 @@ T.Button {
             // Alone, it centres where it would lead the text, so it stands
             // level with the danger marks of the rows beside it; the label
             // stays laid out, unseen, to give that centre.
-            y: label.y + label.topForLeadingIcon(height, label.y)
+            y: label.y + label.topForLeadingIcon(height, label.y, true)
         }
         Label {
             id: label

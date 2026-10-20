@@ -554,7 +554,7 @@ FocusScope {
                                 spacing: Theme.stack.inline
 
                                 Icon {
-                                    y: Math.round(sourceText.y) + sourceText.topForLeadingIcon(height)
+                                    y: sourceText.y + sourceText.topForLeadingIcon(height, sourceText.y, true)
                                     name: BrowserLogic.WALLPAPER_SOURCES[root.sourceIndex].icon
                                     size: Theme.icon.size.sm
                                     color: sourceText.color

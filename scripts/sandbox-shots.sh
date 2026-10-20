@@ -403,7 +403,7 @@ while [[ $# -gt 0 ]]; do
     --title-inventory) title_inventory=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
 
-    sysmon|tui-edges|gallery|settings|info-dialog|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|voice-keys|jarvis-console|jarvis-audit|jarvis-setup|jarvis-home-repair|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes|jarvis-restart|plugin-messages|page-links|tooltip-link|traffic|ai-usage|ai-usage-states|devtools|system|appearance|sounds|network|tailscale|tailscale-starting|tailscale-locked|vpn|vpn-locked|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|googledrive|tooltips|screensaver|theme-previews|setup-tab|updates|clone-voice|displays-override) scenes+=("$1"); shift ;;
+    link-icons|sysmon|tui-edges|gallery|settings|info-dialog|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|voice-keys|jarvis-console|jarvis-audit|jarvis-setup|jarvis-home-repair|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes|jarvis-restart|plugin-messages|page-links|tooltip-link|traffic|ai-usage|ai-usage-states|devtools|system|appearance|sounds|network|tailscale|tailscale-starting|tailscale-locked|vpn|vpn-locked|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|googledrive|tooltips|screensaver|theme-previews|setup-tab|updates|clone-voice|displays-override) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -596,7 +596,7 @@ scene_ships() {
     dialog|by-hand|reset) [[ -f $tree/shell/Hosts/NoticeHost.qml ]] ;;
     lock) ships_plugin vgs.lock ;;
     polkit) ships_plugin vgs.polkit ;;
-    googledrive) [[ $manager_scene == settings ]] && ships_plugin vgs.google-drive && tree_has shell/plugins/vgs.google-drive/GoogleDriveLogic.js "function headline(" ;;
+    googledrive|link-icons) [[ $manager_scene == settings ]] && ships_plugin vgs.google-drive && tree_has shell/plugins/vgs.google-drive/GoogleDriveLogic.js "function headline(" ;;
     greeter) ships_plugin vgs.greeter && [[ -f $tree/shell/greeter.qml ]] ;;
     narrow) scene_ships bar && scene_ships panels && scene_ships devtools && scene_ships dialog && scene_ships launcher && scene_ships notifications && scene_ships gallery ;;
     *) printf 'sandbox-shots: refused: scene=%s reason=unknown\n' "$1" >&2; exit 2 ;;
@@ -8810,6 +8810,116 @@ scene_flyout-titles() { # MODE
     expect "$label closes after its title shot" ok ipc shell hide panel "$id"
     expect "$label disables after its title shot" ok ipc shell setPluginEnabled "$id" false
   done
+}
+
+# The real Settings actions, with only key presence stood in. The runner
+# reads and publishes the Google Drive rows; no credential or sync runs.
+# Capture the drawn link geometry through the existing smoke IPC readers.
+link_icons_geometry() { # MODE SITE HOST ID TYPE TEXT
+  local mode="$1" site="$2" host="$3" id="$4" type="$5" text="$6" prefix theme
+  prefix="$SHOT_DIR/geometry-$mode-$site"
+  theme="$(ipc smoke themeName)" || { fail "the link geometry theme is unreadable"; return; }
+  printf '%s\t%s\t%s\t%s\t%s\n' "$site" "$mode" "$capture_source" "$scale" "$theme" >>"$SHOT_DIR/geometry-states.tsv"
+  ipc smoke itemValues "$host" "$id" RowAction 'text,tone,marked,visible,enabled,contentItem.y,contentItem.children.0.y,contentItem.children.0.height,contentItem.children.0.painted,contentItem.children.1.y,contentItem.children.1.baselineOffset,contentItem.children.1.xCentre,contentItem.children.1.capCentre,contentItem.children.1.font.family,contentItem.children.1.font.pixelSize' >"$prefix-actions.json"
+  ipc smoke itemValues "$host" "$id" Label 'text,y,height,baselineOffset,xCentre,capCentre,font.family,font.pixelSize' >"$prefix-labels.json"
+  ipc smoke itemValues "$host" "$id" Icon 'name,y,height,painted' >"$prefix-icons.json"
+  ipc smoke textInk "$host" "$id" Label >"$prefix-ink.json"
+  ipc smoke windowGeometry "$host" "$id" "$type" "$text" >"$prefix-box.json"
+}
+link_icons_jarvis_shots() { # MODE
+  local mode="$1"
+  expect "Jarvis enables for actual Remove key shots" ok ipc shell setPluginEnabled vgs.jarvis true
+  expect_poll "the fixture Jarvis daemon is ready for actual Remove key" ready jarvis_started
+  close_notices
+  plugin_page_shots "$mode" vgs.jarvis "link-icons-$mode-jarvis-details" details
+  jarvis_anchor_shot "link-icons-$mode-jarvis-key" Label 'API keys'
+  page_state_record "link-icons-$mode-jarvis-key" "$mode" vgs.jarvis
+  link_icons_geometry "$mode" jarvis-key "$settings_kind" vgs.settings RowAction 'Remove key'
+  expect "Jarvis disables after actual Remove key shots" ok ipc shell setPluginEnabled vgs.jarvis false
+}
+link_icons_keys_ready() {
+  ipc vgs.google-drive invoke status '' | py_reply 'import json,sys; row=json.load(sys.stdin); print(isinstance(row,dict) and row.get("cloudKeys",{}).get("tone")=="ok")'
+}
+link_icons_source_shots() { # MODE
+  local mode="$1" theme source
+  expect "Themes enables for the source link shots" ok ipc shell setPluginEnabled vgs.themes true
+  expect "the wallpaper browser opens for the source link" ok ipc shell summon overlay vgs.themes '{"view":"wallpapers"}'
+  expect_poll "the wallpaper source link is loaded" true ipc smoke readDescendant overlay vgs.themes WallpaperView loaded
+  expect_poll "the wallpaper source starts on its theme" '"theme"' ipc smoke readDescendant overlay vgs.themes WallpaperView source
+  theme="$(ipc smoke themeName)" || { fail "the source link theme is unreadable"; return; }
+  source="$(ipc smoke readDescendant overlay vgs.themes WallpaperView source)" || { fail "the source link state is unreadable"; return; }
+  park_pointer
+  take "link-icons-$mode-source"
+  link_icons_geometry "$mode" wallpaper-source overlay vgs.themes Label "Show all"
+  word_hover_shot "link-icons-$mode-source-hover" "Show all"
+  printf '%s\t%s\t%s\t%s\t%s\n' "link-icons-$mode-source" "$mode" "$capture_source" "$theme" "$source" >>"$SHOT_DIR/link-view-states.tsv"
+  expect "the wallpaper browser closes after source link shots" ok ipc shell hide overlay vgs.themes
+}
+link_icons_review_shots() { # MODE
+  local original
+  original="$(declare -f cs_shots)" || { fail "the Google Drive capture helper is absent"; return; }
+  # Keep the existing runner's complete state sequence, capturing only the
+  # real review popover. The original scene and its helper stay unchanged.
+  cs_shots() {
+    local mode="$1" state="$2" want="$3" fields=(cause) theme
+    if [[ $# -gt 3 ]]; then want+=" $4"; fields+=(kind); fi
+    expect "Google Drive reads its record for $state" ok ipc vgs.google-drive invoke refresh ''
+    expect_poll "Google Drive publishes $state for link shots" "$want" cs_code "${fields[@]}"
+    [[ $state == 8-review ]] || return 0
+    cs_popover "$mode" "$state"
+    theme="$(ipc smoke themeName)" || { fail "the review link theme is unreadable"; return; }
+    printf '%s\t%s\t%s\t%s\t%s\n' "googledrive-$mode-$state-popover" "$mode" "$capture_source" "$theme" "$want" >>"$SHOT_DIR/link-view-states.tsv"
+  }
+  scene_googledrive "$1"
+  eval "$original"
+}
+scene_link-icons() { # MODE
+  local mode="$1" id tab image
+  sentinel_stand_over "$shim/secret-tool" <<'LINKKEYS'
+#!/usr/bin/env bash
+if [[ ${1:-} == search ]]; then
+  if [[ ${3:-} == vgs-google-drive && ${5:-} =~ ^(client-id|client-secret|token)$ ]]; then
+    printf '[/1]\nlabel = Sandbox key\nsecret = sandbox\n'
+    printf 'attribute.service = vgs-google-drive\nattribute.account = %s\n' "$5" >&2
+    [[ $5 != token ]] || printf 'attribute.user = sandbox@example.com\n' >&2
+  fi
+  exit 0
+fi
+[[ ${1:-} != lookup ]] || exit 1
+exit 1
+LINKKEYS
+  automations_stand_ins "$sandbox/link-icons-systemd"
+  mkdir -p "$home/.config/vgshell/plugins/acme.probe"
+  cp -R -- "$fixtures/acme.probe/." "$home/.config/vgshell/plugins/acme.probe/"
+  tree_rescan "the link icon fixture is scanned"
+  expect "Settings enables for link icon shots" ok ipc shell setPluginEnabled vgs.settings true
+  expect "Google Drive enables for link icon shots" ok ipc shell setPluginEnabled vgs.google-drive true
+  close_notices
+  expect "Settings opens for link icon shots" ok ipc shell summon "$settings_kind" vgs.settings '{}'
+  expect_poll "Settings maps for link icon shots" 1 settings_count
+  expect_poll "Google Drive publishes its stored key presence" True link_icons_keys_ready
+  for tab in setup details manage; do
+    id=vgs.google-drive
+    [[ $tab != manage ]] || id=acme.probe
+    image="link-icons-$mode-$tab"
+    if [[ $tab == manage ]]; then
+      plugin_page_shots "$mode" "$id" "$image" details
+    else
+      plugin_page_shots "$mode" "$id" "$image" "$tab"
+    fi
+    if [[ $tab == setup ]]; then
+      link_icons_geometry "$mode" google-remove "$settings_kind" vgs.settings RowAction Remove
+    elif [[ $tab == details ]]; then
+      link_icons_geometry "$mode" google-signout "$settings_kind" vgs.settings RowAction 'Sign out'
+    fi
+  done
+  link_icons_jarvis_shots "$mode"
+  settings_close
+  expect "Google Drive disables after link icon shots" ok ipc shell setPluginEnabled vgs.google-drive false
+  automations_stand_ins_restore "$sandbox/link-icons-systemd"
+  sentinel_restore "$shim/secret-tool"
+  link_icons_source_shots "$mode"
+  link_icons_review_shots "$mode"
 }
 
 # The first shot is the bare desktop; every later shot must differ from the
