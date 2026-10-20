@@ -552,11 +552,11 @@ auth_watch_start() { # LOG
   spawn "$1" python3 -c "$auth_scan_program" "$$" watch
   auth_watch_pid="$spawn_pid"
 }
-# Whether PID is in the harness's own tree, which the watcher scans.
-in_harness_tree() { # PID
-  local pid="$1"
+# Whether PID is in ROOT's tree, defaulting to the harness the watcher scans.
+in_harness_tree() { # PID [ROOT]
+  local pid="$1" root="${2:-$$}"
   while [[ $pid =~ ^[0-9]+$ && $pid -gt 1 ]]; do
-    [[ $pid == "$$" ]] && { echo yes; return; }
+    [[ $pid == "$root" ]] && { echo yes; return; }
     pid="$(sed 's/.*) //' "/proc/$pid/stat" 2>/dev/null | cut -d' ' -f2)" || break
   done
   echo no
@@ -2014,7 +2014,7 @@ start_shell() { # TREE LOG [BAR [NAME=VALUE...]]
 # shell_qs_pid from TREE's `vgshell pid` and instance_log from the sandbox's
 # instances. Returns 1, with the row failed, as start_shell describes.
 shell_answers() { # TREE LOG
-  local tree="$1" log="$2" pong up=false qs_pid comm="" instance_id
+  local tree="$1" log="$2" pong up=false qs_pid qs_exe="" instance_id
   for _ in $(seq 1 $((timeout_s * 5))); do
     if pong="$(ipc shell ping 2>/dev/null)" && [[ $pong == ok ]]; then up=true; break; fi
     kill -0 "$shell_pid" 2>/dev/null || break
@@ -2027,8 +2027,15 @@ shell_answers() { # TREE LOG
   fi
   ok "shell answers ping"
   if ! qs_pid="$("${shell_env[@]}" "$tree/bin/vgshell" pid 2>&1)" || [[ ! $qs_pid =~ ^[0-9]+$ ]] \
-    || ! comm="$(cat -- "/proc/$qs_pid/comm" 2>/dev/null)" || [[ $comm != qs ]]; then
-    fail "start_shell: $tree/bin/vgshell pid names no qs: pid=[${qs_pid//$'\n'/ }] comm=[${comm:-}]"
+    || ! qs_exe="$(readlink -- "/proc/$qs_pid/exe" 2>/dev/null)" \
+    || [[ ${qs_exe##*/} != qs && ${qs_exe##*/} != quickshell && ${qs_exe##*/} != .quickshell-wrapped ]]; then
+    fail "start_shell: $tree/bin/vgshell pid names no qs: pid=[${qs_pid//$'\n'/ }] exe=[$qs_exe]"
+    return 1
+  fi
+  # Nix's .quickshell-wrapped exceeds Linux comm's 15-byte name limit.
+  # The executable must also belong to this runner, including an exec runner.
+  if [[ $(in_harness_tree "$qs_pid" "$shell_pid") != yes ]]; then
+    fail "start_shell: pid=[$qs_pid] is outside runner=[$shell_pid]"
     return 1
   fi
   shell_qs_pid="$qs_pid"

@@ -661,7 +661,7 @@ def terminal(directory):
 # Actual shared launch/stop. Every signalled child belongs to this fixture.
 def boundary(directory, recorder, mode='registered', source=harness_text):
     helper = directory / ('boundary-' + mode + '.sh')
-    helper.write_text('\n'.join(extract(source, n) for n in ('spawn', 'stop_shell', 'shell_answers', 'py_reply')) + r'''
+    helper.write_text('\n'.join(extract(source, n) for n in ('spawn', 'stop_shell', 'in_harness_tree', 'shell_answers', 'py_reply')) + r'''
 set -u
 recorder=$1 fixture=$2 mode=$3
 control=$fixture/control
@@ -676,8 +676,28 @@ display_record_call() { python3 "$recorder" request "$control" "$@"; }
 display_stream_kind=probe
 [[ $mode != generic ]] || display_stream_kind=''
 mkfifo "$fixture/ready-child"
+if [[ $mode == supervised ]]; then
+  mkfifo "$fixture/qs-launch" "$fixture/qs-ready" "$fixture/qs-ended"
+  cp -- "$(command -v sleep)" "$fixture/qs"
+  cat >"$fixture/supervised-runner.sh" <<'SH'
+fixture=$1 child=''
+trap 'if [ -n "$child" ]; then kill "$child" 2>/dev/null || :; wait "$child" 2>/dev/null || :; fi' EXIT
+trap 'exit 0' TERM
+for generation in 1 2; do
+  IFS= read -r launch <"$fixture/qs-launch"
+  "$fixture/qs" 60 &
+  child=$!
+  printf '%s\n' "$child" >"$fixture/qs-pid"
+  printf '%s\n' "$child" >"$fixture/qs-ready"
+  wait "$child" || :
+  child=''
+  printf 'ended\n' >"$fixture/qs-ended"
+done
+exec sleep 60
+SH
+fi
 spawn_pid=stale
-spawn "$fixture/child.log" sh -c 'printf "stdout\n"; printf "stderr\n" >&2; printf "ready\n" >"$1"; exec sleep 60' _ "$fixture/ready-child"
+spawn "$fixture/child.log" sh -c 'printf "stdout\n"; printf "stderr\n" >&2; printf "ready\n" >"$1"; if [ "$2" = supervised ]; then exec sh "$3/supervised-runner.sh" "$3"; fi; exec sleep 60' _ "$fixture/ready-child" "$mode" "$fixture"
 IFS= read -r ready <"$fixture/ready-child"
 shell_pid=$spawn_pid
 printf '%s\n' "$shell_pid" "${pgids[-1]:-missing}" >"$fixture/pids"
@@ -699,17 +719,15 @@ if [[ $mode == supervised ]]; then
   : >"$rt_dir/quickshell/by-id/fixture/log.log"
   printf '#!/bin/sh\ncat "${0%%/bin/vgshell}/qs-pid"\n' >"$fixture/bin/vgshell"
   chmod +x "$fixture/bin/vgshell"
-  cp -- "$(command -v sleep)" "$fixture/qs"
   for generation in 1 2; do
-    "$fixture/qs" 60 &
-    qs_child=$!
-    printf '%s\n' "$qs_child" >"$fixture/qs-pid"
+    printf '%s\n' "$generation" >"$fixture/qs-launch"
+    IFS= read -r qs_child <"$fixture/qs-ready"
     for _ in $(seq 1 50); do
       [[ $(cat "/proc/$qs_child/comm") != qs ]] || break
     done
     shell_answers "$fixture" "$shell_log" || exit 2
     kill -TERM "$qs_child"
-    wait "$qs_child" 2>/dev/null || true
+    IFS= read -r ended <"$fixture/qs-ended"
   done
 fi
 if [[ $mode == already-reaped || $mode == clear-direct-reap ]]; then

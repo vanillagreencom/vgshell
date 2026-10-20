@@ -15,9 +15,12 @@
 #
 # The child gets an explicit environment and stdin from /dev/null. Nothing
 # here starts Hyprland; the suite signals only processes it started.
+# The shell_answers cases execute the harness's start_shell identity check
+# against owned sleep executables, including Nix's full wrapper name.
 #
 # Exit 0 when every case and control holds, 1 otherwise.
 set -euo pipefail
+unset WAYLAND_DISPLAY DISPLAY HYPRLAND_INSTANCE_SIGNATURE
 
 self="$(readlink -f -- "${BASH_SOURCE[0]}")"
 repo="$(cd -- "$(dirname -- "$self")/.." && pwd)"
@@ -240,6 +243,107 @@ for i in "${!controls[@]}"; do
     printf '  CONTROL  %s\n' "$detail"
   fi
 done
+
+# Read the production function without starting the sandbox it lives in.
+identity="$tmp/identity"
+mkdir -p "$identity/tree/bin" "$identity/runtime/quickshell/by-id/fixture"
+sed -n -e '/^in_harness_tree() {/,/^}/p' -e '/^shell_answers() {/,/^}/p' \
+  "$repo/scripts/smoke/harness.sh" >"$identity/functions.sh"
+for name in in_harness_tree shell_answers; do
+  [[ $(grep -c "^$name() {" "$identity/functions.sh") == 1 ]] || { fail "$name extraction"; exit 1; }
+done
+cat >"$identity/tree/bin/vgshell" <<'SH'
+#!/usr/bin/env bash
+[[ $1 == pid ]] || exit 2
+printf '%s\n' "$FIXTURE_PID"
+SH
+chmod 755 "$identity/tree/bin/vgshell"
+touch "$identity/runtime/quickshell/by-id/fixture/log.log"
+for name in qs quickshell .quickshell-wrapped unrelated; do
+  cp -- "$(command -v sleep)" "$identity/$name"
+done
+cat >"$identity/driver.sh" <<'SH'
+set -euo pipefail
+functions="$1" root="$2" name="$3" relation="$4" want="$5"
+fixture_pid="" other_pid=""
+cleanup() {
+  local pid
+  for pid in "$fixture_pid" "$other_pid"; do
+    [[ -n $pid ]] || continue
+    kill -- "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+  done
+}
+trap cleanup EXIT
+"$root/$name" infinity &
+fixture_pid=$!
+ready=false
+for _ in {1..100}; do
+  if [[ $(readlink "/proc/$fixture_pid/exe") == "$root/$name" ]]; then ready=true; break; fi
+  sleep 0.01
+done
+[[ $ready == true ]] || exit 2
+shell_pid=$BASHPID
+case "$relation" in
+  exec) shell_pid="$fixture_pid" ;;
+  other) "$root/qs" infinity & other_pid=$!; shell_pid="$other_pid" ;;
+esac
+shell_env=(env FIXTURE_PID="$fixture_pid")
+timeout_s=1 rt_dir="$root/runtime" shell_qs_pid="" instance_log="" identity_failures=0
+shell_pids_started=()
+ipc() { echo ok; }
+qs_list() { printf '[{"pid":%s,"id":"fixture"}]\n' "$fixture_pid"; }
+py_reply() { python3 -c "$@"; }
+display_record_call() { :; }
+ok() { :; }
+fail() { identity_failures=$((identity_failures + 1)); }
+source "$functions"
+status=0
+shell_answers "$root/tree" /dev/null || status=$?
+[[ $status == "$want" ]] || { echo "identity=$name relation=$relation status=$status want=$want"; exit 1; }
+if [[ $want == 0 ]]; then
+  [[ $shell_qs_pid == "$fixture_pid" && $identity_failures == 0 && ${shell_pids_started[*]} == "$fixture_pid" ]]
+else
+  [[ -z $shell_qs_pid && $identity_failures == 1 && ${#shell_pids_started[@]} == 0 ]]
+fi
+SH
+identity_case() {
+  env -i PATH="$identity/tree/bin:$PATH" HOME="$tmp/home" LC_ALL=C \
+    "$BASH" "$identity/driver.sh" "$1" "$identity" "$2" "$3" "$4" </dev/null
+}
+identity_cases=(
+  'qs|child|0'
+  'quickshell|child|0'
+  '.quickshell-wrapped|child|0'
+  '.quickshell-wrapped|exec|0'
+  'unrelated|child|1'
+  'qs|other|1'
+)
+for row in "${identity_cases[@]}"; do
+  IFS='|' read -r name relation want <<<"$row"
+  if identity_case "$identity/functions.sh" "$name" "$relation" "$want"; then
+    ok "shell identity: $name $relation"
+  else
+    fail "shell identity: $name $relation"
+  fi
+done
+
+# Restore the faulty comm read in the disposable function, keeping the
+# full accepted names: Linux truncates the wrapper name before the check.
+old='readlink -- "/proc/$qs_pid/exe"'
+new='cat -- "/proc/$qs_pid/comm"'
+text="$(<"$identity/functions.sh")"
+rest="${text//"$old"/}"
+if (( (${#text} - ${#rest}) / ${#old} != 1 )); then
+  fail 'shell identity control: mutation match count'
+else
+  printf '%s\n' "${text/"$old"/"$new"}" >"$identity/mutant.sh"
+  if identity_case "$identity/mutant.sh" .quickshell-wrapped child 0; then
+    fail 'shell identity control: truncated comm accepted'
+  else
+    ok 'shell identity control: truncated comm rejected the Nix wrapper'
+  fi
+fi
 
 if [[ $failures -gt 0 ]]; then
   echo "test-smoke-hypr-bound: failed=$failures"
