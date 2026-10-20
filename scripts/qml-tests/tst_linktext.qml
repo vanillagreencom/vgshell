@@ -151,6 +151,17 @@ Item {
     SignalSpy { id: filedPages; target: filed; signalName: "pageActivated" }
     SignalSpy { id: filedActivated; target: filed; signalName: "activated" }
 
+    // How far the underline's top lies under the baseline, in device
+    // pixels, by scale: as close as one clear device row under the
+    // descenders allows, 2 device px closer than before at 2x and where it
+    // was at 1x (Jarvis decision 1792451829-3591639-28142).
+    readonly property var underlineTop: ({ 1: 5, 2: 8 })
+
+    Component {
+        id: scaledWindow
+        Window { width: 640; height: 120; color: "black" }
+    }
+
     TestCase {
         name: "linktext"
         when: windowShown
@@ -353,7 +364,7 @@ Item {
                 fuzzyCompare(box.x, x, 0.5, "the box starts at the words");
                 fuzzyCompare(box.width, font.advanceWidth(held), 1, "the box is as wide as the words and the mark against them");
                 compare(box.y, Math.floor(baseline + font.tightBoundingRect(held).y), "the box starts at the words' highest ink");
-                compare(box.y + box.height, Math.ceil(baseline + label.underlineOffset + item.underlineThickness), "the box ends at the underline's bottom");
+                compare(box.y + box.height, Math.ceil(baseline + item.underlineOffset + item.underlineThickness), "the box ends at the underline's bottom");
                 verify(box.y > line * label.lineBox, "the box starts at the words' ink, not their line box: " + box.y);
                 item.forceActiveFocus(Qt.TabFocusReason);
                 const ring = ringOf(item);
@@ -396,6 +407,22 @@ Item {
             changing.text = "Hyprland config sets 10 px";
             compare(changing.run, [0, 15]);
             verify(changing.linkBox.width > 0 && changing.linkBox.x === 0, "the box is the link's at the text's start");
+        }
+
+        // The device rows from `from` to `to` that hold ink in the columns
+        // [columns[0], columns[1]) of a grab on black.
+        function inkRows(img, columns, from, to) {
+            const rows = [];
+            for (let row = from; row < Math.min(to, img.height); row++) {
+                for (let col = columns[0]; col < columns[1]; col++) {
+                    const c = img.pixel(col, row);
+                    if (Math.max(c.r, c.g, c.b) > 0.02) {
+                        rows.push(row);
+                        break;
+                    }
+                }
+            }
+            return rows;
         }
 
         function underlines(item) {
@@ -443,29 +470,101 @@ Item {
             verify(Qt.colorEqual(underlines(inline)[0].color, Theme.color.accent));
         }
 
-        // Hover is the underline's thickness: the resting one plus
-        // `linkText.underlineHover`, while the pointer is on the words. Its
-        // name sorts it before the click tests: after a mouseClick the
-        // runner's moves leave the area's containsMouse set (this file under
+        // The underline draws only while the pointer is on the words, at the
+        // font's line width; the words before the link draw none. Its name
+        // sorts it before the click tests: after a mouseClick the runner's
+        // moves leave the area's containsMouse set (this file under
         // scripts/qml-unit.sh on 2026-10-13).
-        function test_hover_thickens_the_underline_only_under_the_pointer() {
-            const rest = Math.max(1, Math.round(font.lineWidth));
+        function test_hover_alone_draws_the_underline() {
             const run = underlines(inline)[0];
-            verify(Theme.linkText.underlineHover > 0, "the hover token adds thickness");
             mouseMove(root, root.width - 1, root.height - 1);
             tryCompare(inline, "hoveredLink", false);
-            compare(run.height, rest);
+            compare(run.visible, false, "no underline at rest");
             mouseMove(inline, inline.linkBox.x + inline.linkBox.width / 2, inline.height / 2);
             tryCompare(inline, "hoveredLink", true);
-            compare(run.height, rest + Theme.linkText.underlineHover);
+            compare(run.visible, true, "the hovered words draw their underline");
+            compare(run.height, Math.max(1, Math.round(font.lineWidth)));
             mouseMove(inline, before.advanceWidth / 2, inline.height / 2);
             tryCompare(inline, "hoveredLink", false);
-            compare(run.height, rest, "the words before the link draw the resting underline");
+            compare(run.visible, false, "the words before the link draw none");
             mouseMove(inline, inline.linkBox.x + inline.linkBox.width / 2, inline.height / 2);
             tryCompare(inline, "hoveredLink", true);
             mouseMove(root, root.width - 1, root.height - 1);
             tryCompare(inline, "hoveredLink", false);
-            compare(run.height, rest, "the underline is back at rest on exit");
+            compare(run.visible, false, "the underline goes on exit");
+        }
+
+        // The drawn underline, read from the window's device pixels at 1x
+        // and 2x: none at rest, none under keyboard focus, which draws the
+        // ring alone, and on hover `underlineTop` under the baseline, a
+        // clear row under the lowest descender ink of "gypqj". A link and a
+        // word under its TextUnderline draw alike.
+        function test_hover_draws_the_underline_at_its_top_data() {
+            const rows = [];
+            for (const scale of [1, 2])
+                for (const kind of ["link", "word"])
+                    rows.push({ tag: kind + " at " + scale + "x", kind: kind, scale: scale });
+            return rows;
+        }
+
+        function test_hover_draws_the_underline_at_its_top(data) {
+            const screen = Qt.application.screens[data.scale - 1];
+            const window = scaledWindow.createObject(null, { screen: screen, x: screen.virtualX + 10, y: screen.virtualY + 10 });
+            window.visible = true;
+            const item = data.kind === "link"
+                ? Qt.createQmlObject("import qs.Ui\nLinkText { x: 8; y: 8; text: \"gypqj gypqj\"; link: \"gypqj gypqj\" }", window.contentItem)
+                : Qt.createQmlObject("import qs.Ui\nLabel { id: word; x: 8; y: 8; text: \"gypqj gypqj\"; TextUnderline { label: word } }", window.contentItem);
+            const label = data.kind === "link" ? labelOf(item) : item;
+            const ratio = label.Screen.devicePixelRatio;
+            const words = Qt.createQmlObject("import QtQuick\nTextMetrics {}", window.contentItem);
+            words.font = label.font;
+            words.text = "gypqj";
+            const wordEnd = words.advanceWidth;
+            words.text = "gypqj ";
+            const spaceEnd = words.advanceWidth;
+            const origin = label.mapToItem(window.contentItem, 0, 0);
+            const baseline = Math.floor((origin.y + label.baselineOffset) * ratio);
+            const below = Math.ceil((origin.y + label.baselineOffset + label.font.pixelSize) * ratio);
+            // The glyph columns of the first word, and the columns of the
+            // space after it, which only an underline inks.
+            const glyphs = [Math.floor((origin.x) * ratio), Math.floor((origin.x + wordEnd) * ratio)];
+            const space = [Math.ceil((origin.x + wordEnd) * ratio), Math.floor((origin.x + spaceEnd) * ratio)];
+            verify(space[1] > space[0], "the space between the words holds a column");
+            const show = on => data.kind === "link"
+                ? mouseMove(item, on ? 2 : item.width + 40, on ? item.height / 2 : item.height + 40)
+                : item.children.find(child => child.label === item).visible = on;
+            // A word's underline rests unseen until its owner shows it.
+            if (data.kind === "link") {
+                show(false);
+                tryCompare(item, "hoveredLink", false);
+            }
+            const rest = grabImage(window.contentItem);
+            const descender = inkRows(rest, glyphs, baseline, below).pop();
+            const restLine = inkRows(rest, space, baseline, below);
+            let focusLine = [];
+            if (data.kind === "link") {
+                window.requestActivate();
+                tryCompare(window, "active", true);
+                item.forceActiveFocus(Qt.TabFocusReason);
+                compare(ringOf(item).visible, true, "keyboard focus draws the ring");
+                // The ring's bottom edge lies under the underline's room.
+                focusLine = inkRows(grabImage(window.contentItem), space, baseline, Math.floor((origin.y + item.linkBox.y + item.linkBox.height) * ratio));
+                item.focus = false;
+            }
+            show(true);
+            if (data.kind === "link") tryCompare(item, "hoveredLink", true);
+            const hovered = inkRows(grabImage(window.contentItem), space, baseline, below);
+            const run = data.kind === "link" ? underlines(item)[0] : item.children.find(child => child.label === item);
+            const top = (run.mapToItem(window.contentItem, 0, 0).y - origin.y - label.baselineOffset) * ratio;
+            show(false);
+            window.destroy();
+            compare(ratio, data.scale, "the window draws at its screen's scale");
+            verify(descender > baseline, "the descenders ink under the baseline");
+            compare(restLine, [], "no underline at rest");
+            compare(focusLine, [], "no underline under keyboard focus");
+            verify(hovered.length > 0, "the hover draws the underline");
+            compare(top, root.underlineTop[data.scale], "the underline's top in device pixels under the baseline");
+            verify(hovered[0] - descender - 1 >= 1, "one clear device row between the descenders and the underline: " + (hovered[0] - descender - 1));
         }
 
         function test_pointer_activates_only_the_link() {

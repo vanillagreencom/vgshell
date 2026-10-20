@@ -313,11 +313,6 @@ Item {
         const capital = text.baselineOffset - text.capTop();
         return baseline - (text.fontHeight - text.capCentre - capital / 2);
     }
-    // A link's underline, under the descent line, still ends the message.
-    function messageBelow() {
-        const line = fontBelow(messageProbe);
-        return message.linked ? Math.min(line, message.inkBelow()) : line;
-    }
 
     // How far above its bottom edge the row's lowest drawn part ends, each
     // text line read by its font while BYFONT holds and by its glyphs
@@ -327,7 +322,7 @@ Item {
         for (const child of slot.children) {
             if (child.visible) bottom = Math.max(bottom, slot.y + child.y + child.height - (byFont && child instanceof Label ? fontBelow(child) : Theme.inkBelow(child)));
         }
-        if (message.visible) bottom = Math.max(bottom, message.y + message.height - (byFont ? messageBelow() : message.inkBelow()));
+        if (message.visible) bottom = Math.max(bottom, message.y + message.height - (byFont ? fontBelow(messageProbe) : message.inkBelow()));
         if (actionSlot.visible && root.actionBelow) bottom = Math.max(bottom, actionSlot.y + actionSlot.height);
         return height - bottom;
     }

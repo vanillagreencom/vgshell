@@ -11,9 +11,10 @@ import "../../shell/plugins/vgs.settings"
 // `stack.heading` on the System monitor, Capture and Displays pages, built
 // from their shipped manifests, whatever row ends the section above: a
 // switch, a select, a segmented control, a slider or a help line, one
-// with descenders or, planted, one without, and after a status hint whose link's underline, not its
-// glyphs, ends the ink, and exactly under a row action's resting
-// underline or danger mark, not its box. The settings of no group draw no
+// with descenders or, planted, one without, and after a status hint with
+// a link, whose glyphs end the ink at rest, since its underline draws on
+// hover alone, and exactly under a row action's text or danger mark, not
+// its box. The settings of no group draw no
 // heading: they follow the
 // Enabled switch at the space rows of one list leave. A
 // section spaced by its box, as before `stack.heading`, is the control the
@@ -396,14 +397,12 @@ Item {
             verify(Math.abs(gap - Theme.stack.heading) <= root.tolerance, "the heading sits " + gap + " px under the hint, not " + Theme.stack.heading);
         }
 
-        // At 40 px a link's underline ends 9 px under the glyphs of a last
-        // line with no descender, past the reading's tolerance: with
-        // LinkText.inkBelow() reading the glyphs alone, "one line" and
-        // "last of two" read 23 blank rows, not 32, under scripts/qml-unit.sh
-        // on a65ec0a61. "last of two" holds the link on both lines, so it
-        // fails when only the first occurrence counts; "first of two" holds
-        // it on the first line alone and fails, at 41, when the underline
-        // counts there.
+        // At 40 px a link's underline room reaches 13 px under the glyphs
+        // of a last line with no descender, past the reading's tolerance:
+        // with LinkText.inkBelow() holding that room, "one line" and "last
+        // of two" read 45 blank rows, not 32, under scripts/qml-unit.sh on
+        // 2026-10-19. The underline draws on hover alone, so the heading
+        // stands under the glyphs whichever line holds the link.
         function test_heading_space_after_an_underlined_link_data() {
             return [
                 { tag: "one line", hint: "The manual", link: "manual", lines: 1 },
@@ -430,7 +429,7 @@ Item {
         // holds exactly, not within the glyph tolerance. With the action
         // read as its box, as before RowAction.inkBelow(), or a Flow read
         // as its box, as before Theme.inkBelow read a Flow, the heading sat
-        // 33 blank rows under the resting underline; "boxed" is that
+        // 33 blank rows under its ink; "boxed" is that
         // control and must not read `stack.heading`.
         function test_heading_space_after_a_row_action_data() {
             return [

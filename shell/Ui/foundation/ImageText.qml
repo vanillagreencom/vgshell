@@ -24,8 +24,10 @@ import "ImageTextLogic.js" as Logic
 // Qt's pixmap cache before the text names the image, so no image decodes
 // on the GUI thread. An image whose load fails draws its alt text.
 //
-// `underlined` names plain words of the text whose first occurrence draws
-// over an underline in `underlineColor`, as LinkText's link does: its top
+// `underlined` names plain words of the text whose first occurrence is a
+// link: while `hovered`, the owner's reading of the pointer on what the
+// words open, they draw over an underline in `underlineColor`, as
+// LinkText's hovered link does, and at rest over none. Its top is
 // Inset.underlineTop under each line's baseline, not at the font's
 // underline position, where Qt draws a `<u>` and a descender meets it. A
 // hidden RichText twin of the drawn text gives the words' x and line,
@@ -41,6 +43,7 @@ Item {
     property int maximumLineCount: 1
     property string underlined: ""
     property color underlineColor: color
+    property bool hovered: false
     // Whether the text drawn is cut short, and the lines it draws.
     readonly property bool truncated: imageMode ? cutShort : drawn.truncated
     readonly property int lineCount: drawn.lineCount
@@ -203,10 +206,11 @@ Item {
         Rectangle {
             required property var modelData
             x: modelData.left
-            y: drawn.baselineOffset + modelData.line * drawn.contentHeight / Math.max(1, drawn.lineCount) + Inset.underlineTop(metrics.descent)
+            y: drawn.baselineOffset + modelData.line * drawn.contentHeight / Math.max(1, drawn.lineCount) + Inset.underlineTop(DescenderInk.depth(root.font), Screen.devicePixelRatio)
             width: modelData.right - modelData.left
             height: Inset.underlineWidth(metrics.lineWidth)
             color: root.underlineColor
+            visible: root.hovered
         }
     }
 

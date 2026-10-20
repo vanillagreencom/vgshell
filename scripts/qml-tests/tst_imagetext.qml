@@ -1,5 +1,6 @@
 import QtQuick
 import QtTest
+import qs.Commons
 import qs.Ui
 
 // ImageText: an image segment draws as an image at full strength whatever
@@ -11,8 +12,11 @@ import qs.Ui
 // URL and size between holders, keeps it for the next holder after the
 // last lets it go, up to its ceiling of idle images, and keeps no image
 // whose load failed; underlined words draw one underline run per line a
-// clear pixel row under the font's descent. Pixels are read off grabs; the
-// red of the fixture image is never a colour of the text.
+// clear pixel row under the font's descent, and draw it only while
+// `hovered`: read from the drawn pixels at 1x and 2x, none at rest and,
+// hovered, its top a set number of clear rows under the descenders.
+// Pixels are read off grabs; the red of the fixture image is never a
+// colour of the text.
 Item {
     id: root
     width: 420
@@ -31,6 +35,17 @@ Item {
     FontMetrics { id: faceMetrics; font: root.face }
     TextMetrics { id: linkPrefix; font: root.face; text: "Open " }
     TextMetrics { id: linkWords; font: root.face; text: "Keyring setup" }
+
+    // How far the underline's top lies under the baseline, in device
+    // pixels, by scale: as close as one clear device row under the
+    // descenders allows, 2 device px closer than before at 2x and where it
+    // was at 1x (Jarvis decision 1792451829-3591639-28142).
+    readonly property var underlineTop: ({ 1: 5, 2: 8 })
+
+    Component {
+        id: scaledWindow
+        Window { width: 640; height: 120; color: "black" }
+    }
 
     Component {
         id: textComponent
@@ -116,6 +131,66 @@ Item {
                 verify(Math.abs(runs[0].width - linkWords.advanceWidth) <= 1, "the underline is the words' width: " + runs[0].width + ", not " + linkWords.advanceWidth);
                 if (line === 0) verify(Math.abs(runs[0].x - linkPrefix.advanceWidth) <= 1, "the underline starts at the words: " + runs[0].x + ", not " + linkPrefix.advanceWidth);
             }
+        }
+
+        // The device rows from `from` to `to` that hold ink in the columns
+        // [columns[0], columns[1]) of a grab on black.
+        function inkRows(img, columns, from, to) {
+            const rows = [];
+            for (let row = from; row < Math.min(to, img.height); row++) {
+                for (let col = columns[0]; col < columns[1]; col++) {
+                    const c = img.pixel(col, row);
+                    if (Math.max(c.r, c.g, c.b) > 0.02) {
+                        rows.push(row);
+                        break;
+                    }
+                }
+            }
+            return rows;
+        }
+
+        // A notice card's body, 13 px, as vgs.notifications draws it: no
+        // underline at rest, and while `hovered` `underlineTop` under the
+        // baseline, a clear row under the lowest descender ink of "gypqj".
+        function test_hovered_words_draw_the_underline_at_its_top_data() {
+            return [{ tag: "1x", scale: 1 }, { tag: "2x", scale: 2 }];
+        }
+
+        function test_hovered_words_draw_the_underline_at_its_top(data) {
+            const screen = Qt.application.screens[data.scale - 1];
+            const window = scaledWindow.createObject(null, { screen: screen, x: screen.virtualX + 10, y: screen.virtualY + 10 });
+            window.visible = true;
+            const item = textComponent.createObject(window.contentItem, { x: 8, y: 8, color: "white", maximumLineCount: 1 });
+            item.font = Qt.font({ family: Theme.text.body.family, pixelSize: 13 });
+            item.segments = [{ markup: "gypqj gypqj" }];
+            item.underlined = "gypqj gypqj";
+            const text = drawn(item);
+            const ratio = text.Screen.devicePixelRatio;
+            const words = Qt.createQmlObject("import QtQuick\nTextMetrics {}", window.contentItem);
+            words.font = item.font;
+            words.text = "gypqj";
+            const wordEnd = words.advanceWidth;
+            words.text = "gypqj ";
+            const spaceEnd = words.advanceWidth;
+            const baseline = Math.floor((item.y + text.baselineOffset) * ratio);
+            const below = Math.ceil((item.y + item.height + 8) * ratio);
+            const glyphs = [Math.floor(item.x * ratio), Math.floor((item.x + wordEnd) * ratio)];
+            const space = [Math.ceil((item.x + wordEnd) * ratio), Math.floor((item.x + spaceEnd) * ratio)];
+            verify(space[1] > space[0], "the space between the words holds a column");
+            tryVerify(() => underlines(item).length === 1, 1000, "the words have their run");
+            const rest = grabImage(window.contentItem);
+            const descender = inkRows(rest, glyphs, baseline, below).pop();
+            const restLine = inkRows(rest, space, baseline, below);
+            item.hovered = true;
+            const hovered = inkRows(grabImage(window.contentItem), space, baseline, below);
+            const top = (underlines(item)[0].mapToItem(window.contentItem, 0, 0).y - item.y - text.baselineOffset) * ratio;
+            window.destroy();
+            compare(ratio, data.scale, "the window draws at its screen's scale");
+            verify(descender > baseline, "the descenders ink under the baseline");
+            compare(restLine, [], "no underline at rest");
+            verify(hovered.length > 0, "the hover draws the underline");
+            compare(top, root.underlineTop[data.scale], "the underline's top in device pixels under the baseline");
+            verify(hovered[0] - descender - 1 >= 1, "one clear device row between the descenders and the underline: " + (hovered[0] - descender - 1));
         }
 
         function test_text_without_the_words_or_with_an_image_draws_no_underline() {

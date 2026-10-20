@@ -56,6 +56,20 @@ fixed geometry is what a placement row measures:
                      unqualified one beside an IconButton.qml other than
                      shell/Ui/controls/IconButton.qml, such as a plugin's own,
                      is that file's type and is not judged
+  link-underline     a link's own underline: a `font.underline` binding,
+                     `underline` in a `Qt.font` call, a `<u>` tag or a CSS
+                     `text-decoration: underline` in a string. Qt draws each
+                     at rest and at the font's underline position, which a
+                     descender meets; a link's underline draws on hover
+                     alone, one clear row under the descenders, through
+                     LinkText, RowAction, ImageText's `underlined` or
+                     TextUnderline (docs/architecture/design-system.md
+                     § Copy). A `font` group spread over lines is not
+                     read; review holds it
+  link-unshared      a text link drawn by Qt's own anchor: an `<a href`
+                     tag in a string, or an `onLinkActivated` or
+                     `onLinkHovered` handler, which such an anchor needs;
+                     a link is a LinkText or a RowAction
 A value that is more than one literal, such as `2 * inset`, is layout and
 passes. Comments are blanked and strings kept, through scripts/qml_source.py.
 Appearance rules, on a plugin whose manifest declares `appearance` (each
@@ -198,6 +212,9 @@ IS_NUMBER = re.compile(r"^" + NUMBER + r"$")
 STANDARD_GROUP = re.compile(r"(?<![\w.])standard\s*:\s*Theme\.([A-Za-z_]\w*)\b(?!\s*\.)")
 GROUP_BACKGROUND = re.compile(r"(?<![\w.$])Theme\.([A-Za-z_]\w*)\.background\b")
 IS_PROPERTY_PATH = re.compile(r"^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*$")
+# A link's own underline, and a link Qt's anchor draws, on one code line.
+OWN_UNDERLINE = re.compile(r"(?<![\w.])font\s*\.\s*underline\s*:|\bQt\.font\s*\([^)]*\bunderline\s*:|<u[\s>]|text-decoration\s*:\s*underline", re.IGNORECASE)
+QT_ANCHOR = re.compile(r"<a\s[^>]*href|(?<![\w.])onLink(?:Activated|Hovered)\s*:")
 IS_LITERAL = re.compile(r"^(?:" + LITERAL + r")$")
 QUOTED = re.compile(r"^[\"']([^\"']*)[\"']$")
 
@@ -237,6 +254,10 @@ def literal_findings(line, tokens=("Theme.",)):
     for m in DURATION_ASSIGNMENT.finditer(line):
         if IS_NUMBER.match(m.group(2).strip()):
             out.append(("literal-duration", m.group(1) + ": " + m.group(2).strip()))
+    for m in OWN_UNDERLINE.finditer(line):
+        out.append(("link-underline", m.group(0)))
+    for m in QT_ANCHOR.finditer(line):
+        out.append(("link-unshared", m.group(0)))
     return out
 
 

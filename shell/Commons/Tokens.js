@@ -1089,10 +1089,10 @@ var TOKENS = {
         caret: color("{color.textMuted}")
     },
 
-    // The action of a key/value row (RowAction): its text drawn as a link
-    // over an underline `underline` thick at rest and `underlineHover` on
-    // hover, at least `underlineGap` under the text's baseline and one clear
-    // row under its descenders (Label.underlineOffset). Each tone holds the
+    // The action of a key/value row (RowAction): its text drawn as a link,
+    // over an underline `underline` thick on hover and none at rest, at
+    // least `underlineGap` under the text's baseline and one clear row under
+    // its descenders (Inset.underlineTop). Each tone holds the
     // text and underline colour at rest, on hover and pressed. Actions side
     // by side in one row (RowActions) stand `gap` apart, one step of the
     // space scale above `stack.inline`, so each reads as its own link. A
@@ -1100,7 +1100,6 @@ var TOKENS = {
     // text, so it reads apart from an accent action by more than colour.
     rowAction: {
         underline: length("{border.thin}"),
-        underlineHover: length("{border.thick}"),
         underlineGap: length("{space.xxs}"),
         gap: length("{space.lg}"),
         icon: length("{icon.size.sm}"),
@@ -1117,12 +1116,6 @@ var TOKENS = {
                 pressed: color("mix({color.danger}, {palette.background}, 0.18)")
             }
         }
-    },
-
-    // A link inside a text (LinkText): what its underline, the font's own
-    // line width at rest, gains while the pointer is on the link's words.
-    linkText: {
-        underlineHover: length("{border.thin}")
     },
 
     bar: {

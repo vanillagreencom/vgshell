@@ -102,6 +102,13 @@ Item {
                         { markup: " and a text too long for its lines ends at a whole word or image." }
                     ]
                 }
+                // A word that acts, as the pointer finds it.
+                Label {
+                    id: hoveredWord
+                    role: "itemHint"
+                    text: "Show all under the pointer"
+                    TextUnderline { label: hoveredWord; visible: true }
+                }
 
                 }
                 Section {

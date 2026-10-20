@@ -119,7 +119,8 @@
 # the plugin list's required-step badge, an optional-tool icon's tooltip
 # where the captured revision declares that icon, a page with no
 # Setup tab, and the status fixture's Setup tab with its required Token
-# step incomplete and complete. setup-states.tsv records each fixture
+# step incomplete, also with the pointer on its Set up token link, and
+# complete. setup-states.tsv records each fixture
 # state and the tab's warning reading. It is taken only when named;
 # updates is the Updates
 # page with every tool it requires found or stood in and no Setup tab: its
@@ -152,7 +153,9 @@
 # only when named;
 # googledrive is Google Drive's bar widget, its tooltip, its popover with its
 # notes folded and unfolded and every
-# screen of its page's Settings, Setup and Details tabs in each state the plugin's runner reaches
+# screen of its page's Settings, Setup and Details tabs in each state the plugin's runner reaches,
+# and, with keys stored, the Setup tab with the pointer on its guide link
+# and on its Replace link
 # over a local rclone remote and a keyring stand-in, from first run to a
 # damaged folder pair list and a home in the layout of the plugin's name
 # before the rename, which the plugin moves at its start, each shot once the
@@ -899,6 +902,13 @@ hover_text() {
 }
 park_pointer() {
   hover "$((mon_w - 2))" "$((mon_h - 2))" || fail "parking the pointer failed"
+}
+# link_hover_shot NAME TEXT: the Settings window with the pointer on the
+# RowAction link TEXT of the shown page, read hovered, for a link's hover
+# look beside the page's rest shot.
+link_hover_shot() {
+  hover_on "the pointer rests on the $2 link" "$settings_kind" vgs.settings RowAction "$2" "$settings_surface" && take_posed "$1"
+  park_pointer
 }
 # narrow_begin: the nested output holds a mode 480 by 720 logical pixels at
 # the run's scale, and the pointer helpers take that size, until
@@ -2137,6 +2147,7 @@ scene_setup-tab() { # MODE
     park_pointer
     take "setup-tab-$1-fixture-$state"
     printf '%s\t%s\t%s\t%s\t%s\n' "setup-tab-$1-fixture-$state" "$1" "$capture_source" "$state" "$warning" >>"$SHOT_DIR/setup-states.tsv"
+    [[ $state != incomplete ]] || link_hover_shot "setup-tab-$1-fixture-$state-hover" "Set up token"
   done
   settings_close
 }
@@ -7364,7 +7375,7 @@ cs_popover() {
 # every screen of the Google Drive page's Settings, Setup and Details
 # tabs, each image named for its tab.
 cs_shots() {
-  local m="$1" s="$2" want="$3" fields=(cause) hidden box name f tab
+  local m="$1" s="$2" want="$3" fields=(cause) hidden box name f tab at
   if [[ $# -gt 3 ]]; then want+=" $4"; fields+=(kind); fi
   expect "Google Drive reads its record again ($s)" ok ipc vgs.google-drive invoke refresh ""
   expect_poll "Google Drive's code reads the published values as $s" "$want" cs_code "${fields[@]}"
@@ -7386,6 +7397,14 @@ cs_shots() {
   for tab in settings setup details; do
     plugin_page_shots "$m" vgs.google-drive "googledrive-$m-$s-page-$tab" "$tab"
   done
+  # With keys stored, the Setup tab's guide and key links, each under the
+  # pointer; its page-setup shot is their rest.
+  if [[ $s == 3-no-pair ]]; then
+    settings_setup
+    at="$(ipc smoke scrollTo "$settings_kind" vgs.settings 0)" && [[ $at == "["* ]] || fail "the Google Drive Setup tab did not scroll to its top: ${at:-no reply}"
+    link_hover_shot "googledrive-$m-$s-page-setup-hover-guide" "Open the step-by-step guide"
+    link_hover_shot "googledrive-$m-$s-page-setup-hover-replace" Replace
+  fi
   box="$(one_window Plugins)"
   for f in "$SHOT_DIR/googledrive-$m-$s-page"*.png; do
     name="${f##*/}"

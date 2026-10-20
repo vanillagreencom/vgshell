@@ -5,8 +5,11 @@ import qs.Ui
 import qs.Unit
 
 // RowAction: its text in the body role on the control's own edge, with no
-// fill and no box, over an underline at rest; hover, press, focus and
-// disabled each drawn apart from rest from their own tokens; Space, Return
+// fill, no box and no underline at rest; hover draws its underline, read
+// from the drawn pixels at 1x and 2x with its top a set number of clear
+// rows under the descenders, and keyboard focus its ring alone; hover,
+// press, focus and disabled each drawn apart from rest from their own
+// tokens; Space, Return
 // and Enter activate it; the danger tone draws its own colour, an unknown
 // tone is logged and drawn as accent; a narrow action elides its text; a
 // danger action leads with its trash mark in every theme, centred on the
@@ -72,6 +75,17 @@ Item {
     SignalSpy { id: lockedClicks; target: locked; signalName: "clicked" }
     FontMetrics { id: body; font: action.contentItem.children[1].font }
 
+    // How far the underline's top lies under the baseline, in device
+    // pixels, by scale: as close as one clear device row under the
+    // descenders allows, 2 device px closer than before at 2x and where it
+    // was at 1x (Jarvis decision 1792451829-3591639-28142).
+    readonly property var underlineTop: ({ 1: 5, 2: 8 })
+
+    Component {
+        id: scaledWindow
+        Window { width: 640; height: 120; color: "black" }
+    }
+
     TestCase {
         name: "rowaction"
         when: windowShown
@@ -99,6 +113,75 @@ Item {
         function reasonTip(control) { return control.lock.children.map(child => child.item).find(item => item && item.objectName === "disabledReasonTip") || null; }
         function markTip(control) { return control.children.map(child => child.item).find(item => item && item.objectName === "removesItemTip") || null; }
 
+        // The device rows from `from` to `to` that hold ink in the columns
+        // [columns[0], columns[1]) of a grab on black.
+        function inkRows(img, columns, from, to) {
+            const rows = [];
+            for (let row = from; row < Math.min(to, img.height); row++) {
+                for (let col = columns[0]; col < columns[1]; col++) {
+                    const c = img.pixel(col, row);
+                    if (Math.max(c.r, c.g, c.b) > 0.02) {
+                        rows.push(row);
+                        break;
+                    }
+                }
+            }
+            return rows;
+        }
+
+        // The drawn underline, read from the window's device pixels: none
+        // at rest, none under keyboard focus, which draws the ring alone,
+        // and on hover `underlineTop` under the baseline, a clear row under
+        // the lowest descender ink of "gypqj".
+        function test_hover_draws_the_underline_at_its_top_data() {
+            return [{ tag: "1x", scale: 1 }, { tag: "2x", scale: 2 }];
+        }
+
+        function test_hover_draws_the_underline_at_its_top(data) {
+            const screen = Qt.application.screens[data.scale - 1];
+            const window = scaledWindow.createObject(null, { screen: screen, x: screen.virtualX + 10, y: screen.virtualY + 10 });
+            window.visible = true;
+            const item = Qt.createQmlObject("import qs.Ui\nRowAction { x: 8; y: 8; text: \"gypqj gypqj\" }", window.contentItem);
+            const text = label(item);
+            const ratio = text.Screen.devicePixelRatio;
+            const words = Qt.createQmlObject("import QtQuick\nTextMetrics {}", window.contentItem);
+            words.font = text.font;
+            words.text = "gypqj";
+            const wordEnd = words.advanceWidth;
+            words.text = "gypqj ";
+            const spaceEnd = words.advanceWidth;
+            const origin = text.mapToItem(window.contentItem, 0, 0);
+            const baseline = Math.floor((origin.y + text.baselineOffset) * ratio);
+            // The box's bottom, which holds the underline; the ring stands outside it.
+            const below = Math.ceil((item.y + item.height) * ratio);
+            const glyphs = [Math.floor(origin.x * ratio), Math.floor((origin.x + wordEnd) * ratio)];
+            const space = [Math.ceil((origin.x + wordEnd) * ratio), Math.floor((origin.x + spaceEnd) * ratio)];
+            verify(space[1] > space[0], "the space between the words holds a column");
+            const rest = grabImage(window.contentItem);
+            const descender = inkRows(rest, glyphs, baseline, below).pop();
+            const restLine = inkRows(rest, space, baseline, below);
+            window.requestActivate();
+            tryCompare(window, "active", true);
+            item.forceActiveFocus(Qt.TabFocusReason);
+            tryCompare(ring(item), "visible", true);
+            // The ring's bottom edge lies under the box.
+            const focusLine = inkRows(grabImage(window.contentItem), space, baseline, below);
+            item.focus = false;
+            mouseMove(item, item.width / 2, item.height / 2);
+            tryCompare(item, "hovered", true);
+            const hovered = inkRows(grabImage(window.contentItem), space, baseline, below);
+            const top = (underline(item).mapToItem(window.contentItem, 0, 0).y - origin.y - text.baselineOffset) * ratio;
+            mouseMove(item, item.width + 40, item.height + 40);
+            window.destroy();
+            compare(ratio, data.scale, "the window draws at its screen's scale");
+            verify(descender > baseline, "the descenders ink under the baseline");
+            compare(restLine, [], "no underline at rest");
+            compare(focusLine, [], "no underline under keyboard focus");
+            verify(hovered.length > 0, "the hover draws the underline");
+            compare(top, root.underlineTop[data.scale], "the underline's top in device pixels under the baseline");
+            verify(hovered[0] - descender - 1 >= 1, "one clear device row between the descenders and the underline: " + (hovered[0] - descender - 1));
+        }
+
         // The opacity an item draws at: its own times every ancestor's.
         function drawnOpacity(item) {
             let out = 1;
@@ -106,17 +189,16 @@ Item {
             return out;
         }
 
-        function test_rest_is_body_text_on_the_edge_over_an_underline() {
+        function test_rest_is_body_text_on_the_edge_with_no_underline() {
             compare(label(action).role, "body");
             compare(label(action).text, action.text);
             compare(colour(label(action).color), colour(Theme.rowAction.tone.accent.foreground));
             compare(action.leftPadding, 0);
             compare(label(action).mapToItem(action, 0, 0).x, 0, "the text starts on the control's edge");
             compare(action.implicitWidth, label(action).implicitWidth);
-            compare(underline(action).visible, true);
+            compare(underline(action).visible, false, "no underline at rest");
             compare(underline(action).width, label(action).width);
             compare(underline(action).height, Theme.rowAction.underline);
-            verify(underline(action).height > 0, "the underline shows at rest");
             // The "p" of "up" reaches under the baseline: the underline
             // starts a clear row under the font's descent.
             verify(underline(action).y >= label(action).y + label(action).baselineOffset + body.descent + 1,
@@ -146,7 +228,7 @@ Item {
             tryVerify(() => label(action).y >= 4, 1000, "the text moves down to balance the underline: y=" + label(action).y);
             compare(underline(action).y, label(action).y + label(action).baselineOffset + 12, "the token sets the underline lower");
             fuzzyCompare(label(action).y + label(action).capCentre, action.height / 2, 0.01);
-            verify(underline(action).y + Theme.rowAction.underlineHover <= action.height, "the hover underline stays inside the box");
+            verify(underline(action).y + Theme.rowAction.underline <= action.height, "the hover underline stays inside the box");
         }
 
         function test_it_draws_no_fill_and_no_box() {
@@ -156,16 +238,17 @@ Item {
             compare(ring(action).visible, false);
         }
 
-        function test_hover_moves_the_colour_and_thickens_the_underline() {
+        function test_hover_moves_the_colour_and_draws_the_underline() {
             verify(colour(Theme.rowAction.tone.accent.hover) !== colour(Theme.rowAction.tone.accent.foreground), "hover differs from rest");
-            verify(Theme.rowAction.underlineHover > Theme.rowAction.underline, "the hover underline is thicker");
+            compare(underline(action).visible, false);
             mouseMove(action, action.width / 2, action.height / 2);
             tryCompare(action, "hovered", true);
             compare(colour(label(action).color), colour(Theme.rowAction.tone.accent.hover));
-            compare(underline(action).height, Theme.rowAction.underlineHover);
+            compare(underline(action).visible, true, "the hover draws the underline");
+            compare(underline(action).height, Theme.rowAction.underline);
             mouseMove(root, 0, root.height - 1);
             tryCompare(action, "hovered", false);
-            compare(underline(action).height, Theme.rowAction.underline);
+            compare(underline(action).visible, false, "the underline goes on exit");
         }
 
         function test_press_draws_its_own_colour() {
@@ -276,8 +359,12 @@ Item {
             compare(label(signOut).visible, true);
             compare(label(signOut).text, "Sign out");
             compare(label(signOut).x, mark(signOut).width + Theme.rowAction.iconGap);
-            compare(underline(signOut).visible, true);
             compare(colour(mark(signOut).color), colour(Theme.rowAction.tone.danger.foreground));
+            mouseMove(signOut, signOut.width / 2, signOut.height / 2);
+            tryCompare(signOut, "hovered", true);
+            compare(underline(signOut).visible, true, "a marked action underlines its text on hover");
+            mouseMove(root, 0, root.height - 1);
+            tryCompare(signOut, "hovered", false);
         }
 
         // The mark alone: the trash mark in the danger colour with no text
@@ -288,7 +375,11 @@ Item {
             compare(mark(alone).visible, true);
             compare(mark(alone).name, "trash");
             compare(label(alone).visible, false, "the text does not draw");
-            compare(underline(alone).visible, false, "the underline does not draw");
+            mouseMove(alone, alone.width / 2, alone.height / 2);
+            tryCompare(alone, "hovered", true);
+            compare(underline(alone).visible, false, "the underline does not draw, even on hover");
+            mouseMove(root, 0, root.height - 1);
+            tryCompare(alone, "hovered", false);
             compare(colour(mark(alone).color), colour(Theme.rowAction.tone.danger.foreground));
             compare(alone.height, danger.height, "as tall as a text action's box");
             compare(alone.width, alone.height, "as wide as it is tall");
@@ -395,7 +486,7 @@ Item {
             fuzzyCompare(three.y + three.height / 2, 1.5 * Theme.row.height + Theme.stack.row, 0.5, "the second line's action leaves its centre");
             compare(lines.inkAbove(), one.y + one.inkAbove());
             compare(lines.inkBelow(), lines.height - (three.y + three.height) + three.inkBelow());
-            verify(three.inkBelow() >= Theme.rowAction.underlineHover - Theme.rowAction.underline, "the resting underline ends above the box that holds the hover one");
+            verify(three.inkBelow() > three.height - (three.contentItem.y + underline(three).y + underline(three).height), "the ink at rest ends above the underline, which draws on hover alone");
         }
 
         function test_given_the_room_wrapped_actions_return_to_one_line() {
@@ -452,7 +543,7 @@ Item {
             tryCompare(tip, "opened", true);
             compare(tip.text, root.reason);
             compare(locked.hovered, false, "a locked action draws no hover");
-            compare(underline(locked).height, Theme.rowAction.underline);
+            compare(underline(locked).visible, false, "a locked action draws no underline");
             compare(colour(label(locked).color), colour(Theme.rowAction.tone.accent.foreground));
             mouseMove(root, 0, root.height - 1);
             tryCompare(tip, "opened", false);

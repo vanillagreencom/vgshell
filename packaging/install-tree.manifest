@@ -254,6 +254,7 @@ f share/vgshell/shell/Ui/feedback/Spinner.qml
 f share/vgshell/shell/Ui/feedback/VoiceOrb.qml
 f share/vgshell/shell/Ui/feedback/shaders/voiceorb.frag
 f share/vgshell/shell/Ui/feedback/shaders/voiceorb.frag.qsb
+f share/vgshell/shell/Ui/foundation/DescenderInk.qml
 f share/vgshell/shell/Ui/foundation/Divider.qml
 f share/vgshell/shell/Ui/foundation/FocusRing.qml
 f share/vgshell/shell/Ui/foundation/GlassSurface.qml
@@ -269,6 +270,7 @@ f share/vgshell/shell/Ui/foundation/PointerCursor.qml
 f share/vgshell/shell/Ui/foundation/QrMatrix.qml
 f share/vgshell/shell/Ui/foundation/Scrim.qml
 f share/vgshell/shell/Ui/foundation/Surface.qml
+f share/vgshell/shell/Ui/foundation/TextUnderline.qml
 f share/vgshell/shell/Ui/icons/LICENSE
 f share/vgshell/shell/Ui/icons/Lucide.js
 f share/vgshell/shell/Ui/layout/AngledCard.qml

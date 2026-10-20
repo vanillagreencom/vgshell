@@ -11,6 +11,7 @@ PointerCursor 1.0 foundation/PointerCursor.qml
 KeyNav 1.0 foundation/KeyNav.qml
 KeyNavLogic 1.0 foundation/KeyNavLogic.js
 ImageText 1.0 foundation/ImageText.qml
+TextUnderline 1.0 foundation/TextUnderline.qml
 QrMatrix 1.0 foundation/QrMatrix.qml
 Button 1.0 controls/Button.qml
 IconButton 1.0 controls/IconButton.qml
@@ -92,4 +93,5 @@ internal AvatarFace feedback/AvatarFace.qml
 internal LevelLabel feedback/LevelLabel.qml
 singleton OverlayState 1.0 overlay/OverlayState.qml
 singleton ImagePool 1.0 foundation/ImagePool.qml
+singleton DescenderInk 1.0 foundation/DescenderInk.qml
 ModalDialog 1.0 overlay/ModalDialog.qml

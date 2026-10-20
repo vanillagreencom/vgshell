@@ -9,16 +9,16 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // fill, no box and no side padding, so the text starts on the
 // control's own edge and a row puts it on its value column. `tone` names a
 // group of `Theme.rowAction.tone`, `accent` or `danger`; an unknown name is
-// logged and drawn as `accent`. The text carries an underline at rest, so
-// it reads as an action and not a title, at least `rowAction.underlineGap`
-// and the label's `underlineOffset` under its baseline, so one clear row
-// stands under its descenders; on hover the text takes the tone's hover
-// colour and the underline grows from `rowAction.underline` to
-// `rowAction.underlineHover`, and pressed it takes the tone's pressed
-// colour. A disabled action fades once on the whole control. The focus
+// logged and drawn as `accent`. The text draws no underline at rest; on
+// hover it takes the tone's hover colour over an underline
+// `rowAction.underline` thick, at least `rowAction.underlineGap` under its
+// baseline and one clear device row under its descenders
+// (Inset.underlineTop), and pressed it takes the tone's pressed
+// colour. Keyboard focus draws the ring and no underline. A disabled
+// action fades once on the whole control. The focus
 // ring draws outside the text, since a ring on its edge would run through
 // the glyphs, `focusRing.offset` clear of its highest ink and of the box's
-// bottom, which holds the hover underline, and of its sides. The template
+// bottom, which holds the underline, and of its sides. The template
 // supplies press, hover, focus and Space activation; Return and Enter
 // activate it as they do a Button. Given less width than its text, the
 // text elides.
@@ -54,12 +54,12 @@ import "../foundation/KeyNavLogic.js" as KeyNavLogic
 // `disabledReason` shows in the tooltip's place.
 // The control's box is centred on the text's capital centre, so a row that
 // centres it beside a chip sets the text level with the chip's; the box
-// holds the thicker hover underline, so a hover moves nothing.
+// holds the underline, so a hover moves nothing.
 // `inkAbove()` is where its text's ink, or the danger mark, starts below
-// that box's top, and `inkBelow()` how far above the box's bottom the
-// resting underline ends, or the mark where it ends lower or draws alone,
-// so a heading
-// under the action stands `stack.heading` under what it draws at rest.
+// that box's top, and `inkBelow()` how far above the box's bottom its
+// text's ink ends, or the mark's where it ends lower or draws alone, so a
+// heading under the action stands `stack.heading` under what it draws at
+// rest, and the hover underline draws in that space and moves nothing.
 T.Button {
     id: root
 
@@ -92,9 +92,9 @@ T.Button {
     }
 
     function inkBelow() {
-        const foot = underline.y + Theme.rowAction.underline;
+        const foot = label.y + label.height - label.inkBelow();
         const markFoot = mark.y + mark.height - Theme.inkBelow(mark);
-        const lowest = !mark.visible ? foot : underline.visible ? Math.max(markFoot, foot) : markFoot;
+        const lowest = !mark.visible ? foot : label.visible ? Math.max(markFoot, foot) : markFoot;
         return height - contentItem.y - lowest;
     }
 
@@ -111,10 +111,10 @@ T.Button {
 
     contentItem: Item {
         // How far under the baseline the underline starts.
-        readonly property real drop: Math.max(Theme.rowAction.underlineGap, label.underlineOffset)
+        readonly property real drop: Math.max(Theme.rowAction.underlineGap, Inset.underlineTop(DescenderInk.depth(label.font), Screen.devicePixelRatio))
         // Half the box: from the capital centre up to the label's top, or
-        // down to the hover underline's foot, whichever is further.
-        readonly property real half: Math.max(label.capCentre, label.baselineOffset + drop + Theme.rowAction.underlineHover - label.capCentre)
+        // down to the underline's foot, whichever is further.
+        readonly property real half: Math.max(label.capCentre, label.baselineOffset + drop + Theme.rowAction.underline - label.capCentre)
         // Alone, the mark takes a square as tall as the text's box.
         implicitWidth: root.removesItem ? implicitHeight : label.x + label.implicitWidth
         implicitHeight: 2 * half
@@ -144,11 +144,11 @@ T.Button {
         }
         Rectangle {
             id: underline
-            visible: label.visible
+            visible: label.visible && root.hovered
             x: label.x
             y: label.y + label.baselineOffset + parent.drop
             width: label.width
-            height: root.hovered ? Theme.rowAction.underlineHover : Theme.rowAction.underline
+            height: Theme.rowAction.underline
             color: root.foreground
         }
     }

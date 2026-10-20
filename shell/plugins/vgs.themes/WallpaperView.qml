@@ -422,7 +422,8 @@ FocusScope {
                                     color: chosen ? Theme.carousel.hintActive : Theme.carousel.hint
                                     font.weight: weight
                                     font.variableAxes: ({ wght: weight })
-                                    font.underline: scopeWord.containsMouse && !chosen
+
+                                    TextUnderline { label: scopeText; visible: scopeWord.containsMouse && !scopeText.chosen }
                                 }
                             }
                         }
@@ -564,7 +565,8 @@ FocusScope {
                                     role: "itemHint"
                                     text: BrowserLogic.WALLPAPER_SOURCES[root.sourceIndex].switchLabel
                                     color: sourceLine.containsMouse ? Theme.carousel.hintActive : Theme.carousel.hint
-                                    font.underline: sourceLine.containsMouse
+
+                                    TextUnderline { label: sourceText; visible: sourceLine.containsMouse }
                                 }
                             }
                         }

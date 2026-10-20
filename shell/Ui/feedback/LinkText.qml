@@ -9,8 +9,7 @@ import qs.Ui
 // measure whether the message stayed on one line, `inkAbove()` is the
 // label's (Label.qml), and `inkBelow()` is the
 // label's over the last line's text, which the plain twin
-// lays out at the same width, or the link's underline where an
-// occurrence reaches that line and the underline ends lower. Use it where a consumer
+// lays out at the same width. Use it where a consumer
 // surface cites a file that the core can open through `vgshell edit`.
 // A page reference in the text, `[words](page:<plugin id>)` or
 // `[words](page:<plugin id>/<tab>)`, or a file reference,
@@ -36,14 +35,15 @@ import qs.Ui
 // `focusPreview` draws that ring for an owner that keeps the keyboard and
 // names this link as its current one, as a tooltip's item does.
 // Every occurrence is drawn in `linkColor`, the accent unless the look
-// that hosts the text hands its own, over its own underline, the
-// label's `underlineOffset` under each line's baseline, since Qt Quick
-// draws a link's or `<u>`'s underline at the font's underline position,
-// which a descender meets (Qt 6.11 qquickstyledtext.cpp,
-// parseAnchorAttributes; qquicktextnodeengine.cpp, addTextDecorations).
-// The pointer reaches the words on those underlined runs, and while it
-// is on them the hovered link grows `linkText.underlineHover` thicker, downward,
-// so the row under the descenders stays clear.
+// that hosts the text hands its own. The occurrence under the pointer
+// draws its own underline, the font's line width thick,
+// `underlineOffset` under each line's baseline, and no occurrence draws
+// one at rest; keyboard focus draws the ring alone. Qt Quick draws a
+// link's or `<u>`'s underline at the font's underline position, which a
+// descender meets (Qt 6.11 qquickstyledtext.cpp, parseAnchorAttributes;
+// qquicktextnodeengine.cpp, addTextDecorations). `inkBelow()` reads the
+// words alone, so a hover underline draws in the space under them and
+// moves nothing; the ring's box holds the underline's room.
 T.Control {
     id: root
 
@@ -87,11 +87,14 @@ T.Control {
     readonly property rect linkBox: linked && twin.length === drawn.length && run[1] > run[0] && run[1] <= drawn.length ? wordsBox(twin.contentWidth, twin.contentHeight, twin.lineCount) : Qt.rect(0, 0, width, height)
     readonly property real ringBelow: linkBox.y + linkBox.height + Theme.focusRing.offset + Theme.focusRing.width - height
     // Each occurrence's span on each line it is laid out on, as
-    // { line, left, right, index }, under the same wait for the twin.
+    // { line, left, right, index }, under the same wait for the twin: where
+    // the pointer reaches the words and where a hovered one is underlined.
     readonly property var underlined: linked && twin.length === drawn.length ? wordSpans(twin.contentWidth, twin.contentHeight, twin.lineCount) : []
     // The label's distance from one line's baseline to the next.
     readonly property real linePitch: label.contentHeight / Math.max(1, label.lineCount)
     readonly property real underlineThickness: Inset.underlineWidth(underline.lineWidth)
+    // How far under each line's baseline the underline starts.
+    readonly property real underlineOffset: Inset.underlineTop(DescenderInk.depth(label.font), Screen.devicePixelRatio)
     signal activated()
     signal pageActivated(string page, string tab)
     signal clicked()
@@ -164,7 +167,7 @@ T.Control {
 
     // Where the underline of line `line` ends, from the label's top.
     function underlineBottom(line) {
-        return label.baselineOffset + line * linePitch + label.underlineOffset + underlineThickness;
+        return label.baselineOffset + line * linePitch + underlineOffset + underlineThickness;
     }
 
     // Text reports no character position, so a TextEdit twin laid out in
@@ -228,13 +231,11 @@ T.Control {
 
     function inkAbove() { return label.y + label.inkAbove(); }
 
-    // Every occurrence is underlined, so the underline reaches the last
-    // line when the last occurrence ends past that line's start.
+    // The words alone: an underline draws only on hover, in the space
+    // under them.
     function inkBelow() {
         const lastStart = twin.length === drawn.length ? twin.positionAt(0, twin.contentHeight - 1) : -1;
-        const glyphs = label.inkBelow(lastStart < 0 ? undefined : drawn.slice(lastStart));
-        const lastUnderlined = linked && lastStart >= 0 && layout.links.some(item => item.end > lastStart);
-        return height - label.y - label.height + (lastUnderlined ? Math.min(glyphs, label.height - underlineBottom(label.lineCount - 1)) : glyphs);
+        return height - label.y - label.height + label.inkBelow(lastStart < 0 ? undefined : drawn.slice(lastStart));
     }
 
     implicitWidth: label.implicitWidth
@@ -275,9 +276,10 @@ T.Control {
         Rectangle {
             required property var modelData
             x: modelData.left
-            y: label.baselineOffset + modelData.line * root.linePitch + label.underlineOffset
+            y: label.baselineOffset + modelData.line * root.linePitch + root.underlineOffset
             width: modelData.right - modelData.left
-            height: root.underlineThickness + ((root.cited ? root.hoveredLink : root.hoveredIndex === modelData.index) ? Theme.linkText.underlineHover : 0)
+            height: root.underlineThickness
+            visible: root.cited ? root.hoveredLink : root.hoveredIndex === modelData.index
             color: root.linkColor
         }
     }

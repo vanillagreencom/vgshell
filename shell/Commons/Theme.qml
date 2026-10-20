@@ -115,7 +115,6 @@ Singleton {
     readonly property var scrollArea: published.scrollArea
     readonly property var titleButton: published.titleButton
     readonly property var rowAction: published.rowAction
-    readonly property var linkText: published.linkText
     readonly property var popover: published.popover
     readonly property var tooltip: published.tooltip
     readonly property var menu: published.menu

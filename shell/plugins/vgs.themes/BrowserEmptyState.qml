@@ -57,7 +57,8 @@ BrowserSlot {
                 role: "itemHint"
                 text: root.actionText
                 color: action.containsMouse ? Theme.carousel.hintActive : Theme.carousel.hint
-                font.underline: action.containsMouse
+
+                TextUnderline { label: actionLabel; visible: action.containsMouse }
             }
         }
     }

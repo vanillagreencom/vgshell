@@ -300,12 +300,10 @@ const DEFAULTS = [
     ["titleButton.underline", 1],
     ["titleButton.underlineGap", 2],
     ["titleButton.hover", "#ff5a36ff"],
-    // A row's action: the accent's text over a 1 px underline, 2 px on
-    // hover, 2 px under the baseline.
+    // A row's action: the accent's text over a 1 px underline on hover,
+    // 2 px under the baseline.
     ["rowAction.underline", 1],
-    ["rowAction.underlineHover", 2],
     ["rowAction.underlineGap", 2],
-    ["linkText.underlineHover", 1],
     ["rowAction.tone.accent.foreground", "#ff5a36ff"],
     // Side-by-side actions one space step, space.lg = 12, apart; the
     // danger mark 14 px, 4 px before its text.
@@ -2127,7 +2125,7 @@ try {
 // check must name it.
 const GRID_EXCEPTIONS = [
     [/^(font\.size|text\.[^.]+\.size|bar\.stacked\.size)$/, "type sizes"],
-    [/(^border\.|\.border$|[bB]orderWidth$|^divider\.thickness$|^focusRing\.width$|^titleButton\.underline$|^rowAction\.underline(Hover)?$|^linkText\.underlineHover$|^tabs\.(indicator|hoverIndicator)$|^segmented\.indicator$|^avatarGroup\.ringWidth$|^hyprland\.border\.size$)/, "strokes"],
+    [/(^border\.|\.border$|[bB]orderWidth$|^divider\.thickness$|^focusRing\.width$|^titleButton\.underline$|^rowAction\.underline$|^tabs\.(indicator|hoverIndicator)$|^segmented\.indicator$|^avatarGroup\.ringWidth$|^hyprland\.border\.size$)/, "strokes"],
     [/^(icon\.size\.|button\.size\.[^.]+\.icon$|rowAction\.icon$|bar\.stacked\.icon$|menu\.item\.icon$|slider\.handle$|radio\.dot$)/, "indicator and icon drawing sizes"],
     [/^(space\.xxs|segmented\.padding|segmented\.gap|toggle\.inset|focusRing\.offset|scrollArea\.barInset|titleButton\.underlineGap|rowAction\.underlineGap|carousel\.sliceName\.shadowOffset)$/, "2 px steps inside one component"],
     [/^textField\.paddingX$/, "optical insets inside one component"],
