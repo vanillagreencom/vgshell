@@ -219,16 +219,18 @@ Item {
     // The core probes the step once for all holders. Publish nothing until
     // that reading arrives, so Setup keeps its standard Checking state. A
     // state the user cannot act on here reads Not available, its hint
-    // saying why (PluginLogic.statusDeclarationFits).
+    // saying why and what changes that (PluginLogic.statusDeclarationFits).
+    // Power's pane draws the same hint beside its own Allow, which raises
+    // the hdparm install, so no hint names a Settings step.
     function diskSleepValue(install) {
         switch (diskSleepStep.state) {
         case "absent": return { hidden: true };
         case "ready": return { tone: "ok", text: "Allowed", action: false };
-        case "needed": return install ? { tone: "warning", text: "Not allowed", action: false, available: false, hint: "Install hdparm under Optional tools first" }
+        case "needed": return install ? { tone: "warning", text: "Not allowed", action: false, available: false, hint: "Disk sleep needs hdparm installed first" }
             : { tone: "warning", text: "Not allowed", action: true };
         case "nixos": return { tone: "warning", text: "Needs your NixOS configuration", action: true };
-        case "denied": return { tone: "warning", text: "Managed elsewhere", action: false, available: false, hint: "Another disk sleep rule is already installed" };
-        case "unknown": return { tone: "warning", text: "Could not check", action: false, available: false, hint: "VGS could not read the hard disk setup" };
+        case "denied": return { tone: "warning", text: "Managed elsewhere", action: false, available: false, hint: "Another disk sleep rule is already installed. Disk sleep stays as that rule sets it until it is removed." };
+        case "unknown": return { tone: "warning", text: "Could not check", action: false, available: false, hint: "VGS could not read the hard disk setup. VGS checks again each time you open Settings." };
         }
         throw new Error("power: disk-sleep state=" + diskSleepStep.state);
     }

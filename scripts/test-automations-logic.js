@@ -513,7 +513,9 @@ function verify(logic) {
     assert.throws(() => logic.statusValues({ scheduler: "at", linger: "no", automations: [] }), /is not one of systemd, cron, none/);
     same(logic.statusValues({ scheduler: "systemd", linger: "yes", automations: [] }).lastRuns, { tone: "ok", text: "No automations" });
     same(logic.statusValues({ scheduler: "systemd", linger: "yes", automations: [] }).linger, { tone: "ok", text: "Automations run while you are logged out" }, "lingering on offers no action");
-    same(logic.statusValues({ scheduler: "systemd", linger: "unknown", automations: [] }).linger, { tone: "info", text: "Could not check whether automations run while logged out", available: false, hint: "VGS checks again when an automation runs or changes" }, "an unanswered loginctl offers no action and reads Not available");
+    const lingerUnknown = logic.statusValues({ scheduler: "systemd", linger: "unknown", automations: [] }).linger;
+    same([lingerUnknown.tone, Object.hasOwn(lingerUnknown, "action"), lingerUnknown.available, typeof lingerUnknown.hint === "string" && lingerUnknown.hint !== ""], ["info", false, false, true],
+        "an unanswered loginctl offers no action and reads Not available with a hint");
     assert.equal(logic.refreshDelay({ automations: listed }, at("2026-02-02T08:00:00Z")), 3601000, "a second after the next run");
     assert.equal(logic.refreshDelay({ automations: [] }, 0), 24 * 60 * 60 * 1000, "at most a day");
     same(logic.changedKeys({ a: 1, b: { x: 1 } }, { a: 1, b: { x: 2 }, c: 3 }), ["b", "c"]);

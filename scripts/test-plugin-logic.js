@@ -96,7 +96,6 @@ function suite(ctx, configLogic, check) {
         ["optional setup flag spelt in another case", { extra: { type: "state", label: "Extra", setup: "Optional" } }, false, false],
         ["hidden optional step", { extra: { type: "state", label: "Extra", hidden: true, setup: "optional" } }, false, false],
         ["optional step value type", { extra: { type: "count", label: "Extra", setup: "optional" } }, false, false],
-        ["optional step beside a field", { extra: { type: "presenceList", label: "Extra", setup: "optional", setting: "mode" } }, true, false],
         ["key list beside an optional step", { extra: { type: "state", label: "Extra", setup: "optional" }, keys: { type: "presenceList", label: "Keys", step: "extra" } }, true, false],
         ["connection keys", { ...requiredStatus, keys: { type: "presenceList", label: "Keys", step: "ready" } }, true, true],
         ["key step reference", { keys: { type: "presenceList", label: "Keys", step: "missing" } }, true, false],

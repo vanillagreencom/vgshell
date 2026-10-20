@@ -338,7 +338,7 @@ function verify(L) {
         ["a folder pair", good.record, presence, ["ok", null, false]],
         ["an unreadable list", invalid(), presence, ["warning", null, true]]
     ]) same(step(L.statusValues(rec, p, "", "", NOW, HOME).firstPair), want, "first pair: " + label);
-    assert.ok(L.statusValues(invalid(), null, "", "", NOW, HOME).firstPair.hint.includes("Start the folder pair list again"), "an unreadable list's step names its repair");
+    assert.ok(L.statusValues(invalid(), null, "", "", NOW, HOME).firstPair.hint.includes(JSON.parse(fs.readFileSync(MANIFEST, "utf8")).status.pairList.action.label), "an unreadable list's step names its repair, the Folder pair list step's action");
 
     // schedule: Set up again only while the units are out of date, or
     // absent beside a folder pair, whose add could not install them; with

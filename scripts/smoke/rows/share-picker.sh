@@ -169,6 +169,11 @@ expect_poll "Settings is built for the setup path" True record_exists vgs.settin
 expect "Settings opens Capture's page" ok ipc shell summon window vgs.settings '{"plugin":"vgs.capture"}'
 expect_poll "Settings shows Capture's page" '"vgs.capture"' ipc smoke readInstance window vgs.settings page
 expect_poll "Settings offers the sharing setup action" true ipc smoke readMatchingDescendant window vgs.settings RowAction text "Set up screen sharing" enabled
+# The sharing step is optional: before setup it reads Optional, in the
+# neutral tone, never the To do a required step reads.
+share_setup_chips() { ipc smoke setupRows window vgs.settings | py_reply 'import json,sys; rows=[r for r in json.load(sys.stdin) if r["key"]=="sharing"]; print(json.dumps(rows[0]["chips"]) if len(rows)==1 else "rows=%d" % len(rows))'; }
+settings_setup
+expect_poll "the sharing step reads Optional before setup" '[["Optional", "neutral"]]' share_setup_chips
 expect "Settings hides after its setup route assertion" ok ipc shell hide window vgs.settings
 expect "ordinary Capture Open summons its controls" ok ipc shell summon window vgs.capture '{}'
 expect_poll "ordinary Capture Open selects the capture controls" false share_read sharing

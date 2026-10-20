@@ -16,7 +16,7 @@ A click on a Slack notification, or View, opens its message in the Slack app, in
 
 A custom emoji appears as an image when Slack has saved it for that workspace. An unknown emoji stays as text. Emoji from another workspace stay as text.
 
-Open Notifications in Plugins to change Slack custom emoji. Switch it off to show emoji names as text. If an image tool is missing, select Review all missing or outdated tools under Tools on the Details tab.
+Open Notifications in Plugins to change Slack custom emoji. Switch it off to show emoji names as text. If an image tool is missing, select Review all missing or outdated tools under Optional tools on the Setup tab.
 
 New images appear after VGS reads Slack's saved images again. A notification does not start this work itself. Animated emoji show their first frame.
 

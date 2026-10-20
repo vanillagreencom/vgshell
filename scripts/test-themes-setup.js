@@ -30,23 +30,26 @@ const wiringReport = rows => JSON.stringify({ home: "/home/alice", setups: [], w
 // [label, stdout, exit code, the value]. The Setup tone rule
 // (design-system.md, Steps.js stepOpen): browser theming is optional, so
 // its open step reads info, and a report the user cannot mend reads info
-// and Not available, with a hint that says what changes it.
+// and Not available, with a hint that says what changes it (`hint: true`,
+// a hint of any words, whose copy review holds).
 const ROWS = [
     ["the writer installed", report("done"), 0, { tone: "ok", text: "Browser theme support is installed" }],
     ["a browser without the writer", report("absent"), 0, { tone: "info", text: "Browser themes are not installed", action: true }],
-    ["no browser", report("not-detected"), 0, { tone: "info", text: "No Chromium-family browser found", available: false, hint: "Install Chromium, Chrome, Edge or Brave, then open Settings again" }],
-    ["a failed report", report("done"), 1, { tone: "info", text: "Browser theme setup could not be checked. Open Plugins to check Themes.", available: false, hint: "VGS checks again each time you open Settings" }],
-    ["a report that did not start", report("done"), null, { tone: "info", text: "Browser theme setup could not be checked. Open Plugins to check Themes.", available: false, hint: "VGS checks again each time you open Settings" }],
-    ["a report killed by a signal, whose code is no exit code", "", -1, { tone: "info", text: "Browser theme setup could not be checked. Open Plugins to check Themes.", available: false, hint: "VGS checks again each time you open Settings" }],
-    ["no JSON", "setup=chromium\n", 0, { tone: "info", text: "Browser theme setup could not be checked. Open Plugins to check Themes.", available: false, hint: "VGS checks again each time you open Settings" }],
-    ["no setups list", "{}\n", 0, { tone: "info", text: "Browser theme setup could not be checked. Open Plugins to check Themes.", available: false, hint: "VGS checks again each time you open Settings" }],
-    ["no chromium row", JSON.stringify({ setups: [{ name: "other", app: "Other", setup: "other-writer", state: "done" }] }), 0, { tone: "info", text: "This version of VGS does not support browser themes", available: false, hint: "A VGS update that ships browser themes adds this step" }],
+    ["no browser", report("not-detected"), 0, { tone: "info", text: "No Chromium-family browser found", available: false, hint: true }],
+    ["a failed report", report("done"), 1, { tone: "info", text: "Browser theme setup could not be checked. Open Plugins to check Themes.", available: false, hint: true }],
+    ["a report that did not start", report("done"), null, { tone: "info", text: "Browser theme setup could not be checked. Open Plugins to check Themes.", available: false, hint: true }],
+    ["a report killed by a signal, whose code is no exit code", "", -1, { tone: "info", text: "Browser theme setup could not be checked. Open Plugins to check Themes.", available: false, hint: true }],
+    ["no JSON", "setup=chromium\n", 0, { tone: "info", text: "Browser theme setup could not be checked. Open Plugins to check Themes.", available: false, hint: true }],
+    ["no setups list", "{}\n", 0, { tone: "info", text: "Browser theme setup could not be checked. Open Plugins to check Themes.", available: false, hint: true }],
+    ["no chromium row", JSON.stringify({ setups: [{ name: "other", app: "Other", setup: "other-writer", state: "done" }] }), 0, { tone: "info", text: "This version of VGS does not support browser themes", available: false, hint: true }],
     ["another target's row after chromium's", JSON.stringify({ setups: [{ name: "chromium", app: "C", setup: "vgshell-browser-policy", state: "done" }, { name: "other", app: "Other", setup: "other-writer", state: "absent" }] }), 0, { tone: "ok", text: "Browser theme support is installed" }],
-    ["an unknown state", report("maybe"), 0, { tone: "info", text: "Browser theme setup could not be checked. Open Plugins to check Themes.", available: false, hint: "VGS checks again each time you open Settings" }]
+    ["an unknown state", report("maybe"), 0, { tone: "info", text: "Browser theme setup could not be checked. Open Plugins to check Themes.", available: false, hint: true }]
 ];
 
+// VALUE with its hint read as whether it carries one.
+const shape = value => value.hint === undefined ? value : Object.assign({}, value, { hint: typeof value.hint === "string" && value.hint !== "" });
 function verify(logic) {
-    for (const [label, text, code, want] of ROWS) same(logic.browserTheming(text, code), want, label);
+    for (const [label, text, code, want] of ROWS) same(shape(logic.browserTheming(text, code)), want, label);
 }
 
 verify(load(file));

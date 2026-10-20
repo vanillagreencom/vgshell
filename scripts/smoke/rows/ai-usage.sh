@@ -843,7 +843,7 @@ rm -rf -- "${home:?}/.config/vgshell/plugins/vgs.settings"
 mkdir -p -- "$home/.config/vgshell/plugins"
 cp -R -- "$repo/shell/plugins/vgs.settings" "$usage_keys_copy"
 if usage_edit "$usage_keys_copy/Steps.js" '    field.keyLists.forEach(function (key) {' '    [].forEach(function (key) {' \
-  && usage_edit "$usage_keys_copy/Steps.js" '!declaresStep(entry) && entry.setting === "" && entry.step === ""' 'entry.type === "presenceList" || (!declaresStep(entry) && entry.setting === "" && entry.step === "")'
+  && usage_edit "$usage_keys_copy/Steps.js" 'entry.placement === "details"' 'entry.type === "presenceList" || entry.placement === "details"'
 then ok "the control copy draws its stored keys on Details"; else fail "the control copy could not be written"; fi
 rescan "a rescan picks the key placement control copy"
 expect "the control copy's page opens" ok ipc shell summon window vgs.settings '{"plugin":"vgs.ai-usage"}'

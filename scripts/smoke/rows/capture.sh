@@ -1335,6 +1335,8 @@ PY
 }
 capture_choices() { ipc smoke readInstance panel vgs.capture values | py_reply 'import json,sys; v=json.load(sys.stdin); print(json.dumps([v.get("audioSources"), v.get("cameras")]))'; }
 capture_languages() { ipc smoke readInstance panel vgs.capture languagesRow | py_reply 'import json,sys; r=json.load(sys.stdin); print("absent" if r is None or r["action"] is None else json.dumps([r["tone"], r["action"]["offered"]]))'; }
+# The published Language data value: [available, carries a hint].
+capture_languages_unavailable() { ipc smoke statusValues vgs.capture | py_reply 'import json,sys; v=json.load(sys.stdin).get("languages") or {}; print(json.dumps([v.get("available", True), bool(v.get("hint"))]))'; }
 capture_titles() { capture_cards | py_reply 'import json,sys; print(json.load(sys.stdin).count(sys.argv[1]))' "$1"; }
 capture_log_holds() { python3 -c 'import pathlib,sys; p=pathlib.Path(sys.argv[1]); print(p.is_file() and sys.argv[2] in p.read_text() and p.stat().st_mode & 0o777 == 0o600)' "$home/.local/state/vgshell/plugins/vgs.capture/recorder.log" "$1"; }
 open_toplevel "$sandbox/capture-record-target.log" smoke.capture-record "Capture record target" || fail "capture: the recording target did not map"
@@ -1594,6 +1596,8 @@ expect_poll "the terminal is handed the language TUI" "$(words vgs.capture/insta
 expect_poll "the ended TUI run reads the languages again" '["success", false]' capture_languages
 capture_setting ocrLanguages '"fra+eng"'
 expect_poll "another missing language offers Install languages again" '["warning", true]' capture_languages
+capture_setting ocrLanguages '"eng-x"'
+expect_poll "a language list that is not valid reads Not available with a hint" '[false, true]' capture_languages_unavailable
 capture_mutate missing-check
 capture_setting ocrLanguages '"fra+deu+eng"'
 expect_poll "control: the missing-check copy reads the new languages" '["success", false]' capture_languages

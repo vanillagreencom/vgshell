@@ -274,8 +274,8 @@ var LAUNCHER_ROW_KEYS = ["id", "label", "icon", "description", "aliases", "menu"
 // it supplies the path in its own `file`. No route
 // installs a requirement: Review all missing or outdated tools, which opens
 // the requirement notice, is the one install action, offered by Setup's
-// Tools step, by Details' Tools section and by a required step whose value
-// names STATUS_TOOLS_ACTION. An entry of a
+// Tools and Optional tools steps and by a required step whose value names
+// STATUS_TOOLS_ACTION. An entry of a
 // type in STATUS_ACTION_TYPES takes one. A `state`
 // entry whose step differs by what its writer found declares `actions`
 // instead: two or more such steps by name, a STATUS_KEY_PATTERN
@@ -1679,9 +1679,10 @@ function statusActionIcon(action) {
 // The Status rows the plugin manager shows for a plugin: one per entry
 // statusDisplayable admits whose `state` value is not hidden (statusStateHidden),
 // in manifest key order, as { key, type, label,
-// group, setup, setting, step, settings, icon, hint, info, link, secrets,
-// declaredTuis, systemStep, action, aside, report, value, tone }, `setup`
-// setupStep's and `tone` statusRowTone's. `group`, `hint`,
+// group, setup, placement, setting, step, settings, icon, hint, info, link,
+// secrets, declaredTuis, systemStep, action, aside, report, value, tone },
+// `setup` setupStep's, `placement` statusPlacement's and `tone`
+// statusRowTone's. `group`, `hint`,
 // `info` and `icon` are "" when the manifest omits them; a reported
 // `state` value's own `hint` and `info` stand in the entry's.
 // `link`, the words of the declared hint that open an https address, is
@@ -1715,6 +1716,7 @@ function statusRows(manifest, values) {
             label: entry.label,
             group: entry.group === undefined ? "" : entry.group,
             setup: setupStep(entry),
+            placement: statusPlacement(entry),
             setting: entry.setting === undefined ? "" : entry.setting,
             step: entry.step === undefined ? "" : entry.step,
             settings: entry.settings === true,
@@ -5702,9 +5704,24 @@ function setupStep(entry) {
     return entry.setup === true ? "required" : entry.setup === SETUP_OPTIONAL ? "optional" : "";
 }
 
-// The keys of MANIFEST's status entries that a plugin page draws on
-// Details, by the page's placement (shell/plugins/vgs.settings/Steps.js
-// detailEntries), and that offer an `action`, `actions` or an `aside`:
+// Where a plugin page draws displayed status entry ENTRY, the one
+// placement statusRows carries as `placement` for the page
+// (shell/plugins/vgs.settings/Steps.js) and detailSteps reads
+// (docs/architecture/design-system.md § Settings pages): "setup" for a
+// step (setupStep), "step" for a key list drawn under its step, "settings"
+// for a stored key list beside its field (`setting`), "rows" for a `rows`
+// list, a section of its own on the tab its `settings` names, else
+// "details", a reading on Details.
+function statusPlacement(entry) {
+    if (setupStep(entry) !== "") return "setup";
+    if (entry.step !== undefined) return "step";
+    if (entry.setting !== undefined) return "settings";
+    if (entry.type === "rows") return "rows";
+    return "details";
+}
+
+// The keys of MANIFEST's displayed status entries placed on Details
+// (statusPlacement) that offer an `action`, `actions` or an `aside`:
 // steps, which belong on Setup (docs/architecture/design-system.md §
 // Settings pages), in manifest order. A `rows` list keeps its actions on
 // whichever tab holds it. bin/lib/check-manifests.js refuses a bundled
@@ -5712,7 +5729,7 @@ function setupStep(entry) {
 function detailSteps(manifest) {
     return Object.keys(manifest.status).filter(function (key) {
         var entry = manifest.status[key];
-        return statusDisplayable(entry) && setupStep(entry) === "" && entry.setting === undefined && entry.step === undefined && entry.type !== "rows"
+        return statusDisplayable(entry) && statusPlacement(entry) === "details"
             && (entry.action !== undefined || entry.actions !== undefined || entry.aside !== undefined);
     });
 }

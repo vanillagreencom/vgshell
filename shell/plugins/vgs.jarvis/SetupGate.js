@@ -107,7 +107,7 @@ var TODO = {
     "brain=models-unavailable": "Check the local server, then [choose a model](page:vgs.jarvis/Settings) under AI model and press Talk to try again",
     "brain=model-unavailable": "The local server does not offer this model: [choose another model](page:vgs.jarvis/Settings) under AI model",
     "brain=signed-out": "Sign in to the chosen AI app, then [choose it under AI model](page:vgs.jarvis/Settings)",
-    "brain=pi-update": "Jarvis needs Pi 1.1.0 or later: [review all missing or outdated tools under Tools on the Details tab](page:vgs.jarvis/Details), or choose another app under AI model",
+    "brain=pi-update": "Jarvis needs Pi 1.1.0 or later: [review all missing or outdated tools under Optional tools on the Setup tab](page:vgs.jarvis/Setup), or choose another app under AI model",
     "brain=accounts-unreadable": "Jarvis could not read your accounts. Add a key with Add key to use an AI model.",
     "speech=live-account-unselected": "[Add a provider key beside API keys on the Details tab](page:vgs.jarvis/Details): OpenAI for Realtime, Gemini for Gemini Live or ElevenLabs for ElevenLabs",
     "speech=live-account-unreadable": "Jarvis could not read your voice key: use [Accounts beside Account search on the Details tab](page:vgs.jarvis/Details) to check it",
@@ -726,7 +726,7 @@ var SESSION_ROWS = {
     "blocked record-unreadable": { tone: "warning", text: "Cannot start", hint: "Jarvis cannot read its saved session record" },
     "blocked sign-in-required": { tone: "warning", text: "Cannot start", detail: true },
     "blocked selection-conflict": { tone: "warning", text: "Cannot start", hint: "Changing the home or account restarts Jarvis after the new selection is checked" },
-    "blocked tmux-missing": { tone: "warning", text: "Cannot start", hint: "No session can start without tmux: [review all missing or outdated tools under Tools](page:vgs.jarvis/Details)" },
+    "blocked tmux-missing": { tone: "warning", text: "Cannot start", hint: "No session can start without tmux: [review all missing or outdated tools under Optional tools on the Setup tab](page:vgs.jarvis/Setup)" },
     "blocked app-missing": { tone: "warning", text: "Cannot start", hint: "No session can start, because the app of the selected account is not installed" },
     "failed launch-failed": { tone: "danger", text: "Not started", detail: true, action: "retry" },
     "failed handover-failed": { tone: "danger", text: "Not started", detail: true, action: "retry" }

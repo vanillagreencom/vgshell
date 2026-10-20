@@ -10,7 +10,7 @@ source "$VGS_TUI_LIB"
 for tool in gum uv curl unshare python3; do
   command -v "$tool" >/dev/null || {
     printf 'jarvis-setup: command=missing name=%s\n' "$tool" >&2
-    vgs_tui_error "Select Review all missing or outdated tools under Tools on the Jarvis page before you set up local voice."
+    vgs_tui_error "Select Review all missing or outdated tools on the Setup tab of the Jarvis page before you set up local voice."
     exit 77
   }
 done

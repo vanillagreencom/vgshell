@@ -460,14 +460,16 @@ function addressDevice(text) {
 // step's state, or "" while it has no reading, before the core's first
 // probe ends. Printing that is off with no step reading is null, which
 // clears the entry, so Setup reads Checking. Printing that is not
-// installed reads To do with a hint that links the Details tab, whose
-// Tools section installs the optional CUPS commands. Printing that is off offers Turn on printing
+// installed offers no action of its own, so it is `available: false` with
+// a hint that names Setup's Optional tools step, which installs the
+// optional CUPS commands. Printing that is off offers Turn on printing
 // (`action`) while the step applies. Where the user cannot act, the value
 // is `available: false` with a hint that says why: an administrator
 // masked cups.service (step denied), the step could not be checked, or
 // the printers could not be read.
 function printingView(reading, cupsMissing, step) {
-    if (cupsMissing) return { tone: "warning", text: "Printing is not installed.", hint: "[Install printing](page:vgs.printers/Details) to use printers" };
+    if (cupsMissing) return { tone: "warning", text: "Printing is not installed.", available: false,
+        hint: "Install printing with [Optional tools on the Setup tab](page:vgs.printers/Setup) to use printers" };
     switch (reading.state) {
     case "unread": return { tone: "info", text: "Reading printers" };
     case "down":

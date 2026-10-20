@@ -38,7 +38,7 @@ VGS uses a summoned panel to give the list keyboard focus.
 | Slack photos | Whether sender photos load from connected Slack workspaces. |
 | Slack custom emoji | Whether custom emoji show in Slack notifications. |
 
-The shortcut is under Keys on the plugin's Settings page. The Tools step on Setup lists required tools. Optional tools and their review action are under Tools on the Details tab.
+The shortcut is under Keys on the plugin's Settings page. The Tools step on Setup lists required tools, and the Optional tools step there installs the optional ones. Details lists the optional tools under Tools.
 
 ## Slack photos
 

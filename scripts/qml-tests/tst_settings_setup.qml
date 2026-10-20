@@ -8,13 +8,17 @@ import "../../shell/plugins/vgs.settings/Steps.js" as Steps
 
 // PluginLogic produces the manager rows. The actual page and list consume
 // them. Required steps, including an actionless Home failure, keep Setup
-// and its warning. Settings draws only values: no chip. An optional
-// feature's action stays beside its fact on Details, with its tools.
-// Setup has only Done/To do chips and RowAction links, including its one
-// Tools step; while the plugin is off each To do step offers Turn on and
-// Tools still installs. A step the user cannot act on, by its value or a
-// failed build, reads neutral, offers nothing and raises no Setup needed;
-// a step a missing required tool blocks offers Review on its own row. The unit model rebuilds delegates;
+// and its warning; an optional step or an optional tool creates Setup and
+// raises no warning. Settings draws only values: no chip. Setup's chips
+// are Done, To do, Not available and Optional, and its actions are
+// RowAction links, including the Tools and Optional tools steps' Review;
+// while the plugin is off each To do step offers Turn on and both tools
+// steps still install. Details lists the optional tools as readings with
+// no Review, and draws a fact's declared action beside it, which
+// bin/lib/check-manifests.js refuses in a bundled plugin. A step the user
+// cannot act on, by its value or a failed build, reads neutral, offers
+// nothing and raises no Setup needed; a step a missing required tool
+// blocks offers Review on its own row. The unit model rebuilds delegates;
 // keyed movement and editor retention run in the actual settings smoke.
 // A page link in a status entry's info, or in one key's, opens that page.
 // Production-source controls live in

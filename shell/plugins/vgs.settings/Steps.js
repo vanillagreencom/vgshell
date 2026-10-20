@@ -25,9 +25,16 @@ function stepReading(entry, plugin) {
     if (!stepOpen(entry)) return "unavailable";
     return entry.setup === "optional" ? "optional" : "todo";
 }
-// Required steps the user can act on, then those they cannot, then the
-// optional ones, then every Done step.
+// Where step ENTRY stands on Setup for PLUGIN (stepReading): the required
+// steps the user can act on, then the required ones they cannot, then
+// every optional step that is not done, whether it reads Optional or Not
+// available, then every Done step (docs/architecture/design-system.md §
+// Settings pages).
 var STEP_RANKS = { todo: 0, unavailable: 1, optional: 2, done: 3 };
+function stepRank(entry, plugin) {
+    var reading = stepReading(entry, plugin);
+    return reading !== "done" && entry.setup === "optional" ? STEP_RANKS.optional : STEP_RANKS[reading];
+}
 // The line that says why a plugin, on, does not run, of its manager row's
 // ERRORS (Registry.managerRows): its first refusal or failed build, ""
 // while neither applies.
@@ -68,8 +75,10 @@ function stepView(entry, timeText, plugin) {
     }
     return view;
 }
+// The status rows Details draws as readings, by the one placement
+// PluginLogic.statusPlacement gives each row.
 function detailEntries(status) {
-    return status.filter(function (entry) { return !declaresStep(entry) && entry.setting === "" && entry.step === "" && entry.type !== "rows"; });
+    return status.filter(function (entry) { return entry.placement === "details"; });
 }
 // The `rows` entries of STATUS a tab draws as sections of their own, in
 // manifest order: those the manifest places on Settings while SETTINGS,
@@ -105,16 +114,14 @@ function toolsStep(requirements, optional) {
         hint: lacking.length === 0 ? (optional ? "Every optional tool is installed" : "Every required tool is installed") : toolsText(lacking),
         button: lacking.length === 0 ? null : reviewButton() };
 }
-function requirementStep(requirements) { return toolsStep(requirements, false); }
 // The Setup section of a plugin's STATUS rows and REQUIREMENTS for
-// PLUGIN, { enabled, failed }: its steps, To do, then Not available, then
-// Optional, then Done (stepReading), each in manifest order with its key
-// lists, and the Tools and Optional tools steps, each before the first
-// step that reads after it, else last. REQUIREMENTS and PLUGIN are
+// PLUGIN, { enabled, failed }: its steps by stepRank, each in manifest
+// order with its key lists, and the Tools and Optional tools steps, each
+// before the first step that ranks after it, else last. REQUIREMENTS and PLUGIN are
 // omitted where neither applies.
 function setupSections(tuis, status, requirements, plugin) {
     var required = requirements === undefined ? [] : requirements;
-    var rank = function (entry) { return STEP_RANKS[stepReading(entry, plugin)]; };
+    var rank = function (entry) { return stepRank(entry, plugin); };
     var ordered = status.filter(declaresStep).map(function (entry, index) { return { entry: entry, index: index }; })
         .sort(function (a, b) { return rank(a.entry) - rank(b.entry) || a.index - b.index; })
         .map(function (step) { return step.entry; });

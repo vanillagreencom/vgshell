@@ -309,11 +309,15 @@ function verify(logic) {
     assert.equal(steps.stepReading(row), "todo", label + ": the step reads To do");
     same((steps.stepButton(row, voxtypeMissing) || {}).kind, "tools", label + ": the step's row offers Review");
   }
-  // Another voxtype in the daemon's place: the step offers no action of
-  // its own, and its hint names the Setup step that offers Stop the other
-  // voxtype beside it, by its declared label.
+  // Another voxtype in the daemon's place: the step reads Not available,
+  // offers no action of its own and raises no Setup needed, and its hint
+  // names the Setup step that offers Stop the other voxtype beside it, by
+  // its declared label, so one cause draws one To do step.
   const stop = logic.setupPublished(logic.setupState(readsMissing, "elsewhere"));
-  same([Object.keys(stop), stop.tone, stop.action], [["tone", "text", "lines", "action", "hint"], "warning", false], "setupPublished: another voxtype offers no Setup action");
+  same([stop.available, stop.action], [false, false], "setupPublished: another voxtype offers no Setup action");
+  assert.equal(pluginLogic.statusWrite(voiceJudged.manifest, {}, "setup", stop).ok, true, "setupPublished: another voxtype: the status judge admits the value");
+  const stopRow = pluginLogic.statusRows(voiceJudged.manifest, { setup: stop }).find(entry => entry.key === "setup");
+  same([steps.stepReading(stopRow), steps.setupNeeds([stopRow], [], true).open], ["unavailable", false], "setupPublished: another voxtype: the step reads Not available");
   const otherService = voiceJudged.manifest.status.otherService;
   same([otherService.setup, stop.hint.includes(otherService.label)], [true, true], "setupPublished: another voxtype's hint names the Setup step that stops it");
   for (const [name, reads, daemon, action] of [["a missing model offers Set up", readsMissing, "ready", true], ["ready offers nothing", readsReady, "ready", false]]) {
@@ -460,7 +464,8 @@ const controls = [
   ["voxtype absent offers Set up", "return { hidden: true, lines: [], action: \"\",", "return { hidden: true, lines: [], action: \"setup\","],
   ["voxtype absent offers no install action", ", action: \"tools\" };", ", action: false };"],
   ["voxtype absent reads Done", "if (state.hidden) return { tone: \"warning\",", "if (state.hidden) return { tone: \"ok\","],
-  ["another voxtype loses its hint", "if (state.action === \"stop\") value.hint", "if (false) value.hint"],
+  ["another voxtype loses its hint", "        value.hint = \"Stop the other voxtype on the Other dictation service step first\";\n", ""],
+  ["another voxtype reads To do", "        value.available = false;\n", ""],
   ["pending setup publishes empty lines", "if (state.lines !== undefined && state.lines.length > 0) value.lines = state.lines;", "value.lines = state.lines;"],
   ["voxtype absent draws its own line", "return { hidden: true, lines: [], action: \"\",", "return { tone: \"warning\", text: \"To do\", lines: [\"voxtype is not installed.\"], action: \"\","],
   ["the version is not read", "return found === null ? \"\" : found[1];", "return \"\";"],

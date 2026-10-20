@@ -42,7 +42,7 @@ Item {
 
     function publish() {
         if (shell === null || !registered) return;
-        for (const row of [["traffic", snapshot], ["capture", Logic.capture(captureStep)]]) {
+        for (const row of [["traffic", snapshot], ["capture", Logic.capture(captureStep, bandwhichPresent)]]) {
             const reply = shell.status.set(row[0], row[1]);
             if (reply !== "ok") console.warn("traffic: status " + reply);
         }

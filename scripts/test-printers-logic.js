@@ -215,17 +215,17 @@ function suite(logic) {
     ]) assert.deepEqual(plain(logic.addressDevice(text)), want, JSON.stringify(text));
 
     // The Setup step `printing`: To do with Turn on printing while the step
-    // applies, To do with a link to the Details tab's install while CUPS is
-    // missing, Not available (`available: false`) wherever the user cannot
+    // applies, Not available (`available: false`) wherever the user cannot
     // act, each with its own hint, which the status judge requires
-    // (PluginLogic.statusDeclarationFits).
+    // (PluginLogic.statusDeclarationFits), and while CUPS is missing with a
+    // link to the Setup tab, whose Optional tools step installs it.
     const read = n => ({ state: "read", printers: Array.from({ length: n }, (_, i) => ({ name: "P" + i })) });
     for (const [name, reading, step, want] of [
         ["no printer", read(0), "ready", { tone: "ok", text: "No printers" }],
         ["one printer", read(1), "ready", { tone: "ok", text: "1 printer" }],
         ["two printers", read(2), "ready", { tone: "ok", text: "2 printers" }]
     ]) assert.deepEqual(plain(logic.printingView(reading, false, step)), want, name);
-    const INSTALL = "page:vgs.printers/Details";
+    const INSTALL = "page:vgs.printers/Setup";
     const shape = value => ({
         available: value.available !== false,
         tone: value.tone,
@@ -233,14 +233,14 @@ function suite(logic) {
         link: (/\]\((page:[^)]*)\)/.exec(value.hint ?? "") ?? [null, null])[1]
     });
     const todo = (tone, action, link) => ({ available: true, tone, action, link });
-    const unavailable = tone => ({ available: false, tone, action: "none", link: null });
+    const unavailable = (tone, link) => ({ available: false, tone, action: "none", link: link ?? null });
     const down = { state: "down" };
     const failed = { state: "failed", reason: "line" };
     for (const [name, reading, missing, step, want] of [
         ["unread", { state: "unread" }, false, "", todo("info", "none", null)],
         ["read", read(1), false, "ready", todo("ok", "none", null)],
-        ["not installed links the install", { state: "unread" }, true, "needed", todo("warning", "none", INSTALL)],
-        ["not installed, printing off", down, true, "denied", todo("warning", "none", INSTALL)],
+        ["not installed links the install", { state: "unread" }, true, "needed", unavailable("warning", INSTALL)],
+        ["not installed, printing off", down, true, "denied", unavailable("warning", INSTALL)],
         ["off, step needed", down, false, "needed", todo("warning", "declared", null)],
         ["off, on NixOS", down, false, "nixos", todo("warning", "declared", null)],
         ["off, step denied", down, false, "denied", unavailable("warning")],

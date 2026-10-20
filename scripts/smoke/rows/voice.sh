@@ -1454,7 +1454,7 @@ voice_stop_other() { # LABEL
   expect_poll "$1: Voice reports another voxtype to stop" stop voice_setup_offered
   settings_page_open vgs.voice
   settings_setup
-  expect_poll "$1: Setup stays To do and offers no stop action" '{"chips": [["To do", "warning"]], "buttons": []}' voice_setup_section
+  expect_poll "$1: Setup reads Not available and offers no stop action" '{"chips": [["Not available", "neutral"]], "buttons": []}' voice_setup_section
   settings_page_close vgs.voice
   expect "$1: a start beside the other daemon is refused" "refused: dictation=daemon-elsewhere" voice_toggle
   expect_poll "$1: the foreign daemon refusal opens the correction window" 1 window_count Plugins

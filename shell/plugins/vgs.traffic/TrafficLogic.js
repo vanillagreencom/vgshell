@@ -202,22 +202,33 @@ function commandLine(text) {
     return text.replace(/\0+$/, "").split("\0").join(" ");
 }
 
-// The capture step: See all is optional, so a step not done reads info,
-// with its action while one is offered, and ok once it is. A state that
-// offers no action reads Not available on Setup, its hint saying why and
-// what changes that (PluginLogic.statusDeclarationFits); the core probes
-// the step again after each plugin scan, which each Settings open asks
-// for. null, which clears the entry, while the step has no reading, before
-// the core's first probe ends.
-const CAPTURE_HINTS = { absent: "Install bandwhich under Optional tools first", denied: "VGS allows capture only for a bandwhich it trusts",
-    unknown: "VGS checks again each time you open Settings" };
-function capture(step) {
+// The capture step from STEP, the bandwhich-capture system step's reading,
+// and PRESENT, whether the scan finds the bandwhich requirement on the
+// user's PATH. See all is optional, so a step not done reads info, with
+// its action while one is offered, and ok once it is. A state that offers
+// no action reads Not available on Setup, its hint saying why and what
+// changes that (PluginLogic.statusDeclarationFits); the core probes the
+// step again after each plugin scan, which each Settings open asks for.
+// The step probes only the system's trusted folders
+// (bin/vgshell-system capture_binary), so an absent step names Setup's
+// Optional tools only while the requirement reads missing; a bandwhich
+// installed for the user's account alone needs the system's package.
+// null, which clears the entry, while the step has no reading, before the
+// core's first probe ends.
+var CAPTURE_HINTS = { absent: "Install bandwhich under Optional tools first",
+    absentSystem: "Capture needs bandwhich from your system's packages. The bandwhich VGS found is installed for your account alone.",
+    denied: "VGS allows capture only for a bandwhich it trusts", unknown: "VGS checks again each time you open Settings" };
+function captureHint(state, present) {
+    if (state === "absent") return present ? CAPTURE_HINTS.absentSystem : CAPTURE_HINTS.absent;
+    return CAPTURE_HINTS[state] || CAPTURE_HINTS.unknown;
+}
+function capture(step, present) {
     if (!step) return null;
     const state = step.state;
     const text = { ready: "Ready", needed: "Access needed", nixos: "Access needed", absent: "bandwhich is not installed",
         denied: "Installed tool is not trusted", unknown: "Capture access could not be checked" };
     const action = state === "needed" || state === "nixos";
     const value = { tone: state === "ready" ? "ok" : "info", text: text[state] || text.unknown, action: action };
-    if (state !== "ready" && !action) Object.assign(value, { available: false, hint: CAPTURE_HINTS[state] || CAPTURE_HINTS.unknown });
+    if (state !== "ready" && !action) Object.assign(value, { available: false, hint: captureHint(state, present) });
     return value;
 }

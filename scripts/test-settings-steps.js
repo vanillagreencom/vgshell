@@ -1,16 +1,19 @@
 #!/usr/bin/env node
 // Exercises the production page judge with PluginLogic manager rows.
-// Required work alone creates Setup. Unknown and blocked required work
-// stays open; a step the user cannot act on, by its value or because its
-// plugin could not start, reads neutral after the open steps and raises no Setup needed; a
-// step a missing required tool blocks offers the one install action on its
-// own row. An optional step reads Optional, follows the required steps
-// that are not done and raises no Setup needed. Settings draws only
-// values and their stored key lists; a fact with an action and the
-// optional tools stand on Details. Required tools form one persistent
-// step. Every To do step and every Details fact
-// that holds work draws an action that takes a press, with the plugin on
-// and off; a fact whose feature is set up draws none.
+// Required work, an optional step or an optional tool creates Setup,
+// whose chips are Done, To do, Not available and Optional. Unknown and
+// blocked required work stays open; a step the user cannot act on, by its
+// value or because its plugin could not start, reads neutral and raises no
+// Setup needed; a step a missing required tool blocks offers the one
+// install action on its own row. Required To do steps come first, then
+// required Not available steps, then every optional step that is not
+// done, then Done steps. An optional step raises no Setup needed. The
+// required tools form the Tools step and the optional tools the Optional
+// tools step on Setup; Details lists the optional tools as readings.
+// Settings draws only values and their stored key lists. Every To do step
+// and every Details fact that holds work draws an action that takes a
+// press, with the plugin on and off; a fact whose feature is set up draws
+// none.
 // Expected placements and actions are independent data. The source check
 // reaches the actual Setup body: it proves that body declares no boxed
 // Button, not rendered behavior. Each control edits production source and
@@ -95,7 +98,7 @@ function verify(logic, producer) {
     same(logic.setupTab([], requirements([])), true, "present required tools keep Setup");
     const optionalOnly = requirements(["optional-tool"]).filter(row => row.optional);
     same(items(logic.setupSections(screens, [], optionalOnly)).map(item => item.key), ["optional-tools"], "optional tools alone create Setup, with their one step");
-    same(logic.requirementStep(optionalOnly), null, "optional tools never create the Tools step");
+    same(logic.toolsStep(optionalOnly, false), null, "optional tools never create the Tools step");
     same(logic.detailRequirements(requirements([])).map(row => row.name), ["optional-tool", "org.example.Tool", "automatic-tool"], "every optional tool is on Details");
     for (const [label, values, missing, enabled, expected] of [
         ["all required work ready", allDone, [], true, false],
@@ -126,8 +129,8 @@ function verify(logic, producer) {
     }
     same(logic.setupNeeds([], requirements(["optional-tool"]), true), { open: false }, "a missing optional tool raises no Setup needed");
     const outdated = requirements([]).map(row => Object.assign({}, row, { state: row.name === "required-b" ? "outdated" : "present" }));
-    same(logic.requirementStep(outdated).done, false, "outdated required tools stay open");
-    same(logic.requirementStep(outdated).hint, "required-b (outdated)", "Tools identifies outdated tools");
+    same(logic.toolsStep(outdated, false).done, false, "outdated required tools stay open");
+    same(logic.toolsStep(outdated, false).hint, "required-b (outdated)", "Tools identifies outdated tools");
     same(logic.setupNeeds(status0, outdated, true), { open: true }, "outdated required tools warn");
     same(items(logic.setupSections(screens, status0, requirements(["required-a"]))).map(item => item.key), ["required-tools", "model", "home", "account", "connection", "connectionKeys", "optional-tools"], "pending Tools precede completed required steps");
     same(items(logic.setupSections(screens, status0, requirements([]))).map(item => item.key), ["model", "home", "account", "connection", "connectionKeys", "required-tools", "optional-tools"], "completed Tools retain their one step");
@@ -260,12 +263,13 @@ function verify(logic, producer) {
 
     // An optional step, declared before a required one: Setup reads it
     // Optional in the neutral tone after the required steps that are not
-    // done and before the Done ones, offers its own action, and raises
-    // neither Setup needed nor the tab's mark, which read setupNeeds; the
-    // required step beside it still raises them. Done, it reads Done; one
-    // the user cannot act on reads Not available; a hidden value takes it
-    // off Setup. [name, values, its reading, its chip, Setup needed, the
-    // step order].
+    // done, To do and Not available, and before the Done ones, offers its
+    // own action, and raises neither Setup needed nor the tab's mark, which
+    // read setupNeeds; the required step beside it still raises them. Done,
+    // it reads Done; one the user cannot act on reads Not available and
+    // still follows a required step that reads Not available, as Power's
+    // Disk sleep follows Wake sources; a hidden value takes it off Setup.
+    // [name, values, its reading, its chip, Setup needed, the step order].
     const optionalStatus = {
         extra: { type: "state", label: "Extra", setup: "optional", action: { label: "Configure feature", tui: "feature" } },
         need: { type: "state", label: "Need", setup: true, action: { label: "Set model", tui: "required" } }
@@ -279,13 +283,23 @@ function verify(logic, producer) {
         ["open beside a required step To do", { extra: extraOpen, need: needOpen }, "optional", ["Optional", "neutral"], true, ["need", "extra"]],
         ["unreported", { need: ready }, "optional", ["Optional", "neutral"], false, ["extra", "need"]],
         ["done", { extra: ready, need: ready }, "done", ["Done", "success"], false, ["extra", "need"]],
-        ["not available", { extra: unavailable, need: ready }, "unavailable", ["Not available", "neutral"], false, ["extra", "need"]]
+        ["not available", { extra: unavailable, need: ready }, "unavailable", ["Not available", "neutral"], false, ["extra", "need"]],
+        ["open beside a required step Not available", { extra: extraOpen, need: unavailable }, "optional", ["Optional", "neutral"], false, ["need", "extra"]],
+        ["not available beside a required step Not available", { extra: unavailable, need: unavailable }, "unavailable", ["Not available", "neutral"], false, ["need", "extra"]]
     ]) {
         const current = optionalRows(values), extra = current.find(entry => entry.key === "extra"), view = logic.stepView(extra, String, on);
         same([logic.stepReading(extra, on), view.text, view.tone], [reading].concat(chip), "optional step " + name + ": the chip");
         same(logic.setupNeeds(current, [], true).open, needed, "optional step " + name + ": Setup needed");
         same(items(logic.setupSections(screens, current, [], on)).map(item => item.key), order, "optional step " + name + ": the order");
     }
+    // The Optional tools step stands after the optional steps that are not
+    // done while an optional tool is missing, before every Done step, and
+    // last once none is: [name, values, missing tools, the step order].
+    for (const [name, values, missing, order] of [
+        ["a pending Optional tools step beside Done steps", { extra: ready, need: ready }, ["optional-tool"], ["optional-tools", "extra", "need", "required-tools"]],
+        ["a pending Optional tools step after an open optional step", { extra: extraOpen, need: ready }, ["optional-tool"], ["extra", "optional-tools", "need", "required-tools"]],
+        ["a done Optional tools step", { extra: extraOpen, need: ready }, [], ["extra", "need", "required-tools", "optional-tools"]]
+    ]) same(items(logic.setupSections(screens, optionalRows(values), requirements(missing), on)).map(item => item.key), order, "optional step: " + name + ": the order");
     const extraStep = values => optionalRows(values).find(entry => entry.key === "extra");
     const extraOffer = (values, plugin) => { const b = logic.lineAction(logic.stepButton(extraStep(values)), logic.stepOpen(extraStep(values)), plugin); return b === null ? null : b.label; };
     same([extraOffer({ extra: extraOpen }, on), extraOffer({ extra: extraOpen }, off), extraOffer({ extra: ready }, on)], ["Configure feature", TURN_ON, null],
@@ -435,7 +449,8 @@ const controls = [
     ["an optional step raises Setup needed", 'stepReading(entry, plugin) === "todo"; })', 'stepReading(entry, plugin) !== "done" && stepReading(entry, plugin) !== "unavailable"; })', "optional step open beside a done required step: Setup needed"],
     ["an optional step sorts with To do", 'optional: 2, done: 3 };', 'optional: 0, done: 3 };', "optional step open beside a required step To do: the order"],
     ["an optional step sorts after Done", 'optional: 2, done: 3 };', 'optional: 4, done: 3 };', "optional step open beside a done required step: the order"],
-    ["Details duplicates required step", '!declaresStep(entry) && ', '', "Details lists each former Settings entry"],
+    ["an optional step Not available sorts with the required ones", 'return reading !== "done" && entry.setup === "optional" ?', 'return reading === "optional" ?', "optional step not available beside a required step Not available: the order"],
+    ["a pending Optional tools step stands last", 'var after = items.findIndex(', 'var after = tools.optional ? -1 : items.findIndex(', "optional step: a pending Optional tools step beside Done steps: the order"],
     ["blocked required work marked done", 'return entry.report !== "reported" || (entry.tone !== "success" && entry.value.available !== false);', 'return entry.report !== "reported";', "only Home blocked"],
     ["unknown required work marked done", 'return entry.report !== "reported" || (entry.tone !== "success" && entry.value.available !== false);', 'return entry.report === "reported" && entry.tone !== "success";', "Home not reported"],
     ["Not available counts as open", '(entry.tone !== "success" && entry.value.available !== false)', 'entry.tone !== "success"', "readiness: only Home not available"],
@@ -468,7 +483,7 @@ const controls = [
     ["a screen that is off names no reason", 'reason: plugin.enabled ? "" : offReason(plugin.name)', 'reason: ""', "off: Settings screens take no press and name why"],
     ["a screen takes a press while the plugin is off", 'enabled: plugin.enabled, reason:', 'enabled: true, reason:', "off: Settings screens take no press and name why"],
     ["a Settings field draws a line for each entry with an action", 'lines.push({ slot: "keys " + key, kind: "keys", key: key });\n    });', 'lines.push({ slot: "keys " + key, kind: "keys", key: key });\n    });\n    row.status.forEach(function (entry) { if (entry.action !== null) lines.push({ slot: "own " + entry.key, kind: "keys", key: entry.key }); });', "a Settings field draws its stored key list alone"],
-    ["Details drops a fact with an action", 'entry.setting === "" && entry.step === "" && entry.type !== "rows";', 'entry.setting === "" && entry.step === "" && entry.type !== "rows" && entry.action === null;', "Details lists each former Settings entry"],
+    ["Details drops a fact with an action", 'return entry.placement === "details"; });', 'return entry.placement === "details" && entry.action === null; });', "Details lists each former Settings entry"],
     ["a Details fact offers no action", 'action: lineAction(stepButton(entry), entry.action !== null, plugin)', 'action: lineAction(null, entry.action !== null, plugin)', "Details: on: a former Settings entry offers its action"],
     ["a Details fact offers no Turn on while the plugin is off", 'action: lineAction(stepButton(entry), entry.action !== null, plugin)', 'action: lineAction(stepButton(entry), false, plugin)', "Details: off: a former Settings entry offers Turn on"],
     ["a Details fact draws its declared action dead", 'action: lineAction(stepButton(entry), entry.action !== null, plugin)', 'action: lineAction(stepButton(entry) || (entry.action === null ? null : { kind: "status", key: "dead", name: "", label: entry.action.label, tone: "", enabled: false, reason: "" }), entry.action !== null, plugin)', "Details: on: a fact whose feature is set up offers nothing"],
@@ -482,6 +497,9 @@ const controls = [
 ];
 // Each producer control edits PluginLogic, whose rows the page draws.
 const producerControls = [
+    ["Details duplicates required step", '    if (setupStep(entry) !== "") return "setup";\n', '', "Details lists each former Settings entry"],
+    ["Details draws a Settings key list", '    if (entry.setting !== undefined) return "settings";\n', '', "Details lists each former Settings entry"],
+    ["Details draws a step's key list", '    if (entry.step !== undefined) return "step";\n', '', "Details lists each former Settings entry"],
     ["no entry is a system step's", "            systemStep: statusEntryActions(entry).some(", "            systemStep: false && statusEntryActions(entry).some(", "Details: an unpublished system step's reading checks"],
     ["a step whose screen needs an optional tool is withheld", "            action: statusRowAction(entry, value),",
         "            action: statusRowAction(entry, statusEntryActions(entry).some(function (a) { return a.action.tui !== undefined && (manifest.tui[a.action.tui].requires || []).some(function (name) { return manifest.requirements.some(function (r) { return r.optional && r.name === name; }); }); }) ? null : value),",

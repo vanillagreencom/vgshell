@@ -18,4 +18,4 @@ System Monitor shows CPU, memory and graphics card use in the bar. Its flyout sh
 
 Open Settings, Shell & Plugins, System Monitor. Readings comes first. Its Layout shows two readings of one item, such as CPU use and temperature, stacked on two short lines, each with its own icon, or on one line. Its Labels shows an icon or a short name before each reading; stacked, each line has its own, such as CPU over TMP. Readings also sets the refresh interval and the temperature unit. CPU, Memory and GPU each turn their bar value on or off and hold its options. Graphics card, under GPU, selects the card when the computer has more than one.
 
-If See all is missing, select Details on the same page. Under Tools, select Review all missing or outdated tools to add btop for the process list.
+If See all is missing, select Setup on the same page. Under Optional tools, select Review all missing or outdated tools to add btop for the process list.

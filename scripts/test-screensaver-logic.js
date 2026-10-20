@@ -96,10 +96,10 @@ const pluginDir = path.dirname(LOGIC);
 const manifest = producer.validateManifest(JSON.parse(fs.readFileSync(path.join(pluginDir, "manifest.json"), "utf8")), pluginDir).manifest;
 const requirements = producer.requirementRows(manifest, ["ttfx"], {});
 report("ttfx stays required by Screensaver and installs on request", requirements.filter(r => r.name === "ttfx").map(r => [r.optional, r.onRequest, r.packages]), [[false, true, { aur: "ttfx" }]]);
-report("missing ttfx keeps an unfinished Tools step on Setup", [steps.setupTab([], requirements), steps.requirementStep(requirements).done], [true, false]);
+report("missing ttfx keeps an unfinished Tools step on Setup", [steps.setupTab([], requirements), steps.toolsStep(requirements, false).done], [true, false]);
 report("Setup requests the missing ttfx install", producer.noticeRequest(manifest, ["ttfx"], {}, "requested", []).commands, ["ttfx"]);
 const installedRequirements = producer.requirementRows(manifest, [], {});
-report("installed ttfx keeps a completed Tools step on Setup", [steps.setupTab([], installedRequirements), steps.requirementStep(installedRequirements).done], [true, true]);
+report("installed ttfx keeps a completed Tools step on Setup", [steps.setupTab([], installedRequirements), steps.toolsStep(installedRequirements, false).done], [true, true]);
 
 const controls = [
   ["SGR reset is handled", "if (code === 0 || code === 39) {\n            color = \"\";\n        }", "if (false) {\n            color = \"\";\n        }"],

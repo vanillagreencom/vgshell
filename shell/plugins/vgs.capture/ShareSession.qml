@@ -85,7 +85,7 @@ Item {
                 try { ready = JSON.parse(setupResult.text).state === "ready"; }
                 catch (error) { console.error("capture: share-probe invalid-result"); }
             }
-            root.shell.status.set("sharing", { tone: ready ? "ok" : "warning", text: ready ? "Ready" : "Setup needed", action: !ready });
+            root.shell.status.set("sharing", { tone: ready ? "ok" : "warning", text: ready ? "Ready" : "Not set up", action: !ready });
             if (code !== 0 || status !== 0) console.error("capture: share-probe " + setupError.text.trim());
         }
     }

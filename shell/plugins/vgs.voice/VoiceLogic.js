@@ -85,15 +85,19 @@ function setupState(reads, daemon) {
 // The `setup` entry's value from STATE, setupState's. Without voxtype the
 // step waits on the one install action, PluginLogic.STATUS_TOOLS_ACTION,
 // which the page offers as Review on the step's row. While another voxtype
-// holds the daemon's place the step offers no action: its hint points at
-// Stop the other voxtype beside its fact on Details. Otherwise the step
+// holds the daemon's place the step reads Not available (`available:
+// false`): its hint names the Other dictation service step, whose Stop the
+// other voxtype is the one action for that cause. Otherwise the step
 // offers Set up while setupState names it.
 function setupPublished(state) {
     if (state.hidden) return { tone: "warning", text: "Not installed", hint: "Install the dictation tool to use Voice", action: "tools" };
     var value = { tone: state.tone, text: state.text };
     if (state.lines !== undefined && state.lines.length > 0) value.lines = state.lines;
     value.action = state.action === "setup";
-    if (state.action === "stop") value.hint = "Choose Stop the other voxtype on the Other dictation service step";
+    if (state.action === "stop") {
+        value.available = false;
+        value.hint = "Stop the other voxtype on the Other dictation service step first";
+    }
     return value;
 }
 

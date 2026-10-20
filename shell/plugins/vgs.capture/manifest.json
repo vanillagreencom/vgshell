@@ -61,7 +61,7 @@
     { "shortcut": "text", "key": "SUPER+CTRL+PRINT", "info": "Lets you drag over an area, reads the text in it and copies that text." }
   ] },
   "status": {
-    "sharing": {"type": "state", "label": "Screen sharing picker", "setup": "optional", "group": "Screen sharing", "hint": "Setup stops a running screen share", "info": "The picker lets you choose what to share when an app asks to share your screen.", "action": {"label": "Set up screen sharing", "tui": "setup-sharing"}},
+    "sharing": {"type": "state", "label": "Sharing picker", "setup": "optional", "group": "Screen sharing", "hint": "Setup stops a running screen share", "info": "The picker lets you choose what to share when an app asks to share your screen.", "action": {"label": "Set up screen sharing", "tui": "setup-sharing"}},
     "capture": {"type": "data", "label": "Capture state"},
     "recording": {"type": "state", "label": "Recording"},
     "audioSources": {"type": "choices", "label": "Audio sources"},

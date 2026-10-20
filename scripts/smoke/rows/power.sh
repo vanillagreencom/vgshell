@@ -262,6 +262,8 @@ power_disk_action() { ipc smoke readInstance window vgs.power diskSleep | py_rep
 row = json.load(sys.stdin)
 print("absent" if row is None else str(row["action"] is not None and row["action"]["offered"]))'; }
 power_disk_allow_shown() { [[ $(ipc smoke scopedWindowGeometry window vgs.power Field "$power_disk_label" RowAction "$power_disk_allow") == \[* ]] && echo yes || echo no; }
+# The published Disk sleep value: [available, carries a hint].
+power_disk_unavailable() { ipc smoke statusValues vgs.power | py_reply 'import json,sys; v=json.load(sys.stdin).get("diskSleep") or {}; print(json.dumps([v.get("available", True), bool(v.get("hint"))]))'; }
 power_profiles_presence() { ipc smoke statusValues vgs.power | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin).get("profiles")))'; }
 # power_timeline: the idle timeline as the pane draws it, top to bottom:
 # each row's page reference, which LinkText reads as the link's words and
@@ -742,7 +744,8 @@ EOF_STAND
   rescan "rescan with hdparm absent from the safe system directories answers ok"
   expect_poll "the scanner reads the absent hdparm missing" missing power_requirement_state hdparm
   expect_poll "the disk step reads needed with hdparm missing" "needed hdparm-missing" system_disk_state
-  expect_poll "the missing-tool status withholds Details' direct Disk sleep action" False power_disk_action
+  expect_poll "the missing-tool status withholds Setup's direct Disk sleep action" False power_disk_action
+  expect_poll "with hdparm missing Disk sleep reads Not available with a hint" '[false, true]' power_disk_unavailable
   expect_poll "the pane still offers Disk sleep Allow to install hdparm" yes power_disk_allow_shown
   if power_pane_pick "$power_disk_label" RowAction "$power_disk_allow"; then
     ok "the real scoped Disk sleep install Allow click completed"

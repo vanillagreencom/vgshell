@@ -1364,9 +1364,10 @@ world(async () => {
         const reference = require("node:vm").createContext({});
         require("node:vm").runInContext(fs.readFileSync(path.join(tree, "shell", "Commons", "PageReference.js"), "utf8").replace(/^\.pragma.*$/m, ""), reference);
         const target = reference.parse(update);
-        // The line is drawn in the Accounts row on Details, above the Tools
-        // section whose action it names: it links no page.
-        assert.deepEqual([target.page, update.includes("Review all missing or outdated tools")], ["", true], "the account tool correction names its row's Review action");
+        // The line is drawn in the Accounts row on Details; Pi is an
+        // optional tool, so it links Setup, whose Optional tools step offers
+        // the Review action it names.
+        assert.deepEqual([target.page, target.tab, update.includes("Review all missing or outdated tools")], ["vgs.jarvis", "Setup", true], "the account tool correction links the Review action");
         assert.ok(update.length <= 200 && !update.endsWith("."));
         assert.equal(signedOut(false), "", "a signed-out row has no hint");
         plain(signedOut(true));
