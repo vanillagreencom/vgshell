@@ -573,8 +573,9 @@ if [[ $dictation_edits == true ]]; then
   expect_poll "control: the copy's daemon reads ready again" "ready idle -" dictation_state acme.dictation
   expect "control: disabling the last holder on the copy is allowed" ok ipc shell setPluginEnabled acme.dictation false
   expect_poll "control: the copy released the hold" null lent holders.dictation
-  expect "control: a last release that ends no child leaves the daemon with no holder" "$dictation_one" dictation_processes all
-  expect "control: the unreleased daemon and follower remain shell-owned" "$dictation_one" dictation_processes owned
+  # The Bash follower forks for $(state_now); that child keeps its argv.
+  # Count the shell's direct children, not those transient fixture forks.
+  expect "control: a last release that ends no child leaves the daemon and follower with no holder" "$dictation_one" dictation_processes owned
   stop_shell || :
   dictation_end_left
   expect_poll "control: the stopped copy's children are gone" "$dictation_none" dictation_processes all
