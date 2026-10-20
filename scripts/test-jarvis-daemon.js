@@ -84,7 +84,7 @@ async function inside() {
                 assert.ok(frame.rows.length <= (frame.type === "task-list" ? 16 : 20));
                 for (const row of frame.rows) assert.deepEqual(Object.keys(row).sort(), frame.type === "task-list"
                     ? ["agent", "createdAt", "endedAt", "failure", "goal", "id", "state"]
-                    : ["decision", "effect", "outcome", "refusal", "time", "tool"]);
+                    : ["cause", "decision", "effect", "outcome", "refusal", "time", "tool"]);
             }
             assert.deepEqual(frames.filter(frame => frame.type !== "shell-status"
                 && frame.type !== "task-list" && frame.type !== "audit-failures"
@@ -149,7 +149,7 @@ async function inside() {
         assert.equal(published.length, 2, "the new refused confirmation publishes after the startup audit list");
         const action = actions.at(-1);
         assert.deepEqual(published.at(-1).rows.at(-1), { time: action.time, tool: action.tool, effect: action.effect,
-            decision: "refuse", outcome: "cancelled", refusal: null });
+            decision: "refuse", outcome: "cancelled", refusal: null, cause: null });
     };
     await noHold(daemon);
     const brokenState = path.join(process.env.JARVIS_TEST_ROOT, "broken-audit-state");

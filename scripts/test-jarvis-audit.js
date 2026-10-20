@@ -53,7 +53,7 @@ world(() => {
             assert.equal(rows.length, 20);
             assert.equal(rows[0].time, "2026-09-30T12:00:04.000Z");
             assert.deepEqual(rows[0], { time: rows[0].time, tool: "files.write", effect: "persistent",
-                decision: "allow", outcome: "failed", refusal: null });
+                decision: "allow", outcome: "failed", refusal: null, cause: null });
             rows[0].tool = "edited";
             assert.equal(writer.failures()[0].tool, "files.write");
         } finally { writer.close(); }
@@ -62,12 +62,14 @@ world(() => {
             assert.equal(writer.record({ ...event, outcome: "completed" }).kind, "recorded");
             assert.equal(changes.length, 0);
             for (const change of [{ outcome: "failed" }, { outcome: "unknown" }, { decision: "refuse" },
-                { kind: "release", decision: "withhold", refusal: "expired" }]) {
+                { kind: "release", decision: "withhold", refusal: "expired" },
+                { kind: "release", decision: "send", outcome: "failed", cause: "unheard" }]) {
                 assert.equal(writer.record({ ...event, ...change }).kind, "recorded");
                 const rows = writer.failures();
                 assert.equal(rows.length, 20);
                 assert.deepEqual(rows.at(-1), { time: "2026-09-30T12:00:00.000Z", tool: change.kind === "release" ? "release" : "files.write",
-                    effect: "persistent", decision: change.decision ?? "allow", outcome: change.outcome ?? "pending", refusal: change.refusal ?? null });
+                    effect: "persistent", decision: change.decision ?? "allow", outcome: change.outcome ?? "pending", refusal: change.refusal ?? null,
+                    cause: change.cause ?? null });
                 assert.deepEqual(changes.at(-1), rows);
             }
         });
@@ -321,6 +323,24 @@ world(() => {
             assert.equal(records(root).length, 2, "a refused record writes nothing");
         });
     }
+    // A failed voice stream's closing release row keeps one of the stream
+    // causes, never the fault's own text; no other record carries one.
+    function checkCause(logic) {
+        const root = state();
+        const stream = { ...event, kind: "release", effect: "external", decision: "send", outcome: "failed" };
+        withWriter(logic, { state: root }, writer => {
+            for (const cause of ["input-silent", "unheard", "voice-stopped"])
+                assert.equal(writer.record({ ...stream, cause }).kind, "recorded", cause);
+            assert.equal(writer.record(stream).kind, "recorded");
+            assert.deepEqual(records(root).map(record => record.cause), ["input-silent", "unheard", "voice-stopped", undefined]);
+            for (const [name, value] of [["fault text", { ...stream, cause: "live=unheard" }],
+                ["caller text", { ...stream, cause: "planted-arbitrary-credential" }],
+                ["completed stream", { ...stream, outcome: "completed", cause: "unheard" }],
+                ["action", { ...event, outcome: "failed", cause: "unheard" }]])
+                assert.deepEqual(writer.record(value), { kind: "refuse", reason: "audit-write", cause: "cause" }, name);
+            assert.equal(records(root).length, 4, "a refused cause writes nothing");
+        });
+    }
     // A vision capture's facts: numbers and a digest, never image bytes.
     const capture = { box: [0, 0, 320, 200], scale: 1.25, width: 400, height: 250, bytes: 1024, sha256: "0a".repeat(32), masks: 2 };
     const vision = { ...event, tool: "vision.screen", args: {}, effect: "read", outcome: "completed", capture };
@@ -355,7 +375,7 @@ world(() => {
             });
         });
     }
-    checkUnlinkFailure(Audit); checkClock(Audit); checkUnknownTool(Audit); checkCapture(Audit); checkProposer(Audit);
+    checkUnlinkFailure(Audit); checkClock(Audit); checkUnknownTool(Audit); checkCapture(Audit); checkProposer(Audit); checkCause(Audit);
     for (const invalid of ["relative", "/", base + "/x/../y", null])
         assert.throws(() => Audit.create({ state: invalid }), { code: "state-path" });
     withWriter(Audit, { now: () => NaN }, writer => assert.equal(writer.record(event).kind, "refuse"));
@@ -421,6 +441,10 @@ world(() => {
         ["tool identity", 'Object.hasOwn(Tools.TABLE, tool) ? tool : "unknown"', 'tool', checkUnknownTool],
         ["proposer kept", '...(event.proposer === undefined ? {} : { proposer: event.proposer }),', "", checkProposer],
         ["proposer judged", 'if (event.proposer !== undefined && (kind !== "action" || event.proposer !== "matcher")) fail("proposer");', "", checkProposer],
+        ["cause kept", "...(event.cause === undefined ? {} : { cause: event.cause }),", "", checkCause],
+        ["cause judged", 'if (event.cause !== undefined && (kind !== "release" || outcome !== "failed" || !STREAM_CAUSES.includes(event.cause))) fail("cause");', "", checkCause],
+        ["cause scope", 'kind !== "release" || outcome !== "failed" || !STREAM_CAUSES', "!STREAM_CAUSES", checkCause],
+        ["cause listed", "cause: record.cause ?? null }", "cause: null }", checkFailures],
         ["capture keys", 'Object.keys(capture).sort().join(",") !== "box,bytes,height,masks,scale,sha256,width"', "false", checkCapture],
         ["capture scope", 'if (kind !== "action" || !Object.hasOwn(Tools.TABLE, tool) || Tools.TABLE[tool].executor !== "vision"', "if (false", checkCapture],
         ["capture digest", "!/^[0-9a-f]{64}$/.test(capture.sha256)", "false", checkCapture],

@@ -1,7 +1,8 @@
 // The Realtime duplex speech engine: one provider session per conversation.
 // It streams the microphone, hands each transcribed user turn to the brain as
-// a delegation and has the voice read the brain's released sentences aloud.
-// It keeps which of those responses the user heard to their end, for the
+// a delegation and has the voice read the brain's released sentences aloud,
+// each in an out-of-band response whose context holds only its words. It
+// keeps which of those responses the user heard to their end, for the
 // brain's account of an interruption.
 // The voice has no tools and never answers on its own. Session owns the
 // lifetime through the speech port; Audio owns devices and calls captureSink
@@ -15,7 +16,7 @@ const Providers = require("./Providers.js");
 const Net = require("./net.js");
 const Guidance = require("./Guidance.js");
 const Speakable = require("./Speakable.js");
-const { sourceLimit, PCM_RATE } = require("./Audio.js");
+const { sourceLimit, peak, SILENT_PEAK, PCM_RATE } = require("./Audio.js");
 
 const FORMAT = Object.freeze({ type: "audio/pcm", rate: PCM_RATE });
 // The transcription guide's model for text that arrives while the user
@@ -25,6 +26,11 @@ const TRANSCRIBE = "gpt-live-transcribe";
 const IDLE_MS = 60000;            // plan § 3.5
 const START_WAIT_MS = 20000;      // connect, session.created and session.updated
 const RESPONSE_WAIT_MS = 30000;   // response.create to its response.done
+// The first captured frame of a running session to the voice's first sign
+// that it heard speech: speech_started, a transcription delta or a
+// transcript. Semantic VAD reports the start of speech as it comes (the
+// Realtime VAD guide), so this leaves a user room to start talking.
+const UNHEARD_MS = 15000;
 const REPLY_GAP_MS = 500;         // no words waiting for this long ends a playing reply
 const SILENCE_TICK_MS = 100;
 const SILENCE_MAX_MS = 1000;      // no catch-up past this after a stalled event loop
@@ -244,6 +250,21 @@ function create({ provider, clock, conversation, captionLimit, log }) {
             activity(session);
         }, IDLE_MS);
     }
+    // Captured audio the voice never answers ends the conversation at
+    // UNHEARD_MS with the cause its frames' peak names, rather than at the
+    // idle wait with no cause. The first sign of heard speech ends the watch
+    // for the session's life: a quiet answered conversation ends at idle.
+    function watch(session) {
+        if (session.answered || !session.captured || session.state.kind !== "running" || session.timers.unheard !== null) return;
+        session.timers.unheard = clock.set(() => {
+            session.timers.unheard = null;
+            failed(session, session.peak <= SILENT_PEAK ? "live=input-silent" : "live=unheard");
+        }, UNHEARD_MS);
+    }
+    function answered(session) {
+        session.answered = true;
+        clear(session, "unheard");
+    }
     function quiet(session) { return session.speech.active === null && session.speech.queue.length === 0; }
     function replyPending(session) {
         return session.speech.active !== null && !session.speech.active.line
@@ -277,10 +298,17 @@ function create({ provider, clock, conversation, captionLimit, log }) {
         // A response that never ends would hold every later word.
         session.timers.words = clock.set(() => failed(session, "live=response-timeout"), RESPONSE_WAIT_MS);
         // conversation "none" keeps the response out of the provider's
-        // conversation, so no assistant item exists there to truncate.
+        // conversation, so no assistant item exists there to truncate. It
+        // still reads that conversation, which holds the user's own audio,
+        // unless input gives it a context of its own (openai-node 7.31.0,
+        // RealtimeResponseCreateParams.input: "creates a new context for this
+        // Response instead of using the default conversation"). So the one
+        // user message there carries the words as a JSON string, the one text
+        // each request gives the reader, and no user item can reach it.
         try {
             send(session, { type: "response.create", response: { conversation: "none", output_modalities: ["audio"],
-                instructions: session.reader + "\n\n" + JSON.stringify(words.text) } }, [words.item]);
+                instructions: session.reader, input: [{ type: "message", role: "user",
+                    content: [{ type: "input_text", text: JSON.stringify(words.text) }] }] } }, [words.item]);
         } catch (error) { failed(session, reasonOf(error)); return false; }
         return true;
     }
@@ -368,19 +396,22 @@ function create({ provider, clock, conversation, captionLimit, log }) {
                 if (!pump(session)) return;
                 silence(session);
                 activity(session);
+                watch(session);
                 if (session.preview !== null) {
                     session.delegation = PREVIEW;
                     commentary(PREVIEW, Policy.item(session.preview, ["desktop"]));
                 }
                 break;
-            case "activity": activity(session); break;
+            case "activity": activity(session); answered(session); break;
             case "hearing":
                 activity(session);
+                answered(session);
                 conclude(session, "assistant");
                 caption(session, "user", event.item, event.text);
                 break;
             case "heard":
                 activity(session);
+                answered(session);
                 conclude(session, "assistant");
                 // The open caption closes on its own item's transcript. An item
                 // with none open gets its caption whole, and another item's stays open.
@@ -461,8 +492,9 @@ function create({ provider, clock, conversation, captionLimit, log }) {
         open(e, events) {
             if (live !== null) throw new Error("jarvis: live=session-live");
             const session = { op: e.op, events, state: { kind: "connecting" }, channel: null, update: null, reader: "",
-                timers: { start: null, silence: null, idle: null, gap: null, words: null, preview: null },
-                pending: [], pendingBytes: 0, inputAt: clock.now(), capture: null, playing: null, next: null,
+                timers: { start: null, silence: null, idle: null, gap: null, words: null, preview: null, unheard: null },
+                pending: [], pendingBytes: 0, inputAt: clock.now(), capture: null, captured: false, peak: 0, answered: false,
+                playing: null, next: null,
                 speech: { queue: [], chars: 0, active: null }, delegation: null, said: [], taken: null,
                 segments: { user: null, assistant: null }, rev: 0, language: "", preview: null };
             live = session;
@@ -545,7 +577,12 @@ function create({ provider, clock, conversation, captionLimit, log }) {
                 if (session.capture !== sink || session.state.kind === "ended") return;
                 if (pcm.length % 2 !== 0) { failed(session, "live=input-frame"); return; }
                 session.inputAt = clock.now();
-                input(session, pcm);
+                // Only the loudest sample is kept, for the cause; no audio is.
+                if (!session.answered) {
+                    session.captured = true;
+                    session.peak = Math.max(session.peak, peak(pcm));
+                }
+                if (input(session, pcm)) watch(session);
             }
         });
         session.capture = sink;

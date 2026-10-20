@@ -17,7 +17,7 @@ const Providers = require("./Providers.js");
 const Net = require("./net.js");
 const Guidance = require("./Guidance.js");
 const Speakable = require("./Speakable.js");
-const { sourceLimit, PCM_RATE } = require("./Audio.js");
+const { sourceLimit, peak, SILENT_PEAK, PCM_RATE } = require("./Audio.js");
 
 // The Live API hears 16 kHz PCM and speaks 24 kHz PCM (capabilities guide).
 // Audio captures and plays at PCM_RATE, so speech plays as it comes and the
@@ -29,6 +29,10 @@ if (PCM_RATE !== OUTPUT_RATE) throw new Error("jarvis: live=audio-rate");
 const IDLE_MS = 60000;            // plan § 3.5
 const START_WAIT_MS = 20000;      // connect, open and setupComplete
 const RESPONSE_WAIT_MS = 30000;   // asked words, or words held for the voice's own turn, to that turn's turnComplete
+// The first captured frame of a running session to the voice's first sign
+// that it heard speech, an input transcription. The Live API transcribes
+// the user's words as they come, so this leaves a user room to start talking.
+const UNHEARD_MS = 15000;
 const REPLY_GAP_MS = 500;         // no words waiting for this long ends a playing reply
 const SILENCE_TICK_MS = 100;
 const SILENCE_MAX_MS = 1000;      // no catch-up past this after a stalled event loop
@@ -285,6 +289,21 @@ function create({ provider, clock, conversation, captionLimit, log }) {
             activity(session);
         }, IDLE_MS);
     }
+    // Captured audio the voice never answers ends the conversation at
+    // UNHEARD_MS with the cause its frames' peak names, rather than at the
+    // idle wait with no cause. The first sign of heard speech ends the watch
+    // for the session's life: a quiet answered conversation ends at idle.
+    function watch(session) {
+        if (session.answered || !session.captured || session.state.kind !== "running" || session.timers.unheard !== null) return;
+        session.timers.unheard = clock.set(() => {
+            session.timers.unheard = null;
+            failed(session, session.peak <= SILENT_PEAK ? "live=input-silent" : "live=unheard");
+        }, UNHEARD_MS);
+    }
+    function answered(session) {
+        session.answered = true;
+        clear(session, "unheard");
+    }
     function quiet(session) { return session.speech.active === null && session.speech.queue.length === 0; }
     function replyPending(session) {
         return session.speech.active !== null && !session.speech.active.line
@@ -405,6 +424,7 @@ function create({ provider, clock, conversation, captionLimit, log }) {
         if (turn.text.length + text.length > TURN_CHARS) fail("turn-size");
         turn.text += text;
         caption(session, "user", text);
+        answered(session);
     }
     // The user's words go to the brain once.
     function delegate(session) {
@@ -488,6 +508,7 @@ function create({ provider, clock, conversation, captionLimit, log }) {
                 if (!pump(session)) return;
                 silence(session);
                 activity(session);
+                watch(session);
                 if (session.preview !== null) {
                     session.delegation = PREVIEW;
                     commentary(PREVIEW, Policy.item(session.preview, ["desktop"]));
@@ -570,8 +591,9 @@ function create({ provider, clock, conversation, captionLimit, log }) {
         open(e, events) {
             if (live !== null) throw new Error("jarvis: live=session-live");
             const session = { op: e.op, events, state: { kind: "connecting" }, channel: null, setup: null, reader: "",
-                timers: { start: null, silence: null, idle: null, gap: null, words: null, hold: null, preview: null },
+                timers: { start: null, silence: null, idle: null, gap: null, words: null, hold: null, preview: null, unheard: null },
                 pending: [], pendingBytes: 0, carry: Buffer.alloc(0), inbox: [], reading: false, inputAt: clock.now(), capture: null,
+                captured: false, peak: 0, answered: false,
                 playing: null, next: null, speech: { queue: [], chars: 0, active: null }, hold: false, turn: null, turns: 0,
                 delegation: null, said: [], taken: null, segments: { user: null, assistant: null }, rev: 0, language: "", preview: null };
             live = session;
@@ -653,7 +675,12 @@ function create({ provider, clock, conversation, captionLimit, log }) {
                 if (session.capture !== sink || session.state.kind === "ended") return;
                 if (pcm.length % 2 !== 0) { failed(session, "live=input-frame"); return; }
                 session.inputAt = clock.now();
-                input(session, pcm);
+                // Only the loudest sample is kept, for the cause; no audio is.
+                if (!session.answered) {
+                    session.captured = true;
+                    session.peak = Math.max(session.peak, peak(pcm));
+                }
+                if (input(session, pcm)) watch(session);
             }
         });
         session.capture = sink;

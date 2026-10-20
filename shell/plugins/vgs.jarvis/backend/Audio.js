@@ -26,6 +26,19 @@ function sourceLimit(objectMode, duplex) {
     return Math.floor((PLAYBACK_QUEUE_BYTES - (duplex ? 3 : 2) * BUFFER_BYTES) / unit / (duplex ? 2 : 1));
 }
 
+// The captured peak, of 32768, at or below which the microphone sent only
+// silence: a muted or dead source sends zeros, and a live one's own noise
+// passes it within seconds. A classification floor, about -60 dBFS, chosen
+// by rule and not measured on a device.
+const SILENT_PEAK = 32;
+
+/** The largest sample magnitude of whole 16-bit little-endian PCM. */
+function peak(pcm) {
+    let most = 0;
+    for (let i = 0; i + 1 < pcm.length; i += 2) most = Math.max(most, Math.abs(pcm.readInt16LE(i)));
+    return most;
+}
+
 class Audio {
     constructor({ session, environment, clock, offers, level, fault, captureSink, playbackSource }) {
         this.session = session;
@@ -680,4 +693,4 @@ class Audio {
     }
 }
 
-module.exports = { Audio, sourceLimit, PCM_RATE, SENTENCE_FRAMES };
+module.exports = { Audio, sourceLimit, peak, SILENT_PEAK, PCM_RATE, SENTENCE_FRAMES };

@@ -3361,21 +3361,12 @@ print(json.dumps(sorted(tools)))
   jarvis_audit_check() {
     local before="$failures"
     expect_poll "Audit is the current tab" '[2]' jarvis_audit_tabs
-    expect_poll "Audit draws all three planted entries" '["files.delete", "files.delete", "release"]' jarvis_audit_entries
+    expect_poll "Audit draws all three planted entries" '["files.delete", "release", "release"]' jarvis_audit_entries
     [[ $failures == "$before" ]]
   }
   jarvis_setup_requirements
   "$node_bin" "$checkout/scripts/fixtures/jarvis/scripted.js" "$backend" "$saved-gates" --mapped-indicator
-  # The console fixture has two records. Repeat its first record to exercise
-  # a list with more than one separator without building another audit log.
-  python3 - "$repo/shell/plugins/vgs.jarvis/backend/scripted-fixture.js" <<'PY'
-from pathlib import Path
-import sys
-p=Path(sys.argv[1]); s=p.read_text()
-needle='function consoleAudit() { return consoleFailures; }'
-assert s.count(needle)==1
-p.write_text(s.replace(needle, 'function consoleAudit() { return consoleFailures.concat(consoleFailures.slice(0, 1)); }'))
-PY
+  # The console fixture's three records draw a list with more than one separator.
   for control in empty planted; do
     if [[ $control == planted ]]; then
       "$node_bin" "$checkout/scripts/fixtures/jarvis/scripted.js" --console-data "$backend"

@@ -155,7 +155,7 @@ task_scenario() {
   expect_poll "the synthetic task row reaches status" \
     "{\"id\": \"$task_id\", \"goal\": \"Smoke fixture\", \"agent\": \"fixture\", \"state\": \"starting\", \"failure\": null}" task_list_row
   expect_poll "the fixture audit failure reaches status without args" \
-    "{\"time\": \"$task_audit_time\", \"tool\": \"files.write\", \"effect\": \"persistent\", \"decision\": \"refuse\", \"outcome\": \"failed\", \"refusal\": null}" task_audit_failure
+    "{\"time\": \"$task_audit_time\", \"tool\": \"files.write\", \"effect\": \"persistent\", \"decision\": \"refuse\", \"outcome\": \"failed\", \"refusal\": null, \"cause\": null}" task_audit_failure
   expect "the open-task IPC handle answers" ok ipc vgs.jarvis invoke open-task "$task_id"
   expect_poll "the daemon receives the task-open intent" "\"$task_id\"" task_last task-opens.jsonl
   expect_poll "the core runs task-view with the id alone" \

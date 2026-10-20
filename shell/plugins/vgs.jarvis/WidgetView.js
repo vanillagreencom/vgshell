@@ -68,12 +68,16 @@ var SETUP_TEXT = [
 // speech=local-ready-timeout), the home folder causes of a conversation's
 // first turn (home=link, guidance=home-skills-too-large; a home text over
 // its budget is no fault) and Audio's capture and
-// playback failures (audio-start: ..., device-probe: ..., playback-busy).
+// playback failures (audio-start: ..., device-probe: ..., playback-busy),
+// and a cloud voice that never answered the captured audio (Realtime.js and
+// GeminiLive.js: live=input-silent, live=unheard).
 // A model its app refused carries the model's name (ClaudeCode:
 // brain=harness-model-refused model=claude-fable-5-1).
 var MODEL_REFUSED = /^brain=harness-model-refused model=(.*)$/;
 var FAULT_KINDS = [
     [/^thinking-timeout$/, "slow"],
+    [/^live=input-silent$/, "inputSilent"],
+    [/^live=unheard$/, "unheard"],
     [/^device-lost$/, "device"],
     [/^(home=|guidance=home-)/, "home"],
     [MODEL_REFUSED, "model"],
@@ -109,6 +113,10 @@ var FAULT_TEXT = {
     "dictationBusy": { title: "Voice is recording", action: "Talk to Jarvis again when Voice stops recording." },
     "dictation": { title: "Dictation did not record", action: "Check dictation in [Settings > Voice](page:vgs.voice/Setup), then talk again." },
     "audio": { title: "The microphone or speaker stopped working", action: RESTART },
+    // A voice that heard no speech in the captured audio ends the
+    // conversation; the next Talk press clears the fault.
+    "inputSilent": { title: "The microphone sent only silence", action: "Choose a working microphone under [Audio in Settings > Jarvis](page:vgs.jarvis/Settings), then talk again." },
+    "unheard": { title: "The voice service heard no words", action: "Talk again, closer to the microphone." },
     "other": { title: "Jarvis stopped after a problem", action: RESTART }
 };
 // While Session retries a lost device, Jarvis acts by itself.

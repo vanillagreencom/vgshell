@@ -13,6 +13,10 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const TAIL_BYTES = 64 * 1024;
 const owners = new Set();
 const effects = ["read", "reversible", "input", "persistent", "exec", "external", "destructive"];
+// Why a duplex voice stream failed, as ChainedEngine closes its release
+// rows: the microphone sent only silence, the voice heard no words, or any
+// other fault of the stream.
+const STREAM_CAUSES = ["input-silent", "unheard", "voice-stopped"];
 
 function fail(code) {
     const error = new Error("jarvis: audit=" + code);
@@ -70,12 +74,15 @@ function eventRecord(event, time) {
     // text as the reason a release confirmation was refused.
     if (event.refusal !== undefined && (kind !== "release" || !["expired", "no-hold", "identity", "source",
         "early", "voice-physical", "voice-timing"].includes(event.refusal))) fail("refusal");
+    // A stream's cause is one of these keys, never the fault's own text.
+    if (event.cause !== undefined && (kind !== "release" || outcome !== "failed" || !STREAM_CAUSES.includes(event.cause))) fail("cause");
     // An action the local matcher proposed, not a brain (Tools.match).
     if (event.proposer !== undefined && (kind !== "action" || event.proposer !== "matcher")) fail("proposer");
     return { time, kind, gen, op,
         tool: kind === "release" ? "release" : Object.hasOwn(Tools.TABLE, tool) ? tool : "unknown",
         args: Redact.argumentsFor(kind, tool, event.args), effect, decision, confirmed, outcome,
         ...(event.refusal === undefined ? {} : { refusal: event.refusal }),
+        ...(event.cause === undefined ? {} : { cause: event.cause }),
         ...(event.proposer === undefined ? {} : { proposer: event.proposer }),
         ...(event.capture === undefined ? {} : { capture: captureRecord(kind, tool, event.capture) }) };
 }
@@ -102,7 +109,7 @@ function create({ state, auditDays = 30, now = Date.now, changed = () => {} }) {
     function retain(record) {
         if (!["refuse", "withhold"].includes(record.decision) && !["failed", "unknown"].includes(record.outcome)) return false;
         recent = recent.concat([{ time: record.time, tool: record.tool, effect: record.effect,
-            decision: record.decision, outcome: record.outcome, refusal: record.refusal ?? null }]).slice(-20);
+            decision: record.decision, outcome: record.outcome, refusal: record.refusal ?? null, cause: record.cause ?? null }]).slice(-20);
         return true;
     }
 

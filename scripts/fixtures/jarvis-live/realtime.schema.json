@@ -15,7 +15,7 @@
  "rule": [
   "Each schema transcribes the interface of the same name in the types file to the checker's keyword set. String literals become enums; optional members stay optional.",
   "RealtimeSessionCreateRequest keeps its realtime branch. tools items, noise_reduction and a tracing object stay open, since the engine sends an empty tools list and a null tracing value.",
-  "RealtimeResponse and RealtimeResponseCreateParams keep the members a spoken out-of-band response carries. output items, usage and audio stay open.",
+  "RealtimeResponse and RealtimeResponseCreateParams keep the members a spoken out-of-band response carries. input holds ConversationItem, the items of a response's own context. output items, usage and audio stay open.",
   "ConversationItem keeps its user message and assistant message branches, the items a spoken turn and a spoken response make.",
   "The checker closes every other object."
  ],
@@ -267,8 +267,7 @@
     "input": {
      "type": "array",
      "items": {
-      "type": "object",
-      "additionalProperties": true
+      "$ref": "#/schemas/ConversationItem"
      }
     },
     "instructions": {

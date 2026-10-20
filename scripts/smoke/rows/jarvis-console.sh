@@ -119,12 +119,18 @@ jarvis_console_audit() {
 jarvis_console_tasks_tab_check() { expect_poll "the tab bar reaches Tasks" '[[3, 1]]' jarvis_console_tabs; }
 jarvis_console_stop_check() { expect_poll "Stop sends the selected fixture id" "$1" jarvis_console_intent task-stop; }
 jarvis_console_audit_check() { expect_poll "Audit draws the fixture failure" shown jarvis_console_audit; }
-# The hairline count of each shown GroupList: the fixture's two Audit
-# records are two groups, so one hairline parts them.
+# A failed voice stream's record draws its cause after its result, as a
+# withheld one draws its refusal.
+jarvis_console_audit_cause() {
+  ipc smoke itemValues window vgs.jarvis Label text,visible | py_reply 'import json,sys; rows=json.load(sys.stdin); print("shown" if any(r.get("visible") and str(r.get("text")).startswith("Failed \u00b7 ") for r in rows) else "missing")'
+}
+jarvis_console_audit_cause_check() { expect_poll "Audit draws the failed stream's cause" shown jarvis_console_audit_cause; }
+# The hairline count of each shown GroupList: the fixture's three Audit
+# records are three groups, so two hairlines part them.
 jarvis_console_audit_groups() {
   ipc smoke itemValues window vgs.jarvis GroupList visible,hairlines | py_reply 'import json,sys; rows=json.load(sys.stdin); print(json.dumps([len(r.get("hairlines") or []) for r in rows if r.get("visible")]))'
 }
-jarvis_console_audit_groups_check() { expect_poll "Audit draws its records as one GroupList with a hairline between them" '[1]' jarvis_console_audit_groups; }
+jarvis_console_audit_groups_check() { expect_poll "Audit draws its records as one GroupList with a hairline between them" '[2]' jarvis_console_audit_groups; }
 jarvis_console_tasks_path() {
   expect_poll "Conversation has composer focus before its tab switch" true jarvis_console_text_field_focused
   type_keys -M ctrl -k Tab -m ctrl || fail "switching to Tasks failed"
@@ -238,6 +244,7 @@ type_keys -k Right || fail "switching the tab bar to Audit failed"
 expect_poll "Right selects Audit" '[[3, 2]]' jarvis_console_tabs
 expect_poll "Audit takes keyboard focus" true jarvis_console_body_focused
 jarvis_console_audit_check
+jarvis_console_audit_cause_check
 jarvis_console_audit_groups_check
 type_keys -k Page_Down -k Page_Up -M shift -k Tab -m shift || fail "Audit scrolling or Backtab failed"
 expect_poll "Audit Backtab reaches the tab bar" true ipc smoke activeFocusWithin window vgs.jarvis Tabs

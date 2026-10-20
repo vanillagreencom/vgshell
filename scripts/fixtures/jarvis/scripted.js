@@ -346,8 +346,9 @@ let consoleRows = [
     { id: "console-third", goal: "Build the settings page", agent: "Pi", state: "failed", failure: 2, createdAt: 10, endedAt: 15 }
 ];
 const consoleFailures = [
-    { time: "2026-10-11T09:30:00.000Z", tool: "files.delete", effect: "destructive", decision: "refuse", outcome: "cancelled", refusal: null },
-    { time: "2026-10-11T09:35:00.000Z", tool: "release", effect: null, decision: "withhold", outcome: "cancelled", refusal: "source" }
+    { time: "2026-10-11T09:30:00.000Z", tool: "files.delete", effect: "destructive", decision: "refuse", outcome: "cancelled", refusal: null, cause: null },
+    { time: "2026-10-11T09:35:00.000Z", tool: "release", effect: null, decision: "withhold", outcome: "cancelled", refusal: "source", cause: null },
+    { time: "2026-10-11T09:40:00.000Z", tool: "release", effect: "external", decision: "send", outcome: "failed", refusal: null, cause: "unheard" }
 ];
 function consoleTasks() { return consoleRows; }
 function consoleAudit() { return consoleFailures; }

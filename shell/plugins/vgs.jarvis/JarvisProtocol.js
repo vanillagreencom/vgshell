@@ -521,14 +521,15 @@ function accept(line, direction) {
         keys(message, ["v", "type", "gen", "revision", "rows"], "audit-failures");
         if (!Array.isArray(message.rows) || message.rows.length > 20) fail("audit-failures");
         for (var row of message.rows) {
-            keys(row, ["time", "tool", "effect", "decision", "outcome", "refusal"], "audit-row");
+            keys(row, ["time", "tool", "effect", "decision", "outcome", "refusal", "cause"], "audit-row");
             if (typeof row.time !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(row.time)
                     || !printable(row.tool, 1, FIELD_MAX)
                     || !(row.effect === null || ["read", "reversible", "input", "persistent", "exec", "external", "destructive"].indexOf(row.effect) !== -1)
                     || ["allow", "confirm", "refuse", "send", "ask", "withhold"].indexOf(row.decision) === -1
                     || ["pending", "completed", "failed", "unknown", "cancelled"].indexOf(row.outcome) === -1
                     || (["refuse", "withhold"].indexOf(row.decision) === -1 && ["failed", "unknown"].indexOf(row.outcome) === -1)
-                    || !(row.refusal === null || ["expired", "no-hold", "identity", "source", "early", "voice-physical", "voice-timing"].indexOf(row.refusal) !== -1)) fail("audit-row");
+                    || !(row.refusal === null || ["expired", "no-hold", "identity", "source", "early", "voice-physical", "voice-timing"].indexOf(row.refusal) !== -1)
+                    || !(row.cause === null || ["input-silent", "unheard", "voice-stopped"].indexOf(row.cause) !== -1)) fail("audit-row");
         }
         break;
     case "input-ready":

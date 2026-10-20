@@ -65,6 +65,10 @@ const SENTENCE_TEXT = 8 * 1024 * 1024;
 const CAPTURE_BYTES = 16 * 1024;
 // Release records name the transfer leaving the machine.
 const RELEASE_EFFECT = "external";
+// The cause a failed duplex stream's closing release row keeps, by the
+// adapters' keyed fault (Realtime.js, GeminiLive.js); any other fault keeps
+// voice-stopped. Audit.js refuses any other cause.
+const STREAM_CAUSES = Object.freeze({ "live=input-silent": "input-silent", "live=unheard": "unheard" });
 // One local working sound for a still-silent turn, without a speech request.
 const WORKING_AFTER_MS = 1200;
 // Owner ruling VGS-1320: longer than a few seconds gets one spoken progress line per stated step.
@@ -491,6 +495,26 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
     function record(c, identity, labels, decision) {
         if (audit.record(releaseEvent(c, identity, labels, decision, "completed")).kind !== "recorded") fail("audit-write");
     }
+    // A duplex stream leaves a pending release row before each frame, under
+    // the speech session's identity. Its end closes them with one row:
+    // completed, or failed with the stream cause Audit keeps, never the
+    // fault's own text.
+    function streamed(c, identity) {
+        if (c.stream !== null && c.stream.op === identity.op) return;
+        closeStream(c, null);
+        c.stream = { gen: identity.gen, op: identity.op };
+    }
+    function closeStream(c, reason) {
+        const stream = c.stream;
+        if (stream === null) return;
+        c.stream = null;
+        const ending = reason === null ? { outcome: "completed" }
+            : { outcome: "failed", cause: Object.hasOwn(STREAM_CAUSES, reason) ? STREAM_CAUSES[reason] : "voice-stopped" };
+        const result = audit.record({ ...releaseEvent(c, stream, ["speech"], "send", ending.outcome),
+            ...(ending.cause === undefined ? {} : { cause: ending.cause }) });
+        // The stream has already ended: a failed write is reported, not raised.
+        if (result.kind !== "recorded") log("jarvis: engine=audit-write stream cause=" + result.cause);
+    }
     // Every transfer is judged against the whole set, then audited first.
     function transfer(c, identity, item, start) {
         if (Policy.release(item, c.recipients, c.grants).kind !== "send") fail("release-" + item.labels.join("-"));
@@ -512,14 +536,17 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         // retried is that prompt once it was asked again after unjudged words.
         const c = { gen, plan: activePlan, entry: 0, recipients, net, retired: new Set(), speech: null, spoken: null, liveOpen: null, brain: null, guidance: null, owner: null, grants: [], heard: null, relay: null, retried: null, unmatched: null,
             decisions: new Set(), releasePending: null, late: new Map(), results: [], turn: null, last: null,
-            feedback: null, collection: null, unbound: null, rev: 0, quiet: Promise.resolve(), live: null };
+            feedback: null, collection: null, unbound: null, rev: 0, quiet: Promise.resolve(), live: null, stream: null };
         try {
             const duplex = duplexOf(plan.speech.id);
             if (duplex !== null) {
                 c.live = duplex.adapter.create({ provider: plan.speech.provider, clock, captionLimit,
                     log, conversation: e => ({ net: c.net, key: plan.speech.key, language: LANGUAGE, voice: plan.speech.voice,
                         preview: e.preview === true ? PREVIEW_LINE : null,
-                        grants: () => c.grants, transfer: (item, start) => transfer(c, e, item, start) }) });
+                        grants: () => c.grants, transfer: (item, start) => transfer(c, e, item, () => {
+                            streamed(c, e);
+                            return start();
+                        }) }) });
                 c.speech = { close: () => c.live.port.release() };
             } else {
                 reargue();
@@ -550,6 +577,7 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
         const c = conversation;
         if (c === null) return;
         conversation = null;
+        closeStream(c, null);
         cancelRelease(c);
         c.grants.length = 0;
         c.decisions.clear();
@@ -1938,8 +1966,12 @@ function create({ session, state, audit, router, accounts, policy, fault, captio
                 // A failover reopens the session for the conversation, which
                 // speaks no preview a second time.
                 const { preview, ...reopen } = e;
-                c.liveOpen = { e: reopen, events };
-                c.live.port.open(e, events);
+                const own = { ...events, failed: reason => {
+                    if (c.stream?.op === e.op) closeStream(c, reason);
+                    events.failed(reason);
+                } };
+                c.liveOpen = { e: reopen, events: own };
+                c.live.port.open(e, own);
             },
             close(e) {
                 if (conversation?.liveOpen?.e?.op === e.target) conversation.liveOpen = null;

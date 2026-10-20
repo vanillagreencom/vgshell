@@ -91,12 +91,20 @@ FocusScope {
         if (reply === "ok" && action === "stop") tasksBody.forceActiveFocus(taskStopButton.focusReason);
     }
 
+    // What a failed voice stream's cause says (Audit.js STREAM_CAUSES).
+    readonly property var streamCauses: ({
+        "input-silent": "the microphone sent only silence",
+        "unheard": "the voice service heard no words",
+        "voice-stopped": "the voice stopped after a problem"
+    })
+
     function auditDetail(row) {
         const result = row.decision === "refuse" ? "Refused" : row.decision === "withhold" ? "Withheld"
             : row.outcome === "failed" ? "Failed" : "Result unknown";
         // Qt's QML String API supplies regex replacement:
         // https://doc.qt.io/qt-6/qtqml-javascript-functionlist.html#string-objects
-        return result + (row.refusal === null ? "" : " · " + String(row.refusal).replace(/-/g, " "));
+        return result + (row.refusal === null ? "" : " · " + String(row.refusal).replace(/-/g, " "))
+            + (row.cause === null ? "" : " · " + streamCauses[row.cause]);
     }
 
     onTaskRowsChanged: {

@@ -157,6 +157,9 @@ const CASES = [
         ["a device probe", "device-probe: pw-dump-exit", "audio"], ["a busy player", "playback-busy", "audio"],
         ["a home skill set over its entry bound", "guidance=home-skills-too-large", "home"],
         ["a link in the home folder", "home=link", "home"],
+        ["a cloud voice that heard only silence", "live=input-silent", "inputSilent"],
+        ["a cloud voice that heard no words", "live=unheard", "unheard"],
+        ["another cloud voice fault", "live=disconnected code=1006", "other"],
         ["an unexpected engine failure", "engine=unexpected", "other"]].map(([label, reason, kind]) =>
         [label, up({ fault: { kind: "error", reason, retry: 0 } }), ["problem", "circle-alert", "danger", WITH(fault(kind), [MUTE])]]),
     // The local voice records through the core's dictation and hears the
@@ -309,7 +312,7 @@ function verify(view) {
             for (const text of [got[3], ...got[4]])
                 assert.ok((text.match(/\]\(page:/g) ?? []).length <= 1, label + ": one reference per drawn tooltip line");
     }
-    for (const kind of ["slow", "device", "defaultDevice", "home", "brain", "localVoice", "dictationBusy", "dictation", "voice", "audio", "other"])
+    for (const kind of ["slow", "device", "defaultDevice", "home", "brain", "localVoice", "dictationBusy", "dictation", "voice", "audio", "inputSilent", "unheard", "other"])
         assert.equal(typeof view.FAULT_TEXT[kind].title === "string" && typeof view.FAULT_TEXT[kind].action === "string", true, kind);
     const words = [view.GATE_TEXT.unconfigured.action, ...view.SETUP_TEXT.map(([, line]) => line.action)];
     assert.equal(new Set(words).size, words.length, "each remaining step says its own sentence");
