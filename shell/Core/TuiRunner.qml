@@ -71,7 +71,7 @@ Scope {
             run: (name, args, done) => root.run(ctx, name, args, done),
             get entries() { return root.entries; },
             open: key => root.open(key),
-            edit: (path, line, done) => root.edit(path, line, root.guarded(ctx, done)),
+            edit: (path, line, done) => root.edit(path, line, root.guarded(ctx, done, "tui=edit")),
             get state() { return root.stateOf(ctx); }
         };
     }
@@ -187,10 +187,12 @@ Scope {
     }
 
     // DONE, a plugin's callback, as a function that calls it only while
-    // CTX, the instance that gave it, lives, as a run's `done` is dropped.
-    function guarded(ctx, done) {
+    // CTX, the instance that gave it, reads `active`, as a run's `done` is
+    // dropped. OPERATION, `<capability>=<member>` the plugin called, names
+    // the refusal of a DONE that is no function.
+    function guarded(ctx, done, operation) {
         if (done === undefined) return undefined;
-        if (typeof done !== "function") throw new Error("refused: tui=edit done=not-a-function");
+        if (typeof done !== "function") throw new Error("refused: " + operation + " done=not-a-function");
         return answer => { if (ctx.active) done(answer); };
     }
 

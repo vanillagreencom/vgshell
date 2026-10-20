@@ -202,7 +202,7 @@ Singleton {
             hide: kind => root.surfaceRoute(ctx, "hide", kind, "", null),
             toggle: (kind, payloadJson, anchor) => root.surfaceRoute(ctx, "toggle", kind, payloadJson, anchor),
             openPage: (page, tab, done) => {
-                const reply = Plugins.openReference(page, tab, tuis.guarded(ctx, done));
+                const reply = Plugins.openReference(page, tab, tuis.guarded(ctx, done, "surfaces=openPage"));
                 if (reply !== "ok") console.warn("surfaces: openPage " + reply);
                 return reply;
             }

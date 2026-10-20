@@ -882,7 +882,7 @@ for (const [label, needle, replacement] of [
 // them, with the judge above, against stand-ins for the launcher, the
 // folder check, the file read and runDetached.
 function editSuite(source, logic, check) {
-    const functions = ["edit(path, line, done)", "editFor(id, path)", "guarded(ctx, done)", "openPath(path, line, owner, done)", "openEditor(route, owner)",
+    const functions = ["edit(path, line, done)", "editFor(id, path)", "guarded(ctx, done, operation)", "openPath(path, line, owner, done)", "openEditor(route, owner)",
         "fileKind(completion, output, errors)", "fileProbed(probe, completion, output, errors)", "recordStarted(launch, args)", "openFolder(path, done)", "folderChecked(path, completion, done)"]
         .map(header => runnerFunction(source, header)).join("");
     // STEPS run in order in one context, each [busy keys, call, the end of
@@ -987,8 +987,8 @@ function editSuite(source, logic, check) {
             want({ answers: ["ok"], probes: ["/home/me/a.pdf"], opened: [["gio", "open", "/home/me/a.pdf"]] })],
         ["a plugin's done answers while its instance lives", [[[], "edit(\"/home/me/a.pdf\", undefined, guarded(ctxLive, finished))", info("application/pdf")]],
             want({ answers: ["ok"], probes: ["/home/me/a.pdf"], opened: [["gio", "open", "/home/me/a.pdf"]], done: ["ok"] })],
-        ["a done that is no function is refused", [[[], "(() => { try { guarded(ctxLive, 7); } catch (e) { return e.message; } })()", null]],
-            want({ answers: ["refused: tui=edit done=not-a-function"] })],
+        ["a done that is no function is refused naming the member the plugin called", [[[], "(() => { try { guarded(ctxLive, 7, \"surfaces=openPage\"); } catch (e) { return e.message; } })()", null]],
+            want({ answers: ["refused: surfaces=openPage done=not-a-function"] })],
         ["a folder path that is a folder opens in the file manager", [[[], "edit(\"~/.local/share/vgs/\")", folder]],
             want({ answers: ["ok"], checks: ["/home/me/.local/share/vgs/"], opened: [["gio", "open", "/home/me/.local/share/vgs/"]] })],
         ["a /-suffixed path to a file opens nothing and is logged", [[[], "edit(\"/home/me/.bashrc/\")", notFolder]],
@@ -1036,7 +1036,8 @@ for (const [label, needle, replacement] of [
     ["every file opens in the editor", "return type[1].indexOf(\"text/\") === 0 || texts.indexOf(type[1]) !== -1 ? \"editor\" : \"default\";", "return \"editor\";"],
     ["a file gio cannot find still opens", "return /No such file or directory|Not a directory/.test(errors) ? \"missing\" : \"unreadable\";", ""],
     ["a read that failed for another cause reads as gone", "return /No such file or directory|Not a directory/.test(errors) ? \"missing\" : \"unreadable\";", "return \"missing\";"],
-    ["a program opens in its default application", "if (programs.indexOf(type[1]) !== -1) return \"program\";", ""]
+    ["a program opens in its default application", "if (programs.indexOf(type[1]) !== -1) return \"program\";", ""],
+    ["a refused done names one member whatever was called", "throw new Error(\"refused: \" + operation + \" done=not-a-function\");", "throw new Error(\"refused: tui=edit done=not-a-function\");"]
 ]) {
     report("control: " + label + ": the text to replace occurs once", RUNNER.split(needle).length - 1, 1);
     let red = 0;
@@ -1119,6 +1120,72 @@ for (const [label, needle, replacement] of [
         red += 1;
     }
     report("control: the openReference rows fail when " + label, red > 0, true);
+}
+
+// A bar widget's frame.openPage hands its `done` to openReference through
+// TuiRunner.guarded: the open's end reaches it while the widget's row is
+// recorded under its bar, and is dropped once that row or the bar's rows
+// are gone; a done that is no function is refused as `frame=openPage`
+// before anything opens. widgetFrame and rowFor run as Plugins.qml holds
+// them and guarded as TuiRunner.qml holds it, against a stand-in for
+// openReference whose route ends `ok` after the call.
+function frameSuite(plugins, runner, check) {
+    const functions = runnerFunction(plugins, "widgetFrame(hostKey, id, locator, item)") + runnerFunction(plugins, "rowFor(hostKey, instance)")
+        + runnerFunction(runner, "guarded(ctx, done, operation)");
+    // CALL is openPage's argument list; GONE changes the build record after
+    // the call and before the route ends.
+    const scenario = (call, gone) => {
+        const seen = { opened: [], done: [] };
+        let route;
+        const widget = {};
+        const sandbox = vm.createContext({
+            Logic: load(LOGIC), Error: Error, item: widget,
+            built: { "bar:DP-1": [{ instance: {} }, { instance: widget }] },
+            console: { warn: () => {} },
+            finished: answer => seen.done.push(answer),
+            root: { openReference: (page, tab, done) => { seen.opened.push([page, tab, typeof done]); route = done; return "ok"; } },
+        });
+        sandbox.Capabilities = { tuis: { guarded: (ctx, done, operation) => sandbox.guarded(ctx, done, operation) } };
+        vm.runInContext(functions, sandbox);
+        let reply;
+        try {
+            reply = vm.runInContext("widgetFrame(\"bar:DP-1\", \"acme.clock\", null, item).openPage" + call, sandbox);
+        } catch (e) {
+            reply = e.message;
+        }
+        gone(sandbox);
+        if (typeof route === "function") route("ok");
+        return { reply: reply, opened: seen.opened, done: seen.done };
+    };
+    const file = "file:%2Fhome%2Fme%2Fa.pdf";
+    const kept = () => {};
+    const rows = [
+        ["the open's end reaches done while the widget's row is recorded", "(\"" + file + "\", \"\", finished)", kept,
+            { reply: "ok", opened: [[file, "", "function"]], done: ["ok"] }],
+        ["the open's end is dropped once the widget's row is forgotten", "(\"" + file + "\", \"\", finished)", sandbox => { sandbox.built = { "bar:DP-1": [{ instance: {} }] }; },
+            { reply: "ok", opened: [[file, "", "function"]], done: [] }],
+        ["the open's end is dropped once the bar's rows are gone", "(\"" + file + "\", \"\", finished)", sandbox => { sandbox.built = {}; },
+            { reply: "ok", opened: [[file, "", "function"]], done: [] }],
+        ["no done hands openReference none", "(\"acme.clock\", \"Setup\")", kept,
+            { reply: "ok", opened: [["acme.clock", "Setup", "undefined"]], done: [] }],
+        ["a done that is no function is refused as frame=openPage and opens nothing", "(\"acme.clock\", \"\", 7)", kept,
+            { reply: "refused: frame=openPage done=not-a-function", opened: [], done: [] }],
+    ];
+    for (const [name, call, gone, expected] of rows)
+        check("Plugins frame.openPage: " + name, scenario(call, gone), expected);
+}
+frameSuite(PLUGINS, RUNNER, report);
+// The control keeps the widget alive whatever the build record holds.
+{
+    const needle = "return Logic.hasOwn(built, hostKey) && rowFor(hostKey, item) !== undefined;";
+    report("control: a gone widget still answers: the text to replace occurs once", PLUGINS.split(needle).length - 1, 1);
+    let red = 0;
+    try {
+        frameSuite(PLUGINS.replace(needle, () => "return true;"), RUNNER, (name, got, want) => { if (JSON.stringify(got) !== JSON.stringify(want)) red += 1; });
+    } catch (e) {
+        red += 1;
+    }
+    report("control: the frame.openPage rows fail when a gone widget still answers", red > 0, true);
 }
 
 // Notices holds a plugin's script request while the notice for its lacking

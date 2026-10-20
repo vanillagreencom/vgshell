@@ -366,12 +366,13 @@ Singleton {
             // The widget leaves a refused reference's words as words, so
             // the reply is logged here once, as capability `surfaces`'
             // openPage logs it. `done`, when given, is the open's end as
-            // openReference hands it, dropped once the widget is gone.
+            // openReference hands it, dropped once the widget is gone. A
+            // builtin's row has no lifetime of its own and leaves `built`
+            // through its disposer while its bar lives, so the widget lives
+            // while its row is recorded, for either origin.
             openPage: (page, tab, done) => {
-                if (done !== undefined && typeof done !== "function") throw new Error("refused: openPage done=not-a-function");
-                const reply = root.openReference(page, tab, done === undefined ? undefined : answer => {
-                    if (Logic.hasOwn(built, hostKey) && rowFor(hostKey, item) !== undefined) done(answer);
-                });
+                const widget = { get active() { return Logic.hasOwn(built, hostKey) && rowFor(hostKey, item) !== undefined; } };
+                const reply = root.openReference(page, tab, Capabilities.tuis.guarded(widget, done, "frame=openPage"));
                 if (reply !== "ok") console.warn("plugins: " + id + " openPage " + reply);
                 return reply;
             },
