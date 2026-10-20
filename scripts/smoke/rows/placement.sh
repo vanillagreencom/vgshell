@@ -11,15 +11,16 @@
 # drag out and back drops where it returns, a release just inside one bar
 # height of the bar drops at the slot nearest along the bar, also with a
 # window holding the keyboard, Escape on a drag held far below writes
-# nothing, a drag held far below draws the widget inside the bar at the
-# pointer's x, and a release just past that line asks to remove the widget,
-# with Cancel focused and no focus ring; Cancel and Escape put it back and
-# write nothing, and Remove leaves it unplaced as Hide does. After a drop
-# on an empty workspace, and after the question closes, the bar holds no
-# keyboard. Controls run a copy whose move ignores the index, a copy whose
-# drag capture is missing, a copy whose BarWidget cannot drag, a copy that
-# draws the held widget at the pointer's y, a copy with the old cancel of
-# a release outside the bar, a copy whose grab leaves the bar's keyboard
+# nothing, a drag held far below hides the held widget behind its drag
+# image (rows/bar.sh reads the image under the pointer), and a release just
+# past that line puts the widget back where the drag found it and asks
+# there to remove it, with Cancel focused and no focus ring and no drag
+# held; Cancel and Escape write nothing, and Remove leaves it unplaced as
+# Hide does. After a drop on an empty workspace, and after the question
+# closes, the bar holds no keyboard. Controls run a copy whose move
+# ignores the index, a copy whose drag capture is missing, a copy whose
+# BarWidget cannot drag, a copy with the old cancel of a release outside
+# the bar, a copy whose grab leaves the bar's keyboard
 # interactivity alone, a copy with neither the focus grab nor that step,
 # and a copy whose remove question takes the keyboard's focus reason once
 # its window is active. A copy whose neighbours slide for a minute must
@@ -244,26 +245,22 @@ placement_drag_path() {
   "${shell_env[@]}" "$sandbox/click" "$x" "$y" "$mon_w" "$mon_h" drag "$((x - 24))" "$y" "$@" >/dev/null || return 1
   pointer_at="${*: -2:1} ${*: -1}"
 }
-# The open remove question of the fixture: the dialog shows its Remove
-# action, and the held widget sits over the gap of the slot it previewed.
+# The open remove question of the fixture, asked after a drag that found
+# the widget at box START: the dialog shows its Remove action, no drag
+# holds the widget, and the widget stands at START.
 placement_asking() {
-  local remove drag
+  local remove drag box shows=false held=true at=false
   remove="$(ipc smoke popupItemGeometry "$(bar_key)" acme.probe "" "" Button Remove)" || return 1
   drag="$(ipc smoke barDragGeometry "$(bar_key)")" || return 1
-  py_reply 'import json,sys; raw=sys.stdin.read().strip(); d=json.loads(raw) if raw.startswith("{") else None; over=d is not None and abs(d["item"][0]-d["gap"][0])<=1 and abs(d["item"][1]-d["gap"][1])<=1; print(json.dumps({"remove": sys.argv[1].startswith("["), "overGap": over}))' "$remove" <<<"$drag"
+  box="$(ipc smoke instanceGeometry "$(bar_key)" acme.probe)" || return 1
+  [[ $remove != \[* ]] || shows=true
+  [[ $drag != absent ]] || held=false
+  [[ $box != "$1" ]] || at=true
+  printf '{"remove": %s, "held": %s, "atStart": %s}\n' "$shows" "$held" "$at"
 }
 # placement_held_far LABEL WANT: a drag of the fixture held far below the
-# bar, whose held box reads {inside, atPointer}: inside the bar's box, and
-# its centre at the pointer's x, as WANT; then its release asks, and
+# bar, whose held widget's opacity reads WANT; then its release asks, and
 # Escape closes the question.
-placement_held_box() {
-  local bar drag
-  bar="$(surface_box vgs:bar)" || return 1
-  drag="$(ipc smoke barDragGeometry "$(bar_key)")" || return 1
-  py_reply 'import json,sys; raw=sys.stdin.read().strip(); d=json.loads(raw) if raw.startswith("{") else None; b=json.loads(sys.argv[1]); x=float(sys.argv[2])
-if d is None: print("absent"); sys.exit()
-i=d["item"]; print(json.dumps({"inside": i[1] >= 0 and i[1]+i[3] <= b[3], "atPointer": abs(i[0]+i[2]/2-x) <= 1}))' "$bar" "$1" <<<"$drag"
-}
 placement_held_far() {
   local label="$1" want="$2" x y far_x far_y line out_fd in_fd pid
   nested_input_check "$sandbox/click" || return 1
@@ -274,7 +271,7 @@ placement_held_far() {
   out_fd="${placement_far[0]}" in_fd="${placement_far[1]}" pid="$placement_far_PID"
   read -r -t 10 line <&"$out_fd" || return 1
   [[ $line == "holding $far_x $far_y" ]] || return 1
-  geometry expect_poll "$label" "$want" placement_held_box "$far_x"
+  geometry expect_poll "$label" "$want" ipc smoke readInstance "$(bar_key)" acme.probe opacity
   printf '\n' >&"$in_fd"
   exec {in_fd}>&-
   read -r -t 10 line <&"$out_fd" || return 1
@@ -288,11 +285,13 @@ placement_held_far() {
 # placement_far_ask: a drag of the fixture released far below the bar,
 # then the remove question it opens.
 placement_far_ask() {
-  local far_x far_y
+  local far_x far_y start
   read -r far_x far_y < <(placement_bar_far_left) || return 1
+  placement_point acme.probe >/dev/null || return 1
+  start="$(ipc smoke instanceGeometry "$(bar_key)" acme.probe)" || return 1
   placement_drag_path acme.probe "$far_x" "$far_y" || return 1
   expect_poll "a release far below the bar asks to remove the fixture" true ipc smoke readInstance "$(bar_key)" acme.probe frameDialogOpen
-  expect_poll "the remove question shows Remove over the held widget" '{"remove": true, "overGap": true}' placement_asking
+  expect_poll "the remove question shows Remove over the widget where the drag found it, with no drag held" '{"remove": true, "held": false, "atStart": true}' placement_asking "$start"
 }
 # placement_reads LABEL PLACED SECTIONS: the reads after a placement edit.
 placement_reads() {
@@ -576,15 +575,16 @@ placement_same_slot || fail "the unchanged drop press completes"
 # retains QObject references, including the registered built-ins, so a
 # rebuilt section cannot pass the identity check.
 placement_live_gap() {
-  local before_x="$1" target_x="$2" drag_json tick_box
+  local before_x="$1" drag_json tick_box opacity
   drag_json="$(ipc smoke barDragGeometry "$(bar_key)")" || return
   tick_box="$(ipc smoke instanceGeometry "$(bar_key)" acme.tick)" || return
+  opacity="$(ipc smoke readInstance "$(bar_key)" acme.probe opacity)" || return
   py_reply 'import json,sys
-state=json.load(sys.stdin); tick=json.loads(sys.argv[1]); old=float(sys.argv[2]); pointer=float(sys.argv[3])
+state=json.load(sys.stdin); tick=json.loads(sys.argv[1]); old=float(sys.argv[2])
 if not isinstance(state,dict): print("absent"); sys.exit()
 print(json.dumps({"section":state["section"], "index":state["index"], "slid":abs(tick[0]-old)>1,
- "held":abs(state["item"][0]+state["item"][2]/2-pointer)<=1,
- "gap":state["gap"][2]>0 and state["gap"][0]>=state["target"][0]-1}))' "$tick_box" "$before_x" "$target_x" <<<"$drag_json"
+ "hidden":sys.argv[3]=="0",
+ "gap":state["gap"][2]>0 and state["gap"][0]>=state["target"][0]-1}))' "$tick_box" "$before_x" "$opacity" <<<"$drag_json"
 }
 placement_held_preview() {
   local motion="$1" x y tx ty before_x barrier out_fd in_fd hold_pid reading sample motion_seen samples=()
@@ -611,7 +611,7 @@ placement_held_preview() {
   for placement_held_id in acme.probe acme.tick vgs.bar/center-clock; do
     printf '  held_geometry id=%s value=%s\n' "$placement_held_id" "$(ipc smoke descendantGeometry "$(bar_key)" "$placement_held_id")"
   done
-  geometry expect_poll "the held widget follows the pointer while the target widget slides around its gap" '{"section": "center", "index": 1, "slid": true, "held": true, "gap": true}' placement_live_gap "$before_x" "$tx"
+  geometry expect_poll "the held widget draws nothing behind its drag image while the target widget slides around its gap" '{"section": "center", "index": 1, "slid": true, "hidden": true, "gap": true}' placement_live_gap "$before_x"
   expect "a held drag writes no configuration" unchanged placement_same_as "$sandbox/shell-before-live-drop.json"
   expect "the held preview keeps every widget object" '[]' ipc smoke barWidgetIdentities
   printf '\n' >&"$in_fd"
@@ -723,23 +723,20 @@ expect "the remove question writes nothing while it asks" unchanged placement_sa
 expect_poll "the far release releases keyboard capture" default key_submap
 type_keys -k Return || fail "Return on the remove question failed"
 expect_poll "Return on the focused Cancel closes the remove question" false ipc smoke readInstance "$(bar_key)" acme.probe frameDialogOpen
-expect_poll "Cancel ends the held drag" absent ipc smoke barDragGeometry "$(bar_key)"
 expect "the bar gives the keyboard back after the remove question closes" left placement_keyboard_left
 expect "Cancel leaves the user file as it was" unchanged placement_same_as "$sandbox/shell-before-outside-drop.json"
 geometry expect_poll "Cancel puts the fixture back before tick" "$placement_drawn_before" placement_visual_order
 placement_far_ask
 type_keys -k Escape || fail "Escape on the remove question failed"
 expect_poll "Escape closes the remove question" false ipc smoke readInstance "$(bar_key)" acme.probe frameDialogOpen
-expect_poll "Escape ends the held drag" absent ipc smoke barDragGeometry "$(bar_key)"
 expect "Escape leaves the user file as it was" unchanged placement_same_as "$sandbox/shell-before-outside-drop.json"
 geometry expect_poll "Escape puts the fixture back before tick" "$placement_drawn_before" placement_visual_order
 expect "the outside drags keep every widget object" '[]' ipc smoke barWidgetIdentities
 expect "the outside snapshot is released" ok ipc smoke forgetBarWidgets
-placement_held_far "a drag held far below the bar draws the widget inside the bar at the pointer's x" '{"inside": true, "atPointer": true}' || fail "the drag held far below the bar completes"
+placement_held_far "a drag held far below the bar hides the held widget behind its drag image" 0 || fail "the drag held far below the bar completes"
 expect "the held far drag writes nothing" unchanged placement_same_as "$sandbox/shell-before-outside-drop.json"
 placement_far_ask
 type_keys -k Tab -k Return || fail "Tab and Return on Remove failed"
-expect_poll "Remove ends the held drag" absent ipc smoke barDragGeometry "$(bar_key)"
 placement_reads "Remove" false '[]'
 expect_poll "Remove releases keyboard capture" default key_submap
 expect "Show in bar restores the removed fixture" ok ipc shell setPluginPlaced acme.probe true
@@ -866,19 +863,6 @@ if copy_tree placement-outside-cancel-control \
   stop_shell
   cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
   start_shell "$repo" "$sandbox/placement-outside-cancel-restored.log" || fail "the shell starts again after the outside cancel control"
-fi
-
-# A held widget drawn at the pointer's y leaves the bar's box below the
-# bar, so the inside reading reads red.
-if copy_tree placement-ride-control \
-  && edit_tree placement-ride-control shell/Core/Plugins.qml 'drag.item.y = Math.max(0, Math.min(mount.row.instance.height - drag.item.height, point.y - drag.offset.y));' 'drag.item.y = point.y - drag.offset.y;'; then
-  stop_shell
-  cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
-  start_shell "$sandbox/tree-placement-ride-control" "$sandbox/placement-ride-control.log" || fail "the ride control shell starts"
-  placement_held_far "control: a widget drawn at the pointer's y leaves the bar's box" '{"inside": false, "atPointer": true}' || fail "control: the drag held far below the bar completes"
-  stop_shell
-  cp -- "$placement_saved" "$placement_file.tmp" && mv -T -- "$placement_file.tmp" "$placement_file"
-  start_shell "$repo" "$sandbox/placement-ride-restored.log" || fail "the shell starts again after the ride control"
 fi
 
 # A grab that leaves the bar's keyboard interactivity alone leaves the bar
@@ -1243,7 +1227,7 @@ placement_edge_slide='            duration: Theme.motion.duration.normal'
 placement_edge_settled='const sectionPoint = scrolled ? container.parent.mapToItem(null, container.settledX, 0) : drawn;'
 placement_edge_read='edge: barDragEdge(barDrag.gap.parent, point.x) });'
 if copy_tree placement-edge-control \
-  && edit_tree placement-edge-control shell/Core/Plugins.qml 'running: root.barDrag !== null && root.barDrag.held && root.barDrag.edge !== 0' 'running: false && root.barDrag !== null && root.barDrag.held && root.barDrag.edge !== 0' \
+  && edit_tree placement-edge-control shell/Core/Plugins.qml 'running: root.barDrag !== null && root.barDrag.edge !== 0' 'running: false && root.barDrag !== null && root.barDrag.edge !== 0' \
   && copy_tree placement-edge-slide \
   && edit_tree placement-edge-slide shell/plugins/vgs.bar/Bar.qml "$placement_edge_slide" '            duration: 60000' \
   && copy_tree placement-edge-slide-control \

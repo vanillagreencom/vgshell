@@ -683,6 +683,150 @@ PY
   expect_poll "control: placement rejects any Mouse placement" False fresh_bar_complete
   fresh_restore
   geometry expect_poll "rendered placement returns after all controls" drawn fresh_bar_rendered
+  # A widget dragged off the bar. While the press holds it off the bar,
+  # one copy of the widget draws under the pointer, read as the pixels of
+  # its icon at the pointer less where the press holds it, and the held
+  # widget itself draws nothing. A release far below the bar, past the
+  # line Plugins.dragEnd draws one bar height out, asks to remove the
+  # widget at the slot the drag found it in: the widget's box and the
+  # question's Cancel button read the same from the question's opening and
+  # every 250 ms for 2 s after it, the button below the widget, so nothing
+  # moves after the drop. Cancel and Escape leave the widget there and
+  # write nothing. Each drag first moves along the bar, so the press starts
+  # the drag there (placement.sh). A release below the bar's far side
+  # stands where the drop preview lies in another section; below the
+  # widget's own slot, a neighbour that changes width moves nothing either.
+  offbar_saved="$sandbox/bar-offbar-saved.json"
+  cp -- "$home/.config/vgshell/shell.json" "$offbar_saved"
+  offbar_key="$(bar_key)" || fail "the bar for the off-bar drags is unreadable"
+  offbar_unchanged() { if cmp -s -- "$home/.config/vgshell/shell.json" "$offbar_saved"; then echo unchanged; else echo changed; fi; }
+  # offbar_box ID: ID's box once two readings 200 ms apart match.
+  offbar_box() {
+    local box previous=""
+    for _ in $(seq 1 25); do
+      box="$(ipc smoke instanceGeometry "$offbar_key" "$1")" || return 1
+      [[ $box == \[* && $box == "$previous" ]] && { printf '%s\n' "$box"; return; }
+      previous="$box"
+      sleep 0.2
+    done
+    echo unsettled
+  }
+  # offbar_grab X Y W H FILE: that layout box of the nested output as a PPM.
+  offbar_grab() {
+    local socket
+    socket="$(shot_socket "$rt_dir" "$nested_socket")" || return 1
+    shot_grim "$socket" "$rt_dir" -g "$1,$2 $3x$4" -t ppm "$5" 2>/dev/null
+  }
+  # offbar_copy ID X Y: {"copy", "hidden"} for a drag of ID held at (X, Y):
+  # whether, within 2 px of the pointer less the pickup, three in four of
+  # the places where the widget at rest draws its icon, its pixels far
+  # from the colour most of it shows, draw something far from the colour
+  # most of that spot shows; and whether the held widget's opacity is 0.
+  # The copy draws as the press found the widget, hovered and pressed, so
+  # the reading compares where the icon draws, not its colour, and the
+  # pointer's own arrow covers part of it.
+  offbar_copy() {
+    local w h opacity
+    read -r w h < <(py_reply 'import json,sys; b=json.load(sys.stdin); print(round(b[2]), round(b[3]))' <<<"$offbar_start") || return 1
+    offbar_grab "$(($2 - offbar_pick_x - 2))" "$(($3 - offbar_pick_y - 2))" "$((w + 4))" "$((h + 4))" "$sandbox/offbar-held.ppm" || return 1
+    opacity="$(ipc smoke readInstance "$offbar_key" "$1" opacity)" || return 1
+    python3 - "$sandbox/offbar-rest.ppm" "$sandbox/offbar-held.ppm" "$opacity" <<'PY'
+import collections, json, sys
+def read(path):
+    head, rest = open(path, "rb").read().split(b"\n", 1)
+    size, rest = rest.split(b"\n", 1)
+    depth, data = rest.split(b"\n", 1)
+    w, h = map(int, size.split())
+    if head != b"P6" or depth != b"255" or len(data) != w * h * 3: raise SystemExit("unreadable")
+    return w, h, [tuple(data[i:i + 3]) for i in range(0, len(data), 3)]
+rw, rh, rest = read(sys.argv[1]); hw, hh, held = read(sys.argv[2])
+ground = lambda pixels: collections.Counter(pixels).most_common(1)[0][0]
+far = lambda a, b: max(abs(p - q) for p, q in zip(a, b)) > 64
+rest_ground, held_ground = ground(rest), ground(held)
+ink = [(i % rw, i // rw) for i, p in enumerate(rest) if far(p, rest_ground)]
+best = 0
+for dx in range(5):
+    for dy in range(5):
+        hits = sum(1 for x, y in ink if x + dx < hw and y + dy < hh and far(held[(y + dy) * hw + x + dx], held_ground))
+        best = max(best, hits)
+print(json.dumps({"copy": len(ink) >= 8 and best * 4 >= len(ink) * 3, "hidden": float(sys.argv[3]) == 0}))
+PY
+  }
+  # offbar_drag LABEL ID LEG X Y: a drag of ID from its centre, LEG along
+  # the bar, then to (X, Y), held there while the copy is read, then
+  # released. offbar_start holds ID's box before the drag.
+  offbar_drag() {
+    local label="$1" id="$2" x y w h line out_fd in_fd pid
+    nested_input_check "$sandbox/click" || return 1
+    offbar_start="$(offbar_box "$id")" || return 1
+    read -r x y offbar_pick_x offbar_pick_y w h < <(py_reply 'import json,sys; b=json.load(sys.stdin); x,y=int(b[0]+b[2]/2),int(b[1]+b[3]/2); print(x, y, x-round(b[0]), y-round(b[1]), round(b[2]), round(b[3]))' <<<"$offbar_start") || return 1
+    [[ $x =~ ^[0-9]+$ && $y =~ ^[0-9]+$ ]] || return 1
+    # The widget at rest with the pointer away, so the capture holds no
+    # pointer and no hover.
+    rest_pointer || return 1
+    offbar_grab "$((x - offbar_pick_x))" "$((y - offbar_pick_y))" "$w" "$h" "$sandbox/offbar-rest.ppm" || return 1
+    hover "$((x + 1))" "$y" || return 1
+    coproc offbar_held { "${shell_env[@]}" "$sandbox/click" "$x" "$y" "$mon_w" "$mon_h" drag "$((x + $3))" "$y" "$4" "$5" hold; }
+    out_fd="${offbar_held[0]}" in_fd="${offbar_held[1]}" pid="$offbar_held_PID"
+    read -r -t 10 line <&"$out_fd" || return 1
+    [[ $line == "holding $4 $5" ]] || return 1
+    geometry expect_poll "$label: one copy of the widget draws under the pointer off the bar, and the held widget draws nothing" '{"copy": true, "hidden": true}' offbar_copy "$id" "$4" "$5"
+    printf '\n' >&"$in_fd"
+    exec {in_fd}>&-
+    read -r -t 10 line <&"$out_fd" || return 1
+    wait "$pid" || return 1
+    exec {out_fd}<&-
+    pointer_at="$4 $5"
+  }
+  # offbar_still ID: from the remove question's opening, nine readings
+  # 250 ms apart of ID's box and the question's Cancel button: [] when
+  # each box is offbar_start and each button the first one, below the
+  # widget, else the readings that are not; `closed` with no question.
+  offbar_still() {
+    local t0 now target i rows=""
+    for _ in $(seq 1 50); do
+      [[ $(ipc smoke readInstance "$offbar_key" "$1" frameDialogOpen) == true ]] && break
+      sleep 0.1
+    done
+    [[ $(ipc smoke readInstance "$offbar_key" "$1" frameDialogOpen) == true ]] || { echo closed; return; }
+    t0="${EPOCHREALTIME/./}"
+    for ((i = 0; i <= 8; i++)); do
+      target=$((t0 + i * 250000)) now="${EPOCHREALTIME/./}"
+      ((now >= target)) || sleep "$(printf '0.%06d' "$((target - now))")"
+      rows+="$(ipc smoke instanceGeometry "$offbar_key" "$1") $(ipc smoke popupItemGeometry "$offbar_key" "$1" "" "" Button Cancel)"$'\n'
+    done
+    py_reply 'import json,sys
+start=json.loads(sys.argv[1]); out=[]; first=None
+near=lambda a,b: isinstance(a,list) and isinstance(b,list) and all(abs(p-q)<=1 for p,q in zip(a,b))
+for i,line in enumerate(l for l in sys.stdin.read().splitlines() if l.strip()):
+    widget,button=(json.loads(v) if v.startswith("[") else v for v in line.split(" ",1))
+    first=first if first is not None else button
+    if not near(widget,start) or not near(button,first) or not isinstance(button,list) or button[1]<widget[1]+widget[3]:
+        out.append({"reading":i,"widget":widget,"cancel":button})
+print(json.dumps(out))' "$offbar_start" <<<"$rows"
+  }
+  offbar_bar="$(surface_box vgs:bar)" || fail "the bar's box is unreadable for the off-bar drags"
+  read -r offbar_bx offbar_by offbar_bw offbar_bh < <(py_reply 'import json,sys; print(*[int(v) for v in json.load(sys.stdin)])' <<<"$offbar_bar") || fail "the bar's box is unreadable: $offbar_bar"
+  offbar_far=$((offbar_by + 2 * offbar_bh + 40))
+  offbar_right="$(ipc shell listShellConfig | py_reply 'import json,sys; print(json.load(sys.stdin)["bar"]["layout"]["right"][-1]["id"])')" || fail "the right section's last widget is unreadable"
+  offbar_right_x="$(ipc smoke instanceGeometry "$offbar_key" "$offbar_right" | py_reply 'import json,sys; b=json.load(sys.stdin); print(int(b[0]+b[2]/2))')" || fail "the right section's last widget has no box"
+  offbar_drag "the rightmost widget held far below its own slot" "$offbar_right" -24 "$offbar_right_x" "$offbar_far" || fail "the drag of the rightmost widget below its own slot completes"
+  geometry expect "a release far below its own slot asks to remove the rightmost widget, and the widget and the question stay where the drag started for 2 s" '[]' offbar_still "$offbar_right"
+  type_keys -k Escape || fail "Escape on the rightmost widget's remove question failed"
+  expect_poll "Escape closes the rightmost widget's remove question" false ipc smoke readInstance "$offbar_key" "$offbar_right" frameDialogOpen
+  offbar_drag "the rightmost widget held far below the bar's left third" "$offbar_right" -24 "$((offbar_bx + offbar_bw / 6))" "$offbar_far" || fail "the drag of the rightmost widget below the left third completes"
+  geometry expect "a release far below the bar's left third asks to remove the rightmost widget where the drag started, and nothing moves for 2 s" '[]' offbar_still "$offbar_right"
+  type_keys -k Return || fail "Return on the rightmost widget's remove question failed"
+  expect_poll "Cancel closes the rightmost widget's remove question" false ipc smoke readInstance "$offbar_key" "$offbar_right" frameDialogOpen
+  geometry expect "Cancel leaves the rightmost widget in its slot" "$offbar_start" ipc smoke instanceGeometry "$offbar_key" "$offbar_right"
+  expect "the rightmost widget's drags off the bar write nothing" unchanged offbar_unchanged
+  offbar_drag "the launcher held far below the bar's middle" vgs.launcher 24 "$((offbar_bx + offbar_bw / 2))" "$offbar_far" || fail "the drag of the launcher off the bar completes"
+  expect_poll "a release far below the bar asks to remove the launcher" true ipc smoke readInstance "$offbar_key" vgs.launcher frameDialogOpen
+  geometry expect "the launcher and its remove question stay at the launcher's slot for 2 s" '[]' offbar_still vgs.launcher
+  type_keys -k Return || fail "Return on the launcher's remove question failed"
+  expect_poll "Cancel closes the launcher's remove question" false ipc smoke readInstance "$offbar_key" vgs.launcher frameDialogOpen
+  geometry expect "Cancel leaves the launcher in its slot" "$offbar_start" ipc smoke instanceGeometry "$offbar_key" vgs.launcher
+  expect "the launcher's drag off the bar writes nothing" unchanged offbar_unchanged
   # A zone that would run into its neighbour clips to the room from its
   # bar edge to the centre, less the gap, and scrolls by whole widgets
   # (Bar.qml's Zone). The owner's own layout, 16 widgets in the right

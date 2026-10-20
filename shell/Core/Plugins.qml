@@ -51,11 +51,9 @@ Singleton {
     // A source change or screen removal expires the record. Stored screen
     // names survive the destruction of the screen objects they identify.
     property var failedBuilds: Object.create(null)
-    // Null, or the current bar-widget drag target for one bar host.
-    // `held` is true while the press holds the widget and false while a
-    // release far outside the bar asks whether to remove it. `point` is the
-    // drag's last pointer point and `edge` the end of its section's shown
-    // widgets that point stands past (barDragEdge).
+    // Null, or the bar-widget drag the press holds on one bar host.
+    // `point` is the drag's last pointer point and `edge` the end of its
+    // section's shown widgets that point stands past (barDragEdge).
     property var barDrag: null
     // The focus grab that holds a bar widget drag's press, or null. It ends
     // with the press, or with the remove question that release opened, not
@@ -482,15 +480,21 @@ Singleton {
         barPressGrab = pressGrabComponent.createObject(item, { windows: [window], layer: window.WlrLayershell, owner: item, barWindow: bar.Window.window, fromNotice: fromNotice });
         barPressGrab.layer.keyboardFocus = WlrKeyboardFocus.OnDemand;
         barPressGrab.active = true;
-        barDrag = { hostKey: hostKey, id: id, item: item, gap: gap, held: true,
-            offset: { x: point.pressX - origin.x, y: point.pressY - origin.y },
+        barDrag = { hostKey: hostKey, id: id, item: item, gap: gap,
             from: Object.assign({ id: id }, locator), section: locator.section, before: null, index: 0,
             point: point, edge: 0 };
         // Visual parenting keeps the QObject and its pointer grab alive;
         // placement.sh reads that identity and holds the same press across it.
+        // The widget stays where it stood, drawing nothing while its frame's
+        // drag image follows the pointer (BarWidget).
         item.parent = bar;
         item.z = 1;
-        item.x = origin.x;
+        // A new binding, not a write: a write through BarWidget's Behavior
+        // on x leaves the slot binding positionBar gave, and a neighbour's
+        // width change then writes the section's x onto a widget the bar
+        // now holds (qmltestrunner, QtTest 6.12.0: an Item with Behavior on
+        // x kept a Qt.binding past a write; one without it lost it).
+        item.x = Qt.binding(() => origin.x);
         item.y = origin.y;
         Capabilities.keyCapture.begin(ctx, item, { anyWindow: true });
         dragMove(hostKey, point);
@@ -545,12 +549,12 @@ Singleton {
     // own `step`; the preview gap stands in that section. A held pointer
     // sends no motion (BarWidget's DragHandler calls dragMove on a
     // translation change alone), so each step picks the slot again from the
-    // drag's last point. The binding stops the timer with the drag, a
-    // release that asks included, and at the section's end.
+    // drag's last point. The binding stops the timer with the drag and at
+    // the section's end.
     Timer {
         interval: Theme.bar.scroll.hold
         repeat: true
-        running: root.barDrag !== null && root.barDrag.held && root.barDrag.edge !== 0
+        running: root.barDrag !== null && root.barDrag.edge !== 0
         onTriggered: {
             const drag = root.barDrag;
             drag.gap.parent.step(drag.edge);
@@ -568,7 +572,7 @@ Singleton {
     // Outside the bar too the slot is the nearest one along the bar:
     // barDropTarget reads the pointer's x alone.
     function dragMove(hostKey, point) {
-        if (barDrag === null || barDrag.hostKey !== hostKey || !barDrag.held || !Logic.hasOwn(mounts, hostKey)) return;
+        if (barDrag === null || barDrag.hostKey !== hostKey || !Logic.hasOwn(mounts, hostKey)) return;
         const mount = mounts[hostKey];
         const sections = {};
         for (const section of ConfigLogic.SECTIONS)
@@ -576,10 +580,6 @@ Singleton {
         const target = Logic.barDropTarget(mount.row.instance.width, point.x, sections);
         const index = Logic.barDropIndex(Config.effective, target.section, target.before, barDrag.from, barDrag.id);
         const drag = barDrag;
-        drag.item.x = point.x - drag.offset.x;
-        // The bar window draws nothing outside its box, so below or above
-        // the bar the widget rides along it at the pointer's x.
-        drag.item.y = Math.max(0, Math.min(mount.row.instance.height - drag.item.height, point.y - drag.offset.y));
         if (drag.gap.parent === mount.row.instance || drag.section !== target.section || drag.index !== index) {
             barDrag = Object.assign({}, drag, { section: target.section, before: target.before, index: index });
             positionBar(hostKey, barDrag);
@@ -589,26 +589,25 @@ Singleton {
         barDrag = Object.assign({}, barDrag, { point: point, edge: barDragEdge(barDrag.gap.parent, point.x) });
     }
 
-    // The release of a drag: "drop" writes the previewed slot, "ask" keeps
-    // the widget over its preview gap while the frame asks whether to
-    // remove it, and "none" answers a release with no drag on this bar. A
-    // release more than one bar height (Theme.bar.height) outside the bar
-    // asks; a nearer one drops.
+    // The release of a drag: "drop" writes the previewed slot, "ask" puts
+    // the widget back in the slot the drag found it in, where the frame
+    // asks whether to remove it, and "none" answers a release with no drag
+    // on this bar. A release more than one bar height (Theme.bar.height)
+    // outside the bar asks; a nearer one drops.
     function dragEnd(hostKey, point) {
         if (barPressGrab !== null) barPressGrab.active = false;
         const drag = barDrag;
         if (drag !== null && drag !== undefined) Capabilities.keyCapture.end(drag.item, "commit");
-        if (drag === null || drag.hostKey !== hostKey || !drag.held || !Logic.hasOwn(mounts, hostKey)) {
+        if (drag === null || drag.hostKey !== hostKey || !Logic.hasOwn(mounts, hostKey)) {
             endPressGrab();
             return "none";
         }
         const bar = mounts[hostKey].row.instance;
         const outside = Math.max(0, -point.x, point.x - bar.width, -point.y, point.y - bar.height);
+        // The press grab stays until the question closes (cancelRemoveAsk).
         if (outside > Theme.bar.height) {
-            const place = drag.gap.mapToItem(bar, 0, 0);
-            drag.item.x = place.x;
-            drag.item.y = place.y;
-            barDrag = Object.assign({}, drag, { held: false });
+            cancelBarDrag();
+            revealInSection(drag.item);
             return "ask";
         }
         endPressGrab();
@@ -626,11 +625,9 @@ Singleton {
         return "drop";
     }
 
-    // The remove question about `item` closed: its widget goes back to the
-    // place it was dragged from, and the bar gives back the keyboard. A
-    // held drag stays.
+    // The remove question about `item` closed: the bar gives back the
+    // keyboard. A press grab a new drag holds stays.
     function cancelRemoveAsk(item) {
-        if (barDrag !== null && barDrag.item === item && !barDrag.held) cancelBarDrag();
         if (barPressGrab !== null && barPressGrab.owner === item && !barPressGrab.active) endPressGrab();
     }
 
