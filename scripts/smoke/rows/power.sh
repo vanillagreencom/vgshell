@@ -427,8 +427,8 @@ power_idle_watches() { ipc shell lent | py_reply 'import json,sys
 print(json.dumps(sorted(row["timeout"] for row in json.load(sys.stdin)["idle"] if row["id"] == "vgs.power")))'; }
 power_idle_calls() { wc -l <"$sandbox/power-idle.calls"; }
 power_idle_locked() { ipc shell lent | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["lock"]["secure"]))'; }
-power_idle_lock_inputs() { ipc shell listPlugins | py_reply 'import json,sys
-row = next((row for row in json.load(sys.stdin)["plugins"] if row["id"] == "vgs.lock"), {})
+power_idle_lock_inputs() { ipc smoke readInstance window vgs.settings plugins | py_reply 'import json,sys
+row = next((row for row in json.load(sys.stdin) if row["id"] == "vgs.lock"), {})
 settings = row.get("settings", {})
 print(json.dumps([settings.get("idleLockSeconds"), settings.get("lockBeforeSleep")]))'; }
 power_idle_set() { # PLUGIN KEY JSON_VALUE: the production Settings writer
@@ -451,9 +451,9 @@ power_display_off() {
   # before-sleep helper never starts. All other saved values return below.
   jq '.plugins = ((.plugins // [] | map(select(.id != "vgs.lock"))) + [{"id":"vgs.lock","idleLockSeconds":2,"lockBeforeSleep":false}])' "$config" >"$config.power-idle"
   mv -T -- "$config.power-idle" "$config"
+  expect "Settings opens for the display-off setting" ok ipc shell summon window vgs.settings '{"plugin":"vgs.power","tab":"Settings"}'
   expect_poll "the disabled lock reads its test inputs before the next write" '[2, false]' power_idle_lock_inputs
   expect "Power enables for display-off checks" ok ipc shell setPluginEnabled vgs.power true
-  expect "Settings opens for the display-off setting" ok ipc shell summon window vgs.settings '{"plugin":"vgs.power","tab":"Settings"}'
   expect_poll "Power holds its default idle watch" '[600]' power_idle_watches
   expect "display off accepts a custom two-second timeout" ok power_idle_set vgs.power displayOffSeconds 2
   expect_poll "the new setting replaces the normal watch" '[2]' power_idle_watches
