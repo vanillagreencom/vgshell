@@ -83,6 +83,40 @@ last_systemd_run_prefix() { tail -n 1 -- "$auto_stub/systemd-run.calls" | py_rep
 auto_problem() { auto_status problem | py_reply 'import json,sys; v=json.load(sys.stdin); print(" ".join([v["tone"]] + v["text"].split(" ")[:2]))'; }
 failing='{"name": "Nightly", "command": "echo nope >&2; exit 3", "schedule": {"frequency": "weekly", "interval": 2, "weekdays": ["mon"], "times": ["03:00"], "start": "2026-01-05", "end": {"type": "never"}}}'
 
+# The fixed clock and every XDG directory live under the row's sandbox tree.
+# This runs the same scheduler entry point as a timer, at the UTC month edge
+# that is still 5 pm on the Pacific side of the November clock change.
+utc_test="$sandbox/automations-utc"
+mkdir -p -- "$utc_test/home" "$utc_test/config" "$utc_test/data" "$utc_test/state" "$utc_test/run" "$utc_test/bin"
+chmod 700 -- "$utc_test/run"
+cat >"$utc_test/bin/systemctl" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1:]))' "$@")" >>"$UTC_STUB/systemctl.calls"
+exit 0
+EOF
+chmod 755 -- "$utc_test/bin/systemctl"
+utc_slot_ms="$(python3 -c 'from datetime import datetime,timezone; print(int(datetime(2026,11,1,tzinfo=timezone.utc).timestamp()*1000))')"
+cat >"$utc_test/fixed-date.js" <<EOF
+const RealDate = Date;
+global.Date = class FixedDate extends RealDate {
+  constructor(...args) { super(...(args.length === 0 ? [$utc_slot_ms] : args)); }
+  static now() { return $utc_slot_ms; }
+};
+EOF
+utc_automations() {
+  "${shell_env[@]}" PATH="$utc_test/bin:$shell_path" HOME="$utc_test/home" XDG_CONFIG_HOME="$utc_test/config" XDG_DATA_HOME="$utc_test/data" XDG_STATE_HOME="$utc_test/state" XDG_RUNTIME_DIR="$utc_test/run" STUB="$auto_stub" UTC_STUB="$utc_test" TZ=America/Los_Angeles NODE_OPTIONS="--require=$utc_test/fixed-date.js" "$auto_engine" --tree "$repo" "$@" 2>>"$sandbox/automations-utc.err"
+}
+utc_last() { local out; out="$(utc_automations "$@")" || return; printf '%s\n' "${out##*$'\n'}"; }
+utc_fire() { utc_automations run --scheduled utc-month-end >/dev/null && echo ok; }
+utc_run_record() { python3 -c 'import glob,json,sys; p=glob.glob(sys.argv[1]+"/*.ended.json"); r=json.load(open(p[0])); print(json.dumps([r["trigger"],r["outcome"],r["slot"]],separators=(",",":")))' "$utc_test/state/vgshell/automations/runs"; }
+utc_definition='{"name":"UTC month end","command":"echo utc-slot","schedule":{"frequency":"monthly","interval":1,"monthly":{"by":"date","day":1},"times":["00:00"],"start":"2026-11-01","end":{"type":"never"},"zone":"utc"}}'
+expect "the nested scheduler stores the UTC month-end rule in its temporary XDG tree" added=utc-month-end utc_last add --definition "$utc_definition"
+expect "the UTC timer carries its schedule zone" True python3 -c 'import pathlib,sys; p=pathlib.Path(sys.argv[1]); print("OnCalendar=*-*-01 00:00:00 UTC" in p.read_text())' "$utc_test/config/systemd/user/vgs-automation-utc-month-end.timer"
+mkdir -p -- "$utc_test/state/vgshell/automations/guard"
+printf '{"handledThrough":%s}\n' "$((utc_slot_ms - 86400000))" >"$utc_test/state/vgshell/automations/guard/utc-month-end.json"
+expect "the nested scheduler executes the scheduled UTC trigger" ok utc_fire
+expect "the scheduled UTC occurrence runs at 5 pm Pacific on the previous local month end" '["scheduled","succeeded",1793491200000]' utc_run_record
+
 expect "enabling the automations is allowed" ok ipc shell setPluginEnabled vgs.automations true
 expect_poll "the service holds its status record and IPC target" '[["active", "lastRuns", "linger", "nextRun", "problem", "scheduler"], true]' auto_lent
 expect_poll "the scheduler reads the stand-in's systemd user manager" ok auto_status_tone scheduler
@@ -97,7 +131,7 @@ expect "the host's PATH alone resolves no stand-in crontab" True python3 -c 'imp
 expect "the engine adds an automation" added=nightly auto_last add --definition "$failing"
 expect "its timer and service are under the sandbox home" '["vgs-automation-nightly.service", "vgs-automation-nightly.timer"]' auto_units
 expect "the add reloads the manager and enables the timer" '["daemon-reload", "enable"]' auto_verbs
-expect "the add's sync looked for a fallback block in the stand-in crontab alone" '["-l"]' crontab_calls
+expect "the add's sync read the stand-in crontab twice" '["-l","-l"]' crontab_calls
 expect_poll "the service lists the engine's store change with no IPC call" 1 auto_status active
 expect_poll "no run has failed yet" ok auto_status_tone lastRuns
 

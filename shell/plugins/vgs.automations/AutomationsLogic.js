@@ -11,10 +11,9 @@
 // Service.qml owns timers and status writes. Both load this file, so the
 // preview, the units and the guard cannot disagree.
 //
-// Times are local wall-clock times, as systemd reads an OnCalendar=
-// expression without a zone and cron reads its fields. A time a daylight
-// saving change skips does not occur that day, and a time it repeats occurs
-// once, at its first instant, as `systemd-analyze calendar` answers.
+// A schedule's optional zone selects the wall-clock zone for recurrence
+// decisions. A time a daylight saving change skips does not occur that day,
+// and a time it repeats occurs once, at its first instant.
 
 var STORE_VERSION = 1;
 var RECORD_VERSION = 1;
@@ -185,6 +184,12 @@ function localDate(ms) {
     return { y: at.getFullYear(), m: at.getMonth() + 1, d: at.getDate() };
 }
 
+function scheduleDate(ms, schedule) {
+    if (schedule.zone !== "utc") return localDate(ms);
+    var at = new Date(ms);
+    return { y: at.getUTCFullYear(), m: at.getUTCMonth() + 1, d: at.getUTCDate() };
+}
+
 // The instant of a local wall-clock time, or null when the day's daylight
 // saving change skips it. A repeated time takes its first instant, as the
 // Date constructor answers.
@@ -192,6 +197,11 @@ function localInstant(y, m, d, time) {
     var at = new Date(y, m - 1, d, time.h, time.mi, 0, 0);
     if (at.getFullYear() !== y || at.getMonth() !== m - 1 || at.getDate() !== d || at.getHours() !== time.h || at.getMinutes() !== time.mi) return null;
     return at.getTime();
+}
+
+function scheduleInstant(y, m, d, time, schedule) {
+    if (schedule.zone === "utc") return Date.UTC(y, m - 1, d, time.h, time.mi, 0, 0);
+    return localInstant(y, m, d, time);
 }
 
 // ---------------------------------------------------------- schedules
@@ -207,7 +217,8 @@ function localInstant(y, m, d, time) {
 //   monthly    monthly only: { by: "date", day } or
 //              { by: "weekday", week: 1..5 or -1 (the last), weekday }
 //   yearly     yearly only: { month, day }, a day the month can hold
-//   times      day frequencies only: "HH:MM" local times, 1 to TIMES_MAX,
+//   zone       optional: "local" (the default) or "utc"
+//   times      day frequencies only: "HH:MM" in zone, 1 to TIMES_MAX,
 //              ascending and distinct. A minutely or hourly rule runs at
 //              every step from each local midnight instead.
 //   start      "YYYY-MM-DD": no occurrence before it, and the anchor every
@@ -221,13 +232,14 @@ function scheduleError(s) {
     if (!isPlainObject(s)) return "schedule: want=object";
     if (FREQUENCIES.indexOf(s.frequency) === -1) return "schedule.frequency: want=" + FREQUENCIES.join("|");
     var stepped = isStepFrequency(s.frequency);
-    var allowed = ["frequency", "interval", "start", "end"];
+    var allowed = ["frequency", "interval", "start", "end", "zone"];
     if (!stepped) allowed.push("times");
     if (s.frequency === "weekly") allowed.push("weekdays");
     if (s.frequency === "monthly") allowed.push("monthly");
     if (s.frequency === "yearly") allowed.push("yearly");
     var unknown = unknownKey(s, allowed, "schedule");
     if (unknown !== "") return unknown;
+    if (hasOwn(s, "zone") && s.zone !== "local" && s.zone !== "utc") return "schedule.zone: want=local|utc";
     if (stepped) {
         if (INTERVAL_STEPS[s.frequency].indexOf(s.interval) === -1) return "schedule.interval: want=" + INTERVAL_STEPS[s.frequency].join("|");
     } else if (!isWhole(s.interval) || s.interval < 1 || s.interval > INTERVAL_MAX) {
@@ -438,7 +450,7 @@ function occurrencesFrom(s, afterMs, count) {
     var times = dayTimes(s);
     var from = start;
     if (afterMs !== null) {
-        var at = localDate(afterMs);
+        var at = scheduleDate(afterMs, s);
         if (dayNumber(at.y, at.m, at.d) > dayNumber(start.y, start.m, start.d)) from = at;
     }
     // A day before `from` holds no instant after `afterMs`: skipping it
@@ -452,7 +464,7 @@ function occurrencesFrom(s, afterMs, count) {
         for (var i = 0; i < days.length && out.length < count; i++) {
             if (dayNumber(y, m, days[i]) < fromDay || !ruleDay(s, start, y, m, days[i])) continue;
             for (var t = 0; t < times.length && out.length < count; t++) {
-                var instant = localInstant(y, m, days[i], times[t]);
+                var instant = scheduleInstant(y, m, days[i], times[t], s);
                 if (instant === null || (afterMs !== null && instant <= afterMs)) continue;
                 if (last !== null && instant > last) return out;
                 out.push(instant);
@@ -476,7 +488,7 @@ function latestOccurrence(s, atMs) {
     var start = parseDate(s.start);
     var last = lastOccurrence(s);
     var times = dayTimes(s);
-    var at = localDate(atMs);
+    var at = scheduleDate(atMs, s);
     // A day after the date of `atMs` holds no instant at or before it.
     var atDay = dayNumber(at.y, at.m, at.d);
     var y = at.y, m = at.m;
@@ -486,7 +498,7 @@ function latestOccurrence(s, atMs) {
         for (var i = days.length - 1; i >= 0; i--) {
             if (dayNumber(y, m, days[i]) > atDay || !ruleDay(s, start, y, m, days[i])) continue;
             for (var t = times.length - 1; t >= 0; t--) {
-                var instant = localInstant(y, m, days[i], times[t]);
+                var instant = scheduleInstant(y, m, days[i], times[t], s);
                 if (instant === null || instant > atMs) continue;
                 if (last !== null && instant > last) continue;
                 return instant;
@@ -532,9 +544,9 @@ function calendarExpressions(s) {
     // A step from each hour's minute 0, or from each day's hour 0: the
     // slots dayTimes generates, as `systemd-analyze calendar` reads them.
     case "minutely":
-        return ["*-*-* *:00/" + s.interval + ":00"];
+        return ["*-*-* *:00/" + s.interval + ":00" + calendarZoneSuffix(s)];
     case "hourly":
-        return ["*-*-* 00/" + s.interval + ":00:00"];
+        return ["*-*-* 00/" + s.interval + ":00:00" + calendarZoneSuffix(s)];
     case "daily":
         date = "*-*-*";
         break;
@@ -558,7 +570,11 @@ function calendarExpressions(s) {
     default:
         throw new Error("automations: frequency " + JSON.stringify(s.frequency) + " unjudged");
     }
-    return s.times.map(function (time) { return weekdays + date + " " + time + ":00"; });
+    return s.times.map(function (time) { return weekdays + date + " " + time + ":00" + calendarZoneSuffix(s); });
+}
+
+function calendarZoneSuffix(s) {
+    return s.zone === "utc" ? " UTC" : "";
 }
 
 // The cron fallback's fields per time of day, "minute hour day month
@@ -610,19 +626,21 @@ function longDate(text) {
     return d.d + " " + MONTH_NAMES[d.m - 1] + " " + d.y;
 }
 
-function longDateFromInstant(ms) {
-    var at = new Date(ms);
-    return at.getDate() + " " + MONTH_NAMES[at.getMonth()] + " " + at.getFullYear();
+function longDateFromScheduleInstant(ms, schedule) {
+    var at = scheduleDate(ms, schedule);
+    return at.d + " " + MONTH_NAMES[at.m - 1] + " " + at.y;
 }
 
-function weekdayNameFromInstant(ms) {
-    var at = new Date(ms);
-    return WEEKDAY_NAMES[(at.getDay() + 6) % 7];
+function weekdayNameFromScheduleInstant(ms, schedule) {
+    var at = scheduleDate(ms, schedule);
+    return WEEKDAY_NAMES[weekdayOf(at.y, at.m, at.d)];
 }
 
-function timeFromInstant(ms) {
+function timeFromScheduleInstant(ms, schedule) {
     var at = new Date(ms);
-    return pad2(at.getHours()) + ":" + pad2(at.getMinutes());
+    var hours = schedule.zone === "utc" ? at.getUTCHours() : at.getHours();
+    var minutes = schedule.zone === "utc" ? at.getUTCMinutes() : at.getMinutes();
+    return pad2(hours) + ":" + pad2(minutes);
 }
 
 function weekdayNameOfDate(text) {
@@ -635,7 +653,7 @@ function weekdayNameOfDate(text) {
 function summaryText(s) {
     if (s.end.type === "count" && s.end.count === 1) {
         var first = occurrencesFrom(s, null, 1)[0];
-        return first === undefined ? "Once" : "Once on " + weekdayNameFromInstant(first) + " " + longDateFromInstant(first) + " at " + timeFromInstant(first);
+        return first === undefined ? "Once" : "Once on " + weekdayNameFromScheduleInstant(first, s) + " " + longDateFromScheduleInstant(first, s) + " at " + timeFromScheduleInstant(first, s);
     }
     var head;
     var at = isStepFrequency(s.frequency) ? "" : " at " + listText(s.times);
@@ -907,16 +925,18 @@ function cronQuote(arg) {
 // guard then runs the latest occurrence the machine was off for, since
 // catch-up lets a late one run, and nothing when that one was handled.
 function cronLines(automations, argvFor, environment) {
-    var out = [];
+    var local = [];
+    var utc = [];
     var env = environment.map(cronQuote).join(" ");
     for (var i = 0; i < automations.length; i++) {
         if (!automations[i].enabled) continue;
         var command = "env " + env + " " + argvFor(automations[i]).map(cronQuote).join(" ");
         var fields = cronFields(automations[i].schedule);
+        var out = automations[i].schedule.zone === "utc" ? utc : local;
         for (var f = 0; f < fields.length; f++) out.push(fields[f] + " " + command);
         if (automations[i].catchUp) out.push("@reboot " + command);
     }
-    return out;
+    return local.concat(utc.length === 0 ? [] : ["CRON_TZ=UTC"], utc);
 }
 
 // The user's crontab with the managed block replaced by `lines`, or

@@ -41,6 +41,11 @@ Section {
         { label: "last", value: -1 }
     ]
     readonly property var monthChoices: Engine.MONTH_NAMES.map((name, index) => ({ label: name, value: index + 1 }))
+    readonly property var zoneChoices: [
+        { label: "Local time", value: "local" },
+        { label: "UTC", value: "utc" }
+    ]
+    readonly property int chosenZoneIndex: root.draft.zone === "utc" ? 1 : 0
 
     onPresetIndexChanged: chosenPresetIndex = presetIndex
     onDraftChanged: {
@@ -79,7 +84,52 @@ Section {
         width: parent.width
         visible: !root.customSteps
         error: root.validation.errors.times || ""
-        TimeChipList { width: parent.width; times: root.draft.times; onChanged: times => root.change("times", times) }
+        Row {
+            width: parent.width
+            spacing: Theme.space.xs
+
+            TimeChipList {
+                width: parent.width - zoneControl.width - parent.spacing
+                times: root.draft.times
+                onChanged: times => root.change("times", times)
+            }
+
+            Column {
+                id: zoneControl
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: Theme.space.xs
+
+                Label { role: "itemHint"; text: "Time zone" }
+                Select {
+                    width: Theme.field.minWidth
+                    model: root.zoneChoices
+                    textRole: "label"
+                    currentIndex: root.chosenZoneIndex
+                    onActivated: index => {
+                        currentIndex = Qt.binding(() => root.chosenZoneIndex);
+                        root.change("zone", model[index].value);
+                    }
+                }
+            }
+        }
+    }
+
+    Field {
+        label: "Time zone"
+        width: parent.width
+        inline: true
+        visible: root.customSteps
+
+        Select {
+            width: parent.width
+            model: root.zoneChoices
+            textRole: "label"
+            currentIndex: root.chosenZoneIndex
+            onActivated: index => {
+                currentIndex = Qt.binding(() => root.chosenZoneIndex);
+                root.change("zone", model[index].value);
+            }
+        }
     }
 
     Column {

@@ -148,7 +148,7 @@ let worlds = 0;
 // A fresh home, stand-ins and PATH. `stubs` names the stand-ins present;
 // systemd `up` or `down`.
 function world(options) {
-    const opts = Object.assign({ systemd: "up", stubs: FORBIDDEN, linger: "no" }, options || {});
+    const opts = Object.assign({ systemd: "up", stubs: FORBIDDEN, linger: "no", timezone: "UTC" }, options || {});
     const root = path.join(scratch, "w" + (worlds += 1));
     const stub = path.join(root, "stub");
     const bin = path.join(root, "bin");
@@ -169,13 +169,19 @@ function world(options) {
     write(path.join(stub, "bus"), BUS + "\n");
     write(path.join(stub, "owner"), ":1.7\n");
     write(path.join(stub, "nm"), "");
+    const env = { HOME: path.join(root, "home"), PATH: bin + ":" + tools, XDG_RUNTIME_DIR: path.join(root, "run"), STUB: stub, LANG: "C.UTF-8", TZ: opts.timezone };
+    if (opts.nowMs !== undefined) {
+        const clock = path.join(root, "fixed-date.js");
+        write(clock, "const RealDate = Date; global.Date = class FixedDate extends RealDate { constructor(...args) { super(...(args.length === 0 ? [" + opts.nowMs + "] : args)); } static now() { return " + opts.nowMs + "; } };\n");
+        env.NODE_OPTIONS = "--require=" + clock;
+    }
     const home = path.join(root, "home");
     return {
         root, stub, home,
         runs: path.join(home, ".local", "state", "vgshell", "automations", "runs"),
         units: path.join(home, ".config", "systemd", "user"),
         store: path.join(home, ".config", "vgshell", "automations", "automations.json"),
-        env: { HOME: home, PATH: bin + ":" + tools, XDG_RUNTIME_DIR: path.join(root, "run"), STUB: stub, LANG: "C.UTF-8", TZ: "UTC" }
+        env: env
     };
 }
 
@@ -726,6 +732,22 @@ const CASES = {
         same(JSON.parse(out.stdout), { summary: Logic.summaryText(s), calendar: ["Mon *-*-* 09:00:00"], cron: ["0 9 * * 1"], occurrences: Logic.nextOccurrences(s, Date.parse("2026-01-01T00:00:00Z"), 5) });
         assert.equal(cli(w, engine, ["preview", "--schedule", JSON.stringify(Object.assign({}, s, { interval: 0 }))]).first, "automations: refused: schedule=schedule.interval:-want=1..99");
         same(JSON.parse(cli(world({ linger: "yes" }), engine, ["list", "--json"]).stdout).linger, "yes");
+    },
+
+    "a UTC month-end timer runs at midnight UTC in Pacific time"(engine) {
+        const slot = Date.parse("2026-11-01T00:00:00Z");
+        const w = world({ timezone: "America/Los_Angeles", nowMs: slot });
+        const schedule = { frequency: "monthly", interval: 1, monthly: { by: "date", day: 1 }, times: ["00:00"], start: "2026-11-01", end: { type: "never" }, zone: "utc" };
+        const id = add(w, engine, { name: "UTC month end", schedule: schedule });
+        const preview = cli(w, engine, ["preview", "--schedule", JSON.stringify(schedule), "--count", "3", "--after", String(Date.parse("2026-10-31T00:00:00Z"))]);
+        same(JSON.parse(preview.stdout).occurrences, [slot, Date.parse("2026-12-01T00:00:00Z"), Date.parse("2027-01-01T00:00:00Z")], "CLI preview keeps the UTC month edge across Pacific month ends");
+        const timer = fs.readFileSync(path.join(w.units, "vgs-automation-utc-month-end.timer"), "utf8");
+        assert.match(timer, /\nOnCalendar=\*-\*-01 00:00:00 UTC\n/);
+        write(path.join(w.home, ".local", "state", "vgshell", "automations", "guard", id + ".json"), JSON.stringify({ handledThrough: Date.parse("2026-10-01T00:00:00Z") }));
+        const run = cli(w, engine, ["run", "--scheduled", id]);
+        assert.equal(run.status, 0, run.stderr);
+        const rec = ended(w, id);
+        same([rec.trigger, rec.outcome, rec.slot], ["scheduled", "succeeded", slot], "the scheduled trigger records the UTC occurrence at Pacific month end");
     }
 };
 

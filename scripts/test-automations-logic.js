@@ -65,6 +65,7 @@ const EVERY_MINUTE = stepped("minutely", 1);
 const EVERY_10_MINUTES = stepped("minutely", 10);
 const EVERY_HOUR = stepped("hourly", 1);
 const EVERY_2_HOURS = stepped("hourly", 2);
+const UTC_MONTHLY = schedule({ frequency: "monthly", monthly: { by: "date", day: 1 }, times: ["00:00"], start: "2026-11-01", zone: "utc" });
 
 // The compiler: [label, schedule, OnCalendar= expressions, cron fields, summary].
 const COMPILED = [
@@ -81,6 +82,7 @@ const COMPILED = [
     ["ends on a date", UNTIL, ["*-*-* 09:00:00"], ["0 9 * * *"], "Every day at 09:00, until 4 January 2026"],
     ["ends after 5", FIVE_TIMES, ["Mon,Wed *-*-* 09:00:00"], ["0 9 * * 1,3"], "Weekly on Monday and Wednesday at 09:00, 5 times"],
     ["ends after 1", schedule({ end: { type: "count", count: 1 } }), ["*-*-* 09:00:00"], ["0 9 * * *"], "Once on Thursday 1 January 2026 at 09:00"],
+    ["once at midnight UTC", schedule({ frequency: "monthly", monthly: { by: "date", day: 1 }, times: ["00:00"], start: "2026-11-01", end: { type: "count", count: 1 }, zone: "utc" }), ["*-*-01 00:00:00 UTC"], ["0 0 1 * *"], "Once on Sunday 1 November 2026 at 00:00"],
     ["every 3 days", EVERY_3_DAYS, ["*-*-* 09:00:00"], ["0 9 * * *"], "Every 3 days at 09:00"],
     ["every 2 months", EVERY_2_MONTHS, ["*-*-01 09:00:00"], ["0 9 1 * *"], "Every 2 months on day 1 at 09:00"],
     ["every minute", EVERY_MINUTE, ["*-*-* *:00/1:00"], ["*/1 * * * *"], "Every minute"],
@@ -140,6 +142,7 @@ const GUARD = [
 // Refused schedules: [label, schedule, the defect].
 const REFUSED = [
     ["no object", 3, "schedule: want=object"],
+    ["an unsupported zone", schedule({ zone: "Pacific" }), "schedule.zone: want=local|utc"],
     ["an unknown frequency", schedule({ frequency: "secondly" }), "schedule.frequency: want=minutely|hourly|daily|weekly|monthly|yearly"],
     ["a 7-minute step", stepped("minutely", 7), "schedule.interval: want=1|2|3|4|5|6|10|12|15|20|30"],
     ["a 5-hour step", stepped("hourly", 5), "schedule.interval: want=1|2|3|4|6|8|12"],
@@ -205,6 +208,7 @@ function verify(logic) {
     }
 
     process.env.TZ = "UTC";
+    assert.equal(logic.scheduleError(schedule({})), "", "a missing zone keeps the local default");
     for (const [label, s, calendar, cron, summary] of COMPILED) {
         assert.equal(logic.scheduleError(s), "", "accepted: " + label);
         same(logic.calendarExpressions(s), calendar, "calendar: " + label);
@@ -215,6 +219,22 @@ function verify(logic) {
     for (const [label, s, after, want] of NEXT)
         same(logic.nextOccurrences(s, at(after), want.length).map(iso), want, "next: " + label);
     same(logic.nextOccurrences(FIVE_TIMES, at("2026-01-19T10:00:00Z"), 3), [], "an ended rule has no next occurrence");
+    process.env.TZ = "America/Los_Angeles";
+    same(logic.nextOccurrences(UTC_MONTHLY, at("2026-10-31T00:00:00Z"), 3).map(iso), ["2026-11-01T00:00:00Z", "2026-12-01T00:00:00Z", "2027-01-01T00:00:00Z"], "UTC month starts stay fixed through Pacific daylight saving");
+    same(logic.nextOccurrences(schedule({}), at("2026-10-31T00:00:00Z"), 1).map(iso), ["2026-10-31T16:00:00Z"], "a schedule without zone still uses local wall time");
+    same(["2026-11-01T00:00:00Z", "2026-12-01T00:00:00Z", "2027-01-01T00:00:00Z"].map(value => {
+        const d = new Date(at(value));
+        return [d.getMonth() + 1, d.getDate(), d.getHours()];
+    }), [[10, 31, 17], [11, 30, 16], [12, 31, 16]], "UTC preview instants render at local month end across the November clock change");
+    same(logic.guard(UTC_MONTHLY, at("2026-11-01T00:00:00Z"), at("2026-10-01T00:00:00Z"), false), { run: true, slot: at("2026-11-01T00:00:00Z"), reason: "ran" }, "the UTC guard admits the exact scheduled instant");
+    assert.deepEqual(logic.calendarExpressions(UTC_MONTHLY), ["*-*-01 00:00:00 UTC"], "the systemd timer uses UTC");
+    same(logic.cronLines([automation({ schedule: schedule({ zone: "utc" }) }), automation({ id: "local", schedule: TWICE_DAILY })], a => ["/bin/runner", "run", a.id], ["X=1"]), [
+        "30 8 * * * env 'X=1' '/bin/runner' 'run' 'local'",
+        "0 17 * * * env 'X=1' '/bin/runner' 'run' 'local'",
+        "CRON_TZ=UTC",
+        "0 9 * * * env 'X=1' '/bin/runner' 'run' 'backup'"
+    ], "cron keeps local entries before switching the managed block to UTC");
+    process.env.TZ = "UTC";
     assert.throws(() => logic.nextOccurrences(schedule({}), 0, 51), /is not 1\.\.50/);
     same(logic.latestOccurrence(BIWEEKLY, at("2026-01-15T00:00:00Z")), at("2026-01-08T09:00:00Z"), "the latest skips the off week");
     for (const [label, s, now, handled, catchUp, want] of GUARD) {
@@ -552,6 +572,7 @@ const PREVIEW = [
     ["monthly on the last Friday", LAST_FRIDAY, "UTC", "2026-01-01T10:00:00Z", true],
     ["monthly on the fifth Monday", FIFTH_MONDAY, "UTC", "2026-01-01T10:00:00Z", true],
     ["yearly", YEARLY, "UTC", "2026-01-01T10:00:00Z", true],
+    ["monthly UTC across the Pacific clock change", UTC_MONTHLY, "America/Los_Angeles", "2026-10-31T00:00:00Z", true],
     ["29 February", LEAP_DAY, "UTC", "2026-01-01T10:00:00Z", true],
     ["daily across daylight saving", schedule({ times: ["01:30", "02:30"] }), "America/Los_Angeles", "2026-03-05T10:00:00Z", true],
     ["daily across the fall back", schedule({ times: ["01:30"] }), "America/Los_Angeles", "2026-10-28T10:00:00Z", true],
@@ -686,6 +707,7 @@ const compared = analyze === null ? 0 : comparePreview(load(file, modules), anal
 // ---------------------------------------------------------------- controls
 
 const CONTROLS = [
+    ["a UTC recurrence searches by its selected date", "if (schedule.zone !== \"utc\") return localDate(ms);", "return localDate(ms);"],
     ["the optional While logged out step reads info", 'case "no": linger = { tone: "info"', 'case "no": linger = { tone: "warning"'],
     ["notifications round duration to seconds", "Math.round(rec.durationMs / 1000)", "Math.floor(rec.durationMs / 1000)"],
     ["an unavailable scheduler is not an invalid schedule", 'scheduler=none|systemctl=|systemd-run=|crontab=', 'systemctl=|systemd-run=|crontab='],
@@ -791,7 +813,10 @@ fs.rmSync(temp, { recursive: true, force: true });
 fs.mkdirSync(temp, { recursive: true });
 try {
     for (const [label, needle, replacement] of CONTROLS) {
-        assert.equal(source.split(needle).length, label === "notifications round duration to seconds" ? 3 : 2, `control "${label}": the text to replace must occur once`);
+        const expectedMatches = label === "notifications round duration to seconds" ? 2
+            : label === "every time of day compiles" ? 3
+                : 2;
+        assert.equal(source.split(needle).length, expectedMatches, `control "${label}": the text to replace must occur once`);
         const mutant = path.join(temp, "AutomationsLogic.js");
         fs.writeFileSync(mutant, source.split(needle).join(replacement));
         let failed = false;

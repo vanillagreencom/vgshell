@@ -91,6 +91,7 @@ function blankDraft(nowMs, logic) {
         yearlyDay: d.d,
         yearlyEdited: false,
         times: [nextHourText(nowMs, logic)],
+        zone: "local",
         start: today,
         endType: "never",
         endDate: today,
@@ -169,6 +170,7 @@ function draftFromAutomation(row, logic) {
     draft.notifyEveryRun = row.notifyEveryRun;
     draft.frequency = schedule.frequency;
     draft.interval = schedule.interval;
+    draft.zone = schedule.zone === undefined ? "local" : schedule.zone;
     draft.weekdays = schedule.weekdays ? schedule.weekdays.slice() : draft.weekdays;
     if (schedule.times !== undefined) draft.times = schedule.times.slice();
     draft.start = schedule.start;
@@ -235,6 +237,11 @@ function endOf(draft) {
     return { type: "never" };
 }
 
+function scheduleWithZone(schedule, draft) {
+    if (draft.zone !== undefined && draft.zone !== "local") schedule.zone = draft.zone;
+    return schedule;
+}
+
 function scheduleFromDraft(draft, logic) {
     var time = draft.times.length > 0 ? draft.times[0] : "09:00";
     var schedule;
@@ -243,7 +250,7 @@ function scheduleFromDraft(draft, logic) {
     } else if (draft.preset === "once") {
         schedule = { frequency: "daily", interval: 1, times: [time], start: draft.start, end: { type: "count", count: 1 } };
     } else if (logic.isStepFrequency(draft.frequency)) {
-        return { frequency: draft.frequency, interval: Number(draft.interval), start: draft.start, end: endOf(draft) };
+        return scheduleWithZone({ frequency: draft.frequency, interval: Number(draft.interval), start: draft.start, end: endOf(draft) }, draft);
     } else {
         schedule = { frequency: draft.frequency, interval: Number(draft.interval), times: [], start: draft.start, end: { type: "never" } };
         if (draft.frequency === "weekly") schedule.weekdays = draft.weekdays.slice();
@@ -256,7 +263,7 @@ function scheduleFromDraft(draft, logic) {
     }
     schedule.times = draft.times.slice();
     schedule.end = endOf(draft);
-    return schedule;
+    return scheduleWithZone(schedule, draft);
 }
 
 function definitionFromDraft(draft, logic) {

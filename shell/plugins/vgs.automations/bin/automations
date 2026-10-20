@@ -41,6 +41,7 @@
 //       one JSON line, { summary, calendar, cron, occurrences }: the rule's
 //       summary, its OnCalendar= expressions and cron fields, and its next
 //       occurrences (10 by default) after --after (now by default), in ms.
+//       Schedule JSON may set zone to "local" or "utc"; omitted means local.
 //   automations --tree <dir> sync
 //       makes the units, or the crontab block, match the store; prints
 //       `sync=<scheduler> changed=<n>`. With no automation and no unit it

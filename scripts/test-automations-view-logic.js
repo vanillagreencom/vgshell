@@ -30,6 +30,7 @@ function run(view, logic) {
     const draft = view.blankDraft(now, logic);
     assert.equal(draft.start, "2026-01-05");
     assert.equal(draft.times.length, 1);
+    assert.equal(draft.zone, "local");
     assert.equal(draft.preset, "weekdays");
 
     const once = view.blankDraft(now, logic);
@@ -49,6 +50,16 @@ function run(view, logic) {
     pastOnce.times = ["00:00"];
     same(view.validation(pastOnce, logic, now).errors, { schedule: "Pick a date and time that is still ahead." }, "a Once already past is refused, since it would never run");
     assert.equal(view.summary(once, logic), "Once on Monday 5 January 2026 at 09:00");
+
+    const utcOnce = view.clone(once);
+    utcOnce.zone = "utc";
+    assert.equal(view.scheduleFromDraft(utcOnce, logic).zone, "utc", "the selected zone reaches the engine schedule");
+    assert.equal("zone" in view.scheduleFromDraft(once, logic), false, "local stays the absent-zone default");
+    let summaryZone = "";
+    const summaryLogic = Object.create(logic);
+    summaryLogic.summaryText = schedule => { summaryZone = schedule.zone; return "engine summary"; };
+    assert.equal(view.summary(utcOnce, summaryLogic), "engine summary");
+    assert.equal(summaryZone, "utc", "the engine owns the schedule summary's zone interpretation");
 
     const invalid = view.blankDraft(now, logic);
     invalid.command = " ";
@@ -98,12 +109,28 @@ function run(view, logic) {
     const tenMinutes = { frequency: "minutely", interval: 10, start: "2026-01-05", end: { type: "date", date: "2026-02-01" } };
     const reopened = view.draftFromAutomation(Object.assign({}, row, { schedule: tenMinutes }), logic);
     same([reopened.preset, reopened.frequency, reopened.interval, reopened.endType, reopened.endDate], ["custom", "minutely", 10, "date", "2026-02-01"], "the editor shows the saved interval rule");
-    same(view.scheduleFromDraft(reopened, logic), tenMinutes, "the reopened draft rebuilds the saved schedule");
+    same(view.scheduleFromDraft(reopened, logic), tenMinutes, "the reopened legacy schedule keeps local time");
     const untimed = view.clone(reopened);
     untimed.times = [];
     const checked = view.validation(untimed, logic, now);
     same([checked.ok, checked.errors], [true, {}], "an interval rule needs no time of day");
     assert.equal(view.summary(untimed, logic), "Every 10 minutes, until 1 February 2026");
+    const utcInterval = view.clone(reopened);
+    utcInterval.zone = "utc";
+    assert.equal(view.scheduleFromDraft(utcInterval, logic).zone, "utc", "an interval rule keeps its selected time zone");
+    const legacySchedule = { frequency: "monthly", interval: 1, monthly: { by: "date", day: 1 }, times: ["00:00"], start: "2026-01-01", end: { type: "never" } };
+    const legacyDraft = view.draftFromAutomation(Object.assign({}, row, { schedule: legacySchedule }), logic);
+    assert.equal(legacyDraft.zone, "local", "a saved schedule without a zone reopens as local");
+    const utcSchedule = Object.assign({}, legacySchedule, { zone: "utc" });
+    const utcDraft = view.draftFromAutomation(Object.assign({}, row, { schedule: utcSchedule }), logic);
+    assert.equal(utcDraft.zone, "utc", "a saved UTC schedule reopens with its zone");
+    assert.equal(view.scheduleFromDraft(utcDraft, logic).zone, "utc", "editing preserves a saved UTC zone");
+    const occurrence = Date.parse("2026-11-01T00:00:00Z");
+    const local = new Date(occurrence);
+    const weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const localTime = (local.getHours() < 10 ? "0" : "") + local.getHours() + ":" + (local.getMinutes() < 10 ? "0" : "") + local.getMinutes();
+    assert.equal(view.formatWhen(occurrence), weekdays[(local.getDay() + 6) % 7] + " " + local.getDate() + " " + months[local.getMonth()] + " " + localTime, "preview instants display in the user's local time");
     same(view.frequencyChoices(logic).map(c => [c.label, c.value]), [["minutes", "minutely"], ["hours", "hourly"], ["days", "daily"], ["weeks", "weekly"], ["months", "monthly"], ["years", "yearly"]], "Repeat every lists the judge's frequencies");
     const counted = Object.assign(view.clone(custom), { interval: 2, endType: "count" });
     same(view.frequencyChanges(counted, "minutely", logic), [["frequency", "minutely"], ["endType", "never"]], "minutes keep a step of 2 and drop the end after N runs");
@@ -168,7 +195,7 @@ try {
         ["empty commands are accepted", "if (String(draft.command || \"\").trim() === \"\") errors.command = \"Add the command this automation runs.\";", "if (false) errors.command = \"Add the command this automation runs.\";"],
         ["a rule with no run ahead is accepted", "else if (defect === \"\" && logic.nextOccurrences(schedule, nowMs === undefined ? Date.now() : nowMs, 1).length === 0)", "else if (false)"],
         ["reopening an interval rule reads its times", "if (schedule.times !== undefined) draft.times = schedule.times.slice();", "draft.times = schedule.times.slice();"],
-        ["an interval rule is built with times", "return { frequency: draft.frequency, interval: Number(draft.interval), start: draft.start, end: endOf(draft) };", "return { frequency: draft.frequency, interval: Number(draft.interval), times: draft.times.slice(), start: draft.start, end: endOf(draft) };"],
+        ["an interval rule keeps its selected time zone", "return scheduleWithZone({ frequency: draft.frequency, interval: Number(draft.interval), start: draft.start, end: endOf(draft) }, draft);", "return { frequency: draft.frequency, interval: Number(draft.interval), start: draft.start, end: endOf(draft) };"],
         ["an interval rule needs a time", "if (!isStepDraft(draft, logic) && (!Array.isArray(draft.times)", "if ((!Array.isArray(draft.times)"],
         ["a frequency choice keeps an end after N runs", "if (draft.endType === \"count\") out.push([\"endType\", \"never\"]);", ""],
         ["a frequency choice keeps a step the rule cannot take", "if (steps.indexOf(Number(draft.interval)) === -1) out.push([\"interval\", steps[0]]);", ""],
