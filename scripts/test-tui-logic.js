@@ -868,30 +868,39 @@ for (const [label, needle, replacement] of [
     report("control: the request rows fail when " + label, red > 0, true);
 }
 
-// TuiRunner's edit and editFor share one route, openPath: a file opens in
-// the core editor, keyed `core/edit` or the plugin's `<id>/edit`, and a
-// request for another file while that editor is live answers busy-other
-// while it raises the live one, so a notice card that leaves on `ok` stays;
-// a folder path opens in the file manager only once `test -d` finds a
-// folder there, since gio drops the trailing `/` and opens a file in its
-// default application. edit, editFor, openPath, recordStarted, openFolder
-// and folderChecked run as TuiRunner.qml holds them, with the judge above,
-// against stand-ins for the launcher, the folder check and runDetached.
+// TuiRunner's edit and editFor share one route, openPath: a file is read by
+// `gio info` and opens by its content type, a text file in the core editor,
+// keyed `core/edit` or the plugin's `<id>/edit`, any other file in its
+// default application, and a path gio finds nothing at opens nothing and
+// answers `reason=missing` to the caller's `done`. A request for another
+// file while the editor is live answers busy-other while it raises the
+// live one, so a notice card that leaves on `ok` stays; a folder path opens
+// in the file manager only once `test -d` finds a folder there, since gio
+// drops the trailing `/` and opens a file in its default application. edit,
+// editFor, openPath, openEditor, fileKind, fileProbed, guarded,
+// recordStarted, openFolder and folderChecked run as TuiRunner.qml holds
+// them, with the judge above, against stand-ins for the launcher, the
+// folder check, the file read and runDetached.
 function editSuite(source, logic, check) {
-    const functions = ["edit(path, line)", "editFor(id, path)", "openPath(path, line, owner)", "recordStarted(launch, args)", "openFolder(path)", "folderChecked(path, completion)"]
+    const functions = ["edit(path, line, done)", "editFor(id, path)", "guarded(ctx, done)", "openPath(path, line, owner, done)", "openEditor(route, owner)",
+        "fileKind(completion, output)", "fileProbed(probe, completion, output)", "recordStarted(launch, args)", "openFolder(path)", "folderChecked(path, completion)"]
         .map(header => runnerFunction(source, header)).join("");
     // STEPS run in order in one context, each [busy keys, call, the end of
-    // the folder check the call starts, null for one that never started].
+    // the check the call starts: a folder check's { code, status }, a file
+    // read's { completion, output }, null for one that never started].
     const scenario = steps => {
-        const seen = { started: [], checks: [], opened: [], logs: 0 };
+        const seen = { started: [], checks: [], probes: [], opened: [], done: [], logs: 0 };
         let busy = [];
         let end = null;
         const sandbox = vm.createContext({
-            Logic: logic, JSON: JSON, Object: Object, startedArgs: {}, root: {}, coreBin: "/vgs/bin",
+            Logic: logic, JSON: JSON, Object: Object, Error: Error, startedArgs: {}, root: {}, coreBin: "/vgs/bin",
             Paths: { home: "/home/me", configHome: "/home/me/.config" },
             DesktopLaunch: { open: target => ["gio", "open", target] },
             Capabilities: { runDetached: argv => { seen.opened.push(argv); return "ok"; } },
             console: { warn: () => { seen.logs += 1; }, error: () => { seen.logs += 1; } },
+            finished: answer => seen.done.push(answer),
+            ctxLive: { active: true },
+            ctxDead: { active: false },
             runner: () => ({ launcher: "present", busy: busy, run: "7-1" }),
             start: launch => {
                 if (!launch.ok) return launch.answer;
@@ -906,6 +915,14 @@ function editSuite(source, logic, check) {
                     return process;
                 },
             },
+            fileProbeComponent: {
+                createObject: (parent, props) => {
+                    seen.probes.push(props.path);
+                    const process = Object.assign({}, props);
+                    Object.defineProperty(process, "running", { set: () => sandbox.fileProbed(process, end.completion, end.output) });
+                    return process;
+                },
+            },
         });
         vm.runInContext(functions, sandbox);
         const answers = steps.map(([stepBusy, call, stepEnd]) => {
@@ -913,28 +930,62 @@ function editSuite(source, logic, check) {
             end = stepEnd;
             return vm.runInContext(call, sandbox);
         });
-        return { answers: answers, started: seen.started, checks: seen.checks, opened: seen.opened, logs: seen.logs };
+        return { answers: answers, started: seen.started, checks: seen.checks, probes: seen.probes, opened: seen.opened, done: seen.done, logs: seen.logs };
     };
     const folder = { code: 0, status: 0 };
     const notFolder = { code: 1, status: 0 };
-    const none = { started: [], checks: [], opened: [], logs: 0 };
+    // What `gio info -a standard::type,standard::content-type` prints for a
+    // file of content type TYPE, a folder with KIND "2".
+    const info = (type, kind) => ({ completion: { code: 0, status: 0 }, output: "type: regular\nuri: file:///x\nattributes:\n  standard::type: " + (kind || "1") + "\n  standard::content-type: " + type + "\n" });
+    const gone = { completion: { code: 2, status: 0 }, output: "" };
+    const unstarted = { completion: null, output: "" };
+    const none = { started: [], checks: [], probes: [], opened: [], done: [], logs: 0 };
     const want = fields => Object.assign({ answers: [] }, none, fields);
+    const a = "/home/me/.config/hypr/a.lua";
     // rows: [name, steps, what the steps answer, start, check and open]
     const rows = [
-        ["edit of a file starts the core editor on it", [[[], "edit(\"hypr/a.lua\", 3)", null]],
-            want({ answers: ["ok"], started: [["core/edit", ["hypr/a.lua", "3"]]] })],
-        ["edit of another file while the editor holds one answers busy-other", [[[], "edit(\"hypr/a.lua\")", null], [["core/edit"], "edit(\"hypr/b.lua\")", null]],
-            want({ answers: ["ok", "refused: tui=core/edit reason=busy-other"], started: [["core/edit", ["hypr/a.lua"]]] })],
-        ["edit of the same file while the editor holds it raises it", [[[], "edit(\"hypr/a.lua\")", null], [["core/edit"], "edit(\"hypr/a.lua\")", null]],
-            want({ answers: ["ok", "ok"], started: [["core/edit", ["hypr/a.lua"]]] })],
-        ["edit while an editor this shell did not start is live answers busy-other", [[["core/edit"], "edit(\"hypr/a.lua\")", null]],
-            want({ answers: ["refused: tui=core/edit reason=busy-other"] })],
-        ["editFor of another file while the plugin's editor holds one answers busy-other", [[[], "editFor(\"acme.tui\", \"acme/a.toml\")", null], [["acme.tui/edit"], "editFor(\"acme.tui\", \"acme/b.toml\")", null]],
-            want({ answers: ["ok", "refused: tui=edit reason=busy-other"], started: [["acme.tui/edit", ["acme/a.toml"]]] })],
-        ["editFor of the same file while the plugin's editor holds it raises it", [[[], "editFor(\"acme.tui\", \"acme/a.toml\")", null], [["acme.tui/edit"], "editFor(\"acme.tui\", \"acme/a.toml\")", null]],
-            want({ answers: ["ok", "ok"], started: [["acme.tui/edit", ["acme/a.toml"]]] })],
-        ["the core editor's file does not answer for a plugin's editor", [[[], "edit(\"acme/a.toml\")", null], [["acme.tui/edit"], "editFor(\"acme.tui\", \"acme/a.toml\")", null]],
-            want({ answers: ["ok", "refused: tui=edit reason=busy-other"], started: [["core/edit", ["acme/a.toml"]]] })],
+        ["edit of a text file starts the core editor on it once gio read it", [[[], "edit(\"hypr/a.lua\", 3, finished)", info("text/x-lua")]],
+            want({ answers: ["ok"], probes: [a], started: [["core/edit", ["hypr/a.lua", "3"]]], done: ["ok"] })],
+        ["edit of a PDF opens it in its default application", [[[], "edit(\"/home/me/Docs/a.pdf\", undefined, finished)", info("application/pdf")]],
+            want({ answers: ["ok"], probes: ["/home/me/Docs/a.pdf"], opened: [["gio", "open", "/home/me/Docs/a.pdf"]], done: ["ok"] })],
+        ["edit of a spreadsheet opens it in its default application", [[[], "edit(\"~/Docs/a.xlsx\", undefined, finished)", info("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")]],
+            want({ answers: ["ok"], probes: ["/home/me/Docs/a.xlsx"], opened: [["gio", "open", "/home/me/Docs/a.xlsx"]], done: ["ok"] })],
+        ["edit of an image opens it in its default application", [[[], "edit(\"/home/me/a.png\", undefined, finished)", info("image/png")]],
+            want({ answers: ["ok"], probes: ["/home/me/a.png"], opened: [["gio", "open", "/home/me/a.png"]], done: ["ok"] })],
+        ["edit of a folder named with no slash opens it in the file manager", [[[], "edit(\"/home/me/Docs\", undefined, finished)", info("inode/directory", "2")]],
+            want({ answers: ["ok"], probes: ["/home/me/Docs"], opened: [["gio", "open", "/home/me/Docs"]], done: ["ok"] })],
+        ["edit of a missing file starts nothing and answers its reason", [[[], "edit(\"/home/me/Docs/a.pdf\", undefined, finished)", gone]],
+            want({ answers: ["ok"], probes: ["/home/me/Docs/a.pdf"], done: ["refused: file=\"/home/me/Docs/a.pdf\" reason=missing"] })],
+        ["edit of a missing text file starts no editor", [[[], "edit(\"hypr/a.lua\", undefined, finished)", gone]],
+            want({ answers: ["ok"], probes: [a], done: ["refused: file=\"" + a + "\" reason=missing"] })],
+        ["edit of a missing file with no done logs the reason", [[[], "edit(\"/home/me/a.pdf\")", gone]],
+            want({ answers: ["ok"], probes: ["/home/me/a.pdf"], logs: 1 })],
+        ["a read that never started opens nothing", [[[], "edit(\"/home/me/a.pdf\", undefined, finished)", unstarted]],
+            want({ answers: ["ok"], probes: ["/home/me/a.pdf"], done: ["refused: file=\"/home/me/a.pdf\" reason=unreadable"] })],
+        ["a program is never opened", [[[], "edit(\"/home/me/a.bin\", undefined, finished)", info("application/x-executable")]],
+            want({ answers: ["ok"], probes: ["/home/me/a.bin"], done: ["refused: file=\"/home/me/a.bin\" reason=program"] })],
+        ["a device or a pipe is never opened", [[[], "edit(\"/home/me/a.fifo\", undefined, finished)", info("inode/fifo", "4")]],
+            want({ answers: ["ok"], probes: ["/home/me/a.fifo"], done: ["refused: file=\"/home/me/a.fifo\" reason=not-a-file"] })],
+        ["edit of another file while the editor holds one answers busy-other", [[[], "edit(\"hypr/a.lua\", undefined, finished)", info("text/plain")], [["core/edit"], "edit(\"hypr/b.lua\", undefined, finished)", info("text/plain")]],
+            want({ answers: ["ok", "ok"], probes: [a, "/home/me/.config/hypr/b.lua"], started: [["core/edit", ["hypr/a.lua"]]], done: ["ok", "refused: tui=core/edit reason=busy-other"] })],
+        ["edit of a PDF while the editor holds a file still opens it", [[["core/edit"], "edit(\"/home/me/a.pdf\", undefined, finished)", info("application/pdf")]],
+            want({ answers: ["ok"], probes: ["/home/me/a.pdf"], opened: [["gio", "open", "/home/me/a.pdf"]], done: ["ok"] })],
+        ["edit of the same file while the editor holds it raises it", [[[], "edit(\"hypr/a.lua\", undefined, finished)", info("text/plain")], [["core/edit"], "edit(\"hypr/a.lua\", undefined, finished)", info("text/plain")]],
+            want({ answers: ["ok", "ok"], probes: [a, a], started: [["core/edit", ["hypr/a.lua"]]], done: ["ok", "ok"] })],
+        ["edit while an editor this shell did not start is live answers busy-other", [[["core/edit"], "edit(\"hypr/a.lua\", undefined, finished)", info("text/plain")]],
+            want({ answers: ["ok"], probes: [a], done: ["refused: tui=core/edit reason=busy-other"] })],
+        ["editFor of another file while the plugin's editor holds one answers busy-other", [[[], "editFor(\"acme.tui\", \"acme/a.toml\")", info("application/toml")], [["acme.tui/edit"], "editFor(\"acme.tui\", \"acme/b.toml\")", info("application/toml")]],
+            want({ answers: ["ok", "ok"], probes: ["/home/me/.config/acme/a.toml", "/home/me/.config/acme/b.toml"], started: [["acme.tui/edit", ["acme/a.toml"]]], logs: 1 })],
+        ["editFor of the same file while the plugin's editor holds it raises it", [[[], "editFor(\"acme.tui\", \"acme/a.toml\")", info("application/toml")], [["acme.tui/edit"], "editFor(\"acme.tui\", \"acme/a.toml\")", info("application/toml")]],
+            want({ answers: ["ok", "ok"], probes: ["/home/me/.config/acme/a.toml", "/home/me/.config/acme/a.toml"], started: [["acme.tui/edit", ["acme/a.toml"]]] })],
+        ["the core editor's file does not answer for a plugin's editor", [[[], "edit(\"acme/a.toml\", undefined, finished)", info("text/plain")], [["acme.tui/edit"], "editFor(\"acme.tui\", \"acme/a.toml\")", info("text/plain")]],
+            want({ answers: ["ok", "ok"], probes: ["/home/me/.config/acme/a.toml", "/home/me/.config/acme/a.toml"], started: [["core/edit", ["acme/a.toml"]]], done: ["ok"], logs: 1 })],
+        ["a plugin's done is dropped once its instance is gone", [[[], "edit(\"/home/me/a.pdf\", undefined, guarded(ctxDead, finished))", info("application/pdf")]],
+            want({ answers: ["ok"], probes: ["/home/me/a.pdf"], opened: [["gio", "open", "/home/me/a.pdf"]] })],
+        ["a plugin's done answers while its instance lives", [[[], "edit(\"/home/me/a.pdf\", undefined, guarded(ctxLive, finished))", info("application/pdf")]],
+            want({ answers: ["ok"], probes: ["/home/me/a.pdf"], opened: [["gio", "open", "/home/me/a.pdf"]], done: ["ok"] })],
+        ["a done that is no function is refused", [[[], "(() => { try { guarded(ctxLive, 7); } catch (e) { return e.message; } })()", null]],
+            want({ answers: ["refused: tui=edit done=not-a-function"] })],
         ["a folder path that is a folder opens in the file manager", [[[], "edit(\"~/.local/share/vgs/\")", folder]],
             want({ answers: ["ok"], checks: ["/home/me/.local/share/vgs/"], opened: [["gio", "open", "/home/me/.local/share/vgs/"]] })],
         ["a /-suffixed path to a file opens nothing and is logged", [[[], "edit(\"/home/me/.bashrc/\")", notFolder]],
@@ -945,6 +996,22 @@ function editSuite(source, logic, check) {
             want({ answers: ["refused: edit=a/../x reason=parent"] })],
     ];
     for (const [name, steps, expected] of rows) check("TuiRunner edit: " + name, scenario(steps), expected);
+    // The types the core editor takes, and the ones that open elsewhere.
+    const typeRows = [
+        ["text/plain", "editor"], ["text/x-shellscript", "editor"], ["text/csv", "editor"], ["application/json", "editor"], ["application/toml", "editor"],
+        ["application/x-shellscript", "editor"], ["application/yaml", "editor"], ["application/xml", "editor"], ["application/x-zerosize", "editor"],
+        ["application/pdf", "default"], ["application/vnd.oasis.opendocument.spreadsheet", "default"], ["image/png", "default"], ["image/svg+xml", "default"],
+        ["video/mp4", "default"], ["application/zip", "default"], ["application/octet-stream", "default"],
+        ["application/x-executable", "program"], ["application/x-pie-executable", "program"], ["application/vnd.appimage", "program"],
+    ];
+    const kinds = vm.createContext({ end: null });
+    vm.runInContext(runnerFunction(source, "fileKind(completion, output)"), kinds);
+    for (const [type, want] of typeRows) {
+        kinds.end = info(type);
+        check("TuiRunner fileKind: " + type, vm.runInContext("fileKind(end.completion, end.output)", kinds), want);
+    }
+    kinds.end = { completion: { code: 0, status: 0 }, output: "attributes:\n" };
+    check("TuiRunner fileKind: output with no type is unreadable", vm.runInContext("fileKind(end.completion, end.output)", kinds), "unreadable");
 }
 editSuite(RUNNER, load(LOGIC), report);
 // Each control drops one rule from a copy of TuiRunner: the editor reading
@@ -952,7 +1019,10 @@ editSuite(RUNNER, load(LOGIC), report);
 // whatever the check found.
 for (const [label, needle, replacement] of [
     ["the editor drops the started-arguments comparison", "return Logic.tuiArgsShownAnswer(named.key, named.label, answer, route.args, startedArgs);", "return Logic.tuiShownAnswer(named.label, answer);"],
-    ["the folder check admits a /-suffixed file", "if (completion === null || completion.status !== 0 || completion.code !== 0) {", "if (false) {"]
+    ["the folder check admits a /-suffixed file", "if (completion === null || completion.status !== 0 || completion.code !== 0) {", "if (false) {"],
+    ["every file opens in the editor", "return type[1].indexOf(\"text/\") === 0 || texts.indexOf(type[1]) !== -1 ? \"editor\" : \"default\";", "return \"editor\";"],
+    ["a file gio cannot find still opens", "if (completion.status !== 0 || completion.code !== 0) return \"missing\";", ""],
+    ["a program opens in its default application", "if (programs.indexOf(type[1]) !== -1) return \"program\";", ""]
 ]) {
     report("control: " + label + ": the text to replace occurs once", RUNNER.split(needle).length - 1, 1);
     let red = 0;

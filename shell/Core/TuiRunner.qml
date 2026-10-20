@@ -71,7 +71,7 @@ Scope {
             run: (name, args, done) => root.run(ctx, name, args, done),
             get entries() { return root.entries; },
             open: key => root.open(key),
-            edit: (path, line) => root.edit(path, line),
+            edit: (path, line, done) => root.edit(path, line, root.guarded(ctx, done)),
             get state() { return root.stateOf(ctx); }
         };
     }
@@ -172,9 +172,10 @@ Scope {
 
     // edit: the one route that opens a cited file or folder, a file
     // reference's (PageReference), a notice's link or `shell.tui.edit`'s,
-    // through openPath, its editor run keyed `core/edit`.
-    function edit(path, line) {
-        return openPath(path, line, undefined);
+    // through openPath. `done`, when given, receives the answer the open
+    // ends in, as openPath says.
+    function edit(path, line, done) {
+        return openPath(path, line, undefined, done);
     }
 
     // editFor: plugin ID's file action (PluginLogic.statusActionRequest),
@@ -182,25 +183,86 @@ Scope {
     // own, `<id>/edit`, so the plugin reads its end in its `state`
     // (PluginLogic.tuiStateNames) as it reads its own script's.
     function editFor(id, path) {
-        return openPath(path, undefined, id);
+        return openPath(path, undefined, id, undefined);
+    }
+
+    // DONE, a plugin's callback, as a function that calls it only while
+    // CTX, the instance that gave it, lives, as a run's `done` is dropped.
+    function guarded(ctx, done) {
+        if (done === undefined) return undefined;
+        if (typeof done !== "function") throw new Error("refused: tui=edit done=not-a-function");
+        return answer => { if (ctx.active) done(answer); };
     }
 
     // PATH at LINE as PluginLogic.editRoute decides: a folder through
-    // openFolder, and a file through the core editor TUI, run for OWNER, a
-    // plugin id, or for the core while OWNER is undefined
-    // (PluginLogic.tuiCore). A second request for the same file raises the
-    // live editor and answers `ok`; one for another file while that editor
-    // is open raises it and answers `reason=busy-other`, as runFor does, so
-    // a caller that leaves once its file opened stays.
-    function openPath(path, line, owner) {
+    // openFolder, and a file once gio has read it (fileProbed), by its
+    // content type: a text file through the core editor TUI, run for OWNER,
+    // a plugin id, or for the core while OWNER is undefined
+    // (PluginLogic.tuiCore), and any other file in its default application.
+    // A second request for the same file raises the live editor and answers
+    // `ok`; one for another file while that editor is open raises it and
+    // answers `reason=busy-other`, as runFor does, so a caller that leaves
+    // once its file opened stays. Answers `ok` once the read starts, or the
+    // refusal of a path editRoute judged; a file's own end, `ok`, one of
+    // those answers or `refused: file=<path> reason=missing`, goes to
+    // DONE, when given, else to the log when it is no `ok`.
+    function openPath(path, line, owner, done) {
         const route = Logic.editRoute(path, line, Paths.home, Paths.configHome);
         if (!route.ok) return route.answer;
         if (route.kind === "folder") return openFolder(route.path);
+        const file = route.args[0];
+        const probe = fileProbeComponent.createObject(root, {
+            path: file.charAt(0) === "/" ? file : Paths.configHome + "/" + file,
+            route: route, owner: owner, done: done === undefined ? null : done
+        });
+        probe.running = true;
+        return "ok";
+    }
+
+    // The core editor on ROUTE's file, run for OWNER (openPath).
+    function openEditor(route, owner) {
         const launch = Logic.tuiCore(Logic.CORE_TUIS, coreBin, runner(), "edit", route.args, owner);
         const answer = start(launch, null, undefined);
         recordStarted(launch, route.args);
         const named = Logic.tuiCoreNamed("edit", owner);
         return Logic.tuiArgsShownAnswer(named.key, named.label, answer, route.args, startedArgs);
+    }
+
+    // What `gio info` read of a file, COMPLETION its { code, status }, null
+    // for a read that never started, OUTPUT its standard output: `missing`
+    // for a path gio finds nothing at, `unreadable` for a read that failed
+    // to start or to say, `not-a-file` for what is neither a file nor a
+    // folder, `program` for a type that runs when opened, `editor` for a
+    // text type, every text/* type and the text formats the shared MIME
+    // database files elsewhere, and `default` for the rest, which open in
+    // their default application, a folder in the file manager. gio reads
+    // the type from the content when the name says none, so a text file
+    // with no extension is text.
+    function fileKind(completion, output) {
+        if (completion === null) return "unreadable";
+        if (completion.status !== 0 || completion.code !== 0) return "missing";
+        const kind = /^\s*standard::type: (\d+)$/m.exec(output);
+        const type = /^\s*standard::content-type: (\S+)$/m.exec(output);
+        if (kind === null || type === null) return "unreadable";
+        if (kind[1] !== "1" && kind[1] !== "2") return "not-a-file";
+        const programs = ["application/x-executable", "application/x-pie-executable", "application/x-sharedlib", "application/vnd.appimage", "application/x-ms-dos-executable", "application/x-msdos-program"];
+        if (programs.indexOf(type[1]) !== -1) return "program";
+        const texts = ["application/json", "application/toml", "application/x-shellscript", "application/xml", "application/yaml", "application/x-yaml", "application/javascript", "application/x-desktop", "application/x-zerosize"];
+        return type[1].indexOf("text/") === 0 || texts.indexOf(type[1]) !== -1 ? "editor" : "default";
+    }
+
+    // The end of the read of PROBE's file, COMPLETION and OUTPUT as
+    // fileKind takes them: the editor, the default application or a
+    // refusal, whose answer goes to the probe's `done` or, without one,
+    // to the log.
+    function fileProbed(probe, completion, output) {
+        const kind = fileKind(completion, output);
+        let answer;
+        if (kind === "editor") answer = openEditor(probe.route, probe.owner);
+        else if (kind === "default") answer = Capabilities.runDetached(DesktopLaunch.open(probe.path));
+        else answer = "refused: file=" + JSON.stringify(probe.path) + " reason=" + kind;
+        if (probe.done !== null) probe.done(answer);
+        else if (answer !== "ok") console.warn("tui: " + answer);
     }
 
     // Opens PATH, an absolute path editRoute read as a folder, in the
@@ -428,6 +490,29 @@ Scope {
                 if (running) return;
                 root.folderChecked(check.path, check.completion);
                 check.destroy();
+            }
+        }
+    }
+
+    // `gio info` of PATH, absolute, for the type and kind fileKind reads. As
+    // the folder check, it reports a failed start only through
+    // runningChanged.
+    Component {
+        id: fileProbeComponent
+        Process {
+            id: probe
+            property string path: ""
+            property var route: null
+            property var owner: undefined
+            property var done: null
+            property var completion: null
+            command: ["gio", "info", "-a", "standard::type,standard::content-type", "--", probe.path]
+            stdout: StdioCollector { id: probeOutput }
+            onExited: (code, status) => { probe.completion = { code: code, status: status }; }
+            onRunningChanged: {
+                if (running) return;
+                root.fileProbed(probe, probe.completion, probeOutput.text);
+                probe.destroy();
             }
         }
     }

@@ -37,7 +37,7 @@ The plugin's judge, `GoogleDriveLogic.parseStatus`, refuses a record whose `need
 - `localPath`: the record's path of the file on this computer, on every row but a file the download could not copy with no earlier copy here.
 - `copyFolder`: on a `both-changed` row whose local file a download replaced, the folder of the kept copy.
 
-The popover's Show older copy opens `copyFolder` in the file manager, on a row that needs the user and has `localAction`. A note has no action in the popover (`GoogleDriveLogic.conflictRow`). Each row's file name, a note's included, is a link while the row carries `localPath`: a click opens that file in the core editor through the core's file route, `shell.tui.edit`, and closes the popover. A row with no `localPath` draws its name as plain text.
+The popover's Show older copy opens `copyFolder` in the file manager, on a row that needs the user and has `localAction`. A note has no action in the popover (`GoogleDriveLogic.conflictRow`). Each row's file name, a note's included, is a link while the row carries `localPath`: a click opens that file through the core's file route, `shell.tui.edit`: a text file in the core editor, any other file in its default application. The popover closes once the file opened. A file that is no longer on this computer opens nothing, and its row says "This file is no longer on this computer." and stays. A row with no `localPath` draws its name as plain text.
 
 Each row's line says what happened and what the user does, or that nothing is lost: a doubled name the user owns says how to clear it, one another account owns names that owner when the record does, and a `both-changed` row says whether VGS kept the copy that was here or copied it to Drive.
 

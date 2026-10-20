@@ -550,6 +550,15 @@ function verify(L) {
     const titleOf = rec => L.problemCallout(L.cloudValue(rec, ""), NOW).title;
     assert.notEqual(titleOf(SIGNED_OUT), titleOf(REFUSED), "a sign-in never made reads apart from one Google refused");
 
+    // A review row's open ends as the core file route answers: opened, a
+    // file that is gone, or anything else.
+    for (const [reply, want] of [
+        ["ok", "opened"],
+        ["refused: file=\"/home/me/Drive/a.pdf\" reason=missing", "gone"],
+        ["refused: tui=core/edit reason=busy-other", "failed"],
+        ["refused: file=\"/home/me/Drive/a.pdf\" reason=unreadable", "failed"],
+    ]) assert.equal(L.openFileEnd(reply), want, "open file end: " + reply);
+
     // The body: a pause always, else what the state means while nothing is
     // to review and nothing is wrong.
     const body = rec => L.panelBody(L.cloudValue(rec, ""), NOW);
@@ -794,6 +803,7 @@ const controls = [
     ["absent units offer their fix", "if (head.cause === \"not-set-up\") return CALLOUTS[\"not-set-up\"];", ""],
     ["an unreadable pair list offers its repair in the popover", "action: { label: \"Start the list again\", tui: \"reset-pairs\" } };", "action: null };"],
     ["the popover says a pause", "if (cloud.paused) return (head.cause", "if (false) return (head.cause"],
+    ["a gone file reads as a failure to open", "return / reason=missing$/.test(reply) ? \"gone\" : \"failed\";", "return \"failed\";"],
     ["a note hides the up-to-date sentence", "if (cloud.conflictCount > 0 || problemCallout(", "if (problemCallout("],
     ["up to date counts the folder pairs", "return (n === 1 ? \"Your folder pair matches Google Drive.\" : \"Your \" + n + \" folder pairs match Google Drive.\")", "return \"Your folder pairs match Google Drive.\""],
     ["no surface calls a note to review", "notes\") + \" · nothing was lost\"", "notes\") + \" to review\""],

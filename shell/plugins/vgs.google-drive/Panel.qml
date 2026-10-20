@@ -19,9 +19,11 @@ import "GoogleDriveLogic.js" as Logic
 // copy's folder in the file manager. The notes, the files that need
 // nothing, fold into one line that unfolds in place; a note has no
 // action, since its fix is in Google Drive (reviewView). A row's name,
-// in Needs you and in the notes, is a link that opens the file in the
-// core editor while the file is on this computer, and closes the popover;
-// else it is plain text (conflictRow's `file`). The footer holds
+// in Needs you and in the notes, is a link that opens the file through
+// the core's one file route (a text file in the core editor, any other
+// in its default application) and closes the popover; a file that is no
+// longer on this computer says so on its row and keeps it. A name is plain
+// text where the file was never here (conflictRow's `file`). The footer holds
 // Pause or Resume and Sync now, and shows only while a sync can run
 // (footerView). It runs nothing itself: Sync now, Pause and Resume ask the
 // service through the plugin's own IPC. The popover is `size.panel.md`
@@ -50,10 +52,14 @@ Item {
     // The refusal the last press was answered with, "" for none; else the
     // service's last failed request.
     property string problem: ""
+    // The files this popover found no longer on this computer, whose rows
+    // say so.
+    property var goneFiles: []
     readonly property string problemLine: problem !== "" ? problem : known ? cloud.problem : ""
 
     function open(payloadJson) {
         problem = "";
+        goneFiles = [];
     }
     function close() {}
 
@@ -77,13 +83,26 @@ Item {
         return answered(shell.tui.edit(folder + "/"), "VGS could not open the folder.");
     }
 
-    // Open FILE, a review row's file on this computer, in the core editor
-    // through the same route. The editor takes the keyboard the popover
-    // holds, so a file that opened closes the popover, as a fix does.
+    // Open FILE, a review row's file on this computer, through the same
+    // route: a text file in the core editor, any other in its default
+    // application. The route answers once it has read the file
+    // (GoogleDriveLogic.openFileEnd): an opened file closes the popover, as
+    // a fix does, since the editor takes the keyboard the popover holds; a
+    // file that is gone keeps its row, which says so.
     function openFile(file) {
-        const reply = answered(shell.tui.edit(file), "VGS could not open the file.");
-        if (reply === "ok") shell.surfaces.hide("panel");
-        return reply;
+        shell.tui.edit(file, undefined, reply => {
+            const end = Logic.openFileEnd(reply);
+            if (end === "opened") {
+                problem = "";
+                shell.surfaces.hide("panel");
+            } else if (end === "gone") {
+                problem = "";
+                goneFiles = goneFiles.concat([file]);
+            } else {
+                problem = "VGS could not open the file.";
+                console.warn("google-drive panel: " + reply);
+            }
+        });
     }
 
     function answered(reply, sentence) {
@@ -109,6 +128,7 @@ Item {
         id: reviewRow
         required property var modelData
         readonly property bool linked: modelData.file !== null
+        property bool gone: false
         signal showFolder(string folder)
         signal openFile(string file)
         spacing: Theme.listItem.iconGap
@@ -175,6 +195,14 @@ Item {
                     title: "Kept copies"
                     info: reviewRow.modelData.info
                 }
+            }
+            Label {
+                visible: reviewRow.gone
+                width: parent.width
+                role: "body"
+                color: Theme.color.danger
+                text: "This file is no longer on this computer."
+                wrapMode: Text.Wrap
             }
             RowAction {
                 visible: reviewRow.modelData.action !== null
@@ -275,6 +303,7 @@ Item {
                     model: root.review.needs
                     ReviewRow {
                         width: needsList.width
+                        gone: root.goneFiles.indexOf(modelData.file) !== -1
                         onShowFolder: folder => root.showFolder(folder)
                         onOpenFile: file => root.openFile(file)
                     }
@@ -340,6 +369,7 @@ Item {
                     model: root.review.notes
                     ReviewRow {
                         width: notesList.width
+                        gone: root.goneFiles.indexOf(modelData.file) !== -1
                         onOpenFile: file => root.openFile(file)
                     }
                 }

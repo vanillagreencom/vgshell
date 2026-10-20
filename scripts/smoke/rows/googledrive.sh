@@ -129,6 +129,10 @@ cs_systemctl() { if [[ -f $cs_stub/systemd/systemctl.calls ]]; then py_reply 'im
 cs_panel_shown() { [[ $(ipc smoke instanceGeometry panel vgs.google-drive) != absent ]] && echo shown || echo hidden; }
 cs_panel_footer() { ipc smoke readInstance panel vgs.google-drive footer | py_reply 'import json,sys; f=json.load(sys.stdin); print(json.dumps([f["shown"], f["shown"] and f["sync"]["reason"] == ""]))'; }
 cs_panel_review() { ipc smoke readInstance panel vgs.google-drive review | py_reply 'import json,sys; r=json.load(sys.stdin); print(json.dumps([[x["name"] for x in r["needs"]], len(r["notes"])]))'; }
+cs_gone_files() { ipc smoke readInstance panel vgs.google-drive goneFiles; }
+# The `gio` calls the stand-in recorded after the first N, as JSON.
+cs_gio_since() { device_calls gio | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)[int(sys.argv[1]):]))' "$1"; }
+cs_gio_count() { device_calls gio | py_reply 'import json,sys; print(len(json.load(sys.stdin)))'; }
 cs_notes_open() { ipc smoke readInstance panel vgs.google-drive notesOpen; }
 cs_panel_drawn() { [[ $(ipc smoke itemGeometry panel vgs.google-drive "$1" "$2") == \[* ]] && echo drawn || echo absent; }
 cs_badge() { ipc smoke readInstance "$(bar_key)" vgs.google-drive view | py_reply 'import json,sys; print(json.load(sys.stdin)["badge"])'; }
@@ -155,12 +159,14 @@ cs_gear_press() { cs_panel_click "$(ipc smoke labelledGeometry panel vgs.google-
 # The page the Settings window shows, without its tab.
 cs_page_plugin() { cs_page | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin).split("/")[0]))'; }
 # cs_more_notes: six more files Drive removed and the run put back, which
-# need nothing.
+# need nothing; the sixth is a PDF, whose link opens in its default
+# application.
+cs_notes=(n1.txt n2.txt n3.txt n4.txt n5.txt n6.pdf)
 cs_more_notes() {
   local n
-  for n in 1 2 3 4 5 6; do cs_put "n$n.txt" "note $n"; done
+  for n in "${cs_notes[@]}"; do cs_put "$n" "note $n"; done
   expect "a run copies six more files" "pair=docs result=idle exit=0" cs_answer run
-  for n in 1 2 3 4 5 6; do rm -- "$cs_drive/n$n.txt"; done
+  for n in "${cs_notes[@]}"; do rm -- "${cs_drive:?}/$n"; done
   expect "a run puts the six files back on Drive" "pair=docs result=idle exit=0" cs_answer run
 }
 cs_reset_output() { cs_answer pairs-reset | py_reply 'import sys
@@ -525,6 +531,28 @@ SH
   expect_poll "the name hands the terminal the core editor on the file" "$(words core/edit "$core_vgshell" edit "$cs_mirror/a.txt")" recorded_tail
   expect_poll "the name closes the popover" hidden cs_panel_shown
   expect_run_end "the file's editor run ends" core/edit
+
+  # The route reads the file before it opens it. A note whose file is gone
+  # from this computer keeps its row, which says so, and starts nothing;
+  # a PDF note opens in its default application, through `gio open`, and
+  # starts no editor, and closes the popover as the editor's file does.
+  cs_open_popover "the popover for a gone file"
+  expect "the notes line is clicked for the gone file" ok cs_panel_press ListItem "8 notes · nothing was lost"
+  expect_poll "the notes line unfolds for the gone file" true cs_notes_open
+  forget_record
+  gio_before="$(cs_gio_count)"
+  mv -- "$cs_mirror/n5.txt" "$cs_mirror/n5.txt.away"
+  expect "the name of the gone file is clicked" ok cs_panel_press LinkText n5.txt
+  expect_poll "the row of the gone file says so" "[\"$cs_mirror/n5.txt\"]" cs_gone_files
+  expect "the gone file keeps its row" drawn cs_panel_drawn LinkText n5.txt
+  expect "the gone file keeps the popover open" shown cs_panel_shown
+  expect "the gone file starts no editor" absent recorded_tail
+  expect "the gone file starts no default application" '[]' cs_gio_since "$gio_before"
+  mv -- "$cs_mirror/n5.txt.away" "$cs_mirror/n5.txt"
+  expect "the name of the PDF is clicked" ok cs_panel_press LinkText n6.pdf
+  expect_poll "the PDF opens through gio open" "[[\"open\", \"$cs_mirror/n6.pdf\"]]" cs_gio_since "$gio_before"
+  expect_poll "the PDF closes the popover" hidden cs_panel_shown
+  expect "the PDF starts no editor" absent recorded_tail
 
   # A click outside the popover and Escape each close it; its gear opens
   # the plugin's page and closes it.

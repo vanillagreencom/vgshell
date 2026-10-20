@@ -793,6 +793,14 @@ function signInCallout(error) {
     return CALLOUTS["sign-in-refused"];
 }
 
+// How the core file route's end REPLY, the answer a review row's open
+// receives, reads in the popover: `opened`, `gone` for the route's
+// `reason=missing`, else `failed`.
+function openFileEnd(reply) {
+    if (reply === "ok") return "opened";
+    return / reason=missing$/.test(reply) ? "gone" : "failed";
+}
+
 // The popover's problem callout for CLOUD, or null: a sign-in, a key or
 // the keyring, a failed sync, an offline sync, or hourly units absent
 // beside a folder pair or out of date. It takes the place of the error
