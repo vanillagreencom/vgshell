@@ -921,7 +921,9 @@ function overlayCaptureLines(plan) {
 function sessionLockLines() {
     return [
         "-- Session lock: a restarted shell takes over a lock whose client died.",
-        "hl.config({ misc = { allow_session_lock_restore = true } })"
+        "hl.config({ misc = { allow_session_lock_restore = true } })",
+        "-- Hyprland wakes the panels while the shell is down.",
+        "hl.config({ misc = { key_press_enables_dpms = true, mouse_move_enables_dpms = true } })"
     ];
 }
 

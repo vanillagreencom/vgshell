@@ -36,7 +36,7 @@ A plugin cannot call `Hyprland.dispatch`; every runtime request goes through the
 
 - Display power is a new dispatcher, `displayPower(state)`, `off` or `on`, with no output named, so both connectors of a tiled Pro Display XDR change together. For `on`, the core reads the outputs first and sends nothing while every output reads on, since a DPMS on that changes nothing makes a panel modeset again.
 - The core's Hyprland layer sets `misc.key_press_enables_dpms` and `misc.mouse_move_enables_dpms`, so a key press or a pointer move turns every panel on with no shell work, while the shell is down too.
-- The core lends a read-only fact, `shell.session.displaysOff` ([D056](../decisions/D056-read-only-session-state.md)): true from a `displayPower("off")` the outputs confirm until the next input or `displayPower("on")`.
+- The core lends a read-only fact, `shell.session.displaysOff` ([D056](../decisions/D056-read-only-session-state.md)): true from a `displayPower("off")` the outputs confirm until the next input or `displayPower("on")`. One core input observer lives from the queued off through confirmation until the fact clears; input after the observer arms and before confirmation invalidates the pending request.
 
 The Apple panels' HID brightness has no power control: 0 % is the lowest backlight, not off. Display off is therefore DPMS.
 
@@ -73,7 +73,7 @@ The power button and the lid must act while the shell is down: a laptop closed i
 ### Idle source and stages
 
 - Do create every idle watch through `shell.idle.watch`, and release it through the disposer it returns. A plugin cannot import `Quickshell.Wayland`, which `scripts/check-plugin-boundary.py` refuses; `scripts/smoke/rows/capability-release.sh` pins the release.
-- Do keep `respectInhibitors: true` on every watch, as § Window events and the idle count sets out. Review holds it.
+- Do keep `respectInhibitors: true` on every idle stage watch, as § Window events and the idle count sets out. A watch that clears a fact on input and starts no stage ignores inhibitors. Review holds it.
 - Never read another stage owner's setting or status; read another stage's time only from `shell.idle.stages`. Gap: `vgs.screensaver` reads `vgs.lock`'s `idleLockSeconds` through capability `manager` for its `lockOrder` reading. Designed: VGS-1902 adds the record with its rows in `scripts/test-plugin-logic.js`, and VGS-1904 moves `lockOrder` onto it.
 - Do judge stage order in one place, the core record; the pane and the screensaver show its verdict and never compute their own. Designed: VGS-1902.
 - Do keep the Cover and the lock surface on layer surfaces, so showing them does not restart another watch. Gap: no row checks it; VGS-1904 adds the check that the lock still engages on time while the Cover runs.

@@ -155,7 +155,9 @@ const TAP_SECTION = [
 // crash while locked locks again.
 const LOCK_SECTION = [
     "-- Session lock: a restarted shell takes over a lock whose client died.",
-    "hl.config({ misc = { allow_session_lock_restore = true } })"
+    "hl.config({ misc = { allow_session_lock_restore = true } })",
+    "-- Hyprland wakes the panels while the shell is down.",
+    "hl.config({ misc = { key_press_enables_dpms = true, mouse_move_enables_dpms = true } })"
 ];
 
 // The user binds' recorder, byte for byte: it wraps hl.bind once, calls
@@ -1873,6 +1875,8 @@ const CONTROLS = [
     [layerFile, "key pass-through leaves on its window's close", "if window ~= nil and window.address == passthrough.window then passthrough.\" + p.verbs.leave + \"() end", "local _ = window"],
     [layerFile, "key pass-through leaves when the layer runs", "        \"    passthrough.\" + p.verbs.leave + \"()\",\n        \"end\"", "        \"end\""],
     [layerFile, "key pass-through timeout", "timeoutMs: 10000,", "timeoutMs: 60000,"],
+    [layerFile, "key input wakes panels", "key_press_enables_dpms = true", "key_press_enables_dpms = false"],
+    [layerFile, "pointer input wakes panels", "mouse_move_enables_dpms = true", "mouse_move_enables_dpms = false"],
     [layerFile, "session lock restore allowed", "misc = { allow_session_lock_restore = true }", "misc = { allow_session_lock_restore = false }"],
     [layerFile, "application windows map at the theme's top share", "rint(monitor_h*\" + windowTopShare(top) + \")", "rint(monitor_h*0.2)"],
     [layerFile, "application windows' top is a whole pixel", "rint(monitor_h*\" + windowTopShare(top) + \")", "(monitor_h*\" + windowTopShare(top) + \")"],

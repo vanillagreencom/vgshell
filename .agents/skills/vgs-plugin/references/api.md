@@ -370,3 +370,9 @@ A flat entry's `link`, `{ text, url }`, draws `text`, words its `description` ho
 ### Hyprland appearance
 
 `hyprland.appearance` is an object for a plugin that has capability `theme`. It maps `noGaps` to a boolean setting key in the same manifest schema. The first enabled plugin by id that declares appearance owns the switch. A later declaration is reported as a Hyprland problem and ignored. The core's default is no gaps off. The theme's borders, radius and motion follow the user's Appearance values instead (capability `appearance`): each holds over a user's own Hyprland lines unless the user keeps their own value, and window animations are written only once the user turns them on. `noGaps` writes zero gaps as a workspace rule, which holds over a user's later `general` gaps; only a later workspace rule that sets gaps overrides it.
+
+## Panel power
+
+Capability `compositor` lends `shell.compositor.displayPower(state)`. The state is `"on"` or `"off"` alone; no output argument is accepted. One request changes every panel. The call returns `"ok"` when queued, or a keyed refusal. A queued result does not confirm the panels changed. An on request reads the outputs in the same queue and sends no dispatch while every output is already on. Hyprland wakes the panels on key or pointer input, including while the shell is down.
+
+Capability `session` lends the read-only, bindable `shell.session.displaysOff`. It is true after an off request succeeds and every current output confirms off. The core arms its input observer before dispatching off and retains it through confirmation. Input after the observer arms cancels pending off requests, so a late confirmation cannot publish a stale true. Input or a successful on clears the confirmed fact. A failed transport or unreadable confirmation establishes no new off fact. This records the core's confirmed off request; it does not track power changes made outside the core.

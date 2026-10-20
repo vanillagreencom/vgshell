@@ -21,7 +21,8 @@ Scope {
     // Report locked from the request until the compositor releases it.
     function sessionProvider(ctx) {
         return Object.freeze({
-            get locked() { return root.lockRequested || root.lockSecure; }
+            get locked() { return root.lockRequested || root.lockSecure; },
+            get displaysOff() { return Compositor.displaysOff; }
         });
     }
 
