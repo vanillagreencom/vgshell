@@ -120,9 +120,28 @@ Item {
         }
 
         function test_a_spinner_takes_the_icon_place() {
-            const glyph = firstIcon(spinner);
-            compare(glyph.visible, false);
-            compare(spinner.width, spinner.height);
+            const overridden = createTemporaryObject(readingCase, root, {
+                iconName: "refresh-cw", spinning: true, spinnerColor: "#123456"
+            });
+            verify(overridden !== null);
+            for (const row of [
+                { item: spinner, color: Qt.color(Theme.spinner.color) },
+                { item: overridden, color: Qt.color("#123456") }
+            ]) {
+                const glyph = firstIcon(row.item);
+                compare(glyph.visible, false);
+                compare(row.item.width, row.item.height);
+                const busy = glyph.parent.children.find(child => child.running !== undefined);
+                verify(busy !== undefined);
+                const shape = busy.children.find(child => String(child).startsWith("QQuickShape"));
+                verify(shape !== undefined);
+                // Shape.data includes its ShapePaths (Qt Quick Shape data
+                // reference: https://doc.qt.io/qt-6/qml-qtquick-shapes-shape.html#data-prop).
+                const paths = shape.data.filter(child => String(child).startsWith("QQuickShapePath"));
+                compare(paths.length, 2);
+                compare(paths[0].strokeColor, Qt.color(Theme.spinner.track));
+                compare(paths[1].strokeColor, row.color);
+            }
         }
 
         function test_a_tooltip_link_opens_its_page_from_the_keys_data() {

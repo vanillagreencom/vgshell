@@ -6648,7 +6648,13 @@ tailscale_starting_ink() {
   spinner="$(ipc smoke readDescendant "$(bar_key)" vgs.tailscale Spinner color)" || return 1
   foreground="$(ipc smoke readDescendant "$(bar_key)" vgs.tailscale BarItem foreground)" || return 1
   printf 'tailscale-starting-ink: spinner=%s foreground=%s\n' "$spinner" "$foreground" >&2
-  [[ $spinner == \"*\" && $foreground == \"*\" && $spinner == "$foreground" ]] && echo matched || echo different
+  python3 -c 'import json,sys
+try:
+    colors = [json.loads(value) for value in sys.argv[1:]]
+    valid = all(isinstance(color, dict) and color.get("valid") is True and isinstance(color.get("rgba"), int) for color in colors)
+    print("matched" if valid and colors[0]["rgba"] == colors[1]["rgba"] else "different")
+except (ValueError, TypeError):
+    print("unreadable")' "$spinner" "$foreground"
 }
 tailscale_starting_shot() { # MODE
   local starting

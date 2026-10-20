@@ -127,6 +127,7 @@ T.AbstractButton {
     property string textLevel: "normal"
     property string countLevel: "normal"
     property bool spinning: false
+    property color spinnerColor: Theme.spinner.color
     property bool active: false
     property color tone: Theme.bar.foreground
     property string tooltip: ""
@@ -212,6 +213,7 @@ T.AbstractButton {
                     anchors.centerIn: parent
                     visible: root.spinning
                     size: Theme.bar.item.icon
+                    color: root.spinnerColor
                 }
             }
             Row {
