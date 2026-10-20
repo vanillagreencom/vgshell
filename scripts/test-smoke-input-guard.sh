@@ -376,6 +376,7 @@ helpers=(
   'zone_hold_press|scripts/smoke/rows/bar.sh|fn:zone_hold_press|"${shell_env[@]}" "$sandbox/click"|zone_hold_press acme.probe 0 12|@sandbox/click|nonzero'
   'tiplink_drag|scripts/smoke/rows/bar.sh|fn:tiplink_drag|"${shell_env[@]}" "$sandbox/click"|tiplink_drag acme.tiplink far|@sandbox/click|nonzero'
   'offbar_drag|scripts/smoke/rows/bar.sh|fn:offbar_drag|"${shell_env[@]}" "$sandbox/click"|offbar_drag label acme.probe 1 2 3|@sandbox/click|nonzero'
+  'offbar_repeat|scripts/smoke/rows/bar.sh|fn:offbar_repeat|"${shell_env[@]}" "$sandbox/click"|offbar_key=bar:a offbar_release_x=1 offbar_far=2::CALL::offbar_repeat acme.probe 24|@sandbox/click|any'
   'placement_drag_escape|scripts/smoke/rows/placement.sh|fn:placement_drag_escape|"${shell_env[@]}" "$sandbox/click"|placement_drag_escape acme.probe 1 2 vgs:passthrough|@sandbox/click|nonzero'
   'placement_drag_path|scripts/smoke/rows/placement.sh|fn:placement_drag_path|"${shell_env[@]}" "$sandbox/click"|placement_drag_path acme.probe 1 2|@sandbox/click|nonzero'
   'placement_held_far|scripts/smoke/rows/placement.sh|fn:placement_held_far|"${shell_env[@]}" "$sandbox/click"|placement_held_far label want|@sandbox/click|nonzero'

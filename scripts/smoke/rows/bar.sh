@@ -843,6 +843,77 @@ print(json.dumps(out))' "$offbar_start" <<<"$rows"
   expect_poll "Cancel closes the launcher's remove question" false ipc smoke readInstance "$offbar_key" vgs.launcher frameDialogOpen
   geometry expect "Cancel leaves the launcher in its slot" "$offbar_start" ipc smoke instanceGeometry "$offbar_key" vgs.launcher
   expect "the launcher's drag off the bar writes nothing" unchanged offbar_unchanged
+  # One drag off the bar asks every time, with a window under the release
+  # point that held the keyboard before the drag: 20 drags each of the
+  # rightmost widget and the launcher, along the bar and then far below
+  # the bar's middle, over the window. When the press grab ended at that
+  # release, the window took the keyboard back and Qt closed the question
+  # 0 to 34 ms after it opened (Plugins.qml, the press grab): over
+  # b206ba82f this check found it closed after 9 to 10 of 20 drags of the
+  # rightmost widget and 19 of 20 of the launcher (cachy, 2026-10-19, two
+  # runs). The question is held when it is open at its first reading and
+  # still open 250 ms and 500 ms after it. Each drag that does not hold the
+  # question is named `N:reading`, so the pass is `[]`.
+  # offbar_held ID: `held`, `closed` when no question opened within 5 s,
+  # or `closed-after=N` when reading N found it gone.
+  offbar_held() {
+    local i
+    for _ in $(seq 1 50); do
+      [[ $(ipc smoke readInstance "$offbar_key" "$1" frameDialogOpen) == true ]] && break
+      sleep 0.1
+    done
+    for i in 0 1 2; do
+      ((i == 0)) || sleep 0.25
+      if [[ $(ipc smoke readInstance "$offbar_key" "$1" frameDialogOpen) != true ]]; then
+        if ((i == 0)); then echo closed; else echo "closed-after=$i"; fi
+        return
+      fi
+    done
+    echo held
+  }
+  # offbar_repeat ID LEG: the 20 drags of ID, each from its centre, LEG
+  # along the bar, then to the release point, with Escape closing each
+  # question before the next drag.
+  offbar_repeat() {
+    local id="$1" leg="$2" n box x y reading misses=()
+    for n in $(seq 1 20); do
+      box="$(ipc smoke instanceGeometry "$offbar_key" "$id")" || { misses+=("$n:box-unread"); continue; }
+      read -r x y < <(py_reply 'import json,sys; b=json.load(sys.stdin); print(int(b[0]+b[2]/2), int(b[1]+b[3]/2))' <<<"$box") || { misses+=("$n:box-unparsed"); continue; }
+      hover "$((x + 1))" "$y" || { misses+=("$n:hover-failed"); continue; }
+      nested_input_check "$sandbox/click" || { misses+=("$n:input-refused"); continue; }
+      "${shell_env[@]}" "$sandbox/click" "$x" "$y" "$mon_w" "$mon_h" drag "$((x + leg))" "$y" "$offbar_release_x" "$offbar_far" >/dev/null || { misses+=("$n:drag-failed"); continue; }
+      pointer_at="$offbar_release_x $offbar_far"
+      if ! reading="$(offbar_held "$id")"; then misses+=("$n:read-failed"); continue; fi
+      [[ $reading == held ]] || misses+=("$n:$reading")
+      [[ $(ipc smoke readInstance "$offbar_key" "$id" frameDialogOpen) == true ]] || continue
+      type_keys -k Escape || { misses+=("$n:escape-failed"); continue; }
+      for _ in $(seq 1 50); do
+        [[ $(ipc smoke readInstance "$offbar_key" "$id" frameDialogOpen) == false ]] && break
+        sleep 0.1
+      done
+    done
+    python3 -c 'import json,sys; print(json.dumps(sys.argv[1:]))' "${misses[@]}"
+  }
+  offbar_release_x=$((offbar_bx + offbar_bw / 2))
+  # True when the one window the helper maps holds the release point.
+  offbar_window_under() {
+    hypr -j clients | py_reply 'import json,sys
+x,y,pid=(int(a) for a in sys.argv[1:])
+boxes=[c["at"]+c["size"] for c in json.load(sys.stdin) if c["pid"]==pid and c["mapped"]]
+print(len(boxes)==1 and boxes[0][0]<=x<boxes[0][0]+boxes[0][2] and boxes[0][1]<=y<boxes[0][1]+boxes[0][3])' "$offbar_release_x" "$offbar_far" "$other_pid"
+  }
+  if open_other "$sandbox/bar-offbar-other.log"; then
+    # Mapping the window need not focus it; a click on it does.
+    click "$offbar_release_x" "$offbar_far" || fail "the click on the window below the bar failed"
+    expect_poll "the window below the bar holds the keyboard before the repeated drags" '["smoke.other", "Other window"]' active_window
+    expect "the window below the bar lies under the repeated drags' release point" True offbar_window_under
+    expect "20 drags of the rightmost widget off the bar over a window each ask and hold the remove question" '[]' offbar_repeat "$offbar_right" -24
+    expect "20 drags of the launcher off the bar over a window each ask and hold the remove question" '[]' offbar_repeat vgs.launcher 24
+    expect "the repeated drags off the bar write nothing" unchanged offbar_unchanged
+    close_other "the window below the bar exits after the repeated drags"
+  else
+    fail "the window below the bar for the repeated drags maps"
+  fi
   # A zone that would run into its neighbour clips to the room from its
   # bar edge to the centre, less the gap, and scrolls by whole widgets
   # (Bar.qml's Zone). The owner's own layout, 16 widgets in the right

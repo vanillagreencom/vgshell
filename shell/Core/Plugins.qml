@@ -408,9 +408,21 @@ Singleton {
     // keyboard on its next motion unless input:follow_mouse is 3
     // (mouseMoveUnified), which keeps the press as well; the grab holds it
     // whatever follow_mouse says. After a release that asks to remove the
-    // widget the object stays, its grab ended, until the question closes:
-    // None at that release dismissed the question's popup at once in the
-    // nested sandbox (placement.sh).
+    // widget the object stays, `asking` and its grab held, until the
+    // question closes: None at that release dismissed the question's popup
+    // at once in the nested sandbox (placement.sh). The grab stays active
+    // until the question's own popup grab replaces it (Hyprland v0.56.2
+    // CSeatManager::setGrab ends the grab it replaces, which Quickshell
+    // reads as `cleared`), so the keyboard goes from the bar to the
+    // question. A grab that ends at the release hands the keyboard to the
+    // window under the pointer (setGrab(nullptr), refocus under
+    // follow_mouse 1), and Qt 6.12 closes every Qt::Popup, the question
+    // among them, on the ApplicationDeactivate that loss sends
+    // (QGuiApplication::event, closeAllPopups). With the grab ended there
+    // and a window under the release point, the question closed 0 to 34 ms
+    // after it opened, and rows/bar.sh found it closed after 9 to 10 of 20
+    // drags of the rightmost widget and 19 of 20 of the launcher (nested
+    // sandbox on cachy, 2026-10-19, two runs over b206ba82f).
     // The grab also takes the keyboard from a notice that held it, and the
     // bar's drop to None hands it to no layer (NoticeHost.retakeKeyboard),
     // so a grab that began with the notice focused has the notice take it
@@ -429,6 +441,7 @@ Singleton {
             property QtObject owner: null
             property QtObject barWindow: null
             property bool fromNotice: false
+            property bool asking: false
             Component.onDestruction: {
                 if (layer !== null) layer.keyboardFocus = WlrKeyboardFocus.None;
                 if (!fromNotice) return;
@@ -595,7 +608,6 @@ Singleton {
     // on this bar. A release more than one bar height (Theme.bar.height)
     // outside the bar asks; a nearer one drops.
     function dragEnd(hostKey, point) {
-        if (barPressGrab !== null) barPressGrab.active = false;
         const drag = barDrag;
         if (drag !== null && drag !== undefined) Capabilities.keyCapture.end(drag.item, "commit");
         if (drag === null || drag.hostKey !== hostKey || !Logic.hasOwn(mounts, hostKey)) {
@@ -606,6 +618,7 @@ Singleton {
         const outside = Math.max(0, -point.x, point.x - bar.width, -point.y, point.y - bar.height);
         // The press grab stays until the question closes (cancelRemoveAsk).
         if (outside > Theme.bar.height) {
+            if (barPressGrab !== null) barPressGrab.asking = true;
             cancelBarDrag();
             revealInSection(drag.item);
             return "ask";
@@ -628,7 +641,7 @@ Singleton {
     // The remove question about `item` closed: the bar gives back the
     // keyboard. A press grab a new drag holds stays.
     function cancelRemoveAsk(item) {
-        if (barPressGrab !== null && barPressGrab.owner === item && !barPressGrab.active) endPressGrab();
+        if (barPressGrab !== null && barPressGrab.owner === item && barPressGrab.asking) endPressGrab();
     }
 
     // What the widget frame's menu and Hide and Remove dialogs say about
