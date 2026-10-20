@@ -213,12 +213,17 @@ PYDATA
 config_split_read() {
   python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); ids=("acme.tick", "vgs.fixture-split"); print(json.dumps([[i for i in d.get("disabledPlugins", []) if i in ids], [e["id"] for s in ("left", "center", "right") for e in d["bar"]["layout"].get(s, []) if e["id"] in ids], [r for r in d.get("plugins", []) if r["id"] == "vgs.fixture-split"]]))' "$home/.config/vgshell/shell.json"
 }
+config_split_runtime() {
+  ipc smoke readInstance window vgs.settings plugins | py_reply 'import json,sys; row=next((r for r in json.load(sys.stdin) if r["id"] == "vgs.fixture-split"), {}); print(json.dumps([row.get("enabled"), row.get("placed"), row.get("settings", {}).get("format")]))'
+}
 if copy_tree configuration-split; then
   stop_shell || :
   config_plant_split configuration-split || fail "planting the split fixture and source configuration failed"
   if start_shell "$sandbox/tree-configuration-split" "$sandbox/configuration-split-qs.log"; then
     expect_log "the shell publishes the scan holding the split" 1 'plugins: scan complete changed=true'
     expect_poll "the split receives the source disable, placement and declared setting before building" '[["acme.tick", "vgs.fixture-split"], ["vgs.fixture-split", "acme.tick"], [{"id": "vgs.fixture-split", "format": "split-saved"}]]' config_split_read
+    expect "Settings opens for the split runtime readback" ok ipc shell summon window vgs.settings '{}'
+    expect_poll "the runtime split inherits disable, placement and setting before construction" '[false, true, "split-saved"]' config_split_runtime
     expect "the split disabled before publication never builds" 0 log_lines 'split-fixture: built'
     expect "the user can enable the split independently" ok ipc shell setPluginEnabled vgs.fixture-split true
     expect_log "the enabled split builds with the copied setting" 1 'split-fixture: built format=split-saved'
