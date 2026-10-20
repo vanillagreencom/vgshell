@@ -557,7 +557,8 @@ cases=(
   "screensaver-manifest|shell/plugins/vgs.screensaver/manifest.json|logic|node scripts/test-plugin-logic.js"$'\nnode scripts/test-screensaver-logic.js'
   "duration-shared|shell/Commons/Duration.js|logic|node scripts/test-duration.js"$'\nnode scripts/test-timestamp.js\nnode scripts/test-updates-logic.js\nnode scripts/test-automations-logic.js\nnode scripts/test-automations-view-logic.js\nnode scripts/test-agent-warden-view.js\nnode scripts/test-agent-warden-notices.js\nnode scripts/test-google-drive-logic.js'
   "nmcli-shared|shell/Commons/Nmcli.js|logic|node scripts/test-network-logic.js"$'\nnode scripts/test-vpn-logic.js'
-  "vpn-import|shell/plugins/vgs.vpn/tui/import-wireguard.sh|cli|scripts/test-vpn-import.sh"$'\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"$'\nscripts/test-tui-gum-colours.sh'
+  "vpn-fixture|scripts/fixtures/vpn/list.txt|logic|node scripts/test-vpn-logic.js"
+  "vpn-import|shell/plugins/vgs.vpn/tui/import.sh|cli|scripts/test-vpn-import.sh"$'\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"$'\nscripts/test-tui-gum-colours.sh'
   "network-logic|shell/plugins/vgs.network/NetworkLogic.js|logic|node scripts/test-network-logic.js"
   "network-body|shell/plugins/vgs.network/NetworkBody.qml|logic|node scripts/test-network-logic.js"
   "network-share|shell/plugins/vgs.network/bin/share-qr|logic|python3 scripts/test-network-share.py"
@@ -774,6 +775,7 @@ cases=(
   "key-capture-owner|shell/Core/KeyCapture.qml|unit|scripts/test-keyboard-ui.sh"$'\nscripts/qml-unit.sh\nscripts/test-qml-unit.sh'
   "settings-edit-set|shell/plugins/vgs.settings/EditSet.qml|unit|scripts/qml-unit.sh"$'\nscripts/test-qml-unit.sh'
   "displays-pane|shell/plugins/vgs.displays/Pane.qml|unit|scripts/qml-unit.sh"$'\nscripts/test-qml-unit.sh'
+  "vpn-view|shell/plugins/vgs.vpn/VpnBody.qml|unit|scripts/qml-unit.sh"$'\nscripts/test-qml-unit.sh'
   "harness-render|.agents/skills/review-gate/scripts/review-policy|all|$repo_plan"
   "harness-hook|.claude/hooks/example.sh|all|$repo_plan"
   "harness-settings|kendex.local.toml|all|$repo_plan"
