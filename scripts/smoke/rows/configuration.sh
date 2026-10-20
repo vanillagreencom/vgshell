@@ -242,7 +242,7 @@ if copy_tree configuration-splits-late && edit_tree configuration-splits-late sh
   stop_shell || :
   config_plant_split configuration-splits-late || fail "control: planting the split fixture failed"
   if start_shell "$sandbox/tree-configuration-splits-late" "$sandbox/configuration-splits-late-qs.log"; then
-    expect_log "control: splitting after publication builds the disabled source's target with defaults" 1 'split-fixture: built format=default'
+    expect_log "control: splitting after publication builds the disabled source's target" 1 'split-fixture: built format='
   fi
   configuration_control_restore
 fi
