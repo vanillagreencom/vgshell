@@ -6251,7 +6251,7 @@ power_shot_pane() { # MODE
   expect "enabling vgs.system for Power's section is allowed" ok ipc shell setPluginEnabled vgs.system true
   expect "the System window summons on Power's section" ok ipc shell summon window vgs.system '{"pane":"vgs.power"}'
   expect_poll "Power's section is mounted" '["vgs.power"]' window_panes
-  expect_poll "Power's section draws three timeline rows and no warning" "3 0" power_shot_timeline
+  expect_poll "Power's section draws four timeline rows and no warning" "4 0" power_shot_timeline
   wake=no
   grep -q '"wakeOnLan"' "$tree/shell/plugins/vgs.power/manifest.json" && wake=yes
   [[ $wake == no ]] || expect_poll "Power's section draws Wake on LAN off" off power_wol_field
@@ -6274,11 +6274,11 @@ power_shot_pane() { # MODE
     power_revealed "$(ipc smoke revealText window vgs.system FormRow Dim)" || fail "the System page does not scroll back to the timeline"
   fi
   power_stage_setting "$home/.config/vgshell/shell.json" lockAfter 120
-  expect_poll "Power's section warns on the lock row" "3 1" power_shot_timeline
+  expect_poll "Power's section warns on the lock row" "4 1" power_shot_timeline
   park_pointer
   power_shot_pane_pages "power-$1-pane-warning"
   power_stage_setting "$home/.config/vgshell/shell.json" lockAfter null
-  expect_poll "Power's section has no warning again" "3 0" power_shot_timeline
+  expect_poll "Power's section has no warning again" "4 0" power_shot_timeline
   power_stop_mock "$power_profiles_pid"
   power_profiles_pid=""
   expect_poll "the stopped profiles mock leaves the bus" false power_bus_has org.freedesktop.UPower.PowerProfiles

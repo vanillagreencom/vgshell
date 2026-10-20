@@ -15,6 +15,7 @@ Power shows the battery level and the power profile in the bar, and switches the
 - Sends a low battery alert and an urgent critical alert, each once per discharge.
 - Performance is unavailable on hardware without a performance profile.
 - An idle timeline in System Settings: each step, such as dim, screensaver and lock, in order with its time. Select a time to open the field that sets it. A step that starts before an earlier step shows a warning, such as a lock before the screensaver.
+- Turns every display off after you stop using the computer, and sooner while the screen is locked. A key press or pointer move turns them on.
 
 ## Settings
 
@@ -22,6 +23,7 @@ The battery rows show only on a machine with a battery. The two profile rows als
 
 | Setting | What it changes |
 | --- | --- |
+| Turn displays off | How long the displays stay on without input. While locked, they turn off after a short pause instead. Never keeps them on while locked too. |
 | Low battery alert | The battery level that sends an alert while discharging. |
 | Critical battery alert | The battery level that sends an urgent alert while discharging. |
 | When charging | The profile to use after you connect power. |
