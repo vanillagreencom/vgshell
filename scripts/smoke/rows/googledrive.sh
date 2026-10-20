@@ -130,6 +130,15 @@ cs_panel_shown() { [[ $(ipc smoke instanceGeometry panel vgs.google-drive) != ab
 cs_panel_footer() { ipc smoke readInstance panel vgs.google-drive footer | py_reply 'import json,sys; f=json.load(sys.stdin); print(json.dumps([f["shown"], f["shown"] and f["sync"]["reason"] == ""]))'; }
 cs_panel_review() { ipc smoke readInstance panel vgs.google-drive review | py_reply 'import json,sys; r=json.load(sys.stdin); print(json.dumps([[x["name"] for x in r["needs"]], len(r["notes"])]))'; }
 cs_gone_files() { ipc smoke readInstance panel vgs.google-drive goneFiles; }
+# cs_item_settled TYPE TEXT: `stable` once the popover's item holds its box
+# across a moment, so a click after a scroll lands on it.
+cs_item_settled() {
+  local before after
+  before="$(ipc smoke itemGeometry panel vgs.google-drive "$1" "$2")"
+  sleep 0.4
+  after="$(ipc smoke itemGeometry panel vgs.google-drive "$1" "$2")"
+  [[ $before == \[* && $before == "$after" ]] && echo stable || echo moving
+}
 # The `gio` calls the stand-in recorded after the first N, as JSON.
 cs_gio_since() { device_calls gio | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)[int(sys.argv[1]):]))' "$1"; }
 cs_gio_count() { device_calls gio | py_reply 'import json,sys; print(len(json.load(sys.stdin)))'; }
@@ -543,6 +552,7 @@ SH
   # them before a click lands on one.
   ipc smoke scrollTo panel vgs.google-drive 99999 >/dev/null || fail "googledrive: the popover did not scroll to its last notes"
   expect_poll "the last note draws its name as a link" drawn cs_panel_drawn LinkText n6.pdf
+  expect_poll "the scroll to the last notes settles" stable cs_item_settled LinkText n5.txt
   forget_record
   gio_before="$(cs_gio_count)"
   mv -- "$cs_mirror/n5.txt" "$cs_mirror/n5.txt.away"
