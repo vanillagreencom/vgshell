@@ -401,9 +401,13 @@ function verify(logic) {
     assert.ok(ARM >= 121 && ARM < HOLD, "the arm outlasts Slack's slowest stream and ends before a hold");
     assert.ok(HOLD > 12000, "a hold outlasts Slack's chime stream, which pauses 12 s after it starts");
     const armed = { at: 1000, until: 1000 + ARM };
-    const REST = { phase: "rest", until: null };
+    // A hold as appSoundStep answers it; ROLE marks a stream the rule held
+    // for its role.
+    const H = (phase, until, role = false) => ({ phase, until, role });
+    const REST = H("rest", null);
+    const ROLE_REST = H("rest", null, true);
     for (const [label, hold, arm, stream, now, ruled, wantHold, wantChange] of [
-        ["a stream that opens and plays after its app's notification is muted", null, armed, { corked: false, since: 1075 }, 1150, "", { phase: "playing", until: 1150 + HOLD }, "mute"],
+        ["a stream that opens and plays after its app's notification is muted", null, armed, { corked: false, since: 1075 }, 1150, "", H("playing", 1150 + HOLD), "mute"],
         ["a stream that opens paused is muted before it plays", null, armed, { corked: true, since: 1075 }, 1080, "", REST, "mute"],
         ["a paused stream of the app is muted before it plays again", null, armed, { corked: true, since: 0 }, 1000, "", REST, "mute"],
         ["a stream that already plays, such as a call, is never muted", null, armed, { corked: false, since: 0 }, 1100, "", null, ""],
@@ -412,26 +416,39 @@ function verify(logic) {
         ["a paused stream with no arm is not muted", null, null, { corked: true, since: 1075 }, 1150, "", null, ""],
         ["a stream that opens once the arm ended is not muted", null, armed, { corked: false, since: 1000 + ARM }, 1000 + ARM, "", null, ""],
         ["a resting stream stays muted while it is paused, armed or not", REST, null, { corked: true, since: 1075 }, 60000, "", REST, ""],
-        ["a resting stream that plays while its app is armed is held", REST, armed, { corked: false, since: 1075 }, 1150, "", { phase: "playing", until: 1150 + HOLD }, "again"],
-        ["a resting stream that plays before its app's notification waits for it", REST, null, { corked: false, since: 1075 }, 5000, "", { phase: "pending", until: 5000 + ARM }, "again"],
-        ["a pending stream stays muted while it waits", { phase: "pending", until: 5000 + ARM }, null, { corked: false, since: 1075 }, 5500, "", { phase: "pending", until: 5000 + ARM }, ""],
-        ["a pending stream whose app's notification comes is held as its sound", { phase: "pending", until: 5000 + ARM }, { at: 5200, until: 5200 + ARM }, { corked: false, since: 1075 }, 5210, "", { phase: "playing", until: 5210 + HOLD }, "again"],
-        ["a pending stream that plays on with no notification, such as a call, is released", { phase: "pending", until: 5000 + ARM }, null, { corked: false, since: 1075 }, 5000 + ARM, "", null, "release"],
-        ["a pending stream that pauses rests muted", { phase: "pending", until: 5000 + ARM }, null, { corked: true, since: 1075 }, 5300, "", REST, "again"],
-        ["a playing stream stays muted while it plays", { phase: "playing", until: 1150 + HOLD }, null, { corked: false, since: 1075 }, 5000, "", { phase: "playing", until: 1150 + HOLD }, ""],
-        ["a playing stream that pauses rests muted for the next sound", { phase: "playing", until: 1150 + HOLD }, null, { corked: true, since: 1075 }, 12900, "", REST, "again"],
-        ["a stream still playing at the hold's end is released", { phase: "playing", until: 1150 + HOLD }, null, { corked: false, since: 1075 }, 1150 + HOLD, "", null, "release"],
+        ["a resting stream that plays while its app is armed is held", REST, armed, { corked: false, since: 1075 }, 1150, "", H("playing", 1150 + HOLD), "again"],
+        ["a resting stream that plays before its app's notification waits for it", REST, null, { corked: false, since: 1075 }, 5000, "", H("pending", 5000 + ARM), "again"],
+        ["a pending stream stays muted while it waits", H("pending", 5000 + ARM), null, { corked: false, since: 1075 }, 5500, "", H("pending", 5000 + ARM), ""],
+        ["a pending stream whose app's notification comes is held as its sound", H("pending", 5000 + ARM), { at: 5200, until: 5200 + ARM }, { corked: false, since: 1075 }, 5210, "", H("playing", 5210 + HOLD), "again"],
+        ["a pending stream that plays on with no notification, such as a call, is released", H("pending", 5000 + ARM), null, { corked: false, since: 1075 }, 5000 + ARM, "", null, "release"],
+        ["a pending stream that pauses rests muted", H("pending", 5000 + ARM), null, { corked: true, since: 1075 }, 5300, "", REST, "again"],
+        ["a playing stream stays muted while it plays", H("playing", 1150 + HOLD), null, { corked: false, since: 1075 }, 5000, "", H("playing", 1150 + HOLD), ""],
+        ["a playing stream that pauses rests muted for the next sound", H("playing", 1150 + HOLD), null, { corked: true, since: 1075 }, 12900, "", REST, "again"],
+        ["a stream still playing at the hold's end is released", H("playing", 1150 + HOLD), null, { corked: false, since: 1075 }, 1150 + HOLD, "", null, "release"],
         ["a stream the rule held for an armed app rests while paused", null, armed, { corked: true, since: 1075 }, 1080, "app", REST, "mute"],
-        ["a stream the rule held for an armed app that plays is held", null, armed, { corked: false, since: 1075 }, 1150, "app", { phase: "playing", until: 1150 + HOLD }, "mute"],
-        ["a stream the rule held that plays before its app's notification waits for it", null, null, { corked: false, since: 1075 }, 1150, "app", { phase: "pending", until: 1150 + ARM }, "mute"],
+        ["a stream the rule held for an armed app that plays is held", null, armed, { corked: false, since: 1075 }, 1150, "app", H("playing", 1150 + HOLD), "mute"],
+        ["a stream the rule held that plays before its app's notification waits for it", null, null, { corked: false, since: 1075 }, 1150, "app", H("pending", 1150 + ARM), "mute"],
         ["a paused stream the rule held for an unarmed app rests", null, null, { corked: true, since: 1075 }, 1080, "app", REST, "mute"],
-        ["a stream the rule held once its app's arm ended waits for a new one", null, armed, { corked: false, since: 1000 + ARM }, 1000 + ARM, "app", { phase: "pending", until: 1000 + 2 * ARM }, "mute"],
-        ["a stream the rule held that played before its app's arm is held as its sound", null, armed, { corked: false, since: 900 }, 1100, "app", { phase: "playing", until: 1100 + HOLD }, "mute"],
-        ["a stream the rule held for its role is held while it plays", null, null, { corked: false, since: 1075 }, 1080, "role", { phase: "playing", until: 1080 + HOLD }, "mute"],
-        ["a paused stream the rule held for its role rests", null, null, { corked: true, since: 1075 }, 1080, "role", REST, "mute"],
-        ["the rule's verdict counts on a stream's first step alone", { phase: "playing", until: 1150 + HOLD }, null, { corked: false, since: 1075 }, 5000, "app", { phase: "playing", until: 1150 + HOLD }, ""]
+        ["a stream the rule held once its app's arm ended waits for a new one", null, armed, { corked: false, since: 1000 + ARM }, 1000 + ARM, "app", H("pending", 1000 + 2 * ARM), "mute"],
+        ["a stream the rule held that played before its app's arm is held as its sound", null, armed, { corked: false, since: 900 }, 1100, "app", H("playing", 1100 + HOLD), "mute"],
+        ["a stream the rule held for its role is held while it plays", null, null, { corked: false, since: 1075 }, 1080, "role", H("playing", 1080 + HOLD, true), "mute"],
+        ["a paused stream the rule held for its role rests as its role's", null, null, { corked: true, since: 1075 }, 1080, "role", ROLE_REST, "mute"],
+        ["a resting stream the rule held for its role that plays with no arm is held as its sound", ROLE_REST, null, { corked: false, since: 1075 }, 1100, "", H("playing", 1100 + HOLD, true), "again"],
+        ["a role's playing stream that pauses rests as its role's", H("playing", 1080 + HOLD, true), null, { corked: true, since: 1075 }, 3000, "", ROLE_REST, "again"],
+        ["a role's resting stream stays its role's while paused", ROLE_REST, null, { corked: true, since: 1075 }, 60000, "", ROLE_REST, ""],
+        ["the rule's verdict counts on a stream's first step alone", H("playing", 1150 + HOLD), null, { corked: false, since: 1075 }, 5000, "app", H("playing", 1150 + HOLD), ""]
     ])
         same(logic.appSoundStep(hold, arm, stream, now, ruled), { hold: wantHold, change: wantChange }, "app sound: " + label);
+    // Each step's hold feeds the next, as AppSounds keeps it: an event sound
+    // the rule held for its role opens paused and then plays 3 s with no
+    // arm, and stays muted the whole time.
+    let roleHold = null;
+    const roleChanges = [[1000, true, "role"], [1100, false, ""], [1100 + ARM, false, ""], [4100, false, ""]].map(([now, corked, ruled]) => {
+        const step = logic.appSoundStep(roleHold, null, { corked, since: 1000 }, now, ruled);
+        if (step.change !== "") roleHold = step.hold;
+        return step.change;
+    });
+    same([roleChanges, roleHold], [["mute", "again", "", ""], H("playing", 1100 + HOLD, true)], "app sound: a role's sound that opens paused stays muted through its play");
 
     // The sound rule: which streams it held, [label, the hold as written,
     // the stream's properties, when the shell first saw it, the verdict].
@@ -1365,12 +1382,14 @@ const CONTROLS = [
     ["a stream that already plays is never muted", " || (!paused && stream.since < arm.at)", ""],
     ["a paused stream is muted before it plays", 'return { hold: paused ? rest : playing, change: "mute" };', 'return { hold: playing, change: "mute" };'],
     ["the arm ends", "var live = armed !== null && now < armed.until;", "var live = armed !== null;"],
-    ["a muted stream that starts to play is muted again", 'return { hold: live ? playing : pending, change: "again" };', 'return { hold: live ? playing : pending, change: "" };'],
-    ["a resting stream that plays waits for its notification", 'return { hold: live ? playing : pending, change: "again" };', 'return { hold: playing, change: "again" };'],
+    ["a muted stream that starts to play is muted again", 'return { hold: sound, change: "again" };', 'return { hold: sound, change: "" };'],
+    ["a resting stream that plays waits for its notification", "var sound = live || role ? playing : pending;", "var sound = playing;"],
+    ["a role's stream that plays is its sound", "var sound = live || role ? playing : pending;", "var sound = live ? playing : pending;"],
+    ["a hold keeps the rule's role verdict", 'var role = hold === null ? ruled === "role" : hold.role === true;', 'var role = ruled === "role";'],
     ["a pending stream whose notification comes is held", ' || (hold.phase === "pending" && live)', ""],
     ["a pause rests a muted stream", 'if (paused) return { hold: rest, change: hold.phase === "rest" ? "" : "again" };', 'if (paused && hold.phase === "rest") return { hold: rest, change: "" };'],
-    ["a resting stream waits as long as it is paused", 'var rest = { phase: "rest", until: null };', 'var rest = { phase: "rest", until: now + APP_SOUND_HOLD };'],
-    ["a pending stream waits the arm's time", 'var pending = { phase: "pending", until: now + APP_SOUND_ARM };', 'var pending = { phase: "pending", until: now + APP_SOUND_HOLD };'],
+    ["a resting stream waits as long as it is paused", 'var rest = { phase: "rest", until: null, role: role };', 'var rest = { phase: "rest", until: now + APP_SOUND_HOLD, role: role };'],
+    ["a pending stream waits the arm's time", 'var pending = { phase: "pending", until: now + APP_SOUND_ARM, role: role };', 'var pending = { phase: "pending", until: now + APP_SOUND_HOLD, role: role };'],
     ["a hold ends", "if (now >= hold.until) return { hold: null, change: \"release\" };", "if (false) return { hold: null, change: \"release\" };"],
     ["lifetime ceiling", "return Math.min(MAX_LIFETIME, Math.max(floor, Math.round(asked)));", "return Math.max(floor, Math.round(asked));"],
     ["the duration setting is the normal floor", "var floor = urgency === URGENCY.low ? Math.min(LOW_LIFETIME, normal) : normal;", "var floor = urgency === URGENCY.low ? Math.min(LOW_LIFETIME, normal) : 8000;"],
@@ -1578,9 +1597,9 @@ const CONTROLS = [
     ["the primary action's pill is a way in", "c !== \"open\" && c !== \"action:\" + primaryAction(offered)", "c !== \"open\""],
     ["a browser's copy opens no message", " || read.source !== \"desktop\"", ""],
     ["a card no rule reads opens no message", "if (read === null || read.source !== \"desktop\") return null;", "if (read === null) return { rule: \"\", arrival: 0, team: \"\" }; if (read.source !== \"desktop\") return null;"],
-    ["a stream the rule held for its app waits for its notification", '        if (ruled === "app") return { hold: paused ? rest : live ? playing : pending, change: "mute" };\n', ""],
+    ["a stream the rule held for its app waits for its notification", '        if (ruled === "app") return { hold: paused ? rest : sound, change: "mute" };\n', ""],
     ["a stream the rule held as the shell's own is freed", '        if (ruled === "own") return { hold: null, change: "release" };\n', ""],
-    ["a stream the rule held for its role is held", " : ruled === \"role\" ? { at: stream.since } : null;", " : null;"],
+    ["a stream the rule held for its role is held", " : role ? { at: stream.since } : null;", " : null;"],
     ["a stream seen before the hold was not held", "if (written === null || since < written.at || !holdMatches(written, props)) return \"\";", "if (written === null || !holdMatches(written, props)) return \"\";"],
     ["the hold matches a role", "if (typeof role === \"string\" && hold.roles.indexOf(role.toLowerCase()) !== -1) return true;", ""],
     ["the hold is written again when an app joins", "return next.some(function (name) { return written.indexOf(name) === -1; });", "return false;"],

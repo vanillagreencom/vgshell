@@ -62,9 +62,9 @@ Item {
     // instance wrote to it. A snapshot, never a binding on the live model,
     // as vgs.sound's Audio.qml explains.
     property var streams: []
-    // Node id -> { node, phase, until, level }: the streams under a mute;
-    // level is the volume the stream last reported, so only a change mutes
-    // it again.
+    // Node id -> { node, hold, level }: the streams under a mute; hold is
+    // appSoundStep's answer, kept whole for its next step; level is the
+    // volume the stream last reported, so only a change mutes it again.
     property var holds: ({})
     // The writes made while the writer is not ready, each { node, on }, the
     // last for each stream that is still there.
@@ -156,12 +156,12 @@ Item {
         }
         const id = String(node.id);
         const held = Logic.hasOwn(holds, id) && holds[id].node === node ? holds[id] : null;
-        const step = Logic.appSoundStep(held === null ? null : { phase: held.phase, until: held.until },
-            armOf(node), { corked: corked(node), since: entry.since }, Date.now(), ruled);
+        const step = Logic.appSoundStep(held === null ? null : held.hold, armOf(node),
+            { corked: corked(node), since: entry.since }, Date.now(), ruled);
         if (step.change === "") return;
         const next = Object.assign({}, holds);
         if (step.hold === null) delete next[id];
-        else next[id] = { node: node, phase: step.hold.phase, until: step.hold.until, level: level(node) };
+        else next[id] = { node: node, hold: step.hold, level: level(node) };
         holds = next;
         entry.freeing = step.change === "release" && ruled !== "";
         if (entry.freeing) freeLinked();
@@ -211,7 +211,7 @@ Item {
     // The clock runs to the nearest end of an arm or a hold.
     function schedule() {
         const now = Date.now();
-        const ends = Object.keys(arms).map(a => arms[a].until).concat(Object.keys(holds).map(id => holds[id].until)).filter(t => t > now);
+        const ends = Object.keys(arms).map(a => arms[a].until).concat(Object.keys(holds).map(id => holds[id].hold.until)).filter(t => t > now);
         if (ends.length === 0) {
             clock.stop();
             return;

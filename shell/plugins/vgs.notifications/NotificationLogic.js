@@ -1195,11 +1195,12 @@ function dumpLine(last, line) {
 }
 
 // One output stream's next step under Silence. HOLD is its mute, null or
-// { phase, until }; ARMED its app's latest arm, null or { at, until };
-// STREAM { corked, since }: corked true while paused, false while it plays
-// and null for a stream that does not say, since the time it was first
-// seen; RULED how the sound rule held it, ruleHeld's answer, on the first
-// step alone. The phases:
+// { phase, until, role }; ARMED its app's latest arm, null or { at, until
+// }; STREAM { corked, since }: corked true while paused, false while it
+// plays and null for a stream that does not say, since the time it was
+// first seen; RULED how the sound rule held it, ruleHeld's answer, on the
+// first step alone, so the hold carries the one verdict later steps need:
+// role, true for a stream the rule held for its role. The phases:
 //   rest     paused, muted until it plays however long that takes; until
 //            is null.
 //   pending  playing muted until UNTIL, waiting for its app's notification:
@@ -1213,26 +1214,29 @@ function dumpLine(last, line) {
 // freed, so the next sound the app plays on it, as Chromium plays each
 // chime on the stream it keeps open, is silent from its first sample
 // whichever comes first. A stream the rule held for its role is held as
-// an armed one, and one held as the shell's own is freed. A stream nobody
-// muted that already plays when its app's notification comes, such as a
-// call, is never muted. Answers { hold, change }; change is `mute`,
+// an armed one: each time it plays, paused first or not, it is a
+// notification's sound. One held as the shell's own is freed. A stream
+// nobody muted that already plays when its app's notification comes, such
+// as a call, is never muted. Answers { hold, change }; change is `mute`,
 // `again` (the mute is set once more as the phase changes, since a volume
 // written meanwhile lifts it), `release` or "".
 function appSoundStep(hold, armed, stream, now, ruled) {
     var live = armed !== null && now < armed.until;
     var paused = stream.corked === true;
-    var rest = { phase: "rest", until: null };
-    var playing = { phase: "playing", until: now + APP_SOUND_HOLD };
-    var pending = { phase: "pending", until: now + APP_SOUND_ARM };
+    var role = hold === null ? ruled === "role" : hold.role === true;
+    var rest = { phase: "rest", until: null, role: role };
+    var playing = { phase: "playing", until: now + APP_SOUND_HOLD, role: role };
+    var pending = { phase: "pending", until: now + APP_SOUND_ARM, role: role };
+    var sound = live || role ? playing : pending;
     if (hold === null) {
         if (ruled === "own") return { hold: null, change: "release" };
-        if (ruled === "app") return { hold: paused ? rest : live ? playing : pending, change: "mute" };
-        var arm = live ? armed : ruled === "role" ? { at: stream.since } : null;
+        if (ruled === "app") return { hold: paused ? rest : sound, change: "mute" };
+        var arm = live ? armed : role ? { at: stream.since } : null;
         if (arm === null || (!paused && stream.since < arm.at)) return { hold: null, change: "" };
         return { hold: paused ? rest : playing, change: "mute" };
     }
     if (paused) return { hold: rest, change: hold.phase === "rest" ? "" : "again" };
-    if (hold.phase === "rest" || (hold.phase === "pending" && live)) return { hold: live ? playing : pending, change: "again" };
+    if (hold.phase === "rest" || (hold.phase === "pending" && live)) return { hold: sound, change: "again" };
     if (now >= hold.until) return { hold: null, change: "release" };
     return { hold: hold, change: "" };
 }

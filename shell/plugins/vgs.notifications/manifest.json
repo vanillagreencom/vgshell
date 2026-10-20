@@ -71,7 +71,7 @@
     {"command": "gum", "packages": {"pacman": "gum", "apt": "gum", "dnf": "gum", "nix": "gum"}, "optional": true, "purpose": "Shows the Slack photo setup steps"}
   ],
   "sounds": {
-    "notification": { "label": "New notification", "description": "Plays when a notification shows on screen. Sound off and Do Not Disturb also mute an app's own notification sound, not its calls or media.", "default": "" }
+    "notification": { "label": "New notification", "description": "Plays when a notification shows on screen. Sound off and Do Not Disturb also mute an app's own notification sound and the first second of its calls and media, up to 15 s if it notifies in that second.", "default": "" }
   },
   "appearance": "Appearance.js",
   "hyprland": {
