@@ -20,19 +20,25 @@
     "pane": "Pane.qml"
   },
   "capabilities": [
+    "compositor",
     "configure",
     "idle",
     "ipc",
     "notify",
     "requirements",
+    "session",
     "shortcut",
     "status",
     "surfaces",
     "system"
   ],
   "capabilityKinds": {
+    "compositor": ["service"],
+    "idle": ["service", "pane"],
+    "session": ["service"],
     "system": ["service"]
   },
+  "idleStages": { "displayOff": { "seconds": "displayOffSeconds" } },
   "systemSteps": ["disk-sleep", "wake-sources"],
   "defaultSection": "right",
   "pane": {
@@ -96,6 +102,7 @@
     }
   ],
   "settings": {
+    "displayOffSeconds": 600,
     "lowThreshold": 20,
     "criticalThreshold": 10,
     "chargerProfile": "performance",
@@ -104,6 +111,27 @@
     "wakeOnLanChosen": false
   },
   "schema": {
+    "displayOffSeconds": {
+      "type": "number",
+      "label": "Turn displays off",
+      "description": "After you stop using the computer",
+      "info": "While the screen is locked, the displays turn off after 10 seconds without input. A key press or pointer move turns them on. Never keeps them on while locked too.",
+      "unit": "seconds",
+      "min": 0,
+      "max": 7200,
+      "step": 60,
+      "presets": [
+        { "value": 0, "label": "Never" },
+        { "value": 120 },
+        { "value": 300 },
+        { "value": 600 },
+        { "value": 900 },
+        { "value": 1800 },
+        { "value": 3600 }
+      ],
+      "allowCustom": true,
+      "group": "Displays"
+    },
     "lowThreshold": {
       "type": "number",
       "label": "Low battery alert",

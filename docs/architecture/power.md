@@ -6,7 +6,7 @@ Read before touching the idle path, a stage of dim, screensaver, display off, lo
 
 The idle path is a set of stages. Each stage has one owner, and each owner holds its own watch on the core's idle source, `shell/Core/IdleRegistry.qml`, lent through capability `idle` ([D062](../decisions/D062-native-lock-and-polkit-plugins.md)). A watch counts from the later of the last input the seat saw and the watch's own creation, since Hyprland starts a notification's timer when the shell creates it. No owner reads another owner's setting, so any order of values has a defined result. `vgs.power` is the one energy plugin. The choice is [D109](../decisions/D109-idle-path-one-owner-per-stage.md).
 
-Today the code holds the idle source, the dim, the screensaver, the lock, the lock before sleep, disk sleep, wake sources and Wake on LAN. Every other row below is designed: the named child item adds its code and its pin, and until then no code holds it.
+Today the code holds the idle source, the dim, the screensaver, the lock, the lock before sleep, display off, disk sleep, wake sources and Wake on LAN. Every other row below is designed: the named child item adds its code and its pin, and until then no code holds it.
 
 | Stage | Owner | What it does | State |
 |---|---|---|---|
@@ -16,7 +16,7 @@ Today the code holds the idle source, the dim, the screensaver, the lock, the lo
 | Screensaver | `vgs.screensaver` | shows the Cover, a layer surface per screen, never while locked | holds; stops while the panels are off: VGS-1904 |
 | Lock | `vgs.lock` | locks once; input does not unlock | holds |
 | Lock before sleep | `vgs.lock` | holds a logind delay inhibitor and locks on `PrepareForSleep` | holds |
-| Display off | `vgs.power` | turns every panel off after idle, and sooner while locked | VGS-1905 |
+| Display off | `vgs.power` | turns every panel off after idle, and sooner while locked | holds |
 | Sleep after idle | `vgs.power` | asks logind to suspend, hibernate or suspend then hibernate | VGS-1907 |
 | Resume | `vgs.power` | turns the panels on and restarts its own watches after a wake from sleep | VGS-1906 |
 | Session Sleep and Hibernate actions | `vgs.power` | launcher rows, offered only while logind answers yes | VGS-1908 |
@@ -86,7 +86,7 @@ The power button and the lid must act while the shell is down: a laptop closed i
 - Do change panel power only through `shell.compositor.displayPower`, one request with no output named. Designed: VGS-1903 adds it with its rows in `scripts/test-dispatch.js` and its readback in `scripts/smoke/rows/compositor-dispatchers.sh`.
 - Never turn off one connector of a physical monitor. Designed: the dispatcher takes no output argument, pinned by `scripts/test-dispatch.js` in VGS-1903.
 - Do send DPMS on only from `vgs.power` at a wake from sleep; input wakes the panels through Hyprland's options. Designed: VGS-1903 writes the options, pinned by `scripts/test-hyprland-layer.js`, and VGS-1906 pins the wake in `scripts/smoke/rows/power.sh`.
-- Do turn the panels off while locked a fixed short time after the lock or the last input, whichever is later, and never while the display-off setting is Never. Designed: VGS-1905 pins it in `scripts/smoke/rows/power.sh`.
+- Do turn the panels off while locked a fixed short time after the lock or the last input, whichever is later, and never while the display-off setting is Never. `vgs.power/Service.qml` owns both watches; `scripts/smoke/rows/power.sh` pins their timers and release.
 
 ### Sleep
 

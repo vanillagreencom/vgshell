@@ -47,7 +47,7 @@
 # time and a page reference to the field that sets it, which a real click
 # opens in Settings at that field; no row warns until the lock is set
 # below the screensaver, and then the lock row alone does; the section
-# draws all four of Power's own fields with a battery and the profiles
+# draws Power's display field and four battery fields with the profiles
 # service, and no install offer for it; a click on an On battery segment
 # and Down and Return in Low battery alert's list store the value picked
 # and the control marks it; a
@@ -103,7 +103,13 @@
 # directory, stops the mock process groups it spawned, and restarts the
 # shell because Quickshell keeps that singleton in the process after the
 # plugin is disabled.
-# inputs: shell/plugins/vgs.power/* shell/plugins/vgs.settings/* shell/plugins/vgs.system/* shell/Hosts/PaneHost.qml shell/Core/IdleRegistry.qml shell/Ui/controls/FormRow.qml shell/Ui/controls/Field.qml shell/Ui/controls/Select.qml shell/Ui/controls/SegmentedControl.qml shell/Ui/controls/Switch.qml shell/Ui/controls/InfoButton.qml shell/Ui/controls/RowAction.qml shell/Ui/layout/Section.qml shell/Ui/layout/SectionHeader.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Commons/SettingValues.js shell/Core/Registry.qml shell/Core/Capabilities.qml shell/Core/PluginStatus.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Notices.qml shell/Core/Notifier.qml shell/Hosts/NoticeHost.qml shell/Hosts/SummonHost.qml bin/vgshell-scan scripts/smoke/rows/device-fakes.sh scripts/smoke/power-fakes.sh bin/vgshell-system config/system/udev/69-vgs-disk-sleep.rules scripts/smoke/rows/system-steps.sh scripts/smoke/fixtures/devices/network.py shell/Core/SystemSteps.qml config/system/udev/* scripts/smoke/fixtures/devices/*
+# Display-off timer wiring uses real elapsed time: all nested outputs must
+# read off after the short setting and the locked timeout. Negative windows
+# sample every 0.2 s; they are timer checks, not latency budgets. A transport
+# control drops an off request and must fail the same output assertion once.
+# Never is observed past the locked delay with no DPMS request, and unload
+# must leave no Power watch in the core's lending record. No password is typed.
+# inputs: shell/plugins/vgs.power/* shell/plugins/vgs.lock/* shell/Core/SessionLock.qml shell/Commons/SessionLockState.js shell/Hosts/LockHost.qml shell/Core/Compositor.qml shell/Core/Dispatch.js shell/Core/HyprlandLayer.js shell/plugins/vgs.settings/* shell/plugins/vgs.system/* shell/Hosts/PaneHost.qml shell/Core/IdleRegistry.qml shell/Ui/controls/FormRow.qml shell/Ui/controls/Field.qml shell/Ui/controls/Select.qml shell/Ui/controls/SegmentedControl.qml shell/Ui/controls/Switch.qml shell/Ui/controls/InfoButton.qml shell/Ui/controls/RowAction.qml shell/Ui/layout/Section.qml shell/Ui/layout/SectionHeader.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Commons/SettingValues.js shell/Core/Registry.qml shell/Core/Capabilities.qml shell/Core/PluginStatus.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Notices.qml shell/Core/Notifier.qml shell/Hosts/NoticeHost.qml shell/Hosts/SummonHost.qml bin/vgshell-scan scripts/smoke/rows/device-fakes.sh scripts/smoke/power-fakes.sh bin/vgshell-system config/system/udev/69-vgs-disk-sleep.rules scripts/smoke/rows/system-steps.sh scripts/smoke/fixtures/devices/network.py shell/Core/SystemSteps.qml config/system/udev/* scripts/smoke/fixtures/devices/*
 set -euo pipefail
 source "$repo/scripts/smoke/power-fakes.sh"
 
@@ -412,6 +418,109 @@ power_wake_on_lan() {
   rescan "rescan after removing the Wake on LAN fixture answers ok"
 }
 
+power_idle_outputs() { # true|false: every nested output has this status
+  hypr -j monitors | py_reply 'import json,sys
+rows = json.load(sys.stdin)
+print(bool(rows) and all(row.get("dpmsStatus") is (sys.argv[1] == "true") for row in rows))' "$1"
+}
+power_idle_watches() { ipc shell lent | py_reply 'import json,sys
+print(json.dumps(sorted(row["timeout"] for row in json.load(sys.stdin)["idle"] if row["id"] == "vgs.power")))'; }
+power_idle_calls() { wc -l <"$sandbox/power-idle.calls"; }
+power_idle_locked() { ipc shell lent | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["lock"]["secure"]))'; }
+power_idle_lock_inputs() { ipc shell listPlugins | py_reply 'import json,sys
+row = next((row for row in json.load(sys.stdin)["plugins"] if row["id"] == "vgs.lock"), {})
+settings = row.get("settings", {})
+print(json.dumps([settings.get("idleLockSeconds"), settings.get("lockBeforeSleep")]))'; }
+power_idle_set() { # PLUGIN KEY JSON_VALUE: the production Settings writer
+  ipc smoke invokeInstanceArgs window vgs.settings writeSetting "{\"args\":[\"$1\",\"$2\",$3]}"
+}
+power_idle_stays_on() { # MILLISECONDS: absence over a timer window
+  local deadline=$(( $(now_ms) + $1 )) state
+  while (( $(now_ms) < deadline )); do
+    state="$(power_idle_outputs true)" || return 1
+    [[ $state == True ]] || { echo "$state"; return; }
+    sleep 0.2
+  done
+  echo True
+}
+
+power_display_off() {
+  local config="$home/.config/vgshell/shell.json" before count
+  cp -- "$config" "$sandbox/power-idle-config.json"
+  # Set the disabled lock's test inputs before enabling it, so its real
+  # before-sleep helper never starts. All other saved values return below.
+  jq '.plugins = ((.plugins // [] | map(select(.id != "vgs.lock"))) + [{"id":"vgs.lock","idleLockSeconds":2,"lockBeforeSleep":false}])' "$config" >"$config.power-idle"
+  mv -T -- "$config.power-idle" "$config"
+  expect_poll "the disabled lock reads its test inputs before the next write" '[2, false]' power_idle_lock_inputs
+  expect "Power enables for display-off checks" ok ipc shell setPluginEnabled vgs.power true
+  expect "Settings opens for the display-off setting" ok ipc shell summon window vgs.settings '{"plugin":"vgs.power","tab":"Settings"}'
+  expect_poll "Power holds its default idle watch" '[600]' power_idle_watches
+  expect "display off accepts a custom two-second timeout" ok power_idle_set vgs.power displayOffSeconds 2
+  expect_poll "the new setting replaces the normal watch" '[2]' power_idle_watches
+  cat >"$shim/hyprctl.power-idle" <<EOF_IDLE
+#!/usr/bin/env bash
+if [[ \${1:-} == dispatch && \${2:-} == *dpms* ]]; then
+  printf '%s\n' "\$2" >>"$sandbox/power-idle.calls"
+  if [[ -e "$sandbox/power-idle.drop" ]]; then echo ok; exit 0; fi
+fi
+exec "$hyprctl_bin" "\$@"
+EOF_IDLE
+  chmod 755 "$shim/hyprctl.power-idle"
+  : >"$sandbox/power-idle.calls"
+  : >"$sandbox/power-idle.drop"
+  shim_hyprctl power-idle
+  type_keys -k Shift_L || fail "the display-off control's nested input failed"
+  expect_poll "control: the idle watch reaches the dropped DPMS transport" 1 power_idle_calls
+  (
+    failures=0
+    expect "control: a dropped off request fails the output assertion" True power_idle_outputs false
+    printf 'control-failures=%s\n' "$failures"
+  ) >"$sandbox/power-idle-control.log"
+  count="$(sed -n 's/^control-failures=//p' "$sandbox/power-idle-control.log")"
+  expect "control: the output assertion detects the dropped off request once" 1 printf '%s' "$count"
+  power_unlink "$sandbox/power-idle.drop"
+  type_keys -k Shift_L || fail "the normal display-off nested input failed"
+  expect "every nested output stays on before the two-second timeout" True power_idle_stays_on 1000
+  expect_poll "two seconds without input turn every nested output off" True power_idle_outputs false
+  type_keys -k Shift_L || fail "the display-off nested wake key failed"
+  expect_poll "a nested key wakes every output through Hyprland" True power_idle_outputs true
+  expect "the normal idle watch can be set beyond the locked delay" ok power_idle_set vgs.power displayOffSeconds 600
+  expect "the capability fixture releases any exclusive lock" ok ipc shell setPluginEnabled acme.probe false
+  expect "the idle lock enables without its sleep helper" ok ipc shell setPluginEnabled vgs.lock true
+  type_keys -k Shift_L || fail "the idle lock's nested input failed"
+  expect_poll "the idle lock locks the nested session" true power_idle_locked
+  expect "the idle lock stops repeating during the display checks" ok power_idle_set vgs.lock idleLockSeconds 0
+  expect_poll "locking adds the fixed ten-second watch beside the normal one" '[10, 600]' power_idle_watches
+  expect "the lock does not turn outputs off before its ten-second delay" True power_idle_stays_on 8000
+  expect_poll "ten seconds after the idle lock every output reads off" True power_idle_outputs false
+  type_keys -k Shift_L || fail "the first locked nested wake key failed"
+  expect_poll "input while locked wakes all outputs" True power_idle_outputs true
+  expect "the waking input leaves the nested session securely locked" true power_idle_locked
+  expect "the locked session stays lit during the first part of its delay" True power_idle_stays_on 6000
+  type_keys -k Shift_L || fail "the second locked nested input failed"
+  expect "new locked input restarts the delay past the original deadline" True power_idle_stays_on 8000
+  expect_poll "ten seconds after the last locked input every output reads off again" True power_idle_outputs false
+  expect "Never can be set while locked" ok power_idle_set vgs.power displayOffSeconds 0
+  expect_poll "Never disposes both idle watches" '[]' power_idle_watches
+  type_keys -k Shift_L || fail "the Never check's nested wake key failed"
+  expect_poll "Never starts with every nested output on" True power_idle_outputs true
+  before="$(power_idle_calls)"
+  expect "Never keeps every locked output on past the locked timeout" True power_idle_stays_on 12000
+  expect "Never sends no display-power request" "$before" power_idle_calls
+  expect "the normal and locked watches return when Never is cleared" ok power_idle_set vgs.power displayOffSeconds 600
+  expect_poll "both watches exist before unloading Power" '[10, 600]' power_idle_watches
+  expect "Power can be disabled while locked" ok ipc shell setPluginEnabled vgs.power false
+  expect_poll "unloading Power leaves no lent idle entry" '[]' power_idle_watches
+  expect "the nested probe releases the lock without authentication" ok ipc smoke sessionUnlock
+  expect "the lock plugin disables after the display checks" ok ipc shell setPluginEnabled vgs.lock false
+  expect "Settings closes after the display checks" ok ipc shell hide window vgs.settings
+  shim_hyprctl real
+  power_unlink "$shim/hyprctl.power-idle"
+  cp -- "$sandbox/power-idle-config.json" "$config.power-idle"
+  mv -T -- "$config.power-idle" "$config"
+  expect_poll "the display checks restore Power's enablement" False plugin_enabled vgs.power
+}
+
 power_main() {
   devices_ready power || return 0
   expect "Power's system step resolves in the fake tree" prefixed devices_system_tree
@@ -548,9 +657,9 @@ EOF_STAND
   expect "enabling System Settings for Power's section is allowed" ok ipc shell setPluginEnabled vgs.system true
   expect "System Settings opens on Power's section" ok ipc shell summon window vgs.system '{"pane":"vgs.power"}'
   expect_poll "Power's section is mounted" '["vgs.power"]' window_panes
-  power_timeline_defaults='[["[After 2 minutes](page:acme.power-dim/Settings/dimAfter)", false], ["[After 150 seconds](page:acme.power-away/Settings/saverAfter)", false], ["[After 5 minutes](page:acme.power-away/Settings/lockAfter)", false]]'
+  power_timeline_defaults='[["[After 2 minutes](page:acme.power-dim/Settings/dimAfter)", false], ["[After 150 seconds](page:acme.power-away/Settings/saverAfter)", false], ["[After 5 minutes](page:acme.power-away/Settings/lockAfter)", false], ["[After 10 minutes](page:vgs.power/Settings/displayOffSeconds)", false]]'
   expect_poll "the timeline reads each stage in order with its default time, a link to its field and no warning" "$power_timeline_defaults" power_timeline
-  expect_poll "with a battery and the profiles service the section draws Power's four fields" "$power_battery_keys" power_pane_fields
+  expect_poll "with a battery and the profiles service the section draws Power's four battery fields" "$power_battery_keys" power_pane_fields
   expect "with the profiles service present the section offers no install" no power_install_shown
   expect_poll "with no rotational disk the pane draws no Disk sleep row" 0 power_disk_drawn
   system_disk_fixture || { fail "power: the disk fixture could not be planted"; return 0; }
@@ -613,11 +722,12 @@ EOF_STAND
     mv -T -- "$power_hdparm_saved/hdparm" "$shell_host_path/hdparm"
     rmdir -- "$power_hdparm_saved"
   fi
+  power_revealed "$(ipc smoke revealText window vgs.system LinkText "[After 5 minutes](page:acme.power-away/Settings/lockAfter)")" || fail "the pane did not reveal the lock row's time"
   click_in "window:System Settings" window vgs.power LinkText "[After 5 minutes](page:acme.power-away/Settings/lockAfter)" || fail "the click on the lock row's time failed"
   expect_poll "the lock row's link opens Settings at the lock owner's field" '"acme.power-away" "lockAfter"' power_settings_reveal
   expect "Settings hides after the timeline link" ok ipc shell hide window vgs.settings
   power_stage_setting "$home/.config/vgshell/shell.json" lockAfter 120
-  expect_poll "with the lock set below the screensaver the lock row alone warns" '[["[After 2 minutes](page:acme.power-dim/Settings/dimAfter)", false], ["[After 150 seconds](page:acme.power-away/Settings/saverAfter)", false], ["[After 2 minutes](page:acme.power-away/Settings/lockAfter)", true]]' power_timeline
+  expect_poll "with the lock set below the screensaver the lock row alone warns" '[["[After 2 minutes](page:acme.power-dim/Settings/dimAfter)", false], ["[After 150 seconds](page:acme.power-away/Settings/saverAfter)", false], ["[After 2 minutes](page:acme.power-away/Settings/lockAfter)", true], ["[After 10 minutes](page:vgs.power/Settings/displayOffSeconds)", false]]' power_timeline
   power_stage_setting "$home/.config/vgshell/shell.json" lockAfter null
   expect_poll "the lock's default time clears the warning" "$power_timeline_defaults" power_timeline
   # The section's own writes: a segment and a list entry, each picked as a
@@ -632,13 +742,13 @@ EOF_STAND
   expect_poll "a click on On battery's Performance stores it" '"performance"' power_setting batteryProfile
   expect_poll "On battery marks Performance again" '[2, 2]' power_pane_choices SegmentedControl
   expect "before the pane's pick the low alert holds no stored value" null power_setting lowThreshold
-  expect "before the pane's pick the alert lists mark 20 and 10 percent" '[1, 1]' power_pane_choices Select
+  expect "before the pane's pick the display and alert lists mark their defaults" '[3, 1, 1]' power_pane_choices Select
   power_pane_pick "Low battery alert" Select "20%" || fail "the click on Low battery alert's list failed"
   expect_poll "Low battery alert's list opens" True power_pane_list_open
   type_keys -k Down -k Return || fail "typing Down and Return in Low battery alert's list failed"
   expect_poll "Return closes Low battery alert's list" False power_pane_list_open
   expect_poll "Down and Return in the list store 25 percent" 25 power_setting lowThreshold
-  expect_poll "Low battery alert marks 25 percent and Critical keeps 10" '[2, 1]' power_pane_choices Select
+  expect_poll "Low battery alert marks 25 percent while the other lists keep their defaults" '[3, 2, 1]' power_pane_choices Select
   expect "System Settings hides after Power's section" ok ipc shell hide window vgs.system
   expect "disabling the dim owner fixture is allowed" ok ipc shell setPluginEnabled acme.power-dim false
   expect "disabling the away owner fixture is allowed" ok ipc shell setPluginEnabled acme.power-away false
@@ -793,6 +903,7 @@ import Quickshell.Io
   expect "the Settings window hides after the profile fields" ok ipc shell hide window vgs.settings
   rescan "rescan after the profile mock stops answers ok"
   expect_poll "with the profiles service missing the section offers its install" yes power_install_shown
+  power_revealed "$(ipc smoke revealText window vgs.system RowAction "Install power profiles")" || fail "the pane did not reveal Install power profiles"
   click_in "window:System Settings" window vgs.power RowAction "Install power profiles" || fail "the click on Install power profiles failed"
   expect_poll "Install power profiles raises the requirement notice for the service" '["vgs.power", ["org.freedesktop.UPower.PowerProfiles"], ["org.freedesktop.UPower.PowerProfiles"], false]' notice_shown
   expect_poll "the profiles service notice holds the keyboard" true ipc smoke noticeFocused
@@ -804,7 +915,7 @@ import Quickshell.Io
   expect_poll "a profile service that starts after the plugin is read" True power_profile_available
   expect_poll "the later service's active profile is read" performance power_status_active
   expect_poll "the open panel lists the later service's profiles" '[[["Power saver", "Balanced", "Performance"], 2]]' power_profile_list
-  expect_poll "with the later service Power's section draws its four fields" "$power_battery_keys" power_pane_fields
+  expect_poll "with the later service Power's section draws its four battery fields" "$power_battery_keys" power_pane_fields
   expect "System Settings hides after the later service" ok ipc shell hide window vgs.system
   expect "the Power panel closes after the later service" ok ipc shell hide panel vgs.power
   expect "disabling vgs.power after the later service check is allowed" ok ipc shell setPluginEnabled vgs.power false
@@ -861,6 +972,7 @@ import Quickshell.Io
   power_move_away "$power_quiet_dir"
   rescan "rescan after removing the once and quiet fixtures answers ok"
   power_wake_on_lan
+  power_display_off
 
   expect "restoring vgs.system's enablement is allowed" ok ipc shell setPluginEnabled vgs.system "$([[ $power_system_was == True ]] && echo true || echo false)"
   power_restore_stand notify-send "$power_notify_stood"

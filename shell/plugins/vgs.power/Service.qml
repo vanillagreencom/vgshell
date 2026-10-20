@@ -40,6 +40,12 @@ Item {
     property bool registered: false
     property var sourceState: ({ ready: false, onBattery: false })
     property var noticeLatch: Logic.latchInitial()
+    readonly property int displayOffSeconds: shell === null ? 0 : shell.settings.displayOffSeconds
+    readonly property bool locked: shell !== null && shell.session.locked
+    property var displayOffDisposer: null
+    property var lockedDisplayOffDisposer: null
+    // Longer than a password check, which this plugin cannot read.
+    readonly property int lockedDisplayOffSeconds: 10
 
     property var profile: Logic.profileView("")
     // A daemon line that arrived while a read ran: one more read follows.
@@ -102,6 +108,8 @@ Item {
     property bool wakeStale: false
 
     onShellChanged: {
+        watchDisplayOff();
+        watchLockedDisplayOff();
         if (shell === null || registered) return;
         wakeState = Logic.wakeInitial(shell.settings.wakeOnLanChosen);
         registered = true;
@@ -132,6 +140,36 @@ Item {
         if (registered && !profilesMissing) readProfiles();
     }
     Component.onCompleted: observeSource()
+
+    onDisplayOffSecondsChanged: {
+        watchDisplayOff();
+        watchLockedDisplayOff();
+    }
+    onLockedChanged: watchLockedDisplayOff()
+
+    // As vgs.lock's watchIdle: dispose before replacing. The core owns
+    // each watch through this instance's lifetime. Hyprland starts its
+    // count at creation, so a new locked watch counts from the lock.
+    // Its IdleMonitor observes input and inhibitors (Quickshell 0.3.1):
+    // https://quickshell.org/docs/v0.3.1/types/Quickshell.Wayland/IdleMonitor
+    function watchDisplayOff() {
+        if (displayOffDisposer !== null) displayOffDisposer();
+        displayOffDisposer = null;
+        if (shell === null || displayOffSeconds <= 0) return;
+        displayOffDisposer = shell.idle.watch(displayOffSeconds, idle => { if (idle) root.turnDisplaysOff(); });
+    }
+
+    function watchLockedDisplayOff() {
+        if (lockedDisplayOffDisposer !== null) lockedDisplayOffDisposer();
+        lockedDisplayOffDisposer = null;
+        if (shell === null || displayOffSeconds <= 0 || !locked) return;
+        lockedDisplayOffDisposer = shell.idle.watch(lockedDisplayOffSeconds, idle => { if (idle) root.turnDisplaysOff(); });
+    }
+
+    function turnDisplaysOff() {
+        const reply = shell.compositor.displayPower("off");
+        if (reply !== "ok") console.warn("power: display off " + reply);
+    }
 
     Connections {
         target: UPower
