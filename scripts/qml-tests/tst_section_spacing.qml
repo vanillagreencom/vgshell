@@ -12,9 +12,10 @@ import "../../shell/plugins/vgs.settings"
 // from their shipped manifests, whatever row ends the section above: a
 // switch, a select, a segmented control, a slider or a help line, one
 // with descenders or, planted, one without, and after a status hint with
-// a link, whose glyphs end the ink at rest, since its underline draws on
-// hover alone, and exactly under a row action's text or danger mark, not
-// its box. The settings of no group draw no
+// a link: one inside running text, whose underline, not its glyphs, ends
+// the ink, and one that is the whole hint, whose glyphs end it, since its
+// underline draws on hover alone; and exactly under a row action's text
+// or danger mark, not its box. The settings of no group draw no
 // heading: they follow the
 // Enabled switch at the space rows of one list leave. A
 // section spaced by its box, as before `stack.heading`, is the control the
@@ -397,17 +398,23 @@ Item {
             verify(Math.abs(gap - Theme.stack.heading) <= root.tolerance, "the heading sits " + gap + " px under the hint, not " + Theme.stack.heading);
         }
 
-        // At 40 px a link's underline room reaches 13 px under the glyphs
-        // of a last line with no descender, past the reading's tolerance:
-        // with LinkText.inkBelow() holding that room, "one line" and "last
-        // of two" read 45 blank rows, not 32, under scripts/qml-unit.sh on
-        // 2026-10-19. The underline draws on hover alone, so the heading
-        // stands under the glyphs whichever line holds the link.
+        // At 40 px a link's underline ends 9 px under the glyphs of a last
+        // line with no descender, past the reading's tolerance: with
+        // LinkText.inkBelow() reading the glyphs alone, "one line" and
+        // "last of two" read 23 blank rows, not 32, under scripts/qml-unit.sh
+        // on a65ec0a61. "last of two" holds the link on both lines, so it
+        // fails when only the first occurrence counts; "first of two" holds
+        // it on the first line alone and fails, at 41, when the underline
+        // counts there. "whole hint" is a link that stands on its own,
+        // underlined on hover alone, so its glyphs end the ink: with its
+        // underline counted the heading sits 45 rows under them
+        // (scripts/qml-unit.sh, 2026-10-20).
         function test_heading_space_after_an_underlined_link_data() {
             return [
                 { tag: "one line", hint: "The manual", link: "manual", lines: 1 },
                 { tag: "last of two", hint: "The manual, a manual", link: "manual", lines: 2 },
-                { tag: "first of two", hint: "The manual, then the hint", link: "manual", lines: 2 }
+                { tag: "first of two", hint: "The manual, then the hint", link: "manual", lines: 2 },
+                { tag: "whole hint", hint: "The manual", link: "The manual", lines: 1 }
             ];
         }
 

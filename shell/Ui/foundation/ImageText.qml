@@ -25,9 +25,10 @@ import "ImageTextLogic.js" as Logic
 // on the GUI thread. An image whose load fails draws its alt text.
 //
 // `underlined` names plain words of the text whose first occurrence is a
-// link: while `hovered`, the owner's reading of the pointer on what the
-// words open, they draw over an underline in `underlineColor`, as
-// LinkText's hovered link does, and at rest over none. Its top is
+// link drawn over an underline in `underlineColor`, as LinkText's link
+// is: at rest and on hover inside running text, and, where the words are
+// the whole text, only while `hovered`, the owner's reading of the
+// pointer on what the words open. Its top is
 // Inset.underlineTop under each line's baseline, not at the font's
 // underline position, where Qt draws a `<u>` and a descender meets it. A
 // hidden RichText twin of the drawn text gives the words' x and line,
@@ -51,7 +52,8 @@ Item {
     readonly property int imageSize: Math.floor(metrics.height)
     readonly property int deviceSize: Math.round(imageSize * Screen.devicePixelRatio)
     // The underlined words' span on each drawn line, as { line, left,
-    // right }. The arguments name what the twin's layout depends on, since
+    // right, alone }, `alone` while the words are the whole text. The
+    // arguments name what the twin's layout depends on, since
     // its positions are a function a binding cannot follow.
     readonly property var underlineSpans: twinLoader.item !== null ? wordSpans(twinLoader.item.text, twinLoader.item.width, twinLoader.item.lineCount, drawn.lineCount) : []
 
@@ -156,6 +158,7 @@ Item {
         const plain = twin.getText(0, twin.length);
         const at = plain.indexOf(underlined);
         if (at === -1) return [];
+        const alone = plain === underlined;
         const pitch = twin.contentHeight / Math.max(1, twinLines);
         const lineOf = r => Math.floor((r.y + r.height / 2) / pitch);
         const spans = [];
@@ -169,7 +172,7 @@ Item {
             if (span !== null && span.line === line) {
                 span.right = right;
             } else {
-                span = { line: line, left: glyph.x, right: right };
+                span = { line: line, left: glyph.x, right: right, alone: alone };
                 spans.push(span);
             }
         }
@@ -210,7 +213,7 @@ Item {
             width: modelData.right - modelData.left
             height: Inset.underlineWidth(metrics.lineWidth)
             color: root.underlineColor
-            visible: root.hovered
+            visible: modelData.alone ? root.hovered : true
         }
     }
 

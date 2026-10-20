@@ -179,13 +179,14 @@ Column {
         readonly property real textBottom: textTop + linesHeight + (hintLine.text !== "" ? hintLine.implicitHeight : 0)
         function textInkBelow() { return hintLine.text !== "" ? hintLine.inkBelow() : Theme.inkBelow(subLines); }
         // The same by the text's font (FormRow.fontBelow): the hint's role
-        // through a probe line of it.
+        // through a probe line of it, a link's underline still counted.
         function textLineBelow() {
             if (hintLine.text === "") {
                 const lines = Array.from(subLines.children).filter(child => child instanceof Label);
                 return controlRow.fontBelow(lines[lines.length - 1]);
             }
-            return controlRow.fontBelow(hintProbe);
+            const line = controlRow.fontBelow(hintProbe);
+            return hintLine.linked ? Math.min(line, hintLine.inkBelow()) : line;
         }
         // How far the text sits below where the slot is: none while the
         // Column places it, and the slot's stale `y` for a slot of no

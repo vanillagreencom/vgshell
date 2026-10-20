@@ -35,15 +35,18 @@ import qs.Ui
 // `focusPreview` draws that ring for an owner that keeps the keyboard and
 // names this link as its current one, as a tooltip's item does.
 // Every occurrence is drawn in `linkColor`, the accent unless the look
-// that hosts the text hands its own. The occurrence under the pointer
-// draws its own underline, the font's line width thick,
-// `underlineOffset` under each line's baseline, and no occurrence draws
-// one at rest; keyboard focus draws the ring alone. Qt Quick draws a
-// link's or `<u>`'s underline at the font's underline position, which a
-// descender meets (Qt 6.11 qquickstyledtext.cpp, parseAnchorAttributes;
-// qquicktextnodeengine.cpp, addTextDecorations). `inkBelow()` reads the
-// words alone, so a hover underline draws in the space under them and
-// moves nothing; the ring's box holds the underline's room.
+// that hosts the text hands its own, over its own underline, the font's
+// line width thick, `underlineOffset` under each line's baseline. A link
+// inside running text draws it at rest and on hover, so colour is not all
+// that tells it from the words around it; a link that is the whole text,
+// `standalone`, draws it only while the pointer is on its words (Jarvis
+// decision 1792464386-2557738-17858). Keyboard focus draws the ring
+// alone. Qt Quick draws a link's or `<u>`'s underline at the font's
+// underline position, which a descender meets (Qt 6.11
+// qquickstyledtext.cpp, parseAnchorAttributes; qquicktextnodeengine.cpp,
+// addTextDecorations). `inkBelow()` counts the underline where it draws
+// at rest; a standalone link's hover underline draws in the space under
+// its words and moves nothing; the ring's box holds the underline's room.
 T.Control {
     id: root
 
@@ -66,6 +69,8 @@ T.Control {
     readonly property string words: cited ? link : reference.page !== "" ? reference.words : ""
     readonly property var links: cited ? explicitLinks() : references.links.filter(item => item.page !== "")
     property int currentLink: 0
+    // One link whose words are the whole text.
+    readonly property bool standalone: links.length === 1 && plain === links[0].words
     readonly property bool linked: links.length > 0
     readonly property int hoveredIndex: linked && pointer.containsMouse ? linkAt(pointer.mouseX, pointer.mouseY) : -1
     readonly property bool hoveredLink: hoveredIndex !== -1
@@ -231,11 +236,14 @@ T.Control {
 
     function inkAbove() { return label.y + label.inkAbove(); }
 
-    // The words alone: an underline draws only on hover, in the space
-    // under them.
+    // An occurrence inside running text is underlined at rest, so the
+    // underline reaches the last line when the last occurrence ends past
+    // that line's start; a standalone link's ends at its words.
     function inkBelow() {
         const lastStart = twin.length === drawn.length ? twin.positionAt(0, twin.contentHeight - 1) : -1;
-        return height - label.y - label.height + label.inkBelow(lastStart < 0 ? undefined : drawn.slice(lastStart));
+        const glyphs = label.inkBelow(lastStart < 0 ? undefined : drawn.slice(lastStart));
+        const lastUnderlined = linked && !standalone && lastStart >= 0 && layout.links.some(item => item.end > lastStart);
+        return height - label.y - label.height + (lastUnderlined ? Math.min(glyphs, label.height - underlineBottom(label.lineCount - 1)) : glyphs);
     }
 
     implicitWidth: label.implicitWidth
@@ -279,7 +287,7 @@ T.Control {
             y: label.baselineOffset + modelData.line * root.linePitch + root.underlineOffset
             width: modelData.right - modelData.left
             height: root.underlineThickness
-            visible: root.cited ? root.hoveredLink : root.hoveredIndex === modelData.index
+            visible: root.standalone ? root.hoveredLink : true
             color: root.linkColor
         }
     }

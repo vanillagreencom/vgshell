@@ -56,20 +56,28 @@ fixed geometry is what a placement row measures:
                      unqualified one beside an IconButton.qml other than
                      shell/Ui/controls/IconButton.qml, such as a plugin's own,
                      is that file's type and is not judged
-  link-underline     a link's own underline: a `font.underline` binding,
-                     `underline` in a `Qt.font` call, a `<u>` tag or a CSS
-                     `text-decoration: underline` in a string. Qt draws each
-                     at rest and at the font's underline position, which a
-                     descender meets; a link's underline draws on hover
-                     alone, one clear row under the descenders, through
-                     LinkText, RowAction, ImageText's `underlined` or
-                     TextUnderline (docs/architecture/design-system.md
-                     § Copy). A `font` group spread over lines is not
-                     read; review holds it
-  link-unshared      a text link drawn by Qt's own anchor: an `<a href`
-                     tag in a string, or an `onLinkActivated` or
-                     `onLinkHovered` handler, which such an anchor needs;
-                     a link is a LinkText or a RowAction
+  link-underline     a link's own underline, in any of these forms on one
+                     code line: a `font.underline:` binding, a
+                     `font.underline =` assignment on any object, an
+                     `underline:` inside a `font { }` group or a `Qt.font(`
+                     call, and, in any case, a `<u>` tag or a CSS
+                     `text-decoration: underline`. Qt draws each at the
+                     font's underline position, which a descender meets.
+                     A link's underline is LinkText's, RowAction's,
+                     ImageText's `underlined` or TextUnderline's: one clear
+                     device row under the descenders, at rest and on hover
+                     for a link inside running text and on hover alone for
+                     a link that stands on its own
+                     (docs/architecture/design-system.md § Copy). A `font`
+                     group spread over lines is not read; review holds it
+  link-unshared      a text link drawn by Qt's own anchor, in any of these
+                     forms: an `<a` tag with `href` in a string, in any
+                     case, an `onLinkActivated:` or `onLinkHovered:`
+                     handler, a `function onLinkActivated` or `function
+                     onLinkHovered` handler of a Connections, and a
+                     `linkActivated.connect` or `linkHovered.connect` call,
+                     which such an anchor needs; a link is a LinkText or a
+                     RowAction
 A value that is more than one literal, such as `2 * inset`, is layout and
 passes. Comments are blanked and strings kept, through scripts/qml_source.py.
 Appearance rules, on a plugin whose manifest declares `appearance` (each
@@ -213,8 +221,8 @@ STANDARD_GROUP = re.compile(r"(?<![\w.])standard\s*:\s*Theme\.([A-Za-z_]\w*)\b(?
 GROUP_BACKGROUND = re.compile(r"(?<![\w.$])Theme\.([A-Za-z_]\w*)\.background\b")
 IS_PROPERTY_PATH = re.compile(r"^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*$")
 # A link's own underline, and a link Qt's anchor draws, on one code line.
-OWN_UNDERLINE = re.compile(r"(?<![\w.])font\s*\.\s*underline\s*:|\bQt\.font\s*\([^)]*\bunderline\s*:|<u[\s>]|text-decoration\s*:\s*underline", re.IGNORECASE)
-QT_ANCHOR = re.compile(r"<a\s[^>]*href|(?<![\w.])onLink(?:Activated|Hovered)\s*:")
+OWN_UNDERLINE = re.compile(r"(?<![\w.])font\s*\.\s*underline\s*:|\bfont\s*\.\s*underline\s*=(?!=)|\bfont\s*\{[^}]*\bunderline\s*:|\bQt\.font\s*\([^)]*\bunderline\s*:|<u[\s>]|text-decoration\s*:\s*underline", re.IGNORECASE)
+QT_ANCHOR = re.compile(r"<a\s[^>]*href|(?<![\w.])onLink(?:Activated|Hovered)\s*:|\bfunction\s+onLink(?:Activated|Hovered)\b|\blink(?:Activated|Hovered)\s*\.\s*connect\b", re.IGNORECASE)
 IS_LITERAL = re.compile(r"^(?:" + LITERAL + r")$")
 QUOTED = re.compile(r"^[\"']([^\"']*)[\"']$")
 

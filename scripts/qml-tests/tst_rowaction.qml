@@ -6,8 +6,9 @@ import qs.Unit
 
 // RowAction: its text in the body role on the control's own edge, with no
 // fill, no box and no underline at rest; hover draws its underline, read
-// from the drawn pixels at 1x and 2x with its top a set number of clear
-// rows under the descenders, and keyboard focus its ring alone; hover,
+// from the drawn pixels at 1x and 2x with its top a set number of device
+// pixels under the baseline and a clear row under the descenders, and
+// keyboard focus its ring alone; hover,
 // press, focus and disabled each drawn apart from rest from their own
 // tokens; Space, Return
 // and Enter activate it; the danger tone draws its own colour, an unknown

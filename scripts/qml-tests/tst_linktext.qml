@@ -476,33 +476,42 @@ Item {
         // moves leave the area's containsMouse set (this file under
         // scripts/qml-unit.sh on 2026-10-13).
         function test_hover_alone_draws_the_underline() {
+            // A link inside running text is underlined at rest and on hover.
             const run = underlines(inline)[0];
             mouseMove(root, root.width - 1, root.height - 1);
             tryCompare(inline, "hoveredLink", false);
-            compare(run.visible, false, "no underline at rest");
-            mouseMove(inline, inline.linkBox.x + inline.linkBox.width / 2, inline.height / 2);
-            tryCompare(inline, "hoveredLink", true);
-            compare(run.visible, true, "the hovered words draw their underline");
+            compare(inline.standalone, false);
+            compare(run.visible, true, "a link in running text is underlined at rest");
             compare(run.height, Math.max(1, Math.round(font.lineWidth)));
-            mouseMove(inline, before.advanceWidth / 2, inline.height / 2);
-            tryCompare(inline, "hoveredLink", false);
-            compare(run.visible, false, "the words before the link draw none");
             mouseMove(inline, inline.linkBox.x + inline.linkBox.width / 2, inline.height / 2);
             tryCompare(inline, "hoveredLink", true);
+            compare(run.visible, true, "and on hover");
+            // A link that is the whole text is underlined on hover alone.
+            const alone = underlines(descending)[0];
             mouseMove(root, root.width - 1, root.height - 1);
-            tryCompare(inline, "hoveredLink", false);
-            compare(run.visible, false, "the underline goes on exit");
+            tryCompare(descending, "hoveredLink", false);
+            compare(descending.standalone, true);
+            compare(alone.visible, false, "a link that is the whole text draws no underline at rest");
+            mouseMove(descending, descending.linkBox.x + descending.linkBox.width / 2, descending.height / 2);
+            tryCompare(descending, "hoveredLink", true);
+            compare(alone.visible, true, "the hovered words draw their underline");
+            compare(alone.height, Math.max(1, Math.round(font.lineWidth)));
+            mouseMove(root, root.width - 1, root.height - 1);
+            tryCompare(descending, "hoveredLink", false);
+            compare(alone.visible, false, "the underline goes on exit");
         }
 
         // The drawn underline, read from the window's device pixels at 1x
-        // and 2x: none at rest, none under keyboard focus, which draws the
-        // ring alone, and on hover `underlineTop` under the baseline, a
-        // clear row under the lowest descender ink of "gypqj". A link and a
-        // word under its TextUnderline draw alike.
+        // and 2x. A link that is the whole text, and a word under its
+        // TextUnderline, draw none at rest and none under keyboard focus,
+        // which draws the ring alone; a link inside running text draws the
+        // same underline at rest, under focus and on hover. On hover each
+        // stands `underlineTop` under the baseline, a clear row under the
+        // lowest descender ink of "gypqj".
         function test_hover_draws_the_underline_at_its_top_data() {
             const rows = [];
             for (const scale of [1, 2])
-                for (const kind of ["link", "word"])
+                for (const kind of ["link", "in-text", "word"])
                     rows.push({ tag: kind + " at " + scale + "x", kind: kind, scale: scale });
             return rows;
         }
@@ -511,38 +520,41 @@ Item {
             const screen = Qt.application.screens[data.scale - 1];
             const window = scaledWindow.createObject(null, { screen: screen, x: screen.virtualX + 10, y: screen.virtualY + 10 });
             window.visible = true;
+            const linked = data.kind !== "word";
             const item = data.kind === "link"
                 ? Qt.createQmlObject("import qs.Ui\nLinkText { x: 8; y: 8; text: \"gypqj gypqj\"; link: \"gypqj gypqj\" }", window.contentItem)
+                : data.kind === "in-text"
+                ? Qt.createQmlObject("import qs.Ui\nLinkText { x: 8; y: 8; text: \"Open gypqj gypqj now\"; link: \"gypqj gypqj\" }", window.contentItem)
                 : Qt.createQmlObject("import qs.Ui\nLabel { id: word; x: 8; y: 8; text: \"gypqj gypqj\"; TextUnderline { label: word } }", window.contentItem);
-            const label = data.kind === "link" ? labelOf(item) : item;
+            const label = linked ? labelOf(item) : item;
+            const drawn = linked ? item.drawn : item.text;
             const ratio = label.Screen.devicePixelRatio;
             const words = Qt.createQmlObject("import QtQuick\nTextMetrics {}", window.contentItem);
             words.font = label.font;
-            words.text = "gypqj";
-            const wordEnd = words.advanceWidth;
-            words.text = "gypqj ";
-            const spaceEnd = words.advanceWidth;
+            const at = drawn.indexOf("gypqj");
+            const advance = text => { words.text = text; return words.advanceWidth; };
+            const wordStart = advance(drawn.slice(0, at));
+            const wordEnd = advance(drawn.slice(0, at + 5));
+            const spaceEnd = advance(drawn.slice(0, at + 6));
             const origin = label.mapToItem(window.contentItem, 0, 0);
             const baseline = Math.floor((origin.y + label.baselineOffset) * ratio);
             const below = Math.ceil((origin.y + label.baselineOffset + label.font.pixelSize) * ratio);
-            // The glyph columns of the first word, and the columns of the
-            // space after it, which only an underline inks.
-            const glyphs = [Math.floor((origin.x) * ratio), Math.floor((origin.x + wordEnd) * ratio)];
+            // The glyph columns of the link's first word, and the columns of
+            // the space after it, which only an underline inks.
+            const glyphs = [Math.floor((origin.x + wordStart) * ratio), Math.floor((origin.x + wordEnd) * ratio)];
             const space = [Math.ceil((origin.x + wordEnd) * ratio), Math.floor((origin.x + spaceEnd) * ratio)];
             verify(space[1] > space[0], "the space between the words holds a column");
-            const show = on => data.kind === "link"
-                ? mouseMove(item, on ? 2 : item.width + 40, on ? item.height / 2 : item.height + 40)
+            const show = on => linked
+                ? mouseMove(item, on ? item.linkBox.x + item.linkBox.width / 2 : item.width + 40, on ? item.height / 2 : item.height + 40)
                 : item.children.find(child => child.label === item).visible = on;
             // A word's underline rests unseen until its owner shows it.
-            if (data.kind === "link") {
+            if (linked) {
                 show(false);
                 tryCompare(item, "hoveredLink", false);
             }
-            const rest = grabImage(window.contentItem);
-            const descender = inkRows(rest, glyphs, baseline, below).pop();
-            const restLine = inkRows(rest, space, baseline, below);
-            let focusLine = [];
-            if (data.kind === "link") {
+            const restLine = inkRows(grabImage(window.contentItem), space, baseline, below);
+            let focusLine = restLine;
+            if (linked) {
                 window.requestActivate();
                 tryCompare(window, "active", true);
                 item.forceActiveFocus(Qt.TabFocusReason);
@@ -552,16 +564,24 @@ Item {
                 item.focus = false;
             }
             show(true);
-            if (data.kind === "link") tryCompare(item, "hoveredLink", true);
-            const hovered = inkRows(grabImage(window.contentItem), space, baseline, below);
-            const run = data.kind === "link" ? underlines(item)[0] : item.children.find(child => child.label === item);
+            if (linked) tryCompare(item, "hoveredLink", true);
+            const hoverImage = grabImage(window.contentItem);
+            const hovered = inkRows(hoverImage, space, baseline, below);
+            // The descenders: the glyph columns' ink above the underline.
+            const descender = inkRows(hoverImage, glyphs, baseline, hovered.length > 0 ? hovered[0] : below).pop();
+            const run = linked ? underlines(item)[0] : item.children.find(child => child.label === item);
             const top = (run.mapToItem(window.contentItem, 0, 0).y - origin.y - label.baselineOffset) * ratio;
             show(false);
             window.destroy();
             compare(ratio, data.scale, "the window draws at its screen's scale");
             verify(descender > baseline, "the descenders ink under the baseline");
-            compare(restLine, [], "no underline at rest");
-            compare(focusLine, [], "no underline under keyboard focus");
+            if (data.kind === "in-text") {
+                compare(restLine, hovered, "a link in running text draws its hover underline at rest");
+                compare(focusLine, hovered, "and the same under keyboard focus");
+            } else {
+                compare(restLine, [], "no underline at rest");
+                compare(focusLine, [], "no underline under keyboard focus");
+            }
             verify(hovered.length > 0, "the hover draws the underline");
             compare(top, root.underlineTop[data.scale], "the underline's top in device pixels under the baseline");
             verify(hovered[0] - descender - 1 >= 1, "one clear device row between the descenders and the underline: " + (hovered[0] - descender - 1));

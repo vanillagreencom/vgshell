@@ -192,8 +192,9 @@ ColumnLayout {
         // body's fade is its colour's alpha, so an emoji draws at
         // full strength.
         segments: rowCard.bodySegments
-        // The page hint's words, a link a click on the card opens, so
-        // underlined while the pointer is on the card; a measurer draws none.
+        // The page hint's words, a link a click on the card opens; words
+        // that are the whole body underline while the pointer is on the
+        // card alone. A measurer draws none.
         underlined: root.measureOnly ? "" : rowCard.linkWords
         underlineColor: rowCard.look.text.link
         hovered: rowCard.hovered === true
