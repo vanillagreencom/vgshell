@@ -7261,6 +7261,37 @@ console.log(fields.map(f => String(read[f])).join(" "));' "$tree/bin/lib/qml-lib
 # none.
 cs_panel_shown() { [[ $(ipc smoke instanceGeometry panel vgs.google-drive) != absent ]] && echo shown || echo hidden; }
 cs_notes_line() { ipc smoke readInstance panel vgs.google-drive review | python3 -c 'import json,sys; print(json.load(sys.stdin)["notesLine"])'; }
+# cs_gone_row MODE STATE: the last note's file taken away from this
+# computer and its name clicked, as a file deleted between syncs is, then
+# the popover as that click leaves it, and the file back. A tree that
+# answers the click on the row keeps the popover open; one that does not
+# closes it, so the popover is opened again for the caller to hide.
+cs_gone_row() {
+  local m="$1" s="$2" file name rect x y n box
+  file="$(ipc smoke readInstance panel vgs.google-drive review | python3 -c 'import json,sys; notes=[r for r in json.load(sys.stdin)["notes"] if r["file"] is not None]; print(notes[-1]["file"] if notes else "")')" || file=""
+  if [[ -z $file ]]; then fail "googledrive scene: the popover holds no note with a file ($s)"; return; fi
+  name="${file##*/}"
+  mv -- "$file" "$file.away" || { fail "googledrive scene: $file could not be taken away"; return; }
+  rect="$(ipc smoke itemGeometry panel vgs.google-drive LinkText "$name")" || rect=absent
+  if [[ $rect == \[* ]]; then
+    read -r x y < <(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); print(int(x+w/2), int(y+h/2))' "$rect")
+    hover "$((x + 1))" "$y" && click "$x" "$y" || fail "the click on the gone file's name failed ($s)"
+    for n in $(seq 1 30); do
+      [[ $(cs_panel_shown) == hidden || $(ipc smoke readInstance panel vgs.google-drive goneFiles 2>/dev/null) == \[\"* ]] && break
+      sleep 0.2
+    done
+    take "googledrive-$m-$s-popover-gone"
+    box="$(ipc smoke instanceGeometry panel vgs.google-drive)" || box=absent
+    [[ $box != \[* ]] || record_item "googledrive-$m-$s-popover-gone" "$box"
+  else
+    fail "the gone file's name is not drawn ($s): $rect"
+  fi
+  mv -- "$file.away" "$file"
+  if [[ $(cs_panel_shown) == hidden ]]; then
+    click_centre "$(bar_key)" vgs.google-drive || fail "the click on Google Drive's icon failed after the gone file ($s)"
+    expect_poll "the popover opens again after the gone file ($s)" shown cs_panel_shown
+  fi
+}
 # cs_popover MODE STATE: the popover a click on the bar icon opens,
 # anchored under it, then, while it holds notes, with them unfolded by a
 # click on their line, and at its end when it scrolls then. Each image is
@@ -7291,6 +7322,7 @@ cs_popover() {
         take "googledrive-$m-$s-popover-notes-end"
         record_item "googledrive-$m-$s-popover-notes-end" "$box"
       fi
+      [[ $s != 8-one-needs ]] || cs_gone_row "$m" "$s"
     else
       fail "the popover's notes line is not drawn ($s): $rect"
     fi
