@@ -481,27 +481,26 @@ auto_guard_dir="${auto_runs_dir%/runs}/guard"
 # (scripts/smoke/devices.sh) reads disconnected, 20, through its own
 # SetGlobalConnectionState, which also sends NetworkManager's StateChanged;
 # a scheduled run of a slot 5 minutes back, the guard planted as a resume
-# leaves it, starts nothing until the row sets it online, 70, and the run's
-# started record and transcript then show the start after that. The mock
-# gets back the State the row found.
+# leaves it, starts nothing while its runner waits on that signal, and
+# once the row sets it online, 70, the run's started record shows the start
+# after that and the runner's journal line names the wait. The mock gets
+# back the State the row found.
 nm_state() { "${shell_env[@]}" busctl --system --json=short get-property org.freedesktop.NetworkManager /org/freedesktop/NetworkManager org.freedesktop.NetworkManager State | py_reply 'import json,sys; print(json.load(sys.stdin)["data"])'; }
 nm_set() { "${shell_env[@]}" busctl --system call org.freedesktop.NetworkManager /org/freedesktop/NetworkManager org.freedesktop.DBus.Mock SetGlobalConnectionState u "$1" && echo ok; }
 auto_records() { # ID KIND: how many KIND records, started or ended, ID's runs left
   python3 -c 'import glob,sys; print(len(glob.glob(sys.argv[1] + "/" + sys.argv[2] + "@*." + sys.argv[3] + ".json")))' "$auto_runs_dir" "$1" "$2"
 }
 # auto_waited_run ONLINE_AT: the one ended run of smoke-net as its
-# trigger, its outcome, whether it started at or after ONLINE_AT (ms) and
-# the first two words of its transcript's network line.
+# trigger, its outcome and whether it started at or after ONLINE_AT (ms).
 auto_waited_run() {
   python3 - "$auto_runs_dir" "$1" <<'PY'
-import glob, json, re, sys
+import glob, json, sys
 ended = [json.load(open(f)) for f in glob.glob(sys.argv[1] + "/smoke-net@*.ended.json")]
 if len(ended) != 1:
     print("ended=%d" % len(ended))
     raise SystemExit
 rec = ended[0]
-line = re.search(r"^# network: (\S+ \S+)", open(rec["transcript"]).read(), re.M)
-print(json.dumps([rec["trigger"], rec["outcome"], rec["startedAt"] >= int(sys.argv[2]), line.group(1) if line else None]))
+print(json.dumps([rec["trigger"], rec["outcome"], rec["startedAt"] >= int(sys.argv[2])]))
 PY
 }
 if devices_ready automations; then
@@ -511,14 +510,14 @@ if devices_ready automations; then
   expect "the engine adds a scheduled automation" added=smoke-net auto_last add --definition '{"name": "Smoke net", "command": "true", "catchUp": true, "schedule": {"frequency": "daily", "interval": 1, "times": ["'"$missed"'"], "start": "2026-01-01", "end": {"type": "never"}}}'
   printf '{"handledThrough": 0}\n' >"$auto_guard_dir/smoke-net.json"
   spawn "$sandbox/automations-net.err" "${shell_env[@]}" PATH="$shell_path" "$auto_engine" --tree "$repo" run --scheduled smoke-net
-  # The runner reads the State and waits on the signal in well under this
-  # hold, so the reading below finds it waiting, not unstarted.
-  sleep 1.5
+  # spawn's setsid makes the runner its own process group, so its busctl
+  # wait is the one this reads, never the poller's own.
+  expect_poll "the runner waits on NetworkManager's StateChanged" 1 pgrep -c -g "$spawn_pid" -f 'busctl --system --json=short wait '
   expect "no run starts while NetworkManager reads disconnected" 0 auto_records smoke-net started
   online_at="$(date +%s%3N)"
   expect "the NetworkManager mock reads online" ok nm_set 70
   expect_poll "the waiting run ends once the network is up" 1 auto_records smoke-net ended
-  expect "the missed run started after the network came up, its transcript naming the wait" '["scheduled", "succeeded", true, "online after"]' auto_waited_run "$online_at"
+  expect "the missed run started after the network came up" '["scheduled", "succeeded", true]' auto_waited_run "$online_at"
   expect "the runner logs its wait to the journal" 1 grep -c '^automations: network=online waited=[0-9]*s id=smoke-net$' "$sandbox/automations-net.err"
   expect "the NetworkManager mock gets back the State the row found" ok nm_set "$nm_found"
   expect "the engine removes the network automation" removed=smoke-net auto_last remove smoke-net

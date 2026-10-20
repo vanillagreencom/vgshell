@@ -1291,26 +1291,50 @@ function networkWaitSeconds(waitedMs) {
     return remaining <= 0 ? 0 : Math.min(NETWORK_POLL_SECONDS, Math.ceil(remaining / 1000));
 }
 
+// How a busctl call of the wait ended, as the transcript words it: killed
+// at the runner's bound, its exit status, the signal that ended it, or a
+// start that failed, with the first line it wrote when there is one.
+function busctlText(call) {
+    var how = call.timeoutS !== null ? " timed out after " + call.timeoutS + "s"
+        : call.exit !== null ? " exit=" + call.exit
+        : call.signal !== null ? " signal=" + call.signal
+        : " did not start";
+    return "busctl " + call.verb + how + (call.detail !== "" ? " detail=" + JSON.stringify(call.detail) : "");
+}
+
+// The same call as the journal line's fields.
+function busctlFields(call) {
+    return "verb=" + call.verb + " exit=" + call.exit + " signal=" + call.signal
+        + (call.timeoutS !== null ? " timeout=" + call.timeoutS + "s" : "") + " detail=" + JSON.stringify(call.detail);
+}
+
 // The transcript header line and the runner's stderr line (empty when the
-// run neither waited nor failed to wait) for how the wait ended: `kind`
-// absent (no NetworkManager on the system bus, `exit` busctl's status, or
-// null when busctl is missing), online, offline (the bound reached) or
-// failed (a busctl wait exited `exit`), after `waitedMs`, with the last
-// State read, null when none was.
+// run neither waited nor failed to wait) for how the wait ended, after
+// `waitedMs`: `kind` no-busctl (no busctl on PATH, so no wait), absent (a
+// get-property `call` exited non-zero: no NetworkManager on the system
+// bus, or the bus error its detail names), online or offline (the bound
+// reached) with the last `state` read, or failed (a get-property or wait
+// `call` ended otherwise) with the last `state` read, null when none was.
+// A `call` is `{ verb, exit, signal, timeoutS, detail }`: busctl's verb,
+// its exit status or null, the signal that ended it or null, the runner's
+// bound in seconds when that bound killed it, else null, and the first
+// line it wrote, or the start's error code.
 function networkLines(outcome) {
     var waited = Math.round(outcome.waitedMs / 1000) + "s";
     var after = outcome.waitedMs > 0 ? " after " + waited : "";
     switch (outcome.kind) {
+    case "no-busctl":
+        return { transcript: "network: no busctl to read NetworkManager; ran without waiting", log: "" };
     case "absent":
-        return { transcript: "network: no NetworkManager" + after + (outcome.exit === null ? " (no busctl)" : " (busctl exit=" + outcome.exit + ")"), log: outcome.waitedMs > 0 ? "network=absent waited=" + waited + " exit=" + outcome.exit : "" };
+        return { transcript: "network: no NetworkManager" + after + " (" + busctlText(outcome.call) + ")", log: outcome.waitedMs > 0 ? "network=absent waited=" + waited + " " + busctlFields(outcome.call) : "" };
     case "online":
         return { transcript: "network: online" + after + " (NetworkManager state " + outcome.state + ")", log: outcome.waitedMs > 0 ? "network=online waited=" + waited : "" };
     case "offline":
         return { transcript: "network: still offline" + after + " (state " + outcome.state + "); ran anyway", log: "network=offline waited=" + waited + " state=" + outcome.state };
     case "failed":
-        return { transcript: "network: wait failed exit=" + outcome.exit + after + " (state " + outcome.state + "); ran anyway", log: "network=wait-failed exit=" + outcome.exit + " waited=" + waited + " state=" + outcome.state };
+        return { transcript: "network: " + busctlText(outcome.call) + after + (outcome.state === null ? "" : " (state " + outcome.state + ")") + "; ran anyway", log: "network=failed waited=" + waited + " state=" + outcome.state + " " + busctlFields(outcome.call) };
     default:
-        throw new Error("automations: network outcome " + JSON.stringify(outcome.kind) + " is not absent, online, offline or failed");
+        throw new Error("automations: network outcome " + JSON.stringify(outcome.kind) + " is not no-busctl, absent, online, offline or failed");
     }
 }
 

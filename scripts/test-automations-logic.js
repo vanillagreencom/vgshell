@@ -454,14 +454,19 @@ function verify(logic) {
     let waited = 0;
     for (let s = logic.networkWaitSeconds(waited); s > 0; s = logic.networkWaitSeconds(waited)) waited += s * 1000;
     same(waited, 60000, "back-to-back waits end at the bound");
+    // A busctl call as the runner hands it: verb, exit, signal, the bound
+    // that killed it in seconds, and its first line.
+    const call = (verb, exit, signal, timeoutS, detail) => ({ verb: verb, exit: exit, signal: signal, timeoutS: timeoutS, detail: detail });
     for (const [outcome, log] of [
-        [{ kind: "absent", exit: null, state: null, waitedMs: 0 }, ""],
-        [{ kind: "absent", exit: 1, state: null, waitedMs: 0 }, ""],
-        [{ kind: "absent", exit: 1, state: null, waitedMs: 5000 }, "network=absent waited=5s exit=1"],
+        [{ kind: "no-busctl", waitedMs: 0 }, ""],
+        [{ kind: "absent", call: call("get-property", 1, null, null, "Failed to get property State"), waitedMs: 0 }, ""],
+        [{ kind: "absent", call: call("get-property", 1, null, null, "Access denied"), waitedMs: 5000 }, "network=absent waited=5s verb=get-property exit=1 signal=null detail=\"Access denied\""],
         [{ kind: "online", state: 70, waitedMs: 0 }, ""],
         [{ kind: "online", state: 70, waitedMs: 7400 }, "network=online waited=7s"],
         [{ kind: "offline", state: 20, waitedMs: 60200 }, "network=offline waited=60s state=20"],
-        [{ kind: "failed", exit: 1, state: 20, waitedMs: 3 }, "network=wait-failed exit=1 waited=0s state=20"]
+        [{ kind: "failed", call: call("wait", 1, null, null, "Unknown command verb wait."), state: 20, waitedMs: 3 }, "network=failed waited=0s state=20 verb=wait exit=1 signal=null detail=\"Unknown command verb wait.\""],
+        [{ kind: "failed", call: call("get-property", null, "SIGTERM", 5, ""), state: null, waitedMs: 0 }, "network=failed waited=0s state=null verb=get-property exit=null signal=SIGTERM timeout=5s detail=\"\""],
+        [{ kind: "failed", call: call("wait", null, "SIGTERM", 10, ""), state: 20, waitedMs: 10004 }, "network=failed waited=10s state=20 verb=wait exit=null signal=SIGTERM timeout=10s detail=\"\""]
     ]) {
         const lines = logic.networkLines(outcome);
         same(lines.log, log, "the journal line of " + JSON.stringify(outcome));
@@ -774,6 +779,8 @@ const CONTROLS = [
     ["the Engine status names a failure", "if (hasOwn(failures, ENGINE_OPERATIONS[i])) return { tone: \"danger\", text: failureText(failures[ENGINE_OPERATIONS[i]]) };", "if (false) return null;"],
     ["the network wait ends at its bound", "return remaining <= 0 ? 0 : Math.min(NETWORK_POLL_SECONDS, Math.ceil(remaining / 1000));", "return Math.min(NETWORK_POLL_SECONDS, Math.max(1, Math.ceil(remaining / 1000)));"],
     ["a signal's list is no State", "doc.type === \"u\" && isWhole(doc.data) ? doc.data : null;", "doc.type === \"u\" ? doc.data : null;"],
+    ["a killed call names its bound", "(call.timeoutS !== null ? \" timeout=\" + call.timeoutS + \"s\" : \"\")", "\"\""],
+    ["a failed call names its signal", "\" exit=\" + call.exit + \" signal=\" + call.signal", "\" exit=\" + call.exit"],
     ["a run that waited is logged", "log: outcome.waitedMs > 0 ? \"network=online waited=\" + waited : \"\"", "log: \"\""],
     ["a failing last run is reported", "if (rows[i].lastRun !== null && OUTCOMES[rows[i].lastRun.outcome].error) failing.push(rows[i].name);", ""]
 ];

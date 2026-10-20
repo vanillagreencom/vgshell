@@ -74,7 +74,8 @@ function write(file, text, mode) {
 // $STUB/bus and the owner of org.freedesktop.Notifications from
 // $STUB/owner, refusing as busctl does when the file is empty, and
 // NetworkManager's State on the system bus from $STUB/nm, absent while the
-// file is empty; its wait for StateChanged returns when $STUB/nm changes,
+// file is empty; its wait for StateChanged reads the State, then appends
+// its --timeout word to $STUB/nm-waits and returns when $STUB/nm changes,
 // as the signal would, or after its timeout with no output; crontab
 // keeps the table in $STUB/crontab; loginctl answers $STUB/linger.
 const STUBS = {
@@ -107,6 +108,7 @@ case "$*" in
     printf '{"type":"u","data":%s}\\n' "$v"; exit 0 ;;
   "--system --json=short wait --timeout="*" $nm StateChanged")
     was=$(<"$STUB/nm")
+    printf '%s\\n' "$4" >>"$STUB/nm-waits"
     for ((i = 0; i < \${4#--timeout=} * 20; i++)); do
       v=$(<"$STUB/nm")
       [[ $v == "$was" ]] || { printf '{"type":"u","data":[%s]}\\n' "$v"; exit 0; }
@@ -505,37 +507,46 @@ const CASES = {
     },
 
     "a missed run waits for NetworkManager to read online"(engine) {
-        const w = world();
-        const nm = path.join(w.stub, "nm");
-        // A daily slot five minutes back that the machine slept through:
-        // the guard last handled a slot before it, and the resume fires
-        // the trigger while NetworkManager reads disconnected (20).
-        const missed = new Date(Date.now() - 5 * 60 * 1000);
-        const time = String(missed.getUTCHours()).padStart(2, "0") + ":" + String(missed.getUTCMinutes()).padStart(2, "0");
-        const id = add(w, engine, { name: "Pull", schedule: { frequency: "daily", interval: 1, times: [time], start: "2026-01-01", end: { type: "never" } }, catchUp: true });
-        write(path.join(w.home, ".local", "state", "vgshell", "automations", "guard", id + ".json"), JSON.stringify({ handledThrough: 0 }));
-        write(nm, "20\n");
-        const errFile = path.join(w.root, "runner.err");
-        const err = fs.openSync(errFile, "w");
-        childProcess.spawn(engine, ["--tree", repo, "run", "--scheduled", id], { env: w.env, cwd: w.home, stdio: ["ignore", "ignore", err] });
-        fs.closeSync(err);
-        childProcess.spawnSync("sleep", ["1.5"]);
+        const { w, id, err } = missedRun(engine, {});
+        waitFor(() => waits(w) >= 1, "the runner's wait for StateChanged");
         same(runFiles(w), [], "no run starts while NetworkManager reads offline");
         const online = Date.now();
-        write(nm, "70\n");
+        write(path.join(w.stub, "nm"), "70\n");
         waitFor(() => runFiles(w).some(n => n.endsWith(".ended.json")), "the run after the network came up");
         const rec = ended(w, id);
         same([rec.trigger, rec.outcome, rec.startedAt >= online], ["scheduled", "succeeded", true], "the run started once NetworkManager read online");
-        assert.match(fs.readFileSync(rec.transcript, "utf8"), /\n# network: online after \d+s \(NetworkManager state 70\)\n# started: /);
-        assert.match(fs.readFileSync(errFile, "utf8"), /^automations: network=online waited=\d+s id=pull$/m);
+        assert.match(fs.readFileSync(err, "utf8"), /^automations: network=online waited=\d+s id=pull$/m);
+    },
+
+    "a wall-clock jump during the wait leaves it to NetworkManager"(engine) {
+        // Date.now reads two hours ahead once $STUB/jump exists, as after a
+        // suspend inside the wait or an NTP step; the runner loads this
+        // before the engine through node's --require.
+        const preload = path.join(scratch, "jump.js");
+        write(preload, "const real = Date.now; Date.now = () => real() + (require(\"fs\").existsSync(process.env.STUB + \"/jump\") ? 7200000 : 0);\n");
+        const { w, id, err } = missedRun(engine, { NODE_OPTIONS: "--require=" + preload });
+        waitFor(() => waits(w) >= 1, "the runner's first wait");
+        write(path.join(w.stub, "jump"), "");
+        const before = waits(w);
+        // Connecting, still offline: the signal ends the first wait and the
+        // runner waits again.
+        write(path.join(w.stub, "nm"), "40\n");
+        waitFor(() => waits(w) > before, "the runner's next wait after the jump");
+        same(runFiles(w), [], "no run starts while NetworkManager reads connecting");
+        write(path.join(w.stub, "nm"), "70\n");
+        waitFor(() => runFiles(w).some(n => n.endsWith(".ended.json")), "the run after the network came up");
+        same(ended(w, id).outcome, "succeeded");
+        const waited = /^automations: network=online waited=(\d+)s id=pull$/m.exec(fs.readFileSync(err, "utf8"));
+        assert.ok(waited !== null && Number(waited[1]) < 60, "the wait counts the time it spent, not the jump: " + fs.readFileSync(err, "utf8"));
     },
 
     "a run with nothing to wait for starts at once"(engine) {
-        // [the run, $STUB/nm, the stand-ins, the transcript's network line].
-        for (const [trigger, state, stubs, line] of [
-            ["scheduled", "70", FORBIDDEN, /\n# network: online \(NetworkManager state 70\)\n/],
-            ["scheduled", "", FORBIDDEN, /\n# network: no NetworkManager \(busctl exit=1\)\n/],
-            ["scheduled", "20", FORBIDDEN.filter(name => name !== "busctl"), /\n# network: no NetworkManager \(no busctl\)\n/],
+        // [the run, $STUB/nm, the stand-ins, the wait's outcome as the
+        // runner hands it to the judge, null for none].
+        for (const [trigger, state, stubs, outcome] of [
+            ["scheduled", "70", FORBIDDEN, { kind: "online", state: 70, waitedMs: 0 }],
+            ["scheduled", "", FORBIDDEN, { kind: "absent", call: { verb: "get-property", exit: 1, signal: null, timeoutS: null, detail: "Failed to get property State on interface org.freedesktop.NetworkManager: The name org.freedesktop.NetworkManager was not provided by any .service files" }, waitedMs: 0 }],
+            ["scheduled", "20", FORBIDDEN.filter(name => name !== "busctl"), { kind: "no-busctl", waitedMs: 0 }],
             ["manual", "20", FORBIDDEN, null]
         ]) {
             const w = world({ stubs: stubs });
@@ -545,11 +556,9 @@ const CASES = {
             const began = Date.now();
             const out = cli(w, engine, ["run", "--" + trigger, id]);
             const rec = ended(w, id);
-            const transcript = fs.readFileSync(rec.transcript, "utf8");
             const label = trigger + " with " + JSON.stringify(state) + " and " + stubs.length + " stand-ins";
-            same([out.status, rec.trigger, rec.startedAt - began < 5000], [0, trigger, true], label + " starts at once");
-            if (line === null) assert.doesNotMatch(transcript, /\n# network: /, label);
-            else assert.match(transcript, line, label);
+            same([out.status, rec.trigger, rec.startedAt - began < 5000, waits(w)], [0, trigger, true, 0], label + " starts at once");
+            same(fs.readFileSync(rec.transcript, "utf8").split("\n").filter(line => line.startsWith("# network: ")), outcome === null ? [] : ["# " + Logic.networkLines(outcome).transcript], label);
             assert.doesNotMatch(out.stderr, /network=/, label + " logs no wait");
         }
     },
@@ -759,6 +768,30 @@ function plant(w, id, ms, open) {
     write(path.join(w.runs, Logic.runFile(id, run, "ended")), JSON.stringify(Object.assign(rec, { endedAt: ms + 1, durationMs: 1, outcome: "succeeded", exitCode: 0, signal: null, reason: "", transcriptBytes: 10, truncated: false, snippet: "" })));
 }
 
+// A world whose automation's daily slot five minutes back passed while the
+// machine slept: the guard last handled a slot before it, NetworkManager
+// reads disconnected (20), and the resume's trigger runs with ENV added,
+// its stderr in the returned `err` file.
+function missedRun(engine, env) {
+    const w = world();
+    const missed = new Date(Date.now() - 5 * 60 * 1000);
+    const time = String(missed.getUTCHours()).padStart(2, "0") + ":" + String(missed.getUTCMinutes()).padStart(2, "0");
+    const id = add(w, engine, { name: "Pull", schedule: { frequency: "daily", interval: 1, times: [time], start: "2026-01-01", end: { type: "never" } }, catchUp: true });
+    write(path.join(w.home, ".local", "state", "vgshell", "automations", "guard", id + ".json"), JSON.stringify({ handledThrough: 0 }));
+    write(path.join(w.stub, "nm"), "20\n");
+    const err = path.join(w.root, "runner.err");
+    const fd = fs.openSync(err, "w");
+    childProcess.spawn(engine, ["--tree", repo, "run", "--scheduled", id], { env: Object.assign({}, w.env, env), cwd: w.home, stdio: ["ignore", "ignore", fd] });
+    fs.closeSync(fd);
+    return { w, id, err };
+}
+
+// How many StateChanged waits the busctl stand-in began.
+function waits(w) {
+    const file = path.join(w.stub, "nm-waits");
+    return fs.existsSync(file) ? fs.readFileSync(file, "utf8").split("\n").filter(Boolean).length : 0;
+}
+
 // ------------------------------------------------------------ the controls
 
 // [label, the case, text in bin/automations, its replacement].
@@ -789,9 +822,10 @@ const CONTROLS = [
     ["a long line is split into pieces", "output with no line break reaches the transcript in pieces", "        while (pending.length > Logic.TRANSCRIPT_LINE_MAX) {", "        while (false) {"],
     ["a missing directory fails the start", "a missing working directory is a failed start", "return finish({ started: false, timedOut: false, exitCode: null, signal: null, reason: \"directory=\" + e.code + \" path=\" + directory });", "directory; // unchecked"],
     ["a refused store fails the start", "a refused store is a failed start the user is told of", "if (!judged.ok) return execute(standIn(id), trigger, null, now, \"store=\" + judged.error.replace(/\\s+/g, \"-\"), null);", "if (!judged.ok) process.exit(1);"],
-    ["a scheduled run waits for the network", "a missed run waits for NetworkManager to read online", "Logic.networkLines(waitForNetwork(sessionEnvironment()))", "Logic.networkLines({ kind: \"absent\", exit: null, state: null, waitedMs: 0 })"],
+    ["a scheduled run waits for the network", "a missed run waits for NetworkManager to read online", "Logic.networkLines(waitForNetwork(sessionEnvironment()))", "Logic.networkLines({ kind: \"no-busctl\", waitedMs: 0 })"],
     ["a run starts after its wait", "a missed run waits for NetworkManager to read online", "execute(automation, trigger, decision.slot, Date.now(), \"\", network.transcript);", "execute(automation, trigger, decision.slot, now, \"\", network.transcript);"],
-    ["the wait reads the State again after each wait", "a missed run waits for NetworkManager to read online", "if (wait.status !== 0) return { kind: \"failed\", exit: wait.status, state: state, waitedMs: waitedMs };", "return { kind: \"offline\", state: state, waitedMs: waitedMs };"],
+    ["the wait reads the State again after each wait", "a missed run waits for NetworkManager to read online", "if (wait.out.status !== 0) return { kind: \"failed\", call: wait.ending, state: state, waitedMs: waitedMs };", "return { kind: \"offline\", state: state, waitedMs: waitedMs };"],
+    ["the wait is measured on the monotonic clock", "a wall-clock jump during the wait leaves it to NetworkManager", "return Number(process.hrtime.bigint() / 1000000n);", "return Date.now();"],
     ["the transcript keeps its cap", "the transcript stops at its cap and the run goes on", "if (body + bytes > Logic.TRANSCRIPT_MAX_BYTES) {", "if (false) {"],
     ["the footer follows the cap", "the transcript stops at its cap and the run goes on", "put(footer.map(line => \"# \" + line + \"\\n\").join(\"\"));", ""],
     ["a scheduled trigger asks the guard", "a scheduled trigger runs only what the guard allows", "if (!decision.run) {\n        log(\"skipped=\" + id + \" reason=\" + decision.reason);\n        return;\n    }", ""],

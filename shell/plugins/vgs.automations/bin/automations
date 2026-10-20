@@ -79,9 +79,9 @@
 // `automations: skipped=<id> reason=<reason>`, `automations: notify=failed
 // ...`, `automations: notify-server=...`, `automations: streak=refused ...`,
 // `automations: network=... id=<id>` after a scheduled run waited for the
-// network, and `automations: prune=skipped ...` lines on stderr, which
-// systemd keeps in the journal; it exits 0 when the run succeeded or was
-// skipped, 1 when it failed.
+// network or a busctl call of that wait failed, and `automations:
+// prune=skipped ...` lines on stderr, which systemd keeps in the journal;
+// it exits 0 when the run succeeded or was skipped, 1 when it failed.
 "use strict";
 const childProcess = require("child_process");
 const crypto = require("crypto");
@@ -689,7 +689,7 @@ function notificationServer(env) {
     const ask = (method, args) => {
         const out = run(bin, ["--user", "--json=short", "call", "org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus", method].concat(args), { env: env, timeout: 5000 });
         if (out.status === 0) return out.stdout;
-        log("notify-server=failed method=" + method + " exit=" + out.status + " detail=" + JSON.stringify(firstLine(out.stderr)));
+        log("notify-server=failed method=" + method + " exit=" + out.status + " signal=" + out.signal + " detail=" + JSON.stringify(firstLine(out.stderr)));
         return null;
     };
     return Logic.notificationServer(ask("GetId", []), ask("GetNameOwner", ["s", "org.freedesktop.Notifications"]));
@@ -710,7 +710,7 @@ function notify(n, notice, env) {
     const server = notificationServer(env);
     const out = run(bin, Logic.notifySendArgs(n, Logic.replaceIdFor(notice, server)), { env: env, timeout: 10000 });
     if (out.status !== 0) {
-        log("notify=failed exit=" + out.status + " detail=" + JSON.stringify(firstLine(out.stderr)));
+        log("notify=failed exit=" + out.status + " signal=" + out.signal + " detail=" + JSON.stringify(firstLine(out.stderr)));
         return null;
     }
     const id = Number(firstLine(out.stdout).trim());
@@ -818,30 +818,49 @@ function runVerb(words) {
     execute(automation, trigger, decision.slot, Date.now(), "", network.transcript);
 }
 
+// Milliseconds on CLOCK_MONOTONIC, which stops in a suspend and ignores a
+// wall-clock step, so neither can spend a bound the runner measures: the
+// wait for the network and the wait for a killed group. process.hrtime reads it (libuv's
+// uv_hrtime): node 26 in a time namespace whose monotonic and boot offsets
+// differ reads the monotonic one.
+function monotonicMs() {
+    return Number(process.hrtime.bigint() / 1000000n);
+}
+
 // Waits while NetworkManager reads offline, on its own StateChanged signal
 // and at most Logic.NETWORK_WAIT_MS, and answers how the wait ended, as
-// Logic.networkLines reads it. busctl get-property fails while no
+// Logic.networkLines reads it. busctl get-property exits 1 while no
 // NetworkManager owns its name on the system bus, and busctl wait exits 0
 // whether the signal came or its timeout passed, so the State is read
-// again after each wait. A wait that fails, a busctl without the verb or a
-// bus error, ends the wait.
+// again after each wait. A call that ends otherwise, killed at its bound,
+// a busctl without the wait verb or a bus error, ends the wait.
 function waitForNetwork(env) {
     const bin = which("busctl");
-    if (bin === null) return { kind: "absent", exit: null, state: null, waitedMs: 0 };
+    if (bin === null) return { kind: "no-busctl", waitedMs: 0 };
     const nm = ["org.freedesktop.NetworkManager", "/org/freedesktop/NetworkManager", "org.freedesktop.NetworkManager"];
-    const began = Date.now();
+    const call = (verb, args, boundMs) => {
+        const out = run(bin, ["--system", "--json=short", verb].concat(args), { env: env, timeout: boundMs });
+        const killed = out.error !== undefined && out.error.code === "ETIMEDOUT";
+        const detail = firstLine(out.stderr) || (out.error !== undefined && !killed ? out.error.code : "");
+        return { out: out, ending: { verb: verb, exit: out.status, signal: out.signal, timeoutS: killed ? boundMs / 1000 : null, detail: detail } };
+    };
+    const began = monotonicMs();
     // 0 until the first wait, so a run that waited for nothing reads so.
     let waitedMs = 0;
+    let state = null;
     for (;;) {
-        const read = run(bin, ["--system", "--json=short", "get-property"].concat(nm, ["State"]), { env: env, timeout: 5000 });
-        const state = read.status === 0 ? Logic.nmState(read.stdout) : null;
-        if (state === null) return { kind: "absent", exit: read.status, state: null, waitedMs: waitedMs };
+        const read = call("get-property", nm.concat(["State"]), 5000);
+        if (read.out.status === null) return { kind: "failed", call: read.ending, state: state, waitedMs: waitedMs };
+        if (read.out.status !== 0) return { kind: "absent", call: read.ending, waitedMs: waitedMs };
+        const now = Logic.nmState(read.out.stdout);
+        if (now === null) return { kind: "failed", call: Object.assign(read.ending, { detail: "reply=" + JSON.stringify(firstLine(read.out.stdout)) }), state: state, waitedMs: waitedMs };
+        state = now;
         if (state === Logic.NM_STATE_CONNECTED_GLOBAL) return { kind: "online", state: state, waitedMs: waitedMs };
         const seconds = Logic.networkWaitSeconds(waitedMs);
         if (seconds === 0) return { kind: "offline", state: state, waitedMs: waitedMs };
-        const wait = run(bin, ["--system", "--json=short", "wait", "--timeout=" + seconds].concat(nm, ["StateChanged"]), { env: env, timeout: seconds * 1000 + 5000 });
-        waitedMs = Math.max(1, Date.now() - began);
-        if (wait.status !== 0) return { kind: "failed", exit: wait.status, state: state, waitedMs: waitedMs };
+        const wait = call("wait", ["--timeout=" + seconds].concat(nm, ["StateChanged"]), seconds * 1000 + 5000);
+        waitedMs = Math.max(1, monotonicMs() - began);
+        if (wait.out.status !== 0) return { kind: "failed", call: wait.ending, state: state, waitedMs: waitedMs };
     }
 }
 
@@ -953,7 +972,7 @@ function execute(automation, trigger, slot, startedAt, refusal, network) {
         timedOut = true;
         signalGroup("SIGTERM");
         killer = setTimeout(() => {
-            killedAt = Date.now();
+            killedAt = monotonicMs();
             signalGroup("SIGKILL");
         }, Logic.KILL_GRACE_MS);
     }, automation.timeoutSeconds * 1000);
@@ -968,7 +987,7 @@ function execute(automation, trigger, slot, startedAt, refusal, network) {
             if (killer !== null) clearTimeout(killer);
             return finish(ending);
         }
-        if (killedAt !== null && Date.now() - killedAt > Logic.KILL_WAIT_MS) {
+        if (killedAt !== null && monotonicMs() - killedAt > Logic.KILL_WAIT_MS) {
             log("group=survived id=" + id + " run=" + runId);
             return finish(Object.assign({}, ending, { reason: ending.reason + " group=survived" }));
         }
