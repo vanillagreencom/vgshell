@@ -104,9 +104,13 @@
 # shell because Quickshell keeps that singleton in the process after the
 # plugin is disabled.
 # Display-off timer wiring uses real elapsed time: all nested outputs must
-# read off after the short setting and the locked timeout. Negative windows
-# sample every 0.2 s; they are timer checks, not latency budgets. A transport
-# control drops an off request and must fail the same output assertion once.
+# read off after the short setting and the locked timeout. The gdbus stand-in
+# emits two logind PrepareForSleep(false) lines after triggers: the first
+# lights every output and resets both idle watches, while the second, with
+# outputs already on, sends no DPMS dispatch. The stand-in never contacts
+# logind and the row never sleeps the host. Negative windows sample every
+# 0.2 s; they are timer checks, not latency budgets. A transport control
+# drops an off request and must fail the same output assertion once.
 # Never is observed past the locked delay with no DPMS request, and unload
 # must leave no Power watch in the core's lending record. No password is typed.
 # inputs: shell/plugins/vgs.power/* shell/plugins/vgs.lock/* shell/Core/SessionLock.qml shell/Commons/SessionLockState.js shell/Hosts/LockHost.qml shell/Core/Compositor.qml shell/Core/Dispatch.js shell/Core/HyprlandLayer.js shell/plugins/vgs.settings/* shell/plugins/vgs.system/* shell/Hosts/PaneHost.qml shell/Core/IdleRegistry.qml shell/Ui/controls/FormRow.qml shell/Ui/controls/Field.qml shell/Ui/controls/Select.qml shell/Ui/controls/SegmentedControl.qml shell/Ui/controls/Switch.qml shell/Ui/controls/InfoButton.qml shell/Ui/controls/RowAction.qml shell/Ui/layout/Section.qml shell/Ui/layout/SectionHeader.qml shell/Ui/feedback/LinkText.qml shell/Commons/PageReference.js shell/Commons/SettingValues.js shell/Core/Registry.qml shell/Core/Capabilities.qml shell/Core/PluginStatus.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Notices.qml shell/Core/Notifier.qml shell/Hosts/NoticeHost.qml shell/Hosts/SummonHost.qml bin/vgshell-scan scripts/smoke/rows/device-fakes.sh scripts/smoke/power-fakes.sh bin/vgshell-system config/system/udev/69-vgs-disk-sleep.rules scripts/smoke/rows/system-steps.sh scripts/smoke/fixtures/devices/network.py shell/Core/SystemSteps.qml config/system/udev/* scripts/smoke/fixtures/devices/*
@@ -136,6 +140,9 @@ power_set_held="$sandbox/power-set.held"
 power_set_release="$sandbox/power-set.release"
 power_set_refuse="$sandbox/power-set.refuse"
 power_set_refused="$sandbox/power-set.refused"
+power_prepare_sleep_1="$sandbox/power-prepare-sleep-1"
+power_prepare_sleep_2="$sandbox/power-prepare-sleep-2"
+power_prepare_sleep_signals="$sandbox/power-prepare-sleep.signals"
 power_moved_count=0
 power_watch_ends=0
 power_notify_base=0
@@ -192,7 +199,7 @@ power_notify_tones() { [[ -s $power_notify_calls ]] && py_reply 'import json,sys
 # watch and its reads, sorted and once each.
 power_service_buses() { [[ -s $power_gdbus_calls ]] && py_reply 'import json,sys
 runs = [json.loads(line) for line in sys.stdin]
-print(json.dumps(sorted({a for run in runs if run[:1] == ["monitor"] or "org.freedesktop.DBus.Properties.GetAll" in run for a in run if a in ("--system", "--session", "--address")})))' <"$power_gdbus_calls" || echo '[]'; }
+print(json.dumps(sorted({a for run in runs if "org.freedesktop.UPower.PowerProfiles" in run and (run[:1] == ["monitor"] or "org.freedesktop.DBus.Properties.GetAll" in run) for a in run if a in ("--system", "--session", "--address")})))' <"$power_gdbus_calls" || echo '[]'; }
 power_reads() { [[ -s $power_gdbus_calls ]] && py_reply 'import json,sys; runs=[json.loads(line) for line in sys.stdin]; print(sum("org.freedesktop.DBus.Properties.GetAll" in run and "org.freedesktop.UPower.PowerProfiles" in run for run in runs))' <"$power_gdbus_calls" || echo 0; }
 power_has_read() { local n; n="$(power_reads)" || return; [[ $n -gt 0 ]] && echo yes || echo no; }
 power_status_active() { power_status | py_reply 'import json,sys; print(json.load(sys.stdin)["profile"]["active"])'; }
@@ -425,7 +432,27 @@ print(bool(rows) and all(row.get("dpmsStatus") is (sys.argv[1] == "true") for ro
 }
 power_idle_watches() { ipc shell lent | py_reply 'import json,sys
 print(json.dumps(sorted(row["timeout"] for row in json.load(sys.stdin)["idle"] if row["id"] == "vgs.power")))'; }
+power_idle_watch_state() { ipc shell lent | py_reply 'import json,sys
+print(json.dumps(sorted([[row["timeout"], row["idle"]] for row in json.load(sys.stdin)["idle"] if row["id"] == "vgs.power"])))'; }
+power_logind_watch_count() { [[ -s $power_gdbus_calls ]] && py_reply 'import json,sys
+runs=[json.loads(line) for line in sys.stdin]
+watches=[run for run in runs if run[:1] == ["monitor"] and "org.freedesktop.login1" in run]
+print(len(watches) if all("--system" in run and not {"--session", "--address"}.intersection(run) for run in watches) else "wrong-bus")' <"$power_gdbus_calls" || echo 0; }
+# Reopen for every poll: redirecting expect_poll itself shares an EOF
+# offset across its retries and counts only later appends.
+power_prepare_sleep_count() { wc -l <"$power_prepare_sleep_signals"; }
 power_idle_calls() { wc -l <"$sandbox/power-idle.calls"; }
+power_idle_no_dispatch_for() { # MILLISECONDS: negative window, sampled every 0.2 s
+  local before current deadline
+  before="$(power_idle_calls)" || return 1
+  deadline=$(( $(now_ms) + $1 ))
+  while (( $(now_ms) < deadline )); do
+    current="$(power_idle_calls)" || return 1
+    [[ $current == "$before" ]] || { echo "$current"; return; }
+    sleep 0.2
+  done
+  echo "$current"
+}
 power_idle_locked() { ipc shell lent | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["lock"]["secure"]))'; }
 power_idle_lock_inputs() { ipc smoke readInstance window vgs.settings plugins | py_reply 'import json,sys
 row = next((row for row in json.load(sys.stdin) if row["id"] == "vgs.lock"), {})
@@ -453,7 +480,9 @@ power_display_off() {
   mv -T -- "$config.power-idle" "$config"
   expect "Settings opens for the display-off setting" ok ipc shell summon window vgs.settings '{"plugin":"vgs.power","tab":"Settings"}'
   expect_poll "the disabled lock reads its test inputs before the next write" '[2, false]' power_idle_lock_inputs
+  : >"$power_gdbus_calls"
   expect "Power enables for display-off checks" ok ipc shell setPluginEnabled vgs.power true
+  expect_poll "Power owns one gdbus monitor of logind" 1 power_logind_watch_count
   expect_poll "Power holds its default idle watch" '[600]' power_idle_watches
   expect "display off accepts a custom two-second timeout" ok power_idle_set vgs.power displayOffSeconds 2
   expect_poll "the new setting replaces the normal watch" '[2]' power_idle_watches
@@ -500,7 +529,30 @@ EOF_IDLE
   type_keys -k Shift_L || fail "the second locked nested input failed"
   expect "new locked input restarts the delay past the original deadline" True power_idle_stays_on 8000
   expect_poll "ten seconds after the last locked input every output reads off again" True power_idle_outputs false
-  expect "Never can be set while locked" ok power_idle_set vgs.power displayOffSeconds 0
+  expect "the short display-off watch is set again before resume" ok power_idle_set vgs.power displayOffSeconds 2
+  expect_poll "the reset display and locked watches start fresh" '[[2, false], [10, false]]' power_idle_watch_state
+  expect_poll "both Power watches have reached idle before the resume event" '[[2, true], [10, true]]' power_idle_watch_state
+  : >"$power_prepare_sleep_signals"
+  : >"$power_prepare_sleep_1"
+  expect_poll "PrepareForSleep(false) lights every nested output" True power_idle_outputs true
+  expect_poll "resume replaces both Power watches with fresh idle counts" '[[2, false], [10, false]]' power_idle_watch_state
+  expect_poll "the logind stand-in sent its first resume line" 1 power_prepare_sleep_count
+  expect "the display-off timeout allows the second resume readbacks" ok power_idle_set vgs.power displayOffSeconds 10
+  expect_poll "both Power watches reach idle again before the second resume" '[[10, true], [10, true]]' power_idle_watch_state
+  # Light the nested outputs without input, leaving both watches idle.
+  # Only a consumed resume can reset them in the following assertions.
+  expect "the nested compositor lights outputs before the second resume" ok hypr dispatch 'hl.dsp.dpms({ action = "enable" })'
+  expect_poll "every output is already on before the second resume" True power_idle_outputs true
+  expect "lighting the outputs leaves both watches idle" '[[10, true], [10, true]]' power_idle_watch_state
+  before="$(power_idle_calls)"
+  : >"$power_prepare_sleep_2"
+  expect_poll "the logind stand-in sent its second resume line" 2 power_prepare_sleep_count
+  expect_poll "the second resume replaces both watches again" '[[10, false], [10, false]]' power_idle_watch_state
+  expect_poll "the second resume keeps every output lit" True power_idle_outputs true
+  expect "a second resume with every output on sends no dispatch" "$before" power_idle_no_dispatch_for 1000
+  expect "both resumes use the original logind monitor" 1 power_logind_watch_count
+  cat -- "$power_prepare_sleep_signals"
+  expect "Never stops the idle watches after the second resume" ok power_idle_set vgs.power displayOffSeconds 0
   expect_poll "Never disposes both idle watches" '[]' power_idle_watches
   type_keys -k Shift_L || fail "the Never check's nested wake key failed"
   expect_poll "Never starts with every nested output on" True power_idle_outputs true
@@ -546,6 +598,16 @@ EOF_STAND
   power_stand gdbus <<EOF_STAND
 #!/usr/bin/env bash
 python3 -c 'import json,sys; print(json.dumps(sys.argv[1:]))' "\$@" >>"$power_gdbus_calls"
+if [[ " \$* " == *" --dest org.freedesktop.login1 "* ]]; then
+  echo 'Monitoring signals from all objects owned by org.freedesktop.login1'
+  while :; do
+    until [[ -e "$power_prepare_sleep_1" || -e "$power_prepare_sleep_2" ]]; do sleep 0.05; done
+    if [[ -e "$power_prepare_sleep_1" ]]; then trigger="$power_prepare_sleep_1"; else trigger="$power_prepare_sleep_2"; fi
+    rm -f -- "\$trigger"
+    echo '/org/freedesktop/login1: org.freedesktop.login1.Manager.PrepareForSleep (false,)'
+    printf 'power-resume-emission pid=%s ppid=%s trigger=%s\n' "\$\$" "\$PPID" "\${trigger##*/}" >>"$power_prepare_sleep_signals"
+  done
+fi
 if [[ " \$* " == *" org.freedesktop.DBus.Properties.Set "* && " \$* " == *" org.freedesktop.UPower.PowerProfiles "* ]]; then
   if mv -T -- "$power_set_hold" "$power_set_held" 2>/dev/null; then
     until [[ -e "$power_set_release" ]]; do sleep 0.05; done

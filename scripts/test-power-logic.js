@@ -3,8 +3,8 @@
 // battery presence, battery and profile views, icon bands, time text,
 // the profile view read from the daemon's reply, source-change profile
 // choice, the setting a bar pick remembers, low-battery latches and the
-// notice each latch sends, and Wake on LAN's flag values, wired
-// connection list and write rule.
+// notice each latch sends, the logind resume signal line, and Wake on
+// LAN's flag values, wired connection list and write rule.
 // Controls edit one rule at a time in an exclusively owned temporary copy
 // and require this suite to fail on each copy.
 "use strict";
@@ -29,6 +29,18 @@ function device(overrides) {
 }
 
 function verify(logic) {
+    const prepareForSleep = [
+        ["the standard resume signal", "/org/freedesktop/login1: org.freedesktop.login1.Manager.PrepareForSleep (false,)", true],
+        ["the standard sleep signal", "/org/freedesktop/login1: org.freedesktop.login1.Manager.PrepareForSleep (true,)", false],
+        ["a different logind signal", "/org/freedesktop/login1: org.freedesktop.login1.Manager.Sleeping (false,)", false],
+        ["a line with a trailing payload", "/org/freedesktop/login1: org.freedesktop.login1.Manager.PrepareForSleep (false,) extra", false],
+        ["a partial signal line", "org.freedesktop.login1.Manager.PrepareForSleep (false,)", false],
+        ["an empty line", "", false],
+        ["a missing line", null, false]
+    ];
+    for (const [label, line, want] of prepareForSleep)
+        assert.equal(logic.isPrepareForSleepResume(line), want, "isPrepareForSleepResume: " + label);
+
     const wakeDevices = [
         ["keyboard", 1344, 0, true],
         ["mouse", 1408, 0, true],
@@ -299,7 +311,19 @@ try {
         }
         assert.ok(failed, `control "${label}": the suite passed on the mutated logic`);
     }
+    const wakeHelper = /function isPrepareForSleepResume\(line\)\s*\{[\s\S]*?\n\}/g;
+    const wakeMatches = [...source.matchAll(wakeHelper)];
+    assert.equal(wakeMatches.length, 1, "control \"resume line is classified\": the helper body must occur once");
+    const wakeMutant = path.join(controlRoot, "PowerLogic-resume-mutant.js");
+    fs.writeFileSync(wakeMutant, source.replace(wakeHelper, "function isPrepareForSleepResume(line) {\n    return true;\n}"));
+    let wakeFailed = false;
+    try {
+        verify(load(wakeMutant));
+    } catch (e) {
+        wakeFailed = true;
+    }
+    assert.ok(wakeFailed, "control \"resume line is classified\": the suite passed when every line was treated as a resume");
 } finally {
     fs.rmSync(controlRoot, { recursive: true, force: true });
 }
-console.log(`test-power-logic: ok controls=${CONTROLS.length}`);
+console.log(`test-power-logic: ok controls=${CONTROLS.length + 1}`);

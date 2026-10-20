@@ -73,6 +73,21 @@
       "purpose": "The power profiles service, which switches the power profile"
     },
     {
+      "dbus": {
+        "bus": "system",
+        "name": "org.freedesktop.login1",
+        "label": "System sleep service"
+      },
+      "packages": {
+        "pacman": "systemd",
+        "apt": "systemd",
+        "dnf": "systemd",
+        "nix": "systemd"
+      },
+      "optional": true,
+      "purpose": "Turns displays on and resets their idle watches after sleep"
+    },
+    {
       "command": "gdbus",
       "packages": {
         "pacman": "glib2",

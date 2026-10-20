@@ -122,6 +122,7 @@ Item {
         shell.shortcut.register("balanced", "Use the balanced profile", () => root.setProfile("balanced", true));
         shell.shortcut.register("performance", "Use the performance profile", () => root.setProfile("performance", true));
         profileWatch.running = true;
+        prepareForSleepWatch.running = true;
         syncWake();
         publish();
         observeWake();
@@ -169,6 +170,14 @@ Item {
     function turnDisplaysOff() {
         const reply = shell.compositor.displayPower("off");
         if (reply !== "ok") console.warn("power: display off " + reply);
+    }
+
+    function resumeFromSleep(line) {
+        if (!Logic.isPrepareForSleepResume(line) || shell === null) return;
+        const reply = shell.compositor.displayPower("on");
+        if (reply !== "ok") console.warn("power: display on after resume " + reply);
+        watchDisplayOff();
+        watchLockedDisplayOff();
     }
 
     Connections {
@@ -459,6 +468,16 @@ Item {
             console.warn("power: profile watch ended exit=" + code);
             root.profile = Logic.profileView("");
         }
+    }
+
+    // One system-bus monitor owns the logind wake signal for this service.
+    // The SplitParser is installed before running is set on shell activation.
+    Process {
+        id: prepareForSleepWatch
+        command: ["setpriv", "--pdeathsig", "TERM", "--", "gdbus", "monitor",
+            "--system", "--dest", "org.freedesktop.login1", "--object-path", "/org/freedesktop/login1"]
+        stdout: SplitParser { onRead: line => root.resumeFromSleep(line) }
+        onExited: code => console.warn("power: logind watch ended exit=" + code)
     }
 
     // gdbus has its own bounded call timeout. The device run belongs to

@@ -259,6 +259,11 @@ function wakeTarget(on) {
     return on === true ? WAKE.on : WAKE.off;
 }
 
+function isPrepareForSleepResume(line) {
+    return typeof line === "string"
+        && line === "/org/freedesktop/login1: org.freedesktop.login1.Manager.PrepareForSleep (false,)";
+}
+
 // The UUIDs of the wired connections in nmcli's terse UUID,TYPE table.
 // nmcli escapes a colon inside a field; a UUID and a connection type hold
 // none, so each line splits on its one colon.
