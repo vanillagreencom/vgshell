@@ -391,10 +391,10 @@ power_wake_on_lan() {
     'd.type === DeviceType.Wired && d.nmManaged' \
     'd.type === DeviceType.Wired' \
     PowerLogic.js \
-    'return { present: false, wired: "", written: false };' \
-    'return { present: false, wired: "", written: null };' \
+    'return { present: false, wired: "", written: false, chosen: chosen === true };' \
+    'return { present: false, wired: "", written: null, chosen: chosen === true };' \
     PowerLogic.js \
-    '(reading.on && moved)' \
+    '(previous.chosen && moved)' \
     'moved'
   base="$(power_nmcli_count)" || { fail "power: the nmcli record is unreadable"; base=0; }
   rescan "rescan after adding the Wake on LAN fixture answers ok"
