@@ -247,6 +247,9 @@ Item {
             switchName: "Tailscale"
             switchDisabledReason: "The administrator holds Tailscale until you choose Let my login control Tailscale."
             switchUnlock: ({ label: "Let my login control Tailscale", run: () => {} })
+            // The flyout draws the state line as the title's subtitle
+            // (vgs.tailscale Panel.qml).
+            subtitle: [Label { id: repeatedState; width: repeatedPane.headerWidth; text: repeatedBody.tailscale.text; wrapMode: Text.Wrap }]
             Tailscale.TailscaleBody {
                 id: repeatedBody
                 width: repeatedPane.contentWidth
@@ -519,7 +522,6 @@ Item {
             compare(UnitTheme.override(JSON.parse(request.responseText).tokens), "ok");
             repeated.visible = true;
             const repeatedHint = descendants(repeatedBody).find(item => item.objectName === "tailscale-setup-hint");
-            const repeatedState = descendants(repeatedBody).find(item => item.objectName === "tailscale-state");
             const repeatedAction = descendants(repeatedBody).find(item => item.objectName === "tailscale-setup");
             compare(repeatedHint.opacity, 1);
             const control = repeatedPane.headerSwitch;

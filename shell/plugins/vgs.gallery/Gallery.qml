@@ -427,6 +427,17 @@ Item {
                     }
                 }
                 CodeLine { width: parent.width; text: "~/.config/vgshell/shell.json"; copyLabel: "Copy the path" }
+                // CopyText draws nothing: its RowAction reads Copied while it confirms.
+                Field {
+                    label: "Copy text"
+                    inline: true
+                    width: parent.width
+                    RowAction {
+                        text: galleryCopy.confirming ? "Copied" : "Copy"
+                        onClicked: galleryCopy.copy("100.64.0.1")
+                        CopyText { id: galleryCopy }
+                    }
+                }
                 LinkText { width: parent.width; role: "body"; text: "Open hyprland.lua to inspect the line VGS adds."; link: "hyprland.lua" }
                 EmptyState { width: parent.width; iconName: "search-x"; text: "No plugin matches \"zzqx\""; actionText: "Clear search" }
                 SaveBar { width: parent.width; dirty: true }
@@ -1050,6 +1061,7 @@ Item {
                         { key: "Headphones", text: "Headphones", secondary: "Connected", iconName: "headphones", battery: 0.72 },
                         { key: "Mouse", text: "Mouse", secondary: "Connected", iconName: "mouse", battery: 0.08 },
                         { key: "Printer", text: "Printer", secondary: "Stopped: Paper jam", secondaryTone: "danger", iconName: "printer-x" },
+                        { key: "Displays", text: "Displays", secondary: "2 screens", iconName: "monitor", opens: true },
                         { key: "Speaker", text: "Speaker", secondary: "Not connected", iconName: "speaker", badge: "Nearby", badgeTone: "info" }
                     ]
                     actionOf: row => row.key === "Headphones" ? { text: "Disconnect" } : row.key === "Speaker" ? { text: "Connect" } : null
@@ -1061,6 +1073,16 @@ Item {
                     width: parent.width
                     rows: [{ key: "Earbuds", text: "Earbuds", secondary: "Connecting…", iconName: "headphones", busy: true }]
                     actionOf: row => ({ text: "Connect" })
+                }
+                // Locked: the row that opens keeps working, the other draws
+                // faded and says why.
+                DeviceList {
+                    width: parent.width
+                    disabledReason: "Sign in as the administrator to change these devices"
+                    rows: [
+                        { key: "Displays", text: "Displays", secondary: "2 screens", iconName: "monitor", opens: true },
+                        { key: "Keyboard", text: "Keyboard", secondary: "Connected", iconName: "keyboard" }
+                    ]
                 }
                 }
                 Section {

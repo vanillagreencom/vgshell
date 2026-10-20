@@ -645,12 +645,20 @@ function deviceRows(devices, stateOf, attempts, previous, now, mineOnly) {
     var oldRows = previous.nearby;
     var oldByKey = {};
     for (var p = 0; p < oldRows.length; p++) oldByKey[oldRows[p].key] = oldRows[p];
-    var mine = [], nearby = [], names = {};
-    for (var n = 0; n < devices.length; n++)
-        if (devices[n] !== null && devices[n] !== undefined) names[deviceName(devices[n])] = true;
-    for (var i = 0; i < devices.length; i++) {
-        var d = devices[i];
-        if (d === null || d === undefined) continue;
+    var mine = [], nearby = [], names = {}, addresses = {}, firstDevices = [];
+    // Two adapters can report one address. Display the first device, as
+    // deviceAt does for actions, before applying any visibility policy.
+    for (var n = 0; n < devices.length; n++) {
+        var device = devices[n];
+        if (device === null || device === undefined) continue;
+        var key = String(device.address);
+        if (own(addresses, key)) continue;
+        addresses[key] = true;
+        firstDevices.push(device);
+        names[deviceName(device)] = true;
+    }
+    for (var i = 0; i < firstDevices.length; i++) {
+        var d = firstDevices[i];
         var known = d.paired || d.bonded || d.trusted;
         if (!known && !namesItself(d) && !own(oldByKey, String(d.address))) continue;
         if (!known && leTwin(d, names)) continue;

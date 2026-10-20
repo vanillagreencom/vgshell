@@ -1,0 +1,893 @@
+{
+  "Version": "1.0.0-fixture",
+  "TUN": true,
+  "BackendState": "Running",
+  "HaveNodeKey": true,
+  "AuthURL": "",
+  "TailscaleIPs": [
+    "100.64.0.1",
+    "fd7a:115c:a1e0::1"
+  ],
+  "Self": {
+    "ID": "nSHEET0001CNTRL",
+    "PublicKey": "nodekey:0101010101010101010101010101010101010101010101010101010101010101",
+    "HostName": "desk",
+    "DNSName": "desk.tail-fixture.ts.net.",
+    "OS": "linux",
+    "UserID": 1001,
+    "TailscaleIPs": [
+      "100.64.0.1",
+      "fd7a:115c:a1e0::1"
+    ],
+    "Tags": null,
+    "Online": true,
+    "ExitNode": false,
+    "ExitNodeOption": false,
+    "Active": false
+  },
+  "Health": [],
+  "MagicDNSSuffix": "tail-fixture.ts.net",
+  "CurrentTailnet": {
+    "Name": "example.com",
+    "MagicDNSSuffix": "tail-fixture.ts.net",
+    "MagicDNSEnabled": true
+  },
+  "Peer": {
+    "nodekey:0202020202020202020202020202020202020202020202020202020202020202": {
+      "ID": "nSHEET0002CNTRL",
+      "PublicKey": "nodekey:0202020202020202020202020202020202020202020202020202020202020202",
+      "HostName": "gateway",
+      "DNSName": "gateway.tail-fixture.ts.net.",
+      "OS": "linux",
+      "UserID": 1001,
+      "TailscaleIPs": [
+        "100.64.0.2",
+        "fd7a:115c:a1e0::2"
+      ],
+      "Tags": [
+        "tag:server"
+      ],
+      "Online": true,
+      "ExitNode": false,
+      "ExitNodeOption": true,
+      "Active": false
+    },
+    "nodekey:0303030303030303030303030303030303030303030303030303030303030303": {
+      "ID": "nSHEET0003CNTRL",
+      "PublicKey": "nodekey:0303030303030303030303030303030303030303030303030303030303030303",
+      "HostName": "attic-nas",
+      "DNSName": "attic-nas.tail-fixture.ts.net.",
+      "OS": "linux",
+      "UserID": 1001,
+      "TailscaleIPs": [
+        "100.64.0.3",
+        "fd7a:115c:a1e0::3"
+      ],
+      "Tags": null,
+      "Online": true,
+      "ExitNode": false,
+      "ExitNodeOption": true,
+      "Active": false
+    },
+    "nodekey:0404040404040404040404040404040404040404040404040404040404040404": {
+      "ID": "nSHEET0004CNTRL",
+      "PublicKey": "nodekey:0404040404040404040404040404040404040404040404040404040404040404",
+      "HostName": "pixel",
+      "DNSName": "pixel.tail-fixture.ts.net.",
+      "OS": "android",
+      "UserID": 1001,
+      "TailscaleIPs": [
+        "100.64.0.4",
+        "fd7a:115c:a1e0::4"
+      ],
+      "Tags": null,
+      "Online": true,
+      "ExitNode": false,
+      "ExitNodeOption": false,
+      "Active": false
+    },
+    "nodekey:0909090909090909090909090909090909090909090909090909090909090909": {
+      "ID": "nSHEET0009CNTRL",
+      "PublicKey": "nodekey:0909090909090909090909090909090909090909090909090909090909090909",
+      "HostName": "old-laptop",
+      "DNSName": "old-laptop.tail-fixture.ts.net.",
+      "OS": "windows",
+      "UserID": 1001,
+      "TailscaleIPs": [
+        "100.64.0.9",
+        "fd7a:115c:a1e0::9"
+      ],
+      "Tags": null,
+      "Online": false,
+      "ExitNode": false,
+      "ExitNodeOption": false,
+      "Active": false
+    },
+    "nodekey:0707070707070707070707070707070707070707070707070707070707070707": {
+      "ID": "nSHEET0007CNTRL",
+      "PublicKey": "nodekey:0707070707070707070707070707070707070707070707070707070707070707",
+      "HostName": "ipad",
+      "DNSName": "ipad.tail-fixture.ts.net.",
+      "OS": "iOS",
+      "UserID": 1001,
+      "TailscaleIPs": [
+        "100.64.0.7",
+        "fd7a:115c:a1e0::7"
+      ],
+      "Tags": null,
+      "Online": false,
+      "ExitNode": false,
+      "ExitNodeOption": false,
+      "Active": false
+    },
+    "nodekey:2020202020202020202020202020202020202020202020202020202020202020": {
+      "ID": "nSHEET0020CNTRL",
+      "PublicKey": "nodekey:2020202020202020202020202020202020202020202020202020202020202020",
+      "HostName": "de-ber-wg-001",
+      "DNSName": "de-ber-wg-001.mullvad.ts.net.",
+      "OS": "linux",
+      "UserID": 2002,
+      "TailscaleIPs": [
+        "100.64.2.1",
+        "fd7a:115c:a1e0::2:1"
+      ],
+      "Tags": [
+        "tag:mullvad-exit-node"
+      ],
+      "Online": true,
+      "ExitNode": false,
+      "ExitNodeOption": true,
+      "Active": false,
+      "Location": {
+        "Country": "Germany",
+        "CountryCode": "DE",
+        "City": "Berlin",
+        "CityCode": "BER",
+        "Latitude": 0,
+        "Longitude": 0,
+        "Priority": 70
+      }
+    },
+    "nodekey:2121212121212121212121212121212121212121212121212121212121212121": {
+      "ID": "nSHEET0021CNTRL",
+      "PublicKey": "nodekey:2121212121212121212121212121212121212121212121212121212121212121",
+      "HostName": "de-fra-wg-001",
+      "DNSName": "de-fra-wg-001.mullvad.ts.net.",
+      "OS": "linux",
+      "UserID": 2002,
+      "TailscaleIPs": [
+        "100.64.2.2",
+        "fd7a:115c:a1e0::2:2"
+      ],
+      "Tags": [
+        "tag:mullvad-exit-node"
+      ],
+      "Online": true,
+      "ExitNode": false,
+      "ExitNodeOption": true,
+      "Active": false,
+      "Location": {
+        "Country": "Germany",
+        "CountryCode": "DE",
+        "City": "Frankfurt",
+        "CityCode": "FRA",
+        "Latitude": 0,
+        "Longitude": 0,
+        "Priority": 90
+      }
+    },
+    "nodekey:2222222222222222222222222222222222222222222222222222222222222222": {
+      "ID": "nSHEET0022CNTRL",
+      "PublicKey": "nodekey:2222222222222222222222222222222222222222222222222222222222222222",
+      "HostName": "se-got-wg-001",
+      "DNSName": "se-got-wg-001.mullvad.ts.net.",
+      "OS": "linux",
+      "UserID": 2002,
+      "TailscaleIPs": [
+        "100.64.2.3",
+        "fd7a:115c:a1e0::2:3"
+      ],
+      "Tags": [
+        "tag:mullvad-exit-node"
+      ],
+      "Online": true,
+      "ExitNode": false,
+      "ExitNodeOption": true,
+      "Active": false,
+      "Location": {
+        "Country": "Sweden",
+        "CountryCode": "SE",
+        "City": "Gothenburg",
+        "CityCode": "GOT",
+        "Latitude": 0,
+        "Longitude": 0,
+        "Priority": 60
+      }
+    },
+    "nodekey:2323232323232323232323232323232323232323232323232323232323232323": {
+      "ID": "nSHEET0023CNTRL",
+      "PublicKey": "nodekey:2323232323232323232323232323232323232323232323232323232323232323",
+      "HostName": "se-mma-wg-001",
+      "DNSName": "se-mma-wg-001.mullvad.ts.net.",
+      "OS": "linux",
+      "UserID": 2002,
+      "TailscaleIPs": [
+        "100.64.2.4",
+        "fd7a:115c:a1e0::2:4"
+      ],
+      "Tags": [
+        "tag:mullvad-exit-node"
+      ],
+      "Online": true,
+      "ExitNode": false,
+      "ExitNodeOption": true,
+      "Active": false,
+      "Location": {
+        "Country": "Sweden",
+        "CountryCode": "SE",
+        "City": "Malmö",
+        "CityCode": "MMA",
+        "Latitude": 0,
+        "Longitude": 0,
+        "Priority": 40
+      }
+    },
+    "nodekey:2424242424242424242424242424242424242424242424242424242424242424": {
+      "ID": "nSHEET0024CNTRL",
+      "PublicKey": "nodekey:2424242424242424242424242424242424242424242424242424242424242424",
+      "HostName": "se-sto-wg-001",
+      "DNSName": "se-sto-wg-001.mullvad.ts.net.",
+      "OS": "linux",
+      "UserID": 2002,
+      "TailscaleIPs": [
+        "100.64.2.5",
+        "fd7a:115c:a1e0::2:5"
+      ],
+      "Tags": [
+        "tag:mullvad-exit-node"
+      ],
+      "Online": true,
+      "ExitNode": true,
+      "ExitNodeOption": true,
+      "Active": false,
+      "Location": {
+        "Country": "Sweden",
+        "CountryCode": "SE",
+        "City": "Stockholm",
+        "CityCode": "STO",
+        "Latitude": 0,
+        "Longitude": 0,
+        "Priority": 100
+      }
+    },
+    "nodekey:2525252525252525252525252525252525252525252525252525252525252525": {
+      "ID": "nSHEET0025CNTRL",
+      "PublicKey": "nodekey:2525252525252525252525252525252525252525252525252525252525252525",
+      "HostName": "ch-zrh-wg-001",
+      "DNSName": "ch-zrh-wg-001.mullvad.ts.net.",
+      "OS": "linux",
+      "UserID": 2002,
+      "TailscaleIPs": [
+        "100.64.2.6",
+        "fd7a:115c:a1e0::2:6"
+      ],
+      "Tags": [
+        "tag:mullvad-exit-node"
+      ],
+      "Online": true,
+      "ExitNode": false,
+      "ExitNodeOption": true,
+      "Active": false,
+      "Location": {
+        "Country": "Switzerland",
+        "CountryCode": "CH",
+        "City": "Zurich",
+        "CityCode": "ZRH",
+        "Latitude": 0,
+        "Longitude": 0,
+        "Priority": 80
+      }
+    },
+    "nodekey:2626262626262626262626262626262626262626262626262626262626262626": {
+      "ID": "nSHEET0026CNTRL",
+      "PublicKey": "nodekey:2626262626262626262626262626262626262626262626262626262626262626",
+      "HostName": "us-ash-wg-001",
+      "DNSName": "us-ash-wg-001.mullvad.ts.net.",
+      "OS": "linux",
+      "UserID": 2002,
+      "TailscaleIPs": [
+        "100.64.2.7",
+        "fd7a:115c:a1e0::2:7"
+      ],
+      "Tags": [
+        "tag:mullvad-exit-node"
+      ],
+      "Online": true,
+      "ExitNode": false,
+      "ExitNodeOption": true,
+      "Active": false,
+      "Location": {
+        "Country": "United States",
+        "CountryCode": "US",
+        "City": "Ashburn",
+        "CityCode": "ASH",
+        "Latitude": 0,
+        "Longitude": 0,
+        "Priority": 50
+      }
+    },
+    "nodekey:2727272727272727272727272727272727272727272727272727272727272727": {
+      "ID": "nSHEET0027CNTRL",
+      "PublicKey": "nodekey:2727272727272727272727272727272727272727272727272727272727272727",
+      "HostName": "us-chi-wg-001",
+      "DNSName": "us-chi-wg-001.mullvad.ts.net.",
+      "OS": "linux",
+      "UserID": 2002,
+      "TailscaleIPs": [
+        "100.64.2.8",
+        "fd7a:115c:a1e0::2:8"
+      ],
+      "Tags": [
+        "tag:mullvad-exit-node"
+      ],
+      "Online": true,
+      "ExitNode": false,
+      "ExitNodeOption": true,
+      "Active": false,
+      "Location": {
+        "Country": "United States",
+        "CountryCode": "US",
+        "City": "Chicago",
+        "CityCode": "CHI",
+        "Latitude": 0,
+        "Longitude": 0,
+        "Priority": 85
+      }
+    },
+    "nodekey:2828282828282828282828282828282828282828282828282828282828282828": {
+      "ID": "nSHEET0028CNTRL",
+      "PublicKey": "nodekey:2828282828282828282828282828282828282828282828282828282828282828",
+      "HostName": "us-lax-wg-001",
+      "DNSName": "us-lax-wg-001.mullvad.ts.net.",
+      "OS": "linux",
+      "UserID": 2002,
+      "TailscaleIPs": [
+        "100.64.2.9",
+        "fd7a:115c:a1e0::2:9"
+      ],
+      "Tags": [
+        "tag:mullvad-exit-node"
+      ],
+      "Online": true,
+      "ExitNode": false,
+      "ExitNodeOption": true,
+      "Active": false,
+      "Location": {
+        "Country": "United States",
+        "CountryCode": "US",
+        "City": "Los Angeles",
+        "CityCode": "LAX",
+        "Latitude": 0,
+        "Longitude": 0,
+        "Priority": 75
+      }
+    },
+    "nodekey:2929292929292929292929292929292929292929292929292929292929292929": {
+      "ID": "nSHEET0029CNTRL",
+      "PublicKey": "nodekey:2929292929292929292929292929292929292929292929292929292929292929",
+      "HostName": "us-nyc-wg-001",
+      "DNSName": "us-nyc-wg-001.mullvad.ts.net.",
+      "OS": "linux",
+      "UserID": 2002,
+      "TailscaleIPs": [
+        "100.64.2.10",
+        "fd7a:115c:a1e0::2:10"
+      ],
+      "Tags": [
+        "tag:mullvad-exit-node"
+      ],
+      "Online": true,
+      "ExitNode": false,
+      "ExitNodeOption": true,
+      "Active": false,
+      "Location": {
+        "Country": "United States",
+        "CountryCode": "US",
+        "City": "New York",
+        "CityCode": "NYC",
+        "Latitude": 0,
+        "Longitude": 0,
+        "Priority": 95
+      }
+    },
+    "nodekey:4040404040404040404040404040404040404040404040404040404040404040": {
+      "ID": "nSHEET0040CNTRL",
+      "PublicKey": "nodekey:4040404040404040404040404040404040404040404040404040404040404040",
+      "HostName": "us-atl-wg-001",
+      "DNSName": "us-atl-wg-001.mullvad.ts.net.",
+      "OS": "linux",
+      "UserID": 2002,
+      "TailscaleIPs": [
+        "100.64.3.1",
+        "fd7a:115c:a1e0::3:1"
+      ],
+      "Tags": [
+        "tag:mullvad-exit-node"
+      ],
+      "Online": true,
+      "ExitNode": false,
+      "ExitNodeOption": true,
+      "Active": false,
+      "Location": {
+        "Country": "United States",
+        "CountryCode": "US",
+        "City": "Atlanta",
+        "CityCode": "ATL",
+        "Latitude": 0,
+        "Longitude": 0,
+        "Priority": 50
+      }
+    },
+    "nodekey:4141414141414141414141414141414141414141414141414141414141414141": {
+      "ID": "nSHEET0041CNTRL",
+      "PublicKey": "nodekey:4141414141414141414141414141414141414141414141414141414141414141",
+      "HostName": "us-bos-wg-001",
+      "DNSName": "us-bos-wg-001.mullvad.ts.net.",
+      "OS": "linux",
+      "UserID": 2002,
+      "TailscaleIPs": [
+        "100.64.3.2",
+        "fd7a:115c:a1e0::3:2"
+      ],
+      "Tags": [
+        "tag:mullvad-exit-node"
+      ],
+      "Online": true,
+      "ExitNode": false,
+      "ExitNodeOption": true,
+      "Active": false,
+      "Location": {
+        "Country": "United States",
+        "CountryCode": "US",
+        "City": "Boston",
+        "CityCode": "BOS",
+        "Latitude": 0,
+        "Longitude": 0,
+        "Priority": 50
+      }
+    },
+    "nodekey:4242424242424242424242424242424242424242424242424242424242424242": {
+      "ID": "nSHEET0042CNTRL",
+      "PublicKey": "nodekey:4242424242424242424242424242424242424242424242424242424242424242",
+      "HostName": "us-dal-wg-001",
+      "DNSName": "us-dal-wg-001.mullvad.ts.net.",
+      "OS": "linux",
+      "UserID": 2002,
+      "TailscaleIPs": [
+        "100.64.3.3",
+        "fd7a:115c:a1e0::3:3"
+      ],
+      "Tags": [
+        "tag:mullvad-exit-node"
+      ],
+      "Online": true,
+      "ExitNode": false,
+      "ExitNodeOption": true,
+      "Active": false,
+      "Location": {
+        "Country": "United States",
+        "CountryCode": "US",
+        "City": "Dallas",
+        "CityCode": "DAL",
+        "Latitude": 0,
+        "Longitude": 0,
+        "Priority": 50
+      }
+    },
+    "nodekey:4343434343434343434343434343434343434343434343434343434343434343": {
+      "ID": "nSHEET0043CNTRL",
+      "PublicKey": "nodekey:4343434343434343434343434343434343434343434343434343434343434343",
+      "HostName": "us-den-wg-001",
+      "DNSName": "us-den-wg-001.mullvad.ts.net.",
+      "OS": "linux",
+      "UserID": 2002,
+      "TailscaleIPs": [
+        "100.64.3.4",
+        "fd7a:115c:a1e0::3:4"
+      ],
+      "Tags": [
+        "tag:mullvad-exit-node"
+      ],
+      "Online": true,
+      "ExitNode": false,
+      "ExitNodeOption": true,
+      "Active": false,
+      "Location": {
+        "Country": "United States",
+        "CountryCode": "US",
+        "City": "Denver",
+        "CityCode": "DEN",
+        "Latitude": 0,
+        "Longitude": 0,
+        "Priority": 50
+      }
+    },
+    "nodekey:4444444444444444444444444444444444444444444444444444444444444444": {
+      "ID": "nSHEET0044CNTRL",
+      "PublicKey": "nodekey:4444444444444444444444444444444444444444444444444444444444444444",
+      "HostName": "us-det-wg-001",
+      "DNSName": "us-det-wg-001.mullvad.ts.net.",
+      "OS": "linux",
+      "UserID": 2002,
+      "TailscaleIPs": [
+        "100.64.3.5",
+        "fd7a:115c:a1e0::3:5"
+      ],
+      "Tags": [
+        "tag:mullvad-exit-node"
+      ],
+      "Online": true,
+      "ExitNode": false,
+      "ExitNodeOption": true,
+      "Active": false,
+      "Location": {
+        "Country": "United States",
+        "CountryCode": "US",
+        "City": "Detroit",
+        "CityCode": "DET",
+        "Latitude": 0,
+        "Longitude": 0,
+        "Priority": 50
+      }
+    },
+    "nodekey:4545454545454545454545454545454545454545454545454545454545454545": {
+      "ID": "nSHEET0045CNTRL",
+      "PublicKey": "nodekey:4545454545454545454545454545454545454545454545454545454545454545",
+      "HostName": "us-hou-wg-001",
+      "DNSName": "us-hou-wg-001.mullvad.ts.net.",
+      "OS": "linux",
+      "UserID": 2002,
+      "TailscaleIPs": [
+        "100.64.3.6",
+        "fd7a:115c:a1e0::3:6"
+      ],
+      "Tags": [
+        "tag:mullvad-exit-node"
+      ],
+      "Online": true,
+      "ExitNode": false,
+      "ExitNodeOption": true,
+      "Active": false,
+      "Location": {
+        "Country": "United States",
+        "CountryCode": "US",
+        "City": "Houston",
+        "CityCode": "HOU",
+        "Latitude": 0,
+        "Longitude": 0,
+        "Priority": 50
+      }
+    },
+    "nodekey:4646464646464646464646464646464646464646464646464646464646464646": {
+      "ID": "nSHEET0046CNTRL",
+      "PublicKey": "nodekey:4646464646464646464646464646464646464646464646464646464646464646",
+      "HostName": "us-mca-wg-001",
+      "DNSName": "us-mca-wg-001.mullvad.ts.net.",
+      "OS": "linux",
+      "UserID": 2002,
+      "TailscaleIPs": [
+        "100.64.3.7",
+        "fd7a:115c:a1e0::3:7"
+      ],
+      "Tags": [
+        "tag:mullvad-exit-node"
+      ],
+      "Online": true,
+      "ExitNode": false,
+      "ExitNodeOption": true,
+      "Active": false,
+      "Location": {
+        "Country": "United States",
+        "CountryCode": "US",
+        "City": "McAllen",
+        "CityCode": "MCA",
+        "Latitude": 0,
+        "Longitude": 0,
+        "Priority": 50
+      }
+    },
+    "nodekey:4747474747474747474747474747474747474747474747474747474747474747": {
+      "ID": "nSHEET0047CNTRL",
+      "PublicKey": "nodekey:4747474747474747474747474747474747474747474747474747474747474747",
+      "HostName": "us-mia-wg-001",
+      "DNSName": "us-mia-wg-001.mullvad.ts.net.",
+      "OS": "linux",
+      "UserID": 2002,
+      "TailscaleIPs": [
+        "100.64.3.8",
+        "fd7a:115c:a1e0::3:8"
+      ],
+      "Tags": [
+        "tag:mullvad-exit-node"
+      ],
+      "Online": true,
+      "ExitNode": false,
+      "ExitNodeOption": true,
+      "Active": false,
+      "Location": {
+        "Country": "United States",
+        "CountryCode": "US",
+        "City": "Miami",
+        "CityCode": "MIA",
+        "Latitude": 0,
+        "Longitude": 0,
+        "Priority": 50
+      }
+    },
+    "nodekey:4848484848484848484848484848484848484848484848484848484848484848": {
+      "ID": "nSHEET0048CNTRL",
+      "PublicKey": "nodekey:4848484848484848484848484848484848484848484848484848484848484848",
+      "HostName": "us-phx-wg-001",
+      "DNSName": "us-phx-wg-001.mullvad.ts.net.",
+      "OS": "linux",
+      "UserID": 2002,
+      "TailscaleIPs": [
+        "100.64.3.9",
+        "fd7a:115c:a1e0::3:9"
+      ],
+      "Tags": [
+        "tag:mullvad-exit-node"
+      ],
+      "Online": true,
+      "ExitNode": false,
+      "ExitNodeOption": true,
+      "Active": false,
+      "Location": {
+        "Country": "United States",
+        "CountryCode": "US",
+        "City": "Phoenix",
+        "CityCode": "PHX",
+        "Latitude": 0,
+        "Longitude": 0,
+        "Priority": 50
+      }
+    },
+    "nodekey:4949494949494949494949494949494949494949494949494949494949494949": {
+      "ID": "nSHEET0049CNTRL",
+      "PublicKey": "nodekey:4949494949494949494949494949494949494949494949494949494949494949",
+      "HostName": "us-rag-wg-001",
+      "DNSName": "us-rag-wg-001.mullvad.ts.net.",
+      "OS": "linux",
+      "UserID": 2002,
+      "TailscaleIPs": [
+        "100.64.3.10",
+        "fd7a:115c:a1e0::3:10"
+      ],
+      "Tags": [
+        "tag:mullvad-exit-node"
+      ],
+      "Online": true,
+      "ExitNode": false,
+      "ExitNodeOption": true,
+      "Active": false,
+      "Location": {
+        "Country": "United States",
+        "CountryCode": "US",
+        "City": "Raleigh",
+        "CityCode": "RAG",
+        "Latitude": 0,
+        "Longitude": 0,
+        "Priority": 50
+      }
+    },
+    "nodekey:5050505050505050505050505050505050505050505050505050505050505050": {
+      "ID": "nSHEET0050CNTRL",
+      "PublicKey": "nodekey:5050505050505050505050505050505050505050505050505050505050505050",
+      "HostName": "us-slc-wg-001",
+      "DNSName": "us-slc-wg-001.mullvad.ts.net.",
+      "OS": "linux",
+      "UserID": 2002,
+      "TailscaleIPs": [
+        "100.64.3.11",
+        "fd7a:115c:a1e0::3:11"
+      ],
+      "Tags": [
+        "tag:mullvad-exit-node"
+      ],
+      "Online": true,
+      "ExitNode": false,
+      "ExitNodeOption": true,
+      "Active": false,
+      "Location": {
+        "Country": "United States",
+        "CountryCode": "US",
+        "City": "Salt Lake City",
+        "CityCode": "SLC",
+        "Latitude": 0,
+        "Longitude": 0,
+        "Priority": 50
+      }
+    },
+    "nodekey:5151515151515151515151515151515151515151515151515151515151515151": {
+      "ID": "nSHEET0051CNTRL",
+      "PublicKey": "nodekey:5151515151515151515151515151515151515151515151515151515151515151",
+      "HostName": "us-sjc-wg-001",
+      "DNSName": "us-sjc-wg-001.mullvad.ts.net.",
+      "OS": "linux",
+      "UserID": 2002,
+      "TailscaleIPs": [
+        "100.64.3.12",
+        "fd7a:115c:a1e0::3:12"
+      ],
+      "Tags": [
+        "tag:mullvad-exit-node"
+      ],
+      "Online": true,
+      "ExitNode": false,
+      "ExitNodeOption": true,
+      "Active": false,
+      "Location": {
+        "Country": "United States",
+        "CountryCode": "US",
+        "City": "San Jose",
+        "CityCode": "SJC",
+        "Latitude": 0,
+        "Longitude": 0,
+        "Priority": 50
+      }
+    },
+    "nodekey:5252525252525252525252525252525252525252525252525252525252525252": {
+      "ID": "nSHEET0052CNTRL",
+      "PublicKey": "nodekey:5252525252525252525252525252525252525252525252525252525252525252",
+      "HostName": "us-sea-wg-001",
+      "DNSName": "us-sea-wg-001.mullvad.ts.net.",
+      "OS": "linux",
+      "UserID": 2002,
+      "TailscaleIPs": [
+        "100.64.3.13",
+        "fd7a:115c:a1e0::3:13"
+      ],
+      "Tags": [
+        "tag:mullvad-exit-node"
+      ],
+      "Online": true,
+      "ExitNode": false,
+      "ExitNodeOption": true,
+      "Active": false,
+      "Location": {
+        "Country": "United States",
+        "CountryCode": "US",
+        "City": "Seattle",
+        "CityCode": "SEA",
+        "Latitude": 0,
+        "Longitude": 0,
+        "Priority": 50
+      }
+    },
+    "nodekey:5353535353535353535353535353535353535353535353535353535353535353": {
+      "ID": "nSHEET0053CNTRL",
+      "PublicKey": "nodekey:5353535353535353535353535353535353535353535353535353535353535353",
+      "HostName": "us-uyk-wg-001",
+      "DNSName": "us-uyk-wg-001.mullvad.ts.net.",
+      "OS": "linux",
+      "UserID": 2002,
+      "TailscaleIPs": [
+        "100.64.3.14",
+        "fd7a:115c:a1e0::3:14"
+      ],
+      "Tags": [
+        "tag:mullvad-exit-node"
+      ],
+      "Online": true,
+      "ExitNode": false,
+      "ExitNodeOption": true,
+      "Active": false,
+      "Location": {
+        "Country": "United States",
+        "CountryCode": "US",
+        "City": "Secaucus",
+        "CityCode": "UYK",
+        "Latitude": 0,
+        "Longitude": 0,
+        "Priority": 50
+      }
+    },
+    "nodekey:5454545454545454545454545454545454545454545454545454545454545454": {
+      "ID": "nSHEET0054CNTRL",
+      "PublicKey": "nodekey:5454545454545454545454545454545454545454545454545454545454545454",
+      "HostName": "gb-gla-wg-001",
+      "DNSName": "gb-gla-wg-001.mullvad.ts.net.",
+      "OS": "linux",
+      "UserID": 2002,
+      "TailscaleIPs": [
+        "100.64.3.15",
+        "fd7a:115c:a1e0::3:15"
+      ],
+      "Tags": [
+        "tag:mullvad-exit-node"
+      ],
+      "Online": true,
+      "ExitNode": false,
+      "ExitNodeOption": true,
+      "Active": false,
+      "Location": {
+        "Country": "United Kingdom",
+        "CountryCode": "GB",
+        "City": "Glasgow",
+        "CityCode": "GLA",
+        "Latitude": 0,
+        "Longitude": 0,
+        "Priority": 50
+      }
+    },
+    "nodekey:5555555555555555555555555555555555555555555555555555555555555555": {
+      "ID": "nSHEET0055CNTRL",
+      "PublicKey": "nodekey:5555555555555555555555555555555555555555555555555555555555555555",
+      "HostName": "gb-lon-wg-001",
+      "DNSName": "gb-lon-wg-001.mullvad.ts.net.",
+      "OS": "linux",
+      "UserID": 2002,
+      "TailscaleIPs": [
+        "100.64.3.16",
+        "fd7a:115c:a1e0::3:16"
+      ],
+      "Tags": [
+        "tag:mullvad-exit-node"
+      ],
+      "Online": true,
+      "ExitNode": false,
+      "ExitNodeOption": true,
+      "Active": false,
+      "Location": {
+        "Country": "United Kingdom",
+        "CountryCode": "GB",
+        "City": "London",
+        "CityCode": "LON",
+        "Latitude": 0,
+        "Longitude": 0,
+        "Priority": 50
+      }
+    },
+    "nodekey:5656565656565656565656565656565656565656565656565656565656565656": {
+      "ID": "nSHEET0056CNTRL",
+      "PublicKey": "nodekey:5656565656565656565656565656565656565656565656565656565656565656",
+      "HostName": "gb-mnc-wg-001",
+      "DNSName": "gb-mnc-wg-001.mullvad.ts.net.",
+      "OS": "linux",
+      "UserID": 2002,
+      "TailscaleIPs": [
+        "100.64.3.17",
+        "fd7a:115c:a1e0::3:17"
+      ],
+      "Tags": [
+        "tag:mullvad-exit-node"
+      ],
+      "Online": true,
+      "ExitNode": false,
+      "ExitNodeOption": true,
+      "Active": false,
+      "Location": {
+        "Country": "United Kingdom",
+        "CountryCode": "GB",
+        "City": "Manchester",
+        "CityCode": "MNC",
+        "Latitude": 0,
+        "Longitude": 0,
+        "Priority": 50
+      }
+    }
+  },
+  "User": {
+    "1001": {
+      "ID": 1001,
+      "LoginName": "amelie@example.com",
+      "DisplayName": "Amelie Example"
+    },
+    "2002": {
+      "ID": 2002,
+      "LoginName": "tagged-devices",
+      "DisplayName": "Tagged Devices"
+    }
+  },
+  "ClientVersion": null
+}

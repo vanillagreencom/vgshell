@@ -11,8 +11,8 @@ import qs.Ui
 // equal around the line boxes. The Copy button, an `IconButton` of size
 // `sm`, sits inside the padding at the top right. The text is read-only
 // and takes no focus. `copy()`, which the button calls, puts `text` on the
-// clipboard, emits `copied()` and shows a check mark on the button for
-// `codeLine.confirm` milliseconds. `copyLabel` is what a screen reader and
+// clipboard through CopyText, emits `copied()` and shows a check mark on
+// the button while CopyText's `confirming` holds. `copyLabel` is what a screen reader and
 // a tooltip say for the button.
 Rectangle {
     id: root
@@ -22,7 +22,7 @@ Rectangle {
     // The Copy button, for a Dialog that lists it among its `tabItems`.
     readonly property alias copyButton: button
     // True while the button shows its check mark after a copy.
-    readonly property bool confirming: confirm.running
+    readonly property bool confirming: copier.confirming
 
     signal copied()
 
@@ -38,11 +38,7 @@ Rectangle {
     }
 
     function copy() {
-        clipboard.text = root.text;
-        clipboard.selectAll();
-        clipboard.copy();
-        clipboard.deselect();
-        confirm.restart();
+        copier.copy(root.text);
         root.copied();
     }
 
@@ -74,16 +70,5 @@ Rectangle {
         onClicked: root.copy()
     }
 
-    // The clipboard is the application's, reached through a text edit's
-    // copy, so the component imports no Quickshell module.
-    TextEdit {
-        id: clipboard
-        visible: false
-        readOnly: true
-    }
-
-    Timer {
-        id: confirm
-        interval: Theme.codeLine.confirm
-    }
+    CopyText { id: copier }
 }

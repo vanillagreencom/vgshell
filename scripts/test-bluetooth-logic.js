@@ -481,6 +481,44 @@ function verifyPrompts(logic) {
     assert.throws(() => logic.promptView("dance", "Phone", null, ""), /prompt kind/, "an unknown prompt kind is refused");
 }
 
+function verifyDeviceIdentity(logic) {
+    // Quickshell aggregates BlueZ devices by adapter path, so two adapters
+    // can report this address with different payloads and visibility.
+    const address = "02:00:00:00:00:01";
+    const first = { address, name: "First", deviceName: "First", paired: true, connected: true,
+        trusted: true, batteryAvailable: true, battery: 0.25, state: "Connected" };
+    const later = { address, name: "Later", deviceName: "Later", paired: true, connected: false,
+        trusted: false, batteryAvailable: true, battery: 0.75, state: "Disconnected" };
+    const nearby = { paired: false, trusted: false };
+    const companion = name => ({ address: "02:00:00:00:00:02", name, deviceName: name, state: "Disconnected" });
+    const payload = [address, "First", "Connected", 0.25, true, true];
+    const cases = [
+        ["two known devices", {}, {}, [], [[payload], []]],
+        ["two nearby devices", nearby, nearby, [], [[], [[address, "First", "Connected", 0.25, true, false]]]],
+        ["known before nearby", {}, nearby, [], [[payload], []]],
+        ["nearby before known", nearby, {}, [], [[], [[address, "First", "Connected", 0.25, true, false]]]],
+        ["nameless before known", { ...nearby, name: address, deviceName: address }, {}, [], [[], []]],
+        ["LE twin before known", { ...nearby, name: "LE_Speaker", deviceName: "LE_Speaker" }, {}, [companion("Speaker")],
+            [[], [["02:00:00:00:00:02", "Speaker", "Disconnected", null, false, false]]]],
+        ["a discarded duplicate's name hides no LE device", {}, {}, [companion("LE_Later")],
+            [[payload], [["02:00:00:00:00:02", "LE_Later", "Disconnected", null, false, false]]]],
+    ];
+    for (const [label, firstChanges, laterChanges, companions, want] of cases) {
+        const devices = [{ ...first, ...firstChanges }, { ...later, ...laterChanges }, ...companions];
+        const selected = logic.deviceAt(devices, address);
+        assert.strictEqual(selected, devices[0], "first address action identity: " + label);
+        const rows = logic.deviceRows(devices, d => d.state, {}, { mine: [], nearby: [] }, 0, false);
+        const fields = row => [row.key, row.text, row.state, row.battery, row.connected, row.trusted];
+        same([rows.mine.map(fields), rows.nearby.map(fields)], want, "first address payload: " + label);
+        for (const row of [...rows.mine, ...rows.nearby].filter(row => row.key === address)) {
+            same([row.text, row.state, row.battery, row.connected, row.trusted],
+                [selected.name, selected.state, selected.battery, selected.connected, selected.trusted],
+                "first address display and action agree: " + label);
+            assert.equal(logic.pressAction(row.state), logic.pressAction(selected.state), "first address press agrees: " + label);
+        }
+    }
+}
+
 function verifyDevices(logic) {
     const device = (address, name, extra) => Object.assign({ address, name, deviceName: name, icon: "", connected: false, paired: false, bonded: false, trusted: false, pairing: false, batteryAvailable: false, battery: 0, state: "Disconnected" }, extra);
     const stateOf = d => d.state;
@@ -712,6 +750,7 @@ function verify(logic) {
     verifyNearbyNames(logic);
     verifyBar(logic);
     verifyPlacement(logic, manifestFile);
+    verifyDeviceIdentity(logic);
 }
 
 function verifyPlacement(logic, source) {
@@ -749,6 +788,8 @@ verify(load(file));
 // Each control: its rule, the text it edits, the edit, and the message of
 // the assertion that must fail on the copy.
 const controls = [
+    ["duplicate addresses keep the first payload", "if (own(addresses, key)) continue;", "if (false && own(addresses, key)) continue;", "first address payload", verifyDeviceIdentity],
+    ["actions keep the first adapter's device", "for (var i = 0; i < devices.length; i++)\n        if (devices[i] !== null", "for (var i = devices.length - 1; i >= 0; i--)\n        if (devices[i] !== null", "first address action identity", verifyDeviceIdentity],
     ["a plain lease counter leaks a late-confirmed start", 'return { state: withState(state, { attempts: state.attempts + 1 }), effects: ["stop"] };', "return { state: state, effects: [] };", "a start confirmed after the last release is still stopped"],
     ["the stop retries are bounded", "if (state.attempts >= DISCOVERY_STOP_ATTEMPTS)", "if (false)", "the stop is written at the end, then retried three times"],
     ["the last end resets the attempts", "    next.attempts = 0;\n", "", "a new lease resets the attempts"],
@@ -824,9 +865,9 @@ const controls = [
     ["the bar shows connected only while on", "var linked = power.on && connected > 0;", "var linked = connected > 0;", "bar: off with devices still listed connected"],
 ];
 
-function failsWith(mutantFile, message) {
+function failsWith(mutantFile, message, check = verify) {
     try {
-        verify(load(mutantFile));
+        check(load(mutantFile));
     } catch (e) {
         if (!(e instanceof assert.AssertionError)) return "threw " + e.constructor.name + ": " + e.message;
         return e.message.includes(message) ? "" : "failed elsewhere: " + e.message.split("\n")[0];
@@ -836,12 +877,14 @@ function failsWith(mutantFile, message) {
 
 try {
     const source = fs.readFileSync(file, "utf8");
-    for (const [label, needle, replacement, message] of controls) {
+    for (const [label, needle, replacement, message, check] of controls) {
         const count = source.split(needle).length - 1;
         assert.equal(count, 1, "control pattern occurs once: " + label);
         const mutant = path.join(scratch, "BluetoothLogic.js");
-        fs.writeFileSync(mutant, source.replace(needle, () => replacement));
-        const outcome = failsWith(mutant, message);
+        const changed = source.replace(needle, () => replacement);
+        assert.notEqual(changed, source, "control changes the source: " + label);
+        fs.writeFileSync(mutant, changed);
+        const outcome = failsWith(mutant, message, check);
         assert.equal(outcome, "", "control " + JSON.stringify(label) + " must fail on " + JSON.stringify(message));
     }
 } finally {

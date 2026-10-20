@@ -21,12 +21,17 @@ import qs.Ui
 // locked, on its "clear" side, so it covers no sibling text or control,
 // and is the control's accessible description. A control the
 // plain Qt `enabled` disables is not locked: it keeps its own fade and
-// shows no reason.
+// shows no reason. A control that keeps some of its parts working while
+// locked, as a DeviceList with a row that opens does, sets `shields`
+// false: no shield covers it, and it refuses its locked parts' presses
+// itself.
 Item {
     id: root
 
     required property Item control
+    property bool shields: true
     readonly property bool locked: control.enabled && control.disabledReason !== ""
+    readonly property bool shielded: locked && shields
     readonly property real fade: locked ? Theme.opacity.disabled : 1
     // The box the reason's places keep clear of, in the control's
     // coordinates, and the width its text wraps past. A holder that draws
@@ -58,8 +63,8 @@ Item {
     // hand (a gallery smoke run, 2026-10-13).
     MouseArea {
         anchors.fill: parent
-        visible: root.locked
-        enabled: root.locked
+        visible: root.shielded
+        enabled: root.shielded
         acceptedButtons: Qt.AllButtons
     }
 

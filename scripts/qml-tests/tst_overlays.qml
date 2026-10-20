@@ -39,7 +39,9 @@ import qs.Unit
 // entry's icon is as tall as its text's capitals. A menu entry's text and
 // shortcut draw a pixel under a field's, a select's and a list item's.
 // A press in the anchor's window closes each overlay and reaches no item
-// under it. The nested sandbox proves placement, real keys and the
+// under it. A menu made and opened in one turn of the event loop, as a bar
+// widget's is, shows its window on that first open with the cursor on the
+// opening entry. The nested sandbox proves placement, real keys and the
 // compositor's dismissal.
 Item {
     id: root
@@ -101,6 +103,20 @@ Item {
     }
     Component { id: transientTooltip; Tooltip { text: "Transient" } }
     Component { id: scaledWindow; Window { width: 400; height: 120; color: "black" } }
+    // A bar widget's menu as the bar makes it: its Loader builds the menu
+    // on a right click, which opens it in the same turn of the event loop.
+    Component {
+        id: freshMenu
+        Item {
+            readonly property alias menu: made
+            width: 60
+            height: 26
+            Menu { id: made
+                MenuItem { text: "Hide"; iconName: "eye-off" }
+                MenuItem { text: "Settings"; iconName: "settings" }
+            }
+        }
+    }
     // A select whose list opens over a field, as over a settings page's
     // next row.
     Component {
@@ -183,6 +199,17 @@ Item {
             menu.triggerCurrent();
             compare(root.triggered, 1);
             tryCompare(menu, "opened", false);
+        }
+
+        // The bar's path: a menu made and opened in one turn shows its
+        // window with the cursor on the opening entry.
+        function test_a_menu_opens_in_the_turn_that_made_it() {
+            const made = createTemporaryObject(freshMenu, host).menu;
+            made.open("key");
+            verify(made.opened, "the first open shows the window");
+            compare(made.currentIndex, 0, "a key opening highlights the first entry");
+            verify(made.items()[0].cursor === made.plate && made.plate.target === made.items()[0], "the cursor sits on the opening entry");
+            made.close();
         }
 
         function test_menu_skips_disabled_entries_and_starts_at_the_ends() {
@@ -273,12 +300,10 @@ Item {
         }
 
         function test_menu_width_follows_its_widest_entry() {
-            let window = null;
-            for (let i = 0; i < menu.resources.length; i++)
-                if (menu.resources[i].anchor !== undefined) window = menu.resources[i];
-            verify(window !== null, "the menu holds a popup window");
             verify(wide.implicitWidth > Theme.menu.minWidth, "the wide entry passes the minimum: " + wide.implicitWidth);
             menu.open("key");
+            const window = windowOf(menu);
+            verify(window !== null, "the open menu holds a popup window");
             // Past `menu.maxWidth` the window stops growing; the entries fill
             // it inside the border.
             verify(wide.implicitWidth + 2 * Theme.border.thin > Theme.menu.maxWidth, "the wide entry passes the cap: " + wide.implicitWidth);
@@ -288,9 +313,7 @@ Item {
             // Under the cap no entry elides, whatever fraction of a pixel
             // its text measures: the window rounds its width up.
             mid.open("key");
-            let midWindow = null;
-            for (let i = 0; i < mid.resources.length; i++)
-                if (mid.resources[i].anchor !== undefined) midWindow = mid.resources[i];
+            const midWindow = windowOf(mid);
             verify(mid.widest > Theme.menu.minWidth && mid.widest !== Math.floor(mid.widest), "the entry passes the minimum by a fraction: " + mid.widest);
             tryVerify(() => mid.items()[0].width >= mid.widest, 1000, "the entry takes its whole width in a window " + midWindow.width + " wide, the entry " + mid.widest);
             compare(mid.items()[0].contentItem.children[1].truncated, false);
@@ -409,11 +432,7 @@ Item {
             compare(rows.find(label => label.text === "Detail").font.pixelSize, 13);
         }
 
-        function longWindow() {
-            for (let i = 0; i < long.resources.length; i++)
-                if (long.resources[i].anchor !== undefined) return long.resources[i];
-            return null;
-        }
+        function longWindow() { return windowOf(long); }
 
         function test_a_long_menu_scrolls_inside_its_maximum() {
             compare(UnitTheme.override({ menu: { maxHeight: 90 } }), "ok");
@@ -993,9 +1012,7 @@ Item {
         function test_the_first_menu_entry_meets_the_border(data) {
             compare(UnitTheme.override(data.theme), "ok");
             menu.open("key");
-            let window = null;
-            for (let i = 0; i < menu.resources.length; i++)
-                if (menu.resources[i].anchor !== undefined) window = menu.resources[i];
+            const window = windowOf(menu);
             const plate = menu.items()[0].cursor;
             tryCompare(plate, "opacity", 1);
             tryVerify(() => plate.target === menu.items()[0] && plate.height === menu.items()[0].height, 2000, "the cursor holds the first entry");
@@ -1091,8 +1108,10 @@ Item {
             compare(out, [], "every row of the field lies under the list's opaque fill");
         }
 
-        // The window of an overlay that declares it.
+        // The window of an overlay that declares it: a menu's `surface`,
+        // which its first open builds.
         function windowOf(owner) {
+            if (owner.surface !== undefined) return owner.surface;
             for (let i = 0; i < owner.resources.length; i++)
                 if (owner.resources[i].anchor !== undefined) return owner.resources[i];
             return null;

@@ -404,10 +404,15 @@ function foundDevices(devices, printers) {
     order.sort(function (a, b) { return a - b; });
     var installed = printers.map(function (p) { return p.uri; });
     var out = [];
+    var seen = {};
     for (var i = 0; i < order.length; i++) {
         var d = byIndex[String(order[i])];
         var uri = d.uri || "";
         if (uri.indexOf(":") === -1 || installed.indexOf(uri) !== -1) continue;
+        // CUPS can report one URI with different device info. Keep its
+        // first entry, the same identity Service.addFound selects.
+        if (Object.prototype.hasOwnProperty.call(seen, uri)) continue;
+        seen[uri] = true;
         var info = d.info || d["make-and-model"] || uri;
         out.push({ key: uri, uri: uri, info: printable(info), make: printable(d["make-and-model"] || ""), driverless: driverless(uri) });
     }

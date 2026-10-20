@@ -52,7 +52,42 @@ const busy = [
 ].join("\n");
 const devices = "('', {'device-class:0': 'network', 'device-info:0': 'Lab Printer', 'device-make-and-model:0': 'HP LaserJet', 'device-uri:0': 'ipp://lab.local:631/ipp/print', 'device-class:1': 'direct', 'device-info:1': 'Brother HL-L2350DW', 'device-make-and-model:1': 'Brother HL-L2350DW', 'device-uri:1': 'usb://Brother/HL-L2350DW?serial=E7', 'device-class:2': 'network', 'device-info:2': \"It's \\\"quoted\\\"\", 'device-uri:2': 'socket://192.0.2.9'})\n";
 
+function verifyFoundIdentity(logic) {
+    // cups-deviced retains one URI with different device-info or class.
+    // Its numeric CUPS index, rather than dictionary insertion order,
+    // determines which payload owns that URI.
+    const cases = [
+        ["different info", "ipp://shared.local/ipp/print", [[0, "network", "First", "First model"], [1, "network", "Later", "Later model"]], true],
+        ["different class in reversed dictionary order", "ipp://shared.local/ipp/print", [[10, "direct", "Later", "Later model"], [2, "network", "First", "First model"]], true],
+        ["a device needing a driver", "socket://192.0.2.10", [[0, "direct", "First", "First model"], [1, "network", "Later", "Later model"]], false],
+    ];
+    for (const [label, uri, entries, driverless] of cases) {
+        const dictionary = {};
+        for (const [index, kind, info, make] of entries) {
+            dictionary["device-class:" + index] = kind;
+            dictionary["device-info:" + index] = info;
+            dictionary["device-make-and-model:" + index] = make;
+            dictionary["device-uri:" + index] = uri;
+        }
+        const found = logic.foundDevices(dictionary, []);
+        const want = { key: uri, uri, info: "First", make: "First model", driverless };
+        assert.deepEqual(plain(found), [want], "first URI payload: " + label);
+        const rows = logic.foundRows(found);
+        assert.deepEqual(plain(rows.map(row => [row.key, row.text, row.driverless])),
+            [[uri, "First", driverless]], "first URI displayed payload: " + label);
+        // This is the native first-URI lookup used by Service.addFound and
+        // Pane.addFound. The pure test does not execute either QML handler.
+        for (const row of rows) {
+            const selected = found.find(device => device.uri === row.key);
+            assert.deepEqual(plain(selected), want, "first URI action lookup: " + label);
+            assert.equal(row.text, selected.info, "first URI display and action agree: " + label);
+            assert.equal(row.driverless, selected.driverless, "first URI action kind agrees: " + label);
+        }
+    }
+}
+
 function suite(logic) {
+    verifyFoundIdentity(logic);
     // lpstat, one row per output: the code, the text and the reading.
     for (const [name, code, text, want] of [
         ["the host's one idle printer", 0, host, { state: "read", default: "", printers: [{ name: "Brother", state: "idle", message: "Waiting for job to complete.", jobs: 0, isDefault: false, uri: "ipp://BRWF4289DE3354F.local:631/ipp/print" }] }],
@@ -292,7 +327,9 @@ suite(load(file));
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "printers-logic-"));
 try {
     const source = fs.readFileSync(file, "utf8");
-    for (const [name, needle, replacement] of [
+    for (const [name, needle, replacement, check = suite, message] of [
+        ["duplicate URIs keep the first payload", "if (Object.prototype.hasOwnProperty.call(seen, uri)) continue;", "if (false && Object.prototype.hasOwnProperty.call(seen, uri)) continue;", verifyFoundIdentity, "first URI payload"],
+        ["CUPS index chooses the first URI payload", "order.sort(function (a, b) { return a - b; });", "order.sort(function (a, b) { return b - a; });", verifyFoundIdentity, "first URI payload"],
         ["the scheduler line is not read", 'if (lines[0] === "scheduler is not running") return { state: "down" };', ""],
         ["a job counts for no printer", "jobs[m[1]] = (jobs[m[1]] || 0) + 1;", ""],
         ["lpstat's own no-message line is a message", 'if (last.message === "" && m[1].trim() !== "reason unknown")', 'if (last.message === "")'],
@@ -324,8 +361,11 @@ try {
     ]) {
         assert.equal(source.split(needle).length - 1, 1, name + " mutation must match once");
         const mutant = path.join(scratch, "PrintersLogic.js");
-        fs.writeFileSync(mutant, source.replace(needle, replacement));
-        assert.throws(() => suite(load(mutant)), assert.AssertionError, "control: " + name);
+        const changed = source.replace(needle, replacement);
+        assert.notEqual(changed, source, "control changes the source: " + name);
+        fs.writeFileSync(mutant, changed);
+        assert.throws(() => check(load(mutant)), error => error instanceof assert.AssertionError
+            && (message === undefined || error.message.includes(message)), "control: " + name);
         console.log("printers-logic: control=" + name + " red");
     }
 } finally { fs.rmSync(scratch, { recursive: true, force: true }); }

@@ -7,12 +7,11 @@ Tailscale connects this computer to your tailnet. It turns the connection on and
 ## Features
 
 - A route icon shows the connection state and changes to a globe with a lock while an exit node is in use. It hides while Tailscale or its service is absent.
-- A flyout holds the connection switch, Sign in while you are signed out, and the exit nodes. Tailscale settings opens the System Settings section.
-- The System Settings section shows the same controls, this device, your accounts and your other devices.
-- The switch turns Tailscale on and off and leaves your Tailscale settings as they are.
-- The exit node list holds None, your network's exit nodes by name, and one Mullvad node for each city. A long list shows a limited number of nodes and keeps the node in use.
-- Enter or a click routes your traffic through the selected exit node. None turns the exit node off.
-- Sign in and Add account open the Tailscale sign-in page in your browser. A click on an account switches to it.
+- The flyout holds the connection switch and its state, your account and tailnet, this device, your network devices and the exit node. Open admin console opens the Tailscale admin console in your browser, and Tailscale settings opens the System Settings section.
+- The account row lists your accounts. Select one to switch to it. Add account opens the Tailscale sign-in page in your browser. Sign out asks first, because an admin may need to approve this computer again after it signs in.
+- Copy beside this device or a network device puts its Tailscale address on the clipboard.
+- The Exit node row opens the exit nodes: Recommended, the node Tailscale suggests, then None, your own exit nodes and Mullvad by country and city. Best available in a country picks the city Tailscale ranks highest at that moment. Type in the search field to find a country, a city or a device. An offline exit node of your own cannot be chosen.
+- The switch turns Tailscale on and off and leaves your Tailscale settings as they are. Users, access, device approval and device removal stay in the admin console.
 
 ## Setup
 

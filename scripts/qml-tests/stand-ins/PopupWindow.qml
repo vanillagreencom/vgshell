@@ -33,6 +33,16 @@ Window {
     }
 
     property bool grabFocus: false
+    property bool connected: false
+
+    // Quickshell makes the backing window on the first show and then
+    // emits windowConnected; this window exists from the start, so it
+    // emits the signal on its first show.
+    signal windowConnected()
+    onVisibleChanged: if (visible && !connected) {
+        connected = true;
+        windowConnected();
+    }
     property QtObject mask: null
     property int implicitWidth: 0
     property int implicitHeight: 0

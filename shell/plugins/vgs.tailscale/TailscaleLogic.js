@@ -1,31 +1,45 @@
 .pragma library
 .import qs.Commons 1.0 as Commons
-// Pure decisions for the Tailscale section: the poll's one-in-flight rule,
-// the snapshot read from `tailscale status --json`, each exit node's CLI
-// target, the argv of every command, and the lines the views draw.
-// Service.qml runs the effects.
+// Pure decisions for Tailscale: the poll's one-in-flight rule and its rate,
+// the snapshot read from `tailscale status --json`, the accounts read from
+// `tailscale switch --list --json`, the node `tailscale exit-node suggest`
+// names, each exit node's CLI target, the argv of every command, the three
+// status values and their byte budgets, and the lines and rows the views
+// draw. Service.qml runs the effects.
 
-// A poll that has not ended after this long is killed. Only a poll's start
-// arms the deadline, so a refresh cannot move it.
+// A read, a poll, the accounts or a suggestion, that has not ended after
+// this long is killed. Only a read's start arms the deadline, so a refresh
+// cannot move it.
 var WATCHDOG_MS = 10000;
-// The poll interval while a flyout or the pane is open.
-var OPEN_POLL_MS = 3000;
+// The poll interval while a view is open or Tailscale is starting.
+var FAST_POLL_MS = 3000;
 // A command that changes Tailscale is killed after this long.
 var ACTION_MS = 30000;
 // A sign-in the user has not finished is ended after this long.
 var LOGIN_MS = 300000;
 // The most the service keeps of what a sign-in run prints, in characters.
 var LOGIN_SAID_MAX = 4096;
-// List ceilings bound retained rows. statusWrites also bounds their JSON
-// bytes together under the core's per-plugin ceiling (D037).
+// List ceilings bound retained rows: the network devices and your own exit
+// nodes each, the Mullvad cities, the accounts. statusWrites also bounds
+// each value's JSON bytes under the core's per-plugin ceiling (D037).
 var PEER_MAX = 64;
-var EXIT_MAX = 80;
+var CITY_MAX = 160;
 var ACCOUNT_MAX = 16;
+// The most matches the chooser's search draws at once. The view builds
+// each row a keystroke adds on the GUI thread, about 1 ms a row: 100
+// DeviceList rows took 105-126 ms to build in a qmltestrunner offscreen
+// run (VGS-1929, 2026-10-21), so the first keystroke over a tailnet's 64
+// own nodes and 160 cities would build 224 rows without it.
+var SEARCH_MAX = 20;
 var TEXT_MAX = 64;
 // The longest DNS name, the longest target a node can have.
 var TARGET_MAX = 253;
 // The tag Tailscale gives each Mullvad exit node.
 var MULLVAD_TAG = "tag:mullvad-exit-node";
+// The page Open admin console opens. Users, access, approval, keys and
+// device removal stay there; VGS rebuilds none of it.
+var ADMIN_URL = "https://login.tailscale.com/admin";
+var IN_USE = "In use";
 
 // The CLI's failure texts this plugin tells apart, first match wins.
 var FAILURES = [
@@ -50,8 +64,11 @@ function failureText(kind) {
     throw new Error("tailscale: failure kind " + JSON.stringify(kind) + " is not one of access-denied, service-off, timeout, other");
 }
 
-function pollInterval(open, idleSeconds) {
-    return open ? OPEN_POLL_MS : idleSeconds * 1000;
+// The poll's interval: fast while a view is OPEN, and while STATE reads
+// `starting`, so the bar shows the connection as soon as it comes up after
+// boot or a connect; else IDLESECONDS, the `pollSeconds` setting.
+function pollInterval(open, state, idleSeconds) {
+    return open || state === "starting" ? FAST_POLL_MS : idleSeconds * 1000;
 }
 
 function pollIdle() { return { flight: false, again: false }; }
@@ -78,9 +95,10 @@ function pollStep(state, event) {
 
 // A name another device chose, as one drawn line: no control character,
 // and no `<`, which makes Qt read a text as markup.
-function line(value) {
+function line(value, max) {
     var text = typeof value === "string" ? value.replace(/[\u0000-\u001f\u007f<]/g, "") : "";
-    return text.length > TEXT_MAX ? text.slice(0, TEXT_MAX) : text;
+    var most = max === undefined ? TEXT_MAX : max;
+    return text.length > most ? text.slice(0, most) : text;
 }
 
 function firstIPv4(addresses) {
@@ -94,8 +112,32 @@ function dnsName(peer) {
     return typeof peer.DNSName === "string" ? peer.DNSName.replace(/\.$/, "") : "";
 }
 
+// A peer's DNS name as a drawn line, without its final dot; "" for one
+// past the longest DNS name.
+function dnsLine(peer) {
+    var name = dnsName(peer);
+    return name.length > TARGET_MAX ? "" : line(name, TARGET_MAX);
+}
+
 function isMullvad(peer) {
     return Array.isArray(peer.Tags) && peer.Tags.indexOf(MULLVAD_TAG) !== -1;
+}
+
+function isTagged(peer) {
+    return Array.isArray(peer.Tags) && peer.Tags.length > 0;
+}
+
+function validId(id) {
+    return typeof id === "string" && id !== "" && id.length <= TEXT_MAX;
+}
+
+// The row icon for PEER: a phone for iOS and Android, a server for a
+// tagged peer, which a person does not carry, a laptop otherwise.
+function peerIcon(peer) {
+    var os = typeof peer.OS === "string" ? peer.OS.toLowerCase() : "";
+    if (os === "ios" || os === "android") return "smartphone";
+    if (isTagged(peer)) return "server";
+    return "laptop";
 }
 
 // What `tailscale set --exit-node=` takes for PEER: its DNS name, else its
@@ -122,52 +164,116 @@ function place(peer) {
     return line([at.City, at.Country].filter(function (part) { return typeof part === "string" && part !== ""; }).join(", "));
 }
 
+function rank(peer) {
+    return isPlain(peer.Location) && typeof peer.Location.Priority === "number" ? peer.Location.Priority : 0;
+}
+
 function isPlain(value) {
     return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function has(map, key) {
+    return Object.prototype.hasOwnProperty.call(map, key);
 }
 
 function byText(key) {
     return function (a, b) { return a[key] < b[key] ? -1 : a[key] > b[key] ? 1 : 0; };
 }
 
-// The exit nodes PEERS offer as { rows, count }: the tailnet's own nodes
-// by name, then one Mullvad node a city, the one in use, else the one
-// Tailscale ranks highest. A peer with no target, or with an id or target
-// past its ceiling, is left out. `rows` holds at most EXIT_MAX, the node
-// in use always among them.
+function onlineFirst(a, b) {
+    return Number(b.online) - Number(a.online) || byText("name")(a, b);
+}
+
+// Whether node A, with its rank, beats the node HELD for its place: the
+// node in use, then an online node, then the higher rank.
+function beats(a, held) {
+    if (held === undefined) return true;
+    if (a.active !== held.active) return a.active;
+    if (a.online !== held.online) return a.online;
+    return a.rank > held.rank;
+}
+
+// ROWS bounded to MAX, the one row in use kept in the last place.
+function keepActive(rows, max) {
+    var kept = rows.slice(0, max);
+    var active = rows.filter(function (row) { return row.active; })[0];
+    if (active !== undefined && kept.indexOf(active) === -1) kept[kept.length - 1] = active;
+    return kept;
+}
+
+// The exit nodes PEERS offer: { own, countries, cityCount, targets, exit }.
+// `own` is the tailnet's own nodes, online first then by name, at most
+// PEER_MAX, the one in use kept: { id, target, name, os, icon, online,
+// active }. `countries` is the Mullvad nodes by country, then city, each by
+// name: { code, name, best: { id, city }, cities: [{ code, name, id,
+// target, active }] }. A city keeps the node in use, else an online node
+// before an offline one, then the one Tailscale ranks highest
+// (Location.Priority); `best` is the country's online node it ranks
+// highest, which Best available uses at the moment of the click. At most
+// CITY_MAX cities are kept, the one in use always among them; `cityCount`
+// counts them all. `targets` maps every exit node's id to { target,
+// online, mullvad, dns, name }, for the command and the suggestion, and
+// is never published. `exit` is the node in use, { id, name }, or null. A
+// peer with no target, or with an id or target past its ceiling, is left
+// out.
 function exitNodes(peers) {
     var own = [];
-    var cities = {};
+    var targets = {};
+    var places = {};
+    var exit = null;
     peers.forEach(function (peer) {
-        if (peer.ExitNodeOption !== true || typeof peer.ID !== "string" || peer.ID === "" || peer.ID.length > TEXT_MAX) return;
+        if (peer.ExitNodeOption !== true || !validId(peer.ID)) return;
         var target = exitTarget(peer);
         if (target === "" || target.length > TARGET_MAX) return;
         var mullvad = isMullvad(peer);
-        var row = { id: peer.ID, target: target, name: peerName(peer), place: mullvad ? place(peer) : "", mullvad: mullvad,
-            online: peer.Online === true, active: peer.ExitNode === true };
+        var node = { id: peer.ID, target: target, online: peer.Online === true, active: peer.ExitNode === true, rank: rank(peer) };
+        var shown = mullvad && place(peer) !== "" ? place(peer) : peerName(peer);
+        targets[peer.ID] = { target: target, online: node.online, mullvad: mullvad, dns: dnsName(peer).toLowerCase(), name: shown };
+        if (node.active) exit = { id: peer.ID, name: shown };
         if (!mullvad) {
-            own.push(row);
+            own.push({ id: peer.ID, target: target, name: peerName(peer), os: line(peer.OS), icon: peerIcon(peer), online: node.online, active: node.active });
             return;
         }
-        var rank = isPlain(peer.Location) && typeof peer.Location.Priority === "number" ? peer.Location.Priority : 0;
-        var city = row.place !== "" ? row.place : row.id;
-        var held = cities[city];
-        if (held === undefined || (!held.row.active && (row.active || rank > held.rank))) cities[city] = { row: row, rank: rank };
+        var at = isPlain(peer.Location) ? peer.Location : {};
+        var countryName = line(at.Country);
+        var cityName = line(at.City);
+        if (countryName === "" || cityName === "") return;
+        var countryCode = line(at.CountryCode) !== "" ? line(at.CountryCode) : countryName;
+        var cityCode = line(at.CityCode) !== "" ? line(at.CityCode) : cityName;
+        if (!has(places, countryCode)) places[countryCode] = { code: countryCode, name: countryName, best: null, cities: {} };
+        var country = places[countryCode];
+        var held = country.cities[cityCode];
+        if (beats(node, held === undefined ? undefined : held.node))
+            country.cities[cityCode] = { node: node, row: { code: cityCode, name: cityName, id: node.id, target: target, active: node.active } };
+        // Best available never picks by the node in use, only by rank.
+        var ranked = { active: false, online: node.online, rank: node.rank };
+        if (country.best === null || beats(ranked, country.best.node)) country.best = { node: ranked, id: node.id, city: cityName };
     });
-    var mullvadRows = Object.keys(cities).map(function (key) { return cities[key].row; });
-    var all = own.sort(byText("name")).concat(mullvadRows.sort(byText("place")));
-    var rows = all.slice(0, EXIT_MAX);
-    var active = all.filter(function (row) { return row.active; })[0];
-    if (active !== undefined && rows.indexOf(active) === -1) rows[rows.length - 1] = active;
-    return { rows: rows, count: all.length };
+    var countries = Object.keys(places).map(function (code) {
+        var country = places[code];
+        var cities = Object.keys(country.cities).map(function (key) { return country.cities[key].row; }).sort(byText("name"));
+        return { code: country.code, name: country.name, best: { id: country.best.id, city: country.best.city }, cities: cities };
+    }).sort(byText("name"));
+    var all = [];
+    countries.forEach(function (country) { all = all.concat(country.cities); });
+    var kept = keepActive(all, CITY_MAX);
+    countries = countries.map(function (country) {
+        return Object.assign({}, country, { cities: country.cities.filter(function (city) { return kept.indexOf(city) !== -1; }) });
+    }).filter(function (country) { return country.cities.length > 0; });
+    return { own: keepActive(own.sort(onlineFirst), PEER_MAX), countries: countries, cityCount: all.length, targets: targets, exit: exit };
 }
 
-function peerRows(peers) {
-    var all = peers.filter(function (peer) { return !isMullvad(peer); }).map(function (peer) {
-        return { name: peerName(peer), address: firstIPv4(peer.TailscaleIPs), online: peer.Online === true };
+// The network devices PEERS hold, Mullvad nodes left out: { rows, count,
+// online }, `rows` online first then by name, at most PEER_MAX: { id, name,
+// os, icon, address, dnsName, online }. `count` and `online` count every
+// device, kept or not.
+function devices(peers) {
+    var all = peers.filter(function (peer) { return !isMullvad(peer) && validId(peer.ID); }).map(function (peer) {
+        return { id: peer.ID, name: peerName(peer), os: line(peer.OS), icon: peerIcon(peer), address: firstIPv4(peer.TailscaleIPs),
+            dnsName: dnsLine(peer), online: peer.Online === true };
     });
-    all.sort(function (a, b) { return Number(b.online) - Number(a.online) || byText("name")(a, b); });
-    return { rows: all.slice(0, PEER_MAX), count: all.length };
+    all.sort(onlineFirst);
+    return { rows: all.slice(0, PEER_MAX), count: all.length, online: all.filter(function (row) { return row.online; }).length };
 }
 
 var BACKEND_STATES = {
@@ -176,8 +282,8 @@ var BACKEND_STATES = {
 };
 
 function emptySnapshot(state) {
-    return { state: state, device: { name: "", address: "" }, tailnet: "", account: "", exit: null,
-        exitNodes: [], exitCount: 0, peers: [], peerCount: 0 };
+    return { state: state, device: { name: "", address: "", dnsName: "" }, tailnet: "", account: "", exit: null,
+        devices: { rows: [], count: 0, online: 0 }, exitNodes: { own: [], countries: [], cityCount: 0 }, targets: {} };
 }
 
 // What one `tailscale status --json` run reads: CODE its exit code, -1 for
@@ -193,43 +299,76 @@ function snapshot(code, stdout, stderr) {
     } catch (e) {
         return emptySnapshot("unavailable");
     }
-    if (!isPlain(doc) || !Object.prototype.hasOwnProperty.call(BACKEND_STATES, doc.BackendState)) return emptySnapshot("unavailable");
+    if (!isPlain(doc) || !has(BACKEND_STATES, doc.BackendState)) return emptySnapshot("unavailable");
     var out = emptySnapshot(BACKEND_STATES[doc.BackendState]);
     var self = isPlain(doc.Self) ? doc.Self : {};
     var users = isPlain(doc.User) ? doc.User : {};
     var user = users[String(self.UserID)];
     var peers = isPlain(doc.Peer) ? Object.keys(doc.Peer).map(function (key) { return doc.Peer[key]; }).filter(isPlain) : [];
-    out.device = { name: peerName(self), address: firstIPv4(self.TailscaleIPs) };
+    out.device = { name: peerName(self), address: firstIPv4(self.TailscaleIPs), dnsName: dnsLine(self) };
     out.tailnet = isPlain(doc.CurrentTailnet) ? line(doc.CurrentTailnet.Name) : "";
     out.account = isPlain(user) ? line(user.LoginName) : "";
     var exits = exitNodes(peers);
-    var active = exits.rows.filter(function (row) { return row.active; })[0];
-    out.exit = active === undefined ? null : { id: active.id, name: active.place !== "" ? active.place : active.name };
-    out.exitNodes = exits.rows;
-    out.exitCount = exits.count;
-    var listed = peerRows(peers);
-    out.peers = listed.rows;
-    out.peerCount = listed.count;
+    out.exit = exits.exit;
+    out.exitNodes = { own: exits.own, countries: exits.countries, cityCount: exits.cityCount };
+    out.targets = exits.targets;
+    out.devices = devices(peers);
     return out;
 }
 
-// The accounts `tailscale switch --list` prints: a header line starting
-// `ID`, then one line an account, its columns two or more spaces apart
-// and the account in use ending in `*`. Answers { rows, fault }: `fault`
-// is "" for a list this read, `failed` for a run that did not end with
-// code 0 and `header` for output without that header, both with no rows.
+// The accounts `tailscale switch --list --json` prints: an array of
+// { id, nickname, tailnet, account, selected }, `[]` with none. Answers
+// { rows, fault }, rows { id, tailnet, account, current } in the CLI's
+// order, at most ACCOUNT_MAX: `fault` is "" for a list this read, `failed`
+// for a run that did not end with code 0 and `json` for output that is no
+// JSON array, both with no rows. An entry with no id, or an id past its
+// ceiling, is left out.
 function accounts(code, stdout) {
-    var lines = String(stdout).split("\n").filter(function (text) { return text.trim() !== ""; });
     if (code !== 0) return { rows: [], fault: "failed" };
-    if (lines.length === 0 || !/^ID\s/.test(lines[0])) return { rows: [], fault: "header" };
+    var list;
+    try {
+        list = JSON.parse(stdout);
+    } catch (e) {
+        return { rows: [], fault: "json" };
+    }
+    if (!Array.isArray(list)) return { rows: [], fault: "json" };
     var rows = [];
-    lines.slice(1).forEach(function (text) {
-        var columns = text.trim().split(/\s{2,}|\t+/);
-        if (columns.length < 3 || columns[0].length > TEXT_MAX || rows.length === ACCOUNT_MAX) return;
-        var current = /\*$/.test(columns[2]);
-        rows.push({ id: columns[0], tailnet: line(columns[1]), account: line(columns[2].replace(/\*$/, "")), current: current });
+    list.forEach(function (item) {
+        if (!isPlain(item) || !validId(item.id) || rows.length === ACCOUNT_MAX) return;
+        rows.push({ id: item.id, tailnet: line(item.tailnet), account: line(item.account), current: item.selected === true });
     });
     return { rows: rows, fault: "" };
+}
+
+// The node `tailscale exit-node suggest` names, from its text: the line
+// "Suggested exit node: <DNS name>." gives the DNS name, without its final
+// dot and in lower case; "No exit node suggestion is available." gives
+// none. The CLI has no JSON form. CODE is the run's exit code, -1 for a
+// run its deadline killed or that never started, as for `snapshot`.
+// Answers { name, fault }: `fault` is "" for either text, `timeout` for
+// code -1, `failed` for any other code but 0 and `unread` for any other
+// text, all three with no name.
+function suggested(code, stdout) {
+    if (code === -1) return { name: "", fault: "timeout" };
+    if (code !== 0) return { name: "", fault: "failed" };
+    var lines = String(stdout).split("\n").map(function (text) { return text.trim(); });
+    for (var i = 0; i < lines.length; i++) {
+        var found = /^Suggested exit node: (\S+)$/.exec(lines[i]);
+        if (found !== null) return { name: found[1].replace(/\.$/, "").toLowerCase(), fault: "" };
+    }
+    if (lines.indexOf("No exit node suggestion is available.") !== -1) return { name: "", fault: "" };
+    return { name: "", fault: "unread" };
+}
+
+// The suggested node NAME names among SNAP's exit nodes, compared
+// case-blind without the final dot: { id, name }, `name` its place or its
+// name, or null for no name or a name no listed node holds.
+function suggestion(name, snap) {
+    if (name === "") return null;
+    var ids = Object.keys(snap.targets);
+    for (var i = 0; i < ids.length; i++)
+        if (snap.targets[ids[i]].dns === name) return { id: ids[i], name: snap.targets[ids[i]].name };
+    return null;
 }
 
 // The first https address in a line `tailscale login` prints, "" for none.
@@ -241,9 +380,10 @@ function loginUrl(text) {
 var REACHED = ["running", "stopped", "signed-out", "needs-approval", "starting"];
 
 // The argv of REQUEST, { kind, id? }, over what the service holds, DATA
-// { state, exitNodes, accounts }: { argv }, or { refusal } for a request
+// { state, targets, accounts }: { argv }, or { refusal } for a request
 // the state does not take or that names nothing listed. An exit node goes
-// by its target; "" as the id turns the exit node off.
+// by its target; "" as the id turns the exit node off. An offline node of
+// your own is refused, as Tailscale would route nothing through it.
 function command(request, data) {
     if (!isPlain(request) || typeof request.kind !== "string") return { refusal: "refused: action=malformed" };
     var refused = { refusal: "refused: action=" + request.kind + " state=" + data.state };
@@ -255,8 +395,9 @@ function command(request, data) {
     case "exit-node":
         if (data.state !== "running") return refused;
         if (request.id === "") return { argv: ["tailscale", "set", "--exit-node="] };
-        var node = data.exitNodes.filter(function (row) { return row.id === request.id; })[0];
-        if (node === undefined) return { refusal: "refused: exit-node=absent" };
+        if (typeof request.id !== "string" || !has(data.targets, request.id)) return { refusal: "refused: exit-node=absent" };
+        var node = data.targets[request.id];
+        if (!node.mullvad && !node.online) return { refusal: "refused: exit-node=offline" };
         return { argv: ["tailscale", "set", "--exit-node=" + node.target] };
     case "switch":
         if (REACHED.indexOf(data.state) === -1) return refused;
@@ -265,8 +406,25 @@ function command(request, data) {
         return { argv: ["tailscale", "switch", account.id] };
     case "login":
         return REACHED.indexOf(data.state) !== -1 ? { argv: ["tailscale", "login", "--timeout", "0"] } : refused;
+    case "logout":
+        return REACHED.indexOf(data.state) !== -1 ? { argv: ["tailscale", "logout"] } : refused;
+    case "admin-console":
+        return { argv: ["xdg-open", ADMIN_URL] };
     }
     return { refusal: "refused: action=unknown" };
+}
+
+// The sentence a view shows for the service's REPLY to a request, "" for
+// `ok`.
+function replyText(reply) {
+    switch (reply) {
+    case "ok": return "";
+    case "busy": return "A Tailscale change is still in progress.";
+    case "refused: exit-node=offline": return "This exit node is offline.";
+    case "refused: admin-console=missing-tool":
+    case "refused: login=missing-tool": return "This needs a tool to open your browser. Use the installation notice to add it.";
+    }
+    return "Tailscale cannot do this now.";
 }
 
 function stepOffered(step) { return step === "needed" || step === "nixos"; }
@@ -293,7 +451,7 @@ function setup(context) {
     if (context.state === "service-off") {
         if (context.service === "") return null;
         if (stepOffered(context.service)) return setupState("warning", "Off", "The Tailscale service is off. Enable turns it on.", "enable");
-        var unoffered = Object.prototype.hasOwnProperty.call(SERVICE_UNOFFERED, context.service) ? SERVICE_UNOFFERED[context.service]
+        var unoffered = has(SERVICE_UNOFFERED, context.service) ? SERVICE_UNOFFERED[context.service]
             : { text: "Not checked", hint: "VGS could not check the Tailscale service." };
         return setupState("info", unoffered.text, unoffered.hint, "");
     }
@@ -314,9 +472,9 @@ function connection(missing, snap) {
     case "missing": return { state: state, tone: "warning", text: "Tailscale is not installed." };
     case "checking": return { state: state, tone: "info", text: "Checking Tailscale" };
     case "service-off": return { state: state, tone: "warning", text: "The Tailscale service is off." };
-    case "unavailable": return { state: state, tone: "warning", text: "Tailscale did not answer." };
+    case "unavailable": return { state: state, tone: "warning", text: "Not answering" };
     case "signed-out": return { state: state, tone: "info", text: "Signed out" };
-    case "needs-approval": return { state: state, tone: "warning", text: "This device waits for approval." };
+    case "needs-approval": return { state: state, tone: "warning", text: "Waiting for approval" };
     case "starting": return { state: state, tone: "info", text: "Starting" };
     case "stopped": return { state: state, tone: "info", text: "Off" };
     case "running": return { state: state, tone: "ok", text: snap.exit === null ? "Connected" : "Connected through " + snap.exit.name };
@@ -324,21 +482,25 @@ function connection(missing, snap) {
     throw new Error("tailscale: state " + JSON.stringify(state) + " has no connection line");
 }
 
-// The `tailscale` value the service publishes and the views draw: the snapshot
-// under the connection line, with `writable`, false while the command is
-// MISSING or the Allow step or another setup step must run first, and
-// true while SETUPLINE is null, before the steps' first reading, as for a
-// step that could not be checked, and LIVE { accounts, action,
-// login, problem }, what the service holds beside the snapshot.
+// The `tailscale` value the service publishes and the views draw: the
+// connection line, the account, this device and the exit node in use,
+// with `writable`, false while the command is MISSING or the Allow step or
+// another setup step must run first, and true while SETUPLINE is null,
+// before the steps' first reading, as for a step that could not be
+// checked, and LIVE { accounts, action, login, problem, suggestion,
+// backendPresent }, what the service holds beside the snapshot. The
+// network devices and the exit nodes are values of their own (statusWrites).
 function published(missing, snap, setupLine, live) {
     var shown = connection(missing, snap);
-    return Object.assign({}, snap, { state: shown.state, tone: shown.tone, text: shown.text, writable: !missing && (setupLine === null || setupLine.action === ""),
-        accounts: live.accounts, action: live.action, login: live.login, problem: live.problem, backendPresent: live.backendPresent !== false });
+    return { state: shown.state, tone: shown.tone, text: shown.text, writable: !missing && (setupLine === null || setupLine.action === ""),
+        backendPresent: live.backendPresent !== false, device: snap.device, tailnet: snap.tailnet, account: snap.account, exit: snap.exit,
+        suggestion: live.suggestion === undefined ? null : live.suggestion, accounts: live.accounts, action: live.action, login: live.login,
+        problem: live.problem };
 }
 
 // What a view draws before the service's first write.
 function unread() {
-    return published(false, emptySnapshot("checking"), { action: "" }, { accounts: [], action: "", login: "idle", problem: "" });
+    return published(false, emptySnapshot("checking"), { action: "" }, { accounts: [], action: "", login: "idle", problem: "", suggestion: null });
 }
 
 // Why the controls `tailscale.writable` enables cannot change Tailscale now, as
@@ -364,10 +526,148 @@ function barView(tailscale) {
         tooltip: "Tailscale: " + tailscale.text };
 }
 
-// Bound the snapshot with room for both state lines during sequential writes.
-var STATUS_DATA_BYTES = 32000;
+// The sentence under the flyout's title for a state that has one, "" for
+// the rest.
+function stateHint(tailscale) {
+    switch (tailscale.state) {
+    case "signed-out": return "Sign in to connect this computer to your tailnet.";
+    case "needs-approval": return "An admin of " + (tailscale.tailnet !== "" ? tailscale.tailnet : "your tailnet") + " must approve this device.";
+    case "unavailable": return "Tailscale did not answer.";
+    }
+    return "";
+}
 
-function statusWrites(connectionLine, setupLine, tailscaleValue) {
+// The sign-out confirmation for TAILNET: { title, message }.
+function signOutPrompt(tailnet) {
+    var name = tailnet !== "" ? tailnet : "your tailnet";
+    return { title: "Sign out of " + name + "?",
+        message: "This computer leaves " + name + " until you sign in again. An admin of " + name + " may need to approve this computer again." };
+}
+
+function badge(active) { return active ? IN_USE : ""; }
+
+// The rows the views draw, each a DeviceList row: { key, text, secondary,
+// iconName, badge, badgeTone } and, for an exit node, `id`, the node the
+// row chooses, "" for None, which the view sends and never a target.
+function accountRows(list) {
+    return list.map(function (row) {
+        return { key: row.id, text: row.account, secondary: row.tailnet, iconName: "user", badge: badge(row.current), badgeTone: "success" };
+    });
+}
+
+function deviceRows(value) {
+    return value.rows.map(function (row) {
+        return { key: row.id, text: row.name, secondary: row.online ? row.address : [row.address, "Offline"].filter(function (part) { return part !== ""; }).join(" · "),
+            iconName: row.icon, address: row.address };
+    });
+}
+
+// "3 of 5 online", over every device, kept or not.
+function devicesLine(value) {
+    return value.online + " of " + value.count + " online";
+}
+
+// The Exit node row's secondary line.
+function exitLine(tailscale) {
+    return tailscale.exit === null ? "None" : tailscale.exit.name;
+}
+
+// Recommended, while a suggestion is read, then None.
+function exitTopRows(tailscale) {
+    var rows = [];
+    var inUse = tailscale.exit === null ? "" : tailscale.exit.id;
+    if (tailscale.suggestion !== null)
+        rows.push({ key: "recommended", id: tailscale.suggestion.id, text: tailscale.suggestion.name, secondary: "Recommended", iconName: "sparkles",
+            badge: badge(tailscale.suggestion.id === inUse), badgeTone: "success" });
+    rows.push({ key: "none", id: "", text: "None", secondary: "Use this computer's own connection", iconName: "globe-off",
+        badge: badge(tailscale.exit === null), badgeTone: "success" });
+    return rows;
+}
+
+function ownRow(node) {
+    return { key: node.id, id: node.id, text: node.name, secondary: node.online ? "Online" : "Offline", iconName: node.icon,
+        badge: badge(node.active), badgeTone: "success" };
+}
+
+function ownRows(value) {
+    return value.own.map(ownRow);
+}
+
+// A Mullvad country as a row: one city shows that city and chooses it;
+// more show their count and `opens` the country view.
+function countryRows(value) {
+    return value.countries.map(function (country) {
+        var one = country.cities.length === 1;
+        return { key: country.code, code: country.code, id: one ? country.cities[0].id : "", text: country.name,
+            secondary: one ? country.cities[0].name : country.cities.length + " cities", iconName: "map-pin", opens: !one,
+            badge: badge(country.cities.some(function (city) { return city.active; })), badgeTone: "success" };
+    });
+}
+
+// The country view's rows: Best available, the best city now, then each city.
+function cityRows(country) {
+    return [{ key: "best", id: country.best.id, text: "Best available", secondary: country.best.city + " now", iconName: "sparkles" }]
+        .concat(country.cities.map(function (city) {
+            return { key: "city:" + city.code, id: city.id, text: city.name, iconName: "map-pin", badge: badge(city.active), badgeTone: "success" };
+        }));
+}
+
+// The rows matching QUERY, case-blind on a node's name, a city or a
+// country: your own nodes, then each matching city flat as "City,
+// Country". An empty query matches nothing.
+function searchRows(value, query) {
+    var wanted = String(query).trim().toLowerCase();
+    if (wanted === "") return [];
+    var holds = function (text) { return text.toLowerCase().indexOf(wanted) !== -1; };
+    var rows = value.own.filter(function (node) { return holds(node.name); }).map(ownRow);
+    value.countries.forEach(function (country) {
+        country.cities.forEach(function (city) {
+            if (holds(city.name) || holds(country.name))
+                rows.push({ key: country.code + "/" + city.code, id: city.id, text: city.name + ", " + country.name, iconName: "map-pin",
+                    badge: badge(city.active), badgeTone: "success" });
+        });
+    });
+    return rows;
+}
+
+// Each data value's share of the core's per-plugin ceiling, in UTF-8 bytes
+// of its JSON, which together leave room for both state lines and every
+// mix of old and new values during the sequential writes. A list longer
+// than its budget loses rows from its end, never the one in use, and keeps
+// its counts.
+var TAILSCALE_BYTES = 8000;
+var DEVICES_BYTES = 24000;
+var EXIT_NODES_BYTES = 28000;
+
+function bytes(value) { return Commons.SettingValues.utf8Bytes(JSON.stringify(value)); }
+
+// Drops the last row of LIST that is not in use; answers whether one went.
+function dropLast(list) {
+    for (var i = list.length - 1; i >= 0; i--)
+        if (list[i].active !== true) {
+            list.splice(i, 1);
+            return true;
+        }
+    return false;
+}
+
+function boundedExitNodes(value) {
+    var out = { own: value.own.slice(), countries: value.countries.map(function (country) { return Object.assign({}, country, { cities: country.cities.slice() }); }),
+        cityCount: value.cityCount };
+    while (bytes(out) > EXIT_NODES_BYTES) {
+        var dropped = false;
+        for (var c = out.countries.length - 1; c >= 0 && !dropped; c--) {
+            dropped = dropLast(out.countries[c].cities);
+            if (out.countries[c].cities.length === 0) out.countries.splice(c, 1);
+        }
+        if (!dropped && !dropLast(out.own)) break;
+    }
+    return out;
+}
+
+// The status writes, in order: `connection`, `setup`, `tailscale`,
+// `devices` and `exitNodes`, each data value within its budget.
+function statusWrites(connectionLine, setupLine, tailscaleValue, devicesValue, exitNodesValue) {
     var setupValue = null;
     if (setupLine !== null) {
         setupValue = { tone: setupLine.tone, text: setupLine.text };
@@ -377,13 +677,10 @@ function statusWrites(connectionLine, setupLine, tailscaleValue) {
         // available, its hint saying why (PluginLogic.statusDeclarationFits).
         else if (setupLine.tone !== "ok") setupValue.available = false;
     }
-    var tailscale = Object.assign({}, tailscaleValue, { exitNodes: tailscaleValue.exitNodes.slice(), peers: tailscaleValue.peers.slice(), accounts: tailscaleValue.accounts.slice() });
-    while (Commons.SettingValues.utf8Bytes(JSON.stringify(tailscale)) > STATUS_DATA_BYTES) {
-        var last = tailscale.exitNodes.length - 1;
-        while (last >= 0 && tailscale.exitNodes[last].active) last--;
-        if (last >= 0) tailscale.exitNodes.splice(last, 1);
-        else if (tailscale.peers.length > 0) tailscale.peers.pop();
-        else tailscale.accounts.pop();
-    }
-    return [["connection", { tone: connectionLine.tone, text: connectionLine.text }], ["setup", setupValue], ["tailscale", tailscale]];
+    var tailscale = Object.assign({}, tailscaleValue, { accounts: tailscaleValue.accounts.slice() });
+    while (bytes(tailscale) > TAILSCALE_BYTES && tailscale.accounts.length > 0) tailscale.accounts.pop();
+    var devicesOut = { rows: devicesValue.rows.slice(), count: devicesValue.count, online: devicesValue.online };
+    while (bytes(devicesOut) > DEVICES_BYTES && devicesOut.rows.length > 0) devicesOut.rows.pop();
+    return [["connection", { tone: connectionLine.tone, text: connectionLine.text }], ["setup", setupValue], ["tailscale", tailscale],
+        ["devices", devicesOut], ["exitNodes", boundedExitNodes(exitNodesValue)]];
 }

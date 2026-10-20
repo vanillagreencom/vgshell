@@ -12,9 +12,7 @@ import "../../shell/plugins/vgs.vpn/VpnLogic.js" as Logic
 // hands it back to Remove profile, and once the profile leaves the list
 // the focus moves to the profile now in its place, else the one before
 // it, else Import a VPN file; and an open password prompt keeps its
-// profile when another connect ends at Needs password. The stub's
-// ScriptModel rebuilds every row on a publish, so each row is found again
-// after one.
+// profile when another connect ends at Needs password.
 Item {
     id: root
     width: 900

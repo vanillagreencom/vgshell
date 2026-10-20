@@ -10,16 +10,24 @@ import "TailscaleLogic.js" as Logic
 // invoke <name> <arg>` reaches too:
 //   lease {"id","open"}   a view opens or closes; an open view makes the
 //                         poll fast; answers `ok` or a refusal
-//   action {"kind","id"}  connect, disconnect, exit-node, switch, login or
-//                         cancel-login; answers `ok`, `busy` or a refusal
+//   action {"kind","id"}  connect, disconnect, exit-node, switch, login,
+//                         cancel-login, logout or admin-console; answers
+//                         `ok`, `busy` or a refusal
 //   refresh               read Tailscale now; answers `ok`
+//   suggest               read the suggested exit node now; answers `ok`,
+//                         `busy` while one read runs, or a refusal
 //   open                  summon the flyout
 //
 // The poll runs `tailscale status --json` every `pollSeconds` while no
-// view is open and every 3 s while one is, one run at a time. A run that
-// has not ended 10 s after its start is killed, and a refresh never moves
+// view is open, and every 3 s while one is or Tailscale is starting, one
+// run at a time. A refresh also reads the accounts, `tailscale switch
+// --list --json`. `tailscale exit-node suggest` runs when the exit node
+// chooser asks and when the state turns running, one at a time. Each of
+// those reads is killed 10 s after its start, and a refresh never moves
 // that deadline. It publishes `connection` and `setup`, the lines the
-// Settings page draws, and `tailscale`, the bounded snapshot the views draw.
+// Settings page draws, `tailscale`, the connection, account and this
+// device the views draw, and `devices` and `exitNodes`, each within its
+// byte budget (TailscaleLogic.statusWrites).
 Item {
     id: root
 
@@ -30,7 +38,7 @@ Item {
     readonly property int leaseCount: Object.keys(leases).length
     readonly property bool missing: commandMissing()
     readonly property int scans: shell === null ? 0 : shell.requirements.revision
-    readonly property int pollInterval: Logic.pollInterval(leaseCount > 0, shell === null ? 30 : shell.settings.pollSeconds)
+    readonly property int pollInterval: Logic.pollInterval(leaseCount > 0, snapshot.state, shell === null ? 30 : shell.settings.pollSeconds)
     readonly property var steps: shell === null ? ({}) : shell.system.state
 
     property var poll: Logic.pollIdle()
@@ -42,6 +50,13 @@ Item {
     property var accounts: []
     // Why the last accounts read gave no list, "" for one that did.
     property string accountsFault: ""
+    // The DNS name of the exit node the last suggestion read named, "" for
+    // none, and why that read named none, "" for a read that did.
+    property string suggestedName: ""
+    property string suggestFault: ""
+    // The suggestion reads started, for the smoke row's count of the
+    // stand-in's calls.
+    property int suggestsStarted: 0
     // The command that runs now, "" for none.
     property string action: ""
     // `idle`, `waiting` for the sign-in page's address, or `opened`.
@@ -56,7 +71,8 @@ Item {
     readonly property var setup: Logic.setup({ missing: missing, state: snapshot.state,
         service: stepState("service-tailscaled"), operator: stepState("tailscale-operator") })
     readonly property var published: Logic.published(missing, snapshot, setup,
-        { accounts: accounts, action: action, login: login, problem: problem, backendPresent: stepState("service-tailscaled") !== "absent" })
+        { accounts: accounts, action: action, login: login, problem: problem, suggestion: Logic.suggestion(suggestedName, snapshot),
+            backendPresent: stepState("service-tailscaled") !== "absent" })
 
     // Read from the source, since a change handler can run before the
     // bindings that read it.
@@ -69,7 +85,7 @@ Item {
 
     function publish() {
         if (shell === null) return;
-        const writes = Logic.statusWrites(connection, setup, published);
+        const writes = Logic.statusWrites(connection, setup, published, snapshot.devices, snapshot.exitNodes);
         for (const write of writes) {
             const reply = shell.status.set(write[0], write[1]);
             if (reply !== "ok") console.warn("tailscale: status " + write[0] + " " + reply);
@@ -85,6 +101,7 @@ Item {
             shell.ipc.handle("lease", arg => root.lease(arg));
             shell.ipc.handle("action", arg => root.act(arg));
             shell.ipc.handle("refresh", () => root.refresh());
+            shell.ipc.handle("suggest", () => root.suggest());
             shell.ipc.handle("open", arg => shell.surfaces.summon("panel", arg || "{}"));
             refresh();
         }
@@ -174,7 +191,10 @@ Item {
             // One line a change into the state, not one a poll.
             if (next.state === "unavailable" && root.snapshot.state !== "unavailable")
                 console.info("tailscale: status=unavailable code=" + code + " " + statusErrors.text.trim());
+            const was = root.snapshot.state;
             root.snapshot = next;
+            if (next.state !== "running") root.suggestedName = "";
+            else if (was !== "running") root.suggest();
             root.runPoll("exit");
         }
     }
@@ -200,7 +220,7 @@ Item {
         id: accountsReader
         property var completion: null
         property bool again: false
-        command: ["tailscale", "switch", "--list"]
+        command: ["tailscale", "switch", "--list", "--json"]
         stdout: StdioCollector { id: accountsText; waitForEnd: true }
         stderr: StdioCollector { id: accountsErrors; waitForEnd: true }
         onExited: (code, status) => { accountsReader.completion = { code: code, status: status }; }
@@ -220,7 +240,48 @@ Item {
         }
     }
 
-    // One command that changes Tailscale at a time.
+    // One suggestion read at a time, only while Tailscale runs: the CLI
+    // suggests from the nodes the running tailnet offers.
+    function suggest() {
+        if (!registered || commandMissing()) return "refused: suggest state=missing";
+        if (snapshot.state !== "running") return "refused: suggest state=" + snapshot.state;
+        if (suggester.running) return "busy";
+        suggestsStarted++;
+        suggester.completion = null;
+        suggester.running = true;
+        suggestDeadline.restart();
+        return "ok";
+    }
+
+    Timer {
+        id: suggestDeadline
+        interval: Logic.WATCHDOG_MS
+        repeat: false
+        onTriggered: suggester.signal(9)
+    }
+
+    Process {
+        id: suggester
+        property var completion: null
+        command: ["tailscale", "exit-node", "suggest"]
+        stdout: StdioCollector { id: suggestText; waitForEnd: true }
+        stderr: StdioCollector { id: suggestErrors; waitForEnd: true }
+        onExited: (code, status) => { suggester.completion = { code: code, status: status }; }
+        onRunningChanged: {
+            if (running) return;
+            suggestDeadline.stop();
+            const code = root.codeOf(completion);
+            const read = Logic.suggested(code, suggestText.text);
+            if (read.fault !== "" && read.fault !== root.suggestFault)
+                console.info("tailscale: suggest=" + read.fault + " code=" + code + " " + suggestErrors.text.trim());
+            root.suggestFault = read.fault;
+            // A read that ends after Tailscale stopped running names nothing.
+            root.suggestedName = root.snapshot.state === "running" ? read.name : "";
+        }
+    }
+
+    // One command that changes Tailscale at a time. Opening the admin
+    // console changes nothing and runs beside them.
     function act(arg) {
         const request = JSON.parse(arg);
         if (request.kind === "cancel-login") {
@@ -228,8 +289,9 @@ Item {
             if (signIn.running) root.endLogin();
             return "ok";
         }
+        if (request.kind === "admin-console") return openAdminConsole();
         if (commandMissing()) return "refused: action=" + request.kind + " state=missing";
-        const plan = Logic.command(request, { state: snapshot.state, exitNodes: snapshot.exitNodes, accounts: accounts });
+        const plan = Logic.command(request, { state: snapshot.state, targets: snapshot.targets, accounts: accounts });
         if (plan.refusal !== undefined) return plan.refusal;
         if (request.kind === "login") return startLogin(plan.argv);
         if (actor.running) return "busy";
@@ -266,6 +328,16 @@ Item {
             root.action = "";
             root.refresh();
         }
+    }
+
+    function openAdminConsole() {
+        if (shell.requirements.missing.indexOf("xdg-open") !== -1) {
+            shell.requirements.offer(["xdg-open"]);
+            return "refused: admin-console=missing-tool";
+        }
+        const reply = shell.run.detached(Logic.command({ kind: "admin-console" }, { state: snapshot.state, targets: {}, accounts: [] }).argv);
+        if (reply !== "ok") console.warn("tailscale: admin console " + reply);
+        return reply;
     }
 
     // `tailscale login` prints the sign-in page's address and waits until
