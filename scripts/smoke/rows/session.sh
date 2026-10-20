@@ -109,16 +109,14 @@ print(any(c["class"] == "smoke.session" and c["inhibitingIdle"] for c in json.lo
   edit_tree session-inhibitor shell/Core/Compositor.qml 'respectInhibitors: false' 'respectInhibitors: true' || fail "the input observer control is planted"
   start_shell "$sandbox/tree-session-inhibitor" "$sandbox/qs-session-inhibitor.log" || fail "the input observer control starts"
   expect_poll "the session reader returns in the control shell" True record_exists acme.session
-  session_blank "control observer"
-  type_keys -k Shift_L || fail "the control wake key could not be sent"
-  expect_poll "control input still wakes all nested outputs" True session_power true
+  expect "the inhibited observer control accepts off" ok probe dispatch "displayPower off"
   (
     failures=0
-    expect "input clears the fact while inhibited" false session_read displaysOff
+    expect_poll "the input observer arms and off reaches every output despite the inhibitor" True session_power false
     printf 'control-failures=%s\n' "$failures"
   ) >"$sandbox/session-inhibitor-control.log"
   session_control_failures="$(sed -n 's/^control-failures=//p' "$sandbox/session-inhibitor-control.log")"
-  expect "respecting inhibitors fails the input fact assertion once" 1 printf '%s' "$session_control_failures"
+  expect "respecting inhibitors fails the armed off assertion once" 1 printf '%s' "$session_control_failures"
   stop_shell || fail "the input observer control stops"
   rm -rf -- "${sandbox:?}/tree-session-inhibitor"
   start_shell "$repo" "$sandbox/qs-session-restored.log" || fail "the production shell returns"
@@ -130,6 +128,69 @@ else
 fi
 hypr_lua_restore session-inhibitor
 expect "the nested inhibitor rule is removed" ok hypr reload config-only
+# Hold the real off snapshot until a real nested key has woken the outputs.
+# The publication counter detects even a transient stale true. A queue-owned
+# group read behind the gate acknowledges that the held reply was consumed.
+cat >"$shim/hyprctl.power-read-gated" <<EOF
+#!/usr/bin/env bash
+if [[ \${1:-} == -j && \${2:-} == monitors && -e "$sandbox/session-power-arm" ]]; then
+  rm -f -- "${sandbox:?}/session-power-arm"
+  "$hyprctl_bin" "\$@" >"$sandbox/session-power-snapshot" || exit 1
+  : >"$sandbox/session-power-ready"
+  for ((attempt = 0; attempt < 6000; attempt++)); do
+    if [[ -e "$sandbox/session-power-release" ]]; then
+      cat -- "$sandbox/session-power-snapshot"
+      exit 0
+    fi
+    sleep 0.01
+  done
+  exit 1
+fi
+exec "$hyprctl_bin" "\$@"
+EOF
+chmod 755 "$shim/hyprctl.power-read-gated"
+session_gate_ready() { [[ -e $sandbox/session-power-ready ]] && echo yes || echo no; }
+session_gate_cycle() {
+  local label="$1" publications reads
+  publications="$(session_read offPublications)"
+  reads="$(read_service groupLockReads)"
+  rm -f -- "${sandbox:?}/session-power-ready" "${sandbox:?}/session-power-release"
+  : >"$sandbox/session-power-arm"
+  shim_hyprctl power-read-gated
+  expect "$label: two off requests enter the queue" ok,ok probe batch "displayPower off;displayPower off"
+  expect_poll "$label: the transport holds its real off snapshot" yes session_gate_ready
+  expect "$label: all outputs are off before the key" True session_power false
+  expect "$label: no fact is published before confirmation" false session_read displaysOff
+  type_keys -k Shift_L || fail "$label: the nested key could not be sent"
+  expect_poll "$label: input wakes all outputs before the held reply" True session_power true
+  # The IPC round trip follows input while confirmation remains blocked.
+  expect "$label: the pending fact remains false after input" false session_read displaysOff
+  : >"$sandbox/session-power-release"
+  expect "$label: a read queues behind confirmation" ok probe group-lock-read
+  expect_poll "$label: the queue consumed confirmation" "$((reads + 1))" read_service groupLockReads
+  expect "$label: no stale off fact was ever published" "$publications" session_read offPublications
+  shim_hyprctl real
+}
+session_gate_cycle "delayed off confirmation"
+
+stop_shell || fail "the shell stops for the late observer control"
+copy_tree session-late-observer || fail "the late observer control tree is copied"
+edit_tree session-late-observer shell/Core/Compositor.qml $'if (power.canceled || power.observer !== powerOffRecord) return false;\n        if (read.off) powerOffRecord.phase = "confirmed";' $'if (false && (power.canceled || power.observer !== powerOffRecord)) return false;\n        if (read.off) { acquirePowerObserver(); powerOffRecord.phase = "confirmed"; }' || fail "the late observer control is planted"
+start_shell "$sandbox/tree-session-late-observer" "$sandbox/qs-session-late-observer.log" || fail "the late observer control starts"
+expect_poll "the session reader returns for the late observer control" True record_exists acme.session
+(
+  failures=0
+  session_gate_cycle "control delayed off confirmation"
+  printf 'control-failures=%s\n' "$failures"
+) >"$sandbox/session-late-observer-control.log"
+session_late_failures="$(sed -n 's/^control-failures=//p' "$sandbox/session-late-observer-control.log")"
+expect "late observer installation fails the stale publication assertion once" 1 printf '%s' "$session_late_failures"
+stop_shell || fail "the late observer control stops"
+rm -rf -- "${sandbox:?}/tree-session-late-observer"
+start_shell "$repo" "$sandbox/qs-session-final.log" || fail "the production shell returns after the late observer control"
+expect_poll "the final session reader is built" True record_exists acme.session
+expect "the final shell has no stale off fact" false session_read displaysOff
+rm -f -- "${shim:?}/hyprctl.power-read-gated"
 expect "disable releases the session reader" ok ipc shell setPluginEnabled acme.session false
 expect_poll "the session hold is gone" null lent holders.session
 expect "the lock holder remains built after the reader leaves" True record_exists acme.probe

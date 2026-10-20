@@ -4,6 +4,8 @@ Item {
     id: root
     property var shell: null
     readonly property bool displaysOff: shell !== null && shell.session.displaysOff
+    property int offPublications: 0
+    onDisplaysOffChanged: { if (displaysOff) offPublications += 1; }
     readonly property bool locked: shell !== null && shell.session.locked
     readonly property string shellKeys: shell === null ? "" : Object.keys(shell).sort().join(",")
     property int changes: 0

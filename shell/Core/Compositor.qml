@@ -36,7 +36,7 @@ Singleton {
     // One queue slot owns all phases of a panel-power request.
     property var pendingPower: null
     property var powerOffRecord: null
-    readonly property bool displaysOff: powerOffRecord !== null
+    readonly property bool displaysOff: powerOffRecord !== null && powerOffRecord.phase === "confirmed"
     property var inputSurfaces: []
     property var inputObservation: null
     // Quickshell 0.3.1 builds its desktop entry index on the first read of
@@ -175,34 +175,58 @@ Singleton {
     function clearDisplaysOff() {
         const record = powerOffRecord;
         powerOffRecord = null;
-        if (record !== null) record.monitor.destroy();
+        if (record !== null) {
+            record.enabled = false;
+            record.destroy();
+        }
     }
 
-    function confirmDisplaysOff() {
-        if (powerOffRecord !== null) return;
-        const monitor = powerWakeComponent.createObject(root);
-        if (monitor === null) {
-            console.error("compositor: display-power=wake-monitor-failed");
-            return;
-        }
-        powerOffRecord = { monitor: monitor };
+    function acquirePowerObserver() {
+        if (powerOffRecord !== null) return true;
+        powerOffRecord = powerWakeComponent.createObject(root);
+        if (powerOffRecord !== null) return true;
+        console.error("compositor: display-power=wake-monitor-failed");
+        return false;
+    }
+
+    function powerInput(monitor) {
+        if (powerOffRecord !== monitor) return;
+        // Input invalidates every off already asked for, including those
+        // waiting behind another request. New requests get a new observer.
+        if (pendingPower !== null && pendingPower.state === "off") pendingPower.canceled = true;
+        for (const item of queue)
+            if (item.power !== null && item.power.state === "off") item.power.canceled = true;
+        clearDisplaysOff();
+    }
+
+    function powerArmed(monitor) {
+        if (powerOffRecord !== monitor || pendingPower === null || pendingPower.observer !== monitor || pendingPower.phase !== "arming") return;
+        startPowerPhase(pending, "dispatch");
+    }
+
+    function abandonPowerObserver(power) {
+        if (power.state === "off" && powerOffRecord !== null && powerOffRecord === power.observer && powerOffRecord.phase !== "confirmed") clearDisplaysOff();
     }
 
     Component {
         id: powerWakeComponent
         IdleMonitor {
-            property bool armed: false
-            // Quickshell 0.3.1's zero timeout reports idle immediately;
-            // its next non-idle change reports activity. This monitor lives
-            // only while displaysOff is true and clears that fact on input.
-            // It starts no idle stage; inhibitors must not hide the key
-            // press that already wakes Hyprland.
+            property string phase: "arming"
+            // Quickshell 0.3.1 converts seconds to integer milliseconds
+            // (src/wayland/idle_notify/monitor.cpp). Hyprland 0.56.2 needs
+            // a positive timeout to emit resumed on activity (IdleNotify.cpp
+            // update/reset). Wait for its first idle before dispatching off.
+            // The record lives from the queued off through confirmation;
+            // input invalidates it even while the readback is in flight.
+            // It starts no idle stage, so inhibitors cannot hide wake input.
             // https://quickshell.org/docs/v0.3.1/types/Quickshell.Wayland/IdleMonitor
-            timeout: 0
+            timeout: 0.001
             respectInhibitors: false
             onIsIdleChanged: {
-                if (isIdle) armed = true;
-                else if (armed && root.powerOffRecord !== null && root.powerOffRecord.monitor === this) root.clearDisplaysOff();
+                if (isIdle && phase === "arming") {
+                    phase = "pending";
+                    root.powerArmed(this);
+                } else if (!isIdle && phase !== "arming") root.powerInput(this);
             }
         }
     }
@@ -223,25 +247,35 @@ Singleton {
         const power = pendingPower;
         if (!transportOk) {
             console.error("compositor: display-power=transport " + answer);
+            abandonPowerObserver(power);
             return false;
         }
         if (power.phase === "dispatch") {
             if (answer !== "ok") {
                 console.error("compositor: display-power=dispatch " + JSON.stringify(answer));
+                abandonPowerObserver(power);
                 return false;
             }
             if (power.state === "on") { clearDisplaysOff(); return false; }
+            if (power.canceled || power.observer !== powerOffRecord) return false;
             startPowerPhase(["hyprctl", "-j", "monitors"], "after");
             return true;
         }
         const read = Dispatch.displayPowerState(answer);
-        if (!read.ok) { console.error("compositor: " + read.error); return false; }
+        if (!read.ok) {
+            console.error("compositor: " + read.error);
+            abandonPowerObserver(power);
+            return false;
+        }
         if (power.phase === "before") {
             if (read.on) { clearDisplaysOff(); return false; }
             startPowerPhase(["hyprctl", "dispatch", power.request], "dispatch");
             return true;
         }
-        if (read.off) confirmDisplaysOff();
+        // The observer predates the dispatch and the snapshot. A key
+        // invalidates this generation, so a late reply cannot publish it.
+        if (power.canceled || power.observer !== powerOffRecord) return false;
+        if (read.off) powerOffRecord.phase = "confirmed";
         else clearDisplaysOff();
         return false;
     }
@@ -345,22 +379,36 @@ Singleton {
             console.error("compositor: " + error);
             return error;
         }
+        if (power && power.state === "off" && !acquirePowerObserver()) return "refused: display-power=wake-monitor-failed";
         queue = queue.concat([{ argv: argv, done: typeof done === "function" ? done : null, judged: judged === true, power: power || null }]);
         drain();
         return "ok";
     }
 
     function drain() {
-        if (pending !== null || queue.length === 0) return;
-        pending = queue[0].argv;
-        pendingDone = queue[0].done;
-        pendingJudged = queue[0].judged;
-        pendingPower = queue[0].power;
-        queue = queue.slice(1);
-        completion = null;
-        reply = "";
-        proc.command = pending;
-        proc.running = true;
+        if (pending !== null) return;
+        while (queue.length > 0) {
+            const item = queue[0];
+            queue = queue.slice(1);
+            const power = item.power;
+            if (power !== null && power.state === "off") {
+                if (power.canceled || !acquirePowerObserver()) continue;
+                power.observer = powerOffRecord;
+            }
+            pending = item.argv;
+            pendingDone = item.done;
+            pendingJudged = item.judged;
+            pendingPower = power;
+            completion = null;
+            reply = "";
+            if (power !== null && power.state === "off" && power.observer.phase === "arming") {
+                power.phase = "arming";
+                return;
+            }
+            proc.command = pending;
+            proc.running = true;
+            return;
+        }
     }
 
     // ------------------------------------------------------------ reveal

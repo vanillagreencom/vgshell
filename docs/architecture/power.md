@@ -36,7 +36,7 @@ A plugin cannot call `Hyprland.dispatch`; every runtime request goes through the
 
 - Display power is a new dispatcher, `displayPower(state)`, `off` or `on`, with no output named, so both connectors of a tiled Pro Display XDR change together. For `on`, the core reads the outputs first and sends nothing while every output reads on, since a DPMS on that changes nothing makes a panel modeset again.
 - The core's Hyprland layer sets `misc.key_press_enables_dpms` and `misc.mouse_move_enables_dpms`, so a key press or a pointer move turns every panel on with no shell work, while the shell is down too.
-- The core lends a read-only fact, `shell.session.displaysOff` ([D056](../decisions/D056-read-only-session-state.md)): true from a `displayPower("off")` the outputs confirm until the next input or `displayPower("on")`.
+- The core lends a read-only fact, `shell.session.displaysOff` ([D056](../decisions/D056-read-only-session-state.md)): true from a `displayPower("off")` the outputs confirm until the next input or `displayPower("on")`. One core input observer lives from the queued off through confirmation until the fact clears; input before confirmation invalidates the pending request.
 
 The Apple panels' HID brightness has no power control: 0 % is the lowest backlight, not off. Display off is therefore DPMS.
 
