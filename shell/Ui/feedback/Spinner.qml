@@ -9,6 +9,7 @@ Item {
     id: root
 
     property int size: Theme.spinner.size
+    property color color: Theme.spinner.color
     property bool running: visible
 
     implicitWidth: size
@@ -31,7 +32,7 @@ Item {
             }
         }
         ShapePath {
-            strokeColor: Theme.spinner.color
+            strokeColor: root.color
             fillColor: "transparent"
             strokeWidth: Theme.spinner.stroke
             capStyle: ShapePath.RoundCap

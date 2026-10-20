@@ -23,6 +23,7 @@ BarWidget {
         label: "Tailscale"
         iconName: widget.view.icon
         spinning: widget.view.spinning
+        spinnerColor: widget.bar ? widget.bar.foreground : Theme.bar.foreground
         tone: widget.view.warning ? Theme.color.warning : widget.bar ? widget.bar.foreground : Theme.bar.foreground
         tooltip: widget.view.tooltip
         onClicked: {

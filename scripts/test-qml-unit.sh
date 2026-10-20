@@ -1425,6 +1425,7 @@ mutations=(
   "the pane clears the whole corner|layout/Pane.qml|        top: root.padding|        top: 0|tst_pane.qml"
   "an icon-only bar item is not square|controls/BarItem.qml|leftPadding: iconOnly ? Math.floor((Theme.bar.item.height - Theme.bar.item.icon) / 2) : Theme.bar.item.paddingX|leftPadding: Theme.bar.item.paddingX|tst_baritem.qml"
   "the bar item's count ignores its tone|controls/BarItem.qml|readonly property color foreground: active ? Theme.bar.onActive : tone|readonly property color foreground: active ? Theme.bar.onActive : Theme.bar.foreground|tst_baritem.qml"
+  "the bar item's spinner ignores its colour override|controls/BarItem.qml|color: root.spinnerColor|color: Theme.spinner.color|tst_baritem.qml"
   "the bar item shows no press|controls/BarItem.qml|root.down ? Theme.bar.item.pressed : \"transparent\"|\"transparent\"|tst_baritem.qml"
   "the bar item fills on hover|controls/BarItem.qml|root.down ? Theme.bar.item.pressed : \"transparent\"|root.down ? Theme.bar.item.pressed : root.hovered ? Theme.bar.item.pressed : \"transparent\"|tst_baritem.qml"
   "the bar item tooltip is anchored on a loader|controls/BarItem.qml|    Tooltip {|    Item { readonly property Item anchorItem: null; property string text: \"\"; property var details: []|tst_baritem.qml"
