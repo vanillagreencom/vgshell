@@ -285,6 +285,18 @@ function suite(logic, service = serviceSource) {
         holdsNothingPrivate([owner.failures, owner.profileProblem], kind);
     }
 
+    // A requirements rescan asks again about a missing plugin or sign-in
+    // detail, and keeps the failures the bar warns about.
+    const recorded = { [TRAVEL]: { kind: "needs-password", service: "" }, [OFFICE]: { kind: "failed", service: "" },
+        [BRANCH]: { kind: "sign-in", service: "" }, [LAB]: { kind: "plugin-needed", service: "vpnc" } };
+    const rescanBody = /onScansChanged: \{([\s\S]*?)\n    \}/.exec(service);
+    assert.ok(rescanBody);
+    const rescanned = { failures: recorded, refreshed: 0, refresh() { this.refreshed++; } };
+    new Function("Logic", "refresh", rescanBody[1].replace(/\bfailures\b/g, "this.failures")).call(rescanned, logic, () => rescanned.refresh());
+    assert.deepEqual(Object.keys(plain(rescanned.failures)).sort(), [OFFICE, TRAVEL].sort());
+    assert.equal(rescanned.refreshed, 1);
+    assert.deepEqual(plain(recorded)[BRANCH].kind, "sign-in", "the rescan leaves the old map unchanged");
+
     // Execute the production Import callback with private capability doubles.
     const importBody = /function importFile\(\) \{([\s\S]*?)\n    \}/.exec(service);
     assert.ok(importBody);
@@ -373,6 +385,8 @@ try {
         ["profile argv names uuid", '"up", "uuid", row.uuid]', '"up", "id", row.name]'],
         ["profile lists are bounded", 'rows: rows.slice(0, PROFILE_MAX)', 'rows: rows'],
         ["no profiles hides the icon", ' || profiles.count === 0', ''],
+        ["a rescan clears a sign-in failure", 'failures[uuid].kind !== "sign-in" && ', ''],
+        ["a rescan keeps the bar's failures", 'kept[uuid] = failures[uuid];', '{}'],
         ["a password failure raises the alert", 'row.failure === "needs-password" || row.failure === "failed"', 'row.failure === "failed"'],
         ["a drawn line holds no markup start", "\\u007f<]/g", "\\u007f]/g"]
     ]) {
@@ -388,6 +402,7 @@ try {
         ["a successful up clears its failure", "if (code === 0) delete next[action.uuid];", "if (code === 0) {}"],
         ["a gone profile leaves no problem", 'Logic.removeOutcome(code, output) === "failed"', 'code !== 0'],
         ["no nmcli text reaches the log", '" code=" + code);\n            if (action.kind', '" code=" + code + " " + output);\n            if (action.kind'],
+        ["a rescan applies the failure rule", "failures = Logic.afterRescan(failures);", ""],
         ["missing import tools offer setup", "if (needed.length > 0)", "if (false)"],
         ["import availability", 'if (profiles.state !== "available")', 'if (false)'],
         ["import completion refreshes", '() => root.readProfiles()', '() => {}']

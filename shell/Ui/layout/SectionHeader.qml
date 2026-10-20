@@ -9,13 +9,15 @@ import qs.Ui
 // width; a surface that insets its rows sets `leftPadding` and
 // `rightPadding` to match. `capTop()` is how far below its top the
 // title's capitals start, or 0 for no title, for the space `Section`
-// measures to what it draws.
+// measures to what it draws. `info` adds an InfoButton after the title,
+// whose dialog takes `infoTitle`, the title unless set.
 Column {
     id: root
 
     property string text: ""
     property string description: ""
     property string info: ""
+    property string infoTitle: text
     signal pageActivated(string page, string tab)
     // The width the eyebrow and the description share: the column's own,
     // less its padding, since a positioner does not narrow its children.
@@ -49,7 +51,7 @@ Column {
             anchors.leftMargin: Theme.space.xs
             anchors.verticalCenter: parent.verticalCenter
             sourceComponent: InfoButton {
-                title: root.text
+                title: root.infoTitle
                 info: root.info
             }
         }

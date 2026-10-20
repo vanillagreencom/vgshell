@@ -23,6 +23,8 @@ Column {
     property string title: ""
     property string description: ""
     property string info: ""
+    // The info dialog's title, the section's title unless set.
+    property string infoTitle: title
     signal pageActivated(string page, string tab)
     property real headerInset: 0
     property real rowSpacing: Theme.stack.row
@@ -52,6 +54,7 @@ Column {
         text: root.title
         description: root.description
         info: root.info
+        infoTitle: root.infoTitle
         onPageActivated: (page, tab) => root.pageActivated(page, tab)
         leftPadding: root.headerInset
         rightPadding: root.headerInset

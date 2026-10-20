@@ -208,6 +208,7 @@ FocusScope {
             width: parent.width
             visible: root.expanded && root.listed
             title: "Profiles"
+            infoTitle: "What VGS can connect"
             info: "Import: WireGuard (.conf) files, and OpenVPN (.ovpn) files once NetworkManager's OpenVPN plugin is installed. VGS offers to install it.\n\n"
                 + "Connect and disconnect:\n• every WireGuard profile whose private key NetworkManager holds\n"
                 + "• every VPN profile whose NetworkManager plugin is installed and whose passwords NetworkManager holds\n"

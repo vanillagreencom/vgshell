@@ -177,6 +177,17 @@ function upFailure(code, text, row) {
     return { kind: single ? "needs-password" : "sign-in", service: "" };
 }
 
+// The failures a requirements rescan leaves. A rescan follows an install,
+// so a missing plugin or a sign-in detail the user may since have saved in
+// the profile is asked again by the next connect; a password or connect
+// failure stays, since the bar's warning names it until a connect works.
+function afterRescan(failures) {
+    const kept = {};
+    for (const uuid of Object.keys(failures))
+        if (failures[uuid].kind !== "sign-in" && failures[uuid].kind !== "plugin-needed") kept[uuid] = failures[uuid];
+    return kept;
+}
+
 // A delete's outcome: `removed`, `gone` when NetworkManager no longer
 // holds the profile, else `failed`.
 function removeOutcome(code, text) {

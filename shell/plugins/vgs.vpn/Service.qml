@@ -29,7 +29,8 @@ Item {
     // Per uuid: { service, server } from the one detail read of the
     // current uuid set, the address while activated, and the failure the
     // last `up` left, which stays until an `up` succeeds, the profile is
-    // seen activated or it leaves the list.
+    // seen activated or it leaves the list; a requirements rescan also
+    // clears a sign-in or missing-plugin failure (VpnLogic.afterRescan).
     property var detailMap: ({})
     property string detailsRead: ""
     property var addresses: ({})
@@ -65,7 +66,10 @@ Item {
         }
         publish();
     }
-    onScansChanged: refresh()
+    onScansChanged: {
+        failures = Logic.afterRescan(failures);
+        refresh();
+    }
     onProfilesMissingChanged: {
         if (profilesMissing) listing = Logic.emptyProfiles("reading");
         else readProfiles();

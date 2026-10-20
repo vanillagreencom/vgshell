@@ -141,6 +141,11 @@ Item {
             verify(named("vpn-updates") !== null, "the Updates section shows");
             verify(named("vpn-import-hint") !== null, "the import hint shows");
             verify(named("vpn-empty") === null, "no empty state with profiles");
+            const profilesSection = named("vpn-profiles");
+            const info = find(profilesSection, item => "infoOpen" in item);
+            verify(info !== null, "the Profiles section has its info button");
+            compare(info.title, profilesSection.infoTitle);
+            verify(info.title !== profilesSection.title, "the dialog is titled apart from the section");
         }
 
         // An expanded profile shows its details; connected, its address.

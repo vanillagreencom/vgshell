@@ -32,11 +32,35 @@ Item {
         description: "Each pad holds one app. Set its key under [Keys](page:vgs.scratchpads/Settings)."
     }
     Button { id: after; y: 280; text: "After" }
+    Section {
+        id: titled
+        x: 280
+        width: 150
+        title: "Profiles"
+        info: "Which profiles connect."
+        infoTitle: "What VGS can connect"
+    }
+    Section {
+        id: untitled
+        x: 280
+        y: 80
+        width: 150
+        title: "Pads"
+        info: "Each pad holds one app."
+    }
     SignalSpy { id: headerPages; target: linked.children[0]; signalName: "pageActivated" }
     SignalSpy { id: sectionPages; target: linked; signalName: "pageActivated" }
 
     function descriptionOf(header) { return header.children[1]; }
     function labelOf(link) { return link.children[0]; }
+    function infoButtonOf(item) {
+        for (const child of item.children) {
+            if ("infoOpen" in child) return child;
+            const nested = infoButtonOf(child);
+            if (nested !== null) return nested;
+        }
+        return null;
+    }
     function focusRingOf(item) {
         for (const child of item.children) {
             if (child.toString().indexOf("FocusRing") === 0) return child;
@@ -88,6 +112,15 @@ Item {
             compare(sectionPages.count, 1);
             compare(sectionPages.signalArguments[0][0], "vgs.scratchpads");
             compare(sectionPages.signalArguments[0][1], "Settings");
+        }
+        // The info dialog takes the section's info title, else its title.
+        function test_info_dialog_title() {
+            const named = infoButtonOf(titled);
+            verify(named !== null);
+            compare(named.title, titled.infoTitle);
+            const plainInfo = infoButtonOf(untitled);
+            verify(plainInfo !== null);
+            compare(plainInfo.title, untitled.title);
         }
         function test_description_link_is_in_tab_order_with_focus_ring() {
             const link = descriptionOf(linked.children[0]);
