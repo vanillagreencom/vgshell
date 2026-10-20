@@ -240,6 +240,7 @@ f share/vgshell/shell/Ui/feedback/AvatarGroup.qml
 f share/vgshell/shell/Ui/feedback/Badge.qml
 f share/vgshell/shell/Ui/feedback/Callout.qml
 f share/vgshell/shell/Ui/feedback/CodeLine.qml
+f share/vgshell/shell/Ui/feedback/CopyText.qml
 f share/vgshell/shell/Ui/feedback/Dialog.qml
 f share/vgshell/shell/Ui/feedback/EmptyState.qml
 f share/vgshell/shell/Ui/feedback/Kbd.qml
@@ -741,6 +742,7 @@ f share/vgshell/shell/plugins/vgs.system/Service.qml
 f share/vgshell/shell/plugins/vgs.system/Sidebar.qml
 f share/vgshell/shell/plugins/vgs.system/Window.qml
 f share/vgshell/shell/plugins/vgs.system/manifest.json
+f share/vgshell/shell/plugins/vgs.tailscale/ExitNodes.qml
 f share/vgshell/shell/plugins/vgs.tailscale/Pane.qml
 f share/vgshell/shell/plugins/vgs.tailscale/Panel.qml
 f share/vgshell/shell/plugins/vgs.tailscale/Service.qml
