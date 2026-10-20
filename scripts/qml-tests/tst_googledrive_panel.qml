@@ -25,6 +25,8 @@ Item {
     // Each request the panel makes of the stub shell, in order.
     property var calls: []
     property int settingsOpened: 0
+    // The answer the stub's file route ends in, by file; `ok` for the rest.
+    property var editEnds: ({})
 
     function record(call) {
         root.calls = root.calls.concat([call]);
@@ -77,7 +79,11 @@ Item {
             return {
                 status: { values: { cloud: cloud() } },
                 ipc: { call: (name, payload) => root.record(["ipc", name, payload]) },
-                tui: { edit: file => root.record(["edit", file]), run: name => root.record(["tui", name]) },
+                tui: { edit: (file, line, done) => {
+                    root.record(["edit", file]);
+                    if (done !== undefined) done(Object.prototype.hasOwnProperty.call(root.editEnds, file) ? root.editEnds[file] : "ok");
+                    return "ok";
+                }, run: name => root.record(["tui", name]) },
                 surfaces: { openPage: (page, tab) => root.record(["openPage", page, tab]), hide: kind => root.record(["hide", kind]) }
             };
         }
@@ -87,6 +93,7 @@ Item {
             tryCompare(root.Window.window, "active", true);
             root.calls = [];
             root.settingsOpened = 0;
+            root.editEnds = ({});
             host = createTemporaryObject(hostComponent, root);
             verify(host !== null);
             panel = host.panel;
@@ -261,6 +268,31 @@ Item {
             tabTo(order[0]);
             keyClick(Qt.Key_Return);
             compare(root.settingsOpened, 1, "the gear opens the Settings page");
+        }
+
+        // The route answers `reason=missing` for a file that is gone: the
+        // popover stays, the row says so and keeps its link.
+        function test_a_gone_file_keeps_its_row_and_says_so() {
+            const file = "/home/me/gdrive/taxes/2025.xlsx";
+            root.editEnds = { [file]: "refused: file=\"" + file + "\" reason=missing" };
+            const sentence = "This file is no longer on this computer.";
+            verify(find(panel, c => c.text === sentence) === null, "the row says nothing before a click");
+            panel.openFile(file);
+            compare(root.calls, [["edit", file]]);
+            compare(panel.goneFiles, [file]);
+            compare(panel.problem, "");
+            verify(find(panel, c => c.text === sentence) !== null, "the row says the file is gone");
+            verify(find(panel, c => c.text === "2025.xlsx" && c.link !== undefined) !== null, "the row keeps its link");
+        }
+
+        function test_a_file_that_fails_to_open_says_so_under_the_list() {
+            const file = "/home/me/gdrive/taxes/2025.xlsx";
+            root.editEnds = { [file]: "refused: tui=core/edit reason=busy-other" };
+            ignoreWarning(/google-drive panel: refused: tui=core\/edit reason=busy-other/);
+            panel.openFile(file);
+            compare(root.calls, [["edit", file]]);
+            compare(panel.goneFiles, []);
+            compare(panel.problem, "VGS could not open the file.");
         }
     }
 }
