@@ -17,7 +17,7 @@ import qs.Ui
 // in the core edit route (PageReference), `dragStart`, `dragMove` and
 // `dragEnd` take the drag's points,
 // and `dragCancel()` ends a remove
-// question, putting the widget back where the drag found it.
+// question.
 //
 // Every widget gets the same right-click menu, with no code in the plugin:
 // Hide, then the entries the widget hands in `frameActions`, each
@@ -31,10 +31,13 @@ import qs.Ui
 // which says how to bring the widget back, shows the shortcuts that keep
 // working, and says when hiding also turns the plugin off. Cancel holds the
 // focus, so Enter and Escape change nothing; a press outside closes it too.
-// A drag released far outside the bar asks in the same dialog whether to
-// remove the widget from the bar, which is what Hide does; every other
-// answer puts the widget back where the drag found it. That dialog opens
-// from the pointer, so Cancel holds the focus with no focus ring.
+// A drag shows one copy of the widget under the pointer, on the bar and
+// off it, while the widget's place in the bar is the preview gap. A drag
+// released far outside the bar puts the widget back where the drag found
+// it and asks there, in the same dialog, whether to remove the widget from
+// the bar, which is what Hide does; every other answer leaves it there.
+// That dialog opens from the pointer, so Cancel holds the focus with no
+// focus ring.
 // The menu and the dialog are built on the first right click or that
 // release and released once both are closed, so a widget at rest holds
 // neither.
@@ -60,7 +63,11 @@ Item {
     // The texts of the open menu's entries, in order; [] while it is closed.
     readonly property var frameMenuEntries: frameUi.item !== null ? frameUi.item.menuEntries : []
 
-    opacity: frameDragging ? Theme.opacity.disabled : 1
+    // Whether the core holds this widget for a drag: it parents the held
+    // widget to the bar until the drop, a cancel or a release that asks.
+    readonly property bool dragHeld: frameDragging && bar !== null && parent === bar
+    // The held widget draws nothing while its drag image shows.
+    opacity: dragHeld && dragImage.item !== null && dragImage.item.visible ? 0 : 1
 
     // A held drag takes a share of OverlayState, as an open menu does, so
     // no tooltip opens over the widget the user moves or the slot it aims
@@ -102,12 +109,15 @@ Item {
     }
 
     function dragPoint() {
-        // HandlerPoint.scenePressPosition keeps the pickup offset when a
-        // drag activates after its threshold (Qt Quick HandlerPoint reference).
         const centroid = dragHandler.centroid;
-        return { x: centroid.scenePosition.x, y: centroid.scenePosition.y,
-            pressX: centroid.scenePressPosition.x, pressY: centroid.scenePressPosition.y };
+        return { x: centroid.scenePosition.x, y: centroid.scenePosition.y };
     }
+
+    // Where the press holds the widget, from its top-left corner, read
+    // when the drag starts. HandlerPoint.scenePressPosition keeps the
+    // pickup offset when a drag activates after its threshold (Qt Quick
+    // HandlerPoint reference).
+    property point dragPickup: Qt.point(0, 0)
 
     // Qt Quick still hands a press a child button accepted to this parent
     // handler, which takes the grab from the button once the drag starts,
@@ -121,6 +131,9 @@ Item {
         enabled: root.frame !== null
         onActiveChanged: {
             if (active) {
+                const at = root.mapToItem(null, 0, 0);
+                const press = dragHandler.centroid.scenePressPosition;
+                root.dragPickup = Qt.point(press.x - at.x, press.y - at.y);
                 root.frame.dragStart(root.dragPoint());
             }
             // Release commits the last preview; displaced neighbours
@@ -132,6 +145,51 @@ Item {
             }
         }
         onActiveTranslationChanged: if (active) root.frame.dragMove(root.dragPoint())
+    }
+
+    // The drag image: one copy of the widget, as it drew when the drag
+    // started (Item.grabToImage, at the bar window's pixel ratio), with the
+    // pointer where the press holds it. The widget is a child of the bar's
+    // layer window, which draws nothing outside its box, so the copy is a
+    // popup of that window (Quickshell 0.3.1 PopupWindow, an xdg_popup)
+    // that follows the pointer on the bar and off it. grabFocus false makes
+    // no grab and an empty mask takes no input, so the press stays with the
+    // bar. LazyLoader destroys the popup when the drag ends.
+    LazyLoader {
+        id: dragImage
+        active: root.dragHeld
+
+        PopupWindow {
+            id: image
+
+            property var grab: null
+
+            objectName: "frame-drag-image"
+            anchor.window: root.QsWindow.window
+            anchor.rect.x: Math.round(dragHandler.centroid.scenePosition.x - root.dragPickup.x)
+            anchor.rect.y: Math.round(dragHandler.centroid.scenePosition.y - root.dragPickup.y)
+            anchor.edges: Edges.Top | Edges.Left
+            anchor.gravity: Edges.Bottom | Edges.Right
+            anchor.adjustment: PopupAdjustment.None
+            grabFocus: false
+            mask: Region {}
+            color: "transparent"
+            implicitWidth: Math.max(1, Math.ceil(root.width))
+            implicitHeight: Math.max(1, Math.ceil(root.height))
+            visible: grab !== null
+
+            Image {
+                anchors.fill: parent
+                source: image.grab !== null ? image.grab.url : ""
+            }
+
+            Component.onCompleted: {
+                const ratio = root.QsWindow.window.devicePixelRatio;
+                const size = Qt.size(Math.ceil(root.width * ratio), Math.ceil(root.height * ratio));
+                if (!root.grabToImage(result => image.grab = result, size))
+                    console.warn("bar widget: drag image of " + root.moduleName + " refused");
+            }
+        }
     }
 
     Loader {

@@ -167,10 +167,10 @@ if version_line="$(env -i LC_ALL=C.UTF-8 "$(dirname -- "$(readlink -f -- "$runne
 fi
 printf '.pragma library\nvar VERSION = %s;\n' "$qt_version" >"$imports/qs/Unit/UnitQt.js"
 printf 'module qs.Unit\nsingleton UnitTheme 1.0 UnitTheme.qml\nUnitPaths 1.0 UnitPaths.js\nUnitQt 1.0 UnitQt.js\n' >"$imports/qs/Unit/qmldir"
-for file in Singleton.qml Scope.qml PopupWindow.qml Edges.qml PopupAdjustment.qml Quickshell.qml QsWindow.qml DesktopEntries.qml ScriptModel.qml LazyLoader.qml Variants.qml; do
+for file in Singleton.qml Scope.qml PopupWindow.qml Edges.qml PopupAdjustment.qml Quickshell.qml QsWindow.qml DesktopEntries.qml ScriptModel.qml LazyLoader.qml Variants.qml Region.qml; do
   cp -- "$tests/stand-ins/$file" "$imports/Quickshell/$file"
 done
-printf 'module Quickshell\nSingleton 1.0 Singleton.qml\nScope 1.0 Scope.qml\nPopupWindow 1.0 PopupWindow.qml\nEdges 1.0 Edges.qml\nPopupAdjustment 1.0 PopupAdjustment.qml\nsingleton Quickshell 1.0 Quickshell.qml\nsingleton QsWindow 1.0 QsWindow.qml\nsingleton DesktopEntries 1.0 DesktopEntries.qml\nScriptModel 1.0 ScriptModel.qml\nLazyLoader 1.0 LazyLoader.qml\nVariants 1.0 Variants.qml\n' >"$imports/Quickshell/qmldir"
+printf 'module Quickshell\nSingleton 1.0 Singleton.qml\nScope 1.0 Scope.qml\nPopupWindow 1.0 PopupWindow.qml\nEdges 1.0 Edges.qml\nPopupAdjustment 1.0 PopupAdjustment.qml\nsingleton Quickshell 1.0 Quickshell.qml\nsingleton QsWindow 1.0 QsWindow.qml\nsingleton DesktopEntries 1.0 DesktopEntries.qml\nScriptModel 1.0 ScriptModel.qml\nLazyLoader 1.0 LazyLoader.qml\nVariants 1.0 Variants.qml\nRegion 1.0 Region.qml\n' >"$imports/Quickshell/qmldir"
 # The shipped notification panel imports this type for hidden media. The
 # image-free boundary fixture needs its Rectangle interface only; rounded
 # image clipping remains covered by the real shell's notification smoke.

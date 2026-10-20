@@ -22,6 +22,7 @@ Window {
     }
     component Anchor: QtObject {
         property Item item: null
+        property QtObject window: null
         property int edges: 0
         property int gravity: 0
         property int adjustment: 0
@@ -32,6 +33,7 @@ Window {
     }
 
     property bool grabFocus: false
+    property QtObject mask: null
     property int implicitWidth: 0
     property int implicitHeight: 0
     readonly property Anchor anchor: Anchor {}
