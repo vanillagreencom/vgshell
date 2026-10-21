@@ -34,6 +34,7 @@ A broken environment that reads as a pass hides the regression the check exists 
 - Do run every check through the row runner in `scripts/validate`, which gives each row its own home and XDG directories so no row writes the caller's git configuration. `scripts/test-validate.sh` holds it.
 - Do run every test and sandbox process under the test-run marker `VGS_TEST_RUN=1`. `scripts/test-vgshell-reload.sh` holds the theme judge's refusal under it.
 - Do give every process a test spawns an explicit environment, never the caller's whole one. Gap: no check reads a test's spawn calls.
+- Do show a test's stand-in files at a fixed system path through bubblewrap read-only overlays of the host directories, with a layer holding any missing mount point and a bind over it, never through a path override in the shipped script: [D107](../decisions/D107-format-change-ships-its-migration.md). `scripts/test-vpn-import.sh` does it for NetworkManager's VPN plugin directories. Review holds it.
 - Do hand a runner that starts a compositor, the shell, `qmltestrunner` or a browser to `scripts/smoke/gpu-fence.sh` before it starts anything. `scripts/test-gpu-fence.sh` holds the fence and each entry point's call.
 - Never let a QML test log a warning it does not declare. `scripts/qml-unit.sh` fails an undeclared log, and its header gives the declaration.
 - Never count a mutant as killed on any status but a failed test. `scripts/test-qml-unit.sh` holds it.
