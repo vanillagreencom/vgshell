@@ -298,7 +298,7 @@ expect "the Slack photo helper resolves the stub secret-tool first" "$shim/secre
 file_url_json() { python3 -c 'import hashlib,json,pathlib,sys; p=pathlib.Path(sys.argv[1]); print(json.dumps("file://" + str(p) + "?v=" + hashlib.sha256(p.read_bytes()).hexdigest()[:16]))' "$1"; }
 expect "enabling the notifications is allowed" ok ipc shell setPluginEnabled vgs.notifications true
 expect_poll "the notification service is built" True record_exists vgs.notifications
-expect_poll "the service registered its shortcuts, IPC target and subscriber and holds no layer" '[["vgs.notifications:act", "vgs.notifications:inbox"], ["vgs.notifications"], ["vgs.notifications"], []]' lent_notes
+expect_poll "the service registered its shortcuts, IPC target and subscriber and holds no layer" '[["vgs.notifications:act", "vgs.notifications:inbox", "vgs.notifications:mark-read"], ["vgs.notifications"], ["vgs.notifications"], []]' lent_notes
 expect_poll "the compositor lists the inbox shortcut" 1 note_shortcuts
 expect "the notification server exists" true lent notificationServer
 expect "a first start finds no state file" '"absent"' note_status store.state
@@ -2129,6 +2129,29 @@ expect "the inbox opens again" ok notes inbox
 expect_poll "an inbox after Mark all read is caught up" '"No unread notifications"' panel_subtitle
 expect "the inbox closes again" ok notes close
 expect_poll "the closed panel reads no mode" '""' read_notes panelMode
+
+# Mark all read with a stack on screen: two critical popups stay visible
+# without the binding. The shortcut closes the panel and keeps both in
+# history.
+for i in $(seq 1 2); do notify smoke-shortcut 0 "Shortcut read $i" "" '[]' '{"urgency": <byte 2>}' 0 >/dev/null; done
+expect_poll "the two critical shortcut popups show" 2 on_screen
+expect "the inbox opens over the shortcut popups" ok notes inbox
+expect_poll "the inbox lists both shortcut popups" 2 panel_count
+shortcut_read_before="$(state_at readBefore)" || fail "the read cutoff is unreadable before the shortcut control"
+shortcut_read_moved() { python3 -c 'import sys; print(float(sys.argv[2]) > float(sys.argv[1]))' "$1" "$(state_at readBefore)"; }
+expect "control: an unbound shortcut leaves the popups and panel alone" ok hypr dispatch 'hl.dsp.global("vgs.notifications:mark-read-unbound")'
+expect_poll "control: both popups remain without the binding" 2 on_screen
+expect_poll "control: the panel stays open without the binding" '"inbox"' read_notes panelMode
+expect "control: the unbound shortcut leaves the read cutoff alone" "$shortcut_read_before" state_at readBefore
+expect "the Mark all read shortcut invokes the existing behavior" ok hypr dispatch 'hl.dsp.global("vgs.notifications:mark-read")'
+expect_poll "the shortcut closes the panel" '""' read_notes panelMode
+expect_poll "the shortcut advances the read cutoff" True shortcut_read_moved "$shortcut_read_before"
+expect_poll "the shortcut dismisses both popups" 0 on_screen
+expect_poll "the shortcut keeps both notifications in history" True in_history "Shortcut read 1"
+expect_poll "the second shortcut notification remains in history" True in_history "Shortcut read 2"
+expect "the inbox reopens after the shortcut" ok notes inbox
+expect_poll "the shortcut marks both notifications read" '"No unread notifications"' panel_subtitle
+expect "the inbox closes after the shortcut" ok notes close
 
 # Mark all read with a stack on screen: eight notifications, one already off
 # the screen, leave no popup, no unread entry and nothing for Super+N to
@@ -6252,7 +6275,7 @@ for round in 1 2 3; do
   if [[ $round -lt 3 ]]; then
     expect "enable round $round is allowed" ok ipc shell setPluginEnabled vgs.notifications true
     expect_poll "enable round $round built the service" True record_exists vgs.notifications
-    expect_poll "enable round $round registered again" '[["vgs.notifications:act", "vgs.notifications:inbox"], ["vgs.notifications"], ["vgs.notifications"], []]' lent_notes
+    expect_poll "enable round $round registered again" '[["vgs.notifications:act", "vgs.notifications:inbox", "vgs.notifications:mark-read"], ["vgs.notifications"], ["vgs.notifications"], []]' lent_notes
   fi
 done
 expect "the disabled plugin holds no layers capability" null lent holders.layers

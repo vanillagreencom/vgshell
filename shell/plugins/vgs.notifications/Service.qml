@@ -284,6 +284,7 @@ Item {
         shell.status.set("panelRevision", panelRevision);
         shell.shortcut.register("inbox", "Notification inbox", () => root.togglePanel());
         shell.shortcut.register("act", "Act on last notification", () => root.actOnLast());
+        shell.shortcut.register("mark-read", "Mark all read", () => root.markRead());
         shell.ipc.handle("inbox", () => root.togglePanel());
         shell.ipc.handle("panel", () => root.showPanel("inbox"));
         shell.ipc.handle("history", () => root.showPanel("history"));

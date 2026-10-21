@@ -77,7 +77,8 @@
   "hyprland": {
     "binds": [
       { "shortcut": "inbox", "key": "SUPER+N", "info": "Opens the list of notifications you have not cleared, or closes it." },
-      { "shortcut": "act", "key": "SUPER+SHIFT+N", "info": "Does what a click on the newest notification does, also after it goes into the history." }
+      { "shortcut": "act", "key": "SUPER+SHIFT+N", "info": "Does what a click on the newest notification does, also after it goes into the history." },
+      { "shortcut": "mark-read", "key": "SUPER+CTRL+N", "info": "Marks every notification as read, closes their popups and the panel, and keeps them in History." }
     ],
     "layerRules": [
       { "namespace": "^vgs:layer$", "blur": true, "ignoreAlpha": 0.6 },
