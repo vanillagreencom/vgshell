@@ -33,9 +33,7 @@
 // is refused.
 // No status entry the plugin page draws on Details offers an action
 // (PluginLogic.detailSteps): a step stands on Setup
-// (docs/architecture/design-system.md § Settings pages). A plugin in
-// DETAIL_STEPS_HELD keeps its Details steps until the issue named beside it
-// moves them.
+// (docs/architecture/design-system.md § Settings pages).
 // Prints one line per plugin. Exit 0 when every manifest is
 // valid, 1 when any is refused, 2 when a directory or file cannot be read or
 // the invocation is bad, each as one keyed line:
@@ -192,12 +190,6 @@ function restatedHint(manifest) {
     return "";
 }
 
-// The plugins whose Details steps their own lanes move, by the issue that
-// removes each from this list once it has.
-const DETAIL_STEPS_HELD = {
-    "vgs.jarvis": "VGS-1953"
-};
-
 let refused = 0;
 const seen = {};
 const defaultKeys = {};
@@ -299,7 +291,7 @@ for (const { dir, text } of manifests()) {
         missing = true;
     }
     const detailSteps = ctx.detailSteps(r.manifest);
-    if (detailSteps.length > 0 && DETAIL_STEPS_HELD[r.manifest.id] === undefined) {
+    if (detailSteps.length > 0) {
         console.log("refused  " + dir + ": status." + detailSteps[0] + " offers an action on Details; a step stands on Setup (setup true or \"optional\")");
         refused += 1;
         missing = true;

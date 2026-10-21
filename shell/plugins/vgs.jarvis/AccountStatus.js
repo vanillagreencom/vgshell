@@ -13,7 +13,9 @@ function counted(count, one, many) {
  * "account-limit", or { kind: "failed", reason }, reason the reader's safe
  * failure key (AccountProviders.probeFailure). A search, whole or partial,
  * offers Accounts; a failed check does not, since the folders or saved list
- * Accounts works on could not be read or Jarvis could not run the check.
+ * Accounts works on could not be read or Jarvis could not run the check,
+ * so the optional Setup step reads Not available (`available: false`) with
+ * the hint of when Jarvis searches again (Accounts.qml's refresh).
  * Any other outcome reads as a failed check.
  */
 function searchValue(outcome, pageReference) {
@@ -32,14 +34,16 @@ function searchValue(outcome, pageReference) {
             return outcome.found > 0 ? { tone: "ok", text: found, action: true }
                 : { tone: "info", text: "No account found yet", action: true };
     }
+    var again = { action: false, available: false, hint: SEARCH_AGAIN };
     var match = outcome.kind === "failed" ? /^jarvis-accounts: ([a-z-]+)=/.exec(outcome.reason) : null;
     var field = match === null ? "" : match[1];
     if (field === "directory")
-        return { tone: "danger", text: "Could not read an account folder you named", action: false };
+        return Object.assign({ tone: "danger", text: "Could not read an account folder you named" }, again);
     if (field === "added")
-        return { tone: "danger", text: "Could not read your saved accounts", action: false };
-    return { tone: "danger", text: "Jarvis could not check for accounts", action: false };
+        return Object.assign({ tone: "danger", text: "Could not read your saved accounts" }, again);
+    return Object.assign({ tone: "danger", text: "Jarvis could not check for accounts" }, again);
 }
+var SEARCH_AGAIN = "Jarvis searches again when it starts and after a sign-in or a key change";
 
 /**
  * The `keyStore` state for { kind: "listed", rows }, rows the key presence

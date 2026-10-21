@@ -105,7 +105,7 @@ var ELEVENLABS_UNREAD = "Jarvis could not read the voices of your ElevenLabs key
 // the step gives, since its action already says to set it up.
 var TODO = {
     "brain=unselected": "Choose an AI model in [AI model](page:vgs.jarvis/Settings/brain)",
-    "brain=account-unavailable": "The chosen account or its key is unavailable: [add a key or sign in](page:vgs.jarvis/Details/keyStore)",
+    "brain=account-unavailable": "The chosen account or its key is unavailable: [add a key or sign in](page:vgs.jarvis/Setup/keyStore)",
     "brain=model-required": "Choose a model in [Model](page:vgs.jarvis/Settings/model)",
     "brain=models-reading": "Jarvis is reading the local server model list",
     "brain=models-unavailable": "Check the local server, then [choose a model](page:vgs.jarvis/Settings) under AI model and press Talk to try again",
@@ -113,8 +113,8 @@ var TODO = {
     "brain=signed-out": "Sign in to the chosen AI app, then [choose it under AI model](page:vgs.jarvis/Settings)",
     "brain=pi-update": "Jarvis needs Pi 1.1.0 or later: [review all missing or outdated tools under Optional tools on the Setup tab](page:vgs.jarvis/Setup), or choose another app under AI model",
     "brain=accounts-unreadable": "Jarvis could not read your accounts. Add a key with Add key to use an AI model.",
-    "speech=live-account-unselected": "[Add a provider key beside API keys on the Details tab](page:vgs.jarvis/Details): OpenAI for Realtime, Gemini for Gemini Live or ElevenLabs for ElevenLabs",
-    "speech=live-account-unreadable": "Jarvis could not read your voice key: use [Accounts beside Account search on the Details tab](page:vgs.jarvis/Details) to check it",
+    "speech=live-account-unselected": "[Add a provider key with API keys on the Setup tab](page:vgs.jarvis/Setup/keyStore): OpenAI for Realtime, Gemini for Gemini Live or ElevenLabs for ElevenLabs",
+    "speech=live-account-unreadable": "Jarvis could not read your voice key: use [Accounts with Account search on the Setup tab](page:vgs.jarvis/Setup/accountSearch) to check it",
     "speech=live-key-required": "[Choose a key under Voice key](page:vgs.jarvis/Settings): OpenAI for Realtime, Gemini for Gemini Live or ElevenLabs for ElevenLabs; Add key beside API keys stores a new key",
     "speech=elevenlabs-voice": ELEVENLABS_UNREAD,
     "speech=local-not-ready": "Set up the local voice again",
@@ -261,23 +261,24 @@ function startTextInfo(layers, causes, home) {
     }).join(", ") + ".";
 }
 // The Personality row from SHOWN, the daemon's personality message, and
-// CAUSES, its last answer's: the section as the row's hint, which Settings
-// draws as text where a state's text and lines draw as badges; or what keeps
-// it from showing. The hint holds at most PluginLogic's STATUS_HINT_MAX of
-// 200 characters, so a longer or cut section ends in "…". An AGENTS.md over
-// its budget adds a line in the info tone: Jarvis still reads it whole.
+// CAUSES, its last answer's, an optional Setup step: the section as the
+// row's hint, Done with Edit; or what keeps it from showing, Not available
+// (`available: false`) where Edit cannot help, its hint saying what does.
+// The hint holds at most PluginLogic's STATUS_HINT_MAX of 200 characters, so
+// a longer or cut section ends in "…". An AGENTS.md over its budget adds a
+// line and keeps the row's reading: Jarvis still reads it whole.
 function personalityRow(shown, causes, home) {
     var joined = shown.kind === "section" ? shown.lines.join(" ") : "";
     var cut = joined.length > 200 || shown.more === true;
     var value = shown.kind === "section" ? { tone: "ok", text: "Set", hint: cut ? joined.slice(0, 199).trimEnd() + "…" : joined, action: true }
-        : shown.kind === "none" ? { tone: "info", text: "No home folder",
+        : shown.kind === "none" ? { tone: "info", text: "No home folder", available: false,
             hint: "Choose where to keep your instructions with [Home folder](page:vgs.jarvis/Settings/home)" }
         : shown.kind === "missing" ? { tone: "info", text: "No Personality section", action: true,
             hint: "Add a Personality section to " + homeReference("AGENTS.md", home, "/AGENTS.md") + " with Edit",
             info: "Press Edit. Add the heading ## Personality on its own line. Write how Jarvis should talk below it." }
-        : { tone: "warning", text: "Instructions cannot be read", hint: "Check " + homeReference("AGENTS.md", home, "/AGENTS.md") };
+        : { tone: "warning", text: "Instructions cannot be read", available: false, hint: "Check " + homeReference("AGENTS.md", home, "/AGENTS.md") };
     if ((shown.kind === "section" || shown.kind === "missing") && causes.indexOf("guidance=agents-over-budget") !== -1)
-        return Object.assign({}, value, { tone: "info", lines: ["Over the " + numberText(OVER_BUDGET["guidance=agents-over-budget"].bytes) + "-byte budget"],
+        return Object.assign({}, value, { lines: ["Over the " + numberText(OVER_BUDGET["guidance=agents-over-budget"].bytes) + "-byte budget"],
             info: (value.info === undefined ? "" : value.info + " ") + budgetInfo(["guidance=agents-over-budget"], home) });
     return value;
 }

@@ -153,30 +153,22 @@ const manifest = judge.validateManifest(JSON.parse(fs.readFileSync(path.join(pat
     console.log("test-jarvis-setup-gate: control=edit-picker-requirement rejected=true");
 }
 
-// Optional actions belong beside their fact on Details.
+// A step the user may take sits on Setup as an Optional step, never as a
+// fact on Details: the installs, API keys, Account search and Personality.
 {
-    const MOVED = [
-        ["keyStore", "Add key"],
-        ["accountSearch", "Accounts"]
-    ];
-    // An install step the user may take sits on Setup as an Optional step,
-    // never as a fact on Details.
     const OPTIONAL = [
+        ["keyStore", "Add key"],
+        ["accountSearch", "Accounts"],
+        ["personality", "Edit"],
         ["input", "Check input"],
         ["browser", "Set up browser"],
         ["setupFleet", "Install mail tool"]
     ];
-    const values = Object.fromEntries(MOVED.concat(OPTIONAL).map(([key]) => [key, { tone: "warning", text: "To do", action: true }]));
+    const values = Object.fromEntries(OPTIONAL.map(([key]) => [key, { tone: "warning", text: "To do", action: true }]));
     values.setupVoice = { tone: "ok", text: "Ready", action: "check" };
     const status = judge.statusRows(manifest, values);
     const tuis = judge.listedTuis(manifest);
     const setup = settingsRows(settings.setupSections(tuis, status));
-    for (const [key, label] of MOVED) {
-        const rows = detailActionRows(status).filter(row => row.key === key);
-        assert.equal(rows.length, 1, key + ": one fact on Details");
-        assert.equal(rows[0].button.label, label, key + ": its action stays beside that fact");
-        assert.equal(setup.some(item => item.key === key), false, key + ": no optional row on Setup");
-    }
     for (const [key, label] of OPTIONAL) {
         const step = setup.find(item => item.key === key);
         assert.ok(step, key + ": a step on Setup");
@@ -776,8 +768,8 @@ const words = require(path.join(path.dirname(file), "AccountStatus.js"));
 function removeKeyPlacement(judged, outcome) {
     const status = judge.statusRows(judged, { keyStore: plain(words.keysValue(outcome)) });
     const tuis = judge.listedTuis(judged);
-    const rows = detailActionRows(status).filter(row => row.aside !== null)
-        .map(row => ["row " + row.key + " beside " + row.button.label, row.aside.label, row.aside.tone]);
+    const rows = settingsRows(settings.setupSections(tuis, status)).filter(item => item.step && item.aside !== null)
+        .map(item => ["row " + item.key + " beside " + item.button.label, item.aside.label, item.aside.tone]);
     const more = Array.from(settings.freeScreens(tuis, status, "Settings", jarvisOn)).filter(button => button.name === "remove-key")
         .map(button => ["More settings", button.label, button.tone]);
     return rows.concat(more);
@@ -1732,11 +1724,12 @@ function verifyOverBudget(gate, serviceSource) {
     assert.equal(judge.statusWrite(manifest, {}, "setupHome", all.setupHome).ok, true, "the judge accepts the step that names every text");
     const section = { kind: "section", lines: ["Calm."], more: false };
     for (const [label, shown, causes, want] of [
-        ["a section", section, [], ["ok", "Set", undefined]],
-        ["a section of an AGENTS.md over its budget", section, ["guidance=agents-over-budget"], ["info", "Set", 1]],
-        ["no section in an AGENTS.md over its budget", { kind: "missing" }, ["guidance=agents-over-budget"], ["info", "No Personality section", 1]],
-        ["a section beside another text over its budget", section, ["guidance=memory-over-budget"], ["ok", "Set", undefined]],
-        ["no home", { kind: "none" }, [], ["info", "No home folder", undefined]]]) {
+        ["a section", section, [], ["ok", "Set", undefined, "done"]],
+        ["a section of an AGENTS.md over its budget", section, ["guidance=agents-over-budget"], ["ok", "Set", 1, "done"]],
+        ["no section in an AGENTS.md over its budget", { kind: "missing" }, ["guidance=agents-over-budget"], ["info", "No Personality section", 1, "optional"]],
+        ["a section beside another text over its budget", section, ["guidance=memory-over-budget"], ["ok", "Set", undefined, "done"]],
+        ["no home", { kind: "none" }, [], ["info", "No home folder", undefined, "unavailable"]],
+        ["unreadable instructions", { kind: "unreadable" }, [], ["warning", "Instructions cannot be read", undefined, "unavailable"]]]) {
         const values = {};
         const shell = { status: { isOk: judge.statusReplyOk, set: (key, value) => {
             assert.equal(judge.statusWrite(manifest, values, key, value).ok, true, label + ": the Personality row is accepted");
@@ -1745,7 +1738,8 @@ function verifyOverBudget(gate, serviceSource) {
         } } };
         serviceCall(serviceSource, "publishPersonality", { shell, personalityShown: shown, homePathRead: { kind: "ready", path: "/home/user/Fixture" }, setupAnswer: { kind: "answered", causes } }, gate);
         const row = plain(values.personality);
-        assert.deepEqual([row.tone, row.text, row.lines?.length], want, label);
+        const step = judge.statusRows(manifest, values).find(entry => entry.key === "personality");
+        assert.deepEqual([row.tone, row.text, row.lines?.length, settings.stepReading(step, jarvisOn)], want, label);
         if (shown.kind === "section") assert.equal(row.hint, "Calm.", label + ": the section shows");
         if (shown.kind === "none") assert.deepEqual(settingLinks(row.hint), ["home"], label + ": the row links the Home folder setting");
         if (causes.includes("guidance=agents-over-budget")) {
@@ -2369,7 +2363,7 @@ const CONTROLS = [
     ["an over-budget text drops its caution", "setupHome: homeDone(answer.causes, home),", "setupHome: HOME_READY,", "the caution has a reason info"],
     ["an over-budget text holds its step", 'var causes = answer.causes.filter(function (cause) { return !Object.prototype.hasOwnProperty.call(OVER_BUDGET, cause); });',
         "var causes = answer.causes;", "over its budget reads Ready"],
-    ["the AGENTS.md line is dropped", 'return Object.assign({}, value, { tone: "info", lines: ["Over the " + numberText(OVER_BUDGET["guidance=agents-over-budget"].bytes) + "-byte budget"],\n            info: (value.info === undefined ? "" : value.info + " ") + budgetInfo(["guidance=agents-over-budget"], home) });', "return value;", "a section of an AGENTS.md over its budget"],
+    ["the AGENTS.md line is dropped", 'return Object.assign({}, value, { lines: ["Over the " + numberText(OVER_BUDGET["guidance=agents-over-budget"].bytes) + "-byte budget"],\n            info: (value.info === undefined ? "" : value.info + " ") + budgetInfo(["guidance=agents-over-budget"], home) });', "return value;", "a section of an AGENTS.md over its budget"],
     ["a caution loses its reason info", 'info: budgetInfo(over, home)', 'unusedInfo: budgetInfo(over, home)', "the caution has a reason info"],
     ["a caution loses its file action", 'value.file = home.path + HOME_FILES[value.action];\n    }\n    return value;\n}\nvar HOME_UNCHECKED', 'delete value.action;\n    }\n    return value;\n}\nvar HOME_UNCHECKED', "the caution carries its file action"],
     ["the timed-out Local voice row asks for a restart", 'hint: "Jarvis does not need this check to answer and runs it again after the next setup" };',
@@ -3171,10 +3165,10 @@ function verifyPathForm(gate) {
         ["brain=unselected", "vgs.jarvis", "Settings/brain"],
         ["brain=model-required", "vgs.jarvis", "Settings/model"],
         ...["models-unavailable", "model-unavailable", "signed-out"].map(name => ["brain=" + name, "vgs.jarvis", "Settings"]),
-        ["brain=account-unavailable", "vgs.jarvis", "Details/keyStore"],
+        ["brain=account-unavailable", "vgs.jarvis", "Setup/keyStore"],
         ["brain=pi-update", "vgs.jarvis", "Setup"],
-        ["speech=live-account-unselected", "vgs.jarvis", "Details"],
-        ["speech=live-account-unreadable", "vgs.jarvis", "Details"],
+        ["speech=live-account-unselected", "vgs.jarvis", "Setup/keyStore"],
+        ["speech=live-account-unreadable", "vgs.jarvis", "Setup/accountSearch"],
         ["speech=live-key-required", "vgs.jarvis", "Settings"],
         ["speech=local-ready-timeout", "vgs.jarvis", "Setup"],
         ["speech=always-local-voice", "vgs.jarvis", "Settings"],

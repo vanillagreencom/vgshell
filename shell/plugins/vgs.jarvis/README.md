@@ -122,7 +122,7 @@ You can change the keys under Keys on the Jarvis page.
 
 ## Setup
 
-The Setup tab of the Jarvis page lists the required Home folder, AI model, Voice and Tools steps, then the optional Cloned voice, Jarvis session, Browser, Desktop input, Agent fleet and Optional tools steps, marked Optional. The Optional tools step reads Optional or Done, and installs the optional tools, such as Pi, tmux, uv and the input tools. Each required step reads Done or To do and keeps its row after completion. A pending step explains what to change and offers its action. Settings holds the choices, such as Account and the local voice model. Details holds the readings, each in the section of its feature: AI model for provider keys, accounts and Copilot Memory; Voice; Local voice for the local voice; and Home for Personality, Conversation start text and Memory search. The Local voice reading offers no action: Set up local voice is on the Voice step, and choosing another Local voice model downloads that model.
+The Setup tab of the Jarvis page lists the required Home folder, AI model, Voice and Tools steps, then the optional API keys, Account search, Cloned voice, Personality, Jarvis session, Browser, Desktop input, Agent fleet and Optional tools steps, marked Optional until they are done. The Optional tools step reads Optional or Done, and installs the optional tools, such as Pi, tmux, uv and the input tools. Each required step reads Done or To do and keeps its row after completion. A pending step explains what to change and offers its action. Settings holds the choices, such as Account and the local voice model. Details holds the readings, each in the section of its feature: AI model for provider keys, accounts and Copilot Memory; Voice; Local voice for the local voice; and Home for Conversation start text and Memory search. The Local voice reading offers no action: Set up local voice is on the Voice step, and choosing another Local voice model downloads that model.
 
 The buttons are also rows in the launcher's Jarvis group. Each opens a floating terminal.
 
@@ -172,7 +172,7 @@ The settings are in Settings → Plugins → Jarvis. A change to Voice provider,
 | Screen to cloud | Whether a screenshot, or its text, goes to an AI or a voice outside your computer. Ask withholds it unless you allow it for the conversation. Allow sends it. Never withholds it. When the AI model and the voice both run on your computer, they always get it. |
 | Private windows | Words, with commas between them. Jarvis paints a window black before a screenshot leaves Jarvis when its class or title contains one of the words. A title cannot always show private browsing. |
 
-Personality, under Home on Details, shows how Jarvis talks: the text under the heading `## Personality` in `AGENTS.md` of the home folder. Edit opens it. Every AI model reads it.
+Personality, an optional step on the Setup tab, shows how Jarvis talks: the text under the heading `## Personality` in `AGENTS.md` of the home folder. Edit opens it. Every AI model reads it.
 
 Mute closes only the microphone. Show in bar puts the bar icon back after Hide.
 

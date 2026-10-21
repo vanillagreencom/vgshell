@@ -1,6 +1,6 @@
-# The Jarvis page's steps with nothing found: Add key under the key list
-# and Accounts under the account list are offered and each opens its
-# terminal, every text that names one of them has it offered, with nothing
+# The Jarvis page's steps with nothing found: Add key on the API keys
+# step and Accounts on the Account search step, both optional Setup steps,
+# are offered and each opens its terminal, every text that names one of them has it offered, with nothing
 # found and in a partial search whose row names Accounts, and the AI model
 # setting reads its empty text, closed, while Add key stays offered on the
 # API keys row; without a command
@@ -11,7 +11,8 @@
 # The Microphone field's info dialog
 # links to the Sounds page. With the fixture's key stored,
 # Details draws the key list, a line per key with its chip; Settings and
-# Setup draw none. Local servers appear beside
+# Setup draw none. Setup draws the API keys, Account search and Personality
+# steps, and Details draws none of them. Local servers appear beside
 # the signed-in Claude Code account. With that account chosen, and only
 # then, the page offers that account's models and effort
 # levels and saves the list's default, a choice is saved and reaches the
@@ -485,13 +486,21 @@ expect_poll "the restored world publishes its fixture key" matched jarvis_key_va
 # itself, so no masked field of the core's holds them and Settings and
 # Setup draw no list. The Details reading proves the read sees the list.
 page_keys_want="$(python3 -c 'import json,sys; e=json.load(open(sys.argv[1]))["status"]["keys"]; print(json.dumps([e["label"], e["hint"], "fixture / test", "Present"]))' "$page_manifest")"
+# API keys, Account search and Personality are optional Setup steps: each
+# draws on Setup, and none of their labels heads a Details row.
+page_moved=("keyStore" "accountSearch" "personality")
+page_moved_setup() { ipc smoke setupRows window vgs.settings | py_reply 'import json,sys; drawn={r["key"] for r in json.load(sys.stdin)}; print(json.dumps([k for k in sys.argv[1:] if k in drawn]))' "${page_moved[@]}"; }
+page_moved_details() { ipc smoke itemTexts window vgs.settings StatusRow | py_reply 'import json,sys; status=json.load(open(sys.argv[1]))["status"]; labels=[status[k]["label"] for k in sys.argv[2:]]; print(json.dumps([r[0] for r in json.load(sys.stdin) if r and r[0] in labels]))' "$page_manifest" "${page_moved[@]}"; }
+page_moved_want="$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1:]))' "${page_moved[@]}")"
 page_keys_drawn() { ipc smoke itemTexts window vgs.settings StatusRow | py_reply 'import json,sys; label=json.load(open(sys.argv[1]))["status"]["keys"]["label"]; r=[r for r in json.load(sys.stdin) if r and r[0] == label]; print(json.dumps(r[0]) if len(r) == 1 else "rows=%d" % len(r))' "$page_manifest"; }
 settings_page_open vgs.jarvis
 expect_poll "the page opens Settings with no provider key list" rows=0 page_keys_drawn
 settings_setup
 expect "Setup draws no provider key list" rows=0 page_keys_drawn
+expect_poll "Setup draws the API keys, Account search and Personality steps" "$page_moved_want" page_moved_setup
 settings_details
 expect_poll "Details draws the provider key list" "$page_keys_want" page_keys_drawn
+expect "Details draws no API keys, Account search or Personality row" '[]' page_moved_details
 settings_tab_click Settings || fail "the click back to Settings after the key list failed"
 expect_poll "the page shows Settings for the backup models" 0 settings_tab
 

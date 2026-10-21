@@ -9,8 +9,8 @@
 // order passes; layout not first, layout outside Readings, the shared
 // Readings fields out of order and an ungrouped field, which the page
 // draws before Readings, are refused), a hint that repeats its label, a Setup guide whose README holds
-// no heading of its anchor, a Details entry that offers an action (a Setup step, a hidden entry and a
-// held plugin's pass), and the base listing: a directory without a manifest is not a plugin, an absent or
+// no heading of its anchor, a Details entry that offers an action (a Setup step and a hidden entry
+// pass), and the base listing: a directory without a manifest is not a plugin, an absent or
 // unreadable base exits 2. Each row asserts the printed verdict line and the
 // exit status. The check runs in a child node with an explicit environment.
 // The permission rows need a uid that permissions bind; under euid 0 the
@@ -136,8 +136,7 @@ for (const [name, entry, id, status, line] of [
     ["a Details entry with actions is refused", { type: "state", label: "Notes", actions: { a: fileAction, b: { label: "Open log", file: "~/log.txt" } } }, "acme.one", 1, "status.notes offers an action on Details"],
     ["an optional Setup step with an action passes", { type: "state", label: "Notes", setup: "optional", action: fileAction }, "acme.one", 0, "ok       acme.one"],
     ["a required Setup step with an action passes", { type: "state", label: "Notes", setup: true, action: fileAction }, "acme.one", 0, "ok       acme.one"],
-    ["a hidden entry with an action passes", { type: "state", label: "Notes", hidden: true, action: fileAction }, "acme.one", 0, "ok       acme.one"],
-    ["a held plugin keeps its Details step", { type: "state", label: "Notes", action: fileAction }, "vgs.jarvis", 0, "ok       vgs.jarvis"]
+    ["a hidden entry with an action passes", { type: "state", label: "Notes", hidden: true, action: fileAction }, "acme.one", 0, "ok       acme.one"]
 ]) row("detail steps: " + name, tmp => {
     const d = path.join(tmp, "a");
     plugin(d, Object.assign({}, good, { id: id, capabilities: ["status", "tui"], status: { notes: entry } }), true);

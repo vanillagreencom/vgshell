@@ -19,7 +19,7 @@ opened_elsewhere="Open Add key from the Jarvis page in Settings."
 keys() { vgs_tui_logged "$log" node "$VGS_PLUGIN_DIR/backend/keys.js" "$@"; }
 list_full() {
   vgs_tui_failed "$log" "Jarvis cannot add a key: its key list is full." \
-    "Remove a key you no longer use under API keys on the Details tab of the Jarvis page, then try again."
+    "Remove a key you no longer use under API keys on the Setup tab of the Jarvis page, then try again."
 }
 # The add-key refusals keys.js gives an exit status of their own.
 refused() { # STATUS

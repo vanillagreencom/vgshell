@@ -1335,7 +1335,10 @@ world(async () => {
         for (const [outcome, tone, action] of searchCases) {
             const value = Words.searchValue(outcome, outcome.partial === "entry-limit"
                 ? PageReference : undefined);
-            assert.deepEqual([value.tone, value.action], [tone, action], JSON.stringify(outcome));
+            // A failed search offers nothing, so the optional Setup step
+            // reads Not available with the hint of when Jarvis searches again.
+            assert.deepEqual([value.tone, value.action, value.available], [tone, action, action ? undefined : false], JSON.stringify(outcome));
+            if (!action) assert.equal(typeof value.hint, "string", JSON.stringify(outcome) + ": the hint says when Jarvis searches again");
             plain(value);
         }
         const keyRow = value => ({ label: "fixture / test", value });
@@ -1396,8 +1399,11 @@ world(async () => {
     }
     cases++;
     await mutant("AccountStatus.js", "saved-list-offers-accounts",
-        'return { tone: "danger", text: "Could not read your saved accounts", action: false };',
+        'return Object.assign({ tone: "danger", text: "Could not read your saved accounts" }, again);',
         'return { tone: "danger", text: "Could not read your saved accounts", action: true };', pageWords);
+    controls++;
+    await mutant("AccountStatus.js", "failed-search-reads-optional", 'var again = { action: false, available: false, hint: SEARCH_AGAIN };',
+        'var again = { action: false };', pageWords);
     controls++;
     await mutant("AccountStatus.js", "signed-out-hint-repeats-badge", 'if (account.value === "signed-out") return mismatch;', "", pageWords);
     controls++;
