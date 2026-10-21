@@ -399,7 +399,9 @@ for manifest in sorted((root / "shell/plugins").glob("*/manifest.json")):
     rows += json.loads(manifest.read_text()).get("requirements", [])
 for row in rows:
     package = row.get("packages", {}).get("pacman", row.get("packages", {}).get("aur"))
-    command = row.get("command") or row["dbus"]["name"]
+    command = row.get("command")
+    if command is None:
+        continue
     if package in packages and command not in {"node", "python3", "bash", "readlink", "systemctl"}:
         file = farm / command
         file.write_text("#!/bin/sh\nexit 0\n")

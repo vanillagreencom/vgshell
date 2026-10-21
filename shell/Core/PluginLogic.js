@@ -2371,7 +2371,7 @@ function requirementIdentity(requirement, at) {
         }
         var service = requirement.nmVpn.service;
         if (!dbusNameValid(service) || service.indexOf(NM_VPN_SERVICE_PREFIX) !== 0)
-            return { ok: false, error: at + ".nmVpn.service must be a NetworkManager VPN service name, got " + JSON.stringify(service) };
+            return { ok: false, error: at + ".nmVpn needs a NetworkManager VPN service name, got " + JSON.stringify(service) };
         if (!isPrintableLine(requirement.nmVpn.label, REQUIREMENT_LABEL_MAX))
             return { ok: false, error: at + ".nmVpn.label must be a printable line of 1 to " + REQUIREMENT_LABEL_MAX + " characters" };
         return { ok: true, at: at + ".nmVpn.service", name: service };

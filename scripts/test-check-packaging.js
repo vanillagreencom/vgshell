@@ -24,6 +24,7 @@ const path = require("node:path");
 const os = require("node:os");
 
 const repo = path.resolve(__dirname, "..");
+const { requirementName } = require(path.join(repo, "bin/lib/qml-library.js")).load(path.join(repo, "shell/Core/PluginLogic.js"));
 const hasMakepkg = childProcess.spawnSync("makepkg", ["--version"], { encoding: "utf8" });
 if (hasMakepkg.error) {
     // The freshness rule and every row that reaches it need makepkg.
@@ -102,8 +103,7 @@ function countRequirements(tree) {
     const all = lists.flat();
     const table = fs.readFileSync(path.join(tree, "bin/vgshell"), "utf8").split("preflight_floor='\n")[1].split("\n'\n")[0];
     const probes = table.split("\n").filter(Boolean).map(line => line.trim().split(/\s+/)[3]);
-    const nameOf = entry => entry.command || entry.dbus.name;
-    return all.length + probes.filter(probe => !all.some(entry => nameOf(entry) === probe)).length
+    return all.length + probes.filter(probe => !all.some(entry => requirementName(entry) === probe)).length
         + JSON.parse(fs.readFileSync(path.join(tree, "packaging/runtime-libraries.json"), "utf8")).length;
 }
 
@@ -195,8 +195,7 @@ function plantPluginDbusRequirement(tree, name, packages) {
     const file = path.join(tree, "shell/plugins/vgs.launcher/manifest.json");
     const manifest = JSON.parse(fs.readFileSync(file, "utf8"));
     const requirements = manifest.requirements || [];
-    const nameOf = entry => entry.command || entry.dbus.name;
-    if (requirements.some(entry => nameOf(entry) === name)) throw new Error("plugin requirement: refused: declared=" + name);
+    if (requirements.some(entry => requirementName(entry) === name)) throw new Error("plugin requirement: refused: declared=" + name);
     manifest.requirements = requirements.concat([{ dbus: { bus: "system", name, label: "Planted service" }, packages, optional: false, purpose: "A planted bus requirement" }]);
     fs.writeFileSync(file, JSON.stringify(manifest));
 }
