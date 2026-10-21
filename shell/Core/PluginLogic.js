@@ -3915,14 +3915,18 @@ function tuiStateNames(manifest) {
 }
 
 // shell.tui.state for the plugin ID's own TUIs NAMES, from RUNS, a tuiRuns
-// result: per name { running, code, endedAt }, the last two from the key's
-// latest ended run, null before any ended.
-function tuiState(runs, id, names) {
+// result, and PENDING, the keys of launches whose run has no record yet:
+// per name { running, code, endedAt }. `running` holds from the launch on,
+// as tuiBusyKeys reads the key busy, so a reader never waits on the
+// listing, which can drop a directory change (TuiRecords.qml); the last
+// two come from the key's latest ended run, null before any ended.
+function tuiState(runs, id, names, pending) {
     var out = {};
     names.forEach(function (name) {
-        var slot = hasOwn(runs.keys, id + "/" + name) ? runs.keys[id + "/" + name] : { running: null, ended: null };
+        var key = id + "/" + name;
+        var slot = hasOwn(runs.keys, key) ? runs.keys[key] : { running: null, ended: null };
         out[name] = {
-            running: slot.running !== null,
+            running: slot.running !== null || pending.indexOf(key) !== -1,
             code: slot.ended === null ? null : slot.ended.code,
             endedAt: slot.ended === null ? null : slot.ended.endedAt
         };

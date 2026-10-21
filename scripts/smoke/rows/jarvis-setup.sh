@@ -368,8 +368,8 @@ jarvis_rescan
 # The Voice step offers its setup while the daemon reads local voice to do:
 # a status open follows local_ready with every reader idle, so no hello
 # reaches the daemon between the marker and the press.
-# With unbounded, the run end is waited for with no latency ceiling: a
-# control whose run waits on the lock ends late by design.
+# With unbounded, the run end is waited for with no latency ceiling: a run
+# that waits on the daemon's release or on the lock ends late by design.
 local_open() { # status | launcher [unbounded]
   local revision snapshot
   revision="$(jarvis_revision)" || return 1
@@ -592,7 +592,8 @@ setup_replace() { # SECONDS [unbounded]: the fixture's bound on the lock
 expect_poll "the ready local voice's sidecar runs before the replacement" "$setup_ready" setup_rows
 expect_poll "the sidecar holds the setup lock" held setup_lock_state
 setup_starts="$(setup_sidecar_starts)"
-setup_replace 30
+# Unbounded: the run ends only once the daemon has closed the sidecar.
+setup_replace 30 unbounded
 expect "the shell released the local voice for the window" released setup_release_answer
 expect "the replacement over the running sidecar ends ready, not busy" ready setup_release_outcome
 expect_poll "the run's end starts the sidecar again" "$((setup_starts + 1))" setup_sidecar_starts

@@ -331,9 +331,10 @@ Scope {
     }
 
     // The calling plugin's own TUIs' state, one frozen copy per read: its
-    // scripts' and its file actions' editor runs (PluginLogic.tuiStateNames).
+    // scripts' and its file actions' editor runs (PluginLogic.tuiStateNames),
+    // a run live from its launch, before any record of it is listed.
     function stateOf(ctx) {
-        return frozen(Logic.tuiState(recordStore.runs, ctx.id, Logic.tuiStateNames(ctx.manifest)));
+        return frozen(Logic.tuiState(recordStore.runs, ctx.id, Logic.tuiStateNames(ctx.manifest), pending.map(p => p.key)));
     }
 
     function start(launch, ctx, done) {

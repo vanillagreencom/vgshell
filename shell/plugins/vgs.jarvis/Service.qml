@@ -535,9 +535,9 @@ Item {
         return true;
     }
     // The run's ask, STEP: `begin` tells the daemon and answers `waiting`,
-    // refused outside a setup-local run (setup-local release asks again
-    // while the core lists its run) or while no daemon runs, which holds no
-    // sidecar, so the window installs at once; `state` answers `waiting` or
+    // refused outside a setup-local run, which the core reports live from
+    // its launch, or while no daemon runs, which holds no sidecar, so the
+    // window installs at once; `state` answers `waiting` or
     // `released`. A daemon still starting may start its sidecar, so its ask
     // waits: its hello, or its readiness for a hello already sent, tells it.
     function localSetup(step) {

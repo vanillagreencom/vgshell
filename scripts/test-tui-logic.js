@@ -577,19 +577,24 @@ function suite(ctx, check) {
     check("tuiRuns: no record, no key", ctx.tuiRuns([]), { runs: {}, keys: {} });
     check("tuiBusyKeys: running keys and launching keys, once each", ctx.tuiBusyKeys(runs, ["core/doctor", "acme.tui/hello"]), ["acme.tui/hello", "core/doctor"]);
     check("tuiBusyKeys: a key whose runs all ended is free", ctx.tuiBusyKeys(runs, []).indexOf("acme.tui/update"), -1);
-    check("tuiState: the plugin's own names, running and last ended", ctx.tuiState(runs, "acme.tui", ["hello", "update", "never"]), {
+    check("tuiState: the plugin's own names, running and last ended", ctx.tuiState(runs, "acme.tui", ["hello", "update", "never"], []), {
         hello: { running: true, code: 0, endedAt: at("02") },
         update: { running: false, code: null, endedAt: at("09") },
         never: { running: false, code: null, endedAt: null },
     });
-    check("tuiState: another plugin's keys stay its own", ctx.tuiState(runs, "acme.other", ["hello"]), { hello: { running: false, code: null, endedAt: null } });
+    check("tuiState: another plugin's keys stay its own", ctx.tuiState(runs, "acme.other", ["hello"], []), { hello: { running: false, code: null, endedAt: null } });
+    // A launch whose run has no record listed yet is live: the listing can
+    // drop a directory change, and the key is already busy (tuiBusyKeys).
+    check("tuiState: a launch with no record yet is running", ctx.tuiState(runs, "acme.tui", ["never"], ["acme.tui/never"]), { never: { running: true, code: null, endedAt: null } });
+    check("tuiState: a launch keeps the key's last ended run", ctx.tuiState(runs, "acme.tui", ["update"], ["acme.tui/update"]), { update: { running: true, code: null, endedAt: at("09") } });
+    check("tuiState: another plugin's launch stays its own", ctx.tuiState(runs, "acme.other", ["hello"], ["acme.tui/hello"]), { hello: { running: false, code: null, endedAt: null } });
     // tuiStateNames: a plugin's file action adds the editor's name.
     const filing = (tui, action) => Object.assign(manifestWith(tui), { capabilities: ["tui", "status"], status: { notes: { type: "state", label: "Notes", action: action } } });
     check("tuiStateNames: the scripts alone without a file action", ctx.tuiStateNames(ctx.validateManifest(filing({ hello: hello }, { label: "Say hello", tui: "hello" }), "/p").manifest), ["hello"]);
     check("tuiStateNames: a file action adds the editor's name", ctx.tuiStateNames(ctx.validateManifest(filing({ hello: hello }, { label: "Open notes", file: "~/notes.md" }), "/p").manifest), ["hello", ctx.STATUS_FILE_TUI]);
     check("tuiStateNames: a file action on a manifest with no tui", ctx.tuiStateNames(ctx.validateManifest(filing(undefined, { label: "Open notes", file: "~/notes.md" }), "/p").manifest), ["edit"]);
     const editRuns = ctx.tuiRuns([rec("acme.tui/edit", "7-1", "ended", 0, "07", "08")]);
-    check("tuiState: a file action's editor run ends in the plugin's state", ctx.tuiState(editRuns, "acme.tui", ["edit"]), { edit: { running: false, code: 0, endedAt: at("08") } });
+    check("tuiState: a file action's editor run ends in the plugin's state", ctx.tuiState(editRuns, "acme.tui", ["edit"], []), { edit: { running: false, code: 0, endedAt: at("08") } });
     check("tuiRunDone: an ended run answers its code", ctx.tuiRunDone(runs, "1-1"), { code: 0, reason: null });
     check("tuiRunDone: a failed run answers its code", ctx.tuiRunDone(runs, "5-1"), { code: 1, reason: null });
     check("tuiRunDone: a reaped run vanished", ctx.tuiRunDone(runs, "3-1"), { code: null, reason: "vanished" });
@@ -717,6 +722,25 @@ runnerSuite(RUNNER, load(LOGIC), report);
         red += 1;
     }
     report("control: the focus rows fail when the runner reads Hyprland.toplevels", red > 0, true);
+}
+
+// stateOf, as TuiRunner.qml holds it, reads a launch live before the
+// listing shows any record of its run; the control drops the launches.
+function stateSuite(source, logic, check) {
+    const read = (pending, runs) => vm.runInNewContext(runnerFunction(source, "stateOf(ctx)") + "stateOf(ctx);", {
+        Logic: logic, pending: pending, recordStore: { runs: runs }, frozen: value => value,
+        ctx: { id: "acme.tui", manifest: { tui: { hello: {} } } },
+    });
+    check("TuiRunner state: a launch with no record yet reads running", read([{ key: "acme.tui/hello", run: "9-1" }], logic.tuiRuns([])).hello.running, true);
+    check("TuiRunner state: no launch and no record reads idle", read([], logic.tuiRuns([])).hello.running, false);
+}
+stateSuite(RUNNER, load(LOGIC), report);
+{
+    const needle = "Logic.tuiStateNames(ctx.manifest), pending.map(p => p.key))";
+    report("control: TuiRunner's state passes its launches once", RUNNER.split(needle).length - 1, 1);
+    let red = 0;
+    stateSuite(RUNNER.replace(needle, () => "Logic.tuiStateNames(ctx.manifest), [])"), load(LOGIC), (name, got, want) => { if (JSON.stringify(got) !== JSON.stringify(want)) red += 1; });
+    report("control: the state rows fail when the runner drops its launches", red > 0, true);
 }
 
 // TuiRunner's run and runFor share one judge, request, with the plugin's
@@ -1475,7 +1499,8 @@ const CONTROLS = [
     ["a key whose runs ended is not busy", "if (runs.keys[key].running !== null && busy.indexOf(key) === -1)", "if (busy.indexOf(key) === -1)"],
     ["a busy key is listed once", "if (runs.keys[key].running !== null && busy.indexOf(key) === -1)", "if (runs.keys[key].running !== null)"],
     ["busy keys are sorted", "    return busy.sort();", "    return busy;"],
-    ["state reads running from the live run", "running: slot.running !== null,", "running: false,"],
+    ["state reads running from the live run", "running: slot.running !== null || pending.indexOf(key) !== -1,", "running: pending.indexOf(key) !== -1,"],
+    ["state reads running from a launch with no record yet", "running: slot.running !== null || pending.indexOf(key) !== -1,", "running: slot.running !== null,"],
     ["state reads the code of the last ended run", "code: slot.ended === null ? null : slot.ended.code,", "code: null,"],
     ["state reads the end of the last ended run", "endedAt: slot.ended === null ? null : slot.ended.endedAt", "endedAt: null"],
     ["a running run's done waits", "if (!hasOwn(runs.runs, run) || runs.runs[run].state !== \"ended\")", "if (!hasOwn(runs.runs, run))"],

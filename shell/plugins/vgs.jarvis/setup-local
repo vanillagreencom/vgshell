@@ -273,9 +273,6 @@ def plan(value, offers, tier):
     return [f"Downloads the {named}, and the tools it needs.", question]
 
 
-# How long the core may take to list a setup-local run its window started:
-# Jarvis's ask refuses a run it does not list yet (Service.localSetup).
-LISTING_WAIT = 5
 STOPPING = "Jarvis stops the local voice while it sets up the new model."
 
 
@@ -283,9 +280,10 @@ def release(vgshell, ready):
     """Have Jarvis close its local voice, whose speech program holds
     local-setup.lock shared while it runs, before install takes the lock
     alone. VGSHELL is the VGS tree's bin/vgshell; READY, the ready tier or
-    None, says whether a local voice runs to be stopped. A refusal other
-    than an unlisted run, such as no Jarvis running, holds no lock, so
-    install goes on and waits LOCK_WAIT for the lock itself."""
+    None, says whether a local voice runs to be stopped. The core reports
+    the run live from its launch, so Jarvis takes the ask at once. A
+    refusal, such as no Jarvis running, holds no lock, so install goes on
+    and waits LOCK_WAIT for the lock itself."""
     def ask(step):
         # vgshell prints a refusal on stdout before it exits 69.
         try:
@@ -294,11 +292,7 @@ def release(vgshell, ready):
         except (OSError, subprocess.TimeoutExpired):
             return ""
 
-    deadline = time.monotonic() + LISTING_WAIT
     answer = ask("begin")
-    while answer == "refused: local-setup=no-run" and time.monotonic() < deadline:
-        time.sleep(0.2)
-        answer = ask("begin")
     if answer == "waiting":
         if ready is not None:
             print(STOPPING, flush=True)

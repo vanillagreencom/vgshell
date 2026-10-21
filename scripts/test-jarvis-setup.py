@@ -772,19 +772,13 @@ printf '%s\\n' "$*" >>"$VGSHELL_CALLS"
 case "$1 $2 $5 $6" in
   "plugin settings  ") cat "$VGSHELL_SETTINGS" ;;
   "ipc call local-setup begin")
-    if [ "$RELEASE" = listing ]; then
-      # The core lists the run from the third ask on.
-      printf x >>"$LISTING_ASKS"
-      [ "$(wc -c <"$LISTING_ASKS")" -ge 3 ] || { printf 'refused: local-setup=no-run\\n'; exit 69; }
-      RELEASE=release
-    fi
     case "$RELEASE" in
       off) printf 'refused: jarvis=not-running\\n'; exit 69 ;;
       release) : >"$HOLDER_RELEASE"; printf 'waiting\\n' ;;
       *) printf 'waiting\\n' ;;
     esac ;;
   "ipc call local-setup state")
-    if [ "$RELEASE" = release ] || [ "$RELEASE" = listing ] && [ ! -e "$HOLDER_HELD" ]; then printf 'released\\n'; else printf 'waiting\\n'; fi ;;
+    if [ "$RELEASE" = release ] && [ ! -e "$HOLDER_HELD" ]; then printf 'released\\n'; else printf 'waiting\\n'; fi ;;
   *) exit 2 ;;
 esac
 """)
@@ -793,8 +787,7 @@ esac
         env = dict(self.env, VGS_TUI_LIB=str(tree / "bin/lib/tui.sh"), VGS_PLUGIN_DIR=str(self.plugin), VGS_PLUGIN_ID="vgs.jarvis",
                    QUESTIONS=str(self.root / "questions"), CONFIRM="0", VGSHELL_CALLS=str(self.root / "vgshell-calls"),
                    VGSHELL_SETTINGS=str(self.root / "settings.json"), RELEASE=release,
-                   HOLDER_HELD=str(self.root / "holder-held"), HOLDER_RELEASE=str(self.root / "holder-release"),
-                   LISTING_ASKS=str(self.root / "listing-asks"))
+                   HOLDER_HELD=str(self.root / "holder-held"), HOLDER_RELEASE=str(self.root / "holder-release"))
         script = self.plugin / "tui/setup-local.sh"
         run = lambda *args: subprocess.run(["bash", str(script), *args],
             env=env, capture_output=True, text=True, check=False, timeout=60)
@@ -958,7 +951,7 @@ Path(sys.argv[2]).unlink()
         self.write_config()
         self.hold_lock()
         self.mutant("LOCK_WAIT = 30\n", "LOCK_WAIT = 1\n")
-        self.mutant('    answer = ask("begin")\n    while', '    answer = ""\n    while')
+        self.mutant('    answer = ask("begin")\n    if answer', '    answer = ""\n    if answer')
         result = run("small")
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertEqual(self.report()["failure"]["cause"], "busy")
@@ -976,32 +969,6 @@ Path(sys.argv[2]).unlink()
         self.assertIn("jarvis-setup: failed=setup=busy release=waiting", (self.state / "setup-local.log").read_text().splitlines())
         self.assertEqual([call[0] for call in self.calls() if call[0] != "nvidia-smi"], [], "the install never ran")
         self.assertEqual((self.state / "local-ready.json").read_bytes(), marker)
-
-    def test_release_asks_again_until_the_run_is_listed_and_control(self):
-        # The window starts at once, so the core may not list its run when
-        # the first ask comes: setup-local release asks again, and the
-        # replacement over the holder still ends ready, not busy.
-        self.install()
-        self.ready()
-        self.config["tier"] = "medium"
-        self.write_config()
-        self.hold_lock()
-        run, env = self.tui(release="listing")
-        result = run("medium")
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.ready()
-        self.assertEqual(self.vgshell_calls().count("ipc call vgs.jarvis invoke local-setup begin"), 3)
-        self.assertIn("jarvis-setup: release=released", (self.state / "setup-local.log").read_text().splitlines())
-        # Control: no second ask installs over the holder and fails busy.
-        Path(env["LISTING_ASKS"]).unlink()
-        self.config["tier"] = "small"
-        self.write_config()
-        self.hold_lock()
-        self.mutant("LOCK_WAIT = 30\n", "LOCK_WAIT = 1\n")
-        self.mutant("LISTING_WAIT = 5\n", "LISTING_WAIT = 0\n")
-        result = run("small")
-        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-        self.assertEqual(self.report()["failure"]["cause"], "busy")
 
     def test_release_names_a_stop_only_over_a_ready_tier_and_control(self):
         # Jarvis stops a local voice only when one is ready to run: a first
