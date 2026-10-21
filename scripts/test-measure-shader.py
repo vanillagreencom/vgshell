@@ -21,6 +21,7 @@ import unittest
 ROOT = Path(__file__).resolve().parent
 READER = ROOT / "shader/readings.py"
 RUNNER = ROOT / "measure-shader.sh"
+BASH = shutil.which("bash")
 spec = importlib.util.spec_from_file_location("readings", READER)
 reader = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(reader)
@@ -396,7 +397,7 @@ mode_scale_of() { echo "1755x933 scale=1.5"; }
 measure_held_scene 2 on "$HOME/scale-2-on"
 """
             result = subprocess.run(
-                ["bash", "-c", script, "_", str(ROOT / "smoke/verdict.sh"), str(subject), state],
+                [BASH, "-c", script, "_", str(ROOT / "smoke/verdict.sh"), str(subject), state],
                 env={"PATH": "/usr/bin:/bin", "HOME": scratch, "LC_ALL": "C"},
                 text=True, capture_output=True, check=False)
             measured = Path(scratch) / "measured"
@@ -483,28 +484,33 @@ with open(pathlib.Path(os.environ["HOME"], "compiler-calls"), "a") as calls:
     calls.write(json.dumps(sys.argv[1:]) + "\\n")
 """)
         compiler.chmod(0o755)
+        (root / "world-tmp").mkdir()
         return subprocess.run(
-            ["bash", str(script), *args],
-            env={"PATH": "/usr/bin:/bin", "HOME": str(root / "home"), "LC_ALL": "C", "QSB": str(compiler)},
+            [BASH, str(script), *args],
+            env={"PATH": "/usr/bin:/bin", "HOME": str(root / "home"), "LC_ALL": "C", "QSB": str(compiler), "TMPDIR": str(root / "world-tmp")},
             text=True, capture_output=True, check=False)
 
-    def test_fresh_checkout_scratch_creation(self):
+    def test_uses_world_scratch(self):
         harness = """
 scratch="$(mktemp -d "$TMPDIR/vgshell-smoke.XXXXXX")"
 printf 'shader-test: scratch=%s\\n' "$scratch"
 exit 0
 """
         text = RUNNER.read_text()
-        old = 'mkdir -p -- "$source_repo/tmp"'
+        old = 'source_repo="$repo"\n'
         self.assertEqual(text.count(old), 1)
-        plants = ((text, 0), (text.replace(old, ': "$source_repo/tmp"'), 1))
+        mutant = text.replace(old, old + 'export TMPDIR="$source_repo/undeclared"\n')
+        self.assertNotEqual(mutant, text)
         with tempfile.TemporaryDirectory() as scratch:
-            for index, (source, status) in enumerate(plants):
+            for index, (source, status) in enumerate(((text, 0), (mutant, 1))):
                 with self.subTest(mutant=index):
                     root = Path(scratch) / str(index)
                     result = self.runner_copy(root, harness, source)
                     self.assertEqual(result.returncode, status, result.stdout + result.stderr)
-                    self.assertEqual((root / "tmp").is_dir(), status == 0)
+                    if status == 0:
+                        directories = list((root / "world-tmp").glob("vgshell-smoke.*"))
+                        self.assertTrue(directories)
+                    self.assertFalse((root / "tmp").exists())
 
     def test_runs_needs_calibration(self):
         # Check mode judges one pass; the refusals come before the harness,

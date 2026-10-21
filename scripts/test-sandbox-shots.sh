@@ -17,8 +17,6 @@ set -euo pipefail
 self="$(readlink -f -- "${BASH_SOURCE[0]}")"
 repo="$(cd -- "$(dirname -- "$self")/.." && pwd)"
 helper="$repo/scripts/smoke/shot.sh"
-node_bin="$(node -e 'process.stdout.write(process.execPath)')"
-export PATH="${node_bin%/*}:$PATH"
 
 # The EXIT trap is armed only on the directory mktemp made: an empty or
 # non-directory answer never reaches rm -rf.
@@ -26,6 +24,8 @@ tmp="$(mktemp -d /var/tmp/test-sandbox-shots.XXXXXX)" || { echo "test-sandbox-sh
 [[ -d $tmp && ! -L $tmp ]] || { echo "test-sandbox-shots: scratch=not-a-directory value=[$tmp]" >&2; exit 1; }
 tmp="$(cd -- "$tmp" && pwd -P)"
 trap 'rm -rf -- "${tmp:?}"' EXIT
+node_bin="$(node -e 'process.stdout.write(process.execPath)')"
+export PATH="${node_bin%/*}:$PATH"
 failures=0
 ok() { printf '  ok    %s\n' "$*"; }
 fail() { failures=$((failures + 1)); printf '  FAIL  %s\n' "$*"; }
