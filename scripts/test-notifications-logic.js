@@ -22,6 +22,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
 const childProcess = require("node:child_process");
+const vm = require("node:vm");
 const { load } = require("../bin/lib/qml-library.js");
 
 // Slack stamps its log in local time, and the recorded stamp below was
@@ -38,6 +39,132 @@ const themeLogic = load(path.join(__dirname, "..", "shell", "Commons", "ThemeLog
 // The core's status judge, which the Slack token rows the service publishes
 // must pass.
 const pluginLogic = load(path.join(__dirname, "..", "shell", "Core", "PluginLogic.js"));
+
+// Run AppSounds' shipped operations with synthetic PipeWire deliveries. Only
+// the external node, process, timer and event-loop boundaries are fixtures.
+function verifyAppSoundAdmission(source) {
+    const operations = ["props", "corked", "armOf", "judge", "refresh", "schedule", "writeHold", "holdEntry", "publishHold"];
+    const functions = operations.map(name => {
+        const found = source.match(new RegExp("^    function " + name + "\\([^\\n]*\\) \\{[\\s\\S]*?^    \\}", "m"));
+        assert.ok(found, "exercise AppSounds." + name);
+        return found[0];
+    }).concat(["onPropertiesChanged", "onReadyChanged"].map(name => {
+        const found = source.match(new RegExp("^                function " + name + "\\(\\) \\{[^\\n]*\\}", "m"));
+        assert.ok(found, "exercise AppSounds." + name);
+        return found[0];
+    })).join("\n");
+    for (const [label, events] of [
+        ["bound before admission", ["ready", "serial", "paused", "list", "admit"]],
+        ["binding completes after admission", ["serial", "paused", "list", "admit", "ready"]],
+        ["identity arrives after admission", ["ready", "paused", "list", "admit", "serial"]],
+        ["cork state arrives after admission", ["ready", "serial", "list", "admit", "paused"]],
+        ["node list arrives after admission", ["admit", "list", "ready", "serial", "paused"]],
+        ["node list arrives with complete properties", ["ready", "serial", "paused", "admit", "list"]],
+        ["writer starts after properties", ["list", "admit-stopped", "ready", "serial", "paused", "admit"]],
+        ["identity precedes full binding and cork state", ["list", "admit", "serial", "ready", "paused"]]
+    ]) {
+        const jobs = [], sent = [];
+        const node = { ready: false, isStream: true, isSink: true, audio: {}, properties: { "application.name": "Smoke Knock" } };
+        const context = {
+            Logic: load(file, commons), Date: { now: () => 1000 },
+            streams: [], initialized: false, holds: {}, arms: {}, ruleHeldSerials: [], ruleHold: null,
+            ruleRunning: true, holdNames: ["smoke knock"], lastHold: "", holdTries: 0,
+            shellSounds: "/shell/assets/sounds", Pipewire: { nodes: { values: [] } },
+            writer: { running: true, processId: 42 }, holdRetry: { stop() {} }, clock: { stop() {}, restart() {} },
+            Qt: { callLater(job) { jobs.push(job); } }, modelData: { node }
+        };
+        context.root = context;
+        context.holdWriter = { running: false, send() { sent.push(JSON.parse(context.holdEntry(42))); } };
+        vm.createContext(context);
+        vm.runInContext(functions, context);
+        function flush() { while (jobs.length) jobs.shift()(); }
+        for (const event of events) {
+            if (event === "list") {
+                context.Pipewire.nodes.values = [node];
+                context.refresh();
+                context.initialized = true;
+            } else if (event === "admit" || event === "admit-stopped") {
+                context.writer.running = event === "admit";
+                context.writeHold(true);
+            } else {
+                if (event === "ready") node.ready = true;
+                else if (event === "serial") node.properties["object.serial"] = "9007199254740993";
+                else node.properties["pulse.corked"] = "true";
+                if (event === "ready") context.onReadyChanged();
+                else context.onPropertiesChanged();
+            }
+            flush();
+            if (!node.ready || !node.properties["object.serial"] || !node.properties["pulse.corked"])
+                assert.equal(sent.some(entry => entry.released.includes("9007199254740993")), false, label + ": incomplete facts never release the stream");
+        }
+        const entry = JSON.parse(context.holdEntry(42));
+        assert.deepEqual(entry.streams, ["9007199254740993"], label + ": the paused stream is exactly held");
+        assert.deepEqual(entry.released, [], label + ": the held stream is not released");
+        assert.equal(sent.some(value => value.streams.includes("9007199254740993")), true, label + ": the writer publishes adoption");
+        node.properties["pulse.corked"] = "false";
+        context.judge(node);
+        flush();
+        assert.deepEqual(JSON.parse(context.holdEntry(42)).streams, ["9007199254740993"], label + ": playback before its notification stays held");
+    }
+    // A playing call consumes admission once. Its later pause is not a new
+    // admission, and a policy write with no new app must not create one.
+    for (const delayedList of [false, true]) {
+        const node = { ready: true, isStream: true, isSink: true, audio: {}, properties: {
+            "application.name": "Smoke Knock", "object.serial": "call", "pulse.corked": "false"
+        } };
+        const context = {
+            Logic: load(file, commons), Date: { now: () => 1000 }, streams: [], initialized: false,
+            holds: {}, arms: {}, ruleHeldSerials: [], ruleHold: null, ruleRunning: true,
+            holdNames: ["smoke knock"], lastHold: "", holdTries: 0, shellSounds: "/shell/assets/sounds",
+            Pipewire: { nodes: { values: delayedList ? [] : [node] } },
+            writer: { running: true, processId: 42 }, holdRetry: { stop() {} }, clock: { stop() {}, restart() {} },
+            Qt: { callLater() {} }, holdWriter: { running: false, send() {} }
+        };
+        context.root = context;
+        vm.createContext(context);
+        vm.runInContext(functions, context);
+        context.refresh();
+        context.initialized = true;
+        context.writeHold(true);
+        if (delayedList) { context.Pipewire.nodes.values = [node]; context.refresh(); }
+        node.properties["pulse.corked"] = "true";
+        context.judge(node);
+        context.writeHold(false);
+        assert.deepEqual(JSON.parse(context.holdEntry(42)).streams, [], "the known playing call stays free after its pause, delayed-list=" + delayedList);
+        context.holdNames = ["smoke knock", "another app"];
+        context.writeHold(false);
+        assert.deepEqual(JSON.parse(context.holdEntry(42)).streams, [], "admitting another app does not adopt the paused call");
+        context.writeHold(true);
+        assert.deepEqual(JSON.parse(context.holdEntry(42)).streams, [], "a replacement writer does not adopt the paused call");
+        if (!delayedList) assert.deepEqual(JSON.parse(context.holdEntry(42)).released, ["call"], "the existing call keeps its exact release");
+    }
+}
+const appSoundsFile = path.join(__dirname, "..", "shell", "plugins", "vgs.notifications", "AppSounds.qml");
+const appSoundsSource = fs.readFileSync(appSoundsFile, "utf8");
+verifyAppSoundAdmission(appSoundsSource);
+// Restore one-pass adoption in a disposable source copy. Only the admission
+// cases above run against it, so rejection proves the readiness protection.
+const admissionControl = fs.mkdtempSync(path.join(os.tmpdir(), "vgs-admission-control-"));
+try {
+    let mutant = appSoundsSource;
+    for (const [needle, replacement] of [
+        ["function judge(node) {", "function judge(node, open) {"],
+        ['entry.admission === "waiting"', "open === true"],
+        ["for (const entry of streams) judge(entry.node);\n        }\n        publishHold();", "for (const entry of streams) judge(entry.node, true);\n        }\n        publishHold();"]
+    ]) {
+        assert.equal(mutant.split(needle).length, 2, "admission control edit matches once");
+        const changed = mutant.replace(needle, replacement);
+        assert.notEqual(changed, mutant);
+        mutant = changed;
+    }
+    const controlFile = path.join(admissionControl, "AppSounds.qml");
+    fs.writeFileSync(controlFile, mutant, { flag: "wx" });
+    assert.throws(() => verifyAppSoundAdmission(fs.readFileSync(controlFile, "utf8")), assert.AssertionError);
+    console.log("test-notifications-logic: app-sounds-admission=pass control=one-pass-adoption-rejected");
+} finally {
+    fs.rmSync(admissionControl, { recursive: true, force: true });
+}
+if (process.argv.includes("--app-sounds")) process.exit(0);
 
 // The real Open declaration selects its picker even though Gum is optional
 // for the plugin as a whole. This tests the requirement judge, not the
@@ -450,35 +577,40 @@ function verify(logic) {
     });
     same([roleChanges, roleHold], [["mute", "again", "", ""], H("playing", 1100 + HOLD, true)], "app sound: a role's sound that opens paused stays muted through its play");
 
-    // The sound rule: which streams it held, [label, the hold as written,
-    // the stream's properties, when the shell first saw it, the verdict].
-    // The hold was first written at 500.
-    const written = { at: 500, apps: ["slack", "smoke chat"], roles: logic.HOLD_ROLES };
+    // Actual serial admission stays separate from the broad new-stream policy.
+    const written = { apps: ["slack", "smoke chat"], roles: logic.HOLD_ROLES };
     same(logic.HOLD_ROLES, ["notification", "event"], "the rule holds notification and event sounds by their role");
-    for (const [label, hold, props, since, want] of [
-        ["no hold written, nothing held", null, { "application.name": "Slack" }, 600, ""],
-        ["a stream seen before the hold was written was not held", written, { "application.name": "Slack" }, 499, ""],
-        ["a stream named by a held app", written, { "application.name": "Slack" }, 500, "app"],
-        ["a stream named by a held app's program", written, { "application.name": "Chromium", "application.process.binary": "slack" }, 600, "app"],
-        ["a stream whose role is a notification's, in any case", written, { "application.name": "Other", "media.role": "Event" }, 600, "role"],
-        ["a held app's stream with a notification role reads as held for its role", written, { "application.name": "Slack", "media.role": "notification" }, 600, "role"],
-        ["a stream with another role of another app", written, { "application.name": "Spotify", "media.role": "Music" }, 600, ""],
-        ["a stream not yet bound", written, {}, 600, ""],
-        ["no properties at all", written, null, 600, ""]
+    for (const [label, props, want] of [
+        ["a held app", { "application.name": "Slack" }, true],
+        ["a held program", { "application.name": "Chromium", "application.process.binary": "slack" }, true],
+        ["a notification role in any case", { "application.name": "Other", "media.role": "Event" }, true],
+        ["another app and role", { "application.name": "Spotify", "media.role": "Music" }, false],
+        ["unbound properties", {}, false],
+        ["no properties", null, false]
     ])
-        assert.equal(logic.ruleHeld(hold, props, since, false), want, "rule held: " + label);
-    // A stream of the shell's own sound player that the rule held is the
-    // shell's own; one the rule did not hold is not judged.
-    for (const [label, hold, props, since, want] of [
-        ["the shell's player held for its role", written, { "application.name": "pw-play", "media.role": "Notification" }, 600, "own"],
-        ["the shell's player seen before the hold", written, { "application.name": "pw-play", "media.role": "Notification" }, 499, ""],
-        ["the shell's player the hold does not name", written, { "application.name": "pw-play", "media.role": "Music" }, 600, ""]
+        assert.equal(logic.holdMatches(written, props), want, "hold matches: " + label);
+    for (const [label, held, props, own, want] of [
+        ["no reported hold", [], { "object.serial": "80", "application.name": "Slack" }, false, ""],
+        ["another stream of the same app", ["80"], { "object.serial": "81", "application.name": "Slack" }, false, ""],
+        ["the actual held stream", ["80"], { "object.serial": "80", "application.name": "Slack" }, false, "app"],
+        ["an actual held stream with a notification role", ["80"], { "object.serial": "80", "media.role": "Event" }, false, "role"],
+        ["a node id reused with a new serial", ["80"], { "object.serial": "82", "media.role": "Event" }, false, ""],
+        ["the shell's held player", ["80"], { "object.serial": "80", "media.role": "Notification" }, true, "own"],
+        ["the shell's player absent from the hold", [], { "object.serial": "80", "media.role": "Notification" }, true, ""],
+        ["unbound properties", ["80"], {}, false, ""],
+        ["no properties", ["80"], null, false, ""]
     ])
-        assert.equal(logic.ruleHeld(hold, props, since, true), want, "rule held: " + label);
+        assert.equal(logic.ruleHeld(held, props, own), want, "rule held: " + label);
+    for (const [text, want] of [
+        ['["80","81"]', ["80", "81"]], ['[]', []], ['[80]', null], ['["80",null]', null],
+        ['[""]', null], ['{}', null], ['null', null], ['invalid', null]
+    ])
+        same(logic.soundRuleHeld(text), want, "rule serial readback: " + text);
     // A stream the rule held for the shell's own player is freed at once,
     // whatever its role.
     same(logic.appSoundStep(null, null, { corked: false, since: 1075 }, 1080, "own"), { hold: null, change: "release" }, "app sound: the shell's own sound is freed");
     same(logic.appSoundStep(null, null, { corked: true, since: 1075 }, 1080, "own"), { hold: null, change: "release" }, "app sound: the shell's own paused sound is freed");
+    same(logic.appSoundStep(ROLE_REST, null, { corked: true, since: 1075 }, 1080, "own"), { hold: null, change: "release" }, "app sound: the shell's player is freed when its filename arrives after adoption");
     // The shell's own sound: [label, properties, the answer], the core's
     // sounds under /usr/share/vgshell/shell/assets/sounds.
     const SOUNDS = "/usr/share/vgshell/shell/assets/sounds";
@@ -492,17 +624,6 @@ function verify(logic) {
     ])
         assert.equal(logic.shellPlayer(props, SOUNDS), want, "shell player: " + label);
     assert.equal(logic.shellPlayer({ "media.filename": "/chime.wav" }, ""), false, "shell player: no sounds directory");
-    // pw-cli's output, as pw-cli 1.6.9 printed it on a pipe in the nested
-    // sandbox (VGS-1424 run 21): [line, ready].
-    for (const [line, want] of [
-        ["Welcome to PipeWire version 1.6.9. Type 'help' for usage.", false],
-        [">> remote 0 is named 'pipewire-0'", false],
-        ["remote 0 client 65 changed", true],
-        ["pipewire-0>> remote 0 node 66 changed", true],
-        ["remote 0 added global: \tid 67, type PipeWire:Interface:Link/3", false],
-        ["pipewire-0>> set-param 66 Props { softMute: true }", false]
-    ])
-        assert.equal(logic.cliReady(line), want, "pw-cli ready: " + line);
     // The user configuration as the core writes it: [label, text, disabled].
     for (const [label, text, want] of [
         ["the plugin disabled", '{"version": 1, "disabledPlugins": ["vgs.clock", "vgs.notifications"]}', true],
@@ -589,17 +710,13 @@ function verify(logic) {
         ["nothing there, nothing done", {}, []]
     ])
         same(removal(files), want, "removal: " + label);
-    same(JSON.parse(logic.holdEntry(4242, ["slack", "smoke chat"])), { pid: 4242, apps: ["slack", "smoke chat"], roles: ["notification", "event"] }, "the hold entry the rule parses");
+    same(JSON.parse(logic.holdEntry(4242, ["slack", "smoke chat"], ["80"], ["81", "82"])),
+        { pid: 4242, apps: ["slack", "smoke chat"], roles: ["notification", "event"], streams: ["80"], released: ["81", "82"] }, "the complete hold entry the rule parses");
+    same(JSON.parse(logic.holdEntry(4242, [], [], [])),
+        { pid: 4242, apps: [], roles: ["notification", "event"], streams: [], released: [] }, "empty exact sets replace previous admission");
     same(logic.holdApps([stored(1, 1, { desktopEntry: "slack", app: "Slack" }), stored(2, 2, { desktopEntry: "", app: "Smoke Chat" }), stored(3, 3, { desktopEntry: "slack", app: "Slack" })], ["org.example.chat", "slack"]),
         ["slack", "smoke chat", "org.example.chat"], "the hold names every kept and armed app once, in lower case");
     same(logic.holdApps([], []), [], "nothing kept or armed, no app held");
-    for (const [label, before, after, want] of [
-        ["the same apps", ["slack"], ["slack"], false],
-        ["an app fewer", ["slack", "smoke chat"], ["slack"], false],
-        ["a new app", ["slack"], ["slack", "smoke chat"], true],
-        ["a first app", [], ["slack"], true]
-    ])
-        assert.equal(logic.holdGrows(before, after), want, "hold grows: " + label);
     // FNV-1a's published 32-bit vectors.
     for (const [text, want] of [["", "v811c9dc5"], ["a", "ve40c292c"], ["foobar", "vbf9cf968"]])
         assert.equal(logic.soundRuleVersion(text), want, "rule version of " + JSON.stringify(text));
@@ -1605,11 +1722,9 @@ const CONTROLS = [
     ["a browser's copy opens no message", " || read.source !== \"desktop\"", ""],
     ["a card no rule reads opens no message", "if (read === null || read.source !== \"desktop\") return null;", "if (read === null) return { rule: \"\", arrival: 0, team: \"\" }; if (read.source !== \"desktop\") return null;"],
     ["a stream the rule held for its app waits for its notification", '        if (ruled === "app") return { hold: paused ? rest : sound, change: "mute" };\n', ""],
-    ["a stream the rule held as the shell's own is freed", '        if (ruled === "own") return { hold: null, change: "release" };\n', ""],
+    ["a stream the rule held as the shell's own is freed", '    if (ruled === "own") return { hold: null, change: "release" };\n', ""],
     ["a stream the rule held for its role is held", " : role ? { at: stream.since } : null;", " : null;"],
-    ["a stream seen before the hold was not held", "if (written === null || since < written.at || !holdMatches(written, props)) return \"\";", "if (written === null || !holdMatches(written, props)) return \"\";"],
     ["the hold matches a role", "if (typeof role === \"string\" && hold.roles.indexOf(role.toLowerCase()) !== -1) return true;", ""],
-    ["the hold is written again when an app joins", "return next.some(function (name) { return written.indexOf(name) === -1; });", "return false;"],
     ["the version reads the script", "h ^= text.charCodeAt(i);", "h ^= 0;"],
     ["the version is no number", "return \"v\" + (\"0000000\" + h.toString(16)).slice(-8);", "return (\"0000000\" + h.toString(16)).slice(-8);"],
     ["one restart per version", "return marker === version ? \"absent\" : \"restart\";", "return \"restart\";"],
@@ -1618,7 +1733,6 @@ const CONTROLS = [
     ["the shell's own player is its own", "    if (own) return \"own\";\n", ""],
     ["the shell's own sound is a file of its sounds directory", "return typeof file === \"string\" && file.indexOf(sounds + \"/\") === 0 && file.indexOf(\"/\", sounds.length + 1) === -1;", "return typeof file === \"string\";"],
     ["the shell's own sound is not below its sounds directory", " && file.indexOf(\"/\", sounds.length + 1) === -1;", ";"],
-    ["pw-cli is ready once it reports an object", "return /^(?:\\S+>> )?remote \\d+ [a-z-]+ \\d+ changed$/.test(String(line));", "return /remote \\d+/.test(String(line));"],
     ["only the plugin's disable removes", "config.disabledPlugins.indexOf(id) !== -1", "config.disabledPlugins.length > 0"],
     ["a configuration that is no JSON disables nothing", "    } catch (e) {\n        return false;\n    }\n    return isPlainObject(config) && Array.isArray(config.disabledPlugins)", "    } catch (e) {\n        return true;\n    }\n    return isPlainObject(config) && Array.isArray(config.disabledPlugins)"],
     ["the guard checks the parent", "[ \\\"$PPID\\\" = \\\"$1\\\" ] || exit 1; shift; exec", "shift; exec"],
@@ -1631,7 +1745,9 @@ const CONTROLS = [
     ["the removal reads the head line", "&& [ \\\"$first\\\" = \\\"$2\\\" ]; }", "; }"],
     ["the removal keeps a marker that is no version", "case ${first#v} in *[!0-9a-f]*) ;; *) rm", "case ${first#v} in *) rm"],
     ["the removal keeps a marker of another length", "case $first in v????????) case", "case $first in v*) case"],
-    ["the hold entry names the roles", "return JSON.stringify({ pid: pid, apps: apps, roles: HOLD_ROLES });", "return JSON.stringify({ pid: pid, apps: apps, roles: [] });"],
+    ["the hold entry names the roles", "roles: HOLD_ROLES, streams: streams, released: released", "roles: [], streams: streams, released: released"],
+    ["the hold entry carries exact release intent", "streams: streams, released: released", "streams: streams, released: []"],
+    ["rule readback uses object serial identity", 'held.indexOf(props["object.serial"]) === -1', "held.length === 0"],
     ["the hold names the kept notifications' apps", "for (var i = 0; i < entries.length; i++) soundApps(entries[i].desktopEntry, entries[i].app).forEach(add);", ""]
 ];
 

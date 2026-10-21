@@ -164,6 +164,7 @@ Item {
             AppSounds {
                 ruleRunning: soundRule.running
                 rulePhase: soundRule.phase
+                ruleHeldSerials: soundRule.held
                 kept: store.live.concat(store.history)
             }
         }

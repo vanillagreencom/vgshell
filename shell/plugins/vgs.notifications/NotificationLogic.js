@@ -957,9 +957,9 @@ function streamOfApps(props, apps) {
 var SOUND_RULE_METADATA = "vgs-notification-sounds";
 var HOLD_ROLES = ["notification", "event"];
 
-// The hold entry's JSON for the writer PID and APPS, as the rule parses it.
-function holdEntry(pid, apps) {
-    return JSON.stringify({ pid: pid, apps: apps, roles: HOLD_ROLES });
+// The hold entry replaces both exact sets. RELEASED wins over app admission.
+function holdEntry(pid, apps, streams, released) {
+    return JSON.stringify({ pid: pid, apps: apps, roles: HOLD_ROLES, streams: streams, released: released });
 }
 
 // The names, in lower case and in order, that ENTRIES' apps go by, each
@@ -976,11 +976,6 @@ function holdApps(entries, extra) {
     return out;
 }
 
-// Whether NEXT names an app WRITTEN does not, so the hold is written again.
-function holdGrows(written, next) {
-    return next.some(function (name) { return written.indexOf(name) === -1; });
-}
-
 // Whether the hold { apps, roles } names a stream whose PipeWire properties
 // are PROPS: its media.role, or its app as streamOfApps reads it, each in
 // lower case. The same match as the rule's `matches`.
@@ -991,19 +986,20 @@ function holdMatches(hold, props) {
     return streamOfApps(props, hold.apps);
 }
 
-// How the rule held a stream: `own` for one the shell's own sound player
-// started (OWN, shellPlayer's answer), such as the Sounds page's Test,
-// `role` or `app` for another it held, "" for one it did not. WRITTEN is the hold as the shell last wrote it, { at, apps,
-// roles }, at when its first write started, or null before any; the rule
-// holds only streams that appear while it counts, so one first seen
-// before AT was not held. A stream that appears between a write's start
-// and its arrival reads as held: freeing one the rule did not hold writes
-// the mute it has and changes nothing.
-function ruleHeld(written, props, since, own) {
-    if (written === null || since < written.at || !holdMatches(written, props)) return "";
+// HELD is the rule's actual serial readback. Classification does not infer
+// admission from app names or timing: an already playing call can share both.
+function ruleHeld(held, props, own) {
+    if (!isPlainObject(props) || held.indexOf(props["object.serial"]) === -1) return "";
     if (own) return "own";
     var role = props["media.role"];
-    return typeof role === "string" && written.roles.indexOf(role.toLowerCase()) !== -1 ? "role" : "app";
+    return typeof role === "string" && HOLD_ROLES.indexOf(role.toLowerCase()) !== -1 ? "role" : "app";
+}
+
+// The rule's subject-0 held entry is a JSON serial-string array.
+function soundRuleHeld(text) {
+    var value;
+    try { value = JSON.parse(text); } catch (e) { return null; }
+    return Array.isArray(value) && value.every(function (serial) { return typeof serial === "string" && serial !== ""; }) ? value : null;
 }
 
 // The version the shell writes into the rule's WirePlumber fragment, from
@@ -1133,15 +1129,6 @@ function shellPlayer(props, sounds) {
     return typeof file === "string" && file.indexOf(sounds + "/") === 0 && file.indexOf("/", sounds.length + 1) === -1;
 }
 
-// Whether pw-cli has its session's objects, from one line of its output:
-// it can write a param only to an object its registry announced, and a
-// write it reads before is refused as an unknown global (measured,
-// pw-cli 1.6.9, VGS-1424). It prints `remote <n> <type> <id> changed` for
-// the first object it binds once the registry has announced them all.
-function cliReady(line) {
-    return /^(?:\S+>> )?remote \d+ [a-z-]+ \d+ changed$/.test(String(line));
-}
-
 // A long-lived child, such as the pw-cli writer, started so it cannot
 // outlive the shell: setpriv sets SIGKILL as its parent-death signal and
 // execs sh, which reads its parent's pid once the signal is set, so a
@@ -1166,7 +1153,7 @@ function restartStep(streak, ran) {
 }
 
 // How long the hold may stay unconfirmed, or the rule unseen, before the
-// shell says it mutes by reaction alone: the restart's own wait, 20 reads
+// shell reports that routing is unavailable: the restart's own wait, 20 reads
 // 500 ms apart (SoundRule.qml).
 var RULE_GRACE = 10000;
 
@@ -1218,9 +1205,9 @@ function dumpLine(last, line) {
 // notification's sound. One held as the shell's own is freed. A stream
 // nobody muted that already plays when its app's notification comes, such
 // as a call, is never muted. Answers { hold, change }; change is `mute`,
-// `again` (the mute is set once more as the phase changes, since a volume
-// written meanwhile lifts it), `release` or "".
+// `again` (the held phase changes), `release` or "".
 function appSoundStep(hold, armed, stream, now, ruled) {
+    if (ruled === "own") return { hold: null, change: "release" };
     var live = armed !== null && now < armed.until;
     var paused = stream.corked === true;
     var role = hold === null ? ruled === "role" : hold.role === true;
@@ -1229,7 +1216,6 @@ function appSoundStep(hold, armed, stream, now, ruled) {
     var pending = { phase: "pending", until: now + APP_SOUND_ARM, role: role };
     var sound = live || role ? playing : pending;
     if (hold === null) {
-        if (ruled === "own") return { hold: null, change: "release" };
         if (ruled === "app") return { hold: paused ? rest : sound, change: "mute" };
         var arm = live ? armed : role ? { at: stream.since } : null;
         if (arm === null || (!paused && stream.since < arm.at)) return { hold: null, change: "" };

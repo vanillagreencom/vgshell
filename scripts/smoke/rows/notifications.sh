@@ -41,17 +41,81 @@ set -euo pipefail
 note_row_config="$sandbox/notifications-row-shell.json"
 note_row_focus="$(hypr -j activewindow | py_reply 'import json,sys; print(json.load(sys.stdin).get("address", ""))')"
 cp -p -- "$home/.config/vgshell/shell.json" "$note_row_config"
+note_audio_backup=""
+note_audio_profile=""
+note_audio_shell_stopped=no
+note_audio_paths=(
+  "$home/.config/wireplumber/wireplumber.conf.d/90-vgs-smoke.conf"
+  "$home/.config/wireplumber/wireplumber.conf.d/90-vgs-notification-sounds.conf"
+  "$home/.local/share/wireplumber/scripts/vgs-notification-sounds.lua"
+  "$home/.local/state/vgshell/notifications/sound-rule-restarted"
+  "$home/.local/state/wireplumber/stream-properties"
+)
+# Keep the private daemon's process group in the device owner's registry.
+# A restoration runs after it stops, before its replacement can read state.
+rule_wireplumber_restart() {
+  kill -TERM -- "-${devices_pid[wireplumber]}" 2>/dev/null || true
+  for _ in $(seq 1 50); do kill -0 "${devices_pid[wireplumber]}" 2>/dev/null || break; sleep 0.1; done
+  if kill -0 "${devices_pid[wireplumber]}" 2>/dev/null; then fail "the private WirePlumber did not stop for the sound rule"; return 1; fi
+  if [[ $# -gt 0 ]]; then "$@" || return 1; fi
+  spawn "$devices_dir/wireplumber-rule.log" "${shell_env[@]}" wireplumber --profile vgs-smoke
+  devices_pid[wireplumber]="$spawn_pid"
+}
+notification_audio_setting() {
+  "${shell_env[@]}" pw-dump | py_reply 'import json,sys
+values=[m.get("value") for o in json.load(sys.stdin) if o.get("type")=="PipeWire:Interface:Metadata" and o.get("props",{}).get("metadata.name")=="sm-settings" for m in o.get("metadata",[]) if m.get("key")==sys.argv[1]]
+print(json.dumps(values[0]) if len(values)==1 and isinstance(values[0],bool) else "missing")' "$1"
+}
+notification_audio_restore_files() {
+  local i path
+  if [[ -n $note_audio_profile ]]; then rm -- "$note_audio_profile" || return 1; note_audio_profile=""; fi
+  for i in "${!note_audio_paths[@]}"; do
+    path="${note_audio_paths[i]}"
+    if [[ -f $note_audio_backup/$i ]]; then
+      mkdir -p -- "${path%/*}" && cp -p -- "$note_audio_backup/$i" "$path" || return 1
+    else
+      rm -f -- "$path" || return 1
+    fi
+  done
+}
+notification_audio_objects() {
+  "${shell_env[@]}" pw-dump | py_reply 'import json,sys
+objects=json.load(sys.stdin)
+sinks=sorted(o.get("info",{}).get("props",{}).get("node.name") for o in objects if o.get("type")=="PipeWire:Interface:Node" and o.get("info",{}).get("props",{}).get("media.class")=="Audio/Sink")
+rule=any(o.get("type")=="PipeWire:Interface:Metadata" and o.get("props",{}).get("metadata.name")=="vgs-notification-sounds" for o in objects)
+print(json.dumps([sinks,rule]))'
+}
+notification_audio_removed() {
+  python3 -c 'import os,sys; print("removed" if all(not os.path.lexists(p) for p in sys.argv[1:]) else "waiting")' "${note_audio_paths[@]:1:3}"
+}
+notification_audio_restore() {
+  [[ -n $note_audio_backup ]] || return 0
+  expect_poll "the disabled notification service removes its rule files before restoration" removed notification_audio_removed
+  [[ $(notification_audio_removed) == removed ]] || return 1
+  rule_wireplumber_restart notification_audio_restore_files || return 1
+  expect_poll "the notification row restores its incoming private sinks and loaded-rule state" "$note_audio_sinks" notification_audio_objects
+  "${shell_env[@]}" wpctl settings node.stream.restore-props "$note_audio_props" >/dev/null || return 1
+  "${shell_env[@]}" wpctl settings node.stream.restore-target "$note_audio_target" >/dev/null || return 1
+  expect "the notification row restores stream-property settings" "$note_audio_props" notification_audio_setting node.stream.restore-props
+  expect "the notification row restores stream-target settings" "$note_audio_target" notification_audio_setting node.stream.restore-target
+  note_audio_backup=""
+}
 notifications_restore_standins() {
   sentinel_restore "$shim/secret-tool"
   rm -f -- "${shim:?}/curl"
 }
 notifications_abandon() {
+  if [[ $note_audio_shell_stopped == yes ]]; then
+    kill -CONT "$shell_qs_pid" || return 1
+    note_audio_shell_stopped=no
+  fi
   notifications_restore_standins
   ipc shell hide window vgs.settings >/dev/null
   cp -p -- "$note_row_config" "$home/.config/vgshell/shell.json.next"
   mv -T -- "$home/.config/vgshell/shell.json.next" "$home/.config/vgshell/shell.json"
   expect "the notification row restores its configuration after an early end" ok ipc shell reloadConfig
   expect_poll "the notification row has released its window and layers" False record_exists vgs.notifications
+  notification_audio_restore
   if [[ -n $note_row_focus ]]; then
     expect "the notification row restores its previous focus" ok hypr dispatch "hl.dsp.focus({ window = \"address:$note_row_focus\" })"
   fi
@@ -66,6 +130,18 @@ expected_errors+=('WARN qml: notifications: app sounds: rule=not-loaded ' 'WARN 
 # Pipewire service is first read, which the first Do Not Disturb does.
 app_sound_devices=yes
 devices_ready "notifications app sound" || app_sound_devices=no
+if [[ $app_sound_devices == yes ]]; then
+  if ! note_audio_props="$(notification_audio_setting node.stream.restore-props)"; then fail "the incoming stream-property setting could not be read"; return 1; fi
+  if ! note_audio_target="$(notification_audio_setting node.stream.restore-target)"; then fail "the incoming stream-target setting could not be read"; return 1; fi
+  [[ $note_audio_props == true || $note_audio_props == false ]] || { fail "the incoming stream-property setting is unavailable"; return 1; }
+  [[ $note_audio_target == true || $note_audio_target == false ]] || { fail "the incoming stream-target setting is unavailable"; return 1; }
+  note_audio_sinks="$(notification_audio_objects)"
+  note_audio_capture="$(mktemp -d "$sandbox/notifications-audio.XXXXXX")"
+  for note_audio_i in "${!note_audio_paths[@]}"; do
+    if [[ -e ${note_audio_paths[note_audio_i]} ]]; then cp -p -- "${note_audio_paths[note_audio_i]}" "$note_audio_capture/$note_audio_i"; fi
+  done
+  note_audio_backup="$note_audio_capture"
+fi
 note_state="$home/.local/state/vgshell/notifications/state.json"
 note_images="$home/.local/state/vgshell/notifications/images"
 notes() { ipc vgs.notifications invoke "$1" "${2:-}"; }
@@ -4757,52 +4833,15 @@ else
 fi
 
 # An app's own notification sound under Do Not Disturb or Sound off.
-# Smoke Chat, a made-up app, plays a 440 Hz tone in the sandbox's private
-# PipeWire through stand-in streams: its call to Smoke Headphones, playing
-# before its notification, and its chime to Smoke Speakers, opened just
-# after it, as Slack opens its chime's stream 74 to 121 ms after its
-# notification (VGS-1311). The chimes play at their own volume, 0.5. What a
-# sink plays is read from its monitor as an RMS level: `heard` above 100,
-# `silent` below, and `own` within 15% of a chime's level before any mute.
-# The chime is silent while Do Not Disturb is on or Sound is off and the
-# call is heard throughout, its own mute and soft mute off; the chime plays
-# at its own level again once both turn back and once the service that
-# held it goes. A lift that wrote `softMute: false` alone would leave the
-# chime at full level, which `own` refuses.
-# The sound rule (SoundRule.qml, wireplumber/vgs-notification-sounds.lua):
-# the service copies the script under the sandbox's XDG data home, writes
-# the WirePlumber fragment that loads the copy when it starts, and asks
-# the systemctl stand-in of scripts/smoke/devices.sh, never the host's, to
-# restart WirePlumber once per version; the row makes that restart on the
-# sandbox's private WirePlumber and reads the rule's version on its
-# metadata. The part starts from no rule: a disable removes the fragment,
-# the copy and the marker, and the private WirePlumber starts again
-# without them. Until the row loads the rule it reads absent, a mute that
-# waits on it past the grace says so at warn, a start at a version already
-# restarted for asks no restart, and the next disable and enable install
-# it again and ask the restart again; a rebuild for a new source revision
-# with the rule running keeps the files as they were. A hold naming a holder that went is refused and
-# cleared. After a SIGKILL the shell's pw-cli writer dies with it and the
-# chime it held plays again, and the next shell's first scan lifts a soft
-# mute left on a stream the rule did not hold. Then the rule alone:
-# with Sound off and the shell stopped by SIGSTOP from before the chime of
-# Smoke Ping, an app no earlier notification named, until after it ends,
-# a 5 s recording from before its notification is silent from its first
-# sample, its player exiting 0 with its stream read under the rule's soft
-# mute; Smoke Ping's call after it is freed once the arm's time passes
-# with no notification and plays at its own level, its mute and soft mute
-# off. A writer killed while its shell is
-# stopped leaves the chime the rule held to the rule, which lifts it; the
-# shell then starts a new writer, holds that chime again, writes the hold
-# under the new pid and holds a later chime. A WirePlumber restart brings
-# the rule back with no hold, and the shell writes it again. The shell's
-# own sound player, through the sounds fixture and the real pw-play over
-# the stand-in, plays under Sound off. The same take with Sound on
-# records the chime.
-# Since VGS-1424 the SIGKILL part plants the soft mute the next shell's
-# scan lifts on the call: the killed shell's writer dies with it and the
-# rule lifts the chime, so the killed shell no longer leaves the chime's
-# soft mute on for that shell to find.
+# App audio uses only the sandbox's private PipeWire, WirePlumber and
+# pipewire-pulse. A native half-volume chime is silent while held; an
+# existing call of the same app remains heard. Disabling the service or
+# losing the shell's holder returns the same stream at its own level.
+# The rule's private VGS notification mute hold is never default and has
+# no saved Props/target. Paused kept streams and twenty Pulse half-volume
+# starts are measured with 1 ms sample windows, including holder loss.
+# Rule installation/restart cases remain on the stand-in systemctl; every
+# actual audio daemon restart below targets only the private fixture.
 if [[ $app_sound_devices == yes ]]; then
   app_tone="$sandbox/app-sound-tone.wav"
   python3 -c 'import math,struct,sys,wave
@@ -4838,6 +4877,14 @@ print(round((sum(x * x for x in s) / n) ** 0.5))' "$take"
     "${shell_env[@]}" pw-dump | py_reply 'import json,sys
 p = next(((o["info"].get("params") or {}).get("Props", [{}])[0] for o in json.load(sys.stdin) if o.get("type") == "PipeWire:Interface:Node" and (o["info"].get("props") or {}).get("node.name") == sys.argv[1]), None)
 print(json.dumps(None if p is None else [p.get("mute"), p.get("softMute")]))' "$1"
+  }
+  app_target() { # NODE
+    "${shell_env[@]}" pw-dump | py_reply 'import json,sys
+objects=json.load(sys.stdin)
+nodes={o["id"]:o["info"].get("props",{}) for o in objects if o.get("type")=="PipeWire:Interface:Node"}
+source=next((i for i,p in nodes.items() if p.get("node.name")==sys.argv[1]),None)
+targets={nodes.get(o["info"]["props"].get("link.input.node"),{}).get("node.name") for o in objects if o.get("type")=="PipeWire:Interface:Link" and o["info"]["props"].get("link.output.node")==source}
+print(next(iter(targets)) if len(targets)==1 else "unlinked")' "$1"
   }
   # The node names the service holds under a mute, null while it watches none.
   app_held() { note_status appSounds | py_reply 'import json,sys; v=json.load(sys.stdin); print(json.dumps(None if v is None else v["held"]))'; }
@@ -4891,86 +4938,127 @@ except (OSError, TypeError, StopIteration):
 print(json.dumps([sys.argv[1] in (h.get("apps") or []), comm, ppid == sys.argv[2], h.get("roles")]))' "$1" "$shell_qs_pid"
   }
   rule_phase() { note_status soundRule.phase; }
-  # Run the shipped rule's metadata and holder-removal callbacks with the
-  # stream state fixed on each side of metadata delivery. No clock race:
-  # the excluded stream is already paused when the callback sees it.
+  # Execute the shipped rule's exact-serial routing and lease callbacks.
   lua - "$rule_shipped" <<'LUA'
 local file = assert(io.open(arg[1]))
 local source = file:read("*a"); file:close()
-local function check(text)
-  for _, case in ipairs({
-    { name = "still paused", serial = "adopted", corked = "true", lifted = 2 },
-    { name = "already resumed", serial = "adopted", corked = "false", lifted = 2 },
-    { name = "paused after the shell decision", serial = "excluded", corked = "true", lifted = 0 },
-    { name = "node id reused", serial = "replacement", corked = "true", lifted = 0 },
-  }) do
-    local writes = {}
-    local node = { id = 7, properties = {
-      ["application.name"] = "Smoke Knock", ["object.serial"] = case.serial,
-      ["pulse.corked"] = case.corked,
-    } }
-    function node:set_param(_, value) table.insert(writes, value) end
-    function node:iterate_params()
-      local value = { mute = false }
-      return function() local next = value; value = nil; return next end
-    end
-    local client = { properties = { ["pipewire.sec.pid"] = "42" } }
-    local managers, changed = {}, nil
-    local identity = function(value) return value end
-    local env = setmetatable({
-      Log = { open_topic = function() return { info = function() end, warning = error } end },
-      Interest = identity, Constraint = identity, EventInterest = identity,
-      Features = { ALL = 1 }, Pod = { Object = identity },
-      require = function(name)
-        assert(name == "common-utils")
-        return { parseParam = identity }
-      end,
-      Json = { Raw = function()
-        return { is_object = function() return true end, parse = function()
-          return { pid = 42, apps = { "smoke knock" }, roles = {}, streams = { "adopted" } }
-        end }
-      end },
-      ObjectManager = function(interests)
-        local kind = interests[1].type
-        local manager = { callbacks = {} }
-        function manager:connect(name, callback) self.callbacks[name] = callback end
-        function manager:activate() end
-        function manager:iterate()
-          local members, i = kind == "client" and { client } or { node }, 0
-          return function() i = i + 1; return members[i] end
-        end
-        managers[kind] = manager
-        return manager
-      end,
-      SimpleEventHook = function() return { register = function() end } end,
-      ImplMetadata = function()
-        return {
-          activate = function(self, _, callback) callback(self) end,
-          connect = function(_, name, callback) assert(name == "changed"); changed = callback end,
-          set = function() end,
-        }
-      end,
-    }, { __index = _G })
-    assert(load(text, "sound-rule", "t", env))()
-    changed(nil, 0, "hold", nil, "fixture")
-    assert(#writes == 0, case.name .. ": existing streams receive no delayed mute")
-    managers.client.callbacks["object-removed"](nil, client)
-    assert(#writes == case.lifted, case.name .. ": cleanup follows the shell's exact serials")
-    if case.lifted > 0 then
-      assert(writes[1].softMute == false and writes[2].mute == false, case.name .. ": lift restores own mute")
-    end
+local function check(text, holder_first)
+  local hooks, managers, changed = {}, {}, nil
+  local serial = "9007199254740993"
+  local node = { id = 80, properties = { ["application.name"] = "Smoke Knock", ["object.serial"] = serial } }
+  local client_present = holder_first
+  function node:set_param() error("routing never changes stream Props") end
+  local client = { properties = { ["pipewire.sec.pid"] = "42" } }
+  local fixture = { pid = 42, apps = { "smoke knock" }, roles = {}, streams = { serial }, released = {} }
+  local identity = function(value) return value end
+  local target = { properties = { ["node.id"] = "99" } }
+  local selected, held = nil, nil
+  local env = setmetatable({
+    Log = { open_topic = function() return { info = function() end, warning = error } end },
+    Interest = identity, Constraint = identity, EventInterest = identity,
+    Features = { ALL = 1 }, Feature = { Proxy = { BOUND = 1 } },
+    Node = function() return { ["bound-id"] = 99, activate = function() end } end,
+    require = function(name)
+      assert(name == "linking-utils")
+      return { unwrap_select_target_event = function(_, event)
+        return nil, { lookup = function() return target end }, nil, event.props, nil, selected
+      end }
+    end,
+    Json = {
+      Raw = function() return { is_object = function() return true end, parse = function() return fixture end } end,
+      Object = identity,
+      Array = function(value) return { parse = function() return value end, to_string = function() return table.concat(value, ",") end } end,
+    },
+    ObjectManager = function(interests)
+      local kind = interests[1].type
+      local manager = { callbacks = {} }
+      function manager:connect(name, callback) self.callbacks[name] = callback end
+      function manager:activate() end
+      function manager:iterate()
+        local members, i = kind == "client" and (client_present and { client } or {}) or { node }, 0
+        return function() i = i + 1; return members[i] end
+      end
+      managers[kind] = manager
+      return manager
+    end,
+    SimpleEventHook = function(hook) hooks[hook.name] = hook; return { register = function() end } end,
+    ImplMetadata = function() return {
+      activate = function(self, _, callback) callback(self) end,
+      connect = function(_, name, callback) assert(name == "changed"); changed = callback end,
+      set = function(_, _, key, _, value) if key == "held" then held = value end end,
+    } end,
+  }, { __index = _G })
+  assert(load(text, "sound-rule", "t", env))()
+  local event = { props = node.properties, get_subject = function() return node end,
+    set_data = function(_, _, value) selected = value end }
+  local function routes()
+    selected = nil
+    hooks["linking/vgs-notification-sounds"].execute(event)
+    return selected == target
   end
+  changed(nil, 0, "hold", nil, "fixture")
+  if not holder_first then
+    assert(held == "" and not routes(), "a pending hold waits for its holder")
+    client_present = true
+    managers.client.callbacks["object-added"](nil, client)
+  end
+  assert(held == serial and routes(), "holder arrival adopts pending exact streams without another metadata write")
+  fixture.streams, fixture.released = {}, { serial }
+  changed(nil, 0, "hold", nil, "fixture")
+  assert(not routes(), "exact release wins while broad app remains")
+  hooks["node/vgs-notification-sounds"].execute(event)
+  assert(not routes(), "a queued node-added cannot readmit an explicitly released serial")
+  fixture.released = {}
+  changed(nil, 0, "hold", nil, "fixture")
+  hooks["node/vgs-notification-sounds"].execute(event)
+  assert(routes(), "new broad-match stream is held before linking")
+  changed(nil, 0, "hold", nil, "fixture")
+  assert(routes(), "unadopted new stream remains held across metadata updates")
+  local live_props = node.properties
+  node.properties = setmetatable({}, { __index = function() error("removed node properties are unavailable") end })
+  hooks["node/vgs-notification-sounds-removed"].execute(event)
+  assert(held == "" and not routes(), "removal drops the departed serial after properties disappear")
+  node.properties = live_props
+  node.properties["object.serial"] = "next-serial"
+  hooks["node/vgs-notification-sounds"].execute(event)
+  assert(held == "next-serial" and routes(), "a reused node id holds only its current serial")
+  client_present = false
+  managers.client.callbacks["object-removed"](nil, client)
+  assert(not routes() and held == "", "holder death drops all routing")
+  selected = target
+  hooks["linking/vgs-isolate-mute-hold"].execute(event)
+  assert(selected == nil, "unheld streams cannot use the sink as sole best target")
+  local available = { { ["node.name"] = "vgs-notification-mute-hold" }, { ["node.name"] = "real-output" } }
+  local filtered
+  hooks["default-nodes/vgs-exclude-mute-hold"].execute({
+    get_data = function() return env.Json.Array(available) end,
+    set_data = function(_, _, value) filtered = value:parse() end,
+  })
+  assert(#filtered == 1 and filtered[1]["node.name"] == "real-output", "hold sink is not a default candidate")
+  available = { available[1] }
+  hooks["default-nodes/vgs-exclude-mute-hold"].execute({ get_data = function() return env.Json.Array(available) end, set_data = function(_, _, value) filtered = value:parse() end })
+  assert(#filtered == 0, "sole hold sink is not a default candidate")
 end
-check(source)
--- Control: restore the independent paused-state decision and delayed mute.
-local before = 'if hold.streams[node.properties["object.serial"]] then'
-local first, last = source:find(before, 1, true)
-assert(first and not source:find(before, last + 1, true), "one adoption guard")
-local old = source:sub(1, first - 1) .. 'if node.properties["pulse.corked"] == "true" and matches(node.properties) then\n' ..
-  '          node:set_param("Props", Pod.Object { "Spa:Pod:Object:Param:Props", "Props", softMute = true })' .. source:sub(last + 1)
-local passed, failure = pcall(check, old)
-assert(not passed and tostring(failure):find("existing streams receive no delayed mute", 1, true), "old adoption must fail its own assertion")
-print("notifications: adoption-order=pass control=old-paused-snapshot-rejected")
+check(source, true)
+check(source, false)
+local guard = 'if hold.released[serial] then return end'
+local first, last = source:find(guard, 1, true)
+assert(first and not source:find(guard, last + 1, true), "one queued-admission guard")
+local mutant = source:sub(1, first - 1) .. 'if false then return end' .. source:sub(last + 1)
+local ok, failure = pcall(check, mutant)
+assert(not ok and tostring(failure):find("queued node-added cannot readmit", 1, true), "control must fail exact-release assertion")
+local function rejects(old, replacement, assertion)
+  local first, last = source:find(old, 1, true)
+  assert(first and not source:find(old, last + 1, true), "one changed callback")
+  local mutant = source:sub(1, first - 1) .. replacement .. source:sub(last + 1)
+  local ok, failure = pcall(check, mutant, false)
+  assert(not ok and tostring(failure):find(assertion, 1, true), "control must fail " .. assertion)
+end
+rejects('if hold ~= nil and hold.pid == pid then adopt_exact() end',
+  'if false then adopt_exact() end', "holder arrival adopts pending exact streams")
+rejects('if entry.id == id then held[serial] = nil end',
+  'if entry.id == id then held[serial] = held[serial] end', "removal drops the departed serial")
+print("notifications: routing-contract=pass controls=queued-readmission,pending-holder,removed-serial")
 LUA
   # Replay both stdout delivery orders through the shipped removal handler.
   # This checks its dispatch decision; the restart below checks the real hold.
@@ -5007,30 +5095,32 @@ console.log('notifications: removal-order=pass control=old-id-guard-rejected');
 const appSounds = fs.readFileSync(dir + '/AppSounds.qml', 'utf8');
 const entry = appSounds.match(/function holdEntry\(pid\) \{([\s\S]*?)\n    \}/);
 assert.ok(entry, 'exercise the existing-stream hold writer');
-const context = { Logic: logic, ruleHold: { apps: ['smoke knock'] }, holds: {
-    7: { node: { properties: { 'object.serial': '9007199254740993' } } }
-}, props(node) { return node.properties; } };
+const heldNode = {};
+const freeNode = {};
+const context = { Logic: logic, ruleHold: { apps: ['smoke knock'] },
+    streams: [{ serial: '9007199254740993', node: heldNode }, { serial: 'free-serial', node: freeNode, free: true }],
+    holds: { '9007199254740993': { node: heldNode } }, Pipewire: { nodes: { values: [heldNode, freeNode] } } };
 vm.createContext(context);
 vm.runInContext('function holdEntry(pid) {' + entry[1] + '\n}', context);
 assert.deepEqual(JSON.parse(context.holdEntry(42)), {
-    pid: 42, apps: ['smoke knock'], roles: ['notification', 'event'], streams: ['9007199254740993']
-}, 'the writer sends exact tracked serials without numeric conversion');
+    pid: 42, apps: ['smoke knock'], roles: ['notification', 'event'], streams: ['9007199254740993'], released: ['free-serial']
+}, 'the writer sends exact held and released serials without numeric conversion');
 context.holds = {};
 assert.deepEqual(JSON.parse(context.holdEntry(42)).streams, [], 'no tracked streams is an empty admission set');
 console.log('notifications: existing-stream-entry=pass');
 JS
   # The restarts of WirePlumber the shell asked of the systemctl stand-in.
   rule_restarts() { device_calls systemctl | py_reply 'import json,sys; print(sum(1 for c in json.load(sys.stdin) if c == ["--user", "restart", "wireplumber.service"]))'; }
-  # rule_wireplumber_restart: the sandbox's private WirePlumber stopped and
-  # started again as scripts/smoke/devices.sh starts it, so it reads the
-  # fragment; devices_pid keeps the new group for the teardown.
-  rule_wireplumber_restart() {
-    kill -TERM -- "-${devices_pid[wireplumber]}" 2>/dev/null || true
-    for _ in $(seq 1 50); do kill -0 "${devices_pid[wireplumber]}" 2>/dev/null || break; sleep 0.1; done
-    if kill -0 "${devices_pid[wireplumber]}" 2>/dev/null; then fail "the private WirePlumber did not stop for the sound rule"; return; fi
-    spawn "$devices_dir/wireplumber-rule.log" "${shell_env[@]}" wireplumber --profile vgs-smoke
-    devices_pid[wireplumber]="$spawn_pid"
-  }
+  # mixin.stateless excludes node/state-stream.lua entirely. Settings alone
+  # cannot load it (WirePlumber 0.5.18 wireplumber.conf and state-stream.lua).
+  # Enable only that upstream producer, with saving off until its proof.
+  note_audio_evidence="$(mktemp -d "$source_repo/tmp/notifications-volume-state.XXXXXX")"
+  printf 'notifications: audio-evidence=%s\n' "$note_audio_evidence"
+  note_audio_profile="$(mktemp "$home/.config/wireplumber/wireplumber.conf.d/99-notifications-state.XXXXXX.conf")"
+  cat >"$note_audio_profile" <<'CONF'
+wireplumber.profiles = { vgs-smoke = { hooks.stream.state = required } }
+wireplumber.settings = { node.stream.restore-props = false node.stream.restore-target = false }
+CONF
   # rule_files: whether the fragment, the copy and the marker exist.
   rule_marker="$home/.local/state/vgshell/notifications/sound-rule-restarted"
   rule_files() { python3 -c 'import json,os,sys; print(json.dumps([os.path.lexists(p) for p in sys.argv[1:]]))' "$rule_conf" "$rule_copy" "$rule_marker"; }
@@ -5129,7 +5219,7 @@ p.kill(); p.wait()
 print(p.pid)'
   }
   rule_ghost_pid="$(rule_ghost)" || rule_ghost_pid=0
-  "${shell_env[@]}" pw-metadata -n vgs-notification-sounds 0 hold "{\"pid\": $rule_ghost_pid, \"apps\": [\"smoke chat\"], \"roles\": [], \"streams\": []}" Spa:String:JSON >/dev/null 2>&1 || fail "the late hold could not be written"
+  "${shell_env[@]}" pw-metadata -n vgs-notification-sounds 0 hold "{\"pid\": $rule_ghost_pid, \"apps\": [\"smoke chat\"], \"roles\": [], \"streams\": [], \"released\": []}" Spa:String:JSON >/dev/null 2>&1 || fail "the late hold could not be written"
   expect_poll "a hold naming a holder that went is refused and cleared" null rule_meta hold
   # The chime's own level, read with nothing armed and nothing muted.
   app_play smoke-chat-reference vgs-smoke-speakers 0.5
@@ -5177,11 +5267,6 @@ print(p.pid)'
   # app_hold_of PID: `killed` while the hold names PID, else `other`.
   app_hold_of() { rule_meta hold | py_reply 'import json,sys; h = json.load(sys.stdin); print("killed" if isinstance(h, dict) and str(h.get("pid")) == sys.argv[1] else "other")' "$1"; }
   app_gone() { if [[ -e /proc/$1 ]]; then echo alive; else echo gone; fi; }
-  # A soft mute the reaction alone left, on a stream the rule did not hold:
-  # planted on the call before the kill, as a shell leaves it.
-  app_call_id="$("${shell_env[@]}" pw-dump | py_reply 'import json,sys; print(next((o["id"] for o in json.load(sys.stdin) if o.get("type") == "PipeWire:Interface:Node" and (o["info"].get("props") or {}).get("node.name") == "smoke-chat-call"), "none"))')"
-  "${shell_env[@]}" pw-cli set-param "$app_call_id" Props '{ softMute: true }' >/dev/null 2>&1 || fail "the left soft mute could not be planted on node $app_call_id"
-  expect_poll "the planted soft mute silences the call" silent app_level vgs-smoke-headphones
   # Read before the kill, as stop_shell reads a shell before its TERM.
   shell_memory_note
   app_killed="$shell_qs_pid"
@@ -5192,7 +5277,7 @@ print(p.pid)'
   expect_poll "the rule drops the killed shell's hold" other app_hold_of "$app_writer"
   if adopt_shell "$app_killed"; then
     expect_poll "the next shell built the notification service" True record_exists vgs.notifications
-    expect_poll "the next shell lifts the soft mute left behind: the call is heard" heard app_level vgs-smoke-headphones
+    expect_poll "the next shell leaves the existing call heard" heard app_level vgs-smoke-headphones
     expect "the next shell holds nothing" '[]' app_held
   fi
   app_hush
@@ -5237,16 +5322,17 @@ else: print("faint ms=%d" % heard)' "$1"
   # app_take_props is every distinct [mute, softMute] reading of the chime
   # stream while it plays, sorted, `none` when no reading found it, and
   # app_take_status the chime player's exit status. The first reading may
-  # come before WirePlumber's hook set the soft mute, which is still
-  # before the stream is linked.
+  # come before WirePlumber links the stream to the hold output.
   app_take_chime() { # NAME
     local chime_pid props
+    app_take_routed=False
     kill -STOP "$shell_qs_pid" || fail "$1: the SIGSTOP to the shell failed"
     spawn "$sandbox/app-take-$1-chime.log" "${shell_env[@]}" pw-cat --playback --target vgs-smoke-speakers --volume 0.5 -P '{ application.name = "Smoke Ping" node.name = "smoke-ping-chime" }' "$app_short"
     chime_pid="$spawn_pid"
     local seen=()
     for _ in $(seq 1 50); do
       kill -0 "$chime_pid" 2>/dev/null || break
+      if [[ $(app_target smoke-ping-chime) == vgs-notification-mute-hold ]]; then app_take_routed=True; fi
       if props="$(app_props smoke-ping-chime 2>/dev/null)" && [[ $props == \[* ]]; then seen+=("$props"); fi
       sleep 0.05
     done
@@ -5263,7 +5349,8 @@ else: print("faint ms=%d" % heard)' "$1"
   expect_poll "the hold names Smoke Ping with this shell's pw-cli writer" '[true, "pw-cli", true, ["notification", "event"]]' rule_holds "smoke ping"
   app_take_chime muted
   expect "with the shell stopped the chime played: its player exits 0" 0 echo "$app_take_status"
-  expect "with the shell stopped the chime played: the rule held its stream" True python3 -c 'import sys; print("[false, true]" in sys.argv[1])' "$app_take_props"
+  expect "routing leaves the stopped-shell chime Props untouched" '[false, false]' echo "$app_take_props"
+  expect "the stopped-shell chime reached the hold output" True echo "$app_take_routed"
   expect "with Sound off and the shell stopped the chime is silent from its first sample" silent app_take_heard "$app_take_file"
   # A stream Smoke Ping opens after its chime, as a call: the rule holds
   # it, and the shell frees it once the arm's time passes with no
@@ -5303,7 +5390,7 @@ else: print("faint ms=%d" % heard)' "$1"
   app_ping_later="$spawn_pid"
   expect_poll "a chime after the writer came back is held" '["smoke-ping-later"]' app_held
   expect_poll "that chime is not heard" silent app_level vgs-smoke-speakers
-  expect "that chime reads soft mute on" '[false, true]' app_props smoke-ping-later
+  expect "routing leaves the chime mute and soft mute off" '[false, false]' app_props smoke-ping-later
   # WirePlumber restarts with Sound off: the rule comes back with no hold,
   # and the shell writes it again.
   rule_wireplumber_restart
@@ -5364,10 +5451,14 @@ for name, res, args in [
     ("pa_context_get_state", ctypes.c_int, [P]), ("pa_stream_new", P, [P, ctypes.c_char_p, P, P]),
     ("pa_stream_connect_playback", ctypes.c_int, [P, ctypes.c_char_p, P, ctypes.c_int, P, P]),
     ("pa_stream_get_state", ctypes.c_int, [P]),
+    ("pa_stream_get_index", ctypes.c_uint32, [P]),
+    ("pa_context_set_sink_input_volume", P, [P, ctypes.c_uint32, P, P, P]),
     ("pa_stream_write", ctypes.c_int, [P, P, ctypes.c_size_t, P, ctypes.c_int64, ctypes.c_int]),
     ("pa_stream_cork", P, [P, ctypes.c_int, P, P]), ("pa_stream_drain", P, [P, P, P]),
     ("pa_operation_get_state", ctypes.c_int, [P]), ("pa_operation_unref", None, [P])]:
     f = getattr(pa, name); f.restype = res; f.argtypes = args
+class CVolume(ctypes.Structure):
+    _fields_ = [("channels", ctypes.c_uint8), ("values", ctypes.c_uint32 * 32)]
 class Spec(ctypes.Structure):
     _fields_ = [("format", ctypes.c_int), ("rate", ctypes.c_uint32), ("channels", ctypes.c_uint8)]
 app, sink, wav, commands = sys.argv[1:5]
@@ -5402,6 +5493,8 @@ plays = 0
 for line in open(commands):
     if line.strip() != "play": continue
     plays += 1
+    volume = CVolume(1, (ctypes.c_uint32 * 32)(32768))
+    run(lambda: pa.pa_context_set_sink_input_volume(ctx, pa.pa_stream_get_index(stream), ctypes.byref(volume), None, None))
     locked(lambda: pa.pa_stream_write(stream, data, len(data), None, 0, 0))
     run(lambda: pa.pa_stream_cork(stream, 0, None, None))
     print("playing %d" % plays, flush=True)
@@ -5473,16 +5566,138 @@ PY
   # notification follows the player's acknowledgement that sound started.
   expect "Do Not Disturb turns on after Smoke Knock opens" on notes silence on
   expect_poll "the hold names Smoke Knock" '[true, "pw-cli", true, ["notification", "event"]]' rule_holds "smoke knock"
+  knock_adopted() {
+    "${shell_env[@]}" pw-dump | py_reply 'import json,sys
+objects=json.load(sys.stdin)
+nodes={o["id"]:o for o in objects if o.get("type")=="PipeWire:Interface:Node"}
+node=next((o for o in nodes.values() if str(o.get("info",{}).get("props",{}).get("application.process.id"))==sys.argv[1] and o.get("info",{}).get("props",{}).get("media.class")=="Stream/Output/Audio"),None)
+hold=next((m.get("value") for o in objects if o.get("type")=="PipeWire:Interface:Metadata" and o.get("props",{}).get("metadata.name")=="vgs-notification-sounds" for m in o.get("metadata",[]) if m.get("key")=="hold"),None)
+if node is None or not isinstance(hold,dict): print("waiting"); sys.exit()
+serial=str(node.get("info",{}).get("props",{}).get("object.serial", ""))
+targets={nodes.get(o["info"]["props"].get("link.input.node"),{}).get("info",{}).get("props",{}).get("node.name") for o in objects if o.get("type")=="PipeWire:Interface:Link" and o["info"]["props"].get("link.output.node")==node["id"]}
+print("adopted" if serial and serial in hold.get("streams",[]) and targets=={"vgs-notification-mute-hold"} else "waiting")' "$knock_player"
+  }
+  expect_poll "Smoke Knock's exact paused stream reaches the mute hold before its first play" adopted knock_adopted
+  "${shell_env[@]}" pw-dump >"$note_audio_evidence/knock-before-first-play.json"
   knock_take_file="$sandbox/knock-open-take.wav"
   knock_record start
   expect "Smoke Knock plays 20 late-notification chimes on its already-open stream" played=20 knock_rounds 20 0 late
   knock_record stop
   expect "not one 1 ms window of Smoke Knock's 20 already-open chimes is heard" silent knock_take "$knock_take_file" 10
+  cp -- "$knock_take_file" "$note_audio_evidence/knock-open-take.wav"
+  # Pulse volumes are cubic: 32768 means linear 0.125, unlike pw-cat 0.5.
+  # VGS-1959's 20 x 300 ms main control reads 6013–6014 ms with this
+  # unchanged 48-sample / >100 instrument (cachy, 2026-10-21).
+  volume_chime="$sandbox/app-volume-chime.wav"
+  python3 -c 'import math,struct,sys,wave
+with wave.open(sys.argv[1],"wb") as w:
+ w.setnchannels(1); w.setsampwidth(2); w.setframerate(48000)
+ w.writeframes(b"".join(struct.pack("<h",int(8000*math.sin(2*math.pi*440*i/48000))) for i in range(14400)))' "$volume_chime" || fail "the requested-volume chime could not be written"
+  volume_node() { # MEDIA_NAME id|serial|target
+    "${shell_env[@]}" pw-dump | py_reply 'import json,sys
+objects=json.load(sys.stdin)
+nodes={o["id"]:o for o in objects if o.get("type")=="PipeWire:Interface:Node"}
+node=next((o for o in nodes.values() if o["info"].get("props",{}).get("media.name")==sys.argv[1]),None)
+if node is None: print("absent"); sys.exit()
+if sys.argv[2]=="id": print(node["id"])
+elif sys.argv[2]=="serial": print(node["info"]["props"]["object.serial"])
+else:
+ targets={nodes.get(o["info"]["props"].get("link.input.node"),{}).get("info",{}).get("props",{}).get("node.name") for o in objects if o.get("type")=="PipeWire:Interface:Link" and o["info"]["props"].get("link.output.node")==node["id"]}
+ print(next(iter(targets)) if len(targets)==1 else "unlinked")' "$1" "$2"
+  }
+  volume_own() { # SINK
+    local rms
+    rms="$(app_rms "$1")" || return 1
+    if (( rms * 100 >= volume_ref * 85 && rms * 100 <= volume_ref * 115 )); then echo own; else echo "rms=$rms ref=$volume_ref"; fi
+  }
+  hold_output() {
+    "${shell_env[@]}" pw-dump | py_reply 'import json,sys
+objects=json.load(sys.stdin)
+props=next((o["info"].get("props",{}) for o in objects if o.get("type")=="PipeWire:Interface:Node" and o["info"].get("props",{}).get("node.name")=="vgs-notification-mute-hold"),None)
+default=next((m.get("value") for o in objects if o.get("type")=="PipeWire:Interface:Metadata" and o.get("props",{}).get("metadata.name")=="default" for m in o.get("metadata",[]) if m.get("subject")==0 and m.get("key")=="default.audio.sink"),None)
+print(json.dumps(None if props is None else [props.get("node.description"),props.get("state.restore-props"),default is not None and default.get("name")!="vgs-notification-mute-hold"]))'
+  }
+  volume_state() {
+    python3 -c 'import json,os,sys
+p=sys.argv[1]
+if not os.path.isfile(p): print("not-saved"); sys.exit()
+t=open(p).read()
+record=next((v for l in t.splitlines() for k,sep,v in [l.partition("=")] if sep and k==r"Output/Audio:application.name:Smoke\sVolume"),None)
+try: props=json.loads(record) if record is not None else {}
+except ValueError: print("invalid-state"); sys.exit()
+print("clean" if "vgs-notification-mute-hold" not in t and props.get("channelVolumes")==[0.125] and props.get("mute") is False else "pending-or-persisted")' "${1:-$home/.local/state/wireplumber/stream-properties}"
+  }
+  expect "the hold output has its own name and cannot be default" '["VGS notification mute hold", false, true]' hold_output
+  expect "Do Not Disturb turns off to measure Pulse requested volume" off notes silence off
+  expect_poll "the Pulse reference has no shell hold" null app_held
+  spawn "$sandbox/volume-reference.log" "${shell_env[@]}" paplay --client-name="Smoke Volume" --stream-name=volume-reference --volume=32768 "$app_tone"
+  volume_reference_pid="$spawn_pid"
+  expect_poll "the Pulse reference reaches the speakers" vgs-smoke-speakers volume_node volume-reference target
+  volume_ref="$(app_rms vgs-smoke-speakers)" || volume_ref=0
+  expect "the requested Pulse level is measurable" True python3 -c 'import sys; print(100<int(sys.argv[1])<1500)' "$volume_ref"
+  kill -- "-$volume_reference_pid" 2>/dev/null || true
+  "${shell_env[@]}" wpctl settings node.stream.restore-props true >/dev/null || fail "the private stream state could not be enabled"
+  "${shell_env[@]}" wpctl settings node.stream.restore-target true >/dev/null || fail "the private target state could not be enabled"
+  expect "Do Not Disturb turns on for requested-volume chimes" on notes silence on
+  notify "Smoke Volume" 0 "Requested volume chimes" "" '[]' '{"desktop-entry": <"smoke-volume">}' 0 >/dev/null || fail "the requested-volume notification could not be sent"
+  expect_poll "the hold names the actual Pulse application" '[true, "pw-cli", true, ["notification", "event"]]' rule_holds "smoke volume"
+  knock_take_file="$sandbox/volume-twenty.wav"
+  knock_record start
+  spawn "$sandbox/volume-twenty.log" "${shell_env[@]}" bash -c 'for _ in $(seq 1 20); do paplay --client-name="Smoke Volume" --stream-name=volume-chime --volume=32768 "$1" || exit; done' bash "$volume_chime"
+  volume_twenty_pid="$spawn_pid"
+  wait "$volume_twenty_pid" || fail "the twenty requested-volume chimes did not complete"
+  knock_record stop
+  expect "twenty chimes setting their requested volume stay silent" silent knock_take "$knock_take_file" 5
+  cp -- "$knock_take_file" "$note_audio_evidence/volume-twenty.wav"
+  spawn "$sandbox/volume-other.log" "${shell_env[@]}" paplay --client-name="Smoke Volume" --stream-name=volume-other --device=vgs-smoke-headphones --volume=32768 "$app_tone"
+  volume_other_pid="$spawn_pid"
+  expect_poll "another stream of the same app returns to its normal output" vgs-smoke-headphones volume_node volume-other target
+  expect_poll "the same app's other stream plays at its requested volume" own volume_own vgs-smoke-headphones
+  notify "Smoke Volume" 0 "Volume release" "" '[]' '{"desktop-entry": <"smoke-volume">}' 0 >/dev/null || fail "the volume-release notification could not be sent"
+  spawn "$sandbox/volume-release.log" "${shell_env[@]}" paplay --client-name="Smoke Volume" --stream-name=volume-release --volume=32768 "$app_tone"
+  volume_release_pid="$spawn_pid"
+  expect_poll "the Pulse stream reaches only the mute hold" vgs-notification-mute-hold volume_node volume-release target
+  volume_serial="$(volume_node volume-release serial)"
+  expect_poll "WirePlumber saved app volume without a hold target or sink entry" clean volume_state
+  cp -- "$home/.local/state/wireplumber/stream-properties" "$note_audio_evidence/held"
+  cp -- "$note_audio_evidence/held" "$note_audio_evidence/persisted-control"
+  printf '\nAudio/Sink:node.name:vgs-notification-mute-hold={}\n' >>"$note_audio_evidence/persisted-control"
+  expect "control: a saved hold sink fails the ordinary-state assertion" pending-or-persisted volume_state "$note_audio_evidence/persisted-control"
+  expect "control: absent state cannot prove ordinary volume storage" not-saved volume_state "$note_audio_evidence/absent"
+  expect "Do Not Disturb releases the requested-volume stream" off notes silence off
+  expect_poll "the same stream returns to speakers" vgs-smoke-speakers volume_node volume-release target
+  expect "release preserves the exact stream serial" "$volume_serial" volume_node volume-release serial
+  expect_poll "release preserves the app's requested volume" own volume_own vgs-smoke-speakers
+  expect "release leaves ordinary state without the private sink" clean volume_state
+  cp -- "$home/.local/state/wireplumber/stream-properties" "$note_audio_evidence/released"
+  kill -- "-$volume_release_pid" "-$volume_other_pid" 2>/dev/null || true
+  expect "Do Not Disturb turns on before holder loss" on notes silence on
+  notify "Smoke Volume" 0 "Volume holder loss" "" '[]' '{"desktop-entry": <"smoke-volume">}' 0 >/dev/null || fail "the holder-loss notification could not be sent"
+  spawn "$sandbox/volume-death.log" "${shell_env[@]}" paplay --client-name="Smoke Volume" --stream-name=volume-death --volume=32768 "$app_tone"
+  volume_death_pid="$spawn_pid"
+  expect_poll "the stream before holder loss reaches the mute hold" vgs-notification-mute-hold volume_node volume-death target
+  volume_serial="$(volume_node volume-death serial)"
+  app_writer="$(rule_meta hold | py_reply 'import json,sys; print(json.load(sys.stdin)["pid"])')"
+  kill -STOP "$shell_qs_pid" || fail "the shell did not stop before holder loss"
+  note_audio_shell_stopped=yes
+  kill -KILL "$app_writer" || fail "the owned holder did not stop"
+  expect_poll "holder loss restores the same stream to speakers" vgs-smoke-speakers volume_node volume-death target
+  expect "holder loss preserves the exact stream serial" "$volume_serial" volume_node volume-death serial
+  expect_poll "holder loss preserves the requested volume" own volume_own vgs-smoke-speakers
+  expect "holder loss leaves no saved hold sink or target" clean volume_state
+  cp -- "$home/.local/state/wireplumber/stream-properties" "$note_audio_evidence/holder-lost"
+  kill -- "-$volume_death_pid" 2>/dev/null || true
+  kill -CONT "$shell_qs_pid" || fail "the shell did not resume after holder loss"
+  note_audio_shell_stopped=no
+  expect_poll "the replacement writer restores the broad Knock hold" '[true, "pw-cli", true, ["notification", "event"]]' rule_holds "smoke knock"
+  "${shell_env[@]}" wpctl settings node.stream.restore-props false >/dev/null || fail "the private stream state could not be restored"
+  "${shell_env[@]}" wpctl settings node.stream.restore-target false >/dev/null || fail "the private target state could not be restored"
   knock_take_file="$sandbox/knock-take.wav"
   knock_record start
   expect "Smoke Knock plays 50 chimes on one stream" played=50 knock_rounds 50 20
   knock_record stop
   expect "not one 1 ms window of Smoke Knock's 50 chimes is heard" silent knock_take "$knock_take_file"
+  cp -- "$knock_take_file" "$note_audio_evidence/knock-fifty.wav"
   # The control: with Do Not Disturb off and Sound on, the same stream's
   # chimes are heard.
   expect "Do Not Disturb turns off after Smoke Knock" off notes silence off
@@ -5494,6 +5709,8 @@ PY
   expect "the control's chime plays" seen knock_said "played 71"
   knock_record stop
   expect "with Sound on Smoke Knock's chime is heard" True python3 -c 'import sys; print(int(sys.argv[1]) >= 250)' "$(app_heard_ms "$knock_take_file")"
+  cp -- "$knock_take_file" "$note_audio_evidence/knock-control.wav"
+  cp -- "$sandbox/knock-player.log" "$note_audio_evidence/knock-player.log"
   expect "Sound turns off again after Smoke Knock" off notes sound off
   exec {knock_fd}>&-
   kill -- "-$knock_player" "-$knock_pulse" 2>/dev/null || true
@@ -6052,3 +6269,4 @@ expect "the images directory holds only what the stored entries own" '[]' orphan
 # sentinel comes back for every later row. The curl stand-in the row added
 # goes too.
 notifications_restore_standins
+notification_audio_restore

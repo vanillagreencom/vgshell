@@ -4,43 +4,13 @@ import Quickshell.Io
 import Quickshell.Services.Pipewire
 import "NotificationLogic.js" as Logic
 
-// An app's own notification sound, muted while the shell plays none of its
-// own: the service creates this while Do Not Disturb is on or Sound is off
-// and destroys it when both turn back or the service goes.
-//
-// Two layers. The sound rule (wireplumber/vgs-notification-sounds.lua),
-// while WirePlumber runs it (`ruleRunning`), holds every new output stream
-// the hold names silent before it links it, so the chime's first sample is
-// silent however late the shell reacts; this writes that hold, naming the
-// apps of every notification the service keeps or arms, and the rule
-// keeps it only while this instance's writer lives. The shell keeps a
-// stream the rule held muted while it waits for its app's notification,
-// which can reach the shell after the chime starts, and frees it once the
-// arm's time passes with none, as a call. Every other stream keeps the
-// reaction: `arm` names the app of a notification that arrived, and a
-// stream of that app that then starts to play is muted until it pauses.
-// A muted stream that pauses stays muted until it plays again, so a chime
-// the app plays on a stream it keeps open is silent from its first sample
-// too (NotificationLogic.appSoundStep).
-//
-// The mute is the stream's softMute: WirePlumber 0.5 keeps a stream's
-// `mute` and volumes for every later stream of the same app
-// (state-stream.lua, keyed by media.role, else application.name), so a
-// plain mute of Slack's chime would mute its next call, and it keeps no
-// softMute. Any write of the stream's `mute` mixes the stream at its own
-// volume and mute again, though its softMute still reads true; a write
-// of `softMute: false` alone, or with the mute in the same write, leaves
-// it mixed at full volume whatever its own volume. So the lift is two
-// writes: softMute false, then the mute the stream already has, which
-// leaves both reading false at its own level (measured on a private
-// PipeWire 1.6.9 and WirePlumber 0.5.18 with stand-in streams, VGS-1311,
-// and with a stream at channel volume 0.5, VGS-1424). A volume written to
-// a held stream lifts its softMute the same way, so it is muted again.
-// The destruction lifts every stream this instance wrote to. A shell
-// stopped by a signal runs no destruction, but its writer dies with it,
-// so the rule lifts what it held; the next instance's first scan lifts
-// what the reaction left, and a shell that does not start again leaves
-// that stream muted until its app closes it.
+// The rule routes a notification stream to its private silent output. This
+// instance publishes the complete held/released serial sets; it never changes
+// the stream's volume, mute or saved target. A guarded pw-cli client leases
+// the hold, so destroying this instance or losing its writer frees the routes.
+// appSoundStep keeps a chime held across pauses and frees a possible call
+// once its notification wait expires. The rule's actual held serials, observed
+// by SoundRule, distinguish a new rule-held stream from an existing call.
 Item {
     id: root
 
@@ -55,41 +25,27 @@ Item {
 
     // App name -> { at, until }: the apps a notification armed lately.
     property var arms: ({})
-    // The output streams of the last snapshot, each { node, since, judged,
-    // freeing, wrote }, bound so their properties stay current: judged once
-    // the rule's verdict on it was read, freeing while the shell's own
-    // stream the rule held waits for its link to be freed, wrote once this
-    // instance wrote to it. A snapshot, never a binding on the live model,
-    // as vgs.sound's Audio.qml explains.
+    // Snapshot entries retain their first paused/playing admission observation.
+    // Preexisting streams were observed before this lease; playing ones stay
+    // free, while matching paused ones can be adopted before their next play.
     property var streams: []
-    // Node id -> { node, hold, level }: the streams under a mute; hold is
-    // appSoundStep's answer, kept whole for its next step; level is the
-    // volume the stream last reported, so only a change mutes it again.
+    property bool initialized: false
+    // object.serial -> { node, hold }, retaining appSoundStep's phase.
     property var holds: ({})
-    // The writes made while the writer is not ready, each { node, on }, the
-    // last for each stream that is still there.
-    property var pending: []
-    // Whether the running writer has its session's objects
-    // (NotificationLogic.cliReady): a write it reads before is refused.
-    property bool writerReady: false
-    // The hold as last sent to the rule, { at, apps, roles }, at when the
-    // first write for this rule and this writer started; null while none
-    // is sent. A stream that appears once a write started counts as held
-    // before the write lands: the shell writes the mute of a stream it
-    // counts as held itself, so one the rule did not hold is muted the same.
+    property var ruleHeldSerials: []
+    // Current broad admission policy, null without a running rule and writer.
     property var ruleHold: null
-    // none, sending, confirmed (pw-metadata exited 0 for the current
-    // writer's pid) or failed (the retries ran out).
     property string holdState: "none"
     property int holdTries: 0
-    // The start-up scan has lifted what an earlier shell left, so a stream
-    // the rule holds under this instance's hold is never taken for one.
-    property bool scanned: false
+    property string lastHold: ""
+    onRuleHeldSerialsChanged: {
+        for (const entry of streams) judge(entry.node);
+    }
     // The apps the hold names: every name a kept or armed notification goes
     // by, as bounded as what the service keeps.
     readonly property var holdNames: Logic.holdApps(kept, Object.keys(arms))
     onHoldNamesChanged: {
-        if (ruleHold !== null && Logic.holdGrows(ruleHold.apps, holdNames)) writeHold(false);
+        writeHold(false);
     }
     // The rule holds nothing of an earlier instance's or an earlier
     // WirePlumber's: a rule that comes back gets the hold again, and one
@@ -100,7 +56,9 @@ Item {
             return;
         }
         ruleHold = null;
+        lastHold = "";
         holdState = "none";
+        holdRetry.stop();
         ruleGrace.restart();
     }
 
@@ -131,11 +89,6 @@ Item {
         return value === "true" ? true : value === "false" ? false : null;
     }
 
-    function level(node) {
-        const audio = node.audio;
-        return audio === null ? "" : JSON.stringify([audio.volumes, audio.muted]);
-    }
-
     // The latest arm of the app NODE belongs to, or null.
     function armOf(node) {
         let latest = null;
@@ -144,53 +97,49 @@ Item {
         return latest;
     }
 
-    // OPEN includes a paused stream present when the hold is written:
-    // the rule adopts it then, although it predates the hold.
-    function judge(node, open) {
+    // Admission stays pending through node-list, identity and cork-state
+    // delivery. Its first matching paused/playing observation settles it,
+    // so a known call is not adopted when it later pauses or another app joins.
+    // An unjudged new stream is not released before the rule reports it held:
+    // its node-added hook may still be queued on WirePlumber's event loop.
+    function judge(node) {
         const entry = streams.find(e => e.node === node);
-        if (entry === undefined) return;
-        let ruled = "";
-        if ((!entry.judged || open === true) && Object.keys(props(node)).length > 0) {
-            entry.judged = true;
-            ruled = Logic.ruleHeld(ruleHold, props(node), open === true ? ruleHold.at : entry.since, Logic.shellPlayer(props(node), shellSounds));
+        if (entry === undefined || !node.ready) return;
+        const p = props(node);
+        const serial = p["object.serial"];
+        if (typeof serial !== "string" || serial === "" || Object.keys(p).length === 0) return;
+        if (entry.serial === "") entry.serial = serial;
+        if (entry.serial !== serial) return;
+        const own = Logic.shellPlayer(p, shellSounds);
+        const paused = corked(node);
+        let ruled = own ? "own" : "";
+        if (!entry.judged && !own) {
+            ruled = Logic.ruleHeld(ruleHeldSerials, p, own);
+            if (ruled !== "" || (entry.preexisting && paused !== null) || (ruleHold !== null && !Logic.holdMatches(ruleHold, p))) entry.judged = true;
         }
-        const id = String(node.id);
-        const held = Logic.hasOwn(holds, id) && holds[id].node === node ? holds[id] : null;
+        if (ruleHold !== null && entry.admission === "waiting" && paused !== null && Logic.holdMatches(ruleHold, p)) {
+            entry.admission = paused ? "paused" : "playing";
+            if (!own && paused) {
+                ruled = Logic.ruleHeld([serial], p, false);
+                entry.judged = true;
+            }
+        }
+        const held = Logic.hasOwn(holds, serial) && holds[serial].node === node ? holds[serial] : null;
         const step = Logic.appSoundStep(held === null ? null : held.hold, armOf(node),
-            { corked: corked(node), since: entry.since }, Date.now(), ruled);
-        if (step.change === "") return;
-        const next = Object.assign({}, holds);
-        if (step.hold === null) delete next[id];
-        else next[id] = { node: node, hold: step.hold, level: level(node) };
-        holds = next;
-        entry.freeing = step.change === "release" && ruled !== "";
-        if (entry.freeing) freeLinked();
-        else soften(node, step.change !== "release");
-        schedule();
-    }
-
-    // A stream the rule held as the shell's own is freed once it is
-    // linked: WirePlumber sends the rule's softMute before it links the
-    // stream, on its one connection, so a lift written once the link shows
-    // reaches the stream after that mute. One written as soon as the
-    // stream shows can reach it first and leave it muted: the shell judged
-    // a stream within the same millisecond as the rule held it (nested
-    // sandbox, WirePlumber 0.5.18, VGS-1424).
-    function freeLinked() {
-        const linked = Pipewire.linkGroups.values.filter(g => g !== null).map(g => g.source);
-        for (const entry of streams) {
-            if (!entry.freeing || linked.indexOf(entry.node) === -1) continue;
-            entry.freeing = false;
-            soften(entry.node, false);
+            { corked: paused, since: entry.since }, Date.now(), ruled);
+        const wasFree = entry.free;
+        if (step.change !== "") {
+            const next = Object.assign({}, holds);
+            if (step.hold === null) delete next[serial];
+            else next[serial] = { node: node, hold: step.hold };
+            holds = next;
+            entry.judged = true;
+            entry.free = step.hold === null;
+            schedule();
+        } else if (held === null && entry.judged) {
+            entry.free = true;
         }
-    }
-
-    // A held stream whose volume changed has lost its mute.
-    function levelChanged(node) {
-        const id = String(node.id);
-        if (!Logic.hasOwn(holds, id) || holds[id].node !== node || holds[id].level === level(node)) return;
-        holds[id].level = level(node);
-        soften(node, true);
+        if (step.change !== "" || wasFree !== entry.free) Qt.callLater(root.publishHold);
     }
 
     function refresh() {
@@ -198,14 +147,14 @@ Item {
         const nodes = Pipewire.nodes.values.filter(n => n !== null && n.isStream && n.isSink && n.audio !== null);
         streams = nodes.map(n => {
             const known = root.streams.find(e => e.node === n);
-            return known === undefined ? { node: n, since: now, judged: false, freeing: false, wrote: false } : known;
+            return known === undefined ? { node: n, serial: "", since: now, preexisting: !initialized, admission: "waiting", judged: false, free: false } : known;
         });
         const next = {};
         for (const id of Object.keys(holds))
             if (nodes.indexOf(holds[id].node) !== -1) next[id] = holds[id];
         holds = next;
-        pending = pending.filter(i => nodes.indexOf(i.node) !== -1);
         for (const entry of streams) judge(entry.node);
+        Qt.callLater(root.publishHold);
     }
 
     // The clock runs to the nearest end of an arm or a hold.
@@ -229,71 +178,51 @@ Item {
         schedule();
     }
 
-    // The writer's lines for node ID: ON mutes it; otherwise the lift,
-    // softMute false and then MUTED, the stream's own mute.
-    function softLines(id, on, muted) {
-        const set = "set-param " + id + " Props ";
-        return on ? [set + "{ softMute: true }"] : [set + "{ softMute: false }", set + ownProps(muted)];
-    }
-
-    function ownProps(muted) {
-        return muted ? "{ mute: true }" : "{ mute: false }";
-    }
-
-    function ownMute(node) {
-        return node.audio !== null && node.audio.muted;
-    }
-
     // The core's sound player's directory (Sounds.qml): a stream playing a
     // file of it is the shell's own sound (NotificationLogic.shellPlayer).
     readonly property string shellSounds: Quickshell.shellDir + "/assets/sounds"
 
-    // A node PipeWire removed meanwhile is skipped: its id may already name
-    // another stream.
-    function soften(node, on) {
-        if (!writer.running || !writerReady) {
-            pending = pending.filter(i => i.node !== node).concat([{ node: node, on: on }]);
-            return;
+    function writeHold(fresh) {
+        const adopt = fresh || ruleHold === null || holdNames.some(app => !ruleHold.apps.includes(app));
+        if (fresh) {
+            ruleHold = null;
+            lastHold = "";
+            holdTries = 0;
         }
-        if (!Pipewire.nodes.values.includes(node)) return;
-        const entry = streams.find(e => e.node === node);
-        if (entry !== undefined) entry.wrote = true;
-        writer.write(softLines(node.id, on, ownMute(node)).join("\n") + "\n");
+        if (!ruleRunning || !writer.running) return;
+        ruleHold = { apps: holdNames, roles: Logic.HOLD_ROLES };
+        if (adopt) {
+            for (const entry of streams) judge(entry.node);
+        }
+        publishHold();
     }
 
-    // The hold names this instance's writer, once it runs, WirePlumber runs
-    // the rule and the scan is done. FRESH starts a new hold, as for a new
-    // writer or a rule that came back; otherwise a hold written again keeps
-    // the time of its first write.
-    function writeHold(fresh) {
-        if (fresh) ruleHold = null;
-        if (!ruleRunning || !writer.running || !scanned) return;
-        if (ruleHold === null) holdTries = 0;
-        ruleHold = { at: ruleHold === null ? Date.now() : ruleHold.at, apps: holdNames, roles: Logic.HOLD_ROLES };
-        // A playing call keeps playing; an already-open paused chime
-        // enters the same rest phase as one the rule held when it opened.
-        for (const entry of streams)
-            if (corked(entry.node) === true) judge(entry.node, true);
+    // Only observed live identities enter either exact set. PipeWire's
+    // object.serial increases per object, unlike reusable node ids
+    // (https://docs.pipewire.org/group__pw__keys.html). Release wins while
+    // the same app remains broadly admitted, including the shell's sounds.
+    function holdEntry(pid) {
+        const live = streams.filter(e => e.serial !== "" && Pipewire.nodes.values.includes(e.node));
+        const held = live.filter(e => Logic.hasOwn(holds, e.serial) && holds[e.serial].node === e.node).map(e => e.serial);
+        const released = live.filter(e => e.free).map(e => e.serial);
+        return Logic.holdEntry(pid, ruleHold.apps, held, released);
+    }
+
+    // A snapshot replaces both exact sets, including removals. Coalesced
+    // calls and readbacks with no changed intent start no new process.
+    function publishHold() {
+        if (ruleHold === null || !ruleRunning || !writer.running) return;
+        const next = holdEntry(writer.processId);
+        if (next === lastHold) return;
+        lastHold = next;
         holdState = "sending";
         holdRetry.stop();
         if (holdWriter.running) holdWriter.again = true;
         else holdWriter.send();
     }
 
-    // Existing streams have one adoption decision, above. The rule only
-    // registers these for writer-death cleanup; another mute on metadata
-    // arrival could land after this instance already released the stream.
-    function holdEntry(pid) {
-        const entry = JSON.parse(Logic.holdEntry(pid, ruleHold.apps));
-        // PipeWire's object.serial increments per object, unlike reusable
-        // node ids (https://docs.pipewire.org/group__pw__keys.html).
-        entry.streams = Object.keys(holds).map(id => props(holds[id].node)["object.serial"]);
-        return JSON.stringify(entry);
-    }
-
     // A write that failed is sent again after the supervision's delays;
-    // once they run out the hold stays unconfirmed and the shell mutes by
-    // reaction alone.
+    // once they run out the hold stays unconfirmed and routing is unproved.
     function holdFailed(line) {
         const step = Logic.restartStep(holdTries, 0);
         holdTries = step.streak;
@@ -306,30 +235,8 @@ Item {
         holdRetry.restart();
     }
 
-    // TEXT is pw-dump's answer. A soft mute on an output stream that this
-    // instance does not hold is one a shell that stopped left: nothing else
-    // sets a stream's softMute, since pipewire-pulse and WirePlumber write
-    // `mute`, and the rule lifts what it held when that shell's writer
-    // died. A stream a destruction lifted with its mute alone still reads
-    // softMute true, so it is lifted again, which changes nothing.
-    function lift(text) {
-        let objects;
-        try {
-            objects = JSON.parse(text);
-        } catch (e) {
-            console.warn("notifications: app sounds: scan json=" + e.message);
-            return;
-        }
-        for (const o of objects) {
-            const info = o.info || {};
-            const params = (info.params || {}).Props || [];
-            if ((info.props || {})["media.class"] !== "Stream/Output/Audio" || !params.some(p => p.softMute === true)) continue;
-            if (Logic.hasOwn(holds, String(o.id))) continue;
-            const node = Pipewire.nodes.values.find(n => n !== null && n.id === o.id);
-            if (node !== undefined) soften(node, false);
-        }
-    }
-
+    // Binding exposes full properties once PwNode.ready is true (Quickshell
+    // 0.3.1, https://quickshell.org/docs/v0.3.1/types/Quickshell.Services.Pipewire/PwNode).
     PwObjectTracker {
         objects: root.streams.map(e => e.node)
     }
@@ -343,11 +250,6 @@ Item {
         function onValuesChanged() { Qt.callLater(root.refresh); }
     }
 
-    Connections {
-        target: Pipewire.linkGroups
-        function onValuesChanged() { Qt.callLater(root.freeLinked); }
-    }
-
     Repeater {
         model: root.streams
         Item {
@@ -355,11 +257,7 @@ Item {
             Connections {
                 target: modelData.node
                 function onPropertiesChanged() { root.judge(modelData.node); }
-            }
-            Connections {
-                target: modelData.node.audio
-                function onVolumesChanged() { root.levelChanged(modelData.node); }
-                function onMutedChanged() { root.levelChanged(modelData.node); }
+                function onReadyChanged() { root.judge(modelData.node); }
             }
         }
     }
@@ -369,35 +267,21 @@ Item {
         onTriggered: root.expire()
     }
 
-    // The one pw-cli that takes every softMute write on its stdin, a line
-    // each, and whose life is the hold's: the rule counts the hold only
-    // while a PipeWire client with this process's pid exists. It cannot
-    // outlive the shell and is started again after an exit nobody asked
-    // for, such as a PipeWire restart (Supervised.qml). Its output is read
-    // until it has its session's objects; then it gets the writes owed
-    // meanwhile, every stream this instance still holds is muted again,
-    // since the rule lifted what it held when the last writer went, and
-    // the hold is written under its pid.
+    // A PipeWire client whose lifetime leases the hold. Supervised guards
+    // it with the shell's parent-death signal and restarts it after a server
+    // loss. No stream parameter writes are sent to this client's stdin.
     Supervised {
         id: writer
         label: "app sounds: writer"
         argv: ["pw-cli"]
         stdinEnabled: true
         exitLevel: "warn"
-        onLine: text => {
-            if (root.writerReady || !Logic.cliReady(text)) return;
-            root.writerReady = true;
-            const owed = root.pending;
-            root.pending = [];
-            for (const item of owed) root.soften(item.node, item.on);
-            for (const id of Object.keys(root.holds))
-                if (!owed.some(i => i.node === root.holds[id].node)) root.soften(root.holds[id].node, true);
-        }
         onStarted: root.writeHold(true)
         onEnded: {
-            root.writerReady = false;
             root.ruleHold = null;
+            root.lastHold = "";
             root.holdState = "none";
+            holdRetry.stop();
         }
     }
 
@@ -410,7 +294,7 @@ Item {
         property var completion: null
         property var sentPid: null
         function send() {
-            if (root.ruleHold === null || !writer.running) return;
+            if (root.ruleHold === null || !root.ruleRunning || !writer.running) return;
             sentPid = writer.processId;
             command = Logic.guardedArgv(Quickshell.processId, ["pw-metadata", "-n", Logic.SOUND_RULE_METADATA, "0", "hold", root.holdEntry(sentPid), "Spa:String:JSON"]);
             running = true;
@@ -440,55 +324,26 @@ Item {
 
     Timer {
         id: holdRetry
-        onTriggered: root.writeHold(false)
+        onTriggered: {
+            root.lastHold = "";
+            root.publishHold();
+        }
     }
 
-    // A mute that waits on the rule longer than the grace mutes by reaction
-    // alone, which can let a chime's first samples through: said once each
-    // time it happens, at warn, naming the rule as not loaded.
+    // Without the rule there is no routing hold. Report the unavailable
+    // policy once after its startup grace, including the install phase.
     Timer {
         id: ruleGrace
         interval: Logic.RULE_GRACE
         onTriggered: {
-            if (!root.ruleRunning) console.warn("notifications: app sounds: rule=not-loaded phase=" + root.rulePhase + " mutes=reaction");
-        }
-    }
-
-    Process {
-        id: scan
-        property var completion: null
-        command: ["pw-dump"]
-        clearEnvironment: true
-        environment: ({ PATH: null, XDG_RUNTIME_DIR: null, PIPEWIRE_RUNTIME_DIR: null, PIPEWIRE_REMOTE: null, LANG: "C.UTF-8" })
-        stdout: StdioCollector { id: dumped }
-        onExited: (code, status) => { completion = { code: code, status: status }; }
-        onRunningChanged: {
-            if (running) return;
-            const done = completion;
-            completion = null;
-            if (done === null || done.code !== 0) console.warn("notifications: app sounds: pw-dump exit=" + JSON.stringify(done));
-            else root.lift(dumped.text);
-            root.scanned = true;
-            root.writeHold(true);
+            if (!root.ruleRunning) console.warn("notifications: app sounds: rule=not-loaded phase=" + root.rulePhase + " mutes=unavailable");
         }
     }
 
     Component.onCompleted: {
         refresh();
-        scan.running = true;
+        initialized = true;
+        writeHold(true);
         if (!ruleRunning) ruleGrace.start();
-    }
-
-    // The writer goes with this instance, SIGKILLed, and may not have
-    // reached PipeWire with what it was last given, so every stream this
-    // instance wrote to or holds, and every lift still owed, gets a lift of
-    // its own. It writes the stream's own mute alone, which mixes it at its
-    // own level: two detached processes could land softMute false last and
-    // leave it at full volume.
-    Component.onDestruction: {
-        const owed = streams.filter(e => e.wrote).map(e => e.node).concat(Object.keys(holds).map(id => holds[id].node))
-            .concat(pending.filter(i => !i.on).map(i => i.node));
-        for (const node of owed.filter((n, i) => owed.indexOf(n) === i))
-            if (Pipewire.nodes.values.includes(node)) Quickshell.execDetached(["pw-cli", "set-param", String(node.id), "Props", ownProps(ownMute(node))]);
     }
 }

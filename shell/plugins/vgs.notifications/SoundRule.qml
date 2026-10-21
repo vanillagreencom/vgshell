@@ -62,6 +62,8 @@ Item {
     property string version: ""
     // The version the rule's metadata reports, "" while none does.
     property string observed: ""
+    // Actual rule-held object.serial values, forwarded to AppSounds by Service.
+    property var held: []
     readonly property bool running: version !== "" && observed === version
     // The shipped script's text, null until read.
     property var shipped: null
@@ -134,7 +136,14 @@ Item {
         const line = Logic.metadataLine(text);
         if (line === null) return;
         if (line.subject === 0 && line.key === "version") observed = line.kind === "update" ? line.value : "";
-        else if (line.kind === "remove" && line.subject === 0 && line.key === null) observed = "";
+        else if (line.subject === 0 && line.key === "held") {
+            const read = line.kind === "update" ? Logic.soundRuleHeld(line.value) : [];
+            held = read === null ? [] : read;
+            if (read === null) console.warn("notifications: sound rule: held=invalid");
+        } else if (line.kind === "remove" && line.subject === 0 && line.key === null) {
+            observed = "";
+            held = [];
+        }
     }
 
     FileView {
@@ -339,8 +348,8 @@ Item {
         label: "sound rule: metadata watch"
         argv: ["pw-metadata", "-m", "-n", Logic.SOUND_RULE_METADATA]
         onLine: text => rule.metadataLine(text)
-        onStarted: rule.observed = ""
-        onEnded: rule.observed = ""
+        onStarted: { rule.observed = ""; rule.held = []; }
+        onEnded: { rule.observed = ""; rule.held = []; }
     }
 
     // pw-dump filters removals by the rule's name. Its removal can arrive
@@ -356,6 +365,7 @@ Item {
             last = read.last;
             if (read.removed === 0) return;
             rule.observed = "";
+            rule.held = [];
             metadataWatch.relaunch();
         }
         onStarted: last = 0

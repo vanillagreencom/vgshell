@@ -549,6 +549,7 @@ settings_steps_row='node scripts/test-settings-steps.js'
 settings_warden_row=$'node scripts/test-agent-warden-logic.js\n'
 settings_devtools_row=$'\nnode scripts/test-devtools-view.js'
 cases=(
+  "notifications-app-sounds|shell/plugins/vgs.notifications/AppSounds.qml|logic|node scripts/test-notifications-logic.js"
   "displays-vrr-setting|shell/plugins/vgs.displays/manifest.json|logic|node scripts/test-plugin-logic.js"$'\nnode scripts/test-displays-logic.js'
   "power-logic|shell/plugins/vgs.power/PowerLogic.js|logic|node scripts/test-power-logic.js"
   "sysmon-logic|shell/plugins/vgs.sysmon/SysmonLogic.js|logic|node scripts/test-sysmon-logic.js"
