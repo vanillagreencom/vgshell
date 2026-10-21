@@ -7045,7 +7045,7 @@ tailscale_section_take() { # MODE NAME CAPTION [posed]
   values="$(ipc smoke statusValues vgs.tailscale)" || return 1
   sections="$(ipc smoke itemValues window vgs.tailscale Section 'title,visible')" || return 1
   focus="$(ipc smoke activeFocusItem window vgs.tailscale)" || return 1
-  scroll="$(ipc smoke readDescendant window vgs.system ScrollArea contentY)" || return 1
+  scroll="$(ipc smoke viewHolding window vgs.system "Check every")" || return 1
   printf '%s\t%s\t%s\tstate=%s sections=%s focus=%s scroll=%s\n' "$1" "tailscale-section-$1-$2.png" "$3" "$values" "$sections" "$focus" "$scroll" >>"$SHOT_DIR/tailscale-section-states.tsv"
   if [[ ${4:-} == posed ]]; then take_posed "tailscale-section-$1-$2"; else take "tailscale-section-$1-$2"; fi
 }
@@ -7095,8 +7095,8 @@ TSSECTION
   expect_poll "Cancel closes the section question" false tailscale_section_named Dialog tailscale-sign-out-prompt visible
 
   local exit_y
-  exit_y="$(ipc smoke sectionSpan window vgs.system "Exit node" | py_reply 'import json,sys; print(round(json.load(sys.stdin)[0]))')" || { fail "the section exit-node position is unreadable"; return; }
-  ipc smoke scrollTo window vgs.system "$exit_y" >/dev/null
+  exit_y="$(ipc smoke revealScopedText window vgs.system Section "Exit node" TextField "")" || { fail "the section exit-node field is unreadable"; return; }
+  [[ $exit_y =~ ^[0-9.]+$ ]] || { fail "the section exit-node field did not scroll: $exit_y"; return; }
   tailscale_section_take "$mode" exit-node "System Settings › Tailscale · Exit node overview"
   if tree_has shell/plugins/vgs.tailscale/ExitNodes.qml 'property bool inlineCountries'; then
     expect "Sweden scrolls into the section" shown tailscale_section_reveal ListItem Sweden
