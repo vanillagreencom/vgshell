@@ -11,7 +11,8 @@ if ! pkg-config --exists libpipewire-0.3 || ! python3 -c 'import gi; from gi.rep
 fi
 share_world="$sandbox/share-picker"
 share_fixture="$source_repo/scripts/smoke/fixtures/share-picker"
-share_evidence="$source_repo/tmp/share-picker-evidence"
+mkdir -p -- "$smoke_log_dir/tmp"
+share_evidence="$(mktemp -d "$smoke_log_dir/tmp/share-picker-evidence.XXXXXX")"
 mkdir -p -- "$share_world" "$share_evidence"
 cp -- "$home/.config/vgshell/shell.json" "$share_world/shell.saved"
 share_theme="$home/.config/vgshell/theme.json"
@@ -449,8 +450,18 @@ expect_poll "the control executable returns" 0 share_exit control-remember
 share_matches() { [[ $(share_stdout "$1") == "$2" ]] && echo True || echo False; }
 expect "control: dropping Remember fails the xdph assertion" False share_matches control-remember "[SELECTION]r/screen:$share_output"
 cp -- "$share_world/picker.saved" "$repo/bin/vgshell-share-picker"
-# The original picker sees private /tmp: upstream's QSettings path is fixed there.
-SHOT_DIR="$(shot_dir_under "$source_repo" "$share_evidence")"
+# The original picker needs private /tmp for upstream's fixed QSettings path,
+# with the world's nested display runtime restored inside that private mount.
+expect "control: the original picker mount without its runtime cannot reach the nested socket" hidden "${shell_env[@]}" bwrap --ro-bind / / --tmpfs /tmp --bind "$sandbox" "$sandbox" python3 -c 'import socket,sys
+with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+    client.settimeout(1)
+    try:
+        client.connect(sys.argv[1])
+    except FileNotFoundError:
+        print("hidden")
+    else:
+        print("connected")' "$rt_dir/$nested_socket"
+SHOT_DIR="$(shot_dir_under "$smoke_log_dir" "$share_evidence")"
 SHOT_SOCKET="$(shot_socket "$rt_dir" "$nested_socket")"
 SHOT_RUNTIME_DIR="$rt_dir"; SHOT_OUTPUT="$share_output"
 mkdir -p -- "$home/.config/qt6ct"
@@ -481,7 +492,7 @@ for share_mode in dark light; do
   mv -T -- "$share_theme.next" "$share_theme"
   expect_poll "the $share_mode picture theme publishes" "$share_theme_name" ipc smoke themeName
   printf '[Appearance]\ncolor_scheme_path=/usr/share/qt6ct/colors/%s.conf\ncustom_palette=true\nstyle=Fusion\n' "$share_qt_palette" >"$home/.config/qt6ct/qt6ct.conf"
-  spawn_display "$share_world/$share_mode-before.log" "${shell_env[@]}" QT_QPA_PLATFORM=wayland QT_QPA_PLATFORMTHEME=qt6ct XDPH_WINDOW_SHARING_LIST="$share_window_list" -- bwrap --ro-bind / / --tmpfs /tmp --bind "$sandbox" "$sandbox" hyprland-share-picker --allow-token
+  spawn_display "$share_world/$share_mode-before.log" "${shell_env[@]}" QT_QPA_PLATFORM=wayland QT_QPA_PLATFORMTHEME=qt6ct XDPH_WINDOW_SHARING_LIST="$share_window_list" -- bwrap --ro-bind / / --tmpfs /tmp --bind "$sandbox" "$sandbox" --bind "$rt_dir" "$rt_dir" hyprland-share-picker --allow-token
   share_before_pid="$spawn_pid"
   expect_poll "the original picker maps in $share_mode" 1 share_before_count
   share_shot_kind=before
@@ -537,8 +548,8 @@ for old,new in (('Grid {\n                id: areaControls','Column {\n         
     s=s.replace(old,new,1)
 assert s!=p.read_text(); p.write_text(s)
 PY
-share_area_evidence="$source_repo/tmp/ui-shots/VGS-1164"
-SHOT_DIR="$(shot_dir_under "$source_repo" "$share_area_evidence")"
+share_area_evidence="$(mktemp -d "$smoke_log_dir/tmp/share-picker-area.XXXXXX")"
+SHOT_DIR="$(shot_dir_under "$smoke_log_dir" "$share_area_evidence")"
 share_original_mode="$(first_mode)"
 # share_evidence_theme MODE: publish the dark (vgs) or light
 # (flexoki-light) evidence theme and wait for the shell to read it.
@@ -655,7 +666,7 @@ edit_tree share-sources-room-control shell/plugins/vgs.capture/Window.qml \
   'readonly property real choicesHeight: bodyChrome + hintRoom + sourcesRoom + 3 * Theme.stack.group' \
   'readonly property real choicesHeight: bodyChrome + hint.implicitHeight + sources.height + 3 * Theme.stack.group'
 share_short_list="$share_window_list"
-for share_listed in 1 2 3 4 5 6; do share_window_list+="$((80 + share_listed))[HC>]smoke.share-listed[HT>]Listed window $share_listed[HE>]$share_listed[HA>]"; done
+for share_listed in 1 2 3 4 5 6; do share_window_list+="$((80 + share_listed))[HC>]smoke.share-listed[HT>]Listed window ${share_listed}[HE>]${share_listed}[HA>]"; done
 share_mode_size=1440x2160
 hold_mode "Tall output" "$share_output" "$share_mode_size"
 for share_version in before after; do

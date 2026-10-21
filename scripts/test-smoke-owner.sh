@@ -10,7 +10,7 @@
 # makes, whose end ends whatever a defect leaves. Its PID 1, case.sh, runs
 # the fence over a stand-in harness. The stand-in sources
 # scripts/smoke/teardown.sh as the harness does, makes a sandbox and a
-# runtime dir and names them in the fence's ledger as the harness does, and
+# runtime dir under the world root as the harness does, and
 # starts the process shapes a sandbox holds: two daemons in sessions of
 # their own, recorded as spawn records them (the D-Bus daemons and the
 # compositor), a runner whose child it waits on (`vgshell run` and qs), a
@@ -38,7 +38,7 @@ repo="$(cd -- "$(dirname -- "$self")/.." && pwd)"
 fence="$repo/scripts/smoke/gpu-fence.sh"
 teardown="$repo/scripts/smoke/teardown.sh"
 
-TMP_ROOT="$(mktemp -d)" || { echo "test-smoke-owner: scratch=mktemp-failed" >&2; exit 1; }
+TMP_ROOT="$(mktemp -d /var/tmp/test-smoke-owner.XXXXXX)" || { echo "test-smoke-owner: scratch=mktemp-failed" >&2; exit 1; }
 [[ -d $TMP_ROOT && ! -L $TMP_ROOT ]] || { echo "test-smoke-owner: scratch=not-a-directory value=[$TMP_ROOT]" >&2; exit 1; }
 TMP_ROOT="$(cd -- "$TMP_ROOT" && pwd -P)" || { echo "test-smoke-owner: scratch=resolve-failed" >&2; exit 1; }
 # A case a control turned red can leave a folder without write bits.
@@ -127,10 +127,9 @@ if [[ ${1-} == --live ]]; then
   exit 0
 fi
 
-# Trees with no DRM node: the fence makes its namespace and changes nothing
-# under /dev.
-mkdir -p "$TMP_ROOT/sys/class/drm" "$TMP_ROOT/dev" "$TMP_ROOT/bin"
-for tool in bash bwrap chmod mkdir mktemp readlink realpath rm sed seq setsid sh sleep stat true; do
+# Commands used by the real world and the stand-in harness.
+mkdir -p "$TMP_ROOT/bin"
+for tool in bash bwrap chmod git mkdir mktemp readlink realpath rm sed seq setsid sh sleep stat true; do
   tool_path="$(type -P "$tool")" || { echo "test-smoke-owner: missing=$tool" >&2; exit 1; }
   ln -s -- "$tool_path" "$TMP_ROOT/bin/$tool"
 done
@@ -146,10 +145,8 @@ sandbox="" rt_dir="" pgids=() keep=false
 [[ $mode != keep ]] || keep=true
 source "$teardown"
 sandbox="$(mktemp -d "$TMPDIR/vgshell-smoke.XXXXXX")"
-[[ $keep == true ]] || printf '%s\n' "$sandbox" >>"$VGSHELL_FENCE_LEDGER"
-rt_dir="$(mktemp -d "$TMPDIR/vs.XXXXXX")"
-[[ $keep == true ]] || printf '%s\n' "$rt_dir" >>"$VGSHELL_FENCE_LEDGER"
-printf '%s\n%s\n' "$sandbox" "$rt_dir" >"$case_dir/dirs"
+rt_dir="$(mktemp -d "$XDG_RUNTIME_DIR/owned/vs.XXXXXX")"
+printf '%s\n%s\n' "$VGSHELL_WORLD_ROOT" "$sandbox" >"$case_dir/dirs"
 for _ in session system compositor; do setsid sleep 300 & pgids+=("$!"); done
 setsid sh -c 'sleep 301 & wait' & pgids+=("$!")
 setsid sh -c 'setsid sleep 302 & wait' &
@@ -173,8 +170,10 @@ SH
 # left, once none is or after 5 s more. A zombie has ended.
 cat >"$TMP_ROOT/case.sh" <<'SH'
 fence="$1" teardown="$2" mode="$3" case_dir="$4" root="$5" target="$6" signal="$7"
+world_args=(--checkout "$8" --out "$case_dir")
+[[ $mode != keep ]] || world_args+=(--keep)
 env -i --default-signal=INT PATH="$root/bin" HOME="$root" TMPDIR="$case_dir" \
-  "$root/bin/bash" "$fence" --sys "$root/sys" --dev "$root/dev" \
+  "$root/bin/bash" "$fence" "${world_args[@]}" \
   "$root/bin/bash" "$root/harness.sh" "$teardown" "$mode" "$case_dir" >"$case_dir/out" 2>"$case_dir/err" &
 pid=$!
 if [[ -n $signal ]]; then
@@ -219,7 +218,7 @@ run_case() {
   mkdir -- "$case_dir"
   problems=()
   # The shell reports on stderr a job a signal ended; the status says it.
-  { timeout -k 2 30 "${contain[@]}" bash "$TMP_ROOT/case.sh" "$file" "$teardown" "$mode" "$case_dir" "$TMP_ROOT" "$target" "$signal" \
+  { timeout -k 2 30 "${contain[@]}" bash "$TMP_ROOT/case.sh" "$file" "$teardown" "$mode" "$case_dir" "$TMP_ROOT" "$target" "$signal" "$repo" \
     >"$case_dir/case.out" 2>&1 || status=$?; } 2>/dev/null
   [[ $status -eq 0 ]] || problems+=("case-exit=$status")
   [[ ! -r $case_dir/verdict ]] || read -r fence_status left <"$case_dir/verdict" || true
@@ -278,8 +277,7 @@ mutate() {
 controls=(
   "the namespace is no PID namespace| --unshare-pid --proc /proc||a SIGKILL of the harness leaves no process and no directory|processes-left=[1-9]"
   "bubblewrap outlives the fence|--proc /proc --die-with-parent --new-session|--proc /proc --new-session|a SIGKILL of the fence leaves no process|processes-left=[1-9]"
-  "the ledger is not read|done <\"\$fence_dir/ledger\"|done </dev/null|a SIGKILL of the harness leaves no process and no directory|left=vgshell-smoke."
-  "the owner bits are not given back|chmod -R u+rwX -- \"\$path\" 2>/dev/null|true|a SIGKILL of the harness leaves no process and no directory|gpu-fence: cleanup=rm-failed path="
+  "the owner bits are not given back|chmod -R u+rwX -- \"\$fence_dir\" 2>/dev/null|true|a SIGKILL of the harness leaves no process and no directory|gpu-fence: cleanup=rm-failed path="
 )
 for i in "${!controls[@]}"; do
   IFS='|' read -r label old new target want <<<"${controls[i]}"

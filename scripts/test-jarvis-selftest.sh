@@ -15,7 +15,7 @@
 # The keyring is a stand-in secrets service on a scratch bus this file
 # starts, never the caller's: it holds one item, present, locked or absent
 # as a case sets it, logs each call it gets, and owns a second bus name. The
-# runner's own filter, a real xdg-dbus-proxy, and the real secret-tool and
+# world's own filter, a real xdg-dbus-proxy, and the real secret-tool and
 # busctl reach it. Without one of those programs the keyring cases are not
 # measured and the file exits 77 once the others have run.
 # The function cases run the runner's own functions, cut from its file,
@@ -39,7 +39,7 @@ self="$(readlink -f -- "${BASH_SOURCE[0]}")"
 repo="$(cd -- "$(dirname -- "$self")/.." && pwd)"
 runner="$repo/scripts/jarvis-selftest.sh"
 
-tmp="$(mktemp -d)" || { echo "test-jarvis-selftest: scratch=mktemp-failed" >&2; exit 1; }
+tmp="$(mktemp -d /var/tmp/test-jarvis-selftest.XXXXXX)" || { echo "test-jarvis-selftest: scratch=mktemp-failed" >&2; exit 1; }
 [[ -d $tmp && ! -L $tmp ]] || { echo "test-jarvis-selftest: scratch=not-a-directory value=[$tmp]" >&2; exit 1; }
 tmp="$(cd -- "$tmp" && pwd -P)" || { echo "test-jarvis-selftest: scratch=resolve-failed" >&2; exit 1; }
 # The scratch bus and the stand-in service end by the pids this file
@@ -247,10 +247,11 @@ PY
 # Sets status; stdout and stderr go to out and err.
 inputs=("${voice_inputs[@]}")
 session_bus=()
+selftest_proxy_env=()
 run() {
   : >"$tmp/fence.log"; : >"$tmp/harness.log"; rm -f -- "$tmp/default-source" "$tmp/pw-metadata.calls"
   status=0
-  (cd -- "$tmp" && env -i PATH="$path" HOME="$world" "${inputs[@]}" "${session_bus[@]}" "$BASH" "$tree/scripts/jarvis-selftest.sh" "$@") >"$tmp/out" 2>"$tmp/err" || status=$?
+  (cd -- "$tmp" && env -i PATH="$path" HOME="$world" "${inputs[@]}" "${session_bus[@]}" "${selftest_proxy_env[@]}" "$BASH" "$tree/scripts/jarvis-selftest.sh" "$@") >"$tmp/out" 2>"$tmp/err" || status=$?
 }
 # Outside a control the tree's runner and the cut functions are the
 # checkout's own: plant FILE puts FILE in the tree as the runner, and
@@ -991,6 +992,12 @@ class Other(dbus.service.Object):
         note("Ping")
         return "pong"
 
+class Manager(dbus.service.Object):
+    @dbus.service.method("org.freedesktop.systemd1.Manager", in_signature="ssa(sv)a(sa(sv))", out_signature="o")
+    def StartTransientUnit(self, name, mode, properties, auxiliary):
+        note("StartTransientUnit")
+        return dbus.ObjectPath("/org/freedesktop/systemd1/job/1")
+
 class Item(dbus.service.Object):
     @dbus.service.method(dbus.PROPERTIES_IFACE, in_signature="ss", out_signature="v")
     def Get(self, interface, property):
@@ -1009,8 +1016,8 @@ class Item(dbus.service.Object):
 
 DBusGMainLoop(set_as_default=True)
 session = dbus.SessionBus()
-names = [dbus.service.BusName(name, session) for name in ("org.freedesktop.secrets", "org.vgshell.SelftestOther")]
-objects = [Service(session, "/org/freedesktop/secrets"), Other(session, "/org/vgshell/SelftestOther"), Item(session, ITEM)]
+names = [dbus.service.BusName(name, session) for name in ("org.freedesktop.secrets", "org.vgshell.SelftestOther", "org.freedesktop.systemd1")]
+objects = [Service(session, "/org/freedesktop/secrets"), Other(session, "/org/vgshell/SelftestOther"), Item(session, ITEM), Manager(session, "/org/freedesktop/systemd1")]
 note("ready")
 GLib.MainLoop().run()
 PY
@@ -1024,16 +1031,150 @@ PY
   for _ in $(seq 1 100); do [[ ! -s $tmp/keyring.calls ]] || break; sleep 0.1; done
   if [[ ! -s $tmp/keyring.calls ]]; then fail "the stand-in secrets service did not start: $(tail -n 3 -- "$tmp/bus.log" "$tmp/keyring.log" 2>&1)"; return; fi
 
+  # The real world owns this proxy on the scratch bus. The consumer tests
+  # below use its filtered socket; their stand-in harness starts no shell.
+  local proxy_world_pid="" proxy_root=""
+  mkdir -p "$tmp/proxy-output"
+  proxy_start() { # FENCE
+    rm -f -- "$tmp/proxy-output/root"
+    env -i PATH="$path" HOME="$world" TMPDIR=/tmp DBUS_SESSION_BUS_ADDRESS="unix:path=$bus" \
+      "$BASH" "$1" --checkout "$repo" --out "$tmp/proxy-output" --secrets --sign-in COPILOT_HOME "$world/.copilot" \
+      "$BASH" -c 'printf "%s\n" "$VGSHELL_WORLD_ROOT" >"$1/root"; while :; do sleep 1 & wait $!; done' _ "$tmp/proxy-output" >"$tmp/proxy-output/log" 2>&1 &
+    proxy_world_pid=$!
+    for _ in $(seq 1 100); do [[ ! -s $tmp/proxy-output/root ]] || break; kill -0 "$proxy_world_pid" 2>/dev/null || break; sleep 0.05; done
+    [[ -s $tmp/proxy-output/root ]] || { cat "$tmp/proxy-output/log"; return 1; }
+    proxy_root="$(<"$tmp/proxy-output/root")"
+    selftest_proxy_env=(XDG_RUNTIME_DIR="$proxy_root")
+  }
+  proxy_stop() {
+    kill -TERM "$proxy_world_pid" 2>/dev/null || true
+    wait "$proxy_world_pid" 2>/dev/null || true
+    [[ ! -e $proxy_root ]]
+  }
+  fence_control() { # LABEL OLD NEW CASE...
+    local label="$1" old="$2" new="$3"
+    shift 3
+    proxy_stop || { fail "proxy root remains"; return; }
+    if ! mutate "$repo/scripts/smoke/gpu-fence.sh" "$old" "$new" "$tmp/proxy-mutant.sh"; then
+      fail "control: $label mutation"
+    elif ! proxy_start "$tmp/proxy-mutant.sh"; then
+      fail "control: $label proxy start"
+    elif "$@"; then
+      fail "control: $label stayed green"
+    else
+      ok "control: $label"
+    fi
+    proxy_stop || fail "control: $label proxy root remains"
+    proxy_start "$repo/scripts/smoke/gpu-fence.sh" || { fail "proxy restart"; return; }
+  }
+  proxy_owner_lifetime() { # FENCE
+    local result=0 owner_status=0
+    proxy_start "$1" || return 1
+    python3 - "$proxy_world_pid" <<'PY' || result=$?
+import os
+from pathlib import Path
+import select
+import signal
+import sys
+
+owner = int(sys.argv[1])
+children = list(map(int, Path(f"/proc/{owner}/task/{owner}/children").read_text().split()))
+proxies = []
+for child in children:
+    try:
+        command = Path(f"/proc/{child}/cmdline").read_bytes().split(b"\0")[0]
+    except FileNotFoundError:
+        continue
+    if Path(os.fsdecode(command)).name == "xdg-dbus-proxy":
+        proxies.append(child)
+assert len(proxies) == 1, proxies
+proxy = proxies[0]
+owner_fd, proxy_fd = os.pidfd_open(owner), os.pidfd_open(proxy)
+ended = False
+try:
+    lease = os.readlink(f"/proc/{proxy}/fd/1")
+    pending = children[:]
+    while pending:
+        child = pending.pop()
+        if child == proxy:
+            continue
+        directory = Path(f"/proc/{child}")
+        try:
+            pending.extend(map(int, (directory / f"task/{child}/children").read_text().split()))
+            for descriptor in (directory / "fd").iterdir():
+                try:
+                    assert os.readlink(descriptor) != lease, (child, str(descriptor))
+                except FileNotFoundError:
+                    pass
+        except FileNotFoundError:
+            pass
+    signal.pidfd_send_signal(owner_fd, signal.SIGKILL)
+    ended = bool(select.select([proxy_fd], [], [], 5)[0])
+    print("proxy-owner-kill: proxy=" + ("exited" if ended else "alive"))
+finally:
+    if not select.select([owner_fd], [], [], 0)[0]:
+        signal.pidfd_send_signal(owner_fd, signal.SIGKILL)
+    if not select.select([proxy_fd], [], [], 0)[0]:
+        signal.pidfd_send_signal(proxy_fd, signal.SIGKILL)
+        assert select.select([proxy_fd], [], [], 5)[0], "proxy cleanup"
+    os.close(proxy_fd)
+    os.close(owner_fd)
+sys.exit(0 if ended else 1)
+PY
+    wait "$proxy_world_pid" 2>/dev/null || owner_status=$?
+    [[ $owner_status == 137 && -d $proxy_root ]] || result=1
+    # SIGKILL deliberately leaves this acquired fixture root.
+    chmod -R u+rwX -- "$proxy_root"
+    rm -rf -- "${proxy_root:?}"
+    return "$result"
+  }
+  holds "the outside filtered proxy exits when its world owner is killed" proxy_owner_lifetime "$repo/scripts/smoke/gpu-fence.sh"
+  if ! mutate "$repo/scripts/smoke/gpu-fence.sh" 'exec env -i "$(command -v xdg-dbus-proxy)" --fd=1' \
+    'printf x; exec env -i "$(command -v xdg-dbus-proxy)"' "$tmp/proxy-lease-mutant.sh"; then
+    fail "control: proxy lifetime mutation"
+  elif proxy_owner_lifetime "$tmp/proxy-lease-mutant.sh"; then
+    fail "control: an outside proxy without its lifetime lease stayed green"
+  else
+    ok "control: an outside proxy without its lifetime lease"
+  fi
+  proxy_start "$repo/scripts/smoke/gpu-fence.sh" || { fail "world proxy start"; return; }
+
+  suite_account_entry() { # BRAIN VOICE MODEL SIGN_IN
+    local brain_id="$1" selected_voice="$2" selected_model="$3" sign_in_dir="$4" held=0
+    local old_session_bus=("${session_bus[@]}") expected
+    session_bus=(DBUS_SESSION_BUS_ADDRESS="unix:path=$bus")
+    echo 1 >"$tmp/fence-answer"
+    run --suite volume --brain "$brain_id" --voice "$selected_voice" --model "$selected_model" --out "$tmp/suite-entry"
+    expected=check$'\n'"run [--net] [--out] [$tree/tmp/display-record] [--out] [$tree/tmp/selftest-records] [--out] [$tree/tmp/qml-smoke] [--out] [$tmp/suite-entry]"
+    [[ -z $sign_in_dir ]] || expected+=" [--sign-in] [CLAUDE_CONFIG_DIR] [$sign_in_dir]"
+    expected+=" [--secrets] [$tree/scripts/jarvis-selftest.sh] [--suite] [volume] [--brain] [$brain_id] [--voice] [$selected_voice] [--model] [$selected_model] [--out] [$tmp/suite-entry]"
+    [[ $status == 0 && $(<"$tmp/fence.log") == "$expected" && ! -s $tmp/harness.log ]] || held=1
+    echo 0 >"$tmp/fence-answer"
+    session_bus=("${old_session_bus[@]}")
+    return "$held"
+  }
+  suite_entries=("$sign_in|realtime|fixture-model|$world/.claude" "$saved_key|local|fixture-model|" "$local_id|realtime|fixture-model|")
+  for suite_entry in "${suite_entries[@]}"; do
+    IFS='|' read -r suite_brain suite_voice suite_model suite_sign_in <<<"$suite_entry"
+    holds "suite prepares its $suite_voice voice and selected account before world entry" suite_account_entry "$suite_brain" "$suite_voice" "$suite_model" "$suite_sign_in"
+  done
+  control plant "a suite that enters before preparing its selected account" '# node on PATH may be a version manager' \
+    'if [[ -n $suite_name ]]; then selftest_suite "$suite_name"; exit $?; fi
+# node on PATH may be a version manager' suite_account_entry "$sign_in" realtime fixture-model "$world/.claude"
+
   # The two calls the filter must stop, asked of the scratch bus itself
   # first: each reaches the stand-in there.
   other=(org.vgshell.SelftestOther /org/vgshell/SelftestOther org.vgshell.SelftestOther Ping)
   unlock=(org.freedesktop.secrets /org/freedesktop/secrets org.freedesktop.Secret.Service Unlock ao 1 /org/freedesktop/secrets/collection/selftest/1)
+  transient=(org.freedesktop.systemd1 /org/freedesktop/systemd1 org.freedesktop.systemd1.Manager StartTransientUnit 'ssa(sv)a(sa(sv))' fixture.service replace 0 0)
   direct() { : >"$tmp/keyring.calls"; env -i PATH="$PATH" DBUS_SESSION_BUS_ADDRESS="unix:path=$bus" busctl --user --auto-start=no --timeout=5 --json=short call "$@" >/dev/null; }
   got() { grep -q -x -e "$1" -- "$tmp/keyring.calls"; }
   other_direct() { direct "${other[@]}" && got Ping; }
   unlock_direct() { direct "${unlock[@]}" && got Unlock; }
+  transient_direct() { direct "${transient[@]}" && got StartTransientUnit; }
   holds "on the scratch bus itself the second name answers" other_direct
   holds "on the scratch bus itself an unlock reaches the stand-in" unlock_direct
+  holds "on the scratch bus itself StartTransientUnit reaches the stand-in" transient_direct
 
   # What a case reads while the run's filter and secret-tool stand: each
   # probe's stdout and status, and the references the sandbox holds.
@@ -1044,12 +1185,14 @@ probe() { # NAME CMD...
   "\$@" >"$tmp/probe.\$name" 2>"$tmp/probe.\$name.err" </dev/null || answer=\$?
   echo "\$answer" >"$tmp/probe.\$name.status"
 }
-filtered=(env -i PATH="\$PATH" DBUS_SESSION_BUS_ADDRESS="unix:path=\$rt_dir/secrets-bus" busctl --user --auto-start=no --timeout=5 --json=short call)
+filtered=(env -i PATH="\$PATH" DBUS_SESSION_BUS_ADDRESS="unix:path=\$secrets_bus" busctl --user --auto-start=no --timeout=5 --json=short call)
 probe own "\$shim/secret-tool" lookup service vgs-jarvis provider openai account selftest origin https://api.openai.com
 probe foreign "\$shim/secret-tool" lookup service vgs-notifications account selftest
 probe store "\$shim/secret-tool" store --label=planted service vgs-jarvis
 probe other "\${filtered[@]}" ${other[*]}
 probe unlock "\${filtered[@]}" ${unlock[*]}
+probe transient "\${filtered[@]}" org.freedesktop.systemd1 /org/freedesktop/systemd1 org.freedesktop.systemd1.Manager StartTransientUnit 'ssa(sv)a(sa(sv))' fixture.service replace 0 0
+probe properties "\${filtered[@]}" org.freedesktop.secrets /org/freedesktop/secrets org.freedesktop.DBus.Properties GetAll s org.freedesktop.Secret.Service
 cp -- "\$home/.local/state/vgshell/jarvis/keys.json" "$tmp/probe.keys"
 SH
   session_bus=(DBUS_SESSION_BUS_ADDRESS="unix:path=$bus")
@@ -1064,21 +1207,23 @@ SH
   }
   brain_key=(--type hello --brain "$saved_key")
   answered() { [[ "$(<"$tmp/probe.$1.status")" == "$2" ]]; }
-  key_read() { key_run present "${brain_key[@]}" && [[ $status -eq 0 ]] && answered own 0 && [[ "$(<"$tmp/probe.own")" == stand-in-key ]]; }
+  key_read() { key_run present "${brain_key[@]}" && [[ $status -eq 0 ]] && answered own 0 && answered properties 0 && got 'SearchItems .*' && got OpenSession && got GetSecrets && got GetAll && [[ "$(<"$tmp/probe.own")" == stand-in-key ]]; }
   key_alone() {
     key_run present "${brain_key[@]}" && [[ "$(tail -n 1 -- "$tmp/harness.log")" == "start_shell $trace_word" ]] &&
       python3 -c 'import json,sys; saved, world = (json.load(open(a)) for a in sys.argv[1:]); sys.exit(saved != [r for r in world if r["provider"] == "openai"])' "$tmp/probe.keys" "$state/keys.json"
   }
   foreign_stays() { key_run present "${brain_key[@]}" && answered foreign 1 && ! grep -q -F vgs-notifications -- "$tmp/keyring.calls"; }
   store_logged() { key_run present "${brain_key[@]}" && answered store 1 && [[ "$(<"$sandbox/auth.calls")" == "secret-tool store --label=planted service vgs-jarvis" ]]; }
-  other_hidden() { key_run present "${brain_key[@]}" && ! answered other 0 && ! got Ping; }
-  unlock_denied() { key_run present "${brain_key[@]}" && ! answered unlock 0 && ! got Unlock; }
+  other_hidden() { key_run present "${brain_key[@]}" && [[ $status == 0 && -f $tmp/probe.other.status ]] && ! answered other 0 && ! got Ping; }
+  unlock_denied() { key_run present "${brain_key[@]}" && [[ $status == 0 && -f $tmp/probe.unlock.status ]] && ! answered unlock 0 && ! got Unlock; }
+  transient_denied() { key_run present "${brain_key[@]}" && [[ $status == 0 && -f $tmp/probe.transient.status ]] && ! answered transient 0 && ! got StartTransientUnit; }
   holds "Jarvis's own lookup of the run's key reads it through the filter" key_read
   holds "the sandbox holds the reference of the run's key alone, and the shell starts with no account word" key_alone
   holds "a lookup of another key never reaches the bus" foreign_stays
   holds "a store stays the sentinel's, which logs it" store_logged
   holds "the filter hides a bus name other than org.freedesktop.secrets" other_hidden
   holds "the filter refuses an unlock" unlock_denied
+  holds "the world proxy refuses StartTransientUnit" transient_denied
 
   # One table for what the keyring answers before Jarvis starts: the case,
   # the keyring's mode, the session bus the run is given and the run's last
@@ -1087,7 +1232,6 @@ SH
   key_rows=(
     "a keyring that holds no item for the key|absent|unix:path=$bus|selftest=keyring-no-key key=absent"
     "a keyring that holds the key locked|locked|unix:path=$bus|selftest=keyring-locked"
-    "a session bus that is not there|present|unix:path=$tmp/no-bus|selftest=keyring-unavailable"
   )
   key_refused() { # ROW
     local mode address line held=0
@@ -1121,9 +1265,8 @@ PY
 
   control plant "a runner that starts Jarvis with no key stored" '      absent) unavailable keyring-no-key key=absent ;;' '      absent) ;;' key_refused "${key_rows[0]}"
   control plant "a runner that starts Jarvis over a locked keyring" '      locked) unavailable keyring-locked ;;' '      locked) ;;' key_refused "${key_rows[1]}"
-  control plant "a runner that starts Jarvis with no keyring to read" '      unavailable) unavailable keyring-unavailable ;;' '      unavailable) ;;' key_refused "${key_rows[2]}"
-  control plant "a runner whose bus is no filter" '"$secrets_bus" --filter "${selftest_secrets_rules[@]}"' '"$secrets_bus"' other_hidden
-  control plant "a filter that lets the secrets service's every call through" \
+  fence_control "a world whose bus is no filter" '"$fence_dir/secrets-bus" --filter "${selftest_secrets_rules[@]}"' '"$fence_dir/secrets-bus"' other_hidden
+  fence_control "a filter that lets the secrets service's every call through" \
     '  --call=org.freedesktop.secrets=org.freedesktop.Secret.Service.SearchItems@/org/freedesktop/secrets' '  --talk=org.freedesktop.secrets' unlock_denied
   control plant "a secret-tool that sends every call to the bus" 'exec $(printf %q "$(sentinel_saved "$shim/secret-tool")") "\$@"' \
     'DBUS_SESSION_BUS_ADDRESS=$(printf %q "unix:path=$secrets_bus") exec $(printf %q "$secret_tool") "\$@"' foreign_stays
@@ -1148,7 +1291,7 @@ SH
   copilot_reads() {
     key_run "$1" --type hello --brain "$copilot_id"
     [[ $status -eq 0 && ! -e $sandbox/home/.local/state/vgshell/jarvis/keys.json ]] &&
-      grep -q -F -- "start_shell COPILOT_HOME=$world/.copilot DBUS_SESSION_BUS_ADDRESS=unix:path=$tmp/rt/secrets-bus $trace_word" "$tmp/harness.log" &&
+      grep -q -F -- "start_shell COPILOT_HOME=$world/.copilot DBUS_SESSION_BUS_ADDRESS=unix:path=$proxy_root/secrets-bus $trace_word" "$tmp/harness.log" &&
       got 'Get Locked' && got GetSecret && ! got Unlock && ! got Delete || return 1
     python3 - "$tmp/native.search" "$tmp/native.locked" "$1" <<'PY'
 import json, sys
@@ -1161,9 +1304,9 @@ PY
   }
   for key_mode in present locked absent; do holds "Copilot's filtered bus allows native reads with $key_mode credentials and refuses unlocks and deletes" copilot_reads "$key_mode"; done
   control plant "a Copilot runner that hands no filtered bus to its native store" '  [[ $copilot_keyring == false ]] || account_word+=("DBUS_SESSION_BUS_ADDRESS=unix:path=$secrets_bus")' '  :' copilot_reads present
-  control plant "a Copilot filter that drops the native item read" "        '--call=org.freedesktop.secrets=org.freedesktop.Secret.Item.GetSecret@/org/freedesktop/secrets/collection/*'" '' copilot_reads present
-  control plant "a Copilot filter that drops its native lock-state read" "        '--call=org.freedesktop.secrets=org.freedesktop.DBus.Properties.Get@/org/freedesktop/secrets/collection/*'" '' copilot_reads present
-  control plant "a Copilot filter that permits item writes" "        '--call=org.freedesktop.secrets=org.freedesktop.Secret.Item.GetSecret@/org/freedesktop/secrets/collection/*'" "        '--call=org.freedesktop.secrets=org.freedesktop.Secret.Item.*@/org/freedesktop/secrets/collection/*'" copilot_reads present
+  fence_control "a Copilot filter that drops the native item read" "        '--call=org.freedesktop.secrets=org.freedesktop.Secret.Item.GetSecret@/org/freedesktop/secrets/collection/*'" '' copilot_reads present
+  fence_control "a Copilot filter that drops its native lock-state read" "        '--call=org.freedesktop.secrets=org.freedesktop.DBus.Properties.Get@/org/freedesktop/secrets/collection/*'" '' copilot_reads present
+  fence_control "a Copilot filter that permits item writes" "        '--call=org.freedesktop.secrets=org.freedesktop.Secret.Item.GetSecret@/org/freedesktop/secrets/collection/*'" "        '--call=org.freedesktop.secrets=org.freedesktop.Secret.Item.*@/org/freedesktop/secrets/collection/*'" copilot_reads present
 
   provider_program() { # PROVIDER BRAIN ACCOUNT_DIRECTORY
     printf 'env -i PATH="$shell_start_path" HOME="$home" "${@:4}" %q >%q\n' "$1" "$tmp/program-account" >"$tmp/at-start.sh"
@@ -1176,6 +1319,8 @@ PY
     holds "$provider executes its installed program and keeps the selected account" provider_program "$provider" "$brain_id" "$account_directory"
   done
   control plant "a runner whose sandbox PATH keeps the account-changing wrapper first" '[[ -z $brain_program ]] || export PATH="$(dirname -- "$brain_program"):$PATH"' ':' provider_program codex "$codex_id" "$world/.codex"
+  proxy_stop || fail "world proxy cleanup"
+  selftest_proxy_env=()
   session_bus=()
   rm -f -- "$tmp/at-start.sh"
 }

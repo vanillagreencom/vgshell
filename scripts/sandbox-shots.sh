@@ -443,15 +443,11 @@ done
 self="$(readlink -f -- "${BASH_SOURCE[0]}")"
 repo="$(cd -- "$(dirname -- "$self")/.." && pwd)"
 checkout="$repo"
-# No process this run starts may open an amdgpu node, so the run goes on
-# only where none is visible: scripts/smoke/gpu-fence.sh.
-"$checkout/scripts/smoke/gpu-fence.sh" --check || exec "$checkout/scripts/smoke/gpu-fence.sh" "$self" "${argv[@]}"
-capture_source="${rev:-$(git -C "$checkout" rev-parse HEAD)}"
-if [[ $title_inventory == true && -z $rev ]]; then
-  # The inventory round stages and freezes its sources before capture.
-  # A tree id binds uncommitted sources without labelling them as HEAD.
+capture_source="${VGSHELL_SHOTS_SOURCE:-${rev:-$(git -C "$checkout" rev-parse HEAD)}}"
+if [[ $title_inventory == true && -z $rev && -z ${VGSHELL_SHOTS_SOURCE:-} ]]; then
   capture_source="tree:$(git -C "$checkout" write-tree)"
 fi
+export VGSHELL_SHOTS_SOURCE="$capture_source"
 if ! command -v grim >/dev/null 2>&1; then
   printf 'sandbox-shots: status=not-measured missing=grim\n'
   exit 77
@@ -460,20 +456,16 @@ source "$checkout/scripts/smoke/shot.sh"
 source "$checkout/scripts/smoke/tree.sh"
 [[ -n $out ]] || out="$checkout/tmp/sandbox-shots/$(date -u +%Y%m%dT%H%M%SZ)${rev:+-$rev}$([[ $scale == 1 ]] || echo "-x$scale")"
 SHOT_DIR="$(shot_dir_under "$checkout" "$out")" || exit 2
+world_args=(--out "$SHOT_DIR" --out "$checkout/tmp/display-record" --out "$checkout/tmp/qml-smoke")
+[[ $keep != true ]] || world_args+=(--keep)
+"$checkout/scripts/smoke/gpu-fence.sh" --check || exec "$checkout/scripts/smoke/gpu-fence.sh" "${world_args[@]}" "$self" --out "$SHOT_DIR" "${argv[@]}"
 if [[ -e $SHOT_DIR/shots.tsv ]]; then printf 'sandbox-shots: refused: out-dir-used=%s\n' "$SHOT_DIR" >&2; exit 2; fi
 
 source_tree=""
-# The harness's own cleanup removes the export on every exit once it has
-# armed; this trap covers the prerequisite checks it makes before that.
-trap '[[ -z $source_tree ]] || rm -rf -- "$source_tree"' EXIT
 if [[ -n $rev ]]; then
   git -C "$checkout" rev-parse --verify --quiet "$rev^{commit}" >/dev/null || { printf 'sandbox-shots: refused: rev=%s\n' "$rev" >&2; exit 2; }
-  mkdir -p -- "${TMPDIR:-$checkout/tmp}"
-  source_tree="$(mktemp -d "${TMPDIR:-$checkout/tmp}/vgshell-shots-tree.XXXXXX")"
-  # The fence removes it once its namespace has ended, after a SIGKILL too.
-  printf '%s\n' "$source_tree" >>"$VGSHELL_FENCE_LEDGER"
+  source_tree="$(mktemp -d "$TMPDIR/vgshell-shots-tree.XXXXXX")"
   if ! tree_export "$checkout" "$rev" "$source_tree"; then
-    rm -rf -- "$source_tree"
     printf 'sandbox-shots: refused: rev-export=%s\n' "$rev" >&2
     exit 2
   fi
@@ -664,12 +656,6 @@ shell_output_scale="$scale"
 # bridge (harness.sh's shell_hidden_commands); a scene that dictates stands
 # the smoke's stand-in in the shell's own directory.
 shell_hidden_commands=(voxtype voxtype-audio-bridge)
-# The Tailscale section captures its missing-tool setup. Removing its
-# stand-in must leave no host command for the service or requirement probe.
-if [[ " ${scenes[*]} " == *" tailscale-section "* ]]; then
-  shell_hidden_commands+=(tailscale)
-  harness_scene_only=true
-fi
 # The setup steps' shots draw each install button, which a Settings page
 # offers only while its command is absent; on a host that has vsys, mise or
 # the browser-policy writer they would draw none. The shell finds those
@@ -700,16 +686,6 @@ if [[ " ${scenes[*]} " == *" launcher "* || " ${scenes[*]} " == *" narrow "* ]];
   harness_scene_only=true
 fi
 source "$checkout/scripts/smoke/harness.sh"
-if [[ " ${scenes[*]} " == *" tailscale-section "* ]]; then
-  if [[ ${shell_start_path%%:*} != "$shim" || ! -f $shim/tailscale || ! -x $shim/tailscale || -L $shim/tailscale || $(shell_resolves tailscale) != "$shim/tailscale" || -e $sandbox/host-path/tailscale ]]; then
-    printf 'sandbox-shots: refused: tailscale-section=stand-in-not-first\n' >&2
-    exit 1
-  fi
-  ok "Tailscale section isolation: its stand-in is first on PATH and the host command is hidden before shell startup"
-  if [[ $launcher_fixture != true ]]; then
-    start_shell "$repo" "$sandbox/qs.log" || exit 1
-  fi
-fi
 if [[ $launcher_fixture == true ]]; then
   # DesktopEntries otherwise reads /usr/share/applications. Plant before
   # its first load, with no host applications in the capture's data paths.
@@ -734,11 +710,10 @@ if [[ " ${scenes[*]} " == *" sysmon "* || " ${scenes[*]} " == *" flyout-titles "
 fi
 # Keep the captured revision's fixture targets outside the active target
 # directory: the harness empties it, and tree is rebound after export cleanup.
-# The sandbox teardown owns this private source for the full scene lifetime.
+# The world owns this private source for the full scene lifetime.
 fixture_targets="$sandbox/fixture-targets"
 cp -R -- "$tree/themes/targets" "$fixture_targets"
 # Every later product read uses the sandbox's copy.
-[[ -z $source_tree ]] || rm -rf -- "$source_tree"
 tree="$repo"
 if grep -qF -- "Let VGS manage its Hyprland settings?" "$tree/shell/Core/HyprlandLayer.js" 2>/dev/null; then
   hypr_consent_connect "the screenshot sandbox answers Hyprland consent"

@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Drive scripts/smoke/gpu-fence.sh over trees of ordinary files: a sysfs
 # tree that names each node's driver, and a device tree that holds a file
-# for each node and the links to it. No case reads /sys/class/drm or
-# /dev/dri, and none opens a device node. The namespace cases make a real
+# for each node and the links to it. The GPU-plan cases open no device.
+# The world contract also opens the non-AMD nodes the real fence leaves.
+# The namespace cases make a real
 # bubblewrap namespace over the device tree; the refusal cases put a
 # stand-in bwrap, or none, on PATH. In the trees the amdgpu nodes are card1
 # and renderD128, so a fence that went by a fixed number hides the wrong
@@ -49,8 +50,10 @@ set -euo pipefail
 self="$(readlink -f -- "${BASH_SOURCE[0]}")"
 repo="$(cd -- "$(dirname -- "$self")/.." && pwd)"
 fence="$repo/scripts/smoke/gpu-fence.sh"
+native_node="$(node -e 'process.stdout.write(process.execPath)')"
+export PATH="${native_node%/*}:$PATH"
 
-TMP_ROOT="$(mktemp -d)" || { echo "test-gpu-fence: scratch=mktemp-failed" >&2; exit 1; }
+TMP_ROOT="$(mktemp -d /var/tmp/test-gpu-fence.XXXXXX)" || { echo "test-gpu-fence: scratch=mktemp-failed" >&2; exit 1; }
 [[ -d $TMP_ROOT && ! -L $TMP_ROOT ]] || { echo "test-gpu-fence: scratch=not-a-directory value=[$TMP_ROOT]" >&2; exit 1; }
 TMP_ROOT="$(cd -- "$TMP_ROOT" && pwd -P)" || { echo "test-gpu-fence: scratch=resolve-failed" >&2; exit 1; }
 trap 'rm -rf -- "${TMP_ROOT:?}"' EXIT
@@ -63,7 +66,7 @@ fail() { failures=$((failures + 1)); printf '  FAIL  %s\n' "$*"; }
 # run and nothing else: `none` has no bwrap, `broken` a stand-in that
 # records its call and fails, `real` the host's bubblewrap.
 mkdir -p "$TMP_ROOT/bin-none" "$TMP_ROOT/bin-broken" "$TMP_ROOT/bin-real" "$TMP_ROOT/cwd" "$TMP_ROOT/empty"
-for tool in chmod mktemp readlink realpath rm sed seq setsid stat sh sleep stty touch true; do
+for tool in chmod git mkdir mktemp readlink realpath rm sed seq setsid stat sh sleep stty touch true; do
   tool_path="$(type -P "$tool")" || { echo "test-gpu-fence: missing=$tool" >&2; exit 1; }
   for bin in none broken real; do ln -s -- "$tool_path" "$TMP_ROOT/bin-$bin/$tool"; done
 done
@@ -86,7 +89,6 @@ if real_bwrap="$(type -P bwrap)" && "$real_bwrap" --dev-bind / / --unshare-pid -
   ln -s -- "$real_bwrap" "$TMP_ROOT/bin-real/bwrap"
 fi
 own_pidns="$(readlink /proc/self/ns/pid)" || { echo "test-gpu-fence: pidns=unreadable" >&2; exit 1; }
-: >"$TMP_ROOT/ledger"
 
 # The paths of the device tree, by what the namespace must do with each.
 amd_paths=(dri/card1 char/226:1 dri/renderD128 char/226:128
@@ -157,12 +159,12 @@ SH
 want_report="$(
   printf 'none %s\n' "${amd_paths[@]}"
   printf 'resolves %s\n' "${other_paths[@]}" char/1:3
-  printf 'target ../dri/card0\npidns other\ncwd %s\nenv kept\n' "$TMP_ROOT/cwd"
+  printf 'target ../dri/card0\npidns other\ncwd %s\nenv unset\n' "$TMP_ROOT/cwd"
 )"
 # What the report reads where no node is hidden: every path resolves.
 want_plain="$(
   printf 'resolves %s\n' "${amd_paths[@]}" "${other_paths[@]}" char/1:3
-  printf 'target ../dri/card0\npidns other\ncwd %s\nenv kept\n' "$TMP_ROOT/cwd"
+  printf 'target ../dri/card0\npidns other\ncwd %s\nenv unset\n' "$TMP_ROOT/cwd"
 )"
 # What a stopped command does: a line for each TERM, INT or HUP it gets,
 # then an exit trap that ends with a line a second after it starts. It
@@ -196,8 +198,14 @@ readlink /proc/self/ns/pid >"$1.ns"
 stty -echo && stty echo && echo mode-set >>"$1"
 read -r line && echo "read=$line" >>"$1"
 SH
+want_mask_notice=""
+for path in /run/dbus /run/tailscale; do
+  [[ -e $path ]] || want_mask_notice+="${want_mask_notice:+,}$path"
+done
+[[ -z $want_mask_notice ]] || want_mask_notice="gpu-fence: service-masks skipped=$want_mask_notice"
 want_proof="$(
   {
+    [[ -z $want_mask_notice ]] || printf '%s\n' "$want_mask_notice"
     for path in "${amd_paths[@]}"; do printf 'gpu-fence: absent path=%s/amd/dev/%s\n' "$TMP_ROOT" "$path"; done
     for path in "${other_paths[@]}"; do printf 'gpu-fence: present path=%s/amd/dev/%s dev=0:0\n' "$TMP_ROOT" "$path"; done
   } | LC_ALL=C sort
@@ -205,27 +213,21 @@ want_proof="$(
 
 # run_fence FILE BIN ARG...: FILE with ARG... from the scratch working
 # directory, under an environment that holds PATH, the BIN directory alone,
-# HOME, TMPDIR, the report's variable and the words in `placed`, which the
-# call empties. Sets status; the streams are $TMP_ROOT/out and
+# HOME, TMPDIR and the report's variable. Sets status; the streams are $TMP_ROOT/out and
 # $TMP_ROOT/err.
-placed=()
 run_fence() {
-  local file="$1" bin="$2" words=("${placed[@]}")
+  local file="$1" bin="$2"
   shift 2
-  placed=()
   rm -f -- "$TMP_ROOT/marker" "$TMP_ROOT/bwrap-called"
   status=0
-  (cd -- "$TMP_ROOT/cwd" && env -i PATH="$TMP_ROOT/bin-$bin" HOME="$TMP_ROOT" TMPDIR="$TMP_ROOT" FENCE_TEST_VALUE=kept "${words[@]}" "$BASH" "$file" "$@") \
+  (cd -- "$TMP_ROOT/cwd" && env -i PATH="$TMP_ROOT/bin-$bin" HOME="${TMP_ROOT}-home" TMPDIR="$TMP_ROOT" FENCE_TEST_VALUE=kept "$BASH" "$file" --checkout "$repo" --out "$TMP_ROOT" "$@") \
     >"$TMP_ROOT/out" 2>"$TMP_ROOT/err" || status=$?
 }
-# place WHERE: `fenced` puts the next run inside a fence's namespace, which
-# names an existing ledger there; anything else puts it outside.
-place() { placed=(); [[ $1 != fenced ]] || placed=(VGSHELL_FENCE_LEDGER="$TMP_ROOT/ledger"); }
 # seen_report: the report with its PID namespace read as the test's own,
 # `same`, or `other`.
 seen_report() { awk -v mine="pidns $own_pidns" '/^pidns / { print ($0 == mine ? "pidns same" : "pidns other"); next } { print }' "$TMP_ROOT/out"; }
 # roots WORLD: sets at, the words that point the fence at WORLD's trees.
-roots() { at=(--sys "$TMP_ROOT/$1/sys" --dev "$TMP_ROOT/$1/dev"); }
+roots() { at=(--checkout "$repo" --out "$TMP_ROOT" --sys "$TMP_ROOT/$1/sys" --dev "$TMP_ROOT/$1/dev"); }
 first_error() { local line=""; read -r line <"$TMP_ROOT/err" || true; printf '%s\n' "$line"; }
 # stopped FILE BIN LINE ARG...: exit 77, LINE first on stderr, and the
 # command, which would make the marker, never started.
@@ -237,17 +239,10 @@ stopped() {
 }
 
 # The cases. Each takes the fence file first.
-check_is() { # FILE WORLD STATUS WHERE
+check_is() { # FILE WORLD STATUS
   roots "$2"
-  place "$4"
   run_fence "$1" none "${at[@]}" --check
   [[ $status -eq $3 && ! -s $TMP_ROOT/out && ! -s $TMP_ROOT/err ]]
-}
-runs_directly() { # FILE WORLD
-  roots "$2"
-  place fenced
-  run_fence "$1" broken "${at[@]}" sh -c 'touch "$1"; exit 9' _ "$TMP_ROOT/marker"
-  [[ $status -eq 9 && -e $TMP_ROOT/marker && ! -e $TMP_ROOT/bwrap-called && ! -s $TMP_ROOT/err ]]
 }
 hides() { # FILE
   local seen
@@ -264,7 +259,7 @@ plain_namespace() {
   roots plain
   run_fence "$1" real "${at[@]}" sh "$TMP_ROOT/report.sh" "$TMP_ROOT/plain/dev" "${amd_paths[@]}" "${other_paths[@]}" char/1:3
   seen="$(seen_report)" || return 1
-  [[ $status -eq 9 && $seen == "$want_plain" && ! -s $TMP_ROOT/err ]]
+  [[ $status -eq 9 && $seen == "$want_plain" && "$(<"$TMP_ROOT/err")" == "$want_mask_notice" ]]
 }
 # A command that leaves a process in another session and a stopped one,
 # then says it is ready.
@@ -282,7 +277,7 @@ SH
 cat >"$TMP_ROOT/killed.sh" <<'SH'
 fence="$1" verdict="$2" ready="$2.ready" bin="$3" home="$4"
 shift 4
-env -i PATH="$bin" HOME="$home" TMPDIR="$home" "$BASH" "$fence" "$@" sh "$home/leave.sh" "$ready" >/dev/null 2>&1 &
+env -i PATH="$bin" HOME="${home}-home" TMPDIR="$home" "$BASH" "$fence" "$@" sh "$home/leave.sh" "$ready" >/dev/null 2>&1 &
 pid=$!
 for _ in $(seq 1 100); do [[ -s $ready ]] && break; sleep 0.05; done
 [[ -s $ready ]] || { echo unready >"$verdict"; exit 0; }
@@ -355,7 +350,7 @@ stops_once() {
   : >"$log"
   status=0
   set -m
-  (cd -- "$TMP_ROOT/cwd" && exec env -i PATH="$TMP_ROOT/bin-real" HOME="$TMP_ROOT" "$BASH" "$file" "${at[@]}" sh "$TMP_ROOT/stop.sh" "$log") \
+  (cd -- "$TMP_ROOT/cwd" && exec env -i PATH="$TMP_ROOT/bin-real" HOME="${TMP_ROOT}-home" "$BASH" "$file" "${at[@]}" sh "$TMP_ROOT/stop.sh" "$log") \
     >"$TMP_ROOT/out" 2>"$TMP_ROOT/err" &
   set +m
   fenced=$!
@@ -392,7 +387,7 @@ int_then_term() {
   : >"$log"
   status=0
   set -m
-  (cd -- "$TMP_ROOT/cwd" && exec env -i PATH="$TMP_ROOT/bin-real" HOME="$TMP_ROOT" "$BASH" "$file" "${at[@]}" "$BASH" "$TMP_ROOT/carry.sh" "$log") \
+  (cd -- "$TMP_ROOT/cwd" && exec env -i PATH="$TMP_ROOT/bin-real" HOME="${TMP_ROOT}-home" "$BASH" "$file" "${at[@]}" "$BASH" "$TMP_ROOT/carry.sh" "$log") \
     >"$TMP_ROOT/out" 2>"$TMP_ROOT/err" &
   set +m
   fenced=$!
@@ -420,7 +415,7 @@ on_terminal() {
   roots amd
   : >"$log"
   rm -f -- "$log.ns"
-  printf -v run '%q ' env -i PATH="$TMP_ROOT/bin-real" HOME="$TMP_ROOT" TMPDIR="$TMP_ROOT" "$BASH" "$1" "${at[@]}" sh "$TMP_ROOT/tty.sh" "$log"
+  printf -v run '%q ' env -i PATH="$TMP_ROOT/bin-real" HOME="${TMP_ROOT}-home" TMPDIR="$TMP_ROOT" "$BASH" "$1" "${at[@]}" sh "$TMP_ROOT/tty.sh" "$log"
   status=0
   terminal_started=$SECONDS
   # The shell reports on stderr a job a signal ended; the status says it.
@@ -452,17 +447,64 @@ refused() { # FILE WANT ARG...
   [[ $status -eq 2 && "$(first_error)" == "gpu-fence: refused: argument=$want" ]]
 }
 
+# The nightly Arch image has no service directories under /run. Overlay a
+# disposable read-only /run so every present/absent combination is independent
+# of the host, then enter the world and read the paths without creating them.
+service_masks() { # FILE
+  python3 - "$1" "$repo" "$TMP_ROOT" "$BASH" "$real_bwrap" <<'PYSERVICES'
+import os
+from pathlib import Path
+import subprocess
+import sys
+
+fence, repo, scratch, bash, bwrap = sys.argv[1:]
+base = Path(scratch) / "service-masks"
+base.mkdir(exist_ok=True)
+environment = {"PATH": os.environ["PATH"], "HOME": str(base / "home"), "TMPDIR": scratch}
+paths = ("dbus", "tailscale")
+for present in ((), ("dbus",), ("tailscale",), paths):
+    label = "-".join(present) or "absent"
+    fixture = base / label
+    fixture.mkdir(exist_ok=True)
+    for name in present:
+        directory = fixture / name
+        directory.mkdir(exist_ok=True)
+        (directory / "host-marker").write_text("hidden")
+    probe = """import os
+from pathlib import Path
+import sys
+present = sys.argv[1:]
+for name in ("dbus", "tailscale"):
+    path = Path("/run") / name
+    if name in present:
+        assert path.is_dir() and not list(path.iterdir()), name
+    else:
+        assert not path.exists() and not path.is_symlink(), name
+assert not os.access("/run", os.W_OK)
+print("service-paths=isolated")
+"""
+    command = [bwrap, "--ro-bind", "/", "/", "--dev-bind", "/dev", "/dev",
+               "--bind", scratch, scratch, "--ro-bind", str(fixture), "/run",
+               "--unshare-net", "--unshare-pid", "--proc", "/proc", "--die-with-parent",
+               "--", bash, fence, "--checkout", repo,
+               "python3", "-c", probe, *present]
+    completed = subprocess.run(command, env=environment, capture_output=True, text=True, timeout=20)
+    assert completed.returncode == 0, (label, completed.returncode, completed.stderr)
+    assert completed.stdout.splitlines() == ["service-paths=isolated"], (label, completed.stdout)
+    skipped = ["/run/" + name for name in paths if name not in present]
+    if skipped:
+        assert completed.stderr.splitlines()[0] == "gpu-fence: service-masks skipped=" + ",".join(skipped), (label, completed.stderr)
+    print("service-masks: present=" + (",".join(present) or "none") + " absent=" + (",".join(skipped) or "none"))
+PYSERVICES
+}
+
 # Rows: label | whether the case makes a namespace | the case and its words.
 cases=(
-  "a visible amdgpu node needs the fence|no|check_is amd 1 outside"
-  "a visible amdgpu node inside a fence needs the fence|no|check_is amd 1 fenced"
-  "a host with no amdgpu node needs the fence|no|check_is plain 1 outside"
-  "inside a fence a host with no amdgpu node needs none|no|check_is plain 0 fenced"
-  "inside a fence a view with every amdgpu path gone needs none|no|check_is inside 0 fenced"
-  "inside a fence a host with no amdgpu node runs the command directly|no|runs_directly plain"
-  "inside a fence a view with every amdgpu path gone runs the command directly|no|runs_directly inside"
+  "a visible amdgpu node needs the fence|no|check_is amd 1"
+  "a host with no amdgpu node needs the fence|no|check_is plain 1"
   "the namespace hides every amdgpu path, keeps the rest and proves both|yes|hides"
   "a host with no amdgpu node runs the command in a PID namespace with every path kept|yes|plain_namespace"
+  "service masks hide present paths and leave absent paths absent|yes|service_masks"
   "a SIGKILL of the fence ends every process its command started|yes|fence_killed"
   "TERM to the fence reaches the command once and its exit trap ends before the fence returns|yes|stops_once pid TERM 43"
   "INT to the fence reaches the command once and its exit trap ends before the fence returns|yes|stops_once pid INT 30"
@@ -527,106 +569,144 @@ mutate() {
 # must go red.
 # shellcheck disable=SC2034 # run_controls reads the table by name
 controls=(
-  "the fence with no restriction"
-  'fence=(bwrap --dev-bind / / "${rebuild[@]}" --' 'fence=(bwrap --dev-bind / / --'
-  "the namespace hides every amdgpu path, keeps the rest and proves both"
-  "a host with a visible amdgpu node runs the command directly"
-  '! fenced || exposed || exec "$@"' 'exec "$@"'
-  "the namespace hides every amdgpu path, keeps the rest and proves both"
-  "outside a fence a host with no amdgpu node runs the command directly"
-  '! fenced || exposed || exec "$@"' 'exposed || exec "$@"'
-  "a host with no amdgpu node runs the command in a PID namespace with every path kept"
-  "the check passes outside a fence"
-  'if exposed || ! fenced; then exit 1; fi' 'if exposed; then exit 1; fi'
-  "a host with no amdgpu node needs the fence"
-  "the check passes a visible amdgpu node inside a fence"
-  'if exposed || ! fenced; then exit 1; fi' 'if ! fenced; then exit 1; fi'
-  "a visible amdgpu node inside a fence needs the fence"
-  "the amdgpu nodes are the ones of a fixed number"
-  'if [[ $driver == amdgpu ]]; then' 'if [[ $name == card0 || $name == renderD129 ]]; then'
-  "inside a fence a view with every amdgpu path gone needs none"
-  "a link to an amdgpu node is made again"
-  'elif [[ -n ${amd_target[$target]:-} ]]; then' 'elif false; then'
-  "the namespace hides every amdgpu path, keeps the rest and proves both"
-  "no other node is bound back"
-  'rebuild+=(--dev-bind "$entry" "$entry")' ':'
-  "the namespace hides every amdgpu path, keeps the rest and proves both"
-  "no link is made again"
-  'rebuild+=("${symlinks[@]}")' ':'
-  "the namespace hides every amdgpu path, keeps the rest and proves both"
-  "the namespace is no PID namespace"
-  ' --unshare-pid --proc /proc' ''
-  "the namespace hides every amdgpu path, keeps the rest and proves both"
-  "bubblewrap outlives the fence"
-  '--proc /proc --die-with-parent --new-session' '--proc /proc --new-session'
-  "a SIGKILL of the fence ends every process its command started"
-  "the command's status is lost"
-  'exit "$status" ;;' 'exit $((status ? 1 : 0)) ;;'
-  "the namespace hides every amdgpu path, keeps the rest and proves both"
-  "the fence hands itself to bubblewrap"
-  '"${fence[@]}" --info-fd 3 "${proof[@]}" "$@" 3>"$fence_dir/info" &' 'exec "${fence[@]}" "${proof[@]}" "$@"'
-  "TERM to the fence reaches the command once and its exit trap ends before the fence returns"
-  "TERM is not handed on"
-  "trap 'forward TERM 143' TERM" ':'
-  "TERM to the fence reaches the command once and its exit trap ends before the fence returns"
-  "INT is not handed on"
-  "trap 'forward INT 130' INT" ':'
-  "INT to the fence reaches the command once and its exit trap ends before the fence returns"
-  "HUP is not handed on"
-  "trap 'forward HUP 129' HUP" ':'
-  "HUP to the fence reaches the command once and its exit trap ends before the fence returns"
-  "a signal goes to the namespace's init"
-  '[[ -z $init ]] || read -r child _ 2>/dev/null <"/proc/$init/task/$init/children" || true' 'child="$init"'
-  "TERM to the fence reaches the command once and its exit trap ends before the fence returns"
-  "a later signal is handed on too"
-  '((forwarded[$1]++ == 0)) || return 0' ':'
-  "TERM to the fence reaches the command once and its exit trap ends before the fence returns"
-  "a later signal of another kind is dropped"
-  $'declare -A forwarded=()\nforward() {\n  ((forwarded[$1]++ == 0))' $'forwarded=0\nforward() {\n  ((forwarded++ == 0))'
-  "a TERM after an INT the command carried on from ends the run"
-  "the fence returns when the signal arrives"
-  'while ours "$monitor"; do' 'while false; do'
-  "TERM to the fence reaches the command once and its exit trap ends before the fence returns"
-  "the fence waits a fixed number of times"
-  'while ours "$monitor"; do' 'for _ in 1 2; do'
-  "TERM to the fence reaches the command once and its exit trap ends before the fence returns"
-  "bubblewrap runs in the caller's process group"
-  $'    set -m\n    "${fence[@]}"' '    "${fence[@]}"'
-  "TERM to the fence's process group reaches the command once"
-  "the command stays in the caller's terminal session"
-  '--die-with-parent --new-session' '--die-with-parent'
-  "a command run from a terminal changes its mode and reads it"
-  "a missing bubblewrap runs the command"
-  'command -v bwrap >/dev/null 2>&1 || { fault bwrap-missing; exit 77; }' 'command -v bwrap >/dev/null 2>&1 || exec "$@"'
-  "a host with no bubblewrap starts nothing"
-  "a failed namespace runs the command"
-  '*) fault namespace-failed "exit=$status"; printf '\''%s\n'\'' "$probe" >&2; exit 77 ;;' '*) exec "$@" ;;'
-  "a namespace bubblewrap cannot make starts nothing"
-  "the proof passes an amdgpu path that resolves"
-  'fault amd-node-visible "path=$1"; broken=true' 'fault amd-node-visible "path=$1"'
-  "an amdgpu path that resolves inside starts nothing"
-  "the proof passes a kept node that is gone"
-  'fault node-missing "path=$1"; broken=true' 'fault node-missing "path=$1"'
-  "a kept node gone inside starts nothing"
-  "a proof line is printed as its path is read"
-  'proof+=("absent path=$1")' 'note "absent path=$1"'
-  "a failed proof names its reasons before the paths it read"
-  "a node sysfs does not list is passed"
-  $'    else\n      fault entry-unclassified "path=$entry"; exit 77\n' $'    else\n      :\n'
-  "a node sysfs does not list starts nothing"
-  "an entry that is no link is dropped"
-  '[[ -L $entry ]] || { fault entry-unclassified "path=$entry"; exit 77; }' '[[ -L $entry ]] || continue'
-  "an entry that is no link starts nothing"
-  "any text is a device number"
-  '[[ $number =~ ^[0-9]+:[0-9]+$ ]] ||' 'true ||'
-  "a device number that is none starts nothing"
-  "a call with no command runs nothing and passes"
-  '(($#)) || { note "refused: argument=missing-command"; exit 2; }' '(($#)) || exit 0'
-  "a call with no command is refused"
+  'an absent service path is unconditionally masked'
+  'if [[ -e $service_path ]]; then'
+  'if true; then'
+  'service masks hide present paths and leave absent paths absent'
+  'the fence with no restriction'
+  '"${mounts[@]}" "${rebuild[@]}" "${network[@]}"'
+  '"${mounts[@]}" "${network[@]}"'
+  'the namespace hides every amdgpu path, keeps the rest and proves both'
+  'a host with a visible amdgpu node runs the command directly'
+  '! fenced || exposed || exec "$@"'
+  'exec "$@"'
+  'the namespace hides every amdgpu path, keeps the rest and proves both'
+  'outside a fence a host with no amdgpu node runs the command directly'
+  '! fenced || exposed || exec "$@"'
+  'exposed || exec "$@"'
+  'a host with no amdgpu node runs the command in a PID namespace with every path kept'
+  'the check passes outside a fence'
+  'if exposed || ! fenced; then exit 1; fi'
+  'if exposed; then exit 1; fi'
+  'a host with no amdgpu node needs the fence'
+  'a link to an amdgpu node is made again'
+  'elif [[ -n ${amd_target[$target]:-} ]]; then'
+  'elif false; then'
+  'the namespace hides every amdgpu path, keeps the rest and proves both'
+  'no other node is bound back'
+  'rebuild+=(--dev-bind "$entry" "$entry")'
+  :
+  'the namespace hides every amdgpu path, keeps the rest and proves both'
+  'no link is made again'
+  'rebuild+=("${symlinks[@]}")'
+  :
+  'the namespace hides every amdgpu path, keeps the rest and proves both'
+  'the namespace is no PID namespace'
+  ' --unshare-pid --proc /proc'
+  ''
+  'the namespace hides every amdgpu path, keeps the rest and proves both'
+  'bubblewrap outlives the fence'
+  '--proc /proc --die-with-parent --new-session'
+  '--proc /proc --new-session'
+  'a SIGKILL of the fence ends every process its command started'
+  'the command'"'"'s status is lost'
+  'exit "$status" ;;'
+  'exit $((status ? 1 : 0)) ;;'
+  'the namespace hides every amdgpu path, keeps the rest and proves both'
+  'the fence hands itself to bubblewrap'
+  '"${fence[@]}" --info-fd 3 "${proof[@]}" "$@" 3>"$fence_dir/info" &'
+  'exec "${fence[@]}" "${proof[@]}" "$@"'
+  'TERM to the fence reaches the command once and its exit trap ends before the fence returns'
+  'TERM is not handed on'
+  'trap '"'"'forward TERM 143'"'"' TERM'
+  :
+  'TERM to the fence reaches the command once and its exit trap ends before the fence returns'
+  'INT is not handed on'
+  'trap '"'"'forward INT 130'"'"' INT'
+  :
+  'INT to the fence reaches the command once and its exit trap ends before the fence returns'
+  'HUP is not handed on'
+  'trap '"'"'forward HUP 129'"'"' HUP'
+  :
+  'HUP to the fence reaches the command once and its exit trap ends before the fence returns'
+  'a signal goes to the namespace'"'"'s init'
+  '[[ -z $init ]] || read -r child _ 2>/dev/null <"/proc/$init/task/$init/children" || true'
+  'child="$init"'
+  'TERM to the fence reaches the command once and its exit trap ends before the fence returns'
+  'a later signal is handed on too'
+  '((forwarded[$1]++ == 0)) || return 0'
+  :
+  'TERM to the fence reaches the command once and its exit trap ends before the fence returns'
+  'a later signal of another kind is dropped'
+  'declare -A forwarded=()
+forward() {
+  ((forwarded[$1]++ == 0))'
+  'forwarded=0
+forward() {
+  ((forwarded++ == 0))'
+  'a TERM after an INT the command carried on from ends the run'
+  'the fence returns when the signal arrives'
+  'while ours "$monitor"; do'
+  'while false; do'
+  'TERM to the fence reaches the command once and its exit trap ends before the fence returns'
+  'the fence waits a fixed number of times'
+  'while ours "$monitor"; do'
+  'for _ in 1 2; do'
+  'TERM to the fence reaches the command once and its exit trap ends before the fence returns'
+  'bubblewrap runs in the caller'"'"'s process group'
+  '    set -m
+    "${fence[@]}"'
+  '    "${fence[@]}"'
+  'TERM to the fence'"'"'s process group reaches the command once'
+  'the command stays in the caller'"'"'s terminal session'
+  '--die-with-parent --new-session'
+  --die-with-parent
+  'a command run from a terminal changes its mode and reads it'
+  'a missing bubblewrap runs the command'
+  'command -v bwrap >/dev/null 2>&1 || { fault bwrap-missing; exit 77; }'
+  'command -v bwrap >/dev/null 2>&1 || exec "$@"'
+  'a host with no bubblewrap starts nothing'
+  'a failed namespace runs the command'
+  '*) fault namespace-failed "exit=$status"; printf '"'"'%s\n'"'"' "$probe" >&2; exit 77 ;;'
+  '*) exec "$@" ;;'
+  'a namespace bubblewrap cannot make starts nothing'
+  'the proof passes an amdgpu path that resolves'
+  'fault amd-node-visible "path=$1"; broken=true'
+  'fault amd-node-visible "path=$1"'
+  'an amdgpu path that resolves inside starts nothing'
+  'the proof passes a kept node that is gone'
+  'fault node-missing "path=$1"; broken=true'
+  'fault node-missing "path=$1"'
+  'a kept node gone inside starts nothing'
+  'a proof line is printed as its path is read'
+  'proof+=("absent path=$1")'
+  'note "absent path=$1"'
+  'a failed proof names its reasons before the paths it read'
+  'a node sysfs does not list is passed'
+  '    else
+      fault entry-unclassified "path=$entry"; exit 77
+'
+  '    else
+      :
+'
+  'a node sysfs does not list starts nothing'
+  'an entry that is no link is dropped'
+  '[[ -L $entry ]] || { fault entry-unclassified "path=$entry"; exit 77; }'
+  '[[ -L $entry ]] || continue'
+  'an entry that is no link starts nothing'
+  'any text is a device number'
+  '[[ $number =~ ^[0-9]+:[0-9]+$ ]] ||'
+  'true ||'
+  'a device number that is none starts nothing'
+  'a call with no command runs nothing and passes'
+  '(($#)) || { note "refused: argument=missing-command"; exit 2; }'
+  '(($#)) || exit 0'
+  'a call with no command is refused'
 )
 # run_controls TABLE: each control of the array TABLE planted in a copy of
 # the fence must turn its case red. A control that leaves the case green,
 # or that names no case, fails.
+declare -A control_mutants=()
 run_controls() {
   local -n plants="$1"
   local i label mutant result
@@ -634,6 +714,7 @@ run_controls() {
     label="${plants[i]}"
     mutant="$TMP_ROOT/mutant-$1-$i.sh"
     if ! mutate "$fence" "${plants[i + 1]}" "${plants[i + 2]}" "$mutant"; then fail "control: $label"; continue; fi
+    control_mutants["$label"]=$mutant
     result=0
     run_case "$mutant" "${plants[i + 3]}" >/dev/null || result=$?
     case "$result" in
@@ -649,7 +730,7 @@ run_controls controls
 # The loop's own control: a planted control whose label no case carries.
 # The loop runs in a substitution, so its failure count stays there.
 # shellcheck disable=SC2034 # run_controls reads the table by name
-planted_control=("a control with no case" 'exposed || exec "$@"' 'exec "$@"' "no case carries this label")
+planted_control=("a control with no case" '! fenced || exposed || exec "$@"' 'exec "$@"' "no case carries this label")
 planted_out="$(failures=0; run_controls planted_control; echo "failures=$failures")"
 if [[ $planted_out == "  FAIL  control: a control with no case names no case: no case carries this label"$'\n'"failures=1" ]]; then
   ok "control: a control that names no case fails the controls loop"
@@ -678,7 +759,7 @@ fi
 if [[ $namespace == true ]]; then
   roots amd
   want_seen="$(for path in "${amd_paths[@]}"; do printf 'gpu-fence: status=not-measured reason=amd-node-visible path=%s/amd/dev/%s\n' "$TMP_ROOT" "$path"; done | LC_ALL=C sort)"
-  run_fence "$TMP_ROOT/mutant-controls-0.sh" real "${at[@]}" touch "$TMP_ROOT/marker"
+  run_fence "${control_mutants[the fence with no restriction]}" real "${at[@]}" touch "$TMP_ROOT/marker"
   seen="$(grep -F 'reason=amd-node-visible' "$TMP_ROOT/err" | LC_ALL=C sort)" || seen=""
   if [[ $status -eq 77 && $seen == "$want_seen" && ! -e $TMP_ROOT/marker ]]; then
     ok "control: the fence with no restriction reports the ${#amd_paths[@]} amdgpu paths it sees and starts nothing"
@@ -688,6 +769,165 @@ if [[ $namespace == true ]]; then
 else
   unmeasured=$((unmeasured + 1))
   printf '  skip  control: the fence with no restriction reports the amdgpu paths it sees\n'
+fi
+
+# Exercise the world through its public entry with disposable host fixtures.
+# The controls live outside the worktree and execute only this contract.
+if [[ $namespace == true ]] && ! python3 - "$fence" "$repo" "$TMP_ROOT" "$BASH" <<'PYWORLD'
+import errno
+import json
+import os
+from pathlib import Path
+import shutil
+import socket
+import subprocess
+import sys
+import tempfile
+import uuid
+
+fence, repo, scratch, bash = sys.argv[1:]
+base = Path(scratch) / "world-contract"
+base.mkdir()
+runtime_parent = Path("/var/tmp")
+with tempfile.TemporaryDirectory(prefix="world-control-", dir="/tmp") as mutants, \
+     tempfile.TemporaryDirectory(prefix="world-runtime-", dir=runtime_parent) as runtime, \
+     tempfile.TemporaryDirectory(prefix="world-socket-", dir="/tmp") as temporary:
+    caller = socket.socket(socket.AF_UNIX)
+    caller.bind(runtime + "/caller.sock")
+    caller.listen()
+    tmp_socket = socket.socket(socket.AF_UNIX)
+    tmp_socket.bind(temporary + "/caller.sock")
+    tmp_socket.listen()
+    abstract_name = "\0vgs-world-" + uuid.uuid4().hex
+    abstract = socket.socket(socket.AF_UNIX)
+    abstract.bind(abstract_name)
+    abstract.listen()
+    tcp = socket.socket()
+    tcp.bind(("127.0.0.1", 0))
+    tcp.listen()
+    named_socket = socket.socket(socket.AF_UNIX)
+    named_socket.bind(str(base / "named.sock"))
+    named_socket.listen()
+    probe = base / "probe.py"
+    probe.write_text('''import errno, json, os, pathlib, shutil, socket, sys
+fixture, output, runtime, temporary, abstract, port, checkout = sys.argv[1:]
+result = {}
+for name in ("checkout", "sibling", "home"):
+    path = pathlib.Path(fixture) / name
+    try:
+        shutil.rmtree(path)
+        result[name] = "deleted"
+    except OSError as error:
+        result[name] = error.errno
+    if result[name] == errno.EROFS:
+        assert (path / "marker").read_text() == "retained\\n"
+for name, family, address in (("runtime", socket.AF_UNIX, runtime + "/caller.sock"),
+                              ("tmp", socket.AF_UNIX, temporary + "/caller.sock"),
+                              ("abstract", socket.AF_UNIX, "\\0" + abstract),
+                              ("tcp", socket.AF_INET, ("127.0.0.1", int(port)))):
+    with socket.socket(family) as client:
+        client.settimeout(1)
+        try:
+            client.connect(address)
+            result[name] = "connected"
+        except OSError:
+            result[name] = "hidden"
+root = os.environ["VGSHELL_WORLD_ROOT"]
+for name in ("HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME", "TMPDIR"):
+    assert pathlib.Path(os.environ[name]).is_relative_to(root), name
+result["session"] = [name for name in ("WAYLAND_DISPLAY", "WAYLAND_SOCKET", "DISPLAY", "HYPRLAND_INSTANCE_SIGNATURE", "DBUS_SESSION_BUS_ADDRESS", "VGS_WORLD_PLANTED") if name in os.environ]
+result["named"] = "hidden"
+if "WAYLAND_DISPLAY" in os.environ:
+    with socket.socket(socket.AF_UNIX) as client:
+        client.settimeout(1)
+        try:
+            client.connect(os.environ["WAYLAND_DISPLAY"])
+            result["named"] = "connected"
+        except OSError:
+            pass
+assert not os.access(checkout, os.W_OK)
+assert os.access(root, os.W_OK)
+assert pathlib.Path(os.environ["XDG_RUNTIME_DIR"]).stat().st_mode & 0o777 == 0o700
+for name in ("dbus", "tailscale"):
+    path = pathlib.Path("/run") / name
+    assert not path.exists() or not list(path.iterdir())
+with open("/dev/null", "w") as stream: stream.write("probe")
+pathlib.Path("/dev/shm/world-probe").write_text("probe")
+result["render"] = []
+for path in pathlib.Path("/dev/dri").glob("renderD*"):
+    fd = os.open(path, os.O_RDWR); os.close(fd)
+    result["render"].append(path.name)
+result["root"] = root
+pathlib.Path(output, "result.json").write_text(json.dumps(result))
+''')
+    source = Path(fence).read_text()
+    def run(name, file=fence, extra=()):
+        fixture, output = base / (name + "-fixtures"), base / (name + "-output")
+        fixture.mkdir()
+        for member in ("checkout", "home"):
+            (fixture / member).mkdir()
+        subprocess.run(["git", "-C", str(fixture / "checkout"), "init", "-q"], check=True)
+        (fixture / "checkout/marker").write_text("retained\n")
+        subprocess.run(["git", "-C", str(fixture / "checkout"), "add", "marker"], check=True)
+        subprocess.run(["git", "-C", str(fixture / "checkout"), "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "fixture"], check=True)
+        subprocess.run(["git", "-C", str(fixture / "checkout"), "worktree", "add", "-q", "--detach", str(fixture / "sibling"), "HEAD"], check=True)
+        (fixture / "home/marker").write_text("retained\n")
+        env = {"PATH": os.environ["PATH"], "HOME": str(fixture / "home"), "TMPDIR": str(base), "XDG_RUNTIME_DIR": runtime,
+               "WAYLAND_DISPLAY": str(base / "named.sock"), "WAYLAND_SOCKET": "99", "DISPLAY": ":99", "HYPRLAND_INSTANCE_SIGNATURE": "planted",
+               "DBUS_SESSION_BUS_ADDRESS": "unix:path=" + runtime + "/caller.sock", "VGS_WORLD_PLANTED": "planted"}
+        completed = subprocess.run([bash, file, "--checkout", repo, "--out", str(output), "--out", mutants, *extra,
+                                    "python3", str(probe), str(fixture), str(output), runtime, temporary, abstract_name[1:], str(tcp.getsockname()[1]), repo],
+                                   env=env, capture_output=True, text=True, timeout=20)
+        assert completed.returncode == 0, (name, completed.returncode, completed.stderr)
+        result = json.loads((output / "result.json").read_text())
+        assert Path(result["root"]).exists() == ("--keep" in extra), (name, result)
+        return result
+    def holds(result):
+        return all(result[name] == errno.EROFS for name in ("checkout", "sibling", "home")) and \
+            all(result[name] == "hidden" for name in ("runtime", "tmp", "abstract", "tcp", "named")) and not result["session"]
+    result = run("world")
+    assert holds(result), result
+    print("world-contract: readonly=checkout,sibling,home sockets=hidden runtime=0700 devices=opened render=" + ",".join(result["render"]))
+    result = run("keep", extra=("--keep",))
+    assert holds(result), result
+    # This kept root is a disposable test fixture; its test owner removes it.
+    shutil.rmtree(result["root"])
+    controls = (
+        ("writable-host", "bwrap --ro-bind / /", "bwrap --bind / /", "checkout", "deleted"),
+        ("runtime-mask", 'mounts+=(--perms 0700 --tmpfs "$XDG_RUNTIME_DIR")', 'mounts+=()', "runtime", "connected"),
+        ("session-pass", "passed=(PATH USER", "passed=(WAYLAND_DISPLAY PATH USER", "session", ["WAYLAND_DISPLAY"]),
+        ("network", "network=(--unshare-net)", "network=()", "abstract", "connected"),
+    )
+    for name, old, new, key, expected in controls:
+        assert source.count(old) == 1, name
+        changed = source.replace(old, new)
+        assert changed != source
+        mutant = Path(mutants) / (name + ".sh")
+        mutant.write_text(changed)
+        # The writable-root control intentionally violates the permission
+        # assertion but must continue to prove deletion, the control's claim.
+        if name == "writable-host":
+            original = probe.read_text()
+            assert original.count('assert not os.access(checkout, os.W_OK)') == 1
+            probe.write_text(original.replace('assert not os.access(checkout, os.W_OK)', 'assert os.access(checkout, os.W_OK)'))
+        result = run(name, str(mutant))
+        if name == "writable-host": probe.write_text(original)
+        assert result[key] == expected and not holds(result), (name, result)
+        if name == "writable-host":
+            assert all(result[member] == "deleted" for member in ("checkout", "sibling", "home")), result
+        if name == "network": assert result["tcp"] == "connected", result
+        if name == "session-pass": assert result["named"] == "connected", result
+        print("world-contract: control=" + name + " rejected=" + key)
+        if name == "session-pass": print("world-contract: retained-name-socket=" + result["named"])
+    git_dir = subprocess.check_output(["git", "-C", repo, "rev-parse", "--absolute-git-dir"], text=True).strip()
+    for name, directory in (("checkout", repo), ("git", git_dir), ("home", str(base / "refuse-home")), ("ancestor", str(Path(repo).parent))):
+        completed = subprocess.run([bash, fence, "--out", directory, "true"], env={"PATH": os.environ["PATH"], "HOME": str(base / "refuse-home"), "TMPDIR": str(base)}, capture_output=True, text=True, timeout=10)
+        assert completed.returncode == 2 and "refused: output=" in completed.stderr, (name, completed.returncode, completed.stderr)
+        print("world-contract: output-refused=" + name)
+    for item in (caller, tmp_socket, abstract, tcp, named_socket): item.close()
+PYWORLD
+then
+  fail "world contract or disposable controls"
 fi
 
 # The wiring. A stand-in fence answers --check with the status in
@@ -712,11 +952,11 @@ chmod +x "$TMP_ROOT/fence-stand-in" "$TMP_ROOT/runner"
 entry_points=(qml-smoke.sh sandbox-shots.sh measure-shader.sh qml-unit.sh jarvis-selftest.sh test-smoke-sink.sh)
 entry_words() {
   case "$1" in
-    qml-smoke.sh) words=(--timeout "6 0" --keep) ;;
-    sandbox-shots.sh) words=(--out "o ut" --scale 2 gallery) ;;
+    qml-smoke.sh) words=(--timeout "6 0" --keep --log-dir "$TMP_ROOT/smoke-logs") ;;
+    sandbox-shots.sh) words=(--out "$TMP_ROOT/tree-$1/tmp/o ut" --scale 2 --keep gallery) ;;
     measure-shader.sh) words=(--calibrate "out file.json" --keep) ;;
     qml-unit.sh) words=(--ui "$TMP_ROOT/u i") ;;
-    jarvis-selftest.sh) words=(--type "two words" --brain stand-in --model "test model") ;;
+    jarvis-selftest.sh) words=(--type "two words" --brain stand-in --model "test model" --out "$TMP_ROOT/selftest-record.json") ;;
     test-smoke-sink.sh) words=() ;;
     *) printf '        no words for entry point: %s\n' "$1"; return 1 ;;
   esac
@@ -729,6 +969,10 @@ entry_words() {
 # be a version manager's shim that fails under a scratch HOME, so its PATH
 # leads with the directory of the binary itself.
 node_bin="$(node -e 'process.stdout.write(process.execPath)')" || { echo "test-gpu-fence: missing=node" >&2; exit 1; }
+mkdir -p "$TMP_ROOT/entry-bin" "$TMP_ROOT/entry-account"
+printf '#!/bin/sh\nprintf "%%s\\n" "%s"\n' "$TMP_ROOT/entry-bin/copilot" >"$TMP_ROOT/entry-bin/mise"
+printf '#!/bin/sh\nexit 0\n' >"$TMP_ROOT/entry-bin/copilot"
+chmod +x "$TMP_ROOT/entry-bin/mise" "$TMP_ROOT/entry-bin/copilot"
 voice_root="$TMP_ROOT/voice/.local/share/vgshell/jarvis/local"
 voxtype_models="$TMP_ROOT/voxtype-models"
 voxtype_builds="$TMP_ROOT/voxtype-builds"
@@ -764,15 +1008,19 @@ text = re.sub(r"^selftest_cpuinfo=.*$", f"selftest_cpuinfo={cpuinfo}", text, cou
 open(path, "w").write(text)
 PY
   cp -- "$TMP_ROOT/fence-stand-in" "$tree/scripts/smoke/gpu-fence.sh"
+  cp -- "$repo/scripts/smoke/shot.sh" "$repo/scripts/smoke/tree.sh" "$tree/scripts/smoke/"
+  git -C "$tree" init -q
+  git -C "$tree" -c user.name=t -c user.email=t@t commit -q --allow-empty -m fixture
   cp -- "$repo/scripts/smoke/rows.list" "$tree/scripts/smoke/rows.list"
   ln -s -- "$repo/config" "$tree/config"
   printf 'echo harness-reached\nexit 0\n' >"$tree/scripts/smoke/harness.sh"
-  echo 'exports.use = () => {};' >"$tree/shell/plugins/vgs.jarvis/backend/Core.js"
-  echo 'exports.Accounts = class { resolve() { return { source: { kind: "local" } }; } };' >"$tree/shell/plugins/vgs.jarvis/backend/Accounts.js"
+  echo 'exports.use = () => {}; exports.accounts = () => ({ harness: () => ({ variable: "COPILOT_HOME" }) });' >"$tree/shell/plugins/vgs.jarvis/backend/Core.js"
+  printf 'exports.Accounts = class { resolve() { return { provider: "copilot", source: { kind: "cli", directory: %s } }; } };\n' "\"$TMP_ROOT/entry-account\"" >"$tree/shell/plugins/vgs.jarvis/backend/Accounts.js"
   : >"$TMP_ROOT/fence.log"
   echo "$3" >"$TMP_ROOT/fence-answer"
   status=0
-  (cd -- "$TMP_ROOT/cwd" && env -i PATH="$(dirname -- "$node_bin"):$PATH" HOME="$TMP_ROOT" TMPDIR="$TMP_ROOT/entry-tmp" QML_UNIT_RUNNER="$TMP_ROOT/runner" \
+  (cd -- "$TMP_ROOT/cwd" && env -i PATH="$TMP_ROOT/entry-bin:$(dirname -- "$node_bin"):$PATH" HOME="$TMP_ROOT" TMPDIR="$TMP_ROOT/entry-tmp" QML_UNIT_RUNNER="$TMP_ROOT/runner" \
+    DBUS_SESSION_BUS_ADDRESS="unix:path=$TMP_ROOT/fixture-bus" \
     JARVIS_LOCAL_MODELS="$voice_root/models" JARVIS_LOCAL_PYTHON="$voice_root/venv/bin/python" VOXTYPE_MODELS="$voxtype_models" \
     "$BASH" "$tree/scripts/$name" "${words[@]}") >"$TMP_ROOT/out" 2>"$TMP_ROOT/err" || status=$?
 }
@@ -780,11 +1028,21 @@ PY
 # path and every argument, the script's status is the fence's, and nothing
 # was made under the tree or the scratch directory before.
 enters() {
-  local want word
+  local want word tree="$TMP_ROOT/tree-$2" declarations=()
   entry "$1" "$2" 1 || return 1
-  want="check"$'\n'"run [$TMP_ROOT/tree-$2/scripts/$2]"
+  case "$2" in
+    qml-smoke.sh) declarations=(--out "$tree/tmp/display-record" --keep --out "$TMP_ROOT/smoke-logs") ;;
+    sandbox-shots.sh) declarations=(--out "$tree/tmp/o ut" --out "$tree/tmp/display-record" --out "$tree/tmp/qml-smoke" --keep) ;;
+    measure-shader.sh) declarations=(--out "$tree/tmp/shader-cost" --out "$tree/tmp/display-record" --out "$tree/tmp/qml-smoke" --keep --out "$TMP_ROOT/cwd") ;;
+    jarvis-selftest.sh) declarations=(--net --out "$tree/tmp/display-record" --out "$tree/tmp/selftest-records" --out "$tree/tmp/qml-smoke" --out "$TMP_ROOT" --sign-in COPILOT_HOME "$TMP_ROOT/entry-account" --secrets) ;;
+    qml-unit.sh|test-smoke-sink.sh) ;;
+  esac
+  want=check$'\n'run
+  for word in "${declarations[@]}" "$tree/scripts/$2"; do want+=" [$word]"; done
+  if [[ $2 == sandbox-shots.sh ]]; then want+=" [--out] [$TMP_ROOT/tree-$2/tmp/o ut]"; fi
   for word in "${words[@]}"; do want+=" [$word]"; done
-  [[ $status -eq 0 && "$(<"$TMP_ROOT/fence.log")" == "$want" && -z "$(ls -A -- "$TMP_ROOT/entry-tmp")" && ! -e $TMP_ROOT/tree-$2/tmp ]]
+  [[ $status -eq 0 && "$(<"$TMP_ROOT/fence.log")" == "$want" && -z "$(ls -A -- "$TMP_ROOT/entry-tmp")" ]]
+
 }
 # goes_on FILE NAME: where the check passes, the fence is asked once and
 # never run.

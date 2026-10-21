@@ -1972,6 +1972,10 @@ if [[ $plan_only == true ]]; then
   exit 0
 fi
 
+"$repo/scripts/smoke/gpu-fence.sh" --check || exec "$repo/scripts/smoke/gpu-fence.sh" env \
+  VGS_VALIDATE_BASE="${VGS_VALIDATE_BASE:-}" VGS_VALIDATE_CHANGED="${VGS_VALIDATE_CHANGED:-}" \
+  VGS_VALIDATE_JOBS="$jobs_max" "$self" "$@"
+
 probe_status=0
 out="$("$runner" --tests "$repo/scripts/qml-tests" "$repo/scripts/qml-tests/tst_module.qml" 2>&1)" || probe_status=$?
 if [[ $probe_status -eq 77 ]]; then

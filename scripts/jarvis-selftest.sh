@@ -204,19 +204,6 @@ selftest_accounts() { # TREE BRAIN VOICE
 JS
 }
 
-# The filtered secrets bus's rules: the four calls `secret-tool lookup` of
-# libsecret 0.21.8 makes for an unlocked key, SearchItems the plugin's
-# presence read too, as `xdg-dbus-proxy --log` 0.1.9 listed them on a scratch
-# bus on 2026-10-09. A name given calls alone has no talk right, so the
-# service's Unlock and its prompts answer AccessDenied there, and every
-# other name reads as having no owner.
-selftest_secrets_rules=(
-  --call=org.freedesktop.secrets=org.freedesktop.Secret.Service.SearchItems@/org/freedesktop/secrets
-  --call=org.freedesktop.secrets=org.freedesktop.Secret.Service.OpenSession@/org/freedesktop/secrets
-  --call=org.freedesktop.secrets=org.freedesktop.Secret.Service.GetSecrets@/org/freedesktop/secrets
-  --call=org.freedesktop.secrets=org.freedesktop.DBus.Properties.GetAll@/org/freedesktop/secrets
-)
-
 # selftest_key_presence TREE BUS REFERENCE: whether the keyring on the bus
 # BUS holds the key REFERENCE names, as TREE's own key judge reads it with
 # no unlock: present, locked, absent or unavailable.
@@ -1184,7 +1171,14 @@ PY
 }
 
 selftest_gpu_fence() {
-  "$repo/scripts/smoke/gpu-fence.sh" --check || exec "$repo/scripts/smoke/gpu-fence.sh" "$self" "${argv[@]}"
+  local world_args=(--net --out "$repo/tmp/display-record" --out "$repo/tmp/selftest-records" --out "$repo/tmp/qml-smoke")
+  local output
+  output="$(realpath -m -- "$out")"
+  if [[ -n $suite_name ]]; then world_args+=(--out "$output"); else world_args+=(--out "${output%/*}"); fi
+  if [[ ${brain_kind:-} == cli ]]; then world_args+=(--sign-in "$brain_first" "$brain_second"); fi
+  if [[ ${#key_references[@]} -gt 0 || ${copilot_keyring:-false} == true ]]; then world_args+=(--secrets); fi
+  export VGSHELL_SELFTEST_ACCOUNTS="${accounts:-}" VGSHELL_SELFTEST_PROGRAM="${brain_program:-}"
+  "$repo/scripts/smoke/gpu-fence.sh" --check || exec "$repo/scripts/smoke/gpu-fence.sh" "${world_args[@]}" "$self" "${argv[@]}"
 }
 
 argv=("$@")
@@ -1207,6 +1201,7 @@ confirm=none
 confirm_seen=false
 cloned=false
 out=""
+key_references=()
 refuse() { printf 'jarvis-selftest: refused: %s\n' "$*" >&2; exit 2; }
 # unavailable KEY...: the run could not run, which is never a pass.
 unavailable() { printf 'selftest=%s\n' "$*"; exit 77; }
@@ -1415,11 +1410,6 @@ if [[ -z $out ]]; then
   fi
 fi
 
-if [[ -n $suite_name ]]; then
-  selftest_suite "$suite_name"
-  exit $?
-fi
-
 if ((cold_count > 0)); then
   selftest_gpu_fence
   keep=false timeout_s=60
@@ -1448,13 +1438,12 @@ fi
 # node on PATH may be a version manager's shim, which fails under an
 # environment that is not the caller's; a child runs the binary itself.
 selftest_node="$(node -e 'process.stdout.write(process.execPath)')" || unavailable account-judge-unavailable missing=node
-accounts="$(selftest_accounts "$repo" "$brain" "$voice")" || stopped account-unread
+accounts="${VGSHELL_SELFTEST_ACCOUNTS:-$(selftest_accounts "$repo" "$brain" "$voice")}" || stopped account-unread
 { IFS=$'\t' read -r brain_kind brain_first brain_second brain_provider; IFS=$'\t' read -r voice_kind voice_account voice_reference; } <<<"$accounts"
 account_word=()
-brain_program=""
+brain_program="${VGSHELL_SELFTEST_PROGRAM:-}"
 key_references=()
 copilot_keyring=false
-copilot_rules=()
 case "$brain_kind" in
   unknown) refuse "argument=--brain value=$brain reason=unknown-account" ;;
   cli)
@@ -1462,7 +1451,9 @@ case "$brain_kind" in
     # Resolve under the caller's HOME. A host account wrapper can replace
     # the selected account under the sandbox HOME. mise which names its
     # installed program; a lookup failure never selects that wrapper.
-    if command -v mise >/dev/null; then
+    if [[ -n $brain_program ]]; then
+      :
+    elif command -v mise >/dev/null; then
       brain_program="$(mise which "$brain_provider" 2>/dev/null)" || unavailable brain-program-unavailable "command=$brain_provider"
     else
       brain_program="$(command -v -- "$brain_provider")" || unavailable brain-program-unavailable "command=$brain_provider"
@@ -1470,13 +1461,6 @@ case "$brain_kind" in
     [[ $brain_program == /* && -f $brain_program && -x $brain_program ]] || unavailable brain-program-unavailable "command=$brain_provider"
     if [[ $brain_first == COPILOT_HOME ]]; then
       copilot_keyring=true
-      # Copilot 1.0.91's runtime uses secret-service 5.2.0's Item.get_secret
-      # and ensure_unlocked, via zbus-secret-service-keyring-store 1.0.1.
-      # Item proxies disable property caching. Only these read calls enter.
-      copilot_rules=(
-        '--call=org.freedesktop.secrets=org.freedesktop.Secret.Item.GetSecret@/org/freedesktop/secrets/collection/*'
-        '--call=org.freedesktop.secrets=org.freedesktop.DBus.Properties.Get@/org/freedesktop/secrets/collection/*'
-      )
     fi ;;
   keyring) key_references+=("$brain_first") ;;
   local) [[ -n $model ]] || refuse "argument=--model reason=missing-local-model" ;;
@@ -1489,7 +1473,9 @@ case "$voice_kind" in
 esac
 # What a key read needs, asked before anything starts.
 if [[ ${#key_references[@]} -gt 0 || $copilot_keyring == true ]]; then
-  [[ -n ${DBUS_SESSION_BUS_ADDRESS:-} ]] || unavailable keyring-unavailable missing=session-bus
+  if [[ -z ${VGSHELL_WORLD_ROOT:-} ]]; then
+    [[ -n ${DBUS_SESSION_BUS_ADDRESS:-} ]] || unavailable keyring-unavailable missing=session-bus
+  fi
   for tool in xdg-dbus-proxy secret-tool busctl; do
     command -v -- "$tool" >/dev/null || unavailable keyring-unavailable "missing=$tool"
   done
@@ -1530,6 +1516,10 @@ fi
 
 # No process this run starts may open an amdgpu node, so the run goes on
 # only where none is visible: scripts/smoke/gpu-fence.sh.
+if [[ -n $suite_name ]]; then
+  selftest_suite "$suite_name"
+  exit $?
+fi
 selftest_gpu_fence
 
 # The harness puts its command sentinels before this host PATH. Keep the
@@ -1591,12 +1581,9 @@ if [[ $hears_here == true ]]; then
   selftest_voxtype_prepare "$source_repo" "$voxtype_models" "$voxtype_cpu"
 fi
 if [[ ${#key_references[@]} -gt 0 || $copilot_keyring == true ]]; then
-  # The filter runs with no environment and ends with the harness's other
-  # children. Its socket is there once it listens.
-  secrets_bus="$rt_dir/secrets-bus"
-  spawn "$sandbox/secrets-bus.log" env -i "$(command -v -- xdg-dbus-proxy)" "$DBUS_SESSION_BUS_ADDRESS" "$secrets_bus" --filter "${selftest_secrets_rules[@]}" "${copilot_rules[@]}"
-  secrets_bus_state() { if [[ -S $secrets_bus ]]; then echo listening; else echo absent; fi; }
-  selftest_wait 10 listening secrets_bus_state || stopped secrets-bus-not-started "$sandbox/secrets-bus.log"
+  # The world owns the filtered proxy outside the namespace. Only this
+  # socket enters; the caller's raw bus address never does.
+  secrets_bus="$XDG_RUNTIME_DIR/secrets-bus"
   [[ $copilot_keyring == false ]] || account_word+=("DBUS_SESSION_BUS_ADDRESS=unix:path=$secrets_bus")
 fi
 if [[ ${#key_references[@]} -gt 0 ]]; then

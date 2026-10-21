@@ -367,8 +367,8 @@ print("end" if v["contentY"]>0 and v["contentY"]>=v["contentHeight"]-v["height"]
   [[ $spot == end ]] || { echo "not-at-end $view"; return; }
   end="$(panel_fit bottom)"
   stable="$(nk_height_roundtrip "$x" "$y" "$plan" "$trace")"
-  local artifact="$source_repo/tmp/smoke-artifacts/notifications-height-$(date +%s%N)"
-  mkdir -p -- "$artifact"
+  local artifact
+  artifact="$(mktemp -d "$smoke_log_dir/notifications-height.XXXXXX")" || return
   tail -n +"$((trace + 1))" -- "$instance_log" >"$artifact/instance.log"
   cp -- "$artifact/instance.log" "$sandbox/height-last-trace.log"
   printf 'result=%s\nplan=%s\n' "$stable" "$plan" >"$artifact/result.txt"

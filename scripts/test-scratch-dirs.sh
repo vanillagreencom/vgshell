@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The scratch-directory guard at the top of the suites that remove their
 # scratch directory on exit: scripts/vgshell-rows.sh (sourced by every
-# scripts/test-vgshell*.sh) and the seven suites below that make their own. A
+# scripts/test-vgshell*.sh) and the suites below that make their own. A
 # stub mktemp first on PATH answers each way a failed or wrong mktemp can,
 # and each subject runs from a disposable caller directory inside this
 # suite's scratch. Each case pins exit 1 and the first stderr line, and
@@ -20,11 +20,12 @@ set -euo pipefail
 self="$(readlink -f -- "${BASH_SOURCE[0]}")"
 repo="$(cd -- "$(dirname -- "$self")/.." && pwd)"
 
-tmp="$(mktemp -d)" || { echo "test-scratch-dirs: scratch=mktemp-failed" >&2; exit 1; }
+tmp="$(mktemp -d /var/tmp/test-scratch-dirs.XXXXXX)" || { echo "test-scratch-dirs: scratch=mktemp-failed" >&2; exit 1; }
 [[ -d $tmp && ! -L $tmp ]] || { echo "test-scratch-dirs: scratch=not-a-directory value=[$tmp]" >&2; exit 1; }
 tmp="$(cd -- "$tmp" && pwd -P)"
 trap 'rm -rf -- "${tmp:?}"' EXIT
 failures=0
+want_status=1
 ok() { printf '  ok    %s\n' "$*"; }
 fail() { failures=$((failures + 1)); printf '  FAIL  %s\n' "$*"; }
 
@@ -57,7 +58,6 @@ subjects=(
   "test-notifications-token-status.sh|$repo/scripts/test-notifications-token-status.sh"
   "test-sandbox-shots.sh|$repo/scripts/test-sandbox-shots.sh"
   "test-smoke-verdict.sh|$repo/scripts/test-smoke-verdict.sh"
-  "test-smoke-teardown.sh|$repo/scripts/test-smoke-teardown.sh"
   "test-readme-shots.sh|$repo/scripts/test-readme-shots.sh"
 )
 
@@ -80,7 +80,7 @@ run() {
   if ! first="$(head -n 1 -- "$tmp/err")"; then
     problems+=("stderr=unreadable")
   fi
-  [[ $status -eq 1 ]] || problems+=("exit=$status")
+  [[ $status -eq $want_status ]] || problems+=("exit=$status")
   [[ $first == "$prefix: $key"* ]] || problems+=("stderr=[$first]")
   [[ -f $caller/sentinel ]] || problems+=("caller=removed")
   [[ -f $regular ]] || { problems+=("regular-file=removed"); echo keep >"$regular"; }
@@ -101,6 +101,35 @@ for subject in "${subjects[@]}"; do
     fi
   done
 done
+
+# The world owns acquisition for a suite that enters it before allocating
+# scratch. A failed allocator must never arm deletion of its returned name.
+want_status=77
+for entry in "${stubs[@]}"; do
+  IFS='|' read -r name _ _ <<<"$entry"
+  if run gpu-fence "$name" 'status=not-measured reason=root-failed' "$repo/scripts/smoke/gpu-fence.sh" true; then
+    ok "the world with mktemp $name refuses before acquiring deletion rights"
+  else
+    fail "the world with mktemp $name: ${problems[*]}"
+  fi
+done
+world_guard='[[ -d $fence_dir && ! -L $fence_dir ]] || { fault root-failed; exit 77; }'
+world_text="$(<"$repo/scripts/smoke/gpu-fence.sh")" || { fail "world acquisition control: source unreadable"; exit 1; }
+world_rest="${world_text#*"$world_guard"}"
+if [[ $world_rest == "$world_text" || $world_rest == *"$world_guard"* ]]; then
+  fail "world acquisition control: the guard does not match once"
+else
+  mkdir -p "$tmp/world-control/scripts/smoke"
+  printf '%s\n' "${world_text/"$world_guard"/:}" >"$tmp/world-control/scripts/smoke/gpu-fence.sh"
+  if run gpu-fence regular-file 'status=not-measured reason=root-failed' "$tmp/world-control/scripts/smoke/gpu-fence.sh" --checkout "$repo" true; then
+    fail "control: the world without acquisition validation kept its case green"
+  elif [[ " ${problems[*]} " == *" regular-file=removed "* ]]; then
+    ok "control: a world without acquisition validation deletes the allocator's disposable file"
+  else
+    fail "control: the world went red without deleting its disposable file: ${problems[*]}"
+  fi
+fi
+want_status=1
 
 # Control: the old shape in a copy of the library. The substitution must
 # match exactly once and change the copy.

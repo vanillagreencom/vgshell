@@ -517,7 +517,7 @@ jarvis_world_audio_rows="${jarvis_audio_rows/test-jarvis-engine.js$'\n'/test-jar
 jarvis_owner_plan="$jarvis_policy_rows"$'node scripts/test-jarvis-tasks.js\nnode scripts/test-jarvis-daemon.js\n'"$jarvis_world_audio_rows"$'node scripts/test-task-event.js\nnode scripts/test-jarvis-task-runner.js\nnode scripts/test-jarvis-claude-task.js\nnode scripts/test-jarvis-secrets.js\n'"$jarvis_accounts_rows"$'scripts/test-install-tree.sh\n'"$jarvis_helper_plan"
 jarvis_daemon_plan=$'node scripts/test-jarvis-daemon.js\n'"$repo_plan"
 jarvis_live_plan=$'node scripts/test-jarvis-live.js\n'"$repo_plan"
-jarvis_fixture_plan=$'node scripts/test-jarvis-protocol.js\nnode scripts/test-jarvis-tasks.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-task-event.js\nnode scripts/test-jarvis-task-runner.js\nnode scripts/test-jarvis-claude-task.js\n'"$repo_plan"
+jarvis_fixture_plan=$'node scripts/test-jarvis-protocol.js\nnode scripts/test-jarvis-tasks.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-task-event.js\nnode scripts/test-jarvis-task-runner.js\nnode scripts/test-jarvis-claude-task.js\n'"$jarvis_env_plan"
 jarvis_guidance_plan=$'node scripts/test-jarvis-guidance.js\n'"$repo_plan"
 jarvis_speakable_plan=$'node scripts/test-jarvis-speakable.js\n'"$repo_plan"
 jarvis_language_plan=$'node scripts/test-jarvis-guidance.js\nnode scripts/test-jarvis-speakable.js\nnode scripts/test-jarvis-speech-language.js\n'"$repo_plan"
@@ -631,7 +631,7 @@ cases=(
   "jarvis-daemon-suite|scripts/test-jarvis-daemon.js|offline|node scripts/check-jarvis-words.js"$'\n'"$jarvis_daemon_plan"
   "jarvis-secrets-suite|scripts/test-jarvis-secrets.js|offline|node scripts/check-jarvis-words.js"$'\n'"node scripts/test-jarvis-secrets.js"$'\n'"$repo_plan"
   "jarvis-key-tui-fixture|scripts/fixtures/jarvis/key-tui.py|offline|node scripts/check-jarvis-words.js"$'\n'"node scripts/test-jarvis-net.js"$'\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-secrets.js\n'"$repo_plan"
-  "jarvis-key-fixture|scripts/fixtures/jarvis/keys-world.js|offline|node scripts/check-jarvis-words.js"$'\n'"node scripts/test-jarvis-net.js"$'\nnode scripts/test-jarvis-brain-openai.js\nnode scripts/test-jarvis-brain-anthropic.js\nnode scripts/test-jarvis-live.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-secrets.js\n'"$repo_plan"
+  "jarvis-key-fixture|scripts/fixtures/jarvis/keys-world.js|offline|node scripts/check-jarvis-words.js"$'\n'"node scripts/test-jarvis-net.js"$'\nnode scripts/test-jarvis-brain-openai.js\nnode scripts/test-jarvis-brain-anthropic.js\nnode scripts/test-jarvis-live.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-secrets.js\n'"$jarvis_env_plan"
   "jarvis-task-suite|scripts/test-jarvis-tasks.js|offline|node scripts/check-jarvis-words.js"$'\n'"node scripts/test-jarvis-tasks.js"$'\n'"$repo_plan"
   "jarvis-audio-task-input|shell/plugins/vgs.jarvis/backend/Tasks.js|cli|node scripts/test-jarvis-files.js"$'\n'"node scripts/test-jarvis-browser.js"$'\n'"node scripts/test-jarvis-daemon.js"$'\nnode scripts/test-jarvis-audio-daemon.js\nnode scripts/test-jarvis-engine.js\nnode scripts/test-task-event.js\nnode scripts/test-jarvis-task-runner.js\nnode scripts/test-jarvis-claude-task.js\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"
   "task-event-suite|scripts/test-task-event.js|offline|node scripts/test-task-event.js"$'\n'"$repo_plan"
@@ -651,7 +651,7 @@ cases=(
   "jarvis-sign-in-terminal|shell/plugins/vgs.jarvis/tui/sign-in.sh|cli|node scripts/test-jarvis-files.js"$'\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-secrets.js\nnode scripts/test-jarvis-accounts-tui.js\nscripts/test-install-tree.sh\n'"$readme_rows_trimmed"$'\nscripts/test-tui-gum-colours.sh'
   "jarvis-accounts-tui-suite|scripts/test-jarvis-accounts-tui.js|offline|node scripts/check-jarvis-words.js"$'\n'"node scripts/test-jarvis-accounts-tui.js"$'\n'"$repo_plan"
   "jarvis-account-verify-suite|scripts/test-jarvis-account-verify.js|offline|node scripts/check-jarvis-words.js"$'\n'"node scripts/test-jarvis-account-verify.js"$'\n'"$repo_plan"
-  "jarvis-accounts-fixture|scripts/fixtures/jarvis/accounts-world.js|offline|node scripts/check-jarvis-words.js"$'\n'"node scripts/test-jarvis-daemon.js"$'\n'"$jarvis_accounts_rows$repo_plan"
+  "jarvis-accounts-fixture|scripts/fixtures/jarvis/accounts-world.js|offline|node scripts/check-jarvis-words.js"$'\n'"node scripts/test-jarvis-daemon.js"$'\n'"$jarvis_accounts_rows$jarvis_env_plan"
   "jarvis-accounts-terminal-fixture|scripts/fixtures/jarvis/accounts-tui.py|offline|node scripts/check-jarvis-words.js"$'\n'"node scripts/test-jarvis-browser-setup.js"$'\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-accounts-tui.js\n'"$repo_plan"
   "jarvis-fixture|scripts/fixtures/jarvis/prepare.js|offline|node scripts/check-jarvis-words.js"$'\n'"$jarvis_fixture_plan"
   "jarvis-scripted-fixture|scripts/fixtures/jarvis/scripted.js|offline|node scripts/check-jarvis-words.js"$'\n'"node scripts/test-jarvis-protocol.js"$'\nnode scripts/test-jarvis-files.js\nnode scripts/test-jarvis-daemon.js\nnode scripts/test-jarvis-audio-daemon.js\n'"$repo_plan"
@@ -767,6 +767,7 @@ cases=(
   "share-picker-suite|scripts/test-share-picker.py|cli|python3 scripts/test-share-picker.py"
   "share-picker-consumer|scripts/fixtures/share-picker/xdph-selection.cpp|cli|python3 scripts/test-share-picker.py"
   "jarvis-key-smoke|scripts/smoke/rows/jarvis-keys.sh|all|node scripts/check-jarvis-words.js"$'\n'"node scripts/test-jarvis-daemon.js"$'\n'"${smoke_plan/smoke_reads_named/$'smoke_reads_named\npython3 scripts/test-smoke-user-config.py'}"
+  "world-consumers|scripts/smoke/gpu-fence.sh|tools|python3 scripts/check-smoke-readers.py"$'\npython3 scripts/test-check-smoke-readers.py\nsmoke_reads_named\npython3 scripts/test-smoke-evidence.py\nscripts/test-sandbox-shots.sh\nscripts/test-gpu-fence.sh\nscripts/test-smoke-owner.sh\nscripts/test-scratch-dirs.sh\nscripts/test-jarvis-selftest.sh'
   "mode-startup-entry|scripts/qml-smoke.sh|tools|scripts/test-mode-hold.sh"$'\nsmoke_reads_named\npython3 scripts/test-smoke-evidence.py\nscripts/test-gpu-fence.sh\nscripts/test-validate.sh'
   "mode-capture-entry|scripts/sandbox-shots.sh|tools|scripts/test-mode-hold.sh"$'\nscripts/test-smoke-input-guard.sh\nscripts/test-sandbox-shots.sh\nnode scripts/test-google-drive-scene.js\nscripts/test-gpu-fence.sh'
   "compositor-reveal-barrier-suite|scripts/test-compositor-reveal.py|tools|python3 scripts/test-compositor-reveal.py"
@@ -1243,7 +1244,10 @@ if [[ $out == "$full_plan" ]]; then ok "a deleted unmapped source selects full";
 # launcher_close itself, reads the variables, sets launcher_mode itself,
 # and runs other-part, which no name lists and which reads launcher_part.
 # The notifications-keys call of notifications' notify_open is declared,
-# and twice leaves a heredoc open. Variants: no-harness-line
+# Array argv data defines no parent variable, but its variable expansions
+# and command substitutions still read the launcher's state and function.
+# The same-name top-level assignment remains a real defining write.
+# twice leaves a heredoc open. Variants: no-harness-line
 # carries no harness line, no-list has an empty row list and no-core one
 # that does not list auth-sentinel. Expected row sets are
 # written here, not derived from the selector. A control runs a copy of
@@ -1278,11 +1282,13 @@ smoke_fixture() { # DIR [VARIANT]
   printf '# inputs: shell/Core/Start.qml\n' >"$dir/scripts/smoke/rows/start-order.sh"
   printf '# inputs: shell/Core/Auth.qml\n' >"$dir/scripts/smoke/rows/auth-sentinel.sh"
   printf '%s\n' '# inputs: shell/plugins/acme.launcher/*' 'launcher_open() { :; }' 'launcher_close() { :; }' 'launcher_dir="$sandbox/apps"' \
-    'launcher_part=$launcher_dir/part launcher_mode=open' 'sandbox=/elsewhere failures=1' >"$dir/scripts/smoke/rows/launcher.sh"
+    'launcher_part=$launcher_dir/part launcher_mode=open' 'sandbox=/elsewhere failures=1' \
+    'launcher_array_read=$launcher_dir' 'launcher_array_call() { :; }' 'launcher_argv=(TMPDIR="$sandbox" launcher_dir=argument)' >"$dir/scripts/smoke/rows/launcher.sh"
   printf '%s\n' '# inputs: shell/plugins/acme.notify/* scripts/smoke/rows/notifications-keys.sh' 'notify_open() { :; }' >"$dir/scripts/smoke/rows/notifications.sh"
   printf '%s\n' '# inputs: shell/Core/Keys.qml scripts/smoke/rows/notifications.sh' 'notify_open' >"$dir/scripts/smoke/rows/notifications-keys.sh"
   printf '%s\n' '# inputs: shell/plugins/acme.other/*' 'expect "the launcher opens" "" launcher_open' 'launcher_close' 'launcher_mode=other' \
-    'ls -- "$launcher_dir" "$sandbox" "$launcher_mode" "$failures"' 'smoke_row other-part' >"$dir/scripts/smoke/rows/other.sh"
+    'ls -- "$launcher_dir" "$sandbox" "$launcher_mode" "$failures" "$TMPDIR"' \
+    'other_argv=("$launcher_array_read" "$(launcher_array_call)")' 'smoke_row other-part' >"$dir/scripts/smoke/rows/other.sh"
   printf '%s\n' '# Run by other.sh.' 'ls -- "$launcher_part"' >"$dir/scripts/smoke/rows/other-part.sh"
   printf '# A row with no input line.\nset -euo pipefail\n# inputs: shell/plugins/acme.other/*\n' >"$dir/scripts/smoke/rows/bare.sh"
   printf '# inputs: shell/plugins/acme.gone/*\n' >"$dir/scripts/smoke/rows/stale.sh"
@@ -1581,15 +1587,17 @@ smoke_self_check=(
   "validate: smoke-input harness=scripts/smoke/harness.sh glob=scripts/smoke/gone.sh matches-nothing; fix the line in scripts/smoke/harness.sh: # inputs: scripts/smoke/verdict.sh scripts/smoke/helper/* scripts/smoke/gone.sh"
   "validate: smoke-input row=other function=launcher_close from=scripts/smoke/rows/launcher.sh; add to the line in scripts/smoke/rows/other.sh: # inputs: shell/plugins/acme.other/* scripts/smoke/rows/launcher.sh"
   "validate: smoke-input row=other function=launcher_open from=scripts/smoke/rows/launcher.sh; add to the line in scripts/smoke/rows/other.sh: # inputs: shell/plugins/acme.other/* scripts/smoke/rows/launcher.sh"
+  "validate: smoke-input row=other function=launcher_array_call from=scripts/smoke/rows/launcher.sh; add to the line in scripts/smoke/rows/other.sh: # inputs: shell/plugins/acme.other/* scripts/smoke/rows/launcher.sh"
+  "validate: smoke-input row=other variable=launcher_array_read from=scripts/smoke/rows/launcher.sh; add to the line in scripts/smoke/rows/other.sh: # inputs: shell/plugins/acme.other/* scripts/smoke/rows/launcher.sh"
   "validate: smoke-input row=other variable=launcher_dir from=scripts/smoke/rows/launcher.sh; add to the line in scripts/smoke/rows/other.sh: # inputs: shell/plugins/acme.other/* scripts/smoke/rows/launcher.sh"
   "validate: smoke-input row=other variable=launcher_part from=scripts/smoke/rows/launcher.sh; add to the line in scripts/smoke/rows/other.sh: # inputs: shell/plugins/acme.other/* scripts/smoke/rows/launcher.sh"
   "validate: smoke-input unparsed path=scripts/smoke/rows/twice.sh; the function and variable check cannot read it to its end"
 )
 row "the smoke input self-check names each line to add or fix" "$d" 0 "" \
-  "${smoke_self_check[@]}" '!row=launcher' '!row=session' '!row=notifications-keys' '!variable=sandbox' '!variable=failures' '!variable=launcher_mode'
+  "${smoke_self_check[@]}" '!row=launcher' '!row=session' '!row=notifications-keys' '!variable=sandbox' '!variable=failures' '!variable=launcher_mode' '!variable=TMPDIR'
 test_args=(--changed HEAD)
 row "the smoke input self-check leaves a real run passing" "$d" 0 "" \
-  "${smoke_self_check[@]}" "validate: ok"
+  "${smoke_self_check[@]}" '!variable=TMPDIR' "validate: ok"
 test_args=(--changed HEAD --list)
 # Each control: a copy of validate whose function and variable check drops
 # one rule, which wants that rule's line gone and another rule's kept, or,
@@ -1603,6 +1611,7 @@ smoke_reads_controls=(
   "command|            if name:|            if name and at > head(words):|!row=other function=launcher_close|~row=other function=launcher_open"
   "runner|    runs.update(scan.runners)|    runs.update({})|!row=other function=launcher_open|~row=other function=launcher_close"
   "variable|for kind, used, field in ((\"function\", \"calls\", \"funcs\"), (\"variable\", \"reads\", \"sets\")):|for kind, used, field in ((\"function\", \"calls\", \"funcs\"),):|!row=other variable=launcher_dir|~row=other function=launcher_open"
+  "array-values|                    i = self.code(i + 1, \")\", values=True)|                    i = self.code(i + 1, \")\")|~row=other variable=TMPDIR|~row=other variable=launcher_dir"
   "unparsed|if text is None or (scan := Scan(text)).broken:|if text is None or not (scan := Scan(text)):|!smoke-input unparsed path=scripts/smoke/rows/twice.sh|~row=other function=launcher_open"
   "child|            queue += [f\"scripts/smoke/rows/{child}.sh\" for child in scans[rel].rows if child not in listed]|            queue += []|!row=other variable=launcher_part|~row=other variable=launcher_dir"
   "own|owned[row][used] - owned[row][field] - side_owned[field]|owned[row][used] - side_owned[field]|~row=other variable=launcher_mode"
@@ -2068,26 +2077,33 @@ for dir in runner-reads runner-deep-control runner-refusal-control runner-short 
   printf 'sandbox=%q\nfailures=0\nleak_seq=0\n' "$tmp/$dir/sandbox" >"$tmp/$dir/scripts/smoke/harness.sh"
   printf '%s\n' 'smoke_row() { printf "row=%s\n" "$1"; }' 'compositor_logs_on() { :; }' 'ok() { :; }' 'smoke_finish() { :; }' >>"$tmp/$dir/scripts/smoke/harness.sh"
 done
-# The existing filtered-PATH owner receives these tools and any earlier filter.
+# The registry owner hides device commands. The runner retains earlier
+# runner-specific hidden names when it appends its own absent tools.
 for dir in runner-filter runner-filter-control; do
   printf 'printf "%%s\\n" "${shell_hidden_commands[@]}" >%q\n' "$tmp/$dir/filter" >>"$tmp/$dir/scripts/smoke/harness.sh"
 done
+runner_filter_holds() {
+  local name
+  for name in preexisting claude codex; do
+    grep -qxF "$name" "$1" || return 1
+  done
+}
 d="$tmp/runner-filter"
 status=0
 "${base_env[@]}" bash -c 'shell_hidden_commands=(preexisting); source "$1" --rows top' _ "$d/scripts/qml-smoke.sh" >"$d/run.log" 2>&1 || status=$?
-if [[ $status == 0 && $(grep -cx -E 'preexisting|tailscale|nmcli' "$d/filter") == 3 ]]; then
-  ok "backend absence keeps host tools hidden and retains earlier filters"
+if [[ $status == 0 ]] && runner_filter_holds "$d/filter"; then
+  ok "the runner retains earlier hidden names while adding its own"
 else
-  fail "the runner did not hand the backend tool filter to the harness"
+  fail "the runner lost an earlier hidden name or its own absent tool"
 fi
 d="$tmp/runner-filter-control"
-plant "$d/scripts/qml-smoke.sh" ' claude codex tailscale nmcli)' ' claude codex)'
+plant "$d/scripts/qml-smoke.sh" 'shell_hidden_commands+=(' 'shell_hidden_commands=('
 status=0
 "${base_env[@]}" bash -c 'shell_hidden_commands=(preexisting); source "$1" --rows top' _ "$d/scripts/qml-smoke.sh" >"$d/run.log" 2>&1 || status=$?
-if [[ $status == 0 && $(grep -cx -E 'preexisting|tailscale|nmcli' "$d/filter") == 1 ]]; then
-  ok "control: dropping the backend filter exposes both host tools"
+if [[ $status == 0 ]] && ! runner_filter_holds "$d/filter" && grep -qxF claude "$d/filter" && grep -qxF codex "$d/filter"; then
+  ok "control: replacing the runner filter loses the earlier hidden name"
 else
-  fail "control: the runner filter removal did not reach the harness"
+  fail "control: the replacement filter did not reach the harness"
 fi
 d="$tmp/runner-reads"
 smoke_deep=(bar hyprland-consent seat session base own top start-order auth-sentinel)
@@ -2964,7 +2980,9 @@ done
 # the mutation lines are read. A copy that prints the case logs in reverse
 # is the control.
 q="$tmp/qml-jobs"
-mkdir -p "$q/scripts/qml-tests" "$q/shell/Ui"
+mkdir -p "$q/scripts/qml-tests" "$q/scripts/smoke" "$q/shell/Ui"
+printf '#!/bin/sh\nexit 0\n' >"$q/scripts/smoke/gpu-fence.sh"
+chmod +x "$q/scripts/smoke/gpu-fence.sh"
 printf 'base\n' >"$q/shell/Ui/a.qml"
 : >"$q/scripts/qml-tests/tst_x.qml"
 cat >"$q/scripts/qml-unit.sh" <<'SH'

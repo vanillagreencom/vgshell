@@ -73,10 +73,10 @@ for row in sorted(rows):
 PY
 }
 
-actual_file="$repo/tmp/install-tree-actual.$$"
-cleanup() { rm -f -- "$actual_file" "$actual_file.expected"; }
+scratch="$(mktemp -d)"
+cleanup() { rm -rf -- "${scratch:?}"; }
 trap cleanup EXIT
-mkdir -p -- "$repo/tmp"
+actual_file="$scratch/actual"
 list_args=("$root")
 [[ -z $sysconf_root ]] || list_args+=("$sysconf_root")
 list_tree "${list_args[@]}" | LC_ALL=C sort >"$actual_file"

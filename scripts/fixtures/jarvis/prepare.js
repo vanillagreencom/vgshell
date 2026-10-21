@@ -300,6 +300,9 @@ function service(sourceTree, tree, root) {
     standins(path.join(root, "standins"));
     require("./accounts-world.js").standins(path.join(root, "standins"));
     const launcher = path.join(sourceTree, "scripts/lib/jarvis-env.sh");
+    // Generated Process commands clear their environment. Carry the owned
+    // fixture scratch in argv before each J09 launcher, including the lease.
+    const commandStart = '["env", ' + JSON.stringify("JARVIS_TEST_SCRATCH_ROOT=" + root) + ', "bash", ';
     const lease = path.join(root, "lease.sh");
     // Bash gives an asynchronous command /dev/null on stdin. J09 starts
     // its namespace supervisor asynchronously, so carry the service pipe
@@ -312,14 +315,14 @@ function service(sourceTree, tree, root) {
     const source = fs.readFileSync(file, "utf8");
     const needle = 'command: ["node", root.daemon, "--tree", Quickshell.shellDir + "/.."]';
     assert.equal(source.split(needle).length - 1, 1, "Jarvis command instrumentation match");
-    const replacement = 'command: ["bash", ' + JSON.stringify(lease) + ', ' + JSON.stringify(launcher) + ', ' +
+    const replacement = 'command: ' + commandStart + JSON.stringify(lease) + ', ' + JSON.stringify(launcher) + ', ' +
         JSON.stringify(path.join(root, "standins")) + ', root.daemon, Quickshell.shellDir + "/.."]';
     fs.writeFileSync(file, source.replace(needle, replacement));
     const keys = path.join(tree, "shell/plugins/vgs.jarvis/Keys.qml");
     const keysSource = fs.readFileSync(keys, "utf8");
     const keysNeedle = 'command: ["node", root.program, "presence"]';
     assert.equal(keysSource.split(keysNeedle).length - 1, 1, "key presence instrumentation match");
-    const keysCommand = 'command: ["bash", ' + JSON.stringify(launcher) + ', ' +
+    const keysCommand = 'command: ' + commandStart + JSON.stringify(launcher) + ', ' +
         JSON.stringify(path.join(root, "standins")) + ', "--", "node", ' +
         JSON.stringify(path.join(sourceTree, "scripts/fixtures/jarvis/keys-world.js")) + ', root.program, ' +
         JSON.stringify(path.join(root, "key-mode")) + ']';
@@ -330,7 +333,7 @@ function service(sourceTree, tree, root) {
     const localSource = fs.readFileSync(local, "utf8");
     const localNeedle = 'property var command: ["python3", "-I", program, "status"]';
     assert.equal(localSource.split(localNeedle).length - 1, 1, "local status instrumentation match");
-    const localCommand = 'property var command: ["bash", ' + JSON.stringify(launcher) + ', ' +
+    const localCommand = 'property var command: ' + commandStart + JSON.stringify(launcher) + ', ' +
         JSON.stringify(path.join(root, "standins")) + ', "--", "python3", ' +
         JSON.stringify(path.join(sourceTree, "scripts/fixtures/jarvis-setup/status.py")) + ', ' +
         JSON.stringify(path.join(root, "local-mode")) + ']';
@@ -345,7 +348,7 @@ function service(sourceTree, tree, root) {
         const tierSource = fs.readFileSync(tier, "utf8");
         const tierNeedle = 'property var command: ["python3", "-I", program, "choices"]';
         assert.equal(tierSource.split(tierNeedle).length - 1, 1, "local tier instrumentation match");
-        const tierCommand = 'property var command: ["bash", ' + JSON.stringify(launcher) + ', ' +
+        const tierCommand = 'property var command: ' + commandStart + JSON.stringify(launcher) + ', ' +
             JSON.stringify(path.join(root, "standins")) + ', "--", "python3", ' +
             JSON.stringify(path.join(sourceTree, "scripts/fixtures/jarvis-setup/status.py")) + ', "--choices", ' +
             JSON.stringify(path.join(root, "local-tiers.json")) + ']';
@@ -364,7 +367,7 @@ function service(sourceTree, tree, root) {
         const cloneSource = fs.readFileSync(clone, "utf8");
         const cloneNeedle = 'command: ["python3", "-I", program, "clone", "status"]';
         assert.equal(cloneSource.split(cloneNeedle).length - 1, 1, "clone status instrumentation match");
-        const cloneCommand = 'command: ["bash", ' + JSON.stringify(launcher) + ', ' +
+        const cloneCommand = 'command: ' + commandStart + JSON.stringify(launcher) + ', ' +
             JSON.stringify(path.join(root, "standins")) + ', "--", "python3", ' +
             JSON.stringify(path.join(sourceTree, "scripts/fixtures/jarvis-setup/status.py")) + ', "--clone", ' +
             JSON.stringify(path.join(root, "clone-status.json")) + ']';
@@ -378,7 +381,7 @@ function service(sourceTree, tree, root) {
     const browserSource = fs.readFileSync(browser, "utf8");
     const browserNeedle = 'command: ["node", program, "status"]';
     assert.equal(browserSource.split(browserNeedle).length - 1, 1, "browser status instrumentation match");
-    const browserCommand = 'command: ["bash", ' + JSON.stringify(launcher) + ', ' +
+    const browserCommand = 'command: ' + commandStart + JSON.stringify(launcher) + ', ' +
         JSON.stringify(path.join(root, "standins")) + ', "--", "node", ' +
         JSON.stringify(path.join(sourceTree, "scripts/fixtures/jarvis/browser-status.js")) + ', ' +
         JSON.stringify(path.join(root, "browser-mode")) + ']';
@@ -388,7 +391,7 @@ function service(sourceTree, tree, root) {
     const accountsSource = fs.readFileSync(accounts, "utf8");
     const accountsNeedle = 'probe.command = ["node", program, "--tree", Quickshell.shellDir + "/..", "presence", JSON.stringify(Providers.keyPresence(name => Quickshell.env(name)))];';
     assert.equal(accountsSource.split(accountsNeedle).length - 1, 1, "account discovery instrumentation match");
-    const accountsCommand = 'probe.command = ["bash", ' + JSON.stringify(launcher) + ', ' +
+    const accountsCommand = 'probe.command = ' + commandStart + JSON.stringify(launcher) + ', ' +
         JSON.stringify(path.join(root, "standins")) + ', "--", "node", ' +
         JSON.stringify(path.join(sourceTree, "scripts/fixtures/jarvis/accounts-world.js")) + ', program, ' +
         JSON.stringify(path.join(root, "account-mode")) + ', Quickshell.shellDir + "/..", JSON.stringify(Providers.keyPresence(name => Quickshell.env(name)))];';

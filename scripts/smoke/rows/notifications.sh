@@ -5137,7 +5137,7 @@ JS
   # mixin.stateless excludes node/state-stream.lua entirely. Settings alone
   # cannot load it (WirePlumber 0.5.18 wireplumber.conf and state-stream.lua).
   # Enable only that upstream producer, with saving off until its proof.
-  note_audio_evidence="$(mktemp -d "$source_repo/tmp/notifications-volume-state.XXXXXX")"
+  note_audio_evidence="$(mktemp -d "$smoke_log_dir/notifications-volume-state.XXXXXX")"
   printf 'notifications: audio-evidence=%s\n' "$note_audio_evidence"
   note_audio_profile="$(mktemp "$home/.config/wireplumber/wireplumber.conf.d/99-notifications-state.XXXXXX.conf")"
   cat >"$note_audio_profile" <<'CONF'
@@ -5783,8 +5783,7 @@ fi
 
 # Disabling and enabling again, three times over, leaves nothing behind.
 # Keep visual failure evidence before the private graphics sandbox ends.
-notification_visual_dir="$source_repo/tmp/smoke-artifacts/notifications-visual-$(date +%s%N)"
-mkdir -p -- "$notification_visual_dir"
+notification_visual_dir="$(mktemp -d "$smoke_log_dir/notifications-visual.XXXXXX")"
 for notification_visual_file in "$sandbox"/fade-*.png "$sandbox"/fade-*.json; do
   [[ ! -f $notification_visual_file ]] || cp -- "$notification_visual_file" "$notification_visual_dir/"
 done
@@ -6229,8 +6228,8 @@ CASES
     echo ok
 }
 expect "control: retries require a measured initial miss and stop at five" ok panel_latency_retry_cases
-mkdir -p -- "$source_repo/tmp/smoke-artifacts"
-cp -R -- "$panel_latency_dir" "$source_repo/tmp/smoke-artifacts/notifications-panel-latency-$(date +%s%N)"
+panel_latency_evidence="$(mktemp -d "$smoke_log_dir/notifications-panel-latency.XXXXXX")"
+cp -R -- "$panel_latency_dir/." "$panel_latency_evidence/"
 # The timing workload stays unchanged. These separate view checks compare
 # lightweight offscreen heights with the real cards after native scrolling.
 expect "the mixed geometry workload starts" ok ipc smoke runnerCall geometrySetup ''
@@ -6259,7 +6258,8 @@ for geometry_theme in dark light; do
     expect_poll "the mixed panel releases its cards" absent ipc smoke readInstance panel vgs.notifications opened
     if [[ $geometry_theme == dark ]]; then expect "mixed light view opens" ok notes inbox; expect_poll "mixed light rows render" 28 panel_count; fi
 done
-cp -R -- "$panel_geometry_dir" "$source_repo/tmp/smoke-artifacts/notifications-panel-geometry-$(date +%s%N)"
+panel_geometry_evidence="$(mktemp -d "$smoke_log_dir/notifications-panel-geometry.XXXXXX")"
+cp -R -- "$panel_geometry_dir/." "$panel_geometry_evidence/"
 expect "the latency observer unloads" ok ipc smoke runnerDrop
 expect "the latency history clears and resets refusal" ok notes clear-history
 write_theme "$panel_latency_saved_theme"

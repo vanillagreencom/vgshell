@@ -20,89 +20,62 @@ helper="$repo/scripts/smoke/shot.sh"
 
 # The EXIT trap is armed only on the directory mktemp made: an empty or
 # non-directory answer never reaches rm -rf.
-tmp="$(mktemp -d)" || { echo "test-sandbox-shots: scratch=mktemp-failed" >&2; exit 1; }
+tmp="$(mktemp -d /var/tmp/test-sandbox-shots.XXXXXX)" || { echo "test-sandbox-shots: scratch=mktemp-failed" >&2; exit 1; }
 [[ -d $tmp && ! -L $tmp ]] || { echo "test-sandbox-shots: scratch=not-a-directory value=[$tmp]" >&2; exit 1; }
 tmp="$(cd -- "$tmp" && pwd -P)"
 trap 'rm -rf -- "${tmp:?}"' EXIT
+node_bin="$(node -e 'process.stdout.write(process.execPath)')"
+export PATH="${node_bin%/*}:$PATH"
 failures=0
 ok() { printf '  ok    %s\n' "$*"; }
 fail() { failures=$((failures + 1)); printf '  FAIL  %s\n' "$*"; }
 
-# The Tailscale scene must refuse a host command before starting its shell.
-# Run its actual guard and resolver against files no case executes.
-if python3 - "$repo/scripts/sandbox-shots.sh" "$repo/scripts/smoke/harness.sh" "$tmp" "$BASH" <<'PYTAILSCALE'
+# Execute the harness's PATH builder with planted host files. Lookup alone
+# must find each registry stand-in, then none after it is moved away.
+if python3 - "$repo" "$tmp" "$BASH" <<'PYPATH'
 from pathlib import Path
+import os
+import re
 import shutil
 import subprocess
 import sys
 
-scene, harness, scratch, bash = sys.argv[1:]
-source = Path(scene).read_text()
-start = '  if [[ ${shell_start_path%%:*} != "$shim"'
-assert source.count(start) == 1
-offset = source.index(start)
-guard = source[offset:source.index("  fi\n", offset) + len("  fi\n")]
-assert guard.count("    exit 1\n") == 1
-assert "start_shell" not in guard
-source = Path(harness).read_text()
-assert source.count("shell_resolves() {") == 1
-resolver = next(line for line in source.splitlines() if line.startswith("shell_resolves() {"))
-root = Path(scratch) / "tailscale-isolation"
-root.mkdir()
-wrapper = 'set -euo pipefail\nshim=$1 sandbox=$2 shell_start_path=$3\n' + resolver + "\n"
-real = root / "guard.sh"
-real.write_text(wrapper + guard)
-mutant = root / "guard-mutant.sh"
-changed = guard.replace("    exit 1\n", "    : # planted missing refusal\n")
-assert changed != guard
-mutant.write_text(wrapper + changed)
-
-for case, expected in (
-    ("stand-in-first", 0), ("host-first", 1), ("absent-stand-in", 1),
-    ("symlink-stand-in", 1), ("leaked-host-path", 1),
-):
-    fixture = root / case
-    shim, host, sandbox = fixture / "shim", fixture / "fixture-host", fixture / "sandbox"
-    for directory in (shim, host, sandbox / "host-path"):
-        directory.mkdir(parents=True)
-    for program in (shim / "tailscale", host / "tailscale"):
-        program.write_text("#!/bin/sh\nexit 99\n")
-        program.chmod(0o755)
-    path = f"{shim}:{host}"
-    if case == "host-first":
-        path = f"{host}:{shim}"
-    elif case == "absent-stand-in":
-        (shim / "tailscale").unlink()
-    elif case == "symlink-stand-in":
-        (shim / "tailscale").unlink()
-        (shim / "tailscale").symlink_to(host / "tailscale")
-    elif case == "leaked-host-path":
-        shutil.copyfile(host / "tailscale", sandbox / "host-path/tailscale")
-    command = [
-        "/usr/bin/env", "-u", "WAYLAND_DISPLAY", "-u", "DISPLAY",
-        "-u", "HYPRLAND_INSTANCE_SIGNATURE", f"PATH={shim}:{host}",
-        bash, str(real), str(shim), str(sandbox), path,
-    ]
-    def run():
-        return subprocess.run(command, env={"LC_ALL": "C"}, capture_output=True, text=True, timeout=5)
-    def accepted(reading):
-        return reading.returncode == expected
-    result = run()
-    assert accepted(result), (case, result.returncode, result.stderr)
-    refusal = "sandbox-shots: refused: tailscale-section=stand-in-not-first"
-    assert result.stderr.strip() == (refusal if expected else ""), (case, result.stderr)
-    print(f"tailscale-isolation: case={case} expected={expected} actual={result.returncode}")
-    if case == "host-first":
-        command[command.index(str(real))] = str(mutant)
-        planted = run()
-        assert planted.returncode == 0 and planted.stderr.strip() == refusal
-        assert not accepted(planted), "the removed refusal passed the host-first case"
-        print("tailscale-isolation: control=removed-refusal rejected-by=host-first-status")
-PYTAILSCALE
+repo, scratch, bash = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
+harness = (repo / "scripts/smoke/harness.sh").read_text()
+devices = (repo / "scripts/smoke/devices.sh").read_text()
+registry = re.search(r"(?m)^device_stand_in_names=\([^)]*\)", devices).group()
+auth = re.search(r"(?m)^auth_sentinels=\([^)]*\)", harness).group()
+start = harness.index('python3 - "$sandbox/host-path"')
+builder = harness[start:harness.index('shell_start_path="$shim:$shell_host_path"', start)]
+resolver = next(line for line in harness.splitlines() if line.startswith("shell_resolves() {"))
+needle = '"${device_stand_in_names[@]}" "${auth_sentinels[@]}" crontab hyprctl '
+assert builder.count(needle) == 1
+for runner, own in (("qml-smoke", "vsys voxtype claude codex"), ("sandbox-shots", "voxtype voxtype-audio-bridge")):
+    def run(name, code):
+        root = scratch / (runner + "-" + name)
+        shim, host, sandbox = root / "shim", root / "host", root / "sandbox"
+        for directory in (shim, host, sandbox):
+            directory.mkdir(parents=True)
+        script = root / "case.sh"
+        script.write_text('set -euo pipefail\n' + registry + '\n' + auth + '\n' +
+            'shim=$1 sandbox=$2 node_bin=$3\nshell_hidden_commands=(' + own + ')\n' +
+            'names=("${device_stand_in_names[@]}" "${auth_sentinels[@]}" crontab hyprctl)\n' +
+            'for name in "${names[@]}"; do printf "#!/bin/sh\\nexit 99\\n" >"$shim/$name"; /bin/chmod 755 "$shim/$name"; /bin/cp "$shim/$name" "$4/$name"; done\n' +
+            code + 'shell_start_path="$shim:$shell_host_path"\n' + resolver + '\n' +
+            'for name in "${names[@]}"; do [[ $(shell_resolves "$name") == "$shim/$name" ]] || exit 21; /bin/mv "$shim/$name" "$shim/$name.moved"; [[ $(shell_resolves "$name") == none ]] || exit 22; done\n')
+        (host / "python3").symlink_to(shutil.which("python3"))
+        return subprocess.run([bash, str(script), str(shim), str(sandbox), "/usr/bin/true", str(host)],
+                              env={"PATH": str(host), "LC_ALL": "C"}, capture_output=True, timeout=10)
+    result = run("world", builder)
+    assert result.returncode == 0, (runner, result.returncode, result.stderr)
+    result = run("mutant", builder.replace(needle, ""))
+    assert result.returncode == 22, (runner, result.returncode, result.stderr)
+    print("registry-hiding: runner=%s stand-ins=present missing=none control=host-fixture-found" % runner)
+PYPATH
 then
-  ok "Tailscale pre-start isolation accepts its stand-in, refuses unsafe paths and rejects the missing-refusal control"
+  ok "both runners hide the whole stand-in registry and reject a harness without registry hiding"
 else
-  fail "Tailscale pre-start isolation cases or missing-refusal control failed"
+  fail "stand-in registry hiding"
 fi
 
 # These records come from the scene desktop before a modal scrim opens.
@@ -1706,7 +1679,11 @@ fi
 # harness, which, with no Wayland socket in the environment, exits 77.
 shots_repo="$tmp/shots-repo"
 mkdir -p "$shots_repo/scripts" "$shots_repo/shell/plugins/vgs.bar" "$shots_repo/bin" "$shots_repo/config" "$shots_repo/themes" "$shots_repo/tmp"
-ln -s "$repo/scripts/smoke" "$shots_repo/scripts/smoke"
+mkdir -p "$shots_repo/scripts/smoke"
+for smoke_helper in "$repo"/scripts/smoke/*; do
+  [[ ${smoke_helper##*/} == harness.sh ]] || ln -s "$smoke_helper" "$shots_repo/scripts/smoke/${smoke_helper##*/}"
+done
+printf 'echo "qml-smoke: status=not-measured missing=fixture-harness"\nexit 77\n' >"$shots_repo/scripts/smoke/harness.sh"
 : >"$shots_repo/shell/plugins/vgs.bar/Manager.qml"; : >"$shots_repo/bin/vgshell"; : >"$shots_repo/config/shell.json"; : >"$shots_repo/themes/.keep"
 git_quiet() { git -C "$shots_repo" -c user.name=t -c user.email=t@t -c commit.gpgsign=false "$@" >/dev/null; }
 cp -- "$repo/VERSION" "$repo/LICENSE" "$repo/README.md" "$shots_repo/"
