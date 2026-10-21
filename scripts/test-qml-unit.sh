@@ -78,6 +78,7 @@ mutations=(
   "a hovered System Monitor reading grows a row|../plugins/vgs.sysmon/Reading.qml|    spacing: Theme.stack.row|    spacing: Theme.stack.row; HoverHandler { id: hoverRow } Item { width: 1; height: 10; visible: hoverRow.hovered }|tst_sysmon_widget.qml"
   "a System Monitor reading click takes keyboard focus|../plugins/vgs.sysmon/Reading.qml|    spacing: Theme.stack.row|    spacing: Theme.stack.row; TapHandler { onTapped: root.forceActiveFocus() }|tst_sysmon_widget.qml"
   "VPN remove confirmation focuses Cancel|../plugins/vgs.vpn/VpnBody.qml|role: \"cancel\", focused: true|role: \"cancel\", focused: false|tst_vpn_views.qml"
+  "an open VPN prompt keeps its profile|../plugins/vgs.vpn/VpnBody.qml|promptTarget !== null && promptTarget.uuid !== row.uuid|false && promptTarget.uuid !== row.uuid|tst_vpn_views.qml"
   "the VPN flyout draws no empty state|../plugins/vgs.vpn/VpnBody.qml|visible: root.expanded && root.profiles.state !== \"reading\" && !root.listed|visible: root.profiles.state !== \"reading\" && !root.listed|tst_vpn_views.qml"
   "accepted navigation keeps the initial reason|foundation/KeyNav.qml|if (keyboard === true) Logic.focusNavigation(focusTarget);|if (false) Logic.focusNavigation(focusTarget);|tst_navigation_focus.qml"
   "a programmatic movement gains a keyboard reason|foundation/KeyNav.qml|if (keyboard === true) Logic.focusNavigation(focusTarget);|Logic.focusNavigation(focusTarget);|tst_navigation_focus.qml"

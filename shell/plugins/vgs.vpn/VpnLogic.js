@@ -35,9 +35,10 @@ function submitConnect(uuid, password) {
 }
 
 // The one passwd-file line nmcli reads on stdin, or null for an empty
-// password or one that holds a NUL, which nmcli refuses as not UTF-8.
-// nmcli 1.58.1 ends a line at LF or CR, ends the key at its first `:`, and
-// unescapes the value with nm_utils_buf_utf8safe_unescape(STRIP_SPACES):
+// password or one that holds a NUL, where nmcli's reader would silently
+// cut the password. nmcli 1.58.1 stops reading at a NUL, ends a line at
+// LF or CR, ends the key at its first `:` or `=`, and unescapes the value
+// with nm_utils_buf_utf8safe_unescape(STRIP_SPACES):
 // a backslash starts an escape, and unescaped leading and trailing ASCII
 // whitespace is stripped (src/libnmc-base/nm-client-utils.c,
 // nmc_utils_parse_passwd_file; VGS-1932 verify-first § 2). So every

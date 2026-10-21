@@ -116,8 +116,11 @@ FocusScope {
         watchSeen = false;
     }
 
+    // An open prompt keeps its profile: retargeting it would hand the typed
+    // password to another server. The other profile still reads Needs
+    // password, and its switch asks once this prompt closes.
     function askPassword(row) {
-        if (confirming) return;
+        if (confirming || promptTarget !== null && promptTarget.uuid !== row.uuid) return;
         localProblem = "";
         promptTarget = { uuid: row.uuid, name: row.name };
         Qt.callLater(() => { if (root.prompting) prompt.takeFocus(); });

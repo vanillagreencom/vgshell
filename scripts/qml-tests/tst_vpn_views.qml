@@ -11,8 +11,10 @@ import "../../shell/plugins/vgs.vpn/VpnLogic.js" as Logic
 // the remove confirmation by keyboard: Cancel takes the focus, Cancel
 // hands it back to Remove profile, and once the profile leaves the list
 // the focus moves to the profile now in its place, else the one before
-// it, else Import a VPN file. The stub's ScriptModel rebuilds every row
-// on a publish, so each row is found again after one.
+// it, else Import a VPN file; and an open password prompt keeps its
+// profile when another connect ends at Needs password. The stub's
+// ScriptModel rebuilds every row on a publish, so each row is found again
+// after one.
 Item {
     id: root
     width: 900
@@ -249,6 +251,28 @@ Item {
             publish(root.payload(root.standIn, { problem: Logic.problem("profile-remove", "Office VPN", 1) }));
             verify(named("vpn-problem") !== null, "the problem line shows");
             compare(find(view, item => "removingUuid" in item).removingUuid, "");
+        }
+
+        // A prompt open for one profile keeps that profile and its typed
+        // password when another profile's followed connect ends at Needs
+        // password: retargeting it would send the password to the other
+        // profile's server.
+        function test_prompt_keeps_its_profile() {
+            open(paneComponent, root.payload(root.standIn));
+            mouseClick(named("vpn-profile-toggle:" + root.office));
+            compare(lastIpc(), { kind: "profile-up", id: root.office });
+            publish(root.payload(root.standIn, { action: { kind: "profile-up", uuid: root.office, name: "Office VPN" } }));
+            mouseClick(named("vpn-profile-toggle:" + root.travel));
+            const prompt = named("vpn-connect-prompt");
+            verify(prompt !== null, "the prompt shows");
+            compare(prompt.target.uuid, root.travel);
+            const field = named("vpn-password");
+            tryVerify(() => field.activeFocus, 1000, "the password field holds the focus");
+            for (const key of "stand-in") keyClick(key);
+            publish(root.payload(root.standIn, { failures: { [root.office]: { kind: "needs-password", service: "" } } }));
+            compare(row(root.office).view.key, "needs-password");
+            compare(prompt.target.uuid, root.travel);
+            compare(field.text, "stand-in");
         }
 
         function test_empty_states() {
