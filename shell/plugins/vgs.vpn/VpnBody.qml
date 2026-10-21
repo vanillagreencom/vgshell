@@ -38,6 +38,8 @@ FocusScope {
     property string leaseId: ""
     property bool leased: false
     property string localProblem: ""
+    // null while no editor return is pending, "" for Add, or Edit's UUID.
+    property var editorTarget: null
     readonly property var profiles: shell === null || !shell.status.values.profiles
         ? Logic.compose(Logic.emptyProfiles("reading"), {}, {}, {}, null, "") : shell.status.values.profiles
     readonly property var profileRows: profiles.rows
@@ -91,12 +93,16 @@ FocusScope {
         leased = false;
     }
     Component.onDestruction: close()
-    // Window.active follows the containing window's activation, including
-    // a return from the detached editor, without owning another lifetime.
+    // Window.active follows the containing window's activation. Only a
+    // launch from this body arms an editor return; ordinary activation
+    // preserves learned password retries and the prompt's typed text.
     // https://doc.qt.io/qt-6/qml-qtquick-window.html#active-attached-prop
     Window.onActiveChanged: {
-        if (expanded && Window.active && shell !== null)
-            answered(shell.ipc.call("refresh", ""), "VGS could not refresh VPN profiles.");
+        if (expanded && Window.active && shell !== null && editorTarget !== null) {
+            const uuid = editorTarget;
+            editorTarget = null;
+            answered(shell.ipc.call("refresh", uuid), "VGS could not refresh VPN profiles.");
+        }
     }
 
     function answered(reply, refusal) {
@@ -172,8 +178,9 @@ FocusScope {
         // The run capability takes argv and hands the editor over detached.
         // VGS reads no output and the service's next scan reads its changes.
         const missing = shell.requirements.missing.includes("nm-connection-editor");
-        answered(missing ? shell.requirements.offer(["nm-connection-editor"]) : shell.run.detached(plan.argv),
+        const reply = answered(missing ? shell.requirements.offer(["nm-connection-editor"]) : shell.run.detached(plan.argv),
             "VGS could not open the connection editor.");
+        if (!missing && reply === "ok") editorTarget = kind === "edit" ? uuid : "";
     }
 
     function askRemove(row) {

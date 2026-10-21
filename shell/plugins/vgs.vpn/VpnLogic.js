@@ -223,14 +223,18 @@ function upFailure(code, text, row, carried) {
     return { kind: single ? "needs-password" : "sign-in", service: "" };
 }
 
-// The failures a requirements rescan leaves. A rescan follows an install,
-// so a missing plugin or a sign-in detail the user may since have saved in
-// the profile is asked again by the next connect; a password or connect
-// failure stays, since the bar's warning names it until a connect works.
-function afterRescan(failures) {
+// An editor return invalidates every learned failure for its UUID: the
+// editor may have replaced its credentials, type or plugin. Other profiles
+// keep their failures. An unscoped requirements rescan follows an install
+// and retries only the missing-plugin and sign-in facts it can change.
+function afterRescan(failures, editedUuid) {
     const kept = {};
-    for (const uuid of Object.keys(failures))
-        if (failures[uuid].kind !== "sign-in" && failures[uuid].kind !== "plugin-needed") kept[uuid] = failures[uuid];
+    const editing = typeof editedUuid === "string" && editedUuid !== "";
+    for (const uuid of Object.keys(failures)) {
+        const keep = editing ? uuid !== editedUuid
+            : failures[uuid].kind !== "sign-in" && failures[uuid].kind !== "plugin-needed";
+        if (keep) kept[uuid] = failures[uuid];
+    }
     return kept;
 }
 

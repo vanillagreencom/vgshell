@@ -7,8 +7,8 @@ import "VpnLogic.js" as Logic
 // Views hold a lease for the fast poll and use the plugin's IPC:
 // lease {id,open}; action {kind,id} with the profile's uuid for
 // profile-up, profile-down, profile-remove and profile-details; import,
-// refresh and open. A password connect is no IPC action: the prompt that
-// owns the masked field calls VpnLogic.submitConnect, which reaches
+// refresh (optionally the edited uuid) and open. A password connect is no
+// IPC action: its masked prompt calls VpnLogic.submitConnect, which reaches
 // connectWithPassword here directly with the one-use stdin closure.
 // nmcli's output stays in this file: VpnLogic parses the fields a view
 // shows and drops the rest, and a log line names the operation, its
@@ -31,8 +31,9 @@ Item {
     // Per uuid: { service, server } from the one detail read of the
     // current uuid set, the address while activated, and the failure the
     // last `up` left, which stays until an `up` succeeds, the profile is
-    // seen activated or it leaves the list; an explicit refresh also
-    // clears a sign-in or missing-plugin failure (VpnLogic.afterRescan).
+    // seen activated or it leaves the list. An editor return clears every
+    // failure of its uuid; a requirements rescan clears sign-in and
+    // missing-plugin failures (VpnLogic.afterRescan).
     // The problem line of the last failed action, { uuid, kind, text },
     // lives until the next action starts or VpnLogic.problemAfter finds
     // it no longer describes a listed profile.
@@ -72,7 +73,7 @@ Item {
             shell.ipc.handle("lease", arg => root.lease(arg));
             shell.ipc.handle("action", arg => root.actProfile(JSON.parse(arg)));
             shell.ipc.handle("import", () => root.importFile());
-            shell.ipc.handle("refresh", () => root.refresh());
+            shell.ipc.handle("refresh", arg => root.refresh(arg));
             shell.ipc.handle("open", arg => shell.surfaces.summon("panel", arg || "{}"));
             refresh();
         }
@@ -83,11 +84,11 @@ Item {
         if (profilesMissing) listing = Logic.emptyProfiles("reading");
         else readProfiles();
     }
-    function refresh() {
+    function refresh(editedUuid) {
         // The editor may save new details or credentials under the same
         // UUID. Refresh reads them through the existing readers; if an
         // earlier detail read is in flight, readDetails coalesces a new one.
-        failures = Logic.afterRescan(failures);
+        failures = Logic.afterRescan(failures, editedUuid);
         profileProblem = Logic.problemAfter(profileProblem, listing.rows, failures);
         detailsRead = "";
         readDetails();
