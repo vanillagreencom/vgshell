@@ -165,12 +165,14 @@ Item {
             verify(!remove.removesItem, "Remove profile leads its text with the trash mark");
         }
 
-        // A connect that found no OpenVPN plugin disables the switch with its
-        // reason, and the details still offer Edit and Remove profile.
+        // A missing core requirement disables the switch before a connect.
+        // Its one Install action raises the core's requirement notice.
         function test_missing_plugin_disables_its_switch() {
-            open(paneComponent, root.payload(root.standIn, { failures: { [root.office]: { kind: "plugin-needed", service: "openvpn" } } }));
+            open(paneComponent, root.payload(root.standIn));
+            root.missing = ["org.freedesktop.NetworkManager.openvpn"];
+            publish(root.values.profiles);
             const shown = row(root.office);
-            compare(Logic.rowView(root.values.profiles.rows.find(entry => entry.uuid === root.office), root.values.profiles).key, "plugin-needed");
+            compare(shown.view.key, "plugin-needed");
             shown.expanded = true;
             waitForRendering(view);
             const toggle = named("vpn-profile-toggle:" + root.office);
@@ -184,8 +186,15 @@ Item {
                     collect(child);
                 }
             })(shown);
-            compare(actions, ["vpn-edit:" + root.office, "vpn-remove:" + root.office]);
+            compare(actions, ["vpn-install-plugin:" + root.office, "vpn-edit:" + root.office, "vpn-remove:" + root.office]);
             compare(root.calls.filter(call => call[0] === "offer"), []);
+            mouseClick(named("vpn-install-plugin:" + root.office));
+            compare(root.calls.filter(call => call[0] === "offer"), [["offer", ["org.freedesktop.NetworkManager.openvpn"]]]);
+            root.missing = [];
+            publish(root.values.profiles);
+            compare(shown.view.key, "off");
+            compare(toggle.disabledReason, "");
+            verify(named("vpn-install-plugin:" + root.office) === null);
         }
 
         // The confirmation asks first, with Cancel focused; Cancel removes

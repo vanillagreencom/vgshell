@@ -139,12 +139,12 @@ var IDLE_STAGE_KEYS = ["seconds", "enabled"];
 
 // What one entry of a manifest's `requirements`, and of the core's own
 // config/requirements.json, may carry: an external command the plugin runs
-// or a D-Bus name it reaches, the package that provides it per manager id of
+// or a service it reaches, the package that provides it per manager id of
 // PackageManagers.js, whether the plugin works without it, and one line
 // saying what it is for, for a command the `floor`, the lowest version
 // the plugin works with, and `install`, how the package recipes carry its
 // package. The states a probed requirement is reported in.
-var REQUIREMENT_KEYS = ["command", "dbus", "packages", "optional", "purpose", "floor", "install"];
+var REQUIREMENT_KEYS = ["command", "dbus", "nmVpn", "packages", "optional", "purpose", "floor", "install"];
 // The one `install` value: the requirement stays required, and its package
 // is an optional dependency of every recipe, which its plugin's
 // Requirements section installs (scripts/check-packaging.js).
@@ -152,6 +152,11 @@ var REQUIREMENT_ON_REQUEST = "on-request";
 // A D-Bus requirement's `label` is the short name a page lists it by,
 // since its name is a bus path and its `purpose` a sentence.
 var REQUIREMENT_DBUS_KEYS = ["bus", "name", "label"];
+// NetworkManager starts VPN services from .name files on demand. An idle
+// installed plugin need not own a D-Bus name, so the scanner reads those
+// files instead of probing the service's bus ownership.
+var REQUIREMENT_NM_VPN_KEYS = ["service", "label"];
+var NM_VPN_SERVICE_PREFIX = "org.freedesktop.NetworkManager.";
 var REQUIREMENT_LABEL_MAX = 40;
 var REQUIREMENT_BUSES = ["system", "session"];
 var REQUIREMENT_PURPOSE_MAX = 120;
@@ -1191,9 +1196,10 @@ function sudoReport(completion, stdout, stderr) {
 }
 
 // The name a raw requirement entry, one requirementsError accepted, is
-// listed and named by: its command, or its D-Bus name.
+// listed and named by: its command, D-Bus name or NetworkManager service.
 function requirementName(requirement) {
-    return requirement.command !== undefined ? requirement.command : requirement.dbus.name;
+    return requirement.command !== undefined ? requirement.command
+        : requirement.dbus !== undefined ? requirement.dbus.name : requirement.nmVpn.service;
 }
 
 // The first defect of a manifest's `pane` key, or "": a plugin of kind
@@ -2345,14 +2351,30 @@ function dbusNameValid(name) {
 function requirementIdentity(requirement, at) {
     var hasCommand = hasOwn(requirement, "command");
     var hasDbus = hasOwn(requirement, "dbus");
-    if (hasCommand === hasDbus)
-        return { ok: false, error: at + " must name exactly one of command or dbus" };
+    var hasNmVpn = hasOwn(requirement, "nmVpn");
+    if (Number(hasCommand) + Number(hasDbus) + Number(hasNmVpn) !== 1)
+        return { ok: false, error: at + " must name exactly one of command, dbus or nmVpn" };
     if (hasCommand) {
         if (!PackageManagers.validCommand(requirement.command))
             return { ok: false, error: at + ".command must be a bare command name looked up on PATH, got " + JSON.stringify(requirement.command) };
         if (ID_PATTERN.test(requirement.command))
             return { ok: false, error: at + ".command " + JSON.stringify(requirement.command) + " is spelt as a plugin id: a requirement names a command or D-Bus name, never a plugin (D005)" };
         return { ok: true, at: at + ".command", name: requirement.command };
+    }
+    if (hasNmVpn) {
+        if (!isPlainObject(requirement.nmVpn))
+            return { ok: false, error: at + ".nmVpn must be an object" };
+        var vpnKeys = Object.keys(requirement.nmVpn);
+        for (var v = 0; v < vpnKeys.length; v++) {
+            if (REQUIREMENT_NM_VPN_KEYS.indexOf(vpnKeys[v]) === -1)
+                return { ok: false, error: at + ".nmVpn has unknown key " + JSON.stringify(vpnKeys[v]) };
+        }
+        var service = requirement.nmVpn.service;
+        if (!dbusNameValid(service) || service.indexOf(NM_VPN_SERVICE_PREFIX) !== 0)
+            return { ok: false, error: at + ".nmVpn.service must be a NetworkManager VPN service name, got " + JSON.stringify(service) };
+        if (!isPrintableLine(requirement.nmVpn.label, REQUIREMENT_LABEL_MAX))
+            return { ok: false, error: at + ".nmVpn.label must be a printable line of 1 to " + REQUIREMENT_LABEL_MAX + " characters" };
+        return { ok: true, at: at + ".nmVpn.service", name: service };
     }
     if (!isPlainObject(requirement.dbus))
         return { ok: false, error: at + ".dbus must be an object" };
@@ -2376,14 +2398,15 @@ function requirementIdentity(requirement, at) {
 // `command`, a bare command name PackageManagers.validCommand accepts, or
 // `dbus`, a well-known name on the system or session bus with the `label`
 // a page lists it by, one printable line of 1 to REQUIREMENT_LABEL_MAX
-// characters. The identity is
+// characters; or `nmVpn`, a NetworkManager VPN `service` with that same
+// short `label`, present when a .name file declares it. The identity is
 // declared once, and never names a plugin (D005). `packages`, when present,
 // is an object whose keys are manager ids of PackageManagers.MANAGERS and
 // whose values are package names PackageManagers.validName accepts;
 // `optional`, when present, is a boolean; `purpose` is one printable line
 // of 1 to REQUIREMENT_PURPOSE_MAX characters that hintFits accepts;
 // `floor`, when present, is a version REQUIREMENT_FLOOR accepts, on a
-// `command` alone, since a bus name prints none. `install`, when present,
+// `command` alone, since a service name prints none. `install`, when present,
 // is REQUIREMENT_ON_REQUEST, on a required entry with `packages` and no
 // `floor`: an optional entry's package is an optional dependency already,
 // an entry with no package has none to carry, and a floor is checked at
@@ -2444,12 +2467,13 @@ function requirementsError(requirements) {
 }
 
 // A `requirements` list requirementsError accepted, each entry with every
-// key: `name`, `title`, the command or the D-Bus `label` a page lists it
+// key: `name`, `title`, the command or the service `label` a page lists it
 // by, `bus`, `packages` {}, `optional` false, `floor` null and `onRequest`
 // false when absent.
 function normalRequirements(requirements) {
     return requirements.map(function (entry) {
-        return { name: requirementName(entry), title: entry.dbus === undefined ? entry.command : entry.dbus.label, bus: entry.dbus === undefined ? null : entry.dbus.bus, packages: entry.packages === undefined ? {} : clone(entry.packages), optional: entry.optional === true, purpose: entry.purpose, floor: entry.floor === undefined ? null : entry.floor, onRequest: entry.install === REQUIREMENT_ON_REQUEST };
+        var title = entry.command !== undefined ? entry.command : entry.dbus !== undefined ? entry.dbus.label : entry.nmVpn.label;
+        return { name: requirementName(entry), title: title, bus: entry.dbus === undefined ? null : entry.dbus.bus, packages: entry.packages === undefined ? {} : clone(entry.packages), optional: entry.optional === true, purpose: entry.purpose, floor: entry.floor === undefined ? null : entry.floor, onRequest: entry.install === REQUIREMENT_ON_REQUEST };
     });
 }
 

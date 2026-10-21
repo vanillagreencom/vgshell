@@ -5,7 +5,7 @@ Prints one JSON array. Each element names a plugin directory and carries
 either the manifest text with the source revision, or the read error.
 Validation is not done here: the shell's PluginLogic.js is the one judge of
 a manifest, and this script only reads bytes, probes PATH for command
-requirements and probes D-Bus for bus-name requirements a manifest declares.
+requirements, probes D-Bus names and reads NetworkManager VPN plugin files.
 
   vgshell-scan [--require-base] [--core FILE] [--snapshot-dir ROOT [--retain REVISION]...] BASE...
   vgshell-scan --watch-core DIR
@@ -20,7 +20,9 @@ that is neither a regular file nor a directory is an error.
 
 `missing` lists, in declaration order and each once, every requirement name
 the scan does not find: a `command` not on PATH, as shutil.which finds it,
-or a `dbus` name that is not owned or activatable on its bus. It is empty
+or a `dbus` name that is not owned or activatable on its bus, or an `nmVpn`
+service no .name file declares under /usr/lib/NetworkManager/VPN or
+/etc/NetworkManager/VPN. An idle VPN plugin need not own its bus name. It is empty
 when the text is not a JSON object with a `requirements` list. The scan
 probes each command once and each bus once, however many plugins declare
 them, and judges nothing: PluginLogic.js decides whether an entry is well
@@ -88,6 +90,41 @@ import stat
 import struct
 import sys
 import time
+
+NM_VPN_DIRECTORIES = ("/usr/lib/NetworkManager/VPN", "/etc/NetworkManager/VPN")
+
+
+def nm_vpn_services():
+    """Services declared by the .name keyfiles NetworkManager reads.
+    NetworkManager starts the declared program on connect, so an idle
+    plugin's installed file, not ownership of its bus name, proves presence."""
+    import configparser
+
+    services = set()
+    for directory in NM_VPN_DIRECTORIES:
+        try:
+            names = os.listdir(directory)
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            print(f"vgshell-scan: nm-vpn={directory} probe=failed {exc}", file=sys.stderr)
+            continue
+        for name in names:
+            if not name.endswith(".name"):
+                continue
+            path = os.path.join(directory, name)
+            try:
+                # GLib keyfiles have no special DEFAULT group to inherit.
+                keyfile = configparser.ConfigParser(interpolation=None, strict=False, default_section="")
+                keyfile.optionxform = str
+                with open(path, encoding="utf-8") as source:
+                    keyfile.read_file(source)
+                service = keyfile.get("VPN Connection", "service", fallback="").strip()
+                if service:
+                    services.add(service)
+            except (OSError, UnicodeError, configparser.Error) as exc:
+                print(f"vgshell-scan: nm-vpn={path} probe=failed {exc}", file=sys.stderr)
+    return services
 
 
 def source_files(directory, relative="", ancestors=(), skip=()):
@@ -382,7 +419,7 @@ def dbus_names(bus):
 
 
 def requirement_entries(text, core=False):
-    """Each command or dbus requirement the manifest text declares, in order;
+    """Each command, dbus or nmVpn requirement the manifest text declares, in order;
     none when the text is no object with a `requirements` list. With CORE
     the text is the list itself. Malformed entries are ignored: the judge
     refuses them before the shell consumes the scan."""
@@ -402,10 +439,13 @@ def requirement_entries(text, core=False):
             continue
         command = entry.get("command")
         dbus = entry.get("dbus")
+        nm_vpn = entry.get("nmVpn")
         if isinstance(command, str):
             out.append({"name": command, "bus": None})
         elif isinstance(dbus, dict) and dbus.get("bus") in ("system", "session") and isinstance(dbus.get("name"), str):
             out.append({"name": dbus["name"], "bus": dbus["bus"]})
+        elif isinstance(nm_vpn, dict) and isinstance(nm_vpn.get("service"), str):
+            out.append({"name": nm_vpn["service"], "bus": None, "nmVpn": True})
     return out
 
 
@@ -419,7 +459,11 @@ def missing_requirements(text, probed, bus_cache, core=False):
     for entry in requirement_entries(text, core):
         name = entry["name"]
         bus = entry["bus"]
-        if bus is None:
+        if entry.get("nmVpn"):
+            if ("nmVpn",) not in probed:
+                probed[("nmVpn",)] = nm_vpn_services()
+            present = name in probed[("nmVpn",)]
+        elif bus is None:
             if name not in probed:
                 probed[name] = shutil.which(name) is not None
             present = probed[name]

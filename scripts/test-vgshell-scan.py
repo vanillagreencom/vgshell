@@ -293,6 +293,38 @@ def probe_control():
                           "probed[name] = shutil.which(name) is not None", "probed[name] = True", probe_rows)
 
 
+def nm_vpn_rows(script=SCAN, quiet=False):
+    """The scanner reads private directories through the same disposable
+    source-copy boundary as its other file and timing controls."""
+    service = "org.freedesktop.NetworkManager.openvpn"
+    keyfile = "[VPN Connection]\nname=openvpn\nservice=" + service + "\n"
+    rows = [
+        ("no directory", {}, False),
+        ("installed under usr/lib", {"lib/plugin.name": keyfile}, True),
+        ("installed under etc", {"etc/plugin.name": keyfile}, True),
+        ("another service", {"lib/plugin.name": keyfile.replace("openvpn", "vpnc")}, False),
+        ("another extension", {"lib/plugin.conf": keyfile}, False),
+        ("another section", {"lib/plugin.name": keyfile.replace("VPN Connection", "libnm")}, False),
+        ("DEFAULT is an ordinary group", {"lib/plugin.name": "[DEFAULT]\nservice=" + service + "\n[VPN Connection]\nname=openvpn\n"}, False),
+        ("whitespace and CRLF", {"etc/plugin.name": keyfile.replace("service=", "service = ").replace("\n", "\r\n")}, True),
+        ("a malformed file beside the installed one", {"lib/broken.name": "not a keyfile", "etc/plugin.name": keyfile}, True),
+    ]
+    source = pathlib.Path(script).read_text()
+    needle = 'NM_VPN_DIRECTORIES = ("/usr/lib/NetworkManager/VPN", "/etc/NetworkManager/VPN")'
+    assert source.count(needle) == 1
+    results = []
+    for name, files, present in rows:
+        with tempfile.TemporaryDirectory() as tmp:
+            requirement = {"nmVpn": {"service": service, "label": "OpenVPN plugin"}, "purpose": "p"}
+            plant(tmp, {"plugins/a/manifest.json": json.dumps({"id": "acme.a", "requirements": [requirement]}), **files})
+            target = pathlib.Path(tmp, "vgshell-scan")
+            target.write_text(source.replace(needle, "NM_VPN_DIRECTORIES = " + repr((os.path.join(tmp, "lib"), os.path.join(tmp, "etc")))))
+            entry = one_entry(scan(os.path.join(tmp, "plugins"), script=str(target)))
+            good = entry is not None and entry["missing"] == ([] if present else [service])
+            results.append(good if quiet else report("nmVpn: " + name, good, str(entry)))
+    return results
+
+
 def scanner_module(script):
     loader = importlib.machinery.SourceFileLoader("vgshell_scan_under_test", script)
     spec = importlib.util.spec_from_loader("vgshell_scan_under_test", loader)
@@ -852,6 +884,9 @@ def main():
     results.append(mutant_control("migration entry discovery", 'entry["migrate"] = True', 'pass', migration_rows))
     results += probe_rows()
     results.append(probe_control())
+    results += nm_vpn_rows()
+    results.append(mutant_control("the VPN rows reject treating a missing plugin as present",
+                                  'present = name in probed[("nmVpn",)]', 'present = True', nm_vpn_rows))
     results += dbus_rows()
     results += dbus_controls()
     results += core_rows()

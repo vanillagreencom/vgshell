@@ -1,6 +1,6 @@
 # Saved VPN and WireGuard profiles by uuid over the nmcli stand-in, with
 # the readings of scripts/fixtures/vpn/: each row state, a missing plugin
-# read from the connect that failed for it with no Install anywhere, the
+# read from the core's .name file probe with an Install action, the
 # details of an expanded profile, Remove profile behind its confirmation,
 # the bar icon,
 # the Updates section, Import, detached editor actions and the privacy of nmcli's output. Switches,
@@ -274,7 +274,8 @@ vpn_empty_action() { vpn_named window EmptyState vpn-empty actionText | py_reply
 vpn_drawn_private() { ipc smoke itemTexts window vgs.system QQuickText | py_reply 'import json,re,sys; print(json.dumps(any(re.search(sys.argv[1], t) for row in json.load(sys.stdin) for t in row)))' "$vpn_private"; }
 vpn_status_private() { ipc smoke statusValues vgs.vpn | py_reply 'import json,re,sys; print(json.dumps(re.search(sys.argv[1], json.dumps(json.load(sys.stdin))) is not None))' "$vpn_private"; }
 # Whether System Settings draws any Install plugin action.
-vpn_install_drawn() { ipc smoke readMatchingDescendant window vgs.vpn RowAction text "Install plugin" visible; }
+vpn_install_drawn() { vpn_named window RowAction "vpn-install-plugin:$vpn_office" visible; }
+vpn_openvpn_requirement() { ipc shell listPlugins | py_reply 'import json,sys; print(next(r["state"] for p in json.load(sys.stdin)["plugins"] if p["id"]=="vgs.vpn" for r in p["requirements"] if r["name"]=="org.freedesktop.NetworkManager.openvpn"))'; }
 
 # vpn_press NAME TYPE TEXT: one pointer press on the control TYPE reading
 # TEXT in the profile row drawing NAME, brought into System Settings'
@@ -447,7 +448,23 @@ expected_errors+=('vpn: refused: profile=state' 'vpn: operation=profile-up compl
 read_count vpn_private_logged "the instance log is unreadable before the VPN row" log_lines "$vpn_private"
 device_reply nm-connection-editor 0 "" --create --type=vpn
 device_reply nm-connection-editor 0 "" "--edit=$vpn_home"
+# The existing sandbox source-copy mechanism stands in for the scanner's
+# system directories. No shipped directory override or live plugin file.
+vpn_scan_kept="$sandbox/vgshell-scan.vpn-kept"
+vpn_plugins="$sandbox/vpn-plugins"
+mkdir -p -- "$vpn_plugins/lib" "$vpn_plugins/etc"
+cp -p -- "$repo/bin/vgshell-scan" "$vpn_scan_kept"
+python3 - "$repo/bin/vgshell-scan" "$vpn_plugins" <<'PYVPNDIRS'
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+source = path.read_text()
+old = 'NM_VPN_DIRECTORIES = ("/usr/lib/NetworkManager/VPN", "/etc/NetworkManager/VPN")'
+assert source.count(old) == 1, old
+root = pathlib.Path(sys.argv[2])
+path.write_text(source.replace(old, "NM_VPN_DIRECTORIES = " + repr((str(root / "lib"), str(root / "etc")))))
+PYVPNDIRS
 rescan "rescan discovers the recording connection editor"
+expect "an empty VPN plugin directory reads OpenVPN missing" missing vpn_openvpn_requirement
 expect "VPN enables over its stand-in" ok ipc shell setPluginEnabled vgs.vpn true
 expect_poll "the VPN service is built" True record_exists vgs.vpn
 expect "System enables for VPN profiles" ok ipc shell setPluginEnabled vgs.system true
@@ -484,7 +501,25 @@ expect "the bar tooltip names the connected profile" true vpn_tooltip_names "Hom
 expect "System Settings opens on VPN" ok ipc shell summon window vgs.system '{"pane":"vgs.vpn"}'
 expect_poll "the pane draws the profiles" true vpn_named window Section vpn-profiles visible
 expect_poll "Home tunnel: Connected with its switch on" 'connected|true|free|false|' vpn_row "$vpn_home" "Home tunnel"
-expect "Office VPN: Off until a connect finds its plugin missing" 'off|false|free|false|' vpn_row "$vpn_office" "Office VPN"
+expect "Office VPN: Needs the OpenVPN plugin before a connect, its switch locked" 'plugin-needed|false|locked|false|' vpn_row "$vpn_office" "Office VPN"
+vpn_expand "missing OpenVPN details" "$vpn_office" "Office VPN"
+expect_poll "a missing OpenVPN plugin offers Install plugin" true vpn_install_drawn
+expect "the missing plugin switch is refused over IPC" 'refused: profile=plugin-needed' vpn_act profile-up "$vpn_office"
+vpn_press "Office VPN" RowAction "Install plugin" || fail "Install plugin could not be pressed"
+expect_poll "Install plugin opens the one core requirement notice" '["vgs.vpn", ["org.freedesktop.NetworkManager.openvpn"], ["org.freedesktop.NetworkManager.openvpn"], false]' notice_shown
+expect_poll "the plugin install notice holds the keyboard" true ipc smoke noticeFocused
+type_keys -k Escape || fail "Escape could not close the plugin install notice"
+expect_poll "Escape closes the plugin install notice" null notice_shown
+cat >"$vpn_plugins/lib/nm-openvpn-service.name" <<'VPNPLUGIN'
+[VPN Connection]
+name=openvpn
+service=org.freedesktop.NetworkManager.openvpn
+program=/usr/lib/nm-openvpn-service
+VPNPLUGIN
+rescan "the OpenVPN service file is installed in the stand-in directory"
+expect "the installed idle OpenVPN plugin reads present" present vpn_openvpn_requirement
+expect_poll "Office VPN: Off and connectable with the service file present" 'off|false|free|false|' vpn_row "$vpn_office" "Office VPN"
+expect "the installed plugin hides Install plugin" false vpn_install_drawn
 expect "Travel L2TP: Off" 'off|false|free|false|' vpn_row "$vpn_travel" "Travel L2TP"
 expect "Campus AnyConnect: Not supported here, its switch locked with its reason" 'unsupported|false|locked|false|' vpn_row "$vpn_campus" "Campus AnyConnect"
 expect "Branch IPsec: Off" 'off|false|free|false|' vpn_row "$vpn_branch" "Branch IPsec"
@@ -598,22 +633,10 @@ expect "Branch IPsec connects again" ok vpn_act profile-up "$vpn_branch"
 expect_poll "Branch IPsec: Plugin needed from the missing service, locked" 'plugin-needed|false|locked|false|' vpn_row "$vpn_branch" "Branch IPsec"
 vpn_expand "Branch IPsec details" "$vpn_branch" "Branch IPsec"
 expect_poll "Branch IPsec keeps its details and Remove profile" '"Cisco IPsec (vpnc)"|"ipsec.example.net"|hidden|true' vpn_details "$vpn_branch"
-# The same reply for OpenVPN: an installed plugin owns no bus name until
-# NetworkManager starts it, so only a failed connect reads it missing.
-vpn_openvpn_missing="$(<"$vpn_fixtures/up-service-missing.txt")"
-vpn_openvpn_missing="${vpn_openvpn_missing//NetworkManager.vpnc\'/NetworkManager.openvpn\'}"
-[[ $vpn_openvpn_missing == *"'org.freedesktop.NetworkManager.openvpn'"* ]] || fail "the OpenVPN plugin reply does not name the OpenVPN service"
-device_reply nmcli 4 "$vpn_openvpn_missing" connection up uuid "$vpn_office"
-expect "Office VPN connects" ok vpn_act profile-up "$vpn_office"
-expect_poll "Office VPN: Needs the OpenVPN plugin from the missing service, locked" 'plugin-needed|false|locked|false|' vpn_row "$vpn_office" "Office VPN"
-expect "the plugin-needed switch is refused over IPC" 'refused: profile=plugin-needed' vpn_act profile-up "$vpn_office"
-vpn_expand "Office VPN details after editor return" "$vpn_office" "Office VPN"
-expect_poll "Office VPN keeps its details and Remove profile" '"OpenVPN"|"vpn.example.com"|hidden|true' vpn_details "$vpn_office"
-expect "a missing OpenVPN plugin offers no Install plugin" absent vpn_install_drawn
 rescan "a requirements rescan after the plugin checks starts"
-expect_poll "the rescan clears Office VPN's missing plugin" 'off|false|free|false|' vpn_row "$vpn_office" "Office VPN"
+expect_poll "the rescan keeps the installed OpenVPN plugin connectable" 'off|false|free|false|' vpn_row "$vpn_office" "Office VPN"
 expect "the rescan clears Branch IPsec's missing plugin" 'off|false|free|false|' vpn_row "$vpn_branch" "Branch IPsec"
-expect "each failed connect logs its operation and code alone" 6 log_lines 'vpn: operation=profile-up completion=failed code=4$'
+expect "each failed connect logs its operation and code alone" 5 log_lines 'vpn: operation=profile-up completion=failed code=4$'
 
 # Remove profile: Cancel keeps the profile; Remove deletes it by uuid and
 # the focus moves to the profile now at its place.
@@ -846,6 +869,7 @@ rm -rf -- "${sandbox:?}/vpn-connect"
 expect "the VPN control copy disables" ok ipc shell setPluginEnabled vgs.vpn false
 expect_poll "the VPN control service is gone" False record_exists vgs.vpn
 rm -rf -- "${vpn_copy:?}"
+cp -p -- "$vpn_scan_kept" "$repo/bin/vgshell-scan"
 rescan "the shipped VPN plugin is restored"
 user_config_restore "$vpn_saved"
 expect "the VPN row restores the configuration" ok ipc shell reloadConfig

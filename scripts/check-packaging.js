@@ -23,7 +23,8 @@
 //     requirement required, and names its package: the declared package for
 //     a manager, else the row's tool name. `present` sets no version.
 // Each entry is { scope, command, packages, optional, onRequest, floor,
-// tool }: scope `core` or the plugin id, command is the requirement name,
+// tool }: scope `core` or the plugin id, command is the normalized requirement
+// name, including a D-Bus name or a NetworkManager VPN service,
 // packages keyed by manager id, onRequest whether the requirement declares
 // `"install": "on-request"`, floor a dotted version or null, tool the
 // preflight row's tool or null. A preflight row that lands on an on-request

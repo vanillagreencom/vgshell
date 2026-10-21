@@ -280,7 +280,7 @@ Item {
     }
 
     function actProfile(request) {
-        const plan = Logic.profileCommand(request, profiles);
+        const plan = Logic.profileCommand(request, profiles, shell.requirements.missing);
         if (plan.refusal !== undefined) return plan.refusal;
         if (plan.address !== undefined) {
             const row = listing.rows.find(candidate => candidate.uuid === plan.address);
@@ -293,7 +293,7 @@ Item {
     // the passwd-file line once nmcli has started. Only FEED's closure
     // holds the password, and it is dropped when the run starts or ends.
     function connectWithPassword(uuid, feed) {
-        const plan = Logic.passwordCommand(uuid, profiles);
+        const plan = Logic.passwordCommand(uuid, profiles, shell.requirements.missing);
         if (plan.refusal !== undefined) return plan.refusal;
         return startAction("profile-up", uuid, plan.argv, feed);
     }

@@ -14,31 +14,26 @@ case "$status" in
   *) vgs_tui_error "The file picker could not open."; exit "$status" ;;
 esac
 
-# Present when one of the plugin files NetworkManager reads declares the
-# OpenVPN service. NetworkManager starts a VPN plugin itself from its
-# file's program, and the plugin owns its bus name only while a connection
-# is up, so no bus answers for an installed, idle plugin. The two
-# directories are the ones the NetworkManager 1.58.1 daemon holds (strings
-# /usr/bin/NetworkManager, run 2026-10-20); networkmanager-openvpn 1.12.5
-# installs /usr/lib/NetworkManager/VPN/nm-openvpn-service.name.
-openvpn_plugin() {
-  local file line
-  for file in /etc/NetworkManager/VPN/*.name /usr/lib/NetworkManager/VPN/*.name; do
-    [[ -f $file && -r $file ]] || continue
-    while IFS= read -r line || [[ -n $line ]]; do
-      [[ $line =~ ^[[:space:]]*service[[:space:]]*=[[:space:]]*org\.freedesktop\.NetworkManager\.openvpn[[:space:]]*$ ]] && return 0
-    done <"$file"
-  done
-  return 1
-}
-
 # Case-sensitive: libnm refuses a WireGuard file whose name does not end in
 # ".conf" ("must be a valid interface name followed by .conf").
 case "$file" in
   *.conf) type=wireguard ;;
   *.ovpn)
     type=openvpn
-    openvpn_plugin || { vgs_tui_warn "This OpenVPN file needs NetworkManager's OpenVPN plugin."; exit 69; }
+    # The core's requirement reader owns plugin presence, as it does in
+    # VPN Details. VGS_TUI_LIB locates the same installed tree as this TUI.
+    plugin_state="$("${VGS_TUI_LIB%/lib/tui.sh}/vgshell" plugin requirements --json vgs.vpn | node -e '
+      try {
+        const rows = JSON.parse(require("fs").readFileSync(0, "utf8"));
+        const row = rows.find(r => r.name === "org.freedesktop.NetworkManager.openvpn");
+        if (!row || !["present", "missing"].includes(row.state)) process.exit(1);
+        process.stdout.write(row.state);
+      } catch (_) { process.exit(1); }
+    ')" || { vgs_tui_error "VGS could not check the OpenVPN plugin."; exit 69; }
+    [[ $plugin_state == present ]] || {
+      vgs_tui_warn "This OpenVPN file needs the OpenVPN plugin. Open VPN Settings › Setup › Optional tools › Review."
+      exit 69
+    }
     ;;
   *) vgs_tui_warn "VGS imports WireGuard (.conf) and OpenVPN (.ovpn) files."; exit 69 ;;
 esac

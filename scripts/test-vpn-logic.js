@@ -47,7 +47,36 @@ function holdsNothingPrivate(value, where) {
     for (const marker of PRIVATE) assert.ok(!json.includes(marker), where + " carries " + marker);
 }
 
+function vpnRequirementSuite(logic) {
+    const openvpn = "org.freedesktop.NetworkManager.openvpn";
+    const rows = [
+        { uuid: OFFICE, type: "vpn", service: "openvpn", state: "", failure: "" },
+        { uuid: TRAVEL, type: "vpn", service: "l2tp", state: "", failure: "needs-password" },
+        { uuid: LAB, type: "vpn", service: "vpnc", state: "", failure: "plugin-needed" }
+    ];
+    const profiles = { state: "available", rows, action: null };
+    const stale = { ...profiles, rows: rows.map(row => row.uuid === OFFICE ? { ...row, failure: "plugin-needed" } : row) };
+    const connected = { ...profiles, rows: rows.map(row => row.uuid === OFFICE ? { ...row, state: "activated" } : row) };
+    for (const [uuid, payload, missing, key, install, refused] of [
+        [OFFICE, profiles, [openvpn], "plugin-needed", openvpn, true],
+        [OFFICE, stale, [], "off", "", false],
+        [OFFICE, profiles, [], "off", "", false],
+        [OFFICE, connected, [openvpn], "connected", "", false],
+        [TRAVEL, profiles, [openvpn], "needs-password", "", false],
+        [LAB, profiles, [openvpn], "plugin-needed", "", true]
+    ]) {
+        const view = logic.rowView(payload.rows.find(row => row.uuid === uuid), payload, missing);
+        assert.deepEqual([view.key, view.install, view.reason !== ""], [key, install, refused]);
+        const plan = plain(logic.profileCommand({ kind: "profile-up", id: uuid }, payload, missing));
+        assert.deepEqual(plan, key === "connected" ? { refusal: "refused: profile=state" }
+            : refused ? { refusal: "refused: profile=plugin-needed" } : { argv: ["nmcli", "connection", "up", "uuid", uuid] });
+    }
+    const password = { ...profiles, rows: rows.map(row => row.uuid === OFFICE ? { ...row, failure: "needs-password" } : row) };
+    assert.deepEqual(plain(logic.passwordCommand(OFFICE, password, [openvpn])), { refusal: "refused: profile=state" });
+}
+
 function suite(logic, service = serviceSource) {
+    vpnRequirementSuite(logic);
     // The list: VPN and WireGuard rows by uuid, other types dropped, every
     // active profile counted.
     const listing = plain(logic.list(0, text("list.txt")));
@@ -166,7 +195,7 @@ function suite(logic, service = serviceSource) {
     assert.equal(byUuid(OFFICE).address, "", "an address shows only while activated");
     assert.equal(byUuid(LAB).service, "vpnc", "a missing plugin names its service before the details answer");
     assert.deepEqual(Object.keys(profiles).sort(), ["action", "activeCount", "count", "problem", "rows", "state"]);
-    // A missing OpenVPN plugin reads from the `up` that failed for it.
+    // An installed OpenVPN plugin supersedes an earlier failed connect.
     const missingPlugin = plain(logic.compose(listing, details, {}, { [OFFICE]: { kind: "plugin-needed", service: "openvpn" } }, null, ""));
     const viewOf = (payload, uuid) => plain(logic.rowView(payload.rows.find(row => row.uuid === uuid), payload));
     const flags = view => [view.key, view.connected, view.switchOn, view.busy, view.danger, view.reason !== ""];
@@ -177,7 +206,7 @@ function suite(logic, service = serviceSource) {
         [profiles, CAMPUS, ["unsupported", false, false, false, false, true]],
         [profiles, BRANCH, ["sign-in", false, false, false, false, true]],
         [profiles, LAB, ["plugin-needed", false, false, false, false, true]],
-        [missingPlugin, OFFICE, ["plugin-needed", false, false, false, false, true]],
+        [missingPlugin, OFFICE, ["off", false, false, false, false, false]],
         [missingPlugin, TRAVEL, ["off", false, false, false, false, false]],
         [plain(logic.compose(listing, details, {}, { [OFFICE]: { kind: "failed", service: "" } }, null, "")), OFFICE,
             ["failed", false, false, false, true, false]],
@@ -217,7 +246,7 @@ function suite(logic, service = serviceSource) {
         [{ kind: "profile-down", id: OFFICE }, profiles, { refusal: "refused: profile=state" }],
         [{ kind: "profile-up", id: CAMPUS }, profiles, { refusal: "refused: profile=unsupported" }],
         [{ kind: "profile-up", id: BRANCH }, profiles, { refusal: "refused: profile=sign-in" }],
-        [{ kind: "profile-up", id: OFFICE }, missingPlugin, { refusal: "refused: profile=plugin-needed" }],
+        [{ kind: "profile-up", id: OFFICE }, missingPlugin, { argv: ["nmcli", "connection", "up", "uuid", OFFICE] }],
         [{ kind: "profile-up", id: "Office VPN" }, profiles, { refusal: "refused: profile=absent" }],
         [{ kind: "profile-up", id: OFFICE }, plain(logic.compose(logic.emptyProfiles("not-running"), {}, {}, {}, null, "")), { refusal: "refused: profile=unavailable" }],
         [{ kind: "import" }, profiles, { refusal: "refused: profile=action" }],
@@ -467,7 +496,7 @@ function suite(logic, service = serviceSource) {
     const actor = stdinEnabled => ({ running: false, stdinEnabled, command: [], completion: "old" });
     // stale: a feed and an open stdin a change before this one left behind.
     const actionOwner = (stale = false) => {
-        const owner = { profiles, profileAction: null, profileProblem: { uuid: OFFICE }, connectFeed: stale ? () => {} : null,
+        const owner = { profiles, shell: { requirements: { missing: [] } }, profileAction: null, profileProblem: { uuid: OFFICE }, connectFeed: stale ? () => {} : null,
             profileActor: actor(stale), restarts: 0, profileActionDeadline: { restart() { owner.restarts++; } } };
         method(owner, "connectWithPassword");
         method(owner, "startAction");
@@ -549,7 +578,7 @@ function suite(logic, service = serviceSource) {
         const published = logic.compose(listing, details, {}, updated.failures, null, "");
         const passwordBody = /function passwordRow\(uuid\) \{([\s\S]*?)\n    \}/.exec(bodySource);
         assert.ok(passwordBody);
-        const passwordRow = new Function("Logic", "profiles", "uuid", passwordBody[1]).bind(null, logic, published);
+        const passwordRow = new Function("Logic", "profiles", "shell", "uuid", passwordBody[1]).bind(null, logic, published, { requirements: { missing: [] } });
         assert.equal(passwordRow(OFFICE), null, kind);
         const toggleBody = /function toggle\(row, wanted\) \{([\s\S]*?)\n    \}/.exec(bodySource);
         assert.ok(toggleBody);
@@ -804,7 +833,7 @@ try {
         ["a missing plugin is classified", 'if (plugin !== null) return', 'if (false) return'],
         ["an unknown delete is no failure", 'UNKNOWN_CONNECTION.test(String(text)) ? "gone"', 'false ? "gone"'],
         ["OpenConnect cannot connect here", 'row.service === "openconnect"', 'false'],
-        ["a missing plugin blocks its profile", 'if (row.failure === "plugin-needed")', 'if (false)'],
+        ["a missing plugin blocks its profile", '(!declaredPlugin && row.failure === "plugin-needed")', '(false)'],
         ["an address shows only while activated", 'row.state === "activated" && typeof addresses', 'typeof addresses'],
         ["a blocked switch refuses its IPC", 'if (view.reason !== "") return', 'if (false) return'],
         ["profile argv names uuid", '"up", "uuid", row.uuid]', '"up", "id", row.name]'],
@@ -833,14 +862,15 @@ try {
         ["a carried second secret reads sign-in", 'missing.some(name => name !== PASSWORD_ENTRY) ? "sign-in" : "password-tried"', '"password-tried"'],
         ["password-tried reads Needs password", 'row.failure === "needs-password" || row.failure === "password-tried") return view(', 'row.failure === "needs-password") return view('],
         ["password-tried raises the alert", ' || row.failure === "password-tried"));', "));"],
-        ["only Needs password takes a password", 'if (rowView(row, profiles).key !== "needs-password") return { refusal: "refused: profile=state" };', ""],
+        ["only Needs password takes a password", 'if (rowView(row, profiles, missing).key !== "needs-password") return { refusal: "refused: profile=state" };', ""],
+        ["the core scan blocks OpenVPN before connect", '(missing || []).indexOf(OPENVPN_SERVICE) !== -1', "false"],
         ["the password connect never asks", '"passwd-file", "/dev/stdin"]', '"passwd-file", "/dev/stdin", "--ask"]'],
         ["status rows are trimmed to their budget", "profiles.rows.pop();", "break;"]
     ]) {
         assert.equal(source.split(needle).length - 1, 1, name + " mutation must match once");
         const mutant = path.join(scratch, "VpnLogic.js");
         fs.writeFileSync(mutant, source.replace(needle, replacement));
-        assert.throws(() => suite(load(mutant, commons)), undefined, "control: " + name);
+        assert.throws(() => name === "the core scan blocks OpenVPN before connect" ? vpnRequirementSuite(load(mutant, commons)) : suite(load(mutant, commons)), undefined, "control: " + name);
         console.log("vpn-logic: control=" + name + " red");
     }
     for (const [name, old, replacement] of [

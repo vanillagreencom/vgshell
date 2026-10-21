@@ -80,9 +80,49 @@ function infoLines(ctx, check) {
     }
 }
 
+// The new requirement uses the existing normalized identity and notice
+// contract. File discovery belongs to scripts/test-vgshell-scan.py.
+function nmVpnRequirements(ctx, check) {
+    const service = "org.freedesktop.NetworkManager.openvpn";
+    const vpn = { service, label: "OpenVPN plugin" };
+    const raw = { schemaVersion: 1, id: "acme.vpn", name: "VPN", version: "1", author: "A", description: "VPN",
+        kinds: ["service"], entryPoints: { service: "Service.qml" } };
+    for (const [name, requirement, accepted] of [
+        ["service", { nmVpn: vpn }, true],
+        ["not an object", { nmVpn: service }, false],
+        ["unknown member", { nmVpn: { ...vpn, path: "/usr/lib/NetworkManager/VPN" } }, false],
+        ["missing service", { nmVpn: { label: vpn.label } }, false],
+        ["another namespace", { nmVpn: { ...vpn, service: "org.example.openvpn" } }, false],
+        ["invalid service", { nmVpn: { ...vpn, service: "org.freedesktop.NetworkManager.1bad" } }, false],
+        ["missing label", { nmVpn: { service } }, false],
+        ["long label", { nmVpn: { ...vpn, label: "x".repeat(41) } }, false],
+        ["control in label", { nmVpn: { ...vpn, label: "OpenVPN\nplugin" } }, false],
+        ["command too", { nmVpn: vpn, command: "openvpn" }, false],
+        ["dbus too", { nmVpn: vpn, dbus: { bus: "system", name: service, label: vpn.label } }, false],
+        ["floor", { nmVpn: vpn, floor: "1.0.0" }, false]
+    ]) {
+        const result = ctx.validateManifest({ ...raw, requirements: [{ ...requirement, purpose: "Connects VPN profiles" }] }, "/p");
+        check("nmVpn: " + name, result.ok, accepted);
+    }
+    const result = ctx.validateManifest({ ...raw, requirements: [{ nmVpn: vpn, purpose: "Connects VPN profiles", optional: true, packages: { pacman: "networkmanager-openvpn" } }] }, "/p");
+    check("nmVpn: normalized manifest", result.ok, true);
+    if (!result.ok) return;
+    check("nmVpn: shared identity", result.manifest.requirements, [{ name: service, title: vpn.label, bus: null,
+        packages: { pacman: "networkmanager-openvpn" }, optional: true, purpose: "Connects VPN profiles", floor: null, onRequest: false }]);
+    for (const [missing, state] of [[[], "present"], [[service], "missing"]]) {
+        check("nmVpn: scan reads " + state, ctx.requirementRows(result.manifest, missing, {}).map(row => [row.name, row.state]), [[service, state]]);
+    }
+    check("nmVpn: shared install notice", ctx.noticeView(result.manifest, [service], {}, { commands: [service], required: [] },
+        { primary: { id: "pacman", binary: "pacman" }, overlays: [], sources: [] }).rows.map(row => [row.name, row.package]), [[service, { manager: "pacman", name: "networkmanager-openvpn" }]]);
+    check("nmVpn: duplicate across forms", ctx.validateManifest({ ...raw, requirements: [
+        { nmVpn: vpn, purpose: "Connects VPN profiles" }, { dbus: { bus: "system", name: service, label: vpn.label }, purpose: "Connects VPN profiles" }
+    ] }, "/p").ok, false);
+}
+
 // Every row against one loaded judge, `ctx`, and the configuration judge it
 // imports, `configLogic`, each result handed to `check`.
 function suite(ctx, configLogic, check) {
+    nmVpnRequirements(ctx, check);
     infoLines(ctx, check);
     // Published state and key-list hints use the same visible words as their
     // declarations; the encoded target does not draw in either view.
@@ -435,9 +475,9 @@ function suite(ctx, configLogic, check) {
         ["requirements not a list", { requirements: { command: "gum" } }, "requirements must be a list"],
         ["a requirement that is a plugin id string", { requirements: ["vgs.settings"] }, "requirements.0 must be an object"],
         ["a requirement with an unknown key", { requirements: [{ command: "gum", purpose: "p", plugin: "vgs.settings" }] }, "requirements.0 has unknown key \"plugin\""],
-        ["a requirement with command and dbus", { requirements: [{ command: "gum", dbus: { bus: "system", name: "org.freedesktop.UPower.PowerProfiles" }, purpose: "p" }] }, "requirements.0 must name exactly one of command or dbus"],
+        ["a requirement with command and dbus", { requirements: [{ command: "gum", dbus: { bus: "system", name: "org.freedesktop.UPower.PowerProfiles" }, purpose: "p" }] }, "requirements.0 must name exactly one of command, dbus or nmVpn"],
         ["a requirement command that is a path", { requirements: [{ command: "/usr/bin/gum", purpose: "p" }] }, "requirements.0.command must be a bare command name looked up on PATH, got \"/usr/bin/gum\""],
-        ["a requirement without a command or dbus", { requirements: [{ purpose: "p" }] }, "requirements.0 must name exactly one of command or dbus"],
+        ["a requirement without an identity", { requirements: [{ purpose: "p" }] }, "requirements.0 must name exactly one of command, dbus or nmVpn"],
         ["a requirement command spelt as a plugin id", { requirements: [{ command: "vgs.settings", purpose: "p" }] }, "requirements.0.command \"vgs.settings\" is spelt as a plugin id: a requirement names a command or D-Bus name, never a plugin (D005)"],
         ["a requirement dbus bus outside the table", { requirements: [{ dbus: { bus: "starter", name: "org.freedesktop.UPower.PowerProfiles" }, purpose: "p" }] }, "requirements.0.dbus.bus must be one of system, session"],
         ["a requirement dbus name with one element", { requirements: [{ dbus: { bus: "system", name: "org" }, purpose: "p" }] }, "requirements.0.dbus.name must be a well-known D-Bus name"],
@@ -2880,7 +2920,8 @@ const CONTROLS = [
     ["requirements is a list", "if (!Array.isArray(requirements))\n        return \"requirements must be a list\";", "if (false)\n        return \"requirements must be a list\";"],
     ["a requirement is an object", "if (!isPlainObject(requirement))", "if (false)"],
     ["a requirement carries known keys", "if (REQUIREMENT_KEYS.indexOf(keys[k]) === -1)", "if (false)"],
-    ["a requirement names one identity", "if (hasCommand === hasDbus)\n        return { ok: false, error: at + \" must name exactly one of command or dbus\" };", "if (false)\n        return { ok: false, error: at + \" must name exactly one of command or dbus\" };"],
+    ["a requirement names one identity", "if (Number(hasCommand) + Number(hasDbus) + Number(hasNmVpn) !== 1)", "if (false)"],
+    ["a NetworkManager VPN service needs its namespace", "service.indexOf(NM_VPN_SERVICE_PREFIX) !== 0", "false", "nmVpn:"],
     ["a requirement command is a bare command name", "if (!PackageManagers.validCommand(requirement.command))", "if (false)"],
     ["a requirement command is never a plugin id", "if (ID_PATTERN.test(requirement.command))", "if (false)"],
     ["a requirement dbus bus is system or session", "if (REQUIREMENT_BUSES.indexOf(requirement.dbus.bus) === -1)", "if (false)"],
@@ -2898,7 +2939,7 @@ const CONTROLS = [
     ["an absent requirement packages is normalized", "packages: entry.packages === undefined ? {} : clone(entry.packages)", "packages: clone(entry.packages)"],
     ["an absent requirement optional is normalized", "optional: entry.optional === true", "optional: entry.optional"],
     ["a requirement's normalized identity is its name", "return { name: requirementName(entry), title:", "return { name: entry.command, title:"],
-    ["a D-Bus requirement is listed by its name", "title: entry.dbus === undefined ? entry.command : entry.dbus.label,", "title: requirementName(entry),"],
+    ["a D-Bus requirement is listed by its name", "title: title,", "title: requirementName(entry),"],
     ["a manifest carries its requirements normalized", "manifest.requirements = normalRequirements(requirements);", ""],
     ["an idle watch takes one second at least", "seconds < 1 || ", ""],
     ["an idle watch takes a day at most", " || seconds > IDLE_WATCH_MAX_SECONDS)", ")"],
@@ -3198,7 +3239,9 @@ try {
             const configLogic = load(copyOf(CONFIG));
             let red = 0;
             try {
-                suite(ctx, configLogic, (name, got, want) => { if ((!filter || name.includes(filter)) && JSON.stringify(got) !== JSON.stringify(want)) red += 1; });
+                const check = (name, got, want) => { if ((!filter || name.includes(filter)) && JSON.stringify(got) !== JSON.stringify(want)) red += 1; };
+                if (filter === "nmVpn:") nmVpnRequirements(ctx, check);
+                else suite(ctx, configLogic, check);
             } catch (e) {
                 red += 1;
             }

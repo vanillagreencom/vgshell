@@ -61,6 +61,20 @@
   },
   "requirements": [
     {
+      "nmVpn": {
+        "service": "org.freedesktop.NetworkManager.openvpn",
+        "label": "OpenVPN plugin"
+      },
+      "packages": {
+        "pacman": "networkmanager-openvpn",
+        "apt": "network-manager-openvpn",
+        "dnf": "NetworkManager-openvpn",
+        "nix": "networkmanager-openvpn"
+      },
+      "optional": true,
+      "purpose": "Connects OpenVPN profiles and imports OpenVPN files"
+    },
+    {
       "command": "nm-connection-editor",
       "packages": {
         "pacman": "nm-connection-editor",

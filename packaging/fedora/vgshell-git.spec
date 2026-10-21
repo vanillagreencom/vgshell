@@ -88,6 +88,7 @@ Recommends:     libcap
 Recommends:     polkit
 Recommends:     tailscale
 Recommends:     nm-connection-editor
+Recommends:     NetworkManager-openvpn
 Recommends:     cups-client
 Recommends:     cups-ipptool
 Recommends:     cups-pk-helper

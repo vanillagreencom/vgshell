@@ -17,14 +17,16 @@ Disclosure {
 
     required property var modelData
     property var profiles: ({})
+    property var missingRequirements: []
     property bool removable: false
-    readonly property var view: Logic.rowView(modelData, profiles)
+    readonly property var view: Logic.rowView(modelData, profiles, missingRequirements)
     readonly property Item removeAction: remove
     readonly property Item switchAction: toggle
 
     signal toggleRequested(bool wanted)
     signal removeRequested()
     signal editRequested()
+    signal installRequested(string requirement)
     signal detailsOpened()
 
     objectName: "vpn-profile:" + modelData.uuid
@@ -34,6 +36,13 @@ Disclosure {
     onExpandedChanged: if (expanded) detailsOpened()
 
     trailing: [
+        RowAction {
+            objectName: "vpn-install-plugin:" + root.modelData.uuid
+            anchors.verticalCenter: parent.verticalCenter
+            visible: root.view.install !== ""
+            text: "Install plugin"
+            onClicked: root.installRequested(root.view.install)
+        },
         Spinner {
             objectName: "vpn-profile-spinner:" + root.modelData.uuid
             anchors.verticalCenter: parent.verticalCenter

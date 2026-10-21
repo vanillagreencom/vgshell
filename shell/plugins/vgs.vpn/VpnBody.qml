@@ -145,7 +145,7 @@ FocusScope {
     }
     function passwordRow(uuid) {
         const row = profiles.rows.find(candidate => candidate.uuid === uuid);
-        return row !== undefined && Logic.rowView(row, profiles).key === "needs-password" ? row : null;
+        return row !== undefined && Logic.rowView(row, profiles, shell === null ? [] : shell.requirements.missing).key === "needs-password" ? row : null;
     }
     function closePrompt(uuid) {
         prompt.clear();
@@ -286,11 +286,13 @@ FocusScope {
                     width: rows.width
                     cursor: profileCursor
                     profiles: root.profiles
+                    missingRequirements: root.shell === null ? [] : root.shell.requirements.missing
                     removable: root.expanded
                     onDetailsOpened: root.readAddress(modelData.uuid)
                     onToggleRequested: wanted => root.toggle(modelData, wanted)
                     onRemoveRequested: root.askRemove(modelData)
                     onEditRequested: root.editor("edit", modelData.uuid)
+                    onInstallRequested: requirement => root.answered(root.shell.requirements.offer([requirement]), "VGS could not open the plugin install notice.")
                 }
             }
         }

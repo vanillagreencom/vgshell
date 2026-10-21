@@ -47,9 +47,10 @@ Singleton {
         const current = manifests;
         return Logic.menuRows(current, Object.keys(current).filter(id => root.isEnabled(id)), Config.effective);
     }
-    // id -> the commands of its `requirements` the last scan did not find
-    // on PATH, for every plugin in `manifests`; replaced whole when a scan
-    // finds a different set, apart from the manifests, so a command
+    // id -> the requirement identities the last scan did not find: a
+    // command on PATH, a D-Bus name, or a NetworkManager VPN plugin in its
+    // .name files. Replaced whole when a scan finds a different set,
+    // apart from the manifests, so a package
     // installed or removed rebuilds nothing.
     property var missingCommands: Object.create(null)
     // The core's own requirements, config/requirements.json as

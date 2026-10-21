@@ -302,15 +302,15 @@ function motion(row, action) {
 // spinner stands in for the switch. A profile reads Needs password both
 // before its first password and after a connect with one failed
 // (`password-tried`); its switch opens the prompt (VpnBody). A missing
-// plugin reads only from the
-// `up` that failed for it: NetworkManager starts a VPN plugin itself from
-// its `.name` file, and an idle plugin owns no bus name
-// (networkmanager-openvpn 1.12.5 ships no D-Bus service file).
-function rowView(row, profiles) {
+// OpenVPN plugin reads from the core requirement scan, which can find an
+// installed plugin before its first connect. Other plugins still read
+// from the `up` that failed for them, since the manifest declares none.
+var OPENVPN_SERVICE = "org.freedesktop.NetworkManager.openvpn";
+function rowView(row, profiles, missing) {
     const type = typeName(row.type, row.service);
     function view(key, words, extra) {
         return Object.assign({ key: key, type: type, secondary: type + " · " + words, danger: false, busy: false,
-            connected: false, switchOn: false, reason: "" }, extra || {});
+            connected: false, switchOn: false, reason: "", install: "" }, extra || {});
     }
     const moving = motion(row, profiles.action);
     // The switch shows where the change goes and waits for it.
@@ -321,8 +321,10 @@ function rowView(row, profiles) {
     if (row.state === "activated") return view("connected", "Connected", { connected: true, switchOn: true });
     if (row.type === "vpn" && row.service === "openconnect")
         return view("unsupported", "Connects in its own app", { reason: UNSUPPORTED_REASON });
-    if (row.failure === "plugin-needed")
-        return view("plugin-needed", "Needs the " + type + " plugin", { reason: "NetworkManager needs its " + type + " plugin to connect this profile." });
+    const declaredPlugin = row.type === "vpn" && row.service === "openvpn";
+    if ((declaredPlugin && (missing || []).indexOf(OPENVPN_SERVICE) !== -1) || (!declaredPlugin && row.failure === "plugin-needed"))
+        return view("plugin-needed", "Needs the " + type + " plugin", {
+            reason: "NetworkManager needs its " + type + " plugin to connect this profile.", install: declaredPlugin ? OPENVPN_SERVICE : "" });
     if (row.failure === "sign-in") return view("sign-in", "Asks for sign-in details VGS cannot ask", { reason: SIGN_IN_REASON });
     if (row.failure === "needs-password" || row.failure === "password-tried") return view("needs-password", "Needs password");
     if (row.failure === "failed") return view("failed", "Could not connect", { danger: true });
@@ -343,7 +345,7 @@ function editorArgv(kind, uuid, profiles) {
 
 // The plan for one IPC request: { argv } for a change, { address: uuid }
 // for an opened row's address read, or { refusal }.
-function profileCommand(request, profiles) {
+function profileCommand(request, profiles, missing) {
     if (!isPlain(request) || KINDS.indexOf(request.kind) === -1) return { refusal: "refused: profile=action" };
     if (profiles.state !== "available") return { refusal: "refused: profile=unavailable" };
     const row = profiles.rows.find(candidate => candidate.uuid === request.id);
@@ -354,7 +356,7 @@ function profileCommand(request, profiles) {
         if (row.state !== "activated" && row.state !== "activating") return { refusal: "refused: profile=state" };
         return { argv: ["nmcli", "connection", "down", "uuid", row.uuid] };
     }
-    const view = rowView(row, profiles);
+    const view = rowView(row, profiles, missing);
     if (view.connected || row.state === "activating") return { refusal: "refused: profile=state" };
     if (view.reason !== "") return { refusal: "refused: profile=" + view.key };
     return { argv: ["nmcli", "connection", "up", "uuid", row.uuid] };
@@ -364,11 +366,11 @@ function profileCommand(request, profiles) {
 // nmcli reading the passwd-file line on stdin and no `--ask`, which would
 // read the stdin the file has taken, or { refusal }. Only a profile that
 // reads Needs password takes a password.
-function passwordCommand(uuid, profiles) {
+function passwordCommand(uuid, profiles, missing) {
     if (profiles.state !== "available") return { refusal: "refused: profile=unavailable" };
     const row = profiles.rows.find(candidate => candidate.uuid === uuid);
     if (row === undefined) return { refusal: "refused: profile=absent" };
-    if (rowView(row, profiles).key !== "needs-password") return { refusal: "refused: profile=state" };
+    if (rowView(row, profiles, missing).key !== "needs-password") return { refusal: "refused: profile=state" };
     return { argv: ["nmcli", "connection", "up", "uuid", row.uuid, "passwd-file", "/dev/stdin"] };
 }
 

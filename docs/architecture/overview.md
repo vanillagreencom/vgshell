@@ -26,6 +26,7 @@ The boundary is a static import check plus the scoped object, not a process sand
 - Never let a plugin import another plugin or a core file: a plugin imports only the allowed module prefixes, `qs.Commons` and `qs.Ui` among them, and its own files. `scripts/check-plugin-boundary.py` refuses the rest.
 - Never create a surface, instantiate an object the core lends, or call `Hyprland.dispatch` in a plugin. `scripts/check-plugin-boundary.py` refuses each.
 - Never declare a dependency on another plugin, and never name a plugin in `requirements`. `PluginLogic.validateManifest` refuses an unknown key, `requires` and a requirement spelt as a plugin id; `scripts/test-plugin-logic.js` pins each.
+- Do declare a NetworkManager VPN requirement with `nmVpn: { service, label }`. The service names its `.name` file's `[VPN Connection]` service in `/usr/lib/NetworkManager/VPN` or `/etc/NetworkManager/VPN`; an idle plugin need not own its bus name. `PluginLogic.requirementsError` judges the form, and the existing scan and requirement notice probe and install it.
 - Do declare everything a plugin asks of the core as data in its manifest, never code, Lua or a command string ([D011](../decisions/D011-native-manifest-no-cross-shell-compatibility.md)). `bin/lib/check-manifests.js` judges every bundled manifest; review catches code inside a string value.
 
 ### Core

@@ -10,6 +10,7 @@ VPN connects your saved NetworkManager VPN and WireGuard profiles. It has its ow
 
 - A shield icon shows whether a profile is connected. It turns while a profile connects or disconnects, and shows a warning after a profile could not connect or needs its password. It hides while NetworkManager is unavailable or no VPN or WireGuard profile is saved.
 - Each profile has a connection switch in the flyout and in System Settings. Its line gives its type and state, and when a profile cannot connect here, its switch says why.
+- An OpenVPN profile that needs NetworkManager's OpenVPN plugin offers Install plugin beside its disabled switch. Installing the plugin makes the profile available to connect.
 - When an OpenVPN, L2TP, PPTP, SSTP or Fortinet SSL profile asks for its password, its line reads Needs password and its switch opens a password prompt. After a connect with a password fails, the prompt opens again and says that NetworkManager could not connect with this password.
 - Open a profile to see its type, its server and, while it is connected, its address.
 - Import a VPN file opens a file picker in a setup window. It imports WireGuard (.conf) and OpenVPN (.ovpn) files, and NetworkManager stores the imported profile and its keys.
@@ -37,6 +38,6 @@ VGS gives the password you type to NetworkManager for that one connect and keeps
 
 ## Setup
 
-System Settings › VPN stays available when the bar icon hides. It shows your saved profiles when NetworkManager answers. Import a VPN file adds a WireGuard or OpenVPN file to NetworkManager. Add with connection editor makes a profile, including a VPN that has no file to import. Open a saved profile and use Edit in connection editor to change it or save the sign-in details it needs. Both actions offer to install NetworkManager's editor when it is missing. OpenVPN profiles and OpenVPN (.ovpn) imports need NetworkManager's OpenVPN plugin.
+System Settings › VPN stays available when the bar icon hides. It shows your saved profiles when NetworkManager answers. Import a VPN file adds a WireGuard or OpenVPN file to NetworkManager. Add with connection editor makes a profile, including a VPN that has no file to import. Open a saved profile and use Edit in connection editor to change it or save the sign-in details it needs. Both actions offer to install NetworkManager's editor when it is missing. OpenVPN profiles and OpenVPN (.ovpn) imports need NetworkManager's OpenVPN plugin. Use Install plugin on an OpenVPN profile, or open Settings › Plugins › VPN › Setup and review Optional tools. Details lists the plugin under Tools.
 
 Check every, in the Updates section, sets how often VGS reads your profiles while the flyout and the section are closed.
