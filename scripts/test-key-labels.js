@@ -32,6 +32,14 @@ const { spawnSync } = require("node:child_process");
 const { load } = require("../bin/lib/qml-library.js");
 
 const repo = path.join(__dirname, "..");
+const fence = path.join(repo, "scripts", "smoke", "gpu-fence.sh");
+const check = spawnSync(fence, ["--check"], { stdio: "inherit" });
+if (check.error) throw check.error;
+if (check.status !== 0) {
+    const entered = spawnSync(fence, [process.execPath, __filename, ...process.argv.slice(2)], { stdio: "inherit" });
+    if (entered.error) throw entered.error;
+    process.exit(entered.status === null ? 1 : entered.status);
+}
 const plugins = path.join(repo, "shell", "plugins");
 const REGISTER = /shell\.shortcut\.register\(\s*([^,]+?)\s*,\s*([^,]+?)\s*,/g;
 const PLANTED = "Open or close the notification inbox and every earlier message it holds";
@@ -146,7 +154,7 @@ function run(list) {
         const test = path.join(dir, "tst_keylabels.qml");
         fs.writeFileSync(test, testSource(list));
         const env = {};
-        for (const name of ["PATH", "HOME", "TMPDIR", "XDG_RUNTIME_DIR", "LANG", "LC_ALL"])
+        for (const name of ["PATH", "HOME", "TMPDIR", "XDG_RUNTIME_DIR", "LANG", "LC_ALL", "VGSHELL_WORLD_ROOT", "VGS_TEST_RUN"])
             if (process.env[name] !== undefined) env[name] = process.env[name];
         const result = spawnSync(path.join(repo, "scripts", "qml-unit.sh"), ["--tests", dir, test], { env, encoding: "utf8" });
         process.stdout.write(result.stdout);

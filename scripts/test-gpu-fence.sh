@@ -213,22 +213,16 @@ want_proof="$(
 
 # run_fence FILE BIN ARG...: FILE with ARG... from the scratch working
 # directory, under an environment that holds PATH, the BIN directory alone,
-# HOME, TMPDIR, the report's variable and the words in `placed`, which the
-# call empties. Sets status; the streams are $TMP_ROOT/out and
+# HOME, TMPDIR and the report's variable. Sets status; the streams are $TMP_ROOT/out and
 # $TMP_ROOT/err.
-placed=()
 run_fence() {
-  local file="$1" bin="$2" words=("${placed[@]}")
+  local file="$1" bin="$2"
   shift 2
-  placed=()
   rm -f -- "$TMP_ROOT/marker" "$TMP_ROOT/bwrap-called"
   status=0
-  (cd -- "$TMP_ROOT/cwd" && env -i PATH="$TMP_ROOT/bin-$bin" HOME="${TMP_ROOT}-home" TMPDIR="$TMP_ROOT" FENCE_TEST_VALUE=kept "${words[@]}" "$BASH" "$file" --checkout "$repo" --out "$TMP_ROOT" "$@") \
+  (cd -- "$TMP_ROOT/cwd" && env -i PATH="$TMP_ROOT/bin-$bin" HOME="${TMP_ROOT}-home" TMPDIR="$TMP_ROOT" FENCE_TEST_VALUE=kept "$BASH" "$file" --checkout "$repo" --out "$TMP_ROOT" "$@") \
     >"$TMP_ROOT/out" 2>"$TMP_ROOT/err" || status=$?
 }
-# place WHERE: `fenced` puts the next run inside a fence's namespace, which
-# names an existing ledger there; anything else puts it outside.
-place() { placed=(); }
 # seen_report: the report with its PID namespace read as the test's own,
 # `same`, or `other`.
 seen_report() { awk -v mine="pidns $own_pidns" '/^pidns / { print ($0 == mine ? "pidns same" : "pidns other"); next } { print }' "$TMP_ROOT/out"; }
@@ -245,17 +239,10 @@ stopped() {
 }
 
 # The cases. Each takes the fence file first.
-check_is() { # FILE WORLD STATUS WHERE
+check_is() { # FILE WORLD STATUS
   roots "$2"
-  place "$4"
   run_fence "$1" none "${at[@]}" --check
   [[ $status -eq $3 && ! -s $TMP_ROOT/out && ! -s $TMP_ROOT/err ]]
-}
-runs_directly() { # FILE WORLD
-  roots "$2"
-  place fenced
-  run_fence "$1" broken "${at[@]}" sh -c 'touch "$1"; exit 9' _ "$TMP_ROOT/marker"
-  [[ $status -eq 9 && -e $TMP_ROOT/marker && ! -e $TMP_ROOT/bwrap-called && ! -s $TMP_ROOT/err ]]
 }
 hides() { # FILE
   local seen
@@ -513,9 +500,8 @@ PYSERVICES
 
 # Rows: label | whether the case makes a namespace | the case and its words.
 cases=(
-  "a visible amdgpu node needs the fence|no|check_is amd 1 outside"
-  "a visible amdgpu node inside a fence needs the fence|no|check_is amd 1 fenced"
-  "a host with no amdgpu node needs the fence|no|check_is plain 1 outside"
+  "a visible amdgpu node needs the fence|no|check_is amd 1"
+  "a host with no amdgpu node needs the fence|no|check_is plain 1"
   "the namespace hides every amdgpu path, keeps the rest and proves both|yes|hides"
   "a host with no amdgpu node runs the command in a PID namespace with every path kept|yes|plain_namespace"
   "service masks hide present paths and leave absent paths absent|yes|service_masks"
@@ -964,11 +950,11 @@ chmod +x "$TMP_ROOT/fence-stand-in" "$TMP_ROOT/runner"
 entry_points=(qml-smoke.sh sandbox-shots.sh measure-shader.sh qml-unit.sh jarvis-selftest.sh test-smoke-sink.sh)
 entry_words() {
   case "$1" in
-    qml-smoke.sh) words=(--timeout "6 0" --keep) ;;
-    sandbox-shots.sh) words=(--out "$TMP_ROOT/tree-$1/tmp/o ut" --scale 2 gallery) ;;
+    qml-smoke.sh) words=(--timeout "6 0" --keep --log-dir "$TMP_ROOT/smoke-logs") ;;
+    sandbox-shots.sh) words=(--out "$TMP_ROOT/tree-$1/tmp/o ut" --scale 2 --keep gallery) ;;
     measure-shader.sh) words=(--calibrate "out file.json" --keep) ;;
     qml-unit.sh) words=(--ui "$TMP_ROOT/u i") ;;
-    jarvis-selftest.sh) words=(--type "two words" --brain stand-in --model "test model") ;;
+    jarvis-selftest.sh) words=(--type "two words" --brain stand-in --model "test model" --out "$TMP_ROOT/selftest-record.json") ;;
     test-smoke-sink.sh) words=() ;;
     *) printf '        no words for entry point: %s\n' "$1"; return 1 ;;
   esac
@@ -981,6 +967,10 @@ entry_words() {
 # be a version manager's shim that fails under a scratch HOME, so its PATH
 # leads with the directory of the binary itself.
 node_bin="$(node -e 'process.stdout.write(process.execPath)')" || { echo "test-gpu-fence: missing=node" >&2; exit 1; }
+mkdir -p "$TMP_ROOT/entry-bin" "$TMP_ROOT/entry-account"
+printf '#!/bin/sh\nprintf "%%s\\n" "%s"\n' "$TMP_ROOT/entry-bin/copilot" >"$TMP_ROOT/entry-bin/mise"
+printf '#!/bin/sh\nexit 0\n' >"$TMP_ROOT/entry-bin/copilot"
+chmod +x "$TMP_ROOT/entry-bin/mise" "$TMP_ROOT/entry-bin/copilot"
 voice_root="$TMP_ROOT/voice/.local/share/vgshell/jarvis/local"
 voxtype_models="$TMP_ROOT/voxtype-models"
 voxtype_builds="$TMP_ROOT/voxtype-builds"
@@ -1022,12 +1012,13 @@ PY
   cp -- "$repo/scripts/smoke/rows.list" "$tree/scripts/smoke/rows.list"
   ln -s -- "$repo/config" "$tree/config"
   printf 'echo harness-reached\nexit 0\n' >"$tree/scripts/smoke/harness.sh"
-  echo 'exports.use = () => {};' >"$tree/shell/plugins/vgs.jarvis/backend/Core.js"
-  echo 'exports.Accounts = class { resolve() { return { source: { kind: "local" } }; } };' >"$tree/shell/plugins/vgs.jarvis/backend/Accounts.js"
+  echo 'exports.use = () => {}; exports.accounts = () => ({ harness: () => ({ variable: "COPILOT_HOME" }) });' >"$tree/shell/plugins/vgs.jarvis/backend/Core.js"
+  printf 'exports.Accounts = class { resolve() { return { provider: "copilot", source: { kind: "cli", directory: %s } }; } };\n' "\"$TMP_ROOT/entry-account\"" >"$tree/shell/plugins/vgs.jarvis/backend/Accounts.js"
   : >"$TMP_ROOT/fence.log"
   echo "$3" >"$TMP_ROOT/fence-answer"
   status=0
-  (cd -- "$TMP_ROOT/cwd" && env -i PATH="$(dirname -- "$node_bin"):$PATH" HOME="$TMP_ROOT" TMPDIR="$TMP_ROOT/entry-tmp" QML_UNIT_RUNNER="$TMP_ROOT/runner" \
+  (cd -- "$TMP_ROOT/cwd" && env -i PATH="$TMP_ROOT/entry-bin:$(dirname -- "$node_bin"):$PATH" HOME="$TMP_ROOT" TMPDIR="$TMP_ROOT/entry-tmp" QML_UNIT_RUNNER="$TMP_ROOT/runner" \
+    DBUS_SESSION_BUS_ADDRESS="unix:path=$TMP_ROOT/fixture-bus" \
     JARVIS_LOCAL_MODELS="$voice_root/models" JARVIS_LOCAL_PYTHON="$voice_root/venv/bin/python" VOXTYPE_MODELS="$voxtype_models" \
     "$BASH" "$tree/scripts/$name" "${words[@]}") >"$TMP_ROOT/out" 2>"$TMP_ROOT/err" || status=$?
 }
@@ -1035,12 +1026,20 @@ PY
 # path and every argument, the script's status is the fence's, and nothing
 # was made under the tree or the scratch directory before.
 enters() {
-  local want word
+  local want word tree="$TMP_ROOT/tree-$2" declarations=()
   entry "$1" "$2" 1 || return 1
-  want=" [$TMP_ROOT/tree-$2/scripts/$2]"
+  case "$2" in
+    qml-smoke.sh) declarations=(--out "$tree/tmp/display-record" --keep --out "$TMP_ROOT/smoke-logs") ;;
+    sandbox-shots.sh) declarations=(--out "$tree/tmp/o ut" --out "$tree/tmp/display-record" --out "$tree/tmp/qml-smoke" --keep) ;;
+    measure-shader.sh) declarations=(--out "$tree/tmp/shader-cost" --out "$tree/tmp/display-record" --out "$tree/tmp/qml-smoke" --keep --out "$TMP_ROOT/cwd") ;;
+    jarvis-selftest.sh) declarations=(--net --out "$tree/tmp/display-record" --out "$tree/tmp/selftest-records" --out "$tree/tmp/qml-smoke" --out "$TMP_ROOT" --sign-in COPILOT_HOME "$TMP_ROOT/entry-account" --secrets) ;;
+    qml-unit.sh|test-smoke-sink.sh) ;;
+  esac
+  want=check$'\n'run
+  for word in "${declarations[@]}" "$tree/scripts/$2"; do want+=" [$word]"; done
   if [[ $2 == sandbox-shots.sh ]]; then want+=" [--out] [$TMP_ROOT/tree-$2/tmp/o ut]"; fi
   for word in "${words[@]}"; do want+=" [$word]"; done
-  [[ $status -eq 0 && "$(<"$TMP_ROOT/fence.log")" == check$'\n'run*"$want" && -z "$(ls -A -- "$TMP_ROOT/entry-tmp")" ]]
+  [[ $status -eq 0 && "$(<"$TMP_ROOT/fence.log")" == "$want" && -z "$(ls -A -- "$TMP_ROOT/entry-tmp")" ]]
 
 }
 # goes_on FILE NAME: where the check passes, the fence is asked once and

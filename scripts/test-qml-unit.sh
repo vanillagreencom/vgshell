@@ -1972,6 +1972,10 @@ if [[ $plan_only == true ]]; then
   exit 0
 fi
 
+"$repo/scripts/smoke/gpu-fence.sh" --check || exec "$repo/scripts/smoke/gpu-fence.sh" env \
+  VGS_VALIDATE_BASE="${VGS_VALIDATE_BASE:-}" VGS_VALIDATE_CHANGED="${VGS_VALIDATE_CHANGED:-}" \
+  VGS_VALIDATE_JOBS="$jobs_max" "$self" "$@"
+
 probe_status=0
 out="$("$runner" --tests "$repo/scripts/qml-tests" "$repo/scripts/qml-tests/tst_module.qml" 2>&1)" || probe_status=$?
 if [[ $probe_status -eq 77 ]]; then
@@ -2101,16 +2105,6 @@ log_case() { # INDEX
 # lock lets both start at once.
 xvfb_lock_case() {
   local dir="$tmp/xvfb-lock" tree="$tmp/xvfb-lock/tree" run want order a b
-  if ! "$repo/scripts/smoke/gpu-fence.sh" --check; then
-    mkdir -p "$dir"
-    {
-      printf 'set -euo pipefail\n'
-      declare -f xvfb_lock_case ok fail
-      printf 'tmp=$1 runner=$2 repo=$3 failures=0\nxvfb_lock_case\n[[ $failures == 0 ]]\n'
-    } >"$dir/inside.sh"
-    "$repo/scripts/smoke/gpu-fence.sh" --out "$dir" "$BASH" "$dir/inside.sh" "$tmp" "$runner" "$repo"
-    return
-  fi
   mkdir -p -- "$dir/bin" "$tree/scripts"
   printf '#!/bin/sh\n' | tee "$dir/bin/Xvfb" >"$dir/bin/xauth"
   cat >"$dir/bin/xvfb-run" <<'SH'
