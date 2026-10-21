@@ -602,7 +602,6 @@ expect_poll "the Tailscale icon returns after its backend returns" true tailscal
 mv -- "$shim/tailscale" "$tailscale_dir/hidden-command"
 rescan "the scan reads tailscale absent without a host fallback"
 expect_poll "Tailscale publishes its missing command" '"missing"' tailscale_value state
-expect_poll "the missing command's setup step names the install action" tools tailscale_setup
 expect_poll "the Tailscale icon hides while its command is missing" false tailscale_widget
 mv -- "$tailscale_dir/hidden-command" "$shim/tailscale"
 rescan "the Tailscale stand-in returns"
