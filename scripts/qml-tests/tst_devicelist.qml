@@ -13,9 +13,10 @@ import qs.Unit
 // while the list holds the keyboard; a change to the rows keeps the item
 // of each row whose key stays and the keyboard on its row, wherever the
 // row moves, and a row a change moves from under a resting pointer hands
-// the plate to the selection, while a list the keyboard has not entered
-// keeps its selection on its first row; a row's `secondaryTone` reaches its
-// DeviceRow; a hover over the row at a scroll area's edge moves the plate
+// the plate to the selection; the selection follows its row only while
+// the user chose it or the list holds the keyboard, a choice ends when its
+// row leaves, and else the selection keeps its place; a row's
+// `secondaryTone` reaches its DeviceRow; a hover over the row at a scroll area's edge moves the plate
 // and neither the keyboard nor the page, while the arrows still reveal. A
 // list given a `disabledReason` keeps its selected row a Tab stop, takes
 // no click and no key, on a row or its action, moves no selection under
@@ -80,14 +81,12 @@ Item {
             ]
         }
     }
-    // A list the keyboard has not entered, as the Tailscale exit node
-    // chooser's top list before a suggestion is read.
+    // A list of its own, as the Tailscale exit node chooser's top list.
     Component {
-        id: untouchedList
+        id: choiceList
         DeviceList {
             y: 320
             width: 420
-            rows: [{ key: "none", text: "None" }]
         }
     }
     // A list taller than the area it scrolls in, as a device pane's.
@@ -431,6 +430,9 @@ Item {
         function test_a_change_that_moves_the_pointed_row_hands_the_plate_to_the_selection() {
             const rows = ["a", "b", "c", "d"].map(key => ({ key: key, text: "Device " + key }));
             list.rows = rows;
+            // The user chose the first row, so the selection follows it.
+            focusList();
+            before.forceActiveFocus(Qt.TabFocusReason);
             tryVerify(() => list.rowAt(3).y >= list.rowAt(2).y + list.rowAt(2).height, 1000, "the rows are laid out");
             const pointed = list.rowAt(2);
             mouseMove(pointed, 20, pointed.height / 2);
@@ -438,9 +440,8 @@ Item {
             compare(plateOf(list).placed, pointed, "the plate follows the pointer");
             list.rows = [{ key: "x", text: "Device x" }].concat(rows);
             tryVerify(() => list.rowAt(3) === pointed && pointed.y >= list.rowAt(2).y + list.rowAt(2).height, 1000, "the pointed row moved down");
-            // Frames for a hover delivered again to reach the rows.
-            wait(100);
-            compare(plateOf(list).placed, list.rowAt(1), "the plate goes to the selection");
+            // compare() recurses over two different Items.
+            tryVerify(() => plateOf(list).placed === list.rowAt(1), 1000, "the plate goes to the selection");
             compare(list.currentKey, "a");
             mouseMove(root, root.width - 1, 0);
         }
@@ -498,19 +499,42 @@ Item {
             before.forceActiveFocus(Qt.TabFocusReason);
         }
 
-        // Nobody chose the selection of a list the keyboard has not
-        // entered, so a row listed above its first row takes it and the
-        // keyboard enters there; once entered, the selection follows its
-        // row.
-        function test_an_unchosen_selection_stays_on_the_first_row() {
-            const made = createTemporaryObject(untouchedList, root);
-            const none = { key: "none", text: "None" };
-            made.rows = [{ key: "recommended", text: "Stockholm, Sweden" }, none];
-            compare(made.currentKey, "recommended", "a row listed above takes the unchosen selection");
-            made.focusCurrent(Qt.TabFocusReason);
-            compare(made.rowAt(0).activeFocus, true, "the keyboard enters on the first row");
-            made.rows = [{ key: "own", text: "gateway" }, { key: "recommended", text: "Stockholm, Sweden" }, none];
-            compare(made.currentKey, "recommended", "an entered list's selection follows its row");
+        // Steps: "enter" hands the list the keyboard, "leave" takes it
+        // away, "up" presses Up, and a list of keys sets the rows. The
+        // third row is the exit node chooser's: the keys on Recommended,
+        // Tailscale leaving and coming back, then a Tab into the list.
+        function test_the_selection_follows_its_row_only_while_held_data() {
+            return [
+                { tag: "nobody chose it, so a row listed above takes it", start: ["none"], steps: [["recommended", "none"]], key: "recommended" },
+                { tag: "the user's choice follows its row", start: ["recommended", "none"], steps: ["enter", "leave", ["own", "recommended", "none"]], key: "recommended" },
+                { tag: "a choice whose row left is nobody's", start: ["recommended", "none"], steps: ["enter", "leave", ["none"], ["recommended", "none"]], key: "recommended" },
+                { tag: "the row the list moved the keyboard to is nobody's choice", start: ["own", "recommended"], current: 1, steps: ["enter", ["own"], "leave", ["recommended", "own"]], key: "recommended" },
+                { tag: "the keyboard stays on its row while the list holds it", start: ["recommended", "none"], steps: ["enter", ["none"], ["recommended", "none"]], key: "none" },
+                { tag: "a key move is the user's choice", start: ["a", "b", "c"], current: 2, steps: ["enter", ["a", "b"], "up", "leave", ["x", "a", "b"]], key: "a" }
+            ];
+        }
+        function test_the_selection_follows_its_row_only_while_held(data) {
+            const rowsOf = keys => keys.map(key => ({ key: key, text: "Device " + key }));
+            const made = createTemporaryObject(choiceList, root, { rows: rowsOf(data.start) });
+            if (data.current !== undefined) made.current = data.current;
+            for (const step of data.steps) {
+                if (step === "enter") {
+                    made.focusCurrent(Qt.TabFocusReason);
+                    tryCompare(made.rowAt(made.current), "activeFocus", true);
+                } else if (step === "leave") {
+                    before.forceActiveFocus(Qt.TabFocusReason);
+                    compare(made.activeFocus, false);
+                } else if (step === "up") {
+                    keyClick(Qt.Key_Up);
+                } else {
+                    made.rows = rowsOf(step);
+                }
+            }
+            compare(made.currentKey, data.key);
+            const row = made.rowAt(made.current);
+            compare(row.text, "Device " + data.key, "the selected row is the row of its key");
+            compare(row.activeFocusOnTab, true, "a Tab enters on the selected row");
+            if (made.activeFocus) compare(row.activeFocus, true, "the keyboard is on the selected row");
         }
 
         function test_a_rows_change_keeps_the_keyboard() {
