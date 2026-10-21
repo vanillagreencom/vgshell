@@ -20,10 +20,12 @@ import shlex
 import shutil
 import signal
 import stat
+import struct
 import subprocess
 import sys
 import tarfile
 import tempfile
+import termios
 import time
 import unittest
 import wave
@@ -1555,7 +1557,7 @@ Path(sys.argv[2]).unlink()
         clear = stdout.find("\x1b[H\x1b[2J")
         return stdout.find("permission?") < clear < stdout.find("Downloading the model")
 
-    def clone_tui_pty(self, source, gum_exit="1", closed=False):
+    def clone_tui_pty(self, source, gum_exit="1", closed=False, columns=80):
         """Run the setup TUI on a pseudo-terminal; when CLOSED, followed by
         the library's closing prompt for its exit code, as bin/vgshell-tui
         present ends a floating terminal (scripts/test-vgshell-tui.sh holds
@@ -1571,6 +1573,8 @@ Path(sys.argv[2]).unlink()
                               'vgs_tui_close_prompt "$code"; exit "$code"', "closed", str(path)])
         script_bin = shutil.which("script", path="/usr/bin:/bin")
         self.assertIsNotNone(script_bin)
+        # Keep long temporary log paths on one row when the test requests it.
+        fcntl.ioctl(pty_fd, termios.TIOCSWINSZ, struct.pack("HHHH", 24, columns, 0, 0))
         proc = subprocess.Popen([script_bin, "-qec", cmd, "/dev/null"], env=env, stdin=slave, stdout=slave, stderr=slave,
                                 text=False, close_fds=True)
         os.close(slave)
@@ -1699,7 +1703,7 @@ Path(sys.argv[2]).unlink()
         source = (PLUGIN / "tui/clone-voice.sh").read_text()
 
         def closed(text):
-            proc, pty_fd = self.clone_tui_pty(text, closed=True)
+            proc, pty_fd = self.clone_tui_pty(text, closed=True, columns=240)
             try:
                 output = self.read_pty_until(proc, pty_fd, "Press any key to close")
                 self.assertIsNone(proc.poll(), "the window closed before its key: " + output)
