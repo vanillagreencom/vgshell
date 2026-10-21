@@ -26,7 +26,9 @@
 # id in any argv; a change that ends with a plain exit 1, a change the CLI
 # denies and a sign-in it denies each leave a problem, the denied ones
 # another than the plain one; the poll interval is 3 s while a view is open and the
-# setting's 30 s while none is; every `status --json` call the stand-in
+# setting's 30 s while none is; the pane opens its account and network
+# devices rows, and while this device waits for approval keeps the account
+# and this device; every `status --json` call the stand-in
 # records is one the service started; a held poll is killed 10 s after its
 # start while a refresh arrives every second; sign-in hands the printed
 # address to the xdg-open stand-in; a daemon that is off offers Enable.
@@ -44,20 +46,24 @@
 # xdg-open stand-in, and with xdg-open missing raises its requirement
 # notice; the Exit nodes view with Recommended, None, your exit nodes and
 # Mullvad by country, a search, no match, a country's view, Back and
-# Escape back to the Exit node row, and an offline node of your own
-# refused with no `set`; the other states' rows: checking, off, starting,
-# waiting for approval, service off and not answering. No view opens on
+# Escape back to the Exit node row, a search past 20 matches drawing 20
+# rows and its count (fixture sheet-cities.json), an offline node of your
+# own refused with no `set`, and Tailscale stopping ending the choice;
+# the other states' rows: checking, off, starting, waiting for approval,
+# service off and not answering. No view opens on
 # Sign out. `exit-node suggest` runs when the chooser opens and when the
 # state turns running, a second ask while one runs answers busy, and a
 # held one is killed 10 s after its start while an ask arrives every
 # second. The poll runs every 3 s while Tailscale is starting, with no view
 # open, and at the setting's 30 s once it runs.
 # Controls, a copy of the plugin whose widget polls on its own, whose
-# refresh restarts the watchdog and which does not know the access-denied
-# text: the stand-in records a call the service did not start, the held
-# poll outlives 20 s of refreshes, and the denied change leaves the plain
-# one's problem. The reason's place moved onto a text reads covered. The
-# pointer off the locked switch reads its reason closed, and the lock's Space reads no change, so neither reader always
+# refresh restarts the watchdog, whose busy suggestion ask restarts the
+# suggestion's deadline and which does not know the access-denied text:
+# the stand-in records a call the service did not start, the held poll
+# and the held suggestion read outlive 20 s of asks, and the denied change
+# leaves the plain one's problem. The reason's place moved onto a text
+# reads covered. The pointer off the locked switch reads its reason
+# closed, and the lock's Space reads no change, so neither reader always
 # passes.
 #
 # The held poll's and the held suggestion's wait is the service's own 10 s
@@ -390,6 +396,7 @@ tailscale_rows_of() {
   for row; do out+=("$(tailscale_shown_of panel "${row%%:*}" "${row#*:}")") || return 1; done
   words "${out[@]}"
 }
+tailscale_country_count() { ipc smoke statusValues vgs.tailscale | py_reply 'import json,sys; print(len(json.load(sys.stdin)["exitNodes"]["countries"]))'; }
 tailscale_own_online() { ipc smoke statusValues vgs.tailscale | py_reply 'import json,sys; print(json.dumps([[n["name"], n["online"]] for n in json.load(sys.stdin)["exitNodes"]["own"]]))'; }
 # [the published suggestion, the service's suggestFault].
 tailscale_suggest_reading() {
@@ -424,18 +431,18 @@ tailscale_tab_to() { # WANT [HOST]
   type_keys -k Tab || return 1
   echo moving
 }
-# tailscale_tab_until WANT: Tab, up to 20 presses, each waiting up to 1 s
-# for the keys to move, until they are on WANT: `reached`, else where
-# they stopped.
-tailscale_tab_until() { # WANT
+# tailscale_tab_until WANT [HOST]: Tab, up to 20 presses, each waiting up
+# to 1 s for the keys to move, until they are on WANT: `reached`, else
+# where they stopped.
+tailscale_tab_until() { # WANT [HOST]
   local at before
-  at="$(tailscale_focus)" || return 1
+  at="$(tailscale_focus "${2:-panel}")" || return 1
   for _ in $(seq 1 20); do
     if [[ $at == "$1" ]]; then echo reached; return; fi
     before="$at"
     type_keys -k Tab || return 1
     for _ in $(seq 1 10); do
-      at="$(tailscale_focus)" || return 1
+      at="$(tailscale_focus "${2:-panel}")" || return 1
       [[ $at == "$before" ]] || break
       sleep 0.1
     done
@@ -454,13 +461,30 @@ tailscale_copy_reading() {
 # The nested clipboard's text, read after the input check.
 tailscale_clipboard() { nested_input_check wl-paste || return 1; "${shell_env[@]}" wl-paste --no-newline; }
 tailscale_offered() { notice_shown | py_reply 'import json,sys; v=json.load(sys.stdin); print(json.dumps(None if v is None else v[:2]))'; }
-# tailscale_sheet_as STATE: the design's tailnet with BackendState STATE
-# as the stand-in's status answer, and the poll asked for it.
-tailscale_sheet_as() { # STATE
+# tailscale_status_as FIXTURE STATE: FIXTURE's tailnet with BackendState
+# STATE as the stand-in's status answer, and the poll asked for it;
+# tailscale_sheet_as STATE does it for the design's tailnet.
+tailscale_status_as() { # FIXTURE STATE
   local doc
-  doc="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); d["BackendState"]=sys.argv[2]; print(json.dumps(d))' "$tailscale_fixtures/sheet.json" "$1")" || return 1
+  doc="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); d["BackendState"]=sys.argv[2]; print(json.dumps(d))' "$tailscale_fixtures/$1" "$2")" || return 1
   device_reply tailscale 0 "$doc" status --json
   tailscale_refresh
+}
+tailscale_sheet_as() { tailscale_status_as sheet.json "$1"; }
+# tailscale_disclosures HOST: [the account row's expanded, the network
+# devices row's expanded] under HOST's Tailscale instance.
+tailscale_disclosures() { # HOST
+  local account devices
+  account="$(ipc smoke readMatchingDescendant "$1" vgs.tailscale Disclosure objectName tailscale-account expanded)" || return 1
+  devices="$(ipc smoke readMatchingDescendant "$1" vgs.tailscale Disclosure objectName tailscale-network-devices expanded)" || return 1
+  printf '[%s, %s]\n' "$account" "$devices"
+}
+# [the rows the flyout's search list draws, the chooser's last drawn text].
+tailscale_search_reading() {
+  local count drawn
+  count="$(ipc smoke readMatchingDescendant panel vgs.tailscale DeviceList objectName tailscale-exit-search count)" || return 1
+  drawn="$(tailscale_drawn panel ExitNodes tailscale-exit-nodes)" || return 1
+  python3 -c 'import json,sys; d=sys.argv[2]; print(json.dumps([json.loads(sys.argv[1]), json.loads(d)[-1] if d.startswith("[") and json.loads(d) else d]))' "$count" "$drawn"
 }
 # Holds the next suggestion read open and asks for another every second
 # until the held process is gone: `killed` when that takes 9 s to 20 s,
@@ -497,6 +521,9 @@ tailscale_suggest_hang() {
   (($(tailscale_suggests) == started + 1 + extra)) || { echo restarted; return 0; }
   if ((elapsed >= 9000)); then echo killed; else echo "killed ms=$elapsed"; fi
 }
+# `held` while the suggestion read tailscale_suggest_hang held runs, else
+# `gone`.
+tailscale_suggest_held() { kill -0 "$(<"$tailscale_dir/suggest-hang.pid")" 2>/dev/null && echo held || echo gone; }
 tailscale_leave_pane() { # LABEL
   type_keys -k Escape
   type_keys -k Escape
@@ -679,6 +706,17 @@ expect "the pane receives its payload" '{"source":"smoke"}' ipc smoke readInstan
 expect_poll "the pane reads the shared record" running tailscale_body_state window
 expect_poll "the pane draws the core's offered step" '{"label":"Let my login control Tailscale","hint":"The administrator holds Tailscale. After this step, VGS connects and disconnects for you without a password."}' tailscale_body window setupAction
 expect_poll "an open pane makes the poll fast" 3000 tailscale_interval
+expect "the pane opens the account and network devices rows" '[true, true]' tailscale_disclosures window
+# While this device waits for approval the pane keeps the account, where
+# the CLI still switches and signs out, and this device.
+expect "a refresh reads this device waiting for approval" ok tailscale_status_as mullvad.json NeedsMachineAuth
+expect_poll "the pane reads waiting for approval" needs-approval tailscale_body_state window
+expect "the approval pane keeps the account row" shown tailscale_shown_of window Disclosure tailscale-account
+expect "the approval pane keeps this device" shown tailscale_shown_of window DeviceList tailscale-this-device
+expect "the approval pane draws no network devices" hidden tailscale_shown_of window Disclosure tailscale-network-devices
+tailscale_use mullvad.json
+expect "a refresh reads the running tailnet for the pane" ok tailscale_refresh
+expect_poll "the pane reads the running tailnet after approval" running tailscale_body_state window
 expect "System closes before the keyboard path" ok ipc shell hide window vgs.system
 expect_poll "the closed pane is gone" hidden tailscale_shown window
 expect_poll "a closed pane gives the poll its 30 s back" 30000 tailscale_interval
@@ -731,7 +769,10 @@ expect_poll "the pane reads the running tailnet again" running tailscale_body_st
 expect_poll "the pane's chooser lists None, the tailnet's node, then Mullvad by country" \
   "$(words None "Use this computer's own connection" "Your exit nodes" gateway Online Mullvad Sweden Stockholm Switzerland Zurich "In use")" tailscale_drawn window ExitNodes ""
 expect "the pane draws Check every once" 1 tailscale_check_every window
-expect_poll "Tab reaches the tailnet's exit node in the pane's chooser" reached tailscale_tab_to '["DeviceRow","gateway"]' window
+# The pane opens its account and network devices rows, so the walk
+# crosses their lists, Add account, Sign out and each Copy.
+expect "the keyboard's pane opens the account and network devices rows" '[true, true]' tailscale_disclosures window
+expect "Tab reaches the tailnet's exit node in the pane's chooser" reached tailscale_tab_until '["DeviceRow","gateway"]' window
 type_keys -k Return
 expect_poll "Enter on a node sets it by its DNS name" \
   '[["down"], ["up"], ["set", "--exit-node=gateway.tail-fixture.ts.net"]]' tailscale_changes "$tailscale_calls_before"
@@ -890,9 +931,10 @@ expect_poll "the cleared search lists every row again" \
 tailscale_key Down
 expect_poll "Down from the search field reaches Recommended" '["DeviceRow","Stockholm, Sweden"]' tailscale_focus
 tailscale_tab "Tab reaches your exit nodes" '["DeviceRow","attic-nas"]'
-tailscale_tab "Tab reaches the Mullvad countries" '["QQuickFocusScope",null]'
+tailscale_tab "Tab reaches the Mullvad countries on Germany" '["DeviceRow","Germany"]'
 tailscale_key Down
-expect_poll "Down moves to Sweden" '"SE"' ipc smoke readMatchingDescendant panel vgs.tailscale QQuickFocusScope objectName tailscale-exit-countries currentKey
+expect_poll "Down moves to Sweden" '["DeviceRow","Sweden"]' tailscale_focus
+expect "the countries' selection is Sweden" '"SE"' ipc smoke readMatchingDescendant panel vgs.tailscale DeviceList objectName tailscale-exit-countries currentKey
 tailscale_key Return
 expect_poll "Enter on Sweden opens its country view" '"country"' tailscale_view
 expect "the country view is titled Sweden" '["Sweden"]' tailscale_label tailscale-view-title
@@ -901,8 +943,8 @@ expect_poll "the country view takes the keys on Best available" '["DeviceRow","B
 expect "the country view draws no Check every" 0 tailscale_check_every
 tailscale_key Escape
 expect_poll "Escape leaves the country view for the Exit nodes view" '"exit-nodes"' tailscale_view
-expect_poll "the keys return to the Mullvad countries" '["QQuickFocusScope",null]' tailscale_focus
-expect "the countries keep Sweden" '"SE"' ipc smoke readMatchingDescendant panel vgs.tailscale QQuickFocusScope objectName tailscale-exit-countries currentKey
+expect_poll "the keys return to Sweden among the Mullvad countries" '["DeviceRow","Sweden"]' tailscale_focus
+expect "the countries keep Sweden" '"SE"' ipc smoke readMatchingDescendant panel vgs.tailscale DeviceList objectName tailscale-exit-countries currentKey
 tailscale_key Escape
 expect_poll "Escape leaves the Exit nodes view" '"main"' tailscale_view
 expect_poll "Escape returns the keys to the exit node row" '["ListItem","Exit node"]' tailscale_focus
@@ -917,6 +959,23 @@ expect_poll "Shift+Tab reaches Back" '["IconButton","Back"]' tailscale_focus
 tailscale_key Return
 expect_poll "Back leaves the Exit nodes view" '"main"' tailscale_view
 expect_poll "Back returns the keys to the exit node row" '["ListItem","Exit node"]' tailscale_focus
+
+# A search past the ceiling: Mullvad's United States and United Kingdom
+# cities, 21 matches for "united", draw 20 rows and say so.
+device_reply tailscale 0 "$(<"$tailscale_fixtures/sheet-cities.json")" status --json
+expect "a refresh reads Mullvad's further cities" ok tailscale_refresh
+expect_poll "the service publishes five Mullvad countries" 5 tailscale_country_count
+tailscale_key Return
+expect_poll "Enter opens the Exit nodes view for the long search" '"exit-nodes"' tailscale_view
+expect_poll "the search field takes the keys for the long search" '["TextField",""]' tailscale_focus
+type_keys united || fail "tailscale: typing the long search failed"
+expect_poll "a search past the ceiling draws 20 rows and counts the matches" '[20, "Showing 20 of 21 matches."]' tailscale_search_reading
+tailscale_key Escape
+expect_poll "Escape leaves the long search for the main view" '"main"' tailscale_view
+tailscale_use sheet.json
+expect "a refresh reads the design's tailnet after the long search" ok tailscale_refresh
+expect_poll "the service publishes the design's four countries again" 4 tailscale_country_count
+expect_poll "the keys rest on the exit node row after the long search" '["ListItem","Exit node"]' tailscale_focus
 
 # An offline exit node of your own is refused and no `set` runs; an
 # online one is set by its DNS name and the view returns to the main view.
@@ -952,8 +1011,13 @@ tailscale_use sheet.json
 expect "a refresh reads gateway online again" ok tailscale_refresh
 expect_poll "the service publishes gateway online again" '[["attic-nas", true], ["gateway", true]]' tailscale_own_online
 
-# The other states the flyout draws.
+# The other states the flyout draws. Tailscale stopping while the Exit
+# nodes view shows ends the choice: the main view, on the header switch.
+tailscale_key Return
+expect_poll "Enter opens the Exit nodes view before Tailscale stops" '"exit-nodes"' tailscale_view
 expect "a refresh reads Tailscale off" ok tailscale_sheet_as Stopped
+expect_poll "Tailscale stopping leaves the Exit nodes view" '"main"' tailscale_view
+expect_poll "the keys move to the header switch once Tailscale stops" '["Switch",""]' tailscale_focus
 expect_poll "the off flyout's state line reads Off" '["Off"]' tailscale_label tailscale-state
 expect "the off flyout's switch is shown and off" '[true, false, true]' tailscale_header_switch
 expect "the off flyout keeps the account and this device" '["shown", "shown"]' tailscale_rows_of Disclosure:tailscale-account DeviceList:tailscale-this-device
@@ -1102,7 +1166,8 @@ expect "a refresh reads the restored stand-in" ok tailscale_refresh
 expect_poll "Tailscale restores its running tailnet" '"running"' tailscale_value state
 
 # Controls, on a copy: a widget that polls on its own, a refresh that
-# restarts the watchdog, and a failure table without the access-denied text.
+# restarts the watchdog, a busy ask that restarts the suggestion's
+# deadline, and a failure table without the access-denied text.
 expect "Tailscale disables before its control copy" ok ipc shell setPluginEnabled vgs.tailscale false
 expect_poll "the disabled service's build record is gone" False record_exists vgs.tailscale
 expect_poll "the disabled plugin holds no status record" absent tailscale_record
@@ -1119,9 +1184,12 @@ for old, new in (("import QtQuick\n", "import QtQuick\nimport Quickshell.Io\n"),
     text = text.replace(old, new)
 widget.write_text(text)
 text = service.read_text()
-old = "        runPoll(\"refresh\");\n        readAccounts();\n"
-assert text.count(old) == 1, old
-text = text.replace(old, "        if (watchdog.running) watchdog.restart();\n" + old)
+for old, new in (
+    ("        runPoll(\"refresh\");\n        readAccounts();\n", "        if (watchdog.running) watchdog.restart();\n        runPoll(\"refresh\");\n        readAccounts();\n"),
+    ("        if (suggester.running) return \"busy\";\n", "        if (suggester.running) { suggestDeadline.restart(); return \"busy\"; }\n"),
+):
+    assert text.count(old) == 1, old
+    text = text.replace(old, new)
 service.write_text(text)
 text = body.read_text()
 for old, new in (
@@ -1143,6 +1211,9 @@ expect_poll "the control's service reads the tailnet" '"running"' tailscale_valu
 expect_poll "control: a widget that polls on its own is a call the service did not start" extra tailscale_surplus "$tailscale_control_before"
 expect "control: a service that does not know the access-denied text leaves the plain failure's problem" same tailscale_failures
 expect "control: a refresh that restarts the watchdog holds the poll past 20 s" postponed tailscale_hang
+expect_poll "the control's service reads Tailscale running before its suggestion control" '"running"' tailscale_value state
+expect "control: an ask that restarts the suggestion deadline holds the read past 20 s" postponed tailscale_suggest_hang
+expect_poll "the control's held suggestion read ends once the asks stop" gone tailscale_suggest_held
 device_reply tailscale 0 "" get operator
 expect "the unmarked Setup control resets its earlier errors" ok ipc shell setPluginEnabled vgs.tailscale false
 rescan "the unmarked Setup control needs Allow again"

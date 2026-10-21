@@ -6699,6 +6699,16 @@ scene_tailscale() { # MODE
   expect "the last Tailscale setting scrolls into the pane" scrolled tailscale_shot_end
   park_pointer
   take "tailscale-$1-pane-end"
+  # While this device waits for approval the pane keeps the account and
+  # this device.
+  tailscale_shot_status NeedsMachineAuth
+  expect "Tailscale reads this device waiting for approval" ok ipc vgs.tailscale invoke refresh ""
+  expect_poll "the Tailscale pane reads waiting for approval" '["needs-approval", 2]' tailscale_shot_read
+  expect "the approval pane scrolls to its top" top tailscale_shot_top
+  take "tailscale-$1-pane-approval"
+  device_reply tailscale 0 "$(<"$repo/scripts/fixtures/tailscale/mullvad.json")" status --json
+  expect "Tailscale reads its running fixture after the approval shot" ok ipc vgs.tailscale invoke refresh ""
+  expect_poll "the Tailscale pane reads its running fixture again" '["running", 2]' tailscale_shot_read
   expect "the Tailscale System window closes" ok ipc shell hide window vgs.system
   click_centre "$(bar_key)" vgs.tailscale || fail "the click on the Tailscale widget failed"
   expect_poll "the Tailscale dropdown opens" shown tailscale_shot_panel
@@ -6716,12 +6726,23 @@ tailscale_shot_panel() {
   geometry="$(ipc smoke instanceGeometry panel vgs.tailscale)" || return $?
   [[ $geometry != absent ]] && echo shown || echo hidden
 }
+# tailscale_shot_status STATE: the running fixture with BackendState STATE
+# as the stand-in's status answer.
+tailscale_shot_status() { # STATE
+  local doc
+  doc="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); d["BackendState"]=sys.argv[2]; print(json.dumps(d))' "$repo/scripts/fixtures/tailscale/mullvad.json" "$1")" || { fail "the $1 Tailscale fixture is unreadable"; return 1; }
+  device_reply tailscale 0 "$doc" status --json
+}
+# The pane's state line revealed, which rests the pane at its top: `top`,
+# else the probe's reply.
+tailscale_shot_top() { ipc smoke revealText window vgs.tailscale Label "Waiting for approval" | py_reply 'import sys; s=sys.stdin.read().strip(); print("top" if s in ("0", "0.0") else s)'; }
 tailscale_shot_read() { ipc smoke readDescendant window vgs.tailscale TailscaleBody tailscale | py_reply 'import json,sys; v=json.load(sys.stdin); print(json.dumps([v["state"], len(v["accounts"])]))'; }
 # tailscale-flyout, taken only when named: the Tailscale flyout and bar icon
 # in each state the design's sheets draw (VGS-1923 sheet spec sheets 1 to 5
 # and the VGS-1937 revision's v2-bar-icons and v2-tailscale-flyout), over
-# the design's stand-in tailnet, scripts/fixtures/tailscale/sheet.json. Each
-# shot's live reading goes to tailscale-states.tsv: scene, file and the
+# the design's stand-in tailnet, scripts/fixtures/tailscale/sheet.json, and
+# for a search past its ceiling sheet-cities.json, which adds Mullvad's
+# further cities. Each shot's live reading goes to tailscale-states.tsv: scene, file and the
 # published state, the flyout's view, the item holding the keys and the
 # bar icon, read just before the shot. A stand-over of the tailscale
 # stand-in answers `status --json` as a daemon that is off while its
@@ -6755,6 +6776,10 @@ tailscale_flyout_accounts() { tailscale_flyout_published accounts | py_reply 'im
 tailscale_flyout_setup() { ipc smoke statusValues vgs.tailscale | py_reply 'import json,sys; v=json.load(sys.stdin).get("setup"); print("unpublished" if v is None else v.get("action", "none"))'; }
 tailscale_flyout_warning() { ipc smoke readInstance "$(bar_key)" vgs.tailscale view | py_reply 'import json,sys; print(str(json.load(sys.stdin)["warning"]).lower())'; }
 tailscale_flyout_bar() { ipc smoke readDescendant "$(bar_key)" vgs.tailscale BarItem "$1"; }
+# `true` once the chooser's search matches more than it draws.
+tailscale_flyout_search_counted() { ipc smoke readDescendant panel vgs.tailscale ExitNodes searchMatches | py_reply 'import json,sys; print(str(len(json.load(sys.stdin)) > 20).lower())'; }
+# The flyout's body scrolled to its end: `moved`, else the probe's reply.
+tailscale_flyout_scroll_end() { ipc smoke scrollTo panel vgs.tailscale 100000 | py_reply 'import json,sys; t=sys.stdin.read(); v=json.loads(t) if t.startswith("[") else None; print("moved" if v and v[0] > 0 else t.strip())'; }
 tailscale_flyout_focus() { ipc smoke activeFocusItem panel vgs.tailscale; }
 tailscale_flyout_view() { ipc smoke readInstance panel vgs.tailscale view; }
 tailscale_flyout_named() { ipc smoke readMatchingDescendant panel vgs.tailscale "$1" objectName "$2" "$3"; }
@@ -6917,9 +6942,10 @@ EOF
   expect_poll "the Exit nodes view lists Recommended first" '"recommended"' ipc smoke readMatchingDescendant panel vgs.tailscale DeviceList objectName tailscale-exit-top currentKey
   tailscale_flyout_take "tailscale-flyout-$mode-exit-nodes" posed
   type_keys -k Down || fail "Down from the search field failed"
-  tailscale_flyout_tab_to '["QQuickFocusScope",null]' || return
+  tailscale_flyout_tab_to '["DeviceRow","Germany"]' || return
   type_keys -k Down || fail "Down on the countries failed"
-  expect_poll "the countries reach Sweden" '"SE"' tailscale_flyout_named QQuickFocusScope tailscale-exit-countries currentKey
+  expect_poll "the countries reach Sweden" '["DeviceRow","Sweden"]' tailscale_flyout_focus
+  expect "the countries' selection is Sweden" '"SE"' tailscale_flyout_named DeviceList tailscale-exit-countries currentKey
   type_keys -k Return || fail "Return on Sweden failed"
   expect_poll "Sweden's view opens" '"country"' tailscale_flyout_view
   tailscale_flyout_take "tailscale-flyout-$mode-country" posed
@@ -6936,6 +6962,15 @@ EOF
   type_keys -k BackSpace -k BackSpace -k BackSpace xyz || fail "retyping the search failed"
   expect_poll "the search matches nothing" true tailscale_flyout_named EmptyState tailscale-exit-no-match visible
   tailscale_flyout_take "tailscale-flyout-$mode-no-match" posed
+  # A search past the ceiling over Mullvad's further cities, scrolled to
+  # its count.
+  device_reply tailscale 0 "$(<"$(tailscale_fixture sheet-cities.json)")" status --json
+  expect "Tailscale reads Mullvad's further cities" ok ipc vgs.tailscale invoke refresh ""
+  type_keys -k BackSpace -k BackSpace -k BackSpace united || fail "typing the long search failed"
+  expect_poll "the long search draws its ceiling of rows" 20 tailscale_flyout_named DeviceList tailscale-exit-search count
+  expect_poll "the long search counts its matches" true tailscale_flyout_search_counted
+  expect "the long search scrolls to its count" moved tailscale_flyout_scroll_end
+  tailscale_flyout_take "tailscale-flyout-$mode-search-more" posed
 
   # The other states (tailscale-flyout-c and -d).
   expect "Tailscale reads the tailnet off for its flyout" ok tailscale_flyout_status Stopped
