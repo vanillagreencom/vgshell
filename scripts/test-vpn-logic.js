@@ -433,9 +433,12 @@ function suite(logic, service = serviceSource) {
     ]) {
         const console = logs();
         let reads = 0;
+        // A feed the run never took, as when it never started, goes with it.
         const owner = Object.assign(helpers(), { profiles, failures: { [TRAVEL]: { kind: "needs-password", service: "" } },
-            profileAction: { kind, uuid, name: byUuid(uuid).name, password: password === true }, profileProblem: null, readProfiles() { reads++; } });
+            profileAction: { kind, uuid, name: byUuid(uuid).name, password: password === true }, profileProblem: null,
+            connectFeed: () => {}, readProfiles() { reads++; } });
         completeAction(false, { code, status: 0 }, owner, logic, { text: "" }, { text: output }, { stop() {} }, console);
+        assert.equal(owner.connectFeed, null, kind + " " + code);
         if (kind === "profile-up") assert.equal(owner.failures[uuid] === undefined ? null : owner.failures[uuid].kind, failure, kind + " " + code);
         assert.deepEqual(owner.profileProblem === null ? null : [owner.profileProblem.uuid, owner.profileProblem.kind],
             problem ? [uuid, kind] : null, kind + " " + code);
@@ -460,10 +463,11 @@ function suite(logic, service = serviceSource) {
         owner[name] = new Function("Logic", "owner", ...params, "with (owner) {" + found[2] + "}").bind(null, logic, owner);
     };
     const feed = () => {};
-    const actor = () => ({ running: false, stdinEnabled: false, command: [], completion: "old" });
-    const actionOwner = () => {
-        const owner = { profiles, profileAction: null, profileProblem: { uuid: OFFICE }, connectFeed: null, profileActor: actor(),
-            restarts: 0, profileActionDeadline: { restart() { owner.restarts++; } } };
+    const actor = stdinEnabled => ({ running: false, stdinEnabled, command: [], completion: "old" });
+    // stale: a feed and an open stdin a change before this one left behind.
+    const actionOwner = (stale = false) => {
+        const owner = { profiles, profileAction: null, profileProblem: { uuid: OFFICE }, connectFeed: stale ? () => {} : null,
+            profileActor: actor(stale), restarts: 0, profileActionDeadline: { restart() { owner.restarts++; } } };
         method(owner, "connectWithPassword");
         method(owner, "startAction");
         return owner;
@@ -480,7 +484,7 @@ function suite(logic, service = serviceSource) {
     const refusedConnect = actionOwner();
     assert.equal(refusedConnect.connectWithPassword(OFFICE, feed), "refused: profile=state");
     assert.deepEqual([refusedConnect.profileActor.running, refusedConnect.connectFeed, refusedConnect.profileAction], [false, null, null]);
-    const plainChange = actionOwner();
+    const plainChange = actionOwner(true);
     assert.equal(plainChange.startAction("profile-up", OFFICE, ["nmcli", "connection", "up", "uuid", OFFICE], null), "ok");
     assert.deepEqual([plainChange.profileAction.password, plainChange.profileActor.stdinEnabled, plainChange.connectFeed], [false, false, null]);
     const startBody = /onStarted: \{([\s\S]*?)\n        \}/.exec(service);
@@ -494,6 +498,15 @@ function suite(logic, service = serviceSource) {
     assert.deepEqual(handed, [startedChild], "the feed runs once, with the started child");
     assert.equal(startOwner.connectFeed, null);
     runStart({ connectFeed: null }, startedChild);
+    // The service's destruction releases the connect owner and drops a
+    // feed still held.
+    const destructionBody = /Component\.onDestruction: \{([\s\S]*?)\n    \}/.exec(service);
+    assert.ok(destructionBody);
+    const destroyed = { connectWithPassword() { throw new Error("a destroyed owner was called"); }, connectFeed: () => {} };
+    logic.attachConnect(destroyed);
+    new Function("Logic", "root", "owner", "with (owner) {" + destructionBody[1] + "}")(logic, destroyed, destroyed);
+    assert.equal(destroyed.connectFeed, null);
+    assert.equal(logic.submitConnect(TRAVEL, planted), "unavailable");
 
     // A requirements rescan asks again about a missing plugin or sign-in
     // detail, and keeps the failures the bar warns about.
@@ -671,6 +684,10 @@ try {
         ["a password connect holds its feed", "connectFeed = feed;", ""],
         ["one change at a time", 'if (profileActor.running) return "busy";', ""],
         ["the started run drops its feed", "root.connectFeed = null;\n            if (once !== null)", "if (once !== null)"],
+        ["a plain change drops a stale feed", "connectFeed = feed;", "if (feed !== null) connectFeed = feed;"],
+        ["a plain change closes stdin", "profileActor.stdinEnabled = feed !== null;", "if (feed !== null) profileActor.stdinEnabled = true;"],
+        ["the ended run drops its feed", "root.connectFeed = null;\n            profileActionDeadline.stop();", "profileActionDeadline.stop();"],
+        ["destruction drops the feed", "Logic.releaseConnect(root);\n        connectFeed = null;", "Logic.releaseConnect(root);"],
         ["a password connect's failure is carried", "action.password === true)", "false)"]
     ]) {
         assert.equal(serviceSource.split(old).length - 1, 1, name);

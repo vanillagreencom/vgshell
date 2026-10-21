@@ -173,17 +173,30 @@ pane=None if prompt is None else items[prompt]["parent"]
 placed=pane is not None and pane>=0 and items[pane]["type"]=="Pane" and scrim is not None and items[scrim]["parent"]==pane and items[scrim]["box"]==items[pane]["box"]
 print("pane" if placed else "elsewhere prompt=%s scrim=%s parent=%s" % (prompt, scrim, None if pane is None or pane<0 else items[pane]["type"]))'; }
 # vpn_flyout_press UUID: one pointer press on the switch of profile UUID
-# in the dropdown, once the switch reports the pointer over it twice in a
-# row; the pointer moves one pixel each poll so each move is a motion.
-vpn_flyout_press() {
-  local rect x y held=0 i
-  for i in $(seq 1 30); do
-    rect="$(ipc smoke descendantGeometry panel vgs.vpn | py_reply 'import json,sys; r=[i["box"] for i in json.load(sys.stdin) if i["name"] == sys.argv[1] and i["visible"]]; print(json.dumps(r[0]) if r else "absent")' "vpn-profile-toggle:$1")" || return 1
-    if [[ $rect != \[* ]]; then held=0; sleep 0.1; continue; fi
-    read -r x y < <(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); print(int(x + w / 2), int(y + h / 2))' "$rect") || return 1
-    hover "$((x + i % 2))" "$y" || return 1
+# in the dropdown, by point_item's rule over a dropdown descendant, which
+# control_box has no lookup form for: every 100 ms, for up to
+# smoke_poll_bound_ms, it reads the switch's box again, moves the pointer
+# to its centre one pixel apart each time so each move is a motion, and
+# presses once the switch reports the pointer twice in a row at one box
+# and that box reads the same once more. A box that moved starts the count
+# again; a switch not yet laid out is read again.
+vpn_flyout_box() { # UUID
+  ipc smoke descendantGeometry panel vgs.vpn | py_reply 'import json,sys; r=[i["box"] for i in json.load(sys.stdin) if i["name"] == sys.argv[1] and i["visible"]]; print(json.dumps(r[0]) if r else "absent")' "vpn-profile-toggle:$1"
+}
+vpn_flyout_press() { # UUID
+  local rect seen="" x="" y="" px held=0 i
+  smoke_poll_tries 100
+  for i in $(seq 1 "$smoke_poll_n"); do
+    rect="$(vpn_flyout_box "$1")" || return 1
+    if [[ $rect != \[* ]]; then held=0; seen=""; sleep 0.1; continue; fi
+    if [[ $rect != "$seen" ]]; then
+      held=0; seen="$rect"
+      read -r x y < <(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); print(int(x + w / 2), int(y + h / 2))' "$rect") || return 1
+    fi
+    px=$((x + i % 2))
+    hover "$px" "$y" || return 1
     if [[ $(vpn_named panel Switch "vpn-profile-toggle:$1" hovered) == true ]]; then held=$((held + 1)); else held=0; fi
-    if (( held >= 2 )); then click "$((x + i % 2))" "$y"; return; fi
+    if (( held >= 2 )) && [[ $(vpn_flyout_box "$1") == "$seen" ]]; then click "$px" "$y"; return; fi
     sleep 0.1
   done
   echo "vpn_flyout_press: the switch of $1 never reported the pointer" >&2
