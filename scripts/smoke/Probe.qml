@@ -2819,20 +2819,22 @@ Scope {
         }
         // Every Menu under an instance, in tree order, as it stands: open or
         // not, its entries' texts, the checked ones, the highlighted one and
-        // whether its entries scroll.
+        // whether its entries scroll. A menu builds the window that holds
+        // its list on its first open, so one never opened reads no scroll.
         function menus(hostKey: string, id: string): string {
             const item = root.instance(hostKey, id);
             if (item === null) return "absent";
             return root.json(root.descendants(item).filter(child => typeof child.items === "function" && child.opened !== undefined).map(menu => {
                 const entries = menu.items();
+                const area = menu.scrollArea;
                 return {
                     opened: menu.opened,
                     entries: entries.map(e => e.text),
                     checked: entries.filter(e => e.checked).map(e => e.text),
                     current: menu.currentIndex >= 0 && menu.currentIndex < entries.length ? entries[menu.currentIndex].text : null,
-                    overflowing: menu.scrollArea.overflowing,
-                    barVisible: menu.scrollArea.bar.visible,
-                    barHovered: menu.scrollArea.bar.hovered,
+                    overflowing: area !== null && area.overflowing,
+                    barVisible: area !== null && area.bar.visible,
+                    barHovered: area !== null && area.bar.hovered,
                     anchorType: root.typeName(menu.anchorItem)
                 };
             }));
