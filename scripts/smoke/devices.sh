@@ -69,7 +69,7 @@ devices_hid_log="$devices_dir/hid-fake.calls"
 devices_fixtures="$repo/scripts/smoke/fixtures/devices"
 devices_env_words=(PIPEWIRE_RUNTIME_DIR="$rt_dir" VGS_DEV_ROOT="$devices_dev_root"
   VGS_SYSFS_ROOT="$devices_sysfs_root" VGS_HID_FAKE="$devices_hid_socket")
-device_stand_in_names=(rfkill tailscale ddcutil brightnessctl nmcli pactl pw-play bluetoothctl systemctl udevadm modprobe xdg-open gum
+device_stand_in_names=(rfkill tailscale ddcutil brightnessctl nmcli nm-connection-editor pactl pw-play bluetoothctl systemctl udevadm modprobe xdg-open gum
   chromium google-chrome-stable brave vivaldi-stable microsoft-edge-stable lpstat ipptool system-config-printer)
 mkdir -p -- "$devices_dir/calls" "$devices_dir/replies"
 

@@ -529,6 +529,42 @@ function suite(logic, service = serviceSource) {
         assert.deepEqual([rescanned.detailsRead, rescanned.detailReads, rescanned.refreshed], ["", 1, 1]);
     }
     assert.deepEqual(plain(recorded)[BRANCH].kind, "sign-in", "the rescan leaves the old map unchanged");
+    // An editor save changes the facts for one published UUID, including
+    // a previously refused password. Other profiles keep their retries.
+    for (const kind of ["needs-password", "password-tried", "sign-in", "plugin-needed", "failed"]) {
+        const learned = { [OFFICE]: { kind, service: "openvpn" }, [TRAVEL]: { kind, service: "l2tp" } };
+        const updated = { listing, failures: learned,
+            profileProblem: { uuid: OFFICE, kind: "profile-up", text: "fixture" },
+            detailsRead: key, readDetails() {}, readProfiles() {} };
+        method(updated, "refresh");
+        assert.equal(updated.refresh(OFFICE), "ok", kind);
+        assert.deepEqual(plain(updated.failures), { [TRAVEL]: learned[TRAVEL] }, kind);
+        assert.equal(updated.profileProblem, null, kind);
+        assert.deepEqual(plain(learned), { [OFFICE]: { kind, service: "openvpn" }, [TRAVEL]: { kind, service: "l2tp" } });
+        const focused = { listing, failures: learned, profileProblem: null,
+            detailsRead: key, readDetails() {}, readProfiles() {} };
+        method(focused, "refresh");
+        focused.refresh("");
+        assert.deepEqual(plain(focused.failures), learned, "ordinary metadata refresh preserves " + kind);
+        const published = logic.compose(listing, details, {}, updated.failures, null, "");
+        const passwordBody = /function passwordRow\(uuid\) \{([\s\S]*?)\n    \}/.exec(bodySource);
+        assert.ok(passwordBody);
+        const passwordRow = new Function("Logic", "profiles", "uuid", passwordBody[1]).bind(null, logic, published);
+        assert.equal(passwordRow(OFFICE), null, kind);
+        const toggleBody = /function toggle\(row, wanted\) \{([\s\S]*?)\n    \}/.exec(bodySource);
+        assert.ok(toggleBody);
+        const actions = [];
+        const owner = { passwordRow, watchUuid: "", follow() {},
+            askPassword() { actions.push("prompt"); }, act(action, uuid) { actions.push([action, uuid]); return "ok"; } };
+        new Function("owner", "row", "wanted", "with (owner) {" + toggleBody[1] + "}")(owner,
+            published.rows.find(row => row.uuid === OFFICE), true);
+        assert.deepEqual(actions, [["profile-up", OFFICE]], kind);
+        assert.deepEqual(plain(logic.profileCommand({ kind: "profile-up", id: OFFICE }, published)),
+            { argv: ["nmcli", "connection", "up", "uuid", OFFICE] }, kind);
+        const polled = listedOwner({ failures: learned, detailsRead: key });
+        runListed(logic, polled, listing);
+        assert.deepEqual(plain(polled.failures), learned, "ordinary poll preserves " + kind);
+    }
     // An editor can save the same UUID while a detail read is still in
     // flight. Refresh queues one replacement read, which publishes the new
     // server; a failed replacement leaves its stamp unread for retry.
@@ -546,7 +582,7 @@ function suite(logic, service = serviceSource) {
     };
     // Opening a view leases faster list reads; it must retain failures the
     // last connect learned. Explicit refresh owns their invalidation.
-    for (const kind of ["sign-in", "plugin-needed", "password-tried"]) {
+    for (const kind of ["needs-password", "sign-in", "plugin-needed", "password-tried", "failed"]) {
         const leased = detailOwner();
         leased.leases = {};
         leased.failures = { [BRANCH]: { kind, service: "vpnc" } };
@@ -677,23 +713,49 @@ function editorSuite(logic, body = bodySource) {
     ]) assert.deepEqual(plain(logic.editorArgv(kind, uuid, payload)), expected);
     const callback = /function editor\(kind, uuid\) \{([\s\S]*?)\n    \}/.exec(body);
     assert.ok(callback, "production editor callback");
-    const invoke = new Function("Logic", "profiles", "shell", "answered", "kind", "uuid", callback[1]);
-    for (const [kind, uuid, missing, expectedOffers, expectedLaunches] of [
-        ["create", "", [], [], [["nm-connection-editor", "--create", "--type=vpn"]]],
-        ["edit", HOME, [], [], [["nm-connection-editor", "--edit=" + HOME]]],
-        ["create", "", ["nm-connection-editor"], [["nm-connection-editor"]], []],
-        ["edit", HOME, ["nm-connection-editor"], [["nm-connection-editor"]], []],
-        ["edit", OFFICE, [], [], []]
+    const invoke = new Function("Logic", "profiles", "owner", "kind", "uuid", "with (owner) {" + callback[1] + "}");
+    const activeBody = /Window.onActiveChanged: \{([\s\S]*?)\n    \}/.exec(body);
+    assert.ok(activeBody);
+    const activate = new Function("owner", "with (owner) {" + activeBody[1] + "}");
+    for (const [kind, uuid, missing, launchReply, expectedOffers, expectedLaunches, target] of [
+        ["create", "", [], "ok", [], [["nm-connection-editor", "--create", "--type=vpn"]], ""],
+        ["edit", HOME, [], "ok", [], [["nm-connection-editor", "--edit=" + HOME]], HOME],
+        ["edit", HOME, [], "refused: run=start", [], [["nm-connection-editor", "--edit=" + HOME]], null],
+        ["create", "", ["nm-connection-editor"], "ok", [["nm-connection-editor"]], [], null],
+        ["edit", HOME, ["nm-connection-editor"], "ok", [["nm-connection-editor"]], [], null],
+        ["edit", OFFICE, [], "ok", [], [], null]
     ]) {
-        const offers = [], launches = [], answers = [];
-        invoke(logic, profiles, {
-            requirements: { missing, offer(commands) { offers.push(plain(commands)); return "ok"; } },
-            run: { detached(argv) { launches.push(plain(argv)); return "ok"; } }
-        }, reply => answers.push(reply), kind, uuid);
+        const offers = [], launches = [], answers = [], refreshes = [];
+        const owner = { expanded: true, Window: { active: false }, dialogTarget: { uuid: OFFICE }, draft: "fixture-draft",
+            shell: {
+                requirements: { missing, offer(commands) { offers.push(plain(commands)); return "ok"; } },
+                run: { detached(argv) { launches.push(plain(argv)); return launchReply; } },
+                ipc: { call(verb, arg) { refreshes.push([verb, arg]); return "ok"; } }
+            }, answered(reply) { answers.push(reply); return reply; } };
+        invoke(logic, profiles, owner, kind, uuid);
         assert.deepEqual(offers, expectedOffers);
         assert.deepEqual(launches, expectedLaunches);
-        assert.deepEqual(answers, [uuid === OFFICE ? "refused: profile=absent" : "ok"]);
+        assert.deepEqual(answers, uuid === OFFICE ? ["refused: profile=absent"] : target === HOME ? [launchReply, "ok"] : [launchReply]);
+        assert.deepEqual(refreshes, target === HOME ? [["refresh", HOME]] : [], "only a successful edit invalidates its UUID at handoff");
+        refreshes.length = 0;
+        activate(owner);
+        assert.deepEqual(refreshes, [], "leaving the window refreshes nothing");
+        owner.Window.active = true;
+        activate(owner);
+        activate(owner);
+        assert.deepEqual(refreshes, [["refresh", ""], ["refresh", ""]], "ordinary activations read metadata without invalidating a UUID");
+        assert.deepEqual([owner.dialogTarget, owner.draft], [{ uuid: OFFICE }, "fixture-draft"], "focus keeps the unrelated prompt and draft");
     }
+    // A pane can be destroyed while the detached editor remains open.
+    // Its replacement has no remembered launch, so open itself rereads
+    // metadata while keeping every credential requirement learned since.
+    const openBody = /function open\(\) \{([\s\S]*?)\n    \}/.exec(body);
+    assert.ok(openBody);
+    const calls = [];
+    const recreated = { leaseId: "replacement", leased: false, expanded: true, dialogTarget: null,
+        shell: { ipc: { call(verb, arg) { calls.push([verb, arg]); return "ok"; } } }, answered(reply) { return reply; } };
+    new Function("owner", "with (owner) {" + openBody[1] + "}")(recreated);
+    assert.deepEqual(calls, [["lease", JSON.stringify({ id: "replacement", open: true })], ["refresh", ""]]);
     assert.equal(manifest.requirements.find(row => row.command === "nm-connection-editor").optional, true);
     for (const kind of manifest.kinds)
         assert.equal(core.instanceCapabilities(manifest, kind).includes("run"), kind === "pane", kind);
@@ -708,7 +770,10 @@ try {
         ["editor create type", source, '"--type=vpn"', '"--type=ethernet"', "logic"],
         ["editor edit uuid", source, '"--edit=" + row.uuid', '"--edit=" + row.name', "logic"],
         ["editor absent refusal", source, 'candidate.uuid === uuid);\n    if (row === undefined) return { refusal: "refused: profile=absent" };\n    return { argv: ["nm-connection-editor"', 'true);\n    if (row === undefined) return { refusal: "refused: profile=absent" };\n    return { argv: ["nm-connection-editor"', "logic"],
-        ["editor missing offer", bodySource, 'missing ? shell.requirements.offer(["nm-connection-editor"])', 'false ? shell.requirements.offer(["nm-connection-editor"])', "body"]
+        ["editor missing offer", bodySource, 'missing ? shell.requirements.offer(["nm-connection-editor"])', 'false ? shell.requirements.offer(["nm-connection-editor"])', "body"],
+        ["only launched edits invalidate credentials", bodySource, '!missing && reply === "ok" && kind === "edit"', 'true', "body"],
+        ["editor handoff refreshes its UUID", bodySource, 'shell.ipc.call("refresh", uuid)', 'shell.ipc.call("refresh", "")', "body"],
+        ["recreated panes reread metadata", bodySource, 'if (expanded && shell !== null)\n            answered(shell.ipc.call("refresh", "")', 'if (false)\n            answered(shell.ipc.call("refresh", "")', "body"]
     ]) {
         assert.equal(sourceText.split(needle).length - 1, 1, name);
         const changed = sourceText.replace(needle, replacement);
@@ -747,6 +812,8 @@ try {
         ["no profiles hides the icon", ' || profiles.count === 0', ''],
         ["a rescan clears a sign-in failure", 'failures[uuid].kind !== "sign-in" && ', ''],
         ["a rescan keeps the bar's failures", 'kept[uuid] = failures[uuid];', '{}'],
+        ["editor clears every target failure", ': uuid !== editedUuid;', ': true;'],
+        ["editor preserves other profile failures", ': uuid !== editedUuid;', ': false;'],
         ["a problem goes with its profile", 'if (row === undefined) return null;', ''],
         ["a connect's problem goes with its failure", 'if (problem.kind === "profile-up" && failures[problem.uuid] === undefined) return null;', ''],
         ["a disconnect's problem goes once the profile is down", 'if (problem.kind === "profile-down" && row.state === "") return null;', ''],
@@ -784,7 +851,8 @@ try {
         ["a successful up clears its failure", "if (code === 0) delete next[action.uuid];", "if (code === 0) {}"],
         ["a gone profile leaves no problem", 'Logic.removeOutcome(code, output) === "failed"', 'code !== 0'],
         ["no nmcli text reaches the log", '" code=" + code);\n            if (action.kind', '" code=" + code + " " + output);\n            if (action.kind'],
-        ["a rescan applies the failure rule", "failures = Logic.afterRescan(failures);", ""],
+        ["a rescan applies the failure rule", "failures = Logic.afterRescan(failures, editedUuid);", ""],
+        ["editor refresh passes its UUID", "Logic.afterRescan(failures, editedUuid)", "Logic.afterRescan(failures)"],
         ["a rescan prunes the problem line", "profileProblem = Logic.problemAfter(profileProblem, listing.rows, failures);", ""],
         ["a list prunes the problem line", "profileProblem = Logic.problemAfter(profileProblem, rows, failures);", ""],
         ["a failed action records its profile", "root.profileProblem = { uuid: action.uuid,", "root.profileProblem = { uuid: \"\","],

@@ -337,18 +337,23 @@ vpn_editor_missing_step() { # create|edit
   expect_poll "missing $1: Escape closes the install notice" null notice_shown
 }
 
-# The editor stand-in records argv and exits. The harness's existing
-# toplevel fixture supplies a real leave/return of System Settings focus.
-vpn_editor_return_step() {
-  local address
-  vpn_expand "editor return" "$vpn_branch" "Branch IPsec"
-  device_reply nm-connection-editor 0 "" "--edit=$vpn_branch"
-  vpn_press "Branch IPsec" RowAction "Edit in connection editor" || fail "editor return: Edit could not be pressed"
-  expect_poll "editor return: Edit reaches the recorder" "[\"--edit=$vpn_branch\"]" vpn_editor_tail
-  rest_pointer || fail "editor return: the pointer could not leave Settings"
-  if open_other "$sandbox/vpn-editor-focus.log"; then
-    expect_poll "editor return: the other window holds the keyboard" false window_keyboard vgs.system
-    python3 - "$devices_dir/replies/nmcli.json" <<'PYEDITOR'
+vpn_focus_roundtrip() { # LABEL [COMMAND ARG...]
+  local label="$1" address
+  shift
+  rest_pointer || fail "$label: the pointer could not leave Settings"
+  if open_other "$sandbox/vpn-focus.log"; then
+    expect_poll "$label: the other window holds the keyboard" false window_keyboard vgs.system
+    if (($# > 0)); then "$@"; fi
+    address="$(window_address "System Settings")" || fail "$label: Settings address is unreadable"
+    expect "$label: focus returns to System Settings" ok hypr dispatch "hl.dsp.focus({ window = \"address:$address\" })"
+    expect_poll "$label: System Settings holds the keyboard" true window_keyboard vgs.system
+    close_other "$label: the owned focus fixture closes"
+  else
+    fail "$label: the focus fixture did not open"
+  fi
+}
+vpn_editor_change_server() {
+  python3 - "$devices_dir/replies/nmcli.json" <<'PYEDITOR'
 import json,os,sys
 path=sys.argv[1]
 rows=json.load(open(path))
@@ -358,19 +363,24 @@ row["stdout"]=row["stdout"].replace("ipsec.example.net","edited.example.net")
 json.dump(rows,open(path+".next","w"))
 os.replace(path+".next",path)
 PYEDITOR
-    address="$(window_address "System Settings")" || fail "editor return: Settings address is unreadable"
-    expect "editor return: focus returns to System Settings" ok hypr dispatch "hl.dsp.focus({ window = \"address:$address\" })"
-    expect_poll "editor return: System Settings holds the keyboard" true window_keyboard vgs.system
-    expect_poll "editor return: Branch IPsec's sign-in failure clears" 'off|false|free|false|' vpn_row "$vpn_branch" "Branch IPsec"
-    expect "editor return: Home tunnel's sign-in failure clears" 'off|false|free|false|' vpn_row "$vpn_home" "Home tunnel"
-    expect_poll "editor return: the unchanged UUID rereads its edited server" '"Cisco IPsec (vpnc)"|"edited.example.net"|hidden|true' vpn_details "$vpn_branch"
-    close_other "editor return: the owned focus fixture closes"
-  else
-    fail "editor return: the focus fixture did not open"
-  fi
+}
+# The editor stand-in records argv and exits. The harness's existing
+# toplevel fixture supplies a real leave/return of System Settings focus.
+vpn_editor_return_step() {
+  vpn_expand "editor return" "$vpn_branch" "Branch IPsec"
+  device_reply nm-connection-editor 0 "" "--edit=$vpn_branch"
+  vpn_press "Branch IPsec" RowAction "Edit in connection editor" || fail "editor return: Edit could not be pressed"
+  expect_poll "editor return: Edit reaches the recorder" "[\"--edit=$vpn_branch\"]" vpn_editor_tail
+  vpn_focus_roundtrip "editor return" vpn_editor_change_server
+  expect_poll "editor return: Branch IPsec's sign-in failure clears" 'off|false|free|false|' vpn_row "$vpn_branch" "Branch IPsec"
+  expect "editor return: Home tunnel's unrelated sign-in failure stays" 'sign-in|false|locked|false|' vpn_row "$vpn_home" "Home tunnel"
+  expect "editor return: Travel L2TP's unrelated password requirement stays" '"needs-password"' vpn_failure "$vpn_travel"
+  expect_poll "editor return: the unchanged UUID rereads its edited server" '"Cisco IPsec (vpnc)"|"edited.example.net"|hidden|true' vpn_details "$vpn_branch"
   vpn_plant "$vpn_home="
-  expect "editor return: restoring the fixture refreshes" ok vpn_refresh
-  expect_poll "editor return: the original server is restored" '"Cisco IPsec (vpnc)"|"ipsec.example.net"|hidden|true' vpn_details "$vpn_branch"
+  expect "editor return: the pane closes before reopening" ok ipc shell hide window vgs.system
+  expect "editor return: a replacement pane opens" ok ipc shell summon window vgs.system '{"pane":"vgs.vpn"}'
+  vpn_expand "editor return replacement" "$vpn_branch" "Branch IPsec"
+  expect_poll "editor return: reopening rereads the same UUID's restored server" '"Cisco IPsec (vpnc)"|"ipsec.example.net"|hidden|true' vpn_details "$vpn_branch"
 }
 
 # The steps the controls run again on a mutated copy.
@@ -553,14 +563,29 @@ expect_poll "the masked field holds the keys" true vpn_named window TextField vp
 expect "the field is masked" true vpn_named window TextField vpn-password password
 type_keys vpn-smoke-draft
 expect_poll "the field takes the typed text" 15 vpn_named window TextField vpn-password length
+vpn_focus_roundtrip "ordinary focus with a draft"
+expect "ordinary focus keeps the typed password" 15 vpn_named window TextField vpn-password length
+expect "ordinary focus keeps the learned password requirement" '"needs-password"' vpn_failure "$vpn_travel"
 type_keys -k Escape
 expect_poll "Escape closes the prompt" false vpn_prompt window
 expect "Escape empties the field" 0 vpn_named window TextField vpn-password length
 expect_poll "the focus returns to the switch after Escape" true vpn_named window Switch "vpn-profile-toggle:$vpn_travel" activeFocus
 expect "the prompt hands nmcli nothing" '[]' vpn_changes "$vpn_before"
+device_reply nm-connection-editor 0 "" "--edit=$vpn_travel"
+vpn_expand "saved password" "$vpn_travel" "Travel L2TP"
+vpn_press "Travel L2TP" RowAction "Edit in connection editor" || fail "saved password: Edit could not be pressed"
+expect_poll "saved password: Edit passes Travel's published UUID" "[\"--edit=$vpn_travel\"]" vpn_editor_tail
+device_reply nmcli 0 "" connection up uuid "$vpn_travel"
+vpn_focus_roundtrip "saved password editor return"
+expect_poll "saved password: the stale requirement clears" '""' vpn_failure "$vpn_travel"
+read_count vpn_before "saved password: nmcli calls are unreadable" vpn_call_count
+vpn_press "Travel L2TP" Switch "" || fail "saved password: Connect could not be pressed"
+expect_poll "saved password: Connect attempts the stored credential by UUID" "[[\"connection\", \"up\", \"uuid\", \"$vpn_travel\"]]" vpn_changes "$vpn_before"
+expect_poll "saved password: the plain connect ends" null vpn_profiles action
+expect "saved password: Connect opens no password dialog" false vpn_prompt window
 device_reply nmcli 4 "$(cat -- "$vpn_fixtures/up-failed.txt")"$'\nPRIVATE-FIXTURE-PROFILE-ERROR' connection up uuid "$vpn_travel"
 read_count vpn_before "retry: nmcli calls are unreadable" vpn_call_count
-expect "an IPC connect of a profile that needs its password runs a plain up" ok vpn_act profile-up "$vpn_travel"
+expect "an IPC retry after the editor runs a plain up" ok vpn_act profile-up "$vpn_travel"
 expect_poll "the IPC connect runs up again" "[[\"connection\", \"up\", \"uuid\", \"$vpn_travel\"]]" vpn_changes "$vpn_before"
 expect_poll "Travel L2TP: Could not connect in the danger tone" 'failed|false|free|false|danger' vpn_row "$vpn_travel" "Travel L2TP"
 expect_poll "the failed connect keeps shield-alert in the warning tone" 'shield-alert|false|warning' vpn_bar
