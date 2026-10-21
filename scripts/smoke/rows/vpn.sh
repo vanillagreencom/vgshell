@@ -607,6 +607,7 @@ device_reply nmcli 4 "$vpn_openvpn_missing" connection up uuid "$vpn_office"
 expect "Office VPN connects" ok vpn_act profile-up "$vpn_office"
 expect_poll "Office VPN: Needs the OpenVPN plugin from the missing service, locked" 'plugin-needed|false|locked|false|' vpn_row "$vpn_office" "Office VPN"
 expect "the plugin-needed switch is refused over IPC" 'refused: profile=plugin-needed' vpn_act profile-up "$vpn_office"
+vpn_expand "Office VPN details after editor return" "$vpn_office" "Office VPN"
 expect_poll "Office VPN keeps its details and Remove profile" '"OpenVPN"|"vpn.example.com"|hidden|true' vpn_details "$vpn_office"
 expect "a missing OpenVPN plugin offers no Install plugin" absent vpn_install_drawn
 rescan "a requirements rescan after the plugin checks starts"
