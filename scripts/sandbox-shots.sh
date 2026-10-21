@@ -9581,4 +9581,7 @@ done
 if [[ -s $auth_log ]]; then fail "a scene reached an authentication sentinel: $(tr '\n' ';' <"$auth_log")"; else ok "no scene reached an authentication sentinel"; fi
 echo "sandbox-shots: dir=$SHOT_DIR shots=$(wc -l <"$SHOT_DIR/shots.tsv" 2>/dev/null || echo 0) failures=$failures"
 [[ $failures -eq 0 ]] || exit 1
-[[ $unmeasured -eq 0 ]] || exit 77
+if [[ $unmeasured -ne 0 || ${#not_measured_rows[@]} -gt 0 ]]; then
+  printf 'sandbox-shots: status=not-measured scenes=%s rows=%s\n' "$unmeasured" "$(IFS=,; echo "${not_measured_rows[*]}")"
+  exit 77
+fi

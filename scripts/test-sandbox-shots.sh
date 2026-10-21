@@ -1414,30 +1414,43 @@ for name, data, problem in (('partial', b'{"kind":', 'record:partial-final-recor
 PY
 then ok "display collector preserves streams and rejects missing, interrupted, partial, truncated and overflow records"; else fail "display collector contract"; fi
 
-# Drive the real screensaver missing-tool branch and the real scene loop
-# and verdict, without a compositor. Capture's scene stands for the frame
-# producer; the test proves the runner still reaches it after screensaver.
+# Drive missing tools through the real screensaver and Power branches,
+# device readiness reader, scene loop and verdict without a compositor.
+# Capture stands for the later frame producer.
 scene_continuation_case() {
-  local script="$1" dir status=0 out
+  local script="$1" scenario="${2:-screensaver}" expected="${3:-77}" dir status=0 out
   dir="$(mktemp -d "$tmp/scene-continuation.XXXXXX")" || return 1
   mkdir -p "$dir/bin" "$dir/shots"
   for tool in wc awk tr; do ln -s "$(command -v "$tool")" "$dir/bin/$tool"; done
-  python3 - "$script" "$dir/runner.sh" <<'PY'
-import sys
+  python3 - "$script" "$dir/runner.sh" "$repo/scripts/smoke/devices.sh" <<'PY'
+import re, sys
 text = open(sys.argv[1]).read()
 start = text.index('scene_screensaver() {')
 end = text.index('\n# The setup each scene needs', start)
 tail = text.index('# The first shot is the bare desktop;')
-open(sys.argv[2], 'w').write(text[start:end] + '\n' + text[tail:])
+power, = re.findall(r'^scene_power\(\) \{.*?^\}', text, re.M | re.S)
+ready, = re.findall(r'^devices_ready\(\) \{.*?^\}', open(sys.argv[3]).read(), re.M | re.S)
+open(sys.argv[2], 'w').write('\n'.join((power, ready, text[start:end], text[tail:])))
 PY
   : >"$dir/auth.log"
   env -i PATH="$dir/bin" "$BASH" -c '
     set -euo pipefail
     SHOT_DIR="$1/shots"
     auth_log="$1/auth.log"
-    failures=0 unmeasured=0
+    source "$2/scripts/smoke/verdict.sh"
+    unmeasured=0
     mode_list=(dark)
-    scenes=(screensaver capture)
+    case $3 in
+      clean) scenes=(capture) ;;
+      screensaver) scenes=(screensaver capture) ;;
+      registry) scenes=(power capture) ;;
+      both) scenes=(screensaver power capture) ;;
+      failure) scenes=(capture); failures=1 ;;
+      failure-registry) scenes=(power capture); failures=1 ;;
+      *) exit 2 ;;
+    esac
+    devices_state=missing=pipewire
+    devices_up() { return 77; }
     enable_ids=() disable_ids=()
     park_pointer() { :; }
     set_mode() { :; }
@@ -1448,19 +1461,43 @@ PY
     ok() { :; }
     fail() { failures=$((failures + 1)); }
     source "$1/runner.sh"
-  ' _ "$dir" >"$dir/out" 2>"$dir/err" || status=$?
+  ' _ "$dir" "$repo" "$scenario" >"$dir/out" 2>"$dir/err" || status=$?
+  printf '%s\n' "$status" >"$dir/exit"
   out="$(cat -- "$dir/out")"
-  [[ $status -eq 77 && -e $dir/shots/capture-dark-panel.png && ! -e $dir/shots/screensaver-dark-cover.png \
-    && $out == *'scene=screensaver mode=dark status=not-measured missing=ttfx'* ]]
+  [[ $status -eq $expected && -e $dir/shots/capture-dark-panel.png && ! -e $dir/shots/screensaver-dark-cover.png ]] || return 1
+  case $scenario in
+    screensaver|both) [[ $out == *'scene=screensaver mode=dark status=not-measured missing=ttfx'* ]] || return 1 ;;
+  esac
+  case $scenario in
+    registry|both|failure-registry)
+      if [[ $expected -eq 77 ]]; then
+        [[ $out == *'rows=power-shot:missing=pipewire'* ]] || return 1
+      fi ;;
+  esac
+  return 0
 }
-if scene_continuation_case "$repo/scripts/sandbox-shots.sh"; then
-  ok "without ttfx, Capture still runs after screensaver and the run exits 77"
+scene_continuation_cases() { # SCRIPT
+  local scenario expected
+  while read -r scenario expected; do
+    scene_continuation_case "$1" "$scenario" "$expected" || return 1
+  done <<'CONTINUATION_CASES'
+clean 0
+screensaver 77
+registry 77
+both 77
+failure 1
+failure-registry 1
+CONTINUATION_CASES
+}
+if scene_continuation_cases "$repo/scripts/sandbox-shots.sh"; then
+  ok "scene verdicts preserve later captures, unavailable causes and failure precedence"
 else
-  fail "without ttfx, Capture still runs after screensaver and the run exits 77"
+  fail "scene continuation or unavailable verdict contract"
 fi
 continuation_controls=(
   'the old whole-run exit stops later Capture' '    return 0' '    exit 77'
-  'a missing scene becomes a passing run' '[[ $unmeasured -eq 0 ]] || exit 77' 'true'
+  'a missing scene becomes a passing run' 'if [[ $unmeasured -ne 0 || ${#not_measured_rows[@]} -gt 0 ]]; then' 'if false; then'
+  'a device registry entry becomes a passing run' ' || ${#not_measured_rows[@]} -gt 0' ''
 )
 for (( i = 0; i < ${#continuation_controls[@]}; i += 3 )); do
   label="${continuation_controls[i]}"; needle="${continuation_controls[i + 1]}"; replacement="${continuation_controls[i + 2]}"
@@ -1482,7 +1519,7 @@ changed = block.replace(needle, replacement)
 assert changed != block
 open(destination, 'w').write(text[:start] + changed + text[end:])
 PY
-  if scene_continuation_case "$continuation_mutant"; then fail "control: $label stayed green"; else ok "control: $label"; fi
+  if scene_continuation_cases "$continuation_mutant"; then fail "control: $label stayed green"; else ok "control: $label"; fi
 done
 
 # Run the System scene's geometry wait against a compositor fixture. A

@@ -1302,6 +1302,7 @@ expect "the missing pane hides Updates" hidden tailscale_shown_of window Section
 expect "Tab reaches Install Tailscale" reached tailscale_tab_until '["Button","Install Tailscale"]' window
 tailscale_key Return
 expect_poll "Install Tailscale offers its requirement" '["vgs.tailscale", ["tailscale"]]' tailscale_offered
+expect_poll "the Tailscale requirement notice holds the keyboard" true ipc smoke noticeFocused
 tailscale_key Escape
 expect_poll "Not now closes the Tailscale requirement offer" null tailscale_offered
 expect "the missing pane closes" ok ipc shell hide window vgs.system
