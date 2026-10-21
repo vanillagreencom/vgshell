@@ -25,6 +25,9 @@
 # hardware write, so it has no control. The row leaves the fakes up,
 # clears the reply it plants, and leaves the fixture disabled for the
 # System rows.
+# The row leaves the recording nm-connection-editor executable in the
+# device PATH directory for the VPN row.
+# leaves: shim
 # inputs: scripts/smoke/fixtures/devices/* scripts/smoke/fixtures/plugins/acme.devices/*
 set -euo pipefail
 devices_ready device-fakes || return 0

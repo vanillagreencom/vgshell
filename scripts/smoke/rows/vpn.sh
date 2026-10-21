@@ -332,6 +332,7 @@ vpn_editor_missing_step() { # create|edit
   fi
   expect_poll "missing $1: the editor requirement notice opens" '["vgs.vpn", ["nm-connection-editor"], ["nm-connection-editor"], false]' notice_shown
   expect "missing $1: the click starts no editor" "$before" vpn_editor_count
+  expect_poll "missing $1: the install notice holds the keyboard" true ipc smoke noticeFocused
   type_keys -k Escape || fail "missing $1: Escape failed"
   expect_poll "missing $1: Escape closes the install notice" null notice_shown
 }
