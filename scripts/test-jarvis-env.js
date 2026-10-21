@@ -328,7 +328,7 @@ async function main() {
         defaultRuntime(helper);
         mutation("runtime-default", '${XDG_RUNTIME_DIR:-/tmp}', '${XDG_RUNTIME_DIR:-$scratch}', defaultRuntime);
         const harness = fs.readFileSync(path.join(__dirname, "smoke/harness.sh"), "utf8");
-        const start = 'if bash "$source_repo/scripts/lib/jarvis-env.sh" "$sandbox/jarvis-world/standins" -- true; then';
+        const start = 'if env JARVIS_TEST_SCRATCH_ROOT="$TMPDIR" "$BASH" "$source_repo/scripts/lib/jarvis-env.sh" "$sandbox/jarvis-world/standins" -- true; then';
         assert.equal(harness.split(start).length - 1, 1);
         const fragment = harness.slice(harness.indexOf(start), harness.indexOf("\nsandbox_env=(", harness.indexOf(start)));
         const overlong = { XDG_RUNTIME_DIR: edgeParent(100) };

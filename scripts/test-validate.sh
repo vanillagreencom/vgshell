@@ -2068,26 +2068,33 @@ for dir in runner-reads runner-deep-control runner-refusal-control runner-short 
   printf 'sandbox=%q\nfailures=0\nleak_seq=0\n' "$tmp/$dir/sandbox" >"$tmp/$dir/scripts/smoke/harness.sh"
   printf '%s\n' 'smoke_row() { printf "row=%s\n" "$1"; }' 'compositor_logs_on() { :; }' 'ok() { :; }' 'smoke_finish() { :; }' >>"$tmp/$dir/scripts/smoke/harness.sh"
 done
-# The existing filtered-PATH owner receives these tools and any earlier filter.
+# The registry owner hides device commands. The runner retains earlier
+# runner-specific hidden names when it appends its own absent tools.
 for dir in runner-filter runner-filter-control; do
   printf 'printf "%%s\\n" "${shell_hidden_commands[@]}" >%q\n' "$tmp/$dir/filter" >>"$tmp/$dir/scripts/smoke/harness.sh"
 done
+runner_filter_holds() {
+  local name
+  for name in preexisting claude codex; do
+    grep -qxF "$name" "$1" || return 1
+  done
+}
 d="$tmp/runner-filter"
 status=0
 "${base_env[@]}" bash -c 'shell_hidden_commands=(preexisting); source "$1" --rows top' _ "$d/scripts/qml-smoke.sh" >"$d/run.log" 2>&1 || status=$?
-if [[ $status == 0 && $(grep -cx -E 'preexisting|tailscale|nmcli' "$d/filter") == 3 ]]; then
-  ok "backend absence keeps host tools hidden and retains earlier filters"
+if [[ $status == 0 ]] && runner_filter_holds "$d/filter"; then
+  ok "the runner retains earlier hidden names while adding its own"
 else
-  fail "the runner did not hand the backend tool filter to the harness"
+  fail "the runner lost an earlier hidden name or its own absent tool"
 fi
 d="$tmp/runner-filter-control"
-plant "$d/scripts/qml-smoke.sh" ' claude codex tailscale nmcli)' ' claude codex)'
+plant "$d/scripts/qml-smoke.sh" 'shell_hidden_commands+=(' 'shell_hidden_commands=('
 status=0
 "${base_env[@]}" bash -c 'shell_hidden_commands=(preexisting); source "$1" --rows top' _ "$d/scripts/qml-smoke.sh" >"$d/run.log" 2>&1 || status=$?
-if [[ $status == 0 && $(grep -cx -E 'preexisting|tailscale|nmcli' "$d/filter") == 1 ]]; then
-  ok "control: dropping the backend filter exposes both host tools"
+if [[ $status == 0 ]] && ! runner_filter_holds "$d/filter" && grep -qxF claude "$d/filter" && grep -qxF codex "$d/filter"; then
+  ok "control: replacing the runner filter loses the earlier hidden name"
 else
-  fail "control: the runner filter removal did not reach the harness"
+  fail "control: the replacement filter did not reach the harness"
 fi
 d="$tmp/runner-reads"
 smoke_deep=(bar hyprland-consent seat session base own top start-order auth-sentinel)
