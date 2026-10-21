@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Validate plugin manifests offline through the shell's own judge,
+// Validate plugin manifests offline through the shell judge,
 // shell/Core/PluginLogic.js, loaded through bin/lib/qml-library.js.
 //
 //   check-manifests.js [--base DIR] [--] [PLUGIN_DIR...]
@@ -8,26 +8,26 @@
 // (default shell/plugins), listed the way the shell lists them: by
 // bin/vgshell-scan, so a directory with no manifest.json is not a plugin and a
 // directory the scan cannot read ends the run. With plugin directories it
-// checks those. Beside the judge's verdict it reads the files a manifest
+// checks those. Beside the judge verdict it reads the files a manifest
 // names: every entry point must be a file, every first-party default key must
 // be unique across the checked manifests, at most one of them declares
 // `hyprland.pads`, since the Hyprland layer holds one pads table and writes
-// a later plugin's pads as a comment (docs/architecture/hyprland.md), each
-// former id in `formerIds` has one claimant and is no checked plugin's id,
+// the pads of a later plugin as a comment (docs/architecture/hyprland.md), each
+// former id in `formerIds` has one claimant and is no checked plugin id,
 // since the shell renames a user file by bundled claims alone, the first in
 // scan order, and leaves out a claim of a live id (PluginLogic.formerIdClaims,
-// D108), so a second claimant would lose its settings and a live id's
-// claimant its rename, and every `tui` script a regular
-// file with its owner's execute bit, reached through no symbolic link, since
+// D108), so a second claimant would lose its settings and a claim on a live
+// id would lose its rename, and every `tui` script is a regular file with its
+// execute bit required by the plugin, reached through no symbolic link, since
 // bin/vgshell-scan follows links and would publish whatever one points at.
-// A `setupGuide` names the anchor of a heading of the plugin's README.md,
+// A `setupGuide` names the anchor of a heading of a plugin README.md,
 // which its Setup tab opens on GitHub; a heading renamed under it would
-// open the README's top.
+// open the top of README.md.
 // A bar widget that offers `layout` keeps the settings order bar widgets
 // share: every field grouped, `layout` first in group "Readings", and the
 // Readings fields starting with the shared ones it offers in
 // READINGS_ORDER, so like widgets show their Settings pages in one order.
-// A schema entry's `description` and a status entry's `hint` say something
+// A schema entry `description` and a status entry `hint` say something
 // its label does not (docs/architecture/design-system.md § Copy): a hint
 // whose every word, bar the small words of a sentence, stands in its label
 // is refused.
@@ -68,7 +68,7 @@ for (let i = 0; i < argv.length; i++) {
     process.exit(2);
 }
 
-// [{ dir, text }] for every plugin to check: the scan's listing of the base,
+// [{ dir, text }] for every plugin to check: the scan listing of the base,
 // or the manifest of each named directory read here.
 function manifests() {
     if (dirs.length > 0) {
@@ -123,7 +123,7 @@ function headingAnchors(text) {
     const anchors = [];
     let fenced = false;
     for (const line of text.split("\n")) {
-        if (/^\s*(```|~~~)/.test(line)) fenced = !fenced;
+        if (/^\s*(\x60{3}|~~~)/.test(line)) fenced = !fenced;
         const heading = fenced ? null : /^#{1,6}\s+(.*?)\s*#*\s*$/.exec(line);
         if (heading !== null) anchors.push(heading[1].toLowerCase().replace(/[^\p{L}\p{N} _-]/gu, "").replace(/ /g, "-"));
     }
@@ -152,7 +152,7 @@ const READINGS_ORDER = ["layout", "labelStyle", "refreshSeconds"];
 // "schema.KEY: cause", or "". The Settings page draws ungrouped fields
 // before every group and each group where its first field appears in the
 // schema (shell/plugins/vgs.settings/PluginPage.qml `sections`), so the
-// schema's key order is the page's.
+// schema key order is the page order.
 function readingsOrderDefect(manifest) {
     const schema = manifest.schema;
     if (manifest.kinds.indexOf("bar-widget") === -1 || !Object.prototype.hasOwnProperty.call(schema, "layout")) return "";
@@ -175,7 +175,7 @@ function meaningWords(text) {
     return (text.toLowerCase().match(/[\p{L}\p{N}]+/gu) || []).filter(word => !SMALL_WORDS.has(word)).map(word => word.replace(/s$/, ""));
 }
 
-// The refusal for a manifest's hints that restate their labels, as
+// The refusal for manifest hints that restate their labels, as
 // "schema.KEY.description: cause", or "".
 function restatedHint(manifest) {
     const entries = [["schema", "description", manifest.schema], ["status", "hint", manifest.status]];
