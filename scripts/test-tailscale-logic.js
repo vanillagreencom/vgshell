@@ -153,7 +153,7 @@ function suite(logic, service = serviceSource) {
     // warning while its action is offered; the optional tool's absence and
     // a state the user cannot change here read info.
     const SETUP_ROWS = [
-        [{ missing: true, state: "checking", service: "absent", operator: "absent" }, "", "info"],
+        [{ missing: true, state: "checking", service: "absent", operator: "absent" }, "tools", "info"],
         [{ missing: false, state: "service-off", service: "needed", operator: "unknown" }, "enable", "warning"],
         [{ missing: false, state: "service-off", service: "nixos", operator: "unknown" }, "enable", "warning"],
         [{ missing: false, state: "service-off", service: "absent", operator: "unknown" }, "", "info"],
@@ -179,8 +179,8 @@ function suite(logic, service = serviceSource) {
         assert.equal(written.available, action === "" && tone !== "ok" ? false : undefined, "an unoffered line is Not available: " + JSON.stringify(context));
         assert.equal(core.statusWrite(judged, {}, "setup", written).ok, true, "the status judge admits the setup value: " + JSON.stringify(context));
     }
-    // The line draws in the Tailscale service step on Setup, beside the
-    // Optional tools step's Review action, so it links no page.
+    // The line draws in the Tailscale service step on Setup, whose own row
+    // offers Review while the command is missing, so it links no page.
     assert.equal(PageReference.parse(logic.setup({ missing: true }).hint).page, "", "the Setup line links no page");
     // Before the core's first probe a step has no reading (""): the setup
     // line is null, so its entry is unreported, never Ready or Not checked.
@@ -211,7 +211,7 @@ function suite(logic, service = serviceSource) {
     assert.equal(logic.published(false, running, denied, live).writable, false);
     assert.equal(logic.published(false, running, null, live).writable, true, "no step reading locks nothing, as a step that could not be checked");
     assert.equal(logic.published(true, running, logic.setup({ missing: true, state: "running", service: "ready", operator: "ready" }), live).writable, false,
-        "a missing command takes no change, though it offers no step");
+        "a missing command takes no change while its step names the install");
     // Each locked value says why in one sentence, names the step the core
     // offers, and tells its cause apart even with no step.
     const steps = manifest.status.setup.actions;
@@ -318,7 +318,6 @@ const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "tailscale-logic-"));
 try {
     const source = fs.readFileSync(file, "utf8");
     for (const [name, needle, replacement] of [
-        ["a missing command takes no change", 'writable: !missing && (setupLine === null || setupLine.action === ""),', 'writable: (setupLine === null || setupLine.action === ""),'],
         ["a writable value gives no reason", 'if (tailscale.writable) return "";', ''],
         ["a service that is off is told apart", 'tailscale.state === "service-off" ? "The', 'false ? "The'],
         ["the reason names the step", 'return step === "" ? cause +', 'return true ? cause +'],

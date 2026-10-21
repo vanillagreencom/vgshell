@@ -16,7 +16,7 @@ Tailscale connects this computer to your tailnet. It turns the connection on and
 
 ## Setup
 
-The Tailscale service step on the plugin's Setup tab offers one step at a time. Enable and Let my login control Tailscale run in a setup window that shows its commands and asks before it runs them. While Tailscale is not installed, select Review all missing or outdated tools under Optional tools on the Setup tab.
+The Tailscale service step on the plugin's Setup tab offers one step at a time. Enable and Let my login control Tailscale run in a setup window that shows its commands and asks before it runs them. While Tailscale is not installed, the Tailscale service step reads To do and offers Review all missing or outdated tools on its row.
 
 | Step | When | What it does |
 | --- | --- | --- |

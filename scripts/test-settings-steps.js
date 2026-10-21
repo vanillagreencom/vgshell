@@ -4,8 +4,8 @@
 // whose chips are Done, To do, Not available and Optional. Unknown and
 // blocked required work stays open; a step the user cannot act on, by its
 // value or because its plugin could not start, reads neutral and raises no
-// Setup needed; a step a missing required tool blocks offers the one
-// install action on its own row. Required To do steps come first, then
+// Setup needed; a step a missing tool blocks, required or optional, offers
+// the one install action on its own row. Required To do steps come first, then
 // required Not available steps, then every optional step that is not
 // done, then Done steps. An optional step raises no Setup needed. The
 // required tools form the Tools step and the optional tools the Optional
@@ -222,15 +222,16 @@ function verify(logic, producer) {
         ["refused", [refusalLine], [], false]
     ]) same(logic.setupNeeds(rows(homeUnreported), requirements(missing), true, logic.startFailed(errors)).open, needed, "Setup needed " + name);
 
-    // A step a missing or outdated required tool blocks: [name, missing
-    // tools, the action kind on Home's own row, Setup needed]. The step
-    // stays To do until its plugin publishes again after the scan that
-    // found its tool; Review is offered only while a required tool lacks.
+    // A step a missing or outdated tool blocks, required or optional, as a
+    // required step waits on an optional tool: [name, missing tools, the
+    // action kind on Home's own row, Setup needed]. The step stays To do
+    // until its plugin publishes again after the scan that found its tool;
+    // Review is offered while one of the plugin's tools lacks.
     for (const [name, missing, want, needed] of [
         ["a missing required tool", ["required-a"], "tools", true],
         ["an outdated required tool", null, "tools", true],
-        ["a missing optional tool alone", ["optional-tool"], null, true],
-        ["every required tool present", [], null, true]
+        ["a missing optional tool alone", ["optional-tool"], "tools", true],
+        ["every tool present", [], null, true]
     ]) {
         const reqs = missing === null ? outdated : requirements(missing);
         const status = rows(Object.assign({}, allDone, { home: toolBlocked }));
@@ -308,12 +309,28 @@ function verify(logic, producer) {
         "optional step: a hidden value is admitted on an optional step alone");
     same(items(logic.setupSections(screens, optionalRows({ extra: { hidden: true }, need: ready }), [], on)).map(item => item.key), ["need"], "optional step: a hidden value takes it off Setup");
     same(logic.detailEntries(optionalRows({})).map(entry => entry.key), [], "optional step: Details draws no step");
+    // An optional step a missing optional tool blocks reads Optional, offers
+    // Review on its own row and raises no Setup needed.
+    const extraTools = optionalRows({ extra: { tone: "info", text: "Needs its tool", action: "tools" }, need: ready }).find(entry => entry.key === "extra");
+    const optionalMissing = requirements(["optional-tool"]);
+    same([logic.stepReading(extraTools, on), (logic.stepButton(extraTools, optionalMissing) || {}).kind, logic.setupNeeds([extraTools], optionalMissing, true).open],
+        ["optional", "tools", false], "optional step: a missing optional tool offers Review on its row");
+
+    // The tab of each `rows` entry, by the placement statusRows carries: a
+    // Settings list on Settings alone, any other on Details as a section
+    // of its own, never as a Details reading.
+    const listRows = producer.statusRows({ requirements: [], tui: {}, status: { pairs: { type: "rows", label: "Pairs", settings: true }, history: { type: "rows", label: "History" } } }, {});
+    same([true, false].map(settings => logic.rowsEntries(listRows, settings).map(entry => entry.key)).concat([logic.detailEntries(listRows).map(entry => entry.key)]),
+        [["pairs"], ["history"], []], "rows: each list on its own tab, as a section");
 
     // The status value judge: [name, the manifest, entry, value, admitted].
     const noRequiredTool = Object.assign({}, manifest, { requirements: manifest.requirements.filter(row => row.optional) });
+    const noRequirement = Object.assign({}, manifest, { requirements: [] });
     for (const [name, judged, key, value, admitted] of [
         ["tools on a required step of a plugin with a required tool", manifest, "home", toolBlocked, true],
-        ["tools on a plugin with no required tool", noRequiredTool, "home", toolBlocked, false],
+        ["tools on a required step of a plugin with optional tools alone", noRequiredTool, "home", toolBlocked, true],
+        ["tools on an optional step", optionalManifest, "extra", toolBlocked, true],
+        ["tools on a plugin with no requirement", noRequirement, "home", toolBlocked, false],
         ["tools on a Details fact", manifest, "fact", toolBlocked, false],
         ["Not available on a required step", manifest, "home", unavailable, true],
         ["Not available on a Details fact", manifest, "fact", unavailable, false],
@@ -443,7 +460,7 @@ function verifyPage(source) { assert.doesNotMatch(setupBody(source), /\bButton\s
 verify(load(file), load(producerFile));
 verifyPage(fs.readFileSync(pageFile, "utf8"));
 const controls = [
-    ["optional-on-Setup", 'return entry.setup === "required" || entry.setup === "optional"; }', 'return entry.setup === "required" || entry.setup === "optional" || entry.setting !== ""; }', "optional entries never draw on Setup"],
+    ["optional-on-Setup", 'return entry.placement === "setup"; }', 'return entry.placement === "setup" || entry.placement === "settings"; }', "optional entries never draw on Setup"],
     ["an optional step reads To do", 'return entry.setup === "optional" ? "optional" : "todo";', 'return "todo";', "tools steps an optional tool missing"],
     ["an optional step the user cannot act on reads Optional", 'if (!stepOpen(entry)) return "unavailable";', 'if (!stepOpen(entry) && entry.setup !== "optional") return "unavailable";', "optional step not available: the chip"],
     ["an optional step raises Setup needed", 'stepReading(entry, plugin) === "todo"; })', 'stepReading(entry, plugin) !== "done" && stepReading(entry, plugin) !== "unavailable"; })', "optional step open beside a done required step: Setup needed"],
@@ -460,8 +477,10 @@ const controls = [
     ["a failed build reads To do", 'if (entry.report !== "reported" && plugin !== undefined && plugin.enabled && plugin.failed) return "unavailable";', '', "Not available after a failed build: the chip"],
     ["Setup needed ignores a failed build", 'var plugin = { enabled: enabled, failed: failed === true };', 'var plugin = { enabled: enabled, failed: false };', "Setup needed after a failed build"],
     ["a refusal reads To do", 'return line.startsWith("build failed: ") || line.startsWith("refused: ");', 'return line.startsWith("build failed: ");', "Setup needed refused"],
-    ["a tools step offers nothing", 'return requiredLacking(requirements).length > 0 ? reviewButton() : null;', 'return null;', "tools: a missing required tool"],
-    ["a tools step offers Review with no required tool lacking", 'return requiredLacking(requirements).length > 0 ? reviewButton() : null;', 'return reviewButton();', "tools: a missing optional tool alone"],
+    ["a tools step offers nothing", 'return requirements.some(requirementApplies) ? reviewButton() : null;', 'return null;', "tools: a missing required tool"],
+    ["a tools step offers Review with every tool present", 'return requirements.some(requirementApplies) ? reviewButton() : null;', 'return reviewButton();', "tools: every tool present"],
+    ["a tools step waits on required tools alone", 'return requirements.some(requirementApplies) ? reviewButton() : null;', 'return requiredLacking(requirements).length > 0 ? reviewButton() : null;', "tools: a missing optional tool alone"],
+    ["a Settings list draws on Details", 'return entry.placement === "rows" && entry.settings === settings;', 'return entry.placement === "rows";', "rows: each list on its own tab"],
     ["optional tools create no step", '[toolsStep(required, false), toolsStep(required, true)]', '[toolsStep(required, false)]', "optional tools alone create Setup"],
     ["optional tool becomes required Tools", 'var rows = requirements.filter(function (row) { return row.optional === optional; });', 'var rows = optional ? requirements.filter(function (row) { return row.optional; }) : requirements.slice();', "optional tools alone create Setup"],
     ["the optional tools step names the required tools", 'var lacking = rows.filter(requirementApplies);', 'var lacking = requirements.filter(requirementApplies);', "tools steps a required tool missing"],
@@ -497,17 +516,22 @@ const controls = [
 ];
 // Each producer control edits PluginLogic, whose rows the page draws.
 const producerControls = [
-    ["Details duplicates required step", '    if (setupStep(entry) !== "") return "setup";\n', '', "Details lists each former Settings entry"],
+    ["a step leaves Setup for Details", '    if (setupStep(entry) !== "") return "setup";\n', '', "optional entries never draw on Setup"],
     ["Details draws a Settings key list", '    if (entry.setting !== undefined) return "settings";\n', '', "Details lists each former Settings entry"],
-    ["Details draws a step's key list", '    if (entry.step !== undefined) return "step";\n', '', "Details lists each former Settings entry"],
+    ["a step's key list leaves its step for Details", '    if (entry.step !== undefined) return "step";\n', '', "optional entries never draw on Setup"],
     ["no entry is a system step's", "            systemStep: statusEntryActions(entry).some(", "            systemStep: false && statusEntryActions(entry).some(", "Details: an unpublished system step's reading checks"],
     ["a step whose screen needs an optional tool is withheld", "            action: statusRowAction(entry, value),",
         "            action: statusRowAction(entry, statusEntryActions(entry).some(function (a) { return a.action.tui !== undefined && (manifest.tui[a.action.tui].requires || []).some(function (name) { return manifest.requirements.some(function (r) { return r.optional && r.name === name; }); }); }) ? null : value),",
         "on: a step whose screen lacks an optional tool offers its own action"],
-    ["tools on a plugin with no required tool passes", 'return entry.setup === true && manifest.requirements.some(function (row) { return !row.optional; });', 'return entry.setup === true;',
-        "judge: tools on a plugin with no required tool"],
-    ["tools on a Details fact passes", 'return entry.setup === true && manifest.requirements.some(function (row) { return !row.optional; });', 'return manifest.requirements.some(function (row) { return !row.optional; });',
+    ["tools on a plugin with no requirement passes", 'return setupStep(entry) !== "" && manifest.requirements.length > 0;', 'return setupStep(entry) !== "";',
+        "judge: tools on a plugin with no requirement"],
+    ["tools on a Details fact passes", 'return setupStep(entry) !== "" && manifest.requirements.length > 0;', 'return manifest.requirements.length > 0;',
         "judge: tools on a Details fact"],
+    ["tools on an optional step is refused", 'return setupStep(entry) !== "" && manifest.requirements.length > 0;', 'return entry.setup === true && manifest.requirements.length > 0;',
+        "judge: tools on an optional step"],
+    ["tools waits on a required tool alone", 'return setupStep(entry) !== "" && manifest.requirements.length > 0;', 'return setupStep(entry) !== "" && manifest.requirements.some(function (row) { return !row.optional; });',
+        "judge: tools on a required step of a plugin with optional tools alone"],
+    ["a list draws as a Details reading", '    if (entry.type === "rows") return "rows";\n', '', "rows: each list on its own tab"],
     ["Not available on a Details fact passes", 'value.available === false && (setupStep(entry) === "" || ', 'value.available === false && (false || ', "judge: Not available on a Details fact"],
     ["Not available on an optional step is refused", 'value.available === false && (setupStep(entry) === "" || ', 'value.available === false && (entry.setup !== true || ', "judge: Not available on an optional step"],
     ["an optional step is never hidden", '        if (entry.setup === true && statusStateHidden(value)) return false;', '        if (setupStep(entry) !== "" && statusStateHidden(value)) return false;', "optional step: a hidden value is admitted on an optional step alone"],

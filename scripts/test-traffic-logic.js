@@ -197,23 +197,25 @@ function captureUnread(api) {
 }
 test("capture-state-actions", api => {
     // The Setup tone rule (design-system.md, Steps.js stepOpen): the
-    // optional capture step reads info in every state but done.
-    for (const [state, tone, action] of [["ready","ok",false], ["needed","info",true], ["nixos","info",true], ["absent","info",false], ["denied","info",false], ["unknown","info",false]]) {
+    // optional capture step reads info in every state but done. [state,
+    // tone, action, Not available]: a state that offers no step reads Not
+    // available, with its why; an absent bandwhich names the install
+    // action, with its own hint.
+    for (const [state, tone, action, waits] of [["ready","ok",false,false], ["needed","info",true,false], ["nixos","info",true,false], ["absent","info","tools",false], ["denied","info",false,true], ["unknown","info",false,true]]) {
         const result = api.capture({ state }); assert.equal(result.tone, tone); assert.equal(result.action, action);
-        // A state that offers no step reads Not available, with its why.
-        const waits = state !== "ready" && !action;
-        assert.deepEqual([result.available, typeof result.hint], waits ? [false, "string"] : [undefined, "undefined"], "Not available with a hint: " + state);
+        assert.deepEqual([result.available, typeof result.hint], waits ? [false, "string"] : [undefined, state === "absent" ? "string" : "undefined"], "Not available with a hint: " + state);
     }
     captureUnread(api);
     // The step probes the system's trusted folders and the requirement the
-    // user's PATH: an absent step names Optional tools only while the
-    // requirement reads missing, else the system's package, and its value
-    // line reads the same case as its hint.
-    const absentMissing = api.capture({ state: "absent" }, false), absentUser = api.capture({ state: "absent" }, true);
-    for (const [label, result, hint] of [["requirement missing", absentMissing, "absent"], ["requirement present", absentUser, "absentSystem"]]) {
-        assert.deepEqual([result.available, result.hint], [false, api.CAPTURE_HINTS[hint]], "absent step, " + label);
-    }
-    assert.notEqual(absentUser.text, absentMissing.text, "a bandwhich for the account alone does not read as not installed");
+    // user's PATH: an absent step offers the install only while the
+    // requirement reads missing; a bandwhich the scan finds lies outside
+    // those folders, which no install changes, and reads Not available
+    // with its own line and hint.
+    const absentMissing = api.capture({ state: "absent" }, false), absentFound = api.capture({ state: "absent" }, true);
+    assert.deepEqual([absentMissing.available, absentMissing.action], [undefined, "tools"], "absent step, requirement missing: Review on its row");
+    assert.deepEqual([absentFound.available, absentFound.action, typeof absentFound.hint], [false, false, "string"], "absent step, requirement found: Not available with its why");
+    assert.notEqual(absentFound.text, absentMissing.text, "a bandwhich outside the trusted folders does not read as not installed");
+    assert.notEqual(absentFound.hint, absentMissing.hint, "a bandwhich outside the trusted folders names its own why");
 });
 const controls = [
     ["bytes-sent", 'const down = /\\bbytes_received:(\\d+)/.exec(line), up = /\\bbytes_acked:(\\d+)/.exec(line);', 'const down = /\\bbytes_received:(\\d+)/.exec(line), up = /\\bbytes_sent:(\\d+)/.exec(line);', acked],
@@ -247,12 +249,11 @@ const controls = [
     ["net-dev-transmit-field", 'const down = Number(fields[0]), up = Number(fields[8]);', 'const down = Number(fields[0]), up = Number(fields[9]);', api => assert.equal(api.parseNetDev(before).enp5s0.up, 2000)],
     ["ipv6-loopback-counted", 'host === "::1"', 'host === "::2"', api => assert.equal(Object.keys(api.parseSockets(socketBefore)).includes("14"), false)],
     ["unknown-as-zero", 'return "--";', 'return "0 B/s";', api => assert.equal(api.formatRate(null), "--")],
-    ["capture-optional-tone", 'tone: state === "ready" ? "ok" : "info",', 'tone: state === "ready" ? "ok" : state === "absent" ? "info" : "warning",', api => assert.equal(api.capture({ state: "needed" }).tone, "info")],
-    ["capture-action", 'const action = state === "needed" || state === "nixos";', 'const action = false;', api => assert.equal(api.capture({ state: "needed" }).action, true)],
-    ["capture-waits-on-the-user", 'if (state !== "ready" && !action) Object.assign(', 'if (false) Object.assign(', api => assert.equal(api.capture({ state: "absent" }).available, false)],
-    ["capture-absent-text-ignores-the-requirement", 'absent: present ? "Installed for your account only" : "bandwhich is not installed",', 'absent: "bandwhich is not installed",', api => assert.notEqual(api.capture({ state: "absent" }, true).text, api.capture({ state: "absent" }, false).text)],
-    ["capture-absent-ignores-the-requirement", 'return present ? CAPTURE_HINTS.absentSystem : CAPTURE_HINTS.absent;', 'return CAPTURE_HINTS.absent;', api => assert.equal(api.capture({ state: "absent" }, true).hint, api.CAPTURE_HINTS.absentSystem)],
-    ["capture-unread-unknown", '    if (!step) return null;\n    const state = step.state;', '    const state = step ? step.state : "unknown";', captureUnread]
+    ["capture-optional-tone", 'tone: reading === "ready" ? "ok" : "info",', 'tone: reading === "ready" ? "ok" : reading === "absent" ? "info" : "warning",', api => assert.equal(api.capture({ state: "needed" }).tone, "info")],
+    ["capture-action", 'needed: { text: "Access needed", action: true },', 'needed: { text: "Access needed", action: false },', api => assert.equal(api.capture({ state: "needed" }).action, true)],
+    ["capture-waits-on-the-user", 'if (known.action === undefined) value.available = false;', '', api => assert.equal(api.capture({ state: "denied" }).available, false)],
+    ["capture-absent-ignores-the-requirement", 'const reading = step.state === "absent" && present ? "outside"', 'const reading = false ? "outside"', api => assert.equal(api.capture({ state: "absent" }, true).available, false)],
+    ["capture-unread-unknown", '    if (!step) return null;\n', '    if (!step) step = { state: "unknown" };\n', captureUnread]
 ];
 for (const [name, old, replacement, verify] of controls) {
     assert(source.includes(old), "control match: " + name);

@@ -16,6 +16,10 @@ const path = require("path");
 const assert = require("node:assert/strict");
 const { load } = require("../bin/lib/qml-library.js");
 const file = path.join(__dirname, "../shell/plugins/vgs.printers/PrintersLogic.js");
+const pluginLogic = load(path.join(__dirname, "../shell/Core/PluginLogic.js"));
+const steps = load(path.join(__dirname, "../shell/plugins/vgs.settings/Steps.js"));
+const judged = pluginLogic.validateManifest(JSON.parse(fs.readFileSync(path.join(path.dirname(file), "manifest.json"), "utf8")), path.dirname(file));
+assert.ok(judged.ok, `the Printers manifest is accepted: ${judged.error}`);
 const plain = value => JSON.parse(JSON.stringify(value));
 
 const SINCE = "Sat Oct 10 17:32:40 2026";
@@ -215,21 +219,20 @@ function suite(logic) {
     ]) assert.deepEqual(plain(logic.addressDevice(text)), want, JSON.stringify(text));
 
     // The Setup step `printing`: To do with Turn on printing while the step
-    // applies, Not available (`available: false`) wherever the user cannot
-    // act, each with its own hint, which the status judge requires
-    // (PluginLogic.statusDeclarationFits), and while CUPS is missing with a
-    // link to the Setup tab, whose Optional tools step installs it.
+    // applies, To do naming the one install action while CUPS, an optional
+    // requirement, is missing, and Not available (`available: false`)
+    // wherever the user cannot act, each with its own hint, which the
+    // status judge requires (PluginLogic.statusDeclarationFits).
     const read = n => ({ state: "read", printers: Array.from({ length: n }, (_, i) => ({ name: "P" + i })) });
     for (const [name, reading, step, want] of [
         ["no printer", read(0), "ready", { tone: "ok", text: "No printers" }],
         ["one printer", read(1), "ready", { tone: "ok", text: "1 printer" }],
         ["two printers", read(2), "ready", { tone: "ok", text: "2 printers" }]
     ]) assert.deepEqual(plain(logic.printingView(reading, false, step)), want, name);
-    const INSTALL = "page:vgs.printers/Setup";
     const shape = value => ({
         available: value.available !== false,
         tone: value.tone,
-        action: value.action === undefined ? "none" : value.action === true ? "declared" : "other",
+        action: value.action === undefined ? "none" : value.action === true ? "declared" : value.action === pluginLogic.STATUS_TOOLS_ACTION ? "tools" : "other",
         link: (/\]\((page:[^)]*)\)/.exec(value.hint ?? "") ?? [null, null])[1]
     });
     const todo = (tone, action, link) => ({ available: true, tone, action, link });
@@ -239,8 +242,8 @@ function suite(logic) {
     for (const [name, reading, missing, step, want] of [
         ["unread", { state: "unread" }, false, "", todo("info", "none", null)],
         ["read", read(1), false, "ready", todo("ok", "none", null)],
-        ["not installed links the install", { state: "unread" }, true, "needed", unavailable("warning", INSTALL)],
-        ["not installed, printing off", down, true, "denied", unavailable("warning", INSTALL)],
+        ["not installed names the install", { state: "unread" }, true, "needed", todo("warning", "tools", null)],
+        ["not installed, printing off", down, true, "denied", todo("warning", "tools", null)],
         ["off, step needed", down, false, "needed", todo("warning", "declared", null)],
         ["off, on NixOS", down, false, "nixos", todo("warning", "declared", null)],
         ["off, step denied", down, false, "denied", unavailable("warning")],
@@ -254,6 +257,15 @@ function suite(logic) {
         if (value.available === false) assert.ok(typeof value.hint === "string" && value.hint !== "", name + " says why");
     }
     assert.throws(() => logic.printingView({ state: "other" }, false, ""), /reading state "other"/);
+    // Without CUPS the shipped manifest's step reads To do, its own row
+    // offers Review, the one install action, and the plugin shows Setup
+    // needed, while the CUPS commands are missing.
+    const notInstalled = plain(logic.printingView({ state: "unread" }, true, "needed"));
+    assert.equal(pluginLogic.statusWrite(judged.manifest, {}, "printing", notInstalled).ok, true, "not installed: the status judge admits the value");
+    const printingRow = pluginLogic.statusRows(judged.manifest, { printing: notInstalled }).find(entry => entry.key === "printing");
+    const cupsMissing = pluginLogic.requirementRows(judged.manifest, logic.CUPS_COMMANDS, {});
+    assert.deepEqual(plain([steps.stepReading(printingRow), (steps.stepButton(printingRow, cupsMissing) || {}).kind, steps.setupNeeds([printingRow], cupsMissing, true).open]),
+        ["todo", "tools", true], "not installed: To do with Review on the step's row, and Setup needed");
     // Before the core's first probe the step has no reading (""): printing
     // that is off publishes nothing, so Setup reads Checking, never the
     // failed check's Not available.

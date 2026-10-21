@@ -1,11 +1,13 @@
 .pragma library
 
-// One page judge owns placement and required readiness. The manifest judge
-// validates every reference before these manager rows reach the page.
+// PluginLogic.statusPlacement places each status entry, which the manager
+// row carries as `placement`; this page judge orders and draws the entries
+// and owns required readiness. The manifest judge validates every
+// reference before these manager rows reach the page.
 function requirementApplies(requirement) { return requirement.state !== "present"; }
 // Whether ENTRY, a manager status row, is a Setup step, required or
-// optional (PluginLogic.setupStep).
-function declaresStep(entry) { return entry.setup === "required" || entry.setup === "optional"; }
+// optional.
+function declaresStep(entry) { return entry.placement === "setup"; }
 // Whether ENTRY, a step, waits on the user: unreported, or published as
 // not done by a value that does not say the user cannot act on it
 // (`available: false`, PluginLogic.statusDeclarationFits).
@@ -84,7 +86,7 @@ function detailEntries(status) {
 // manifest order: those the manifest places on Settings while SETTINGS,
 // else the Details ones.
 function rowsEntries(status, settings) {
-    return status.filter(function (entry) { return entry.type === "rows" && entry.settings === settings; });
+    return status.filter(function (entry) { return entry.placement === "rows" && entry.settings === settings; });
 }
 function detailRequirements(requirements) { return requirements.filter(function (entry) { return entry.optional; }); }
 // The action that opens the plugin's notice for every missing or outdated
@@ -129,7 +131,7 @@ function setupSections(tuis, status, requirements, plugin) {
     ordered.forEach(function (entry) {
         items.push({ key: entry.key, slot: entry.key + ":" + rank(entry), keys: false, entry: entry,
             label: entry.label, step: true, button: stepButton(entry, required), aside: asideButton(entry) });
-        status.filter(function (keyList) { return keyList.step === entry.key; }).forEach(function (keyList) {
+        status.filter(function (keyList) { return keyList.placement === "step" && keyList.step === entry.key; }).forEach(function (keyList) {
             items.push({ key: keyList.key, slot: keyList.key, keys: true, entry: keyList, label: keyList.label, step: false, button: null, aside: null });
         });
     });
@@ -165,14 +167,15 @@ function setupTab(sections, requirements) { return sections.length > 0 || requir
 // uses the status route, including when it opens a TUI, so its refusal
 // and the successful retry belong to the same entry. A step whose value
 // names `action: "tools"` (PluginLogic.STATUS_TOOLS_ACTION), which a
-// missing or outdated required tool blocks, offers Review all missing or
-// outdated tools, the one install action, while one of REQUIREMENTS, the
-// plugin's, is, and none once every one is present. Only a Setup step
-// carries that value, so a Details or rows line reads no REQUIREMENTS.
-// Null while none is offered.
+// missing or outdated tool blocks, required or optional, offers Review all
+// missing or outdated tools, the one install action, while one of
+// REQUIREMENTS, the plugin's, is, and none once every one is present: the
+// value names no tool, and its writer names `tools` only while a tool the
+// step waits on is lacking. Only a Setup step carries that value, so a
+// Details or rows line reads no REQUIREMENTS. Null while none is offered.
 function stepButton(entry, requirements) {
     if (entry.type === "state" && entry.report === "reported" && entry.value.action === "tools")
-        return requiredLacking(requirements).length > 0 ? reviewButton() : null;
+        return requirements.some(requirementApplies) ? reviewButton() : null;
     if (entry.action === null || !entry.action.offered) return null;
     return { kind: "status", key: entry.key + " " + entry.action.label, name: entry.action.tui,
         label: entry.action.label, tone: entry.action.tone, icon: entry.action.icon, enabled: true, reason: "" };

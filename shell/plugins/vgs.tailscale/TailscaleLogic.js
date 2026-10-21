@@ -278,9 +278,10 @@ function stepOffered(step) { return step === "needed" || step === "nixos"; }
 // whether the `tailscale` command is absent, the snapshot's state and the
 // two system steps' states, each "" while it has no reading, before the
 // core's first probe ends. The line is null, which clears the entry, while
-// a step it reads has no reading. A missing command offers no step: the
-// Review action of the page's Optional tools step installs it, and the
-// requirement is optional, so the line reads info. A step Tailscale needs
+// a step it reads has no reading. A missing command names the one install
+// action, `tools` (PluginLogic.STATUS_TOOLS_ACTION), whose Review the step's
+// row offers, and the requirement is optional, so the line reads info.
+// A step Tailscale needs
 // reads warning while its action is offered; a state the user cannot
 // change here reads info.
 var SERVICE_UNOFFERED = {
@@ -289,7 +290,7 @@ var SERVICE_UNOFFERED = {
 };
 function setupState(tone, text, hint, action) { return { tone: tone, text: text, hint: hint, action: action }; }
 function setup(context) {
-    if (context.missing) return setupState("info", "Not installed", "Tailscale is optional. Choose Review all missing or outdated tools to use it.", "");
+    if (context.missing) return setupState("info", "Not installed", "Choose Review all missing or outdated tools to install Tailscale", "tools");
     if (context.state === "service-off") {
         if (context.service === "") return null;
         if (stepOffered(context.service)) return setupState("warning", "Off", "The Tailscale service is off. Enable turns it on.", "enable");
@@ -325,14 +326,15 @@ function connection(missing, snap) {
 }
 
 // The `tailscale` value the service publishes and the views draw: the snapshot
-// under the connection line, with `writable`, false while the command is
-// MISSING or the Allow step or another setup step must run first, and
+// under the connection line, MISSING the command's absence, with
+// `writable`, false while a setup step must run first, the install of a
+// missing command among them, and
 // true while SETUPLINE is null, before the steps' first reading, as for a
 // step that could not be checked, and LIVE { accounts, action,
 // login, problem }, what the service holds beside the snapshot.
 function published(missing, snap, setupLine, live) {
     var shown = connection(missing, snap);
-    return Object.assign({}, snap, { state: shown.state, tone: shown.tone, text: shown.text, writable: !missing && (setupLine === null || setupLine.action === ""),
+    return Object.assign({}, snap, { state: shown.state, tone: shown.tone, text: shown.text, writable: setupLine === null || setupLine.action === "",
         accounts: live.accounts, action: live.action, login: live.login, problem: live.problem, backendPresent: live.backendPresent !== false });
 }
 

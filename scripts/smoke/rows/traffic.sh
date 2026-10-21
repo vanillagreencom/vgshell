@@ -48,6 +48,9 @@ traffic_panel() { [[ $(ipc smoke instanceGeometry panel vgs.traffic) != absent ]
 traffic_ss_calls() { if [[ -f $traffic_dir/calls ]]; then wc -l <"$traffic_dir/calls" | tr -d ' '; else echo 0; fi; }
 traffic_has_totals() { traffic_values | py_reply 'import json,sys;t=json.load(sys.stdin)["traffic"]; print(isinstance(t["down"],(int,float)) and isinstance(t["up"],(int,float)) and [i["name"] for i in t["interfaces"]]==["enp5s0","wlan0"])'; }
 traffic_captured() { traffic_values | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin)["capture"]["action"]))'; }
+# The published capture value's [available, action, has a hint].
+traffic_capture_reading() { traffic_values | py_reply 'import json,sys; v=json.load(sys.stdin)["capture"]; print(json.dumps([v.get("available", True), v["action"], bool(v.get("hint"))]))'; }
+traffic_capture_hint() { traffic_values | py_reply 'import json,sys; print(json.load(sys.stdin)["capture"].get("hint", ""))'; }
 traffic_foot() { ipc smoke readInstance panel vgs.traffic footShown; }
 traffic_search_focus_contract() { expect_poll "search takes focus on open" true ipc smoke activeFocusWithin panel vgs.traffic TextField; }
 traffic_socket_stopped() { python3 - "$traffic_dir" <<'PY'
@@ -285,6 +288,18 @@ release_runs
 expect_run_end "the capture terminal stand-in ends" core/system
 expect "the ready capture seam publishes" ok ipc vgs.traffic invoke capture-fixture '{"state":"ready","reason":"granted","tool":true}'
 expect_poll "ready removes Allow" false traffic_captured
+# An absent step reads by the requirement Service.qml passes: bandwhich
+# found outside the trusted folders reads Not available with its why, and
+# a missing bandwhich names the install action, with another hint. The
+# row pins no wording.
+expect "the absent capture seam with bandwhich found publishes" ok ipc vgs.traffic invoke capture-fixture '{"state":"absent","reason":"bandwhich-missing","tool":true}'
+expect_poll "bandwhich outside the trusted folders reads Not available with a hint" '[false, false, true]' traffic_capture_reading
+traffic_found_hint="$(traffic_capture_hint)"
+expect "the absent capture seam with bandwhich missing publishes" ok ipc vgs.traffic invoke capture-fixture '{"state":"absent","reason":"bandwhich-missing","tool":false}'
+expect_poll "a missing bandwhich names the install action with a hint" '[true, "tools", true]' traffic_capture_reading
+if [[ $(traffic_capture_hint) != "$traffic_found_hint" ]]; then ok "the two absent readings give different hints"; else fail "the two absent readings give the same hint"; fi
+expect "the ready capture seam publishes again" ok ipc vgs.traffic invoke capture-fixture '{"state":"ready","reason":"granted","tool":true}'
+expect_poll "ready again removes Allow" false traffic_captured
 click_centre "$(bar_key)" vgs.traffic || fail "Traffic ready-tool click failed"
 expect_poll "Traffic opens again after the capture terminal" shown traffic_panel
 : >"$traffic_dir/tui-hold"

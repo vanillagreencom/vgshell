@@ -203,9 +203,10 @@ var STATUS_STATE_TONES = { ok: "success", info: "info", warning: "warning", dang
 // The keys a `state` value carries. `action` is its writer's to decide
 // (D061): true when the entry's declared `action` applies to this value,
 // the name of the one of the entry's declared `actions` that does, or, on
-// a required step of a plugin with a required tool, STATUS_TOOLS_ACTION
-// while a missing or outdated required tool blocks the step, whose page
-// then offers Review all missing or outdated tools on the step's row.
+// a Setup step, required or optional, of a plugin that declares a
+// requirement, STATUS_TOOLS_ACTION while a missing or outdated tool,
+// required or optional, blocks the step, whose page then offers Review all
+// missing or outdated tools on the step's row.
 // `available: false` says a Setup step that is not done offers the user
 // no action and does not wait on the user, so its page reads it Not
 // available and raises no Setup needed; its `hint`, which it must carry,
@@ -226,7 +227,7 @@ var STATUS_STATE_TONES = { ok: "success", info: "info", warning: "warning", dang
 // path ends in `/`, as editRoute reads it; any other path opens in the
 // editor, which refuses a folder.
 var STATUS_STATE_KEYS = ["tone", "text", "lines", "hint", "action", "aside", "available", "info", "file"];
-// The `action` a required step's value names for the one install action,
+// The `action` a Setup step's value names for the one install action,
 // which no entry declares: it names that action over a declared action of
 // the same name.
 var STATUS_TOOLS_ACTION = "tools";
@@ -274,7 +275,7 @@ var LAUNCHER_ROW_KEYS = ["id", "label", "icon", "description", "aliases", "menu"
 // it supplies the path in its own `file`. No route
 // installs a requirement: Review all missing or outdated tools, which opens
 // the requirement notice, is the one install action, offered by Setup's
-// Tools and Optional tools steps and by a required step whose value names
+// Tools and Optional tools steps and by a Setup step whose value names
 // STATUS_TOOLS_ACTION. An entry of a
 // type in STATUS_ACTION_TYPES takes one. A `state`
 // entry whose step differs by what its writer found declares `actions`
@@ -1443,8 +1444,9 @@ function statusWrite(manifest, values, key, value) {
 // Whether VALUE, which statusValueFits admitted for ENTRY's type, also fits
 // what MANIFEST declares: a `state` value carries a boolean `action` only
 // for an entry that declares an action, a name only for an entry whose
-// `actions` hold it, STATUS_TOOLS_ACTION only for a required step of a
-// manifest that declares a required tool, `aside` only for an entry that
+// `actions` hold it, STATUS_TOOLS_ACTION only for a Setup step, required
+// or optional, of a manifest that declares a requirement, since a step can
+// wait on an optional tool, `aside` only for an entry that
 // declares one and `available: false` only for a Setup step, required or
 // optional, that is not done, offers no action or aside, and carries its
 // own `hint`, since the declaration's hint names the action the step
@@ -1462,7 +1464,7 @@ function statusDeclarationFits(manifest, entry, value) {
         if (value.available === false && (setupStep(entry) === "" || value.tone === "ok" || (value.action !== undefined && value.action !== false) || value.aside === true
             || value.hint === undefined)) return false;
         if ((value.file !== undefined) !== statusValueOffersFile(entry, value)) return false;
-        if (value.action === STATUS_TOOLS_ACTION) return entry.setup === true && manifest.requirements.some(function (row) { return !row.optional; });
+        if (value.action === STATUS_TOOLS_ACTION) return setupStep(entry) !== "" && manifest.requirements.length > 0;
         if (value.action === undefined) return true;
         if (typeof value.action === "string") return entry.actions !== undefined && hasOwn(entry.actions, value.action);
         return entry.action !== undefined;

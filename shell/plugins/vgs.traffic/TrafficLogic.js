@@ -205,32 +205,34 @@ function commandLine(text) {
 // The capture step from STEP, the bandwhich-capture system step's reading,
 // and PRESENT, whether the scan finds the bandwhich requirement on the
 // user's PATH. See all is optional, so a step not done reads info, with
-// its action while one is offered, and ok once it is. A state that offers
-// no action reads Not available on Setup, its hint saying why and what
-// changes that (PluginLogic.statusDeclarationFits); the core probes the
-// step again after each plugin scan, which each Settings open asks for.
-// The step probes only the system's trusted folders
-// (bin/vgshell-system capture_binary), so an absent step reads not
-// installed and names Setup's Optional tools only while the requirement
-// reads missing; a bandwhich installed for the user's account alone reads
-// as that and needs the system's package.
+// its action while one is offered, and ok once it is. The step probes only
+// the system's trusted folders (bin/vgshell-system capture_binary), so an
+// absent step reads by the requirement, decided once here: while the scan
+// reads bandwhich missing, the step names the one install action
+// (`action: "tools"`, PluginLogic.STATUS_TOOLS_ACTION), whose Review on
+// its row installs it; while the scan finds bandwhich, it lies outside
+// those folders. Each other state that offers no action reads Not
+// available on Setup, its hint saying why and what changes that
+// (PluginLogic.statusDeclarationFits); the core probes the step again
+// after each plugin scan, which each Settings open asks for.
 // null, which clears the entry, while the step has no reading, before the
 // core's first probe ends.
-var CAPTURE_HINTS = { absent: "Install bandwhich under Optional tools first",
-    absentSystem: "Capture needs bandwhich from your system's packages",
-    denied: "VGS allows capture only for a bandwhich it trusts", unknown: "VGS checks again each time you open Settings" };
-function captureHint(state, present) {
-    if (state === "absent") return present ? CAPTURE_HINTS.absentSystem : CAPTURE_HINTS.absent;
-    return CAPTURE_HINTS[state] || CAPTURE_HINTS.unknown;
-}
+var CAPTURE_READINGS = {
+    ready: { text: "Ready", action: false },
+    needed: { text: "Access needed", action: true },
+    nixos: { text: "Access needed", action: true },
+    absent: { text: "bandwhich is not installed", action: "tools", hint: "See all needs bandwhich to show the traffic of every app" },
+    outside: { text: "Found outside the system folders", hint: "Capture trusts only a bandwhich in the system's own folders. Installing bandwhich from your system's packages puts it there." },
+    denied: { text: "Installed tool is not trusted", hint: "VGS allows capture only for a bandwhich it trusts" },
+    unknown: { text: "Capture access could not be checked", hint: "VGS checks again each time you open Settings" }
+};
 function capture(step, present) {
     if (!step) return null;
-    const state = step.state;
-    const text = { ready: "Ready", needed: "Access needed", nixos: "Access needed",
-        absent: present ? "Installed for your account only" : "bandwhich is not installed",
-        denied: "Installed tool is not trusted", unknown: "Capture access could not be checked" };
-    const action = state === "needed" || state === "nixos";
-    const value = { tone: state === "ready" ? "ok" : "info", text: text[state] || text.unknown, action: action };
-    if (state !== "ready" && !action) Object.assign(value, { available: false, hint: captureHint(state, present) });
+    const reading = step.state === "absent" && present ? "outside"
+        : Object.prototype.hasOwnProperty.call(CAPTURE_READINGS, step.state) ? step.state : "unknown";
+    const known = CAPTURE_READINGS[reading];
+    const value = { tone: reading === "ready" ? "ok" : "info", text: known.text, action: known.action === undefined ? false : known.action };
+    if (known.hint !== undefined) value.hint = known.hint;
+    if (known.action === undefined) value.available = false;
     return value;
 }

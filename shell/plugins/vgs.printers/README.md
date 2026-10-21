@@ -19,7 +19,7 @@ Printers adds, chooses and removes your printers. It has a Printers section in t
 
 ## Requirements
 
-Printers reads your printers with the printing service's own tools, which come with CUPS. Without CUPS the section says that printing is not installed, and Install printing installs it in one press. The printer helper is optional: without it the list works, and each change button offers to install it. Print Settings is optional too.
+Printers reads your printers with the printing service's own tools, which come with CUPS. Without CUPS the section says that printing is not installed, and Install printing installs it in one press. On the plugin's Setup tab, the Printing step reads To do until CUPS is installed, and Review all missing or outdated tools on its row installs it. The printer helper is optional: without it the list works, and each change button offers to install it. Print Settings is optional too.
 
 <details>
 <summary>Show command details</summary>
