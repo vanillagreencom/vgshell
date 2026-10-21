@@ -31,7 +31,7 @@ Item {
     // Per uuid: { service, server } from the one detail read of the
     // current uuid set, the address while activated, and the failure the
     // last `up` left, which stays until an `up` succeeds, the profile is
-    // seen activated or it leaves the list; a requirements rescan also
+    // seen activated or it leaves the list; an explicit refresh also
     // clears a sign-in or missing-plugin failure (VpnLogic.afterRescan).
     // The problem line of the last failed action, { uuid, kind, text },
     // lives until the next action starts or VpnLogic.problemAfter finds
@@ -78,16 +78,19 @@ Item {
         }
         publish();
     }
-    onScansChanged: {
-        failures = Logic.afterRescan(failures);
-        profileProblem = Logic.problemAfter(profileProblem, listing.rows, failures);
-        refresh();
-    }
+    onScansChanged: refresh()
     onProfilesMissingChanged: {
         if (profilesMissing) listing = Logic.emptyProfiles("reading");
         else readProfiles();
     }
     function refresh() {
+        // The editor may save new details or credentials under the same
+        // UUID. Refresh reads them through the existing readers; if an
+        // earlier detail read is in flight, readDetails coalesces a new one.
+        failures = Logic.afterRescan(failures);
+        profileProblem = Logic.problemAfter(profileProblem, listing.rows, failures);
+        detailsRead = "";
+        readDetails();
         readProfiles();
         return "ok";
     }
@@ -184,6 +187,7 @@ Item {
     // One process reads the service and server of every listed profile.
     // A failed read leaves the set unread, so the next list asks again.
     function readDetails() {
+        if (!registered || profilesMissing) return;
         if (detailsReader.running) { detailsReader.again = true; return; }
         const key = Logic.detailsKey(listing);
         if (key === "") {
@@ -218,6 +222,7 @@ Item {
             const code = root.codeOf(completion);
             const read = Logic.details(code, detailsText.text, key);
             if (read === null) {
+                root.detailsRead = "";
                 console.warn("vpn: operation=profile-details completion=" + root.completionWord(code) + " code=" + code);
             } else {
                 root.detailMap = read;

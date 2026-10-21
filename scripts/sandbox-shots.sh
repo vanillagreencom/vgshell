@@ -7076,12 +7076,15 @@ scene_vpn() { # MODE
   expect_poll "VPN's pane is mounted" shown vpn_shot_shown
   vpn_shot_expand window "window:System Settings" "Office VPN" "$vpn_shot_office" true
   expect_poll "Office VPN ends its details with Remove profile" true vpn_shot_read window RowAction "vpn-remove:$vpn_shot_office" visible
+  expect_poll "Office VPN offers its connection editor" true vpn_shot_read window RowAction "vpn-edit:$vpn_shot_office" visible
   park_pointer
+  vpn_shot_record "vpn-$1-pane" "$1"
   take "vpn-$1-pane"
   click_item "window:System Settings" window vgs.vpn RowAction "Remove profile" || fail "the click on Remove profile failed"
   expect_poll "the remove confirmation shows" true vpn_shot_read window Dialog vpn-remove-confirm visible
   expect_poll "Cancel holds the focus" '["Button", "Cancel"]' vpn_shot_focus
   park_pointer
+  vpn_shot_record "vpn-$1-pane-confirm" "$1"
   take_posed "vpn-$1-pane-confirm"
   click_item "window:System Settings" window vgs.vpn Button "Cancel" || fail "the click on Cancel failed"
   expect_poll "the remove confirmation closes" false vpn_shot_read window Dialog vpn-remove-confirm visible
@@ -7089,7 +7092,7 @@ scene_vpn() { # MODE
   vpn_shot_pane_password "$1"
   scroll="$(vpn_shot_end)" || { fail "the VPN pane end is unreadable"; return; }
   case "$scroll" in
-    moved) park_pointer; take "vpn-$1-pane-end" ;;
+    moved) park_pointer; vpn_shot_record "vpn-$1-pane-end" "$1"; take "vpn-$1-pane-end" ;;
     fits) ok "the complete VPN pane fits its first frame" ;;
     *) fail "the VPN pane end is unreadable: $scroll" ;;
   esac
@@ -7100,6 +7103,7 @@ scene_vpn() { # MODE
   expect_poll "Office VPN's switch says why it cannot connect" true vpn_shot_blocked window "$vpn_shot_office"
   expect "the VPN pane scrolls back to its Profiles heading" shown vpn_shot_top
   park_pointer
+  vpn_shot_record "vpn-$1-pane-plugin" "$1"
   take "vpn-$1-pane-plugin"
   expect "the VPN System window closes" ok ipc shell hide window vgs.system
   click_centre "$(bar_key)" vgs.vpn || fail "the click on the VPN widget failed"
@@ -7117,8 +7121,10 @@ scene_vpn() { # MODE
   expect_poll "the gone profile takes its problem line" '[null, ""]' vpn_shot_action
   expect "VPN's pane summons with no profile" ok ipc shell summon window vgs.system '{"pane":"vgs.vpn"}'
   expect_poll "the pane shows the no-profile state" true vpn_shot_read window EmptyState vpn-empty visible
+  expect_poll "the empty pane offers its connection editor" true vpn_shot_read window RowAction vpn-editor-add-empty visible
   expect_poll "the VPN widget hides with no profile" false ipc smoke readInstance "$(bar_key)" vgs.vpn visible
   park_pointer
+  vpn_shot_record "vpn-$1-pane-empty" "$1"
   take "vpn-$1-pane-empty"
   expect "the VPN System window closes" ok ipc shell hide window vgs.system
   expect "VPN disables after its shot" ok ipc shell setPluginEnabled vgs.vpn false
@@ -7225,6 +7231,13 @@ vpn_shot_expand() {
 vpn_shot_read() { ipc smoke readMatchingDescendant "$1" vgs.vpn "$2" objectName "$3" "$4"; } # HOST TYPE NAME PROPERTY
 vpn_shot_blocked() { vpn_shot_read "$1" Switch "vpn-profile-toggle:$2" disabledReason | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin) != ""))'; } # HOST UUID
 vpn_shot_status() { ipc smoke statusValues vgs.vpn | py_reply 'import json,sys; v=json.load(sys.stdin).get("profiles"); print("unpublished" if v is None else json.dumps(v[sys.argv[1]]))' "$1"; }
+# Record the published state beside every section crop, including its end,
+# so a sheet's caption reads the state this run actually drew.
+vpn_shot_record() { # NAME MODE
+  local state
+  state="$(ipc smoke statusValues vgs.vpn | py_reply 'import json,sys; print(json.dumps(json.load(sys.stdin),sort_keys=True,separators=(",",":")))')" || { fail "the VPN shot state is unreadable"; return 1; }
+  printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$capture_source" "$state" >>"$SHOT_DIR/vpn-states.tsv"
+}
 vpn_shot_rows() { ipc smoke statusValues vgs.vpn | py_reply 'import json,sys; v=json.load(sys.stdin).get("profiles"); print("unpublished" if v is None else json.dumps([[r["name"], r["state"], r["service"] or r["type"], r["server"], r["address"], r["failure"]] for r in v["rows"]]))'; }
 vpn_shot_failure() { ipc smoke statusValues vgs.vpn | py_reply 'import json,sys; v=json.load(sys.stdin).get("profiles") or {"rows": []}; print(next((r["failure"] for r in v["rows"] if r["uuid"] == sys.argv[1]), "absent"))' "$1"; }
 vpn_shot_action() { ipc smoke statusValues vgs.vpn | py_reply 'import json,sys; v=json.load(sys.stdin).get("profiles") or {}; print(json.dumps([v.get("action"), v.get("problem")]))'; }

@@ -166,7 +166,7 @@ Item {
         }
 
         // A connect that found no OpenVPN plugin disables the switch with its
-        // reason, and the details offer no action but Remove profile.
+        // reason, and the details still offer Edit and Remove profile.
         function test_missing_plugin_disables_its_switch() {
             open(paneComponent, root.payload(root.standIn, { failures: { [root.office]: { kind: "plugin-needed", service: "openvpn" } } }));
             const shown = row(root.office);
@@ -184,7 +184,7 @@ Item {
                     collect(child);
                 }
             })(shown);
-            compare(actions, ["vpn-remove:" + root.office]);
+            compare(actions, ["vpn-edit:" + root.office, "vpn-remove:" + root.office]);
             compare(root.calls.filter(call => call[0] === "offer"), []);
         }
 

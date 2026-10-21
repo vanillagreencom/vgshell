@@ -81,6 +81,7 @@ Recommends:     ddcutil
 Recommends:     libcap
 Recommends:     polkit
 Recommends:     tailscale
+Recommends:     nm-connection-editor
 Recommends:     cups-client
 Recommends:     cups-ipptool
 Recommends:     cups-pk-helper

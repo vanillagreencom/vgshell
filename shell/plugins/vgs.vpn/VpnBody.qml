@@ -48,14 +48,17 @@ FocusScope {
     readonly property Item initialFocus: list !== null && list.rowAt(0) !== null ? list.rowAt(0).focusItem : root
     // The profile the confirmation asks about, and the one whose removal
     // runs with the place it stood at.
-    property var confirmTarget: null
+    // One tagged target makes the password prompt and remove confirmation
+    // exclusive. An open dialog keeps its profile, including typed secrets.
+    property var dialogTarget: null
+    readonly property var confirmTarget: dialogTarget !== null && dialogTarget.kind === "remove" ? dialogTarget : null
     property string removingUuid: ""
     property int removingIndex: -1
     readonly property bool confirming: confirmTarget !== null && content.visible
     // The profile the password prompt asks about, { uuid, name }, and the
     // connect this body started, followed until it ends: `watchSeen` holds
     // once the published state shows it connecting.
-    property var promptTarget: null
+    readonly property var promptTarget: dialogTarget !== null && dialogTarget.kind === "password" ? dialogTarget : null
     readonly property bool prompting: promptTarget !== null && content.visible
     readonly property var promptRow: promptTarget === null ? null : profileRows.find(row => row.uuid === promptTarget.uuid) || null
     property string watchUuid: ""
@@ -80,15 +83,21 @@ FocusScope {
         if (shell !== null && !leased) leased = shell.ipc.call("lease", JSON.stringify({ id: leaseId, open: true })) === "ok";
     }
     function close() {
-        confirmTarget = null;
         prompt.clear();
-        promptTarget = null;
+        dialogTarget = null;
         watchUuid = "";
         if (!leased || shell === null) return;
         shell.ipc.call("lease", JSON.stringify({ id: leaseId, open: false }));
         leased = false;
     }
     Component.onDestruction: close()
+    // Window.active follows the containing window's activation, including
+    // a return from the detached editor, without owning another lifetime.
+    // https://doc.qt.io/qt-6/qml-qtquick-window.html#active-attached-prop
+    Window.onActiveChanged: {
+        if (expanded && Window.active && shell !== null)
+            answered(shell.ipc.call("refresh", ""), "VGS could not refresh VPN profiles.");
+    }
 
     function answered(reply, refusal) {
         localProblem = reply === "ok" || reply === "satisfied" ? "" : reply === "busy" ? "A VPN change is still in progress." : refusal;
@@ -101,7 +110,7 @@ FocusScope {
     // A switch press: a profile that reads Needs password asks for it,
     // and a connect is followed so its end can ask.
     function toggle(row, wanted) {
-        if (wanted && Logic.rowView(row, profiles).key === "needs-password") {
+        if (wanted && passwordRow(row.uuid) !== null) {
             askPassword(row);
             return;
         }
@@ -120,14 +129,22 @@ FocusScope {
     // password to another server. The other profile still reads Needs
     // password, and its switch asks once this prompt closes.
     function askPassword(row) {
-        if (confirming || promptTarget !== null && promptTarget.uuid !== row.uuid) return;
+        if (!openDialog("password", row)) return;
         localProblem = "";
-        promptTarget = { uuid: row.uuid, name: row.name };
         Qt.callLater(() => { if (root.prompting) prompt.takeFocus(); });
+    }
+    function openDialog(kind, row) {
+        if (dialogTarget !== null && (dialogTarget.kind !== kind || dialogTarget.uuid !== row.uuid)) return false;
+        dialogTarget = { kind: kind, uuid: row.uuid, name: row.name };
+        return true;
+    }
+    function passwordRow(uuid) {
+        const row = profiles.rows.find(candidate => candidate.uuid === uuid);
+        return row !== undefined && Logic.rowView(row, profiles).key === "needs-password" ? row : null;
     }
     function closePrompt(uuid) {
         prompt.clear();
-        promptTarget = null;
+        dialogTarget = null;
         Qt.callLater(() => root.focusSwitch(uuid));
     }
     function passwordAnswered(uuid, reply) {
@@ -146,20 +163,32 @@ FocusScope {
     function importFile() {
         answered(shell.ipc.call("import", ""), "VGS could not open the import window.");
     }
+    function editor(kind, uuid) {
+        const plan = Logic.editorArgv(kind, uuid, profiles);
+        if (plan.refusal) {
+            answered(plan.refusal, "This VPN profile is no longer available.");
+            return;
+        }
+        // The run capability takes argv and hands the editor over detached.
+        // VGS reads no output and the service's next scan reads its changes.
+        const missing = shell.requirements.missing.includes("nm-connection-editor");
+        answered(missing ? shell.requirements.offer(["nm-connection-editor"]) : shell.run.detached(plan.argv),
+            "VGS could not open the connection editor.");
+    }
 
     function askRemove(row) {
+        if (!openDialog("remove", row)) return;
         localProblem = "";
-        confirmTarget = { uuid: row.uuid, name: row.name };
         Qt.callLater(() => { if (root.confirming) confirm.takeFocus(); });
     }
     function cancelRemove() {
         const uuid = confirmTarget === null ? "" : confirmTarget.uuid;
-        confirmTarget = null;
+        dialogTarget = null;
         Qt.callLater(() => root.focusRemove(uuid));
     }
     function acceptRemove() {
         const target = confirmTarget;
-        confirmTarget = null;
+        dialogTarget = null;
         if (act("profile-remove", target.uuid, "VGS could not remove this profile.") === "ok") {
             removingUuid = target.uuid;
             removingIndex = profileRows.findIndex(row => row.uuid === target.uuid);
@@ -189,8 +218,7 @@ FocusScope {
         // A prompt whose profile left the list, or no longer reads Needs
         // password, has nothing left to ask.
         if (promptTarget !== null) {
-            const row = profiles.rows.find(candidate => candidate.uuid === promptTarget.uuid);
-            if (row === undefined || Logic.rowView(row, profiles).key !== "needs-password") closePrompt(promptTarget.uuid);
+            if (passwordRow(promptTarget.uuid) === null) closePrompt(promptTarget.uuid);
         }
         if (removingUuid === "") return;
         // `profileRows` still held the old rows in this handler
@@ -215,7 +243,7 @@ FocusScope {
         }
         if (!watchSeen) return;
         watchUuid = "";
-        if (Logic.rowView(row, profiles).key === "needs-password") askPassword(row);
+        if (passwordRow(row.uuid) !== null) askPassword(row);
     }
 
     Component {
@@ -253,6 +281,7 @@ FocusScope {
                     onDetailsOpened: root.readAddress(modelData.uuid)
                     onToggleRequested: wanted => root.toggle(modelData, wanted)
                     onRemoveRequested: root.askRemove(modelData)
+                    onEditRequested: root.editor("edit", modelData.uuid)
                 }
             }
         }
@@ -266,7 +295,7 @@ FocusScope {
         Label {
             objectName: "vpn-problem"
             width: parent.width
-            visible: text !== ""
+            visible: text !== "" && !root.prompting
             role: "hint"
             color: Theme.color.danger
             textFormat: Text.PlainText
@@ -282,9 +311,16 @@ FocusScope {
             text: root.profiles.state === "missing" ? "NetworkManager is not installed, so VGS cannot show VPN profiles."
                 : root.profiles.state === "not-running" ? "NetworkManager is not running, so VGS cannot show VPN profiles."
                 : root.profiles.state === "no-answer" ? "NetworkManager did not answer, so VGS cannot show VPN profiles."
-                : "No VPN profiles yet. Import a WireGuard or OpenVPN file to add one. The VPN icon shows in the bar when you have a profile."
+                : "No VPN profiles yet. Import a WireGuard or OpenVPN file, or add one in the connection editor. The VPN icon shows in the bar when you have a profile."
             actionText: root.answering ? "Import a VPN file" : ""
             onActivated: root.importFile()
+        }
+        RowAction {
+            objectName: "vpn-editor-add-empty"
+            visible: empty.visible && root.answering
+            anchors.horizontalCenter: parent.horizontalCenter
+            text: "Add with connection editor"
+            onClicked: root.editor("create", "")
         }
         Section {
             objectName: "vpn-profiles"
@@ -292,18 +328,12 @@ FocusScope {
             visible: root.expanded && root.listed
             title: "Profiles"
             infoTitle: "What VGS can connect"
-            info: "Import: WireGuard (.conf) files, and OpenVPN (.ovpn) files, which need NetworkManager's OpenVPN plugin.\n\n"
-                + "Connect and disconnect:\n• every WireGuard profile whose private key NetworkManager holds\n"
-                + "• every VPN profile other than OpenConnect whose NetworkManager plugin is installed and whose passwords NetworkManager holds\n"
-                + "• an OpenVPN, L2TP, PPTP, SSTP or Fortinet SSL profile that asks for its password: VGS asks you for it and does not keep it\n\n"
-                + "Details: the type, the server and, while connected, the address.\n\n"
-                + "Remove: any profile, after you confirm. NetworkManager deletes the profile with the passwords and keys saved in it. "
-                + "Key and certificate files that the profile uses stay on this computer.\n\n"
-                + "Not supported: OpenConnect profiles (Cisco AnyConnect, GlobalProtect, Pulse or Ivanti), a VPN that signs in through a web page, "
-                + "a profile that asks for a secret other than its password or a one-time code when it connects, a smart card or certificate passphrase, "
-                + "a profile of any other type that asks for a secret when it connects, and making or editing a profile by hand. "
-                + "These profiles still show with their details and Remove profile. The switch of an OpenConnect profile says why it cannot connect; "
-                + "the switch of another such profile says why after a connect fails."
+            info: "To make or change a profile, use Add with connection editor or Edit in connection editor.\n\n"
+                + "Import WireGuard (.conf) or OpenVPN (.ovpn; needs its NetworkManager plugin).\n\n"
+                + "Connect: WireGuard with saved keys; VPN with its plugin and saved credentials. "
+                + "OpenVPN, L2TP, PPTP, SSTP and Fortinet SSL can ask for one password.\n\n"
+                + "OpenConnect, web sign-in, codes, smart cards, certificate passphrases or other secrets need the provider's app.\n\n"
+                + "Details: type, server, connected address. Remove deletes saved secrets; separate key and certificate files stay."
             description: root.profiles.count > root.profileRows.length
                 ? "Showing " + root.profileRows.length + " of " + root.profiles.count + " profiles." : ""
             Loader {
@@ -324,11 +354,20 @@ FocusScope {
             width: parent.width
             visible: root.listed
             spacing: Theme.field.gap
-            RowAction {
-                id: importAction
-                objectName: "vpn-import"
-                text: "Import a VPN file"
-                onClicked: root.importFile()
+            RowActions {
+                width: parent.width
+                RowAction {
+                    id: importAction
+                    objectName: "vpn-import"
+                    text: "Import a VPN file"
+                    onClicked: root.importFile()
+                }
+                RowAction {
+                    objectName: "vpn-editor-add"
+                    visible: root.expanded
+                    text: "Add with connection editor"
+                    onClicked: root.editor("create", "")
+                }
             }
             Label {
                 objectName: "vpn-import-hint"

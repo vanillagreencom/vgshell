@@ -8,7 +8,8 @@ import "VpnLogic.js" as Logic
 // switch while a change runs. The switch stays a Tab stop with its reason
 // while it cannot be used. Expanded, it shows the Type row, the Server
 // row when the profile names one, the Address row while connected and,
-// in System Settings, Remove profile at the content edge, `stack.group`
+// in System Settings, Edit in connection editor then Remove profile at
+// the content edge, `stack.group`
 // under the details: a remove action with no row of its own leads its text
 // with the trash mark (docs/architecture/design-system.md § Settings pages).
 Disclosure {
@@ -23,6 +24,7 @@ Disclosure {
 
     signal toggleRequested(bool wanted)
     signal removeRequested()
+    signal editRequested()
     signal detailsOpened()
 
     objectName: "vpn-profile:" + modelData.uuid
@@ -111,13 +113,21 @@ Disclosure {
                 }
             }
         }
-        RowAction {
-            id: remove
-            objectName: "vpn-remove:" + root.modelData.uuid
+        RowActions {
+            width: parent.width
             visible: root.removable
-            tone: "danger"
-            text: "Remove profile"
-            onClicked: root.removeRequested()
+            RowAction {
+                objectName: "vpn-edit:" + root.modelData.uuid
+                text: "Edit in connection editor"
+                onClicked: root.editRequested()
+            }
+            RowAction {
+                id: remove
+                objectName: "vpn-remove:" + root.modelData.uuid
+                tone: "danger"
+                text: "Remove profile"
+                onClicked: root.removeRequested()
+            }
         }
     }
 }

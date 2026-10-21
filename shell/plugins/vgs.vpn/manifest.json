@@ -23,10 +23,14 @@
     "configure",
     "ipc",
     "requirements",
+    "run",
     "status",
     "surfaces",
     "tui"
   ],
+  "capabilityKinds": {
+    "run": ["pane"]
+  },
   "defaultSection": "right",
   "pane": {
     "group": "Connectivity",
@@ -56,6 +60,17 @@
     }
   },
   "requirements": [
+    {
+      "command": "nm-connection-editor",
+      "packages": {
+        "pacman": "nm-connection-editor",
+        "apt": "network-manager-gnome",
+        "dnf": "nm-connection-editor",
+        "nix": "networkmanagerapplet"
+      },
+      "optional": true,
+      "purpose": "Adds and changes VPN profiles in NetworkManager's own editor"
+    },
     {
       "command": "nmcli",
       "packages": {

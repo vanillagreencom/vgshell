@@ -32,6 +32,7 @@ vgs.scratchpads-page.webp	settings	settings-dark-scratchpads	content
 vgs.webapps-page.webp	settings	settings-dark-webapps	content
 vgs.tailscale-pane.webp	tailscale	tailscale-dark-pane	content
 vgs.vpn-pane.webp	vpn	vpn-dark-pane	content
+vgs.vpn-pane-end.webp	vpn	vpn-dark-pane-end	content
 vgs.voice-page.webp	settings	settings-dark-voice	content
 vgs.voice-osd.webp	voice	voice-dark-osd	content
 vgs.ai-usage-panel.webp	ai-usage	ai-usage-dark-panel	content

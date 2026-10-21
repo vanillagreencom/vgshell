@@ -281,7 +281,7 @@ function compose(listing, detailMap, addresses, failures, action, problem) {
     return { state: listing.state, rows: rows, count: listing.count, activeCount: listing.activeCount, action: action, problem: problem };
 }
 
-var SIGN_IN_REASON = "This VPN asks for sign-in details when it connects, and VGS cannot ask for them. Save them in the profile, or connect it from your VPN provider's app.";
+var SIGN_IN_REASON = "This VPN asks for sign-in details when it connects, and VGS cannot ask for them. Save them with Edit in connection editor, or connect it from your VPN provider's app.";
 var BUSY_REASON = "Wait until NetworkManager finishes this change.";
 var UNSUPPORTED_REASON = "VGS cannot show this VPN's sign-in. Connect it from your VPN provider's app.";
 
@@ -326,6 +326,17 @@ function rowView(row, profiles) {
 }
 
 var KINDS = ["profile-up", "profile-down", "profile-remove", "profile-details"];
+// The editor owns every profile change. Its edit target must still be a
+// published row; no typed text becomes an editor argument.
+function editorArgv(kind, uuid, profiles) {
+    if (kind === "create") return { argv: ["nm-connection-editor", "--create", "--type=vpn"] };
+    if (kind !== "edit") return { refusal: "refused: editor=kind" };
+    if (profiles.state !== "available") return { refusal: "refused: profile=unavailable" };
+    const row = profiles.rows.find(candidate => candidate.uuid === uuid);
+    if (row === undefined) return { refusal: "refused: profile=absent" };
+    return { argv: ["nm-connection-editor", "--edit=" + row.uuid] };
+}
+
 // The plan for one IPC request: { argv } for a change, { address: uuid }
 // for an opened row's address read, or { refusal }.
 function profileCommand(request, profiles) {

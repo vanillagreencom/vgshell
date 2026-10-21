@@ -29,6 +29,12 @@
 set -euo pipefail
 devices_ready device-fakes || return 0
 
+# The editor is optional on the host. Keep every smoke launch on the
+# recording device stand-in; VPN removes this file to prove the offer.
+printf '#!/usr/bin/env bash\nexec %q %q nm-connection-editor %q "$@"\n' \
+  "$(command -v python3)" "$devices_fixtures/stand-in.py" "$devices_dir" >"$shim/nm-connection-editor"
+chmod 755 "$shim/nm-connection-editor"
+
 devices_fixture="$home/.config/vgshell/plugins/acme.devices"
 mkdir -p "$devices_fixture"
 cp -R "$repo/scripts/smoke/fixtures/plugins/acme.devices/." "$devices_fixture/"

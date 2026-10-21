@@ -3,7 +3,7 @@
 # read from the connect that failed for it with no Install anywhere, the
 # details of an expanded profile, Remove profile behind its confirmation,
 # the bar icon,
-# the Updates section, Import and the privacy of nmcli's output. Switches,
+# the Updates section, Import, detached editor actions and the privacy of nmcli's output. Switches,
 # Remove and Import are pressed with the pointer and reach recorded nmcli
 # and the fixture terminal only; a held stand-in reply shows a change in
 # flight. The switch of a profile that reads Needs password opens the
@@ -16,8 +16,8 @@
 # Controls on a disposable installed copy reverse the toggle
 # route, remove on Cancel, remove without the confirmation, break the
 # Import callback, drop Import's availability guard and put the password
-# on nmcli's argv.
-# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.vpn/* shell/plugins/vgs.system/* scripts/smoke/fixtures/tui/vgs.vpn/* scripts/smoke/fixtures/devices/* scripts/fixtures/vpn/* shell/Commons/Nmcli.js shell/Commons/SettingValues.js shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Notices.qml shell/Core/TuiRunner.qml shell/Hosts/PaneHost.qml shell/Hosts/SummonHost.qml shell/Hosts/NoticeHost.qml bin/vgshell-tui bin/vgshell-scan scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh shell/Ui/controls/RowAction.qml shell/Ui/controls/Switch.qml shell/Ui/controls/BarItem.qml shell/Ui/controls/Button.qml shell/Ui/layout/Disclosure.qml shell/Ui/layout/ListItem.qml shell/Ui/layout/Section.qml shell/Ui/feedback/Dialog.qml shell/Ui/feedback/EmptyState.qml shell/Ui/feedback/Spinner.qml shell/Ui/controls/TextField.qml shell/Ui/foundation/Scrim.qml shell/Ui/foundation/Label.qml
+# on nmcli's argv, and corrupt the detached editor argv.
+# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.vpn/* shell/plugins/vgs.system/* scripts/smoke/fixtures/tui/vgs.vpn/* scripts/smoke/fixtures/devices/* scripts/fixtures/vpn/* shell/Commons/Nmcli.js shell/Commons/SettingValues.js shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Core/Notices.qml shell/Core/TuiRunner.qml shell/Hosts/PaneHost.qml shell/Hosts/SummonHost.qml shell/Hosts/NoticeHost.qml bin/vgshell-tui bin/vgshell-scan scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh shell/Ui/controls/RowAction.qml shell/Ui/controls/RowActions.qml shell/Ui/controls/Switch.qml shell/Ui/controls/BarItem.qml shell/Ui/controls/Button.qml shell/Ui/layout/Disclosure.qml shell/Ui/layout/ListItem.qml shell/Ui/layout/Section.qml shell/Ui/feedback/Dialog.qml shell/Ui/feedback/EmptyState.qml shell/Ui/feedback/Spinner.qml shell/Ui/controls/TextField.qml shell/Ui/foundation/Scrim.qml shell/Ui/foundation/Label.qml
 set -euo pipefail
 devices_ready vpn || return 0
 vpn_saved="$sandbox/vpn-shell-before.json"
@@ -172,36 +172,15 @@ prompt=find(lambda i: i["name"]=="vpn-connect-prompt" and i["visible"]); scrim=f
 pane=None if prompt is None else items[prompt]["parent"]
 placed=pane is not None and pane>=0 and items[pane]["type"]=="Pane" and scrim is not None and items[scrim]["parent"]==pane and items[scrim]["box"]==items[pane]["box"]
 print("pane" if placed else "elsewhere prompt=%s scrim=%s parent=%s" % (prompt, scrim, None if pane is None or pane<0 else items[pane]["type"]))'; }
-# vpn_flyout_press UUID: one pointer press on the switch of profile UUID
-# in the dropdown, by point_item's rule over a dropdown descendant, which
-# control_box has no lookup form for: every 100 ms, for up to
-# smoke_poll_bound_ms, it reads the switch's box again, moves the pointer
-# to its centre one pixel apart each time so each move is a motion, and
-# presses once the switch reports the pointer twice in a row at one box
-# and that box reads the same once more. A box that moved starts the count
-# again; a switch not yet laid out is read again.
-vpn_flyout_box() { # UUID
-  ipc smoke descendantGeometry panel vgs.vpn | py_reply 'import json,sys; r=[i["box"] for i in json.load(sys.stdin) if i["name"] == sys.argv[1] and i["visible"]]; print(json.dumps(r[0]) if r else "absent")' "vpn-profile-toggle:$1"
-}
-vpn_flyout_press() { # UUID
-  local rect seen="" x="" y="" px held=0 i
-  smoke_poll_tries 100
-  for i in $(seq 1 "$smoke_poll_n"); do
-    rect="$(vpn_flyout_box "$1")" || return 1
-    if [[ $rect != \[* ]]; then held=0; seen=""; sleep 0.1; continue; fi
-    if [[ $rect != "$seen" ]]; then
-      held=0; seen="$rect"
-      read -r x y < <(python3 -c 'import json,sys; x,y,w,h=json.loads(sys.argv[1]); print(int(x + w / 2), int(y + h / 2))' "$rect") || return 1
-    fi
-    px=$((x + i % 2))
-    hover "$px" "$y" || return 1
-    if [[ $(vpn_named panel Switch "vpn-profile-toggle:$1" hovered) == true ]]; then held=$((held + 1)); else held=0; fi
-    if (( held >= 2 )) && [[ $(vpn_flyout_box "$1") == "$seen" ]]; then click "$px" "$y"; return; fi
-    sleep 0.1
-  done
-  echo "vpn_flyout_press: the switch of $1 never reported the pointer" >&2
-  return 1
-}
+# Adapt the dropdown's named switch lookup to the harness's one pointer
+# settling owner. The local lookup functions disappear with the subshell.
+vpn_flyout_press() ( # UUID
+  control_box() {
+    ipc smoke descendantGeometry panel vgs.vpn | py_reply 'import json,sys; r=[i["box"] for i in json.load(sys.stdin) if i["name"] == sys.argv[1] and i["visible"]]; print(json.dumps(r[0]) if r else "absent")' "vpn-profile-toggle:$1"
+  }
+  control_hovered() { vpn_named panel Switch "vpn-profile-toggle:$1" hovered; }
+  click_item "$1" "" "" ""
+)
 vpn_dropdown_open() { # LABEL
   rest_pointer && click_centre "$(bar_key)" vgs.vpn || fail "$1: the click on the VPN widget failed"
   expect_poll "$1: the VPN widget opens its dropdown" shown vpn_flyout_shown
@@ -313,12 +292,84 @@ vpn_expand() { # LABEL UUID NAME
   expect_poll "$1: $3 expands" true vpn_expanded "$2"
 }
 vpn_dialog_press() { click_item "window:System Settings" window vgs.vpn Button "$1"; }
-vpn_import_press() {
+vpn_pane_action_press() { # TEXT
   local shown
-  shown="$(ipc smoke revealText window vgs.system RowAction "Import a VPN file")" || return 1
-  [[ $shown =~ ^[0-9.]+$ ]] || { echo "vpn_import_press: no Import to reveal: $shown" >&2; return 1; }
-  [[ $(view_at_rest window vgs.system "Import a VPN file") == \{* ]] || return 1
-  click_item "window:System Settings" window vgs.vpn RowAction "Import a VPN file"
+  shown="$(ipc smoke revealText window vgs.system RowAction "$1")" || return 1
+  [[ $shown =~ ^[0-9.]+$ ]] || return 1
+  [[ $(view_at_rest window vgs.system "$1") == \{* ]] || return 1
+  click_item "window:System Settings" window vgs.vpn RowAction "$1"
+}
+vpn_import_press() { vpn_pane_action_press "Import a VPN file"; }
+vpn_editor_calls() { device_calls nm-connection-editor; }
+vpn_editor_tail() { vpn_editor_calls | py_reply 'import json,sys; r=json.load(sys.stdin); print(json.dumps(r[-1]) if r else "absent")'; }
+vpn_editor_count() { vpn_editor_calls | py_reply 'import json,sys; print(len(json.load(sys.stdin)))'; }
+vpn_editor_requirement() { ipc shell listPlugins | py_reply 'import json,sys; print(next(r["state"] for p in json.load(sys.stdin)["plugins"] if p["id"]=="vgs.vpn" for r in p["requirements"] if r["name"]=="nm-connection-editor"))'; }
+vpn_editor_drawn() { ipc smoke descendantGeometry panel vgs.vpn | py_reply 'import json,sys; print(json.dumps([i["name"] for i in json.load(sys.stdin) if i["visible"] and (i["name"].startswith("vpn-editor-add") or i["name"].startswith("vpn-edit:"))]))'; }
+vpn_editor_step() { # LABEL create|edit
+  local before
+  read_count before "$1: editor calls are unreadable" vpn_editor_count
+  if [[ $2 == create ]]; then
+    vpn_pane_action_press "Add with connection editor" || fail "$1: Add could not be pressed"
+  else
+    vpn_expand "$1" "$vpn_home" "Home tunnel"
+    vpn_press "Home tunnel" RowAction "Edit in connection editor" || fail "$1: Edit could not be pressed"
+  fi
+  expect_poll "$1: exactly one editor starts detached" "$((before + 1))" vpn_editor_count
+  if [[ $2 == create ]]; then
+    expect "$1: Add passes the VPN create argv" '["--create", "--type=vpn"]' vpn_editor_tail
+  else
+    expect "$1: Edit passes the published uuid" "[\"--edit=$vpn_home\"]" vpn_editor_tail
+  fi
+}
+vpn_editor_missing_step() { # create|edit
+  local before
+  read_count before "missing $1: editor calls are unreadable" vpn_editor_count
+  if [[ $1 == create ]]; then
+    vpn_pane_action_press "Add with connection editor" || fail "missing Add could not be pressed"
+  else
+    vpn_expand "missing Edit" "$vpn_home" "Home tunnel"
+    vpn_press "Home tunnel" RowAction "Edit in connection editor" || fail "missing Edit could not be pressed"
+  fi
+  expect_poll "missing $1: the editor requirement notice opens" '["vgs.vpn", ["nm-connection-editor"], ["nm-connection-editor"], false]' notice_shown
+  expect "missing $1: the click starts no editor" "$before" vpn_editor_count
+  type_keys -k Escape || fail "missing $1: Escape failed"
+  expect_poll "missing $1: Escape closes the install notice" null notice_shown
+}
+
+# The editor stand-in records argv and exits. The harness's existing
+# toplevel fixture supplies a real leave/return of System Settings focus.
+vpn_editor_return_step() {
+  local address
+  vpn_expand "editor return" "$vpn_branch" "Branch IPsec"
+  device_reply nm-connection-editor 0 "" "--edit=$vpn_branch"
+  vpn_press "Branch IPsec" RowAction "Edit in connection editor" || fail "editor return: Edit could not be pressed"
+  expect_poll "editor return: Edit reaches the recorder" "[\"--edit=$vpn_branch\"]" vpn_editor_tail
+  rest_pointer || fail "editor return: the pointer could not leave Settings"
+  if open_other "$sandbox/vpn-editor-focus.log"; then
+    expect_poll "editor return: the other window holds the keyboard" false window_keyboard vgs.system
+    python3 - "$devices_dir/replies/nmcli.json" <<'PYEDITOR'
+import json,os,sys
+path=sys.argv[1]
+rows=json.load(open(path))
+row=next(r for r in rows if r["argv"][:3] == ["-t","-f","connection.uuid,vpn.service-type,vpn.data,wireguard.peers"])
+assert row["stdout"].count("ipsec.example.net") == 1
+row["stdout"]=row["stdout"].replace("ipsec.example.net","edited.example.net")
+json.dump(rows,open(path+".next","w"))
+os.replace(path+".next",path)
+PYEDITOR
+    address="$(window_address "System Settings")" || fail "editor return: Settings address is unreadable"
+    expect "editor return: focus returns to System Settings" ok hypr dispatch "hl.dsp.focus({ window = \"address:$address\" })"
+    expect_poll "editor return: System Settings holds the keyboard" true window_keyboard vgs.system
+    expect_poll "editor return: Branch IPsec's sign-in failure clears" 'off|false|free|false|' vpn_row "$vpn_branch" "Branch IPsec"
+    expect "editor return: Home tunnel's sign-in failure clears" 'off|false|free|false|' vpn_row "$vpn_home" "Home tunnel"
+    expect_poll "editor return: the unchanged UUID rereads its edited server" '"Cisco IPsec (vpnc)"|"edited.example.net"|hidden|true' vpn_details "$vpn_branch"
+    close_other "editor return: the owned focus fixture closes"
+  else
+    fail "editor return: the focus fixture did not open"
+  fi
+  vpn_plant "$vpn_home="
+  expect "editor return: restoring the fixture refreshes" ok vpn_refresh
+  expect_poll "editor return: the original server is restored" '"Cisco IPsec (vpnc)"|"ipsec.example.net"|hidden|true' vpn_details "$vpn_branch"
 }
 
 # The steps the controls run again on a mutated copy.
@@ -383,6 +434,9 @@ vpn_control_failed() { [[ $1 -gt 0 ]] && echo failed || echo passed; }
 expected_errors+=('vpn: refused: profile=state' 'vpn: operation=profile-up completion=failed code=4$' 'vpn: operation=profile-read completion=failed code=8$'
   'vpn: operation=profile-up completion=failed code=2$')
 read_count vpn_private_logged "the instance log is unreadable before the VPN row" log_lines "$vpn_private"
+device_reply nm-connection-editor 0 "" --create --type=vpn
+device_reply nm-connection-editor 0 "" "--edit=$vpn_home"
+rescan "rescan discovers the recording connection editor"
 expect "VPN enables over its stand-in" ok ipc shell setPluginEnabled vgs.vpn true
 expect_poll "the VPN service is built" True record_exists vgs.vpn
 expect "System enables for VPN profiles" ok ipc shell setPluginEnabled vgs.system true
@@ -403,6 +457,7 @@ expect "the no-profile line offers Import a VPN file" offered vpn_empty_action
 expect "no profile list draws without profiles" false vpn_named window Section vpn-profiles visible
 expect "the pane's Updates section shows while NetworkManager answers" true vpn_named window Section vpn-updates visible
 expect "Check every shows in the pane" true vpn_named window SegmentedControl vpn-poll visible
+vpn_editor_step "empty pane Add" create
 expect "the empty pane closes" ok ipc shell hide window vgs.system
 
 # The stand-in profiles: Home tunnel connected; Office VPN (OpenVPN),
@@ -430,6 +485,26 @@ vpn_expand "Office VPN details" "$vpn_office" "Office VPN"
 expect_poll "Office VPN shows its type and server, no address" '"OpenVPN"|"vpn.example.com"|hidden|true' vpn_details "$vpn_office"
 vpn_expand "Campus AnyConnect details" "$vpn_campus" "Campus AnyConnect"
 expect_poll "Campus AnyConnect keeps its details and Remove profile" '"OpenConnect"|"vpn.example.edu"|hidden|true' vpn_details "$vpn_campus"
+vpn_editor_step "profile list Add" create
+vpn_editor_step "expanded profile Edit" edit
+# qml-smoke's existing filtered host PATH is sandbox-owned. Hide its
+# optional host link too, so removing the recorder cannot reach the host.
+[[ $shell_host_path == "$sandbox/host-path" && -d $shell_host_path && ! -L $shell_host_path ]] || { fail "VPN: the scanner PATH is not sandbox-owned"; return 0; }
+vpn_editor_kept="$sandbox/vpn-editor-kept"
+mkdir -p "$vpn_editor_kept"
+if [[ -e $shell_host_path/nm-connection-editor || -L $shell_host_path/nm-connection-editor ]]; then
+  [[ -L $shell_host_path/nm-connection-editor ]] || { fail "VPN: the private editor entry is not a link"; return 0; }
+  mv -T -- "$shell_host_path/nm-connection-editor" "$vpn_editor_kept/host"
+fi
+mv -T -- "$shim/nm-connection-editor" "$vpn_editor_kept/recorder"
+rescan "rescan reads the removed editor"
+expect_poll "the missing optional editor is reported missing" missing vpn_editor_requirement
+vpn_editor_missing_step create
+vpn_editor_missing_step edit
+mv -T -- "$vpn_editor_kept/recorder" "$shim/nm-connection-editor"
+if [[ -L $vpn_editor_kept/host ]]; then mv -T -- "$vpn_editor_kept/host" "$shell_host_path/nm-connection-editor"; fi
+rescan "rescan reads the editor stand-in again"
+expect_poll "the editor stand-in is reported present" present vpn_editor_requirement
 expect "a locked switch is refused over IPC too" 'refused: profile=unsupported' vpn_act profile-up "$vpn_campus"
 
 vpn_connect_step "connect"
@@ -464,6 +539,7 @@ expect "the sign-in switch is refused over IPC" 'refused: profile=sign-in' vpn_a
 device_reply nmcli 4 "$(cat -- "$vpn_fixtures/up-secrets-wireguard.txt")" connection up uuid "$vpn_home"
 expect "Home tunnel connects" ok vpn_act profile-up "$vpn_home"
 expect_poll "Home tunnel: a WireGuard profile without its key asks for sign-in details, never Could not connect" 'sign-in|false|locked|false|' vpn_row "$vpn_home" "Home tunnel"
+vpn_editor_return_step
 # The Needs password switch asks for the password beside its profile and
 # hands nmcli nothing; Escape closes the prompt, empties its field and
 # gives the focus back to the switch.
@@ -540,6 +616,8 @@ expect "the flyout opens" ok ipc shell summon panel vgs.vpn '{}'
 expect_poll "the flyout lists the profiles" true vpn_named panel ProfileRow "vpn-profile:$vpn_lab" visible
 expect "the flyout has no Updates section" false vpn_named panel Section vpn-updates visible
 expect "the flyout has no Check every" false vpn_named panel SegmentedControl vpn-poll visible
+expect "the flyout has no Add or Edit action" '[]' vpn_editor_drawn
+
 expect "the flyout closes" ok ipc shell hide panel vgs.vpn
 
 # The password prompt in the dropdown the bar opens. Travel L2TP reads
@@ -646,6 +724,7 @@ for path, edits in ((service, [
     ('act(wanted ? "profile-up" : "profile-down", row.uuid,', 'act(wanted ? "profile-down" : "profile-up", row.uuid,'),
     ('answered(shell.ipc.call("import", ""),', 'answered(shell.ipc.call("refresh", ""),'),
     ('onRejected: root.cancelRemove()', 'onRejected: root.acceptRemove()'),
+    ('shell.run.detached(plan.argv)', 'shell.run.detached(["nm-connection-editor", "--create"])'),
 ])):
     text = path.read_text()
     for old, new in edits:
@@ -665,6 +744,8 @@ vpn_unhold vpn-up-hold
 expect "control: a Cancel that removes fails the Cancel step" failed vpn_control_failed \
   "$(vpn_control "$sandbox/vpn-cancel-control.log" vpn_cancel_steps control "$vpn_campus" "Campus AnyConnect")"
 control_output "$sandbox/vpn-cancel-control.log"
+expect "control: corrupt editor argv fails the Add step" failed vpn_control_failed "$(vpn_control "$sandbox/vpn-editor-control.log" vpn_editor_step control create)"
+control_output "$sandbox/vpn-editor-control.log"
 expect "control: the broken Import callback fails the import step" failed vpn_control_failed "$(vpn_control "$sandbox/vpn-import-control.log" vpn_import_step control)"
 control_output "$sandbox/vpn-import-control.log"
 device_reply nmcli 8 "" "${vpn_list_argv[@]}"

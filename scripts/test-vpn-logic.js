@@ -23,6 +23,7 @@ const commons = { "qs.Commons 1.0": { Nmcli: load(nmcliFile), SettingValues: loa
 const core = load(path.join(__dirname, "../shell/Core/PluginLogic.js"));
 const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, "../shell/plugins/vgs.vpn/manifest.json"), "utf8"));
 const serviceSource = fs.readFileSync(path.join(__dirname, "../shell/plugins/vgs.vpn/Service.qml"), "utf8");
+const bodySource = fs.readFileSync(path.join(__dirname, "../shell/plugins/vgs.vpn/VpnBody.qml"), "utf8");
 const fixtures = path.join(__dirname, "fixtures/vpn");
 // A checkout with CRLF endings reads as nmcli's LF output.
 const text = name => fs.readFileSync(path.join(fixtures, name), "utf8").replace(/\r\n/g, "\n");
@@ -409,7 +410,7 @@ function suite(logic, service = serviceSource) {
     const completeDetails = new Function("running", "completion", "key", "again", "root", "Logic", "detailsText", "detailsDeadline", "console", bodyOf("detailsReader", "details"));
     for (const [code, output, kept] of [[0, text("details.txt"), true], [10, text("up-failed.txt") + "/home/fixture", false]]) {
         const console = logs();
-        const owner = Object.assign(helpers(), { listing, detailMap: "unread", detailsRead: "", readDetails() { owner.again = true; } });
+        const owner = Object.assign(helpers(), { listing, detailMap: "unread", detailsRead: key, readDetails() { owner.again = true; } });
         completeDetails(false, { code, status: 0 }, key, false, owner, logic, { text: output }, { stop() {} }, console);
         assert.equal(owner.detailsRead, kept ? key : "");
         assert.deepEqual(owner.detailMap === "unread" ? null : plain(owner.detailMap), kept ? details : null);
@@ -513,19 +514,66 @@ function suite(logic, service = serviceSource) {
     const recorded = { [TRAVEL]: { kind: "needs-password", service: "" }, [OFFICE]: { kind: "failed", service: "" },
         [BRANCH]: { kind: "sign-in", service: "" }, [LAB]: { kind: "plugin-needed", service: "vpnc" },
         [CAMPUS]: { kind: "password-tried", service: "" } };
-    const rescanBody = /onScansChanged: \{([\s\S]*?)\n    \}/.exec(service);
-    assert.ok(rescanBody);
-    const runRescan = new Function("Logic", "owner", "with (owner) {" + rescanBody[1] + "}");
+    const rescanSignal = /onScansChanged: ([^\n]+)/.exec(service);
+    assert.ok(rescanSignal);
+    const runRescan = new Function("owner", "with (owner) {" + rescanSignal[1] + "}");
     for (const [uuid, kind, kept] of [[BRANCH, "profile-up", false], [LAB, "profile-up", false], [OFFICE, "profile-up", true],
         [TRAVEL, "profile-up", true], [BRANCH, "profile-remove", true]]) {
         const rescanned = { listing, failures: recorded, profileProblem: { uuid, kind, text: logic.problem(kind, byUuid(uuid).name, 4) },
-            refreshed: 0, refresh() { rescanned.refreshed++; } };
-        runRescan(logic, rescanned);
+            detailsRead: key, detailReads: 0, refreshed: 0,
+            readDetails() { rescanned.detailReads++; }, readProfiles() { rescanned.refreshed++; } };
+        method(rescanned, "refresh");
+        runRescan(rescanned);
         assert.deepEqual(Object.keys(plain(rescanned.failures)).sort(), [OFFICE, TRAVEL, CAMPUS].sort());
         assert.equal(rescanned.profileProblem === null, !kept, "a rescan's problem line for " + kind + " " + byUuid(uuid).name);
-        assert.equal(rescanned.refreshed, 1);
+        assert.deepEqual([rescanned.detailsRead, rescanned.detailReads, rescanned.refreshed], ["", 1, 1]);
     }
     assert.deepEqual(plain(recorded)[BRANCH].kind, "sign-in", "the rescan leaves the old map unchanged");
+    // An editor can save the same UUID while a detail read is still in
+    // flight. Refresh queues one replacement read, which publishes the new
+    // server; a failed replacement leaves its stamp unread for retry.
+    const detailOwner = (running = false) => {
+        const owner = Object.assign(helpers(), { listing, failures: recorded, profileProblem: null, detailsRead: key, detailMap: details,
+            registered: true, profilesMissing: false, starts: 0, refreshed: 0,
+            detailsReader: { running, again: false, completion: { code: 0, status: 0 }, key, command: [] },
+            detailsDeadline: { restart() { owner.starts++; }, stop() {} }, readProfiles() { owner.refreshed++; } });
+        method(owner, "readDetails");
+        method(owner, "refresh");
+        method(owner, "listed");
+        owner.queueAddress = () => {};
+        owner.addresses = {};
+        return owner;
+    };
+    const finishDetails = new Function("root", "Logic", "detailsText", "detailsDeadline", "console", "reader",
+        "with (reader) {" + bodyOf("detailsReader", "details") + "}");
+    const edited = detailOwner(true);
+    assert.equal(edited.refresh(), "ok");
+    assert.deepEqual([edited.detailsReader.again, edited.starts, edited.refreshed], [true, 0, 1]);
+    assert.equal(edited.failures[BRANCH], undefined);
+    assert.equal(edited.failures[LAB], undefined);
+    assert.equal(edited.failures[CAMPUS].kind, "password-tried");
+    edited.detailsReader.running = false;
+    finishDetails(edited, logic, { text: text("details.txt") }, edited.detailsDeadline, logs(), edited.detailsReader);
+    assert.deepEqual([edited.starts, edited.detailsReader.running, edited.detailsReader.again], [1, true, false]);
+    assert.deepEqual(plain(edited.detailsReader.command), plain(logic.detailsArgv(key)));
+    edited.detailsReader.running = false;
+    edited.detailsReader.completion = { code: 0, status: 0 };
+    finishDetails(edited, logic, { text: text("details.txt").replace("vpn.example.com", "edited.example.com") },
+        edited.detailsDeadline, logs(), edited.detailsReader);
+    assert.equal(edited.detailMap[OFFICE].server, "edited.example.com");
+    assert.equal(edited.detailsRead, key);
+    edited.detailsReader.completion = { code: 10, status: 0 };
+    finishDetails(edited, logic, { text: "" }, edited.detailsDeadline, logs(), edited.detailsReader);
+    assert.equal(edited.detailsRead, "");
+    edited.listed(listing);
+    assert.deepEqual([edited.starts, edited.detailsReader.running], [2, true]);
+    for (const missing of [false, true]) {
+        const unavailable = detailOwner();
+        unavailable.registered = missing;
+        unavailable.profilesMissing = missing;
+        unavailable.readDetails();
+        assert.deepEqual([unavailable.starts, unavailable.detailsReader.running], [0, false]);
+    }
     // A problem line describes a listed profile in the state its action
     // left; a disconnect's line goes once the profile is down.
     const down = (state) => [{ uuid: HOME, name: "Home tunnel", type: "wireguard", state }];
@@ -600,10 +648,61 @@ function suite(logic, service = serviceSource) {
     }
 }
 
+// Execute the production editor planner and the pane's production click
+// callback. No editor, profile or stored key is reached by these doubles.
+function editorSuite(logic, body = bodySource) {
+    const profiles = { state: "available", rows: [{ uuid: HOME, name: "Home tunnel" }] };
+    for (const [kind, uuid, payload, expected] of [
+        ["create", "", profiles, { argv: ["nm-connection-editor", "--create", "--type=vpn"] }],
+        ["edit", HOME, profiles, { argv: ["nm-connection-editor", "--edit=" + HOME] }],
+        ["edit", OFFICE, profiles, { refusal: "refused: profile=absent" }],
+        ["edit", "Home tunnel", profiles, { refusal: "refused: profile=absent" }],
+        ["edit", HOME, { state: "not-running", rows: profiles.rows }, { refusal: "refused: profile=unavailable" }],
+        ["remove", HOME, profiles, { refusal: "refused: editor=kind" }]
+    ]) assert.deepEqual(plain(logic.editorArgv(kind, uuid, payload)), expected);
+    const callback = /function editor\(kind, uuid\) \{([\s\S]*?)\n    \}/.exec(body);
+    assert.ok(callback, "production editor callback");
+    const invoke = new Function("Logic", "profiles", "shell", "answered", "kind", "uuid", callback[1]);
+    for (const [kind, uuid, missing, expectedOffers, expectedLaunches] of [
+        ["create", "", [], [], [["nm-connection-editor", "--create", "--type=vpn"]]],
+        ["edit", HOME, [], [], [["nm-connection-editor", "--edit=" + HOME]]],
+        ["create", "", ["nm-connection-editor"], [["nm-connection-editor"]], []],
+        ["edit", HOME, ["nm-connection-editor"], [["nm-connection-editor"]], []],
+        ["edit", OFFICE, [], [], []]
+    ]) {
+        const offers = [], launches = [], answers = [];
+        invoke(logic, profiles, {
+            requirements: { missing, offer(commands) { offers.push(plain(commands)); return "ok"; } },
+            run: { detached(argv) { launches.push(plain(argv)); return "ok"; } }
+        }, reply => answers.push(reply), kind, uuid);
+        assert.deepEqual(offers, expectedOffers);
+        assert.deepEqual(launches, expectedLaunches);
+        assert.deepEqual(answers, [uuid === OFFICE ? "refused: profile=absent" : "ok"]);
+    }
+    assert.equal(manifest.requirements.find(row => row.command === "nm-connection-editor").optional, true);
+    for (const kind of manifest.kinds)
+        assert.equal(core.instanceCapabilities(manifest, kind).includes("run"), kind === "pane", kind);
+}
+
 suite(load(file, commons));
+editorSuite(load(file, commons));
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "vpn-logic-"));
 try {
     const source = fs.readFileSync(file, "utf8");
+    for (const [name, sourceText, needle, replacement, target] of [
+        ["editor create type", source, '"--type=vpn"', '"--type=ethernet"', "logic"],
+        ["editor edit uuid", source, '"--edit=" + row.uuid', '"--edit=" + row.name', "logic"],
+        ["editor absent refusal", source, 'candidate.uuid === uuid);\n    if (row === undefined) return { refusal: "refused: profile=absent" };\n    return { argv: ["nm-connection-editor"', 'true);\n    if (row === undefined) return { refusal: "refused: profile=absent" };\n    return { argv: ["nm-connection-editor"', "logic"],
+        ["editor missing offer", bodySource, 'missing ? shell.requirements.offer(["nm-connection-editor"])', 'false ? shell.requirements.offer(["nm-connection-editor"])', "body"]
+    ]) {
+        assert.equal(sourceText.split(needle).length - 1, 1, name);
+        const changed = sourceText.replace(needle, replacement);
+        const mutant = path.join(scratch, "VpnLogic.js");
+        if (target === "logic") fs.writeFileSync(mutant, changed);
+        assert.throws(() => editorSuite(load(target === "logic" ? mutant : file, commons), target === "body" ? changed : bodySource), undefined, "control: " + name);
+        console.log("vpn-logic: control=" + name + " red");
+    }
+
     const parserSource = fs.readFileSync(nmcliFile, "utf8");
     const parserNeedle = 'else if (c === "\\\\") escaped = true;';
     assert.equal(parserSource.split(parserNeedle).length - 1, 1);
@@ -665,6 +764,7 @@ try {
     for (const [name, old, replacement] of [
         ["optional profile absence is informational", "if (code === 1 || code === 8) console.log(diagnostic);", "if (code === 1 || code === 8) console.warn(diagnostic);"],
         ["a failed detail read keeps nothing", "if (read === null) {", "if (false) {"],
+        ["a failed detail read retries", 'root.detailsRead = "";', ""],
         ["a successful up clears its failure", "if (code === 0) delete next[action.uuid];", "if (code === 0) {}"],
         ["a gone profile leaves no problem", 'Logic.removeOutcome(code, output) === "failed"', 'code !== 0'],
         ["no nmcli text reaches the log", '" code=" + code);\n            if (action.kind', '" code=" + code + " " + output);\n            if (action.kind'],
