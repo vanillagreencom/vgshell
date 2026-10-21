@@ -105,14 +105,15 @@ build_sink() {
 
 fd_count() { local fds=("/proc/$1/fd"/*); echo "${#fds[@]}"; }
 
-# run_sink SINK DIR: SINK on DIR/rt/vgs-sink with the render node as its
+# run_sink SINK DIR: SINK on an owned private runtime socket with the render node as its
 # main device, the probe run against it, and the probe's lines in DIR/probe.out
 # with `fds-before N` and `fds-after N` appended. Returns 1 when the sink
 # never listens.
 run_sink() {
-  local sink="$1" dir="$2" pid socket="$2/rt/vgs-sink" status=0
-  mkdir -p -m 700 -- "$dir/rt"
-  XDG_RUNTIME_DIR="$dir/rt" "$sink" "$socket" "$render_node" 2>"$dir/sink.err" &
+  local sink="$1" dir="$2" pid socket status=0
+  sink_runtime="$(mktemp -d "$XDG_RUNTIME_DIR/owned/sink.XXXXXX")" || return 1
+  socket="$sink_runtime/vgs-sink"
+  XDG_RUNTIME_DIR="$sink_runtime" "$sink" "$socket" "$render_node" 2>"$dir/sink.err" &
   pid=$!
   for _ in $(seq 1 100); do
     [[ ! -S $socket ]] || break
@@ -182,7 +183,7 @@ else
       ok "the sink holds rule $rule"
     fi
   done
-  [[ ! -e $tmp/real/rt/vgs-sink.part ]] && ok "the sink leaves no partial socket" || fail "the sink leaves its partial socket"
+  [[ ! -e $sink_runtime/vgs-sink.part ]] && ok "the sink leaves no partial socket" || fail "the sink leaves its partial socket"
 fi
 
 # Refusals: invocation | want exit.

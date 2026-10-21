@@ -342,8 +342,9 @@ case "$mode" in
     ! fenced || exposed || exec "$@"
     command -v bwrap >/dev/null 2>&1 || { fault bwrap-missing; exit 77; }
     fence_dir="$(mktemp -d "${TMPDIR:-/tmp}/vgshell-world.XXXXXX")" || { fault root-failed; exit 77; }
+    [[ -d $fence_dir && ! -L $fence_dir ]] || { fault root-failed; exit 77; }
+    fence_dir="$(realpath -e -- "$fence_dir")" || { fault root-failed; exit 77; }
     trap release EXIT
-    fence_dir="$(realpath -e -- "$fence_dir")"
     mkdir -p -- "$fence_dir"/{home,config,data,state,cache,tmp,runtime}
     chmod 700 -- "$fence_dir" "$fence_dir/runtime"
     world_runtime=/tmp/vr
