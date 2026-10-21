@@ -70,7 +70,7 @@
 # xvfb-run, which picks the first display whose
 # /tmp/.X<n>-lock is absent and only then starts Xvfb, so two runs at once,
 # as the parallel mutations of scripts/test-qml-unit.sh make, can pick one
-# display and the second Xvfb fails. The fence keeps the host's /tmp, so
+# display and the second Xvfb fails. The world has private /tmp, so
 # every run holds /tmp/.vgshell-qml-unit-xvfb.lock with flock for its whole
 # xvfb-run call, and a missing flock is not measured like a missing Xvfb.
 #
@@ -115,11 +115,7 @@ fi
 # only where none is visible: scripts/smoke/gpu-fence.sh.
 "$repo/scripts/smoke/gpu-fence.sh" --check || exec "$repo/scripts/smoke/gpu-fence.sh" "$self" "${argv[@]}"
 
-root="$(mktemp -d)"
-trap 'rm -rf -- "${root:?}"' EXIT
-# A later stop signal can end the EXIT trap part way; the fence removes
-# what its ledger names once the namespace has ended.
-printf '%s\n' "$root" >>"$VGSHELL_FENCE_LEDGER"
+root="$(mktemp -d "$TMPDIR/qml-unit.XXXXXX")"
 imports="$root/imports"
 mkdir -p "$imports/qs/Commons" "$imports/qs/Core" "$imports/qs/Unit" "$imports/Quickshell/Io" "$imports/Qt/labs/folderlistmodel" "$root/home" "$root/runtime"
 chmod 700 "$root/runtime"

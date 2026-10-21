@@ -2101,6 +2101,16 @@ log_case() { # INDEX
 # lock lets both start at once.
 xvfb_lock_case() {
   local dir="$tmp/xvfb-lock" tree="$tmp/xvfb-lock/tree" run want order a b
+  if ! "$repo/scripts/smoke/gpu-fence.sh" --check; then
+    mkdir -p "$dir"
+    {
+      printf 'set -euo pipefail\n'
+      declare -f xvfb_lock_case ok fail
+      printf 'tmp=$1 runner=$2 repo=$3 failures=0\nxvfb_lock_case\n[[ $failures == 0 ]]\n'
+    } >"$dir/inside.sh"
+    "$repo/scripts/smoke/gpu-fence.sh" --out "$dir" "$BASH" "$dir/inside.sh" "$tmp" "$runner" "$repo"
+    return
+  fi
   mkdir -p -- "$dir/bin" "$tree/scripts"
   printf '#!/bin/sh\n' | tee "$dir/bin/Xvfb" >"$dir/bin/xauth"
   cat >"$dir/bin/xvfb-run" <<'SH'
