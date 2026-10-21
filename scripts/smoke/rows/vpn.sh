@@ -1,6 +1,8 @@
 # Saved VPN and WireGuard profiles by uuid over the nmcli stand-in, with
-# the readings of scripts/fixtures/vpn/: each row state, the details of an
-# expanded profile, Remove profile behind its confirmation, the bar icon,
+# the readings of scripts/fixtures/vpn/: each row state, a missing plugin
+# read from the connect that failed for it with no Install anywhere, the
+# details of an expanded profile, Remove profile behind its confirmation,
+# the bar icon,
 # the Updates section, Import and the privacy of nmcli's output. Switches,
 # Remove and Import are pressed with the pointer and reach recorded nmcli
 # and the fixture terminal only; a held stand-in reply shows a change in
@@ -28,7 +30,7 @@ vpn_private='office-ca\.pem|/home/fixture|fixture-user|xTIBA5rboUvnH4htodjb6e697
 
 vpn_refresh() { ipc vgs.vpn invoke refresh ""; }
 vpn_act() { ipc vgs.vpn invoke action "{\"kind\":\"$1\",\"id\":\"$2\"}"; }
-vpn_profiles() { ipc smoke statusValues vgs.vpn | py_reply 'import json,sys; v=json.load(sys.stdin).get("profiles"); print("unpublished" if v is None else json.dumps(v[sys.argv[1]]))' "$1"; }
+vpn_profiles() { ipc smoke statusValues vgs.vpn | py_reply 'import json,sys; v=json.load(sys.stdin).get("profiles"); k=sys.argv[1]; print("unpublished" if v is None else json.dumps(v[k]) if k in v else "absent")' "$1"; }
 # The published rows as [uuid, name, type, state, service, server, address, failure].
 vpn_rows() { ipc smoke statusValues vgs.vpn | py_reply 'import json,sys; v=json.load(sys.stdin).get("profiles"); print("unpublished" if v is None else json.dumps([[r[k] for k in ("uuid","name","type","state","service","server","address","failure")] for r in v["rows"]]))'; }
 vpn_call_count() { device_calls nmcli | py_reply 'import json,sys; print(len(json.load(sys.stdin)))'; }
@@ -105,9 +107,9 @@ vpn_row() { # UUID NAME
   py_reply 'import json,sys; v=json.load(sys.stdin); print("|".join([v["key"], sys.argv[1], "locked" if sys.argv[2] not in ("\"\"", "absent") else "free", sys.argv[3], json.loads(sys.argv[4]) if sys.argv[4].startswith("\"") else sys.argv[4]]))' \
     "$checked" "$reason" "$spinner" "$tone" <<<"$view"
 }
-# An expanded profile's details as drawn, `TYPE|SERVER|ADDRESS|INSTALL|REMOVE`:
-# each value as JSON, `hidden` for a row not shown, and whether Install
-# plugin and Remove profile show; `closed` while the details are hidden.
+# An expanded profile's details as drawn, `TYPE|SERVER|ADDRESS|REMOVE`:
+# each value as JSON, `hidden` for a row not shown, and whether Remove
+# profile shows; `closed` while the details are hidden.
 vpn_details() { # UUID
   local shown part out=() value visible
   shown="$(ipc smoke readMatchingDescendant window vgs.vpn QQuickColumn objectName "vpn-details:$1" visible)" || return 1
@@ -117,7 +119,6 @@ vpn_details() { # UUID
     value="$(ipc smoke readMatchingDescendant window vgs.vpn Label objectName "vpn-$part:$1" text)" || return 1
     if [[ $visible == true ]]; then out+=("$value"); else out+=(hidden); fi
   done
-  out+=("$(ipc smoke readMatchingDescendant window vgs.vpn RowAction objectName "vpn-install-plugin:$1" visible)") || return 1
   out+=("$(ipc smoke readMatchingDescendant window vgs.vpn RowAction objectName "vpn-remove:$1" visible)") || return 1
   (IFS='|'; echo "${out[*]}")
 }
@@ -147,8 +148,8 @@ vpn_empty_action() { vpn_named window EmptyState vpn-empty actionText | py_reply
 # Whether any private text is drawn in System Settings or published.
 vpn_drawn_private() { ipc smoke itemTexts window vgs.system QQuickText | py_reply 'import json,re,sys; print(json.dumps(any(re.search(sys.argv[1], t) for row in json.load(sys.stdin) for t in row)))' "$vpn_private"; }
 vpn_status_private() { ipc smoke statusValues vgs.vpn | py_reply 'import json,re,sys; print(json.dumps(re.search(sys.argv[1], json.dumps(json.load(sys.stdin))) is not None))' "$vpn_private"; }
-# The OpenVPN plugin's offer, as [plugin, whether it names the plugin's bus name].
-vpn_notice() { notice_shown | py_reply 'import json,sys; s=json.load(sys.stdin); print(json.dumps(None if s is None else [s[0], "org.freedesktop.NetworkManager.openvpn" in json.dumps(s[1:])]))'; }
+# Whether System Settings draws any Install plugin action.
+vpn_install_drawn() { ipc smoke readMatchingDescendant window vgs.vpn RowAction text "Install plugin" visible; }
 
 # vpn_press NAME TYPE TEXT: one pointer press on the control TYPE reading
 # TEXT in the profile row drawing NAME, brought into System Settings'
@@ -257,31 +258,31 @@ expect "the pane's Updates section shows while NetworkManager answers" true vpn_
 expect "Check every shows in the pane" true vpn_named window SegmentedControl vpn-poll visible
 expect "the empty pane closes" ok ipc shell hide window vgs.system
 
-# The stand-in profiles: Home tunnel connected; Office VPN without its
-# OpenVPN plugin, which the sandbox's system bus does not hold; Travel
-# L2TP, Branch IPsec and Lab tunnel off; Campus AnyConnect OpenConnect.
+# The stand-in profiles: Home tunnel connected; Office VPN (OpenVPN),
+# Travel L2TP, Branch IPsec and Lab tunnel off; Campus AnyConnect
+# OpenConnect.
 vpn_plant
 expect "a refresh reads the saved profiles" ok vpn_refresh
 expect_poll "each VPN profile publishes by uuid with its details and nothing else" \
   "[[\"$vpn_home\", \"Home tunnel\", \"wireguard\", \"activated\", \"\", \"203.0.113.10:51820\", \"10.20.0.2\", \"\"], [\"$vpn_office\", \"Office VPN\", \"vpn\", \"\", \"openvpn\", \"vpn.example.com\", \"\", \"\"], [\"$vpn_travel\", \"Travel L2TP\", \"vpn\", \"\", \"l2tp\", \"l2tp.example.net\", \"\", \"\"], [\"$vpn_campus\", \"Campus AnyConnect\", \"vpn\", \"\", \"openconnect\", \"vpn.example.edu\", \"\", \"\"], [\"$vpn_branch\", \"Branch IPsec\", \"vpn\", \"\", \"vpnc\", \"ipsec.example.net\", \"\", \"\"], [\"$vpn_lab\", \"Lab tunnel\", \"wireguard\", \"\", \"\", \"[2001:db8::1]:51820\", \"\", \"\"]]" vpn_rows
-expect "the OpenVPN plugin reads missing" true vpn_profiles openvpnMissing
+expect "the status publishes no plugin reading of its own" absent vpn_profiles openvpnMissing
 expect_poll "a connected profile draws shield-check" 'shield-check|false|calm' vpn_bar
 expect "the bar tooltip names the connected profile" true vpn_tooltip_names "Home tunnel"
 expect "System Settings opens on VPN" ok ipc shell summon window vgs.system '{"pane":"vgs.vpn"}'
 expect_poll "the pane draws the profiles" true vpn_named window Section vpn-profiles visible
 expect_poll "Home tunnel: Connected with its switch on" 'connected|true|free|false|' vpn_row "$vpn_home" "Home tunnel"
-expect "Office VPN: Plugin needed, its switch off and locked with its reason" 'plugin-needed|false|locked|false|' vpn_row "$vpn_office" "Office VPN"
+expect "Office VPN: Off until a connect finds its plugin missing" 'off|false|free|false|' vpn_row "$vpn_office" "Office VPN"
 expect "Travel L2TP: Off" 'off|false|free|false|' vpn_row "$vpn_travel" "Travel L2TP"
 expect "Campus AnyConnect: Not supported here, its switch locked with its reason" 'unsupported|false|locked|false|' vpn_row "$vpn_campus" "Campus AnyConnect"
 expect "Branch IPsec: Off" 'off|false|free|false|' vpn_row "$vpn_branch" "Branch IPsec"
 expect "Lab tunnel: Off" 'off|false|free|false|' vpn_row "$vpn_lab" "Lab tunnel"
 expect "Updates shows beside the profiles" true vpn_named window Section vpn-updates visible
 vpn_expand "Home tunnel details" "$vpn_home" "Home tunnel"
-expect_poll "Home tunnel shows its type, server and address" '"WireGuard"|"203.0.113.10:51820"|"10.20.0.2"|false|true' vpn_details "$vpn_home"
+expect_poll "Home tunnel shows its type, server and address" '"WireGuard"|"203.0.113.10:51820"|"10.20.0.2"|true' vpn_details "$vpn_home"
 vpn_expand "Office VPN details" "$vpn_office" "Office VPN"
-expect_poll "Office VPN shows its type with Install plugin and its server, no address" '"OpenVPN"|"vpn.example.com"|hidden|true|true' vpn_details "$vpn_office"
+expect_poll "Office VPN shows its type and server, no address" '"OpenVPN"|"vpn.example.com"|hidden|true' vpn_details "$vpn_office"
 vpn_expand "Campus AnyConnect details" "$vpn_campus" "Campus AnyConnect"
-expect_poll "Campus AnyConnect keeps its details and Remove profile" '"OpenConnect"|"vpn.example.edu"|hidden|false|true' vpn_details "$vpn_campus"
+expect_poll "Campus AnyConnect keeps its details and Remove profile" '"OpenConnect"|"vpn.example.edu"|hidden|true' vpn_details "$vpn_campus"
 expect "a locked switch is refused over IPC too" 'refused: profile=unsupported' vpn_act profile-up "$vpn_campus"
 
 vpn_connect_step "connect"
@@ -330,8 +331,22 @@ device_reply nmcli 4 "$(cat -- "$vpn_fixtures/up-service-missing.txt")" connecti
 expect "Branch IPsec connects again" ok vpn_act profile-up "$vpn_branch"
 expect_poll "Branch IPsec: Plugin needed from the missing service, locked" 'plugin-needed|false|locked|false|' vpn_row "$vpn_branch" "Branch IPsec"
 vpn_expand "Branch IPsec details" "$vpn_branch" "Branch IPsec"
-expect_poll "a missing plugin VGS cannot install offers no Install plugin" '"Cisco IPsec (vpnc)"|"ipsec.example.net"|hidden|false|true' vpn_details "$vpn_branch"
-expect "each failed connect logs its operation and code alone" 5 log_lines 'vpn: operation=profile-up completion=failed code=4$'
+expect_poll "Branch IPsec keeps its details and Remove profile" '"Cisco IPsec (vpnc)"|"ipsec.example.net"|hidden|true' vpn_details "$vpn_branch"
+# The same reply for OpenVPN: an installed plugin owns no bus name until
+# NetworkManager starts it, so only a failed connect reads it missing.
+vpn_openvpn_missing="$(<"$vpn_fixtures/up-service-missing.txt")"
+vpn_openvpn_missing="${vpn_openvpn_missing//NetworkManager.vpnc\'/NetworkManager.openvpn\'}"
+[[ $vpn_openvpn_missing == *"'org.freedesktop.NetworkManager.openvpn'"* ]] || fail "the OpenVPN plugin reply does not name the OpenVPN service"
+device_reply nmcli 4 "$vpn_openvpn_missing" connection up uuid "$vpn_office"
+expect "Office VPN connects" ok vpn_act profile-up "$vpn_office"
+expect_poll "Office VPN: Needs the OpenVPN plugin from the missing service, locked" 'plugin-needed|false|locked|false|' vpn_row "$vpn_office" "Office VPN"
+expect "the plugin-needed switch is refused over IPC" 'refused: profile=plugin-needed' vpn_act profile-up "$vpn_office"
+expect_poll "Office VPN keeps its details and Remove profile" '"OpenVPN"|"vpn.example.com"|hidden|true' vpn_details "$vpn_office"
+expect "a missing OpenVPN plugin offers no Install plugin" absent vpn_install_drawn
+rescan "a requirements rescan after the plugin checks starts"
+expect_poll "the rescan clears Office VPN's missing plugin" 'off|false|free|false|' vpn_row "$vpn_office" "Office VPN"
+expect "the rescan clears Branch IPsec's missing plugin" 'off|false|free|false|' vpn_row "$vpn_branch" "Branch IPsec"
+expect "each failed connect logs its operation and code alone" 6 log_lines 'vpn: operation=profile-up completion=failed code=4$'
 
 # Remove profile: Cancel keeps the profile; Remove deletes it by uuid and
 # the focus moves to the profile now at its place.
@@ -347,17 +362,13 @@ vpn_release vpn-delete-hold
 expect_poll "the removed profile leaves the pane" absent vpn_row "$vpn_campus" "Campus AnyConnect"
 expect "Remove hands NetworkManager one delete by uuid" "[[\"connection\", \"delete\", \"uuid\", \"$vpn_campus\"]]" vpn_changes "$vpn_ask_mark"
 expect_poll "the focus moves to the next profile's row" '["ListItem","Branch IPsec"]' vpn_focus
+expect_poll "the delete ends" null vpn_profiles action
 vpn_unhold vpn-delete-hold
 
 expect "nmcli's output and private values stay out of the log" "$vpn_private_logged" log_lines "$vpn_private"
 expect "nmcli's output and private values stay out of the published status" false vpn_status_private
 expect "nmcli's output and private values are not drawn" false vpn_drawn_private
 
-vpn_press "Office VPN" RowAction "Install plugin" || fail "Install plugin could not be pressed"
-expect_poll "Install plugin offers the OpenVPN plugin" '["vgs.vpn", true]' vpn_notice
-expect_poll "the offer holds the keyboard" true ipc smoke noticeFocused
-type_keys -k Escape || fail "sending Escape to the plugin offer failed"
-expect_poll "Escape closes the offer" null vpn_notice
 expect "System closes after the profile checks" ok ipc shell hide window vgs.system
 
 # The flyout lists the profiles and has no Updates section.

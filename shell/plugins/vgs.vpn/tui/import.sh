@@ -14,18 +14,20 @@ case "$status" in
   *) vgs_tui_error "The file picker could not open."; exit "$status" ;;
 esac
 
-# Present when NetworkManager's OpenVPN plugin owns its name or can be
-# started for it on the system bus, the answer bin/vgshell-scan gives the
-# shell for the manifest's dbus requirement. Returns 1 when absent and 2
-# when the bus could not be read. busctl --json=short prints each reply as
-# {"type":"as","data":[[NAME...]]} (systemd 262, run 2026-10-20). A bus
-# name holds no quote, so a quoted match is a whole entry.
+# Present when one of the plugin files NetworkManager reads declares the
+# OpenVPN service. NetworkManager starts a VPN plugin itself from its
+# file's program, and the plugin owns its bus name only while a connection
+# is up, so no bus answers for an installed, idle plugin. The two
+# directories are the ones the NetworkManager 1.58.1 daemon holds (strings
+# /usr/bin/NetworkManager, run 2026-10-20); networkmanager-openvpn 1.12.5
+# installs /usr/lib/NetworkManager/VPN/nm-openvpn-service.name.
 openvpn_plugin() {
-  local method reply
-  for method in ListNames ListActivatableNames; do
-    reply="$(busctl --system --timeout=2 --json=short call org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus "$method" 2>/dev/null)" || return 2
-    [[ $reply == '{"type":"as","data":[['*']]}' ]] || return 2
-    [[ $reply == *'"org.freedesktop.NetworkManager.openvpn"'* ]] && return 0
+  local file line
+  for file in /etc/NetworkManager/VPN/*.name /usr/lib/NetworkManager/VPN/*.name; do
+    [[ -f $file && -r $file ]] || continue
+    while IFS= read -r line || [[ -n $line ]]; do
+      [[ $line =~ ^[[:space:]]*service[[:space:]]*=[[:space:]]*org\.freedesktop\.NetworkManager\.openvpn[[:space:]]*$ ]] && return 0
+    done <"$file"
   done
   return 1
 }
@@ -36,13 +38,7 @@ case "$file" in
   *.conf) type=wireguard ;;
   *.ovpn)
     type=openvpn
-    status=0
-    openvpn_plugin || status=$?
-    case "$status" in
-      0) ;;
-      1) vgs_tui_warn "This OpenVPN file needs NetworkManager's OpenVPN plugin. Choose Install beside OpenVPN plugin under Tools in VPN Details."; exit 69 ;;
-      *) vgs_tui_error "VGS could not check for NetworkManager's OpenVPN plugin."; exit 1 ;;
-    esac
+    openvpn_plugin || { vgs_tui_warn "This OpenVPN file needs NetworkManager's OpenVPN plugin."; exit 69; }
     ;;
   *) vgs_tui_warn "VGS imports WireGuard (.conf) and OpenVPN (.ovpn) files."; exit 69 ;;
 esac
