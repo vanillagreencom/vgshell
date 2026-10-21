@@ -651,7 +651,9 @@ Item {
             compare(tip.text, spec.tooltip);
             tip.shown = true;
             try {
-                verify(tip.opened, "the explainer opens its own surface");
+                // A tooltip made in this turn builds its window on the next
+                // (stand-ins/LazyLoader.qml).
+                tryVerify(() => tip.opened, 1000, "the explainer opens its own surface");
                 const title = descendants(tip.tracker.popup.contentItem).find(child => child.objectName === "tooltipTitle");
                 return title.lineCount > 1;
             } finally {
