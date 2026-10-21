@@ -302,9 +302,11 @@ FocusScope {
                 }
                 Repeater {
                     model: root.stateLines()
+                    // A Repeater builds its delegate before it parents it, so
+                    // the width reads the pane, not `parent`.
                     LinkText {
                         required property string modelData
-                        width: parent.width
+                        width: layout.contentWidth
                         role: "hint"
                         text: modelData
                         color: root.stateColor(root.barView.state)
