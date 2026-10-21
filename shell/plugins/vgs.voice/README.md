@@ -20,9 +20,9 @@ Voice types what you say into the focused field. It uses voxtype to record and r
 
 ## Setup
 
-The Setup tab of the Voice page shows each required step as Done or To do. The Tools step names missing tools. Select Review all missing or outdated tools to open the install notice.
+The Setup tab of the Voice page shows each required step as Done, To do or Not available. The Tools step names missing tools. Select Review all missing or outdated tools to open the install notice.
 
-Set up copies the default voxtype config when you have none, adds the start and stop sounds, enables the speech engine and downloads the speech model. A step that needs your password says so before it asks. VGS then starts voxtype itself, and runs it while a plugin that dictates is on; Voice needs no voxtype service of your own. If another voxtype is already running, the Setup tab offers Stop the other voxtype under Other dictation service. It shows the voxtype service it found and asks before it turns that service off. It removes the service file only when it is your own, and keeps a service a package installed. VGS then starts its own voxtype without a restart. When no service started the other voxtype, the step changes nothing and asks you to close that voxtype; press Stop the other voxtype again once it is closed, and VGS starts its own.
+Set up copies the default voxtype config when you have none, adds the start and stop sounds, enables the speech engine and downloads the speech model. A step that needs your password says so before it asks. VGS then starts voxtype itself, and runs it while a plugin that dictates is on; Voice needs no voxtype service of your own. If another voxtype is already running, the Setup step reads Not available until that voxtype is stopped, and the Setup tab offers Stop the other voxtype under Other dictation service. It shows the voxtype service it found and asks before it turns that service off. It removes the service file only when it is your own, and keeps a service a package installed. VGS then starts its own voxtype without a restart. When no service started the other voxtype, the step changes nothing and asks you to close that voxtype; press Stop the other voxtype again once it is closed, and VGS starts its own.
 
 | Setting | What it changes |
 | --- | --- |
