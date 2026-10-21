@@ -7095,7 +7095,7 @@ TSSECTION
   expect_poll "Cancel closes the section question" false tailscale_section_named Dialog tailscale-sign-out-prompt visible
 
   local exit_y
-  exit_y="$(ipc smoke readMatchingDescendant window vgs.tailscale Section title "Exit node" y | py_reply 'import json,sys; print(round(json.load(sys.stdin)))')" || { fail "the section exit-node position is unreadable"; return; }
+  exit_y="$(ipc smoke sectionSpan window vgs.system "Exit node" | py_reply 'import json,sys; print(round(json.load(sys.stdin)[0]))')" || { fail "the section exit-node position is unreadable"; return; }
   ipc smoke scrollTo window vgs.system "$exit_y" >/dev/null
   tailscale_section_take "$mode" exit-node "System Settings › Tailscale · Exit node overview"
   if tree_has shell/plugins/vgs.tailscale/ExitNodes.qml 'property bool inlineCountries'; then
