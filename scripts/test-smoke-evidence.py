@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise the production copier and both cleanup owners without a display."""
+"""Exercise the production copier and the world cleanup owner without a display."""
 import os
 from pathlib import Path
 import re
@@ -10,6 +10,8 @@ import tempfile
 REPO = Path(__file__).resolve().parent.parent
 BASH = shutil.which("bash")
 ENV = {"PATH": os.environ["PATH"], "LC_ALL": "C.UTF-8", "VGS_TEST_RUN": "1"}
+NODE = subprocess.check_output(["node", "-e", "process.stdout.write(process.execPath)"], text=True)
+ENV["PATH"] = str(Path(NODE).parent) + ":" + ENV["PATH"]
 BOUND = 8 * 1024 * 1024
 
 
@@ -29,6 +31,7 @@ def fixture(root, failed=True, oversized=False, row="example"):
     (sandbox / "leaks/1-1/layers").write_bytes(b'{"geometry":[0,0,10,10]}\n')
     (sandbox / "evidence/destination").write_text(str(output) + "\n")
     (sandbox / "evidence/runtime").write_text(str(runtime) + "\n")
+    (sandbox / "evidence/runtime-backing").write_text(str(runtime) + "\n")
     if failed:
         (sandbox / "evidence/active").write_text(row + "\n" + str(instance) + "\n1-1\n")
     if oversized:
@@ -50,7 +53,7 @@ def snapshot(output, row="example"):
     return sum(p.stat().st_size for p in folder.rglob("*") if p.is_file())
 
 
-with tempfile.TemporaryDirectory(prefix="smoke-evidence-") as scratch:
+with tempfile.TemporaryDirectory(prefix="smoke-evidence-", dir="/var/tmp") as scratch:
     root = Path(scratch)
     child = root / "child.sh"
     child.write_text('''set -euo pipefail
@@ -58,7 +61,6 @@ source_repo="$1" sandbox="$2" rt_dir="$3" mode="$4"
 pgids=() keep=false
 [[ $mode != keep ]] || keep=true
 source "$source_repo/scripts/smoke/teardown.sh"
-[[ $keep == true ]] || printf '%s\\n' "$sandbox" "$rt_dir" >>"$VGSHELL_FENCE_LEDGER"
 if [[ $mode == producer ]]; then
   source "$5"
   notes() { printf '%s\\n' '{"rows":[]}'; }
@@ -74,6 +76,36 @@ case $mode in
   KILL) kill -KILL "$BASHPID" ;;
 esac
 ''')
+    bootstrap = root / "bootstrap.sh"
+    bootstrap.write_text("""set -euo pipefail
+script="$1" source_repo="$2" old_sandbox="$3" old_runtime="$4" mode="$5"
+shift 5
+sandbox="$(mktemp -d "$TMPDIR/vgshell-smoke.XXXXXX")"
+runtime="$(mktemp -d "$XDG_RUNTIME_DIR/owned/vs.XXXXXX")"
+cp -a -- "$old_sandbox/." "$sandbox/"
+cp -a -- "$old_runtime/." "$runtime/"
+python3 - "$sandbox" "$old_runtime" "$runtime" <<'PYBOOT'
+from pathlib import Path
+import sys
+sandbox, old, new = sys.argv[1:]
+for file in Path(sandbox, 'evidence').rglob('*'):
+    if file.is_file(): file.write_text(file.read_text().replace(old, new))
+PYBOOT
+printf '%s\\n' "$VGSHELL_WORLD_ROOT/runtime/${runtime##*/}" >"$sandbox/evidence/runtime-backing"
+printf '%s\\n%s\\n' "$sandbox" "$VGSHELL_WORLD_ROOT/runtime/${runtime##*/}" >"${old_sandbox%/*}/actual"
+exec "$BASH" "$script" "$source_repo" "$sandbox" "$runtime" "$mode" "$@"
+""")
+
+    def world(script, sandbox, runtime, mode, env, extra=()):
+        env["HOME"] = str(root / "caller-home")
+        declarations = ["--out", str(sandbox.parent)]
+        if mode == "keep": declarations.append("--keep")
+        result = subprocess.run([BASH, str(REPO / "scripts/smoke/gpu-fence.sh"), *declarations,
+                                 BASH, str(bootstrap), str(script), str(REPO), str(sandbox), str(runtime), mode, *map(str, extra)],
+                                env=env, capture_output=True, text=True, timeout=30)
+        actual = (sandbox.parent / "actual").read_text().splitlines()
+        return result, Path(actual[0]), Path(actual[1])
+
     for mode, status in (("pass", 0), ("fail", 19), ("TERM", 143), ("KILL", 137),
                          ("keep", 19), ("copy-error", 19), ("restart", 19)):
         case = root / mode
@@ -95,9 +127,7 @@ esac
             output.rmdir()
             output.write_text("not a directory")
         env = dict(ENV, HOME=str(case), TMPDIR=str(case))
-        result = subprocess.run([BASH, str(REPO / "scripts/smoke/gpu-fence.sh"),
-                                 BASH, str(child), str(REPO), str(sandbox), str(runtime), mode],
-                                env=env, capture_output=True, text=True, timeout=30)
+        result, sandbox, runtime = world(child, sandbox, runtime, mode, env)
         assert result.returncode == status, (mode, result.returncode, result.stdout, result.stderr)
         assert sandbox.exists() == (mode == "keep"), (mode, sandbox)
         assert runtime.exists() == (mode == "keep"), (mode, runtime)
@@ -130,10 +160,7 @@ esac
     def producer_case(name, source):
         case = root / name
         sandbox, runtime, output = fixture(case, row="notifications")
-        result = subprocess.run([BASH, str(REPO / "scripts/smoke/gpu-fence.sh"),
-                                 BASH, str(child), str(REPO), str(sandbox), str(runtime), "producer", str(source)],
-                                env=dict(ENV, HOME=str(case), TMPDIR=str(case)),
-                                capture_output=True, text=True, timeout=30)
+        result, sandbox, runtime = world(child, sandbox, runtime, "producer", dict(ENV, HOME=str(case), TMPDIR=str(case)), (source,))
         assert result.returncode == 19, (result.returncode, result.stdout, result.stderr)
         assert not sandbox.exists() and not runtime.exists()
         snapshot(output, "notifications")
@@ -165,7 +192,6 @@ esac
 source_repo="$1" sandbox="$2" rt_dir="$3" scenario="$4"
 pgids=() keep=false
 source "$source_repo/scripts/smoke/teardown.sh"
-printf '%s\\n' "$sandbox" "$rt_dir" >>"$VGSHELL_FENCE_LEDGER"
 source "$5"
 geometry_reads=0
 ipc() {
@@ -235,11 +261,7 @@ exit 19
         (sandbox / "panel-sheet-dark-rest.png").write_bytes(b"capture")
         (sandbox / "notifications-background-state").mkdir()
         (sandbox / "notifications-background-state/theme.json").write_bytes(b"setup")
-        result = subprocess.run([BASH, str(REPO / "scripts/smoke/gpu-fence.sh"),
-                                 BASH, str(geometry_child), str(REPO), str(sandbox),
-                                 str(runtime), scenario, str(source)],
-                                env=dict(ENV, HOME=str(case), TMPDIR=str(case)),
-                                capture_output=True, text=True, timeout=30)
+        result, sandbox, runtime = world(geometry_child, sandbox, runtime, scenario, dict(ENV, HOME=str(case), TMPDIR=str(case)), (source,))
         assert result.returncode == status, (scenario, result.returncode, result.stdout, result.stderr)
         assert not sandbox.exists() and not runtime.exists()
         snapshot(output, "notifications")
@@ -272,7 +294,7 @@ exit 19
 
     case = root / "bound"
     sandbox, runtime, output = fixture(case, oversized=True)
-    result = subprocess.run(["python3", str(REPO / "scripts/smoke/evidence.py"), str(sandbox)],
+    result = subprocess.run(["python3", str(REPO / "scripts/smoke/evidence.py"), str(case), str(sandbox), str(output)],
                             env=ENV, capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stderr
     retained = next(output.glob("smoke-evidence-*/example"))
@@ -292,7 +314,7 @@ exit 19
     mutant = root / "no-directory-copy.py"
     mutant.write_text(changed)
     sandbox, runtime, output = fixture(root / "directory-control")
-    result = subprocess.run(["python3", str(mutant), str(sandbox)], env=ENV,
+    result = subprocess.run(["python3", str(mutant), str(sandbox.parent), str(sandbox), str(output)], env=ENV,
                             capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stderr
     try:
@@ -303,14 +325,14 @@ exit 19
     else:
         raise AssertionError("nonrecursive copier passed")
 
-    needle = "        retain(Path(sys.argv[1]))"
+    needle = "        retain(Path(sys.argv[1]), Path(sys.argv[2]), [Path(path) for path in sys.argv[3:]])"
     assert source.count(needle) == 1
     changed = source.replace(needle, "        pass")
     assert changed != source
     mutant = root / "no-copy.py"
     mutant.write_text(changed)
     sandbox, runtime, output = fixture(root / "control")
-    result = subprocess.run(["python3", str(mutant), str(sandbox)], env=ENV,
+    result = subprocess.run(["python3", str(mutant), str(sandbox.parent), str(sandbox), str(output)], env=ENV,
                             capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stderr
     try:

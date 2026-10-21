@@ -250,7 +250,18 @@ fi
 
 # No process this run starts may open an amdgpu node, so the run goes on
 # only where none is visible: scripts/smoke/gpu-fence.sh.
-"$repo/scripts/smoke/gpu-fence.sh" --check || exec "$repo/scripts/smoke/gpu-fence.sh" "$self" "${argv[@]}"
+world_args=(--out "$repo/tmp/display-record")
+[[ $keep != true ]] || world_args+=(--keep)
+if [[ -z $smoke_log_dir ]]; then
+  if [[ -f /proc/self/fd/1 ]]; then
+    smoke_log_file="$(readlink -f "/proc/$BASHPID/fd/1")"
+    smoke_log_dir="${smoke_log_file%/*}"
+  else
+    smoke_log_dir="$repo/tmp/qml-smoke"
+  fi
+fi
+world_args+=(--out "$smoke_log_dir")
+"$repo/scripts/smoke/gpu-fence.sh" --check || exec "$repo/scripts/smoke/gpu-fence.sh" "${world_args[@]}" "$self" "${argv[@]}"
 if [[ -n $qml_smoke_only ]]; then
   qml_smoke_run="${qml_smoke_only#,}"
   (IFS=,; printf 'qml-smoke: rows named=%s run=%s\n' "${qml_smoke_named[*]}" "${qml_smoke_run%,}")
@@ -330,7 +341,7 @@ fi
 # sign-ins AI Usage reads (harness.sh's shell_hidden_commands); a row that
 # needs one present stands its own stand-in for it.
 # shellcheck disable=SC2034 # the harness sourced below reads it
-shell_hidden_commands+=(vsys vgshell-browser-policy tesseract voxtype voxtype-audio-bridge claude codex tailscale nmcli)
+shell_hidden_commands+=(vsys vgshell-browser-policy tesseract voxtype voxtype-audio-bridge claude codex)
 # The Bar's width checks need a validation layout independent of the host.
 # shellcheck disable=SC2034 # the harness sourced below reads it
 shell_output_size=1755x933
