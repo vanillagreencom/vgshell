@@ -17,7 +17,7 @@ tmux_bin="$(command -v tmux)" || { echo "test-vgshell-chat-tools: status=not-mea
 theme_tree btop equibop obsidian oh-my-posh tmux vencord vesktop
 live="$state/theme"; uid="$(id -u)"; pending="$state/reload-pending.json"
 theme_pkg "$tree/themes/dusk" '{ "schemaVersion": 1, "name": "dusk", "tokens": { "palette": { "accent": "#111111" } } }'
-theme_pkg "$tree/themes/nord" '{ "schemaVersion": 1, "name": "nord", "tokens": { "palette": { "accent": "#222222" } } }'
+theme_pkg "$tree/themes/nord" '{ "schemaVersion": 1, "name": "nord", "tokens": { "palette": { "accent": "#30a0ff" } } }'
 
 # Each application is detected by a stub of its command, which records a
 # run and exits 1, so detection never runs it. The hooks run a real sh, id
@@ -101,6 +101,7 @@ check "every tool target is written" all_state "$all_written"
 check "the apply is applied" json_is "$tmp/apply.json" 'd["state"] == "applied"'
 check "detection never ran an application" test -z "$(find "$tmp" -maxdepth 1 -name 'ran-*' -print)"
 
+# Hex targets retain exact colours; tmux uses readable ANSI roles.
 # Each file with the hex6 encoder: dusk's accent is #111111, the table's
 # background #000000, foreground #d7d7d9, danger #f43f5e and warning
 # #ffb000, and the shipped slots' color1 #f43f5e and color5 #a855f7.
@@ -115,8 +116,8 @@ vesktop.css|    --streaming: #a855f7;
 btop.theme|theme[main_bg]="#000000"
 btop.theme|theme[hi_fg]="#111111"
 btop.theme|theme[used_start]="#f43f5e"
-tmux.conf|set -g clock-mode-colour "#111111"
-tmux.conf|set -g pane-active-border-style "#{?pane_in_mode,fg=#ffb000,#{?synchronize-panes,fg=#f43f5e,fg=#111111}}"
+tmux.conf|set -g clock-mode-colour "colour15"
+tmux.conf|set -g pane-active-border-style "#{?pane_in_mode,fg=colour3,#{?synchronize-panes,fg=colour1,fg=colour15}}"
 oh-my-posh.json|    "accent": "#111111",
 obsidian.css|    --interactive-accent: #111111;
 obsidian.css|    --text-normal: #d7d7d9;
@@ -196,7 +197,7 @@ rm -f -- "$cfg/tmux/tmux.conf"
 # in a status-left, as in the owner's line below, beat any style option, so
 # the theme drops inline colour styles after the user's lines.
 # Flexoki Light comes from the shipped catalog; its label takes the bar's
-# active desk pair, #ffffff on its accent #205ea6. tmux_read prints the status-left-style and status-left that
+# active fill, colour4 reversed against the terminal page. tmux_read prints the status-left-style and status-left that
 # a fresh server of the suite's own reads from the files a login reads, and
 # tmux_options [-f /dev/null] every global session and window option it
 # holds, with no configuration file under -f /dev/null. Each server takes a
@@ -221,7 +222,7 @@ tmux_options() {
 user_left='#[fg=black,bg=blue,bold] #S #[bg=default] '
 tmux_own=$'set -g mouse on\nset -g status-left "'"$user_left"$'"\nset -g status-right-length 40'
 tmux_line="source-file -q '$live/tmux.conf'"
-theme_reads=$'bg=#205ea6,fg=#ffffff,bold\n #S  '
+theme_reads=$'fg=colour4,reverse,bold\n #S  '
 printf '%s\n' "$tmux_own" >"$tmp/home/.tmux.conf"
 tinst "Flexoki Light installs from the catalog" "$cfg" "$rt_empty" 0 "ok installed=flexoki-light path=$cfg/vgshell/themes/flexoki-light" "" theme install flexoki-light
 # Controls: the target without fallbacks and last skips a ~/.tmux.conf

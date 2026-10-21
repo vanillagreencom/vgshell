@@ -181,7 +181,7 @@ const MARKER = /@@\{|@\{((?:[^{}]|\{[^{}]*\})*)\}|@\{/g;
 // Each encoder writes one resolved colour. tmux writes a terminal slot name.
 const ENCODERS = {
     hex6: (hex, background) => hex6(hex, background),
-    tmux: (hex, background, logic, input) => tmuxSlot(logic, input, hex),
+    tmux: value => value,
     hex8: hex => hex.slice(1, 9),
     rgb: (hex, background) => {
         const rgb = hex6(hex, background);
@@ -737,6 +737,7 @@ function placeholderText(logic, tokens, input, name, encode) {
         encode = hex => ENCODERS[format](hex, input.values.color.background, logic, input);
         cases = [];
     }
+    if (input.targetColors && Object.hasOwn(input.targetColors, path) && cases.length === 0) return encode(input.targetColors[path]);
     if (path.startsWith(TERMINAL_PREFIX)) {
         if (cases.length > 0) return undefined;
         const slot = path.slice(TERMINAL_PREFIX.length);
@@ -752,7 +753,6 @@ function placeholderText(logic, tokens, input, name, encode) {
         const value = expressionColor(logic, tokens, input, path);
         return value === undefined ? undefined : encode(value);
     }
-    if (input.targetColors && Object.hasOwn(input.targetColors, path) && cases.length === 0) return encode(input.targetColors[path]);
     const leaf = logic.nodeAt(tokens, path);
     if (!logic.isLeaf(leaf)) return undefined;
     if (format !== null && leaf.type !== "color") return undefined;
@@ -860,52 +860,46 @@ function kittyColors(logic, tokens, input) {
     return colors;
 }
 
-// The owner's tmux formats use the theme's info colour for active text and
-// brightblack for inactive text. Preserve a readable, distinct brightblack;
-// otherwise choose the nearest readable slot to the theme's muted text. The
-// RGB separation floor
-// is the smallest nonzero gap in the seven owner-requested main renders,
-// measured in tmp/tmux-block-role-probe.json on 2026-10-07. It is a channel
-// distance, not a perceptual standard; the pictures judge appearance.
-function tmuxSlot(logic, input, hex) {
-    const color = logic.parseColor("#" + hex6(hex, input.values.color.background));
-    const channels = [color.r, color.g, color.b].map(channel => Math.round(channel * 255));
-    let chosen = 0, distance = Infinity;
-    for (const [index, name] of logic.terminalSlotNames().entries()) {
-        const candidate = logic.parseColor(input.slots[name]);
-        const next = [candidate.r, candidate.g, candidate.b].reduce((sum, channel, at) =>
-            sum + (Math.round(channel * 255) - channels[at]) ** 2, 0);
-        if (next < distance) { chosen = index; distance = next; }
-    }
-    return "colour" + chosen;
-}
-
+// tmux styles carry roles rather than server-side RGB values: default
+// follows the attached terminal's page/text, and reverse uses its page as
+// the text on a palette-slot fill. Hue selection excludes unreadable slots.
 function tmuxColors(logic, input) {
-    const backgroundName = logic.terminalSlotNames()[Number(tmuxSlot(logic, input, input.values.color.background).slice("colour".length))];
-    const background = logic.parseColor(input.slots[backgroundName]);
-    const activeName = logic.terminalSlotNames()[Number(tmuxSlot(logic, input, input.values.color.info).slice("colour".length))];
-    const active = logic.parseColor(input.slots[activeName]);
-    const inactive = logic.parseColor(input.slots.color8);
-    const separation = color => 255 * Math.hypot(color.r - active.r, color.g - active.g, color.b - active.b);
-    const readable = color => color.a === 1 && logic.contrastRatio(color, background) >= logic.READABILITY_FLOOR;
-    const distinct = color => separation(color) >= 55.65;
-    if (readable(inactive) && distinct(inactive)) return {
-        "color.background": input.slots.color0,
-        "tmux.inactive_foreground": input.slots.color8
+    const background = logic.parseColor(input.values.palette.background);
+    const colors = {
+        "color.background": "default", "color.surfaceRaised": "default", "color.text": "default",
+        "color.textMuted": "colour8", "color.border": "colour8", "color.borderStrong": "colour8"
     };
+    for (const [index, name] of logic.terminalSlotNames().entries()) colors["terminal." + name] = "colour" + index;
+    const readable = color => color.a === 1 && logic.contrastRatio(color, background) >= logic.READABILITY_FLOOR;
+    for (const role of ["palette.accent", "color.accent", "color.info", "color.warning", "palette.warning", "color.danger", "palette.danger", "bar.active"]) {
+        const value = role.split(".").reduce((node, key) => node[key], input.values);
+        const hue = oklch(hex6(value, input.values.color.background)).h;
+        let chosen = null, distance = Infinity;
+        for (const [index, name] of logic.terminalSlotNames().entries()) {
+            const candidate = logic.parseColor(input.slots[name]);
+            if (!readable(candidate)) continue;
+            const next = hueDistance(hue, oklch(hex6(input.slots[name], input.values.color.background)).h);
+            if (next < distance) { chosen = index; distance = next; }
+        }
+        if (chosen === null) throw new Error("theme-render: tmux has no readable role colour " + role);
+        colors[role] = "colour" + chosen;
+    }
+    const active = logic.parseColor(input.slots["color" + colors["color.info"].slice("colour".length)]);
+    const inactive = logic.parseColor(input.slots.color8);
+    // Channel-distance floor from tmp/tmux-block-role-probe.json, 2026-10-07.
+    const separation = color => 255 * Math.hypot(color.r - active.r, color.g - active.g, color.b - active.b);
+    const distinct = color => separation(color) >= 55.65;
+    if (readable(inactive) && distinct(inactive)) return { ...colors, "color.textMuted": "colour8", "tmux.inactive_foreground": "colour8" };
     const muted = logic.parseColor(input.values.color.textMuted);
     let chosen = null, distance = Infinity;
-    for (const name of logic.terminalSlotNames()) {
+    for (const [index, name] of logic.terminalSlotNames().entries()) {
         const candidate = logic.parseColor(input.slots[name]);
         if (!readable(candidate) || !distinct(candidate)) continue;
         const next = (candidate.r - muted.r) ** 2 + (candidate.g - muted.g) ** 2 + (candidate.b - muted.b) ** 2;
-        if (next < distance) {
-            chosen = input.slots[name];
-            distance = next;
-        }
+        if (next < distance) { chosen = index; distance = next; }
     }
     if (chosen === null) throw new Error("theme-render: tmux has no readable, distinct inactive colour");
-    return { "color.background": input.slots.color0, "tmux.inactive_foreground": chosen };
+    return { ...colors, "color.textMuted": "colour" + chosen, "tmux.inactive_foreground": "colour" + chosen };
 }
 
 // Each stack is ordered from the page upward. One scale applies to every

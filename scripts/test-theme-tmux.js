@@ -78,38 +78,34 @@ const rendered = (text, theme = pkg) => {
     assert.equal(result.ok, true, result.ok ? "" : render.refusalLine("tmux", result));
     return result.files[0].bytes.toString("utf8");
 };
-const assertSlotColors = (output, theme, label) => {
-    const slots = render.terminalSource(theme, theme).terminal;
+const assertSlotColors = (output, label) => {
     const color = value => {
-        const match = /^colour(1[0-5]|[0-9])$/.exec(value);
-        assert.ok(match, `${label}: expected terminal slot, got ${value}`);
-        return logic.parseColor(slots[`color${match[1]}`]);
+        assert.match(value, /^(?:colour(?:1[0-5]|[0-9])|default)$/, `${label}: terminal colour ${value}`);
     };
     assert.doesNotMatch(output, /#[0-9a-f]{6}/i, `${label}: no rendered hex colors`);
     for (const [, option, value] of output.matchAll(/^set -gq? ([a-z-]+-style) "([^"]+)"$/gm)) {
+        if (option === "tree-mode-preview-style") {
+            assert.match(value, /^fg=#\{\?#\{\|\|:#\{&&:#\{pane_format},#\{pane_active}},#\{&&:#\{window_format},#\{window_active}}},colour(?:1[0-5]|[0-9]),colour8}$/);
+            continue;
+        }
         const assignments = [...value.matchAll(/\b(?:fg|bg)=/g)].length;
-        const colors = [...value.matchAll(/\b(?:fg|bg)=(colour(?:[0-9]|1[0-5])|default)\b/g)];
-        assert.equal(colors.length, assignments, `${label}/${option}: every color is a terminal slot`);
-        if (option.includes("border")) continue;
-        const style = Object.fromEntries(value.split(",").map(part => part.includes("=") ? part.split("=") : [part, true]));
-        if (style.fg === undefined) continue;
-        const foreground = color(style.fg);
-        const background = style.bg === undefined || style.bg === "default"
-            ? color("colour0") : color(style.bg);
-        assert.ok(logic.contrastRatio(foreground, background) >= 4.5, `${label}/${option}: text floor`);
+        const colors = [...value.matchAll(/\b(?:fg|bg)=(colour(?:1[0-5]|[0-9])|default)\b/g)];
+        assert.equal(colors.length, assignments, `${label}/${option}: every color is a terminal slot or default`);
     }
     for (const [, value] of output.matchAll(/^set -gq (?:dark|light)-theme-[a-z-]+ "([^"]+)"$/gm)) color(value);
     for (const [, value] of output.matchAll(/^set -gq? (?:clock-mode-colour|display-panes-colour|display-panes-active-colour) "([^"]+)"$/gm)) color(value);
 };
-const lightPkg = logic.acceptPackage(TOKENS, {
-    directoryName: "flexoki-light",
-    themeJson: fs.readFileSync(path.join(repo, "themes", "catalog", "flexoki-light", "theme.json"), "utf8"),
-    terminalJson: fs.readFileSync(path.join(repo, "themes", "catalog", "flexoki-light", "terminal.json"), "utf8"),
-    shipped: false
-});
-assert.equal(lightPkg.ok, true, lightPkg.ok ? "" : logic.refusalLine(lightPkg));
-assertSlotColors(rendered(template), pkg, "vgs");
-assertSlotColors(rendered(template, lightPkg), lightPkg, "flexoki-light");
+assertSlotColors(rendered(template), "vgs");
+for (const name of ["catppuccin", "catppuccin-latte"]) {
+    const theme = logic.acceptPackage(TOKENS, {
+        directoryName: name,
+        themeJson: fs.readFileSync(path.join(repo, "themes", "catalog", name, "theme.json"), "utf8"),
+        terminalJson: fs.readFileSync(path.join(repo, "themes", "catalog", name, "terminal.json"), "utf8"),
+        shipped: false
+    });
+    assert.equal(theme.ok, true, theme.ok ? "" : logic.refusalLine(theme));
+    assertSlotColors(rendered(template, theme), name);
+}
 // Comment out LINE, retaining its text while disabling its behaviour.
 const disabled = line => {
     assert.equal(template.split(line + "\n").length, 2, line);
