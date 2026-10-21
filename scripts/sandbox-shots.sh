@@ -6800,6 +6800,7 @@ scene_vpn() { # MODE
   device_reply nmcli 0 "" -t -f NAME,UUID,TYPE,STATE connection show
   expect "VPN reads no profile" ok ipc vgs.vpn invoke refresh ""
   expect_poll "VPN lists no profile" 0 vpn_shot_status count
+  expect_poll "the gone profile takes its problem line" '[null, ""]' vpn_shot_action
   expect "VPN's pane summons with no profile" ok ipc shell summon window vgs.system '{"pane":"vgs.vpn"}'
   expect_poll "the pane shows the no-profile state" true vpn_shot_read window EmptyState vpn-empty visible
   expect_poll "the VPN widget hides with no profile" false ipc smoke readInstance "$(bar_key)" vgs.vpn visible

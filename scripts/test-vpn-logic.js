@@ -259,7 +259,7 @@ function suite(logic, service = serviceSource) {
     // `with` resolves the body's bare names on the owner, as QML does.
     const runListed = new Function("Logic", "owner", "next", "with (owner) {" + listedBody[1] + "}");
     const listedOwner = (fields) => {
-        const owner = Object.assign({ listing: null, failures: {}, addresses: {}, detailsRead: "", reads: 0, queued: [],
+        const owner = Object.assign({ listing: null, failures: {}, addresses: {}, profileProblem: null, detailsRead: "", reads: 0, queued: [],
             readDetails() { owner.reads++; }, queueAddress(uuid) { owner.queued.push(uuid); } }, fields);
         return owner;
     };
@@ -280,6 +280,23 @@ function suite(logic, service = serviceSource) {
         assert.deepEqual(Object.keys(owner.failures).sort(), failureUuids.slice().sort(), name);
         assert.deepEqual(Object.keys(owner.addresses).sort(), addressUuids.slice().sort(), name);
         assert.deepEqual(owner.queued, queued, name);
+    }
+    // A new list drops the problem line of a profile it no longer holds
+    // and of a connect whose failure it dropped.
+    const problemOf = (uuid, kind) => ({ uuid, kind, text: logic.problem(kind, byUuid(uuid).name, 4) });
+    for (const [name, next, problem, failures, kept] of [
+        ["a listed profile keeps its connect problem", listing, problemOf(OFFICE, "profile-up"), { [OFFICE]: { kind: "failed", service: "" } }, true],
+        ["a profile gone from the list drops its problem", logic.list(0, "Home tunnel:" + HOME + ":wireguard:activated"),
+            problemOf(OFFICE, "profile-up"), { [OFFICE]: { kind: "failed", service: "" } }, false],
+        ["an empty list drops every problem", logic.list(0, ""), problemOf(OFFICE, "profile-remove"), {}, false],
+        ["a connect now activated drops its problem", logic.list(0, "Office VPN:" + OFFICE + ":vpn:activated"),
+            problemOf(OFFICE, "profile-up"), { [OFFICE]: { kind: "failed", service: "" } }, false]
+    ]) {
+        const owner = listedOwner({ detailsRead: logic.detailsKey(next), failures, profileProblem: problem });
+        runListed(logic, owner, next);
+        assert.equal(owner.profileProblem === null ? null : owner.profileProblem.uuid, kept ? problem.uuid : null, name);
+        assert.equal(plain(logic.compose(owner.listing, {}, {}, owner.failures, null,
+            owner.profileProblem === null ? "" : owner.profileProblem.text)).problem === "", !kept, name);
     }
     // The detail completion keeps a read only when it answered.
     const completeDetails = new Function("running", "completion", "key", "again", "root", "Logic", "detailsText", "detailsDeadline", "console", bodyOf("detailsReader", "details"));
@@ -307,10 +324,12 @@ function suite(logic, service = serviceSource) {
         const console = logs();
         let reads = 0;
         const owner = Object.assign(helpers(), { profiles, failures: { [TRAVEL]: { kind: "needs-password", service: "" } },
-            profileAction: { kind, uuid, name: byUuid(uuid).name }, profileProblem: "", readProfiles() { reads++; } });
+            profileAction: { kind, uuid, name: byUuid(uuid).name }, profileProblem: null, readProfiles() { reads++; } });
         completeAction(false, { code, status: 0 }, owner, logic, { text: "" }, { text: output }, { stop() {} }, console);
         if (kind === "profile-up") assert.equal(owner.failures[uuid] === undefined ? null : owner.failures[uuid].kind, failure, kind + " " + code);
-        assert.equal(owner.profileProblem !== "", problem, kind + " " + code);
+        assert.deepEqual(owner.profileProblem === null ? null : [owner.profileProblem.uuid, owner.profileProblem.kind],
+            problem ? [uuid, kind] : null, kind + " " + code);
+        if (problem) assert.equal(typeof owner.profileProblem.text === "string" && owner.profileProblem.text !== "", true, kind + " " + code);
         assert.equal(owner.profileAction, null);
         assert.equal(reads, 1);
         assert.deepEqual(console.messages, code === 0 ? [] : [["warn", "vpn: operation=" + kind + " completion=failed code=" + code]]);
@@ -323,11 +342,31 @@ function suite(logic, service = serviceSource) {
         [BRANCH]: { kind: "sign-in", service: "" }, [LAB]: { kind: "plugin-needed", service: "vpnc" } };
     const rescanBody = /onScansChanged: \{([\s\S]*?)\n    \}/.exec(service);
     assert.ok(rescanBody);
-    const rescanned = { failures: recorded, refreshed: 0, refresh() { this.refreshed++; } };
-    new Function("Logic", "refresh", rescanBody[1].replace(/\bfailures\b/g, "this.failures")).call(rescanned, logic, () => rescanned.refresh());
-    assert.deepEqual(Object.keys(plain(rescanned.failures)).sort(), [OFFICE, TRAVEL].sort());
-    assert.equal(rescanned.refreshed, 1);
+    const runRescan = new Function("Logic", "owner", "with (owner) {" + rescanBody[1] + "}");
+    for (const [uuid, kind, kept] of [[BRANCH, "profile-up", false], [LAB, "profile-up", false], [OFFICE, "profile-up", true],
+        [TRAVEL, "profile-up", true], [BRANCH, "profile-remove", true]]) {
+        const rescanned = { listing, failures: recorded, profileProblem: { uuid, kind, text: logic.problem(kind, byUuid(uuid).name, 4) },
+            refreshed: 0, refresh() { rescanned.refreshed++; } };
+        runRescan(logic, rescanned);
+        assert.deepEqual(Object.keys(plain(rescanned.failures)).sort(), [OFFICE, TRAVEL].sort());
+        assert.equal(rescanned.profileProblem === null, !kept, "a rescan's problem line for " + kind + " " + byUuid(uuid).name);
+        assert.equal(rescanned.refreshed, 1);
+    }
     assert.deepEqual(plain(recorded)[BRANCH].kind, "sign-in", "the rescan leaves the old map unchanged");
+    // A problem line describes a listed profile in the state its action
+    // left; a disconnect's line goes once the profile is down.
+    const down = (state) => [{ uuid: HOME, name: "Home tunnel", type: "wireguard", state }];
+    for (const [name, problem, rows, failures, kept] of [
+        ["no problem", null, listing.rows, {}, false],
+        ["a connect with its failure", { uuid: OFFICE, kind: "profile-up", text: "x" }, listing.rows, { [OFFICE]: { kind: "failed", service: "" } }, true],
+        ["a connect without its failure", { uuid: OFFICE, kind: "profile-up", text: "x" }, listing.rows, {}, false],
+        ["a removal still listed", { uuid: OFFICE, kind: "profile-remove", text: "x" }, listing.rows, {}, true],
+        ["an unlisted profile", { uuid: OFFICE, kind: "profile-remove", text: "x" }, [], {}, false],
+        ["a disconnect still up", { uuid: HOME, kind: "profile-down", text: "x" }, down("activated"), {}, true],
+        ["a disconnect still going down", { uuid: HOME, kind: "profile-down", text: "x" }, down("deactivating"), {}, true],
+        ["a disconnect now down", { uuid: HOME, kind: "profile-down", text: "x" }, down(""), {}, false]
+    ])
+        assert.equal(logic.problemAfter(problem, rows, failures) === problem && problem !== null, kept, name);
 
     // Execute the production Import callback with private capability doubles.
     const importBody = /function importFile\(\) \{([\s\S]*?)\n    \}/.exec(service);
@@ -421,6 +460,9 @@ try {
         ["no profiles hides the icon", ' || profiles.count === 0', ''],
         ["a rescan clears a sign-in failure", 'failures[uuid].kind !== "sign-in" && ', ''],
         ["a rescan keeps the bar's failures", 'kept[uuid] = failures[uuid];', '{}'],
+        ["a problem goes with its profile", 'if (row === undefined) return null;', ''],
+        ["a connect's problem goes with its failure", 'if (problem.kind === "profile-up" && failures[problem.uuid] === undefined) return null;', ''],
+        ["a disconnect's problem goes once the profile is down", 'if (problem.kind === "profile-down" && row.state === "") return null;', ''],
         ["a password failure raises the alert", 'row.failure === "needs-password" || row.failure === "failed"', 'row.failure === "failed"'],
         ["a drawn line holds no markup start", "\\u007f<]/g", "\\u007f]/g"],
         ["status rows are trimmed to their budget", "profiles.rows.pop();", "break;"]
@@ -438,6 +480,9 @@ try {
         ["a gone profile leaves no problem", 'Logic.removeOutcome(code, output) === "failed"', 'code !== 0'],
         ["no nmcli text reaches the log", '" code=" + code);\n            if (action.kind', '" code=" + code + " " + output);\n            if (action.kind'],
         ["a rescan applies the failure rule", "failures = Logic.afterRescan(failures);", ""],
+        ["a rescan prunes the problem line", "profileProblem = Logic.problemAfter(profileProblem, listing.rows, failures);", ""],
+        ["a list prunes the problem line", "profileProblem = Logic.problemAfter(profileProblem, rows, failures);", ""],
+        ["a failed action records its profile", "root.profileProblem = { uuid: action.uuid,", "root.profileProblem = { uuid: \"\","],
         ["missing import tools offer setup", "if (needed.length > 0)", "if (false)"],
         ["import availability", 'if (profiles.state !== "available")', 'if (false)'],
         ["import completion refreshes", '() => root.readProfiles()', '() => {}'],

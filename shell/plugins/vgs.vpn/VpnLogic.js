@@ -187,6 +187,20 @@ function afterRescan(failures) {
     return kept;
 }
 
+// The problem line { uuid, kind, text } a list or a rescan leaves, null
+// when it no longer describes a listed profile: it belongs to the profile
+// its action ran on and goes when that profile leaves ROWS. A connect's
+// line goes with the failure the connect left, and a disconnect's line
+// once the profile is no longer up.
+function problemAfter(problem, rows, failures) {
+    if (problem === null) return null;
+    const row = rows.find(candidate => candidate.uuid === problem.uuid);
+    if (row === undefined) return null;
+    if (problem.kind === "profile-up" && failures[problem.uuid] === undefined) return null;
+    if (problem.kind === "profile-down" && row.state === "") return null;
+    return problem;
+}
+
 // A delete's outcome: `removed`, `gone` when NetworkManager no longer
 // holds the profile, else `failed`.
 function removeOutcome(code, text) {

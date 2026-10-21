@@ -30,15 +30,18 @@ Item {
     // last `up` left, which stays until an `up` succeeds, the profile is
     // seen activated or it leaves the list; a requirements rescan also
     // clears a sign-in or missing-plugin failure (VpnLogic.afterRescan).
+    // The problem line of the last failed action, { uuid, kind, text },
+    // lives until the next action starts or VpnLogic.problemAfter finds
+    // it no longer describes a listed profile.
     property var detailMap: ({})
     property string detailsRead: ""
     property var addresses: ({})
     property var failures: ({})
     property var addressQueue: []
     property var profileAction: null
-    property string profileProblem: ""
+    property var profileProblem: null
     readonly property var profiles: Logic.compose(profilesMissing ? Logic.emptyProfiles("missing") : listing,
-        detailMap, addresses, failures, profileAction, profileProblem)
+        detailMap, addresses, failures, profileAction, profileProblem === null ? "" : profileProblem.text)
 
     readonly property var connection: Logic.connection(profiles)
 
@@ -67,6 +70,7 @@ Item {
     }
     onScansChanged: {
         failures = Logic.afterRescan(failures);
+        profileProblem = Logic.problemAfter(profileProblem, listing.rows, failures);
         refresh();
     }
     onProfilesMissingChanged: {
@@ -120,6 +124,7 @@ Item {
         };
         failures = kept(failures, row => row.state !== "activated");
         addresses = kept(addresses, row => row.state === "activated");
+        profileProblem = Logic.problemAfter(profileProblem, rows, failures);
         if (next.state !== "available") return;
         if (Logic.detailsKey(next) !== detailsRead) readDetails();
         for (const row of rows) if (row.state === "activated" && addresses[row.uuid] === undefined) queueAddress(row.uuid);
@@ -268,7 +273,7 @@ Item {
         if (profileActor.running) return "busy";
         const row = profiles.rows.find(candidate => candidate.uuid === request.id);
         profileAction = { kind: request.kind, uuid: row.uuid, name: row.name };
-        profileProblem = "";
+        profileProblem = null;
         profileActor.completion = null;
         profileActor.command = plan.argv;
         profileActor.running = true;
@@ -305,7 +310,7 @@ Item {
                 }
                 root.failures = next;
             }
-            if (failed) root.profileProblem = Logic.problem(action.kind, action.name, code);
+            if (failed) root.profileProblem = { uuid: action.uuid, kind: action.kind, text: Logic.problem(action.kind, action.name, code) };
             root.profileAction = null;
             root.readProfiles();
         }
