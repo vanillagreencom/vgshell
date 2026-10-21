@@ -14,40 +14,28 @@
 # holds the device number and `device/driver` names the driver. A node
 # whose driver is amdgpu is an AMD node; no number is fixed.
 #
-# CMD runs in a user, mount and PID namespace bubblewrap makes. With an
-# AMD path visible, a tmpfs covers /dev/dri and /dev/char, every other node
-# is bound back, and every link that does not resolve to an AMD node is
-# made again, the /dev/dri/by-path ones included. The user namespace maps
-# the caller's own uid and gid, so files of another owner read as nobody's.
-# The environment, the working directory, the open files and
-# XDG_RUNTIME_DIR with its Wayland socket are the caller's, and the exit
-# status is CMD's.
+# CMD runs in the test world: the host is read-only, /dev keeps device
+# access, /tmp, /dev/shm and XDG_RUNTIME_DIR are private tmpfs mounts,
+# the caller runtime and the system buses are hidden, and the network is
+# unshared unless --net names the selftest exception. D112 owns this boundary.
 #
-# The fence owns every process CMD starts. The PID namespace has its own
-# /proc, and bubblewrap's init is its PID 1. The init ends once CMD has
-# ended and bubblewrap's monitor has returned, or at once when the fence
-# dies (--die-with-parent, SIGKILL included). The kernel then kills every
-# process left in the namespace, one in another session or one a terminal
-# stopped included. The fence names a ledger file in VGSHELL_FENCE_LEDGER;
-# a command appends one absolute path a line for each directory it makes
-# and wants gone. Once the namespace has ended, the fence gives the owner
-# read, write and search back on each path and removes it, so a run
-# ended by a signal, CMD's SIGKILL included, leaves no directory it named.
-# A failed step prints `gpu-fence: cleanup=chmod-failed path=<path>` or
-# `gpu-fence: cleanup=rm-failed path=<path>` on stderr. A SIGKILL of the
-# fence itself ends every process and leaves the paths.
+# The world exclusively creates VGSHELL_WORLD_ROOT under the caller TMPDIR.
+# Every temporary tree lives there. After the PID namespace ends, this
+# process alone retains row evidence, restores owner write bits and removes
+# that root. --keep keeps it and prints its path. SIGKILL of this process
+# ends the namespace but leaves the root.
 #
-# The fence stays the parent of
-# bubblewrap's monitor, which forwards no signal. The monitor runs in a
-# process group of its own and CMD in a session of its own, with no
-# controlling terminal. The first TERM, the first INT and the first HUP
-# the fence gets each go to CMD once; the fence drops a repeat of a kind
-# it has sent, waits for CMD's own exit handling to end and returns its
-# status. A command that carries on after an INT, as bash does when the
-# foreground command it waits on exits 0, still ends on a later TERM.
-# A signal to every process of a
-# unit reaches CMD directly as well. bubblewrap sets no_new_privs, so a
-# setuid program gains nothing inside.
+# --out DIR declares a writable output directory. A directory which is or
+# contains the checkout, its git directory or the caller HOME is refused.
+# --secrets starts the selftest's filtered bus outside the namespace and
+# binds only its socket inside. --sign-in VARIABLE DIR declares the selected
+# account directory, its variable and its writable bind. Neither exception
+# supplies the caller's raw bus. The rules below own the allowed bus calls.
+#
+# The fence remains bubblewrap's parent. TERM, INT and HUP each go to CMD
+# once. The PID namespace and --die-with-parent end every descendant after
+# CMD ends, including children in other sessions and stopped children.
+# Its /proc exposes no outside process or descriptor.
 #
 # Before CMD starts inside the namespace, the proof stats every path, with
 # no open, and prints one line each on stderr:
@@ -58,15 +46,10 @@
 # line. A namespace made around `true` runs the same proof first, so a
 # failure there is the namespace's and never CMD's.
 #
-# Inside a fence's namespace, where VGSHELL_FENCE_LEDGER names a file and
-# no AMD path is visible, CMD runs directly and nothing is printed.
-#
-# --check asks whether the caller needs the namespace: exit 0 inside a
-# fence's namespace where no AMD path resolves, exit 1 otherwise, nothing
-# printed. An entry
-# point that starts a compositor, the shell, qmltestrunner or a browser
-# goes on only after
-#   gpu-fence.sh --check || exec gpu-fence.sh "$self" "${argv[@]}"
+# --check reads access permissions only: the checkout must be read-only,
+# the owned root writable and every AMD path absent. It never writes.
+# An entry point continues only after
+#   gpu-fence.sh --check || exec gpu-fence.sh [DECLARATIONS] "$self" "${argv[@]}"
 #
 # --sys DIR and --dev DIR, before the mode, name the trees read in place
 # of /sys and /dev: scripts/test-gpu-fence.sh hands it trees of ordinary
@@ -85,7 +68,7 @@
 # Exit: CMD's status. 2 on a refused argument. 77 when nothing was started,
 # never a run outside the namespace; the first line on stderr names why:
 #   gpu-fence: status=not-measured reason=bwrap-missing
-#   gpu-fence: status=not-measured reason=ledger-failed
+#   gpu-fence: status=not-measured reason=root-failed
 #   gpu-fence: status=not-measured reason=namespace-failed exit=<status>
 #   gpu-fence: status=not-measured reason=amd-node-visible path=<path>
 #   gpu-fence: status=not-measured reason=node-missing path=<path>
@@ -103,7 +86,7 @@ fault() {
   note "status=not-measured reason=$reason${*:+ $*}"
   case "$reason" in
     bwrap-missing) note "  bubblewrap, which makes the namespace, is not on PATH" ;;
-    ledger-failed) note "  the fence could not make the scratch directory that holds its ledger" ;;
+    root-failed) note "  the world could not make its owned run root" ;;
     namespace-failed) note "  bubblewrap could not make the namespace; its output follows" ;;
     amd-node-visible) note "  a path to an amdgpu node resolves inside the namespace" ;;
     node-missing) note "  a node or link the host had does not resolve inside the namespace" ;;
@@ -117,8 +100,29 @@ fault() {
 sys=/sys
 dev=/dev
 mode=run
+self="$(readlink -f -- "${BASH_SOURCE[0]}")"
+checkout="$(cd -- "${self%/*}/../.." && pwd -P)"
+outputs=()
+output_roots=()
+keep=false
+network=(--unshare-net)
+secrets=false
+sign_in_name="" sign_in_dir=""
 while (($#)); do
   case "$1" in
+    --out|--checkout|--sign-in)
+      [[ $# -ge 2 && -n $2 ]] || { note "refused: argument=$1"; exit 2; }
+      case "$1" in
+        --out) outputs+=("$2"); shift 2 ;;
+        --checkout) checkout="$2"; shift 2 ;;
+        --sign-in)
+          [[ $# -ge 3 && -d $3 ]] || { note "refused: argument=--sign-in"; exit 2; }
+          case "$2" in CLAUDE_CONFIG_DIR|CODEX_HOME|COPILOT_HOME|PI_CODING_AGENT_DIR) ;; *) note "refused: argument=--sign-in variable=$2"; exit 2 ;; esac
+          sign_in_name="$2" sign_in_dir="$(realpath -e -- "$3")"; shift 3 ;;
+      esac ;;
+    --keep) keep=true; shift ;;
+    --net) network=(); shift ;;
+    --secrets) secrets=true; shift ;;
     --sys|--dev)
       [[ $# -ge 2 && -n $2 ]] || { note "refused: argument=$1"; exit 2; }
       if [[ $1 == --sys ]]; then sys="$2"; else dev="$2"; fi
@@ -232,16 +236,13 @@ exposed() {
   return 1
 }
 
-# fenced: true inside a fence's namespace, which names its ledger there.
-fenced() { [[ -n ${VGSHELL_FENCE_LEDGER-} && -f $VGSHELL_FENCE_LEDGER ]]; }
+# The read-only checkout and writable root prove the mount boundary without
+# a write attempt. The marker alone grants no permission to start a runner.
+fenced() { [[ -n ${VGSHELL_WORLD_ROOT-} && -d $VGSHELL_WORLD_ROOT && -w $VGSHELL_WORLD_ROOT && ! -w $checkout ]]; }
 
-# release: once the namespace has ended, give the owner bits back on each
-# path the ledger names and remove it, then the fence's scratch directory.
-# bubblewrap's monitor returns once CMD has ended, and the init it leaves
-# is killed by --die-with-parent as the monitor exits, so the rest of the
-# namespace can outlive the monitor by a moment. The namespace is empty
-# once its init has left it: the kernel kills and reaps every other
-# process before PID 1 exits. --info-fd names the init and its namespace.
+# Wait for the namespace's init to leave before reading evidence or removing
+# the one root this process acquired. PID 1 exits after the kernel reaps
+# every other process in its namespace.
 release() {
   local init="" ns="" path _
   [[ -n ${fence_dir-} ]] || return 0
@@ -256,17 +257,19 @@ release() {
       sleep 0.05
     done
   fi
-  while IFS= read -r path; do
-    [[ $path == /* ]] && [[ -e $path || -L $path ]] || continue
-    # A SIGKILL can bypass the harness's teardown. Its private metadata
-    # lets the same copier retain the active row before ledger removal.
-    if [[ -f $path/evidence/destination ]]; then
-      python3 "${self%/*}/evidence.py" "$path" || true
-    fi
-    chmod -R u+rwX -- "$path" 2>/dev/null || note "cleanup=chmod-failed path=$path"
-    rm -rf -- "${path:?}" 2>/dev/null || note "cleanup=rm-failed path=$path"
-  done <"$fence_dir/ledger"
-  rm -rf -- "${fence_dir:?}"
+  if [[ -n ${proxy_pid:-} ]]; then
+    kill -TERM "$proxy_pid" 2>/dev/null || true
+    wait "$proxy_pid" 2>/dev/null || true
+  fi
+  for path in "$fence_dir"/tmp/vgshell-smoke.*/evidence/destination; do
+    [[ ! -f $path ]] || python3 "${self%/*}/evidence.py" "$fence_dir" "${path%/evidence/destination}" "${output_roots[@]}" || true
+  done
+  chmod -R u+rwX -- "$fence_dir" 2>/dev/null || note "cleanup=chmod-failed path=$fence_dir"
+  if [[ $keep == true ]]; then
+    note "kept root=$fence_dir"
+  else
+    rm -rf -- "${fence_dir:?}" 2>/dev/null || note "cleanup=rm-failed path=$fence_dir"
+  fi
 }
 
 # inside ABSENT... -- PRESENT... -- CMD...: the proof, then CMD. Every path
@@ -338,17 +341,101 @@ case "$mode" in
     plan
     ! fenced || exposed || exec "$@"
     command -v bwrap >/dev/null 2>&1 || { fault bwrap-missing; exit 77; }
-    self="$(readlink -f -- "${BASH_SOURCE[0]}")"
-    fence_dir="$(mktemp -d "${TMPDIR:-/tmp}/vgshell-fence.XXXXXX")" || { fault ledger-failed; exit 77; }
+    fence_dir="$(mktemp -d "${TMPDIR:-/tmp}/vgshell-world.XXXXXX")" || { fault root-failed; exit 77; }
     trap release EXIT
-    : >"$fence_dir/ledger"
+    fence_dir="$(realpath -e -- "$fence_dir")"
+    mkdir -p -- "$fence_dir"/{home,config,data,state,cache,tmp,runtime}
+    chmod 700 -- "$fence_dir" "$fence_dir/runtime"
+    world_runtime=/tmp/vr
+    # Version-manager shims need the caller's trust state. Resolve the
+    # native node before HOME is redirected, as the harness requires.
+    if command -v node >/dev/null 2>&1; then
+      world_node="$(node -e 'process.stdout.write(process.execPath)')" || { note 'refused: node=binary-unavailable'; exit 2; }
+      export PATH="${world_node%/*}:$PATH"
+    fi
+    # These are the complete environment tables. Graphics/session variables
+    # never enter either table. Prepared selftest values hold paths or account
+    # references, never credentials; the runner computes them before entry.
+    environment=(--clearenv
+      --setenv HOME "$fence_dir/home" --setenv XDG_CONFIG_HOME "$fence_dir/config"
+      --setenv XDG_DATA_HOME "$fence_dir/data" --setenv XDG_STATE_HOME "$fence_dir/state"
+      --setenv XDG_CACHE_HOME "$fence_dir/cache" --setenv TMPDIR "$fence_dir/tmp"
+      --setenv XDG_RUNTIME_DIR "$world_runtime" --setenv VGSHELL_WORLD_ROOT "$fence_dir"
+      --setenv VGS_TEST_RUN 1)
+    passed=(PATH USER LOGNAME LANG LC_ALL TERM QML_UNIT_RUNNER
+      VGSHELL_SMOKE_RSS_CEILING_KIB VGSHELL_SMOKE_FIRST_BAR_BUDGET_MS
+      VGSHELL_SMOKE_DEFAULT_FIRST_BAR_BUDGET_MS VGSHELL_SMOKE_RECONCILE_BUDGET_MS
+      VGSHELL_SMOKE_EMOJI_TOAST_BUDGET_MS VGSHELL_SMOKE_EMOJI_INBOX_BUDGET_MS
+      JARVIS_LOCAL_MODELS JARVIS_LOCAL_PYTHON VOXTYPE_MODELS
+      VGSHELL_SELFTEST_ACCOUNTS VGSHELL_SELFTEST_PROGRAM VGSHELL_SHOTS_SOURCE)
+    for name in "${passed[@]}"; do
+      [[ ! -v $name ]] || environment+=(--setenv "$name" "${!name}")
+    done
+    mounts=()
+    # Mask caller runtime even when its path is outside /tmp. No source from
+    # it is mounted back, except the filtered selftest proxy socket below.
+    if [[ -n ${XDG_RUNTIME_DIR:-} && $XDG_RUNTIME_DIR != /tmp && $XDG_RUNTIME_DIR != /tmp/* ]]; then
+      mounts+=(--perms 0700 --tmpfs "$XDG_RUNTIME_DIR")
+    fi
+    mounts+=(--tmpfs /run/dbus --tmpfs /run/tailscale)
+    git_dir="$(git -C "$checkout" rev-parse --absolute-git-dir 2>/dev/null)" || git_dir="$checkout/.git"
+    for output in "${outputs[@]}"; do
+      output="$(realpath -m -- "$output")" || { note "refused: output=$output reason=resolve-failed"; exit 2; }
+      for protected in "$checkout" "$git_dir" "${HOME:-/}" /tmp /dev /run/dbus /run/tailscale "${XDG_RUNTIME_DIR:-$world_runtime}"; do
+        protected="$(realpath -m -- "$protected")" || { note "refused: protected=$protected reason=resolve-failed"; exit 2; }
+        if [[ $protected == "$output" || $protected == "$output/"* || $output == / ]]; then
+          note "refused: output=$output protected=$protected"; exit 2
+        fi
+      done
+      mkdir -p -- "$output"
+      mounts+=(--bind "$output" "$output")
+      output_roots+=("$output")
+    done
+    if [[ -n $sign_in_name ]]; then
+      mounts+=(--bind "$sign_in_dir" "$sign_in_dir")
+      environment+=(--setenv "$sign_in_name" "$sign_in_dir")
+    fi
+    if [[ $secrets == true ]]; then
+      command -v xdg-dbus-proxy >/dev/null && [[ -n ${DBUS_SESSION_BUS_ADDRESS:-} ]] || { note 'refused: selftest=bus-unavailable'; exit 2; }
+      # libsecret 0.21.8 lookup's four read calls, measured with
+      # xdg-dbus-proxy 0.1.9 on a scratch bus on 2026-10-09.
+      selftest_secrets_rules=(
+        --call=org.freedesktop.secrets=org.freedesktop.Secret.Service.SearchItems@/org/freedesktop/secrets
+        --call=org.freedesktop.secrets=org.freedesktop.Secret.Service.OpenSession@/org/freedesktop/secrets
+        --call=org.freedesktop.secrets=org.freedesktop.Secret.Service.GetSecrets@/org/freedesktop/secrets
+        --call=org.freedesktop.secrets=org.freedesktop.DBus.Properties.GetAll@/org/freedesktop/secrets)
+      copilot_rules=()
+      if [[ $sign_in_name == COPILOT_HOME ]]; then
+        # Copilot 1.0.91 / secret-service 5.2.0 reads Item.get_secret and
+        # ensure_unlocked with property caching disabled.
+        copilot_rules=(
+          '--call=org.freedesktop.secrets=org.freedesktop.Secret.Item.GetSecret@/org/freedesktop/secrets/collection/*'
+          '--call=org.freedesktop.secrets=org.freedesktop.DBus.Properties.Get@/org/freedesktop/secrets/collection/*')
+      fi
+      env -i "$(command -v xdg-dbus-proxy)" "$DBUS_SESSION_BUS_ADDRESS" "$fence_dir/secrets-bus" --filter "${selftest_secrets_rules[@]}" "${copilot_rules[@]}" >"$fence_dir/proxy.log" 2>&1 &
+      proxy_pid=$!
+      for ((attempt=0; attempt<100; attempt++)); do
+        [[ ! -S $fence_dir/secrets-bus ]] || break
+        kill -0 "$proxy_pid" 2>/dev/null || break
+        sleep 0.05
+      done
+      [[ -S $fence_dir/secrets-bus ]] || { note 'refused: selftest=proxy-not-started'; exit 2; }
+      mounts+=(--ro-bind "$fence_dir/secrets-bus" "$world_runtime/secrets-bus")
+    fi
     # With no AMD node nothing under /dev changes, and nothing is proved.
     if ((${#hidden[@]} == 0)); then rebuild=(); kept=(); fi
     # CMD gets a session of its own: in the caller's session, with the
     # monitor's group in the background, a terminal would stop it on a read
     # or a mode change.
-    fence=(bwrap --dev-bind / / "${rebuild[@]}" --unshare-pid --proc /proc --die-with-parent --new-session
-      --setenv VGSHELL_FENCE_LEDGER "$fence_dir/ledger")
+    # bubblewrap --help: ro-bind is nodev; dev-bind restores device access.
+    # The private runtime's child uses root-owned backing storage so the
+    # after-namespace copier can still read logs after tmpfs disappears.
+    fence=(bwrap --ro-bind / / --dev-bind /dev /dev
+      --tmpfs /dev/shm --tmpfs /tmp --perms 0700 --tmpfs "$world_runtime"
+      --bind "$fence_dir" "$fence_dir"
+      --bind "$fence_dir/runtime" "$world_runtime/owned"
+      "${mounts[@]}" "${rebuild[@]}" "${network[@]}" --unshare-pid --proc /proc --die-with-parent --new-session
+      "${environment[@]}")
     proof=(-- "$BASH" "$self" --inside "${hidden[@]}" -- "${kept[@]}" --)
     status=0
     probe="$("${fence[@]}" "${proof[@]}" true 2>&1)" || status=$?

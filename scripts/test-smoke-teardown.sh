@@ -1,52 +1,26 @@
 #!/usr/bin/env bash
-# Drive scripts/smoke/teardown.sh, the smoke sandbox's teardown, through the
-# exits a run of the read-only prefix row can take. Each case starts a child
-# bash in its own process group that sources the teardown the way harness.sh
-# does, makes a sandbox, a runtime dir and an export under this suite's
-# scratch directory, builds a nested prefix tree, records one process group
-# as spawn does, and takes the write bits off the tree as
-# scripts/smoke/rows/read-only-prefix.sh does. The child then fails under
-# set -e, or waits for the signals the case sends to its process group. Each
-# case pins the exit status, whether the sandbox and the runtime dir are gone
-# or kept, that the export and the recorded process group are gone, and that
-# stderr is empty. The controls at the end plant one defect per rule in a
-# copy of the teardown and require the case that rule owns to go red. The
-# sink cases run the teardown with harness.sh's own sink_alive over a
-# stand-in sink and pin the line it prints for a sink that exited.
-#
-# The child gets an explicit environment. Its sandbox and runtime dir are
-# never under the host's XDG_RUNTIME_DIR. The suite signals only the process
-# groups it started and those its children recorded.
-#
-# Exit 0 when every case and control holds, 1 otherwise.
+# Exercise the production process teardown inside the world. Failed exits,
+# stop signals and repeat signals must preserve the original status, close
+# recorders in order and end owned groups. Every directory and its permissions
+# stay intact for the world owner. Controls skip signal protection or recorder
+# closure; a producer that requires KILL makes interrupted teardown observable.
+# The sink cases use harness.sh's own sink_alive over an owned stand-in.
 set -euo pipefail
 
 self="$(readlink -f -- "${BASH_SOURCE[0]}")"
 repo="$(cd -- "$(dirname -- "$self")/.." && pwd)"
 teardown="$repo/scripts/smoke/teardown.sh"
-source_tree_only=false
-if [[ ${1:-} == --source-tree-cases && $# -le 2 ]]; then
-  source_tree_only=true
-  teardown="${2:-$teardown}"
-elif [[ $# -gt 0 ]]; then
-  echo 'test-smoke-teardown: refused: arguments' >&2
-  exit 2
-fi
+[[ $# == 0 ]] || { echo 'test-smoke-teardown: refused: arguments' >&2; exit 2; }
+"$repo/scripts/smoke/gpu-fence.sh" --check || exec "$repo/scripts/smoke/gpu-fence.sh" "$self" "$@"
 
-# The EXIT trap is armed only on the directory mktemp made: an empty or
-# non-directory answer never reaches rm -rf.
-mkdir -p -- "$repo/tmp"
-tmp="$(mktemp -d "$repo/tmp/test-smoke-teardown.XXXXXX")" || { echo "test-smoke-teardown: scratch=mktemp-failed" >&2; exit 1; }
+tmp="$(mktemp -d "$TMPDIR/test-smoke-teardown.XXXXXX")" || { echo "test-smoke-teardown: scratch=mktemp-failed" >&2; exit 1; }
 [[ -d $tmp && ! -L $tmp ]] || { echo "test-smoke-teardown: scratch=not-a-directory value=[$tmp]" >&2; exit 1; }
 tmp="$(cd -- "$tmp" && pwd -P)"
-# Process groups this suite started or its children recorded. A control's
-# case leaves a non-writable tree, so the owner bits come back before rm.
+# Only groups this suite started or its children recorded are signalled.
 groups=()
 finish() {
   local pg
   for pg in "${groups[@]}"; do kill -KILL -- "-$pg" 2>/dev/null || true; done
-  chmod -R u+rwX -- "${tmp:?}" 2>/dev/null || true
-  rm -rf -- "${tmp:?}"
 }
 trap finish EXIT
 failures=0
@@ -69,116 +43,12 @@ mutate() {
   return 0
 }
 
-# Only disposable git repositories are passed to the teardown, including
-# the control against the previous teardown that would delete a checkout.
-cat >"$tmp/source-child.sh" <<'SH'
-set -euo pipefail
-sandbox="" rt_dir="" pgids=() keep=false
-source_tree="$2" VGSHELL_FENCE_LEDGER="$3"
-source "$1"
-exit 0
-SH
-source_case() { # TEARDOWN KIND
-  local file="$1" kind="$2" dir target status=0 diagnostic recorded child_path="$PATH" ceiling=""
-  source_case_deleted=false
-  dir="$(mktemp -d "$tmp/source-case.XXXXXX")" || return 1
-  mkdir -- "$dir/repository"
-  git -C "$dir/repository" init -q || return 1
-  printf 'retained\n' >"$dir/repository/marker"
-  git -C "$dir/repository" add marker || return 1
-  git -C "$dir/repository" -c user.name=Test -c user.email=test@example.invalid commit -qm fixture || return 1
-  case "$kind" in
-    repository) target="$dir/repository" ;;
-    worktree)
-      target="$dir/worktree"
-      git -C "$dir/repository" worktree add -q --detach "$target" HEAD || return 1
-      ;;
-    export|outside-export|git-failed|unrecorded|prefix|removed)
-      target="$dir/export"
-      mkdir -- "$target"
-      git -C "$dir/repository" archive HEAD | tar -x -C "$target" || return 1
-      ;;
-    symlink)
-      target="$dir/export"
-      ln -s -- "$dir/repository" "$target" || return 1
-      ;;
-    *) return 1 ;;
-  esac
-  recorded="$target"
-  case "$kind" in
-    outside-export) ceiling="$dir" ;;
-    git-failed)
-      mkdir -- "$dir/stub"
-      cat >"$dir/stub/git" <<'SH'
-#!/bin/sh
-printf '%s\n' "$*" >"${PROBE_RECEIPT:?}"
-printf 'fatal: fixture cannot read repository metadata\n' >&2
-exit 128
-SH
-      chmod +x "$dir/stub/git"
-      child_path="$dir/stub:$PATH"
-      ;;
-    unrecorded) recorded="$dir/other-export" ;;
-    prefix) recorded="$target-neighbour" ;;
-    removed) rm -rf -- "${target:?}" || return 1 ;;
-  esac
-  printf '%s\n' "$recorded" >"$dir/ledger"
-  timeout -k 2 10 env -i PATH="$child_path" HOME="$tmp/home" LC_ALL=C VGS_TEST_RUN=1 \
-    GIT_CEILING_DIRECTORIES="$ceiling" PROBE_RECEIPT="$dir/probe-called" \
-    "$BASH" "$tmp/source-child.sh" "$file" "$target" "$dir/ledger" >"$dir/out" 2>"$dir/err" || status=$?
-  diagnostic="$(<"$dir/err")" || return 1
-  if [[ $status == 0 && ! -e $target ]]; then source_case_deleted=true; fi
-  case "$kind" in
-    export|outside-export|removed)
-      [[ $status == 0 && ! -e $target && -z $diagnostic ]]
-      ;;
-    git-failed)
-      [[ $status == 1 && $diagnostic == "teardown: source-tree-refused path=$target cause=git-probe-failed" && -d $target && $(<"$target/marker") == retained && $(<"$dir/probe-called") == "-C $target rev-parse --show-toplevel" ]]
-      ;;
-    *)
-      # The issue archive reads this stable refusal record. Every refusal
-      # must preserve the directory and the fixture content it held.
-      [[ $status == 1 && $diagnostic == "teardown: source-tree-refused path=$target cause="?* && -d $target && $(<"$target/marker") == retained ]]
-      ;;
-  esac
-}
-source_cases=(repository worktree export outside-export git-failed unrecorded prefix symlink removed)
-for kind in "${source_cases[@]}"; do
-  if source_case "$teardown" "$kind"; then ok "source tree: $kind"; else fail "source tree: $kind"; fi
-done
-# The control runs only the new contract, with the original deletion
-# reachable and every candidate still confined to the scratch directory.
-if [[ $source_tree_only == false ]]; then
-  source_controls=(
-    'an unguarded source tree deletion|  teardown_source_tree_check|  : #|worktree'
-    'an ignored Git probe failure|          cause=git-probe-failed|          :|git-failed'
-  )
-  for i in "${!source_controls[@]}"; do
-    IFS='|' read -r label old new kind <<<"${source_controls[i]}"
-    mutant="$tmp/source-unguarded-$i.sh"
-    if ! mutate "$old" "$new" "$mutant"; then
-      fail "control: $label mutation"
-    elif source_case "$mutant" "$kind"; then
-      fail "control: $label left its case green"
-    elif [[ $source_case_deleted != true ]]; then
-      fail "control: $label failed without deleting its throwaway target"
-    else
-      ok "control: $label"
-    fi
-  done
-fi
-if [[ $source_tree_only == true ]]; then
-  if [[ $failures -gt 0 ]]; then echo "test-smoke-teardown: failed=$failures"; exit 1; fi
-  echo 'test-smoke-teardown: ok'
-  exit 0
-fi
-
 # The process group the child records. TERM from the teardown writes the
 # marker the second-signal cases wait for.
 cat >"$tmp/group.sh" <<'SH'
 # Delay trap installation so the signal cases require the ready handshake.
 sleep 0.1
-trap ': >"$1"; exit 0' TERM
+trap ': >"$1"' TERM
 printf 'ready\n' >"$2"
 while :; do sleep 0.1; done
 SH
@@ -198,9 +68,6 @@ sandbox="" rt_dir="" pgids=() keep=false
 [[ $mode != keep ]] || keep=true
 source_tree="$case_dir/export"
 mkdir -- "$source_tree"
-VGSHELL_FENCE_LEDGER="$case_dir/ledger"
-printf '%s\n' "$source_tree" >"$VGSHELL_FENCE_LEDGER"
-[[ $mode != refused ]] || : >"$VGSHELL_FENCE_LEDGER"
 source "$teardown"
 sandbox="$case_dir/sandbox"
 mkdir -- "$sandbox"
@@ -259,7 +126,7 @@ if [[ $mode == recorder* ]]; then
   }
 fi
 case $mode in
-  abort|keep|refused|recorder|recorder-failed|recorder-close-failed) false ;;
+  abort|keep|recorder|recorder-failed|recorder-close-failed) false ;;
   wait) : >"$case_dir/ready"; while :; do sleep 0.1; done ;;
 esac
 SH
@@ -297,7 +164,7 @@ run_case() {
   mkdir -- "$case_dir"
   problems=()
   # env restores SIGINT, which bash ignores in a background command.
-  setsid env -i --default-signal=INT PATH="$PATH" HOME="$tmp/home" TMPDIR="$tmp" LC_ALL=C \
+  setsid env -i --default-signal=INT PATH="$PATH" HOME="$tmp/home" TMPDIR="$tmp" LC_ALL=C VGSHELL_WORLD_ROOT="$VGSHELL_WORLD_ROOT" source_repo="$repo" \
     bash "$tmp/child.sh" "$file" "$mode" "$case_dir" "$tmp/group.sh" >"$case_dir/out" 2>"$case_dir/err" &
   pid=$!
   groups+=("$pid")
@@ -337,12 +204,7 @@ run_case() {
   else
     problems+=("recorded-group=unrecorded")
   fi
-  if [[ $mode == refused ]]; then
-    [[ -d $case_dir/export ]] || problems+=("refused-export=removed")
-    grep -Fx -- "teardown: source-tree-refused path=$case_dir/export cause=unrecorded-export" "$case_dir/err" >/dev/null || problems+=("source-refusal=missing")
-  else
-    [[ ! -e $case_dir/export ]] || problems+=("export=left")
-  fi
+  [[ -d $case_dir/export ]] || problems+=("export=removed")
   if [[ -f $case_dir/recorder ]]; then
     recorded="$(<"$case_dir/recorder")"
     groups+=("$recorded")
@@ -364,33 +226,22 @@ run_case() {
     [[ $keyed_err == "qml-smoke: cleanup=recorder-close-failed path=$case_dir" ]] || problems+=("recorder-close-diagnostic=missing")
     keyed_err=""
   fi
-  case $want_sandbox in
-    gone)
-      [[ ! -e $case_dir/sandbox ]] || problems+=("sandbox=left")
-      [[ ! -e $case_dir/runtime ]] || problems+=("runtime=left")
-      [[ -z $keyed_err ]] || problems+=("teardown=failed")
-      ;;
-    kept)
-      [[ -d $case_dir/sandbox && -d $case_dir/runtime ]] || problems+=("sandbox=not-kept")
-      rm -rf -- "$case_dir/sandbox" 2>/dev/null || problems+=("kept-sandbox=not-removable")
-      [[ ! -e $case_dir/sandbox ]] || problems+=("kept-sandbox=left-after-rm")
-      ;;
-    *) problems+=("row=unknown-sandbox-expectation:$want_sandbox") ;;
-  esac
+  [[ -d $case_dir/sandbox && -d $case_dir/runtime ]] || problems+=("owned-tree=removed-by-teardown")
+  [[ ! -w $case_dir/sandbox/read-only-prefix/usr ]] || problems+=("permissions=changed-by-teardown")
+  [[ -z $keyed_err ]] || problems+=("teardown=failed")
   [[ ${#problems[@]} -eq 0 ]]
 }
 
 # Rows: label | child mode | signals sent to its process group, in order |
 # exit status | sandbox and runtime dir gone or kept.
 cases_table=(
-  "a set -e failure after the chmod removes the sandbox|abort||1|gone"
-  "one TERM removes the sandbox|wait|TERM|143|gone"
-  "one HUP removes the sandbox|wait|HUP|129|gone"
-  "one INT removes the sandbox|wait|INT|130|gone"
+  "a set -e failure leaves every tree to the world|abort||1|gone"
+  "one TERM closes processes without removing a tree|wait|TERM|143|gone"
+  "one HUP closes processes without removing a tree|wait|HUP|129|gone"
+  "one INT closes processes without removing a tree|wait|INT|130|gone"
   "a second TERM during the teardown does not cut it|wait|TERM TERM|143|gone"
   "a HUP after a TERM does not cut the teardown|wait|TERM HUP|143|gone"
-  "a kept sandbox is removable with plain rm -rf|keep||1|kept"
-  "a refused source tree still releases owned sandbox and process groups|refused||1|gone"
+  "keep leaves ownership with the world|keep||1|kept"
   "recorder finalization follows producers and retains evidence before removal|recorder||1|gone"
   "recorder failure retains incomplete evidence without changing original exit|recorder-failed||1|gone"
   "failed close retains an explicit error and original exit|recorder-close-failed||1|gone"
@@ -404,8 +255,7 @@ done
 # CASE standing for its directory, or empty for any. A field holds no `|`,
 # the separator.
 controls=(
-  "the owner bits are not restored|chmod -R u+rwX -- \"\$sandbox\"|true|a set -e failure after the chmod removes the sandbox|sandbox=left|qml-smoke: cleanup=rm-failed path=CASE/sandbox"
-  "the signals are not ignored|trap '' TERM INT HUP|:|a second TERM during the teardown does not cut it|sandbox=left|"
+  "the signals are not ignored|trap '' TERM INT HUP|:|a second TERM during the teardown does not cut it|recorded-group=alive|"
   "the recorder finalizer is skipped|if ! display_record_finish \"\$original_status\"; then|if ! true; then|recorder finalization follows producers and retains evidence before removal|recorder-evidence=missing|"
   "the recorder closes after producer TERM|if ! display_record_close \"\$original_status\" cleanup; then|if ! true; then|recorder finalization follows producers and retains evidence before removal|recorder-close-order=wrong|"
 )
@@ -465,7 +315,7 @@ SH
   # sink_case TEARDOWN MODE: the child's stdout; sink_dir is the case's
   # directory, made before the call.
   sink_case() {
-    timeout -k 2 20 env -i PATH="$PATH" "$BASH" "$tmp/sink-child.sh" "$1" "$tmp/sink-alive.sh" "$sink_dir" "$2" 2>/dev/null
+    timeout -k 2 20 env -i PATH="$PATH" VGSHELL_WORLD_ROOT="$VGSHELL_WORLD_ROOT" source_repo="$repo" "$BASH" "$tmp/sink-child.sh" "$1" "$tmp/sink-alive.sh" "$sink_dir" "$2" 2>/dev/null
   }
   want_sink='qml-smoke: sink=exited status=7 last=[sink: refused: stand-in]'
   sink_dir="$(mktemp -d "$tmp/sink-case.XXXXXX")"

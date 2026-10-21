@@ -6,7 +6,7 @@
 **Status**: Active
 **Research**: [VGS-784](https://linear.app/vanillagreen/issue/VGS-784)
 
-**Decision**: Every validation entry point that starts a compositor, a shell, a test runner or a browser hands itself to one fence, `scripts/smoke/gpu-fence.sh`, which hides the amdgpu DRM nodes behind a tmpfs in a mount namespace, proves them absent by `stat`, and exits 77 when it cannot build or prove the namespace. A fence exit 77 is not a pass.
+**Decision**: Every validation entry point that starts a compositor, a shell, a test runner or a browser enters the world in `scripts/smoke/gpu-fence.sh`. The world hides amdgpu DRM nodes behind tmpfs mounts, restores device access to the other nodes, proves the AMD paths absent by `stat`, and exits 77 when it cannot build or prove the namespace. A world exit 77 is not a pass. [D112](D112-one-world-owns-the-test-run.md) governs the rest of the boundary.
 
 **Why**: On host cachy on 2026-10-02 a smoke run's `qs` opened the AMD GPU's DRM node and the kernel faulted in the driver's per-open path, so a plain `open()` can hang the machine. The rule is enforced where the kernel resolves the path, because every traced opener lists `/dev/dri` and opens what it finds. `scripts/test-gpu-fence.sh` holds the fence.
 

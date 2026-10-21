@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Retain failed or interrupted smoke rows before either owner removes them.
+"""Retain failed or interrupted smoke rows after the namespace ends.
 
 The harness writes private metadata under its sandbox's evidence directory.
-Both teardown and the fence's ledger release call this after producers stop.
+The world calls this once after all namespace processes stop.
 Each row keeps at most 8 MiB, including its index; each file keeps its last
 1 MiB. This is a storage cap, not a latency or product memory budget.
 """
@@ -16,7 +16,7 @@ FILE_BYTES = 1024 * 1024
 INDEX_BYTES = 8192
 
 
-def retain(sandbox):
+def retain(root, sandbox, outputs):
     metadata = sandbox / "evidence"
     if not (metadata / "destination").is_file():
         return
@@ -25,16 +25,23 @@ def retain(sandbox):
         rows.append(metadata / "active")
     if not rows:
         return
-    runtime = Path((metadata / "runtime").read_text().strip())
+    runtime_alias = Path((metadata / "runtime").read_text().strip())
+    runtime = Path((metadata / "runtime-backing").read_text().strip())
+    if not sandbox.resolve().is_relative_to(root.resolve()) or not runtime.resolve().is_relative_to(root.resolve()):
+        raise ValueError("evidence source outside owned root")
+    def backing(path):
+        candidate = Path(path)
+        return runtime / candidate.relative_to(runtime_alias) if candidate.is_relative_to(runtime_alias) else candidate
     destination = Path((metadata / "destination").read_text().strip())
+    if not any(destination.resolve().is_relative_to(output.resolve()) for output in outputs):
+        raise ValueError("evidence destination not declared at entry")
     destination = destination / ("smoke-evidence-" + sandbox.name)
     for record in rows:
         row, initial_log, *readings = record.read_text().splitlines()
         if not row or any(c not in "abcdefghijklmnopqrstuvwxyz0123456789-" for c in row):
             raise ValueError("invalid row name")
         target = destination / row
-        # The fence can follow teardown after an interrupted copy. Keep a
-        # complete snapshot once, and never append duplicate retained bytes.
+        # A retried copy keeps a complete snapshot once.
         if (target / "index.txt").exists():
             continue
         target.mkdir(parents=True, exist_ok=True)
@@ -44,7 +51,7 @@ def retain(sandbox):
         logs = [str(instances[0]) if instances else "", initial_log]
         for log in dict.fromkeys(logs):
             if log:
-                candidates.append((Path(log), "instance-" + Path(log).parent.name + ".log"))
+                candidates.append((backing(log), "instance-" + Path(log).parent.name + ".log"))
         candidates += [(p, "compositor-" + p.parent.name + ".log")
                        for p in sorted(runtime.glob("hypr/*/hyprland.log"))]
         candidates.append((sandbox / "hyprland.log", "compositor-launch.log"))
@@ -93,7 +100,7 @@ def retain(sandbox):
 
 if __name__ == "__main__":
     try:
-        retain(Path(sys.argv[1]))
+        retain(Path(sys.argv[1]), Path(sys.argv[2]), [Path(path) for path in sys.argv[3:]])
     except (OSError, ValueError) as error:
         print("qml-smoke: evidence=copy-failed cause=%s" % error, file=sys.stderr)
         sys.exit(1)

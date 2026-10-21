@@ -113,38 +113,26 @@ check_unexpected_log() { # LABEL LOG
   fi
 }
 
-# The teardown runs on every exit, so it is armed before either directory
-# exists and removes only what was made.
+# Arm process teardown before making either owned tree. The world removes
+# those trees after every namespace process ends.
 source "$repo/scripts/smoke/teardown.sh"
 
-# The fence's ledger names both directories, so the fence removes them
-# once its namespace has ended, after a SIGKILL of this shell too.
-sandbox="$(mktemp -d "${TMPDIR:-/tmp}/vgshell-smoke.XXXXXX")"
-[[ $keep == true ]] || printf '%s\n' "$sandbox" >>"$VGSHELL_FENCE_LEDGER"
-# Keep the runtime path short to leave room for Hyprland's IPC socket names.
-rt_dir="$(mktemp -d "$XDG_RUNTIME_DIR/vs.XXXXXX")"
-[[ $keep == true ]] || printf '%s\n' "$rt_dir" >>"$VGSHELL_FENCE_LEDGER"
-# Metadata stays inside the sandbox. Only failed or interrupted top-level
-# rows cause either cleanup owner to make a retained evidence directory.
+# The world owns both directories and keeps their backing storage until
+# its after-namespace evidence copy finishes, including on runner SIGKILL.
+sandbox="$(mktemp -d "$TMPDIR/vgshell-smoke.XXXXXX")"
+rt_dir="$(mktemp -d "$XDG_RUNTIME_DIR/owned/vs.XXXXXX")"
 if mkdir -p -- "$sandbox/evidence/failed"; then
   printf '%s\n' "$rt_dir" >"$sandbox/evidence/runtime" || true
-  if [[ -n ${smoke_log_dir:-} ]]; then
-    printf '%s\n' "$smoke_log_dir" >"$sandbox/evidence/destination" || true
-  elif [[ -f /proc/self/fd/1 ]]; then
-    smoke_log_owner=$BASHPID
-    smoke_log_file="$(readlink -f "/proc/$smoke_log_owner/fd/1")" || smoke_log_file=""
-    [[ -z $smoke_log_file ]] || printf '%s\n' "${smoke_log_file%/*}" >"$sandbox/evidence/destination" || true
-  else
-    printf '%s\n' "$source_repo/tmp/qml-smoke" >"$sandbox/evidence/destination" || true
-  fi
+  printf '%s\n' "$VGSHELL_WORLD_ROOT/runtime/${rt_dir##*/}" >"$sandbox/evidence/runtime-backing" || true
+  printf '%s\n' "${smoke_log_dir:-$source_repo/tmp/qml-smoke}" >"$sandbox/evidence/destination" || true
 fi
 home="$sandbox/home"; mkdir -p "$home/.config/hypr"
 
 # Add the observer to a copy; the live checkout never imports test code.
 # A caller may set source_tree to another export of the shell, bin, config
 # and themes, such as scripts/sandbox-shots.sh --rev; the scripts, the probe
-# and the fixtures come from this checkout. Its exact fence ledger entry
-# establishes ownership for teardown; an unrecorded source_tree is refused.
+# and the fixtures come from this checkout. The export stays in the world's
+# root until that owner removes the whole root after namespace exit.
 tree_harness_copy "$repo" "$sandbox/repo" "${source_tree:-$repo}"
 python3 - "$repo" "$sandbox/repo" <<'PY'
 import pathlib, shutil, sys
@@ -247,7 +235,7 @@ fi
 # The Jarvis child always uses J09, including default-set startup. Only the
 # disposable Service copy names test infrastructure.
 "$node_bin" "$source_repo/scripts/fixtures/jarvis/prepare.js" "$source_repo" "$repo" "$sandbox/jarvis-world"
-if bash "$source_repo/scripts/lib/jarvis-env.sh" "$sandbox/jarvis-world/standins" -- true; then
+if env JARVIS_TEST_SCRATCH_ROOT="$TMPDIR" "$BASH" "$source_repo/scripts/lib/jarvis-env.sh" "$sandbox/jarvis-world/standins" -- true; then
   :
 else
   jarvis_isolation_status=$?
@@ -404,21 +392,9 @@ sentinel_restore() { # FILE
 # shell_resolves NAME: the file NAME resolves to on the PATH every sandbox
 # shell starts with, and so every process it starts, a TUI included.
 shell_resolves() { PATH="$shell_start_path" command -v -- "$1" || echo none; }
-# The PATH every sandbox shell starts with: the shell's stand-in directory,
-# then node's, then the host's. A row that stands in more commands puts
-# its own directory ahead of it. shell_start_words are the environment
-# words start_shell gives every shell over shell_env's.
-# A caller may set shell_hidden_commands, as scripts/sandbox-shots.sh does
-# for the setup steps' shots, to commands every shell must find absent
-# whatever the host holds: the host part of that PATH is then one
-# directory of links to the first file of every other command on the
-# harness's own PATH, in its order, and to node itself, whose directory,
-# such as /usr/bin, would hold the hidden commands too. A command a row
-# stands in the shell's own directory still resolves. Unset, as in every
-# smoke run, the host part is node's directory, then the harness's PATH.
-shell_host_path="$(dirname -- "$node_bin"):$PATH"
-if [[ -n ${shell_hidden_commands[*]:-} ]]; then
-  python3 - "$sandbox/host-path" "$PATH" "$node_bin" "${shell_hidden_commands[@]}" <<'PY'
+# The host PATH always hides the stand-in registry, so removing a stand-in
+# cannot expose its host command. Runners add only their own absent names.
+python3 - "$sandbox/host-path" "$PATH" "$node_bin" "${device_stand_in_names[@]}" "${auth_sentinels[@]}" crontab hyprctl "${shell_hidden_commands[@]}" <<'PY'
 import os, sys
 links, path, node, taken = sys.argv[1], sys.argv[2], sys.argv[3], set(sys.argv[4:])
 os.mkdir(links)
@@ -436,8 +412,7 @@ for directory in path.split(":"):
         taken.add(name)
         os.symlink(file, os.path.join(links, name))
 PY
-  shell_host_path="$sandbox/host-path"
-fi
+shell_host_path="$sandbox/host-path"
 shell_start_path="$shim:$shell_host_path"
 # Quickshell links jemalloc, which reads MALLOC_CONF. junk:free fills freed
 # memory, so a use-after-free in Quickshell or Qt crashes at its reader on
@@ -697,7 +672,7 @@ display_record_arm() { # DIR CMD...
   tail -n 5 -- "$log" || true
   exit 77
 }
-display_record_dir="$(mktemp -d "$source_repo/tmp/display-record.XXXXXX")"
+display_record_dir="$(mktemp -d "$source_repo/tmp/display-record/run.XXXXXX")"
 display_record_program >"$display_record_dir/recorder.py"
 display_record_arm "$display_record_dir" "${sandbox_env[@]}" python3 -u "$display_record_dir/recorder.py" serve "$display_record_dir"
 display_record_scope() {
