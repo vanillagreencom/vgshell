@@ -7,9 +7,12 @@ import "VpnLogic.js" as Logic
 // Views hold a lease for the fast poll and use the plugin's IPC:
 // lease {id,open}; action {kind,id} with the profile's uuid for
 // profile-up, profile-down, profile-remove and profile-details; import,
-// refresh and open. nmcli's output stays in this file: VpnLogic parses
-// the fields a view shows and drops the rest, and a log line names the
-// operation, its completion and its exit code alone.
+// refresh and open. A password connect is no IPC action: the prompt that
+// owns the masked field calls VpnLogic.submitConnect, which reaches
+// connectWithPassword here directly with the one-use stdin closure.
+// nmcli's output stays in this file: VpnLogic parses the fields a view
+// shows and drops the rest, and a log line names the operation, its
+// completion and its exit code alone.
 Item {
     id: root
     property var shell: null
@@ -40,6 +43,8 @@ Item {
     property var addressQueue: []
     property var profileAction: null
     property var profileProblem: null
+    // The password connect's stdin closure until its run starts or ends.
+    property var connectFeed: null
     readonly property var profiles: Logic.compose(profilesMissing ? Logic.emptyProfiles("missing") : listing,
         detailMap, addresses, failures, profileAction, profileProblem === null ? "" : profileProblem.text)
 
@@ -55,6 +60,11 @@ Item {
     }
     onConnectionChanged: publish()
     onProfilesChanged: publish()
+    Component.onCompleted: Logic.attachConnect(root)
+    Component.onDestruction: {
+        Logic.releaseConnect(root);
+        connectFeed = null;
+    }
     onShellChanged: {
         if (shell === null) return;
         if (!registered) {
@@ -270,16 +280,35 @@ Item {
             if (row !== undefined && row.state === "activated") queueAddress(plan.address);
             return "ok";
         }
+        return startAction(request.kind, request.id, plan.argv, null);
+    }
+    // VpnLogic.submitConnect's direct call: connect UUID with FEED writing
+    // the passwd-file line once nmcli has started. Only FEED's closure
+    // holds the password, and it is dropped when the run starts or ends.
+    function connectWithPassword(uuid, feed) {
+        const plan = Logic.passwordCommand(uuid, profiles);
+        if (plan.refusal !== undefined) return plan.refusal;
+        return startAction("profile-up", uuid, plan.argv, feed);
+    }
+    // One change at a time: FEED is null for a run whose stdin stays closed.
+    function startAction(kind, uuid, argv, feed) {
         if (profileActor.running) return "busy";
-        const row = profiles.rows.find(candidate => candidate.uuid === request.id);
-        profileAction = { kind: request.kind, uuid: row.uuid, name: row.name };
+        const row = profiles.rows.find(candidate => candidate.uuid === uuid);
+        profileAction = { kind: kind, uuid: row.uuid, name: row.name, password: feed !== null };
         profileProblem = null;
+        connectFeed = feed;
         profileActor.completion = null;
-        profileActor.command = plan.argv;
+        profileActor.stdinEnabled = feed !== null;
+        profileActor.command = argv;
         profileActor.running = true;
         profileActionDeadline.restart();
         return "ok";
     }
+    // The deadline also bounds a password connect: openvpn asks for the
+    // password again after a refusal and nmcli answers with the same line
+    // until its own --wait ends (90 s by default), so the kill here ends it
+    // first (VGS-1932 verify-first § 6, read from NetworkManager-openvpn
+    // 1.12.5 and nmcli 1.58.1 source, not run).
     Timer {
         id: profileActionDeadline
         interval: Logic.ACTION_MS
@@ -292,9 +321,20 @@ Item {
         environment: root.nmcliEnvironment
         stdout: StdioCollector { id: actorText; waitForEnd: true }
         stderr: StdioCollector { id: actorErrors; waitForEnd: true }
+        // Quickshell 0.3.1 Process.write needs a started child, and turning
+        // stdinEnabled off closes stdin after the queued bytes, which nmcli
+        // reads to its end before it activates:
+        // https://quickshell.org/docs/v0.3.1/types/Quickshell.Io/Process
+        onStarted: {
+            const once = root.connectFeed;
+            root.connectFeed = null;
+            if (once !== null) once(profileActor);
+        }
         onExited: (code, status) => { profileActor.completion = { code: code, status: status }; }
         onRunningChanged: {
             if (running) return;
+            // A run that never started emits runningChanged alone.
+            root.connectFeed = null;
             profileActionDeadline.stop();
             const code = root.codeOf(completion);
             const action = root.profileAction;
@@ -306,7 +346,7 @@ Item {
                 if (code === 0) delete next[action.uuid];
                 else {
                     const row = root.profiles.rows.find(candidate => candidate.uuid === action.uuid);
-                    next[action.uuid] = Logic.upFailure(code, output, row === undefined ? { type: "", service: "" } : row);
+                    next[action.uuid] = Logic.upFailure(code, output, row === undefined ? { type: "", service: "" } : row, action.password === true);
                 }
                 root.failures = next;
             }

@@ -14,6 +14,45 @@ var PROFILE_MAX = 32;
 var SERVICE_PREFIX = "org.freedesktop.NetworkManager.";
 var UUID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
+// Qt shares .pragma library state across this plugin's QML instances:
+// https://doc.qt.io/qt-6/qtqml-javascript-resources.html
+// The service attaches itself as the password connect's owner and
+// releases it on destruction. Only this direct call carries the password,
+// inside the one-use stdin closure; IPC, status and logs hold the uuid alone.
+var connectOwner = null;
+function attachConnect(owner) { connectOwner = owner; }
+function releaseConnect(owner) { if (connectOwner === owner) connectOwner = null; }
+// Connect UUID with PASSWORD: the owner's reply, `unavailable` with no
+// service, or `refused: password=value` for a password nmcli cannot read.
+function submitConnect(uuid, password) {
+    const text = passwordLine(password);
+    if (text === null) return "refused: password=value";
+    if (connectOwner === null) return "unavailable";
+    return connectOwner.connectWithPassword(uuid, process => {
+        process.write(text);
+        process.stdinEnabled = false;
+    });
+}
+
+// The one passwd-file line nmcli reads on stdin, or null for an empty
+// password or one that holds a NUL, which nmcli refuses as not UTF-8.
+// nmcli 1.58.1 ends a line at LF or CR, ends the key at its first `:`, and
+// unescapes the value with nm_utils_buf_utf8safe_unescape(STRIP_SPACES):
+// a backslash starts an escape, and unescaped leading and trailing ASCII
+// whitespace is stripped (src/libnmc-base/nm-client-utils.c,
+// nmc_utils_parse_passwd_file; VGS-1932 verify-first § 2). So every
+// backslash, CR and LF is escaped, and so is each space, tab, VT and FF at
+// either end; whitespace inside the value, `:` and `=` pass as they are.
+var PASSWORD_ENTRY = "vpn.secrets.password";
+var EDGE_ESCAPES = { " ": "\\040", "\t": "\\t", "\v": "\\v", "\f": "\\f" };
+function passwordLine(password) {
+    if (typeof password !== "string" || password === "" || password.indexOf("\u0000") !== -1) return null;
+    const value = password.replace(/\\/g, "\\\\").replace(/\r/g, "\\r").replace(/\n/g, "\\n");
+    const parts = /^([ \t\v\f]*)([\s\S]*?)([ \t\v\f]*)$/.exec(value);
+    const edge = run => run.replace(/[ \t\v\f]/g, c => EDGE_ESCAPES[c]);
+    return PASSWORD_ENTRY + ":" + edge(parts[1]) + parts[2] + edge(parts[3]) + "\n";
+}
+
 function pollInterval(open, idleSeconds) {
     return open ? OPEN_POLL_MS : idleSeconds * 1000;
 }
@@ -162,17 +201,24 @@ var PASSWORD_SERVICES = ["openvpn", "l2tp", "pptp", "sstp", "fortisslvpn"];
 
 // The kind a failed `up` of ROW leaves on it: `needs-password`, `sign-in`
 // (a secret VGS cannot ask for), `plugin-needed` with the service, or
-// `failed`. -1 is a run the deadline ended.
-function upFailure(code, text, row) {
+// `failed`. -1 is a run the deadline ended. A connect that CARRIED the
+// password leaves `password-tried` unless nmcli named a missing plugin or
+// another secret: no listed type tells a refused password apart from
+// another failure through nmcli (openvpn retries it until the deadline,
+// the pppd types and Fortinet read Unknown reason; VGS-1932 verify-first
+// § 6), so the row asks for the password again and claims nothing more.
+function upFailure(code, text, row, carried) {
     const output = code === -1 ? "" : String(text);
     const plugin = SERVICE_MISSING.exec(output);
     if (plugin !== null) return { kind: "plugin-needed", service: plugin[1] };
     const missing = [];
     SECRET_MISSING.lastIndex = 0;
     for (let found = SECRET_MISSING.exec(output); found !== null; found = SECRET_MISSING.exec(output)) missing.push(found[1]);
+    if (carried === true)
+        return { kind: missing.some(name => name !== PASSWORD_ENTRY) ? "sign-in" : "password-tried", service: "" };
     if (missing.length === 0 && !SECRETS_REQUIRED.test(output)) return { kind: "failed", service: "" };
     const single = row.type === "vpn" && PASSWORD_SERVICES.indexOf(row.service) !== -1
-        && missing.length === 1 && missing[0] === "vpn.secrets.password";
+        && missing.length === 1 && missing[0] === PASSWORD_ENTRY;
     return { kind: single ? "needs-password" : "sign-in", service: "" };
 }
 
@@ -248,7 +294,10 @@ function motion(row, action) {
 
 // What a profile row shows: its state `key`, the secondary line and its
 // tone, the switch's value and the reason it is disabled, and whether a
-// spinner stands in for the switch. A missing plugin reads only from the
+// spinner stands in for the switch. A profile reads Needs password both
+// before its first password and after a connect with one failed
+// (`password-tried`); its switch opens the prompt (VpnBody). A missing
+// plugin reads only from the
 // `up` that failed for it: NetworkManager starts a VPN plugin itself from
 // its `.name` file, and an idle plugin owns no bus name
 // (networkmanager-openvpn 1.12.5 ships no D-Bus service file).
@@ -270,7 +319,7 @@ function rowView(row, profiles) {
     if (row.failure === "plugin-needed")
         return view("plugin-needed", "Needs the " + type + " plugin", { reason: "NetworkManager needs its " + type + " plugin to connect this profile." });
     if (row.failure === "sign-in") return view("sign-in", "Asks for sign-in details VGS cannot ask", { reason: SIGN_IN_REASON });
-    if (row.failure === "needs-password") return view("needs-password", "Needs password");
+    if (row.failure === "needs-password" || row.failure === "password-tried") return view("needs-password", "Needs password");
     if (row.failure === "failed") return view("failed", "Could not connect", { danger: true });
     return view("off", "Off");
 }
@@ -293,6 +342,18 @@ function profileCommand(request, profiles) {
     if (view.connected || row.state === "activating") return { refusal: "refused: profile=state" };
     if (view.reason !== "") return { refusal: "refused: profile=" + view.key };
     return { argv: ["nmcli", "connection", "up", "uuid", row.uuid] };
+}
+
+// The plan for a password connect of UUID from the prompt: { argv }, with
+// nmcli reading the passwd-file line on stdin and no `--ask`, which would
+// read the stdin the file has taken, or { refusal }. Only a profile that
+// reads Needs password takes a password.
+function passwordCommand(uuid, profiles) {
+    if (profiles.state !== "available") return { refusal: "refused: profile=unavailable" };
+    const row = profiles.rows.find(candidate => candidate.uuid === uuid);
+    if (row === undefined) return { refusal: "refused: profile=absent" };
+    if (rowView(row, profiles).key !== "needs-password") return { refusal: "refused: profile=state" };
+    return { argv: ["nmcli", "connection", "up", "uuid", row.uuid, "passwd-file", "/dev/stdin"] };
 }
 
 // The problem line a failed change leaves, in a sentence.
@@ -333,10 +394,11 @@ function barView(profiles) {
             return { shown: true, icon: "shield", spinning: true, warning: false,
                 tooltip: "VPN: " + (moving === "connecting" ? "Connecting to " : "Disconnecting from ") + row.name };
     }
-    const alert = rows.find(row => row.state !== "activated" && (row.failure === "needs-password" || row.failure === "failed"));
+    const alert = rows.find(row => row.state !== "activated"
+        && (row.failure === "needs-password" || row.failure === "failed" || row.failure === "password-tried"));
     if (alert !== undefined)
         return { shown: true, icon: "shield-alert", spinning: false, warning: true,
-            tooltip: alert.failure === "needs-password" ? "VPN: " + alert.name + " needs a password" : "VPN: Could not connect " + alert.name };
+            tooltip: alert.failure === "failed" ? "VPN: Could not connect " + alert.name : "VPN: " + alert.name + " needs a password" };
     return { shown: true, icon: profiles.activeCount > 0 ? "shield-check" : "shield-off", spinning: false, warning: false,
         tooltip: "VPN: " + summary(profiles) };
 }

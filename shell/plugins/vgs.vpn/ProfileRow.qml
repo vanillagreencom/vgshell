@@ -19,6 +19,7 @@ Disclosure {
     property bool removable: false
     readonly property var view: Logic.rowView(modelData, profiles)
     readonly property Item removeAction: remove
+    readonly property Item switchAction: toggle
 
     signal toggleRequested(bool wanted)
     signal removeRequested()

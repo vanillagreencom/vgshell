@@ -5,7 +5,8 @@ import "VpnLogic.js" as Logic
 
 // The VPN flyout: its header says what is connected, the body lists the
 // profiles (VpnBody), and VPN settings opens the System Settings section.
-// No header switch: one switch cannot say which profile it moves.
+// No header switch: one switch cannot say which profile it moves. The
+// body's password prompt draws over this Pane (VpnBody promptPane).
 Item {
     id: root
 
@@ -53,6 +54,7 @@ Item {
             id: body
             width: layout.contentWidth
             shell: root.shell
+            promptPane: layout
         }
     }
 }

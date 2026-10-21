@@ -811,6 +811,7 @@ f share/vgshell/shell/plugins/vgs.voice/shaders/plasma.frag.qsb
 f share/vgshell/shell/plugins/vgs.voice/tui/configure.sh
 f share/vgshell/shell/plugins/vgs.voice/tui/model.sh
 f share/vgshell/shell/plugins/vgs.voice/tui/stop-other.sh
+f share/vgshell/shell/plugins/vgs.vpn/ConnectPrompt.qml
 f share/vgshell/shell/plugins/vgs.vpn/Pane.qml
 f share/vgshell/shell/plugins/vgs.vpn/Panel.qml
 f share/vgshell/shell/plugins/vgs.vpn/ProfileRow.qml

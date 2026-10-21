@@ -20,6 +20,17 @@ import "VpnLogic.js" as Logic
 // the scrim. After Cancel the focus goes back to Remove profile; after the
 // profile leaves the list, to the profile now at its place, else the one
 // before it, else Import a VPN file.
+//
+// The password prompt (ConnectPrompt) is a Dialog over a Scrim too, drawn
+// over `promptPane` when the host names one: the flyout names its own
+// Pane, so the Scrim also covers its footer, which lies outside the body,
+// and the dialog centres in it. System Settings names none, and the prompt
+// stands beside its profile in the body, as the remove confirmation does.
+// A press on the switch of a profile that reads Needs password opens it,
+// and so does the end of a connect this body started, the prompt's own
+// included, that leaves its profile at Needs password; after a connect
+// with a password, it shows its retry line. After Cancel, or a submit,
+// the focus goes back to the profile's switch.
 FocusScope {
     id: root
     property var shell: null
@@ -41,8 +52,22 @@ FocusScope {
     property string removingUuid: ""
     property int removingIndex: -1
     readonly property bool confirming: confirmTarget !== null && content.visible
+    // The profile the password prompt asks about, { uuid, name }, and the
+    // connect this body started, followed until it ends: `watchSeen` holds
+    // once the published state shows it connecting.
+    property var promptTarget: null
+    readonly property bool prompting: promptTarget !== null && content.visible
+    readonly property var promptRow: promptTarget === null ? null : profileRows.find(row => row.uuid === promptTarget.uuid) || null
+    property string watchUuid: ""
+    property bool watchSeen: false
+    property Pane promptPane: null
+    readonly property Item promptHost: promptPane === null ? root : promptPane
+    // The corner the scrim rounds to: the hosting Pane's container corner,
+    // or none over the body, a square part of its page.
+    readonly property real promptCorner: promptPane === null ? 0 : promptPane.cornerRadius
 
-    implicitHeight: Math.max(content.implicitHeight, confirming ? confirm.implicitHeight + 2 * Theme.dialog.margin : 0)
+    implicitHeight: Math.max(content.implicitHeight, confirming ? confirm.implicitHeight + 2 * Theme.dialog.margin : 0,
+        prompting ? prompt.implicitHeight + 2 * Theme.dialog.margin : 0)
 
     // Qt starts Tab traversal at the window's first stop from a body
     // that is not itself a Tab stop; move from this section explicitly.
@@ -56,6 +81,9 @@ FocusScope {
     }
     function close() {
         confirmTarget = null;
+        prompt.clear();
+        promptTarget = null;
+        watchUuid = "";
         if (!leased || shell === null) return;
         shell.ipc.call("lease", JSON.stringify({ id: leaseId, open: false }));
         leased = false;
@@ -69,6 +97,43 @@ FocusScope {
     }
     function act(kind, uuid, refusal) {
         return answered(shell.ipc.call("action", JSON.stringify({ kind: kind, id: uuid })), refusal);
+    }
+    // A switch press: a profile that reads Needs password asks for it,
+    // and a connect is followed so its end can ask.
+    function toggle(row, wanted) {
+        if (wanted && Logic.rowView(row, profiles).key === "needs-password") {
+            askPassword(row);
+            return;
+        }
+        // Set before the call: the service publishes the change in flight
+        // and PluginStatus.set records it at once, so the body reads it
+        // connecting before the reply returns.
+        if (wanted) follow(row.uuid);
+        if (act(wanted ? "profile-up" : "profile-down", row.uuid, "This VPN profile cannot change now.") !== "ok") watchUuid = "";
+    }
+    function follow(uuid) {
+        watchUuid = uuid;
+        watchSeen = false;
+    }
+
+    function askPassword(row) {
+        if (confirming) return;
+        localProblem = "";
+        promptTarget = { uuid: row.uuid, name: row.name };
+        Qt.callLater(() => { if (root.prompting) prompt.takeFocus(); });
+    }
+    function closePrompt(uuid) {
+        prompt.clear();
+        promptTarget = null;
+        Qt.callLater(() => root.focusSwitch(uuid));
+    }
+    function passwordAnswered(uuid, reply) {
+        if (answered(reply, "VGS could not connect this profile.") !== "ok") watchUuid = "";
+        closePrompt(uuid);
+    }
+    function focusSwitch(uuid) {
+        const row = list === null ? null : list.rowFor(uuid);
+        if (row !== null) row.switchAction.forceActiveFocus(Qt.TabFocusReason);
     }
     // An opened profile asks for its address; the row shows no reply.
     function readAddress(uuid) {
@@ -117,12 +182,37 @@ FocusScope {
         });
     }
     onProfilesChanged: {
+        followed();
+        // A prompt whose profile left the list, or no longer reads Needs
+        // password, has nothing left to ask.
+        if (promptTarget !== null) {
+            const row = profiles.rows.find(candidate => candidate.uuid === promptTarget.uuid);
+            if (row === undefined || Logic.rowView(row, profiles).key !== "needs-password") closePrompt(promptTarget.uuid);
+        }
         if (removingUuid === "") return;
         // `profileRows` still held the old rows in this handler
         // (tst_vpn_views.qml test_removal_moves_the_focus, 2026-10-20).
         if (!profiles.rows.some(row => row.uuid === removingUuid)) removed();
         // A removal that failed leaves its problem line and the profile.
         else if (profiles.action === null && profiles.problem !== "") { removingUuid = ""; removingIndex = -1; }
+    }
+
+    // The followed connect: seen connecting, then ended. An end at Needs
+    // password opens the prompt.
+    function followed() {
+        if (watchUuid === "") return;
+        const row = profiles.rows.find(candidate => candidate.uuid === watchUuid);
+        if (row === undefined) {
+            watchUuid = "";
+            return;
+        }
+        if (Logic.motion(row, profiles.action) === "connecting") {
+            watchSeen = true;
+            return;
+        }
+        if (!watchSeen) return;
+        watchUuid = "";
+        if (Logic.rowView(row, profiles).key === "needs-password") askPassword(row);
     }
 
     Component {
@@ -158,7 +248,7 @@ FocusScope {
                     profiles: root.profiles
                     removable: root.expanded
                     onDetailsOpened: root.readAddress(modelData.uuid)
-                    onToggleRequested: wanted => root.act(wanted ? "profile-up" : "profile-down", modelData.uuid, "This VPN profile cannot change now.")
+                    onToggleRequested: wanted => root.toggle(modelData, wanted)
                     onRemoveRequested: root.askRemove(modelData)
                 }
             }
@@ -168,7 +258,7 @@ FocusScope {
     Column {
         id: content
         width: root.width
-        enabled: !root.confirming
+        enabled: !root.confirming && !root.prompting
         spacing: Theme.stack.group
         Label {
             objectName: "vpn-problem"
@@ -201,12 +291,13 @@ FocusScope {
             infoTitle: "What VGS can connect"
             info: "Import: WireGuard (.conf) files, and OpenVPN (.ovpn) files, which need NetworkManager's OpenVPN plugin.\n\n"
                 + "Connect and disconnect:\n• every WireGuard profile whose private key NetworkManager holds\n"
-                + "• every VPN profile other than OpenConnect whose NetworkManager plugin is installed and whose passwords NetworkManager holds\n\n"
+                + "• every VPN profile other than OpenConnect whose NetworkManager plugin is installed and whose passwords NetworkManager holds\n"
+                + "• an OpenVPN, L2TP, PPTP, SSTP or Fortinet SSL profile that asks for its password: VGS asks you for it and does not keep it\n\n"
                 + "Details: the type, the server and, while connected, the address.\n\n"
                 + "Remove: any profile, after you confirm. NetworkManager deletes the profile with the passwords and keys saved in it. "
                 + "Key and certificate files that the profile uses stay on this computer.\n\n"
                 + "Not supported: OpenConnect profiles (Cisco AnyConnect, GlobalProtect, Pulse or Ivanti), a VPN that signs in through a web page, "
-                + "a profile that asks for more than one secret or a one-time code when it connects, a smart card or certificate passphrase, "
+                + "a profile that asks for a secret other than its password or a one-time code when it connects, a smart card or certificate passphrase, "
                 + "a profile of any other type that asks for a secret when it connects, and making or editing a profile by hand. "
                 + "These profiles still show with their details and Remove profile. The switch of an OpenConnect profile says why it cannot connect; "
                 + "the switch of another such profile says why after a connect fails."
@@ -289,5 +380,34 @@ FocusScope {
         actions: [{ label: "Cancel", role: "cancel", focused: true }, { label: "Remove", role: "accept", variant: "danger" }]
         onAccepted: root.acceptRemove()
         onRejected: root.cancelRemove()
+    }
+
+    // As the remove confirmation's, over the prompt's host. Over a Pane
+    // the scrim rounds to the Pane's container corner, so it darkens
+    // nothing outside the card in the transparent popup. Both items join
+    // the host in no set order, so the dialog's `z` keeps it above.
+    Scrim {
+        visible: root.prompting
+        parent: root.promptHost
+        radius: root.promptCorner
+        onClicked: prompt.takeFocus()
+    }
+    ConnectPrompt {
+        id: prompt
+        parent: root.promptHost
+        z: 1
+        visible: root.prompting
+        target: root.promptTarget
+        retry: root.promptRow !== null && root.promptRow.failure === "password-tried"
+        anchors.horizontalCenter: parent.horizontalCenter
+        width: Math.min(implicitWidth, parent.width)
+        readonly property real anchorY: {
+            const row = root.prompting && root.promptPane === null && root.list !== null ? root.list.rowFor(root.promptTarget.uuid) : null;
+            return row === null ? parent.height / 2 : row.mapToItem(root, 0, row.height / 2).y;
+        }
+        y: Math.max(0, Math.min(parent.height - height, anchorY - height / 2))
+        onSubmitting: uuid => root.follow(uuid)
+        onSubmitted: (uuid, reply) => root.passwordAnswered(uuid, reply)
+        onCanceled: uuid => root.closePrompt(uuid)
     }
 }

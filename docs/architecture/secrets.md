@@ -13,6 +13,7 @@ An argument sits in every process list, an IPC reply in the shell's log, a statu
 ## Rules
 
 - Do send a scanned personal Wi-Fi password straight to `WifiNetwork.connectWithPsk`. Hidden and enterprise Wi-Fi deliver their password through the plugin helper's stdin. The IPC action carries the network identity alone. `scripts/smoke/rows/network.sh` reads the joined PSK absent from status, configuration and logs.
+- Do send a VPN password from the prompt's masked field through `VpnLogic.submitConnect`, a direct local call, to `nmcli connection up uuid <uuid> passwd-file /dev/stdin`: one escaped `vpn.secrets.password:` line on stdin, then stdin closed, since nmcli reads the file to its end before it connects. No IPC action carries it; the uuid alone crosses IPC. `scripts/test-vpn-logic.js` and `scripts/smoke/rows/vpn.sh` pin it, the second reading the planted password absent from status, configuration, logs and every recorded argv.
 - Never put a shared profile's password in argv or a file; feed `qrencode` on stdin. `scripts/test-network-share.py` pins it.
 - Never log, publish or answer a lock or polkit password over IPC. `scripts/test-lock-model.js` and `scripts/test-polkit-model.js` pin it.
 - Never put a secret on an argv, in a log line, a reply or a status value; it reaches `secret-tool` on stdin alone. `scripts/test-plugin-status.js` pins it with a copy that puts it on the argv.
