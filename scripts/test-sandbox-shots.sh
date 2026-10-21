@@ -28,6 +28,83 @@ failures=0
 ok() { printf '  ok    %s\n' "$*"; }
 fail() { failures=$((failures + 1)); printf '  FAIL  %s\n' "$*"; }
 
+# The Tailscale scene must refuse a host command before starting its shell.
+# Run its actual guard and resolver against files no case executes.
+if python3 - "$repo/scripts/sandbox-shots.sh" "$repo/scripts/smoke/harness.sh" "$tmp" "$BASH" <<'PYTAILSCALE'
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+
+scene, harness, scratch, bash = sys.argv[1:]
+source = Path(scene).read_text()
+start = '  if [[ ${shell_start_path%%:*} != "$shim"'
+assert source.count(start) == 1
+offset = source.index(start)
+guard = source[offset:source.index("  fi\n", offset) + len("  fi\n")]
+assert guard.count("    exit 1\n") == 1
+assert "start_shell" not in guard
+source = Path(harness).read_text()
+assert source.count("shell_resolves() {") == 1
+resolver = next(line for line in source.splitlines() if line.startswith("shell_resolves() {"))
+root = Path(scratch) / "tailscale-isolation"
+root.mkdir()
+wrapper = 'set -euo pipefail\nshim=$1 sandbox=$2 shell_start_path=$3\n' + resolver + "\n"
+real = root / "guard.sh"
+real.write_text(wrapper + guard)
+mutant = root / "guard-mutant.sh"
+changed = guard.replace("    exit 1\n", "    : # planted missing refusal\n")
+assert changed != guard
+mutant.write_text(wrapper + changed)
+
+for case, expected in (
+    ("stand-in-first", 0), ("host-first", 1), ("absent-stand-in", 1),
+    ("symlink-stand-in", 1), ("leaked-host-path", 1),
+):
+    fixture = root / case
+    shim, host, sandbox = fixture / "shim", fixture / "fixture-host", fixture / "sandbox"
+    for directory in (shim, host, sandbox / "host-path"):
+        directory.mkdir(parents=True)
+    for program in (shim / "tailscale", host / "tailscale"):
+        program.write_text("#!/bin/sh\nexit 99\n")
+        program.chmod(0o755)
+    path = f"{shim}:{host}"
+    if case == "host-first":
+        path = f"{host}:{shim}"
+    elif case == "absent-stand-in":
+        (shim / "tailscale").unlink()
+    elif case == "symlink-stand-in":
+        (shim / "tailscale").unlink()
+        (shim / "tailscale").symlink_to(host / "tailscale")
+    elif case == "leaked-host-path":
+        shutil.copyfile(host / "tailscale", sandbox / "host-path/tailscale")
+    command = [
+        "/usr/bin/env", "-u", "WAYLAND_DISPLAY", "-u", "DISPLAY",
+        "-u", "HYPRLAND_INSTANCE_SIGNATURE", f"PATH={shim}:{host}",
+        bash, str(real), str(shim), str(sandbox), path,
+    ]
+    def run():
+        return subprocess.run(command, env={"LC_ALL": "C"}, capture_output=True, text=True, timeout=5)
+    def accepted(reading):
+        return reading.returncode == expected
+    result = run()
+    assert accepted(result), (case, result.returncode, result.stderr)
+    refusal = "sandbox-shots: refused: tailscale-section=stand-in-not-first"
+    assert result.stderr.strip() == (refusal if expected else ""), (case, result.stderr)
+    print(f"tailscale-isolation: case={case} expected={expected} actual={result.returncode}")
+    if case == "host-first":
+        command[command.index(str(real))] = str(mutant)
+        planted = run()
+        assert planted.returncode == 0 and planted.stderr.strip() == refusal
+        assert not accepted(planted), "the removed refusal passed the host-first case"
+        print("tailscale-isolation: control=removed-refusal rejected-by=host-first-status")
+PYTAILSCALE
+then
+  ok "Tailscale pre-start isolation accepts its stand-in, refuses unsafe paths and rejects the missing-refusal control"
+else
+  fail "Tailscale pre-start isolation cases or missing-refusal control failed"
+fi
+
 # These records come from the scene desktop before a modal scrim opens.
 # Run the shot script's pair check itself without starting its sandbox.
 mkdir -p "$tmp/desktop-before" "$tmp/desktop-after"

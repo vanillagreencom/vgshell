@@ -13,36 +13,18 @@ import "TailscaleLogic.js" as Logic
 // takes no change, its controls say why (`lockReason`), and the connection
 // switch's unlock mark runs the same step.
 //
-// Rows, top to bottom: the account, a disclosure whose list switches
-// accounts and ends with Add account and Sign out; this device, whose
-// Copy puts its address on the clipboard through CopyText; the network
-// devices, a disclosure of their addresses; and the Exit node row, which
-// asks the host for the exit node chooser (`exitNodesRequested`). The
-// flyout opens with the disclosures closed, the account's open while
-// signed out, and the pane with both open (design VGS-1923 § 4, "Flyout
-// versus section"). While the device waits for approval the flyout shows
-// only the approval step, and the pane keeps the account and this device,
-// since the CLI still switches, signs in and signs out there. Sign out
-// asks first, in a Dialog over a Scrim drawn over `promptPane`, the
-// flyout's own Pane, so the title row and the footer take no input while
-// it waits; the shared ModalDialog is a layer surface, and Hyprland ends
-// the flyout's popup grab when one maps (NetworkBody.qml header). With no
-// `promptPane`, as in the System pane, it draws over the body.
-//
-// Tab moves from the connection switch through the account row, its list,
-// Add account and Sign out while it is expanded, this device and its
-// Copy, the network devices row and, while it is expanded, its list and
-// each device's Copy, and the Exit node row. In the pane the Exit node
-// section follows the network devices: the search field, or Back in a
-// country's view, then each list the chooser shows; then Check every. Up
-// and Down move inside a list, and Enter chooses. Nothing opens with the
-// keyboard on Sign out.
+// The flyout keeps its account and network device lists in disclosures;
+// the pane uses the same content in open sections. Its device fields copy
+// through the same CopyText as the lists. The pane expands exit countries
+// in place and ends with Updates. Each list is one Tab stop; arrows move
+// inside it and Shift+F10 opens a device's menu. Sign out asks first and
+// opens with Cancel focused, in the flyout's Pane or beside the pane's
+// account actions inside its scrolling body.
 FocusScope {
     id: root
 
     property var shell: null
-    // The System pane's rows: the state line, the connection switch, the
-    // exit node chooser inline and the poll setting.
+    // The System pane uses open sections and an inline exit node chooser.
     property bool expanded: false
     // The Pane the sign-out confirmation covers, null for the body, and
     // the corner its scrim follows: the body draws none.
@@ -185,7 +167,7 @@ FocusScope {
     // where the pane opens.
     onConnectedChanged: {
         if (connected || !expanded) return;
-        const parts = [inlineChooser, inlineSearch, inlineBack];
+        const parts = [inlineChooser, inlineSearch];
         const held = parts.some(part => part.activeFocus);
         inlineChooser.country = "";
         inlineSearch.text = "";
@@ -204,17 +186,117 @@ FocusScope {
             request("logout", "");
             root.forceActiveFocus();
         } else {
-            signOutAction.forceActiveFocus(Qt.TabFocusReason);
+            const account = root.expanded ? paneAccounts.item : flyoutAccounts.item;
+            if (account !== null) account.signOutControl.forceActiveFocus(Qt.TabFocusReason);
         }
     }
 
     CopyText { id: copier }
+
+    Component {
+        id: accountContents
+        Column {
+            readonly property alias signOutControl: signOutAction
+            width: parent.width
+            spacing: Theme.stack.group
+            DeviceList {
+                objectName: "tailscale-accounts"
+                width: parent.width
+                visible: rows.length > 0
+                disabledReason: root.lockReason
+                rows: Logic.accountRows(root.tailscale.accounts)
+                onActed: key => { if (!root.tailscale.accounts.some(row => row.id === key && row.current)) root.request("switch", key); }
+            }
+            RowActions {
+                RowAction {
+                    objectName: "tailscale-add-account"
+                    visible: root.tailscale.login === "idle"
+                    disabledReason: root.lockReason
+                    text: "Add account"
+                    onClicked: root.request("login", "")
+                }
+                RowAction {
+                    id: signOutAction
+                    objectName: "tailscale-sign-out"
+                    visible: !root.signedOut
+                    disabledReason: root.lockReason
+                    text: "Sign out"
+                    tone: "danger"
+                    markName: "log-out"
+                    onClicked: root.askSignOut()
+                }
+            }
+        }
+    }
+    Component {
+        id: networkContents
+        Column {
+            width: parent.width
+            spacing: Theme.stack.group
+            DeviceList {
+                id: deviceList
+                objectName: "tailscale-devices"
+                width: parent.width
+                rows: Logic.deviceRows(root.devices)
+                actionOf: row => row.address === "" ? null : ({ text: copier.confirming && root.copiedKey === row.key ? "Copied" : "Copy" })
+                menuOf: row => root.expanded && root.devices.rows.some(peer => peer.id === row.key && peer.dnsName !== "")
+                    ? [{ key: "copy-dns", text: "Copy DNS name", iconName: "copy" }] : []
+                onChose: (key, entry) => {
+                    const peer = root.devices.rows.find(row => row.id === key);
+                    if (entry === "copy-dns" && peer !== undefined) root.copy(key, peer.dnsName);
+                }
+                onActed: key => {
+                    const row = deviceList.rows.find(entry => entry.key === key);
+                    if (row !== undefined && row.address !== "") root.copy(key, row.address);
+                }
+            }
+            Row {
+                visible: root.devices.count > root.devices.rows.length
+                spacing: Theme.stack.inline
+
+                Label {
+                    anchors.verticalCenter: parent.verticalCenter
+                    role: "hint"
+                    text: "Showing " + root.devices.rows.length + " of " + root.devices.count + " devices."
+                }
+                InfoButton {
+                    anchors.verticalCenter: parent.verticalCenter
+                    title: "Network devices"
+                    info: "The list shows the first " + root.devices.rows.length + " devices, so it opens quickly. The admin console on the Tailscale website lists every device."
+                }
+            }
+        }
+    }
 
     Column {
         id: content
         width: root.width
         spacing: Theme.stack.group
 
+        Field {
+            id: connectField
+            objectName: "tailscale-connection-section"
+            width: parent.width
+            visible: root.expanded && (root.switchable || root.tailscale.state === "service-off")
+            label: "Tailscale"
+            inline: true
+
+            Switch {
+                id: toggle
+                objectName: "tailscale-toggle"
+                size: "sm"
+                Accessible.name: "Tailscale"
+                checked: root.tailscale.state === "running" || root.tailscale.state === "starting"
+                enabled: !root.busy
+                disabledReason: root.lockReason
+                unlock: root.unlock
+                onToggled: {
+                    const wanted = checked;
+                    checked = Qt.binding(() => root.tailscale.state === "running" || root.tailscale.state === "starting");
+                    root.request(wanted ? "connect" : "disconnect", "");
+                }
+            }
+        }
         Label {
             objectName: "tailscale-state"
             width: parent.width
@@ -252,29 +334,7 @@ FocusScope {
             text: root.setupAction === null ? "" : root.setupAction.label
             onClicked: root.runSetup()
         }
-        Field {
-            id: connectField
-            width: parent.width
-            visible: root.expanded && root.switchable
-            label: "Tailscale"
-            inline: true
 
-            Switch {
-                id: toggle
-                objectName: "tailscale-toggle"
-                size: "sm"
-                Accessible.name: "Tailscale"
-                checked: root.tailscale.state !== "stopped"
-                enabled: !root.busy
-                disabledReason: root.lockReason
-                unlock: root.unlock
-                onToggled: {
-                    const wanted = checked;
-                    checked = Qt.binding(() => root.tailscale.state !== "stopped");
-                    root.request(wanted ? "connect" : "disconnect", "");
-                }
-            }
-        }
         Label {
             objectName: "tailscale-state-hint"
             width: parent.width
@@ -321,19 +381,23 @@ FocusScope {
             onClicked: root.shell.ipc.call("refresh", "")
         }
 
-        // The rows and their one cursor, beside the column that holds
-        // them: a positioner would lay the plate out as a row.
+        EmptyState {
+            objectName: "tailscale-install"
+            width: parent.width
+            visible: root.expanded && root.tailscale.state === "missing"
+            iconName: "route-off"
+            text: "Tailscale is not installed."
+            actionText: "Install Tailscale"
+            onActivated: root.shell.requirements.offer(["tailscale"])
+        }
         Item {
             width: parent.width
             height: rowColumn.implicitHeight
-            visible: root.accountShown || root.deviceShown
-
+            visible: !root.expanded && (root.accountShown || root.deviceShown)
             ListCursor { id: rowCursor }
-
             Column {
                 id: rowColumn
                 width: parent.width
-
                 Disclosure {
                     id: accountRow
                     objectName: "tailscale-account"
@@ -344,33 +408,11 @@ FocusScope {
                     text: root.signedOut ? "Accounts" : root.tailscale.account !== "" ? root.tailscale.account
                         : root.currentAccount !== null ? root.currentAccount.account : "Account"
                     secondary: root.signedOut ? "Not signed in" : root.tailscale.tailnet
-
-                    DeviceList {
-                        objectName: "tailscale-accounts"
+                    Loader {
+                        id: flyoutAccounts
                         width: parent.width
-                        visible: rows.length > 0
-                        disabledReason: root.lockReason
-                        rows: Logic.accountRows(root.tailscale.accounts)
-                        onActed: key => { if (!root.tailscale.accounts.some(row => row.id === key && row.current)) root.request("switch", key); }
-                    }
-                    RowActions {
-                        RowAction {
-                            objectName: "tailscale-add-account"
-                            visible: root.tailscale.login === "idle"
-                            disabledReason: root.lockReason
-                            text: "Add account"
-                            onClicked: root.request("login", "")
-                        }
-                        RowAction {
-                            id: signOutAction
-                            objectName: "tailscale-sign-out"
-                            visible: !root.signedOut
-                            disabledReason: root.lockReason
-                            text: "Sign out"
-                            tone: "danger"
-                            markName: "log-out"
-                            onClicked: root.askSignOut()
-                        }
+                        active: !root.expanded
+                        sourceComponent: accountContents
                     }
                 }
                 DeviceList {
@@ -391,32 +433,10 @@ FocusScope {
                     iconName: "network"
                     text: "Network devices"
                     secondary: Logic.devicesLine(root.devices)
-
-                    DeviceList {
-                        id: deviceList
-                        objectName: "tailscale-devices"
+                    Loader {
                         width: parent.width
-                        rows: Logic.deviceRows(root.devices)
-                        actionOf: row => row.address === "" ? null : ({ text: copier.confirming && root.copiedKey === row.key ? "Copied" : "Copy" })
-                        onActed: key => {
-                            const row = deviceList.rows.find(entry => entry.key === key);
-                            if (row !== undefined && row.address !== "") root.copy(key, row.address);
-                        }
-                    }
-                    Row {
-                        visible: root.devices.count > root.devices.rows.length
-                        spacing: Theme.stack.inline
-
-                        Label {
-                            anchors.verticalCenter: parent.verticalCenter
-                            role: "hint"
-                            text: "Showing " + root.devices.rows.length + " of " + root.devices.count + " devices."
-                        }
-                        InfoButton {
-                            anchors.verticalCenter: parent.verticalCenter
-                            title: "Network devices"
-                            info: "The list shows the first " + root.devices.rows.length + " devices, so it opens quickly. The admin console on the Tailscale website lists every device."
-                        }
+                        active: !root.expanded
+                        sourceComponent: networkContents
                     }
                 }
                 // focus-indicator: ListItem draws its FocusRing for the row
@@ -434,54 +454,99 @@ FocusScope {
                     Keys.onReturnPressed: root.exitNodesRequested()
                     Keys.onEnterPressed: root.exitNodesRequested()
                     Keys.onSpacePressed: root.exitNodesRequested()
-                    trailing: [
-                        Icon {
-                            anchors.verticalCenter: parent.verticalCenter
-                            name: "chevron-right"
-                            size: Theme.icon.size.md
-                            color: Theme.color.textMuted
-                        }
-                    ]
+                    trailing: [Icon { anchors.verticalCenter: parent.verticalCenter; name: "chevron-right"; size: Theme.icon.size.md; color: Theme.color.textMuted }]
                 }
             }
         }
-
-        // The System pane holds the chooser inline, its country view under
-        // a Back row in place of the search field.
         Section {
-            width: parent.width
+            objectName: "tailscale-account-section"
+            visible: root.expanded && root.accountShown
+            title: "Account"
+            rowSpacing: Theme.stack.group
+            Row {
+                visible: !root.signedOut
+                spacing: Theme.stack.inline
+                AvatarGroup {
+                    anchors.verticalCenter: parent.verticalCenter
+                    people: [{ initials: root.tailscale.account.split("@").map(part => part.charAt(0)).join("").toUpperCase() }]
+                }
+                Column {
+                    anchors.verticalCenter: parent.verticalCenter
+                    Label { text: root.tailscale.account; role: "body" }
+                    Label { text: root.tailscale.tailnet; role: "hint"; color: Theme.color.textMuted }
+                }
+            }
+            Loader {
+                id: paneAccounts
+                width: parent.width
+                active: root.expanded
+                sourceComponent: accountContents
+            }
+        }
+        Section {
+            objectName: "tailscale-device-section"
+            visible: root.expanded && root.deviceShown
+            title: "This device"
+            Field {
+                width: parent.width
+                label: "Name"
+                inline: true
+                Label { text: root.tailscale.device.name; role: "body" }
+            }
+            Field {
+                width: parent.width
+                label: "Tailscale address"
+                inline: true
+                Row {
+                    spacing: Theme.stack.inline
+                    Label { anchors.verticalCenter: parent.verticalCenter; text: root.tailscale.device.address; role: "body" }
+                    RowAction {
+                        objectName: "tailscale-self-address"
+                        text: copier.confirming && root.copiedKey === "self" ? "Copied" : "Copy"
+                        onClicked: root.copy("self", root.tailscale.device.address)
+                    }
+                }
+            }
+            Field {
+                width: parent.width
+                label: "DNS name"
+                inline: true
+                visible: root.tailscale.device.dnsName !== ""
+                Row {
+                    spacing: Theme.stack.inline
+                    Label { anchors.verticalCenter: parent.verticalCenter; text: root.tailscale.device.dnsName; role: "body" }
+                    RowAction {
+                        objectName: "tailscale-self-dns"
+                        text: copier.confirming && root.copiedKey === "self-dns" ? "Copied" : "Copy"
+                        onClicked: root.copy("self-dns", root.tailscale.device.dnsName)
+                    }
+                }
+            }
+            Field {
+                width: parent.width
+                label: "Network"
+                inline: true
+                Label { text: root.tailscale.tailnet; role: "body" }
+            }
+        }
+        Section {
+            objectName: "tailscale-exit-section"
             visible: root.expanded && root.connected
             title: "Exit node"
             rowSpacing: Theme.stack.group
-
-            Row {
-                visible: inlineChooser.country !== ""
-                spacing: Theme.control.gap
-
-                IconButton {
-                    id: inlineBack
-                    anchors.verticalCenter: parent.verticalCenter
-                    iconName: "chevron-left"
-                    label: "Back"
-                    onClicked: inlineChooser.closeCountry()
-                }
-                Label {
-                    anchors.verticalCenter: parent.verticalCenter
-                    role: "h3"
-                    text: inlineChooser.countryName
-                }
-            }
             TextField {
                 id: inlineSearch
+                objectName: "tailscale-inline-search"
                 width: parent.width
-                visible: inlineChooser.country === ""
                 leadingIcon: "search"
                 placeholderText: "Search countries, cities and devices"
                 Keys.onDownPressed: inlineChooser.focusFirst()
             }
             ExitNodes {
                 id: inlineChooser
+                objectName: "tailscale-exit-nodes"
                 width: parent.width
+                inlineCountries: true
                 tailscale: root.tailscale
                 exitNodes: root.exitNodes
                 searchField: inlineSearch
@@ -490,20 +555,52 @@ FocusScope {
                 onChose: id => root.chooseExit(id)
             }
         }
-        Field {
-            width: parent.width
+        Section {
+            objectName: "tailscale-network-section"
+            visible: root.expanded && root.connected
+            title: "Network devices"
+            Loader {
+                width: parent.width
+                active: root.expanded
+                sourceComponent: networkContents
+            }
+        }
+        Section {
+            objectName: "tailscale-admin-section"
             visible: root.expanded && root.tailscale.state !== "missing"
-            label: "Check every"
-            hint: "How often VGS reads Tailscale while this section is closed."
-            inline: true
+            title: "Admin console"
+            rowSpacing: Theme.stack.group
+            Label {
+                width: parent.width
+                role: "body"
+                text: "Manage users, devices and access" + (root.tailscale.tailnet === "" ? "" : " for " + root.tailscale.tailnet) + " on the Tailscale website."
+                wrapMode: Text.Wrap
+            }
+            RowAction {
+                objectName: "tailscale-admin-console"
+                text: "Open admin console"
+                onClicked: root.request("admin-console", "")
+            }
+        }
+        Section {
+            objectName: "tailscale-updates-section"
+            visible: root.expanded && root.tailscale.state !== "missing"
+            title: "Updates"
+            Field {
+                width: parent.width
+                visible: root.expanded && root.tailscale.state !== "missing"
+                label: "Check every"
+                hint: "How often VGS reads Tailscale while its flyout and this section are closed"
+                inline: true
 
-            SegmentedControl {
-                objectName: "tailscale-poll"
-                model: root.pollChoices.map(seconds => seconds + " s")
-                currentIndex: root.shell === null ? 1 : root.pollChoices.indexOf(root.shell.settings.pollSeconds)
-                onActivated: index => {
-                    const reply = root.shell.configure.set("pollSeconds", root.pollChoices[index]);
-                    root.localProblem = reply === "ok" ? "" : "VGS could not save this setting.";
+                SegmentedControl {
+                    objectName: "tailscale-poll"
+                    model: root.pollChoices.map(seconds => seconds + " s")
+                    currentIndex: root.shell === null ? 1 : root.pollChoices.indexOf(root.shell.settings.pollSeconds)
+                    onActivated: index => {
+                        const reply = root.shell.configure.set("pollSeconds", root.pollChoices[index]);
+                        root.localProblem = reply === "ok" ? "" : "VGS could not save this setting.";
+                    }
                 }
             }
         }
@@ -521,7 +618,15 @@ FocusScope {
         parent: root.promptPane === null ? root : root.promptPane
         z: 1
         visible: root.prompting
-        anchors.centerIn: parent
+        anchors.horizontalCenter: parent.horizontalCenter
+        // The pane body scrolls and can be much taller than its window.
+        // Keep the question beside Sign out, whose keyboard focus already
+        // placed it in view, rather than at the body's offscreen centre.
+        readonly property real questionY: {
+            const account = root.expanded ? paneAccounts.item : null;
+            return account === null ? parent.height / 2 : account.signOutControl.mapToItem(root, 0, account.signOutControl.height / 2).y;
+        }
+        y: Math.max(0, Math.min(parent.height - height, questionY - height / 2))
         width: Math.min(implicitWidth, parent.width - 2 * Theme.dialog.margin)
         title: root.signOut.title
         message: root.signOut.message

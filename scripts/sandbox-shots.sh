@@ -411,7 +411,7 @@ while [[ $# -gt 0 ]]; do
     --title-inventory) title_inventory=true; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
 
-    link-icons|sysmon|tui-edges|gallery|settings|info-dialog|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|voice-keys|jarvis-console|jarvis-audit|jarvis-setup|jarvis-home-repair|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes|jarvis-restart|plugin-messages|page-links|tooltip-link|traffic|ai-usage|ai-usage-states|devtools|system|appearance|sounds|network|tailscale|tailscale-starting|tailscale-locked|tailscale-flyout|vpn|vpn-locked|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|googledrive|tooltips|screensaver|theme-previews|setup-tab|updates|clone-voice|displays-override) scenes+=("$1"); shift ;;
+    link-icons|sysmon|tui-edges|gallery|settings|info-dialog|wide-settings|focus|focus-open|flyout-titles|plugin-pages|manager|launcher|notifications|bar|panels|capture|keyhints|clipboard|voice|voice-setup|voice-elsewhere|dictation-setup|voice-keys|jarvis-console|jarvis-audit|jarvis-setup|jarvis-home-repair|elevenlabs-voices|jarvis-fleet|outdated|jarvis-causes|jarvis-restart|plugin-messages|page-links|tooltip-link|traffic|ai-usage|ai-usage-states|devtools|system|appearance|sounds|network|tailscale|tailscale-starting|tailscale-locked|tailscale-flyout|tailscale-section|vpn|vpn-locked|bluetooth|printers|power|dialog|by-hand|reset|lock|polkit|greeter|narrow|theme-browser|wallpaper-browser|automations|googledrive|tooltips|screensaver|theme-previews|setup-tab|updates|clone-voice|displays-override) scenes+=("$1"); shift ;;
     *) printf 'sandbox-shots: refused: argument=%s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -593,7 +593,7 @@ scene_ships() {
     sounds) ships_plugin vgs.system vgs.sounds vgs.notifications vgs.voice vgs.jarvis ;;
     network) ships_plugin vgs.system vgs.network ;;
     tailscale) ships_plugin vgs.system vgs.tailscale ;;
-    tailscale-starting|tailscale-locked) ships_plugin vgs.tailscale ;;
+    tailscale-starting|tailscale-locked|tailscale-section) ships_plugin vgs.tailscale ;;
     tailscale-flyout) ships_plugin vgs.tailscale && [[ -f $tree/shell/plugins/vgs.tailscale/ExitNodes.qml ]] ;;
     vpn) ships_plugin vgs.system vgs.vpn ;;
     vpn-locked) ships_plugin vgs.vpn && ! ships_plugin vgs.tailscale ;;
@@ -664,6 +664,12 @@ shell_output_scale="$scale"
 # bridge (harness.sh's shell_hidden_commands); a scene that dictates stands
 # the smoke's stand-in in the shell's own directory.
 shell_hidden_commands=(voxtype voxtype-audio-bridge)
+# The Tailscale section captures its missing-tool setup. Removing its
+# stand-in must leave no host command for the service or requirement probe.
+if [[ " ${scenes[*]} " == *" tailscale-section "* ]]; then
+  shell_hidden_commands+=(tailscale)
+  harness_scene_only=true
+fi
 # The setup steps' shots draw each install button, which a Settings page
 # offers only while its command is absent; on a host that has vsys, mise or
 # the browser-policy writer they would draw none. The shell finds those
@@ -694,6 +700,16 @@ if [[ " ${scenes[*]} " == *" launcher "* || " ${scenes[*]} " == *" narrow "* ]];
   harness_scene_only=true
 fi
 source "$checkout/scripts/smoke/harness.sh"
+if [[ " ${scenes[*]} " == *" tailscale-section "* ]]; then
+  if [[ ${shell_start_path%%:*} != "$shim" || ! -f $shim/tailscale || ! -x $shim/tailscale || -L $shim/tailscale || $(shell_resolves tailscale) != "$shim/tailscale" || -e $sandbox/host-path/tailscale ]]; then
+    printf 'sandbox-shots: refused: tailscale-section=stand-in-not-first\n' >&2
+    exit 1
+  fi
+  ok "Tailscale section isolation: its stand-in is first on PATH and the host command is hidden before shell startup"
+  if [[ $launcher_fixture != true ]]; then
+    start_shell "$repo" "$sandbox/qs.log" || exit 1
+  fi
+fi
 if [[ $launcher_fixture == true ]]; then
   # DesktopEntries otherwise reads /usr/share/applications. Plant before
   # its first load, with no host applications in the capture's data paths.
@@ -7017,6 +7033,130 @@ EOF
   device_reply_clear tailscale
   device_reply_clear systemctl
   tree_rescan "a scan finds no Tailscale after its flyout shots"
+}
+# The Tailscale System Settings section, in the actual holder window:
+# the v2 design's top, inline exit countries, sign-out question, peer DNS
+# menu and end, signed out and service off, plus its missing-tool setup.
+# Each capture records the published state, visible sections, focus and
+# window scroll position in tailscale-section-states.tsv.
+tailscale_section_named() { ipc smoke readMatchingDescendant window vgs.tailscale "$1" objectName "$2" "$3"; }
+tailscale_section_take() { # MODE NAME CAPTION [posed]
+  local values sections focus scroll
+  values="$(ipc smoke statusValues vgs.tailscale)" || return 1
+  sections="$(ipc smoke itemValues window vgs.tailscale Section 'title,visible')" || return 1
+  focus="$(ipc smoke activeFocusItem window vgs.tailscale)" || return 1
+  scroll="$(ipc smoke readDescendant window vgs.system ScrollArea contentY)" || return 1
+  printf '%s\t%s\t%s\tstate=%s sections=%s focus=%s scroll=%s\n' "$1" "tailscale-section-$1-$2.png" "$3" "$values" "$sections" "$focus" "$scroll" >>"$SHOT_DIR/tailscale-section-states.tsv"
+  if [[ ${4:-} == posed ]]; then take_posed "tailscale-section-$1-$2"; else take "tailscale-section-$1-$2"; fi
+}
+tailscale_section_top() { ipc smoke scrollTo window vgs.system 0; }
+tailscale_section_reveal() { # TYPE TEXT
+  ipc smoke revealText window vgs.system "$1" "$2" | py_reply 'import sys; value=sys.stdin.read().strip(); print("shown" if value.replace(".", "", 1).isdigit() else value)'
+}
+scene_tailscale-section() { # MODE
+  local mode="$1" dir="$sandbox/tailscale-section-shot" link="$devices_system_root/usr/bin/tailscale"
+  devices_ready tailscale-section-shot || return 0
+  mkdir -p -- "$dir"
+  rm -f -- "${dir:?}/service-off"
+  {
+    printf '#!/usr/bin/env bash\nsaved=%q text=%q marker=%q\n' "$(sentinel_saved "$shim/tailscale")" "$(tailscale_fixture service-off.txt)" "$dir/service-off"
+    cat <<'TSSECTION'
+if [[ "$*" == "status --json" && -e $marker ]]; then
+  "$saved" "$@" >/dev/null 2>&1 || true
+  cat -- "$text" >&2
+  exit 1
+fi
+exec "$saved" "$@"
+TSSECTION
+  } | sentinel_stand_over "$shim/tailscale"
+  device_reply tailscale 0 "$(<"$(tailscale_fixture sheet.json)")" status --json
+  device_reply tailscale 0 "$(<"$(tailscale_fixture accounts.json)")" switch --list --json
+  device_reply tailscale 0 "$(<"$(tailscale_fixture suggest.txt)")" exit-node suggest
+  device_reply tailscale 0 "$(id -un)" get operator
+  device_reply systemctl 0 "" is-active --quiet tailscaled.service
+  device_reply systemctl 0 loaded show --property=LoadState --value tailscaled.service
+  expect "the section shots resolve system steps in the fakes' tree" prefixed devices_system_tree
+  ln -sfn -- "$shim/tailscale" "$link"
+  expect "Tailscale enables for its section shots" ok ipc shell setPluginEnabled vgs.tailscale true
+  expect "System enables for the Tailscale section shots" ok ipc shell setPluginEnabled vgs.system true
+  tree_rescan "the section shots read the design tailnet"
+  expect_poll "the section shots read the running tailnet" '["running", "Connected through Stockholm, Sweden"]' tailscale_flyout_published
+  expect "the section window summons" ok ipc shell summon window vgs.system '{"pane":"vgs.tailscale"}'
+  expect_poll "the section mounts the design tailnet" '["running", 2]' tailscale_shot_read
+  tailscale_section_take "$mode" top "System Settings › Tailscale · Top"
+
+  park_pointer
+  click_item "window:System Settings" window vgs.tailscale RowAction "Sign out" || fail "the section's Sign out click failed"
+  expect_poll "the section sign-out question opens" true tailscale_section_named Dialog tailscale-sign-out-prompt visible
+  expect_poll "the question opens on Cancel" '["Button","Cancel"]' ipc smoke activeFocusItem window vgs.tailscale
+  park_pointer
+  tailscale_section_take "$mode" sign-out-confirm "System Settings › Tailscale · Sign-out confirmation" posed
+  type_keys -k Return || fail "Cancel on the section question failed"
+  expect_poll "Cancel closes the section question" false tailscale_section_named Dialog tailscale-sign-out-prompt visible
+
+  local exit_y
+  exit_y="$(ipc smoke readMatchingDescendant window vgs.tailscale Section title "Exit node" y | py_reply 'import json,sys; print(round(json.load(sys.stdin)))')" || { fail "the section exit-node position is unreadable"; return; }
+  ipc smoke scrollTo window vgs.system "$exit_y" >/dev/null
+  tailscale_section_take "$mode" exit-node "System Settings › Tailscale · Exit node overview"
+  if tree_has shell/plugins/vgs.tailscale/ExitNodes.qml 'property bool inlineCountries'; then
+    expect "Sweden scrolls into the section" shown tailscale_section_reveal ListItem Sweden
+    click_item "window:System Settings" window vgs.tailscale ListItem Sweden || fail "Sweden's exit Disclosure click failed"
+  else
+    expect "Sweden scrolls into the earlier section" shown tailscale_section_reveal DeviceRow Sweden
+    click_item "window:System Settings" window vgs.tailscale DeviceRow Sweden || fail "Sweden's exit country click failed"
+  fi
+  tailscale_section_take "$mode" country-cities "System Settings › Tailscale · Sweden expanded"
+  if ! tree_has shell/plugins/vgs.tailscale/ExitNodes.qml 'property bool inlineCountries'; then
+    expect "the earlier section reveals its country Back control" shown tailscale_section_reveal IconButton Back
+    click_in "window:System Settings" window vgs.tailscale IconButton Back || fail "the earlier section's Back click failed"
+  fi
+  expect "the section scrolls to its last setting" scrolled tailscale_shot_end
+  tailscale_section_take "$mode" end "System Settings › Tailscale · End"
+  if tree_has shell/plugins/vgs.tailscale/TailscaleBody.qml 'Copy DNS name'; then
+    expect "gateway scrolls into the section" shown tailscale_section_reveal DeviceRow gateway
+    click_item "window:System Settings" window vgs.tailscale DeviceRow gateway || fail "the section's gateway row click failed"
+    expect "the menu shot keeps Updates in view" scrolled tailscale_shot_end
+    type_keys -M shift -k F10 -m shift || fail "the section's gateway menu key failed"
+    park_pointer
+    tailscale_section_take "$mode" peer-menu "System Settings › Tailscale · Gateway Copy DNS name menu" posed
+    type_keys -k Escape || fail "closing the gateway menu failed"
+  fi
+
+  device_reply tailscale 0 "$(<"$(tailscale_fixture logged-out.json)")" status --json
+  device_reply tailscale 0 "$(<"$(tailscale_fixture accounts-signed-out.json)")" switch --list --json
+  expect "the section reads signed out" ok ipc vgs.tailscale invoke refresh ""
+  expect_poll "the section publishes signed out" '["signed-out", "Signed out"]' tailscale_flyout_published
+  tailscale_section_top >/dev/null
+  tailscale_section_take "$mode" signed-out "System Settings › Tailscale · Signed out"
+
+  : >"$dir/service-off"
+  device_reply systemctl 3 "" is-active --quiet tailscaled.service
+  tree_rescan "the section shots probe the stopped service"
+  expect "the section reads service off" ok ipc vgs.tailscale invoke refresh ""
+  expect_poll "the section publishes service off" '["service-off", "The Tailscale service is off."]' tailscale_flyout_published
+  expect_poll "the section offers Enable" enable tailscale_flyout_setup
+  tailscale_section_top >/dev/null
+  tailscale_section_take "$mode" service-off "System Settings › Tailscale · Service off"
+
+  rm -f -- "${dir:?}/service-off" "${link:?}"
+  sentinel_restore "$shim/tailscale"
+  mv -- "$shim/tailscale" "$dir/hidden-tailscale"
+  if [[ $(shell_resolves tailscale) != none ]]; then
+    mv -- "$dir/hidden-tailscale" "$shim/tailscale"
+    fail "the missing Tailscale scene found a command outside its stand-in"
+    return 1
+  fi
+  ok "the missing Tailscale scene resolves no host command"
+  tree_rescan "the section shots find Tailscale missing"
+  expect_poll "the section publishes missing" '["missing", "Tailscale is not installed."]' tailscale_flyout_published
+  tailscale_section_top >/dev/null
+  tailscale_section_take "$mode" missing "System Settings › Tailscale · Not installed"
+  mv -- "$dir/hidden-tailscale" "$shim/tailscale"
+  expect "System closes after the section shots" ok ipc shell hide window vgs.system
+  expect "System disables after the section shots" ok ipc shell setPluginEnabled vgs.system false
+  tailscale_shot_finish
+  device_reply_clear systemctl
+  tree_rescan "the section shots release their system-step fixtures"
 }
 # VPN reads the stand-in profiles of scripts/fixtures/vpn/ through the nmcli
 # stand-in: Home tunnel connected with its server and address, Office VPN,

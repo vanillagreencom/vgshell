@@ -56,6 +56,15 @@
 # held one is killed 10 s after its start while an ask arrives every
 # second. The poll runs every 3 s while Tailscale is starting, with no view
 # open, and at the setting's 30 s once it runs.
+# The System Settings section reads Connection, Account, This device,
+# Exit node, Network devices, Admin console and Updates in that order.
+# Keys reach its accounts, Add account, Sign out and confirmation, both
+# self Copy actions, every country Disclosure and its cities, every peer
+# and its Copy DNS name menu, the admin console and Check every. Each
+# address and DNS copy reads the nested clipboard. Missing Tailscale
+# offers its requirement and hides Updates; signed out and service off
+# keep Updates. The control copy writes a wrong clipboard value while
+# keeping Copied, which the same clipboard judge rejects.
 # Controls, a copy of the plugin whose widget polls on its own, whose
 # refresh restarts the watchdog, whose busy suggestion ask restarts the
 # suggestion's deadline and which does not know the access-denied text:
@@ -71,7 +80,7 @@
 # the row accepts 9 s to 20 s, since a request that moved the deadline
 # would hold it past any bound. Every other reading is expect_poll's, 0.2 s
 # apart.
-# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.tailscale/* shell/plugins/vgs.system/* shell/plugins/vgs.settings/* scripts/fixtures/tailscale/* scripts/smoke/fixtures/devices/* shell/Commons/SettingValues.js shell/Commons/qmldir shell/Ui/layout/DeviceList.qml shell/Core/SystemSteps.qml shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/plugins/vgs.vpn/manifest.json shell/Core/Config.qml shell/Core/Registry.qml shell/Core/ConfigLogic.js shell/Hosts/PaneHost.qml bin/vgshell-system bin/vgshell-tui scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh shell/Ui/controls/RowAction.qml shell/Ui/controls/Switch.qml shell/Ui/controls/DisabledReason.qml shell/Ui/controls/UnlockMark.qml shell/Ui/layout/Pane.qml shell/Ui/layout/ScrollArea.qml shell/Ui/overlay/Tooltip.qml shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Ui/foundation/KeyNavLogic.js shell/Ui/feedback/CopyText.qml shell/Ui/feedback/Dialog.qml shell/Ui/feedback/EmptyState.qml shell/Ui/foundation/Scrim.qml shell/Ui/layout/Disclosure.qml shell/Ui/layout/ListItem.qml shell/Ui/layout/DeviceRow.qml shell/Ui/layout/Section.qml shell/Ui/controls/RowActions.qml shell/Ui/controls/TextField.qml shell/Hosts/NoticeHost.qml themes/vgs/theme.json themes/catalog/flexoki-light/theme.json
+# inputs: scripts/smoke/user-config.sh shell/plugins/vgs.tailscale/* shell/plugins/vgs.system/* shell/plugins/vgs.settings/* scripts/fixtures/tailscale/* scripts/smoke/fixtures/devices/* shell/Commons/SettingValues.js shell/Commons/qmldir shell/Ui/layout/DeviceList.qml shell/Core/SystemSteps.qml shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/plugins/vgs.vpn/manifest.json shell/Core/Config.qml shell/Core/Registry.qml shell/Core/ConfigLogic.js shell/Hosts/PaneHost.qml bin/vgshell-system bin/vgshell-tui scripts/smoke/rows/device-fakes.sh scripts/smoke/rows/start-order.sh shell/Ui/controls/RowAction.qml shell/Ui/controls/Switch.qml shell/Ui/controls/DisabledReason.qml shell/Ui/controls/UnlockMark.qml shell/Ui/layout/Pane.qml shell/Ui/layout/ScrollArea.qml shell/Ui/overlay/Tooltip.qml shell/Ui/controls/IconButton.qml shell/Ui/controls/Button.qml shell/Ui/foundation/KeyNavLogic.js shell/Ui/feedback/CopyText.qml shell/Ui/feedback/Dialog.qml shell/Ui/feedback/EmptyState.qml shell/Ui/foundation/Scrim.qml shell/Ui/layout/Disclosure.qml shell/Ui/layout/ListItem.qml shell/Ui/layout/DeviceRow.qml shell/Ui/layout/Section.qml shell/Ui/controls/RowActions.qml shell/Ui/controls/TextField.qml shell/Hosts/NoticeHost.qml themes/vgs/theme.json themes/catalog/flexoki-light/theme.json shell/Ui/controls/Field.qml shell/Ui/controls/SegmentedControl.qml shell/Ui/overlay/Menu.qml shell/Ui/overlay/MenuItem.qml shell/Ui/controls/FormRow.qml shell/Ui/feedback/AvatarGroup.qml shell/Ui/feedback/AvatarFace.qml
 set -euo pipefail
 devices_ready tailscale || return 0
 tailscale_saved="$sandbox/tailscale-shell-before.json"
@@ -473,6 +482,25 @@ tailscale_copy_reading() {
 }
 # The nested clipboard's text, read after the input check.
 tailscale_clipboard() { nested_input_check wl-paste || return 1; "${shell_env[@]}" wl-paste --no-newline; }
+tailscale_clipboard_matches() {
+  local copied
+  copied="$(tailscale_clipboard)" || return 1
+  if [[ $copied == "$1" ]]; then echo match; else echo mismatch; fi
+}
+tailscale_pane_sections() { ipc smoke itemValues window vgs.tailscale Section objectName,title,visible | py_reply 'import json,sys; print(json.dumps([r["title"] for r in json.load(sys.stdin) if r["visible"] and r["objectName"].endswith("-section")]))'; }
+tailscale_focus_type() { tailscale_focus "$1" | py_reply 'import json,sys; print(json.load(sys.stdin)[0])'; }
+tailscale_pane_copy() { # NAME
+  ipc smoke readMatchingDescendant window vgs.tailscale RowAction objectName "$1" text
+}
+tailscale_pane_menu() { ipc smoke menus window vgs.tailscale | py_reply 'import json,sys; print(json.dumps([[m["entries"], m["current"]] for m in json.load(sys.stdin) if m["opened"]]))'; }
+# One named control at a time, since both this device's actions read Copy.
+tailscale_pane_named_tab() { # TYPE NAME
+  local held
+  held="$(ipc smoke readMatchingDescendant window vgs.tailscale "$1" objectName "$2" activeFocus)" || return 1
+  if [[ $held == true ]]; then echo reached; return; fi
+  type_keys -k Tab || return 1
+  echo moving
+}
 tailscale_offered() { notice_shown | py_reply 'import json,sys; v=json.load(sys.stdin); print(json.dumps(None if v is None else v[:2]))'; }
 # tailscale_status_as FIXTURE STATE: FIXTURE's tailnet with BackendState
 # STATE as the stand-in's status answer, and the poll asked for it;
@@ -484,14 +512,6 @@ tailscale_status_as() { # FIXTURE STATE
   tailscale_refresh
 }
 tailscale_sheet_as() { tailscale_status_as sheet.json "$1"; }
-# tailscale_disclosures HOST: [the account row's expanded, the network
-# devices row's expanded] under HOST's Tailscale instance.
-tailscale_disclosures() { # HOST
-  local account devices
-  account="$(ipc smoke readMatchingDescendant "$1" vgs.tailscale Disclosure objectName tailscale-account expanded)" || return 1
-  devices="$(ipc smoke readMatchingDescendant "$1" vgs.tailscale Disclosure objectName tailscale-network-devices expanded)" || return 1
-  printf '[%s, %s]\n' "$account" "$devices"
-}
 # [the rows the flyout's search list draws, the chooser's last drawn text].
 tailscale_search_reading() {
   local count drawn
@@ -719,14 +739,15 @@ expect "the pane receives its payload" '{"source":"smoke"}' ipc smoke readInstan
 expect_poll "the pane reads the shared record" running tailscale_body_state window
 expect_poll "the pane draws the core's offered step" '{"label":"Let my login control Tailscale","hint":"The administrator holds Tailscale. After this step, VGS connects and disconnects for you without a password."}' tailscale_body window setupAction
 expect_poll "an open pane makes the poll fast" 3000 tailscale_interval
-expect "the pane opens the account and network devices rows" '[true, true]' tailscale_disclosures window
+expect "the pane shows the account list" shown tailscale_shown_of window DeviceList tailscale-accounts
+expect "the pane shows the network devices list" shown tailscale_shown_of window DeviceList tailscale-devices
 # While this device waits for approval the pane keeps the account, where
 # the CLI still switches and signs out, and this device.
 expect "a refresh reads this device waiting for approval" ok tailscale_status_as mullvad.json NeedsMachineAuth
 expect_poll "the pane reads waiting for approval" needs-approval tailscale_body_state window
-expect "the approval pane keeps the account row" shown tailscale_shown_of window Disclosure tailscale-account
-expect "the approval pane keeps this device" shown tailscale_shown_of window DeviceList tailscale-this-device
-expect "the approval pane draws no network devices" hidden tailscale_shown_of window Disclosure tailscale-network-devices
+expect "the approval pane keeps the account list" shown tailscale_shown_of window DeviceList tailscale-accounts
+expect "the approval pane keeps this device" shown tailscale_shown_of window Section tailscale-device-section
+expect "the approval pane draws no network devices" hidden tailscale_shown_of window Section tailscale-network-section
 tailscale_use mullvad.json
 expect "a refresh reads the running tailnet for the pane" ok tailscale_refresh
 expect_poll "the pane reads the running tailnet after approval" running tailscale_body_state window
@@ -742,13 +763,15 @@ terminal_ready "tailscale"
 tailscale_enter_pane "Allow"
 expect "the section opens on its body while the switch waits for Allow" '["TailscaleBody",null]' ipc smoke activeFocusItem window vgs.tailscale
 type_keys -k Tab
-expect_poll "Tab reaches Allow" '["RowAction","Let my login control Tailscale"]' ipc smoke activeFocusItem window vgs.tailscale
-type_keys -k Tab
 expect_poll "Tab reaches the locked connection switch" '["Switch",""]' ipc smoke activeFocusItem window vgs.tailscale
 expect_poll "keyboard focus on the locked switch opens its reason" "$tailscale_reason" tailscale_tip window
 type_keys -k space
 type_keys -k Tab
 expect_poll "Tab reaches the switch's unlock mark" '["IconButton","Let my login control Tailscale"]' ipc smoke activeFocusItem window vgs.tailscale
+type_keys -k Tab
+expect_poll "Tab reaches Allow after the connection switch" '["RowAction","Let my login control Tailscale"]' ipc smoke activeFocusItem window vgs.tailscale
+type_keys -M shift -k Tab -m shift || fail "tailscale: Shift+Tab to the unlock mark failed"
+expect_poll "Shift+Tab returns to the switch's unlock mark" '["IconButton","Let my login control Tailscale"]' ipc smoke activeFocusItem window vgs.tailscale
 forget_record
 type_keys -k Return
 expect_poll "the unlock mark hands the terminal vgshell system apply tailscale-operator" \
@@ -780,13 +803,14 @@ expect_poll "Space on the switch runs up" '[["down"], ["up"]]' tailscale_changes
 tailscale_use mullvad.json
 expect_poll "the pane reads the running tailnet again" running tailscale_body_state window
 expect_poll "the pane's chooser lists None, the tailnet's node, then Mullvad by country" \
-  "$(words None "Use this computer's own connection" "Your exit nodes" gateway Online Mullvad Sweden Stockholm Switzerland Zurich "In use")" tailscale_drawn window ExitNodes ""
+  "$(words None "Use this computer's own connection" "Your exit nodes" gateway Online Mullvad Sweden Stockholm Switzerland Zurich "In use")" tailscale_drawn window ExitNodes tailscale-exit-nodes
 expect "the pane draws Check every once" 1 tailscale_check_every window
 # The pane opens its account and network devices rows, so the walk
 # crosses their lists, Add account, Sign out and each Copy. The network
 # devices list draws a gateway row too, so the walk names the chooser's
 # list.
-expect "the keyboard's pane opens the account and network devices rows" '[true, true]' tailscale_disclosures window
+expect "the keyboard's pane opens its account list" shown tailscale_shown_of window DeviceList tailscale-accounts
+expect "the keyboard's pane opens its network list" shown tailscale_shown_of window DeviceList tailscale-devices
 expect "Tab reaches the tailnet's exit node in the pane's chooser" reached tailscale_tab_until '["DeviceRow","gateway"]' window tailscale-exit-own
 type_keys -k Return
 expect_poll "Enter on a node sets it by its DNS name" \
@@ -857,6 +881,95 @@ expect_poll "the suggestion returns" '[{"id": "nSHEET0024CNTRL", "name": "Stockh
 device_reply tailscale 0 "" set --exit-node=
 expect "a change that ends clears the denied sign-in's problem" '""' tailscale_problem_after exit-node action '""'
 device_reply tailscale 1 "" set --exit-node=
+
+# System Settings, over the same design tailnet as the flyout below.
+tailscale_enter_pane "design pane"
+expect_poll "the pane opens on Connection's switch" '["Switch",""]' tailscale_focus window
+expect "the Connection field draws its switch" shown tailscale_shown_of window Field tailscale-connection-section
+expect "the pane's named sections end in Updates" \
+  '["Account", "This device", "Exit node", "Network devices", "Admin console", "Updates"]' tailscale_pane_sections
+expect "the Account section lists both accounts and its actions" \
+  "$(words Account AE amelie@example.com example.com amelie@example.com example.com "In use" amelie@example.org example.org "Add account" "Sign out")" tailscale_drawn window Section tailscale-account-section
+expect "This device shows its name, address, DNS name and network" \
+  "$(words "This device" Name desk "Tailscale address" 100.64.0.1 Copy "DNS name" desk.tail-fixture.ts.net Copy Network example.com)" tailscale_drawn window Section tailscale-device-section
+expect "Updates contains the poll setting and its hint" \
+  "$(words Updates "Check every" "10 s" "30 s" "60 s" "How often VGS reads Tailscale while its flyout and this section are closed")" tailscale_drawn window Section tailscale-updates-section
+expect "the complete network list draws all five peers" \
+  "$(words attic-nas 100.64.0.3 Copy gateway 100.64.0.2 Copy pixel 100.64.0.4 Copy ipad "100.64.0.7 · Offline" Copy old-laptop "100.64.0.9 · Offline" Copy)" tailscale_drawn window DeviceList tailscale-devices
+expect "the account list takes Tab" reached tailscale_tab_until '["DeviceRow","amelie@example.com"]' window tailscale-accounts
+tailscale_key Down
+expect_poll "Down reaches the other account" '["DeviceRow","amelie@example.org"]' tailscale_focus window
+tailscale_key Up
+expect_poll "Up returns to the account in use" '["DeviceRow","amelie@example.com"]' tailscale_focus window
+tailscale_tab "Tab reaches the pane's Add account" '["RowAction","Add account"]' window
+tailscale_tab "Tab reaches the pane's Sign out" '["RowAction","Sign out"]' window
+tailscale_calls_mark="$(tailscale_call_count tailscale)" || { fail "tailscale: the tailscale stand-in's calls are unreadable"; return 0; }
+tailscale_key Return
+expect_poll "the pane's sign-out confirmation opens on Cancel" '["Button","Cancel"]' tailscale_focus window
+tailscale_tab "the confirmation's Sign out is reachable" '["Button","Sign out"]' window
+type_keys -M shift -k Tab -m shift || fail "tailscale: the confirmation's Shift+Tab failed"
+tailscale_key Return
+expect_poll "Cancel returns the pane's keys to Sign out" '["RowAction","Sign out"]' tailscale_focus window
+expect "Cancel in the pane sends nothing" '[]' tailscale_changes "$tailscale_calls_mark"
+for tailscale_self in 'tailscale-self-address|100.64.0.1' 'tailscale-self-dns|desk.tail-fixture.ts.net'; do
+  IFS='|' read -r tailscale_copy_name tailscale_copy_want <<<"$tailscale_self"
+  expect_poll "Tab reaches $tailscale_copy_name" reached tailscale_pane_named_tab RowAction "$tailscale_copy_name"
+  tailscale_key Return
+  expect_poll "$tailscale_copy_name reads Copied" '"Copied"' tailscale_pane_copy "$tailscale_copy_name"
+  expect_poll "$tailscale_copy_name copies its own value" match tailscale_clipboard_matches "$tailscale_copy_want"
+done
+expect "Tab reaches the inline exit search" reached tailscale_tab_until '["TextField",""]' window
+tailscale_key Down
+expect_poll "Down reaches the recommended exit node" '["DeviceRow","Stockholm, Sweden"]' tailscale_focus window
+tailscale_key Down
+expect_poll "Down reaches None" '["DeviceRow","None"]' tailscale_focus window
+expect "Tab reaches the own exit nodes" reached tailscale_tab_until '["DeviceRow","attic-nas"]' window tailscale-exit-own
+tailscale_key Down
+expect_poll "Down reaches the other own exit node" '["DeviceRow","gateway"]' tailscale_focus window
+for tailscale_country in 'DE|Germany|Berlin|Frankfurt' 'SE|Sweden|Gothenburg|Malmö|Stockholm' 'US|United States|Ashburn|Chicago|Los Angeles|New York'; do
+  IFS='|' read -ra tailscale_country_parts <<<"$tailscale_country"
+  tailscale_code="${tailscale_country_parts[0]}"
+  expect "Tab reaches ${tailscale_country_parts[1]}'s Disclosure" reached tailscale_tab_until "[\"ListItem\",\"${tailscale_country_parts[1]}\"]" window
+  tailscale_key space
+  expect_poll "${tailscale_country_parts[1]} expands inline" true ipc smoke readMatchingDescendant window vgs.tailscale Disclosure objectName "tailscale-exit-country-$tailscale_code" expanded
+  tailscale_tab "Tab reaches ${tailscale_country_parts[1]}'s Best available" '["DeviceRow","Best available"]' window
+  for tailscale_city in "${tailscale_country_parts[@]:2}"; do
+    tailscale_key Down
+    expect_poll "Down reaches $tailscale_city inline" "[\"DeviceRow\",\"$tailscale_city\"]" tailscale_focus window
+  done
+  if [[ $tailscale_code == SE ]]; then
+    tailscale_tab "Tab reaches the one-city Switzerland choice" '["DeviceRow","Switzerland"]' window
+    expect "Switzerland stays a one-city choice" shown tailscale_shown_of window DeviceList tailscale-exit-country-single-CH
+  fi
+done
+expect "Tab reaches the network devices after the chooser" reached tailscale_tab_until '["DeviceRow","attic-nas"]' window tailscale-devices
+for tailscale_peer in 'attic-nas|100.64.0.3' 'gateway|100.64.0.2' 'pixel|100.64.0.4' 'ipad|100.64.0.7' 'old-laptop|100.64.0.9'; do
+  IFS='|' read -r tailscale_peer_name tailscale_peer_address <<<"$tailscale_peer"
+  expect_poll "the network list reaches $tailscale_peer_name" "[\"DeviceRow\",\"$tailscale_peer_name\"]" tailscale_focus window
+  tailscale_key Return
+  expect_poll "$tailscale_peer_name still copies its address" match tailscale_clipboard_matches "$tailscale_peer_address"
+  type_keys -M shift -k F10 -m shift || fail "tailscale: $tailscale_peer_name's menu key failed"
+  expect_poll "$tailscale_peer_name's menu holds Copy DNS name" '[[["Copy DNS name"], "Copy DNS name"]]' tailscale_pane_menu
+  tailscale_key Return
+  expect_poll "$tailscale_peer_name's menu closes after Copy DNS name" '[]' tailscale_pane_menu
+  expect_poll "$tailscale_peer_name copies its DNS name" match tailscale_clipboard_matches "$tailscale_peer_name.tail-fixture.ts.net"
+  expect_poll "the menu returns the keys to $tailscale_peer_name" "[\"DeviceRow\",\"$tailscale_peer_name\"]" tailscale_focus window
+  tailscale_key Tab
+  expect_poll "$tailscale_peer_name's Copy action takes Tab" RowAction tailscale_focus_type window
+  tailscale_tab "$tailscale_peer_name's overflow button takes Tab" '["IconButton","More actions"]' window
+  type_keys -M shift -k Tab -k Tab -m shift || fail "tailscale: returning to $tailscale_peer_name failed"
+  tailscale_key Down
+done
+expect "Tab reaches the pane's admin console" reached tailscale_tab_until '["RowAction","Open admin console"]' window
+tailscale_opens_mark="$(tailscale_call_count xdg-open)" || { fail "tailscale: the xdg-open stand-in's calls are unreadable"; return 0; }
+tailscale_key Return
+expect_poll "the pane's admin console opens the stand-in browser" '[["https://login.tailscale.com/admin"]]' tailscale_opens "$tailscale_opens_mark"
+expect_poll "Tab reaches Check every" reached tailscale_pane_named_tab SegmentedControl tailscale-poll
+tailscale_key Right
+expect_poll "Right selects the 60 s setting" 2 ipc smoke readMatchingDescendant window vgs.tailscale SegmentedControl objectName tailscale-poll currentIndex
+tailscale_key Left
+expect_poll "Left restores the 30 s setting" 1 ipc smoke readMatchingDescendant window vgs.tailscale SegmentedControl objectName tailscale-poll currentIndex
+expect "the design pane closes" ok ipc shell hide window vgs.system
 
 # The flyout's main view, the design's stand-in tailnet, by keys alone.
 rest_pointer || fail "tailscale: moving the pointer off the flyout failed"
@@ -1123,6 +1236,12 @@ expect "the signed-out flyout closes" ok ipc shell hide panel vgs.tailscale
 expect "the signed-out flyout opens again" ok ipc shell summon panel vgs.tailscale '{"source":"smoke"}'
 expect_poll "the signed-out flyout opens on its body, not Sign out" '["TailscaleBody",null]' tailscale_focus
 expect "the signed-out flyout closes again" ok ipc shell hide panel vgs.tailscale
+tailscale_enter_pane "signed-out pane"
+expect_poll "the signed-out pane offers Sign in" shown tailscale_shown_of window Button tailscale-sign-in
+expect "the signed-out pane keeps Updates last" '["Account", "Admin console", "Updates"]' tailscale_pane_sections
+expect "the signed-out pane has no Sign out action" hidden tailscale_shown_of window RowAction tailscale-sign-out
+expect "Tab reaches Sign in in the signed-out pane" reached tailscale_tab_until '["Button","Sign in"]' window
+expect "the signed-out pane closes" ok ipc shell hide window vgs.system
 rm -f -- "${tailscale_dir:?}/signed-out"
 device_reply tailscale 0 "$(<"$tailscale_fixtures/accounts.json")" switch --list --json
 
@@ -1159,6 +1278,10 @@ expect "the service-off switch draws its unlock mark named for Enable" drawn tai
 expect "the service-off flyout says what Enable does" '["The Tailscale service is off. Enable turns it on."]' tailscale_label tailscale-setup-hint
 expect "the service-off flyout offers Enable" '["Enable"]' tailscale_drawn panel RowAction tailscale-setup
 expect "the service-off flyout closes" ok ipc shell hide panel vgs.tailscale
+tailscale_enter_pane "service-off pane"
+expect "the service-off pane keeps Updates last" '["Admin console", "Updates"]' tailscale_pane_sections
+expect "the service-off pane keeps Check every" 1 tailscale_check_every window
+expect "the service-off pane closes" ok ipc shell hide window vgs.system
 device_reply systemctl 0 not-found show --property=LoadState --value tailscaled.service
 rescan "a scan probes an absent tailscaled service"
 expect_poll "the core reports the Tailscale backend absent" 'absent unit-missing' tailscale_step service-tailscaled
@@ -1175,6 +1298,15 @@ mv -- "$shim/tailscale" "$tailscale_dir/hidden-command"
 rescan "the scan reads tailscale absent without a host fallback"
 expect_poll "Tailscale publishes its missing command" '"missing"' tailscale_value state
 expect_poll "the Tailscale icon hides while its command is missing" false tailscale_widget
+tailscale_enter_pane "missing pane"
+expect_poll "the missing pane offers Install Tailscale" shown tailscale_shown_of window EmptyState tailscale-install
+expect "the missing pane hides Updates" hidden tailscale_shown_of window Section tailscale-updates-section
+expect "Tab reaches Install Tailscale" reached tailscale_tab_until '["Button","Install Tailscale"]' window
+tailscale_key Return
+expect_poll "Install Tailscale offers its requirement" '["vgs.tailscale", ["tailscale"]]' tailscale_offered
+tailscale_key Escape
+expect_poll "Not now closes the Tailscale requirement offer" null tailscale_offered
+expect "the missing pane closes" ok ipc shell hide window vgs.system
 mv -- "$tailscale_dir/hidden-command" "$shim/tailscale"
 rescan "the Tailscale stand-in returns"
 expect "a refresh reads the restored stand-in" ok tailscale_refresh
@@ -1209,6 +1341,7 @@ service.write_text(text)
 text = body.read_text()
 for old, new in (
     ('readonly property bool repeatsReason: true', 'readonly property bool repeatsReason: false'),
+    ('        copier.copy(address);', '        copier.copy("wrong-clipboard.fixture.example");'),
 ):
     assert text.count(old) == 1, old
     text = text.replace(old, new)
@@ -1223,6 +1356,12 @@ tailscale_control_before="$(tailscale_status_calls)" || { fail "tailscale: the t
 expect "the control copy enables" ok ipc shell setPluginEnabled vgs.tailscale true
 expect_poll "the control's service is built" True record_exists vgs.tailscale
 expect_poll "the control's service reads the tailnet" '"running"' tailscale_value state
+tailscale_enter_pane "clipboard control"
+expect_poll "control: Tab reaches this device's address Copy" reached tailscale_pane_named_tab RowAction tailscale-self-address
+tailscale_key Return
+expect_poll "control: a wrong clipboard value still reads Copied" '"Copied"' tailscale_pane_copy tailscale-self-address
+expect "control: the clipboard judge rejects a wrong value despite Copied" mismatch tailscale_clipboard_matches 100.64.0.1
+expect "the clipboard control pane closes" ok ipc shell hide window vgs.system
 expect_poll "control: a widget that polls on its own is a call the service did not start" extra tailscale_surplus "$tailscale_control_before"
 expect "control: a service that does not know the access-denied text leaves the plain failure's problem" same tailscale_failures
 expect "control: a refresh that restarts the watchdog holds the poll past 20 s" postponed tailscale_hang

@@ -1,4 +1,5 @@
 import QtQuick
+import Quickshell
 import qs.Commons
 import qs.Ui
 import "TailscaleLogic.js" as Logic
@@ -11,7 +12,8 @@ import "TailscaleLogic.js" as Logic
 // the moment of the click, then each city. While the host's
 // `searchField` holds text, the rows that match it show flat, cities as
 // "City, Country", at most SEARCH_MAX of them. The host draws the search
-// field, the title and Back, which calls `closeCountry`.
+// field, the title and Back, which calls `closeCountry`. The System pane
+// sets `inlineCountries` to expand each country in place with Disclosure.
 //
 // The chooser moves the keyboard itself, for both hosts: Down from the
 // search field takes it to the view's first row, Recommended while it is
@@ -33,6 +35,8 @@ FocusScope {
     readonly property string query: searchField === null ? "" : searchField.text
     // The code of the country the view shows, "" for the list.
     property string country: ""
+    // The System pane expands countries in place; the flyout opens a view.
+    property bool inlineCountries: false
     // The id of the node a change runs for, null while none does.
     property var pending: null
     property string disabledReason: ""
@@ -151,11 +155,64 @@ FocusScope {
             // working (DeviceList `opens`).
             DeviceList {
                 id: countryList
+                visible: !root.inlineCountries
                 objectName: "tailscale-exit-countries"
                 width: parent.width
                 disabledReason: root.disabledReason
                 rows: root.countryRows
                 onActed: key => root.actOn(countryList, key)
+            }
+            Item {
+                width: parent.width
+                height: countriesColumn.implicitHeight
+                visible: root.inlineCountries && root.listShown
+                ListCursor { id: countryCursor }
+                Column {
+                    id: countriesColumn
+                    width: parent.width
+                    Repeater {
+                        // Stable keys keep an expanded country's controls
+                        // alive when the service updates a node's state.
+                        // https://quickshell.org/docs/v0.3.1/types/Quickshell/ScriptModel/
+                        model: ScriptModel { values: root.inlineCountries && root.listShown ? root.exitNodes.countries.map(entry => entry.code) : [] }
+                        Column {
+                            id: countryBlock
+                            required property var modelData
+                            readonly property var countryData: root.exitNodes.countries.find(entry => entry.code === modelData)
+                                || ({ code: String(modelData), name: "", cities: [], best: { id: "", city: "" } })
+                            width: countriesColumn.width
+                            Disclosure {
+                                objectName: "tailscale-exit-country-" + countryBlock.countryData.code
+                                width: parent.width
+                                visible: countryBlock.countryData.cities.length > 1
+                                cursor: countryCursor
+                                iconName: "map-pin"
+                                text: countryBlock.countryData.name
+                                secondary: countryBlock.countryData.cities.length + " cities"
+                                trailing: [Badge {
+                                    visible: countryBlock.countryData.cities.some(city => city.active)
+                                    text: "In use"
+                                    tone: "success"
+                                }]
+                                DeviceList {
+                                    objectName: "tailscale-exit-country-cities-" + countryBlock.countryData.code
+                                    width: parent.width
+                                    disabledReason: root.disabledReason
+                                    rows: root.withPending(Logic.cityRows(countryBlock.countryData))
+                                    onActed: key => root.act(rows.find(row => row.key === key))
+                                }
+                            }
+                            DeviceList {
+                                objectName: "tailscale-exit-country-single-" + countryBlock.countryData.code
+                                width: parent.width
+                                visible: countryBlock.countryData.cities.length === 1
+                                disabledReason: root.disabledReason
+                                rows: root.withPending(root.countryRows.filter(row => row.code === countryBlock.countryData.code))
+                                onActed: key => root.act(rows.find(row => row.key === key))
+                            }
+                        }
+                    }
+                }
             }
         }
         DeviceList {
