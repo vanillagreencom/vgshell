@@ -573,8 +573,9 @@ world(async () => {
                 source: { kind: "cli", directory: account }, model: "" });
             const choices = judge.status().brains.filter(choice => found.some(item => item.provider === "copilot" && item.id === choice.value));
             // Copilot names no sign-in email, so each account reads by its
-            // provider alone, never by its folder's name (`.1copilot`).
-            assert.deepEqual(choices.map(choice => choice.label), ["GitHub Copilot", "GitHub Copilot"]);
+            // provider and its place among the accounts that share that
+            // label, never by its folder's name (`.1copilot`).
+            assert.deepEqual(choices.map(choice => choice.label), ["GitHub Copilot, account 1", "GitHub Copilot, account 2"]);
             const accountRows = judge.status().accounts.filter(row => row.provider === "copilot");
             assert.deepEqual(accountRows.map(row => [row.state, row.value]).sort(), [["unchecked", "present"], ["unchecked", "present"]]);
             assert.deepEqual(await judge.verify(copilot.id, "user"), { kind: "verified" });

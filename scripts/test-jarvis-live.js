@@ -1644,7 +1644,7 @@ world(async () => {
             // The shipped engine's preview: the chosen voice, its one
             // sentence and no capture.
             if (only === "preview") {
-                send({ type: "intent", intent: "preview" });
+                send({ type: "intent", intent: "preview", voice: P.previewVoice });
                 await wait(() => main.conns.some(conn => conn.rig === null && !conn.taken), "the preview opens the daemon's voice");
                 const conn = main.conns.find(conn => conn.rig === null && !conn.taken); conn.taken = true;
                 assert.equal(P.voice(await P.open(conn)), P.previewVoice, "the chosen voice speaks");

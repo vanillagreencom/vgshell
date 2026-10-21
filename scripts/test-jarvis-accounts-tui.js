@@ -388,9 +388,10 @@ process.execve(process.execPath,[process.execPath,${JSON.stringify(path.join(tre
             const shown = JSON.parse(cli(folder, "presence", JSON.stringify(presence)));
             assert.ok(shown.brains.some(item => item.value === account.id), "signed-in account offered as AI model");
             // Pi's own model list reads the fresh setup signed in. Pi names no
-            // sign-in email, so the account reads by its provider alone, never
-            // by the name typed for its folder.
-            if (vendor === "pi") assert.ok(shown.accounts.some(row => row.provider === "pi" && row.label === "Pi"
+            // sign-in email, so the account reads by its provider, and by its
+            // place while another Pi account shares that label, never by the
+            // name typed for its folder.
+            if (vendor === "pi") assert.ok(shown.accounts.some(row => row.provider === "pi" && /^Pi(, account [0-9]+)?$/.test(row.label)
                 && row.state === "signed-in"), "the Pi account reads signed in");
             assert.equal(shown.accounts.some(row => row.label.includes(label)), false, "no account reads by its folder's name");
             // The account answer starts no model list read: the Jarvis page
