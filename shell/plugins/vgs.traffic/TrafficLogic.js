@@ -210,13 +210,14 @@ function commandLine(text) {
 // changes that (PluginLogic.statusDeclarationFits); the core probes the
 // step again after each plugin scan, which each Settings open asks for.
 // The step probes only the system's trusted folders
-// (bin/vgshell-system capture_binary), so an absent step names Setup's
-// Optional tools only while the requirement reads missing; a bandwhich
-// installed for the user's account alone needs the system's package.
+// (bin/vgshell-system capture_binary), so an absent step reads not
+// installed and names Setup's Optional tools only while the requirement
+// reads missing; a bandwhich installed for the user's account alone reads
+// as that and needs the system's package.
 // null, which clears the entry, while the step has no reading, before the
 // core's first probe ends.
 var CAPTURE_HINTS = { absent: "Install bandwhich under Optional tools first",
-    absentSystem: "Capture needs bandwhich from your system's packages. The bandwhich VGS found is installed for your account alone.",
+    absentSystem: "Capture needs bandwhich from your system's packages",
     denied: "VGS allows capture only for a bandwhich it trusts", unknown: "VGS checks again each time you open Settings" };
 function captureHint(state, present) {
     if (state === "absent") return present ? CAPTURE_HINTS.absentSystem : CAPTURE_HINTS.absent;
@@ -225,7 +226,8 @@ function captureHint(state, present) {
 function capture(step, present) {
     if (!step) return null;
     const state = step.state;
-    const text = { ready: "Ready", needed: "Access needed", nixos: "Access needed", absent: "bandwhich is not installed",
+    const text = { ready: "Ready", needed: "Access needed", nixos: "Access needed",
+        absent: present ? "Installed for your account only" : "bandwhich is not installed",
         denied: "Installed tool is not trusted", unknown: "Capture access could not be checked" };
     const action = state === "needed" || state === "nixos";
     const value = { tone: state === "ready" ? "ok" : "info", text: text[state] || text.unknown, action: action };
