@@ -402,27 +402,43 @@ Item {
 
         function chevronOf(row) { return trailing(row)[1].children[2]; }
 
-        // As a search narrows: the rows that stay keep their items, and
-        // the keyboard stays on its row as the row moves up and back.
-        function test_a_change_keeps_each_kept_row_and_the_keyboard_on_its_row() {
-            const five = ["a", "b", "c", "d", "e"].map(key => ({ key: key, text: "Device " + key }));
-            list.rows = five;
-            list.current = 3;
+        // SearchRows rebuilds plain objects on each publish. Bluetooth's
+        // deviceRows can repeat an address across adapters. Both use the
+        // same keyed model: kept items and focus survive, removed duplicate
+        // rows leave, and moved items draw the new publication's text.
+        function test_a_change_keeps_each_kept_row_and_the_keyboard_on_its_row_data() {
+            return [
+                { tag: "fresh search narrowing and widening", start: ["a", "b", "c", "d", "e"], chosen: "d", changes: [
+                    { keys: ["b", "d", "e"], kept: ["b", "d", "e"] },
+                    { keys: ["a", "b", "c", "d", "e"], kept: ["b", "d", "e"] }
+                ] },
+                { tag: "a moved device changes its text", start: ["a", "b", "c"], chosen: "c", changes: [
+                    { keys: ["c", "a", "b"], kept: ["c", "a", "b"], text: { c: "Moved c" } }
+                ] },
+                { tag: "a duplicate address leaves", start: ["a", "b", "a"], chosen: "b", changes: [
+                    { keys: ["a", "b"], kept: ["a", "b"] },
+                    { keys: ["b", "a"], kept: ["b", "a"] }
+                ] }
+            ];
+        }
+        function test_a_change_keeps_each_kept_row_and_the_keyboard_on_its_row(data) {
+            const rowsOf = (keys, text) => keys.map(key => ({ key: key, text: text && text[key] !== undefined ? text[key] : "Device " + key }));
+            list.rows = rowsOf(data.start);
+            list.current = data.start.indexOf(data.chosen);
             focusList();
-            const kept = { b: list.rowAt(1), d: list.rowAt(3), e: list.rowAt(4) };
-            list.rows = [five[1], five[3], five[4]];
-            compare(list.count, 3);
-            compare(list.rowAt(0), kept.b, "a narrowing change keeps the row it keeps");
-            compare(list.rowAt(1), kept.d);
-            compare(list.rowAt(2), kept.e);
-            compare(list.currentKey, "d", "the selection moves with its row");
-            compare(kept.d.activeFocus, true, "the keyboard stays on its row");
-            list.rows = five;
-            compare(list.rowAt(1), kept.b, "a widening change keeps the rows it had");
-            compare(list.rowAt(3), kept.d);
-            compare(list.currentKey, "d");
-            compare(kept.d.activeFocus, true);
-            compare(list.rowAt(0).text, "Device a", "a widening change builds the rows it adds");
+            const kept = {};
+            data.start.forEach((key, index) => { if (kept[key] === undefined) kept[key] = list.rowAt(index); });
+            for (const change of data.changes) {
+                list.rows = rowsOf(change.keys, change.text);
+                compare(list.count, change.keys.length, "the publication leaves no extra rows");
+                change.keys.forEach((key, index) => {
+                    const row = list.rowAt(index);
+                    if (change.kept.indexOf(key) !== -1) compare(row, kept[key], "a kept key keeps its item: " + key);
+                    compare(row.text, change.text && change.text[key] !== undefined ? change.text[key] : "Device " + key, "the item draws its current data");
+                });
+                compare(list.currentKey, data.chosen, "the selection moves with its row");
+                compare(kept[data.chosen].activeFocus, true, "the keyboard stays on its row");
+            }
         }
 
         // A row a change moves from under a resting pointer hands the

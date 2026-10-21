@@ -2,14 +2,12 @@ import QtQuick
 
 // Stands in for Quickshell's ScriptModel, whose plugin does not load
 // outside the shell: one row per entry of `values`, under the role
-// `modelData` a delegate requires. As Quickshell 0.3.1's does
-// (src/core/scriptmodel.cpp, `updateValuesUnique`), a change compares a
-// value by its `objectProp` property where it has one, else whole, both
-// structurally, and reaches the new list by removals, moves and inserts,
-// so a Repeater keeps the delegate of every value that stays. A value that
-// stays in its place takes the new value; one that moves keeps the value
-// it had, as Quickshell's does, so its delegate's `modelData` is the old
-// one.
+// `modelData` a delegate requires. The plain-data update below follows
+// src/core/scriptmodel.cpp, updateValuesUnique, at the packaged Quickshell
+// pin 2b4501a282689792b62e94f3fb30d8f512324fe6 (0.3.2.r7): reconcile keys
+// first, then refresh values. Keeping these passes separate preserves a
+// keyed delegate even when every published row is a fresh object, and
+// gives moved delegates their current modelData.
 ListModel {
     property var values: []
     property string objectProp: ""
@@ -32,20 +30,56 @@ ListModel {
     onValuesChanged: {
         const next = Array.from(values);
         const rows = held.slice();
-        for (let index = rows.length - 1; index >= 0; index--) {
-            if (next.some(value => matches(value, rows[index]))) continue;
-            remove(index);
-            rows.splice(index, 1);
+        let index = 0;
+        let newIndex = 0;
+        while (true) {
+            if (newIndex === next.length) {
+                if (index < rows.length) {
+                    remove(index, rows.length - index);
+                    rows.splice(index);
+                }
+                break;
+            } else if (index === rows.length) {
+                for (; newIndex < next.length; newIndex++) {
+                    append({ modelData: next[newIndex] });
+                    rows.push(next[newIndex]);
+                }
+                break;
+            } else if (!matches(next[newIndex], rows[index])) {
+                const at = rows.findIndex((value, place) => place >= index && matches(value, next[newIndex]));
+                if (at !== -1) {
+                    if (!next.some((value, place) => place >= newIndex && matches(value, rows[index]))) {
+                        let end = index + 1;
+                        while (end < rows.length && !next.some((value, place) => place >= newIndex && matches(value, rows[end]))) end++;
+                        remove(index, end - index);
+                        rows.splice(index, end - index);
+                    } else {
+                        let end = at + 1;
+                        newIndex++;
+                        while (end < rows.length && newIndex < next.length && matches(rows[end], next[newIndex])) {
+                            end++;
+                            newIndex++;
+                        }
+                        const length = end - at;
+                        move(at, index, length);
+                        rows.splice(index, 0, ...rows.splice(at, length));
+                        index += length;
+                    }
+                } else {
+                    const start = newIndex++;
+                    while (newIndex < next.length && !rows.some((value, place) => place >= index && matches(value, next[newIndex]))) newIndex++;
+                    const inserted = next.slice(start, newIndex);
+                    for (let offset = 0; offset < inserted.length; offset++) insert(index + offset, { modelData: inserted[offset] });
+                    rows.splice(index, 0, ...inserted);
+                    index += inserted.length;
+                }
+            } else {
+                index++;
+                newIndex++;
+            }
         }
-        for (let index = 0; index < next.length; index++) {
-            const at = rows.findIndex((value, place) => place >= index && matches(next[index], value));
-            if (at === -1) {
-                insert(index, { modelData: next[index] });
-                rows.splice(index, 0, next[index]);
-            } else if (at !== index) {
-                move(at, index, 1);
-                rows.splice(index, 0, rows.splice(at, 1)[0]);
-            } else if (rows[index] !== next[index]) {
+        for (let index = 0; index < rows.length; index++) {
+            if (rows[index] !== next[index]) {
                 set(index, { modelData: next[index] });
                 rows[index] = next[index];
             }

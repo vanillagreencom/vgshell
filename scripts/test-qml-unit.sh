@@ -1632,6 +1632,8 @@ mutations=(
   "a menu builds its window with its row|overlay/Menu.qml|property var window: null|property var window: windowComponent.createObject(root)|tst_devicerow.qml"
   "a menu made and opened in one turn shows no window|overlay/Menu.qml|if (surface === null) build();|if (surface === null) Qt.callLater(build);|tst_overlays.qml"
   "a device list rebuilds every row on a change|layout/DeviceList.qml|objectProp: \"key\" }|objectProp: \"\" }|tst_devicelist.qml"
+  "a keyed model leaves duplicate ghost rows|../stand-ins/ScriptModel.qml|remove(index, rows.length - index);|if (false) remove(index, rows.length - index);|tst_devicelist.qml"
+  "a keyed model leaves moved rows with old data|../stand-ins/ScriptModel.qml|set(index, { modelData: next[index] });|if (false) set(index, { modelData: next[index] });|tst_devicelist.qml"
   "a device list's keyboard keeps its place, not its row, through a change|layout/DeviceList.qml|? indexOfKey(selectedKey) : -1;|? -1 : -1;|tst_devicelist.qml"
   "a device list keeps an unchosen selection on its row, not its place|layout/DeviceList.qml|const kept = chosenByUser |const kept = true |tst_devicelist.qml"
   "a device list's choice outlives its row|layout/DeviceList.qml|const choice = chosenByUser && kept !== -1;|const choice = chosenByUser;|tst_devicelist.qml"
@@ -1857,6 +1859,7 @@ mutation_target_path() { # FILE-FIELD
     ../Commons/*) printf 'shell/Commons/%s\n' "${file#../Commons/}" ;;
     ../Core/*) printf 'shell/Core/%s\n' "${file#../Core/}" ;;
     ../plugins/*) printf 'shell/plugins/%s\n' "${file#../plugins/}" ;;
+    ../stand-ins/*) printf 'scripts/qml-tests/stand-ins/%s\n' "${file#../stand-ins/}" ;;
     *) printf 'shell/Ui/%s\n' "$file" ;;
   esac
 }
@@ -2022,6 +2025,12 @@ mutation_case() { # INDEX
     cp -R -- "$repo/shell/plugins/$plugin" "$dir/mirror/shell/plugins/$plugin"
     ln -s -- "$repo/themes" "$dir/mirror/themes"
     target="$dir/mirror/shell/${file#../}"
+    tests_dir="$dir/mirror/scripts/qml-tests"
+  fi
+  if [[ $file == ../stand-ins/* ]]; then
+    mkdir -p -- "$dir/mirror/scripts"
+    cp -R -- "$repo/scripts/qml-tests" "$dir/mirror/scripts/qml-tests"
+    target="$dir/mirror/scripts/qml-tests/stand-ins/${file#../stand-ins/}"
     tests_dir="$dir/mirror/scripts/qml-tests"
   fi
   count="$(python3 - "$target" "$needle" <<'PY'

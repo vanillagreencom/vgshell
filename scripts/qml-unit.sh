@@ -20,8 +20,8 @@
 # stand-in ThemeSource that takes a document from the UnitTheme singleton of
 # the qs.Unit module and calls the shipped accept; a stand-in Quickshell
 # module supplies the Singleton and Scope types, a PopupWindow that
-# positions nothing, a ScriptModel that keys its rows by `objectProp` as
-# Quickshell's does, a
+# positions nothing, a ScriptModel that follows the packaged Quickshell
+# pin's keyed reconciliation and subsequent value refresh, a
 # LazyLoader that builds its component while active, a Variants that builds
 # one delegate per model entry, a DesktopEntries whose
 # application list a test replaces and a Quickshell singleton whose env
