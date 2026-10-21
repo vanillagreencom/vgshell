@@ -17,9 +17,14 @@ const tree = path.resolve(__dirname, "..");
 // Session's tap bound: the shipped daemon reads a Talk release sooner than
 // this after its press as a tap, which keeps listening.
 const TAP_MS = require("../bin/lib/qml-library.js").load(path.join(tree, "shell/plugins/vgs.jarvis/Session.js")).TAP_MS;
-// Wait until a press made at PRESSED (Date.now()) is past the tap bound on
-// the daemon's clock, with 50 ms for the pipe between the two writes.
-const pastTap = pressed => new Promise(resolve => setTimeout(resolve, Math.max(0, pressed + TAP_MS + 50 - Date.now())));
+// The daemon's held snapshot acknowledges the press on its Session clock.
+// Advance only that disposable clock; a parent's write time says nothing
+// about when the child's event loop consumed the press.
+function releaseHeld(clock, state, send) {
+    assert.equal(state.input.kind, "held", "a held release needs the daemon's press acknowledgment");
+    fs.writeFileSync(clock, String(state.input.since + TAP_MS));
+    send();
+}
 const daemon = path.join(tree, "shell/plugins/vgs.jarvis/backend/jarvisd.js");
 const source = fs.readFileSync(daemon, "utf8");
 const hello = { v: 1, type: "hello", gen: 0, settings: { home: "", sounds: false, mode: "hold", microphone: "", speaker: "", brain: "", model: "", effort: "", fallbacks: [], taskTerminal: "auto", voiceProvider: "local", voiceAccount: "", voice: "", clonedVoice: false, dictation: "",
@@ -611,8 +616,24 @@ async function inside() {
         fs.cpSync(path.join(path.dirname(daemon), "skills/computer"), path.join(directory, "backend/skills/computer"), { recursive: true });
         return path.join(directory, "backend/jarvisd.js");
     }
+    function holdClock(file, fixed = false) {
+        if (file === daemon) return null;
+        const clock = path.join(path.dirname(file), "held-clock");
+        const before = fs.readFileSync(file, "utf8");
+        if (!before.includes("const fixtureHeldClock = ")) {
+            const needle = "const runner = new SessionRunner(Session, ports, {\n        now: () => performance.now(),";
+            assert.equal(before.split(needle).length - 1, 1, "the disposable daemon exposes its existing Session clock");
+            const read = 'Number(fs.readFileSync(fixtureHeldClock, "utf8"))';
+            fs.writeFileSync(file, before.replace(needle, "const fixtureHeldClock = " + JSON.stringify(clock) + ";\n    "
+                + "const runner = new SessionRunner(Session, ports, {\n        now: () => "
+                + (fixed ? read : "Math.max(performance.now(), " + read + ")") + ","));
+        }
+        fs.writeFileSync(clock, "0");
+        return clock;
+    }
     async function conversation(file, check, mode = "hold", expectedCode = 0, expectedError = "", beforeState = null,
         sounds = hello.settings.sounds) {
+        const clock = holdClock(file);
         const child = cp.spawn("node", [file, "--tree", tree], { env: {
             PATH: process.env.PATH, HOME: process.env.HOME, XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR,
             XDG_DATA_HOME: process.env.XDG_DATA_HOME
@@ -645,19 +666,14 @@ async function inside() {
             send({ ...hello, settings: { ...hello.settings, mode, sounds } });
             if (beforeState !== null) await beforeState({ messages });
             await wait(m => m.state.gate.kind !== "down" || m.state.gate.reason === "unconfigured");
-            let pressed = 0;
-            const talk = name => {
-                if (name === "talk-down") pressed = Date.now();
-                send(intent(name));
-            };
-            // A release that ends a hold: the real daemon times the press on
-            // its own clock, so the release waits out the tap bound.
-            const holdUp = async () => {
-                await pastTap(pressed);
-                send(intent("talk-up"));
+            const talk = name => send(intent(name));
+            const holdUp = async (release = releaseHeld) => {
+                const held = await wait(message => message.state.input.kind === "held");
+                release(clock, held.state, () => send(intent("talk-up")));
             };
             await check({ send: talk, holdUp, raw: send, reply: send,
-                indicator: shown => send(indicator(shown)), wait, last, messages, pid: child.pid });
+                indicator: shown => send(indicator(shown)), wait, last, messages, pid: child.pid,
+                pressClock: at => fs.writeFileSync(clock, String(at)) });
             child.stdin.end();
             const [code, signal] = await closed;
             assert.equal(signal, null, "EOF releases the real child");
@@ -844,6 +860,42 @@ async function inside() {
     const scripted = daemonCopy("scripted");
     const gates = path.join(root, "gates");
     instrument(scripted, gates);
+    const heldDaemon = daemonCopy("held-delivery");
+    instrument(heldDaemon, path.join(root, "held-delivery-gates"));
+    // This table freezes only Session's clock, so even a paused test process
+    // cannot turn the early-release control into an accidental real hold.
+    holdClock(heldDaemon, true);
+    // Simulate the daemon consuming the press after delivery advances its
+    // clock, without delaying the test or enlarging Session's tap threshold.
+    const heldDelivery = (at, release = releaseHeld) => conversation(heldDaemon, async w => {
+        w.pressClock(at);
+        w.send("talk-down");
+        const held = await w.wait(message => message.phase === "listening" && message.state.input.kind === "held");
+        assert.ok(held.state.input.since >= at, "the daemon records the delivered press on its own clock");
+        await w.holdUp(release);
+        await w.wait(message => message.phase === "thinking" && message.state.input.kind === "released");
+        w.send("stop");
+        await w.wait(message => message.state.conversation.kind === "ended" && message.phase === "idle");
+    });
+    const deliveries = [{ name: "immediate", at: 0 }, { name: "delayed", at: 4 * TAP_MS }];
+    for (const delivery of deliveries) {
+        await heldDelivery(delivery.at);
+        console.log("test-jarvis-daemon: held-delivery=" + delivery.name + " passed");
+    }
+    const heldControl = fs.mkdtempSync(path.join(require("node:os").tmpdir(), "jarvis-held-control-"));
+    try {
+        const needle = "state.input.since + TAP_MS";
+        assert.equal(releaseHeld.toString().split(needle).length - 1, 1);
+        const file = path.join(heldControl, "release.js");
+        fs.writeFileSync(file, 'const assert = require("node:assert/strict");\nconst fs = require("node:fs");\n'
+            + "module.exports = " + releaseHeld.toString().replace(needle, "state.input.since") + ";\n");
+        await assert.rejects(() => heldDelivery(deliveries[1].at, require(file)),
+            error => error instanceof assert.AssertionError && error.message.startsWith("daemon state timeout:")
+                && error.message.includes('"input":{"kind":"tapped"'),
+            "a release before the daemon's tap threshold must fail the held-delivery assertion");
+        controls++;
+        console.log("test-jarvis-daemon: control=held-release-before-daemon-threshold detected");
+    } finally { fs.rmSync(heldControl, { recursive: true, force: true }); }
     async function desktopDriver(file, directory, mappedIndicator = false) {
         await conversation(file, async w => {
             writeCall(directory, { id: "fixture-help", tool: "help", arguments: { topic: "input" } });
@@ -1180,7 +1232,7 @@ async function inside() {
         w.send("talk-down");
         await w.wait(m => m.phase === "listening");
         const before = w.last().seq;
-        await w.holdUp();
+        w.send("talk-up");
         await w.wait(m => m.seq > before);
         assert.equal(w.last().state.input.kind, "conversation", "release does not commit toggle");
         await new Promise(resolve => setTimeout(resolve, 250)); // Reach the reducer's next permitted toggle edge.
@@ -1819,6 +1871,7 @@ exit "$failures"
         return { file, registered };
     }
     async function screenConversation({ file, registered }, settings) {
+        const clock = holdClock(file);
         const screen = VisionWorld.world(process.env.XDG_RUNTIME_DIR, process.env.JARVIS_TEST_ROOT);
         screen.set({ monitors: [VisionWorld.monitor(0, "FIX-1", { width: 320, height: 200, scale: 1 })],
             outputs: [{ name: "FIX-1", box: [0, 0, 320, 200] }],
@@ -1856,11 +1909,9 @@ exit "$failures"
             send({ ...hello, settings: { ...hello.settings, brain: brainId, model: "fixture-model", ...settings } });
             await wait(m => m?.state.gate.kind === "up", "the engine raises the gate");
             await wait(() => fs.existsSync(registered), "vision registers after the Hyprland probe");
-            const pressed = Date.now();
             send(intent("talk-down"));
             await wait(m => m.phase === "listening", "listening");
-            await pastTap(pressed);
-            send(intent("talk-up"));
+            releaseHeld(clock, states.at(-1).state, () => send(intent("talk-up")));
             await wait(m => loopback.requests.length === before + 2 && m.phase === "idle" && m.state.turn.kind === "none",
                 () => "the screen result reaches the brain, requests=" + (loopback.requests.length - before) + " last="
                 + JSON.stringify(loopback.requests.at(-1)?.body.messages.slice(1)).slice(0, 600));
@@ -1907,6 +1958,7 @@ exit "$failures"
         } finally { for (const name of ["grim", "magick"]) fs.rmSync(path.join(standins, name), { force: true }); }
     }
     async function engineConversation(file, said = "What time is it?", caption = said, identicalHello = false) {
+        const clock = holdClock(file);
         const child = cp.spawn("node", [file, "--tree", tree], { env: {
             PATH: process.env.PATH, HOME: process.env.HOME, XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR
         }, stdio: ["pipe", "pipe", "pipe"] });
@@ -1945,12 +1997,10 @@ exit "$failures"
             await wait(m => m.state.gate.kind === "up", "the selected catalog model admits the engine");
             assert.equal(states.at(-1).state.gate.kind, "up", "the engine raises the gate: " + JSON.stringify(states.at(-1).state.gate));
             assert.deepEqual(statuses.at(-1).causes, [], "a ready engine publishes no setup cause");
-            const pressed = Date.now();
             send(intent("talk-down"));
             await wait(m => m.phase === "listening", "listening");
             const collectionOp = states.at(-1).state.turn.op;
-            await pastTap(pressed);
-            send(intent("talk-up"));
+            releaseHeld(clock, states.at(-1).state, () => send(intent("talk-up")));
             if (identicalHello) {
                 await wait(m => m.phase === "thinking" && loopback.requests.length === before + 1,
                     "the real local turn is active before the unchanged hello");
