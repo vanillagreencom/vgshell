@@ -59,7 +59,7 @@
 # Its displayed name must change without moving the selected row or scroll.
 # Each rule has its own disposable production mutation. Cadence is a view
 # contract, not a machine latency budget. State polling uses expect_poll.
-# inputs: shell/plugins/vgs.bluetooth/* shell/plugins/vgs.system/* shell/Ui/layout/Pane.qml shell/Ui/layout/ScrollArea.qml shell/Ui/layout/DeviceList.qml shell/Ui/controls/RowAction.qml shell/Ui/feedback/Spinner.qml scripts/smoke/Probe.qml scripts/smoke/fixtures/devices/* shell/Core/BluetoothAgent.qml shell/Core/BluetoothAgentModel.js shell/Core/SystemSteps.qml shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Hosts/PaneHost.qml bin/vgshell-system bin/vgshell-tui scripts/smoke/rows/device-fakes.sh
+# inputs: shell/plugins/vgs.bluetooth/* shell/plugins/vgs.system/* shell/Ui/layout/Pane.qml shell/Ui/layout/ScrollArea.qml shell/Ui/layout/DeviceList.qml shell/Ui/controls/RowAction.qml shell/Ui/feedback/Spinner.qml scripts/smoke/Probe.qml scripts/smoke/fixtures/devices/* shell/Core/BluetoothAgent.qml shell/Core/BluetoothAgentModel.js shell/Core/SystemSteps.qml shell/Core/PluginStatus.qml shell/Core/Capabilities.qml shell/Core/PluginLogic.js shell/Core/ConfigLogic.js shell/Hosts/PaneHost.qml bin/vgshell-system bin/vgshell-tui scripts/smoke/rows/device-fakes.sh shell/Core/Compositor.qml shell/Core/Dispatch.js shell/Ui/overlay/Menu.qml shell/Ui/overlay/DismissScope.qml shell/Ui/layout/DeviceRow.qml
 set -euo pipefail
 
 bt_keyboard=00:1B:66:AA:BB:02
@@ -69,6 +69,41 @@ bt_speaker=00:1B:66:AA:BB:05
 bt_pad=00:1B:66:AA:BB:06
 bt_default='"                 default-agent"'
 bt_off='"                 agent off"'
+
+# Intentional menu closes must restore native keys without moving the
+# outside pointer. The second real device's connection proves Return acts.
+bt_menu_keyboard() {
+  local close connected pointer pointer_after
+  for close in trigger escape; do
+    type_keys -k Menu || { fail "Bluetooth $close: opening the device menu failed"; return 1; }
+    expect_poll "Bluetooth $close: the device menu opens" True bt_menu_open
+    rest_pointer || { fail "Bluetooth $close: parking the pointer outside failed"; return 1; }
+    pointer="$(bt_menu_pointer)" || { fail "Bluetooth $close: reading the outside pointer failed"; return 1; }
+    if [[ $close == trigger ]]; then
+      type_keys -k End -k Up || { fail "Bluetooth trigger: selecting the trust action failed"; return 1; }
+      expect_poll "Bluetooth trigger: the trust action is selected" trust bt_menu_choice
+      type_keys -k Return || { fail "Bluetooth trigger: activating the trust action failed"; return 1; }
+      connected=False
+    else
+      type_keys -k Escape || { fail "Bluetooth escape: sending Escape to the menu failed"; return 1; }
+      connected=True
+    fi
+    expect_poll "Bluetooth $close: the menu closes" False bt_menu_open
+    expect_poll "Bluetooth $close: native keys return to the headphones row" "Smoke Headphones" bt_focus
+    pointer_after="$(bt_menu_pointer)" || { fail "Bluetooth $close: reading the restored pointer failed"; return 1; }
+    expect "Bluetooth $close: the outside pointer stays at its original position" "$pointer" printf '%s' "$pointer_after"
+    printf '  menu_activation close=%s pointer_before=%s pointer_after=%s\n' "$close" "$pointer" "$pointer_after"
+    type_keys -k Down || { fail "Bluetooth $close: sending Down to the device list failed"; return 1; }
+    expect_poll "Bluetooth $close: Down selects the keyboard with the pointer outside" "Smoke Keyboard" bt_focus
+    type_keys -k Return || { fail "Bluetooth $close: sending Return to the selected device failed"; return 1; }
+    expect_poll "Bluetooth $close: Return acts on the selected keyboard" "$connected" bt_device "$bt_keyboard" Connected
+    type_keys -k Up || { fail "Bluetooth $close: returning to the headphones with Up failed"; return 1; }
+    expect_poll "Bluetooth $close: Up returns to the headphones for another menu" "Smoke Headphones" bt_focus
+  done
+}
+bt_menu_open() { ipc smoke menus window vgs.bluetooth | py_reply 'import json,sys; print(any(m["opened"] for m in json.load(sys.stdin)))'; }
+bt_menu_choice() { ipc smoke menus window vgs.bluetooth | py_reply 'import json,sys; m=next((m for m in json.load(sys.stdin) if m["opened"]), {}); print("trust" if m.get("current") in ("Trust", "Don\u0027t trust") else "other")'; }
+bt_menu_pointer() { hypr -j cursorpos | py_reply 'import json,sys; p=json.load(sys.stdin); print(json.dumps([p["x"],p["y"]]))'; }
 
 bt_service() { ipc smoke readInstance service "${bt_id:-vgs.bluetooth}" "$1"; }
 bt_view() { bt_service view | py_reply 'import json,sys; print(json.load(sys.stdin)[sys.argv[1]])' "${1:-key}"; }
@@ -782,6 +817,7 @@ PY
   expect_poll "Hide when off turns off again" false bt_pane hideWhenOff
   type_keys -k Tab || fail "typing Tab to My Devices failed"
   expect_poll "Tab reaches the first of My Devices" "Smoke Headphones" bt_focus
+  bt_menu_keyboard || return 0
   type_keys -k Down || fail "typing Down in My Devices failed"
   expect_poll "Down moves to the keyboard" "Smoke Keyboard" bt_focus
   type_keys -k Return || fail "typing Return on the keyboard's row failed"

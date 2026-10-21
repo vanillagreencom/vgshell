@@ -99,6 +99,39 @@ Singleton {
         return () => { inputSurfaces = inputSurfaces.filter(r => r !== record); };
     }
 
+    // A typed reference clears when its window is destroyed. A newer close
+    // invalidates both an in-flight read and an activation still queued.
+    property QtObject activationWindow: null
+    property int activationEpoch: 0
+
+    function activateWindow(window) {
+        ++activationEpoch;
+        activationWindow = window;
+        // Layer openers have no toplevel title. Their host owns layer focus.
+        if (window === null || !window.visible || window.title === undefined) return;
+        activationReader.read(["hyprctl", "--batch", Dispatch.ACTIVATION_STATE_REQUEST], activationEpoch);
+    }
+
+    function activationLive(epoch) {
+        return epoch === activationEpoch && activationWindow !== null && activationWindow.visible;
+    }
+
+    HyprctlReader {
+        id: activationReader
+        label: "activation"
+        onReadDone: (epoch, text, failure) => {
+            if (!root.activationLive(epoch)) return;
+            const r = failure === "" ? Dispatch.activationRequest(text, Quickshell.processId, root.activationWindow.title, Hyprland.usingLua)
+                : { ok: false, error: failure };
+            if (!r.ok) { console.error("compositor: " + r.error); return; }
+            const lua = Hyprland.usingLua;
+            root.enqueue(r.argv, answer => {
+                const judged = Dispatch.activationAnswer(answer, lua);
+                if (judged !== "ok") console.error("compositor: " + judged);
+            }, true, null, epoch);
+        }
+    }
+
     function observeInput(point, done) {
         if (typeof done !== "function") throw new Error("refused: input=callback");
         if (inputObservation !== null) { done({ ok: false, error: "refused: input=busy" }); return; }
@@ -377,14 +410,14 @@ Singleton {
         }
     }
 
-    function enqueue(argv, done, judged, power) {
+    function enqueue(argv, done, judged, power, activation) {
         if (queue.length >= Dispatch.QUEUE_LIMIT) {
             const error = "refused: dispatch-queue=full limit=" + Dispatch.QUEUE_LIMIT + " request=" + JSON.stringify(argv);
             console.error("compositor: " + error);
             return error;
         }
         if (power && power.state === "off" && !acquirePowerObserver()) return "refused: display-power=wake-monitor-failed";
-        queue = queue.concat([{ argv: argv, done: typeof done === "function" ? done : null, judged: judged === true, power: power || null }]);
+        queue = queue.concat([{ argv: argv, done: typeof done === "function" ? done : null, judged: judged === true, power: power || null, activation: activation === undefined ? null : activation }]);
         drain();
         return "ok";
     }
@@ -394,6 +427,7 @@ Singleton {
         while (queue.length > 0) {
             const item = queue[0];
             queue = queue.slice(1);
+            if (item.activation !== null && !activationLive(item.activation)) continue;
             const power = item.power;
             if (power !== null && power.state === "off") {
                 if (power.canceled || !acquirePowerObserver()) continue;

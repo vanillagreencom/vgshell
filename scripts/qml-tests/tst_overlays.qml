@@ -1,7 +1,9 @@
 import QtQuick
 import QtTest
+import Quickshell
 import Quickshell.Hyprland
 import qs.Commons
+import qs.Core
 import qs.Ui
 import qs.Unit
 
@@ -47,6 +49,12 @@ Item {
     id: root
     width: 300
     height: 240
+
+    QtObject {
+        id: activationOwner
+        property var screen: null
+        property Item contentItem: root
+    }
 
     Item { id: host; width: 60; height: 26
         Popover { id: popover; width: 120; Item { width: 100; height: 40 } }
@@ -213,6 +221,67 @@ Item {
             menu.triggerCurrent();
             compare(root.triggered, 1);
             tryCompare(menu, "opened", false);
+        }
+
+        function test_menu_restores_its_owner_only_for_intentional_closes_data() {
+            return [
+                { tag: "trigger", close: "trigger", restores: true },
+                { tag: "escape", close: "escape", restores: true },
+                { tag: "outside", close: "outside", restores: false },
+                { tag: "programmatic", close: "programmatic", restores: false },
+                { tag: "submenu", close: "submenu", restores: false }
+            ];
+        }
+
+        function test_menu_restores_its_owner_only_for_intentional_closes(data) {
+            const saved = QsWindow.window;
+            const owner = activationOwner;
+            QsWindow.window = owner;
+            Compositor.activations = [];
+            const target = data.close === "submenu" ? nested : menu;
+            try {
+                target.open("key");
+                if (data.close === "trigger" || data.close === "submenu") target.triggerCurrent();
+                else if (data.close === "escape") {
+                    target.surface.scope.forceActiveFocus();
+                    keyClick(Qt.Key_Escape);
+                }
+                else if (data.close === "outside") target.surface.visible = false;
+                else target.close();
+                compare(target.opened, data.close === "submenu");
+                compare(Compositor.activations.length, data.restores ? 1 : 0);
+                if (data.restores) compare(Compositor.activations[0], owner);
+            } finally {
+                target.close();
+                QsWindow.window = saved;
+                Compositor.activations = [];
+            }
+        }
+
+        function test_native_activation_judges_the_client_and_both_dispatcher_dialects() {
+            const clients = [{ mapped: true, pid: 42, title: "Window", address: "0xab" },
+                { mapped: true, pid: 99, title: "Window", address: "0xcd" }];
+            const state = JSON.stringify(clients) + "\n\n\n" + JSON.stringify({ x: 10, y: 923 });
+            const lua = Dispatch.activationRequest(state, 42, "Window", true);
+            verify(lua.ok);
+            compare(lua.argv[0], "hyprctl");
+            verify(lua.argv[2].includes("address:0xab"));
+            verify(!lua.argv[2].includes("address:0xcd"));
+            verify(lua.argv[2].includes("hl.get_cursor_pos()"));
+            const classic = Dispatch.activationRequest(state, 42, "Window", false);
+            verify(classic.ok);
+            compare(classic.argv, ["hyprctl", "--batch", "dispatch focuswindow address:0xab ; dispatch movecursor 10 923"]);
+            verify(!Dispatch.activationRequest(state, 41, "Window", true).ok);
+            verify(!Dispatch.activationRequest(state, 42, "Other", true).ok);
+            verify(!Dispatch.activationRequest("unread", 42, "Window", true).ok);
+            const duplicate = JSON.stringify([clients[0], clients[0]]) + "\n\n\n{}";
+            verify(!Dispatch.activationRequest(duplicate, 42, "Window", true).ok);
+            const badCursor = JSON.stringify(clients) + '\n\n\n{"x":"bad","y":923}';
+            verify(!Dispatch.activationRequest(badCursor, 42, "Window", false).ok);
+            compare(Dispatch.activationAnswer("ok", true), "ok");
+            compare(Dispatch.activationAnswer("ok\n\n\nok", false), "ok");
+            verify(Dispatch.activationAnswer("ok\n\n\nrefused", false) !== "ok");
+            verify(Dispatch.activationAnswer("exit=1", true) !== "ok");
         }
 
         // The bar's path: a menu made and opened in one turn shows its

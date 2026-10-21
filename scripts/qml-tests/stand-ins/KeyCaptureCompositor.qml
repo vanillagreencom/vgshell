@@ -10,6 +10,9 @@ QtObject {
     property var requests: []
     property var answers: []
     property string refuse: ""
+    property var activations: []
+
+    function activateWindow(window) { activations = activations.concat([window]); }
 
     function passthrough(verb, done) {
         requests = requests.concat([verb]);
