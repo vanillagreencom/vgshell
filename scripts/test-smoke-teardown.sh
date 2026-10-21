@@ -53,6 +53,22 @@ failures=0
 ok() { printf '  ok    %s\n' "$*"; }
 fail() { failures=$((failures + 1)); printf '  FAIL  %s\n' "$*"; }
 
+# mutate OLD NEW OUT: a copy of the teardown with OLD, which must occur
+# once, replaced by NEW.
+mutate() {
+  local text rest count
+  text="$(<"$teardown")"
+  rest="${text//"$1"/}"
+  count=$(( (${#text} - ${#rest}) / ${#1} ))
+  if [[ $count -ne 1 ]]; then
+    printf '        mutation matched %s times: %s\n' "$count" "$1"
+    return 1
+  fi
+  printf '%s\n' "${text/"$1"/"$2"}" >"$3"
+  cmp -s -- "$teardown" "$3" && { printf '        mutation left the file unchanged: %s\n' "$1"; return 1; }
+  return 0
+}
+
 # Only disposable git repositories are passed to the teardown, including
 # the control against the previous teardown that would delete a checkout.
 cat >"$tmp/source-child.sh" <<'SH'
@@ -63,7 +79,7 @@ source "$1"
 exit 0
 SH
 source_case() { # TEARDOWN KIND
-  local file="$1" kind="$2" dir target status=0 diagnostic recorded
+  local file="$1" kind="$2" dir target status=0 diagnostic recorded child_path="$PATH" ceiling=""
   source_case_deleted=false
   dir="$(mktemp -d "$tmp/source-case.XXXXXX")" || return 1
   mkdir -- "$dir/repository"
@@ -77,7 +93,7 @@ source_case() { # TEARDOWN KIND
       target="$dir/worktree"
       git -C "$dir/repository" worktree add -q --detach "$target" HEAD || return 1
       ;;
-    export|unrecorded|prefix|removed)
+    export|outside-export|git-failed|unrecorded|prefix|removed)
       target="$dir/export"
       mkdir -- "$target"
       git -C "$dir/repository" archive HEAD | tar -x -C "$target" || return 1
@@ -90,18 +106,34 @@ source_case() { # TEARDOWN KIND
   esac
   recorded="$target"
   case "$kind" in
+    outside-export) ceiling="$dir" ;;
+    git-failed)
+      mkdir -- "$dir/stub"
+      cat >"$dir/stub/git" <<'SH'
+#!/bin/sh
+printf '%s\n' "$*" >"${PROBE_RECEIPT:?}"
+printf 'fatal: fixture cannot read repository metadata\n' >&2
+exit 128
+SH
+      chmod +x "$dir/stub/git"
+      child_path="$dir/stub:$PATH"
+      ;;
     unrecorded) recorded="$dir/other-export" ;;
     prefix) recorded="$target-neighbour" ;;
     removed) rm -rf -- "${target:?}" || return 1 ;;
   esac
   printf '%s\n' "$recorded" >"$dir/ledger"
-  timeout -k 2 10 env -i PATH="$PATH" HOME="$tmp/home" LC_ALL=C VGS_TEST_RUN=1 \
+  timeout -k 2 10 env -i PATH="$child_path" HOME="$tmp/home" LC_ALL=C VGS_TEST_RUN=1 \
+    GIT_CEILING_DIRECTORIES="$ceiling" PROBE_RECEIPT="$dir/probe-called" \
     "$BASH" "$tmp/source-child.sh" "$file" "$target" "$dir/ledger" >"$dir/out" 2>"$dir/err" || status=$?
   diagnostic="$(<"$dir/err")" || return 1
   if [[ $status == 0 && ! -e $target ]]; then source_case_deleted=true; fi
   case "$kind" in
-    export|removed)
+    export|outside-export|removed)
       [[ $status == 0 && ! -e $target && -z $diagnostic ]]
+      ;;
+    git-failed)
+      [[ $status == 1 && $diagnostic == "teardown: source-tree-refused path=$target cause=git-probe-failed" && -d $target && $(<"$target/marker") == retained && $(<"$dir/probe-called") == "-C $target rev-parse --show-toplevel" ]]
       ;;
     *)
       # The issue archive reads this stable refusal record. Every refusal
@@ -110,31 +142,30 @@ source_case() { # TEARDOWN KIND
       ;;
   esac
 }
-source_cases=(repository worktree export unrecorded prefix symlink removed)
+source_cases=(repository worktree export outside-export git-failed unrecorded prefix symlink removed)
 for kind in "${source_cases[@]}"; do
   if source_case "$teardown" "$kind"; then ok "source tree: $kind"; else fail "source tree: $kind"; fi
 done
 # The control runs only the new contract, with the original deletion
 # reachable and every candidate still confined to the scratch directory.
 if [[ $source_tree_only == false ]]; then
-  if ! python3 - "$teardown" "$tmp/source-unguarded.sh" <<'PY_CONTROL'
-import pathlib, sys
-source, target = map(pathlib.Path, sys.argv[1:])
-text = source.read_text()
-old = '  teardown_source_tree_check || source_tree_status=$?'
-assert text.count(old) == 1
-changed = text.replace(old, '  :')
-assert changed != text
-target.write_text(changed)
-PY_CONTROL
-  then fail 'control: source tree refusal mutation'
-  elif source_case "$tmp/source-unguarded.sh" worktree; then
-    fail 'control: an unguarded source tree deletion left the worktree case green'
-  elif [[ $source_case_deleted != true ]]; then
-    fail 'control: the worktree case failed without deleting its throwaway worktree'
-  else
-    ok 'control: an unguarded source tree deletion'
-  fi
+  source_controls=(
+    'an unguarded source tree deletion|  teardown_source_tree_check|  : #|worktree'
+    'an ignored Git probe failure|          cause=git-probe-failed|          :|git-failed'
+  )
+  for i in "${!source_controls[@]}"; do
+    IFS='|' read -r label old new kind <<<"${source_controls[i]}"
+    mutant="$tmp/source-unguarded-$i.sh"
+    if ! mutate "$old" "$new" "$mutant"; then
+      fail "control: $label mutation"
+    elif source_case "$mutant" "$kind"; then
+      fail "control: $label left its case green"
+    elif [[ $source_case_deleted != true ]]; then
+      fail "control: $label failed without deleting its throwaway target"
+    else
+      ok "control: $label"
+    fi
+  done
 fi
 if [[ $source_tree_only == true ]]; then
   if [[ $failures -gt 0 ]]; then echo "test-smoke-teardown: failed=$failures"; exit 1; fi
@@ -367,22 +398,6 @@ cases_table=(
 for row in "${cases_table[@]}"; do
   if run_case "$teardown" "$row"; then ok "${row%%|*}"; else fail "${row%%|*}: ${problems[*]}"; fi
 done
-
-# mutate OLD NEW OUT: a copy of the teardown with OLD, which must occur
-# once, replaced by NEW.
-mutate() {
-  local text rest count
-  text="$(<"$teardown")"
-  rest="${text//"$1"/}"
-  count=$(( (${#text} - ${#rest}) / ${#1} ))
-  if [[ $count -ne 1 ]]; then
-    printf '        mutation matched %s times: %s\n' "$count" "$1"
-    return 1
-  fi
-  printf '%s\n' "${text/"$1"/"$2"}" >"$3"
-  cmp -s -- "$teardown" "$3" && { printf '        mutation left the file unchanged: %s\n' "$1"; return 1; }
-  return 0
-}
 
 # Rows: label | text | replacement | the case label that must go red | the
 # problem that case must report | the teardown failure line it must print,

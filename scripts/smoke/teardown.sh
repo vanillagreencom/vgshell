@@ -33,7 +33,7 @@ teardown_step() {
 # grants no ownership, even when it names a directory inside the checkout.
 teardown_source_tree_check() {
   [[ -n ${source_tree:-} ]] || return 0
-  local cause="" recorded owned=false canonical top
+  local cause="" recorded owned=false canonical top probe_status
   if [[ $source_tree != /* || $source_tree == *$'\n'* ]]; then
     cause=invalid-path
   elif [[ -z ${VGSHELL_FENCE_LEDGER:-} || ! -f $VGSHELL_FENCE_LEDGER || ! -r $VGSHELL_FENCE_LEDGER ]]; then
@@ -53,8 +53,16 @@ teardown_source_tree_check() {
         cause=path-unreadable
       elif ! command -v git >/dev/null 2>&1; then
         cause=git-unavailable
-      elif top="$(git -C "$source_tree" rev-parse --show-toplevel 2>/dev/null)" && [[ $canonical == "$top" ]]; then
-        cause=git-checkout
+      else
+        probe_status=0
+        # Cross mount boundaries so an outside export has one explicit
+        # no-repository result; every other failed lookup refuses deletion.
+        top="$(LC_ALL=C GIT_DISCOVERY_ACROSS_FILESYSTEM=1 git -C "$source_tree" rev-parse --show-toplevel 2>&1)" || probe_status=$?
+        if [[ $probe_status == 0 ]]; then
+          [[ $canonical != "$top" ]] || cause=git-checkout
+        elif [[ $probe_status != 128 || $top != 'fatal: not a git repository (or any of the parent directories): .git' ]]; then
+          cause=git-probe-failed
+        fi
       fi
     fi
   fi
