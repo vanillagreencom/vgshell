@@ -324,7 +324,7 @@ Scope {
             names: item.lists.nearby.map(row => row.text),
             focusedKey: list.activeFocus ? list.currentKey : "",
             focusedRowKey: list.activeFocus && list.rowAt(list.current) !== null
-                ? list.rowAt(list.current).modelData.key : "",
+                ? list.rowAt(list.current).key : "",
             contentY: root.bluetoothView === null ? null : root.bluetoothView.contentY
         };
     }
