@@ -431,18 +431,31 @@ tailscale_tab_to() { # WANT [HOST]
   type_keys -k Tab || return 1
   echo moving
 }
-# tailscale_tab_until WANT [HOST]: Tab, up to 20 presses, each waiting up
-# to 1 s for the keys to move, until they are on WANT: `reached`, else
-# where they stopped.
-tailscale_tab_until() { # WANT [HOST]
+# tailscale_tab_focus HOST [LIST]: the keys' [type, text] in HOST; with
+# LIST, followed by ` outside LIST` while the DeviceList of that objectName
+# does not hold them, since two lists can draw a row of one name.
+tailscale_tab_focus() { # HOST [LIST]
+  local at held
+  at="$(tailscale_focus "$1")" || return 1
+  if [[ -n ${2:-} ]]; then
+    held="$(ipc smoke readMatchingDescendant "$1" vgs.tailscale DeviceList objectName "$2" activeFocus)" || return 1
+    [[ $held == true ]] || at="$at outside $2"
+  fi
+  printf '%s\n' "$at"
+}
+# tailscale_tab_until WANT [HOST [LIST]]: Tab, up to 20 presses, each
+# waiting up to 1 s for the keys to move, until they are on WANT, inside
+# LIST when given (tailscale_tab_focus): `reached`, else where they
+# stopped.
+tailscale_tab_until() { # WANT [HOST [LIST]]
   local at before
-  at="$(tailscale_focus "${2:-panel}")" || return 1
+  at="$(tailscale_tab_focus "${2:-panel}" "${3:-}")" || return 1
   for _ in $(seq 1 20); do
     if [[ $at == "$1" ]]; then echo reached; return; fi
     before="$at"
     type_keys -k Tab || return 1
     for _ in $(seq 1 10); do
-      at="$(tailscale_focus "${2:-panel}")" || return 1
+      at="$(tailscale_tab_focus "${2:-panel}" "${3:-}")" || return 1
       [[ $at == "$before" ]] || break
       sleep 0.1
     done
@@ -770,9 +783,11 @@ expect_poll "the pane's chooser lists None, the tailnet's node, then Mullvad by 
   "$(words None "Use this computer's own connection" "Your exit nodes" gateway Online Mullvad Sweden Stockholm Switzerland Zurich "In use")" tailscale_drawn window ExitNodes ""
 expect "the pane draws Check every once" 1 tailscale_check_every window
 # The pane opens its account and network devices rows, so the walk
-# crosses their lists, Add account, Sign out and each Copy.
+# crosses their lists, Add account, Sign out and each Copy. The network
+# devices list draws a gateway row too, so the walk names the chooser's
+# list.
 expect "the keyboard's pane opens the account and network devices rows" '[true, true]' tailscale_disclosures window
-expect "Tab reaches the tailnet's exit node in the pane's chooser" reached tailscale_tab_until '["DeviceRow","gateway"]' window
+expect "Tab reaches the tailnet's exit node in the pane's chooser" reached tailscale_tab_until '["DeviceRow","gateway"]' window tailscale-exit-own
 type_keys -k Return
 expect_poll "Enter on a node sets it by its DNS name" \
   '[["down"], ["up"], ["set", "--exit-node=gateway.tail-fixture.ts.net"]]' tailscale_changes "$tailscale_calls_before"
