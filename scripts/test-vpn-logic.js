@@ -544,6 +544,21 @@ function suite(logic, service = serviceSource) {
         owner.addresses = {};
         return owner;
     };
+    // Opening a view leases faster list reads; it must retain failures the
+    // last connect learned. Explicit refresh owns their invalidation.
+    for (const kind of ["sign-in", "plugin-needed", "password-tried"]) {
+        const leased = detailOwner();
+        leased.leases = {};
+        leased.failures = { [BRANCH]: { kind, service: "vpnc" } };
+        method(leased, "lease");
+        assert.equal(leased.lease(JSON.stringify({ id: "view", open: true })), "ok");
+        assert.deepEqual(plain(leased.leases), { view: true });
+        assert.deepEqual(plain(leased.failures), { [BRANCH]: { kind, service: "vpnc" } });
+        assert.deepEqual([leased.refreshed, leased.starts, leased.detailsRead], [1, 0, key]);
+        assert.equal(leased.lease(JSON.stringify({ id: "view", open: false })), "ok");
+        assert.deepEqual(plain(leased.leases), {});
+        assert.equal(leased.refreshed, 1);
+    }
     const finishDetails = new Function("root", "Logic", "detailsText", "detailsDeadline", "console", "reader",
         "with (reader) {" + bodyOf("detailsReader", "details") + "}");
     const edited = detailOwner(true);
@@ -765,6 +780,7 @@ try {
         ["optional profile absence is informational", "if (code === 1 || code === 8) console.log(diagnostic);", "if (code === 1 || code === 8) console.warn(diagnostic);"],
         ["a failed detail read keeps nothing", "if (read === null) {", "if (false) {"],
         ["a failed detail read retries", 'root.detailsRead = "";', ""],
+        ["a view lease preserves learned failures", "if (request.open) readProfiles();", "if (request.open) refresh();"],
         ["a successful up clears its failure", "if (code === 0) delete next[action.uuid];", "if (code === 0) {}"],
         ["a gone profile leaves no problem", 'Logic.removeOutcome(code, output) === "failed"', 'code !== 0'],
         ["no nmcli text reaches the log", '" code=" + code);\n            if (action.kind', '" code=" + code + " " + output);\n            if (action.kind'],

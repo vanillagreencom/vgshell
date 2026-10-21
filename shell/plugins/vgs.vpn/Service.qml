@@ -102,7 +102,7 @@ Item {
         if (request.open) next[request.id] = true;
         else delete next[request.id];
         leases = next;
-        if (request.open) refresh();
+        if (request.open) readProfiles();
         return "ok";
     }
 

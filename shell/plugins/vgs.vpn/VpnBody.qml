@@ -329,11 +329,11 @@ FocusScope {
             title: "Profiles"
             infoTitle: "What VGS can connect"
             info: "To make or change a profile, use Add with connection editor or Edit in connection editor.\n\n"
-                + "Import WireGuard (.conf) or OpenVPN (.ovpn; needs its NetworkManager plugin).\n\n"
+                + "Import: WireGuard .conf, or OpenVPN .ovpn with its NetworkManager plugin.\n\n"
                 + "Connect: WireGuard with saved keys; VPN with its plugin and saved credentials. "
-                + "OpenVPN, L2TP, PPTP, SSTP and Fortinet SSL can ask for one password.\n\n"
+                + "OpenVPN, L2TP, PPTP, SSTP and Fortinet SSL: one password prompt.\n\n"
                 + "OpenConnect, web sign-in, codes, smart cards, certificate passphrases or other secrets need the provider's app.\n\n"
-                + "Details: type, server, connected address. Remove deletes saved secrets; separate key and certificate files stay."
+                + "Details: type, server, connected address. Remove deletes saved secrets; key/certificate files stay."
             description: root.profiles.count > root.profileRows.length
                 ? "Showing " + root.profileRows.length + " of " + root.profiles.count + " profiles." : ""
             Loader {
