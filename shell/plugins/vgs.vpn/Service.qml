@@ -7,8 +7,8 @@ import "VpnLogic.js" as Logic
 // Views hold a lease for the fast poll and use the plugin's IPC:
 // lease {id,open}; action {kind,id} with the profile's uuid for
 // profile-up, profile-down, profile-remove and profile-details; import,
-// refresh (optionally the edited uuid) and open. A password connect is no
-// IPC action: its masked prompt calls VpnLogic.submitConnect, which reaches
+// refresh (the edited uuid, or empty for metadata) and open. A password
+// connect is no IPC action: its masked prompt calls VpnLogic.submitConnect, which reaches
 // connectWithPassword here directly with the one-use stdin closure.
 // nmcli's output stays in this file: VpnLogic parses the fields a view
 // shows and drops the rest, and a log line names the operation, its
@@ -31,7 +31,7 @@ Item {
     // Per uuid: { service, server } from the one detail read of the
     // current uuid set, the address while activated, and the failure the
     // last `up` left, which stays until an `up` succeeds, the profile is
-    // seen activated or it leaves the list. An editor return clears every
+    // seen activated or it leaves the list. An editor handoff clears every
     // failure of its uuid; a requirements rescan clears sign-in and
     // missing-plugin failures (VpnLogic.afterRescan).
     // The problem line of the last failed action, { uuid, kind, text },
@@ -85,9 +85,10 @@ Item {
         else readProfiles();
     }
     function refresh(editedUuid) {
-        // The editor may save new details or credentials under the same
-        // UUID. Refresh reads them through the existing readers; if an
-        // earlier detail read is in flight, readDetails coalesces a new one.
+        // A pane open or activation passes an empty UUID to read metadata;
+        // an editor handoff passes its UUID to also forget learned failures.
+        // Invalidation lives here even if that pane is then destroyed.
+        // An in-flight detail read coalesces a new read through readDetails.
         failures = Logic.afterRescan(failures, editedUuid);
         profileProblem = Logic.problemAfter(profileProblem, listing.rows, failures);
         detailsRead = "";

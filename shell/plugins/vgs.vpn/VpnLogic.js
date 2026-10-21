@@ -223,16 +223,16 @@ function upFailure(code, text, row, carried) {
     return { kind: single ? "needs-password" : "sign-in", service: "" };
 }
 
-// An editor return invalidates every learned failure for its UUID: the
-// editor may have replaced its credentials, type or plugin. Other profiles
-// keep their failures. An unscoped requirements rescan follows an install
-// and retries only the missing-plugin and sign-in facts it can change.
+// An editor handoff invalidates every learned failure for its UUID: the
+// editor may replace its credentials, type or plugin. Other profiles
+// keep their failures. An empty UUID reads metadata without invalidation;
+// only an omitted UUID is the internal requirements rescan after install.
 function afterRescan(failures, editedUuid) {
     const kept = {};
-    const editing = typeof editedUuid === "string" && editedUuid !== "";
     for (const uuid of Object.keys(failures)) {
-        const keep = editing ? uuid !== editedUuid
-            : failures[uuid].kind !== "sign-in" && failures[uuid].kind !== "plugin-needed";
+        const keep = editedUuid === undefined
+            ? failures[uuid].kind !== "sign-in" && failures[uuid].kind !== "plugin-needed"
+            : uuid !== editedUuid;
         if (keep) kept[uuid] = failures[uuid];
     }
     return kept;

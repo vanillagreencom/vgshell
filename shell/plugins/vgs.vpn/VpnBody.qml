@@ -38,8 +38,6 @@ FocusScope {
     property string leaseId: ""
     property bool leased: false
     property string localProblem: ""
-    // null while no editor return is pending, "" for Add, or Edit's UUID.
-    property var editorTarget: null
     readonly property var profiles: shell === null || !shell.status.values.profiles
         ? Logic.compose(Logic.emptyProfiles("reading"), {}, {}, {}, null, "") : shell.status.values.profiles
     readonly property var profileRows: profiles.rows
@@ -83,6 +81,10 @@ FocusScope {
     function open() {
         if (leaseId === "") leaseId = String(root);
         if (shell !== null && !leased) leased = shell.ipc.call("lease", JSON.stringify({ id: leaseId, open: true })) === "ok";
+        // A recreated pane may open in an already active window after an
+        // editor changed metadata under an unchanged profile UUID.
+        if (expanded && shell !== null)
+            answered(shell.ipc.call("refresh", ""), "VGS could not refresh VPN profiles.");
     }
     function close() {
         prompt.clear();
@@ -93,16 +95,13 @@ FocusScope {
         leased = false;
     }
     Component.onDestruction: close()
-    // Window.active follows the containing window's activation. Only a
-    // launch from this body arms an editor return; ordinary activation
-    // preserves learned password retries and the prompt's typed text.
+    // Window.active follows the containing window's activation. Read the
+    // editor's saved metadata on return; the empty refresh preserves every
+    // learned failure and the prompt's typed retry text.
     // https://doc.qt.io/qt-6/qml-qtquick-window.html#active-attached-prop
     Window.onActiveChanged: {
-        if (expanded && Window.active && shell !== null && editorTarget !== null) {
-            const uuid = editorTarget;
-            editorTarget = null;
-            answered(shell.ipc.call("refresh", uuid), "VGS could not refresh VPN profiles.");
-        }
+        if (expanded && Window.active && shell !== null)
+            answered(shell.ipc.call("refresh", ""), "VGS could not refresh VPN profiles.");
     }
 
     function answered(reply, refusal) {
@@ -180,7 +179,10 @@ FocusScope {
         const missing = shell.requirements.missing.includes("nm-connection-editor");
         const reply = answered(missing ? shell.requirements.offer(["nm-connection-editor"]) : shell.run.detached(plan.argv),
             "VGS could not open the connection editor.");
-        if (!missing && reply === "ok") editorTarget = kind === "edit" ? uuid : "";
+        // Forget the edited profile's learned failures at handoff, so a
+        // destroyed pane cannot leave them cached after the editor saves.
+        if (!missing && reply === "ok" && kind === "edit")
+            answered(shell.ipc.call("refresh", uuid), "VGS could not refresh VPN profiles.");
     }
 
     function askRemove(row) {
