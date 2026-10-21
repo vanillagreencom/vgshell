@@ -819,8 +819,6 @@ expect "no peer id reached a tailscale argv" 0 tailscale_argv_ids "$tailscale_ca
 expect_poll "the change ends" '""' tailscale_value action
 expect "a denied change and a denied sign-in leave another problem than a plain failure" told-apart tailscale_failures
 tailscale_leave_pane "keys"
-hypr_lua_restore tailscale || fail "hyprland.lua is put back after the Tailscale keyboard path"
-expect "the nested instance reloads hyprland.lua as the row found it" ok hypr reload config-only
 
 # The flyout, and the poll interval behind it.
 expect_poll "the poll is slow again with System closed" 30000 tailscale_interval
@@ -1389,3 +1387,5 @@ device_reply_clear tailscale
 device_reply_clear systemctl
 device_reply_clear xdg-open
 sentinel_restore "$shim/tailscale"
+hypr_lua_restore tailscale || fail "hyprland.lua is put back after the Tailscale row's keyboard paths"
+expect "the nested instance reloads hyprland.lua as the row found it" ok hypr reload config-only
