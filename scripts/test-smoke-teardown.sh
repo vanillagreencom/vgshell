@@ -24,10 +24,19 @@ set -euo pipefail
 self="$(readlink -f -- "${BASH_SOURCE[0]}")"
 repo="$(cd -- "$(dirname -- "$self")/.." && pwd)"
 teardown="$repo/scripts/smoke/teardown.sh"
+source_tree_only=false
+if [[ ${1:-} == --source-tree-cases && $# -le 2 ]]; then
+  source_tree_only=true
+  teardown="${2:-$teardown}"
+elif [[ $# -gt 0 ]]; then
+  echo 'test-smoke-teardown: refused: arguments' >&2
+  exit 2
+fi
 
 # The EXIT trap is armed only on the directory mktemp made: an empty or
 # non-directory answer never reaches rm -rf.
-tmp="$(mktemp -d)" || { echo "test-smoke-teardown: scratch=mktemp-failed" >&2; exit 1; }
+mkdir -p -- "$repo/tmp"
+tmp="$(mktemp -d "$repo/tmp/test-smoke-teardown.XXXXXX")" || { echo "test-smoke-teardown: scratch=mktemp-failed" >&2; exit 1; }
 [[ -d $tmp && ! -L $tmp ]] || { echo "test-smoke-teardown: scratch=not-a-directory value=[$tmp]" >&2; exit 1; }
 tmp="$(cd -- "$tmp" && pwd -P)"
 # Process groups this suite started or its children recorded. A control's
@@ -43,6 +52,95 @@ trap finish EXIT
 failures=0
 ok() { printf '  ok    %s\n' "$*"; }
 fail() { failures=$((failures + 1)); printf '  FAIL  %s\n' "$*"; }
+
+# Only disposable git repositories are passed to the teardown, including
+# the control against the previous teardown that would delete a checkout.
+cat >"$tmp/source-child.sh" <<'SH'
+set -euo pipefail
+sandbox="" rt_dir="" pgids=() keep=false
+source_tree="$2" VGSHELL_FENCE_LEDGER="$3"
+source "$1"
+exit 0
+SH
+source_case() { # TEARDOWN KIND
+  local file="$1" kind="$2" dir target status=0 diagnostic recorded
+  source_case_deleted=false
+  dir="$(mktemp -d "$tmp/source-case.XXXXXX")" || return 1
+  mkdir -- "$dir/repository"
+  git -C "$dir/repository" init -q || return 1
+  printf 'retained\n' >"$dir/repository/marker"
+  git -C "$dir/repository" add marker || return 1
+  git -C "$dir/repository" -c user.name=Test -c user.email=test@example.invalid commit -qm fixture || return 1
+  case "$kind" in
+    repository) target="$dir/repository" ;;
+    worktree)
+      target="$dir/worktree"
+      git -C "$dir/repository" worktree add -q --detach "$target" HEAD || return 1
+      ;;
+    export|unrecorded|prefix|removed)
+      target="$dir/export"
+      mkdir -- "$target"
+      git -C "$dir/repository" archive HEAD | tar -x -C "$target" || return 1
+      ;;
+    symlink)
+      target="$dir/export"
+      ln -s -- "$dir/repository" "$target" || return 1
+      ;;
+    *) return 1 ;;
+  esac
+  recorded="$target"
+  case "$kind" in
+    unrecorded) recorded="$dir/other-export" ;;
+    prefix) recorded="$target-neighbour" ;;
+    removed) rm -rf -- "${target:?}" || return 1 ;;
+  esac
+  printf '%s\n' "$recorded" >"$dir/ledger"
+  timeout -k 2 10 env -i PATH="$PATH" HOME="$tmp/home" LC_ALL=C VGS_TEST_RUN=1 \
+    "$BASH" "$tmp/source-child.sh" "$file" "$target" "$dir/ledger" >"$dir/out" 2>"$dir/err" || status=$?
+  diagnostic="$(<"$dir/err")" || return 1
+  if [[ $status == 0 && ! -e $target ]]; then source_case_deleted=true; fi
+  case "$kind" in
+    export|removed)
+      [[ $status == 0 && ! -e $target && -z $diagnostic ]]
+      ;;
+    *)
+      # The issue archive reads this stable refusal record. Every refusal
+      # must preserve the directory and the fixture content it held.
+      [[ $status == 1 && $diagnostic == "teardown: source-tree-refused path=$target cause="?* && -d $target && $(<"$target/marker") == retained ]]
+      ;;
+  esac
+}
+source_cases=(repository worktree export unrecorded prefix symlink removed)
+for kind in "${source_cases[@]}"; do
+  if source_case "$teardown" "$kind"; then ok "source tree: $kind"; else fail "source tree: $kind"; fi
+done
+# The control runs only the new contract, with the original deletion
+# reachable and every candidate still confined to the scratch directory.
+if [[ $source_tree_only == false ]]; then
+  if ! python3 - "$teardown" "$tmp/source-unguarded.sh" <<'PY_CONTROL'
+import pathlib, sys
+source, target = map(pathlib.Path, sys.argv[1:])
+text = source.read_text()
+old = '  teardown_source_tree_check || source_tree_status=$?'
+assert text.count(old) == 1
+changed = text.replace(old, '  :')
+assert changed != text
+target.write_text(changed)
+PY_CONTROL
+  then fail 'control: source tree refusal mutation'
+  elif source_case "$tmp/source-unguarded.sh" worktree; then
+    fail 'control: an unguarded source tree deletion left the worktree case green'
+  elif [[ $source_case_deleted != true ]]; then
+    fail 'control: the worktree case failed without deleting its throwaway worktree'
+  else
+    ok 'control: an unguarded source tree deletion'
+  fi
+fi
+if [[ $source_tree_only == true ]]; then
+  if [[ $failures -gt 0 ]]; then echo "test-smoke-teardown: failed=$failures"; exit 1; fi
+  echo 'test-smoke-teardown: ok'
+  exit 0
+fi
 
 # The process group the child records. TERM from the teardown writes the
 # marker the second-signal cases wait for.
@@ -69,6 +167,9 @@ sandbox="" rt_dir="" pgids=() keep=false
 [[ $mode != keep ]] || keep=true
 source_tree="$case_dir/export"
 mkdir -- "$source_tree"
+VGSHELL_FENCE_LEDGER="$case_dir/ledger"
+printf '%s\n' "$source_tree" >"$VGSHELL_FENCE_LEDGER"
+[[ $mode != refused ]] || : >"$VGSHELL_FENCE_LEDGER"
 source "$teardown"
 sandbox="$case_dir/sandbox"
 mkdir -- "$sandbox"
@@ -127,7 +228,7 @@ if [[ $mode == recorder* ]]; then
   }
 fi
 case $mode in
-  abort|keep|recorder|recorder-failed|recorder-close-failed) false ;;
+  abort|keep|refused|recorder|recorder-failed|recorder-close-failed) false ;;
   wait) : >"$case_dir/ready"; while :; do sleep 0.1; done ;;
 esac
 SH
@@ -205,7 +306,12 @@ run_case() {
   else
     problems+=("recorded-group=unrecorded")
   fi
-  [[ ! -e $case_dir/export ]] || problems+=("export=left")
+  if [[ $mode == refused ]]; then
+    [[ -d $case_dir/export ]] || problems+=("refused-export=removed")
+    grep -Fx -- "teardown: source-tree-refused path=$case_dir/export cause=unrecorded-export" "$case_dir/err" >/dev/null || problems+=("source-refusal=missing")
+  else
+    [[ ! -e $case_dir/export ]] || problems+=("export=left")
+  fi
   if [[ -f $case_dir/recorder ]]; then
     recorded="$(<"$case_dir/recorder")"
     groups+=("$recorded")
@@ -253,6 +359,7 @@ cases_table=(
   "a second TERM during the teardown does not cut it|wait|TERM TERM|143|gone"
   "a HUP after a TERM does not cut the teardown|wait|TERM HUP|143|gone"
   "a kept sandbox is removable with plain rm -rf|keep||1|kept"
+  "a refused source tree still releases owned sandbox and process groups|refused||1|gone"
   "recorder finalization follows producers and retains evidence before removal|recorder||1|gone"
   "recorder failure retains incomplete evidence without changing original exit|recorder-failed||1|gone"
   "failed close retains an explicit error and original exit|recorder-close-failed||1|gone"
