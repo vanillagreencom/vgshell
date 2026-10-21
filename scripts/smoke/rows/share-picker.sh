@@ -656,7 +656,7 @@ edit_tree share-sources-room-control shell/plugins/vgs.capture/Window.qml \
   'readonly property real choicesHeight: bodyChrome + hintRoom + sourcesRoom + 3 * Theme.stack.group' \
   'readonly property real choicesHeight: bodyChrome + hint.implicitHeight + sources.height + 3 * Theme.stack.group'
 share_short_list="$share_window_list"
-for share_listed in 1 2 3 4 5 6; do share_window_list+="$((80 + share_listed))[HC>]smoke.share-listed[HT>]Listed window $share_listed[HE>]$share_listed[HA>]"; done
+for share_listed in 1 2 3 4 5 6; do share_window_list+="$((80 + share_listed))[HC>]smoke.share-listed[HT>]Listed window ${share_listed}[HE>]${share_listed}[HA>]"; done
 share_mode_size=1440x2160
 hold_mode "Tall output" "$share_output" "$share_mode_size"
 for share_version in before after; do

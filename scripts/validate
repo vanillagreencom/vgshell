@@ -1061,7 +1061,7 @@ class Scan:
                 return i
         return i
 
-    def code(self, i, close):
+    def code(self, i, close, values=False):
         t = self.t
         words = []  # per word: (its unquoted literal text, that text when the word is all literal, its source text)
         cur = None
@@ -1072,11 +1072,12 @@ class Scan:
             if cur is not None:
                 words.append((cur[0], cur[0] if cur[1] else None, t[cur[2]:i]))
                 cur = None
-                case += self.word(words)
+                if not values:
+                    case += self.word(words)
 
         def end_command():
             end_word()
-            if words:
+            if words and not values:
                 self.command(words)
             words.clear()
 
@@ -1130,7 +1131,7 @@ class Scan:
                     i += 2
                 elif cur is not None and cur[1] and cur[0].endswith("="):
                     end_word()  # name=( WORDS ): the words are values
-                    i = self.code(i + 1, ")")
+                    i = self.code(i + 1, ")", values=True)
                 elif cur is None and t.startswith("((", i):
                     i = self.arith(i + 2)
                 else:

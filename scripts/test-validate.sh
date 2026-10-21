@@ -1244,7 +1244,10 @@ if [[ $out == "$full_plan" ]]; then ok "a deleted unmapped source selects full";
 # launcher_close itself, reads the variables, sets launcher_mode itself,
 # and runs other-part, which no name lists and which reads launcher_part.
 # The notifications-keys call of notifications' notify_open is declared,
-# and twice leaves a heredoc open. Variants: no-harness-line
+# Array argv data defines no parent variable, but its variable expansions
+# and command substitutions still read the launcher's state and function.
+# The same-name top-level assignment remains a real defining write.
+# twice leaves a heredoc open. Variants: no-harness-line
 # carries no harness line, no-list has an empty row list and no-core one
 # that does not list auth-sentinel. Expected row sets are
 # written here, not derived from the selector. A control runs a copy of
@@ -1279,11 +1282,13 @@ smoke_fixture() { # DIR [VARIANT]
   printf '# inputs: shell/Core/Start.qml\n' >"$dir/scripts/smoke/rows/start-order.sh"
   printf '# inputs: shell/Core/Auth.qml\n' >"$dir/scripts/smoke/rows/auth-sentinel.sh"
   printf '%s\n' '# inputs: shell/plugins/acme.launcher/*' 'launcher_open() { :; }' 'launcher_close() { :; }' 'launcher_dir="$sandbox/apps"' \
-    'launcher_part=$launcher_dir/part launcher_mode=open' 'sandbox=/elsewhere failures=1' >"$dir/scripts/smoke/rows/launcher.sh"
+    'launcher_part=$launcher_dir/part launcher_mode=open' 'sandbox=/elsewhere failures=1' \
+    'launcher_array_read=$launcher_dir' 'launcher_array_call() { :; }' 'launcher_argv=(TMPDIR="$sandbox" launcher_dir=argument)' >"$dir/scripts/smoke/rows/launcher.sh"
   printf '%s\n' '# inputs: shell/plugins/acme.notify/* scripts/smoke/rows/notifications-keys.sh' 'notify_open() { :; }' >"$dir/scripts/smoke/rows/notifications.sh"
   printf '%s\n' '# inputs: shell/Core/Keys.qml scripts/smoke/rows/notifications.sh' 'notify_open' >"$dir/scripts/smoke/rows/notifications-keys.sh"
   printf '%s\n' '# inputs: shell/plugins/acme.other/*' 'expect "the launcher opens" "" launcher_open' 'launcher_close' 'launcher_mode=other' \
-    'ls -- "$launcher_dir" "$sandbox" "$launcher_mode" "$failures"' 'smoke_row other-part' >"$dir/scripts/smoke/rows/other.sh"
+    'ls -- "$launcher_dir" "$sandbox" "$launcher_mode" "$failures" "$TMPDIR"' \
+    'other_argv=("$launcher_array_read" "$(launcher_array_call)")' 'smoke_row other-part' >"$dir/scripts/smoke/rows/other.sh"
   printf '%s\n' '# Run by other.sh.' 'ls -- "$launcher_part"' >"$dir/scripts/smoke/rows/other-part.sh"
   printf '# A row with no input line.\nset -euo pipefail\n# inputs: shell/plugins/acme.other/*\n' >"$dir/scripts/smoke/rows/bare.sh"
   printf '# inputs: shell/plugins/acme.gone/*\n' >"$dir/scripts/smoke/rows/stale.sh"
@@ -1582,15 +1587,17 @@ smoke_self_check=(
   "validate: smoke-input harness=scripts/smoke/harness.sh glob=scripts/smoke/gone.sh matches-nothing; fix the line in scripts/smoke/harness.sh: # inputs: scripts/smoke/verdict.sh scripts/smoke/helper/* scripts/smoke/gone.sh"
   "validate: smoke-input row=other function=launcher_close from=scripts/smoke/rows/launcher.sh; add to the line in scripts/smoke/rows/other.sh: # inputs: shell/plugins/acme.other/* scripts/smoke/rows/launcher.sh"
   "validate: smoke-input row=other function=launcher_open from=scripts/smoke/rows/launcher.sh; add to the line in scripts/smoke/rows/other.sh: # inputs: shell/plugins/acme.other/* scripts/smoke/rows/launcher.sh"
+  "validate: smoke-input row=other function=launcher_array_call from=scripts/smoke/rows/launcher.sh; add to the line in scripts/smoke/rows/other.sh: # inputs: shell/plugins/acme.other/* scripts/smoke/rows/launcher.sh"
+  "validate: smoke-input row=other variable=launcher_array_read from=scripts/smoke/rows/launcher.sh; add to the line in scripts/smoke/rows/other.sh: # inputs: shell/plugins/acme.other/* scripts/smoke/rows/launcher.sh"
   "validate: smoke-input row=other variable=launcher_dir from=scripts/smoke/rows/launcher.sh; add to the line in scripts/smoke/rows/other.sh: # inputs: shell/plugins/acme.other/* scripts/smoke/rows/launcher.sh"
   "validate: smoke-input row=other variable=launcher_part from=scripts/smoke/rows/launcher.sh; add to the line in scripts/smoke/rows/other.sh: # inputs: shell/plugins/acme.other/* scripts/smoke/rows/launcher.sh"
   "validate: smoke-input unparsed path=scripts/smoke/rows/twice.sh; the function and variable check cannot read it to its end"
 )
 row "the smoke input self-check names each line to add or fix" "$d" 0 "" \
-  "${smoke_self_check[@]}" '!row=launcher' '!row=session' '!row=notifications-keys' '!variable=sandbox' '!variable=failures' '!variable=launcher_mode'
+  "${smoke_self_check[@]}" '!row=launcher' '!row=session' '!row=notifications-keys' '!variable=sandbox' '!variable=failures' '!variable=launcher_mode' '!variable=TMPDIR'
 test_args=(--changed HEAD)
 row "the smoke input self-check leaves a real run passing" "$d" 0 "" \
-  "${smoke_self_check[@]}" "validate: ok"
+  "${smoke_self_check[@]}" '!variable=TMPDIR' "validate: ok"
 test_args=(--changed HEAD --list)
 # Each control: a copy of validate whose function and variable check drops
 # one rule, which wants that rule's line gone and another rule's kept, or,
@@ -1604,6 +1611,7 @@ smoke_reads_controls=(
   "command|            if name:|            if name and at > head(words):|!row=other function=launcher_close|~row=other function=launcher_open"
   "runner|    runs.update(scan.runners)|    runs.update({})|!row=other function=launcher_open|~row=other function=launcher_close"
   "variable|for kind, used, field in ((\"function\", \"calls\", \"funcs\"), (\"variable\", \"reads\", \"sets\")):|for kind, used, field in ((\"function\", \"calls\", \"funcs\"),):|!row=other variable=launcher_dir|~row=other function=launcher_open"
+  "array-values|                    i = self.code(i + 1, \")\", values=True)|                    i = self.code(i + 1, \")\")|~row=other variable=TMPDIR|~row=other variable=launcher_dir"
   "unparsed|if text is None or (scan := Scan(text)).broken:|if text is None or not (scan := Scan(text)):|!smoke-input unparsed path=scripts/smoke/rows/twice.sh|~row=other function=launcher_open"
   "child|            queue += [f\"scripts/smoke/rows/{child}.sh\" for child in scans[rel].rows if child not in listed]|            queue += []|!row=other variable=launcher_part|~row=other variable=launcher_dir"
   "own|owned[row][used] - owned[row][field] - side_owned[field]|owned[row][used] - side_owned[field]|~row=other variable=launcher_mode"
