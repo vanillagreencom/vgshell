@@ -42,7 +42,7 @@ Item {
     // overflow menu: 100 DeviceList rows took 1215-1341 ms with the window
     // built with each row and 105-126 ms with it built on the first open,
     // in qmltestrunner offscreen runs (VGS-1929, 2026-10-21).
-    readonly property var surface: popup.item
+    readonly property var surface: built.window
     readonly property bool opened: surface !== null && surface.visible
     readonly property Item anchorItem: parent
     property int currentIndex: -1
@@ -93,9 +93,7 @@ Item {
     // opened it.
     function open(opener) {
         if (opener !== "key" && opener !== "pointer") throw new Error("menu-opener: " + opener + " is neither key nor pointer");
-        // LazyLoader's `active` builds the window to completion before it
-        // returns: https://quickshell.org/docs/v0.3.1/types/Quickshell/LazyLoader/
-        popup.active = true;
+        if (surface === null) build();
         // Until now the entries stood under this undrawn item, where a
         // Column places no child; the window sizes from their places, so
         // they take them before it shows rather than on the next frame.
@@ -217,10 +215,28 @@ Item {
         width: root.scrollArea === null ? 0 : root.scrollArea.contentWidth
     }
 
-    LazyLoader {
-        id: popup
-        // The first open sets it, and nothing clears it.
-        active: false
+    // The window the first open built.
+    QtObject {
+        id: built
+        property var window: null
+    }
+
+    // Builds the window, which the menu owns from then. createObject
+    // builds to completion before it returns, in any turn of the event
+    // loop: https://doc.qt.io/qt-6/qml-qtqml-component.html#createObject-method
+    // Quickshell's LazyLoader builds nothing until its own reload, which
+    // a loader made after the shell loaded gets on the event loop's next
+    // turn, and a bar widget makes its menu and opens it in one turn
+    // (Quickshell 2b4501a, src/core/reload.cpp componentComplete and
+    // src/core/lazyloader.cpp incubateIfReady).
+    function build() {
+        const window = windowComponent.createObject(root);
+        if (window === null) throw new Error("menu-window: build failed");
+        built.window = window;
+    }
+
+    Component {
+        id: windowComponent
 
         PopupWindow {
             id: window

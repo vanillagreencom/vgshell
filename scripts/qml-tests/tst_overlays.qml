@@ -39,7 +39,9 @@ import qs.Unit
 // entry's icon is as tall as its text's capitals. A menu entry's text and
 // shortcut draw a pixel under a field's, a select's and a list item's.
 // A press in the anchor's window closes each overlay and reaches no item
-// under it. The nested sandbox proves placement, real keys and the
+// under it. A menu made and opened in one turn of the event loop, as a bar
+// widget's is, shows its window on that first open with the cursor on the
+// opening entry. The nested sandbox proves placement, real keys and the
 // compositor's dismissal.
 Item {
     id: root
@@ -101,6 +103,20 @@ Item {
     }
     Component { id: transientTooltip; Tooltip { text: "Transient" } }
     Component { id: scaledWindow; Window { width: 400; height: 120; color: "black" } }
+    // A bar widget's menu as the bar makes it: its Loader builds the menu
+    // on a right click, which opens it in the same turn of the event loop.
+    Component {
+        id: freshMenu
+        Item {
+            readonly property alias menu: made
+            width: 60
+            height: 26
+            Menu { id: made
+                MenuItem { text: "Hide"; iconName: "eye-off" }
+                MenuItem { text: "Settings"; iconName: "settings" }
+            }
+        }
+    }
     // A select whose list opens over a field, as over a settings page's
     // next row.
     Component {
@@ -183,6 +199,17 @@ Item {
             menu.triggerCurrent();
             compare(root.triggered, 1);
             tryCompare(menu, "opened", false);
+        }
+
+        // The bar's path: a menu made and opened in one turn shows its
+        // window with the cursor on the opening entry.
+        function test_a_menu_opens_in_the_turn_that_made_it() {
+            const made = createTemporaryObject(freshMenu, host).menu;
+            made.open("key");
+            verify(made.opened, "the first open shows the window");
+            compare(made.currentIndex, 0, "a key opening highlights the first entry");
+            verify(made.items()[0].cursor === made.plate && made.plate.target === made.items()[0], "the cursor sits on the opening entry");
+            made.close();
         }
 
         function test_menu_skips_disabled_entries_and_starts_at_the_ends() {
