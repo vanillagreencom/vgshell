@@ -260,6 +260,12 @@ Item {
             implicitWidth: Math.min(OverlayState.widthFor(root.anchorItem, Theme.menu.maxWidth), Math.max(Theme.menu.minWidth, Math.ceil(root.widest) + 2 * Theme.border.thin))
             implicitHeight: Math.max(1, Math.min(column.implicitHeight, root.maxHeight) + 2 * root.listInset)
             onVisibleChanged: root.share(visible)
+            // The open that builds the window shows it before Quickshell
+            // makes its backing window, on the next turn of the event loop,
+            // so that open's focus finds no window; the list takes the keys
+            // once the backing window holds it. windowConnected:
+            // https://quickshell.org/docs/v0.3.1/types/Quickshell/QsWindow/
+            onWindowConnected: scope.forceActiveFocus()
 
             DismissScope {
                 id: scope
