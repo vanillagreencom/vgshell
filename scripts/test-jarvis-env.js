@@ -10,6 +10,7 @@ const cp = require("node:child_process");
 const fs = require("node:fs");
 const net = require("node:net");
 const path = require("node:path");
+const vm = require("node:vm");
 
 const helper = path.join(__dirname, "lib/jarvis-env.sh");
 const probe = path.join(__dirname, "fixtures/jarvis-env/probe.py");
@@ -315,7 +316,60 @@ async function main() {
         console.log("  ok    cli-timeout elapsed-ms=" + Number(process.hrtime.bigint() - started) / 1e6);
     }
 
+    function generatedLaunchers() {
+        const tree = path.join(root, "generated-tree");
+        const plugin = "shell/plugins/vgs.jarvis";
+        const scratch = path.join(root, "generated scratch's");
+        const daemon = path.join(root, "generated-daemon.js");
+        fs.writeFileSync(daemon, 'console.log(process.env.JARVIS_TEST_ROOT);\n');
+        fs.mkdirSync(path.join(tree, plugin), { recursive: true });
+        // Each explicit clearEnvironment Process the fixture generator rewrites.
+        const readers = [
+            ["Service.qml", "command:"], ["Keys.qml", "command:"],
+            ["LocalRuntime.qml", "property var command:"], ["LocalTier.qml", "property var command:"],
+            ["CloneRuntime.qml", "command:"], ["BrowserRuntime.qml", "command:"],
+            ["Accounts.qml", "probe.command ="], ["Accounts.qml", "lister.command ="]
+        ];
+        for (const file of new Set(readers.map(([file]) => file)))
+            fs.copyFileSync(path.join(__dirname, "..", plugin, file), path.join(tree, plugin, file));
+        const prepared = run(process.execPath,
+            [path.join(__dirname, "fixtures/jarvis/prepare.js"), path.resolve(__dirname, ".."), tree, scratch], env);
+        assert.equal(prepared.status, 0, prepared.stderr);
+        const cleared = { PATH: systemPath, HOME: env.HOME, XDG_RUNTIME_DIR: runtimeParent, VGS_TEST_RUN: "1" };
+        function check(command) {
+            const result = run(command[0], command.slice(1), cleared);
+            assert.equal(result.status, 0, result.stderr);
+            const allocated = result.stdout.trim();
+            assert.equal(path.dirname(allocated), fs.realpathSync(scratch));
+            assert.equal(fs.existsSync(allocated), false, "generated launcher removes its J09 world");
+        }
+        for (const [file, declaration] of readers) {
+            const lines = fs.readFileSync(path.join(tree, plugin, file), "utf8").split("\n")
+                .filter(line => line.trim().startsWith(declaration) && line.includes(JSON.stringify(helper)));
+            assert.equal(lines.length, 1, file + " " + declaration);
+            const expression = lines[0].slice(lines[0].indexOf("["), lines[0].lastIndexOf("]") + 1);
+            const command = vm.runInNewContext(expression, {
+                root: { daemon, program: "unused" }, program: "unused", wanted: "unused",
+                Quickshell: { shellDir: path.join(tree, "shell"), env: () => "" },
+                Providers: { keyPresence: () => ({}) }
+            });
+            const separator = command.indexOf("--");
+            // Preserve the generated launch boundary. Only the reader payload is
+            // a scratch probe; Service exercises its real stdin lease as well.
+            if (separator >= 0) command.splice(separator + 1, command.length, "node", daemon);
+            check(command);
+            cases++;
+            if (file === "Service.qml") {
+                const missingScratch = command.filter(word => !word.startsWith("JARVIS_TEST_SCRATCH_ROOT="));
+                assert.throws(() => check(missingScratch), assert.AssertionError);
+                controls++;
+            }
+        }
+        console.log("  ok    generated-launchers control=missing-scratch");
+    }
+
     try {
+        generatedLaunchers();
         const standinResult = cli(helper, standins, "jarvis-standin");
         socketRefusal(helper);
         socketEdge(helper);
