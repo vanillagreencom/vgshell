@@ -378,7 +378,16 @@ case "$mode" in
     if [[ -n ${XDG_RUNTIME_DIR:-} && $XDG_RUNTIME_DIR != /tmp && $XDG_RUNTIME_DIR != /tmp/* ]]; then
       mounts+=(--perms 0700 --tmpfs "$XDG_RUNTIME_DIR")
     fi
-    mounts+=(--tmpfs /run/dbus --tmpfs /run/tailscale)
+    skipped_service_masks=()
+    for service_path in /run/dbus /run/tailscale; do
+      # An absent service path exposes no socket. Creating its mask would
+      # require a write below the world's read-only /run.
+      if [[ -e $service_path ]]; then
+        mounts+=(--tmpfs "$service_path")
+      else
+        skipped_service_masks+=("$service_path")
+      fi
+    done
     git_dir="$(git -C "$checkout" rev-parse --absolute-git-dir 2>/dev/null)" || git_dir="$checkout/.git"
     for output in "${outputs[@]}"; do
       output="$(realpath -m -- "$output")" || { note "refused: output=$output reason=resolve-failed"; exit 2; }
@@ -446,6 +455,10 @@ case "$mode" in
       77) printf '%s\n' "$probe" >&2; exit 77 ;;
       *) fault namespace-failed "exit=$status"; printf '%s\n' "$probe" >&2; exit 77 ;;
     esac
+    if ((${#skipped_service_masks[@]})); then
+      skipped_service_names="$(IFS=,; printf '%s' "${skipped_service_masks[*]}")"
+      note "service-masks skipped=$skipped_service_names"
+    fi
     # bubblewrap's monitor forwards no signal, so the fence stays its parent.
     # The monitor gets a process group of its own: `set -m` makes it in
     # parent and child before `&` returns. A signal to the caller's group

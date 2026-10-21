@@ -198,8 +198,14 @@ readlink /proc/self/ns/pid >"$1.ns"
 stty -echo && stty echo && echo mode-set >>"$1"
 read -r line && echo "read=$line" >>"$1"
 SH
+want_mask_notice=""
+for path in /run/dbus /run/tailscale; do
+  [[ -e $path ]] || want_mask_notice+="${want_mask_notice:+,}$path"
+done
+[[ -z $want_mask_notice ]] || want_mask_notice="gpu-fence: service-masks skipped=$want_mask_notice"
 want_proof="$(
   {
+    [[ -z $want_mask_notice ]] || printf '%s\n' "$want_mask_notice"
     for path in "${amd_paths[@]}"; do printf 'gpu-fence: absent path=%s/amd/dev/%s\n' "$TMP_ROOT" "$path"; done
     for path in "${other_paths[@]}"; do printf 'gpu-fence: present path=%s/amd/dev/%s dev=0:0\n' "$TMP_ROOT" "$path"; done
   } | LC_ALL=C sort
@@ -266,7 +272,7 @@ plain_namespace() {
   roots plain
   run_fence "$1" real "${at[@]}" sh "$TMP_ROOT/report.sh" "$TMP_ROOT/plain/dev" "${amd_paths[@]}" "${other_paths[@]}" char/1:3
   seen="$(seen_report)" || return 1
-  [[ $status -eq 9 && $seen == "$want_plain" && ! -s $TMP_ROOT/err ]]
+  [[ $status -eq 9 && $seen == "$want_plain" && "$(<"$TMP_ROOT/err")" == "$want_mask_notice" ]]
 }
 # A command that leaves a process in another session and a stopped one,
 # then says it is ready.
@@ -454,6 +460,57 @@ refused() { # FILE WANT ARG...
   [[ $status -eq 2 && "$(first_error)" == "gpu-fence: refused: argument=$want" ]]
 }
 
+# The nightly Arch image has no service directories under /run. Overlay a
+# disposable read-only /run so every present/absent combination is independent
+# of the host, then enter the world and read the paths without creating them.
+service_masks() { # FILE
+  python3 - "$1" "$repo" "$TMP_ROOT" "$BASH" "$real_bwrap" <<'PYSERVICES'
+import os
+from pathlib import Path
+import subprocess
+import sys
+
+fence, repo, scratch, bash, bwrap = sys.argv[1:]
+base = Path(scratch) / "service-masks"
+base.mkdir(exist_ok=True)
+environment = {"PATH": os.environ["PATH"], "HOME": str(base / "home"), "TMPDIR": scratch}
+paths = ("dbus", "tailscale")
+for present in ((), ("dbus",), ("tailscale",), paths):
+    label = "-".join(present) or "absent"
+    fixture = base / label
+    fixture.mkdir(exist_ok=True)
+    for name in present:
+        directory = fixture / name
+        directory.mkdir(exist_ok=True)
+        (directory / "host-marker").write_text("hidden")
+    probe = """import os
+from pathlib import Path
+import sys
+present = sys.argv[1:]
+for name in ("dbus", "tailscale"):
+    path = Path("/run") / name
+    if name in present:
+        assert path.is_dir() and not list(path.iterdir()), name
+    else:
+        assert not path.exists() and not path.is_symlink(), name
+assert not os.access("/run", os.W_OK)
+print("service-paths=isolated")
+"""
+    command = [bwrap, "--ro-bind", "/", "/", "--dev-bind", "/dev", "/dev",
+               "--bind", scratch, scratch, "--ro-bind", str(fixture), "/run",
+               "--unshare-net", "--unshare-pid", "--proc", "/proc", "--die-with-parent",
+               "--", bash, fence, "--checkout", repo,
+               "python3", "-c", probe, *present]
+    completed = subprocess.run(command, env=environment, capture_output=True, text=True, timeout=20)
+    assert completed.returncode == 0, (label, completed.returncode, completed.stderr)
+    assert completed.stdout.splitlines() == ["service-paths=isolated"], (label, completed.stdout)
+    skipped = ["/run/" + name for name in paths if name not in present]
+    if skipped:
+        assert completed.stderr.splitlines()[0] == "gpu-fence: service-masks skipped=" + ",".join(skipped), (label, completed.stderr)
+    print("service-masks: present=" + (",".join(present) or "none") + " absent=" + (",".join(skipped) or "none"))
+PYSERVICES
+}
+
 # Rows: label | whether the case makes a namespace | the case and its words.
 cases=(
   "a visible amdgpu node needs the fence|no|check_is amd 1 outside"
@@ -461,6 +518,7 @@ cases=(
   "a host with no amdgpu node needs the fence|no|check_is plain 1 outside"
   "the namespace hides every amdgpu path, keeps the rest and proves both|yes|hides"
   "a host with no amdgpu node runs the command in a PID namespace with every path kept|yes|plain_namespace"
+  "service masks hide present paths and leave absent paths absent|yes|service_masks"
   "a SIGKILL of the fence ends every process its command started|yes|fence_killed"
   "TERM to the fence reaches the command once and its exit trap ends before the fence returns|yes|stops_once pid TERM 43"
   "INT to the fence reaches the command once and its exit trap ends before the fence returns|yes|stops_once pid INT 30"
@@ -525,6 +583,10 @@ mutate() {
 # must go red.
 # shellcheck disable=SC2034 # run_controls reads the table by name
 controls=(
+  'an absent service path is unconditionally masked'
+  'if [[ -e $service_path ]]; then'
+  'if true; then'
+  'service masks hide present paths and leave absent paths absent'
   'the fence with no restriction'
   '"${mounts[@]}" "${rebuild[@]}" "${network[@]}"'
   '"${mounts[@]}" "${network[@]}"'
@@ -798,8 +860,9 @@ if "WAYLAND_DISPLAY" in os.environ:
 assert not os.access(checkout, os.W_OK)
 assert os.access(root, os.W_OK)
 assert pathlib.Path(os.environ["XDG_RUNTIME_DIR"]).stat().st_mode & 0o777 == 0o700
-assert not list(pathlib.Path("/run/dbus").iterdir())
-assert not list(pathlib.Path("/run/tailscale").iterdir())
+for name in ("dbus", "tailscale"):
+    path = pathlib.Path("/run") / name
+    assert not path.exists() or not list(path.iterdir())
 with open("/dev/null", "w") as stream: stream.write("probe")
 pathlib.Path("/dev/shm/world-probe").write_text("probe")
 result["render"] = []
