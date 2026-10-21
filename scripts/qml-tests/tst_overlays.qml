@@ -273,12 +273,10 @@ Item {
         }
 
         function test_menu_width_follows_its_widest_entry() {
-            let window = null;
-            for (let i = 0; i < menu.resources.length; i++)
-                if (menu.resources[i].anchor !== undefined) window = menu.resources[i];
-            verify(window !== null, "the menu holds a popup window");
             verify(wide.implicitWidth > Theme.menu.minWidth, "the wide entry passes the minimum: " + wide.implicitWidth);
             menu.open("key");
+            const window = windowOf(menu);
+            verify(window !== null, "the open menu holds a popup window");
             // Past `menu.maxWidth` the window stops growing; the entries fill
             // it inside the border.
             verify(wide.implicitWidth + 2 * Theme.border.thin > Theme.menu.maxWidth, "the wide entry passes the cap: " + wide.implicitWidth);
@@ -288,9 +286,7 @@ Item {
             // Under the cap no entry elides, whatever fraction of a pixel
             // its text measures: the window rounds its width up.
             mid.open("key");
-            let midWindow = null;
-            for (let i = 0; i < mid.resources.length; i++)
-                if (mid.resources[i].anchor !== undefined) midWindow = mid.resources[i];
+            const midWindow = windowOf(mid);
             verify(mid.widest > Theme.menu.minWidth && mid.widest !== Math.floor(mid.widest), "the entry passes the minimum by a fraction: " + mid.widest);
             tryVerify(() => mid.items()[0].width >= mid.widest, 1000, "the entry takes its whole width in a window " + midWindow.width + " wide, the entry " + mid.widest);
             compare(mid.items()[0].contentItem.children[1].truncated, false);
@@ -409,11 +405,7 @@ Item {
             compare(rows.find(label => label.text === "Detail").font.pixelSize, 13);
         }
 
-        function longWindow() {
-            for (let i = 0; i < long.resources.length; i++)
-                if (long.resources[i].anchor !== undefined) return long.resources[i];
-            return null;
-        }
+        function longWindow() { return windowOf(long); }
 
         function test_a_long_menu_scrolls_inside_its_maximum() {
             compare(UnitTheme.override({ menu: { maxHeight: 90 } }), "ok");
@@ -993,9 +985,7 @@ Item {
         function test_the_first_menu_entry_meets_the_border(data) {
             compare(UnitTheme.override(data.theme), "ok");
             menu.open("key");
-            let window = null;
-            for (let i = 0; i < menu.resources.length; i++)
-                if (menu.resources[i].anchor !== undefined) window = menu.resources[i];
+            const window = windowOf(menu);
             const plate = menu.items()[0].cursor;
             tryCompare(plate, "opacity", 1);
             tryVerify(() => plate.target === menu.items()[0] && plate.height === menu.items()[0].height, 2000, "the cursor holds the first entry");
@@ -1091,8 +1081,10 @@ Item {
             compare(out, [], "every row of the field lies under the list's opaque fill");
         }
 
-        // The window of an overlay that declares it.
+        // The window of an overlay that declares it: a menu's `surface`,
+        // which its first open builds.
         function windowOf(owner) {
+            if (owner.surface !== undefined) return owner.surface;
             for (let i = 0; i < owner.resources.length; i++)
                 if (owner.resources[i].anchor !== undefined) return owner.resources[i];
             return null;

@@ -13,7 +13,9 @@ import qs.Unit
 // menu, the overflow button does too, and a row without entries hides the
 // button and passes the keys on; under a ListCursor the cursor draws the
 // highlight; `secondaryTone` danger draws the state line in the danger
-// colour, and none in the hint's.
+// colour, and none in the hint's. A row with entries shows its overflow
+// button and builds its menu's window on the first open alone, then keeps
+// it.
 Item {
     id: root
     width: 480
@@ -61,6 +63,17 @@ Item {
         }
     }
     SignalSpy { id: activations; target: headset; signalName: "clicked" }
+    // A row the case makes, so no earlier case opened its menu.
+    Component {
+        id: rowWithMenu
+        DeviceRow {
+            y: 200
+            width: 420
+            text: "Speaker"
+            iconName: "speaker"
+            menuEntries: [ MenuItem { text: "Rename" } ]
+        }
+    }
 
     TestCase {
         name: "devicerow"
@@ -91,6 +104,24 @@ Item {
             mouse.focus = false;
             const menu = menuOf(headset);
             if (menu.opened) menu.close();
+        }
+
+        function test_a_row_builds_its_menu_window_on_the_first_open() {
+            const made = createTemporaryObject(rowWithMenu, root);
+            const menu = menuOf(made);
+            verify(trailing(made)[2].visible, "the overflow button shows for the row's entries");
+            compare(menu.items().map(item => item.text), ["Rename"]);
+            compare(menu.surface, null, "the row holds no menu window before its first open");
+            made.forceActiveFocus(Qt.TabFocusReason);
+            keyClick(Qt.Key_Menu);
+            verify(menu.surface !== null, "the first open builds the window");
+            tryCompare(menu, "opened", true);
+            menu.close();
+            tryCompare(menu, "opened", false);
+            const built = menu.surface;
+            verify(made.openMenu("key"));
+            compare(menu.surface, built, "a later open keeps the window");
+            menu.close();
         }
 
         function test_rows_keep_the_list_rhythm() {

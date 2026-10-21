@@ -26,10 +26,10 @@ var PEER_MAX = 64;
 var CITY_MAX = 160;
 var ACCOUNT_MAX = 16;
 // The most matches the chooser's search draws at once. The view builds
-// each row a keystroke adds on the GUI thread, about 10 ms a row: a
-// qmltestrunner offscreen run of ExitNodes.qml took 985 to 1121 ms for the
-// first keystroke over 10 own nodes and 90 cities, all 100 matching
-// (VGS-1929 fix round, 2026-10-20).
+// each row a keystroke adds on the GUI thread, about 1 ms a row: 100
+// DeviceList rows took 105-126 ms to build in a qmltestrunner offscreen
+// run (VGS-1929, 2026-10-21), so the first keystroke over a tailnet's 64
+// own nodes and 160 cities would build 224 rows without it.
 var SEARCH_MAX = 20;
 var TEXT_MAX = 64;
 // The longest DNS name, the longest target a node can have.
