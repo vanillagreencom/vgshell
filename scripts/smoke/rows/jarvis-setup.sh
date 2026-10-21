@@ -254,8 +254,9 @@ setup_keys_hook="Jarvis.Keys { shell: root.shell; onRefreshed: root.hello() }"
 setup_accounts_hook="Jarvis.Accounts { id: accountReader; shell: root.shell; onRefreshed: root.hello() }"
 setup_local_hook=$'onRefreshed: {\n            if (!root.publishShellSetup()) return;\n            root.hello();\n            cloneRuntime.refresh();\n        }'
 # The Local voice reader's answer (scripts/fixtures/jarvis-setup/status.py
-# --choices): PICK, READY ("none" for none) and the offers of a machine that
-# runs every English tier.
+# --choices): PICK, READY ("none" for none), the offers of a machine that
+# runs every English tier and the pick's download size, as setup-local's
+# choices answers them.
 setup_tiers="$sandbox/jarvis-world/local-tiers.json"
 setup_tiers_answer() { # PICK READY
   python3 - "$setup_tiers" "$1" "$2" <<'PY'
@@ -264,7 +265,7 @@ path,pick,ready=sys.argv[1],sys.argv[2],None if sys.argv[3]=="none" else sys.arg
 labels={"small":"Small: English, quick setup, 685 MB","medium":"Medium: English, many voices, 968 MB",
         "large":"Large: English, graphics card, 1.2 GB"}
 choices=[{"value":"auto","label":"Auto: "+labels[pick].replace(": ",", ",1)}]+[{"value":t,"label":l} for t,l in labels.items() if t!=pick]
-open(path+".next","w").write(json.dumps({"pick":pick,"ready":ready,"choices":choices}))
+open(path+".next","w").write(json.dumps({"pick":pick,"ready":ready,"choices":choices,"pickSize":labels[pick].rsplit(", ",1)[1]}))
 os.replace(path+".next",path)
 PY
 }
@@ -398,6 +399,34 @@ expect_poll "the Setup fixture retains its present key" matched jarvis_key_value
 expect_poll "the Setup fixture retains its signed-in app" matched jarvis_account_hint signed-in
 expect_poll "a fresh profile's Setup section reads the AI model and local voice to do" "$setup_fresh" setup_rows
 expect_poll "a fresh profile's Setup tab holds its declared steps, required ones with Done or To do chips" '[]' setup_once
+# The Voice step names the download size the Local voice reader answered
+# (LocalTier.pickSize), SIZE, over the answer of a machine that picks small
+# with nothing ready; the control answers the reader without a size.
+setup_voice_size() { # SIZE
+  status_row vgs.jarvis setupVoice | py_reply '
+import json,sys
+v=json.load(sys.stdin).get("value") or {}
+print("named" if sys.argv[1] in (v.get("hint") or "") else "missing")' "$1"
+}
+setup_voice_size_control() {
+  (failures=0 behaviour_failures=0
+   expect_poll "the Voice step names the reader's download size" named setup_voice_size "$1" >"$sandbox/voice-size-control.log"
+   echo "$failures")
+}
+cp -- "$setup_tiers" "$sandbox/local-tiers-fresh"
+setup_tiers_answer small none
+rescan "the Local voice reader reads small as the pick, none ready"
+setup_fresh_size="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["pickSize"])' "$setup_tiers")" || fail "the Local voice stand-in answers no pick size"
+expect_poll "a fresh profile's Voice step names the local voice's download size" named setup_voice_size "$setup_fresh_size"
+cp -- "$setup_tiers" "$sandbox/local-tiers-sized"
+python3 -c 'import json,sys; a=json.load(open(sys.argv[1])); del a["pickSize"]; open(sys.argv[1],"w").write(json.dumps(a))' "$setup_tiers"
+rescan "the Local voice reader reads an answer with no size"
+expect "a reader answer with no size breaks the Voice step's size" 1 local_control_count setup_voice_size_control "$setup_fresh_size"
+cp -- "$sandbox/local-tiers-sized" "$setup_tiers"
+rescan "the Local voice reader reads its sized answer again"
+expect_poll "the Voice step names the download size again" named setup_voice_size "$setup_fresh_size"
+cp -- "$sandbox/local-tiers-fresh" "$setup_tiers"
+rescan "the Local voice reader reads the fixture's answer again"
 setup_sign_in_end
 # An AI model the engine takes: a hand-added Codex folder, by the id the
 # account helper lists. Chosen while its account is not there, it stays

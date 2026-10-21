@@ -219,9 +219,14 @@ def runnable(provider, reading):
 
 
 def size(count):
-    """Decimal units, as download sizes are quoted."""
-    if round(count / 10**6) < 1000:
-        return f"{round(count / 10**6)} MB"
+    """Decimal units, as download sizes are quoted. Under half a megabyte
+    rounds to no megabyte, which would read as nothing, so it reads as
+    less than one."""
+    megabytes = round(count / 10**6)
+    if megabytes < 1:
+        return "less than 1 MB"
+    if megabytes < 1000:
+        return f"{megabytes} MB"
     return f"{count / 10**9:.1f} GB"
 
 
@@ -620,14 +625,17 @@ def install(judge, state, data, tier, reading, progress):
                     f"\nsherpa-onnx @ {wheel['url']} --hash=sha256:{wheel['sha256']}\n")
             command(["uv", "--no-config", "pip", "sync", "--python", str(python),
                      "--require-hashes", "--only-binary", ":all:", str(requirements)], data, log=log)
-            for artifact in artifacts:
+            # A tier downloads several files: each line names its file by
+            # place, so no two lines read the same.
+            for index, artifact in enumerate(artifacts, start=1):
+                place = f"{value['tiers'][tier]['name']}: file {index} of {len(artifacts)}"
                 if artifact["id"] in verified:
                     print(f"jarvis-setup: step=model id={artifact['id']} reused", flush=True)
-                    print("Using the downloaded model for " + value["tiers"][tier]["name"], flush=True)
+                    print("Using the downloaded model for " + place, flush=True)
                     continue
                 progress["stage"] = "download"
                 print(f"jarvis-setup: step=model id={artifact['id']}", flush=True)
-                print("Downloading the model for " + value["tiers"][tier]["name"], flush=True)
+                print("Downloading the model for " + place, flush=True)
                 target = models / Path(urlparse(artifact["url"]).path).name
                 download(artifact["url"], target, artifact["sha256"], judge, data, log)
                 if artifact["directory"] != ".":

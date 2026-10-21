@@ -136,13 +136,15 @@ FocusScope {
     }
     onTabChanged: { problem = ""; Qt.callLater(focusTab); }
 
-    // The bar's state line, with the action of a state that needs one.
-    function stateText() {
+    // The bar's state line, the action of a state that needs one, then the
+    // AI model, one fact a line in the bar tooltip's order. The action's
+    // page reference stays whole for the LinkText that draws it.
+    function stateLines() {
         const view = barView;
-        const model = view.tooltipDetails.find(line => String(line).indexOf("AI model: ") === 0);
-        const modelText = model === undefined ? "" : "\n" + model;
-        const firstAction = view.tooltipDetails.find(line => String(line).indexOf("AI model: ") !== 0);
-        return view.state === "problem" || view.state === "off" ? view.tooltip + modelText + ". " + firstAction : view.tooltip + modelText;
+        const isModel = line => String(line).indexOf("AI model: ") === 0;
+        const model = view.tooltipDetails.find(isModel);
+        const action = view.state === "problem" || view.state === "off" ? view.tooltipDetails.find(line => !isModel(line)) : undefined;
+        return [view.tooltip].concat(action === undefined ? [] : [action], model === undefined ? [] : [model]);
     }
 
     // The line in place of the message box under a voice that takes speech
@@ -298,12 +300,17 @@ FocusScope {
                     color: Theme.color.textMuted
                     wrapMode: Text.Wrap
                 }
-                Label {
-                    width: parent.width
-                    role: "hint"
-                    text: root.stateText()
-                    color: root.stateColor(root.barView.state)
-                    wrapMode: Text.Wrap
+                Repeater {
+                    model: root.stateLines()
+                    LinkText {
+                        required property string modelData
+                        width: parent.width
+                        role: "hint"
+                        text: modelData
+                        color: root.stateColor(root.barView.state)
+                        wrapMode: Text.Wrap
+                        onPageActivated: (page, tab) => root.shell.surfaces.openPage(page, tab)
+                    }
                 }
             }
         ]

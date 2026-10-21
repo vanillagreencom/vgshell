@@ -156,13 +156,17 @@ Item {
         return { line: at, page: reference.page, tab: reference.tab };
     }
 
-    // The place in `links` of the held link, -1 once its line links
-    // elsewhere or is no link.
+    // The place in `links` of the held link: its own line while that line
+    // still links its target, else the first line that does, as when a
+    // line above it came or went; -1 once no line links it.
     function heldPlace() {
-        const place = held === null ? -1 : links.indexOf(held.line);
-        if (place === -1) return -1;
-        const link = linkAt(held.line);
-        return link.page === held.page && link.tab === held.tab ? place : -1;
+        if (held === null) return -1;
+        const holds = at => {
+            const link = linkAt(at);
+            return link.page === held.page && link.tab === held.tab;
+        };
+        const place = links.indexOf(held.line);
+        return place !== -1 && holds(held.line) ? place : links.findIndex(holds);
     }
 
     // Start the grace when the pointer leaves the item or the popup, end it

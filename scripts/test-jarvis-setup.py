@@ -199,6 +199,41 @@ esac
         self.install()
         self.ready()
 
+    def plain_lines(self, result):
+        return [line for line in result.stdout.splitlines() if line and not line.startswith("jarvis-setup:")]
+
+    # A tier downloads one file per artifact; the window shows each line, so
+    # a fresh install and a reusing one each read no line twice.
+    def test_install_lines_name_each_file_and_control(self):
+        self.config["tier"] = "medium"
+        self.write_config()
+        self.assertGreaterEqual(len(self.spec["tiers"]["medium"]["artifacts"]), 2, "tier discovery is broken: medium has one artifact")
+        def assert_distinct():
+            for result in (self.install(), self.install()):
+                lines = self.plain_lines(result)
+                self.assertEqual(len(lines), len(set(lines)), lines)
+        assert_distinct()
+        self.mutant('place = f"{value[\'tiers\'][tier][\'name\']}: file {index} of {len(artifacts)}"',
+                    'place = value["tiers"][tier]["name"]')
+        with self.assertRaises(AssertionError):
+            assert_distinct()
+
+    # A size the window states never reads as nothing: a few bytes kept
+    # after a failed setup, or the free space of a full disk.
+    SIZES = [1, 499_999, 500_000, 685_000_000, 999_499_999, 1_200_000_000]
+
+    def assert_sizes(self, module):
+        for count in self.SIZES:
+            figure = re.search(r"[0-9]+(\.[0-9]+)?", module.size(count))
+            self.assertIsNotNone(figure, count)
+            self.assertGreater(float(figure.group()), 0, f"{count} bytes read as {module.size(count)}")
+
+    def test_sizes_never_read_as_nothing_and_control(self):
+        self.assert_sizes(self.load_module())
+        self.mutant("    if megabytes < 1:\n", "    if False:\n")
+        with self.assertRaises(AssertionError):
+            self.assert_sizes(self.load_module())
+
     def test_each_tier_uses_the_manifest(self):
         for tier in self.spec["tiers"]:
             with self.subTest(tier=tier):
