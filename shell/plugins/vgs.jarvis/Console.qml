@@ -43,7 +43,7 @@ FocusScope {
     readonly property var messageLimit: Gate.messageLimit(Session.TRANSCRIPT_CHARS)
     // A duplex voice takes no typed message (Session.sayRefusal), so the
     // composer offers none: one line says how to talk instead.
-    readonly property bool speechOnly: refusal === "duplex"
+    readonly property bool speechOnly: state !== null && state.engine.kind === "duplex"
     // The shortcut keys as people read them, the bar's own spelling.
     readonly property var spelledKeys: WidgetView.spelledKeys(shell === null ? null : shell.shortcut.keys, KeyNavLogic.keyCaps)
     // How to talk now: the sentence the Voice step and the bar say it with.
@@ -56,6 +56,15 @@ FocusScope {
     // one line stands in its place.
     readonly property Item composerFocus: speechOnly ? speechStop : entryField
     readonly property string speechOnlyText: speechOnlyLine(values.voiceRoute, talkLine)
+
+    onComposerFocusChanged: {
+        if (!root.activeFocus || root.tab !== 0) return;
+        // Qt retains active focus when an item's branch becomes invisible.
+        // tst_jarvis_console drives both replacements and outside focus.
+        const replaced = speechOnly ? [messageInfo, entryField, sendButton, stopButton] : [speechHint, speechStop];
+        const previous = replaced.find(item => item.activeFocus);
+        if (previous !== undefined) composerFocus.forceActiveFocus(previous.focusReason);
+    }
 
     function open(payloadJson) {
         payload = payloadJson ? JSON.parse(payloadJson) : {};
@@ -325,7 +334,7 @@ FocusScope {
                 currentIndex: root.tab
                 // KeyNavigation assigns the explicit Tab/Backtab target.
                 // https://doc.qt.io/qt-6/qml-qtquick-keynavigation.html
-                KeyNavigation.tab: root.tab === 0 ? entryField : root.tab === 1 ? tasksBody : auditBody
+                KeyNavigation.tab: root.tab === 0 ? root.composerFocus : root.tab === 1 ? tasksBody : auditBody
                 onCurrentIndexChanged: root.tab = currentIndex
             }
         ]
@@ -553,6 +562,7 @@ FocusScope {
                     visible: root.speechOnly
                     // The talk sentence links the Talk key setting while none is set.
                     LinkText {
+                        id: speechHint
                         width: parent.width - speechStop.width - parent.spacing
                         anchors.verticalCenter: parent.verticalCenter
                         role: "hint"

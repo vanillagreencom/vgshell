@@ -9,8 +9,8 @@ import "../../shell/plugins/vgs.jarvis/Session.js" as Session
 // The Jarvis console's state lines under its purpose, over a stand-in
 // `shell`: the bar's state, the action a problem names and the AI model
 // each draw as a line of their own, and the action's page reference
-// reaches a link, never its raw form. The console's keys, tabs and Audit
-// are the jarvis-console smoke row's; this test reads what the header draws.
+// reaches a link, never its raw form. Composer replacements retain a visible
+// keyboard target and leave another tab or control's focus alone.
 Item {
     id: root
     width: 760
@@ -38,6 +38,7 @@ Item {
     }
 
     Console { id: jarvisConsole; anchors.fill: parent }
+    Button { id: outside; text: "Outside Console" }
 
     TestCase {
         name: "jarvisConsole"
@@ -46,6 +47,10 @@ Item {
         function init() {
             UnitTheme.reset();
             root.opened = [];
+            jarvisConsole.tab = 0;
+            jarvisConsole.shell = root.shellWith(root.values({}));
+            wait(0); // Drain the tab's queued focus before each case chooses its control.
+            outside.forceActiveFocus();
         }
 
         function collect(node, test, out) {
@@ -58,6 +63,91 @@ Item {
         }
         function links() {
             return collect(jarvisConsole, n => n.focusPreview !== undefined && n.linkColor !== undefined && n.visible, []);
+        }
+
+        function composerControls() {
+            const all = collect(jarvisConsole, n => true, []);
+            const stops = all.filter(n => n.label === "Stop Jarvis");
+            return {
+                entry: all.find(n => n.placeholderText === "Message Jarvis"),
+                send: all.find(n => n.text === "Send"),
+                info: all.find(n => n.title === "Message length"),
+                speechStop: stops[0], typedStop: stops[1],
+                speechHint: all.find(n => n.linkColor !== undefined && n.text === jarvisConsole.speechOnlyText),
+                tabs: all.find(n => n.model !== undefined && Array.isArray(n.model) && n.model[0] === "Conversation")
+            };
+        }
+
+        // Real Session regions: mute and gate can refuse before duplex, and
+        // engine changes arrive while the same Console instance stays open.
+        function test_composer_transition_data() {
+            const typed = { engine: { kind: "chained" } };
+            const speech = { engine: { kind: "duplex" } };
+            const rows = [
+                { tag: "unmute-duplex", from: Object.assign({}, speech, { mute: { kind: "on" } }), to: speech, focus: "speechStop", expected: "speechStop" },
+                { tag: "mute-duplex", from: speech, to: Object.assign({}, speech, { mute: { kind: "on" } }), focus: "speechStop", expected: "speechStop" },
+                { tag: "ready-duplex", from: Object.assign({}, speech, { gate: { kind: "down", reason: "unconfigured" } }), to: speech, focus: "speechStop", expected: "speechStop" },
+                { tag: "unready-duplex", from: speech, to: Object.assign({}, speech, { gate: { kind: "down", reason: "unconfigured" } }), focus: "speechStop", expected: "speechStop" },
+                { tag: "dictation", from: typed, to: { engine: { kind: "dictation" } }, focus: "entry", expected: "entry" }
+            ];
+            for (const focus of ["entry", "send", "info", "typedStop"])
+                rows.push({ tag: "local-to-cloud-" + focus, from: typed, to: speech, focus: focus, expected: "speechStop" });
+            for (const focus of ["speechStop", "speechHint"])
+                rows.push({ tag: "cloud-to-local-" + focus, from: speech, to: typed, focus: focus, expected: "entry" });
+            for (const focus of ["outside", "tabs", "tasks", "audit"])
+                for (const fromSpeech of [false, true])
+                    rows.push({ tag: "keep-" + focus + "-" + fromSpeech, from: fromSpeech ? speech : typed,
+                        to: fromSpeech ? typed : speech, focus: focus, expected: focus });
+            rows.push({ tag: "daemon-arrives", from: null, to: speech, focus: "entry", expected: "speechStop" });
+            rows.push({ tag: "daemon-leaves", from: speech, to: null, focus: "speechStop", expected: "entry" });
+            return rows;
+        }
+
+        function setRegions(regions) {
+            const shell = root.shellWith(regions === null ? {} : root.values(regions));
+            // With no Talk key the speech hint itself is a focusable link.
+            shell.shortcut.keys.talk = "";
+            jarvisConsole.shell = shell;
+        }
+
+        function test_composer_transition(data) {
+            setRegions(data.from);
+            let controls = composerControls();
+            let focused;
+            if (data.focus === "outside") focused = outside;
+            else if (data.focus === "tasks" || data.focus === "audit") {
+                jarvisConsole.tab = data.focus === "tasks" ? 1 : 2;
+                jarvisConsole.focusTab();
+                wait(0);
+                focused = collect(jarvisConsole, n => n.activeFocus && n.focusPolicy === Qt.StrongFocus && n !== jarvisConsole, []).pop();
+            } else focused = controls[data.focus];
+            verify(focused !== undefined, "find source " + data.focus);
+            focused.forceActiveFocus(Qt.TabFocusReason);
+            verify(focused.activeFocus, "source owns focus");
+            setRegions(data.to);
+            controls = composerControls();
+            const expected = data.expected === data.focus ? focused : controls[data.expected];
+            tryCompare(expected, "activeFocus", true);
+            verify(expected.visible, "focus target is visible");
+            compare(jarvisConsole.speechOnly, data.to !== null && data.to.engine.kind === "duplex");
+            if (expected !== focused) {
+                verify(!focused.activeFocus, "replaced control releases focus");
+                compare(expected.focusReason, Qt.TabFocusReason, "replacement keeps the keyboard reason");
+            }
+        }
+
+        function test_tabs_enter_visible_composer_data() {
+            return [{ tag: "typed", kind: "chained", control: "entry" }, { tag: "speech", kind: "duplex", control: "speechStop" }];
+        }
+
+        function test_tabs_enter_visible_composer(data) {
+            setRegions({ engine: { kind: data.kind } });
+            const controls = composerControls();
+            controls.tabs.forceActiveFocus(Qt.TabFocusReason);
+            keyClick(Qt.Key_Tab);
+            tryCompare(controls[data.control], "activeFocus", true);
+            keyClick(Qt.Key_Backtab);
+            tryCompare(controls.tabs, "activeFocus", true);
         }
 
         // A refused key is a problem whose action links the Voice key field.
